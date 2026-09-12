@@ -69,6 +69,29 @@ describe("ObjectStorageService", () => {
     }
   });
 
+  it("bounds a stalled floor asset HEAD transport", async () => {
+    jest.useFakeTimers();
+    const timeout = jest.spyOn(AbortSignal, "timeout").mockImplementation(ms => {
+      const controller = new AbortController(); setTimeout(() => controller.abort(), ms); return controller.signal;
+    });
+    let outcome = "pending";
+    const headingService = new ObjectStorageService({
+      send: (_command: unknown, options?: { abortSignal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => options?.abortSignal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true }))
+    } as never, { bucket: "floor-assets", publicBaseUrl: "" });
+    try {
+      const pending = headingService.headObject("floors/floor-1/file.png");
+      void pending.then(() => { outcome = "resolved"; }, () => { outcome = "aborted"; });
+      await jest.advanceTimersByTimeAsync(3_999);
+      expect(outcome).toBe("pending");
+      await jest.advanceTimersByTimeAsync(1);
+      expect(outcome).toBe("aborted");
+    } finally {
+      timeout.mockRestore();
+      jest.useRealTimers();
+    }
+  });
+
   it("creates a 300-second signed GET for a private floor asset", async () => {
     const presignGet = jest.fn().mockResolvedValue("https://download.example/signed");
     const privateService = new ObjectStorageService({ send: jest.fn() } as never, {

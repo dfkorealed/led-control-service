@@ -98,7 +98,12 @@ export class FloorAssetsService {
       throw new ConflictException("floor asset upload expired and cleanup has started");
     }
 
-    const head = await this.storage.headObject(asset.objectKey);
+    let head;
+    try {
+      head = await this.storage.headObject(asset.objectKey);
+    } catch (error) {
+      throw floorAssetHeadException(error);
+    }
     const expectedChecksum = Buffer.from(asset.sha256, "hex").toString("base64");
     if (
       head.ContentType !== asset.mimeType ||
@@ -221,4 +226,25 @@ export class FloorAssetsService {
   private accessPath(floorId: string, assetId: string) {
     return `/api/floors/${encodeURIComponent(floorId)}/assets/${encodeURIComponent(assetId)}/content`;
   }
+}
+
+function floorAssetHeadException(error: unknown) {
+  const storageError = error as {
+    name?: string;
+    code?: string;
+    Code?: string;
+    $metadata?: { httpStatusCode?: number };
+  };
+  const status = storageError?.$metadata?.httpStatusCode;
+  const code = storageError?.name ?? storageError?.code ?? storageError?.Code;
+
+  // Only a confirmed absent object is a client-visible 404. Authorization failures
+  // indicate broken server-side storage access and must remain distinguishable.
+  if (status === 404 || code === "NotFound" || code === "NoSuchKey" || code === "NoSuchObject") {
+    return new NotFoundException("uploaded floor asset object not found");
+  }
+  if (status === 401 || status === 403 || code === "AccessDenied" || code === "Forbidden") {
+    return new ServiceUnavailableException("floor asset storage authorization failed");
+  }
+  return new ServiceUnavailableException("floor asset storage is temporarily unavailable");
 }

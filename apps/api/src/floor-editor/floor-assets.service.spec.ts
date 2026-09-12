@@ -352,6 +352,42 @@ describe("FloorAssetsService", () => {
     expect(storage.headObject).not.toHaveBeenCalled();
   });
 
+  it("returns 404 when the uploaded floor object is missing", async () => {
+    const service = completionServiceWithHeadError(Object.assign(new Error("missing"), {
+      name: "NoSuchKey",
+      $metadata: { httpStatusCode: 404 }
+    }));
+
+    await expect(service.completeUpload(admin, "floor-1", "asset-1")).rejects.toMatchObject({
+      status: 404,
+      response: expect.objectContaining({ message: "uploaded floor asset object not found" })
+    });
+  });
+
+  it.each([
+    ["a bounded HEAD timeout", Object.assign(new Error("aborted"), { name: "TimeoutError" })],
+    ["an object storage outage", Object.assign(new Error("unavailable"), { $metadata: { httpStatusCode: 503 } })]
+  ])("returns 503 for %s", async (_case, error) => {
+    const service = completionServiceWithHeadError(error);
+
+    await expect(service.completeUpload(admin, "floor-1", "asset-1")).rejects.toMatchObject({
+      status: 503,
+      response: expect.objectContaining({ message: "floor asset storage is temporarily unavailable" })
+    });
+  });
+
+  it("reports storage authorization failure as 503 instead of hiding it as 404", async () => {
+    const service = completionServiceWithHeadError(Object.assign(new Error("denied"), {
+      name: "AccessDenied",
+      $metadata: { httpStatusCode: 403 }
+    }));
+
+    await expect(service.completeUpload(admin, "floor-1", "asset-1")).rejects.toMatchObject({
+      status: 503,
+      response: expect.objectContaining({ message: "floor asset storage authorization failed" })
+    });
+  });
+
   it("requires manage access before completing an upload", async () => {
     const prisma: any = {
       floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },
@@ -405,3 +441,25 @@ describe("FloorAssetsService", () => {
     );
   });
 });
+
+function completionServiceWithHeadError(error: Error) {
+  const prisma: any = {
+    floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },
+    floorAsset: {
+      findFirst: jest.fn().mockResolvedValue({
+        id: "asset-1",
+        floorId: "floor-1",
+        objectKey: "floors/floor-1/file.png",
+        mimeType: "image/png",
+        sizeBytes: 1024n,
+        sha256: "a".repeat(64),
+        status: "pending",
+        cleanupStartedAt: null
+      })
+    },
+    $transaction: jest.fn()
+  };
+  const storage: any = { headObject: jest.fn().mockRejectedValue(error) };
+  const siteAccess = { assert: jest.fn().mockResolvedValue({ id: "site-1" }) } as unknown as SiteAccessService;
+  return new FloorAssetsService(prisma, storage, siteAccess);
+}

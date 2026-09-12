@@ -116,7 +116,8 @@ export class ObjectStorageService {
   }
 
   async headObject(objectKey: string) {
-    return this.client.send(new HeadObjectCommand({ Bucket: this.options.bucket, Key: objectKey, ChecksumMode: "ENABLED" }));
+    return this.client.send(new HeadObjectCommand({ Bucket: this.options.bucket, Key: objectKey, ChecksumMode: "ENABLED" }),
+      { abortSignal: AbortSignal.timeout(4_000) });
   }
 
   async deleteObject(objectKey: string) {
