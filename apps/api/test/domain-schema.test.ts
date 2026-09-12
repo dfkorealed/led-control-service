@@ -1,8 +1,74 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
+import { PrismaClient } from "@prisma/client";
 
 const readSchema = () =>
   readFileSync(join(process.cwd(), "prisma/schema.prisma"), "utf8");
+
+const reportDatabaseUrl = process.env.ENERGY_REPORT_TEST_DATABASE_URL;
+const describeReportsWithDatabase = reportDatabaseUrl ? describe : describe.skip;
+
+describeReportsWithDatabase("EnergyReportJob PostgreSQL invariants", () => {
+  const organizationId = randomUUID();
+  const siteId = randomUUID();
+  const actorId = randomUUID();
+  const requestHash = "a".repeat(64);
+  const contentFingerprint = "b".repeat(64);
+  let prisma: PrismaClient;
+  const jobData = () => ({ siteId, requestedByActorId: actorId, requestedByLoginIdSnapshot: "report-test",
+    requestHash, format: "xlsx" as const, requestSnapshot: { from: "2026-09-07", to: "2026-09-08", scope: "site", identityId: siteId, format: "xlsx" } });
+
+  beforeAll(async () => {
+    prisma = new PrismaClient({ datasourceUrl: reportDatabaseUrl });
+    await prisma.organization.create({ data: { id: organizationId, name: "Report schema rehearsal" } });
+    await prisma.site.create({ data: { id: siteId, organizationId, name: "Report schema rehearsal" } });
+  });
+  beforeEach(async () => { await prisma.energyReportJob.deleteMany({ where: { siteId } }); });
+  afterAll(async () => {
+    await prisma.site.delete({ where: { id: siteId } });
+    await prisma.organization.delete({ where: { id: organizationId } });
+    await prisma.$disconnect();
+  });
+
+  it("deduplicates active jobs per actor and releases the key after a terminal failure", async () => {
+    const job = await prisma.energyReportJob.create({ data: jobData() });
+    await expect(prisma.energyReportJob.create({ data: jobData() })).rejects.toMatchObject({ code: "P2002" });
+    await expect(prisma.energyReportJob.create({ data: { ...jobData(), requestedByActorId: randomUUID() } })).resolves.toMatchObject({ status: "queued" });
+    await prisma.energyReportJob.update({ where: { id: job.id }, data: { status: "failed", attemptCount: 1, startedAt: new Date(), failureCode: "GENERATION_FAILED" } });
+    await expect(prisma.energyReportJob.create({ data: jobData() })).resolves.toMatchObject({ status: "queued" });
+  });
+
+  it.each([{ progressPercent: 101 }, { attemptCount: 4 }, { status: "processing" as const }, { status: "completed" as const }, { leaseOwner: "worker" }])(
+    "rejects inconsistent progress, attempts, lifecycle or lease state %j", async (data) => {
+      await expect(prisma.energyReportJob.create({ data: { ...jobData(), ...data } })).rejects.toThrow();
+    }
+  );
+
+  it("allows first snapshot fill and exact replay but forbids replacement and clearing", async () => {
+    const job = await prisma.energyReportJob.create({ data: jobData() });
+    const snapshots = { dataSnapshot: { version: 1 }, documentSnapshot: { contentFingerprint }, contentFingerprint };
+    await prisma.energyReportJob.update({ where: { id: job.id }, data: snapshots });
+    await expect(prisma.energyReportJob.update({ where: { id: job.id }, data: snapshots })).resolves.toMatchObject({ contentFingerprint });
+    await expect(prisma.energyReportJob.update({ where: { id: job.id }, data: { dataSnapshot: { version: 2 } } })).rejects.toThrow();
+    await expect(prisma.energyReportJob.update({ where: { id: job.id }, data: { requestSnapshot: { changed: true } } })).rejects.toThrow();
+    await expect(prisma.energyReportJob.update({ where: { id: job.id }, data: { requestedByActorId: randomUUID() } })).rejects.toThrow();
+    await expect(prisma.$executeRaw`UPDATE "EnergyReportJob" SET "documentSnapshot" = NULL, "contentFingerprint" = NULL WHERE "id" = ${job.id}`).rejects.toThrow();
+  });
+
+  it("rejects a JSON-null document fingerprint instead of accepting SQL's unknown CHECK result", async () => {
+    await expect(prisma.energyReportJob.create({ data: { ...jobData(), dataSnapshot: {}, documentSnapshot: { contentFingerprint: null }, contentFingerprint } }))
+      .rejects.toThrow();
+  });
+
+  it("retains immutable actor information after deleting the nullable requesting user", async () => {
+    const user = await prisma.user.create({ data: { organizationId, loginId: `report-${randomUUID()}`, name: "Report user", passwordHash: "unused", role: "viewer" } });
+    const job = await prisma.energyReportJob.create({ data: { ...jobData(), requestedByUserId: user.id, requestedByActorId: user.id, requestedByLoginIdSnapshot: user.loginId } });
+    await prisma.user.delete({ where: { id: user.id } });
+    expect(await prisma.energyReportJob.findUniqueOrThrow({ where: { id: job.id } }))
+      .toMatchObject({ requestedByUserId: null, requestedByActorId: user.id, requestedByLoginIdSnapshot: user.loginId });
+  });
+});
 
 const pkiMigrationSuffix = "_add_gateway_pki_lifecycle";
 const activeEnrollmentMigrationSuffix = "_enforce_single_active_gateway_enrollment";
@@ -83,6 +149,24 @@ const prismaStorageFields = (schema: string): PrismaStorageField[] =>
   });
 
 describe("Prisma domain schema", () => {
+  it("persists report leases, immutable snapshots and actor-scoped active deduplication", () => {
+    const schema = readSchema();
+    const job = prismaModelBody(schema, "EnergyReportJob");
+    const migration = readMigrationBySuffix("statistics_p2_reports");
+    for (const field of ["requestHash", "requestedByActorId", "requestedByLoginIdSnapshot", "leaseOwner", "leaseExpiresAt", "requestSnapshot", "dataSnapshot", "documentSnapshot", "objectKey", "contentType", "sizeBytes", "contentSha256", "contentFingerprint", "expiresAt", "objectDeletedAt"]) {
+      expect(job).toMatch(new RegExp(`\\b${field}\\s+`));
+    }
+    expect(job).toMatch(/requestedByUserId\s+String\?/);
+    expect(job).toMatch(/attemptCount\s+Int\s+@default\(0\)/);
+    expect(job).toMatch(/progressPercent\s+Int\s+@default\(0\)/);
+    expect(migration).toMatch(/CREATE UNIQUE INDEX "EnergyReportJob_active_request_key"[\s\S]*?\("siteId", "requestedByActorId", "requestHash"\)[\s\S]*?WHERE "status" IN \('queued', 'processing'\)/);
+    expect(migration).toContain('"EnergyReportJob_progress_check"');
+    expect(migration).toContain('"EnergyReportJob_attempt_check"');
+    expect(migration).toContain('"EnergyReportJob_status_state_check"');
+    expect(migration).toContain('"EnergyReportJob_snapshot_immutable"');
+    expect(migration).toContain('ON DELETE SET NULL');
+  });
+
   it("preserves fixture dimensions and hourly energy through analytics identities", () => {
     const schema = readSchema();
     const migration = readMigrationBySuffix(energyAnalyticsHistoryMigrationSuffix);

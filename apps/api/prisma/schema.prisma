@@ -156,6 +156,19 @@ enum VehicleSensorCapabilityStatus {
   unsupported
 }
 
+enum EnergyReportStatus {
+  queued
+  processing
+  completed
+  failed
+  expired
+}
+
+enum EnergyReportFormat {
+  xlsx
+  pdf
+}
+
 model Organization {
   id          String           @id @default(uuid())
   name        String
@@ -190,6 +203,7 @@ model User {
   createdVehicleEventRules VehicleEventRule[]    @relation("VehicleEventRuleCreatedBy")
   updatedVehicleEventRules VehicleEventRule[]    @relation("VehicleEventRuleUpdatedBy")
   manualOverrides          ManualOverride[]      @relation("ManualOverrideRequestedBy")
+  energyReportJobs         EnergyReportJob[]
   createdAt                DateTime              @default(now())
   updatedAt                DateTime              @updatedAt
 }
@@ -219,6 +233,7 @@ model Site {
   automationExecutions     AutomationExecution[]
   energyFixtureIdentities  EnergyFixtureIdentity[]
   energyGroupIdentities    EnergyGroupIdentity[]
+  energyReportJobs         EnergyReportJob[]
   createdAt                DateTime                         @default(now())
   updatedAt                DateTime                         @updatedAt
 
@@ -1173,6 +1188,63 @@ model EnergyUsage {
   cost      Decimal  @db.Decimal(12, 2)
   fixture   Fixture  @relation(fields: [fixtureId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
+}
+
+model EnergyReportJob {
+  id                         String             @id @default(uuid())
+  siteId                     String
+  requestedByUserId          String?
+  requestedByActorId         String
+  requestedByLoginIdSnapshot String
+  requestHash                String
+  format                     EnergyReportFormat
+  status                     EnergyReportStatus @default(queued)
+  progressPercent            Int                @default(0)
+  attemptCount               Int                @default(0)
+  leaseOwner                 String?
+  leaseExpiresAt             DateTime?
+  requestSnapshot            Json
+  dataSnapshot               Json?
+  documentSnapshot           Json?
+  contentFingerprint         String?
+  objectKey                  String?            @unique
+  contentType                String?
+  sizeBytes                  Int?
+  contentSha256              String?
+  failureCode                String?
+  startedAt                  DateTime?
+  completedAt                DateTime?
+  expiresAt                  DateTime?
+  objectDeletedAt            DateTime?
+  createdAt                  DateTime           @default(now())
+  updatedAt                  DateTime           @updatedAt
+  site                       Site               @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  requestedBy                User?              @relation(fields: [requestedByUserId], references: [id], onDelete: SetNull)
+
+  // The active actor/request unique index and write-once snapshot guard live in SQL.
+  // A SQL DELETE trigger preserves private object keys for legacy DELETEs/cascades.
+  @@index([siteId, createdAt])
+  @@index([status, leaseExpiresAt, createdAt])
+  @@index([status, expiresAt, objectDeletedAt])
+  @@index([requestedByUserId])
+}
+
+// Intentionally no foreign keys: late worker uploads must remain reapable after
+// both the report's 90-day metadata purge and the site's cascade deletion.
+model EnergyReportObjectCleanup {
+  reportId       String    @id
+  siteId         String
+  objectKeys     Json
+  leaseOwner     String?
+  leaseExpiresAt DateTime?
+  nextAttemptAt  DateTime  @default(now())
+  lastCleanedAt  DateTime?
+  lastError      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([nextAttemptAt, leaseExpiresAt])
+  @@index([siteId])
 }
 
 model EnergyFixtureIdentity {

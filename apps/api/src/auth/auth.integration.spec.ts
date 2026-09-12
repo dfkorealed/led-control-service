@@ -263,7 +263,7 @@ describeWithDatabase("AuthService PostgreSQL viewer signup integration", () => {
       prisma,
       new PasswordService(),
       new AuditService(prisma),
-      { processNow: async () => ({ status: "completed" as const }) } as never
+      { prepareReportDeletion: async () => null, processNow: async () => ({ status: "completed" as const }) } as never
     );
 
     const oldLogin = loginService.login({ loginId: fixture.loginId, password: fixture.oldPassword, rememberMe: false });

@@ -9,7 +9,8 @@
     "src/automation-action-result-contracts.ts",
     "src/dimming-command.ts",
     "src/energy-contracts.ts",
-    "src/energy-analytics-contracts.ts"
+    "src/energy-analytics-contracts.ts",
+    "src/energy-p2-contracts.ts"
   ],
   "exclude": []
 }

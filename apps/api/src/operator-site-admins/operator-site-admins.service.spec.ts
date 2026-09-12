@@ -338,6 +338,7 @@ function createService(overrides: Record<string, jest.Mock> = {}) {
   };
   const audit = { record: jest.fn().mockResolvedValue({ id: "audit-1" }) };
   const deletionCleanup = {
+    prepareReportDeletion: overrides.prepareReportDeletion ?? jest.fn().mockResolvedValue(null),
     processNow: overrides.processNow ?? jest.fn().mockResolvedValue({ status: "completed" })
   };
   const service = new OperatorSiteAdminsService(

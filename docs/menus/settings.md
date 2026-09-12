@@ -2,7 +2,7 @@
 
 > 모든 설계와 완료 판정은 양산 기준을 사용한다. 코드·자동 테스트 완료와 Raspberry Pi/ESP32-H2 실기 검증 완료를 구분하며, 실기 증거가 없으면 양산 E2E 완료로 표시하지 않는다.
 
-기준일: 2026-09-11
+기준일: 2026-09-12
 
 ## 현재 우선순위
 
@@ -12,6 +12,8 @@
 - 현장 일반 유저 관리와 본인 비밀번호 변경은 구현 완료했다. MFA·세션 관리·공통 감사 조회, 현장/층 운영 CRUD, 조명/그룹 관리, 정책/알림, OTA, 외부 연동의 미구현 상태는 유지한다.
 - BLE Mesh floor/zone Group Address와 subscription 동기화는 설정 화면 확장이 아니라 제어 기반 기능으로 구현한다. 기존 FixtureGroup 데이터만 사용하며 이번 범위에서 그룹 CRUD UI는 추가하지 않는다.
 - Task 6에서 로그인 화면을 `loginId` 전용으로 정리하고 operator/customer shell을 분리했다. Task 7에서 operator는 설정을 포함한 고객 메뉴 대신 `/operator/site-admins` 전용 목록으로 replace되며, 현장·관리자 생성, 기존 현장 관리자 지정, 수정, 비밀번호 재설정과 삭제를 제공한다. 삭제는 현장명을 다시 입력한 경우에만 실행하며 해당 현장의 층·도면·조명·게이트웨이·제어·통계 데이터와 고객사 계정을 영구 삭제한다. Task 8에서 assigned admin의 최초 설치와 commissioning 역할 노출을 웹에 연결했다.
+- P2 보고서가 있는 현장도 모든 비공개 시도 파일 삭제 후에만 DB에서 삭제한다. 처리 중 보고서는 `409`, 저장소 정리 실패는 `503`으로 현장 삭제를 보류하며 재시도할 수 있다. 생성/claim은 Site 잠금 뒤 준비 원장을 재확인하고, 기존 원장 아래 남은 processing도 임대 만료 후 worker가 회수한다. 삭제 성공과 도면·인증서 정리 완료 뒤에도 독립된 보고서 키 원장이 늦은 업로드를 반복 회수한다. 이 준비 단계에서 중단되면 운영자가 현장 삭제를 다시 요청해야 한다.
+- 롤링 업그레이드 중 구버전 인스턴스의 현장 cascade도 DB DELETE 트리거가 보고서별 세 키를 기록한다. 이 보호는 트리거 migration 커밋 뒤 적용되며, 원장 기록과 삭제가 함께 rollback/commit되어 runtime helper 누락으로 파일 회수 권한이 사라지지 않는다.
 
 상세 계약은 `docs/superpowers/specs/2026-08-19-monitoring-control-focused-completion-design.md`를 따른다.
 
@@ -66,8 +68,8 @@
 | 펌웨어 및 유지보수 | 버전, 서명된 OTA, 단계 배포, 중단·롤백, 인증서 수명주기 |
 | 외부 연동 | API key, Webhook, BMS/BACnet 연동과 접근 범위 |
 
-- PC 웹에서는 주 메뉴의 설정 항목 hover/focus disclosure로 역할별 하위 메뉴를 열고, 설정 본문은 별도 내부 사이드바 없이 평탄한 콘텐츠 계층으로 표시한다.
-- coarse pointer에서는 설정 주 메뉴 활성화가 현재 route를 유지한 채 역할별 하위 메뉴 bottom sheet를 열며, 데스크톱 disclosure와 동일한 역할 필터와 API를 사용한다.
+- 주 메뉴의 설정 항목은 팝업이나 별도 서브메뉴 없이 `/settings`로 이동하는 일반 메뉴 링크로 표시한다.
+- 설정 Shell 상단에는 제어·통계와 같은 공통 밑줄형 탭을 배치한다. 탭은 역할별 capability로 필터링하고 모바일에서는 가로 스크롤하며 현재 `siteId`, query와 hash를 유지한다.
 - 설정과 에디터는 URL을 가지며 새로고침, 브라우저 뒤로 가기와 직접 진입을 지원한다.
 
 ## 구현 완료
@@ -107,12 +109,12 @@
 
 - 최초 setup, Gateway claim, 등록 대상·일괄/개별 form의 input/select와 checkbox/radio label은 390px·320px에서 연속 44×44px 이상 도달 가능한 영역을 제공한다. Chromium commissioning helper는 기본 일괄 form을 개별 mode 전환 전에 검사하고, 전환 뒤 개별 form도 별도로 검사하며, 버튼 외 모든 enabled interactive control을 스크롤한 뒤 viewport·overflow clipping과 실제 hit-test occlusion까지 확인한다.
 - 조명 등록 `ProgressSteps`는 검색·등록 정보·장비 등록·상태 확인을 전체 session status union의 단일 상태 머신으로 표현한다. `completed`·`cancelled` terminal에는 current가 없고, session-level `failed`는 scan/node 도달 상태로 실패 단계를 정한다. 서버 transport 오류는 원시 API 값을 유지한 채 공통 표시 전용 mapper로 자연스러운 한국어 문구를 제공한다.
-- 설정 주 메뉴는 desktop hover/focus와 Escape focus 복원, 자연스러운 Tab/Shift+Tab 순서, admin/viewer별 링크 노출, coarse pointer bottom sheet와 `siteId` 및 hash fragment 보존을 Chromium route fixture로 검증한다. desktop trigger는 query string과 hash를 유지한 `/settings` 개요 링크이고 coarse trigger는 현재 route를 유지하는 `button[type="button"]`이며, 두 변형 모두 stable `aria-controls`와 `aria-expanded`로 popup과 연결된다. 모바일 sheet는 scrim·grabber·제목을 갖고 첫 허용 링크로 focus를 이동하며 Escape는 trigger로 focus를 복원한다. popup은 `nav aria-label="설정 메뉴"` 안의 목록과 일반 링크를 사용하며 focus trap이나 roving tabindex를 주장하지 않는다. desktop parent는 하위 route에서 시각적 active 상태만 유지하고 `aria-current`를 노출하지 않으며, 개요는 exact `/settings`, 도면·보안은 각각 자신의 route에서만 `aria-current="page"`를 갖는다. coarse button은 현재 페이지로 표시하지 않는다.
-- dirty 맵 편집 중 coarse 설정 button을 여는 동작은 confirm, route 변경, draft 폐기를 발생시키지 않는다. sheet의 실제 하위 링크는 기존 dirty navigation guard를 그대로 통과하며, 취소하면 editor·sheet·draft와 선택한 submenu focus를 유지하고 확인하면 선택한 하위 route에 동일한 `siteId`와 hash를 보존해 이동하며 draft를 폐기한다. 390px/320px 실제 브라우저 회귀는 real draft 변경, cancel/confirm, 승인 직후와 editor 복귀 뒤 history state의 sentinel 제거, back/forward 왕복 및 추가 clean logout이 폐기 확인 없이 완료되는 계약을 검증한다.
-- 설정·맵 편집 화면은 1440×900, 1024×768, 390×844, 320×740에서 overflow와 패널 배치를 고정한다. 1024px 및 390px/320px의 설정 개요·admin 비밀번호 화면과 viewer security guard, 모바일 floor asset·속성 필드·revision action을 실제 route에서 검증한다. 760px 이하의 공통 helper는 root 아래 interactive element 중 disabled/hidden, `.sr-only`/`aria-hidden`, `display`/`visibility`/`opacity`로 숨긴 조상을 제외하고 현재 viewport 및 실제 overflow clip과 교차하는 effective target을 검사한다. usable intersection을 1 CSS px 이하 cell로 나누고 각 cell 중앙 hit sample이 target 또는 그 descendant인 연속 44×44px 후보가 하나 이상일 때만 통과하며, 부분·완전 occlusion은 정상 peer가 있어도 실패한다. checkbox/radio는 모든 associated label과 input fallback 중 이 조건을 만족하는 후보를 사용한다. viewport-fixed target은 transform/filter/perspective 등 fixed containing block을 만드는 조상이 있을 때만 ancestor overflow clip을 적용한다. sheet가 열린 동안은 실제 navigation popup root를 검사하고, 배경 route는 이동 뒤 별도로 검사한다.
-- 주 메뉴의 설정 항목은 데스크톱 click으로 query string을 유지한 `/settings` 개요로 이동하고 hover/focus로 역할별 disclosure를 연다. coarse pointer click은 route를 바꾸지 않고 하단 sheet를 열어 `설정 개요`를 포함한 허용 메뉴를 선택하게 한다. 외부 pointer, blur, Escape와 route 변경은 disclosure를 닫는다.
+- 설정 상단 탭은 공통 `UnderlineNavigation`을 사용한다. `nav aria-label="설정 메뉴"` 안의 일반 링크로 구성하고 현재 route에만 `aria-current="page"`를 제공하며, `siteId`를 포함한 query와 hash를 모든 탭 이동에서 보존한다.
+- dirty 맵 편집 중 설정 상단 탭을 선택하면 기존 dirty navigation guard를 그대로 통과한다. 취소하면 editor·draft와 현재 탭 focus를 유지하고, 확인하면 선택한 설정 route에 동일한 `siteId`와 hash를 보존해 이동하며 draft를 폐기한다. 390px/320px 실제 브라우저 회귀는 real draft 변경, cancel/confirm, 승인 직후와 editor 복귀 뒤 history state의 sentinel 제거, back/forward 왕복 및 추가 clean logout이 폐기 확인 없이 완료되는 계약을 검증한다.
+- 설정·맵 편집 화면은 1440×900, 1024×768, 390×844, 320×740에서 overflow와 패널 배치를 고정한다. 1024px 및 390px/320px의 설정 개요·admin 비밀번호 화면과 viewer security guard, 모바일 floor asset·속성 필드·revision action을 실제 route에서 검증한다. 설정 상단 탭은 모바일에서 가로 스크롤하며 직접 URL로 진입해도 현재 탭을 자동으로 화면 안에 노출한다. 760px 이하의 공통 helper는 root 아래 interactive element 중 disabled/hidden, `.sr-only`/`aria-hidden`, `display`/`visibility`/`opacity`로 숨긴 조상을 제외하고 현재 viewport 및 실제 overflow clip과 교차하는 effective target을 검사한다. usable intersection을 1 CSS px 이하 cell로 나누고 각 cell 중앙 hit sample이 target 또는 그 descendant인 연속 44×44px 후보가 하나 이상일 때만 통과하며, 부분·완전 occlusion은 정상 peer가 있어도 실패한다. checkbox/radio는 모든 associated label과 input fallback 중 이 조건을 만족하는 후보를 사용한다. viewport-fixed target은 transform/filter/perspective 등 fixed containing block을 만드는 조상이 있을 때만 ancestor overflow clip을 적용한다.
+- 주 메뉴의 설정 항목은 입력 방식과 화면 크기에 관계없이 query string과 hash를 유지한 `/settings` 개요로 이동한다. 하위 화면 전환은 설정 본문의 상단 탭에서 수행한다.
 - 설정 본문의 내부 `설정 메뉴` 사이드바를 제거하고 현장 선택기를 수평 context row에 유지했다. 기존 현장 전환 dirty 확인 및 editor store 폐기, 상세 route와 `siteId` query 보존 계약은 그대로 유지한다.
-- 설정 메뉴에는 역할별로 승인된 화면만 노출한다. admin은 `설정 개요`, `유저 관리`, `조명 등록`, `맵 관리`, `비밀번호 변경`을 사용하고 viewer는 `설정 개요`, `맵 관리`, `비밀번호 변경`을 사용한다. viewer의 맵 관리는 읽기 전용이다. mock Chromium은 admin/read/control의 설정 하위 메뉴 exact 범위를, 격리 실백엔드 Chromium은 read 사용자의 범위와 `/settings/users` 차단을 검증한다. 기존 미구현 placeholder 메뉴와 customer 설정의 operator 노출은 제거했다.
+- 설정 탭에는 역할별로 승인된 화면만 노출한다. admin은 `설정 개요`, `유저 관리`, `조명 등록`, `맵 관리`, `비밀번호 변경`을 사용하고 viewer는 `설정 개요`, `맵 관리`, `비밀번호 변경`을 사용한다. viewer의 맵 관리는 읽기 전용이다. 기존 미구현 placeholder 메뉴와 customer 설정의 operator 노출은 제거했다.
 - Scene 24 설정 개요는 현재 dashboard/role/route 데이터만 사용해 `현장 정보`, `층·도면`, `Gateway 상태`, admin 전용 `계정·보안` 카드를 표시한다. 맵 관리와 비밀번호 변경 action은 실제 route 링크이고 현재 `siteId` query와 hash fragment를 보존한다. firmware, session, 마지막 변경 시각처럼 현재 API가 반환하지 않는 값은 표시하지 않는다.
 - operator가 만든 pending Site는 assigned admin이 customer route에서 `/settings?siteId=...`로 replace된 최초 설치 UI에서 address, tariff, timeZone, floors로 완성한다. CustomerShell은 installationStatus 확인 전 child route를 fail-closed하고, `POST /setup/initial-site`에는 `{ siteId, address, tariffKwhRate, timeZone?, floors }`만 전송한다. 성공하면 정확한 dashboard key를 갱신하고 dashboard prefix를 invalidate한다. Task 9 격리 실백엔드 E2E는 이 흐름과 password 교체 후 이전 비밀번호 실패/새 비밀번호 로그인을 검증했다. 재설치와 모바일은 범위 밖이고 Raspberry Pi/ESP32-H2 HIL은 미실행이다.
 - 설치 완료 뒤 admin은 admin 전용 `/settings/registration`에서 Gateway claim 또는 조명 등록을 수행할 수 있다. 모니터링은 등록 0개 상태에서도 이 mutation UI를 렌더링하지 않는다. viewer는 claim, registration, setup mutation UI를 보지 않고 operator는 전용 shell 때문에 customer 설정에 진입하지 않는다.
@@ -184,8 +186,7 @@
 - operator는 고객 설정 shell을 mount하지 않으며 고객 Site 목록과 capability를 갖지 않는다. assigned admin과 viewer만 허용된 범위의 Site API를 사용한다. Task 8은 pending admin 최초 설치 UI와 설치 완료 admin의 Gateway/registration 역할 노출을 연결했다.
 - 현장 선택기는 `GET /sites` 응답의 `customerName`과 `name`을 함께 사용하고 URL의 `siteId`를 갱신하며 일반 설정 route의 pathname, 다른 query parameter와 hash fragment를 유지한다. operator에게 배정 현장을 표시하던 설명은 폐기됐으며 현재 `GET /sites`는 operator에게 고객 Site를 반환하지 않는다. floor 편집 route에서 승인된 현장 전환은 current draft를 baseline으로 되돌려 dirty를 해제하고 이전 floorId를 버린 뒤 새 현장의 `/settings/floor-plans`로 이동한다. 취소 시 draft와 URL을 유지하며, 승인 후 다음 현장 전환에는 폐기 확인을 반복하지 않는다. dashboard, floor fixture, statistics query key는 모두 `siteId`를 포함하며, 선택된 현장은 `/sites/:siteId/dashboard`, `/sites/:siteId/floors/:floorId/fixtures`, `/energy/sites/:siteId/estimate`를 호출해 다른 고객 현장의 캐시를 재사용하지 않는다.
 - dirty editor에서 상단 `로그아웃` 버튼을 눌러도 동일한 폐기 확인을 거친다. 취소하면 session과 draft를 유지하고, 승인한 뒤에만 draft를 버리고 `/auth/logout` 후 auth query를 로그인 화면으로 전환한다.
-- 설정 navigation은 admin의 `설정 개요`, `조명 등록`, `맵 관리`, `비밀번호 변경`과 viewer의 읽기 전용 `설정 개요`, `맵 관리`만 제공한다. `조명 등록` UI는 설정 개요에서 분리한 admin 전용 `/settings/registration`에서만 제공한다. 등록할 Gateway가 없으면 같은 화면에서 Gateway 등록을 먼저 안내하고, Gateway가 있으면 기존 검색·식별·등록 workflow를 그대로 사용한다. viewer가 이 URL로 직접 접근하면 query string을 유지한 설정 개요로 replace한다. 그 밖의 구현 route는 `/settings`, `/settings/floor-plans`, admin 전용 `/settings/security`이며 허용되지 않은 설정 하위 URL도 설정 개요로 수렴한다.
-- 설정 주 메뉴의 펼침 화살표는 메뉴 링크의 오른쪽 8px, 세로 중앙에 고정한다. 메뉴 글자 길이나 가로 여백이 달라져도 화살표가 밀리지 않도록 링크 자체를 기준으로 absolute positioning한다.
+- 설정 상단 탭은 admin에게 `설정 개요`, `유저 관리`, `조명 등록`, `맵 관리`, `비밀번호 변경`을, viewer에게 `설정 개요`, `맵 관리`, `비밀번호 변경`을 제공한다. `조명 등록` UI는 설정 개요에서 분리한 admin 전용 `/settings/registration`에서만 제공한다. 등록할 Gateway가 없으면 같은 화면에서 Gateway 등록을 먼저 안내하고, Gateway가 있으면 기존 검색·식별·등록 workflow를 그대로 사용한다. viewer가 이 URL로 직접 접근하면 query string을 유지한 설정 개요로 replace하며 허용되지 않은 설정 하위 URL도 설정 개요로 수렴한다.
 - 웹 Dockerfile은 production API 요청을 same-origin `/api`로 빌드한다. nginx official template entrypoint가 `API_UPSTREAM`(기본 `http://api:4000`)을 주입하고 `/api/*`를 reverse proxy하며, SPA fallback으로 `/settings/floor-plans` 같은 deep route 새로고침을 `index.html`로 응답한다. Vite 개발 서버는 `/api`를 기본 `http://localhost:4000` upstream으로 proxy해 로컬 API 개발 동작을 유지한다.
 
 ## 확정 구현 설계
@@ -376,7 +377,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - 비밀번호 변경과 setup/commissioning visibility는 Web 회귀와 기존 격리 실백엔드 E2E로 검증했다. Scene 24~26 레이아웃은 1440×900, 1024×768, 390×844, 320×740 자동 Chromium으로 검증했지만 재설치, 수동 in-app Browser 시각 QA와 Raspberry Pi/ESP32-H2 HIL은 아직 실행하지 않았다.
 - 설정 shell은 역할별 navigation, 설치 wizard, 설정 개요, 도면 목록/편집과 admin 비밀번호 변경을 제공한다. 현재 미구현/후속인 현장·층 상세 CRUD, 조명·그룹 상세 관리, Gateway 진단, 정책, 알림, 펌웨어, 외부 연동과 장비 상태 상세 workflow는 route placeholder가 아니라 아직 제공하지 않는 범위다.
 - 평탄화된 설정 콘텐츠와 에디터 workbench의 시각 계층만 정리했으며, pending setup/Gateway claim/registration 흐름과 맵 editor lease·dirty guard·atomic save/restore·단축키·map bounds의 기존 제약 및 후속 실장비 검증 범위는 변경하지 않았다.
-- coarse pointer용 설정 bottom sheet와 단일 열 설정 본문은 자동화 테스트를 통과했고, desktop disclosure의 Tab/Shift+Tab/Escape focus 이동은 헤드리스 Chromium으로 검증했다. CSS는 `env(safe-area-inset-bottom)` 계약을 적용하지만 현재 Chromium route fixture는 non-zero inset을 실측하지 않는다. 실제 모바일 WebView safe-area와 네이티브 navigation 통합 검증은 후속 작업이다.
+- 설정 상단 탭은 공통 밑줄형 navigation의 44px 포커스·가로 스크롤 계약을 사용한다. 실제 모바일 WebView safe-area와 네이티브 navigation 통합 검증은 후속 작업이다.
 - dirty 내부 이동 guard는 링크, 현장 전환과 same-URL sentinel 기반 브라우저 history 이동을 확인한다. Task 10 이후 추가되는 programmatic navigation 경로도 같은 discard/guard 계약에 연결해야 한다.
 - Gateway claim과 registration API 및 웹 UI는 assigned admin commissioning으로 전환됐고 Task 9 software E2E를 통과했다. inventory disable은 제조 보안 경계로 active service-provider operator 전용을 유지한다. 실제 장비 검증은 미실행이다.
 - 현재 도면 asset은 장기 공개 URL을 응답하므로 민감한 건물 도면에 맞는 private access로 전환해야 한다.

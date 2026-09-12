@@ -148,7 +148,7 @@ describe("ControlView 대상 선택", () => {
   it("exposes the calm operations hierarchy for manual control", () => {
     renderControl();
 
-    expect(screen.getByRole("heading", { name: "조명 제어", level: 2 })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "조명 제어", level: 2 })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "조명 밝기 제어", level: 3 })).toBeInTheDocument();
     expect(screen.getByRole("tablist", { name: "제어 방식" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "수동 제어" })).toHaveAttribute("aria-selected", "true");

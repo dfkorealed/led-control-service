@@ -1,10 +1,23 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { execFileSync } from "node:child_process";
+import { readFile } from "node:fs/promises";
+import { createServer, type Server } from "node:http";
+import type { EnergyReportJob } from "@led-control/shared/energy-p2-contracts";
 import {
   expectMinimumTouchTargets,
+  expectMinimumTouchTargetsAfterScrolling,
   expectNoHorizontalOverflow
 } from "./support/layout-assertions";
 
 const generatedAt = "2026-08-26T00:00:00.000Z";
+let downloadFixtureServer: Server | undefined;
+test.afterEach(async () => {
+  if (downloadFixtureServer) {
+    downloadFixtureServer.closeAllConnections();
+    await new Promise<void>((resolve, reject) => downloadFixtureServer!.close(error => error ? reject(error) : resolve()));
+    downloadFixtureServer = undefined;
+  }
+});
 
 test.beforeEach(async ({ page }) => {
   await page.route("**/auth/me", (route) => route.fulfill({
@@ -68,11 +81,181 @@ test.beforeEach(async ({ page }) => {
       ))
     });
   });
+  await page.route("**/energy/sites/*/heatmap?**", route => route.fulfill({ json: heatmap(new URL(route.request().url())) }));
+  await page.route("**/energy/sites/*/reports", route => route.fulfill({ json: { reports: [] } }));
+  await page.route("**/energy/sites/*/report-targets", route => route.fulfill({ json: {
+    siteId: reportSiteId, timeZone: "Asia/Seoul", lastCompletedDate: "2026-09-11", targets: [
+      { scope: "site", identityId: reportSiteId, label: "보고서 현장" },
+      { scope: "fixture", identityId: "30000000-0000-4000-8000-000000000021", label: "조명 💡 이력" },
+      { scope: "group", identityId: "30000000-0000-4000-8000-000000000031", label: "과거 그룹" }
+    ]
+  } }));
 });
+
+const reportSiteId = "30000000-0000-4000-8000-000000000001";
+function heatmap(url: URL) {
+  return { siteId: reportSiteId, timeZone: "Asia/Seoul", generatedAt, metric: url.searchParams.get("metric") ?? "energy",
+    scope: url.searchParams.get("scope") ?? "floor", identityId: url.searchParams.get("identityId"),
+    range: { from: url.searchParams.get("from"), to: url.searchParams.get("to") },
+    cells: Array.from({ length: 168 }, (_, index) => ({ weekday: Math.floor(index / 24), hour: index % 24,
+      value: index === 1 ? null : index === 0 ? 0 : url.searchParams.get("metric") === "brightness" ? 50 : 0.5 })) };
+}
+function browserReport(status: EnergyReportJob["status"], format: "xlsx" | "pdf" = "xlsx"): EnergyReportJob {
+  return { reportId: `30000000-0000-4000-8000-0000000000${format === "xlsx" ? "40" : "41"}`, siteId: reportSiteId,
+    request: { from: "2026-09-01", to: "2026-09-07", scope: "site", identityId: reportSiteId, format }, status,
+    progressPercent: status === "processing" ? 40 : status === "completed" || status === "expired" ? 100 : 0,
+    createdAt: generatedAt, startedAt: status === "queued" ? null : generatedAt,
+    completedAt: status === "completed" || status === "expired" ? generatedAt : null,
+    expiresAt: status === "completed" || status === "expired" ? "2026-09-19T00:00:00.000Z" : null,
+    failureCode: status === "failed" ? "REPORT_GENERATION_FAILED" : null };
+}
+
+test("creates both report formats, polls state, downloads actual renderer bytes with identical extracted content, and retries", async ({ page }) => {
+  test.setTimeout(60_000);
+  const fixtures = JSON.parse(execFileSync("pnpm", ["--filter", "@led-control/api", "exec", "tsx", "test/support/render-report-browser-fixtures.ts"],
+    { encoding: "utf8", maxBuffer: 30 * 1024 * 1024 })) as Record<"xlsx" | "pdf", { bytes: string; manifest: unknown }> & { expected: unknown };
+  expect(fixtures.xlsx.manifest).toEqual(fixtures.expected);
+  expect(fixtures.pdf.manifest).toEqual(fixtures.expected);
+  expect(fixtures.xlsx.manifest).toEqual(fixtures.pdf.manifest);
+  expect(JSON.stringify(fixtures.expected)).toContain("187.50 원");
+  expect(JSON.stringify(fixtures.expected)).toContain("조명 💡");
+  expect(JSON.stringify(fixtures.expected)).not.toMatch(/상태 기반 추정|예상|추정|coverage|known|unknown|forecast|baseline|탄소|배출|carbon|emission|최적화/i);
+  await page.clock.install();
+  // Chromium's anchor downloads can bypass request interception. A loopback server
+  // provides deterministic file bytes without relying on a real worker or S3 account.
+  downloadFixtureServer = createServer((request, response) => {
+    const format = request.url?.includes(".pdf") ? "pdf" : "xlsx";
+    response.writeHead(200, { "content-type": format === "pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "content-disposition": `attachment; filename="report.${format}"` });
+    response.end(Buffer.from(fixtures[format].bytes, "base64"));
+  });
+  await new Promise<void>(resolve => downloadFixtureServer!.listen(0, "127.0.0.1", resolve));
+  const address = downloadFixtureServer.address();
+  if (!address || typeof address === "string") throw new Error("missing fixture port");
+  const downloadOrigin = `http://127.0.0.1:${address.port}`;
+  let records: EnergyReportJob[] = [];
+  let downloadRequests = 0;
+  const requests: unknown[] = [];
+  await page.route("**/energy/sites/*/reports", async route => {
+    if (route.request().method() === "POST") {
+      const request = route.request().postDataJSON(); requests.push(request);
+      const job = { ...browserReport("queued", request.format), request };
+      records = [job]; await route.fulfill({ status: 202, json: job });
+    } else await route.fulfill({ json: { reports: records } });
+  });
+  await page.route("**/energy/sites/*/reports/*/download", route => {
+    downloadRequests++;
+    const job = records[0];
+    return route.fulfill({ json: { reportId: job.reportId, format: job.request.format, expiresInSeconds: 300,
+      downloadUrl: `${downloadOrigin}/report.${job.request.format}?signature=fresh-${downloadRequests}` } });
+  });
+  await page.goto(`/statistics/reports?siteId=${reportSiteId}`);
+  await expect(page.getByText("요청한 보고서가 없습니다.")).toBeVisible();
+  for (const format of ["xlsx", "pdf"] as const) {
+    await page.getByRole("button", { name: "보고서 만들기" }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByLabel("기간 시작").fill("2026-09-01");
+    await dialog.getByLabel("기간 종료").fill("2026-09-07");
+    await dialog.getByLabel("파일 형식").selectOption(format);
+    await dialog.getByRole("button", { name: "보고서 요청" }).click();
+    await expect(page.getByText("대기 중", { exact: true })).toBeVisible();
+    expect(downloadRequests).toBe(format === "xlsx" ? 0 : 1);
+    records = [browserReport("processing", format)];
+    await page.clock.runFor(3000);
+    await expect(page.getByText("생성 중 40%")).toBeVisible();
+    records = [browserReport("completed", format)];
+    await page.clock.runFor(3000);
+    const download = page.waitForEvent("download");
+    await page.getByRole("button", { name: "다운로드", exact: true }).click();
+    const file = await download;
+    expect(file.suggestedFilename()).toBe(`report.${format}`);
+    expect(await readFile((await file.path())!)).toEqual(Buffer.from(fixtures[format].bytes, "base64"));
+    await expect(page.locator(".statistics-reports-screen")).not.toContainText(/예상|추정|coverage|known|unknown|forecast|baseline|탄소|배출|최적화/i);
+  }
+  expect(requests).toEqual([browserReport("queued", "xlsx").request, browserReport("queued", "pdf").request]);
+  for (const status of ["failed", "expired"] as const) {
+    records = [browserReport(status, "pdf")];
+    await page.reload();
+    await expect(page.getByText(status === "failed" ? "생성 실패" : "만료됨", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "다시 생성" }).click();
+    await expect(page.getByText("대기 중", { exact: true })).toBeVisible();
+    expect(requests.at(-1)).toEqual(browserReport("queued", "pdf").request);
+  }
+  expect(downloadRequests).toBe(2);
+  await expect(page.getByRole("navigation", { name: "통계 메뉴" }).getByRole("link")).toHaveText(["개요", "사용 분석", "보고서"]);
+});
+
+test("selects analytics fixture/group history and bounds dates to the site's completed day", async ({ page }) => {
+  const requests: Array<{ scope: string; identityId: string; to: string }> = [];
+  await page.route("**/energy/sites/*/reports", async route => {
+    if (route.request().method() === "POST") {
+      const request = route.request().postDataJSON(); requests.push(request);
+      await route.fulfill({ status: 202, json: { ...browserReport("queued"), request } });
+    } else await route.fulfill({ json: { reports: [] } });
+  });
+  await page.goto(`/statistics/reports?siteId=${reportSiteId}`);
+  for (const [scope, identityId] of [["fixture", "30000000-0000-4000-8000-000000000021"], ["group", "30000000-0000-4000-8000-000000000031"]]) {
+    await page.getByRole("button", { name: "보고서 만들기" }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByLabel("기간 종료")).toHaveValue("2026-09-11");
+    await expect(dialog.getByLabel("기간 종료")).toHaveAttribute("max", "2026-09-11");
+    await dialog.getByLabel("범위").selectOption(scope);
+    await expect(dialog.getByLabel("대상")).toHaveValue(identityId);
+    await dialog.getByRole("button", { name: "보고서 요청" }).click();
+    await expect(dialog).not.toBeVisible();
+    expect(requests.at(-1)).toMatchObject({ scope, identityId, to: "2026-09-11" });
+  }
+});
+
+for (const width of [1440, 1024, 390, 320]) {
+  test(`heatmap and report controls remain usable without document overflow at ${width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(`/statistics/analysis?siteId=${reportSiteId}`);
+    const grid = page.getByRole("group", { name: "시간대별 에너지 사용량" });
+    await expect(grid.getByRole("button")).toHaveCount(168);
+    await grid.getByRole("button", { name: "일요일 00시, 0 kWh", exact: true }).click();
+    await expect(page.locator(".statistics-heatmap-detail")).toHaveText("일요일 00시, 0 kWh");
+    const missing = grid.getByRole("button", { name: "일요일 01시, 수집 데이터 없음", exact: true });
+    await missing.focus(); await page.keyboard.press("Enter");
+    await expect(missing).toHaveAttribute("aria-pressed", "true");
+    await page.getByRole("button", { name: "밝기", exact: true }).click();
+    await expect(page.getByRole("group", { name: "시간대별 밝기" })).toBeVisible();
+    const cells = await page.locator(".statistics-heatmap-grid button").evaluateAll(elements => elements.map(element => {
+      const rect = element.getBoundingClientRect(); return { width: rect.width, height: rect.height };
+    }));
+    expect(cells.every(cell => cell.width >= 44 && cell.height >= 44)).toBe(true);
+    await expectNoHorizontalOverflow(page);
+    await page.locator(".statistics-heatmap-metric-button").first().scrollIntoViewIfNeeded();
+    await expectMinimumTouchTargets(page, ".statistics-heatmap-heading");
+    for (const index of [0, 23, 167]) {
+      const cell = page.locator(".statistics-heatmap-grid button").nth(index);
+      await cell.scrollIntoViewIfNeeded();
+      await expectMinimumTouchTargets(page, `.statistics-heatmap-grid button:nth-child(${index + 1})`);
+    }
+    const heatmapPath = testInfo.outputPath(`heatmap-${width}.png`);
+    await page.screenshot({ path: heatmapPath });
+    await testInfo.attach(`heatmap-${width}`, { path: heatmapPath, contentType: "image/png" });
+    await page.getByRole("link", { name: "보고서", exact: true }).click();
+    await page.getByRole("button", { name: "보고서 만들기" }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByRole("button", { name: "CSV 내보내기" })).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+    const controls = dialog.locator("button,input,select");
+    for (const control of await controls.all()) {
+      await control.scrollIntoViewIfNeeded();
+      const bounds = await control.boundingBox();
+      expect(bounds?.width).toBeGreaterThanOrEqual(44); expect(bounds?.height).toBeGreaterThanOrEqual(44);
+    }
+    await expectMinimumTouchTargetsAfterScrolling(page, ".statistics-report-dialog");
+    const reportPath = testInfo.outputPath(`report-dialog-${width}.png`);
+    await page.screenshot({ path: reportPath });
+    await testInfo.attach(`report-dialog-${width}`, { path: reportPath, contentType: "image/png" });
+  });
+}
 
 test("navigates to usage analysis and drills into fixture, floor, and group rankings", async ({ page }) => {
   await page.goto("/statistics/overview?siteId=site-1");
-  await page.getByRole("link", { name: "사용량 분석" }).click();
+  await page.getByRole("link", { name: "사용 분석" }).click();
   await expect(page).toHaveURL(/\/statistics\/analysis\?siteId=site-1$/);
   await expect(page.getByRole("heading", { name: "사용량 분석" })).toBeVisible();
   await expect(page.getByRole("region", { name: "사용량 순위" })).toContainText("B1 주차장");
@@ -175,7 +358,7 @@ for (const viewport of [
     await page.goto("/statistics/overview?siteId=site-1#summary");
     const statisticsNavigation = page.getByRole("navigation", { name: "통계 메뉴" });
     const selectedStatisticsLink = statisticsNavigation.getByRole("link", { name: "개요" });
-    await expect(statisticsNavigation.getByRole("link")).toHaveCount(2);
+    await expect(statisticsNavigation.getByRole("link")).toHaveCount(3);
     await expect(selectedStatisticsLink).toHaveAttribute("aria-current", "page");
     await expect(selectedStatisticsLink).toHaveAttribute("href", "/statistics/overview?siteId=site-1#summary");
     expect(await statisticsNavigation.locator("svg").count()).toBe(0);
@@ -333,7 +516,7 @@ for (const viewport of [
       await expectMinimumTouchTargets(page, ".app-shell");
     }
 
-    await page.getByRole("link", { name: "사용량 분석" }).click();
+    await page.getByRole("link", { name: "사용 분석" }).click();
     await expect(page.getByRole("heading", { name: "사용량 분석" })).toBeVisible();
     await expect(page.getByRole("region", { name: "사용량 순위" })).toBeVisible();
     await expectNoHorizontalOverflow(page);

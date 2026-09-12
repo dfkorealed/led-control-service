@@ -1,23 +1,23 @@
-import { createElement, type HTMLAttributes, type ReactNode } from "react";
+import { createElement, forwardRef, type HTMLAttributes, type ReactNode } from "react";
 
 export interface UnderlineNavigationProps extends HTMLAttributes<HTMLElement> {
   as?: "div" | "nav";
   trackClassName?: string;
 }
 
-export function UnderlineNavigation({
+export const UnderlineNavigation = forwardRef<HTMLElement, UnderlineNavigationProps>(function UnderlineNavigation({
   as = "nav",
   children,
   className,
   trackClassName,
   ...props
-}: UnderlineNavigationProps) {
+}, ref) {
   return createElement(
     as,
-    { ...props, className: classNames("ui-underline-navigation", className) },
+    { ...props, ref, className: classNames("ui-underline-navigation", className) },
     <div className={classNames("ui-underline-navigation-track", trackClassName)}>{children}</div>
   );
-}
+});
 
 export function UnderlineNavigationLabel({
   children,

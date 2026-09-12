@@ -5,6 +5,7 @@ import { PasswordService } from "../auth/password.service";
 import type { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import { OperatorSiteAdminsService } from "./operator-site-admins.service";
+import { SiteDeletionCleanupService } from "./site-deletion-cleanup.service";
 
 const databaseUrl = process.env.OPERATOR_SITE_ADMINS_TEST_DATABASE_URL;
 const describeWithDatabase = databaseUrl ? describe : describe.skip;
@@ -38,12 +39,13 @@ describeWithDatabase("OperatorSiteAdminsService PostgreSQL integration", () => {
       prisma,
       passwords,
       new AuditService(prisma),
-      { processNow: async () => ({ status: "completed" as const }) } as never
+      { prepareReportDeletion: async () => null, processNow: async () => ({ status: "completed" as const }) } as never
     );
   });
 
   afterEach(async () => {
-    await prisma.siteDeletionCleanup.deleteMany({ where: { siteId: { in: deletionSiteIds.splice(0) } } });
+    const cleanupSiteIds = deletionSiteIds.splice(0);
+    await prisma.siteDeletionCleanup.deleteMany({ where: { siteId: { in: cleanupSiteIds } } });
     for (const organizationId of createdOrganizationIds.splice(0)) {
       await prisma.auditLog.deleteMany({ where: { organizationId } });
       await prisma.session.deleteMany({ where: { user: { organizationId } } });
@@ -51,6 +53,7 @@ describeWithDatabase("OperatorSiteAdminsService PostgreSQL integration", () => {
       await prisma.user.deleteMany({ where: { organizationId } });
       await prisma.organization.deleteMany({ where: { id: organizationId } });
     }
+    await prisma.energyReportObjectCleanup.deleteMany({ where: { siteId: { in: cleanupSiteIds } } });
     await prisma.gatewayCertificate.deleteMany({ where: { inventoryId: { in: deletionInventoryIds } } });
     await prisma.gatewayInventory.deleteMany({ where: { id: { in: deletionInventoryIds.splice(0) } } });
   });
@@ -222,6 +225,33 @@ describeWithDatabase("OperatorSiteAdminsService PostgreSQL integration", () => {
     expect(loginIds).toContain(admins[0].loginId);
   }, 15_000);
 
+  it("keeps report rows through S3 failure and removes every attempt before the actual site cascade", async () => {
+    const created = await service.createSiteAdmin(operator, { customerName: "Report deletion", siteName: "Report deletion", adminName: "Admin",
+      loginId: `report_delete_${randomUUID().slice(0, 8)}`, initialPassword: "initial password" });
+    const adminId = created.admin!.id;
+    const site = await prisma.site.findUniqueOrThrow({ where: { id: created.siteId } });
+    createdOrganizationIds.push(site.organizationId); deletionSiteIds.push(site.id);
+    const report = await prisma.energyReportJob.create({ data: { siteId: site.id, requestedByActorId: adminId,
+      requestedByLoginIdSnapshot: "reader", requestHash: "d".repeat(64), format: "pdf", requestSnapshot: {}, attemptCount: 3,
+      status: "failed", startedAt: new Date(), failureCode: "REPORT_GENERATION_FAILED" } });
+    const keys = [1, 2, 3].map(n => `reports/${site.id}/${report.id}/attempt-${n}.pdf`);
+    const objects = new Set(keys); let fail = true;
+    const cleanup = new SiteDeletionCleanupService(prisma, {} as never, { deleteReportObject: async (key: string) => {
+      expect(await prisma.energyReportJob.findUnique({ where: { id: report.id } })).not.toBeNull();
+      expect(await prisma.site.findUnique({ where: { id: site.id } })).not.toBeNull();
+      if (fail) throw new Error("storage failure"); objects.delete(key);
+    } } as never);
+    const deletingService = new OperatorSiteAdminsService(prisma, new PasswordService(), new AuditService(prisma), cleanup);
+    await expect(deletingService.deleteSiteAdmin(operator, adminId, site.name)).rejects.toThrow("report cleanup is pending");
+    expect(await prisma.site.findUnique({ where: { id: site.id } })).not.toBeNull();
+    fail = false;
+    await deletingService.deleteSiteAdmin(operator, adminId, site.name);
+    expect(objects.size).toBe(0);
+    expect(await prisma.site.findUnique({ where: { id: site.id } })).toBeNull();
+    expect(await prisma.energyReportJob.findUnique({ where: { id: report.id } })).toBeNull();
+    expect(await prisma.siteDeletionCleanup.findUnique({ where: { siteId: site.id } })).toMatchObject({ objectKeys: keys, completedAt: null });
+  });
+
   it("keeps reset-delete competition consistent and rejects the loser safely", async () => {
     const created = await service.createSiteAdmin(operator, {
       customerName: "Reset Disable Race Customer", siteName: "Reset Disable Race Site", adminName: "Race Admin",
@@ -349,7 +379,7 @@ describeWithDatabase("OperatorSiteAdminsService PostgreSQL integration", () => {
         extended as unknown as PrismaService,
         new PasswordService(),
         new AuditService(extended as unknown as PrismaService),
-        { processNow: async () => ({ status: "completed" as const }) } as never
+        { prepareReportDeletion: async () => null, processNow: async () => ({ status: "completed" as const }) } as never
       ),
       disconnect: () => extended.$disconnect()
     };

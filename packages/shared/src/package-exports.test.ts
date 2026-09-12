@@ -172,6 +172,16 @@ const energyAnalyticsImportSmoke = `
 `;
 const energyAnalyticsRequireSmoke = energyAnalyticsImportSmoke
   .replace('await import("@led-control/shared/energy-analytics-contracts")', 'require("@led-control/shared/energy-analytics-contracts")');
+const energyP2ImportSmoke = `
+  const { energyReportRequestSchema: schema } = await import("@led-control/shared/energy-p2-contracts");
+  const result = schema.safeParse({
+    from: "2026-09-01", to: "2026-09-10", scope: "site",
+    identityId: "00000000-0000-4000-8000-000000000003", format: "xlsx"
+  });
+  if (!result.success) process.exit(1);
+`;
+const energyP2RequireSmoke = energyP2ImportSmoke
+  .replace('await import("@led-control/shared/energy-p2-contracts")', 'require("@led-control/shared/energy-p2-contracts")');
 
 afterEach(async () => {
   await Promise.all(temporaryDirectories.splice(0).map((directory) =>
@@ -185,6 +195,15 @@ describe("shared package exports", () => {
       cwd: packageRoot
     })).resolves.toMatchObject({ stderr: "" });
     await expect(execFile(process.execPath, ["--eval", energyAnalyticsRequireSmoke], {
+      cwd: packageRoot
+    })).resolves.toMatchObject({ stderr: "" });
+  });
+
+  it("loads the P2 energy contracts subpath through Node ESM and CommonJS", async () => {
+    await expect(execFile(process.execPath, ["--input-type=module", "--eval", energyP2ImportSmoke], {
+      cwd: packageRoot
+    })).resolves.toMatchObject({ stderr: "" });
+    await expect(execFile(process.execPath, ["--eval", energyP2RequireSmoke], {
       cwd: packageRoot
     })).resolves.toMatchObject({ stderr: "" });
   });
@@ -227,6 +246,8 @@ describe("shared package exports", () => {
     expect(archiveList).toContain("package/dist/esm/energy-contracts.d.ts");
     expect(archiveList).toContain("package/dist/esm/energy-analytics-contracts.js");
     expect(archiveList).toContain("package/dist/esm/energy-analytics-contracts.d.ts");
+    expect(archiveList).toContain("package/dist/esm/energy-p2-contracts.js");
+    expect(archiveList).toContain("package/dist/esm/energy-p2-contracts.d.ts");
     expect(archiveList).toContain("package/dist/esm/package.json");
 
     await execFile("tar", [
@@ -280,6 +301,11 @@ describe("shared package exports", () => {
     expect(energyAnalyticsExports.import).toBe("./dist/esm/energy-analytics-contracts.js");
     expect(energyAnalyticsExports.require).toBe("./dist/energy-analytics-contracts.js");
     expect(energyAnalyticsExports.types).toBe("./dist/esm/energy-analytics-contracts.d.ts");
+    const energyP2Exports = packageJson.exports["./energy-p2-contracts"];
+    expect(energyP2Exports.browser).toBe("./dist/esm/energy-p2-contracts.js");
+    expect(energyP2Exports.import).toBe("./dist/esm/energy-p2-contracts.js");
+    expect(energyP2Exports.require).toBe("./dist/energy-p2-contracts.js");
+    expect(energyP2Exports.types).toBe("./dist/esm/energy-p2-contracts.d.ts");
 
     await expect(execFile(process.execPath, ["--input-type=module", "--eval", importSmoke], {
       cwd: consumerDirectory
@@ -309,6 +335,12 @@ describe("shared package exports", () => {
       cwd: consumerDirectory
     })).resolves.toMatchObject({ stderr: "" });
     await expect(execFile(process.execPath, ["--eval", energyAnalyticsRequireSmoke], {
+      cwd: consumerDirectory
+    })).resolves.toMatchObject({ stderr: "" });
+    await expect(execFile(process.execPath, ["--input-type=module", "--eval", energyP2ImportSmoke], {
+      cwd: consumerDirectory
+    })).resolves.toMatchObject({ stderr: "" });
+    await expect(execFile(process.execPath, ["--eval", energyP2RequireSmoke], {
       cwd: consumerDirectory
     })).resolves.toMatchObject({ stderr: "" });
   }, 30_000);

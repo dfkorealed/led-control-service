@@ -1,11 +1,13 @@
 import type { EnergyRankingDimension, EnergyRankingMetric, EnergyRankingSort } from "@led-control/shared/energy-analytics-contracts";
+import type { EnergyHeatmapMetric } from "@led-control/shared/energy-p2-contracts";
 import { Activity, ArrowDownAZ, ArrowUpAZ, BarChart3, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useOutletContext } from "react-router-dom";
-import { useEnergyRankings } from "../../../api/energy";
+import { useEnergyHeatmap, useEnergyRankings } from "../../../api/energy";
 import { Button, Card, FeedbackState, PageHeader, StatusBadge } from "../../../components/ui";
 import type { StatisticsOutletContext } from "../StatisticsShell";
 import { EnergyRankingDetailPanel } from "./EnergyRankingDetailPanel";
+import { EnergyHeatmap } from "./EnergyHeatmap";
 import { EnergyRankingList } from "./EnergyRankingList";
 
 const dimensions: Array<{ value: EnergyRankingDimension; label: string }> = [
@@ -21,8 +23,20 @@ export function StatisticsAnalysisPage() {
   const [from, setFrom] = useState(defaults.from);
   const [to, setTo] = useState(defaults.to);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [heatmapMetric, setHeatmapMetric] = useState<EnergyHeatmapMetric>("energy");
   const query = useEnergyRankings({ siteId, dimension, metric, sort, from, to, limit: 20 });
   const selected = query.data?.ranked.find((item) => item.identityId === selectedId) ?? query.data?.ranked[0] ?? null;
+  // The timezone exists only on the ranking response. Keep the heatmap query disabled until it is known.
+  const heatmapRange = query.data ? completedSiteRange(query.data.generatedAt, query.data.timeZone) : null;
+  const heatmap = useEnergyHeatmap({
+    siteId,
+    scope: selected ? dimension : "site",
+    identityId: selected?.identityId ?? siteId,
+    metric: heatmapMetric,
+    from: heatmapRange?.from,
+    to: heatmapRange?.to,
+    enabled: Boolean(heatmapRange)
+  });
 
   useEffect(() => {
     setSelectedId(null);
@@ -74,8 +88,22 @@ export function StatisticsAnalysisPage() {
           selectedId={selected?.identityId ?? null} onSelect={(item) => setSelectedId(item.identityId)} />
         <EnergyRankingDetailPanel item={selected} />
       </div>
+      <EnergyHeatmap data={heatmap.data} isLoading={!heatmapRange || heatmap.isLoading} isError={heatmap.isError}
+        metric={heatmapMetric} onMetricChange={setHeatmapMetric} onRetry={() => heatmap.refetch()} />
     </section>
   );
+}
+
+function completedSiteRange(timestamp: string, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone, year: "numeric", month: "2-digit", day: "2-digit"
+  }).formatToParts(new Date(timestamp));
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const currentDay = new Date(`${values.year}-${values.month}-${values.day}T00:00:00.000Z`);
+  currentDay.setUTCDate(currentDay.getUTCDate() - 1);
+  const to = currentDay.toISOString().slice(0, 10);
+  currentDay.setUTCDate(currentDay.getUTCDate() - 27);
+  return { from: currentDay.toISOString().slice(0, 10), to };
 }
 
 function defaultRange() {

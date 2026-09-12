@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SiteCapabilities } from "../../api/queries";
@@ -30,14 +30,17 @@ function mockMatchMedia({ coarse = false }: { coarse?: boolean } = {}) {
 }
 
 function renderSettingsItem({
-  capabilities,
+  capabilities = manageCapabilities,
+  coarse = false,
   initialEntry
 }: {
-  capabilities: SiteCapabilities;
+  capabilities?: SiteCapabilities;
+  coarse?: boolean;
   initialEntry: string;
 }) {
+  mockMatchMedia({ coarse });
   const search = new URL(initialEntry, "http://localhost").search;
-  render(
+  return render(
     <MemoryRouter initialEntries={[initialEntry]}>
       <SettingsNavigationItem capabilities={capabilities} search={search} />
       <LocationProbe />
@@ -51,102 +54,65 @@ describe("SettingsNavigationItem", () => {
     vi.restoreAllMocks();
   });
 
-  it("설정 메뉴는 siteId와 현재 항목을 보존한다", () => {
-    mockMatchMedia();
-    renderSettingsItem({ capabilities: manageCapabilities, initialEntry: "/settings/floor-plans?siteId=site-1#fragment" });
+  it("설정 아이콘과 라벨만 표시한다", () => {
+    const { container } = renderSettingsItem({
+      capabilities: readCapabilities,
+      initialEntry: "/monitoring?siteId=site-1"
+    });
 
-    const trigger = screen.getByRole("link", { name: "설정" });
-    fireEvent.focus(trigger);
-
-    expect(screen.getByRole("navigation", { name: "설정 메뉴" })).toBeInTheDocument();
-    expect(trigger).toHaveAttribute("href", "/settings?siteId=site-1#fragment");
-    expect(screen.getByRole("link", { name: "설정 개요" })).toHaveAttribute("href", "/settings?siteId=site-1#fragment");
-    expect(screen.getByRole("link", { name: "조명 등록" })).toHaveAttribute("href", "/settings/registration?siteId=site-1#fragment");
-    expect(screen.getByRole("link", { name: "맵 관리" })).toHaveAttribute("href", "/settings/floor-plans?siteId=site-1#fragment");
-    expect(screen.getByRole("link", { name: "비밀번호 변경" })).toHaveAttribute("href", "/settings/security?siteId=site-1#fragment");
-    expect(screen.getByRole("link", { name: "맵 관리" })).toHaveAttribute("aria-current", "page");
+    const link = screen.getByRole("link", { name: "설정" });
+    expect(link.querySelector(".lucide-settings")).toBeInTheDocument();
+    expect(container.querySelector(".lucide-chevron-right")).not.toBeInTheDocument();
   });
 
-  it("모바일 설정 메뉴는 scrim과 bottom sheet focus 계약을 유지한다", async () => {
-    mockMatchMedia({ coarse: true });
-    renderSettingsItem({ capabilities: manageCapabilities, initialEntry: "/monitoring?siteId=site-1" });
+  it("search와 현재 hash를 보존해 설정 루트로 이동한다", () => {
+    renderSettingsItem({ initialEntry: "/monitoring?siteId=site-1#fragment" });
 
-    const trigger = screen.getByRole("button", { name: "설정" });
-    fireEvent.click(trigger);
+    const link = screen.getByRole("link", { name: "설정" });
+    expect(link).toHaveAttribute("href", "/settings?siteId=site-1#fragment");
 
-    expect(screen.getByRole("button", { name: "설정 메뉴 닫기" })).toHaveClass("settings-submenu-scrim");
-    expect(screen.getByTestId("settings-submenu-grabber")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "설정 메뉴" })).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole("link", { name: "설정 개요" })).toHaveFocus());
+    fireEvent.click(link);
 
-    fireEvent.keyDown(screen.getByRole("navigation", { name: "설정 메뉴" }), { key: "Escape" });
-    expect(screen.queryByRole("navigation", { name: "설정 메뉴" })).not.toBeInTheDocument();
-    expect(trigger).toHaveFocus();
-  });
-
-  it("opens admin settings links on hover and closes with Escape", () => {
-    mockMatchMedia();
-    renderSettingsItem({ capabilities: manageCapabilities, initialEntry: "/monitoring?siteId=site-1" });
-    const trigger = screen.getByRole("link", { name: "설정" });
-
-    fireEvent.mouseEnter(trigger.closest("div")!);
-
-    expect(trigger).toHaveAttribute("aria-controls", "settings-navigation-popup");
-    expect(trigger).not.toHaveAttribute("aria-haspopup");
-    expect(screen.getByRole("navigation", { name: "설정 메뉴" })).toHaveAttribute("id", "settings-navigation-popup");
-    expect(screen.getByRole("link", { name: "설정 개요" })).toHaveAttribute("href", "/settings?siteId=site-1");
-    expect(screen.getByRole("link", { name: "조명 등록" })).toHaveAttribute("href", "/settings/registration?siteId=site-1");
-    expect(screen.getByRole("link", { name: "맵 관리" })).toHaveAttribute("href", "/settings/floor-plans?siteId=site-1");
-    expect(screen.getByRole("link", { name: "비밀번호 변경" })).toBeVisible();
-
-    fireEvent.keyDown(trigger, { key: "Escape" });
-
-    expect(screen.queryByRole("navigation", { name: "설정 메뉴" })).not.toBeInTheDocument();
-  });
-
-  it("exposes personal security but no admin management sections to a viewer", () => {
-    mockMatchMedia();
-    renderSettingsItem({ capabilities: readCapabilities, initialEntry: "/settings?siteId=site-1" });
-
-    fireEvent.focus(screen.getByRole("link", { name: "설정" }));
-
-    expect(screen.getByRole("link", { name: "맵 관리" })).toBeVisible();
-    expect(screen.queryByRole("link", { name: "조명 등록" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "유저 관리" })).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "비밀번호 변경" })).toBeVisible();
-  });
-
-  it("uses a button to open the coarse disclosure without navigating", () => {
-    mockMatchMedia({ coarse: true });
-    renderSettingsItem({ capabilities: manageCapabilities, initialEntry: "/monitoring?siteId=site-1" });
-
-    fireEvent.click(screen.getByRole("button", { name: "설정" }));
-
-    const trigger = screen.getByRole("button", { name: "설정" });
-    expect(trigger).toHaveAttribute("aria-controls", "settings-navigation-popup");
-    expect(trigger).not.toHaveAttribute("aria-current");
-    expect(trigger).not.toHaveAttribute("aria-haspopup");
-    expect(screen.getByRole("navigation", { name: "설정 메뉴" })).toHaveAttribute("id", "settings-navigation-popup");
-    expect(screen.getByTestId("location")).toHaveTextContent("/monitoring?siteId=site-1");
+    expect(screen.getByTestId("location")).toHaveTextContent("/settings?siteId=site-1#fragment");
   });
 
   it.each([
-    ["/settings?siteId=site-1", "설정 개요"],
-    ["/settings/registration?siteId=site-1", "조명 등록"],
-    ["/settings/floor-plans?siteId=site-1", "맵 관리"],
-    ["/settings/security?siteId=site-1", "비밀번호 변경"]
-  ])("exposes one current-page link for %s", (initialEntry, currentLabel) => {
-    mockMatchMedia();
-    renderSettingsItem({ capabilities: manageCapabilities, initialEntry });
+    ["/settings?siteId=site-1", true],
+    ["/settings/floor-plans?siteId=site-1", true],
+    ["/monitoring?siteId=site-1", false]
+  ])("현재 경로가 %s일 때 active 상태를 %s로 표시한다", (initialEntry, active) => {
+    renderSettingsItem({ initialEntry });
 
-    const trigger = screen.getByRole("link", { name: "설정" });
-    fireEvent.focus(trigger);
-
-    expect(trigger).not.toHaveAttribute("aria-current");
-    for (const label of ["설정 개요", "조명 등록", "맵 관리", "비밀번호 변경"]) {
-      const link = screen.getByRole("link", { name: label });
-      if (label === currentLabel) expect(link).toHaveAttribute("aria-current", "page");
-      else expect(link).not.toHaveAttribute("aria-current");
+    const link = screen.getByRole("link", { name: "설정" });
+    if (active) {
+      expect(link).toHaveClass("active");
+      expect(link).toHaveAttribute("aria-current", "page");
+    } else {
+      expect(link).not.toHaveClass("active");
+      expect(link).not.toHaveAttribute("aria-current");
     }
+  });
+
+  it("hover와 focus에도 설정 서브메뉴를 열지 않는다", () => {
+    renderSettingsItem({ initialEntry: "/monitoring?siteId=site-1" });
+    const link = screen.getByRole("link", { name: "설정" });
+
+    fireEvent.mouseEnter(link);
+    fireEvent.focus(link);
+
+    expect(link).not.toHaveAttribute("aria-expanded");
+    expect(link).not.toHaveAttribute("aria-controls");
+    expect(screen.queryByRole("navigation", { name: "설정 메뉴" })).not.toBeInTheDocument();
+  });
+
+  it("coarse pointer에서도 bottom sheet 없이 설정 링크로 이동한다", () => {
+    renderSettingsItem({ coarse: true, initialEntry: "/monitoring?siteId=site-1#mobile" });
+
+    const link = screen.getByRole("link", { name: "설정" });
+    fireEvent.click(link);
+
+    expect(screen.getByTestId("location")).toHaveTextContent("/settings?siteId=site-1#mobile");
+    expect(screen.queryByRole("button", { name: "설정 메뉴 닫기" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "설정 메뉴" })).not.toBeInTheDocument();
   });
 });

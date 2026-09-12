@@ -1,6 +1,6 @@
 # 메뉴 완성 작업 상태판
 
-기준일: 2026-09-11
+기준일: 2026-09-12
 
 ## 현재 마일스톤
 
@@ -13,8 +13,11 @@
 | 작업 | 상태 | 내용 |
 | --- | --- | --- |
 | 구역 생성 500 오류 수정 | 완료(소프트웨어, final fix) | advisory lock의 `$executeRaw` 전환과 필수 에너지 이력 의존성을 유지했다. marker 생성·재사용은 공통 bulk history로 identity/current dimension을 보충하며 1,000개 신규·반복 energy DB 호출은 5회·3회(최초 marker 조회 포함 6회·4회)다. cleanup은 기존 Site 인가 잠금 뒤 verified fixture ID를 정렬 잠금하고 analytics를 검사해 ingestion 대기 중 생긴 이력도 `409`로 전체 거부한다. 실제 energy service를 사용하는 identity/current version 개수 회귀와 잠금 대기 순서 회귀를 추가했다. focused 55 passed/1 skipped, API typecheck/build와 전체 Jest 956 passed/196 environment-dependent skipped(101 suites passed/22 skipped), `git diff --check`를 통과했다. Prisma schema/migration과 API payload는 변경하지 않았다. 전체 suite에서 skip된 rollback 통합 회귀는 로컬 개발 PostgreSQL URL을 명시한 별도 실행에서 구역·에너지 이력 생성과 rollback 1/1을 통과했다. PostgreSQL 실제 동시 실행·1,000개 transaction 소요시간은 미검증이다. [설계](superpowers/specs/2026-09-11-fixture-group-500-design.md) · [실행 계획](superpowers/plans/2026-09-11-fixture-group-500.md) |
+| 통계 P2 히트맵·보고서/CSV | 완료(소프트웨어·최종 게이트) | 선택 scope의 7×24 에너지/밝기 히트맵, 동일 불변 문서의 XLSX/PDF, CSV, 생성·목록·다운로드·3초 polling·재생성을 연결했다. 최종 검토에서 전용 분석 identity 대상 API와 현장 시간대의 완료 날짜 제한, 이력 수집 이전·퇴역 당일 현장 총계 보존, 저장 비용·직전 동일 기간 차이/변화율·순위 비용·집계 출처, UTC 한 시간 전체 소속 판정, emoji 대체 글꼴과 양 형식 공통 Unicode 검사를 보완했다. Unicode 재검토에서는 실제 PDF 줄바꿈/shaping과 선택 문서만 검사하여 NFD 양식 불일치와 무관한 과거 이름의 접수 차단을 수정했다. 7일 파일/90일 메타데이터 정리, Site 삭제 barrier, DB 잠금 밖 S3 정리, 영구 시도 키 원장과 구버전 DELETE/cascade 보호 트리거는 유지한다. 격리 PostgreSQL·MinIO focused API 203개(공개 도면 저장소 1개 제외), 전체 56개 migration의 clean/기존 일별 데이터 upgrade, 통계 Chromium 21개를 통과했다. 전체 테스트는 API 1,048개(환경 의존 271개 제외), Web 676개, Shared 197개, Gateway 608개, automation 28개, mobile 1개와 루트 script 16개를 통과했고 lint·typecheck·전체 build·Prisma validate/generate도 통과했다. 브라우저 작업/S3는 fixture이며 다운로드 바이트와 양 형식 추출 manifest는 실제 렌더러 결과다. P2-C와 최적화는 제외했고 외부 DB·실장비는 변경하지 않았다. |
+| 로컬 보고서 버킷 초기화 오류 수정 | 완료(개발 환경) | Compose의 folded scalar 명령이 `/bin/sh -c` 뒤에서 여러 인자로 분리되어 MinIO 초기화가 종료 코드 2로 끝나고 `floor-assets`·`energy-reports` 버킷이 모두 누락되던 원인을 수정했다. 초기화 절차를 단일 스크립트 인자로 전달하고 실제 Compose 렌더링 회귀를 추가했다. 초기화 종료 코드 0, 비공개 보고서 버킷 정책, 동일 요청의 새 XLSX 작업 첫 시도 완료와 68,757바이트 다운로드를 확인했다. 기존 실패 2건은 장애 이력으로 유지한다. |
+| 설정 상단 탭 공통 UI | 완료(소프트웨어 UI) | 주 메뉴의 설정 hover/focus 팝업과 모바일 bottom sheet를 제거하고 일반 `/settings` 링크로 단순화했다. 설정 Shell은 제어·통계와 같은 공통 `UnderlineNavigation`으로 설정 개요·유저 관리·조명 등록·맵 관리·비밀번호 변경을 capability에 맞춰 표시하며 `siteId`, query와 hash를 보존한다. 데스크톱과 390/320px Chromium에서 링크 이동, 현재 탭, 권한 필터, 가로 스크롤, 직접 URL 진입 시 활성 탭 자동 노출과 touch target을 검증했다. |
 | 제어·통계 탭 공통 UI | 완료(소프트웨어 UI) | 통계 상단의 밑줄형 탭을 공통 `UnderlineNavigation`으로 분리하고, 제어의 수동·스케줄·이벤트 탭에 선택적 아이콘을 유지한 채 같은 모양과 반응형 계약을 적용했다. 390·320·760px에서 세 모드의 44px 탭, 16px panel 간격, 가로 스크롤과 내부 focus ring을 확인했고 Web unit 652개, 관련 Chromium 51개, typecheck와 production build를 통과했다. 기존 500kB 초과 bundle 경고와 수동 브라우저 시각 QA는 남아 있다. |
-| 통계 분석 P0-P2 구현 | 진행 중(P0·P1 사용량 분석 완료·소프트웨어) | P0 `/statistics/overview`의 기간별 절감 비교에 이어 P1 `/statistics/analysis`의 조명·층·그룹 순위, 사용량/비용/기여도/조명당 평균, 이전 동기간·일별·조명 구성 drill-down을 구현했다. 분석 identity와 유효기간 dimension/membership, DST-safe 시간별 dual-write, 운영 객체 삭제 후 일별 이력 보존, 24개월/10,000행 bounded retention을 추가했다. 현재 focused 검증은 API energy 85 passed/환경 의존 2 skipped, Web 630, Chromium 11개와 production build를 통과했다. main bundle은 1,250.96 kB/gzip 373.99 kB로 기존 500 kB 경고가 남는다. migration 이전 차원 이력은 현장 총계에만 포함하며 실제 전력계·Raspberry Pi·ESP32-H2 HIL은 실행하지 않았다. 최적화(운영시간·낭비·목표/예산)는 사용자 요청으로 제외했고 P2·P3는 보류한다. |
+| 통계 분석 P0-P2 구현 | 완료(P0·P1·P2-A/B 소프트웨어) | P0 기간별 절감 비교, P1 조명·층·그룹 순위와 상세, P2-A 시간대 히트맵과 P2-B 표준 보고서/CSV를 구현했다. 분석 identity와 유효기간 dimension/membership, DST-safe 시간별 dual-write, 운영 객체 삭제 후 일별 이력 보존, 24개월/10,000행 시간별 retention 및 7일/90일 보고서 retention을 제공한다. 최신 검증은 위 P2 행을 따르며 main bundle은 1,268.64 kB/gzip 378.67 kB로 기존 500 kB 경고가 남는다. migration 이전 차원 이력은 현장 총계에만 포함하며 실제 전력계·Raspberry Pi·ESP32-H2 HIL은 실행하지 않았다. 최적화(운영시간·낭비·목표/예산)와 P2-C는 제외했고 P3는 보류한다. |
 | 현장 유저 관리 Task 1~9 | 완료(소프트웨어) | admin이 현장 일반 유저를 최대 100명까지 생성·수정·비활성화·재활성화·비밀번호 초기화·영구 삭제하며, 시스템 role `viewer`와 현장 `read | control` capability를 분리했다. mock Chromium 4개는 전체 관리 여정, 중복/100명 제한, 최초 변경 전 보호 API 403, read/control/admin의 exact 주·설정 메뉴, 일반 유저의 `/settings/users` 차단과 수동 제어 권한을 검증했다. 격리 PostgreSQL/API Chromium 1개는 실제 `403 PASSWORD_CHANGE_REQUIRED`, 변경 후 read 메뉴·직접 route 차단, 비활성화 PATCH 200/`disabled`, 현재 세션의 다음 보호 요청 401과 재로그인 거절을 검증했다. React Query cache는 API/View 단위 테스트가 별도로 검증하며 실제 Gateway/ESP32-H2 하드웨어 검증은 포함하지 않는다. |
 | 맵 배치 Task 8 식별 통신/펌웨어 | 완료(소프트웨어) | 등록 후 Health Attention API/MQTT/Gateway 경로, 단일 대상·session·10초 만료·인증/lease·중복/재시작 차단과 펌웨어 최신 밝기 복귀를 구현했다. Gateway 613, API 801(환경 의존 172 skip), Shared 172, 식별 API/실DB·Redis 17, Docker/ACL 24 및 API/Gateway build를 통과했다. Main 관련 Gateway 12/API 17 재실행 통과. 실제 broker/RF/LED 식별은 미검증이다. |
 | 맵 배치 Task 1/10 및 등록 서버 분리 | 완료(소프트웨어) | 기존 좌표 보존 migration, 신규 미배치, V1/V2 snapshot, 배치와 장비/에너지 분리, 1 MiB PUT와 묶음 저장을 구현했다. Shared 172, API 800(환경 의존 170 skip), 격리 DB/HTTP 18 및 API typecheck/build, 독립 코드 검토를 통과했다. 1,000 fixture/2,000 object 100회 저장 p95 425ms, 복구 485ms. 사용자 DB 적용과 실장비 검증은 미실행이며 웹 통합은 완료했다. |
@@ -72,7 +75,7 @@
 ### Calm Operations 최종 검증
 
 - Task 8 fix round 4 검증은 registration unit `25 passed`, 네 viewport commissioning Chromium `5 passed`, 전체 Web `441 passed`, 전체 tracked Chromium 직렬 실행 `136 passed / 3 environment-gated skipped`, typecheck와 production build를 통과했다. 전체 session terminal 의미와 batch-before-individual touch 검사를 회귀로 고정했다. 전체 Chromium은 실백엔드 lab의 shared output 재생성과 fixture Vite 접근이 겹치는 기존 병렬 경합 때문에 직렬 실행하며, development proxy 종료 시점 `socket hang up` 경고를 실제 backend/HIL 증거로 확대하지 않는다.
-- deterministic Chromium route fixture는 네 viewport의 monitoring/control/statistics/floor editor overflow, 설정 desktop hover·focus·자연스러운 키보드 이동과 coarse bottom sheet, empty/partial/danger 상태를 자동 검사한다. 이번 Task에서는 사람의 in-app Browser inspection을 수행하지 않았으며 자동 Chromium 통과와 수동 시각 QA를 같은 증거로 취급하지 않는다.
+- deterministic Chromium route fixture는 네 viewport의 monitoring/control/statistics/floor editor overflow, 설정 상단 탭의 역할별 노출·자연스러운 키보드 이동·모바일 가로 스크롤과 활성 탭 자동 노출, empty/partial/danger 상태를 자동 검사한다. 이번 Task에서는 사람의 in-app Browser inspection을 수행하지 않았으며 자동 Chromium 통과와 수동 시각 QA를 같은 증거로 취급하지 않는다.
 
 ### 모니터링
 
@@ -89,7 +92,9 @@
 ### 통계
 
 - 상태 이벤트 기반 오늘·월·년 집계, 일·월 차트, 180초 projection, 예상 비용과 24시간 100% 기준 절감량 및 조명·층·그룹 사용량 분석을 구현했다.
-- 최적화(운영시간·낭비·월 목표/예산)는 이번 P1 범위에서 제외했으며 migration 이전 차원 이력은 순위로 복원하지 않는다.
+- P2-A 히트맵과 P2-B 보고서/CSV는 구현했다. P2-C 탄소·배출 계수/계산/route/schema/UI와 최적화(운영시간·낭비·월 목표/예산)는 제외했으며 migration 이전 차원 이력은 순위로 복원하지 않는다. 보고서 정리 backlog 또는 저장소 장애 시 물리 삭제가 지연되고, 현장 삭제 준비 단계가 실패하면 운영자의 삭제 재시도가 필요하다. 늦은 PUT 회수를 위한 키-only 원장은 자동 삭제하지 않으므로 원장 크기와 반복 DELETE 비용을 운영 규모에 맞춰 관리해야 한다.
+- 표준 보고서 비용은 저장된 일별 비용만 합산한다. 과거 적용 단가·원천 산출식의 연결 증거가 없어 `데이터 없음`으로 표시하며 현재 단가로 재계산하지 않는다. 날짜/시간 경계를 가로지르는 일별/시간별 집계는 층·그룹에 비례 배분하지 않으므로 순위 합계와 현장 총계가 다를 수 있다. 이미 저장된 불변 문서는 재작성하지 않는다.
+- `조명 💡`, NFC 한글과 지원되는 결합 악센트는 동일 내용으로 XLSX/PDF에 보존한다. NBSP·VS16·ZWJ 등 미지원 문자와 NFD 한글의 자동 조합처럼 전체 글꼴 구간의 추출 원문이 바뀌는 문자열은 보고서 접수/CSV에서 동일하게 거부한다. 검사는 범위·기간·저장 사실을 반영한 최종 문서에만 적용하며 무관한 과거 이름은 유효한 보고서를 막지 않는다. 대상 API는 보존 불가능한 반환 label만 제외한다. 정확한 접수 검증을 위해 Site 잠금 밖의 read-only 사전 집계 조회가 추가되며 worker의 불변 snapshot은 별도로 한 번 저장한다. 글꼴 확장과 추출 회귀 보강은 후속 범위다.
 - 실제 ESP32-H2 상태 publication을 장시간 수집하는 HIL은 실행하지 않았다.
 
 ### 계정 인계

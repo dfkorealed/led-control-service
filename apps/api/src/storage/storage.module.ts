@@ -13,6 +13,7 @@ import {
       provide: OBJECT_STORAGE_OPTIONS,
       useFactory: (): ObjectStorageOptions => ({
         bucket: process.env.OBJECT_STORAGE_BUCKET ?? "floor-assets",
+        reportBucket: process.env.OBJECT_STORAGE_REPORT_BUCKET ?? "energy-reports",
         publicBaseUrl: process.env.OBJECT_STORAGE_PUBLIC_URL ?? "http://localhost:9000/floor-assets"
       })
     },

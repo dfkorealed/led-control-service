@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import {
@@ -137,6 +138,21 @@ test("통합 로컬 개발 명령은 Docker 인프라를 먼저 시작한 뒤 �
   const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
   assert.equal(packageJson.scripts["dev:local"], "pnpm docker:up && pnpm dev");
+});
+
+test("MinIO 초기화는 전체 버킷 생성 절차를 하나의 셸 스크립트 인자로 전달한다", () => {
+  const result = spawnSync("docker", ["compose", "config", "--format", "json"], {
+    cwd: new URL("..", import.meta.url),
+    encoding: "utf8"
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  const compose = JSON.parse(result.stdout);
+  const command = compose.services["object-storage-init"].command;
+  assert.equal(command.length, 1);
+  assert.match(command[0], /until mc alias set[\s\S]+do sleep 2; done/);
+  assert.match(command[0], /mc mb --ignore-existing[\s\S]+energy-reports/);
+  assert.match(command[0], /mc anonymous set none/);
 });
 
 test("추가 인자가 있어도 제품 개발 프로세스만 실행한다", () => {

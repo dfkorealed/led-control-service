@@ -530,7 +530,8 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: "맵 관리" })).toBeInTheDocument();
     expect(window.location.search).toBe("?siteId=site-2");
     expect(screen.getByRole("link", { name: "설정" })).toHaveAttribute("href", "/settings?siteId=site-2");
-    expect(screen.queryByLabelText("설정 메뉴")).not.toBeInTheDocument();
+    const settingsTabs = screen.getByRole("navigation", { name: "설정 메뉴" });
+    expect(within(settingsTabs).getByRole("link", { name: "맵 관리" })).toHaveAttribute("aria-current", "page");
     expect(screen.queryByRole("link", { name: "설치 및 시운전" })).not.toBeInTheDocument();
   });
 

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { StrictMode } from "react";
 import { BrowserRouter, Link, MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -528,7 +528,7 @@ describe("FloorEditorRoute", () => {
     expect(screen.getByTestId("location")).toHaveTextContent("/settings?siteId=site-2");
   });
 
-  it("opens the coarse settings disclosure without discarding a dirty draft and guards only submenu navigation", async () => {
+  it("guards the coarse settings link with the same dirty-draft confirmation", async () => {
     vi.stubGlobal("matchMedia", vi.fn((query: string) => ({
       matches: query === "(hover: none), (pointer: coarse)",
       media: query,
@@ -552,28 +552,19 @@ describe("FloorEditorRoute", () => {
     fireEvent.click(screen.getByRole("button", { name: "수정" }));
     await waitFor(() => expect(window.history.state?.[dirtyEditorSentinelKey]).toBeTruthy());
 
-    fireEvent.click(screen.getByRole("button", { name: "설정" }));
-
-    const settingsNavigation = screen.getByRole("navigation", { name: "설정 메뉴" });
-    expect(confirm).not.toHaveBeenCalled();
-    expect(screen.getByRole("heading", { name: "B2 맵 편집" })).toBeInTheDocument();
-    expect(screen.getByTestId("location")).toHaveTextContent("/settings/floor-plans/floor-b2/edit?siteId=site-2");
-    expect(useFloorEditorStore.getState()).toMatchObject({ state: dirtyDraft, isDirty: true });
-
-    const securityLink = within(settingsNavigation).getByRole("link", { name: "비밀번호 변경" });
-    fireEvent.click(securityLink);
+    const settingsLink = screen.getByRole("link", { name: "설정" });
+    fireEvent.click(settingsLink);
 
     expect(confirm).toHaveBeenCalledOnce();
-    expect(screen.getByRole("navigation", { name: "설정 메뉴" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "B2 맵 편집" })).toBeInTheDocument();
     expect(screen.getByTestId("location")).toHaveTextContent("/settings/floor-plans/floor-b2/edit?siteId=site-2");
     expect(useFloorEditorStore.getState()).toMatchObject({ state: dirtyDraft, isDirty: true });
 
     confirm.mockReturnValue(true);
-    fireEvent.click(securityLink);
+    fireEvent.click(settingsLink);
 
-    expect(await screen.findByRole("heading", { name: "보안 설정" })).toBeInTheDocument();
-    expect(screen.getByTestId("location")).toHaveTextContent("/settings/security?siteId=site-2");
+    expect(await screen.findByRole("heading", { name: "설정 개요" })).toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent("/settings?siteId=site-2");
     expect(useFloorEditorStore.getState()).toMatchObject({ state: editorState, initialState: editorState, isDirty: false });
   });
 

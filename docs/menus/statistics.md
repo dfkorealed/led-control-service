@@ -1,13 +1,32 @@
 # 통계 메뉴 기능 현황
 
-기준일: 2026-09-11
+기준일: 2026-09-12
 
 ## 구현 완료
 
 - 공통 고객 셸 상단은 현재 메뉴 제목과 실제 현장명 배지만 표시한다. 기존 층명 기반 `B2 주차장` 표기와 동작 없는 Gateway 정상·오프라인·미등록 상태 배지는 제거하되 설정의 `Gateway 상태` 상세 카드는 유지한다. 로그아웃 위치와 인증·dirty editor 확인 로직은 유지하고, 고객·운영자 셸의 로그아웃은 공통 `IconTooltipButton`으로 아이콘만 표시한다. `로그아웃` 도움말은 hover와 키보드 focus에서 열리고 도움말 위로 포인터를 옮겨도 유지되며 `Escape`로 닫힌다. 모바일 버튼은 52px 실제 터치 영역을 사용한다.
 
+- P2 표준 보고서는 저장된 일별 전력량·비용을 요약/일별 표/조명·층·그룹 순위에 포함하고, 직전 동일 일수의 저장 합계와 차이·변화율을 함께 제공한다. 이전 값이 0이거나 없는 변화율은 `데이터 없음`이며 비용 0과 비용 없음은 구분한다. 과거 적용 단가·원천 산출식은 일별 집계와 연결된 증거가 없으므로 `데이터 없음`으로 명시하고, 현재 단가를 소급 적용하지 않는다. 두 형식은 같은 집계 출처·합산식·반올림 설명까지 포함한다.
+- 현장 보고서 총계는 분석 이력 수집 전과 조명 종료 날짜의 저장된 일별 사실을 보존한다. 하루 전체의 소속/이름 이력이 확정되지 않는 값은 순위와 층·그룹 일별 표에 임의 배분하지 않는다. 실제 이전 schema에 일별 1.25 kWh/187.5원과 비교 기간 값을 넣은 뒤 전체 migration을 진행하는 회귀에서 합계·차이·변화율과 양 형식 manifest를 확인했다.
+- 히트맵은 `bucketStartUtc`와 전체 유효 시작/종료 시각을 보존해 한 UTC 시간 전체가 같은 소속인 경우만 층·그룹에 포함한 뒤 요일/현지 시간으로 합친다. 정오 이동 전 09시와 이동 후 15시는 다른 층·그룹으로 귀속되고, 한 시간 안에서 소속이 바뀐 버킷은 비례 배분하지 않는다. 보고서 스냅샷도 같은 정밀도를 유지하며 DST 반복 시간은 동일 셀에 합산한다.
+- `GET /energy/sites/:siteId/report-targets`는 read 권한 확인 뒤 현장 IANA timezone, 마지막 완료 현지 날짜, 운영 ID와 구분되는 분석용 조명/그룹 identity 및 보존된 과거 대상을 반환한다. 보고서 화면은 summary 대시보드 대신 이 전용 query를 사용한다. 날짜 기본값은 완료 전일까지 30일이며 종료일 max도 완료 전일이다. 로딩·오류·빈 대상 상태에서는 CSV/보고서 요청을 막고, 서버도 현재 현지 날짜와 다른 현장의 대상/운영 ID를 작업 수락 전에 거절한다. KST 자정과 뉴욕 DST 전환 경계를 실제 DB service/API 회귀로 확인했다.
+- PDF는 고정된 OFL Noto Sans KR와 Noto Emoji 보조 글꼴을 포함해 `조명 💡`, NFC 한글·라틴/그리스/키릴·일본 문자와 지원되는 결합 악센트를 원문 그대로 출력한다. 실제 글꼴별 페이지 텍스트에서 추출한 값이 XLSX와 같음을 검증한다. code point뿐 아니라 실제 PDF 열 폭·크기·줄바꿈 및 보조 글꼴 구간으로 나눈 각 출력 줄의 shaping 결과도 확인한다. NFD 한글의 자동 조합처럼 원문 추출이 바뀌는 경우만 두 형식/CSV를 같은 `400`으로 거절하며, 원문을 보존하는 짧은 영문/NFD 혼합 문자열까지 일괄 거절하거나 PDF에서만 바꾸지 않는다.
+- 문자 검사는 선택 범위·기간·저장 사실로 구성한 최종 문서에만 적용한다. 관련 없는 퇴역 조명의 과거 NBSP 이름은 현재 조명 보고서를 막지 않는다. 대상 API는 반환 label을 보존할 수 없는 항목만 결정적으로 제외하고 다른 유효한 대상은 계속 반환한다. 실제 DB 회귀에서 과거 문제 이름을 유지한 채 현재 보고서 1 kWh/150원과 XLSX/PDF 동일 manifest를 확인했다.
+- 보고서 정리는 완료 파일의 7일 만료와 생성 후 90일 메타데이터 보관을 적용한다. 최종 `objectKey`와 무관하게 허용된 1·2·3회 키를 비공개 회수 원장에 예약하고, 60초마다 최대 50개를 `SKIP LOCKED`·30초 소유권 임대로 처리한다. S3 DELETE는 DB 잠금 밖에서 실행하며 짧은 후속 transaction이 소유자·임대를 재검사한다. 부분 실패나 정리 worker의 임대 상실 시 메타데이터·참조를 유지한다. 키만 저장하는 원장은 메타데이터 삭제/cascade/이전 정리 성공 뒤에도 영구 반복 회수하여 구버전 worker를 포함한 늦은 PUT을 제거한다. 삭제 barrier가 없는 활성 작업과 유효한 완료 파일은 대상이 아니다.
+- 현장 삭제는 모든 보고서 시도 키를 `SiteDeletionCleanup`과 독립 `EnergyReportObjectCleanup`에 먼저 보존하고 신규 생성·worker claim을 차단한다. 생성/claim은 Site 잠금 뒤 새로운 DB 조회로 barrier를 재확인한다. 처리 중 작업은 `409`로 보류하며 worker 복구·종료 후 재시도한다. 기존 barrier 아래 남은 processing도 임대 만료 후 종료 상태로 회수해 영구 대기를 막는다. DB 잠금을 해제한 뒤 파일을 삭제하고, 저장소 오류 시 `503`으로 현장·보고서 행을 보존한다. 파일 삭제 성공 뒤에만 현장을 cascade 삭제한다. 기존 도면·인증서 정리가 완료되어도 별도 보고서 원장은 반복 회수한다. cascade 전 중단된 단계는 운영자의 현장 삭제 재시도로 이어간다.
+- DB DELETE 트리거는 migration 완료 뒤 구버전 인스턴스가 runtime 원장 기록 없이 직접 삭제·90일 purge·Site cascade를 수행해도 고정된 3개 시도 키를 같은 transaction에 보존한다. 기존 reaper 임대는 유지하고 이후 늦게 올라온 파일도 비공개 반복 회수 대상에 남긴다.
+- Chromium 21개 통계 시나리오로 히트맵 168셀의 0/데이터 없음·키보드 선택·밝기 전환, 분석 identity 대상 선택/완료 날짜 상한, 보고서 두 형식의 생성/진행/완료/다운로드와 실패·만료 재생성을 검증했다. 1440/1024/390/320px에서 문서 가로 넘침 부재와 조작 영역을 확인했다. 숨김 텍스트의 위치를 셀 안에 고정하고 둥근 버튼을 48px로 넓혀 실제로 닿는 44×44px 영역을 확보했다. 보고서 폼·닫기 버튼도 같은 터치 검사를 통과한다.
+- 브라우저 다운로드 fixture는 실제 서버 렌더러가 만든 XLSX/PDF 바이트를 제공하고, 두 파일에서 다시 추출한 순서 있는 manifest가 동일 문서의 모든 scalar와 일치함을 검증한다. 다운로드한 파일도 그 바이트와 동일하다. 보고서 출력에 예상·추정·coverage·known/unknown·forecast·baseline·탄소/배출 내용이 없음을 검사했다. UI 작업 상태와 파일 서버는 결정적인 fixture이고 실제 API/DB worker 통합·MinIO 검증과 구분한다.
+- 활성 보고서의 정확한 3초 polling과 완료·실패·만료 뒤 중단은 가상 시간 회귀로 확인했다. CSV 클릭 예외에서도 임시 anchor와 blob URL을 `finally`에서 해제한다.
+- 보고서 생성 API는 고유 인덱스 충돌 직후 선행 작업이 종료되어 활성 조회에서 사라져도 최대 3회의 INSERT 시도로 새 작업을 생성한다. 계속 경합하면 재요청 가능한 `409`를 반환하며 원시 DB 오류를 노출하지 않는다. worker 종료 중 대기하던 DB claim이 반환되어도 새 스냅샷 조회나 heartbeat를 시작하지 않고, 이미 확보된 작업은 기존 임대 만료 후 복구할 수 있게 둔다.
+- P2 보고서 서버 렌더러는 고정된 `EnergyReportDocument`의 제목·메타데이터·섹션·원시값·표시값·행 순서·fingerprint를 같은 순회로 XLSX/PDF에 기록한다. XLSX 숫자 셀을 유지하고 PDF에는 저장소의 OFL Noto Sans KR 폰트를 포함한다. 파일을 다시 읽은 셀/페이지 글리프 manifest를 문서와 대조하며, 긴 한글 이름과 A4 페이지 분할을 검증한다. CRLF 원문을 두 형식에서 보존하고, PDF는 실제 페이지·텍스트 좌표·연속 조각 순서로 행을 검증하여 페이지나 행 교환을 감지한다.
+- `/statistics/reports`는 기간과 현장·조명·층·그룹 범위를 선택해 XLSX 또는 PDF의 동일한 표준 보고서를 요청한다. 비현장 범위의 대상 정보가 로딩 중이거나 비어 있으면 대상 상태를 알리고 보고서·CSV 요청을 막아 현장 ID를 다른 범위 identity로 대체하지 않는다. 목록은 대기·생성 중·완료·실패·만료 상태를 표시하며, 활성 작업만 3초마다 갱신한다. 완료 파일의 서명 URL은 다운로드 클릭 때만 받아 캐시에 보관하지 않고, 실패·만료 작업은 재생성 중복을 막고 실패 피드백을 제공한다. 같은 기간·범위는 CSV 내보내기에도 사용하며 응답 첨부 파일을 즉시 다운로드한다.
+- `POST /energy/sites/:siteId/reports`는 strict 공통 요청을 받아 `202` 작업을 반환하고 현장·요청자·동일 요청의 활성 작업을 중복 생성하지 않는다. 목록(최신 50개), 상세, 다운로드 API는 데이터 조회 전에 현장 read 권한을 검사하고 다른 현장의 보고서 ID는 `404`로 숨긴다. worker가 첫 시도에서 완료된 날짜의 문서를 저장하고 이후 재시도는 이 저장 문서만 렌더링한다. PostgreSQL `SKIP LOCKED`, 30초 임대·10초 갱신, 최대 3회 시도와 살아 있는 소유자/시도 번호 검증을 적용한다.
+- 보고서는 공개 도면과 분리된 비공개 버킷의 시도별 키에 업로드한다. 25 MB 상한과 HEAD 크기·MIME·SHA-256 검증 후 7일 만료 시각을 저장하며, 완료·미만료 파일만 안전한 파일명의 300초 서명 URL로 제공한다. 보고서 API와 파일은 no-store이고, `GET /energy/sites/:siteId/exports/csv`는 공통 문서의 메타데이터·표·표시값을 UTF-8 BOM, CSV 인용, 수식 접두어 방어를 적용해 행 단위 스트림으로 내보낸다.
+- 로컬 MinIO 초기화는 전체 셸 절차를 `sh -c`의 단일 인자로 전달해 공개 도면용 `floor-assets`와 비공개 보고서용 `energy-reports` 버킷을 빠짐없이 만든다. Compose가 명령을 여러 인자로 분리해 초기화 컨테이너가 종료 코드 2로 실패하던 회귀를 실제 `docker compose config` 결과로 고정했다. 수정 후 초기화 컨테이너 종료 코드 0, 두 버킷 존재, 보고서 버킷의 private 정책을 확인했고, 이전과 동일한 현장 XLSX 요청을 새 작업으로 생성해 첫 시도 완료와 68,757바이트 파일 다운로드를 검증했다. 기존 실패 작업은 장애 이력으로 보존한다.
+- 사용량 분석은 선택한 조명·층·그룹 순위 항목을 scope로 하는 P2 시간대 히트맵을 제공한다. 현장 timezone을 받은 뒤에만 최근 완료 28일을 조회하며, 에너지/밝기 전환, 7×24 시간대 버튼, 실제 0과 수집 데이터 없음의 구분, 선택 상세·재시도·빈 상태를 제공한다. 시간대 버튼과 지표 전환은 최소 44px 조작 영역이며, 좁은 화면의 24열 표는 카드 내부에서만 가로 스크롤한다.
 - 통계 상단 메뉴의 밑줄형 시각·반응형 계약을 공통 `UnderlineNavigation`으로 분리해 제어 메뉴와 공유한다. 통계의 `NavLink`, query/hash 보존과 무아이콘 표현은 그대로 유지하며, 공통 label은 필요한 소비자만 장식 아이콘을 넣을 수 있다. Chromium computed style 비교와 공통 내부 focus ring 검증으로 제어 탭과 같은 시각 계약을 확인했다.
-- 통계 route를 `StatisticsShell` 아래의 서브메뉴 구조로 분리했다. `개요`와 P1 `사용량 분석`을 노출하며 `/statistics`와 알 수 없는 하위 route는 query/hash를 보존해 `/statistics/overview`로 replace 이동한다. 주 메뉴의 통계 active 상태는 모든 통계 하위 route에서 유지된다.
+- 통계 route를 `StatisticsShell` 아래의 서브메뉴 구조로 분리했다. `개요`, P1 `사용 분석`, P2 `보고서`만 노출하며 `/statistics`와 알 수 없는 하위 route는 query/hash를 보존해 `/statistics/overview`로 replace 이동한다. 주 메뉴의 통계 active 상태는 모든 통계 하위 route에서 유지된다.
 - `/statistics/analysis`에서 조명·층·그룹 단위를 전환하고 사용량, 예상 비용, 현장 기여도, 조명당 평균 기준으로 최대 400일을 높은 순/낮은 순 정렬한다. 순위 목록은 수집률과 포함 조명 수를 표시하고 선택 항목의 사용량·비용·기여도, 이전 동일 기간 변화, 일별 추이와 조명별 구성을 상세 패널에 제공한다.
 - `GET /energy/sites/:siteId/rankings`는 strict shared query/response 계약을 사용하고 `read` 권한을 데이터 조회 전에 확인한다. 수집률 80% 미만 또는 구조 이력을 신뢰할 수 없는 항목은 별도 `unranked`로 반환하며, 그룹 중복 소속 합계가 현장 총계와 같지 않을 수 있음을 응답과 화면에서 알린다.
 - 운영 `Fixture`/`FixtureGroup`과 분석 identity를 분리하고 이름·층·정격 W 및 그룹 membership의 유효기간 이력을 저장한다. 신규 조명 확정, 도면의 이름·정격 W 변경, 그룹 생성·수정·retire가 운영 변경과 같은 transaction에서 이력을 갱신한다. migration 이전 일별 합계는 현장 총계에는 포함하지만 당시 차원을 복원하지 않고 순위에서 제외한다.
@@ -64,15 +83,18 @@
 - 실제 전력계 기반 사용량 수집
 - 전기요금 단가/요금제 설정 연동
 - 피크/경부하/중간부하 시간대 요금제
-- CSV/Excel/PDF 내보내기
+- P2-C 탄소·배출 계수, 배출량 계산과 관련 route/schema/UI
 - 운영 시간·비운영 시간 낭비 분석 및 월 목표/예산을 포함한 최적화 기능(P1에서 제외)
 
 ## 부족하거나 개선이 필요한 기능
 
+- 보고서 파일의 7일 만료는 조회·다운로드에서 즉시 적용하며 물리 삭제는 60초 정리 주기와 backlog·저장소 상태에 따라 늦을 수 있다. 원장별 최대 3회 DELETE는 각 4초 제한이며 DB transaction 밖에서 수행한다. PUT 10초·HEAD 4초 제한은 네트워크 보호일 뿐 정지한 프로세스의 미래 PUT을 막는 증거로 쓰지 않는다. 회수 원장은 자동 삭제하지 않으므로 크기와 반복 DELETE 비용이 보고서 수에 따라 증가한다. 요청/문서 데이터는 원장에 포함하지 않는다. 매우 많은 보고서가 있는 현장의 삭제는 전체 시도 키 목록과 순차 저장소 삭제에 시간이 걸릴 수 있다.
+- `OBJECT_STORAGE_REPORT_BUCKET`은 공개 도면 버킷과 달라야 하며 운영 저장소에서도 익명 읽기가 없는 버킷을 별도로 준비해야 한다. 로컬 compose는 기본 `energy-reports` 버킷에 익명 접근 금지를 적용한다. 보고서 스냅샷과 생성 파일은 서버 메모리에 존재하며 CSV 출력 문자열만 스트리밍한다. 작업 수락 전 Site 잠금 밖의 read-only 사전 조회로 실제 문서를 만들어 날짜·대상·출력 문자 지원 여부를 확인하고 폐기한다. 따라서 접수에도 집계 조회 비용이 추가되며 worker는 첫 시도에서 별도의 한 transaction으로 불변 스냅샷을 저장하고 재검사한다. 수락 이후 데이터 변경이나 저장소 오류로 생성이 실패할 수 있다.
+- 글꼴 지원은 Unicode 전체가 아니다. 최종 출력에 있는 NBSP(U+00A0), VS16(U+FE0F), ZWJ(U+200D), NFD 한글의 자동 조합 등 원문 왕복이 불가능한 문자/문자열은 `400 Unsupported report …`로 거절한다. NFC 한글과 지원되는 결합 악센트·emoji는 허용하며 무관한 이력 이름을 이유로 거절하지 않는다. 이미 저장된 보고서 문서는 불변 원본을 유지하며 새 비용/정밀 이력 규칙의 문서는 같은 기간으로 새로 요청한다.
 - 24시간·100% 기준선은 조회 시점의 현재 등록 조명과 정격 W를 사용한다. 조회 기간 중 등록·삭제·정격 변경이 있었다면 당시 조명 구성으로 소급 보정하지 않으므로 장기 비교의 절대값 해석에 주의해야 한다.
 - 직전·전년 동기간 비교는 현재 누적 이력의 구조를 그대로 사용하고 과거 조명 구성 변경을 복원하지 않는다. 현재 응답의 history quality는 `legacy_structure_unknown`이며, 이력 snapshot을 도입하기 전까지 구성 효과와 실제 운영 절감 효과를 분리할 수 없다.
 - P0/P1은 상태 이벤트와 정격 전력 기반의 소프트웨어 추정 기능이다. 실제 전력계·Raspberry Pi·ESP32-H2·BLE Mesh 상태 publication을 장기간 함께 사용한 절감률·순위 HIL은 이번 작업에서 실행하지 않았다.
-- 사용량 분석(P1)은 구현했다. 운영시간·낭비·목표/예산과 `/statistics/optimization`은 사용자 요청에 따라 이번 범위에서 제외했고, P3 보고서/내보내기도 보류한다.
+- 운영시간·낭비·목표/예산과 `/statistics/optimization`은 사용자 요청에 따라 이번 범위에서 제외했다.
 - migration 이전에 이미 쌓인 일별 사용량은 당시 층·그룹 구조를 알 수 없으므로 현장 총계에만 포함한다. 시간별 집계는 migration 이후 상태 이벤트부터 쌓이며 일별 데이터를 시간별로 가짜 변환하지 않는다.
 - 공통 간격 토큰과 배치 규칙은 통계 메뉴에만 1차 적용했다. 모니터링·제어·설정의 기존 임의 간격은 각 메뉴 개선 시 동일한 규칙으로 전환해야 한다.
 - 공통 우측 패널의 반응형·overflow 계약은 Chromium 1440/1024/390/320px route fixture로 검증했으며 실제 모바일 WebView safe-area와 브라우저별 scrollbar 표현은 별도 실측이 필요하다.
@@ -86,6 +108,30 @@
 
 ## 관련 파일
 
+- `apps/api/src/energy/reports/energy-report-targets.service.ts`
+- `apps/api/src/energy/reports/energy-report-upgrade.integration.spec.ts`
+- `apps/api/src/energy/reports/report-text.ts`
+- `apps/api/src/energy/reports/report-pdf-layout.ts`
+- `apps/api/src/energy/reports/energy-csv-export.service.ts`
+- `apps/api/src/energy/reports/energy-report-jobs.service.ts`
+- `apps/api/src/energy/reports/energy-report-worker.service.ts`
+- `apps/api/src/energy/reports/energy-report-cleanup.service.ts`
+- `apps/api/src/energy/reports/energy-report-cleanup.service.spec.ts`
+- `apps/api/src/operator-site-admins/site-deletion-cleanup.service.ts`
+- `apps/api/test/support/render-report-browser-fixtures.ts`
+- `apps/api/src/energy/reports/energy-report-api.spec.ts`
+- `apps/api/src/storage/object-storage.service.ts`
+- `apps/api/src/storage/storage.module.ts`
+- `.env.example`
+- `docker-compose.yml`
+- `scripts/dev-runtime.test.mjs`
+- `apps/api/src/energy/reports/report-renderer.ts`
+- `apps/api/src/energy/reports/excel-energy-report.renderer.ts`
+- `apps/api/src/energy/reports/pdf-energy-report.renderer.ts`
+- `apps/api/src/energy/reports/pdf-report-manifest.ts`
+- `apps/api/src/energy/reports/pdf-report-order.ts`
+- `apps/api/src/energy/reports/excel-report-xml.ts`
+- `apps/api/src/assets/fonts/README.md`
 - `apps/web/e2e/site-user-management.spec.ts`
 - `apps/api/src/access/site-access.service.ts`
 - `docs/ui-spacing.md`
@@ -97,6 +143,13 @@
 - `apps/web/src/features/statistics/StatisticsOverviewPage.tsx`
 - `apps/web/src/features/statistics/StatisticsOverviewPage.test.tsx`
 - `apps/web/src/features/statistics/analysis/StatisticsAnalysisPage.tsx`
+- `apps/web/src/features/statistics/analysis/StatisticsAnalysisPage.test.tsx`
+- `apps/web/src/features/statistics/reports/StatisticsReportsPage.tsx`
+- `apps/web/src/features/statistics/reports/StatisticsReportsPage.test.tsx`
+- `apps/web/src/features/statistics/reports/ReportCreateDialog.tsx`
+- `apps/web/src/features/statistics/reports/ReportJobList.tsx`
+- `apps/web/src/features/statistics/analysis/EnergyHeatmap.tsx`
+- `apps/web/src/features/statistics/analysis/EnergyHeatmap.test.tsx`
 - `apps/web/src/features/statistics/analysis/EnergyRankingList.tsx`
 - `apps/web/src/features/statistics/analysis/EnergyRankingDetailPanel.tsx`
 - `apps/web/src/features/statistics/EnergyComparisonChart.tsx`

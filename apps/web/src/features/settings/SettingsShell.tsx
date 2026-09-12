@@ -1,14 +1,16 @@
 import { useCallback } from "react";
 import { Outlet } from "react-router-dom";
-import { useSites } from "../../api/queries";
+import { useSites, type SiteCapabilities } from "../../api/queries";
 import { SiteSwitcher } from "../sites/SiteSwitcher";
 import { useFloorEditorStore } from "../floor-editor/editor-store";
+import { SettingsSubnavigation } from "./SettingsSubnavigation";
 
 interface SettingsShellProps {
+  capabilities: SiteCapabilities;
   selectedSiteId?: string;
 }
 
-export function SettingsShell({ selectedSiteId }: SettingsShellProps) {
+export function SettingsShell({ capabilities, selectedSiteId }: SettingsShellProps) {
   const { data: sites = [] } = useSites();
   const isEditorDirty = useFloorEditorStore((store) => store.isDirty);
   const discardEditorChanges = useFloorEditorStore((store) => store.discardChanges);
@@ -28,6 +30,7 @@ export function SettingsShell({ selectedSiteId }: SettingsShellProps) {
           canSelectSite={canSelectSite}
         />
       </div>
+      <SettingsSubnavigation capabilities={capabilities} />
       <div className="settings-content">
         <Outlet />
       </div>

@@ -7,6 +7,8 @@ import { useFloorEditorStore } from "../floor-editor/editor-store";
 import { SettingsShell } from "./SettingsShell";
 import { SettingsView } from "./SettingsView";
 
+const manageCapabilities = { read: true, control: true, manage: true, commission: true };
+
 vi.mock("../../api/queries", () => ({
   useSites: () => ({ data: [
     { id: "site-1", name: "본사 주차장" },
@@ -25,7 +27,7 @@ function LocationProbe() {
 function RoutedSettingsShell() {
   const location = useLocation();
   const selectedSiteId = new URLSearchParams(location.search).get("siteId") ?? undefined;
-  return <SettingsShell selectedSiteId={selectedSiteId} />;
+  return <SettingsShell capabilities={manageCapabilities} selectedSiteId={selectedSiteId} />;
 }
 
 describe("SettingsShell", () => {
@@ -35,11 +37,11 @@ describe("SettingsShell", () => {
     useFloorEditorStore.setState({ isDirty: false });
   });
 
-  it("renders the site context and routed content without an internal settings sidebar", () => {
+  it("renders settings sections as top tabs with the routed content", () => {
     render(
-      <MemoryRouter initialEntries={["/settings/floor-plans?siteId=site-1"]}>
+      <MemoryRouter initialEntries={["/settings/floor-plans?siteId=site-1#map"]}>
         <Routes>
-          <Route path="/settings" element={<SettingsShell selectedSiteId="site-1" />}>
+          <Route path="/settings" element={<SettingsShell capabilities={manageCapabilities} selectedSiteId="site-1" />}>
             <Route path="floor-plans" element={<h2>맵 관리</h2>} />
           </Route>
         </Routes>
@@ -48,7 +50,32 @@ describe("SettingsShell", () => {
 
     expect(screen.getByRole("combobox", { name: "현장 선택" })).toHaveValue("site-1");
     expect(screen.getByRole("heading", { name: "맵 관리" })).toBeInTheDocument();
-    expect(screen.queryByLabelText("설정 메뉴")).not.toBeInTheDocument();
+    const tabs = screen.getByRole("navigation", { name: "설정 메뉴" });
+    expect(within(tabs).getByRole("link", { name: "설정 개요" })).toHaveAttribute(
+      "href",
+      "/settings?siteId=site-1#map"
+    );
+    expect(within(tabs).getByRole("link", { name: "맵 관리" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("filters settings tabs with the current site capabilities", () => {
+    const readCapabilities = { read: true, control: false, manage: false, commission: false };
+    render(
+      <MemoryRouter initialEntries={["/settings?siteId=site-1"]}>
+        <Routes>
+          <Route path="/settings" element={<SettingsShell capabilities={readCapabilities} selectedSiteId="site-1" />}>
+            <Route index element={<h2>설정 개요</h2>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const tabs = screen.getByRole("navigation", { name: "설정 메뉴" });
+    expect(within(tabs).getByRole("link", { name: "설정 개요" })).toHaveAttribute("aria-current", "page");
+    expect(within(tabs).getByRole("link", { name: "맵 관리" })).toBeInTheDocument();
+    expect(within(tabs).getByRole("link", { name: "비밀번호 변경" })).toBeInTheDocument();
+    expect(within(tabs).queryByRole("link", { name: "유저 관리" })).not.toBeInTheDocument();
+    expect(within(tabs).queryByRole("link", { name: "조명 등록" })).not.toBeInTheDocument();
   });
 
   it("설정 개요는 실제 데이터와 route action으로 네 카드를 표시한다", () => {
@@ -57,7 +84,7 @@ describe("SettingsShell", () => {
       <QueryClientProvider client={queryClient}>
         <MemoryRouter initialEntries={["/settings?siteId=site-1#fragment"]}>
           <Routes>
-            <Route path="/settings" element={<SettingsShell selectedSiteId="site-1" />}>
+            <Route path="/settings" element={<SettingsShell capabilities={manageCapabilities} selectedSiteId="site-1" />}>
               <Route index element={<SettingsView siteId="site-1" userRole="admin" />} />
             </Route>
           </Routes>
@@ -99,7 +126,7 @@ describe("SettingsShell", () => {
     render(
       <MemoryRouter initialEntries={["/settings/floor-plans?siteId=site-1"]}>
         <Routes>
-          <Route path="/settings" element={<SettingsShell selectedSiteId="site-1" />}>
+          <Route path="/settings" element={<SettingsShell capabilities={manageCapabilities} selectedSiteId="site-1" />}>
             <Route path="floor-plans" element={<LocationProbe />} />
           </Route>
         </Routes>

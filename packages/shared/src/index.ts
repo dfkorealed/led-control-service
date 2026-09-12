@@ -3,6 +3,7 @@ export * from "./automation-contracts";
 export * from "./domain";
 export * from "./energy-contracts";
 export * from "./energy-analytics-contracts";
+export * from "./energy-p2-contracts";
 export * from "./freshness";
 export * from "./gateway-contracts";
 export * from "./mqtt";

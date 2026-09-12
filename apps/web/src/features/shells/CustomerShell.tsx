@@ -24,6 +24,7 @@ import { PasswordSettingsView } from "../settings/security/PasswordSettingsView"
 import { SiteUsersView } from "../settings/users/SiteUsersView";
 import { StatisticsOverviewPage } from "../statistics/StatisticsOverviewPage";
 import { StatisticsAnalysisPage } from "../statistics/analysis/StatisticsAnalysisPage";
+import { StatisticsReportsPage } from "../statistics/reports/StatisticsReportsPage";
 import { StatisticsIndexRedirect, StatisticsShell } from "../statistics/StatisticsShell";
 import { SettingsNavigationItem } from "./SettingsNavigationItem";
 
@@ -219,9 +220,10 @@ export function CustomerShell({ user }: { user: AuthUser }) {
             <Route index element={<StatisticsIndexRedirect />} />
             <Route path="overview" element={<StatisticsOverviewPage />} />
             <Route path="analysis" element={<StatisticsAnalysisPage />} />
+            <Route path="reports" element={<StatisticsReportsPage />} />
             <Route path="*" element={<StatisticsIndexRedirect />} />
           </Route>
-          <Route path="/settings" element={<SettingsShell selectedSiteId={siteId ?? dashboard?.site.id} />}>
+          <Route path="/settings" element={<SettingsShell capabilities={capabilities} selectedSiteId={siteId ?? dashboard?.site.id} />}>
             <Route index element={<SettingsView userRole={user.role} siteId={siteId} />} />
             <Route
               path="users"

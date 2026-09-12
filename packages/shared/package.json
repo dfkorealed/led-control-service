@@ -42,6 +42,13 @@
       "require": "./dist/energy-analytics-contracts.js",
       "import": "./dist/esm/energy-analytics-contracts.js",
       "default": "./dist/energy-analytics-contracts.js"
+    },
+    "./energy-p2-contracts": {
+      "types": "./dist/esm/energy-p2-contracts.d.ts",
+      "browser": "./dist/esm/energy-p2-contracts.js",
+      "require": "./dist/energy-p2-contracts.js",
+      "import": "./dist/esm/energy-p2-contracts.js",
+      "default": "./dist/energy-p2-contracts.js"
     }
   },
   "scripts": {

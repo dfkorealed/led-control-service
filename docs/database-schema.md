@@ -1,6 +1,6 @@
 # 데이터베이스 테이블 구조
 
-작성일: 2026-09-10
+작성일: 2026-09-12
 
 이 문서는 현재 구현된 PostgreSQL/Prisma 데이터베이스 구조를 정리한다. 기준 파일은 `apps/api/prisma/schema.prisma`이며, 실제 DB 반영은 `apps/api/prisma/migrations`의 migration으로 관리한다.
 
@@ -16,6 +16,56 @@
 - 자동 제어: `GatewayAutomationConfiguration`, `LightingSchedule`, `LightingScheduleFixture`, `VehicleEventRule`, `VehicleEventSource`, `VehicleEventTarget`, `ManualOverride`, `ManualOverrideFixture`, `AutomationExecution`, `AutomationExecutionFixtureResult`
 - 감사/삭제 정리: `GatewayClaimAudit`, `AuditLog`, `SiteDeletionCleanup`
 - 조명 검색/등록: `ProvisioningSession`, `ProvisioningScanOutbox`, `ProvisioningDeviceOutbox`, `DiscoveredMeshNode`
+- 에너지 보고서: `EnergyReportJob` — 요청·데이터·문서 스냅샷과 비동기 생성/보관 상태, `EnergyReportObjectCleanup` — cascade/메타데이터 삭제 후에도 남는 비공개 파일 회수 원장
+
+### EnergyReportJob (P2 보고서)
+
+Migration: `20260912_statistics_p2_reports`. 상태 enum은 `queued`, `processing`, `completed`, `failed`, `expired`, 형식 enum은 `xlsx`, `pdf`다.
+
+| 필드 | 타입 | 의미 |
+| --- | --- | --- |
+| `id`, `siteId` | `String` | 보고서 ID, 현장 FK |
+| `requestedByUserId` | `String?` | 요청 사용자 FK, 사용자 삭제 시 SetNull |
+| `requestedByActorId`, `requestedByLoginIdSnapshot` | `String` | 사용자 삭제 후에도 유지하는 요청자 식별자와 로그인 ID |
+| `requestHash`, `format` | `String`, `EnergyReportFormat` | 정규화 요청 SHA-256, 파일 형식 |
+| `status`, `progressPercent`, `attemptCount` | enum, `Int`, `Int` | 상태, 0–100 진행률, 0–3 시도 횟수 |
+| `leaseOwner`, `leaseExpiresAt` | `String?`, `DateTime?` | worker 소유권과 만료 시각, 쌍으로 존재 |
+| `requestSnapshot` | `Json` | 생성 시 확정하는 불변 요청 |
+| `dataSnapshot`, `documentSnapshot` | `Json?` | 한 번만 채우는 집계 데이터와 순서가 확정된 공통 문서 |
+| `contentFingerprint` | `String?` | 문서 fingerprint 필드를 제외한 canonical JSON의 SHA-256 |
+| `objectKey`, `contentType`, `sizeBytes`, `contentSha256` | nullable String/Int | private object key, MIME type, 바이트 수, 파일 SHA-256 |
+| `failureCode` | `String?` | 외부 공개 가능한 실패 코드 |
+| `createdAt`, `updatedAt`, `startedAt`, `completedAt` | `DateTime`, 일부 nullable | 작업 수명주기 |
+| `expiresAt`, `objectDeletedAt` | `DateTime?` | 보관 만료와 실제 object 삭제 확인 시각 |
+
+`(siteId, requestedByActorId, requestHash) WHERE status IN ('queued', 'processing')` partial unique index는 같은 요청자의 실행 중 요청만 중복 방지한다. 완료·실패 후 재요청은 가능하다. 별도 상태/lease/생성 시각 index와 상태/만료/삭제 시각 index는 durable worker의 claim·회수·보관 정리에 사용한다. 최대 시도는 worker 상수 3과 DB check로 제한하며 변경 가능한 행별 설정은 두지 않는다.
+
+상태별 진행률·시각·lease·완료 object 필수 값은 SQL CHECK로 보호한다. 완료 문서는 데이터 스냅샷과 일치하는 fingerprint 필드를 함께 가져야 한다. SQL trigger는 요청·요청자 identity의 변경을 막고, 데이터·문서·fingerprint의 최초 저장 이후 변경/삭제를 막는다. 사용자 FK의 SetNull은 허용하며 요청자 스냅샷은 유지한다. 현장 삭제 시 행은 Cascade 삭제되므로 실제 현장 삭제 workflow에서 object 정리 대상을 삭제 전에 확보해야 한다.
+
+보고서 스냅샷은 한 `RepeatableRead` transaction에서 현장 timezone, 이력 차원과 완료된 현지 날짜의 persisted daily/hourly 집계만 읽는다. legacy DB 열 `estimatedKwh`는 보고서 데이터에서 `energyKwh`, 일별 `estimatedCost`는 `cost`, `knownSeconds`는 밝기 가중 계산 및 값 존재 판정용 `durationSeconds`로 매핑한다. `cost`는 저장된 Decimal 문자열 또는 값 없음이며, 현재 state cursor·현재 단가·미완료 날짜는 읽지 않는다. 요약·일별 표·순위에 비용을 포함하고 직전 동일 일수의 전력량/비용 차이 및 이전 값이 0이 아닐 때만 변화율을 산출한다. 적용 단가/원천 산출식의 역사적 증거를 보관한 FK나 snapshot은 없으므로 문서에는 해당 항목을 `데이터 없음`으로 설명하며 현재 단가로 다시 계산하지 않는다.
+
+데이터 snapshot의 identity/dimension/group `from`/`to`는 날짜로 축약하지 않은 전체 ISO UTC 시각이며 시간별 행은 `bucketStartUtc`를 보존한다. 현장 일별 총계는 identity 추적 시작/종료와 무관하게 저장된 사실을 보존한다. 순위와 층·그룹 일별 값은 현지 하루 전체의 이력이 확정된 경우만 포함한다. 시간별 소속은 UTC 한 시간 전체의 이력으로 먼저 판단한 뒤 `localDate`/`localHour`의 요일·시간으로 fold한다. 경계를 걸친 집계를 비례 배분하지 않고 DST 반복 버킷은 같은 셀에 합친다. 일별/시간별 집계 차이를 문서 생성 중 보정하지 않는다.
+
+이 변경은 기존 JSON snapshot의 신규 생성 내용을 보완하며 SQL schema나 migration을 추가하지 않는다. 기존 저장 문서와 fingerprint는 불변으로 보존한다. XLSX/PDF는 같은 순서·값·표시 문자열·계산 설명·fingerprint를 렌더링한다. `GET report-targets`는 기존 analytics identity와 최신 저장 이름/과거 층 이름을 조회해 운영 Fixture/FixtureGroup ID와 혼동하지 않는 tenant-scoped 선택 계약을 제공한다. 반환 label의 글꼴 왕복이 불가능한 항목만 제외하며 무관한 과거 이름 때문에 endpoint 전체가 실패하지 않는다. 접수 전 Site 잠금 밖의 read-only `RepeatableRead` 사전 조회가 실제 범위·날짜·사실로 최종 문서를 만들어 문자/shaping 검사를 수행하고 폐기한다. 이를 `EnergyReportJob`에 저장하지 않으며 첫 worker 시도의 별도 한 transaction에서만 불변 snapshot을 저장한다. worker는 이 최종 문서 문자 검사를 다시 수행하고 이후 재시도는 저장 문서를 유지한다.
+
+### EnergyReportObjectCleanup (보고서 파일 회수 원장)
+
+Migration: `20260913_report_object_cleanup_ledger`. Site/보고서 FK를 두지 않아 현장 cascade와 생성 후 90일 보고서 메타데이터 삭제 뒤에도 유지한다. 요청자·이름·집계/문서 스냅샷은 저장하지 않고, 고정된 ID·형식의 허용 시도 1·2·3 키만 영구 보존한다. 아직 0/1회 시도한 보고서도 3개를 예약해 rolling upgrade 중 구버전 claim의 늦은 업로드를 회수한다. 프로세스가 임의의 시간 동안 정지했다가 PUT을 수행할 수 있으므로 유한한 유예 시간만으로 원장을 제거하지 않는다.
+
+| 필드 | 타입 | 의미 |
+| --- | --- | --- |
+| `reportId`, `siteId` | `String` | 보고서 PK, 현장 식별자. 둘 다 FK 없음 |
+| `objectKeys` | `Json` | 고정된 site/report ID·형식의 attempt-1/2/3 키 배열, SQL CHECK로 길이 1–3 제한 |
+| `leaseOwner`, `leaseExpiresAt` | nullable String/DateTime | 정리 회차별 UUID와 DB UTC 기준 30초 임대, 둘 다 존재하거나 둘 다 null |
+| `nextAttemptAt`, `lastCleanedAt` | DateTime, DateTime? | 다음 회수 가능 시각, 최근 성공 회수 시각 |
+| `lastError` | `String?` | 정제된 정리 실패 코드 |
+| `createdAt`, `updatedAt` | `DateTime` | 원장 수명주기 |
+
+`(nextAttemptAt, leaseExpiresAt)`와 `siteId` 인덱스를 둔다. 60초마다 최대 50개 원장을 `SKIP LOCKED`로 claim하고, S3 DELETE는 DB 잠금/transaction 밖에서 실행한다. 짧은 후속 transaction에서 보고서→원장 순서로 잠근 뒤 소유자·임대 만료를 다시 검사해 메타데이터 만료/삭제 및 다음 회수 시각을 확정한다. 실패·임대 상실 시 키와 보고서 메타데이터를 유지한다. 성공 후에도 다음 회수를 예약하므로 이미 완료된 현장 정리 뒤의 늦은 업로드도 회수 대상이다. Migration은 기존 `SiteDeletionCleanup`의 보고서 키(완료 원장 포함)를 엄격한 UUID 경로·xlsx/pdf 형식으로 검증하고, 기존 attempt-1만 있어도 같은 형식의 세 키를 이 테이블에 보존한다.
+
+`20260914_report_delete_tombstone_guard`는 `EnergyReportJob`의 `BEFORE DELETE` 행 트리거 `EnergyReportJob_preserve_objects_before_delete`와 함수 `preserve_energy_report_object_tombstone()`을 추가한다. migration은 DELETE와 충돌하는 테이블 잠금을 얻고 트리거 설치까지 하나의 transaction으로 커밋한다. 이 커밋 이후에는 runtime helper를 모르는 구버전 인스턴스의 직접 DELETE·90일 purge·Site FK cascade도 같은 삭제 transaction에서 세 키를 남긴다. reportId/siteId는 엄격한 UUID, 형식은 불변 xlsx/pdf enum에서 검증하고, 잘못된 이력 식별자는 `23514`로 삭제를 중단한다. `objectKey`나 호출자 경로를 삭제 권한으로 사용하지 않는다. 대상 원장 schema는 `TG_TABLE_SCHEMA`로 고정하고 신규 행의 시각은 DB 세션 timezone과 무관하게 UTC로 기록한다.
+
+트리거의 upsert는 기존 세 키를 확장/확인하되 현재 `leaseOwner`, `leaseExpiresAt`, `nextAttemptAt`을 유지한다. 따라서 새 reaper의 fenced finalize가 메타데이터를 삭제해도 스스로 임대를 잃지 않으며 중복 원장을 만들지 않는다. DELETE rollback 시 원장 쓰기도 rollback한다. 트리거는 DB 키 원장만 쓰고 S3 네트워크 호출을 하지 않는다. 보호 범위는 트리거 migration 커밋 이후 정상 DELETE/cascade이며, 관리자가 트리거를 끄거나 TRUNCATE로 우회하는 작업은 이 보장을 깨므로 운영 정리 경로로 사용하지 않는다.
 
 간단한 관계 흐름은 다음과 같다.
 
@@ -300,12 +350,14 @@ admin 연결 제약:
 | `id` | `String` | 예 | PK, `uuid()` | 정리 작업 ID |
 | `siteId` | `String` | 예 | Unique, FK 없음 | 삭제된 현장 ID snapshot |
 | `inventoryIds` | `Json` | 예 | 문자열 배열 | 인증서를 폐기할 제조 inventory ID 목록 |
-| `objectKeys` | `Json` | 예 | 문자열 배열 | 삭제할 FloorAsset object key 목록 |
+| `objectKeys` | `Json` | 예 | 문자열 배열 | 삭제할 FloorAsset 키 및 비공개 보고서의 모든 시도 키 목록. `reports/`는 별도 private bucket으로 처리 |
 | `attempts` | `Int` | 예 | `0` | lease 획득 횟수 |
 | `nextAttemptAt` | `DateTime` | 예 | `now()` | 다음 재시도 가능 시각 |
 | `lockedAt`, `leaseExpiresAt` | `DateTime?` | 아니오 |  | 다중 API instance 중복 실행을 막는 만료형 lease |
 | `completedAt` | `DateTime?` | 아니오 |  | 외부 정리 완료 시각 |
 | `lastError` | `String?` | 아니오 | 정제된 코드만 저장 | 마지막 실패 원인 |
+
+보고서가 도입된 이후 이 원장은 현장 cascade 전에도 생성된다. `lastError = REPORTS_BEFORE_SITE_DELETE`는 신규 보고서 INSERT·worker claim을 막는 준비 단계이며, background worker가 아직 확정되지 않은 도면/인증서 payload를 완료 처리하지 못하게 한다. INSERT와 claim은 Site key-share lock 뒤 새 READ COMMITTED 조회로 원장을 검사해 오래된 문장 snapshot의 경합을 차단한다. 기존 barrier 아래에 남은 processing은 임대 만료 후 worker가 종료 상태로 회수하므로 영구 409가 되지 않는다. 준비 단계의 파일 삭제 실패는 Site와 EnergyReportJob을 보존하고 운영자의 재요청으로 이어진다. 모든 보고서 파일 삭제 후 최종 삭제 transaction에서 도면/인증서 목록과 생성 시각을 갱신하고 이 상태 코드를 비운 뒤 Site를 삭제한다. 준비 단계에서 같은 키를 `EnergyReportObjectCleanup`에도 보존하므로 이 원장이 완료된 뒤에도 늦은 PUT을 반복 회수할 수 있다.
 
 worker는 API 시작 시와 30초 주기로 만료된 작업을 최대 10개씩 조회한다. inventory별 인증서 폐기는 즉시 시작하고, object 삭제는 삭제 시점에 아직 유효할 수 있는 300초 presigned URL과 5초 안전 여유가 지난 뒤 실행한다. 두 외부 작업은 재실행 가능하며, 실패하면 최대 1시간의 지수 backoff로 다시 시도한다.
 

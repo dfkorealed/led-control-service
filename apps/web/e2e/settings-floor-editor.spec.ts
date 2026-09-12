@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import {
   expectMinimumTouchTargets,
+  expectMinimumTouchTargetsAfterScrolling,
   expectNoHorizontalOverflow
 } from "./support/layout-assertions";
 import { installSettingsApiRoutes } from "./support/settings-api";
@@ -14,14 +15,19 @@ const responsiveViewports = [
 
 async function expectSettingsContentTopAligned(page: import("@playwright/test").Page) {
   const contextBox = await page.getByRole("combobox", { name: "현장 선택" }).boundingBox();
+  const tabsBox = await page.getByRole("navigation", { name: "설정 메뉴" }).boundingBox();
   const contentBox = await page.locator(".settings-content > .settings-screen").boundingBox();
   expect(contextBox).not.toBeNull();
+  expect(tabsBox).not.toBeNull();
   expect(contentBox).not.toBeNull();
-  if (!contextBox || !contentBox) return;
+  if (!contextBox || !tabsBox || !contentBox) return;
 
-  const verticalGap = contentBox.y - (contextBox.y + contextBox.height);
-  expect(verticalGap).toBeGreaterThanOrEqual(0);
-  expect(verticalGap).toBeLessThanOrEqual(20);
+  const contextGap = tabsBox.y - (contextBox.y + contextBox.height);
+  const contentGap = contentBox.y - (tabsBox.y + tabsBox.height);
+  expect(contextGap).toBeGreaterThanOrEqual(0);
+  expect(contextGap).toBeLessThanOrEqual(20);
+  expect(contentGap).toBeGreaterThanOrEqual(0);
+  expect(contentGap).toBeLessThanOrEqual(20);
 }
 
 test("operator customer routes are blocked and admin floor changes are reflected in monitoring", async ({ browser }) => {
@@ -345,7 +351,7 @@ test("dirty editor logout keeps the draft on cancel and logs out only after conf
 });
 
 for (const viewport of responsiveViewports.filter(({ width }) => width <= 390)) {
-  test(`dirty editor keeps the coarse ${viewport.width}px settings sheet on cancel and clears its sentinel on confirm`, async ({ browser, baseURL }) => {
+  test(`dirty editor keeps the coarse ${viewport.width}px settings tabs on cancel and clears its sentinel on confirm`, async ({ browser, baseURL }) => {
     const page = await browser.newPage({ baseURL, viewport, hasTouch: true, isMobile: true });
     try {
       const api = await installSettingsApiRoutes(page, "admin");
@@ -362,7 +368,6 @@ for (const viewport of responsiveViewports.filter(({ width }) => width <= 390)) 
       await xInput.fill("260");
       await expect(page.getByRole("button", { name: "저장", exact: true })).toBeEnabled();
 
-      await page.getByRole("button", { name: "설정", exact: true }).click();
       const menu = page.getByRole("navigation", { name: "설정 메뉴" });
       const securityLink = menu.getByRole("link", { name: "비밀번호 변경" });
       await expect(securityLink).toHaveAttribute("href", "/settings/security?siteId=site-1#fragment");
@@ -414,104 +419,90 @@ for (const viewport of responsiveViewports.filter(({ width }) => width <= 390)) 
   });
 }
 
-test("desktop settings navigation opens on hover, preserves site scope, and exposes admin links", async ({ page }) => {
+test("desktop settings link opens capability-filtered top tabs and preserves site scope", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await installSettingsApiRoutes(page, "admin");
-  await page.goto("/monitoring?siteId=site-1");
+  await page.goto("/monitoring?siteId=site-1#settings");
 
   const settings = page.getByRole("link", { name: "설정", exact: true });
-  const settingsBoxBeforeOpen = await settings.boundingBox();
-  const chevronBox = await settings.locator(".settings-nav-chevron").boundingBox();
-  expect(settingsBoxBeforeOpen).not.toBeNull();
-  expect(chevronBox).not.toBeNull();
-  expect(Math.abs((chevronBox!.y + chevronBox!.height / 2) - (settingsBoxBeforeOpen!.y + settingsBoxBeforeOpen!.height / 2))).toBeLessThanOrEqual(1);
-  const chevronRightGap = settingsBoxBeforeOpen!.x + settingsBoxBeforeOpen!.width - (chevronBox!.x + chevronBox!.width);
-  expect(chevronRightGap).toBeGreaterThanOrEqual(6);
-  expect(chevronRightGap).toBeLessThanOrEqual(10);
   await settings.hover();
-  await expect(settings).toHaveAttribute("aria-expanded", "true");
-  await expect(settings).not.toHaveAttribute("aria-haspopup");
-  await expect(settings).toHaveAttribute("aria-controls", "settings-navigation-popup");
+  await expect(settings).not.toHaveAttribute("aria-expanded");
+  await expect(page.getByRole("navigation", { name: "설정 메뉴" })).toHaveCount(0);
+  await expect(settings.locator(".settings-nav-chevron")).toHaveCount(0);
+  await settings.click();
+
+  await expect(page).toHaveURL(/\/settings\?siteId=site-1#settings$/);
   const navigation = page.getByRole("navigation", { name: "설정 메뉴" });
-  await expect(navigation).toHaveAttribute("id", "settings-navigation-popup");
-  const settingsBox = await settings.boundingBox();
-  const navigationBox = await navigation.boundingBox();
-  expect(settingsBox).not.toBeNull();
-  expect(navigationBox).not.toBeNull();
-  if (settingsBox && navigationBox) expect(navigationBox.x).toBeGreaterThanOrEqual(settingsBox.x + settingsBox.width - 1);
+  await expect(navigation.getByRole("link", { name: "설정 개요" })).toHaveAttribute("aria-current", "page");
+  await expect(navigation.getByRole("link", { name: "유저 관리" })).toBeVisible();
   await expect(navigation.getByRole("link", { name: "조명 등록" })).toBeVisible();
   await expect(navigation.getByRole("link", { name: "비밀번호 변경" })).toBeVisible();
   await navigation.getByRole("link", { name: "맵 관리" }).click();
 
-  await expect(page).toHaveURL(/\/settings\/floor-plans\?siteId=site-1$/);
+  await expect(page).toHaveURL(/\/settings\/floor-plans\?siteId=site-1#settings$/);
   await expect(page.getByRole("heading", { name: "맵 관리" })).toBeVisible();
-  await settings.hover();
-  await expect(settings).not.toHaveAttribute("aria-current");
-  await expect(page.getByRole("link", { name: "설정 개요" })).not.toHaveAttribute("aria-current");
-  await expect(page.getByRole("link", { name: "맵 관리" })).toHaveAttribute("aria-current", "page");
-  await expect(page.getByRole("link", { name: "비밀번호 변경" })).not.toHaveAttribute("aria-current");
+  await expect(settings).toHaveAttribute("aria-current", "page");
+  await expect(navigation.getByRole("link", { name: "설정 개요" })).not.toHaveAttribute("aria-current");
+  await expect(navigation.getByRole("link", { name: "맵 관리" })).toHaveAttribute("aria-current", "page");
+  await expect(navigation.getByRole("link", { name: "비밀번호 변경" })).not.toHaveAttribute("aria-current");
   await expectNoHorizontalOverflow(page);
 });
 
-test("desktop settings navigation follows natural Tab and Shift+Tab order before Escape restores focus", async ({ page }) => {
+test("desktop viewer settings tabs follow natural keyboard order and hide manage routes", async ({ page }) => {
   await page.setViewportSize({ width: 1024, height: 768 });
   await installSettingsApiRoutes(page, "viewer");
   await page.goto("/monitoring?siteId=site-1");
 
   const settings = page.getByRole("link", { name: "설정", exact: true });
   await settings.focus();
-  await expect(settings).toHaveAttribute("aria-expanded", "true");
-  await expect(settings).not.toHaveAttribute("aria-haspopup");
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/\/settings\?siteId=site-1$/);
   const navigation = page.getByRole("navigation", { name: "설정 메뉴" });
   const overview = navigation.getByRole("link", { name: "설정 개요" });
   const floorPlans = navigation.getByRole("link", { name: "맵 관리" });
+  const security = navigation.getByRole("link", { name: "비밀번호 변경" });
   await expect(floorPlans).toBeVisible();
-  await expect(navigation.getByRole("link", { name: "비밀번호 변경" })).toHaveCount(0);
+  await expect(security).toBeVisible();
+  await expect(navigation.getByRole("link", { name: "유저 관리" })).toHaveCount(0);
+  await expect(navigation.getByRole("link", { name: "조명 등록" })).toHaveCount(0);
 
-  await page.keyboard.press("Tab");
-  await expect(overview).toBeFocused();
+  await overview.focus();
   await page.keyboard.press("Tab");
   await expect(floorPlans).toBeFocused();
-  await page.keyboard.press("Shift+Tab");
-  await expect(overview).toBeFocused();
-  await page.keyboard.press("Escape");
-
-  await expect(settings).toHaveAttribute("aria-expanded", "false");
-  await expect(settings).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(security).toBeFocused();
   await expectNoHorizontalOverflow(page);
 });
 
 for (const viewport of responsiveViewports.filter(({ width }) => width <= 760)) {
-  test(`coarse ${viewport.width}px settings navigation uses an accessible bottom sheet`, async ({ browser, baseURL }) => {
+  test(`coarse ${viewport.width}px settings navigation uses the same top tabs`, async ({ browser, baseURL }) => {
     const page = await browser.newPage({ baseURL, viewport, hasTouch: true, isMobile: true });
     try {
       await installSettingsApiRoutes(page, "admin");
       await page.goto("/monitoring?siteId=site-1");
-      const settings = page.getByRole("button", { name: "설정", exact: true });
+      const settings = page.getByRole("link", { name: "설정", exact: true });
       await settings.click();
 
+      await expect(page).toHaveURL(/\/settings\?siteId=site-1$/);
       const menu = page.getByRole("navigation", { name: "설정 메뉴" });
       await expect(menu).toBeVisible();
-      await expect(page.getByRole("button", { name: "설정 메뉴 닫기" })).toBeVisible();
-      await expect(menu.getByRole("heading", { name: "설정 메뉴" })).toBeVisible();
-      await expect(menu.locator(".settings-submenu-grabber")).toBeVisible();
-      await expect(menu.getByRole("link", { name: "설정 개요" })).toBeFocused();
-      await expect(menu).toHaveCSS("overflow-y", "auto");
-      await expect(settings).not.toHaveAttribute("aria-current");
-      await expect(settings).not.toHaveAttribute("aria-haspopup");
-      await expect(settings).toHaveAttribute("aria-controls", "settings-navigation-popup");
-      await expect(menu).toHaveAttribute("id", "settings-navigation-popup");
-      await expect(page).toHaveURL(/\/monitoring\?siteId=site-1$/);
-      await expectMinimumTouchTargets(page, ".settings-submenu");
+      await expect(menu).toHaveCSS("overflow-x", "auto");
+      await expect(settings).toHaveAttribute("aria-current", "page");
+      await expect(menu.getByRole("link", { name: "설정 개요" })).toHaveAttribute("aria-current", "page");
+      await expectMinimumTouchTargetsAfterScrolling(page, ".settings-subnavigation");
       await expectNoHorizontalOverflow(page);
-      const sheetBox = await menu.boundingBox();
-      expect(sheetBox).not.toBeNull();
-      if (sheetBox) expect(Math.abs(sheetBox.y + sheetBox.height - viewport.height)).toBeLessThanOrEqual(1);
+
+      await page.goto("/settings/security?siteId=site-1");
+      const activeSecurityTab = page
+        .getByRole("navigation", { name: "설정 메뉴" })
+        .getByRole("link", { name: "비밀번호 변경" });
+      await expect(activeSecurityTab).toHaveAttribute("aria-current", "page");
+      await expect(activeSecurityTab).toBeInViewport();
 
       await menu.getByRole("link", { name: "맵 관리" }).click();
       await expect(page).toHaveURL(/\/settings\/floor-plans\?siteId=site-1$/);
       await expect(page.getByRole("heading", { name: "맵 관리" })).toBeVisible();
-      await expectMinimumTouchTargets(page, ".app-shell");
+      await expectMinimumTouchTargetsAfterScrolling(page, ".app-shell");
       await expectNoHorizontalOverflow(page);
     } finally {
       await page.close();
@@ -565,7 +556,8 @@ for (const viewport of responsiveViewports) {
       await page.getByRole("button", { name: "배치 해제", exact: true }).scrollIntoViewIfNeeded();
       await expectMinimumTouchTargets(page, ".fixture-placement-action");
       await page.evaluate(() => window.scrollTo(0, 0));
-      await expectMinimumTouchTargets(page, ".app-shell");
+      await expectMinimumTouchTargets(page, ".bottom-nav");
+      await expectMinimumTouchTargetsAfterScrolling(page, ".settings-subnavigation");
     }
   });
 }
@@ -590,7 +582,7 @@ for (const viewport of responsiveViewports) {
       await registrationTargets.evaluate((element) => element.scrollIntoView({ block: "center" }));
       await expect(page.getByLabel("등록 층")).toBeInViewport();
       await expect(page.getByLabel("등록 게이트웨이")).toBeInViewport();
-      await expectMinimumTouchTargets(page, ".app-shell");
+      await expectMinimumTouchTargetsAfterScrolling(page, ".app-shell");
     }
 
     await page.goto("/settings/floor-plans?siteId=site-1");
@@ -605,15 +597,15 @@ for (const viewport of responsiveViewports) {
     await expect(page.getByLabel("새 비밀번호 확인")).toBeVisible();
     await expectSettingsContentTopAligned(page);
     await expectNoHorizontalOverflow(page);
-    if (viewport.width <= 760) await expectMinimumTouchTargets(page, ".app-shell");
+    if (viewport.width <= 760) await expectMinimumTouchTargetsAfterScrolling(page, ".app-shell");
   });
 }
 
-test("viewer cannot enter admin password settings", async ({ page }) => {
+test("viewer can enter personal password settings", async ({ page }) => {
   await installSettingsApiRoutes(page, "viewer");
   await page.goto("/settings/security?siteId=site-1");
 
-  await expect(page).toHaveURL(/\/settings\?siteId=site-1$/);
-  await expect(page.getByRole("heading", { name: "설정 개요" })).toBeVisible();
-  await expect(page.getByRole("form", { name: "비밀번호 변경" })).toHaveCount(0);
+  await expect(page).toHaveURL(/\/settings\/security\?siteId=site-1$/);
+  await expect(page.getByRole("form", { name: "비밀번호 변경" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "설정 메뉴" }).getByRole("link", { name: "비밀번호 변경" })).toHaveAttribute("aria-current", "page");
 });

@@ -1,16 +1,21 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Outlet, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { StatisticsAnalysisPage } from "./StatisticsAnalysisPage";
 
-const mocks = vi.hoisted(() => ({ hook: vi.fn() }));
-vi.mock("../../../api/energy", () => ({ useEnergyRankings: (query: unknown) => mocks.hook(query) }));
+const mocks = vi.hoisted(() => ({ hook: vi.fn(), heatmap: vi.fn() }));
+vi.mock("../../../api/energy", () => ({
+  useEnergyRankings: (query: unknown) => mocks.hook(query),
+  useEnergyHeatmap: (query: unknown) => mocks.heatmap(query)
+}));
 
 describe("StatisticsAnalysisPage", () => {
   afterEach(cleanup);
   beforeEach(() => {
     mocks.hook.mockReset();
+    mocks.heatmap.mockReset();
     mocks.hook.mockReturnValue({ data: response, isLoading: false, isError: false, refetch: vi.fn() });
+    mocks.heatmap.mockReturnValue({ data: heatmapResponse, isLoading: false, isError: false, refetch: vi.fn() });
   });
 
   it("shows ranked usage and opens a dimension detail", () => {
@@ -43,6 +48,18 @@ describe("StatisticsAnalysisPage", () => {
     expect(screen.getByText(/그룹 중복 소속/)).toBeInTheDocument();
     expect(screen.getByText(/2026-09-01 이전 구조 이력/)).toBeInTheDocument();
   });
+
+  it("only enables the first heatmap request after resolving its site-local 28 completed-day window", async () => {
+    renderPage();
+
+    await waitFor(() => expect(mocks.heatmap).toHaveBeenCalled());
+    expect(mocks.heatmap.mock.calls.map(([request]) => request)).toEqual([expect.objectContaining({
+      enabled: true, siteId: response.siteId, scope: "floor", identityId: response.ranked[0].identityId,
+      metric: "energy", from: "2026-08-12", to: "2026-09-08"
+    })]);
+    fireEvent.click(screen.getByRole("button", { name: "그룹" }));
+    await waitFor(() => expect(mocks.heatmap).toHaveBeenLastCalledWith(expect.objectContaining({ scope: "group" })));
+  });
 });
 
 function renderPage() {
@@ -59,7 +76,7 @@ function renderPage() {
 
 const response = {
   siteId: "30000000-0000-4000-8000-000000000001",
-  timeZone: "Asia/Seoul",
+  timeZone: "America/Los_Angeles",
   source: "state_based_estimate",
   generatedAt: "2026-09-10T03:00:00.000Z",
   dimension: "floor",
@@ -96,3 +113,14 @@ const response = {
   }],
   unranked: []
 } as const;
+
+const heatmapResponse = {
+  siteId: response.siteId,
+  timeZone: "Asia/Seoul",
+  generatedAt: "2026-09-11T03:00:00.000Z",
+  metric: "energy" as const,
+  scope: "floor" as const,
+  identityId: response.ranked[0].identityId,
+  range: { from: "2026-08-14", to: "2026-09-10" },
+  cells: Array.from({ length: 168 }, (_, index) => ({ weekday: Math.floor(index / 24), hour: index % 24, value: 1 }))
+};

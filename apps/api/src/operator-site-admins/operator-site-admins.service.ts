@@ -270,6 +270,7 @@ export class OperatorSiteAdminsService {
 
       const assetKeys = this.assetKeys(targetSite.floors ?? []);
       const inventoryIds = this.inventoryIds(targetSite.gateways);
+      const reportCleanup = await this.deletionCleanup.prepareReportDeletion(targetSite.id);
       const deletion = await this.prisma.$transaction(async (tx) => {
         const admin = await this.findManagedAdmin(tx, adminId);
         const site = admin.administeredSite!;
@@ -306,9 +307,14 @@ export class OperatorSiteAdminsService {
             SELECT "id" FROM "User" WHERE "id" = ${admin.id} FOR UPDATE
           `);
         }
-        const cleanup = await tx.siteDeletionCleanup.create({
-          data: { siteId: site.id, inventoryIds, objectKeys: assetKeys }
-        });
+        const cleanupData = { siteId: site.id, inventoryIds,
+          objectKeys: [...new Set([...assetKeys, ...(reportCleanup?.objectKeys ?? [])])] };
+        const cleanup = reportCleanup
+          ? await tx.siteDeletionCleanup.update({ where: { id: reportCleanup.id }, data: {
+            ...cleanupData, createdAt: new Date(), nextAttemptAt: new Date(), completedAt: null,
+            lockedAt: null, leaseExpiresAt: null, lastError: null
+          } })
+          : await tx.siteDeletionCleanup.create({ data: cleanupData });
         await tx.site.delete({ where: { id: site.id } });
 
         if (organizationSiteCount === 1) {

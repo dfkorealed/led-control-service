@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuthUser } from "../../api/auth";
@@ -9,6 +9,7 @@ vi.mock("../settings/floor-plans/FloorEditorRoute", () => ({ FloorEditorRoute: (
 vi.mock("../monitoring/MonitoringView", () => ({ MonitoringView: () => <p>모니터링 화면</p> }));
 vi.mock("../control/ControlView", () => ({ ControlView: () => <p>제어 화면</p> }));
 vi.mock("../statistics/StatisticsOverviewPage", () => ({ StatisticsOverviewPage: () => <p>통계 화면</p> }));
+vi.mock("../statistics/reports/StatisticsReportsPage", () => ({ StatisticsReportsPage: () => <p>보고서 화면</p> }));
 vi.mock("../settings/users/SiteUsersView", () => ({ SiteUsersView: ({ siteId }: { siteId?: string }) => <p data-testid="site-users-view">유저 관리 화면 {siteId}</p> }));
 const dashboardState = vi.hoisted(() => ({
   current: {
@@ -91,6 +92,12 @@ describe("customer shell site context", () => {
     ));
   });
 
+  it("opens the released customer report route with the selected site", () => {
+    renderShell("/statistics/reports?siteId=site");
+
+    expect(screen.getByText("보고서 화면")).toBeInTheDocument();
+  });
+
   it("does not render a viewer control route before dashboard capabilities are known", () => {
     dashboardState.current = { data: undefined, isLoading: true, error: null, refetch: vi.fn() };
 
@@ -139,11 +146,11 @@ describe("customer shell site context", () => {
     await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/settings?siteId=site"));
   });
 
-  it("orders admin settings with user management before registration", () => {
-    renderShell("/monitoring?siteId=site");
+  it("orders admin settings tabs with user management before registration", () => {
+    renderShell("/settings?siteId=site");
 
-    fireEvent.focus(screen.getByRole("link", { name: "설정" }));
-    const labels = screen.getAllByRole("link").map((link) => link.textContent);
+    const settingsTabs = screen.getByRole("navigation", { name: "설정 메뉴" });
+    const labels = within(settingsTabs).getAllByRole("link").map((link) => link.textContent);
     expect(labels.indexOf("유저 관리")).toBeLessThan(labels.indexOf("조명 등록"));
   });
 
