@@ -102,4 +102,9 @@ export class BioFrameCodec {
   reset(): void {
     this.buffer = Buffer.alloc(0);
   }
+
+  /** Partial headers already belong to the request that received their first byte. */
+  hasPendingFrame(): boolean {
+    return this.buffer.length > 1 || this.buffer[0] === 0x47 || this.buffer[0] === 0x55;
+  }
 }

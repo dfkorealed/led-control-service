@@ -4,7 +4,7 @@ import { LinuxUsbIdentityInspector } from "./linux-usb-identity-inspector";
 import { NodeSerialConnection, type SerialConnection } from "./node-serial-connection";
 
 export interface BioTransportSnapshot {
-  state: "stopped" | "connecting" | "probing" | "validating" | "ready" | "reconnecting";
+  state: "stopped" | "connecting" | "probing" | "validating" | "ready" | "reconnecting" | "closing" | "close-failed";
   generation: number;
   transportConnected: boolean;
   protocolReady: boolean;
@@ -48,6 +48,7 @@ export class BioSerialTransport {
   private reconnectDelay = 2000;
   private nextProtocol: BioProtocol;
   private closing: Promise<void> = Promise.resolve();
+  private closeError?: BioUsbError;
   private attempt?: { promise: Promise<void>; resolve: () => void; reject: (error: BioUsbError) => void };
 
   constructor(private readonly options: BioTransportOptions) {
@@ -57,6 +58,7 @@ export class BioSerialTransport {
   }
 
   start(): Promise<void> {
+    if (this.closeError) return Promise.reject(this.closeError);
     if (this.running) {
       if (this.attempt) return this.attempt.promise;
       return this.status.ready ? Promise.resolve() : Promise.reject(new BioUsbError("NOT_READY", "BIO transport is reconnecting"));
@@ -80,8 +82,9 @@ export class BioSerialTransport {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = undefined;
     const closing = this.retire(new BioUsbError("STOPPED", "BIO transport stopped"));
-    this.update({ state: "stopped" });
+    this.update({ state: "closing" });
     await closing;
+    this.update({ state: "stopped" });
   }
 
   snapshot(): BioTransportSnapshot {
@@ -178,8 +181,14 @@ export class BioSerialTransport {
       this.active = undefined;
       completed.resolve(event.frame);
     }
-    // Finish inspecting a whole input chunk before another request becomes
-    // eligible: coalesced duplicate replies cannot satisfy a queued command.
+    // A partial duplicate, including its first header byte, already belongs to
+    // the previous request. Never let its later tail complete a queued request.
+    if (this.current(generation) && !this.active && this.codec.hasPendingFrame()) {
+      this.fail(generation, new BioUsbError("LATE_RESPONSE", "BIO response candidate crossed request ownership"));
+      return;
+    }
+    // Finish inspecting complete and partial candidates before another request
+    // becomes eligible to own bytes from this connection.
     void Promise.resolve().then(() => { if (this.current(generation)) this.pump(); });
   }
 
@@ -192,7 +201,9 @@ export class BioSerialTransport {
     if (this.status.state === "probing" && (this.options.protocol ?? "auto") === "auto") {
       this.nextProtocol = this.status.protocol === "crc16" ? "gs" : "crc16";
     } else if (this.status.protocol) this.nextProtocol = this.status.protocol;
-    void this.retire(error);
+    // Observe the rejection without replacing the failed cleanup barrier with
+    // a resolved promise. stop/start must still report uncertain ownership.
+    void this.retire(error).catch(() => {});
     this.update({ state: "reconnecting", lastError: error.code });
     const delay = this.reconnectDelay;
     this.reconnectDelay = Math.min(delay * 2, 32000);
@@ -215,8 +226,20 @@ export class BioSerialTransport {
     this.writing = false;
     for (const unsubscribe of this.unsubscribe.splice(0)) unsubscribe();
     const connection = this.connection;
-    this.connection = undefined;
-    this.closing = Promise.all([this.closing, connection?.close().catch(() => {})]).then(() => {});
+    this.closing = this.closing.then(async () => {
+      await connection?.close();
+      // Retain ownership until native close confirms the descriptor was closed.
+      if (this.connection === connection) this.connection = undefined;
+    }).catch((cause: unknown) => {
+      this.closeError ??= new BioUsbError("CLOSE_FAILED", "BIO serial descriptor closure was not confirmed", { cause });
+      this.attempt?.reject(this.closeError);
+      this.attempt = undefined;
+      this.running = false;
+      if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = undefined;
+      this.update({ state: "close-failed", lastError: "CLOSE_FAILED" });
+      throw this.closeError;
+    });
     return this.closing;
   }
 

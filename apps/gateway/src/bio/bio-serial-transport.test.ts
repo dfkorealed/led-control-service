@@ -154,6 +154,40 @@ describe("BioSerialTransport", () => {
     await value.transport.stop();
   });
 
+  it.each([
+    ["475301", "00fe"],
+    ["47", "530100fe"],
+    ["55", "aa01000020"]
+  ])("retires a duplicate candidate beginning with %s before queued request ownership changes", async (prefix, tail) => {
+    const value = harness(); await ready(value);
+    const generation = value.transport.snapshot().generation;
+    const first = value.transport.request({ command: 0, payload: hex("") });
+    const second = settled(value.transport.request({ command: 0, payload: hex("") }));
+    value.devices[0].receive(`47530100fe${prefix}`);
+    await first; await flush();
+    // This candidate began while the first request owned the response stream.
+    expect(value.devices[0].writes).toEqual(["4753820000", "47530000ff"]);
+    expect(await second).toMatchObject({ code: "LATE_RESPONSE" });
+    expect(value.transport.snapshot()).toMatchObject({ state: "reconnecting", ready: false });
+    expect(value.transport.snapshot().generation).toBeGreaterThan(generation);
+    value.devices[0].receive(tail);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(value.devices[1].writes).toEqual(["4753820000"]);
+    value.devices[1].receive("475383007c"); await flush();
+    expect(value.devices[1].writes).toEqual(["4753820000"]);
+    await value.transport.stop();
+  });
+
+  it("retires an unsolicited single header byte before a later request can claim it", async () => {
+    const value = harness(); await ready(value);
+    value.devices[0].receive("47");
+    const pending = settled(value.transport.request({ command: 0, payload: hex("") }));
+    await vi.advanceTimersByTimeAsync(300);
+    expect(await pending).toMatchObject({ code: "NOT_READY" });
+    expect(value.devices[0].writes).toEqual(["4753820000"]);
+    await value.transport.stop();
+  });
+
   it("tries the GS literal on a new generation after an automatic CRC probe timeout", async () => {
     const value = harness({ protocol: "auto" });
     const starting = settled(value.transport.start()); await flush();
@@ -248,6 +282,56 @@ describe("BioSerialTransport", () => {
     expect(value.devices).toHaveLength(2);
     expect(value.devices[1].writes).toEqual(["4753820000"]);
     await value.transport.stop();
+  });
+
+  it("preserves failed descriptor closure and blocks replacement probes and false stop success", async () => {
+    const value = harness(); await ready(value);
+    const device = value.devices[0];
+    device.close = (callback) => { callback(new Error("descriptor still open")); };
+    const active = settled(value.transport.request({ command: 0, payload: hex("") }));
+    const queued = settled(value.transport.request({ command: 0, payload: hex("01") }));
+    device.emit("error", new Error("connection fault"));
+    await flush();
+    expect(await active).toMatchObject({ code: "DISCONNECTED" });
+    expect(await queued).toMatchObject({ code: "DISCONNECTED" });
+    expect(device.isOpen).toBe(true);
+    expect(value.transport.snapshot()).toMatchObject({ state: "close-failed", lastError: "CLOSE_FAILED", ready: false });
+    await vi.advanceTimersByTimeAsync(64000);
+    expect(value.devices).toHaveLength(1);
+    expect(device.writes).toEqual(["4753820000", "47530000ff"]);
+    await expect(value.transport.stop()).rejects.toMatchObject({ code: "CLOSE_FAILED" });
+    await expect(value.transport.start()).rejects.toMatchObject({ code: "CLOSE_FAILED" });
+    await flush();
+    expect(value.devices).toHaveLength(1);
+    await expect(value.transport.stop()).rejects.toMatchObject({ code: "CLOSE_FAILED" });
+  });
+
+  it("reports a direct stop close error without publishing a stopped state", async () => {
+    const value = harness(); await ready(value);
+    value.devices[0].close = (callback) => { callback(new Error("close failed")); };
+    const states: string[] = [];
+    value.transport.onState((state) => states.push(state.state));
+    await expect(value.transport.stop()).rejects.toMatchObject({ code: "CLOSE_FAILED" });
+    expect(states).not.toContain("stopped");
+    expect(value.transport.snapshot()).toMatchObject({ state: "close-failed", ready: false });
+    expect(value.devices[0].isOpen).toBe(true);
+  });
+
+  it("rejects a reconnect attempt already waiting when delayed closure fails", async () => {
+    const value = harness(); await ready(value);
+    let failClose!: () => void;
+    value.devices[0].close = (callback) => { failClose = () => callback(new Error("late close failure")); };
+    value.devices[0].emit("error", new Error("fault"));
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(value.devices).toHaveLength(1);
+    let outcome: unknown;
+    void settled(value.transport.start()).then((result) => { outcome = result; });
+    failClose(); await flush();
+    expect(outcome).toMatchObject({ code: "CLOSE_FAILED" });
+    expect(value.transport.snapshot()).toMatchObject({ state: "close-failed", ready: false });
+    await vi.advanceTimersByTimeAsync(64000);
+    expect(value.devices).toHaveLength(1);
+    await expect(value.transport.stop()).rejects.toMatchObject({ code: "CLOSE_FAILED" });
   });
 
   it("does not advance queued writes while a prior response arrived before serial drain", async () => {

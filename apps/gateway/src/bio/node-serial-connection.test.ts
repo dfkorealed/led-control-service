@@ -89,4 +89,15 @@ describe("NodeSerialConnection", () => {
     callbacks[0](); await first; await second;
     expect(device.isOpen).toBe(false);
   });
+
+  it("preserves native close failure while descriptor ownership remains open", async () => {
+    const device = new Device();
+    const connection = new NodeSerialConnection("/dev/bio-dongle", () => device);
+    await connection.open();
+    device.close = (callback) => { callback(new Error("descriptor still open")); };
+    await expect(connection.close()).rejects.toThrow("descriptor still open");
+    expect(device.isOpen).toBe(true);
+    await expect(connection.close()).rejects.toThrow("descriptor still open");
+    expect(device.isOpen).toBe(true);
+  });
 });

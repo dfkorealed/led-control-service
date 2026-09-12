@@ -1,4 +1,4 @@
-export type BioUsbErrorCode = "USB_IDENTITY" | "NOT_READY" | "TIMEOUT" | "MALFORMED_FRAME" | "DISCONNECTED" | "LATE_RESPONSE" | "STOPPED" | "READINESS";
+export type BioUsbErrorCode = "USB_IDENTITY" | "NOT_READY" | "TIMEOUT" | "MALFORMED_FRAME" | "DISCONNECTED" | "LATE_RESPONSE" | "STOPPED" | "READINESS" | "CLOSE_FAILED";
 
 /** Codes carry diagnostics without exposing protocol payloads or site secrets. */
 export class BioUsbError extends Error {
