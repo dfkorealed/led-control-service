@@ -116,20 +116,20 @@
 - Modify only if RED requires it: `apps/web/e2e/statistics-flow.spec.ts`
 - Modify only if RED requires it: RealBackendLab customer journey spec discovered under `apps/web/e2e`
 
-- [ ] **Step 1: 대표 route의 1440/390/320px Chromium 회귀를 실행한다.**
+- [x] **Step 1: 대표 route의 1440/390/320px Chromium 회귀를 실행한다.**
   - 모니터링, 제어 자동화, 등록, 통계, 설정/맵 편집의 기존 viewport 검증을 실행한다.
   - 비동기 화면 전환 중 전체 가로 스크롤, 잘림, 로딩 상태 접근성, route 복원 문제를 확인한다.
   - 명령: `pnpm --filter @led-control/web exec playwright test e2e/calm-operations-monitoring.spec.ts e2e/calm-operations-automation.spec.ts e2e/calm-operations-commissioning.spec.ts e2e/settings-floor-editor.spec.ts e2e/statistics-flow.spec.ts --project=chromium --workers=1`
 
-- [ ] **Step 2: 실패가 기능 회귀일 때만 테스트/구현을 TDD로 보완한다.**
+- [x] **Step 2: 실패가 기능 회귀일 때만 테스트/구현을 TDD로 보완한다.**
   - timeout 증대나 무조건 sleep 대신 사용자에게 보이는 로딩/완료 조건을 기다린다.
   - `automation-control-flow.spec.ts`의 알려진 stale route는 이번 범위에 포함하지 않는다.
 
-- [ ] **Step 3: disposable backend RealBackendLab을 실행한다.**
+- [x] **Step 3: disposable backend RealBackendLab을 실행한다.**
   - `E2E_REAL_BACKEND_LAB=1 pnpm ci:real-backend`
   - 로그인→고객 운영 흐름, URL/capability/site 상태가 lazy chunk 이후에도 유지되는지 확인한다.
 
-- [ ] **Step 4: 독립 task review 후 필요 시 커밋한다.**
+- [x] **Step 4: 독립 task review 후 필요 시 커밋한다.**
   - viewport 범위와 테스트가 실제 사용자 동작을 검증하는지 검토한다.
   - 변경이 있을 때만 커밋: `test(web): cover lazy route transitions`
 
