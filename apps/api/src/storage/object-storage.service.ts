@@ -11,6 +11,7 @@ export interface ObjectStorageOptions {
   publicBaseUrl: string;
   reportBucket?: string;
   presign?: (client: S3Client, command: PutObjectCommand) => Promise<string>;
+  presignGet?: (client: S3Client, command: GetObjectCommand, expiresInSeconds: number) => Promise<string>;
 }
 
 @Injectable()
@@ -52,10 +53,25 @@ export class ObjectStorageService {
       ResponseContentDisposition: `attachment; filename="${filename}"`, ResponseCacheControl: "private, no-store" }), { expiresIn: 300 });
   }
 
+  async createFloorAssetDownloadUrl(objectKey: string): Promise<string> {
+    if (!/^floors\/[^/]+\/[A-Za-z0-9._-]+$/.test(objectKey)) {
+      throw new BadRequestException("invalid floor asset object key");
+    }
+    const command = new GetObjectCommand({
+      Bucket: this.options.bucket,
+      Key: objectKey,
+      ResponseCacheControl: "private, no-store"
+    });
+    const expiresInSeconds = 300;
+    const presign = this.options.presignGet
+      ?? ((client: S3Client, request: GetObjectCommand, expires: number) => getSignedUrl(client, request, { expiresIn: expires }));
+    return presign(this.client, command, expiresInSeconds);
+  }
+
   private reportBucket(key: string) {
     const uuid = "[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}";
     if (!new RegExp(`^reports/${uuid}/${uuid}/attempt-[1-3]\\.(xlsx|pdf)$`, "i").test(key)) throw new BadRequestException("invalid report object key");
-    // Floor assets have an anonymous read policy. Reports must never share that bucket.
+    // Reports use a separate bucket so their lifecycle and key allowlist remain independent.
     const bucket = this.options.reportBucket ?? "energy-reports";
     if (!bucket || bucket === this.options.bucket) throw new Error("a separate private report bucket is required");
     return bucket;

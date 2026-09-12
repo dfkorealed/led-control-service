@@ -32,12 +32,12 @@
 **Interfaces:**
 - Produces: `createFloorAssetDownloadUrl(objectKey): Promise<string>`, `getContentRedirect(user, floorId, assetId)`
 
-- [ ] 공개 URL 반환을 거부하는 failing unit test를 작성한다.
-- [ ] 테스트를 실행해 현재 공개 URL 반환 때문에 실패하는지 확인한다.
-- [ ] 300초 signed GET과 tenant-safe content endpoint를 구현한다.
-- [ ] Compose의 `floor-assets` anonymous policy를 `none`으로 바꾼다.
-- [ ] 관련 unit test와 Compose contract를 통과시킨다.
-- [ ] `feat(api): protect floor asset downloads`로 커밋한다.
+- [x] 공개 URL 반환을 거부하는 failing unit test를 작성한다.
+- [x] 테스트를 실행해 현재 공개 URL 반환 때문에 실패하는지 확인한다.
+- [x] 300초 signed GET과 tenant-safe content endpoint를 구현한다.
+- [x] Compose의 `floor-assets` anonymous policy를 `none`으로 바꾼다.
+- [x] 관련 unit test와 Compose contract를 통과시킨다.
+- [x] `feat(api): protect floor asset downloads`로 커밋한다.
 
 ### Task 2: DB-first 업로드 원장과 pending sweeper
 
@@ -167,4 +167,3 @@
 - [ ] 관련 Playwright를 직렬 실행한다.
 - [ ] `git diff --check`와 공개 URL/anonymous policy 검색을 실행한다.
 - [ ] `docs: record settings asset hardening`으로 커밋한다.
-

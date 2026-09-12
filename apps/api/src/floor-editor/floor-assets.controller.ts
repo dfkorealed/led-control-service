@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Header, Param, Post, Redirect, UseGuards } from "@nestjs/common";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { SessionAuthGuard } from "../auth/session-auth.guard";
@@ -30,5 +30,16 @@ export class FloorAssetsController {
     @CurrentUser() user: AuthenticatedUser
   ) {
     return this.floorAssetsService.completeUpload(user, floorId, assetId);
+  }
+
+  @Get(":assetId/content")
+  @Redirect(undefined, 302)
+  @Header("Cache-Control", "private, no-store")
+  content(
+    @Param("floorId") floorId: string,
+    @Param("assetId") assetId: string,
+    @CurrentUser() user: AuthenticatedUser
+  ) {
+    return this.floorAssetsService.getContentRedirect(user, floorId, assetId);
   }
 }

@@ -42,9 +42,37 @@ describe("FloorAssetsService", () => {
     const service = new FloorAssetsService(prisma, {} as any, siteAccess as unknown as SiteAccessService);
 
     const assets = await service.listAssets(viewer, "floor-1");
-    expect(assets).toEqual([{ id: "asset-1", status: "ready", sizeBytes: 1024 }]);
+    expect(assets).toEqual([{
+      id: "asset-1",
+      status: "ready",
+      sizeBytes: 1024,
+      accessPath: "/api/floors/floor-1/assets/asset-1/content"
+    }]);
+    expect(assets[0]).not.toHaveProperty("publicUrl");
     expect(() => JSON.stringify(assets)).not.toThrow();
     expect(siteAccess.assert).toHaveBeenCalledWith(viewer, "site-1", "read");
+  });
+
+  it("authorizes and signs only a ready asset from the requested floor", async () => {
+    const prisma: any = {
+      floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },
+      floorAsset: {
+        findFirst: jest.fn().mockResolvedValue({ objectKey: "floors/floor-1/file.png" })
+      }
+    };
+    const storage: any = {
+      createFloorAssetDownloadUrl: jest.fn().mockResolvedValue("https://download.example/signed")
+    };
+    const siteAccess = { assert: jest.fn().mockResolvedValue({ id: "site-1" }) };
+    const service = new FloorAssetsService(prisma, storage, siteAccess as unknown as SiteAccessService);
+
+    await expect(service.getContentRedirect(viewer, "floor-1", "asset-1"))
+      .resolves.toEqual({ url: "https://download.example/signed" });
+    expect(siteAccess.assert).toHaveBeenCalledWith(viewer, "site-1", "read");
+    expect(prisma.floorAsset.findFirst).toHaveBeenCalledWith({
+      where: { id: "asset-1", floorId: "floor-1", status: "ready" },
+      select: { objectKey: true }
+    });
   });
   it("creates a pending tenant-scoped upload intent", async () => {
     const prisma: any = {

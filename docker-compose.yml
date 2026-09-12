@@ -57,7 +57,7 @@ services:
       - |
         until mc alias set local http://object-storage:9000 $${OBJECT_STORAGE_ACCESS_KEY:-led-floor-assets} $${OBJECT_STORAGE_SECRET_KEY:-change-this-local-secret}; do sleep 2; done;
         mc mb --ignore-existing local/floor-assets;
-        mc anonymous set download local/floor-assets;
+        mc anonymous set none local/floor-assets;
         mc cors set local/floor-assets /config/cors.xml;
         test "$${OBJECT_STORAGE_REPORT_BUCKET:-energy-reports}" != "floor-assets" || exit 1;
         mc mb --ignore-existing "local/$${OBJECT_STORAGE_REPORT_BUCKET:-energy-reports}" || exit 1;

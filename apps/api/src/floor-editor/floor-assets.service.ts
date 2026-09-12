@@ -56,7 +56,7 @@ export class FloorAssetsService {
       where: { id: assetId, floorId }
     });
     if (!asset) throw new NotFoundException("floor asset not found");
-    if (asset.status === "ready") return { id: asset.id, status: asset.status, publicUrl: asset.publicUrl };
+    if (asset.status === "ready") return this.assetResponse(asset, floorId);
 
     const head = await this.storage.headObject(asset.objectKey);
     const expectedChecksum = Buffer.from(asset.sha256, "hex").toString("base64");
@@ -71,7 +71,7 @@ export class FloorAssetsService {
       where: { id: asset.id },
       data: { status: "ready", readyAt: new Date() }
     });
-    return { id: ready.id, status: ready.status, publicUrl: ready.publicUrl };
+    return this.assetResponse(ready, floorId);
   }
 
   async listAssets(user: AuthenticatedUser, floorId: string) {
@@ -83,10 +83,48 @@ export class FloorAssetsService {
       orderBy: { createdAt: "asc" }
     });
     // Upload validation caps assets at 50 MiB, safely within JSON's exact integer range.
-    return assets.map((asset) => ({ ...asset, sizeBytes: Number(asset.sizeBytes) }));
+    return assets.map((asset) => this.assetResponse(asset, floorId));
+  }
+
+  async getContentRedirect(user: AuthenticatedUser, floorId: string, assetId: string) {
+    const floor = await this.findFloor(floorId);
+    if (!floor) throw new NotFoundException("floor not found");
+    await this.siteAccess.assert(user, floor.siteId, "read");
+    const asset = await this.prisma.floorAsset.findFirst({
+      where: { id: assetId, floorId, status: "ready" },
+      select: { objectKey: true }
+    });
+    if (!asset) throw new NotFoundException("floor asset not found");
+    return { url: await this.storage.createFloorAssetDownloadUrl(asset.objectKey) };
   }
 
   private findFloor(floorId: string) {
     return this.prisma.floor.findUnique({ where: { id: floorId }, select: { id: true, siteId: true } });
+  }
+
+  private assetResponse(asset: {
+    id: string;
+    floorId?: string;
+    kind?: string;
+    status: string;
+    mimeType?: string;
+    sizeBytes?: bigint;
+    sha256?: string;
+    readyAt?: Date | null;
+    createdAt?: Date;
+    updatedAt?: Date;
+  }, floorId: string) {
+    return {
+      id: asset.id,
+      ...(asset.kind === undefined ? {} : { kind: asset.kind }),
+      status: asset.status,
+      ...(asset.mimeType === undefined ? {} : { mimeType: asset.mimeType }),
+      ...(asset.sizeBytes === undefined ? {} : { sizeBytes: Number(asset.sizeBytes) }),
+      ...(asset.sha256 === undefined ? {} : { sha256: asset.sha256 }),
+      ...(asset.readyAt === undefined ? {} : { readyAt: asset.readyAt }),
+      ...(asset.createdAt === undefined ? {} : { createdAt: asset.createdAt }),
+      ...(asset.updatedAt === undefined ? {} : { updatedAt: asset.updatedAt }),
+      accessPath: `/api/floors/${encodeURIComponent(floorId)}/assets/${encodeURIComponent(asset.id)}/content`
+    };
   }
 }

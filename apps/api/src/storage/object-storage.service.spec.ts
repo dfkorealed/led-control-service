@@ -3,7 +3,7 @@ import { OBJECT_STORAGE_CLIENT, ObjectStorageService } from "./object-storage.se
 import { StorageModule } from "./storage.module";
 import { Test } from "@nestjs/testing";
 import { createHash } from "node:crypto";
-import { DeleteObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 
 describe("ObjectStorageService", () => {
   const service = new ObjectStorageService({} as never, {
@@ -42,6 +42,24 @@ describe("ObjectStorageService", () => {
     expect(send).toHaveBeenCalledWith(expect.objectContaining({
       input: { Bucket: "floor-assets", Key: "floors/floor-1/file.png" }
     }));
+  });
+
+  it("creates a 300-second signed GET for a private floor asset", async () => {
+    const presignGet = jest.fn().mockResolvedValue("https://download.example/signed");
+    const privateService = new ObjectStorageService({ send: jest.fn() } as never, {
+      bucket: "floor-assets",
+      publicBaseUrl: "",
+      presignGet
+    });
+
+    await expect(privateService.createFloorAssetDownloadUrl("floors/floor-1/file.png"))
+      .resolves.toBe("https://download.example/signed");
+    expect(presignGet).toHaveBeenCalledWith(expect.anything(), expect.any(GetObjectCommand), 300);
+    expect((presignGet.mock.calls[0][1] as GetObjectCommand).input).toEqual({
+      Bucket: "floor-assets",
+      Key: "floors/floor-1/file.png",
+      ResponseCacheControl: "private, no-store"
+    });
   });
 });
 
