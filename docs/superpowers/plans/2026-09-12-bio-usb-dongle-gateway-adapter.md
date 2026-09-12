@@ -74,14 +74,14 @@ git commit -m "feat(api): ingest provisioning device terminals"
 - Produces: `parseBioDeviceUuid`, `formatBioDeviceUuid`, `BioDeviceMappingStore`
 - Mapping key: `fixtureId`, `nodeId`, `deviceUuid`, `nativeUuid`, `logicalAddress`, firmware, protocol, status, updatedAt
 
-- [ ] **Step 1: `bio:[0-9a-f]{12}` 정규화와 mapping 충돌·복구 RED 테스트를 작성한다.** 주소 범위는 `0x0001..0x7fff`이며 duplicate fixture/UUID/address, corrupt file, reserved/confirmed 분리를 포함한다.
-- [ ] **Step 2: RED를 확인한다.**
+- [x] **Step 1: `bio:[0-9a-f]{12}` 정규화와 mapping 충돌·복구 RED 테스트를 작성한다.** 주소 범위는 `0x0001..0x7fff`이며 duplicate fixture/UUID/address, corrupt file, reserved/confirmed 분리를 포함한다.
+- [x] **Step 2: RED를 확인한다.**
 
 Run: `pnpm --filter @led-control/gateway exec vitest run src/bio/bio-device-identity.test.ts src/bio/bio-device-mapping-store.test.ts`
 
-- [ ] **Step 3: 기존 atomic JSON storage helper를 재사용해 구현한다.** `listConfirmed()`와 lookup은 reserved mapping을 반환하지 않는다.
-- [ ] **Step 4: GREEN과 restart recovery를 확인한다.**
-- [ ] **Step 5: 커밋한다.**
+- [x] **Step 3: 기존 atomic JSON storage helper를 재사용해 구현한다.** `listConfirmed()`와 lookup은 reserved mapping을 반환하지 않는다.
+- [x] **Step 4: GREEN과 restart recovery를 확인한다.**
+- [x] **Step 5: 커밋한다.**
 
 ```bash
 git add apps/gateway/src/bio/bio-device-identity* apps/gateway/src/bio/bio-device-mapping-store*
