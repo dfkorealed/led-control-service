@@ -88,6 +88,8 @@
 
 ### Task 3: Accessible Web app-shell recovery
 
+진행 상태: 구현·소프트웨어 검증 완료, 독립 검토 대기. 최초 RED는 auth 10개 중 9 실패·기존 401 1 통과, 공통 복구 컴포넌트 2개 미존재 suite 실패, transport classifier 5/5 실패다. Self-review의 현재 사용자 active command 정리 누락도 1 실패/9 통과 RED 후 수정했다. 최종 focused 85/85, Web 전체 64 files·707/707, auth/shell Chromium 22/22(신규 복구 9개), typecheck/build 및 main 317.69 kB/gzip 98.39 kB bundle audit를 통과했다. 운영/실백엔드/HIL과 Task 4 작업은 미실행이다.
+
 **Files:**
 - Create: `apps/web/src/components/ui/AppRecoveryState.tsx`
 - Create: `apps/web/src/components/ui/AppErrorBoundary.tsx`
@@ -105,14 +107,14 @@
 - Produces: top-level `AppErrorBoundary` that catches lazy/render failures and never renders raw error details.
 - Consumes: existing `ApiError`, `clearTenantCache`, `AuthView`, `Button`, role shells and `RouteLoadingState`.
 
-- [ ] Write Vitest RED cases for initial 401→login, 403→forbidden/relogin, network and 5xx→service retry, retry success, and no tenant cache leakage.
-- [ ] Write Error Boundary RED cases for rejected lazy import/render error, accessible focus/alert, reload and relogin; name the production mutation each test catches.
-- [ ] Run focused Vitest and record the expected failures.
-- [ ] Implement auth retry policy: only network/5xx, maximum 2 retries; do not retry 401/403. Preserve existing authenticated principal and mandatory-password flows.
-- [ ] Implement common recovery UI and root boundary. Full reload is the canonical chunk recovery; relogin clears tenant cache/session state without exposing error text.
-- [ ] Add Chromium scenarios for first-load API 503→retry success, 401 login, 403 relogin, and lazy chunk failure recovery. Do not increase Playwright timeout.
-- [ ] Run focused Chromium, full Web test/typecheck/build and `git diff --check`.
-- [ ] Update all four `docs/menus/*.md`, `docs/agent-operations.md`, `docs/project-status.md`; commit.
+- [x] Write Vitest RED cases for initial 401→login, 403→forbidden/relogin, network and 5xx→service retry, retry success, and no tenant cache leakage.
+- [x] Write Error Boundary RED cases for rejected lazy import/render error, accessible focus/alert, reload and relogin; name the production mutation each test catches.
+- [x] Run focused Vitest and record the expected failures.
+- [x] Implement auth retry policy: only network/5xx, maximum 2 retries; do not retry 401/403. Preserve existing authenticated principal and mandatory-password flows.
+- [x] Implement common recovery UI and root boundary. Full reload is the canonical chunk recovery; relogin clears tenant cache/session state without exposing error text.
+- [x] Add Chromium scenarios for first-load API 503→retry success, 401 login, 403 relogin, and lazy chunk failure recovery. Do not increase Playwright timeout.
+- [x] Run focused Chromium, full Web test/typecheck/build and `git diff --check`.
+- [x] Update all four `docs/menus/*.md`, `docs/agent-operations.md`, `docs/project-status.md`; commit.
 
 ### Task 4: Runbook and final convergence
 

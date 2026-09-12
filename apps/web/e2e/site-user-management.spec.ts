@@ -154,7 +154,7 @@ test("read, control, admin의 메뉴와 직접 경로 및 수동 제어 API 권�
   try {
     await read.page.goto(`/monitoring?siteId=${siteId}`);
     await expect(read.page.getByRole("navigation", { name: "주 메뉴" }).getByRole("link")).toHaveText(["모니터링", "통계", "설정"]);
-    await read.page.getByRole("link", { name: "설정", exact: true }).hover();
+    await read.page.getByRole("link", { name: "설정", exact: true }).click();
     await expect(read.page.getByRole("navigation", { name: "설정 메뉴" }).getByRole("link")).toHaveText(["설정 개요", "맵 관리", "비밀번호 변경"]);
     await read.page.goto(`/settings/users?siteId=${siteId}`);
     await expect(read.page).toHaveURL(new RegExp(`/settings\\?siteId=${siteId}`));
@@ -171,7 +171,7 @@ test("read, control, admin의 메뉴와 직접 경로 및 수동 제어 API 권�
   try {
     await control.page.goto(`/monitoring?siteId=${siteId}`);
     await expect(control.page.getByRole("navigation", { name: "주 메뉴" }).getByRole("link")).toHaveText(["모니터링", "제어", "통계", "설정"]);
-    await control.page.getByRole("link", { name: "설정", exact: true }).hover();
+    await control.page.getByRole("link", { name: "설정", exact: true }).click();
     await expect(control.page.getByRole("navigation", { name: "설정 메뉴" }).getByRole("link")).toHaveText(["설정 개요", "맵 관리", "비밀번호 변경"]);
     await control.page.goto(`/settings/users?siteId=${siteId}`);
     await expect(control.page).toHaveURL(new RegExp(`/settings\\?siteId=${siteId}`));
@@ -198,7 +198,7 @@ test("read, control, admin의 메뉴와 직접 경로 및 수동 제어 API 권�
   try {
     await admin.page.goto(`/monitoring?siteId=${siteId}`);
     await expect(admin.page.getByRole("navigation", { name: "주 메뉴" }).getByRole("link")).toHaveText(["모니터링", "제어", "통계", "설정"]);
-    await admin.page.getByRole("link", { name: "설정", exact: true }).hover();
+    await admin.page.getByRole("link", { name: "설정", exact: true }).click();
     await expect(admin.page.getByRole("navigation", { name: "설정 메뉴" }).getByRole("link")).toHaveText(["설정 개요", "유저 관리", "조명 등록", "맵 관리", "비밀번호 변경"]);
     await admin.page.goto(`/control?siteId=${siteId}&mode=schedule`);
     await expect(admin.page.getByRole("tab", { name: "수동 제어" })).toBeVisible();

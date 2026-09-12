@@ -4,6 +4,8 @@
 
 ## 구현 완료
 
+- 플랫폼 Task 3에서 공통 앱 셸 복구를 구현했다. 초기 인증 401은 기존 로그인, 403과 그 밖의 비일시 오류는 권한·재로그인 안내로 분기한다. 네트워크·전송 timeout·5xx는 자동 최대 2회 재시도하고 실패하면 `다시 시도`로 연결을 복구한다. `AppErrorBoundary`는 lazy/render 실패를 단일 main·alert·포커스 heading과 공통 버튼으로 표시하며 전체 문서 새로고침 또는 tenant/auth 캐시·현재 사용자 제어 요청을 정리하는 재로그인을 제공한다. 원시 오류/응답/stack은 표시하지 않는다. Task 3 Web 64 files·707/707 unit, 관련 auth/shell Chromium 22/22(신규 복구 9개 포함), typecheck/build와 main `317.69 kB`/gzip `98.39 kB` bundle audit를 통과했다.
+
 - Route 기능 코드 SHA `34261b6`에서 로그인·최초 비밀번호 변경은 초기 main에 유지하고 고객/운영자 shell과 제어 화면을 dynamic chunk로 분리했다. 역할 shell 전체 화면과 shell 내부 route는 공통 `RouteLoadingState`의 `role="status"`·`aria-live="polite"` 로딩 상태를 사용한다. Task 4 fresh Web 검증은 60 files·686/686 unit, 2,437 modules production build와 main `314.83 kB`/gzip `97.58 kB`(예산 `1,070.00 kB`/`325.00 kB`)를 통과했고, 14개 계획 route chunk와 main의 Konva·Recharts 격리를 audit으로 확인했다. Task 3의 계획된 Chromium 64/64는 1440/1024/760/390/320px에서 제어를 포함한 대표 route 전환을, disposable RealBackendLab 2/2는 실제 API/DB 기반 고객 여정을 검증했다.
 - 공통 고객 셸 상단은 현재 메뉴 제목과 실제 현장명 배지만 표시한다. 기존 층명 기반 `B2 주차장` 표기와 동작 없는 Gateway 정상·오프라인·미등록 상태 배지는 제거하되 설정의 `Gateway 상태` 상세 카드는 유지한다. 로그아웃 위치와 인증·dirty editor 확인 로직은 유지하고, 고객·운영자 셸의 로그아웃은 공통 `IconTooltipButton`으로 아이콘만 표시한다. `로그아웃` 도움말은 hover와 키보드 focus에서 열리고 도움말 위로 포인터를 옮겨도 유지되며 `Escape`로 닫힌다. 모바일 버튼은 52px 실제 터치 영역을 사용한다.
 - 수동·스케줄·이벤트 제어 탭을 통계 상단 메뉴와 같은 밑줄형 공통 `UnderlineNavigation`으로 통일했다. 탭 아이콘은 공통 label의 선택 옵션으로 제공해 제어의 기존 아이콘은 유지하고, 활성 밑줄·색상·44px 높이·가로 스크롤 동작은 통계와 공유한다. 기존 `mode` query, 권한별 탭 노출, `tablist`/`tab` ARIA 연결과 방향키·Home·End roving focus는 변경하지 않았다. 390·320·760px Chromium에서 세 모드 모두 탭과 panel 사이 16px 간격, overflow 내부 focus ring과 document 가로 overflow 부재를 확인했다.
@@ -226,7 +228,7 @@
 
 ## 부족하거나 개선이 필요한 기능
 
-- 1440/390/320px 결과는 Chromium 자동 브라우저 software 증거다. 실제 iOS/Android native WebView, 수동 in-app 시각 QA, WebView safe-area 실측 또는 Raspberry Pi/ESP32-H2 HIL을 수행한 결과가 아니다. Lazy chunk load 실패의 전용 복구 UI와 prefetch/offline cache도 후속 범위다.
+- 1440/390/320px 결과는 Chromium 자동 브라우저 software 증거다. 실제 iOS/Android native WebView, 수동 in-app 시각 QA, WebView safe-area 실측 또는 Raspberry Pi/ESP32-H2 HIL을 수행한 결과가 아니다. Lazy chunk 실패의 복구 UI는 플랫폼 Task 3에서 구현했으며, prefetch/offline cache는 후속 범위다. Task 3 오류 주입은 Vite에서 실제 앱 셸의 동적 import 요청을 차단한 deterministic Chromium 결과이며, 운영 CDN/container 배포나 실제 backend 장애·HIL 검증을 의미하지 않는다.
 - 공통 우측 패널의 반응형·overflow 계약은 Chromium 1440/1024/390/320px route fixture로 검증했으며 실제 모바일 WebView safe-area와 브라우저별 scrollbar 표현은 별도 실측이 필요하다.
 - 현재 개별 밝기 제어는 acknowledged Light Lightness Set을 한 번 전송하고 Status를 기다린다. 2026-09-03 HIL 4회 중 3회는 1~2초 내 성공했고 1회는 장치 적용 후 Status 한 패킷 유실로 timeout 됐다. 같은 TID를 사용하는 bounded 재전송 또는 후속 Lightness Get 확인으로 실제 적용과 서버 실패 표시가 어긋나지 않게 보완해야 한다.
 - API/Gateway의 DB·journal 이후 PUBACK 계약은 자동화됐지만, API 종료·Gateway 종료·broker 재연결과 ESP32-H2 cold boot를 동시에 포함한 acceptance/device-status 중복 재전달 및 AppKey 복원은 실장비 전원 차단 HIL로 확인해야 한다.
@@ -252,6 +254,11 @@
 - Task 20 Fix Round 4에서 temp directory는 fixed lock의 owner/coordination 상태가 아닌 publish 후보로 유지하되, cleanup은 원본 temp를 같은 parent의 unique quarantine path로 먼저 atomic rename해 소유권을 확보한 뒤 quarantine 내부만 정리한다. quarantine 내부가 empty directory이거나 exact regular `.owner.<token>` marker 하나만 가진 경우에만 삭제하고, publisher가 먼저 temp를 fixed lock으로 rename하면 cleaner는 원본 temp `ENOENT`로 중단한다. cleaner가 먼저 quarantine하면 publisher는 `ENOENT` 후 같은 token으로 새 temp를 만들어 retry한다. fixed lock directory 자체는 quarantine하지 않는다. temp/quarantine symlink·non-directory·marker symlink·multi-entry·외부 sentinel은 따라가거나 삭제하지 않고 fixed lock 획득을 막지 않는다. fixed lock은 계속 token/PID/`ps` process-start identity를 exact marker로 확인해 active owner wait, stale/PID reuse takeover, unknown identity fail-closed, exact release, successor ABA 보호와 same-output 직렬화를 유지한다. production `scripts/esp32-h2-build.sh`는 Bluetooth SIG 자사 Company ID와 signed manufacturing approval이 없는 현재 `unprovisioned` policy에서 의도적으로 fail-closed한다. 이는 HIL 실패나 HIL 완료 증거가 아니다.
 
 ## 관련 파일
+
+- `apps/web/src/components/ui/AppRecoveryState.tsx`
+- `apps/web/src/components/ui/AppErrorBoundary.tsx`
+- `apps/web/src/App.recovery.test.tsx`
+- `apps/web/e2e/app-shell-recovery.spec.ts`
 
 - `apps/web/src/App.tsx`
 - `apps/web/src/components/ui/RouteLoadingState.tsx`

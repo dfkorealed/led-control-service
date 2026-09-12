@@ -860,6 +860,26 @@ button {
   color: #b91c1c;
 }
 
+.app-recovery {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.app-recovery-panel {
+  width: min(100%, 520px);
+  min-width: 0;
+  padding: clamp(20px, 5vw, 40px);
+  overflow-wrap: anywhere;
+}
+
+.app-recovery-panel h1 { font-size: clamp(22px, 4vw, 28px); line-height: 1.4; }
+.app-recovery-panel p { line-height: 1.6; }
+.app-recovery-panel h1:focus { outline: 3px solid var(--primary); outline-offset: 4px; }
+.app-recovery-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
+.app-recovery-actions .ui-button { min-height: 44px; min-width: 44px; }
+
 .auth-shell {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(320px, 440px);

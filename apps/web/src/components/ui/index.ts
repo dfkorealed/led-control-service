@@ -1,4 +1,6 @@
 export { Button } from "./Button";
+export { AppRecoveryState } from "./AppRecoveryState";
+export { AppErrorBoundary } from "./AppErrorBoundary";
 export type { ButtonProps } from "./Button";
 export { Card } from "./Card";
 export type { CardTone } from "./Card";

@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { apiGet, apiPost } from "./api/client";
+import { ApiError, apiGet, apiPost } from "./api/client";
 import type { InitialSiteSetupRequest } from "./api/setup";
 import { dirtyEditorSentinelKey } from "./features/floor-editor/dirty-editor-history";
 import { useFloorEditorStore } from "./features/floor-editor/editor-store";
@@ -64,7 +64,8 @@ Object.defineProperty(window, "matchMedia", {
   }))
 });
 
-vi.mock("./api/client", () => ({
+vi.mock("./api/client", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./api/client")>(),
   apiGet: vi.fn((path: string) => {
     const dashboardResponse = (fallback: unknown) => {
       const response = apiState.dashboardResponses.shift()?.() ?? Promise.resolve(apiState.dashboard ?? fallback);
@@ -76,7 +77,7 @@ vi.mock("./api/client", () => ({
       }));
     };
     if (path === "/auth/me") {
-      return authState.user ? Promise.resolve({ user: authState.user }) : Promise.reject(new Error("Unauthorized"));
+      return authState.user ? Promise.resolve({ user: authState.user }) : Promise.reject(new ApiError("Unauthorized", 401, null));
     }
     if (path === "/sites") {
       return Promise.resolve([

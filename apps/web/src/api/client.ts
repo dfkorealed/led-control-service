@@ -7,8 +7,27 @@ export class ApiError extends Error {
   }
 }
 
+class ApiTransportError extends Error {}
+
+export function isApiStatus(error: unknown, status: number) {
+  return error instanceof ApiError && error.status === status;
+}
+
+export function isTransientApiError(error: unknown) {
+  return error instanceof ApiTransportError || (error instanceof ApiError && error.status >= 500 && error.status < 600);
+}
+
 export async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, { ...init, credentials: "include" });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, { ...init, credentials: "include" });
+  } catch (error) {
+    // fetch 단계만 분류한다. 응답 JSON 파싱/화면의 TypeError와 호출자가 취소한 요청은 재시도하지 않는다.
+    if (!init.signal?.aborted && (error instanceof TypeError || (error instanceof DOMException && ["AbortError", "TimeoutError"].includes(error.name)))) {
+      throw new ApiTransportError("Service connection failed");
+    }
+    throw error;
+  }
   if (!response.ok) {
     throw new ApiError(
       `${init.method ?? "GET"} ${path} failed with ${response.status}`,
