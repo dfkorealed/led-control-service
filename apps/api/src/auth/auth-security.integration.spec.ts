@@ -23,6 +23,11 @@ describeIntegration("Account security PostgreSQL and Redis integration", () => {
   let mfa: MfaService;
   let sessions: SessionManagementService;
   let totp: TotpService;
+  let audit: AuditService;
+  let passwords: PasswordService;
+  let crypto: MfaCryptoService;
+  let challenges: AuthChallengeStore;
+  let rateLimitKeyPrefix: string;
   let organizationId: string;
   let userId: string;
   const password = "integration security password";
@@ -39,14 +44,11 @@ describeIntegration("Account security PostgreSQL and Redis integration", () => {
     prisma = new PrismaService({ datasources: { db: { url: databaseUrl! } } });
     await prisma.$connect();
     redis = new RedisProvider();
-    const audit = new AuditService(prisma);
-    const passwords = new PasswordService();
-    const crypto = new MfaCryptoService();
+    audit = new AuditService(prisma);
+    passwords = new PasswordService();
+    crypto = new MfaCryptoService();
     totp = new TotpService();
-    const challenges = new AuthChallengeStore(redis, crypto);
-    const rateLimit = new LoginRateLimitService(redis, audit);
-    mfa = new MfaService(prisma, passwords, audit, challenges, crypto, totp, rateLimit);
-    auth = new AuthService(prisma, passwords, audit, rateLimit, mfa);
+    challenges = new AuthChallengeStore(redis, crypto);
     sessions = new SessionManagementService(prisma, audit);
 
     organizationId = randomUUID();
@@ -56,6 +58,17 @@ describeIntegration("Account security PostgreSQL and Redis integration", () => {
       id: userId, organizationId, loginId: `secure_${userId.slice(0, 8)}`, name: "Security Admin",
       passwordHash: await passwords.hash(password), role: "admin", status: "active"
     } });
+  });
+
+  beforeEach(() => {
+    rateLimitKeyPrefix = `test:auth-security:${randomUUID()}:rate`;
+    const rateLimit = new LoginRateLimitService(redis, audit, rateLimitKeyPrefix);
+    mfa = new MfaService(prisma, passwords, audit, challenges, crypto, totp, rateLimit);
+    auth = new AuthService(prisma, passwords, audit, rateLimit, mfa);
+  });
+
+  afterEach(async () => {
+    await deleteRedisNamespace(redis, rateLimitKeyPrefix);
   });
 
   afterAll(async () => {
@@ -134,3 +147,13 @@ describeIntegration("Account security PostgreSQL and Redis integration", () => {
     await expect(prisma.auditLog.count({ where: { action: "auth.login_rate_limited", outcome: "blocked" } })).resolves.toBeGreaterThan(0);
   });
 });
+
+async function deleteRedisNamespace(redis: RedisProvider, keyPrefix: string) {
+  const client = redis.getClient();
+  let cursor = "0";
+  do {
+    const [nextCursor, keys] = await client.scan(cursor, "MATCH", `${keyPrefix}:*`, "COUNT", 100);
+    cursor = nextCursor;
+    if (keys.length > 0) await client.del(...keys);
+  } while (cursor !== "0");
+}

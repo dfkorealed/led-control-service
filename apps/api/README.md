@@ -53,3 +53,13 @@ Gateway는 fixture state topic으로 상태를 보냅니다. [src/mqtt/mqtt.serv
 2. [src/auth/auth.controller.ts](src/auth/auth.controller.ts)와 [src/auth/auth.service.ts](src/auth/auth.service.ts)로 세션 인증 흐름을 확인합니다.
 3. 화면에서 필요한 기능의 Controller를 찾고 같은 이름의 Service, `prisma/schema.prisma` 순서로 읽습니다.
 4. Gateway와 연결되는 기능이라면 마지막으로 [../../packages/shared/src/gateway-contracts.ts](../../packages/shared/src/gateway-contracts.ts)와 [../gateway/src/index.ts](../gateway/src/index.ts)를 함께 봅니다.
+
+## Reverse proxy와 클라이언트 IP
+
+API는 기본적으로 직접 접속을 기준으로 동작하며 요청자가 보낸 `X-Forwarded-For`를 신뢰하지 않습니다. Load balancer나 reverse proxy 뒤에 배포할 때만 `API_TRUST_PROXY`에 신뢰 경계를 명시합니다.
+
+- 고정 proxy 계층이면 hop 수를 정수로 지정합니다. 예: `API_TRUST_PROXY=1`
+- proxy 주소가 정해져 있으면 IP 또는 CIDR을 쉼표로 나열합니다. 예: `API_TRUST_PROXY=10.20.0.10,10.20.0.0/16`
+- `true`, `all`, hostname, 잘못된 CIDR은 시작 단계에서 거부합니다. 인터넷 요청 전체를 proxy로 신뢰하는 설정은 지원하지 않습니다.
+
+이 설정이 실제 배포 경계와 다르면 로그인 IP 제한과 감사 로그의 IP가 proxy 주소로 합쳐지거나 위조될 수 있습니다. 인프라의 실제 proxy hop 또는 source CIDR을 확인한 뒤 설정해야 합니다.

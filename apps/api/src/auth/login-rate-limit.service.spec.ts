@@ -7,10 +7,14 @@ describe("LoginRateLimitService", () => {
     ipAddress: "203.0.113.10", loginId: "admin_01", organizationId: "org-1", userId: "user-1", userAgent: "browser"
   };
 
-  function fixture(evalResult: unknown = [0, 0]) {
+  function fixture(evalResult: unknown = [0, 0], keyPrefix?: string) {
     const client = { eval: jest.fn().mockResolvedValue(evalResult), del: jest.fn().mockResolvedValue(1) };
     const audit = { record: jest.fn().mockResolvedValue({ id: "audit-1" }) };
-    const service = new LoginRateLimitService({ getClient: () => client } as any, audit as unknown as AuditService);
+    const service = new LoginRateLimitService(
+      { getClient: () => client } as any,
+      audit as unknown as AuditService,
+      keyPrefix
+    );
     return { client, audit, service };
   }
 
@@ -37,6 +41,19 @@ describe("LoginRateLimitService", () => {
     const { client, service } = fixture();
     await service.consume({ ...input, organizationId: undefined, userId: undefined });
     expect(client.eval.mock.calls[0][1]).toBe(2);
+  });
+
+  it("isolates buckets under an explicit test key namespace", async () => {
+    const { client, service } = fixture([0, 0], "test:auth-security:scenario-1");
+
+    await service.consume(input);
+
+    const keys = client.eval.mock.calls[0].slice(2, 5) as string[];
+    expect(keys).toEqual([
+      expect.stringMatching(/^test:auth-security:scenario-1:ip:[a-f0-9]{64}$/),
+      expect.stringMatching(/^test:auth-security:scenario-1:account:[a-f0-9]{64}$/),
+      expect.stringMatching(/^test:auth-security:scenario-1:tenant-ip:[a-f0-9]{64}$/)
+    ]);
   });
 
   it("returns a uniform 429 and audits the blocked dimension", async () => {

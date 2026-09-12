@@ -1,4 +1,4 @@
-import { HttpException, Injectable, ServiceUnavailableException } from "@nestjs/common";
+import { HttpException, Inject, Injectable, Optional, ServiceUnavailableException } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import { AuditService } from "../audit/audit.service";
 import { RedisProvider } from "../redis/redis.provider";
@@ -7,6 +7,7 @@ const WINDOW_SECONDS = 15 * 60;
 const IP_LIMIT = 30;
 const ACCOUNT_LIMIT = 10;
 const TENANT_IP_LIMIT = 20;
+export const LOGIN_RATE_LIMIT_KEY_PREFIX = Symbol("LOGIN_RATE_LIMIT_KEY_PREFIX");
 
 const CONSUME_SCRIPT = `
 local window = tonumber(ARGV[1])
@@ -35,7 +36,15 @@ export interface LoginRateLimitInput {
 
 @Injectable()
 export class LoginRateLimitService {
-  constructor(private readonly redis: RedisProvider, private readonly audit: AuditService) {}
+  private readonly keyPrefix: string;
+
+  constructor(
+    private readonly redis: RedisProvider,
+    private readonly audit: AuditService,
+    @Optional() @Inject(LOGIN_RATE_LIMIT_KEY_PREFIX) keyPrefix?: string
+  ) {
+    this.keyPrefix = keyPrefix?.trim() || "auth:rate";
+  }
 
   async consume(input: LoginRateLimitInput) {
     const buckets = this.buckets(input);
@@ -95,7 +104,7 @@ export class LoginRateLimitService {
   }
 
   private key(dimension: string, value: string) {
-    return `auth:rate:${dimension}:${createHash("sha256").update(value).digest("hex")}`;
+    return `${this.keyPrefix}:${dimension}:${createHash("sha256").update(value).digest("hex")}`;
   }
 
   private record(input: LoginRateLimitInput, action: string, outcome: string, metadata?: Record<string, unknown>) {
