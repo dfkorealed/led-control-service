@@ -121,6 +121,101 @@ describe("MfaService", () => {
       .rejects.toBeInstanceOf(UnauthorizedException);
   });
 
+  it.each([
+    ["TOTP", { code: "000000" }],
+    ["recovery code", { recoveryCode: "invalid-recovery-code" }]
+  ])("audits a failed %s login outside the rolled-back success transaction", async (_factor, verification) => {
+    const { service, challenges, storedUser, tx, totp, audit } = fixture();
+    storedUser.mfa = { secretCiphertext: "enc:BASE32SECRET", recoveryCodeHashes: [] };
+    challenges.take.mockResolvedValue({
+      userId: admin.id, userUpdatedAt: storedUser.updatedAt.toISOString(), rememberMe: false,
+      ipAddress: "203.0.113.7", userAgent: "browser"
+    });
+    totp.verify.mockReturnValue(false);
+
+    await expect(service.completeLogin({ challengeToken: "challenge", ...verification }, "203.0.113.7", "browser"))
+      .rejects.toBeInstanceOf(UnauthorizedException);
+
+    expect(tx.session.create).not.toHaveBeenCalled();
+    expect(audit.record).toHaveBeenCalledWith({
+      organizationId: admin.organizationId,
+      actorId: admin.id,
+      action: "auth.login_failed",
+      targetType: "User",
+      targetId: admin.id,
+      outcome: "failure",
+      metadata: { mfa: true },
+      ipAddress: "203.0.113.7",
+      userAgent: "browser"
+    });
+  });
+
+  it("audits a user-state rejection with the identity found before transaction rollback", async () => {
+    const { service, challenges, storedUser, tx, audit } = fixture();
+    (storedUser as { status: string }).status = "disabled";
+    storedUser.mfa = { secretCiphertext: "enc:BASE32SECRET", recoveryCodeHashes: [] };
+    challenges.take.mockResolvedValue({
+      userId: admin.id, userUpdatedAt: storedUser.updatedAt.toISOString(), rememberMe: false,
+      ipAddress: "203.0.113.7", userAgent: "browser"
+    });
+
+    await expect(service.completeLogin({ challengeToken: "challenge", code: "123456" }, "203.0.113.7", "browser"))
+      .rejects.toBeInstanceOf(UnauthorizedException);
+
+    expect(tx.session.create).not.toHaveBeenCalled();
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: admin.organizationId,
+      actorId: admin.id,
+      targetId: admin.id,
+      action: "auth.login_failed",
+      outcome: "failure"
+    }));
+    expect(audit.record.mock.calls[0][0]).not.toHaveProperty("transaction");
+  });
+
+  it.each([
+    ["missing", null],
+    ["binding mismatch", {
+      userId: admin.id,
+      userUpdatedAt: "2026-09-12T00:00:00.000Z",
+      rememberMe: false,
+      ipAddress: "198.51.100.1",
+      userAgent: "browser"
+    }]
+  ])("audits a %s challenge failure with request context only", async (_kind, challenge) => {
+    const { service, challenges, tx, audit } = fixture();
+    challenges.take.mockResolvedValue(challenge);
+
+    await expect(service.completeLogin({ challengeToken: "challenge", code: "123456" }, "203.0.113.7", "browser"))
+      .rejects.toBeInstanceOf(UnauthorizedException);
+
+    expect(tx.$queryRaw).not.toHaveBeenCalled();
+    expect(audit.record).toHaveBeenCalledWith({
+      action: "auth.login_failed",
+      targetType: "User",
+      outcome: "failure",
+      metadata: { mfa: true },
+      ipAddress: "203.0.113.7",
+      userAgent: "browser"
+    });
+  });
+
+  it("fails closed when recording an MFA login failure is unavailable", async () => {
+    const { service, challenges, storedUser, tx, totp, audit } = fixture();
+    const auditFailure = new Error("audit database unavailable");
+    storedUser.mfa = { secretCiphertext: "enc:BASE32SECRET", recoveryCodeHashes: [] };
+    challenges.take.mockResolvedValue({
+      userId: admin.id, userUpdatedAt: storedUser.updatedAt.toISOString(), rememberMe: false,
+      ipAddress: "203.0.113.7", userAgent: "browser"
+    });
+    totp.verify.mockReturnValue(false);
+    audit.record.mockRejectedValue(auditFailure);
+
+    await expect(service.completeLogin({ challengeToken: "challenge", code: "000000" }, "203.0.113.7", "browser"))
+      .rejects.toBe(auditFailure);
+    expect(tx.session.create).not.toHaveBeenCalled();
+  });
+
   it("consumes a recovery code once in the same transaction", async () => {
     const { service, challenges, storedUser, tx, totp, audit } = fixture();
     const code = "recovery-code";

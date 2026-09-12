@@ -119,8 +119,25 @@ describeIntegration("Account security PostgreSQL and Redis integration", () => {
     expect(recovered.recoveryCodeUsed).toBe(true);
 
     const replayChallenge = await auth.login({ loginId, password, rememberMe: false, ipAddress, userAgent });
+    const failedAuditCountBefore = await prisma.auditLog.count({
+      where: { action: "auth.login_failed", actorId: userId, outcome: "failure" }
+    });
     await expect(mfa.completeLogin({ challengeToken: replayChallenge.challengeToken, recoveryCode: recovery }, ipAddress, userAgent))
       .rejects.toBeInstanceOf(UnauthorizedException);
+    await expect(prisma.auditLog.count({
+      where: { action: "auth.login_failed", actorId: userId, outcome: "failure" }
+    })).resolves.toBe(failedAuditCountBefore + 1);
+    await expect(prisma.auditLog.findFirst({
+      where: { action: "auth.login_failed", actorId: userId, outcome: "failure" },
+      orderBy: { createdAt: "desc" },
+      select: { organizationId: true, targetId: true, ipAddress: true, userAgent: true, metadata: true }
+    })).resolves.toEqual({
+      organizationId,
+      targetId: userId,
+      ipAddress,
+      userAgent,
+      metadata: { mfa: true }
+    });
 
     const disabled = await mfa.disable(recovered.user, recovered.sessionToken, {
       currentPassword: password,

@@ -116,48 +116,63 @@ export class MfaService {
 
   async completeLogin(input: { challengeToken: string } & VerificationInput, ipAddress: string, userAgent?: string) {
     const challenge = await this.challenges.take<LoginMfaChallenge>("login", this.required(input.challengeToken));
-    if (!challenge || challenge.ipAddress !== ipAddress || (challenge.userAgent ?? "") !== (userAgent ?? "")) throw this.invalidMfa();
+    if (!challenge || challenge.ipAddress !== ipAddress || (challenge.userAgent ?? "") !== (userAgent ?? "")) {
+      await this.recordLoginFailure({ ipAddress, userAgent });
+      throw this.invalidMfa();
+    }
     let organizationId = "";
     let loginId = "";
-    const result = await this.db().$transaction(async (tx: Prisma.TransactionClient) => {
-      await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "User" WHERE "id" = ${challenge.userId} FOR UPDATE`);
-      const storedUser = await tx.user.findUnique({
-        where: { id: challenge.userId },
-        include: { organization: { select: { type: true } }, mfa: true }
-      });
-      if (!storedUser || storedUser.status !== "active" || !storedUser.mfa
-        || storedUser.updatedAt.toISOString() !== challenge.userUpdatedAt
-        || (storedUser.role !== "operator" && storedUser.role !== "admin")) throw this.invalidMfa();
-      const verification = this.verifyFactor(storedUser.mfa, input);
-      if (!verification.valid) throw this.invalidMfa();
-      if (verification.recoveryCodeUsed) {
-        await tx.userMfa.update({
-          where: { userId: storedUser.id },
-          data: { recoveryCodeHashes: verification.remainingRecoveryCodeHashes }
+    let failureIdentity: { organizationId: string; userId: string } | undefined;
+    let result;
+    try {
+      result = await this.db().$transaction(async (tx: Prisma.TransactionClient) => {
+        await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "User" WHERE "id" = ${challenge.userId} FOR UPDATE`);
+        const storedUser = await tx.user.findUnique({
+          where: { id: challenge.userId },
+          include: { organization: { select: { type: true } }, mfa: true }
         });
-      }
-      const session = await this.createSession(tx, storedUser.id, {
-        rememberMe: challenge.rememberMe,
-        userAgent: challenge.userAgent,
-        ipAddress: challenge.ipAddress,
-        mfaVerified: true
-      });
-      await this.audit.record({
-        transaction: tx, organizationId: storedUser.organizationId, actorId: storedUser.id,
-        action: "auth.login_succeeded", targetType: "User", targetId: storedUser.id, outcome: "success",
-        ipAddress: challenge.ipAddress, userAgent: challenge.userAgent,
-        metadata: { mfa: true }
-      });
-      if (verification.recoveryCodeUsed) {
+        if (storedUser) {
+          failureIdentity = { organizationId: storedUser.organizationId, userId: storedUser.id };
+        }
+        if (!storedUser || storedUser.status !== "active" || !storedUser.mfa
+          || storedUser.updatedAt.toISOString() !== challenge.userUpdatedAt
+          || (storedUser.role !== "operator" && storedUser.role !== "admin")) throw this.invalidMfa();
+        const verification = this.verifyFactor(storedUser.mfa, input);
+        if (!verification.valid) throw this.invalidMfa();
+        if (verification.recoveryCodeUsed) {
+          await tx.userMfa.update({
+            where: { userId: storedUser.id },
+            data: { recoveryCodeHashes: verification.remainingRecoveryCodeHashes }
+          });
+        }
+        const session = await this.createSession(tx, storedUser.id, {
+          rememberMe: challenge.rememberMe,
+          userAgent: challenge.userAgent,
+          ipAddress: challenge.ipAddress,
+          mfaVerified: true
+        });
         await this.audit.record({
           transaction: tx, organizationId: storedUser.organizationId, actorId: storedUser.id,
-          action: "auth.mfa_recovery_code_used", targetType: "User", targetId: storedUser.id, outcome: "success"
+          action: "auth.login_succeeded", targetType: "User", targetId: storedUser.id, outcome: "success",
+          ipAddress: challenge.ipAddress, userAgent: challenge.userAgent,
+          metadata: { mfa: true }
         });
+        if (verification.recoveryCodeUsed) {
+          await this.audit.record({
+            transaction: tx, organizationId: storedUser.organizationId, actorId: storedUser.id,
+            action: "auth.mfa_recovery_code_used", targetType: "User", targetId: storedUser.id, outcome: "success"
+          });
+        }
+        organizationId = storedUser.organizationId;
+        loginId = storedUser.loginId;
+        return { user: this.publicUser(storedUser), recoveryCodeUsed: verification.recoveryCodeUsed, ...session };
+      });
+    } catch (error) {
+      if (error instanceof UnauthorizedException) {
+        await this.recordLoginFailure({ ipAddress, userAgent, ...failureIdentity });
       }
-      organizationId = storedUser.organizationId;
-      loginId = storedUser.loginId;
-      return { user: this.publicUser(storedUser), recoveryCodeUsed: verification.recoveryCodeUsed, ...session };
-    });
+      throw error;
+    }
     if (this.loginRateLimit) {
       try {
         await this.loginRateLimit.resetAfterSuccess({
@@ -172,6 +187,25 @@ export class MfaService {
       }
     }
     return result;
+  }
+
+  private recordLoginFailure(input: {
+    ipAddress: string;
+    userAgent?: string;
+    organizationId?: string;
+    userId?: string;
+  }) {
+    return this.audit.record({
+      organizationId: input.organizationId,
+      actorId: input.userId,
+      action: "auth.login_failed",
+      targetType: "User",
+      targetId: input.userId,
+      outcome: "failure",
+      metadata: { mfa: true },
+      ipAddress: input.ipAddress,
+      userAgent: input.userAgent
+    });
   }
 
   async disable(
