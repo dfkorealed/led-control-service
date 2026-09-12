@@ -11,6 +11,18 @@ import type { RevokeCertificateInput } from "./pki.types";
 const POLL_INTERVAL_MS = 30_000;
 const LEASE_DURATION_MS = 300_000;
 const MAX_BACKOFF_MS = 3_600_000;
+// "PKIC" reserves a two-int PostgreSQL advisory namespace for CRL publication.
+// PostgreSQL keeps this key space separate from inventory's one-bigint locks.
+// The second key is device=1 / mqtt=2, so different CA CRLs remain independent.
+const CRL_ADVISORY_NAMESPACE = 0x504b4943;
+const MAX_CRL_PUBLICATIONS = 3;
+// At most four CA reads (initial + three confirmations), each bounded by Vault's
+// 120s request limit: <=8 minutes of network I/O. Fifteen minutes leaves room for
+// three local atomic publishes and DB work, and deliberately exceeds the row's
+// 5-minute lease. A same-row successor may claim but must wait for this callback
+// to finish before reading/publishing. An extreme >15-minute filesystem stall
+// remains an operational failure boundary; Prisma cannot cancel external I/O.
+const CRL_TRANSACTION_TIMEOUT_MS = 15 * 60_000;
 // Must exceed CERTIFICATE_TRANSACTION_TIMEOUT_MS (140s). The independent commit
 // survives rollback/crash, while the delay protects successful certificate writes.
 const SIGNED_CERTIFICATE_GRACE_MS = 180_000;
@@ -146,8 +158,37 @@ export class CertificateRevocationReconciliationService implements OnModuleInit,
       failureCode = "crl_publish_failed";
       const path = row.purpose === "device" ? this.configuration.deviceCrlPath : this.configuration.mqttCrlPath;
       if (!path) throw new Error("CRL publication destination unavailable");
-      await this.configuration.publishCrl(path, await this.certificateAuthority.readCrl(row.purpose));
       await this.prisma.$transaction(async tx => {
+        // The file is shared by all certificate rows of this purpose. A row lease
+        // alone cannot prevent an older snapshot overwriting a newer one. This
+        // deliberate exception holds a DB transaction over CRL I/O, but no
+        // inventory/certificate row lock is held until publication has finished.
+        await tx.$executeRaw(Prisma.sql`SELECT set_config('lock_timeout', '10000ms', true)`);
+        await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(
+          ${CRL_ADVISORY_NAMESPACE}::integer, ${row.purpose === "device" ? 1 : 2}::integer
+        )`);
+        let snapshot = await this.certificateAuthority.readCrl(row.purpose);
+        let confirmed = false;
+        for (let attempt = 0; attempt < MAX_CRL_PUBLICATIONS; attempt += 1) {
+          // Prisma timeouts do not cancel an awaiting JS callback. Re-query after
+          // every CA read so a timed-out transaction or expired lease cannot
+          // begin another publish after its advisory lock has been released.
+          const live = await tx.certificateRevocationReconciliation.findFirst({
+            where: this.fence(row), select: { id: true }
+          });
+          if (!live) return;
+          await this.configuration.publishCrl(path, snapshot);
+          // CA revoke itself is intentionally outside the publication lock. A
+          // concurrent revoke may advance the CRL during I/O; confirm convergence
+          // before completion, otherwise publish the freshly read snapshot again.
+          const latest = await this.certificateAuthority.readCrl(row.purpose);
+          if (latest === snapshot) {
+            confirmed = true;
+            break;
+          }
+          snapshot = latest;
+        }
+        if (!confirmed) throw new Error("CRL changed throughout the publication budget");
         // Keep the common inventory -> certificate -> ledger lock order; reversing
         // it here would deadlock against disable staging this same obligation.
         if (row.certificateId) {
@@ -162,7 +203,7 @@ export class CertificateRevocationReconciliationService implements OnModuleInit,
           where: { id: row.certificateId, inventoryId: row.inventoryId, fingerprint: row.fingerprint },
           data: { status: "revoked", revokedAt: row.revokedAt }
         });
-      });
+      }, { timeout: CRL_TRANSACTION_TIMEOUT_MS });
     } catch {
       const delay = Math.min(MAX_BACKOFF_MS, POLL_INTERVAL_MS * 2 ** Math.min(20, Math.max(0, row.attempts - 1)));
       await this.prisma.certificateRevocationReconciliation.updateMany({ where: this.fence(row), data: {

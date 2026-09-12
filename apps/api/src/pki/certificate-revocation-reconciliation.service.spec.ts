@@ -29,7 +29,7 @@ function setup() {
       }
       return { count: 1 };
     }),
-    findFirst: jest.fn(async ({ where }: any) => rows.find(row => where.OR.some((key: any) =>
+    findFirst: jest.fn(async ({ where }: any) => where.id ? { id: where.id } : rows.find(row => where.OR.some((key: any) =>
       Object.entries(key).every(([field, value]) => row[field] === value))) ?? null),
     updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     update: jest.fn().mockImplementation(async ({ data }: any) => ({ ...job(), ...data }))
@@ -179,6 +179,72 @@ describe("CertificateRevocationReconciliationService", () => {
     expect(config.publishCrl).not.toHaveBeenCalled();
   });
 
+  it("re-reads the CA after publication and replaces a snapshot that became stale before completion", async () => {
+    const { service, tx, ca, config, ledger } = setup();
+    tx.$queryRaw.mockResolvedValueOnce([job({ revokedAt: NOW })]);
+    ca.readCrl.mockResolvedValueOnce("snapshot-1").mockResolvedValue("snapshot-2");
+    await service.processNow("job-1");
+    expect(config.publishCrl.mock.calls).toEqual([
+      ["/test/device.crl", "snapshot-1"], ["/test/device.crl", "snapshot-2"]
+    ]);
+    expect(ca.readCrl).toHaveBeenCalledTimes(3);
+    expect(ledger.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ completedAt: NOW }) }));
+  });
+
+  it("backs off after three changing CRL publications instead of extending the publication transaction indefinitely", async () => {
+    const { service, tx, ca, config, ledger } = setup();
+    tx.$queryRaw.mockResolvedValueOnce([job({ revokedAt: NOW })]);
+    let version = 0;
+    ca.readCrl.mockImplementation(async () => {
+      version += 1;
+      if (version > 6) throw new Error("CA fixture unavailable after six versions");
+      return `snapshot-${version}`;
+    });
+    await service.processNow("job-1");
+    expect(config.publishCrl).toHaveBeenCalledTimes(3);
+    expect(ca.readCrl).toHaveBeenCalledTimes(4);
+    expect(ledger.updateMany.mock.calls.every(([input]) => !input.data.completedAt)).toBe(true);
+    expect(ledger.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
+      lastError: "crl_publish_failed", nextAttemptAt: new Date("2026-09-12T00:00:30.000Z")
+    }) }));
+  });
+
+  it("does not begin publishing after a transaction timeout during the CA read", async () => {
+    const { service, tx, ledger, config } = setup();
+    tx.$queryRaw.mockResolvedValueOnce([job({ revokedAt: NOW })]);
+    ledger.findFirst.mockRejectedValue(new Error("Transaction already closed"));
+    await service.processNow("job-1");
+    expect(config.publishCrl).not.toHaveBeenCalled();
+    expect(ledger.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ lastError: "crl_publish_failed" }) }));
+  });
+
+  it("leaves publication uncompleted when it loses the lease before publishing", async () => {
+    const { service, tx, ledger, config } = setup();
+    tx.$queryRaw.mockResolvedValueOnce([job({ revokedAt: NOW })]);
+    ledger.findFirst.mockResolvedValue(null);
+    await service.processNow("job-1");
+    expect(config.publishCrl).not.toHaveBeenCalled();
+    expect(ledger.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("leaves a post-publish crash uncompleted and a restarted worker re-reads and publishes the latest CRL", async () => {
+    const { service, prisma, tx, ledger, ca, config } = setup();
+    tx.$queryRaw.mockResolvedValueOnce([job({ revokedAt: NOW })]);
+    ca.readCrl.mockResolvedValueOnce("snapshot-1").mockRejectedValueOnce(new Error("publication interrupted before confirmation"));
+    await service.processNow("job-1");
+    expect(config.publishCrl).toHaveBeenCalledWith("/test/device.crl", "snapshot-1");
+    expect(ledger.updateMany.mock.calls.every(([input]) => !input.data.completedAt)).toBe(true);
+    tx.$queryRaw.mockResolvedValueOnce([job({ revokedAt: NOW, leaseOwner: "restarted-claim", attempts: 2 })]);
+    ca.readCrl.mockResolvedValue("snapshot-2");
+    const restarted = new CertificateRevocationReconciliationService(prisma, ca, config);
+    await restarted.processNow("job-1");
+    expect(config.publishCrl).toHaveBeenLastCalledWith("/test/device.crl", "snapshot-2");
+    expect(ledger.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ leaseOwner: "restarted-claim" }), data: expect.objectContaining({ completedAt: NOW })
+    }));
+    expect(ca.revoke).not.toHaveBeenCalled();
+  });
+
   it("stages logical revocation and reopens the previously cancelled signed obligation", async () => {
     const { service, tx, ledger, rows } = setup();
     rows.push(job({ cancelledAt: NOW, leaseOwner: null }));
@@ -220,5 +286,189 @@ describe("inventory certificate locks", () => {
     expect(queries[2]).toContain('FROM "GatewayInventory"');
     expect(queries[2]).toContain("FOR UPDATE");
     expect(queries[3]).toContain('ORDER BY "id" FOR UPDATE');
+  });
+});
+
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>(done => { resolve = done; });
+  return { promise, resolve };
+}
+
+// Model only the external DB boundary: two service instances share committed
+// rows and PostgreSQL's transaction-scoped advisory key space. Production claim,
+// CA read/publish order and lease predicates all run through the real service.
+function concurrentWorkers(secondPurpose: "device" | "mqtt" = "device") {
+  const rows = [job({ id: "job-a", leaseOwner: "claim-a", certificateSerial: "AA01" }),
+    job({ id: "job-b", leaseOwner: "claim-b", certificateSerial: "BB02", purpose: secondPurpose })];
+  const locks = new Map<string, Promise<void>>();
+  const firstPublishStarted = deferred();
+  const releaseFirstPublish = deferred();
+  const secondRevoked = deferred();
+  const firstFinalizeStarted = deferred();
+  const releaseFirstFinalize = deferred();
+  let holdFinalization = false;
+  const published = new Map<string, string>();
+  const revoked: string[] = [];
+  const ca = {
+    signCsr: jest.fn(),
+    revoke: jest.fn(async ({ certificateSerial }: any) => {
+      revoked.push(certificateSerial);
+      if (certificateSerial === "BB02") secondRevoked.resolve();
+    }),
+    readCrl: jest.fn(async (purpose: string) => `${purpose}:${revoked.join(",")}`)
+  };
+  const config = {
+    deviceCrlPath: "/test/device.crl", mqttCrlPath: "/test/mqtt.crl",
+    publishCrl: jest.fn(async (path: string, crl: string) => {
+      if (crl === "device:AA01") {
+        firstPublishStarted.resolve();
+        await releaseFirstPublish.promise;
+      }
+      published.set(path, crl);
+      return { changed: true as const };
+    })
+  };
+  const updateMany = jest.fn(async ({ where, data }: any) => {
+    if (where.id === "job-a" && data.completedAt && holdFinalization) {
+      firstFinalizeStarted.resolve();
+      await releaseFirstFinalize.promise;
+    }
+    const row = rows.find(item => item.id === where.id)!;
+    if (row.leaseOwner !== where.leaseOwner || row.completedAt !== null || row.cancelledAt !== null ||
+      !row.leaseExpiresAt || row.leaseExpiresAt <= where.leaseExpiresAt.gt) return { count: 0 };
+    Object.assign(row, data);
+    return { count: 1 };
+  });
+  const findFirst = async ({ where }: any) => {
+    const row = rows.find(item => item.id === where.id)!;
+    return row.leaseOwner === where.leaseOwner && row.completedAt === null && row.cancelledAt === null &&
+      row.leaseExpiresAt && row.leaseExpiresAt > where.leaseExpiresAt.gt ? { id: row.id } : null;
+  };
+  const prisma: any = {
+    certificateRevocationReconciliation: { updateMany },
+    $transaction: async (callback: any, options?: { timeout?: number }) => {
+      const releases: Array<() => void> = [];
+      let active = true;
+      const assertActive = () => { if (!active) throw new Error("Transaction already closed"); };
+      const timeout = setTimeout(() => {
+        active = false;
+        releases.forEach(release => release());
+      }, options?.timeout ?? 5_000);
+      const tx = {
+        certificateRevocationReconciliation: {
+          updateMany: (input: any) => { assertActive(); return updateMany(input); },
+          findFirst: (input: any) => { assertActive(); return findFirst(input); }
+        },
+        $queryRaw: async (sql: Prisma.Sql) => {
+          const row = rows.find(item => sql.values.includes(item.id));
+          return row ? [{ ...row }] : [];
+        },
+        $executeRaw: async (sql: Prisma.Sql) => {
+          if (sql.text.includes("pg_advisory_xact_lock")) {
+            const key = JSON.stringify(sql.values);
+            const previous = locks.get(key) ?? Promise.resolve();
+            const release = deferred();
+            locks.set(key, previous.then(() => release.promise));
+            await previous;
+            releases.push(release.resolve);
+          }
+          return 1;
+        }
+      };
+      try { return await callback(tx); } finally { clearTimeout(timeout); active = false; releases.forEach(release => release()); }
+    }
+  };
+  const a = new CertificateRevocationReconciliationService(prisma, ca, config);
+  const b = new CertificateRevocationReconciliationService(prisma, ca, config);
+  return { a, b, rows, ca, published, firstPublishStarted, releaseFirstPublish, secondRevoked,
+    firstFinalizeStarted, releaseFirstFinalize, holdFinalization: () => { holdFinalization = true; } };
+}
+
+describe("CRL publication across worker instances", () => {
+  beforeEach(() => { jest.useFakeTimers(); jest.setSystemTime(NOW); });
+  afterEach(() => { jest.useRealTimers(); });
+
+  it("serializes same-purpose reads and publishes so a delayed snapshot cannot overwrite a newer CRL", async () => {
+    const state = concurrentWorkers();
+    const first = state.a.processNow("job-a");
+    await state.firstPublishStarted.promise;
+    const second = state.b.processNow("job-b");
+    await state.secondRevoked.promise;
+    await jest.advanceTimersByTimeAsync(0);
+    const readsWhileFirstPublishes = state.ca.readCrl.mock.calls.length;
+    state.releaseFirstPublish.resolve();
+    await Promise.all([first, second]);
+    expect(readsWhileFirstPublishes).toBe(1);
+    expect(state.published.get("/test/device.crl")).toBe("device:AA01,BB02");
+    expect(state.rows.map(row => row.completedAt)).toEqual([NOW, NOW]);
+  });
+
+  it("refreshes the final CRL after a stale lease holder publishes, without completing its stale row", async () => {
+    const state = concurrentWorkers();
+    const first = state.a.processNow("job-a");
+    await state.firstPublishStarted.promise;
+    // Another claim can be eligible while the old worker still owns the CRL
+    // transaction. Its row lease is deliberately shorter than the blocked I/O.
+    state.rows[0].leaseExpiresAt = new Date(NOW.getTime() - 1);
+    const second = state.b.processNow("job-b");
+    await state.secondRevoked.promise;
+    await jest.advanceTimersByTimeAsync(0);
+    state.releaseFirstPublish.resolve();
+    await Promise.all([first, second]);
+    expect(state.rows[0].completedAt).toBeNull();
+    expect(state.rows[1].completedAt).toEqual(NOW);
+    expect(state.published.get("/test/device.crl")).toBe("device:AA01,BB02");
+  });
+
+  it("holds the purpose lock through fenced finalization", async () => {
+    const state = concurrentWorkers();
+    state.holdFinalization();
+    const first = state.a.processNow("job-a");
+    await state.firstPublishStarted.promise;
+    state.releaseFirstPublish.resolve();
+    await state.firstFinalizeStarted.promise;
+    const second = state.b.processNow("job-b");
+    await state.secondRevoked.promise;
+    await jest.advanceTimersByTimeAsync(0);
+    const readsWhileFinalizing = state.ca.readCrl.mock.calls.length;
+    state.releaseFirstFinalize.resolve();
+    await Promise.all([first, second]);
+    expect(readsWhileFinalizing).toBe(2);
+    expect(state.published.get("/test/device.crl")).toBe("device:AA01,BB02");
+  });
+
+  it("lets MQTT finish while device publication is blocked", async () => {
+    const state = concurrentWorkers("mqtt");
+    const first = state.a.processNow("job-a");
+    await state.firstPublishStarted.promise;
+    const second = state.b.processNow("job-b");
+    await state.secondRevoked.promise;
+    await jest.advanceTimersByTimeAsync(0);
+    const mqttCompletedWhileDeviceBlocked = state.rows[1].completedAt;
+    state.releaseFirstPublish.resolve();
+    await Promise.all([first, second]);
+    expect(mqttCompletedWhileDeviceBlocked).toEqual(NOW);
+    expect(state.published.get("/test/mqtt.crl")).toBe("mqtt:AA01,BB02");
+  });
+
+  it("keeps the publication lock beyond a row lease so a successor claim of that same row publishes last", async () => {
+    const state = concurrentWorkers();
+    const first = state.a.processNow("job-a");
+    await state.firstPublishStarted.promise;
+    // A normal bounded publication can outlive the 5-minute row lease. The
+    // advisory transaction must still own the file while its I/O completes.
+    await jest.advanceTimersByTimeAsync(301_000);
+    await state.ca.revoke({ certificateSerial: "BB02" });
+    const resumedAt = new Date("2026-09-12T00:05:01.000Z");
+    Object.assign(state.rows[0], { leaseOwner: "successor-claim", leaseExpiresAt: new Date("2026-09-12T00:10:01.000Z") });
+    const successor = state.b.processNow("job-a");
+    await jest.advanceTimersByTimeAsync(0);
+    const readsWhilePredecessorPublishes = state.ca.readCrl.mock.calls.length;
+    state.releaseFirstPublish.resolve();
+    await Promise.all([first, successor]);
+    expect(readsWhilePredecessorPublishes).toBe(1);
+    expect(state.published.get("/test/device.crl")).toBe("device:AA01,BB02");
+    expect(state.rows[0].completedAt).toEqual(resumedAt);
   });
 });

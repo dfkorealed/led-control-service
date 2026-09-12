@@ -57,6 +57,8 @@
 
   증거: 최초 worker/helper·module import 부재 RED를 확인했다. Focused worker/module 33개, PKI 전체 107개(환경 의존 1개 제외), API 전체 1,078개(환경 의존 272개 제외), Prisma generate/validate와 API typecheck/build를 통과했다. 스키마 검증은 연결되지 않는 임시 `DATABASE_URL`로 실행했으며 사용자 DB migration은 실행하지 않았다. Task 2는 export된 `CERTIFICATE_TRANSACTION_TIMEOUT_MS = 140000`을 사용해야 180초 arm 유예를 보장한다. 설정 token/type은 순환 의존 방지를 위해 별도 파일로 분리하고 기존 lifecycle import를 re-export로 유지했다.
 
+  Fix round 1: 서로 다른 원장 행의 동시 CRL read/publish가 v1을 마지막에 덮어쓰는 RED와, 300초 transaction 종료 뒤 같은 row 재임대가 먼저 배포하는 RED를 확인했다. 목적별 two-int advisory namespace `PKIC`를 예약하고 read → publish → fenced finalize를 직렬화했다. 매 배포 직전 transaction/lease를 조회하고 배포 뒤 CA를 재조회하며 최대 3회 배포·검증 후에도 달라지면 backoff한다. CA read 총 4회×120초 상한에 로컬 I/O 여유를 둔 15분 transaction으로 5분 row lease 이후에도 기존 callback이 끝날 때까지 잠금을 유지한다. Focused 43개, PKI 전체 117개(환경 의존 1개 제외), API typecheck/build와 diff 검증을 통과했다. 단위 테스트의 DB 경계 모형이며 실제 PostgreSQL 경쟁은 Task 2에서 검증한다.
+
 - [x] **Step 5: 중간 커밋**
 
   `git add apps/api/prisma apps/api/src/pki && git commit -m "feat(api): add durable certificate revocation reconciliation"`
