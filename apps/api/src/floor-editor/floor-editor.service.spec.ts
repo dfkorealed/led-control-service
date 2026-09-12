@@ -263,6 +263,7 @@ describe("FloorEditorService atomic revisions", () => {
       $executeRaw: jest.fn().mockResolvedValue(1),
       $queryRaw: jest.fn()
         .mockResolvedValueOnce([{
+          status: "active",
           mapRevision: 3,
           editorLeaseFence: leaseFence,
           editorLeaseTokenHash: hashEditorLeaseToken(leaseToken),
@@ -327,6 +328,7 @@ describe("FloorEditorService atomic revisions", () => {
     const tx = createTransactionClient({
       $queryRaw: jest.fn()
         .mockResolvedValueOnce([{
+          status: "active",
           mapRevision: 2,
           editorLeaseFence: leaseFence,
           editorLeaseTokenHash: hashEditorLeaseToken(leaseToken),
@@ -341,6 +343,28 @@ describe("FloorEditorService atomic revisions", () => {
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     expect(tx.fixture.update).not.toHaveBeenCalled();
     expect(tx.floorMapObject.create).not.toHaveBeenCalled();
+    expect(tx.floorMapRevision.create).not.toHaveBeenCalled();
+    expect(tx.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects save with an existing lease after archive commits before the floor lock", async () => {
+    const tx = createTransactionClient({
+      $queryRaw: jest.fn()
+        .mockResolvedValueOnce([{
+          status: "archived",
+          mapRevision: 3,
+          editorLeaseFence: leaseFence,
+          editorLeaseTokenHash: hashEditorLeaseToken(leaseToken),
+          editorLeaseExpiresAt: new Date(Date.now() + 60_000)
+        }])
+        .mockResolvedValue([{ dbNow: new Date() }])
+    });
+    const { service } = await createAtomicService({ tx });
+
+    await expect(service.saveEditorState(user, floorId, saveInput))
+      .rejects.toEqual(new ConflictException({ code: "floor_archived" }));
+
+    expect(tx.floor.update).not.toHaveBeenCalled();
     expect(tx.floorMapRevision.create).not.toHaveBeenCalled();
     expect(tx.auditLog.create).not.toHaveBeenCalled();
   });
@@ -806,6 +830,7 @@ describe("FloorEditorService atomic revisions", () => {
     const tx = createTransactionClient({
       $queryRaw: jest.fn()
         .mockResolvedValueOnce([{
+          status: "active",
           mapRevision: 2,
           editorLeaseFence: leaseFence,
           editorLeaseTokenHash: hashEditorLeaseToken(leaseToken),
@@ -826,6 +851,38 @@ describe("FloorEditorService atomic revisions", () => {
 
     expect(tx.floorPlan.deleteMany).not.toHaveBeenCalled();
     expect(tx.floorMapObject.deleteMany).not.toHaveBeenCalled();
+    expect(tx.floorMapRevision.create).not.toHaveBeenCalled();
+    expect(tx.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects restore with an existing lease after archive commits before the floor lock", async () => {
+    const tx = createTransactionClient({
+      $queryRaw: jest.fn()
+        .mockResolvedValueOnce([{
+          status: "archived",
+          mapRevision: 3,
+          editorLeaseFence: leaseFence,
+          editorLeaseTokenHash: hashEditorLeaseToken(leaseToken),
+          editorLeaseExpiresAt: new Date(Date.now() + 60_000)
+        }])
+        .mockResolvedValue([{ dbNow: new Date() }]),
+      floorMapRevision: {
+        findUnique: jest.fn().mockResolvedValue({
+          revision: 1,
+          snapshot: { floorPlan: null, fixtures: [], objects: [] }
+        })
+      }
+    });
+    const { service } = await createAtomicService({ tx });
+
+    await expect(service.restoreEditorRevision(user, floorId, 1, {
+      expectedRevision: 3,
+      leaseToken,
+      leaseFence
+    })).rejects.toEqual(new ConflictException({ code: "floor_archived" }));
+
+    expect(tx.floor.update).not.toHaveBeenCalled();
+    expect(tx.floorPlan.deleteMany).not.toHaveBeenCalled();
     expect(tx.floorMapRevision.create).not.toHaveBeenCalled();
     expect(tx.auditLog.create).not.toHaveBeenCalled();
   });
@@ -984,6 +1041,7 @@ describe("FloorEditorService atomic revisions", () => {
     const tx = createTransactionClient({
       $queryRaw: jest.fn()
         .mockResolvedValueOnce([{
+          status: "active",
           mapRevision: 3,
           editorLeaseFence: 8,
           editorLeaseTokenHash: hashEditorLeaseToken("successor-token"),
@@ -1005,6 +1063,7 @@ describe("FloorEditorService atomic revisions", () => {
     const tx = createTransactionClient({
       $queryRaw: jest.fn()
         .mockResolvedValueOnce([{
+          status: "active",
           mapRevision: 3,
           editorLeaseFence: leaseFence,
           editorLeaseTokenHash: hashEditorLeaseToken(leaseToken),

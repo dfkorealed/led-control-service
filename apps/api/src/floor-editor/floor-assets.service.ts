@@ -4,6 +4,25 @@ import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import { ObjectStorageService } from "../storage/object-storage.service";
+import { assertActiveFloorStatus } from "./floor-lifecycle";
+
+interface LockedFloorAssetRow {
+  id: string;
+  floorId: string;
+  siteId: string;
+  floorStatus: string;
+  kind: string;
+  status: string;
+  objectKey: string;
+  mimeType: string;
+  sizeBytes: bigint;
+  sha256: string;
+  uploadExpiresAt: Date | null;
+  cleanupStartedAt: Date | null;
+  readyAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
 
 @Injectable()
 export class FloorAssetsService {
@@ -30,15 +49,8 @@ export class FloorAssetsService {
       sha256: input.sha256
     });
     const asset = await this.prisma.$transaction(async (tx) => {
-      const locked = await tx.$queryRaw<Array<{ id: string; siteId: string }>>(Prisma.sql`
-        SELECT floor."id", floor."siteId"
-        FROM "Floor" AS floor
-        JOIN "Site" AS site ON site."id" = floor."siteId"
-        WHERE floor."id" = ${floorId}
-        FOR UPDATE OF site, floor
-      `);
-      if (locked.length !== 1 || locked[0].siteId !== floor.siteId) throw new NotFoundException("floor not found");
       await this.siteAccess.assertManageInTransaction(tx, user, floor.siteId);
+      await this.assertActiveFloorForMutation(tx, floorId, floor.siteId);
       return tx.floorAsset.create({
         data: {
           floorId,
@@ -65,14 +77,19 @@ export class FloorAssetsService {
     }
     const uploadExpiresAt = new Date(Date.now() + prepared.expiresInSeconds * 1000);
     try {
-      const expiryRecorded = await this.prisma.floorAsset.updateMany({
-        where: { id: asset.id, status: "pending", uploadExpiresAt: null, cleanupStartedAt: null },
-        data: { uploadExpiresAt }
+      const expiryRecorded = await this.prisma.$transaction(async (tx) => {
+        await this.siteAccess.assertManageInTransaction(tx, user, floor.siteId);
+        await this.assertActiveFloorForMutation(tx, floorId, floor.siteId);
+        return tx.floorAsset.updateMany({
+          where: { id: asset.id, status: "pending", uploadExpiresAt: null, cleanupStartedAt: null },
+          data: { uploadExpiresAt }
+        });
       });
       if (expiryRecorded.count !== 1) {
         throw new Error("floor asset upload ledger is no longer pending");
       }
-    } catch {
+    } catch (error) {
+      if (error instanceof ConflictException || error instanceof NotFoundException) throw error;
       // The URL is never returned unless its exact lifetime is durable. A null expiry
       // remains recoverable by the abandoned-signing branch of the pending sweeper.
       throw new ServiceUnavailableException("floor asset upload signing is temporarily unavailable");
@@ -93,7 +110,13 @@ export class FloorAssetsService {
       where: { id: assetId, floorId }
     });
     if (!asset) throw new NotFoundException("floor asset not found");
-    if (asset.status === "ready") return this.assetResponse(asset, floorId);
+    if (asset.status === "ready") {
+      return this.prisma.$transaction(async (tx) => {
+        await this.siteAccess.assertManageInTransaction(tx, user, floor.siteId);
+        await this.assertActiveFloorForMutation(tx, floorId, floor.siteId);
+        return this.assetResponse(asset, floorId);
+      });
+    }
     if (asset.cleanupStartedAt) {
       throw new ConflictException("floor asset upload expired and cleanup has started");
     }
@@ -114,23 +137,8 @@ export class FloorAssetsService {
     }
     return this.prisma.$transaction(async (tx) => {
       await this.siteAccess.assertManageInTransaction(tx, user, floor.siteId);
-      const lockedAssets = await tx.$queryRaw<Array<{
-        id: string;
-        floorId: string;
-        siteId: string;
-        kind: string;
-        status: string;
-        objectKey: string;
-        mimeType: string;
-        sizeBytes: bigint;
-        sha256: string;
-        uploadExpiresAt: Date | null;
-        cleanupStartedAt: Date | null;
-        readyAt: Date | null;
-        createdAt: Date;
-        updatedAt: Date;
-      }>>(Prisma.sql`
-        SELECT asset.*, floor."siteId"
+      const lockedAssets = await tx.$queryRaw<LockedFloorAssetRow[]>(Prisma.sql`
+        SELECT asset.*, floor."siteId", floor."status"::text AS "floorStatus"
         FROM "FloorAsset" AS asset
         JOIN "Floor" AS floor ON floor."id" = asset."floorId"
         WHERE asset."id" = ${assetId}
@@ -140,6 +148,7 @@ export class FloorAssetsService {
       `);
       const locked = lockedAssets[0];
       if (!locked) throw new NotFoundException("floor asset not found");
+      assertActiveFloorStatus(locked.floorStatus);
       if (locked.status === "ready") return this.assetResponse(locked, floorId);
       if (locked.cleanupStartedAt) {
         throw new ConflictException("floor asset upload expired while completion was in progress");
@@ -197,6 +206,21 @@ export class FloorAssetsService {
     return this.prisma.floor.findUnique({ where: { id: floorId }, select: { id: true, siteId: true } });
   }
 
+  private async assertActiveFloorForMutation(
+    tx: Pick<Prisma.TransactionClient, "$queryRaw">,
+    floorId: string,
+    siteId: string
+  ) {
+    const rows = await tx.$queryRaw<Array<{ floorStatus: string }>>(Prisma.sql`
+      SELECT "status"::text AS "floorStatus"
+      FROM "Floor"
+      WHERE "id" = ${floorId} AND "siteId" = ${siteId}
+      FOR UPDATE
+    `);
+    if (!rows[0]) throw new NotFoundException("floor not found");
+    assertActiveFloorStatus(rows[0].floorStatus);
+  }
+
   private assetResponse(asset: {
     id: string;
     floorId?: string;
@@ -240,11 +264,11 @@ function floorAssetHeadException(error: unknown) {
 
   // Only a confirmed absent object is a client-visible 404. Authorization failures
   // indicate broken server-side storage access and must remain distinguishable.
-  if (status === 404 || code === "NotFound" || code === "NoSuchKey" || code === "NoSuchObject") {
-    return new NotFoundException("uploaded floor asset object not found");
-  }
   if (status === 401 || status === 403 || code === "AccessDenied" || code === "Forbidden") {
     return new ServiceUnavailableException("floor asset storage authorization failed");
+  }
+  if (status === 404 || code === "NotFound" || code === "NoSuchKey" || code === "NoSuchObject") {
+    return new NotFoundException("uploaded floor asset object not found");
   }
   return new ServiceUnavailableException("floor asset storage is temporarily unavailable");
 }

@@ -7,6 +7,7 @@ import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import { RedisProvider } from "../redis/redis.provider";
 import { editorLeaseTtlMs, editorLeaseTtlSeconds, hashEditorLeaseToken } from "./editor-lease-token";
+import { assertActiveFloorStatus } from "./floor-lifecycle";
 
 export const editorLeaseRenewScript = `
   local lease = redis.call("GET", KEYS[1])
@@ -33,6 +34,7 @@ interface StoredEditorLease {
 
 interface LockedLeaseAuthorityRow {
   id: string;
+  status: string;
   editorLeaseFence: number;
   editorLeaseTokenHash: string | null;
   editorLeaseHolderId: string | null;
@@ -74,6 +76,7 @@ export class EditorLeaseService {
       const result = await this.prisma.$transaction(async (tx) => {
         const floor = await this.lockLeaseAuthority(tx, floorId);
         if (!floor) throw new NotFoundException("floor not found");
+        assertActiveFloorStatus(floor.status);
         if (this.isLeaseActive(floor)) return { kind: "read-only" as const, floor };
         if (floor.editorLeaseFence >= 2_147_483_647) throw new ForbiddenException("floor editor lease fence overflow");
 
@@ -110,6 +113,7 @@ export class EditorLeaseService {
   async release(floorId: string, user: AuthenticatedUser, force: boolean, token?: string) {
     const access = await this.assertManageAccess(floorId, user);
     const authority = await this.loadLeaseAuthority(floorId);
+    if (authority) assertActiveFloorStatus(authority.status);
     const holder = this.toStoredLease(authority);
     if (!authority || !holder) return { released: false };
 
@@ -141,6 +145,7 @@ export class EditorLeaseService {
       const authority = await this.prisma.$transaction(async (tx) => {
         const floor = await this.lockLeaseAuthority(tx, floorId);
         if (!floor) throw new NotFoundException("floor not found");
+        assertActiveFloorStatus(floor.status);
         if (!this.isLeaseActive(floor)) return { kind: "read-only" as const, floor };
         if (floor.editorLeaseHolderId !== user.id || floor.editorLeaseTokenHash !== hashEditorLeaseToken(token)) {
           return { kind: "read-only" as const, floor };
@@ -178,6 +183,7 @@ export class EditorLeaseService {
     const released = await this.prisma.$transaction(async (tx) => {
       const floor = await this.lockLeaseAuthority(tx, floorId);
       if (!floor) return false;
+      assertActiveFloorStatus(floor.status);
       if (
         floor.editorLeaseFence !== fence ||
         floor.editorLeaseHolderId !== userId ||
@@ -209,6 +215,7 @@ export class EditorLeaseService {
     const released = await this.prisma.$transaction(async (tx) => {
       const floor = await this.lockLeaseAuthority(tx, floorId);
       if (!floor) return false;
+      assertActiveFloorStatus(floor.status);
       if (floor.editorLeaseFence !== fence) {
         return false;
       }
@@ -346,6 +353,7 @@ export class EditorLeaseService {
     const rows = await tx.$queryRaw<Omit<LockedLeaseAuthorityRow, "dbNow">[]>(Prisma.sql`
       SELECT
         "id",
+        "status"::text AS "status",
         "editorLeaseFence",
         "editorLeaseTokenHash",
         "editorLeaseHolderId",
@@ -363,6 +371,7 @@ export class EditorLeaseService {
   }
 
   private readonly leaseAuthoritySelect = {
+    status: true,
     editorLeaseFence: true,
     editorLeaseTokenHash: true,
     editorLeaseHolderId: true,

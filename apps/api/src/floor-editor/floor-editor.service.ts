@@ -19,6 +19,7 @@ import { buildFloorEditorSnapshot, hashFloorEditorSnapshot } from "./floor-edito
 import { FixtureEnergyCheckpointService } from "../energy/fixture-state-ingestion.service";
 import { EnergyDimensionHistoryService } from "../energy/energy-dimension-history.service";
 import { EditorPatch, persistEditorPatches } from "./editor-batch-persistence";
+import { assertActiveFloorStatus } from "./floor-lifecycle";
 
 export const EDITOR_TRANSACTION_OPTIONS = {
   isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 5_000, timeout: 15_000
@@ -113,6 +114,7 @@ interface PreparedSaveEditorState {
 }
 
 interface LockedFloorLeaseAuthority {
+  status: string;
   mapRevision: number;
   editorLeaseFence: number;
   editorLeaseTokenHash: string | null;
@@ -525,6 +527,7 @@ export class FloorEditorService {
   ) {
     const floor = await this.lockFloorLeaseAuthority(tx, floorId);
     if (!floor) throw new NotFoundException("floor not found");
+    assertActiveFloorStatus(floor.status);
     const leaseActive = Boolean(
       floor.editorLeaseTokenHash &&
       floor.editorLeaseFence === leaseFence &&
@@ -548,6 +551,7 @@ export class FloorEditorService {
   private async lockFloorLeaseAuthority(tx: Prisma.TransactionClient, floorId: string) {
     const rows = await tx.$queryRaw<Omit<LockedFloorLeaseAuthority, "dbNow">[]>(Prisma.sql`
       SELECT
+        "status"::text AS "status",
         "mapRevision",
         "editorLeaseFence",
         "editorLeaseTokenHash",

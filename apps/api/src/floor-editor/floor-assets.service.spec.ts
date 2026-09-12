@@ -10,6 +10,66 @@ describe("FloorAssetsService", () => {
   };
   const viewer: AuthenticatedUser = { ...admin, id: "viewer-1", role: "viewer" };
 
+  it("rejects an upload intent when the transaction-locked floor is archived", async () => {
+    const prisma: any = {
+      floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },
+      floorAsset: {
+        create: jest.fn().mockResolvedValue({ id: "asset-1", status: "pending" }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 })
+      },
+      $queryRaw: jest.fn().mockResolvedValue([{ id: "floor-1", siteId: "site-1", floorStatus: "archived" }])
+    };
+    prisma.$transaction = jest.fn(async (operation: (tx: typeof prisma) => unknown) => operation(prisma));
+    const storage: any = {
+      prepareFloorAssetUpload: jest.fn().mockReturnValue({
+        objectKey: "floors/floor-1/file.png", expiresInSeconds: 300
+      }),
+      createFloorAssetUploadUrl: jest.fn().mockResolvedValue("https://signed.example")
+    };
+    const siteAccess: any = {
+      assert: jest.fn().mockResolvedValue({ id: "site-1" }),
+      assertManageInTransaction: jest.fn().mockResolvedValue({ id: "site-1" })
+    };
+
+    await expect(new FloorAssetsService(prisma, storage, siteAccess).createUploadIntent(admin, "floor-1", {
+      kind: "original", mimeType: "image/png", sizeBytes: 1024, sha256: "a".repeat(64)
+    })).rejects.toEqual(new ConflictException({ code: "floor_archived" }));
+
+    expect(prisma.floorAsset.create).not.toHaveBeenCalled();
+    expect(storage.createFloorAssetUploadUrl).not.toHaveBeenCalled();
+  });
+
+  it("does not finalize or return an upload intent when archive commits after presigning", async () => {
+    const prisma: any = {
+      floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },
+      floorAsset: {
+        create: jest.fn().mockResolvedValue({ id: "asset-1", status: "pending" }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 })
+      },
+      $queryRaw: jest.fn()
+        .mockResolvedValueOnce([{ id: "floor-1", siteId: "site-1", floorStatus: "active" }])
+        .mockResolvedValueOnce([{ id: "floor-1", siteId: "site-1", floorStatus: "archived" }])
+    };
+    prisma.$transaction = jest.fn(async (operation: (tx: typeof prisma) => unknown) => operation(prisma));
+    const storage: any = {
+      prepareFloorAssetUpload: jest.fn().mockReturnValue({
+        objectKey: "floors/floor-1/file.png", expiresInSeconds: 300
+      }),
+      createFloorAssetUploadUrl: jest.fn().mockResolvedValue("https://signed.example")
+    };
+    const siteAccess: any = {
+      assert: jest.fn().mockResolvedValue({ id: "site-1" }),
+      assertManageInTransaction: jest.fn().mockResolvedValue({ id: "site-1" })
+    };
+
+    await expect(new FloorAssetsService(prisma, storage, siteAccess).createUploadIntent(admin, "floor-1", {
+      kind: "original", mimeType: "image/png", sizeBytes: 1024, sha256: "a".repeat(64)
+    })).rejects.toEqual(new ConflictException({ code: "floor_archived" }));
+
+    expect(storage.createFloorAssetUploadUrl).toHaveBeenCalledTimes(1);
+    expect(prisma.floorAsset.updateMany).not.toHaveBeenCalled();
+  });
+
   it("allows a customer admin to create an upload intent but rejects a viewer", async () => {
     const prisma: any = {
       floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },
@@ -17,7 +77,7 @@ describe("FloorAssetsService", () => {
         create: jest.fn().mockResolvedValue({ id: "asset-1", status: "pending" }),
         updateMany: jest.fn().mockResolvedValue({ count: 1 })
       },
-      $queryRaw: jest.fn().mockResolvedValue([{ id: "floor-1", siteId: "site-1" }])
+      $queryRaw: jest.fn().mockResolvedValue([{ id: "floor-1", siteId: "site-1", floorStatus: "active" }])
     };
     prisma.$transaction = jest.fn(async (operation: (tx: typeof prisma) => unknown) => operation(prisma));
     const storage: any = {
@@ -105,7 +165,7 @@ describe("FloorAssetsService", () => {
         create: jest.fn().mockResolvedValue({ id: "asset-1", status: "pending" }),
         updateMany: jest.fn().mockResolvedValue({ count: 1 })
       },
-      $queryRaw: jest.fn().mockResolvedValue([{ id: "floor-1", siteId: "site-1" }])
+      $queryRaw: jest.fn().mockResolvedValue([{ id: "floor-1", siteId: "site-1", floorStatus: "active" }])
     };
     prisma.$transaction = jest.fn(async (operation: (tx: typeof prisma) => unknown) => operation(prisma));
     const storage: any = {
@@ -150,7 +210,7 @@ describe("FloorAssetsService", () => {
           return { id: "asset-1", status: "pending" };
         })
       },
-      $queryRaw: jest.fn().mockResolvedValue([{ id: "floor-1", siteId: "site-1" }])
+      $queryRaw: jest.fn().mockResolvedValue([{ id: "floor-1", siteId: "site-1", floorStatus: "active" }])
     };
     prisma.$transaction = jest.fn(async (operation: (tx: typeof prisma) => unknown) => operation(prisma));
     const storage: any = {
@@ -194,7 +254,7 @@ describe("FloorAssetsService", () => {
         create: jest.fn().mockResolvedValue({ id: "asset-1", status: "pending" }),
         updateMany: jest.fn().mockResolvedValue({ count: 1 })
       },
-      $queryRaw: jest.fn().mockResolvedValue([{ id: "floor-1", siteId: "site-1" }])
+      $queryRaw: jest.fn().mockResolvedValue([{ id: "floor-1", siteId: "site-1", floorStatus: "active" }])
     };
     prisma.$transaction = jest.fn(async (operation: (tx: typeof prisma) => unknown) => operation(prisma));
     const storage: any = {
@@ -236,7 +296,7 @@ describe("FloorAssetsService", () => {
         create: jest.fn().mockResolvedValue({ id: "asset-1", status: "pending" }),
         updateMany: jest.fn().mockResolvedValue({ count: 0 })
       },
-      $queryRaw: jest.fn().mockResolvedValue([{ id: "floor-1", siteId: "site-1" }])
+      $queryRaw: jest.fn().mockResolvedValue([{ id: "floor-1", siteId: "site-1", floorStatus: "active" }])
     };
     prisma.$transaction = jest.fn(async (operation: (tx: typeof prisma) => unknown) => operation(prisma));
     const storage: any = {
@@ -271,7 +331,7 @@ describe("FloorAssetsService", () => {
         }),
       },
       $queryRaw: jest.fn().mockResolvedValue([{
-        id: "asset-1", floorId: "floor-1", siteId: "site-1", objectKey: "floors/floor-1/file.png",
+        id: "asset-1", floorId: "floor-1", siteId: "site-1", floorStatus: "active", objectKey: "floors/floor-1/file.png",
         mimeType: "image/png", sizeBytes: 1024n, sha256: checksum, status: "pending", cleanupStartedAt: null
       }])
     };
@@ -299,6 +359,67 @@ describe("FloorAssetsService", () => {
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     expect((siteAccess as any).assertManageInTransaction).toHaveBeenCalledWith(prisma, admin, "site-1");
     expect(prisma.$queryRaw).toHaveBeenCalled();
+  });
+
+  it("does not promote an upload when archive commits before the post-HEAD floor lock", async () => {
+    const checksum = "a".repeat(64);
+    const prisma: any = {
+      floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },
+      floorAsset: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: "asset-1", objectKey: "floors/floor-1/file.png", mimeType: "image/png",
+          sizeBytes: 1024n, sha256: checksum, status: "pending", cleanupStartedAt: null
+        }),
+        update: jest.fn().mockResolvedValue({
+          id: "asset-1", floorId: "floor-1", objectKey: "floors/floor-1/file.png", mimeType: "image/png",
+          sizeBytes: 1024n, sha256: checksum, status: "ready", cleanupStartedAt: null, readyAt: new Date()
+        })
+      },
+      $queryRaw: jest.fn().mockResolvedValue([{
+        id: "asset-1", floorId: "floor-1", siteId: "site-1", floorStatus: "archived",
+        objectKey: "floors/floor-1/file.png", mimeType: "image/png", sizeBytes: 1024n,
+        sha256: checksum, status: "pending", cleanupStartedAt: null
+      }])
+    };
+    prisma.$transaction = jest.fn(async (operation: (tx: typeof prisma) => unknown) => operation(prisma));
+    const storage: any = { headObject: jest.fn().mockResolvedValue({
+      ContentType: "image/png", ContentLength: 1024,
+      ChecksumSHA256: Buffer.from(checksum, "hex").toString("base64")
+    }) };
+    const siteAccess: any = {
+      assert: jest.fn().mockResolvedValue({ id: "site-1" }),
+      assertManageInTransaction: jest.fn().mockResolvedValue({ id: "site-1" })
+    };
+
+    await expect(new FloorAssetsService(prisma, storage, siteAccess).completeUpload(admin, "floor-1", "asset-1"))
+      .rejects.toEqual(new ConflictException({ code: "floor_archived" }));
+
+    expect(storage.headObject).toHaveBeenCalledTimes(1);
+    expect(prisma.floorAsset.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects idempotent completion of a ready asset on an archived floor", async () => {
+    const asset = {
+      id: "asset-1", floorId: "floor-1", objectKey: "floors/floor-1/file.png", mimeType: "image/png",
+      sizeBytes: 1024n, sha256: "a".repeat(64), status: "ready", readyAt: new Date()
+    };
+    const prisma: any = {
+      floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },
+      floorAsset: { findFirst: jest.fn().mockResolvedValue(asset), update: jest.fn() },
+      $queryRaw: jest.fn().mockResolvedValue([{ floorStatus: "archived" }])
+    };
+    prisma.$transaction = jest.fn(async (operation: (tx: typeof prisma) => unknown) => operation(prisma));
+    const storage: any = { headObject: jest.fn() };
+    const siteAccess: any = {
+      assert: jest.fn().mockResolvedValue({ id: "site-1" }),
+      assertManageInTransaction: jest.fn().mockResolvedValue({ id: "site-1" })
+    };
+
+    await expect(new FloorAssetsService(prisma, storage, siteAccess).completeUpload(admin, "floor-1", "asset-1"))
+      .rejects.toEqual(new ConflictException({ code: "floor_archived" }));
+
+    expect(storage.headObject).not.toHaveBeenCalled();
+    expect(prisma.floorAsset.update).not.toHaveBeenCalled();
   });
 
   it("reauthorizes after HEAD and refuses promotion when admin access was revoked", async () => {
@@ -379,7 +500,7 @@ describe("FloorAssetsService", () => {
   it("reports storage authorization failure as 503 instead of hiding it as 404", async () => {
     const service = completionServiceWithHeadError(Object.assign(new Error("denied"), {
       name: "AccessDenied",
-      $metadata: { httpStatusCode: 403 }
+      $metadata: { httpStatusCode: 404 }
     }));
 
     await expect(service.completeUpload(admin, "floor-1", "asset-1")).rejects.toMatchObject({

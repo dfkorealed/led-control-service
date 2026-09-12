@@ -33,8 +33,13 @@ describeWithPostgres("FloorAssetsService PostgreSQL concurrency", () => {
       SET search_path TO "${schemaName}";
       CREATE TYPE "FloorAssetKind" AS ENUM ('original', 'rendered');
       CREATE TYPE "FloorAssetStatus" AS ENUM ('pending', 'ready');
+      CREATE TYPE "FloorStatus" AS ENUM ('active', 'archived');
       CREATE TABLE "Site" ("id" TEXT PRIMARY KEY, "adminUserId" TEXT);
-      CREATE TABLE "Floor" ("id" TEXT PRIMARY KEY, "siteId" TEXT NOT NULL);
+      CREATE TABLE "Floor" (
+        "id" TEXT PRIMARY KEY,
+        "siteId" TEXT NOT NULL,
+        "status" "FloorStatus" NOT NULL DEFAULT 'active'
+      );
       CREATE TABLE "FloorAsset" (
         "id" TEXT PRIMARY KEY,
         "floorId" TEXT NOT NULL,

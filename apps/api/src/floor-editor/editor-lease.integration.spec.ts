@@ -168,6 +168,7 @@ describeWithDependencies("Editor lease PostgreSQL and Redis integration", () => 
     await prisma.floor.update({
       where: { id: ids.floorId },
       data: {
+        status: "active",
         mapRevision: 0,
         editorLeaseFence: 0,
         editorLeaseTokenHash: null,
