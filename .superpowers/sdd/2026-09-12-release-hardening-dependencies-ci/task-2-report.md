@@ -137,3 +137,29 @@ git diff --check
 ```
 
 Catch 가능한 SIGINT/SIGTERM만 graceful child drain을 보장한다. `SIGKILL`, host crash, power loss는 전달하거나 await할 수 없으므로 다음 contender가 stale owner recovery를 수행하며, 해당 crash 이후의 외부 orphan side effect는 OS/process supervisor 책임으로 남는다.
+
+## Review fix round 2: pnpm descendant process-group lifetime
+
+리뷰 수정 구현 커밋: `865520aee3b2c98478358656a0cf02f6169b1bc0`
+
+첫 review fix의 process test는 gate의 direct pnpm child만 signal 뒤 살아 있게 했기 때문에 pnpm leader보다 오래 사는 descendant를 검증하지 못했다. 실제 문제는 gate가 leader의 `exit` event만 기다린 뒤 lock을 해제한다는 점이었다. 동일 process group의 grandchild가 signal을 받았지만 cleanup barrier에서 계속 살아 있는 동안에도 leader와 gate가 먼저 끝나 successor가 lock을 획득할 수 있었다.
+
+Round 2 regression은 SIGINT와 SIGTERM 각각에 대해 실제 gate → fake pnpm leader → same-group grandchild process tree를 만든다. Grandchild의 signal 수신과 leader reap을 file event로 확인한 뒤 successor를 시작한다. 수정 전 두 case 모두 successor가 `consumer-started`를 먼저 publish해 RED였다. 수정 뒤 successor는 old gate owner를 세 번 연속 관찰하는 동안 실행되지 않고, grandchild barrier 해제와 전체 group 종료 뒤에만 실행한다. Old leader와 grandchild가 모두 사라지고 repository lock도 남지 않는 것을 확인한다.
+
+POSIX gate는 leader exit code/signal을 저장한 뒤 `kill(-pgid, 0)` ownership observation이 `ESRCH`를 반환할 때까지 lock을 유지한다. `EPERM`은 group 부재가 아니므로 live로 취급해 계속 대기하고 lock을 해제하지 않는다. Correctness timeout은 없다. Windows에는 동등하게 신뢰할 descendant-tree termination/wait primitive를 구현하지 않았으므로, platform preload regression으로 lock 획득과 pnpm child 시작 전에 명시적으로 실패한다. Guard 제거 mutation에서는 fixture가 exit 0으로 child marker를 만들었고, guard 복원 뒤 exit 1이며 lock/child marker가 모두 없었다.
+
+```text
+node --test scripts/workspace-gate.test.mjs
+=> 5/5 passed
+=> root/leaf contracts, SIGINT group lifetime, SIGTERM group lifetime,
+   Windows pre-lock fail-closed
+
+concurrent `pnpm lint` + `pnpm typecheck` with lock/export polling
+=> both exit 0; distinct owner PIDs 18636, 18648
+=> declaration absence 0 / 651,148; final lock absent; export present
+
+git diff --check
+=> passed
+```
+
+`SIGKILL`, kernel/host crash, power loss는 여전히 catch/forward/await할 수 없다. Windows canonical workspace gate는 현재 사용할 수 없으며, 향후 dependable Job Object 기반 descendant tree ownership을 구현하고 동일 process regression을 통과하기 전에는 지원으로 표시하지 않는다.
