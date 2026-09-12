@@ -4,6 +4,7 @@ import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import { fixtureStatusWithHealth, toFixtureHealthSnapshot } from "../fixtures/fixture-health";
+import { DEFAULT_MONITORING_POLICY, isMonitoringGatewayOnline } from "../monitoring-incidents/monitoring-conditions";
 
 @Injectable()
 export class SitesService {
@@ -81,6 +82,10 @@ export class SitesService {
       : [];
     const fixturesByFloor = new Map(site.floors.map((floor) => [floor.id, fixtures.filter((fixture) => fixture.floorId === floor.id)]));
     const now = new Date();
+    const monitoringPolicy = {
+      gatewayOfflineAfterSeconds: site.gatewayOfflineAfterSeconds,
+      fixtureStaleAfterSeconds: site.fixtureStaleAfterSeconds
+    };
     const resolvedFixtureStatuses = fixtures.map((fixture) => fixtureStatusWithHealth(
       fixture.status,
       toFixtureHealthSnapshot(fixture.healthFaultCodes, fixture.healthLastSeenAt)
@@ -97,6 +102,8 @@ export class SitesService {
       : await this.getFixtureSummary(site.id);
 
     return {
+      generatedAt: now.toISOString(),
+      monitoringPolicy,
       site: {
         id: site.id,
         name: site.name,
@@ -131,12 +138,15 @@ export class SitesService {
             error: group.lastError
           }))),
         fixtures: (fixturesByFloor.get(floor.id) ?? []).map((fixture) => {
-          const gatewayOnline = isGatewayHeartbeatFresh(fixture.meshNode?.gateway.lastHeartbeatAt, now);
+          const gatewayOnline = isMonitoringGatewayOnline(fixture.meshNode?.gateway.lastHeartbeatAt, monitoringPolicy, now);
+          // Monitoring policy controls display; command readiness retains the
+          // fixed safety contract used by registration/identify/control APIs.
+          const controlGatewayOnline = isGatewayHeartbeatFresh(fixture.meshNode?.gateway.lastHeartbeatAt, now);
           const health = toFixtureHealthSnapshot(fixture.healthFaultCodes, fixture.healthLastSeenAt);
           const status = fixtureStatusWithHealth(fixture.status, health);
           const controlBlockReason = !fixture.meshNode
             ? "fixture_unmapped"
-            : !gatewayOnline
+            : !controlGatewayOnline
               ? "gateway_offline"
               : status === "fault"
                 ? "fixture_fault"
@@ -206,7 +216,7 @@ export class SitesService {
         firmwareVersion: gateway.firmwareVersion,
         lastHeartbeatAt: gateway.lastHeartbeatAt?.toISOString() ?? null,
         connectionStatus:
-          isGatewayHeartbeatFresh(gateway.lastHeartbeatAt, now) ? "online" : "offline"
+          isMonitoringGatewayOnline(gateway.lastHeartbeatAt, monitoringPolicy, now) ? "online" : "offline"
       }))
     };
   }
@@ -237,7 +247,10 @@ export class SitesService {
 }
 
 function emptyDashboard() {
+  const generatedAt = new Date().toISOString();
   return {
+    generatedAt,
+    monitoringPolicy: { ...DEFAULT_MONITORING_POLICY },
     site: {
       id: "",
       name: "현장 미등록",

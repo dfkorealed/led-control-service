@@ -123,9 +123,11 @@
 - gateway는 Health Current의 숫자 fault code와 실제 관측 시각을 MQTT v2 `health` 객체로 전달한다. API는 `0x00` 제거, 중복 제거와 정렬 후 `Fixture.healthFaultCodes`, `Fixture.healthLastSeenAt` 최신 snapshot에 저장하며 Health가 없는 명령 결과 이벤트는 기존 snapshot을 지우지 않는다.
 - 층별 fixture API와 dashboard는 Health snapshot을 `{ faultCodes, observedAt }` 또는 `null`로 반환한다. fault가 하나라도 있으면 조명 상태와 제어 가능 여부를 장애로 취급하고, 모니터링 상세 패널은 `정상`, `장애 (fault code)`, `확인 대기`와 Health 수신 시각을 표시한다.
 - ESP32-H2의 application-driven Sensor Status는 shared publication buffer가 아니라 pinned ESP-IDF v5.5.1의 repository-patched server-send 경로를 사용한다. Payload/context를 API thread에서 all-or-nothing snapshot하므로 allocation/envelope/queue-post 실패는 handler 실행 없이 동기 오류가 되고, queue 수락 후에는 기존 BTC handler가 두 snapshot을 한 번 해제한다. 연속 current/recovery Status는 호출별 snapshot을 보존하며 Gateway가 설정한 NetKey/AppKey, publication address, TTL, credential, SZMIC를 사용한다. Stack period/retransmit가 `0`이 아니면 firmware readiness가 fail-closed하므로 잘못된 Config에서 상태 전송을 시도하지 않는다.
-- heartbeat가 90초를 초과해 없으면 연결된 조명을 `gateway_offline`, fixture state가 180초(60초 publication 3회 window)를 초과해 없으면 해당 조명을 `fixture_stale` 사유로 offline 처리한다. 정확히 90초 전 heartbeat와 정확히 180초 전 fixture state는 fresh로 유지한다. 두 freshness query는 `Gateway.lastHeartbeatAt`과 `Fixture.lastSeenAt`만 사용한다. 새로 수락한 event에는 서버 수신 시각을 저장하므로 미래로 틀어진 장비 시계가 offline/stale 판정을 미루지 못한다. 기존 값은 migration으로 소급 재작성하지 않는다.
-- freshness worker는 `provisioning_waiting_state` fixture를 gateway offline/stale 재집계에서 제외한다. 또한 한 실행에서 기록한 `gateway_offline`을 일반 `fixture_stale`이 덮어쓰지 않는다. 첫 실제 `fixture-state`가 대기 사유를 지운 뒤에만 일반 freshness 대상이 된다.
-- dashboard gateway 연결 상태 기준을 등록 API와 동일한 inclusive 90초(`<= 90초`)로 통일하고 fixture의 `statusReason`을 API 응답에 포함한다.
+- freshness worker는 Site별 `gatewayOfflineAfterSeconds`(기본 90초), `fixtureStaleAfterSeconds`(기본 180초)를 사용한다. 정확한 threshold 경계는 fresh, 1ms 초과는 offline/stale이다. 판정은 `Gateway.lastHeartbeatAt`과 `Fixture.lastSeenAt` 서버 수신 시각을 사용하며, 기존 장비 시각 값은 소급 재작성하지 않는다.
+- `provisioning_waiting_state` fixture는 freshness 변경에서 제외한다. Gateway offline이 우선하며, Gateway가 복구됐지만 조명 수신이 오래되면 이미 offline인 조명도 즉시 `gateway_offline → fixture_stale`로 전환한다. `fixture_stale`은 현재 online Gateway에 매핑된 조명에만 적용한다.
+- dashboard와 층별 fixture page는 서버 `generatedAt`을 응답마다 한 번 고정한다. dashboard는 `monitoringPolicy:{gatewayOfflineAfterSeconds,fixtureStaleAfterSeconds}`도 반환하며 현장 없는 기본 응답은 90/180초 정책을 포함한다. 모든 표시용 Gateway `connectionStatus`는 현장 정책을 사용한다. `controllable/controlBlockReason`과 등록·식별·제어 안전성의 90초 기준은 유지한다.
+- 30초 worker는 실행 중 다음 tick을 건너뛰며 실패를 기록한 뒤 다음 tick에서 재시도한다. 현장별로 `Site → Gateway → Fixture → Incident` 순서로 잠그고 상태 변경과 incident reconcile을 같은 transaction에서 commit한다. Gateway `FOR NO KEY UPDATE`는 heartbeat 변경을 직렬화하면서 상태 수집의 Gateway FK key-share를 허용한다.
+- Gateway당 `gateway_offline` 하나, online Gateway 소속의 오래된 조명에 `fixture_stale`, Health Current fault에 `fixture_fault`, 현재 상태 사유에 `command_failed` 이력을 생성한다. 계속 관측되면 `lastObservedAt`만 전진시키고 확인·담당·사용자 수정 revision은 유지한다. 조건 해소는 `automatic_recovery`로 해결하고 `activeKey`를 null로 바꾸며, 재발은 새 occurrence로 기록한다. Site 잠금과 unique active key가 중복 활성 이력을 차단한다.
 - dashboard fixture 응답에 소유 gateway ID/이름/연결 상태와 `controllable`, `controlBlockReason`을 포함한다.
 - Gateway startup resync는 command 이력을 상태로 재발행하지 않고, 확인된 fixture마다 실제 Mesh status 응답을 새 sequence로 반영한다.
 - Gateway MQTT runtime은 MQTT close에서 heartbeat timer를 즉시 정리해 disconnected 상태의 healthy 기록과 offline heartbeat 적재를 막고, reconnect마다 하나의 timer만 다시 시작한다. persistent session 재접속(`sessionPresent=true`)에는 command topic을 다시 구독하지 않는다. 모든 command/provisioning topic handler 오류는 MQTT event loop 밖으로 새지 않도록 오류 경계에서 health 오류로 기록하며, SIGTERM/SIGINT 종료 시 timer, client listener와 MQTT client를 정리한다.
@@ -133,7 +135,7 @@
 
 ## 미구현
 
-- P1 현장별 threshold의 dashboard/fixture/sweep 적용, incident 주기적 reconcile 및 Web incident/policy UI는 아직 연결하지 않았다. 첫 sweep 전 과거 장애 backfill은 하지 않는다.
+- P1 Web incident/policy UI는 아직 연결하지 않았다. 첫 sweep 전 과거 장애 backfill은 하지 않는다.
 
 - WebSocket/SSE 기반 push 실시간 업데이트
 - 층별/구역별 통신 음영 heatmap
@@ -155,9 +157,10 @@
 - pending redirect와 admin commissioning은 React/Vitest 회귀와 Task 9 격리 실백엔드 Chromium E2E로 검증했다. Calm Operations 모바일 390px/320px의 화면 계층·overflow·touch target은 route fixture로 검증했지만, 실제 WebView safe-area와 재설치는 별도이며 Raspberry Pi/ESP32-H2 HIL은 아직 실행하지 않았다.
 - 모니터링 화면은 10분 snapshot 정책이므로 publication 반영 직후 확인이 필요하면 사용자가 수동 새로고침해야 한다.
 - durable state outbox의 파일 권한·용량 차단과 application ACK 재전송은 자동 테스트로 검증했지만, 실제 broker/API 재시작과 Raspberry Pi 전원 차단을 포함한 HIL은 아직 실행하지 않았다.
-- Health 수신 경로는 최신 Current snapshot을 보존한다. P1 incident 이력 테이블은 마련했지만 fault 발생·해제의 자동 기록은 후속 reconciler에서 연결한다.
+- Health 수신 경로는 최신 Current snapshot을 보존하며, fault 발생·해제 이력은 다음 freshness sweep에서 자동 반영한다. Health 관측 이력 전체를 별도로 저장하는 범위는 아니다.
 - 조명 provisioning 진행 상태는 session polling으로 반영하고, 사용자가 등록 세션을 완료할 때 dashboard query를 갱신한다. WebSocket/SSE push는 명시적으로 보류한다.
-- 기존 sweep의 gateway offline 90초, fixture stale 180초 고정 판정은 아직 유지된다. P1 Task 1에서 저장한 Site 정책을 실제 sweep/dashboard/fixture 판정에 적용하는 작업은 Task 2에서 수행한다.
+- incident는 수집 event와 동시에 생성되지 않고 다음 30초 sweep에서 수렴한다. 현장별 상태 변경과 reconcile 사이의 commit 간격은 없지만, 현장 간에는 개별 transaction이며 sweep 실행 시간·잠금 대기·실패 시 반영이 늦어질 수 있다. sweep은 잠금 후 시각을 다시 샘플링한다. Gateway heartbeat 복구만으로 조명을 online으로 추정하지 않으며, 새 fixture-state가 수락될 때 실제 상태를 복구한다.
+- dashboard와 fixture page의 `generatedAt`은 각 응답의 판정 기준 시각이며 여러 SQL 조회·페이지를 하나의 DB snapshot으로 묶는 보장은 없다. 대규모 현장의 전체 대상 row 잠금 비용과 장기 부하는 별도 운영 검증이 필요하다.
 - 5분 future gate, durable terminal rejection, 서버 수신 시각 freshness, 에너지 발생 시각 순서는 Shared/API/Gateway의 mock·software 자동 회귀와 disposable PostgreSQL migration DB에서 검증하는 범위다. 실제 broker, Raspberry Pi, BlueZ Mesh, ESP32-H2/LED를 연결한 HIL이나 사용자 DB migration은 이 작업에서 수행하지 않았다.
 - legacy null hash는 원본 payload와 같다는 증거가 없으므로 첫 인증 replay가 hash를 확정한다는 한계가 있다. 이후에는 exact hash만 허용하며, 새 future rejection에는 처음부터 hash가 있다. migration과 replay 보완은 과거 `Fixture.lastSeenAt`/`Gateway.lastHeartbeatAt` 및 energy 값을 재작성하지 않는다. 새 정상 event 수락 시 freshness가 서버 수신 시각으로 바뀌며, 과거 energy 오염의 소급 정정은 별도 범위다.
 - `lastSeenAt` 상대 시간은 클라이언트 현재 시간 기준이므로 서버 기준 freshness와 완전히 일치하지 않을 수 있다.

@@ -4,6 +4,7 @@ import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import { fixtureStatusWithHealth, toFixtureHealthSnapshot } from "./fixture-health";
+import { isMonitoringGatewayOnline } from "../monitoring-incidents/monitoring-conditions";
 
 @Injectable()
 export class FixturesService {
@@ -34,8 +35,12 @@ export class FixturesService {
       throw error;
     }
 
+    const policy = await this.prisma.site.findUnique({
+      where: { id: siteId }, select: { gatewayOfflineAfterSeconds: true, fixtureStaleAfterSeconds: true }
+    });
+    if (!policy) throw new NotFoundException("floor not found");
     const rows = await this.prisma.fixture.findMany({
-      where: { floorId },
+      where: { siteId, floorId },
       orderBy: { id: "asc" },
       take: limit + 1,
       ...(options.cursor ? { cursor: { id: options.cursor }, skip: 1 } : {}),
@@ -46,13 +51,17 @@ export class FixturesService {
     const now = new Date();
 
     return {
+      generatedAt: now.toISOString(),
       items: page.map((fixture) => {
-        const gatewayOnline = isGatewayHeartbeatFresh(fixture.meshNode?.gateway.lastHeartbeatAt, now);
+        const gatewayOnline = isMonitoringGatewayOnline(fixture.meshNode?.gateway.lastHeartbeatAt, policy, now);
+        // Display thresholds are configurable; command readiness still uses
+        // the fixed registration/identify/control safety threshold.
+        const controlGatewayOnline = isGatewayHeartbeatFresh(fixture.meshNode?.gateway.lastHeartbeatAt, now);
         const health = toFixtureHealthSnapshot(fixture.healthFaultCodes, fixture.healthLastSeenAt);
         const status = fixtureStatusWithHealth(fixture.status, health);
         const controlBlockReason = !fixture.meshNode
           ? "fixture_unmapped"
-          : !gatewayOnline
+          : !controlGatewayOnline
             ? "gateway_offline"
             : status === "fault"
               ? "fixture_fault"

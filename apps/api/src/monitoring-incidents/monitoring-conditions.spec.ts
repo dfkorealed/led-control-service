@@ -10,7 +10,7 @@ describe("current monitoring conditions", () => {
       expect(isMonitoringConditionActive("gateway_offline", { gateway: { lastHeartbeatAt: new Date(now.getTime() - age) } }, policy, now)).toBe(expected);
     }
     for (const [age, expected] of [[180_000, false], [180_001, true]] as const) {
-      expect(isMonitoringConditionActive("fixture_stale", { fixture: { ...fixture, lastSeenAt: new Date(now.getTime() - age) } }, policy, now)).toBe(expected);
+      expect(isMonitoringConditionActive("fixture_stale", { gateway: { lastHeartbeatAt: now }, fixture: { ...fixture, lastSeenAt: new Date(now.getTime() - age) } }, policy, now)).toBe(expected);
     }
   });
   it("uses per-Site thresholds for the same device snapshot", () => {
@@ -27,5 +27,8 @@ describe("current monitoring conditions", () => {
     expect(isMonitoringConditionActive("fixture_fault", { fixture: { ...fixture, healthFaultCodes: [0] } }, policy, now)).toBe(false);
     expect(isMonitoringConditionActive("command_failed", { fixture: { ...fixture, statusReason: "command_failed" } }, policy, now)).toBe(true);
     expect(isMonitoringConditionActive("command_failed", { fixture }, policy, now)).toBe(false);
+  });
+  it("requires a currently online mapped gateway for fixture-stale incidents", () => {
+    expect(isMonitoringConditionActive("fixture_stale", { fixture: { ...fixture, lastSeenAt: null }, gateway: null }, policy, now)).toBe(false);
   });
 });

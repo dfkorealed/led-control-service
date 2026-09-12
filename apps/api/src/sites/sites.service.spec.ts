@@ -37,6 +37,8 @@ describe("SitesService", () => {
     prisma.site.findFirst.mockResolvedValue({
       id: "site-1",
       name: "Demo Site",
+      gatewayOfflineAfterSeconds: 90,
+      fixtureStaleAfterSeconds: 180,
       address: "Seoul",
       tariffKwhRate: "160.00",
       timeZone: "Asia/Seoul",
@@ -237,6 +239,8 @@ describe("SitesService", () => {
     expect(siteAccess.listAccessibleSiteIds).toHaveBeenCalledWith(user);
     expect(prisma.site.findFirst).not.toHaveBeenCalled();
     expect(dashboard).toEqual({
+      generatedAt: expect.any(String),
+      monitoringPolicy: { gatewayOfflineAfterSeconds: 90, fixtureStaleAfterSeconds: 180 },
       site: {
         id: "",
         name: "현장 미등록",
@@ -283,6 +287,8 @@ describe("SitesService", () => {
         findFirst: jest.fn().mockResolvedValue({
           id: "site-1",
           name: "Boundary Site",
+          gatewayOfflineAfterSeconds: 90,
+          fixtureStaleAfterSeconds: 180,
           address: "Seoul",
           tariffKwhRate: "160.00",
           timeZone: "Asia/Seoul",
@@ -301,6 +307,30 @@ describe("SitesService", () => {
     expect(dashboard.gateways[0].connectionStatus).toBe("online");
     jest.useRealTimers();
   });
+
+  it.each([[30_000, "online"], [30_001, "offline"]] as const)(
+    "uses the Site policy and one generatedAt for gateway age %s", async (age, connectionStatus) => {
+      const now = new Date("2026-09-12T00:10:00.000Z");
+      jest.useFakeTimers().setSystemTime(now);
+      try {
+        const gateway = { id: "g", name: "g", lastHeartbeatAt: new Date(now.getTime() - age) };
+        prisma.site.findFirst.mockResolvedValue({
+          id: "site-1", organization: { name: "test" }, address: null, tariffKwhRate: null,
+          gatewayOfflineAfterSeconds: 30, fixtureStaleAfterSeconds: 60,
+          floors: [{ id: "f", floorPlan: null }], groups: [], gateways: [gateway]
+        });
+        prisma.fixture.findMany.mockResolvedValue([{ id: "light", floorId: "f", status: "online", brightness: 20,
+          healthFaultCodes: [], healthLastSeenAt: now, meshNode: { gateway } }]);
+        const result = await new SitesService(prisma as never, siteAccess as never).getDashboardById("site-1");
+        expect(result).toMatchObject({
+          generatedAt: "2026-09-12T00:10:00.000Z",
+          monitoringPolicy: { gatewayOfflineAfterSeconds: 30, fixtureStaleAfterSeconds: 60 },
+          gateways: [{ connectionStatus }],
+          floors: [{ fixtures: [{ gateway: { connectionStatus } }] }]
+        });
+      } finally { jest.useRealTimers(); }
+    }
+  );
 
   it("does not reveal an explicitly requested inaccessible site dashboard", async () => {
     siteAccess.capabilities.mockRejectedValue(new NotFoundException("site not found"));

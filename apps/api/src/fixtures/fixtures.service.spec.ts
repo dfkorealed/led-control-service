@@ -10,6 +10,7 @@ describe("FixturesService", () => {
   it("returns an accessible site cursor page with gateway readiness", async () => {
     const heartbeat = new Date();
     const prisma: any = {
+      site: { findUnique: jest.fn().mockResolvedValue({ gatewayOfflineAfterSeconds: 90, fixtureStaleAfterSeconds: 180 }) },
       floor: {
         findFirst: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }),
         findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" })
@@ -45,7 +46,7 @@ describe("FixturesService", () => {
 
     expect(siteAccess.assert).toHaveBeenCalledWith(user, "site-1", "read");
     expect(prisma.fixture.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { floorId: "floor-1" }, orderBy: { id: "asc" }, take: 2 })
+      expect.objectContaining({ where: { siteId: "site-1", floorId: "floor-1" }, orderBy: { id: "asc" }, take: 2 })
     );
     expect(result).toMatchObject({
       items: [
@@ -61,6 +62,27 @@ describe("FixturesService", () => {
       nextCursor: "fixture-1"
     });
   });
+
+  it.each([[120_000, "online"], [120_001, "offline"]] as const)(
+    "returns server metadata and Site-specific gateway connection for age %s", async (age, connectionStatus) => {
+      const now = new Date("2026-09-12T00:10:00.000Z");
+      jest.useFakeTimers().setSystemTime(now);
+      try {
+        const prisma = {
+          floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },
+          site: { findUnique: jest.fn().mockResolvedValue({ gatewayOfflineAfterSeconds: 120, fixtureStaleAfterSeconds: 240 }) },
+          fixture: { findMany: jest.fn().mockResolvedValue([{
+            id: "fixture-1", status: "online", healthFaultCodes: [], healthLastSeenAt: now,
+            meshNode: { gateway: { id: "g", lastHeartbeatAt: new Date(now.getTime() - age) } }
+          }]) }
+        };
+        const result = await new FixturesService(prisma as never, { assert: jest.fn() } as never)
+          .getFloorFixtures(user, "site-1", "floor-1", {});
+        expect(result).toMatchObject({ generatedAt: "2026-09-12T00:10:00.000Z",
+          items: [{ gateway: { connectionStatus }, controllable: false, controlBlockReason: "gateway_offline" }] });
+      } finally { jest.useRealTimers(); }
+    }
+  );
 
   it("does not reveal a floor in another tenant", async () => {
     const prisma: any = {

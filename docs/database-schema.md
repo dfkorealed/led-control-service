@@ -368,9 +368,13 @@ admin 연결 제약:
 
 SQL CHECK는 대상/유형/키의 일치, 활성/해결 상태별 key·시각·resolution 값, 확인 및 관측 시각 순서를 강제한다. 사용자를 삭제해도 시각과 이력은 보존하고 actor FK만 null이 된다. Site 또는 대상 삭제 시 이력도 cascade한다. `Fixture(id, siteId)` unique와 두 대상의 복합 FK가 다른 현장 대상을 DB에서 차단한다. 현장·상태·유형별 목록 및 `(resolvedAt IS NULL) DESC, openedAt DESC, id DESC` 활성 우선 커서용 인덱스를 제공한다.
 
-`GET/PATCH /sites/:siteId/monitoring-policy`와 인시던트 목록/변경 API는 read/manage capability를 구분한다. 변경은 Site → incident 순서 잠금과 재인가, optimistic concurrency, 같은 transaction의 `AuditLog`를 사용한다. 수동 해결은 실제 대상 상태가 정상으로 복구된 경우에만 허용하며 아직 장애면 `409 INCIDENT_STILL_ACTIVE`다. 이 단계는 schema/API와 공통 조건 판정만 구현했고 주기적 생성·자동 해결 및 Web 연결은 후속 P1 작업이다. migration은 폐기 가능한 PostgreSQL에서만 검증하고 사용자 DB에는 적용하지 않는다.
+`GET/PATCH /sites/:siteId/monitoring-policy`와 인시던트 목록/변경 API는 read/manage capability를 구분한다. 변경은 Site → incident 순서 잠금과 재인가, optimistic concurrency, 같은 transaction의 `AuditLog`를 사용한다. 수동 해결은 실제 대상 상태가 정상으로 복구된 경우에만 허용하며 아직 장애면 `409 INCIDENT_STILL_ACTIVE`다. 30초 freshness worker가 Site 정책으로 상태를 갱신한 뒤 같은 transaction에서 활성 조건 생성·관측·자동 해결을 수행한다. Web 연결은 후속 P1 작업이다. migration은 폐기 가능한 PostgreSQL에서만 검증하고 사용자 DB에는 적용하지 않는다.
 
 수동 해결은 Site가 Incident보다 먼저 잠기는 규칙에 대상 의존성을 추가해 `Site → Gateway → Fixture → Incident` 순서를 사용한다. Gateway의 `FOR NO KEY UPDATE`는 heartbeat writer를 직렬화하면서 Fixture 수집이 이후 받는 Gateway FK의 `KEY SHARE`를 허용해 역대기를 방지한다. Fixture row 잠금 후 소유 Gateway ID를 재검증하며 발견 시점과 다르면 `409 INCIDENT_TARGET_CHANGED`로 중단한다. 잠금 순서를 뒤집어 새 Gateway를 추가로 잠그지 않는다. 조건 판정은 모든 의존성 잠금 뒤 실제 snapshot을 다시 조회한다.
+
+Reconciler도 Site → Gateway → Fixture → Incident 순서로 잠그며 현장 전체 대상은 ID 순으로 잠근다. Gateway offline은 대상당 하나이며, fixture stale은 online Gateway에 매핑되고 첫 상태 대기 중이 아닌 조명에만 발생한다. Health fault와 command failure는 각각 Health snapshot과 현재 `statusReason`에서 판정한다. 관측 지속은 SQL로 `lastObservedAt`만 전진시켜 Prisma `@updatedAt`과 사용자 확인·담당 변경 revision을 보존한다. 조건 해소 시 `activeKey=NULL`, `resolutionKind=automatic_recovery`로 전환하고 `updatedAt`을 최소 1ms 증가시킨다. 확인·담당 이력은 보존하며 새 장애는 별도 행을 만든다.
+
+수집 commit과 incident 반영 사이에는 다음 sweep까지 지연이 있다. 각 Site 내부 상태 변경·reconcile은 원자적이며, 다른 Site는 별도 transaction이다. 첫 sweep 이전 과거 장애는 backfill하지 않는다. 이번 Task 2는 schema/migration을 변경하지 않았다.
 
 ### SiteDeletionCleanup
 
@@ -1336,7 +1340,7 @@ null은 원래 payload 동등성의 증거가 아니며 첫 인증 replay가 과
 
 등록 시작 계약:
 
-- `POST /registration-sessions`는 `siteId`, `floorId`, `gatewayId`를 모두 명시적으로 받는다. Floor와 Gateway는 모두 해당 Site에 속해야 하고, Gateway의 `lastHeartbeatAt`은 API 현재 시각 기준 정확히 90초 전을 포함해 90초 이내여야 한다. dashboard/API/명령 판단은 공통 freshness helper를 사용한다.
+- `POST /registration-sessions`는 `siteId`, `floorId`, `gatewayId`를 모두 명시적으로 받는다. Floor와 Gateway는 모두 해당 Site에 속해야 하고, Gateway의 `lastHeartbeatAt`은 API 현재 시각 기준 정확히 90초 전을 포함해 90초 이내여야 한다. 등록·식별·제어 안전성 판단은 기존 공통 freshness helper를 사용하며, 모니터링 표시와 sweep은 별도의 Site 정책을 사용한다.
 - `POST /registration-sessions`와 retry는 `pending` session state, 새 correlation/attempt와 `ProvisioningScanOutbox` row를 하나의 transaction에서 만든다. partial unique index `ProvisioningSession_single_scanning_gateway_key`는 `status=active`인 Gateway 하나에만 `pending` 또는 `scanning` scan 하나를 허용한다.
 - `20260826150000_add_provisioning_scan_outbox` migration은 foundation migration이 남긴 모든 historical `pending/scanning` session을 `failed` (`legacy_scan_closed`) terminal state로 먼저 수렴시킨 뒤 active-only partial unique index를 만든다. 당시에는 durable scan-start outbox가 없었으므로 과거 active session도 재발행하지 않고 종료하는 fail-closed migration 정책이다.
 - publisher는 leased outbox를 처리할 때만 `pending -> scanning`으로 전이한 뒤 strict v2 scan-start payload를 발행한다. MQTT callback timeout은 기본 10초(`PROVISIONING_SCAN_OUTBOX_PUBLISH_TIMEOUT_MS`)로 30초 lease보다 짧아야 하며, timeout/reject는 attempt backoff로 기록한다. publish 전 process crash는 lease 만료 뒤 같은 correlation/attempt로 재시도하며, 최대 3회 또는 5분 실패는 outbox dead-letter와 `scan_start_publish_failed` terminal state를 같은 transaction에서 기록한다.

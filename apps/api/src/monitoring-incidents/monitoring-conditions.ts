@@ -5,6 +5,16 @@ export interface MonitoringPolicy {
   gatewayOfflineAfterSeconds: number;
   fixtureStaleAfterSeconds: number;
 }
+export const DEFAULT_MONITORING_POLICY: MonitoringPolicy = {
+  gatewayOfflineAfterSeconds: 90, fixtureStaleAfterSeconds: 180
+};
+
+export function isMonitoringGatewayOnline(
+  lastHeartbeatAt: Date | null | undefined, policy: MonitoringPolicy, now: Date
+) {
+  return lastHeartbeatAt != null &&
+    lastHeartbeatAt.getTime() >= now.getTime() - policy.gatewayOfflineAfterSeconds * 1000;
+}
 export interface MonitoringConditionTarget {
   gateway?: { lastHeartbeatAt: Date | null } | null;
   fixture?: {
@@ -20,17 +30,14 @@ export interface MonitoringConditionTarget {
 export function isMonitoringConditionActive(
   type: MonitoringIncidentType, target: MonitoringConditionTarget, policy: MonitoringPolicy, now: Date
 ) {
-  const gatewayOffline = target.gateway != null && (
-    target.gateway.lastHeartbeatAt === null ||
-    target.gateway.lastHeartbeatAt.getTime() < now.getTime() - policy.gatewayOfflineAfterSeconds * 1000
-  );
+  const gatewayOffline = target.gateway != null && !isMonitoringGatewayOnline(target.gateway.lastHeartbeatAt, policy, now);
   if (type === "gateway_offline") return gatewayOffline;
   const fixture = target.fixture;
   if (!fixture) return false;
   if (type === "fixture_stale") {
     // Provisioning has never observed state. A gateway outage is tracked once at
     // the gateway, instead of duplicating a fixture-stale incident for each node.
-    return fixture.statusReason !== "provisioning_waiting_state" && !gatewayOffline && (
+    return fixture.statusReason !== "provisioning_waiting_state" && target.gateway != null && !gatewayOffline && (
       fixture.lastSeenAt === null || fixture.lastSeenAt.getTime() < now.getTime() - policy.fixtureStaleAfterSeconds * 1000
     );
   }
