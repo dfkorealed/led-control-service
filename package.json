@@ -33,7 +33,7 @@
     "ci:integration": "bash scripts/ci-integration.sh",
     "ci:real-backend": "bash scripts/ci-real-backend-e2e.sh",
     "ci:production-audit": "bash scripts/ci-production-audit.sh",
-    "ci:hil:preflight": "node scripts/ci-hil-preflight.mjs",
+    "ci:hil:preflight": "node scripts/run-gateway-hil.mjs preflight",
     "audit:production": "node scripts/production-audit-policy.mjs",
     "docker:up": "docker compose up -d",
     "docker:up:production": "docker compose -f docker-compose.yml -f docker-compose.production.yml up -d",

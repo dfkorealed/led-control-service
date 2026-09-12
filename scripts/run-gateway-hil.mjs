@@ -2,18 +2,20 @@ import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { GATEWAY_HIL_WORKING_DIRECTORY, REPOSITORY_ROOT } from "./gateway-hil-path-contract.mjs";
 
-const harnessScripts = {
-  pki: "scripts/pki-hil-test.ts",
-  "two-node": "scripts/hil-2node-test.ts"
+const modeCommands = {
+  preflight: ["node", "../../scripts/ci-hil-preflight.mjs"],
+  pki: ["tsx", "scripts/pki-hil-test.ts"],
+  "two-node": ["tsx", "scripts/hil-2node-test.ts"]
 };
 
 export function createGatewayHilInvocation(mode, args) {
-  const harness = harnessScripts[mode];
-  if (!harness) throw new Error("HIL mode must be pki or two-node");
+  const command = modeCommands[mode];
+  if (!command) throw new Error("HIL mode must be preflight, pki or two-node");
   return {
     command: "pnpm",
-    args: ["exec", "tsx", harness, ...args],
-    cwd: GATEWAY_HIL_WORKING_DIRECTORY
+    args: ["exec", ...command, ...args],
+    cwd: GATEWAY_HIL_WORKING_DIRECTORY,
+    prepareShared: mode !== "preflight"
   };
 }
 
@@ -27,7 +29,7 @@ function run(command, args, cwd) {
 function main() {
   const [mode, ...args] = process.argv.slice(2);
   const invocation = createGatewayHilInvocation(mode, args);
-  if (!run("pnpm", ["--filter", "@led-control/shared", "build"], REPOSITORY_ROOT)) return;
+  if (invocation.prepareShared && !run("pnpm", ["--filter", "@led-control/shared", "build"], REPOSITORY_ROOT)) return;
   run(invocation.command, invocation.args, invocation.cwd);
 }
 

@@ -103,6 +103,16 @@ test("HIL preflight accepts Gateway-cwd relative command, credential, and device
   assert.equal(existsSync(fixture.markerPath), false);
 });
 
+test("protected preflight resolves a bare Gateway package executable through pnpm exec", (t) => {
+  const fixture = createFixture(t);
+  fixture.env.PATH = process.env.PATH;
+  for (const name of commandVariables) fixture.env[name] = JSON.stringify(["tsx"]);
+
+  const result = runProtectedPreflight(fixture.env);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(existsSync(fixture.markerPath), false);
+});
+
 function createFixture(t, parent = tmpdir()) {
   const directory = mkdtempSync(path.join(parent, ".led-hil-preflight-"));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
@@ -136,4 +146,8 @@ function writeRegularFile(directory, name, contents) {
 
 function runPreflight(env) {
   return spawnSync(process.execPath, [preflight], { cwd: root, env, encoding: "utf8" });
+}
+
+function runProtectedPreflight(env) {
+  return spawnSync("pnpm", ["ci:hil:preflight"], { cwd: root, env, encoding: "utf8" });
 }

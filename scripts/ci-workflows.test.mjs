@@ -207,14 +207,20 @@ test("HIL is manual, protected, serialized, exact-confirmation, and fail-closed 
 
 test("both HIL harnesses use the shared Gateway execution directory contract", async () => {
   const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+  assert.equal(packageJson.scripts["ci:hil:preflight"], "node scripts/run-gateway-hil.mjs preflight");
   assert.equal(packageJson.scripts["gateway:pki:hil"], "node scripts/run-gateway-hil.mjs pki");
   assert.equal(packageJson.scripts["gateway:hil:2node"], "node scripts/run-gateway-hil.mjs two-node");
 
   const launcher = await import("./run-gateway-hil.mjs");
-  for (const mode of ["pki", "two-node"]) {
+  for (const mode of ["preflight", "pki", "two-node"]) {
     const invocation = launcher.createGatewayHilInvocation(mode, []);
     assert.equal(invocation.cwd, path.join(root, "apps/gateway"));
   }
+  assert.deepEqual(launcher.createGatewayHilInvocation("preflight", []).args, [
+    "exec",
+    "node",
+    "../../scripts/ci-hil-preflight.mjs"
+  ]);
 });
 
 async function parseWorkflow(name) {
