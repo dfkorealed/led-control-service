@@ -168,4 +168,4 @@ Task 2 fix round 1 검증 기록:
 
 - [x] 실제 lifecycle·reconciliation 서비스와 전용 PostgreSQL로 `status=revoked`, 기존 `revokedAt`, 원장 없음 상태를 만들고 disable/revoke 재시도 회귀를 작성한다. CRL 실패 주입에도 `{ revoked: 0 }`으로 resolve하는 RED를 확인했다.
 - [x] 인증서 상태가 아니라 원장의 `completedAt`으로 완료를 판단한다. Legacy revoked 행에는 원장을 만들고 재처리하되 기존 상태·폐기 시각을 보존한다. 첫 실패 후 원장 1개, CRL-only 재시도 완료, 반복 호출 시 추가 CA/CRL 호출과 live job 부재를 확인했다.
-- [x] Reconciliation/lifecycle 단위 46개, 전용 PostgreSQL 통합 17개와 기존 PKI E2E 2개, Prisma validate·API typecheck·diff 검증을 통과했다. 기존 전체 API/build 결과는 Task 3의 증거이며 이번 보완에서 반복 실행하지 않았다. Schema/migration 변경과 사용자 DB 접근은 없었다.
+- [x] Reconciliation/lifecycle 단위 46개, 전용 PostgreSQL 통합 17개와 기존 PKI E2E 2개(합계 19/19), Prisma validate·API typecheck·diff 검증을 통과했다. 수정 커밋 `07eba3a` 이후 총괄이 전체 API를 재실행해 112 suites passed / 28 skipped, 1,103 passed / 289 environment-dependent skipped를 확인했으며 API build도 다시 통과했다. Focused PKI/onboarding/operator 159 passed / 17 skipped는 초기 Task 3의 증거다. Schema/migration 변경과 사용자 DB 접근은 없었다.
