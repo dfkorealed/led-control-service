@@ -4,8 +4,137 @@ import { access, chmod, copyFile, mkdir, mkdtemp, readFile, rm, watch, writeFile
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { waitForObservedValue } from "./test-event-wait.mjs";
 
 const repositoryRoot = path.resolve(import.meta.dirname, "..");
+
+test("event wait closes the initial access-watch gap by rechecking after subscription", async () => {
+  let published;
+  const watcher = createTestWatcher([{ done: true }]);
+
+  const result = await waitForObservedValue({
+    observe: async () => published,
+    subscribe: () => {
+      published = "ready";
+      return watcher.iterator;
+    },
+    description: "fixture signal"
+  });
+
+  assert.equal(result, "ready");
+  assert.equal(watcher.nextCalls, 0);
+  assert.equal(watcher.returnCalls, 1);
+});
+
+test("event wait races producer failure and closes the watcher", async () => {
+  const producerError = new Error("producer failed before signal");
+  let rejectProducer;
+  const producer = new Promise((_, reject) => { rejectProducer = reject; });
+  producer.catch(() => undefined);
+  const watcher = createTestWatcher([], producer);
+
+  await assert.rejects(waitForObservedValue({
+    observe: async () => undefined,
+    subscribe: () => {
+      queueMicrotask(() => rejectProducer(producerError));
+      return watcher.iterator;
+    },
+    producer,
+    description: "fixture signal"
+  }), producerError);
+  assert.equal(watcher.returnCalls, 1);
+});
+
+test("event wait abort and iterator-end paths close the watcher", async () => {
+  const controller = new AbortController();
+  const abortWatcher = createTestWatcher([{ done: true }]);
+  await assert.rejects(waitForObservedValue({
+    observe: async () => undefined,
+    subscribe: () => {
+      controller.abort();
+      return abortWatcher.iterator;
+    },
+    signal: controller.signal,
+    description: "fixture signal"
+  }), { name: "AbortError" });
+  assert.equal(abortWatcher.returnCalls, 1);
+
+  const endedWatcher = createTestWatcher([{ done: true }]);
+  await assert.rejects(waitForObservedValue({
+    observe: async () => undefined,
+    subscribe: () => endedWatcher.iterator,
+    description: "fixture signal"
+  }), /watch ended before fixture signal was observed/);
+  assert.equal(endedWatcher.returnCalls, 1);
+});
+
+test("event wait returns a producer exit path before the watcher ends and closes it", async () => {
+  let resolveProducer;
+  const producer = new Promise((resolve) => { resolveProducer = resolve; });
+  const watcher = createTestWatcher([], producer);
+
+  const resultPromise = waitForObservedValue({
+    observe: async () => undefined,
+    subscribe: () => {
+      queueMicrotask(() => resolveProducer("child-exited"));
+      return watcher.iterator;
+    },
+    producer,
+    description: "fixture signal"
+  });
+
+  await assert.doesNotReject(resultPromise);
+  assert.equal(await resultPromise, "child-exited");
+  assert.equal(watcher.returnCalls, 1);
+});
+
+test("waitForOnePath returns a child exit path without a filesystem signal and removes its listeners", async () => {
+  const fixtureRoot = await mkdtemp(path.join(tmpdir(), "led-workspace-wait-child-"));
+  const child = spawn(process.execPath, ["--eval", "process.exit(7)"], { stdio: "ignore" });
+  const initialExitListeners = child.listenerCount("exit");
+  try {
+    const result = await waitForOnePath([path.join(fixtureRoot, "never-published")], child);
+
+    assert.equal(path.basename(result), "gate-exited");
+    assert.equal(await readFile(result, "utf8"), "exited\n");
+    assert.equal(child.exitCode, 7);
+    assert.equal(child.listenerCount("exit"), initialExitListeners);
+  } finally {
+    terminate(child.pid);
+    await rm(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+function createTestWatcher(steps, producer) {
+  let nextCalls = 0;
+  let returnCalls = 0;
+  const iterator = {
+    [Symbol.asyncIterator]() {
+      return this;
+    },
+    async next() {
+      nextCalls += 1;
+      const step = steps.shift();
+      if (step) return step;
+      if (producer) {
+        await producer.then(
+          () => new Promise((resolve) => queueMicrotask(resolve)),
+          () => new Promise((resolve) => queueMicrotask(resolve))
+        );
+      }
+      return { done: true };
+    },
+    async return() {
+      returnCalls += 1;
+      return { done: true };
+    }
+  };
+  return {
+    iterator,
+    get nextCalls() { return nextCalls; },
+    get returnCalls() { return returnCalls; }
+  };
+}
 
 async function readPackageJson(relativePath) {
   return JSON.parse(await readFile(path.join(repositoryRoot, relativePath), "utf8"));
@@ -117,11 +246,13 @@ for (const shutdownSignal of ["SIGINT", "SIGTERM"]) test(`${shutdownSignal} keep
       env: { ...commonEnvironment, GATE_FIXTURE_ID: "successor" },
       stdio: "ignore"
     });
+    const successorExitListeners = successorGate.listenerCount("exit");
     const firstSuccessorState = await waitForOnePath([
       path.join(stateDirectory, "successor.confirmed-waiting"),
       path.join(stateDirectory, "successor.consumer-started")
-    ]);
+    ], successorGate);
     assert.equal(path.basename(firstSuccessorState), "successor.confirmed-waiting");
+    assert.equal(successorGate.listenerCount("exit"), successorExitListeners);
     await assert.rejects(access(path.join(stateDirectory, "successor.consumer-started")));
 
     await writeFile(path.join(stateDirectory, "allow-old-exit"), "release\n");
@@ -286,40 +417,36 @@ setInterval(() => {}, 1_000);
 }
 
 async function waitForPathContent(filePath) {
-  try {
-    return (await readFile(filePath, "utf8")).trim();
-  } catch {
-    // Continue with an event-driven wait for the exact path.
-  }
-  for await (const _event of watch(path.dirname(filePath))) {
-    try {
-      return (await readFile(filePath, "utf8")).trim();
-    } catch {
-      // Another directory event may precede publication of the requested path.
-    }
-  }
-  throw new Error(`watch ended before ${filePath} was published`);
+  return waitForObservedValue({
+    observe: async () => {
+      try {
+        return (await readFile(filePath, "utf8")).trim();
+      } catch {
+        return undefined;
+      }
+    },
+    subscribe: (signal) => watch(path.dirname(filePath), { signal }),
+    description: filePath
+  });
 }
 
 async function waitForOnePath(paths, child) {
-  const exitedPath = child && path.join(path.dirname(paths[0]), "old.gate-exited");
-  const exitPromise = child && childOutcome(child).then(async () => {
+  const childWaitController = child && new AbortController();
+  const exitedPath = child && path.join(path.dirname(paths[0]), "gate-exited");
+  const exitPromise = child && childOutcome(child, { signal: childWaitController.signal }).then(async () => {
     await writeFile(exitedPath, "exited\n");
     return exitedPath;
   });
-  const existing = await firstExistingPath(paths);
-  if (existing) return existing;
-  const watcher = watch(path.dirname(paths[0]));
   try {
-    for await (const _event of watcher) {
-      const found = await firstExistingPath(paths);
-      if (found) return found;
-    }
+    return await waitForObservedValue({
+      observe: () => firstExistingPath(paths),
+      subscribe: (signal) => watch(path.dirname(paths[0]), { signal }),
+      producer: exitPromise,
+      description: "a requested path"
+    });
   } finally {
-    await watcher.return();
+    childWaitController?.abort();
   }
-  if (exitPromise) return exitPromise;
-  throw new Error("watch ended before a requested path was published");
 }
 
 async function firstExistingPath(paths) {
@@ -334,13 +461,32 @@ async function firstExistingPath(paths) {
   return undefined;
 }
 
-function childOutcome(child) {
+function childOutcome(child, { signal } = {}) {
   if (child.exitCode !== null || child.signalCode !== null) {
     return Promise.resolve({ code: child.exitCode, signal: child.signalCode });
   }
   return new Promise((resolve, reject) => {
-    child.once("error", reject);
-    child.once("exit", (code, signal) => resolve({ code, signal }));
+    const cleanup = () => {
+      child.off("error", onError);
+      child.off("exit", onExit);
+      signal?.removeEventListener("abort", onAbort);
+    };
+    const onError = (error) => {
+      cleanup();
+      reject(error);
+    };
+    const onExit = (code, exitSignal) => {
+      cleanup();
+      resolve({ code, signal: exitSignal });
+    };
+    const onAbort = () => {
+      cleanup();
+      reject(signal.reason);
+    };
+    child.once("error", onError);
+    child.once("exit", onExit);
+    if (signal?.aborted) onAbort();
+    else signal?.addEventListener("abort", onAbort, { once: true });
   });
 }
 
