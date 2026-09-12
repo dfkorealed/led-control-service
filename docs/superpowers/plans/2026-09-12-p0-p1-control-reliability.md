@@ -100,11 +100,11 @@
 - Produces: `handleGatewayStatusCheck(adapter, journal, command, onAccepted, options): Promise<GatewayCommandResult>`
 - Publishes: 기존 acceptance/device-status ACK topic; observed fixture는 brightness, 미관측 fixture는 `timed_out`
 
-- [ ] **Step 1: Gateway RED 테스트** — 전체 관측, 일부 status loss, expiry 전 실행 금지, acceptance 직후 journal restart, completed duplicate 재사용, 중복 MQTT delivery가 두 번째 Get을 실행하지 않음을 검증한다.
-- [ ] **Step 2: handler 최소 구현** — acceptance durable write 후 관측 listener를 설치하고 targeted resync를 실행해 fixture별 결과를 만든다. listener cleanup과 AbortSignal deadline을 보장한다.
-- [ ] **Step 3: runtime RED 테스트** — status-check topic subscribe/deferred PUBACK, acceptance/device-status publish 순서, publish 실패 뒤 broker redelivery의 journal replay를 검증한다.
-- [ ] **Step 4: runtime 연결 구현** — command parser/handler를 등록하고 dimming과 동일한 durable receipt boundary를 사용한다. shutdown은 진행 중 handler를 drain한다.
-- [ ] **Step 5: Gateway focused test/typecheck/commit** — handler, journal, index specs와 `pnpm --filter @led-control/gateway typecheck` 통과 후 `git commit -m "feat(gateway): verify command outcome with status get" ...`.
+- [x] **Step 1: Gateway RED 테스트** — 전체 관측, 일부 status loss, expiry 전 실행 금지, acceptance 직후 journal restart, completed duplicate 재사용, 중복 MQTT delivery가 두 번째 Get을 실행하지 않음을 검증한다.
+- [x] **Step 2: handler 최소 구현** — acceptance durable write 후 관측 listener를 설치하고 targeted resync를 실행해 fixture별 결과를 만든다. listener cleanup과 AbortSignal deadline을 보장한다.
+- [x] **Step 3: runtime RED 테스트** — status-check topic subscribe/deferred PUBACK, acceptance/device-status publish 순서, publish 실패 뒤 broker redelivery의 journal replay를 검증한다.
+- [x] **Step 4: runtime 연결 구현** — command parser/handler를 등록하고 dimming과 동일한 durable receipt boundary를 사용한다. shutdown은 진행 중 handler를 drain한다.
+- [x] **Step 5: Gateway focused test/typecheck/commit** — handler, journal, index specs와 `pnpm --filter @led-control/gateway typecheck` 통과 후 `git commit -m "feat(gateway): verify command outcome with status get" ...`.
 
 ### Task 5: API ACK reconciliation과 명령 이력
 
