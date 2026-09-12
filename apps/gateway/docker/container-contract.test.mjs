@@ -62,6 +62,16 @@ test("appliance build context는 shared 패키지의 실제 build entry를 포�
   assert.match(dockerfile, /pnpm --filter @led-control\/automation-engine build/);
 });
 
+test("runtime packaging removes only pnpm's build-workspace Gateway self-reference before inventory", async () => {
+  const dockerfile = await readFile(path.join(dockerDir, "Dockerfile"), "utf8");
+  const unlink = "RUN unlink /tmp/gateway-runtime/node_modules/.pnpm/node_modules/@led-control/gateway";
+  expectOrder(dockerfile, "deploy --prod /tmp/gateway-runtime", unlink);
+  expectOrder(dockerfile, unlink, "COPY --from=app-builder /tmp/gateway-runtime/node_modules");
+  // Do not weaken inventory's dangling/escaping dependency checks or silently
+  // prune arbitrary dependencies to hide the real-image packaging regression.
+  assert.doesNotMatch(dockerfile, /find[^\n]*-xtype l[^\n]*-delete/);
+});
+
 test("appliance image는 bluetoothd 없이 배포판 kernel management btmgmt를 포함한다", async () => {
   const dockerfile = await readFile(path.join(dockerDir, "Dockerfile"), "utf8");
 

@@ -54,6 +54,11 @@ RUN pnpm --filter @led-control/shared build \
     && pnpm --filter @led-control/gateway deploy --prod /tmp/gateway-runtime \
     && find /tmp/gateway-runtime/node_modules -type f -name '*.md' -delete
 
+# pnpm 9 also links this package back to /workspace/apps/gateway. Only the
+# bundled entrypoint and dependencies ship, so that build-only self-reference
+# would dangle after COPY. Leave every dependency link to strict inventory.
+RUN unlink /tmp/gateway-runtime/node_modules/.pnpm/node_modules/@led-control/gateway
+
 RUN pnpm --filter @led-control/gateway exec esbuild scripts/manufacturing-enroll.ts \
       --bundle --platform=node --format=esm --target=node22 --outfile=/tmp/manufacturing-enroll.mjs
 
