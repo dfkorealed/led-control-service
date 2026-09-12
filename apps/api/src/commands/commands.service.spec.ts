@@ -73,6 +73,7 @@ function createHarness(options: {
       findMany: jest.fn().mockResolvedValue(options.exactGroups ?? [])
     },
     command: {
+      findMany: jest.fn().mockResolvedValue([]),
       findUnique: jest.fn().mockImplementation(() => Promise.resolve(storedCommand)),
       create: jest.fn().mockImplementation(({ data }) => {
         if (options.concurrentCommand) {
@@ -131,6 +132,68 @@ function createHarness(options: {
 }
 
 describe("CommandsService", () => {
+  it("recovers the same dimming request before checking unknown overlaps and counts only dimming dispatches", async () => {
+    const { service, tx } = createHarness({ fixtures: [fixture(ids.fixture1)] });
+    const request = { siteId: ids.site, clientRequestId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      target: { type: "fixture", fixtureId: ids.fixture1 }, brightness: 75 };
+    await service.createDimmingCommand(operator, request);
+    tx.command.findMany.mockClear();
+    tx.command.findMany.mockResolvedValue([{ id: ids.command, targetFixtureIds: [ids.fixture1] }]);
+    await expect(service.createDimmingCommand(operator, request)).resolves.toMatchObject({ id: ids.command, dispatchCount: 1 });
+    expect(tx.command.findMany).not.toHaveBeenCalled();
+    expect(tx.command.create).toHaveBeenCalledTimes(1);
+    expect(tx.command.findUnique).toHaveBeenLastCalledWith(expect.objectContaining({
+      include: expect.objectContaining({ dispatches: expect.objectContaining({ where: { kind: "dimming" } }) })
+    }));
+  });
+  it("initializes newly created commands with a pending physical outcome", async () => {
+    const { service, tx } = createHarness({ fixtures: [fixture(ids.fixture1)] });
+    await service.createDimmingCommand(operator, {
+      siteId: ids.site, clientRequestId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      target: { type: "fixture", fixtureId: ids.fixture1 }, brightness: 75
+    });
+    expect(tx.command.create).toHaveBeenCalledWith({ data: expect.objectContaining({ outcome: "pending" }) });
+  });
+
+  it("blocks a new dimming command when any resolved target overlaps an unknown command", async () => {
+    const { service, tx, automationSnapshot, siteAccess } = createHarness({ fixtures: [fixture(ids.fixture1), fixture(ids.fixture2)] });
+    tx.command.findMany.mockResolvedValue([{ id: "uncertain", targetFixtureIds: [ids.fixture2, ids.fixture3] }]);
+    await expect(service.createDimmingCommand(operator, {
+      siteId: ids.site, clientRequestId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      target: { type: "fixtures", fixtureIds: [ids.fixture1, ids.fixture2] }, brightness: 75
+    })).rejects.toMatchObject({ status: 409, response: { code: "uncertain_command_requires_status_check" } });
+    expect(tx.command.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { siteId: ids.site, outcome: "unknown" } }));
+    expect(automationSnapshot.lockMutation.mock.invocationCallOrder[0]).toBeLessThan(tx.command.findMany.mock.invocationCallOrder[0]);
+    expect(siteAccess.assertControlInTransaction.mock.invocationCallOrder[0]).toBeLessThan(tx.command.findMany.mock.invocationCallOrder[0]);
+    expect(tx.command.create).not.toHaveBeenCalled();
+    expect(tx.mqttOutbox.create).not.toHaveBeenCalled();
+  });
+
+  it("checks later bounded pages of unknown commands instead of overlooking older overlaps", async () => {
+    const { service, tx } = createHarness({ fixtures: [fixture(ids.fixture1)] });
+    tx.command.findMany
+      .mockResolvedValueOnce(Array.from({ length: 100 }, (_, index) => ({ id: `unknown-${index}`, targetFixtureIds: [ids.fixture3] })))
+      .mockResolvedValueOnce([{ id: "older", targetFixtureIds: [ids.fixture1] }]);
+    await expect(service.createDimmingCommand(operator, {
+      siteId: ids.site, clientRequestId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      target: { type: "fixture", fixtureId: ids.fixture1 }, brightness: 75
+    })).rejects.toMatchObject({ response: { code: "uncertain_command_requires_status_check" } });
+    expect(tx.command.findMany).toHaveBeenNthCalledWith(2, expect.objectContaining({ take: 100, cursor: { id: "unknown-99" }, skip: 1 }));
+  });
+
+  it.each(["applied", "not_applied", null, "unknown"])("allows nonoverlapping unknown and existing %s outcomes", async (outcome) => {
+    const { service, tx } = createHarness({ fixtures: [fixture(ids.fixture1)] });
+    tx.command.findMany.mockImplementation(async ({ where }: any) => {
+      const existing = { id: "prior", outcome, targetFixtureIds: outcome === "unknown" ? [ids.fixture2] : [ids.fixture1] };
+      return existing.outcome === where.outcome ? [existing] : [];
+    });
+    await expect(service.createDimmingCommand(operator, {
+      siteId: ids.site, clientRequestId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      target: { type: "fixture", fixtureId: ids.fixture1 }, brightness: 75
+    })).resolves.toMatchObject({ id: ids.command });
+    expect(tx.command.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { siteId: ids.site, outcome: "unknown" } }));
+  });
+
   it("defaults a timed override, persists its authoritative fixture snapshot, and includes it in the gateway payload", async () => {
     const { automationSnapshot, now, service, tx } = createHarness({
       fixtures: [fixture(ids.fixture1), fixture(ids.fixture2)]

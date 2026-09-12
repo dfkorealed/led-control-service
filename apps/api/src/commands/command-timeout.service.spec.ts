@@ -12,6 +12,45 @@ describe("CommandTimeoutService", () => {
     OR: [{ lockedBy: null }, { leaseExpiresAt: { lte: now } }]
   };
 
+  it.each([
+    ["pending", "not_applied", "DELIVERY_TIMEOUT"],
+    ["published", "unknown", "ACCEPTANCE_TIMEOUT"],
+    ["accepted", "unknown", "STATUS_TIMEOUT"]
+  ])("classifies %s dimming timeout as %s", async (status, outcome, errorCode) => {
+    const prisma = createPrisma({
+      dispatches: [{ id: "dispatch", commandId: "command", status, kind: "dimming", command: { outcome: "pending" } }],
+      outboxClaimCount: 1, dispatchUpdateCount: 1
+    });
+    await expect(new CommandTimeoutService(prisma).closeExpired(now)).resolves.toEqual({ timedOut: 1 });
+    expect(prisma.commandDispatch.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ errorCode }) }));
+    expect(prisma.command.updateMany).toHaveBeenCalledWith({
+      where: { id: "command", status: "pending", outcome: "pending" },
+      data: { status: "failed", outcome, errorMessage: "one or more gateway dispatches timed out" }
+    });
+  });
+
+  it.each(["pending", "published", "accepted"])("closes %s status checks without altering the original unknown outcome", async (status) => {
+    const prisma = createPrisma({
+      dispatches: [{ id: "check", commandId: "command", status, kind: "status_check", command: { outcome: "unknown" } }],
+      outboxClaimCount: 1, dispatchUpdateCount: 1
+    });
+    await expect(new CommandTimeoutService(prisma).closeExpired(now)).resolves.toEqual({ timedOut: 1 });
+    expect(prisma.commandFixtureResult.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: { dispatchId: "check", status: "pending" } }));
+    expect(prisma.command.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("preserves a legacy null outcome while closing its pending command", async () => {
+    const prisma = createPrisma({
+      dispatches: [{ ...pendingDispatch, kind: "dimming", command: { outcome: null } }],
+      outboxClaimCount: 1, dispatchUpdateCount: 1
+    });
+    await new CommandTimeoutService(prisma).closeExpired(now);
+    expect(prisma.command.updateMany).toHaveBeenCalledWith({
+      where: { id: "command-1", status: "pending", outcome: null },
+      data: { status: "failed", errorMessage: "one or more gateway dispatches timed out" }
+    });
+  });
+
   it("fails closed when a pending dispatch has no available outbox row", async () => {
     const prisma = createPrisma({ dispatches: [pendingDispatch], outboxClaimCount: 0 });
     const service = new CommandTimeoutService(prisma as never);
@@ -203,13 +242,13 @@ describe("CommandTimeoutService", () => {
 });
 
 function createPrisma(options: {
-  dispatches: Array<{ id: string; commandId: string; status: string }>;
+  dispatches: Array<{ id: string; commandId: string; status: string; kind?: string; command?: { outcome: string | null } }>;
   outboxClaimCount?: number;
   dispatchUpdateCount?: number;
 }) {
   const prisma: any = {
     commandDispatch: {
-      findMany: jest.fn().mockResolvedValue(options.dispatches),
+      findMany: jest.fn().mockResolvedValue(options.dispatches.map((dispatch) => ({ kind: "dimming", command: { outcome: null }, ...dispatch }))),
       updateMany: jest.fn().mockResolvedValue({ count: options.dispatchUpdateCount ?? 0 })
     },
     commandFixtureResult: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
@@ -234,7 +273,7 @@ function timeoutDispatchData(now: Date) {
   return {
     status: "timed_out",
     completedAt: now,
-    errorCode: "COMMAND_TIMEOUT",
+    errorCode: "DELIVERY_TIMEOUT",
     errorMessage: "gateway command deadline exceeded"
   };
 }

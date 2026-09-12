@@ -68,7 +68,7 @@ export class CommandTimeoutService implements OnModuleInit, OnModuleDestroy {
           { status: "accepted", acceptedAt: { lt: new Date(now.getTime() - DEVICE_STATUS_TIMEOUT_MS) } }
         ]
       },
-      select: { id: true, commandId: true, status: true }
+      select: { id: true, commandId: true, status: true, kind: true, command: { select: { outcome: true } } }
     });
 
     let timedOut = 0;
@@ -100,7 +100,8 @@ export class CommandTimeoutService implements OnModuleInit, OnModuleDestroy {
             data: {
               status: "timed_out",
               completedAt: now,
-              errorCode: "COMMAND_TIMEOUT",
+              errorCode: dispatch.status === "pending" ? "DELIVERY_TIMEOUT"
+                : dispatch.status === "published" ? "ACCEPTANCE_TIMEOUT" : "STATUS_TIMEOUT",
               errorMessage: "gateway command deadline exceeded"
             }
           });
@@ -113,10 +114,18 @@ export class CommandTimeoutService implements OnModuleInit, OnModuleDestroy {
             where: { dispatchId: dispatch.id, status: "pending" },
             data: { status: "timed_out", occurredAt: now, errorMessage: "gateway command deadline exceeded" }
           });
-          await tx.command.updateMany({
-            where: { id: dispatch.commandId, status: "pending" },
-            data: { status: "failed", errorMessage: "one or more gateway dispatches timed out" }
-          });
+          // A failed Get says nothing new about the physical Set. Only its dispatch closes;
+          // in particular, a concurrent successful verification must never be overwritten.
+          if (dispatch.kind === "dimming") {
+            const legacy = dispatch.command.outcome === null;
+            await tx.command.updateMany({
+              where: { id: dispatch.commandId, status: "pending", outcome: legacy ? null : "pending" },
+              data: {
+                status: "failed", errorMessage: "one or more gateway dispatches timed out",
+                ...(legacy ? {} : { outcome: dispatch.status === "pending" ? "not_applied" : "unknown" })
+              }
+            });
+          }
           return true;
         });
       } catch (error) {
