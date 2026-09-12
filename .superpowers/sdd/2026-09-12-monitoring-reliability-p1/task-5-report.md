@@ -149,6 +149,13 @@ docker volume rm led-p1-task5-db-20260912-0645-data
 - `docs/superpowers/plans/2026-09-12-monitoring-reliability-p1.md`
 - `.superpowers/sdd/2026-09-12-monitoring-reliability-p1/task-5-report.md`
 
+## Task 5 커밋
+
+- `9c3afa271fc5ed9a47f7604db22be71e78657c08` — 최초 browser convergence, 문서, disposable PostgreSQL 검증
+- `ce4958205835877b26717ffc36fbddb1b0908eea` — production-valid incident fixture, exact stale 경계, status presenter, 네 viewport 보강
+- `02306be18fb23fe6fb1eb19a785940ec1ff5c857` — fixture 0/최초 오류의 site-wide UI와 deterministic map recovery 보강
+- `fe4d17120d7103f3f9c905f51bd9152a54915386` — no-floor 피드백 억제와 source별 toolbar 자동 복구 보강
+
 ## Self-review
 
 - 신규 browser assertion은 text 존재만이 아니라 mutation payload, retry 횟수, cache 유지, selection/zoom, 실제 DOM bounds와 `scrollWidth/clientWidth`를 관찰한다.
