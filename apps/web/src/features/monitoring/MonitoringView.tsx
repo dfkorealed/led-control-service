@@ -8,6 +8,7 @@ import { FloorMap } from "./FloorMap";
 import { presentFixtureStatus } from "./fixture-status-presentation";
 
 const STALE_SNAPSHOT_AFTER_MS = 60_000;
+const MAX_BROWSER_TIMEOUT_MS = 2_147_483_647;
 
 export function MonitoringView({ userRole = "admin", siteId }: { userRole?: "operator" | "admin" | "viewer"; siteId?: string }) {
   const dashboardQuery = useDashboard(siteId);
@@ -41,7 +42,7 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardError, refreshDa
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [mapRefreshFailedFloorId, setMapRefreshFailedFloorId] = useState<string | null>(null);
-  const [now, setNow] = useState(() => Date.now());
+  const [freshnessRevision, setFreshnessRevision] = useState(0);
   const floor = data.floors.find((item) => item.id === selectedFloorId) ?? data.floors[0];
   const fixtureQuery = useFloorFixtures(floor?.id, siteId ?? data.site.id);
   const mapQuery = useFloorMapSnapshot(floor?.id, siteId ?? data.site.id);
@@ -52,15 +53,17 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardError, refreshDa
   const selectedFixture = fixtures.find((fixture) => fixture.id === selectedFixtureId) ?? fixtures[0];
   const selectedFixturePresentation = selectedFixture ? presentFixtureStatus(selectedFixture) : null;
   const snapshotFreshness = useMemo(
-    () => getSnapshotFreshness(fixtureQuery.data?.pages.map((page) => page.generatedAt), now),
-    [fixtureQuery.data?.pages, now]
+    // A newly arrived server response must be compared with this render's wall clock, not a
+    // periodic timer value captured before the response arrived.
+    () => getSnapshotFreshness(fixtureQuery.data?.pages.map((page) => page.generatedAt), Date.now()),
+    [fixtureQuery.data?.pages, freshnessRevision]
   );
   const staleSources = [
     dashboardError ? "현황" : null,
     fixtureQuery.error ? "조명 상태" : null,
     mapQuery.error || mapRefreshFailed ? "지도" : null
   ].filter((source): source is string => Boolean(source));
-  const isStale = staleSources.length > 0 || snapshotFreshness.state !== "fresh";
+  const isStale = staleSources.length > 0 || snapshotFreshness.freshness === "stale" || snapshotFreshness.metadata !== "valid";
   const floorSummary = useMemo(
     () => ({
       totalFixtures: fixtures.length,
@@ -75,9 +78,14 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardError, refreshDa
   }, [fixtureQuery.hasNextPage, fixtureQuery.isFetchingNextPage, fixtureQuery.fetchNextPage]);
 
   useEffect(() => {
-    const interval = window.setInterval(() => setNow(Date.now()), 1_000);
-    return () => window.clearInterval(interval);
-  }, []);
+    if (snapshotFreshness.nextReviewAt === undefined) return;
+    const delay = Math.max(0, snapshotFreshness.nextReviewAt - Date.now());
+    // Browsers clamp overflowing delays to an immediate timer. A far-future server clock is
+    // re-evaluated by the normal query refresh instead of repeatedly scheduling zero-delay work.
+    if (delay > MAX_BROWSER_TIMEOUT_MS) return;
+    const timeout = window.setTimeout(() => setFreshnessRevision((revision) => revision + 1), delay);
+    return () => window.clearTimeout(timeout);
+  }, [snapshotFreshness.nextReviewAt]);
 
   useEffect(() => {
     if (!floor) return;
@@ -199,20 +207,20 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardError, refreshDa
         <FeedbackState
           tone="danger"
           icon={TriangleAlert}
-          title={snapshotFreshness.state === "invalid"
+          title={snapshotFreshness.metadata === "invalid"
             ? "서버 snapshot 시각을 확인할 수 없습니다."
             : fixtureQuery.error && !hasFixtureData
               ? "조명 상태를 불러오지 못했습니다."
               : fixtureQuery.error
                 ? "저장된 조명 상태를 유지하고 있습니다. 조명 상태 갱신에 실패했습니다."
-            : dashboardError && staleSources.length === 1 && snapshotFreshness.state === "unknown"
+            : dashboardError && staleSources.length === 1
               ? "저장된 현황을 유지하고 있습니다. 현황 갱신에 실패했습니다."
               : "현황 갱신이 지연되고 있습니다."}
           description={[
             staleSources.length > 0 ? `${staleSources.join(", ")} 갱신 실패` : null,
-            snapshotFreshness.state === "future" ? `시간 차이 확인: ${snapshotFreshness.rawGeneratedAt}` : null,
-            snapshotFreshness.state === "stale" ? "가장 오래된 선택 층 snapshot이 60초를 초과했습니다." : null,
-            snapshotFreshness.state === "invalid" ? "서버가 유효한 generatedAt ISO 시각을 반환하지 않았습니다." : null
+            snapshotFreshness.metadata === "future" ? `시간 차이 확인: ${snapshotFreshness.anomalousGeneratedAt}` : null,
+            snapshotFreshness.freshness === "stale" ? "가장 오래된 선택 층 snapshot이 60초를 초과했습니다." : null,
+            snapshotFreshness.metadata === "invalid" ? "서버가 유효한 generatedAt ISO 시각을 반환하지 않았습니다." : null
           ].filter(Boolean).join(" · ")}
           action={<Button variant="secondary" isLoading={isManualRefreshing} onClick={() => void handleRefresh()}>{fixtureQuery.error ? "조명 상태 다시 시도" : "다시 시도"}</Button>}
         />
@@ -394,25 +402,58 @@ function formatHealthStatus(health: Dashboard["floors"][number]["fixtures"][numb
   return `장애 (${codes.join(", ")})`;
 }
 
-function getSnapshotFreshness(generatedAts: Array<string | undefined> | undefined, now: number): {
-  state: "fresh" | "stale" | "future" | "invalid" | "unknown";
+function getSnapshotFreshness(generatedAts: unknown[] | undefined, now: number): {
+  freshness: "pending" | "fresh" | "stale";
+  metadata: "valid" | "future" | "invalid";
   rawGeneratedAt?: string;
+  anomalousGeneratedAt?: string;
+  nextReviewAt?: number;
 } {
-  const availableGeneratedAts = generatedAts?.filter((generatedAt): generatedAt is string => typeof generatedAt === "string") ?? [];
-  if (!availableGeneratedAts.length) return { state: "unknown" };
-  const parsed = availableGeneratedAts.map((generatedAt) => ({
-    rawGeneratedAt: generatedAt,
-    value: typeof generatedAt === "string" ? new Date(generatedAt).getTime() : Number.NaN
-  }));
-  if (parsed.some((entry) => !Number.isFinite(entry.value))) return { state: "invalid" };
-  const oldest = parsed.reduce((current, entry) => entry.value < current.value ? entry : current);
-  if (oldest.value > now) return { state: "future", rawGeneratedAt: oldest.rawGeneratedAt };
-  return { state: now - oldest.value > STALE_SNAPSHOT_AFTER_MS ? "stale" : "fresh", rawGeneratedAt: oldest.rawGeneratedAt };
+  if (!generatedAts?.length) return { freshness: "pending", metadata: "valid" };
+
+  const parsed = generatedAts.map(parseStrictIsoTimestamp);
+  const invalid = parsed.find((entry) => entry.kind === "invalid");
+  const valid = parsed.filter((entry): entry is { kind: "valid"; rawGeneratedAt: string; value: number } => entry.kind === "valid");
+  const future = valid.find((entry) => entry.value > now);
+  const oldest = valid.reduce<{ kind: "valid"; rawGeneratedAt: string; value: number } | undefined>(
+    (current, entry) => !current || entry.value < current.value ? entry : current,
+    undefined
+  );
+  const freshness = oldest && now - oldest.value > STALE_SNAPSHOT_AFTER_MS ? "stale" : "fresh";
+  const staleBoundary = oldest && oldest.value <= now && freshness === "fresh"
+    ? oldest.value + STALE_SNAPSHOT_AFTER_MS + 1
+    : undefined;
+  const futureBoundary = valid.filter((entry) => entry.value > now).reduce<number | undefined>(
+    (current, entry) => current === undefined || entry.value < current ? entry.value : current,
+    undefined
+  );
+
+  return {
+    freshness,
+    metadata: invalid ? "invalid" : future ? "future" : "valid",
+    rawGeneratedAt: oldest?.rawGeneratedAt,
+    anomalousGeneratedAt: future?.rawGeneratedAt,
+    nextReviewAt: [staleBoundary, futureBoundary].reduce<number | undefined>(
+      (current, entry) => entry === undefined || current !== undefined && current <= entry ? current : entry,
+      undefined
+    )
+  };
+}
+
+function parseStrictIsoTimestamp(value: unknown):
+  | { kind: "valid"; rawGeneratedAt: string; value: number }
+  | { kind: "invalid" } {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)) return { kind: "invalid" };
+  const timestamp = new Date(value).getTime();
+  // Date parses overflowed calendar dates (for example February 30) by normalizing them.
+  // Round-tripping canonical server ISO output rejects that normalization.
+  if (!Number.isFinite(timestamp) || new Date(timestamp).toISOString() !== value) return { kind: "invalid" };
+  return { kind: "valid", rawGeneratedAt: value, value: timestamp };
 }
 
 function formatSnapshotUpdatedAt(snapshot: ReturnType<typeof getSnapshotFreshness>) {
-  if (snapshot.state === "invalid") return "마지막 갱신: 서버 snapshot 시각 확인 필요";
-  if (snapshot.state === "unknown") return "마지막 갱신: 서버 snapshot 시각 확인 중";
-  if (snapshot.state === "future") return `마지막 갱신: 시간 차이 확인 (${snapshot.rawGeneratedAt})`;
+  if (snapshot.metadata === "invalid") return "마지막 갱신: 서버 snapshot 시각 확인 필요";
+  if (snapshot.freshness === "pending") return "마지막 갱신: 서버 snapshot 시각 확인 중";
+  if (snapshot.metadata === "future") return `마지막 갱신: 시간 차이 확인 (${snapshot.anomalousGeneratedAt})`;
   return `마지막 갱신: ${snapshot.rawGeneratedAt}`;
 }

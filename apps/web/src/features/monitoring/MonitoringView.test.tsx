@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MonitoringView } from "./MonitoringView";
@@ -48,8 +48,9 @@ describe("MonitoringView refresh", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    const currentGeneratedAt = new Date().toISOString();
     refetchDashboard.mockResolvedValue({ data: dashboard });
-    refetchFixtures.mockResolvedValue({ data: { pages: [{ items: [fixture], nextCursor: null }] } });
+    refetchFixtures.mockResolvedValue({ data: { pages: [{ items: [fixture], nextCursor: null, generatedAt: currentGeneratedAt }] } });
     refetchMap.mockResolvedValue({ data: mapSnapshot });
     queryMocks.useDashboard.mockReturnValue({
       data: dashboard,
@@ -59,7 +60,7 @@ describe("MonitoringView refresh", () => {
       refetch: refetchDashboard
     });
     queryMocks.useFloorFixtures.mockReturnValue({
-      data: { pages: [{ items: [fixture], nextCursor: null }] },
+      data: { pages: [{ items: [fixture], nextCursor: null, generatedAt: currentGeneratedAt }] },
       dataUpdatedAt: new Date("2026-08-19T01:00:00.000Z").getTime(),
       error: null,
       isPending: false,
@@ -80,7 +81,10 @@ describe("MonitoringView refresh", () => {
     });
   });
 
-  afterEach(() => cleanup());
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+  });
 
   it("refreshes dashboard, current-floor fixtures, and the saved map together", async () => {
     render(<MonitoringView siteId="site-1" />);
@@ -224,7 +228,7 @@ describe("MonitoringView refresh", () => {
 
     expect(screen.getByRole("button", { name: "새로고침 중" })).toBeDisabled();
     dashboardRequest.resolve({ data: dashboard });
-    fixtureRequest.resolve({ data: { pages: [{ items: [fixture], nextCursor: null }] } });
+    fixtureRequest.resolve({ data: { pages: [{ items: [fixture], nextCursor: null, generatedAt: new Date().toISOString() }] } });
     mapRequest.resolve({ data: mapSnapshot });
     await waitFor(() => expect(screen.getByRole("button", { name: "새로고침" })).toBeEnabled());
   });
@@ -297,6 +301,60 @@ describe("MonitoringView refresh", () => {
     expect(screen.getByRole("alert")).toHaveTextContent(`시간 차이 확인: ${snapshotAt}`);
   });
 
+  it("evaluates a newly arrived current snapshot against Date.now instead of the prior timer tick", () => {
+    vi.useFakeTimers();
+    const now = new Date("2026-09-12T00:00:00.000Z");
+    vi.setSystemTime(now);
+    const { rerender } = render(<MonitoringView siteId="site-1" />);
+    vi.setSystemTime(new Date("2026-09-12T00:00:01.000Z"));
+    queryMocks.useFloorFixtures.mockReturnValue({
+      data: { pages: [{ items: [fixture], nextCursor: null, generatedAt: "2026-09-12T00:00:01.000Z" }] },
+      dataUpdatedAt: Date.now(), error: null, isPending: false, isLoading: false, isFetching: false,
+      hasNextPage: false, isFetchingNextPage: false, fetchNextPage: vi.fn(), refetch: refetchFixtures
+    });
+
+    rerender(<MonitoringView siteId="site-1" />);
+
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("keeps 60,000ms fresh and shows stale at 60,001ms without waiting for an interval tick", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-12T00:00:00.000Z"));
+    queryMocks.useFloorFixtures.mockReturnValue({
+      data: { pages: [{ items: [fixture], nextCursor: null, generatedAt: "2026-09-12T00:00:00.000Z" }] },
+      dataUpdatedAt: Date.now(), error: null, isPending: false, isLoading: false, isFetching: false,
+      hasNextPage: false, isFetchingNextPage: false, fetchNextPage: vi.fn(), refetch: refetchFixtures
+    });
+
+    render(<MonitoringView siteId="site-1" />);
+    act(() => vi.advanceTimersByTime(60_000));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(1));
+    expect(screen.getByRole("alert")).toHaveTextContent("현황 갱신이 지연되고 있습니다.");
+  });
+
+  it.each([
+    ["2099-01-01T00:00:00.000Z", "시간 차이 확인"],
+    ["2026-02-30T00:00:00.000Z", "서버 snapshot 시각을 확인할 수 없습니다."],
+    [undefined, "서버 snapshot 시각을 확인할 수 없습니다."]
+  ])("does not let a fresh page hide invalid metadata from another page: %s", (anomalousGeneratedAt, warning) => {
+    queryMocks.useFloorFixtures.mockReturnValue({
+      data: {
+        pages: [
+          { items: [fixture], nextCursor: "page-2", generatedAt: new Date().toISOString() },
+          { items: [], nextCursor: null, generatedAt: anomalousGeneratedAt }
+        ]
+      },
+      dataUpdatedAt: Date.now(), error: null, isPending: false, isLoading: false, isFetching: false,
+      hasNextPage: false, isFetchingNextPage: false, fetchNextPage: vi.fn(), refetch: refetchFixtures
+    });
+
+    render(<MonitoringView siteId="site-1" />);
+
+    expect(screen.getByRole("alert")).toHaveTextContent(warning);
+  });
+
   it("shows the latest Health Current fault snapshot", () => {
     render(<MonitoringView siteId="site-1" />);
 
@@ -361,6 +419,7 @@ describe("MonitoringView refresh", () => {
     render(<MonitoringView siteId="site-1" />);
 
     expect(screen.getByRole("status")).toHaveTextContent("조명 상태를 불러오는 중");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(screen.queryByRole("group", { name: "전체 조명" })).not.toBeInTheDocument();
     expect(screen.queryByText("등록된 층이 없습니다.")).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "층 도면" })).not.toBeInTheDocument();
@@ -382,7 +441,7 @@ describe("MonitoringView refresh", () => {
       refetch: refetchDashboard
     });
     queryMocks.useFloorFixtures.mockImplementation((floorId: string) => floorId === "floor-1" ? {
-      data: { pages: [{ items: [fixture], nextCursor: null }] },
+      data: { pages: [{ items: [fixture], nextCursor: null, generatedAt: new Date().toISOString() }] },
       dataUpdatedAt: new Date("2026-08-19T01:00:00.000Z").getTime(),
       error: null,
       isPending: false,
@@ -418,6 +477,7 @@ describe("MonitoringView refresh", () => {
     fireEvent.change(screen.getByRole("combobox", { name: "맵 선택" }), { target: { value: "floor-2" } });
 
     expect(screen.getByRole("status")).toHaveTextContent("B2 조명 상태를 불러오는 중");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(screen.queryByRole("group", { name: "전체 조명" })).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "층 도면" })).not.toBeInTheDocument();
   });
@@ -446,7 +506,7 @@ describe("MonitoringView refresh", () => {
 
   it("fixture 갱신 실패 시 이전 성공 데이터를 유지하고 오류를 알린다", () => {
     queryMocks.useFloorFixtures.mockReturnValue({
-      data: { pages: [{ items: [fixture], nextCursor: null }] },
+      data: { pages: [{ items: [fixture], nextCursor: null, generatedAt: new Date().toISOString() }] },
       dataUpdatedAt: new Date("2026-08-19T01:00:00.000Z").getTime(),
       error: new Error("fixtures unavailable"),
       isPending: false,
