@@ -76,6 +76,7 @@
 
 - 도면 이력은 층별 **최근 100개 또는 최근 365일 중 넓은 범위**를 보존하고, 범위 밖 이력은 분당 최대 1,000개씩 정리한다. 보존된 이력만 목록 조회·복구할 수 있다. 로그인 `Session`은 만료 또는 폐기 후 30일이 지난 행만 분당 최대 10,000개씩 정리하며 활성 세션은 보존한다.
 - 게이트웨이 이벤트 원장은 heartbeat 7일, 조명 상태 30일, 종료된 검색 세션 이벤트 90일, 대체된 차량 센서 capability 365일 이후에 안전 조건을 확인해 분당 최대 10,000개씩 정리한다. watermark·현재 상태·검색 terminal ACK identity가 부족하면 보존한다. 각 정리는 안정된 순서와 `SKIP LOCKED`를 사용하고, 중복 timer 실행을 막으며 삭제 건수·실패 단계를 구조화 로그로 남긴다. 기간 경계와 두 연결의 잠금 건너뛰기·재실행 수렴은 일회성 PostgreSQL에서 검증했다.
+- API 종료 시 정리 timer를 중지하고 진행 중인 정리 작업을 마친 뒤 Prisma 연결을 닫는다. 실제 Nest 모듈 종료에서 삭제 완료·최종 disconnect 순서와 남는 DB 연결이 없음을 일회성 PostgreSQL로 검증했다.
 
 - 신규 scan completed/failed는 session에 전체 payload hash·event ID·sequence·최초 ACK 시각을 보존한다. raw 이벤트와 ACK outbox가 삭제된 뒤에도 동일 terminal은 최초 application ACK로 재생성하고 변경된 acceptedNodeCount/failure message는 거부한다. found의 gateway/type 순서는 session을 바꿔도 watermark로 유지하며 임시 PostgreSQL에서 검증했다.
 

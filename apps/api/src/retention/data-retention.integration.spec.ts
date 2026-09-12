@@ -1,8 +1,12 @@
 import { Logger } from "@nestjs/common";
+import { Test } from "@nestjs/testing";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { disposablePostgres } from "../../test/support/disposable-postgres";
 import { DataRetentionService } from "./data-retention.service";
+import { PrismaModule } from "../prisma/prisma.module";
+import { PrismaService } from "../prisma/prisma.service";
+import { RetentionModule } from "./retention.module";
 
 const enabled = process.env.DATA_RETENTION_TEST === "1";
 const now = new Date("2026-09-12T12:00:00.000Z");
@@ -21,10 +25,11 @@ const policies = [
   let db: PrismaClient;
   let peer: PrismaClient;
   let service: DataRetentionService;
+  let databaseUrl: string;
   let sequence = 0;
   beforeAll(async () => {
     cluster = await disposablePostgres();
-    const databaseUrl = cluster.database();
+    databaseUrl = cluster.database();
     const deployed = cluster.deploy(databaseUrl);
     expect(deployed.stderr + deployed.stdout).not.toMatch(/Error:|P30\d\d/);
     expect(deployed.status).toBe(0);
@@ -259,5 +264,79 @@ const policies = [
     } finally { release(); await lock; }
     expect(await service.prune(now)).toEqual({ gatewayEvents: 1, sessions: 1, floorMapRevisions: 1 });
     expect(await db.floorMapRevision.count()).toBe(100);
+  }, 15_000);
+
+  it("drains retention before final Prisma disconnect when the real Nest application closes", async () => {
+    await event("gateway_heartbeat");
+    await db.session.create({ data: { userId: ids.user, tokenHash: "lifecycle-session", expiresAt: old } });
+    await revisions(ids.floor, 101);
+    const connectionCount = async () => {
+      const [row] = await peer.$queryRaw<{ count: number }[]>`
+        SELECT count(*)::int AS count FROM pg_stat_activity
+        WHERE datname = current_database() AND pid <> pg_backend_pid()
+      `;
+      return row.count;
+    };
+    const baselineConnections = await connectionCount();
+    const prisma = new PrismaService({ datasourceUrl: `${databaseUrl}?connection_limit=1` });
+    const moduleRef = await Test.createTestingModule({ imports: [PrismaModule, RetentionModule] })
+      .overrideProvider(PrismaService).useValue(prisma).compile();
+    const app = moduleRef.createNestApplication();
+    const worker = app.get(DataRetentionService);
+    const order: string[] = [];
+    let release!: () => void;
+    let firstCompleted!: () => void;
+    let drainEntered!: () => void;
+    const paused = new Promise<void>(resolve => { release = resolve; });
+    const first = new Promise<void>(resolve => { firstCompleted = resolve; });
+    const draining = new Promise<void>(resolve => { drainEntered = resolve; });
+    const execute = prisma.$executeRaw.bind(prisma);
+    let queries = 0;
+    // Keep every SQL statement real. Pausing its result after query 1 commits
+    // leaves Prisma free to disconnect early, reproducing the production race.
+    const executeSpy = jest.spyOn(prisma, "$executeRaw").mockImplementation((query, ...values) => (async () => {
+      const count = await execute(query, ...values);
+      order.push(`query-${++queries}`);
+      if (queries === 1) { firstCompleted(); await paused; }
+      return count;
+    })() as never);
+    const disconnect = prisma.$disconnect.bind(prisma);
+    const disconnectSpy = jest.spyOn(prisma, "$disconnect").mockImplementation(async () => {
+      await disconnect();
+      order.push("disconnect");
+    });
+    const destroy = worker.onModuleDestroy.bind(worker);
+    const destroySpy = jest.spyOn(worker, "onModuleDestroy").mockImplementation(async () => {
+      drainEntered();
+      await destroy();
+    });
+    let closing: Promise<void> | undefined;
+    let sweep: ReturnType<DataRetentionService["prune"]> | undefined;
+    const previousEnvironment = process.env.NODE_ENV;
+    try {
+      process.env.NODE_ENV = "production";
+      await app.init();
+      process.env.NODE_ENV = previousEnvironment;
+      sweep = worker.prune(now);
+      await first;
+      closing = app.close();
+      await draining;
+      const atDrain = [...order];
+      release();
+      expect(await sweep).toEqual({ gatewayEvents: 1, sessions: 1, floorMapRevisions: 1 });
+      await closing;
+      expect({ atDrain, completed: order, connections: await connectionCount() }).toEqual({
+        atDrain: ["query-1"], completed: ["query-1", "query-2", "query-3", "disconnect"], connections: baselineConnections
+      });
+      expect(await db.session.count()).toBe(0);
+      expect(await db.floorMapRevision.count()).toBe(100);
+    } finally {
+      process.env.NODE_ENV = previousEnvironment;
+      release();
+      await sweep?.catch(() => {});
+      await (closing ?? app.close()).catch(() => {});
+      executeSpy.mockRestore(); disconnectSpy.mockRestore(); destroySpy.mockRestore();
+      await prisma.$disconnect();
+    }
   }, 15_000);
 });
