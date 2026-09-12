@@ -1,5 +1,8 @@
 import { BadRequestException, type CanActivate, type ExecutionContext, type INestApplication } from "@nestjs/common";
-import type { VehicleSensorCapabilityReportV1 } from "@led-control/shared";
+import {
+  automationExecutionActionResultPayloadV1Schema,
+  type VehicleSensorCapabilityReportV1
+} from "@led-control/shared";
 import { Test } from "@nestjs/testing";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { randomUUID } from "node:crypto";
@@ -1469,6 +1472,20 @@ function executionData(
   kind: "vehicle_detected" | "event_started" | "action_result",
   occurredAt: string
 ) {
+  const payload = kind === "action_result"
+    ? automationExecutionActionResultPayloadV1Schema.parse({
+        sourceType: "vehicle_event_rule",
+        sourceId: ruleId,
+        results: [{
+          fixtureId: scenario.fixtureIds[2],
+          status: "succeeded",
+          brightnessPercent: 100,
+          faultCode: null,
+          errorCode: null,
+          occurredAt
+        }]
+      })
+    : { result: kind };
   return {
     siteId: scenario.siteId,
     gatewayId: scenario.gatewayId,
@@ -1479,7 +1496,7 @@ function executionData(
     vehicleEventRuleId: ruleId,
     kind,
     occurredAt: new Date(occurredAt),
-    payload: { result: kind }
+    payload
   };
 }
 

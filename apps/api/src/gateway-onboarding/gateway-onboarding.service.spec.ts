@@ -199,11 +199,15 @@ describe("GatewayOnboardingService", () => {
     const { prisma } = await createFixture();
     prisma.gatewayInventory.findUnique.mockResolvedValue({ claimedGateway: { siteId } });
     prisma.gatewayInventory.findFirst = jest.fn().mockResolvedValue(null);
-    const lifecycle = { revokeInventoryCertificates: jest.fn() } as unknown as CertificateLifecycleService;
+    const lifecycle = {
+      stageInventoryDisable: jest.fn(),
+      processInventoryRevocation: jest.fn()
+    } as unknown as CertificateLifecycleService;
     const service = new GatewayOnboardingService(prisma, { assert: jest.fn().mockResolvedValue({ id: siteId }) } as unknown as SiteAccessService, lifecycle);
 
     await expect(service.disableInventory(operator, "inventory-1")).rejects.toThrow("inventory not found");
 
-    expect(lifecycle.revokeInventoryCertificates).not.toHaveBeenCalled();
+    expect(lifecycle.stageInventoryDisable).not.toHaveBeenCalled();
+    expect(lifecycle.processInventoryRevocation).not.toHaveBeenCalled();
   });
 });
