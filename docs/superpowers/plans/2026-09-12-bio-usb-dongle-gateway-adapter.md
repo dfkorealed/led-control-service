@@ -40,22 +40,22 @@
 - Consumes: `ProvisioningDeviceTerminalV2`, `ProvisioningDeviceOutbox`, `ProcessedGatewayEvent`, generic `MqttOutbox`
 - Produces: `ProvisioningDeviceTerminalService.ingest(scope, event, receivedAt)`와 ACK key `provisioning-device-terminal:<gatewayId>:<commandId>`
 
-- [ ] **Step 1: completed/failed/duplicate/conflict/rollback RED 테스트를 작성한다.** Exact stored command identity, fixed event type `provisioning_device_terminal`, sequence, tenant, event hash와 altered terminal 거부를 각각 검증한다.
-- [ ] **Step 2: focused test가 새 service 부재로 실패하는지 확인한다.**
+- [x] **Step 1: completed/failed/duplicate/conflict/rollback RED 테스트를 작성한다.** Exact stored command identity, fixed event type `provisioning_device_terminal`, sequence, tenant, event hash와 altered terminal 거부를 각각 검증한다.
+- [x] **Step 2: focused test가 새 service 부재로 실패하는지 확인한다.**
 
 Run: `pnpm --filter @led-control/api test -- --runInBand src/mqtt/provisioning-device-terminal.service.spec.ts src/mqtt/mqtt.service.spec.ts`
 
 Expected: 신규 service import 또는 V2 subscription 기대가 실패한다.
 
-- [ ] **Step 3: 한 transaction에서 row lock, stored command 대조, domain 전이, ledger, ACK outbox를 구현한다.** completed는 기존 fixture/group 연결 helper를 재사용하고 failed/unknown은 `reconcile_required`로 수렴한다.
-- [ ] **Step 4: MQTT exact topic을 subscribe/route하고 legacy completed/failed를 유지한다.** DB commit 뒤에만 QoS 1 PUBACK이 가능해야 한다.
-- [ ] **Step 5: generic application ACK publisher 회귀를 추가한다.**
-- [ ] **Step 6: real-backend lab을 V2 terminal publish/application ACK 대기로 전환한다.** Legacy terminal만으로 성공을 확정하지 않는 E2E 회귀를 추가한다.
-- [ ] **Step 7: 단위·격리 PostgreSQL·real-backend 계약 테스트를 통과시킨다.**
+- [x] **Step 3: 한 transaction에서 row lock, stored command 대조, domain 전이, ledger, ACK outbox를 구현한다.** completed는 기존 fixture/group 연결 helper를 재사용하고 failed/unknown은 `reconcile_required`로 수렴한다.
+- [x] **Step 4: MQTT exact topic을 subscribe/route하고 legacy completed/failed를 유지한다.** DB commit 뒤에만 QoS 1 PUBACK이 가능해야 한다.
+- [x] **Step 5: generic application ACK publisher 회귀를 추가한다.**
+- [x] **Step 6: real-backend lab을 V2 terminal publish/application ACK 대기로 전환한다.** Legacy terminal만으로 성공을 확정하지 않는 E2E 회귀를 추가한다.
+- [x] **Step 7: 단위·격리 PostgreSQL·real-backend 계약 테스트를 통과시킨다.**
 
 Run: `pnpm --filter @led-control/api test -- --runInBand src/mqtt/provisioning-device-terminal.service.spec.ts src/mqtt/mqtt.service.spec.ts src/automation/automation-outbox-publisher.service.spec.ts`
 
-- [ ] **Step 8: 커밋한다.**
+- [x] **Step 8: 커밋한다.**
 
 ```bash
 git add apps/api/src/mqtt apps/api/src/automation/automation-outbox-publisher.service.spec.ts apps/web/e2e/support/real-backend-lab.ts apps/web/e2e/provisioning-real-backend.spec.ts
