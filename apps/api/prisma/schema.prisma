@@ -1262,16 +1262,26 @@ model EnergyReportJob {
 // Intentionally no foreign keys: late worker uploads must remain reapable after
 // both the report's 90-day metadata purge and the site's cascade deletion.
 model EnergyReportObjectCleanup {
-  reportId       String    @id
-  siteId         String
-  objectKeys     Json
-  leaseOwner     String?
-  leaseExpiresAt DateTime?
-  nextAttemptAt  DateTime  @default(now())
-  lastCleanedAt  DateTime?
-  lastError      String?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  reportId                String    @id
+  siteId                  String
+  objectKeys              Json
+  leaseOwner              String?
+  leaseExpiresAt          DateTime?
+  nextAttemptAt           DateTime  @default(dbgenerated("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC'::text)"))
+  lastCleanedAt           DateTime?
+  lastError               String?
+  deleteAttemptCount      Int       @default(0)
+  deleteRetryCount        Int       @default(0)
+  deleteFailureCount      Int       @default(0)
+  lastAttemptAt           DateTime?
+  lastObservedObjectCount Int       @default(0)
+  lastObservedBytes       BigInt    @default(0)
+  deletedObjectCount      Int       @default(0)
+  deletedBytes            BigInt    @default(0)
+  latePutObjectCount      Int       @default(0)
+  latePutBytes            BigInt    @default(0)
+  createdAt               DateTime  @default(dbgenerated("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC'::text)"))
+  updatedAt               DateTime  @updatedAt
 
   @@index([nextAttemptAt, leaseExpiresAt])
   @@index([siteId])

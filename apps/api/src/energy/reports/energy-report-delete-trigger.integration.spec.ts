@@ -1,5 +1,5 @@
 import { PrismaClient } from "@prisma/client";
-import { DeleteObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, HeadObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { randomUUID } from "node:crypto";
 import { EnergyReportCleanupService, recordReportCleanup } from "./energy-report-cleanup.service";
 import { ObjectStorageService } from "../../storage/object-storage.service";
@@ -24,6 +24,10 @@ const databaseUrl = process.env.ENERGY_REPORT_TEST_DATABASE_URL;
       }
       if (command instanceof DeleteObjectCommand && command.input.Bucket === "private-reports") {
         objects.delete(command.input.Key!); return {};
+      }
+      if (command instanceof HeadObjectCommand && command.input.Bucket === "private-reports") {
+        if (!objects.has(command.input.Key!)) throw Object.assign(new Error("object absent"), { $metadata: { httpStatusCode: 404 } });
+        return { ContentLength: Buffer.byteLength("late legacy upload") };
       }
       throw new Error("unexpected storage boundary");
     } } as never, { bucket: "public-floors", reportBucket: "private-reports", publicBaseUrl: "https://public.example" });

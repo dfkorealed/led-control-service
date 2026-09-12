@@ -63,6 +63,7 @@ runReportIntegration("private report S3 integration", () => {
       await service.putReportObject(key, bytes, "application/pdf");
       await expect(service.headReportObject(key)).resolves.toMatchObject({ ContentLength: bytes.length,
         ContentType: "application/pdf", ChecksumSHA256: createHash("sha256").update(bytes).digest("base64") });
+      await expect(service.inspectReportObject(key)).resolves.toEqual({ exists: true, sizeBytes: bytes.length });
       const anonymous = await fetch(`${endpoint}/${reportBucket}/${key}`);
       expect(anonymous.status).toBe(403);
       const signedUrl = await service.createReportDownloadUrl(key, "energy-report.pdf");
@@ -73,6 +74,7 @@ runReportIntegration("private report S3 integration", () => {
       expect(Buffer.from(await download.arrayBuffer())).toEqual(bytes);
       await service.deleteReportObject(key);
       await expect(service.headReportObject(key)).rejects.toMatchObject({ $metadata: { httpStatusCode: 404 } });
+      await expect(service.inspectReportObject(key)).resolves.toEqual({ exists: false });
     } finally { await service.deleteReportObject(key); client.destroy(); }
   });
 });

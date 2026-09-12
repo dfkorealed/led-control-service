@@ -4,6 +4,8 @@
 
 ## 구현 완료
 
+- 보고서 객체 정리는 HEAD의 존재 여부·크기를 측정하고 시도·실패·재시도, 관측·삭제·late PUT 객체 수와 바이트를 영구 원장에 기록한다. HEAD 404는 정상이며 lease를 잃은 회차는 지표를 저장하지 않는다. sweep 로그에 미등록 대상을 포함한 backlog, oldest due, 재시도·실패·late PUT 합계를 제공한다. UTC/서울 DB 세션에서 정확한 만료·재시도 경계와 고정 `prune(now)`, 51건 정리 수렴을 검증했다.
+
 - 보고서 생성 transaction에서 현장·조명·층·그룹의 대상명을 고정해 이름 변경·운영 객체 삭제 후에도 목록과 새 XLSX/PDF 공통 문서에 유지한다. 공개 응답은 `target`, `requestedAt`(기존 `createdAt`과 동일), `failure`의 코드·사유·행동 안내를 추가하고 기존 필드를 보존한다. 저장소·렌더링·스냅샷·시도 소진 오류를 구분하며 알 수 없는 내부 오류는 일반 실패로 정제한다. 일회성 PostgreSQL에서 legacy null 보존, 이름 변경·삭제, 재시도 실패 분류와 원시 오류 미노출을 검증했다.
 
 - 이벤트 원장이 정리된 이후에도 fixture별 최신 sequence·payload hash를 보존하여 동일 상태를 재적산하지 않고 변경된 payload 재전송을 거부한다. watermark·원장·일별/시간별 적산·cursor·snapshot은 하나의 transaction이며 임시 PostgreSQL에서 중복, 동시 수신과 전체 rollback을 확인했다.
@@ -96,7 +98,8 @@
 
 - 이벤트 watermark와 보존용 index만 추가했으며 원장 자동 삭제 worker는 후속 작업이다. 원장이 없는 임의 과거 event ID까지 영구 기억하지 않으며 legacy hash 누락 원장은 보존해야 한다. 사용자 DB 적용과 실장비 재전송 검증은 미실행이다.
 
-- 보고서 파일의 7일 만료는 조회·다운로드에서 즉시 적용하며 물리 삭제는 60초 정리 주기와 backlog·저장소 상태에 따라 늦을 수 있다. 원장별 최대 3회 DELETE는 각 4초 제한이며 DB transaction 밖에서 수행한다. PUT 10초·HEAD 4초 제한은 네트워크 보호일 뿐 정지한 프로세스의 미래 PUT을 막는 증거로 쓰지 않는다. 회수 원장은 자동 삭제하지 않으므로 크기와 반복 DELETE 비용이 보고서 수에 따라 증가한다. 요청/문서 데이터는 원장에 포함하지 않는다. 매우 많은 보고서가 있는 현장의 삭제는 전체 시도 키 목록과 순차 저장소 삭제에 시간이 걸릴 수 있다.
+- 보고서 파일의 7일 만료는 조회·다운로드에서 즉시 적용하며 물리 삭제는 60초 정리 주기와 backlog·저장소 상태에 따라 늦을 수 있다. 원장별 최대 3개 키의 HEAD·DELETE는 각각 4초 제한이며 DB transaction 밖에서 수행한다. PUT 10초·HEAD 4초 제한은 네트워크 보호일 뿐 정지한 프로세스의 미래 PUT을 막는 증거로 쓰지 않는다. 회수 원장은 자동 삭제하지 않으므로 크기, 반복 HEAD·DELETE와 전체 카운터 합계 조회 비용이 보고서 수에 따라 증가한다. 요청/문서 데이터는 원장에 포함하지 않는다. 매우 많은 보고서가 있는 현장의 삭제는 전체 시도 키 목록과 순차 저장소 삭제에 시간이 걸릴 수 있다.
+- 정리 지표는 HEAD에서 확인한 객체의 DELETE 성공 응답을 기준으로 하며 물리 저장 용량·과금 증거가 아니다. 현장 삭제의 직접 DELETE, 응답 유실·임대 상실·동시 객체 교체는 지표와 실제 삭제량 차이를 만들 수 있다. 실패한 late PUT 삭제는 이후 성공할 때 누적하며, 기존 원장의 과거 카운터는 복원하지 않고 새 migration부터 0으로 시작한다. 사용자/운영 DB에는 migration을 적용하지 않았다.
 - `OBJECT_STORAGE_REPORT_BUCKET`은 공개 도면 버킷과 달라야 하며 운영 저장소에서도 익명 읽기가 없는 버킷을 별도로 준비해야 한다. 로컬 compose는 기본 `energy-reports` 버킷에 익명 접근 금지를 적용한다. 보고서 스냅샷과 생성 파일은 서버 메모리에 존재하며 CSV 출력 문자열만 스트리밍한다. 작업 수락 전 Site 잠금 밖의 read-only 사전 조회로 실제 문서를 만들어 날짜·대상·출력 문자 지원 여부를 확인하고 폐기한다. 따라서 접수에도 집계 조회 비용이 추가되며 worker는 첫 시도에서 별도의 한 transaction으로 불변 스냅샷을 저장하고 재검사한다. 수락 이후 데이터 변경이나 저장소 오류로 생성이 실패할 수 있다.
 - 글꼴 지원은 Unicode 전체가 아니다. 최종 출력에 있는 NBSP(U+00A0), VS16(U+FE0F), ZWJ(U+200D), NFD 한글의 자동 조합 등 원문 왕복이 불가능한 문자/문자열은 `400 Unsupported report …`로 거절한다. NFC 한글과 지원되는 결합 악센트·emoji는 허용하며 무관한 이력 이름을 이유로 거절하지 않는다. 이미 저장된 보고서 문서는 불변 원본을 유지하며 새 비용/정밀 이력 규칙의 문서는 같은 기간으로 새로 요청한다.
 - 24시간·100% 기준선은 조회 시점의 현재 등록 조명과 정격 W를 사용한다. 조회 기간 중 등록·삭제·정격 변경이 있었다면 당시 조명 구성으로 소급 보정하지 않으므로 장기 비교의 절대값 해석에 주의해야 한다.
@@ -126,6 +129,7 @@
 - `apps/api/src/energy/reports/energy-report-jobs.service.ts`
 - `apps/api/src/energy/reports/energy-report-metadata.integration.spec.ts`
 - `apps/api/prisma/migrations/20260916_report_operations_metadata/migration.sql`
+- `apps/api/prisma/migrations/20260917_report_cleanup_metrics/migration.sql`
 - `apps/api/src/energy/reports/energy-report-worker.service.ts`
 - `apps/api/src/energy/reports/energy-report-cleanup.service.ts`
 - `apps/api/src/energy/reports/energy-report-cleanup.service.spec.ts`

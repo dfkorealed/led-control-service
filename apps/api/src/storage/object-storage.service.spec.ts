@@ -120,6 +120,24 @@ describe("private report storage", () => {
     const service = new ObjectStorageService({} as never, { bucket: "same", reportBucket: "same", publicBaseUrl: "https://public.example" });
     await expect(service.headReportObject(key)).rejects.toThrow("private report bucket");
   });
+  it("distinguishes missing report objects from measured zero-byte objects", async () => {
+    const { send, service } = setup();
+    send.mockResolvedValueOnce({ ContentLength: 0 }).mockResolvedValueOnce({ ContentLength: 123 });
+    await expect(service.inspectReportObject(key)).resolves.toEqual({ exists: true, sizeBytes: 0 });
+    await expect(service.inspectReportObject(key)).resolves.toEqual({ exists: true, sizeBytes: 123 });
+    send.mockRejectedValueOnce({ $metadata: { httpStatusCode: 404 }, message: "private bucket" });
+    await expect(service.inspectReportObject(key)).resolves.toEqual({ exists: false });
+  });
+  it.each([undefined, -1, 0.5, Number.MAX_SAFE_INTEGER + 1])("refuses an unmeasured HEAD size %s", async ContentLength => {
+    const { send, service } = setup();
+    send.mockResolvedValue({ ContentLength });
+    await expect(service.inspectReportObject(key)).rejects.toThrow("invalid report object size");
+  });
+  it.each([403, 500])("does not treat a HEAD %s as object absence", async httpStatusCode => {
+    const { send, service } = setup();
+    send.mockRejectedValue({ $metadata: { httpStatusCode }, message: "private error" });
+    await expect(service.inspectReportObject(key)).rejects.toMatchObject({ $metadata: { httpStatusCode } });
+  });
   it("uses the configured report bucket through the Nest storage module", async () => {
     const previous = process.env.OBJECT_STORAGE_REPORT_BUCKET;
     process.env.OBJECT_STORAGE_REPORT_BUCKET = "configured-private-reports";

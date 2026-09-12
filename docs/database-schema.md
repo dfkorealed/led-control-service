@@ -64,9 +64,22 @@ Migration: `20260913_report_object_cleanup_ledger`. Site/보고서 FK를 두지 
 | `leaseOwner`, `leaseExpiresAt` | nullable String/DateTime | 정리 회차별 UUID와 DB UTC 기준 30초 임대, 둘 다 존재하거나 둘 다 null |
 | `nextAttemptAt`, `lastCleanedAt` | DateTime, DateTime? | 다음 회수 가능 시각, 최근 성공 회수 시각 |
 | `lastError` | `String?` | 정제된 정리 실패 코드 |
+| `deleteAttemptCount`, `deleteRetryCount`, `deleteFailureCount` | `Int`, 기본 0 | 유효 임대를 가진 소유자가 결과를 확정한 정리 회차, 직전 실패 뒤 재시도 회차, 실패 회차의 누적값 |
+| `lastAttemptAt` | `DateTime?` | 가장 최근에 결과를 확정한 정리 회차를 수행한 sweep의 기준 시각 |
+| `lastObservedObjectCount`, `lastObservedBytes` | `Int`, `BigInt`, 기본 0 | 최근 확정 회차에서 HEAD로 확인한 존재 객체 수·크기 합. 중간 실패 시 측정한 부분까지만 기록 |
+| `deletedObjectCount`, `deletedBytes` | `Int`, `BigInt`, 기본 0 | HEAD에서 존재를 확인하고 DELETE 성공 응답을 받은 객체 수·관측 크기 누적값 |
+| `latePutObjectCount`, `latePutBytes` | `Int`, `BigInt`, 기본 0 | 이전 전체 성공 회차 뒤 다시 발견하여 DELETE 성공 응답을 받은 객체 수·관측 크기 누적값 |
 | `createdAt`, `updatedAt` | `DateTime` | 원장 수명주기 |
 
 `(nextAttemptAt, leaseExpiresAt)`와 `siteId` 인덱스를 둔다. 60초마다 최대 50개 원장을 `SKIP LOCKED`로 claim하고, S3 DELETE는 DB 잠금/transaction 밖에서 실행한다. 짧은 후속 transaction에서 보고서→원장 순서로 잠근 뒤 소유자·임대 만료를 다시 검사해 메타데이터 만료/삭제 및 다음 회수 시각을 확정한다. 실패·임대 상실 시 키와 보고서 메타데이터를 유지한다. 성공 후에도 다음 회수를 예약하므로 이미 완료된 현장 정리 뒤의 늦은 업로드도 회수 대상이다. Migration은 기존 `SiteDeletionCleanup`의 보고서 키(완료 원장 포함)를 엄격한 UUID 경로·xlsx/pdf 형식으로 검증하고, 기존 attempt-1만 있어도 같은 형식의 세 키를 이 테이블에 보존한다.
+
+`20260917_report_cleanup_metrics`는 기존 migration을 수정하지 않고 transaction·10초 lock timeout 아래 위 카운터와 비음수/상호 범위 CHECK를 추가한다. 과거 삭제 횟수·바이트는 복원할 수 없어 0에서 시작하며 기존 `lastCleanedAt`은 유지한다. `nextAttemptAt`·`createdAt`의 DB 기본값은 명시적 UTC다. `prune(now)`는 최초 원장에도 같은 `now`를 전달하고 SQL의 만료·재시도 비교에서 Date 파라미터를 naive UTC로 변환한다. 임대 만료 판정은 실제 DB UTC 시각을 사용한다.
+
+각 키의 HEAD와 DELETE는 각각 4초 이내로 제한한다. HEAD 404는 정상 미존재이며 해당 키의 DELETE도 실행해 HEAD 직후의 PUT을 회수한다. 존재 객체는 유효한 0 이상 정수 크기를 먼저 측정하고 DELETE한다. HEAD/DELETE 실패는 원시 오류 없이 `REPORT_OBJECT_CLEANUP_FAILED`만 저장한다. lease 상실 회차는 모든 카운터·최근 관측값·성공 시각을 저장하지 않는다. 실패한 DELETE의 late PUT 카운터는 이후 성공 시 증가하므로 같은 객체의 반복 실패가 수치를 부풀리지 않는다. 부분 성공 DELETE는 전체 회차가 실패해도 유효 임대 아래 누적한다.
+
+카운터는 이 정리 서비스가 확인한 활동량이다. 현장 삭제 서비스의 직접 DELETE, 응답 유실, lease 상실, HEAD와 DELETE 사이 객체 교체 때문에 실제 전체 삭제량·현재 버킷 용량·과금 수치와 같지 않다. 최근 관측값의 합계도 서로 다른 원장의 마지막 회차를 합한 값이다. 원장과 카운터는 메타데이터/현장 삭제 후에도 보존한다.
+
+매 sweep은 `report_object_cleanup_sweep` structured log와 반환값에 처리·purge·실패·재시도·임대 상실 회차 및 `metrics`를 제공한다. `ledgerCount`는 전체 원장 수, `backlogCount`는 미성공/직전 실패 원장과 아직 원장에 등록되지 않은 만료·실패 보고서의 합, `uninventoriedCount`는 그 미등록 보고서 수다. `dueCount`·`oldestDueAgeMs`는 임대 여부와 무관하게 예정 시각이 지난 원장 수·가장 오래 지난 시간이며 대상이 없으면 0이다. `retryPendingCount`는 직전 실패 원장 수다. `deleteRetryCount`는 실패 뒤 실제 재시도만 누적하며 정상 반복 확인은 포함하지 않는다. 나머지 동명 카운터는 원장 전체 합계이고 정밀도 손실·JSON BigInt 오류를 막기 위해 10진 문자열로 출력한다. 전체 원장 합계 조회 비용은 원장 수에 비례하며 외부 metrics 제품·자동 원장 삭제는 추가하지 않았다.
 
 `20260914_report_delete_tombstone_guard`는 `EnergyReportJob`의 `BEFORE DELETE` 행 트리거 `EnergyReportJob_preserve_objects_before_delete`와 함수 `preserve_energy_report_object_tombstone()`을 추가한다. migration은 DELETE와 충돌하는 테이블 잠금을 얻고 트리거 설치까지 하나의 transaction으로 커밋한다. 이 커밋 이후에는 runtime helper를 모르는 구버전 인스턴스의 직접 DELETE·90일 purge·Site FK cascade도 같은 삭제 transaction에서 세 키를 남긴다. reportId/siteId는 엄격한 UUID, 형식은 불변 xlsx/pdf enum에서 검증하고, 잘못된 이력 식별자는 `23514`로 삭제를 중단한다. `objectKey`나 호출자 경로를 삭제 권한으로 사용하지 않는다. 대상 원장 schema는 `TG_TABLE_SCHEMA`로 고정하고 신규 행의 시각은 DB 세션 timezone과 무관하게 UTC로 기록한다.
 

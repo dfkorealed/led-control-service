@@ -126,7 +126,8 @@ const databaseUrl = process.env.ENERGY_REPORT_TEST_DATABASE_URL;
         return {};
       }
       if (command instanceof HeadObjectCommand) {
-        const stored = objects.get(key)!;
+        const stored = objects.get(key);
+        if (!stored) throw Object.assign(new Error("object absent"), { $metadata: { httpStatusCode: 404 } });
         return { ContentLength: stored.bytes.length, ContentType: stored.contentType,
           ChecksumSHA256: createHash("sha256").update(stored.bytes).digest("base64"), ...headOverride };
       }
