@@ -1,11 +1,12 @@
 import { CircleCheck, CircleX, Clock3, RefreshCw, TriangleAlert } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useDashboard, useFloorFixtures, useFloorMapSnapshot, type Dashboard } from "../../api/queries";
-import { Button, FeedbackState, MetricCard, SidePanel, StatusBadge } from "../../components/ui";
+import { Button, FeedbackState, MetricCard, SidePanel, StatusBadge, UnderlineNavigation } from "../../components/ui";
 import { InstallationPending } from "../setup/SetupWizard";
 import { FloorMap } from "./FloorMap";
 import { presentFixtureStatus } from "./fixture-status-presentation";
+import { MonitoringIncidentPanel } from "./MonitoringIncidentPanel";
 
 const STALE_SNAPSHOT_AFTER_MS = 60_000;
 const MAX_BROWSER_TIMEOUT_MS = 2_147_483_647;
@@ -19,6 +20,7 @@ export function MonitoringView({ userRole = "admin", siteId }: { userRole?: "ope
 
   return (
     <MonitoringDashboard
+      key={data.site.id}
       data={data}
       userRole={userRole}
       siteId={siteId}
@@ -37,6 +39,9 @@ interface MonitoringDashboardProps {
 }
 
 function MonitoringDashboard({ data, userRole, siteId, dashboardError, refreshDashboard }: MonitoringDashboardProps) {
+  const [detailTab, setDetailTab] = useState<"fixture" | "incidents">("fixture");
+  const [activeIncidentCount, setActiveIncidentCount] = useState<number | null>(null);
+  const tabId = useId();
   const [selectedFloorId, setSelectedFloorId] = useState<string | null>(null);
   const [selectedFixtureId, setSelectedFixtureId] = useState<string | null>(null);
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
@@ -279,6 +284,26 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardError, refreshDa
               )}
             </div>
             <SidePanel className="detail-panel" aria-label="선택 조명 상세">
+              <UnderlineNavigation as="div" role="tablist" aria-label="모니터링 상세" className="monitoring-detail-tabs">
+                {(["fixture", "incidents"] as const).map((tab, index) => <Button
+                  key={tab}
+                  role="tab"
+                  id={`${tabId}-${tab}-tab`}
+                  aria-controls={`${tabId}-${tab}-panel`}
+                  aria-selected={detailTab === tab}
+                  tabIndex={detailTab === tab ? 0 : -1}
+                  className="ui-underline-navigation-item"
+                  onClick={() => setDetailTab(tab)}
+                  onKeyDown={(event) => {
+                    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+                    event.preventDefault();
+                    const nextIndex = event.key === "Home" ? 0 : event.key === "End" ? 1 : 1 - index;
+                    setDetailTab(nextIndex === 0 ? "fixture" : "incidents");
+                    event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[nextIndex]?.focus();
+                  }}
+                >{tab === "fixture" ? "조명 상세" : `인시던트 ${activeIncidentCount ?? "…"}`}</Button>)}
+              </UnderlineNavigation>
+              <div className="monitoring-tab-panel" id={`${tabId}-fixture-panel`} role="tabpanel" aria-labelledby={`${tabId}-fixture-tab`} hidden={detailTab !== "fixture"}>
               <div className="panel-title-row">
                 <div>
                   <span className="eyebrow">상세 패널</span>
@@ -346,6 +371,10 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardError, refreshDa
               ) : (
                 <p className="muted-text">지도에서 조명을 선택하면 상태와 제어 정보를 확인할 수 있습니다.</p>
               )}
+              </div>
+              <div className="monitoring-tab-panel" id={`${tabId}-incidents-panel`} role="tabpanel" aria-labelledby={`${tabId}-incidents-tab`} hidden={detailTab !== "incidents"}>
+                <MonitoringIncidentPanel siteId={siteId ?? data.site.id} canManage={data.capabilities?.manage === true} onActiveCountChange={setActiveIncidentCount} />
+              </div>
             </SidePanel>
           </div>
         </>

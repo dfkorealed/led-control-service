@@ -22,7 +22,10 @@
 ## 구현 완료
 
 - P1 Task 1 서버 계약: `GET/PATCH /sites/:siteId/monitoring-policy`는 read/manage capability와 `expectedUpdatedAt`을 적용해 gateway 만료 `30~900`초(기본 90), fixture stale `60~3600`초(기본 180)를 저장한다. 변경 충돌은 `409 MONITORING_POLICY_CONFLICT`다. 기존 장비 제어·등록의 90초 안전성 기준은 별도로 유지한다.
-- `MonitoringIncident`는 네 유형(`gateway_offline`, `fixture_stale`, `fixture_fault`, `command_failed`)의 발생·확인·담당·해결을 저장한다. Task 2의 30초 freshness sweep은 조건을 자동 수집해 active incident를 생성·갱신하고 조건 회복 시 `automatic_recovery`로 자동 해결한다. 목록 API는 활성 우선 최신순, 현장·필터에 바인딩된 cursor와 최대 100건 limit, 대상·사용자 요약을 제공한다. 관리자는 open 확인, active 담당 지정/해제, 복구 확인 뒤 메모와 수동 해결을 수행한다. 장애 지속은 `409 INCIDENT_STILL_ACTIVE`, 이전 revision은 `409 INCIDENT_CONFLICT`이며 모든 성공 변경은 같은 transaction의 감사 로그로 남긴다. Web incident 목록·조치와 policy dialog는 Task 4 후속 작업이다.
+- `MonitoringIncident`는 네 유형(`gateway_offline`, `fixture_stale`, `fixture_fault`, `command_failed`)의 발생·확인·담당·해결을 저장한다. Task 2의 30초 freshness sweep은 조건을 자동 수집해 active incident를 생성·갱신하고 조건 회복 시 `automatic_recovery`로 자동 해결한다. 목록 API는 활성 우선 최신순, 현장·필터에 바인딩된 cursor와 최대 100건 limit, 대상·사용자 요약을 제공한다. 관리자는 open 확인, active 담당 지정/해제, 복구 확인 뒤 메모와 수동 해결을 수행한다. 장애 지속은 `409 INCIDENT_STILL_ACTIVE`, 이전 revision은 `409 INCIDENT_CONFLICT`이며 모든 성공 변경은 같은 transaction의 감사 로그로 남긴다.
+- P1 Task 4 Web은 기존 SidePanel 안에 키보드 이동이 가능한 `조명 상세` / `인시던트 {활성 건수}` 탭을 제공한다. 현장 전체 인시던트의 상태·유형 필터, cursor 더 보기, 발생·최근 관측·확인자·담당자·자동/수동 해결·메모 이력을 표시한다. 인시던트 API도 30초 polling을 적용하고 초기 오류에는 재시도, background 오류에는 기존 목록을 유지한다. 탭 전환이나 조치 후에도 지도 배율·층·조명 선택을 유지한다.
+- 수정 권한은 dashboard `capabilities.manage === true`만 따른다. read-only는 조치·정책 form을 보지 못하며 site-users API도 호출하지 않는다. manage 사용자는 open 확인, active 담당 지정/해제, 1~2000자 해결 메모를 제출하고 현재 행의 `updatedAt`을 전달한다. 저장 중 필터 변경으로 폼이 다시 mount되어도 중복 요청을 차단한다. 네 종류의 `409` 충돌은 한국어로 구분하고 최신 목록을 재조회하며, 행이 해결되어 폼이 사라진 뒤에도 실패 안내를 유지한다.
+- `판정 기준`은 공통 ModalDialog에서 현재 값을 초기화하고 정확한 정수 범위를 검증한다. 저장 중 닫기를 막고 완료 시 trigger로 focus를 돌려준다. 성공 시 해당 현장의 policy/dashboard/floor-fixtures/incident 캐시를 갱신하며, 기본 현장 dashboard 별칭도 cached Site가 일치할 때만 갱신한다. 정책 충돌은 입력값을 보존하고 최신 서버 revision의 명시적 재검토를 요구한다. 재검토 뒤 서버 값이 다시 바뀌면 재확인을 요구하고, policy 재조회 오류에도 입력 화면을 유지한다.
 - 수동 해결의 현재 장애 판정은 `Site → Gateway → Fixture → Incident` 순서 잠금 아래 다시 읽는다. Gateway는 heartbeat 변경을 막으면서 상태 수집의 FK 검사를 허용하는 `FOR NO KEY UPDATE`를 사용한다. fixture stale 판단에 영향을 주는 연결 Gateway heartbeat도 해결 commit까지 고정하며, 잠금 대기 중 소유 Gateway가 바뀌면 `409 INCIDENT_TARGET_CHANGED`로 재조회를 요구한다.
 
 - 공통 고객 셸 상단은 현재 메뉴 제목과 실제 현장명 배지만 표시한다. 기존 층명 기반 `B2 주차장` 표기와 동작 없는 Gateway 정상·오프라인·미등록 상태 배지는 제거하되 설정의 `Gateway 상태` 상세 카드는 유지한다. 로그아웃 위치와 인증·dirty editor 확인 로직은 유지하고, 고객·운영자 셸의 로그아웃은 공통 `IconTooltipButton`으로 아이콘만 표시한다. `로그아웃` 도움말은 hover와 키보드 focus에서 열리고 도움말 위로 포인터를 옮겨도 유지되며 `Escape`로 닫힌다. 모바일 버튼은 52px 실제 터치 영역을 사용한다.
@@ -137,12 +140,11 @@
 
 ## 미구현
 
-- P1 Web incident/policy UI는 아직 연결하지 않았다. 첫 sweep 전 과거 장애 backfill은 하지 않는다.
+- 첫 sweep 전 과거 장애 backfill은 하지 않는다.
 
 - WebSocket/SSE 기반 push 실시간 업데이트
 - 층별/구역별 통신 음영 heatmap
-- 장애 이력·원인의 Web 표시와 장애 등급
-- 인시던트 확인·담당자 배정·조치 완료의 Web workflow(API는 Task 1 구현)
+- 장애 escalation/SLA 등급과 외부 알림 연결
 - 차량 감지 이벤트 표시
 - 이벤트 타임라인
 - 게이트웨이별 커버리지 표시
@@ -152,12 +154,13 @@
 
 ## 부족하거나 개선이 필요한 기능
 
+- P1 Task 4의 인시던트·정책 UI는 Web 컴포넌트/API 테스트와 CSS computed-style 회귀 범위다. 실제 1440/1024/390/320 Chromium에서의 통합 workflow·가로 overflow 최종 게이트는 Task 5에서 수행한다. 기존 browser spec은 이번 작업에서 수정하지 않았으며, push/notification과 실제 MQTT broker/Raspberry Pi/BlueZ/ESP32-H2 HIL도 미실행이다.
 - 지도 배율과 스크롤 위치는 현재 화면 세션 상태이며 층 전환·새로고침 시 100% 화면 맞춤으로 초기화된다. 사용자별 마지막 viewport를 저장하는 기능은 제공하지 않는다.
 - 저장 도형 표시 회귀는 deterministic route fixture Chromium에서 검증한다. mock snapshot과 브라우저 합성 결과를 확인하는 범위이며 실제 Gateway, Raspberry Pi, ESP32-H2 또는 현장 도면의 HIL 검증은 아니다.
 - 테스트 데이터는 설정 개요의 설치 완료 assigned `admin` 전용 개발·검증 도구이며, 기본 off 상태이고 API도 비활성화 시 404를 반환한다. 따라서 표시되는 online 상태는 일시적 recent online일 수 있고 freshness 재집계 뒤 offline이 될 수 있으며, 실제 Gateway·Mesh·MQTT 상태나 HIL 검증 증거로 해석할 수 없다.
 - 개별 `provision-device`의 API DB transaction -> MQTT PUBACK과 Gateway RF 전 durable accept, terminal atomic 저장, exact `device-terminal-ingested` ACK 전 bounded replay는 software로 구현됐다. 다만 이 ACK를 생성하는 API terminal ingest/ACK outbox는 Task 3 범위여서 현재 production 통합에서는 device terminal이 계속 pending replay로 남는다. API/Gateway 프로세스 전원 차단 전체 구간의 자동 수렴과 실제 broker/Raspberry Pi/ESP32-H2 재시작 HIL은 Task 3 이후 검증해야 한다.
 - pending redirect와 admin commissioning은 React/Vitest 회귀와 Task 9 격리 실백엔드 Chromium E2E로 검증했다. Calm Operations 모바일 390px/320px의 화면 계층·overflow·touch target은 route fixture로 검증했지만, 실제 WebView safe-area와 재설치는 별도이며 Raspberry Pi/ESP32-H2 HIL은 아직 실행하지 않았다.
-- 모니터링 화면은 10분 snapshot 정책이므로 publication 반영 직후 확인이 필요하면 사용자가 수동 새로고침해야 한다.
+- 모니터링 화면은 30초 polling 정책이다. publication 반영 직후 확인이 필요하면 수동 새로고침을 사용할 수 있으며 push는 제공하지 않는다.
 - durable state outbox의 파일 권한·용량 차단과 application ACK 재전송은 자동 테스트로 검증했지만, 실제 broker/API 재시작과 Raspberry Pi 전원 차단을 포함한 HIL은 아직 실행하지 않았다.
 - Health 수신 경로는 최신 Current snapshot을 보존하며, fault 발생·해제 이력은 다음 freshness sweep에서 자동 반영한다. Health 관측 이력 전체를 별도로 저장하는 범위는 아니다.
 - 조명 provisioning 진행 상태는 session polling으로 반영하고, 사용자가 등록 세션을 완료할 때 dashboard query를 갱신한다. WebSocket/SSE push는 명시적으로 보류한다.
@@ -177,6 +180,12 @@
 
 ## 관련 파일
 
+- `apps/web/src/api/monitoring-incidents.ts`
+- `apps/web/src/api/monitoring-incidents.test.ts`
+- `apps/web/src/features/monitoring/MonitoringIncidentPanel.tsx`
+- `apps/web/src/features/monitoring/MonitoringIncidentPanel.test.tsx`
+- `apps/web/src/features/monitoring/MonitoringPolicyDialog.tsx`
+- `apps/web/src/features/monitoring/MonitoringPolicyDialog.test.tsx`
 - `apps/api/src/monitoring-incidents`
 - `apps/api/prisma/migrations/20260912100000_monitoring_policy_incidents/migration.sql`
 

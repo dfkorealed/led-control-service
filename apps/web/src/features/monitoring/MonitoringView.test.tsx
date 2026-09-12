@@ -6,10 +6,16 @@ import { MonitoringView } from "./MonitoringView";
 const queryMocks = vi.hoisted(() => ({
   useDashboard: vi.fn(),
   useFloorFixtures: vi.fn(),
-  useFloorMapSnapshot: vi.fn()
+  useFloorMapSnapshot: vi.fn(),
+  useMonitoringIncidents: vi.fn()
 }));
 
 vi.mock("../../api/queries", () => queryMocks);
+vi.mock("../../api/monitoring-incidents", () => ({
+  useMonitoringIncidents: queryMocks.useMonitoringIncidents,
+  incidentTypeLabels: { gateway_offline: "게이트웨이 오프라인", fixture_stale: "조명 수신 지연", fixture_fault: "조명 장애", command_failed: "명령 실패" },
+  incidentStatusLabels: { open: "미확인", acknowledged: "확인됨", resolved: "해결됨" }
+}));
 vi.mock("../registration/RegistrationPanel", () => ({
   RegistrationPanel: () => <section aria-label="조명 등록 패널">조명 등록 패널</section>
 }));
@@ -48,6 +54,7 @@ describe("MonitoringView refresh", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    queryMocks.useMonitoringIncidents.mockReturnValue({ data: { pages: [{ incidents: [], activeCount: 3, nextCursor: null }] }, refetch: vi.fn(), error: null, hasNextPage: false });
     const currentGeneratedAt = new Date().toISOString();
     refetchDashboard.mockResolvedValue({ data: dashboard });
     refetchFixtures.mockResolvedValue({ data: { pages: [{ items: [fixture], nextCursor: null, generatedAt: currentGeneratedAt }] } });
@@ -97,6 +104,31 @@ describe("MonitoringView refresh", () => {
       expect(refetchMap).toHaveBeenCalledTimes(1);
     });
     expect(screen.getByText(/마지막 갱신:/)).toBeInTheDocument();
+  });
+
+  it("preserves selection and map when switching accessible incident tabs during dashboard background failure", async () => {
+    queryMocks.useFloorFixtures.mockReturnValue({ ...queryMocks.useFloorFixtures(), data: { pages: [{ items: [fixture, { ...fixture, id: "fixture-2", name: "B1-L002" }], nextCursor: null, generatedAt: new Date().toISOString() }] } });
+    const view = render(<MonitoringView siteId="site-1" userRole="admin" />);
+    fireEvent.change(screen.getByRole("combobox", { name: "상세 조명 선택" }), { target: { value: "fixture-2" } });
+    fireEvent.click(screen.getByRole("button", { name: "지도 확대" }));
+    const tab = await screen.findByRole("tab", { name: "인시던트 3" });
+    fireEvent.click(tab);
+    expect(tab).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("combobox", { name: "상세 조명 선택" })).toHaveValue("fixture-2");
+    expect(screen.getByRole("region", { name: "층 도면" })).toBeVisible();
+    // A role string is insufficient: absent manage capability must stay read-only.
+    expect(screen.queryByRole("button", { name: "판정 기준" })).not.toBeInTheDocument();
+    queryMocks.useDashboard.mockReturnValue({ data: dashboard, isLoading: false, error: new Error("offline"), refetch: refetchDashboard });
+    view.rerender(<MonitoringView siteId="site-1" userRole="admin" />);
+    expect(screen.getByRole("tab", { name: "인시던트 3" })).toHaveAttribute("aria-selected", "true");
+    fireEvent.keyDown(tab, { key: "ArrowLeft" });
+    const detailTab = screen.getByRole("tab", { name: "조명 상세" });
+    expect(detailTab).toHaveFocus();
+    expect(detailTab).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("region", { name: "선택 조명 정보" })).toBeVisible();
+    expect(screen.getByRole("combobox", { name: "맵 선택" })).toHaveValue("floor-1");
+    expect(screen.getByRole("combobox", { name: "상세 조명 선택" })).toHaveValue("fixture-2");
+    expect(screen.getByRole("region", { name: "층 도면" })).toHaveAttribute("data-zoom", "1.1");
   });
 
   it("presents offline fixtures immediately after the inspection metric", () => {
