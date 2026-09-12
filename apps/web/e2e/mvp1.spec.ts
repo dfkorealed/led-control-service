@@ -22,6 +22,7 @@ test.beforeEach(async ({ page }) => {
     await route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({
+        capabilities: { read: true, control: true, manage: true, commission: true },
         site: {
           id: "site-1",
           name: "Demo Underground Parking",
