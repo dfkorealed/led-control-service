@@ -32,11 +32,11 @@
 - Produces: `stopAndDrain(): Promise<void>`, single-flight private scheduled runner, sanitized Logger error kind
 - Preserves: `closeExpired(now?: Date): Promise<{ timedOut: number }>`는 직접 호출 시 reject 전달
 
-- [ ] **Step 1: lifecycle RED 테스트 작성** — deferred `findMany`로 첫 tick을 멈추고 두 번째 tick에서 DB 호출이 늘지 않음, Prisma `{ code: "P1001" }` reject가 unhandled rejection 없이 `P1001`만 log, destroy가 active batch 전에는 resolve하지 않고 이후 resolve함을 fake timer로 검증한다.
-- [ ] **Step 2: focused RED 실행** — `pnpm --filter @led-control/shared build && pnpm --filter @led-control/api exec jest src/commands/command-timeout.service.spec.ts --runInBand`; overlap/drain/logger assertion이 현재 구현에서 실패해야 한다.
-- [ ] **Step 3: 최소 구현** — `activeBatch`, `stopPromise`, `stopped`, `runScheduledBatch()`, `errorKind()`를 OutboxPublisher 패턴으로 추가하고 `onModuleDestroy()`가 `stopAndDrain()`을 반환하게 한다. log는 `command timeout batch failed (error=P1001)` 형태만 허용한다.
-- [ ] **Step 4: 기존 race 회귀 재실행** — pending outbox claim, publisher 선점, timeout 선점, transaction rollback, published/accepted 종료 테스트가 새 scheduled wrapper 아래에서도 그대로 통과하는지 확인한다. 상태별 outcome 분류는 schema가 생성되는 Task 3에서 추가한다.
-- [ ] **Step 5: focused GREEN과 commit** — 위 Jest 통과 후 `git commit -am "fix(api): serialize command timeout worker"`.
+- [x] **Step 1: lifecycle RED 테스트 작성** — deferred `findMany`로 첫 tick을 멈추고 두 번째 tick에서 DB 호출이 늘지 않음, Prisma `{ code: "P1001" }` reject가 unhandled rejection 없이 `P1001`만 log, destroy가 active batch 전에는 resolve하지 않고 이후 resolve함을 fake timer로 검증한다.
+- [x] **Step 2: focused RED 실행** — `pnpm --filter @led-control/shared build && pnpm --filter @led-control/api exec jest src/commands/command-timeout.service.spec.ts --runInBand`; overlap/drain/logger assertion이 현재 구현에서 실패해야 한다.
+- [x] **Step 3: 최소 구현** — `activeBatch`, `stopPromise`, `stopped`, `runScheduledBatch()`, `errorKind()`를 OutboxPublisher 패턴으로 추가하고 `onModuleDestroy()`가 `stopAndDrain()`을 반환하게 한다. log는 `command timeout batch failed (error=P1001)` 형태만 허용한다.
+- [x] **Step 4: 기존 race 회귀 재실행** — pending outbox claim, publisher 선점, timeout 선점, transaction rollback, published/accepted 종료 테스트가 새 scheduled wrapper 아래에서도 그대로 통과하는지 확인한다. 상태별 outcome 분류는 schema가 생성되는 Task 3에서 추가한다.
+- [x] **Step 5: focused GREEN과 commit** — 위 Jest 통과 후 `git commit -am "fix(api): serialize command timeout worker"`.
 
 ### Task 2: outcome·status-check DB 및 shared 계약
 
