@@ -337,6 +337,62 @@ describe("shared build output lock", () => {
     await expect(release()).resolves.toBe(true);
   });
 
+  it("retries when an empty lock disappears before cleanup reinspection", async () => {
+    const root = await createRoot();
+    const fixed = lockPath(root);
+    await seedLock(root, { pid: 101, processStartIdentity: "boot-a" }, "token-a");
+    let ownerReleasedAfterPublishConflict = false;
+    let releasedAfterEmptyInspection = false;
+
+    vi.resetModules();
+    vi.doMock("node:fs/promises", async () => {
+      const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+      return {
+        ...actual,
+        rename: async (oldPath: string, newPath: string) => {
+          try {
+            return await actual.rename(oldPath, newPath);
+          } catch (error) {
+            if (newPath === fixed && !ownerReleasedAfterPublishConflict) {
+              ownerReleasedAfterPublishConflict = true;
+              await actual.unlink(ownerMarkerPath(fixed, "token-a"));
+            }
+            throw error;
+          }
+        },
+        readdir: async (path: string, options?: Parameters<typeof actual.readdir>[1]) => {
+          const entries = await actual.readdir(path, options as never);
+          if (path === fixed && !releasedAfterEmptyInspection) {
+            expect(entries).toEqual([]);
+            releasedAfterEmptyInspection = true;
+            await actual.rmdir(fixed);
+          }
+          return entries;
+        }
+      };
+    });
+
+    try {
+      const { acquireOutputLock: instrumentedAcquire } =
+        await import("../scripts/build-output-lock.mjs?empty-release-rmdir-race");
+      const release = await acquireWith(
+        instrumentedAcquire,
+        root,
+        { pid: 202, processStartIdentity: "boot-b" },
+        new Map(),
+        "token-b"
+      );
+
+      expect(ownerReleasedAfterPublishConflict).toBe(true);
+      expect(releasedAfterEmptyInspection).toBe(true);
+      await expect(readOwner(root)).resolves.toMatchObject({ token: "token-b", pid: 202 });
+      await expect(release()).resolves.toBe(true);
+    } finally {
+      vi.doUnmock("node:fs/promises");
+      vi.resetModules();
+    }
+  });
+
   it("fails closed for an abnormal stale lock without removing an external sentinel", async () => {
     const root = await createRoot();
     const external = await createRoot();

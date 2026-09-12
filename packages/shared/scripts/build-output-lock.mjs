@@ -211,7 +211,13 @@ async function relinquishOwnerDirectory(directory, expectedOwner, label, beforeO
 }
 
 async function removeEmptyDirectory(directory, label) {
-  const inspected = await inspectOwnerDirectory(directory, label);
+  let inspected;
+  try {
+    inspected = await inspectOwnerDirectory(directory, label);
+  } catch (error) {
+    if (isErrorCode(error, "ENOENT")) return false;
+    throw error;
+  }
   if (inspected.state !== "empty") return false;
   try {
     await rmdir(directory);
