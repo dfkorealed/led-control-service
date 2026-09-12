@@ -69,4 +69,3 @@
 - Web unit/Chromium: PDF/JPG/PNG 선택, 업로드 잠금, 실패 후 기존 자산 보존, 성공 후 draft 적용, 운영 CRUD 정상 경로.
 - Migration: clean replay, 다중 membership 없는 upgrade 성공, 다중 membership seed에서 rollback.
 - 사용자 로컬 DB에는 migration을 적용하지 않고 disposable PostgreSQL에서만 검증한다.
-
