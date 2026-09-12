@@ -13,7 +13,7 @@
 
 ### 1. Production Compose를 단일 실행 계약으로 사용
 
-기존 `docker-compose.yml`의 PostgreSQL 16, Redis 7, Mosquitto 2, MinIO 서비스를 production overlay가 보강하고, 새 migration/API/Web 서비스를 추가한다. 운영 secret과 외부 URL은 `${NAME:?message}` 형태로 누락 즉시 실패하게 하며 저장소에 실제 secret을 넣지 않는다.
+개발용 `docker-compose.yml`과 분리된 standalone `docker-compose.production.yml`이 PostgreSQL 16, Redis 7, Mosquitto 2, MinIO, migration/API/Web 서비스를 모두 정의한다. 개발 Compose의 기본 credential과 host port가 production merge에 상속되지 않게 한다. 운영 secret과 외부 URL은 `${NAME:?message}` 형태로 누락 즉시 실패하게 하며 저장소에 실제 secret을 넣지 않는다.
 
 API image는 workspace dependency와 Prisma Client를 build stage에서 생성하고 Nest artifact를 만든다. 같은 immutable image를 migration one-shot과 API runtime이 공유한다. `api-migrate`가 `prisma migrate deploy`를 끝낸 뒤에만 API가 시작되고, API readiness가 성공한 뒤에만 Web이 시작한다. API는 host에 직접 publish하지 않고 Web nginx가 same-origin `/api/`만 proxy한다.
 

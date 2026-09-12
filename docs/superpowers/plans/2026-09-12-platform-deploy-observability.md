@@ -70,10 +70,10 @@
 - Produces: `pnpm production:contract` and `pnpm production:smoke` commands.
 - Produces: Web TLS endpoint and same-origin `/api/` proxy; API is private to the Compose network.
 
-- [ ] Write Node contract RED tests that execute `docker compose config` against explicit non-secret fixture env and reject missing required variables, published API ports, mutable/latest images, writable secret mounts, absent healthchecks, or wrong dependency order.
+- [ ] Write Node contract RED tests that execute standalone `docker-compose.production.yml` config against explicit non-secret fixture env and reject missing required variables, inherited development defaults, non-Web host ports, mutable/latest images, writable secret mounts, absent healthchecks, or wrong dependency order.
 - [ ] Write container RED tests for API non-root runtime, frozen install, Prisma generation, compiled entrypoint, signal-safe process, and migration command; extend Web tests for TLS 1.2/1.3, HTTP redirect, upstream certificate verification, request ID forwarding, asset/index cache policy and security headers.
 - [ ] Run contract tests and record the expected failures before production config changes.
-- [ ] Implement API Dockerfile and production Compose services. Use `${VAR:?message}`, read-only certificate mounts, named data volumes, private networks, resource/restart limits, and `api-migrate: service_completed_successfully` → `api: service_healthy` → Web ordering.
+- [ ] Implement API Dockerfile and standalone production Compose services. Keep `docker-compose.yml` development-only; use `${VAR:?message}`, read-only certificate mounts, named data volumes, private networks, resource/restart limits, and `api-migrate: service_completed_successfully` → `api: service_healthy` → Web ordering.
 - [ ] Implement nginx TLS/proxy/cache/security config without embedding certificates or upstream credentials.
 - [ ] Extend production audit so Docker/Compose absence or container smoke failure cannot be skipped.
 - [ ] Run Node contracts, `docker compose ... config`, actual API/Web image builds, and a unique disposable Compose project smoke. Apply all migrations only inside the disposable database, verify readiness dependency fail/recover, TLS Web proxy, then remove only that project and its volumes.
