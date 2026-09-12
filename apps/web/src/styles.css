@@ -1591,6 +1591,13 @@ button {
 
 .monitoring-tab-panel[hidden] { display: none; }
 
+/* The desktop detail grid may shrink its tab track; keep the tab hit area above the scrollable panel. */
+.monitoring-detail-tabs {
+  min-height: 45px;
+  position: relative;
+  z-index: 1;
+}
+
 .monitoring-detail-tabs .ui-underline-navigation-track {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

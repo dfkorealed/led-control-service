@@ -18,7 +18,7 @@ export interface SettingsFixture {
   ratedWatt: number;
   brightness: number;
   status: "online" | "offline" | "fault";
-  statusReason?: "reported" | "provisioning_waiting_state";
+  statusReason?: "reported" | "mesh_publication" | "startup_resync" | "fixture_stale" | "gateway_offline" | "command_failed" | "provisioning_waiting_state";
   health: { faultCodes: number[]; observedAt: string } | null;
   rssi: number | null;
   hopCount: number | null;
@@ -44,6 +44,7 @@ interface InstallSettingsApiOptions {
   activeRegistrationSessions?: RegistrationSession[];
   registrationRetrySession?: RegistrationScanRetryResult;
   registrationPollingSessions?: RegistrationSession[];
+  snapshotGeneratedAt?: string;
   ids?: Partial<SettingsApiIds>;
 }
 
@@ -169,6 +170,7 @@ export async function installSettingsApiRoutes(
     activeRegistrationSessions = [],
     registrationRetrySession,
     registrationPollingSessions = [],
+    snapshotGeneratedAt,
     ids: idOverrides
   }: InstallSettingsApiOptions = {}
 ): Promise<SettingsApiFixtureState> {
@@ -299,7 +301,8 @@ export async function installSettingsApiRoutes(
           url.searchParams.get("includeFixtures") === "true",
           installationStatus,
           includeGateway,
-          gatewayHeartbeatAt
+          gatewayHeartbeatAt,
+          snapshotGeneratedAt ?? new Date().toISOString()
         )
       });
     }
@@ -307,7 +310,7 @@ export async function installSettingsApiRoutes(
       state.fixturePageRequests += 1;
       const cursor = url.searchParams.get("cursor");
       state.fixturePageCursors.push(cursor);
-      return route.fulfill({ json: pagedFixtures(fixtureState, cursor) });
+      return route.fulfill({ json: pagedFixtures(fixtureState, cursor, snapshotGeneratedAt ?? new Date().toISOString()) });
     }
     if (path === `/sites/${ids.siteId}/floors/${ids.floorId}/map-snapshot`) {
       state.mapSnapshotRequests += 1;
@@ -479,9 +482,15 @@ function dashboard(
   includeFixtures = false,
   installationStatus: "pending" | "installed" = "installed",
   includeGateway = true,
-  gatewayHeartbeatAt = new Date().toISOString()
+  gatewayHeartbeatAt = new Date().toISOString(),
+  generatedAt = new Date().toISOString()
 ) {
   return {
+    generatedAt,
+    monitoringPolicy: {
+      gatewayOfflineAfterSeconds: 90,
+      fixtureStaleAfterSeconds: 180
+    },
     capabilities: role === "admin"
       ? { read: true, control: true, manage: true, commission: true }
       : role === "viewer"
@@ -592,10 +601,10 @@ function fixtureIdsForTarget(
   return [];
 }
 
-function pagedFixtures(fixtures: SettingsFixture[], cursor: string | null) {
+function pagedFixtures(fixtures: SettingsFixture[], cursor: string | null, generatedAt: string) {
   const start = cursor ? fixtures.findIndex((fixture) => fixture.id === cursor) + 1 : 0;
   const items = fixtures.slice(start, start + 200);
-  return { items, nextCursor: start + 200 < fixtures.length ? items.at(-1)?.id ?? null : null };
+  return { items, nextCursor: start + 200 < fixtures.length ? items.at(-1)?.id ?? null : null, generatedAt };
 }
 
 function controlStateForStatus(status: SettingsFixture["status"]) {
