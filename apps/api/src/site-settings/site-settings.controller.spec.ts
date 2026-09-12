@@ -26,4 +26,15 @@ describe("SiteSettingsController", () => {
     });
     expect(settings.getSettings).toHaveBeenCalledWith(user, "site-1");
   });
+
+  it("forwards the archive concurrency token as an unknown request body", async () => {
+    const settings = { archiveFloor: jest.fn().mockResolvedValue({ status: "archived" }) };
+    const controller = new SiteSettingsController(settings as never);
+    const user = { id: "admin-1", role: "admin" } as never;
+    const body = { expectedUpdatedAt: "2026-09-12T03:00:00.000Z" };
+
+    await controller.archiveFloor("site-1", "floor-1", body, user);
+
+    expect(settings.archiveFloor).toHaveBeenCalledWith(user, "site-1", "floor-1", body);
+  });
 });

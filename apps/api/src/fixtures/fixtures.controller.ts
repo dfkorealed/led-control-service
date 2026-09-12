@@ -25,6 +25,16 @@ export class FixturesController {
     });
   }
 
+  @Get("settings")
+  @Roles("admin")
+  getFloorFixtureSettings(
+    @Param("siteId") siteId: string,
+    @Param("floorId") floorId: string,
+    @CurrentUser() user: AuthenticatedUser
+  ) {
+    return this.fixturesService.getFloorFixtureSettings(user, siteId, floorId);
+  }
+
   @Patch(":fixtureId")
   @Roles("admin")
   updateMetadata(

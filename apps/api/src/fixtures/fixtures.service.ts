@@ -92,9 +92,6 @@ export class FixturesService {
         return {
           id: fixture.id,
           name: fixture.name,
-          serialNumber: fixture.meshNode?.serialNumber ?? null,
-          meshAddress: fixture.meshNode?.meshAddress ?? null,
-          firmwareVersion: fixture.meshNode?.firmwareVersion ?? null,
           x: fixture.x,
           y: fixture.y,
           size: fixture.size,
@@ -121,6 +118,45 @@ export class FixturesService {
         };
       }),
       nextCursor: hasNextPage ? page.at(-1)?.id ?? null : null
+    };
+  }
+
+  async getFloorFixtureSettings(user: AuthenticatedUser, siteId: string, floorId: string) {
+    await this.siteAccess.assert(user, siteId, "manage");
+    const floor = await this.prisma.floor.findUnique({
+      where: { id: floorId },
+      select: { id: true, siteId: true }
+    });
+    if (!floor || floor.siteId !== siteId) throw new NotFoundException("floor not found");
+
+    const fixtures = await this.prisma.fixture.findMany({
+      where: { siteId, floorId },
+      orderBy: { id: "asc" },
+      select: {
+        id: true,
+        name: true,
+        ratedWatt: true,
+        meshNode: {
+          select: {
+            serialNumber: true,
+            deviceUuid: true,
+            meshAddress: true,
+            firmwareVersion: true
+          }
+        }
+      }
+    });
+
+    return {
+      items: fixtures.map((fixture) => ({
+        id: fixture.id,
+        name: fixture.name,
+        ratedWatt: Number(fixture.ratedWatt),
+        serialNumber: fixture.meshNode?.serialNumber ?? null,
+        deviceUuid: fixture.meshNode?.deviceUuid ?? null,
+        meshAddress: fixture.meshNode?.meshAddress ?? null,
+        firmwareVersion: fixture.meshNode?.firmwareVersion ?? null
+      }))
     };
   }
 

@@ -881,6 +881,44 @@ describe("MqttService", () => {
     });
   });
 
+  it("does not create mesh or fixture records when the provisioning floor is archived", async () => {
+    const session = {
+      id: "11111111-1111-4111-8111-111111111111",
+      siteId: "00000000-0000-4000-8000-000000000003",
+      floorId: "00000000-0000-4000-8000-000000000005",
+      gatewayId: "00000000-0000-4000-8000-000000000004",
+      status: "active"
+    };
+    const prisma: any = {
+      provisioningSession: { findUnique: jest.fn().mockResolvedValue(session) },
+      discoveredMeshNode: { findFirst: jest.fn(), update: jest.fn() },
+      floor: { findFirst: jest.fn().mockResolvedValue({ id: session.floorId, status: "archived" }) },
+      meshNode: { findUnique: jest.fn(), create: jest.fn() },
+      fixture: { findFirst: jest.fn(), create: jest.fn() }
+    };
+    prisma.$queryRaw = jest.fn().mockResolvedValue([]);
+    prisma.$transaction = jest.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(prisma));
+    const service = new MqttService(prisma, createMeshGroupsMock() as never);
+
+    await (service as any).completeProvisioning(
+      { siteId: session.siteId, gatewayId: session.gatewayId },
+      {
+        sessionId: session.id,
+        nodeId: "22222222-2222-4222-8222-222222222222",
+        deviceUuid: "esp32h2-b2-001",
+        meshAddress: "0x0101",
+        completedAt: "2026-07-01T00:00:05.000Z"
+      }
+    );
+
+    expect(prisma.floor.findFirst).toHaveBeenCalledWith({
+      where: { id: session.floorId, siteId: session.siteId },
+      select: { status: true }
+    });
+    expect(prisma.meshNode.create).not.toHaveBeenCalled();
+    expect(prisma.fixture.create).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["succeeded", [fixtureResult("99999999-9999-4999-8999-999999999999", "succeeded"), fixtureResult("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "failed")]],
     ["partially_succeeded", [fixtureResult("99999999-9999-4999-8999-999999999999", "failed"), fixtureResult("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "timed_out")]],
@@ -1737,6 +1775,7 @@ describe("MqttService", () => {
       provisioningSession: {
         findUnique: jest.fn().mockResolvedValue({ ...node.session, status: "active" })
       },
+      floor: activeFloor(node.session.floorId),
       fixture: {
         update: jest.fn(),
         findFirst: jest.fn().mockResolvedValue(null),
@@ -1787,14 +1826,17 @@ describe("MqttService", () => {
         firmwareVersion: "esp32h2-0.1.0"
       }
     });
-    expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(3);
     expect((prisma.$queryRaw.mock.calls[0][0] as TemplateStringsArray).join(" ").replace(/\s+/g, " ")).toContain(
-      'FROM "ProvisioningSession" WHERE "id" = FOR UPDATE'
+      'FROM "Floor" WHERE "id" = AND "siteId" = FOR UPDATE'
     );
     expect((prisma.$queryRaw.mock.calls[1][0] as TemplateStringsArray).join(" ").replace(/\s+/g, " ")).toContain(
+      'FROM "ProvisioningSession" WHERE "id" = FOR UPDATE'
+    );
+    expect((prisma.$queryRaw.mock.calls[2][0] as TemplateStringsArray).join(" ").replace(/\s+/g, " ")).toContain(
       'FROM "DiscoveredMeshNode" WHERE "id" = AND "sessionId" = FOR UPDATE'
     );
-    expect(prisma.$queryRaw.mock.calls[1].slice(1)).toEqual([node.id, node.sessionId]);
+    expect(prisma.$queryRaw.mock.calls[2].slice(1)).toEqual([node.id, node.sessionId]);
     expect(prisma.fixture.create).toHaveBeenCalledWith({
       data: {
         id: "22222222-2222-4222-8222-222222222222",
@@ -1870,6 +1912,7 @@ describe("MqttService", () => {
       provisioningSession: {
         findUnique: jest.fn().mockResolvedValue({ ...node.session, status: "active" })
       },
+      floor: activeFloor(node.session.floorId),
       fixture: {
         update: jest.fn(),
         findFirst: jest.fn().mockResolvedValue({
@@ -1949,6 +1992,7 @@ describe("MqttService", () => {
       provisioningSession: {
         findUnique: jest.fn().mockResolvedValue({ ...node.session, status: "active" })
       },
+      floor: activeFloor(node.session.floorId),
       fixture: {
         update: jest.fn(),
         findFirst: jest.fn().mockResolvedValue({
@@ -2027,6 +2071,7 @@ describe("MqttService", () => {
       provisioningSession: {
         findUnique: jest.fn().mockResolvedValue({ ...node.session, status: "active" })
       },
+      floor: activeFloor(node.session.floorId),
       fixture: { update: jest.fn(), findFirst: jest.fn(), create: jest.fn() },
       command: { update: jest.fn() },
       discoveredMeshNode: {
@@ -2086,6 +2131,7 @@ describe("MqttService", () => {
       provisioningSession: {
         findUnique: jest.fn().mockResolvedValue({ ...node.session, status: "active" })
       },
+      floor: activeFloor(node.session.floorId),
       fixture: { update: jest.fn(), findFirst: jest.fn(), create: jest.fn() },
       command: { update: jest.fn() },
       discoveredMeshNode: {
@@ -2160,7 +2206,8 @@ describe("MqttService", () => {
         update: jest.fn()
       },
       meshNode: { findUnique: jest.fn(), create: jest.fn() },
-      fixture: { findFirst: jest.fn(), create: jest.fn() }
+      fixture: { findFirst: jest.fn(), create: jest.fn() },
+      floor: activeFloor(session.floorId)
     };
     prisma.$queryRaw = jest.fn().mockResolvedValue([]);
     prisma.$transaction = jest.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(prisma));
@@ -2177,7 +2224,7 @@ describe("MqttService", () => {
       }
     );
 
-    expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(3);
     expect(prisma.meshNode.findUnique).not.toHaveBeenCalled();
     expect(prisma.meshNode.create).not.toHaveBeenCalled();
     expect(prisma.fixture.create).not.toHaveBeenCalled();
@@ -2457,4 +2504,8 @@ function acceptanceAckPayload() {
     status: "accepted",
     acceptedAt: "2026-07-11T00:00:01.000Z"
   };
+}
+
+function activeFloor(id: string) {
+  return { findFirst: jest.fn().mockResolvedValue({ id, status: "active" }) };
 }

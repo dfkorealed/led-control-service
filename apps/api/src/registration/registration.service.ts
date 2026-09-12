@@ -50,10 +50,7 @@ export class RegistrationService {
     try {
       return await this.prisma.$transaction(async (tx) => {
         await this.siteAccess.assertCommissionInTransaction(tx, user, input.siteId);
-        const floor = await tx.floor.findFirst({
-          where: { id: input.floorId, siteId: input.siteId }
-        });
-        if (!floor) throw new BadRequestException("floorId must reference a floor in the selected site");
+        await this.assertActiveFloorInTransaction(tx, input.siteId, input.floorId);
 
         await this.lockGateway(tx, input.gatewayId);
         const gateway = await tx.gateway.findFirst({
@@ -124,7 +121,7 @@ export class RegistrationService {
   async retryScan(user: AuthenticatedUser, sessionId: string) {
     const accessSession = await this.prisma.provisioningSession.findUnique({
       where: { id: sessionId },
-      select: { siteId: true, gatewayId: true }
+      select: { siteId: true, floorId: true, gatewayId: true }
     });
     if (!accessSession) throw new NotFoundException("registration session not found");
     await this.assertCommissionAccess(user, accessSession.siteId);
@@ -132,6 +129,7 @@ export class RegistrationService {
     try {
       return await this.prisma.$transaction(async (tx) => {
         await this.siteAccess.assertCommissionInTransaction(tx, user, accessSession.siteId);
+        await this.assertActiveFloorInTransaction(tx, accessSession.siteId, accessSession.floorId);
         await this.lockGateway(tx, accessSession.gatewayId);
         await tx.$queryRaw`SELECT "id" FROM "ProvisioningSession" WHERE "id" = ${sessionId} FOR UPDATE`;
         const current = await tx.provisioningSession.findUnique({ where: { id: sessionId } });
@@ -203,7 +201,7 @@ export class RegistrationService {
   async registerBatch(user: AuthenticatedUser, sessionId: string, input: RegisterFixtureBatchInput) {
     const accessSession = await this.prisma.provisioningSession.findUnique({
       where: { id: sessionId },
-      select: { siteId: true, gatewayId: true }
+      select: { siteId: true, floorId: true, gatewayId: true }
     });
     if (!accessSession) throw new NotFoundException("registration session not found");
     await this.assertCommissionAccess(user, accessSession.siteId);
@@ -212,6 +210,7 @@ export class RegistrationService {
     // accepted는 이 DB commit만 뜻하며 MQTT PUBACK, 물리 provisioning, Fixture 확정을 뜻하지 않는다.
     const prepared = await this.prisma.$transaction(async (tx) => {
       await this.siteAccess.assertCommissionInTransaction(tx, user, accessSession.siteId);
+      await this.assertActiveFloorInTransaction(tx, accessSession.siteId, accessSession.floorId);
       await this.lockGateway(tx, accessSession.gatewayId);
       await tx.$queryRaw`
         SELECT "id" FROM "ProvisioningSession" WHERE "id" = ${sessionId} FOR UPDATE
@@ -484,6 +483,24 @@ export class RegistrationService {
 
   private async lockGateway(tx: Prisma.TransactionClient, gatewayId: string) {
     await tx.$queryRaw`SELECT "id" FROM "Gateway" WHERE "id" = ${gatewayId} FOR UPDATE`;
+  }
+
+  private async assertActiveFloorInTransaction(
+    tx: Prisma.TransactionClient,
+    siteId: string,
+    floorId: string
+  ) {
+    await tx.$queryRaw`
+      SELECT "id" FROM "Floor"
+      WHERE "id" = ${floorId} AND "siteId" = ${siteId}
+      FOR UPDATE
+    `;
+    const floor = await tx.floor.findFirst({
+      where: { id: floorId, siteId },
+      select: { status: true }
+    });
+    if (!floor) throw new BadRequestException("floorId must reference a floor in the selected site");
+    if (floor.status !== "active") throw new ConflictException({ code: "floor_archived" });
   }
 
   private createScanOutboxData(

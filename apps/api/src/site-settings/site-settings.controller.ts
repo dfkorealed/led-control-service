@@ -50,8 +50,9 @@ export class SiteSettingsController {
   archiveFloor(
     @Param("siteId") siteId: string,
     @Param("floorId") floorId: string,
+    @Body() body: unknown,
     @CurrentUser() user: AuthenticatedUser
   ) {
-    return this.siteSettingsService.archiveFloor(user, siteId, floorId);
+    return this.siteSettingsService.archiveFloor(user, siteId, floorId, body);
   }
 }

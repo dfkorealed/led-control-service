@@ -33,8 +33,9 @@ describe("FixturesService", () => {
             healthFaultCodes: [4, 1],
             healthLastSeenAt: new Date("2026-07-12T00:00:01.000Z"),
             meshNode: {
-              serialNumber: "DFK-H2-0001",
-              meshAddress: "256",
+            serialNumber: "DFK-H2-0001",
+            deviceUuid: "device-1",
+            meshAddress: "256",
               firmwareVersion: "1.2.3",
               gateway: { id: "gateway-1", name: "Gateway B2", lastHeartbeatAt: heartbeat }
             }
@@ -56,9 +57,6 @@ describe("FixturesService", () => {
       items: [
         {
           id: "fixture-1",
-          serialNumber: "DFK-H2-0001",
-          meshAddress: "256",
-          firmwareVersion: "1.2.3",
           gateway: { id: "gateway-1", name: "Gateway B2", connectionStatus: "online" },
           status: "fault",
           health: { faultCodes: [1, 4], observedAt: "2026-07-12T00:00:01.000Z" },
@@ -68,6 +66,60 @@ describe("FixturesService", () => {
       ],
       nextCursor: "fixture-1"
     });
+    expect(result.items[0]).not.toHaveProperty("serialNumber");
+    expect(result.items[0]).not.toHaveProperty("deviceUuid");
+    expect(result.items[0]).not.toHaveProperty("meshAddress");
+    expect(result.items[0]).not.toHaveProperty("firmwareVersion");
+  });
+
+  it("returns fixture identity metadata only through the admin settings listing", async () => {
+    const prisma: any = {
+      floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },
+      fixture: {
+        findMany: jest.fn().mockResolvedValue([{
+          id: "fixture-1",
+          name: "L1",
+          ratedWatt: "40.00",
+          meshNode: {
+            serialNumber: "DFK-H2-0001",
+            deviceUuid: "device-1",
+            meshAddress: "256",
+            firmwareVersion: "1.2.3"
+          }
+        }])
+      }
+    };
+    const siteAccess = { assert: jest.fn().mockResolvedValue({ id: "site-1" }) };
+    const service = new (FixturesService as any)(prisma, siteAccess);
+
+    await expect(service.getFloorFixtureSettings(user, "site-1", "floor-1"))
+      .resolves.toEqual({
+        items: [{
+          id: "fixture-1",
+          name: "L1",
+          ratedWatt: 40,
+          serialNumber: "DFK-H2-0001",
+          deviceUuid: "device-1",
+          meshAddress: "256",
+          firmwareVersion: "1.2.3"
+        }]
+      });
+    expect(siteAccess.assert).toHaveBeenCalledWith(user, "site-1", "manage");
+  });
+
+  it("does not query settings fixture identities without manage access", async () => {
+    const prisma: any = {
+      floor: { findUnique: jest.fn() },
+      fixture: { findMany: jest.fn() }
+    };
+    const siteAccess = { assert: jest.fn().mockRejectedValue(new ForbiddenException("site capability denied")) };
+    const service = new (FixturesService as any)(prisma, siteAccess);
+
+    await expect(service.getFloorFixtureSettings(
+      { ...user, role: "viewer" }, "site-1", "floor-1"
+    )).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.floor.findUnique).not.toHaveBeenCalled();
+    expect(prisma.fixture.findMany).not.toHaveBeenCalled();
   });
 
   it("does not reveal a floor in another tenant", async () => {

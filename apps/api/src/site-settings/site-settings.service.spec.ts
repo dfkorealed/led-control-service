@@ -5,6 +5,7 @@ const ids = {
   site: "00000000-0000-4000-8000-000000000001",
   floor: "00000000-0000-4000-8000-000000000002"
 };
+const updatedAt = new Date("2026-09-12T03:00:00.000Z");
 
 const admin: AuthenticatedUser = {
   id: "admin-1",
@@ -27,6 +28,7 @@ describe("SiteSettingsService", () => {
       timeZone: "Asia/Seoul",
       currency: "KRW",
       tariffKwhRate: "137.25",
+      updatedAt,
       floors: [
         {
           id: "floor-active",
@@ -34,6 +36,7 @@ describe("SiteSettingsService", () => {
           level: -1,
           status: "active",
           displayOrder: 10,
+          updatedAt,
           _count: { fixtures: 3, fixtureGroups: 1 }
         },
         {
@@ -42,6 +45,7 @@ describe("SiteSettingsService", () => {
           level: -2,
           status: "archived",
           displayOrder: 20,
+          updatedAt,
           _count: { fixtures: 0, fixtureGroups: 0 }
         }
       ]
@@ -54,7 +58,8 @@ describe("SiteSettingsService", () => {
         address: "1 Light Road",
         timeZone: "Asia/Seoul",
         currency: "KRW",
-        tariffKwhRate: 137.25
+        tariffKwhRate: 137.25,
+        updatedAt: updatedAt.toISOString()
       },
       floors: [
         {
@@ -64,7 +69,8 @@ describe("SiteSettingsService", () => {
           status: "active",
           displayOrder: 10,
           fixtureCount: 3,
-          activeGroupCount: 1
+          activeGroupCount: 1,
+          updatedAt: updatedAt.toISOString()
         },
         {
           id: "floor-archived",
@@ -73,7 +79,8 @@ describe("SiteSettingsService", () => {
           status: "archived",
           displayOrder: 20,
           fixtureCount: 0,
-          activeGroupCount: 0
+          activeGroupCount: 0,
+          updatedAt: updatedAt.toISOString()
         }
       ]
     });
@@ -112,6 +119,7 @@ describe("SiteSettingsService", () => {
     const { service, prisma, siteAccess } = createHarness();
 
     await expect(service().updateSite(admin, ids.site, {
+      expectedUpdatedAt: updatedAt.toISOString(),
       name: "Seoul Plant",
       address: "1 Light Road",
       timeZone: "Asia/Seoul",
@@ -133,17 +141,29 @@ describe("SiteSettingsService", () => {
         address: "1 Light Road",
         timeZone: "Asia/Seoul",
         currency: "KRW",
-        tariffKwhRate: expect.objectContaining({})
+        tariffKwhRate: expect.objectContaining({}),
+        updatedAt: expect.any(Date)
       },
       select: expect.any(Object)
     });
   });
 
+  it("rejects a stale site settings mutation after transaction-local row authorization", async () => {
+    const { service, prisma } = createHarness();
+
+    await expect(service().updateSite(admin, ids.site, {
+      expectedUpdatedAt: "2026-09-12T02:59:59.000Z",
+      name: "Stale"
+    })).rejects.toEqual(new ConflictException({ code: "settings_version_conflict" }));
+    expect(prisma.site.update).not.toHaveBeenCalled();
+  });
+
   it.each([
-    [{ name: "Plant", adminUserId: "attacker" }, "unknown field"],
-    [{ currency: "krw" }, "invalid currency"],
-    [{ tariffKwhRate: -1 }, "negative tariff"],
-    [{}, "empty patch"]
+    [{ expectedUpdatedAt: updatedAt.toISOString(), name: "Plant", adminUserId: "attacker" }, "unknown field"],
+    [{ expectedUpdatedAt: updatedAt.toISOString(), currency: "krw" }, "invalid currency"],
+    [{ expectedUpdatedAt: updatedAt.toISOString(), tariffKwhRate: -1 }, "negative tariff"],
+    [{ expectedUpdatedAt: updatedAt.toISOString() }, "empty patch"],
+    [{ name: "Plant" }, "missing expectedUpdatedAt"]
   ])("rejects strict site settings input: %s (%s)", async (body, _label) => {
     const { service, prisma } = createHarness();
 
@@ -198,7 +218,11 @@ describe("SiteSettingsService", () => {
   it("updates a floor only after the site row and tenant-scoped floor row are locked", async () => {
     const { service, prisma, siteAccess } = createHarness();
 
-    await service().updateFloor(admin, ids.site, ids.floor, { name: "Basement 2", displayOrder: 20 });
+    await service().updateFloor(admin, ids.site, ids.floor, {
+      expectedUpdatedAt: updatedAt.toISOString(),
+      name: "Basement 2",
+      displayOrder: 20
+    });
 
     expect(siteAccess.assertManageInTransaction).toHaveBeenCalledWith(prisma, admin, ids.site);
     expect(siteAccess.assertManageInTransaction.mock.invocationCallOrder[0])
@@ -206,15 +230,68 @@ describe("SiteSettingsService", () => {
     expect(renderSql(prisma.$queryRaw.mock.calls[0][0])).toContain('WHERE "id" = ? AND "siteId" = ?');
     expect(prisma.floor.update).toHaveBeenCalledWith({
       where: { id: ids.floor },
-      data: { name: "Basement 2", displayOrder: 20 },
+      data: { name: "Basement 2", displayOrder: 20, updatedAt: expect.any(Date) },
       select: expect.any(Object)
     });
+  });
+
+  it("updates every fixture floorName dimension in the floor rename transaction", async () => {
+    const { service, prisma, energyDimensions } = createHarness();
+    prisma.fixture.findMany.mockResolvedValue([{
+      id: "fixture-1",
+      siteId: ids.site,
+      floorId: ids.floor,
+      name: "L1",
+      ratedWatt: "40.00",
+      energyTrackingStartedAt: new Date("2026-01-01T00:00:00.000Z")
+    }]);
+
+    await service().updateFloor(admin, ids.site, ids.floor, {
+      name: "Basement 2",
+      expectedUpdatedAt: updatedAt.toISOString()
+    });
+
+    expect(energyDimensions.ensureFixtureDimensions).toHaveBeenCalledWith(
+      prisma,
+      [expect.objectContaining({ fixtureId: "fixture-1", floorName: "Basement 2" })],
+      expect.any(Date)
+    );
+    const effectiveAt = energyDimensions.ensureFixtureDimensions.mock.calls[0][2];
+    expect(prisma.floor.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ updatedAt: effectiveAt })
+    }));
+    expect(energyDimensions.ensureFixtureDimensions.mock.invocationCallOrder[0])
+      .toBeLessThan(prisma.floor.update.mock.invocationCallOrder[0]);
+  });
+
+  it("does not rewrite fixture dimensions when the floor name is unchanged", async () => {
+    const { service, prisma, energyDimensions } = createHarness();
+
+    await service().updateFloor(admin, ids.site, ids.floor, {
+      name: "B2",
+      expectedUpdatedAt: updatedAt.toISOString()
+    });
+
+    expect(prisma.fixture.findMany).not.toHaveBeenCalled();
+    expect(energyDimensions.ensureFixtureDimensions).not.toHaveBeenCalled();
+  });
+
+  it("rejects a stale floor mutation after locking the tenant-scoped floor row", async () => {
+    const { service, prisma } = createHarness();
+
+    await expect(service().updateFloor(admin, ids.site, ids.floor, {
+      name: "Stale",
+      expectedUpdatedAt: "2026-09-12T02:59:59.000Z"
+    })).rejects.toEqual(new ConflictException({ code: "settings_version_conflict" }));
+    expect(prisma.floor.update).not.toHaveBeenCalled();
   });
 
   it("returns an opaque floor 404 when the locked floor is outside the requested site", async () => {
     const { service, prisma } = createHarness({ lockedFloor: null });
 
-    await expect(service().updateFloor(admin, ids.site, ids.floor, { name: "Hidden" })).rejects.toEqual(
+    await expect(service().updateFloor(admin, ids.site, ids.floor, {
+      expectedUpdatedAt: updatedAt.toISOString(), name: "Hidden"
+    })).rejects.toEqual(
       new NotFoundException("floor not found")
     );
     expect(prisma.floor.update).not.toHaveBeenCalled();
@@ -225,7 +302,9 @@ describe("SiteSettingsService", () => {
       lockedFloor: { ...floorRow(), status: "archived" }
     });
 
-    await expect(service().updateFloor(admin, ids.site, ids.floor, { status: "active" })).resolves.toMatchObject({
+    await expect(service().updateFloor(admin, ids.site, ids.floor, {
+      expectedUpdatedAt: updatedAt.toISOString(), status: "active"
+    })).resolves.toMatchObject({
       id: ids.floor,
       status: "active"
     });
@@ -233,7 +312,7 @@ describe("SiteSettingsService", () => {
     expect(siteAccess.assertManageInTransaction).toHaveBeenCalledWith(prisma, admin, ids.site);
     expect(prisma.floor.update).toHaveBeenCalledWith({
       where: { id: ids.floor },
-      data: { status: "active" },
+      data: { status: "active", updatedAt: expect.any(Date) },
       select: expect.any(Object)
     });
   });
@@ -241,7 +320,9 @@ describe("SiteSettingsService", () => {
   it("rejects active-to-archived PATCH so callers cannot bypass archive safety checks", async () => {
     const { service, prisma } = createHarness();
 
-    await expect(service().updateFloor(admin, ids.site, ids.floor, { status: "archived" }))
+    await expect(service().updateFloor(admin, ids.site, ids.floor, {
+      expectedUpdatedAt: updatedAt.toISOString(), status: "archived"
+    }))
       .rejects.toBeInstanceOf(BadRequestException);
     expect(prisma.$transaction).not.toHaveBeenCalled();
     expect(prisma.floor.update).not.toHaveBeenCalled();
@@ -250,7 +331,9 @@ describe("SiteSettingsService", () => {
   it("rejects status active when the locked floor is already active", async () => {
     const { service, prisma } = createHarness();
 
-    await expect(service().updateFloor(admin, ids.site, ids.floor, { status: "active" }))
+    await expect(service().updateFloor(admin, ids.site, ids.floor, {
+      expectedUpdatedAt: updatedAt.toISOString(), status: "active"
+    }))
       .rejects.toBeInstanceOf(BadRequestException);
     expect(prisma.floor.update).not.toHaveBeenCalled();
   });
@@ -264,14 +347,18 @@ describe("SiteSettingsService", () => {
   ) => {
     const { service, prisma } = createHarness({ fixtureCount, activeGroupCount });
 
-    await expect(service().archiveFloor(admin, ids.site, ids.floor)).rejects.toBeInstanceOf(ConflictException);
+    await expect(service().archiveFloor(admin, ids.site, ids.floor, {
+      expectedUpdatedAt: updatedAt.toISOString()
+    })).rejects.toBeInstanceOf(ConflictException);
     expect(prisma.floor.update).not.toHaveBeenCalled();
   });
 
   it("archives an empty floor without hard deleting it", async () => {
     const { service, prisma, siteAccess } = createHarness();
 
-    await expect(service().archiveFloor(admin, ids.site, ids.floor)).resolves.toMatchObject({
+    await expect(service().archiveFloor(admin, ids.site, ids.floor, {
+      expectedUpdatedAt: updatedAt.toISOString()
+    })).resolves.toMatchObject({
       id: ids.floor,
       status: "archived"
     });
@@ -279,10 +366,33 @@ describe("SiteSettingsService", () => {
     expect(siteAccess.assertManageInTransaction).toHaveBeenCalledWith(prisma, admin, ids.site);
     expect(prisma.floor.update).toHaveBeenCalledWith({
       where: { id: ids.floor },
-      data: { status: "archived" },
+      data: { status: "archived", updatedAt: expect.any(Date) },
       select: expect.any(Object)
     });
     expect(prisma.floor.delete).not.toHaveBeenCalled();
+  });
+
+  it("blocks floor archive while an active registration session exists", async () => {
+    const { service, prisma } = createHarness({ activeSessionCount: 1 });
+
+    await expect(service().archiveFloor(admin, ids.site, ids.floor, {
+      expectedUpdatedAt: updatedAt.toISOString()
+    })).rejects.toEqual(new ConflictException({ code: "floor_has_active_registration" }));
+    expect(prisma.provisioningSession.count).toHaveBeenCalledWith({
+      where: { siteId: ids.site, floorId: ids.floor, status: "active" }
+    });
+    expect(prisma.floor.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects stale and malformed archive requests before floor mutation", async () => {
+    const { service, prisma } = createHarness();
+
+    await expect(service().archiveFloor(admin, ids.site, ids.floor, {
+      expectedUpdatedAt: "2026-09-12T02:59:59.000Z"
+    })).rejects.toEqual(new ConflictException({ code: "settings_version_conflict" }));
+    await expect(service().archiveFloor(admin, ids.site, ids.floor, {}))
+      .rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.floor.update).not.toHaveBeenCalled();
   });
 });
 
@@ -290,6 +400,7 @@ function createHarness(options: {
   lockedFloor?: ReturnType<typeof floorRow> | null;
   fixtureCount?: number;
   activeGroupCount?: number;
+  activeSessionCount?: number;
 } = {}) {
   const prisma: any = {
     $queryRaw: jest.fn(async (query: TemplateStringsArray | { strings?: string[] }) => {
@@ -300,7 +411,7 @@ function createHarness(options: {
     }),
     $transaction: jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma)),
     site: {
-      findUnique: jest.fn(),
+      findUnique: jest.fn().mockResolvedValue({ updatedAt }),
       update: jest.fn(async ({ data }: { data: Record<string, unknown> }) => ({
         id: ids.site,
         name: "Old Plant",
@@ -316,22 +427,28 @@ function createHarness(options: {
       update: jest.fn(async ({ data }: { data: Record<string, unknown> }) => ({ ...floorRow(), ...data })),
       delete: jest.fn()
     },
-    fixture: { count: jest.fn().mockResolvedValue(options.fixtureCount ?? 0) },
-    fixtureGroup: { count: jest.fn().mockResolvedValue(options.activeGroupCount ?? 0) }
+    fixture: {
+      count: jest.fn().mockResolvedValue(options.fixtureCount ?? 0),
+      findMany: jest.fn().mockResolvedValue([])
+    },
+    fixtureGroup: { count: jest.fn().mockResolvedValue(options.activeGroupCount ?? 0) },
+    provisioningSession: { count: jest.fn().mockResolvedValue(options.activeSessionCount ?? 0) }
   };
   const siteAccess = {
     assert: jest.fn().mockResolvedValue({ id: ids.site }),
     assertManageInTransaction: jest.fn().mockResolvedValue({ id: ids.site })
   };
+  const energyDimensions = { ensureFixtureDimensions: jest.fn().mockResolvedValue(undefined) };
   return {
     service: () => {
       const { SiteSettingsService } = require("./site-settings.service") as {
-        SiteSettingsService: new (prisma: unknown, siteAccess: unknown) => any;
+        SiteSettingsService: new (prisma: unknown, siteAccess: unknown, energyDimensions: unknown) => any;
       };
-      return new SiteSettingsService(prisma, siteAccess);
+      return new SiteSettingsService(prisma, siteAccess, energyDimensions);
     },
     prisma,
-    siteAccess
+    siteAccess,
+    energyDimensions
   };
 }
 
@@ -342,7 +459,8 @@ function floorRow() {
     name: "B2",
     level: -2,
     displayOrder: 10,
-    status: "active"
+    status: "active",
+    updatedAt
   };
 }
 
