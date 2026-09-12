@@ -19,6 +19,9 @@ const consumerCommands = {
 if (!(operation in consumerCommands)) {
   throw new Error(`unsupported workspace gate operation: ${String(operation)}`);
 }
+if (process.platform === "win32") {
+  throw new Error("workspace gate cannot guarantee descendant process lifetime on Windows");
+}
 
 const release = await acquireOutputLock({
   lockPath: join(repositoryRoot, ".workspace-command.lock"),
@@ -52,16 +55,38 @@ function run(command, args, signalState) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd: repositoryRoot,
-      detached: process.platform !== "win32",
+      detached: true,
       stdio: "inherit"
     });
     signalState.own(child);
     child.once("error", reject);
-    child.once("exit", (code, signal) => {
-      signalState.disown(child);
-      resolve({ code, signal });
+    child.once("exit", async (code, signal) => {
+      try {
+        await waitForProcessGroupExit(child.pid);
+        signalState.disown(child);
+        resolve({ code, signal });
+      } catch (error) {
+        reject(error);
+      }
     });
   });
+}
+
+async function waitForProcessGroupExit(processGroupId) {
+  while (hasLiveProcessGroupMember(processGroupId)) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
+function hasLiveProcessGroupMember(processGroupId) {
+  try {
+    process.kill(-processGroupId, 0);
+    return true;
+  } catch (error) {
+    if (isErrorCode(error, "ESRCH")) return false;
+    if (isErrorCode(error, "EPERM")) return true;
+    throw error;
+  }
 }
 
 function installSignalForwarding() {
@@ -72,8 +97,7 @@ function installSignalForwarding() {
     received ??= signal;
     if (!activeChild?.pid) return;
     try {
-      if (process.platform === "win32") activeChild.kill(signal);
-      else process.kill(-activeChild.pid, signal);
+      process.kill(-activeChild.pid, signal);
     } catch (error) {
       if (!isErrorCode(error, "ESRCH")) forwardingError ??= error;
     }

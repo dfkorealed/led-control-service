@@ -63,7 +63,7 @@ test("workspace dependency preparation is ordered once and leaf checks cannot st
   }
 });
 
-for (const shutdownSignal of ["SIGINT", "SIGTERM"]) test(`${shutdownSignal} keeps the workspace lock until the owned child exits and leaves no orphan`, { timeout: 15_000 }, async () => {
+for (const shutdownSignal of ["SIGINT", "SIGTERM"]) test(`${shutdownSignal} keeps the workspace lock until the owned process group exits and leaves no orphan`, { timeout: 15_000 }, async () => {
   const fixtureRoot = await mkdtemp(path.join(tmpdir(), "led-workspace-gate-signal-"));
   const stateDirectory = path.join(fixtureRoot, "state");
   const fakeBin = path.join(fixtureRoot, "bin");
@@ -91,6 +91,7 @@ for (const shutdownSignal of ["SIGINT", "SIGTERM"]) test(`${shutdownSignal} keep
   let oldGate;
   let successorGate;
   let oldChildPid;
+  let oldGrandchildPid;
   try {
     oldGate = spawn(process.execPath, [gatePath, "test"], {
       cwd: fixtureRoot,
@@ -98,11 +99,12 @@ for (const shutdownSignal of ["SIGINT", "SIGTERM"]) test(`${shutdownSignal} keep
       stdio: "ignore"
     });
     oldChildPid = Number(await waitForPathContent(path.join(stateDirectory, "old.child.pid")));
+    oldGrandchildPid = Number(await waitForPathContent(path.join(stateDirectory, "old.grandchild.pid")));
+    await waitForPathContent(path.join(stateDirectory, "old.grandchild-ready"));
     process.kill(oldGate.pid, shutdownSignal);
-    await waitForOnePath([
-      path.join(stateDirectory, "old.term-received"),
-      path.join(stateDirectory, "old.gate-exited")
-    ], oldGate);
+    await waitForPathContent(path.join(stateDirectory, "old.grandchild-received"));
+    await waitForPathContent(path.join(stateDirectory, "old.leader-gone"));
+    assert.equal(isProcessAlive(oldGrandchildPid), true);
 
     successorGate = spawn(process.execPath, [gatePath, "test"], {
       cwd: fixtureRoot,
@@ -110,10 +112,10 @@ for (const shutdownSignal of ["SIGINT", "SIGTERM"]) test(`${shutdownSignal} keep
       stdio: "ignore"
     });
     const firstSuccessorState = await waitForOnePath([
-      path.join(stateDirectory, "successor.waited-on-owner"),
+      path.join(stateDirectory, "successor.confirmed-waiting"),
       path.join(stateDirectory, "successor.consumer-started")
     ]);
-    assert.equal(path.basename(firstSuccessorState), "successor.waited-on-owner");
+    assert.equal(path.basename(firstSuccessorState), "successor.confirmed-waiting");
     await assert.rejects(access(path.join(stateDirectory, "successor.consumer-started")));
 
     await writeFile(path.join(stateDirectory, "allow-old-exit"), "release\n");
@@ -123,11 +125,55 @@ for (const shutdownSignal of ["SIGINT", "SIGTERM"]) test(`${shutdownSignal} keep
     const successorOutcome = await childOutcome(successorGate);
     assert.deepEqual(successorOutcome, { code: 0, signal: null });
     assert.equal(isProcessAlive(oldChildPid), false);
+    assert.equal(isProcessAlive(oldGrandchildPid), false);
     await assert.rejects(access(path.join(fixtureRoot, ".workspace-command.lock")));
   } finally {
     terminate(oldGate?.pid);
     terminate(successorGate?.pid);
     terminate(oldChildPid);
+    terminate(oldGrandchildPid);
+    await rm(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("Windows fails closed before acquiring a lock or starting a child", { timeout: 10_000 }, async () => {
+  const fixtureRoot = await mkdtemp(path.join(tmpdir(), "led-workspace-gate-windows-"));
+  const fakeBin = path.join(fixtureRoot, "bin");
+  const gatePath = path.join(fixtureRoot, "scripts", "workspace-gate.mjs");
+  const lockModulePath = path.join(fixtureRoot, "packages", "shared", "scripts", "build-output-lock.mjs");
+  const preloadPath = path.join(fixtureRoot, "windows-platform.cjs");
+  const childMarker = path.join(fixtureRoot, "child-started");
+  await Promise.all([
+    mkdir(fakeBin, { recursive: true }),
+    mkdir(path.dirname(gatePath), { recursive: true }),
+    mkdir(path.dirname(lockModulePath), { recursive: true })
+  ]);
+  await Promise.all([
+    copyFile(path.join(repositoryRoot, "scripts", "workspace-gate.mjs"), gatePath),
+    copyFile(path.join(repositoryRoot, "packages", "shared", "scripts", "build-output-lock.mjs"), lockModulePath),
+    writeFile(preloadPath, 'Object.defineProperty(process, "platform", { value: "win32" });\n'),
+    writeExecutable(path.join(fakeBin, "pnpm"), `#!/usr/bin/env node\nrequire("node:fs").writeFileSync(${JSON.stringify(childMarker)}, "started");\n`)
+  ]);
+
+  try {
+    const child = spawn(process.execPath, [gatePath, "lint"], {
+      cwd: fixtureRoot,
+      env: {
+        ...process.env,
+        NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --require=${preloadPath}`.trim(),
+        PATH: `${fakeBin}${path.delimiter}${process.env.PATH ?? ""}`
+      },
+      stdio: ["ignore", "ignore", "pipe"]
+    });
+    let stderr = "";
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    const outcome = await childOutcome(child);
+
+    assert.deepEqual(outcome, { code: 1, signal: null });
+    assert.match(stderr, /cannot guarantee descendant process lifetime on Windows/);
+    await assert.rejects(access(path.join(fixtureRoot, ".workspace-command.lock")));
+    await assert.rejects(access(childMarker));
+  } finally {
     await rm(fixtureRoot, { recursive: true, force: true });
   }
 });
@@ -139,20 +185,58 @@ async function writeExecutable(filePath, source) {
 
 function fakePsSource() {
   return `#!/usr/bin/env node
-const { writeFileSync } = require("node:fs");
+const { existsSync, readFileSync, writeFileSync } = require("node:fs");
 const { join } = require("node:path");
 const args = process.argv.slice(2);
 const targetPid = Number(args[args.indexOf("-p") + 1]);
 if (process.env.GATE_FIXTURE_ID === "successor" && targetPid !== process.ppid) {
-  writeFileSync(join(process.env.GATE_FIXTURE_STATE, "successor.waited-on-owner"), String(targetPid));
+  const countPath = join(process.env.GATE_FIXTURE_STATE, "successor.owner-observations");
+  const count = existsSync(countPath) ? Number(readFileSync(countPath, "utf8")) + 1 : 1;
+  writeFileSync(countPath, String(count));
+  if (count >= 3) writeFileSync(join(process.env.GATE_FIXTURE_STATE, "successor.confirmed-waiting"), String(targetPid));
 }
 process.stdout.write("Sat Sep 12 12:00:00 2026\\n");
 `;
 }
 
 function fakePnpmSource() {
-  return `#!/usr/bin/env node
+  const grandchildSource = `
 const { existsSync, watch, writeFileSync } = require("node:fs");
+const { join } = require("node:path");
+const state = process.env.GATE_FIXTURE_STATE;
+const shutdownSignal = process.env.GATE_FIXTURE_SIGNAL;
+const leaderPid = Number(process.env.GATE_FIXTURE_LEADER_PID);
+const allowExit = join(state, "allow-old-exit");
+const finish = () => {
+  if (!existsSync(allowExit)) return;
+  process.removeListener(shutdownSignal, onSignal);
+  process.kill(process.pid, shutdownSignal);
+};
+const onSignal = () => {
+  writeFileSync(join(state, "old.grandchild-received"), shutdownSignal);
+  if (existsSync(allowExit)) return finish();
+  const watcher = watch(state, () => {
+    if (!existsSync(allowExit)) return;
+    watcher.close();
+    finish();
+  });
+};
+const observeLeaderExit = () => {
+  try {
+    process.kill(leaderPid, 0);
+    setImmediate(observeLeaderExit);
+  } catch {
+    writeFileSync(join(state, "old.leader-gone"), String(leaderPid));
+  }
+};
+process.on(shutdownSignal, onSignal);
+writeFileSync(join(state, "old.grandchild-ready"), String(process.pid));
+setImmediate(observeLeaderExit);
+setInterval(() => {}, 1_000);
+`;
+  return `#!/usr/bin/env node
+const { spawn } = require("node:child_process");
+const { writeFileSync } = require("node:fs");
 const { join } = require("node:path");
 const state = process.env.GATE_FIXTURE_STATE;
 const id = process.env.GATE_FIXTURE_ID;
@@ -162,23 +246,18 @@ if (id === "successor") {
   writeFileSync(join(state, "successor.consumer-started"), String(process.pid));
   process.exit(0);
 }
-const allowExit = join(state, "allow-old-exit");
-const finish = () => {
-  if (!existsSync(allowExit)) return;
+const onSignal = () => {
+  writeFileSync(join(state, "old.leader-received"), shutdownSignal);
   process.removeListener(shutdownSignal, onSignal);
   process.kill(process.pid, shutdownSignal);
 };
-const onSignal = () => {
-  writeFileSync(join(state, "old.term-received"), shutdownSignal);
-  if (existsSync(allowExit)) return finish();
-  const watcher = watch(state, () => {
-    if (!existsSync(allowExit)) return;
-    watcher.close();
-    finish();
-  });
-};
 process.on(shutdownSignal, onSignal);
+const grandchild = spawn(process.execPath, ["-e", ${JSON.stringify(grandchildSource)}], {
+  env: { ...process.env, GATE_FIXTURE_LEADER_PID: String(process.pid) },
+  stdio: "ignore"
+});
 writeFileSync(join(state, "old.child.pid"), String(process.pid));
+writeFileSync(join(state, "old.grandchild.pid"), String(grandchild.pid));
 setInterval(() => {}, 1_000);
 `;
 }
