@@ -14,7 +14,7 @@
 - nullable `Command.outcome`을 추가한다. 새 명령은 `pending`, 성공 ACK는 `applied`, 실행 전 거절은 `not_applied`, 일부 성공은 `partially_applied`, broker 전송 이후 ACK 또는 status가 사라지면 `unknown`이다. 기존 행은 `null`로 두어 과거 결과를 잘못 재분류하지 않는다.
 - `CommandDispatch.kind`는 `dimming` 또는 `status_check`다. `status_check` dispatch는 원래 명령에 속하고 `verificationAttempt`와 HTTP 재요청용 `clientRequestId`를 가진다.
 - 기존 dimming dispatch가 timeout으로 닫힌 뒤 늦은 device-status ACK가 도착하면 `outcome=unknown`인 경우에 한해 한 번 수렴을 허용한다. 수렴 뒤 duplicate ACK는 무시한다.
-- 실행 전 `pending` delivery timeout은 `not_applied`; broker publish 뒤 acceptance 유실과 acceptance 뒤 device-status 유실은 `unknown`이다.
+- 발행 시도 전 `pending` delivery timeout은 `not_applied`다. `MqttOutbox.deliveryAttemptedAt`은 MQTT 호출 전 내구 기록이며, 기록 뒤에는 PUBACK을 잃어 dispatch가 `pending`이어도 expiry/dead-letter/timeout을 `unknown`으로 분류한다. 기록 직후 호출 전 crash도 보수적으로 `unknown`이다. Acceptance 뒤 device-status 유실도 `unknown`이며 기존 BlueZ `failed + STATUS_TIMEOUT` wire는 원문 aggregate 검증 뒤 `timed_out`으로 정규화한다.
 
 ## 후속 상태 조회 계약
 
@@ -65,4 +65,5 @@
 
 - Prisma migration 파일과 schema 문서는 갱신하지만 사용자 DB에는 migration을 적용하지 않는다.
 - 실제 배포, 운영 secret 변경, 외부 서비스 호출은 범위 밖이다.
+- 구버전과 혼합 배포는 안전하지 않다. 구버전 API/publisher stop-and-drain과 migration 적용 뒤 신규 publisher·Gateway·API ACK consumer가 준비되어야 status-check producer/API와 UI를 활성화한다.
 - 구현은 `/Users/kim-jh/Documents/led-control-service/.worktrees/p0p1-control-reliability`와 `codex/p0p1-control-reliability`에서만 수행하며 main에는 merge하지 않는다.

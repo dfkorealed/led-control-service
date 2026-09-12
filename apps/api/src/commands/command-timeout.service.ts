@@ -83,6 +83,7 @@ export class CommandTimeoutService implements OnModuleInit, OnModuleDestroy {
           // Unknown-outcome transitions must serialize with dimming's overlap scan and
           // creation. Take the shared lock before any outbox/dispatch/command row lock.
           await this.automationSnapshot.lockMutation(tx);
+          let deliveryAttempted = dispatch.status !== "pending";
           if (dispatch.status === "pending") {
             const claimed = await tx.mqttOutbox.updateMany({
               where: {
@@ -100,6 +101,12 @@ export class CommandTimeoutService implements OnModuleInit, OnModuleDestroy {
               }
             });
             if (claimed.count !== 1) return false;
+            // PUBACK loss leaves dispatch pending despite a possible broker delivery.
+            // Read durable evidence after fencing the outbox, not the stale scan row.
+            const outbox = await tx.mqttOutbox.findUnique({
+              where: { dispatchId: dispatch.id }, select: { deliveryAttemptedAt: true }
+            });
+            deliveryAttempted = outbox?.deliveryAttemptedAt != null;
           }
 
           const result = await tx.commandDispatch.updateMany({
@@ -107,7 +114,7 @@ export class CommandTimeoutService implements OnModuleInit, OnModuleDestroy {
             data: {
               status: "timed_out",
               completedAt: now,
-              errorCode: dispatch.status === "pending" ? "DELIVERY_TIMEOUT"
+              errorCode: dispatch.status === "pending" ? (deliveryAttempted ? "ACCEPTANCE_TIMEOUT" : "DELIVERY_TIMEOUT")
                 : dispatch.status === "published" ? "ACCEPTANCE_TIMEOUT" : "STATUS_TIMEOUT",
               errorMessage: "gateway command deadline exceeded"
             }
@@ -129,7 +136,7 @@ export class CommandTimeoutService implements OnModuleInit, OnModuleDestroy {
               where: { id: dispatch.commandId, status: "pending", outcome: legacy ? null : "pending" },
               data: {
                 status: "failed", errorMessage: "one or more gateway dispatches timed out",
-                ...(legacy ? {} : { outcome: dispatch.status === "pending" ? "not_applied" : "unknown" })
+                ...(legacy ? {} : { outcome: deliveryAttempted ? "unknown" : "not_applied" })
               }
             });
           }

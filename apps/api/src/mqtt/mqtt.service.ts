@@ -66,6 +66,7 @@ interface LockedCommandDispatch {
 
 const ACTIVE_DISPATCH_STATUSES = ["pending", "published", "accepted"];
 const RECONCILABLE_TIMEOUT_CODES = ["ACCEPTANCE_TIMEOUT", "STATUS_TIMEOUT"];
+const RECONCILABLE_PUBLISH_CODES = ["MQTT_DEAD_LETTER", "COMMAND_DELIVERY_EXPIRED", "MESH_GROUP_STALE", "MANUAL_OVERRIDE_EXPIRED"];
 const DEVICE_STATUS_ACK_EVENT_TYPE = "device_status_ack";
 
 interface GatewayInboundQueue {
@@ -1077,7 +1078,7 @@ export class MqttService implements OnModuleInit {
       if (!dispatch) return;
       const late = dispatch.kind === "dimming" && dispatch.outcome === "unknown"
         && ["failed", "timed_out"].includes(dispatch.status)
-        && RECONCILABLE_TIMEOUT_CODES.includes(dispatch.errorCode ?? "");
+        && [...RECONCILABLE_TIMEOUT_CODES, ...RECONCILABLE_PUBLISH_CODES].includes(dispatch.errorCode ?? "");
       if (!ACTIVE_DISPATCH_STATUSES.includes(dispatch.status) && !late) return;
       if (!await this.claimDeviceStatusEvent(tx, ack)) return;
 
@@ -1109,20 +1110,25 @@ export class MqttService implements OnModuleInit {
         return;
       }
 
-      const dispatchStatus =
-        ack.status === "succeeded" ? "completed" : ack.status === "timed_out" ? "timed_out" : "failed";
+      // Older BlueZ producers encoded lost Lightness Status as failed + STATUS_TIMEOUT.
+      // Validate the original aggregate/hash first, then persist absence of evidence as
+      // timed_out. A compatibility conversion must not legitimize a malformed wire ACK.
+      const results = ack.results.map((result) => result.status === "failed" && result.faultCode === "STATUS_TIMEOUT"
+        ? { ...result, status: "timed_out" as const, brightness: undefined } : result);
+      const normalizedStatus = deriveDeviceStatusAckStatus(results);
+      const dispatchStatus = normalizedStatus === "succeeded" ? "completed" : normalizedStatus === "timed_out" ? "timed_out" : "failed";
       const completed = await tx.commandDispatch.updateMany({
         where: { id: dispatch.id, status: dispatch.status },
         data: {
           status: dispatchStatus,
           completedAt: new Date(ack.occurredAt),
-          errorCode: ack.results.some((result) => result.status === "timed_out") ? "STATUS_TIMEOUT" : null,
+          errorCode: results.some((result) => result.status === "timed_out") ? "STATUS_TIMEOUT" : null,
           errorMessage: null
         }
       });
       if (completed.count !== 1) return;
 
-      for (const result of ack.results) {
+      for (const result of results) {
         const updated = await tx.commandFixtureResult.updateMany({
           where: { dispatchId: dispatch.id, fixtureId: result.fixtureId },
           data: {
@@ -1237,11 +1243,12 @@ export class MqttService implements OnModuleInit {
     return matches === results.length ? "applied" as const : matches === 0 ? "not_applied" as const : "partially_applied" as const;
   }
 
-  private dimmingOutcome(dispatches: Array<{ errorCode: string | null }>, results: Array<{ status: string }>) {
+  private dimmingOutcome(dispatches: Array<{ status: string; errorCode: string | null }>, results: Array<{ status: string }>) {
     // A timed-out or malformed response cannot establish the physical result,
     // even if another fixture succeeded. Pending-delivery timeout is excluded:
     // the outbox was closed before publish, so that dispatch was never applied.
     if (!results.length || dispatches.some((item) => RECONCILABLE_TIMEOUT_CODES.includes(item.errorCode ?? "")
+      || (item.status === "timed_out" && RECONCILABLE_PUBLISH_CODES.includes(item.errorCode ?? ""))
       || item.errorCode?.startsWith("ack_"))) return "unknown" as const;
     const succeeded = results.filter((item) => item.status === "succeeded").length;
     return succeeded === results.length ? "applied" as const : succeeded > 0 ? "partially_applied" as const : "not_applied" as const;

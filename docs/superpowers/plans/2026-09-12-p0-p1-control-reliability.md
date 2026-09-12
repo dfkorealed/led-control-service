@@ -14,7 +14,7 @@
 
 - 자동 또는 background 밝기 Set 재전송을 추가하지 않는다.
 - 상태 조회 최대 시도는 명령당 3회다.
-- 기존 command status와 ACK payload는 rolling compatibility를 유지한다.
+- 기존 command status는 유지하고 API consumer는 기존 timeout ACK wire를 수용한다. 구버전 publisher/Gateway/API 혼합 배포는 안전하지 않으며 모두 준비된 뒤 status-check producer/API·UI를 활성화한다.
 - 새 production 코드를 쓰기 전에 해당 회귀 테스트를 추가하고 예상 이유로 RED를 확인한다.
 - migration 파일은 생성하되 사용자 DB에 적용하지 않는다.
 - software 검증과 실제 다중 fixture/층/그룹/전원 장애 HIL을 문서에서 구분한다.
@@ -53,6 +53,7 @@
 - Produces: `CommandOutcome = pending|applied|not_applied|partially_applied|unknown`, `CommandDispatchKind = dimming|status_check`
 - Produces: `gatewayStatusCheckCommandDraftV2Schema`, published/compatibility schemas, `GatewayStatusCheckCommand*` types, MQTT kind `status-check`
 - Produces: nullable legacy-safe `Command.outcome`, dispatch `kind`, `verificationAttempt`, unique nullable `clientRequestId`
+- Final review 보정: nullable `MqttOutbox.deliveryAttemptedAt`, 발행 시도 이후 expiry/dead-letter/pending timeout은 `unknown`, 사전 검증 거절은 `not_applied`
 
 - [x] **Step 1: shared RED 계약 테스트** — status-check topic, strict draft/published payload, publish-relative expiry, unique 1..64 fixture IDs, attempt 1..3, no requester PII를 assert한다.
 - [x] **Step 2: Prisma/shared 최소 구현** — enum과 nullable 필드 migration을 작성하고 기존 행 backfill은 하지 않는다. generated Prisma client는 `pnpm --filter @led-control/api prisma:generate`로만 갱신한다.
@@ -171,15 +172,28 @@
 - [x] **Step 5: 최종 review 수정** — branch 전체 review의 Critical/Important를 수정하고 관련 focused+전체 검증을 다시 실행한다.
 - [x] **Step 6: checklist와 commit** — 실제 test 수, skip, 남은 HIL, commit 목록을 본 문서에 기록하고 `git commit -m "docs: record control reliability verification" ...`.
 
-#### Task 7 최종 검증 (2026-09-12)
+#### Task 7 최초 검증 (2026-09-12, `465984c` 시점)
 
-- Focused deferred-minor 검증: `pnpm --filter @led-control/shared build && pnpm --filter @led-control/api exec jest src/commands/command-verification.service.spec.ts src/mqtt/outbox-publisher.service.spec.ts --runInBand` — 2 suites, 51/51 passed. Publisher의 stateful persisted payload fake가 PUBACK 유실 뒤 같은 generation과 줄어든 MQTT TTL, expiry 뒤 publish 차단을 검증한다. 65개 대상의 두 번째 chunk outbox insert 실패가 소유 transaction을 reject하는 회귀를 추가했다.
+- Focused deferred-minor 검증: `pnpm --filter @led-control/shared build && pnpm --filter @led-control/api exec jest src/commands/command-verification.service.spec.ts src/mqtt/outbox-publisher.service.spec.ts --runInBand` — 2 suites, 51/51 passed. 이때 publisher fake는 `publishClaimed`를 직접 호출하고 모든 row update에 성공을 반환했으므로 실제 `claimBatch` 재획득과 published/expiry 분기는 증명하지 못했다. 이 결과만으로 Task 2 reclaim minor를 닫았던 판단은 아래 최종 수정에서 정정한다. 65개 대상의 두 번째 chunk outbox insert 실패가 소유 transaction을 reject하는 회귀를 추가했다.
 - Shared: `pnpm --filter @led-control/shared build && pnpm --filter @led-control/shared test` — build 성공, 14 files·200/200 passed.
 - API: `pnpm --filter @led-control/api typecheck && pnpm --filter @led-control/api test -- --runInBand && pnpm --filter @led-control/api build` — typecheck/build 성공, 112 suites·1,158 passed, 27 suites·272 environment-gated skipped. Skipped integration은 통과로 간주하지 않으며 PostgreSQL-backed event-ledger partial-index/concurrent ACK race 검증도 미실행 상태다.
 - Gateway: `pnpm --filter @led-control/gateway typecheck && pnpm --filter @led-control/gateway test && pnpm --filter @led-control/gateway build` — typecheck/build 성공, 65 files·624/624 passed, bundle `573.7kb`.
 - Web: `pnpm --filter @led-control/web typecheck && pnpm --filter @led-control/web test && pnpm --filter @led-control/web build` — typecheck/build 성공, 61 files·715/715 passed. Main bundle `1,275.95 kB`/gzip `381.15 kB`와 기존 500 kB chunk-size warning은 남는다.
 - Chromium: `pnpm --filter @led-control/web exec playwright test e2e/calm-operations-manual-control.spec.ts --project=chromium` — 21/21 passed. `FORCE_COLOR` 때문에 `NO_COLOR`가 무시된다는 비기능 Node 경고가 출력됐다.
 - Prisma: `DATABASE_URL='postgresql://placeholder:placeholder@127.0.0.1:1/placeholder?schema=public' pnpm --filter @led-control/api exec prisma validate --schema prisma/schema.prisma` — 비접속 process-local placeholder URL로 schema valid. `20260912090000_command_outcome_status_check/migration.sql`의 enum, nullable legacy outcome, dispatch kind/default, attempt/request identity와 unique index를 schema/document와 대조했다. `prisma migrate` 계열 명령은 실행하지 않았고 사용자 DB는 변경하지 않았다.
-- Review: Task 1 시작점 `9caff67e36c1007ae0060bebb3afce6336657b78`부터 Task 6 HEAD `f9ca6567ec1ceb5b7514efeb5543b0f37a5c805a`까지 diff와 단계별 review 기록을 재확인했다. 새 Critical/Important는 없었다. Task 2/3 deferred minor는 위 focused 회귀로 닫았고, 환경 의존 PostgreSQL concurrent ACK 검증은 non-blocking limitation으로 남긴다.
+- Review: Task 1 시작점 `9caff67e36c1007ae0060bebb3afce6336657b78`부터 Task 6 HEAD `f9ca6567ec1ceb5b7514efeb5543b0f37a5c805a`까지 diff와 단계별 review 기록을 재확인했다. 이 단계별 확인 뒤 최종 전체 review에서 BlueZ timeout 분류와 PUBACK 유실 뒤 terminal outcome에 Important 2건을 확인했다. Task 3의 chunk 실패 회귀는 유지하고, Task 2 reclaim minor는 아래 실제 claimBatch 기반 회귀로 보완한다. PostgreSQL concurrent ACK 검증은 환경 의존 미실행으로 남긴다.
 - Software/HIL 경계: software는 dispatch당 64개 chunk, 최대 3 logical attempts, timeout worker single-flight/drain, status Get durable receipt/replay, device-status `eventId`/hash dedupe, history/상세 재열기와 `not_applied` safe retry를 검증한다. 자동 Set retry는 없다. 실제 다중 fixture·층·저장 구역·Mesh Group·전원 차단·broker loss·Gateway process kill HIL은 실행하지 않았다.
 - Commit 목록: `dd6e23f`, `601670f`, `3346c2a`, `9efab97`, `5bc2474`, `9428915`, `a7cb777`, `7408241`, `453d1d3`, `fa9bfa1`, `cdc3faf`, `97dda95`, `034a2e1`, `d7eee6b`, `04d56a0`, `f9ca656`; Task 7은 `docs: record control reliability verification`으로 기록한다.
+
+#### 최종 전체 review 보정 (2026-09-12, 기준 `465984c`)
+
+- [x] **Important 1** — 실제 BlueZ→Gateway handler의 Lightness Status 유실을 `timed_out`으로 보정했다. API는 기존 `failed + STATUS_TIMEOUT`의 원문 aggregate를 검증한 뒤 timeout evidence를 저장하며 unknown/Get 허용·Set overlap 차단까지 통과했다.
+- [x] **Important 2** — MQTT 호출 전 `deliveryAttemptedAt`을 commit한다. 발행 뒤 PUBACK 유실의 expiry/dead-letter와 pending worker timeout은 unknown으로 닫고 late ACK 수렴을 허용한다. 발행 전 validation은 not_applied로 유지하며 dispatch 전이에 실패한 terminal writer는 results/parent를 쓰지 않는다. 모든 publisher mutation은 automation lock 뒤에 위치하고 MQTT 대기 중에는 transaction을 유지하지 않는다.
+- [x] **Task 2 reclaim minor** — 기존 직접 `publishClaimed` fake의 과장된 reclaim 주장을 정정했다. 신규 stateful persistence 경계가 실제 `processBatch/claimBatch`를 실행하고, 같은 generation/남은 TTL로 retry 성공 후 published row는 재claim하지 않는 경로와 PUBACK 유실 뒤 별도 expiry terminal 경로를 각각 검증한다. 실제 PostgreSQL 잠금/rollback 증거로 확대하지 않는다.
+- [x] **문서·호환성** — DB 흐름의 event/hash dedupe는 device-status로 한정했다. 구버전 혼합 배포는 안전하지 않으며 신규 publisher·Gateway·API consumer가 준비된 뒤 status-check producer/API와 UI를 활성화하도록 명시했다. 사용자 DB migration과 HIL은 수행하지 않았다.
+- [x] **RED** — `pnpm --filter @led-control/api exec jest src/commands/command-delivery-reliability.spec.ts --runInBand`: 최초 12 failed/3 baseline passed. `pnpm --filter @led-control/gateway exec vitest run src/mesh/bluez-mesh-adapter.test.ts -t 'lost Lightness Status'`: 1 failed/38 이름 필터 skipped. 예상 실패는 각각 pending/not_applied 오분류·발행 기록 누락·잠금 순서와 Gateway failed ACK였다.
+- [x] **Focused GREEN** — `pnpm --filter @led-control/api exec jest src/commands/command-delivery-reliability.spec.ts src/mqtt/outbox-publisher.service.spec.ts src/mqtt/mqtt.service.spec.ts src/commands/command-timeout.service.spec.ts src/commands/command-verification.service.spec.ts src/commands/commands.service.spec.ts --runInBand`: 6 suites·209/209. Gateway 어댑터·dimming/status-check handler 3 files·77/77. 신규 API lifecycle는 최종 18개다. Dispatch 전이 gate를 잠시 제거한 mutation 검증은 1 failed/17 이름 필터 skipped로 결과/parent 중복 write를 잡았고, 복구 후 전체 API를 재실행했다.
+- [x] **최종 전체 GREEN** — `pnpm --filter @led-control/api typecheck && pnpm --filter @led-control/api exec jest --runInBand`: typecheck 성공, 113 suites·1,176 passed, 27 suites·272 environment-gated skipped. `pnpm --filter @led-control/gateway exec vitest run`: 65 files·625/625. Gateway typecheck와 API/Gateway build 성공, Gateway bundle `573.8kb`. `pnpm --filter @led-control/shared exec vitest run`: 14 files·200/200. Web·Chromium은 위 최초 검증을 유지하며 이번 보정에서는 재실행하지 않았다.
+- [x] **Prisma/정적 검증** — `pnpm --filter @led-control/api prisma:generate`, `pnpm --filter @led-control/api exec prisma format --schema prisma/schema.prisma`, `DATABASE_URL='postgresql://placeholder:placeholder@127.0.0.1:1/placeholder?schema=public' pnpm --filter @led-control/api exec prisma validate --schema prisma/schema.prisma` 성공. `git diff --check` 통과. 어떤 migrate 명령도 실행하지 않았고 PostgreSQL partial-index/concurrent ACK 및 실제 HIL은 여전히 미실행이다.
+
+상세 보고서: `.superpowers/sdd/2026-09-12-p0-p1-control-reliability/final-fix-report.md`. 최종 보정은 `fix(control): preserve uncertain delivery outcomes` 커밋으로 기록한다.

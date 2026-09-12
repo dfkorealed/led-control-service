@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
 import { BluezMeshAdapter } from "./bluez-mesh-adapter";
+import { handleGatewayDimmingCommand } from "../commands/gateway-command-handler";
 import {
   TEST_BLUETOOTH_COMPANY_ID,
   TEST_BLUETOOTH_COMPANY_ID_LE
@@ -52,6 +53,37 @@ function fixture(options: { responseTimeoutMs?: number; observationCoherenceMs?:
 }
 
 describe("BluezMeshAdapter", () => {
+  it("reports lost Lightness Status as timed_out through the real Gateway handler", async () => {
+    vi.useFakeTimers();
+    try {
+      const f = fixture({ responseTimeoutMs: 100 });
+      const fixtureId = "66666666-6666-4666-8666-666666666666";
+      f.addresses.findByFixtureId.mockResolvedValue({ fixtureId, primaryUnicast: 0x0100, status: "confirmed" });
+      const journal = {
+        get: vi.fn(async () => null), accept: vi.fn(async () => true), complete: vi.fn(async () => undefined)
+      };
+      const result = handleGatewayDimmingCommand(f.adapter, journal, {
+        commandId: "11111111-1111-4111-8111-111111111111",
+        dispatchId: "22222222-2222-4222-8222-222222222222",
+        idempotencyKey: "33333333-3333-4333-8333-333333333333",
+        siteId: "44444444-4444-4444-8444-444444444444",
+        gatewayId: "55555555-5555-4555-8555-555555555555",
+        sequence: 1, targetType: "fixture", targetId: fixtureId, targetFixtureIds: [fixtureId],
+        deliveryMode: "unicast", brightness: 65,
+        requestedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 10_000).toISOString()
+      });
+      await vi.advanceTimersByTimeAsync(100);
+      const completed = await result;
+      expect(f.transport.calls.filter(({ method }) => method === "Send")).toHaveLength(1);
+      expect(completed.deviceStatus).toMatchObject({ status: "timed_out", results: [
+        { fixtureId, status: "timed_out", faultCode: "STATUS_TIMEOUT" }
+      ] });
+      expect(completed.deviceStatus.results[0]).not.toHaveProperty("brightness");
+      expect(completed.fixtureStateObserved).toBe(false);
+      expect(journal.complete).toHaveBeenCalledWith(expect.any(String), completed, { automationHandoffPending: false });
+    } finally { vi.useRealTimers(); }
+  });
+
   it("uses the bound Health client for Attention without Lightness or statistics side effects", async () => {
     const now = Date.now();
     const f = fixture({ now: () => now });

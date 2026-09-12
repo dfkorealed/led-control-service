@@ -526,3 +526,10 @@
 - **원인**: ingestion이 사용하는 fixture row lock을 cleanup 검사 전에 공유하지 않았고, query-count 테스트가 energy service를 double로 치환해 내부 쿼리를 누락했다.
 - **해결 및 예방책**: 기존 Site 인가 잠금 뒤 검증된 fixture ID를 정렬 잠금하고 모든 의존성 조회를 실행한다. bulk history는 singleton과 같은 advisory key를 정렬 잠금하고 identity/version 조회·쓰기까지 일괄 처리한다. 현재 회귀는 실제 energy service를 사용해 신규 5회·반복 3회와 이력 개수·변경 timestamp를 검증한다.
 - **반복 방지 체크**: 잠금 대기 중 의존성 조회가 시작되지 않는지, 대기 중 생성된 analytics 때문에 삭제 전체가 409인지 검사한다. DB URL이 없을 때의 transaction ordering double은 실제 PostgreSQL interleaving이나 처리시간 증거로 확대하지 않는다.
+
+## 2026-09-12 / PUBACK·장비 Status 유실은 미적용의 증거가 아니다
+
+- **발생했던 문제/실수**: BlueZ가 Lightness Status 유실을 failed로 보고해 API가 not_applied로 분류했고, broker가 Set을 받은 뒤 PUBACK을 잃으면 outbox terminal에서 Command outcome이 pending으로 남았다.
+- **원인**: 요청 거절과 관측 부재를 같은 실패로 취급하고, publish 성공 시각만 기록해 실제 발행 시도 여부를 재시작 후 구분할 수 없었다. 직접 publishClaimed를 호출하는 fake로 실제 reclaim까지 증명했다고 과장했다.
+- **해결 및 예방책**: MQTT 호출 전 deliveryAttemptedAt을 commit하고 발행 시도 이후 응답 유실은 unknown으로 닫는다. 기존 failed+STATUS_TIMEOUT도 원문 aggregate 검증 뒤 timed_out으로 정규화한다. Automation lock을 먼저 얻고 dispatch 전이에 실패한 terminal writer는 결과와 parent를 쓰지 않는다.
+- **반복 방지 체크**: 실제 producer→handler wire와 consumer→Get/overlap을 연결한다. ClaimBatch를 실행하는 stateful 경계에서 retry 성공한 published row와 별도 expiry row를 나눠 검증하고, DB double·실제 PostgreSQL·실장비 HIL의 증거를 구분한다.

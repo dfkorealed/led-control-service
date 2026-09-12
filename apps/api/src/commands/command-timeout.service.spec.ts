@@ -124,6 +124,7 @@ describe("CommandTimeoutService", () => {
     await expect(service.closeExpired(now)).resolves.toEqual({ timedOut: 1 });
 
     const claimTx = {
+      $executeRaw: jest.fn().mockResolvedValue(1),
       $queryRaw: jest.fn().mockImplementation(async () => deadLettered ? [] : [{ id: "outbox-1" }]),
       mqttOutbox: {
         updateMany: jest.fn(),
@@ -264,7 +265,10 @@ function createPrisma(options: {
     },
     commandFixtureResult: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
     command: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
-    mqttOutbox: { updateMany: jest.fn().mockResolvedValue({ count: options.outboxClaimCount ?? 0 }) }
+    mqttOutbox: {
+      findUnique: jest.fn().mockResolvedValue({ deliveryAttemptedAt: null }),
+      updateMany: jest.fn().mockResolvedValue({ count: options.outboxClaimCount ?? 0 })
+    }
   };
   prisma.$transaction = jest.fn(async (callback: (tx: typeof prisma) => Promise<unknown>) => callback(prisma));
   return prisma;

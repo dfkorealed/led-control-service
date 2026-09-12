@@ -802,27 +802,28 @@ model CommandFixtureResult {
 }
 
 model MqttOutbox {
-  id                String           @id @default(uuid())
-  dispatchId        String?          @unique
-  gatewayId         String?
-  applicationAckKey String?          @unique
-  revision          Int?
-  payloadHash       String?
-  topic             String
-  payload           Json
-  attempts          Int              @default(0)
-  nextAttemptAt     DateTime         @default(now())
-  publishedAt       DateTime?
-  lockedBy          String?
-  lockedAt          DateTime?
-  leaseExpiresAt    DateTime?
-  deadLetteredAt    DateTime?
-  supersededAt      DateTime?
-  lastError         String?
-  dispatch          CommandDispatch? @relation(fields: [dispatchId], references: [id], onDelete: Cascade)
-  gateway           Gateway?         @relation("AutomationConfigOutboxGateway", fields: [gatewayId], references: [id], onDelete: Cascade)
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
+  id                  String           @id @default(uuid())
+  dispatchId          String?          @unique
+  gatewayId           String?
+  applicationAckKey   String?          @unique
+  revision            Int?
+  payloadHash         String?
+  topic               String
+  payload             Json
+  attempts            Int              @default(0)
+  nextAttemptAt       DateTime         @default(now())
+  publishedAt         DateTime?
+  deliveryAttemptedAt DateTime?
+  lockedBy            String?
+  lockedAt            DateTime?
+  leaseExpiresAt      DateTime?
+  deadLetteredAt      DateTime?
+  supersededAt        DateTime?
+  lastError           String?
+  dispatch            CommandDispatch? @relation(fields: [dispatchId], references: [id], onDelete: Cascade)
+  gateway             Gateway?         @relation("AutomationConfigOutboxGateway", fields: [gatewayId], references: [id], onDelete: Cascade)
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
 
   @@unique([gatewayId, revision, payloadHash])
   @@index([publishedAt, deadLetteredAt, nextAttemptAt, leaseExpiresAt])
