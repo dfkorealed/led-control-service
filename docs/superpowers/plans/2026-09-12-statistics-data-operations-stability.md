@@ -12,12 +12,12 @@
 
 ## Global Constraints
 
-- [ ] 작업 경로는 `/Users/kim-jh/Documents/led-control-service/.worktrees/p0p1-statistics-data`, branch는 `codex/p0p1-statistics-data`, base는 `d6231a071b77519cc654f0e29f2110c76e48ce01`로 고정한다.
-- [ ] 기존 migration 파일은 수정하지 않는다. 사용자/운영 DB에 migration을 실행하지 않는다.
-- [ ] 새 DB 검증은 임시 schema 또는 disposable PostgreSQL에서만 수행하고 종료 시 정리한다.
-- [ ] P2-C, 최적화, P3, AuditLog/claim/certificate purge, 배포는 포함하지 않는다.
-- [ ] 각 task는 RED → GREEN → scoped verification → commit 순서로 수행한다.
-- [ ] DB 변경은 `docs/database-schema.md`, 통계 UI/API 변경은 `docs/menus/statistics.md`, 상태는 `docs/project-status.md`에 동기화한다.
+- [x] 작업 경로는 `/Users/kim-jh/Documents/led-control-service/.worktrees/p0p1-statistics-data`, branch는 `codex/p0p1-statistics-data`, base는 `d6231a071b77519cc654f0e29f2110c76e48ce01`로 고정한다.
+- [x] 기존 migration 파일은 수정하지 않는다. 사용자/운영 DB에 migration을 실행하지 않는다.
+- [x] 새 DB 검증은 임시 schema 또는 disposable PostgreSQL에서만 수행하고 종료 시 정리한다.
+- [x] P2-C, 최적화, P3, AuditLog/claim/certificate purge, 배포는 포함하지 않는다.
+- [x] 구현 Task 1~6은 RED → GREEN → scoped verification → commit 순서로 수행한다. 문서 전용 Task 7은 전체 검증 증거를 수렴한다.
+- [x] DB 변경은 `docs/database-schema.md`, 통계 UI/API 변경은 `docs/menus/statistics.md`, 상태는 `docs/project-status.md`에 동기화한다.
 
 ## Task 1: 마이그레이션 실패·재시도 검증과 운영 가드
 
@@ -132,15 +132,17 @@
 
 ## Task 7: 문서 수렴과 전체 검증
 
+진행 상태(2026-09-12): 문서 수렴과 전체 자동 검증을 완료했으며 독립 최종 코드 검토만 대기한다. 새 실행에서 Shared 204개, API 1,076개(환경 의존 363개 제외), Web 692개, 각 lint/typecheck/build와 Prisma validate/generate가 통과했다. disposable PostgreSQL·MinIO 보고서 행렬 217개(공개 도면 저장소 1개 제외), watermark·retention·종료 순서 65개, 통계 Chromium 21개 및 `git diff --check`가 통과했다. 기존 56개 migration 파일을 보존하고 순방향 3개만 추가했다. 독립 검토 결과 전에는 전체 작업 완료로 표시하지 않는다. 기존 Web 500 kB 번들 경고와 사용자/운영 DB 적용·실장비 검증 미실행은 유지한다.
+
 **Files:**
 - Modify: `docs/menus/statistics.md`
 - Modify: `docs/database-schema.md`
 - Modify: `docs/project-status.md`
 - Modify: `docs/lesson_leared.md` when a reusable lesson is found.
 
-- [ ] 구현 완료/미구현/한계/관련 파일/갱신 규칙 구조를 유지하며 통계 문서를 갱신한다.
-- [ ] event exact dedupe horizon, restore availability, security/audit retention, migration deploy barrier, cleanup metrics 의미를 기록한다.
-- [ ] `docs/project-status.md`와 이 plan의 체크 상태를 실제 검증 결과와 일치시킨다.
-- [ ] Run: Prisma validate/generate, shared/API/Web lint/typecheck/test/build, migration integration, `git diff --check`.
+- [x] 구현 완료/미구현/한계/관련 파일/갱신 규칙 구조를 유지하며 통계 문서를 갱신한다.
+- [x] event exact dedupe horizon, restore availability, security/audit retention, migration deploy barrier, cleanup metrics 의미를 기록한다.
+- [x] `docs/project-status.md`와 이 plan의 체크 상태를 실제 검증 결과와 일치시킨다.
+- [x] Run: Prisma validate/generate, shared/API/Web lint/typecheck/test/build, migration integration, `git diff --check`.
 - [ ] 독립 code review 후 P0/P1 findings를 수정·재검증한다.
-- [ ] Commit: `docs: finalize statistics operations stability`
+- [x] Commit: `docs: finalize statistics operations stability`

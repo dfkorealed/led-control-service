@@ -14,6 +14,8 @@
 
 - 이벤트 원장이 정리된 이후에도 fixture별 최신 sequence·payload hash를 보존하여 동일 상태를 재적산하지 않고 변경된 payload 재전송을 거부한다. watermark·원장·일별/시간별 적산·cursor·snapshot은 하나의 transaction이며 임시 PostgreSQL에서 중복, 동시 수신과 전체 rollback을 확인했다.
 
+- 운영 데이터 정리 worker는 60초마다 이벤트 원장의 `createdAt`을 기준으로 heartbeat 7일, fixture state 30일, terminal scan 90일, superseded capability 365일보다 오래된 안전한 행만 합산 최대 10,000개씩 제거한다. 최신 watermark와 각 유형의 snapshot/cursor/terminal ACK identity를 함께 확인하며 cutoff와 같은 시각은 보존한다. `FOR UPDATE SKIP LOCKED`와 실행 중복 방지·종료 drain을 적용한다. 시간별 집계의 24개월 정리, 보고서의 7일 파일/90일 메타데이터 정리는 각각 별도 정책이다.
+
 - 공통 고객 셸 상단은 현재 메뉴 제목과 실제 현장명 배지만 표시한다. 기존 층명 기반 `B2 주차장` 표기와 동작 없는 Gateway 정상·오프라인·미등록 상태 배지는 제거하되 설정의 `Gateway 상태` 상세 카드는 유지한다. 로그아웃 위치와 인증·dirty editor 확인 로직은 유지하고, 고객·운영자 셸의 로그아웃은 공통 `IconTooltipButton`으로 아이콘만 표시한다. `로그아웃` 도움말은 hover와 키보드 focus에서 열리고 도움말 위로 포인터를 옮겨도 유지되며 `Escape`로 닫힌다. 모바일 버튼은 52px 실제 터치 영역을 사용한다.
 
 - P2 표준 보고서는 저장된 일별 전력량·비용을 요약/일별 표/조명·층·그룹 순위에 포함하고, 직전 동일 일수의 저장 합계와 차이·변화율을 함께 제공한다. 이전 값이 0이거나 없는 변화율은 `데이터 없음`이며 비용 0과 비용 없음은 구분한다. 과거 적용 단가·원천 산출식은 일별 집계와 연결된 증거가 없으므로 `데이터 없음`으로 명시하고, 현재 단가를 소급 적용하지 않는다. 두 형식은 같은 집계 출처·합산식·반올림 설명까지 포함한다.
@@ -100,7 +102,8 @@
 
 - legacy 보고서 작업은 요청 당시 이름이 없어 범위와 identity ID로 표시한다. 새 migration은 격리 PostgreSQL에서만 검증했으며 사용자/운영 DB에는 적용하지 않았다.
 
-- 이벤트 watermark와 보존용 index만 추가했으며 원장 자동 삭제 worker는 후속 작업이다. 원장이 없는 임의 과거 event ID까지 영구 기억하지 않으며 legacy hash 누락 원장은 보존해야 한다. 사용자 DB 적용과 실장비 재전송 검증은 미실행이다.
+- 임의 과거 event ID의 exact dedupe는 해당 raw 원장이 남아 있는 기간에 의존한다. 정리 뒤에는 stream별 최신 identity·단조 high-water와 scan terminal ACK identity를 유지하며 Gateway identity 내 sequence reset/reuse는 허용하지 않는다. scope/hash가 없는 legacy 원장, 알 수 없는 유형, 삭제된 fixture·누락된 cursor 등 안전 조건을 증명할 수 없는 원장은 기한 없이 남을 수 있다. scan watermark는 기존 gateway/type 전체 순서이고 raw scope만 session ID다. 사용자 DB 적용과 실장비 재전송 검증은 미실행이다.
+- 배포는 구 API·report worker·삭제 작업을 중지한 maintenance barrier에서 읽기 전용 preflight → 단일 migration deploy → postflight 및 신규 schema/backfill 검증 → 새 API/worker 시작 순서로 진행해야 한다. 기존 migration checksum은 보존한다. 실패 이력·카탈로그·PostgreSQL 로그를 보존하며 자동 resolve나 부분 적용 덮어쓰기를 하지 않는다. 상세 복구 절차는 [DB 문서](../database-schema.md#보고서-migration-사전-검사와-실패-복구)를 따른다.
 
 - 보고서 파일의 7일 만료는 조회·다운로드에서 즉시 적용하며 물리 삭제는 60초 정리 주기와 backlog·저장소 상태에 따라 늦을 수 있다. 원장별 최대 3개 키의 HEAD·DELETE는 각각 4초 제한이며 DB transaction 밖에서 수행한다. PUT 10초·HEAD 4초 제한은 네트워크 보호일 뿐 정지한 프로세스의 미래 PUT을 막는 증거로 쓰지 않는다. 회수 원장은 자동 삭제하지 않으므로 크기, 반복 HEAD·DELETE와 전체 카운터 합계 조회 비용이 보고서 수에 따라 증가한다. 요청/문서 데이터는 원장에 포함하지 않는다. 매우 많은 보고서가 있는 현장의 삭제는 전체 시도 키 목록과 순차 저장소 삭제에 시간이 걸릴 수 있다.
 - 정리 지표는 HEAD에서 확인한 객체의 DELETE 성공 응답을 기준으로 하며 물리 저장 용량·과금 증거가 아니다. 현장 삭제의 직접 DELETE, 응답 유실·임대 상실·동시 객체 교체는 지표와 실제 삭제량 차이를 만들 수 있다. 실패한 late PUT 삭제는 이후 성공할 때 누적하며, 기존 원장의 과거 카운터는 복원하지 않고 새 migration부터 0으로 시작한다. 사용자/운영 DB에는 migration을 적용하지 않았다.
@@ -124,6 +127,9 @@
 ## 관련 파일
 
 - `apps/api/src/retention/gateway-event-watermark.ts`, `apps/api/src/retention/gateway-event-watermark.integration.spec.ts`
+- `apps/api/src/retention/data-retention.service.ts`, `apps/api/src/retention/data-retention.integration.spec.ts`, `apps/api/src/retention/retention.module.ts`
+- `apps/api/scripts/check-report-migration-preflight.mjs`, `apps/api/src/energy/reports/energy-report-migration-safety.integration.spec.ts`
+- `apps/api/prisma/migrations/20260915_statistics_operations_retention/migration.sql`, `apps/api/prisma/migrations/20260916_report_operations_metadata/migration.sql`, `apps/api/prisma/migrations/20260917_report_cleanup_metrics/migration.sql`
 
 - `apps/api/src/energy/reports/energy-report-targets.service.ts`
 - `apps/api/src/energy/reports/energy-report-upgrade.integration.spec.ts`
@@ -206,4 +212,4 @@
 
 ## 갱신 규칙
 
-통계 메뉴의 집계 기준, 차트, 요금 계산, 내보내기 기능이 바뀌면 이 문서를 같은 작업 안에서 갱신한다.
+통계 메뉴의 집계 기준, 차트, 요금 계산, 내보내기, 원장 보존·중복 방지와 보고서 정리 지표가 바뀌면 이 문서를 같은 작업 안에서 갱신한다. 보존 범위·DB 구조 변경은 DB 문서 및 영향받는 설정 메뉴와 함께 반영하고, 격리 자동 검증·실장비 검증·사용자 DB 적용 여부를 구분한다.

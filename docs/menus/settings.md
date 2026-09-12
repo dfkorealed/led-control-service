@@ -380,6 +380,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 
 - 과거 scan은 raw 원장에 session scope/전체 hash가 없어 terminal identity를 추정 backfill하지 않는다. scope/hash 또는 필요한 현재 상태가 부족한 legacy 원장과 알 수 없는 이벤트 유형은 자동 정리에서도 보존한다. 삭제된 조명의 상태 원장처럼 안전 조건을 더 이상 증명할 수 없는 데이터도 남을 수 있다. 사용자 DB migration 적용·운영 배포와 실장비 검증은 실행하지 않았다.
 - 도면 정리 이후 보존 범위 밖의 revision은 복구할 수 없으며 외부 이력 보관·archive 기능은 없다. `AuditLog`, `GatewayClaimAudit`, 인증서 이력은 이번 자동 삭제 대상에 포함하지 않는다.
+- `AuditLog` 3년 hot retention은 회사·법무 승인 전 제안이다. `GatewayClaimAudit`와 폐기된 인증서 chain의 7년 또는 별도 승인 전 보존은 설계 기준이며, 이번 worker가 해당 시점에 삭제하는 기능은 없다. Session 자동 정리는 만료·폐기 후 30일이 지난 행만 대상으로 하며 보안 감사 보존 정책과 구분한다. 전체 보존 조건과 migration 적용 순서는 [DB 문서](../database-schema.md#운영-데이터-보존과-복구-범위)를 따른다.
 
 - 맵 편집 우측 패널의 공통 overflow 계약은 Chromium 1440/1024/390/320px route fixture로 검증했으며 실제 모바일 WebView safe-area와 브라우저별 scrollbar 표현은 별도 실측이 필요하다.
 - 테스트 데이터 도구는 개발·검증용 대량 데이터 준비 기능으로, 기본 off이며 실제 장비/MQTT 시뮬레이션이나 실장비 검증을 대체하지 않는다. 생성 직후에도 실제 heartbeat가 없으면 freshness 정책으로 offline 전환될 수 있다. DB schema/migration 변경은 없다.

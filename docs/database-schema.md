@@ -108,6 +108,8 @@ preflight는 `.env`를 자동으로 읽지 않고 PostgreSQL의 `READ ONLY`, `Re
 
 preflight는 데이터/카탈로그 검사이며 백업 검증이나 maintenance barrier를 대신하지 않는다. 배포 전에 복구 가능한 백업/PITR 지점을 확보한다. 배포 connection의 PostgreSQL `options`에 `-c lock_timeout=5s -c statement_timeout=120s`를 설정해 잠금 대기와 전체 statement 시간을 제한한다. Prisma URL의 query parameter 예시는 `options=-c%20lock_timeout%3D5s%20-c%20statement_timeout%3D120s`이며 기존 query가 있으면 `&`로 추가한다. 20260914 원본에는 timeout이 없으므로 세션 설정을 생략하지 않는다. 실제 배포 시간 한도는 데이터 규모에 맞춰 검토한다. 적용 후 post 검사와 새 버전의 추가 schema/backfill 검증을 통과한 뒤에만 API/worker를 시작한다.
 
+신규 `20260915_statistics_operations_retention`, `20260916_report_operations_metadata`, `20260917_report_cleanup_metrics`도 같은 barrier에서 순서대로 적용한다. 이 세 migration은 각각 명시적 transaction과 10초 lock timeout을 가지며 기존 파일을 수정하지 않는다. report pre/postflight의 보호 대상은 20260912~14이므로 그것만 통과했다고 신규 watermark·terminal identity backfill, `targetLabelSnapshot` 불변성, cleanup 카운터 CHECK·UTC 기본값까지 검증됐다고 판단하지 않는다. 새 API/worker 시작 전 이 신규 구조를 별도로 확인하고, 시작 후 `data_retention_sweep`와 `report_object_cleanup_sweep`를 관찰한다.
+
 실패 시에는 다음 절차를 따른다.
 
 1. barrier를 유지하고 자동 deploy 재시도를 중단한다. `_prisma_migrations`의 migration 이름, checksum, 시작/완료/rollback 시각, logs, CLI 출력, 해당 PostgreSQL 서버 로그와 preflight 진단을 보존한다. 로그는 제한된 운영 채널에서 취급한다.
@@ -1285,9 +1287,30 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 - scan은 기존 gateway/type 전체 순서 의미를 유지한다. 과거 PGE에는 session ID가 없으므로 watermark를 session별로 바꾸지 않으며 새 PGE의 `scopeKey`에는 보존 정책용 session ID를 별도로 기록한다.
 - 원장 보존 기간 안에서는 기존 전역 event ID 및 per-type sequence unique/check를 유지한다. 원장 삭제 뒤에는 각 stream의 최신 identity와 단조 high-water만 남는다. 이미 더 높은 값으로 대체된 임의 과거 ID나 다른 fixture의 과거 sequence 충돌까지 영구 기억하지 않는다. Gateway identity 안에서 sequence를 reset/reuse하지 않는 장비 계약이 계속 필요하다.
 - migration은 writer 정지 뒤 10초 `lock_timeout`과 명시적 transaction/table barrier 안에서 실행한다. 원장의 동일 sequence 충돌과 snapshot/원장 identity 불일치는 오류로 중단하며 전체 rollback한다. raw 최신 값과 Fixture/Gateway cursor를 비교해 더 높은 값으로 backfill하고, 같은 identity의 실제 hash가 있으면 보존한다. 알 수 없는 event type은 watermark 생성 대상에서 제외한다.
-- hash 또는 session scope를 복원할 수 없는 legacy 원장은 추정값으로 채우지 않는다. null hash는 watermark duplicate 검증의 wildcard가 아니며, legacy exact replay는 남아 있는 raw 원장에 의존한다. 특히 legacy scan의 raw scope/hash와 terminal identity는 null로 남으므로 향후 retention worker도 이를 보존해야 한다.
-- 같은 migration에서 Session의 `(expiresAt, id)`·`(revokedAt, id)`, FloorMapRevision의 `(createdAt, id)` index를 추가했다. 자동 삭제는 별도 retention worker 작업이며 현재 schema 변경만으로 데이터가 제거되지 않는다.
+- hash 또는 session scope를 복원할 수 없는 legacy 원장은 추정값으로 채우지 않는다. null hash는 watermark duplicate 검증의 wildcard가 아니며, legacy exact replay는 남아 있는 raw 원장에 의존한다. 특히 legacy scan의 raw scope/hash와 terminal identity는 null로 남으므로 현재 retention worker도 이를 보존한다.
+- 같은 migration에서 Session의 `(expiresAt, id)`·`(revokedAt, id)`, FloorMapRevision의 `(createdAt, id)` index를 추가했다. migration 자체는 데이터를 삭제하지 않으며 API의 `RetentionModule`이 아래 보존 worker를 시작한다.
 - 검증은 `GATEWAY_EVENT_WATERMARK_TEST=1 pnpm --filter @led-control/api test -- gateway-event-watermark.integration.spec.ts --runInBand`가 직접 만든 임시 PostgreSQL에서 수행했다. 사용자/운영 DB에는 적용하지 않았다.
+
+### 운영 데이터 보존과 복구 범위
+
+`DataRetentionService`는 60초마다 다음 대상을 정리한다. 각 삭제는 안정된 정렬과 `FOR UPDATE SKIP LOCKED`를 사용하는 단일 SQL statement다. 후보의 시각이 cutoff와 같으면 보존하고 더 오래된 행만 제거한다. 수동 호출과 timer는 진행 중 promise를 공유하며 `unref()`·종료 drain을 적용하고, Prisma 연결은 모든 worker의 module destroy 이후 최종 shutdown 단계에서 닫는다.
+
+| 대상 | 보존 기준 | 삭제 전 안전 조건 / 한 sweep 상한 |
+| --- | --- | --- |
+| `gateway_heartbeat` | 생성 후 7일 | Gateway snapshot·watermark가 원장 이상이며 동일 sequence의 identity가 일치 |
+| `fixture_state` | 생성 후 30일 | 동일 gateway의 Fixture snapshot과 energy cursor가 해당 원장을 포괄하고 watermark가 원장 이상 |
+| `provisioning_scan_found/completed/failed` | 생성 후 90일 | 전체 등록 session과 scan이 terminal이고 완전한 terminal ACK identity·watermark 유지; terminal 원장은 저장 identity와 정확히 일치 |
+| `vehicle_sensor_capability` | 생성 후 365일 | 현재 node revision과 watermark가 모두 원장보다 엄격히 큼; 최신 보고는 보존 |
+| `Session` | 만료 또는 폐기 후 30일 | 활성 session 보존; 최대 10,000행 |
+| `FloorMapRevision` | floor별 최신 100개 또는 최근 365일 중 넓은 범위 | revision 번호 내림차순으로 최신 100개 보호; 나머지 최대 1,000행 |
+
+이벤트 네 유형은 합산 최대 10,000행이다. 모든 이벤트 후보는 완전한 scope/hash와 최신 watermark가 필요하며 같은 sequence이면 ID/hash/발생 시각도 일치해야 한다. 알 수 없는 유형, legacy 불완전 원장, 삭제된 fixture·cursor 누락처럼 안전 조건을 충족하지 못하는 행은 무기한 남을 수 있다. 배치 상한은 인스턴스의 sweep당 값이며 여러 인스턴스는 서로 잠근 행을 건너뛴다. `data_retention_sweep`는 기준 시각·소요 시간·대상별 삭제 수와 성공/실패를 기록하고 실패 시 `failedStage`와 앞 단계에서 이미 완료된 삭제 수를 남긴다.
+
+임의 과거 event ID의 exact dedupe 보장은 실제 raw 원장이 남아 있는 기간에 한정된다. 원장 정리 이후에는 최신 stream identity/high-water만 유지하므로 장비 sequence를 Gateway identity 안에서 reset/reuse하지 않아야 한다. 도면은 위 보존 범위에서만 복구할 수 있고 제거한 revision의 외부 archive·복구 기능은 없다. 일별 집계와 분석 dimension/membership 이력은 이 worker의 삭제 대상이 아니다.
+
+`Session` 정리는 token hash·IP·user agent의 장기 보유를 줄인다. `AuditLog`의 3년 hot retention은 회사·법무 승인 전의 제안이며 자동 삭제로 구현하지 않았다. `GatewayClaimAudit`와 폐기된 인증서 chain은 제조·보안 감사 보존 대상으로, 설계상 7년 또는 별도 승인 전까지 보존하며 이번 작업에 자동 purge를 포함하지 않는다. 이 문구는 법정 보존 의무나 승인된 삭제 일정의 확정이 아니다.
+
+Prisma Date raw parameter는 timestamptz로 전달되므로 naive UTC `timestamp` 열과 비교할 때 `::timestamptz AT TIME ZONE 'UTC'`를 명시한다. `DATA_RETENTION_TEST=1 pnpm --filter @led-control/api test -- data-retention --runInBand`는 자체 disposable PostgreSQL의 Asia/Seoul session에서 정확한 cutoff·배치 제한·두 connection 잠금/수렴·실제 Nest 종료 연결 회수를 검증한다. 사용자/운영 DB 적용이나 운영 데이터 복구를 실행한 결과는 아니다.
 
 ### Invitation
 
