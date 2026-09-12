@@ -45,7 +45,7 @@ Manifest의 `privateMaterialScan`에는 고정 profile `led-control-private-mate
 
 새 producer의 14개 키: `GATEWAY_GIT_COMMIT`, `GATEWAY_GIT_COMMIT_TIMESTAMP`, `GATEWAY_IMAGE_ARCHIVE`, `GATEWAY_IMAGE_CONFIG_DIGEST`, `GATEWAY_IMAGE_DESCRIPTOR_DIGEST`, `GATEWAY_IMAGE_REPOSITORY`, `GATEWAY_IMAGE_TAG`, `GATEWAY_LOCK_SHA256`, `GATEWAY_RELEASE_ID`, `GATEWAY_RELEASE_PLATFORM`, `GATEWAY_RELEASE_POLICY_SHA256`, `GATEWAY_RELEASE_SCHEMA`, `GATEWAY_RELEASE_TEST_MODE`, `GATEWAY_VERSION`.
 
-갱신된 verifier/activation/state consumer는 descriptor 키가 없는 기존 exact 13-key bundle도 rollback 용도로 허용하되 기존 config-ID 일치 조건을 유지한다. 새 bundle은 checksum 검증 후 exact tag를 load/inspect하여 daemon ID가 config 또는 archive에 결속된 descriptor이며 revision/version/policy/test-mode label도 같은지 확인한다. 실제 container `.Image`는 이때 캡처한 daemon ID와 비교한다. 이전 consumer는 새 14-key bundle을 거부하므로 **새 producer 사용 전에 verifier와 activation/state helper를 함께 갱신**해야 한다. 임의 mixed-version 운영 호환성을 보장하지 않는다.
+갱신된 activation/state **shell consumer**는 descriptor 키가 없는 기존 exact 13-key bundle도 rollback 용도로 허용하되 기존 config-ID 일치 조건을 유지한다. Node verifier는 13-key 형식을 읽을 수 있어도 현재의 exact v2 scan profile을 요구하며 이전 v1 artifact를 재인증하지 않는다. 새 bundle은 checksum 검증 후 exact tag를 load/inspect하여 daemon ID가 config 또는 archive에 결속된 descriptor이며 revision/version/policy/test-mode label도 같은지 확인한다. 실제 container `.Image`는 이때 캡처한 daemon ID와 비교한다. 이전 consumer는 새 14-key bundle을 거부하므로 **새 producer 사용 전에 verifier와 activation/state helper를 함께 갱신**해야 한다. 임의 mixed-version 운영 호환성을 보장하지 않는다.
 
 Task 2 consumer도 exact key allowlist/중복/누락/개별 값 범위를 검증해야 한다. Checksum과 provenance는 서명이 아니므로 trusted policy, expected commit과 승인된 배포 경로가 필요하다.
 

@@ -144,6 +144,8 @@ test("restore rejects traversal, external symlink, tampering and rolls back a pa
 - Consumes: Tasks 1–3 commands and their deterministic disposable fixtures.
 - Produces: non-skippable CI release gate, operator procedure, final evidence and explicit operational/HIL limits.
 
+실제 Docker 검증에서 드러난 genuine failure에 한해 parent 승인으로 Task 1–3 경계를 보완했다: Dockerfile의 pnpm build-only self-reference 하나 제거, raw/gzip blob·diff ID·OCI descriptor 검증, config와 descriptor를 구분한 exact 14-key wire 및 legacy 13-key shell rollback, release/state 공통 loaded-image ID/label 판단과 실제 CI load/inspect/run, private-material v2 파일 단위 semantic 검증이다. 각 변경은 아래 보고서의 RED→GREEN 근거와 연결하며 운영 migration·Pi 배포·HIL로 범위를 확대하지 않았다.
+
 - [x] **Step 1: Write failing CI contract**
 
 ```js
@@ -154,8 +156,8 @@ test("production audit verifies a built release bundle and encrypted restore dri
 ```
 
 - [x] **Step 2: Run RED** — `node --test scripts/ci-workflows.test.mjs`; 8 tests 중 기존 7 pass / 새 gate 1 expected fail, skip 0. Protected Gateway step·command 연결 부재를 확인했다.
-- [x] **Step 3: Wire CI and docs** — `pnpm gateway:release:ci`, Buildx setup, 단일 non-skippable audit 연결과 운영 문서를 구현했다. 실제 CLI orchestration/실패 전파/cleanup·workflow 26/26 GREEN. 같은 image digest의 unrelated container 보존·launcher 종료 뒤 descendant drain 2/2 RED→GREEN을 포함한다. 실제 image 검증은 아래 Step 4 전까지 완료로 기록하지 않는다.
-- [ ] **Step 4: Verify increasing scope**
+- [x] **Step 3: Wire CI and docs** — `pnpm gateway:release:ci`, Buildx setup, 단일 non-skippable audit 연결과 운영 문서를 구현했다. 최종 CLI orchestration/실패 전파/cleanup·workflow 28개는 fresh focused 170/170 안에서 GREEN이다. 같은 image digest의 unrelated container 보존·launcher 종료 뒤 descendant drain 2/2, 실제 load/identity 경계 3/3의 RED→GREEN을 포함한다.
+- [x] **Step 4: Verify increasing scope**
 
 ```bash
 pnpm workspace:prepare
@@ -170,6 +172,12 @@ git diff --check
 
 Docker가 없으면 image smoke는 성공으로 가장하지 않고 local limitation을 별도로 기록한다.
 
-중간 증거: `workspace:prepare`, 직렬 combined 291/291(759.891초), CI-only cleanup 수정 뒤 workflow 26/26, Gateway contracts 24/24·typecheck·64 files/608 unit·build(564.6 kB), Node/Bash syntax·diff check를 통과했다. 실제 Docker gate는 구현 commit 뒤 clean checkout에서 실행한다.
+초기 순차 증거는 `workspace:prepare`, combined 291/291(759.891초), workflow 26/26, Gateway contracts 24/24·typecheck·64 files/608 unit·build(564.6 kB)다. 이는 Docker compatibility 후의 fresh combined 결과라고 표현하지 않는다.
 
-- [ ] **Step 5: Commit** — `git commit -m "docs(gateway): gate release and recovery operations"`.
+최종 기능 코드 `05c8451409571575185462453e08cad6cf3aa278`에서 최신 component를 직렬 재검증했다: bundle/CI focused **170/170**, canonical artifact/activation **209/209**, 전체 state **85/85**(480.138초), Gateway contracts **25/25**, fresh typecheck·**64 files/608 unit**(34.92초)·build **564.6 kB**, Node/Bash syntax와 diff check PASS다. Clean `pnpm gateway:release:ci`는 실제 Docker 29 test-only `linux/amd64` image·정확한 config/descriptor/OCI labels·container `.Image`·Node **22.23.2**·OS **120**/Node **263** inventory, default production 거부, real ephemeral CMS exact flow **1/1**과 owned cleanup을 통과했다.
+
+첫 전체 audit는 183/183 뒤 Docker 29 compressed layer를 raw diff ID로 비교해 중단됐고 Web/dependency는 미실행이었다. 관련 RED→GREEN 수정 뒤 **전체 `pnpm ci:production-audit`를 처음부터 재실행**해 MQTT 설정 **2/2**, Gateway **25/25**, 실제 persistence/ACL **2/2**, in-band Gateway **209/209**·actual image/CMS **1/1**, Web main **314.83 kB**/gzip **97.58 kB**·container **5/5**, dependency **820**(Critical 0/High 2/Moderate 1/Low 0, 승인 예외 3·unexpected 0)까지 exit 0으로 통과했다. 두 성공 image run은 같은 config SHA `5a4cf3a358189081a529e2ca96715acb2f2e23dedd4fd427f63c445db1cce1a4`와 inventory SHA `dab4d3d146b2a2c3c856426df50186cfa3ab66641c91c2cd59f50d5f841dd8cb`를 보였고 각자의 descriptor/daemon/container ID를 결속했다. Warm build cache 결과이며 uncached byte-identical 재현성이나 실제 ARM64/Pi/HIL 증거는 아니다.
+
+전체 RED/GREEN, 실제 실패·진단 경로, exact artifact identity/7-file closure와 cleanup 근거는 `.superpowers/sdd/2026-09-12-gateway-release-backup-recovery/task-4-report.md`에 기록했다. 메뉴/DB schema·migration·사용자 DB·운영·실장비·main은 변경하지 않았다. Production signing/recipient custody, baseline migration, Pi filesystem/power-loss·HCI/RF/HIL, GitHub 운영 보호 설정과 독립 final review는 별도 경계로 유지한다.
+
+- [x] **Step 5: Commit** — 구현/실제 Docker 수정은 `5d955d7` → `27a08bf` → `ba7916d` → `78d00a4` → `05c8451`로 커밋했다. 후속 문서·보고서 commit은 `docs(gateway): record verified release recovery gate`이며 merge/push 없이 clean branch로 인계한다.

@@ -26,6 +26,8 @@ pnpm gateway:appliance:build
 
 CI 명령은 clean checkout에서 실제 `linux/amd64` **test-only** image/bundle을 만들고, trusted policy·full HEAD로 검증하며 기본 production verify의 거부도 확인한다. 검증한 archive의 실제 load→inspect→read-only/network-none run 경계에서 activation과 같은 shell identity 판단으로 daemon ID/OCI labels와 container `.Image`를 결속하고 Node 22·최종 inventory를 확인한다. 이어 명시적 ephemeral RSA CMS backup→verify→drill→disposable restore 테스트를 실행하고 자기 image/container/artifact/key/plaintext를 정리한다. 전체 Compose activation/state의 fixture와 macOS compatibility shim은 실제 Pi/ARM64·power-loss/HIL 증거가 아니다. Production audit가 이 gate를 Web/dependency 전에 정확히 한 번 실행한다. Test image와 산출물은 배포하지 않는다.
 
+2026-09-13 기능 코드 `05c8451`의 clean 검증은 artifact/activation 209/209, 실제 Node **22.23.2**·OS **120**/Node **263** inventory, Docker 29 config/descriptor/container identity, CMS exact flow 1/1과 cleanup을 통과했다. 전체 `pnpm ci:production-audit`도 Web container 5/5·dependency policy까지 통과했다. 정확한 SHA·순차 테스트 수·이전 실패와 한계는 [실행 계획](../../docs/superpowers/plans/2026-09-12-gateway-release-backup-recovery.md)과 최종 보고서에 기록하며, 실제 production ARM64/Pi/HIL 완료로 해석하지 않는다.
+
 기본 production build는 `dist/gateway-appliance/<version>-<full-commit>-<config-prefix>/`에 다음 7개 파일을 생성한다. Dirty build 예외는 없다.
 
 ```text

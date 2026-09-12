@@ -72,6 +72,8 @@ release-manifest.json
 sbom.spdx.json
 ```
 
+2026-09-13 기능 코드 `05c8451`의 clean software gate는 실제 Docker 29 `linux/amd64` test-only image, Node 22.23.2·OS 120/Node 263 inventory, archive load/inspect/run의 descriptor/container `.Image` 일치와 CMS flow 1/1·cleanup을 확인했다. 전체 production audit도 통과했다. 이는 승인할 production ARM64 artifact의 생성·Pi rollout·RF·전원 차단 검증을 대신하지 않는다.
+
 승인할 **production bundle 자체**를 Node verifier로 다시 검사한다. Policy SHA는 bundle 안 값을 신뢰하지 않고 승인된 checkout의 정적 policy에서 계산한다. Source full commit, lock hash, config digest, SPDX OS/Node inventory, BlueZ pin과 exact firmware compatibility를 변경 기록에 결속한다. Checksum은 무결성 확인이지 서명이 아니며 운영 signing/전달 진위 확인은 별도 승인 관문이다.
 
 ```bash

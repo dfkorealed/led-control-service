@@ -1,5 +1,11 @@
 # 프로젝트 오답 노트 (Lessons Learned)
 
+## 2026-09-13 / 실제 image의 archive·daemon·file 경계를 각각 검증한다
+
+- **발생했던 문제/실수**: Fixture tar만으로는 Docker 29의 gzip blob과 OCI descriptor-valued `.Id`를 재현하지 못했다. 실제 final image는 pnpm의 build-workspace self-reference도 노출했다. 이어 arbitrary DER offset/PEM header와 일반 `*-key` 이름 검사는 Node·crypto library binary, npm 설명 문구, `apt-key`를 개인키 artifact로 오인했다.
+- **해결 및 예방책**: Config SHA, compressed blob SHA, uncompressed diff ID, daemon descriptor ID를 분리하고 실제 load/inspect/run의 container `.Image`까지 결속한다. Runtime inventory 전에는 검증된 build-only self-reference 하나만 제거한다. Content profile v2는 regular file 단위 standalone key/전체 base64/완전한 parseable text PEM을 검사하고 private basename/directory 정책을 일반 public tool 명칭과 구분한다. Binary 내부 offset·암호문·일반 secret과 크기 예산 밖 후보는 보장하지 않는다고 명시한다.
+- **반복 방지 체크**: 깨끗한 commit의 실제 image smoke를 fixture 계약 뒤에 실행한다. Gzip corrupt/trailing/oversize·OCI descriptor binding, 정상 library/public SPKI/CA·tool 명칭, 확장자 없는 실제 key 거부와 cleanup을 TDD로 고정하고 실패했던 audit 중단 지점까지 보고한다. Software smoke를 production ARM64/Pi/HIL로 확대하지 않는다.
+
 ## 2026-09-13 / Checksum closure와 artifact 진위는 다른 보장이다
 
 - **발생했던 문제/실수**: Image tar와 checksum만 전달하는 절차가 승인된 source/dependency image인지, test-only인지와 별개로 성공처럼 읽힐 수 있었다.
