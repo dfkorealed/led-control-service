@@ -6,17 +6,46 @@ export const STRUCTURED_LOG_WRITER = Symbol("STRUCTURED_LOG_WRITER");
 
 type LogLevel = "info" | "error" | "warn" | "debug" | "verbose" | "fatal";
 type HttpLog = { method: string; route: string; statusCode: number; durationMs: number };
-const sensitiveKeys = new Set([
-  "authorization",
-  "cookie",
-  "body",
-  "query",
-  "stack",
-  "deviceid",
-  "deviceuuid",
-  "deviceserial",
-  "rawdeviceidentifier",
-  "serialnumber"
+const applicationOperations = new Set([
+  "application",
+  "startup",
+  "shutdown",
+  "dependency",
+  "request",
+  "background_job",
+  "message_processing",
+  "persistence"
+]);
+const errorClasses = new Set([
+  "Error",
+  "TypeError",
+  "RangeError",
+  "SyntaxError",
+  "ReferenceError",
+  "AbortError",
+  "TimeoutError",
+  "ConnectionError",
+  "ValidationError"
+]);
+const safeContexts = new Set([
+  "Application",
+  "NestFactory",
+  "InstanceLoader",
+  "RoutesResolver",
+  "RouterExplorer",
+  "NestApplication",
+  "AuthController",
+  "MeshGroupSyncWorker",
+  "FixtureFreshnessService",
+  "ProvisioningScanOutboxPublisherService",
+  "AutomationOutboxPublisherService",
+  "ProvisioningDeviceOutboxPublisherService",
+  "OutboxPublisherService",
+  "MqttService",
+  "RedisProvider",
+  "EnergyReportCleanupService",
+  "EnergyRetentionService",
+  "EnergyReportWorkerService"
 ]);
 
 @Injectable()
@@ -51,9 +80,9 @@ export class StructuredLoggerService implements LoggerService {
     this.emit({
       timestamp: this.clock().toISOString(),
       level,
-      context: context ?? "Application",
+      context: context && safeContexts.has(context) ? context : "Application",
       ...(this.requestIdField()),
-      message: sanitize(message)
+      ...classifyApplicationEvent(message, level)
     });
   }
 
@@ -67,16 +96,27 @@ export class StructuredLoggerService implements LoggerService {
   }
 }
 
-function sanitize(value: unknown, depth = 0): unknown {
-  if (depth > 4) return "[redacted]";
-  if (value instanceof Error) return { name: value.name };
-  if (Array.isArray(value)) return value.slice(0, 20).map(item => sanitize(item, depth + 1));
-  if (value && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value)
-      .filter(([key]) => !sensitiveKeys.has(key.toLowerCase()))
-      .slice(0, 40)
-      .map(([key, item]) => [key, sanitize(item, depth + 1)]));
-  }
-  if (["string", "number", "boolean"].includes(typeof value) || value === null) return value;
-  return String(value);
+function classifyApplicationEvent(message: unknown, level: LogLevel) {
+  const record = message && typeof message === "object" && !Array.isArray(message)
+    ? message as Record<string, unknown>
+    : undefined;
+  const requestedOperation = record?.operation;
+  const operation = typeof requestedOperation === "string" && applicationOperations.has(requestedOperation)
+    ? requestedOperation
+    : classifyLegacyOperation(typeof message === "string" ? message : "");
+  if (level !== "error" && level !== "fatal") return { operation };
+
+  const error = message instanceof Error ? message : record?.error;
+  const requestedClass = error instanceof Error ? error.name : record?.errorClass;
+  const errorClass = typeof requestedClass === "string" && errorClasses.has(requestedClass) ? requestedClass : "Error";
+  return { operation, errorClass };
+}
+
+function classifyLegacyOperation(message: string) {
+  if (/shutdown|close/i.test(message)) return "shutdown";
+  if (/startup|starting|initialized|mapped|route/i.test(message)) return "startup";
+  if (/mqtt|outbox|publish|message|puback|ack/i.test(message)) return "message_processing";
+  if (/worker|sweep|cleanup|prune|report/i.test(message)) return "background_job";
+  if (/database|redis|storage|dependency/i.test(message)) return "dependency";
+  return "application";
 }

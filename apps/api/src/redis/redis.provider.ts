@@ -1,8 +1,9 @@
-import { Injectable, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import Redis from "ioredis";
 
 @Injectable()
 export class RedisProvider implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(RedisProvider.name);
   private client: Redis | null = null;
 
   onModuleInit() {
@@ -10,7 +11,13 @@ export class RedisProvider implements OnModuleInit, OnModuleDestroy {
   }
 
   getClient() {
-    if (!this.client) this.client = new Redis(this.getRedisUrl());
+    if (!this.client) {
+      const client = new Redis(this.getRedisUrl());
+      // ioredis writes an unhandled error and stack to stderr when no listener exists.
+      // Consume the raw error at the client boundary and emit only a fixed classification.
+      client.on("error", () => this.logger.error({ operation: "dependency", errorClass: "ConnectionError" }));
+      this.client = client;
+    }
     return this.client;
   }
 

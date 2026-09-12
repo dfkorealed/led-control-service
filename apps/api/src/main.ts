@@ -10,20 +10,25 @@ import { startApiTlsCrlReload } from "./api-tls-reloader";
 import { startVaultTokenLifecycle } from "./pki/vault-token-lifecycle";
 import { readFileSync } from "node:fs";
 import { Server as HttpsServer } from "node:https";
-import { RequestContextMiddleware } from "./observability/request-context.middleware";
-import { StructuredLoggerService } from "./observability/structured-logger.service";
+import {
+  createApiNestOptions,
+  createBootstrapStructuredLogger,
+  installApiObservability,
+  reportApiBootstrapFailure
+} from "./observability/api-observability-bootstrap";
 
 config({ path: resolve(process.cwd(), "../../.env") });
 config();
 
-async function bootstrap() {
+async function bootstrap(bootstrapLogger: ReturnType<typeof createBootstrapStructuredLogger>) {
   const tls = createApiHttpsOptions(process.env);
   // HTTP/CORS/TLS와 백그라운드 worker를 같은 API process에 조립해 하나의 종료·장애 경로로 관리한다.
   // 웹 요청만 종료되고 worker가 계속 발행하는 상태를 막고, 아래 lifecycle이 두 계층의 서버와 작업을 함께 정리한다.
-  const app = await NestFactory.create<NestExpressApplication>(AppModule, tls);
-  app.useLogger(app.get(StructuredLoggerService));
-  const requestContext = app.get(RequestContextMiddleware);
-  app.use(requestContext.use.bind(requestContext));
+  const app = await NestFactory.create<NestExpressApplication>(
+    AppModule,
+    createApiNestOptions(tls, bootstrapLogger)
+  );
+  installApiObservability(app);
   configureApiBodyParser(app);
   enableApiShutdownHooks(app);
   const runtime = createApiRuntimeLifecycle(app);
@@ -63,4 +68,8 @@ async function bootstrap() {
   await app.listen(Number(process.env.API_PORT ?? 4000));
 }
 
-void bootstrap();
+const bootstrapLogger = createBootstrapStructuredLogger();
+void bootstrap(bootstrapLogger).catch(() => {
+  reportApiBootstrapFailure(bootstrapLogger);
+  process.exitCode = 1;
+});

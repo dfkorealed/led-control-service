@@ -65,6 +65,41 @@ describe("ReadinessService", () => {
     }
   });
 
+  it("coalesces calls after a timeout until raw probes settle, then allows recovery", async () => {
+    jest.useFakeTimers();
+    try {
+      let release!: () => void;
+      const stalled = new Promise<void>(resolve => { release = resolve; });
+      const redisProbe = jest.fn()
+        .mockImplementationOnce(() => stalled)
+        .mockResolvedValue(undefined);
+      const { service, probes } = harness({ redis: redisProbe });
+      const first = service.check();
+
+      await jest.advanceTimersByTimeAsync(25);
+      await expect(first).resolves.toMatchObject({ status: "not_ready", checks: { redis: "down" } });
+      await expect(service.check()).resolves.toMatchObject({ status: "not_ready", checks: { redis: "down" } });
+      Object.values(probes).forEach(probe => expect(probe).toHaveBeenCalledTimes(1));
+
+      release();
+      jest.useRealTimers();
+      await new Promise(resolve => setImmediate(resolve));
+      await expect(service.check()).resolves.toMatchObject({ status: "ready", checks: { redis: "up" } });
+      Object.values(probes).forEach(probe => expect(probe).toHaveBeenCalledTimes(2));
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("treats Promise.reject(undefined) as a failed probe", async () => {
+    const { service } = harness({ redis: () => Promise.reject(undefined) });
+
+    await expect(service.check()).resolves.toMatchObject({
+      status: "not_ready",
+      checks: { redis: "down" }
+    });
+  });
+
   it("becomes not-ready before shutdown probes can perform dependency I/O", async () => {
     const { service, probes } = harness();
 

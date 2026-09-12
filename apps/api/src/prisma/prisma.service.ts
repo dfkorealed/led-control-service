@@ -12,6 +12,6 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   }
 
   async probeReadiness() {
-    await this.$queryRawUnsafe("SELECT 1");
+    await this.$queryRaw`SELECT 1`;
   }
 }

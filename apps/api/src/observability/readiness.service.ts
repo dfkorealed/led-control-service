@@ -21,6 +21,7 @@ export interface ReadinessResult {
 @Injectable()
 export class ReadinessService implements OnModuleDestroy {
   private stopping = false;
+  private activeCheck: { response: Promise<ReadinessResult> } | undefined;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -38,24 +39,44 @@ export class ReadinessService implements OnModuleDestroy {
     this.stopping = true;
   }
 
-  async check(): Promise<ReadinessResult> {
-    if (this.stopping) return this.result(this.allDown());
+  check(): Promise<ReadinessResult> {
+    if (this.stopping) return Promise.resolve(this.result(this.allDown()));
+    if (this.activeCheck) return this.activeCheck.response;
 
-    const probes: Record<DependencyName, () => Promise<void>> = {
+    const probes: Record<DependencyName, (signal: AbortSignal) => Promise<void>> = {
       postgres: () => this.prisma.probeReadiness(),
       redis: () => this.redis.probeReadiness(),
       mqtt: () => this.mqtt.probeReadiness(),
-      objectStorage: () => this.objectStorage.probeReadiness()
+      objectStorage: signal => this.objectStorage.probeReadiness(signal)
     };
-    const outcomes = await Promise.allSettled(
-      dependencyNames.map(name => this.withTimeout(probes[name]))
-    );
-    const checks = Object.fromEntries(dependencyNames.map((name, index) => [
-      name,
-      outcomes[index].status === "fulfilled" ? "up" : "down"
-    ])) as DependencyChecks;
-
-    return this.result(this.stopping ? this.allDown() : checks);
+    const executions = dependencyNames.map(name => {
+      const controller = new AbortController();
+      const raw = Promise.resolve().then(() => probes[name](controller.signal));
+      return { raw, bounded: this.withTimeout(raw, controller) };
+    });
+    let rawSettled = false;
+    let responseSettled = false;
+    const generation = { response: Promise.resolve({} as ReadinessResult) };
+    const clearIfSettled = () => {
+      if (rawSettled && responseSettled && this.activeCheck === generation) this.activeCheck = undefined;
+    };
+    const response = Promise.allSettled(executions.map(execution => execution.bounded)).then(outcomes => {
+      const checks = Object.fromEntries(dependencyNames.map((name, index) => [
+        name,
+        outcomes[index].status === "fulfilled" ? "up" : "down"
+      ])) as DependencyChecks;
+      return this.result(this.stopping ? this.allDown() : checks);
+    }).finally(() => {
+      responseSettled = true;
+      clearIfSettled();
+    });
+    generation.response = response;
+    this.activeCheck = generation;
+    void Promise.allSettled(executions.map(execution => execution.raw)).then(() => {
+      rawSettled = true;
+      clearIfSettled();
+    });
+    return response;
   }
 
   private result(checks: DependencyChecks): ReadinessResult {
@@ -71,17 +92,28 @@ export class ReadinessService implements OnModuleDestroy {
     return { postgres: "down", redis: "down", mqtt: "down", objectStorage: "down" };
   }
 
-  private withTimeout(probe: () => Promise<void>) {
+  private withTimeout(probe: Promise<void>, controller: AbortController) {
     return new Promise<void>((resolve, reject) => {
       let settled = false;
-      const finish = (error?: unknown) => {
+      const succeed = () => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        error === undefined ? resolve() : reject(error);
+        resolve();
       };
-      const timer = setTimeout(() => finish(new Error("readiness probe deadline exceeded")), this.probeTimeoutMs);
-      Promise.resolve().then(probe).then(() => finish(), error => finish(error));
+      const fail = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(new Error("readiness probe failed"));
+      };
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        controller.abort();
+        reject(new Error("readiness probe deadline exceeded"));
+      }, this.probeTimeoutMs);
+      probe.then(succeed, fail);
     });
   }
 }

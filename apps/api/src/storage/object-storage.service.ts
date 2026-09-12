@@ -20,8 +20,8 @@ export class ObjectStorageService {
     @Inject(OBJECT_STORAGE_OPTIONS) private readonly options: ObjectStorageOptions
   ) {}
 
-  async probeReadiness() {
-    await this.client.send(new HeadBucketCommand({ Bucket: this.options.bucket }));
+  async probeReadiness(abortSignal: AbortSignal) {
+    await this.client.send(new HeadBucketCommand({ Bucket: this.options.bucket }), { abortSignal });
   }
 
   async putReportObject(key: string, bytes: Buffer, contentType: string) {
