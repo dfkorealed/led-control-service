@@ -507,6 +507,49 @@ test("게이트웨이만 있는 현장의 조회 사용자는 empty 안내와 �
   await expect(page.getByRole("button", { name: "판정 기준" })).toHaveCount(0);
 });
 
+test("층이 없는 현장의 관리자는 floor 조회 경고 없이 empty 안내와 site-wide 조치·정책을 사용한다", async ({ page }) => {
+  const api = await installSettingsApiRoutes(page, "admin", {
+    fixtures: [],
+    includeFloor: false,
+    ids: { siteId: ids.site, floorId: ids.floor, gatewayId: ids.gateway }
+  });
+  await installMonitoringReliabilityRoutes(page, { targetKind: "gateway" });
+  await page.goto(`/monitoring?siteId=${ids.site}`);
+
+  await expect(page.getByRole("heading", { name: "등록된 조명이 없습니다" })).toBeVisible();
+  await expect(page.getByText(/조명 상태를 불러오는 중/)).toHaveCount(0);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await page.getByRole("button", { name: "새로고침" }).click();
+  await expect(page.getByRole("button", { name: "새로고침" })).toBeEnabled();
+  expect(api.fixturePageRequests).toBe(0);
+  expect(api.mapSnapshotRequests).toBe(0);
+  await page.getByRole("tab", { name: "인시던트 1" }).click();
+  await expect(page.getByRole("list", { name: "인시던트 이력" }).getByText("게이트웨이 오프라인", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "확인", exact: true })).toBeEnabled();
+  await page.getByRole("button", { name: "판정 기준" }).click();
+  await expect(page.getByRole("dialog", { name: "판정 기준" })).toBeVisible();
+});
+
+test("층이 없는 현장의 조회 사용자는 floor 조회 경고 없이 empty 안내와 site-wide 이력을 본다", async ({ page }) => {
+  const api = await installSettingsApiRoutes(page, "viewer", {
+    fixtures: [],
+    includeFloor: false,
+    ids: { siteId: ids.site, floorId: ids.floor, gatewayId: ids.gateway }
+  });
+  await installMonitoringReliabilityRoutes(page, { role: "viewer", targetKind: "gateway" });
+  await page.goto(`/monitoring?siteId=${ids.site}`);
+
+  await expect(page.getByRole("region", { name: "Viewer 설치 대기" })).toBeVisible();
+  await expect(page.getByText(/조명 상태를 불러오는 중/)).toHaveCount(0);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  expect(api.fixturePageRequests).toBe(0);
+  expect(api.mapSnapshotRequests).toBe(0);
+  await page.getByRole("tab", { name: "인시던트 1" }).click();
+  await expect(page.getByRole("list", { name: "인시던트 이력" }).getByText("게이트웨이 오프라인", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "확인", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "판정 기준" })).toHaveCount(0);
+});
+
 test("fixture 최초 조회 실패가 site-wide 인시던트 이력을 숨기지 않는다", async ({ page }) => {
   await installMonitoringFixture(page);
   const failures = await installMonitoringRefreshFailures(page);
@@ -722,6 +765,7 @@ test("지도 갱신 3회 실패 뒤 새 revision 자동 poll 성공이 경고를
 
   await expect.poll(() => api.mapSnapshotRequests).toBeGreaterThan(requestsAfterFailure);
   await expect(page.getByText("저장된 지도를 유지하고 있습니다. 지도 갱신에 실패했습니다.")).toHaveCount(0);
+  await expect(page.getByText("일부 현황 데이터를 새로고침하지 못했습니다.")).toHaveCount(0);
   await expectReliabilitySelectionAndZoom(page);
 });
 

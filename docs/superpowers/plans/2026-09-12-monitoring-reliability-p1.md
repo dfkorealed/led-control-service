@@ -94,9 +94,9 @@
 - Modify: `docs/project-status.md`
 - Modify: `docs/superpowers/plans/2026-09-12-monitoring-reliability-p1.md`
 
-- [x] cached partial failure/exact 60,000ms fresh·60,001ms stale/네 장애 reason/production-valid incident workflow Chromium RED/GREEN (`23/23`)
+- [x] cached partial failure/exact 60,000ms fresh·60,001ms stale/네 장애 reason/production-valid incident workflow Chromium RED/GREEN (`25/25`)
 - [x] 네 viewport incident/policy 전후 layout/overflow와 map selection·120% zoom 보존 검증 (1440/1024/390/320)
-- [x] Gateway 1/Fixture 0 및 fixture 최초 조회 실패에서도 site-wide incident/policy 접근 유지, 지도 3회 실패 뒤 최신 자동 poll 성공의 경고 해제·선택/배율 보존 검증
+- [x] no-floor와 Gateway 1/Fixture 0 및 fixture 최초 조회 실패에서도 site-wide incident/policy 접근 유지, 비활성 floor query 피드백 억제, 지도 3회 실패 뒤 최신 자동 poll 성공의 지도/toolbar 경고 해제·선택/배율 보존 검증
 - [x] 빈 disposable PostgreSQL 전체 `59` migrations 및 API lifecycle `69/69`(`37` integration + `32` unit) 실행
-- [x] Shared `197`, API `1,153`, Web `730`, Gateway `610`(64 files) tests와 typecheck/build/diff check 실행
+- [x] Shared `197`, API `1,153`, Web `733`, Gateway `610`(64 files) tests와 typecheck/build/diff check 실행
 - [x] 실제 검증 수치와 실제 MQTT broker/Raspberry Pi/BlueZ/ESP32-H2 HIL/production notification 제외 범위를 문서화

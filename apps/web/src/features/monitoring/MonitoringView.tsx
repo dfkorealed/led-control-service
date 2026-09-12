@@ -16,6 +16,8 @@ interface MapRefreshFailure {
   dataUpdatedAt: number;
 }
 
+type ManualRefreshFailureSource = "dashboard" | "fixtures";
+
 export function MonitoringView({ userRole = "admin", siteId, currentUser }: { userRole?: "operator" | "admin" | "viewer"; siteId?: string; currentUser?: MonitoringCurrentUser }) {
   const dashboardQuery = useDashboard(siteId);
   const { data, isLoading, error } = dashboardQuery;
@@ -52,7 +54,7 @@ function MonitoringDashboard({ data, userRole, siteId, currentUser, dashboardErr
   const [selectedFloorId, setSelectedFloorId] = useState<string | null>(null);
   const [selectedFixtureId, setSelectedFixtureId] = useState<string | null>(null);
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
-  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [manualRefreshFailureSources, setManualRefreshFailureSources] = useState<ManualRefreshFailureSource[]>([]);
   const [mapRefreshFailure, setMapRefreshFailure] = useState<MapRefreshFailure | null>(null);
   const [freshnessRevision, setFreshnessRevision] = useState(0);
   const floor = data.floors.find((item) => item.id === selectedFloorId) ?? data.floors[0];
@@ -61,21 +63,25 @@ function MonitoringDashboard({ data, userRole, siteId, currentUser, dashboardErr
   const hasFixtureData = fixtureQuery.data !== undefined;
   const fixtures = fixtureQuery.data?.pages.flatMap((page) => page.items) ?? [];
   const mapSnapshot = mapQuery.data;
-  const mapRefreshFailed = mapRefreshFailure?.floorId === floor?.id;
+  const mapRefreshFailed = Boolean(floor && mapRefreshFailure && mapRefreshFailure.floorId === floor.id);
   const selectedFixture = fixtures.find((fixture) => fixture.id === selectedFixtureId) ?? fixtures[0];
   const selectedFixturePresentation = selectedFixture ? presentFixtureStatus(selectedFixture) : null;
   const snapshotFreshness = useMemo(
     // A newly arrived server response must be compared with this render's wall clock, not a
     // periodic timer value captured before the response arrived.
-    () => getSnapshotFreshness(fixtureQuery.data?.pages.map((page) => page.generatedAt), Date.now()),
-    [fixtureQuery.data?.pages, freshnessRevision]
+    () => getSnapshotFreshness(floor ? fixtureQuery.data?.pages.map((page) => page.generatedAt) : undefined, Date.now()),
+    [floor, fixtureQuery.data?.pages, freshnessRevision]
   );
   const staleSources = [
     dashboardError ? "현황" : null,
-    fixtureQuery.error ? "조명 상태" : null,
-    mapQuery.error || mapRefreshFailed ? "지도" : null
+    floor && fixtureQuery.error ? "조명 상태" : null,
+    floor && (mapQuery.error || mapRefreshFailed) ? "지도" : null
   ].filter((source): source is string => Boolean(source));
-  const isStale = staleSources.length > 0 || snapshotFreshness.freshness === "stale" || snapshotFreshness.metadata !== "valid";
+  const isStale = staleSources.length > 0 || Boolean(floor && (snapshotFreshness.freshness === "stale" || snapshotFreshness.metadata !== "valid"));
+  const manualRefreshFailureCount = manualRefreshFailureSources.length + (mapRefreshFailed ? 1 : 0);
+  const refreshError = manualRefreshFailureCount === 3
+    ? "현황 데이터를 새로고침하지 못했습니다."
+    : manualRefreshFailureCount > 0 ? "일부 현황 데이터를 새로고침하지 못했습니다." : null;
   const floorSummary = useMemo(
     () => ({
       totalFixtures: fixtures.length,
@@ -86,8 +92,8 @@ function MonitoringDashboard({ data, userRole, siteId, currentUser, dashboardErr
     [fixtures]
   );
   useEffect(() => {
-    if (fixtureQuery.hasNextPage && !fixtureQuery.isFetchingNextPage) void fixtureQuery.fetchNextPage();
-  }, [fixtureQuery.hasNextPage, fixtureQuery.isFetchingNextPage, fixtureQuery.fetchNextPage]);
+    if (floor && fixtureQuery.hasNextPage && !fixtureQuery.isFetchingNextPage) void fixtureQuery.fetchNextPage();
+  }, [floor, fixtureQuery.hasNextPage, fixtureQuery.isFetchingNextPage, fixtureQuery.fetchNextPage]);
 
   useEffect(() => {
     if (snapshotFreshness.nextReviewAt === undefined) return;
@@ -132,21 +138,19 @@ function MonitoringDashboard({ data, userRole, siteId, currentUser, dashboardErr
   async function handleRefresh() {
     const refreshedFloorId = floor?.id ?? null;
     setIsManualRefreshing(true);
-    setRefreshError(null);
+    setManualRefreshFailureSources([]);
     const results = await Promise.allSettled([
       refreshDashboard(),
-      fixtureQuery.refetch({ throwOnError: true }),
-      mapQuery.refetch({ throwOnError: true })
+      floor ? fixtureQuery.refetch({ throwOnError: true }) : Promise.resolve(),
+      floor ? mapQuery.refetch({ throwOnError: true }) : Promise.resolve()
     ]);
-    const failureCount = results.filter((result) => result.status === "rejected").length;
+    setManualRefreshFailureSources([
+      results[0]?.status === "rejected" ? "dashboard" : null,
+      results[1]?.status === "rejected" ? "fixtures" : null
+    ].filter((source): source is ManualRefreshFailureSource => source !== null));
     setMapRefreshFailure((current) => results[2]?.status === "rejected" && refreshedFloorId
       ? { floorId: refreshedFloorId, dataUpdatedAt: mapQuery.dataUpdatedAt }
       : current?.floorId === refreshedFloorId ? null : current);
-    if (failureCount === results.length) {
-      setRefreshError("현황 데이터를 새로고침하지 못했습니다.");
-    } else if (failureCount > 0) {
-      setRefreshError("일부 현황 데이터를 새로고침하지 못했습니다.");
-    }
     setIsManualRefreshing(false);
   }
 
@@ -190,6 +194,7 @@ function MonitoringDashboard({ data, userRole, siteId, currentUser, dashboardErr
       </div>
 
       <FixtureQueryFeedback
+        enabled={Boolean(floor)}
         floorName={floor?.name}
         hasData={hasFixtureData}
         error={fixtureQuery.error}
@@ -392,15 +397,17 @@ function EmptyFixtureGuidance({ userRole, siteId }: { userRole: MonitoringDashbo
 }
 
 function FixtureQueryFeedback({
+  enabled,
   floorName,
   hasData,
   error
 }: {
+  enabled: boolean;
   floorName: string | undefined;
   hasData: boolean;
   error: unknown;
 }) {
-  if (error || hasData) return null;
+  if (!enabled || error || hasData) return null;
   return <FeedbackState icon={Clock3} title={`${floorName ? `${floorName} ` : ""}조명 상태를 불러오는 중`} />;
 }
 

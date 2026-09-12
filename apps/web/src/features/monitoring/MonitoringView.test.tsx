@@ -531,6 +531,84 @@ describe("MonitoringView refresh", () => {
     expect(screen.queryByRole("button", { name: "판정 기준" })).not.toBeInTheDocument();
   });
 
+  it("층이 없는 현장의 관리자는 floor 조회 경고 없이 empty 안내와 인시던트 조치·정책을 사용한다", async () => {
+    queryMocks.useDashboard.mockReturnValue({
+      data: {
+        ...dashboard,
+        summary: { ...dashboard.summary, totalFixtures: 0 },
+        floors: [],
+        capabilities: { read: true, control: true, manage: true, commission: true }
+      },
+      isLoading: false,
+      error: null,
+      dataUpdatedAt: Date.now(),
+      refetch: refetchDashboard
+    });
+    queryMocks.useFloorFixtures.mockReturnValue({
+      data: undefined, dataUpdatedAt: 0, error: null, isPending: true, isLoading: true, isFetching: false,
+      hasNextPage: false, isFetchingNextPage: false, fetchNextPage: vi.fn(), refetch: refetchFixtures
+    });
+    queryMocks.useFloorMapSnapshot.mockReturnValue({
+      data: undefined, dataUpdatedAt: 0, error: null, isPending: true, isLoading: true, isFetching: false, refetch: refetchMap
+    });
+    queryMocks.useMonitoringIncidents.mockReturnValue({
+      data: { pages: [{ incidents: [gatewayIncident], activeCount: 1, nextCursor: null }] },
+      refetch: vi.fn(), error: null, isPending: false, isFetching: false, hasNextPage: false
+    });
+
+    render(<MemoryRouter><MonitoringView siteId="site-1" userRole="admin" /></MemoryRouter>);
+
+    expect(screen.getByRole("heading", { name: "등록된 조명이 없습니다" })).toBeInTheDocument();
+    expect(screen.queryByText(/조명 상태를 불러오는 중/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
+    await waitFor(() => expect(refetchDashboard).toHaveBeenCalledTimes(1));
+    expect(refetchFixtures).not.toHaveBeenCalled();
+    expect(refetchMap).not.toHaveBeenCalled();
+    expect(screen.queryByText("일부 현황 데이터를 새로고침하지 못했습니다.")).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("tab", { name: "인시던트 1" }));
+    expect(screen.getByRole("list", { name: "인시던트 이력" })).toHaveTextContent("게이트웨이 오프라인");
+    expect(screen.getByRole("button", { name: "확인" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "판정 기준" }));
+    expect(screen.getByRole("dialog", { name: "판정 기준" })).toBeInTheDocument();
+  });
+
+  it("층이 없는 현장의 조회 사용자는 floor 조회 경고 없이 empty 안내와 읽기 전용 이력을 본다", async () => {
+    queryMocks.useDashboard.mockReturnValue({
+      data: {
+        ...dashboard,
+        summary: { ...dashboard.summary, totalFixtures: 0 },
+        floors: [],
+        capabilities: { read: true, control: false, manage: false, commission: false }
+      },
+      isLoading: false,
+      error: null,
+      dataUpdatedAt: Date.now(),
+      refetch: refetchDashboard
+    });
+    queryMocks.useFloorFixtures.mockReturnValue({
+      data: undefined, dataUpdatedAt: 0, error: null, isPending: true, isLoading: true, isFetching: false,
+      hasNextPage: false, isFetchingNextPage: false, fetchNextPage: vi.fn(), refetch: refetchFixtures
+    });
+    queryMocks.useFloorMapSnapshot.mockReturnValue({
+      data: undefined, dataUpdatedAt: 0, error: null, isPending: true, isLoading: true, isFetching: false, refetch: refetchMap
+    });
+    queryMocks.useMonitoringIncidents.mockReturnValue({
+      data: { pages: [{ incidents: [gatewayIncident], activeCount: 1, nextCursor: null }] },
+      refetch: vi.fn(), error: null, isPending: false, isFetching: false, hasNextPage: false
+    });
+
+    render(<MemoryRouter><MonitoringView siteId="site-1" userRole="viewer" /></MemoryRouter>);
+
+    expect(screen.getByRole("region", { name: "Viewer 설치 대기" })).toBeInTheDocument();
+    expect(screen.queryByText(/조명 상태를 불러오는 중/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("tab", { name: "인시던트 1" }));
+    expect(screen.getByRole("list", { name: "인시던트 이력" })).toHaveTextContent("게이트웨이 오프라인");
+    expect(screen.queryByRole("button", { name: "확인" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "판정 기준" })).not.toBeInTheDocument();
+  });
+
   it("조회 사용자는 조명 등록 진입점을 표시하지 않는다", () => {
     render(<MonitoringView siteId="site-1" userRole="viewer" />);
 
@@ -762,8 +840,39 @@ describe("MonitoringView refresh", () => {
     view.rerender(<MonitoringView siteId="site-1" />);
 
     await waitFor(() => expect(screen.queryByText("저장된 지도를 유지하고 있습니다. 지도 갱신에 실패했습니다.")).not.toBeInTheDocument());
+    expect(screen.queryByText("일부 현황 데이터를 새로고침하지 못했습니다.")).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "층 도면" })).toHaveAttribute("data-zoom", "1.1");
     expect(screen.getByRole("combobox", { name: "상세 조명 선택" })).toHaveValue("fixture-1");
+  });
+
+  it("지도 자동 복구는 함께 실패한 dashboard의 toolbar 오류를 지우지 않는다", async () => {
+    const baselineUpdatedAt = new Date("2026-09-12T00:00:00.000Z").getTime();
+    let mapState = {
+      data: mapSnapshot,
+      dataUpdatedAt: baselineUpdatedAt,
+      error: null as Error | null,
+      isPending: false,
+      isLoading: false,
+      isFetching: false,
+      refetch: refetchMap
+    };
+    queryMocks.useFloorMapSnapshot.mockImplementation(() => mapState);
+    refetchDashboard.mockRejectedValueOnce(new Error("dashboard unavailable"));
+    refetchMap.mockRejectedValueOnce(new Error("map unavailable"));
+    const view = render(<MonitoringView siteId="site-1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
+    expect(await screen.findByText("일부 현황 데이터를 새로고침하지 못했습니다.")).toBeInTheDocument();
+
+    mapState = {
+      ...mapState,
+      data: { ...mapSnapshot, revision: mapSnapshot.revision + 1 },
+      dataUpdatedAt: baselineUpdatedAt + 1
+    };
+    view.rerender(<MonitoringView siteId="site-1" />);
+
+    await waitFor(() => expect(screen.queryByText("저장된 지도를 유지하고 있습니다. 지도 갱신에 실패했습니다.")).not.toBeInTheDocument());
+    expect(screen.getByText("일부 현황 데이터를 새로고침하지 못했습니다.")).toBeInTheDocument();
   });
 
   it("모바일 모니터링은 320px에서 문서 overflow 없이 동작한다", () => {

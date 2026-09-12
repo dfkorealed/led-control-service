@@ -4,7 +4,7 @@
 
 ## 결과
 
-Task 5의 browser integration과 문서 최종 수렴을 완료했다. monitoring Chromium은 cached dashboard/fixture/map 부분 실패, 서버 snapshot exact 60,000ms fresh/60,001ms stale, 네 장애 원인의 공통 presenter, production-valid 관리자 incident 확인·자기 지정·메모 해결, 정책 변경, 1440/1024/390/320 page/map/panel overflow와 selection·zoom 보존을 실제 화면 조작으로 검증했다. 최종 convergence에서는 Gateway 1/Fixture 0과 fixture 최초 조회 실패에서도 site-wide incident UI가 유지되고, 지도 3회 실패 뒤 최신 자동 poll 성공이 경고를 해제하는 회귀를 추가해 `23/23`을 통과했다.
+Task 5의 browser integration과 문서 최종 수렴을 완료했다. monitoring Chromium은 cached dashboard/fixture/map 부분 실패, 서버 snapshot exact 60,000ms fresh/60,001ms stale, 네 장애 원인의 공통 presenter, production-valid 관리자 incident 확인·자기 지정·메모 해결, 정책 변경, 1440/1024/390/320 page/map/panel overflow와 selection·zoom 보존을 실제 화면 조작으로 검증했다. 최종 convergence와 scoped residual fix에서는 no-floor 및 Gateway 1/Fixture 0, fixture 최초 조회 실패에서도 site-wide incident UI가 유지되고, 지도 3회 실패 뒤 최신 자동 poll 성공이 지도 경고와 지도 source의 toolbar 오류만 해제하는 회귀를 추가해 `25/25`를 통과했다.
 
 빈 disposable PostgreSQL에는 전체 `59` migrations를 적용하고 monitoring policy/incident lifecycle `69/69`(`37` PostgreSQL integration + `32` unit)을 통과했다. schema 변경은 없으며 사용자 DB와 기존 Docker 리소스는 건드리지 않았다.
 
@@ -123,16 +123,16 @@ docker volume rm led-p1-task5-db-20260912-0645-data
 | --- | --- |
 | `pnpm --filter @led-control/shared test` | 14 files, `197/197` passed, exit 0 |
 | `pnpm --filter @led-control/api test` | 115 suites passed, 31 environment-dependent suites skipped; `1,153` passed, `315` skipped, 1,468 total, exit 0 |
-| `pnpm --filter @led-control/web test` | final convergence 후 64 files, `730/730` passed, exit 0 |
+| `pnpm --filter @led-control/web test` | scoped residual fix 후 64 files, `733/733` passed, exit 0 |
 | `pnpm --filter @led-control/gateway test` | controller 검증 기준 64 files, `610/610` passed, exit 0 |
-| `pnpm --filter @led-control/web exec playwright test e2e/calm-operations-monitoring.spec.ts --project=chromium --workers=1` | final convergence `23/23` passed, 14.0s, exit 0 |
+| `pnpm --filter @led-control/web exec playwright test e2e/calm-operations-monitoring.spec.ts --project=chromium --workers=1` | scoped residual fix 후 `25/25` passed, 13.1s, exit 0 |
 | `pnpm --filter @led-control/shared typecheck` | exit 0 |
 | `pnpm --filter @led-control/api typecheck` | exit 0 |
 | `pnpm --filter @led-control/web typecheck` | exit 0; browser fixture 보완 뒤 fresh 재실행 포함 |
 | `pnpm --filter @led-control/gateway typecheck` | exit 0 |
 | `pnpm --filter @led-control/shared build` | exit 0 |
 | `pnpm --filter @led-control/api build` | exit 0 |
-| `pnpm --filter @led-control/web build` | exit 0; 2,440 modules, main 1,283.15 kB / gzip 383.95 kB |
+| `pnpm --filter @led-control/web build` | exit 0; scoped residual fix final fresh run 2,440 modules, main 1,283.73 kB / gzip 384.24 kB |
 | `pnpm --filter @led-control/gateway build` | exit 0; `dist/gateway.mjs 564.6kb` |
 | `git diff --check` | exit 0 |
 
@@ -271,3 +271,52 @@ pnpm --filter @led-control/web exec playwright test e2e/calm-operations-monitori
 - DB schema/migration, API/Gateway runtime, Docker 리소스는 이 fix round에서 변경·실행하지 않았다. 앞선 disposable PostgreSQL의 59 migrations와 `69/69` lifecycle 증거 및 명시적 cleanup은 그대로 유효하다.
 - 실제 MQTT broker, Raspberry Pi/BlueZ/ESP32-H2 HIL, production notification, 사용자 DB는 실행하지 않았다.
 - production build의 기존 500 kB chunk 경고는 남아 있으며 이번 monitoring 통합 결함 범위에서 code splitting은 수행하지 않았다.
+
+## Scoped residual review fix
+
+### 구현
+
+- no-floor 현장에서 `undefined === undefined`가 map refresh 실패로 평가되던 조건을 actual floor와 failure object가 모두 존재하는 same-floor 비교로 바꿨다. floor가 없으면 비활성 fixture/map query의 snapshot freshness, loading, error, pagination 피드백을 만들지 않는다. empty 안내와 site-wide incident history, admin 조치·정책은 그대로 접근할 수 있다.
+- 수동 새로고침 실패 원인을 화면 문구와 분리한 `"dashboard" | "fixtures"` 내부 상태로 보존한다. map 실패 원인은 기존 `{ floorId, dataUpdatedAt }` latch가 담당하고, toolbar 문구는 현재 non-map 실패 source와 현재 층 map latch에서 파생한다. 따라서 같은 층의 더 최신 자동 map 성공은 map banner와 map source toolbar 오류만 지우며, dashboard/fixture 실패나 다른 층 map latch를 성공으로 오인해 지우지 않는다.
+- 공통 `SidePanel`, incident/policy UI와 기존 empty guidance를 재사용했으며 중복 component를 추가하지 않았다. API, DB schema/migration, Gateway runtime은 변경하지 않았다.
+
+### TDD RED/GREEN
+
+production 변경 전에 admin/viewer no-floor 회귀, map-only 자동 복구의 toolbar 오류 제거, dashboard+map 혼합 실패에서 dashboard toolbar 오류 보존을 unit에 추가했다.
+
+```sh
+pnpm --filter @led-control/web test -- --run src/features/monitoring/MonitoringView.test.tsx
+```
+
+RED: `35` tests 중 `3 failed / 32 passed`, exit 1. admin/viewer no-floor 두 case는 비활성 floor query인데도 `조명 상태를 불러오는 중`을 표시했고, map-only 자동 복구 case는 지도 banner가 사라진 뒤에도 `일부 현황 데이터를 새로고침하지 못했습니다.`를 유지했다. 혼합 dashboard+map 실패 보존 회귀는 baseline에서도 통과했다.
+
+같은 observable behavior를 Chromium route fixture에도 먼저 추가했다.
+
+```sh
+pnpm --filter @led-control/web exec playwright test e2e/calm-operations-monitoring.spec.ts --project=chromium --workers=1 --grep '층이 없는 현장|자동 poll 성공'
+```
+
+RED: `3/3 failed`, exit 1. 두 no-floor case의 floor loading 문구와 자동 map 복구 후 toolbar 오류가 각각 남았다. timeout은 변경하지 않았다.
+
+최소 production 수정 뒤 focused GREEN은 unit `35/35`(1 file, 1.18s, exit 0), Chromium `3/3`(4.5s, exit 0)이었다. no-floor fixture/map request는 실제로 `0`회였고 admin은 확인 조치와 정책 dialog, viewer는 read-only history를 사용했다. 3회 map 실패→30초 poll success는 map/stale banner와 map-only toolbar 오류를 모두 제거하고 selection·120% zoom을 유지했다.
+
+Self-review에서 no-floor 수동 새로고침도 비활성 floor query를 강제로 refetch하지 않아야 함을 추가로 고정했다. production 변경 전 admin focused unit은 `1 failed / 34 skipped`, exit 1로 `refetchFixtures`가 1회 호출된 정확한 RED를 보였다. 수동 갱신 배열에서 floor가 없을 때 fixture/map은 resolved no-op으로 두는 최소 수정 뒤 같은 unit은 `1 passed / 34 skipped`(763ms, exit 0), Chromium admin no-floor는 `1/1`(3.8s, exit 0)이었다. 이어서 전체 게이트를 최종 tree에서 다시 실행했다.
+
+### Fresh 최종 검증
+
+| 명령 | 결과 |
+| --- | --- |
+| `pnpm --filter @led-control/web test -- --run src/features/monitoring/MonitoringView.test.tsx` | 1 file, `35/35` passed, 1.18s, exit 0 |
+| 위 focused Chromium 명령 | `3/3` passed, 4.5s, exit 0 |
+| `pnpm --filter @led-control/web test` | 64 files, `733/733` passed, 7.05s, exit 0 |
+| `pnpm --filter @led-control/web exec playwright test e2e/calm-operations-monitoring.spec.ts --project=chromium --workers=1` | `25/25` passed, 13.1s, exit 0 |
+| `pnpm --filter @led-control/web typecheck` | exit 0 |
+| `pnpm --filter @led-control/web build` | exit 0; 2,440 modules, main 1,283.73 kB / gzip 384.24 kB; 기존 500 kB warning |
+| `git diff --check` | exit 0 |
+
+### Self-review·경고·제외
+
+- `mapRefreshFailed`는 actual floor와 failure object가 있어야 true이며, 다른 층으로 전환해도 이전 층 latch를 제거하지 않는다. 현재 층에서만 경고/toolbar 계산에 포함되므로 층 간 오염도 없다.
+- toolbar 문구는 type-safe failure source 집합에서 파생한다. verified automatic map recovery는 map latch만 제거하므로 unrelated dashboard/fixture partial error는 유지된다.
+- test timeout은 늘리지 않았다. 이 residual fix에서 Docker와 사용자 DB를 조회·변경하지 않았고, 앞선 unique disposable PostgreSQL migration/lifecycle 및 cleanup 증거는 그대로 유효하다.
+- Chromium은 deterministic route/API fixture 기반 software 증거다. 실제 MQTT broker, Raspberry Pi/BlueZ/ESP32-H2 HIL, production notification과 수동 in-app Browser QA는 실행하지 않았다.

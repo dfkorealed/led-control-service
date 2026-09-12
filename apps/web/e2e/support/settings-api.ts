@@ -36,6 +36,7 @@ interface InstallSettingsApiOptions {
   mapDimensions?: { width: number; height: number };
   installationStatus?: "pending" | "installed";
   includeGateway?: boolean;
+  includeFloor?: boolean;
   commandId?: string;
   mapObjects?: SettingsMapObject[];
   mapSnapshotFailuresBeforeSuccess?: number;
@@ -163,6 +164,7 @@ export async function installSettingsApiRoutes(
     mapDimensions,
     installationStatus = "installed",
     includeGateway = true,
+    includeFloor = true,
     commandId = "77777777-7777-4777-8777-777777777777",
     mapObjects = [],
     mapSnapshotFailuresBeforeSuccess = 0,
@@ -306,7 +308,8 @@ export async function installSettingsApiRoutes(
           installationStatus,
           includeGateway,
           gatewayHeartbeatAt,
-          snapshotGeneratedAt ?? new Date().toISOString()
+          snapshotGeneratedAt ?? new Date().toISOString(),
+          includeFloor
         )
       });
     }
@@ -487,7 +490,8 @@ function dashboard(
   installationStatus: "pending" | "installed" = "installed",
   includeGateway = true,
   gatewayHeartbeatAt = new Date().toISOString(),
-  generatedAt = new Date().toISOString()
+  generatedAt = new Date().toISOString(),
+  includeFloor = true
 ) {
   return {
     generatedAt,
@@ -517,14 +521,14 @@ function dashboard(
         ? Math.round(fixtures.reduce((total, fixture) => total + fixture.brightness, 0) / fixtures.length)
         : 0
     },
-    floors: [{
+    floors: includeFloor ? [{
       id: runtimeFloor.id,
       name: runtimeFloor.name,
       level: runtimeFloor.level,
       floorPlan: runtimeFloor.floorPlan,
       meshControlGroups: [],
       fixtures: includeFixtures ? fixtures : []
-    }],
+    }] : [],
     groups: [],
     gateways: includeGateway ? [{
       id: gatewayId,
