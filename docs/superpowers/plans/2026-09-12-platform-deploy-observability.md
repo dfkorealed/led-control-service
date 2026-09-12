@@ -122,6 +122,8 @@
 
 ### Task 4: Runbook and final convergence
 
+진행 상태: 검토 승인 HEAD `349bc4c`에서 runbook·최종 소프트웨어 수렴 완료, Task 4/whole-branch 독립 검토 요청. Task 1~3 항목은 당시 이력이다. 최종 root lint/typecheck/test/build 0, root 58·Shared 203·Automation 28·Mobile 1·Web 712·API 1,138/환경 289 제외·Gateway 608(합계 2,748/289 제외), 전체 Chromium 189 통과/5 opt-in 제외(188 mock/브라우저+실제 disposable automation 1), main 319.19 kB/gzip 99.21 kB다. Production 계약 18/18, 전체 audit의 MQTT 2/2·Gateway container 24/24·required MQTT 2/2·dependency 820개/기존 High 2·Moderate 1 예외/unexpected 0을 확인했다. 새 smoke `led-production-smoke-a9dac54a523c9484dbc4b9eade7b9d5e`는 빈 DB 57/57 migration·TLS/mTLS·CRL·장애 복구와 exact cleanup container/volume/network/image/temp dir 0을 통과했다. API/Web image ID와 모든 실패→승인 수정 근거는 Task 4 보고서/runbook에 있다. 승인 예외 커밋은 CRL test `73e413d`, stale Web E2E `651a3ce`, restore selector 접근성 `ad864f9`, Gateway durable observation test sync `e3daa6a`다. Timeout/retry·API/Gateway production·schema/shared/개발 Compose는 불변이고 운영 배포·사용자 DB·외부 서비스·HIL은 미실행이다.
+
 **Files:**
 - Create: `docs/runbooks/production-api-web-deployment.md`
 - Modify: `docs/agent-operations.md`
@@ -136,8 +138,8 @@
 - Consumes: Task 1 health/metrics contract, Task 2 production Compose/scripts, Task 3 recovery UI.
 - Produces: operator procedure for preflight, secret files, migration, startup, health/readiness/metrics, rollback boundary, log correlation and alert recommendations.
 
-- [ ] Write the runbook with exact commands that use an example `.env.production` path without real values; distinguish render/build/smoke evidence from actual deployment authorization.
-- [ ] Document alerts for readiness down, 5xx rate, latency, dependency failures and repeated Web recovery without claiming an external alert backend exists.
-- [ ] Run fresh root lint/typecheck/test/build, full relevant Playwright, production contract/audit, and unique disposable Compose smoke. Record exact counts, image digests/names, migration count and cleanup evidence.
-- [ ] Confirm no schema/migration/secret/user DB/real broker or HIL changes, run `git diff --check`, and reconcile `docs/project-status.md` with all menu docs and this checklist.
-- [ ] Commit final documentation and verification evidence; request task review and whole-branch review before reporting completion.
+- [x] Write the runbook with exact commands that use an example `.env.production` path without real values; distinguish render/build/smoke evidence from actual deployment authorization.
+- [x] Document alerts for readiness down, 5xx rate, latency, dependency failures and repeated Web recovery without claiming an external alert backend exists.
+- [x] Run fresh root lint/typecheck/test/build, full relevant Playwright, production contract/audit, and unique disposable Compose smoke. Record exact counts, image digests/names, migration count and cleanup evidence.
+- [x] Confirm no schema/migration/secret/user DB/real broker or HIL changes, run `git diff --check`, and reconcile `docs/project-status.md` with all menu docs and this checklist.
+- [x] Commit final documentation and verification evidence; request task review and whole-branch review before reporting completion. Independent review approval remains pending; this checkbox records implementation handoff, not release authorization.
