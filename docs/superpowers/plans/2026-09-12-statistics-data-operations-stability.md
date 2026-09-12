@@ -86,18 +86,18 @@
 - Modify: `apps/api/src/energy/reports/energy-report-worker.service.ts`
 - Modify corresponding API specs.
 
-- [ ] strict job schema에 target, requestedAt, 공개 failure를 추가하고 legacy nullable row를 지원한다.
-- [ ] 생성 transaction에서 대상 label을 snapshot하고 snapshot immutability trigger를 forward migration으로 교체한다.
-- [ ] rename/delete 뒤에도 label이 유지되고 `requestedAt === createdAt`임을 검증한다.
-- [ ] worker 실패를 안전한 public code로 분류하고 raw error 문자열이 API로 나가지 않게 한다.
-- [ ] Run shared tests/typecheck and focused report API/worker tests.
-- [ ] Commit: `feat(reports): expose actionable job metadata`
+- [x] strict job schema에 target, requestedAt, 공개 failure를 추가하고 legacy nullable row를 지원한다.
+- [x] 생성 transaction에서 대상 label을 snapshot하고 snapshot immutability trigger를 forward migration으로 교체한다.
+- [x] rename/delete 뒤에도 label이 유지되고 `requestedAt === createdAt`임을 검증한다.
+- [x] worker 실패를 안전한 public code로 분류하고 raw error 문자열이 API로 나가지 않게 한다.
+- [x] Run shared tests/typecheck and focused report API/worker tests.
+- [x] Commit: `feat(reports): expose actionable job metadata`
 
 ## Task 5: 보고서 객체 정리 관측성
 
 **Files:**
 - Modify: `apps/api/prisma/schema.prisma`
-- Modify: `apps/api/prisma/migrations/20260916_report_operations_metadata/migration.sql`
+- Create: `apps/api/prisma/migrations/20260917_report_cleanup_metrics/migration.sql`
 - Modify: `apps/api/src/storage/object-storage.service.ts`
 - Modify: `apps/api/src/energy/reports/energy-report-cleanup.service.ts`
 - Modify: `apps/api/src/energy/reports/energy-report-cleanup.service.spec.ts`
