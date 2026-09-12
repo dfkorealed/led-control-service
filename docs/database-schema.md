@@ -216,7 +216,7 @@ SiteDeletionCleanup (삭제된 Site ID와 외부 정리 대상을 독립 보존)
 | --- | --- |
 | `none` | 배경 없이 격자 캔버스만 사용 |
 | `image` | JPG 또는 PNG 이미지 원본 사용 |
-| `pdf` | PDF 첫 페이지를 렌더링한 이미지 사용 |
+| `pdf` | PDF 원본 자산 연결. 격리 렌더 worker가 만든 ready 이미지가 있을 때만 배경 표시 |
 
 ### CertificatePurpose
 
@@ -316,6 +316,7 @@ SiteDeletionCleanup (삭제된 Site ID와 외부 정리 대상을 독립 보존)
 | `address` | `String?` | 아니오 |  | 주소. operator가 만든 설치 대기 현장에서는 `NULL`이고 admin 최초 설치에서 필수값으로 채운다. |
 | `tariffKwhRate` | `Decimal(10,2)?` | 아니오 |  | kWh 단가. 설치 대기 현장에서는 `NULL`이며, 단가가 없으면 energy 비용 산출을 요청할 수 없다. |
 | `timeZone` | `String` | 예 | `Asia/Seoul` | IANA timezone. 상태 기반 에너지 일·월 경계를 계산하는 기준 |
+| `currency` | `String` | 예 | `KRW` | 현재 통계 비용 계산과 표시가 지원하는 고정 통화. 운영 설정 API도 `KRW`만 허용한다. |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
 | `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
 
@@ -340,6 +341,8 @@ admin 연결 제약:
 - statement gate를 통과한 뒤 기존 row trigger는 stale snapshot write-skew를 막기 위해 관계 행을 `FOR UPDATE`로 잠그고 변경 후 상태를 검증한다. `Site` trigger는 대상 User와 Organization, `User` trigger는 연결 Site와 Organization, `Organization` trigger는 연결 Site와 User를 transaction 종료까지 안정적으로 유지한다.
 - `adminUserId`의 unique index와 restrict foreign key는 현장당 한 admin, admin당 한 현장, 연결된 admin의 삭제 방지를 함께 보장한다.
 - operator site-admin 관리 API는 customer Organization, 설치 대기 Site, active admin User와 `adminUserId` 연결을 Serializable transaction으로 생성한다. 영구 삭제는 사용자가 입력한 현장명이 현재 이름과 정확히 일치할 때만 실행한다. 최종 삭제 transaction은 FloorAsset upload intent와 동일한 Site 행을 `FOR UPDATE`로 잠근 뒤 자산 목록을 다시 읽는다. 같은 transaction에서 제조 `GatewayInventory`를 비활성화하고 외부 정리 대상을 `SiteDeletionCleanup`에 먼저 기록한 뒤, `20260903041451_operator_site_cascade_delete` migration의 ownership cascade로 층·도면·조명·그룹·게이트웨이·명령·등록·에너지·자동화 데이터를 제거한다. Gateway 삭제의 `SET NULL` FK가 inventory claim 연결을 해제한다. 커밋 뒤 worker가 Gateway 인증서를 폐기하고 presigned upload URL 최대 수명 이후 FloorAsset 객체를 삭제하며 실패 시 재시도한다. `GatewayInventory`와 `GatewayCertificate` 원장은 보존한다. 고객사에 다른 Site가 없으면 Session, Invitation, 모든 customer User와 Organization도 삭제한다. 삭제 대상 User를 `FOR UPDATE`로 잠가 login/session 생성과 직렬화한다. 삭제 감사는 함께 삭제되는 customer가 아니라 service-provider Organization에 `operator.site_deleted`로 보존한다.
+- 설치 후 현장 설정 수정은 admin의 `manage` 권한을 transaction 안에서 다시 확인하고 Site 행을 `FOR UPDATE`로 잠근다. 주소와 kWh 단가는 비어 있을 수 없고 통화는 `KRW`만 허용한다. 요청의 `expectedUpdatedAt`과 잠긴 행의 버전이 다르면 `409 settings_version_conflict`로 거부한다.
+- 시간대 또는 kWh 단가를 바꾸기 전에는 기존 시간대·단가로 모든 조명의 열린 에너지 구간을 변경 시각까지 정산한다. 설정 변경은 Site `FOR UPDATE`, 상태 수집은 서로 호환되는 Site `FOR KEY SHARE`를 먼저 얻은 뒤 Fixture를 잠그므로, 수집끼리는 병렬 진행하면서 대기 중인 수집이 이전 설정을 새 checkpoint에 적용하지 못한다. 다수 조명 정산의 잠금 순서는 Site, Fixture ID 오름차순, aggregate/cursor이며 500행 단위로 UTC 시각을 명시해 저장한다.
 
 ### SiteDeletionCleanup
 
@@ -371,6 +374,8 @@ worker는 API 시작 시와 30초 주기로 만료된 작업을 최대 10개씩 
 | `siteId` | `String` | 예 | FK -> `Site.id` | 소속 현장 |
 | `name` | `String` | 예 |  | 층 이름 |
 | `level` | `Int` | 예 |  | 정렬/층 숫자 |
+| `status` | `FloorStatus` | 예 | `active` | 운영 화면 노출 여부. `archived` 층은 설정 조회에서만 복구 가능 |
+| `displayOrder` | `Int` | 예 | `0` | 설정과 층 선택 UI의 사용자 지정 표시 순서 |
 | `nextFixtureSequence` | `Int` | 예 | `0` | 마지막으로 예약한 자동 조명 이름 순번 |
 | `mapRevision` | `Int` | 예 | `0` | 층 전체 편집 상태의 optimistic concurrency revision |
 | `editorLeaseFence` | `Int` | 예 | `0` | 편집 lease의 monotonic fencing counter |
@@ -395,6 +400,10 @@ worker는 API 시작 시와 30초 주기로 만료된 작업을 최대 10개씩 
 운영 메모:
 
 - `(id, siteId)` Unique는 Fixture의 투영 Site owner FK 기준이다.
+- `(siteId, status, displayOrder)` index로 활성 층과 설정용 정렬 조회를 지원한다. 조명, 활성 구역 또는 진행 중인 조명 등록 세션이 남은 층은 보관할 수 없다.
+- 층 수정과 보관은 admin 재인가 뒤 Floor 행을 잠그고 `expectedUpdatedAt`을 검증한다. 보관된 층은 dashboard와 일반 조명 목록에서 제외되며 새 검색·등록 세션, 재검색·일괄 등록과 terminal provisioning 완료가 조명 또는 MeshNode를 만들지 못한다.
+- 보관된 층은 이미 발급된 편집 lease/token이 있어도 맵 저장·복구, 자산 업로드 시작·완료와 lease 획득·갱신·반납을 수행할 수 없다. 읽기·이력 조회와 만료 pending 자산 정리는 유지한다.
+- 층 이름 변경은 같은 transaction과 시각으로 소속 조명의 현재 에너지 dimension `floorName`을 갱신한다.
 - floor editor save/restore transaction은 `editorLeaseFence`, `editorLeaseTokenHash`, `editorLeaseExpiresAt`, `mapRevision`을 같은 PostgreSQL transaction 안에서 함께 검증한다.
 - Redis key `floor-editor:lease:{floorId}`는 빠른 경합 감지와 best-effort heartbeat cache일 뿐 정본이 아니다. 만료, 강제 해제, successor 획득은 항상 `Floor` row의 lease authority를 먼저 갱신한다.
 - 자동 조명 이름 순번은 등록 transaction에서 `Floor` 행을 `FOR UPDATE`로 잠근 뒤 범위 단위로 예약한다. 삭제된 조명의 순번이나 건너뛴 순번을 재사용하지 않는다.
@@ -487,7 +496,7 @@ worker는 API 시작 시와 30초 주기로 만료된 작업을 최대 10개씩 
 - 현재 읽기 전용 모니터링 화면은 `imageUrl`, `width`, `height`와 저장된 맵 객체·조명 좌표를 사용한다.
 - 맵 편집기는 `sourceType = none`이거나 `FloorPlan`이 없을 때 배경 없는 격자 캔버스를 표시한다. 배경이 없어도 맵 크기와 `gridSize`를 저장하기 위해 `sourceType = none`인 `FloorPlan`을 생성할 수 있다.
 - `gridSize`는 `20260910000000_floor_plan_grid_size` migration으로 추가한다. 기존 행은 `10`으로 backfill되며 DB와 API가 모두 `5~200` 범위를 검증한다.
-- PDF 업로드는 원본 ready asset URL을 `originalFileUrl`, 첫 페이지 PNG ready asset URL을 `renderedImageUrl`에 저장한다.
+- PDF 업로드는 원본 ready asset 경로를 `originalFileUrl`에 저장한다. 별도 렌더 자산이 없으면 `imageUrl = ""`, `renderedImageUrl = NULL`로 원본만 연결하며 캔버스 배경은 표시하지 않는다. 첫 페이지 PNG는 후속 격리 렌더 worker가 생성한 ready asset만 연결한다.
 - `imageUrl`, `originalFileUrl`, `renderedImageUrl`은 같은 층의 ready `FloorAsset`을 가리키는 `/api/floors/{floorId}/assets/{assetId}/content` 경로만 허용한다. data URL, 임의 외부 URL과 다른 층 asset 경로는 거부한다.
 
 ### FloorAsset
@@ -510,11 +519,13 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 
 운영 메모:
 
-- upload intent는 JPEG/PNG/PDF, 1 byte~50 MB, SHA-256 형식을 검증하고 DB의 `pending` 원장을 먼저 커밋한 뒤 5분짜리 PUT URL을 발급한다. 서명 서비스가 실패해도 원장은 남아 자동 정리 대상이 된다.
-- complete 요청은 S3 HEAD의 MIME, 크기, checksum이 모두 intent와 같고 cleanup 점유가 없을 때 조건부로 `ready` 전환한다.
-- API 시작 시와 60초마다 최대 25개의 만료 pending 자산을 조회한다. URL 만료 후 5초가 지난 자산을 점유하고 S3 삭제 성공 뒤 원장 행을 삭제하며, 외부 저장소 실패 시 점유를 풀어 다음 주기에 재시도한다. 2분 이상 남은 점유는 중단된 작업으로 간주해 회수한다.
+- upload intent는 JPEG/PNG/PDF, 1 byte~50 MB, SHA-256 형식을 검증하고 DB의 `pending` 원장을 먼저 커밋한 뒤 5분짜리 PUT URL을 발급한다. 서명 성공 뒤 실제 만료 시각이 원장에 기록된 경우에만 URL을 반환한다. 서명 또는 만료 기록이 실패하면 `uploadExpiresAt = NULL`인 원장이 남아 자동 정리 대상이 된다. API 내부 S3 endpoint와 브라우저용 public bucket base를 분리해 문자열 치환 없이 별도 client로 서명하며 production에서 public base 누락은 시작 오류다.
+- complete 요청은 transaction 밖의 S3 HEAD에서 MIME, 크기, checksum을 4초 안에 확인한 뒤 transaction 안에서 Site 관리자 권한, 활성 Floor와 FloorAsset 행을 다시 잠금·검증하고 `ready`로 전환한다. 객체 부재는 404, 권한·timeout·저장소 장애는 503으로 구분한다.
+- API 시작 시와 60초마다 최대 25개의 만료 pending 자산을 조회한다. URL 만료 후 5초가 지난 자산과 서명 단계에서 15분 이상 중단된 NULL 만료 원장을 점유하고, 4초 제한 안에 S3 삭제가 성공하면 원장 행을 삭제한다. 외부 저장소 실패 시 점유를 풀어 다음 주기에 재시도하며 2분 이상 남은 점유는 중단된 작업으로 회수한다.
+- `readyAt` 또는 기존 행의 `createdAt`부터 24시간이 지난 ready 자산이 현재 FloorPlan과 모든 FloorMapRevision snapshot에서 참조되지 않으면 같은 worker가 회수한다. 후보 조회에서 참조 자산을 먼저 제외해 오래된 이력이 batch를 고갈시키지 않는다. ready 객체 삭제 실패는 점유 시각을 2분간 재시도 backoff로 유지해 다음 poll에서 뒤 후보를 처리한다. 맵 저장·복구와 cleanup은 Floor 행을 먼저 잠그고 `cleanupStartedAt`을 다시 확인하므로, 저장이 먼저 끝난 자산은 보존되고 cleanup이 먼저 점유한 자산은 저장되지 않는다.
 - 조회 API는 공개 URL을 반환하지 않는다. 현장 `read` 권한을 확인한 content endpoint가 private bucket에 대해 300초 signed GET을 발급하고 `302`로 연결한다.
-- `20260912090000_floor_asset_private_ledger` migration은 기존 FloorPlan의 알려진 asset URL을 인증 경로로 치환하고 `publicUrl` 컬럼을 제거한다.
+- 번들 MinIO는 `WEB_PUBLIC_URL`을 `MINIO_API_CORS_ALLOW_ORIGIN`으로 전달하며 미설정 시 `http://localhost:5173`을 사용한다. 버킷은 계속 anonymous `none`이고, 지원되지 않는 `mc cors set`이나 localhost 전용 XML에 의존하지 않는다.
+- `20260912090000_floor_asset_private_ledger` migration은 기존 FloorPlan과 FloorMapRevision snapshot의 알려진 asset URL을 인증 경로로 치환하고, 변경된 snapshot의 안정 해시를 다시 계산한 뒤 `publicUrl` 컬럼을 제거한다. 알려진 asset과 대응하지 않는 비어 있지 않은 legacy URL이 하나라도 있으면 전체 migration을 원자적으로 중단한다.
 
 ### FloorMapObject
 
@@ -615,6 +626,8 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 - 첫 MQTT `fixture-state` event가 도착할 때만 online/fault/offline 상태, 밝기, RSSI, hop, lastSeenAt과 `statusReason`을 실제 관측값으로 확정한다.
 - freshness worker는 `provisioning_waiting_state`를 gateway offline과 fixture stale 재집계에서 제외한다. 첫 실제 `fixture-state`가 status reason을 보고값으로 바꾼 뒤에는, 보고된 `offline`을 포함해 일반 freshness 규칙을 적용한다.
 - `(floorId, id)` 복합 인덱스는 층별 fixture snapshot의 ID cursor 페이지 조회에 사용한다.
+- 일반 조명 조회는 200개 단위 ID cursor를 사용하며 시리얼·device UUID·Mesh 주소·펌웨어 버전을 노출하지 않는다. 해당 제조 식별 정보는 admin `manage` 권한 전용 설정 endpoint에서만 200개 단위 ID cursor로 조회한다.
+- admin의 조명 이름·정격전력 수정은 Fixture 행을 잠근 뒤 transaction 안에서 권한과 `expectedUpdatedAt`을 다시 확인한다. stale 요청은 `409 settings_version_conflict`로 거부한다. 정격전력 변경은 기존 에너지 checkpoint를 닫고, 이름 또는 정격전력 변경은 같은 시각의 에너지 dimension 이력을 기록한다.
 
 ### FixtureGroup
 
