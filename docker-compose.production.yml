@@ -1,5 +1,243 @@
+# Standalone production contract. Never merge with docker-compose.yml.
+x-runtime: &runtime
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  restart: unless-stopped
+  stop_grace_period: 30s
+  mem_limit: 512m
+  cpus: 1.0
+  pids_limit: 128
+  logging:
+    driver: json-file
+    options: {max-size: "10m", max-file: "3"}
+
+x-health: &health
+  interval: 5s
+  timeout: 3s
+  retries: 6
+  start_period: 20s
+
 services:
+  postgres:
+    <<: *runtime
+    networks: [backend]
+    image: postgres:16.10-alpine3.22
+    user: "70:70"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes: [postgres-data:/var/lib/postgresql/data]
+    tmpfs: [/tmp, "/var/run/postgresql:uid=70,gid=70,mode=0770"]
+    healthcheck:
+      <<: *health
+      test: [CMD-SHELL, 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+
+  redis:
+    <<: *runtime
+    networks: [backend]
+    image: redis:7.4.5-alpine3.21
+    user: "999:999"
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD}
+    # Use an in-memory config file so the password is absent from process argv.
+    entrypoint: [/bin/sh, -ec]
+    command:
+      - 'umask 077; printf "requirepass %s\nappendonly yes\ndir /data\n" "$${REDIS_PASSWORD}" > /tmp/redis.conf; exec redis-server /tmp/redis.conf'
+    volumes: [redis-data:/data]
+    tmpfs: [/tmp]
+    healthcheck:
+      <<: *health
+      test: [CMD-SHELL, 'REDISCLI_AUTH="$${REDIS_PASSWORD}" redis-cli ping | grep -qx PONG']
+
   mqtt-tls:
+    <<: *runtime
+    networks: [backend]
+    image: eclipse-mosquitto:2.0.22
+    user: "1883:1883"
+    depends_on:
+      crl-init: {condition: service_completed_successfully}
     volumes:
       - ./infra/mosquitto.production-tls.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./infra/mosquitto.acl.example:/mosquitto/config/mosquitto.acl:ro
+      - ${MQTT_TLS_CERT_DIR:?Set MQTT_TLS_CERT_DIR}:/mosquitto/certs:ro
       - mosquitto-data:/mosquitto/data
+      - mqtt-crl:/mosquitto/crls:ro
+    healthcheck:
+      <<: *health
+      # A QoS 1 mTLS publish checks broker authentication and the API ACL.
+      test: [CMD, mosquitto_pub, -h, mqtt-tls, -p, "8883", --cafile, /mosquitto/certs/mqtt-ca.crt, --cert, /mosquitto/certs/api-client.crt, --key, /mosquitto/certs/api-client.key, -t, sites/health/production-probe, -n, -q, "1"]
+
+  object-storage:
+    <<: *runtime
+    networks: [backend]
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    # The upstream image initializes a root-owned /data volume. UID 0 has no
+    # capabilities and can write only that named volume and temporary directory.
+    user: "0:0"
+    command: [server, /data, --console-address, ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${OBJECT_STORAGE_ACCESS_KEY:?Set OBJECT_STORAGE_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${OBJECT_STORAGE_SECRET_KEY:?Set OBJECT_STORAGE_SECRET_KEY}
+    volumes: [object-storage-data:/data]
+    tmpfs: [/tmp]
+    healthcheck:
+      <<: *health
+      test: [CMD, curl, --fail, --silent, --max-time, "2", http://localhost:9000/minio/health/ready]
+
+  object-storage-init:
+    <<: *runtime
+    networks: [backend]
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    user: "1000:1000"
+    restart: "no"
+    depends_on:
+      object-storage: {condition: service_healthy}
+    tmpfs: [/tmp]
+    environment:
+      MC_CONFIG_DIR: /tmp/mc
+      OBJECT_STORAGE_ACCESS_KEY: ${OBJECT_STORAGE_ACCESS_KEY:?Set OBJECT_STORAGE_ACCESS_KEY}
+      OBJECT_STORAGE_SECRET_KEY: ${OBJECT_STORAGE_SECRET_KEY:?Set OBJECT_STORAGE_SECRET_KEY}
+      OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:?Set OBJECT_STORAGE_BUCKET}
+      OBJECT_STORAGE_REPORT_BUCKET: ${OBJECT_STORAGE_REPORT_BUCKET:?Set OBJECT_STORAGE_REPORT_BUCKET}
+    entrypoint: [/bin/sh, -ec]
+    command:
+      - |
+        test "$${OBJECT_STORAGE_BUCKET}" != "$${OBJECT_STORAGE_REPORT_BUCKET}";
+        mc alias set local http://object-storage:9000 "$${OBJECT_STORAGE_ACCESS_KEY}" "$${OBJECT_STORAGE_SECRET_KEY}" >/dev/null;
+        mc mb --ignore-existing "local/$${OBJECT_STORAGE_BUCKET}";
+        mc anonymous set download "local/$${OBJECT_STORAGE_BUCKET}";
+        mc mb --ignore-existing "local/$${OBJECT_STORAGE_REPORT_BUCKET}";
+        mc anonymous set none "local/$${OBJECT_STORAGE_REPORT_BUCKET}";
+
+  crl-init:
+    <<: *runtime
+    image: ${API_IMAGE:?Set immutable API_IMAGE}
+    user: "1000:1000"
+    restart: "no"
+    network_mode: none
+    environment:
+      DEVICE_CRL_SEED_PATH: /seed/device.crl
+      MQTT_CRL_SEED_PATH: /seed/mqtt-client.crl
+      DEVICE_CRL_OUTPUT_PATH: /run/device-crl/device.crl
+      MQTT_CRL_OUTPUT_PATH: /run/mqtt-crl/mqtt-client.crl
+    # Only dynamic public CRLs are writable. Seeds, keys and CAs stay read-only.
+    volumes:
+      - ${API_TLS_CERT_DIR:?Set API_TLS_CERT_DIR}/device.crl:/seed/device.crl:ro
+      - ${MQTT_TLS_CERT_DIR:?Set MQTT_TLS_CERT_DIR}/mqtt-client.crl:/seed/mqtt-client.crl:ro
+      - device-crl:/run/device-crl
+      - mqtt-crl:/run/mqtt-crl
+    command: [node, /app/container-init-crls.cjs]
+
+  api-migrate:
+    <<: *runtime
+    networks: [backend]
+    image: ${API_IMAGE:?Set immutable API_IMAGE}
+    build: {context: ., dockerfile: apps/api/Dockerfile}
+    user: "1000:1000"
+    restart: "no"
+    tmpfs: [/tmp]
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL}
+    depends_on:
+      postgres: {condition: service_healthy}
+    command: [node, /migration/prisma/build/index.js, migrate, deploy, --schema, /app/prisma/schema.prisma]
+
+  api:
+    <<: *runtime
+    networks: [backend]
+    image: ${API_IMAGE:?Set immutable API_IMAGE}
+    user: "1000:1000"
+    mem_limit: 1g
+    tmpfs: [/tmp]
+    depends_on:
+      crl-init: {condition: service_completed_successfully}
+      api-migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+      mqtt-tls: {condition: service_healthy}
+      object-storage-init: {condition: service_completed_successfully}
+    environment:
+      NODE_ENV: production
+      API_PORT: "4000"
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL}
+      REDIS_URL: ${REDIS_URL:?Set REDIS_URL}
+      MQTT_URL: ${MQTT_URL:?Set MQTT_URL}
+      MQTT_PUBLIC_URL: ${MQTT_PUBLIC_URL:?Set MQTT_PUBLIC_URL}
+      MQTT_API_INSTANCE_ID: ${MQTT_API_INSTANCE_ID:?Set stable MQTT_API_INSTANCE_ID}
+      MQTT_CA_PATH: /run/mqtt-tls/mqtt-ca.crt
+      MQTT_CLIENT_CERT_PATH: /run/mqtt-tls/api-client.crt
+      MQTT_CLIENT_KEY_PATH: /run/mqtt-tls/api-client.key
+      MQTT_CLIENT_CRL_PATH: /run/mqtt-crl/mqtt-client.crl
+      API_TLS_CERT_PATH: /run/api-tls/api.crt
+      API_TLS_KEY_PATH: /run/api-tls/api.key
+      API_DEVICE_CLIENT_CA_PATH: /run/api-tls/device-ca.crt
+      API_MANUFACTURING_CLIENT_CA_PATH: /run/api-tls/manufacturing-ca.crt
+      API_DEVICE_CRL_PATH: /run/device-crl/device.crl
+      API_MANUFACTURING_CRL_PATH: /run/api-tls/manufacturing.crl
+      PKI_API_CA_BUNDLE_PATH: /run/api-tls/api-ca.crt
+      PKI_MQTT_CA_BUNDLE_PATH: /run/mqtt-tls/mqtt-ca.crt
+      PKI_PROVIDER: vault
+      VAULT_ADDR: ${VAULT_ADDR:?Set external HTTPS VAULT_ADDR}
+      VAULT_TOKEN_FILE: /run/vault/token
+      VAULT_CA_CERT_PATH: /run/vault/ca.crt
+      VAULT_PKI_DEVICE_MOUNT: ${VAULT_PKI_DEVICE_MOUNT:?Set VAULT_PKI_DEVICE_MOUNT}
+      VAULT_PKI_DEVICE_ROLE: ${VAULT_PKI_DEVICE_ROLE:?Set VAULT_PKI_DEVICE_ROLE}
+      VAULT_PKI_MQTT_MOUNT: ${VAULT_PKI_MQTT_MOUNT:?Set VAULT_PKI_MQTT_MOUNT}
+      VAULT_PKI_MQTT_ROLE: ${VAULT_PKI_MQTT_ROLE:?Set VAULT_PKI_MQTT_ROLE}
+      OBJECT_STORAGE_ENDPOINT: ${OBJECT_STORAGE_ENDPOINT:?Set OBJECT_STORAGE_ENDPOINT}
+      OBJECT_STORAGE_PUBLIC_URL: ${OBJECT_STORAGE_PUBLIC_URL:?Set OBJECT_STORAGE_PUBLIC_URL}
+      OBJECT_STORAGE_ACCESS_KEY: ${OBJECT_STORAGE_ACCESS_KEY:?Set OBJECT_STORAGE_ACCESS_KEY}
+      OBJECT_STORAGE_SECRET_KEY: ${OBJECT_STORAGE_SECRET_KEY:?Set OBJECT_STORAGE_SECRET_KEY}
+      OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:?Set OBJECT_STORAGE_BUCKET}
+      OBJECT_STORAGE_REPORT_BUCKET: ${OBJECT_STORAGE_REPORT_BUCKET:?Set OBJECT_STORAGE_REPORT_BUCKET}
+      OBJECT_STORAGE_REGION: ${OBJECT_STORAGE_REGION:?Set OBJECT_STORAGE_REGION}
+      WEB_PUBLIC_URL: ${WEB_PUBLIC_URL:?Set WEB_PUBLIC_URL}
+    volumes:
+      - ${API_TLS_CERT_DIR:?Set API_TLS_CERT_DIR}:/run/api-tls:ro
+      - ${MQTT_TLS_CERT_DIR:?Set MQTT_TLS_CERT_DIR}/mqtt-ca.crt:/run/mqtt-tls/mqtt-ca.crt:ro
+      - ${MQTT_TLS_CERT_DIR:?Set MQTT_TLS_CERT_DIR}/api-client.crt:/run/mqtt-tls/api-client.crt:ro
+      - ${MQTT_TLS_CERT_DIR:?Set MQTT_TLS_CERT_DIR}/api-client.key:/run/mqtt-tls/api-client.key:ro
+      - device-crl:/run/device-crl
+      - mqtt-crl:/run/mqtt-crl
+      - ${VAULT_TOKEN_FILE:?Set VAULT_TOKEN_FILE}:/run/vault/token:ro
+      - ${VAULT_CA_CERT_PATH:?Set VAULT_CA_CERT_PATH}:/run/vault/ca.crt:ro
+    healthcheck:
+      <<: *health
+      test: [CMD, node, -e, "require('https').get('https://api:4000/health/ready',{ca:require('fs').readFileSync('/run/api-tls/api-ca.crt')},r=>{r.resume();process.exitCode=r.statusCode===200?0:1}).on('error',()=>process.exit(1)).setTimeout(2000,function(){this.destroy()})"]
+
+  web:
+    <<: *runtime
+    image: ${WEB_IMAGE:?Set immutable WEB_IMAGE}
+    build: {context: ., dockerfile: apps/web/Dockerfile}
+    user: "101:101"
+    depends_on:
+      api: {condition: service_healthy}
+    networks: [backend, edge]
+    ports:
+      - ${WEB_HTTP_PORT:?Set WEB_HTTP_PORT}:8080
+      - ${WEB_HTTPS_PORT:?Set WEB_HTTPS_PORT}:8443
+    environment:
+      WEB_HTTPS_ORIGIN: ${WEB_HTTPS_ORIGIN:?Set canonical WEB_HTTPS_ORIGIN}
+    tmpfs: [/tmp, "/var/cache/nginx:uid=101,gid=101,mode=0700", "/etc/nginx/conf.d:uid=101,gid=101,mode=0700"]
+    volumes:
+      - ${WEB_TLS_CERT_DIR:?Set WEB_TLS_CERT_DIR}:/run/web-tls:ro
+      - ${API_TLS_CERT_DIR:?Set API_TLS_CERT_DIR}/api-ca.crt:/run/api-tls/api-ca.crt:ro
+    healthcheck:
+      <<: *health
+      # Connect locally while verifying the public hostname on the certificate.
+      test: [CMD-SHELL, 'curl --fail --silent --max-time 2 --connect-to ::127.0.0.1:8443 --cacert /run/web-tls/web-ca.crt "$${WEB_HTTPS_ORIGIN}/api/health/ready"']
+
+networks:
+  # Dependencies have no host ports. API requires outbound HTTPS to external Vault.
+  backend: {}
+  edge: {}
+volumes:
+  postgres-data: {}
+  redis-data: {}
+  mosquitto-data: {}
+  object-storage-data: {}
+  device-crl: {}
+  mqtt-crl: {}

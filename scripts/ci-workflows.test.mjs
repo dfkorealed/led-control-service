@@ -157,12 +157,12 @@ test("production audit cannot skip Docker, MQTT persistence, container, bundle, 
   for (const contract of [
     "docker version",
     "docker compose version",
-    "docker-compose.production.yml",
+    "pnpm production:contract",
     "tests/mqtt-production-config.node.mjs",
     "test:contracts",
     "MQTT_INTEGRATION_REQUIRED=1",
     "test:bundle-audit",
-    "apps/web/container-contract.node.mjs",
+    "pnpm production:smoke",
     "pnpm audit:production"
   ]) assert.match(script, new RegExp(escapeRegExp(contract)));
 });

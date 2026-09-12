@@ -55,13 +55,16 @@
 **Files:**
 - Create: `apps/api/Dockerfile`
 - Create: `apps/api/container-contract.node.mjs`
+- Create: `apps/api/container-init-crls.cjs` (승인된 동적 공개 CRL 예외)
 - Create: `scripts/production-deploy-contract.test.mjs`
+- Create: `scripts/production-compose-config.mjs`
 - Create: `scripts/production-compose-smoke.sh`
 - Modify: `docker-compose.production.yml`
 - Modify: `apps/web/Dockerfile`
 - Modify: `apps/web/nginx.conf.template`
 - Modify: `apps/web/container-contract.node.mjs`
 - Modify: `scripts/ci-production-audit.sh`
+- Modify: `infra/mosquitto.production-tls.conf`, `tests/mqtt-production-config.node.mjs`, `scripts/ci-workflows.test.mjs`
 - Modify: `package.json`
 
 **Interfaces:**
@@ -70,14 +73,15 @@
 - Produces: `pnpm production:contract` and `pnpm production:smoke` commands.
 - Produces: Web TLS endpoint and same-origin `/api/` proxy; API is private to the Compose network.
 
-- [ ] Write Node contract RED tests that execute standalone `docker-compose.production.yml` config against explicit non-secret fixture env and reject missing required variables, inherited development defaults, non-Web host ports, mutable/latest images, writable secret mounts, absent healthchecks, or wrong dependency order.
-- [ ] Write container RED tests for API non-root runtime, frozen install, Prisma generation, compiled entrypoint, signal-safe process, and migration command; extend Web tests for TLS 1.2/1.3, HTTP redirect, upstream certificate verification, request ID forwarding, asset/index cache policy and security headers.
-- [ ] Run contract tests and record the expected failures before production config changes.
-- [ ] Implement API Dockerfile and standalone production Compose services. Keep `docker-compose.yml` development-only; use `${VAR:?message}`, read-only certificate mounts, named data volumes, private networks, resource/restart limits, and `api-migrate: service_completed_successfully` → `api: service_healthy` → Web ordering.
-- [ ] Implement nginx TLS/proxy/cache/security config without embedding certificates or upstream credentials.
-- [ ] Extend production audit so Docker/Compose absence or container smoke failure cannot be skipped.
-- [ ] Run Node contracts, `docker compose ... config`, actual API/Web image builds, and a unique disposable Compose project smoke. Apply all migrations only inside the disposable database, verify readiness dependency fail/recover, TLS Web proxy, then remove only that project and its volumes.
-- [ ] Run API/Web typecheck/build, production audit and `git diff --check`; update `docs/agent-operations.md`, `docs/project-status.md`; commit.
+- [x] Write Node contract RED tests that execute standalone `docker-compose.production.yml` config against explicit non-secret fixture env and reject missing required variables, inherited development defaults, non-Web host ports, mutable/latest images, writable secret mounts, absent healthchecks, or wrong dependency order.
+- [x] Write container RED tests for API non-root runtime, frozen install, Prisma generation, compiled entrypoint, signal-safe process, and migration command; extend Web tests for TLS 1.2/1.3, HTTP redirect, upstream certificate verification, request ID forwarding, asset/index cache policy and security headers.
+- [x] Run contract tests and record the expected failures before production config changes.
+- [x] Implement API Dockerfile and standalone production Compose services. Keep `docker-compose.yml` development-only; use `${VAR:?message}`, read-only certificate mounts, named data volumes, private networks, resource/restart limits, and `api-migrate: service_completed_successfully` → `api: service_healthy` → Web ordering.
+- [x] Implement nginx TLS/proxy/cache/security config without embedding certificates or upstream credentials.
+- [x] Extend production audit so Docker/Compose absence or container smoke failure cannot be skipped.
+- [x] Run Node contracts, `docker compose ... config`, actual API/Web image builds, and a unique disposable Compose project smoke. Apply all migrations only inside the disposable database, verify readiness dependency fail/recover, TLS Web proxy, then remove only that project and its volumes.
+- [x] Run API/Web typecheck/build, production audit and `git diff --check`; update `docs/agent-operations.md`, `docs/project-status.md`; commit.
+- [x] 승인된 동적 CRL 두 named volume 예외를 구현하고 read-only seed 누락 fail-fast, API 실제 publisher의 atomic rename, broker RO 소비, init 재실행의 상태 보존과 exact cleanup을 disposable smoke로 검증한다. 인증서/key/CA/제조 CRL은 RO로 유지한다.
 
 ### Task 3: Accessible Web app-shell recovery
 

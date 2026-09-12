@@ -21,7 +21,7 @@ test("production Mosquitto persists MQTT sessions in a writable broker data volu
   assert.match(compose, /^  mosquitto-data:$/m);
 });
 
-test("production startup explicitly overlays the persistent Mosquitto configuration", async () => {
+test("production startup uses only standalone production configuration and an explicit env file", async () => {
   const [productionCompose, packageJson] = await Promise.all([
     readFile(path.join(repositoryRoot, "docker-compose.production.yml"), "utf8"),
     readFile(path.join(repositoryRoot, "package.json"), "utf8")
@@ -29,5 +29,8 @@ test("production startup explicitly overlays the persistent Mosquitto configurat
 
   assert.match(productionCompose, /\.\/infra\/mosquitto\.production-tls\.conf:\/mosquitto\/config\/mosquitto\.conf:ro/);
   assert.match(productionCompose, /mosquitto-data:\/mosquitto\/data/);
-  assert.match(packageJson, /"docker:up:production": "docker compose -f docker-compose\.yml -f docker-compose\.production\.yml up -d"/);
+  const command = JSON.parse(packageJson).scripts["docker:up:production"];
+  assert.match(command, /--env-file .*PRODUCTION_ENV_FILE:\?/);
+  assert.match(command, /node scripts\/production-compose-config\.mjs up/);
+  assert.doesNotMatch(command, /-f docker-compose\.yml/);
 });

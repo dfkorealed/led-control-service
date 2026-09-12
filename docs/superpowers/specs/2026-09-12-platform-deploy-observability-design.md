@@ -19,6 +19,8 @@ API image는 workspace dependency와 Prisma Client를 build stage에서 생성�
 
 Web nginx는 사용자가 제공한 TLS certificate/key를 read-only mount해 TLS 1.2/1.3으로 서비스하고, HTTP는 HTTPS로 redirect한다. API upstream은 private Compose network의 HTTPS API이며 내부 CA를 명시적으로 신뢰한다. forwarded headers와 request ID를 보존하고, 정적 asset에는 immutable cache, `index.html`에는 no-cache를 적용한다.
 
+2026-09-12 총괄 승인 보완: 기존 API의 `publishCrlAtomically`가 장비·MQTT CRL을 갱신하므로 동적 공개 CRL 두 파일까지 read-only로 두면 발행이 EROFS로 실패한다. `device-crl`·`mqtt-crl` 전용 named volume으로 분리하고, non-root `crl-init` one-shot이 read-only host seed를 검사한 뒤 빈 volume만 초기화한다. 기존 CRL이 있으면 초기 seed로 덮어쓰지 않는다. 실행 중 writer는 API뿐이며 같은 디렉터리 내 atomic rename을 허용한다. API TLS consumer는 writer와 같은 process이므로 장비 CRL 경로만 RW를 공유한다. Mosquitto는 MQTT CRL volume을 RO로 읽고, 인증서/private key/CA/제조 CRL/host seed는 모두 RO를 유지한다. 변경된 MQTT CRL 파일의 broker TLS 재적용에는 운영 SIGHUP 절차가 필요하며 자동 reload sidecar는 추가하지 않는다.
+
 ### 2. Liveness와 readiness를 분리
 
 - `GET /health/live`: process event loop가 요청을 처리할 수 있는지만 확인한다. 외부 의존성을 조회하지 않는다.
