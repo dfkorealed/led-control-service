@@ -13,6 +13,17 @@ const scope = {
 };
 
 describe("FixtureStateIngestionService", () => {
+  it("locks the site before locking the fixture and reading energy settings", async () => {
+    const prisma = fixturePrisma();
+    const service = new FixtureStateIngestionService(prisma as never);
+
+    await service.ingest(scope.gatewayId, fixtureEvent(9));
+
+    const lockSql = prisma.$queryRaw.mock.calls.map(([query]: [{ sql: string }]) => query.sql);
+    expect(lockSql[0]).toMatch(/FROM "Site"[\s\S]*FOR UPDATE/);
+    expect(lockSql[1]).toMatch(/FROM "Fixture" f[\s\S]*FOR UPDATE OF f/);
+  });
+
   it("atomically persists the ledger, aggregate, checkpoint, and latest fixture snapshot", async () => {
     const prisma = fixturePrisma();
     const service = new FixtureStateIngestionService(prisma as never);
@@ -239,7 +250,9 @@ function fixturePrisma(options: {
   };
   const prisma: any = {
     __row: row,
-    $queryRaw: jest.fn().mockResolvedValue(options.lockedRows ?? [row]),
+    $queryRaw: jest.fn(async (query: { sql: string }) => query.sql.includes('FROM "Site"')
+      ? [{ id: scope.siteId }]
+      : (options.lockedRows ?? [row])),
     processedGatewayEvent: {
       findUnique: jest.fn().mockResolvedValue(options.processedEvent ?? null),
       findFirst: jest.fn().mockResolvedValue(null),
