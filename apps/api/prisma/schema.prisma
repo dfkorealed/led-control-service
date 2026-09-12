@@ -24,6 +24,19 @@ enum CommandStatus {
   failed
 }
 
+enum CommandOutcome {
+  pending
+  applied
+  not_applied
+  partially_applied
+  unknown
+}
+
+enum CommandDispatchKind {
+  dimming
+  status_check
+}
+
 enum CommandDispatchStatus {
   pending
   published
@@ -722,6 +735,8 @@ model Command {
   targetFixtureIds   Json              @default("[]")
   brightness         Int
   status             CommandStatus     @default(pending)
+  /// Legacy outcomes are unknown historically; only new producers assign an outcome.
+  outcome            CommandOutcome?
   errorMessage       String?
   site               Site              @relation(fields: [siteId], references: [id], onDelete: Cascade)
   user               User?             @relation(fields: [requestedBy], references: [id], onDelete: SetNull)
@@ -738,6 +753,9 @@ model CommandDispatch {
   id                      String                 @id @default(uuid())
   commandId               String
   gatewayId               String
+  kind                    CommandDispatchKind    @default(dimming)
+  verificationAttempt     Int?
+  clientRequestId         String?                @unique
   idempotencyKey          String                 @unique
   sequence                BigInt
   deliveryMode            String                 @default("unicast")

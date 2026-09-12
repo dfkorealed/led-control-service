@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleInit, Optional } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
+import { CommandDispatchKind, Prisma } from "@prisma/client";
 import {
   createGatewayCommandExpiry,
   GatewayDimmingCommandDraftV2,
@@ -8,6 +8,10 @@ import {
   gatewayDimmingCommandDraftV2Schema,
   gatewayDimmingCommandPublishedV2Schema,
   gatewayDimmingCommandV2CompatibilitySchema,
+  GatewayStatusCheckCommandDraftV2,
+  GatewayStatusCheckCommandPublishedV2,
+  gatewayStatusCheckCommandDraftV2Schema,
+  gatewayStatusCheckCommandPublishedV2Schema,
   remainingGatewayCommandMessageExpiry
 } from "@led-control/shared";
 import { randomUUID } from "node:crypto";
@@ -118,6 +122,7 @@ export class OutboxPublisherService implements OnModuleInit {
           dispatch: {
             select: {
               commandId: true,
+              kind: true,
               gatewayId: true,
               deliveryMode: true,
               destinationAddress: true,
@@ -157,6 +162,7 @@ export class OutboxPublisherService implements OnModuleInit {
       createdAt: Date;
       dispatch: {
         commandId: string;
+        kind?: CommandDispatchKind;
         gatewayId: string;
         deliveryMode: string;
         destinationAddress: string | null;
@@ -166,19 +172,16 @@ export class OutboxPublisherService implements OnModuleInit {
     }
   ) {
     try {
-      const stored = parseStoredDimmingCommand(record.payload);
-      const draft = stored.draft;
-      assertManualOverridePublishable(draft, this.clock());
+      const stored = parseStoredCommand(record.payload, record.dispatch.kind);
+      if (stored.kind === "dimming") assertManualOverridePublishable(stored.draft, this.clock());
       const prepared = await this.prisma.$transaction(async (tx) => {
-        await this.assertMeshGroupSnapshot(tx, record, draft);
+        if (stored.kind === "dimming") await this.assertMeshGroupSnapshot(tx, record, stored.draft);
         const preparedAt = this.clock();
-        assertManualOverridePublishable(draft, preparedAt);
+        if (stored.kind === "dimming") assertManualOverridePublishable(stored.draft, preparedAt);
         const leaseExpiresAt = new Date(preparedAt.getTime() + LEASE_MS);
-        const payload = stored.payload ?? createPublishedDimmingCommand(
-          draft,
-          preparedAt,
-          this.deliveryGeneration()
-        );
+        const payload = stored.payload ?? (stored.kind === "status_check"
+          ? createPublishedStatusCheckCommand(stored.draft, preparedAt, this.deliveryGeneration())
+          : createPublishedDimmingCommand(stored.draft, preparedAt, this.deliveryGeneration()));
         const updated = await tx.mqttOutbox.updateMany({
           where: {
             id: record.id,
@@ -208,7 +211,7 @@ export class OutboxPublisherService implements OnModuleInit {
 
       const publishAt = this.clock();
       if (prepared.leaseExpiresAt.getTime() <= publishAt.getTime() + MQTT_PUBLISH_TIMEOUT_MS) return;
-      assertManualOverridePublishable(toDimmingDraft(prepared.payload), publishAt);
+      if (stored.kind === "dimming") assertManualOverridePublishable(stored.draft, publishAt);
       const messageExpiryInterval = currentMessageExpiry(prepared.payload, publishAt);
 
       await this.mqtt.publishTopic(record.topic, prepared.payload, {
@@ -313,7 +316,7 @@ export class OutboxPublisherService implements OnModuleInit {
   }
 
   private async moveToDeadLetter(
-    record: { id: string; dispatchId: string; dispatch: { commandId: string } },
+    record: { id: string; dispatchId: string; dispatch: { commandId: string; kind?: CommandDispatchKind } },
     attempts: number,
     message: string,
     now: Date
@@ -322,7 +325,7 @@ export class OutboxPublisherService implements OnModuleInit {
   }
 
   private async moveToTerminalFailure(
-    record: { id: string; dispatchId: string; dispatch: { commandId: string } },
+    record: { id: string; dispatchId: string; dispatch: { commandId: string; kind?: CommandDispatchKind } },
     attempts: number,
     message: string,
     now: Date,
@@ -349,12 +352,44 @@ export class OutboxPublisherService implements OnModuleInit {
         where: { dispatchId: record.dispatchId, status: "pending" },
         data: { status: "failed", occurredAt: now, errorMessage: message }
       });
+      // A failed observation closes only its dispatch; it cannot establish the original Set outcome.
+      if (record.dispatch.kind === "status_check") return;
       await tx.command.updateMany({
         where: { id: record.dispatch.commandId, status: "pending" },
         data: { status: "failed", errorMessage: message }
       });
     });
   }
+}
+
+function parseStoredCommand(payload: Prisma.JsonValue, kind: CommandDispatchKind = "dimming") {
+  if (kind === "status_check") {
+    return { kind, ...parseStoredStatusCheckCommand(payload) } as const;
+  }
+  return { kind, ...parseStoredDimmingCommand(payload) } as const;
+}
+
+function parseStoredStatusCheckCommand(payload: Prisma.JsonValue): {
+  draft: GatewayStatusCheckCommandDraftV2;
+  payload?: GatewayStatusCheckCommandPublishedV2;
+} {
+  const published = gatewayStatusCheckCommandPublishedV2Schema.safeParse(payload);
+  if (published.success) {
+    const { expiresAt, deliveryGeneration, deliveryGeneratedAt, deliveryWindowMs, ...draft } = published.data;
+    return { draft, payload: published.data };
+  }
+  return { draft: gatewayStatusCheckCommandDraftV2Schema.parse(payload) };
+}
+
+function createPublishedStatusCheckCommand(
+  draft: GatewayStatusCheckCommandDraftV2,
+  generatedAt: Date,
+  deliveryGeneration: string
+) {
+  const { messageExpiryInterval: _messageExpiryInterval, ...delivery } = createGatewayCommandExpiry(
+    generatedAt, undefined, deliveryGeneration
+  );
+  return gatewayStatusCheckCommandPublishedV2Schema.parse({ ...draft, ...delivery });
 }
 
 function parseStoredDimmingCommand(payload: Prisma.JsonValue): {
@@ -398,7 +433,7 @@ function createPublishedDimmingCommand(
   return gatewayDimmingCommandPublishedV2Schema.parse({ ...draft, ...delivery });
 }
 
-function currentMessageExpiry(payload: GatewayDimmingCommandPublishedV2, now: Date) {
+function currentMessageExpiry(payload: { expiresAt: string }, now: Date) {
   try {
     return remainingGatewayCommandMessageExpiry(payload, now);
   } catch (error) {

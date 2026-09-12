@@ -1,8 +1,10 @@
 # 제어 메뉴 기능 현황
 
-기준일: 2026-09-11
+기준일: 2026-09-12
 
 ## 구현 완료
+
+- P0/P1 상태 조회 기반 계약을 추가했다. `Command.outcome`은 과거 행을 `NULL`로 보존하고 `CommandDispatch.kind`로 dimming과 status-check를 구분한다. Status-check는 대상 1~64개·시도 1~3회 strict MQTT 계약과 공통 outbox publisher를 사용하며 PUBACK 유실 뒤 동일 generation을 재사용한다. DB migration 적용, 상태 조회 API·Gateway Get·화면 연결과 실제 장비 검증은 후속 작업이다.
 
 - 공통 고객 셸 상단은 현재 메뉴 제목과 실제 현장명 배지만 표시한다. 기존 층명 기반 `B2 주차장` 표기와 동작 없는 Gateway 정상·오프라인·미등록 상태 배지는 제거하되 설정의 `Gateway 상태` 상세 카드는 유지한다. 로그아웃 위치와 인증·dirty editor 확인 로직은 유지하고, 고객·운영자 셸의 로그아웃은 공통 `IconTooltipButton`으로 아이콘만 표시한다. `로그아웃` 도움말은 hover와 키보드 focus에서 열리고 도움말 위로 포인터를 옮겨도 유지되며 `Escape`로 닫힌다. 모바일 버튼은 52px 실제 터치 영역을 사용한다.
 - 수동·스케줄·이벤트 제어 탭을 통계 상단 메뉴와 같은 밑줄형 공통 `UnderlineNavigation`으로 통일했다. 탭 아이콘은 공통 label의 선택 옵션으로 제공해 제어의 기존 아이콘은 유지하고, 활성 밑줄·색상·44px 높이·가로 스크롤 동작은 통계와 공유한다. 기존 `mode` query, 권한별 탭 노출, `tablist`/`tab` ARIA 연결과 방향키·Home·End roving focus는 변경하지 않았다. 390·320·760px Chromium에서 세 모드 모두 탭과 panel 사이 16px 간격, overflow 내부 focus ring과 document 가로 overflow 부재를 확인했다.

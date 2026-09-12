@@ -123,6 +123,10 @@ SiteDeletionCleanup (삭제된 Site ID와 외부 정리 대상을 독립 보존)
 
 ### CommandDispatchStatus / CommandFixtureResultStatus
 
+`CommandOutcome`은 `pending`, `applied`, `not_applied`, `partially_applied`, `unknown`으로 실제 적용 결과를 구분한다. 기존 `CommandStatus`와 별도이며 과거 행은 `outcome = NULL`로 보존한다. `unknown`은 broker 발행 뒤 응답 유실 등으로 실제 적용 여부를 확정할 수 없는 상태다.
+
+`CommandDispatchKind`는 기존 Set인 `dimming`(기본값)과 관측용 Get인 `status_check`를 구분한다.
+
 `CommandDispatchStatus`는 gateway별 전송 상태를 `pending`, `published`, `accepted`, `completed`, `failed`, `timed_out`으로 구분한다. `CommandFixtureResultStatus`는 실제 조명별 결과를 `pending`, `succeeded`, `failed`, `timed_out`으로 구분한다. Gateway acceptance와 실제 장비 status ACK를 같은 의미로 취급하지 않는다.
 
 ### 자동 제어 enum
@@ -940,6 +944,7 @@ cloud가 ACK로 확인한 실제 group subscription pair snapshot이다. 복합 
 | `targetFixtureIds` | `Json` | 예 | `[]` | 명령 생성 transaction에서 확정한 조명 ID snapshot |
 | `brightness` | `Int` | 예 |  | 요청 밝기 0-100 |
 | `status` | `CommandStatus` | 예 | `pending` | 명령 상태 |
+| `outcome` | `CommandOutcome?` | 아니오 | 기본값 없음 | 실제 적용 결과. 기존 행은 `NULL`, 신규 producer가 명시 |
 | `errorMessage` | `String?` | 아니오 |  | 실패 사유 |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
 | `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
@@ -963,6 +968,9 @@ cloud가 ACK로 확인한 실제 group subscription pair snapshot이다. 복합 
 
 | `CommandDispatch` 추가 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
 | --- | --- | --- | --- | --- |
+| `kind` | `CommandDispatchKind` | 예 | `dimming` | Set 전송 또는 후속 상태 조회 |
+| `verificationAttempt` | `Int?` | 아니오 | 기본값 없음 | `status_check`의 시도 번호, shared wire에서 1~3 강제 |
+| `clientRequestId` | `String?` | 아니오 | 전역 Unique | 상태 조회 HTTP 재요청 멱등 키. 기존 dimming은 `NULL` |
 | `deliveryMode` | `String` | 예 | `unicast` | `unicast`, `parallel_unicast`, `mesh_group` |
 | `destinationAddress` | `String?` | 아니오 |  | `mesh_group`일 때 사용할 BLE Mesh Group Address |
 | `meshControlGroupId` | `String?` | 아니오 | `gatewayId`와 복합 FK -> `MeshControlGroup(id, gatewayId)`, `ON DELETE RESTRICT` | 명령 생성 시 선택한 Mesh control group snapshot |
@@ -971,6 +979,10 @@ cloud가 ACK로 확인한 실제 group subscription pair snapshot이다. 복합 
 `unicast`와 `parallel_unicast`는 조명 수만큼 실제 전송하고, `mesh_group`은 `destinationAddress`에 한 번 전송한다. floor/group target은 `MeshControlGroup.status = ready`인 주소만 사용하며 준비되지 않은 group을 unicast로 대체하지 않는다. Mesh group dispatch는 그룹 삭제로 명령 감사 snapshot이 사라지지 않도록 `ON DELETE RESTRICT` 관계를 사용하고, `(meshControlGroupId, status)` index로 발행 대기 명령 검증을 지원한다.
 
 `Gateway.nextCommandSequence`는 gateway별 dispatch sequence를 트랜잭션 안에서 원자 증가시키는 카운터다. 동시 제어 요청에서도 `(gatewayId, sequence)`가 충돌하지 않도록 `max(sequence)+1` 계산을 사용하지 않는다.
+
+`20260912090000_command_outcome_status_check`는 두 enum과 nullable outcome/상태 조회 identity, 기본값 `dimming`인 dispatch kind를 추가하는 순방향 migration이다. 과거 outcome·시도 번호·요청 ID를 backfill하지 않는다. 이 작업에서는 migration 파일 작성 및 Prisma validate/generate만 수행하고 어떤 DB에도 적용하지 않았다.
+
+상태 조회 outbox는 `sites/{siteId}/gateways/{gatewayId}/commands/status-check`로 발행한다. Strict draft는 기존 command identity와 `originalCommandId`, 중복 없는 `targetFixtureIds` 1~64개, `expectedBrightness` 0~100, `verificationAttempt` 1~3, `requestedAt`을 사용한다. Published payload는 `deliveryGeneration`, `deliveryGeneratedAt`, `deliveryWindowMs`, `expiresAt`을 더하며 요청자 PII·override·Mesh 그룹 정보를 허용하지 않는다. 발행 시점 기준 최대 10초·초 단위 expiry를 durable 저장하고, PUBACK 유실 뒤에도 동일 generation을 재사용하며 남은 MQTT TTL만 감소시킨다. Status-check 발행 실패는 해당 dispatch/result만 닫고 원 명령 결과는 변경하지 않는다. 상태 조회 API 생성·ACK 수렴과 Gateway Get 실행은 후속 Task에서 연결한다.
 
 `CommandFixtureResult`는 `(dispatchId, fixtureId)` 복합 PK로 실제 조명별 `succeeded`, `failed`, `timed_out`, 밝기, fault, RSSI, hop, 발생 시각을 저장한다. 일부 노드 실패를 그룹 전체 성공으로 숨기지 않는다.
 

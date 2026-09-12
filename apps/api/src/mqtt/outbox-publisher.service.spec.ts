@@ -60,6 +60,65 @@ function meshRecord(overrides: Record<string, unknown> = {}) {
 }
 
 describe("OutboxPublisherService", () => {
+  it("publishes status-check without dimming guards and reclaims the persisted generation after PUBACK loss", async () => {
+    let now = new Date("2026-07-11T00:01:00.000Z");
+    const draft = {
+      commandId: dimmingPayload.commandId, dispatchId: dimmingPayload.dispatchId,
+      siteId: dimmingPayload.siteId, gatewayId: dimmingPayload.gatewayId,
+      idempotencyKey: dimmingPayload.idempotencyKey, sequence: 2,
+      originalCommandId: dimmingPayload.commandId, targetFixtureIds: dimmingPayload.targetFixtureIds,
+      expectedBrightness: 65, verificationAttempt: 1, requestedAt: dimmingPayload.requestedAt
+    };
+    const stored = { payload: draft as Record<string, unknown>, attempts: 0 };
+    const prisma: any = {
+      mqttOutbox: {
+        updateMany: jest.fn().mockImplementation(({ data }) => {
+          if (data.payload) stored.payload = structuredClone(data.payload);
+          if (typeof data.attempts === "number") stored.attempts = data.attempts;
+          return Promise.resolve({ count: 1 });
+        }),
+        count: jest.fn().mockResolvedValue(1)
+      },
+      meshControlGroup: { findUnique: jest.fn().mockRejectedValue(new Error("must not load a dimming snapshot")) },
+      commandDispatch: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      commandFixtureResult: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      command: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
+    };
+    prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
+    const mqtt = { publishTopic: jest.fn().mockImplementationOnce(async (_topic, payload) => {
+      expect(stored.payload).toEqual(payload);
+      throw new Error("simulated PUBACK loss");
+    }).mockResolvedValue(undefined) };
+    const service = new OutboxPublisherService(prisma, mqtt as never, {
+      workerId: "worker-1", random: () => 0, clock: () => now, deliveryGeneration: () => deliveryGeneration
+    });
+    const record = {
+      ...meshRecord(),
+      topic: `sites/${draft.siteId}/gateways/${draft.gatewayId}/commands/status-check`,
+      // A status check of an old mesh command must not require its current group snapshot.
+      dispatch: { ...meshDispatch, kind: "status_check" as const }
+    };
+    await service.publishClaimed({ ...record, payload: stored.payload } as never);
+    const published = {
+      ...draft, deliveryGeneration, deliveryGeneratedAt: "2026-07-11T00:01:00.000Z",
+      deliveryWindowMs: 10_000, expiresAt: "2026-07-11T00:01:10.000Z"
+    };
+    expect(stored.payload).toEqual(published);
+    expect(mqtt.publishTopic).toHaveBeenNthCalledWith(1, record.topic, published, { messageExpiryInterval: 10, timeoutMs: 20_000 });
+    now = new Date("2026-07-11T00:01:03.200Z");
+    await service.publishClaimed({ ...record, payload: stored.payload, attempts: stored.attempts } as never);
+    expect(mqtt.publishTopic).toHaveBeenNthCalledWith(2, record.topic, published, { messageExpiryInterval: 6, timeoutMs: 20_000 });
+    expect(prisma.meshControlGroup.findUnique).not.toHaveBeenCalled();
+
+    now = new Date("2026-07-11T00:01:11.000Z");
+    await service.publishClaimed({ ...record, payload: stored.payload, attempts: stored.attempts } as never);
+    expect(mqtt.publishTopic).toHaveBeenCalledTimes(2);
+    expect(prisma.commandDispatch.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: "failed", errorCode: "COMMAND_DELIVERY_EXPIRED" })
+    }));
+    expect(prisma.command.updateMany).not.toHaveBeenCalled();
+  });
+
   it("contains an initial claim failure, recovers on the next tick, and stops after destroy", async () => {
     jest.useFakeTimers();
     const unhandledRejection = jest.fn();
@@ -535,6 +594,7 @@ describe("OutboxPublisherService", () => {
         dispatch: {
           select: {
             commandId: true,
+            kind: true,
             gatewayId: true,
             deliveryMode: true,
             destinationAddress: true,

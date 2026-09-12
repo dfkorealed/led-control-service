@@ -11,6 +11,9 @@ import {
   gatewayDimmingCommandV2CompatibilitySchema,
   gatewayDimmingCommandPublishedV2Schema,
   gatewayDimmingCommandV2Schema,
+  gatewayStatusCheckCommandDraftV2Schema,
+  gatewayStatusCheckCommandPublishedV2Schema,
+  gatewayStatusCheckCommandV2CompatibilitySchema,
   gatewayHeartbeatV2Schema,
   meshGroupResyncAckV2Schema,
   meshGroupResyncRequestV2Schema,
@@ -31,6 +34,58 @@ const eventId = "44444444-4444-4444-8444-444444444444";
 const occurredAt = "2026-07-11T00:00:00.000Z";
 
 describe("gateway-scoped MQTT v2 contracts", () => {
+  const statusCheckDraft = {
+    commandId, dispatchId, siteId, gatewayId,
+    idempotencyKey: `${dispatchId}:${gatewayId}`, sequence: 8,
+    originalCommandId: commandId, targetFixtureIds: [fixtureId],
+    expectedBrightness: 70, verificationAttempt: 1, requestedAt: occurredAt
+  };
+
+  it("accepts a scoped status-check draft without dimming or requester fields", () => {
+    expect(gatewayStatusCheckCommandDraftV2Schema).toBeDefined();
+    expect(gatewayStatusCheckCommandDraftV2Schema.parse(statusCheckDraft)).toEqual(statusCheckDraft);
+    expect(mqttTopicsV2.gatewayCommand(siteId, gatewayId, "status-check")).toBe(
+      `sites/${siteId}/gateways/${gatewayId}/commands/status-check`
+    );
+    for (const extra of [{ requestedBy: eventId }, { brightness: 70 }, { overrideUntil: occurredAt }, { extra: true }]) {
+      expect(gatewayStatusCheckCommandDraftV2Schema.safeParse({ ...statusCheckDraft, ...extra }).success).toBe(false);
+    }
+  });
+
+  it("bounds status checks to unique 1..64 targets, brightness 0..100, and attempts 1..3", () => {
+    expect(gatewayStatusCheckCommandDraftV2Schema).toBeDefined();
+    const fixtureIds = Array.from({ length: 65 }, (_, index) => `33333333-3333-4333-8333-${String(index).padStart(12, "0")}`);
+    expect(gatewayStatusCheckCommandDraftV2Schema.safeParse({ ...statusCheckDraft, targetFixtureIds: fixtureIds.slice(0, 64), verificationAttempt: 3 }).success).toBe(true);
+    for (const invalid of [
+      { targetFixtureIds: [] }, { targetFixtureIds: fixtureIds }, { targetFixtureIds: [fixtureId, fixtureId] },
+      { targetFixtureIds: ["invalid"] }, { verificationAttempt: 0 }, { verificationAttempt: 4 },
+      { verificationAttempt: 1.5 }, { expectedBrightness: -1 }, { expectedBrightness: 101 }
+    ]) {
+      expect(gatewayStatusCheckCommandDraftV2Schema.safeParse({ ...statusCheckDraft, ...invalid }).success).toBe(false);
+    }
+  });
+
+  it("requires one strict publish-relative status-check generation and rejects requester PII", () => {
+    expect(gatewayStatusCheckCommandPublishedV2Schema).toBeDefined();
+    const published = {
+      ...statusCheckDraft, deliveryGeneration: eventId,
+      deliveryGeneratedAt: "2026-07-11T00:01:00.000Z", deliveryWindowMs: 10_000,
+      expiresAt: "2026-07-11T00:01:10.000Z"
+    };
+    expect(gatewayStatusCheckCommandPublishedV2Schema.parse(published)).toEqual(published);
+    expect(gatewayStatusCheckCommandV2CompatibilitySchema.parse(published)).toEqual(published);
+    expect(gatewayStatusCheckCommandPublishedV2Schema.safeParse(statusCheckDraft).success).toBe(false);
+    expect(gatewayStatusCheckCommandDraftV2Schema.safeParse(published).success).toBe(false);
+    for (const invalid of [
+      { expiresAt: "2026-07-11T00:00:10.000Z" }, { deliveryWindowMs: 0 }, { deliveryWindowMs: 11_000 },
+      { deliveryWindowMs: 9_999, expiresAt: "2026-07-11T00:01:09.999Z" },
+      { requestedBy: eventId }, { overrideRemainingMs: 1000 }
+    ]) {
+      expect(gatewayStatusCheckCommandPublishedV2Schema.safeParse({ ...published, ...invalid }).success).toBe(false);
+      expect(gatewayStatusCheckCommandV2CompatibilitySchema.safeParse({ ...published, ...invalid }).success).toBe(false);
+    }
+  });
+
   it.each([
     ["all succeeded", ["succeeded", "succeeded"], "succeeded"],
     ["success and failure", ["succeeded", "failed"], "partially_succeeded"],
