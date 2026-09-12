@@ -69,8 +69,12 @@ export function isTerminalCommandStage(stage: CommandStage | null | undefined): 
 export function getCommandStatusRefetchInterval(
   requestedCommandId: string | null,
   status: CommandStatusResponse | null | undefined,
-  pendingVerificationDispatchIds?: string[]
+  pendingVerificationDispatchIds?: string[],
+  hasUnresolvedVerificationRequest = false
 ): 1000 | false {
+  // GET may still return the pre-commit result when POST is pending, lost or
+  // interrupted. Keep reading until that logical request can be resolved.
+  if (hasUnresolvedVerificationRequest) return 1000;
   // A POST can finish before its new dispatch appears in a cached GET response.
   if (pendingVerificationDispatchIds?.some((id) => !status?.dispatches.some((dispatch) => dispatch.id === id))) return 1000;
   return status?.id === requestedCommandId && isSettledCommandStatus(status) ? false : 1000;
@@ -149,11 +153,11 @@ export function canonicalizeDimmingCommandInput(
   };
 }
 
-export function useCommandStatus(commandId: string | null, pendingVerificationDispatchIds?: string[]) {
+export function useCommandStatus(commandId: string | null, pendingVerificationDispatchIds?: string[], hasUnresolvedVerificationRequest = false) {
   return useQuery({
     queryKey: ["command-status", commandId],
     queryFn: () => apiGet<CommandStatusResponse>(`/commands/${commandId}`),
     enabled: Boolean(commandId),
-    refetchInterval: (query) => getCommandStatusRefetchInterval(commandId, query.state.data, pendingVerificationDispatchIds)
+    refetchInterval: (query) => getCommandStatusRefetchInterval(commandId, query.state.data, pendingVerificationDispatchIds, hasUnresolvedVerificationRequest)
   });
 }

@@ -10,6 +10,9 @@ import {
 const requestedCommandId = "00000000-0000-4000-8000-000000009001";
 
 describe("getCommandStatusRefetchInterval", () => {
+  it("keeps polling an unresolved status-check POST even before dispatch identity is known", () => {
+    expect(getCommandStatusRefetchInterval(requestedCommandId, createStatus(requestedCommandId, "verification_required"), undefined, true)).toBe(1000);
+  });
   it("keeps polling until a newly accepted verification dispatch is visible in detail", () => {
     expect(getCommandStatusRefetchInterval(requestedCommandId, createStatus(requestedCommandId, "verification_required"), ["new-check"])).toBe(1000);
   });

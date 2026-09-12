@@ -105,8 +105,8 @@ export function ControlView({
   );
   const scopedCommandId = commandScopeMatches ? commandId : null;
   const scopedActiveRequest = commandScopeMatches && activeRequest?.siteId === activeSiteId ? activeRequest : null;
-  const statusArguments: [string | null, string[]?] = verificationRequest?.dispatchIds
-    ? [scopedCommandId, verificationRequest.dispatchIds] : [scopedCommandId];
+  const statusArguments: [string | null, string[]?, boolean?] = verificationRequest
+    ? [scopedCommandId, verificationRequest.dispatchIds, true] : [scopedCommandId];
   const commandQuery = useCommandStatus(...statusArguments);
   const matchingCommandStatus = commandQuery.data?.id === scopedCommandId ? commandQuery.data : null;
   const waitingForVerification = Boolean(verificationRequest && (!verificationRequest.dispatchIds
@@ -167,7 +167,11 @@ export function ControlView({
     setCommandUserId(userId);
     setCommandSiteId(activeSiteId);
     setActiveRequest(activeSiteId ? loadActiveCommandRequest(userId, activeSiteId) : null);
-    setCommandId(activeSiteId ? loadActiveCommandId(userId, activeSiteId) : null);
+    const restoredCommandId = activeSiteId ? loadActiveCommandId(userId, activeSiteId) : null;
+    // A saved identity may have gained a status-check while this view was gone.
+    // Discard its old terminal cache before enabling the restored detail query.
+    if (restoredCommandId) queryClient.removeQueries({ queryKey: ["command-status", restoredCommandId], exact: true });
+    setCommandId(restoredCommandId);
 
     return () => {
       if (activeScope.current.generation === generation) {
@@ -272,6 +276,17 @@ export function ControlView({
     setVerificationRequest(request);
     setCommandId(request.commandId);
     saveActiveCommandId(userId, requestSiteId, request.commandId);
+    const preserveInterruptedRequest = () => {
+      if (!ownsRequestScope(generation, userId, requestSiteId) || activePostController.current !== controller) return;
+      // Logout invalidates the session before aborting transport. Preserve only
+      // the existing logical request for a possible failed-logout recovery; a
+      // late transport callback must still fail the session-generation checks.
+      setVerificationRequest((current) => current?.clientRequestId === request.clientRequestId
+        ? { ...current, responseLost: true }
+        : current);
+      setIsSubmitting(false);
+    };
+    controller.signal.addEventListener("abort", preserveInterruptedRequest, { once: true });
     setIsSubmitting(true);
     setMessage("");
     setVerificationError("");
@@ -292,9 +307,14 @@ export function ControlView({
         setMessage("상태 확인 응답을 받지 못했습니다. 동일 상태 확인 요청을 조회하세요.");
       }
     } finally {
+      controller.signal.removeEventListener("abort", preserveInterruptedRequest);
       commandSession.release();
-      if (activePostController.current === controller) activePostController.current = null;
-      if (ownsRequestScope(generation, userId, requestSiteId)) setIsSubmitting(false);
+      // An aborted transport can finish after the same request has been resumed.
+      // Its cleanup must not unlock or detach the replacement HTTP request.
+      if (activePostController.current === controller) {
+        activePostController.current = null;
+        if (ownsRequestScope(generation, userId, requestSiteId)) setIsSubmitting(false);
+      }
     }
   }
 

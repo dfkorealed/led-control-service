@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -260,6 +260,47 @@ describe("ControlView 대상 선택", () => {
     resolveDetail({ ...cached, stage: "verified_applied" });
     expect(await screen.findByText("요청한 밝기가 이미 적용되어 있습니다.")).toBeInTheDocument();
     expect(mocks.apiPost).not.toHaveBeenCalled();
+  });
+
+  it("keeps a restored command locked until fresh detail replaces a cached unknown result", async () => {
+    const actual = await vi.importActual<typeof import("../../api/commands")>("../../api/commands");
+    mocks.useCommandStatus.mockImplementation(actual.useCommandStatus);
+    const unknown = createCommandStatus(commandIds.default, "verification_required");
+    sessionStorage.setItem(activeCommandStorageKey(USER_A, dashboard.site.id), JSON.stringify({ commandId: unknown.id }));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    client.setQueryData(["command-status", unknown.id], unknown);
+    let resolveDetail: (value: unknown) => void = () => undefined;
+    mocks.apiGet.mockImplementation((path: string) => path.startsWith("/commands?")
+      ? Promise.resolve({ items: [], nextCursor: null })
+      : new Promise((resolve) => { resolveDetail = resolve; }));
+    render(<QueryClientProvider client={client}><MemoryRouter><ControlView siteId={dashboard.site.id} userId={USER_A} userRole="admin" /></MemoryRouter></QueryClientProvider>);
+    expect(screen.getByRole("slider", { name: "밝기" })).toBeDisabled();
+    expect(sessionStorage.getItem(activeCommandStorageKey(USER_A, dashboard.site.id))).toContain(unknown.id);
+    await act(async () => resolveDetail({ ...unknown, dispatches: [{ ...unknown.dispatches[0], kind: "status_check", verificationAttempt: 1, status: "accepted" }] }));
+    expect(await screen.findByRole("button", { name: "실제 상태 확인 중" })).toBeDisabled();
+    expect(screen.getByRole("slider", { name: "밝기" })).toBeDisabled();
+  });
+
+  it("continues real status polling when GET races before a lost status-check POST commits", async () => {
+    const actual = await vi.importActual<typeof import("../../api/commands")>("../../api/commands");
+    mocks.useCommandStatus.mockImplementation(actual.useCommandStatus);
+    const unknown = createCommandStatus(commandIds.default, "verification_required");
+    sessionStorage.setItem(activeCommandStorageKey(USER_A, dashboard.site.id), JSON.stringify({ commandId: unknown.id }));
+    let serverCommitted = false;
+    let rejectPost: (reason: unknown) => void = () => undefined;
+    mocks.apiGet.mockImplementation((path: string) => Promise.resolve(path.startsWith("/commands?")
+      ? { items: [], nextCursor: null }
+      : serverCommitted ? { ...unknown, verificationAttemptCount: 1, dispatches: [{ ...unknown.dispatches[0], kind: "status_check", verificationAttempt: 1, status: "accepted" }] } : unknown));
+    mocks.apiPost.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectPost = reject; }));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><MemoryRouter><ControlView siteId={dashboard.site.id} userId={USER_A} userRole="admin" /></MemoryRouter></QueryClientProvider>);
+    fireEvent.click(await screen.findByRole("button", { name: "실제 상태 확인" }));
+    await waitFor(() => expect(mocks.apiGet.mock.calls.filter(([path]) => path === `/commands/${unknown.id}`).length).toBeGreaterThanOrEqual(2));
+    await act(async () => rejectPost(new Error("lost response")));
+    expect(await screen.findByRole("button", { name: "동일 상태 확인 요청 조회" })).toBeEnabled();
+    serverCommitted = true;
+    expect(await screen.findByRole("button", { name: "실제 상태 확인 중" }, { timeout: 2500 })).toBeDisabled();
+    expect(mocks.apiPost).toHaveBeenCalledTimes(1);
   });
 
   it.each(["site", "user"])("discards delayed status-check responses when the %s scope changes", async (scope) => {
