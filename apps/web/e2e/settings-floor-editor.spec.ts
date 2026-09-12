@@ -126,7 +126,24 @@ test("a map object saved in settings is rendered immediately in monitoring", asy
   await page.getByRole("button", { name: "저장", exact: true }).click();
   await expect(page.getByRole("button", { name: "저장", exact: true })).toBeDisabled();
   await expect.poll(() => api.atomicSavePayloads).toHaveLength(1);
-  expect(api.atomicSavePayloads[0].objectCreates).toHaveLength(4);
+  const savedObjects = api.atomicSavePayloads[0].objectCreates;
+  expect(savedObjects).toHaveLength(4);
+  const rectangle = savedObjects.find((object) => object.type === "rectangle");
+  const triangle = savedObjects.find((object) => object.type === "triangle");
+  const line = savedObjects.find((object) => object.type === "line");
+  const text = savedObjects.find((object) => object.type === "text");
+  if (!rectangle || !triangle || !line || !text) throw new Error("saved map object payload is incomplete");
+  const samples = {
+    rectangle: { x: Math.round(rectangle.x + rectangle.width / 2), y: Math.round(rectangle.y + rectangle.height / 2) },
+    triangle: { x: Math.round(triangle.x + triangle.width / 2), y: Math.round(triangle.y + triangle.height / 2) },
+    line: { x: Math.round(line.x + line.width / 2), y: Math.round(line.y) },
+    text: {
+      x: Math.round(text.x + 8),
+      y: Math.round(text.y + 8),
+      width: Math.max(Math.round(text.width - 16), 1),
+      height: Math.max(Math.round(text.height - 16), 1)
+    }
+  };
 
   await page.getByRole("link", { name: "모니터링", exact: true }).click();
 
@@ -175,10 +192,15 @@ test("a map object saved in settings is rendered immediately in monitoring", asy
     expect(size.height, `${name} height matches floor map`).toBeCloseTo(layout.floorMap.height, 0);
     expect(size.width, `${name} width matches floor map`).toBeCloseTo(layout.floorMap.width, 0);
   }
-  await expect.poll(async () => monitoringCanvas.evaluate((canvas: HTMLCanvasElement) => {
+  await expect.poll(async () => monitoringCanvas.evaluate((canvas: HTMLCanvasElement, sampleRegions) => {
     const context = canvas.getContext("2d");
     if (!context) return null;
-    const textPixels = context.getImageData(528, 388, 144, 44).data;
+    const textPixels = context.getImageData(
+      sampleRegions.text.x,
+      sampleRegions.text.y,
+      sampleRegions.text.width,
+      sampleRegions.text.height
+    ).data;
     let textUsesDefaultBlue = false;
     for (let index = 3; index < textPixels.length; index += 4) {
       if (
@@ -192,12 +214,12 @@ test("a map object saved in settings is rendered immediately in monitoring", asy
       }
     }
     return [
-      Array.from(context.getImageData(350, 250, 1, 1).data.slice(0, 3)),
-      Array.from(context.getImageData(580, 280, 1, 1).data.slice(0, 3)),
-      Array.from(context.getImageData(400, 380, 1, 1).data.slice(0, 3)),
+      Array.from(context.getImageData(sampleRegions.rectangle.x, sampleRegions.rectangle.y, 1, 1).data.slice(0, 3)),
+      Array.from(context.getImageData(sampleRegions.triangle.x, sampleRegions.triangle.y, 1, 1).data.slice(0, 3)),
+      Array.from(context.getImageData(sampleRegions.line.x, sampleRegions.line.y, 1, 1).data.slice(0, 3)),
       textUsesDefaultBlue
     ];
-  })).toEqual([
+  }, samples)).toEqual([
     [219, 234, 254],
     [219, 234, 254],
     [37, 99, 235],
