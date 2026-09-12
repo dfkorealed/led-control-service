@@ -101,6 +101,14 @@ export class FixtureStateIngestionService {
     });
     if (sequenceConflict) throw new Error("fixture state sequence conflict");
 
+    const [site] = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT "id"
+      FROM "Site"
+      WHERE "id" = ${state.siteId}
+      FOR UPDATE
+    `);
+    if (!site) throw new Error("fixture state scope rejected");
+
     const [fixture] = await tx.$queryRaw<LockedFixtureRow[]>(Prisma.sql`
       SELECT
         f."id",
