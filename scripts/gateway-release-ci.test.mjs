@@ -22,6 +22,7 @@ async function fixture(t, fail = "") {
   });
   await mkdir(path.join(root, "scripts"), { recursive: true }); await mkdir(bin);
   await copyFile(path.join(source, "scripts/gateway-release-ci.mjs"), path.join(root, "scripts/gateway-release-ci.mjs"));
+  await copyFile(path.join(source, "scripts/gateway-appliance-common.sh"), path.join(root, "scripts/gateway-appliance-common.sh"));
   const boundary = `const fs=require('node:fs');const path=require('node:path');const cp=require('node:child_process');
 const args=process.argv.slice(2),name=path.basename(process.argv[1]);
 const log=x=>fs.appendFileSync(process.env.CI_FIXTURE_TRACE,JSON.stringify(x)+'\\n');
@@ -32,6 +33,9 @@ if(name==='docker'){
  if(args[0]==='buildx')process.exit(fail==='buildx'?1:0);
  if(args[0]==='version')process.exit(fail==='docker'?1:0);
  if(args[0]==='run'){if(fail==='smoke')process.exit(1);console.log(JSON.stringify({node:'22.20.0',platform:'linux/x64',inventorySha256:'1'.repeat(64),osPackages:1,nodePackages:1}));}
+ if(args[0]==='image'&&args[1]==='load')process.exit(fail==='load'?1:0);
+ if(args[0]==='image'&&args[1]==='inspect')console.log(['sha256:'+(fail==='identity'?'0':'3').repeat(64),cp.execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),'0.1.0','4'.repeat(64),'true'].join('|'));
+ if(args[0]==='container'&&args[1]==='inspect')console.log('sha256:'+'3'.repeat(64));
  if(args[0]==='image'&&args[1]==='ls'){if(fail==='cleanup')process.exit(1);if(fs.existsSync(process.env.CI_FIXTURE_TRACE+'.image'))console.log('sha256:'+'2'.repeat(64));}
  if(args[0]==='image'&&args[1]==='rm')fs.rmSync(process.env.CI_FIXTURE_TRACE+'.image',{force:true});
  if(args[0]==='ps'&&args.some(x=>x.startsWith('ancestor='))&&fail==='foreign')console.log('aaaaaaaaaaaa');
@@ -44,7 +48,7 @@ if(name==='fixture-build.cjs'){
  if(fail==='interrupt'){log({ready:true});setInterval(()=>{},1000);return;}
  if(fail==='descendant'){cp.spawn(process.execPath,['-e',"setTimeout(()=>require('node:fs').writeFileSync(process.env.CI_FIXTURE_TRACE+'.descendant','finished'),2000)"],{stdio:'ignore'}).unref();process.exit(1);}
  const dir=path.join(output,'fixture-test');fs.mkdirSync(dir);fs.mkdirSync(path.join(dir,'docker'));
- const manifest={releaseId:'fixture-test',gitCommit:cp.execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),testMode:true,platform:'linux/amd64',inventorySha256:'1'.repeat(64),image:{repository:process.env.GATEWAY_IMAGE_REPOSITORY,tag:process.env.GATEWAY_IMAGE_TAG+'-test',configDigest:'sha256:'+'2'.repeat(64)}};
+ const manifest={releaseId:'fixture-test',gitCommit:cp.execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),gatewayVersion:'0.1.0',policySha256:'4'.repeat(64),testMode:true,platform:'linux/amd64',inventorySha256:'1'.repeat(64),image:{repository:process.env.GATEWAY_IMAGE_REPOSITORY,tag:process.env.GATEWAY_IMAGE_TAG+'-test',configDigest:'sha256:'+'2'.repeat(64),descriptorDigest:'sha256:'+'3'.repeat(64)}};
  for(const name of ['appliance.env','checksums.sha256','compose.yml','docker/seccomp-bluez-mesh.json','gateway-image-linux-amd64.tar','sbom.spdx.json'])fs.writeFileSync(path.join(dir,name),'fixture');
  fs.writeFileSync(path.join(dir,'release-manifest.json'),JSON.stringify(manifest));process.exit(0);
 }
@@ -90,11 +94,14 @@ test("release CI executes contracts, marked amd64 build, default rejection, smok
   assert.ok(stage(e => e.contract) < stage(e => e.name === "fixture-build.cjs"));
   assert.ok(stage(e => e.name === "gateway-release-bundle.mjs" && !e.args.includes("--allow-test-mode")) < stage(e => e.args?.[0] === "run"));
   assert.ok(stage(e => e.args?.[0] === "run") < stage(e => e.contract?.includes("state")));
+  const loaded = stage(e => e.args?.[0] === "image" && e.args[1] === "load");
+  assert.ok(loaded >= 0 && loaded < stage(e => e.args?.[0] === "run"), "real image load must precede smoke");
+  assert.ok(stage(e => e.args?.[0] === "container" && e.args[1] === "inspect") > stage(e => e.args?.[0] === "run"), "running daemon identity must be compared");
   const smoke = events.find(e => e.args?.[0] === "run");
-  for (const flag of ["--rm", "--read-only", "--network", "none", "--entrypoint", "node"]) assert.ok(smoke.args.includes(flag));
+  for (const flag of ["--name", "--read-only", "--network", "none", "--entrypoint", "node"]) assert.ok(smoke.args.includes(flag));
   assert.match(result.stdout, /cleanup complete/); await assertClean(h);
 });
-for (const fail of ["contracts", "build", "verify", "accept-production", "wrong-rejection", "smoke", "state", "docker", "buildx", "openssl"]) {
+for (const fail of ["contracts", "build", "verify", "accept-production", "wrong-rejection", "load", "identity", "smoke", "state", "docker", "buildx", "openssl"]) {
   test(`release CI fails closed at ${fail} and removes owned output/images`, async (t) => {
     const h = await fixture(t, fail), result = h.run(); assert.notEqual(result.status, 0);
     assert.doesNotMatch(result.stdout, /release CI passed/);

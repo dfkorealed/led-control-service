@@ -140,12 +140,23 @@ try {
   assert.equal(rejected.status, 1, "default production verify must reject the test bundle");
   assert.match(rejected.stderr, /test-mode bundle is forbidden for production activation/);
   process.stdout.write("Default production verification rejected the test-only bundle (exit 1)\n");
+  await run("docker", ["image", "load", "--input", path.join(bundle, "gateway-image-linux-amd64.tar")]);
+  const loaded = await run("docker", ["image", "inspect", "--format", '{{.Id}}|{{index .Config.Labels "org.opencontainers.image.revision"}}|{{index .Config.Labels "org.opencontainers.image.version"}}|{{index .Config.Labels "com.led-control.release-policy-sha256"}}|{{index .Config.Labels "com.led-control.release.test-mode"}}', image]);
+  // Exercise the same pure shell identity decision used after appliance load,
+  // with data captured from the real daemon. No site env or Compose is used.
+  const bound = await run("/bin/bash", ["-c", 'source scripts/gateway-appliance-common.sh && validate_loaded_image "$1" && printf "%s" "$LOADED_IMAGE_DIGEST"', "gateway-release-ci", loaded.stdout.trim()], {
+    env: { ...childEnv, IMAGE_DIGEST: manifest.image.configDigest, IMAGE_DESCRIPTOR_DIGEST: manifest.image.descriptorDigest,
+      COMMIT: manifest.gitCommit, VERSION: manifest.gatewayVersion, POLICY_SHA: manifest.policySha256, TEST_MODE: "1" },
+  });
+  const daemonImageId = bound.stdout.trim(); assert.match(daemonImageId, /^sha256:[a-f0-9]{64}$/);
   const smokeCode = `const fs=require('node:fs'),crypto=require('node:crypto'),assert=require('node:assert/strict');const bytes=fs.readFileSync('/usr/local/share/gateway-release-inventory.json');const i=JSON.parse(bytes);assert.equal(process.versions.node.split('.')[0],'22');assert.equal(i.node.version,process.versions.node);assert.equal(i.schema,'led-control-gateway-inventory/v1');assert.ok(i.os.packages.length>0&&i.node.packages.length>0);console.log(JSON.stringify({node:process.versions.node,platform:process.platform+'/'+process.arch,inventorySha256:crypto.createHash('sha256').update(bytes).digest('hex'),osPackages:i.os.packages.length,nodePackages:i.node.packages.length}));`;
-  const smoke = await run("docker", ["run", "--rm", "--name", smokeName, "--platform", "linux/amd64", "--network", "none", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--entrypoint", "node", image, "-e", smokeCode]);
+  const smoke = await run("docker", ["run", "--name", smokeName, "--platform", "linux/amd64", "--network", "none", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--entrypoint", "node", image, "-e", smokeCode]);
   const facts = JSON.parse(smoke.stdout);
   assert.match(facts.node, /^22\./); assert.equal(facts.platform, "linux/x64");
   assert.equal(facts.inventorySha256, manifest.inventorySha256); assert.ok(facts.osPackages > 0 && facts.nodePackages > 0);
-  process.stdout.write(`Gateway release artifact evidence ${JSON.stringify({ ...manifest, smoke: facts, files: ["appliance.env", "checksums.sha256", "compose.yml", "docker/seccomp-bluez-mesh.json", "gateway-image-linux-amd64.tar", "release-manifest.json", "sbom.spdx.json"] })}\n`);
+  const running = await run("docker", ["container", "inspect", "--format", "{{.Image}}", smokeName]);
+  assert.equal(running.stdout.trim(), daemonImageId, "container image must equal the archive-bound loaded daemon identity");
+  process.stdout.write(`Gateway release artifact evidence ${JSON.stringify({ ...manifest, smoke: { ...facts, daemonImageId, containerImageId: running.stdout.trim() }, files: ["appliance.env", "checksums.sha256", "compose.yml", "docker/seccomp-bluez-mesh.json", "gateway-image-linux-amd64.tar", "release-manifest.json", "sbom.spdx.json"] })}\n`);
   process.stdout.write(`Gateway release CI: actual ephemeral RSA/OpenSSL CMS backup → verify → drill → disposable restore: ${stateFlow}\n`);
   const drill = await run(process.execPath, ["--test", "--test-concurrency=1", "--test-reporter=spec", `--test-name-pattern=^${stateFlow}$`, "scripts/gateway-appliance-state.test.mjs"]);
   // A renamed test must not silently turn this required real CLI flow into a

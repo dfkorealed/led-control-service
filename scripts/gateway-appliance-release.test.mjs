@@ -15,6 +15,27 @@ const fail = (result, status = 1) => assert.equal(result.status, status, result.
 const site = (h) => readFile(path.join(h.root, ".env.appliance"), "utf8");
 const exists = async (file) => lstat(file).then(() => true, () => false);
 
+test("Docker 29 activation compares the running daemon descriptor ID while retaining config provenance", async (t) => {
+  const h = await fixture(t), a = await h.bundle("a", { descriptor: true });
+  ok(h.run("activate", a));
+  assert.equal(await h.pointer("current"), `releases/${a.id}`);
+  assert.equal(await readFile(h.config + ".active.image", "utf8"), a.manifest.image.descriptorDigest);
+  assert.notEqual(a.manifest.image.configDigest, a.manifest.image.descriptorDigest);
+});
+for (const option of ["wrongDigest", "wrongLabel"]) test(`Docker 29 activation rejects ${option} before changing the site`, async (t) => {
+  const h = await fixture(t), a = await h.bundle("a", { descriptor: true }); await h.set({ [option]: true });
+  fail(h.run("activate", a)); assert.equal(await site(h), h.siteEnv);
+  assert.equal((await h.events()).some(event => event.args.includes("up")), false);
+});
+test("Docker 29 activation health mismatch safely recovers a legacy 13-key current", async (t) => {
+  const h = await fixture(t), old = await h.bundle("a"), candidate = await h.bundle("b", { descriptor: true });
+  ok(h.run("activate", old)); const before = await site(h);
+  await h.set({ wrongRunningTag: candidate.tag }); fail(h.run("activate", candidate));
+  assert.equal(await site(h), before); assert.equal(await h.pointer("current"), `releases/${old.id}`);
+  await h.set({ wrongRunningTag: null }); ok(h.run("activate", candidate)); ok(h.run("rollback"));
+  assert.equal(await h.pointer("current"), `releases/${old.id}`);
+});
+
 test("review dotenv multiline rejects before mutation and preserves bytes/mode", async (t) => {
   const h=await fixture(t), a=await h.bundle("a");
   const original=h.siteEnv.replace(/^GATEWAY_IMAGE_.*\n/gm, "")+"SECRET='first\nGATEWAY_IMAGE_TAG=hidden\nGATEWAY_IMAGE_REPOSITORY=hidden\nlast'\n";

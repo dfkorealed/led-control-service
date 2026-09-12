@@ -24,6 +24,7 @@ terminated_text() {
 
 read_bundle_env() {
   local line key value previous="" count=0 digest
+  IMAGE_DESCRIPTOR_DIGEST=""; LOADED_IMAGE_DIGEST=""
   regular "$1" && terminated_text "$1" || return 1
   while IFS= read -r line; do
     [[ "$line" =~ ^([A-Z_0-9]+)=([A-Za-z0-9_./:+-]+)$ ]] || return 1
@@ -34,6 +35,7 @@ read_bundle_env() {
       GATEWAY_GIT_COMMIT_TIMESTAMP) COMMIT_TIME=$value ;;
       GATEWAY_IMAGE_ARCHIVE) IMAGE_ARCHIVE=$value ;;
       GATEWAY_IMAGE_CONFIG_DIGEST) IMAGE_DIGEST=$value ;;
+      GATEWAY_IMAGE_DESCRIPTOR_DIGEST) IMAGE_DESCRIPTOR_DIGEST=$value ;;
       GATEWAY_IMAGE_REPOSITORY) IMAGE_REPOSITORY=$value ;;
       GATEWAY_IMAGE_TAG) IMAGE_TAG=$value ;;
       GATEWAY_LOCK_SHA256) LOCK_SHA=$value ;;
@@ -46,7 +48,11 @@ read_bundle_env() {
       *) return 1 ;;
     esac
   done < "$1"
-  [ "$count" = 13 ] || return 1
+  # Exact legacy 13-key bundles remain rollback candidates. New 14-key bundles
+  # additionally bind Docker/containerd's descriptor ID, never relabeling it as
+  # a config digest. An unknown field or partial/malformed extension still fails.
+  if [ "$count" = 14 ]; then [[ "$IMAGE_DESCRIPTOR_DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]] || return 1
+  else [ "$count" = 13 ] && [ -z "$IMAGE_DESCRIPTOR_DIGEST" ] || return 1; fi
   [[ "$COMMIT" =~ ^[a-f0-9]{40}$ && "$LOCK_SHA" =~ ^[a-f0-9]{64}$ && "$IMAGE_DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]] || return 1
   [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?(\+[A-Za-z0-9.-]+)?$ ]] || return 1
   [[ "$COMMIT_TIME" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.000Z$ ]] || return 1
@@ -218,22 +224,42 @@ ownership_preflight() {
   fi
   COMPOSE_PROJECT=$project
 }
+validate_loaded_image() {
+  local loaded revision version policy test_mode expected_test=false extra
+  LOADED_IMAGE_DIGEST=""
+  if [ -z "$IMAGE_DESCRIPTOR_DIGEST" ]; then
+    [ "$1" = "$IMAGE_DIGEST" ] || return 1
+    LOADED_IMAGE_DIGEST=$1; return 0
+  fi
+  [ "$TEST_MODE" != 1 ] || expected_test=true
+  IFS='|' read -r loaded revision version policy test_mode extra <<< "$1"
+  [[ "$loaded" =~ ^sha256:[a-f0-9]{64}$ ]] && [ -z "$extra" ] || return 1
+  [ "$1" = "$loaded|$COMMIT|$VERSION|$POLICY_SHA|$expected_test" ] || return 1
+  [ "$loaded" = "$IMAGE_DIGEST" ] || [ "$loaded" = "$IMAGE_DESCRIPTOR_DIGEST" ] || return 1
+  LOADED_IMAGE_DIGEST=$loaded
+}
+resolve_loaded_image() {
+  local loaded format='{{.Id}}'
+  if [ -n "$IMAGE_DESCRIPTOR_DIGEST" ]; then
+    format='{{.Id}}|{{index .Config.Labels "org.opencontainers.image.revision"}}|{{index .Config.Labels "org.opencontainers.image.version"}}|{{index .Config.Labels "com.led-control.release-policy-sha256"}}|{{index .Config.Labels "com.led-control.release.test-mode"}}'
+  fi
+  loaded=$(docker_cmd "$METADATA_SECONDS" image inspect --format "$format" "$IMAGE_REPOSITORY:$IMAGE_TAG" 2>/dev/null) && validate_loaded_image "$loaded"
+}
 preflight() {
-  local directory=$1 loaded images
+  local directory=$1 images
   identity_preflight && ownership_preflight && docker_cmd "$METADATA_SECONDS" version >/dev/null 2>&1 && docker_cmd "$METADATA_SECONDS" compose version >/dev/null 2>&1 && runtime_compose "$directory" || return 1
   compose config --quiet || return 1
   images=$(compose_output config --images 2>/dev/null) || return 1
   [ "$images" = "$IMAGE_REPOSITORY:$IMAGE_TAG" ] || return 1
   docker_cmd "$LOAD_SECONDS" image load --input "$directory/$IMAGE_ARCHIVE" >/dev/null 2>&1 || return 1
-  loaded=$(docker_cmd "$METADATA_SECONDS" image inspect --format '{{.Id}}' "$IMAGE_REPOSITORY:$IMAGE_TAG" 2>/dev/null) || return 1
-  [ "$loaded" = "$IMAGE_DIGEST" ]
+  resolve_loaded_image
 }
 healthy() {
   local step status attempts=60 delay=2
   if [ "$TEST_ROOT" = 1 ]; then attempts=2; delay=0; fi
   for ((step=0; step<attempts; step++)); do
     status=$(docker_cmd "$METADATA_SECONDS" inspect --format '{{.Image}} {{if .State.Health}}{{.State.Health.Status}}{{else}}starting{{end}}' led-control-gateway 2>/dev/null) || return 1
-    [ "${status%% *}" = "$IMAGE_DIGEST" ] || return 1
+    [ -n "$LOADED_IMAGE_DIGEST" ] && [ "${status%% *}" = "$LOADED_IMAGE_DIGEST" ] || return 1
     status=${status#* }; [ "$status" != unhealthy ] || return 1; [ "$status" != healthy ] || return 0; sleep "$delay"
   done
   return 1

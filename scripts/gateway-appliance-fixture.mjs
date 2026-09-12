@@ -94,7 +94,7 @@ if(name==='docker' && c.hang && args.join(' ').includes(c.hang) && (!c.hangTag |
 }
 if(args[0]==='version' || (args[0]==='compose' && args[1]==='version')) process.exit(c.noDocker?1:0);
 if(args[0]==='image' && args[1]==='load') process.exit(c.failLoad?1:0);
-if(args[0]==='image' && args[1]==='inspect') { console.log(c.wrongDigest ? 'sha256:'+ '0'.repeat(64) : c.images[args.at(-1)] || 'missing'); process.exit(0); }
+if(args[0]==='image' && args[1]==='inspect') { const image=c.wrongDigest ? 'sha256:'+ '0'.repeat(64) : c.images[args.at(-1)] || 'missing'; console.log(args.some(x=>x.includes('.Config.Labels'))?[image,...(c.imageLabels?.[args.at(-1)]||[]).map((x,i)=>c.wrongLabel&&i===0?'wrong':x)].join('|'):image); process.exit(0); }
 if(args[0]==='container' && args[1]==='ls') { if(hasContainer)console.log('a'.repeat(12)); process.exit(0); }
 if(args[0]==='container' && args[1]==='inspect') { if(!hasContainer)process.exit(1); console.log([owner,c.existingService||'gateway-appliance',c.existingWorkingDir||c.root].join('|')); process.exit(0); }
 if(args[0]==='compose') {
@@ -134,7 +134,7 @@ process.exit(9);
     const guard=setTimeout(()=>{try{process.kill(-child.pid,"SIGKILL");}catch{}},10000);
     child.once("error",reject);child.once("close",(status,signal)=>{clearTimeout(guard);resolve({status,signal,stdout,stderr,elapsed:Date.now()-start});});
   });
-  async function bundle(letter) {
+  async function bundle(letter, { descriptor = false } = {}) {
     const digest = sha(`config-${letter}`);
     const manifest = {
       schema: "led-control-gateway-release/v1", gatewayVersion: "0.1.0", gitCommit: letter.repeat(40),
@@ -142,6 +142,7 @@ process.exit(9);
       policySha256: policyHash, lockSha256: "c".repeat(64),
       image: { repository: "fixture-gateway", tag: `release-${letter}`, configDigest: `sha256:${digest}`, archive: "gateway-image-linux-arm64.tar" }
     };
+    if (descriptor) manifest.image.descriptorDigest = `sha256:${sha(`descriptor-${letter}`)}`;
     manifest.releaseId = `0.1.0-${manifest.gitCommit}-${digest.slice(0,16)}`;
     const dir = path.join(temp, `bundle-${letter}`);
     await mkdir(path.join(dir, "docker"), { recursive: true });
@@ -154,7 +155,9 @@ process.exit(9);
     const result = { dir, id: manifest.releaseId, manifest, tag: manifest.image.tag };
     await checksums(result);
     const existing = JSON.parse(await readFile(config));
-    await set({ images: { ...existing.images, [`fixture-gateway:${manifest.image.tag}`]: manifest.image.configDigest } });
+    const reference = `fixture-gateway:${manifest.image.tag}`;
+    await set({ images: { ...existing.images, [reference]: manifest.image.descriptorDigest ?? manifest.image.configDigest },
+      imageLabels: { ...existing.imageLabels, [reference]: [manifest.gitCommit, manifest.gatewayVersion, policyHash, "false"] } });
     return result;
   }
   async function checksums(bundle) {

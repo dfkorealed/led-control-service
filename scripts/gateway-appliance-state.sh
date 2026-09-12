@@ -305,14 +305,14 @@ validate_artifact() {
 }
 
 state_runtime() {
-  local images loaded
+  local images
   pointer_id current && [ "$POINTER" != none ] || return 1; OLD_CURRENT=$POINTER
   verify_bundle "$ROOT/releases/$OLD_CURRENT" && resolve_site "$ROOT/.env.appliance" && temp_isolated && ownership_preflight || return 1
   sed "s|seccomp=./docker/seccomp-bluez-mesh.json|seccomp=$ROOT/releases/$OLD_CURRENT/docker/seccomp-bluez-mesh.json|g" "$ROOT/releases/$OLD_CURRENT/compose.yml" > "$SCRATCH/compose.yml" || return 1
   COMPOSE_FILE=$SCRATCH/compose.yml
   docker_cmd "$METADATA_SECONDS" version >/dev/null 2>&1 && docker_cmd "$METADATA_SECONDS" compose version >/dev/null 2>&1 && compose config --quiet || return 1
   images=$(compose_output config --images 2>/dev/null) && [ "$images" = "$IMAGE_REPOSITORY:$IMAGE_TAG" ] || return 1
-  loaded=$(docker_cmd "$METADATA_SECONDS" image inspect --format '{{.Id}}' "$IMAGE_REPOSITORY:$IMAGE_TAG" 2>/dev/null) && [ "$loaded" = "$IMAGE_DIGEST" ]
+  resolve_loaded_image
 }
 write_state_journal() {
   local temporary

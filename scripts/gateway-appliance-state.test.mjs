@@ -60,7 +60,7 @@ function archive(records, text) {
   return Buffer.concat([...chunks,Buffer.alloc(1024)]);
 }
 
-async function setup(t) {
+async function setup(t, bundleOptions) {
   let workspaceLog;
   // Observe actual mktemp results (not substituted paths), including workspaces
   // outside this fixture once production ignores ambient TMPDIR. Cleanup only
@@ -74,13 +74,13 @@ async function setup(t) {
       if(info?.isDirectory()&&!info.isSymbolicLink()) {spawnSync('chmod',['-R','u+w',directory]);await rm(directory,{recursive:true});}
     }
   });
-  const h=await fixture(t), a=await h.bundle('a');
+  const h=await fixture(t), a=await h.bundle('a',bundleOptions);
   workspaceLog=h.config+'.workspaces';
   await writeFile(path.join(h.bin,'mktemp'),`#!${process.execPath}\nconst fs=require('node:fs'),cp=require('node:child_process'),path=require('node:path');const p=cp.spawnSync(${JSON.stringify(realMktemp)},process.argv.slice(2),{encoding:'utf8'});if(p.status===0&&/^\\.gateway-state\\.[A-Za-z0-9]+$/.test(path.basename(p.stdout.trim())))fs.appendFileSync(${JSON.stringify(workspaceLog)},p.stdout);process.stdout.write(p.stdout);process.stderr.write(p.stderr);process.exit(p.status??1);\n`,{mode:0o755});
   const data=path.join(h.root,'data'), scratch=path.join(h.temp,'scratch'); await mkdir(scratch,{mode:0o700});
   await mkdir(path.join(h.root,'releases')); await cp(a.dir,path.join(h.root,'releases',a.id),{recursive:true});
   await symlink(`releases/${a.id}`,path.join(h.root,'current'));
-  await writeFile(h.config+'.active',a.tag);await writeFile(h.config+'.owner','gateway');await writeFile(h.config+'.active.image',a.manifest.image.configDigest);
+  await writeFile(h.config+'.active',a.tag);await writeFile(h.config+'.owner','gateway');await writeFile(h.config+'.active.image',a.manifest.image.descriptorDigest??a.manifest.image.configDigest);
   for (const kind of ['device','mqtt']) {
     for (const generation of ['factory','retired']) {
       const dir=path.join(data,'identity',kind,'generations',generation);await mkdir(dir,{recursive:true,mode:0o750});
@@ -147,6 +147,13 @@ test('backup is encrypted, binds the exact release and recipient, and round-trip
   await writeFile(path.join(h.data,'gateway/command-journal.json'),'live-newer\n');ok(h.run('restore',h.backup));
   assert.deepEqual(await snapshot(h.data),before);assert.equal(await exists(path.join(h.root,'.state.journal')),false);
   assert.deepEqual((await readdir(h.data)).sort(),roots);await h.clean();
+});
+test('Docker 29 state backup and restore use the bound daemon identity without changing config provenance',async(t)=>{
+  const h=await setup(t,{descriptor:true}), before=await snapshot(h.data);
+  ok(h.run('backup',h.backup));ok(h.run('verify',h.backup));ok(h.run('drill',h.backup));
+  await writeFile(path.join(h.data,'gateway/command-journal.json'),'live-newer\n');ok(h.run('restore',h.backup));
+  assert.deepEqual(await snapshot(h.data),before);
+  assert.equal(await readFile(h.config+'.active.image','utf8'),h.a.manifest.image.descriptorDigest);await h.clean();
 });
 test('independently encrypted USTAR payload verifies and drill never touches an appliance root',async(t)=>{
   const h=await setup(t),records=await entries(h.data),backup=await h.artifact(records),before=await snapshot(h.data);

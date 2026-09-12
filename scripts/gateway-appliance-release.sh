@@ -130,7 +130,7 @@ else
   find "$STAGE" -type f -exec chmod 440 {} +; chmod 550 "$STAGE/docker" "$STAGE"
   mv -T -- "$STAGE" "$FINAL"; STAGE=""; durable "$ROOT/releases"
 fi
-verify_bundle "$FINAL" && runtime_compose "$FINAL" || error 'final release verification rejected'
+verify_bundle "$FINAL" && runtime_compose "$FINAL" && resolve_loaded_image || error 'final release verification rejected'
 resolve_site "$ROOT/.env.appliance" || error 'site dotenv rejected before mutation'
 ENV_MODE=$(file_mode "$ROOT/.env.appliance"); ENV_SHA=$(hash_file "$ROOT/.env.appliance")
 atomic_copy "$ROOT/.env.appliance" "$ROOT/.activation-env.snapshot" 600

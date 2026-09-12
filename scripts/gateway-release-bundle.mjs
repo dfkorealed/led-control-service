@@ -3,10 +3,14 @@
 // allowlisted appliance.env; it must not assume Node is installed on the host.
 import { execFileSync } from "node:child_process";
 import { createHash, createPrivateKey } from "node:crypto";
-import { createReadStream } from "node:fs";
-import { copyFile, lstat, mkdir, open, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import { createReadStream, createWriteStream } from "node:fs";
+import { copyFile, lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
+import { Transform, Writable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { pathToFileURL } from "node:url";
+import { createGunzip, createInflateRaw } from "node:zlib";
 
 const repository = path.resolve(import.meta.dirname, "..");
 const inventoryPath = "usr/local/share/gateway-release-inventory.json";
@@ -14,6 +18,8 @@ const checksumFile = "checksums.sha256";
 const sha256Pattern = /^[a-f0-9]{64}$/;
 const commitPattern = /^[a-f0-9]{40}$/;
 const versionPattern = /^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?(?:\+[A-Za-z0-9.-]+)?$/;
+const maxLayerBytes = 512 * 1024 * 1024;
+const maxImageBytes = 2 * 1024 * 1024 * 1024;
 const privateMaterialScan = {
   profile: "led-control-private-material/v1",
   scope: "bundle-files-and-all-uncompressed-image-layer-bytes",
@@ -335,8 +341,135 @@ async function tarJson(filename, entry) {
   } finally { await handle.close(); }
 }
 
-async function inspectArchive(filename) {
+// Build-directory naming uses the actual config bytes, never Docker 29's
+// descriptor-valued .Id. Full archive/descriptor checks still precede publish.
+export async function imageArchiveConfigDigest(filename) {
   await regularFile(filename);
+  const entries = new Map((await tarEntries(filename)).map(entry => [entry.name, entry]));
+  const records = (await tarJson(filename, entries.get("manifest.json"))).value;
+  requireValue(Array.isArray(records) && records.length === 1, "image archive must contain exactly one image");
+  safePath(records[0].Config, "image config path");
+  return `sha256:${(await tarJson(filename, entries.get(records[0].Config))).hash}`;
+}
+
+async function imageDescriptors(filename, byName, record, config) {
+  const identities = new Map(), kinds = new Map();
+  if (!byName.has("index.json")) return { identities, kinds };
+  const seen = new Set();
+  const attestations = [];
+  const descriptorEntry = descriptor => {
+    requireValue(descriptor && /^sha256:[a-f0-9]{64}$/.test(descriptor.digest), "invalid image descriptor digest");
+    const entry = byName.get(`blobs/sha256/${descriptor.digest.slice(7)}`);
+    requireValue(entry?.type === "0" && entry.size === descriptor.size, "missing or mismatched image descriptor size");
+    return entry;
+  };
+  async function visit(descriptor, depth = 0) {
+    requireValue(depth < 8 && seen.size < 256 && !seen.has(descriptor.digest), "image descriptor cycle/limit");
+    seen.add(descriptor.digest);
+    const value = (await tarJson(filename, descriptorEntry(descriptor))).value;
+    requireValue(value.schemaVersion === 2, "invalid image descriptor schema");
+    requireValue(value.mediaType === undefined || value.mediaType === descriptor.mediaType, "image descriptor media type mismatch");
+    let selected = false;
+    if (["application/vnd.oci.image.index.v1+json", "application/vnd.docker.distribution.manifest.list.v2+json"].includes(descriptor.mediaType)) {
+      requireValue(Array.isArray(value.manifests), "invalid image index descriptors");
+      for (const child of value.manifests) {
+        if (await visit(child, depth + 1)) {
+          if (child.platform) requireValue(child.platform.os === config.value.os && child.platform.architecture === config.value.architecture, "selected image descriptor platform mismatch");
+          selected = true;
+        }
+      }
+    } else {
+      requireValue(["application/vnd.oci.image.manifest.v1+json", "application/vnd.docker.distribution.manifest.v2+json"].includes(descriptor.mediaType), "unsupported image descriptor media type");
+      descriptorEntry(value.config);
+      requireValue(Array.isArray(value.layers), "invalid image layer descriptors");
+      for (const layer of value.layers) descriptorEntry(layer);
+      if (value.config.digest === `sha256:${config.hash}`) {
+        requireValue(["application/vnd.oci.image.config.v1+json", "application/vnd.docker.container.image.v1+json"].includes(value.config.mediaType), "unsupported image config descriptor");
+        requireValue(value.layers.length === record.Layers.length, "image descriptor layer count mismatch");
+        for (const [index, layer] of value.layers.entries()) {
+          requireValue(record.Layers[index] === `blobs/sha256/${layer.digest.slice(7)}`, "image layer descriptor mismatch");
+          const kind = ({ "application/vnd.oci.image.layer.v1.tar": "tar", "application/vnd.oci.image.layer.v1.tar+gzip": "gzip",
+            "application/vnd.docker.image.rootfs.diff.tar": "tar", "application/vnd.docker.image.rootfs.diff.tar.gzip": "gzip" })[layer.mediaType];
+          requireValue(kind, "unsupported image layer compression media type");
+          kinds.set(record.Layers[index], kind);
+        }
+        selected = true;
+      } else {
+        // Buildx adds non-runtime in-toto attestation manifests. A second
+        // runtime image could otherwise hide uninspected compressed layers.
+        requireValue(descriptor.platform?.os === "unknown" && descriptor.platform?.architecture === "unknown"
+          && descriptor.annotations?.["vnd.docker.reference.type"] === "attestation-manifest"
+          && value.layers.every(layer => layer.mediaType === "application/vnd.in-toto+json"), "unselected image is not a supported attestation");
+        attestations.push(descriptor.annotations["vnd.docker.reference.digest"]);
+      }
+    }
+    if (selected) identities.set(descriptor.digest, { digest: descriptor.digest, mediaType: descriptor.mediaType, size: descriptor.size });
+    return selected;
+  }
+  const index = (await tarJson(filename, byName.get("index.json"))).value;
+  requireValue(index.schemaVersion === 2 && Array.isArray(index.manifests), "invalid OCI archive index");
+  for (const descriptor of index.manifests) {
+    const reference = record.RepoTags[0], normalize = name => name.replace(/^docker\.io\/(?:library\/)?/, "");
+    const named = descriptor.annotations?.["io.containerd.image.name"], tag = descriptor.annotations?.["org.opencontainers.image.ref.name"];
+    if (named !== undefined) requireValue(typeof named === "string" && normalize(named) === normalize(reference), "OCI index image reference mismatch");
+    if (tag !== undefined) requireValue(typeof tag === "string" && [reference.slice(reference.lastIndexOf(":") + 1), normalize(reference)].includes(normalize(tag)), "OCI index tag reference mismatch");
+    await visit(descriptor);
+  }
+  for (const digest of attestations) requireValue(identities.has(digest), "unbound image attestation reference");
+  requireValue(identities.size > 0, "OCI descriptors do not bind the selected image config");
+  return { identities, kinds };
+}
+
+async function decodeImageLayer(filename, layer, destination, remaining, declaredKind) {
+  requireValue(layer.size <= maxLayerBytes, "compressed image layer size limit exceeded");
+  const handle = await open(filename, "r");
+  let header;
+  try { header = Buffer.alloc(Math.min(layer.size, 65536)); await handle.read(header, 0, header.length, layer.offset); }
+  finally { await handle.close(); }
+  const gzip = header[0] === 0x1f && header[1] === 0x8b;
+  requireValue(!declaredKind || declaredKind === (gzip ? "gzip" : "tar"), "unsupported image layer compression or descriptor mismatch");
+  if (!gzip) {
+    requireValue(!["28b52ffd", "fd377a58", "425a68", "504b0304"].some(magic => header.toString("hex").startsWith(magic)), "unsupported image layer compression");
+    requireValue(layer.size <= remaining, "decoded image size limit exceeded");
+    return { filename, offset: layer.offset, size: layer.size };
+  }
+  requireValue(header.length >= 18 && header[2] === 8 && (header[3] & 0xe0) === 0, "invalid gzip image layer header");
+  let start = 10;
+  if (header[3] & 4) { requireValue(start + 2 <= header.length, "invalid gzip extra header"); start += 2 + header.readUInt16LE(start); }
+  for (const flag of [8, 16]) if (header[3] & flag) { const end = header.indexOf(0, start); requireValue(end >= start, "oversized/invalid gzip text header"); start = end + 1; }
+  if (header[3] & 2) start += 2;
+  requireValue(start < header.length && start + 8 < layer.size, "oversized/invalid gzip header");
+  const limit = Math.min(maxLayerBytes, remaining);
+  let size = 0;
+  const bound = new Transform({ transform(chunk, _, callback) {
+    size += chunk.length;
+    callback(size > limit ? Error("decoded image layer size limit exceeded") : null, chunk);
+  } });
+  const inflate = createInflateRaw();
+  try {
+    await pipeline(createReadStream(filename, { start: layer.offset + start, end: layer.offset + layer.size - 1 }), inflate, bound,
+      createWriteStream(destination, { flags: "wx", mode: 0o600 }));
+    // Raw inflate identifies the end of exactly one DEFLATE member. Gunzip by
+    // itself accepts concatenated members and zero padding, which we forbid.
+    requireValue(start + inflate.bytesWritten + 8 === layer.size, "single gzip member required (trailing bytes forbidden)");
+    let validated = 0;
+    await pipeline(createReadStream(filename, { start: layer.offset, end: layer.offset + layer.size - 1 }), createGunzip(),
+      new Writable({ write(chunk, _, callback) { validated += chunk.length; callback(validated > limit ? Error("decoded image layer size limit exceeded") : null); } }));
+    requireValue(validated === size, "invalid gzip decoded length");
+  } catch (error) {
+    if (/decoded.*limit|single gzip/.test(error.message)) throw error;
+    fail("invalid gzip image layer (header/checksum/truncation)");
+  }
+  return { filename: destination, offset: 0, size };
+}
+
+async function inspectArchive(filename) {
+  const staging = await mkdtemp(path.join(tmpdir(), "gateway-image-layers-"));
+  try { return await inspectArchiveLayers(filename, staging); }
+  finally { await rm(staging, { recursive: true, force: true }); }
+}
+async function inspectArchiveLayers(filename, staging) {
+  requireValue((await regularFile(filename)).size <= maxImageBytes, "image archive size limit exceeded");
   const entries = await tarEntries(filename);
   const byName = new Map();
   for (const entry of entries) {
@@ -344,6 +477,10 @@ async function inspectArchive(filename) {
     rejectSecretName(entry.name);
     requireValue(!byName.has(entry.name), "duplicate image archive path");
     byName.set(entry.name, entry);
+    if (/^blobs\/sha256\//.test(entry.name) && entry.type === "0") {
+      requireValue(/^blobs\/sha256\/[a-f0-9]{64}$/.test(entry.name) && entry.size <= maxLayerBytes, "invalid image blob path/size");
+      requireValue(await digestRange(filename, entry.offset, entry.size, false) === entry.name.slice(-64), "image blob digest mismatch");
+    }
   }
   const records = (await tarJson(filename, byName.get("manifest.json"))).value;
   requireValue(Array.isArray(records) && records.length === 1, "image archive must contain exactly one image");
@@ -354,7 +491,10 @@ async function inspectArchive(filename) {
   requireValue(typeof reference === "string" && /^(?:[a-z0-9]+(?:[._-][a-z0-9]+)*(?::[0-9]+)?\/)*[a-z0-9]+(?:[._-][a-z0-9]+)*:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$/.test(reference), "unsafe image repository/tag");
   const config = await tarJson(filename, byName.get(record.Config));
   const diffIds = config.value.rootfs?.diff_ids;
-  requireValue(Array.isArray(diffIds) && diffIds.length === record.Layers.length, "image layer digest count mismatch");
+  requireValue(Array.isArray(diffIds) && diffIds.length === record.Layers.length && diffIds.length <= 128
+    && diffIds.every(digest => /^sha256:[a-f0-9]{64}$/.test(digest)), "image layer digest count/format mismatch");
+  const { identities, kinds } = await imageDescriptors(filename, byName, record, config);
+  let decodedBytes = 0;
   let visibleInventory;
   const blockedInventoryAncestors = new Set();
   const seenLayers = new Set();
@@ -364,8 +504,10 @@ async function inspectArchive(filename) {
     seenLayers.add(name);
     const layer = byName.get(name);
     requireValue(layer?.type === "0", "missing image layer");
-    requireValue(`sha256:${await digestRange(filename, layer.offset, layer.size)}` === diffIds[index], "image layer digest mismatch");
-    const members = await tarEntries(filename, layer.offset, layer.size);
+    const decoded = await decodeImageLayer(filename, layer, path.join(staging, `${index}.tar`), maxImageBytes - decodedBytes, kinds.get(name));
+    decodedBytes += decoded.size;
+    requireValue(`sha256:${await digestRange(decoded.filename, decoded.offset, decoded.size)}` === diffIds[index], "image layer digest mismatch");
+    const members = await tarEntries(decoded.filename, decoded.offset, decoded.size);
     // OCI whiteouts remove only lower-layer entries, regardless of their tar
     // ordering relative to same-layer additions. First mask the old inventory
     // for every deleted/opaque ancestor (including the image root), then apply
@@ -384,7 +526,7 @@ async function inspectArchive(filename) {
     for (const member of members) {
       rejectSecretName(member.name);
       if (member.name === inventoryPath) {
-        visibleInventory = member;
+        visibleInventory = { ...member, filename: decoded.filename };
       } else if (inventoryPath.startsWith(`${member.name}/`)) {
         if (member.type === "5") blockedInventoryAncestors.delete(member.name);
         else {
@@ -399,13 +541,13 @@ async function inspectArchive(filename) {
     if (blockedInventoryAncestors.size > 0) visibleInventory = undefined;
   }
   requireValue(visibleInventory?.type === "0", "image has no final visible regular-file package inventory");
-  const imageInventory = await tarJson(filename, visibleInventory);
+  const imageInventory = await tarJson(visibleInventory.filename, visibleInventory);
   validateInventory(imageInventory.value);
   return {
     configDigest: `sha256:${config.hash}`,
     platform: `${config.value.os}/${config.value.architecture}`,
     repository: reference.slice(0, reference.lastIndexOf(":")), tag: reference.slice(reference.lastIndexOf(":") + 1),
-    labels: config.value.config?.Labels ?? {}, inventory: imageInventory.value, inventorySha256: imageInventory.hash,
+    labels: config.value.config?.Labels ?? {}, inventory: imageInventory.value, inventorySha256: imageInventory.hash, identities,
   };
 }
 
@@ -429,6 +571,7 @@ export function applianceEnv(manifest) {
     GATEWAY_IMAGE_REPOSITORY: manifest.image.repository,
     GATEWAY_IMAGE_TAG: manifest.image.tag,
     GATEWAY_IMAGE_CONFIG_DIGEST: manifest.image.configDigest,
+    ...(manifest.image.descriptorDigest ? { GATEWAY_IMAGE_DESCRIPTOR_DIGEST: manifest.image.descriptorDigest } : {}),
     GATEWAY_IMAGE_ARCHIVE: manifest.image.archive,
   };
   for (const value of Object.values(values)) requireValue(typeof value === "string" && /^[A-Za-z0-9_./:+-]+$/.test(value), "unsafe appliance.env value");
@@ -497,7 +640,7 @@ async function verifyBundle(options) {
   requireValue(equal(checksumPaths, files.filter((name) => name !== checksumFile)), "checksum closure mismatch (extra/missing/unsorted file)");
   const manifest = await readJson(path.join(directory, "release-manifest.json"), true);
   keys(manifest, "schema releaseId gatewayVersion gitCommit gitCommitTimestamp lockSha256 source platform testMode policySha256 bluez firmwareCompatibility image inventorySha256 privateMaterialScan", "manifest");
-  keys(manifest.image, "repository tag configDigest archive", "manifest image");
+  keys(manifest.image, `repository tag configDigest archive${manifest.image.descriptorDigest === undefined ? "" : " descriptorDigest"}`, "manifest image");
   requireValue(equal(manifest.privateMaterialScan, privateMaterialScan), "private-material scan profile mismatch");
   requireValue(manifest.schema === policy.schema && manifest.source === policy.source && manifest.policySha256 === sha256(canonicalJson(policy))
     && equal(manifest.bluez, policy.bluez) && equal(manifest.firmwareCompatibility, policy.firmwareCompatibility), "release policy/schema mismatch");
@@ -511,6 +654,8 @@ async function verifyBundle(options) {
   requireValue(manifest.image.archive === archiveName(manifest.platform), "image archive/platform mismatch");
   requireValue(equal(files, ["appliance.env", checksumFile, "compose.yml", "docker/seccomp-bluez-mesh.json", manifest.image.archive, "release-manifest.json", "sbom.spdx.json"].sort()), "extra/missing release bundle file");
   const image = await inspectArchive(path.join(directory, manifest.image.archive));
+  if (manifest.image.descriptorDigest !== undefined) requireValue(manifest.image.descriptorDigest === image.configDigest
+    || image.identities.has(manifest.image.descriptorDigest), "image descriptor digest is not bound to selected config");
   requireValue(image.configDigest === manifest.image.configDigest && image.platform === manifest.platform
     && image.repository === manifest.image.repository && image.tag === manifest.image.tag, "image config digest/platform/reference mismatch");
   requireValue(manifest.releaseId === releaseId(manifest), "release ID mismatch");
@@ -549,7 +694,10 @@ async function createBundle(options) {
   await regularFile(options["image-archive"]);
   const image = await inspectArchive(options["image-archive"]);
   const inspect = await readJson(options["image-inspect"]);
-  requireValue(Array.isArray(inspect) && inspect.length === 1 && inspect[0].Id === image.configDigest, "image config digest differs from Docker inspect");
+  requireValue(Array.isArray(inspect) && inspect.length === 1, "image config digest differs from Docker inspect");
+  const descriptor = image.identities.get(inspect[0].Id);
+  requireValue(inspect[0].Id === image.configDigest || (descriptor && equal(inspect[0].Descriptor, descriptor)), "image config digest or descriptor differs from Docker inspect");
+  if (inspect[0].Descriptor !== undefined) requireValue(equal(inspect[0].Descriptor, image.identities.get(inspect[0].Descriptor.digest)), "Docker inspect descriptor is not bound to selected config");
   requireValue(`${inspect[0].Os}/${inspect[0].Architecture}` === platform && image.platform === platform, "image platform mismatch");
   requireValue(equal(inspect[0].RepoTags, [`${image.repository}:${image.tag}`]) && equal(inspect[0].Config?.Labels, image.labels), "Docker inspect image reference/labels mismatch");
   const suppliedInventory = validateInventory(await readJson(options.inventory, true));
@@ -557,7 +705,7 @@ async function createBundle(options) {
   const manifest = {
     schema: policy.schema, ...metadata, source: policy.source, platform, policySha256: sha256(canonicalJson(policy)),
     bluez: policy.bluez, firmwareCompatibility: policy.firmwareCompatibility,
-    image: { repository: image.repository, tag: image.tag, configDigest: image.configDigest, archive: archiveName(platform) },
+    image: { repository: image.repository, tag: image.tag, configDigest: image.configDigest, descriptorDigest: inspect[0].Id, archive: archiveName(platform) },
     inventorySha256: image.inventorySha256,
     privateMaterialScan,
   };

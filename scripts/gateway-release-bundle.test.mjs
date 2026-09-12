@@ -5,6 +5,7 @@ import { chmod, link, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, wri
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { gzipSync } from "node:zlib";
 
 const repository = path.resolve(import.meta.dirname, "..");
 const cli = path.join(repository, "scripts/gateway-release-bundle.mjs");
@@ -32,8 +33,8 @@ const hash = (value) => createHash("sha256").update(value).digest("hex");
 const canonical = (value) => JSON.stringify(value, (_, item) => item && typeof item === "object" && !Array.isArray(item)
   ? Object.fromEntries(Object.keys(item).sort().map((key) => [key, item[key]])) : item, 2) + "\n";
 
-function run(args) {
-  return spawnSync(process.execPath, [cli, ...args], { encoding: "utf8", timeout: 30_000 });
+function run(args, env = process.env) {
+  return spawnSync(process.execPath, [cli, ...args], { encoding: "utf8", timeout: 30_000, env });
 }
 
 function succeeds(result) {
@@ -122,17 +123,43 @@ async function fixture(t, options = {}) {
   const inventoryBytes = canonical(imageInventory);
   const layerObjects = options.layers?.(inventoryBytes) ?? [{ "usr/local/share/gateway-release-inventory.json": inventoryBytes, ...options.layerFiles }];
   const layers = layerObjects.map((entries) => tar(entries));
-  const layerNames = layers.map((_, index) => `layer-${index}/layer.tar`);
+  const blobs = layers.map((bytes, index) => options.encodeLayer ? options.encodeLayer(bytes, index) : options.oci ? gzipSync(bytes) : bytes);
+  const layerNames = blobs.map((bytes, index) => options.oci ? `blobs/sha256/${hash(bytes)}` : `layer-${index}/layer.tar`);
   const config = { architecture: platform.split("/")[1], os: "linux", config: { Labels: labels }, rootfs: { type: "layers", diff_ids: layers.map((layer) => `sha256:${hash(layer)}`) } };
+  options.mutateConfig?.(config);
   const configBytes = canonical(config);
   const configDigest = `sha256:${hash(configBytes)}`;
-  const configName = `${hash(configBytes)}.json`;
+  const configName = options.oci ? `blobs/sha256/${hash(configBytes)}` : `${hash(configBytes)}.json`;
   const imageTag = `${commit}${options.testMode ? "-test" : ""}`;
   const image = { Id: configDigest, Architecture: config.architecture, Os: config.os, Config: config.config, RepoTags: [`led-control-gateway:${imageTag}`] };
+  const archiveEntries = { "manifest.json": JSON.stringify([{ Config: configName, RepoTags: [`led-control-gateway:${imageTag}`], Layers: layerNames }]),
+    [configName]: configBytes, ...Object.fromEntries(layerNames.map((name, index) => [name, blobs[index]])) };
+  if (options.oci) {
+    const descriptor = (mediaType, bytes) => ({ mediaType, digest: `sha256:${hash(bytes)}`, size: Buffer.byteLength(bytes) });
+    const manifest = { schemaVersion: 2, mediaType: "application/vnd.oci.image.manifest.v1+json",
+      config: descriptor("application/vnd.oci.image.config.v1+json", configBytes),
+      layers: blobs.map(bytes => descriptor(bytes[0] === 0x1f ? "application/vnd.oci.image.layer.v1.tar+gzip" : "application/vnd.oci.image.layer.v1.tar", bytes)) };
+    options.mutateOciManifest?.(manifest);
+    const manifestBytes = canonical(manifest), manifestDescriptor = descriptor(manifest.mediaType, manifestBytes);
+    const index = { schemaVersion: 2, mediaType: "application/vnd.oci.image.index.v1+json", manifests: [{ ...manifestDescriptor, platform: { os: "linux", architecture: config.architecture } }] };
+    if (options.extraOciImage) {
+      const extraConfig = canonical({ architecture: "unknown", os: "unknown" }), payload = canonical({ _type: "https://in-toto.io/Statement/v0.1" });
+      const extra = canonical({ schemaVersion: 2, mediaType: manifest.mediaType, config: descriptor("application/vnd.oci.image.config.v1+json", extraConfig), layers: [descriptor("application/vnd.in-toto+json", payload)] });
+      for (const bytes of [extraConfig, payload, extra]) archiveEntries[`blobs/sha256/${hash(bytes)}`] = bytes;
+      index.manifests.push({ ...descriptor(manifest.mediaType, extra), platform: { os: "unknown", architecture: "unknown" },
+        ...(options.extraOciImage === "attestation" ? { annotations: { "vnd.docker.reference.type": "attestation-manifest", "vnd.docker.reference.digest": manifestDescriptor.digest } } : {}) });
+    }
+    options.mutateOciIndex?.(index);
+    const indexBytes = canonical(index), indexDescriptor = descriptor(index.mediaType, indexBytes);
+    Object.assign(archiveEntries, { "oci-layout": canonical({ imageLayoutVersion: "1.0.0" }),
+      "index.json": canonical({ schemaVersion: 2, manifests: [{ ...indexDescriptor, annotations: { "io.containerd.image.name": `docker.io/library/led-control-gateway:${imageTag}`, "org.opencontainers.image.ref.name": imageTag } }] }),
+      [`blobs/sha256/${hash(manifestBytes)}`]: manifestBytes, [`blobs/sha256/${hash(indexBytes)}`]: indexBytes });
+    image.Id = indexDescriptor.digest; image.Descriptor = indexDescriptor; image.RootFS = { Type: "layers", Layers: config.rootfs.diff_ids };
+  }
   options.mutateInspect?.(image);
   const archive = path.join(directory, "image.tar");
-  await writeFile(archive, tar({ "manifest.json": JSON.stringify([{ Config: configName, RepoTags: [`led-control-gateway:${imageTag}`], Layers: layerNames }]),
-    [configName]: configBytes, ...Object.fromEntries(layerNames.map((name, index) => [name, layers[index]])) }));
+  options.mutateArchive?.(archiveEntries, { layerNames, configName });
+  await writeFile(archive, tar(archiveEntries));
   const inspect = path.join(directory, "inspect.json");
   const inventoryFile = path.join(directory, "inventory.json");
   await writeFile(inspect, JSON.stringify([image]));
@@ -141,7 +168,7 @@ async function fixture(t, options = {}) {
     "--inventory", inventoryFile, "--output", output, ...(options.testMode ? ["--test-mode"] : []),
     ...(options.platform ? ["--platform", platform] : [])];
   const verifyArgs = ["verify", "--bundle", output, "--policy", path.join(source, "apps/gateway/release-policy.json")];
-  return { directory, source, output, commit, configDigest, createArgs, verifyArgs, archive, imageInventory, git };
+  return { directory, source, output, commit, configDigest, descriptorDigest: image.Id, createArgs, verifyArgs, archive, imageInventory, git };
 }
 
 async function created(t, options) {
@@ -183,12 +210,14 @@ async function replaceBundleImage(result, image) {
   const manifest = JSON.parse(await readFile(filename, "utf8"));
   const previousId = manifest.releaseId;
   manifest.image.configDigest = image.configDigest;
+  if (manifest.image.descriptorDigest !== undefined) manifest.image.descriptorDigest = image.descriptorDigest;
   manifest.releaseId = `${manifest.gatewayVersion}-${manifest.gitCommit}-${image.configDigest.slice(7, 23)}${manifest.testMode ? "-test" : ""}`;
   await writeFile(path.join(result.output, manifest.image.archive), await readFile(image.archive));
   await writeFile(filename, canonical(manifest));
   const envFile = path.join(result.output, "appliance.env");
   await writeFile(envFile, (await readFile(envFile, "utf8"))
     .replace(/^GATEWAY_IMAGE_CONFIG_DIGEST=.*$/m, `GATEWAY_IMAGE_CONFIG_DIGEST=${image.configDigest}`)
+    .replace(/^GATEWAY_IMAGE_DESCRIPTOR_DIGEST=.*$/m, `GATEWAY_IMAGE_DESCRIPTOR_DIGEST=${image.descriptorDigest}`)
     .replace(/^GATEWAY_RELEASE_ID=.*$/m, `GATEWAY_RELEASE_ID=${manifest.releaseId}`));
   const sbomFile = path.join(result.output, "sbom.spdx.json");
   const sbom = JSON.parse(await readFile(sbomFile, "utf8"));
@@ -197,6 +226,67 @@ async function replaceBundleImage(result, image) {
   await writeFile(sbomFile, canonical(sbom));
   await checksums(result.output);
 }
+
+test("Docker 29 gzip blobs bind index, selected manifest, compressed digest and uncompressed config diff IDs", async (t) => {
+  const h = await fixture(t, { oci: true }); const env = { ...process.env, TMPDIR: h.directory };
+  succeeds(run(h.createArgs, env)); succeeds(run(h.verifyArgs, env));
+  const manifest = JSON.parse(await readFile(path.join(h.output, "release-manifest.json"), "utf8"));
+  assert.equal(manifest.image.configDigest, h.configDigest);
+  assert.equal(manifest.image.descriptorDigest, h.descriptorDigest);
+  assert.notEqual(h.configDigest, h.descriptorDigest);
+  assert.match(await readFile(path.join(h.output, "appliance.env"), "utf8"), new RegExp(`GATEWAY_IMAGE_DESCRIPTOR_DIGEST=${h.descriptorDigest}`));
+  assert.equal((await readdir(h.directory)).some(name => name.startsWith("gateway-image-layers-")), false);
+});
+
+const gzipRejections = [
+  ["compressed blob tamper", { mutateArchive: (entries, { layerNames }) => { entries[layerNames[0]] = gzipSync("different compressed bytes"); } }, /blob digest/],
+  ["wrong diff ID", { mutateConfig: c => { c.rootfs.diff_ids[0] = `sha256:${"0".repeat(64)}`; } }, /layer digest/],
+  ["corrupt checksum", { encodeLayer: bytes => { const gz = gzipSync(bytes); gz[gz.length - 8] ^= 1; return gz; } }, /gzip/],
+  ["truncated member", { encodeLayer: bytes => gzipSync(bytes).subarray(0, -3) }, /gzip/],
+  ["trailing zero bytes", { encodeLayer: bytes => Buffer.concat([gzipSync(bytes), Buffer.alloc(8)]) }, /gzip.*trailing|single gzip/],
+  ["concatenated empty member", { encodeLayer: bytes => Buffer.concat([gzipSync(bytes), gzipSync("")]) }, /gzip.*trailing|single gzip/],
+  ["unsupported compression", { encodeLayer: () => Buffer.from("28b52ffd00000000", "hex") }, /unsupported.*compression/],
+  ["unsupported media type", { mutateOciManifest: m => { m.layers[0].mediaType = "application/vnd.oci.image.layer.v1.tar+zstd"; } }, /unsupported.*compression/],
+  ["descriptor digest tamper", { mutateOciManifest: m => { m.layers[0].digest = `sha256:${"0".repeat(64)}`; } }, /descriptor/],
+  ["descriptor size tamper", { mutateOciManifest: m => { m.layers[0].size++; } }, /descriptor/],
+  ["wrong selected platform", { mutateOciIndex: i => { i.manifests[0].platform.architecture = "other"; } }, /platform/],
+  ["unbound inspect descriptor", { mutateInspect: i => { i.Id = `sha256:${"0".repeat(64)}`; i.Descriptor.digest = i.Id; } }, /Docker inspect|descriptor/],
+  ["unselected runtime image", { extraOciImage: "runtime" }, /unselected image/],
+  ["index tag mismatch", { mutateArchive: entries => { const index=JSON.parse(entries["index.json"]);index.manifests[0].annotations["io.containerd.image.name"]="other:tag";entries["index.json"]=canonical(index); } }, /index.*reference/],
+];
+for (const [name, options, reason] of gzipRejections) test(`Docker 29 gzip rejects ${name} and cleans decoded staging`, async (t) => {
+  const h = await fixture(t, { oci: true, ...options }); const env = { ...process.env, TMPDIR: h.directory };
+  fails(run(h.createArgs, env), reason);
+  if (!name.includes("inspect")) {
+    const published = await created(t, { oci: true }); await replaceBundleImage(published, h);
+    fails(run(published.verifyArgs, env), reason);
+  }
+  assert.equal((await readdir(h.directory)).some(name => name.startsWith("gateway-image-layers-")), false);
+});
+test("Docker 29 gzip rejects a 512 MiB expansion bomb before scanning or extracting its tar", async (t) => {
+  const encoded = gzipSync(Buffer.alloc(512 * 1024 * 1024 + 1));
+  const h = await fixture(t, { oci: true, encodeLayer: () => encoded });
+  fails(run(h.createArgs, { ...process.env, TMPDIR: h.directory }), /decoded.*limit/);
+  assert.equal((await readdir(h.directory)).some(name => name.startsWith("gateway-image-layers-")), false);
+});
+test("Docker 29 gzip preserves whiteout and private-material checks on decoded layer bytes", async (t) => {
+  const hidden = await fixture(t, { oci: true, layers: bytes => [{ "usr/local/share/gateway-release-inventory.json": bytes }, { "usr/.wh..wh..opq": "" }] });
+  fails(run(hidden.createArgs), /final visible/);
+  const key = generateKeyPairSync("ec", { namedCurve: "prime256v1" }).privateKey.export({ format: "der", type: "pkcs8" });
+  const privateLayer = await fixture(t, { oci: true, layerFiles: { "usr/share/allowed.bin": key } });
+  fails(run(privateLayer.createArgs), /private key material/);
+  const mixed = await fixture(t, { oci: true, layers: bytes => [{ "usr/local/share/gateway-release-inventory.json": bytes }, { "usr/share/public.txt": "ordinary" }], encodeLayer: (bytes, i) => i ? bytes : gzipSync(bytes) });
+  succeeds(run(mixed.createArgs)); succeeds(run(mixed.verifyArgs));
+});
+test("Docker 29 gzip accepts only a selected image plus its bound non-runtime attestation", async (t) => {
+  const h = await created(t, { oci: true, extraOciImage: "attestation" }); succeeds(run(h.verifyArgs));
+});
+test("legacy 13-key config-only bundles remain verifiable for rollback", async (t) => {
+  const h = await created(t);
+  await updateJson(h.output, "release-manifest.json", m => { delete m.image.descriptorDigest; });
+  const env = path.join(h.output, "appliance.env"); await writeFile(env, (await readFile(env, "utf8")).replace(/^GATEWAY_IMAGE_DESCRIPTOR_DIGEST=.*\n/m, ""));
+  await checksums(h.output); succeeds(run(h.verifyArgs));
+});
 
 test("OCI whiteouts require final visible inventory at every root/ancestor and ignore same-layer ordering", async (t) => {
   const entry = "usr/local/share/gateway-release-inventory.json";
@@ -551,8 +641,8 @@ test("SPDX includes global Node packages shipped by the Node base image", async 
 });
 
 test("actual build shell creates verifiable default/CI bundles through a fixture Docker boundary", async (t) => {
-  for (const testMode of [false, true]) await t.test(testMode ? "explicit CI override" : "default ARM64", async (t) => {
-    const result = await fixture(t, { withBuildScript: true, testMode, platform: testMode ? "linux/amd64" : "linux/arm64" });
+  for (const [testMode, oci] of [[false, false], [true, false], [true, true]]) await t.test(oci ? "Docker 29 descriptor naming" : testMode ? "explicit CI override" : "default ARM64", async (t) => {
+    const result = await fixture(t, { withBuildScript: true, testMode, oci, platform: testMode ? "linux/amd64" : "linux/arm64" });
     const bin = path.join(result.directory, "bin");
     await mkdir(bin);
     const shim = path.join(bin, "docker");
@@ -577,6 +667,7 @@ esac\n`, { mode: 0o755 });
     succeeds(build);
     const releases = await readdir(output);
     assert.equal(releases.length, 1, "temporary image inputs must be cleaned after the build");
+    assert.equal(releases[0], JSON.parse(await readFile(path.join(output, releases[0], "release-manifest.json"), "utf8")).releaseId);
     const args = await readFile(log, "utf8");
     assert.match(args, new RegExp(`org.opencontainers.image.revision=${result.commit}`));
     assert.match(args, new RegExp(`--platform\\nlinux/${testMode ? "amd64" : "arm64"}`));

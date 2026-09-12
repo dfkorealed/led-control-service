@@ -72,7 +72,7 @@ docker image inspect "$REPOSITORY:$TAG" > "$BUILD_TEMP/image-inspect.json"
 # layer from actual dpkg/Node files, without network, HCI or site identity.
 docker run --rm --network none --read-only --entrypoint cat "$REPOSITORY:$TAG" \
   /usr/local/share/gateway-release-inventory.json > "$BUILD_TEMP/inventory.json"
-CONFIG_PREFIX=$(node -e 'const fs=require("node:fs"); const image=JSON.parse(fs.readFileSync(process.argv[1],"utf8"))[0]; if(!/^sha256:[a-f0-9]{64}$/.test(image.Id)) process.exit(1); process.stdout.write(image.Id.slice(7,23));' "$BUILD_TEMP/image-inspect.json")
+CONFIG_PREFIX=$(node --input-type=module -e 'import { imageArchiveConfigDigest } from "./scripts/gateway-release-bundle.mjs"; process.stdout.write((await imageArchiveConfigDigest(process.argv[1])).slice(7,23));' "$BUILD_TEMP/image.tar")
 BUNDLE_DIR="$OUTPUT_DIR/$VERSION-$REVISION-$CONFIG_PREFIX$TEST_SUFFIX"
 node scripts/gateway-release-bundle.mjs create \
   --source "$ROOT_DIR" "${CREATE_ARGS[@]}" \
