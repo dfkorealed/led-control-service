@@ -227,7 +227,7 @@
 
 ## 부족하거나 개선이 필요한 기능
 
-- capability 원장의 자동 삭제는 후속 retention worker 범위다. watermark는 최신 identity를 보존하며 임의 과거 ID의 영구 보관을 대체하지 않는다. 사용자 DB 적용과 Raspberry Pi/ESP32-H2 replay HIL은 미실행이다.
+- capability 원장은 생성 후 365일보다 오래되고 현재 node revision과 watermark가 모두 해당 revision보다 높은 superseded 기록만 자동 정리한다. 최신 capability 보고는 보존하며 전체 이벤트 정리는 sweep당 합산 최대 10,000개다. scope/hash가 없는 legacy 원장이나 현재 node·watermark 안전 조건을 증명할 수 없는 기록은 남긴다. watermark는 최신 identity를 보존하고 임의 과거 ID의 exact dedupe는 raw 원장이 남아 있는 기간에 의존한다. 같은 worker의 heartbeat 7일·fixture state 30일 정책과 세부 조건은 [DB 보존 문서](../database-schema.md#운영-데이터-보존과-복구-범위)를 따른다. 사용자/운영 DB migration 적용과 Raspberry Pi/ESP32-H2 replay HIL은 미실행이다.
 
 - 공통 우측 패널의 반응형·overflow 계약은 Chromium 1440/1024/390/320px route fixture로 검증했으며 실제 모바일 WebView safe-area와 브라우저별 scrollbar 표현은 별도 실측이 필요하다.
 - 현재 개별 밝기 제어는 acknowledged Light Lightness Set을 한 번 전송하고 Status를 기다린다. 2026-09-03 HIL 4회 중 3회는 1~2초 내 성공했고 1회는 장치 적용 후 Status 한 패킷 유실로 timeout 됐다. 같은 TID를 사용하는 bounded 재전송 또는 후속 Lightness Get 확인으로 실제 적용과 서버 실패 표시가 어긋나지 않게 보완해야 한다.
@@ -256,6 +256,7 @@
 ## 관련 파일
 
 - `apps/api/src/retention/gateway-event-watermark.ts`, `apps/api/src/retention/gateway-event-watermark.integration.spec.ts`
+- `apps/api/src/retention/data-retention.service.ts`, `apps/api/src/retention/data-retention.integration.spec.ts`
 
 - `apps/web/e2e/site-user-management.spec.ts`
 - `apps/api/src/access/site-access.service.ts`

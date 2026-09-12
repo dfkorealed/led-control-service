@@ -143,7 +143,7 @@
 
 ## 부족하거나 개선이 필요한 기능
 
-- watermark는 각 stream의 최신 identity만 유지한다. 기존 hash가 없는 raw 이벤트의 안전 보존과 자동 삭제 worker는 후속 범위이며 사용자 DB migration은 아직 적용하지 않았다.
+- 원장 정리 worker는 생성 후 7일보다 오래된 heartbeat와 30일보다 오래된 fixture state를 최신 Gateway/Fixture snapshot·watermark 및 fixture energy cursor가 해당 기록을 포괄할 때만 삭제한다. superseded capability는 365일 정책이며 전체 이벤트는 sweep당 합산 최대 10,000개다. cutoff와 같은 시각, scope/hash가 없는 legacy 원장, 삭제된 fixture·누락된 cursor 등 안전 조건을 증명할 수 없는 기록은 보존한다. watermark는 stream별 최신 identity만 유지하므로 임의 과거 ID의 exact dedupe는 raw 원장이 남아 있는 기간에 의존한다. 세부 조건은 [DB 보존 문서](../database-schema.md#운영-데이터-보존과-복구-범위)를 따르며 사용자/운영 DB migration 적용과 실장비 replay HIL은 아직 실행하지 않았다.
 
 - 지도 배율과 스크롤 위치는 현재 화면 세션 상태이며 층 전환·새로고침 시 100% 화면 맞춤으로 초기화된다. 사용자별 마지막 viewport를 저장하는 기능은 제공하지 않는다.
 - 저장 도형 표시 회귀는 deterministic route fixture Chromium에서 검증한다. mock snapshot과 브라우저 합성 결과를 확인하는 범위이며 실제 Gateway, Raspberry Pi, ESP32-H2 또는 현장 도면의 HIL 검증은 아니다.
@@ -167,6 +167,7 @@
 ## 관련 파일
 
 - `apps/api/src/retention/gateway-event-watermark.ts`, `apps/api/src/retention/gateway-event-watermark.integration.spec.ts`
+- `apps/api/src/retention/data-retention.service.ts`, `apps/api/src/retention/data-retention.integration.spec.ts`
 
 - `apps/web/e2e/site-user-management.spec.ts`
 - `apps/web/e2e/site-user-management-real.spec.ts`

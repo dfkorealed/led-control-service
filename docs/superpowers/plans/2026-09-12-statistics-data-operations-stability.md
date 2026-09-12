@@ -132,7 +132,7 @@
 
 ## Task 7: 문서 수렴과 전체 검증
 
-진행 상태(2026-09-12): 문서 수렴과 전체 자동 검증을 완료했으며 독립 최종 코드 검토만 대기한다. 새 실행에서 Shared 204개, API 1,076개(환경 의존 363개 제외), Web 692개, 각 lint/typecheck/build와 Prisma validate/generate가 통과했다. disposable PostgreSQL·MinIO 보고서 행렬 217개(공개 도면 저장소 1개 제외), watermark·retention·종료 순서 65개, 통계 Chromium 21개 및 `git diff --check`가 통과했다. 기존 56개 migration 파일을 보존하고 순방향 3개만 추가했다. 독립 검토 결과 전에는 전체 작업 완료로 표시하지 않는다. 기존 Web 500 kB 번들 경고와 사용자/운영 DB 적용·실장비 검증 미실행은 유지한다.
+진행 상태(2026-09-12): 문서 수렴·전체 자동 검증·독립 최종 코드 검토를 완료했다. 새 실행에서 Shared 204개, API 1,076개(환경 의존 363개 제외), Web 692개, 각 lint/typecheck/build와 Prisma validate/generate가 통과했다. disposable PostgreSQL·MinIO 보고서 행렬 217개(공개 도면 저장소 1개 제외), watermark·retention·종료 순서 65개, 통계 Chromium 21개 및 `git diff --check`가 통과했다. 기존 56개 migration 파일을 보존하고 순방향 3개만 추가했다. 독립 최종 검토에서 runtime P0~P2 지적은 없었으며 P3 제어·모니터링 보존 정책 문서 불일치를 후속 문서 커밋으로 수정했다. 기존 Web 500 kB 번들 경고와 사용자/운영 DB 적용·실장비 검증 미실행은 유지한다.
 
 **Files:**
 - Modify: `docs/menus/statistics.md`
@@ -144,5 +144,5 @@
 - [x] event exact dedupe horizon, restore availability, security/audit retention, migration deploy barrier, cleanup metrics 의미를 기록한다.
 - [x] `docs/project-status.md`와 이 plan의 체크 상태를 실제 검증 결과와 일치시킨다.
 - [x] Run: Prisma validate/generate, shared/API/Web lint/typecheck/test/build, migration integration, `git diff --check`.
-- [ ] 독립 code review 후 P0/P1 findings를 수정·재검증한다.
+- [x] 독립 code review 후 P0/P1 findings를 수정·재검증한다. runtime P0~P2 지적 없음, P3 메뉴 문서 불일치 수정·문서 검증 완료.
 - [x] Commit: `docs: finalize statistics operations stability`
