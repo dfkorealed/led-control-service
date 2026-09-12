@@ -24,6 +24,7 @@ export async function waitForObservedValue({
       ...(producerOutcome ? [producerOutcome] : []),
       ...(abort ? [abort.promise] : [])
     ]);
+    let pendingWatch = watchOutcome(iterator);
     let outcome = await race(observeOutcome(observe));
     while (true) {
       if (outcome.kind === "producer") return outcome.value;
@@ -31,16 +32,15 @@ export async function waitForObservedValue({
       if (outcome.kind === "abort") throw outcome.error;
       if (outcome.kind === "observed" && outcome.value !== undefined) return outcome.value;
 
-      outcome = await race(Promise.resolve(iterator.next()).then((result) => ({
-        kind: "event",
-        result
-      })));
+      outcome = await race(pendingWatch);
       if (outcome.kind === "producer") return outcome.value;
       if (outcome.kind === "producer-error") throw outcome.error;
       if (outcome.kind === "abort") throw outcome.error;
+      if (outcome.kind === "watch-error") throw outcome.error;
       if (outcome.result.done) {
         throw new Error(`watch ended before ${description} was observed`);
       }
+      pendingWatch = watchOutcome(iterator);
       outcome = await race(observeOutcome(observe));
     }
   } finally {
@@ -56,6 +56,17 @@ export async function waitForObservedValue({
 
 function observeOutcome(observe) {
   return Promise.resolve().then(observe).then((value) => ({ kind: "observed", value }));
+}
+
+function watchOutcome(iterator) {
+  try {
+    return Promise.resolve(iterator.next()).then(
+      (result) => ({ kind: "event", result }),
+      (error) => ({ kind: "watch-error", error })
+    );
+  } catch (error) {
+    return Promise.resolve({ kind: "watch-error", error });
+  }
 }
 
 function createAbortOutcome(signal) {

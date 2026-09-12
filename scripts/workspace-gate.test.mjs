@@ -22,8 +22,122 @@ test("event wait closes the initial access-watch gap by rechecking after subscri
   });
 
   assert.equal(result, "ready");
-  assert.equal(watcher.nextCalls, 0);
+  assert.equal(watcher.nextCalls, 1);
   assert.equal(watcher.returnCalls, 1);
+});
+
+test("event wait primes a lazy watcher before rechecking the observed value", async () => {
+  const controller = new AbortController();
+  let observeCalls = 0;
+  let watcherActive = false;
+  let nextCalls = 0;
+  let returnCalls = 0;
+  const lazyWatcher = {
+    [Symbol.asyncIterator]() {
+      return this;
+    },
+    next() {
+      nextCalls += 1;
+      watcherActive = true;
+      return new Promise(() => {});
+    },
+    async return() {
+      returnCalls += 1;
+      return { done: true };
+    }
+  };
+
+  const result = await waitForObservedValue({
+    observe: async () => {
+      observeCalls += 1;
+      if (observeCalls === 1) return undefined;
+      if (watcherActive) return "ready";
+      queueMicrotask(() => controller.abort());
+      return undefined;
+    },
+    subscribe: () => lazyWatcher,
+    signal: controller.signal,
+    description: "lazy fixture signal"
+  });
+
+  assert.equal(result, "ready");
+  assert.equal(nextCalls, 1);
+  assert.equal(returnCalls, 1);
+});
+
+test("event wait re-primes a lazy watcher before observing after an event", async () => {
+  const controller = new AbortController();
+  let observeCalls = 0;
+  let watcherActive = false;
+  let nextCalls = 0;
+  let returnCalls = 0;
+  const lazyWatcher = {
+    [Symbol.asyncIterator]() {
+      return this;
+    },
+    next() {
+      nextCalls += 1;
+      watcherActive = true;
+      if (nextCalls === 1) {
+        return Promise.resolve().then(() => {
+          watcherActive = false;
+          return { done: false, value: { eventType: "rename" } };
+        });
+      }
+      return new Promise(() => {});
+    },
+    async return() {
+      returnCalls += 1;
+      return { done: true };
+    }
+  };
+
+  const result = await waitForObservedValue({
+    observe: async () => {
+      observeCalls += 1;
+      if (observeCalls < 3) return undefined;
+      if (watcherActive) return "ready-after-event";
+      queueMicrotask(() => controller.abort());
+      return undefined;
+    },
+    subscribe: () => lazyWatcher,
+    signal: controller.signal,
+    description: "lazy fixture signal after an event"
+  });
+
+  assert.equal(result, "ready-after-event");
+  assert.equal(nextCalls, 2);
+  assert.equal(returnCalls, 1);
+});
+
+test("event wait handles a pending watcher rejection when an observation wins", async () => {
+  let observeCalls = 0;
+  let returnCalls = 0;
+  const watcher = {
+    [Symbol.asyncIterator]() {
+      return this;
+    },
+    next() {
+      return Promise.reject(new DOMException("watcher aborted", "AbortError"));
+    },
+    async return() {
+      returnCalls += 1;
+      return { done: true };
+    }
+  };
+
+  const result = await waitForObservedValue({
+    observe: async () => {
+      observeCalls += 1;
+      return observeCalls === 1 ? undefined : "ready";
+    },
+    subscribe: () => watcher,
+    description: "fixture signal"
+  });
+
+  assert.equal(result, "ready");
+  assert.equal(returnCalls, 1);
+  await new Promise((resolve) => setImmediate(resolve));
 });
 
 test("event wait races producer failure and closes the watcher", async () => {
