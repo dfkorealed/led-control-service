@@ -530,6 +530,48 @@ describe("MqttService", () => {
       ],
       { qos: 1 }
     );
+    expect(subscribe).toHaveBeenCalledWith(
+      expect.arrayContaining(["sites/+/gateways/+/events/provisioning/device-terminal"]),
+      { qos: 1 }
+    );
+  });
+
+  it("routes only the exact scoped V2 provisioning device terminal channel to durable ingest", async () => {
+    const terminal = { ingest: jest.fn().mockResolvedValue({}) };
+    const service = new MqttService(
+      {} as never,
+      createMeshGroupsMock() as never,
+      undefined,
+      undefined,
+      undefined,
+      terminal as never
+    );
+    const receivedAt = new Date("2026-09-12T01:00:01.000Z");
+    const event = {
+      commandId: "10000000-0000-4000-8000-000000000005",
+      sessionId: "10000000-0000-4000-8000-000000000003",
+      siteId: "10000000-0000-4000-8000-000000000001",
+      gatewayId: "10000000-0000-4000-8000-000000000002",
+      nodeId: "10000000-0000-4000-8000-000000000004",
+      deviceUuid: "44464b4c454401010101aabbccddeeff",
+      meshAddress: "0x0100",
+      eventId: "10000000-0000-4000-8000-000000000006",
+      sequence: 41,
+      occurredAt: "2026-09-12T01:00:00.000Z",
+      status: "completed",
+      firmwareVersion: "bio-1.0.0"
+    };
+    const exactTopic = `sites/${event.siteId}/gateways/${event.gatewayId}/events/provisioning/device-terminal`;
+
+    await service.handleMessage(`${exactTopic}/forged`, Buffer.from(JSON.stringify(event)), receivedAt);
+    expect(terminal.ingest).not.toHaveBeenCalled();
+
+    await service.handleMessage(exactTopic, Buffer.from(JSON.stringify(event)), receivedAt);
+    expect(terminal.ingest).toHaveBeenCalledWith(
+      { siteId: event.siteId, gatewayId: event.gatewayId },
+      event,
+      receivedAt
+    );
   });
 
   it("delegates exact automation channels without accepting suffix-spoofed topics", async () => {

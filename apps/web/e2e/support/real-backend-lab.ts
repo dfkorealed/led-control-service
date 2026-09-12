@@ -1,6 +1,7 @@
 import type { Page, Request, TestInfo } from "@playwright/test";
 import {
   acceptanceAckV2Schema,
+  applicationProvisioningDeviceTerminalIngestedAckV2Schema,
   applicationStateIngestedAckV2Schema,
   automationConfigAppliedDeliveryV1Schema,
   automationConfigAppliedReceiptV1Schema,
@@ -17,8 +18,8 @@ import {
   mqttTopics,
   mqttTopicsV2,
   parseDfkDeviceUuid,
-  provisionDeviceSchema,
-  provisioningCompletedSchema,
+  provisioningDeviceCommandV2Schema,
+  provisioningDeviceTerminalV2Schema,
   provisioningScanCompletedSchema,
   provisioningScanFoundSchema,
   provisioningScanStartSchema
@@ -71,6 +72,47 @@ type AutomationExecutionDatabaseRow = {
   manualOverrideId: string | null;
   manualCommandId: string | null;
 };
+
+export function countCompletedProvisioningDeviceExchanges(
+  mqttEvidence: Array<Record<string, unknown>>
+) {
+  const commands = mqttEvidence.flatMap((entry) => {
+    if (entry.direction !== "command" || !String(entry.topic ?? "").endsWith("/commands/provisioning/provision-device")) {
+      return [];
+    }
+    const parsed = provisioningDeviceCommandV2Schema.safeParse(entry.payload);
+    return parsed.success ? [parsed.data] : [];
+  });
+  const terminals = mqttEvidence.flatMap((entry) => {
+    if (entry.direction !== "gateway-event" || !String(entry.topic ?? "").endsWith("/events/provisioning/device-terminal")) {
+      return [];
+    }
+    const parsed = provisioningDeviceTerminalV2Schema.safeParse(entry.payload);
+    return parsed.success ? [parsed.data] : [];
+  });
+  const acknowledgements = mqttEvidence.flatMap((entry) => {
+    if (entry.direction !== "application-ack" ||
+      !String(entry.topic ?? "").endsWith("/acks/provisioning/device-terminal-ingested")) {
+      return [];
+    }
+    const parsed = applicationProvisioningDeviceTerminalIngestedAckV2Schema.safeParse(entry.payload);
+    return parsed.success ? [parsed.data] : [];
+  });
+
+  return commands.filter((command) => terminals.some((terminal) =>
+    terminal.status === "completed" && terminal.commandId === command.commandId &&
+    terminal.sessionId === command.sessionId && terminal.siteId === command.siteId &&
+    terminal.gatewayId === command.gatewayId && terminal.nodeId === command.nodeId &&
+    terminal.deviceUuid === command.deviceUuid && terminal.meshAddress === command.meshAddress &&
+    acknowledgements.some((acknowledgement) =>
+      acknowledgement.commandId === terminal.commandId &&
+      acknowledgement.sessionId === terminal.sessionId && acknowledgement.siteId === terminal.siteId &&
+      acknowledgement.gatewayId === terminal.gatewayId && acknowledgement.nodeId === terminal.nodeId &&
+      acknowledgement.deviceUuid === terminal.deviceUuid && acknowledgement.meshAddress === terminal.meshAddress &&
+      acknowledgement.eventId === terminal.eventId && acknowledgement.sequence === terminal.sequence
+    )
+  )).length;
+}
 
 export function correlateAutomationExecutionEvidence(input: {
   siteId: string;
@@ -271,6 +313,7 @@ export class RealBackendLab {
   private readonly networkByRequest = new WeakMap<Request, NetworkEvidence>();
   private readonly mqttEvidence: Array<Record<string, unknown>> = [];
   private readonly stateIngestedEventIds = new Set<string>();
+  private readonly provisioningDeviceTerminalAckCommandIds = new Set<string>();
   private mqtt?: MqttClient;
   private automationObserver?: MqttClient;
   private apiProcess?: ChildProcess;
@@ -464,13 +507,20 @@ export class RealBackendLab {
     await subscribe(this.mqtt, [
       `sites/${installation.siteId}/gateways/${gatewayId}/commands/#`,
       `sites/${installation.siteId}/gateways/${gatewayId}/acks/state-ingested`,
-      `sites/${installation.siteId}/gateways/${gatewayId}/acks/provisioning/scan-terminal-ingested`
+      `sites/${installation.siteId}/gateways/${gatewayId}/acks/provisioning/scan-terminal-ingested`,
+      `sites/${installation.siteId}/gateways/${gatewayId}/acks/provisioning/device-terminal-ingested`
     ]);
     this.recordMqtt({ direction: "lab-principal", principal: gatewayId, scope: "own-gateway-topics" });
     this.mqtt.on("message", (topic, payload) => {
       if (topic.endsWith("/acks/state-ingested")) {
         const acknowledgement = applicationStateIngestedAckV2Schema.parse(JSON.parse(payload.toString()));
         this.stateIngestedEventIds.add(acknowledgement.eventId);
+      }
+      if (topic.endsWith("/acks/provisioning/device-terminal-ingested")) {
+        const acknowledgement = applicationProvisioningDeviceTerminalIngestedAckV2Schema.parse(
+          JSON.parse(payload.toString())
+        );
+        this.provisioningDeviceTerminalAckCommandIds.add(acknowledgement.commandId);
       }
       this.mqttHandlerChain = this.mqttHandlerChain.then(() => this.handleMqtt(topic, payload)).catch((error) => {
         this.backgroundError ??= error;
@@ -1150,9 +1200,21 @@ export class RealBackendLab {
     for (const path of requiredPaths) {
       if (!this.network.some((item) => item.path?.toString().includes(path))) throw new Error(`network evidence missing: ${path}`);
     }
-    const requiredMqtt = ["scan-completed", "provisioning-completed", "commands/mesh-group/subscription-sync", "acks/state-ingested"];
+    const requiredMqtt = [
+      "scan-completed",
+      "events/provisioning/device-terminal",
+      "acks/provisioning/device-terminal-ingested",
+      "commands/mesh-group/subscription-sync",
+      "acks/state-ingested"
+    ];
     for (const marker of requiredMqtt) {
       if (!this.mqttEvidence.some((item) => item.topic?.toString().includes(marker))) throw new Error(`MQTT evidence missing: ${marker}`);
+    }
+    const provisioningCommandCount = this.mqttEvidence.filter((item) =>
+      String(item.topic ?? "").endsWith("/commands/provisioning/provision-device")
+    ).length;
+    if (countCompletedProvisioningDeviceExchanges(this.mqttEvidence) !== provisioningCommandCount) {
+      throw new Error("MQTT evidence missing: exact V2 provisioning terminal/application ACK exchange");
     }
     if (this.dimmingCommandCount() < 4) throw new Error("MQTT evidence missing: four dimming target commands");
     this.assertOperatorNetworkIsolation();
@@ -1233,12 +1295,28 @@ export class RealBackendLab {
       return;
     }
     if (topic.endsWith("/commands/provisioning/provision-device")) {
-      const command = provisionDeviceSchema.parse(JSON.parse(payload.toString()));
-      await this.publish(mqttTopics.provisioningCompleted(command.siteId, command.gatewayId), provisioningCompletedSchema.parse({
-        sessionId: command.sessionId, nodeId: command.nodeId, deviceUuid: command.deviceUuid,
-        meshAddress: command.meshAddress, firmwareVersion: "1.0.0", rssi: -45, hopCount: 1,
-        completedAt: new Date().toISOString()
-      }));
+      const command = provisioningDeviceCommandV2Schema.parse(JSON.parse(payload.toString()));
+      const terminal = provisioningDeviceTerminalV2Schema.parse({
+        commandId: command.commandId,
+        sessionId: command.sessionId,
+        siteId: command.siteId,
+        gatewayId: command.gatewayId,
+        nodeId: command.nodeId,
+        deviceUuid: command.deviceUuid,
+        meshAddress: command.meshAddress,
+        eventId: randomUUID(),
+        sequence: this.nextSequence(),
+        occurredAt: new Date().toISOString(),
+        status: "completed",
+        firmwareVersion: "1.0.0",
+        rssi: -45,
+        hopCount: 1
+      });
+      await this.publish(mqttTopicsV2.provisioningDeviceTerminal(command.siteId, command.gatewayId), terminal);
+      await this.waitFor(
+        () => this.provisioningDeviceTerminalAckCommandIds.has(command.commandId),
+        10_000
+      );
       await delay(250);
       this.scheduleInitialFixtureStates();
       return;
@@ -1656,7 +1734,12 @@ export class RealBackendLab {
   private async publish(topic: string, payload: unknown, options: IClientPublishOptions = { qos: 1 }) {
     if (!this.mqtt) throw new Error("test-only MQTT publisher is not connected");
     await publish(this.mqtt, topic, JSON.stringify(payload), options);
-    this.recordMqtt({ direction: "gateway-event", topic, eventId: (payload as { eventId?: string }).eventId ?? null });
+    this.recordMqtt({
+      direction: "gateway-event",
+      topic,
+      eventId: (payload as { eventId?: string }).eventId ?? null,
+      payload
+    });
   }
 
   private nextSequence() { return this.eventSequence += 1; }

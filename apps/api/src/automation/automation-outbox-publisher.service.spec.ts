@@ -74,6 +74,43 @@ describe("AutomationOutboxPublisherService", () => {
     expect(successUpdate.data).not.toHaveProperty("payloadHash");
   });
 
+  it("publishes a provisioning device terminal ACK through the generic application ACK variant", async () => {
+    const payload = {
+      commandId: "00000000-0000-4000-8000-000000000010",
+      sessionId: "00000000-0000-4000-8000-000000000011",
+      siteId: SITE_ID,
+      gatewayId: GATEWAY_ID,
+      nodeId: "00000000-0000-4000-8000-000000000012",
+      deviceUuid: "44464b4c454401010101aabbccddeeff",
+      meshAddress: "0x0100",
+      eventId: "00000000-0000-4000-8000-000000000013",
+      sequence: 41,
+      ingestedAt: "2026-09-12T01:00:01.000Z"
+    };
+    const record = ackRecord({
+      applicationAckKey: `provisioning-device-terminal:${GATEWAY_ID}:${payload.commandId}`,
+      topic: `sites/${SITE_ID}/gateways/${GATEWAY_ID}/acks/provisioning/device-terminal-ingested`,
+      payload
+    });
+    const prisma = publishPrisma();
+    const mqtt = { publishTopic: jest.fn().mockResolvedValue(undefined) };
+    const service = new AutomationOutboxPublisherService(prisma as never, mqtt as never, {
+      workerId: "automation-worker",
+      clock: () => NOW
+    });
+
+    await service.publishClaimed(record as never);
+
+    expect(mqtt.publishTopic).toHaveBeenCalledWith(record.topic, payload, {
+      messageExpiryInterval: null,
+      timeoutMs: 10_000
+    });
+    expect(prisma.mqttOutbox.updateMany.mock.calls.at(-1)?.[0].where).toMatchObject({
+      id: record.id,
+      lockedBy: "automation-worker"
+    });
+  });
+
   it("does not publish after lease ownership is lost", async () => {
     const prisma = publishPrisma({ renewCount: 0 });
     const mqtt = { publishTopic: jest.fn() };

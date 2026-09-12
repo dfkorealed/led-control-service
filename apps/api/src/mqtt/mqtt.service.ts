@@ -23,6 +23,7 @@ import {
   provisionDeviceSchema,
   provisioningCompletedSchema,
   provisioningFailedSchema,
+  provisioningDeviceTerminalV2Schema,
   ProvisioningScanStartPayload,
   provisioningScanStartSchema,
   provisioningScanFoundSchema,
@@ -44,10 +45,8 @@ import { EnergyDimensionHistoryService } from "../energy/energy-dimension-histor
 import { PrismaService } from "../prisma/prisma.service";
 import { parseGatewayTopic } from "./topic-scope";
 import { gatewayEventIsTooFarInFuture, gatewayEventMaxFutureSkewMs } from "./gateway-event-time";
+import { ProvisioningDeviceTerminalService } from "./provisioning-device-terminal.service";
 
-const DEVICE_UUID_CONFLICT_ERROR = "device UUID is already registered by another site";
-const FIXTURE_FLOOR_CONFLICT_ERROR = "fixture is already assigned to another floor";
-const PROVISIONING_WAITING_STATE = "provisioning_waiting_state";
 const MQTT_BACKGROUND_PUBLISH_TIMEOUT_MS = 10_000;
 const MQTT_CLOSE_TIMEOUT_MS = 5_000;
 const MQTT_FORCE_CLOSE_TIMEOUT_MS = 1_000;
@@ -105,15 +104,19 @@ export class MqttService implements OnModuleInit {
   private inboundStopped = false;
   private closing = false;
   private readonly fixtureStateIngestion: Pick<FixtureStateIngestionService, "ingest">;
+  private readonly provisioningDeviceTerminal: Pick<ProvisioningDeviceTerminalService, "ingest" | "completeLegacy">;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly meshControlGroups: MeshControlGroupService,
     fixtureStateIngestion?: FixtureStateIngestionService,
     @Optional() private readonly automationConsumer?: AutomationMqttConsumerService,
-    @Optional() private readonly energyDimensions?: EnergyDimensionHistoryService
+    @Optional() private readonly energyDimensions?: EnergyDimensionHistoryService,
+    @Optional() provisioningDeviceTerminal?: ProvisioningDeviceTerminalService
   ) {
     this.fixtureStateIngestion = fixtureStateIngestion ?? new FixtureStateIngestionService(prisma);
+    this.provisioningDeviceTerminal = provisioningDeviceTerminal
+      ?? new ProvisioningDeviceTerminalService(prisma, meshControlGroups, energyDimensions);
   }
 
   onModuleInit() {
@@ -125,6 +128,7 @@ export class MqttService implements OnModuleInit {
           "sites/+/gateways/+/events/identify-result",
           "sites/+/gateways/+/events/provisioning/scan-completed",
           "sites/+/gateways/+/events/provisioning/scan-failed",
+          "sites/+/gateways/+/events/provisioning/device-terminal",
           "sites/+/gateways/+/events/provisioning-completed",
           "sites/+/gateways/+/events/provisioning-failed",
           "sites/+/gateways/+/events/mesh-group/resync-request",
@@ -741,6 +745,19 @@ export class MqttService implements OnModuleInit {
       return;
     }
 
+    if (gatewayScope?.channel === "events/provisioning/device-terminal") {
+      const event = provisioningDeviceTerminalV2Schema.parse(JSON.parse(payload.toString()));
+      if (gatewayScope.siteId !== event.siteId || gatewayScope.gatewayId !== event.gatewayId) {
+        throw new Error("provisioning device terminal topic scope rejected");
+      }
+      await this.provisioningDeviceTerminal.ingest(
+        { siteId: gatewayScope.siteId, gatewayId: gatewayScope.gatewayId },
+        event,
+        frozenReceivedAt
+      );
+      return;
+    }
+
     if (topic.endsWith("/events/provisioning-failed")) {
       const event = provisioningFailedSchema.parse(JSON.parse(payload.toString()));
       const topicScope = parseGatewayScopedTopic(topic);
@@ -1215,157 +1232,7 @@ export class MqttService implements OnModuleInit {
       completedAt: string;
     }
   ) {
-    try {
-      await this.prisma.$transaction(async (tx) => {
-        await tx.$queryRaw`
-          SELECT "id" FROM "ProvisioningSession"
-          WHERE "id" = ${event.sessionId}
-          FOR UPDATE
-        `;
-        await tx.$queryRaw`
-          SELECT "id" FROM "DiscoveredMeshNode"
-          WHERE "id" = ${event.nodeId} AND "sessionId" = ${event.sessionId}
-          FOR UPDATE
-        `;
-
-        const session = await tx.provisioningSession.findUnique({ where: { id: event.sessionId } });
-        if (
-          !session ||
-          session.status !== "active" ||
-          session.siteId !== topicScope.siteId ||
-          session.gatewayId !== topicScope.gatewayId
-        ) return;
-
-        const node = await tx.discoveredMeshNode.findFirst({
-          where: {
-            id: event.nodeId,
-            sessionId: event.sessionId,
-            deviceUuid: event.deviceUuid,
-            status: { in: ["provisioning", "reconcile_required"] }
-          }
-        });
-        if (!node || (node.status !== "provisioning" && node.status !== "reconcile_required")) return;
-        if (!node.pendingFixtureName || node.pendingFixtureX === null || node.pendingFixtureY === null) return;
-
-        const existingMeshNode = await tx.meshNode.findUnique({ where: { deviceUuid: event.deviceUuid } });
-        if (existingMeshNode && existingMeshNode.gatewayId !== session.gatewayId) {
-          await tx.discoveredMeshNode.update({
-            where: { id: node.id },
-            data: { status: "failed", errorMessage: DEVICE_UUID_CONFLICT_ERROR }
-          });
-          return;
-        }
-
-        const meshNode = existingMeshNode ?? await tx.meshNode.create({
-          data: {
-            gatewayId: session.gatewayId,
-            deviceUuid: event.deviceUuid,
-            serialNumber: node.serialNumber,
-            meshAddress: event.meshAddress,
-            firmwareVersion: event.firmwareVersion ?? node.firmwareVersion
-          }
-        });
-
-        const existingFixture = await tx.fixture.findFirst({
-          where: { meshNodeId: meshNode.id },
-          select: { id: true, floorId: true }
-        });
-        if (existingFixture && existingFixture.floorId !== session.floorId) {
-          await tx.discoveredMeshNode.update({
-            where: { id: node.id },
-            data: { status: "failed", errorMessage: FIXTURE_FLOOR_CONFLICT_ERROR }
-          });
-          return;
-        }
-
-        let fixture = existingFixture;
-        if (!fixture) {
-          const createdFixture = await tx.fixture.create({
-            data: {
-              id: node.id,
-              floorId: session.floorId,
-              meshNodeId: meshNode.id,
-              name: node.pendingFixtureName,
-              ratedWatt: node.pendingRatedWatt ?? "40.00",
-              x: node.pendingFixtureX,
-              y: node.pendingFixtureY,
-              size: node.pendingFixtureSize ?? 20,
-              status: "offline",
-              statusReason: PROVISIONING_WAITING_STATE,
-              reportedStatus: "offline",
-              reportedStatusReason: PROVISIONING_WAITING_STATE,
-              brightness: 0,
-              rssi: null,
-              hopCount: null,
-              commandSuccessRate: null,
-              lastSeenAt: null
-            }
-          });
-          fixture = createdFixture;
-          if (this.energyDimensions) {
-            const floor = await tx.floor.findUniqueOrThrow({
-              where: { id: session.floorId }, select: { name: true }
-            });
-            await this.energyDimensions.recordFixtureDimensions(tx, {
-              fixtureId: createdFixture.id,
-              siteId: session.siteId,
-              name: node.pendingFixtureName,
-              floorId: session.floorId,
-              floorName: floor.name,
-              ratedWatt: new Prisma.Decimal(node.pendingRatedWatt ?? "40.00"),
-              trackingStartedAt: createdFixture.energyTrackingStartedAt,
-              effectiveAt: createdFixture.createdAt
-            });
-          }
-        }
-        const fixtureGroups = await tx.groupFixture.findMany({
-          where: { fixtureId: fixture.id },
-          select: { groupId: true },
-          orderBy: { groupId: "asc" }
-        });
-        await this.meshControlGroups.attachProvisionedNode(tx, {
-          meshNodeId: meshNode.id,
-          gatewayId: session.gatewayId,
-          floorId: session.floorId,
-          fixtureGroupIds: fixtureGroups.map((membership) => membership.groupId)
-        });
-
-        await tx.discoveredMeshNode.update({
-          where: { id: node.id },
-          data: {
-            status: "provisioned",
-            identifyState: "confirmed",
-            meshAddress: event.meshAddress,
-            firmwareVersion: event.firmwareVersion ?? node.firmwareVersion,
-            rssi: event.rssi ?? node.rssi,
-            errorMessage: null
-          }
-        });
-      });
-    } catch (error) {
-      if (!isDeviceUuidUniqueConstraintError(error)) throw error;
-      await this.markDeviceUuidConflict(topicScope, event);
-    }
-  }
-
-  private async markDeviceUuidConflict(
-    topicScope: { siteId: string; gatewayId: string },
-    event: { sessionId: string; nodeId: string; deviceUuid: string }
-  ) {
-    await this.prisma.discoveredMeshNode.updateMany({
-      where: {
-        id: event.nodeId,
-        sessionId: event.sessionId,
-        deviceUuid: event.deviceUuid,
-        status: { in: ["discovered", "identifying", "provisioning", "reconcile_required"] },
-        session: {
-          siteId: topicScope.siteId,
-          gatewayId: topicScope.gatewayId,
-          status: "active"
-        }
-      },
-      data: { status: "failed", errorMessage: DEVICE_UUID_CONFLICT_ERROR }
-    });
+    await this.provisioningDeviceTerminal.completeLegacy(topicScope, event);
   }
 
   private async storeMeshGroupSubscriptionResult(
@@ -1634,15 +1501,6 @@ function requiredMqttApiInstanceId(env: NodeJS.ProcessEnv) {
   const instanceId = env.MQTT_API_INSTANCE_ID?.trim();
   if (!instanceId) throw new Error("MQTT_API_INSTANCE_ID is required for the API MQTT client");
   return instanceId;
-}
-
-function isDeviceUuidUniqueConstraintError(error: unknown) {
-  if (!isUniqueConstraintError(error)) return false;
-  if (!error.meta || typeof error.meta !== "object" || !("target" in error.meta)) return false;
-
-  const target = error.meta.target;
-  const targets = Array.isArray(target) ? target : [target];
-  return targets.some((value) => value === "deviceUuid" || value === "MeshNode_deviceUuid_key");
 }
 
 function isUniqueConstraintError(error: unknown): error is { code: "P2002"; meta?: unknown } {
