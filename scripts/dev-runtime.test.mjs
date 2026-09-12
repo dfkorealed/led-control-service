@@ -142,6 +142,12 @@ test("통합 로컬 개발 명령은 Docker 인프라를 먼저 시작한 뒤 �
   assert.equal(packageJson.scripts["dev:local"], "pnpm docker:up && pnpm dev");
 });
 
+test("루트 전체 테스트는 shared 산출물을 소비하는 workspace 테스트를 직렬 실행한다", () => {
+  const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+
+  assert.match(packageJson.scripts.test, /pnpm -r --workspace-concurrency=1 test$/);
+});
+
 test("MinIO 초기화는 전체 버킷 생성 절차를 하나의 셸 스크립트 인자로 전달한다", () => {
   const compose = renderCompose();
   const command = compose.services["object-storage-init"].command;

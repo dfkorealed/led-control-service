@@ -603,3 +603,10 @@
 - **원인**: Web 배포 URL 설정과 저장소 CORS 설정을 별도로 관리했고, 현재 MinIO가 지원하지 않는 bucket CORS 명령에 의존했다.
 - **해결 및 예방책**: 번들 MinIO 서버의 `MINIO_API_CORS_ALLOW_ORIGIN`을 `WEB_PUBLIC_URL`에서 주입하고 정적 XML과 `mc cors set`을 제거한다. anonymous 정책은 두 버킷 모두 `none`으로 유지한다.
 - **반복 방지 체크**: Compose contract는 기본 주소와 사용자 지정 주소를 각각 렌더링하고 CORS 값, 고정 MinIO 버전, 비공개 버킷 명령을 함께 검증한다.
+
+## 2026-09-12 / 빌드 잠금은 산출물 소비 기간까지 보호하지 않는다
+
+- **발생했던 문제/실수**: 루트 `pnpm test`가 workspace 테스트를 병렬 실행하면서 여러 package의 pretest가 shared를 다시 빌드했고, API Jest가 shared 파일을 읽는 중 다른 빌드의 atomic 교체가 발생해 모듈을 찾지 못했다.
+- **원인**: shared 빌드끼리만 잠금으로 직렬화하면 빌드 완료 후 테스트가 산출물을 소비하는 기간도 보호된다고 가정했다.
+- **해결 및 예방책**: 루트 전체 테스트의 workspace 실행을 `--workspace-concurrency=1`로 직렬화한다. package 단독 테스트와 빌드의 기존 잠금은 유지한다.
+- **반복 방지 체크**: 루트 스크립트 계약 테스트에서 workspace concurrency를 검증하고, 최종 게이트는 package별 성공만 조합하지 않고 실제 `pnpm test`를 실행한다.
