@@ -258,18 +258,11 @@ export function ControlView({
   }
 
   const modeTabs = <ControlModeTabs mode={mode} onChange={selectMode} allowAutomation={canManage} />;
-  const pageHeader = (
-    <PageHeader
-      title="조명 제어"
-      description="수동 명령과 Gateway 자동화 규칙을 한곳에서 관리합니다."
-    />
-  );
 
   if (capabilities && mode === "event") {
     const eventSiteId = data?.site.id ?? siteId;
     return (
       <section className="control-screen">
-        {pageHeader}
         {modeTabs}
         {eventSiteId ? (
           <Suspense fallback={<p className="muted-text" role="status">이벤트 화면을 불러오는 중입니다.</p>}>
@@ -284,7 +277,6 @@ export function ControlView({
     const scheduleSiteId = data?.site.id ?? siteId;
     return (
       <section className="control-screen">
-        {pageHeader}
         {modeTabs}
         {scheduleSiteId ? (
           <Suspense
@@ -316,20 +308,19 @@ export function ControlView({
   }
 
   if (isLoading && !data) {
-    return <section className="control-screen">{pageHeader}{modeTabs}<p className="muted-text" role="status">제어 대상을 불러오는 중입니다.</p></section>;
+    return <section className="control-screen">{modeTabs}<p className="muted-text" role="status">제어 대상을 불러오는 중입니다.</p></section>;
   }
 
   if (error && !data) {
-    return <section className="control-screen">{pageHeader}{modeTabs}<p className="danger-text" role="alert">제어 대상을 불러오지 못했습니다.</p></section>;
+    return <section className="control-screen">{modeTabs}<p className="danger-text" role="alert">제어 대상을 불러오지 못했습니다.</p></section>;
   }
 
   if (!data) {
-    return <section className="control-screen">{pageHeader}{modeTabs}<p className="muted-text" role="status">제어 대상 데이터가 없습니다.</p></section>;
+    return <section className="control-screen">{modeTabs}<p className="muted-text" role="status">제어 대상 데이터가 없습니다.</p></section>;
   }
 
   return (
     <section className="control-screen">
-      {pageHeader}
       {modeTabs}
       <div id="control-mode-panel-manual" role="tabpanel" aria-labelledby="control-mode-manual" className="control-manual-panel">
       <PageHeader

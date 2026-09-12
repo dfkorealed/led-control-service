@@ -1,4 +1,9 @@
 import { BadRequestException, ForbiddenException, NotFoundException } from "@nestjs/common";
+import { Test } from "@nestjs/testing";
+import { EnergyDimensionHistoryService } from "../energy/energy-dimension-history.service";
+import { MeshControlGroupService } from "../mesh-control-groups/mesh-control-group.service";
+import { PrismaService } from "../prisma/prisma.service";
+import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { FixtureGroupsService } from "./fixture-groups.service";
 
@@ -49,6 +54,17 @@ const input = {
 };
 
 describe("FixtureGroupsService", () => {
+  it("requires the energy dimension history dependency", async () => {
+    await expect(Test.createTestingModule({
+      providers: [
+        FixtureGroupsService,
+        { provide: PrismaService, useValue: {} },
+        { provide: SiteAccessService, useValue: {} },
+        { provide: MeshControlGroupService, useValue: {} }
+      ]
+    }).compile()).rejects.toThrow(EnergyDimensionHistoryService.name);
+  });
+
   it("keeps viewer access read-only while operator and admin can manage an accessible site", async () => {
     const { service, siteAccess } = createHarness();
     siteAccess.assert.mockRejectedValueOnce(new ForbiddenException("site capability denied"));
@@ -81,7 +97,7 @@ describe("FixtureGroupsService", () => {
   });
 
   it("creates a whole desired membership set at version one after stable floor, gateway, and fixture locks", async () => {
-    const { service, prisma, meshGroups, siteAccess } = createHarness({ fixtures: fixtureRows([ids.fixtureA, ids.fixtureB]) });
+    const { service, prisma, meshGroups, siteAccess, energyDimensions } = createHarness({ fixtures: fixtureRows([ids.fixtureA, ids.fixtureB]) });
 
     await expect(service.create(admin, ids.site, input)).resolves.toMatchObject({
       id: ids.group,
@@ -99,6 +115,13 @@ describe("FixtureGroupsService", () => {
       data: [{ groupId: ids.group, fixtureId: ids.fixtureA }, { groupId: ids.group, fixtureId: ids.fixtureB }]
     });
     expect(meshGroups.ensureFixtureGroup).toHaveBeenCalledWith(prisma, ids.gateway, ids.group);
+    expect(energyDimensions.recordGroupDimensions).toHaveBeenCalledWith(prisma, {
+      groupId: ids.group,
+      siteId: ids.site,
+      name: input.name,
+      fixtureIds: [ids.fixtureA, ids.fixtureB],
+      effectiveAt: expect.any(Date)
+    });
     expect(prisma.meshControlGroupMember.upsert).toHaveBeenCalledTimes(2);
     expect(siteAccess.assertManageInTransaction).toHaveBeenCalledWith(prisma, admin, ids.site);
     expect(siteAccess.assertManageInTransaction.mock.invocationCallOrder[0])
@@ -152,7 +175,7 @@ describe("FixtureGroupsService", () => {
   });
 
   it("replaces the entire desired set and increments the existing mesh group version", async () => {
-    const { service, prisma, meshGroups } = createHarness({
+    const { service, prisma, meshGroups, energyDimensions } = createHarness({
       fixtures: fixtureRows([ids.fixtureA, ids.fixtureC]),
       existingGroup: activeGroup(),
       meshGroup: { id: ids.meshGroup, gatewayId: ids.gateway, configurationVersion: 4, status: "ready" }
@@ -172,6 +195,13 @@ describe("FixtureGroupsService", () => {
       data: expect.objectContaining({ configurationVersion: { increment: 1 }, status: "configuring" })
     }));
     expect(meshGroups.ensureFixtureGroup).not.toHaveBeenCalled();
+    expect(energyDimensions.recordGroupDimensions).toHaveBeenCalledWith(prisma, {
+      groupId: ids.group,
+      siteId: ids.site,
+      name: replacement.name,
+      fixtureIds: [ids.fixtureA, ids.fixtureC],
+      effectiveAt: expect.any(Date)
+    });
     expect(prisma.meshControlGroupMember.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: { groupId: ids.meshGroup, gatewayId: ids.gateway },
       data: expect.objectContaining({ desired: false, subscriptionStatus: "pending" })
@@ -229,7 +259,7 @@ describe("FixtureGroupsService", () => {
   });
 
   it("moves deletion to retiring with an empty desired set without deleting historical dispatch references", async () => {
-    const { service, prisma } = createHarness({
+    const { service, prisma, energyDimensions } = createHarness({
       existingGroup: activeGroup(),
       meshGroup: { id: ids.meshGroup, gatewayId: ids.gateway, configurationVersion: 4, status: "ready" }
     });
@@ -246,6 +276,7 @@ describe("FixtureGroupsService", () => {
       where: { id: ids.group },
       data: { lifecycleStatus: "retiring" }
     }));
+    expect(energyDimensions.retireGroup).toHaveBeenCalledWith(prisma, ids.group, expect.any(Date));
     expect(prisma.meshControlGroupMember.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ desired: false, subscriptionStatus: "pending" })
     }));
@@ -339,8 +370,17 @@ function createHarness(options: {
       status: "configuring"
     }))
   };
-  const service = new FixtureGroupsService(prisma, siteAccess as never, meshGroups as never);
-  return { service, prisma, siteAccess, meshGroups };
+  const energyDimensions = {
+    recordGroupDimensions: jest.fn().mockResolvedValue(ids.group),
+    retireGroup: jest.fn().mockResolvedValue(undefined)
+  };
+  const service = new FixtureGroupsService(
+    prisma,
+    siteAccess as never,
+    meshGroups as never,
+    energyDimensions as never
+  );
+  return { service, prisma, siteAccess, meshGroups, energyDimensions };
 }
 
 function fixtureRows(fixtureIds: string[], gatewayId = ids.gateway) {

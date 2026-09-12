@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, InternalServerErrorException, NotFoundException, Optional } from "@nestjs/common";
+import { BadRequestException, Injectable, InternalServerErrorException, NotFoundException } from "@nestjs/common";
 import { createFixtureGroupSchema, FixtureGroupMetadata, UpdateFixtureGroupInput } from "@led-control/shared";
 import { MeshControlGroupStatus, Prisma } from "@prisma/client";
 import { SiteAccessService } from "../access/site-access.service";
@@ -40,7 +40,7 @@ export class FixtureGroupsService {
     private readonly prisma: PrismaService,
     private readonly siteAccess: SiteAccessService,
     private readonly meshControlGroups: MeshControlGroupService,
-    @Optional() private readonly energyDimensions?: EnergyDimensionHistoryService
+    private readonly energyDimensions: EnergyDimensionHistoryService
   ) {}
 
   async list(user: AuthenticatedUser, siteId: string, rawQuery: unknown = {}): Promise<FixtureGroupMetadata[]> {
@@ -95,7 +95,7 @@ export class FixtureGroupsService {
       await tx.groupFixture.createMany({
         data: fixtures.map((fixture) => ({ groupId: group.id, fixtureId: fixture.id }))
       });
-      await this.energyDimensions?.recordGroupDimensions(tx, {
+      await this.energyDimensions.recordGroupDimensions(tx, {
         groupId: group.id,
         siteId,
         name: input.name,
@@ -189,7 +189,7 @@ export class FixtureGroupsService {
       await tx.groupFixture.createMany({
         data: fixtures.map((fixture) => ({ groupId: group.id, fixtureId: fixture.id }))
       });
-      await this.energyDimensions?.recordGroupDimensions(tx, {
+      await this.energyDimensions.recordGroupDimensions(tx, {
         groupId: group.id,
         siteId,
         name: input.name,
@@ -220,7 +220,7 @@ export class FixtureGroupsService {
         where: { id: group.id },
         data: { lifecycleStatus: "retiring" }
       });
-      await this.energyDimensions?.retireGroup(tx, group.id, new Date());
+      await this.energyDimensions.retireGroup(tx, group.id, new Date());
       await tx.meshControlGroup.update({
         where: { id: meshGroup.id },
         data: {

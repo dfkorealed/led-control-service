@@ -1,4 +1,7 @@
 import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
+import { EnergyDimensionHistoryService } from "../energy/energy-dimension-history.service";
+import { createEnergyHistoryTestStore } from "../energy/test-support/energy-history-test-store";
 import { TestDataService } from "./test-data.service";
 
 const siteId = "site-1";
@@ -15,20 +18,32 @@ const user = {
 
 type StoredGateway = { id: string; siteId: string; serialNumber: string };
 type StoredNode = { id: string; gatewayId: string; deviceUuid: string };
-type StoredFixture = { id: string; floorId: string; siteId: string; gatewayId: string; meshNodeId: string; name: string };
+type StoredFixture = {
+  id: string;
+  floorId: string;
+  siteId: string;
+  gatewayId: string;
+  meshNodeId: string;
+  name: string;
+  ratedWatt: Prisma.Decimal;
+  energyTrackingStartedAt: Date;
+};
 
 function createHarness(options: {
-  floors?: Array<{ id: string; siteId: string }>;
+  floors?: Array<{ id: string; siteId: string; name: string }>;
   accessError?: Error;
   directGatewayDependency?: "fixtureGroup" | "commandDispatch" | "gatewayCertificate";
 } = {}) {
-  const floors = options.floors ?? [{ id: "floor-1", siteId }];
+  const floors = options.floors ?? [{ id: "floor-1", siteId, name: "Floor 1" }];
   const gateways: StoredGateway[] = [];
   const nodes: StoredNode[] = [];
   const fixtures: StoredFixture[] = [];
+  const history = createEnergyHistoryTestStore();
+  const fixtureIdentities = history.identities;
   let sequence = 0;
   const nextId = (kind: string) => `${kind}-${++sequence}`;
   const tx: any = {
+    $queryRaw: jest.fn(async () => fixtures.map(({ id }) => ({ id }))),
     floor: { findMany: jest.fn(async ({ where }: any) => floors.filter((floor) => floor.siteId === where.siteId)) },
     gateway: {
       findUnique: jest.fn(async ({ where }: any) => gateways.find((gateway) => gateway.serialNumber === where.serialNumber) ?? null),
@@ -65,20 +80,28 @@ function createHarness(options: {
     },
     fixture: {
       findUnique: jest.fn(async ({ where }: any) => fixtures.find((fixture) => fixture.meshNodeId === where.meshNodeId) ?? null),
-      findMany: jest.fn(async ({ where }: any) => where.meshNodeId
-        ? fixtures.filter((fixture) => where.meshNodeId.in.includes(fixture.meshNodeId))
-        : !where.siteId
-          ? fixtures.filter((fixture) => {
-            const node = nodes.find((candidate) => candidate.id === fixture.meshNodeId);
-            return node && where.meshNode.gatewayId.in.includes(node.gatewayId);
-          })
-        : fixtures.filter((fixture) => {
-          const node = nodes.find((candidate) => candidate.id === fixture.meshNodeId);
-          return fixture.siteId === where.siteId
-            && fixture.name.startsWith(where.name.startsWith)
-            && node?.deviceUuid.startsWith(where.meshNode.deviceUuid.startsWith)
-            && where.meshNode.gatewayId.in.includes(node.gatewayId);
-        })),
+      findMany: jest.fn(async ({ where }: any) => {
+        const found = where.meshNodeId
+          ? fixtures.filter((fixture) => where.meshNodeId.in.includes(fixture.meshNodeId))
+          : !where.siteId
+            ? fixtures.filter((fixture) => {
+              const node = nodes.find((candidate) => candidate.id === fixture.meshNodeId);
+              return node && where.meshNode.gatewayId.in.includes(node.gatewayId);
+            })
+            : fixtures.filter((fixture) => {
+              const node = nodes.find((candidate) => candidate.id === fixture.meshNodeId);
+              const gatewayMatches = where.meshNode.gatewayId
+                ? where.meshNode.gatewayId.in.includes(node?.gatewayId)
+                : gateways.some((gateway) => gateway.id === node?.gatewayId
+                  && gateway.siteId === where.meshNode.gateway.siteId
+                  && gateway.serialNumber.startsWith(where.meshNode.gateway.serialNumber.startsWith));
+              return fixture.siteId === where.siteId
+                && fixture.name.startsWith(where.name.startsWith)
+                && node?.deviceUuid.startsWith(where.meshNode.deviceUuid.startsWith)
+                && gatewayMatches;
+            });
+        return found.map((fixture) => ({ ...fixture, floor: floors.find((floor) => floor.id === fixture.floorId) }));
+      }),
       findFirst: jest.fn(async ({ where }: any) => fixtures.find((fixture) => {
         const node = nodes.find((candidate) => candidate.id === fixture.meshNodeId);
         return node !== undefined
@@ -87,13 +110,20 @@ function createHarness(options: {
           && !fixture.name.startsWith(where.NOT.name.startsWith);
       }) ?? null),
       create: jest.fn(async ({ data }: any) => {
-        const fixture = { id: nextId("fixture"), floorId: data.floorId, siteId: data.siteId, gatewayId: data.gatewayId, meshNodeId: data.meshNodeId, name: data.name };
+        const fixture = {
+          id: nextId("fixture"), floorId: data.floorId, siteId: data.siteId, gatewayId: data.gatewayId,
+          meshNodeId: data.meshNodeId, name: data.name, ratedWatt: new Prisma.Decimal(data.ratedWatt),
+          energyTrackingStartedAt: data.energyTrackingStartedAt ?? new Date()
+        };
         fixtures.push(fixture);
         return fixture;
       }),
       createMany: jest.fn(async ({ data }: any) => {
-        for (const item of data) fixtures.push({ id: nextId("fixture"), floorId: item.floorId, siteId: item.siteId,
-          gatewayId: item.gatewayId, meshNodeId: item.meshNodeId, name: item.name });
+        for (const item of data) fixtures.push({
+          id: nextId("fixture"), floorId: item.floorId, siteId: item.siteId, gatewayId: item.gatewayId,
+          meshNodeId: item.meshNodeId, name: item.name, ratedWatt: new Prisma.Decimal(item.ratedWatt),
+          energyTrackingStartedAt: item.energyTrackingStartedAt ?? new Date()
+        });
         return { count: data.length };
       }),
       updateMany: jest.fn(async () => ({ count: fixtures.length })),
@@ -128,6 +158,7 @@ function createHarness(options: {
     groupFixture: { findFirst: jest.fn(async () => null) },
     energyUsage: { findFirst: jest.fn(async () => null) },
     fixtureEnergyDailyAggregate: { findFirst: jest.fn(async () => null) },
+    energyGroupMembershipVersion: { findFirst: jest.fn(async () => null) },
     fixtureEnergyStateCursor: { findFirst: jest.fn(async () => null) },
     commandFixtureResult: { findFirst: jest.fn(async () => null) },
     lightingScheduleFixture: { findFirst: jest.fn(async () => null) },
@@ -136,12 +167,16 @@ function createHarness(options: {
     manualOverrideFixture: { findFirst: jest.fn(async () => null) },
     automationExecutionFixtureResult: { findFirst: jest.fn(async () => null) }
   };
+  Object.assign(tx, history.tx);
+  tx.fixtureEnergyHourlyAggregate = { findFirst: jest.fn(async () => null) };
+  const energyDimensions = new EnergyDimensionHistoryService();
   const prisma = { ...tx, $transaction: jest.fn(async (callback: (client: unknown) => Promise<unknown>) => callback(tx)) };
   const siteAccess = { assertManageInTransaction: jest.fn(async () => {
     if (options.accessError) throw options.accessError;
     return { id: siteId, organizationId: user.organizationId };
   }) };
-  return { service: new TestDataService(prisma, siteAccess as never), prisma, tx, siteAccess, gateways, nodes, fixtures };
+  const service = new TestDataService(prisma, siteAccess as never, energyDimensions as never);
+  return { service, prisma, tx, siteAccess, energyDimensions, gateways, nodes, fixtures, fixtureIdentities, history };
 }
 
 describe("TestDataService", () => {
@@ -170,7 +205,7 @@ describe("TestDataService", () => {
   });
 
   it("creates one marked gateway and exactly 200 online marked fixture-node pairs for every floor", async () => {
-    const h = createHarness({ floors: [{ id: "floor-1", siteId }, { id: "floor-2", siteId }] });
+    const h = createHarness({ floors: [{ id: "floor-1", siteId, name: "Floor 1" }, { id: "floor-2", siteId, name: "Floor 2" }] });
 
     await expect(h.service.create(user, siteId)).resolves.toEqual({
       floors: { total: 2, created: 0, existing: 2, deleted: 0 },
@@ -214,6 +249,111 @@ describe("TestDataService", () => {
     expect(h.tx.fixture.createMany).not.toHaveBeenCalled();
   });
 
+  it("records an identity and current dimension for every marker fixture, including existing fixtures missing history", async () => {
+    const h = createHarness();
+
+    await h.service.create(user, siteId);
+    const firstFixtureId = h.fixtures[0]!.id;
+
+    expect(h.fixtureIdentities).toHaveLength(200);
+    expect(h.fixtureIdentities.map((identity) => identity.fixtureId)).toContain(firstFixtureId);
+    expect(h.history.versions).toContainEqual(expect.objectContaining({
+      energyFixtureId: h.fixtureIdentities.find((identity) => identity.fixtureId === firstFixtureId)!.id,
+      name: "[TEST DATA] Fixture 001",
+      floorId: "floor-1",
+      floorName: "Floor 1",
+      ratedWatt: new Prisma.Decimal("40.00"),
+      effectiveFrom: expect.any(Date),
+      effectiveTo: null
+    }));
+
+    await h.tx.energyFixtureIdentity.deleteMany({ where: { id: { in: [h.fixtureIdentities[0]!.id] } } });
+    await h.service.create(user, siteId);
+
+    expect(h.fixtureIdentities).toHaveLength(200);
+    expect(h.history.versions).toHaveLength(200);
+  });
+
+  it("keeps real energy history queries bounded for 1,000 new fixtures and an unchanged repeat", async () => {
+    const h = createHarness({ floors: Array.from({ length: 5 }, (_, index) => ({
+      id: `floor-${index}`, siteId, name: `Floor ${index}`
+    })) });
+
+    await h.service.create(user, siteId);
+    const initialQueries = h.history.queryCount();
+    expect(h.fixtureIdentities).toHaveLength(1000);
+    expect(h.history.versions).toHaveLength(1000);
+
+    await h.service.create(user, siteId);
+    const repeatQueries = h.history.queryCount() - initialQueries;
+    expect(h.fixtureIdentities).toHaveLength(1000);
+    expect(h.history.versions).toHaveLength(1000);
+    console.info("energy history query counts", { initialQueries, repeatQueries });
+    expect(initialQueries).toBeLessThanOrEqual(6);
+    expect(repeatQueries).toBeLessThanOrEqual(3);
+  });
+
+  it("repairs a missing current dimension and closes changed dimensions at one effective time without touching unchanged history", async () => {
+    const h = createHarness();
+    await h.service.create(user, siteId);
+    const firstIdentity = h.fixtureIdentities.find((identity) => identity.fixtureId === h.fixtures[0]!.id)!;
+    const old = h.history.versions.find((version) => version.energyFixtureId === firstIdentity.id)!;
+    const unchanged = h.history.versions.find((version) => version.energyFixtureId === h.fixtureIdentities[2]!.id)!;
+    h.fixtures[0]!.name = "[TEST DATA] Fixture renamed";
+    h.fixtures[0]!.ratedWatt = new Prisma.Decimal(55);
+    h.history.versions.find((version) => version.energyFixtureId === h.fixtureIdentities[1]!.id)!.effectiveTo = new Date("2026-01-01T00:00:00Z");
+
+    await h.service.create(user, siteId);
+
+    const replacement = h.history.versions.find((version) => version.energyFixtureId === firstIdentity.id && version.effectiveTo === null)!;
+    expect(h.fixtureIdentities).toHaveLength(200);
+    expect(h.history.versions).toHaveLength(202);
+    expect(h.history.versions.filter((version) => version.effectiveTo === null)).toHaveLength(200);
+    expect(replacement).toEqual(expect.objectContaining({ name: "[TEST DATA] Fixture renamed", ratedWatt: new Prisma.Decimal(55) }));
+    expect(old.effectiveTo).toEqual(replacement.effectiveFrom);
+    expect(unchanged.effectiveTo).toBeNull();
+    expect(h.history.versions.filter((version) => version.energyFixtureId === unchanged.energyFixtureId)).toEqual([unchanged]);
+  });
+
+  it("waits for sorted verified fixture locks before checks and rejects analytics committed while waiting", async () => {
+    const h = createHarness();
+    await h.service.create(user, siteId);
+    const verifiedIds = h.fixtures.map(({ id }) => id).sort();
+    let releaseLock!: () => void;
+    const barrier = new Promise<void>((resolve) => { releaseLock = resolve; });
+    const events: string[] = [];
+    h.tx.$queryRaw.mockImplementation(async (query: Prisma.Sql) => {
+      expect(query.sql).toMatch(/ORDER BY .*"id"\s+FOR UPDATE/);
+      expect(query.values).toEqual(verifiedIds);
+      events.push("fixture-lock-requested");
+      await barrier;
+      events.push("fixture-lock-acquired");
+      return verifiedIds.map((id) => ({ id }));
+    });
+    h.tx.fixtureEnergyHourlyAggregate.findFirst.mockImplementation(async () => {
+      events.push("analytics-check");
+      return events.includes("fixture-lock-acquired") ? { id: "committed-aggregate" } : null;
+    });
+    const cleanup = h.service.remove(user, siteId);
+    const outcome = cleanup.then(() => "deleted", (error: unknown) => error);
+    // Flush the finite service read sequence while the simulated ingestion owns the row lock.
+    for (let step = 0; step < 30; step++) await Promise.resolve();
+    const beforeRelease = [...events];
+    const checksBeforeRelease = Object.values(h.tx).flatMap((delegate: any) =>
+      delegate.findFirst?.mock?.calls ?? []);
+    releaseLock();
+    const result = await outcome;
+
+    expect(beforeRelease).toEqual(["fixture-lock-requested"]);
+    expect(checksBeforeRelease).toEqual([]);
+    expect(result).toBeInstanceOf(ConflictException);
+    expect(events).toEqual(["fixture-lock-requested", "fixture-lock-acquired", "analytics-check"]);
+    expect(h.tx.energyFixtureIdentity.deleteMany).not.toHaveBeenCalled();
+    expect(h.tx.fixture.deleteMany).not.toHaveBeenCalled();
+    expect(h.tx.gateway.deleteMany).not.toHaveBeenCalled();
+    expect(h.fixtures).toHaveLength(200);
+  });
+
   it("bulk-refreshes the marked gateway heartbeat and fixture online timestamps on a repeat POST", async () => {
     const h = createHarness();
     await h.service.create(user, siteId);
@@ -239,14 +379,14 @@ describe("TestDataService", () => {
   });
 
   it("uses a bounded number of bulk queries per floor instead of one query per fixture", async () => {
-    const h = createHarness({ floors: [{ id: "floor-1", siteId }, { id: "floor-2", siteId }] });
+    const h = createHarness({ floors: [{ id: "floor-1", siteId, name: "Floor 1" }, { id: "floor-2", siteId, name: "Floor 2" }] });
 
     await h.service.create(user, siteId);
 
     expect(h.tx.meshNode.findUnique).not.toHaveBeenCalled();
     expect(h.tx.fixture.findUnique).not.toHaveBeenCalled();
     expect(h.tx.meshNode.findMany).toHaveBeenCalledTimes(2);
-    expect(h.tx.fixture.findMany).toHaveBeenCalledTimes(2);
+    expect(h.tx.fixture.findMany).toHaveBeenCalledTimes(3);
     expect(h.tx.meshNode.createMany.mock.calls.every(([input]: any[]) => input.data.length === 200)).toBe(true);
     expect(h.tx.fixture.createMany.mock.calls.every(([input]: any[]) => input.data.length === 200)).toBe(true);
   });
@@ -262,7 +402,10 @@ describe("TestDataService", () => {
     const verifiedFixtureIds = h.fixtures.map((fixture) => fixture.id);
     h.gateways.push({ id: "real-gateway", siteId, serialNumber: "REAL-GATEWAY-1" });
     h.nodes.push({ id: "real-node", gatewayId: "real-gateway", deviceUuid: "real-device-1" });
-    h.fixtures.push({ id: "real-fixture", siteId, floorId: "floor-1", gatewayId: "real-gateway", meshNodeId: "real-node", name: "Actual fixture" });
+    h.fixtures.push({
+      id: "real-fixture", siteId, floorId: "floor-1", gatewayId: "real-gateway", meshNodeId: "real-node",
+      name: "Actual fixture", ratedWatt: new Prisma.Decimal("40.00"), energyTrackingStartedAt: new Date()
+    });
 
     await expect(h.service.remove(user, siteId)).resolves.toEqual({
       floors: { total: 1, created: 0, existing: 0, deleted: 0 },
@@ -271,10 +414,38 @@ describe("TestDataService", () => {
     });
     expect(h.gateways).toEqual([{ id: "real-gateway", siteId, serialNumber: "REAL-GATEWAY-1" }]);
     expect(h.fixtures).toEqual([
-      { id: "real-fixture", siteId, floorId: "floor-1", gatewayId: "real-gateway", meshNodeId: "real-node", name: "Actual fixture" }
+      expect.objectContaining({
+        id: "real-fixture", siteId, floorId: "floor-1", gatewayId: "real-gateway", meshNodeId: "real-node", name: "Actual fixture"
+      })
     ]);
     expect(h.tx.fixture.deleteMany).toHaveBeenCalledWith({ where: { id: { in: verifiedFixtureIds } } });
     expect(h.tx.gateway.deleteMany).toHaveBeenCalledWith({ where: { siteId, serialNumber: { startsWith: "led-control-test-data/v1/gateway/" } } });
+  });
+
+  it("removes only marker fixture identities after confirming that no analytics history exists", async () => {
+    const h = createHarness();
+    await h.service.create(user, siteId);
+    const identityIds = h.fixtureIdentities.map((identity) => identity.id);
+
+    await h.service.remove(user, siteId);
+
+    expect(h.fixtureIdentities).toHaveLength(0);
+    expect(h.tx.energyFixtureIdentity.deleteMany).toHaveBeenCalledWith({ where: { id: { in: identityIds } } });
+    expect(h.tx.fixtureEnergyHourlyAggregate.findFirst).toHaveBeenCalledWith({
+      where: { energyFixtureId: { in: identityIds } }, select: { id: true }
+    });
+  });
+
+  it("rejects all cleanup with 409 when a marker identity has analytics history", async () => {
+    const h = createHarness();
+    await h.service.create(user, siteId);
+    h.tx.fixtureEnergyHourlyAggregate.findFirst.mockResolvedValueOnce({ id: "aggregate-1" });
+
+    await expect(h.service.remove(user, siteId)).rejects.toBeInstanceOf(ConflictException);
+
+    expect(h.tx.energyFixtureIdentity.deleteMany).not.toHaveBeenCalled();
+    expect(h.tx.fixture.deleteMany).not.toHaveBeenCalled();
+    expect(h.tx.gateway.deleteMany).not.toHaveBeenCalled();
   });
 
   it("fails closed before deletion when a marked gateway owns an unmarked MeshNode", async () => {
@@ -338,7 +509,9 @@ describe("TestDataService", () => {
       floorId: "floor-1",
       gatewayId: "real-gateway",
       meshNodeId: "diverted-node",
-      name: "[TEST DATA] Fixture diverted"
+      name: "[TEST DATA] Fixture diverted",
+      ratedWatt: new Prisma.Decimal("40.00"),
+      energyTrackingStartedAt: new Date()
     });
 
     await expect(h.service.remove(user, siteId)).resolves.toEqual(expect.objectContaining({
