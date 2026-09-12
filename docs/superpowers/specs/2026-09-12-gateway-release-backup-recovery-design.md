@@ -39,7 +39,9 @@ Raspberry Pi Gateway 배포물을 어떤 소스와 의존성으로 만들었는�
 - `docker/seccomp-bluez-mesh.json`
 - `checksums.sha256`
 
-Checksum 목록은 자기 자신을 제외한 모든 일반 파일을 상대 경로로 포함한다. Bundle에는 symlink, socket/device/FIFO, `.env.appliance`, private key/certificate private material, `BEGIN PRIVATE KEY` 또는 `BEGIN ENCRYPTED PRIVATE KEY` 내용이 없어야 한다. `verify`는 누락·추가·변조 파일, schema/policy/source commit/platform 불일치와 unsafe path를 fail-closed한다.
+Checksum 목록은 자기 자신을 제외한 모든 일반 파일을 상대 경로로 포함한다. Bundle에는 symlink, socket/device/FIFO, site env나 private key artifact가 없어야 한다. Exact `led-control-private-material/v3` profile은 각 regular file(삭제된 image layer 포함)의 whole-file DER PKCS#1/PKCS#8/SEC1 및 complete UTF-8 PEM을 crypto parse로 검사한다. Complete `ENCRYPTED PRIVATE KEY` PEM은 passphrase 없이 구조적으로 거부하고, whole-file PKCS#8 EncryptedPrivateKeyInfo DER도 canonical definite-length SEQUENCE(AlgorithmIdentifier OID/optional parameters + nonempty OCTET STRING) 구조를 bounded 검증해 거부한다. DER 65,536 bytes·중첩 12/128 parser visits, PEM/base64 131,072 characters를 넘는 후보는 보장 밖이다. 앞뒤 ASCII whitespace와 파일 전체를 감싼 표준 base64 한 겹을 지원한다. Binary 임의 offset·header-only 설명·일반 암호문/token/secret·nested encoding은 보장하지 않고 public SPKI/CA는 허용한다. 구조적 encrypted container 거부는 암호문을 복호화해 진위를 판정하는 보장이 아니다. 이전 v1/v2 profile을 v3로 재인증하지 않는다. `verify`는 누락·추가·변조 파일, schema/policy/source commit/platform 불일치와 unsafe path를 fail-closed한다.
+
+Docker archive는 raw tar 및 단일 gzip layer만 허용하고 blob digest와 decoded diff ID를 분리한다. Outer/누적 decoded bytes 각 2 GiB, layer compressed/decoded 각 512 MiB·최대 128 layers를 유지한다. 모든 nonzero tar header(중복/zero-byte/metadata 포함)는 record push 전에 outer 4,096·layer별 100,000·전체 layer 누적 250,000개로 제한한다. OCI attestation은 selected runtime leaf manifest digest에만 결속하며 in-toto layer 최소 1개를 요구한다. Intermediate index나 다른 identity는 attestation 대상이 아니다.
 
 `scripts/gateway-appliance-build.sh`는 clean tree만 허용하는 기존 계약을 유지하고 full SHA를 OCI label과 manifest에 결속한다. 기본 산출물은 ARM64다. CI disposable smoke에서만 명시적 test mode로 host platform을 사용할 수 있고, test-mode bundle은 production activation이 거부한다.
 
@@ -84,6 +86,8 @@ Live restore는 Gateway를 중지한 뒤 같은 filesystem에서 기존 네 디�
 - fake Compose/Docker 경계의 activation 성공, unhealthy rollback, interrupted journal recovery
 - ephemeral OpenSSL recipient를 사용한 backup→verify→disposable restore drill
 - malformed/tampered/traversal/symlink/permission/partial-swap 실패 회귀
+
+Canonical `pnpm gateway:release:ci`는 전체 state suite를 serial로 한 번 실행하며 85 tests/85 pass 및 fail/cancel/skip/todo 0을 요구한다. 실제 ephemeral CMS happy flow가 그 결과 안에 정확히 1개 있어야 한다. Gate execution 45분, child 30분, launcher 이후 drain 3초→TERM 2초→KILL 2초, cleanup 2분(+5초 hard backstop), protected workflow 60분 timeout으로 무한 대기를 막는다. Still-live group은 cleanup failure/exit 3이며 staging을 보존한다. pnpm build-only self-reference 제거도 exact symlink type/target 검사 후에만 허용한다.
 
 자동 검증은 Raspberry Pi의 실제 ARM64 실행, BlueZ/HCI, 운영 인증서, 현장 filesystem power-loss와 RF/HIL 증거가 아니다. 기본 ARM64 production bundle과 실제 restore는 승인된 운영 절차에서 별도 수행한다.
 

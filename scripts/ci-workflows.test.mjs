@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import yaml from "js-yaml";
 import "./gateway-release-ci.test.mjs";
+import "./gateway-release-process.test.mjs";
 
 const root = path.resolve(import.meta.dirname, "..");
 const softwareJobNames = [
@@ -180,6 +181,11 @@ test("production audit protects one canonical Gateway release artifact and resto
   }
   assert.throws(() => assertReleaseGate(workflow, script.replace("pnpm gateway:release:ci", "true"), pkg), /exactly once/);
   assert.throws(() => assertReleaseGate(workflow, script + "\npnpm gateway:release:ci\n", pkg), /exactly once/);
+  for (const timeout of [undefined, 0, 360, "${{ inputs.timeout }}"]) {
+    const altered = structuredClone(workflow);
+    altered.jobs["production-audit"]["timeout-minutes"] = timeout;
+    assert.throws(() => assertReleaseGate(altered, script, pkg), /bounded production audit timeout/);
+  }
 });
 
 test("HIL is manual, protected, serialized, exact-confirmation, and fail-closed before execution", async () => {
@@ -247,6 +253,7 @@ async function parseWorkflow(name) {
 
 function assertReleaseGate(workflow, script, pkg) {
   const job = workflow.jobs["production-audit"];
+  assert.equal(job["timeout-minutes"], 60, "bounded production audit timeout must be 60 minutes");
   assertCannotBeSkipped(job, "production-audit job");
   const step = findRunStep(job, "pnpm ci:production-audit");
   assert.equal(step.name, "Gateway release artifact and restore drill / production audit");

@@ -14,14 +14,21 @@ async function fixture(t, fail = "") {
   const temp = await realpath(await mkdtemp(path.join(os.tmpdir(), "release-ci-contract-")));
   const root = path.join(temp, "repo"), bin = path.join(temp, "bin"), trace = path.join(temp, "trace.jsonl");
   t.after(async () => {
-    if (fail === "descendant") await new Promise(resolve => setTimeout(resolve, 2500));
-    for (const event of (await readFile(trace, "utf8").catch(() => "")).trim().split("\n").filter(Boolean).map(JSON.parse)) {
+    const events = (await readFile(trace, "utf8").catch(() => "")).trim().split("\n").filter(Boolean).map(JSON.parse);
+    for (const event of events) {
+      if (event.ownedGroup) { try { process.kill(-event.ownedGroup, "SIGKILL"); } catch (error) { if (error.code !== "ESRCH") throw error; } }
       if (event.plaintext && path.dirname(event.plaintext) === await realpath("/tmp") && /^\.gateway-state\.[A-Za-z0-9]{6}$/.test(path.basename(event.plaintext))) await rm(event.plaintext, { recursive: true, force: true });
+    }
+    for (const directory of new Set(events.filter(event => event.output).map(event => path.dirname(event.output)))) {
+      assert.equal(path.dirname(directory), await realpath("/tmp"));
+      assert.match(path.basename(directory), /^gateway-release-ci-[A-Za-z0-9]{6}$/);
+      await rm(directory, { recursive: true, force: true });
     }
     await rm(temp, { recursive: true, force: true });
   });
   await mkdir(path.join(root, "scripts"), { recursive: true }); await mkdir(bin);
   await copyFile(path.join(source, "scripts/gateway-release-ci.mjs"), path.join(root, "scripts/gateway-release-ci.mjs"));
+  await copyFile(path.join(source, "scripts/gateway-release-process.mjs"), path.join(root, "scripts/gateway-release-process.mjs"));
   await copyFile(path.join(source, "scripts/gateway-appliance-common.sh"), path.join(root, "scripts/gateway-appliance-common.sh"));
   const boundary = `const fs=require('node:fs');const path=require('node:path');const cp=require('node:child_process');
 const args=process.argv.slice(2),name=path.basename(process.argv[1]);
@@ -47,6 +54,7 @@ if(name==='fixture-build.cjs'){
  fs.writeFileSync(process.env.CI_FIXTURE_TRACE+'.image','owned');if(fail==='build')process.exit(1);
  if(fail==='interrupt'){log({ready:true});setInterval(()=>{},1000);return;}
  if(fail==='descendant'){cp.spawn(process.execPath,['-e',"setTimeout(()=>require('node:fs').writeFileSync(process.env.CI_FIXTURE_TRACE+'.descendant','finished'),2000)"],{stdio:'ignore'}).unref();process.exit(1);}
+ if(fail==='stubborn'){log({ownedGroup:process.pid});const c=cp.spawn(process.execPath,['-e',"process.on('SIGTERM',()=>{});require('node:fs').appendFileSync(process.env.CI_FIXTURE_TRACE,JSON.stringify({stubborn:process.pid})+String.fromCharCode(10));setInterval(()=>{},1000)"],{stdio:'ignore'});c.unref();setTimeout(()=>process.exit(1),200);return;}
  const dir=path.join(output,'fixture-test');fs.mkdirSync(dir);fs.mkdirSync(path.join(dir,'docker'));
  const manifest={releaseId:'fixture-test',gitCommit:cp.execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),gatewayVersion:'0.1.0',policySha256:'4'.repeat(64),testMode:true,platform:'linux/amd64',inventorySha256:'1'.repeat(64),image:{repository:process.env.GATEWAY_IMAGE_REPOSITORY,tag:process.env.GATEWAY_IMAGE_TAG+'-test',configDigest:'sha256:'+'2'.repeat(64),descriptorDigest:'sha256:'+'3'.repeat(64)}};
  for(const name of ['appliance.env','checksums.sha256','compose.yml','docker/seccomp-bluez-mesh.json','gateway-image-linux-amd64.tar','sbom.spdx.json'])fs.writeFileSync(path.join(dir,name),'fixture');
@@ -63,17 +71,20 @@ if(name==='gateway-release-bundle.mjs'){
   }
   await writeFile(path.join(root, "scripts/fixture-build.cjs"), boundary);
   await writeFile(path.join(root, "scripts/gateway-appliance-build.sh"), `#!/bin/bash\nexec '${process.execPath}' scripts/fixture-build.cjs\n`, { mode: 0o755 });
-  await writeFile(path.join(root, "scripts/gateway-release-bundle.mjs"), `import {createRequire} from 'node:module';const require=createRequire(import.meta.url);\n${boundary.replace("return;", "process.exit(1);")}`);
+  await writeFile(path.join(root, "scripts/gateway-release-bundle.mjs"), `import {createRequire} from 'node:module';const require=createRequire(import.meta.url);\n${boundary.replaceAll("return;", "process.exit(1);")}`);
   for (const name of ["gateway-release-bundle.test.mjs", "gateway-appliance-release.test.mjs", "gateway-appliance-scripts.test.mjs", "gateway-appliance-state.test.mjs"]) {
     await writeFile(path.join(root, "scripts", name), `import test from 'node:test';import fs from 'node:fs';import cp from 'node:child_process';test(${JSON.stringify(name.includes("state") ? flow : name)},()=>{fs.appendFileSync(process.env.CI_FIXTURE_TRACE,JSON.stringify({contract:${JSON.stringify(name)}})+'\\n');if(process.env.CI_FIXTURE_FAIL==='contracts')throw Error('contract rejected');${name.includes("state") ? `const p=cp.spawnSync('mktemp',['-d',fs.realpathSync('/tmp')+'/.gateway-state.XXXXXX'],{encoding:'utf8'});if(p.status!==0)throw Error('mktemp failed');const plaintext=fs.realpathSync(p.stdout.trim());fs.writeFileSync(plaintext+'/fixture','disposable');fs.appendFileSync(process.env.CI_FIXTURE_TRACE,JSON.stringify({plaintext})+'\\n');if(process.env.CI_FIXTURE_FAIL==='state')throw Error('state flow rejected');` : ""}});\n`);
   }
+  const stateFile = path.join(root, "scripts/gateway-appliance-state.test.mjs");
+  const recoveryTests = Array.from({ length: fail === "state-short" ? 83 : 84 }, (_, i) => `test('recovery boundary ${i}',{skip:${fail === "state-skip" && i === 0}},()=>{fs.appendFileSync(process.env.CI_FIXTURE_TRACE,JSON.stringify({recovery:${i}})+'\\n');if(process.env.CI_FIXTURE_FAIL==='state-regression'&&${i}===0)throw Error('malicious archive accepted');});`).join("\n");
+  await writeFile(stateFile, await readFile(stateFile, "utf8") + recoveryTests);
   const git = (...args) => assert.equal(spawnSync("git", args, { cwd: root, encoding: "utf8" }).status, 0);
   git("init", "-q"); git("add", "."); git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture");
   const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, CI_FIXTURE_TRACE: trace, CI_FIXTURE_FAIL: fail };
   // A subprocess CLI is not itself a node:test worker. Otherwise Node silently
   // suppresses its child --test invocation and the fixture never runs contracts.
   delete env.NODE_TEST_CONTEXT;
-  return { root, trace, env, run: () => spawnSync(process.execPath, [path.join(root, "scripts/gateway-release-ci.mjs")], { cwd: root, env, encoding: "utf8", timeout: 30000 }),
+  return { root, trace, env, run: () => spawnSync(process.execPath, [path.join(root, "scripts/gateway-release-ci.mjs")], { cwd: root, env, encoding: "utf8", timeout: 30000, killSignal: "SIGKILL" }),
     events: async () => (await readFile(trace, "utf8").catch(() => "")).trim().split("\n").filter(Boolean).map(JSON.parse) };
 }
 async function assertClean(h) {
@@ -100,8 +111,10 @@ test("release CI executes contracts, marked amd64 build, default rejection, smok
   const smoke = events.find(e => e.args?.[0] === "run");
   for (const flag of ["--name", "--read-only", "--network", "none", "--entrypoint", "node"]) assert.ok(smoke.args.includes(flag));
   assert.match(result.stdout, /cleanup complete/); await assertClean(h);
+  assert.equal(events.filter(e => e.recovery !== undefined).length, 84, "the full state suite must run");
+  assert.equal(events.filter(e => e.contract === "gateway-appliance-state.test.mjs").length, 1, "CMS flow must run exactly once");
 });
-for (const fail of ["contracts", "build", "verify", "accept-production", "wrong-rejection", "load", "identity", "smoke", "state", "docker", "buildx", "openssl"]) {
+for (const fail of ["contracts", "build", "verify", "accept-production", "wrong-rejection", "load", "identity", "smoke", "state", "state-regression", "state-skip", "state-short", "docker", "buildx", "openssl"]) {
   test(`release CI fails closed at ${fail} and removes owned output/images`, async (t) => {
     const h = await fixture(t, fail), result = h.run(); assert.notEqual(result.status, 0);
     assert.doesNotMatch(result.stdout, /release CI passed/);
@@ -121,6 +134,15 @@ test("release CI never removes a foreign container sharing its image digest", as
 test("release CI drains an owned descendant after its launcher exits before removing staging", async (t) => {
   const h = await fixture(t, "descendant"), result = h.run(); assert.equal(result.status, 1);
   assert.equal(await readFile(h.trace + ".descendant", "utf8"), "finished"); await assertClean(h);
+});
+test("release CI kills a TERM-ignoring descendant in its detached owned group within a bounded grace", async t => {
+  const h = await fixture(t, "stubborn"), start = Date.now(), result = h.run();
+  assert.equal(result.status, 1, result.stderr);
+  assert.ok(Date.now() - start < 12000, "TERM then KILL must bound group drain");
+  const descendant = (await h.events()).find(event => event.stubborn)?.stubborn;
+  assert.ok(descendant, "real descendant must have installed its TERM handler");
+  assert.throws(() => process.kill(descendant, 0), { code: "ESRCH" });
+  await assertClean(h);
 });
 
 for (const fail of [false, true]) test(`production audit invokes the Gateway gate once and ${fail ? "stops at rejection" : "continues to existing downstream gates"}`, async (t) => {

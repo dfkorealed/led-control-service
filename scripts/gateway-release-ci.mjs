@@ -1,53 +1,38 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { runBoundedProcess } from "./gateway-release-process.mjs";
 
 const root = path.resolve(import.meta.dirname, "..");
 const stateFlow = "backup is encrypted, binds the exact release and recipient, and round-trips all roots";
-let active, forwardedSignal = false, interrupted = 0, workspace, tempBase, image, dockerReady = false;
+let interrupted = 0, workspace, tempBase, image, dockerReady = false, unsafeCleanup = false;
+const execution = new AbortController(), cleanupSignal = new AbortController();
+// Independent of child progress/output: a gate has 45 minutes plus at most
+// two minutes of cleanup and TERM/KILL grace. CI job has its own 60m backstop.
+const gateDeadline = setTimeout(() => { interrupted ||= 124; execution.abort(); }, 45 * 60_000);
+const hardDeadline = setTimeout(() => { process.stderr.write("Gateway release CI hard wall deadline; cleanup incomplete\n"); process.exit(3); }, 47 * 60_000 + 5000);
 const nonce = randomUUID().replaceAll("-", "");
 const smokeName = `gateway-release-ci-${nonce}`;
 const inventoryName = `${smokeName}-inventory`;
 const childEnv = { ...process.env, FORCE_COLOR: "0" };
 
-// Each subprocess has a private process group. Drain it before cleanup so a
-// terminated builder/test cannot keep writing into directories being removed.
 for (const [signal, status] of [["SIGINT", 130], ["SIGTERM", 143]]) process.on(signal, () => {
   interrupted ||= status;
-  // Never signal a process-group identifier after its launcher has exited: it
-  // may be reused. Existing descendants are drained before resource cleanup.
-  if (!forwardedSignal && active?.pid && active.exitCode === null && active.signalCode === null) {
-    forwardedSignal = true;
-    try { process.kill(-active.pid, signal); } catch (error) { if (error.code !== "ESRCH") process.stderr.write("could not interrupt owned child\n"); }
-  }
+  execution.abort();
 });
-async function drainProcessGroup(pid) {
-  for (;;) {
-    try { process.kill(-pid, 0); } catch (error) {
-      if (error.code === "ESRCH") return;
-      if (error.code !== "EPERM") throw error;
-    }
-    await new Promise(resolve => setTimeout(resolve, 20));
-  }
-}
 async function run(command, args, { quiet = false, allowFailure = false, cleanup = false, env = childEnv } = {}) {
   if (interrupted && !cleanup) throw Error("release CI interrupted");
-  const result = await new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd: root, env, detached: true, stdio: ["ignore", "pipe", "pipe"] });
-    active = child;
-    forwardedSignal = false;
-    let stdout = "", stderr = "";
-    child.stdout.on("data", bytes => { stdout = (stdout + bytes).slice(-4 * 1024 * 1024); if (!quiet) process.stdout.write(bytes); });
-    child.stderr.on("data", bytes => { stderr = (stderr + bytes).slice(-4 * 1024 * 1024); if (!quiet) process.stderr.write(bytes); });
-    child.on("error", reject);
-    child.on("close", (status, signal) => resolve({ status: status ?? 1, signal, stdout, stderr, pid: child.pid }));
+  const result = await runBoundedProcess(command, args, {
+    cwd: root, env, signal: cleanup ? cleanupSignal.signal : execution.signal,
+    timeoutMs: cleanup ? 30_000 : 30 * 60_000,
+    onStdout: bytes => { if (!quiet) process.stdout.write(bytes); },
+    onStderr: bytes => { if (!quiet) process.stderr.write(bytes); },
   });
-  active = undefined;
-  await drainProcessGroup(result.pid);
+  unsafeCleanup ||= result.unsafeCleanup;
+  if (unsafeCleanup) throw Error("owned process group remains alive; staging retained");
   if (interrupted && !cleanup) throw Error("release CI interrupted");
-  if (result.status !== 0 && !allowFailure) throw Error(`${command} failed (${result.status})`);
+  if (result.reason || (result.status !== 0 && !allowFailure)) throw Error(`${command} failed (${result.reason ?? result.status})`);
   return result;
 }
 async function removeOwned(directory, parent, pattern) {
@@ -66,6 +51,7 @@ async function removeOwned(directory, parent, pattern) {
   await assert.rejects(lstat(directory), { code: "ENOENT" });
 }
 async function cleanup() {
+  if (unsafeCleanup) throw Error("release CI cleanup failed: owned group still alive; staging retained");
   const failures = [];
   const attempt = async action => { try { await action(); } catch { failures.push("owned resource cleanup failed"); } };
   if (dockerReady && image) await attempt(async () => {
@@ -157,18 +143,23 @@ try {
   const running = await run("docker", ["container", "inspect", "--format", "{{.Image}}", smokeName]);
   assert.equal(running.stdout.trim(), daemonImageId, "container image must equal the archive-bound loaded daemon identity");
   process.stdout.write(`Gateway release artifact evidence ${JSON.stringify({ ...manifest, smoke: { ...facts, daemonImageId, containerImageId: running.stdout.trim() }, files: ["appliance.env", "checksums.sha256", "compose.yml", "docker/seccomp-bluez-mesh.json", "gateway-image-linux-amd64.tar", "release-manifest.json", "sbom.spdx.json"] })}\n`);
-  process.stdout.write(`Gateway release CI: actual ephemeral RSA/OpenSSL CMS backup → verify → drill → disposable restore: ${stateFlow}\n`);
-  const drill = await run(process.execPath, ["--test", "--test-concurrency=1", "--test-reporter=spec", `--test-name-pattern=^${stateFlow}$`, "scripts/gateway-appliance-state.test.mjs"]);
-  // A renamed test must not silently turn this required real CLI flow into a
-  // green zero-test command. The selected test asserts exact closure/cleanup.
-  assert.match(drill.stdout, /(?:ℹ|#) tests 1(?:\r?\n|$)/);
-  assert.match(drill.stdout, /(?:ℹ|#) pass 1(?:\r?\n|$)/);
-  assert.match(drill.stdout, /(?:ℹ|#) skipped 0(?:\r?\n|$)/);
+  process.stdout.write("Gateway release CI: full state suite (serial), including actual ephemeral RSA/OpenSSL CMS backup → verify → drill → disposable restore\n");
+  const drill = await run(process.execPath, ["--test", "--test-concurrency=1", "--test-reporter=spec", "scripts/gateway-appliance-state.test.mjs"]);
+  // No name filter: malicious archive, permissions, identity and transactional
+  // journal rollback regressions share this protected result with the CMS flow.
+  for (const [label, expected] of Object.entries({ tests: 85, pass: 85, fail: 0, cancelled: 0, skipped: 0, todo: 0 })) {
+    assert.match(drill.stdout, new RegExp(`(?:ℹ|#) ${label} ${expected}(?:\\r?\\n|$)`), `full state suite must report ${label} ${expected}`);
+  }
+  assert.equal(drill.stdout.split("\n").filter(line => line.startsWith(`✔ ${stateFlow} (`)).length, 1, "required real CMS happy flow must pass exactly once");
 } catch (error) {
   status = interrupted || 1;
   process.stderr.write(`Gateway release CI failed: ${error.message}\n`);
 } finally {
+  clearTimeout(gateDeadline);
+  const deadline = setTimeout(() => cleanupSignal.abort(), 120_000);
+  const hardCleanupDeadline = setTimeout(() => { process.stderr.write("release CI cleanup hard deadline exceeded\n"); process.exit(3); }, 125_000);
   try { await cleanup(); } catch (error) { status = 3; process.stderr.write(`${error.message}\n`); }
+  finally { clearTimeout(deadline); clearTimeout(hardCleanupDeadline); clearTimeout(hardDeadline); }
 }
 status ||= interrupted;
 if (!status) process.stdout.write("Gateway release CI passed (software only; no Pi/HIL)\n");

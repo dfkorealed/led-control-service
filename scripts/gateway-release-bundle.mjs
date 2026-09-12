@@ -20,17 +20,21 @@ const commitPattern = /^[a-f0-9]{40}$/;
 const versionPattern = /^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?(?:\+[A-Za-z0-9.-]+)?$/;
 const maxLayerBytes = 512 * 1024 * 1024;
 const maxImageBytes = 2 * 1024 * 1024 * 1024;
+// Count all nonzero headers, including metadata and repeated/zero-byte paths,
+// before allocating entry records. Byte limits alone cannot bound tar arrays.
+const maxOuterEntries = 4096, maxLayerEntries = 100000, maxImageEntries = 250000;
 const privateMaterialScan = {
-  profile: "led-control-private-material/v2",
+  profile: "led-control-private-material/v3",
   scope: "bundle-regular-files-and-each-image-layer-regular-file-including-deleted",
   filenames: "site-env-known-private-basenames-directories-and-key-container-extensions",
   pem: "complete-node-crypto-private-key-blocks-in-utf8-text",
   der: "standalone-node-crypto-pkcs1-pkcs8-sec1-with-ascii-whitespace",
+  encrypted: "complete-encrypted-private-key-pem-or-standalone-strict-pkcs8-encrypted-private-key-info-der",
   base64: "entire-file-one-standard-base64-layer-with-ascii-whitespace",
   maxDerBytes: 65536,
   maxPemBlockChars: 131072,
   maxBase64CandidateChars: 131072,
-  notCovered: ["general-secrets", "encrypted-keys-without-passphrase", "embedded-binary-der", "embedded-base64-tokens", "oversized-candidates", "nested-decompression", "other-encodings-or-obfuscation"],
+  notCovered: ["general-secrets", "embedded-binary-der", "embedded-base64-tokens", "oversized-candidates", "nested-decompression", "other-encodings-or-obfuscation"],
 };
 const fail = (message) => { throw new Error(message); };
 const requireValue = (condition, message) => { if (!condition) fail(message); };
@@ -134,18 +138,50 @@ const asciiWhitespace = byte => byte === 32 || (byte >= 9 && byte <= 13);
 function parsesPrivateKey(options) {
   try { return createPrivateKey(options).type === "private"; } catch { return false; }
 }
+function encryptedPrivateKeyInfo(bytes) {
+  // EncryptedPrivateKeyInfo ::= SEQUENCE { AlgorithmIdentifier, OCTET STRING }.
+  // Decryption is neither possible nor necessary: reject this bounded exact
+  // structural container, without claiming to authenticate its ciphertext.
+  let nodes = 0;
+  function element(offset, end, depth = 0) {
+    if (++nodes > 128 || depth > 12 || offset + 2 > end) return undefined;
+    const tag = bytes[offset], first = bytes[offset + 1], count = first & 0x7f;
+    if (tag === 0 || (tag & 31) === 31 || (first >= 128 && (count === 0 || count > 4 || offset + 2 + count > end || bytes[offset + 2] === 0))) return undefined;
+    const length = first < 128 ? first : bytes.readUIntBE(offset + 2, count);
+    const body = offset + 2 + (first < 128 ? 0 : count), stop = body + length;
+    if ((first >= 128 && length < 128) || stop > end) return undefined;
+    if (tag & 32) {
+      for (let cursor = body; cursor < stop;) { const child = element(cursor, stop, depth + 1); if (!child) return undefined; cursor = child.end; }
+    } else if (tag === 6) {
+      if (!length || (bytes[stop - 1] & 128)) return undefined;
+      for (let cursor = body; cursor < stop; cursor++) if (bytes[cursor] === 128 && (cursor === body || !(bytes[cursor - 1] & 128))) return undefined;
+    } else if (tag === 2 && (!length || (length > 1 && ((bytes[body] === 0 && !(bytes[body + 1] & 128)) || (bytes[body] === 255 && (bytes[body + 1] & 128)))))) return undefined;
+    else if (tag === 5 && length !== 0) return undefined;
+    return { tag, body, end: stop };
+  }
+  const outer = element(0, bytes.length);
+  if (outer?.tag !== 0x30 || outer.end !== bytes.length) return false;
+  const algorithm = element(outer.body, outer.end);
+  if (algorithm?.tag !== 0x30) return false;
+  const oid = element(algorithm.body, algorithm.end);
+  if (oid?.tag !== 6) return false;
+  if (oid.end !== algorithm.end && element(oid.end, algorithm.end)?.end !== algorithm.end) return false;
+  const ciphertext = element(algorithm.end, outer.end);
+  return ciphertext?.tag === 4 && ciphertext.body < ciphertext.end && ciphertext.end === outer.end;
+}
 function standalonePrivateDer(bytes) {
   let start = 0;
   while (start < bytes.length && asciiWhitespace(bytes[start])) start++;
   const sequence = derSequence(bytes, start);
   if (!sequence || sequence.end - start > privateMaterialScan.maxDerBytes || sequence.end > bytes.length
     || !bytes.subarray(sequence.end).every(asciiWhitespace)) return false;
-  return ["pkcs1", "pkcs8", "sec1"].some(type => parsesPrivateKey({ key: bytes.subarray(start, sequence.end), format: "der", type }));
+  const key = bytes.subarray(start, sequence.end);
+  return encryptedPrivateKeyInfo(key) || ["pkcs1", "pkcs8", "sec1"].some(type => parsesPrivateKey({ key, format: "der", type }));
 }
 function completePrivatePem(text, standalone = false) {
   for (const match of text.matchAll(/-----BEGIN ((?:[A-Z0-9]+ )*PRIVATE KEY)-----[\s\S]*?-----END \1-----/g)) {
     if (standalone && /[^\x09-\x0d ]/.test(text.slice(0, match.index) + text.slice(match.index + match[0].length))) continue;
-    if (match[0].length <= privateMaterialScan.maxPemBlockChars && parsesPrivateKey(match[0])) return true;
+    if (match[0].length <= privateMaterialScan.maxPemBlockChars && (match[1] === "ENCRYPTED PRIVATE KEY" || parsesPrivateKey(match[0]))) return true;
   }
   return false;
 }
@@ -267,13 +303,14 @@ function validateInventory(value) {
 // Layers are raw tar after bounded transport decoding. Index bytes in-place: never
 // extract an untrusted archive to disk or follow its paths/symlinks. OS layer
 // symlinks are normal; release-directory symlinks are separately forbidden.
-async function tarEntries(filename, start = 0, size) {
+async function tarEntries(filename, start = 0, size, budget) {
   const handle = await open(filename, "r");
   const end = start + (size ?? (await handle.stat()).size);
   const entries = [];
   let offset = start;
   let extended = {};
   let longName;
+  let count = 0;
   const read = async (position, length) => {
     const buffer = Buffer.alloc(length);
     const { bytesRead } = await handle.read(buffer, 0, length, position);
@@ -291,6 +328,8 @@ async function tarEntries(filename, start = 0, size) {
         }
         return entries;
       }
+      requireValue(++count <= (budget ? maxLayerEntries : maxOuterEntries), `${budget ? "layer" : "outer"} tar entry limit exceeded`);
+      if (budget) requireValue(++budget.count <= maxImageEntries, "cumulative tar entry limit exceeded");
       const field = (position, length) => header.subarray(position, position + length).toString("utf8").replace(/\0.*$/s, "");
       const octal = (value) => { requireValue(/^[0-7]+$/.test(value.trim()), "unsupported tar number"); return Number.parseInt(value.trim(), 8); };
       const storedChecksum = octal(field(148, 8));
@@ -360,7 +399,7 @@ async function imageDescriptors(filename, byName, record, config) {
   const identities = new Map(), kinds = new Map();
   if (!byName.has("index.json")) return { identities, kinds };
   const seen = new Set();
-  const attestations = [];
+  const attestations = [], selectedRuntimeLeaves = new Set();
   const descriptorEntry = descriptor => {
     requireValue(descriptor && /^sha256:[a-f0-9]{64}$/.test(descriptor.digest), "invalid image descriptor digest");
     const entry = byName.get(`blobs/sha256/${descriptor.digest.slice(7)}`);
@@ -398,12 +437,13 @@ async function imageDescriptors(filename, byName, record, config) {
           kinds.set(record.Layers[index], kind);
         }
         selected = true;
+        selectedRuntimeLeaves.add(descriptor.digest);
       } else {
         // Buildx adds non-runtime in-toto attestation manifests. A second
         // runtime image could otherwise hide uninspected compressed layers.
         requireValue(descriptor.platform?.os === "unknown" && descriptor.platform?.architecture === "unknown"
           && descriptor.annotations?.["vnd.docker.reference.type"] === "attestation-manifest"
-          && value.layers.every(layer => layer.mediaType === "application/vnd.in-toto+json"), "unselected image is not a supported attestation");
+          && value.layers.length > 0 && value.layers.every(layer => layer.mediaType === "application/vnd.in-toto+json"), "unselected image is not a supported attestation");
         attestations.push(descriptor.annotations["vnd.docker.reference.digest"]);
       }
     }
@@ -419,7 +459,7 @@ async function imageDescriptors(filename, byName, record, config) {
     if (tag !== undefined) requireValue(typeof tag === "string" && [reference.slice(reference.lastIndexOf(":") + 1), normalize(reference)].includes(normalize(tag)), "OCI index tag reference mismatch");
     await visit(descriptor);
   }
-  for (const digest of attestations) requireValue(identities.has(digest), "unbound image attestation reference");
+  for (const digest of attestations) requireValue(selectedRuntimeLeaves.has(digest), "unbound runtime-leaf image attestation reference");
   requireValue(identities.size > 0, "OCI descriptors do not bind the selected image config");
   return { identities, kinds };
 }
@@ -500,6 +540,7 @@ async function inspectArchiveLayers(filename, staging) {
     && diffIds.every(digest => /^sha256:[a-f0-9]{64}$/.test(digest)), "image layer digest count/format mismatch");
   const { identities, kinds } = await imageDescriptors(filename, byName, record, config);
   let decodedBytes = 0;
+  const entryBudget = { count: 0 };
   let visibleInventory;
   const blockedInventoryAncestors = new Set();
   const seenLayers = new Set();
@@ -512,7 +553,7 @@ async function inspectArchiveLayers(filename, staging) {
     const decoded = await decodeImageLayer(filename, layer, path.join(staging, `${index}.tar`), maxImageBytes - decodedBytes, kinds.get(name));
     decodedBytes += decoded.size;
     requireValue(`sha256:${await digestRange(decoded.filename, decoded.offset, decoded.size, false)}` === diffIds[index], "image layer digest mismatch");
-    const members = await tarEntries(decoded.filename, decoded.offset, decoded.size);
+    const members = await tarEntries(decoded.filename, decoded.offset, decoded.size, entryBudget);
     for (const member of members) if (member.type === "0") await digestRange(decoded.filename, member.offset, member.size);
     // OCI whiteouts remove only lower-layer entries, regardless of their tar
     // ordering relative to same-layer additions. First mask the old inventory

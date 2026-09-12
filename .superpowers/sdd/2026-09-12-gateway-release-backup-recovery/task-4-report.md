@@ -2,7 +2,7 @@
 
 Date: 2026-09-13 (Asia/Seoul). Worktree: `/Users/kim-jh/Documents/led-control-service/.worktrees/p0p1-platform-gateway-release`; branch: `codex/p0p1-platform-gateway-release`.
 
-Status: **Task 4 implemented and software-verified.** Canonical clean-checkout Gateway gate, full production audit, full state regressions and Gateway typecheck/unit/build passed. Final documentation/evidence is a docs-only follow-up to functional-code commit `05c8451`; independent final review and operational/HIL validation remain outside this task's success claim.
+Status: **Pre-review Task 4 evidence (historical).** The counts and v2 profile below describe functional-code commit `05c8451`, not the current review fixes. Independent review at `1b9326f` found five Important issues and one Minor; the review is preserved in `task-4-review.md`, and the fixes/current execution evidence are tracked in `task-4-fix-report.md`. In particular the current v3 profile structurally rejects encrypted private-key containers, the protected gate includes all 85 state tests once, and process/entry bounds and exact unlink checks replace the earlier behavior. Operational/HIL validation remains external.
 
 ## Scope and implementation
 
@@ -92,7 +92,7 @@ The failure was not solely a tar boundary artifact: normal binary files and expl
 - Filename RED: `node --test --test-name-pattern='filenames distinguish' scripts/gateway-release-bundle.test.mjs` — 0/1, 199.709125 ms, normal `apt-key` rejected.
 - Filename GREEN: latest focused command above — **170/170**, 72329.166792 ms; normal tool/module/public SPKI filenames allowed, actual extensionless `secrets/device-key` DER and PEM rejected by content. Node/Bash syntax and diff check passed before commit.
 
-### Exact v2 private-material guarantee
+### Historical v2 private-material guarantee (superseded by v3 review fix)
 
 `led-control-private-material/v2` is explicitly different from v1; the current verifier rejects a v1/missing/altered profile rather than silently recertifying it. This does not remove shell rollback support for previously verified exact 13-key bundles.
 

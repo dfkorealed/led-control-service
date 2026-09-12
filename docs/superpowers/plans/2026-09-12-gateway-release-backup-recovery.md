@@ -181,3 +181,18 @@ Docker가 없으면 image smoke는 성공으로 가장하지 않고 local limita
 전체 RED/GREEN, 실제 실패·진단 경로, exact artifact identity/7-file closure와 cleanup 근거는 `.superpowers/sdd/2026-09-12-gateway-release-backup-recovery/task-4-report.md`에 기록했다. 메뉴/DB schema·migration·사용자 DB·운영·실장비·main은 변경하지 않았다. Production signing/recipient custody, baseline migration, Pi filesystem/power-loss·HCI/RF/HIL, GitHub 운영 보호 설정과 독립 final review는 별도 경계로 유지한다.
 
 - [x] **Step 5: Commit** — 구현/실제 Docker 수정은 `5d955d7` → `27a08bf` → `ba7916d` → `78d00a4` → `05c8451`로 커밋했다. 후속 문서·보고서 commit은 `docs(gateway): record verified release recovery gate`이며 merge/push 없이 clean branch로 인계한다.
+
+### Task 4 independent-review fix wave (base `1b9326f`)
+
+Review findings are preserved in `.superpowers/sdd/2026-09-12-gateway-release-backup-recovery/task-4-review.md`. The preceding counts are historical pre-review evidence, not evidence for the fixes below. Execute inline without subagents and keep validation serial.
+
+- [x] Encrypted PEM/PKCS#8 DER artifact behavior RED → bounded structural detection GREEN and precise v3 profile/spec documentation.
+- [x] Full state-suite/no-skip/named CMS flow contract RED → protected canonical gate GREEN without duplicate happy flow.
+- [x] TERM-ignoring descendant/deadline and workflow timeout RED → bounded cleanup escalation GREEN.
+- [x] Attestation intermediate-index/empty-layer RED → runtime-leaf-only/nonempty GREEN.
+- [x] Outer/per-layer/cumulative tar entry cap-plus-one RED → pre-push bounds GREEN.
+- [x] pnpm wrong-type/wrong-target unlink RED → exact expected symlink checks GREEN (actual image build remains below).
+- [ ] Full current behavior and Gateway contracts/static, implementation commit, clean canonical Docker gate and complete production audit.
+- [ ] Reconcile exact counts/artifact identity/limits in docs and fix report; commit evidence and finish clean without merge/push.
+
+Fresh pre-commit verification: bundle focused 56/56, CI/workflow/process/container 55/55, full combined behavior **343/343** (817.323초, skip 0), Gateway contracts **30/30**, typecheck·**64 files/608 unit** (34.76초)·build **564.6 kB**, syntax/diff PASS. Clean Docker canonical and full production audit for the fixes are pending; previous artifact identities are historical. Exact commands and RED failures are in `task-4-fix-report.md`.

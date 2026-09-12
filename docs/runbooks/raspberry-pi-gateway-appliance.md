@@ -52,7 +52,7 @@ test -f /run/systemd/timesync/synchronized
 
 ## 4. ARM64 이미지 생성
 
-Node 22+, pnpm 9.15.0, Docker daemon/Buildx, OpenSSL 3와 C compiler가 있는 clean 개발/CI checkout에서 실행한다. Dirty 예외는 없다. CI는 protected `production-audit` 안에서 Web/dependency 전에 정확히 한 번 같은 gate를 실행하며, 실패/cleanup 실패를 skip하지 않는다.
+Node 22+, pnpm 9.15.0, Docker daemon/Buildx, OpenSSL 3와 C compiler가 있는 clean 개발/CI checkout에서 실행한다. Dirty 예외는 없다. 전체 state 결과는 85 pass·실패/cancel/skip 0과 named CMS happy flow 정확히 1개를 요구한다. Gate 45분/child 30분, launcher 이후 drain 3초→TERM 2초→KILL 2초, cleanup 2분(+5초 hard backstop), workflow 60분 한도이며 still-live group은 staging을 보존하고 exit 3이다. CI는 protected `production-audit` 안에서 Web/dependency 전에 정확히 한 번 같은 gate를 실행하며, 실패/cleanup 실패를 skip하지 않는다.
 
 ```bash
 pnpm workspace:prepare
@@ -60,7 +60,7 @@ pnpm gateway:release:ci
 pnpm gateway:appliance:build
 ```
 
-CI는 실제 `linux/amd64`, `GATEWAY_RELEASE_TEST_MODE=1`만 만들고 Node 22/final inventory, 기본 production verify 거부와 ephemeral CMS 복구를 확인한 뒤 자기 산출물을 삭제한다. 이 이미지는 배포 승인이 아니다. 기본 production build 결과는 `dist/gateway-appliance/<version>-<full-40-char-commit>-<image-config-prefix>/`다.
+CI는 실제 `linux/amd64`, `GATEWAY_RELEASE_TEST_MODE=1`만 만들고 Node 22/final inventory, 기본 production verify 거부와 전체 state 85개를 직렬 검증한 뒤 자기 산출물을 삭제한다. 이 이미지는 배포 승인이 아니다. 기본 production build 결과는 `dist/gateway-appliance/<version>-<full-40-char-commit>-<image-config-prefix>/`다.
 
 ```text
 appliance.env
@@ -180,7 +180,7 @@ scripts/gateway-appliance-deploy.sh \
 
 Pi에 bundle이 이미 있으면 동일한 승인 후 `sudo /usr/local/lib/led-control/gateway-appliance-release.sh activate /absolute/bundle --policy-sha256 "$POLICY_SHA"`를 사용한다. Checksum-verified archive load 뒤 exact tag의 daemon ID와 OCI labels를 config/descriptor에 결속하고, site image 좌표 원자 갱신과 captured-ID matching health 뒤에만 `previous`→`current` pointer를 바꾼다. Candidate 실패는 검증된 old release/env/pointer를 복원하고 health를 확인한다. Remote upload staging은 자동 삭제되지 않으므로 운영자가 해당 호출에서 반환된 exact staging 경로만 확인해 정리한다.
 
-새 producer의 env는 config와 `GATEWAY_IMAGE_DESCRIPTOR_DIGEST`를 구분하는 exact 14-key다. Docker 29 `.Id`는 config가 아니라 OCI descriptor일 수 있으므로 이름만 보고 혼용하지 않는다. 새 verifier와 release/common/state helper를 먼저 준비하며, 기존 13-key shell rollback은 config-ID 조건으로 유지한다. Node content profile v2는 각 regular file의 standalone DER/PEM·전체 base64 key·UTF-8 text의 complete parseable PEM만 검사한다. v1 profile 재인증, binary 내부 offset, marker-only 설명, passphrase 없는 encrypted key, arbitrary token/secret 탐지는 범위 밖이다. 세부 bounds와 gzip/OCI 검증은 `apps/gateway/RELEASE-BUNDLE.md`를 따른다.
+새 producer의 env는 config와 `GATEWAY_IMAGE_DESCRIPTOR_DIGEST`를 구분하는 exact 14-key다. Docker 29 `.Id`는 config가 아니라 OCI descriptor일 수 있으므로 이름만 보고 혼용하지 않는다. 새 verifier와 release/common/state helper를 먼저 준비하며, 기존 13-key shell rollback은 config-ID 조건으로 유지한다. Node content profile v3는 각 regular file의 standalone DER/PEM·전체 base64 key·UTF-8 text의 complete parseable PEM을 검사하며, complete encrypted-private-key PEM·strict whole-file PKCS#8 EncryptedPrivateKeyInfo DER는 passphrase 없이 구조적으로 거부한다. v1/v2 profile 재인증, binary 내부 offset, marker-only 설명, arbitrary token/secret 탐지는 범위 밖이다. 세부 bounds와 gzip/OCI 검증은 `apps/gateway/RELEASE-BUNDLE.md`를 따른다.
 
 ### Command requester PII migration 유지보수
 

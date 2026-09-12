@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { createHash, generateKeyPairSync } from "node:crypto";
+import { createCipheriv, createHash, generateKeyPairSync, randomBytes } from "node:crypto";
 import { chmod, link, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -51,7 +51,7 @@ function fails(result, reason) {
 // config/layer data without a Docker daemon, including malicious layer fixtures.
 function tar(entries) {
   const blocks = [];
-  for (const [name, value] of Object.entries(entries)) {
+  for (const [name, value] of Array.isArray(entries) ? entries : Object.entries(entries)) {
     const entry = typeof value === "object" && !Buffer.isBuffer(value) ? value : { data: value };
     const data = Buffer.from(entry.data ?? "");
     const header = Buffer.alloc(512);
@@ -142,12 +142,17 @@ async function fixture(t, options = {}) {
     options.mutateOciManifest?.(manifest);
     const manifestBytes = canonical(manifest), manifestDescriptor = descriptor(manifest.mediaType, manifestBytes);
     const index = { schemaVersion: 2, mediaType: "application/vnd.oci.image.index.v1+json", manifests: [{ ...manifestDescriptor, platform: { os: "linux", architecture: config.architecture } }] };
+    if (options.attestationReference === "index") {
+      const nested = canonical(index);
+      archiveEntries[`blobs/sha256/${hash(nested)}`] = nested;
+      index.manifests = [descriptor(index.mediaType, nested)];
+    }
     if (options.extraOciImage) {
       const extraConfig = canonical({ architecture: "unknown", os: "unknown" }), payload = canonical({ _type: "https://in-toto.io/Statement/v0.1" });
-      const extra = canonical({ schemaVersion: 2, mediaType: manifest.mediaType, config: descriptor("application/vnd.oci.image.config.v1+json", extraConfig), layers: [descriptor("application/vnd.in-toto+json", payload)] });
+      const extra = canonical({ schemaVersion: 2, mediaType: manifest.mediaType, config: descriptor("application/vnd.oci.image.config.v1+json", extraConfig), layers: options.emptyAttestation ? [] : [descriptor("application/vnd.in-toto+json", payload)] });
       for (const bytes of [extraConfig, payload, extra]) archiveEntries[`blobs/sha256/${hash(bytes)}`] = bytes;
       index.manifests.push({ ...descriptor(manifest.mediaType, extra), platform: { os: "unknown", architecture: "unknown" },
-        ...(options.extraOciImage === "attestation" ? { annotations: { "vnd.docker.reference.type": "attestation-manifest", "vnd.docker.reference.digest": manifestDescriptor.digest } } : {}) });
+        ...(options.extraOciImage === "attestation" ? { annotations: { "vnd.docker.reference.type": "attestation-manifest", "vnd.docker.reference.digest": index.manifests[0].digest } } : {}) });
     }
     options.mutateOciIndex?.(index);
     const indexBytes = canonical(index), indexDescriptor = descriptor(index.mediaType, indexBytes);
@@ -159,7 +164,7 @@ async function fixture(t, options = {}) {
   options.mutateInspect?.(image);
   const archive = path.join(directory, "image.tar");
   options.mutateArchive?.(archiveEntries, { layerNames, configName });
-  await writeFile(archive, tar(archiveEntries));
+  await writeFile(archive, tar(options.archiveEntries?.(archiveEntries) ?? archiveEntries));
   const inspect = path.join(directory, "inspect.json");
   const inventoryFile = path.join(directory, "inventory.json");
   await writeFile(inspect, JSON.stringify([image]));
@@ -281,6 +286,26 @@ test("Docker 29 gzip preserves whiteout and private-material checks on decoded l
 test("Docker 29 gzip accepts only a selected image plus its bound non-runtime attestation", async (t) => {
   const h = await created(t, { oci: true, extraOciImage: "attestation" }); succeeds(run(h.verifyArgs));
 });
+for (const [name, extra] of [["intermediate index reference", { attestationReference: "index" }], ["empty in-toto layers", { emptyAttestation: true }]]) {
+  test(`attestation rejects ${name} in create and verify`, async t => {
+    const h = await fixture(t, { oci: true, extraOciImage: "attestation", ...extra });
+    fails(run(h.createArgs), /attestation/);
+    const published = await created(t, { oci: true }); await replaceBundleImage(published, h);
+    fails(run(published.verifyArgs), /attestation/);
+  });
+}
+
+for (const duplicate of [false, true]) for (const scope of ["outer", "layer", "cumulative"]) {
+  test(`tar entry cap rejects ${scope} cap-plus-one ${duplicate ? "duplicate" : "unique"} zero-byte records`, async t => {
+    const zeroEntries = (count, prefix) => Array.from({ length: count }, (_, i) => [`${prefix}/${duplicate ? "same" : i}`, ""]);
+    const options = scope === "outer" ? { archiveEntries: entries => [...Object.entries(entries), ...zeroEntries(4097 - Object.keys(entries).length, "padding")] }
+      : { layers: bytes => scope === "layer"
+        ? [[ ["usr/local/share/gateway-release-inventory.json", bytes], ...zeroEntries(100000, "padding") ]]
+        : [[ ["usr/local/share/gateway-release-inventory.json", bytes], ...zeroEntries(83333, "a") ], zeroEntries(83334, "b"), zeroEntries(83333, "c")] };
+    const h = await fixture(t, options);
+    fails(run(h.createArgs), new RegExp(`${scope} tar entry limit`));
+  });
+}
 test("legacy 13-key config-only bundles remain verifiable for rollback", async (t) => {
   const h = await created(t);
   await updateJson(h.output, "release-manifest.json", m => { delete m.image.descriptorDigest; });
@@ -356,21 +381,54 @@ test("private-material filenames distinguish public tooling from actual extensio
   }
 });
 
-test("private-material v2 permits library binaries and marker-only docs, not inferred key offsets", async (t) => {
+test("private-material permits library binaries and marker-only docs, not inferred key offsets", async (t) => {
   const key = generateKeyPairSync("ec", { namedCurve: "prime256v1" }).privateKey;
   const der = key.export({ type: "pkcs8", format: "der" }), pem = key.export({ type: "pkcs8", format: "pem" });
   const files = {
     "usr/lib/synthetic-library.so": Buffer.concat([Buffer.from([0x7f, 0x45, 0x4c, 0x46, 0]), der, Buffer.from(pem), Buffer.from([0])]),
     "usr/share/config.md": "An example header is -----BEGIN PRIVATE KEY-----.\n-----BEGIN PRIVATE KEY-----\nnot-an-encoded-key\n-----END PRIVATE KEY-----\n",
     "usr/share/config.js": 'const label = "-----BEGIN ENCRYPTED PRIVATE KEY-----";\n',
-    // These exclusions are explicit v2 boundaries, not successful secret scans.
+    // These exclusions are explicit boundaries, not successful secret scans.
     "usr/share/encoded.json": JSON.stringify({ payload: der.toString("base64") }),
-    "usr/share/encrypted.bin": key.export({ type: "pkcs8", format: "der", cipher: "aes-256-cbc", passphrase: "ephemeral-test-only" }),
     "usr/share/encoded-library.txt": Buffer.concat([Buffer.from([0]), der, Buffer.from(pem), Buffer.from([0])]).toString("base64"),
   };
   const h = await created(t, { oci: true, layerFiles: files }); succeeds(run(h.verifyArgs));
   await writeFile(path.join(h.output, "compose.yml"), files["usr/share/config.md"]);
   await checksums(h.output); succeeds(run(h.verifyArgs));
+});
+
+test("encrypted private-key artifacts are refused structurally without their ephemeral passphrase", async t => {
+  const key = generateKeyPairSync("ec", { namedCurve: "prime256v1" }).privateKey;
+  for (const format of ["pem", "der"]) for (const wrapped of [false, true]) await t.test(`${format}/${wrapped ? "base64" : "plain"}`, async t => {
+    const bytes = Buffer.from(key.export({ type: "pkcs8", format, cipher: "aes-256-cbc", passphrase: "ephemeral-test-only" }));
+    const contents = wrapped ? bytes.toString("base64").match(/.{1,8}/g).join("\f\v") : Buffer.concat([Buffer.from(" \t\f"), bytes, Buffer.from("\v\r\n")]);
+    const malicious = await fixture(t, { oci: true, layerFiles: { "usr/share/allowed.dat": contents } });
+    fails(run(malicious.createArgs), /private key material/);
+    const h = await created(t); await replaceBundleImage(h, malicious); fails(run(h.verifyArgs), /private key material/);
+    const text = await created(t); await writeFile(path.join(text.output, "compose.yml"), contents); await checksums(text.output);
+    fails(run(text.verifyArgs), /private key material/);
+  });
+});
+
+test("encrypted private PEM blocks in text are rejected but public and encrypted non-key files remain valid", async t => {
+  const pair = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+  const pem = pair.privateKey.export({ type: "pkcs8", format: "pem", cipher: "aes-256-cbc", passphrase: "ephemeral-test-only" });
+  const malicious = await fixture(t, { layerFiles: { "usr/share/example.txt": "documentation ".repeat(5041) + pem + "end\n" } });
+  fails(run(malicious.createArgs), /private key material/);
+  // CMS ContentInfo (encrypted-data OID plus context-tagged content), SPKI,
+  // malformed/truncated DER and arbitrary ciphertext are not private-key info.
+  const publicDer = pair.publicKey.export({ type: "spki", format: "der" });
+  const encryptedDer = pair.privateKey.export({ type: "pkcs8", format: "der", cipher: "aes-256-cbc", passphrase: "ephemeral-test-only" });
+  const cipher = createCipheriv("aes-256-cbc", randomBytes(32), randomBytes(16));
+  const encryptedNonKey = Buffer.concat([cipher.update("disposable non-key application data"), cipher.final()]);
+  const h = await created(t, { layerFiles: {
+    "usr/share/public.der": publicDer,
+    "usr/share/public.pem": pair.publicKey.export({ type: "spki", format: "pem" }),
+    "usr/share/cms.der": Buffer.from("300f06092a864886f70d010706a0023000", "hex"),
+    "usr/share/cipher.bin": encryptedNonKey,
+    "usr/share/truncated.der": encryptedDer.subarray(0, -1),
+    "usr/share/trailing.der": Buffer.concat([encryptedDer, Buffer.from([1])]),
+  } }); succeeds(run(h.verifyArgs));
 });
 
 test("private-material content detection rejects ephemeral standalone keys and complete text PEM blocks", async (t) => {
@@ -448,16 +506,17 @@ test("manifest states the bounded private-material scan profile and refuses a we
   const result = await created(t);
   const manifest = JSON.parse(await readFile(path.join(result.output, "release-manifest.json"), "utf8"));
   assert.deepEqual(manifest.privateMaterialScan, {
-    profile: "led-control-private-material/v2",
+    profile: "led-control-private-material/v3",
     scope: "bundle-regular-files-and-each-image-layer-regular-file-including-deleted",
     filenames: "site-env-known-private-basenames-directories-and-key-container-extensions",
     pem: "complete-node-crypto-private-key-blocks-in-utf8-text",
     der: "standalone-node-crypto-pkcs1-pkcs8-sec1-with-ascii-whitespace",
+    encrypted: "complete-encrypted-private-key-pem-or-standalone-strict-pkcs8-encrypted-private-key-info-der",
     base64: "entire-file-one-standard-base64-layer-with-ascii-whitespace",
     maxDerBytes: 65536,
     maxPemBlockChars: 131072,
     maxBase64CandidateChars: 131072,
-    notCovered: ["general-secrets", "encrypted-keys-without-passphrase", "embedded-binary-der", "embedded-base64-tokens", "oversized-candidates", "nested-decompression", "other-encodings-or-obfuscation"],
+    notCovered: ["general-secrets", "embedded-binary-der", "embedded-base64-tokens", "oversized-candidates", "nested-decompression", "other-encodings-or-obfuscation"],
   });
   await updateJson(result.output, "release-manifest.json", (value) => { value.privateMaterialScan = { profile: "none" }; });
   fails(run(result.verifyArgs), /private-material scan profile/);
