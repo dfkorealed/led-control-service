@@ -163,3 +163,32 @@ git diff --check
 ```
 
 `SIGKILL`, kernel/host crash, power loss는 여전히 catch/forward/await할 수 없다. Windows canonical workspace gate는 현재 사용할 수 없으며, 향후 dependable Job Object 기반 descendant tree ownership을 구현하고 동일 process regression을 통과하기 전에는 지원으로 표시하지 않는다.
+
+## Review fix round 3: reaped leader PGID signal fencing
+
+리뷰 수정 구현 커밋: `86acd036637938a328de113bcb2f3a79575fade6`
+
+Round 2는 pnpm leader를 reap한 뒤에도 `activeChild.pid`를 신호 대상으로 남겨 두었다. 그 사이 OS가 동일 numeric PGID를 무관한 process group에 재사용하면 drain 중 뒤늦은 SIGINT/SIGTERM이 그 group에 잘못 전달될 수 있었다. Group existence 관찰은 lock lifetime에 필요하지만, reap된 leader의 numeric PID는 더 이상 signal authority가 아니다.
+
+Deterministic regression은 SIGINT와 SIGTERM 각각에 대해 실제 gate → fake pnpm leader → same-group grandchild를 실행했다. Leader 생존 중 첫 shutdown signal이 grandchild에 도달하고 leader가 종료된 후, preload된 `process.kill` probe가 이제 재사용된 unrelated group을 대표하는 음수 PID 신호를 감지하도록 했다. 반대 종류의 late signal을 gate에 보낸 RED에서 두 case 모두 `unrelated-group-signaled`가 생성되어 `Missing expected rejection`으로 실패했다.
+
+Gate signal state를 owned와 drain으로 분리했다. Child leader identity가 live인 owned 단계의 첫 catchable signal만 process group에 전달한다. Child `exit` callback 진입 즉시 drain으로 전환하고, callback 전 race는 `exitCode`/`signalCode`로 추가 fencing한다. Drain에서는 `kill(-pgid, 0)`으로 group이 `ESRCH`가 될 때까지 관찰만 하며 nonzero signal은 보내지 않는다. Late signal은 기록해 group 종료 뒤 gate의 최종 signal semantics에 반영하고, 그 전까지 lock을 유지한다.
+
+```text
+node --test --test-name-pattern="reused group" scripts/workspace-gate.test.mjs
+=> RED: SIGINT/SIGTERM 0/2 passed; both published unrelated-group-signaled
+=> GREEN: SIGINT/SIGTERM 2/2 passed
+
+node --test scripts/workspace-gate.test.mjs
+=> 5/5 passed: root/leaf contracts, SIGINT/SIGTERM descendant lifetime and
+   reused-PGID fencing, Windows pre-lock fail-closed
+
+concurrent `pnpm lint` + `pnpm typecheck` with lock/export polling
+=> both exit 0; distinct owner PIDs 34227, 34239
+=> declaration absence 0 / 315,396; final lock absent; export present
+
+git diff --check
+=> passed
+```
+
+이 fencing은 reap 후 numeric PGID 관찰을 그 group에 신호를 보낼 권한으로 사용하지 않는다. 안전을 위해 late cancellation이 자연스럽게 drain되는 descendant 뒤로 지연될 수 있다. `EPERM`은 계속 live/unknown으로 fail-closed하고, Windows는 동등한 tree ownership이 없으므로 기존대로 lock 전에 실패한다. `SIGKILL`, kernel/host crash, power loss는 catch 범위 밖이다.
