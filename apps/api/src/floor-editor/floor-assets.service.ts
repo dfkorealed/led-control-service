@@ -181,7 +181,11 @@ export class FloorAssetsService {
       select: { objectKey: true }
     });
     if (!asset) throw new NotFoundException("floor asset not found");
-    return { url: await this.storage.createFloorAssetDownloadUrl(asset.objectKey) };
+    try {
+      return { url: await this.storage.createFloorAssetDownloadUrl(asset.objectKey) };
+    } catch {
+      throw new ServiceUnavailableException("floor asset download signing is temporarily unavailable");
+    }
   }
 
   private findFloor(floorId: string) {

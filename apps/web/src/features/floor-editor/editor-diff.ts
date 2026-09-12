@@ -147,6 +147,17 @@ function toFloorPlanUpdate(floorPlan: FloorEditorState["floor"]["floorPlan"]): E
       gridSize: floorPlan.gridSize ?? 10
     };
   }
+  if (sourceType === "pdf") {
+    return {
+      sourceType,
+      imageUrl: floorPlan.imageUrl,
+      originalFileUrl: floorPlan.originalFileUrl ?? floorPlan.imageUrl,
+      renderedImageUrl: floorPlan.renderedImageUrl ?? null,
+      width: floorPlan.width,
+      height: floorPlan.height,
+      gridSize: floorPlan.gridSize ?? 10
+    };
+  }
   return {
     sourceType,
     imageUrl: floorPlan.imageUrl,

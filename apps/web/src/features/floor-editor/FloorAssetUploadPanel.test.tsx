@@ -1,7 +1,9 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { saveEditorStateSchema } from "@led-control/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FloorAssetUploadPanel } from "./FloorAssetUploadPanel";
-import type { FloorAsset } from "./editor-types";
+import { buildEditorChanges } from "./editor-diff";
+import type { FloorAsset, FloorEditorState } from "./editor-types";
 
 const floorEditorApi = vi.hoisted(() => ({
   uploadFloorAsset: vi.fn()
@@ -130,6 +132,28 @@ describe("FloorAssetUploadPanel", () => {
       gridSize: 10,
       version: 1
     }));
+
+    const initial: FloorEditorState = {
+      floor: { id: "floor-1", siteId: "site-1", name: "B1", level: -1, mapRevision: 7, floorPlan: null },
+      fixtures: [],
+      objects: []
+    };
+    const uploadedDraft = onUploaded.mock.calls[0][1];
+    const changes = buildEditorChanges(initial, {
+      ...initial,
+      floor: { ...initial.floor, floorPlan: uploadedDraft }
+    });
+
+    expect(changes.floorPlan).toEqual({
+      sourceType: "pdf",
+      imageUrl: "",
+      originalFileUrl: pdfAsset.accessPath,
+      renderedImageUrl: null,
+      width: 1200,
+      height: 800,
+      gridSize: 10
+    });
+    expect(() => saveEditorStateSchema.parse({ ...changes, leaseToken: "lease-token", leaseFence: 1 })).not.toThrow();
   });
 
   it("turns the current floor plan into a map-only draft when the link is removed", () => {

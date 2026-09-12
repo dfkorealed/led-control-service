@@ -80,6 +80,24 @@ describe("FloorAssetsService", () => {
       select: { objectKey: true }
     });
   });
+
+  it("returns 503 without a public fallback when content signing fails", async () => {
+    const prisma: any = {
+      floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },
+      floorAsset: {
+        findFirst: jest.fn().mockResolvedValue({ objectKey: "floors/floor-1/file.png" })
+      }
+    };
+    const storage: any = {
+      createFloorAssetDownloadUrl: jest.fn().mockRejectedValue(new Error("signer unavailable"))
+    };
+    const siteAccess = { assert: jest.fn().mockResolvedValue({ id: "site-1" }) };
+    const service = new FloorAssetsService(prisma, storage, siteAccess as unknown as SiteAccessService);
+
+    await expect(service.getContentRedirect(viewer, "floor-1", "asset-1"))
+      .rejects.toBeInstanceOf(ServiceUnavailableException);
+    expect(storage.createFloorAssetDownloadUrl).toHaveBeenCalledTimes(1);
+  });
   it("creates a pending tenant-scoped upload intent", async () => {
     const prisma: any = {
       floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },
