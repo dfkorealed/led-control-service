@@ -1,6 +1,6 @@
 # Task 4 운영 runbook·최종 수렴 보고서
 
-상태: 구현·fresh 최종 소프트웨어 검증 완료, Task 4 및 whole-branch 독립 검토 요청. 검토 승인 HEAD `349bc4c752c6471a204f8f5367b706db9076c0b3`에서 시작했다. 지정 worktree와 `codex/p0p1-platform-deploy-observability`만 사용했다. 운영 배포·사용자 DB·실제 외부 Vault/MQTT/Object Storage·실장비 HIL·알림은 실행하지 않았다.
+상태: 구현·fresh 최종 소프트웨어 검증 완료, 최종 HEAD `728e0a8`의 Task 4 및 whole-branch 독립 검토 Critical/Important/Minor 0, PASS. 검토 승인 HEAD `349bc4c752c6471a204f8f5367b706db9076c0b3`에서 시작했다. 지정 worktree와 `codex/p0p1-platform-deploy-observability`만 사용했다. 운영 배포·사용자 DB·실제 외부 Vault/MQTT/Object Storage·실장비 HIL·알림은 실행하지 않았다.
 
 ## 환경과 명령
 
@@ -106,4 +106,4 @@ Gateway 수정은 별도 test-only `e3daa6a`다. 커밋 전 해당 case 1/1(740m
 
 최종 정적 검사는 staged docs-only 9개, reviewed HEAD 대비 승인된 총 19개 경로, 문서 상대 링크 41개, runbook Bash 15개, env key 34개, 네 메뉴 필수 절·동일 수치 검사 모두 통과했다. Staged 및 Task 4 전체 added diff의 private key/certificate·credential URL·token 형태 휴리스틱 검출은 0이고 diff check도 0이다. 이 휴리스틱을 정식 비밀 탐지 도구의 완전성 보장으로 해석하지 않는다.
 
-운영 Vault 발급/갱신·실제 CRL 폐기 전파, 공인 DNS/TLS와 장비 mTLS/SAN, 공개 MQTT/Object Storage·CORS, 사용자 DB backup/migration/restore, native WebView·전체 앱 수동 시각 QA, Raspberry Pi/BlueZ/ESP32-H2 HIL, 외부 metrics/dashboard/alerts/log shipping은 후속 운영 승인·검증 대상이다. Task 4와 whole-branch 독립 검토는 총괄에게 요청하며 이 보고서가 검토 승인이나 운영 배포 승인을 대신하지 않는다.
+운영 Vault 발급/갱신·실제 CRL 폐기 전파, 공인 DNS/TLS와 장비 mTLS/SAN, 공개 MQTT/Object Storage·CORS, 사용자 DB backup/migration/restore, native WebView·전체 앱 수동 시각 QA, Raspberry Pi/BlueZ/ESP32-H2 HIL, 외부 metrics/dashboard/alerts/log shipping은 후속 운영 승인·검증 대상이다. Task 4와 whole-branch 독립 검토는 최종 HEAD `728e0a8`에서 Critical/Important/Minor 0, PASS로 승인됐지만 이 소프트웨어 검토가 운영 배포 승인을 대신하지 않는다.
