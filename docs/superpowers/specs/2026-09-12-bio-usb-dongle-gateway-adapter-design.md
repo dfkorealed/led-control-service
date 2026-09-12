@@ -18,6 +18,8 @@ Raspberry Pi Gateway에 연결된 바이오일렉트로닉스 CH34x USB-UART 동
 - host 계정 `dfkorea`는 `dialout`, `docker` group에 속한다.
 - 현재 `led-control-gateway` container에는 USB device mapping이 없고 `privileged=false`다.
 - 현재 container health는 `mqtt_error`이며 `lastHeartbeatPublishedAt=null`이다. 이는 USB adapter와 별개의 기존 기준선 장애로 취급하고 배포 전에 원인을 규명한다.
+- 동글은 USB serial number를 제공하지 않는다(`iSerial=0`). 1차 preflight는 `1a86:5523` 동글이 정확히 한 대일 때만 통과하며 다중 동글을 지원하지 않는다.
+- 현재 `mqtt_error`는 assignment의 `.lan` broker 이름이 host와 container에서 `ENOTFOUND`인 DNS 단계 장애다. 의도된 hostname을 API/설치 원장과 대조한 뒤 DNS → TCP 8883 → TLS SAN/mTLS → MQTT CONNACK 순으로 복구를 확인한다.
 
 ## 범위
 
@@ -74,7 +76,8 @@ fixture마다 adapter 소유권을 저장하고 두 transport를 동시에 운�
 - frame split/merge, noise prefix, CRC/checksum 오류 후 resynchronization
 - payload 길이 상한 `63`
 - CRC 초기값 `0xffff`, polynomial `0xa001`, low byte first
-- protocol probe `0x82`, 예상 응답 `0x83`
+- GS checksum은 command부터 payload까지 합산하고 carry를 1 byte에 접은 뒤 보수를 취한다. APK에서 복원한 golden vector로 산식을 고정한다.
+- protocol probe는 encoder 결과가 아니라 APK의 고정 literal `55 AA 82 00 00 00`, `47 53 82 00 00`을 그대로 보내며 예상 응답 command는 `0x83`이다.
 
 주소/word와 short/int의 endian 규칙을 타입별 encoder로 분리한다. 호출부가 임의 byte offset을 직접 조립하지 않는다.
 
@@ -97,7 +100,7 @@ fixture마다 adapter 소유권을 저장하고 두 transport를 동시에 운�
 
 - `probe()`
 - `scan()` / `stopScan()`
-- `identify(nativeDeviceId)`
+- `startIdentify(nativeDeviceId)` / `stopIdentify(nativeDeviceId)`
 - `assignAddress(nativeDeviceId, logicalAddress)`
 - `setBrightness(logicalAddress, brightness)`
 - `readBrightness(logicalAddress)`
@@ -113,9 +116,9 @@ APK 정적 분석으로 확정되지 않은 scan/set/read frame은 실장비 wri
 - `ProvisioningScannerAdapter`
 - `ProvisioningAdapter`
 
-1차에서는 `applyMeshGroup`을 구현하지 않아 기존 command handler가 fixture별 parallel unicast로 동작하게 한다. 상태 성공은 transport ACK가 아니라 `readBrightness()` 결과가 요청값과 일치할 때만 `outcome=applied`로 반환한다.
+`applyMeshGroup()`은 BIO native group broadcast를 사용하지 않고 전달받은 fixture 목록을 bounded parallel unicast로 실행해 fixture별 결과를 그대로 반환한다. `syncGroupSubscriptions()`은 confirmed mapping이 있는 member만 adapter-local virtual membership으로 수락하고 나머지는 실패로 반환한다. native RF subscription을 적용했다고 표현하지 않는다. 상태 성공은 transport ACK가 아니라 `readBrightness()` 결과가 요청값과 일치할 때만 `outcome=applied`로 반환한다.
 
-BIO sensor cloud capability는 지원하지 않는다. `VehicleSensorMeshPort`에는 명시적인 `BioSensorCapabilityUnavailablePort`를 제공해 source 목록을 비워 반환하고, configure/send 요청이 오면 `bio_sensor_cloud_unsupported`로 fail-closed 한다. mock 성공이나 가짜 bind 결과는 만들지 않는다.
+BIO sensor cloud capability는 지원하지 않는다. `VehicleSensorMeshPort`에는 명시적인 `BioSensorCapabilityUnavailablePort`를 제공해 source 목록을 비워 반환하고, configure/send 요청이 오면 `bio_sensor_cloud_unsupported`로 fail-closed 한다. BIO provisioning 완료 뒤 기존 vehicle capability refresh를 enqueue하지 않는다. mock 성공이나 가짜 bind 결과는 만들지 않는다.
 
 ### discovery identity와 address mapping
 
@@ -131,6 +134,8 @@ API가 예약하는 `0x0001..0x7fff` address를 BIO의 16-bit 조명 주소로 �
 
 mapping journal은 `/var/lib/led-control/bio-device-mappings.json`에 atomic write/rename으로 저장하고 다음을 포함한다.
 
+- `fixtureId`
+- `nodeId`
 - `deviceUuid`
 - `nativeUuid`
 - `logicalAddress`
@@ -171,6 +176,8 @@ API가 logical address 예약
 
 API의 V2 `events/provisioning/device-terminal` ingest/application ACK 경로를 먼저 완성한다. legacy completed/failed event만으로 새 adapter의 성공을 확정하지 않는다.
 
+API는 기존 `ProcessedGatewayEvent`, `ProvisioningDeviceOutbox`, generic `MqttOutbox`를 재사용하며 DB migration을 만들지 않는다. ACK key는 `provisioning-device-terminal:<gatewayId>:<commandId>`로 고정해 한 command의 altered terminal을 거부한다. production/dev MQTT ACL에는 Gateway가 `acks/provisioning/device-terminal-ingested`를 읽기만 할 수 있도록 추가한다.
+
 ### 제어
 
 ```text
@@ -205,7 +212,7 @@ health JSON에는 `adapterKind`, `transportConnected`, `protocolReady`, `mapping
 - Compose `devices`에는 실장비 stable link 한 개만 `/dev/bio-dongle`로 전달한다.
 - host `dialout` GID를 container supplementary group으로 전달한다.
 - entrypoint는 `bio-usb`일 때 bluetooth-meshd를 시작하거나 HCI를 조작하지 않는다.
-- USB path, expected VID/PID가 일치하지 않으면 container는 fail-closed 한다.
+- USB path, expected VID/PID가 일치하지 않거나 `1a86:5523`가 정확히 한 대가 아니면 container는 fail-closed 한다.
 - 동글 재연결 뒤 device node가 복구되는지 HIL로 검증하며, 복구되지 않으면 udev stable symlink와 container restart 정책을 명시한다.
 
 ## 안전과 보안
