@@ -16,6 +16,7 @@ pnpm workspace:prepare
 node --test tests/mqtt-production-config.node.mjs
 pnpm --filter @led-control/gateway test:contracts
 MQTT_INTEGRATION_REQUIRED=1 pnpm mqtt:integration
+pnpm gateway:release:ci
 pnpm --filter @led-control/web test:bundle-audit
 node --test apps/web/container-contract.node.mjs
 pnpm audit:production

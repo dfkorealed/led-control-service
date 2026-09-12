@@ -1,6 +1,6 @@
 # 에이전트 운영 기준
 
-기준일: 2026-09-12
+기준일: 2026-09-13
 
 이 문서는 프로젝트 자동화 작업의 단일 운영 기준이다. 새 운영 문서를 작업마다 만들지 않으며, 이 문서와 `docs/project-status.md`를 지속 갱신한다. `project-status.md`는 현재 상태 요약의 정본이고, `writing-plans`는 진행 중인 작업의 실행 체크리스트다. 작업 상태나 체크리스트가 바뀌면 둘을 함께 일치시켜 갱신한다.
 
@@ -95,6 +95,14 @@ Custom agent가 대체하는 범위는 임시 역할 프롬프트, 역할 선택
 - Workflow contract는 protected production-audit job/step과 HIL job/preflight step에 `if` 또는 `continue-on-error` 우회가 추가되면 실패한다. Frozen install/Prisma generation step도 같은 우회를 허용하지 않는다.
 - Software CI 성공은 Raspberry Pi/ESP32-H2 HIL 완료 증거가 아니다. HIL command JSON은 승인된 lab 절차만 가리켜야 하며 production firmware의 Company ID·manufacturing approval·attestation gate를 우회해서는 안 된다. Workflow 추가만으로 GitHub environment 보호, runner 등록, secret 또는 branch protection은 생성되지 않으므로 운영자가 별도로 설정한다.
 
-## 다음 자동화 단계
+## Gateway immutable release·state recovery gate
+
+- `pnpm gateway:release:ci`는 clean checkout, Docker daemon/Buildx, Node 22+, OpenSSL 3와 C compiler를 요구한다. Artifact/activation behavior contracts를 직렬 실행하고 실제 `linux/amd64` test-only image/save/inspect/final inventory/bundle을 생성한다. Trusted policy/full HEAD verify, 기본 production verify 거부, network-none/read-only Node 22 smoke와 정확히 이름 지정된 ephemeral RSA CMS backup→verify→drill→disposable restore를 모두 통과해야 한다.
+- Protected `production-audit`는 이 command를 Web/dependency gate **앞에서 한 번만** 호출한다. Workflow에 Buildx setup과 명확한 Gateway gate step 이름을 두고 `if`/`continue-on-error`로 우회하지 않는다. 실제 audit shell 실패 전파와 zero-test state-flow 방지를 함께 검증한다. Image/container/output/key/plaintext cleanup 실패도 exit 3이며 성공으로 축약하지 않는다. Global Docker prune이나 다른 실행의 임시 경로 glob 정리는 금지한다.
+- CI의 실제 amd64 image/Node 결과와 command-shim activation·CMS filesystem fixture는 별도 증거다. Checksum/SPDX/provenance는 서명이 아니며 **검증된 exact production ARM64 bundle의 운영 승인**을 대체하지 않는다. 운영 signing key, recipient 인증서 진위와 off-device private-key escrow, SSH/Pi activation·restore, 전원 차단/HCI/RF/HIL은 별도 사용자 승인 관문이다.
+- Release/state writer는 같은 `/opt/led-control/gateway/.appliance-operation.lock` inode를 지킨다. Pending activation/state journal은 새 mutation보다 먼저 검토·복구하며 lock/journal/snapshot/old roots를 임의 삭제하지 않는다. 다른 버전 journal이나 custom-TMPDIR journal은 자동 변환하지 않는다. Metadata는 source/eval하지 않고 trusted common shell library만 실행한다.
+- Backup은 appliance/data root 밖의 보호된 위치에 네 root를 같은 quiesced 시점으로 CMS 암호화한다. Recipient private key를 상시 Pi·bundle·backup와 함께 두지 않는다. SIGKILL 이전 journal 없는 plaintext staging은 trap으로 지울 수 없으므로 exact 소유 경로에 대한 운영 cleanup이 별도로 필요하다. 절차와 exit matrix는 `docs/runbooks/raspberry-pi-gateway-appliance.md`를 따른다.
+
+## 다음 자동화 단계 (기존 Web 작업)
 
 Web route bundle 분할 Task 4 Step 1~3은 완료했고 whole-branch final review는 아직 수행하지 않았다. Route 기능 코드 SHA `34261b6`과 container fix `247f81d`에서 fresh Web 686/686 및 전체 production audit가 Web container와 dependency policy까지 통과했다. Task 3의 planned Chromium 64/64와 one-worker RealBackendLab 2/2는 유지하되 실제 iOS/Android native WebView·수동 in-app 시각 QA·HIL 완료로 확대하지 않는다. Final reviewer가 설계·계획 대비 branch 전체를 판정한 뒤 상태판과 Step 4를 갱신한다. CI core 밖 `automation-control-flow.spec.ts`의 setup→registration stale route 가정은 별도 후속으로 유지한다. 실제 장비를 변경하거나 배포하는 HIL은 software 수정과 계속 분리하고 사용자·GitHub environment 승인 관문을 유지한다.

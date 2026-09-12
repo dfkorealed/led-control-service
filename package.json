@@ -22,6 +22,7 @@
     "gateway:appliance:build": "scripts/gateway-appliance-build.sh",
     "gateway:release:test": "node --test scripts/gateway-release-bundle.test.mjs scripts/gateway-appliance-release.test.mjs scripts/gateway-appliance-scripts.test.mjs",
     "gateway:release:verify": "node scripts/gateway-release-bundle.mjs verify",
+    "gateway:release:ci": "node scripts/gateway-release-ci.mjs",
     "gateway:state": "scripts/gateway-appliance-state.sh",
     "gateway:state:test": "node --test scripts/gateway-appliance-state.test.mjs",
     "gateway:appliance:deploy": "scripts/gateway-appliance-deploy.sh",

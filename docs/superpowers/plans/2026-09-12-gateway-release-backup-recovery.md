@@ -127,6 +127,9 @@ test("restore rejects traversal, external symlink, tampering and rolls back a pa
 ### Task 4: Protected CI integration, runbook and final software evidence
 
 **Files:**
+- Create: `scripts/gateway-release-ci.mjs`
+- Create: `scripts/gateway-release-ci.test.mjs`
+- Modify: `package.json`
 - Modify: `scripts/ci-production-audit.sh`
 - Modify: `scripts/ci-workflows.test.mjs`
 - Modify: `.github/workflows/ci.yml`
@@ -141,7 +144,7 @@ test("restore rejects traversal, external symlink, tampering and rolls back a pa
 - Consumes: Tasks 1–3 commands and their deterministic disposable fixtures.
 - Produces: non-skippable CI release gate, operator procedure, final evidence and explicit operational/HIL limits.
 
-- [ ] **Step 1: Write failing CI contract**
+- [x] **Step 1: Write failing CI contract**
 
 ```js
 test("production audit verifies a built release bundle and encrypted restore drill", async () => {
@@ -150,13 +153,13 @@ test("production audit verifies a built release bundle and encrypted restore dri
 });
 ```
 
-- [ ] **Step 2: Run RED** — `node --test scripts/ci-workflows.test.mjs`; release artifact/restore gate 부재로 실패해야 한다.
-- [ ] **Step 3: Wire CI and docs** — contract tests, host-platform test-only image/bundle smoke, verify, encrypted drill을 한 command로 연결하고 build→approve→backup→activate→health→rollback/restore 절차와 한계를 기록한다.
+- [x] **Step 2: Run RED** — `node --test scripts/ci-workflows.test.mjs`; 8 tests 중 기존 7 pass / 새 gate 1 expected fail, skip 0. Protected Gateway step·command 연결 부재를 확인했다.
+- [x] **Step 3: Wire CI and docs** — `pnpm gateway:release:ci`, Buildx setup, 단일 non-skippable audit 연결과 운영 문서를 구현했다. 실제 CLI orchestration/실패 전파/cleanup·workflow 26/26 GREEN. 같은 image digest의 unrelated container 보존·launcher 종료 뒤 descendant drain 2/2 RED→GREEN을 포함한다. 실제 image 검증은 아래 Step 4 전까지 완료로 기록하지 않는다.
 - [ ] **Step 4: Verify increasing scope**
 
 ```bash
 pnpm workspace:prepare
-node --test scripts/gateway-release-bundle.test.mjs scripts/gateway-appliance-release.test.mjs scripts/gateway-appliance-state.test.mjs scripts/gateway-appliance-scripts.test.mjs scripts/ci-workflows.test.mjs
+node --test --test-concurrency=1 scripts/gateway-release-bundle.test.mjs scripts/gateway-appliance-release.test.mjs scripts/gateway-appliance-state.test.mjs scripts/gateway-appliance-scripts.test.mjs scripts/ci-workflows.test.mjs
 pnpm --filter @led-control/gateway test:contracts
 pnpm --filter @led-control/gateway typecheck
 pnpm --filter @led-control/gateway test
@@ -166,5 +169,7 @@ git diff --check
 ```
 
 Docker가 없으면 image smoke는 성공으로 가장하지 않고 local limitation을 별도로 기록한다.
+
+중간 증거: `workspace:prepare`, 직렬 combined 291/291(759.891초), CI-only cleanup 수정 뒤 workflow 26/26, Gateway contracts 24/24·typecheck·64 files/608 unit·build(564.6 kB), Node/Bash syntax·diff check를 통과했다. 실제 Docker gate는 구현 commit 뒤 clean checkout에서 실행한다.
 
 - [ ] **Step 5: Commit** — `git commit -m "docs(gateway): gate release and recovery operations"`.

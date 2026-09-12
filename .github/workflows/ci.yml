@@ -148,4 +148,6 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @led-control/api prisma:generate
-      - run: pnpm ci:production-audit
+      - uses: docker/setup-buildx-action@v3
+      - name: Gateway release artifact and restore drill / production audit
+        run: pnpm ci:production-audit

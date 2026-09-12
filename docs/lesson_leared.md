@@ -1,5 +1,17 @@
 # 프로젝트 오답 노트 (Lessons Learned)
 
+## 2026-09-13 / Checksum closure와 artifact 진위는 다른 보장이다
+
+- **발생했던 문제/실수**: Image tar와 checksum만 전달하는 절차가 승인된 source/dependency image인지, test-only인지와 별개로 성공처럼 읽힐 수 있었다.
+- **해결 및 예방책**: Full commit·lock hash·config digest·final inventory/SPDX·정적 정책을 immutable bundle로 결속하고 CI가 기본 production verifier의 test-only 거부까지 실제 실행한다. Checksum 전체를 재작성할 수 있는 공격자의 진위를 증명하지는 않으므로 운영 signing·trusted 전달·exact artifact 승인을 별도 관문으로 남긴다. CMS recipient encryption도 producer 서명을 대신하지 않는다.
+- **반복 방지 체크**: 성공한 host smoke를 ARM64/Pi/HIL로 확대하지 않고 실제 artifact identity, platform/test marker, Node/inventory와 default rejection을 함께 기록한다.
+
+## 2026-09-13 / 복구 snapshot과 cleanup도 하나의 소유 경계로 다룬다
+
+- **발생했던 문제/실수**: Gateway와 Mesh만 뜨거운 상태로 tar 복사하면 identity generation·outbox/manifest·automation sidecar가 서로 다른 시점이 될 수 있고, prefix만 맞는 임시 경로를 지우면 unrelated data를 제거할 수 있다.
+- **해결 및 예방책**: Shared lock과 healthy verified baseline 아래 네 root를 quiesce해 암호화한다. Restore는 disposable 검증 뒤 같은 filesystem journal/rename/rollback을 사용한다. Cleanup은 현재 호출이 실제 생성한 경로의 exact physical parent/basename만 확인하고, 실패를 성공으로 숨기지 않는다. State가 TMPDIR을 무시하므로 CI는 실제 mktemp allocation도 관찰해 plaintext 수명을 끝까지 확인한다.
+- **반복 방지 체크**: 실제 ephemeral RSA CMS backup/verify/drill과 closure·권한·live 불변·cleanup assertions를 실행한다. TERM, partial swap와 cleanup failure를 별도 회귀로 유지하며 SIGKILL/power-loss와 journal 이전 orphan은 별도 운영/Linux Pi 검증 한계로 기록한다.
+
 ## 2026-09-12 / Writer 잠금만으로 generated output의 reader 안전을 보장할 수 없다
 - **발생했던 문제/실수**: `packages/shared` build끼리는 owner lock으로 직렬화했지만 각 build가 기존 export를 먼저 지우고 다시 복사했다. 같은 checkout에서 root lint와 test가 겹치자 잠금을 사용하지 않는 Web TypeScript reader가 `@led-control/shared/dimming-command`를 해석하는 순간 declaration이 사라져 `TS2307`로 실패했다.
 - **원인**: pnpm의 outer workspace topology 밖에서 leaf script가 dependency build를 다시 시작했고, writer/writer 직렬화를 writer/reader 격리로 확대 해석했다. 실제 polling에서는 export가 8/8 publish cycle마다 29~220ms 사라졌다.
