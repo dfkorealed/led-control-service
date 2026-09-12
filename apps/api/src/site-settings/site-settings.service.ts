@@ -9,6 +9,7 @@ import { z } from "zod";
 import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { EnergyDimensionHistoryService } from "../energy/energy-dimension-history.service";
+import { FixtureEnergyCheckpointService } from "../energy/fixture-state-ingestion.service";
 import { PrismaService } from "../prisma/prisma.service";
 
 const expectedUpdatedAtSchema = z.string().datetime({ offset: true });
@@ -16,10 +17,10 @@ const expectedUpdatedAtSchema = z.string().datetime({ offset: true });
 const siteSettingsSchema = z.object({
   expectedUpdatedAt: expectedUpdatedAtSchema,
   name: z.string().trim().min(1).max(120).optional(),
-  address: z.string().trim().max(500).nullable().optional(),
+  address: z.string().trim().min(1).max(500).optional(),
   timeZone: z.string().trim().min(1).max(100).refine(isIanaTimeZone).optional(),
-  currency: z.string().regex(/^[A-Z]{3}$/).optional(),
-  tariffKwhRate: z.number().finite().min(0).max(99_999_999.99).multipleOf(0.01).nullable().optional()
+  currency: z.literal("KRW").optional(),
+  tariffKwhRate: z.number().finite().min(0).max(99_999_999.99).multipleOf(0.01).optional()
 }).strict().refine(hasMutableFields);
 
 const createFloorSchema = z.object({
@@ -72,15 +73,21 @@ type LockedFloor = {
 
 type LockedSite = {
   id: string;
+  address: string | null;
+  tariffKwhRate: Prisma.Decimal | null;
+  timeZone: string;
   updatedAt: Date;
 };
+
+const SITE_SETTINGS_TRANSACTION_TIMEOUT_MS = 30_000;
 
 @Injectable()
 export class SiteSettingsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly siteAccess: SiteAccessService,
-    private readonly energyDimensions: EnergyDimensionHistoryService
+    private readonly energyDimensions: EnergyDimensionHistoryService,
+    private readonly energyCheckpoint: FixtureEnergyCheckpointService
   ) {}
 
   async getSettings(user: AuthenticatedUser, siteId: string) {
@@ -135,18 +142,26 @@ export class SiteSettingsService {
       await this.siteAccess.assertManageInTransaction(tx, user, siteId);
       const current = await this.lockSite(tx, siteId);
       this.assertCurrentVersion(current.updatedAt, expectedUpdatedAt);
+      let changedAt = new Date();
+      if (this.energySettingsChanged(current, changes) && current.tariffKwhRate !== null) {
+        changedAt = await this.energyCheckpoint.closeSiteSettingsIntervals(tx, {
+          siteId,
+          timeZone: current.timeZone,
+          tariffKwhRate: current.tariffKwhRate
+        });
+      }
       return tx.site.update({
         where: { id: siteId },
         data: {
           ...changes,
-          ...(changes.tariffKwhRate === undefined || changes.tariffKwhRate === null
+          ...(changes.tariffKwhRate === undefined
             ? {}
             : { tariffKwhRate: new Prisma.Decimal(changes.tariffKwhRate) }),
-          updatedAt: new Date()
+          updatedAt: changedAt
         },
         select: siteSettingsSelect
       });
-    });
+    }, { timeout: SITE_SETTINGS_TRANSACTION_TIMEOUT_MS });
 
     return {
       ...site,
@@ -262,7 +277,7 @@ export class SiteSettingsService {
 
   private async lockSite(tx: Prisma.TransactionClient, siteId: string) {
     const rows = await tx.$queryRaw<LockedSite[]>(Prisma.sql`
-      SELECT "id", "updatedAt"
+      SELECT "id", "address", "tariffKwhRate", "timeZone", "updatedAt"
       FROM "Site"
       WHERE "id" = ${siteId}
       FOR UPDATE
@@ -275,6 +290,15 @@ export class SiteSettingsService {
     if (current.getTime() !== new Date(expected).getTime()) {
       throw new ConflictException({ code: "settings_version_conflict" });
     }
+  }
+
+  private energySettingsChanged(
+    current: LockedSite,
+    changes: { timeZone?: string; tariffKwhRate?: number }
+  ) {
+    return (changes.timeZone !== undefined && changes.timeZone !== current.timeZone)
+      || (changes.tariffKwhRate !== undefined
+        && (current.tariffKwhRate === null || !current.tariffKwhRate.equals(changes.tariffKwhRate)));
   }
 }
 

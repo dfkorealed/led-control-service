@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { AuthenticatedUser } from "../auth/auth.types";
 
 const ids = {
@@ -159,11 +160,63 @@ describe("SiteSettingsService", () => {
     expect(siteAccess.assertManageInTransaction.mock.invocationCallOrder[0])
       .toBeLessThan(prisma.$queryRaw.mock.invocationCallOrder[0]);
     expect(renderSql(prisma.$queryRaw.mock.calls[0][0]).replace(/\s+/g, " ").trim()).toContain(
-      'SELECT "id", "updatedAt" FROM "Site" WHERE "id" = ? FOR UPDATE'
+      'SELECT "id", "address", "tariffKwhRate", "timeZone", "updatedAt" FROM "Site" WHERE "id" = ? FOR UPDATE'
     );
     expect(prisma.$queryRaw.mock.invocationCallOrder[0])
       .toBeLessThan(prisma.site.update.mock.invocationCallOrder[0]);
     expect(prisma.site.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("closes fixture checkpoints with the previous energy settings before applying the new settings", async () => {
+    const changedAt = new Date("2026-09-12T03:00:01.000Z");
+    const { service, prisma, energyCheckpoint } = createHarness({
+      lockedSite: {
+        ...siteRow(),
+        timeZone: "Asia/Seoul",
+        tariffKwhRate: new Prisma.Decimal("137.25")
+      },
+      energySettingsChangedAt: changedAt
+    });
+
+    await service().updateSite(admin, ids.site, {
+      expectedUpdatedAt: updatedAt.toISOString(),
+      timeZone: "UTC",
+      tariffKwhRate: 200
+    });
+
+    expect(energyCheckpoint.closeSiteSettingsIntervals).toHaveBeenCalledWith(prisma, {
+      siteId: ids.site,
+      timeZone: "Asia/Seoul",
+      tariffKwhRate: expect.objectContaining({})
+    });
+    expect(energyCheckpoint.closeSiteSettingsIntervals.mock.invocationCallOrder[0])
+      .toBeLessThan(prisma.site.update.mock.invocationCallOrder[0]);
+    expect(prisma.site.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        timeZone: "UTC",
+        tariffKwhRate: expect.objectContaining({}),
+        updatedAt: changedAt
+      })
+    }));
+  });
+
+  it("does not close fixture checkpoints when energy settings are unchanged", async () => {
+    const { service, energyCheckpoint } = createHarness({
+      lockedSite: {
+        ...siteRow(),
+        timeZone: "Asia/Seoul",
+        tariffKwhRate: new Prisma.Decimal("137.25")
+      }
+    });
+
+    await service().updateSite(admin, ids.site, {
+      expectedUpdatedAt: updatedAt.toISOString(),
+      name: "Renamed",
+      timeZone: "Asia/Seoul",
+      tariffKwhRate: 137.25
+    });
+
+    expect(energyCheckpoint.closeSiteSettingsIntervals).not.toHaveBeenCalled();
   });
 
   it("rejects a stale site settings mutation after transaction-local row authorization", async () => {
@@ -179,6 +232,10 @@ describe("SiteSettingsService", () => {
   it.each([
     [{ expectedUpdatedAt: updatedAt.toISOString(), name: "Plant", adminUserId: "attacker" }, "unknown field"],
     [{ expectedUpdatedAt: updatedAt.toISOString(), currency: "krw" }, "invalid currency"],
+    [{ expectedUpdatedAt: updatedAt.toISOString(), currency: "USD" }, "unsupported currency"],
+    [{ expectedUpdatedAt: updatedAt.toISOString(), address: null }, "null operational address"],
+    [{ expectedUpdatedAt: updatedAt.toISOString(), address: "   " }, "empty operational address"],
+    [{ expectedUpdatedAt: updatedAt.toISOString(), tariffKwhRate: null }, "null operational tariff"],
     [{ expectedUpdatedAt: updatedAt.toISOString(), tariffKwhRate: -1 }, "negative tariff"],
     [{ expectedUpdatedAt: updatedAt.toISOString() }, "empty patch"],
     [{ name: "Plant" }, "missing expectedUpdatedAt"]
@@ -415,15 +472,17 @@ describe("SiteSettingsService", () => {
 });
 
 function createHarness(options: {
+  lockedSite?: ReturnType<typeof siteRow>;
   lockedFloor?: ReturnType<typeof floorRow> | null;
   fixtureCount?: number;
   activeGroupCount?: number;
   activeSessionCount?: number;
+  energySettingsChangedAt?: Date;
 } = {}) {
   const prisma: any = {
     $queryRaw: jest.fn(async (query: TemplateStringsArray | { strings?: string[] }) => {
       if (renderSql(query).includes('FROM "Site"')) {
-        return [{ id: ids.site, updatedAt }];
+        return [options.lockedSite ?? siteRow()];
       }
       if (renderSql(query).includes('FROM "Floor"')) {
         return options.lockedFloor === null ? [] : [options.lockedFloor ?? floorRow()];
@@ -460,16 +519,35 @@ function createHarness(options: {
     assertManageInTransaction: jest.fn().mockResolvedValue({ id: ids.site })
   };
   const energyDimensions = { ensureFixtureDimensions: jest.fn().mockResolvedValue(undefined) };
+  const energyCheckpoint = {
+    closeSiteSettingsIntervals: jest.fn().mockResolvedValue(options.energySettingsChangedAt ?? updatedAt)
+  };
   return {
     service: () => {
       const { SiteSettingsService } = require("./site-settings.service") as {
-        SiteSettingsService: new (prisma: unknown, siteAccess: unknown, energyDimensions: unknown) => any;
+        SiteSettingsService: new (
+          prisma: unknown,
+          siteAccess: unknown,
+          energyDimensions: unknown,
+          energyCheckpoint: unknown
+        ) => any;
       };
-      return new SiteSettingsService(prisma, siteAccess, energyDimensions);
+      return new SiteSettingsService(prisma, siteAccess, energyDimensions, energyCheckpoint);
     },
     prisma,
     siteAccess,
-    energyDimensions
+    energyDimensions,
+    energyCheckpoint
+  };
+}
+
+function siteRow() {
+  return {
+    id: ids.site,
+    address: "1 Light Road",
+    tariffKwhRate: new Prisma.Decimal("137.25"),
+    timeZone: "Asia/Seoul",
+    updatedAt
   };
 }
 
