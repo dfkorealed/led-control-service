@@ -8,6 +8,8 @@ umask 077
 # Never source/eval bundle, site or journal contents.
 ROOT=/opt/led-control/gateway
 TEST_ROOT=0 POLICY_SHA="" BUNDLE="" STAGE="" JOURNAL_ACTIVE=0 RECOVERING=0
+COMPOSE_PROJECT=gateway EXPECTED_PROJECT="" DATA_DIR=""
+METADATA_SECONDS=15 COMPOSE_SECONDS=120 LOAD_SECONDS=300 KILL_SECONDS=5
 COMMAND=${1:-}; [ "$#" -gt 0 ] && shift
 usage() { echo 'usage: release.sh verify|activate BUNDLE --policy-sha256 SHA [--test-root DIR]; rollback --policy-sha256 SHA [--test-root DIR]' >&2; exit 2; }
 error() { echo "gateway release failed: $1" >&2; return 1; }
@@ -130,14 +132,66 @@ atomic_copy() {
   temporary=$(mktemp "$ROOT/.env-write.XXXXXX") || return 1
   cp -- "$source" "$temporary" && chmod "$mode" "$temporary" && durable "$temporary" && mv -Tf -- "$temporary" "$destination" && durable "$ROOT"
 }
+site_dotenv() {
+  local mode=$1 file=$2 default_data=/opt/led-control/data
+  [ "$TEST_ROOT" != 1 ] || default_data=$ROOT/data
+  regular "$file" && [ -s "$file" ] || return 1
+  # Deliberately support single-line dotenv only. Reject multiline quotes, CR,
+  # NUL and a missing final LF before writing anything; unrelated UTF-8 bytes
+  # and literal shell expressions remain data. No source/eval/interpolation.
+  [ "$(tr -cd '\000\015' < "$file" | wc -c | tr -d '[:space:]')" = 0 ] &&
+    [ "$(tail -c 1 "$file" | od -An -tu1 | tr -d '[:space:]')" = 10 ] || return 1
+  awk -v mode="$mode" -v repository="$IMAGE_REPOSITORY" -v tag="$IMAGE_TAG" -v defaultData="$default_data" '
+    function reject() { invalid=1; exit 1 }
+    BEGIN { data=defaultData; repo="led-control-gateway"; imageTag="local"; single=sprintf("%c",39) }
+    {
+      raw=$0; line=raw; sub(/^[ \t]*/,"",line)
+      if (line=="" || substr(line,1,1)=="#") { if(mode=="rewrite") print raw; next }
+      if (line !~ /^[A-Za-z_][A-Za-z_0-9]*[ \t]*=/) reject()
+      key=line; sub(/[ \t]*=.*/,"",key)
+      value=line; sub(/^[^=]*=[ \t]*/,"",value)
+      quote=substr(value,1,1)
+      if (quote==single || quote=="\"") {
+        closeAt=0; escaped=0
+        for(i=2;i<=length(value);i++) {
+          c=substr(value,i,1)
+          if(!escaped && c==quote) { closeAt=i; break }
+          if(!escaped && c=="\\") escaped=1; else escaped=0
+        }
+        if(!closeAt) reject()
+        rest=substr(value,closeAt+1); sub(/^[ \t]*/,"",rest)
+        if(rest!="" && substr(rest,1,1)!="#") reject()
+        value=substr(value,2,closeAt-2)
+      } else { sub(/[ \t]+#.*/,"",value); sub(/[ \t]*$/,"",value) }
+      if(key=="GATEWAY_DATA_DIR") {
+        if(++dataCount>1 || value !~ /^\/[A-Za-z0-9_.\/+ -]+$/ || value ~ / /) reject()
+        data=value
+      }
+      if(key=="GATEWAY_IMAGE_REPOSITORY") { repo=value; repoCount++ }
+      if(key=="GATEWAY_IMAGE_TAG") { imageTag=value; tagCount++ }
+      if(mode=="rewrite" && key=="GATEWAY_IMAGE_REPOSITORY") { if(repoCount==1) print key "=" repository; next }
+      if(mode=="rewrite" && key=="GATEWAY_IMAGE_TAG") { if(tagCount==1) print key "=" tag; next }
+      if(mode=="rewrite") print raw
+    }
+    END {
+      if(invalid) exit 1
+      if(mode=="resolve") {
+        if(repo !~ /^[a-z0-9][a-z0-9._:\/-]*$/ || imageTag !~ /^[A-Za-z0-9_][A-Za-z0-9_.-]*$/) exit 1
+        print data "|" repo "|" imageTag
+      }
+      if(mode=="rewrite") { if(!repoCount) print "GATEWAY_IMAGE_REPOSITORY=" repository; if(!tagCount) print "GATEWAY_IMAGE_TAG=" tag }
+    }
+  ' "$file"
+}
+resolve_site() {
+  local resolved
+  resolved=$(site_dotenv resolve "$1") || { error 'unsupported site dotenv (single-line assignments required)'; return 1; }
+  IFS='|' read -r DATA_DIR SITE_IMAGE_REPOSITORY SITE_IMAGE_TAG <<< "$resolved"
+  safe_directory "$DATA_DIR"
+}
 identity_preflight() {
-  local line count=0 name target generation
-  regular "$ROOT/.env.appliance" && [ -s "$ROOT/.env.appliance" ] || return 1
-  DATA_DIR=/opt/led-control/data
-  while IFS= read -r line || [ -n "$line" ]; do
-    case "$line" in GATEWAY_DATA_DIR=*) DATA_DIR=${line#*=}; count=$((count+1)) ;; esac
-  done < "$ROOT/.env.appliance"
-  [ "$count" -le 1 ] && safe_directory "$DATA_DIR" || return 1
+  local name target generation
+  resolve_site "$ROOT/.env.appliance" || return 1
   for name in gateway mesh identity factory-trust; do safe_directory "$DATA_DIR/$name" || return 1; done
   safe_directory "$DATA_DIR/identity/device" && safe_directory "$DATA_DIR/identity/device/generations" || return 1
   [ -L "$DATA_DIR/identity/device/current" ] || return 1
@@ -157,27 +211,52 @@ runtime_compose() {
   chmod 600 "$temporary" && durable "$temporary" && mv -Tf -- "$temporary" "$ROOT/runtime/$RELEASE_ID.yml" && durable "$ROOT/runtime" || return 1
   COMPOSE_FILE=$ROOT/runtime/$RELEASE_ID.yml
 }
-compose() { env -u GATEWAY_IMAGE_REPOSITORY -u GATEWAY_IMAGE_TAG docker compose --project-name led-control-gateway --project-directory "$ROOT" --env-file "$ROOT/.env.appliance" -f "$COMPOSE_FILE" "$@" >/dev/null 2>&1; }
+docker_cmd() {
+  local seconds=$1; shift
+  # All Docker boundaries (including recovery) have wall-clock + forced-kill
+  # deadlines. Bundle image coordinates and the validated site data root are
+  # authoritative, regardless of the invoking shell/Compose ambient settings.
+  timeout --signal=TERM --kill-after="${KILL_SECONDS}s" "${seconds}s" env \
+    -u COMPOSE_FILE -u COMPOSE_PROJECT_NAME -u COMPOSE_ENV_FILES -u COMPOSE_PROFILES \
+    GATEWAY_DATA_DIR="$DATA_DIR" GATEWAY_IMAGE_REPOSITORY="$IMAGE_REPOSITORY" GATEWAY_IMAGE_TAG="$IMAGE_TAG" docker "$@"
+}
+compose_output() { docker_cmd "$COMPOSE_SECONDS" compose --project-name "$COMPOSE_PROJECT" --project-directory "$ROOT" --env-file "$ROOT/.env.appliance" -f "$COMPOSE_FILE" "$@"; }
+compose() { compose_output "$@" >/dev/null 2>&1; }
+ownership_preflight() {
+  local ids ownership project service directory
+  ids=$(docker_cmd "$METADATA_SECONDS" container ls -a --filter 'name=^/led-control-gateway$' --format '{{.ID}}' 2>/dev/null) || return 1
+  if [ -z "$ids" ]; then COMPOSE_PROJECT=${EXPECTED_PROJECT:-gateway}; return 0; fi
+  [[ "$ids" =~ ^[a-f0-9]{12,64}$ ]] || return 1
+  ownership=$(docker_cmd "$METADATA_SECONDS" container inspect --format '{{index .Config.Labels "com.docker.compose.project"}}|{{index .Config.Labels "com.docker.compose.service"}}|{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$ids" 2>/dev/null) || return 1
+  IFS='|' read -r project service directory <<< "$ownership"
+  case "$project" in gateway|led-control-gateway) ;; *) return 1 ;; esac
+  [ "$service" = gateway-appliance ] && [ "$directory" = "$ROOT" ] || return 1
+  [ -z "$EXPECTED_PROJECT" ] || [ "$project" = "$EXPECTED_PROJECT" ] || return 1
+  COMPOSE_PROJECT=$project
+}
 preflight() {
-  local directory=$1 loaded
-  docker version >/dev/null 2>&1 && docker compose version >/dev/null 2>&1 && identity_preflight && runtime_compose "$directory" || return 1
-  GATEWAY_IMAGE_REPOSITORY=$IMAGE_REPOSITORY GATEWAY_IMAGE_TAG=$IMAGE_TAG docker compose --project-name led-control-gateway --project-directory "$ROOT" --env-file "$ROOT/.env.appliance" -f "$COMPOSE_FILE" config --quiet >/dev/null 2>&1 || return 1
-  docker image load --input "$directory/$IMAGE_ARCHIVE" >/dev/null 2>&1 || return 1
-  loaded=$(docker image inspect --format '{{.Id}}' "$IMAGE_REPOSITORY:$IMAGE_TAG" 2>/dev/null) || return 1
+  local directory=$1 loaded images
+  identity_preflight && ownership_preflight && docker_cmd "$METADATA_SECONDS" version >/dev/null 2>&1 && docker_cmd "$METADATA_SECONDS" compose version >/dev/null 2>&1 && runtime_compose "$directory" || return 1
+  compose config --quiet || return 1
+  images=$(compose_output config --images 2>/dev/null) || return 1
+  [ "$images" = "$IMAGE_REPOSITORY:$IMAGE_TAG" ] || return 1
+  docker_cmd "$LOAD_SECONDS" image load --input "$directory/$IMAGE_ARCHIVE" >/dev/null 2>&1 || return 1
+  loaded=$(docker_cmd "$METADATA_SECONDS" image inspect --format '{{.Id}}' "$IMAGE_REPOSITORY:$IMAGE_TAG" 2>/dev/null) || return 1
   [ "$loaded" = "$IMAGE_DIGEST" ]
 }
 healthy() {
   local step status attempts=60 delay=2
   if [ "$TEST_ROOT" = 1 ]; then attempts=2; delay=0; fi
   for ((step=0; step<attempts; step++)); do
-    status=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}starting{{end}}' led-control-gateway 2>/dev/null) || status=unknown
-    [ "$status" != unhealthy ] || return 1; [ "$status" != healthy ] || return 0; sleep "$delay"
+    status=$(docker_cmd "$METADATA_SECONDS" inspect --format '{{.Image}} {{if .State.Health}}{{.State.Health.Status}}{{else}}starting{{end}}' led-control-gateway 2>/dev/null) || return 1
+    [ "${status%% *}" = "$IMAGE_DIGEST" ] || return 1
+    status=${status#* }; [ "$status" != unhealthy ] || return 1; [ "$status" != healthy ] || return 0; sleep "$delay"
   done
   return 1
 }
 write_journal() {
   local temporary; temporary=$(mktemp "$ROOT/.journal-write.XXXXXX") || return 1
-  printf 'CANDIDATE=%s\nENV_MODE=%s\nENV_SHA256=%s\nOLD_CURRENT=%s\nOLD_PREVIOUS=%s\nPHASE=%s\nSCHEMA=gateway-activation/v1\n' "$CANDIDATE" "$ENV_MODE" "$ENV_SHA" "$OLD_CURRENT" "$OLD_PREVIOUS" "$1" > "$temporary" || return 1
+  printf 'CANDIDATE=%s\nCOMPOSE_PROJECT=%s\nENV_MODE=%s\nENV_SHA256=%s\nOLD_CURRENT=%s\nOLD_PREVIOUS=%s\nPHASE=%s\nSCHEMA=gateway-activation/v1\n' "$CANDIDATE" "$COMPOSE_PROJECT" "$ENV_MODE" "$ENV_SHA" "$OLD_CURRENT" "$OLD_PREVIOUS" "$1" > "$temporary" || return 1
   chmod 600 "$temporary" && durable "$temporary" && mv -Tf -- "$temporary" "$ROOT/.activation.journal" && durable "$ROOT"
 }
 read_journal() {
@@ -188,11 +267,12 @@ read_journal() {
     key=${BASH_REMATCH[1]}; value=${BASH_REMATCH[2]}
     [[ "$previous" < "$key" ]] || return 1; previous=$key; count=$((count+1))
     case "$key" in
-      CANDIDATE) CANDIDATE=$value ;; ENV_MODE) ENV_MODE=$value ;; ENV_SHA256) ENV_SHA=$value ;;
+      CANDIDATE) CANDIDATE=$value ;; COMPOSE_PROJECT) COMPOSE_PROJECT=$value ;; ENV_MODE) ENV_MODE=$value ;; ENV_SHA256) ENV_SHA=$value ;;
       OLD_CURRENT) OLD_CURRENT=$value ;; OLD_PREVIOUS) OLD_PREVIOUS=$value ;; PHASE) PHASE=$value ;; SCHEMA) JOURNAL_SCHEMA=$value ;; *) return 1 ;;
     esac
   done < "$ROOT/.activation.journal"
-  [ "$count" = 7 ] && [ "$JOURNAL_SCHEMA" = gateway-activation/v1 ] && valid_release_id "$CANDIDATE" || return 1
+  [ "$count" = 8 ] && [ "$JOURNAL_SCHEMA" = gateway-activation/v1 ] && valid_release_id "$CANDIDATE" || return 1
+  case "$COMPOSE_PROJECT" in gateway|led-control-gateway) ;; *) return 1 ;; esac
   [[ "$ENV_MODE" =~ ^[0-7]{3,4}$ && "$ENV_SHA" =~ ^[a-f0-9]{64}$ ]] || return 1
   [ "$OLD_CURRENT" = none ] || valid_release_id "$OLD_CURRENT" || return 1
   [ "$OLD_PREVIOUS" = none ] || valid_release_id "$OLD_PREVIOUS" || return 1
@@ -214,12 +294,14 @@ recover() {
   verify_bundle "$ROOT/releases/$CANDIDATE" || return 1
   if [ "$OLD_PREVIOUS" != none ]; then verify_bundle "$ROOT/releases/$OLD_PREVIOUS" || return 1; fi
   if [ "$OLD_CURRENT" != none ]; then verify_bundle "$ROOT/releases/$OLD_CURRENT" || return 1; fi
+  EXPECTED_PROJECT=$COMPOSE_PROJECT
+  resolve_site "$ROOT/.activation-env.snapshot" && ownership_preflight || return 1
   atomic_copy "$ROOT/.activation-env.snapshot" "$ROOT/.env.appliance" "$ENV_MODE" || return 1
   switch_pointer previous "$OLD_PREVIOUS" && switch_pointer current "$OLD_CURRENT" || return 1
   if [ "$OLD_CURRENT" != none ]; then
     verify_bundle "$ROOT/releases/$OLD_CURRENT" && preflight "$ROOT/releases/$OLD_CURRENT" && compose up -d --remove-orphans && healthy || return 1
   else
-    verify_bundle "$ROOT/releases/$CANDIDATE" && runtime_compose "$ROOT/releases/$CANDIDATE" && compose down || return 1
+    verify_bundle "$ROOT/releases/$CANDIDATE" && identity_preflight && runtime_compose "$ROOT/releases/$CANDIDATE" && compose down || return 1
   fi
   clear_journal
 }
@@ -238,7 +320,9 @@ trap 'exit 143' TERM
 if [ "$COMMAND" = verify ]; then verify_bundle "$BUNDLE" || error 'bundle verification rejected'; echo "verified host checksum/env contract: $RELEASE_ID"; exit 0; fi
 safe_directory "$ROOT" || error 'unsafe appliance root'
 if [ "$TEST_ROOT" = 1 ]; then regular "$ROOT/.gateway-release-disposable-root" && [ "$(cat "$ROOT/.gateway-release-disposable-root")" = gateway-release-test/v1 ] || error 'disposable root sentinel required'; fi
-for executable in flock sync docker sha256sum; do command -v "$executable" >/dev/null || error 'host dependency missing'; done
+for executable in flock sync docker sha256sum timeout; do command -v "$executable" >/dev/null || error 'host dependency missing'; done
+timeout --signal=TERM --kill-after=1s 1s true || error 'timeout deadline support required'
+if [ "$TEST_ROOT" = 1 ]; then METADATA_SECONDS=1; COMPOSE_SECONDS=1; LOAD_SECONDS=1; KILL_SECONDS=1; fi
 # Shared operation lock for release and state tools. Never unlink its inode.
 if [ -e "$ROOT/.appliance-operation.lock" ] || [ -L "$ROOT/.appliance-operation.lock" ]; then regular "$ROOT/.appliance-operation.lock" || error 'unsafe operation lock'; fi
 exec 9>>"$ROOT/.appliance-operation.lock"
@@ -251,7 +335,7 @@ durable "$ROOT"
 if [ -e "$ROOT/.activation.journal" ] || [ -L "$ROOT/.activation.journal" ]; then
   JOURNAL_ACTIVE=1; RECOVERING=1
   if ! recover; then echo 'interrupted activation recovery failed; journal retained' >&2; exit 3; fi
-  RECOVERING=0
+  RECOVERING=0; EXPECTED_PROJECT=""
 fi
 pointer_id current || error 'unsafe current pointer'; OLD_CURRENT=$POINTER
 pointer_id previous || error 'unsafe previous pointer'; OLD_PREVIOUS=$POINTER
@@ -276,20 +360,18 @@ else
   mv -T -- "$STAGE" "$FINAL"; STAGE=""; durable "$ROOT/releases"
 fi
 verify_bundle "$FINAL" && runtime_compose "$FINAL" || error 'final release verification rejected'
+resolve_site "$ROOT/.env.appliance" || error 'site dotenv rejected before mutation'
 ENV_MODE=$(file_mode "$ROOT/.env.appliance"); ENV_SHA=$(hash_file "$ROOT/.env.appliance")
 atomic_copy "$ROOT/.env.appliance" "$ROOT/.activation-env.snapshot" 600
 JOURNAL_ACTIVE=1; write_journal prepared
 TEMP_ENV=$(mktemp "$ROOT/.env-write.XXXXXX")
-# All unrelated lines, including literal shell expressions, remain data.
-awk -v repository="$IMAGE_REPOSITORY" -v tag="$IMAGE_TAG" '
-  /^GATEWAY_IMAGE_REPOSITORY=/ { if (++repoCount > 1) exit 1; print "GATEWAY_IMAGE_REPOSITORY=" repository; next }
-  /^GATEWAY_IMAGE_TAG=/ { if (++tagCount > 1) exit 1; print "GATEWAY_IMAGE_TAG=" tag; next }
-  { print }
-  END { if (!repoCount) print "GATEWAY_IMAGE_REPOSITORY=" repository; if (!tagCount) print "GATEWAY_IMAGE_TAG=" tag }
-' "$ROOT/.env.appliance" > "$TEMP_ENV"
+site_dotenv rewrite "$ROOT/.env.appliance" > "$TEMP_ENV"
 chmod "$ENV_MODE" "$TEMP_ENV"; durable "$TEMP_ENV"; mv -Tf -- "$TEMP_ENV" "$ROOT/.env.appliance"; durable "$ROOT"
 write_journal env_switched
-compose up -d --remove-orphans; write_journal service_started
+resolve_site "$ROOT/.env.appliance" && [ "$SITE_IMAGE_REPOSITORY:$SITE_IMAGE_TAG" = "$IMAGE_REPOSITORY:$IMAGE_TAG" ] || error 'site image coordinates disagree'
+RESOLVED_IMAGES=$(compose_output config --images 2>/dev/null) || error 'compose candidate resolution failed'
+[ "$RESOLVED_IMAGES" = "$IMAGE_REPOSITORY:$IMAGE_TAG" ] || error 'compose candidate image disagrees'
+compose up -d --remove-orphans || error 'candidate start failed'; write_journal service_started
 healthy || error 'candidate is not healthy'; write_journal healthy
 switch_pointer previous "$OLD_CURRENT"; write_journal previous_switched
 switch_pointer current "$CANDIDATE"; write_journal current_switched

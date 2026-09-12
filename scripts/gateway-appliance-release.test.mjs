@@ -41,15 +41,29 @@ async function fixture(t) {
     input: '#include <sys/file.h>\n#include <stdlib.h>\nint main(int argc,char **argv){return argc==3 && flock(atoi(argv[2]),LOCK_EX|LOCK_NB)==0 ? 0 : 1;}\n', encoding: "utf8"
   });
   assert.equal(compile.status, 0, compile.stderr);
+  const timeoutCompile = spawnSync("cc", ["-x", "c", "-o", path.join(bin, "timeout"), "-"], {
+    input: '#include <unistd.h>\n#include <stdlib.h>\n#include <signal.h>\n#include <sys/wait.h>\n#include <time.h>\nint main(int n,char **v){int i=1,status,expired=0;double seconds=1,grace=1;while(i<n && v[i][0]==\'-\'){if(v[i][2]==\'k\')grace=atof(v[i]+13);i++;}if(i>=n)return 2;seconds=atof(v[i++]);pid_t p=fork();if(!p){setpgid(0,0);execvp(v[i],v+i);_exit(127);}setpgid(p,p);struct timespec start,now;clock_gettime(CLOCK_MONOTONIC,&start);while(waitpid(p,&status,WNOHANG)==0){clock_gettime(CLOCK_MONOTONIC,&now);double elapsed=now.tv_sec-start.tv_sec+(now.tv_nsec-start.tv_nsec)/1e9;if(elapsed>=seconds&&!expired){kill(-p,SIGTERM);expired=1;}if(elapsed>=seconds+grace)kill(-p,SIGKILL);usleep(10000);}return expired?124:WIFEXITED(status)?WEXITSTATUS(status):128+WTERMSIG(status);}\n', encoding: "utf8"
+  });
+  assert.equal(timeoutCompile.status, 0, timeoutCompile.stderr);
   const shim = `#!${process.execPath}
 const fs = require('node:fs'); const path = require('node:path');
 const c = JSON.parse(fs.readFileSync(process.env.RELEASE_SHIM_CONFIG));
 const args = process.argv.slice(2), name = path.basename(process.argv[1]);
 const file = path.join(c.root, '.env.appliance');
-const env = fs.readFileSync(file, 'utf8');
-const tag = env.match(/^GATEWAY_IMAGE_TAG=(.*)$/m)?.[1];
+// Independent quote-aware dotenv parser: do not repeat the production line matcher.
+const site = require('node:util').parseEnv(fs.readFileSync(file, 'utf8'));
+const tag = site.GATEWAY_IMAGE_TAG;
+const resolvedRepository=process.env.GATEWAY_IMAGE_REPOSITORY || site.GATEWAY_IMAGE_REPOSITORY || 'led-control-gateway';
+const resolvedTag=process.env.GATEWAY_IMAGE_TAG || site.GATEWAY_IMAGE_TAG || 'local';
+const resolvedImage=resolvedRepository+':'+resolvedTag;
+const resolvedData=process.env.GATEWAY_DATA_DIR || site.GATEWAY_DATA_DIR || c.root+'/data';
+const project=args.includes('--project-name')?args[args.indexOf('--project-name')+1]:null;
+const activeFile=process.env.RELEASE_SHIM_CONFIG+'.active';
+const ownerFile=process.env.RELEASE_SHIM_CONFIG+'.owner';
+const hasContainer=fs.existsSync(activeFile)?!!fs.readFileSync(activeFile,'utf8'):Object.hasOwn(c,'existingProject');
+const owner=fs.existsSync(ownerFile)?fs.readFileSync(ownerFile,'utf8'):c.existingProject;
 const pointer = (name) => { try { return fs.readlinkSync(path.join(c.root,name)); } catch { return null; } };
-fs.appendFileSync(process.env.RELEASE_SHIM_TRACE, JSON.stringify({name,args,tag,current:pointer('current'),previous:pointer('previous')})+'\\n');
+fs.appendFileSync(process.env.RELEASE_SHIM_TRACE, JSON.stringify({name,args,tag,resolvedImage,resolvedData,project,current:pointer('current'),previous:pointer('previous')})+'\\n');
 if(name==='sync') {
   const fd=fs.openSync(args[1],'r'); try { fs.fsyncSync(fd); } finally {fs.closeSync(fd);}
   let phase; try { phase=fs.readFileSync(path.join(c.root,'.activation.journal'),'utf8').match(/^PHASE=(.*)$/m)?.[1]; } catch {}
@@ -62,17 +76,29 @@ if(name==='mv') { const paths=args.filter(x=>!x.startsWith('-')); fs.renameSync(
 if(name==='node') process.exit(99);
 if(name==='ssh') { if(args.some(x=>x.includes('mktemp'))) console.log('/tmp/led-control-gateway-upload.ABC123'); process.exit(0); }
 if(name==='scp') process.exit(0);
+if(name==='docker' && c.hang && args.join(' ').includes(c.hang) && (!c.hangTag || resolvedTag===c.hangTag)) {
+  process.on('SIGTERM',()=>{}); setTimeout(()=>process.exit(0),6000); return;
+}
 if(args[0]==='version' || (args[0]==='compose' && args[1]==='version')) process.exit(c.noDocker?1:0);
 if(args[0]==='image' && args[1]==='load') process.exit(c.failLoad?1:0);
 if(args[0]==='image' && args[1]==='inspect') { console.log(c.wrongDigest ? 'sha256:'+ '0'.repeat(64) : c.images[args.at(-1)] || 'missing'); process.exit(0); }
+if(args[0]==='container' && args[1]==='ls') { if(hasContainer)console.log('a'.repeat(12)); process.exit(0); }
+if(args[0]==='container' && args[1]==='inspect') { if(!hasContainer)process.exit(1); console.log([owner,c.existingService||'gateway-appliance',c.existingWorkingDir||c.root].join('|')); process.exit(0); }
 if(args[0]==='compose') {
-  if(args.includes('config')) process.exit(c.badCompose?1:0);
-  if(args.includes('up')) { fs.writeFileSync(process.env.RELEASE_SHIM_CONFIG+'.active', tag); process.exit(c.failUp===tag?1:0); }
-  if(args.includes('down')) { fs.writeFileSync(process.env.RELEASE_SHIM_CONFIG+'.active',''); process.exit(c.failDown?1:0); }
+  if(args.includes('config')) { if(args.includes('--images'))console.log(c.resolvedImages||resolvedImage); process.exit(c.badCompose?1:0); }
+  if(args.includes('up') || args.includes('down')) { if(hasContainer && owner!==project)process.exit(8); }
+  if(args.includes('up')) {
+    fs.writeFileSync(activeFile,resolvedTag); fs.writeFileSync(ownerFile,project);
+    fs.writeFileSync(activeFile+'.image',c.wrongRunningTag===resolvedTag?'sha256:'+'0'.repeat(64):c.images[resolvedImage]||'missing');
+    process.exit(c.failUp===resolvedTag?1:0);
+  }
+  if(args.includes('down')) { fs.writeFileSync(activeFile,''); process.exit(c.failDown?1:0); }
 }
 if(args[0]==='inspect') {
-  const active=fs.existsSync(process.env.RELEASE_SHIM_CONFIG+'.active') ? fs.readFileSync(process.env.RELEASE_SHIM_CONFIG+'.active','utf8') : '';
-  console.log(c.unhealthy.includes(active)?'unhealthy':active?'healthy':'starting'); process.exit(0);
+  const active=fs.existsSync(activeFile)?fs.readFileSync(activeFile,'utf8'):'';
+  const health=c.unhealthy.includes(active)?'unhealthy':active?'healthy':'starting';
+  if(args.some(x=>x.includes('.Image')))process.stdout.write((fs.existsSync(activeFile+'.image')?fs.readFileSync(activeFile+'.image','utf8'):'missing')+' ');
+  console.log(health); process.exit(0);
 }
 process.exit(9);
 `;
@@ -81,7 +107,14 @@ process.exit(9);
   }
   const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, RELEASE_SHIM_CONFIG: config, RELEASE_SHIM_TRACE: trace };
   const set = async (values) => writeFile(config, JSON.stringify({ ...JSON.parse(await readFile(config)), ...values }));
-  const run = (command, bundle, extra = []) => spawnSync("/bin/bash", [manager, command, ...(bundle ? [bundle.dir] : []), "--policy-sha256", policyHash, "--test-root", root, ...extra], { env, encoding: "utf8", timeout: 15000 });
+  const args = (command,bundle,extra=[]) => [manager,command,...(bundle?[bundle.dir]:[]),"--policy-sha256",policyHash,"--test-root",root,...extra];
+  const run = (command, bundle, extra = []) => spawnSync("/bin/bash", args(command,bundle,extra), { env, encoding: "utf8", timeout: 20000 });
+  const runDeadline = (command,bundle) => new Promise((resolve,reject) => {
+    const start=Date.now(), child=spawn("/bin/bash",args(command,bundle),{env,detached:true,stdio:["ignore","pipe","pipe"]});
+    let stdout="",stderr=""; child.stdout.on("data",chunk=>stdout+=chunk);child.stderr.on("data",chunk=>stderr+=chunk);
+    const guard=setTimeout(()=>{try{process.kill(-child.pid,"SIGKILL");}catch{}},10000);
+    child.once("error",reject);child.once("close",(status,signal)=>{clearTimeout(guard);resolve({status,signal,stdout,stderr,elapsed:Date.now()-start});});
+  });
   async function bundle(letter) {
     const digest = sha(`config-${letter}`);
     const manifest = {
@@ -111,12 +144,83 @@ process.exit(9);
   }
   const events = async () => { try { return (await readFile(trace,"utf8")).trim().split("\n").filter(Boolean).map(JSON.parse); } catch { return []; } };
   const pointer = async (name) => { try { return await readlink(path.join(root,name)); } catch (e) { if(e.code==='ENOENT') return null; throw e; } };
-  return { root, bin, temp, env, siteEnv, bundle, checksums, run, set, events, pointer, config };
+  return { root, bin, temp, env, siteEnv, bundle, checksums, run, runDeadline, set, events, pointer, config };
 }
 const ok = (result) => assert.equal(result.status, 0, result.stderr || String(result.error));
 const fail = (result, status = 1) => assert.equal(result.status, status, result.stdout + result.stderr);
 const site = (h) => readFile(path.join(h.root, ".env.appliance"), "utf8");
 const exists = async (file) => lstat(file).then(() => true, () => false);
+
+test("review dotenv multiline rejects before mutation and preserves bytes/mode", async (t) => {
+  const h=await fixture(t), a=await h.bundle("a");
+  const original=h.siteEnv.replace(/^GATEWAY_IMAGE_.*\n/gm, "")+"SECRET='first\nGATEWAY_IMAGE_TAG=hidden\nGATEWAY_IMAGE_REPOSITORY=hidden\nlast'\n";
+  await writeFile(path.join(h.root,".env.appliance"),original);
+  fail(h.run("activate",a)); assert.equal(await site(h),original);
+  assert.equal((await lstat(path.join(h.root,".env.appliance"))).mode&0o777,0o640);
+  assert.equal((await h.events()).some(e=>e.args.includes("up")),false);
+  assert.equal(await exists(path.join(h.root,".activation.journal")),false);
+});
+for(const variant of ["missing","duplicate"]) test(`review dotenv ${variant} image keys normalize exactly once`,async(t)=>{
+  const h=await fixture(t),a=await h.bundle("a");
+  const original=(variant==="missing"?h.siteEnv.replace(/^GATEWAY_IMAGE_.*\n/gm,""):h.siteEnv+"GATEWAY_IMAGE_TAG=duplicate\nGATEWAY_IMAGE_REPOSITORY=duplicate\n")+"LABEL='한글 # unchanged'\n";
+  await writeFile(path.join(h.root,".env.appliance"),original);ok(h.run("activate",a));
+  const after=await site(h);
+  assert.equal(after.match(/^GATEWAY_IMAGE_TAG=/gm).length,1);assert.equal(after.match(/^GATEWAY_IMAGE_REPOSITORY=/gm).length,1);
+  assert.equal(after.replace(/^GATEWAY_IMAGE_.*\n/gm,""),original.replace(/^GATEWAY_IMAGE_.*\n/gm,""));
+  assert.equal((await h.events()).find(e=>e.args.includes("up")).resolvedImage,`fixture-gateway:${a.tag}`);
+});
+test("review compose resolved image must equal candidate before mutation",async(t)=>{
+  const h=await fixture(t),a=await h.bundle("a");await h.set({resolvedImages:"led-control-gateway:local"});
+  fail(h.run("activate",a));assert.equal(await site(h),h.siteEnv);assert.equal(await h.pointer("current"),null);
+});
+test("review running image digest gates commit and safely recovers",async(t)=>{
+  const h=await fixture(t),a=await h.bundle("a"),b=await h.bundle("b");ok(h.run("activate",a));const before=await site(h);
+  await h.set({wrongRunningTag:b.tag});fail(h.run("activate",b));assert.equal(await site(h),before);assert.equal(await h.pointer("current"),`releases/${a.id}`);
+});
+for(const absent of [false,true]) test(`review authoritative env defeats ambient overrides, data absent=${absent}`,async(t)=>{
+  const h=await fixture(t),a=await h.bundle("a"),b=await h.bundle("b");
+  if(absent)await writeFile(path.join(h.root,".env.appliance"),h.siteEnv.replace(/^GATEWAY_DATA_DIR=.*\n/m,""));
+  Object.assign(h.env,{GATEWAY_DATA_DIR:"/malicious",GATEWAY_IMAGE_TAG:"ambient",GATEWAY_IMAGE_REPOSITORY:"ambient",COMPOSE_PROJECT_NAME:"foreign"});
+  ok(h.run("activate",a));await h.set({unhealthy:[b.tag]});fail(h.run("activate",b));
+  for(const event of (await h.events()).filter(e=>e.args[0]==="compose"&&e.project)){
+    assert.equal(event.resolvedData,path.join(h.root,"data"));assert.match(event.resolvedImage,/^fixture-gateway:release-[ab]$/);
+  }
+});
+test("review legacy gateway project is inherited consistently",async(t)=>{
+  const h=await fixture(t),a=await h.bundle("a");await h.set({existingProject:"gateway"});ok(h.run("activate",a));
+  for(const event of (await h.events()).filter(e=>e.args[0]==="compose"&&e.project))assert.equal(event.project,"gateway");
+});
+for(const foreign of [{existingProject:"foreign"},{existingProject:"gateway",existingService:"other"},{existingProject:"gateway",existingWorkingDir:"/foreign"}])test(`review foreign ownership rejects before mutation ${JSON.stringify(foreign)}`,async(t)=>{
+  const h=await fixture(t),a=await h.bundle("a");await h.set(foreign);fail(h.run("activate",a));assert.equal(await site(h),h.siteEnv);
+  assert.equal((await h.events()).some(e=>e.args.includes("up")||e.args.includes("down")),false);
+});
+for(const hang of ["image load","config --images"])test(`review hanging ${hang} has wall-clock deadline before mutation`,async(t)=>{
+  const h=await fixture(t),a=await h.bundle("a");await h.set({hang});const result=await h.runDeadline("activate",a);
+  fail(result);assert.ok(result.elapsed<8000,`elapsed ${result.elapsed}`);assert.equal(await site(h),h.siteEnv);
+});
+test("review hanging candidate up rolls back within bounded time",async(t)=>{
+  const h=await fixture(t),a=await h.bundle("a"),b=await h.bundle("b");ok(h.run("activate",a));const before=await site(h);
+  await h.set({hang:"up -d",hangTag:b.tag});const result=await h.runDeadline("activate",b);fail(result);assert.ok(result.elapsed<9500);
+  assert.equal(await site(h),before);assert.equal(await h.pointer("current"),`releases/${a.id}`);assert.equal(await exists(path.join(h.root,".activation.journal")),false);
+});
+test("review hanging recovery down retains journal with distinct bounded failure",async(t)=>{
+  const h=await fixture(t),a=await h.bundle("a");await h.set({unhealthy:[a.tag],hang:"down"});const result=await h.runDeadline("activate",a);
+  fail(result,3);assert.ok(result.elapsed<8000);assert.equal(await exists(path.join(h.root,".activation.journal")),true);assert.equal(await h.pointer("current"),null);
+});
+for(const hang of ["container ls","container inspect","image inspect","{{.Image}}"])test(`review hanging metadata ${hang} fails bounded`,async(t)=>{
+  const h=await fixture(t),a=await h.bundle("a");await h.set({existingProject:"gateway",hang});
+  const result=await h.runDeadline("activate",a);fail(result);assert.ok(result.elapsed<9000,`elapsed ${result.elapsed}`);assert.equal(await site(h),h.siteEnv);
+  assert.equal(await h.pointer("current"),null);
+});
+test("review unsupported timeout fails before service or env mutation",async(t)=>{
+  const h=await fixture(t),a=await h.bundle("a");await writeFile(path.join(h.bin,"timeout"),"#!/bin/sh\nexit 127\n",{mode:0o755});
+  fail(h.run("activate",a));assert.equal(await site(h),h.siteEnv);assert.equal((await h.events()).length,0);
+});
+test("review first-install recovery uses authoritative candidate coordinates and site data",async(t)=>{
+  const h=await fixture(t),a=await h.bundle("a");Object.assign(h.env,{GATEWAY_DATA_DIR:"/malicious",GATEWAY_IMAGE_TAG:"ambient",GATEWAY_IMAGE_REPOSITORY:"ambient"});
+  await h.set({unhealthy:[a.tag]});fail(h.run("activate",a));
+  const down=(await h.events()).find(e=>e.args.includes("down"));assert.equal(down.resolvedImage,`fixture-gateway:${a.tag}`);assert.equal(down.resolvedData,path.join(h.root,"data"));assert.equal(down.project,"gateway");
+});
 
 test("activate health-gates pointers, preserves site env/mode and never calls host Node", async (t) => {
   const h = await fixture(t), a = await h.bundle("a"), b = await h.bundle("b");
