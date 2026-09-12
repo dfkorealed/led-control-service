@@ -54,6 +54,7 @@ for (const viewport of [
     expect(layout.bodyWidth).toBeLessThanOrEqual(layout.viewportWidth);
     expect(layout.shellWidth).toBeGreaterThan(viewport.width < 500 ? viewport.width - 40 : 800);
     await expectNoHorizontalOverflow(page);
+    await expectMinimumTouchTargetsAfterScrolling(page, ".editor-revision-list");
     if (viewport.width <= 760) await expectMinimumTouchTargetsAfterScrolling(page, ".app-shell");
     const path = testInfo.outputPath(`editor-panels-${viewport.width}.png`);
     await page.screenshot({ path, fullPage: true });

@@ -4424,10 +4424,11 @@ button.group-card {
 }
 
 .editor-revision-restore {
-  width: 44px;
-  min-width: 44px;
-  height: 44px;
-  min-height: 44px;
+  /* Keep a continuous 44px hit area inside the inherited rounded corners. */
+  width: 52px;
+  min-width: 52px;
+  height: 52px;
+  min-height: 52px;
   padding: 0;
 }
 
