@@ -1214,7 +1214,7 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 | `eventType` | `String` | 예 | unique tuple | 이벤트 계약 식별자 |
 | `payloadHash` | `String?` | 아니오 | `NULL` 또는 `sha256:<64 lowercase hex>` CHECK | canonical complete payload hash; legacy event는 null 허용 |
 | `occurredAt` | `DateTime` | 예 |  | Gateway 발생/검증 시각 |
-| `receivedAt` | `DateTime` | 예 | `now()` | API가 packet 수신을 시작한 서버 시각 |
+| `receivedAt` | `DateTime` | 예 | `now()` | fixture-state/heartbeat는 API가 packet 수신을 시작한 서버 시각, 그 밖의 producer는 명시하지 않으면 DB row 생성 시각 |
 | `ingestionStatus` | `GatewayEventIngestionStatus` | 예 | `accepted` | 정상 처리 또는 durable terminal future timestamp 거부 결과 |
 | `createdAt` | `DateTime` | 예 | `now()` | 원장 row 생성 시각 |
 
