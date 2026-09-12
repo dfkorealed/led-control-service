@@ -98,7 +98,7 @@
 - 층 지도 snapshot은 도형을 `zIndex`, 생성 시각 순으로 고정해 반환한다. 존재하지 않거나 접근할 수 없는 층은 같은 `floor not found` 404 응답으로 처리한다.
 - 웹은 `useFloorMapSnapshot`으로 선택 층의 저장된 배경과 도형을 10분마다 조회하고, 설정 에디터와 공통 `FloorMapObjectNode` geometry를 사용해 Konva scene에 읽기 전용으로 합성한다. 조명 marker는 같은 좌표계의 접근 가능한 HTML 버튼으로 표시한다.
 - 설정 맵의 atomic save 또는 revision 복구가 성공하면 응답의 `mapRevision`, 배경·맵 크기·도형을 동일 현장/층의 `floor-map` 캐시에 즉시 기록하고, 조명 이름·위치·크기·정격 전력·배치 상태는 기존 `floor-fixtures` 페이지의 밝기·장애·Gateway 운영 상태를 보존한 채 병합한다. 이후 scoped query invalidation과 서버 재조회도 유지하므로 설정에서 모니터링으로 이동할 때 이전 10분 캐시를 먼저 표시하지 않는다.
-- 네모·세모·선·텍스트는 맵 편집 저장 성공 뒤 읽기 전용 모니터링 Konva scene에 같은 좌표와 색상으로 표시한다. 브라우저 회귀는 접근성용 숨김 데이터 존재만 확인하지 않고 네 종류를 한 번에 저장한 뒤 모니터링 canvas의 실제 픽셀을 검사한다.
+- 네모·세모·선·텍스트는 맵 편집 저장 성공 뒤 공통 `FloorScene`/`FloorMapObjectNode`를 통해 읽기 전용 모니터링 Konva scene에 같은 좌표와 색상으로 표시한다. `.floor-scene-canvas`, `.konvajs-content`, canvas는 모두 floor map 콘텐츠 높이를 채우므로 0px 합성 높이로 저장 도형이 사라지지 않는다. 브라우저 회귀는 접근성용 숨김 데이터 존재만 확인하지 않고 네 종류를 한 번에 저장한 뒤 최종 합성 높이와 사각형·삼각형·선·텍스트의 hand-derived RGB 픽셀을 검사한다.
 - 모니터링 수동 새로고침은 dashboard metadata, 현재 층 fixture 페이지와 현재 층 map snapshot 세 요청을 함께 갱신하며 일부 실패 시 기존 성공 데이터를 유지한다.
 - 지도 snapshot의 최초 조회가 실패하면 기본 빈 canvas를 만들지 않고 오류와 `지도 다시 시도`를 표시한다. 이전 성공 snapshot이 있는 갱신 실패는 현재 지도를 유지한 채 실패 표기와 재시도만 추가하며, 수동 갱신 실패 상태는 해당 floor ID에 귀속되어 다른 층으로 전환할 때 누수되지 않는다.
 - deterministic Playwright route fixture는 0건 완료, relation 없는 retry 응답, canonical GET의 `pending -> scanning -> completed` 진행과 terminal polling 중지, 실패 메시지, 명시적 다시 검색, 등록 조명이 존재하는 상태의 active 세션 자동 복구와 최초 지도 오류 복구를 Chromium에서 검증한다. route fixture는 실제 API/DB 또는 하드웨어 검증을 대체하지 않는다.
@@ -141,6 +141,7 @@
 ## 부족하거나 개선이 필요한 기능
 
 - 지도 배율과 스크롤 위치는 현재 화면 세션 상태이며 층 전환·새로고침 시 100% 화면 맞춤으로 초기화된다. 사용자별 마지막 viewport를 저장하는 기능은 제공하지 않는다.
+- 저장 도형 표시 회귀는 deterministic route fixture Chromium에서 검증한다. mock snapshot과 브라우저 합성 결과를 확인하는 범위이며 실제 Gateway, Raspberry Pi, ESP32-H2 또는 현장 도면의 HIL 검증은 아니다.
 - 테스트 데이터는 설정 개요의 설치 완료 assigned `admin` 전용 개발·검증 도구이며, 기본 off 상태이고 API도 비활성화 시 404를 반환한다. 따라서 표시되는 online 상태는 일시적 recent online일 수 있고 freshness 재집계 뒤 offline이 될 수 있으며, 실제 Gateway·Mesh·MQTT 상태나 HIL 검증 증거로 해석할 수 없다.
 - 개별 `provision-device`의 API DB transaction -> MQTT PUBACK과 Gateway RF 전 durable accept, terminal atomic 저장, exact `device-terminal-ingested` ACK 전 bounded replay는 software로 구현됐다. 다만 이 ACK를 생성하는 API terminal ingest/ACK outbox는 Task 3 범위여서 현재 production 통합에서는 device terminal이 계속 pending replay로 남는다. API/Gateway 프로세스 전원 차단 전체 구간의 자동 수렴과 실제 broker/Raspberry Pi/ESP32-H2 재시작 HIL은 Task 3 이후 검증해야 한다.
 - pending redirect와 admin commissioning은 React/Vitest 회귀와 Task 9 격리 실백엔드 Chromium E2E로 검증했다. Calm Operations 모바일 390px/320px의 화면 계층·overflow·touch target은 route fixture로 검증했지만, 실제 WebView safe-area와 재설치는 별도이며 Raspberry Pi/ESP32-H2 HIL은 아직 실행하지 않았다.
