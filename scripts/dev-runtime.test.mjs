@@ -167,7 +167,7 @@ test("production Mosquitto 설정은 mTLS, CRL, TLS 1.2와 최소권한 ACL을 �
   assert.match(config, /^cafile \/mosquitto\/certs\/mqtt-ca\.crt$/m);
   assert.match(config, /^certfile \/mosquitto\/certs\/mqtt-server\.crt$/m);
   assert.match(config, /^keyfile \/mosquitto\/certs\/mqtt-server\.key$/m);
-  assert.match(config, /^crlfile \/mosquitto\/certs\/mqtt-client\.crl$/m);
+  assert.match(config, /^crlfile \/mosquitto\/crls\/mqtt-client\.crl$/m);
   assert.match(config, /^require_certificate true$/m);
   assert.match(config, /^use_identity_as_username true$/m);
   assert.match(config, /^tls_version tlsv1\.2$/m);
