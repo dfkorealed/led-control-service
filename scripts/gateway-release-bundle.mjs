@@ -192,7 +192,7 @@ async function digestRange(filename, start = 0, size, scanSecrets = true) {
       tail = bytes.subarray(-privateMaterialScan.maxDerBytes);
       // Keep a separate normalized carry so arbitrary ASCII whitespace and
       // short final base64 lines cannot consume or split the candidate window.
-      const base64Text = base64Tail + chunk.toString("latin1").replace(/[\t\r\n ]/g, "");
+      const base64Text = base64Tail + chunk.toString("latin1").replace(/[\x09-\x0d ]/g, "");
       rejectPrivateBase64(base64Text);
       base64Tail = base64Text.slice(-privateMaterialScan.maxBase64CandidateChars);
     }

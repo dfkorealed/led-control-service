@@ -28,7 +28,7 @@ Manifest의 `privateMaterialScan`에는 고정 profile `led-control-private-mate
 | 파일 이름/형식 | Site `.env.appliance`, 개인키 이름/확장자, bundle symlink/hardlink/special file와 예상 밖 경로를 거부한다. 공개 CA `.pem`과 image 내부 정상 OS symlink 자체는 개인키로 보지 않는다. |
 | PEM | Literal private-key PEM header marker를 거부한다. 암호화 PEM marker도 포함한다. |
 | DER | ASN.1 definite-length SEQUENCE 후보 중 [Node `createPrivateKey`](https://nodejs.org/docs/latest-v22.x/api/crypto.html#cryptocreateprivatekeykey)가 인식하는 PKCS#1/PKCS#8/SEC1 private key를 거부한다. PKCS#8에서 명시적인 `ERR_MISSING_PASSPHRASE`가 발생하는 encrypted container도 거부한다. |
-| Base64 | 위 PEM/DER를 **표준 base64 한 겹**으로 감싼 내용도 검사한다. Space/tab/CR/LF, 짧은 마지막 줄, chunk 경계를 정규화한다. JSON/text 안의 인식 가능한 base64 시작 지점도 검사한다. |
+| Base64 | 위 PEM/DER를 **표준 base64 한 겹**으로 감싼 내용도 검사한다. ASCII whitespace 전체(Space/HT/LF/VT/FF/CR), 짧은 마지막 줄, chunk 경계를 정규화한다. JSON/text 안의 인식 가능한 base64 시작 지점도 검사한다. |
 | 범위/예산 | Bundle regular-file bytes와 **삭제된 layer까지 포함한** 모든 지원 image layer bytes를 검사한다. DER object는 최대 65,536 bytes, base64 carry/candidate는 공백 제거 후 최대 131,072 characters다. 인식 가능한 과대 DER/key 후보는 fail-closed한다. 일반 파일 전체를 메모리에 올리지 않는다. |
 
 공개 SPKI/CA certificate를 개인키로 판정하지 않는 회귀도 유지한다. 오류에는 검사 종류만 남기며 key bytes, base64 원문, JSON excerpt나 passphrase를 출력하지 않는다. 테스트 개인키는 Node crypto로 매 실행 생성하는 disposable fixture뿐이다.

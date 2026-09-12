@@ -294,6 +294,34 @@ test("private-material content detection rejects ephemeral DER and base64 keys i
   succeeds(run(result.verifyArgs));
 });
 
+test("ASCII whitespace FF/VT cannot hide base64 DER/PEM across stream chunks", async (t) => {
+  const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+  for (const format of ["der", "pem"]) {
+    const encoded = Buffer.from(privateKey.export({ type: "pkcs8", format })).toString("base64");
+    for (const [label, separator] of [["FF", "\f"], ["VT", "\v"]]) {
+      // In the bundle file, the first separator is byte 65,536: it and the
+      // following base64 data must join the preceding chunk's partial prefix.
+      const contents = Buffer.from(" ".repeat(65532) + encoded.match(/.{1,4}/g).join(separator));
+      await t.test(`${format}/${label}: bundle stream boundary`, async (t) => {
+        const result = await created(t);
+        await writeFile(path.join(result.output, "compose.yml"), contents, { mode: 0o600 });
+        await checksums(result.output);
+        fails(run(result.verifyArgs), /private key material/);
+      });
+      await t.test(`${format}/${label}: image layer`, async (t) => {
+        const malicious = await fixture(t, { layerFiles: { "opt/data.dat": contents } });
+        fails(run(malicious.createArgs), /private key material/);
+        const result = await created(t);
+        await replaceBundleImage(result, malicious);
+        fails(run(result.verifyArgs), /private key material/);
+      });
+    }
+  }
+  const publicBase64 = publicKey.export({ type: "spki", format: "der" }).toString("base64").match(/.{1,4}/g).join("\f\v");
+  const publicBundle = await created(t, { layerFiles: { "opt/public.txt": publicBase64 } });
+  succeeds(run(publicBundle.verifyArgs));
+});
+
 test("manifest states the bounded private-material scan profile and refuses a weakened claim", async (t) => {
   const result = await created(t);
   const manifest = JSON.parse(await readFile(path.join(result.output, "release-manifest.json"), "utf8"));
