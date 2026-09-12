@@ -71,7 +71,7 @@ test("verify rejects extra files, tampering, unsafe paths, secret material and t
 - Consumes: Task 1 verified release directory and `release-manifest.json`/`appliance.env`.
 - Produces: `gateway-appliance-release.sh verify|activate|rollback`, `releases/<releaseId>`, atomic `current`/`previous`, recoverable activation journal.
 
-- [ ] **Step 1: Write failing lifecycle tests with command shims**
+- [x] **Step 1: Write failing lifecycle tests with command shims**
 
 ```js
 test("activate changes current only after bounded healthy and preserves previous", async () => {
@@ -87,10 +87,10 @@ test("unhealthy activation restores env, pointer and previous container", async 
 });
 ```
 
-- [ ] **Step 2: Run RED** — `node --test scripts/gateway-appliance-release.test.mjs scripts/gateway-appliance-scripts.test.mjs`; missing manager와 non-atomic deploy behavior가 실패해야 한다.
-- [ ] **Step 3: Implement lifecycle** — `flock`, same-filesystem staging, temp+fsync+rename env writes, temp symlink+rename pointers와 exact release IDs를 사용하고 오류 시 journal로 이전 verified release를 복원한다.
-- [ ] **Step 4: Run GREEN** — release/bundle/appliance script tests를 함께 통과한다.
-- [ ] **Step 5: Commit** — `git commit -m "feat(gateway): activate and roll back verified releases"`.
+- [x] **Step 2: Run RED** — `node --test scripts/gateway-appliance-release.test.mjs scripts/gateway-appliance-scripts.test.mjs`; missing manager와 non-atomic deploy behavior가 실패해야 한다.
+- [x] **Step 3: Implement lifecycle** — `flock`, same-filesystem staging, temp+fsync+rename env writes, temp symlink+rename pointers와 exact release IDs를 사용하고 오류 시 journal로 이전 verified release를 복원한다.
+- [x] **Step 4: Run GREEN** — release/bundle/appliance script tests를 함께 통과한다.
+- [x] **Step 5: Commit** — `git commit -m "feat(gateway): activate and roll back verified releases"`.
 
 ### Task 3: Encrypted state backup, transactional restore and disposable drill
 
