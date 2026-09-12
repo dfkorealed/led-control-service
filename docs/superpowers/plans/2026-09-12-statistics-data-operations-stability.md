@@ -65,13 +65,13 @@
 - Modify: `apps/api/src/app.module.ts`
 - Modify: `docs/menus/settings.md`
 
-- [ ] event type별 7/30/90/365일 cutoff와 안전 조건을 구현한다. 알 수 없는 type은 보존한다.
-- [ ] 만료/폐기 후 30일 Session을 batch 10,000으로 정리한다.
-- [ ] Floor별 최근 100개 또는 최근 365일을 남기고 그 밖의 revision을 batch 1,000으로 정리한다.
-- [ ] `FOR UPDATE SKIP LOCKED`, stable ordering, timer 중복 방지, `unref()`, structured summary log를 적용한다.
-- [ ] 두 Prisma connection이 locked row를 건너뛰고 다음 sweep에서 수렴하는 disposable PostgreSQL integration test를 작성한다.
-- [ ] Run: retention unit/integration tests and API typecheck.
-- [ ] Commit: `feat(api): add bounded operational data retention`
+- [x] event type별 7/30/90/365일 cutoff와 안전 조건을 구현한다. 알 수 없는 type은 보존한다.
+- [x] 만료/폐기 후 30일 Session을 batch 10,000으로 정리한다.
+- [x] Floor별 최근 100개 또는 최근 365일을 남기고 그 밖의 revision을 batch 1,000으로 정리한다.
+- [x] `FOR UPDATE SKIP LOCKED`, stable ordering, timer 중복 방지, `unref()`, structured summary log를 적용한다.
+- [x] 두 Prisma connection이 locked row를 건너뛰고 다음 sweep에서 수렴하는 disposable PostgreSQL integration test를 작성한다.
+- [x] Run: retention unit/integration tests and API typecheck.
+- [x] Commit: `feat(api): add bounded operational data retention`
 
 ## Task 4: 보고서 공개 계약과 불변 대상 snapshot
 
