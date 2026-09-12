@@ -12,6 +12,7 @@ import { FixturesModule } from "./fixtures/fixtures.module";
 import { FixtureGroupsModule } from "./fixture-groups/fixture-groups.module";
 import { GatewayOnboardingModule } from "./gateway-onboarding/gateway-onboarding.module";
 import { MeshControlGroupModule } from "./mesh-control-groups/mesh-control-group.module";
+import { MonitoringIncidentsModule } from "./monitoring-incidents/monitoring-incidents.module";
 import { OperatorSiteAdminsModule } from "./operator-site-admins/operator-site-admins.module";
 import { PkiModule } from "./pki/pki.module";
 import { PrismaModule } from "./prisma/prisma.module";
@@ -30,6 +31,7 @@ import { TestDataModule } from "./test-data/test-data.module";
     AuditModule,
     AutomationModule,
     SitesModule,
+    MonitoringIncidentsModule,
     SiteUsersModule,
     CommandsModule,
     EnergyModule,

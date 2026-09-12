@@ -12,7 +12,7 @@
 - 현장/공간/도면: `Site`, `Floor`(`mapRevision`), `FloorPlan`, `FloorMapObject`, `FloorMapRevision`
 - 조명/그룹/게이트웨이/메시 노드: `Fixture`, `FixtureGroup`, `GroupFixture`, `Gateway`, `GatewayInventory`, `MeshNode`, `MeshControlGroup`, `MeshControlGroupMember`, `MeshControlGroupExpectedOperation`, `MeshControlGroupAppliedMember`
 - 게이트웨이 PKI: `GatewayEnrollment`, `GatewayCertificate`
-- 제어/모니터링: `Command`, `CommandDispatch`, `CommandFixtureResult`, `MqttOutbox`, `ProcessedGatewayEvent`, `EnergyUsage`
+- 제어/모니터링: `Command`, `CommandDispatch`, `CommandFixtureResult`, `MqttOutbox`, `ProcessedGatewayEvent`, `MonitoringIncident`, `EnergyUsage`
 - 자동 제어: `GatewayAutomationConfiguration`, `LightingSchedule`, `LightingScheduleFixture`, `VehicleEventRule`, `VehicleEventSource`, `VehicleEventTarget`, `ManualOverride`, `ManualOverrideFixture`, `AutomationExecution`, `AutomationExecutionFixtureResult`
 - 감사/삭제 정리: `GatewayClaimAudit`, `AuditLog`, `SiteDeletionCleanup`
 - 조명 검색/등록: `ProvisioningSession`, `ProvisioningScanOutbox`, `ProvisioningDeviceOutbox`, `DiscoveredMeshNode`
@@ -320,6 +320,8 @@ SiteDeletionCleanup (삭제된 Site ID와 외부 정리 대상을 독립 보존)
 | `address` | `String?` | 아니오 |  | 주소. operator가 만든 설치 대기 현장에서는 `NULL`이고 admin 최초 설치에서 필수값으로 채운다. |
 | `tariffKwhRate` | `Decimal(10,2)?` | 아니오 |  | kWh 단가. 설치 대기 현장에서는 `NULL`이며, 단가가 없으면 energy 비용 산출을 요청할 수 없다. |
 | `timeZone` | `String` | 예 | `Asia/Seoul` | IANA timezone. 상태 기반 에너지 일·월 경계를 계산하는 기준 |
+| `gatewayOfflineAfterSeconds` | `Int` | 예 | `90`, SQL CHECK `30..900` | 모니터링 게이트웨이 heartbeat 만료 기준(초). 장비 제어 안전성의 기존 90초 계약과 별개 |
+| `fixtureStaleAfterSeconds` | `Int` | 예 | `180`, SQL CHECK `60..3600` | 모니터링 조명 상태 수신 만료 기준(초) |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
 | `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
 
@@ -344,6 +346,29 @@ admin 연결 제약:
 - statement gate를 통과한 뒤 기존 row trigger는 stale snapshot write-skew를 막기 위해 관계 행을 `FOR UPDATE`로 잠그고 변경 후 상태를 검증한다. `Site` trigger는 대상 User와 Organization, `User` trigger는 연결 Site와 Organization, `Organization` trigger는 연결 Site와 User를 transaction 종료까지 안정적으로 유지한다.
 - `adminUserId`의 unique index와 restrict foreign key는 현장당 한 admin, admin당 한 현장, 연결된 admin의 삭제 방지를 함께 보장한다.
 - operator site-admin 관리 API는 customer Organization, 설치 대기 Site, active admin User와 `adminUserId` 연결을 Serializable transaction으로 생성한다. 영구 삭제는 사용자가 입력한 현장명이 현재 이름과 정확히 일치할 때만 실행한다. 같은 transaction에서 제조 `GatewayInventory`를 비활성화하고 외부 정리 대상을 `SiteDeletionCleanup`에 먼저 기록한 뒤, `20260903041451_operator_site_cascade_delete` migration의 ownership cascade로 층·도면·조명·그룹·게이트웨이·명령·등록·에너지·자동화 데이터를 제거한다. Gateway 삭제의 `SET NULL` FK가 inventory claim 연결을 해제한다. 커밋 뒤 worker가 Gateway 인증서를 폐기하고 presigned upload URL 최대 수명 이후 FloorAsset 객체를 삭제하며 실패 시 재시도한다. `GatewayInventory`와 `GatewayCertificate` 원장은 보존한다. 고객사에 다른 Site가 없으면 Session, Invitation, 모든 customer User와 Organization도 삭제한다. 삭제 대상 User를 `FOR UPDATE`로 먼저 잠가 login/session 생성과 직렬화한다. 삭제 감사는 함께 삭제되는 customer가 아니라 service-provider Organization에 `operator.site_deleted`로 보존한다.
+
+### MonitoringIncident
+
+현장 내 단일 장애 발생부터 해결까지의 이력이다. `20260912100000_monitoring_policy_incidents`는 기존 현장에 `90/180`초 기본값을 추가하며 과거 장애를 소급 생성하지 않는다.
+
+| 컬럼 | 타입/제약 | 설명 |
+| --- | --- | --- |
+| `id`, `siteId` | UUID 문자열 PK, Site FK cascade | 장애 이력 및 현장 |
+| `type` | `gateway_offline`, `fixture_stale`, `fixture_fault`, `command_failed` | 장애 유형 |
+| `status` | `open`, `acknowledged`, `resolved`; 기본 `open` | 발생·확인·해결 상태 |
+| `targetKey` | `gateway:{id}` 또는 `fixture:{id}` | 정확한 대상 식별자 |
+| `fixtureId`, `gatewayId` | nullable, 정확히 하나; 대상+현장 복합 FK cascade | `gateway_offline`만 Gateway 대상이고 나머지는 Fixture 대상 |
+| `activeKey` | nullable unique | 미해결이면 `{siteId}:{type}:{targetKey}`, 해결이면 null. 동일 유형·대상의 활성 장애는 하나 |
+| `openedAt`, `lastObservedAt` | 필수 DateTime | 최초 발생과 마지막 관측; 마지막 관측은 최초 발생보다 빠를 수 없음 |
+| `acknowledgedAt`, `acknowledgedByUserId` | nullable 시각/사용자 FK SetNull | 확인 시각과 사용자. 확인 상태에는 시각 필수 |
+| `assignedToUserId` | nullable 사용자 FK SetNull | 담당자. API는 현재 현장의 active admin/member만 허용 |
+| `resolvedAt`, `resolvedByUserId` | nullable 시각/사용자 FK SetNull | 해결 시각과 사용자 |
+| `resolutionKind`, `resolutionNote` | nullable enum/text | `automatic_recovery` 또는 `operator_confirmed` 및 해결 메모 |
+| `createdAt`, `updatedAt` | 생성·수정 시각 | API의 `expectedUpdatedAt` 충돌 검사에 사용 |
+
+SQL CHECK는 대상/유형/키의 일치, 활성/해결 상태별 key·시각·resolution 값, 확인 및 관측 시각 순서를 강제한다. 사용자를 삭제해도 시각과 이력은 보존하고 actor FK만 null이 된다. Site 또는 대상 삭제 시 이력도 cascade한다. `Fixture(id, siteId)` unique와 두 대상의 복합 FK가 다른 현장 대상을 DB에서 차단한다. 현장·상태·유형별 목록 및 `(resolvedAt IS NULL) DESC, openedAt DESC, id DESC` 활성 우선 커서용 인덱스를 제공한다.
+
+`GET/PATCH /sites/:siteId/monitoring-policy`와 인시던트 목록/변경 API는 read/manage capability를 구분한다. 변경은 Site → incident 순서 잠금과 재인가, optimistic concurrency, 같은 transaction의 `AuditLog`를 사용한다. 수동 해결은 실제 대상 상태가 정상으로 복구된 경우에만 허용하며 아직 장애면 `409 INCIDENT_STILL_ACTIVE`다. 이 단계는 schema/API와 공통 조건 판정만 구현했고 주기적 생성·자동 해결 및 Web 연결은 후속 P1 작업이다. migration은 폐기 가능한 PostgreSQL에서만 검증하고 사용자 DB에는 적용하지 않는다.
 
 ### SiteDeletionCleanup
 

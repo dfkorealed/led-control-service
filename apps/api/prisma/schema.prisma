@@ -18,6 +18,24 @@ enum FixtureStatus {
   fault
 }
 
+enum MonitoringIncidentType {
+  gateway_offline
+  fixture_stale
+  fixture_fault
+  command_failed
+}
+
+enum MonitoringIncidentStatus {
+  open
+  acknowledged
+  resolved
+}
+
+enum MonitoringIncidentResolutionKind {
+  automatic_recovery
+  operator_confirmed
+}
+
 enum CommandStatus {
   pending
   acknowledged
@@ -209,6 +227,9 @@ model User {
   updatedVehicleEventRules VehicleEventRule[]    @relation("VehicleEventRuleUpdatedBy")
   manualOverrides          ManualOverride[]      @relation("ManualOverrideRequestedBy")
   energyReportJobs         EnergyReportJob[]
+  acknowledgedIncidents    MonitoringIncident[]  @relation("IncidentAcknowledgedBy")
+  assignedIncidents        MonitoringIncident[]  @relation("IncidentAssignedTo")
+  resolvedIncidents        MonitoringIncident[]  @relation("IncidentResolvedBy")
   createdAt                DateTime              @default(now())
   updatedAt                DateTime              @updatedAt
 }
@@ -221,6 +242,8 @@ model Site {
   address                  String?
   tariffKwhRate            Decimal?                         @db.Decimal(10, 2)
   timeZone                 String                           @default("Asia/Seoul")
+  gatewayOfflineAfterSeconds Int                            @default(90)
+  fixtureStaleAfterSeconds Int                               @default(180)
   organization             Organization                     @relation(fields: [organizationId], references: [id])
   admin                    User?                            @relation("SiteAdmin", fields: [adminUserId], references: [id], onDelete: Restrict)
   floors                   Floor[]
@@ -239,6 +262,7 @@ model Site {
   energyFixtureIdentities  EnergyFixtureIdentity[]
   energyGroupIdentities    EnergyGroupIdentity[]
   energyReportJobs         EnergyReportJob[]
+  monitoringIncidents     MonitoringIncident[]
   createdAt                DateTime                         @default(now())
   updatedAt                DateTime                         @updatedAt
 
@@ -338,6 +362,41 @@ model AuditLog {
   @@index([actorId, createdAt])
 }
 
+model MonitoringIncident {
+  id                    String                           @id @default(uuid())
+  siteId                String
+  type                  MonitoringIncidentType
+  status                MonitoringIncidentStatus         @default(open)
+  targetKey             String
+  fixtureId             String?
+  gatewayId             String?
+  activeKey             String?                          @unique
+  openedAt              DateTime                         @default(now())
+  lastObservedAt        DateTime                         @default(now())
+  acknowledgedAt        DateTime?
+  acknowledgedByUserId  String?
+  assignedToUserId      String?
+  resolvedAt            DateTime?
+  resolvedByUserId      String?
+  resolutionKind        MonitoringIncidentResolutionKind?
+  resolutionNote        String?
+  site                  Site                             @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  fixture               Fixture?                         @relation(fields: [fixtureId, siteId], references: [id, siteId], onDelete: Cascade)
+  gateway               Gateway?                         @relation(fields: [gatewayId, siteId], references: [id, siteId], onDelete: Cascade)
+  acknowledgedBy        User?                            @relation("IncidentAcknowledgedBy", fields: [acknowledgedByUserId], references: [id], onDelete: SetNull)
+  assignedTo            User?                            @relation("IncidentAssignedTo", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  resolvedBy            User?                            @relation("IncidentResolvedBy", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
+  createdAt             DateTime                         @default(now())
+  updatedAt             DateTime                         @updatedAt
+
+  // SQL additionally enforces exact target/type/key and lifecycle invariants,
+  // and indexes active-first newest pagination using (resolvedAt IS NULL).
+  @@index([siteId, status, openedAt, id])
+  @@index([siteId, type, openedAt, id])
+  @@index([fixtureId, siteId])
+  @@index([gatewayId, siteId])
+}
+
 model FloorAsset {
   id        String           @id @default(uuid())
   floorId   String
@@ -406,6 +465,7 @@ model Fixture {
   energyUsages               EnergyUsage[]
   energyDailyAggregates      FixtureEnergyDailyAggregate[]
   energyIdentity             EnergyFixtureIdentity?
+  monitoringIncidents        MonitoringIncident[]
   energyStateCursor          FixtureEnergyStateCursor?
   processedStateEvents       ProcessedGatewayEvent[]
   commandResults             CommandFixtureResult[]
@@ -418,6 +478,7 @@ model Fixture {
   updatedAt                  DateTime                           @updatedAt
 
   @@unique([id, siteId, gatewayId])
+  @@unique([id, siteId])
   @@unique([meshNodeId, gatewayId])
   @@index([floorId, status])
   @@index([floorId, id])
@@ -508,6 +569,7 @@ model Gateway {
   manualOverrides         ManualOverride[]
   automationExecutions    AutomationExecution[]
   automationOutboxEntries MqttOutbox[]                    @relation("AutomationConfigOutboxGateway")
+  monitoringIncidents     MonitoringIncident[]
   createdAt               DateTime                        @default(now())
   updatedAt               DateTime                        @updatedAt
 

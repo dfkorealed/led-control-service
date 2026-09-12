@@ -1,6 +1,6 @@
 # 모니터링 메뉴 기능 현황
 
-기준일: 2026-09-11
+기준일: 2026-09-12
 
 ## 확정 구현 범위
 
@@ -15,11 +15,14 @@
 
 - WebSocket/SSE push
 - RSSI, hop count, 명령 성공률 기반 통신 품질 고도화
-- 장애 이력, 등급, 원인, 담당자와 조치 workflow
+- 장애 escalation/SLA 등급, 외부 ticket/notification 연결. 장애 이력·담당자·조치 workflow는 P1 구현 범위로 전환한다.
 - 통신 음영 heatmap, 차량 감지, 이벤트 타임라인, gateway coverage와 빠른 제어
 - 자동 HIL 판정. 실제 하드웨어 검증은 수동으로 수행한다.
 
 ## 구현 완료
+
+- P1 Task 1 서버 계약: `GET/PATCH /sites/:siteId/monitoring-policy`는 read/manage capability와 `expectedUpdatedAt`을 적용해 gateway 만료 `30~900`초(기본 90), fixture stale `60~3600`초(기본 180)를 저장한다. 변경 충돌은 `409 MONITORING_POLICY_CONFLICT`다. 기존 장비 제어·등록의 90초 안전성 기준은 별도로 유지한다.
+- `MonitoringIncident`는 네 유형(`gateway_offline`, `fixture_stale`, `fixture_fault`, `command_failed`)의 발생·확인·담당·해결을 저장한다. 목록 API는 활성 우선 최신순, 현장·필터에 바인딩된 cursor와 최대 100건 limit, 대상·사용자 요약을 제공한다. 관리자는 open 확인, active 담당 지정/해제, 복구 확인 뒤 메모와 수동 해결을 수행한다. 장애 지속은 `409 INCIDENT_STILL_ACTIVE`, 이전 revision은 `409 INCIDENT_CONFLICT`이며 모든 성공 변경은 같은 transaction의 감사 로그로 남긴다. 현재 Task 1은 API와 DB 기반만 제공하며 자동 수집·자동 해결·Web UI 연결은 후속 작업이다.
 
 - 공통 고객 셸 상단은 현재 메뉴 제목과 실제 현장명 배지만 표시한다. 기존 층명 기반 `B2 주차장` 표기와 동작 없는 Gateway 정상·오프라인·미등록 상태 배지는 제거하되 설정의 `Gateway 상태` 상세 카드는 유지한다. 로그아웃 위치와 인증·dirty editor 확인 로직은 유지하고, 고객·운영자 셸의 로그아웃은 공통 `IconTooltipButton`으로 아이콘만 표시한다. `로그아웃` 도움말은 hover와 키보드 focus에서 열리고 도움말 위로 포인터를 옮겨도 유지되며 `Escape`로 닫힌다. 모바일 버튼은 52px 실제 터치 영역을 사용한다.
 - 현장 일반 유저의 `read`와 `control` capability는 모두 모니터링 메뉴와 해당 현장 dashboard 조회를 허용한다. 신규 일반 유저는 임시 비밀번호로 최초 로그인한 뒤 전용 강제 변경 화면을 완료해야 모니터링으로 진입한다. mock Chromium은 read/control/admin의 주 메뉴 exact 범위와 강제 변경 전 보호 API `403`을 검증한다. 격리 PostgreSQL/API Chromium은 실제 `403 PASSWORD_CHANGE_REQUIRED`, 변경 후 read 메뉴, `/settings/users` 직접 접근 차단, 비활성 세션의 다음 보호 요청 `401`과 재로그인 거절을 검증했다. Gateway나 ESP32-H2를 사용한 검증은 아니다.
@@ -129,10 +132,12 @@
 
 ## 미구현
 
+- P1 현장별 threshold의 dashboard/fixture/sweep 적용, incident 주기적 reconcile 및 Web incident/policy UI는 아직 연결하지 않았다. 첫 sweep 전 과거 장애 backfill은 하지 않는다.
+
 - WebSocket/SSE 기반 push 실시간 업데이트
 - 층별/구역별 통신 음영 heatmap
-- 장애 이력, 장애 등급, 장애 원인 표시
-- 알림 확인, 담당자 배정, 조치 완료 workflow
+- 장애 이력·원인의 Web 표시와 장애 등급
+- 인시던트 확인·담당자 배정·조치 완료의 Web workflow(API는 Task 1 구현)
 - 차량 감지 이벤트 표시
 - 이벤트 타임라인
 - 게이트웨이별 커버리지 표시
@@ -149,9 +154,9 @@
 - pending redirect와 admin commissioning은 React/Vitest 회귀와 Task 9 격리 실백엔드 Chromium E2E로 검증했다. Calm Operations 모바일 390px/320px의 화면 계층·overflow·touch target은 route fixture로 검증했지만, 실제 WebView safe-area와 재설치는 별도이며 Raspberry Pi/ESP32-H2 HIL은 아직 실행하지 않았다.
 - 모니터링 화면은 10분 snapshot 정책이므로 publication 반영 직후 확인이 필요하면 사용자가 수동 새로고침해야 한다.
 - durable state outbox의 파일 권한·용량 차단과 application ACK 재전송은 자동 테스트로 검증했지만, 실제 broker/API 재시작과 Raspberry Pi 전원 차단을 포함한 HIL은 아직 실행하지 않았다.
-- Health 정보는 최신 Current snapshot만 보존하며 fault 이력, 발생 횟수와 해제 이력은 명시적 보류 범위다.
+- Health 수신 경로는 최신 Current snapshot을 보존한다. P1 incident 이력 테이블은 마련했지만 fault 발생·해제의 자동 기록은 후속 reconciler에서 연결한다.
 - 조명 provisioning 진행 상태는 session polling으로 반영하고, 사용자가 등록 세션을 완료할 때 dashboard query를 갱신한다. WebSocket/SSE push는 명시적으로 보류한다.
-- gateway offline 기준은 현재 90초, fixture stale 기준은 180초(60초 publication 3회 window) 고정값이다. 대규모 현장 검증 후 site/gateway별 정책 설정으로 분리해야 한다.
+- 기존 sweep의 gateway offline 90초, fixture stale 180초 고정 판정은 아직 유지된다. P1 Task 1에서 저장한 Site 정책을 실제 sweep/dashboard/fixture 판정에 적용하는 작업은 Task 2에서 수행한다.
 - 5분 future gate, durable terminal rejection, 서버 수신 시각 freshness, 에너지 발생 시각 순서는 Shared/API/Gateway의 mock·software 자동 회귀와 disposable PostgreSQL migration DB에서 검증하는 범위다. 실제 broker, Raspberry Pi, BlueZ Mesh, ESP32-H2/LED를 연결한 HIL이나 사용자 DB migration은 이 작업에서 수행하지 않았다.
 - legacy null hash는 원본 payload와 같다는 증거가 없으므로 첫 인증 replay가 hash를 확정한다는 한계가 있다. 이후에는 exact hash만 허용하며, 새 future rejection에는 처음부터 hash가 있다. migration과 replay 보완은 과거 `Fixture.lastSeenAt`/`Gateway.lastHeartbeatAt` 및 energy 값을 재작성하지 않는다. 새 정상 event 수락 시 freshness가 서버 수신 시각으로 바뀌며, 과거 energy 오염의 소급 정정은 별도 범위다.
 - `lastSeenAt` 상대 시간은 클라이언트 현재 시간 기준이므로 서버 기준 freshness와 완전히 일치하지 않을 수 있다.
@@ -164,6 +169,9 @@
 - scan lifecycle 자동 테스트는 mock MQTT와 scanner adapter를 사용한다. 실제 host Mosquitto mTLS negative ACL integration에서 Gateway CN certificate의 `acks/state-ingested`, `acks/provisioning/scan-terminal-ingested` publish 거부를 확인했다. Docker 전용 broker persistence 재시작 test는 현재 로컬 Docker daemon 부재로 skip됐다. 실제 Raspberry Pi BlueZ adapter의 scan timeout, broker/Pi/API 재시작을 가로지르는 terminal application ACK 재전달, ESP32-H2 자사 UUID 필터와 terminal event 전달은 HIL에서 별도로 확인해야 한다.
 
 ## 관련 파일
+
+- `apps/api/src/monitoring-incidents`
+- `apps/api/prisma/migrations/20260912100000_monitoring_policy_incidents/migration.sql`
 
 - `apps/web/e2e/site-user-management.spec.ts`
 - `apps/web/e2e/site-user-management-real.spec.ts`
