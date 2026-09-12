@@ -401,19 +401,20 @@ worker는 API 시작 시와 30초 주기로 만료된 작업을 최대 10개씩 
 
 ### SiteMembership
 
-`operator`와 `viewer`의 현장 접근 범위와 일반 사용자의 현장 권한을 명시적으로 보관한다. `(userId, siteId)`는 unique이며 두 부모가 삭제되면 함께 삭제한다.
+`viewer`의 현장 접근 범위와 일반 사용자의 현장 권한을 명시적으로 보관한다. `userId` 단독 unique로 일반 사용자 한 명이 정확히 한 현장에만 속하게 하며, 기존 `(userId, siteId)` unique도 Prisma 복합 조회 계약을 위해 유지한다. 두 부모가 삭제되면 함께 삭제한다.
 
 | 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
 | --- | --- | --- | --- | --- |
 | `id` | `String` | 예 | PK, `uuid()` | membership ID |
-| `userId` | `String` | 예 | FK -> `User.id`, cascade delete | 사용자 ID |
+| `userId` | `String` | 예 | Unique, FK -> `User.id`, cascade delete | 사용자 ID. 사용자당 membership 최대 1개 |
 | `siteId` | `String` | 예 | FK -> `Site.id`, cascade delete, indexed | 현장 ID |
 | `accessLevel` | `SiteAccessLevel` | 예 | `read` | 현장별 조회 또는 수동 제어 권한. 기존 membership은 migration에서 `read`로 backfill |
 | `createdAt` | `DateTime` | 예 | `now()` | 배정 시각 |
 
 운영 메모:
 
-- signup은 invitation 소비와 `SiteMembership` 생성을 같은 transaction으로 처리한다. scoped `operator`/`viewer` invitation은 유효한 `siteId`가 필요하고, `admin` invitation은 조직 전체 접근 의미를 유지하므로 membership을 만들지 않는다.
+- `20260912110000_single_site_membership` migration은 기존 다중 현장 사용자가 있으면 `SITE_MEMBERSHIP_MULTI_SITE_USER`로 중단한다. 임의로 소속을 삭제하지 않으며 운영자가 데이터를 정리한 뒤 다시 적용해야 한다.
+- signup은 invitation 소비와 `SiteMembership` 생성을 같은 transaction으로 처리한다. scoped `viewer` invitation은 유효한 `siteId`가 필요하고, `admin`은 Site의 `adminUserId` 관계를 사용하므로 membership을 만들지 않는다.
 - `viewer` membership은 반드시 사용자의 customer Organization에 속한 site만 가리켜야 한다. SiteAccess는 권한 판정과 접근 가능한 현장 목록 계산 양쪽에서 이 invariant를 강제한다.
 
 ### FloorMapRevision

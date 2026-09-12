@@ -119,7 +119,7 @@ function SiteAdminRow({ site, onOpen }: { site: SiteAdminSummary; onOpen: (dialo
           <div className="operator-row-actions">
             <Button type="button" aria-label={`${admin.name} 수정`} onClick={(event) => onOpen({ type: "edit", admin }, event.currentTarget)}><Pencil size={15} aria-hidden="true" /> 수정</Button>
             <Button type="button" aria-label={`${admin.name} 비밀번호 재설정`} onClick={(event) => onOpen({ type: "reset", admin }, event.currentTarget)}><KeyRound size={15} aria-hidden="true" /> 비밀번호 재설정</Button>
-            <Button variant="danger" type="button" aria-label={`${admin.name} 삭제`} onClick={(event) => onOpen({ type: "delete", site }, event.currentTarget)}><Trash2 size={15} aria-hidden="true" /> 삭제</Button>
+            <Button variant="danger" type="button" aria-label={`${site.siteName} 현장 전체 삭제`} onClick={(event) => onOpen({ type: "delete", site }, event.currentTarget)}><Trash2 size={15} aria-hidden="true" /> 현장 전체 삭제</Button>
           </div>
         ) : <Button type="button" onClick={(event) => onOpen({ type: "assign", site }, event.currentTarget)} aria-label={`${site.siteName} 관리자 지정`}><UserPlus size={15} aria-hidden="true" /> 관리자 지정</Button>}
       </td>

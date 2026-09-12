@@ -146,11 +146,11 @@
 **Interfaces:**
 - Produces: unique `SiteMembership.userId`, `현장 전체 삭제` command copy
 
-- [ ] 다중 membership seed가 migration을 중단하는 failing test를 작성한다.
-- [ ] unique index와 명시적 preflight error migration을 구현한다.
-- [ ] 운영자 삭제 trigger/dialog 문구를 실제 전체 현장 삭제로 변경한다.
-- [ ] migration rehearsal과 Web unit을 통과시킨다.
-- [ ] `fix(settings): align deletion and membership semantics`로 커밋한다.
+- [x] 다중 membership seed가 migration을 중단하는 failing test를 작성한다.
+- [x] unique index와 명시적 preflight error migration을 구현한다.
+- [x] 운영자 삭제 trigger/dialog 문구를 실제 전체 현장 삭제로 변경한다.
+- [x] migration rehearsal과 Web unit을 통과시킨다.
+- [x] `fix(settings): align deletion and membership semantics`로 커밋한다.
 
 ### Task 7: 문서와 최종 검증
 

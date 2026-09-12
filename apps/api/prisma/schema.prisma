@@ -287,7 +287,7 @@ model Floor {
 
 model SiteMembership {
   id          String          @id @default(uuid())
-  userId      String
+  userId      String          @unique
   siteId      String
   accessLevel SiteAccessLevel @default(read)
   user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)

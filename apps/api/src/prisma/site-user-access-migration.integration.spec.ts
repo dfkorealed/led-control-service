@@ -3,8 +3,10 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const migrationPath = join(__dirname, "../../prisma/migrations/20260910010000_site_user_access/migration.sql");
+const singleSiteMigrationPath = join(__dirname, "../../prisma/migrations/20260912110000_single_site_membership/migration.sql");
 const schemaPath = join(__dirname, "../../prisma/schema.prisma");
 const migration = existsSync(migrationPath) ? readFileSync(migrationPath, "utf8") : "";
+const singleSiteMigration = existsSync(singleSiteMigrationPath) ? readFileSync(singleSiteMigrationPath, "utf8") : "";
 const schema = readFileSync(schemaPath, "utf8");
 const databaseSchemaDocument = readFileSync(join(__dirname, "../../../../docs/database-schema.md"), "utf8");
 const testSource = readFileSync(__filename, "utf8");
@@ -50,6 +52,12 @@ describe("site user access migration static contract", () => {
     expect(migration).toContain('ON DELETE SET NULL');
     expect(migration).toContain('ON DELETE CASCADE');
   });
+
+  it("fails closed on existing multi-site users before adding the single-site invariant", () => {
+    expect(schema).toMatch(/userId\s+String\s+@unique/);
+    expect(singleSiteMigration).toContain("SITE_MEMBERSHIP_MULTI_SITE_USER");
+    expect(singleSiteMigration).toContain('CREATE UNIQUE INDEX "SiteMembership_userId_key"');
+  });
 });
 
 describeWithPostgres("site user access migration PostgreSQL rehearsal", () => {
@@ -75,6 +83,29 @@ describeWithPostgres("site user access migration PostgreSQL rehearsal", () => {
     expect(query(schemaName, `SELECT COALESCE("requestedBy", 'NULL') FROM "Command" WHERE "id" = 'command-1';`)).toBe("NULL");
     expect(query(schemaName, `SELECT COALESCE("requestedById", 'NULL') FROM "ManualOverride" WHERE "id" = 'override-1';`)).toBe("NULL");
     expect(query(schemaName, `SELECT "commandId" FROM "ManualOverride" WHERE "id" = 'override-1';`)).toBe("command-1");
+  });
+
+  it("rejects duplicate existing memberships and then enforces one site per user", () => {
+    const schemaName = createSchema("single_site");
+    execute(schemaName, `
+      CREATE TABLE "SiteMembership" (
+        "id" TEXT PRIMARY KEY,
+        "userId" TEXT NOT NULL,
+        "siteId" TEXT NOT NULL
+      );
+      CREATE UNIQUE INDEX "SiteMembership_userId_siteId_key" ON "SiteMembership"("userId", "siteId");
+      INSERT INTO "SiteMembership" ("id", "userId", "siteId") VALUES
+        ('membership-1', 'user-1', 'site-1'),
+        ('membership-2', 'user-1', 'site-2');
+    `);
+
+    expect(run(schemaName, singleSiteMigration).status).not.toBe(0);
+    execute(schemaName, `DELETE FROM "SiteMembership" WHERE "id" = 'membership-2';`);
+    expect(run(schemaName, singleSiteMigration).status).toBe(0);
+    expect(run(schemaName, `
+      INSERT INTO "SiteMembership" ("id", "userId", "siteId")
+      VALUES ('membership-3', 'user-1', 'site-3');
+    `).status).not.toBe(0);
   });
 
   function createSchema(suffix: string) {
