@@ -341,6 +341,21 @@ test("OCI ancestor replacement cannot revive a removed inventory or resolve it t
   });
 });
 
+test("private-material filenames distinguish public tooling from actual extensionless key artifacts", async (t) => {
+  const pair = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+  const h = await created(t, { oci: true, layerFiles: {
+    "usr/bin/apt-key": "#!/bin/sh\n# public repository key management\n",
+    "usr/share/man/man8/apt-key.8": "apt-key manual\n",
+    "usr/share/example/key.js": "export const key = 'public identifier';\n",
+    "etc/ssl/certs/public-key.pem": pair.publicKey.export({ type: "spki", format: "pem" }),
+  } }); succeeds(run(h.verifyArgs));
+  for (const format of ["der", "pem"]) {
+    const malicious = await fixture(t, { oci: true, layerFiles: { "secrets/device-key": pair.privateKey.export({ type: "pkcs8", format }) } });
+    fails(run(malicious.createArgs), /private key material/);
+    await replaceBundleImage(h, malicious); fails(run(h.verifyArgs), /private key material/);
+  }
+});
+
 test("private-material v2 permits library binaries and marker-only docs, not inferred key offsets", async (t) => {
   const key = generateKeyPairSync("ec", { namedCurve: "prime256v1" }).privateKey;
   const der = key.export({ type: "pkcs8", format: "der" }), pem = key.export({ type: "pkcs8", format: "pem" });
@@ -435,6 +450,7 @@ test("manifest states the bounded private-material scan profile and refuses a we
   assert.deepEqual(manifest.privateMaterialScan, {
     profile: "led-control-private-material/v2",
     scope: "bundle-regular-files-and-each-image-layer-regular-file-including-deleted",
+    filenames: "site-env-known-private-basenames-directories-and-key-container-extensions",
     pem: "complete-node-crypto-private-key-blocks-in-utf8-text",
     der: "standalone-node-crypto-pkcs1-pkcs8-sec1-with-ascii-whitespace",
     base64: "entire-file-one-standard-base64-layer-with-ascii-whitespace",
@@ -634,7 +650,7 @@ test("archive layers cannot hide secret filenames or PEM data and inventory cann
 test("OS public CA PEM files remain valid while private-key PEM filenames are refused", async (t) => {
   const certificate = await created(t, { layerFiles: { "etc/ssl/certs/public-ca.pem": "-----BEGIN CERTIFICATE-----\nsynthetic-public-certificate" } });
   succeeds(run(certificate.verifyArgs));
-  const privateKey = await fixture(t, { layerFiles: { "opt/gateway-key.pem": "synthetic-not-a-key" } });
+  const privateKey = await fixture(t, { layerFiles: { "opt/private-key.pem": "synthetic-not-a-key" } });
   fails(run(privateKey.createArgs), /secret filename/);
 });
 

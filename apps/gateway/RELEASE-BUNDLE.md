@@ -29,7 +29,7 @@ Manifest의 `privateMaterialScan`에는 고정 profile `led-control-private-mate
 
 | 검사 | 보장 범위 |
 | --- | --- |
-| 파일 이름/형식 | Site `.env.appliance`, 개인키 이름/확장자, bundle symlink/hardlink/special file와 예상 밖 경로를 거부한다. 공개 CA `.pem`과 image 내부 정상 OS symlink 자체는 개인키로 보지 않는다. |
+| 파일 이름/형식 | `.env`/`.env.*`, `id_rsa`/`id_dsa`/`id_ecdsa`/`id_ed25519`, `private-key`/`private_key` 계열 basename·directory, `.key`/`.p12`/`.pfx`/`.pkcs12`/`.pkcs8`를 거부한다. 일반 `*-key`나 `.pem`을 모두 거부하지 않는다. `apt-key` 같은 public tool·`key.js`·public SPKI/CA PEM은 허용하고, `secrets/device-key`처럼 확장자가 없어도 실제 key 내용이면 아래 검사로 거부한다. Bundle symlink/hardlink/special file와 예상 밖 경로는 거부하며 image 내부 정상 OS symlink는 개인키로 보지 않는다. |
 | PEM | UTF-8 text 안의 complete `BEGIN … PRIVATE KEY`→동일한 `END` block을 [Node `createPrivateKey`](https://nodejs.org/docs/latest-v22.x/api/crypto.html#cryptocreateprivatekeykey)가 실제 private key로 parse할 때 거부한다. Header 문자열이나 파싱 불가능한 설명 예시는 key로 판정하지 않는다. |
 | DER | 파일 전체가 PKCS#1/PKCS#8/SEC1 private key이고 Node crypto parse가 성공할 때 거부한다. 앞뒤 ASCII whitespace는 허용해 검사한다. Binary의 임의 offset을 sliding scan하지 않는다. |
 | Base64 | **파일 전체**가 표준 base64 한 겹으로 감싼 standalone PEM/DER key일 때 같은 검사를 한다. ASCII whitespace 전체(Space/HT/LF/VT/FF/CR), 짧은 마지막 줄, chunk 경계를 정규화한다. JSON/text 안 일부 base64 token은 이 계약에 포함하지 않는다. |

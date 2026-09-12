@@ -23,6 +23,7 @@ const maxImageBytes = 2 * 1024 * 1024 * 1024;
 const privateMaterialScan = {
   profile: "led-control-private-material/v2",
   scope: "bundle-regular-files-and-each-image-layer-regular-file-including-deleted",
+  filenames: "site-env-known-private-basenames-directories-and-key-container-extensions",
   pem: "complete-node-crypto-private-key-blocks-in-utf8-text",
   der: "standalone-node-crypto-pkcs1-pkcs8-sec1-with-ascii-whitespace",
   base64: "entire-file-one-standard-base64-layer-with-ascii-whitespace",
@@ -54,7 +55,10 @@ function rejectSecretName(value) {
   const filename = value.split("/").at(-1);
   requireValue(!/^(?:\.env(?:\..*)?|id_(?:rsa|dsa|ecdsa|ed25519)(?:\..*)?)$/i.test(filename)
     && !/\.(?:key|p12|pfx|pkcs12|pkcs8)$/i.test(filename)
-    && !/(?:^|[-_.])(?:private[-_.]?)?key(?:$|[-_.])/i.test(filename), `secret filename is forbidden: ${value}`);
+    // "key" also names public tools/modules (apt-key, key.js). Only known
+    // private basenames/directories are name-denied; extensionless key files
+    // and public-vs-private PEM are decided by the file-content profile.
+    && !value.split("/").some(part => /(?:^|[-_.])private[-_.]?keys?(?:$|[-_.])/i.test(part)), `secret filename is forbidden: ${value}`);
 }
 
 function parseJson(text) {
