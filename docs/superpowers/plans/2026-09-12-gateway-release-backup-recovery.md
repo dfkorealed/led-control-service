@@ -104,7 +104,7 @@ test("unhealthy activation restores env, pointer and previous container", async 
 - Consumes: `GATEWAY_DATA_DIR/{gateway,mesh,identity,factory-trust}`, current release ID, OpenSSL CMS recipient certificate/private key.
 - Produces: encrypted backup plus outer manifest, `verify`, rollback-safe `restore`, non-mutating `drill`.
 
-- [ ] **Step 1: Write failing real OpenSSL/tar behavior tests**
+- [x] **Step 1: Write failing real OpenSSL/tar behavior tests**
 
 ```js
 test("backup leaves only ciphertext and restores generations, modes and outbox pairs in drill", async () => {
@@ -119,10 +119,10 @@ test("restore rejects traversal, external symlink, tampering and rolls back a pa
 });
 ```
 
-- [ ] **Step 2: Run RED** — `node --test scripts/gateway-appliance-state.test.mjs`; missing state CLI가 live mutation 전에 실패해야 한다.
-- [ ] **Step 3: Implement backup/restore** — 상세 manifest를 암호문 내부에 생성하고 모든 archive entry와 extracted type/mode/hash/symlink를 검증한다. Live restore는 네 directory를 모두 rollback 가능하게 교체하고 실패 시 전부 복원한다.
-- [ ] **Step 4: Run GREEN** — state tests와 Gateway contract suite를 통과한다.
-- [ ] **Step 5: Commit** — `git commit -m "feat(gateway): encrypt and restore appliance state"`.
+- [x] **Step 2: Run RED** — `node --test scripts/gateway-appliance-state.test.mjs`; missing state CLI가 live mutation 전에 실패해야 한다.
+- [x] **Step 3: Implement backup/restore** — 상세 manifest를 암호문 내부에 생성하고 모든 archive entry와 extracted type/mode/hash/symlink를 검증한다. Live restore는 네 directory를 모두 rollback 가능하게 교체하고 실패 시 전부 복원한다.
+- [x] **Step 4: Run GREEN** — state tests와 Gateway contract suite를 통과한다.
+- [x] **Step 5: Commit** — `git commit -m "feat(gateway): encrypt and restore appliance state"`.
 
 ### Task 4: Protected CI integration, runbook and final software evidence
 
