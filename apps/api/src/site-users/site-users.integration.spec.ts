@@ -439,7 +439,7 @@ describeDatabase("Site Users PostgreSQL concurrency and deletion", () => {
       const member = await created.json() as SiteUserJson;
       const stored = await prisma.user.findUniqueOrThrow({ where: { id: member.id } });
       expectNoPasswordSecrets(member, [body.temporaryPassword, stored.passwordHash!]);
-      const memberCookie = await cookie(member.id);
+      let memberCookie = await cookie(member.id);
       const endpoints = [["GET", ""], ["POST", ""], ["PATCH", `/${member.id}`], ["POST", `/${member.id}/reset-password`], ["DELETE", `/${member.id}`]];
       for (const [method, suffix] of endpoints) {
         expect((await request(method, path + suffix)).status).toBe(401);
@@ -457,6 +457,7 @@ describeDatabase("Site Users PostgreSQL concurrency and deletion", () => {
       const changedBody = await changed.json();
       expect(changedBody).toMatchObject({ ok: true, user: { id: member.id, mustChangePassword: false } });
       expectNoPasswordSecrets(changedBody, [body.temporaryPassword, "Personal-password-123", stored.passwordHash!]);
+      memberCookie = changed.headers.get("set-cookie")!.split(";", 1)[0];
       // Updating the password also updates User.updatedAt; use the current version
       // for the later optimistic-lock edit rather than the creation response.
       member.updatedAt = (await prisma.user.findUniqueOrThrow({ where: { id: member.id } })).updatedAt.toISOString();

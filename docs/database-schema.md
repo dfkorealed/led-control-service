@@ -1311,6 +1311,7 @@ operator/admin의 활성 TOTP 설정이다. 사용자와 1:1이며 viewer는 애
 - `user`: `User`
 
 `20260916090000_account_security` migration은 `UserMfa`, `Session.mfaVerifiedAt`, 사용자별 활성 세션 조회 index를 추가한다. 이번 작업에서는 사용자 DB에 적용하지 않고 새 일회용 PostgreSQL에서만 전체 migration을 검증한다.
+일회용 PostgreSQL 16에서 기존 57개와 이 migration을 합친 전체 58개 `prisma migrate deploy`를 순서대로 적용해 검증했다. 이는 사용자 DB 적용 또는 운영 배포 증거가 아니다.
 
 ### ProvisioningSession
 
