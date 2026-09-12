@@ -13,17 +13,17 @@ import {
   type AuthUser,
   type MfaEnrollment
 } from "../../../api/auth";
-import { authMeQueryKey, clearTenantCache, hasPrincipal, principalKey } from "../../../api/principal-cache";
+import { authSessionsQueryKey, clearPrincipalCache, hasPrincipal, principalKey } from "../../../api/principal-cache";
 import { Button, Card, FeedbackState, PageHeader } from "../../../components/ui";
 import { PasswordChangeCard } from "./PasswordSettingsView";
 
 type MfaQueryKey = readonly ["auth", "mfa", string];
-type SessionsQueryKey = readonly ["auth", "sessions", string];
+type SessionsQueryKey = ReturnType<typeof authSessionsQueryKey>;
 
 export function AccountSecurityView({ user }: { user: AuthUser }) {
   const principal = principalKey(user);
   const mfaQueryKey: MfaQueryKey = ["auth", "mfa", principal];
-  const sessionsQueryKey: SessionsQueryKey = ["auth", "sessions", principal];
+  const sessionsQueryKey = authSessionsQueryKey(principal);
 
   return (
     <section className="settings-screen account-security-screen">
@@ -245,8 +245,10 @@ function SessionsCard({ principal, sessionsQueryKey }: { principal: string; sess
       await revokeAuthSession(session.id);
       if (!isCurrentPrincipal()) return;
       if (session.current) {
-        clearTenantCache(queryClient);
-        queryClient.setQueryData(authMeQueryKey, null);
+        await clearPrincipalCache(queryClient, {
+          expectedPrincipalKey: principal,
+          isOperationCurrent: () => mounted.current
+        });
         return;
       }
       queryClient.setQueryData<{ sessions: AuthSession[] }>(sessionsQueryKey, (current) => ({

@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  changePassword,
   confirmMfaEnrollment,
   disableMfa,
   getMfaStatus,
@@ -77,6 +78,26 @@ describe("AccountSecurityView", () => {
     expect(within(list).getByText("Chrome on macOS")).toBeInTheDocument();
     expect(getMfaStatus).toHaveBeenCalledOnce();
     expect(listAuthSessions).toHaveBeenCalledOnce();
+  });
+
+  it("비밀번호 변경으로 세션이 회전되면 활성 세션 목록을 서버에서 다시 조회한다", async () => {
+    vi.mocked(changePassword).mockResolvedValue({ ok: true, user: admin });
+    vi.mocked(listAuthSessions)
+      .mockResolvedValueOnce({ sessions })
+      .mockResolvedValueOnce({
+        sessions: [{ ...sessions[0], id: "session-rotated", createdAt: "2026-09-12T11:00:00.000Z" }]
+      });
+    renderView();
+    expect(await screen.findByText("Chrome on macOS")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("현재 비밀번호"), { target: { value: "current-password" } });
+    fireEvent.change(screen.getByLabelText("새 비밀번호"), { target: { value: "new-password" } });
+    fireEvent.change(screen.getByLabelText("새 비밀번호 확인"), { target: { value: "new-password" } });
+    fireEvent.click(screen.getByRole("button", { name: "비밀번호 변경" }));
+
+    await waitFor(() => expect(listAuthSessions).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText("비밀번호를 변경했습니다.")).toBeInTheDocument();
+    expect(screen.queryByText("알 수 없는 브라우저")).not.toBeInTheDocument();
   });
 
   it("MFA 등록 비밀키는 로컬에 한 번 보여주고 확인 뒤 복구 코드를 한 번만 표시한다", async () => {
@@ -216,6 +237,28 @@ describe("AccountSecurityView", () => {
     finishRevocation?.();
 
     await waitFor(() => expect(client.getQueryData(authMeQueryKey)).toEqual({ user: otherAdmin }));
+    expect(confirm).toHaveBeenCalledOnce();
+  });
+
+  it("현재 세션 종료 전에 시작한 auth/me 지연 응답이 로그아웃 상태를 되돌리지 못한다", async () => {
+    let resolveAuthMe: ((value: { user: AuthUser }) => void) | undefined;
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const client = renderView();
+    await screen.findByRole("list", { name: "활성 세션" });
+    const pendingAuthMe = client.fetchQuery({
+      queryKey: authMeQueryKey,
+      queryFn: () => new Promise<{ user: AuthUser }>((resolve) => {
+        resolveAuthMe = resolve;
+      })
+    }).catch(() => undefined);
+    await waitFor(() => expect(resolveAuthMe).toBeTypeOf("function"));
+
+    fireEvent.click(screen.getByRole("button", { name: "현재 세션 종료" }));
+    await waitFor(() => expect(client.getQueryData(authMeQueryKey)).toBeNull());
+    resolveAuthMe?.({ user: admin });
+    await pendingAuthMe;
+
+    expect(client.getQueryData(authMeQueryKey)).toBeNull();
     expect(confirm).toHaveBeenCalledOnce();
   });
 });
