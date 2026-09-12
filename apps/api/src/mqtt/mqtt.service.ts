@@ -44,6 +44,7 @@ import { reconcileLegacyGatewayEventReplay } from "./legacy-gateway-event-replay
 import { FixtureStateIngestionService } from "../energy/fixture-state-ingestion.service";
 import { EnergyDimensionHistoryService } from "../energy/energy-dimension-history.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { compareAndAdvanceGatewayEvent } from "../retention/gateway-event-watermark";
 import { parseGatewayTopic } from "./topic-scope";
 import { gatewayEventIsTooFarInFuture, gatewayEventMaxFutureSkewMs } from "./gateway-event-time";
 
@@ -735,7 +736,7 @@ export class MqttService implements OnModuleInit {
         ingestedAt: new Date().toISOString()
       });
       const applyTerminal = async (tx: Prisma.TransactionClient) => {
-        const committed = await this.applyProvisioningScanTerminal(tx, event, topicScope, eventType);
+        const committed = await this.applyProvisioningScanTerminal(tx, event, topicScope, eventType, acknowledgement);
         if (!committed) return false;
         await this.persistProvisioningScanTerminalAcknowledgement(tx, event.siteId, event.gatewayId, acknowledgement);
         return true;
@@ -867,12 +868,20 @@ export class MqttService implements OnModuleInit {
       select: { eventId: true }
     });
     if (previous) return null;
+    const payloadHash = canonicalPayloadHash(event);
+    const ordering = await compareAndAdvanceGatewayEvent(tx, {
+      gatewayId: event.gatewayId, eventType, scopeKey: "", sequence: BigInt(event.sequence),
+      eventId: event.eventId, payloadHash, occurredAt: new Date(event.occurredAt)
+    });
+    if (ordering !== "advanced") return null;
     await tx.processedGatewayEvent.create({
       data: {
         eventId: event.eventId,
         gatewayId: event.gatewayId,
         sequence: BigInt(event.sequence),
         eventType,
+        scopeKey: event.sessionId,
+        payloadHash,
         occurredAt: new Date(event.occurredAt)
       }
     });
@@ -883,7 +892,8 @@ export class MqttService implements OnModuleInit {
     tx: Prisma.TransactionClient,
     event: ReturnType<typeof provisioningScanCompletedSchema.parse> | ReturnType<typeof provisioningScanFailedSchema.parse>,
     topicScope: { siteId: string; gatewayId: string },
-    eventType: "provisioning_scan_completed" | "provisioning_scan_failed"
+    eventType: "provisioning_scan_completed" | "provisioning_scan_failed",
+    acknowledgement: ReturnType<typeof applicationProvisioningScanTerminalIngestedAckV2Schema.parse>
   ) {
     await tx.$queryRaw`SELECT "id" FROM "ProvisioningSession" WHERE "id" = ${event.sessionId} FOR UPDATE`;
     const session = await tx.provisioningSession.findUnique({ where: { id: event.sessionId } });
@@ -897,12 +907,22 @@ export class MqttService implements OnModuleInit {
     ) return false;
 
     const expectedStatus = "acceptedNodeCount" in event ? "completed" : "failed";
+    const payloadHash = canonicalPayloadHash(event);
     if (session.scanStatus === expectedStatus) {
       const matchesTerminalSnapshot = session.scanCompletedAt?.getTime() === new Date(event.occurredAt).getTime() &&
         ("acceptedNodeCount" in event
           ? session.scanFailureCode === null && session.scanFailureMessage === null
           : session.scanFailureCode === event.code && session.scanFailureMessage === event.message);
       if (!matchesTerminalSnapshot) return false;
+      if (session.scanTerminalEventId !== null && session.scanTerminalEventId !== undefined) {
+        if (session.scanTerminalEventId !== event.eventId || session.scanTerminalSequence !== BigInt(event.sequence) ||
+          session.scanTerminalEventType !== eventType || session.scanTerminalPayloadHash !== payloadHash ||
+          !session.scanTerminalIngestedAt) return false;
+        acknowledgement.ingestedAt = session.scanTerminalIngestedAt.toISOString();
+        return true;
+      }
+      // Legacy terminals have no recoverable complete payload identity. Keep
+      // their old replay contract dependent on retained raw rows and ACK outbox.
       const processed = await tx.processedGatewayEvent.findFirst({
         where: {
           eventId: event.eventId,
@@ -911,9 +931,9 @@ export class MqttService implements OnModuleInit {
           eventType,
           occurredAt: new Date(event.occurredAt)
         },
-        select: { eventId: true }
+        select: { eventId: true, payloadHash: true }
       });
-      return Boolean(processed);
+      return Boolean(processed && (processed.payloadHash == null || processed.payloadHash === payloadHash));
     }
     if (session.status !== "active" || session.scanStatus !== "scanning") return false;
 
@@ -922,25 +942,39 @@ export class MqttService implements OnModuleInit {
       select: { eventId: true }
     });
     if (previous) return false;
+    const ordering = await compareAndAdvanceGatewayEvent(tx, {
+      gatewayId: event.gatewayId, eventType, scopeKey: "", sequence: BigInt(event.sequence),
+      eventId: event.eventId, payloadHash, occurredAt: new Date(event.occurredAt)
+    });
+    if (ordering !== "advanced") return false;
     await tx.processedGatewayEvent.create({
       data: {
         eventId: event.eventId,
         gatewayId: event.gatewayId,
         sequence: BigInt(event.sequence),
         eventType,
+        scopeKey: event.sessionId,
+        payloadHash,
         occurredAt: new Date(event.occurredAt)
       }
     });
     await tx.provisioningSession.update({
       where: { id: session.id },
-      data: "acceptedNodeCount" in event
+      data: {
+        scanTerminalEventId: event.eventId,
+        scanTerminalSequence: BigInt(event.sequence),
+        scanTerminalEventType: eventType,
+        scanTerminalPayloadHash: payloadHash,
+        scanTerminalIngestedAt: new Date(acknowledgement.ingestedAt),
+        ...("acceptedNodeCount" in event
         ? { scanStatus: "completed", scanCompletedAt: new Date(event.occurredAt), scanFailureCode: null, scanFailureMessage: null }
         : {
             scanStatus: "failed",
             scanCompletedAt: new Date(event.occurredAt),
             scanFailureCode: event.code,
             scanFailureMessage: event.message
-          }
+          })
+      }
     });
     return true;
   }
@@ -1064,15 +1098,20 @@ export class MqttService implements OnModuleInit {
         }
         const ingestionStatus = gatewayEventIsTooFarInFuture(occurredAt, receivedAt, maxFutureSkewMs)
           ? "rejected_future_timestamp" : "accepted";
-        // Preserve legacy stale/equal sequence no-ops, but check eventId/hash first so
-        // a mutated replay cannot hide behind an already advanced heartbeat sequence.
-        if (ingestionStatus === "accepted" && gateway.lastHeartbeatSequence !== null && gateway.lastHeartbeatSequence >= sequence) return;
+        if (ingestionStatus === "accepted") {
+          const ordering = await compareAndAdvanceGatewayEvent(tx, {
+          gatewayId: heartbeat.gatewayId, eventType: "gateway_heartbeat", scopeKey: "",
+            sequence, eventId: heartbeat.eventId, payloadHash, occurredAt
+          });
+          if (ordering !== "advanced") return;
+        }
         await tx.processedGatewayEvent.create({
           data: {
             eventId: heartbeat.eventId,
             gatewayId: heartbeat.gatewayId,
             sequence,
             eventType: "gateway_heartbeat",
+            scopeKey: "",
             occurredAt,
             receivedAt,
             payloadHash,

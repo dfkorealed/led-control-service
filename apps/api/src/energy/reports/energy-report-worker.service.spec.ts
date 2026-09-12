@@ -126,7 +126,8 @@ const databaseUrl = process.env.ENERGY_REPORT_TEST_DATABASE_URL;
         return {};
       }
       if (command instanceof HeadObjectCommand) {
-        const stored = objects.get(key)!;
+        const stored = objects.get(key);
+        if (!stored) throw Object.assign(new Error("object absent"), { $metadata: { httpStatusCode: 404 } });
         return { ContentLength: stored.bytes.length, ContentType: stored.contentType,
           ChecksumSHA256: createHash("sha256").update(stored.bytes).digest("base64"), ...headOverride };
       }
@@ -269,7 +270,7 @@ const databaseUrl = process.env.ENERGY_REPORT_TEST_DATABASE_URL;
     await prisma.site.update({ where: { id: siteId }, data: { name: "나중 현장" } });
     await worker.runOnce(); await worker.runOnce();
     const failed = await load(job.id);
-    expect(failed).toMatchObject({ status: "failed", attemptCount: 3, leaseOwner: null, failureCode: "REPORT_GENERATION_FAILED" });
+    expect(failed).toMatchObject({ status: "failed", attemptCount: 3, leaseOwner: null, failureCode: "REPORT_STORAGE_UNAVAILABLE" });
     expect(failed.documentSnapshot).toEqual(first.documentSnapshot);
     expect(failed.dataSnapshot).toEqual(first.dataSnapshot);
     expect(await worker.runOnce()).toBe(false);

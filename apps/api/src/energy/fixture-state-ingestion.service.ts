@@ -11,6 +11,7 @@ import { canonicalPayloadHash } from "../automation/automation-payload-hash";
 import { gatewayEventIsTooFarInFuture, gatewayEventMaxFutureSkewMs } from "../mqtt/gateway-event-time";
 import { reconcileLegacyGatewayEventReplay } from "../mqtt/legacy-gateway-event-replay";
 import { PrismaService } from "../prisma/prisma.service";
+import { compareAndAdvanceGatewayEvent } from "../retention/gateway-event-watermark";
 import {
   aggregateFixtureStateTransition,
   closeFixtureEnergyCheckpoint,
@@ -139,6 +140,7 @@ export class FixtureStateIngestionService {
           sequence: BigInt(state.sequence),
           eventType: "fixture_state",
           payloadHash,
+          scopeKey: state.fixtureId,
           occurredAt,
           receivedAt,
           ingestionStatus: "rejected_future_timestamp"
@@ -147,10 +149,33 @@ export class FixtureStateIngestionService {
       return resultFrom(state, "rejected_future_timestamp");
     }
 
-    const sequenceConflict = await tx.processedGatewayEvent.findFirst({
-      where: { gatewayId, sequence: BigInt(state.sequence), eventType: "fixture_state" }
+    const ordering = await compareAndAdvanceGatewayEvent(tx, {
+      gatewayId,
+      eventType: "fixture_state",
+      scopeKey: state.fixtureId,
+      sequence: BigInt(state.sequence),
+      eventId: state.eventId,
+      payloadHash,
+      occurredAt
     });
-    if (sequenceConflict) throw new Error("fixture state sequence conflict");
+    if (ordering === "conflict") throw new Error("fixture state event identity conflict");
+    if (ordering === "duplicate") return resultFrom(state, "duplicate");
+
+    await tx.processedGatewayEvent.create({
+      data: {
+        eventId: state.eventId,
+        gatewayId,
+        fixtureId: state.fixtureId,
+        sequence: BigInt(state.sequence),
+        eventType: "fixture_state",
+        payloadHash,
+        scopeKey: state.fixtureId,
+        occurredAt,
+        receivedAt,
+        ingestionStatus: "accepted"
+      }
+    });
+    if (ordering === "stale") return resultFrom(state, "stale_sequence");
 
     const snapshot = toSnapshot(fixture);
     const storedCursor = await tx.fixtureEnergyStateCursor.findUnique({ where: { fixtureId: fixture.id } });
@@ -167,20 +192,6 @@ export class FixtureStateIngestionService {
       },
       timeZone: fixture.timeZone,
       tariffKwhRate: new Prisma.Decimal(fixture.tariffKwhRate)
-    });
-
-    await tx.processedGatewayEvent.create({
-      data: {
-        eventId: state.eventId,
-        gatewayId,
-        fixtureId: state.fixtureId,
-        sequence: BigInt(state.sequence),
-        eventType: "fixture_state",
-        payloadHash,
-        occurredAt,
-        receivedAt,
-        ingestionStatus: "accepted"
-      }
     });
 
     if (transition.status !== "accepted") return resultFrom(state, transition.status);
@@ -411,12 +422,15 @@ function sameProcessedEvent(
 }
 
 function sameProcessedEventIdentity(
-  event: { gatewayId: string; fixtureId: string | null; sequence: bigint; eventType: string; occurredAt: Date },
+  event: { gatewayId: string; fixtureId: string | null; sequence: bigint; eventType: string; occurredAt: Date; payloadHash?: string | null },
   gatewayId: string,
   state: FixtureStateV2
 ) {
   return event.gatewayId === gatewayId && event.fixtureId === state.fixtureId && event.sequence === BigInt(state.sequence) &&
-    event.eventType === "fixture_state" && event.occurredAt.getTime() === new Date(state.occurredAt).getTime();
+    event.eventType === "fixture_state" && event.occurredAt.getTime() === new Date(state.occurredAt).getTime() &&
+    // Legacy ledger rows lack complete payload hashes; keep their historical
+    // duplicate contract only while the raw row remains retained.
+    (event.payloadHash == null || event.payloadHash === canonicalPayloadHash(state));
 }
 
 function isUniqueConstraintError(error: unknown): error is Prisma.PrismaClientKnownRequestError {

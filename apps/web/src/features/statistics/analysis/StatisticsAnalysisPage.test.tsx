@@ -38,6 +38,17 @@ describe("StatisticsAnalysisPage", () => {
     }));
   });
 
+  it("labels persisted ranking costs with their historical tariff basis", () => {
+    renderPage();
+
+    expect(screen.getByText("저장 비용", { selector: ".statistics-analysis-summary span" })).toBeInTheDocument();
+    expect(screen.getByText("비용 합계와 순위는 당시 적용 단가의 저장 비용입니다.")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("순위 기준"), { target: { value: "cost" } });
+    expect(screen.getByRole("region", { name: "사용량 순위" })).toHaveTextContent(
+      "당시 적용 단가의 저장 비용"
+    );
+  });
+
   it("explains overlapping group totals and excluded legacy history", () => {
     mocks.hook.mockReturnValue({
       data: { ...response, dimension: "group", overlappingMemberships: true, legacyExcludedBefore: "2026-09-01" },

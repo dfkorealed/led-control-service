@@ -80,12 +80,16 @@ Verification before completing the merge: Shared build and 200/200 tests passed;
 - Consumes: event receipt and freshness semantics from monitoring.
 - Produces: high-watermark ingestion, bounded retention, report job metadata, and statistics UI state.
 
-- [ ] Run `git merge --no-ff codex/p0p1-statistics-data`.
-- [ ] Union the Prisma models, relations, indexes, and enums from monitoring and statistics.
-- [ ] Preserve monitoring quarantine/receipt logic while adding statistics high-watermarks and retention behavior.
-- [ ] Reconcile MQTT routing and all affected documentation.
-- [ ] Run Prisma validation/generation, `git diff --check`, and statistics-focused tests.
-- [ ] Complete the merge commit.
+- [x] Run `git merge --no-ff codex/p0p1-statistics-data`.
+- [x] Union the Prisma models, relations, indexes, and enums from monitoring and statistics.
+- [x] Preserve monitoring quarantine/receipt logic while adding statistics high-watermarks and retention behavior.
+- [x] Reconcile MQTT routing and all affected documentation.
+- [x] Run Prisma validation/generation, `git diff --check`, and statistics-focused tests.
+- [x] Complete the merge commit.
+
+Integration ruling: future-dated fixture-state and heartbeat events create only a scoped `ProcessedGatewayEvent` terminal rejection and do not advance `GatewayEventWatermark`; accepted events perform owner validation and legacy replay reconciliation before advancing the watermark. If this ruling is wrong, a poisoned future event could incorrectly make later valid events stale, so the merged disposable-PostgreSQL watermark suite is the required guard.
+
+Verification before completing the merge: Prisma format/generate/validate passed; Shared statistics/export suites passed 79/79 after rebuilding stale generated `dist`; API focused statistics/ingestion/MQTT suites passed 146 with 44 environment-gated tests skipped; Web statistics suites passed 33/33; disposable PostgreSQL report migration, retention, and watermark integration suites passed 65/65; `git diff --check` passed.
 
 ### Task 4: Merge settings and asset operations
 

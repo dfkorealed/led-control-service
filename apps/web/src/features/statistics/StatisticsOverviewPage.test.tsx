@@ -231,6 +231,10 @@ describe("StatisticsOverviewPage", () => {
     expect(savingsRow).toHaveAttribute("data-tone", "danger");
     expect(savingsRow).not.toHaveAttribute("data-tone", "success");
     expect(screen.getByText(/현재 등록 조명 10개 · 해당 월 31일 전체 · 24시간 · 100% 밝기 · 현재 단가 기준/)).toBeInTheDocument();
+    expect(screen.getByText("누적·일별·월별 비용은 당시 적용 단가의 저장 비용입니다.")).toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: "비용 비교" })).toHaveTextContent(
+      "예상·기준·절감 비용은 현재 설정 단가 기준입니다."
+    );
   });
 
   it("uses an empty state instead of zero KPIs when no state has been collected", () => {

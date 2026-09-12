@@ -29,6 +29,7 @@
 - 담당자 후보는 활성 일반 사용자와 현재 인증된 활성 manage 사용자의 최소 identity를 ID로 중복 제거해 구성한다. 일반 사용자 목록 API에 관리자가 포함되지 않아도 관리자 단독 현장에서 자기 자신을 지정할 수 있다. read-only에서는 이 identity가 수정 권한을 만들지 않으며, API가 최종 현장 관리자/멤버 범위를 검증한다. 목록에 없는 기존 담당자의 표시·해제는 유지한다. 다른 관리자의 신규 지정은 별도 후보 조회 계약이 없는 현재 범위에 포함하지 않는다.
 - `판정 기준`은 공통 ModalDialog에서 현재 값을 초기화하고 정확한 정수 범위를 검증한다. 저장 중 닫기를 막고 완료 시 trigger로 focus를 돌려준다. 성공 시 해당 현장의 policy/dashboard/floor-fixtures/incident 캐시를 갱신하며, 기본 현장 dashboard 별칭도 cached Site가 일치할 때만 갱신한다. 정책 충돌은 입력값을 보존하고 최신 서버 revision의 명시적 재검토를 요구한다. 재검토 뒤 서버 값이 다시 바뀌면 재확인을 요구하고, policy 재조회 오류에도 입력 화면을 유지한다.
 - 수동 해결의 현재 장애 판정은 `Site → Gateway → Fixture → Incident` 순서 잠금 아래 다시 읽는다. Gateway는 heartbeat 변경을 막으면서 상태 수집의 FK 검사를 허용하는 `FOR NO KEY UPDATE`를 사용한다. fixture stale 판단에 영향을 주는 연결 Gateway heartbeat도 해결 commit까지 고정하며, 잠금 대기 중 소유 Gateway가 바뀌면 `409 INCIDENT_TARGET_CHANGED`로 재조회를 요구한다.
+- Gateway heartbeat와 조명 상태 수신은 원장과 compact watermark를 같은 transaction에 저장한다. 원장 삭제 후에도 최신 조명 상태의 exact duplicate와 payload 충돌을 구분하고 낮은 sequence로 snapshot/적산이 되돌아가지 않는다. 임시 PostgreSQL 검증이며 실장비 결과는 아니다.
 
 - 공통 고객 셸 상단은 현재 메뉴 제목과 실제 현장명 배지만 표시한다. 기존 층명 기반 `B2 주차장` 표기와 동작 없는 Gateway 정상·오프라인·미등록 상태 배지는 제거하되 설정의 `Gateway 상태` 상세 카드는 유지한다. 로그아웃 위치와 인증·dirty editor 확인 로직은 유지하고, 고객·운영자 셸의 로그아웃은 공통 `IconTooltipButton`으로 아이콘만 표시한다. `로그아웃` 도움말은 hover와 키보드 focus에서 열리고 도움말 위로 포인터를 옮겨도 유지되며 `Escape`로 닫힌다. 모바일 버튼은 52px 실제 터치 영역을 사용한다.
 - 현장 일반 유저의 `read`와 `control` capability는 모두 모니터링 메뉴와 해당 현장 dashboard 조회를 허용한다. 신규 일반 유저는 임시 비밀번호로 최초 로그인한 뒤 전용 강제 변경 화면을 완료해야 모니터링으로 진입한다. mock Chromium은 read/control/admin의 주 메뉴 exact 범위와 강제 변경 전 보호 API `403`을 검증한다. 격리 PostgreSQL/API Chromium은 실제 `403 PASSWORD_CHANGE_REQUIRED`, 변경 후 read 메뉴, `/settings/users` 직접 접근 차단, 비활성 세션의 다음 보호 요청 `401`과 재로그인 거절을 검증했다. Gateway나 ESP32-H2를 사용한 검증은 아니다.
@@ -157,6 +158,7 @@
 ## 부족하거나 개선이 필요한 기능
 
 - P1 인시던트·정책 UI의 1440/1024/390/320 Chromium 통합 workflow·가로 overflow, no-floor/Gateway-only empty/error 접근, map 자동 복구 최종 게이트는 Task 5 review fix를 포함해 `25/25`로 완료했다. 이는 deterministic route/API fixture와 Chromium 합성 결과에 대한 software 증거이며, 실제 MQTT broker, Raspberry Pi/BlueZ/ESP32-H2 HIL, production notification 전송은 실행하지 않았다.
+- 원장 정리 worker는 생성 후 7일보다 오래된 heartbeat와 30일보다 오래된 fixture state를 최신 Gateway/Fixture snapshot·watermark 및 fixture energy cursor가 해당 기록을 포괄할 때만 삭제한다. superseded capability는 365일 정책이며 전체 이벤트는 sweep당 합산 최대 10,000개다. cutoff와 같은 시각, scope/hash가 없는 legacy 원장, 삭제된 fixture·누락된 cursor 등 안전 조건을 증명할 수 없는 기록은 보존한다. watermark는 stream별 최신 identity만 유지하므로 임의 과거 ID의 exact dedupe는 raw 원장이 남아 있는 기간에 의존한다. 세부 조건은 [DB 보존 문서](../database-schema.md#운영-데이터-보존과-복구-범위)를 따르며 사용자/운영 DB migration 적용과 실장비 replay HIL은 아직 실행하지 않았다.
 - 지도 배율과 스크롤 위치는 현재 화면 세션 상태이며 층 전환·새로고침 시 100% 화면 맞춤으로 초기화된다. 사용자별 마지막 viewport를 저장하는 기능은 제공하지 않는다.
 - 저장 도형 표시 회귀는 deterministic route fixture Chromium에서 검증한다. mock snapshot과 브라우저 합성 결과를 확인하는 범위이며 실제 Gateway, Raspberry Pi, ESP32-H2 또는 현장 도면의 HIL 검증은 아니다.
 - 테스트 데이터는 설정 개요의 설치 완료 assigned `admin` 전용 개발·검증 도구이며, 기본 off 상태이고 API도 비활성화 시 404를 반환한다. 따라서 표시되는 online 상태는 일시적 recent online일 수 있고 freshness 재집계 뒤 offline이 될 수 있으며, 실제 Gateway·Mesh·MQTT 상태나 HIL 검증 증거로 해석할 수 없다.
@@ -191,6 +193,8 @@
 - `apps/web/src/features/shells/CustomerShell.monitoring.test.tsx`
 - `apps/api/src/monitoring-incidents`
 - `apps/api/prisma/migrations/20260912100000_monitoring_policy_incidents/migration.sql`
+- `apps/api/src/retention/gateway-event-watermark.ts`, `apps/api/src/retention/gateway-event-watermark.integration.spec.ts`
+- `apps/api/src/retention/data-retention.service.ts`, `apps/api/src/retention/data-retention.integration.spec.ts`
 
 - `apps/web/e2e/site-user-management.spec.ts`
 - `apps/web/e2e/site-user-management-real.spec.ts`

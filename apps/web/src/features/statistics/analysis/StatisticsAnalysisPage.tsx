@@ -67,7 +67,7 @@ export function StatisticsAnalysisPage() {
             className={dimension === item.value ? "active" : ""} onClick={() => setDimension(item.value)}>{item.label}</button>)}
         </div>
         <label>순위 기준<select value={metric} onChange={(event) => setMetric(event.target.value as EnergyRankingMetric)}>
-          <option value="usage">사용량</option><option value="cost">예상 비용</option>
+          <option value="usage">사용량</option><option value="cost">저장 비용</option>
           <option value="contribution">현장 기여도</option><option value="per_fixture_average">조명당 평균</option>
         </select></label>
         <label>시작일<input type="date" value={from} max={to} onChange={(event) => setFrom(event.target.value)} /></label>
@@ -80,9 +80,10 @@ export function StatisticsAnalysisPage() {
       {query.data.legacyExcludedBefore ? <p className="statistics-coverage-notice">{query.data.legacyExcludedBefore} 이전 구조 이력은 순위에서 제외하고 현장 총계에만 포함했습니다.</p> : null}
       <div className="statistics-analysis-summary">
         <div><span>현장 사용량</span><strong>{query.data.siteTotalKwh.toLocaleString("ko-KR")} kWh</strong></div>
-        <div><span>예상 비용</span><strong>{Math.round(query.data.siteTotalCost).toLocaleString("ko-KR")}원</strong></div>
+        <div><span>저장 비용</span><strong>{Math.round(query.data.siteTotalCost).toLocaleString("ko-KR")}원</strong></div>
         <div><span>분석 대상</span><strong>{query.data.ranked.length}개</strong></div>
       </div>
+      <p className="statistics-cost-basis-note">비용 합계와 순위는 당시 적용 단가의 저장 비용입니다.</p>
       <div className="statistics-analysis-layout">
         <EnergyRankingList items={query.data.ranked} unranked={query.data.unranked} metric={metric}
           selectedId={selected?.identityId ?? null} onSelect={(item) => setSelectedId(item.identityId)} />

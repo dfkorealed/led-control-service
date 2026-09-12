@@ -74,6 +74,12 @@
 
 ## 구현 완료
 
+- 도면 이력은 층별 **최근 100개 또는 최근 365일 중 넓은 범위**를 보존하고, 범위 밖 이력은 분당 최대 1,000개씩 정리한다. 보존된 이력만 목록 조회·복구할 수 있다. 로그인 `Session`은 만료 또는 폐기 후 30일이 지난 행만 분당 최대 10,000개씩 정리하며 활성 세션은 보존한다.
+- 게이트웨이 이벤트 원장은 heartbeat 7일, 조명 상태 30일, 종료된 검색 세션 이벤트 90일, 대체된 차량 센서 capability 365일 이후에 안전 조건을 확인해 분당 최대 10,000개씩 정리한다. watermark·현재 상태·검색 terminal ACK identity가 부족하면 보존한다. 각 정리는 안정된 순서와 `SKIP LOCKED`를 사용하고, 중복 timer 실행을 막으며 삭제 건수·실패 단계를 구조화 로그로 남긴다. 기간 경계와 두 연결의 잠금 건너뛰기·재실행 수렴은 일회성 PostgreSQL에서 검증했다.
+- API 종료 시 정리 timer를 중지하고 진행 중인 정리 작업을 마친 뒤 Prisma 연결을 닫는다. 실제 Nest 모듈 종료에서 삭제 완료·최종 disconnect 순서와 남는 DB 연결이 없음을 일회성 PostgreSQL로 검증했다.
+
+- 신규 scan completed/failed는 session에 전체 payload hash·event ID·sequence·최초 ACK 시각을 보존한다. raw 이벤트와 ACK outbox가 삭제된 뒤에도 동일 terminal은 최초 application ACK로 재생성하고 변경된 acceptedNodeCount/failure message는 거부한다. found의 gateway/type 순서는 session을 바꿔도 watermark로 유지하며 임시 PostgreSQL에서 검증했다.
+
 - 공통 고객 셸 상단은 현재 메뉴 제목과 실제 현장명 배지만 표시한다. 기존 층명 기반 `B2 주차장` 표기와 동작 없는 Gateway 정상·오프라인·미등록 상태 배지는 제거하되 설정의 `Gateway 상태` 상세 카드는 유지한다. 로그아웃 위치와 인증·dirty editor 확인 로직은 유지하고, 고객·운영자 셸의 로그아웃은 공통 `IconTooltipButton`으로 아이콘만 표시한다. `로그아웃` 도움말은 hover와 키보드 focus에서 열리고 도움말 위로 포인터를 옮겨도 유지되며 `Escape`로 닫힌다. 모바일 버튼은 52px 실제 터치 영역을 사용한다.
 
 - admin 전용 `/settings/users`에서 현장 일반 유저를 최대 100명까지 조회·검색·생성·수정·비활성화·재활성화·비밀번호 초기화·영구 삭제한다. 일반 유저는 시스템 role `viewer`를 유지하고 현장 capability만 `read | control`로 분리한다. `control`은 `read`를 포함하며 admin 설정 화면에는 접근하지 못한다. 일반 유저가 `/settings/users`를 직접 열면 `/settings`로 replace되며 mock 및 격리 실백엔드 Chromium에서 확인한다. 비활성화는 기존 세션을 즉시 폐기하고 재로그인을 차단하며, 영구 삭제는 로그인 아이디 확인 뒤 사용자·membership·세션을 제거한다. 비밀번호가 포함된 생성·초기화 요청은 React Query mutation cache를 사용하지 않는다. API 응답·DOM/input·Web Storage의 평문 부재는 E2E가, React Query cache의 password·삭제 PII 부재는 API/View 단위 테스트가 검증한다.
@@ -372,6 +378,10 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 
 ## 부족하거나 개선이 필요한 기능
 
+- 과거 scan은 raw 원장에 session scope/전체 hash가 없어 terminal identity를 추정 backfill하지 않는다. scope/hash 또는 필요한 현재 상태가 부족한 legacy 원장과 알 수 없는 이벤트 유형은 자동 정리에서도 보존한다. 삭제된 조명의 상태 원장처럼 안전 조건을 더 이상 증명할 수 없는 데이터도 남을 수 있다. 사용자 DB migration 적용·운영 배포와 실장비 검증은 실행하지 않았다.
+- 도면 정리 이후 보존 범위 밖의 revision은 복구할 수 없으며 외부 이력 보관·archive 기능은 없다. `AuditLog`, `GatewayClaimAudit`, 인증서 이력은 이번 자동 삭제 대상에 포함하지 않는다.
+- `AuditLog` 3년 hot retention은 회사·법무 승인 전 제안이다. `GatewayClaimAudit`와 폐기된 인증서 chain의 7년 또는 별도 승인 전 보존은 설계 기준이며, 이번 worker가 해당 시점에 삭제하는 기능은 없다. Session 자동 정리는 만료·폐기 후 30일이 지난 행만 대상으로 하며 보안 감사 보존 정책과 구분한다. 전체 보존 조건과 migration 적용 순서는 [DB 문서](../database-schema.md#운영-데이터-보존과-복구-범위)를 따른다.
+
 - 맵 편집 우측 패널의 공통 overflow 계약은 Chromium 1440/1024/390/320px route fixture로 검증했으며 실제 모바일 WebView safe-area와 브라우저별 scrollbar 표현은 별도 실측이 필요하다.
 - 테스트 데이터 도구는 개발·검증용 대량 데이터 준비 기능으로, 기본 off이며 실제 장비/MQTT 시뮬레이션이나 실장비 검증을 대체하지 않는다. 생성 직후에도 실제 heartbeat가 없으면 freshness 정책으로 offline 전환될 수 있다. DB schema/migration 변경은 없다.
 - 비밀번호 변경과 setup/commissioning visibility는 Web 회귀와 기존 격리 실백엔드 E2E로 검증했다. Scene 24~26 레이아웃은 1440×900, 1024×768, 390×844, 320×740 자동 Chromium으로 검증했지만 재설치, 수동 in-app Browser 시각 QA와 Raspberry Pi/ESP32-H2 HIL은 아직 실행하지 않았다.
@@ -404,6 +414,11 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
   - https://www.lutron.com/us/en/controls/systems/vive
 
 ## 관련 파일
+
+- `apps/api/src/retention/data-retention.service.ts`, `apps/api/src/retention/retention.module.ts`
+- `apps/api/src/retention/data-retention.service.spec.ts`, `apps/api/src/retention/data-retention.integration.spec.ts`
+
+- `apps/api/src/retention/gateway-event-watermark.ts`, `apps/api/prisma/migrations/20260915_statistics_operations_retention/migration.sql`
 
 - `apps/web/src/features/settings/users/SiteUsersView.tsx`
 - `apps/web/src/features/settings/users/SiteUsersView.test.tsx`

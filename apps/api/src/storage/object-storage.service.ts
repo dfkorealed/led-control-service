@@ -38,6 +38,22 @@ export class ObjectStorageService {
       { abortSignal: AbortSignal.timeout(4_000) });
   }
 
+  async inspectReportObject(key: string): Promise<{ exists: false } | { exists: true; sizeBytes: number }> {
+    let head;
+    try { head = await this.headReportObject(key); }
+    catch (error) {
+      // HEAD 404 is the expected state for unused/deleted attempt keys. Permission,
+      // transport and server failures must not masquerade as successful cleanup.
+      if (error && typeof error === "object" && "$metadata" in error
+        && (error.$metadata as { httpStatusCode?: number } | undefined)?.httpStatusCode === 404) return { exists: false };
+      throw error;
+    }
+    if (head.ContentLength === undefined || !Number.isSafeInteger(head.ContentLength) || head.ContentLength < 0) {
+      throw new Error("invalid report object size");
+    }
+    return { exists: true, sizeBytes: head.ContentLength };
+  }
+
   async deleteReportObject(key: string) {
     return this.client.send(new DeleteObjectCommand({ Bucket: this.reportBucket(key), Key: key }),
       { abortSignal: AbortSignal.timeout(4_000) });

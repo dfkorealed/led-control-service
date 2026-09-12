@@ -12,6 +12,7 @@
     "typecheck": "pnpm --filter @led-control/automation-engine build && tsc --noEmit",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
+    "reports:migration-preflight": "node scripts/check-report-migration-preflight.mjs",
     "auth:bootstrap-operator": "pnpm --filter @led-control/shared build && tsx prisma/bootstrap-operator.ts"
   },
   "dependencies": {

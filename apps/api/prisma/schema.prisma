@@ -248,36 +248,36 @@ model User {
 }
 
 model Site {
-  id                       String                           @id @default(uuid())
-  organizationId           String
-  adminUserId              String?                          @unique
-  name                     String
-  address                  String?
-  tariffKwhRate            Decimal?                         @db.Decimal(10, 2)
-  timeZone                 String                           @default("Asia/Seoul")
-  gatewayOfflineAfterSeconds Int                            @default(90)
-  fixtureStaleAfterSeconds Int                               @default(180)
-  organization             Organization                     @relation(fields: [organizationId], references: [id])
-  admin                    User?                            @relation("SiteAdmin", fields: [adminUserId], references: [id], onDelete: Restrict)
-  floors                   Floor[]
-  gateways                 Gateway[]
-  groups                   FixtureGroup[]
-  commands                 Command[]
-  invitations              Invitation[]
-  provisioningSessions     ProvisioningSession[]
-  gatewayClaimAudits       GatewayClaimAudit[]
-  memberships              SiteMembership[]
-  automationConfigurations GatewayAutomationConfiguration[]
-  lightingSchedules        LightingSchedule[]
-  vehicleEventRules        VehicleEventRule[]
-  manualOverrides          ManualOverride[]
-  automationExecutions     AutomationExecution[]
-  energyFixtureIdentities  EnergyFixtureIdentity[]
-  energyGroupIdentities    EnergyGroupIdentity[]
-  energyReportJobs         EnergyReportJob[]
-  monitoringIncidents     MonitoringIncident[]
-  createdAt                DateTime                         @default(now())
-  updatedAt                DateTime                         @updatedAt
+  id                         String                           @id @default(uuid())
+  organizationId             String
+  adminUserId                String?                          @unique
+  name                       String
+  address                    String?
+  tariffKwhRate              Decimal?                         @db.Decimal(10, 2)
+  timeZone                   String                           @default("Asia/Seoul")
+  gatewayOfflineAfterSeconds Int                              @default(90)
+  fixtureStaleAfterSeconds   Int                              @default(180)
+  organization               Organization                     @relation(fields: [organizationId], references: [id])
+  admin                      User?                            @relation("SiteAdmin", fields: [adminUserId], references: [id], onDelete: Restrict)
+  floors                     Floor[]
+  gateways                   Gateway[]
+  groups                     FixtureGroup[]
+  commands                   Command[]
+  invitations                Invitation[]
+  provisioningSessions       ProvisioningSession[]
+  gatewayClaimAudits         GatewayClaimAudit[]
+  memberships                SiteMembership[]
+  automationConfigurations   GatewayAutomationConfiguration[]
+  lightingSchedules          LightingSchedule[]
+  vehicleEventRules          VehicleEventRule[]
+  manualOverrides            ManualOverride[]
+  automationExecutions       AutomationExecution[]
+  energyFixtureIdentities    EnergyFixtureIdentity[]
+  energyGroupIdentities      EnergyGroupIdentity[]
+  energyReportJobs           EnergyReportJob[]
+  monitoringIncidents        MonitoringIncident[]
+  createdAt                  DateTime                         @default(now())
+  updatedAt                  DateTime                         @updatedAt
 
   @@index([organizationId])
 }
@@ -355,6 +355,7 @@ model FloorMapRevision {
 
   @@unique([floorId, revision])
   @@index([floorId, createdAt])
+  @@index([createdAt, id])
 }
 
 model AuditLog {
@@ -376,31 +377,31 @@ model AuditLog {
 }
 
 model MonitoringIncident {
-  id                    String                           @id @default(uuid())
-  siteId                String
-  type                  MonitoringIncidentType
-  status                MonitoringIncidentStatus         @default(open)
-  targetKey             String
-  fixtureId             String?
-  gatewayId             String?
-  activeKey             String?                          @unique
-  openedAt              DateTime                         @default(now())
-  lastObservedAt        DateTime                         @default(now())
-  acknowledgedAt        DateTime?
-  acknowledgedByUserId  String?
-  assignedToUserId      String?
-  resolvedAt            DateTime?
-  resolvedByUserId      String?
-  resolutionKind        MonitoringIncidentResolutionKind?
-  resolutionNote        String?
-  site                  Site                             @relation(fields: [siteId], references: [id], onDelete: Cascade)
-  fixture               Fixture?                         @relation(fields: [fixtureId, siteId], references: [id, siteId], onDelete: Cascade)
-  gateway               Gateway?                         @relation(fields: [gatewayId, siteId], references: [id, siteId], onDelete: Cascade)
-  acknowledgedBy        User?                            @relation("IncidentAcknowledgedBy", fields: [acknowledgedByUserId], references: [id], onDelete: SetNull)
-  assignedTo            User?                            @relation("IncidentAssignedTo", fields: [assignedToUserId], references: [id], onDelete: SetNull)
-  resolvedBy            User?                            @relation("IncidentResolvedBy", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
-  createdAt             DateTime                         @default(now())
-  updatedAt             DateTime                         @updatedAt
+  id                   String                            @id @default(uuid())
+  siteId               String
+  type                 MonitoringIncidentType
+  status               MonitoringIncidentStatus          @default(open)
+  targetKey            String
+  fixtureId            String?
+  gatewayId            String?
+  activeKey            String?                           @unique
+  openedAt             DateTime                          @default(now())
+  lastObservedAt       DateTime                          @default(now())
+  acknowledgedAt       DateTime?
+  acknowledgedByUserId String?
+  assignedToUserId     String?
+  resolvedAt           DateTime?
+  resolvedByUserId     String?
+  resolutionKind       MonitoringIncidentResolutionKind?
+  resolutionNote       String?
+  site                 Site                              @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  fixture              Fixture?                          @relation(fields: [fixtureId, siteId], references: [id, siteId], onDelete: Cascade)
+  gateway              Gateway?                          @relation(fields: [gatewayId, siteId], references: [id, siteId], onDelete: Cascade)
+  acknowledgedBy       User?                             @relation("IncidentAcknowledgedBy", fields: [acknowledgedByUserId], references: [id], onDelete: SetNull)
+  assignedTo           User?                             @relation("IncidentAssignedTo", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  resolvedBy           User?                             @relation("IncidentResolvedBy", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
+  createdAt            DateTime                          @default(now())
+  updatedAt            DateTime                          @updatedAt
 
   // SQL additionally enforces exact target/type/key and lifecycle invariants,
   // and indexes active-first newest pagination using (resolvedAt IS NULL).
@@ -577,6 +578,7 @@ model Gateway {
   provisioningSessions    ProvisioningSession[]
   commandDispatches       CommandDispatch[]
   processedEvents         ProcessedGatewayEvent[]
+  eventWatermarks         GatewayEventWatermark[]
   certificates            GatewayCertificate[]
   automationConfiguration GatewayAutomationConfiguration?
   lightingSchedules       LightingSchedule[]
@@ -1124,6 +1126,8 @@ model ProcessedGatewayEvent {
   sequence        BigInt
   eventType       String
   payloadHash     String?
+  /// Immutable scope identity; NULL for legacy rows whose scope cannot be recovered.
+  scopeKey        String?
   occurredAt      DateTime
   receivedAt      DateTime                    @default(now())
   ingestionStatus GatewayEventIngestionStatus @default(accepted)
@@ -1135,6 +1139,23 @@ model ProcessedGatewayEvent {
   @@index([gatewayId, occurredAt])
   @@index([meshNodeId])
   @@index([fixtureId])
+  @@index([eventType, createdAt, eventId])
+}
+
+model GatewayEventWatermark {
+  gatewayId       String
+  eventType       String
+  scopeKey        String   @default("")
+  lastSequence    BigInt
+  lastEventId     String   @unique
+  /// Legacy payloads were not stored; NULL must never be treated as a verified hash.
+  lastPayloadHash String?
+  lastOccurredAt  DateTime
+  updatedAt       DateTime @default(now()) @updatedAt
+  gateway         Gateway  @relation(fields: [gatewayId], references: [id], onDelete: Cascade)
+
+  @@id([gatewayId, eventType, scopeKey])
+  @@index([gatewayId, eventType, lastSequence])
 }
 
 model Invitation {
@@ -1164,33 +1185,41 @@ model Session {
   user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
+
+  @@index([expiresAt, id])
+  @@index([revokedAt, id])
 }
 
 model ProvisioningSession {
-  id                 String                     @id @default(uuid())
-  siteId             String
-  floorId            String
-  gatewayId          String
-  requestedBy        String
-  status             ProvisioningSessionStatus  @default(active)
-  scanStatus         ProvisioningScanStatus     @default(pending)
-  scanCorrelationId  String?
-  scanAttempt        Int                        @default(0)
-  scanStartedAt      DateTime?
-  scanCompletedAt    DateTime?
-  scanFailureCode    String?
-  scanFailureMessage String?
-  site               Site                       @relation(fields: [siteId], references: [id], onDelete: Cascade)
-  floor              Floor                      @relation(fields: [floorId], references: [id], onDelete: Cascade)
-  gateway            Gateway                    @relation(fields: [gatewayId], references: [id], onDelete: Cascade)
-  user               User                       @relation(fields: [requestedBy], references: [id])
-  discoveredNodes    DiscoveredMeshNode[]
-  scanOutbox         ProvisioningScanOutbox[]
-  deviceOutbox       ProvisioningDeviceOutbox[]
-  startedAt          DateTime                   @default(now())
-  completedAt        DateTime?
-  createdAt          DateTime                   @default(now())
-  updatedAt          DateTime                   @updatedAt
+  id                      String                     @id @default(uuid())
+  siteId                  String
+  floorId                 String
+  gatewayId               String
+  requestedBy             String
+  status                  ProvisioningSessionStatus  @default(active)
+  scanStatus              ProvisioningScanStatus     @default(pending)
+  scanCorrelationId       String?
+  scanAttempt             Int                        @default(0)
+  scanStartedAt           DateTime?
+  scanCompletedAt         DateTime?
+  scanFailureCode         String?
+  scanFailureMessage      String?
+  scanTerminalEventId     String?
+  scanTerminalSequence    BigInt?
+  scanTerminalEventType   String?
+  scanTerminalPayloadHash String?
+  scanTerminalIngestedAt  DateTime?
+  site                    Site                       @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  floor                   Floor                      @relation(fields: [floorId], references: [id], onDelete: Cascade)
+  gateway                 Gateway                    @relation(fields: [gatewayId], references: [id], onDelete: Cascade)
+  user                    User                       @relation(fields: [requestedBy], references: [id])
+  discoveredNodes         DiscoveredMeshNode[]
+  scanOutbox              ProvisioningScanOutbox[]
+  deviceOutbox            ProvisioningDeviceOutbox[]
+  startedAt               DateTime                   @default(now())
+  completedAt             DateTime?
+  createdAt               DateTime                   @default(now())
+  updatedAt               DateTime                   @updatedAt
 
   @@index([gatewayId, scanStatus])
 }
@@ -1294,6 +1323,7 @@ model EnergyReportJob {
   leaseOwner                 String?
   leaseExpiresAt             DateTime?
   requestSnapshot            Json
+  targetLabelSnapshot        String?
   dataSnapshot               Json?
   documentSnapshot           Json?
   contentFingerprint         String?
@@ -1322,16 +1352,26 @@ model EnergyReportJob {
 // Intentionally no foreign keys: late worker uploads must remain reapable after
 // both the report's 90-day metadata purge and the site's cascade deletion.
 model EnergyReportObjectCleanup {
-  reportId       String    @id
-  siteId         String
-  objectKeys     Json
-  leaseOwner     String?
-  leaseExpiresAt DateTime?
-  nextAttemptAt  DateTime  @default(now())
-  lastCleanedAt  DateTime?
-  lastError      String?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  reportId                String    @id
+  siteId                  String
+  objectKeys              Json
+  leaseOwner              String?
+  leaseExpiresAt          DateTime?
+  nextAttemptAt           DateTime  @default(dbgenerated("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC'::text)"))
+  lastCleanedAt           DateTime?
+  lastError               String?
+  deleteAttemptCount      Int       @default(0)
+  deleteRetryCount        Int       @default(0)
+  deleteFailureCount      Int       @default(0)
+  lastAttemptAt           DateTime?
+  lastObservedObjectCount Int       @default(0)
+  lastObservedBytes       BigInt    @default(0)
+  deletedObjectCount      Int       @default(0)
+  deletedBytes            BigInt    @default(0)
+  latePutObjectCount      Int       @default(0)
+  latePutBytes            BigInt    @default(0)
+  createdAt               DateTime  @default(dbgenerated("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC'::text)"))
+  updatedAt               DateTime  @updatedAt
 
   @@index([nextAttemptAt, leaseExpiresAt])
   @@index([siteId])

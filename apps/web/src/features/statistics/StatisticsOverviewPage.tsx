@@ -185,6 +185,7 @@ export function StatisticsOverviewPage() {
             <EnergyMetric label="이번 달 누적" period={summary.monthToDate} />
             <EnergyMetric label="올해 누적" period={summary.yearToDate} />
           </div>
+          <p className="statistics-cost-basis-note">누적·일별·월별 비용은 당시 적용 단가의 저장 비용입니다.</p>
 
           <div className="report-layout statistics-report-layout ui-side-panel-layout">
             <Card className="statistics-chart-panel" aria-label="상태 기반 추정 사용량">
@@ -216,6 +217,7 @@ export function StatisticsOverviewPage() {
                 <h3>이번 달 비용 비교</h3>
               </div>
               {costRows}
+              <p className="statistics-current-cost-note">예상·기준·절감 비용은 현재 설정 단가 기준입니다.</p>
               <p className="statistics-baseline-note">
                 현재 등록 조명 {summary.baseline24Hours.fixtureCount}개 · 해당 월 {summary.baseline24Hours.daysInMonth}일 전체 · 24시간 · 100% 밝기 · 현재 단가 기준
               </p>

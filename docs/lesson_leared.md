@@ -1,5 +1,12 @@
 # 프로젝트 오답 노트 (Lessons Learned)
 
+## 2026-09-12 / Prisma Date와 naive UTC timestamp의 비교·기본값을 함께 검증한다
+
+- **발생했던 문제/실수**: retention cutoff와 보고서 만료·재시도 비교에서 UTC 기준의 JS Date를 그대로 SQL에 전달해 Asia/Seoul DB session에서 경계가 9시간 이동했다. 보고서 cleanup은 만료까지 1ms 남은 파일을 먼저 삭제하거나 아직 due가 아닌 원장을 다시 claim했다. UTC로 바꾸자 고정 `prune(now)`와 신규 원장의 실제 현재 시각 기본값 차이가 별도로 드러났다.
+- **원인**: Prisma raw Date parameter는 `timestamp with time zone`인데 기존 schema의 DateTime 열은 naive UTC `timestamp`다. PostgreSQL의 암묵 변환이 session timezone을 적용하며, 기본 `CURRENT_TIMESTAMP`를 naive 열에 저장하는 경로도 같은 영향을 받는다. 비 UTC에서 잘못 앞당겨진 due 판단이 주입한 clock과 DB 기본 clock 불일치를 가렸다.
+- **해결 및 예방책**: raw 비교값에 `::timestamptz AT TIME ZONE 'UTC'`를 명시하고, 보고서 cleanup 신규 원장에도 같은 `prune(now)`를 전달한다. 대상 DB 기본값은 순방향 migration에서 UTC로 고정한다. lease 소유권 판정처럼 실제 DB clock을 써야 하는 경계는 의도적으로 분리한다.
+- **반복 방지 체크**: 자체 disposable PostgreSQL의 UTC·Asia/Seoul session에서 cutoff 직전/동일/직후, retry 예정 시각과 여러 sweep 수렴을 검증한다. `pg_typeof`로 실제 bound parameter 타입을 확인하고 기본값 생성 경로도 테스트한다. `TIMESTAMP(3)` 반올림과 JS millisecond 절삭의 최대 1ms 차이는 시계 근접 assertion에서만 허용하며 삭제 cutoff의 정확한 포함/제외 assertion은 완화하지 않는다.
+
 ## 2026-09-11 / 사용자 삭제는 FK뿐 아니라 durable 비정규화 데이터까지 추적한다
 - **발생했던 문제/실수**: `Command.requestedBy`와 `ManualOverride.requestedById`를 `SET NULL`로 바꿨지만 MQTT outbox JSON의 요청자 UUID와 수락된 초대 이메일은 관계형 FK 밖에 남아 있었다. 미발행 command row는 사용자 삭제 뒤에도 요청자 식별자를 외부로 발행할 수 있었다.
 - **원인**: 사용자 PII 수명을 관계형 column과 브라우저 cache 위주로 검토하고, durable JSON payload와 가입에 사용된 토큰 원장의 비정규화 복사본을 삭제 그래프에 포함하지 않았다.

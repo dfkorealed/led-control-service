@@ -1,5 +1,6 @@
 import type { EnergyReportFormat, EnergyReportRequest, EnergyReportTargetsResponse, EnergyScope } from "@led-control/shared/energy-p2-contracts";
 import { useState } from "react";
+import { energyReportRequestErrorMessage, type EnergyReportRequestAction } from "../../../api/energy";
 import { Button, ModalDialog } from "../../../components/ui";
 
 export function ReportCreateDialog({
@@ -41,15 +42,15 @@ export function ReportCreateDialog({
     setScope(nextScope);
     setIdentityId(targetData?.targets.find(target => target.scope === nextScope)?.identityId);
   }
-  async function perform(action: () => Promise<void>) {
+  async function perform(actionType: EnergyReportRequestAction, action: () => Promise<void>) {
     if (!canSubmit) return;
     setError("");
     setIsPending(true);
     try {
       await action();
       onClose();
-    } catch {
-      setError("요청을 완료하지 못했습니다. 연결을 확인한 뒤 다시 시도하세요.");
+    } catch (requestError) {
+      setError(energyReportRequestErrorMessage(requestError, actionType));
     } finally {
       setIsPending(false);
     }
@@ -62,7 +63,7 @@ export function ReportCreateDialog({
       description="XLSX와 PDF는 동일한 표준 보고서 내용을 파일 형식만 다르게 제공합니다."
       onClose={onClose}
       isPending={isPending}
-      actions={<><Button variant="secondary" disabled={!canSubmit} onClick={() => void perform(() => onExportCsv(({ from, to, scope, identityId })))} isLoading={isPending} loadingLabel="내보내는 중">CSV 내보내기</Button><Button variant="primary" disabled={!canSubmit} onClick={() => void perform(() => onCreate({ from, to, scope, identityId, format }))} isLoading={isPending} loadingLabel="요청 중">보고서 요청</Button></>}
+      actions={<><Button variant="secondary" disabled={!canSubmit} onClick={() => void perform("csv", () => onExportCsv(({ from, to, scope, identityId })))} isLoading={isPending} loadingLabel="내보내는 중">CSV 내보내기</Button><Button variant="primary" disabled={!canSubmit} onClick={() => void perform("create", () => onCreate({ from, to, scope, identityId, format }))} isLoading={isPending} loadingLabel="요청 중">보고서 요청</Button></>}
     >
       <div className="statistics-report-form">
         <label>기간 시작<input aria-label="기간 시작" type="date" value={from} max={to && to < completedDate ? to : completedDate} onChange={(event) => setFrom(event.target.value)} /></label>
