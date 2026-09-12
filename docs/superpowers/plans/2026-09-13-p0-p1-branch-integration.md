@@ -58,10 +58,12 @@ Baseline evidence recorded 2026-09-13:
 - Consumes: monitoring state freshness and incident behavior already in the target.
 - Produces: reliable command timeout, delivery reconciliation, and recovery behavior.
 
-- [ ] Run `git merge --no-ff codex/p0p1-control-reliability`.
-- [ ] Resolve documentation conflicts by retaining entries from both branches.
-- [ ] Run `git diff --check` and the control-focused test commands named in the branch plan.
-- [ ] Complete the merge commit.
+- [x] Run `git merge --no-ff codex/p0p1-control-reliability`.
+- [x] Resolve documentation conflicts by retaining entries from both branches.
+- [x] Run `git diff --check` and the control-focused test commands named in the branch plan.
+- [x] Complete the merge commit.
+
+Verification before completing the merge: Shared build and 200/200 tests passed; API command/MQTT focused suites passed 209/209; Gateway journal/status-check/BlueZ focused suites passed 59/59; `git diff --check` passed. The first API invocation exposed a stale generated Prisma Client; schema/client comparison confirmed the merged schema had the fields while the generated client did not, and `pnpm --filter @led-control/api prisma:generate` restored the expected generated types before the same suites passed.
 
 ### Task 3: Merge statistics data operations
 

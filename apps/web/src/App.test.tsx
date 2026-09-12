@@ -1205,7 +1205,7 @@ describe("App", () => {
       brightness: 70,
       clientRequestId: expect.any(String)
     }), { signal: expect.any(AbortSignal) }));
-    expect(await screen.findByText("일부 조명 적용 실패", {}, { timeout: 3000 })).toBeInTheDocument();
+    expect(await screen.findByText("일부 조명 적용 실패", { selector: ".command-progress-card strong" }, { timeout: 3000 })).toBeInTheDocument();
     expect(screen.getByText("2 / 2 처리")).toBeInTheDocument();
     expect(screen.getByText("B2-L02: 장비 응답 오류")).toBeInTheDocument();
   });
@@ -1386,7 +1386,7 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "로그아웃" }));
 
-    const retryButton = await screen.findByRole("button", { name: "동일 요청 다시 전송" });
+    const retryButton = await screen.findByRole("button", { name: "동일 요청 확인(새 제어 아님)" });
     expect(retryButton).toBeDisabled();
     fireEvent.click(retryButton);
     expect(vi.mocked(apiPost).mock.calls.filter(([path]) => path === "/commands/dimming")).toHaveLength(1);
@@ -1424,7 +1424,7 @@ describe("App", () => {
     ));
 
     fireEvent.click(screen.getByRole("button", { name: "로그아웃" }));
-    expect(await screen.findByRole("button", { name: "동일 요청 다시 전송" })).toBeDisabled();
+    expect(await screen.findByRole("button", { name: "동일 요청 확인(새 제어 아님)" })).toBeDisabled();
 
     await act(async () => {
       rejectLogout(new Error("logout unavailable"));
@@ -1432,7 +1432,7 @@ describe("App", () => {
     });
 
     expect(await screen.findByRole("alert")).toHaveTextContent("로그아웃에 실패했습니다");
-    const retryButton = screen.getByRole("button", { name: "동일 요청 다시 전송" });
+    const retryButton = screen.getByRole("button", { name: "동일 요청 확인(새 제어 아님)" });
     expect(retryButton).toBeEnabled();
     fireEvent.click(retryButton);
 
@@ -1440,6 +1440,67 @@ describe("App", () => {
       vi.mocked(apiPost).mock.calls.filter(([path]) => path === "/commands/dimming")
     ).toHaveLength(2));
     expect(await screen.findByText("명령을 전송했습니다. 장비 응답을 기다리는 중입니다.")).toBeInTheDocument();
+  });
+
+  it.each(["success", "failure", "abort"])("recovers the third status-check after failed logout with transport result %s", async (lateResult) => {
+    const commandId = "command-created-1";
+    const unknown = {
+      id: commandId, stage: "verification_required", outcome: "unknown", verificationAttemptCount: 2,
+      dispatchCount: 1, completedFixtureCount: 1, totalFixtureCount: 1, errorMessage: null, dispatches: []
+    };
+    apiState.commandStatus = unknown;
+    let finishOldCheck: (value: unknown) => void = () => undefined;
+    let failOldCheck: (reason: unknown) => void = () => undefined;
+    let rejectLogout: (reason: unknown) => void = () => undefined;
+    let finishRecovery: (value: unknown) => void = () => undefined;
+    let checkSignal: AbortSignal | undefined;
+    const checkBodies: unknown[] = [];
+    vi.mocked(apiPost).mockImplementation((path, body, options) => {
+      if (path === "/commands/dimming") return Promise.resolve({ id: commandId, dispatchCount: 1 });
+      if (path === "/auth/logout") return new Promise((_resolve, reject) => { rejectLogout = reject; });
+      if (path.endsWith("/status-checks")) {
+        checkBodies.push(body);
+        if (checkBodies.length === 1) {
+          checkSignal = options?.signal;
+          // Simulate a transport that completes late despite AbortSignal.
+          return new Promise((resolve, reject) => {
+            finishOldCheck = resolve;
+            failOldCheck = reject;
+            if (lateResult === "abort") options?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+          });
+        }
+        return new Promise((resolve) => { finishRecovery = resolve; });
+      }
+      return Promise.resolve({});
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><App /></QueryClientProvider>);
+    fireEvent.click(await screen.findByRole("link", { name: "제어" }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: "B2-L01 선택" }));
+    fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
+    fireEvent.click(await screen.findByRole("button", { name: "실제 상태 확인" }));
+    fireEvent.click(screen.getByRole("button", { name: "로그아웃" }));
+    expect(checkSignal?.aborted).toBe(true);
+    apiState.commandStatus = { ...unknown, verificationAttemptCount: 3, dispatches: [{ id: "third-check", kind: "status_check", verificationAttempt: 3, status: "timed_out", gateway: { id: "gw", name: "GW" }, results: [], errorMessage: null }] };
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: ["command-status", commandId] });
+      rejectLogout(new Error("logout failed"));
+    });
+    const recover = await screen.findByRole("button", { name: "동일 상태 확인 요청 조회" });
+    expect(recover).toBeEnabled();
+    fireEvent.click(recover);
+    await waitFor(() => expect(checkBodies).toHaveLength(2));
+    expect(checkBodies[1]).toEqual(checkBodies[0]);
+    await act(async () => {
+      if (lateResult === "success") finishOldCheck({ dispatchId: "stale-dispatch", dispatchIds: ["stale-dispatch"], verificationAttempt: 3 });
+      else if (lateResult === "failure") failOldCheck(new Error("late failure"));
+    });
+    expect(recover).toBeDisabled();
+    expect(screen.getByRole("slider", { name: "밝기" })).toBeDisabled();
+    await act(async () => finishRecovery({ dispatchId: "third-check", dispatchIds: ["third-check"], verificationAttempt: 3 }));
+    expect(await screen.findByText(/현장 확인이 필요합니다/)).toBeInTheDocument();
+    expect(screen.getByRole("slider", { name: "밝기" })).toBeEnabled();
+    expect(vi.mocked(apiPost).mock.calls.filter(([path]) => path === "/commands/dimming")).toHaveLength(1);
   });
 
   it("routes an admin with no fixtures to the settings-only registration screen", async () => {

@@ -37,6 +37,8 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { MeshControlGroupService } from "../mesh-control-groups/mesh-control-group.service";
 import { AutomationMqttConsumerService } from "../automation/automation-mqtt-consumer.service";
+import { AutomationSnapshotService } from "../automation/automation-snapshot.service";
+import { AutomationClock } from "../automation/automation-clock";
 import { canonicalPayloadHash } from "../automation/automation-payload-hash";
 import { reconcileLegacyGatewayEventReplay } from "./legacy-gateway-event-replay";
 import { FixtureStateIngestionService } from "../energy/fixture-state-ingestion.service";
@@ -52,6 +54,22 @@ const MQTT_BACKGROUND_PUBLISH_TIMEOUT_MS = 10_000;
 const MQTT_CLOSE_TIMEOUT_MS = 5_000;
 const MQTT_FORCE_CLOSE_TIMEOUT_MS = 1_000;
 const MQTT_GATEWAY_INBOUND_QUEUE_CAPACITY = 256;
+
+interface LockedCommandDispatch {
+  id: string;
+  commandId: string;
+  kind: "dimming" | "status_check";
+  verificationAttempt: number | null;
+  status: "pending" | "published" | "accepted" | "completed" | "failed" | "timed_out";
+  errorCode: string | null;
+  outcome: "pending" | "applied" | "not_applied" | "partially_applied" | "unknown" | null;
+  brightness: number;
+}
+
+const ACTIVE_DISPATCH_STATUSES = ["pending", "published", "accepted"];
+const RECONCILABLE_TIMEOUT_CODES = ["ACCEPTANCE_TIMEOUT", "STATUS_TIMEOUT"];
+const RECONCILABLE_PUBLISH_CODES = ["MQTT_DEAD_LETTER", "COMMAND_DELIVERY_EXPIRED", "MESH_GROUP_STALE", "MANUAL_OVERRIDE_EXPIRED"];
+const DEVICE_STATUS_ACK_EVENT_TYPE = "device_status_ack";
 
 interface GatewayInboundQueue {
   pending: number;
@@ -111,7 +129,8 @@ export class MqttService implements OnModuleInit {
     private readonly meshControlGroups: MeshControlGroupService,
     fixtureStateIngestion?: FixtureStateIngestionService,
     @Optional() private readonly automationConsumer?: AutomationMqttConsumerService,
-    @Optional() private readonly energyDimensions?: EnergyDimensionHistoryService
+    @Optional() private readonly energyDimensions?: EnergyDimensionHistoryService,
+    @Optional() private readonly automationSnapshot: AutomationSnapshotService = new AutomationSnapshotService(new AutomationClock())
   ) {
     this.fixtureStateIngestion = fixtureStateIngestion ?? new FixtureStateIngestionService(prisma);
   }
@@ -1004,6 +1023,9 @@ export class MqttService implements OnModuleInit {
     }
 
     await this.prisma.$transaction(async (tx) => {
+      await this.automationSnapshot.lockMutation(tx);
+      const dispatch = await this.lockCommandDispatch(tx, ack);
+      if (!dispatch || !ACTIVE_DISPATCH_STATUSES.includes(dispatch.status)) return;
       const failed = await tx.commandDispatch.updateMany({ where, data });
       if (failed.count !== 1) return;
       const errorMessage = ack.errorMessage ?? "gateway rejected command";
@@ -1011,10 +1033,7 @@ export class MqttService implements OnModuleInit {
         where: { dispatchId: ack.dispatchId, status: "pending" },
         data: { status: "failed", occurredAt: acceptedAt, errorMessage }
       });
-      await tx.command.updateMany({
-        where: { id: ack.commandId, status: "pending" },
-        data: { status: "failed", errorMessage }
-      });
+      await this.finishParentCommand(tx, dispatch);
     });
   }
 
@@ -1092,21 +1111,16 @@ export class MqttService implements OnModuleInit {
     ack: ReturnType<typeof deviceStatusAckV2Schema.parse>
   ) {
     await this.prisma.$transaction(async (tx) => {
-      const lockedDispatches = await tx.$queryRaw<Array<{ id: string; commandId: string }>>`
-        SELECT d."id", d."commandId"
-        FROM "CommandDispatch" d
-        INNER JOIN "Command" c ON c."id" = d."commandId"
-        WHERE d."id" = ${ack.dispatchId}
-          AND d."commandId" = ${ack.commandId}
-          AND d."gatewayId" = ${ack.gatewayId}
-          AND d."idempotencyKey" = ${ack.idempotencyKey}
-          AND d."sequence" = ${BigInt(ack.sequence)}
-          AND d."status" IN ('pending', 'published', 'accepted')
-          AND c."siteId" = ${ack.siteId}
-        FOR UPDATE OF d
-      `;
-      const dispatch = lockedDispatches[0];
+      // Serialize every uncertainty transition with dimming overlap scans before
+      // acquiring dispatch/command rows, matching verification and timeout writers.
+      await this.automationSnapshot.lockMutation(tx);
+      const dispatch = await this.lockCommandDispatch(tx, ack);
       if (!dispatch) return;
+      const late = dispatch.kind === "dimming" && dispatch.outcome === "unknown"
+        && ["failed", "timed_out"].includes(dispatch.status)
+        && [...RECONCILABLE_TIMEOUT_CODES, ...RECONCILABLE_PUBLISH_CODES].includes(dispatch.errorCode ?? "");
+      if (!ACTIVE_DISPATCH_STATUSES.includes(dispatch.status) && !late) return;
+      if (!await this.claimDeviceStatusEvent(tx, ack)) return;
 
       const expectedResults = await tx.$queryRaw<Array<{ fixtureId: string }>>`
         SELECT r."fixtureId"
@@ -1123,30 +1137,38 @@ export class MqttService implements OnModuleInit {
         expectedFixtureIds.size === actualFixtureIds.size &&
         [...expectedFixtureIds].every((fixtureId) => actualFixtureIds.has(fixtureId));
       if (!fixtureSetMatches) {
+        // Malformed late evidence cannot consume the one permitted reconciliation.
+        if (late) return;
         await this.failInvalidDeviceStatusAck(tx, dispatch, ack.occurredAt, "ack_fixture_set_mismatch", "device status ACK fixture set mismatch");
         return;
       }
 
       const derivedStatus = deriveDeviceStatusAckStatus(ack.results);
       if (derivedStatus !== ack.status) {
+        if (late) return;
         await this.failInvalidDeviceStatusAck(tx, dispatch, ack.occurredAt, "ack_status_mismatch", "device status ACK aggregate status mismatch");
         return;
       }
 
-      const dispatchStatus =
-        ack.status === "succeeded" ? "completed" : ack.status === "timed_out" ? "timed_out" : "failed";
+      // Older BlueZ producers encoded lost Lightness Status as failed + STATUS_TIMEOUT.
+      // Validate the original aggregate/hash first, then persist absence of evidence as
+      // timed_out. A compatibility conversion must not legitimize a malformed wire ACK.
+      const results = ack.results.map((result) => result.status === "failed" && result.faultCode === "STATUS_TIMEOUT"
+        ? { ...result, status: "timed_out" as const, brightness: undefined } : result);
+      const normalizedStatus = deriveDeviceStatusAckStatus(results);
+      const dispatchStatus = normalizedStatus === "succeeded" ? "completed" : normalizedStatus === "timed_out" ? "timed_out" : "failed";
       const completed = await tx.commandDispatch.updateMany({
-        where: { id: dispatch.id, status: { in: ["pending", "published", "accepted"] } },
+        where: { id: dispatch.id, status: dispatch.status },
         data: {
           status: dispatchStatus,
           completedAt: new Date(ack.occurredAt),
-          errorCode: null,
+          errorCode: results.some((result) => result.status === "timed_out") ? "STATUS_TIMEOUT" : null,
           errorMessage: null
         }
       });
       if (completed.count !== 1) return;
 
-      for (const result of ack.results) {
+      for (const result of results) {
         const updated = await tx.commandFixtureResult.updateMany({
           where: { dispatchId: dispatch.id, fixtureId: result.fixtureId },
           data: {
@@ -1162,13 +1184,42 @@ export class MqttService implements OnModuleInit {
         if (updated.count !== 1) throw new Error(`fixture result is outside dispatch: ${result.fixtureId}`);
       }
 
-      await this.finishParentCommand(tx, dispatch.commandId);
+      await this.finishParentCommand(tx, dispatch);
     });
+  }
+
+  private async claimDeviceStatusEvent(
+    tx: Prisma.TransactionClient,
+    ack: ReturnType<typeof deviceStatusAckV2Schema.parse>
+  ) {
+    const payloadHash = canonicalPayloadHash(ack);
+    // ACK sequence identifies the command, not the event: a distinct late ACK
+    // shares it. Allocate a ledger sequence under the already-held mutation lock,
+    // matching resync ingestion, so the legacy unique sequence index permits both.
+    // ON CONFLICT also handles an eventId claimed by another ingestion path without
+    // aborting PostgreSQL's transaction before we can validate the durable identity.
+    const inserted = await tx.$queryRaw<Array<{ eventId: string }>>`
+      INSERT INTO "ProcessedGatewayEvent" ("eventId", "gatewayId", "sequence", "eventType", "payloadHash", "occurredAt")
+      SELECT ${ack.eventId}, ${ack.gatewayId}, COALESCE(MAX("sequence"), -1::bigint) + 1::bigint,
+        ${DEVICE_STATUS_ACK_EVENT_TYPE}, ${payloadHash}, ${new Date(ack.occurredAt)}
+      FROM "ProcessedGatewayEvent"
+      WHERE "gatewayId" = ${ack.gatewayId} AND "eventType" = ${DEVICE_STATUS_ACK_EVENT_TYPE}
+      ON CONFLICT DO NOTHING
+      RETURNING "eventId"
+    `;
+    if (inserted.length === 1) return true;
+    const existing = await tx.processedGatewayEvent.findUnique({ where: { eventId: ack.eventId } });
+    if (existing?.gatewayId !== ack.gatewayId || existing.eventType !== DEVICE_STATUS_ACK_EVENT_TYPE
+      || existing.payloadHash !== payloadHash) {
+      // Keep untrusted payloads, identifiers and database details out of logs.
+      this.logger.warn("device status ACK event identity conflict");
+    }
+    return false;
   }
 
   private async failInvalidDeviceStatusAck(
     tx: Prisma.TransactionClient,
-    dispatch: { id: string; commandId: string },
+    dispatch: LockedCommandDispatch,
     occurredAt: string,
     errorCode: "ack_fixture_set_mismatch" | "ack_status_mismatch",
     errorMessage: string
@@ -1183,23 +1234,64 @@ export class MqttService implements OnModuleInit {
       where: { dispatchId: dispatch.id },
       data: { status: "failed", errorMessage, occurredAt: completedAt }
     });
-    await this.finishParentCommand(tx, dispatch.commandId);
+    await this.finishParentCommand(tx, dispatch);
   }
 
-  private async finishParentCommand(tx: Prisma.TransactionClient, commandId: string) {
-    const remaining = await tx.commandDispatch.count({
-      where: { commandId, status: { notIn: ["completed", "failed", "timed_out"] } }
+  private async lockCommandDispatch(
+    tx: Prisma.TransactionClient,
+    ack: { dispatchId: string; commandId: string; gatewayId: string; idempotencyKey: string; sequence: number; siteId: string }
+  ) {
+    const rows = await tx.$queryRaw<LockedCommandDispatch[]>`
+      SELECT d."id", d."commandId", d."kind", d."verificationAttempt", d."status", d."errorCode", c."outcome", c."brightness"
+      FROM "CommandDispatch" d INNER JOIN "Command" c ON c."id" = d."commandId"
+      WHERE d."id" = ${ack.dispatchId} AND d."commandId" = ${ack.commandId}
+        AND d."gatewayId" = ${ack.gatewayId} AND d."idempotencyKey" = ${ack.idempotencyKey}
+        AND d."sequence" = ${BigInt(ack.sequence)} AND c."siteId" = ${ack.siteId}
+      FOR UPDATE OF d, c
+    `;
+    return rows[0];
+  }
+
+  private async finishParentCommand(tx: Prisma.TransactionClient, dispatch: LockedCommandDispatch) {
+    const verification = dispatch.kind === "status_check";
+    const dispatches = await tx.commandDispatch.findMany({
+      where: { commandId: dispatch.commandId, kind: dispatch.kind,
+        ...(verification ? { verificationAttempt: dispatch.verificationAttempt } : {}) },
+      include: { fixtureResults: true }
     });
-    if (remaining !== 0) return;
-    const dispatches = await tx.commandDispatch.findMany({ where: { commandId }, select: { status: true } });
-    const succeeded = dispatches.every((item) => item.status === "completed");
+    // A logical verification can span multiple wire-sized chunks. Never conclude
+    // from only the ACK's chunk or mix observations from earlier attempts.
+    if (!dispatches.length || dispatches.some((item) => ACTIVE_DISPATCH_STATUSES.includes(item.status))) return;
+    if (verification && dispatch.outcome !== "unknown") return;
+    const results = dispatches.flatMap((item) => item.fixtureResults);
+    const outcome = verification
+      ? this.verificationOutcome(results, dispatch.brightness)
+      : this.dimmingOutcome(dispatches, results);
     await tx.command.updateMany({
-      where: { id: commandId, status: "pending" },
+      where: { id: dispatch.commandId, ...(verification ? { outcome: "unknown" } : { outcome: dispatch.outcome }) },
       data: {
-        status: succeeded ? "acknowledged" : "failed",
-        errorMessage: succeeded ? null : "one or more gateway dispatches failed"
+        status: outcome === "applied" ? "acknowledged" : "failed",
+        ...(dispatch.outcome === null ? {} : { outcome }),
+        errorMessage: outcome === "applied" ? null : "one or more gateway dispatches failed"
       }
     });
+  }
+
+  private verificationOutcome(results: Array<{ status: string; brightness: number | null }>, expectedBrightness: number) {
+    if (!results.length || results.some((item) => item.status !== "succeeded" || item.brightness === null)) return "unknown" as const;
+    const matches = results.filter((item) => item.brightness === expectedBrightness).length;
+    return matches === results.length ? "applied" as const : matches === 0 ? "not_applied" as const : "partially_applied" as const;
+  }
+
+  private dimmingOutcome(dispatches: Array<{ status: string; errorCode: string | null }>, results: Array<{ status: string }>) {
+    // A timed-out or malformed response cannot establish the physical result,
+    // even if another fixture succeeded. Pending-delivery timeout is excluded:
+    // the outbox was closed before publish, so that dispatch was never applied.
+    if (!results.length || dispatches.some((item) => RECONCILABLE_TIMEOUT_CODES.includes(item.errorCode ?? "")
+      || (item.status === "timed_out" && RECONCILABLE_PUBLISH_CODES.includes(item.errorCode ?? ""))
+      || item.errorCode?.startsWith("ack_"))) return "unknown" as const;
+    const succeeded = results.filter((item) => item.status === "succeeded").length;
+    return succeeded === results.length ? "applied" as const : succeeded > 0 ? "partially_applied" as const : "not_applied" as const;
   }
 
   private async completeProvisioning(

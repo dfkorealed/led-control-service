@@ -1,8 +1,17 @@
 # 제어 메뉴 기능 현황
 
-기준일: 2026-09-11
+기준일: 2026-09-12
 
 ## 구현 완료
+
+- P0/P1 상태 조회 기반 계약을 연결했다. `Command.outcome`은 과거 행을 `NULL`로 보존하고 `CommandDispatch.kind`로 dimming과 status-check를 구분한다. Status-check wire는 dispatch당 대상 1~64개이며, 원 명령의 65~1,000개 대상은 하나의 논리 시도 안에서 정렬된 여러 dispatch로 나눈다. 최대 횟수는 dispatch 수가 아니라 논리 시도 3회다. 첫 chunk만 HTTP `clientRequestId`를 소유하고 동일 ID 재요청은 해당 시도의 전체 dispatch ID를 반환한다. 사용자 DB에는 `20260912090000_command_outcome_status_check` migration을 적용하지 않았다.
+- 최종 리뷰에서 BlueZ의 Lightness Status 유실을 `timed_out`으로 보정하고 API가 기존 `failed + STATUS_TIMEOUT` wire도 원문 aggregate 검증 뒤 `unknown`으로 수렴하도록 했다. Publisher는 MQTT 호출 직전 `deliveryAttemptedAt`을 commit하여 PUBACK 유실 뒤 expiry/dead-letter와 pending timeout을 `unknown`으로 닫는다. 검증 단계의 발행 전 거절만 `not_applied`이며, 늦은 확정 ACK는 보존하고 불확실 명령의 Get 허용·겹치는 Set 차단을 유지한다.
+- 최종 보정 검증은 API focused 209/209·전체 1,176 passed/272 environment-gated skipped, Gateway focused 77/77·전체 625/625, Shared 200/200 및 API/Gateway typecheck/build·Prisma validate다. Web 715/715와 Chromium 21/21은 `465984c` 시점의 이전 증거이며 이번 서버/Gateway 보정에서는 재실행하지 않았다.
+- API timeout worker는 예약 batch를 single-flight로 실행해 느린 DB 작업과 다음 tick이 겹치지 않게 하고, 종료 시 interval을 해제한 뒤 진행 중 batch를 drain한다. 직접 호출하는 `closeExpired()`는 오류를 호출자에게 전달하고 예약 wrapper만 정제된 Prisma code 또는 `UNEXPECTED_ERROR`를 기록한다. 발행 전 delivery timeout은 `not_applied`, 발행 뒤 acceptance/status 유실은 `unknown`이며 status-check 자체 timeout은 원 명령의 `unknown`을 덮어쓰지 않는다.
+- Gateway status-check는 durable command journal에 acceptance receipt를 먼저 저장한 뒤 Generic OnOff/Lightness Get을 실행한다. 같은 MQTT 명령의 live duplicate는 진행 중 Get과 receipt를 공유하고, 완료 duplicate는 journal 결과를 재사용한다. acceptance-only 재시작 복구는 Set이나 Get을 자동 재실행하지 않고 indeterminate 결과로 닫는다. API는 device-status ACK의 `eventId`와 canonical payload hash를 `ProcessedGatewayEvent`에 함께 기록해 exact duplicate를 무시하고 identity/hash 충돌 payload로 상태를 다시 바꾸지 않는다.
+- 수동 제어의 `CommandHistoryPanel`은 사용자·현장 범위의 최근 명령, 300ms 검색, 단계 필터와 cursor 더 보기를 제공한다. 명령 행은 서버에서 상세를 새로 읽어 열고 닫은 뒤 다시 열 수 있다. 오래된 캐시의 미적용 결과로 재적용 버튼이 먼저 나타나지 않도록 상세를 재조회한다. PC에서는 대상 선택·실행 패널의 고정 배치를 유지하고 이력 목록과 상세 피드백 안에서 스크롤한다.
+- `CommandOutcomeActions`는 불확정 결과에 경고·원인·시도 횟수와 “실제 상태 확인”만 제공한다. 상태 확인 중에는 제어 입력과 이력 선택을 잠그며 세 번 소진 시 현장 확인을 안내한다. HTTP 응답 유실은 동일 Get 요청 ID로 조회하고, 일반 제어 응답 유실은 “동일 요청 확인(새 제어 아님)”으로 저장된 원 요청을 재사용한다. `verified_not_applied`에서만 새 요청 ID로 원래 확정 조명 목록·밝기를 재적용하며, 층·구역의 현재 멤버나 편집 중인 선택을 재사용하지 않는다. 적용 완료는 설명만, 부분 적용은 마지막 확인의 대상별 현재값과 새 제어 안내를 제공한다. 세션 무효화·사용자/현장 전환의 요청 중단과 늦은 응답 무시는 유지한다.
+- 저장된 명령 ID 복원은 과거 상세 캐시를 먼저 제거하고 새 서버 상세를 확인한 뒤 잠금을 해제한다. 상태 확인 POST의 응답·dispatch ID를 아직 받지 못했으면 상세가 이전 unknown이어도 조회를 유지한다. 로그아웃이 상태 확인 요청을 중단한 뒤 실패하면 같은 요청 ID로 복구할 수 있으며, 세 번째 시도도 새 시도를 만들지 않고 조회한다. 중단된 요청의 늦은 응답·정리 콜백은 재개한 HTTP 요청의 잠금을 해제하지 않는다.
 
 - 공통 고객 셸 상단은 현재 메뉴 제목과 실제 현장명 배지만 표시한다. 기존 층명 기반 `B2 주차장` 표기와 동작 없는 Gateway 정상·오프라인·미등록 상태 배지는 제거하되 설정의 `Gateway 상태` 상세 카드는 유지한다. 로그아웃 위치와 인증·dirty editor 확인 로직은 유지하고, 고객·운영자 셸의 로그아웃은 공통 `IconTooltipButton`으로 아이콘만 표시한다. `로그아웃` 도움말은 hover와 키보드 focus에서 열리고 도움말 위로 포인터를 옮겨도 유지되며 `Escape`로 닫힌다. 모바일 버튼은 52px 실제 터치 영역을 사용한다.
 - 수동·스케줄·이벤트 제어 탭을 통계 상단 메뉴와 같은 밑줄형 공통 `UnderlineNavigation`으로 통일했다. 탭 아이콘은 공통 label의 선택 옵션으로 제공해 제어의 기존 아이콘은 유지하고, 활성 밑줄·색상·44px 높이·가로 스크롤 동작은 통계와 공유한다. 기존 `mode` query, 권한별 탭 노출, `tablist`/`tab` ARIA 연결과 방향키·Home·End roving focus는 변경하지 않았다. 390·320·760px Chromium에서 세 모드 모두 탭과 panel 사이 16px 간격, overflow 내부 focus ring과 document 가로 overflow 부재를 확인했다.
@@ -50,7 +59,7 @@
 
 - 다중 gateway command 최종 집계 고도화
 - ACK 계약 전면 개편과 API MQTT 소비 내구성 재설계
-- 명령 재시도, 취소, rollback과 명령 이력 전용 화면
+- 자동 Set 재시도, 취소, rollback과 수동 제어 패널 외 독립 명령 이력 페이지
 - 스케줄 제어와 차량 감지 이벤트 제어 외의 센서·장면 자동제어
 - RSSI, hop count와 제품별 상세 diagnostics
 - 자동 HIL 판정. 실제 하드웨어 검증은 단일 gateway 기준으로 수동 수행한다.
@@ -214,8 +223,8 @@
 ## 미구현
 
 - 인체 감지, 외부 이벤트, 장면과 복합 조건 rule builder
-- 명령 전송 이력 화면
-- 명령 retry, rollback, cancel
+- 수동 제어 이력 패널 외 독립 명령 이력 페이지
+- 자동 Set retry, rollback, cancel
 - 조명 on/off 전용 토글
 - 위험 명령 확인 dialog
 - gateway의 원격 `identify-device` 명령을 실제 BlueZ adapter의 Health Attention Set으로 전달하는 연결
@@ -226,7 +235,7 @@
 ## 부족하거나 개선이 필요한 기능
 
 - 공통 우측 패널의 반응형·overflow 계약은 Chromium 1440/1024/390/320px route fixture로 검증했으며 실제 모바일 WebView safe-area와 브라우저별 scrollbar 표현은 별도 실측이 필요하다.
-- 현재 개별 밝기 제어는 acknowledged Light Lightness Set을 한 번 전송하고 Status를 기다린다. 2026-09-03 HIL 4회 중 3회는 1~2초 내 성공했고 1회는 장치 적용 후 Status 한 패킷 유실로 timeout 됐다. 같은 TID를 사용하는 bounded 재전송 또는 후속 Lightness Get 확인으로 실제 적용과 서버 실패 표시가 어긋나지 않게 보완해야 한다.
+- 현재 개별 밝기 제어는 acknowledged Light Lightness Set을 한 번 전송하고 Status를 기다린다. 2026-09-03 HIL 4회 중 3회는 1~2초 내 성공했고 1회는 장치 적용 후 Status 한 패킷 유실로 timeout 됐다. 자동 Set 재전송 없이 후속 Lightness Get으로 실제 적용 여부를 확인하는 API·Gateway·웹 경로는 소프트웨어 구현을 완료했다. 해당 응답 유실 및 복구 경로의 실제 Raspberry Pi/BlueZ/ESP32-H2 HIL이 남아 있다.
 - API/Gateway의 DB·journal 이후 PUBACK 계약은 자동화됐지만, API 종료·Gateway 종료·broker 재연결과 ESP32-H2 cold boot를 동시에 포함한 acceptance/device-status 중복 재전달 및 AppKey 복원은 실장비 전원 차단 HIL로 확인해야 한다.
 - Automation full snapshot의 production MQTT publish, Gateway 원자 저장/hot reload/exact durable config ACK, Task 12 offline scheduler·priority arbiter, Task 13 execution outbox/application ACK와 Task 14 Sensor Client/vendor ACK 입력은 연결됐다. Snapshot activation과 production shutdown은 필요한 BLE Mesh terminal state/handoff, execution/capability queue와 in-flight QoS 1 publish를 순서대로 drain한다.
 - Capability ACK의 필수 `reportPayloadHash`와 identity `vehicle-sensor-capability:<gatewayId>:<meshNodeId>:<eventId>:<reportPayloadHash>`는 cross-node eventId 충돌과 same-node altered payload를 원본과 분리한다. Exact report 재전달은 최초 payload/hash/`ingestedAt`을 유지하고 published/deadletter/expired lease delivery 상태만 재큐잉하며 live lease를 보호한다. 2026-09-03~04 Lab HIL에서 실제 Gateway 인증서·broker ACL로 capability revision 1과 Sensor/vendor binding, application ACK 및 후속 event 수신을 확인했다. Packet loss와 ACK exhaustion은 아직 실기하지 않았다.
@@ -235,13 +244,15 @@
 - `clientRequestId`와 payload를 보존하는 응답 유실 복구는 자동 테스트와 실제 Chromium 재로딩 흐름을 통과했다. 실장비 terminal ACK 왕복은 Raspberry Pi/ESP32-H2 HIL에서 확인해야 한다.
 - schedule API CRUD, Gateway offline schedule 실행, Schedule Web CRUD와 차량 이벤트 Web CRUD·수동 override 종료 시각 입력은 소프트웨어 구현을 마쳤다. Task 18 Fix Round 1 Web unit은 event 목록·권한·empty source/target·canonical capability timestamp filter, mutation unmount 뒤 `401`/cache invalidation, initial/cursor/background `401`, conditional dimming validation, field error 접근성, scope reset과 manual override 변환을 검증했다. Task 19 Fix Round 3 production API/Gateway Chromium software E2E도 실제 DB/MQTT 경로, 독립 canonical execution hash/ACK/DB/outbox oracle와 deadline 경계에서 final-HEAD reviewer fresh run을 통과했지만 bootstrap certificate 재발급, 실제 Raspberry Pi/BlueZ/ESP32-H2 HIL은 후속 범위다.
 - Final review P1 통합 fix의 RealBackendLab Chromium 검증은 non-persistent mTLS Mosquitto를 실제 재시작해 최초 Gateway 연결 전 publish `desired/applied 1/0→1/1`, 세션 소멸 재연결 revision 2, cloud 삭제 revision `2→3`, API session 소멸·재시작 revision `3→4`를 확인했다. 삭제 snapshot 적용 뒤 통제 clock을 3시간 전진해도 삭제 rule execution count는 `7→7`로 유지됐고, API가 없는 동안 config ACK는 broker PUBACK 뒤에도 Gateway outbox 1건으로 남아 API의 exact receipt 후 0건이 됐다. 이는 production API/Gateway와 software BLE simulator 검증이며 실제 RF/HIL 완료 증거는 아니다.
-- 최근 명령은 ACK 완료/실패까지 추적할 수 있지만, 이전 명령을 검색하고 다시 열 수 있는 명령 이력 화면은 아직 없다.
+- 최근·과거 명령 검색/상세 재열기와 불확정 상태 확인·미적용 확인 후 재적용은 소프트웨어로 구현했다. 실제 Raspberry Pi/BlueZ/ESP32-H2 다중 조명·그룹 및 장애 주입 HIL은 별도 검증으로 남는다.
+- 이번 P0/P1 software 검증은 status Get, chunking, 3회 제한, timeout single-flight/drain, durable journal replay, ACK `eventId`/hash dedupe, 이력/안전 재적용 UI를 자동 테스트로 확인한 범위다. 실제 다중 fixture·층 전체·저장 구역·Mesh Group, Raspberry Pi/ESP32-H2 전원 차단, MQTT broker 단절, Gateway 프로세스 강제 종료를 조합한 HIL은 모두 미실행이며 자동 테스트 통과로 완료 처리하지 않는다.
+- P0/P1은 구버전 혼합 배포가 안전하지 않다. 구버전 API/publisher를 stop-and-drain하고 migration을 적용한 뒤 신규 publisher·Gateway·API ACK consumer의 준비를 확인해야 status-check producer/API와 UI를 활성화할 수 있다. 자동 테스트는 실제 DB partial index·concurrent ACK 경합이나 RF/HIL의 증거가 아니며, 발행 시도 기록 직후 MQTT 호출 전 crash는 보수적으로 `unknown`을 남긴다.
 - Health Current는 최신 snapshot만 사용하며 fault 이력과 제품별 code 설명은 아직 제공하지 않는다.
-- viewer의 읽기 전용 안내는 구현됐지만, 향후 명령 이력 화면에서도 동일한 권한 설명을 재사용하도록 공통화할 수 있다.
+- 이력·상세는 조회 계약을 사용하고 후속 상태 확인·재적용 버튼은 현장의 control capability와 세션 잠금을 따른다. 읽기 전용 사용자의 제어 route 접근 제한은 기존 정책을 유지한다.
 - Raspberry Pi Phase 0의 daemon/HCI/network/token 재연결은 통과했지만 ESP32-H2 provisioning과 0/25/50/100% 왕복, 2-node HIL은 아직 실기 검증이 필요하다.
 - 자동 테스트 adapter는 `apps/gateway/test`에만 있고 양산 gateway runtime과 배포 진입점에는 포함되지 않는다.
 - ESP32-H2 custom two-OTA partition은 각 slot `0x1f0000` 바이트다. Task 16 breaker fullclean test-build binary는 `0xefa30`(`981,552`) 바이트, free는 `0x1005d0`(`1,050,064`, 약 52%)다. Production release gate는 free가 slot 20%와 256 KiB 중 큰 값인 현재 `406,324` 바이트보다 작으면 build를 거부한다. 실제 production trust root는 미등록이라 production build는 IDF 실행 전에 정상적으로 fail-closed한다.
-- gateway가 acceptance 기록 직후 재시작하면 자동 재제어하지 않고 불확정 timeout으로 닫는다. 운영자 재시도 UI는 명령 이력 기능과 함께 보완해야 한다.
+- gateway가 acceptance 기록 직후 재시작하면 자동 재제어하지 않고 불확정 결과를 보존한다. 운영자는 명령 이력에서 실제 상태를 확인하고 미적용이 확인된 경우에만 재적용할 수 있다. 재시작·상태 응답 유실의 실장비 검증은 미실행이다.
 - API target 해석, 확정 fixture snapshot, delivery mode와 Mesh group ID/address/version 영속화, strict full retry 복구, fresh publisher fencing, outbox row 기반 pending timeout 직렬화, Gateway 병렬 unicast/group 단일 전송과 durable group state 수명주기, 신규 웹 target picker 연결까지 반영됐다.
 - 자동 테스트와 ESP-IDF target build는 통과했지만 Raspberry Pi BlueZ, 실제 ESP32-H2 여러 대, 실제 MQTT broker를 연결한 group subscription, 단일 RF 전송, 지터 publication, timeout/패킷 손실 RF/HIL은 아직 수동 검증이 필요하다. 특히 조명 수 증가에 따른 Status 충돌률과 Gateway 8초 수집 timeout의 적정성은 현장 규모별로 측정해야 한다.
 - `sessionStorage` 새로고침 복구와 ACK terminal 전 입력 잠금의 브라우저 계약 검증은 Task 7에서 완료했다. 격리 실백엔드 Chromium E2E에서 저장 구역 생성·수정·삭제와 개별·다중·층·구역 제어 4건의 terminal 결과를 검증했다. Raspberry Pi Gateway와 ESP32-H2 HIL은 단일 fixture의 개별·schedule·event 제어까지 통과했으며 다중·층·구역·Mesh Group 실장비 검증은 남아 있다.
@@ -250,6 +261,12 @@
 - Task 20 Fix Round 4에서 temp directory는 fixed lock의 owner/coordination 상태가 아닌 publish 후보로 유지하되, cleanup은 원본 temp를 같은 parent의 unique quarantine path로 먼저 atomic rename해 소유권을 확보한 뒤 quarantine 내부만 정리한다. quarantine 내부가 empty directory이거나 exact regular `.owner.<token>` marker 하나만 가진 경우에만 삭제하고, publisher가 먼저 temp를 fixed lock으로 rename하면 cleaner는 원본 temp `ENOENT`로 중단한다. cleaner가 먼저 quarantine하면 publisher는 `ENOENT` 후 같은 token으로 새 temp를 만들어 retry한다. fixed lock directory 자체는 quarantine하지 않는다. temp/quarantine symlink·non-directory·marker symlink·multi-entry·외부 sentinel은 따라가거나 삭제하지 않고 fixed lock 획득을 막지 않는다. fixed lock은 계속 token/PID/`ps` process-start identity를 exact marker로 확인해 active owner wait, stale/PID reuse takeover, unknown identity fail-closed, exact release, successor ABA 보호와 same-output 직렬화를 유지한다. production `scripts/esp32-h2-build.sh`는 Bluetooth SIG 자사 Company ID와 signed manufacturing approval이 없는 현재 `unprovisioned` policy에서 의도적으로 fail-closed한다. 이는 HIL 실패나 HIL 완료 증거가 아니다.
 
 ## 관련 파일
+
+- `apps/web/src/features/control/CommandHistoryPanel.tsx`
+- `apps/web/src/features/control/CommandHistoryPanel.test.tsx`
+- `apps/web/src/features/control/CommandOutcomeActions.tsx`
+- `apps/web/src/features/control/CommandOutcomeActions.test.tsx`
+- `apps/api/src/commands/command-delivery-reliability.spec.ts`
 
 - `apps/web/e2e/site-user-management.spec.ts`
 - `apps/api/src/access/site-access.service.ts`

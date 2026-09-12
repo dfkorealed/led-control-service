@@ -1,9 +1,27 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
+import { z } from "zod";
 import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 
 type ResultStatus = "pending" | "succeeded" | "failed" | "timed_out";
+
+const commandStages = ["queued", "published", "accepted", "completed", "partial_failed", "failed", "timed_out",
+  "verification_required", "verified_applied", "verified_not_applied", "verified_partial"] as const;
+export const commandHistoryQuerySchema = z.object({
+  siteId: z.string().uuid(),
+  query: z.string().trim().max(100).optional(),
+  stage: z.enum(commandStages).optional(),
+  cursor: z.string().min(1).max(512).optional(),
+  limit: z.union([z.string().regex(/^\d+$/).transform(Number), z.number()]).pipe(z.number().int().min(1).max(100)).default(20)
+}).strict();
+type HistoryInput = { siteId: string; query?: string; stage?: typeof commandStages[number]; cursor?: string; limit?: number };
+
+const historyInclude = {
+  dispatches: { select: { kind: true, verificationAttempt: true, status: true, fixtureResults: { select: { status: true } } } }
+} satisfies Prisma.CommandInclude;
+type SummaryCommand = Prisma.CommandGetPayload<{ include: typeof historyInclude }>;
 
 @Injectable()
 export class CommandStatusService {
@@ -11,6 +29,43 @@ export class CommandStatusService {
     private readonly prisma: PrismaService,
     private readonly siteAccess: SiteAccessService
   ) {}
+
+  async listCommands(user: AuthenticatedUser, input: HistoryInput) {
+    await this.siteAccess.assert(user, input.siteId, "read");
+    const limit = input.limit ?? 20;
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100 || (input.query?.length ?? 0) > 100) {
+      throw new BadRequestException("invalid command history query");
+    }
+    const filters: Prisma.CommandWhereInput[] = [];
+    const query = input.query?.trim();
+    if (query) filters.push({ OR: [
+      { id: { startsWith: query, mode: "insensitive" } },
+      { dispatches: { some: { fixtureResults: { some: { fixture: { name: { contains: query, mode: "insensitive" } } } } } } }
+    ] });
+    if (input.stage) filters.push(stageFilter(input.stage));
+    if (input.cursor) {
+      const cursor = parseHistoryCursor(input.cursor);
+      filters.push({ OR: [
+        { createdAt: { lt: cursor.createdAt } },
+        { createdAt: cursor.createdAt, id: { lt: cursor.id } }
+      ] });
+    }
+    const commands = await this.prisma.command.findMany({
+      // Keep siteId outside all search/cursor OR predicates to prevent scope escape.
+      where: { siteId: input.siteId, AND: filters },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: limit + 1,
+      include: historyInclude
+    });
+    const page = commands.slice(0, limit);
+    const last = page.at(-1);
+    return {
+      items: page.map(summarizeCommand),
+      nextCursor: commands.length > limit && last ? Buffer.from(JSON.stringify({
+        id: last.id, createdAt: last.createdAt.toISOString()
+      })).toString("base64url") : null
+    };
+  }
 
   async getCommand(user: AuthenticatedUser, commandId: string) {
     const scopedCommand = await this.prisma.command.findUnique({
@@ -42,31 +97,12 @@ export class CommandStatusService {
     });
     if (!command) throw new NotFoundException("command not found");
 
-    const fixtureResults = command.dispatches.flatMap((dispatch) => dispatch.fixtureResults);
-    const statuses = fixtureResults.map((result) => result.status as ResultStatus);
-    const stage = deriveCommandStage(
-      command.status,
-      command.dispatches.map((dispatch) => dispatch.status),
-      statuses
-    );
-
     return {
-      id: command.id,
-      siteId: command.siteId,
-      targetType: command.targetType,
-      targetId: command.targetId,
-      targetFixtureIds: command.targetFixtureIds,
-      brightness: command.brightness,
-      status: command.status,
-      stage,
-      errorMessage: command.errorMessage,
-      dispatchCount: command.dispatches.length,
-      completedFixtureCount: statuses.filter((status) => status !== "pending").length,
-      totalFixtureCount: statuses.length,
-      createdAt: command.createdAt.toISOString(),
-      updatedAt: command.updatedAt.toISOString(),
+      ...summarizeCommand(command),
       dispatches: command.dispatches.map((dispatch) => ({
         id: dispatch.id,
+        kind: dispatch.kind,
+        verificationAttempt: dispatch.verificationAttempt,
         deliveryMode: dispatch.deliveryMode,
         destinationAddress: dispatch.destinationAddress,
         meshControlGroupId: dispatch.meshControlGroupId,
@@ -90,6 +126,74 @@ export class CommandStatusService {
       }))
     };
   }
+}
+
+function summarizeCommand(command: SummaryCommand) {
+  const verificationAttemptCount = Math.max(0, ...command.dispatches
+    .filter((dispatch) => dispatch.kind === "status_check").map((dispatch) => dispatch.verificationAttempt ?? 0));
+  // Verification creates another result per fixture; the original Set counts must
+  // not multiply every time an operator asks to read its current physical state.
+  const dimming = command.dispatches.filter((dispatch) => dispatch.kind !== "status_check");
+  const statuses = dimming.flatMap((dispatch) => dispatch.fixtureResults.map((result) => result.status));
+  const outcome = command.outcome ?? null;
+  const verified = verificationAttemptCount > 0;
+  const stage = outcome === "unknown" ? "verification_required"
+    : outcome === "applied" ? (verified ? "verified_applied" : "completed")
+    : outcome === "not_applied" ? (verified ? "verified_not_applied" : "failed")
+    : outcome === "partially_applied" ? (verified ? "verified_partial" : "partial_failed")
+    : deriveCommandStage(command.status, dimming.map((dispatch) => dispatch.status), statuses);
+  return {
+    id: command.id, siteId: command.siteId, targetType: command.targetType, targetId: command.targetId,
+    targetFixtureIds: command.targetFixtureIds, brightness: command.brightness, status: command.status,
+    outcome, stage, verificationAttemptCount, errorMessage: command.errorMessage, dispatchCount: command.dispatches.length,
+    completedFixtureCount: statuses.filter((status) => status !== "pending").length, totalFixtureCount: statuses.length,
+    createdAt: command.createdAt.toISOString(), updatedAt: command.updatedAt.toISOString()
+  };
+}
+
+function parseHistoryCursor(cursor: string) {
+  try {
+    if (cursor.length > 512 || !/^[A-Za-z0-9_-]+$/.test(cursor)) throw new Error("invalid encoding");
+    const parsed = z.object({ id: z.string().uuid(), createdAt: z.string().datetime() }).strict()
+      .parse(JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")));
+    return { id: parsed.id, createdAt: new Date(parsed.createdAt) };
+  } catch {
+    throw new BadRequestException("invalid command history cursor");
+  }
+}
+
+function stageFilter(stage: typeof commandStages[number]): Prisma.CommandWhereInput {
+  if (stage === "verification_required") return { outcome: "unknown" };
+  const checks: Prisma.CommandWhereInput = { dispatches: { some: { kind: "status_check", verificationAttempt: { gt: 0 } } } };
+  const verifiedOutcomes = { verified_applied: "applied", verified_not_applied: "not_applied", verified_partial: "partially_applied" } as const;
+  if (stage in verifiedOutcomes) return { AND: [{ outcome: verifiedOutcomes[stage as keyof typeof verifiedOutcomes] }, checks] };
+
+  const result = (status: Prisma.CommandFixtureResultWhereInput["status"]): Prisma.CommandWhereInput => ({
+    dispatches: { some: { kind: "dimming", fixtureResults: { some: { status } } } }
+  });
+  const dispatch = (status: Prisma.CommandDispatchWhereInput["status"]): Prisma.CommandWhereInput => ({ dispatches: { some: { kind: "dimming", status } } });
+  const succeeded = result("succeeded");
+  const failed = result({ in: ["failed", "timed_out"] });
+  // The ordered conditions mirror legacy stage precedence, including mixed results.
+  const legacyConditions: Array<{ stage: string; where: Prisma.CommandWhereInput }> = [
+    { stage: "partial_failed", where: { AND: [succeeded, failed] } },
+    { stage: "completed", where: { AND: [succeeded, { NOT: result({ not: "succeeded" }) }] } },
+    { stage: "timed_out", where: { OR: [result("timed_out"), dispatch("timed_out")] } },
+    { stage: "failed", where: { OR: [{ status: "failed" }, dispatch("failed"), failed] } },
+    { stage: "accepted", where: dispatch("accepted") },
+    { stage: "published", where: dispatch("published") },
+    { stage: "queued", where: {} }
+  ];
+  const index = legacyConditions.findIndex((condition) => condition.stage === stage);
+  if (index < 0) throw new BadRequestException("invalid command history stage");
+  const legacy: Prisma.CommandWhereInput = { AND: [
+    { OR: [{ outcome: null }, { outcome: "pending" }] }, legacyConditions[index].where,
+    ...legacyConditions.slice(0, index).map(({ where }) => ({ NOT: where }))
+  ] };
+  const outcomes = { completed: "applied", failed: "not_applied", partial_failed: "partially_applied" } as const;
+  return stage in outcomes ? { OR: [
+    { AND: [{ outcome: outcomes[stage as keyof typeof outcomes] }, { NOT: checks }] }, legacy
+  ] } : legacy;
 }
 
 function deriveCommandStage(commandStatus: string, dispatchStatuses: string[], resultStatuses: ResultStatus[]) {

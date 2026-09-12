@@ -123,6 +123,10 @@ SiteDeletionCleanup (삭제된 Site ID와 외부 정리 대상을 독립 보존)
 
 ### CommandDispatchStatus / CommandFixtureResultStatus
 
+`CommandOutcome`은 `pending`, `applied`, `not_applied`, `partially_applied`, `unknown`으로 실제 적용 결과를 구분한다. 기존 `CommandStatus`와 별도이며 과거 행은 `outcome = NULL`로 보존한다. `unknown`은 MQTT 발행 시도 뒤 PUBACK·장비 응답 유실 등으로 실제 적용 여부를 확정할 수 없는 상태다.
+
+`CommandDispatchKind`는 기존 Set인 `dimming`(기본값)과 관측용 Get인 `status_check`를 구분한다.
+
 `CommandDispatchStatus`는 gateway별 전송 상태를 `pending`, `published`, `accepted`, `completed`, `failed`, `timed_out`으로 구분한다. `CommandFixtureResultStatus`는 실제 조명별 결과를 `pending`, `succeeded`, `failed`, `timed_out`으로 구분한다. Gateway acceptance와 실제 장비 status ACK를 같은 의미로 취급하지 않는다.
 
 ### GatewayEventIngestionStatus
@@ -981,6 +985,7 @@ cloud가 ACK로 확인한 실제 group subscription pair snapshot이다. 복합 
 | `targetFixtureIds` | `Json` | 예 | `[]` | 명령 생성 transaction에서 확정한 조명 ID snapshot |
 | `brightness` | `Int` | 예 |  | 요청 밝기 0-100 |
 | `status` | `CommandStatus` | 예 | `pending` | 명령 상태 |
+| `outcome` | `CommandOutcome?` | 아니오 | 기본값 없음 | 실제 적용 결과. 기존 행은 `NULL`, 신규 producer가 명시 |
 | `errorMessage` | `String?` | 아니오 |  | 실패 사유 |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
 | `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
@@ -1004,6 +1009,9 @@ cloud가 ACK로 확인한 실제 group subscription pair snapshot이다. 복합 
 
 | `CommandDispatch` 추가 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
 | --- | --- | --- | --- | --- |
+| `kind` | `CommandDispatchKind` | 예 | `dimming` | Set 전송 또는 후속 상태 조회 |
+| `verificationAttempt` | `Int?` | 아니오 | 기본값 없음 | `status_check`의 시도 번호, shared wire에서 1~3 강제 |
+| `clientRequestId` | `String?` | 아니오 | 전역 Unique | 상태 조회 HTTP 재요청 멱등 키. 기존 dimming은 `NULL` |
 | `deliveryMode` | `String` | 예 | `unicast` | `unicast`, `parallel_unicast`, `mesh_group` |
 | `destinationAddress` | `String?` | 아니오 |  | `mesh_group`일 때 사용할 BLE Mesh Group Address |
 | `meshControlGroupId` | `String?` | 아니오 | `gatewayId`와 복합 FK -> `MeshControlGroup(id, gatewayId)`, `ON DELETE RESTRICT` | 명령 생성 시 선택한 Mesh control group snapshot |
@@ -1012,6 +1020,14 @@ cloud가 ACK로 확인한 실제 group subscription pair snapshot이다. 복합 
 `unicast`와 `parallel_unicast`는 조명 수만큼 실제 전송하고, `mesh_group`은 `destinationAddress`에 한 번 전송한다. floor/group target은 `MeshControlGroup.status = ready`인 주소만 사용하며 준비되지 않은 group을 unicast로 대체하지 않는다. Mesh group dispatch는 그룹 삭제로 명령 감사 snapshot이 사라지지 않도록 `ON DELETE RESTRICT` 관계를 사용하고, `(meshControlGroupId, status)` index로 발행 대기 명령 검증을 지원한다.
 
 `Gateway.nextCommandSequence`는 gateway별 dispatch sequence를 트랜잭션 안에서 원자 증가시키는 카운터다. 동시 제어 요청에서도 `(gatewayId, sequence)`가 충돌하지 않도록 `max(sequence)+1` 계산을 사용하지 않는다.
+
+`20260912090000_command_outcome_status_check`는 두 enum과 nullable outcome/상태 조회 identity, 기본값 `dimming`인 dispatch kind, nullable `MqttOutbox.deliveryAttemptedAt`을 추가하는 순방향 migration이다. 아직 적용하지 않은 이 migration에 최종 리뷰 보정을 포함했다. 과거 outcome·시도 번호·요청 ID·발행 시각을 backfill하지 않는다. 이 작업에서는 migration 파일 작성 및 Prisma validate/generate만 수행하고 어떤 DB에도 적용하지 않았다.
+
+P0/P1 배포는 구버전과 혼용하면 안전하지 않다. 신규 제어와 상태 확인 기능을 닫고 구버전 API/publisher를 stop-and-drain한 뒤 migration을 적용해야 한다. 신규 publisher와 Gateway, API ACK consumer가 모두 배포되어 준비된 뒤 status-check producer/API와 UI를 활성화한다. 특히 기존 publisher는 `deliveryAttemptedAt`을 기록하지 않고 status-check wire를 처리하지 못하며, 기존 consumer는 BlueZ의 `failed + STATUS_TIMEOUT`을 미적용으로 오판한다. 기존 미해결 명령의 `outcome=NULL`은 과거 발행 여부를 추정하지 않고 그대로 유지한다. 이 순서는 운영 절차이며 이번 작업에서 배포나 migration 적용을 실행한 것은 아니다.
+
+상태 조회 outbox는 `sites/{siteId}/gateways/{gatewayId}/commands/status-check`로 발행한다. Strict draft는 기존 command identity와 `originalCommandId`, 중복 없는 `targetFixtureIds` 1~64개, `expectedBrightness` 0~100, `verificationAttempt` 1~3, `requestedAt`을 사용한다. 원 명령 snapshot이 64개를 넘으면 정렬한 64개 단위 dispatch들로 나누되 모두 같은 논리 `verificationAttempt`에 속하고 첫 dispatch만 HTTP `clientRequestId`를 가진다. 따라서 65~1,000개 원 대상도 한 번의 상태 확인이며 최대 3회 제한은 chunk 수가 아니라 논리 시도 번호로 계산한다. 모든 chunk의 dispatch/result/outbox와 gateway sequence 증가는 하나의 DB transaction에서 생성되어 중간 chunk 실패 시 전체 rollback된다.
+
+Published payload는 `deliveryGeneration`, `deliveryGeneratedAt`, `deliveryWindowMs`, `expiresAt`을 더하며 요청자 PII·override·Mesh 그룹 정보를 허용하지 않는다. 발행 시점 기준 최대 10초·초 단위 expiry를 durable 저장하고, PUBACK 유실 뒤에도 동일 generation을 재사용하며 남은 MQTT TTL만 감소시킨다. Status-check 발행 실패·timeout은 해당 dispatch/result만 닫고 원 명령의 `unknown`은 유지한다. Gateway는 acceptance receipt를 journal에 먼저 내구 저장한 뒤 Generic OnOff/Lightness Get을 실행하며, API는 시도의 모든 chunk가 terminal일 때 관측 밝기를 원 요청과 비교해 전부 일치 `applied`, 전부 불일치 `not_applied`, 혼합 `partially_applied`, 미관측 포함 `unknown`으로 수렴한다. 어떤 경로도 밝기 Set을 자동 재전송하지 않는다.
 
 `CommandFixtureResult`는 `(dispatchId, fixtureId)` 복합 PK로 실제 조명별 `succeeded`, `failed`, `timed_out`, 밝기, fault, RSSI, hop, 발생 시각을 저장한다. 일부 노드 실패를 그룹 전체 성공으로 숨기지 않는다.
 
@@ -1039,12 +1055,19 @@ MQTT 실패나 PUBACK 유실 뒤 retry는 generation과 wire payload를 다시 �
 
 이 migration은 구버전 command producer/publisher와 신버전을 동시에 운영하는 rolling deploy를 허용하지 않는다. Control write를 freeze하고 구버전 API와 command publisher를 stop-and-drain한 뒤, 마지막 구버전 publisher 종료부터 broker 최대 command expiry 10초를 기다린다. 그 다음 migration을 적용하고 신버전 API/publisher만 시작해 command smoke를 통과한 뒤 write를 재개한다. CHECK는 DB 재삽입을 fail-closed하지만 이미 최종 DB fence를 지난 구버전 worker의 메모리 publish는 막을 수 없으므로 이 순서를 생략할 수 없다. 상세 절차는 Gateway appliance runbook의 requester PII migration 유지보수 절을 따른다.
 
-Pending delivery timeout은 Dispatch보다 `MqttOutbox`를 먼저 조건부 dead-letter 선점한다. `lockedBy IS NULL` 또는 `leaseExpiresAt <= now`인 미발행 row를 정확히 1개 선점한 경우에만 Dispatch, 조명별 결과, Command를 종료한다. 필수 1:1 outbox가 없거나 active publisher lease가 있으면 fail-closed로 아무 terminal 전이도 하지 않는다. Outbox 선점 뒤 Dispatch 상태 경쟁을 잃으면 전용 오류로 transaction 전체를 rollback한다. 따라서 publisher claim과 timeout은 같은 outbox row update에서 직렬화된다. Published/accepted timeout은 outbox 선점 없이 기존 Dispatch 조건부 종료를 사용한다. 실패 시 지수 backoff와 jitter를 적용하며 최대 10회 또는 생성 후 15분을 넘으면 `deadLetteredAt`을 기록하고 dispatch와 조명별 결과를 실패로 종료한다. 프로세스가 중단돼도 lease 만료 후 다른 인스턴스가 레코드를 회수한다.
+Pending delivery timeout은 Dispatch보다 `MqttOutbox`를 먼저 조건부 dead-letter 선점한다. `lockedBy IS NULL` 또는 `leaseExpiresAt <= now`인 미발행 row를 정확히 1개 선점한 경우에만 Dispatch, 조명별 결과, Command를 종료한다. 필수 1:1 outbox가 없거나 active publisher lease가 있으면 fail-closed로 아무 terminal 전이도 하지 않는다. Outbox 선점 뒤 Dispatch 상태 경쟁을 잃으면 전용 오류로 transaction 전체를 rollback한다. 따라서 publisher claim과 timeout은 같은 outbox row update에서 직렬화된다. Published/accepted timeout은 outbox 선점 없이 기존 Dispatch 조건부 종료를 사용한다. 실패 시 지수 backoff와 jitter를 적용하며 최대 10회 또는 생성 후 15분을 넘으면 `deadLetteredAt`을 기록하며 dispatch와 조명별 결과는 아래 발행 시도 증거에 따라 분류한다. 프로세스가 중단돼도 lease 만료 후 다른 인스턴스가 레코드를 회수한다.
+
+Command publisher는 MQTT 호출 직전에 lease를 다시 확인하고 첫 `deliveryAttemptedAt`을 transaction으로 commit한다. 이 기록 이후 PUBACK을 잃으면 `publishedAt=NULL`, dispatch `pending`이어도 실제 Set을 전달했을 수 있다. Expiry/dead-letter 및 pending timeout worker는 이 내구 기록을 읽어 dimming을 `unknown`으로 닫고, 발행 시도 없이 검증에서 거절된 경우만 `not_applied`로 분류한다. `attempts` 횟수는 발행 증거로 사용하지 않는다. 기록 commit 직후 MQTT 호출 전 crash도 보수적으로 `unknown`이며 자동 Set 재시도는 추가하지 않았다.
+
+Publisher의 claim/prepare/발행 시도 기록/retry/terminal 갱신은 automation global lock을 outbox·dispatch·command 잠금보다 먼저 얻는다. MQTT 네트워크 대기에는 transaction을 유지하지 않는다. Terminal outbox를 닫더라도 dispatch 조건부 전이에 실패하면 조명 결과와 원 명령은 갱신하지 않아 먼저 확정한 ACK를 보존한다. 발행 불확실 dispatch는 `timed_out` 증거와 오류 코드를 남기며 `unknown`인 dimming에 한해 늦은 ACK를 수렴시킨다. Status-check publisher 실패는 원 Set outcome을 결정하지 않는다.
+
+BlueZ의 Lightness Status 유실은 신규 Gateway에서 `timed_out + STATUS_TIMEOUT`으로 발행한다. API consumer는 기존 `failed + STATUS_TIMEOUT`도 원문 aggregate와 event/hash를 검증한 뒤 `timed_out`으로 정규화하고 관측하지 못한 밝기는 저장하지 않는다. 이 경우 outcome은 `unknown`이므로 겹치는 새 Set은 막고 실제 상태 Get을 허용한다.
 
 | `MqttOutbox` 컬럼 | 타입 | 설명 |
 | --- | --- | --- |
 | `id` | `String` | PK, `uuid()` |
 | `dispatchId` | `String?` | command row의 Unique FK -> `CommandDispatch.id`; delete cascade |
+| `deliveryAttemptedAt` | `DateTime?` | Command MQTT 호출 전 최초 시도 commit 시각. PUBACK 성공 시각과 별도이며 구형 행은 `NULL` |
 | `gatewayId` | `String?` | automation config/application ACK row의 FK -> `Gateway.id`; delete cascade |
 | `applicationAckKey` | `String?` | application ACK row의 deterministic Gateway/node/event/report-hash scoped unique identity |
 | `revision` | `Int?` | automation config revision, DB check `>= 0` |
@@ -1260,6 +1283,8 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 Final Fix에서 기존 fixture-state/heartbeat의 `payloadHash=null` 행은 topic/DB scope 검증과 소유 Fixture/Gateway 행 잠금 뒤에만 보완한다. eventId로 조회한 기존 행의 gateway, fixture(heartbeat는 null), sequence, eventType, occurredAt이 모두 같으면 첫 인증 replay의 canonical hash를 `UPDATE ... WHERE eventId = ... AND payloadHash IS NULL`로 같은 transaction에서 확정한다. 조건부 갱신이 0행이면 재조회한 identity/hash가 정확히 같은 경우만 기존 terminal 결과를 반환하며 다른 replay는 fail-closed 한다. migration-default `accepted` fixture event는 `duplicate` ACK로 종료하고 상태·집계를 다시 반영하지 않는다.
 
 null은 원래 payload 동등성의 증거가 아니며 첫 인증 replay가 과거 원장의 hash를 확정한다는 신뢰 한계가 있다. 새 future rejection은 최초 기록부터 hash를 보유한다. 보완은 hash만 변경하므로 ledger의 `receivedAt`/`ingestionStatus`, fixture/gateway snapshot, energy aggregate/cursor/checkpoint를 보존한다. 기존 `Fixture.lastSeenAt`/`Gateway.lastHeartbeatAt`은 migration도 재작성하지 않으며, 서버 수신 시각 freshness 보장은 새 정상 event가 수락된 값에 적용한다. 과거 장비 시각으로 오염된 값의 소급 정정은 포함하지 않는다. 스키마/migration 파일 자체는 Final Fix에서 변경하지 않는다.
+
+`device_status_ack`도 이 원장을 사용한다. API는 dispatch/command row lock 아래 ACK 전체의 canonical hash를 계산해 `eventId`, Gateway, event type과 함께 먼저 claim한다. 같은 `eventId`·같은 hash의 QoS 1 재전달은 상태를 다시 적용하지 않고, 같은 identity의 Gateway/type/hash가 다르면 정제된 충돌 경고만 남긴 채 payload와 명령 상태를 변경하지 않는다. ACK wire의 command sequence는 새 이벤트마다 증가하지 않으므로 이 event type의 ledger sequence는 같은 Gateway/type 원장 안에서 별도로 할당한다. timeout 뒤 늦은 ACK 수렴도 이 dedupe 경계를 통과한 한 번의 유효 terminal evidence만 반영한다.
 
 ### Invitation
 
@@ -1610,11 +1635,18 @@ Gateway heartbeat MQTT event
 
 ```text
 웹 제어 요청
-→ Command pending 생성
-→ MQTT dimming command 발행
-→ gateway command ACK event
-→ Command status/errorMessage 갱신
+→ Command pending/outcome=pending 생성
+→ MQTT dimming Set 발행
+→ acceptance 진행 상태 반영 및 device-status ACK의 eventId/hash 중복 제거
+→ 적용 여부가 불확실하면 outcome=unknown
+→ control 권한 사용자가 POST /commands/{id}/status-checks
+→ dispatch당 최대 64개로 chunk한 status_check outbox 생성(논리 시도 최대 3회)
+→ Gateway durable receipt 뒤 Generic OnOff/Lightness Get
+→ 모든 chunk 관측 결과를 expected brightness와 비교해 outcome 수렴
+→ not_applied에서만 Web이 새 clientRequestId의 안전 재적용을 제공
 ```
+
+HTTP 응답 유실 복구는 기존 dimming/status-check `clientRequestId`로 저장 결과를 재조회할 뿐 새 물리 Set을 만들지 않는다. 실제 재적용은 `not_applied` 확인 뒤 사용자가 명시적으로 실행하는 새 Command다.
 
 ### 조명 검색/등록
 

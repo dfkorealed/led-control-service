@@ -63,6 +63,7 @@ const fixtureControlSelect = {
 const idempotentCommandInclude = {
   manualOverride: { select: { overrideUntil: true } },
   dispatches: {
+    where: { kind: "dimming" },
     orderBy: { createdAt: "asc" as const },
     select: { deliveryMode: true }
   }
@@ -108,6 +109,7 @@ export class CommandsService {
           throw new BadRequestException("control target not found in the user's site");
         }
         for (const mapping of mappings) this.assertControllable(mapping, input.target.type);
+        await this.assertNoUncertainOverlap(tx, input.siteId, mappings.map((mapping) => mapping.fixtureId));
 
         const dispatchTarget = this.dispatchService.resolveSingleGateway(mappings);
         const resolved = await this.resolveDelivery(
@@ -128,6 +130,7 @@ export class CommandsService {
             targetType: input.target.type,
             targetId,
             targetFixtureIds: resolved.fixtureIds,
+            outcome: "pending",
             brightness: input.brightness
           }
         });
@@ -224,6 +227,30 @@ export class CommandsService {
         if (!existing) throw error;
         return existing;
       });
+    }
+  }
+
+  private async assertNoUncertainOverlap(tx: Prisma.TransactionClient, siteId: string, fixtureIds: string[]) {
+    const targets = new Set(fixtureIds);
+    const pageSize = 100;
+    let cursor: string | undefined;
+    // Each read is bounded, but every page must be checked: a fixed total cap would
+    // silently permit a conflicting Set when an older unknown command falls beyond it.
+    while (true) {
+      const commands: Array<{ id: string; targetFixtureIds: Prisma.JsonValue }> = await tx.command.findMany({
+        where: { siteId, outcome: "unknown" },
+        select: { id: true, targetFixtureIds: true },
+        orderBy: { id: "asc" }, take: pageSize,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {})
+      });
+      for (const command of commands) {
+        if (Array.isArray(command.targetFixtureIds)
+          && command.targetFixtureIds.some((fixtureId) => typeof fixtureId === "string" && targets.has(fixtureId))) {
+          throw new ConflictException({ code: "uncertain_command_requires_status_check" });
+        }
+      }
+      if (commands.length < pageSize) return;
+      cursor = commands[commands.length - 1].id;
     }
   }
 

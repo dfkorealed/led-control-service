@@ -533,3 +533,10 @@
 - **원인**: 빈 DB와 새 writer의 hash가 있는 원장만 검증해 이전 writer의 commit 뒤 application ACK 유실 상태를 누락했다.
 - **해결 및 예방책**: topic/DB 소유권과 소유 행 잠금 뒤 exact legacy identity에 첫 인증 replay의 hash를 null 조건부 갱신으로 확정한다. CAS 경합 시 원장을 다시 읽어 같은 hash만 허용하며 snapshot·energy·freshness는 다시 반영하지 않는다. null 자체는 원본 payload와 같다는 증거가 아니라는 신뢰 한계를 기록한다.
 - **반복 방지 체크**: 이전 형태의 원장으로 시작하는 격리 PostgreSQL replay·경합, migration의 과거 freshness 비소급, API duplicate/PUBACK 및 Gateway 실제 publisher의 다음 event 발행을 함께 검사한다.
+
+## 2026-09-12 / PUBACK·장비 Status 유실은 미적용의 증거가 아니다
+
+- **발생했던 문제/실수**: BlueZ가 Lightness Status 유실을 failed로 보고해 API가 not_applied로 분류했고, broker가 Set을 받은 뒤 PUBACK을 잃으면 outbox terminal에서 Command outcome이 pending으로 남았다.
+- **원인**: 요청 거절과 관측 부재를 같은 실패로 취급하고, publish 성공 시각만 기록해 실제 발행 시도 여부를 재시작 후 구분할 수 없었다. 직접 publishClaimed를 호출하는 fake로 실제 reclaim까지 증명했다고 과장했다.
+- **해결 및 예방책**: MQTT 호출 전 deliveryAttemptedAt을 commit하고 발행 시도 이후 응답 유실은 unknown으로 닫는다. 기존 failed+STATUS_TIMEOUT도 원문 aggregate 검증 뒤 timed_out으로 정규화한다. Automation lock을 먼저 얻고 dispatch 전이에 실패한 terminal writer는 결과와 parent를 쓰지 않는다.
+- **반복 방지 체크**: 실제 producer→handler wire와 consumer→Get/overlap을 연결한다. ClaimBatch를 실행하는 stateful 경계에서 retry 성공한 published row와 별도 expiry row를 나눠 검증하고, DB double·실제 PostgreSQL·실장비 HIL의 증거를 구분한다.

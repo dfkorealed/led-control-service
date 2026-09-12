@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export type GatewayCommandKind =
   | "dimming"
+  | "status-check"
   | "provisioning/scan-start"
   | "provisioning/scan-stop"
   | "provisioning/provision-device"
@@ -161,22 +162,8 @@ function validatePublishedDimmingCommand(
   context: z.RefinementCtx
 ) {
   validateDimmingDelivery(command, context);
+  validatePublishedDeliveryExpiry(command, context);
   const generatedAt = Date.parse(command.deliveryGeneratedAt);
-  const expectedExpiresAt = generatedAt + command.deliveryWindowMs;
-  if (command.deliveryWindowMs % 1_000 !== 0) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["deliveryWindowMs"],
-      message: "deliveryWindowMs must use whole MQTT seconds"
-    });
-  }
-  if (Date.parse(command.expiresAt) !== expectedExpiresAt) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["expiresAt"],
-      message: "expiresAt must match the delivery window"
-    });
-  }
   if (command.overrideUntil) {
     const expectedRemaining = Date.parse(command.overrideUntil) - generatedAt;
     if (command.overrideRemainingMs !== expectedRemaining) {
@@ -257,6 +244,49 @@ export const gatewayDimmingCommandV2CompatibilitySchema = z.union([
   historicalGatewayDimmingCommandV2Schema,
   historicalGatewayDimmingCommandLegacyV2Schema
 ]);
+
+function validatePublishedDeliveryExpiry(
+  command: { expiresAt: string; deliveryGeneratedAt: string; deliveryWindowMs: number },
+  context: z.RefinementCtx
+) {
+  if (command.deliveryWindowMs % 1_000 !== 0) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["deliveryWindowMs"],
+      message: "deliveryWindowMs must use whole MQTT seconds"
+    });
+  }
+  if (Date.parse(command.expiresAt) !== Date.parse(command.deliveryGeneratedAt) + command.deliveryWindowMs) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["expiresAt"],
+      message: "expiresAt must match the delivery window"
+    });
+  }
+}
+
+export const gatewayStatusCheckCommandDraftV2Schema = commandIdentitySchema.extend({
+  originalCommandId: z.string().uuid(),
+  targetFixtureIds: z.array(z.string().uuid()).min(1).max(64).refine(
+    (ids) => new Set(ids).size === ids.length, "targetFixtureIds must be unique"
+  ),
+  expectedBrightness: z.number().int().min(0).max(100),
+  verificationAttempt: z.number().int().min(1).max(3),
+  requestedAt: z.string().datetime()
+}).strict();
+
+export const gatewayStatusCheckCommandPublishedV2Schema = gatewayStatusCheckCommandDraftV2Schema.extend({
+  expiresAt: z.string().datetime(),
+  deliveryGeneration: z.string().uuid(),
+  deliveryGeneratedAt: z.string().datetime(),
+  deliveryWindowMs: z.number().int().positive().max(10_000)
+}).strict().superRefine(validatePublishedDeliveryExpiry);
+
+// Status checks have no historical requester-bearing or absolute-expiry-only wire format.
+// Keep named compatibility boundaries for consumers without weakening the new wire contract.
+export const gatewayStatusCheckCommandDraftV2CompatibilitySchema = gatewayStatusCheckCommandDraftV2Schema;
+export const gatewayStatusCheckCommandV2Schema = gatewayStatusCheckCommandPublishedV2Schema;
+export const gatewayStatusCheckCommandV2CompatibilitySchema = gatewayStatusCheckCommandPublishedV2Schema;
 
 export const acceptanceAckV2Schema = commandIdentitySchema.extend({
   eventId: z.string().uuid(),
@@ -361,6 +391,10 @@ export type GatewayDimmingCommandV2 = z.infer<typeof gatewayDimmingCommandV2Sche
 export type GatewayDimmingCommandPublishedV2 = z.infer<typeof gatewayDimmingCommandPublishedV2Schema>;
 export type GatewayDimmingCommandV2Compatible = z.infer<typeof gatewayDimmingCommandV2CompatibilitySchema>;
 export type GatewayDimmingCommandDraftV2 = z.infer<typeof gatewayDimmingCommandDraftV2Schema>;
+export type GatewayStatusCheckCommandDraftV2 = z.infer<typeof gatewayStatusCheckCommandDraftV2Schema>;
+export type GatewayStatusCheckCommandPublishedV2 = z.infer<typeof gatewayStatusCheckCommandPublishedV2Schema>;
+export type GatewayStatusCheckCommandV2 = z.infer<typeof gatewayStatusCheckCommandV2Schema>;
+export type GatewayStatusCheckCommandV2Compatible = z.infer<typeof gatewayStatusCheckCommandV2CompatibilitySchema>;
 export type AcceptanceAckV2 = z.infer<typeof acceptanceAckV2Schema>;
 export type DeviceStatusAckV2 = z.infer<typeof deviceStatusAckV2Schema>;
 export type ApplicationStateIngestedAckV2 = z.infer<typeof applicationStateIngestedAckV2Schema>;

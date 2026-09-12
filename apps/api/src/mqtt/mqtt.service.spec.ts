@@ -706,12 +706,7 @@ describe("MqttService", () => {
   });
 
   it("atomically fails a rejected dispatch, its pending fixture results, and its parent command", async () => {
-    const prisma: any = {
-      commandDispatch: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
-      commandFixtureResult: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
-      command: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
-    };
-    prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
+    const { prisma } = reconciliationPrisma(1);
     const service = new MqttService(prisma, createMeshGroupsMock() as never);
 
     await service.handleMessage(
@@ -751,18 +746,13 @@ describe("MqttService", () => {
       }
     });
     expect(prisma.command.updateMany).toHaveBeenCalledWith({
-      where: { id: "11111111-1111-4111-8111-111111111111", status: "pending" },
-      data: { status: "failed", errorMessage: "gateway command expired before execution" }
+      where: { id: "11111111-1111-4111-8111-111111111111", outcome: "pending" },
+      data: { status: "failed", outcome: "not_applied", errorMessage: "one or more gateway dispatches failed" }
     });
   });
 
   it("closes an accepted dispatch when a delayed expiry rejection follows its acceptance", async () => {
-    const prisma: any = {
-      commandDispatch: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
-      commandFixtureResult: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
-      command: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
-    };
-    prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
+    const { prisma } = reconciliationPrisma(1);
     const service = new MqttService(prisma, createMeshGroupsMock() as never);
     const topic = "sites/22222222-2222-4222-8222-222222222222/gateways/55555555-5555-4555-8555-555555555555/acks/acceptance";
 
@@ -784,6 +774,7 @@ describe("MqttService", () => {
 
   it("does not process a device-status ACK for an already terminal dispatch", async () => {
     const prisma: any = {
+      $executeRaw: jest.fn(),
       commandDispatch: { updateMany: jest.fn() },
       commandFixtureResult: { updateMany: jest.fn() }
     };
@@ -839,6 +830,123 @@ describe("MqttService", () => {
         occurredAt: new Date("2026-07-11T00:00:02.000Z")
       }
     });
+  });
+
+  it.each([
+    [["timed_out"], "timed_out", "unknown"],
+    [["succeeded"], "succeeded", "applied"],
+    [["succeeded", "failed"], "partially_succeeded", "partially_applied"],
+    [["failed"], "failed", "not_applied"]
+  ])("reconciles dimming results %p into %s / %s", async (statuses, aggregate, outcome) => {
+    const state = reconciliationPrisma(statuses.length);
+    const results = statuses.map((status, index) => fixtureResult(state.results[index].fixtureId, status as any));
+    await state.service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify({ ...deviceStatusAckPayload(), status: aggregate, results })));
+    expect(state.command.outcome).toBe(outcome);
+    expect(state.order.slice(0, 2)).toEqual(["mutation-lock", "dispatch-lock"]);
+  });
+
+  it.each([["dimming", "pending", "not_applied"], ["status_check", "unknown", "unknown"]])(
+    "reconciles a rejected %s dispatch without confusing Get failure with Set failure", async (kind, initial, outcome) => {
+      const state = reconciliationPrisma(1, { kind, verificationAttempt: kind === "status_check" ? 1 : null }, initial);
+      await state.service.handleMessage(deviceStatusTopic().replace("device-status", "acceptance"), Buffer.from(JSON.stringify({
+        ...acceptanceAckPayload(), status: "rejected", errorCode: "COMMAND_EXPIRED"
+      })));
+      expect(state.command.outcome).toBe(outcome);
+      expect(state.order.slice(0, 2)).toEqual(["mutation-lock", "dispatch-lock"]);
+    }
+  );
+
+  it("resolves timeout unknown once from a late dimming ACK and ignores the duplicate", async () => {
+    const state = reconciliationPrisma(1, { status: "timed_out", errorCode: "STATUS_TIMEOUT" }, "unknown");
+    await state.service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify(deviceStatusAckPayload())));
+    expect(state.command.outcome).toBe("applied");
+    expect(state.dispatch.status).toBe("completed");
+    const writes = state.prisma.commandFixtureResult.updateMany.mock.calls.length;
+    await state.service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify(deviceStatusAckPayload())));
+    expect(state.prisma.commandFixtureResult.updateMany).toHaveBeenCalledTimes(writes);
+  });
+
+  it("deduplicates an identical late timeout ACK durably across service restart", async () => {
+    const state = reconciliationPrisma(1, { status: "timed_out", errorCode: "STATUS_TIMEOUT" }, "unknown");
+    const ack = { ...deviceStatusAckPayload(), status: "timed_out", results: [fixtureResult(state.results[0].fixtureId, "timed_out")] };
+    await state.service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify(ack)));
+    const restarted = new MqttService(state.prisma, createMeshGroupsMock() as never);
+    await restarted.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify(ack)));
+    expect(state.command.outcome).toBe("unknown");
+    expect(state.prisma.commandDispatch.updateMany).toHaveBeenCalledTimes(1);
+    expect(state.prisma.commandFixtureResult.updateMany).toHaveBeenCalledTimes(1);
+    expect(state.prisma.command.updateMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects conflicting same-event success but accepts a distinct later success at the same command sequence", async () => {
+    const state = reconciliationPrisma(1);
+    const timeout = { ...deviceStatusAckPayload(), status: "timed_out", results: [fixtureResult(state.results[0].fixtureId, "timed_out")] };
+    const warning = jest.spyOn(Logger.prototype, "warn").mockImplementation();
+    try {
+      await state.service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify(timeout)));
+      await state.service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify(deviceStatusAckPayload())));
+      expect(state.command.outcome).toBe("unknown");
+      expect(state.prisma.commandFixtureResult.updateMany).toHaveBeenCalledTimes(1);
+      expect(warning).toHaveBeenCalledWith("device status ACK event identity conflict");
+      await state.service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify({ ...deviceStatusAckPayload(),
+        eventId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" })));
+      expect(state.command.outcome).toBe("applied");
+      expect(state.prisma.commandFixtureResult.updateMany).toHaveBeenCalledTimes(2);
+    } finally { warning.mockRestore(); }
+  });
+
+  it.each(["DELIVERY_TIMEOUT", "ack_fixture_set_mismatch", null])("does not reopen an unknown terminal dispatch coded %s", async (errorCode) => {
+    const state = reconciliationPrisma(1, { status: "timed_out", errorCode }, "unknown");
+    await state.service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify(deviceStatusAckPayload())));
+    expect(state.command.outcome).toBe("unknown");
+    expect(state.prisma.commandFixtureResult.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("preserves timeout uncertainty after a malformed late ACK so a valid ACK can still converge", async () => {
+    const state = reconciliationPrisma(1, { status: "timed_out", errorCode: "ACCEPTANCE_TIMEOUT" }, "unknown");
+    await state.service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify({ ...deviceStatusAckPayload(),
+      results: [fixtureResult("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "succeeded")] })));
+    expect(state.command.outcome).toBe("unknown");
+    expect(state.dispatch.errorCode).toBe("ACCEPTANCE_TIMEOUT");
+    expect(state.prisma.commandFixtureResult.updateMany).not.toHaveBeenCalled();
+    await state.service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify({ ...deviceStatusAckPayload(),
+      eventId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" })));
+    expect(state.command.outcome).toBe("applied");
+  });
+
+  it("does not reopen a timed-out status-check or relabel a legacy null outcome", async () => {
+    const check = reconciliationPrisma(1, { kind: "status_check", verificationAttempt: 1, status: "timed_out", errorCode: "STATUS_TIMEOUT" }, "unknown");
+    await check.service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify(deviceStatusAckPayload())));
+    expect(check.prisma.commandFixtureResult.updateMany).not.toHaveBeenCalled();
+    const legacy = reconciliationPrisma(1, {}, null);
+    await legacy.service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify(deviceStatusAckPayload())));
+    expect(legacy.command).toMatchObject({ outcome: null, status: "acknowledged" });
+  });
+
+  it.each([
+    [[70, 70], "applied"], [[20, 30], "not_applied"], [[70, 20], "partially_applied"], [[70, null], "unknown"]
+  ])("compares all status-check observations %p to the original brightness", async (brightnesses, outcome) => {
+    const state = reconciliationPrisma(2, { kind: "status_check", verificationAttempt: 1 }, "unknown");
+    const results = brightnesses.map((brightness, index) => ({ fixtureId: state.results[index].fixtureId,
+      status: brightness === null ? "timed_out" : "succeeded", ...(brightness === null ? {} : { brightness }) }));
+    await state.service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify({ ...deviceStatusAckPayload(),
+      status: brightnesses.includes(null) ? "partially_succeeded" : "succeeded", results })));
+    expect(state.command.outcome).toBe(outcome);
+  });
+
+  it("waits for every chunk in one verification attempt and combines their observations", async () => {
+    const state = reconciliationPrisma(1, { kind: "status_check", verificationAttempt: 2 }, "unknown");
+    const sibling = { ...state.dispatch, id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", status: "accepted",
+      fixtureResults: [{ fixtureId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", status: "pending", brightness: null }] };
+    // An older failed attempt must not contaminate this attempt's observations.
+    state.dispatches.push({ ...sibling, id: "old-attempt", verificationAttempt: 1, status: "timed_out" });
+    state.dispatches.push(sibling);
+    await state.service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify(deviceStatusAckPayload())));
+    expect(state.command.outcome).toBe("unknown");
+    await state.service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify({ ...deviceStatusAckPayload(),
+      eventId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      dispatchId: sibling.id, results: [{ fixtureId: sibling.fixtureResults[0].fixtureId, status: "succeeded", brightness: 20 }] })));
+    expect(state.command.outcome).toBe("partially_applied");
   });
 
   it.each([
@@ -919,7 +1027,7 @@ describe("MqttService", () => {
     })));
 
     expect(prisma.commandDispatch.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ status: "failed", errorCode: null, errorMessage: null })
+      data: expect.objectContaining({ status: "failed", errorCode: "STATUS_TIMEOUT", errorMessage: null })
     }));
     expect(prisma.commandFixtureResult.updateMany).toHaveBeenCalledTimes(2);
   });
@@ -939,7 +1047,7 @@ describe("MqttService", () => {
     })));
 
     expect(prisma.commandDispatch.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ status: "failed", errorCode: null, errorMessage: null })
+      data: expect.objectContaining({ status: "failed", errorCode: "STATUS_TIMEOUT", errorMessage: null })
     }));
     expect(prisma.commandFixtureResult.updateMany).toHaveBeenCalledTimes(2);
   });
@@ -2404,6 +2512,58 @@ function deviceStatusAckPayload() {
   };
 }
 
+// Stateful persistence boundary: ACK reconciliation runs normally and writes are visible
+// to the following aggregate read and duplicate delivery, without a broker or database.
+function reconciliationPrisma(count: number, overrides: Record<string, unknown> = {}, outcome: string | null = "pending") {
+  const payload = deviceStatusAckPayload();
+  const command = { id: payload.commandId, outcome, brightness: 70, status: outcome === "pending" ? "pending" : "failed" };
+  const results = Array.from({ length: count }, (_, index) => ({
+    fixtureId: index === 0 ? payload.results[0].fixtureId : "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", status: "pending", brightness: null
+  }));
+  const dispatch: any = { id: payload.dispatchId, commandId: command.id, kind: "dimming", verificationAttempt: null,
+    status: "accepted", errorCode: null, fixtureResults: results, ...overrides };
+  const dispatches: any[] = [dispatch];
+  const order: string[] = [];
+  const events = new Map<unknown, { eventId: unknown; gatewayId: unknown; eventType: unknown; payloadHash: unknown }>();
+  const prisma: any = {
+    $executeRaw: jest.fn(async () => { order.push("mutation-lock"); return 1; }),
+    $queryRaw: jest.fn(async (query: TemplateStringsArray, ...values: unknown[]) => {
+      const sql = query.join("");
+      if (sql.includes('INSERT INTO "ProcessedGatewayEvent"')) {
+        const [eventId, gatewayId, eventType, payloadHash] = values;
+        if (events.has(eventId)) return [];
+        events.set(eventId, { eventId, gatewayId, eventType, payloadHash });
+        return [{ eventId }];
+      }
+      const current = dispatches.find((item) => item.id === values[0]);
+      if (sql.includes('FROM "CommandDispatch"')) {
+        order.push("dispatch-lock"); return current ? [{ ...current, outcome: command.outcome, brightness: command.brightness }] : [];
+      }
+      if (sql.includes('FROM "CommandFixtureResult"')) return current?.fixtureResults ?? [];
+      throw new Error(`unexpected reconciliation query: ${sql}`);
+    }),
+    processedGatewayEvent: { findUnique: jest.fn(async ({ where }: any) => events.get(where.eventId) ?? null) },
+    commandDispatch: {
+      updateMany: jest.fn(async ({ where, data }: any) => {
+        const current = dispatches.find((item) => item.id === where.id);
+        if (!current) return { count: 0 };
+        Object.assign(current, data); return { count: 1 };
+      }),
+      count: jest.fn(async () => dispatches.filter((item) => ["pending", "published", "accepted"].includes(item.status)).length),
+      findMany: jest.fn(async ({ where }: any) => dispatches.filter((item) => (!where.kind || item.kind === where.kind)
+        && (!where.verificationAttempt || item.verificationAttempt === where.verificationAttempt)))
+    },
+    commandFixtureResult: { updateMany: jest.fn(async ({ where, data }: any) => {
+      const matches = (dispatches.find((item) => item.id === where.dispatchId)?.fixtureResults ?? [])
+        .filter((result: any) => !where.fixtureId || result.fixtureId === where.fixtureId);
+      matches.forEach((result: any) => Object.assign(result, data)); return { count: matches.length };
+    }) },
+    command: { updateMany: jest.fn(async ({ data }: any) => { Object.assign(command, data); return { count: 1 }; }) }
+  };
+  prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
+  return { prisma, command, dispatch, dispatches, results, order, service: new MqttService(prisma, createMeshGroupsMock() as never) };
+}
+
 function deviceStatusTopic() {
   return "sites/22222222-2222-4222-8222-222222222222/gateways/55555555-5555-4555-8555-555555555555/acks/device-status";
 }
@@ -2418,6 +2578,7 @@ function fixtureResult(fixtureId: string, status: "succeeded" | "failed" | "time
 
 function deviceAckPrisma(expectedFixtureIds: string[]) {
   const prisma: any = {
+    $executeRaw: jest.fn(),
     commandDispatch: {
       findFirst: jest.fn().mockResolvedValue({
         id: deviceStatusAckPayload().dispatchId,
@@ -2425,7 +2586,7 @@ function deviceAckPrisma(expectedFixtureIds: string[]) {
       }),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       count: jest.fn().mockResolvedValue(1),
-      findMany: jest.fn().mockResolvedValue([{ status: "failed" }])
+      findMany: jest.fn().mockResolvedValue([{ status: "accepted", fixtureResults: [] }])
     },
     commandFixtureResult: {
       findMany: jest.fn().mockResolvedValue(expectedFixtureIds.map((fixtureId) => ({ fixtureId }))),
@@ -2435,8 +2596,10 @@ function deviceAckPrisma(expectedFixtureIds: string[]) {
   };
   prisma.$queryRaw = jest.fn(async (query: TemplateStringsArray) => {
     const sql = query.join("");
+    if (sql.includes('INSERT INTO "ProcessedGatewayEvent"')) return [{ eventId: deviceStatusAckPayload().eventId }];
     if (sql.includes('FROM "CommandDispatch"')) {
-      return [{ id: deviceStatusAckPayload().dispatchId, commandId: deviceStatusAckPayload().commandId }];
+      return [{ id: deviceStatusAckPayload().dispatchId, commandId: deviceStatusAckPayload().commandId,
+        kind: "dimming", verificationAttempt: null, status: "accepted", errorCode: null, outcome: "pending", brightness: 70 }];
     }
     if (sql.includes('FROM "CommandFixtureResult"')) {
       return expectedFixtureIds.map((fixtureId) => ({ fixtureId }));

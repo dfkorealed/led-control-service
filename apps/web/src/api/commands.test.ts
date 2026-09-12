@@ -1,13 +1,30 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   canonicalizeDimmingCommandInput,
   getCommandStatusRefetchInterval,
+  listCommands,
+  createCommandStatusCheck,
   type CommandStatusResponse
 } from "./commands";
 
 const requestedCommandId = "00000000-0000-4000-8000-000000009001";
 
 describe("getCommandStatusRefetchInterval", () => {
+  it("keeps polling an unresolved status-check POST even before dispatch identity is known", () => {
+    expect(getCommandStatusRefetchInterval(requestedCommandId, createStatus(requestedCommandId, "verification_required"), undefined, true)).toBe(1000);
+  });
+  it("keeps polling until a newly accepted verification dispatch is visible in detail", () => {
+    expect(getCommandStatusRefetchInterval(requestedCommandId, createStatus(requestedCommandId, "verification_required"), ["new-check"])).toBe(1000);
+  });
+  it.each(["verification_required", "verified_applied", "verified_not_applied", "verified_partial"] as const)("stops polling settled %s", (stage) => {
+    expect(getCommandStatusRefetchInterval(requestedCommandId, createStatus(requestedCommandId, stage))).toBe(false);
+  });
+
+  it.each(["pending", "published", "accepted", "timed_out"])("polls verification only while its dispatch is in flight: %s", (status) => {
+    const command = createStatus(requestedCommandId, "verification_required");
+    command.dispatches = [{ id: "check", kind: "status_check", verificationAttempt: 1, status, gateway: { id: "gw", name: "GW" }, errorMessage: null, results: [] }];
+    expect(getCommandStatusRefetchInterval(requestedCommandId, command)).toBe(status === "timed_out" ? false : 1000);
+  });
   it("keeps polling a matching nonterminal command", () => {
     expect(getCommandStatusRefetchInterval(
       requestedCommandId,
@@ -31,6 +48,27 @@ describe("getCommandStatusRefetchInterval", () => {
 
   it("keeps polling while no status is available", () => {
     expect(getCommandStatusRefetchInterval(requestedCommandId, null)).toBe(1000);
+  });
+});
+
+describe("command recovery API", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  it("encodes history search, stage and opaque cursor without losing their scope", async () => {
+    const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ items: [], nextCursor: null }) });
+    vi.stubGlobal("fetch", fetch);
+    await listCommands({ siteId: "site", query: "B2 조명&", stage: "verification_required", cursor: "a+b/=", limit: 20 });
+    expect(fetch.mock.calls[0][0]).toBe("/api/commands?siteId=site&query=B2+%EC%A1%B0%EB%AA%85%26&stage=verification_required&cursor=a%2Bb%2F%3D&limit=20");
+  });
+  it("replays a status-check HTTP request with the caller's same idempotency key", async () => {
+    const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ dispatchId: "check", dispatchIds: ["check"], verificationAttempt: 1, terminalStatusUrl: "/commands/id" }) });
+    vi.stubGlobal("fetch", fetch);
+    const controller = new AbortController();
+    await createCommandStatusCheck("id", "same-request", controller.signal);
+    await createCommandStatusCheck("id", "same-request", controller.signal);
+    expect(fetch.mock.calls.map(([url, init]) => [url, JSON.parse(init.body), init.signal])).toEqual([
+      ["/api/commands/id/status-checks", { clientRequestId: "same-request" }, controller.signal],
+      ["/api/commands/id/status-checks", { clientRequestId: "same-request" }, controller.signal]
+    ]);
   });
 });
 

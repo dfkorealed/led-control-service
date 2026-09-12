@@ -166,9 +166,13 @@ export class CommandJournal {
     if (!deviceStatus || typeof deviceStatus !== "object") return;
     const row = deviceStatus as { occurredAt?: unknown; results?: unknown };
     if (typeof row.occurredAt !== "string" || !Array.isArray(row.results)) return;
+    const observedIds = (result as { observedFixtureIds?: string[] }).observedFixtureIds;
     for (const item of row.results) {
       if (!item || typeof item !== "object" || typeof (item as { fixtureId?: unknown }).fixtureId !== "string") continue;
       const fixture = item as Record<string, unknown> & { fixtureId: string };
+      // Partial status checks must not replace the last actual observation of a
+      // missing fixture with a timeout. Legacy results without IDs keep their format.
+      if (observedIds && !observedIds.includes(fixture.fixtureId)) continue;
       data.fixtureSnapshots[fixture.fixtureId] = {
         fixtureId: fixture.fixtureId,
         status: typeof fixture.status === "string" ? fixture.status : "failed",
