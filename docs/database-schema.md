@@ -291,6 +291,7 @@ SiteDeletionCleanup (삭제된 Site ID와 외부 정리 대상을 독립 보존)
 - `administeredSite`: `Site?` (`Site.adminUserId`와 1:1)
 - `commands`: `Command[]`
 - `sessions`: `Session[]`
+- `mfa`: `UserMfa?`
 - `provisioningSessions`: `ProvisioningSession[]`
 - `siteMemberships`: `SiteMembership[]`
 - `floorMapRevisions`: `FloorMapRevision[]`
@@ -1280,12 +1281,34 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 | `ipAddress` | `String?` | 아니오 |  | 접속 IP |
 | `expiresAt` | `DateTime` | 예 |  | 만료 시각 |
 | `revokedAt` | `DateTime?` | 아니오 |  | 폐기 시각 |
+| `mfaVerifiedAt` | `DateTime?` | 아니오 |  | TOTP 또는 복구 코드까지 검증해 발급한 세션의 MFA 검증 시각 |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
 | `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
 
 관계:
 
 - `user`: `User`
+
+`userId + revokedAt + expiresAt` 복합 index는 사용자별 활성 세션 조회와 일괄 폐기를 지원한다.
+
+### UserMfa
+
+operator/admin의 활성 TOTP 설정이다. 사용자와 1:1이며 viewer는 애플리케이션 정책상 생성할 수 없다. 원본 비밀키는 `MFA_ENCRYPTION_KEY`로 AES-256-GCM 암호화하고, 복구 코드는 원문을 보관하지 않는다.
+
+| 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
+| --- | --- | --- | --- | --- |
+| `userId` | `String` | 예 | PK, FK -> `User.id`, delete cascade | MFA 소유 사용자 |
+| `secretCiphertext` | `String` | 예 |  | 버전·nonce·ciphertext·인증 태그를 포함한 암호화 TOTP 비밀키 |
+| `recoveryCodeHashes` | `String[]` | 예 |  | 아직 사용하지 않은 고엔트로피 복구 코드의 SHA-256 hash |
+| `enabledAt` | `DateTime` | 예 | `now()` | MFA 활성화 시각 |
+| `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
+| `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
+
+관계:
+
+- `user`: `User`
+
+`20260916090000_account_security` migration은 `UserMfa`, `Session.mfaVerifiedAt`, 사용자별 활성 세션 조회 index를 추가한다. 이번 작업에서는 사용자 DB에 적용하지 않고 새 일회용 PostgreSQL에서만 전체 migration을 검증한다.
 
 ### ProvisioningSession
 
@@ -1535,7 +1558,8 @@ node별 `provision-device` command의 durable transactional outbox다. 등록 AP
 | `MeshControlGroupAppliedMember` | PK `groupId + meshNodeId + meshAddress`, Index `groupId + gatewayId` | partial success를 포함한 cloud 확인 실제 subscription pair snapshot |
 | `GroupFixture` | PK `groupId`, `fixtureId` | 같은 조명의 그룹 중복 매핑 방지 |
 | `Invitation` | Unique `tokenHash` | 초대 토큰 hash 중복 방지 |
-| `Session` | Unique `tokenHash` | 세션 토큰 hash 중복 방지 |
+| `Session` | Unique `tokenHash`, `userId + revokedAt + expiresAt` index | 세션 토큰 hash 중복 방지와 사용자별 활성 세션 조회·폐기 가속 |
+| `UserMfa` | PK/FK `userId`, delete cascade | 사용자별 TOTP 설정 하나만 허용하고 계정 삭제 시 보안 정보 제거 |
 | `SiteDeletionCleanup` | Unique `siteId`, retry/lease index | 현장별 외부 정리 작업 1개와 다중 API instance의 crash-safe 재시도 |
 | `DiscoveredMeshNode` | Unique `sessionId`, `deviceUuid` | 같은 등록 세션 안에서 발견 노드 중복 방지 |
 | `ProvisioningSession` | Partial unique `gatewayId WHERE scanStatus IN (pending, scanning)` | Gateway당 outbox 대기·실행 중 scan 1개 제한 |
@@ -1558,8 +1582,11 @@ node별 `provision-device` command의 durable transactional outbox다. 등록 AP
 
 ```text
 User.loginId/password
+→ Redis IP·계정·고객사/IP 제한 확인
 → AuthService 비밀번호 검증
-→ Session 생성
+→ MFA 미사용 계정은 Session 생성
+→ MFA 사용 operator/admin은 Redis 일회성 challenge 발급
+→ TOTP 또는 미사용 복구 코드 검증 뒤 Session 생성
 → HttpOnly cookie 발급
 → 이후 API 요청에서 Session token hash 검증
 ```
