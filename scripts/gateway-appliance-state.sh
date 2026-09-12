@@ -34,6 +34,23 @@ case "$COMMAND" in
 esac
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/gateway-appliance-common.sh"
 
+# Fixed v1 resource profile, not caller-controlled limits. The 100MiB state-event
+# outbox and 64MiB automation state/outbox/reserve need headroom for serialization
+# and other roots. 4096 headers retain room for identity generations without an
+# unbounded small/empty-entry workload. Capacity changes require a reviewed
+# profile change; exceeding it must never prune data or emit a partial backup.
+readonly MAX_STATE_ENTRIES=4096
+readonly MAX_STATE_FILE_BYTES=268435456
+readonly MAX_STATE_TOTAL_BYTES=536870912
+readonly MAX_STATE_MANIFEST_BYTES=16777216
+readonly MAX_STATE_TRAILER_BYTES=10240
+# Regular bytes include manifest.state. Framing is separate: one header and at
+# most 511 padding bytes per entry, two end blocks, then bounded GNU tar record
+# padding. Ciphertext allows CMS BER/encryption overhead above the decoded cap.
+readonly MAX_STATE_FRAMING_BYTES=$((MAX_STATE_ENTRIES * (512 + 511) + 2 * 512 + MAX_STATE_TRAILER_BYTES))
+readonly MAX_STATE_ARCHIVE_BYTES=$((MAX_STATE_TOTAL_BYTES + MAX_STATE_FRAMING_BYTES))
+readonly MAX_STATE_CIPHERTEXT_BYTES=570425344
+
 file_size() { stat -c '%s' -- "$1" 2>/dev/null || stat -f '%z' "$1"; }
 owner_ids() { stat -c '%u|%g' -- "$1" 2>/dev/null || stat -f '%u|%g' "$1"; }
 relative_name() {
@@ -52,13 +69,29 @@ state_name() {
   case "$1" in gateway|gateway/*|mesh|mesh/*|identity|identity/*|factory-trust|factory-trust/*) ;; *) return 1 ;; esac
 }
 state_paths() {
-  local base=$1 root entry relative kind
+  local base=$1 root entry relative kind size ids target digest line count=1 total=0 manifest_bytes
+  line="led-control-gateway-state/v1|$SOURCE_RELEASE|$CREATED_AT"
+  manifest_bytes=$((${#line}+1))
   for root in factory-trust gateway identity mesh; do
     safe_directory "$base/$root" || return 1
     while IFS= read -r -d '' entry; do
-      relative=${entry#"$base/"}; kind=f
-      if [ -d "$entry" ] && [ ! -L "$entry" ]; then kind=d; fi
+      count=$((count+1)); ((count<=MAX_STATE_ENTRIES)) || return 1
+      relative=${entry#"$base/"}; size=0; target=-; digest=-
+      if [ -L "$entry" ]; then kind=l; target=$(readlink "$entry") && relative_name "$target" || return 1
+      elif [ -d "$entry" ]; then kind=d
+      elif regular "$entry"; then
+        kind=f; size=$(file_size "$entry") || return 1
+        ((size<=MAX_STATE_FILE_BYTES && total<=MAX_STATE_TOTAL_BYTES-size)) || return 1
+        total=$((total+size)); printf -v digest '%064d' 0
+      else return 1; fi
       state_name "$relative" "$kind" || return 1
+      # Metadata-only preflight: measure the exact future manifest without
+      # reading/hashing live file bodies before quiesce. Every rendered mode has
+      # four digits and a regular SHA-256 has 64; other fields use actual values.
+      ids=$(owner_ids "$entry") || return 1
+      line="$relative|$kind|0000|$ids|$size|$digest|$target"
+      manifest_bytes=$((manifest_bytes+${#line}+1))
+      ((manifest_bytes<=MAX_STATE_MANIFEST_BYTES && total<=MAX_STATE_TOTAL_BYTES-manifest_bytes)) || return 1
     done < <(find "$base/$root" -print0)
   done
 }
@@ -192,14 +225,16 @@ outer_verify() {
     esac
   done < "$directory/backup.env"
   [ "$count" = 8 ] && valid_release_id "$SOURCE_RELEASE" && [[ "$CREATED_AT" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || return 1
-  [[ "$CIPHER_SHA" =~ ^[a-f0-9]{64}$ && "$CIPHER_SIZE" =~ ^[1-9][0-9]*$ ]] || return 1
+  [[ "$CIPHER_SHA" =~ ^[a-f0-9]{64}$ && "$CIPHER_SIZE" =~ ^[1-9][0-9]*$ ]] && [ "${#CIPHER_SIZE}" -le 9 ] || return 1
+  ((CIPHER_SIZE<=MAX_STATE_CIPHERTEXT_BYTES)) || return 1
   [ "$(file_size "$directory/state.cms")" = "$CIPHER_SIZE" ] && [ "$(hash_file "$directory/state.cms")" = "$CIPHER_SHA" ] || return 1
   checksum=$(printf '%s  backup.env\n%s  state.cms\n' "$(hash_file "$directory/backup.env")" "$CIPHER_SHA")
   [ "$(cat "$directory/checksums.sha256")" = "$checksum" ] && [ "$(wc -l < "$directory/checksums.sha256" | tr -d ' ')" = 2 ]
 }
 write_outer() {
   local directory=$1
-  CIPHER_SHA=$(hash_file "$directory/state.cms"); CIPHER_SIZE=$(file_size "$directory/state.cms")
+  CIPHER_SIZE=$(file_size "$directory/state.cms") && ((CIPHER_SIZE<=MAX_STATE_CIPHERTEXT_BYTES)) || return 1
+  CIPHER_SHA=$(hash_file "$directory/state.cms") || return 1
   printf 'CIPHERTEXT=state.cms\nCIPHERTEXT_SHA256=%s\nCIPHERTEXT_SIZE=%s\nCREATED_AT=%s\nENCRYPTION=openssl-cms-aes-256-cbc-rsa/v1\nRECIPIENT_SHA256=%s\nRELEASE_ID=%s\nSCHEMA=led-control-gateway-backup/v1\n' "$CIPHER_SHA" "$CIPHER_SIZE" "$CREATED_AT" "$RECIPIENT_SHA" "$SOURCE_RELEASE" > "$directory/backup.env" || return 1
   printf '%s  backup.env\n%s  state.cms\n' "$(hash_file "$directory/backup.env")" "$CIPHER_SHA" > "$directory/checksums.sha256"
 }
@@ -236,14 +271,25 @@ read_header() {
 }
 extract_stream() {
   local destination=$1 index checksum expected name mode uid gid size kind target previous='' first=1 entry padding zero
+  local count=0 total=0 framing=0 trailer_bytes
   zero=$(printf '%01024d' 0)
   while :; do
+    framing=$((framing+512))
+    ((framing<=MAX_STATE_FRAMING_BYTES && total<=MAX_STATE_ARCHIVE_BYTES-framing)) || return 1
     read_header || return 1
     if [ "$HEADER" = "$zero" ]; then
+      framing=$((framing+512))
+      ((framing<=MAX_STATE_FRAMING_BYTES && total<=MAX_STATE_ARCHIVE_BYTES-framing)) || return 1
       [ "$first" = 0 ] && read_header && [ "$HEADER" = "$zero" ] || return 1
-      [ -z "$(od -An -v -tx1 | tr -d '0 \n')" ] || return 1
+      # Read only limit+1, not an unbounded command substitution at end-of-tar.
+      expected=$(dd bs=65536 count="$((MAX_STATE_TRAILER_BYTES+1))" iflag=count_bytes,fullblock status=none | od -An -v -tx1 | tr -d ' \n') || return 1
+      trailer_bytes=$((${#expected}/2)); framing=$((framing+trailer_bytes))
+      ((trailer_bytes<=MAX_STATE_TRAILER_BYTES && framing<=MAX_STATE_FRAMING_BYTES && total<=MAX_STATE_ARCHIVE_BYTES-framing)) && [ -z "${expected//00/}" ] || return 1
       break
     fi
+    # Count every nonzero header, including duplicate/empty/unsupported entries,
+    # before checksum/text/type handling or any mkdir, link or payload dd.
+    count=$((count+1)); ((count<=MAX_STATE_ENTRIES)) || return 1
     checksum=0
     for ((index=0;index<512;index++)); do
       if ((index>=148 && index<156)); then checksum=$((checksum+32)); else checksum=$((checksum+16#${HEADER:index*2:2})); fi
@@ -258,7 +304,7 @@ extract_stream() {
     header_octal 124 12 || return 1; size=$NUMBER
     kind=${HEADER:312:2}; header_text 157 100 || return 1; target=$FIELD
     if [ "$first" = 1 ]; then
-      [ "$name" = manifest.state ] && [ "$kind" = 30 ] && [ "$mode" = 384 ] && ((size>0 && size<=16777216)) || return 1
+      [ "$name" = manifest.state ] && [ "$kind" = 30 ] && [ "$mode" = 384 ] && ((size>0 && size<=MAX_STATE_MANIFEST_BYTES)) || return 1
       first=0
     else
       if [ "$kind" = 35 ]; then state_name "$name" d || return 1; else state_name "$name" || return 1; fi
@@ -269,9 +315,11 @@ extract_stream() {
     case "$kind" in
       30|00)
         [ -z "$target" ] && (( (mode & 0022) == 0 )) || return 1
+        ((size<=MAX_STATE_FILE_BYTES && total<=MAX_STATE_TOTAL_BYTES-size)) || return 1
+        padding=$(((512-size%512)%512)); total=$((total+size)); framing=$((framing+padding))
+        ((framing<=MAX_STATE_FRAMING_BYTES && total<=MAX_STATE_ARCHIVE_BYTES-framing)) || return 1
         dd bs=65536 count="$size" iflag=count_bytes,fullblock status=none of="$entry" || return 1
         [ "$(file_size "$entry")" = "$size" ] || return 1
-        padding=$(((512-size%512)%512))
         if [ "$padding" != 0 ]; then
           expected=$(dd bs=1 count="$padding" iflag=fullblock status=none | od -An -v -tx1 | tr -d ' \n') || return 1
           [ "${#expected}" = "$((padding*2))" ] && [ -z "${expected//00/}" ] || return 1
@@ -455,7 +503,7 @@ ENV_SHA=$(hash_file "$ROOT/.env.appliance"); OPERATION=$COMMAND
 if [ "$COMMAND" = backup ]; then
   case "$BACKUP/" in "$DATA_DIR/"*|"$ROOT/"*) error 'backup output cannot be inside the appliance' ;; esac
   SOURCE_RELEASE=$OLD_CURRENT; CREATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-  state_paths "$DATA_DIR" || error 'state archive paths rejected before quiesce'
+  state_paths "$DATA_DIR" || error 'state archive paths or capacity rejected before quiesce; operator action required'
   STATE_ACTIVE=1; write_state_journal prepared
   compose stop gateway-appliance || error 'gateway quiesce failed'
   render_manifest "$DATA_DIR" "$SCRATCH/manifest.state" "$SCRATCH/list" || error 'state snapshot rejected'

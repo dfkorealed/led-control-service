@@ -146,8 +146,9 @@ try {
   process.stdout.write("Gateway release CI: full state suite (serial), including actual ephemeral RSA/OpenSSL CMS backup → verify → drill → disposable restore\n");
   const drill = await run(process.execPath, ["--test", "--test-concurrency=1", "--test-reporter=spec", "scripts/gateway-appliance-state.test.mjs"]);
   // No name filter: malicious archive, permissions, identity and transactional
-  // journal rollback regressions share this protected result with the CMS flow.
-  for (const [label, expected] of Object.entries({ tests: 85, pass: 85, fail: 0, cancelled: 0, skipped: 0, todo: 0 })) {
+  // journal rollback and bounded decoding regressions share this protected result
+  // with the CMS flow. An older suite or skipped budget test must fail closed.
+  for (const [label, expected] of Object.entries({ tests: 98, pass: 98, fail: 0, cancelled: 0, skipped: 0, todo: 0 })) {
     assert.match(drill.stdout, new RegExp(`(?:ℹ|#) ${label} ${expected}(?:\\r?\\n|$)`), `full state suite must report ${label} ${expected}`);
   }
   assert.equal(drill.stdout.split("\n").filter(line => line.startsWith(`✔ ${stateFlow} (`)).length, 1, "required real CMS happy flow must pass exactly once");

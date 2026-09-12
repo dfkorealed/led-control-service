@@ -10,6 +10,8 @@
 
 ## 작업 상태
 
+Gateway whole-branch final review 후속은 **state archive 용량 상한 구현·host 검증 완료, committed-clean Docker/audit 검증 예정**이다(base `344bd6b`). 고정 4,096 headers·파일별 256 MiB·regular 합계 512 MiB 및 별도 framing/cipher 예산을 TDD로 적용했고 새 budget 13/13·전체 state 98/98·current combined 358/358·Gateway contracts 30/30·syntax/diff가 통과했다. 아래 Task 4의 Docker/audit 수치는 이전 wave의 역사적 증거이며, 새 committed-clean gate 결과를 얻은 뒤 같은 계획과 함께 갱신한다.
+
 | 작업 | 상태 | 내용 |
 | --- | --- | --- |
 | Gateway release·rollback·backup 복구 P1 | 진행 중(Task 4 review fix 소프트웨어 검증 완료, 최종 branch review 대기) | 기능 코드 `3ba80f8`에서 Important 5·Minor 1을 TDD 수정했다. Encrypted private-key v3 구조 검사, protected full state 85개/no-skip/CMS flow 1개, bounded TERM→KILL/60분 workflow timeout, runtime-leaf attestation/nonempty layers, pre-push tar entry caps, exact pnpm symlink type/target을 고정했다. Focused bundle 56/56·CI/workflow/process/container 55/55, 전체 behavior 343/343, Gateway contracts 30/30·64 files/608 unit·typecheck/build 564.6 kB, static/diff가 통과했다. Clean canonical(14분 37.149초)은 artifact/activation 223/223·전체 state 85/85(no skip, 실제 CMS happy flow 1개 포함)·실제 Docker 29 test-only amd64/Node 22.23.2·OS 120/Node 263 inventory·identity/v3/cleanup을 통과했다. 전체 production audit(14분 26.227초)도 같은 in-band gate·MQTT 2/2·Web container 5/5·dependency 820(Critical 0/High 2/Moderate 1/Low 0, 기존 승인 예외 3·unexpected 0)까지 통과했다. 메뉴·DB schema/structure·migration·운영·실장비·main은 변경하지 않았다. 운영 signing/recipient custody, verified baseline migration, production ARM64/Linux Pi·power-loss·HCI/RF/HIL과 GitHub 운영 보호 설정은 별도 승인/검증이다. [설계](superpowers/specs/2026-09-12-gateway-release-backup-recovery-design.md) · [실행 계획](superpowers/plans/2026-09-12-gateway-release-backup-recovery.md) |

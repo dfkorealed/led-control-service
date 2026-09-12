@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmod, copyFile, cp, lchmod, link, lstat, mkdir, mkdtemp, readFile, readdir, readlink, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
+import { chmod, copyFile, cp, lchmod, link, lstat, mkdir, mkdtemp, open, readFile, readdir, readlink, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import test from 'node:test';
 import { fixture, policyHash } from './gateway-appliance-fixture.mjs';
 
@@ -19,14 +22,14 @@ const realMktemp = spawnSync('/bin/sh', ['-c', 'command -v mktemp'], { encoding:
 const created = '2026-09-12T00:00:00Z';
 
 // Expectations are derived from real lstat/readlink/bytes, not the shell manifest.
-async function entries(directory) {
+async function entries(directory, readBodies = true) {
   const result = [];
   async function walk(relative) {
     const file = path.join(directory, relative), info = await lstat(file);
     const type = info.isSymbolicLink() ? 'l' : info.isDirectory() ? 'd' : 'f';
     result.push({ name: relative, type, mode: (info.mode & 0o7777).toString(8).padStart(4, '0'),
       uid: info.uid, gid: info.gid, size: type === 'f' ? info.size : 0,
-      content: type === 'f' ? await readFile(file) : Buffer.alloc(0),
+      content: type === 'f' && readBodies ? await readFile(file) : Buffer.alloc(0),
       target: type === 'l' ? await readlink(file) : '-' });
     if (type === 'd') for (const name of (await readdir(file)).sort()) await walk(`${relative}/${name}`);
   }
@@ -35,30 +38,40 @@ async function entries(directory) {
 }
 function manifest(records, id, timestamp = created) {
   return `led-control-gateway-state/v1|${id}|${timestamp}\n` + records.map(e =>
-    `${e.name}|${e.type}|${e.mode}|${e.uid}|${e.gid}|${e.size}|${e.type === 'f' ? sha(e.content) : '-'}|${e.target}\n`).join('');
+    `${e.name}|${e.type}|${e.mode}|${e.uid}|${e.gid}|${e.size}|${e.type === 'f' ? e.digest ?? sha(e.content) : '-'}|${e.target}\n`).join('');
 }
+async function fileSha(file) {const hash=createHash('sha256');for await(const chunk of createReadStream(file))hash.update(chunk);return hash.digest('hex');}
 async function snapshot(directory) {
-  return (await entries(directory)).map(({content, ...e}) => ({...e, hash: sha(content)}));
+  return Promise.all((await entries(directory,false)).map(async({content,...e})=>({...e,hash:e.type==='f'?await fileSha(path.join(directory,e.name)):sha(content)})));
 }
 // An independent USTAR writer makes malicious *archive bytes*, including types
 // that filesystem tar creation refuses. No plaintext tar file is ever written.
-function archive(records, text) {
-  const all = [{name:'manifest.state',type:'f',mode:'0600',uid:process.getuid(),gid:process.getgid(),content:Buffer.from(text),target:'-'}, ...records];
-  const chunks=[];
-  for (const e of all) {
+function archiveHeader(e) {
     const header=Buffer.alloc(512), content=e.content || Buffer.alloc(0);
     const field=(at,length,value)=>header.write(value,at,length,'ascii');
     const octal=(at,length,value)=>field(at,length,Number(value).toString(8).padStart(length-1,'0')+'\0');
     field(0,100,e.name); octal(100,8,parseInt(e.mode,8)); octal(108,8,e.uid); octal(116,8,e.gid);
-    octal(124,12,e.sizeOverride ?? (e.type==='f'?content.length:0)); octal(136,12,1);
+    octal(124,12,e.sizeOverride ?? (e.type==='f'?e.zeroBytes??content.length:0)); octal(136,12,1);
     header.fill(32,148,156); field(156,1,({f:'0',d:'5',l:'2'})[e.type] || e.type);
     if(e.target!=='-')field(157,100,e.target);
     field(257,6,'ustar\0');field(263,2,'00');
     field(148,8,[...header].reduce((a,b)=>a+b,0).toString(8).padStart(6,'0')+'\0 ');
-    chunks.push(header,content,Buffer.alloc((512-content.length%512)%512));
-  }
-  return Buffer.concat([...chunks,Buffer.alloc(1024)]);
+    return header;
 }
+function* archiveChunks(records, text, trailingBytes = 0) {
+  const all = [{name:'manifest.state',type:'f',mode:'0600',uid:process.getuid(),gid:process.getgid(),content:Buffer.from(text),target:'-'}, ...records];
+  const zeros=Buffer.alloc(65536);
+  for(const e of all) {
+    yield archiveHeader(e);
+    const length=e.zeroBytes??e.content?.length??0;
+    if(e.zeroBytes!==undefined)for(let remaining=length;remaining>0;remaining-=Math.min(remaining,zeros.length))yield zeros.subarray(0,Math.min(remaining,zeros.length));
+    else yield e.content||Buffer.alloc(0);
+    yield Buffer.alloc((512-length%512)%512);
+  }
+  yield Buffer.alloc(1024);
+  for(let remaining=trailingBytes;remaining>0;remaining-=Math.min(remaining,zeros.length))yield zeros.subarray(0,Math.min(remaining,zeros.length));
+}
+function archive(records,text) {return Buffer.concat([...archiveChunks(records,text)]);}
 
 async function setup(t, bundleOptions) {
   let workspaceLog;
@@ -108,27 +121,140 @@ async function setup(t, bundleOptions) {
   if(process.platform==='darwin')ok(spawnSync('cc',['-x','c','-o',path.join(h.bin,'dd'),'-'],{input:code,encoding:'utf8'}));
   await writeFile(path.join(h.bin,'openssl'),`#!${process.execPath}\nconst fs=require('node:fs'),cp=require('node:child_process');const c=JSON.parse(fs.readFileSync(process.env.RELEASE_SHIM_CONFIG));if(c.failEncrypt&&process.argv.includes('-encrypt'))process.exit(1);if(c.truncateSecondDecrypt&&process.argv.includes('-decrypt')){const f=process.env.RELEASE_SHIM_CONFIG+'.decrypt-count';const n=fs.existsSync(f)?Number(fs.readFileSync(f))+1:1;fs.writeFileSync(f,String(n));if(n===2){const p=cp.spawnSync(${JSON.stringify(realOpenSSL)},process.argv.slice(2));process.stdout.write(p.stdout.subarray(0,1024));process.exit(p.status??1);}}const p=cp.spawnSync(${JSON.stringify(realOpenSSL)},process.argv.slice(2),{stdio:'inherit'});process.exit(p.status??1);\n`,{mode:0o755});
   const env={...h.env,TMPDIR:scratch};
-  const args=(command,backup,extra=[])=>[state,command,backup,'--recipient',cert,...(command==='backup'?[]:['--key',key]),...(['backup','restore'].includes(command)?['--policy-sha256',policyHash,'--test-root',h.root]:[]),...extra];
+  let testedState=state;
+  const args=(command,backup,extra=[])=>[testedState,command,backup,'--recipient',cert,...(command==='backup'?[]:['--key',key]),...(['backup','restore'].includes(command)?['--policy-sha256',policyHash,'--test-root',h.root]:[]),...extra];
   const run=(command,backup,extra=[])=>spawnSync('/bin/bash',args(command,backup,extra),{env,encoding:'utf8',timeout:30000});
+  async function useBudgetProfile() {
+    // The initial RED used the actual 4097-entry/512MiB boundaries. Keep CI fast
+    // by changing literals in an owned disposable copy, never production or its
+    // environment. Assert every exact production constant before the same parser
+    // runs with smaller equivalent budgets; framing remains real 512-byte USTAR.
+    let source=await readFile(state,'utf8');
+    for(const [name,production,fixtureValue] of [
+      ['ENTRIES',4096,64],['FILE_BYTES',268435456,256*1024],['TOTAL_BYTES',536870912,512*1024],
+      ['MANIFEST_BYTES',16777216,16*1024],['TRAILER_BYTES',10240,10240],['CIPHERTEXT_BYTES',570425344,1024*1024],
+    ]) {
+      const literal=`readonly MAX_STATE_${name}=${production}`;
+      assert.equal(source.split(literal+'\n').length,2,`fixed production ${name} budget must remain explicit and unique`);
+      source=source.replace(literal,`readonly MAX_STATE_${name}=${fixtureValue}`);
+    }
+    assert.ok(source.includes('readonly MAX_STATE_FRAMING_BYTES=$((MAX_STATE_ENTRIES * (512 + 511) + 2 * 512 + MAX_STATE_TRAILER_BYTES))'));
+    assert.ok(source.includes('readonly MAX_STATE_ARCHIVE_BYTES=$((MAX_STATE_TOTAL_BYTES + MAX_STATE_FRAMING_BYTES))'));
+    const directory=await mkdtemp(path.join(h.temp,'budget-parser-'));
+    testedState=path.join(directory,'gateway-appliance-state.sh');
+    await writeFile(testedState,source,{mode:0o700});await copyFile(common,path.join(directory,'gateway-appliance-common.sh'));
+  }
+  async function finishArtifact(backup) {
+    const cipher=path.join(backup,'state.cms'),digest=await fileSha(cipher),size=(await lstat(cipher)).size;
+    const der=spawnSync(realOpenSSL,['x509','-in',cert,'-outform','DER']).stdout;
+    const outer=`CIPHERTEXT=state.cms\nCIPHERTEXT_SHA256=${digest}\nCIPHERTEXT_SIZE=${size}\nCREATED_AT=${created}\nENCRYPTION=openssl-cms-aes-256-cbc-rsa/v1\nRECIPIENT_SHA256=${sha(der)}\nRELEASE_ID=${a.id}\nSCHEMA=led-control-gateway-backup/v1\n`;
+    await writeFile(path.join(backup,'backup.env'),outer);await writeFile(path.join(backup,'checksums.sha256'),`${sha(outer)}  backup.env\n${digest}  state.cms\n`);
+    return backup;
+  }
   async function artifact(records,text,bytes) {
     const backup=path.join(h.temp,`crafted-${Math.random().toString(16).slice(2)}`);await mkdir(backup,{mode:0o700});
     const cipher=path.join(backup,'state.cms');
     const encrypted=spawnSync(realOpenSSL,['cms','-encrypt','-binary','-aes-256-cbc','-outform','DER','-stream','-out',cipher,cert],{input:bytes??archive(records,text??manifest(records,a.id))});
     assert.equal(encrypted.status,0,'ephemeral CMS fixture encryption failed');
-    const der=spawnSync(realOpenSSL,['x509','-in',cert,'-outform','DER']).stdout;
-    const content=await readFile(cipher);
-    const outer=`CIPHERTEXT=state.cms\nCIPHERTEXT_SHA256=${sha(content)}\nCIPHERTEXT_SIZE=${content.length}\nCREATED_AT=${created}\nENCRYPTION=openssl-cms-aes-256-cbc-rsa/v1\nRECIPIENT_SHA256=${sha(der)}\nRELEASE_ID=${a.id}\nSCHEMA=led-control-gateway-backup/v1\n`;
-    await writeFile(path.join(backup,'backup.env'),outer);await writeFile(path.join(backup,'checksums.sha256'),`${sha(outer)}  backup.env\n${sha(content)}  state.cms\n`);
-    return backup;
+    return finishArtifact(backup);
+  }
+  async function streamArtifact(records,text=manifest(records,a.id),trailingBytes=0) {
+    const backup=await mkdtemp(path.join(h.temp,'streamed-'));
+    const child=spawn(realOpenSSL,['cms','-encrypt','-binary','-aes-256-cbc','-outform','DER','-stream','-out',path.join(backup,'state.cms'),cert],{stdio:['pipe','ignore','ignore']});
+    const closed=new Promise((resolve,reject)=>{child.once('error',reject);child.once('close',resolve);});
+    await pipeline(Readable.from(archiveChunks(records,text,trailingBytes)),child.stdin);
+    assert.equal(await closed,0,'ephemeral streaming CMS encryption failed');return finishArtifact(backup);
+  }
+  async function traceArchiveIo() {
+    const log=path.join(h.temp,'archive-io.log');
+    for(const name of ['dd','mkdir']) {
+      let actual=spawnSync('/bin/sh',['-c',`command -v ${name}`],{encoding:'utf8'}).stdout.trim();
+      if(await exists(path.join(h.bin,name))) {actual=path.join(h.bin,name+'.actual');await rename(path.join(h.bin,name),actual);}
+      await writeFile(path.join(h.bin,name),`#!/bin/bash\nif [ ${name} = mkdir ]; then printf 'mkdir|%s\\n' "\${@: -1}" >> '${log}'; else for arg in "$@"; do case "$arg" in of=*) printf 'dd|%s\\n' "\${arg#of=}" >> '${log}';; esac; done; fi\nexec '${actual}' "$@"\n`,{mode:0o755});
+    }
+    return async()=>readFile(log,'utf8').then(s=>s.trim().split('\n').filter(Boolean),()=>[]);
   }
   const workspaces=async()=>readFile(workspaceLog,'utf8').then(s=>s.trim().split('\n').filter(Boolean),()=>[]);
   const clean=async()=>{for(const directory of await workspaces())assert.equal(await exists(directory),false,'all disposable plaintext removed');assert.deepEqual(await readdir(scratch),[]);};
-  return {...h,a,data,cert,key,env,run,args,artifact,clean,workspaces,backup:path.join(h.temp,'backup')};
+  return {...h,a,data,cert,key,env,run,useBudgetProfile,args,artifact,streamArtifact,finishArtifact,traceArchiveIo,clean,workspaces,backup:path.join(h.temp,'backup')};
 }
 
 test('common library sourcing does not change shell options, traps, positional args or caller globals',()=>{
   const result=spawnSync('/bin/bash',['-c','library=$1; set -- unchanged; ROOT=caller; before=$(set +o); trap : EXIT; prior=$(trap -p); source "$library" || exit 99; [ "$before" = "$(set +o)" ] && [ "$prior" = "$(trap -p)" ] && [ "$ROOT" = caller ] && [ "$1" = unchanged ]','test',common],{encoding:'utf8'});
   ok(result);
+});
+const MiB=1024*1024,zeroDigests=new Map();
+function zeroRecord(name,size) {
+  if(!zeroDigests.has(size)) {const hash=createHash('sha256'),chunk=Buffer.alloc(65536);for(let remaining=size;remaining>0;remaining-=Math.min(remaining,chunk.length))hash.update(chunk.subarray(0,Math.min(remaining,chunk.length)));zeroDigests.set(size,hash.digest('hex'));}
+  return {name,type:'f',mode:'0600',uid:process.getuid(),gid:process.getgid(),size,zeroBytes:size,digest:zeroDigests.get(size),content:Buffer.alloc(0),target:'-'};
+}
+const sortedRecords=records=>records.sort((a,b)=>a.name<b.name?-1:a.name>b.name?1:0);
+for(const kind of ['unique directories','zero-size files','duplicate final entry'])test(`state budget caps entry+1 ${kind} before excess filesystem work (fixed 4096 production profile)`,async t=>{
+  const h=await setup(t),before=await snapshot(h.data),records=await entries(h.data),calls=await h.traceArchiveIo();
+  await h.useBudgetProfile();
+  for(let index=records.length;index<64;index++)records.push({name:`mesh/zz-quota-${String(index).padStart(5,'0')}`,type:kind==='zero-size files'?'f':'d',mode:kind==='zero-size files'?'0600':'0750',uid:process.getuid(),gid:process.getgid(),size:0,content:Buffer.alloc(0),target:'-'});
+  sortedRecords(records);if(kind==='duplicate final entry')records[records.length-1]={...records.at(-2)};
+  assert.equal(records.length+1,65,'manifest is one nonzero archive header');
+  const result=h.run('verify',await h.artifact(records));
+  const io=await calls(),suffix='/first/'+records.at(-1).name;
+  if(kind!=='duplicate final entry')assert.equal(io.some(line=>line.endsWith(suffix)),false,'cap+1 must be rejected before mkdir/dd');
+  else assert.equal(io.filter(line=>line.endsWith(suffix)).length,1,'duplicate is never created twice');
+  bad(result);
+  if(kind==='unique directories')ok(h.run('verify',await h.artifact(records.slice(0,-1))));
+  await h.clean();assert.deepEqual(await h.events(),[]);assert.deepEqual(await snapshot(h.data),before);
+});
+test('state budget rejects a per-file+1 header before opening its output (fixed 256MiB production profile)',async t=>{
+  const h=await setup(t),before=await snapshot(h.data),records=await entries(h.data),calls=await h.traceArchiveIo();
+  await h.useBudgetProfile();
+  // No huge plaintext fixture is needed: the advertised size must be rejected
+  // before dd even when the encrypted stream is then truncated. The old parser
+  // opened the output and only rejected after consuming the remaining stream.
+  records.push({...zeroRecord('gateway/zz-oversize',0),sizeOverride:256*1024+1});sortedRecords(records);
+  const result=h.run('restore',await h.artifact(records));
+  assert.equal((await calls()).some(line=>line.endsWith('/first/gateway/zz-oversize')),false,'oversized header must not reach dd');
+  bad(result);await h.clean();assert.deepEqual(await h.events(),[]);assert.deepEqual(await snapshot(h.data),before);
+});
+for(const excess of [0,1])test(`state budget ${excess?'rejects aggregate+1':'accepts exact aggregate'} including manifest (fixed 512MiB production profile)`,async t=>{
+  const h=await setup(t),before=await snapshot(h.data),records=await entries(h.data),calls=await h.traceArchiveIo();
+  await h.useBudgetProfile();
+  const existing=records.reduce((sum,e)=>sum+(e.type==='f'?e.size:0),0);
+  const first=zeroRecord('gateway/zz-budget-a',256*1024),second={...first,name:'gateway/zz-budget-b'};
+  records.push(first,second);sortedRecords(records);
+  const remainder=512*1024+excess-existing-first.size-Buffer.byteLength(manifest(records,h.a.id));
+  Object.assign(second,zeroRecord(second.name,remainder));const text=manifest(records,h.a.id);
+  assert.equal(records.reduce((sum,e)=>sum+(e.type==='f'?e.size:0),Buffer.byteLength(text)),512*1024+excess);
+  const result=h.run(excess?'restore':'verify',await h.streamArtifact(records,text));
+  if(excess) {assert.equal((await calls()).some(line=>line.endsWith('/first/mesh/node.json')),false,'aggregate cap is checked before the crossing payload');bad(result);}else ok(result);
+  await h.clean();assert.deepEqual(await h.events(),[]);assert.deepEqual(await snapshot(h.data),before);
+});
+test('state budget preserves 64MiB automation outbox/reserve and 100MiB state-event outbox operating capacity',async t=>{
+  const h=await setup(t),before=await snapshot(h.data),records=await entries(h.data);
+  for(const [name,size] of [['automation-telemetry.json',64*MiB],['automation-telemetry.json.reserve',64*MiB],['state-event-outbox.json',100*MiB]]) {
+    const replacement=zeroRecord('gateway/'+name,size),at=records.findIndex(e=>e.name===replacement.name);if(at<0)records.push(replacement);else records[at]=replacement;
+  }
+  const backup=await h.streamArtifact(sortedRecords(records));ok(h.run('verify',backup));ok(h.run('drill',backup));
+  await h.clean();assert.deepEqual(await h.events(),[]);assert.deepEqual(await snapshot(h.data),before);
+});
+for(const trailingBytes of [10240,10241])test(`state budget ${trailingBytes===10240?'accepts':'rejects'} ${trailingBytes} trailing zero bytes after two end blocks`,async t=>{
+  const h=await setup(t),before=await snapshot(h.data),records=await entries(h.data),backup=await h.streamArtifact(records,manifest(records,h.a.id),trailingBytes);
+  const result=h.run('verify',backup);if(trailingBytes===10240)ok(result);else bad(result);
+  await h.clean();assert.deepEqual(await h.events(),[]);assert.deepEqual(await snapshot(h.data),before);
+});
+test('state budget rejects outer ciphertext+1 before copying or decrypting it (fixed 544MiB production profile)',async t=>{
+  const h=await setup(t),before=await snapshot(h.data),backup=await h.artifact(await entries(h.data)),calls=await h.traceArchiveIo();
+  await h.useBudgetProfile();
+  const file=await open(path.join(backup,'state.cms'),'r+');try{await file.truncate(MiB+1);}finally{await file.close();}await h.finishArtifact(backup);
+  bad(h.run('restore',backup));assert.deepEqual(await calls(),[],'outer size is checked before extraction workspace/payload creation');
+  await h.clean();assert.deepEqual(await h.events(),[]);assert.deepEqual(await snapshot(h.data),before);
+});
+for(const boundary of ['entry count','per-file bytes','aggregate bytes'])test(`state budget rejects producer ${boundary} before quiesce without removing state`,async t=>{
+  const h=await setup(t);
+  await h.useBudgetProfile();
+  if(boundary==='entry count')for(let index=(await entries(h.data)).length;index<64;index++)await mkdir(path.join(h.data,'mesh',`zz-quota-${index}`),{mode:0o750});
+  else for(const [index,size] of (boundary==='per-file bytes'?[256*1024+1]:[256*1024,256*1024]).entries()) {const file=await open(path.join(h.data,'gateway',`zz-quota-${index}`),'wx',0o600);try{await file.truncate(size);}finally{await file.close();}}
+  const before=await snapshot(h.data);await h.set({failStop:true});bad(h.run('backup',h.backup));
+  assert.equal((await h.events()).some(e=>e.name==='docker'&&e.args.includes('stop')),false,'budget validation must precede quiesce');
+  assert.equal(await exists(h.backup),false);assert.deepEqual(await snapshot(h.data),before);await h.clean();
 });
 test('the advertised RSA recipient profile rejects a non-RSA certificate before runtime access',async(t)=>{
   const h=await setup(t);

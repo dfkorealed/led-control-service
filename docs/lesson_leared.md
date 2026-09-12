@@ -571,3 +571,10 @@
 - **원인**: Empty 상태 snapshot과 이후 cleanup 대상 경로의 존재를 하나의 원자적 사실로 취급했다.
 - **해결 및 예방책**: Empty cleanup의 두 번째 검사에서만 `ENOENT`를 이미 완료된 경쟁 cleanup으로 보고 false/retry한다. Symlink, non-directory, invalid contents와 다른 filesystem 오류는 그대로 실패시킨다.
 - **반복 방지 체크**: 기존 owner marker 때문에 contender publish가 먼저 충돌하고, owner가 marker를 해제한 뒤 contender의 첫 empty read와 두 번째 inspect 사이에 `rmdir`가 실행되는 순서를 filesystem seam으로 고정한다. Root successor handoff를 반복해 nonzero 종료가 0인지 함께 확인한다.
+
+## 2026-09-13 / 안전한 archive 경로 검증과 자원 사용 상한은 별개다
+
+- **발생했던 문제/실수**: Strict USTAR의 경로·타입·중복·manifest를 검증했지만, 4,097개 작은 entry와 512 MiB+1 일반 파일 합계를 허용했고, 단일 초과 size header도 `dd` 출력 파일을 만든 뒤에야 truncated payload로 거부했다. End blocks 뒤 zero padding도 무제한으로 읽었다.
+- **원인**: Streaming이 전체 메모리 적재를 피한다는 사실을 CPU·파일 수·disk 소비의 상한으로 오해했고, manifest 16 MiB 제한을 전체 payload 제한으로 취급했다.
+- **해결 및 예방책**: Nonzero header count를 field 처리 전에, per-file/aggregate size를 payload I/O 전에 고정 상수로 검사한다. Regular 합계와 framing/header/padding/end-block 예산을 분리하며 trailer도 limit+1만 읽는다. Backup은 정확한 future manifest 포함 metadata 예산을 quiesce 전에 같은 profile로 검사한다. 한도 초과 시 데이터 삭제나 부분 백업 대신 operator capacity 조치를 요구한다.
+- **반복 방지 체크**: 실제 ephemeral CMS/USTAR production-boundary RED를 먼저 남기고, permanent CI는 exact production constants를 검증한 disposable script copy만 작은 상수로 치환해 같은 parser/I/O 경계를 빠르게 실행한다. Production env/CLI override는 만들지 않는다. 실제 64+64+100 MiB 운영 크기 acceptance·plaintext cleanup·live 무변경은 원본 shell로 검증하고 protected full-suite exact count에 새 회귀를 포함한다.

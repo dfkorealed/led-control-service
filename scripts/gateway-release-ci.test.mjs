@@ -76,7 +76,7 @@ if(name==='gateway-release-bundle.mjs'){
     await writeFile(path.join(root, "scripts", name), `import test from 'node:test';import fs from 'node:fs';import cp from 'node:child_process';test(${JSON.stringify(name.includes("state") ? flow : name)},()=>{fs.appendFileSync(process.env.CI_FIXTURE_TRACE,JSON.stringify({contract:${JSON.stringify(name)}})+'\\n');if(process.env.CI_FIXTURE_FAIL==='contracts')throw Error('contract rejected');${name.includes("state") ? `const p=cp.spawnSync('mktemp',['-d',fs.realpathSync('/tmp')+'/.gateway-state.XXXXXX'],{encoding:'utf8'});if(p.status!==0)throw Error('mktemp failed');const plaintext=fs.realpathSync(p.stdout.trim());fs.writeFileSync(plaintext+'/fixture','disposable');fs.appendFileSync(process.env.CI_FIXTURE_TRACE,JSON.stringify({plaintext})+'\\n');if(process.env.CI_FIXTURE_FAIL==='state')throw Error('state flow rejected');` : ""}});\n`);
   }
   const stateFile = path.join(root, "scripts/gateway-appliance-state.test.mjs");
-  const recoveryTests = Array.from({ length: fail === "state-short" ? 83 : 84 }, (_, i) => `test('recovery boundary ${i}',{skip:${fail === "state-skip" && i === 0}},()=>{fs.appendFileSync(process.env.CI_FIXTURE_TRACE,JSON.stringify({recovery:${i}})+'\\n');if(process.env.CI_FIXTURE_FAIL==='state-regression'&&${i}===0)throw Error('malicious archive accepted');});`).join("\n");
+  const recoveryTests = Array.from({ length: fail === "state-short" ? 96 : fail === "state-legacy" ? 84 : 97 }, (_, i) => `test('recovery boundary ${i}',{skip:${fail === "state-skip" && i === 0}},()=>{fs.appendFileSync(process.env.CI_FIXTURE_TRACE,JSON.stringify({recovery:${i}})+'\\n');if((process.env.CI_FIXTURE_FAIL==='state-regression'&&${i}===0)||(process.env.CI_FIXTURE_FAIL==='state-budget-regression'&&${i}===96))throw Error('malicious archive accepted');});`).join("\n");
   await writeFile(stateFile, await readFile(stateFile, "utf8") + recoveryTests);
   const git = (...args) => assert.equal(spawnSync("git", args, { cwd: root, encoding: "utf8" }).status, 0);
   git("init", "-q"); git("add", "."); git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture");
@@ -111,10 +111,10 @@ test("release CI executes contracts, marked amd64 build, default rejection, smok
   const smoke = events.find(e => e.args?.[0] === "run");
   for (const flag of ["--name", "--read-only", "--network", "none", "--entrypoint", "node"]) assert.ok(smoke.args.includes(flag));
   assert.match(result.stdout, /cleanup complete/); await assertClean(h);
-  assert.equal(events.filter(e => e.recovery !== undefined).length, 84, "the full state suite must run");
+  assert.equal(events.filter(e => e.recovery !== undefined).length, 97, "the full state suite, including all new budget regressions, must run");
   assert.equal(events.filter(e => e.contract === "gateway-appliance-state.test.mjs").length, 1, "CMS flow must run exactly once");
 });
-for (const fail of ["contracts", "build", "verify", "accept-production", "wrong-rejection", "load", "identity", "smoke", "state", "state-regression", "state-skip", "state-short", "docker", "buildx", "openssl"]) {
+for (const fail of ["contracts", "build", "verify", "accept-production", "wrong-rejection", "load", "identity", "smoke", "state", "state-regression", "state-budget-regression", "state-skip", "state-short", "state-legacy", "docker", "buildx", "openssl"]) {
   test(`release CI fails closed at ${fail} and removes owned output/images`, async (t) => {
     const h = await fixture(t, fail), result = h.run(); assert.notEqual(result.status, 0);
     assert.doesNotMatch(result.stdout, /release CI passed/);

@@ -52,7 +52,7 @@ test -f /run/systemd/timesync/synchronized
 
 ## 4. ARM64 이미지 생성
 
-Node 22+, pnpm 9.15.0, Docker daemon/Buildx, OpenSSL 3와 C compiler가 있는 clean 개발/CI checkout에서 실행한다. Dirty 예외는 없다. 전체 state 결과는 85 pass·실패/cancel/skip 0과 named CMS happy flow 정확히 1개를 요구한다. Gate 45분/child 30분, launcher 이후 drain 3초→TERM 2초→KILL 2초, cleanup 2분(+5초 hard backstop), workflow 60분 한도이며 still-live group은 staging을 보존하고 exit 3이다. CI는 protected `production-audit` 안에서 Web/dependency 전에 정확히 한 번 같은 gate를 실행하며, 실패/cleanup 실패를 skip하지 않는다.
+Node 22+, pnpm 9.15.0, Docker daemon/Buildx, OpenSSL 3와 C compiler가 있는 clean 개발/CI checkout에서 실행한다. Dirty 예외는 없다. 전체 state 결과는 98 pass·실패/cancel/skip 0과 named CMS happy flow 정확히 1개를 요구한다. Gate 45분/child 30분, launcher 이후 drain 3초→TERM 2초→KILL 2초, cleanup 2분(+5초 hard backstop), workflow 60분 한도이며 still-live group은 staging을 보존하고 exit 3이다. CI는 protected `production-audit` 안에서 Web/dependency 전에 정확히 한 번 같은 gate를 실행하며, 실패/cleanup 실패를 skip하지 않는다.
 
 ```bash
 pnpm workspace:prepare
@@ -60,7 +60,7 @@ pnpm gateway:release:ci
 pnpm gateway:appliance:build
 ```
 
-CI는 실제 `linux/amd64`, `GATEWAY_RELEASE_TEST_MODE=1`만 만들고 Node 22/final inventory, 기본 production verify 거부와 전체 state 85개를 직렬 검증한 뒤 자기 산출물을 삭제한다. 이 이미지는 배포 승인이 아니다. 기본 production build 결과는 `dist/gateway-appliance/<version>-<full-40-char-commit>-<image-config-prefix>/`다.
+CI는 실제 `linux/amd64`, `GATEWAY_RELEASE_TEST_MODE=1`만 만들고 Node 22/final inventory, 기본 production verify 거부와 전체 state 98개를 직렬 검증한 뒤 자기 산출물을 삭제한다. 이 이미지는 배포 승인이 아니다. 기본 production build 결과는 `dist/gateway-appliance/<version>-<full-40-char-commit>-<image-config-prefix>/`다.
 
 ```text
 appliance.env
@@ -319,6 +319,22 @@ RECIPIENT_KEY=/absolute/custody/recipient.key
 ```
 
 Verify/drill은 실제 CMS 복호화와 strict archive/manifest 검증만 하고 live root/Docker를 읽거나 바꾸지 않는다. Drill은 두 번째 복호화/재추출도 독립 검증한다. Inner manifest는 path/type/mode/uid/gid/size/hash/symlink를 결속한다. V1은 ASCII 상대 directory 99 bytes/file·link 100 bytes까지이며 hardlink, 일반 symlink, special file, tar extension, ACL/xattr/mtime을 지원하지 않는다. Identity의 device/mqtt `current`만 자기 `generations/<id>`로 연결 가능하다. Byte 수/권한뿐 아니라 outbox와 manifest/automation sidecar가 같은 snapshot에 있어야 한다.
+
+V1 state 용량 예산은 고정이며 환경 변수/CLI로 올릴 수 없다(MiB = 1,048,576 bytes).
+
+| 구분 | 상한 |
+| --- | --- |
+| Nonzero USTAR headers | 4,096개 — manifest 포함, directory·symlink·zero-byte·duplicate header도 계산 |
+| 일반 파일별 decoded bytes | 256 MiB (268,435,456 bytes) |
+| 일반 파일 decoded 합계 | 512 MiB (536,870,912 bytes), 내부 manifest 포함 |
+| 내부 manifest | 16 MiB |
+| 별도 framing | 4,201,472 bytes = `4096 × (512 header + 511 최대 padding) + 2 × 512 end blocks + 10240 trailing zero bytes` |
+| Decoded archive 전체 | 541,072,384 bytes = regular 합계 + framing |
+| `state.cms` ciphertext | 544 MiB (570,425,344 bytes), CMS BER/암호화 overhead 여유 포함 |
+
+현재 automation state·telemetry outbox·reserve 각각 64 MiB와 state-event outbox 100 MiB가 기준이다. 파일별 256 MiB는 state-event JSON serialization/metadata 여유를, 합계 512 MiB는 sidecar·mesh·factory trust·identity generations 여유를 제공한다. 4,096 entries는 세대 누적을 허용하면서 작은/빈 파일 폭주 비용도 제한한다. 이는 모든 runtime 파일이 동시에 최대 크기로 누적돼도 항상 백업된다는 보장은 아니다.
+
+Backup은 본문 hash/정지 전에 metadata와 정확한 미래 manifest 크기로 같은 예산을 검사하고, quiesced snapshot에서 다시 검사한다. Parser는 초과 header 처리·payload `dd`/`mkdir` 전에 거절하며 end-block 뒤 zero padding도 bounded read만 한다. 초과 시 plaintext는 정리하고 live state와 기존 백업을 보존하며 부분 백업을 내보내지 않는다. Operator가 ACK drain·승인된 retention/저장 용량 계획을 해결한 뒤 다시 실행해야 한다. Outbox/manifest/identity generation을 임의 삭제하거나 archive를 잘라 우회하지 않는다. 기존 oversized backup도 이 profile로 복원되지 않으므로 별도 검토된 capacity/profile 변경이 필요하다.
 
 Live restore는 별도 복구 승인, 적절한 UID/GID 복원 권한과 현재 healthy verified release가 필요하다. Private key를 Pi에서 일시 접근해야 한다면 승인된 custody 절차·0600/단기 mount로 제한하고 사용 후 off-device 보관으로 회수한다. Key/passphrase/복호화 payload를 CLI 로그·보고서·Git에 출력하지 않는다.
 

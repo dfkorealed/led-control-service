@@ -74,6 +74,10 @@ Identity private key가 있으므로 plaintext tar를 최종 산출물로 남기
 
 복구는 backup recipient certificate/private key로 임시 staging에 복호화한다. Archive entry는 상대 경로만 허용하고 traversal, hard link, absolute/external symlink, device/socket/FIFO를 거부한다. 내부 manifest checksum과 mode, identity `current` symlink의 generation 내부 귀속, private key `0600`, identity/generation directory `0750`, gateway/mesh state의 regular-file 조건을 검증한다.
 
+State v1 resource profile은 production 고정 상수다. 모든 nonzero header(manifest·directory·symlink·zero-byte·duplicate 포함)는 field 처리 전에 4,096개로 제한한다. 일반 파일별 256 MiB, manifest를 포함한 일반 파일 총합 512 MiB, manifest 16 MiB를 payload 생성/읽기 전에 검사한다. 별도 framing 한도는 `4096 × (512 + 511) + 2 × 512 + 10240 = 4,201,472 bytes`이며 header, 파일 padding, 두 end blocks, 최대 10,240 trailing zero bytes를 계산한다. 전체 decoded archive는 541,072,384 bytes, ciphertext는 CMS BER/암호화 여유를 둔 544 MiB다. Trailer read 자체도 limit+1로 bounded한다. Backup metadata-only preflight는 정확한 미래 manifest bytes까지 포함해 hash/quiesce 전에 같은 예산을 적용하고 snapshot 때 반복한다.
+
+예산 근거는 현재 automation state/outbox/reserve 각각 64 MiB와 state-event outbox 100 MiB이며, serialization·sidecar·mesh/identity generation에 운영 여유를 두되 무제한 파일/CPU/disk 소비를 막는다. 초과 시 operator capacity/ACK drain/승인된 retention 조치가 필요하며 자동 삭제·부분 백업·환경/CLI 상한 override는 없다. Oversized legacy archive도 fail-closed하며 별도 reviewed profile 변경 없이는 복원하지 않는다. Artifact/inner manifest/journal schema는 변경하지 않는다.
+
 Live restore는 Gateway를 중지한 뒤 같은 filesystem에서 기존 네 디렉터리를 rollback 이름으로 이동하고 검증된 staging을 rename한다. 어느 단계든 실패하거나 새 Gateway health가 실패하면 새 데이터를 격리하고 기존 네 디렉터리를 모두 복원한다. 성공 후에만 rollback copy를 제거한다. `drill`은 임시 경로에만 복호화·검증·재추출하고 live data 또는 Docker를 변경하지 않으며 CI가 실제 ephemeral recipient key/certificate로 실행한다.
 
 ## 4. CI와 검증
@@ -87,7 +91,7 @@ Live restore는 Gateway를 중지한 뒤 같은 filesystem에서 기존 네 디�
 - ephemeral OpenSSL recipient를 사용한 backup→verify→disposable restore drill
 - malformed/tampered/traversal/symlink/permission/partial-swap 실패 회귀
 
-Canonical `pnpm gateway:release:ci`는 전체 state suite를 serial로 한 번 실행하며 85 tests/85 pass 및 fail/cancel/skip/todo 0을 요구한다. 실제 ephemeral CMS happy flow가 그 결과 안에 정확히 1개 있어야 한다. Gate execution 45분, child 30분, launcher 이후 drain 3초→TERM 2초→KILL 2초, cleanup 2분(+5초 hard backstop), protected workflow 60분 timeout으로 무한 대기를 막는다. Still-live group은 cleanup failure/exit 3이며 staging을 보존한다. pnpm build-only self-reference 제거도 exact symlink type/target 검사 후에만 허용한다.
+Canonical `pnpm gateway:release:ci`는 전체 state suite를 serial로 한 번 실행하며 98 tests/98 pass 및 fail/cancel/skip/todo 0을 요구한다. 실제 ephemeral CMS happy flow가 그 결과 안에 정확히 1개 있어야 한다. Budget 회귀 누락·기존 85개 suite·새 회귀 실패도 gate 실패다. 상한 회귀는 정확한 production constants를 검증한 disposable script copy만 작은 상수로 치환해 같은 actual CMS/USTAR parser를 실행하며 production override는 없다. 실제 64+64+100 MiB 운영 acceptance는 production 원본으로 검증한다. Gate execution 45분, child 30분, launcher 이후 drain 3초→TERM 2초→KILL 2초, cleanup 2분(+5초 hard backstop), protected workflow 60분 timeout으로 무한 대기를 막는다. Still-live group은 cleanup failure/exit 3이며 staging을 보존한다. pnpm build-only self-reference 제거도 exact symlink type/target 검사 후에만 허용한다.
 
 자동 검증은 Raspberry Pi의 실제 ARM64 실행, BlueZ/HCI, 운영 인증서, 현장 filesystem power-loss와 RF/HIL 증거가 아니다. 기본 ARM64 production bundle과 실제 restore는 승인된 운영 절차에서 별도 수행한다.
 
