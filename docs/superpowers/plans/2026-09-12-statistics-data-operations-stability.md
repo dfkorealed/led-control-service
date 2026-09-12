@@ -27,13 +27,13 @@
 - Modify: `apps/api/package.json`
 - Modify: `docs/database-schema.md`
 
-- [ ] 실제 `prisma migrate deploy` clean replay와 20260911까지 적용한 staged upgrade test를 작성한다.
-- [ ] 테스트용 migration copy에 statement failure를 주입해 `_prisma_migrations`, catalog, data rollback/partial state와 retry 결과를 검증한다.
-- [ ] 20260913 legacy `objectKeys` scalar/다중 형식으로 제약을 넘는 row, 20260914 trigger 누락을 읽기 전용 preflight가 fail-closed로 보고하도록 작성한다.
-- [ ] table lock 대기/timeout과 concurrent writer 차단을 두 connection으로 검증한다.
-- [ ] maintenance barrier와 실패 복구 runbook을 schema 문서에 기록한다.
-- [ ] Run: `pnpm --filter @led-control/api test -- energy-report-migration-safety.integration.spec.ts --runInBand`
-- [ ] Commit: `test(api): harden report migration recovery checks`
+- [x] 실제 `prisma migrate deploy` clean replay와 20260911까지 적용한 staged upgrade test를 작성한다.
+- [x] 테스트용 migration copy에 statement failure를 주입해 `_prisma_migrations`, catalog, data rollback/partial state와 retry 결과를 검증한다.
+- [x] 20260913 legacy `objectKeys` scalar/다중 형식으로 제약을 넘는 row, 20260914 trigger 누락을 읽기 전용 preflight가 fail-closed로 보고하도록 작성한다.
+- [x] table lock 대기/timeout과 concurrent writer 차단을 두 connection으로 검증한다.
+- [x] maintenance barrier와 실패 복구 runbook을 schema 문서에 기록한다.
+- [x] Run: `pnpm --filter @led-control/api test -- energy-report-migration-safety.integration.spec.ts --runInBand`
+- [x] Commit: `test(api): harden report migration recovery checks`
 
 ## Task 2: 이벤트 watermark와 보존 스키마
 
@@ -144,4 +144,3 @@
 - [ ] Run: Prisma validate/generate, shared/API/Web lint/typecheck/test/build, migration integration, `git diff --check`.
 - [ ] 독립 code review 후 P0/P1 findings를 수정·재검증한다.
 - [ ] Commit: `docs: finalize statistics operations stability`
-
