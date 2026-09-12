@@ -1,9 +1,10 @@
-import { BadRequestException, Inject, Injectable } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, Optional } from "@nestjs/common";
 import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { createHash, randomUUID } from "node:crypto";
 
 export const OBJECT_STORAGE_CLIENT = Symbol("OBJECT_STORAGE_CLIENT");
+export const OBJECT_STORAGE_PRESIGN_CLIENT = Symbol("OBJECT_STORAGE_PRESIGN_CLIENT");
 export const OBJECT_STORAGE_OPTIONS = Symbol("OBJECT_STORAGE_OPTIONS");
 
 export interface ObjectStorageOptions {
@@ -18,7 +19,8 @@ export interface ObjectStorageOptions {
 export class ObjectStorageService {
   constructor(
     @Inject(OBJECT_STORAGE_CLIENT) private readonly client: S3Client,
-    @Inject(OBJECT_STORAGE_OPTIONS) private readonly options: ObjectStorageOptions
+    @Inject(OBJECT_STORAGE_OPTIONS) private readonly options: ObjectStorageOptions,
+    @Optional() @Inject(OBJECT_STORAGE_PRESIGN_CLIENT) private readonly presignClient?: S3Client
   ) {}
 
   async putReportObject(key: string, bytes: Buffer, contentType: string) {
@@ -49,7 +51,7 @@ export class ObjectStorageService {
     if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,180}\.(xlsx|pdf)$/.test(filename) || !filename.endsWith(key.slice(key.lastIndexOf(".")))) {
       throw new BadRequestException("invalid report filename");
     }
-    return getSignedUrl(this.client, new GetObjectCommand({ Bucket, Key: key,
+    return getSignedUrl(this.signingClient, new GetObjectCommand({ Bucket, Key: key,
       ResponseContentDisposition: `attachment; filename="${filename}"`, ResponseCacheControl: "private, no-store" }), { expiresIn: 300 });
   }
 
@@ -65,7 +67,7 @@ export class ObjectStorageService {
     const expiresInSeconds = 300;
     const presign = this.options.presignGet
       ?? ((client: S3Client, request: GetObjectCommand, expires: number) => getSignedUrl(client, request, { expiresIn: expires }));
-    return presign(this.client, command, expiresInSeconds);
+    return presign(this.signingClient, command, expiresInSeconds);
   }
 
   private reportBucket(key: string) {
@@ -110,7 +112,7 @@ export class ObjectStorageService {
       ChecksumSHA256: checksumBase64
     });
     const presign = this.options.presign ?? ((client, request) => getSignedUrl(client, request, { expiresIn: 300 }));
-    return presign(this.client, command);
+    return presign(this.signingClient, command);
   }
 
   async headObject(objectKey: string) {
@@ -128,6 +130,10 @@ export class ObjectStorageService {
       throw new BadRequestException("floor asset size must be between 1 byte and 50 MB");
     }
     if (!/^[a-f0-9]{64}$/i.test(input.sha256)) throw new BadRequestException("sha256 must be a 64-character hex digest");
+  }
+
+  private get signingClient() {
+    return this.presignClient ?? this.client;
   }
 }
 

@@ -86,6 +86,75 @@ describe("ObjectStorageService", () => {
       ResponseCacheControl: "private, no-store"
     });
   });
+
+  it("signs browser PUT and GET URLs with the client-facing bucket base", async () => {
+    const previous = {
+      endpoint: process.env.OBJECT_STORAGE_ENDPOINT,
+      publicUrl: process.env.OBJECT_STORAGE_PUBLIC_URL,
+      bucket: process.env.OBJECT_STORAGE_BUCKET,
+      reportBucket: process.env.OBJECT_STORAGE_REPORT_BUCKET,
+      region: process.env.OBJECT_STORAGE_REGION,
+      accessKey: process.env.OBJECT_STORAGE_ACCESS_KEY,
+      secretKey: process.env.OBJECT_STORAGE_SECRET_KEY
+    };
+    Object.assign(process.env, {
+      OBJECT_STORAGE_ENDPOINT: "http://object-storage:9000",
+      OBJECT_STORAGE_PUBLIC_URL: "https://browser.example/s3/floor-assets",
+      OBJECT_STORAGE_BUCKET: "floor-assets",
+      OBJECT_STORAGE_REPORT_BUCKET: "private-reports",
+      OBJECT_STORAGE_REGION: "ap-northeast-2",
+      OBJECT_STORAGE_ACCESS_KEY: "browser-test-access",
+      OBJECT_STORAGE_SECRET_KEY: "browser-test-secret"
+    });
+    const module = await Test.createTestingModule({ imports: [StorageModule] }).compile();
+    try {
+      const moduleService = module.get(ObjectStorageService);
+      const upload = new URL(await moduleService.createFloorAssetUploadUrl({
+        objectKey: "floors/floor-1/file.png",
+        mimeType: "image/png",
+        sizeBytes: 1024,
+        sha256: "a".repeat(64)
+      }));
+      const floorDownload = new URL(await moduleService.createFloorAssetDownloadUrl("floors/floor-1/file.png"));
+      const reportDownload = new URL(await moduleService.createReportDownloadUrl(
+        "reports/20000000-0000-4000-8000-000000000001/10000000-0000-4000-8000-000000000001/attempt-1.xlsx",
+        "energy-report.xlsx"
+      ));
+
+      for (const signedUrl of [upload, floorDownload, reportDownload]) {
+        expect(signedUrl.origin).toBe("https://browser.example");
+        expect(signedUrl.searchParams.get("X-Amz-Credential")).toContain(
+          "browser-test-access/"
+        );
+        expect(signedUrl.searchParams.get("X-Amz-Credential")).toContain(
+          "/ap-northeast-2/s3/aws4_request"
+        );
+      }
+      expect(upload.pathname).toBe("/s3/floor-assets/floors/floor-1/file.png");
+      expect(floorDownload.pathname).toBe("/s3/floor-assets/floors/floor-1/file.png");
+      expect(reportDownload.pathname).toBe(
+        "/s3/private-reports/reports/20000000-0000-4000-8000-000000000001/10000000-0000-4000-8000-000000000001/attempt-1.xlsx"
+      );
+    } finally {
+      await module.close();
+      restoreEnvironment(previous);
+    }
+  });
+
+  it("fails closed when the client-facing bucket URL is omitted in production", async () => {
+    const previous = {
+      nodeEnv: process.env.NODE_ENV,
+      publicUrl: process.env.OBJECT_STORAGE_PUBLIC_URL
+    };
+    process.env.NODE_ENV = "production";
+    delete process.env.OBJECT_STORAGE_PUBLIC_URL;
+    try {
+      await expect(Test.createTestingModule({ imports: [StorageModule] }).compile())
+        .rejects.toThrow("OBJECT_STORAGE_PUBLIC_URL is required in production");
+    } finally {
+      restoreEnvironment(previous);
+    }
+  });
 });
 
 describe("private report storage", () => {
@@ -178,3 +247,20 @@ describe("private report storage", () => {
     }
   });
 });
+
+function restoreEnvironment(previous: Record<string, string | undefined>) {
+  const keys: Record<string, string> = {
+    endpoint: "OBJECT_STORAGE_ENDPOINT",
+    publicUrl: "OBJECT_STORAGE_PUBLIC_URL",
+    bucket: "OBJECT_STORAGE_BUCKET",
+    reportBucket: "OBJECT_STORAGE_REPORT_BUCKET",
+    region: "OBJECT_STORAGE_REGION",
+    accessKey: "OBJECT_STORAGE_ACCESS_KEY",
+    secretKey: "OBJECT_STORAGE_SECRET_KEY",
+    nodeEnv: "NODE_ENV"
+  };
+  for (const [key, value] of Object.entries(previous)) {
+    if (value === undefined) delete process.env[keys[key]];
+    else process.env[keys[key]] = value;
+  }
+}
