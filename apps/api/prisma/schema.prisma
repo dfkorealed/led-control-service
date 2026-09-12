@@ -107,6 +107,11 @@ enum FloorAssetStatus {
   ready
 }
 
+enum FloorStatus {
+  active
+  archived
+}
+
 enum CertificatePurpose {
   device
   mqtt
@@ -216,6 +221,7 @@ model Site {
   address                  String?
   tariffKwhRate            Decimal?                         @db.Decimal(10, 2)
   timeZone                 String                           @default("Asia/Seoul")
+  currency                 String                           @default("KRW")
   organization             Organization                     @relation(fields: [organizationId], references: [id])
   admin                    User?                            @relation("SiteAdmin", fields: [adminUserId], references: [id], onDelete: Restrict)
   floors                   Floor[]
@@ -262,6 +268,8 @@ model Floor {
   siteId                String
   name                  String
   level                 Int
+  status                FloorStatus           @default(active)
+  displayOrder          Int                   @default(0)
   nextFixtureSequence   Int                   @default(0)
   mapRevision           Int                   @default(0)
   editorLeaseFence      Int                   @default(0)
@@ -283,6 +291,7 @@ model Floor {
 
   @@unique([id, siteId])
   @@index([siteId])
+  @@index([siteId, status, displayOrder])
 }
 
 model SiteMembership {

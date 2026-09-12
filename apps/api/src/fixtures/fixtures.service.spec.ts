@@ -1,4 +1,4 @@
-import { BadRequestException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, NotFoundException } from "@nestjs/common";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { FixturesService } from "./fixtures.service";
 
@@ -119,4 +119,87 @@ describe("FixturesService", () => {
     expect(siteAccess.assert).not.toHaveBeenCalled();
     expect(prisma.fixture.findMany).not.toHaveBeenCalled();
   });
+
+  it("updates only fixture metadata after transaction-local manage reauthorization and a tenant-scoped lock", async () => {
+    const fixture = { id: "fixture-1", siteId: "site-1", floorId: "floor-1", name: "Old", ratedWatt: "40.00" };
+    const prisma: any = {
+      $queryRaw: jest.fn().mockResolvedValue([fixture]),
+      $transaction: jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma)),
+      fixture: {
+        update: jest.fn().mockResolvedValue({ ...fixture, name: "New", ratedWatt: "55.50" })
+      }
+    };
+    const siteAccess = {
+      assert: jest.fn().mockResolvedValue({ id: "site-1" }),
+      assertManageInTransaction: jest.fn().mockResolvedValue({ id: "site-1" })
+    };
+    const service = new (FixturesService as any)(prisma, siteAccess);
+
+    await expect(service.updateMetadata(user, "site-1", "floor-1", "fixture-1", {
+      name: "New",
+      ratedWatt: 55.5
+    })).resolves.toMatchObject({ id: "fixture-1", name: "New", ratedWatt: 55.5 });
+
+    expect(siteAccess.assert).toHaveBeenCalledWith(user, "site-1", "manage");
+    expect(siteAccess.assertManageInTransaction).toHaveBeenCalledWith(prisma, user, "site-1");
+    expect(siteAccess.assertManageInTransaction.mock.invocationCallOrder[0])
+      .toBeLessThan(prisma.$queryRaw.mock.invocationCallOrder[0]);
+    expect(renderSql(prisma.$queryRaw.mock.calls[0][0])).toContain(
+      'WHERE "id" = ? AND "floorId" = ? AND "siteId" = ?'
+    );
+    expect(prisma.fixture.update).toHaveBeenCalledWith({
+      where: { id: "fixture-1" },
+      data: { name: "New", ratedWatt: expect.objectContaining({}) },
+      select: { id: true, floorId: true, name: true, ratedWatt: true }
+    });
+  });
+
+  it.each([
+    [{ name: "New", meshNodeId: "attacker" }, "identity field"],
+    [{ ratedWatt: 0 }, "zero watt"],
+    [{ ratedWatt: 12.345 }, "excess precision"],
+    [{}, "empty patch"]
+  ])("rejects strict fixture metadata input: %s (%s)", async (body, _label) => {
+    const prisma: any = { $transaction: jest.fn() };
+    const siteAccess = { assert: jest.fn().mockResolvedValue({ id: "site-1" }) };
+    const service = new (FixturesService as any)(prisma, siteAccess);
+
+    await expect(service.updateMetadata(user, "site-1", "floor-1", "fixture-1", body)).rejects.toBeInstanceOf(
+      BadRequestException
+    );
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("checks manage capability before parsing malformed fixture metadata", async () => {
+    const prisma: any = { $transaction: jest.fn() };
+    const siteAccess = { assert: jest.fn().mockRejectedValue(new ForbiddenException("site capability denied")) };
+    const service = new (FixturesService as any)(prisma, siteAccess);
+
+    await expect(service.updateMetadata(user, "site-1", "floor-1", "fixture-1", {
+      serialNumber: "attacker"
+    })).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("does not reveal a fixture outside the requested site and floor", async () => {
+    const prisma: any = {
+      $queryRaw: jest.fn().mockResolvedValue([]),
+      $transaction: jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma)),
+      fixture: { update: jest.fn() }
+    };
+    const siteAccess = {
+      assert: jest.fn().mockResolvedValue({ id: "site-1" }),
+      assertManageInTransaction: jest.fn().mockResolvedValue({ id: "site-1" })
+    };
+    const service = new (FixturesService as any)(prisma, siteAccess);
+
+    await expect(service.updateMetadata(user, "site-1", "floor-1", "fixture-1", { name: "Hidden" }))
+      .rejects.toEqual(new NotFoundException("fixture not found"));
+    expect(prisma.fixture.update).not.toHaveBeenCalled();
+  });
 });
+
+function renderSql(query: TemplateStringsArray | { strings?: string[] }) {
+  if (Array.isArray(query)) return query.join("?");
+  return (query as { strings?: string[] }).strings?.join("?") ?? "";
+}

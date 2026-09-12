@@ -19,6 +19,7 @@ import { RegistrationModule } from "./registration/registration.module";
 import { SetupModule } from "./setup/setup.module";
 import { SitesModule } from "./sites/sites.module";
 import { SiteUsersModule } from "./site-users/site-users.module";
+import { SiteSettingsModule } from "./site-settings/site-settings.module";
 import { TestDataModule } from "./test-data/test-data.module";
 
 @Module({
@@ -30,6 +31,7 @@ import { TestDataModule } from "./test-data/test-data.module";
     AuditModule,
     AutomationModule,
     SitesModule,
+    SiteSettingsModule,
     SiteUsersModule,
     CommandsModule,
     EnergyModule,

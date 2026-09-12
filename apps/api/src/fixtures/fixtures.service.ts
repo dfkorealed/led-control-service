@@ -1,9 +1,24 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { isGatewayHeartbeatFresh } from "@led-control/shared";
+import { Prisma } from "@prisma/client";
+import { z } from "zod";
 import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import { fixtureStatusWithHealth, toFixtureHealthSnapshot } from "./fixture-health";
+
+const fixtureMetadataSchema = z.object({
+  name: z.string().trim().min(1).max(120).optional(),
+  ratedWatt: z.number().finite().positive().max(999_999.99).multipleOf(0.01).optional()
+}).strict().refine((input) => Object.keys(input).length > 0);
+
+type LockedFixtureMetadata = {
+  id: string;
+  siteId: string;
+  floorId: string;
+  name: string;
+  ratedWatt: Prisma.Decimal;
+};
 
 @Injectable()
 export class FixturesService {
@@ -89,5 +104,41 @@ export class FixturesService {
       }),
       nextCursor: hasNextPage ? page.at(-1)?.id ?? null : null
     };
+  }
+
+  async updateMetadata(
+    user: AuthenticatedUser,
+    siteId: string,
+    floorId: string,
+    fixtureId: string,
+    rawInput: unknown
+  ) {
+    await this.siteAccess.assert(user, siteId, "manage");
+    const parsed = fixtureMetadataSchema.safeParse(rawInput);
+    if (!parsed.success) throw new BadRequestException("invalid fixture metadata request");
+
+    const fixture = await this.prisma.$transaction(async (tx) => {
+      await this.siteAccess.assertManageInTransaction(tx, user, siteId);
+      const rows = await tx.$queryRaw<LockedFixtureMetadata[]>(Prisma.sql`
+        SELECT "id", "siteId", "floorId", "name", "ratedWatt"
+        FROM "Fixture"
+        WHERE "id" = ${fixtureId} AND "floorId" = ${floorId} AND "siteId" = ${siteId}
+        FOR UPDATE
+      `);
+      if (!rows[0]) throw new NotFoundException("fixture not found");
+
+      return tx.fixture.update({
+        where: { id: fixtureId },
+        data: {
+          ...parsed.data,
+          ...(parsed.data.ratedWatt === undefined
+            ? {}
+            : { ratedWatt: new Prisma.Decimal(parsed.data.ratedWatt) })
+        },
+        select: { id: true, floorId: true, name: true, ratedWatt: true }
+      });
+    });
+
+    return { ...fixture, ratedWatt: Number(fixture.ratedWatt) };
   }
 }

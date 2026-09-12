@@ -1,11 +1,13 @@
-import { Controller, Get, Param, Query, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Param, Patch, Query, UseGuards } from "@nestjs/common";
+import { Roles } from "../access/roles.decorator";
+import { RolesGuard } from "../access/roles.guard";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { SessionAuthGuard } from "../auth/session-auth.guard";
 import { FixturesService } from "./fixtures.service";
 
 @Controller("sites/:siteId/floors/:floorId/fixtures")
-@UseGuards(SessionAuthGuard)
+@UseGuards(SessionAuthGuard, RolesGuard)
 export class FixturesController {
   constructor(private readonly fixturesService: FixturesService) {}
 
@@ -21,5 +23,17 @@ export class FixturesController {
       cursor,
       limit: limit === undefined ? undefined : Number(limit)
     });
+  }
+
+  @Patch(":fixtureId")
+  @Roles("admin")
+  updateMetadata(
+    @Param("siteId") siteId: string,
+    @Param("floorId") floorId: string,
+    @Param("fixtureId") fixtureId: string,
+    @Body() body: unknown,
+    @CurrentUser() user: AuthenticatedUser
+  ) {
+    return this.fixturesService.updateMetadata(user, siteId, floorId, fixtureId, body);
   }
 }
