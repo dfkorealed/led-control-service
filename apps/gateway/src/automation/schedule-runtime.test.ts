@@ -467,6 +467,7 @@ describe("ScheduleRuntime", () => {
     const wall = fakeWall("2026-08-30T00:59:00.000Z");
     const fullBatches: string[][] = [];
     const targetedBatches: string[][] = [];
+    const overflowObservations = deferred<{ ok: true } | { ok: false; error: unknown }>();
     let injectTerminalFailure = false;
     let fullPasses = 0;
     let runtime!: ScheduleRuntime;
@@ -515,6 +516,8 @@ describe("ScheduleRuntime", () => {
           await runtime.recordFixtureState(fixtureId, 40);
           targetedResync.markObserved(fixtureId);
         }
+        // Batch entry precedes the real durable writes; await their completion, not a polling deadline.
+        if (observed.length === overflowFixtureIds.length) overflowObservations.resolve({ ok: true });
         return {
           total: batch.length,
           configured: batch.length,
@@ -527,6 +530,7 @@ describe("ScheduleRuntime", () => {
       onPassComplete: () => {
         targetedResync.requeuePendingFixtures(runtime.pendingObservationFixtureIds());
       },
+      onError: (error) => overflowObservations.resolve({ ok: false, error }),
       retryBaseMs: 10,
       retryMaxMs: 10
     });
@@ -568,14 +572,14 @@ describe("ScheduleRuntime", () => {
       await vi.waitFor(() => expect(targetedBatches.length).toBeGreaterThanOrEqual(2));
       expect(targetedBatches[0]).toEqual(fixtureIds.slice(0, 64));
       expect(targetedBatches[1]).toEqual(expect.arrayContaining(overflowFixtureIds));
-      await vi.waitFor(() => {
-        for (const fixtureId of overflowFixtureIds) {
-          expect(runtime.state().transitionsByFixture[fixtureId]).toMatchObject({
-            phase: "terminal",
-            status: "succeeded"
-          });
-        }
-      });
+      const observations = await overflowObservations.promise;
+      if (!observations.ok) throw observations.error;
+      for (const fixtureId of overflowFixtureIds) {
+        expect(runtime.state().transitionsByFixture[fixtureId]).toMatchObject({
+          phase: "terminal",
+          status: "succeeded"
+        });
+      }
       await runtime.tick();
 
       expect(execute).toHaveBeenCalledTimes(1);
