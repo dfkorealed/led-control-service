@@ -16,10 +16,14 @@ const describeWithPostgres = databaseUrl ? describe : describe.skip;
 describeWithPostgres("floor asset private ledger migration PostgreSQL rehearsal", () => {
   const schemaName = `floor_asset_migration_${process.pid}_${Date.now()}`.toLowerCase();
   const invalidSchemaName = `${schemaName}_invalid`;
+  const unmatchedPlanSchemaName = `${schemaName}_unmatched_plan`;
+  const unmatchedRevisionSchemaName = `${schemaName}_unmatched_revision`;
 
   afterAll(() => {
     runSql(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE;`);
     runSql(`DROP SCHEMA IF EXISTS "${invalidSchemaName}" CASCADE;`);
+    runSql(`DROP SCHEMA IF EXISTS "${unmatchedPlanSchemaName}" CASCADE;`);
+    runSql(`DROP SCHEMA IF EXISTS "${unmatchedRevisionSchemaName}" CASCADE;`);
   });
 
   it("rewrites URLs with the runtime canonical hash across number boundaries and nested values", () => {
@@ -174,6 +178,106 @@ describeWithPostgres("floor asset private ledger migration PostgreSQL rehearsal"
       snapshotUrl: publicUrl,
       snapshotSha256: "0".repeat(64),
       publicUrlColumnCount: 1
+    });
+  });
+
+  it.each([
+    {
+      target: "FloorPlan",
+      schemaName: unmatchedPlanSchemaName,
+      floorPlanUrl: "https://legacy.example/floors/floor-unmatched/plan.png",
+      revisionUrl: "",
+      expectedCounts: "found 1 unmatched FloorPlan URL(s) and 0 unmatched FloorMapRevision URL(s)"
+    },
+    {
+      target: "FloorMapRevision",
+      schemaName: unmatchedRevisionSchemaName,
+      floorPlanUrl: "",
+      revisionUrl: "https://legacy.example/floors/floor-unmatched/revision.png",
+      expectedCounts: "found 0 unmatched FloorPlan URL(s) and 1 unmatched FloorMapRevision URL(s)"
+    }
+  ])("aborts atomically when $target retains an unmatched legacy URL", ({
+    target, schemaName: unmatchedSchemaName, floorPlanUrl, revisionUrl, expectedCounts
+  }) => {
+    const matchedPublicUrl = "https://objects.example/floor-assets/floors/floor-unmatched/map.png";
+    const snapshot = parseFloorEditorSnapshot({
+      version: 2,
+      floorPlan: {
+        imageUrl: revisionUrl,
+        sourceType: revisionUrl ? "image" : "none",
+        originalFileUrl: null,
+        renderedImageUrl: null,
+        width: 640,
+        height: 480,
+        gridSize: 10
+      },
+      fixtures: [],
+      objects: []
+    });
+    const snapshotSha256 = hashFloorEditorSnapshot(snapshot);
+    const setup = runSql(`
+      CREATE SCHEMA "${unmatchedSchemaName}";
+      SET search_path TO "${unmatchedSchemaName}";
+      CREATE TYPE "FloorAssetStatus" AS ENUM ('pending', 'ready');
+      CREATE TABLE "FloorAsset" (
+        "id" TEXT PRIMARY KEY, "floorId" TEXT NOT NULL, "status" "FloorAssetStatus" NOT NULL,
+        "publicUrl" TEXT NOT NULL, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE "FloorPlan" (
+        "floorId" TEXT PRIMARY KEY, "imageUrl" TEXT NOT NULL, "originalFileUrl" TEXT, "renderedImageUrl" TEXT
+      );
+      CREATE TABLE "FloorMapRevision" (
+        "id" TEXT PRIMARY KEY, "floorId" TEXT NOT NULL, "snapshot" JSONB NOT NULL, "snapshotSha256" TEXT NOT NULL
+      );
+      INSERT INTO "FloorAsset" VALUES (
+        'asset-map', 'floor-unmatched', 'pending', ${sqlLiteral(matchedPublicUrl)}, now()
+      );
+      INSERT INTO "FloorPlan" VALUES ('floor-unmatched', ${sqlLiteral(floorPlanUrl)}, '', NULL);
+      INSERT INTO "FloorMapRevision" VALUES (
+        'revision-unmatched', 'floor-unmatched', ${sqlLiteral(JSON.stringify(snapshot))}::jsonb,
+        ${sqlLiteral(snapshotSha256)}
+      );
+    `);
+    expect(setup.status).toBe(0);
+
+    const migrationResult = runSql(`
+      BEGIN;
+      SET LOCAL search_path TO "${unmatchedSchemaName}";
+      ${migration}
+      COMMIT;
+    `);
+    expect(migrationResult.status).not.toBe(0);
+    expect(migrationResult.stderr).toContain("Floor asset private URL migration blocked");
+    expect(migrationResult.stderr).toContain(target);
+    expect(migrationResult.stderr).toContain(expectedCounts);
+
+    const retained = runSql(`
+      SET search_path TO "${unmatchedSchemaName}";
+      SELECT json_build_object(
+        'floorPlanImageUrl', plan."imageUrl",
+        'floorPlanOriginalFileUrl', plan."originalFileUrl",
+        'revisionImageUrl', revision."snapshot" #>> '{floorPlan,imageUrl}',
+        'snapshotSha256', revision."snapshotSha256",
+        'publicUrlColumnCount', (
+          SELECT COUNT(*) FROM information_schema.columns
+          WHERE table_schema = '${unmatchedSchemaName}' AND table_name = 'FloorAsset' AND column_name = 'publicUrl'
+        ),
+        'uploadExpiresAtColumnCount', (
+          SELECT COUNT(*) FROM information_schema.columns
+          WHERE table_schema = '${unmatchedSchemaName}' AND table_name = 'FloorAsset' AND column_name = 'uploadExpiresAt'
+        )
+      )
+      FROM "FloorPlan" AS plan
+      JOIN "FloorMapRevision" AS revision ON revision."floorId" = plan."floorId";
+    `, ["-qAt", "-v", "ON_ERROR_STOP=1"]);
+    expect(retained.status).toBe(0);
+    expect(JSON.parse(retained.stdout.trim().split("\n").at(-1)!)).toEqual({
+      floorPlanImageUrl: floorPlanUrl,
+      floorPlanOriginalFileUrl: "",
+      revisionImageUrl: revisionUrl,
+      snapshotSha256,
+      publicUrlColumnCount: 1,
+      uploadExpiresAtColumnCount: 0
     });
   });
 

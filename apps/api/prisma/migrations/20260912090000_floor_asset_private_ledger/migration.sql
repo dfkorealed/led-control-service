@@ -1,3 +1,54 @@
+DO $$
+DECLARE
+  unmatched_plan_url_count BIGINT;
+  unmatched_revision_url_count BIGINT;
+BEGIN
+  SELECT COUNT(*)
+  INTO unmatched_plan_url_count
+  FROM "FloorPlan" AS plan
+  CROSS JOIN LATERAL (VALUES
+    (plan."imageUrl"),
+    (plan."originalFileUrl"),
+    (plan."renderedImageUrl")
+  ) AS legacy_url("value")
+  WHERE legacy_url."value" IS NOT NULL
+    AND legacy_url."value" <> ''
+    AND NOT EXISTS (
+      SELECT 1
+      FROM "FloorAsset" AS asset
+      WHERE asset."floorId" = plan."floorId"
+        AND asset."publicUrl" = legacy_url."value"
+    );
+
+  SELECT COUNT(*)
+  INTO unmatched_revision_url_count
+  FROM "FloorMapRevision" AS revision
+  CROSS JOIN LATERAL (VALUES
+    (revision."snapshot" #>> '{floorPlan,imageUrl}'),
+    (revision."snapshot" #>> '{floorPlan,originalFileUrl}'),
+    (revision."snapshot" #>> '{floorPlan,renderedImageUrl}')
+  ) AS legacy_url("value")
+  WHERE legacy_url."value" IS NOT NULL
+    AND legacy_url."value" <> ''
+    AND NOT EXISTS (
+      SELECT 1
+      FROM "FloorAsset" AS asset
+      WHERE asset."floorId" = revision."floorId"
+        AND asset."publicUrl" = legacy_url."value"
+    );
+
+  IF unmatched_plan_url_count > 0 OR unmatched_revision_url_count > 0 THEN
+    RAISE EXCEPTION USING
+      ERRCODE = 'check_violation',
+      MESSAGE = format(
+        'Floor asset private URL migration blocked: found %s unmatched FloorPlan URL(s) and %s unmatched FloorMapRevision URL(s); every non-empty legacy URL must match FloorAsset.publicUrl on the same floor',
+        unmatched_plan_url_count,
+        unmatched_revision_url_count
+      );
+  END IF;
+END;
+$$;
+
 ALTER TABLE "FloorAsset"
 ADD COLUMN "uploadExpiresAt" TIMESTAMP(3),
 ADD COLUMN "cleanupStartedAt" TIMESTAMP(3);
