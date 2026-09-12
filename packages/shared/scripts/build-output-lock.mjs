@@ -9,17 +9,23 @@ const TEMPORARY_DIRECTORY_MARKER = ".tmp-";
 
 export async function acquireOutputLock(options) {
   const lockPath = assertLockPath(options.lockPath);
-  const timeoutMs = assertPositiveInteger(options.timeoutMs ?? 60_000, "shared build lock timeout");
+  const timeoutMs = options.timeoutMs === null
+    ? null
+    : assertPositiveInteger(options.timeoutMs ?? 60_000, "shared build lock timeout");
   const pollIntervalMs = assertPositiveInteger(options.pollIntervalMs ?? 20, "shared build lock poll interval");
   const now = options.now ?? Date.now;
   const sleep = options.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
   const readProcessIdentity = options.readProcessIdentity ?? readProcessIdentityFromSystem;
+  const waitOnUnknownOwner = options.waitOnUnknownOwner ?? false;
+  if (typeof waitOnUnknownOwner !== "boolean") {
+    throw new Error("invalid shared build lock unknown-owner policy");
+  }
   const beforeOwnerMarkerUnlink = options.beforeOwnerMarkerUnlink;
   const afterTemporaryDirectoryCreated = options.afterTemporaryDirectoryCreated;
   const owner = options.owner ?? await currentOwner(readProcessIdentity);
   const token = assertToken(options.token ?? randomUUID());
   const expectedOwner = { version: 1, token, ...assertOwner(owner) };
-  const deadline = now() + timeoutMs;
+  const deadline = timeoutMs === null ? null : now() + timeoutMs;
 
   while (true) {
     await cleanOrphanTemps(lockPath);
@@ -42,6 +48,10 @@ export async function acquireOutputLock(options) {
 
     const identity = await readProcessIdentity(lock.owner.pid);
     if (identity.state === "unknown") {
+      if (waitOnUnknownOwner) {
+        await waitForRetry(deadline, now, sleep, pollIntervalMs);
+        continue;
+      }
       throw new Error("shared build lock owner identity cannot be verified");
     }
     if (identity.state === "missing" || identity.processStartIdentity !== lock.owner.processStartIdentity) {
@@ -351,7 +361,7 @@ async function assertRealDirectory(path, label) {
 }
 
 async function waitForRetry(deadline, now, sleep, pollIntervalMs) {
-  if (now() >= deadline) throw new Error("timed out waiting for shared build output lock");
+  if (deadline !== null && now() >= deadline) throw new Error("timed out waiting for shared build output lock");
   await sleep(pollIntervalMs);
 }
 

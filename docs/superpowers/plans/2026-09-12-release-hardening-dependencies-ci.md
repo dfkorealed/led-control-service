@@ -32,12 +32,12 @@
 - Modify: `packages/shared` build/export regressions
 - Modify: `docs/lesson_leared.md`, `docs/agent-operations.md`, `docs/project-status.md`
 
-- [ ] Baseline export를 만든 뒤 writer publish 중 reader가 export를 읽을 때 `ENOENT`/TS2307이 발생하는 deterministic RED를 추가한다.
-- [ ] Root gate가 repository owner lock을 잡고 shared → automation 한 번 build 뒤 leaf consumer를 실행하도록 구현한다.
-- [ ] Leaf lint/typecheck/test/build의 nested dependency build를 제거하고 outer graph에서 writer가 다시 생기지 않는 contract test를 추가한다.
-- [ ] 기존 shared writer/writer, path/symlink, stale owner/ABA 방어를 그대로 통과시킨다.
-- [ ] Root lint와 test 동시 실행을 반복해 둘 다 성공하고 exported file absence가 0회임을 확인한다.
-- [ ] Shared/API/Web/Gateway/automation scoped 검증과 문서를 갱신하고 커밋한다.
+- [x] Baseline export를 만든 뒤 writer publish 중 reader가 export를 읽을 때 `ENOENT`/TS2307이 발생하는 deterministic RED를 추가한다.
+- [x] Root gate가 repository owner lock을 잡고 shared → automation 한 번 build 뒤 leaf consumer를 실행하도록 구현한다.
+- [x] Leaf lint/typecheck/test/build의 nested dependency build를 제거하고 outer graph에서 writer가 다시 생기지 않는 contract test를 추가한다.
+- [x] 기존 shared writer/writer, path/symlink, stale owner/ABA 방어를 그대로 통과시킨다.
+- [x] Root lint와 test 동시 실행을 반복해 둘 다 성공하고 exported file absence가 0회임을 확인한다.
+- [x] Shared/API/Web/Gateway/automation scoped 검증과 문서를 갱신하고 커밋한다.
 
 ## Task 3: deterministic software CI와 fail-closed HIL workflow
 

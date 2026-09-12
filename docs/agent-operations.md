@@ -69,6 +69,14 @@ Custom agent가 대체하는 범위는 임시 역할 프롬프트, 역할 선택
 - `image-size@1.2.1`은 upstream safe release가 없어서 Metro build-time asset 검사 경로의 ICNS/JXL/HEIF signature를 parser dispatch 전에 fail-close하는 repository patch를 사용한다. 악성 shape와 정상 PNG regression, patch SHA-256, exact 두 GHSA와 dependency path가 모두 일치해야 정책 예외가 허용된다. upstream non-vulnerable release가 나오면 patch와 예외를 함께 제거한다.
 - `uuid@8.3.2` Moderate는 ExcelJS 4.4.0의 `uuid.v4()` 사용 경로만 남는다. advisory의 caller-provided buffer API는 호출하지 않으며 XLSX render/load regression으로 소비 경로를 고정한다. ExcelJS가 `uuid>=11.1.1`을 지원하거나 검증된 대체재를 채택하면 예외를 제거한다.
 
+## Workspace build·검증 gate
+
+- 같은 checkout의 canonical `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`는 모두 `scripts/workspace-gate.mjs`를 통과한다. Gate는 repository owner lock을 잡은 뒤 `shared` 한 번, `automation-engine` 한 번을 순서대로 build하고 전체 consumer command가 끝날 때까지 lock을 유지한다.
+- 동시 root gate는 active owner를 훔치지 않고 순서대로 대기한다. 장시간 test를 임의 timeout으로 실패시키지 않으며, owner identity가 종료 경계에서 잠시 확인되지 않아도 gate 전용 정책은 lock을 훔치지 않은 채 재확인한다. Shared build 자체의 unknown-owner 기본 정책은 계속 fail-closed다.
+- Package의 canonical `build`, `lint`, `typecheck`, `test`는 준비된 workspace dependency를 소비하는 graph-pure command다. 직접 leaf 명령 전에는 `pnpm workspace:prepare`를 실행한다. 개발·HIL 보조 명령의 명시적 준비 단계는 canonical 검증 graph와 구분한다.
+- Shared output은 기존 동일-path artifact를 유지한 상태에서 temp file rename으로 교체하고, 새 generation에 없는 manifest-owned stale file만 교체 뒤 제거한다. 이 per-file 가용성 방어와 root gate를 함께 유지하며 non-empty `dist` directory의 비이식적 atomic rename으로 바꾸지 않는다.
+- Canonical root unit/contract 경로는 dependency audit policy, patched `image-size` parser security, production MQTT config regression을 각각 정확히 한 번 실행한다. Gateway 전체 Vitest는 filesystem·crypto 부하가 큰 suite의 wall-clock 경합을 피하도록 단일 worker로 실행하며 제품 timeout이나 retry 횟수는 완화하지 않는다.
+
 ## 다음 자동화 단계
 
 CI와 HIL 자동화는 다음 단계다. CI는 타입 검사, 린트, 단위·통합·브라우저 테스트와 build를 자동 실행한다. HIL은 전용 Raspberry Pi와 ESP32-H2에서 인증, 검색, provisioning, 상태 수집, 제어 및 재시작 복구를 검증한다. 실제 장비를 변경하거나 배포하는 HIL 실행은 사용자 승인 관문을 유지한다.

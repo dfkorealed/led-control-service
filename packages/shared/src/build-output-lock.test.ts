@@ -155,6 +155,39 @@ describe("shared build output lock", () => {
     await expect(release()).resolves.toBe(true);
   });
 
+  it("waits without a deadline when a whole workspace command owns the lock", async () => {
+    const root = await createRoot();
+    const identities = new Map<number, ProcessIdentity>([
+      [101, { state: "active", processStartIdentity: "boot-a" }],
+      [202, { state: "active", processStartIdentity: "boot-b" }]
+    ]);
+    const firstRelease = await acquire(root, { pid: 101, processStartIdentity: "boot-a" }, identities, "token-a");
+    let now = 0;
+    let released = false;
+
+    const secondRelease = await acquireOutputLock({
+      lockPath: lockPath(root),
+      owner: { pid: 202, processStartIdentity: "boot-b" },
+      token: "token-b",
+      timeoutMs: null,
+      pollIntervalMs: 1,
+      now: () => {
+        now += 1_000_000;
+        return now;
+      },
+      sleep: async () => {
+        if (!released) {
+          released = true;
+          await firstRelease();
+        }
+      },
+      readProcessIdentity: async (pid) => identities.get(pid) ?? { state: "missing" }
+    });
+
+    await expect(readOwner(root)).resolves.toMatchObject({ token: "token-b", pid: 202 });
+    await expect(secondRelease()).resolves.toBe(true);
+  });
+
   it("takes over a crashed owner by unlinking only its exact marker", async () => {
     const root = await createRoot();
     await seedLock(root, { pid: 101, processStartIdentity: "boot-a" });
@@ -185,6 +218,34 @@ describe("shared build output lock", () => {
     await expect(acquire(root, { pid: 202, processStartIdentity: "boot-b" }, new Map([[101, { state: "unknown" }]]), "token-b"))
       .rejects.toThrow("cannot be verified");
     await expect(readOwner(root)).resolves.toMatchObject({ token: "stale-token" });
+  });
+
+  it("can wait without stealing when a workspace owner is briefly unverifiable during release", async () => {
+    const root = await createRoot();
+    const first = { pid: 101, processStartIdentity: "boot-a" };
+    await seedLock(root, first, "token-a");
+    let identityReads = 0;
+
+    const release = await acquireOutputLock({
+      lockPath: lockPath(root),
+      owner: { pid: 202, processStartIdentity: "boot-b" },
+      token: "token-b",
+      timeoutMs: null,
+      waitOnUnknownOwner: true,
+      pollIntervalMs: 1,
+      sleep: async () => {
+        await unlink(ownerMarkerPath(lockPath(root), "token-a"));
+        await rmdir(lockPath(root));
+      },
+      readProcessIdentity: async () => {
+        identityReads += 1;
+        return { state: "unknown" };
+      }
+    });
+
+    expect(identityReads).toBe(1);
+    await expect(readOwner(root)).resolves.toMatchObject({ token: "token-b", pid: 202 });
+    await expect(release()).resolves.toBe(true);
   });
 
   it("does not let a previous owner release a successor", async () => {

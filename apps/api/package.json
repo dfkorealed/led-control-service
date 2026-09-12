@@ -5,11 +5,11 @@
   "type": "commonjs",
   "scripts": {
     "dev": "pnpm --filter @led-control/automation-engine build && nest start --watch",
-    "build": "pnpm --filter @led-control/automation-engine build && nest build",
-    "test": "pnpm --filter @led-control/automation-engine build && jest",
+    "build": "nest build",
+    "test": "jest",
     "test:command-migration": "pnpm --filter @led-control/shared build && jest src/commands/command-target-migration.integration.spec.ts --runInBand",
-    "lint": "pnpm --filter @led-control/automation-engine build && tsc --noEmit",
-    "typecheck": "pnpm --filter @led-control/automation-engine build && tsc --noEmit",
+    "lint": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "auth:bootstrap-operator": "pnpm --filter @led-control/shared build && tsx prisma/bootstrap-operator.ts"

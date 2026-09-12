@@ -10,6 +10,7 @@ import {
   realpath,
   rm,
   symlink,
+  watch,
   writeFile
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -88,6 +89,40 @@ async function runFixtureBuild(root: string, environment: Record<string, string>
       ...environment
     }
   });
+}
+
+async function waitForPath(path: string) {
+  try {
+    await access(path);
+    return;
+  } catch {
+    // The cross-process fixture signals publication boundaries with files, not elapsed time.
+  }
+
+  for await (const _event of watch(dirname(path))) {
+    try {
+      await access(path);
+      return;
+    } catch {
+      // Keep waiting until the exact signal path is visible.
+    }
+  }
+}
+
+async function installAfterCleanupBarrier(root: string) {
+  const buildPath = join(root, "scripts", "build.mjs");
+  const source = await readFile(buildPath, "utf8");
+  const cleanupCall = source.split("\n").find((line) => line.includes("await removeGeneratedFiles("));
+  if (!cleanupCall) throw new Error("shared build fixture is missing its generated-file cleanup step");
+  await writeFile(buildPath, source.replace(cleanupCall, `${cleanupCall}
+    if (process.env.FAKE_PUBLISH_BARRIER_DIRECTORY) {
+      const barrierDirectory = process.env.FAKE_PUBLISH_BARRIER_DIRECTORY;
+      const entered = await open(join(barrierDirectory, "entered"), "w");
+      await entered.close();
+      while (!await lstatIfExists(join(barrierDirectory, "release"))) {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+    }`));
 }
 
 const payload = {
@@ -579,6 +614,30 @@ describe.sequential("shared build output cleanup", () => {
     await expect(readFile(join(distDirectory, "esm", "index.js"), "utf8")).resolves.toBe(
       "exports.fixtureValue = 1;\n"
     );
+  }, 30_000);
+
+  it("keeps an existing export readable while a replacement build publishes", async () => {
+    const root = await createBuildFixture();
+    const barrierDirectory = await createExternalDirectory();
+    const enteredPath = join(barrierDirectory, "entered");
+    const releasePath = join(barrierDirectory, "release");
+    const exportedPath = join(root, "dist", "index.js");
+    await expect(runFixtureBuild(root)).resolves.toMatchObject({ stderr: "" });
+    await installAfterCleanupBarrier(root);
+
+    const replacementBuild = runFixtureBuild(root, {
+      FAKE_PUBLISH_BARRIER_DIRECTORY: barrierDirectory
+    });
+    await waitForPath(enteredPath);
+
+    try {
+      await expect(readFile(exportedPath, "utf8")).resolves.toBe("exports.fixtureValue = 1;\n");
+    } finally {
+      await writeFile(releasePath, "release\n");
+      await replacementBuild.catch(() => undefined);
+    }
+
+    await expect(replacementBuild).resolves.toMatchObject({ stderr: "" });
   }, 30_000);
 
   it("serializes concurrent builds that share the generated output directory", async () => {

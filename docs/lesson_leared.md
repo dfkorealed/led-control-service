@@ -1,5 +1,11 @@
 # 프로젝트 오답 노트 (Lessons Learned)
 
+## 2026-09-12 / Writer 잠금만으로 generated output의 reader 안전을 보장할 수 없다
+- **발생했던 문제/실수**: `packages/shared` build끼리는 owner lock으로 직렬화했지만 각 build가 기존 export를 먼저 지우고 다시 복사했다. 같은 checkout에서 root lint와 test가 겹치자 잠금을 사용하지 않는 Web TypeScript reader가 `@led-control/shared/dimming-command`를 해석하는 순간 declaration이 사라져 `TS2307`로 실패했다.
+- **원인**: pnpm의 outer workspace topology 밖에서 leaf script가 dependency build를 다시 시작했고, writer/writer 직렬화를 writer/reader 격리로 확대 해석했다. 실제 polling에서는 export가 8/8 publish cycle마다 29~220ms 사라졌다.
+- **해결 및 예방책**: canonical root lint/typecheck/test/build는 repository owner lock을 전체 dependency build와 consumer 수명 동안 유지한다. lock 안에서 shared와 automation-engine을 각각 한 번 build한 뒤 nested writer가 없는 leaf command만 실행한다. shared publisher는 같은 path의 이전 파일을 먼저 지우지 않고 atomic file rename으로 교체한 뒤 실제 stale manifest file만 제거한다.
+- **반복 방지 체크**: copied real publisher의 cleanup 경계를 명시적 file barrier로 멈춰 기존 export read가 `ENOENT` 없이 성공하는 regression, leaf script의 nested writer 금지 contract, concurrent root lint/test 양 획득 순서와 export absence 0 계측을 유지한다. 긴 test owner를 임의 timeout으로 끊거나 TypeScript retry로 증상을 숨기지 않는다.
+
 ## 2026-09-11 / 사용자 삭제는 FK뿐 아니라 durable 비정규화 데이터까지 추적한다
 - **발생했던 문제/실수**: `Command.requestedBy`와 `ManualOverride.requestedById`를 `SET NULL`로 바꿨지만 MQTT outbox JSON의 요청자 UUID와 수락된 초대 이메일은 관계형 FK 밖에 남아 있었다. 미발행 command row는 사용자 삭제 뒤에도 요청자 식별자를 외부로 발행할 수 있었다.
 - **원인**: 사용자 PII 수명을 관계형 column과 브라우저 cache 위주로 검토하고, durable JSON payload와 가입에 사용된 토큰 원장의 비정규화 복사본을 삭제 그래프에 포함하지 않았다.
