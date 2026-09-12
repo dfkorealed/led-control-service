@@ -70,4 +70,3 @@ API, DB, MQTT, firmware, mobile native code, HIL과 운영 환경은 변경하�
 - 화면 디자인이나 사용자 기능 변경
 - prefetch 전략, offline chunk cache, chunk-load 재시도 UX
 - `automation-control-flow.spec.ts`의 기존 setup route 후속 정리
-
