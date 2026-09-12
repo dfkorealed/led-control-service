@@ -12,13 +12,13 @@
 
 ## 공통 제약과 완료 기준
 
-- [ ] 기존 raw 1,070 kB 및 gzip 325 kB 예산을 올리거나 audit을 skip하지 않는다.
-- [ ] URL, `siteId`, query/hash, capability guard, dirty floor editor 보호, 로그아웃, 인증·최초 비밀번호 변경 동작을 보존한다.
-- [ ] API·DB·MQTT·firmware·mobile native·HIL·운영 환경·main 브랜치를 변경하지 않는다.
+- [x] 기존 raw 1,070 kB 및 gzip 325 kB 예산을 올리거나 audit을 skip하지 않는다.
+- [x] URL, `siteId`, query/hash, capability guard, dirty floor editor 보호, 로그아웃, 인증·최초 비밀번호 변경 동작을 보존한다.
+- [x] API·DB·MQTT·firmware·mobile native·HIL·운영 환경·main 브랜치를 변경하지 않는다.
 - [ ] 테스트 RED를 확인한 뒤 최소 구현으로 GREEN을 만들고, 각 구현 작업 뒤 독립 task review를 통과한다.
-- [ ] 1440/390/320px Chromium과 RealBackendLab을 포함해 회귀를 검증한다.
-- [ ] `pnpm ci:production-audit`를 끝까지 실행해 Web container와 dependency policy 단계까지 통과시킨다.
-- [ ] 모니터링·제어·통계·설정 기능 현황 문서와 프로젝트 상태·에이전트 운영 기록을 최신화한다.
+- [x] 1440/390/320px Chromium과 RealBackendLab을 포함해 회귀를 검증한다.
+- [x] `pnpm ci:production-audit`를 끝까지 실행해 Web container와 dependency policy 단계까지 통과시킨다.
+- [x] 모니터링·제어·통계·설정 기능 현황 문서와 프로젝트 상태·에이전트 운영 기록을 최신화한다.
 
 ### Task 1: 공통 route loading과 역할 shell 경계
 
@@ -145,8 +145,10 @@
 - Modify: `docs/agent-operations.md`
 - Modify if reusable failure is found: `docs/lesson_leared.md`
 - Modify: this plan checklist
+- Modify: `apps/web/Dockerfile`
+- Modify: `apps/web/container-contract.node.mjs`
 
-- [ ] **Step 1: 최종 Web 및 workspace 검증을 새 로그로 실행한다.**
+- [x] **Step 1: 최종 Web 및 workspace 검증을 새 로그로 실행한다.**
   - `pnpm --filter @led-control/web lint`
   - `pnpm --filter @led-control/web typecheck`
   - `pnpm --filter @led-control/web test`
@@ -154,14 +156,15 @@
   - `node apps/web/scripts/audit-schedule-bundle.mjs`
   - `pnpm ci:production-audit`
   - 마지막 명령이 Web container와 dependency policy를 포함해 끝까지 통과해야 한다.
+  - 첫 실행은 Web image의 frozen install이 repository patch 파일을 받지 못해 실패했고, 이를 고친 뒤에는 Alpine BusyBox `ps`가 Shared lock의 process start identity를 제공하지 못해 실패했다. 두 실패를 각각 contract RED와 실제 Docker smoke RED로 확인하고 `247f81d`에서 Node build stage에만 `patches/`와 `procps`를 제공했다. Focused contract 5/5와 전체 production audit 재실행이 GREEN이다.
 
-- [ ] **Step 2: 기능 현황과 검증 한계를 문서화한다.**
+- [x] **Step 2: 기능 현황과 검증 한계를 문서화한다.**
   - 네 메뉴 문서의 `구현 완료`, `미구현`, `부족하거나 개선이 필요한 기능`, `관련 파일`, `갱신 규칙` 구조를 유지한다.
   - chunk 분할, 공통 로딩 상태, 실제 bundle 수치, 1440/390/320 Chromium 및 RealBackendLab 결과를 기록한다.
   - WebView 크기 검증은 브라우저 software 증거이고 실제 iOS/Android native WebView/HIL 검증이 아님을 명시한다.
   - 프로젝트 상태를 완료 또는 검증된 blocker 상태로 갱신하고 에이전트 운영 기록과 계획 체크리스트를 동기화한다.
 
-- [ ] **Step 3: 문서 검증과 diff 위생을 확인하고 커밋한다.**
+- [x] **Step 3: 문서 검증과 diff 위생을 확인하고 커밋한다.**
   - `git diff --check`
   - 문서의 SHA, 테스트 수, bundle 수치와 범위가 실제 로그와 일치하는지 대조한다.
   - 커밋: `docs: record web bundle split verification`
