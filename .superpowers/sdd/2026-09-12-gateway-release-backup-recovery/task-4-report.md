@@ -4,7 +4,11 @@ Date: 2026-09-13 (Asia/Seoul). Worktree: `/Users/kim-jh/Documents/led-control-se
 
 Status: **Pre-review Task 4 evidence (historical).** The counts and v2 profile below describe functional-code commit `05c8451`, not the current review fixes. Independent review at `1b9326f` found five Important issues and one Minor; the review is preserved in `task-4-review.md`, and the fixes/current execution evidence are tracked in `task-4-fix-report.md`. In particular the current v3 profile structurally rejects encrypted private-key containers, the protected gate includes all 85 state tests once, and process/entry bounds and exact unlink checks replace the earlier behavior. Operational/HIL validation remains external.
 
-## Scope and implementation
+## Current review-fix outcome
+
+Functional fix commit `3ba80f8fa09939ab12687e824acdfb6cfe1d7fe0` passed fresh full behavior **343/343**, Gateway contracts **30/30**, typecheck, **64 files/608 unit**, build and static/diff. Clean canonical passed **223/223 + full state 85/85**, actual Node **22.23.2**·OS **120**/Node **263** inventory·v3 scan·actual Buildx attestation and Docker identity, default production rejection and cleanup in **14m37.149s**. Full production audit passed through Web container **5/5** and dependency **820** (C0/H2/M1/L0, existing exceptions 3) in **14m26.227s**. Exact RED/GREEN, two artifact identities and cleanup are in `task-4-fix-report.md`. No operational/Pi/HIL validation or main merge was performed. All remaining sections below retain the earlier revision's historical evidence.
+
+## Historical scope and implementation
 
 - Starting Task 4 commit: `b89a540b964c70f4ffc5b2447dc8c84f0370bd20`.
 - Canonical `pnpm gateway:release:ci` rejects dirty source and missing Docker daemon/Buildx/Node 22+/OpenSSL prerequisites, runs real behavior contracts serially, builds a marked `linux/amd64` test-only image through the production builder, verifies trusted checked-in policy/full HEAD, and requires default production rejection.

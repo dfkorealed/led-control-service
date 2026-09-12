@@ -191,8 +191,14 @@ Review findings are preserved in `.superpowers/sdd/2026-09-12-gateway-release-ba
 - [x] TERM-ignoring descendant/deadline and workflow timeout RED → bounded cleanup escalation GREEN.
 - [x] Attestation intermediate-index/empty-layer RED → runtime-leaf-only/nonempty GREEN.
 - [x] Outer/per-layer/cumulative tar entry cap-plus-one RED → pre-push bounds GREEN.
-- [x] pnpm wrong-type/wrong-target unlink RED → exact expected symlink checks GREEN (actual image build remains below).
-- [ ] Full current behavior and Gateway contracts/static, implementation commit, clean canonical Docker gate and complete production audit.
-- [ ] Reconcile exact counts/artifact identity/limits in docs and fix report; commit evidence and finish clean without merge/push.
+- [x] pnpm wrong-type/wrong-target unlink RED → exact expected symlink checks GREEN; actual Docker build의 동일 check 실행도 PASS.
+- [x] Full current behavior and Gateway contracts/static, implementation commit, clean canonical Docker gate and complete production audit.
+- [x] Reconcile exact counts/artifact identity/limits in docs and fix report; evidence-only commit으로 인계하며 branch/worktree를 유지하고 merge/push하지 않는다.
 
-Fresh pre-commit verification: bundle focused 56/56, CI/workflow/process/container 55/55, full combined behavior **343/343** (817.323초, skip 0), Gateway contracts **30/30**, typecheck·**64 files/608 unit** (34.76초)·build **564.6 kB**, syntax/diff PASS. Clean Docker canonical and full production audit for the fixes are pending; previous artifact identities are historical. Exact commands and RED failures are in `task-4-fix-report.md`.
+Fresh verification at functional fix `3ba80f8fa09939ab12687e824acdfb6cfe1d7fe0`: bundle focused 56/56, CI/workflow/process/container 55/55, full combined behavior **343/343** (817.323초, skip 0), Gateway contracts **30/30**, typecheck·**64 files/608 unit** (34.76초)·build **564.6 kB**, syntax/diff PASS.
+
+Clean `pnpm gateway:release:ci`: **223/223** (320659.720042 ms) + **전체 state 85/85** (535763.793625 ms, named CMS happy flow 1개 포함·skip/cancel/fail 0), 실제 image/v3 scan/Buildx leaf attestation/default production 거부/load-inspect-run·Node **22.23.2**·OS **120**/Node **263** inventory와 owned cleanup PASS; wall **14m37.149s**. Full `pnpm ci:production-audit`도 처음부터 dependency까지 exit 0, wall **14m26.227s**: MQTT 설정 **2/2**, Gateway **30/30**, 실제 MQTT **2/2**, in-band **223/223 + 85/85**, actual image/cleanup, Web main **314.83 kB**/gzip **97.58 kB**·container **5/5**, dependency **820** (C0/H2/M1/L0·기존 예외 3·unexpected 0).
+
+두 actual build는 config SHA `fb20a7a61382a633560b3d4b1ea7438a38ca2f174f8ac5f0ca62100608ffccc6`, runtime leaf `f3c2e6ebbea3b5f0484e461f4c32053e4fd7049aba8f9e936b08d9f06fddd0c5`, inventory SHA `dab4d3d146b2a2c3c856426df50186cfa3ab66641c91c2cd59f50d5f841dd8cb`가 같았으며, 각자의 새 attestation/index descriptor를 검증해 container `.Image`와 결속했다. 전체 state stage의 약 8–9분 비용을 의도적으로 포함하며 child 30분/gate 45분/cleanup 2분(+5초)/workflow 60분 deadline을 둔다. Warm-cache amd64 emulation이지 production ARM64/Pi/HIL 또는 uncached 재현성 검증이 아니다.
+
+정확한 RED/GREEN, artifact 7-file closure·digest·소유 cleanup, 기존 첫 audit 중단점과 외부 승인 경계는 `task-4-fix-report.md` 및 historical `task-4-report.md`에 있다. 후속 `docs(gateway): record final review gate evidence` commit은 문서·보고서 전용이다. No menus/database schema/migration/사용자 DB/운영 key/실장비/main 변경; whole-branch review와 운영 signing/recipient custody/Pi·power-loss/HCI/RF/HIL은 별도다.
