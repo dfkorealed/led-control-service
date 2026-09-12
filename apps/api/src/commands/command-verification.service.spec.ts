@@ -179,6 +179,32 @@ describe("CommandVerificationService", () => {
     expect(tx.commandFixtureResult.createMany.mock.calls.map(([{ data }]: any) => data.length)).toEqual([64, 1]);
   });
 
+  it("rejects the owning transaction when the second status-check chunk cannot create its outbox", async () => {
+    const { service, command, tx, prisma } = harness();
+    let committed = false;
+    prisma.$transaction.mockImplementationOnce(async (callback: (transaction: typeof tx) => Promise<unknown>) => {
+      const result = await callback(tx);
+      committed = true;
+      return result;
+    });
+    const fixtures = Array.from({ length: 65 }, (_, index) =>
+      `33333333-3333-4333-8333-${String(index).padStart(12, "0")}`
+    );
+    command.targetFixtureIds = fixtures;
+    tx.gateway.update.mockResolvedValueOnce({ id: ids.gateway, siteId: ids.site, nextCommandSequence: 9n })
+      .mockResolvedValueOnce({ id: ids.gateway, siteId: ids.site, nextCommandSequence: 10n });
+    const failure = new Error("second chunk outbox insert failed");
+    tx.mqttOutbox.create.mockResolvedValueOnce({ id: "outbox-1" }).mockRejectedValueOnce(failure);
+
+    await expect(service.requestStatusCheck(user, ids.command, input)).rejects.toBe(failure);
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(tx.commandDispatch.create).toHaveBeenCalledTimes(2);
+    expect(tx.commandFixtureResult.createMany).toHaveBeenCalledTimes(2);
+    expect(tx.mqttOutbox.create).toHaveBeenCalledTimes(2);
+    expect(committed).toBe(false);
+  });
+
   it("replays all chunks of the anchored attempt even after its outcome converged", async () => {
     const { service, command, tx } = harness();
     const anchor = { id: ids.dispatch, commandId: ids.command, kind: "status_check", verificationAttempt: 1 };

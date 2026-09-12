@@ -8,10 +8,20 @@
 
 **Calm Operations 고객 UI 전면 개선 완료(소프트웨어)**: 공통 Task 1, 로그인/operator Scene 01~03, setup/claim/registration Scene 04~09, monitoring Scene 10~12, manual control Scene 13~16, schedule/event Scene 17~21, statistics Scene 22~23, settings/floor/security Scene 24~26을 구현했다. 기존 API·DB·MQTT·firmware 계약은 변경하지 않았고, 1440/1024/390/320 자동 Chromium은 software UI 증거다. 수동 in-app Browser 시각 QA와 Raspberry Pi/BlueZ/ESP32-H2 HIL은 이번 실행에서 수행하지 않았으며 완료로 확대 기록하지 않는다.
 
+**P0/P1 조명 제어 신뢰성 완료(소프트웨어)**: 발행 뒤 결과 유실을 `unknown`으로 보존하고 Generic OnOff/Lightness Get 상태 확인으로 수렴한다. Dispatch당 64개 chunk와 최대 3회의 논리 시도, timeout worker single-flight/drain, Gateway durable receipt·restart/duplicate replay, API ACK `eventId`/hash dedupe, 현장 범위 명령 이력과 `not_applied` 확인 뒤 안전 재적용을 연결했다. 자동 Set 재시도는 없으며 migration은 작성·정적 검증만 하고 사용자 DB에 적용하지 않았다.
+
+### P0/P1 제어 신뢰성 검증 경계
+
+| 경계 | 상태 | 증거 또는 남은 항목 |
+| --- | --- | --- |
+| Software | 완료 | Shared 200/200, API 1,158 passed·272 environment-gated skipped, Gateway 624/624, Web 715/715, 수동 제어 Chromium 21/21 및 각 패키지 typecheck/build와 Prisma validate를 fresh 실행했다. API의 skipped integration 272개는 통과로 계산하지 않으며 PostgreSQL-backed event-ledger partial-index/concurrent ACK race도 환경 의존 미실행으로 남는다. |
+| 실제 HIL | 미실행 | 실제 다중 fixture, 층 전체, 저장 구역, Mesh Group, Raspberry Pi/ESP32-H2 전원 차단, MQTT broker 단절, Gateway 프로세스 강제 종료를 조합한 상태 조회·중복 전달·복구 시험은 실행하지 않았다. 기존 단일 노드 정상 제어 HIL을 이 항목의 완료 증거로 확대하지 않는다. |
+
 ## 작업 상태
 
 | 작업 | 상태 | 내용 |
 | --- | --- | --- |
+| P0/P1 조명 제어 신뢰성 | 완료(소프트웨어) | `outcome`과 status-check Get으로 불확실 결과를 수렴하고 64개 단위 chunk·3회 논리 시도, timeout single-flight/drain, Gateway durable receipt, API ACK event/hash dedupe, 명령 이력과 안전 재적용을 구현했다. 자동 Set 재시도는 없고 사용자 DB migration 및 다중 fixture·층·구역·그룹·전원/broker/Gateway 장애 HIL은 미실행이다. [설계](superpowers/specs/2026-09-12-p0-p1-control-reliability-design.md) · [실행 계획](superpowers/plans/2026-09-12-p0-p1-control-reliability.md) |
 | 구역 생성 500 오류 수정 | 완료(소프트웨어, final fix) | advisory lock의 `$executeRaw` 전환과 필수 에너지 이력 의존성을 유지했다. marker 생성·재사용은 공통 bulk history로 identity/current dimension을 보충하며 1,000개 신규·반복 energy DB 호출은 5회·3회(최초 marker 조회 포함 6회·4회)다. cleanup은 기존 Site 인가 잠금 뒤 verified fixture ID를 정렬 잠금하고 analytics를 검사해 ingestion 대기 중 생긴 이력도 `409`로 전체 거부한다. 실제 energy service를 사용하는 identity/current version 개수 회귀와 잠금 대기 순서 회귀를 추가했다. focused 55 passed/1 skipped, API typecheck/build와 전체 Jest 956 passed/196 environment-dependent skipped(101 suites passed/22 skipped), `git diff --check`를 통과했다. Prisma schema/migration과 API payload는 변경하지 않았다. 전체 suite에서 skip된 rollback 통합 회귀는 로컬 개발 PostgreSQL URL을 명시한 별도 실행에서 구역·에너지 이력 생성과 rollback 1/1을 통과했다. PostgreSQL 실제 동시 실행·1,000개 transaction 소요시간은 미검증이다. [설계](superpowers/specs/2026-09-11-fixture-group-500-design.md) · [실행 계획](superpowers/plans/2026-09-11-fixture-group-500.md) |
 | 통계 P2 히트맵·보고서/CSV | 완료(소프트웨어·최종 게이트) | 선택 scope의 7×24 에너지/밝기 히트맵, 동일 불변 문서의 XLSX/PDF, CSV, 생성·목록·다운로드·3초 polling·재생성을 연결했다. 최종 검토에서 전용 분석 identity 대상 API와 현장 시간대의 완료 날짜 제한, 이력 수집 이전·퇴역 당일 현장 총계 보존, 저장 비용·직전 동일 기간 차이/변화율·순위 비용·집계 출처, UTC 한 시간 전체 소속 판정, emoji 대체 글꼴과 양 형식 공통 Unicode 검사를 보완했다. Unicode 재검토에서는 실제 PDF 줄바꿈/shaping과 선택 문서만 검사하여 NFD 양식 불일치와 무관한 과거 이름의 접수 차단을 수정했다. 7일 파일/90일 메타데이터 정리, Site 삭제 barrier, DB 잠금 밖 S3 정리, 영구 시도 키 원장과 구버전 DELETE/cascade 보호 트리거는 유지한다. 격리 PostgreSQL·MinIO focused API 203개(공개 도면 저장소 1개 제외), 전체 56개 migration의 clean/기존 일별 데이터 upgrade, 통계 Chromium 21개를 통과했다. 전체 테스트는 API 1,048개(환경 의존 271개 제외), Web 676개, Shared 197개, Gateway 608개, automation 28개, mobile 1개와 루트 script 16개를 통과했고 lint·typecheck·전체 build·Prisma validate/generate도 통과했다. 브라우저 작업/S3는 fixture이며 다운로드 바이트와 양 형식 추출 manifest는 실제 렌더러 결과다. P2-C와 최적화는 제외했고 외부 DB·실장비는 변경하지 않았다. |
 | 로컬 보고서 버킷 초기화 오류 수정 | 완료(개발 환경) | Compose의 folded scalar 명령이 `/bin/sh -c` 뒤에서 여러 인자로 분리되어 MinIO 초기화가 종료 코드 2로 끝나고 `floor-assets`·`energy-reports` 버킷이 모두 누락되던 원인을 수정했다. 초기화 절차를 단일 스크립트 인자로 전달하고 실제 Compose 렌더링 회귀를 추가했다. 초기화 종료 코드 0, 비공개 보고서 버킷 정책, 동일 요청의 새 XLSX 작업 첫 시도 완료와 68,757바이트 다운로드를 확인했다. 기존 실패 2건은 장애 이력으로 유지한다. |

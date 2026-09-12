@@ -164,9 +164,22 @@
 - Consumes: Tasks 1~6 fresh 검증 결과
 - Produces: software 완료 범위와 남은 HIL을 분리한 정본 문서 및 체크리스트
 
-- [ ] **Step 1: 메뉴/스키마 문서 갱신** — outcome, status-check, history, safe retry, migration 미적용, 권한과 한계를 기록한다.
-- [ ] **Step 2: 상태판 갱신** — software tests와 실제 다중 fixture/층/그룹/전원차단/gateway kill/broker loss HIL을 별도 표로 기록한다.
-- [ ] **Step 3: 전체 검증** — shared build/test, API typecheck/test/build, Gateway typecheck/test/build, Web typecheck/test/build, `git diff --check`를 fresh 실행한다.
-- [ ] **Step 4: migration 정적 검증** — `prisma validate`, migration SQL review와 schema doc 일치를 확인하되 migrate 명령은 실행하지 않는다.
-- [ ] **Step 5: 최종 review 수정** — branch 전체 review의 Critical/Important를 수정하고 관련 focused+전체 검증을 다시 실행한다.
-- [ ] **Step 6: checklist와 commit** — 실제 test 수, skip, 남은 HIL, commit 목록을 본 문서에 기록하고 `git commit -m "docs: record control reliability verification" ...`.
+- [x] **Step 1: 메뉴/스키마 문서 갱신** — outcome, status-check, history, safe retry, migration 미적용, 권한과 한계를 기록한다.
+- [x] **Step 2: 상태판 갱신** — software tests와 실제 다중 fixture/층/그룹/전원차단/gateway kill/broker loss HIL을 별도 표로 기록한다.
+- [x] **Step 3: 전체 검증** — shared build/test, API typecheck/test/build, Gateway typecheck/test/build, Web typecheck/test/build, `git diff --check`를 fresh 실행한다.
+- [x] **Step 4: migration 정적 검증** — `prisma validate`, migration SQL review와 schema doc 일치를 확인하되 migrate 명령은 실행하지 않는다.
+- [x] **Step 5: 최종 review 수정** — branch 전체 review의 Critical/Important를 수정하고 관련 focused+전체 검증을 다시 실행한다.
+- [x] **Step 6: checklist와 commit** — 실제 test 수, skip, 남은 HIL, commit 목록을 본 문서에 기록하고 `git commit -m "docs: record control reliability verification" ...`.
+
+#### Task 7 최종 검증 (2026-09-12)
+
+- Focused deferred-minor 검증: `pnpm --filter @led-control/shared build && pnpm --filter @led-control/api exec jest src/commands/command-verification.service.spec.ts src/mqtt/outbox-publisher.service.spec.ts --runInBand` — 2 suites, 51/51 passed. Publisher의 stateful persisted payload fake가 PUBACK 유실 뒤 같은 generation과 줄어든 MQTT TTL, expiry 뒤 publish 차단을 검증한다. 65개 대상의 두 번째 chunk outbox insert 실패가 소유 transaction을 reject하는 회귀를 추가했다.
+- Shared: `pnpm --filter @led-control/shared build && pnpm --filter @led-control/shared test` — build 성공, 14 files·200/200 passed.
+- API: `pnpm --filter @led-control/api typecheck && pnpm --filter @led-control/api test -- --runInBand && pnpm --filter @led-control/api build` — typecheck/build 성공, 112 suites·1,158 passed, 27 suites·272 environment-gated skipped. Skipped integration은 통과로 간주하지 않으며 PostgreSQL-backed event-ledger partial-index/concurrent ACK race 검증도 미실행 상태다.
+- Gateway: `pnpm --filter @led-control/gateway typecheck && pnpm --filter @led-control/gateway test && pnpm --filter @led-control/gateway build` — typecheck/build 성공, 65 files·624/624 passed, bundle `573.7kb`.
+- Web: `pnpm --filter @led-control/web typecheck && pnpm --filter @led-control/web test && pnpm --filter @led-control/web build` — typecheck/build 성공, 61 files·715/715 passed. Main bundle `1,275.95 kB`/gzip `381.15 kB`와 기존 500 kB chunk-size warning은 남는다.
+- Chromium: `pnpm --filter @led-control/web exec playwright test e2e/calm-operations-manual-control.spec.ts --project=chromium` — 21/21 passed. `FORCE_COLOR` 때문에 `NO_COLOR`가 무시된다는 비기능 Node 경고가 출력됐다.
+- Prisma: `DATABASE_URL='postgresql://placeholder:placeholder@127.0.0.1:1/placeholder?schema=public' pnpm --filter @led-control/api exec prisma validate --schema prisma/schema.prisma` — 비접속 process-local placeholder URL로 schema valid. `20260912090000_command_outcome_status_check/migration.sql`의 enum, nullable legacy outcome, dispatch kind/default, attempt/request identity와 unique index를 schema/document와 대조했다. `prisma migrate` 계열 명령은 실행하지 않았고 사용자 DB는 변경하지 않았다.
+- Review: Task 1 시작점 `9caff67e36c1007ae0060bebb3afce6336657b78`부터 Task 6 HEAD `f9ca6567ec1ceb5b7514efeb5543b0f37a5c805a`까지 diff와 단계별 review 기록을 재확인했다. 새 Critical/Important는 없었다. Task 2/3 deferred minor는 위 focused 회귀로 닫았고, 환경 의존 PostgreSQL concurrent ACK 검증은 non-blocking limitation으로 남긴다.
+- Software/HIL 경계: software는 dispatch당 64개 chunk, 최대 3 logical attempts, timeout worker single-flight/drain, status Get durable receipt/replay, device-status `eventId`/hash dedupe, history/상세 재열기와 `not_applied` safe retry를 검증한다. 자동 Set retry는 없다. 실제 다중 fixture·층·저장 구역·Mesh Group·전원 차단·broker loss·Gateway process kill HIL은 실행하지 않았다.
+- Commit 목록: `dd6e23f`, `601670f`, `3346c2a`, `9efab97`, `5bc2474`, `9428915`, `a7cb777`, `7408241`, `453d1d3`, `fa9bfa1`, `cdc3faf`, `97dda95`, `034a2e1`, `d7eee6b`, `04d56a0`, `f9ca656`; Task 7은 `docs: record control reliability verification`으로 기록한다.

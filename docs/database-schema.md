@@ -982,7 +982,9 @@ cloud가 ACK로 확인한 실제 group subscription pair snapshot이다. 복합 
 
 `20260912090000_command_outcome_status_check`는 두 enum과 nullable outcome/상태 조회 identity, 기본값 `dimming`인 dispatch kind를 추가하는 순방향 migration이다. 과거 outcome·시도 번호·요청 ID를 backfill하지 않는다. 이 작업에서는 migration 파일 작성 및 Prisma validate/generate만 수행하고 어떤 DB에도 적용하지 않았다.
 
-상태 조회 outbox는 `sites/{siteId}/gateways/{gatewayId}/commands/status-check`로 발행한다. Strict draft는 기존 command identity와 `originalCommandId`, 중복 없는 `targetFixtureIds` 1~64개, `expectedBrightness` 0~100, `verificationAttempt` 1~3, `requestedAt`을 사용한다. Published payload는 `deliveryGeneration`, `deliveryGeneratedAt`, `deliveryWindowMs`, `expiresAt`을 더하며 요청자 PII·override·Mesh 그룹 정보를 허용하지 않는다. 발행 시점 기준 최대 10초·초 단위 expiry를 durable 저장하고, PUBACK 유실 뒤에도 동일 generation을 재사용하며 남은 MQTT TTL만 감소시킨다. Status-check 발행 실패는 해당 dispatch/result만 닫고 원 명령 결과는 변경하지 않는다. 상태 조회 API 생성·ACK 수렴과 Gateway Get 실행은 후속 Task에서 연결한다.
+상태 조회 outbox는 `sites/{siteId}/gateways/{gatewayId}/commands/status-check`로 발행한다. Strict draft는 기존 command identity와 `originalCommandId`, 중복 없는 `targetFixtureIds` 1~64개, `expectedBrightness` 0~100, `verificationAttempt` 1~3, `requestedAt`을 사용한다. 원 명령 snapshot이 64개를 넘으면 정렬한 64개 단위 dispatch들로 나누되 모두 같은 논리 `verificationAttempt`에 속하고 첫 dispatch만 HTTP `clientRequestId`를 가진다. 따라서 65~1,000개 원 대상도 한 번의 상태 확인이며 최대 3회 제한은 chunk 수가 아니라 논리 시도 번호로 계산한다. 모든 chunk의 dispatch/result/outbox와 gateway sequence 증가는 하나의 DB transaction에서 생성되어 중간 chunk 실패 시 전체 rollback된다.
+
+Published payload는 `deliveryGeneration`, `deliveryGeneratedAt`, `deliveryWindowMs`, `expiresAt`을 더하며 요청자 PII·override·Mesh 그룹 정보를 허용하지 않는다. 발행 시점 기준 최대 10초·초 단위 expiry를 durable 저장하고, PUBACK 유실 뒤에도 동일 generation을 재사용하며 남은 MQTT TTL만 감소시킨다. Status-check 발행 실패·timeout은 해당 dispatch/result만 닫고 원 명령의 `unknown`은 유지한다. Gateway는 acceptance receipt를 journal에 먼저 내구 저장한 뒤 Generic OnOff/Lightness Get을 실행하며, API는 시도의 모든 chunk가 terminal일 때 관측 밝기를 원 요청과 비교해 전부 일치 `applied`, 전부 불일치 `not_applied`, 혼합 `partially_applied`, 미관측 포함 `unknown`으로 수렴한다. 어떤 경로도 밝기 Set을 자동 재전송하지 않는다.
 
 `CommandFixtureResult`는 `(dispatchId, fixtureId)` 복합 PK로 실제 조명별 `succeeded`, `failed`, `timed_out`, 밝기, fault, RSSI, hop, 발생 시각을 저장한다. 일부 노드 실패를 그룹 전체 성공으로 숨기지 않는다.
 
@@ -1223,6 +1225,8 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 | `payloadHash` | `String?` | 아니오 | `NULL` 또는 `sha256:<64 lowercase hex>` CHECK | canonical complete payload hash; legacy event는 null 허용 |
 | `occurredAt` | `DateTime` | 예 |  | Gateway 발생/검증 시각 |
 | `createdAt` | `DateTime` | 예 | `now()` | API ingestion 시각 |
+
+`device_status_ack`도 이 원장을 사용한다. API는 dispatch/command row lock 아래 ACK 전체의 canonical hash를 계산해 `eventId`, Gateway, event type과 함께 먼저 claim한다. 같은 `eventId`·같은 hash의 QoS 1 재전달은 상태를 다시 적용하지 않고, 같은 identity의 Gateway/type/hash가 다르면 정제된 충돌 경고만 남긴 채 payload와 명령 상태를 변경하지 않는다. ACK wire의 command sequence는 새 이벤트마다 증가하지 않으므로 이 event type의 ledger sequence는 같은 Gateway/type 원장 안에서 별도로 할당한다. timeout 뒤 늦은 ACK 수렴도 이 dedupe 경계를 통과한 한 번의 유효 terminal evidence만 반영한다.
 
 ### Invitation
 
@@ -1573,11 +1577,18 @@ Gateway heartbeat MQTT event
 
 ```text
 웹 제어 요청
-→ Command pending 생성
-→ MQTT dimming command 발행
-→ gateway command ACK event
-→ Command status/errorMessage 갱신
+→ Command pending/outcome=pending 생성
+→ MQTT dimming Set 발행
+→ acceptance 및 device-status ACK의 eventId/hash 중복 제거
+→ 적용 여부가 불확실하면 outcome=unknown
+→ control 권한 사용자가 POST /commands/{id}/status-checks
+→ dispatch당 최대 64개로 chunk한 status_check outbox 생성(논리 시도 최대 3회)
+→ Gateway durable receipt 뒤 Generic OnOff/Lightness Get
+→ 모든 chunk 관측 결과를 expected brightness와 비교해 outcome 수렴
+→ not_applied에서만 Web이 새 clientRequestId의 안전 재적용을 제공
 ```
+
+HTTP 응답 유실 복구는 기존 dimming/status-check `clientRequestId`로 저장 결과를 재조회할 뿐 새 물리 Set을 만들지 않는다. 실제 재적용은 `not_applied` 확인 뒤 사용자가 명시적으로 실행하는 새 Command다.
 
 ### 조명 검색/등록
 
