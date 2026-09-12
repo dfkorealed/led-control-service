@@ -4,7 +4,7 @@ import { act, cleanup, createEvent, fireEvent, render, screen, waitFor, within }
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../api/client";
 import { FloorEditorView } from "./FloorEditorView";
-import type { FloorEditorState } from "./editor-types";
+import type { FloorAsset, FloorEditorState } from "./editor-types";
 import { useFloorEditorStore } from "./editor-store";
 import { saveEditorDraft } from "./editor-drafts";
 import { clearTenantCache } from "../../api/principal-cache";
@@ -12,7 +12,8 @@ import { clearTenantCache } from "../../api/principal-cache";
 const floorEditorApi = vi.hoisted(() => ({
   listFloorEditorRevisions: vi.fn(),
   restoreFloorEditorRevision: vi.fn(),
-  saveFloorEditorState: vi.fn()
+  saveFloorEditorState: vi.fn(),
+  uploadFloorAsset: vi.fn()
 }));
 
 vi.mock("../../api/floor-editor", () => floorEditorApi);
@@ -495,7 +496,7 @@ describe("FloorEditorView", () => {
     expect(screen.getByLabelText("조명명")).toBeDisabled();
     expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("aria-disabled", "true");
     expect(screen.getByRole("button", { name: "사각형" })).toBeDisabled();
-    expect(document.querySelectorAll('input[type="file"]')).toHaveLength(0);
+    expect(screen.getByLabelText("도면 파일")).toBeDisabled();
     expect(screen.getByRole("button", { name: "실행 취소" })).toBeDisabled();
     act(() => useFloorEditorStore.getState().setActiveTool("rectangle"));
     fireEvent.mouseDown(screen.getByLabelText("B2 편집 캔버스"), { clientX: 200, clientY: 160 });
@@ -549,11 +550,110 @@ describe("FloorEditorView", () => {
     await waitFor(() => expect(floorEditorApi.saveFloorEditorState).toHaveBeenCalledOnce());
   });
 
-  it("preserves existing background without offering upload or replacement controls", () => {
+  it("preserves the existing background before a replacement upload completes", () => {
     renderEditor();
-    expect(document.querySelector('input[type="file"]')).toBeNull();
+    expect(screen.getByLabelText("도면 파일")).toBeInTheDocument();
     expect(screen.getByLabelText("B2 편집 캔버스")).toHaveClass("has-plan");
     expect(useFloorEditorStore.getState().state?.floor.floorPlan).toEqual(editorState.floor.floorPlan);
+  });
+
+  it("applies only a ready image asset to the draft background", async () => {
+    floorEditorApi.uploadFloorAsset.mockResolvedValueOnce({
+      id: "asset-image",
+      kind: "original",
+      status: "ready",
+      mimeType: "image/png",
+      sizeBytes: 3,
+      sha256: "a".repeat(64),
+      accessPath: "/api/floors/floor-b2/assets/asset-image/content"
+    });
+    renderEditor();
+
+    fireEvent.change(screen.getByLabelText("도면 파일"), {
+      target: { files: [new File(["png"], "parking.png", { type: "image/png" })] }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "도면 업로드" }));
+
+    await waitFor(() => expect(useFloorEditorStore.getState().state?.floor.floorPlan).toMatchObject({
+      sourceType: "image",
+      imageUrl: "/api/floors/floor-b2/assets/asset-image/content",
+      originalFileUrl: "/api/floors/floor-b2/assets/asset-image/content",
+      renderedImageUrl: "/api/floors/floor-b2/assets/asset-image/content",
+      width: 1200,
+      height: 800,
+      gridSize: 10,
+      version: 2
+    }));
+    expect(useFloorEditorStore.getState().isDirty).toBe(true);
+  });
+
+  it("links a ready PDF original without replacing the current canvas background", async () => {
+    floorEditorApi.uploadFloorAsset.mockResolvedValueOnce({
+      id: "asset-pdf",
+      kind: "original",
+      status: "ready",
+      mimeType: "application/pdf",
+      sizeBytes: 3,
+      sha256: "b".repeat(64),
+      accessPath: "/api/floors/floor-b2/assets/asset-pdf/content"
+    });
+    renderEditor();
+    const originalFloorPlan = useFloorEditorStore.getState().state?.floor.floorPlan;
+
+    fireEvent.change(screen.getByLabelText("도면 파일"), {
+      target: { files: [new File(["pdf"], "parking.pdf", { type: "application/pdf" })] }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "도면 업로드" }));
+
+    const linked = await screen.findByText("PDF 원본이 연결되었습니다.");
+    expect(linked.closest("[role=status]")).toHaveAttribute("data-tone", "success");
+    expect(useFloorEditorStore.getState().state?.floor.floorPlan).toBe(originalFloorPlan);
+    expect(screen.getByLabelText("B2 편집 캔버스")).toHaveClass("has-plan");
+    expect(useFloorEditorStore.getState().isDirty).toBe(false);
+  });
+
+  it("locks save restore and floor switching while an upload is pending", async () => {
+    floorEditorApi.listFloorEditorRevisions.mockResolvedValueOnce({ items: [revision(5)], nextCursor: null });
+    const upload = deferred<FloorAsset>();
+    floorEditorApi.uploadFloorAsset.mockReturnValueOnce(upload.promise);
+    const onFloorChange = vi.fn();
+    renderEditor(editorState, {
+      floors: [{ id: "floor-b2", name: "B2" }, { id: "floor-b1", name: "B1" }],
+      onFloorChange
+    });
+    const restoreButton = await screen.findByRole("button", { name: "리비전 5 복구" });
+    act(() => useFloorEditorStore.getState().updateFixture("fixture-1", { x: 225 }));
+    expect(screen.getByRole("button", { name: "저장" })).toBeEnabled();
+
+    fireEvent.change(screen.getByLabelText("도면 파일"), {
+      target: { files: [new File(["png"], "parking.png", { type: "image/png" })] }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "도면 업로드" }));
+
+    expect(floorEditorApi.uploadFloorAsset).toHaveBeenCalledOnce();
+    expect(screen.getByRole("combobox", { name: "층 선택" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "저장" })).toBeDisabled();
+    expect(screen.getByLabelText("도면 파일")).toBeDisabled();
+    expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    expect(floorEditorApi.saveFloorEditorState).not.toHaveBeenCalled();
+
+    act(() => useFloorEditorStore.getState().adoptBaseline(useFloorEditorStore.getState().state!));
+    expect(restoreButton).toBeDisabled();
+    fireEvent.change(screen.getByRole("combobox", { name: "층 선택" }), { target: { value: "floor-b1" } });
+    expect(onFloorChange).not.toHaveBeenCalled();
+
+    upload.resolve({
+      id: "asset-image",
+      kind: "original",
+      status: "ready",
+      mimeType: "image/png",
+      sizeBytes: 3,
+      sha256: "a".repeat(64),
+      accessPath: "/api/floors/floor-b2/assets/asset-image/content"
+    });
+    await screen.findByText("도면 배경이 편집 초안에 적용되었습니다.");
+    expect(screen.getByRole("combobox", { name: "층 선택" })).toBeEnabled();
   });
 
   it("keeps current edits and dirty state after a network failure", async () => {

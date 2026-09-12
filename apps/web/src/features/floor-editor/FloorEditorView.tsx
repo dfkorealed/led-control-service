@@ -16,6 +16,7 @@ import { FixturePlacementList } from "./FixturePlacementList";
 import { EditorBatchPlacementPanel } from "./EditorBatchPlacementPanel";
 import { EditorLayersPanel } from "./EditorLayersPanel";
 import { FixtureIdentifyPanel } from "./FixtureIdentifyPanel";
+import { FloorAssetUploadPanel } from "./FloorAssetUploadPanel";
 import { loadEditorDraft, removeEditorDraft, saveEditorDraft, editorDraftGeneration } from "./editor-drafts";
 import { authMeQueryKey } from "../../api/principal-cache";
 import { FloorEditorCanvas } from "./FloorEditorCanvas";
@@ -70,6 +71,7 @@ export function FloorEditorView({
   const userId = queryClient.getQueryData<{ user: AuthUser }>(authMeQueryKey)?.user.id;
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "error" | "conflict">("idle");
   const [restoringRevision, setRestoringRevision] = useState<number | null>(null);
+  const [isUploadPending, setIsUploadPending] = useState(false);
   const [skippedFixtureCount, setSkippedFixtureCount] = useState(0);
   const mutationLock = useRef(false);
   const activeInstance = useRef(true);
@@ -200,8 +202,13 @@ export function FloorEditorView({
     event.dataTransfer.setData(TOOL_DRAG_DATA_TYPE, tool);
   }
 
+  function handleUploadingChange(uploading: boolean) {
+    mutationLock.current = uploading;
+    setIsUploadPending(uploading);
+  }
+
   const revisions = revisionsQuery.data?.pages.flatMap((page) => page.items) ?? [];
-  const isMutationPending = saveStatus === "saving" || restoringRevision !== null;
+  const isMutationPending = saveStatus === "saving" || restoringRevision !== null || isUploadPending;
   const isSaveOrRestoreBlocked = readOnly || isMutationPending || state?.floor.id !== floorId;
 
   return (
@@ -211,7 +218,7 @@ export function FloorEditorView({
         description={`리비전 ${baseline?.floor.mapRevision ?? initialState.floor.mapRevision}${isDirty ? " · 저장하지 않은 변경사항" : " · 저장됨"}`}
         actions={(
           <div className="floor-editor-actions">
-            {floors && onFloorChange && <select aria-label="층 선택" value={floorId} disabled={isMutationPending} onChange={(e) => onFloorChange(e.target.value)}>{floors.map((floor) => <option value={floor.id} key={floor.id}>{floor.name}</option>)}</select>}
+            {floors && onFloorChange && <select aria-label="층 선택" value={floorId} disabled={isMutationPending} onChange={(e) => { if (!mutationLock.current) onFloorChange(e.target.value); }}>{floors.map((floor) => <option value={floor.id} key={floor.id}>{floor.name}</option>)}</select>}
             <Button variant="ghost" aria-label="실행 취소" title="실행 취소" disabled={isSaveOrRestoreBlocked || !past.length} onClick={() => useFloorEditorStore.getState().undo()}><Undo2 size={18} /></Button>
             <Button variant="ghost" aria-label="다시 실행" title="다시 실행" disabled={isSaveOrRestoreBlocked || !future.length} onClick={() => useFloorEditorStore.getState().redo()}><Redo2 size={18} /></Button>
             <Button variant="ghost" className="floor-editor-icon-button" aria-label="축소" onClick={() => setZoom(zoom - 0.1)}>
@@ -289,6 +296,17 @@ export function FloorEditorView({
           {panelTab === "properties" && <EditorPropertiesPanel readOnly={readOnly || isMutationPending} />}
           {panelTab === "placement" && <EditorBatchPlacementPanel readOnly={readOnly || isMutationPending} />}
           {panelTab === "layers" && <EditorLayersPanel readOnly={readOnly || isMutationPending} />}
+          <FloorAssetUploadPanel
+            floorId={floorId}
+            floorPlan={state?.floor.floorPlan ?? null}
+            disabled={readOnly || isMutationPending}
+            onUploadingChange={handleUploadingChange}
+            onUploaded={(_asset, floorPlan) => {
+              if (floorPlan && activeScope.current.floorId === floorId) {
+                useFloorEditorStore.getState().updateFloorPlan(floorPlan);
+              }
+            }}
+          />
           <FixtureIdentifyPanel floorId={floorId} readOnly={readOnly || isMutationPending} leaseToken={leaseToken} leaseFence={leaseFence} />
           <RevisionPanel
             revisions={revisions}
