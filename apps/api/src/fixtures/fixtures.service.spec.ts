@@ -12,7 +12,7 @@ describe("FixturesService", () => {
     const prisma: any = {
       floor: {
         findFirst: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }),
-        findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" })
+        findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1", status: "active" })
       },
       fixture: {
         findMany: jest.fn().mockResolvedValue([
@@ -66,7 +66,7 @@ describe("FixturesService", () => {
     const prisma: any = {
       floor: {
         findFirst: jest.fn().mockResolvedValue({ id: "other-floor", siteId: "other-site" }),
-        findUnique: jest.fn().mockResolvedValue({ id: "other-floor", siteId: "other-site" })
+        findUnique: jest.fn().mockResolvedValue({ id: "other-floor", siteId: "other-site", status: "active" })
       },
       fixture: { findMany: jest.fn() }
     };
@@ -85,7 +85,7 @@ describe("FixturesService", () => {
     );
     const inaccessibleService = new (FixturesService as any)(
       {
-        floor: { findUnique: jest.fn().mockResolvedValue({ id: "other-floor", siteId: "other-site" }) },
+        floor: { findUnique: jest.fn().mockResolvedValue({ id: "other-floor", siteId: "other-site", status: "active" }) },
         fixture: { findMany: jest.fn() }
       },
       { assert: jest.fn().mockRejectedValue(new NotFoundException("site not found")) }
@@ -100,13 +100,13 @@ describe("FixturesService", () => {
   });
 
   it.each([0, 201])("rejects invalid page limit %s", async (limit) => {
-    const service = new FixturesService({} as never, {} as never);
+    const service = new FixturesService({} as never, {} as never, {} as never, {} as never);
     await expect((service as any).getFloorFixtures(user, "site-1", "floor-1", { limit })).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it("returns the opaque floor response when the requested site does not own the floor", async () => {
     const prisma: any = {
-      floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },
+      floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1", status: "active" }) },
       fixture: { findMany: jest.fn() }
     };
     const siteAccess = { assert: jest.fn() };
@@ -120,8 +120,34 @@ describe("FixturesService", () => {
     expect(prisma.fixture.findMany).not.toHaveBeenCalled();
   });
 
+  it("rejects an archived floor fixture listing with the opaque floor response", async () => {
+    const prisma: any = {
+      floor: {
+        findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1", status: "archived" })
+      },
+      fixture: { findMany: jest.fn() }
+    };
+    const siteAccess = { assert: jest.fn() };
+    const service = new (FixturesService as any)(prisma, siteAccess);
+
+    await expect(service.getFloorFixtures(user, "site-1", "floor-1", {})).rejects.toEqual(
+      new NotFoundException("floor not found")
+    );
+    expect(siteAccess.assert).not.toHaveBeenCalled();
+    expect(prisma.fixture.findMany).not.toHaveBeenCalled();
+  });
+
   it("updates only fixture metadata after transaction-local manage reauthorization and a tenant-scoped lock", async () => {
-    const fixture = { id: "fixture-1", siteId: "site-1", floorId: "floor-1", name: "Old", ratedWatt: "40.00" };
+    const trackingStartedAt = new Date("2026-01-01T00:00:00.000Z");
+    const fixture = {
+      id: "fixture-1",
+      siteId: "site-1",
+      floorId: "floor-1",
+      floorName: "B1",
+      name: "Old",
+      ratedWatt: "40.00",
+      energyTrackingStartedAt: trackingStartedAt
+    };
     const prisma: any = {
       $queryRaw: jest.fn().mockResolvedValue([fixture]),
       $transaction: jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma)),
@@ -133,7 +159,9 @@ describe("FixturesService", () => {
       assert: jest.fn().mockResolvedValue({ id: "site-1" }),
       assertManageInTransaction: jest.fn().mockResolvedValue({ id: "site-1" })
     };
-    const service = new (FixturesService as any)(prisma, siteAccess);
+    const energyCheckpoint = { closeRatedWattInterval: jest.fn().mockResolvedValue(true) };
+    const energyDimensions = { recordFixtureDimensions: jest.fn().mockResolvedValue("energy-fixture-1") };
+    const service = new (FixturesService as any)(prisma, siteAccess, energyCheckpoint, energyDimensions);
 
     await expect(service.updateMetadata(user, "site-1", "floor-1", "fixture-1", {
       name: "New",
@@ -147,11 +175,68 @@ describe("FixturesService", () => {
     expect(renderSql(prisma.$queryRaw.mock.calls[0][0])).toContain(
       'WHERE "id" = ? AND "floorId" = ? AND "siteId" = ?'
     );
+    expect(energyCheckpoint.closeRatedWattInterval).toHaveBeenCalledWith(
+      prisma,
+      "fixture-1",
+      expect.objectContaining({}),
+      expect.any(Date)
+    );
+    const changedAt = energyCheckpoint.closeRatedWattInterval.mock.calls[0][3];
+    expect(energyDimensions.recordFixtureDimensions).toHaveBeenCalledWith(prisma, {
+      fixtureId: "fixture-1",
+      siteId: "site-1",
+      name: "New",
+      floorId: "floor-1",
+      floorName: "B1",
+      ratedWatt: expect.objectContaining({}),
+      trackingStartedAt,
+      effectiveAt: changedAt
+    });
+    expect(energyCheckpoint.closeRatedWattInterval.mock.invocationCallOrder[0])
+      .toBeLessThan(energyDimensions.recordFixtureDimensions.mock.invocationCallOrder[0]);
+    expect(energyDimensions.recordFixtureDimensions.mock.invocationCallOrder[0])
+      .toBeLessThan(prisma.fixture.update.mock.invocationCallOrder[0]);
     expect(prisma.fixture.update).toHaveBeenCalledWith({
       where: { id: "fixture-1" },
       data: { name: "New", ratedWatt: expect.objectContaining({}) },
       select: { id: true, floorId: true, name: true, ratedWatt: true }
     });
+  });
+
+  it("records a name-only dimension change without closing a rated watt interval", async () => {
+    const trackingStartedAt = new Date("2026-01-01T00:00:00.000Z");
+    const fixture = {
+      id: "fixture-1",
+      siteId: "site-1",
+      floorId: "floor-1",
+      floorName: "B1",
+      name: "Old",
+      ratedWatt: "40.00",
+      energyTrackingStartedAt: trackingStartedAt
+    };
+    const prisma: any = {
+      $queryRaw: jest.fn().mockResolvedValue([fixture]),
+      $transaction: jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma)),
+      fixture: { update: jest.fn().mockResolvedValue({ ...fixture, name: "New" }) }
+    };
+    const siteAccess = {
+      assert: jest.fn().mockResolvedValue({ id: "site-1" }),
+      assertManageInTransaction: jest.fn().mockResolvedValue({ id: "site-1" })
+    };
+    const energyCheckpoint = { closeRatedWattInterval: jest.fn() };
+    const energyDimensions = { recordFixtureDimensions: jest.fn().mockResolvedValue("energy-fixture-1") };
+    const service = new (FixturesService as any)(prisma, siteAccess, energyCheckpoint, energyDimensions);
+
+    await service.updateMetadata(user, "site-1", "floor-1", "fixture-1", { name: "New" });
+
+    expect(energyCheckpoint.closeRatedWattInterval).not.toHaveBeenCalled();
+    expect(energyDimensions.recordFixtureDimensions).toHaveBeenCalledWith(prisma, expect.objectContaining({
+      name: "New",
+      ratedWatt: expect.objectContaining({}),
+      effectiveAt: expect.any(Date)
+    }));
+    expect(energyDimensions.recordFixtureDimensions.mock.invocationCallOrder[0])
+      .toBeLessThan(prisma.fixture.update.mock.invocationCallOrder[0]);
   });
 
   it.each([

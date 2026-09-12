@@ -1,9 +1,11 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, InternalServerErrorException, NotFoundException } from "@nestjs/common";
 import { isGatewayHeartbeatFresh } from "@led-control/shared";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
+import { EnergyDimensionHistoryService } from "../energy/energy-dimension-history.service";
+import { FixtureEnergyCheckpointService } from "../energy/fixture-state-ingestion.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { fixtureStatusWithHealth, toFixtureHealthSnapshot } from "./fixture-health";
 
@@ -16,15 +18,26 @@ type LockedFixtureMetadata = {
   id: string;
   siteId: string;
   floorId: string;
+  floorName: string;
   name: string;
   ratedWatt: Prisma.Decimal;
+  energyTrackingStartedAt: Date;
 };
 
 @Injectable()
 export class FixturesService {
+  constructor(prisma: PrismaService, siteAccess: SiteAccessService);
+  constructor(
+    prisma: PrismaService,
+    siteAccess: SiteAccessService,
+    energyCheckpoint: FixtureEnergyCheckpointService,
+    energyDimensions: EnergyDimensionHistoryService
+  );
   constructor(
     private readonly prisma: PrismaService,
-    private readonly siteAccess: SiteAccessService
+    private readonly siteAccess: SiteAccessService,
+    private readonly energyCheckpoint?: FixtureEnergyCheckpointService,
+    private readonly energyDimensions?: EnergyDimensionHistoryService
   ) {}
 
   async getFloorFixtures(
@@ -39,9 +52,11 @@ export class FixturesService {
     }
     const floor = await this.prisma.floor.findUnique({
       where: { id: floorId },
-      select: { id: true, siteId: true }
+      select: { id: true, siteId: true, status: true }
     });
-    if (!floor || floor.siteId !== siteId) throw new NotFoundException("floor not found");
+    if (!floor || floor.siteId !== siteId || floor.status !== "active") {
+      throw new NotFoundException("floor not found");
+    }
     try {
       await this.siteAccess.assert(user, siteId, "read");
     } catch (error) {
@@ -120,12 +135,41 @@ export class FixturesService {
     const fixture = await this.prisma.$transaction(async (tx) => {
       await this.siteAccess.assertManageInTransaction(tx, user, siteId);
       const rows = await tx.$queryRaw<LockedFixtureMetadata[]>(Prisma.sql`
-        SELECT "id", "siteId", "floorId", "name", "ratedWatt"
+        SELECT
+          "id",
+          "siteId",
+          "floorId",
+          (SELECT "name" FROM "Floor" WHERE "Floor"."id" = "Fixture"."floorId") AS "floorName",
+          "name",
+          "ratedWatt",
+          "energyTrackingStartedAt"
         FROM "Fixture"
         WHERE "id" = ${fixtureId} AND "floorId" = ${floorId} AND "siteId" = ${siteId}
         FOR UPDATE
       `);
-      if (!rows[0]) throw new NotFoundException("fixture not found");
+      const current = rows[0];
+      if (!current) throw new NotFoundException("fixture not found");
+      if (!this.energyCheckpoint || !this.energyDimensions) {
+        throw new InternalServerErrorException("fixture energy providers unavailable");
+      }
+
+      const changedAt = new Date();
+      const nextRatedWatt = parsed.data.ratedWatt === undefined
+        ? new Prisma.Decimal(current.ratedWatt)
+        : new Prisma.Decimal(parsed.data.ratedWatt);
+      if (!nextRatedWatt.equals(current.ratedWatt)) {
+        await this.energyCheckpoint.closeRatedWattInterval(tx, fixtureId, nextRatedWatt, changedAt);
+      }
+      await this.energyDimensions.recordFixtureDimensions(tx, {
+        fixtureId,
+        siteId,
+        name: parsed.data.name ?? current.name,
+        floorId,
+        floorName: current.floorName,
+        ratedWatt: nextRatedWatt,
+        trackingStartedAt: current.energyTrackingStartedAt,
+        effectiveAt: changedAt
+      });
 
       return tx.fixture.update({
         where: { id: fixtureId },
@@ -133,7 +177,7 @@ export class FixturesService {
           ...parsed.data,
           ...(parsed.data.ratedWatt === undefined
             ? {}
-            : { ratedWatt: new Prisma.Decimal(parsed.data.ratedWatt) })
+            : { ratedWatt: nextRatedWatt })
         },
         select: { id: true, floorId: true, name: true, ratedWatt: true }
       });

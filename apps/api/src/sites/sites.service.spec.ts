@@ -275,6 +275,40 @@ describe("SitesService", () => {
     expect(siteAccess.capabilities).toHaveBeenCalledWith(actor, "site-1");
   });
 
+  it("scopes dashboard floors, groups, fixture rows, and aggregate summary to active floors", async () => {
+    prisma.site.findFirst.mockResolvedValue({
+      id: "site-1",
+      name: "Active Site",
+      address: "Seoul",
+      tariffKwhRate: "160.00",
+      timeZone: "Asia/Seoul",
+      organization: { name: "Customer A" },
+      gateways: [],
+      floors: [],
+      groups: []
+    });
+    prisma.fixture.findMany.mockResolvedValue([]);
+    const service = new (SitesService as any)(prisma, siteAccess);
+
+    await service.getDashboardById("site-1", true);
+    await service.getDashboardById("site-1", false);
+
+    expect(prisma.site.findFirst).toHaveBeenLastCalledWith(expect.objectContaining({
+      include: expect.objectContaining({
+        floors: expect.objectContaining({ where: { status: "active" } }),
+        groups: expect.objectContaining({
+          where: { lifecycleStatus: "active", floor: { is: { status: "active" } } }
+        })
+      })
+    }));
+    expect(prisma.fixture.findMany.mock.calls[0][0]).toEqual(expect.objectContaining({
+      where: { floor: { siteId: "site-1", status: "active" } }
+    }));
+    expect(prisma.fixture.findMany.mock.calls[1][0]).toEqual(expect.objectContaining({
+      where: { floor: { siteId: "site-1", status: "active" } }
+    }));
+  });
+
   it("keeps a gateway online when its heartbeat is exactly 90 seconds old", async () => {
     jest.useFakeTimers().setSystemTime(new Date("2026-07-11T00:05:00.000Z"));
     const heartbeatAtBoundary = new Date("2026-07-11T00:03:30.000Z");

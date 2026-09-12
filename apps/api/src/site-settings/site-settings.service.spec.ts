@@ -18,6 +18,96 @@ const admin: AuthenticatedUser = {
 };
 
 describe("SiteSettingsService", () => {
+  it("returns admin settings with every floor and active resource counts in operational order", async () => {
+    const { service, prisma, siteAccess } = createHarness();
+    prisma.site.findUnique.mockResolvedValue({
+      id: ids.site,
+      name: "Seoul Plant",
+      address: "1 Light Road",
+      timeZone: "Asia/Seoul",
+      currency: "KRW",
+      tariffKwhRate: "137.25",
+      floors: [
+        {
+          id: "floor-active",
+          name: "B1",
+          level: -1,
+          status: "active",
+          displayOrder: 10,
+          _count: { fixtures: 3, fixtureGroups: 1 }
+        },
+        {
+          id: "floor-archived",
+          name: "Old B2",
+          level: -2,
+          status: "archived",
+          displayOrder: 20,
+          _count: { fixtures: 0, fixtureGroups: 0 }
+        }
+      ]
+    });
+
+    await expect(service().getSettings(admin, ids.site)).resolves.toEqual({
+      site: {
+        id: ids.site,
+        name: "Seoul Plant",
+        address: "1 Light Road",
+        timeZone: "Asia/Seoul",
+        currency: "KRW",
+        tariffKwhRate: 137.25
+      },
+      floors: [
+        {
+          id: "floor-active",
+          name: "B1",
+          level: -1,
+          status: "active",
+          displayOrder: 10,
+          fixtureCount: 3,
+          activeGroupCount: 1
+        },
+        {
+          id: "floor-archived",
+          name: "Old B2",
+          level: -2,
+          status: "archived",
+          displayOrder: 20,
+          fixtureCount: 0,
+          activeGroupCount: 0
+        }
+      ]
+    });
+
+    expect(siteAccess.assert).toHaveBeenCalledWith(admin, ids.site, "manage");
+    expect(prisma.site.findUnique).toHaveBeenCalledWith({
+      where: { id: ids.site },
+      select: expect.objectContaining({
+        id: true,
+        floors: expect.objectContaining({
+          orderBy: [{ displayOrder: "asc" }, { level: "asc" }, { id: "asc" }],
+          select: expect.objectContaining({
+            _count: {
+              select: {
+                fixtures: true,
+                fixtureGroups: { where: { lifecycleStatus: "active" } }
+              }
+            }
+          })
+        })
+      })
+    });
+  });
+
+  it("does not query settings when manage access hides another tenant", async () => {
+    const { service, prisma, siteAccess } = createHarness();
+    siteAccess.assert.mockRejectedValue(new NotFoundException("site not found"));
+
+    await expect(service().getSettings(admin, "other-site")).rejects.toEqual(
+      new NotFoundException("site not found")
+    );
+    expect(prisma.site.findUnique).not.toHaveBeenCalled();
+  });
+
   it("updates only strict site settings after transaction-local manage reauthorization", async () => {
     const { service, prisma, siteAccess } = createHarness();
 
@@ -130,6 +220,41 @@ describe("SiteSettingsService", () => {
     expect(prisma.floor.update).not.toHaveBeenCalled();
   });
 
+  it("restores an archived floor to active through the locked floor update", async () => {
+    const { service, prisma, siteAccess } = createHarness({
+      lockedFloor: { ...floorRow(), status: "archived" }
+    });
+
+    await expect(service().updateFloor(admin, ids.site, ids.floor, { status: "active" })).resolves.toMatchObject({
+      id: ids.floor,
+      status: "active"
+    });
+
+    expect(siteAccess.assertManageInTransaction).toHaveBeenCalledWith(prisma, admin, ids.site);
+    expect(prisma.floor.update).toHaveBeenCalledWith({
+      where: { id: ids.floor },
+      data: { status: "active" },
+      select: expect.any(Object)
+    });
+  });
+
+  it("rejects active-to-archived PATCH so callers cannot bypass archive safety checks", async () => {
+    const { service, prisma } = createHarness();
+
+    await expect(service().updateFloor(admin, ids.site, ids.floor, { status: "archived" }))
+      .rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(prisma.floor.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects status active when the locked floor is already active", async () => {
+    const { service, prisma } = createHarness();
+
+    await expect(service().updateFloor(admin, ids.site, ids.floor, { status: "active" }))
+      .rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.floor.update).not.toHaveBeenCalled();
+  });
+
   it.each([
     [1, 0, "fixture"],
     [0, 1, "active fixture group"]
@@ -175,6 +300,7 @@ function createHarness(options: {
     }),
     $transaction: jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma)),
     site: {
+      findUnique: jest.fn(),
       update: jest.fn(async ({ data }: { data: Record<string, unknown> }) => ({
         id: ids.site,
         name: "Old Plant",

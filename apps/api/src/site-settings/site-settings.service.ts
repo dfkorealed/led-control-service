@@ -27,7 +27,8 @@ const createFloorSchema = z.object({
 const updateFloorSchema = z.object({
   name: z.string().trim().min(1).max(120).optional(),
   level: z.number().int().optional(),
-  displayOrder: z.number().int().min(0).optional()
+  displayOrder: z.number().int().min(0).optional(),
+  status: z.literal("active").optional()
 }).strict().refine(hasFields);
 
 const siteSettingsSelect = {
@@ -63,6 +64,46 @@ export class SiteSettingsService {
     private readonly prisma: PrismaService,
     private readonly siteAccess: SiteAccessService
   ) {}
+
+  async getSettings(user: AuthenticatedUser, siteId: string) {
+    await this.siteAccess.assert(user, siteId, "manage");
+    const site = await this.prisma.site.findUnique({
+      where: { id: siteId },
+      select: {
+        ...siteSettingsSelect,
+        floors: {
+          orderBy: [{ displayOrder: "asc" }, { level: "asc" }, { id: "asc" }],
+          select: {
+            id: true,
+            name: true,
+            level: true,
+            status: true,
+            displayOrder: true,
+            _count: {
+              select: {
+                fixtures: true,
+                fixtureGroups: { where: { lifecycleStatus: "active" } }
+              }
+            }
+          }
+        }
+      }
+    });
+    if (!site) throw new NotFoundException("site not found");
+
+    const { floors, ...settings } = site;
+    return {
+      site: {
+        ...settings,
+        tariffKwhRate: settings.tariffKwhRate === null ? null : Number(settings.tariffKwhRate)
+      },
+      floors: floors.map(({ _count, ...floor }) => ({
+        ...floor,
+        fixtureCount: _count.fixtures,
+        activeGroupCount: _count.fixtureGroups
+      }))
+    };
+  }
 
   async updateSite(user: AuthenticatedUser, siteId: string, rawInput: unknown) {
     await this.siteAccess.assert(user, siteId, "manage");
@@ -112,7 +153,10 @@ export class SiteSettingsService {
 
     return this.prisma.$transaction(async (tx) => {
       await this.siteAccess.assertManageInTransaction(tx, user, siteId);
-      await this.lockFloor(tx, siteId, floorId);
+      const floor = await this.lockFloor(tx, siteId, floorId);
+      if (input.status === "active" && floor.status !== "archived") {
+        throw new BadRequestException("only archived floors can be restored");
+      }
       return tx.floor.update({ where: { id: floorId }, data: input, select: floorSelect });
     });
   }

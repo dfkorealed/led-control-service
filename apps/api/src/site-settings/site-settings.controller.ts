@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, HttpStatus, Param, Patch, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, Patch, Post, UseGuards } from "@nestjs/common";
 import { Roles } from "../access/roles.decorator";
 import { RolesGuard } from "../access/roles.guard";
 import { AuthenticatedUser } from "../auth/auth.types";
@@ -11,6 +11,11 @@ import { SiteSettingsService } from "./site-settings.service";
 @Roles("admin")
 export class SiteSettingsController {
   constructor(private readonly siteSettingsService: SiteSettingsService) {}
+
+  @Get("settings")
+  getSettings(@Param("siteId") siteId: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.siteSettingsService.getSettings(user, siteId);
+  }
 
   @Patch("settings")
   updateSite(
