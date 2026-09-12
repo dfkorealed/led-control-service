@@ -82,6 +82,7 @@
 
 ### 모니터링
 
+- P1 Task 4 fix round 1은 현재 인증된 활성 관리자의 최소 identity를 모니터링 담당 후보에 추가해 관리자 단독 현장의 자기 지정 경로를 연결했다. 활성 일반 사용자 후보와 ID로 중복 제거하며, 수정 권한은 여전히 dashboard manage capability만 따른다. 실제 CustomerShell→MonitoringView→IncidentPanel 컴포넌트 흐름의 선택/PATCH와 read-only 사용자 API 호출 차단을 Web 테스트로 검증한다. 다른 관리자 전체 후보 목록 API와 Task 5 Chromium/HIL은 이번 수정 범위가 아니다.
 - 진행 중인 조명 검색·등록 세션은 브라우저 새로고침 뒤 자동 복구된다. `reconcile_required`는 자동 재시도하지 않으며 실제 장비 상태의 자동 질의·정리는 Raspberry Pi/ESP32-H2 HIL과 함께 후속 검증해야 한다.
 
 ### 제어

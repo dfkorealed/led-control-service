@@ -6,12 +6,12 @@ import { Button, FeedbackState, MetricCard, SidePanel, StatusBadge, UnderlineNav
 import { InstallationPending } from "../setup/SetupWizard";
 import { FloorMap } from "./FloorMap";
 import { presentFixtureStatus } from "./fixture-status-presentation";
-import { MonitoringIncidentPanel } from "./MonitoringIncidentPanel";
+import { MonitoringIncidentPanel, type MonitoringCurrentUser } from "./MonitoringIncidentPanel";
 
 const STALE_SNAPSHOT_AFTER_MS = 60_000;
 const MAX_BROWSER_TIMEOUT_MS = 2_147_483_647;
 
-export function MonitoringView({ userRole = "admin", siteId }: { userRole?: "operator" | "admin" | "viewer"; siteId?: string }) {
+export function MonitoringView({ userRole = "admin", siteId, currentUser }: { userRole?: "operator" | "admin" | "viewer"; siteId?: string; currentUser?: MonitoringCurrentUser }) {
   const dashboardQuery = useDashboard(siteId);
   const { data, isLoading, error } = dashboardQuery;
 
@@ -24,6 +24,7 @@ export function MonitoringView({ userRole = "admin", siteId }: { userRole?: "ope
       data={data}
       userRole={userRole}
       siteId={siteId}
+      currentUser={currentUser}
       dashboardError={error}
       refreshDashboard={() => dashboardQuery.refetch({ throwOnError: true })}
     />
@@ -34,11 +35,12 @@ interface MonitoringDashboardProps {
   data: Dashboard;
   userRole: "operator" | "admin" | "viewer";
   siteId?: string;
+  currentUser?: MonitoringCurrentUser;
   dashboardError: unknown;
   refreshDashboard: () => Promise<unknown>;
 }
 
-function MonitoringDashboard({ data, userRole, siteId, dashboardError, refreshDashboard }: MonitoringDashboardProps) {
+function MonitoringDashboard({ data, userRole, siteId, currentUser, dashboardError, refreshDashboard }: MonitoringDashboardProps) {
   const [detailTab, setDetailTab] = useState<"fixture" | "incidents">("fixture");
   const [activeIncidentCount, setActiveIncidentCount] = useState<number | null>(null);
   const tabId = useId();
@@ -373,7 +375,7 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardError, refreshDa
               )}
               </div>
               <div className="monitoring-tab-panel" id={`${tabId}-incidents-panel`} role="tabpanel" aria-labelledby={`${tabId}-incidents-tab`} hidden={detailTab !== "incidents"}>
-                <MonitoringIncidentPanel siteId={siteId ?? data.site.id} canManage={data.capabilities?.manage === true} onActiveCountChange={setActiveIncidentCount} />
+                <MonitoringIncidentPanel siteId={siteId ?? data.site.id} canManage={data.capabilities?.manage === true} currentUser={currentUser} onActiveCountChange={setActiveIncidentCount} />
               </div>
             </SidePanel>
           </div>

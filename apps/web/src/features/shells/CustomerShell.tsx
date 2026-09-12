@@ -204,7 +204,7 @@ export function CustomerShell({ user }: { user: AuthUser }) {
           </div>
         </header>
         <Routes>
-          <Route path="/monitoring" element={<MonitoringView userRole={user.role} siteId={siteId} />} />
+          <Route path="/monitoring" element={<MonitoringView userRole={user.role} siteId={siteId} currentUser={{ id: user.id, name: user.name, loginId: user.loginId, status: user.status }} />} />
           <Route
             path="/control"
             element={capabilities.control ? (

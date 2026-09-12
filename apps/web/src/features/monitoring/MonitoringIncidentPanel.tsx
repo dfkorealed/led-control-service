@@ -4,12 +4,19 @@ import {
   incidentMutationErrorMessage, incidentStatusLabels, incidentTypeLabels, useMonitoringIncidentMutation, useMonitoringIncidents,
   type IncidentAction, type IncidentFilters, type MonitoringIncident
 } from "../../api/monitoring-incidents";
-import { useSiteUsers, type SiteUserSummary } from "../../api/site-users";
+import { useSiteUsers } from "../../api/site-users";
 import { Button, Card, StatusBadge } from "../../components/ui";
 import { MonitoringPolicyDialog } from "./MonitoringPolicyDialog";
 
-export function MonitoringIncidentPanel({ siteId, canManage, onActiveCountChange }: {
-  siteId: string; canManage: boolean; onActiveCountChange: (count: number) => void;
+export interface MonitoringCurrentUser {
+  id: string;
+  name: string;
+  loginId: string;
+  status: "active" | "disabled";
+}
+
+export function MonitoringIncidentPanel({ siteId, canManage, currentUser, onActiveCountChange }: {
+  siteId: string; canManage: boolean; currentUser?: MonitoringCurrentUser; onActiveCountChange: (count: number) => void;
 }) {
   const [filters, setFilters] = useState<IncidentFilters>({ status: "all", type: "all" });
   const [policyOpen, setPolicyOpen] = useState(false);
@@ -45,7 +52,7 @@ export function MonitoringIncidentPanel({ siteId, canManage, onActiveCountChange
       </div>}
       {query.data && uniqueIncidents.length === 0 && <p>선택한 조건의 인시던트가 없습니다.</p>}
       {canManage
-        ? <ManagedIncidentList siteId={siteId} incidents={uniqueIncidents} />
+        ? <ManagedIncidentList siteId={siteId} incidents={uniqueIncidents} currentUser={currentUser} />
         : <IncidentList incidents={uniqueIncidents} />}
       {query.hasNextPage && <Button isLoading={query.isFetchingNextPage} loadingLabel="이력 불러오는 중" disabled={query.isFetching} onClick={() => void query.fetchNextPage()}>더 보기</Button>}
       {canManage && policyOpen && <MonitoringPolicyDialog siteId={siteId} onClose={() => setPolicyOpen(false)} onSaved={() => setNotice("판정 기준을 저장했습니다.")} />}
@@ -54,8 +61,14 @@ export function MonitoringIncidentPanel({ siteId, canManage, onActiveCountChange
 }
 
 // Mount only for manage capability: read-only users must not even request the protected users API.
-function ManagedIncidentList({ siteId, incidents }: { siteId: string; incidents: MonitoringIncident[] }) {
+function ManagedIncidentList({ siteId, incidents, currentUser }: { siteId: string; incidents: MonitoringIncident[]; currentUser?: MonitoringCurrentUser }) {
   const usersQuery = useSiteUsers(siteId);
+  const siteUsers = usersQuery.data?.users.filter((user) => user.status === "active") ?? [];
+  // The site-users endpoint lists general users only. Add the authenticated active operator
+  // for self-assignment inside this manage-only branch; the API still validates Site scope.
+  const candidates = currentUser?.status === "active" && !siteUsers.some((user) => user.id === currentUser.id)
+    ? [currentUser, ...siteUsers]
+    : siteUsers;
   const mutation = useMonitoringIncidentMutation(siteId);
   const pendingRef = useRef(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -73,11 +86,11 @@ function ManagedIncidentList({ siteId, incidents }: { siteId: string; incidents:
   }
   return <>
     {actionError && <p role="alert">{actionError}</p>}
-    <IncidentList incidents={incidents} management={{ users: usersQuery.data?.users.filter((user) => user.status === "active") ?? [], usersError: Boolean(usersQuery.error), usersLoading: usersQuery.isPending, isPending: mutation.isPending, perform }} />
+    <IncidentList incidents={incidents} management={{ users: candidates, usersError: Boolean(usersQuery.error), usersLoading: usersQuery.isPending, isPending: mutation.isPending, perform }} />
   </>;
 }
 interface IncidentManagement {
-  users: SiteUserSummary[];
+  users: Pick<MonitoringCurrentUser, "id" | "name" | "loginId">[];
   usersError: boolean;
   usersLoading: boolean;
   isPending: boolean;

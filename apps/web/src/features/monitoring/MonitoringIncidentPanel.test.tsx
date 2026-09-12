@@ -5,7 +5,7 @@ import { incidentFixture } from "./monitoring-test-fixtures";
 import { readFileSync } from "node:fs";
 const styles = readFileSync("src/styles.css", "utf8");
 
-import { MonitoringIncidentPanel } from "./MonitoringIncidentPanel";
+import { MonitoringIncidentPanel, type MonitoringCurrentUser } from "./MonitoringIncidentPanel";
 let client: QueryClient;
 let requests: Array<{ path: string; method: string; body: any }>;
 let respond: (path: string, method: string, body: any) => Response | Promise<Response>;
@@ -25,19 +25,56 @@ beforeEach(() => {
   }));
 });
 afterEach(() => { cleanup(); client.clear(); vi.unstubAllGlobals(); });
-function mount(canManage = false) {
-  return render(<QueryClientProvider client={client}><MonitoringIncidentPanel siteId="site-1" canManage={canManage} onActiveCountChange={() => undefined} /></QueryClientProvider>);
+const currentAdmin = { id: "admin-1", name: "현재 관리자", loginId: "site-admin", status: "active" as const };
+function mount(canManage = false, currentUser?: MonitoringCurrentUser) {
+  return render(<QueryClientProvider client={client}><MonitoringIncidentPanel siteId="site-1" canManage={canManage} currentUser={currentUser} onActiveCountChange={() => undefined} /></QueryClientProvider>);
 }
 
 describe("incident operator workflow", () => {
   it("read-only sees history and filters but never requests users or renders management actions", async () => {
-    mount();
+    mount(false, currentAdmin);
     expect(await screen.findByText("입구 조명")).toBeVisible();
     expect(screen.getByRole("combobox", { name: "인시던트 상태" })).toBeVisible();
     expect(screen.queryByRole("button", { name: "확인" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "판정 기준" })).not.toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "해결 메모" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "담당자" })).not.toBeInTheDocument();
     expect(requests.some(({ path }) => path.endsWith("/users"))).toBe(false);
+  });
+
+  it("offers the current active administrator in an admin-only site and assigns the visible row revision", async () => {
+    respond = (path, method) => Response.json(path.endsWith("/users") ? { users: [], count: 0, limit: 100 } : method === "PATCH" ? incidentFixture() : { incidents: [incidentFixture()], activeCount: 1, nextCursor: null });
+    mount(true, currentAdmin);
+    const assignee = await screen.findByRole("combobox", { name: "담당자" });
+    await waitFor(() => expect(assignee).toBeEnabled());
+    expect(within(assignee).getByRole("option", { name: "현재 관리자 (site-admin)" })).toHaveValue("admin-1");
+    fireEvent.change(assignee, { target: { value: "admin-1" } });
+    fireEvent.click(screen.getByRole("button", { name: "담당 저장" }));
+    await waitFor(() => expect(requests.find(({ method }) => method === "PATCH")).toEqual({
+      path: "/api/sites/site-1/monitoring-incidents/incident-1", method: "PATCH",
+      body: { action: "assign", userId: "admin-1", expectedUpdatedAt: "2026-09-12T01:00:00.000Z" }
+    }));
+  });
+
+  it("deduplicates the current user against active site users by id", async () => {
+    mount(true, { ...currentAdmin, id: "user-1" });
+    const assignee = await screen.findByRole("combobox", { name: "담당자" });
+    await waitFor(() => expect(assignee).toBeEnabled());
+    expect(within(assignee).getAllByRole("option").filter((option) => (option as HTMLOptionElement).value === "user-1")).toHaveLength(1);
+  });
+
+  it("excludes a disabled current user while preserving an unavailable current assignee and explicit removal", async () => {
+    const row = incidentFixture({ assignedTo: { id: "former-admin", name: "이전 관리자", loginId: "former" } });
+    respond = (path, method) => Response.json(path.endsWith("/users") ? { users: [], count: 0, limit: 100 } : method === "PATCH" ? row : { incidents: [row], activeCount: 1, nextCursor: null });
+    mount(true, { ...currentAdmin, status: "disabled" });
+    const assignee = await screen.findByRole("combobox", { name: "담당자" });
+    await waitFor(() => expect(assignee).toBeEnabled());
+    expect(within(assignee).queryByRole("option", { name: /현재 관리자/ })).not.toBeInTheDocument();
+    expect(assignee).toHaveValue("former-admin");
+    expect(within(assignee).getByRole("option", { name: "이전 관리자 (현재 담당)" })).toBeInTheDocument();
+    fireEvent.change(assignee, { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "담당 저장" }));
+    await waitFor(() => expect(requests.find(({ method }) => method === "PATCH")?.body).toEqual({ action: "assign", userId: null, expectedUpdatedAt: "2026-09-12T01:00:00.000Z" }));
   });
 
   it("uses filter-specific cursor pages, shows resolution history, and resets pagination on filter change", async () => {

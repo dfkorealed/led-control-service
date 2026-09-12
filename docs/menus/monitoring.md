@@ -25,6 +25,7 @@
 - `MonitoringIncident`는 네 유형(`gateway_offline`, `fixture_stale`, `fixture_fault`, `command_failed`)의 발생·확인·담당·해결을 저장한다. Task 2의 30초 freshness sweep은 조건을 자동 수집해 active incident를 생성·갱신하고 조건 회복 시 `automatic_recovery`로 자동 해결한다. 목록 API는 활성 우선 최신순, 현장·필터에 바인딩된 cursor와 최대 100건 limit, 대상·사용자 요약을 제공한다. 관리자는 open 확인, active 담당 지정/해제, 복구 확인 뒤 메모와 수동 해결을 수행한다. 장애 지속은 `409 INCIDENT_STILL_ACTIVE`, 이전 revision은 `409 INCIDENT_CONFLICT`이며 모든 성공 변경은 같은 transaction의 감사 로그로 남긴다.
 - P1 Task 4 Web은 기존 SidePanel 안에 키보드 이동이 가능한 `조명 상세` / `인시던트 {활성 건수}` 탭을 제공한다. 현장 전체 인시던트의 상태·유형 필터, cursor 더 보기, 발생·최근 관측·확인자·담당자·자동/수동 해결·메모 이력을 표시한다. 인시던트 API도 30초 polling을 적용하고 초기 오류에는 재시도, background 오류에는 기존 목록을 유지한다. 탭 전환이나 조치 후에도 지도 배율·층·조명 선택을 유지한다.
 - 수정 권한은 dashboard `capabilities.manage === true`만 따른다. read-only는 조치·정책 form을 보지 못하며 site-users API도 호출하지 않는다. manage 사용자는 open 확인, active 담당 지정/해제, 1~2000자 해결 메모를 제출하고 현재 행의 `updatedAt`을 전달한다. 저장 중 필터 변경으로 폼이 다시 mount되어도 중복 요청을 차단한다. 네 종류의 `409` 충돌은 한국어로 구분하고 최신 목록을 재조회하며, 행이 해결되어 폼이 사라진 뒤에도 실패 안내를 유지한다.
+- 담당자 후보는 활성 일반 사용자와 현재 인증된 활성 manage 사용자의 최소 identity를 ID로 중복 제거해 구성한다. 일반 사용자 목록 API에 관리자가 포함되지 않아도 관리자 단독 현장에서 자기 자신을 지정할 수 있다. read-only에서는 이 identity가 수정 권한을 만들지 않으며, API가 최종 현장 관리자/멤버 범위를 검증한다. 목록에 없는 기존 담당자의 표시·해제는 유지한다. 다른 관리자의 신규 지정은 별도 후보 조회 계약이 없는 현재 범위에 포함하지 않는다.
 - `판정 기준`은 공통 ModalDialog에서 현재 값을 초기화하고 정확한 정수 범위를 검증한다. 저장 중 닫기를 막고 완료 시 trigger로 focus를 돌려준다. 성공 시 해당 현장의 policy/dashboard/floor-fixtures/incident 캐시를 갱신하며, 기본 현장 dashboard 별칭도 cached Site가 일치할 때만 갱신한다. 정책 충돌은 입력값을 보존하고 최신 서버 revision의 명시적 재검토를 요구한다. 재검토 뒤 서버 값이 다시 바뀌면 재확인을 요구하고, policy 재조회 오류에도 입력 화면을 유지한다.
 - 수동 해결의 현재 장애 판정은 `Site → Gateway → Fixture → Incident` 순서 잠금 아래 다시 읽는다. Gateway는 heartbeat 변경을 막으면서 상태 수집의 FK 검사를 허용하는 `FOR NO KEY UPDATE`를 사용한다. fixture stale 판단에 영향을 주는 연결 Gateway heartbeat도 해결 commit까지 고정하며, 잠금 대기 중 소유 Gateway가 바뀌면 `409 INCIDENT_TARGET_CHANGED`로 재조회를 요구한다.
 
@@ -186,6 +187,7 @@
 - `apps/web/src/features/monitoring/MonitoringIncidentPanel.test.tsx`
 - `apps/web/src/features/monitoring/MonitoringPolicyDialog.tsx`
 - `apps/web/src/features/monitoring/MonitoringPolicyDialog.test.tsx`
+- `apps/web/src/features/shells/CustomerShell.monitoring.test.tsx`
 - `apps/api/src/monitoring-incidents`
 - `apps/api/prisma/migrations/20260912100000_monitoring_policy_incidents/migration.sql`
 
