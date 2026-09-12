@@ -553,3 +553,10 @@
 - **원인**: Empty 상태 snapshot과 이후 cleanup 대상 경로의 존재를 하나의 원자적 사실로 취급했다.
 - **해결 및 예방책**: Empty cleanup의 두 번째 검사에서만 `ENOENT`를 이미 완료된 경쟁 cleanup으로 보고 false/retry한다. Symlink, non-directory, invalid contents와 다른 filesystem 오류는 그대로 실패시킨다.
 - **반복 방지 체크**: 기존 owner marker 때문에 contender publish가 먼저 충돌하고, owner가 marker를 해제한 뒤 contender의 첫 empty read와 두 번째 inspect 사이에 `rmdir`가 실행되는 순서를 filesystem seam으로 고정한다. Root successor handoff를 반복해 nonzero 종료가 0인지 함께 확인한다.
+
+## 2026-09-12 / 보안 상태 변경은 현재 세션 유지가 아니라 토큰 회전으로 연결한다
+
+- **발생했던 문제/실수**: 비밀번호 변경에서 다른 세션만 폐기하고 현재 cookie를 그대로 유지하면 변경 전 탈취된 현재 token이 계속 유효하며, MFA 등록·해제 뒤 인증 강도가 세션에 반영되지 않는다.
+- **원인**: 사용 편의를 위해 현재 세션을 보존하는 것과 요청 흐름을 유지하는 것을 같은 구현으로 간주했다.
+- **해결 및 예방책**: 사용자 행과 현재 세션을 다시 잠가 검증한 transaction에서 모든 기존 세션을 폐기하고 현재 접속 정보·만료 시각만 승계한 새 token hash 행을 만든다. 응답은 새 HttpOnly cookie를 설정하므로 화면 흐름은 유지하되 변경 전 token은 즉시 무효화된다.
+- **반복 방지 체크**: 비밀번호·MFA·권한 변경 테스트는 기존 현재/다른 token이 모두 `401`이고 새 token만 유효한지, 감사 실패 시 상태 변경·폐기·새 세션 생성이 함께 rollback되는지 검사한다. 감사 metadata 금지 키에는 MFA 비밀키·TOTP·복구 코드·세션·챌린지 token을 포함한다.

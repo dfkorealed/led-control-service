@@ -9,7 +9,12 @@ const forbiddenMetadataKeys = new Set([
   "newpassword",
   "privatekey",
   "claimcode",
-  "certificatepem"
+  "certificatepem",
+  "mfasecret",
+  "totpcode",
+  "recoverycode",
+  "sessiontoken",
+  "challengetoken"
 ]);
 
 type AuditTransaction = {

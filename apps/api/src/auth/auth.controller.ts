@@ -1,10 +1,11 @@
-import { BadRequestException, Body, Controller, Get, Optional, Post, Req, Res, ServiceUnavailableException, UnauthorizedException, UseGuards } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Delete, Get, Optional, Param, Post, Req, Res, ServiceUnavailableException, UnauthorizedException, UseGuards } from "@nestjs/common";
 import { AuthService } from "./auth.service";
 import { CurrentUser } from "./current-user.decorator";
 import { SessionAuthGuard } from "./session-auth.guard";
 import { AuthenticatedRequest, AuthenticatedUser } from "./auth.types";
 import { AllowPasswordChangePending } from "./allow-password-change-pending.decorator";
 import { MfaService } from "./mfa.service";
+import { SessionManagementService } from "./session-management.service";
 
 type CookieResponse = {
   cookie: (name: string, value: string, options: Record<string, unknown>) => CookieResponse;
@@ -13,7 +14,11 @@ type CookieResponse = {
 
 @Controller("auth")
 export class AuthController {
-  constructor(private readonly authService: AuthService, @Optional() private readonly mfaService?: MfaService) {}
+  constructor(
+    private readonly authService: AuthService,
+    @Optional() private readonly mfaService?: MfaService,
+    @Optional() private readonly sessionManagement?: SessionManagementService
+  ) {}
 
   @Post("signup")
   async signup(@Body() body: unknown) {
@@ -96,6 +101,32 @@ export class AuthController {
     });
     this.setSessionCookie(response, result.sessionToken, result.expiresAt);
     return { mfaEnabled: false };
+  }
+
+  @Get("sessions")
+  @UseGuards(SessionAuthGuard)
+  listSessions(@Req() request: AuthenticatedRequest) {
+    return this.sessions().list(request.user!, this.currentSessionToken(request));
+  }
+
+  @Delete("sessions/:sessionId")
+  @UseGuards(SessionAuthGuard)
+  async revokeSession(
+    @Param("sessionId") sessionId: string,
+    @Req() request: AuthenticatedRequest,
+    @Res({ passthrough: true }) response: CookieResponse
+  ) {
+    const result = await this.sessions().revoke(request.user!, this.currentSessionToken(request), sessionId);
+    if (result.currentSessionRevoked) {
+      response.clearCookie(AuthService.sessionCookieName, this.cookieBaseOptions());
+    }
+    return { ok: true };
+  }
+
+  @Post("sessions/revoke-others")
+  @UseGuards(SessionAuthGuard)
+  revokeOtherSessions(@Req() request: AuthenticatedRequest) {
+    return this.sessions().revokeOthers(request.user!, this.currentSessionToken(request));
   }
 
   @Get("me")
@@ -215,6 +246,13 @@ export class AuthController {
       throw new ServiceUnavailableException({ code: "MFA_UNAVAILABLE", message: "MFA service is unavailable" });
     }
     return this.mfaService;
+  }
+
+  private sessions() {
+    if (!this.sessionManagement) {
+      throw new ServiceUnavailableException({ code: "SESSION_MANAGEMENT_UNAVAILABLE", message: "Session management is unavailable" });
+    }
+    return this.sessionManagement;
   }
 
   private readCookie(cookieHeader: string | string[] | undefined, name: string) {

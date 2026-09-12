@@ -184,6 +184,7 @@ describe("SiteUsersService", () => {
     expect(tx.user.update.mock.calls[0][0].data).toMatchObject({ name: "수정", loginId: "member.new", status: "active" });
     expect(tx.user.update.mock.calls[0][0].data.passwordHash).toBeUndefined();
     expect(tx.siteMembership.update).toHaveBeenCalledWith(expect.objectContaining({ data: { accessLevel: "read" } }));
+    expect(tx.session.updateMany).toHaveBeenCalledWith({ where: { userId: "member", revokedAt: null }, data: { revokedAt: expect.any(Date) } });
   });
 
   it.each(["update", "resetPassword", "remove"] as const)("%s rejects targets outside the site/viewer scope", async (method) => {
@@ -208,14 +209,14 @@ describe("SiteUsersService", () => {
     expect(tx.session.updateMany).toHaveBeenCalledWith({ where: { userId: "member", revokedAt: null }, data: { revokedAt: expect.any(Date) } });
   });
 
-  it("reactivates without revoking again or resetting the existing password", async () => {
+  it("reactivates and revokes any concurrently issued session without resetting the existing password", async () => {
     const { service, tx, hash } = setup();
     tx.user.findFirst.mockResolvedValue({ ...row, status: "disabled" });
     await service.update(admin, "site", "member", update);
     expect(hash).not.toHaveBeenCalled();
     expect(tx.user.update.mock.calls[0][0].data.passwordHash).toBeUndefined();
     expect(tx.user.update.mock.calls[0][0].data.mustChangePassword).toBeUndefined();
-    expect(tx.session.updateMany).not.toHaveBeenCalled();
+    expect(tx.session.updateMany).toHaveBeenCalledWith({ where: { userId: "member", revokedAt: null }, data: { revokedAt: expect.any(Date) } });
   });
 
   it("resets a password, forces change and revokes sessions without returning password fields", async () => {

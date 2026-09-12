@@ -11,6 +11,7 @@ import { LoginRateLimitService } from "./login-rate-limit.service";
 import { MfaCryptoService } from "./mfa-crypto.service";
 import { MfaService } from "./mfa.service";
 import { TotpService } from "./totp.service";
+import { SessionManagementService } from "./session-management.service";
 
 @Module({
   imports: [PrismaModule, AuditModule, RedisModule],
@@ -23,7 +24,8 @@ import { TotpService } from "./totp.service";
     MfaCryptoService,
     MfaService,
     TotpService,
-    AuthChallengeStore
+    AuthChallengeStore,
+    SessionManagementService
   ],
   exports: [AuthService, PasswordService, SessionAuthGuard]
 })

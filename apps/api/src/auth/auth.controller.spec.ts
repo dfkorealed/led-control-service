@@ -132,4 +132,24 @@ describe("AuthController", () => {
     expect(response.cookie).toHaveBeenNthCalledWith(1, "led_session", "enrolled-token", expect.any(Object));
     expect(response.cookie).toHaveBeenNthCalledWith(2, "led_session", "disabled-token", expect.any(Object));
   });
+
+  it("lists and revokes only the authenticated user's sessions, clearing the cookie for current-session revoke", async () => {
+    const user = { id: "admin-1", organizationId: "org-1" };
+    const sessions = {
+      list: jest.fn().mockResolvedValue({ sessions: [] }),
+      revoke: jest.fn().mockResolvedValue({ ok: true, currentSessionRevoked: true }),
+      revokeOthers: jest.fn().mockResolvedValue({ ok: true, revokedSessionCount: 2 })
+    };
+    const response = { clearCookie: jest.fn().mockReturnThis() };
+    const request = { user, headers: { cookie: "led_session=current-token" } } as any;
+    const controller = new AuthController({} as any, undefined, sessions as any);
+
+    await expect(controller.listSessions(request)).resolves.toEqual({ sessions: [] });
+    await expect(controller.revokeSession("session-1", request, response as any)).resolves.toEqual({ ok: true });
+    await expect(controller.revokeOtherSessions(request)).resolves.toEqual({ ok: true, revokedSessionCount: 2 });
+    expect(sessions.list).toHaveBeenCalledWith(user, "current-token");
+    expect(sessions.revoke).toHaveBeenCalledWith(user, "current-token", "session-1");
+    expect(sessions.revokeOthers).toHaveBeenCalledWith(user, "current-token");
+    expect(response.clearCookie).toHaveBeenCalledWith("led_session", expect.objectContaining({ path: "/" }));
+  });
 });
