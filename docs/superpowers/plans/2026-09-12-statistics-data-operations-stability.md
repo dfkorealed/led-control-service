@@ -123,12 +123,12 @@
 - Modify: `apps/web/src/styles.css`
 - Modify corresponding web tests.
 
-- [ ] 목록에 정확한 대상 label, 요청 시각, 완료 파일 만료 시각, 실패 사유/행동 안내를 표시한다.
-- [ ] 400/404/409/5xx/network 오류를 `ApiError`와 fetch error로 구분한다.
-- [ ] 일별/순위/보고서는 “당시 적용 단가의 저장 비용”, forecast/baseline/savings는 “현재 설정 단가 기준”이라고 명시한다.
-- [ ] 320px에서 metadata/action wrapping과 접근성 이름을 검증한다.
-- [ ] Run focused Web tests, Web typecheck/build.
-- [ ] Commit: `feat(web): clarify report status and energy cost basis`
+- [x] 목록에 정확한 대상 label, 요청 시각, 완료 파일 만료 시각, 실패 사유/행동 안내를 표시한다.
+- [x] 400/404/409/5xx/network 오류를 `ApiError`와 fetch error로 구분한다.
+- [x] 일별/순위/보고서는 “당시 적용 단가의 저장 비용”, forecast/baseline/savings는 “현재 설정 단가 기준”이라고 명시한다.
+- [x] 320px에서 metadata/action wrapping과 접근성 이름을 검증한다.
+- [x] Run focused Web tests, Web typecheck/build.
+- [x] Commit: `feat(web): clarify report status and energy cost basis`
 
 ## Task 7: 문서 수렴과 전체 검증
 
