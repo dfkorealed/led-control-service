@@ -144,7 +144,7 @@ describeWithDatabase("AuthService PostgreSQL viewer signup integration", () => {
     await expect(prisma.user.findUnique({ where: { loginId } })).resolves.toMatchObject({ name: "Concurrent Winner" });
   });
 
-  it("changes a password without revoking the current session and revokes every other session", async () => {
+  it("changes a password, revokes every old session and rotates the current token", async () => {
     const organizationId = randomUUID();
     const userId = randomUUID();
     const loginId = `admin_${userId.slice(0, 8)}`;
@@ -184,11 +184,12 @@ describeWithDatabase("AuthService PostgreSQL viewer signup integration", () => {
       new UnauthorizedException("Invalid login id or password")
     );
     await expect(service.login({ loginId, password: newPassword, rememberMe: false })).resolves.toMatchObject({ user: { loginId } });
-    await expect(service.getUserBySessionToken(current.sessionToken)).resolves.toMatchObject({ id: userId, loginId, mustChangePassword: false });
+    await expect(service.getUserBySessionToken(changed.sessionToken)).resolves.toMatchObject({ id: userId, loginId, mustChangePassword: false });
     await expect(prisma.session.findUniqueOrThrow({ where: { tokenHash: service.hashToken(other.sessionToken) } })).resolves.toMatchObject({ revokedAt: expect.any(Date) });
-    await expect(prisma.session.findUniqueOrThrow({ where: { tokenHash: service.hashToken(current.sessionToken) } })).resolves.toMatchObject({ revokedAt: null });
+    await expect(prisma.session.findUniqueOrThrow({ where: { tokenHash: service.hashToken(current.sessionToken) } })).resolves.toMatchObject({ revokedAt: expect.any(Date) });
+    await expect(prisma.session.findUniqueOrThrow({ where: { tokenHash: service.hashToken(changed.sessionToken) } })).resolves.toMatchObject({ revokedAt: null });
     const audit = await prisma.auditLog.findFirstOrThrow({ where: { actorId: userId, action: "auth.password_changed" }, orderBy: { createdAt: "desc" } });
-    expect(audit.metadata).toEqual({ revokedSessionCount: 1 });
+    expect(audit.metadata).toEqual({ revokedSessionCount: 2 });
   });
 
   it("leaves passwords, sessions, and audit logs untouched when the current password is wrong", async () => {

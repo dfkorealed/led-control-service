@@ -1,9 +1,10 @@
-import { BadRequestException, Body, Controller, Get, Post, Req, Res, UnauthorizedException, UseGuards } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Optional, Post, Req, Res, ServiceUnavailableException, UnauthorizedException, UseGuards } from "@nestjs/common";
 import { AuthService } from "./auth.service";
 import { CurrentUser } from "./current-user.decorator";
 import { SessionAuthGuard } from "./session-auth.guard";
 import { AuthenticatedRequest, AuthenticatedUser } from "./auth.types";
 import { AllowPasswordChangePending } from "./allow-password-change-pending.decorator";
+import { MfaService } from "./mfa.service";
 
 type CookieResponse = {
   cookie: (name: string, value: string, options: Record<string, unknown>) => CookieResponse;
@@ -12,7 +13,7 @@ type CookieResponse = {
 
 @Controller("auth")
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(private readonly authService: AuthService, @Optional() private readonly mfaService?: MfaService) {}
 
   @Post("signup")
   async signup(@Body() body: unknown) {
@@ -30,8 +31,71 @@ export class AuthController {
       userAgent: this.readHeader(request.headers["user-agent"]),
       ipAddress: request.ip ?? "unknown"
     });
+    if ("mfaRequired" in result) return result;
     this.setSessionCookie(response, result.sessionToken, result.expiresAt);
     return { user: result.user };
+  }
+
+  @Post("login/mfa")
+  async completeMfaLogin(
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+    @Res({ passthrough: true }) response: CookieResponse
+  ) {
+    const value = this.record(body);
+    const verification = this.verificationBody(value);
+    const result = await this.mfa().completeLogin({
+      challengeToken: this.requiredString(value.challengeToken, "challengeToken"),
+      ...verification
+    }, request.ip ?? "unknown", this.readHeader(request.headers["user-agent"]));
+    this.setSessionCookie(response, result.sessionToken, result.expiresAt);
+    return { user: result.user, recoveryCodeUsed: result.recoveryCodeUsed };
+  }
+
+  @Get("mfa")
+  @UseGuards(SessionAuthGuard)
+  async mfaStatus(@CurrentUser() user: AuthenticatedUser) {
+    return this.mfa().status(user);
+  }
+
+  @Post("mfa/enrollment")
+  @UseGuards(SessionAuthGuard)
+  async startMfaEnrollment(@CurrentUser() user: AuthenticatedUser) {
+    return this.mfa().startEnrollment(user);
+  }
+
+  @Post("mfa/enrollment/confirm")
+  @UseGuards(SessionAuthGuard)
+  async confirmMfaEnrollment(
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+    @Res({ passthrough: true }) response: CookieResponse
+  ) {
+    const token = this.currentSessionToken(request);
+    const value = this.record(body);
+    const result = await this.mfa().confirmEnrollment(request.user!, token, {
+      enrollmentToken: this.requiredString(value.enrollmentToken, "enrollmentToken"),
+      code: this.requiredString(value.code, "code")
+    });
+    this.setSessionCookie(response, result.sessionToken, result.expiresAt);
+    return { mfaEnabled: true, recoveryCodes: result.recoveryCodes };
+  }
+
+  @Post("mfa/disable")
+  @UseGuards(SessionAuthGuard)
+  async disableMfa(
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+    @Res({ passthrough: true }) response: CookieResponse
+  ) {
+    const token = this.currentSessionToken(request);
+    const value = this.record(body);
+    const result = await this.mfa().disable(request.user!, token, {
+      currentPassword: this.requiredString(value.currentPassword, "currentPassword"),
+      ...this.verificationBody(value)
+    });
+    this.setSessionCookie(response, result.sessionToken, result.expiresAt);
+    return { mfaEnabled: false };
   }
 
   @Get("me")
@@ -61,11 +125,14 @@ export class AuthController {
   @UseGuards(SessionAuthGuard)
   async changePassword(
     @Body() body: unknown,
-    @Req() request: AuthenticatedRequest
+    @Req() request: AuthenticatedRequest,
+    @Res({ passthrough: true }) response: CookieResponse
   ) {
     const token = this.readCookie(request.headers.cookie, AuthService.sessionCookieName);
     if (!token || !request.user) throw new UnauthorizedException("Authentication required");
-    return this.authService.changePassword(request.user, token, this.changePasswordBody(body));
+    const result = await this.authService.changePassword(request.user, token, this.changePasswordBody(body));
+    this.setSessionCookie(response, result.sessionToken, result.expiresAt);
+    return { ok: true, user: result.user };
   }
 
   private setSessionCookie(response: CookieResponse, token: string, expiresAt: Date) {
@@ -128,6 +195,26 @@ export class AuthController {
   private requiredString(value: unknown, name: string) {
     if (typeof value !== "string" || !value.trim()) throw new BadRequestException(`${name} is required`);
     return value;
+  }
+
+  private verificationBody(value: Record<string, unknown>) {
+    const code = typeof value.code === "string" && value.code.trim() ? value.code.trim() : undefined;
+    const recoveryCode = typeof value.recoveryCode === "string" && value.recoveryCode.trim() ? value.recoveryCode.trim() : undefined;
+    if (Boolean(code) === Boolean(recoveryCode)) throw new BadRequestException("Provide exactly one MFA code");
+    return { code, recoveryCode };
+  }
+
+  private currentSessionToken(request: AuthenticatedRequest) {
+    const token = this.readCookie(request.headers.cookie, AuthService.sessionCookieName);
+    if (!token || !request.user) throw new UnauthorizedException("Authentication required");
+    return token;
+  }
+
+  private mfa() {
+    if (!this.mfaService) {
+      throw new ServiceUnavailableException({ code: "MFA_UNAVAILABLE", message: "MFA service is unavailable" });
+    }
+    return this.mfaService;
   }
 
   private readCookie(cookieHeader: string | string[] | undefined, name: string) {

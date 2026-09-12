@@ -35,6 +35,16 @@ describe("AuthChallengeStore", () => {
     expect(redis.del).toHaveBeenCalledWith(expect.stringMatching(/^auth:challenge:login:/));
   });
 
+  it("atomically takes a one-time challenge", async () => {
+    const redis = {
+      getdel: jest.fn().mockResolvedValue(`encrypted:${Buffer.from('{"userId":"user-1"}').toString("base64")}`)
+    };
+    const store = new AuthChallengeStore({ getClient: () => redis } as any, crypto);
+
+    await expect(store.take<{ userId: string }>("login", "opaque-token")).resolves.toEqual({ userId: "user-1" });
+    expect(redis.getdel).toHaveBeenCalledWith(expect.stringMatching(/^auth:challenge:login:/));
+  });
+
   it("fails closed when Redis is unavailable or contains malformed data", async () => {
     const failing = new AuthChallengeStore({ getClient: () => ({ get: jest.fn().mockRejectedValue(new Error("down")) }) } as any, crypto);
     const malformed = new AuthChallengeStore({ getClient: () => ({ get: jest.fn().mockResolvedValue(`encrypted:${Buffer.from("not-json").toString("base64")}`) }) } as any, crypto);

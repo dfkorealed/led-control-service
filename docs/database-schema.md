@@ -1290,6 +1290,7 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 - `user`: `User`
 
 `userId + revokedAt + expiresAt` 복합 index는 사용자별 활성 세션 조회와 일괄 폐기를 지원한다.
+비밀번호 변경과 MFA 등록·해제는 현재 세션을 포함한 기존 활성 세션을 같은 transaction에서 모두 폐기한 뒤, 현재 요청의 접속 정보와 만료 시각을 승계한 새 token hash 행을 만든다. 따라서 변경 전 cookie는 즉시 무효이고 응답의 새 HttpOnly cookie만 유효하다.
 
 ### UserMfa
 

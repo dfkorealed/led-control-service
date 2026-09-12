@@ -9,6 +9,7 @@ import { PasswordService } from "./password.service";
 import { SessionAuthGuard } from "./session-auth.guard";
 import { LoginRateLimitService } from "./login-rate-limit.service";
 import { MfaCryptoService } from "./mfa-crypto.service";
+import { MfaService } from "./mfa.service";
 import { TotpService } from "./totp.service";
 
 @Module({
@@ -20,6 +21,7 @@ import { TotpService } from "./totp.service";
     SessionAuthGuard,
     LoginRateLimitService,
     MfaCryptoService,
+    MfaService,
     TotpService,
     AuthChallengeStore
   ],

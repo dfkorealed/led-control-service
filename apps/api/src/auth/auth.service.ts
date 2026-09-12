@@ -8,6 +8,7 @@ import { normalizeLoginId, type AuthenticatedUser, type OrganizationType, type U
 import { PasswordService } from "./password.service";
 import { lockUserForPasswordMutation } from "./user-password-lock";
 import { LoginRateLimitService, type LoginRateLimitInput } from "./login-rate-limit.service";
+import { MfaService } from "./mfa.service";
 
 const SESSION_COOKIE_NAME = "led_session";
 const NORMAL_SESSION_DAYS = 1;
@@ -57,7 +58,8 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly passwords: PasswordService,
     private readonly audit: AuditService,
-    @Optional() private readonly loginRateLimit?: LoginRateLimitService
+    @Optional() private readonly loginRateLimit?: LoginRateLimitService,
+    @Optional() private readonly mfa?: MfaService
   ) {}
 
   async signup(input: SignupInput) {
@@ -135,7 +137,7 @@ export class AuthService {
     return { user: this.publicUser({ ...user, organization: invitation.organization }) };
   }
 
-  async login(input: LoginInput) {
+  async login(input: LoginInput): Promise<any> {
     if (typeof input?.rememberMe !== "boolean") throw new BadRequestException("rememberMe must be a boolean");
     const loginId = normalizeLoginId(input.loginId);
     const rateInput = await this.loginRateInput(loginId, input);
@@ -151,10 +153,12 @@ export class AuthService {
 
           const user = await tx.user.findUnique({
             where: { loginId },
-            include: { organization: { select: { type: true } } }
+            include: { organization: { select: { type: true } }, mfa: { select: { userId: true } } }
           });
           if (!user || user.status !== "active" || !user.passwordHash) throw this.invalidCredentials();
           if (!(await this.passwords.verify(input.password, user.passwordHash))) throw this.invalidCredentials();
+
+          if (user.mfa) return { kind: "mfa" as const, user };
 
           const sessionToken = this.generateToken();
           const expiresAt = this.addDays(new Date(), input.rememberMe ? REMEMBER_ME_SESSION_DAYS : NORMAL_SESSION_DAYS);
@@ -179,8 +183,16 @@ export class AuthService {
             ipAddress: input.ipAddress,
             userAgent: input.userAgent
           });
-          return { user: this.publicUser(user), sessionToken, expiresAt };
+          return { kind: "session" as const, user: this.publicUser(user), sessionToken, expiresAt };
           });
+          if (result.kind === "mfa") {
+            if (!this.mfa) throw new InternalServerErrorException("MFA service is unavailable");
+            return this.mfa.createLoginChallenge(result.user, {
+              rememberMe: input.rememberMe,
+              ipAddress: input.ipAddress ?? "unknown",
+              userAgent: input.userAgent
+            });
+          }
           if (this.loginRateLimit) {
             try {
               await this.loginRateLimit.resetAfterSuccess(rateInput);
@@ -189,7 +201,7 @@ export class AuthService {
               throw error;
             }
           }
-          return result;
+          return { user: result.user, sessionToken: result.sessionToken, expiresAt: result.expiresAt };
         } catch (error) {
           if (!this.isTransactionConflictError(error)) throw error;
           if (attempt === LOGIN_TRANSACTION_ATTEMPTS) throw this.invalidCredentials();
@@ -226,7 +238,7 @@ export class AuthService {
       }
 
       const currentTokenHash = this.hashToken(currentSessionToken);
-      const updatedUser = await this.db().$transaction(async (tx: Prisma.TransactionClient) => {
+      const result = await this.db().$transaction(async (tx: Prisma.TransactionClient) => {
         if (!await lockUserForPasswordMutation(tx, user.id)) {
           throw new UnauthorizedException("Current password is incorrect");
         }
@@ -248,8 +260,20 @@ export class AuthService {
           include: { organization: { select: { type: true } } }
         });
         const revokedSessions = await tx.session.updateMany({
-          where: { userId: user.id, revokedAt: null, tokenHash: { not: currentTokenHash } },
+          where: { userId: user.id, revokedAt: null },
           data: { revokedAt: new Date() }
+        });
+        const sessionToken = this.generateToken();
+        await tx.session.create({
+          data: {
+            userId: user.id,
+            tokenHash: this.hashToken(sessionToken),
+            rememberMe: session.rememberMe,
+            userAgent: session.userAgent,
+            ipAddress: session.ipAddress,
+            expiresAt: session.expiresAt,
+            mfaVerifiedAt: session.mfaVerifiedAt ?? null
+          }
         });
         await this.audit.record({
           transaction: tx,
@@ -261,9 +285,9 @@ export class AuthService {
           outcome: "success",
           metadata: { revokedSessionCount: revokedSessions.count }
         });
-        return this.publicUser(updated);
+        return { user: this.publicUser(updated), sessionToken, expiresAt: session.expiresAt };
       });
-      return { ok: true, user: updatedUser };
+      return { ok: true, ...result };
     } catch (error) {
       if (error instanceof HttpException) throw error;
       // Prisma mutation errors may embed password hashes in their message/meta.

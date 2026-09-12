@@ -33,6 +33,17 @@ export class AuthChallengeStore {
     }
   }
 
+  async take<T>(kind: AuthChallengeKind, token: string): Promise<T | null> {
+    try {
+      const value = await this.redis.getClient().getdel(this.key(kind, token));
+      if (!value) return null;
+      return JSON.parse(this.crypto.decrypt(value)) as T;
+    } catch (error) {
+      if (error instanceof ServiceUnavailableException) throw error;
+      throw this.unavailable();
+    }
+  }
+
   async delete(kind: AuthChallengeKind, token: string) {
     try {
       await this.redis.getClient().del(this.key(kind, token));
