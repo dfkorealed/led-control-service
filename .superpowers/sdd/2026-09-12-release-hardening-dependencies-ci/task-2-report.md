@@ -103,3 +103,37 @@ git diff --check
 - Gate의 no-deadline/unknown-owner wait는 active command를 잘못 훔치지 않는 쪽을 택한다. 운영자가 강제 종료 또는 손상된 owner marker를 수동 처리해야 하는 상황은 명시적으로 fail-safe 대기가 될 수 있다. Shared writer 자체는 unknown identity에서 기존처럼 즉시 fail-closed한다.
 - API의 289개는 PostgreSQL/MinIO 등 environment-gated case라 이번 local software run에서 skip되었다. 사용자 DB·운영 서비스·실장비·CI workflow·main은 변경하지 않았다.
 - Web production build의 기존 chunk-size warning은 이번 경쟁 제거 범위 밖이며 Task 3 CI/HIL 후속에서도 별도 성능 판단이 필요하다.
+
+## Review fix: release handoff, signal lifetime, RealBackendLab cold output
+
+리뷰 수정 구현 커밋: `82d0e182dbef7ea0efdf9c4d175f7388eb115ac6`
+
+리뷰의 Important 3건을 각각 deterministic RED 뒤 수정했다.
+
+- Release handoff RED는 old owner의 exact marker unlink와 old directory `rmdir` 사이에 successor marker를 publish했다. 기존 결과는 `oldReleaseResult=false`였지만 successor marker는 온전했다. Exact marker unlink가 끝난 시점을 ownership release 완료로 정의해 후속 `ENOENT`/`ENOTEMPTY`를 safe handoff success로 반환한다. Marker unlink 전에 owner가 달라진 기존 fencing은 계속 `false`이고 successor를 건드리지 않는다.
+- Process RED는 실제 gate와 fake pnpm/ps를 별도 filesystem fixture에서 실행했다. 기존 `spawnSync` gate에 SIGTERM을 보내자 gate만 죽고 old consumer가 살아 있는 동안 successor가 `consumer-started`를 publish했다. Gate는 이제 detached async child를 소유하고 catch 가능한 SIGINT/SIGTERM을 child process group에 전달한다. Child exit를 받은 뒤에만 lock을 release하고 실제 child/gate signal semantics로 종료한다. SIGINT와 SIGTERM 모두 old child가 살아 있는 동안 successor가 active owner 대기를 관찰하고, old child 종료 뒤 successor가 실행되며 orphan/lock이 남지 않는다.
+- RealBackendLab RED는 기존 `packages/automation-engine/dist`를 임시 backup으로 격리하고 실제 startup build를 Prisma 직전까지만 실행했다. 기존 shared-only 준비는 automation entry를 만들지 못했다. `RealBackendLab.start()`가 root `workspace:prepare`를 호출해 shared→automation을 준비하도록 연결했으며, test는 생성된 `dist/index.js`를 확인한 뒤 원래 warm output을 복원한다. DB, service, browser journey는 시작하지 않는다.
+
+Review fix 최종 증거:
+
+```text
+pnpm --filter @led-control/shared exec vitest run \
+  src/build-output-lock.test.ts src/package-exports.test.ts
+=> 2 files, 91 tests passed (23.36s)
+
+node --test scripts/workspace-gate.test.mjs
+=> 4/4 passed: root/leaf contracts, SIGINT lifecycle, SIGTERM lifecycle
+
+pnpm --filter @led-control/web exec playwright test \
+  e2e/real-backend-lab-support.spec.ts --project=chromium
+=> 14/14 passed, including isolated cold automation output
+
+concurrent `pnpm lint` + `pnpm typecheck` with lock/export polling
+=> both exit 0; distinct owner PIDs 8533, 8534
+=> declaration absence 0 / 648,191; final lock absent; export present
+
+git diff --check
+=> passed
+```
+
+Catch 가능한 SIGINT/SIGTERM만 graceful child drain을 보장한다. `SIGKILL`, host crash, power loss는 전달하거나 await할 수 없으므로 다음 contender가 stale owner recovery를 수행하며, 해당 crash 이후의 외부 orphan side effect는 OS/process supervisor 책임으로 남는다.
