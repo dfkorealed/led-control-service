@@ -41,7 +41,7 @@ export function DeleteSiteDialog({ site, returnFocusElement, fallbackFocusElemen
     <ConfirmDialog
       open
       title={`${site.siteName} 현장 전체 삭제`}
-      description="관리자 계정뿐 아니라 현장 전체와 모든 관련 데이터가 영구 삭제됩니다. 삭제 후에는 복구할 수 없습니다."
+      description="현장, 관리자, 일반 사용자와 장비·자동화·통계 메타데이터가 영구 삭제됩니다. 외부 자산은 비동기로 정리되며, 삭제 후에는 복구할 수 없습니다."
       confirmLabel="현장 전체 삭제"
       destructive
       isPending={mutation.isPending}

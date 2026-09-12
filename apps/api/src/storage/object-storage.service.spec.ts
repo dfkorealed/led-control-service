@@ -43,7 +43,30 @@ describe("ObjectStorageService", () => {
 
     expect(send).toHaveBeenCalledWith(expect.objectContaining({
       input: { Bucket: "floor-assets", Key: "floors/floor-1/file.png" }
-    }));
+    }), { abortSignal: expect.any(AbortSignal) });
+  });
+
+  it("bounds a stalled floor asset delete transport", async () => {
+    jest.useFakeTimers();
+    const timeout = jest.spyOn(AbortSignal, "timeout").mockImplementation(ms => {
+      const controller = new AbortController(); setTimeout(() => controller.abort(), ms); return controller.signal;
+    });
+    let outcome = "pending";
+    const deletingService = new ObjectStorageService({
+      send: (_command: unknown, options?: { abortSignal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => options?.abortSignal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true }))
+    } as never, { bucket: "floor-assets", publicBaseUrl: "" });
+    try {
+      const pending = deletingService.deleteObject("floors/floor-1/file.png");
+      void pending.then(() => { outcome = "resolved"; }, () => { outcome = "aborted"; });
+      await jest.advanceTimersByTimeAsync(3_999);
+      expect(outcome).toBe("pending");
+      await jest.advanceTimersByTimeAsync(1);
+      expect(outcome).toBe("aborted");
+    } finally {
+      timeout.mockRestore();
+      jest.useRealTimers();
+    }
   });
 
   it("creates a 300-second signed GET for a private floor asset", async () => {

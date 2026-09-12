@@ -4,6 +4,7 @@ import { ObjectStorageService } from "../storage/object-storage.service";
 
 const POLL_INTERVAL_MS = 60_000;
 const UPLOAD_EXPIRY_SAFETY_MS = 5_000;
+const ABANDONED_SIGNING_TIMEOUT_MS = 15 * 60_000;
 const CLAIM_TIMEOUT_MS = 120_000;
 const BATCH_SIZE = 25;
 
@@ -28,12 +29,22 @@ export class FloorAssetCleanupService implements OnModuleInit, OnModuleDestroy {
 
   async processPending(now = new Date()) {
     const uploadExpiredAt = new Date(now.getTime() - UPLOAD_EXPIRY_SAFETY_MS);
+    const abandonedSigningAt = new Date(now.getTime() - ABANDONED_SIGNING_TIMEOUT_MS);
     const abandonedClaimAt = new Date(now.getTime() - CLAIM_TIMEOUT_MS);
+    const expiredUploadWhere = {
+      OR: [
+        { uploadExpiresAt: { lte: uploadExpiredAt } },
+        { uploadExpiresAt: null, createdAt: { lte: abandonedSigningAt } }
+      ]
+    };
+    const availableClaimWhere = {
+      OR: [{ cleanupStartedAt: null }, { cleanupStartedAt: { lte: abandonedClaimAt } }]
+    };
     const assets = await this.prisma.floorAsset.findMany({
       where: {
         status: "pending",
-        uploadExpiresAt: { lte: uploadExpiredAt },
-        OR: [{ cleanupStartedAt: null }, { cleanupStartedAt: { lte: abandonedClaimAt } }]
+        ...expiredUploadWhere,
+        AND: [availableClaimWhere]
       },
       select: { id: true, objectKey: true },
       orderBy: { createdAt: "asc" },
@@ -46,8 +57,8 @@ export class FloorAssetCleanupService implements OnModuleInit, OnModuleDestroy {
         where: {
           id: asset.id,
           status: "pending",
-          uploadExpiresAt: { lte: uploadExpiredAt },
-          OR: [{ cleanupStartedAt: null }, { cleanupStartedAt: { lte: abandonedClaimAt } }]
+          ...expiredUploadWhere,
+          AND: [availableClaimWhere]
         },
         data: { cleanupStartedAt: now }
       });

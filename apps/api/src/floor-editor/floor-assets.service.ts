@@ -29,7 +29,6 @@ export class FloorAssetsService {
       sizeBytes: input.sizeBytes,
       sha256: input.sha256
     });
-    const uploadExpiresAt = new Date(Date.now() + prepared.expiresInSeconds * 1000);
     const asset = await this.prisma.$transaction(async (tx) => {
       const locked = await tx.$queryRaw<Array<{ id: string; siteId: string }>>(Prisma.sql`
         SELECT floor."id", floor."siteId"
@@ -49,7 +48,7 @@ export class FloorAssetsService {
           mimeType: input.mimeType,
           sizeBytes: BigInt(input.sizeBytes),
           sha256: input.sha256.toLowerCase(),
-          uploadExpiresAt
+          uploadExpiresAt: null
         }
       });
     });
@@ -62,6 +61,20 @@ export class FloorAssetsService {
         sha256: input.sha256
       });
     } catch {
+      throw new ServiceUnavailableException("floor asset upload signing is temporarily unavailable");
+    }
+    const uploadExpiresAt = new Date(Date.now() + prepared.expiresInSeconds * 1000);
+    try {
+      const expiryRecorded = await this.prisma.floorAsset.updateMany({
+        where: { id: asset.id, status: "pending", uploadExpiresAt: null, cleanupStartedAt: null },
+        data: { uploadExpiresAt }
+      });
+      if (expiryRecorded.count !== 1) {
+        throw new Error("floor asset upload ledger is no longer pending");
+      }
+    } catch {
+      // The URL is never returned unless its exact lifetime is durable. A null expiry
+      // remains recoverable by the abandoned-signing branch of the pending sweeper.
       throw new ServiceUnavailableException("floor asset upload signing is temporarily unavailable");
     }
     return {
@@ -94,18 +107,57 @@ export class FloorAssetsService {
     ) {
       throw new BadRequestException("uploaded object metadata does not match upload intent");
     }
-    const readyAt = new Date();
-    const promoted = await this.prisma.floorAsset.updateMany({
-      where: { id: asset.id, floorId, status: "pending", cleanupStartedAt: null },
-      data: { status: "ready", readyAt }
-    });
-    if (promoted.count === 1) {
-      return this.assetResponse({ ...asset, status: "ready", readyAt }, floorId);
-    }
+    return this.prisma.$transaction(async (tx) => {
+      await this.siteAccess.assertManageInTransaction(tx, user, floor.siteId);
+      const lockedAssets = await tx.$queryRaw<Array<{
+        id: string;
+        floorId: string;
+        siteId: string;
+        kind: string;
+        status: string;
+        objectKey: string;
+        mimeType: string;
+        sizeBytes: bigint;
+        sha256: string;
+        uploadExpiresAt: Date | null;
+        cleanupStartedAt: Date | null;
+        readyAt: Date | null;
+        createdAt: Date;
+        updatedAt: Date;
+      }>>(Prisma.sql`
+        SELECT asset.*, floor."siteId"
+        FROM "FloorAsset" AS asset
+        JOIN "Floor" AS floor ON floor."id" = asset."floorId"
+        WHERE asset."id" = ${assetId}
+          AND asset."floorId" = ${floorId}
+          AND floor."siteId" = ${floor.siteId}
+        FOR UPDATE OF floor, asset
+      `);
+      const locked = lockedAssets[0];
+      if (!locked) throw new NotFoundException("floor asset not found");
+      if (locked.status === "ready") return this.assetResponse(locked, floorId);
+      if (locked.cleanupStartedAt) {
+        throw new ConflictException("floor asset upload expired while completion was in progress");
+      }
+      if (locked.objectKey !== asset.objectKey) {
+        throw new ConflictException("floor asset changed while completion was in progress");
+      }
+      const lockedExpectedChecksum = Buffer.from(locked.sha256, "hex").toString("base64");
+      if (
+        head.ContentType !== locked.mimeType ||
+        head.ContentLength !== Number(locked.sizeBytes) ||
+        head.ChecksumSHA256 !== lockedExpectedChecksum
+      ) {
+        throw new BadRequestException("uploaded object metadata does not match upload intent");
+      }
 
-    const latest = await this.prisma.floorAsset.findFirst({ where: { id: asset.id, floorId } });
-    if (latest?.status === "ready") return this.assetResponse(latest, floorId);
-    throw new ConflictException("floor asset upload expired while completion was in progress");
+      const readyAt = new Date();
+      const promoted = await tx.floorAsset.update({
+        where: { id: locked.id },
+        data: { status: "ready", readyAt }
+      });
+      return this.assetResponse(promoted, floorId);
+    });
   }
 
   async listAssets(user: AuthenticatedUser, floorId: string) {

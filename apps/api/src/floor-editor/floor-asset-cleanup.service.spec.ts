@@ -16,7 +16,10 @@ describe("FloorAssetCleanupService", () => {
 
     await expect(service.processPending(now)).resolves.toEqual({ processed: 1, deleted: 1 });
     expect(prisma.floorAsset.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ status: "pending", uploadExpiresAt: { lte: expiredAt } }),
+      where: expect.objectContaining({
+        status: "pending",
+        OR: expect.arrayContaining([{ uploadExpiresAt: { lte: expiredAt } }])
+      }),
       take: 25
     }));
     expect(storage.deleteObject).toHaveBeenCalledWith("floors/floor-1/file.png");
@@ -45,5 +48,25 @@ describe("FloorAssetCleanupService", () => {
       data: { cleanupStartedAt: null }
     });
     expect(prisma.floorAsset.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it("recovers ledgers abandoned before their signed URL expiry was persisted", async () => {
+    const now = new Date("2026-09-12T01:00:00.000Z");
+    const prisma: any = {
+      floorAsset: {
+        findMany: jest.fn().mockResolvedValue([])
+      }
+    };
+    const service = new FloorAssetCleanupService(prisma, { deleteObject: jest.fn() } as any);
+
+    await service.processPending(now);
+
+    expect(prisma.floorAsset.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        OR: expect.arrayContaining([
+          { uploadExpiresAt: null, createdAt: { lte: new Date("2026-09-12T00:45:00.000Z") } }
+        ])
+      })
+    }));
   });
 });

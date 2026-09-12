@@ -118,7 +118,8 @@ export class ObjectStorageService {
   }
 
   async deleteObject(objectKey: string) {
-    return this.client.send(new DeleteObjectCommand({ Bucket: this.options.bucket, Key: objectKey }));
+    return this.client.send(new DeleteObjectCommand({ Bucket: this.options.bucket, Key: objectKey }),
+      { abortSignal: AbortSignal.timeout(4_000) });
   }
 
   private validateUpload(input: { mimeType: string; sizeBytes: number; sha256: string }) {
