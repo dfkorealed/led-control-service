@@ -31,34 +31,34 @@
 - Modify: `apps/web/src/App.test.tsx`
 - Modify: `apps/web/scripts/audit-schedule-bundle.mjs`
 
-- [ ] **Step 1: 역할 shell bundle audit을 먼저 강화한다.**
+- [x] **Step 1: 역할 shell bundle audit을 먼저 강화한다.**
   - audit이 customer/operator shell의 별도 production chunk와 main chunk의 Konva/Recharts 부재를 요구하게 한다.
   - 기존 raw/gzip 예산, schedule chunk, shared browser contract와 Gateway 문구 검사를 유지한다.
   - 명령: `pnpm --filter @led-control/web build && node apps/web/scripts/audit-schedule-bundle.mjs`
   - 예상: 정적 role shell이 별도 chunk가 아니므로 실패한다(RED).
 
-- [ ] **Step 2: 공통 로딩 상태와 shell 지연 로딩 기대를 테스트로 고정한다.**
+- [x] **Step 2: 공통 로딩 상태와 shell 지연 로딩 기대를 테스트로 고정한다.**
   - `RouteLoadingState`가 `role="status"`, `aria-live="polite"`, 이해하기 쉬운 한국어를 제공하는지 추가한다.
   - 로그인·최초 비밀번호 변경은 즉시 렌더링되고, 고객/운영자 shell은 비동기 경계에서 공통 fallback을 거쳐 렌더링되는지 추가한다.
   - 명령: `pnpm --filter @led-control/web test -- src/components/ui/ui-primitives.test.tsx src/App.test.tsx`
   - 예상: 새 기대가 구현 전 실패한다(RED).
 
-- [ ] **Step 3: 고정 폭 없이 재사용 가능한 로딩 상태를 구현한다.**
+- [x] **Step 3: 고정 폭 없이 재사용 가능한 로딩 상태를 구현한다.**
   - 기존 공통 primitive의 색상·간격·접근성 규칙을 재사용한다.
   - viewport 밖으로 밀어내는 width/min-width를 추가하지 않는다.
 
-- [ ] **Step 4: `App` 역할 shell을 lazy-load한다.**
+- [x] **Step 4: `App` 역할 shell을 lazy-load한다.**
   - `AuthView`와 `RequiredPasswordChangeView`는 eager로 유지한다.
   - `CustomerShell`, `OperatorShell`만 `React.lazy`로 가져오고 공통 `Suspense` fallback을 적용한다.
   - 기존 principal 검증, role/capability 분기와 로그아웃 흐름은 변경하지 않는다.
 
-- [ ] **Step 5: focused 회귀와 정적 검증을 실행한다.**
+- [x] **Step 5: focused 회귀와 정적 검증을 실행한다.**
   - `pnpm --filter @led-control/web test -- src/components/ui/ui-primitives.test.tsx src/App.test.tsx`
   - `pnpm --filter @led-control/web typecheck`
   - `pnpm --filter @led-control/web build`
   - `node apps/web/scripts/audit-schedule-bundle.mjs`
 
-- [ ] **Step 6: 독립 task review 후 수정하고 커밋한다.**
+- [x] **Step 6: 독립 task review 후 수정하고 커밋한다.**
   - 요구사항·접근성·인증 경계·테스트 품질을 검토한다.
   - 커밋: `feat(web): lazy load role shells`
 
