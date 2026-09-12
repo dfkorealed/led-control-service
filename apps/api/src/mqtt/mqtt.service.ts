@@ -372,8 +372,10 @@ export class MqttService implements OnModuleInit {
       }
       // state/fixtures QoS 1의 PUBACK은 API MQTT client가 broker에서 전달받은 PUBLISH를 처리한 뒤 보내는 MQTT 전달 확인일 뿐 DB 반영 확인은 아니다.
       // event ID·sequence·topic scope를 검증하고 DB commit 뒤 done()을 호출해 재전송과 잘못된 Gateway 범위가 다음 처리 계층으로 섞이지 않게 한다.
+      // Queue delay must not turn a future packet into an accepted event or advance freshness.
+      const receivedAt = new Date();
       let handler!: Promise<void>;
-      handler = this.runInGatewayInboundQueue(topic, () => this.ingestFixtureStatePacket(topic, payload))
+      handler = this.runInGatewayInboundQueue(topic, () => this.ingestFixtureStatePacket(topic, payload, receivedAt))
         .then(({ scope, acknowledgement }) => {
           done(0);
           return this.publishFixtureStateAcknowledgement(scope.siteId, scope.gatewayId, acknowledgement).catch((error) => {
@@ -558,19 +560,19 @@ export class MqttService implements OnModuleInit {
     client.stream.destroy();
   }
 
-  async handleFixtureStatePacket(topic: string, payload: Buffer) {
-    const { scope, acknowledgement } = await this.ingestFixtureStatePacket(topic, payload);
+  async handleFixtureStatePacket(topic: string, payload: Buffer, receivedAt = new Date()) {
+    const { scope, acknowledgement } = await this.ingestFixtureStatePacket(topic, payload, receivedAt);
     await this.publishFixtureStateAcknowledgement(scope.siteId, scope.gatewayId, acknowledgement);
     return acknowledgement;
   }
 
-  private async ingestFixtureStatePacket(topic: string, payload: Buffer) {
+  private async ingestFixtureStatePacket(topic: string, payload: Buffer, receivedAt: Date) {
     const scope = parseGatewayTopic(topic);
     const state = fixtureStateV2Schema.parse(JSON.parse(payload.toString()));
     if (!scope || scope.siteId !== state.siteId || scope.gatewayId !== state.gatewayId) {
       throw new Error("fixture state topic scope rejected");
     }
-    const ingested = await this.fixtureStateIngestion.ingest(scope.gatewayId, state);
+    const ingested = await this.fixtureStateIngestion.ingest(scope.gatewayId, state, receivedAt);
     const acknowledgement = applicationStateIngestedAckV2Schema.parse({
       ...ingested,
       ingestedAt: new Date().toISOString()

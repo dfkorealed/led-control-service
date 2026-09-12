@@ -2,6 +2,8 @@ import { MqttService } from "./mqtt.service";
 import { EventEmitter } from "node:events";
 import { dirname, join } from "node:path";
 import { canonicalPayloadHash } from "../automation/automation-payload-hash";
+import { Prisma } from "@prisma/client";
+import { FixtureStateIngestionService } from "../energy/fixture-state-ingestion.service";
 
 const mqttHandlePublish = require(
   join(dirname(require.resolve("mqtt")), "lib/handlers/publish.js")
@@ -172,7 +174,8 @@ describe("MqttService v2 ordered state", () => {
     const handle = mqttInternals(service).createCustomHandleAcks();
     handle(fixtureTopic, Buffer.from(JSON.stringify({ ...fixtureEvent(9), occurredAt: "9999-01-01T00:00:00.000Z" })),
       { qos: 1, messageId: 92 }, firstDone);
-    handle(fixtureTopic, Buffer.from(JSON.stringify(fixtureEvent(10))), { qos: 1, messageId: 93 }, secondDone);
+    handle(fixtureTopic, Buffer.from(JSON.stringify({ ...fixtureEvent(10), eventId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" })),
+      { qos: 1, messageId: 93 }, secondDone);
     await flushPromises();
     expect(firstDone).not.toHaveBeenCalled();
     expect(secondDone).not.toHaveBeenCalled();
@@ -184,6 +187,48 @@ describe("MqttService v2 ordered state", () => {
       expect.objectContaining({ sequence: 9, status: "rejected_future_timestamp" }),
       expect.objectContaining({ sequence: 10, status: "ingested" })
     ]);
+  });
+
+  it.each([
+    ["2026-09-12T00:05:00.001Z", "rejected_future_timestamp"],
+    ["2026-09-12T00:05:00.000Z", "ingested"]
+  ])("uses fixture packet arrival before queue waiting for %s (%s)", async (occurredAt, status) => {
+    const arrival = new Date("2026-09-12T00:00:00.000Z");
+    jest.useFakeTimers().setSystemTime(arrival);
+    const event = { ...fixtureEvent(9), occurredAt };
+    const prisma = fixtureReceiptPrisma(arrival, event.fixtureId);
+    const ingestion = new FixtureStateIngestionService(prisma as never);
+    const ingest = jest.spyOn(ingestion, "ingest");
+    const service = new MqttService(prisma as never, {} as never, ingestion);
+    const publish = jest.spyOn(service, "publishTopic").mockResolvedValue();
+    const release = deferred<void>();
+    const done = jest.fn();
+    try {
+      void mqttInternals(service).runInGatewayInboundQueue(fixtureTopic, () => release.promise);
+      mqttInternals(service).createCustomHandleAcks()(fixtureTopic, Buffer.from(JSON.stringify(event)),
+        { qos: 1, messageId: 95 }, done);
+      jest.setSystemTime(new Date("2026-09-12T00:10:00.000Z"));
+      expect(ingest).not.toHaveBeenCalled();
+      release.resolve();
+      await service.stopInboundAndDrain();
+
+      expect(done).toHaveBeenCalledWith(0);
+      expect(publish).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ status }), expect.any(Object));
+      expect(ingest).toHaveBeenCalledWith(scope.gatewayId, expect.objectContaining({ eventId: event.eventId }), arrival);
+      expect(prisma.processedGatewayEvent.create).toHaveBeenCalledWith({ data: expect.objectContaining({ receivedAt: arrival }) });
+      if (status === "ingested") {
+        expect(prisma.fixture.update).toHaveBeenCalledWith(expect.objectContaining({
+          data: expect.objectContaining({ lastSeenAt: arrival, lastStateOccurredAt: new Date(occurredAt) })
+        }));
+      } else {
+        expect(prisma.fixture.update).not.toHaveBeenCalled();
+        expect(prisma.fixtureEnergyStateCursor.findUnique).not.toHaveBeenCalled();
+      }
+    } finally {
+      release.resolve();
+      await service.stopInboundAndDrain();
+      jest.useRealTimers();
+    }
   });
 
   it("serializes automation and fixture-state ingestion for the same Gateway", async () => {
@@ -711,6 +756,27 @@ function heartbeatHarness() {
   const ingestion = { ingest: jest.fn(async (_id, event) => ({ eventId: event.eventId, sequence: event.sequence,
     fixtureId: event.fixtureId, status: "ingested" })) };
   return { service: new MqttService(prisma as never, {} as never, ingestion as never), gateway, ledger, tx, prisma };
+}
+
+function fixtureReceiptPrisma(trackingStartedAt: Date, fixtureId: string) {
+  const tx = {
+    $queryRaw: jest.fn().mockResolvedValue([{
+      ...scope, id: fixtureId, energyFixtureId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      ratedWatt: new Prisma.Decimal("40.00"), brightness: 0, powerOn: null,
+      energyTrackingStartedAt: trackingStartedAt, firstStateOccurredAt: null,
+      lastStateEventId: null, lastStateSequence: null, lastStateOccurredAt: null,
+      timeZone: "Asia/Seoul", tariffKwhRate: new Prisma.Decimal("120.00")
+    }]),
+    processedGatewayEvent: {
+      findUnique: jest.fn().mockResolvedValue(null), findFirst: jest.fn().mockResolvedValue(null),
+      create: jest.fn().mockResolvedValue(undefined)
+    },
+    fixtureEnergyStateCursor: { findUnique: jest.fn().mockResolvedValue(null), upsert: jest.fn().mockResolvedValue(undefined) },
+    fixtureEnergyDailyAggregate: { upsert: jest.fn().mockResolvedValue(undefined) },
+    fixtureEnergyHourlyAggregate: { upsert: jest.fn().mockResolvedValue(undefined) },
+    fixture: { update: jest.fn().mockResolvedValue(undefined) }
+  };
+  return { ...tx, $transaction: jest.fn(async (operation) => operation(tx)) };
 }
 
 function mqttClientHarness(service: MqttService) {
