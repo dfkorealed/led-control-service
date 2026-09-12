@@ -47,12 +47,12 @@
 - Create/Modify: CI contract test와 root CI scripts
 - Modify: `docs/agent-operations.md`, `docs/project-status.md`
 
-- [ ] Workflow contract RED를 작성해 frozen install, lint/typecheck, unit, PostgreSQL/Redis integration, real-backend Playwright, build, production audit 순서와 `mqtt-production-config` 포함을 고정한다.
-- [ ] PostgreSQL 16/Redis 7 service healthcheck, full Prisma migration과 env-gated integration 명령을 명시한다.
-- [ ] Chromium real-backend journey의 PostgreSQL/Redis/Mosquitto/lsof/OpenSSL prerequisite와 single-worker 실행을 명시한다.
-- [ ] HIL은 manual dispatch, exact confirmation, protected environment와 self-hosted `led-hil` runner가 없으면 flash/deploy 전에 실패하게 한다.
-- [ ] Workflow contract, YAML/Compose 검증과 가능한 로컬 CI command를 실행한다.
-- [ ] 문서를 갱신하고 커밋한다.
+- [x] Workflow contract RED를 작성해 frozen install, lint/typecheck, unit, PostgreSQL/Redis integration, real-backend Playwright, build, production audit 순서와 `mqtt-production-config` 포함을 고정한다.
+- [x] PostgreSQL 16/Redis 7 service healthcheck, full Prisma migration과 env-gated integration 명령을 명시한다.
+- [x] Chromium real-backend journey의 PostgreSQL/Redis/Mosquitto/lsof/OpenSSL prerequisite와 single-worker 실행을 명시한다.
+- [x] HIL은 manual dispatch, exact confirmation, protected environment와 self-hosted `led-hil` runner가 없으면 flash/deploy 전에 실패하게 한다.
+- [x] Workflow contract, YAML/Compose 검증과 가능한 로컬 CI command를 실행한다.
+- [x] 문서를 갱신하고 커밋한다.
 
 ## Task 4: 전체 검증과 최종 리뷰
 

@@ -1,6 +1,6 @@
 # 에이전트 운영 기준
 
-기준일: 2026-08-26
+기준일: 2026-09-12
 
 이 문서는 프로젝트 자동화 작업의 단일 운영 기준이다. 새 운영 문서를 작업마다 만들지 않으며, 이 문서와 `docs/project-status.md`를 지속 갱신한다. `project-status.md`는 현재 상태 요약의 정본이고, `writing-plans`는 진행 중인 작업의 실행 체크리스트다. 작업 상태나 체크리스트가 바뀌면 둘을 함께 일치시켜 갱신한다.
 
@@ -79,6 +79,16 @@ Custom agent가 대체하는 범위는 임시 역할 프롬프트, 역할 선택
 - Shared output은 기존 동일-path artifact를 유지한 상태에서 temp file rename으로 교체하고, 새 generation에 없는 manifest-owned stale file만 교체 뒤 제거한다. 이 per-file 가용성 방어와 root gate를 함께 유지하며 non-empty `dist` directory의 비이식적 atomic rename으로 바꾸지 않는다.
 - Canonical root unit/contract 경로는 dependency audit policy, patched `image-size` parser security, production MQTT config regression을 각각 정확히 한 번 실행한다. Gateway 전체 Vitest는 filesystem·crypto 부하가 큰 suite의 wall-clock 경합을 피하도록 단일 worker로 실행하며 제품 timeout이나 retry 횟수는 완화하지 않는다.
 
+## Software CI와 HIL gate
+
+- `.github/workflows/ci.yml`은 `quality → unit → postgres-redis-integration → playwright-real-core → build → production-audit`의 단일 `needs` chain이다. 모든 job은 Ubuntu, Node 22, pnpm 9.15.0과 frozen install을 새로 수행하며, canonical root `lint`/`typecheck`/`test`/`build`를 우회하지 않는다.
+- Integration은 GitHub Actions의 disposable PostgreSQL 16과 Redis 7 healthcheck 뒤에만 실행한다. 일반 suite는 `led_control`, inventory/certificate 전역 cleanup이 있는 PKI concurrency 17개는 전용 `pki_concurrency` DB를 사용하고 두 DB 모두 전체 `prisma migrate deploy`를 적용한다. Redis editor lease는 DB 15, fixture identify는 DB 14로 분리한다. 필수 URL 또는 `RUN_REDIS_INTEGRATION=true`가 없거나 DB identity가 다르면 테스트를 skip하지 않고 migration 전에 실패한다. 지정 suite는 cleanup 충돌을 막기 위해 `--runInBand`로 실행한다.
+- Real-backend core는 host PostgreSQL server/client, Redis, Mosquitto, OpenSSL, `lsof`/`procps`와 Chromium dependency를 설치하고 `E2E_REAL_BACKEND_LAB=1`, Chromium 한 worker로 `installation-customer-journey.spec.ts`만 실행한다. Fixed lab port를 공유하는 real suite를 같은 job에서 병렬화하지 않는다.
+- Production audit는 Docker daemon과 Compose를 선검사하고 production Compose render, MQTT production config, Gateway container contract와 required MQTT persistence, Web bundle/container contract, `pnpm audit:production`을 모두 통과해야 한다. Docker 부재를 container test의 skip으로 성공 처리하지 않는다.
+- Task 3 local production audit는 Docker/MQTT/Gateway 단계까지 통과한 뒤 기존 Web bundle 예산에서 fail-closed했다(main 1268.65 kB > 1070.00 kB, gzip 378.89 kB > 325.00 kB). Node 22.20.0에서도 동일하므로 branch protection을 활성화하기 전에 Web bundle 회귀를 별도 수정해야 하며, CI에서 이 실패를 완화하거나 skip하지 않는다.
+- `.github/workflows/hil.yml`은 자동 push/PR trigger가 없는 `workflow_dispatch` 전용이다. Repository 관리자는 `hil` GitHub environment에 required reviewer를 설정하고, `[self-hosted, led-hil]` runner와 environment secret을 준비해야 한다. 입력이 정확히 `RUN_LED_HIL`이 아니거나 공통 장비 값, 인증서 파일, character device, 단계별 command JSON이 하나라도 없거나 잘못되면 PKI/2-node HIL 전에 실패한다. Concurrency group `led-hil`은 진행 중 실행을 취소하지 않고 직렬화한다.
+- Software CI 성공은 Raspberry Pi/ESP32-H2 HIL 완료 증거가 아니다. HIL command JSON은 승인된 lab 절차만 가리켜야 하며 production firmware의 Company ID·manufacturing approval·attestation gate를 우회해서는 안 된다. Workflow 추가만으로 GitHub environment 보호, runner 등록, secret 또는 branch protection은 생성되지 않으므로 운영자가 별도로 설정한다.
+
 ## 다음 자동화 단계
 
-CI와 HIL 자동화는 다음 단계다. CI는 타입 검사, 린트, 단위·통합·브라우저 테스트와 build를 자동 실행한다. HIL은 전용 Raspberry Pi와 ESP32-H2에서 인증, 검색, provisioning, 상태 수집, 제어 및 재시작 복구를 검증한다. 실제 장비를 변경하거나 배포하는 HIL 실행은 사용자 승인 관문을 유지한다.
+Task 4에서 fresh software CI command, disposable PostgreSQL/Redis integration, real-backend Chromium journey와 production audit를 전체 재검증하고, 확인된 Web bundle 예산 실패를 포함해 branch review를 수행한다. 실제 장비를 변경하거나 배포하는 HIL 실행은 이번 software 검증과 분리하고 사용자·GitHub environment 승인 관문을 계속 유지한다.
