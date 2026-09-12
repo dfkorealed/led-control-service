@@ -225,6 +225,7 @@
 
 ## 부족하거나 개선이 필요한 기능
 
+- BIO USB 동글 제어는 CRC/GS frame과 serial transport까지만 software 검증했고 실제 밝기 set/read-back opcode의 승인된 golden vector가 없다. 따라서 BIO 조명은 현재 제어 대상에 등록되지 않으며, USB ACK만으로 `applied`를 만들거나 기존 BlueZ 조명처럼 위장하지 않는다. 제조사 protocol/SDK 또는 격리 Android capture가 확보된 뒤 개별·bounded parallel-unicast와 실제 밝기 read-back HIL을 통과해야 한다.
 - 공통 우측 패널의 반응형·overflow 계약은 Chromium 1440/1024/390/320px route fixture로 검증했으며 실제 모바일 WebView safe-area와 브라우저별 scrollbar 표현은 별도 실측이 필요하다.
 - 현재 개별 밝기 제어는 acknowledged Light Lightness Set을 한 번 전송하고 Status를 기다린다. 2026-09-03 HIL 4회 중 3회는 1~2초 내 성공했고 1회는 장치 적용 후 Status 한 패킷 유실로 timeout 됐다. 같은 TID를 사용하는 bounded 재전송 또는 후속 Lightness Get 확인으로 실제 적용과 서버 실패 표시가 어긋나지 않게 보완해야 한다.
 - API/Gateway의 DB·journal 이후 PUBACK 계약은 자동화됐지만, API 종료·Gateway 종료·broker 재연결과 ESP32-H2 cold boot를 동시에 포함한 acceptance/device-status 중복 재전달 및 AppKey 복원은 실장비 전원 차단 HIL로 확인해야 한다.

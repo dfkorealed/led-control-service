@@ -372,6 +372,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 
 ## 부족하거나 개선이 필요한 기능
 
+- BIO USB 동글 호환은 API device-terminal ACK, durable mapping, serial codec/transport와 안전한 probe CLI까지만 software 구현했다. 실제 Gateway의 CRC read-only probe는 `LATE_RESPONSE`였고 유효 `0x83` 또는 scan/identify/address/brightness golden vector가 없어 등록 command client와 adapter를 활성화하지 않았다. 제조사 protocol/SDK나 격리 Android capture, MQTT DNS 복구와 후속 HIL 전에는 `/settings/registration`의 BIO 장비 등록을 지원 완료로 표시하지 않는다.
 - 맵 편집 우측 패널의 공통 overflow 계약은 Chromium 1440/1024/390/320px route fixture로 검증했으며 실제 모바일 WebView safe-area와 브라우저별 scrollbar 표현은 별도 실측이 필요하다.
 - 테스트 데이터 도구는 개발·검증용 대량 데이터 준비 기능으로, 기본 off이며 실제 장비/MQTT 시뮬레이션이나 실장비 검증을 대체하지 않는다. 생성 직후에도 실제 heartbeat가 없으면 freshness 정책으로 offline 전환될 수 있다. DB schema/migration 변경은 없다.
 - 비밀번호 변경과 setup/commissioning visibility는 Web 회귀와 기존 격리 실백엔드 E2E로 검증했다. Scene 24~26 레이아웃은 1440×900, 1024×768, 390×844, 320×740 자동 Chromium으로 검증했지만 재설치, 수동 in-app Browser 시각 QA와 Raspberry Pi/ESP32-H2 HIL은 아직 실행하지 않았다.

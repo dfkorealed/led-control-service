@@ -140,8 +140,10 @@ git commit -m "feat(gateway): add BIO serial protocol transport"
 - Produces: `probe`, `scan`, `startIdentify`, `stopIdentify`, `assignAddress`, `setBrightness`, `readBrightness`, `readDeviceInfo`
 - Evidence gate: 각 request/response vector는 제조사 문서 또는 격리망 capture의 SHA-256과 기능 이름을 기록한다.
 
-- [ ] **Step 1: probe CLI가 read-only `0x82/0x83`만 허용하고 payload를 기본 redaction하는 RED 테스트를 작성한다.**
+- [x] **Step 1: probe CLI가 read-only `0x82/0x83`만 허용하고 payload를 기본 redaction하는 RED 테스트를 작성한다.**
 - [ ] **Step 2: Task 3 산출물로 aarch64 disposable probe image를 만들고, 현재 운영 container를 재시작하지 않은 채 exact device 한 개만 `--device ...:/dev/bio-dongle`로 전달해 USB descriptor와 read-only probe를 `umask 077` 증거 파일로 수집한다.** MQTT 자격 증명과 운영 data volume은 전달하지 않는다. probe 응답이 없으면 이 Task를 중단하고 opcode를 추정하지 않는다.
+
+  상태: 2026-09-12 CRC literal probe 1회는 `LATE_RESPONSE`로 실패했다. 운영 container fingerprint는 유지됐고 disposable image/container는 정리했다. 유효 `0x83`과 기능별 golden vector가 없어 이 단계와 후속 단계는 차단 상태다.
 - [ ] **Step 3: 제조사 문서 또는 격리 Android capture로 scan/identify/address/brightness/info vector를 기능별 한 개 이상 확보한다.** 비밀번호·현장 식별 bytes는 fixture에서 제거하고 source trace SHA-256만 남긴다.
 - [ ] **Step 4: byte-for-byte RED 테스트를 작성한다.** fixture의 모든 request encoder와 response parser가 정확히 일치해야 한다.
 - [ ] **Step 5: command codec과 client를 구현하고 GREEN을 확인한다.**
