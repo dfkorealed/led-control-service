@@ -5,13 +5,14 @@
 DONE_WITH_CONCERNS
 
 - Base: `3d4de25` (`docs: record monitoring reliability backend completion`)
-- Head/commit: pending final Task 3 commit
+- Implementation commit: `557f2b568dda7a9306bdfa76194d7077cd32ac44`
 
 ## RED → GREEN evidence
 
 - RED: `pnpm --filter @led-control/web exec vitest run src/api/queries.test.tsx src/features/monitoring/fixture-status-presentation.test.ts src/features/monitoring/MonitoringView.test.tsx` returned exit 1: three query-policy assertions received `600000`/`false`/`retry:false` instead of literal `30000`/`true`/`2`; cached dashboard error replaced the map with `현황 데이터를 불러오지 못했습니다.`; stale snapshot had no alert; the new presenter module was unresolved. Total: 5 failed tests and 1 unresolved test suite.
 - GREEN focused: same scope plus `FloorMap.test.tsx` and `FloorScene.test.tsx` passed 5 files / 64 tests after implementation.
 - Green typecheck: `pnpm --filter @led-control/web typecheck` passed after updating typed Web dashboard fixtures for the required metadata.
+- First full-Web run exposed one affected test, not an unrelated baseline: `App.test.tsx` expected a single failed dashboard request even though the new required monitoring policy retries twice. The test now supplies three failures and confirms the fourth manual retry. Final `pnpm --filter @led-control/web test` passed 60 files / 688 tests; `pnpm --filter @led-control/web build` passed, with the pre-existing-size warning for the 1,269.79 kB minified main bundle (379.53 kB gzip); `git diff --check` passed.
 
 ## Implemented contract
 
@@ -24,3 +25,9 @@ DONE_WITH_CONCERNS
 
 - Updated monitoring menu/status documentation; corrected the prior Task 2 contradiction: the 30-second sweep already automatically collects and resolves incident conditions. This Task does not claim incident UI, policy dialog, push/HIL, DB migration, or deployment completion.
 - Task 4 incident tab/policy dialog and Task 5 full Chromium/integration final gate remain.
+
+## Changed files
+
+- Query contract/policy: `apps/web/src/api/queries.ts`, its test, and typed dashboard fixtures/tests used by control/setup/App.
+- Monitoring presentation: `apps/web/src/features/monitoring/MonitoringView.tsx`, `FloorMap.tsx`, new `fixture-status-presentation.ts`, their tests, and the compatible `apps/web/src/features/floor-map/FloorScene.tsx` interface.
+- Status records: `docs/menus/monitoring.md` and `docs/project-status.md`.
