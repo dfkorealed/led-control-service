@@ -6,7 +6,7 @@ export class RedisProvider implements OnModuleInit, OnModuleDestroy {
   private client: Redis | null = null;
 
   onModuleInit() {
-    this.getRedisUrl();
+    this.getClient();
   }
 
   getClient() {
@@ -18,6 +18,13 @@ export class RedisProvider implements OnModuleInit, OnModuleDestroy {
     const client = this.client;
     this.client = null;
     if (client) await client.quit();
+  }
+
+  async probeReadiness() {
+    const client = this.client;
+    if (!client) throw new Error("Redis client unavailable");
+    const response = await client.ping();
+    if (response !== "PONG") throw new Error("Redis client unavailable");
   }
 
   private getRedisUrl() {

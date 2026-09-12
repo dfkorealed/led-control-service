@@ -1,5 +1,5 @@
 import { BadRequestException, Inject, Injectable } from "@nestjs/common";
-import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, GetObjectCommand, HeadBucketCommand, HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { createHash, randomUUID } from "node:crypto";
 
@@ -19,6 +19,10 @@ export class ObjectStorageService {
     @Inject(OBJECT_STORAGE_CLIENT) private readonly client: S3Client,
     @Inject(OBJECT_STORAGE_OPTIONS) private readonly options: ObjectStorageOptions
   ) {}
+
+  async probeReadiness() {
+    await this.client.send(new HeadBucketCommand({ Bucket: this.options.bucket }));
+  }
 
   async putReportObject(key: string, bytes: Buffer, contentType: string) {
     const Bucket = this.reportBucket(key);

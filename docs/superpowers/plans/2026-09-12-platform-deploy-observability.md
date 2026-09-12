@@ -41,14 +41,14 @@
 - Produces: readiness result `{ status: "ready" | "not_ready"; checks: Record<"postgres" | "redis" | "mqtt" | "objectStorage", "up" | "down">; timestamp: string }`.
 - Consumes: existing `PrismaService`, `RedisProvider`, `MqttService`, `ObjectStorageService`; no second dependency clients.
 
-- [ ] Write focused Jest RED tests proving live does no dependency I/O, ready returns 200/503 with only safe fields, probe timeout is bounded, shutdown becomes not-ready, and metrics use only fixed labels.
-- [ ] Run the focused Jest files and record the expected missing-module/behavior failures.
-- [ ] Write request-context/logger RED tests with valid/invalid `X-Request-Id`, response propagation, concurrent request isolation, JSON-line fields, and redaction of cookie/authorization/body/query/stack.
-- [ ] Run the focused tests and record the expected failures.
-- [ ] Implement the minimal observability module and small probe methods on existing services. Use `Promise.allSettled`, an injected clock/timeout boundary, and generic down states; do not expose caught errors.
-- [ ] Wire middleware and structured logger in `main.ts`, keeping existing TLS/body parser/lifecycle behavior. Mark readiness stopping before dependency shutdown starts.
-- [ ] Run focused tests, full API test/typecheck/build and `git diff --check`.
-- [ ] Update `docs/agent-operations.md` and `docs/project-status.md` with Task 1 evidence and exclusions; commit.
+- [x] Write focused Jest RED tests proving live does no dependency I/O, ready returns 200/503 with only safe fields, probe timeout is bounded, shutdown becomes not-ready, and metrics use only fixed labels.
+- [x] Run the focused Jest files and record the expected missing-module/behavior failures.
+- [x] Write request-context/logger RED tests with valid/invalid `X-Request-Id`, response propagation, concurrent request isolation, JSON-line fields, and redaction of cookie/authorization/body/query/stack.
+- [x] Run the focused tests and record the expected failures.
+- [x] Implement the minimal observability module and small probe methods on existing services. Use `Promise.allSettled`, an injected clock/timeout boundary, and generic down states; do not expose caught errors.
+- [x] Wire middleware and structured logger in `main.ts`, keeping existing TLS/body parser/lifecycle behavior. Mark readiness stopping before dependency shutdown starts.
+- [x] Run focused tests, full API test/typecheck/build and `git diff --check`.
+- [x] Update `docs/agent-operations.md` and `docs/project-status.md` with Task 1 evidence and exclusions; commit.
 
 ### Task 2: Immutable API image and fail-fast production Compose path
 

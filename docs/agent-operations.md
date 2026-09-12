@@ -95,6 +95,14 @@ Custom agent가 대체하는 범위는 임시 역할 프롬프트, 역할 선택
 - Workflow contract는 protected production-audit job/step과 HIL job/preflight step에 `if` 또는 `continue-on-error` 우회가 추가되면 실패한다. Frozen install/Prisma generation step도 같은 우회를 허용하지 않는다.
 - Software CI 성공은 Raspberry Pi/ESP32-H2 HIL 완료 증거가 아니다. HIL command JSON은 승인된 lab 절차만 가리켜야 하며 production firmware의 Company ID·manufacturing approval·attestation gate를 우회해서는 안 된다. Workflow 추가만으로 GitHub environment 보호, runner 등록, secret 또는 branch protection은 생성되지 않으므로 운영자가 별도로 설정한다.
 
+## API production 관측 Task 1 계약
+
+- `GET /health/live`는 외부 의존성 I/O 없이 process liveness만 반환한다. `GET /health/ready`는 기존 Prisma `SELECT 1`, 기존 Redis `PING`, 기존 MQTT 연결 상태, 기존 Object Storage client의 bucket `HEAD`를 병렬 실행하고 probe별 `1,000ms` 안에 모두 `up`일 때만 200을 반환한다. 실패 원인, URL, credential, SQL과 stack은 응답하지 않고 네 고정 key의 `up | down`만 503 body에 남긴다.
+- `ObservabilityModule`을 AppModule의 첫 import로 두어 `ReadinessService.onModuleDestroy()`가 dependency destroy hook보다 먼저 `stopping`을 표시한다. 종료 중 readiness는 probe I/O 없이 즉시 네 항목 `down`으로 수렴하고 liveness는 HTTP server가 닫힐 때까지 독립적으로 유지한다.
+- `X-Request-Id`는 영숫자로 시작하는 최대 128자의 영숫자/`.`/`_`/`:`/`-`만 수용하고 그 외 값은 UUID v4로 교체한다. 같은 ID를 response header와 `AsyncLocalStorage`에 전달한다. HTTP JSON-line log는 timestamp, level, context, requestId, method, route template 또는 고정 `/:unmatched`, statusCode, durationMs만 기록하며 cookie, authorization, body, query, stack과 raw device identifier는 제외한다.
+- `/health/metrics`는 process memory의 고정 집계만 제공한다. HTTP total·4xx·5xx·latency sum/max와 readiness status, `postgres | redis | mqtt | objectStorage` failure total 외 tenant·path·request ID 같은 가변 label은 만들지 않는다. process restart 시 초기화되며 외부 metrics backend·dashboard·alert·log shipping은 Task 1 범위가 아니다.
+- Task 1 소프트웨어 검증은 focused `8 suites / 26 tests`, 전체 API `119 suites / 1,127 passed / 289 environment-dependent skipped`, API typecheck/build와 `git diff --check`다. 실제 PostgreSQL·Redis·MQTT broker·Object Storage, production Compose/container/TLS proxy, 사용자 DB migration, secret 변경, 운영 배포와 Raspberry Pi/BlueZ/ESP32-H2 HIL은 실행하지 않았다. Compose와 실제 dependency fail/recover smoke는 Task 2 범위다.
+
 ## 다음 자동화 단계
 
 Web route bundle 분할 Task 4 Step 1~3은 완료했고 whole-branch final review는 아직 수행하지 않았다. Route 기능 코드 SHA `34261b6`과 container fix `247f81d`에서 fresh Web 686/686 및 전체 production audit가 Web container와 dependency policy까지 통과했다. Task 3의 planned Chromium 64/64와 one-worker RealBackendLab 2/2는 유지하되 실제 iOS/Android native WebView·수동 in-app 시각 QA·HIL 완료로 확대하지 않는다. Final reviewer가 설계·계획 대비 branch 전체를 판정한 뒤 상태판과 Step 4를 갱신한다. CI core 밖 `automation-control-flow.spec.ts`의 setup→registration stale route 가정은 별도 후속으로 유지한다. 실제 장비를 변경하거나 배포하는 HIL은 software 수정과 계속 분리하고 사용자·GitHub environment 승인 관문을 유지한다.

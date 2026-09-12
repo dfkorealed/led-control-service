@@ -222,6 +222,12 @@ export class MqttService implements OnModuleInit {
     return this.closePromise;
   }
 
+  async probeReadiness() {
+    if (!this.client?.connected || this.closing || this.inboundStopped) {
+      throw new Error("MQTT client unavailable");
+    }
+  }
+
   stopInboundAndDrain() {
     if (!this.inboundStopPromise) {
       this.inboundStopped = true;

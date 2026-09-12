@@ -35,4 +35,15 @@ describe("RedisProvider", () => {
     expect(Redis).toHaveBeenCalledWith("redis://redis.internal:6379/4");
     expect(quit).toHaveBeenCalledTimes(1);
   });
+
+  it("creates the single production client during module initialization for readiness", () => {
+    process.env.REDIS_URL = "redis://redis.internal:6379/4";
+    (Redis as unknown as jest.Mock).mockImplementation(() => ({ quit: jest.fn() }));
+    const provider = new RedisProvider();
+
+    provider.onModuleInit();
+
+    expect(Redis).toHaveBeenCalledTimes(1);
+    expect(Redis).toHaveBeenCalledWith("redis://redis.internal:6379/4");
+  });
 });
