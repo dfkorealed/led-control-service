@@ -145,12 +145,12 @@
 - Preserves: failed POST의 동일 `clientRequestId` 재전송
 - Produces: `unknown` 상태 확인, `not_applied` 안전 재적용, history search/filter/detail reopen
 
-- [ ] **Step 1: API hook RED 테스트** — list cursor/query encoding, status-check body idempotency, detail stage `verification_required|verified_applied|verified_not_applied|verified_partial` polling 종료 규칙을 검증한다.
-- [ ] **Step 2: action component RED 테스트** — unknown에는 Set 버튼 없이 “실제 상태 확인”, 3회 소진 경고; not_applied에만 “안전하게 다시 적용”; applied/partial에 설명만 표시함을 검증한다.
-- [ ] **Step 3: history component RED 테스트** — debounce 검색, 상태 필터, 더 보기 cursor, row 선택 detail 조회, 닫고 다시 열기를 검증한다.
-- [ ] **Step 4: 컴포넌트 구현** — reusable Button/Card/StatusBadge를 사용하고 새 카드 두 개를 control 폴더에 분리한다. 진행 중 status-check는 기존 controls lock에 포함한다.
-- [ ] **Step 5: ControlView 통합 RED/GREEN** — HTTP response loss 버튼은 “동일 요청 확인(새 제어 아님)” 문구, terminal unknown은 상태 확인, 검증 not_applied 후에만 새 clientRequestId 재적용, history에서 기존 상세 재오픈을 검증한다.
-- [ ] **Step 6: Web focused test/typecheck/build/commit** — `commands`, 세 컴포넌트 테스트, `pnpm --filter @led-control/web typecheck`, build 통과 후 `git commit -m "feat(web): add safe command recovery and history" ...`.
+- [x] **Step 1: API hook RED 테스트** — list cursor/query encoding, status-check body idempotency, detail stage `verification_required|verified_applied|verified_not_applied|verified_partial` polling 종료 규칙을 검증한다.
+- [x] **Step 2: action component RED 테스트** — unknown에는 Set 버튼 없이 “실제 상태 확인”, 3회 소진 경고; not_applied에만 “안전하게 다시 적용”; applied/partial에 설명만 표시함을 검증한다.
+- [x] **Step 3: history component RED 테스트** — debounce 검색, 상태 필터, 더 보기 cursor, row 선택 detail 조회, 닫고 다시 열기를 검증한다.
+- [x] **Step 4: 컴포넌트 구현** — reusable Button/Card/StatusBadge를 사용하고 새 카드 두 개를 control 폴더에 분리한다. 진행 중 status-check는 기존 controls lock에 포함한다.
+- [x] **Step 5: ControlView 통합 RED/GREEN** — HTTP response loss 버튼은 “동일 요청 확인(새 제어 아님)” 문구, terminal unknown은 상태 확인, 검증 not_applied 후에만 새 clientRequestId 재적용, history에서 기존 상세 재오픈을 검증한다.
+- [x] **Step 6: Web focused test/typecheck/build/commit** — `commands`, 세 컴포넌트 테스트, `pnpm --filter @led-control/web typecheck`, build 통과 후 `git commit -m "feat(web): add safe command recovery and history" ...`.
 
 ### Task 7: 문서 수렴, 전체 검증, HIL 분리
 
