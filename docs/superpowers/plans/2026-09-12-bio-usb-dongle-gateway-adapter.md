@@ -107,18 +107,18 @@ git commit -m "feat(gateway): add durable BIO device mapping"
 - Produces: `BioFrameCodec.push/reset`, typed endian encoders, `BioSerialTransport.start/request/stop/snapshot/onState`
 - Protocols: `crc16 | gs`; probes are exact literals `55aa82000000`, `4753820000`
 
-- [ ] **Step 1: CRC/GS, split/merge/noise/corruption/length RED 테스트를 작성한다.** CRC는 init `ffff`, polynomial `a001`, low byte first다. GS는 command~payload sum의 carry를 접고 보수한다.
-- [ ] **Step 2: serial 설정·VID/PID·one-in-flight·generation·timeout/reconnect RED 테스트를 작성한다.** `115200 8N1`, no flow control, `300ms`, `2s→32s`를 고정한다.
-- [ ] **Step 3: RED를 확인한다.**
+- [x] **Step 1: CRC/GS, split/merge/noise/corruption/length RED 테스트를 작성한다.** CRC는 init `ffff`, polynomial `a001`, low byte first다. GS는 command~payload sum의 carry를 접고 보수한다.
+- [x] **Step 2: serial 설정·VID/PID·one-in-flight·generation·timeout/reconnect RED 테스트를 작성한다.** `115200 8N1`, no flow control, `300ms`, `2s→32s`를 고정한다.
+- [x] **Step 3: RED를 확인한다.**
 
 Run: `pnpm --filter @led-control/gateway exec vitest run src/bio/bio-frame-codec.test.ts src/bio/node-serial-connection.test.ts src/bio/linux-usb-identity-inspector.test.ts src/bio/bio-serial-transport.test.ts`
 
-- [ ] **Step 4: `serialport@13.0.0`과 codec/transport를 최소 구현한다.** timeout 또는 malformed frame은 generation을 폐기하고 reconnect 전에 queued write를 자동 재실행하지 않는다.
-- [ ] **Step 5: GREEN, typecheck와 build를 확인한다.**
+- [x] **Step 4: `serialport@13.0.0`과 codec/transport를 최소 구현한다.** timeout 또는 malformed frame은 generation을 폐기하고 reconnect 전에 queued write를 자동 재실행하지 않는다.
+- [x] **Step 5: GREEN, typecheck와 build를 확인한다.**
 
 Run: `pnpm --filter @led-control/gateway typecheck && pnpm --filter @led-control/gateway build`
 
-- [ ] **Step 6: 커밋한다.**
+- [x] **Step 6: 커밋한다.**
 
 ```bash
 git add apps/gateway/src/bio apps/gateway/package.json pnpm-lock.yaml
