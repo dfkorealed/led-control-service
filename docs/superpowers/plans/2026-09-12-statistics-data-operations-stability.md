@@ -102,13 +102,13 @@
 - Modify: `apps/api/src/energy/reports/energy-report-cleanup.service.ts`
 - Modify: `apps/api/src/energy/reports/energy-report-cleanup.service.spec.ts`
 
-- [ ] ledger에 attempt/failure/observed/deleted/late PUT count·byte와 last attempt를 추가한다.
-- [ ] HEAD 404/존재/실패를 구분하고 존재 객체의 크기를 DELETE 전에 측정한다.
-- [ ] successful pass 뒤 재발견된 key만 late PUT으로 누적한다.
-- [ ] lease-lost owner가 지표를 이중 commit하지 않는 회귀를 작성한다.
-- [ ] sweep 결과에 backlog, oldest due, retry/failure/late PUT totals를 넣고 structured log로 남긴다.
-- [ ] Run cleanup/worker/site-deletion focused tests.
-- [ ] Commit: `feat(api): add report cleanup ledger metrics`
+- [x] ledger에 attempt/failure/observed/deleted/late PUT count·byte와 last attempt를 추가한다.
+- [x] HEAD 404/존재/실패를 구분하고 존재 객체의 크기를 DELETE 전에 측정한다.
+- [x] successful pass 뒤 재발견된 key만 late PUT으로 누적한다.
+- [x] lease-lost owner가 지표를 이중 commit하지 않는 회귀를 작성한다.
+- [x] sweep 결과에 backlog, oldest due, retry/failure/late PUT totals를 넣고 structured log로 남긴다.
+- [x] Run cleanup/worker/site-deletion focused tests.
+- [x] Commit: `feat(api): add report cleanup ledger metrics`
 
 ## Task 6: 보고서 목록 오류·메타 UI와 비용 기준 문구
 
