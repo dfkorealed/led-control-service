@@ -27,7 +27,7 @@ describe("FixtureFreshnessService", () => {
         AND: [
           { status: { not: "offline" } },
           { OR: [{ statusReason: { not: "provisioning_waiting_state" } }, { statusReason: null }] },
-          { OR: [{ lastStateOccurredAt: { lt: new Date("2026-07-11T00:02:00.000Z") } }, { lastStateOccurredAt: null }] }
+          { OR: [{ lastSeenAt: { lt: new Date("2026-07-11T00:02:00.000Z") } }, { lastSeenAt: null }] }
         ]
       },
       data: { status: "offline", statusReason: "fixture_stale" }

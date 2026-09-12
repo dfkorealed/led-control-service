@@ -125,6 +125,10 @@ SiteDeletionCleanup (삭제된 Site ID와 외부 정리 대상을 독립 보존)
 
 `CommandDispatchStatus`는 gateway별 전송 상태를 `pending`, `published`, `accepted`, `completed`, `failed`, `timed_out`으로 구분한다. `CommandFixtureResultStatus`는 실제 조명별 결과를 `pending`, `succeeded`, `failed`, `timed_out`으로 구분한다. Gateway acceptance와 실제 장비 status ACK를 같은 의미로 취급하지 않는다.
 
+### GatewayEventIngestionStatus
+
+`ProcessedGatewayEvent`의 수신 결과다. `accepted`는 정상·stale/reverse/checkpoint를 포함해 API가 영속 처리한 event이고, `rejected_future_timestamp`는 scope 확인 뒤 `occurredAt`이 서버의 `receivedAt`보다 기본 5분을 넘게 미래여서 terminal로 거부된 event다. 이 terminal 결과도 동일 identity·payload 재전달에는 재사용되며, 다른 payload의 재전달은 fail-closed 한다.
+
 ### 자동 제어 enum
 
 | Enum | 값 | 용도 |
@@ -578,10 +582,10 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 | `rssi` | `Int?` | 아니오 |  | 최근 RSSI |
 | `hopCount` | `Int?` | 아니오 |  | 최근 BLE Mesh hop 수 |
 | `commandSuccessRate` | `Float?` | 아니오 |  | 최근 명령 성공률 |
-| `lastSeenAt` | `DateTime?` | 아니오 |  | 마지막 상태 수신 시각 |
+| `lastSeenAt` | `DateTime?` | 아니오 |  | API가 마지막 수락 fixture-state를 받은 서버 수신 시각; freshness 기준 |
 | `lastStateEventId` | `String?` | 아니오 | Unique | 마지막 적용 MQTT v2 이벤트 ID |
 | `lastStateSequence` | `BigInt?` | 아니오 |  | 마지막 적용 gateway sequence |
-| `lastStateOccurredAt` | `DateTime?` | 아니오 |  | 장치 상태 발생 시각 |
+| `lastStateOccurredAt` | `DateTime?` | 아니오 |  | 검증된 장치 상태 발생 시각; energy 순서·cursor/checkpoint 기준 |
 | `statusReason` | `String?` | 아니오 |  | reported, provisioning_waiting_state, fixture_stale, gateway_offline 등 상태 근거 |
 | `healthFaultCodes` | `Json?` | 아니오 | JSON number 배열 | 마지막 BLE Mesh Health Current의 정규화된 8비트 fault code 목록 |
 | `healthLastSeenAt` | `DateTime?` | 아니오 |  | 마지막 BLE Mesh Health Current 관측 시각 |
@@ -603,11 +607,11 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 
 - `Floor`는 `(id, siteId)`, `MeshNode`는 `(id, gatewayId)` Unique를 제공한다. Fixture는 `(id, siteId, gatewayId)`와 `(meshNodeId, gatewayId)` Unique, `(floorId, siteId)` index를 가진다.
 - `Fixture_mesh_owner_shape_check`는 `meshNodeId/gatewayId`가 함께 값이 있거나 함께 `NULL`이도록 강제한다. Trigger는 INSERT와 owner 필드 UPDATE에서 Floor/MeshNode의 실제 owner를 파생하고 caller가 직접 준 불일치 값을 거부한다. Floor Site 또는 MeshNode Gateway 변경은 composite FK `ON UPDATE CASCADE`로 Fixture projection에 전달되며, automation join이 Fixture owner key를 참조 중이면 그 join의 `ON UPDATE RESTRICT` FK가 전체 owner 변경을 거부한다.
-- `rssi`, `hopCount`, `commandSuccessRate`, `lastSeenAt`은 장기 이력 테이블이 아니라 최신 모니터링 snapshot이다.
+- `rssi`, `hopCount`, `commandSuccessRate`, `lastSeenAt`은 장기 이력 테이블이 아니라 최신 모니터링 snapshot이다. 수락된 fixture-state는 `lastSeenAt = API receivedAt`으로 저장하므로 미래 장비 시계가 stale 판정을 지연시키지 못한다. 반면 `lastStateOccurredAt`은 검증된 장비 `occurredAt`을 보존해 에너지 순서·cursor/checkpoint에만 사용한다.
 - `healthFaultCodes`, `healthLastSeenAt`도 이력 테이블이 아닌 최신 Health Current snapshot이다. fault code `0x00`은 제거하고 나머지는 중복 제거·오름차순 정렬해 저장한다. 유효한 Health Current를 아직 받지 못했거나 JSON이 유효하지 않으면 API는 `확인 대기`로 응답한다.
 - `20260819092000_add_fixture_health_snapshot` migration은 기존 조명에 두 컬럼을 nullable로 추가한다. 따라서 migration 직후 기존 조명은 첫 Health Current 수신 전까지 `확인 대기` 상태다.
 - provisioning 완료는 `status = offline`, `statusReason = provisioning_waiting_state`, `brightness = 0`, `lastSeenAt = null`로 Fixture를 만든다. 이 값은 실제 장비 offline 판정이 아니라 첫 실제 상태를 아직 받지 못한 미확정 상태다.
-- 첫 MQTT `fixture-state` event가 도착할 때만 online/fault/offline 상태, 밝기, RSSI, hop, lastSeenAt과 `statusReason`을 실제 관측값으로 확정한다.
+- 첫 MQTT `fixture-state` event가 도착할 때만 online/fault/offline 상태, 밝기, RSSI, hop, lastSeenAt과 `statusReason`을 실제 관측값으로 확정한다. API는 packet 수신 시작 시각을 한 번 고정하고 `occurredAt <= receivedAt + 300,000ms`(정확한 경계 포함)만 수락한다. 이보다 1ms라도 미래인 event는 원장에 terminal rejection만 남기고 Fixture snapshot·에너지 cursor·aggregate에는 접근하지 않는다.
 - freshness worker는 `provisioning_waiting_state`를 gateway offline과 fixture stale 재집계에서 제외한다. 첫 실제 `fixture-state`가 status reason을 보고값으로 바꾼 뒤에는, 보고된 `offline`을 포함해 일반 freshness 규칙을 적용한다.
 - `(floorId, id)` 복합 인덱스는 층별 fixture snapshot의 ID cursor 페이지 조회에 사용한다.
 
@@ -668,7 +672,7 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 | `name` | `String` | 예 |  | 게이트웨이 이름 |
 | `serialNumber` | `String` | 예 | Unique | 게이트웨이 시리얼 |
 | `firmwareVersion` | `String` | 예 |  | 펌웨어 버전 |
-| `lastHeartbeatAt` | `DateTime?` | 아니오 |  | 마지막 heartbeat 수신 시각 |
+| `lastHeartbeatAt` | `DateTime?` | 아니오 |  | API가 마지막 수락 heartbeat를 받은 서버 수신 시각; gateway freshness 기준 |
 | `certificateFingerprint` | `String?` | 아니오 | Unique | claim된 장치 인증서 SHA-256 fingerprint |
 | `assignmentVersion` | `Int` | 예 | `0` | gateway bootstrap 설정 버전 |
 | `nextCommandSequence` | `BigInt` | 예 | `0` | 다음 명령 dispatch sequence 예약용 카운터 |
@@ -677,7 +681,7 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 | `claimedAt` | `DateTime?` | 아니오 |  | 현장 claim 완료 시각 |
 | `lastHeartbeatEventId` | `String?` | 아니오 | Unique | 마지막 heartbeat 이벤트 ID |
 | `lastHeartbeatSequence` | `BigInt?` | 아니오 |  | 마지막 heartbeat sequence |
-| `lastHeartbeatOccurredAt` | `DateTime?` | 아니오 |  | heartbeat 발생 시각 |
+| `lastHeartbeatOccurredAt` | `DateTime?` | 아니오 |  | 검증된 장치 heartbeat 발생 시각 |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
 | `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
 
@@ -692,7 +696,7 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 
 운영 메모:
 
-- `connectionStatus`는 DB 컬럼이 아니라 `lastHeartbeatAt` 기준으로 API에서 계산한다.
+- `connectionStatus`는 DB 컬럼이 아니라 `lastHeartbeatAt` 기준으로 API에서 계산한다. heartbeat도 동일한 5분 미래 허용 경계를 거치며, 수락 시 서버 `receivedAt`과 장치 `occurredAt`을 각각 `lastHeartbeatAt`/`lastHeartbeatOccurredAt`에 분리 저장한다.
 - Mesh 주소는 등록 transaction에서 `Gateway` 행을 `FOR UPDATE`로 잠근 뒤 연속 범위로 예약한다. 실제 할당 범위는 `0x0001~0x7fff`이며 카운터가 `0x8000`이면 주소가 소진된 상태다.
 - `20260819090000_add_registration_allocators` migration은 기존 `MeshNode.meshAddress`의 최댓값 다음으로 카운터를 보정하되, 신규 주소 기본 시작점 `0x0100`보다 낮추지 않아 기존 노드와의 충돌을 방지한다.
 - `nextMeshGroupAddress`는 floor/저장 구역용 영속 Mesh group address allocator다. 제어 group 생성 transaction은 `Gateway` 행을 `FOR UPDATE`로 잠그고, 증가 전 값을 실제 할당 주소로 사용한다. 유효 범위는 `0xC000~0xFEFF`이고 `0xFF00` 이상이면 명시적으로 소진 오류를 반환한다.
@@ -1210,7 +1214,11 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 | `eventType` | `String` | 예 | unique tuple | 이벤트 계약 식별자 |
 | `payloadHash` | `String?` | 아니오 | `NULL` 또는 `sha256:<64 lowercase hex>` CHECK | canonical complete payload hash; legacy event는 null 허용 |
 | `occurredAt` | `DateTime` | 예 |  | Gateway 발생/검증 시각 |
-| `createdAt` | `DateTime` | 예 | `now()` | API ingestion 시각 |
+| `receivedAt` | `DateTime` | 예 | `now()` | API가 packet 수신을 시작한 서버 시각 |
+| `ingestionStatus` | `GatewayEventIngestionStatus` | 예 | `accepted` | 정상 처리 또는 durable terminal future timestamp 거부 결과 |
+| `createdAt` | `DateTime` | 예 | `now()` | 원장 row 생성 시각 |
+
+`20260912090000_gateway_event_received_time` additive migration은 enum `GatewayEventIngestionStatus`, `receivedAt`, `ingestionStatus`를 추가한다. 기존 원장 행의 `receivedAt`은 기존 `createdAt`으로 backfill하고 `ingestionStatus`는 `accepted`로 기본값을 둔다. migration 파일만 저장소에 추가했으며 이 작업은 사용자 로컬 DB에 적용하지 않는다. disposable 검증 DB에만 migration을 적용한다.
 
 ### Invitation
 

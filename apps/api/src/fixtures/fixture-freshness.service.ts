@@ -45,7 +45,7 @@ export class FixtureFreshnessService implements OnModuleInit, OnModuleDestroy {
           // Preserve a more specific offline reason set earlier in this run, especially gateway_offline.
           { status: { not: "offline" } },
           { OR: [{ statusReason: { not: "provisioning_waiting_state" } }, { statusReason: null }] },
-          { OR: [{ lastStateOccurredAt: { lt: fixtureCutoff } }, { lastStateOccurredAt: null }] }
+          { OR: [{ lastSeenAt: { lt: fixtureCutoff } }, { lastSeenAt: null }] }
         ]
       },
       data: { status: "offline", statusReason: "fixture_stale" }
