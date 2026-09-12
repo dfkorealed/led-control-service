@@ -66,33 +66,33 @@
 
 **Files:**
 
-- Modify: `apps/web/src/CustomerShell.tsx`
-- Modify: `apps/web/src/CustomerShell.test.tsx`
+- Modify: `apps/web/src/features/shells/CustomerShell.tsx`
+- Modify: `apps/web/src/features/shells/CustomerShell.test.tsx`
 - Modify: `apps/web/src/features/operator/OperatorShell.tsx`
 - Create: `apps/web/src/features/operator/OperatorShell.test.tsx`
 - Modify: `apps/web/scripts/audit-schedule-bundle.mjs`
 
-- [ ] **Step 1: bundle audit과 shell route 테스트를 먼저 강화한다.**
+- [x] **Step 1: bundle audit과 shell route 테스트를 먼저 강화한다.**
   - Task 1 audit에 대표 기능 route chunk 생성 요구를 추가한다.
   - capability가 없는 직접 URL은 lazy module 실행 전에 기존 안전 route로 이동하고, 허용 route는 fallback 뒤 정상 화면을 표시하는지 고정한다.
   - 명령: `pnpm --filter @led-control/web test -- src/CustomerShell.test.tsx src/features/operator/OperatorShell.test.tsx`
   - 명령: `pnpm --filter @led-control/web build && node apps/web/scripts/audit-schedule-bundle.mjs`
   - 예상: route chunk 요구가 구현 전 실패한다(RED).
 
-- [ ] **Step 2: 고객 기능 화면을 route 단위로 lazy-load한다.**
+- [x] **Step 2: 고객 기능 화면을 route 단위로 lazy-load한다.**
   - 모니터링, 제어, 통계 shell/overview/analysis/reports, 설정 shell/overview/users/registration/floor plans/floor editor/password를 동적 import로 전환한다.
   - 고객 shell chrome, capability 계산·가드, `siteId`/query/hash 보존과 dirty editor blocker는 기존 위치와 계약을 유지한다.
   - route 영역에 공통 `RouteLoadingState` fallback을 적용한다.
 
-- [ ] **Step 3: 운영자 기능 화면을 route 단위로 lazy-load한다.**
+- [x] **Step 3: 운영자 기능 화면을 route 단위로 lazy-load한다.**
   - operator shell chrome과 로그아웃은 eager로 유지하고 `SiteAdminManagementView`를 동적 import한다.
   - 운영자 route와 접근성 fallback 회귀를 추가한다.
 
-- [ ] **Step 4: 비동기 전환에 맞춰 테스트를 최소 수정한다.**
+- [x] **Step 4: 비동기 전환에 맞춰 테스트를 최소 수정한다.**
   - 동기 `getBy*`를 무차별 변경하지 않고 실제 lazy 경계 뒤 결과만 `findBy*`/`waitFor`로 전환한다.
   - URL, capability, site 선택, 설정/통계 하위 route 및 편집기 보호 기대를 그대로 유지한다.
 
-- [ ] **Step 5: focused·전체 Web 검증과 bundle audit을 실행한다.**
+- [x] **Step 5: focused·전체 Web 검증과 bundle audit을 실행한다.**
   - `pnpm --filter @led-control/web test -- src/CustomerShell.test.tsx src/features/operator/OperatorShell.test.tsx src/App.test.tsx`
   - `pnpm --filter @led-control/web test`
   - `pnpm --filter @led-control/web typecheck`
@@ -101,7 +101,7 @@
   - `node apps/web/scripts/audit-schedule-bundle.mjs`
   - 예상: main raw/gzip 모두 기존 예산 미만이며 role/route chunk 및 Konva/Recharts 격리 검사가 통과한다(GREEN).
 
-- [ ] **Step 6: 독립 task review 후 수정하고 커밋한다.**
+- [x] **Step 6: 독립 task review 후 수정하고 커밋한다.**
   - 라우트 누락, 권한 우회, chunk naming 의존성과 중복 구현을 검토한다.
   - 커밋: `perf(web): split customer feature routes`
 
