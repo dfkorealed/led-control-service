@@ -63,12 +63,15 @@ test("workspace dependency preparation is ordered once and leaf checks cannot st
   }
 });
 
-for (const shutdownSignal of ["SIGINT", "SIGTERM"]) test(`${shutdownSignal} keeps the workspace lock until the owned process group exits and leaves no orphan`, { timeout: 15_000 }, async () => {
+for (const shutdownSignal of ["SIGINT", "SIGTERM"]) test(`${shutdownSignal} keeps the workspace lock until the owned process group exits without signaling a reused group`, { timeout: 15_000 }, async () => {
   const fixtureRoot = await mkdtemp(path.join(tmpdir(), "led-workspace-gate-signal-"));
   const stateDirectory = path.join(fixtureRoot, "state");
   const fakeBin = path.join(fixtureRoot, "bin");
   const gatePath = path.join(fixtureRoot, "scripts", "workspace-gate.mjs");
   const lockModulePath = path.join(fixtureRoot, "packages", "shared", "scripts", "build-output-lock.mjs");
+  const reuseProbePath = path.join(fixtureRoot, "group-reuse-probe.cjs");
+  const unrelatedSignalPath = path.join(stateDirectory, "unrelated-group-signaled");
+  const lateSignal = shutdownSignal === "SIGINT" ? "SIGTERM" : "SIGINT";
   await Promise.all([
     mkdir(stateDirectory, { recursive: true }),
     mkdir(fakeBin, { recursive: true }),
@@ -79,14 +82,16 @@ for (const shutdownSignal of ["SIGINT", "SIGTERM"]) test(`${shutdownSignal} keep
     copyFile(path.join(repositoryRoot, "scripts", "workspace-gate.mjs"), gatePath),
     copyFile(path.join(repositoryRoot, "packages", "shared", "scripts", "build-output-lock.mjs"), lockModulePath),
     writeExecutable(path.join(fakeBin, "ps"), fakePsSource()),
-    writeExecutable(path.join(fakeBin, "pnpm"), fakePnpmSource())
+    writeExecutable(path.join(fakeBin, "pnpm"), fakePnpmSource()),
+    writeFile(reuseProbePath, groupReuseProbeSource())
   ]);
 
   const commonEnvironment = {
     ...process.env,
     PATH: `${fakeBin}${path.delimiter}${process.env.PATH ?? ""}`,
     GATE_FIXTURE_STATE: stateDirectory,
-    GATE_FIXTURE_SIGNAL: shutdownSignal
+    GATE_FIXTURE_SIGNAL: shutdownSignal,
+    NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --require=${reuseProbePath}`.trim()
   };
   let oldGate;
   let successorGate;
@@ -105,6 +110,7 @@ for (const shutdownSignal of ["SIGINT", "SIGTERM"]) test(`${shutdownSignal} keep
     await waitForPathContent(path.join(stateDirectory, "old.grandchild-received"));
     await waitForPathContent(path.join(stateDirectory, "old.leader-gone"));
     assert.equal(isProcessAlive(oldGrandchildPid), true);
+    process.kill(oldGate.pid, lateSignal);
 
     successorGate = spawn(process.execPath, [gatePath, "test"], {
       cwd: fixtureRoot,
@@ -121,7 +127,8 @@ for (const shutdownSignal of ["SIGINT", "SIGTERM"]) test(`${shutdownSignal} keep
     await writeFile(path.join(stateDirectory, "allow-old-exit"), "release\n");
     const oldOutcome = await childOutcome(oldGate);
     assert.equal(oldOutcome.code, null);
-    assert.equal(oldOutcome.signal, shutdownSignal);
+    await assert.rejects(access(unrelatedSignalPath));
+    assert.equal(oldOutcome.signal, lateSignal);
     const successorOutcome = await childOutcome(successorGate);
     assert.deepEqual(successorOutcome, { code: 0, signal: null });
     assert.equal(isProcessAlive(oldChildPid), false);
@@ -135,6 +142,22 @@ for (const shutdownSignal of ["SIGINT", "SIGTERM"]) test(`${shutdownSignal} keep
     await rm(fixtureRoot, { recursive: true, force: true });
   }
 });
+
+function groupReuseProbeSource() {
+  return `
+const { existsSync, writeFileSync } = require("node:fs");
+const { join } = require("node:path");
+const originalKill = process.kill.bind(process);
+process.kill = (pid, signal) => {
+  const leaderGone = join(process.env.GATE_FIXTURE_STATE ?? "", "old.leader-gone");
+  if (pid < 0 && signal && signal !== 0 && existsSync(leaderGone)) {
+    writeFileSync(join(process.env.GATE_FIXTURE_STATE, "unrelated-group-signaled"), String(signal));
+    return true;
+  }
+  return originalKill(pid, signal);
+};
+`;
+}
 
 test("Windows fails closed before acquiring a lock or starting a child", { timeout: 10_000 }, async () => {
   const fixtureRoot = await mkdtemp(path.join(tmpdir(), "led-workspace-gate-windows-"));

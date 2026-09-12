@@ -43,10 +43,9 @@ try {
 }
 
 if (signalState.forwardingError) throw signalState.forwardingError;
-if (outcome?.signal) {
-  process.kill(process.pid, outcome.signal);
-} else if (signalState.received) {
-  process.kill(process.pid, signalState.received);
+const finalSignal = signalState.received ?? outcome?.signal;
+if (finalSignal) {
+  process.kill(process.pid, finalSignal);
 } else {
   process.exitCode = outcome?.code ?? 1;
 }
@@ -62,6 +61,7 @@ function run(command, args, signalState) {
     child.once("error", reject);
     child.once("exit", async (code, signal) => {
       try {
+        signalState.beginDrain(child);
         await waitForProcessGroupExit(child.pid);
         signalState.disown(child);
         resolve({ code, signal });
@@ -91,11 +91,20 @@ function hasLiveProcessGroupMember(processGroupId) {
 
 function installSignalForwarding() {
   let activeChild;
+  let canSignalGroup = false;
+  let forwardedSignal = false;
   let received;
   let forwardingError;
   const handlers = new Map(["SIGINT", "SIGTERM"].map((signal) => [signal, () => {
-    received ??= signal;
-    if (!activeChild?.pid) return;
+    received = signal;
+    if (
+      forwardedSignal ||
+      !canSignalGroup ||
+      !activeChild?.pid ||
+      activeChild.exitCode !== null ||
+      activeChild.signalCode !== null
+    ) return;
+    forwardedSignal = true;
     try {
       process.kill(-activeChild.pid, signal);
     } catch (error) {
@@ -106,9 +115,19 @@ function installSignalForwarding() {
   return {
     get received() { return received; },
     get forwardingError() { return forwardingError; },
-    own(child) { activeChild = child; },
+    own(child) {
+      activeChild = child;
+      canSignalGroup = true;
+      forwardedSignal = false;
+    },
+    beginDrain(child) {
+      if (activeChild === child) canSignalGroup = false;
+    },
     disown(child) {
-      if (activeChild === child) activeChild = undefined;
+      if (activeChild !== child) return;
+      activeChild = undefined;
+      canSignalGroup = false;
+      forwardedSignal = false;
     },
     dispose() {
       for (const [signal, handler] of handlers) process.off(signal, handler);
