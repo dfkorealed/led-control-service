@@ -73,7 +73,9 @@ Custom agent가 대체하는 범위는 임시 역할 프롬프트, 역할 선택
 
 - 같은 checkout의 canonical `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`는 모두 `scripts/workspace-gate.mjs`를 통과한다. Gate는 repository owner lock을 잡은 뒤 `shared` 한 번, `automation-engine` 한 번을 순서대로 build하고 전체 consumer command가 끝날 때까지 lock을 유지한다.
 - 동시 root gate는 active owner를 훔치지 않고 순서대로 대기한다. 장시간 test를 임의 timeout으로 실패시키지 않으며, owner identity가 종료 경계에서 잠시 확인되지 않아도 gate 전용 정책은 lock을 훔치지 않은 채 재확인한다. Shared build 자체의 unknown-owner 기본 정책은 계속 fail-closed다.
+- Gate가 catch 가능한 `SIGINT`/`SIGTERM`을 받으면 현재 pnpm child의 독립 process group에 같은 signal을 전달하고 child 종료를 기다린 뒤 lock을 해제하며 같은 signal semantics로 끝난다. Exact owner marker를 제거한 뒤 successor가 빈 directory를 차지한 release handoff는 성공으로 취급하되 successor marker는 삭제하지 않는다.
 - Package의 canonical `build`, `lint`, `typecheck`, `test`는 준비된 workspace dependency를 소비하는 graph-pure command다. 직접 leaf 명령 전에는 `pnpm workspace:prepare`를 실행한다. 개발·HIL 보조 명령의 명시적 준비 단계는 canonical 검증 graph와 구분한다.
+- Playwright `RealBackendLab.start()`도 cold checkout에서 `workspace:prepare`로 shared→automation output을 만든 뒤 graph-pure API/Web build를 실행한다. 기존 automation `dist`에 기대어 lab startup 성공을 판정하지 않는다.
 - Shared output은 기존 동일-path artifact를 유지한 상태에서 temp file rename으로 교체하고, 새 generation에 없는 manifest-owned stale file만 교체 뒤 제거한다. 이 per-file 가용성 방어와 root gate를 함께 유지하며 non-empty `dist` directory의 비이식적 atomic rename으로 바꾸지 않는다.
 - Canonical root unit/contract 경로는 dependency audit policy, patched `image-size` parser security, production MQTT config regression을 각각 정확히 한 번 실행한다. Gateway 전체 Vitest는 filesystem·crypto 부하가 큰 suite의 wall-clock 경합을 피하도록 단일 worker로 실행하며 제품 timeout이나 retry 횟수는 완화하지 않는다.
 

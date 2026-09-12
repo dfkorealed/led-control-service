@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { acquireOutputLock } from "../packages/shared/scripts/build-output-lock.mjs";
@@ -25,22 +25,77 @@ const release = await acquireOutputLock({
   timeoutMs: null,
   waitOnUnknownOwner: true
 });
+const signalState = installSignalForwarding();
+let outcome;
 
 try {
-  run("pnpm", ["run", "workspace:prepare"]);
-  run(...consumerCommands[operation]);
+  outcome = await run("pnpm", ["run", "workspace:prepare"], signalState);
+  if (isSuccessful(outcome) && !signalState.received) {
+    outcome = await run(...consumerCommands[operation], signalState);
+  }
 } finally {
+  signalState.dispose();
   const released = await release();
   if (!released) throw new Error("workspace command lock ownership changed before release");
 }
 
-function run(command, args) {
-  const result = spawnSync(command, args, {
-    cwd: repositoryRoot,
-    stdio: "inherit"
+if (signalState.forwardingError) throw signalState.forwardingError;
+if (outcome?.signal) {
+  process.kill(process.pid, outcome.signal);
+} else if (signalState.received) {
+  process.kill(process.pid, signalState.received);
+} else {
+  process.exitCode = outcome?.code ?? 1;
+}
+
+function run(command, args, signalState) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: repositoryRoot,
+      detached: process.platform !== "win32",
+      stdio: "inherit"
+    });
+    signalState.own(child);
+    child.once("error", reject);
+    child.once("exit", (code, signal) => {
+      signalState.disown(child);
+      resolve({ code, signal });
+    });
   });
-  if (result.error) throw result.error;
-  if (result.signal) throw new Error(`${command} terminated by ${result.signal}`);
-  if (result.status !== 0) process.exitCode = result.status ?? 1;
-  if (result.status !== 0) throw new Error(`${command} ${args.join(" ")} failed`);
+}
+
+function installSignalForwarding() {
+  let activeChild;
+  let received;
+  let forwardingError;
+  const handlers = new Map(["SIGINT", "SIGTERM"].map((signal) => [signal, () => {
+    received ??= signal;
+    if (!activeChild?.pid) return;
+    try {
+      if (process.platform === "win32") activeChild.kill(signal);
+      else process.kill(-activeChild.pid, signal);
+    } catch (error) {
+      if (!isErrorCode(error, "ESRCH")) forwardingError ??= error;
+    }
+  }]));
+  for (const [signal, handler] of handlers) process.on(signal, handler);
+  return {
+    get received() { return received; },
+    get forwardingError() { return forwardingError; },
+    own(child) { activeChild = child; },
+    disown(child) {
+      if (activeChild === child) activeChild = undefined;
+    },
+    dispose() {
+      for (const [signal, handler] of handlers) process.off(signal, handler);
+    }
+  };
+}
+
+function isSuccessful(outcome) {
+  return outcome.code === 0 && outcome.signal === null;
+}
+
+function isErrorCode(error, code) {
+  return Boolean(error && typeof error === "object" && "code" in error && error.code === code);
 }

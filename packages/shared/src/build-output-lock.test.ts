@@ -261,6 +261,50 @@ describe("shared build output lock", () => {
     await expect(readOwner(root)).resolves.toMatchObject({ token: "token-b" });
   });
 
+  it("finishes releasing after its exact marker is removed when a successor publishes before rmdir", async () => {
+    const root = await createRoot();
+    const fixed = lockPath(root);
+    const first = { pid: 101, processStartIdentity: "boot-a" };
+    const second = { pid: 202, processStartIdentity: "boot-b" };
+    let successorPublished = false;
+
+    vi.resetModules();
+    vi.doMock("node:fs/promises", async () => {
+      const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+      return {
+        ...actual,
+        rmdir: async (path: string) => {
+          if (path === fixed && !successorPublished) {
+            successorPublished = true;
+            await actual.writeFile(
+              ownerMarkerPath(fixed, "token-b"),
+              `${JSON.stringify({ version: 1, token: "token-b", ...second })}\n`
+            );
+          }
+          return actual.rmdir(path);
+        }
+      };
+    });
+
+    try {
+      const { acquireOutputLock: instrumentedAcquire } =
+        await import("../scripts/build-output-lock.mjs?release-successor-handoff");
+      const release = await acquireWith(
+        instrumentedAcquire,
+        root,
+        first,
+        new Map([[first.pid, { state: "active", processStartIdentity: first.processStartIdentity }]]),
+        "token-a"
+      );
+
+      await expect(release()).resolves.toBe(true);
+      await expect(readOwner(root)).resolves.toMatchObject({ token: "token-b", pid: second.pid });
+    } finally {
+      vi.doUnmock("node:fs/promises");
+      vi.resetModules();
+    }
+  });
+
   it("aborts a late stale takeover when its old marker was replaced by a successor", async () => {
     const root = await createRoot();
     await seedLock(root, { pid: 101, processStartIdentity: "boot-a" }, "token-a");

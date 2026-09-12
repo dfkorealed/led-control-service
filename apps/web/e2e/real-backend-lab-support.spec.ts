@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { spawn, type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rm } from "node:fs/promises";
+import { mkdir, readFile, rename, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import type { MqttClient } from "mqtt";
@@ -90,6 +90,35 @@ test("선점된 lab 포트는 build나 외부 fixture mutation 전에 실패하�
   } finally {
     await lab.stop().catch(() => undefined);
     await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("fresh lab build는 graph-pure API build 전에 automation output을 준비한다", async () => {
+  const automationDist = join(ROOT, "packages/automation-engine/dist");
+  const automationEntry = join(automationDist, "index.js");
+  const backup = join(ROOT, `packages/automation-engine/.dist-task2-review-${process.pid}-${Date.now()}`);
+  const hadWarmOutput = existsSync(automationDist);
+  if (hadWarmOutput) await rename(automationDist, backup);
+
+  const lab = new RealBackendLab({ ports: await allocateUnusedLabPorts() });
+  const internal = lab as unknown as {
+    run: (command: string, args: string[], env?: NodeJS.ProcessEnv) => Promise<void>;
+  };
+  const realRun = internal.run.bind(lab);
+  internal.run = async (command, args, env) => {
+    if (command === "pnpm" && args.join(" ") === "--filter @led-control/api prisma:generate") {
+      throw new Error("stop after dependency preparation");
+    }
+    await realRun(command, args, env);
+  };
+
+  try {
+    await expect(lab.start()).rejects.toThrow("stop after dependency preparation");
+    expect(existsSync(automationEntry)).toBe(true);
+  } finally {
+    await lab.stop().catch(() => undefined);
+    await rm(automationDist, { recursive: true, force: true });
+    if (hadWarmOutput) await rename(backup, automationDist);
   }
 });
 

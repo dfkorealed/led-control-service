@@ -203,7 +203,9 @@ async function relinquishOwnerDirectory(directory, expectedOwner, label, beforeO
     await rmdir(directory);
     return true;
   } catch (error) {
-    if (isErrorCode(error, "ENOENT") || isErrorCode(error, "ENOTEMPTY")) return false;
+    // Removing our exact marker completes the ownership release. A contender may then
+    // remove the empty directory and publish its own marker before this rmdir runs.
+    if (isErrorCode(error, "ENOENT") || isErrorCode(error, "ENOTEMPTY")) return true;
     throw error;
   }
 }
