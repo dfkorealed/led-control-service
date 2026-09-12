@@ -54,11 +54,11 @@
 - Produces: `gatewayStatusCheckCommandDraftV2Schema`, published/compatibility schemas, `GatewayStatusCheckCommand*` types, MQTT kind `status-check`
 - Produces: nullable legacy-safe `Command.outcome`, dispatch `kind`, `verificationAttempt`, unique nullable `clientRequestId`
 
-- [ ] **Step 1: shared RED 계약 테스트** — status-check topic, strict draft/published payload, publish-relative expiry, unique 1..64 fixture IDs, attempt 1..3, no requester PII를 assert한다.
-- [ ] **Step 2: Prisma/shared 최소 구현** — enum과 nullable 필드 migration을 작성하고 기존 행 backfill은 하지 않는다. generated Prisma client는 `pnpm --filter @led-control/api prisma:generate`로만 갱신한다.
-- [ ] **Step 3: publisher RED 테스트** — `kind=status_check` outbox가 dimming parser/override/group snapshot을 거치지 않고 status-check published payload와 MQTT expiry를 만들며, response loss 재claim은 같은 persisted generation을 사용함을 assert한다.
-- [ ] **Step 4: publisher 다형화 구현** — dispatch select에 kind를 포함하고 kind별 parser/preparer를 작은 함수로 분리한다. 공통 lease/publish/terminal 처리 코드는 한 경로에 유지한다.
-- [ ] **Step 5: 검증과 commit** — shared tests, publisher spec, API typecheck를 통과하고 `git commit -m "feat(control): add status check command contract" ...`로 관련 파일만 commit한다.
+- [x] **Step 1: shared RED 계약 테스트** — status-check topic, strict draft/published payload, publish-relative expiry, unique 1..64 fixture IDs, attempt 1..3, no requester PII를 assert한다.
+- [x] **Step 2: Prisma/shared 최소 구현** — enum과 nullable 필드 migration을 작성하고 기존 행 backfill은 하지 않는다. generated Prisma client는 `pnpm --filter @led-control/api prisma:generate`로만 갱신한다.
+- [x] **Step 3: publisher RED 테스트** — `kind=status_check` outbox가 dimming parser/override/group snapshot을 거치지 않고 status-check published payload와 MQTT expiry를 만들며, response loss 재claim은 같은 persisted generation을 사용함을 assert한다.
+- [x] **Step 4: publisher 다형화 구현** — dispatch select에 kind를 포함하고 kind별 parser/preparer를 작은 함수로 분리한다. 공통 lease/publish/terminal 처리 코드는 한 경로에 유지한다.
+- [x] **Step 5: 검증과 commit** — shared tests, publisher spec, API typecheck를 통과하고 `git commit -m "feat(control): add status check command contract" ...`로 관련 파일만 commit한다.
 
 ### Task 3: API 불확실 outcome 수렴과 상태 조회 생성
 
