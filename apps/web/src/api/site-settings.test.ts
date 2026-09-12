@@ -5,7 +5,6 @@ import {
   createFloor,
   getSiteSettings,
   getFloorFixtureSettings,
-  listFloorFixtures,
   restoreFloor,
   updateFixtureMetadata,
   updateFloor,
@@ -75,27 +74,31 @@ describe("site settings API", () => {
     });
   });
 
-  it("keeps fixture pagination at 200 and encodes the cursor", async () => {
+  it("keeps admin fixture settings pagination at 200 and encodes the cursor", async () => {
     vi.mocked(apiGet).mockResolvedValue({ items: [], nextCursor: null });
 
-    await listFloorFixtures("site-1", "floor-1", "fixture / 200");
+    await getFloorFixtureSettings("site-1", "floor-1", "fixture / 200");
 
     expect(apiGet).toHaveBeenCalledWith(
-      "/sites/site-1/floors/floor-1/fixtures?limit=200&cursor=fixture+%2F+200"
+      "/sites/site-1/floors/floor-1/fixtures/settings?limit=200&cursor=fixture+%2F+200"
     );
   });
 
   it("loads admin-only fixture identity metadata from the settings endpoint", async () => {
-    vi.mocked(apiGet).mockResolvedValue({ items: [] });
+    vi.mocked(apiGet).mockResolvedValue({ items: [], nextCursor: null });
 
     await getFloorFixtureSettings("site-1", "floor / 1");
 
-    expect(apiGet).toHaveBeenCalledWith("/sites/site-1/floors/floor%20%2F%201/fixtures/settings");
+    expect(apiGet).toHaveBeenCalledWith("/sites/site-1/floors/floor%20%2F%201/fixtures/settings?limit=200");
   });
 
-  it("patches only editable fixture metadata", async () => {
+  it("patches editable fixture metadata with the expected version", async () => {
     vi.mocked(apiPatch).mockResolvedValue({});
-    const input = { name: "주차면 A-01", ratedWatt: 42.5 };
+    const input = {
+      expectedUpdatedAt: "2026-09-12T00:00:00.000Z",
+      name: "주차면 A-01",
+      ratedWatt: 42.5
+    };
 
     await updateFixtureMetadata("site-1", "floor-1", "fixture-1", input);
 

@@ -11,13 +11,12 @@ import {
   floorFixturesQueryKey,
   getFloorFixtureSettings,
   getSiteSettings,
-  listFloorFixtures,
   restoreFloor,
   siteSettingsQueryKey,
   updateFixtureMetadata,
   updateFloor,
   updateSiteSettings,
-  type SiteFixture,
+  type FixtureSettingsItem,
   type SiteSettings,
   type SiteSettingsFloor
 } from "../../../api/site-settings";
@@ -60,9 +59,11 @@ export function SiteOperationsView({ siteId }: { siteId?: string }) {
     },
     onError: (error, floor) => {
       setFloorToArchive(null);
-      setFloorActionError(isVersionConflict(error)
+      setFloorActionError(isConflict(error)
         ? {
-            title: "층 상태가 변경되어 보관하지 못했습니다.",
+            title: isVersionConflict(error)
+              ? "층 상태가 변경되어 보관하지 못했습니다."
+              : "층에 조명, 활성 구역 또는 진행 중인 등록 작업이 있어 보관하지 못했습니다.",
             retryLabel: "최신 정보 불러오기",
             retry: () => {
               setFloorActionError(null);
@@ -362,27 +363,15 @@ function FixtureSection({ siteId, floors, selectedFloorId, onSelectedFloorIdChan
   onSelectedFloorIdChange: (floorId: string) => void;
 }) {
   const fixturesQuery = useInfiniteQuery({
-    queryKey: floorFixturesQueryKey(siteId, selectedFloorId),
-    queryFn: ({ pageParam }) => listFloorFixtures(siteId, selectedFloorId, pageParam || undefined),
+    queryKey: floorFixtureSettingsQueryKey(siteId, selectedFloorId),
+    queryFn: ({ pageParam }) => getFloorFixtureSettings(siteId, selectedFloorId, pageParam || undefined),
     initialPageParam: "",
     getNextPageParam: (page) => page.nextCursor ?? undefined,
     enabled: Boolean(selectedFloorId)
   });
-  const fixtureSettingsQuery = useQuery({
-    queryKey: floorFixtureSettingsQueryKey(siteId, selectedFloorId),
-    queryFn: () => getFloorFixtureSettings(siteId, selectedFloorId),
-    enabled: Boolean(selectedFloorId)
-  });
-  const fixtureSettings = useMemo(
-    () => new Map(fixtureSettingsQuery.data?.items.map((fixture) => [fixture.id, fixture]) ?? []),
-    [fixtureSettingsQuery.data?.items]
-  );
   const fixtures = useMemo(
-    () => (fixturesQuery.data?.pages.flatMap((page) => page.items) ?? []).map((fixture) => ({
-      ...fixture,
-      ...fixtureSettings.get(fixture.id)
-    })),
-    [fixtureSettings, fixturesQuery.data?.pages]
+    () => fixturesQuery.data?.pages.flatMap((page) => page.items) ?? [],
+    [fixturesQuery.data?.pages]
   );
 
   return (
@@ -403,7 +392,6 @@ function FixtureSection({ siteId, floors, selectedFloorId, onSelectedFloorIdChan
       {fixturesQuery.isPending && selectedFloorId ? <FeedbackState tone="neutral" icon={Clock3} title="조명 목록을 불러오는 중입니다." /> : null}
       {fixturesQuery.error && fixtures.length === 0 ? <FeedbackState tone="danger" icon={CircleAlert} title="조명 목록을 불러오지 못했습니다." action={<Button type="button" onClick={() => void fixturesQuery.refetch()}>조명 목록 다시 시도</Button>} /> : null}
       {fixturesQuery.error && fixtures.length > 0 ? <FeedbackState tone="danger" icon={CircleAlert} title="다음 조명 목록을 불러오지 못했습니다. 기존 목록을 표시합니다." action={<Button type="button" onClick={() => void fixturesQuery.fetchNextPage()}>다음 목록 다시 시도</Button>} /> : null}
-      {fixtureSettingsQuery.error ? <FeedbackState tone="danger" icon={CircleAlert} title="조명 장비 식별 정보를 불러오지 못했습니다. 조명 목록은 그대로 표시합니다." action={<Button type="button" onClick={() => void fixtureSettingsQuery.refetch()}>식별 정보 다시 시도</Button>} /> : null}
       {!fixturesQuery.isPending && !fixturesQuery.error && selectedFloorId && fixtures.length === 0 ? <FeedbackState tone="neutral" icon={Lightbulb} title="이 층에 등록된 조명이 없습니다." /> : null}
       {fixtures.length > 0 ? <div className="site-operations-list fixture-list" aria-label="조명 목록">
         {fixtures.map((fixture) => <FixtureRow key={fixture.id} siteId={siteId} floorId={selectedFloorId} fixture={fixture} />)}
@@ -416,22 +404,35 @@ function FixtureSection({ siteId, floors, selectedFloorId, onSelectedFloorIdChan
   );
 }
 
-function FixtureRow({ siteId, floorId, fixture }: { siteId: string; floorId: string; fixture: SiteFixture }) {
+function FixtureRow({ siteId, floorId, fixture }: { siteId: string; floorId: string; fixture: FixtureSettingsItem }) {
   const queryClient = useQueryClient();
   const [name, setName] = useState(fixture.name);
   const [ratedWatt, setRatedWatt] = useState(String(fixture.ratedWatt));
   const [actionError, setActionError] = useState<RetryableError | null>(null);
   const mutation = useMutation({
-    mutationFn: () => updateFixtureMetadata(siteId, floorId, fixture.id, { name: name.trim(), ratedWatt: Number(ratedWatt) }),
+    mutationFn: () => updateFixtureMetadata(siteId, floorId, fixture.id, {
+      expectedUpdatedAt: fixture.updatedAt,
+      name: name.trim(),
+      ratedWatt: Number(ratedWatt)
+    }),
     onSuccess: async () => {
       setActionError(null);
       await invalidateSiteOperations(queryClient, siteId);
     },
-    onError: () => setActionError({
-      title: `${fixture.name} 조명 정보를 저장하지 못했습니다. 입력값을 유지합니다.`,
-      retryLabel: "조명 정보 다시 저장",
-      retry: () => mutation.mutate()
-    })
+    onError: (error) => setActionError(isVersionConflict(error)
+      ? {
+          title: `${fixture.name} 조명 정보가 다른 작업에서 변경되었습니다.`,
+          retryLabel: "최신 정보 불러오기",
+          retry: () => {
+            setActionError(null);
+            void queryClient.invalidateQueries({ queryKey: floorFixtureSettingsQueryKey(siteId, floorId) });
+          }
+        }
+      : {
+          title: `${fixture.name} 조명 정보를 저장하지 못했습니다. 입력값을 유지합니다.`,
+          retryLabel: "조명 정보 다시 저장",
+          retry: () => mutation.mutate()
+        })
   });
   const identities = [
     ["시리얼", fixture.serialNumber],
@@ -446,12 +447,7 @@ function FixtureRow({ siteId, floorId, fixture }: { siteId: string; floorId: str
 
   return (
     <Card className="site-operations-card fixture-row-card">
-      <div className="site-operations-row-heading">
-        <strong>{fixture.name}</strong>
-        <StatusBadge tone={fixture.status === "online" ? "success" : fixture.status === "fault" ? "danger" : "neutral"} icon={fixture.status === "online" ? CheckCircle2 : CircleAlert}>
-          {fixture.status === "online" ? "온라인" : fixture.status === "fault" ? "오류" : "오프라인"}
-        </StatusBadge>
-      </div>
+      <div className="site-operations-row-heading"><strong>{fixture.name}</strong></div>
       {identities.length > 0 ? <dl className="fixture-identities">
         {identities.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
       </dl> : null}
@@ -549,6 +545,10 @@ function isVersionConflict(error: unknown) {
   return error instanceof ApiError
     && error.status === 409
     && (error.body as { code?: string } | null)?.code === "settings_version_conflict";
+}
+
+function isConflict(error: unknown) {
+  return error instanceof ApiError && error.status === 409;
 }
 
 function staleSettingsError(

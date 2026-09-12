@@ -41,7 +41,11 @@ test("admin이 현장, 층, 조명, 구역 운영 흐름을 완료한다", async
 
   expect(api.siteUpdates.at(-1)).toMatchObject({ name: "서울 본사 주차장" });
   expect(api.archivedFloors).toEqual([emptyFloorId]);
-  expect(api.fixtureUpdates.at(-1)).toEqual({ name: "B2 출입구 조명", ratedWatt: 42.5 });
+  expect(api.fixtureUpdates.at(-1)).toMatchObject({
+    expectedUpdatedAt: "2026-09-12T00:00:00.000Z",
+    name: "B2 출입구 조명",
+    ratedWatt: 42.5
+  });
   expect(api.fixtureCursors).toContain(fixtureId);
   expect(api.archivedGroups).toEqual([groupId]);
   await expectNoHorizontalOverflow(page);
@@ -170,32 +174,34 @@ async function installOperationsApi(page: Page): Promise<OperationsApiState> {
       state.archivedFloors.push(floor.id);
       return respond(route, floor);
     }
-    if (path === `/sites/${siteId}/floors/${floorId}/fixtures` && method === "GET") {
+    if (path === `/sites/${siteId}/floors/${floorId}/fixtures/settings` && method === "GET") {
       const cursor = url.searchParams.get("cursor");
       state.fixtureCursors.push(cursor);
-      return respond(route, cursor
-        ? { items: [publicFixture(fixtures[1])], nextCursor: null }
-        : { items: [publicFixture(fixtures[0])], nextCursor: fixtureId });
-    }
-    if (path === `/sites/${siteId}/floors/${floorId}/fixtures/settings` && method === "GET") {
+      const page = cursor ? [fixtures[1]] : [fixtures[0]];
       return respond(route, {
-        items: fixtures.map(({ id, name, ratedWatt, serialNumber, meshAddress, firmwareVersion }) => ({
+        items: page.map(({ id, name, ratedWatt, updatedAt, serialNumber, meshAddress, firmwareVersion }) => ({
           id,
           name,
           ratedWatt,
+          updatedAt,
           serialNumber,
           deviceUuid: serialNumber ? "device-uuid-e2e" : null,
           meshAddress,
           firmwareVersion
-        }))
+        })),
+        nextCursor: cursor ? null : fixtureId
       });
     }
     const fixtureMatch = path.match(new RegExp(`^/sites/${siteId}/floors/${floorId}/fixtures/([^/]+)$`));
     if (fixtureMatch && method === "PATCH") {
       const body = request.postDataJSON() as Record<string, unknown>;
+      if (body.expectedUpdatedAt !== fixtures[0].updatedAt) {
+        return respond(route, { code: "settings_version_conflict" }, 409);
+      }
       state.fixtureUpdates.push(body);
-      Object.assign(fixtures[0], body);
-      return respond(route, { id: fixtureId, floorId, ...body });
+      const { expectedUpdatedAt: _expectedUpdatedAt, ...changes } = body;
+      Object.assign(fixtures[0], changes, { updatedAt: "2026-09-12T00:01:00.000Z" });
+      return respond(route, { id: fixtureId, floorId, ...changes, updatedAt: fixtures[0].updatedAt });
     }
     if (path === `/sites/${siteId}/fixture-groups` && method === "GET") return respond(route, groups);
     const groupMatch = path.match(new RegExp(`^/sites/${siteId}/fixture-groups/([^/]+)$`));
@@ -220,6 +226,7 @@ function fixture(id: string, name: string, serialNumber: string | null) {
     x: 100,
     y: 100,
     ratedWatt: 40,
+    updatedAt: "2026-09-12T00:00:00.000Z",
     brightness: 70,
     status: "online",
     health: null,
@@ -234,16 +241,6 @@ function fixture(id: string, name: string, serialNumber: string | null) {
     meshAddress: serialNumber ? "0x012A" : null,
     firmwareVersion: serialNumber ? "1.4.2" : null
   };
-}
-
-function publicFixture(value: ReturnType<typeof fixture>) {
-  const {
-    serialNumber: _serialNumber,
-    meshAddress: _meshAddress,
-    firmwareVersion: _firmwareVersion,
-    ...fixtureSnapshot
-  } = value;
-  return fixtureSnapshot;
 }
 
 function adminUser() {

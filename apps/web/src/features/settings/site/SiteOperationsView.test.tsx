@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../../api/client";
 import { fixtureGroupQueryKey } from "../../../api/fixture-groups";
 import {
-  floorFixturesQueryKey,
+  floorFixtureSettingsQueryKey,
   siteSettingsQueryKey,
   type SiteSettingsResponse
 } from "../../../api/site-settings";
@@ -18,7 +18,6 @@ const siteApi = vi.hoisted(() => ({
   updateFloor: vi.fn(),
   archiveFloor: vi.fn(),
   restoreFloor: vi.fn(),
-  listFloorFixtures: vi.fn(),
   getFloorFixtureSettings: vi.fn(),
   updateFixtureMetadata: vi.fn()
 }));
@@ -59,19 +58,12 @@ const fixturePageOne = {
   items: [{
     id: "fixture-1",
     name: "B2-L01",
-    x: 120,
-    y: 140,
     ratedWatt: 40,
-    brightness: 70,
-    status: "online" as const,
-    health: null,
-    rssi: -61,
-    hopCount: 2,
-    commandSuccessRate: 0.99,
-    lastSeenAt: "2026-09-12T00:00:00.000Z",
-    gateway: { id: "gateway-1", name: "B2 게이트웨이", connectionStatus: "online" as const },
-    controllable: true,
-    controlBlockReason: null,
+    updatedAt: "2026-09-12T00:00:00.000Z",
+    serialNumber: "LC-2026-0001",
+    deviceUuid: "device-uuid-0001",
+    meshAddress: "0x012A",
+    firmwareVersion: "1.4.2"
   }],
   nextCursor: "fixture-1"
 };
@@ -81,6 +73,8 @@ const fixturePageTwo = {
     ...fixturePageOne.items[0],
     id: "fixture-2",
     name: "B2-L02",
+    updatedAt: "2026-09-12T00:00:00.000Z",
+    deviceUuid: null,
     serialNumber: null,
     meshAddress: null,
     firmwareVersion: null
@@ -118,19 +112,8 @@ describe("SiteOperationsView", () => {
     siteApi.updateFloor.mockResolvedValue(settings.floors[1]);
     siteApi.archiveFloor.mockResolvedValue({ ...settings.floors[1], status: "archived" });
     siteApi.restoreFloor.mockResolvedValue({ ...settings.floors[2], status: "active" });
-    siteApi.listFloorFixtures.mockImplementation(async (_siteId: string, _floorId: string, cursor?: string) => cursor ? fixturePageTwo : fixturePageOne);
-    siteApi.getFloorFixtureSettings.mockResolvedValue({
-      items: [{
-        id: "fixture-1",
-        name: "B2-L01",
-        ratedWatt: 40,
-        serialNumber: "LC-2026-0001",
-        deviceUuid: "device-uuid-0001",
-        meshAddress: "0x012A",
-        firmwareVersion: "1.4.2"
-      }]
-    });
-    siteApi.updateFixtureMetadata.mockResolvedValue({ id: "fixture-1", floorId: "floor-1", name: "B2-L01 수정", ratedWatt: 42 });
+    siteApi.getFloorFixtureSettings.mockImplementation(async (_siteId: string, _floorId: string, cursor?: string) => cursor ? fixturePageTwo : fixturePageOne);
+    siteApi.updateFixtureMetadata.mockResolvedValue({ id: "fixture-1", floorId: "floor-1", name: "B2-L01 수정", ratedWatt: 42, updatedAt: "2026-09-12T00:01:00.000Z" });
     groupApi.listFixtureGroups.mockResolvedValue(groups);
     groupApi.deleteFixtureGroup.mockResolvedValue({
       id: "group-active",
@@ -207,7 +190,7 @@ describe("SiteOperationsView", () => {
     }));
     expect(invalidate).toHaveBeenCalledWith({ queryKey: siteSettingsQueryKey("site-1") });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["dashboard", "site-1"] });
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: floorFixturesQueryKey("site-1") });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: floorFixtureSettingsQueryKey("site-1") });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: fixtureGroupQueryKey("site-1") });
     expect(invalidate).not.toHaveBeenCalledWith({ queryKey: ["dashboard", "site-2"] });
 
@@ -233,9 +216,7 @@ describe("SiteOperationsView", () => {
   });
 
   it("archives an empty floor only after confirmation and retries a 409 without losing the row", async () => {
-    siteApi.archiveFloor
-      .mockRejectedValueOnce(new ApiError("conflict", 409, { code: "settings_version_conflict" }))
-      .mockResolvedValueOnce({ ...settings.floors[1], status: "archived" });
+    siteApi.archiveFloor.mockRejectedValueOnce(new ApiError("conflict", 409, { code: "settings_version_conflict" }));
     renderView();
 
     fireEvent.click(await screen.findByRole("button", { name: "B1 보관" }));
@@ -251,6 +232,20 @@ describe("SiteOperationsView", () => {
     expect(siteApi.archiveFloor).toHaveBeenCalledTimes(1);
   });
 
+  it("refreshes instead of replaying a blocked floor archive", async () => {
+    siteApi.archiveFloor.mockRejectedValueOnce(new ApiError("blocked", 409, { code: "floor_archive_blocked" }));
+    renderView();
+
+    fireEvent.click(await screen.findByRole("button", { name: "B1 보관" }));
+    fireEvent.click(within(screen.getByRole("alertdialog", { name: "B1 층 보관" })).getByRole("button", { name: "층 보관" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("조명, 활성 구역 또는 진행 중인 등록 작업");
+    fireEvent.click(within(alert).getByRole("button", { name: "최신 정보 불러오기" }));
+    await waitFor(() => expect(siteApi.getSiteSettings).toHaveBeenCalledTimes(2));
+    expect(siteApi.archiveFloor).toHaveBeenCalledTimes(1);
+  });
+
   it("updates fixture metadata and appends the next 200-item cursor page", async () => {
     renderView();
     const fixtureForm = await screen.findByRole("form", { name: "B2-L01 조명 정보 수정" });
@@ -259,13 +254,29 @@ describe("SiteOperationsView", () => {
     fireEvent.change(within(fixtureForm).getByLabelText("B2-L01 정격전력"), { target: { value: "42" } });
     fireEvent.click(within(fixtureForm).getByRole("button", { name: "B2-L01 조명 정보 저장" }));
     await waitFor(() => expect(siteApi.updateFixtureMetadata).toHaveBeenCalledWith("site-1", "floor-1", "fixture-1", {
+      expectedUpdatedAt: "2026-09-12T00:00:00.000Z",
       name: "B2-L01 수정",
       ratedWatt: 42
     }));
 
     fireEvent.click(screen.getByRole("button", { name: "다음 200개 불러오기" }));
     expect(await screen.findByRole("form", { name: "B2-L02 조명 정보 수정" })).toBeVisible();
-    expect(siteApi.listFloorFixtures).toHaveBeenCalledWith("site-1", "floor-1", "fixture-1");
+    expect(siteApi.getFloorFixtureSettings).toHaveBeenCalledWith("site-1", "floor-1", "fixture-1");
+  });
+
+  it("reloads fixture metadata instead of replaying a stale update", async () => {
+    siteApi.updateFixtureMetadata.mockRejectedValueOnce(new ApiError("conflict", 409, { code: "settings_version_conflict" }));
+    renderView();
+    const fixtureForm = await screen.findByRole("form", { name: "B2-L01 조명 정보 수정" });
+
+    fireEvent.change(within(fixtureForm).getByLabelText("B2-L01 이름"), { target: { value: "충돌 이름" } });
+    fireEvent.click(within(fixtureForm).getByRole("button", { name: "B2-L01 조명 정보 저장" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("다른 작업에서 변경되었습니다");
+    fireEvent.click(within(alert).getByRole("button", { name: "최신 정보 불러오기" }));
+    await waitFor(() => expect(siteApi.getFloorFixtureSettings).toHaveBeenCalledTimes(2));
+    expect(siteApi.updateFixtureMetadata).toHaveBeenCalledTimes(1);
   });
 
   it("moves only active groups into retiring after confirmation", async () => {

@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from "@nestjs/common";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { FixturesService } from "./fixtures.service";
 
@@ -74,36 +74,43 @@ describe("FixturesService", () => {
 
   it("returns fixture identity metadata only through the admin settings listing", async () => {
     const prisma: any = {
-      floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },
+      floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1", status: "active" }) },
       fixture: {
         findMany: jest.fn().mockResolvedValue([{
           id: "fixture-1",
           name: "L1",
           ratedWatt: "40.00",
+          updatedAt: new Date("2026-09-12T00:00:00.000Z"),
           meshNode: {
             serialNumber: "DFK-H2-0001",
             deviceUuid: "device-1",
             meshAddress: "256",
             firmwareVersion: "1.2.3"
           }
-        }])
+        }, { id: "fixture-2" }])
       }
     };
     const siteAccess = { assert: jest.fn().mockResolvedValue({ id: "site-1" }) };
     const service = new (FixturesService as any)(prisma, siteAccess);
 
-    await expect(service.getFloorFixtureSettings(user, "site-1", "floor-1"))
+    await expect(service.getFloorFixtureSettings(user, "site-1", "floor-1", { limit: 1 }))
       .resolves.toEqual({
         items: [{
           id: "fixture-1",
           name: "L1",
           ratedWatt: 40,
+          updatedAt: "2026-09-12T00:00:00.000Z",
           serialNumber: "DFK-H2-0001",
           deviceUuid: "device-1",
           meshAddress: "256",
           firmwareVersion: "1.2.3"
-        }]
+        }],
+        nextCursor: "fixture-1"
       });
+    expect(prisma.fixture.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      orderBy: { id: "asc" },
+      take: 2
+    }));
     expect(siteAccess.assert).toHaveBeenCalledWith(user, "site-1", "manage");
   });
 
@@ -116,7 +123,7 @@ describe("FixturesService", () => {
     const service = new (FixturesService as any)(prisma, siteAccess);
 
     await expect(service.getFloorFixtureSettings(
-      { ...user, role: "viewer" }, "site-1", "floor-1"
+      { ...user, role: "viewer" }, "site-1", "floor-1", {}
     )).rejects.toBeInstanceOf(ForbiddenException);
     expect(prisma.floor.findUnique).not.toHaveBeenCalled();
     expect(prisma.fixture.findMany).not.toHaveBeenCalled();
@@ -164,6 +171,12 @@ describe("FixturesService", () => {
     await expect((service as any).getFloorFixtures(user, "site-1", "floor-1", { limit })).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it.each([0, 201])("rejects invalid settings page limit %s", async (limit) => {
+    const service = new FixturesService({} as never, {} as never, {} as never, {} as never);
+    await expect((service as any).getFloorFixtureSettings(user, "site-1", "floor-1", { limit }))
+      .rejects.toBeInstanceOf(BadRequestException);
+  });
+
   it("returns the opaque floor response when the requested site does not own the floor", async () => {
     const prisma: any = {
       floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1", status: "active" }) },
@@ -206,6 +219,7 @@ describe("FixturesService", () => {
       floorName: "B1",
       name: "Old",
       ratedWatt: "40.00",
+      updatedAt: new Date("2026-09-12T00:00:00.000Z"),
       energyTrackingStartedAt: trackingStartedAt
     };
     const prisma: any = {
@@ -224,6 +238,7 @@ describe("FixturesService", () => {
     const service = new (FixturesService as any)(prisma, siteAccess, energyCheckpoint, energyDimensions);
 
     await expect(service.updateMetadata(user, "site-1", "floor-1", "fixture-1", {
+      expectedUpdatedAt: "2026-09-12T00:00:00.000Z",
       name: "New",
       ratedWatt: 55.5
     })).resolves.toMatchObject({ id: "fixture-1", name: "New", ratedWatt: 55.5 });
@@ -259,7 +274,7 @@ describe("FixturesService", () => {
     expect(prisma.fixture.update).toHaveBeenCalledWith({
       where: { id: "fixture-1" },
       data: { name: "New", ratedWatt: expect.objectContaining({}) },
-      select: { id: true, floorId: true, name: true, ratedWatt: true }
+      select: { id: true, floorId: true, name: true, ratedWatt: true, updatedAt: true }
     });
   });
 
@@ -272,6 +287,7 @@ describe("FixturesService", () => {
       floorName: "B1",
       name: "Old",
       ratedWatt: "40.00",
+      updatedAt: new Date("2026-09-12T00:00:00.000Z"),
       energyTrackingStartedAt: trackingStartedAt
     };
     const prisma: any = {
@@ -287,7 +303,10 @@ describe("FixturesService", () => {
     const energyDimensions = { recordFixtureDimensions: jest.fn().mockResolvedValue("energy-fixture-1") };
     const service = new (FixturesService as any)(prisma, siteAccess, energyCheckpoint, energyDimensions);
 
-    await service.updateMetadata(user, "site-1", "floor-1", "fixture-1", { name: "New" });
+    await service.updateMetadata(user, "site-1", "floor-1", "fixture-1", {
+      expectedUpdatedAt: "2026-09-12T00:00:00.000Z",
+      name: "New"
+    });
 
     expect(energyCheckpoint.closeRatedWattInterval).not.toHaveBeenCalled();
     expect(energyDimensions.recordFixtureDimensions).toHaveBeenCalledWith(prisma, expect.objectContaining({
@@ -300,9 +319,9 @@ describe("FixturesService", () => {
   });
 
   it.each([
-    [{ name: "New", meshNodeId: "attacker" }, "identity field"],
-    [{ ratedWatt: 0 }, "zero watt"],
-    [{ ratedWatt: 12.345 }, "excess precision"],
+    [{ expectedUpdatedAt: "2026-09-12T00:00:00.000Z", name: "New", meshNodeId: "attacker" }, "identity field"],
+    [{ expectedUpdatedAt: "2026-09-12T00:00:00.000Z", ratedWatt: 0 }, "zero watt"],
+    [{ expectedUpdatedAt: "2026-09-12T00:00:00.000Z", ratedWatt: 12.345 }, "excess precision"],
     [{}, "empty patch"]
   ])("rejects strict fixture metadata input: %s (%s)", async (body, _label) => {
     const prisma: any = { $transaction: jest.fn() };
@@ -338,8 +357,34 @@ describe("FixturesService", () => {
     };
     const service = new (FixturesService as any)(prisma, siteAccess);
 
-    await expect(service.updateMetadata(user, "site-1", "floor-1", "fixture-1", { name: "Hidden" }))
+    await expect(service.updateMetadata(user, "site-1", "floor-1", "fixture-1", {
+      expectedUpdatedAt: "2026-09-12T00:00:00.000Z",
+      name: "Hidden"
+    }))
       .rejects.toEqual(new NotFoundException("fixture not found"));
+    expect(prisma.fixture.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects a stale fixture metadata update after locking the fixture", async () => {
+    const prisma: any = {
+      $queryRaw: jest.fn().mockResolvedValue([{
+        id: "fixture-1", siteId: "site-1", floorId: "floor-1", floorName: "B1",
+        name: "Current", ratedWatt: "40.00", updatedAt: new Date("2026-09-12T00:01:00.000Z"),
+        energyTrackingStartedAt: new Date("2026-01-01T00:00:00.000Z")
+      }]),
+      $transaction: jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma)),
+      fixture: { update: jest.fn() }
+    };
+    const siteAccess = {
+      assert: jest.fn().mockResolvedValue({ id: "site-1" }),
+      assertManageInTransaction: jest.fn().mockResolvedValue({ id: "site-1" })
+    };
+    const service = new (FixturesService as any)(prisma, siteAccess, {}, {});
+
+    await expect(service.updateMetadata(user, "site-1", "floor-1", "fixture-1", {
+      expectedUpdatedAt: "2026-09-12T00:00:00.000Z",
+      name: "Stale"
+    })).rejects.toEqual(new ConflictException({ code: "settings_version_conflict" }));
     expect(prisma.fixture.update).not.toHaveBeenCalled();
   });
 });

@@ -1,5 +1,4 @@
 import { apiGet, apiPatch, apiPost } from "./client";
-import type { FixtureSnapshot } from "./queries";
 
 export type FloorStatus = "active" | "archived";
 
@@ -50,17 +49,11 @@ export type UpdateFloorInput = Partial<CreateFloorInput> & {
   expectedUpdatedAt: string;
 };
 
-export interface SiteFixture extends FixtureSnapshot {
-  serialNumber?: string | null;
-  deviceUuid?: string | null;
-  meshAddress?: string | null;
-  firmwareVersion?: string | null;
-}
-
 export interface FixtureSettingsItem {
   id: string;
   name: string;
   ratedWatt: number;
+  updatedAt: string;
   serialNumber: string | null;
   deviceUuid: string | null;
   meshAddress: string | null;
@@ -69,14 +62,11 @@ export interface FixtureSettingsItem {
 
 export interface FloorFixtureSettingsResponse {
   items: FixtureSettingsItem[];
-}
-
-export interface FloorFixturesPage {
-  items: SiteFixture[];
   nextCursor: string | null;
 }
 
 export interface UpdateFixtureMetadataInput {
+  expectedUpdatedAt: string;
   name: string;
   ratedWatt: number;
 }
@@ -130,17 +120,11 @@ export function restoreFloor(siteId: string, floorId: string, expectedUpdatedAt:
   );
 }
 
-export function listFloorFixtures(siteId: string, floorId: string, cursor?: string) {
+export function getFloorFixtureSettings(siteId: string, floorId: string, cursor?: string) {
   const search = new URLSearchParams({ limit: "200" });
   if (cursor) search.set("cursor", cursor);
-  return apiGet<FloorFixturesPage>(
-    `/sites/${encodeURIComponent(siteId)}/floors/${encodeURIComponent(floorId)}/fixtures?${search.toString()}`
-  );
-}
-
-export function getFloorFixtureSettings(siteId: string, floorId: string) {
   return apiGet<FloorFixtureSettingsResponse>(
-    `/sites/${encodeURIComponent(siteId)}/floors/${encodeURIComponent(floorId)}/fixtures/settings`
+    `/sites/${encodeURIComponent(siteId)}/floors/${encodeURIComponent(floorId)}/fixtures/settings?${search.toString()}`
   );
 }
 
@@ -150,7 +134,7 @@ export function updateFixtureMetadata(
   fixtureId: string,
   input: UpdateFixtureMetadataInput
 ) {
-  return apiPatch<Pick<SiteFixture, "id" | "name" | "ratedWatt"> & { floorId: string }>(
+  return apiPatch<Pick<FixtureSettingsItem, "id" | "name" | "ratedWatt" | "updatedAt"> & { floorId: string }>(
     `/sites/${encodeURIComponent(siteId)}/floors/${encodeURIComponent(floorId)}/fixtures/${encodeURIComponent(fixtureId)}`,
     input
   );

@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, InternalServerErrorException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, InternalServerErrorException, NotFoundException } from "@nestjs/common";
 import { isGatewayHeartbeatFresh } from "@led-control/shared";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
@@ -10,9 +10,10 @@ import { PrismaService } from "../prisma/prisma.service";
 import { fixtureStatusWithHealth, toFixtureHealthSnapshot } from "./fixture-health";
 
 const fixtureMetadataSchema = z.object({
+  expectedUpdatedAt: z.string().datetime({ offset: true }),
   name: z.string().trim().min(1).max(120).optional(),
   ratedWatt: z.number().finite().positive().max(999_999.99).multipleOf(0.01).optional()
-}).strict().refine((input) => Object.keys(input).length > 0);
+}).strict().refine((input) => input.name !== undefined || input.ratedWatt !== undefined);
 
 type LockedFixtureMetadata = {
   id: string;
@@ -21,6 +22,7 @@ type LockedFixtureMetadata = {
   floorName: string;
   name: string;
   ratedWatt: Prisma.Decimal;
+  updatedAt: Date;
   energyTrackingStartedAt: Date;
 };
 
@@ -121,21 +123,32 @@ export class FixturesService {
     };
   }
 
-  async getFloorFixtureSettings(user: AuthenticatedUser, siteId: string, floorId: string) {
+  async getFloorFixtureSettings(
+    user: AuthenticatedUser,
+    siteId: string,
+    floorId: string,
+    options: { cursor?: string; limit?: number }
+  ) {
+    const limit = pageLimit(options.limit);
     await this.siteAccess.assert(user, siteId, "manage");
     const floor = await this.prisma.floor.findUnique({
       where: { id: floorId },
-      select: { id: true, siteId: true }
+      select: { id: true, siteId: true, status: true }
     });
-    if (!floor || floor.siteId !== siteId) throw new NotFoundException("floor not found");
+    if (!floor || floor.siteId !== siteId || floor.status !== "active") {
+      throw new NotFoundException("floor not found");
+    }
 
-    const fixtures = await this.prisma.fixture.findMany({
+    const rows = await this.prisma.fixture.findMany({
       where: { siteId, floorId },
       orderBy: { id: "asc" },
+      take: limit + 1,
+      ...(options.cursor ? { cursor: { id: options.cursor }, skip: 1 } : {}),
       select: {
         id: true,
         name: true,
         ratedWatt: true,
+        updatedAt: true,
         meshNode: {
           select: {
             serialNumber: true,
@@ -146,17 +159,21 @@ export class FixturesService {
         }
       }
     });
+    const hasNextPage = rows.length > limit;
+    const fixtures = rows.slice(0, limit);
 
     return {
       items: fixtures.map((fixture) => ({
         id: fixture.id,
         name: fixture.name,
         ratedWatt: Number(fixture.ratedWatt),
+        updatedAt: fixture.updatedAt.toISOString(),
         serialNumber: fixture.meshNode?.serialNumber ?? null,
         deviceUuid: fixture.meshNode?.deviceUuid ?? null,
         meshAddress: fixture.meshNode?.meshAddress ?? null,
         firmwareVersion: fixture.meshNode?.firmwareVersion ?? null
-      }))
+      })),
+      nextCursor: hasNextPage ? fixtures.at(-1)?.id ?? null : null
     };
   }
 
@@ -181,6 +198,7 @@ export class FixturesService {
           (SELECT "name" FROM "Floor" WHERE "Floor"."id" = "Fixture"."floorId") AS "floorName",
           "name",
           "ratedWatt",
+          "updatedAt",
           "energyTrackingStartedAt"
         FROM "Fixture"
         WHERE "id" = ${fixtureId} AND "floorId" = ${floorId} AND "siteId" = ${siteId}
@@ -188,21 +206,25 @@ export class FixturesService {
       `);
       const current = rows[0];
       if (!current) throw new NotFoundException("fixture not found");
+      if (current.updatedAt.getTime() !== new Date(parsed.data.expectedUpdatedAt).getTime()) {
+        throw new ConflictException({ code: "settings_version_conflict" });
+      }
       if (!this.energyCheckpoint || !this.energyDimensions) {
         throw new InternalServerErrorException("fixture energy providers unavailable");
       }
 
       const changedAt = new Date();
-      const nextRatedWatt = parsed.data.ratedWatt === undefined
+      const { expectedUpdatedAt: _expectedUpdatedAt, ...changes } = parsed.data;
+      const nextRatedWatt = changes.ratedWatt === undefined
         ? new Prisma.Decimal(current.ratedWatt)
-        : new Prisma.Decimal(parsed.data.ratedWatt);
+        : new Prisma.Decimal(changes.ratedWatt);
       if (!nextRatedWatt.equals(current.ratedWatt)) {
         await this.energyCheckpoint.closeRatedWattInterval(tx, fixtureId, nextRatedWatt, changedAt);
       }
       await this.energyDimensions.recordFixtureDimensions(tx, {
         fixtureId,
         siteId,
-        name: parsed.data.name ?? current.name,
+        name: changes.name ?? current.name,
         floorId,
         floorName: current.floorName,
         ratedWatt: nextRatedWatt,
@@ -213,15 +235,23 @@ export class FixturesService {
       return tx.fixture.update({
         where: { id: fixtureId },
         data: {
-          ...parsed.data,
-          ...(parsed.data.ratedWatt === undefined
+          ...changes,
+          ...(changes.ratedWatt === undefined
             ? {}
             : { ratedWatt: nextRatedWatt })
         },
-        select: { id: true, floorId: true, name: true, ratedWatt: true }
+        select: { id: true, floorId: true, name: true, ratedWatt: true, updatedAt: true }
       });
     });
 
-    return { ...fixture, ratedWatt: Number(fixture.ratedWatt) };
+    return { ...fixture, ratedWatt: Number(fixture.ratedWatt), updatedAt: fixture.updatedAt.toISOString() };
   }
+}
+
+function pageLimit(value: number | undefined) {
+  const limit = value ?? 200;
+  if (!Number.isInteger(limit) || limit < 1 || limit > 200) {
+    throw new BadRequestException("limit must be an integer from 1 to 200");
+  }
+  return limit;
 }

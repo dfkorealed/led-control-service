@@ -30,9 +30,14 @@ export class FixturesController {
   getFloorFixtureSettings(
     @Param("siteId") siteId: string,
     @Param("floorId") floorId: string,
+    @Query("cursor") cursor: string | undefined,
+    @Query("limit") limit: string | undefined,
     @CurrentUser() user: AuthenticatedUser
   ) {
-    return this.fixturesService.getFloorFixtureSettings(user, siteId, floorId);
+    return this.fixturesService.getFloorFixtureSettings(user, siteId, floorId, {
+      cursor,
+      limit: limit === undefined ? undefined : Number(limit)
+    });
   }
 
   @Patch(":fixtureId")
