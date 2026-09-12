@@ -65,7 +65,7 @@
 
 ### Task 2: 전체 발급·활성화·disable·revoke 경쟁 방어
 
-진행 상태: 구현·검증 완료, Task 2 검토 대기. Task 1의 CRL 15분은 개별 filesystem 호출 상한이 아니라 네트워크·인증 토큰/파일 I/O·DB 작업의 누적 transaction 예산이다. 예산 초과나 DB session 유실 후 이미 시작한 외부 I/O가 계속되는 위험을 주석·설계·DB 문서에 정정했다.
+진행 상태: 구현·검증 완료, Task 2 fix round 1 재검토 대기. Task 1의 CRL 15분은 개별 filesystem 호출 상한이 아니라 네트워크·인증 토큰/파일 I/O·DB 작업의 누적 transaction 예산이다. 예산 초과나 DB session 유실 후 이미 시작한 외부 I/O가 계속되는 위험을 주석·설계·DB 문서에 정정했다.
 
 **Files:**
 - Modify: `apps/api/src/pki/manufacturing-enrollment.service.ts`
@@ -111,6 +111,13 @@
 - [x] **Step 5: 중간 커밋**
 
   `git add apps/api/src/gateway-onboarding apps/api/src/operator-site-admins apps/api/src/pki && git commit -m "fix(api): serialize inventory disable and certificate issuance"`
+
+Task 2 fix round 1 검증 기록:
+
+- [x] Site 삭제가 먼저 잠금을 보유한 MQTT issue·device renewal·activation 세 독립 PostgreSQL 회귀를 추가한다.
+- [x] `pg_stat_activity`와 `pg_locks`를 결합해 삭제 transaction PID가 보유한 동일 advisory key에서 각 요청이 대기함을 확인한다. 삭제 commit 뒤 요청 거절, CA sign 0회, active/pending 0, inventory pointer null, Gateway/Site 부재, 원장 2/1/2개와 연결 인증서 `revocation_pending`을 검증한다.
+- [x] Site 삭제 재시도는 명시적 HTTP 409만 허용하며 다른 예외·reject 값은 즉시 던진다.
+- [x] 기존 전용 PostgreSQL 컨테이너에서 기존 13개+신규 3개 `16/16`, focused unit `89 passed / 10 skipped`, API typecheck와 `git diff --check`를 통과했다. Production 및 migration 변경은 없고 사용자 DB에는 접근하지 않았다. 이전 전체 API/build/Prisma 결과는 최초 Task 2 기록이며 이번 fix에서 반복 실행하지 않았다.
 
 ### Task 3: 문서·최종 검증
 
