@@ -1,7 +1,6 @@
-import { useQuery, type QueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { apiGet, apiPost, isTransientApiError } from "./client";
-import { authMeQueryKey, clearTenantCache } from "./principal-cache";
-import { clearActiveCommandsForUser } from "../features/control/active-command-store";
+import { authMeQueryKey } from "./principal-cache";
 
 export interface AuthUser {
   id: string;
@@ -18,7 +17,10 @@ export function useCurrentUser() {
   return useQuery({
     queryKey: authMeQueryKey,
     queryFn: () => apiGet<{ user: AuthUser }>("/auth/me"),
-    retry: (failureCount, error) => failureCount < 2 && isTransientApiError(error)
+    retry: (failureCount, error) => failureCount < 2 && isTransientApiError(error),
+    // 세션 세대 교체 시 전달한 auth 결과를 즉시 재요청하지 않는다. 수동 retry/online resume는 유지한다.
+    refetchOnMount: false,
+    retryOnMount: false
   });
 }
 
@@ -34,13 +36,7 @@ export function logout() {
   return apiPost<{ ok: boolean }>("/auth/logout", {});
 }
 
-export async function reloginAfterRecovery(queryClient: QueryClient) {
-  const auth = queryClient.getQueryData<{ user?: AuthUser } | null>(authMeQueryKey);
-  await queryClient.cancelQueries();
-  if (auth?.user) clearActiveCommandsForUser(auth.user.id);
-  clearTenantCache(queryClient);
-  queryClient.clear();
-  queryClient.setQueryData(authMeQueryKey, null);
+export async function logoutAfterRecovery() {
   const controller = new AbortController();
   // 장애 중인 logout도 로그인 화면을 영구히 막지 않도록 제한한다. 이 동안 새 로그인은 시작하지 않는다.
   const timeout = window.setTimeout(() => controller.abort(), 5_000);

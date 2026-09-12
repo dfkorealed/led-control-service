@@ -4,6 +4,25 @@ import { expectMinimumTouchTargets, expectNoHorizontalOverflow } from "./support
 
 const secret = "synthetic-private-tenant-url-stack";
 
+test("browser offline at boot shows recovery and resumes the real shell when connectivity returns", async ({ page, context }) => {
+  const api = await installSettingsApiRoutes(page, "admin");
+  // Only the static app resources are delivered by the fixture while the real browser is offline.
+  // navigator.onLine and React Query's online manager remain browser-owned; no online-state mock is used.
+  await page.route("**/*", async (route) => {
+    if (new URL(route.request().url()).pathname.startsWith("/api/")) return route.fallback();
+    return route.fulfill({ response: await route.fetch() });
+  });
+  await context.setOffline(true);
+  await page.goto("/monitoring?siteId=site-1");
+  expect(await page.evaluate(() => navigator.onLine)).toBe(false);
+  await expectRecovery(page, "서비스에 연결할 수 없습니다");
+  await expect(page.getByRole("heading", { name: "LED Control 로그인" })).toHaveCount(0);
+  expect(api.requests.filter((request) => request === "GET /auth/me")).toHaveLength(0);
+  await context.setOffline(false);
+  await expect(page.getByRole("combobox", { name: "맵 선택" })).toBeVisible();
+  expect(api.requests.filter((request) => request === "GET /auth/me")).toHaveLength(1);
+});
+
 async function expectRecovery(page: Page, title: string) {
   await expect(page.getByRole("heading", { name: title })).toBeFocused();
   await expect(page.getByRole("main")).toHaveCount(1);

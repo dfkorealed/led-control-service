@@ -86,11 +86,18 @@ export function clearActiveCommandRequest(
 }
 
 export function clearActiveCommandsForUser(userId: string): void {
+  clearStoredActiveCommands(userStoragePrefix(userId));
+}
+
+export function clearAllActiveCommands(): void {
+  clearStoredActiveCommands(STORAGE_PREFIX);
+}
+
+function clearStoredActiveCommands(prefix: string): void {
   const storage = getSessionStorage();
   if (!storage) return;
 
   try {
-    const prefix = userStoragePrefix(userId);
     const keys = Array.from({ length: storage.length }, (_, index) => storage.key(index))
       .filter((key): key is string => Boolean(key?.startsWith(prefix)));
     keys.forEach((key) => storage.removeItem(key));

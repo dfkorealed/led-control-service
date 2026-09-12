@@ -14,12 +14,21 @@ import {
   mockRegistrationSession
 } from "./test/fixtures";
 import type { RegistrationSession } from "./api/registration";
-import { App } from "./App";
+import { AppRoot as App } from "./AppRoot";
 import { settingsSectionsFor } from "./features/settings/settings-sections";
 import {
   activeCommandStorageKey,
   saveActiveCommandRequest
 } from "./features/control/active-command-store";
+
+let activeClient: QueryClient;
+vi.mock("@tanstack/react-query", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@tanstack/react-query")>();
+  return { ...actual, QueryClientProvider: (props: import("@tanstack/react-query").QueryClientProviderProps) => {
+    activeClient = props.client;
+    return <actual.QueryClientProvider {...props} />;
+  } };
+});
 
 const authState = vi.hoisted(() => ({
   user: {
@@ -393,12 +402,12 @@ describe("App", () => {
         rememberMe: true
       });
     });
-    await waitFor(() => expect(queryClient.getQueryData(["auth", "me"])).toMatchObject({
+    await waitFor(() => expect(activeClient.getQueryData(["auth", "me"])).toMatchObject({
       user: { loginId: "admin_01", organizationId: "organization-ADMIN_01" }
     }));
     expect(queryClient.getQueryData(["dashboard", "old-tenant"])).toBeUndefined();
     expect(queryClient.getMutationCache().getAll()).toHaveLength(0);
-    expect(JSON.stringify(queryClient.getQueryCache().getAll().map((query) => query.state.data))).not.toContain("old-tenant-data");
+    expect(JSON.stringify(activeClient.getQueryCache().getAll().map((query) => query.state.data))).not.toContain("old-tenant-data");
     expect(JSON.stringify(queryClient.getMutationCache().getAll().map((mutation) => mutation.state))).not.toContain("password");
   });
 
@@ -508,7 +517,7 @@ describe("App", () => {
       await queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
     });
 
-    await waitFor(() => expect(queryClient.getQueryData(["auth", "me"])).toMatchObject({
+    await waitFor(() => expect(activeClient.getQueryData(["auth", "me"])).toMatchObject({
       user: { id: "user-2", organizationId: "organization-2" }
     }));
     await waitFor(() => expect(apiGet).toHaveBeenCalledWith("/sites/default/dashboard"));
