@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
+import { Prisma, type MonitoringIncident } from "@prisma/client";
 import { SiteAccessService } from "../access/site-access.service";
 import { AuditService } from "../audit/audit.service";
 import { AuthenticatedUser } from "../auth/auth.types";
@@ -15,6 +15,7 @@ const incidentInclude = {
   acknowledgedBy: { select: actorSelect }, assignedTo: { select: actorSelect }, resolvedBy: { select: actorSelect }
 } satisfies Prisma.MonitoringIncidentInclude;
 type IncidentRow = Prisma.MonitoringIncidentGetPayload<{ include: typeof incidentInclude }>;
+type IncidentTarget = Pick<MonitoringIncident, "type" | "fixtureId" | "gatewayId">;
 
 @Injectable()
 export class MonitoringIncidentsService {
@@ -75,11 +76,16 @@ export class MonitoringIncidentsService {
       // Assignment/user-status writes use the same Site-first lock. Reauthorize
       // only after acquiring it, then serialize this occurrence's mutations.
       const site = await this.access.assertManageInTransaction(tx, user, siteId);
+      const candidate = body.action === "resolve"
+        ? await tx.monitoringIncident.findFirst({ where: { id, siteId } }) : null;
+      if (body.action === "resolve" && !candidate) throw new NotFoundException("incident not found");
+      const lockedGatewayId = candidate ? await this.lockResolutionDependencies(tx, siteId, candidate) : null;
       const locked = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
         SELECT "id" FROM "MonitoringIncident" WHERE "siteId" = ${siteId} AND "id" = ${id} FOR UPDATE
       `);
       if (!locked.length) throw new NotFoundException("incident not found");
       const current = await tx.monitoringIncident.findFirstOrThrow({ where: { id, siteId } });
+      if (candidate && (candidate.type !== current.type || candidate.fixtureId !== current.fixtureId || candidate.gatewayId !== current.gatewayId)) throw this.targetChanged();
       this.assertRevision(current.updatedAt, body.expectedUpdatedAt, "INCIDENT_CONFLICT");
       if (current.status === "resolved" || (body.action === "acknowledge" && current.status !== "open")) {
         throw new ConflictException({ code: "INCIDENT_INVALID_STATE", message: "incident action is no longer available" });
@@ -101,17 +107,7 @@ export class MonitoringIncidentsService {
         data = { assignedTo: body.userId === null ? { disconnect: true } : { connect: { id: body.userId } } };
       } else {
         const policy = await this.policy(tx, siteId);
-        // Lock the actual target before reading, so a completed MQTT state update
-        // cannot be lost between the recovery check and this commit.
-        if (current.gatewayId) await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "Gateway" WHERE "id" = ${current.gatewayId} AND "siteId" = ${siteId} FOR UPDATE`);
-        if (current.fixtureId) await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "Fixture" WHERE "id" = ${current.fixtureId} AND "siteId" = ${siteId} FOR UPDATE`);
-        const target = current.gatewayId
-          ? { gateway: await tx.gateway.findFirst({ where: { id: current.gatewayId, siteId }, select: { lastHeartbeatAt: true } }) }
-          : { fixture: await tx.fixture.findFirst({ where: { id: current.fixtureId!, siteId }, select: {
-              lastSeenAt: true, statusReason: true, healthFaultCodes: true, healthLastSeenAt: true,
-              meshNode: { select: { gateway: { select: { lastHeartbeatAt: true } } } }
-            } }) };
-        const condition = "fixture" in target ? { fixture: target.fixture, gateway: target.fixture?.meshNode?.gateway } : target;
+        const condition = await this.readResolutionCondition(tx, siteId, current, lockedGatewayId);
         // A blocked target lock can outlive a freshness threshold. Sample time
         // again after reading the locked snapshot before confirming recovery.
         now = new Date(Math.max(now.getTime(), Date.now()));
@@ -126,6 +122,50 @@ export class MonitoringIncidentsService {
         metadata: { action: body.action, status: saved.status, ...(body.action === "assign" ? { assignedToUserId: body.userId } : {}) } });
       return this.summary(saved);
     });
+  }
+
+  private async lockResolutionDependencies(tx: Prisma.TransactionClient, siteId: string, target: IncidentTarget) {
+    let gatewayId = target.gatewayId;
+    if (target.fixtureId) {
+      const fixture = await tx.fixture.findFirst({ where: { id: target.fixtureId, siteId }, select: { gatewayId: true } });
+      if (!fixture) throw new NotFoundException("incident target not found");
+      gatewayId = fixture.gatewayId;
+    }
+    // Resolution order is Site -> Gateway -> Fixture -> Incident, matching
+    // gateway-first provisioning and target deletion cascades. NO KEY UPDATE
+    // blocks heartbeat writers but permits the Gateway FK KEY SHARE acquired by
+    // fixture ingestion while it owns Fixture; FOR UPDATE would create a cycle.
+    if (gatewayId) {
+      const gateways = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
+        SELECT "id" FROM "Gateway" WHERE "id" = ${gatewayId} AND "siteId" = ${siteId} FOR NO KEY UPDATE
+      `);
+      if (!gateways.length) throw new NotFoundException("incident target not found");
+    }
+    if (target.fixtureId) {
+      const fixtures = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
+        SELECT "id" FROM "Fixture" WHERE "id" = ${target.fixtureId} AND "siteId" = ${siteId} FOR UPDATE
+      `);
+      if (!fixtures.length) throw new NotFoundException("incident target not found");
+    }
+    return gatewayId;
+  }
+
+  private async readResolutionCondition(tx: Prisma.TransactionClient, siteId: string, target: IncidentTarget, lockedGatewayId: string | null) {
+    const fixture = target.fixtureId ? await tx.fixture.findFirst({ where: { id: target.fixtureId, siteId }, select: {
+      gatewayId: true, lastSeenAt: true, statusReason: true, healthFaultCodes: true, healthLastSeenAt: true
+    } }) : null;
+    if (target.fixtureId && !fixture) throw new NotFoundException("incident target not found");
+    // Fixture.gatewayId is enforced against MeshNode by its composite FK and
+    // owner-projection trigger. If mapping changed while we waited, abort instead
+    // of acquiring a new Gateway lock after Fixture (which would invert order).
+    if (fixture && fixture.gatewayId !== lockedGatewayId) throw this.targetChanged();
+    const gateway = lockedGatewayId ? await tx.gateway.findFirst({ where: { id: lockedGatewayId, siteId }, select: { lastHeartbeatAt: true } }) : null;
+    if (lockedGatewayId && !gateway) throw new NotFoundException("incident target not found");
+    return { fixture, gateway };
+  }
+
+  private targetChanged() {
+    return new ConflictException({ code: "INCIDENT_TARGET_CHANGED", message: "incident target changed; reload and retry" });
   }
 
   private async policy(tx: Prisma.TransactionClient, siteId: string) {

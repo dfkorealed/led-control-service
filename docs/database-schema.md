@@ -370,6 +370,8 @@ SQL CHECK는 대상/유형/키의 일치, 활성/해결 상태별 key·시각·r
 
 `GET/PATCH /sites/:siteId/monitoring-policy`와 인시던트 목록/변경 API는 read/manage capability를 구분한다. 변경은 Site → incident 순서 잠금과 재인가, optimistic concurrency, 같은 transaction의 `AuditLog`를 사용한다. 수동 해결은 실제 대상 상태가 정상으로 복구된 경우에만 허용하며 아직 장애면 `409 INCIDENT_STILL_ACTIVE`다. 이 단계는 schema/API와 공통 조건 판정만 구현했고 주기적 생성·자동 해결 및 Web 연결은 후속 P1 작업이다. migration은 폐기 가능한 PostgreSQL에서만 검증하고 사용자 DB에는 적용하지 않는다.
 
+수동 해결은 Site가 Incident보다 먼저 잠기는 규칙에 대상 의존성을 추가해 `Site → Gateway → Fixture → Incident` 순서를 사용한다. Gateway의 `FOR NO KEY UPDATE`는 heartbeat writer를 직렬화하면서 Fixture 수집이 이후 받는 Gateway FK의 `KEY SHARE`를 허용해 역대기를 방지한다. Fixture row 잠금 후 소유 Gateway ID를 재검증하며 발견 시점과 다르면 `409 INCIDENT_TARGET_CHANGED`로 중단한다. 잠금 순서를 뒤집어 새 Gateway를 추가로 잠그지 않는다. 조건 판정은 모든 의존성 잠금 뒤 실제 snapshot을 다시 조회한다.
+
 ### SiteDeletionCleanup
 
 현장 DB 삭제와 S3/MinIO·PKI 같은 외부 시스템 정리를 분리하는 durable 작업 원장이다. 삭제된 `Site`와 FK를 맺지 않아 Site cascade 후에도 남는다.

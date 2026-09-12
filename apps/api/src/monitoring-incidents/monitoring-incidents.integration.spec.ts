@@ -59,6 +59,118 @@ const databaseUrl = process.env.MONITORING_INCIDENTS_TEST_DATABASE_URL;
   };
   const patch = (id: string, updatedAt: Date, action: Record<string, unknown>) => service.update(admin, siteId, id, { expectedUpdatedAt: updatedAt.toISOString(), ...action });
 
+  function gate() {
+    let release!: () => void;
+    const promise = new Promise<void>((resolve) => { release = resolve; });
+    return { promise, release };
+  }
+  function interceptTransaction(hooks: { beforeQuery?: (sql: string) => Promise<void>; beforeWrite?: () => Promise<void> }) {
+    const transaction = prisma.$transaction.bind(prisma);
+    jest.spyOn(prisma, "$transaction").mockImplementationOnce((operation: any) => transaction(async (tx) => operation(new Proxy(tx, {
+      get(target, key) {
+        if (key === "$queryRaw") return async (...args: unknown[]) => {
+          await hooks.beforeQuery?.((args[0] as { sql?: string }).sql ?? "");
+          return Reflect.apply(target.$queryRaw, target, args);
+        };
+        if (key === "monitoringIncident") return new Proxy(target.monitoringIncident, {
+          get(delegate, method) {
+            if (method !== "update") return Reflect.get(delegate, method);
+            return async (args: Prisma.MonitoringIncidentUpdateArgs) => { await hooks.beforeWrite?.(); return delegate.update(args); };
+          }
+        });
+        return Reflect.get(target, key);
+      }
+    })), { timeout: 10_000 }));
+  }
+
+  it("waits for a preceding heartbeat commit before checking fixture-stale recovery", async () => {
+    const incident = await createIncident();
+    await prisma.fixture.update({ where: { id: fixtureId }, data: { lastSeenAt: null } });
+    await prisma.gateway.update({ where: { id: gatewayId }, data: { lastHeartbeatAt: null } });
+    const competitor = new PrismaService({ datasources: { db: { url: databaseUrl! } } });
+    const heartbeatWritten = gate(); const releaseHeartbeat = gate(); const gatewayAttempted = gate();
+    const heartbeat = competitor.$transaction(async (tx) => {
+      await tx.gateway.update({ where: { id: gatewayId }, data: { lastHeartbeatAt: new Date() } });
+      heartbeatWritten.release();
+      await releaseHeartbeat.promise;
+    }, { timeout: 10_000 });
+    try {
+      await heartbeatWritten.promise;
+      interceptTransaction({ beforeQuery: async (sql) => { if (sql.includes('FROM "Gateway"')) gatewayAttempted.release(); } });
+      const resolution = patch(incident.id, incident.updatedAt, { action: "resolve", note: "확인" }).then(
+        (value) => ({ status: "fulfilled" as const, value }), (reason: unknown) => ({ status: "rejected" as const, reason })
+      );
+      // Old code reaches a wrong resolved result; fixed code first waits on the
+      // dependency lock. Either event releases the competing transaction safely.
+      await Promise.race([resolution, gatewayAttempted.promise]);
+      releaseHeartbeat.release();
+      await heartbeat;
+      expect(await resolution).toMatchObject({ status: "rejected", reason: { response: { code: "INCIDENT_STILL_ACTIVE" } } });
+      expect((await prisma.monitoringIncident.findUniqueOrThrow({ where: { id: incident.id } })).status).toBe("open");
+    } finally { releaseHeartbeat.release(); await heartbeat; await competitor.$disconnect(); }
+  });
+
+  it("holds the heartbeat dependency stable until a recovery write commits", async () => {
+    const incident = await createIncident();
+    await prisma.fixture.update({ where: { id: fixtureId }, data: { lastSeenAt: null } });
+    await prisma.gateway.update({ where: { id: gatewayId }, data: { lastHeartbeatAt: null } });
+    const competitor = new PrismaService({ datasources: { db: { url: databaseUrl! } } });
+    const beforeWrite = gate(); const releaseWrite = gate();
+    interceptTransaction({ beforeWrite: async () => { beforeWrite.release(); await releaseWrite.promise; } });
+    const resolution = patch(incident.id, incident.updatedAt, { action: "resolve", note: "Gateway 장애로 전환" });
+    try {
+      await beforeWrite.promise;
+      await expect(competitor.$transaction(async (tx) => {
+        // The timeout tests an actual conflicting row lock without a timed sleep.
+        await tx.$executeRawUnsafe("SET LOCAL lock_timeout = '200ms'");
+        await tx.gateway.update({ where: { id: gatewayId }, data: { lastHeartbeatAt: new Date() } });
+      })).rejects.toThrow(/lock timeout/);
+    } finally { releaseWrite.release(); await competitor.$disconnect(); }
+    expect(await resolution).toMatchObject({ status: "resolved" });
+    await prisma.gateway.update({ where: { id: gatewayId }, data: { lastHeartbeatAt: new Date() } });
+    expect((await prisma.gateway.findUniqueOrThrow({ where: { id: gatewayId } })).lastHeartbeatAt).not.toBeNull();
+  });
+
+  it("allows ingestion Gateway FK key-share while resolution waits for Fixture", async () => {
+    const incident = await createIncident();
+    const competitor = new PrismaService({ datasources: { db: { url: databaseUrl! } } });
+    const fixtureLocked = gate(); const fixtureAttempted = gate();
+    const ingestion = competitor.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "Fixture" WHERE "id" = ${fixtureId} FOR UPDATE`;
+      fixtureLocked.release();
+      await fixtureAttempted.promise;
+      await tx.$executeRawUnsafe("SET LOCAL lock_timeout = '200ms'");
+      // This is the lock mode acquired by ProcessedGatewayEvent's Gateway FK.
+      await tx.$queryRaw`SELECT "id" FROM "Gateway" WHERE "id" = ${gatewayId} FOR KEY SHARE`;
+      await tx.fixture.update({ where: { id: fixtureId }, data: { lastSeenAt: new Date() } });
+    }, { timeout: 10_000 });
+    try {
+      await fixtureLocked.promise;
+      interceptTransaction({ beforeQuery: async (sql) => { if (sql.includes('FROM "Fixture"')) fixtureAttempted.release(); } });
+      const resolution = patch(incident.id, incident.updatedAt, { action: "resolve", note: "수신 복구" });
+      await ingestion;
+      expect(await resolution).toMatchObject({ status: "resolved" });
+    } finally { fixtureAttempted.release(); await competitor.$disconnect(); }
+  });
+
+  it("rejects a gateway mapping change committed before the Fixture lock", async () => {
+    const incident = await createIncident();
+    const competitor = new PrismaService({ datasources: { db: { url: databaseUrl! } } });
+    let detached = false;
+    interceptTransaction({ beforeQuery: async (sql) => {
+      if (!detached && sql.includes('FROM "Gateway"')) {
+        detached = true;
+        await competitor.fixture.update({ where: { id: fixtureId }, data: { meshNodeId: null, gatewayId: null } });
+      }
+    } });
+    try {
+      await expect(patch(incident.id, incident.updatedAt, { action: "resolve", note: "확인" }))
+        .rejects.toMatchObject({ status: 409, response: { code: "INCIDENT_TARGET_CHANGED" } });
+      expect((await prisma.monitoringIncident.findUniqueOrThrow({ where: { id: incident.id } })).status).toBe("open");
+      expect(await prisma.auditLog.count({ where: { targetId: incident.id } })).toBe(0);
+    } finally { await competitor.$disconnect(); }
+  });
+
   it("returns Site defaults to read users and applies audited policy changes only for managers", async () => {
     const policy = await service.getPolicy(viewer, siteId);
     expect(policy).toMatchObject({ gatewayOfflineAfterSeconds: 90, fixtureStaleAfterSeconds: 180 });
