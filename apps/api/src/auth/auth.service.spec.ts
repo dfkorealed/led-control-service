@@ -565,6 +565,30 @@ describe("AuthService", () => {
       currentPassword: "temporary password", newPassword: "temporary password", newPasswordConfirmation: "temporary password"
     })).rejects.toBeInstanceOf(BadRequestException);
   });
+
+  it("revokes logout and records the session termination in the same transaction", async () => {
+    const tx = {
+      session: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: "session-1", revokedAt: null, user: { id: "admin-1", organizationId: "org-1" }
+        }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 })
+      }
+    };
+    const audit = { record: jest.fn() };
+    const service = createAuthService(
+      { $transaction: (callback: (client: typeof tx) => unknown) => callback(tx) } as unknown as PrismaService,
+      undefined,
+      audit as unknown as AuditService
+    );
+    await service.logout("current-token");
+    expect(tx.session.updateMany).toHaveBeenCalledWith({
+      where: { id: "session-1", revokedAt: null }, data: { revokedAt: expect.any(Date) }
+    });
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({
+      transaction: tx, action: "auth.logout", targetId: "session-1", actorId: "admin-1"
+    }));
+  });
 });
 
 function createLoginPrisma(storedUser: Record<string, unknown> | null = null) {

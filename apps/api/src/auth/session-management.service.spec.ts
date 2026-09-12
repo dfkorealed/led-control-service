@@ -1,4 +1,4 @@
-import { NotFoundException } from "@nestjs/common";
+import { NotFoundException, UnauthorizedException } from "@nestjs/common";
 import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { SessionManagementService } from "./session-management.service";
@@ -14,6 +14,7 @@ describe("SessionManagementService", () => {
     }];
     const tx = {
       session: {
+        findUnique: jest.fn().mockResolvedValue({ userId: user.id, revokedAt: null, expiresAt: new Date("2026-09-13T00:00:00Z") }),
         findFirst: jest.fn().mockResolvedValue(rows[0]),
         updateMany: jest.fn().mockResolvedValue({ count: 1 })
       },
@@ -56,6 +57,13 @@ describe("SessionManagementService", () => {
     const { service, tx } = fixture();
     tx.session.findFirst.mockResolvedValue(null);
     await expect(service.revoke(user, "current-token", "foreign-session")).rejects.toBeInstanceOf(NotFoundException);
+    expect(tx.session.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("rejects a session-management mutation when the guard-validated current token was revoked concurrently", async () => {
+    const { service, tx } = fixture();
+    tx.session.findUnique.mockResolvedValue({ userId: user.id, revokedAt: new Date(), expiresAt: new Date("2026-09-13T00:00:00Z") });
+    await expect(service.revokeOthers(user, "current-token")).rejects.toBeInstanceOf(UnauthorizedException);
     expect(tx.session.updateMany).not.toHaveBeenCalled();
   });
 

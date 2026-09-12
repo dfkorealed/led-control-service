@@ -310,9 +310,25 @@ export class AuthService {
   }
 
   async logout(sessionToken: string) {
-    await this.db().session.updateMany({
-      where: { tokenHash: this.hashToken(sessionToken), revokedAt: null },
-      data: { revokedAt: new Date() }
+    await this.db().$transaction(async (tx: Prisma.TransactionClient) => {
+      const session = await tx.session.findUnique({
+        where: { tokenHash: this.hashToken(sessionToken) },
+        include: { user: { select: { id: true, organizationId: true } } }
+      });
+      if (!session || session.revokedAt) return;
+      await tx.session.updateMany({
+        where: { id: session.id, revokedAt: null },
+        data: { revokedAt: new Date() }
+      });
+      await this.audit.record({
+        transaction: tx,
+        organizationId: session.user.organizationId,
+        actorId: session.user.id,
+        action: "auth.logout",
+        targetType: "Session",
+        targetId: session.id,
+        outcome: "success"
+      });
     });
   }
 

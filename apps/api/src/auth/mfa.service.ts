@@ -188,6 +188,12 @@ export class MfaService {
       if (!storedUser.mfa) throw new ConflictException({ code: "MFA_NOT_ENABLED", message: "MFA is not enabled" });
       const verification = this.verifyFactor(storedUser.mfa, input);
       if (!verification.valid) throw this.invalidMfa();
+      if (verification.recoveryCodeUsed) {
+        await this.audit.record({
+          transaction: tx, organizationId: user.organizationId, actorId: user.id,
+          action: "auth.mfa_recovery_code_used", targetType: "User", targetId: user.id, outcome: "success"
+        });
+      }
       await tx.userMfa.delete({ where: { userId: user.id } });
       const rotated = await this.rotateCurrentSession(tx, currentSession, false);
       await this.audit.record({

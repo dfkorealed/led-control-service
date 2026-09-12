@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { Injectable, NotFoundException, UnauthorizedException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { createHash } from "node:crypto";
 import { AuditService } from "../audit/audit.service";
@@ -34,6 +34,7 @@ export class SessionManagementService {
 
   async revoke(user: SessionOwner, currentSessionToken: string, sessionId: string) {
     return this.db().$transaction(async (tx: Prisma.TransactionClient) => {
+      await this.assertCurrentSession(tx, user.id, currentSessionToken);
       const session = await tx.session.findFirst({
         where: { id: sessionId, userId: user.id, revokedAt: null, expiresAt: { gt: new Date() } },
         select: { id: true, tokenHash: true }
@@ -55,6 +56,7 @@ export class SessionManagementService {
 
   async revokeOthers(user: SessionOwner, currentSessionToken: string) {
     return this.db().$transaction(async (tx: Prisma.TransactionClient) => {
+      await this.assertCurrentSession(tx, user.id, currentSessionToken);
       const revoked = await tx.session.updateMany({
         where: { userId: user.id, revokedAt: null, tokenHash: { not: this.hashToken(currentSessionToken) } },
         data: { revokedAt: new Date() }
@@ -70,6 +72,16 @@ export class SessionManagementService {
 
   hashToken(token: string) {
     return createHash("sha256").update(token).digest("hex");
+  }
+
+  private async assertCurrentSession(tx: Prisma.TransactionClient, userId: string, token: string) {
+    const session = await tx.session.findUnique({
+      where: { tokenHash: this.hashToken(token) },
+      select: { userId: true, revokedAt: true, expiresAt: true }
+    });
+    if (!session || session.userId !== userId || session.revokedAt || session.expiresAt <= new Date()) {
+      throw new UnauthorizedException("Authentication required");
+    }
   }
 
   private db() {
