@@ -472,6 +472,53 @@ test("등록된 조명이 있는 관리자도 모니터링에서 등록 UI를 �
   await expect(page.getByRole("dialog", { name: "조명 등록" })).toHaveCount(0);
 });
 
+test("게이트웨이만 있는 현장의 관리자는 empty 안내에서 인시던트 조치와 판정 기준을 사용한다", async ({ page }) => {
+  await installMonitoringFixture(page, { fixtureRows: [] });
+  const reliability = await installMonitoringReliabilityRoutes(page, { targetKind: "gateway" });
+  await page.goto(`/monitoring?siteId=${ids.site}`);
+
+  await expect(page.getByRole("heading", { name: "등록된 조명이 없습니다" })).toBeVisible();
+  const incidentTab = page.getByRole("tab", { name: "인시던트 1" });
+  await expect(incidentTab).toBeVisible();
+  await incidentTab.click();
+  const history = page.getByRole("list", { name: "인시던트 이력" });
+  await expect(history.getByText("게이트웨이 오프라인", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "확인", exact: true }).click();
+  await expect(history.getByText("확인됨", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "판정 기준" }).click();
+  await expect(page.getByRole("dialog", { name: "판정 기준" })).toBeVisible();
+  expect(reliability.incidentActions).toEqual([
+    { action: "acknowledge", expectedUpdatedAt: "2026-09-12T00:01:00.000Z" }
+  ]);
+});
+
+test("게이트웨이만 있는 현장의 조회 사용자는 empty 안내와 읽기 전용 인시던트 이력을 함께 본다", async ({ page }) => {
+  await installSettingsApiRoutes(page, "viewer", {
+    fixtures: [],
+    ids: { siteId: ids.site, floorId: ids.floor, gatewayId: ids.gateway }
+  });
+  await installMonitoringReliabilityRoutes(page, { role: "viewer", targetKind: "gateway" });
+  await page.goto(`/monitoring?siteId=${ids.site}`);
+
+  await expect(page.getByRole("region", { name: "Viewer 설치 대기" })).toBeVisible();
+  await page.getByRole("tab", { name: "인시던트 1" }).click();
+  await expect(page.getByRole("list", { name: "인시던트 이력" }).getByText("게이트웨이 오프라인", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "확인", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "판정 기준" })).toHaveCount(0);
+});
+
+test("fixture 최초 조회 실패가 site-wide 인시던트 이력을 숨기지 않는다", async ({ page }) => {
+  await installMonitoringFixture(page);
+  const failures = await installMonitoringRefreshFailures(page);
+  failures.failNextFixtureRequests(3);
+  await installMonitoringReliabilityRoutes(page, { targetKind: "gateway" });
+  await page.goto(`/monitoring?siteId=${ids.site}`);
+
+  await expect(page.getByText("조명 상태를 불러오지 못했습니다.", { exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: "인시던트 1" }).click();
+  await expect(page.getByRole("list", { name: "인시던트 이력" }).getByText("게이트웨이 오프라인", { exact: true })).toBeVisible();
+});
+
 for (const dimensions of [{ width: 2400, height: 600 }, { width: 600, height: 2400 }]) {
   test(`${dimensions.width}x${dimensions.height} 도면은 데스크톱 지도 영역 안에 비율을 유지해 맞춘다`, async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
@@ -656,6 +703,28 @@ test("부분 지도 갱신 실패에도 이전 지도와 선택 상세를 유지
   await expect(page.getByRole("complementary", { name: "선택 조명 상세" })).toContainText("현재 밝기");
 });
 
+test("지도 갱신 3회 실패 뒤 새 revision 자동 poll 성공이 경고를 지우고 선택·배율을 보존한다", async ({ page }) => {
+  await page.clock.install({ time: new Date(monitoringSnapshotAt) });
+  const api = await installMonitoringFixture(page, { snapshotGeneratedAt: monitoringSnapshotAt, fixtureRows: reliabilityFixtures });
+  await page.goto(`/monitoring?siteId=${ids.site}`);
+  await selectReliabilityFixtureAt120Percent(page);
+
+  const requestsBeforeFailure = api.mapSnapshotRequests;
+  api.failNextMapSnapshots(3);
+  await page.getByRole("button", { name: "새로고침" }).click();
+  await page.clock.fastForward(3_100);
+  await expect(page.getByText("저장된 지도를 유지하고 있습니다. 지도 갱신에 실패했습니다.")).toBeVisible();
+  const requestsAfterFailure = api.mapSnapshotRequests;
+  expect(requestsAfterFailure).toBe(requestsBeforeFailure + 3);
+
+  api.advanceMapRevision();
+  await page.clock.fastForward(30_000);
+
+  await expect.poll(() => api.mapSnapshotRequests).toBeGreaterThan(requestsAfterFailure);
+  await expect(page.getByText("저장된 지도를 유지하고 있습니다. 지도 갱신에 실패했습니다.")).toHaveCount(0);
+  await expectReliabilitySelectionAndZoom(page);
+});
+
 async function installMonitoringRefreshFailures(page: Page) {
   let dashboardFailuresRemaining = 0;
   let fixtureFailuresRemaining = 0;
@@ -683,7 +752,10 @@ async function installMonitoringRefreshFailures(page: Page) {
   };
 }
 
-async function installMonitoringReliabilityRoutes(page: Page) {
+async function installMonitoringReliabilityRoutes(page: Page, {
+  role = "admin",
+  targetKind = "fixture"
+}: { role?: "admin" | "viewer"; targetKind?: "fixture" | "gateway" } = {}) {
   const currentAdmin = { id: ids.admin, name: "고객 관리자", loginId: "admin_user" };
   const incidentActions: Array<IncidentAction & { expectedUpdatedAt: string }> = [];
   const policyUpdates: Array<Omit<MonitoringPolicy, "id" | "updatedAt"> & { expectedUpdatedAt: string }> = [];
@@ -694,9 +766,11 @@ async function installMonitoringReliabilityRoutes(page: Page) {
   let incident: MonitoringIncident = {
     id: ids.incident,
     siteId: ids.site,
-    type: "fixture_stale",
+    type: targetKind === "gateway" ? "gateway_offline" : "fixture_stale",
     status: "open",
-    target: { kind: "fixture", id: staleFixtureId, name: "B2-L003", floorId: ids.floor },
+    target: targetKind === "gateway"
+      ? { kind: "gateway", id: ids.gateway, name: "Gateway B2" }
+      : { kind: "fixture", id: staleFixtureId, name: "B2-L003", floorId: ids.floor },
     openedAt: "2026-09-12T00:00:00.000Z",
     lastObservedAt: "2026-09-12T00:01:00.000Z",
     acknowledgedAt: null,
@@ -722,7 +796,7 @@ async function installMonitoringReliabilityRoutes(page: Page) {
         ...currentAdmin,
         organizationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
         organizationType: "customer",
-        role: "admin",
+        role,
         status: "active"
       }
     }

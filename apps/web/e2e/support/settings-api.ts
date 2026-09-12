@@ -97,6 +97,7 @@ export interface SettingsApiFixtureState {
   fixturePageRequests: number;
   mapSnapshotRequests: number;
   failNextMapSnapshots: (count: number) => void;
+  advanceMapRevision: () => void;
   fixturePageCursors: Array<string | null>;
   dimmingRequests: CreateDimmingCommandInput[];
   commandStatusRequests: string[];
@@ -208,6 +209,9 @@ export async function installSettingsApiRoutes(
     failNextMapSnapshots: (count) => {
       if (!Number.isInteger(count) || count < 1) throw new Error("map snapshot failure count must be a positive integer");
       remainingMapSnapshotFailures += count;
+    },
+    advanceMapRevision: () => {
+      mapRevision += 1;
     },
     fixturePageCursors: [],
     dimmingRequests: [],

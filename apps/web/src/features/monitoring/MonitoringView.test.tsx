@@ -7,15 +7,25 @@ const queryMocks = vi.hoisted(() => ({
   useDashboard: vi.fn(),
   useFloorFixtures: vi.fn(),
   useFloorMapSnapshot: vi.fn(),
-  useMonitoringIncidents: vi.fn()
+  useMonitoringIncidents: vi.fn(),
+  useMonitoringIncidentMutation: vi.fn(),
+  useMonitoringPolicy: vi.fn(),
+  useMonitoringPolicyMutation: vi.fn(),
+  useSiteUsers: vi.fn()
 }));
 
 vi.mock("../../api/queries", () => queryMocks);
 vi.mock("../../api/monitoring-incidents", () => ({
   useMonitoringIncidents: queryMocks.useMonitoringIncidents,
+  useMonitoringIncidentMutation: queryMocks.useMonitoringIncidentMutation,
+  useMonitoringPolicy: queryMocks.useMonitoringPolicy,
+  useMonitoringPolicyMutation: queryMocks.useMonitoringPolicyMutation,
+  incidentMutationErrorMessage: () => "인시던트 조치에 실패했습니다.",
+  getMonitoringErrorCode: () => undefined,
   incidentTypeLabels: { gateway_offline: "게이트웨이 오프라인", fixture_stale: "조명 수신 지연", fixture_fault: "조명 장애", command_failed: "명령 실패" },
   incidentStatusLabels: { open: "미확인", acknowledged: "확인됨", resolved: "해결됨" }
 }));
+vi.mock("../../api/site-users", () => ({ useSiteUsers: queryMocks.useSiteUsers }));
 vi.mock("../registration/RegistrationPanel", () => ({
   RegistrationPanel: () => <section aria-label="조명 등록 패널">조명 등록 패널</section>
 }));
@@ -47,6 +57,25 @@ const fixture = {
   controlBlockReason: null
 };
 
+const gatewayIncident = {
+  id: "99999999-9999-4999-8999-999999999999",
+  siteId: "site-1",
+  type: "gateway_offline" as const,
+  status: "open" as const,
+  target: { kind: "gateway" as const, id: "gateway-1", name: "GW-1" },
+  openedAt: "2026-09-12T00:00:00.000Z",
+  lastObservedAt: "2026-09-12T00:01:00.000Z",
+  acknowledgedAt: null,
+  resolvedAt: null,
+  createdAt: "2026-09-12T00:00:00.000Z",
+  updatedAt: "2026-09-12T00:01:00.000Z",
+  acknowledgedBy: null,
+  assignedTo: null,
+  resolvedBy: null,
+  resolutionKind: null,
+  resolutionNote: null
+};
+
 describe("MonitoringView refresh", () => {
   const refetchDashboard = vi.fn();
   const refetchFixtures = vi.fn();
@@ -55,6 +84,16 @@ describe("MonitoringView refresh", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     queryMocks.useMonitoringIncidents.mockReturnValue({ data: { pages: [{ incidents: [], activeCount: 3, nextCursor: null }] }, refetch: vi.fn(), error: null, hasNextPage: false });
+    queryMocks.useMonitoringIncidentMutation.mockReturnValue({ mutateAsync: vi.fn(), isPending: false });
+    queryMocks.useMonitoringPolicy.mockReturnValue({
+      data: { id: "site-1", gatewayOfflineAfterSeconds: 90, fixtureStaleAfterSeconds: 180, updatedAt: "2026-09-12T00:00:00.000Z" },
+      error: null,
+      isPending: false,
+      isFetching: false,
+      refetch: vi.fn()
+    });
+    queryMocks.useMonitoringPolicyMutation.mockReturnValue({ mutateAsync: vi.fn(), isPending: false });
+    queryMocks.useSiteUsers.mockReturnValue({ data: { users: [], count: 0, limit: 100 }, error: null, isPending: false });
     const currentGeneratedAt = new Date().toISOString();
     refetchDashboard.mockResolvedValue({ data: dashboard });
     refetchFixtures.mockResolvedValue({ data: { pages: [{ items: [fixture], nextCursor: null, generatedAt: currentGeneratedAt }] } });
@@ -84,6 +123,7 @@ describe("MonitoringView refresh", () => {
       error: null,
       isPending: false,
       isLoading: false,
+      isFetching: false,
       refetch: refetchMap
     });
   });
@@ -427,6 +467,70 @@ describe("MonitoringView refresh", () => {
     );
   });
 
+  it("게이트웨이만 있는 현장의 관리자는 empty 안내와 인시던트 조치·판정 기준을 함께 사용한다", async () => {
+    queryMocks.useDashboard.mockReturnValue({
+      data: {
+        ...dashboard,
+        summary: { ...dashboard.summary, totalFixtures: 0 },
+        capabilities: { read: true, control: true, manage: true, commission: true }
+      },
+      isLoading: false,
+      error: null,
+      dataUpdatedAt: new Date("2026-09-12T00:00:00.000Z").getTime(),
+      refetch: refetchDashboard
+    });
+    queryMocks.useFloorFixtures.mockReturnValue({
+      data: { pages: [{ items: [], nextCursor: null, generatedAt: new Date().toISOString() }] },
+      dataUpdatedAt: Date.now(), error: null, isPending: false, isLoading: false, isFetching: false,
+      hasNextPage: false, isFetchingNextPage: false, fetchNextPage: vi.fn(), refetch: refetchFixtures
+    });
+    queryMocks.useMonitoringIncidents.mockReturnValue({
+      data: { pages: [{ incidents: [gatewayIncident], activeCount: 1, nextCursor: null }] },
+      refetch: vi.fn(), error: null, isPending: false, isFetching: false, hasNextPage: false
+    });
+
+    render(<MemoryRouter><MonitoringView siteId="site-1" userRole="admin" /></MemoryRouter>);
+
+    expect(screen.getByRole("heading", { name: "등록된 조명이 없습니다" })).toBeInTheDocument();
+    const incidentTab = await screen.findByRole("tab", { name: "인시던트 1" });
+    fireEvent.click(incidentTab);
+    expect(screen.getByRole("list", { name: "인시던트 이력" })).toHaveTextContent("게이트웨이 오프라인");
+    expect(screen.getByRole("button", { name: "확인" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "판정 기준" }));
+    expect(screen.getByRole("dialog", { name: "판정 기준" })).toBeInTheDocument();
+  });
+
+  it("게이트웨이만 있는 현장의 조회 사용자는 empty 안내와 읽기 전용 인시던트 이력을 함께 본다", async () => {
+    queryMocks.useDashboard.mockReturnValue({
+      data: {
+        ...dashboard,
+        summary: { ...dashboard.summary, totalFixtures: 0 },
+        capabilities: { read: true, control: false, manage: false, commission: false }
+      },
+      isLoading: false,
+      error: null,
+      dataUpdatedAt: Date.now(),
+      refetch: refetchDashboard
+    });
+    queryMocks.useFloorFixtures.mockReturnValue({
+      data: { pages: [{ items: [], nextCursor: null, generatedAt: new Date().toISOString() }] },
+      dataUpdatedAt: Date.now(), error: null, isPending: false, isLoading: false, isFetching: false,
+      hasNextPage: false, isFetchingNextPage: false, fetchNextPage: vi.fn(), refetch: refetchFixtures
+    });
+    queryMocks.useMonitoringIncidents.mockReturnValue({
+      data: { pages: [{ incidents: [gatewayIncident], activeCount: 1, nextCursor: null }] },
+      refetch: vi.fn(), error: null, isPending: false, isFetching: false, hasNextPage: false
+    });
+
+    render(<MemoryRouter><MonitoringView siteId="site-1" userRole="viewer" /></MemoryRouter>);
+
+    expect(screen.getByRole("region", { name: "Viewer 설치 대기" })).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("tab", { name: "인시던트 1" }));
+    expect(screen.getByRole("list", { name: "인시던트 이력" })).toHaveTextContent("게이트웨이 오프라인");
+    expect(screen.queryByRole("button", { name: "확인" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "판정 기준" })).not.toBeInTheDocument();
+  });
+
   it("조회 사용자는 조명 등록 진입점을 표시하지 않는다", () => {
     render(<MonitoringView siteId="site-1" userRole="viewer" />);
 
@@ -527,6 +631,10 @@ describe("MonitoringView refresh", () => {
       fetchNextPage: vi.fn(),
       refetch: refetchFixtures
     });
+    queryMocks.useMonitoringIncidents.mockReturnValue({
+      data: { pages: [{ incidents: [gatewayIncident], activeCount: 1, nextCursor: null }] },
+      refetch: vi.fn(), error: null, isPending: false, isFetching: false, hasNextPage: false
+    });
 
     render(<MonitoringView siteId="site-1" />);
 
@@ -534,6 +642,8 @@ describe("MonitoringView refresh", () => {
     expect(screen.queryByRole("group", { name: "전체 조명" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "조명 상태 다시 시도" }));
     expect(refetchFixtures).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("tab", { name: "인시던트 1" }));
+    expect(screen.getByRole("list", { name: "인시던트 이력" })).toHaveTextContent("게이트웨이 오프라인");
   });
 
   it("fixture 갱신 실패 시 이전 성공 데이터를 유지하고 오류를 알린다", () => {
@@ -616,6 +726,44 @@ describe("MonitoringView refresh", () => {
     expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("현재 밝기");
     fireEvent.click(screen.getByRole("button", { name: "지도 다시 시도" }));
     expect(refetchMap).toHaveBeenCalledTimes(2);
+  });
+
+  it("같은 cached 지도의 observer 변화로 실패를 지우지 않고 새 자동 성공에서만 복구한다", async () => {
+    const baselineUpdatedAt = new Date("2026-09-12T00:00:00.000Z").getTime();
+    let mapState = {
+      data: mapSnapshot,
+      dataUpdatedAt: baselineUpdatedAt,
+      error: null as Error | null,
+      isPending: false,
+      isLoading: false,
+      isFetching: false,
+      refetch: refetchMap
+    };
+    queryMocks.useFloorMapSnapshot.mockImplementation(() => mapState);
+    refetchMap.mockRejectedValueOnce(new Error("map unavailable"));
+    const view = render(<MonitoringView siteId="site-1" />);
+    fireEvent.click(screen.getByRole("button", { name: "지도 확대" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
+    expect(await screen.findByText("저장된 지도를 유지하고 있습니다. 지도 갱신에 실패했습니다.")).toBeInTheDocument();
+
+    view.rerender(<MonitoringView siteId="site-1" />);
+    expect(screen.getByText("저장된 지도를 유지하고 있습니다. 지도 갱신에 실패했습니다.")).toBeInTheDocument();
+
+    mapState = { ...mapState, dataUpdatedAt: baselineUpdatedAt + 1, isFetching: true };
+    view.rerender(<MonitoringView siteId="site-1" />);
+    expect(screen.getByText("저장된 지도를 유지하고 있습니다. 지도 갱신에 실패했습니다.")).toBeInTheDocument();
+
+    mapState = {
+      ...mapState,
+      data: { ...mapSnapshot, revision: mapSnapshot.revision + 1 },
+      isFetching: false
+    };
+    view.rerender(<MonitoringView siteId="site-1" />);
+
+    await waitFor(() => expect(screen.queryByText("저장된 지도를 유지하고 있습니다. 지도 갱신에 실패했습니다.")).not.toBeInTheDocument());
+    expect(screen.getByRole("region", { name: "층 도면" })).toHaveAttribute("data-zoom", "1.1");
+    expect(screen.getByRole("combobox", { name: "상세 조명 선택" })).toHaveValue("fixture-1");
   });
 
   it("모바일 모니터링은 320px에서 문서 overflow 없이 동작한다", () => {

@@ -11,6 +11,11 @@ import { MonitoringIncidentPanel, type MonitoringCurrentUser } from "./Monitorin
 const STALE_SNAPSHOT_AFTER_MS = 60_000;
 const MAX_BROWSER_TIMEOUT_MS = 2_147_483_647;
 
+interface MapRefreshFailure {
+  floorId: string;
+  dataUpdatedAt: number;
+}
+
 export function MonitoringView({ userRole = "admin", siteId, currentUser }: { userRole?: "operator" | "admin" | "viewer"; siteId?: string; currentUser?: MonitoringCurrentUser }) {
   const dashboardQuery = useDashboard(siteId);
   const { data, isLoading, error } = dashboardQuery;
@@ -48,7 +53,7 @@ function MonitoringDashboard({ data, userRole, siteId, currentUser, dashboardErr
   const [selectedFixtureId, setSelectedFixtureId] = useState<string | null>(null);
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
-  const [mapRefreshFailedFloorId, setMapRefreshFailedFloorId] = useState<string | null>(null);
+  const [mapRefreshFailure, setMapRefreshFailure] = useState<MapRefreshFailure | null>(null);
   const [freshnessRevision, setFreshnessRevision] = useState(0);
   const floor = data.floors.find((item) => item.id === selectedFloorId) ?? data.floors[0];
   const fixtureQuery = useFloorFixtures(floor?.id, siteId ?? data.site.id);
@@ -56,7 +61,7 @@ function MonitoringDashboard({ data, userRole, siteId, currentUser, dashboardErr
   const hasFixtureData = fixtureQuery.data !== undefined;
   const fixtures = fixtureQuery.data?.pages.flatMap((page) => page.items) ?? [];
   const mapSnapshot = mapQuery.data;
-  const mapRefreshFailed = mapRefreshFailedFloorId === floor?.id;
+  const mapRefreshFailed = mapRefreshFailure?.floorId === floor?.id;
   const selectedFixture = fixtures.find((fixture) => fixture.id === selectedFixtureId) ?? fixtures[0];
   const selectedFixturePresentation = selectedFixture ? presentFixtureStatus(selectedFixture) : null;
   const snapshotFreshness = useMemo(
@@ -103,37 +108,17 @@ function MonitoringDashboard({ data, userRole, siteId, currentUser, dashboardErr
     });
   }, [floor?.id, fixtures]);
 
+  useEffect(() => {
+    if (!mapRefreshFailure || mapRefreshFailure.floorId !== floor?.id) return;
+    if (!mapQuery.data || mapQuery.error || mapQuery.isFetching) return;
+    if (mapQuery.dataUpdatedAt <= mapRefreshFailure.dataUpdatedAt) return;
+    setMapRefreshFailure((current) => current === mapRefreshFailure ? null : current);
+  }, [floor?.id, mapQuery.data, mapQuery.dataUpdatedAt, mapQuery.error, mapQuery.isFetching, mapRefreshFailure]);
+
   if (!data.site.id) {
     return (
       <section className="screen-grid monitoring-screen">
         <InstallationPending />
-      </section>
-    );
-  }
-
-  if (data.summary.totalFixtures === 0) {
-    if (userRole !== "admin") {
-      return (
-        <section className="screen-grid monitoring-screen">
-          <InstallationPending />
-        </section>
-      );
-    }
-
-    return (
-      <section className="screen-grid monitoring-screen">
-        <div className="screen-heading">
-          <div>
-            <span className="eyebrow">초기 설정</span>
-            <h2>등록된 조명이 없습니다</h2>
-          </div>
-        </div>
-        <FeedbackState
-          icon={Clock3}
-          title="조명 등록은 설정 페이지에서 진행합니다"
-          description="게이트웨이 연결과 조명 검색·등록은 설정의 조명 등록 메뉴에서 사용할 수 있습니다."
-          action={<Link to={`/settings/registration?siteId=${encodeURIComponent(data.site.id)}`}>설정 페이지로 이동</Link>}
-        />
       </section>
     );
   }
@@ -154,9 +139,9 @@ function MonitoringDashboard({ data, userRole, siteId, currentUser, dashboardErr
       mapQuery.refetch({ throwOnError: true })
     ]);
     const failureCount = results.filter((result) => result.status === "rejected").length;
-    setMapRefreshFailedFloorId((current) => results[2]?.status === "rejected"
-      ? refreshedFloorId
-      : current === refreshedFloorId ? null : current);
+    setMapRefreshFailure((current) => results[2]?.status === "rejected" && refreshedFloorId
+      ? { floorId: refreshedFloorId, dataUpdatedAt: mapQuery.dataUpdatedAt }
+      : current?.floorId === refreshedFloorId ? null : current);
     if (failureCount === results.length) {
       setRefreshError("현황 데이터를 새로고침하지 못했습니다.");
     } else if (failureCount > 0) {
@@ -167,11 +152,11 @@ function MonitoringDashboard({ data, userRole, siteId, currentUser, dashboardErr
 
   async function handleMapRetry() {
     const retriedFloorId = floor?.id ?? null;
-    setMapRefreshFailedFloorId((current) => current === retriedFloorId ? null : current);
     try {
       await mapQuery.refetch({ throwOnError: true });
+      setMapRefreshFailure((current) => current?.floorId === retriedFloorId ? null : current);
     } catch {
-      setMapRefreshFailedFloorId(retriedFloorId);
+      setMapRefreshFailure(retriedFloorId ? { floorId: retriedFloorId, dataUpdatedAt: mapQuery.dataUpdatedAt } : null);
     }
   }
 
@@ -233,7 +218,7 @@ function MonitoringDashboard({ data, userRole, siteId, currentUser, dashboardErr
         />
       ) : null}
 
-      {hasFixtureData ? (
+      {hasFixtureData && data.summary.totalFixtures > 0 ? (
         <>
           <div className="summary-row">
             <MetricCard label="전체 조명" value={floorSummary.totalFixtures} helper="선택 층 기준" tone="primary" />
@@ -256,35 +241,39 @@ function MonitoringDashboard({ data, userRole, siteId, currentUser, dashboardErr
               ))}
             </select>
           </label>
+        </>
+      ) : null}
 
-          <div className="operations-layout ui-side-panel-layout">
-            <div className="map-panel">
-              {floor && mapSnapshot ? (
-                <>
-                  <FloorMap floor={{ ...floor, fixtures }} snapshot={mapSnapshot} selectedFixtureId={selectedFixture?.id ?? null} onSelectFixture={setSelectedFixtureId} />
-                  {fixtures.length > 0 && fixtures.every((fixture) => fixture.placementStatus === "unplaced") && <FeedbackState icon={Clock3} title="배치된 조명이 없습니다" description={`등록된 조명 ${fixtures.length}개는 목록에서 조회하고 제어할 수 있습니다.`} action={userRole === "admin" ? <Link to={`/settings/floor-plans/${encodeURIComponent(floor.id)}/edit?siteId=${encodeURIComponent(data.site.id)}`}>설정에서 조명 배치</Link> : undefined} />}
-                  {mapQuery.error || mapRefreshFailed ? (
-                    <FeedbackState
-                      tone="danger"
-                      icon={TriangleAlert}
-                      title="저장된 지도를 유지하고 있습니다. 지도 갱신에 실패했습니다."
-                      action={<Button variant="secondary" onClick={() => void handleMapRetry()}>지도 다시 시도</Button>}
-                    />
-                  ) : null}
-                </>
-              ) : floor && (mapQuery.error || mapRefreshFailed) ? (
+      <div className="operations-layout ui-side-panel-layout">
+        <div className="map-panel">
+          {data.summary.totalFixtures === 0 ? (
+            <EmptyFixtureGuidance userRole={userRole} siteId={data.site.id} />
+          ) : !hasFixtureData ? null : floor && mapSnapshot ? (
+            <>
+              <FloorMap floor={{ ...floor, fixtures }} snapshot={mapSnapshot} selectedFixtureId={selectedFixture?.id ?? null} onSelectFixture={setSelectedFixtureId} />
+              {fixtures.length > 0 && fixtures.every((fixture) => fixture.placementStatus === "unplaced") && <FeedbackState icon={Clock3} title="배치된 조명이 없습니다" description={`등록된 조명 ${fixtures.length}개는 목록에서 조회하고 제어할 수 있습니다.`} action={userRole === "admin" ? <Link to={`/settings/floor-plans/${encodeURIComponent(floor.id)}/edit?siteId=${encodeURIComponent(data.site.id)}`}>설정에서 조명 배치</Link> : undefined} />}
+              {mapQuery.error || mapRefreshFailed ? (
                 <FeedbackState
                   tone="danger"
                   icon={TriangleAlert}
-                  title="저장된 지도를 불러오지 못했습니다."
+                  title="저장된 지도를 유지하고 있습니다. 지도 갱신에 실패했습니다."
                   action={<Button variant="secondary" onClick={() => void handleMapRetry()}>지도 다시 시도</Button>}
                 />
-              ) : floor ? (
-                <FeedbackState icon={Clock3} title="저장된 지도를 불러오는 중" />
-              ) : (
-                <div className="panel">등록된 층이 없습니다.</div>
-              )}
-            </div>
+              ) : null}
+            </>
+          ) : floor && (mapQuery.error || mapRefreshFailed) ? (
+            <FeedbackState
+              tone="danger"
+              icon={TriangleAlert}
+              title="저장된 지도를 불러오지 못했습니다."
+              action={<Button variant="secondary" onClick={() => void handleMapRetry()}>지도 다시 시도</Button>}
+            />
+          ) : floor ? (
+            <FeedbackState icon={Clock3} title="저장된 지도를 불러오는 중" />
+          ) : (
+            <div className="panel">등록된 층이 없습니다.</div>
+          )}
+        </div>
             <SidePanel className="detail-panel" aria-label="선택 조명 상세">
               <UnderlineNavigation as="div" role="tablist" aria-label="모니터링 상세" className="monitoring-detail-tabs">
                 {(["fixture", "incidents"] as const).map((tab, index) => <Button
@@ -378,12 +367,28 @@ function MonitoringDashboard({ data, userRole, siteId, currentUser, dashboardErr
                 <MonitoringIncidentPanel siteId={siteId ?? data.site.id} canManage={data.capabilities?.manage === true} currentUser={currentUser} onActiveCountChange={setActiveIncidentCount} />
               </div>
             </SidePanel>
-          </div>
-        </>
-      ) : null}
+      </div>
 
     </section>
   );
+}
+
+function EmptyFixtureGuidance({ userRole, siteId }: { userRole: MonitoringDashboardProps["userRole"]; siteId: string }) {
+  if (userRole !== "admin") return <InstallationPending />;
+  return <>
+    <div className="screen-heading">
+      <div>
+        <span className="eyebrow">초기 설정</span>
+        <h2>등록된 조명이 없습니다</h2>
+      </div>
+    </div>
+    <FeedbackState
+      icon={Clock3}
+      title="조명 등록은 설정 페이지에서 진행합니다"
+      description="게이트웨이 연결과 조명 검색·등록은 설정의 조명 등록 메뉴에서 사용할 수 있습니다."
+      action={<Link to={`/settings/registration?siteId=${encodeURIComponent(siteId)}`}>설정 페이지로 이동</Link>}
+    />
+  </>;
 }
 
 function FixtureQueryFeedback({
