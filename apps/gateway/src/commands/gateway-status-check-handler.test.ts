@@ -176,4 +176,42 @@ describe("handleGatewayStatusCheck", () => {
     expect(failed.fixtureStateObserved).toBe(false);
     expect(adapter.listeners.size).toBe(0);
   });
+
+  it("does not Get when broker TTL expires during asynchronous pre-execution validation", async () => {
+    let monotonic = 0;
+    let validations = 0;
+    const adapter = observationAdapter(async () => undefined);
+    const result = await handleGatewayStatusCheck(adapter, new CommandJournal(await journalFile()), command(), undefined, {
+      receipt: { receivedAtMonotonicMs: 0, brokerRemainingTtlMs: 100 },
+      monotonicClock: () => monotonic,
+      isCommandExpired: async () => {
+        await Promise.resolve();
+        if (++validations === 2) monotonic = 100;
+        return false;
+      }
+    });
+    expect(validations).toBe(2);
+    expect(result.acceptance.status).toBe("accepted");
+    expect(result.deviceStatus.status).toBe("timed_out");
+    expect(adapter.resyncLightingFixtures).not.toHaveBeenCalled();
+    expect(adapter.listeners.size).toBe(0);
+  });
+
+  it("rechecks remaining TTL immediately before Get and detaches a listener installed at expiry", async () => {
+    let monotonic = 0;
+    const adapter = observationAdapter(async () => undefined);
+    const subscribe = adapter.onLightingObservation;
+    adapter.onLightingObservation = (listener) => {
+      const detach = subscribe(listener);
+      monotonic = 100;
+      return detach;
+    };
+    const result = await handleGatewayStatusCheck(adapter, new CommandJournal(await journalFile()), command(), undefined, {
+      receipt: { receivedAtMonotonicMs: 0, brokerRemainingTtlMs: 100 },
+      monotonicClock: () => monotonic, isCommandExpired: async () => false
+    });
+    expect(result.deviceStatus.status).toBe("timed_out");
+    expect(adapter.resyncLightingFixtures).not.toHaveBeenCalled();
+    expect(adapter.listeners.size).toBe(0);
+  });
 });

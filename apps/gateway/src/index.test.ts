@@ -164,6 +164,37 @@ describe("status check MQTT runtime", () => {
       expect(ctx.adapter.resyncLightingFixtures).not.toHaveBeenCalled();
     } finally { await ctx.runtime.stopAndDrain(); await rm(ctx.directory, { recursive: true, force: true }); }
   });
+
+  it("releases a duplicate PUBLISH before the first acceptance PUBACK so MQTT intake cannot deadlock", async () => {
+    const ctx = await setup();
+    let releaseAcceptance!: () => void;
+    const acceptancePuback = new Promise<void>((resolve) => { releaseAcceptance = resolve; });
+    const firstReceipt = vi.fn();
+    const duplicateReceipt = vi.fn(() => releaseAcceptance());
+    const deliveries: Promise<void>[] = [];
+    try {
+      ctx.publish.mockImplementationOnce(async () => { await acceptancePuback; });
+      const payload = Buffer.from(JSON.stringify(ctx.command));
+      deliveries.push(ctx.runtime.handle(payload, {} as any, ctx.receipt, { acknowledgeDurable: firstReceipt }));
+      await vi.waitFor(() => expect(ctx.publish).toHaveBeenCalledOnce());
+      expect(firstReceipt).toHaveBeenCalledOnce();
+      expect(ctx.adapter.resyncLightingFixtures).not.toHaveBeenCalled();
+      // Model MQTT.js serial packet intake: the first acceptance PUBACK is
+      // behind this duplicate PUBLISH's durable receipt callback.
+      deliveries.push(ctx.runtime.handle(payload, {} as any, ctx.receipt, { acknowledgeDurable: duplicateReceipt }));
+      await vi.waitFor(() => expect(duplicateReceipt).toHaveBeenCalledOnce());
+      await Promise.all(deliveries);
+      expect(ctx.adapter.resyncLightingFixtures).toHaveBeenCalledOnce();
+      const terminals = ctx.published.filter(({ topic }) => topic.endsWith("device-status"));
+      expect(terminals).toHaveLength(2);
+      expect(terminals[0].payload).toEqual(terminals[1].payload);
+    } finally {
+      releaseAcceptance();
+      await Promise.allSettled(deliveries);
+      await ctx.runtime.stopAndDrain();
+      await rm(ctx.directory, { recursive: true, force: true });
+    }
+  });
 });
 
 it("publishes provisioning completion before isolating capability refresh failure", async () => {

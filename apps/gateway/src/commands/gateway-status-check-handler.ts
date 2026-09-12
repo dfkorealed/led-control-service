@@ -18,7 +18,11 @@ export interface GatewayStatusCheckOptions extends Pick<GatewayCommandOptions,
 
 type StatusAdapter = Pick<BleMeshAdapter, "onLightingObservation" | "resyncLightingFixtures">;
 type StatusJournal = Pick<CommandJournal, "get" | "accept" | "complete">;
-const inFlight = new WeakMap<StatusJournal, Map<string, Promise<GatewayCommandResult>>>();
+interface ActiveStatusCheck {
+  durableReceipt: Promise<void>;
+  result: Promise<GatewayCommandResult>;
+}
+const inFlight = new WeakMap<StatusJournal, Map<string, ActiveStatusCheck>>();
 
 export function handleGatewayStatusCheck(
   adapter: StatusAdapter,
@@ -35,13 +39,33 @@ export function handleGatewayStatusCheck(
   const existing = running.get(command.idempotencyKey);
   // Live duplicate deliveries share the original execution; only a persisted receipt
   // without an in-process owner is recovered as indeterminate after a restart.
-  if (existing) return existing.then((result) => {
-    options.onDurableReceipt?.();
-    return result;
+  // MQTT.js serial packet intake can put the first acceptance PUBACK behind a
+  // duplicate PUBLISH. Its durable callback must not wait for terminal completion.
+  if (existing) return Promise.all([
+    existing.result,
+    existing.durableReceipt.then(() => options.onDurableReceipt?.())
+  ]).then(([result]) => result);
+  let receiptPersisted!: () => void;
+  let receiptFailed!: (error: unknown) => void;
+  const durableReceipt = new Promise<void>((resolve, reject) => {
+    receiptPersisted = resolve;
+    receiptFailed = reject;
   });
-  const handling = executeStatusCheck(adapter, journal, command, onAccepted, options)
+  // The receipt may fail before a duplicate exists; the terminal promise remains
+  // the original caller's error boundary while duplicates also observe that failure.
+  void durableReceipt.catch(() => undefined);
+  const handling = executeStatusCheck(adapter, journal, command, onAccepted, {
+    ...options,
+    onDurableReceipt: () => {
+      receiptPersisted();
+      options.onDurableReceipt?.();
+    }
+  }).catch((error: unknown) => {
+    receiptFailed(error);
+    throw error;
+  })
     .finally(() => running.delete(command.idempotencyKey));
-  running.set(command.idempotencyKey, handling);
+  running.set(command.idempotencyKey, { durableReceipt, result: handling });
   return handling;
 }
 
@@ -91,19 +115,26 @@ function receiptRemainingMs(options: GatewayStatusCheckOptions) {
 }
 
 async function isExpired(command: GatewayStatusCheckCommandV2Compatible, options: GatewayStatusCheckOptions) {
-  return receiptRemainingMs(options) <= 0 || (options.isCommandExpired
+  const expired = receiptRemainingMs(options) <= 0 || (options.isCommandExpired
     ? await options.isCommandExpired(command.expiresAt) : isGatewayCommandExpired(command.expiresAt));
+  // Clock-trust validation may await storage while the broker delivery TTL elapses.
+  return expired || receiptRemainingMs(options) <= 0;
+}
+
+function observationRemainingMs(command: GatewayStatusCheckCommandV2Compatible, options: GatewayStatusCheckOptions) {
+  return Math.min(receiptRemainingMs(options),
+    // With an untrusted wall clock the broker receipt remains the deadline authority.
+    options.isCommandExpired ? Infinity : new Date(command.expiresAt).getTime() - Date.now());
 }
 
 async function observeTargets(
   adapter: StatusAdapter, command: GatewayStatusCheckCommandV2Compatible,
   observations: Map<string, number>, options: GatewayStatusCheckOptions
 ) {
+  const timeoutMs = Math.min(options.timeoutMs ?? 8000, observationRemainingMs(command, options));
+  if (timeoutMs <= 0) return;
   const controller = new AbortController();
   const targets = new Set(command.targetFixtureIds);
-  const timeoutMs = Math.max(1, Math.min(options.timeoutMs ?? 8000, receiptRemainingMs(options),
-    // With an untrusted wall clock the broker receipt remains the deadline authority.
-    options.isCommandExpired ? Infinity : new Date(command.expiresAt).getTime() - Date.now()));
   let finish!: () => void;
   const ended = new Promise<void>((resolve) => { finish = resolve; });
   const abort = () => { controller.abort(); finish(); };
@@ -117,6 +148,7 @@ async function observeTargets(
         observations.set(observation.fixtureId, observation.powerOn ? observation.brightness : 0);
       }
     });
+    if (controller.signal.aborted || observationRemainingMs(command, options) <= 0) return;
     // The adapter sends Generic OnOff/Lightness Get and may finish early when all
     // replies arrive. A rejected/unfinished resync leaves missing targets unknown.
     await Promise.race([
