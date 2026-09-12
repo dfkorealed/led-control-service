@@ -159,4 +159,20 @@ describe("customer shell site context", () => {
 
     expect(screen.getByTestId("site-users-view")).toHaveTextContent("유저 관리 화면 site");
   });
+
+  it("keeps manage-capable users on the operational site settings route", async () => {
+    renderShell("/settings/site?siteId=site");
+
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    expect(screen.getByTestId("location")).toHaveTextContent("/settings/site?siteId=site");
+  });
+
+  it("hides and replaces operational site settings for viewers", async () => {
+    dashboardState.current = { data: dashboardFor({ read: true, control: false, manage: false, commission: false }), isLoading: false, error: null, refetch: vi.fn() };
+
+    renderShell("/settings/site?siteId=site", { ...adminUser, id: "viewer", loginId: "viewer", role: "viewer" });
+
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/settings?siteId=site"));
+    expect(screen.queryByRole("link", { name: "현장 관리" })).not.toBeInTheDocument();
+  });
 });
