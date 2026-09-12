@@ -85,3 +85,13 @@ Disposable container `led-dep-audit-task1-20260912`는 새 PostgreSQL 16 DB로�
 - `image-size` 두 High는 registry상 safe release가 아직 없어 raw audit에서 사라지지 않는다. 정책은 patch 파일/해시, exact graph, regression 존재 여부가 바뀌면 fail-closed한다.
 - ExcelJS의 UUID Moderate는 API XLSX runtime 경로에 남지만 취약 API는 도달하지 않는다. exact ExcelJS version/path가 바뀌면 정책은 fail-closed한다.
 - Web build의 기존 500 kB chunk 경고, 실제 mobile bundle/HIL과 실제 장비 검증은 이번 dependency Task 범위 밖이며 완료로 간주하지 않았다.
+
+## Review fix: audit 수집 실패와 checkout path
+
+후속 리뷰의 Important 2건은 TDD로 수정했다.
+
+- RED에서 pnpm error envelope와 `{}`가 0건 audit로 정규화되어 exit 0이었고, `metadata.high=1`/빈 advisory도 exit 0이었다. `audit:production` shell pipeline은 upstream pnpm status를 잃었다.
+- `audit:production`은 이제 정책 Node script가 `pnpm audit --prod --audit-level=moderate --json`을 직접 실행한다. 실제 취약점이 있는 정상 report의 pnpm exit 1은 허용하되, command 시작/종료 오류, error envelope, 빈·malformed JSON, 필수 metadata/advisory/finding 필드 누락, severity별 metadata/advisory count 불일치와 findings 없는 exit 1은 모두 fail-closed한다.
+- RED에서 공백과 한글이 포함된 복사 checkout 경로는 `import.meta.url`과 raw `file://${process.argv[1]}` 비교가 달라 main guard가 실행되지 않았다. `realpathSync()`와 `pathToFileURL()`의 canonical encoded URL을 비교하도록 바꿔 macOS `/var`→`/private/var` realpath와 URL encoding을 함께 처리했다.
+- fake pnpm command boundary에서 error envelope exit 1은 실패하고, exact UUID exception을 담은 유효 raw report exit 1은 통과하는 것을 검증했다. 공백+한글 경로에서는 unknown High가 exit 1/`UNEXPECTED`를 출력하고 clean report가 정상 summary를 출력한다.
+- 최종 `node --test scripts/production-audit-policy.test.mjs scripts/image-size-security.test.mjs`는 12/12 통과했다. `pnpm audit:production`은 Critical 0/High 2/Moderate 1/Low 0, 820개와 기존 exact exception 3건을 출력하고 exit 0이며, dependency/version/exception 범위는 바꾸지 않았다.

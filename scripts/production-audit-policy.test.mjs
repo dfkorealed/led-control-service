@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -20,6 +20,39 @@ function runPolicy(t, report, args = [], options = {}) {
   });
 }
 
+function auditMetadata(vulnerabilities, dependencies = 10) {
+  return {
+    vulnerabilities: {
+      info: 0,
+      low: 0,
+      moderate: 0,
+      high: 0,
+      critical: 0,
+      ...vulnerabilities
+    },
+    dependencies,
+    devDependencies: 0,
+    optionalDependencies: 0,
+    totalDependencies: dependencies
+  };
+}
+
+function runLivePolicy(t, report, auditExitCode) {
+  const directory = mkdtempSync(path.join(tmpdir(), "led-audit-command-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const fakePnpmPath = path.join(directory, "pnpm");
+  writeFileSync(
+    fakePnpmPath,
+    `#!/usr/bin/env node\nprocess.stdout.write(${JSON.stringify(JSON.stringify(report))});\nprocess.exitCode = ${auditExitCode};\n`
+  );
+  chmodSync(fakePnpmPath, 0o755);
+  return spawnSync(process.execPath, [scriptPath], {
+    cwd: projectRoot,
+    encoding: "utf8",
+    env: { ...process.env, PATH: `${directory}:${process.env.PATH}` }
+  });
+}
+
 test("production audit JSON을 advisory별 package, severity, 경로와 patched floor로 정규화한다", (t) => {
   const result = runPolicy(t, {
     advisories: {
@@ -36,13 +69,7 @@ test("production audit JSON을 advisory별 package, severity, 경로와 patched 
         ]
       }
     },
-    metadata: {
-      vulnerabilities: { info: 0, low: 0, moderate: 0, high: 1, critical: 0 },
-      dependencies: 10,
-      devDependencies: 0,
-      optionalDependencies: 0,
-      totalDependencies: 10
-    }
+    metadata: auditMetadata({ high: 1 })
   }, ["--normalize-only"]);
 
   assert.equal(result.status, 0, result.stderr);
@@ -78,10 +105,7 @@ test("정책에 없는 Moderate 이상 advisory는 경로와 안전 버전을 �
         findings: [{ version: "1.0.0", paths: ["apps/api > unknown-package@1.0.0"] }]
       }
     },
-    metadata: {
-      vulnerabilities: { info: 0, low: 0, moderate: 1, high: 0, critical: 0 },
-      dependencies: 10
-    }
+    metadata: auditMetadata({ moderate: 1 })
   });
 
   assert.equal(result.status, 1);
@@ -104,7 +128,7 @@ test("CI는 fresh audit JSON을 stdin으로 전달해 같은 fail-closed 정책�
         findings: [{ version: "2.0.0", paths: ["apps/web > stdin-package@2.0.0"] }]
       }
     },
-    metadata: { vulnerabilities: { high: 1 }, dependencies: 20 }
+    metadata: auditMetadata({ high: 1 }, 20)
   };
   const result = spawnSync(process.execPath, [scriptPath, "--input", "-"], {
     cwd: projectRoot,
@@ -129,7 +153,7 @@ test("승인된 exception은 exact package/version/path에만 적용하고 제�
   };
   const report = {
     advisories: { "400": advisory },
-    metadata: { vulnerabilities: { moderate: 1 }, dependencies: 30 }
+    metadata: auditMetadata({ moderate: 1 }, 30)
   };
 
   const accepted = runPolicy(t, report);
@@ -170,7 +194,7 @@ test("image-size exception은 exact advisory와 repository patch/regression이 �
       "500": advisory("GHSA-w3rx-r6r6-pgpr", "ICNS parser infinite loop"),
       "501": advisory("GHSA-5p2g-fcmc-qvqq", "JXL and HEIF parser infinite loops")
     },
-    metadata: { vulnerabilities: { high: 2 }, dependencies: 40 }
+    metadata: auditMetadata({ high: 2 }, 40)
   };
 
   const accepted = runPolicy(t, report);
@@ -187,4 +211,122 @@ test("image-size exception은 exact advisory와 repository patch/regression이 �
   assert.equal(rejected.status, 1);
   assert.match(rejected.stdout, /UNEXPECTED GHSA-w3rx-r6r6-pgpr/);
   assert.match(rejected.stdout, /mitigation-missing=patches\/image-size@1\.2\.1\.patch/);
+});
+
+test("pnpm audit error envelope와 누락·malformed report는 fail-closed한다", (t) => {
+  const malformedReports = [
+    {
+      label: "error envelope",
+      report: { error: { code: "ERR_PNPM_AUDIT_BAD_RESPONSE", message: "registry unreachable" } },
+      expected: /audit collection error ERR_PNPM_AUDIT_BAD_RESPONSE: registry unreachable/
+    },
+    {
+      label: "missing fields",
+      report: {},
+      expected: /missing advisories/
+    },
+    {
+      label: "malformed advisory",
+      report: {
+        advisories: {
+          "600": {
+            github_advisory_id: "GHSA-malformed-abcd-0006",
+            module_name: "malformed-package",
+            severity: "high",
+            vulnerable_versions: "<1.0.0",
+            patched_versions: ">=1.0.0",
+            findings: [{ version: "0.1.0", paths: [] }]
+          }
+        },
+        metadata: auditMetadata({ high: 1 })
+      },
+      expected: /advisory 600 title must be a non-empty string/
+    }
+  ];
+
+  for (const { label, report, expected } of malformedReports) {
+    const result = runPolicy(t, report);
+    assert.equal(result.status, 1, `${label}: ${result.stdout}`);
+    assert.match(result.stderr, expected, label);
+  }
+});
+
+test("metadata severity count와 advisory 목록이 다르면 fail-closed한다", (t) => {
+  const result = runPolicy(t, {
+    advisories: {},
+    metadata: auditMetadata({ high: 1 })
+  });
+
+  assert.equal(result.status, 1, result.stdout);
+  assert.match(result.stderr, /high count mismatch: metadata=1 advisories=0/);
+});
+
+test("실제 audit command의 error envelope는 실패하고 vulnerability exit 1의 승인 예외 report는 통과한다", (t) => {
+  const failedCollection = runLivePolicy(
+    t,
+    { error: { code: "ERR_PNPM_AUDIT_BAD_RESPONSE", message: "registry unreachable" } },
+    1
+  );
+  assert.equal(failedCollection.status, 1, failedCollection.stdout);
+  assert.match(failedCollection.stderr, /audit collection error ERR_PNPM_AUDIT_BAD_RESPONSE: registry unreachable/);
+
+  const allowedAdvisory = {
+    advisories: {
+      "700": {
+        github_advisory_id: "GHSA-w5hq-g745-h8pq",
+        module_name: "uuid",
+        severity: "moderate",
+        title: "uuid buffer bounds",
+        vulnerable_versions: "<11.1.1",
+        patched_versions: ">=11.1.1",
+        findings: [{ version: "8.3.2", paths: ["apps/api > exceljs@4.4.0 > uuid@8.3.2"] }]
+      }
+    },
+    metadata: auditMetadata({ moderate: 1 }, 30)
+  };
+  const acceptedVulnerabilityReport = runLivePolicy(t, allowedAdvisory, 1);
+  assert.equal(acceptedVulnerabilityReport.status, 0, acceptedVulnerabilityReport.stderr);
+  assert.match(acceptedVulnerabilityReport.stdout, /EXCEPTION GHSA-w5hq-g745-h8pq uuid@8\.3\.2 moderate/);
+});
+
+test("공백과 한글 checkout path에서도 main guard가 unknown High를 실행해 실패한다", (t) => {
+  const directory = mkdtempSync(path.join(tmpdir(), "보안 audit checkout "));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const copiedScriptPath = path.join(directory, "production audit 정책.mjs");
+  copyFileSync(scriptPath, copiedScriptPath);
+  const inputPath = path.join(directory, "unknown-high.json");
+  writeFileSync(inputPath, JSON.stringify({
+    advisories: {
+      "800": {
+        github_advisory_id: "GHSA-space-abcd-0008",
+        module_name: "space-path-package",
+        severity: "high",
+        title: "space path vulnerability",
+        vulnerable_versions: "<1.0.0",
+        patched_versions: ">=1.0.0",
+        findings: [{ version: "0.1.0", paths: ["apps/api > space-path-package@0.1.0"] }]
+      }
+    },
+    metadata: auditMetadata({ high: 1 })
+  }));
+
+  const result = spawnSync(process.execPath, [copiedScriptPath, "--input", inputPath], { encoding: "utf8" });
+  assert.equal(result.status, 1, result.stdout);
+  assert.match(result.stdout, /UNEXPECTED GHSA-space-abcd-0008/);
+});
+
+test("공백과 한글 checkout path에서도 main guard가 정상 report를 실행한다", (t) => {
+  const directory = mkdtempSync(path.join(tmpdir(), "보안 audit checkout "));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const copiedScriptPath = path.join(directory, "production audit 정책.mjs");
+  copyFileSync(scriptPath, copiedScriptPath);
+  const inputPath = path.join(directory, "clean.json");
+  writeFileSync(inputPath, JSON.stringify({
+    advisories: {},
+    metadata: auditMetadata({}, 1)
+  }));
+
+  const result = spawnSync(process.execPath, [copiedScriptPath, "--input", inputPath], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Production audit: critical=0 high=0 moderate=0 low=0 dependencies=1/);
 });

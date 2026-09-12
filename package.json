@@ -27,7 +27,7 @@
     "lab:pki:bootstrap": "PKI_ENV=lab scripts/pki/bootstrap-device-lab.sh",
     "test:lab:pki": "node --test scripts/pki/*.test.mjs scripts/lan-tls-integration.test.mjs",
     "test:lab:pki:integration": "PKI_ENV=lab scripts/pki/bootstrap-device-lab.sh",
-    "audit:production": "pnpm audit --prod --audit-level=moderate --json | node scripts/production-audit-policy.mjs --input -",
+    "audit:production": "node scripts/production-audit-policy.mjs",
     "docker:up": "docker compose up -d",
     "docker:up:production": "docker compose -f docker-compose.yml -f docker-compose.production.yml up -d",
     "docker:down": "docker compose down"
