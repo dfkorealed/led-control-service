@@ -8,6 +8,8 @@ import { Button, Card, PageHeader, ProgressSteps, SidePanel, StatusBadge, type P
 import {
   canonicalizeDimmingCommandInput,
   createDimmingCommand,
+  createCommandStatusCheck,
+  isSettledCommandStatus,
   isTerminalCommandStage,
   useCommandStatus,
   type CommandStage,
@@ -31,6 +33,8 @@ import { humanizeDeviceResponseMessage } from "./control-copy";
 import { FixtureGroupDialog } from "./FixtureGroupDialog";
 import { ControlModeTabs, type ControlPageMode } from "./automation/ControlModeTabs";
 import { floorMeshReadiness } from "./control-readiness";
+import { CommandHistoryPanel, COMMAND_STAGE_LABELS } from "./CommandHistoryPanel";
+import { CommandOutcomeActions } from "./CommandOutcomeActions";
 import {
   isActiveCommandSessionBlocked,
   ownsActiveCommandSession,
@@ -76,12 +80,16 @@ export function ControlView({
   const [brightness, setBrightness] = useState(70);
   const [overrideUntilLocal, setOverrideUntilLocal] = useState(() => defaultOverrideUntilLocal());
   const [message, setMessage] = useState("");
+  const [verificationError, setVerificationError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [commandId, setCommandId] = useState<string | null>(null);
   const [commandSiteId, setCommandSiteId] = useState<string | null>(null);
   const [commandUserId, setCommandUserId] = useState<string | null>(null);
   const [activeRequest, setActiveRequest] = useState<CreateDimmingCommandInput | null>(null);
   const [terminalResult, setTerminalResult] = useState<{ siteId: string; status: CommandStatusResponse } | null>(null);
+  const [verificationRequest, setVerificationRequest] = useState<{
+    commandId: string; clientRequestId: string; dispatchIds?: string[]; responseLost?: boolean;
+  } | null>(null);
   const [groupDialogOpen, setGroupDialogOpen] = useState(false);
   const groupDialogOpenerRef = useRef<HTMLButtonElement>(null);
   const requestGeneration = useRef(0);
@@ -97,9 +105,17 @@ export function ControlView({
   );
   const scopedCommandId = commandScopeMatches ? commandId : null;
   const scopedActiveRequest = commandScopeMatches && activeRequest?.siteId === activeSiteId ? activeRequest : null;
-  const commandQuery = useCommandStatus(scopedCommandId);
+  const statusArguments: [string | null, string[]?] = verificationRequest?.dispatchIds
+    ? [scopedCommandId, verificationRequest.dispatchIds] : [scopedCommandId];
+  const commandQuery = useCommandStatus(...statusArguments);
   const matchingCommandStatus = commandQuery.data?.id === scopedCommandId ? commandQuery.data : null;
-  const matchingCommandIsTerminal = isTerminalCommandStage(matchingCommandStatus?.stage);
+  const waitingForVerification = Boolean(verificationRequest && (!verificationRequest.dispatchIds
+    || verificationRequest.dispatchIds.some((id) => !matchingCommandStatus?.dispatches.some((dispatch) => dispatch.id === id))));
+  // A conclusive device result can arrive even when the status-check POST reply
+  // was lost. It must release the lock without requiring that missing reply.
+  const matchingCommandIsTerminal = isSettledCommandStatus(matchingCommandStatus)
+    && (!waitingForVerification || matchingCommandStatus?.stage !== "verification_required");
+  const displayedStatus = matchingCommandStatus ?? (commandScopeMatches && terminalResult?.siteId === activeSiteId ? terminalResult.status : null);
   const hasMismatchedCommandStatus = Boolean(
     scopedCommandId && commandQuery.data && commandQuery.data.id !== scopedCommandId
   );
@@ -115,6 +131,7 @@ export function ControlView({
   const commandInProgress = Boolean(
     scopedActiveRequest && !scopedCommandId
     || scopedCommandId && !matchingCommandIsTerminal
+    || verificationRequest
   );
   const restorePending = Boolean(
     activeSiteId && (activeSiteId !== commandSiteId || userId !== commandUserId)
@@ -143,7 +160,9 @@ export function ControlView({
     setSelection(emptySelection);
     setOverrideUntilLocal(defaultOverrideUntilLocal());
     setMessage("");
+    setVerificationError("");
     setTerminalResult(null);
+    setVerificationRequest(null);
     setGroupDialogOpen(false);
     setCommandUserId(userId);
     setCommandSiteId(activeSiteId);
@@ -161,20 +180,23 @@ export function ControlView({
   }, [activeSiteId, userId]);
 
   useEffect(() => {
-    if (!activeSiteId || !scopedCommandId || !matchingCommandStatus || !matchingCommandIsTerminal) return;
+    if (!activeSiteId || !scopedCommandId || !matchingCommandStatus || !matchingCommandIsTerminal || isSubmitting) return;
 
     setTerminalResult({ siteId: activeSiteId, status: matchingCommandStatus });
     clearActiveCommandId(userId, activeSiteId, scopedCommandId);
     setActiveRequest(null);
+    setVerificationRequest(null);
     setCommandId((currentCommandId) => currentCommandId === scopedCommandId ? null : currentCommandId);
     setMessage("");
-  }, [activeSiteId, matchingCommandIsTerminal, matchingCommandStatus, scopedCommandId, userId]);
+    void queryClient.invalidateQueries({ queryKey: ["command-history", userId] });
+  }, [activeSiteId, isSubmitting, matchingCommandIsTerminal, matchingCommandStatus, queryClient, scopedCommandId, userId]);
 
   useEffect(() => {
     if (!activeSiteId || !scopedCommandId || matchingCommandIsTerminal || !missingCommand) return;
 
     clearActiveCommandId(userId, activeSiteId, scopedCommandId);
     setActiveRequest(null);
+    setVerificationRequest(null);
     setCommandId((currentCommandId) => currentCommandId === scopedCommandId ? null : currentCommandId);
     setMessage("진행 중 명령을 찾을 수 없어 제어 잠금을 해제했습니다");
   }, [activeSiteId, matchingCommandIsTerminal, missingCommand, scopedCommandId, userId]);
@@ -204,6 +226,78 @@ export function ControlView({
     await sendCommand(request, userId);
   }
 
+  function openHistoricalCommand(id: string) {
+    if (!activeSiteId || commandInProgress || isSubmitting || restorePending || commandSessionBlocked) return;
+    setTerminalResult(null);
+    setMessage("");
+    setVerificationError("");
+    // Historical recovery must be based on a fresh read; a cached not-applied
+    // outcome can already have converged after a late device response.
+    queryClient.removeQueries({ queryKey: ["command-status", id], exact: true });
+    setCommandId(id);
+    // Persist only the selected identity; detail decides whether it is still active.
+    saveActiveCommandId(userId, activeSiteId, id);
+  }
+
+  async function safelyReapply() {
+    if (!displayedStatus || displayedStatus.stage !== "verified_not_applied" || controlsLocked
+      || !activeSiteId || isActiveCommandSessionBlocked(userId)) return;
+    const { targetFixtureIds, brightness: originalBrightness } = displayedStatus;
+    if (displayedStatus.siteId !== activeSiteId || !targetFixtureIds?.length || originalBrightness == null) {
+      setMessage("원래 제어 대상과 밝기를 확인하지 못했습니다. 명령 상세를 다시 조회하세요.");
+      return;
+    }
+    // A floor/group may have changed membership since the original command. Use
+    // its persisted fixture snapshot, never the current picker or group members.
+    const request = canonicalizeDimmingCommandInput({ siteId: activeSiteId, clientRequestId: crypto.randomUUID(),
+      target: { type: "fixtures", fixtureIds: [...targetFixtureIds] }, brightness: originalBrightness });
+    saveActiveCommandRequest(userId, activeSiteId, request);
+    setActiveRequest(request);
+    setTerminalResult(null);
+    await sendCommand(request, userId);
+  }
+
+  async function checkActualState() {
+    if (!displayedStatus || displayedStatus.stage !== "verification_required" || readOnly || isSubmitting
+      || commandSessionBlocked || restorePending || !activeSiteId || isActiveCommandSessionBlocked(userId)) return;
+    if (!verificationRequest && (displayedStatus.verificationAttemptCount ?? 0) >= 3) return;
+    const request = verificationRequest ?? { commandId: displayedStatus.id, clientRequestId: crypto.randomUUID() };
+    const requestSiteId = activeSiteId;
+    const generation = activeScope.current.generation;
+    const controller = new AbortController();
+    const commandSession = registerActiveCommandRequest(userId, controller);
+    if (!commandSession) return;
+    activePostController.current?.abort();
+    activePostController.current = controller;
+    setVerificationRequest(request);
+    setCommandId(request.commandId);
+    saveActiveCommandId(userId, requestSiteId, request.commandId);
+    setIsSubmitting(true);
+    setMessage("");
+    setVerificationError("");
+    try {
+      const response = await createCommandStatusCheck(request.commandId, request.clientRequestId, controller.signal);
+      if (!ownsRequestScope(generation, userId, requestSiteId) || !ownsActiveCommandSession(userId, commandSession.generation)) return;
+      setVerificationRequest({ ...request, responseLost: false, dispatchIds: response.dispatchIds });
+      setMessage("실제 밝기를 확인하고 있습니다.");
+      await queryClient.invalidateQueries({ queryKey: ["command-status", request.commandId] });
+    } catch (error) {
+      if (!ownsRequestScope(generation, userId, requestSiteId) || !ownsActiveCommandSession(userId, commandSession.generation)) return;
+      if (isDefinitiveCommandRejection(error)) {
+        setVerificationRequest(null);
+        setVerificationError(error.status === 403 ? "상태 확인 권한이 없습니다." : "상태 확인 요청이 거부되었습니다. 명령 상세를 다시 조회하세요.");
+        await queryClient.invalidateQueries({ queryKey: ["command-status", request.commandId] });
+      } else {
+        setVerificationRequest({ ...request, responseLost: true });
+        setMessage("상태 확인 응답을 받지 못했습니다. 동일 상태 확인 요청을 조회하세요.");
+      }
+    } finally {
+      commandSession.release();
+      if (activePostController.current === controller) activePostController.current = null;
+      if (ownsRequestScope(generation, userId, requestSiteId)) setIsSubmitting(false);
+    }
+  }
+
   async function sendCommand(request: CreateDimmingCommandInput, requestUserId: string) {
     const generation = activeScope.current.generation;
     const controller = new AbortController();
@@ -213,6 +307,7 @@ export function ControlView({
     activePostController.current = controller;
     setIsSubmitting(true);
     setMessage("");
+    setVerificationError("");
     try {
       const command = await createDimmingCommand(request, controller.signal);
       if (
@@ -236,7 +331,7 @@ export function ControlView({
         setCommandId(null);
         setMessage(definitiveRejectionMessage(error));
       } else {
-        setMessage("명령 응답을 확인하지 못했습니다. 동일 요청으로 다시 전송하세요.");
+        setMessage("명령 응답을 확인하지 못했습니다. 동일 요청 확인은 새 제어를 만들지 않습니다.");
       }
     } finally {
       commandSession.release();
@@ -348,6 +443,7 @@ export function ControlView({
       ) : null}
 
       <div className="control-layout ui-side-panel-layout">
+        <div className="control-target-column">
         <Card className="control-target-card" aria-label="제어 대상 선택">
           <fieldset className="control-picker-fieldset" aria-label="제어 대상 선택" disabled={controlsLocked}>
             <ControlTargetPicker
@@ -366,6 +462,10 @@ export function ControlView({
             />
           </fieldset>
         </Card>
+        <CommandHistoryPanel key={`${userId}:${data.site.id}`} userId={userId} siteId={data.site.id}
+          onSelect={openHistoricalCommand} selectedCommandId={displayedStatus?.id}
+          disabled={commandInProgress || isSubmitting || restorePending || commandSessionBlocked} />
+        </div>
 
         <SidePanel className="control-panel" aria-label="밝기 실행">
           <div className="panel-title-row">
@@ -432,12 +532,18 @@ export function ControlView({
                   onClick={() => void sendCommand(scopedActiveRequest, userId)}
                   disabled={isSubmitting || commandSessionBlocked}
                 >
-                  동일 요청 다시 전송
+                  동일 요청 확인(새 제어 아님)
                 </Button>
               ) : null}
               {message ? <p className={message.startsWith("명령을 전송") ? "success-text" : "danger-text"}>{message}</p> : null}
-              {matchingCommandStatus ? <CommandProgress status={matchingCommandStatus} /> : null}
-              {!matchingCommandStatus && terminalResult?.siteId === data.site.id ? <CommandProgress status={terminalResult.status} /> : null}
+              {verificationError ? <p className="danger-text" role="alert">{verificationError}</p> : null}
+              {displayedStatus ? <>
+                <CommandProgress status={displayedStatus} />
+                <CommandOutcomeActions status={displayedStatus} onCheck={() => void checkActualState()} onRetry={() => void safelyReapply()}
+                  checkResponseLost={verificationRequest?.responseLost}
+                  disabled={readOnly || commandSessionBlocked || isSubmitting || restorePending || Boolean(verificationRequest?.dispatchIds)} />
+                <Button variant="secondary" type="button" disabled={commandInProgress || isSubmitting} onClick={() => setTerminalResult(null)}>명령 상세 닫기</Button>
+              </> : null}
             </div>
             {blockMessage ? <p className="danger-text" role="alert">{blockMessage}</p> : null}
             {hasMismatchedCommandStatus && !missingCommand ? (
@@ -550,8 +656,12 @@ function isControlPageMode(value: string | null): value is ControlPageMode {
 }
 
 function CommandProgress({ status }: { status: NonNullable<ReturnType<typeof useCommandStatus>["data"]> }) {
-  const failedResults = status.dispatches.flatMap((dispatch) =>
+  const latestDispatches = (status.verificationAttemptCount ?? 0) > 0
+    ? status.dispatches.filter((dispatch) => dispatch.kind === "status_check" && dispatch.verificationAttempt === status.verificationAttemptCount)
+    : status.dispatches;
+  const failedResults = latestDispatches.flatMap((dispatch) =>
     dispatch.results.filter((result) => result.status === "failed" || result.status === "timed_out")
+      .map((result) => ({ ...result, dispatchId: dispatch.id }))
   );
   const isFailure = status.stage === "partial_failed" || status.stage === "failed" || status.stage === "timed_out";
   return (
@@ -561,7 +671,7 @@ function CommandProgress({ status }: { status: NonNullable<ReturnType<typeof use
       <small>{status.completedFixtureCount} / {status.totalFixtureCount} 처리</small>
       <ProgressSteps label="명령 진행" steps={commandSteps(status.stage)} />
       {failedResults.map((result) => (
-        <small className={isFailure ? "danger-text" : ""} key={result.fixtureId}>
+        <small className={isFailure ? "danger-text" : ""} key={`${result.dispatchId}:${result.fixtureId}`}>
           {result.fixtureName}: {humanizeDeviceResponseMessage(result.errorMessage ?? (result.status === "timed_out" ? "응답 시간 초과" : "적용 실패"))}
         </small>
       ))}
@@ -580,9 +690,9 @@ function commandSteps(stage: CommandStage): ProgressStep[] {
 
 function stepState(stage: CommandStage, step: "queued" | "published" | "accepted"): ProgressStepState {
   const stageRank: Record<"queued" | "published" | "accepted", number> = { queued: 0, published: 1, accepted: 2 };
-  const currentRank = stage === "completed" || stage === "partial_failed" || stage === "failed" || stage === "timed_out"
+  const currentRank = isTerminalCommandStage(stage)
     ? 3
-    : stageRank[stage];
+    : stageRank[stage as keyof typeof stageRank];
   const stepRank = stageRank[step];
   if (currentRank > stepRank) return "complete";
   if (currentRank === stepRank) return "current";
@@ -590,22 +700,14 @@ function stepState(stage: CommandStage, step: "queued" | "published" | "accepted
 }
 
 function terminalStepState(stage: CommandStage): ProgressStepState {
-  if (stage === "completed") return "complete";
+  if (stage === "completed" || stage === "verified_applied") return "complete";
+  if (stage === "verification_required" || stage === "verified_not_applied" || stage === "verified_partial") return "error";
   if (stage === "partial_failed" || stage === "failed" || stage === "timed_out") return "error";
   return "pending";
 }
 
 function commandStageLabel(stage: CommandStage) {
-  const labels: Record<CommandStage, string> = {
-    queued: "명령 접수 완료",
-    published: "게이트웨이 전송 완료",
-    accepted: "게이트웨이 수신 완료",
-    completed: "조명 적용 완료",
-    partial_failed: "일부 조명 적용 실패",
-    failed: "명령 처리 실패",
-    timed_out: "명령 응답 시간 초과"
-  };
-  return labels[stage];
+  return COMMAND_STAGE_LABELS[stage];
 }
 
 function formatControlBlockReason(
@@ -641,6 +743,10 @@ function isDefinitiveCommandRejection(error: unknown): error is { status: number
 
 function definitiveRejectionMessage(error: { status: number; body?: unknown }): string {
   if (error.status === 403) return "제어 권한이 없습니다. 권한을 확인한 뒤 다시 시도하세요.";
+  if (error.status === 409 && error.body && typeof error.body === "object"
+    && "code" in error.body && error.body.code === "uncertain_command_requires_status_check") {
+    return "상태가 불확실한 명령과 대상이 겹칩니다. 명령 이력에서 실제 상태를 먼저 확인하세요.";
+  }
   if (error.status === 409) return "동일 요청 ID가 다른 제어 내용과 충돌했습니다. 새 제어 요청을 실행하세요.";
   return `제어 요청이 거부되었습니다(${error.status}). 입력과 권한을 확인하세요.`;
 }

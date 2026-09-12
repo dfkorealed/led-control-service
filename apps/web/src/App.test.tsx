@@ -1203,7 +1203,7 @@ describe("App", () => {
       brightness: 70,
       clientRequestId: expect.any(String)
     }), { signal: expect.any(AbortSignal) }));
-    expect(await screen.findByText("일부 조명 적용 실패", {}, { timeout: 3000 })).toBeInTheDocument();
+    expect(await screen.findByText("일부 조명 적용 실패", { selector: ".command-progress-card strong" }, { timeout: 3000 })).toBeInTheDocument();
     expect(screen.getByText("2 / 2 처리")).toBeInTheDocument();
     expect(screen.getByText("B2-L02: 장비 응답 오류")).toBeInTheDocument();
   });
@@ -1384,7 +1384,7 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "로그아웃" }));
 
-    const retryButton = await screen.findByRole("button", { name: "동일 요청 다시 전송" });
+    const retryButton = await screen.findByRole("button", { name: "동일 요청 확인(새 제어 아님)" });
     expect(retryButton).toBeDisabled();
     fireEvent.click(retryButton);
     expect(vi.mocked(apiPost).mock.calls.filter(([path]) => path === "/commands/dimming")).toHaveLength(1);
@@ -1422,7 +1422,7 @@ describe("App", () => {
     ));
 
     fireEvent.click(screen.getByRole("button", { name: "로그아웃" }));
-    expect(await screen.findByRole("button", { name: "동일 요청 다시 전송" })).toBeDisabled();
+    expect(await screen.findByRole("button", { name: "동일 요청 확인(새 제어 아님)" })).toBeDisabled();
 
     await act(async () => {
       rejectLogout(new Error("logout unavailable"));
@@ -1430,7 +1430,7 @@ describe("App", () => {
     });
 
     expect(await screen.findByRole("alert")).toHaveTextContent("로그아웃에 실패했습니다");
-    const retryButton = screen.getByRole("button", { name: "동일 요청 다시 전송" });
+    const retryButton = screen.getByRole("button", { name: "동일 요청 확인(새 제어 아님)" });
     expect(retryButton).toBeEnabled();
     fireEvent.click(retryButton);
 
