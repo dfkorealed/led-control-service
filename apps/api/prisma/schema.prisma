@@ -1233,6 +1233,7 @@ model EnergyReportJob {
   leaseOwner                 String?
   leaseExpiresAt             DateTime?
   requestSnapshot            Json
+  targetLabelSnapshot        String?
   dataSnapshot               Json?
   documentSnapshot           Json?
   contentFingerprint         String?

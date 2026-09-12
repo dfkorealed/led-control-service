@@ -269,7 +269,7 @@ const databaseUrl = process.env.ENERGY_REPORT_TEST_DATABASE_URL;
     await prisma.site.update({ where: { id: siteId }, data: { name: "나중 현장" } });
     await worker.runOnce(); await worker.runOnce();
     const failed = await load(job.id);
-    expect(failed).toMatchObject({ status: "failed", attemptCount: 3, leaseOwner: null, failureCode: "REPORT_GENERATION_FAILED" });
+    expect(failed).toMatchObject({ status: "failed", attemptCount: 3, leaseOwner: null, failureCode: "REPORT_STORAGE_UNAVAILABLE" });
     expect(failed.documentSnapshot).toEqual(first.documentSnapshot);
     expect(failed.dataSnapshot).toEqual(first.dataSnapshot);
     expect(await worker.runOnce()).toBe(false);

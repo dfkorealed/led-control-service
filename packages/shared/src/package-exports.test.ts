@@ -173,12 +173,16 @@ const energyAnalyticsImportSmoke = `
 const energyAnalyticsRequireSmoke = energyAnalyticsImportSmoke
   .replace('await import("@led-control/shared/energy-analytics-contracts")', 'require("@led-control/shared/energy-analytics-contracts")');
 const energyP2ImportSmoke = `
-  const { energyReportRequestSchema: schema } = await import("@led-control/shared/energy-p2-contracts");
+  const { energyReportRequestSchema: schema, energyReportJobSchema } = await import("@led-control/shared/energy-p2-contracts");
   const result = schema.safeParse({
     from: "2026-09-01", to: "2026-09-10", scope: "site",
     identityId: "00000000-0000-4000-8000-000000000003", format: "xlsx"
   });
   if (!result.success) process.exit(1);
+  const job = energyReportJobSchema.parse({ reportId: "00000000-0000-4000-8000-000000000004",
+    siteId: result.data.identityId, request: result.data, status: "queued", progressPercent: 0,
+    createdAt: "2026-09-11T00:00:00.000Z", startedAt: null, completedAt: null, expiresAt: null, failureCode: null });
+  if (job.target?.identityId !== result.data.identityId || job.requestedAt !== job.createdAt || job.failure !== null) process.exit(1);
 `;
 const energyP2RequireSmoke = energyP2ImportSmoke
   .replace('await import("@led-control/shared/energy-p2-contracts")', 'require("@led-control/shared/energy-p2-contracts")');

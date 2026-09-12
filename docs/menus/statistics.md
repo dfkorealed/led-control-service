@@ -4,6 +4,8 @@
 
 ## 구현 완료
 
+- 보고서 생성 transaction에서 현장·조명·층·그룹의 대상명을 고정해 이름 변경·운영 객체 삭제 후에도 목록과 새 XLSX/PDF 공통 문서에 유지한다. 공개 응답은 `target`, `requestedAt`(기존 `createdAt`과 동일), `failure`의 코드·사유·행동 안내를 추가하고 기존 필드를 보존한다. 저장소·렌더링·스냅샷·시도 소진 오류를 구분하며 알 수 없는 내부 오류는 일반 실패로 정제한다. 일회성 PostgreSQL에서 legacy null 보존, 이름 변경·삭제, 재시도 실패 분류와 원시 오류 미노출을 검증했다.
+
 - 이벤트 원장이 정리된 이후에도 fixture별 최신 sequence·payload hash를 보존하여 동일 상태를 재적산하지 않고 변경된 payload 재전송을 거부한다. watermark·원장·일별/시간별 적산·cursor·snapshot은 하나의 transaction이며 임시 PostgreSQL에서 중복, 동시 수신과 전체 rollback을 확인했다.
 
 - 공통 고객 셸 상단은 현재 메뉴 제목과 실제 현장명 배지만 표시한다. 기존 층명 기반 `B2 주차장` 표기와 동작 없는 Gateway 정상·오프라인·미등록 상태 배지는 제거하되 설정의 `Gateway 상태` 상세 카드는 유지한다. 로그아웃 위치와 인증·dirty editor 확인 로직은 유지하고, 고객·운영자 셸의 로그아웃은 공통 `IconTooltipButton`으로 아이콘만 표시한다. `로그아웃` 도움말은 hover와 키보드 focus에서 열리고 도움말 위로 포인터를 옮겨도 유지되며 `Escape`로 닫힌다. 모바일 버튼은 52px 실제 터치 영역을 사용한다.
@@ -90,6 +92,8 @@
 
 ## 부족하거나 개선이 필요한 기능
 
+- 보고서 API의 대상명·요청 시각·공개 실패 안내는 제공하지만 웹 목록의 신규 메타데이터/행동 안내 UI는 후속 작업이다. legacy 작업은 요청 당시 이름이 없어 범위와 identity ID로 표시한다. 새 migration은 격리 PostgreSQL에서만 검증했으며 사용자/운영 DB에는 적용하지 않았다.
+
 - 이벤트 watermark와 보존용 index만 추가했으며 원장 자동 삭제 worker는 후속 작업이다. 원장이 없는 임의 과거 event ID까지 영구 기억하지 않으며 legacy hash 누락 원장은 보존해야 한다. 사용자 DB 적용과 실장비 재전송 검증은 미실행이다.
 
 - 보고서 파일의 7일 만료는 조회·다운로드에서 즉시 적용하며 물리 삭제는 60초 정리 주기와 backlog·저장소 상태에 따라 늦을 수 있다. 원장별 최대 3회 DELETE는 각 4초 제한이며 DB transaction 밖에서 수행한다. PUT 10초·HEAD 4초 제한은 네트워크 보호일 뿐 정지한 프로세스의 미래 PUT을 막는 증거로 쓰지 않는다. 회수 원장은 자동 삭제하지 않으므로 크기와 반복 DELETE 비용이 보고서 수에 따라 증가한다. 요청/문서 데이터는 원장에 포함하지 않는다. 매우 많은 보고서가 있는 현장의 삭제는 전체 시도 키 목록과 순차 저장소 삭제에 시간이 걸릴 수 있다.
@@ -120,6 +124,8 @@
 - `apps/api/src/energy/reports/report-pdf-layout.ts`
 - `apps/api/src/energy/reports/energy-csv-export.service.ts`
 - `apps/api/src/energy/reports/energy-report-jobs.service.ts`
+- `apps/api/src/energy/reports/energy-report-metadata.integration.spec.ts`
+- `apps/api/prisma/migrations/20260916_report_operations_metadata/migration.sql`
 - `apps/api/src/energy/reports/energy-report-worker.service.ts`
 - `apps/api/src/energy/reports/energy-report-cleanup.service.ts`
 - `apps/api/src/energy/reports/energy-report-cleanup.service.spec.ts`

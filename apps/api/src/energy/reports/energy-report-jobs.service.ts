@@ -13,7 +13,7 @@ import { EnergyReportSnapshotService } from "./energy-report-snapshot.service";
 const jobSelect = {
   id: true, siteId: true, requestSnapshot: true, status: true, progressPercent: true,
   createdAt: true, startedAt: true, completedAt: true, expiresAt: true, failureCode: true,
-  format: true, objectKey: true, objectDeletedAt: true
+  format: true, objectKey: true, objectDeletedAt: true, targetLabelSnapshot: true
 } satisfies Prisma.EnergyReportJobSelect;
 type JobRow = Prisma.EnergyReportJobGetPayload<{ select: typeof jobSelect }>;
 
@@ -46,10 +46,11 @@ export class EnergyReportJobsService {
           if (await tx.siteDeletionCleanup.findUnique({ where: { siteId }, select: { id: true } })) {
             throw new ConflictException("site deletion is pending");
           }
+          const targetLabelSnapshot = await this.snapshots.captureTargetLabel(tx, siteId, request);
           return tx.energyReportJob.create({ data: {
             id: randomUUID(), siteId, requestedByUserId: user.id, requestedByActorId: user.id,
             requestedByLoginIdSnapshot: user.loginId, requestHash, format: request.format,
-            requestSnapshot: request
+            requestSnapshot: request, targetLabelSnapshot, createdAt: now
           }, select: jobSelect });
         });
         return publicJob(created, now);
@@ -100,7 +101,9 @@ export class EnergyReportJobsService {
 }
 
 function publicJob(report: JobRow, now: Date) {
+  const request = energyReportRequestSchema.parse(report.requestSnapshot);
   return energyReportJobSchema.parse({ reportId: report.id, siteId: report.siteId, request: report.requestSnapshot,
+    ...(report.targetLabelSnapshot == null ? {} : { target: { scope: request.scope, identityId: request.identityId, label: report.targetLabelSnapshot } }),
     status: report.status === "completed" && report.expiresAt && report.expiresAt <= now ? "expired" : report.status,
     progressPercent: report.progressPercent, createdAt: report.createdAt.toISOString(),
     startedAt: report.startedAt?.toISOString() ?? null, completedAt: report.completedAt?.toISOString() ?? null,

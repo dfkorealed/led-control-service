@@ -164,6 +164,44 @@ describe("energy P2 contracts", () => {
     expect(energyReportRequestSchema.safeParse({ ...validReportRequest, scope: "carbon" }).success).toBe(false);
   });
 
+  it("normalizes legacy job metadata and validates additive target/time/failure fields strictly", () => {
+    const legacy = { reportId, siteId, request: validReportRequest, status: "queued", progressPercent: 0,
+      createdAt: "2026-09-11T00:00:00.000Z", startedAt: null, completedAt: null, expiresAt: null, failureCode: null };
+    expect(energyReportJobSchema.parse(legacy)).toMatchObject({
+      target: { scope: "fixture", identityId: validReportRequest.identityId, label: `조명: ${validReportRequest.identityId}` },
+      requestedAt: legacy.createdAt, failure: null
+    });
+    const metadata = { ...legacy, target: { scope: "fixture", identityId: validReportRequest.identityId, label: "요청 당시 조명" },
+      requestedAt: legacy.createdAt, failure: null };
+    expect(energyReportJobSchema.safeParse(metadata).success).toBe(true);
+    for (const invalid of [
+      { target: { ...metadata.target, identityId: reportId } },
+      { target: { ...metadata.target, scope: "floor" } },
+      { target: { ...metadata.target, label: "" } },
+      { target: { ...metadata.target, internalId: "private" } },
+      { requestedAt: "2026-09-12T00:00:00.000Z" },
+      { failure: { code: "generation_failed", message: "실패", action: "재시도" } },
+      { rawError: "private" }
+    ]) expect(energyReportJobSchema.safeParse({ ...metadata, ...invalid }).success).toBe(false);
+  });
+
+  it.each([
+    ["REPORT_GENERATION_FAILED", "generation_failed"], ["REPORT_STORAGE_UNAVAILABLE", "storage_unavailable"],
+    ["REPORT_RENDERING_FAILED", "rendering_failed"], ["REPORT_SNAPSHOT_INVALID", "snapshot_invalid"],
+    ["REPORT_ATTEMPTS_EXHAUSTED", "attempts_exhausted"], ["private database://password", "generation_failed"]
+  ])("maps legacy failure %s to a safe actionable failure", (failureCode, code) => {
+    const legacy = { reportId, siteId, request: validReportRequest, status: "failed", progressPercent: 0,
+      createdAt: "2026-09-11T00:00:00.000Z", startedAt: "2026-09-11T00:00:01.000Z",
+      completedAt: null, expiresAt: null, failureCode };
+    const result = energyReportJobSchema.parse(legacy);
+    expect(result).toMatchObject({ failure: { code, message: expect.any(String), action: expect.any(String) } });
+    expect(JSON.stringify(result)).not.toContain("password");
+    for (const failure of [null, { code: "internal", message: "실패", action: "재시도" },
+      { code, message: "실패", action: "재시도", stack: "private" }]) {
+      expect(energyReportJobSchema.safeParse({ ...legacy, failure }).success).toBe(false);
+    }
+  });
+
   it("accepts status-safe report job, list, and five-minute download responses", () => {
     const job = energyReportJobSchema.parse({
       reportId,

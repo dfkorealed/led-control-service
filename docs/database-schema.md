@@ -20,7 +20,7 @@
 
 ### EnergyReportJob (P2 보고서)
 
-Migration: `20260912_statistics_p2_reports`. 상태 enum은 `queued`, `processing`, `completed`, `failed`, `expired`, 형식 enum은 `xlsx`, `pdf`다.
+Migration: `20260912_statistics_p2_reports`, 대상명 확장 `20260916_report_operations_metadata`. 상태 enum은 `queued`, `processing`, `completed`, `failed`, `expired`, 형식 enum은 `xlsx`, `pdf`다.
 
 | 필드 | 타입 | 의미 |
 | --- | --- | --- |
@@ -31,10 +31,11 @@ Migration: `20260912_statistics_p2_reports`. 상태 enum은 `queued`, `processin
 | `status`, `progressPercent`, `attemptCount` | enum, `Int`, `Int` | 상태, 0–100 진행률, 0–3 시도 횟수 |
 | `leaseOwner`, `leaseExpiresAt` | `String?`, `DateTime?` | worker 소유권과 만료 시각, 쌍으로 존재 |
 | `requestSnapshot` | `Json` | 생성 시 확정하는 불변 요청 |
+| `targetLabelSnapshot` | `String?` | INSERT transaction에서 확인한 대상명. legacy null을 포함해 이후 변경·채움·삭제 금지 |
 | `dataSnapshot`, `documentSnapshot` | `Json?` | 한 번만 채우는 집계 데이터와 순서가 확정된 공통 문서 |
 | `contentFingerprint` | `String?` | 문서 fingerprint 필드를 제외한 canonical JSON의 SHA-256 |
 | `objectKey`, `contentType`, `sizeBytes`, `contentSha256` | nullable String/Int | private object key, MIME type, 바이트 수, 파일 SHA-256 |
-| `failureCode` | `String?` | 외부 공개 가능한 실패 코드 |
+| `failureCode` | `String?` | worker의 고정 실패 코드. 공개 응답에서 허용 목록으로 다시 정제 |
 | `createdAt`, `updatedAt`, `startedAt`, `completedAt` | `DateTime`, 일부 nullable | 작업 수명주기 |
 | `expiresAt`, `objectDeletedAt` | `DateTime?` | 보관 만료와 실제 object 삭제 확인 시각 |
 
@@ -42,11 +43,15 @@ Migration: `20260912_statistics_p2_reports`. 상태 enum은 `queued`, `processin
 
 상태별 진행률·시각·lease·완료 object 필수 값은 SQL CHECK로 보호한다. 완료 문서는 데이터 스냅샷과 일치하는 fingerprint 필드를 함께 가져야 한다. SQL trigger는 요청·요청자 identity의 변경을 막고, 데이터·문서·fingerprint의 최초 저장 이후 변경/삭제를 막는다. 사용자 FK의 SetNull은 허용하며 요청자 스냅샷은 유지한다. 현장 삭제 시 행은 Cascade 삭제되므로 실제 현장 삭제 workflow에서 object 정리 대상을 삭제 전에 확보해야 한다.
 
+`20260916_report_operations_metadata`는 명시적 `BEGIN/COMMIT`, 10초 `lock_timeout`, 보고서 테이블 배타 잠금 안에서 nullable 대상명 열·빈 문자열 거부 CHECK와 기존 snapshot guard 함수를 함께 갱신한다. 기존 migration checksum은 변경하지 않는다. 대상명은 생성 transaction의 Site 삭제 barrier 확인 뒤 같은 현장에 속한 identity의 최신 저장 이름(층은 현재 이름 우선, 삭제된 층은 이력 이름)을 읽고 문자 지원을 검사해 INSERT한다. 사전 조회 이름을 재사용하지 않으며 과거 이름을 알 수 없는 legacy 행은 null로 둔다. worker가 나중에 실행되거나 운영 객체가 삭제되어도 목록과 새 공통 문서의 `대상` 메타데이터는 저장한 이름을 유지한다. 기존 문서/fingerprint는 다시 쓰지 않는다.
+
+공개 작업은 `target: { scope, identityId, label }`, `requestedAt`과 `failure: { code, message, action } | null`을 제공하며 기존 `createdAt`·`failureCode`도 유지한다. `requestedAt`은 DB에서 읽은 `createdAt`과 정확히 같다. 생성 시각은 JS Date로 명시해 PostgreSQL session timezone의 naive timestamp 기본값에 의존하지 않는다. legacy 대상명은 `현장/조명/층/그룹: identityId`로 표시하고 현재 이름을 조회하지 않는다. 공개 failure code는 `generation_failed`, `storage_unavailable`, `rendering_failed`, `snapshot_invalid`, `attempts_exhausted`만 허용한다. 알 수 없는 내부 code는 기존 필드도 `REPORT_GENERATION_FAILED`로 정제하며 원시 DB/S3/render 오류나 객체 경로를 반환하지 않는다. 공유 parser는 기존 서버에서 누락된 신규 필드를 안전한 기본값으로 채우고, 명시된 대상·요청 시각·실패 상태 불일치는 거부한다. 마이그레이션과 이름 보존·실패 분류는 disposable PostgreSQL에서 검증하며 사용자/운영 DB에는 적용하지 않았다.
+
 보고서 스냅샷은 한 `RepeatableRead` transaction에서 현장 timezone, 이력 차원과 완료된 현지 날짜의 persisted daily/hourly 집계만 읽는다. legacy DB 열 `estimatedKwh`는 보고서 데이터에서 `energyKwh`, 일별 `estimatedCost`는 `cost`, `knownSeconds`는 밝기 가중 계산 및 값 존재 판정용 `durationSeconds`로 매핑한다. `cost`는 저장된 Decimal 문자열 또는 값 없음이며, 현재 state cursor·현재 단가·미완료 날짜는 읽지 않는다. 요약·일별 표·순위에 비용을 포함하고 직전 동일 일수의 전력량/비용 차이 및 이전 값이 0이 아닐 때만 변화율을 산출한다. 적용 단가/원천 산출식의 역사적 증거를 보관한 FK나 snapshot은 없으므로 문서에는 해당 항목을 `데이터 없음`으로 설명하며 현재 단가로 다시 계산하지 않는다.
 
 데이터 snapshot의 identity/dimension/group `from`/`to`는 날짜로 축약하지 않은 전체 ISO UTC 시각이며 시간별 행은 `bucketStartUtc`를 보존한다. 현장 일별 총계는 identity 추적 시작/종료와 무관하게 저장된 사실을 보존한다. 순위와 층·그룹 일별 값은 현지 하루 전체의 이력이 확정된 경우만 포함한다. 시간별 소속은 UTC 한 시간 전체의 이력으로 먼저 판단한 뒤 `localDate`/`localHour`의 요일·시간으로 fold한다. 경계를 걸친 집계를 비례 배분하지 않고 DST 반복 버킷은 같은 셀에 합친다. 일별/시간별 집계 차이를 문서 생성 중 보정하지 않는다.
 
-이 변경은 기존 JSON snapshot의 신규 생성 내용을 보완하며 SQL schema나 migration을 추가하지 않는다. 기존 저장 문서와 fingerprint는 불변으로 보존한다. XLSX/PDF는 같은 순서·값·표시 문자열·계산 설명·fingerprint를 렌더링한다. `GET report-targets`는 기존 analytics identity와 최신 저장 이름/과거 층 이름을 조회해 운영 Fixture/FixtureGroup ID와 혼동하지 않는 tenant-scoped 선택 계약을 제공한다. 반환 label의 글꼴 왕복이 불가능한 항목만 제외하며 무관한 과거 이름 때문에 endpoint 전체가 실패하지 않는다. 접수 전 Site 잠금 밖의 read-only `RepeatableRead` 사전 조회가 실제 범위·날짜·사실로 최종 문서를 만들어 문자/shaping 검사를 수행하고 폐기한다. 이를 `EnergyReportJob`에 저장하지 않으며 첫 worker 시도의 별도 한 transaction에서만 불변 snapshot을 저장한다. worker는 이 최종 문서 문자 검사를 다시 수행하고 이후 재시도는 저장 문서를 유지한다.
+기존 저장 문서와 fingerprint는 불변으로 보존한다. XLSX/PDF는 같은 순서·값·표시 문자열·계산 설명·fingerprint를 렌더링한다. `GET report-targets`는 기존 analytics identity와 최신 저장 이름/과거 층 이름을 조회해 운영 Fixture/FixtureGroup ID와 혼동하지 않는 tenant-scoped 선택 계약을 제공한다. 반환 label의 글꼴 왕복이 불가능한 항목만 제외하며 무관한 과거 이름 때문에 endpoint 전체가 실패하지 않는다. 접수 전 Site 잠금 밖의 read-only `RepeatableRead` 사전 조회가 실제 범위·날짜·사실로 최종 문서를 만들어 문자/shaping 검사를 수행하고 폐기한다. 이를 `EnergyReportJob`에 저장하지 않으며 첫 worker 시도의 별도 한 transaction에서만 불변 snapshot을 저장한다. worker는 이 최종 문서 문자 검사를 다시 수행하고 이후 재시도는 저장 문서를 유지한다.
 
 ### EnergyReportObjectCleanup (보고서 파일 회수 원장)
 

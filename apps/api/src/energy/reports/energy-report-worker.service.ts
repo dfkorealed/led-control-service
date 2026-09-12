@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { Prisma, type EnergyReportJob } from "@prisma/client";
 import { energyReportDocumentSchema } from "@led-control/shared";
 import { createHash, randomUUID } from "node:crypto";
@@ -9,6 +9,7 @@ import { ExcelEnergyReportRenderer } from "./excel-energy-report.renderer";
 import { PdfEnergyReportRenderer } from "./pdf-energy-report.renderer";
 import { canonicalJson } from "./energy-report-document.builder";
 import { reportBlocks, verifyManifest } from "./report-renderer";
+import { ZodError } from "zod";
 
 @Injectable()
 export class EnergyReportWorkerService implements OnModuleInit, OnModuleDestroy {
@@ -117,7 +118,13 @@ export class EnergyReportWorkerService implements OnModuleInit, OnModuleDestroy 
     try {
       let storedDocument = job.documentSnapshot;
       if (storedDocument === null) {
-        const snapshot = await this.snapshots.capture(job.id, job.siteId, job.requestSnapshot);
+        const snapshot = await this.snapshots.capture(job.id, job.siteId, job.requestSnapshot, new Date(), job.targetLabelSnapshot)
+          .catch(error => {
+            if (error instanceof BadRequestException || error instanceof NotFoundException || error instanceof ZodError) {
+              throw new ReportProcessingError("REPORT_SNAPSHOT_INVALID");
+            }
+            throw error;
+          });
         await pulse(10);
         const rows = await this.prisma.$queryRaw<Array<{ documentSnapshot: Prisma.JsonValue }>>(Prisma.sql`
           UPDATE "EnergyReportJob" SET "dataSnapshot" = ${JSON.stringify(snapshot.dataSnapshot)}::jsonb,
@@ -129,30 +136,38 @@ export class EnergyReportWorkerService implements OnModuleInit, OnModuleDestroy 
         // Render the value returned by the database write, not a fresh computed document.
         storedDocument = rows[0].documentSnapshot;
       }
-      const document = energyReportDocumentSchema.parse(storedDocument);
-      const { contentFingerprint, ...fingerprintInput } = document;
-      if (document.reportId !== job.id || contentFingerprint !== createHash("sha256").update(canonicalJson(fingerprintInput)).digest("hex")) {
-        throw new Error("REPORT_DOCUMENT_INVALID");
-      }
+      const document = await reportPhase("REPORT_SNAPSHOT_INVALID", () => {
+        const parsed = energyReportDocumentSchema.parse(storedDocument);
+        const { contentFingerprint, ...fingerprintInput } = parsed;
+        if (parsed.reportId !== job.id || contentFingerprint !== createHash("sha256").update(canonicalJson(fingerprintInput)).digest("hex")) {
+          throw new Error("REPORT_DOCUMENT_INVALID");
+        }
+        return parsed;
+      });
       await pulse(25);
       const renderer = job.format === "xlsx" ? this.excel : this.pdf;
-      const rendered = await renderer.render(document);
-      verifyManifest(reportBlocks(document), rendered.manifest);
-      if (rendered.extension !== job.format || rendered.bytes.length < 1 || rendered.bytes.length > 25 * 1024 * 1024) {
-        throw new Error("REPORT_FILE_INVALID");
-      }
+      const rendered = await reportPhase("REPORT_RENDERING_FAILED", async () => {
+        const result = await renderer.render(document);
+        verifyManifest(reportBlocks(document), result.manifest);
+        if (result.extension !== job.format || result.bytes.length < 1 || result.bytes.length > 25 * 1024 * 1024) {
+          throw new Error("REPORT_FILE_INVALID");
+        }
+        return result;
+      });
       await pulse(60);
       const key = `reports/${job.siteId}/${job.id}/attempt-${job.attemptCount}.${rendered.extension}`;
       // Record the attempted key before PUT; a rejected transport may already have stored bytes.
       uploadedKey = key;
-      await this.storage.putReportObject(key, rendered.bytes, rendered.contentType);
+      await reportPhase("REPORT_STORAGE_UNAVAILABLE", () => this.storage.putReportObject(key, rendered.bytes, rendered.contentType));
       await pulse(85);
-      const head = await this.storage.headReportObject(key);
       const sha256 = createHash("sha256").update(rendered.bytes).digest("hex");
-      if (head.ContentLength !== rendered.bytes.length || head.ContentType !== rendered.contentType
-        || head.ChecksumSHA256 !== Buffer.from(sha256, "hex").toString("base64")) {
-        throw new Error("REPORT_STORAGE_VERIFICATION_FAILED");
-      }
+      await reportPhase("REPORT_STORAGE_UNAVAILABLE", async () => {
+        const head = await this.storage.headReportObject(key);
+        if (head.ContentLength !== rendered.bytes.length || head.ContentType !== rendered.contentType
+          || head.ChecksumSHA256 !== Buffer.from(sha256, "hex").toString("base64")) {
+          throw new Error("REPORT_STORAGE_VERIFICATION_FAILED");
+        }
+      });
       await pulse(95);
       await this.prisma.$executeRaw(Prisma.sql`
         UPDATE "EnergyReportJob" SET "status" = 'completed', "progressPercent" = 100,
@@ -161,15 +176,18 @@ export class EnergyReportWorkerService implements OnModuleInit, OnModuleDestroy 
           "leaseOwner" = NULL, "leaseExpiresAt" = NULL, "updatedAt" = (statement_timestamp() AT TIME ZONE 'UTC')
         WHERE ${this.fence(job)}
       `);
-    } catch {
+    } catch (error) {
       // Shutdown leaves the current attempt reclaimable at its lease deadline and must
       // not issue fresh writes/deletions against dependencies that are being destroyed.
       if (this.stopping) return;
+      // Only our own phase codes are persisted. DB/SDK/render messages can contain
+      // credentials or private object paths and must never become public metadata.
+      const failureCode = error instanceof ReportProcessingError ? error.failureCode : "REPORT_GENERATION_FAILED";
       const changed = await this.prisma.$executeRaw(Prisma.sql`
         UPDATE "EnergyReportJob" SET
           "status" = CASE WHEN "attemptCount" >= 3 THEN 'failed'::"EnergyReportStatus" ELSE 'queued'::"EnergyReportStatus" END,
           "progressPercent" = 0, "startedAt" = CASE WHEN "attemptCount" >= 3 THEN "startedAt" ELSE NULL END,
-          "failureCode" = CASE WHEN "attemptCount" >= 3 THEN 'REPORT_GENERATION_FAILED' ELSE NULL END,
+          "failureCode" = CASE WHEN "attemptCount" >= 3 THEN ${failureCode} ELSE NULL END,
           "leaseOwner" = NULL, "leaseExpiresAt" = NULL, "updatedAt" = (clock_timestamp() AT TIME ZONE 'UTC')
         WHERE ${this.fence(job)}
       `);
@@ -199,4 +217,13 @@ export class EnergyReportWorkerService implements OnModuleInit, OnModuleDestroy 
       AND NOT EXISTS (SELECT 1 FROM "SiteDeletionCleanup" cleanup WHERE cleanup."siteId" = ${job.siteId})
       AND "attemptCount" = ${job.attemptCount} AND "leaseExpiresAt" > (clock_timestamp() AT TIME ZONE 'UTC')`;
   }
+}
+
+type ReportPhaseFailure = "REPORT_SNAPSHOT_INVALID" | "REPORT_RENDERING_FAILED" | "REPORT_STORAGE_UNAVAILABLE";
+class ReportProcessingError extends Error {
+  constructor(readonly failureCode: ReportPhaseFailure) { super(failureCode); }
+}
+async function reportPhase<T>(failureCode: ReportPhaseFailure, operation: () => T | Promise<T>): Promise<T> {
+  try { return await operation(); }
+  catch { throw new ReportProcessingError(failureCode); }
 }

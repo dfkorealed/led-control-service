@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { energyReportRequestSchema, type EnergyReportDocument, type EnergyReportRequest } from "@led-control/shared";
 import { PrismaService } from "../../prisma/prisma.service";
 import { EnergyReportDocumentBuilder, type EnergyReportDataSnapshot, type ReportEffectiveRange } from "./energy-report-document.builder";
+import { assertReportTextSupported } from "./report-text";
 
 export type EnergyReportSnapshots = {
   requestSnapshot: EnergyReportRequest;
@@ -14,7 +15,32 @@ export type EnergyReportSnapshots = {
 export class EnergyReportSnapshotService {
   constructor(private readonly prisma: PrismaService, private readonly builder: EnergyReportDocumentBuilder) {}
 
-  async capture(reportId: string, siteId: string, rawRequest: unknown, now = new Date()): Promise<EnergyReportSnapshots> {
+  async captureTargetLabel(tx: Prisma.TransactionClient, siteId: string, request: EnergyReportRequest): Promise<string> {
+    const { scope, identityId } = request;
+    let label: string | undefined;
+    if (scope === "site" && identityId === siteId) {
+      label = (await tx.site.findUniqueOrThrow({ where: { id: siteId }, select: { name: true } })).name;
+    } else if (scope === "fixture" || scope === "group") {
+      const query = { where: { id: identityId, siteId }, select: { id: true,
+        dimensionVersions: { orderBy: [{ effectiveFrom: "desc" as const }, { id: "asc" as const }], take: 1, select: { name: true } } } };
+      const identity = scope === "fixture" ? await tx.energyFixtureIdentity.findFirst(query) : await tx.energyGroupIdentity.findFirst(query);
+      if (identity) label = identity.dimensionVersions[0]?.name ?? identity.id;
+    } else if (scope === "floor") {
+      const floor = await tx.floor.findFirst({ where: { id: identityId, siteId }, select: { name: true } });
+      // Deleted floors remain addressable through retained analytics dimensions.
+      label = floor?.name ?? (await tx.energyFixtureDimensionVersion.findFirst({
+        where: { floorId: identityId, energyFixture: { siteId } }, orderBy: [{ effectiveFrom: "desc" }, { id: "asc" }],
+        select: { floorName: true }
+      }))?.floorName;
+    }
+    if (label === undefined) throw new NotFoundException("energy scope not found");
+    // Recheck the short label under the enqueue transaction: a rename may have
+    // happened since the full read-only document preflight outside the Site lock.
+    assertReportTextSupported(label);
+    return label;
+  }
+
+  async capture(reportId: string, siteId: string, rawRequest: unknown, now = new Date(), targetLabelSnapshot?: string | null): Promise<EnergyReportSnapshots> {
     const parsed = energyReportRequestSchema.safeParse(rawRequest);
     if (!parsed.success) throw new BadRequestException("invalid energy report request");
     const requestSnapshot = parsed.data;
@@ -43,10 +69,13 @@ export class EnergyReportSnapshotService {
         : scope === "floor" ? fixtures.some((fixture) => fixture.dimensionVersions.some((version) => version.floorId === identityId)) ||
           !!await tx.floor.findFirst({ where: { id: identityId, siteId }, select: { id: true } })
         : !!await tx.energyGroupIdentity.findFirst({ where: { id: identityId, siteId }, select: { id: true } });
-      if (!scopeExists) throw new NotFoundException("energy scope not found");
+      // An accepted job already proved its immutable target belongs to this site.
+      // Operational deletion before the first worker attempt must not erase it.
+      if (!scopeExists && targetLabelSnapshot == null) throw new NotFoundException("energy scope not found");
       const range = (from: Date, to: Date | null): ReportEffectiveRange => ({ from: from.toISOString(), to: to?.toISOString() ?? null });
       const dataSnapshot: EnergyReportDataSnapshot = {
         schemaVersion: 1, capturedAt: now.toISOString(), site, comparisonRange,
+        ...(targetLabelSnapshot == null ? {} : { targetLabelSnapshot }),
         fixtures: fixtures.map((fixture) => ({
           id: fixture.id, ...range(fixture.trackingStartedAt, fixture.retiredAt),
           dimensions: fixture.dimensionVersions.map((version) => ({ name: version.name, floorId: version.floorId, floorName: version.floorName,
