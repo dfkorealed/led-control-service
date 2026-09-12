@@ -35,7 +35,7 @@ describe("site settings API", () => {
       name: "새 현장",
       address: "서울",
       timeZone: "Asia/Seoul",
-      currency: "KRW",
+      currency: "KRW" as const,
       tariffKwhRate: 155.5
     };
 

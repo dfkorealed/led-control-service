@@ -182,7 +182,6 @@ function SiteInformationForm({ siteId, site }: { siteId: string; site: SiteSetti
   const [name, setName] = useState(site.name);
   const [address, setAddress] = useState(site.address ?? "");
   const [timeZone, setTimeZone] = useState(site.timeZone);
-  const [currency, setCurrency] = useState(site.currency);
   const [tariffKwhRate, setTariffKwhRate] = useState(site.tariffKwhRate?.toString() ?? "");
   const [notice, setNotice] = useState("");
   const [actionError, setActionError] = useState<RetryableError | null>(null);
@@ -191,7 +190,6 @@ function SiteInformationForm({ siteId, site }: { siteId: string; site: SiteSetti
     setName(site.name);
     setAddress(site.address ?? "");
     setTimeZone(site.timeZone);
-    setCurrency(site.currency);
     setTariffKwhRate(site.tariffKwhRate?.toString() ?? "");
   }, [site]);
 
@@ -199,10 +197,10 @@ function SiteInformationForm({ siteId, site }: { siteId: string; site: SiteSetti
     mutationFn: () => updateSiteSettings(siteId, {
       expectedUpdatedAt: site.updatedAt,
       name: name.trim(),
-      address: address.trim() || null,
+      address: address.trim(),
       timeZone: timeZone.trim(),
-      currency,
-      tariffKwhRate: tariffKwhRate === "" ? null : Number(tariffKwhRate)
+      currency: "KRW",
+      tariffKwhRate: Number(tariffKwhRate)
     }),
     onSuccess: async () => {
       setActionError(null);
@@ -236,10 +234,10 @@ function SiteInformationForm({ siteId, site }: { siteId: string; site: SiteSetti
       <Card className="site-operations-card">
         <form aria-label="현장 정보" className="site-operations-form site-information-grid" onSubmit={submit}>
           <Field label="현장명"><input required maxLength={120} value={name} onChange={(event) => setName(event.target.value)} /></Field>
-          <Field label="주소" className="site-address-field"><input maxLength={500} value={address} onChange={(event) => setAddress(event.target.value)} /></Field>
+          <Field label="주소" className="site-address-field"><input required maxLength={500} value={address} onChange={(event) => setAddress(event.target.value)} /></Field>
           <Field label="시간대"><input required maxLength={100} value={timeZone} onChange={(event) => setTimeZone(event.target.value)} /></Field>
-          <Field label="통화"><input required inputMode="text" minLength={3} maxLength={3} pattern="[A-Z]{3}" value={currency} onChange={(event) => setCurrency(event.target.value.toUpperCase())} /></Field>
-          <Field label="kWh 단가"><input type="number" min="0" max="99999999.99" step="0.01" value={tariffKwhRate} onChange={(event) => setTariffKwhRate(event.target.value)} /></Field>
+          <Field label="통화"><input readOnly value="KRW" /></Field>
+          <Field label="kWh 단가"><input required type="number" min="0" max="99999999.99" step="0.01" value={tariffKwhRate} onChange={(event) => setTariffKwhRate(event.target.value)} /></Field>
           <div className="site-operations-form-actions">
             <Button type="submit" variant="primary" isLoading={mutation.isPending} loadingLabel="저장 중"><Save size={16} aria-hidden="true" /> 현장 정보 저장</Button>
           </div>

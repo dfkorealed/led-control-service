@@ -33,10 +33,10 @@ export type SiteFloorMutationResult = Omit<SiteSettingsFloor, "fixtureCount" | "
 export interface UpdateSiteSettingsInput {
   expectedUpdatedAt: string;
   name: string;
-  address: string | null;
+  address: string;
   timeZone: string;
-  currency: string;
-  tariffKwhRate: number | null;
+  currency: "KRW";
+  tariffKwhRate: number;
 }
 
 export interface CreateFloorInput {

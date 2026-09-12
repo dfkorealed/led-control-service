@@ -159,17 +159,14 @@ describe("SiteOperationsView", () => {
     expect(screen.queryByRole("button", { name: "B1 이전 구역 보관" })).not.toBeInTheDocument();
   });
 
-  it("preserves and normalizes any supported three-letter currency", async () => {
-    siteApi.getSiteSettings.mockResolvedValueOnce({
-      ...structuredClone(settings),
-      site: { ...settings.site, currency: "USD" }
-    });
+  it("requires installed-site billing fields and keeps currency fixed to KRW", async () => {
     renderView();
 
+    expect(await screen.findByLabelText("주소")).toBeRequired();
+    expect(screen.getByLabelText("kWh 단가")).toBeRequired();
     const currency = await screen.findByLabelText("통화");
-    expect(currency).toHaveValue("USD");
-    fireEvent.change(currency, { target: { value: "eur" } });
-    expect(currency).toHaveValue("EUR");
+    expect(currency).toHaveValue("KRW");
+    expect(currency).toHaveAttribute("readonly");
   });
 
   it("submits site and floor changes and invalidates only the selected site", async () => {
