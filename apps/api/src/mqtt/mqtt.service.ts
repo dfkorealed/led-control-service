@@ -66,6 +66,7 @@ interface LockedCommandDispatch {
 
 const ACTIVE_DISPATCH_STATUSES = ["pending", "published", "accepted"];
 const RECONCILABLE_TIMEOUT_CODES = ["ACCEPTANCE_TIMEOUT", "STATUS_TIMEOUT"];
+const DEVICE_STATUS_ACK_EVENT_TYPE = "device_status_ack";
 
 interface GatewayInboundQueue {
   pending: number;
@@ -1078,6 +1079,7 @@ export class MqttService implements OnModuleInit {
         && ["failed", "timed_out"].includes(dispatch.status)
         && RECONCILABLE_TIMEOUT_CODES.includes(dispatch.errorCode ?? "");
       if (!ACTIVE_DISPATCH_STATUSES.includes(dispatch.status) && !late) return;
+      if (!await this.claimDeviceStatusEvent(tx, ack)) return;
 
       const expectedResults = await tx.$queryRaw<Array<{ fixtureId: string }>>`
         SELECT r."fixtureId"
@@ -1138,6 +1140,35 @@ export class MqttService implements OnModuleInit {
 
       await this.finishParentCommand(tx, dispatch);
     });
+  }
+
+  private async claimDeviceStatusEvent(
+    tx: Prisma.TransactionClient,
+    ack: ReturnType<typeof deviceStatusAckV2Schema.parse>
+  ) {
+    const payloadHash = canonicalPayloadHash(ack);
+    // ACK sequence identifies the command, not the event: a distinct late ACK
+    // shares it. Allocate a ledger sequence under the already-held mutation lock,
+    // matching resync ingestion, so the legacy unique sequence index permits both.
+    // ON CONFLICT also handles an eventId claimed by another ingestion path without
+    // aborting PostgreSQL's transaction before we can validate the durable identity.
+    const inserted = await tx.$queryRaw<Array<{ eventId: string }>>`
+      INSERT INTO "ProcessedGatewayEvent" ("eventId", "gatewayId", "sequence", "eventType", "payloadHash", "occurredAt")
+      SELECT ${ack.eventId}, ${ack.gatewayId}, COALESCE(MAX("sequence"), -1::bigint) + 1::bigint,
+        ${DEVICE_STATUS_ACK_EVENT_TYPE}, ${payloadHash}, ${new Date(ack.occurredAt)}
+      FROM "ProcessedGatewayEvent"
+      WHERE "gatewayId" = ${ack.gatewayId} AND "eventType" = ${DEVICE_STATUS_ACK_EVENT_TYPE}
+      ON CONFLICT DO NOTHING
+      RETURNING "eventId"
+    `;
+    if (inserted.length === 1) return true;
+    const existing = await tx.processedGatewayEvent.findUnique({ where: { eventId: ack.eventId } });
+    if (existing?.gatewayId !== ack.gatewayId || existing.eventType !== DEVICE_STATUS_ACK_EVENT_TYPE
+      || existing.payloadHash !== payloadHash) {
+      // Keep untrusted payloads, identifiers and database details out of logs.
+      this.logger.warn("device status ACK event identity conflict");
+    }
+    return false;
   }
 
   private async failInvalidDeviceStatusAck(

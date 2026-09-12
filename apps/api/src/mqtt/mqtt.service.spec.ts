@@ -866,6 +866,35 @@ describe("MqttService", () => {
     expect(state.prisma.commandFixtureResult.updateMany).toHaveBeenCalledTimes(writes);
   });
 
+  it("deduplicates an identical late timeout ACK durably across service restart", async () => {
+    const state = reconciliationPrisma(1, { status: "timed_out", errorCode: "STATUS_TIMEOUT" }, "unknown");
+    const ack = { ...deviceStatusAckPayload(), status: "timed_out", results: [fixtureResult(state.results[0].fixtureId, "timed_out")] };
+    await state.service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify(ack)));
+    const restarted = new MqttService(state.prisma, createMeshGroupsMock() as never);
+    await restarted.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify(ack)));
+    expect(state.command.outcome).toBe("unknown");
+    expect(state.prisma.commandDispatch.updateMany).toHaveBeenCalledTimes(1);
+    expect(state.prisma.commandFixtureResult.updateMany).toHaveBeenCalledTimes(1);
+    expect(state.prisma.command.updateMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects conflicting same-event success but accepts a distinct later success at the same command sequence", async () => {
+    const state = reconciliationPrisma(1);
+    const timeout = { ...deviceStatusAckPayload(), status: "timed_out", results: [fixtureResult(state.results[0].fixtureId, "timed_out")] };
+    const warning = jest.spyOn(Logger.prototype, "warn").mockImplementation();
+    try {
+      await state.service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify(timeout)));
+      await state.service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify(deviceStatusAckPayload())));
+      expect(state.command.outcome).toBe("unknown");
+      expect(state.prisma.commandFixtureResult.updateMany).toHaveBeenCalledTimes(1);
+      expect(warning).toHaveBeenCalledWith("device status ACK event identity conflict");
+      await state.service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify({ ...deviceStatusAckPayload(),
+        eventId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" })));
+      expect(state.command.outcome).toBe("applied");
+      expect(state.prisma.commandFixtureResult.updateMany).toHaveBeenCalledTimes(2);
+    } finally { warning.mockRestore(); }
+  });
+
   it.each(["DELIVERY_TIMEOUT", "ack_fixture_set_mismatch", null])("does not reopen an unknown terminal dispatch coded %s", async (errorCode) => {
     const state = reconciliationPrisma(1, { status: "timed_out", errorCode }, "unknown");
     await state.service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify(deviceStatusAckPayload())));
@@ -880,7 +909,8 @@ describe("MqttService", () => {
     expect(state.command.outcome).toBe("unknown");
     expect(state.dispatch.errorCode).toBe("ACCEPTANCE_TIMEOUT");
     expect(state.prisma.commandFixtureResult.updateMany).not.toHaveBeenCalled();
-    await state.service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify(deviceStatusAckPayload())));
+    await state.service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify({ ...deviceStatusAckPayload(),
+      eventId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" })));
     expect(state.command.outcome).toBe("applied");
   });
 
@@ -914,6 +944,7 @@ describe("MqttService", () => {
     await state.service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify(deviceStatusAckPayload())));
     expect(state.command.outcome).toBe("unknown");
     await state.service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify({ ...deviceStatusAckPayload(),
+      eventId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
       dispatchId: sibling.id, results: [{ fixtureId: sibling.fixtureResults[0].fixtureId, status: "succeeded", brightness: 20 }] })));
     expect(state.command.outcome).toBe("partially_applied");
   });
@@ -2491,10 +2522,17 @@ function reconciliationPrisma(count: number, overrides: Record<string, unknown> 
     status: "accepted", errorCode: null, fixtureResults: results, ...overrides };
   const dispatches: any[] = [dispatch];
   const order: string[] = [];
+  const events = new Map<unknown, { eventId: unknown; gatewayId: unknown; eventType: unknown; payloadHash: unknown }>();
   const prisma: any = {
     $executeRaw: jest.fn(async () => { order.push("mutation-lock"); return 1; }),
     $queryRaw: jest.fn(async (query: TemplateStringsArray, ...values: unknown[]) => {
       const sql = query.join("");
+      if (sql.includes('INSERT INTO "ProcessedGatewayEvent"')) {
+        const [eventId, gatewayId, eventType, payloadHash] = values;
+        if (events.has(eventId)) return [];
+        events.set(eventId, { eventId, gatewayId, eventType, payloadHash });
+        return [{ eventId }];
+      }
       const current = dispatches.find((item) => item.id === values[0]);
       if (sql.includes('FROM "CommandDispatch"')) {
         order.push("dispatch-lock"); return current ? [{ ...current, outcome: command.outcome, brightness: command.brightness }] : [];
@@ -2502,6 +2540,7 @@ function reconciliationPrisma(count: number, overrides: Record<string, unknown> 
       if (sql.includes('FROM "CommandFixtureResult"')) return current?.fixtureResults ?? [];
       throw new Error(`unexpected reconciliation query: ${sql}`);
     }),
+    processedGatewayEvent: { findUnique: jest.fn(async ({ where }: any) => events.get(where.eventId) ?? null) },
     commandDispatch: {
       updateMany: jest.fn(async ({ where, data }: any) => {
         const current = dispatches.find((item) => item.id === where.id);
@@ -2555,6 +2594,7 @@ function deviceAckPrisma(expectedFixtureIds: string[]) {
   };
   prisma.$queryRaw = jest.fn(async (query: TemplateStringsArray) => {
     const sql = query.join("");
+    if (sql.includes('INSERT INTO "ProcessedGatewayEvent"')) return [{ eventId: deviceStatusAckPayload().eventId }];
     if (sql.includes('FROM "CommandDispatch"')) {
       return [{ id: deviceStatusAckPayload().dispatchId, commandId: deviceStatusAckPayload().commandId,
         kind: "dimming", verificationAttempt: null, status: "accepted", errorCode: null, outcome: "pending", brightness: 70 }];
