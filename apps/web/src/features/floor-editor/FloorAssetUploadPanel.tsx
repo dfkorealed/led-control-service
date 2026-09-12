@@ -68,6 +68,7 @@ export function FloorAssetUploadPanel({
       <label>
         <span>도면 파일</span>
         <input
+          className="floor-asset-file-input"
           type="file"
           accept=".png,.jpg,.jpeg,.pdf,image/png,image/jpeg,application/pdf"
           disabled={disabled || uploading}
