@@ -587,7 +587,7 @@ describe("FloorEditorView", () => {
     expect(useFloorEditorStore.getState().isDirty).toBe(true);
   });
 
-  it("links a ready PDF original without replacing the current canvas background", async () => {
+  it("links a ready PDF original while preserving the current rendered canvas background", async () => {
     floorEditorApi.uploadFloorAsset.mockResolvedValueOnce({
       id: "asset-pdf",
       kind: "original",
@@ -598,8 +598,6 @@ describe("FloorEditorView", () => {
       accessPath: "/api/floors/floor-b2/assets/asset-pdf/content"
     });
     renderEditor();
-    const originalFloorPlan = useFloorEditorStore.getState().state?.floor.floorPlan;
-
     fireEvent.change(screen.getByLabelText("도면 파일"), {
       target: { files: [new File(["pdf"], "parking.pdf", { type: "application/pdf" })] }
     });
@@ -607,9 +605,15 @@ describe("FloorEditorView", () => {
 
     const linked = await screen.findByText("PDF 원본이 연결되었습니다.");
     expect(linked.closest("[role=status]")).toHaveAttribute("data-tone", "success");
-    expect(useFloorEditorStore.getState().state?.floor.floorPlan).toBe(originalFloorPlan);
+    expect(useFloorEditorStore.getState().state?.floor.floorPlan).toMatchObject({
+      sourceType: "pdf",
+      imageUrl: "/demo/floor-b2.svg",
+      originalFileUrl: "/api/floors/floor-b2/assets/asset-pdf/content",
+      renderedImageUrl: "/demo/floor-b2.svg",
+      version: 2
+    });
     expect(screen.getByLabelText("B2 편집 캔버스")).toHaveClass("has-plan");
-    expect(useFloorEditorStore.getState().isDirty).toBe(false);
+    expect(useFloorEditorStore.getState().isDirty).toBe(true);
   });
 
   it("locks save restore and floor switching while an upload is pending", async () => {

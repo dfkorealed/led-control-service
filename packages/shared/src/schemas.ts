@@ -54,6 +54,15 @@ const floorPlanFields = {
   gridSize: editorGridSizeSchema
 };
 
+const pdfFloorPlanFields = {
+  imageUrl: z.union([editorUrlSchema, z.literal("")]),
+  originalFileUrl: editorUrlSchema,
+  renderedImageUrl: editorUrlSchema.nullable(),
+  width: positiveInt4Schema,
+  height: positiveInt4Schema,
+  gridSize: editorGridSizeSchema
+};
+
 export const floorPlanUpdateSchema = z.discriminatedUnion("sourceType", [
   z.object({
     sourceType: z.literal("none"),
@@ -65,7 +74,7 @@ export const floorPlanUpdateSchema = z.discriminatedUnion("sourceType", [
     gridSize: editorGridSizeSchema
   }).strict(),
   z.object({ sourceType: z.literal("image"), ...floorPlanFields }).strict(),
-  z.object({ sourceType: z.literal("pdf"), ...floorPlanFields }).strict()
+  z.object({ sourceType: z.literal("pdf"), ...pdfFloorPlanFields }).strict()
 ]);
 
 export const legacyFloorPlanEffectiveSchema = z.discriminatedUnion("sourceType", [
@@ -79,7 +88,7 @@ export const legacyFloorPlanEffectiveSchema = z.discriminatedUnion("sourceType",
     gridSize: editorGridSizeSchema
   }).strict(),
   z.object({ sourceType: z.literal("image"), ...floorPlanFields }).strict(),
-  z.object({ sourceType: z.literal("pdf"), ...floorPlanFields }).strict()
+  z.object({ sourceType: z.literal("pdf"), ...pdfFloorPlanFields }).strict()
 ]);
 
 export const legacyFloorPlanPatchSchema = z.object({
@@ -233,7 +242,11 @@ export const floorMapPlanSnapshotSchema = z.discriminatedUnion("sourceType", [
     gridSize: editorGridSizeSchema
   }).strict(),
   z.object({ sourceType: z.literal("image"), ...floorMapReadPlanFields }).strict(),
-  z.object({ sourceType: z.literal("pdf"), ...floorMapReadPlanFields }).strict()
+  z.object({
+    sourceType: z.literal("pdf"),
+    ...floorMapReadPlanFields,
+    imageUrl: z.union([editorUrlSchema, z.literal("")])
+  }).strict()
 ]);
 
 export const floorMapSnapshotSchema = z.object({

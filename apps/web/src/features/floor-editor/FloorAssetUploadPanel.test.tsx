@@ -25,15 +25,17 @@ const readyAsset: FloorAsset = {
 function renderPanel() {
   const onUploadingChange = vi.fn();
   const onUploaded = vi.fn();
+  const onRemoved = vi.fn();
   render(
     <FloorAssetUploadPanel
       floorId="floor-1"
       floorPlan={null}
       onUploadingChange={onUploadingChange}
       onUploaded={onUploaded}
+      onRemoved={onRemoved}
     />
   );
-  return { onUploadingChange, onUploaded };
+  return { onUploadingChange, onUploaded, onRemoved };
 }
 
 function selectFile(file: File) {
@@ -108,6 +110,61 @@ describe("FloorAssetUploadPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "도면 업로드 다시 시도" }));
     await waitFor(() => expect(onUploaded).toHaveBeenCalledWith(readyAsset, expect.anything()));
     expect(floorEditorApi.uploadFloorAsset).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps a ready PDF original in the editable floor plan without inventing a rendered image", async () => {
+    const pdfAsset = { ...readyAsset, mimeType: "application/pdf" as const };
+    floorEditorApi.uploadFloorAsset.mockResolvedValueOnce(pdfAsset);
+    const { onUploaded } = renderPanel();
+    selectFile(new File(["pdf"], "parking.pdf", { type: "application/pdf" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "도면 업로드" }));
+
+    await waitFor(() => expect(onUploaded).toHaveBeenCalledWith(pdfAsset, {
+      sourceType: "pdf",
+      imageUrl: "",
+      originalFileUrl: pdfAsset.accessPath,
+      renderedImageUrl: null,
+      width: 1200,
+      height: 800,
+      gridSize: 10,
+      version: 1
+    }));
+  });
+
+  it("turns the current floor plan into a map-only draft when the link is removed", () => {
+    const onRemoved = vi.fn();
+    render(
+      <FloorAssetUploadPanel
+        floorId="floor-1"
+        floorPlan={{
+          sourceType: "image",
+          imageUrl: readyAsset.accessPath,
+          originalFileUrl: readyAsset.accessPath,
+          renderedImageUrl: readyAsset.accessPath,
+          width: 1200,
+          height: 800,
+          gridSize: 10,
+          version: 2
+        }}
+        onUploadingChange={vi.fn()}
+        onUploaded={vi.fn()}
+        onRemoved={onRemoved}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "현재 도면 연결 제거" }));
+
+    expect(onRemoved).toHaveBeenCalledWith({
+      sourceType: "none",
+      imageUrl: "",
+      originalFileUrl: null,
+      renderedImageUrl: null,
+      width: 1200,
+      height: 800,
+      gridSize: 10,
+      version: 3
+    });
   });
 });
 

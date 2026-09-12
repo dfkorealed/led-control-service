@@ -670,6 +670,15 @@ describe("shared schemas", () => {
 
     expect(floorPlanUpdateSchema.parse(imagePlan)).toEqual(imagePlan);
     expect(floorPlanUpdateSchema.parse(pdfPlan)).toEqual(pdfPlan);
+    expect(floorPlanUpdateSchema.parse({
+      ...pdfPlan,
+      imageUrl: "",
+      renderedImageUrl: null
+    })).toEqual({
+      ...pdfPlan,
+      imageUrl: "",
+      renderedImageUrl: null
+    });
 
     const mapOnlyPlan = {
       sourceType: "none" as const,

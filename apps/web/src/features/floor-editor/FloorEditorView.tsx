@@ -306,6 +306,11 @@ export function FloorEditorView({
                 useFloorEditorStore.getState().updateFloorPlan(floorPlan);
               }
             }}
+            onRemoved={(floorPlan) => {
+              if (activeScope.current.floorId === floorId) {
+                useFloorEditorStore.getState().updateFloorPlan(floorPlan);
+              }
+            }}
           />
           <FixtureIdentifyPanel floorId={floorId} readOnly={readOnly || isMutationPending} leaseToken={leaseToken} leaseFence={leaseFence} />
           <RevisionPanel

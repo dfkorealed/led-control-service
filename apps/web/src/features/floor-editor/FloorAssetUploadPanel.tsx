@@ -1,4 +1,4 @@
-import { CircleCheck, FileUp, TriangleAlert } from "lucide-react";
+import { CircleCheck, FileUp, Link2Off, TriangleAlert } from "lucide-react";
 import { useRef, useState } from "react";
 import { uploadFloorAsset } from "../../api/floor-editor";
 import { Button, FeedbackState } from "../../components/ui";
@@ -18,6 +18,7 @@ export interface FloorAssetUploadPanelProps {
   disabled?: boolean;
   onUploadingChange: (uploading: boolean) => void;
   onUploaded: (asset: FloorAsset, floorPlan: FloorPlanDraft | null) => void;
+  onRemoved: (floorPlan: FloorPlanDraft) => void;
 }
 
 export function FloorAssetUploadPanel({
@@ -25,7 +26,8 @@ export function FloorAssetUploadPanel({
   floorPlan,
   disabled = false,
   onUploadingChange,
-  onUploaded
+  onUploaded,
+  onRemoved
 }: FloorAssetUploadPanelProps) {
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -42,7 +44,9 @@ export function FloorAssetUploadPanel({
     try {
       const asset = await uploadFloorAsset(floorId, file);
       if (asset.status !== "ready") throw new Error("Floor asset did not become ready");
-      const nextFloorPlan = file.type === "application/pdf" ? null : imageFloorPlan(asset, floorPlan);
+      const nextFloorPlan = file.type === "application/pdf"
+        ? pdfFloorPlan(asset, floorPlan)
+        : imageFloorPlan(asset, floorPlan);
       onUploaded(asset, nextFloorPlan);
       setUploadedAsset(asset);
       setFile(null);
@@ -97,6 +101,16 @@ export function FloorAssetUploadPanel({
         <FileUp size={16} aria-hidden="true" />
         {error && file ? "도면 업로드 다시 시도" : "도면 업로드"}
       </Button>
+      {floorPlan && floorPlan.sourceType !== "none" ? (
+        <Button
+          variant="ghost"
+          disabled={disabled || uploading}
+          onClick={() => onRemoved(mapOnlyFloorPlan(floorPlan))}
+        >
+          <Link2Off size={16} aria-hidden="true" />
+          현재 도면 연결 제거
+        </Button>
+      ) : null}
     </section>
   );
 }
@@ -124,5 +138,32 @@ function imageFloorPlan(asset: FloorAsset, current: FloorPlanDraft | null): Floo
     height: current?.height ?? 800,
     gridSize: current?.gridSize ?? 10,
     version: (current?.version ?? 0) + 1
+  };
+}
+
+function pdfFloorPlan(asset: FloorAsset, current: FloorPlanDraft | null): FloorPlanDraft {
+  const renderedImageUrl = current?.renderedImageUrl || (current?.sourceType === "image" ? current.imageUrl : null);
+  return {
+    sourceType: "pdf",
+    imageUrl: renderedImageUrl ?? "",
+    originalFileUrl: asset.accessPath,
+    renderedImageUrl,
+    width: current?.width ?? 1200,
+    height: current?.height ?? 800,
+    gridSize: current?.gridSize ?? 10,
+    version: (current?.version ?? 0) + 1
+  };
+}
+
+function mapOnlyFloorPlan(current: FloorPlanDraft): FloorPlanDraft {
+  return {
+    sourceType: "none",
+    imageUrl: "",
+    originalFileUrl: null,
+    renderedImageUrl: null,
+    width: current.width,
+    height: current.height,
+    gridSize: current.gridSize ?? 10,
+    version: current.version + 1
   };
 }
