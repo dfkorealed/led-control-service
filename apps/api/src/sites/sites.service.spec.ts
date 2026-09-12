@@ -138,8 +138,9 @@ describe("SitesService", () => {
     prisma.fixture.findMany.mockResolvedValue([
       {
         id: "fixture-1", floorId: "floor-1", name: "L1", x: 10, y: 20, brightness: 70, status: "online",
+        reportedStatus: "online", reportedStatusReason: "reported",
         ratedWatt: "40", rssi: -58, hopCount: 1, commandSuccessRate: 0.98,
-        lastSeenAt: new Date("2026-07-01T00:00:00.000Z"),
+        lastSeenAt: new Date(),
         healthFaultCodes: [], healthLastSeenAt: new Date("2026-07-01T00:00:01.000Z"),
         meshNode: {
           gateway: { id: "gateway-1", name: "Gateway B2", lastHeartbeatAt: new Date() },
@@ -149,6 +150,7 @@ describe("SitesService", () => {
       },
       {
         id: "fixture-2", floorId: "floor-1", name: "L2", x: 30, y: 40, brightness: 0, status: "online",
+        reportedStatus: "online", reportedStatusReason: "reported",
         ratedWatt: "40", rssi: null, hopCount: null, commandSuccessRate: null, lastSeenAt: null, meshNode: null,
         healthFaultCodes: [1], healthLastSeenAt: new Date("2026-07-01T00:00:02.000Z")
       }
@@ -320,6 +322,7 @@ describe("SitesService", () => {
           floors: [{ id: "f", floorPlan: null }], groups: [], gateways: [gateway]
         });
         prisma.fixture.findMany.mockResolvedValue([{ id: "light", floorId: "f", status: "online", brightness: 20,
+          reportedStatus: "online", reportedStatusReason: "reported", lastSeenAt: now,
           healthFaultCodes: [], healthLastSeenAt: now, meshNode: { gateway } }]);
         const result = await new SitesService(prisma as never, siteAccess as never).getDashboardById("site-1");
         expect(result).toMatchObject({

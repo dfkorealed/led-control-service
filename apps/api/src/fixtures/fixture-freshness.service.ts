@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
+import { gatewayHeartbeatFreshSince } from "@led-control/shared";
 import { MonitoringIncidentReconcilerService } from "../monitoring-incidents/monitoring-incident-reconciler.service";
 import { PrismaService } from "../prisma/prisma.service";
 
@@ -19,10 +20,7 @@ export class FixtureFreshnessService implements OnModuleInit, OnModuleDestroy {
       if (this.running) return;
       this.running = true;
       void this.markStaleFixtures().catch((error) => {
-        const code = typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
-          ? error.code
-          : "UNEXPECTED_ERROR";
-        this.logger.error(`fixture freshness sweep failed (error=${code})`);
+        this.logFailure(error, "sweep");
       }).finally(() => { this.running = false; });
     }, Number(process.env.FIXTURE_FRESHNESS_POLL_MS ?? 30_000));
   }
@@ -56,10 +54,12 @@ export class FixtureFreshnessService implements OnModuleInit, OnModuleDestroy {
         // Sample after lock waits. An explicit observation time is used by
         // deterministic callers; scheduled sweeps always use the current clock.
         const now = observedAt ?? new Date();
-        const gatewayCutoff = new Date(now.getTime() - site.gatewayOfflineAfterSeconds * 1000);
-        const fixtureCutoff = new Date(now.getTime() - site.fixtureStaleAfterSeconds * 1000);
+        // Persisted operational status is consumed by Commands/Identify. Never
+        // let a monitoring preference alter their fixed 90s/180s safety policy.
+        const gatewayCutoff = gatewayHeartbeatFreshSince(now);
+        const fixtureCutoff = new Date(now.getTime() - 180_000);
         const observedFixture = { OR: [
-          { statusReason: { not: "provisioning_waiting_state" } }, { statusReason: null }
+          { reportedStatusReason: { not: "provisioning_waiting_state" } }, { reportedStatusReason: null }
         ] };
         const gatewayOffline = await tx.fixture.updateMany({
           where: { siteId, ...observedFixture,
@@ -77,10 +77,23 @@ export class FixtureFreshnessService implements OnModuleInit, OnModuleDestroy {
         });
         await this.reconciler.reconcile(tx, site, now);
         return { gatewayOffline: gatewayOffline.count, fixtureStale: fixtureStale.count };
+      }, { maxWait: 2000, timeout: 5000 }).catch((error) => {
+        // One unavailable Site must not starve later Sites. The transaction
+        // rolls back, and the next scheduled sweep retries the same Site.
+        this.logFailure(error, "site sweep");
+        return { gatewayOffline: 0, fixtureStale: 0 };
       });
       totals.gatewayOffline += counts.gatewayOffline;
       totals.fixtureStale += counts.fixtureStale;
     }
     return totals;
+  }
+
+  private logFailure(error: unknown, scope: "sweep" | "site sweep") {
+    // Error messages and arbitrary code strings can contain tenant identifiers.
+    // Only a canonical Prisma error code is safe to include in worker logs.
+    const code = typeof error === "object" && error !== null && "code" in error &&
+      typeof error.code === "string" && /^P\d{4}$/.test(error.code) ? error.code : "UNEXPECTED_ERROR";
+    this.logger.error(`fixture freshness ${scope} failed (error=${code})`);
   }
 }

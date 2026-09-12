@@ -368,13 +368,13 @@ admin 연결 제약:
 
 SQL CHECK는 대상/유형/키의 일치, 활성/해결 상태별 key·시각·resolution 값, 확인 및 관측 시각 순서를 강제한다. 사용자를 삭제해도 시각과 이력은 보존하고 actor FK만 null이 된다. Site 또는 대상 삭제 시 이력도 cascade한다. `Fixture(id, siteId)` unique와 두 대상의 복합 FK가 다른 현장 대상을 DB에서 차단한다. 현장·상태·유형별 목록 및 `(resolvedAt IS NULL) DESC, openedAt DESC, id DESC` 활성 우선 커서용 인덱스를 제공한다.
 
-`GET/PATCH /sites/:siteId/monitoring-policy`와 인시던트 목록/변경 API는 read/manage capability를 구분한다. 변경은 Site → incident 순서 잠금과 재인가, optimistic concurrency, 같은 transaction의 `AuditLog`를 사용한다. 수동 해결은 실제 대상 상태가 정상으로 복구된 경우에만 허용하며 아직 장애면 `409 INCIDENT_STILL_ACTIVE`다. 30초 freshness worker가 Site 정책으로 상태를 갱신한 뒤 같은 transaction에서 활성 조건 생성·관측·자동 해결을 수행한다. Web 연결은 후속 P1 작업이다. migration은 폐기 가능한 PostgreSQL에서만 검증하고 사용자 DB에는 적용하지 않는다.
+`GET/PATCH /sites/:siteId/monitoring-policy`와 인시던트 목록/변경 API는 read/manage capability를 구분한다. 변경은 Site → incident 순서 잠금과 재인가, optimistic concurrency, 같은 transaction의 `AuditLog`를 사용한다. 수동 해결은 실제 대상 상태가 정상으로 복구된 경우에만 허용하며 아직 장애면 `409 INCIDENT_STILL_ACTIVE`다. 30초 freshness worker가 고정 운영 상태를 갱신한 뒤 같은 transaction에서 Site 정책과 마지막 reported 상태에 따른 활성 조건 생성·관측·자동 해결을 수행한다. Web 연결은 후속 P1 작업이다. migration은 폐기 가능한 PostgreSQL에서만 검증하고 사용자 DB에는 적용하지 않는다.
 
 수동 해결은 Site가 Incident보다 먼저 잠기는 규칙에 대상 의존성을 추가해 `Site → Gateway → Fixture → Incident` 순서를 사용한다. Gateway의 `FOR NO KEY UPDATE`는 heartbeat writer를 직렬화하면서 Fixture 수집이 이후 받는 Gateway FK의 `KEY SHARE`를 허용해 역대기를 방지한다. Fixture row 잠금 후 소유 Gateway ID를 재검증하며 발견 시점과 다르면 `409 INCIDENT_TARGET_CHANGED`로 중단한다. 잠금 순서를 뒤집어 새 Gateway를 추가로 잠그지 않는다. 조건 판정은 모든 의존성 잠금 뒤 실제 snapshot을 다시 조회한다.
 
-Reconciler도 Site → Gateway → Fixture → Incident 순서로 잠그며 현장 전체 대상은 ID 순으로 잠근다. Gateway offline은 대상당 하나이며, fixture stale은 online Gateway에 매핑되고 첫 상태 대기 중이 아닌 조명에만 발생한다. Health fault와 command failure는 각각 Health snapshot과 현재 `statusReason`에서 판정한다. 관측 지속은 SQL로 `lastObservedAt`만 전진시켜 Prisma `@updatedAt`과 사용자 확인·담당 변경 revision을 보존한다. 조건 해소 시 `activeKey=NULL`, `resolutionKind=automatic_recovery`로 전환하고 `updatedAt`을 최소 1ms 증가시킨다. 확인·담당 이력은 보존하며 새 장애는 별도 행을 만든다.
+Reconciler도 Site → Gateway → Fixture → Incident 순서로 잠그며 현장 전체 대상은 ID 순으로 잠근다. Gateway offline은 대상당 하나이며, fixture stale은 online Gateway에 매핑되고 첫 상태 대기 중이 아닌 조명에만 발생한다. Health fault와 command failure는 각각 Health snapshot과 `reportedStatusReason`에서 판정한다. 따라서 command failure는 운영 freshness가 사유를 덮어써도 유지되며 다음 실제 수락 보고에서 사유가 바뀌어야 해소된다. 관측 지속은 SQL로 `lastObservedAt`만 전진시켜 Prisma `@updatedAt`과 사용자 확인·담당 변경 revision을 보존한다. 조건 해소 시 `activeKey=NULL`, `resolutionKind=automatic_recovery`로 전환하고 `updatedAt`을 최소 1ms 증가시킨다. 확인·담당 이력은 보존하며 새 장애는 별도 행을 만든다.
 
-수집 commit과 incident 반영 사이에는 다음 sweep까지 지연이 있다. 각 Site 내부 상태 변경·reconcile은 원자적이며, 다른 Site는 별도 transaction이다. 첫 sweep 이전 과거 장애는 backfill하지 않는다. 이번 Task 2는 schema/migration을 변경하지 않았다.
+수집 commit과 incident 반영 사이에는 다음 sweep까지 지연이 있다. 각 Site 내부 고정 운영 상태 변경·reconcile은 원자적이며, 다른 Site는 별도 transaction이다. transaction 획득 대기 2초/실행 5초로 제한하고 실패 현장만 rollback한 뒤 다음 현장을 처리한다. 첫 sweep 이전 과거 장애는 backfill하지 않는다.
 
 ### SiteDeletionCleanup
 
@@ -608,7 +608,9 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 | `size` | `Float` | 예 | `20` | 도면 에디터에서 표시되는 조명 노드 지름 |
 | `placementStatus` | `FixturePlacementStatus` | 예 | `unplaced` | 지도 배치 상태: `unplaced`, `placed`. 등록/제어 가능 여부와 독립 |
 | `positionVerifiedAt` | `DateTime?` | 아니오 | `NULL`; 미배치는 NULL 강제 CHECK | 사람이 위치를 명시적으로 확인한 서버 시각 |
-| `status` | `FixtureStatus` | 예 | `offline` | 현재 상태 |
+| `status` | `FixtureStatus` | 예 | `offline` | 고정 90초 Gateway/180초 Fixture freshness가 반영된 운영 상태; Commands/Identify 소비 |
+| `reportedStatus` | `FixtureStatus` | 예 | `offline` | 마지막 수락 fixture-state의 status; freshness sweep은 변경하지 않음 |
+| `reportedStatusReason` | `String?` | 아니오 | `NULL` | 마지막 수락 보고 사유; command_failed 및 첫 상태 대기 보존 |
 | `brightness` | `Int` | 예 | `0` | 현재 밝기 0-100 |
 | `rssi` | `Int?` | 아니오 |  | 최근 RSSI |
 | `hopCount` | `Int?` | 아니오 |  | 최근 BLE Mesh hop 수 |
@@ -617,7 +619,7 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 | `lastStateEventId` | `String?` | 아니오 | Unique | 마지막 적용 MQTT v2 이벤트 ID |
 | `lastStateSequence` | `BigInt?` | 아니오 |  | 마지막 적용 gateway sequence |
 | `lastStateOccurredAt` | `DateTime?` | 아니오 |  | 검증된 장치 상태 발생 시각; energy 순서·cursor/checkpoint 기준 |
-| `statusReason` | `String?` | 아니오 |  | reported, provisioning_waiting_state, fixture_stale, gateway_offline 등 상태 근거 |
+| `statusReason` | `String?` | 아니오 |  | 고정 운영 상태의 근거; freshness가 fixture_stale/gateway_offline으로 변경 가능 |
 | `healthFaultCodes` | `Json?` | 아니오 | JSON number 배열 | 마지막 BLE Mesh Health Current의 정규화된 8비트 fault code 목록 |
 | `healthLastSeenAt` | `DateTime?` | 아니오 |  | 마지막 BLE Mesh Health Current 관측 시각 |
 | `energyTrackingStartedAt` | `DateTime` | 예 | `now()` | 상태 기반 에너지 추적을 시작한 시각. 기존 조명은 foundation migration 적용 시각 |
@@ -641,7 +643,9 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 - `rssi`, `hopCount`, `commandSuccessRate`, `lastSeenAt`은 장기 이력 테이블이 아니라 최신 모니터링 snapshot이다. 수락된 fixture-state는 `lastSeenAt = API receivedAt`으로 저장하므로 미래 장비 시계가 stale 판정을 지연시키지 못한다. 반면 `lastStateOccurredAt`은 검증된 장비 `occurredAt`을 보존해 에너지 순서·cursor/checkpoint에만 사용한다.
 - `healthFaultCodes`, `healthLastSeenAt`도 이력 테이블이 아닌 최신 Health Current snapshot이다. fault code `0x00`은 제거하고 나머지는 중복 제거·오름차순 정렬해 저장한다. 유효한 Health Current를 아직 받지 못했거나 JSON이 유효하지 않으면 API는 `확인 대기`로 응답한다.
 - `20260819092000_add_fixture_health_snapshot` migration은 기존 조명에 두 컬럼을 nullable로 추가한다. 따라서 migration 직후 기존 조명은 첫 Health Current 수신 전까지 `확인 대기` 상태다.
-- provisioning 완료는 `status = offline`, `statusReason = provisioning_waiting_state`, `brightness = 0`, `lastSeenAt = null`로 Fixture를 만든다. 이 값은 실제 장비 offline 판정이 아니라 첫 실제 상태를 아직 받지 못한 미확정 상태다.
+- `20260912110000_fixture_reported_state`는 reported 두 컬럼을 additive로 만들고 기존 status/statusReason을 복사한 뒤 reportedStatus를 NOT NULL/default offline으로 설정한다. 운영 상태·수신 시각·updatedAt은 변경하지 않는다. 과거에 freshness가 덮어쓴 장비 보고는 추정 복원하지 않으며 새 수락 보고부터 정확히 보존한다. 배포 시 migration 후 모든 수집 API를 새 버전으로 교체해야 하고 구버전 writer와 장기 혼용하지 않는다.
+- 새 수락 fixture-state는 reportedStatus에 wire status, reportedStatusReason에 보고 사유(생략 시 reported)를 저장하고 operational status/reason도 함께 갱신한다. operational status의 기존 Health 정규화는 유지한다. 모니터링 응답·summary는 reported 상태 + Site threshold + Health snapshot으로 계산하고, controllable/controlBlockReason은 고정 운영 상태로 계산한다.
+- provisioning 완료는 status/reportedStatus를 offline, statusReason/reportedStatusReason을 provisioning_waiting_state, brightness를 0, lastSeenAt을 null로 만든다. 이 값은 실제 장비 offline 판정이 아니라 첫 실제 상태를 아직 받지 못한 미확정 상태다.
 - 첫 MQTT `fixture-state` event가 도착할 때만 online/fault/offline 상태, 밝기, RSSI, hop, lastSeenAt과 `statusReason`을 실제 관측값으로 확정한다. API는 packet 수신 시작 시각을 한 번 고정하고 `occurredAt <= receivedAt + 300,000ms`(정확한 경계 포함)만 수락한다. 이보다 1ms라도 미래인 event는 원장에 terminal rejection만 남기고 Fixture snapshot·에너지 cursor·aggregate에는 접근하지 않는다.
 - freshness worker는 `provisioning_waiting_state`를 gateway offline과 fixture stale 재집계에서 제외한다. 첫 실제 `fixture-state`가 status reason을 보고값으로 바꾼 뒤에는, 보고된 `offline`을 포함해 일반 freshness 규칙을 적용한다.
 - `(floorId, id)` 복합 인덱스는 층별 fixture snapshot의 ID cursor 페이지 조회에 사용한다.

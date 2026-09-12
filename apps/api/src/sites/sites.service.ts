@@ -4,7 +4,7 @@ import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import { fixtureStatusWithHealth, toFixtureHealthSnapshot } from "../fixtures/fixture-health";
-import { DEFAULT_MONITORING_POLICY, isMonitoringGatewayOnline } from "../monitoring-incidents/monitoring-conditions";
+import { DEFAULT_MONITORING_POLICY, isMonitoringGatewayOnline, monitoringFixtureState, type MonitoringPolicy } from "../monitoring-incidents/monitoring-conditions";
 
 @Injectable()
 export class SitesService {
@@ -86,10 +86,8 @@ export class SitesService {
       gatewayOfflineAfterSeconds: site.gatewayOfflineAfterSeconds,
       fixtureStaleAfterSeconds: site.fixtureStaleAfterSeconds
     };
-    const resolvedFixtureStatuses = fixtures.map((fixture) => fixtureStatusWithHealth(
-      fixture.status,
-      toFixtureHealthSnapshot(fixture.healthFaultCodes, fixture.healthLastSeenAt)
-    ));
+    const resolvedFixtureStatuses = fixtures.map((fixture) =>
+      monitoringFixtureState(fixture, fixture.meshNode?.gateway, monitoringPolicy, now).status);
     const summary = includeFixtures
       ? {
           totalFixtures: fixtures.length,
@@ -99,7 +97,7 @@ export class SitesService {
             ? Math.round(fixtures.reduce((sum, fixture) => sum + fixture.brightness, 0) / fixtures.length)
             : 0
         }
-      : await this.getFixtureSummary(site.id);
+      : await this.getFixtureSummary(site.id, monitoringPolicy, now);
 
     return {
       generatedAt: now.toISOString(),
@@ -143,14 +141,15 @@ export class SitesService {
           // fixed safety contract used by registration/identify/control APIs.
           const controlGatewayOnline = isGatewayHeartbeatFresh(fixture.meshNode?.gateway.lastHeartbeatAt, now);
           const health = toFixtureHealthSnapshot(fixture.healthFaultCodes, fixture.healthLastSeenAt);
-          const status = fixtureStatusWithHealth(fixture.status, health);
+          const controlStatus = fixtureStatusWithHealth(fixture.status, health);
+          const { status, statusReason } = monitoringFixtureState(fixture, fixture.meshNode?.gateway, monitoringPolicy, now);
           const controlBlockReason = !fixture.meshNode
             ? "fixture_unmapped"
             : !controlGatewayOnline
               ? "gateway_offline"
-              : status === "fault"
+              : controlStatus === "fault"
                 ? "fixture_fault"
-                : status === "offline"
+                : controlStatus === "offline"
                   ? "fixture_offline"
                   : null;
           return {
@@ -164,7 +163,7 @@ export class SitesService {
           ratedWatt: Number(fixture.ratedWatt),
           brightness: fixture.brightness,
           status,
-          statusReason: fixture.statusReason,
+          statusReason,
           health,
           rssi: fixture.rssi,
           hopCount: fixture.hopCount,
@@ -221,20 +220,20 @@ export class SitesService {
     };
   }
 
-  private async getFixtureSummary(siteId: string) {
+  private async getFixtureSummary(siteId: string, policy: MonitoringPolicy, now: Date) {
     const fixtures = await this.prisma.fixture.findMany({
       where: { floor: { siteId } },
       select: {
-        status: true,
+        reportedStatus: true,
+        reportedStatusReason: true,
+        lastSeenAt: true,
+        meshNode: { select: { gateway: { select: { lastHeartbeatAt: true } } } },
         brightness: true,
         healthFaultCodes: true,
         healthLastSeenAt: true
       }
     });
-    const statuses = fixtures.map((fixture) => fixtureStatusWithHealth(
-      fixture.status,
-      toFixtureHealthSnapshot(fixture.healthFaultCodes, fixture.healthLastSeenAt)
-    ));
+    const statuses = fixtures.map((fixture) => monitoringFixtureState(fixture, fixture.meshNode?.gateway, policy, now).status);
     return {
       totalFixtures: fixtures.length,
       onlineFixtures: statuses.filter((status) => status === "online").length,

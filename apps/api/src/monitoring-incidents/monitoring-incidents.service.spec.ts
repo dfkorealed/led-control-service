@@ -16,7 +16,7 @@ describe("incident resolution dependency locking", () => {
     const locks: string[] = [];
     let fixtureReads = 0;
     const fixture = {
-      id: "fixture", gatewayId: "gateway", lastSeenAt: null, statusReason: null,
+      id: "fixture", gatewayId: "gateway", lastSeenAt: null, reportedStatusReason: null,
       healthFaultCodes: [], healthLastSeenAt: null, meshNode: { gateway: { lastHeartbeatAt: null } }
     };
     const tx = {

@@ -1292,6 +1292,8 @@ export class MqttService implements OnModuleInit {
               size: node.pendingFixtureSize ?? 20,
               status: "offline",
               statusReason: PROVISIONING_WAITING_STATE,
+              reportedStatus: "offline",
+              reportedStatusReason: PROVISIONING_WAITING_STATE,
               brightness: 0,
               rssi: null,
               hopCount: null,

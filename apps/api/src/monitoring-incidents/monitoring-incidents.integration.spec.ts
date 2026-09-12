@@ -227,7 +227,7 @@ const databaseUrl = process.env.MONITORING_INCIDENTS_TEST_DATABASE_URL;
     else await prisma.fixture.update({ where: { id: fixtureId }, data: {
       ...(type === "fixture_stale" ? { lastSeenAt: null } : {}),
       ...(type === "fixture_fault" ? { healthFaultCodes: [1], healthLastSeenAt: new Date() } : {}),
-      ...(type === "command_failed" ? { statusReason: "command_failed" } : {})
+      ...(type === "command_failed" ? { statusReason: "command_failed", reportedStatusReason: "command_failed" } : {})
     } });
     await expect(patch(incident.id, incident.updatedAt, { action: "resolve", note: "확인" })).rejects.toMatchObject({ status: 409, response: { code: "INCIDENT_STILL_ACTIVE" } });
     expect(await prisma.auditLog.count({ where: { targetId: incident.id } })).toBe(0);

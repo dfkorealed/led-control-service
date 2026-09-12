@@ -39,7 +39,8 @@ describe("FixtureStateIngestionService", () => {
     }));
     expect(prisma.fixture.update).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: scope.fixtureId },
-      data: expect.objectContaining({ brightness: 70, powerOn: true, firstStateOccurredAt: new Date("2026-08-26T00:00:09.000Z") })
+      data: expect.objectContaining({ brightness: 70, powerOn: true, firstStateOccurredAt: new Date("2026-08-26T00:00:09.000Z"),
+        reportedStatus: "online", reportedStatusReason: "reported" })
     }));
     expect(prisma.processedGatewayEvent.create).toHaveBeenCalledTimes(1);
   });

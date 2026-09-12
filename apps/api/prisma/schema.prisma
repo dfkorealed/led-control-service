@@ -454,6 +454,8 @@ model Fixture {
   lastStateSequence          BigInt?
   lastStateOccurredAt        DateTime?
   statusReason               String?
+  reportedStatus             FixtureStatus                      @default(offline)
+  reportedStatusReason       String?
   healthFaultCodes           Json?
   healthLastSeenAt           DateTime?
   energyTrackingStartedAt    DateTime                           @default(now())

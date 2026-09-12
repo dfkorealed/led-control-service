@@ -4,7 +4,7 @@ import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import { fixtureStatusWithHealth, toFixtureHealthSnapshot } from "./fixture-health";
-import { isMonitoringGatewayOnline } from "../monitoring-incidents/monitoring-conditions";
+import { isMonitoringGatewayOnline, monitoringFixtureState } from "../monitoring-incidents/monitoring-conditions";
 
 @Injectable()
 export class FixturesService {
@@ -58,14 +58,15 @@ export class FixturesService {
         // the fixed registration/identify/control safety threshold.
         const controlGatewayOnline = isGatewayHeartbeatFresh(fixture.meshNode?.gateway.lastHeartbeatAt, now);
         const health = toFixtureHealthSnapshot(fixture.healthFaultCodes, fixture.healthLastSeenAt);
-        const status = fixtureStatusWithHealth(fixture.status, health);
+        const controlStatus = fixtureStatusWithHealth(fixture.status, health);
+        const { status, statusReason } = monitoringFixtureState(fixture, fixture.meshNode?.gateway, policy, now);
         const controlBlockReason = !fixture.meshNode
           ? "fixture_unmapped"
           : !controlGatewayOnline
             ? "gateway_offline"
-            : status === "fault"
+            : controlStatus === "fault"
               ? "fixture_fault"
-              : status === "offline"
+              : controlStatus === "offline"
                 ? "fixture_offline"
                 : null;
         return {
@@ -79,7 +80,7 @@ export class FixturesService {
           ratedWatt: Number(fixture.ratedWatt),
           brightness: fixture.brightness,
           status,
-          statusReason: fixture.statusReason,
+          statusReason,
           health,
           rssi: fixture.rssi,
           hopCount: fixture.hopCount,

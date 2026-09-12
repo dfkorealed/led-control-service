@@ -199,6 +199,10 @@ export class FixtureStateIngestionService {
         powerOn: state.powerOn,
         status: health ? statusFromHealth(health.faultCodes) : state.status,
         statusReason: state.statusReason ?? "reported",
+        // Retain the accepted report independently of fixed operational sweeps.
+        // Monitoring applies Site policy and the Health snapshot when reading.
+        reportedStatus: state.status,
+        reportedStatusReason: state.statusReason ?? "reported",
         ...(health ? { healthFaultCodes: health.faultCodes, healthLastSeenAt: health.observedAt } : {}),
         rssi: state.rssi,
         hopCount: state.hopCount,

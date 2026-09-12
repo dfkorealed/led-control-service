@@ -152,7 +152,7 @@ export class MonitoringIncidentsService {
 
   private async readResolutionCondition(tx: Prisma.TransactionClient, siteId: string, target: IncidentTarget, lockedGatewayId: string | null) {
     const fixture = target.fixtureId ? await tx.fixture.findFirst({ where: { id: target.fixtureId, siteId }, select: {
-      gatewayId: true, lastSeenAt: true, statusReason: true, healthFaultCodes: true, healthLastSeenAt: true
+      gatewayId: true, lastSeenAt: true, reportedStatusReason: true, healthFaultCodes: true, healthLastSeenAt: true
     } }) : null;
     if (target.fixtureId && !fixture) throw new NotFoundException("incident target not found");
     // Fixture.gatewayId is enforced against MeshNode by its composite FK and

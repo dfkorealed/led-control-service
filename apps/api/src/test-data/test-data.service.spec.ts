@@ -374,7 +374,8 @@ describe("TestDataService", () => {
         meshNodeId: { in: h.nodes.map((node) => node.id) },
         name: { startsWith: "[TEST DATA] Fixture " }
       },
-      data: { status: "online", statusReason: null, lastSeenAt: expect.any(Date), lastStateOccurredAt: expect.any(Date) }
+      data: { status: "online", statusReason: null, reportedStatus: "online", reportedStatusReason: null,
+        lastSeenAt: expect.any(Date), lastStateOccurredAt: expect.any(Date) }
     });
   });
 

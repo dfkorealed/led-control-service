@@ -250,6 +250,8 @@ export class TestDataService {
       data: {
         status: "online",
         statusReason: null,
+        reportedStatus: "online",
+        reportedStatusReason: null,
         lastSeenAt: now,
         lastStateOccurredAt: now
       }

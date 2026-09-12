@@ -19,21 +19,34 @@ describe("FixtureFreshnessService", () => {
     return { prisma, tx, reconciler, service: new (FixtureFreshnessService as any)(prisma, reconciler) as FixtureFreshnessService };
   }
 
-  it("scopes both updates to each Site policy and reconciles after state changes", async () => {
+  it("keeps fixed control freshness across Site policies and reconciles monitoring afterward", async () => {
     const { service, tx, reconciler } = setup();
     await expect(service.markStaleFixtures(now)).resolves.toEqual({ gatewayOffline: 2, fixtureStale: 2 });
     expect(tx.fixture.updateMany).toHaveBeenNthCalledWith(1, expect.objectContaining({
       where: expect.objectContaining({ siteId: "strict", meshNode: { gateway: {
-        OR: [{ lastHeartbeatAt: { lt: new Date("2026-09-12T00:09:30.000Z") } }, { lastHeartbeatAt: null }]
+        OR: [{ lastHeartbeatAt: { lt: new Date("2026-09-12T00:08:30.000Z") } }, { lastHeartbeatAt: null }]
       } } })
     }));
     expect(tx.fixture.updateMany).toHaveBeenNthCalledWith(3, expect.objectContaining({
       where: expect.objectContaining({ siteId: "lenient", meshNode: { gateway: {
-        OR: [{ lastHeartbeatAt: { lt: new Date("2026-09-12T00:08:00.000Z") } }, { lastHeartbeatAt: null }]
+        OR: [{ lastHeartbeatAt: { lt: new Date("2026-09-12T00:08:30.000Z") } }, { lastHeartbeatAt: null }]
       } } })
     }));
     expect(reconciler.reconcile).toHaveBeenCalledTimes(2);
     expect(tx.fixture.updateMany.mock.invocationCallOrder[1]).toBeLessThan(reconciler.reconcile.mock.invocationCallOrder[0]);
+  });
+
+  it("bounds each transaction, continues after first-Site failure, and retries it next tick without logging tenant data", async () => {
+    const { service, prisma, reconciler } = setup();
+    const log = jest.spyOn((service as any).logger, "error").mockImplementation(() => undefined);
+    prisma.$transaction.mockRejectedValueOnce(Object.assign(new Error("strict tenant details"), { code: "strict\nsecret" }));
+    await expect(service.markStaleFixtures(now)).resolves.toEqual({ gatewayOffline: 1, fixtureStale: 1 });
+    expect(reconciler.reconcile).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ id: "lenient" }), now);
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), { maxWait: 2000, timeout: 5000 });
+    expect(log).toHaveBeenCalledWith("fixture freshness site sweep failed (error=UNEXPECTED_ERROR)");
+    expect(log.mock.calls.flat().join(" ")).not.toMatch(/strict|secret/);
+    await expect(service.markStaleFixtures(now)).resolves.toEqual({ gatewayOffline: 2, fixtureStale: 2 });
+    expect(reconciler.reconcile).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ id: "strict" }), now);
   });
 
   it("does not launch overlapping scheduled sweeps and resumes after a failure", async () => {

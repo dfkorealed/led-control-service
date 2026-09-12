@@ -41,7 +41,8 @@ const databaseUrl = process.env.MONITORING_INCIDENTS_TEST_DATABASE_URL;
         serialNumber: randomUUID(), firmwareVersion: "test", lastHeartbeatAt: now } });
       const node = await prisma.meshNode.create({ data: { gatewayId: gateway.id, meshAddress: "0100", firmwareVersion: "test" } });
       const fixture = await prisma.fixture.create({ data: { siteId: site.id, floorId: floor.id, gatewayId: gateway.id,
-        meshNodeId: node.id, name: "light", ratedWatt: 20, x: 0, y: 0, status: "online", statusReason: "reported", lastSeenAt: now } });
+        meshNodeId: node.id, name: "light", ratedWatt: 20, x: 0, y: 0, status: "online", statusReason: "reported",
+        reportedStatus: "online", reportedStatusReason: "reported", lastSeenAt: now } });
       return { id: site.id, gatewayId: gateway.id, fixtureId: fixture.id, floorId: floor.id };
     };
     strict = await makeSite("strict", 30, 60);
@@ -81,13 +82,13 @@ const databaseUrl = process.env.MONITORING_INCIDENTS_TEST_DATABASE_URL;
     expect(await fixture()).toMatchObject({ status: "online", statusReason: "reported" });
     expect(await active()).toHaveLength(0);
     await worker.markStaleFixtures(at(1));
-    expect(await fixture()).toMatchObject({ status: "offline", statusReason: "gateway_offline" });
+    expect(await fixture()).toMatchObject({ status: "online", statusReason: "reported" });
     expect(await fixture(lenient)).toMatchObject({ status: "online", statusReason: "reported" });
     expect(await active()).toMatchObject([{ type: "gateway_offline", gatewayId: strict.gatewayId }]);
     expect(await active(lenient)).toHaveLength(0);
     await prisma.gateway.update({ where: { id: strict.gatewayId }, data: { lastHeartbeatAt: at(2) } });
     await worker.markStaleFixtures(at(2));
-    expect(await fixture()).toMatchObject({ status: "offline", statusReason: "fixture_stale" });
+    expect(await fixture()).toMatchObject({ status: "online", statusReason: "reported" });
     expect(await active()).toMatchObject([{ type: "fixture_stale", fixtureId: strict.fixtureId }]);
     expect(await prisma.monitoringIncident.findFirst({ where: { siteId: strict.id, type: "gateway_offline" } }))
       .toMatchObject({ status: "resolved", activeKey: null, resolutionKind: "automatic_recovery" });
@@ -121,19 +122,20 @@ const databaseUrl = process.env.MONITORING_INCIDENTS_TEST_DATABASE_URL;
 
   it("observes Health and command failures independently, excludes waiting/unmapped stale, and clears recovered conditions", async () => {
     await prisma.fixture.update({ where: { id: strict.fixtureId }, data: {
-      healthFaultCodes: [1], healthLastSeenAt: now, statusReason: "command_failed"
+      healthFaultCodes: [1], healthLastSeenAt: now, statusReason: "command_failed", reportedStatusReason: "command_failed"
     } });
     const waitingNode = await prisma.meshNode.create({ data: { gatewayId: strict.gatewayId, meshAddress: "0101", firmwareVersion: "test" } });
     const waiting = await prisma.fixture.create({ data: { siteId: strict.id, floorId: strict.floorId,
       gatewayId: strict.gatewayId, meshNodeId: waitingNode.id,
-      name: "waiting", ratedWatt: 20, x: 0, y: 0, status: "offline", statusReason: "provisioning_waiting_state" } });
+      name: "waiting", ratedWatt: 20, x: 0, y: 0, status: "offline", statusReason: "provisioning_waiting_state",
+      reportedStatusReason: "provisioning_waiting_state" } });
     await prisma.fixture.create({ data: { siteId: strict.id, floorId: strict.floorId, name: "unmapped",
       ratedWatt: 20, x: 0, y: 0, status: "offline", lastSeenAt: null } });
     await worker.markStaleFixtures(now);
     expect(await active()).toMatchObject([{ type: "fixture_fault", fixtureId: strict.fixtureId }, { type: "command_failed", fixtureId: strict.fixtureId }]);
     expect(await prisma.fixture.findUnique({ where: { id: waiting.id } })).toMatchObject({ statusReason: "provisioning_waiting_state" });
     await prisma.fixture.update({ where: { id: strict.fixtureId }, data: {
-      healthFaultCodes: [], healthLastSeenAt: at(1), statusReason: "reported"
+      healthFaultCodes: [], healthLastSeenAt: at(1), statusReason: "reported", reportedStatusReason: "reported"
     } });
     await worker.markStaleFixtures(at(1));
     expect(await active()).toHaveLength(0);
@@ -165,9 +167,32 @@ const databaseUrl = process.env.MONITORING_INCIDENTS_TEST_DATABASE_URL;
       if (site.id === strict.id) throw new Error("incident unavailable");
       return reconcile(tx, site, time);
     });
-    await expect(worker.markStaleFixtures(now)).rejects.toThrow("incident unavailable");
+    const log = jest.spyOn((worker as any).logger, "error").mockImplementation(() => undefined);
+    await worker.markStaleFixtures(now);
+    expect(log).toHaveBeenCalledWith("fixture freshness site sweep failed (error=UNEXPECTED_ERROR)");
     expect(await fixture()).toMatchObject({ status: "online", statusReason: "reported" });
     expect(await active()).toHaveLength(0);
+  });
+
+  it("continues to a later Site after a rolled-back first-Site failure and retries the failed Site", async () => {
+    const [first, second] = [strict, lenient].sort((left, right) => left.id.localeCompare(right.id));
+    await prisma.gateway.updateMany({ where: { id: { in: [first.gatewayId, second.gatewayId] } }, data: { lastHeartbeatAt: null } });
+    const reconcile = reconciler.reconcile.bind(reconciler);
+    const failure = jest.spyOn(reconciler, "reconcile").mockImplementation((tx, site, time) => {
+      if (site.id === first.id) throw new Error("private tenant failure");
+      return reconcile(tx, site, time);
+    });
+    const log = jest.spyOn((worker as any).logger, "error").mockImplementation(() => undefined);
+    await worker.markStaleFixtures(now);
+    expect(await fixture(first)).toMatchObject({ status: "online", statusReason: "reported" });
+    expect(await active(first)).toHaveLength(0);
+    expect(await fixture(second)).toMatchObject({ status: "offline", statusReason: "gateway_offline" });
+    expect(await active(second)).toMatchObject([{ type: "gateway_offline" }]);
+    expect(log).toHaveBeenCalledWith("fixture freshness site sweep failed (error=UNEXPECTED_ERROR)");
+    failure.mockRestore();
+    await worker.markStaleFixtures(now);
+    expect(await active(first)).toMatchObject([{ type: "gateway_offline" }]);
+    expect(await active(second)).toHaveLength(1);
   });
 
   it("applies each Site fixture threshold at exactly the boundary and one millisecond beyond", async () => {
@@ -177,7 +202,7 @@ const databaseUrl = process.env.MONITORING_INCIDENTS_TEST_DATABASE_URL;
     expect(await active()).toHaveLength(0);
     expect(await active(lenient)).toHaveLength(0);
     await worker.markStaleFixtures(at(1));
-    expect(await fixture()).toMatchObject({ statusReason: "fixture_stale" });
+    expect(await fixture()).toMatchObject({ statusReason: "reported" });
     expect(await fixture(lenient)).toMatchObject({ statusReason: "fixture_stale" });
     expect(await active()).toMatchObject([{ type: "fixture_stale" }]);
     expect(await active(lenient)).toMatchObject([{ type: "fixture_stale" }]);

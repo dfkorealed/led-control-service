@@ -1811,7 +1811,9 @@ describe("MqttService", () => {
         hopCount: null,
         commandSuccessRate: null,
         lastSeenAt: null,
-        statusReason: "provisioning_waiting_state"
+        statusReason: "provisioning_waiting_state",
+        reportedStatus: "offline",
+        reportedStatusReason: "provisioning_waiting_state"
       }
     });
     expect(prisma.discoveredMeshNode.update).toHaveBeenCalledWith({
