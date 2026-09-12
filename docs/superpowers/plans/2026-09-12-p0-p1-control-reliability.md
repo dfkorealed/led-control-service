@@ -78,12 +78,12 @@
 - Consumes: Task 2 status-check draft schema/topic and dispatch fields
 - Produces: 409 code `uncertain_command_requires_status_check`, `status_check_in_progress`, `status_check_attempts_exhausted`
 
-- [ ] **Step 1: verification RED 테스트** — read/control scope 은닉, unknown 전용 허용, 동일 clientRequestId idempotency, in-flight 차단, attempt 1..3, 네 번째 거부, dispatch/results/outbox 동일 transaction 생성을 검증한다.
-- [ ] **Step 2: verification service 구현** — 원 command와 dispatch를 transaction lock하고 gateway sequence를 증가시킨 뒤 status-check dispatch, pending fixture results, outbox를 생성한다. 응답은 dispatch ID, attempt, terminal status URL을 반환한다.
-- [ ] **Step 3: 겹침 차단 RED 테스트** — unknown command fixture set과 하나라도 겹치는 새 dimming은 409, not_applied/applied/null legacy는 기존 규칙대로 진행함을 검증한다.
-- [ ] **Step 4: 겹침 차단 구현** — target resolution 뒤 같은 site의 `outcome=unknown` fixture JSON 목록을 bounded read해 Set 교집합을 검사한다. 이 검사는 automation lock transaction 안에서 수행한다.
-- [ ] **Step 5: timeout 분류 구현과 GREEN** — Task 1의 pending/published/accepted/status_check 기대값을 구현하고 controller/service focused specs와 API typecheck를 통과한다.
-- [ ] **Step 6: commit** — `git commit -m "feat(api): verify uncertain lighting commands" ...`.
+- [x] **Step 1: verification RED 테스트** — read/control scope 은닉, unknown 전용 허용, 동일 clientRequestId idempotency, in-flight 차단, attempt 1..3, 네 번째 거부, dispatch/results/outbox 동일 transaction 생성을 검증한다.
+- [x] **Step 2: verification service 구현** — 원 command와 dispatch를 transaction lock하고 gateway sequence를 증가시킨 뒤 status-check dispatch, pending fixture results, outbox를 생성한다. 응답은 dispatch ID, attempt, terminal status URL을 반환한다.
+- [x] **Step 3: 겹침 차단 RED 테스트** — unknown command fixture set과 하나라도 겹치는 새 dimming은 409, not_applied/applied/null legacy는 기존 규칙대로 진행함을 검증한다.
+- [x] **Step 4: 겹침 차단 구현** — target resolution 뒤 같은 site의 `outcome=unknown` fixture JSON 목록을 bounded read해 Set 교집합을 검사한다. 이 검사는 automation lock transaction 안에서 수행한다.
+- [x] **Step 5: timeout 분류 구현과 GREEN** — Task 1의 pending/published/accepted/status_check 기대값을 구현하고 controller/service focused specs와 API typecheck를 통과한다.
+- [x] **Step 6: commit** — `git commit -m "feat(api): verify uncertain lighting commands" ...`.
 
 ### Task 4: Gateway status Get 실행과 restart/duplicate 내구성
 
