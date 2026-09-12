@@ -92,20 +92,28 @@ describeIntegration("Account security PostgreSQL and Redis integration", () => {
     const direct = await auth.login({ loginId, password, rememberMe: true, ipAddress, userAgent });
     expect(direct).toHaveProperty("sessionToken");
 
-    const enrollment = await mfa.startEnrollment(direct.user);
+    const enrollment = await mfa.startEnrollment(direct.user, direct.sessionToken, ipAddress, userAgent);
+    const enrollmentNow = Date.now();
     const enrolled = await mfa.confirmEnrollment(direct.user, direct.sessionToken, {
       enrollmentToken: enrollment.enrollmentToken,
-      code: totp.codeAt(enrollment.secret, Date.now())
-    });
+      code: totp.codeAt(enrollment.secret, enrollmentNow - 30_000)
+    }, ipAddress, userAgent);
     await expect(auth.getUserBySessionToken(direct.sessionToken)).rejects.toBeInstanceOf(UnauthorizedException);
     await expect(auth.getUserBySessionToken(enrolled.sessionToken)).resolves.toMatchObject({ id: userId });
 
-    const challenge = await auth.login({ loginId, password, rememberMe: false, ipAddress, userAgent });
+    const [challenge, competingChallenge] = await Promise.all([
+      auth.login({ loginId, password, rememberMe: false, ipAddress, userAgent }),
+      auth.login({ loginId, password, rememberMe: false, ipAddress, userAgent })
+    ]);
     expect(challenge).toMatchObject({ mfaRequired: true });
-    const verified = await mfa.completeLogin({
-      challengeToken: challenge.challengeToken,
-      code: totp.codeAt(enrollment.secret, Date.now())
-    }, ipAddress, userAgent);
+    const currentCode = totp.codeAt(enrollment.secret, Date.now());
+    const concurrentResults = await Promise.allSettled([
+      mfa.completeLogin({ challengeToken: challenge.challengeToken, code: currentCode }, ipAddress, userAgent),
+      mfa.completeLogin({ challengeToken: competingChallenge.challengeToken, code: currentCode }, ipAddress, userAgent)
+    ]);
+    expect(concurrentResults.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(concurrentResults.filter((result) => result.status === "rejected")).toHaveLength(1);
+    const verified = concurrentResults.find((result) => result.status === "fulfilled")!.value;
     await expect(auth.getUserBySessionToken(verified.sessionToken)).resolves.toMatchObject({ id: userId });
 
     const active = await sessions.list(verified.user, verified.sessionToken);
@@ -120,15 +128,15 @@ describeIntegration("Account security PostgreSQL and Redis integration", () => {
 
     const replayChallenge = await auth.login({ loginId, password, rememberMe: false, ipAddress, userAgent });
     const failedAuditCountBefore = await prisma.auditLog.count({
-      where: { action: "auth.login_failed", actorId: userId, outcome: "failure" }
+      where: { action: "auth.login_failed", actorId: null, targetId: userId, outcome: "failure" }
     });
     await expect(mfa.completeLogin({ challengeToken: replayChallenge.challengeToken, recoveryCode: recovery }, ipAddress, userAgent))
       .rejects.toBeInstanceOf(UnauthorizedException);
     await expect(prisma.auditLog.count({
-      where: { action: "auth.login_failed", actorId: userId, outcome: "failure" }
+      where: { action: "auth.login_failed", actorId: null, targetId: userId, outcome: "failure" }
     })).resolves.toBe(failedAuditCountBefore + 1);
     await expect(prisma.auditLog.findFirst({
-      where: { action: "auth.login_failed", actorId: userId, outcome: "failure" },
+      where: { action: "auth.login_failed", actorId: null, targetId: userId, outcome: "failure" },
       orderBy: { createdAt: "desc" },
       select: { organizationId: true, targetId: true, ipAddress: true, userAgent: true, metadata: true }
     })).resolves.toEqual({
@@ -141,7 +149,7 @@ describeIntegration("Account security PostgreSQL and Redis integration", () => {
 
     const disabled = await mfa.disable(recovered.user, recovered.sessionToken, {
       currentPassword: password,
-      code: totp.codeAt(enrollment.secret, Date.now())
+      code: totp.codeAt(enrollment.secret, Date.now() + 30_000)
     });
     await expect(auth.getUserBySessionToken(recovered.sessionToken)).rejects.toBeInstanceOf(UnauthorizedException);
     await expect(auth.getUserBySessionToken(disabled.sessionToken)).resolves.toMatchObject({ id: userId });

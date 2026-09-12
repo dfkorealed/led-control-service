@@ -17,12 +17,17 @@ export class TotpService {
   }
 
   verify(secret: string, candidate: string, nowMs = Date.now()) {
-    if (!/^\d{6}$/.test(candidate)) return false;
+    return this.matchingCounter(secret, candidate, nowMs) !== null;
+  }
+
+  matchingCounter(secret: string, candidate: string, nowMs = Date.now()) {
+    if (!/^\d{6}$/.test(candidate)) return null;
+    const currentCounter = Math.floor(nowMs / 1_000 / PERIOD_SECONDS);
     for (const offset of [-1, 0, 1]) {
       const expected = this.codeAt(secret, nowMs + offset * PERIOD_SECONDS * 1_000);
-      if (timingSafeEqual(Buffer.from(candidate), Buffer.from(expected))) return true;
+      if (timingSafeEqual(Buffer.from(candidate), Buffer.from(expected))) return currentCounter + offset;
     }
-    return false;
+    return null;
   }
 
   codeAt(secret: string, nowMs: number, digits = 6) {

@@ -221,7 +221,7 @@ describe("AuthService", () => {
       .rejects.toEqual(new UnauthorizedException("Invalid login id or password"));
     expect(transaction.session.create).not.toHaveBeenCalled();
     expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({
-      action: "auth.login_failed", outcome: "failure", targetId: stored.id
+      action: "auth.login_failed", outcome: "failure", actorId: undefined, targetId: stored.id
     }));
   });
 
@@ -568,9 +568,11 @@ describe("AuthService", () => {
 
   it("revokes logout and records the session termination in the same transaction", async () => {
     const tx = {
+      $queryRaw: jest.fn().mockResolvedValue([{ id: "admin-1" }]),
       session: {
         findUnique: jest.fn().mockResolvedValue({
-          id: "session-1", revokedAt: null, user: { id: "admin-1", organizationId: "org-1" }
+          id: "session-1", userId: "admin-1", familyId: "family-1", revokedAt: new Date(),
+          user: { id: "admin-1", organizationId: "org-1" }
         }),
         updateMany: jest.fn().mockResolvedValue({ count: 1 })
       }
@@ -583,7 +585,7 @@ describe("AuthService", () => {
     );
     await service.logout("current-token");
     expect(tx.session.updateMany).toHaveBeenCalledWith({
-      where: { id: "session-1", revokedAt: null }, data: { revokedAt: expect.any(Date) }
+      where: { userId: "admin-1", familyId: "family-1", revokedAt: null }, data: { revokedAt: expect.any(Date) }
     });
     expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({
       transaction: tx, action: "auth.logout", targetId: "session-1", actorId: "admin-1"

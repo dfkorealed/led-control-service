@@ -7,6 +7,7 @@ const WINDOW_SECONDS = 15 * 60;
 const IP_LIMIT = 30;
 const ACCOUNT_LIMIT = 10;
 const TENANT_IP_LIMIT = 20;
+const MFA_IP_LIMIT = 30;
 export const LOGIN_RATE_LIMIT_KEY_PREFIX = Symbol("LOGIN_RATE_LIMIT_KEY_PREFIX");
 
 const CONSUME_SCRIPT = `
@@ -34,6 +35,11 @@ export interface LoginRateLimitInput {
   userAgent?: string;
 }
 
+interface MfaCompletionRateLimitInput {
+  ipAddress: string;
+  userAgent?: string;
+}
+
 @Injectable()
 export class LoginRateLimitService {
   private readonly keyPrefix: string;
@@ -48,6 +54,20 @@ export class LoginRateLimitService {
 
   async consume(input: LoginRateLimitInput) {
     const buckets = this.buckets(input);
+    await this.consumeBuckets(input, buckets);
+  }
+
+  async consumeMfaCompletion(input: MfaCompletionRateLimitInput) {
+    await this.consumeBuckets(input, [
+      { dimension: "mfa-ip", key: this.key("mfa-ip", input.ipAddress), limit: MFA_IP_LIMIT }
+    ], { phase: "mfa" });
+  }
+
+  private async consumeBuckets(
+    input: MfaCompletionRateLimitInput & Partial<LoginRateLimitInput>,
+    buckets: Array<{ dimension: string; key: string; limit: number }>,
+    auditMetadata?: Record<string, unknown>
+  ) {
     let result: unknown;
     try {
       result = await this.redis.getClient().eval(
@@ -58,19 +78,21 @@ export class LoginRateLimitService {
         ...buckets.map((bucket) => bucket.limit)
       );
     } catch {
-      await this.record(input, "auth.login_rate_limit_unavailable", "failure");
+      await this.record(input, "auth.login_rate_limit_unavailable", "failure", auditMetadata);
       throw this.unavailable();
     }
 
     const [blockedIndex, retryAfter] = Array.isArray(result) ? result.map(Number) : [NaN, NaN];
     if (!Number.isInteger(blockedIndex) || !Number.isInteger(retryAfter)) {
-      await this.record(input, "auth.login_rate_limit_unavailable", "failure");
+      await this.record(input, "auth.login_rate_limit_unavailable", "failure", auditMetadata);
       throw this.unavailable();
     }
     if (blockedIndex > 0) {
       const dimension = buckets[blockedIndex - 1]?.dimension ?? "unknown";
       const retryAfterSeconds = Math.max(retryAfter, 1);
-      await this.record(input, "auth.login_rate_limited", "blocked", { dimension, retryAfterSeconds });
+      await this.record(input, "auth.login_rate_limited", "blocked", {
+        ...auditMetadata, dimension, retryAfterSeconds
+      });
       throw new HttpException({ code: "LOGIN_RATE_LIMITED", message: "Too many login attempts", retryAfterSeconds }, 429);
     }
   }
@@ -107,10 +129,15 @@ export class LoginRateLimitService {
     return `${this.keyPrefix}:${dimension}:${createHash("sha256").update(value).digest("hex")}`;
   }
 
-  private record(input: LoginRateLimitInput, action: string, outcome: string, metadata?: Record<string, unknown>) {
+  private record(
+    input: MfaCompletionRateLimitInput & Partial<LoginRateLimitInput>,
+    action: string,
+    outcome: string,
+    metadata?: Record<string, unknown>
+  ) {
     return this.audit.record({
       organizationId: input.organizationId,
-      actorId: input.userId,
+      actorId: undefined,
       action,
       targetType: "User",
       targetId: input.userId,

@@ -186,10 +186,21 @@ describeWithDatabase("AuthService PostgreSQL viewer signup integration", () => {
     await expect(service.login({ loginId, password: newPassword, rememberMe: false })).resolves.toMatchObject({ user: { loginId } });
     await expect(service.getUserBySessionToken(changed.sessionToken)).resolves.toMatchObject({ id: userId, loginId, mustChangePassword: false });
     await expect(prisma.session.findUniqueOrThrow({ where: { tokenHash: service.hashToken(other.sessionToken) } })).resolves.toMatchObject({ revokedAt: expect.any(Date) });
-    await expect(prisma.session.findUniqueOrThrow({ where: { tokenHash: service.hashToken(current.sessionToken) } })).resolves.toMatchObject({ revokedAt: expect.any(Date) });
-    await expect(prisma.session.findUniqueOrThrow({ where: { tokenHash: service.hashToken(changed.sessionToken) } })).resolves.toMatchObject({ revokedAt: null });
+    const previousSession = await prisma.session.findUniqueOrThrow({ where: { tokenHash: service.hashToken(current.sessionToken) } });
+    const replacementSession = await prisma.session.findUniqueOrThrow({ where: { tokenHash: service.hashToken(changed.sessionToken) } });
+    expect(previousSession).toMatchObject({ revokedAt: expect.any(Date) });
+    expect(replacementSession).toMatchObject({
+      revokedAt: null,
+      familyId: previousSession.familyId,
+      rotatedFromSessionId: previousSession.id
+    });
     const audit = await prisma.auditLog.findFirstOrThrow({ where: { actorId: userId, action: "auth.password_changed" }, orderBy: { createdAt: "desc" } });
     expect(audit.metadata).toEqual({ revokedSessionCount: 2 });
+
+    // A logout already in flight with the pre-rotation cookie must terminate
+    // the replacement in the same family instead of resurrecting the browser.
+    await service.logout(current.sessionToken);
+    await expect(service.getUserBySessionToken(changed.sessionToken)).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
   it("leaves passwords, sessions, and audit logs untouched when the current password is wrong", async () => {

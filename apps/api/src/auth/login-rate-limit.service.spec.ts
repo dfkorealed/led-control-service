@@ -85,4 +85,32 @@ describe("LoginRateLimitService", () => {
       expect.stringMatching(/^auth:rate:account:/), expect.stringMatching(/^auth:rate:tenant-ip:/)
     );
   });
+
+  it("rate-limits public MFA completion by hashed IP before challenge lookup", async () => {
+    const { client, service } = fixture();
+
+    await service.consumeMfaCompletion({ ipAddress: input.ipAddress, userAgent: input.userAgent });
+
+    expect(client.eval).toHaveBeenCalledWith(
+      expect.any(String),
+      1,
+      expect.stringMatching(/^auth:rate:mfa-ip:[a-f0-9]{64}$/),
+      900,
+      30
+    );
+  });
+
+  it("fails closed and records no pre-auth actor when MFA completion Redis is unavailable", async () => {
+    const { audit, client, service } = fixture();
+    client.eval.mockRejectedValueOnce(new Error("redis down"));
+
+    await expect(service.consumeMfaCompletion({ ipAddress: input.ipAddress, userAgent: input.userAgent }))
+      .rejects.toBeInstanceOf(ServiceUnavailableException);
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: "auth.login_rate_limit_unavailable",
+      actorId: undefined,
+      targetId: undefined,
+      metadata: { phase: "mfa" }
+    }));
+  });
 });

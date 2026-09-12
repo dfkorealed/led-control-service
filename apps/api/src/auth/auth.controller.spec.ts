@@ -114,6 +114,7 @@ describe("AuthController", () => {
       name: "Admin", role: "admin", status: "active", mustChangePassword: false
     };
     const mfaService = {
+      startEnrollment: jest.fn().mockResolvedValue({ enrollmentToken: "enroll" }),
       confirmEnrollment: jest.fn().mockResolvedValue({
         mfaEnabled: true, recoveryCodes: ["one"], sessionToken: "enrolled-token", expiresAt: new Date("2026-10-01T00:00:00Z")
       }),
@@ -125,12 +126,23 @@ describe("AuthController", () => {
     const request = { user, ip: "203.0.113.7", headers: { cookie: "led_session=current-token" } } as any;
     const controller = new AuthController({} as any, mfaService as any);
 
+    await expect(controller.startMfaEnrollment(request)).resolves.toEqual({ enrollmentToken: "enroll" });
     await expect(controller.confirmMfaEnrollment({ enrollmentToken: "enroll", code: "123456" }, request, response as any))
       .resolves.toEqual({ mfaEnabled: true, recoveryCodes: ["one"] });
     await expect(controller.disableMfa({ currentPassword: "password", code: "123456" }, request, response as any))
       .resolves.toEqual({ mfaEnabled: false });
     expect(response.cookie).toHaveBeenNthCalledWith(1, "led_session", "enrolled-token", expect.any(Object));
     expect(response.cookie).toHaveBeenNthCalledWith(2, "led_session", "disabled-token", expect.any(Object));
+    expect(mfaService.startEnrollment).toHaveBeenCalledWith(
+      user, "current-token", "203.0.113.7", undefined
+    );
+    expect(mfaService.confirmEnrollment).toHaveBeenCalledWith(
+      user,
+      "current-token",
+      { enrollmentToken: "enroll", code: "123456" },
+      "203.0.113.7",
+      undefined
+    );
   });
 
   it("lists and revokes only the authenticated user's sessions, clearing the cookie for current-session revoke", async () => {

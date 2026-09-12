@@ -1092,26 +1092,32 @@ model Invitation {
 }
 
 model Session {
-  id         String    @id @default(uuid())
-  userId     String
-  tokenHash  String    @unique
-  rememberMe Boolean   @default(false)
-  userAgent  String?
-  ipAddress  String?
-  expiresAt  DateTime
-  revokedAt  DateTime?
-  mfaVerifiedAt DateTime?
-  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  id                   String    @id @default(uuid())
+  userId               String
+  familyId             String    @default(uuid())
+  rotatedFromSessionId String?   @unique
+  tokenHash            String    @unique
+  rememberMe           Boolean   @default(false)
+  userAgent            String?
+  ipAddress            String?
+  expiresAt            DateTime
+  revokedAt            DateTime?
+  mfaVerifiedAt        DateTime?
+  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rotatedFrom          Session?  @relation("SessionRotation", fields: [rotatedFromSessionId], references: [id], onDelete: SetNull)
+  rotatedTo            Session[] @relation("SessionRotation")
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 
   @@index([userId, revokedAt, expiresAt])
+  @@index([userId, familyId, revokedAt])
 }
 
 model UserMfa {
   userId                 String   @id
   secretCiphertext       String
   recoveryCodeHashes     String[]
+  lastUsedTotpCounter    Int      @default(-1)
   enabledAt              DateTime @default(now())
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt

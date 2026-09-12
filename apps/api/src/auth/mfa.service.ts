@@ -1,6 +1,6 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, Optional, UnauthorizedException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Optional, ServiceUnavailableException, UnauthorizedException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { AuthChallengeStore } from "./auth-challenge.store";
@@ -18,6 +18,9 @@ const REMEMBER_ME_SESSION_DAYS = 30;
 interface EnrollmentChallenge {
   userId: string;
   secretCiphertext: string;
+  sessionTokenHash: string;
+  ipAddress: string;
+  userAgent?: string;
 }
 
 export interface LoginMfaChallenge {
@@ -51,14 +54,17 @@ export class MfaService {
     return { enabled: Boolean(mfa), enabledAt: mfa?.enabledAt ?? null };
   }
 
-  async startEnrollment(user: AuthenticatedUser) {
+  async startEnrollment(user: AuthenticatedUser, currentSessionToken: string, ipAddress: string, userAgent?: string) {
     this.assertEligible(user);
     const existing = await this.db().userMfa.findUnique({ where: { userId: user.id }, select: { userId: true } });
     if (existing) throw new ConflictException({ code: "MFA_ALREADY_ENABLED", message: "MFA is already enabled" });
     const secret = this.totp.generateSecret();
     const challenge = await this.challenges.create("enrollment", {
       userId: user.id,
-      secretCiphertext: this.crypto.encrypt(secret)
+      secretCiphertext: this.crypto.encrypt(secret),
+      sessionTokenHash: this.hashToken(currentSessionToken),
+      ipAddress,
+      userAgent
     }, ENROLLMENT_TTL_SECONDS);
     return {
       enrollmentToken: challenge.token,
@@ -85,22 +91,31 @@ export class MfaService {
   async confirmEnrollment(
     user: AuthenticatedUser,
     currentSessionToken: string,
-    input: { enrollmentToken: string; code: string }
+    input: { enrollmentToken: string; code: string },
+    ipAddress: string,
+    userAgent?: string
   ) {
     this.assertEligible(user);
     const challenge = await this.challenges.take<EnrollmentChallenge>("enrollment", this.required(input.enrollmentToken));
-    if (!challenge || challenge.userId !== user.id) throw this.invalidMfa();
-    const secret = this.crypto.decrypt(challenge.secretCiphertext);
-    if (!this.totp.verify(secret, this.required(input.code))) throw this.invalidMfa();
+    if (!challenge || challenge.userId !== user.id
+      || challenge.sessionTokenHash !== this.hashToken(currentSessionToken)
+      || challenge.ipAddress !== ipAddress
+      || (challenge.userAgent ?? "") !== (userAgent ?? "")) throw this.invalidMfa();
     const recoveryCodes = Array.from({ length: 10 }, () => this.generateRecoveryCode());
     const result = await this.db().$transaction(async (tx: Prisma.TransactionClient) => {
       const { storedUser, currentSession } = await this.lockCurrentSession(tx, user, currentSessionToken);
       if (storedUser.mfa) throw new ConflictException({ code: "MFA_ALREADY_ENABLED", message: "MFA is already enabled" });
+      const counter = this.totp.matchingCounter(
+        this.crypto.decrypt(challenge.secretCiphertext),
+        this.required(input.code)
+      );
+      if (counter === null) throw this.invalidMfa();
       await tx.userMfa.create({
         data: {
           userId: user.id,
           secretCiphertext: challenge.secretCiphertext,
-          recoveryCodeHashes: recoveryCodes.map((code) => this.hashRecoveryCode(code))
+          recoveryCodeHashes: recoveryCodes.map((code) => this.hashRecoveryCode(code)),
+          lastUsedTotpCounter: counter
         }
       });
       const rotated = await this.rotateCurrentSession(tx, currentSession, true);
@@ -115,6 +130,10 @@ export class MfaService {
   }
 
   async completeLogin(input: { challengeToken: string } & VerificationInput, ipAddress: string, userAgent?: string) {
+    if (!this.loginRateLimit) {
+      throw new ServiceUnavailableException({ code: "LOGIN_RATE_LIMIT_UNAVAILABLE", message: "Login is temporarily unavailable" });
+    }
+    await this.loginRateLimit.consumeMfaCompletion({ ipAddress, userAgent });
     const challenge = await this.challenges.take<LoginMfaChallenge>("login", this.required(input.challengeToken));
     if (!challenge || challenge.ipAddress !== ipAddress || (challenge.userAgent ?? "") !== (userAgent ?? "")) {
       await this.recordLoginFailure({ ipAddress, userAgent });
@@ -143,6 +162,11 @@ export class MfaService {
           await tx.userMfa.update({
             where: { userId: storedUser.id },
             data: { recoveryCodeHashes: verification.remainingRecoveryCodeHashes }
+          });
+        } else if (verification.totpCounter !== null) {
+          await tx.userMfa.update({
+            where: { userId: storedUser.id },
+            data: { lastUsedTotpCounter: verification.totpCounter }
           });
         }
         const session = await this.createSession(tx, storedUser.id, {
@@ -197,7 +221,7 @@ export class MfaService {
   }) {
     return this.audit.record({
       organizationId: input.organizationId,
-      actorId: input.userId,
+      actorId: undefined,
       action: "auth.login_failed",
       targetType: "User",
       targetId: input.userId,
@@ -243,15 +267,22 @@ export class MfaService {
     return createHash("sha256").update(code).digest("hex");
   }
 
-  private verifyFactor(mfa: { secretCiphertext: string; recoveryCodeHashes: string[] }, input: VerificationInput) {
+  private verifyFactor(
+    mfa: { secretCiphertext: string; recoveryCodeHashes: string[]; lastUsedTotpCounter: number },
+    input: VerificationInput
+  ) {
     const hasCode = typeof input.code === "string" && input.code.length > 0;
     const hasRecovery = typeof input.recoveryCode === "string" && input.recoveryCode.length > 0;
-    if (hasCode === hasRecovery) return { valid: false, recoveryCodeUsed: false, remainingRecoveryCodeHashes: mfa.recoveryCodeHashes };
+    if (hasCode === hasRecovery) return {
+      valid: false, recoveryCodeUsed: false, remainingRecoveryCodeHashes: mfa.recoveryCodeHashes, totpCounter: null
+    };
     if (hasCode) {
+      const counter = this.totp.matchingCounter(this.crypto.decrypt(mfa.secretCiphertext), input.code!);
       return {
-        valid: this.totp.verify(this.crypto.decrypt(mfa.secretCiphertext), input.code!),
+        valid: counter !== null && counter > mfa.lastUsedTotpCounter,
         recoveryCodeUsed: false,
-        remainingRecoveryCodeHashes: mfa.recoveryCodeHashes
+        remainingRecoveryCodeHashes: mfa.recoveryCodeHashes,
+        totpCounter: counter
       };
     }
     const hash = this.hashRecoveryCode(input.recoveryCode!);
@@ -259,6 +290,7 @@ export class MfaService {
     return {
       valid: index >= 0,
       recoveryCodeUsed: index >= 0,
+      totpCounter: null,
       remainingRecoveryCodeHashes: index >= 0
         ? mfa.recoveryCodeHashes.filter((_, candidateIndex) => candidateIndex !== index)
         : mfa.recoveryCodeHashes
@@ -288,6 +320,8 @@ export class MfaService {
     await tx.session.create({
       data: {
         userId: currentSession.userId,
+        familyId: currentSession.familyId,
+        rotatedFromSessionId: currentSession.id,
         tokenHash: this.hashToken(sessionToken),
         rememberMe: currentSession.rememberMe,
         userAgent: currentSession.userAgent,
@@ -309,6 +343,7 @@ export class MfaService {
     await tx.session.create({
       data: {
         userId,
+        familyId: randomUUID(),
         tokenHash: this.hashToken(sessionToken),
         rememberMe: input.rememberMe,
         userAgent: input.userAgent ?? null,

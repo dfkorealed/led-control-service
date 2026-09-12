@@ -10,11 +10,12 @@ describe("SessionManagementService", () => {
     const now = new Date("2026-09-12T00:00:00Z");
     const rows = [{
       id: "session-current", tokenHash: "current-hash", rememberMe: false, ipAddress: "203.0.113.7",
-      userAgent: "browser", mfaVerifiedAt: now, createdAt: now, expiresAt: new Date("2026-09-13T00:00:00Z")
+      userAgent: "browser", familyId: "family-current", mfaVerifiedAt: now, createdAt: now, expiresAt: new Date("2026-09-13T00:00:00Z")
     }];
     const tx = {
+      $queryRaw: jest.fn().mockResolvedValue([{ id: user.id }]),
       session: {
-        findUnique: jest.fn().mockResolvedValue({ userId: user.id, revokedAt: null, expiresAt: new Date("2026-09-13T00:00:00Z") }),
+        findUnique: jest.fn().mockResolvedValue({ id: "session-current", userId: user.id, familyId: "family-current", revokedAt: null, expiresAt: new Date("2026-09-13T00:00:00Z") }),
         findFirst: jest.fn().mockResolvedValue(rows[0]),
         updateMany: jest.fn().mockResolvedValue({ count: 1 })
       },
@@ -44,11 +45,11 @@ describe("SessionManagementService", () => {
     const { service, tx, audit } = fixture();
     await expect(service.revoke(user, "current-token", "session-current")).resolves.toEqual({ ok: true, currentSessionRevoked: true });
     expect(tx.session.findFirst).toHaveBeenCalledWith({
-      where: { id: "session-current", userId: user.id, revokedAt: null, expiresAt: { gt: expect.any(Date) } },
-      select: { id: true, tokenHash: true }
+      where: { id: "session-current", userId: user.id },
+      select: { id: true, tokenHash: true, familyId: true }
     });
     expect(tx.session.updateMany).toHaveBeenCalledWith({
-      where: { id: "session-current", userId: user.id, revokedAt: null }, data: { revokedAt: expect.any(Date) }
+      where: { userId: user.id, familyId: "family-current", revokedAt: null }, data: { revokedAt: expect.any(Date) }
     });
     expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: "auth.session_revoked", transaction: tx }));
   });
@@ -62,7 +63,8 @@ describe("SessionManagementService", () => {
 
   it("rejects a session-management mutation when the guard-validated current token was revoked concurrently", async () => {
     const { service, tx } = fixture();
-    tx.session.findUnique.mockResolvedValue({ userId: user.id, revokedAt: new Date(), expiresAt: new Date("2026-09-13T00:00:00Z") });
+    tx.session.findUnique.mockResolvedValue({ userId: user.id, familyId: "family-current", revokedAt: new Date(), expiresAt: new Date("2026-09-13T00:00:00Z") });
+    tx.session.findFirst.mockResolvedValue(null);
     await expect(service.revokeOthers(user, "current-token")).rejects.toBeInstanceOf(UnauthorizedException);
     expect(tx.session.updateMany).not.toHaveBeenCalled();
   });
@@ -72,11 +74,30 @@ describe("SessionManagementService", () => {
     tx.session.updateMany.mockResolvedValue({ count: 3 });
     await expect(service.revokeOthers(user, "current-token")).resolves.toEqual({ ok: true, revokedSessionCount: 3 });
     expect(tx.session.updateMany).toHaveBeenCalledWith({
-      where: { userId: user.id, revokedAt: null, tokenHash: { not: "current-hash" } },
+      where: { userId: user.id, revokedAt: null, familyId: { not: "family-current" } },
       data: { revokedAt: expect.any(Date) }
     });
     expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({
       action: "auth.other_sessions_revoked", metadata: { revokedSessionCount: 3 }, transaction: tx
     }));
+    expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(tx.session.findUnique.mock.invocationCallOrder[0]);
+  });
+
+  it("follows a concurrently rotated current family for revocation-only operations", async () => {
+    const { service, tx } = fixture();
+    tx.session.findUnique.mockResolvedValue({
+      id: "session-old", userId: user.id, familyId: "family-current", revokedAt: new Date(),
+      expiresAt: new Date("2026-09-13T00:00:00Z")
+    });
+    tx.session.findFirst
+      .mockResolvedValueOnce({ id: "session-successor" })
+      .mockResolvedValueOnce({ id: "session-old", tokenHash: "old-hash", familyId: "family-current" });
+
+    await expect(service.revoke(user, "current-token", "session-old"))
+      .resolves.toEqual({ ok: true, currentSessionRevoked: true });
+    expect(tx.session.updateMany).toHaveBeenCalledWith({
+      where: { userId: user.id, familyId: "family-current", revokedAt: null },
+      data: { revokedAt: expect.any(Date) }
+    });
   });
 });

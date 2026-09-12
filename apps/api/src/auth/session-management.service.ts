@@ -34,17 +34,18 @@ export class SessionManagementService {
 
   async revoke(user: SessionOwner, currentSessionToken: string, sessionId: string) {
     return this.db().$transaction(async (tx: Prisma.TransactionClient) => {
-      await this.assertCurrentSession(tx, user.id, currentSessionToken);
+      await this.lockUser(tx, user.id);
+      const currentSession = await this.assertCurrentFamily(tx, user.id, currentSessionToken);
       const session = await tx.session.findFirst({
-        where: { id: sessionId, userId: user.id, revokedAt: null, expiresAt: { gt: new Date() } },
-        select: { id: true, tokenHash: true }
+        where: { id: sessionId, userId: user.id },
+        select: { id: true, tokenHash: true, familyId: true }
       });
       if (!session) throw new NotFoundException({ code: "SESSION_NOT_FOUND", message: "Session not found" });
       await tx.session.updateMany({
-        where: { id: session.id, userId: user.id, revokedAt: null },
+        where: { userId: user.id, familyId: session.familyId, revokedAt: null },
         data: { revokedAt: new Date() }
       });
-      const currentSessionRevoked = session.tokenHash === this.hashToken(currentSessionToken);
+      const currentSessionRevoked = session.familyId === currentSession.familyId;
       await this.audit.record({
         transaction: tx, organizationId: user.organizationId, actorId: user.id,
         action: "auth.session_revoked", targetType: "Session", targetId: session.id, outcome: "success",
@@ -56,9 +57,10 @@ export class SessionManagementService {
 
   async revokeOthers(user: SessionOwner, currentSessionToken: string) {
     return this.db().$transaction(async (tx: Prisma.TransactionClient) => {
-      await this.assertCurrentSession(tx, user.id, currentSessionToken);
+      await this.lockUser(tx, user.id);
+      const currentSession = await this.assertCurrentFamily(tx, user.id, currentSessionToken);
       const revoked = await tx.session.updateMany({
-        where: { userId: user.id, revokedAt: null, tokenHash: { not: this.hashToken(currentSessionToken) } },
+        where: { userId: user.id, revokedAt: null, familyId: { not: currentSession.familyId } },
         data: { revokedAt: new Date() }
       });
       await this.audit.record({
@@ -74,14 +76,26 @@ export class SessionManagementService {
     return createHash("sha256").update(token).digest("hex");
   }
 
-  private async assertCurrentSession(tx: Prisma.TransactionClient, userId: string, token: string) {
+  private async lockUser(tx: Prisma.TransactionClient, userId: string) {
+    const rows = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`SELECT "id" FROM "User" WHERE "id" = ${userId} FOR UPDATE`);
+    if (rows.length === 0) throw new UnauthorizedException("Authentication required");
+  }
+
+  private async assertCurrentFamily(tx: Prisma.TransactionClient, userId: string, token: string) {
     const session = await tx.session.findUnique({
       where: { tokenHash: this.hashToken(token) },
-      select: { userId: true, revokedAt: true, expiresAt: true }
+      select: { id: true, userId: true, familyId: true, revokedAt: true, expiresAt: true }
     });
-    if (!session || session.userId !== userId || session.revokedAt || session.expiresAt <= new Date()) {
+    if (!session || session.userId !== userId || session.expiresAt <= new Date()) {
       throw new UnauthorizedException("Authentication required");
     }
+    if (!session.revokedAt) return session;
+    const successor = await tx.session.findFirst({
+      where: { userId, familyId: session.familyId, revokedAt: null, expiresAt: { gt: new Date() } },
+      select: { id: true }
+    });
+    if (!successor) throw new UnauthorizedException("Authentication required");
+    return session;
   }
 
   private db() {

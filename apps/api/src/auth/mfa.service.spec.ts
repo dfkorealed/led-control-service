@@ -4,6 +4,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import { AuthChallengeStore } from "./auth-challenge.store";
 import { MfaCryptoService } from "./mfa-crypto.service";
 import { MfaService } from "./mfa.service";
+import { LoginRateLimitService } from "./login-rate-limit.service";
 import { PasswordService } from "./password.service";
 import { TotpService } from "./totp.service";
 
@@ -15,12 +16,12 @@ const admin = {
 describe("MfaService", () => {
   function fixture() {
     const currentSession = {
-      id: "session-old", userId: admin.id, tokenHash: "old-hash", rememberMe: true, userAgent: "browser",
+      id: "session-old", userId: admin.id, familyId: "family-1", tokenHash: "old-hash", rememberMe: true, userAgent: "browser",
       ipAddress: "203.0.113.7", expiresAt: new Date(Date.now() + 86_400_000), revokedAt: null
     };
     const storedUser = {
       ...admin, organization: { type: "customer" }, passwordHash: "password-hash", updatedAt: new Date("2026-09-12T00:00:00Z"),
-      mfa: null as null | { secretCiphertext: string; recoveryCodeHashes: string[] }
+      mfa: null as null | { secretCiphertext: string; recoveryCodeHashes: string[]; lastUsedTotpCounter: number }
     };
     const tx = {
       $queryRaw: jest.fn().mockResolvedValue([{ id: admin.id }]),
@@ -41,33 +42,40 @@ describe("MfaService", () => {
       take: jest.fn(), delete: jest.fn()
     };
     const crypto = { encrypt: jest.fn((value: string) => `enc:${value}`), decrypt: jest.fn((value: string) => value.slice(4)) };
-    const totp = { generateSecret: jest.fn(() => "BASE32SECRET"), buildUri: jest.fn(() => "otpauth://uri"), verify: jest.fn().mockReturnValue(true) };
+    const totp = {
+      generateSecret: jest.fn(() => "BASE32SECRET"), buildUri: jest.fn(() => "otpauth://uri"),
+      verify: jest.fn().mockReturnValue(true), matchingCounter: jest.fn().mockReturnValue(100)
+    };
     const passwords = { verify: jest.fn().mockResolvedValue(true) };
     const audit = { record: jest.fn().mockResolvedValue({ id: "audit" }) };
+    const rateLimit = { consumeMfaCompletion: jest.fn(), resetAfterSuccess: jest.fn() };
     const service = new MfaService(
       prisma as unknown as PrismaService,
       passwords as unknown as PasswordService,
       audit as unknown as AuditService,
       challenges as unknown as AuthChallengeStore,
       crypto as unknown as MfaCryptoService,
-      totp as unknown as TotpService
+      totp as unknown as TotpService,
+      rateLimit as unknown as LoginRateLimitService
     );
-    return { service, prisma, tx, storedUser, currentSession, challenges, crypto, totp, passwords, audit };
+    jest.spyOn(service as any, "hashToken").mockReturnValue("old-hash");
+    return { service, prisma, tx, storedUser, currentSession, challenges, crypto, totp, passwords, audit, rateLimit };
   }
 
   it.each(["viewer", "disabled"])("allows only active operator/admin enrollment, rejecting %s", async (kind) => {
     const { service } = fixture();
     const user = kind === "viewer" ? { ...admin, role: "viewer" as const } : { ...admin, status: "disabled" as const };
-    await expect(service.startEnrollment(user)).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.startEnrollment(user, "current-token", "203.0.113.7", "browser")).rejects.toBeInstanceOf(ForbiddenException);
   });
 
   it("starts an encrypted, expiring enrollment and returns the secret only for initial setup", async () => {
     const { service, challenges, crypto } = fixture();
-    await expect(service.startEnrollment(admin)).resolves.toEqual({
+    await expect(service.startEnrollment(admin, "current-token", "203.0.113.7", "browser")).resolves.toEqual({
       enrollmentToken: "challenge", secret: "BASE32SECRET", otpauthUri: "otpauth://uri", expiresAt: new Date("2026-09-12T00:10:00Z")
     });
     expect(challenges.create).toHaveBeenCalledWith("enrollment", {
-      userId: admin.id, secretCiphertext: "enc:BASE32SECRET"
+      userId: admin.id, secretCiphertext: "enc:BASE32SECRET", sessionTokenHash: "old-hash",
+      ipAddress: "203.0.113.7", userAgent: "browser"
     }, 600);
     expect(crypto.encrypt).toHaveBeenCalledWith("BASE32SECRET");
   });
@@ -88,30 +96,55 @@ describe("MfaService", () => {
 
   it("confirms enrollment, stores only hashes, revokes all old sessions and rotates the current session", async () => {
     const { service, challenges, tx } = fixture();
-    challenges.take.mockResolvedValue({ userId: admin.id, secretCiphertext: "enc:BASE32SECRET" });
+    challenges.take.mockResolvedValue({
+      userId: admin.id, secretCiphertext: "enc:BASE32SECRET", sessionTokenHash: "old-hash",
+      ipAddress: "203.0.113.7", userAgent: "browser"
+    });
 
-    const result = await service.confirmEnrollment(admin, "current-token", { enrollmentToken: "challenge", code: "123456" });
+    const result = await service.confirmEnrollment(
+      admin, "current-token", { enrollmentToken: "challenge", code: "123456" }, "203.0.113.7", "browser"
+    );
 
     expect(result.recoveryCodes).toHaveLength(10);
     expect(tx.userMfa.create).toHaveBeenCalledWith({ data: expect.objectContaining({
-      userId: admin.id, secretCiphertext: "enc:BASE32SECRET", recoveryCodeHashes: expect.arrayContaining([expect.stringMatching(/^[a-f0-9]{64}$/)])
+      userId: admin.id, secretCiphertext: "enc:BASE32SECRET", lastUsedTotpCounter: 100,
+      recoveryCodeHashes: expect.arrayContaining([expect.stringMatching(/^[a-f0-9]{64}$/)])
     }) });
     expect(tx.session.updateMany).toHaveBeenCalledWith({ where: { userId: admin.id, revokedAt: null }, data: { revokedAt: expect.any(Date) } });
     expect(tx.session.create).toHaveBeenCalledWith({ data: expect.objectContaining({ userId: admin.id, mfaVerifiedAt: expect.any(Date) }) });
     expect(result).toEqual(expect.objectContaining({ sessionToken: expect.any(String), expiresAt: expect.any(Date), mfaEnabled: true }));
   });
 
+  it("rejects an enrollment challenge from a different session, IP, or user agent before mutation", async () => {
+    const { service, challenges, prisma, tx } = fixture();
+    challenges.take.mockResolvedValue({
+      userId: admin.id, secretCiphertext: "enc:BASE32SECRET", sessionTokenHash: "old-hash",
+      ipAddress: "198.51.100.10", userAgent: "other-browser"
+    });
+
+    await expect(service.confirmEnrollment(
+      admin, "current-token", { enrollmentToken: "challenge", code: "123456" }, "203.0.113.7", "browser"
+    )).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(tx.userMfa.create).not.toHaveBeenCalled();
+  });
+
   it("completes MFA login with TOTP without accepting a stale or differently bound challenge", async () => {
-    const { service, challenges, storedUser, tx } = fixture();
-    storedUser.mfa = { secretCiphertext: "enc:BASE32SECRET", recoveryCodeHashes: [] };
+    const { service, challenges, storedUser, tx, rateLimit } = fixture();
+    storedUser.mfa = { secretCiphertext: "enc:BASE32SECRET", recoveryCodeHashes: [], lastUsedTotpCounter: 99 };
     challenges.take.mockResolvedValue({
       userId: admin.id, userUpdatedAt: storedUser.updatedAt.toISOString(), rememberMe: false,
       ipAddress: "203.0.113.7", userAgent: "browser"
     });
 
     const result = await service.completeLogin({ challengeToken: "challenge", code: "123456" }, "203.0.113.7", "browser");
+    expect(rateLimit.consumeMfaCompletion).toHaveBeenCalledWith({ ipAddress: "203.0.113.7", userAgent: "browser" });
+    expect(rateLimit.consumeMfaCompletion.mock.invocationCallOrder[0]).toBeLessThan(challenges.take.mock.invocationCallOrder[0]);
     expect(result.user).toMatchObject({ id: admin.id });
     expect(tx.session.create).toHaveBeenCalledWith({ data: expect.objectContaining({ mfaVerifiedAt: expect.any(Date), rememberMe: false }) });
+    expect(tx.userMfa.update).toHaveBeenCalledWith({
+      where: { userId: admin.id }, data: { lastUsedTotpCounter: 100 }
+    });
 
     challenges.take.mockResolvedValue({
       userId: admin.id, userUpdatedAt: storedUser.updatedAt.toISOString(), rememberMe: false,
@@ -121,17 +154,33 @@ describe("MfaService", () => {
       .rejects.toBeInstanceOf(UnauthorizedException);
   });
 
+  it("rejects a TOTP counter that is not strictly newer while holding the user lock", async () => {
+    const { service, challenges, storedUser, tx, totp } = fixture();
+    storedUser.mfa = { secretCiphertext: "enc:BASE32SECRET", recoveryCodeHashes: [], lastUsedTotpCounter: 100 };
+    totp.matchingCounter.mockReturnValue(100);
+    challenges.take.mockResolvedValue({
+      userId: admin.id, userUpdatedAt: storedUser.updatedAt.toISOString(), rememberMe: false,
+      ipAddress: "203.0.113.7", userAgent: "browser"
+    });
+
+    await expect(service.completeLogin(
+      { challengeToken: "challenge", code: "123456" }, "203.0.113.7", "browser"
+    )).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(tx.$queryRaw).toHaveBeenCalled();
+    expect(tx.session.create).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["TOTP", { code: "000000" }],
     ["recovery code", { recoveryCode: "invalid-recovery-code" }]
   ])("audits a failed %s login outside the rolled-back success transaction", async (_factor, verification) => {
     const { service, challenges, storedUser, tx, totp, audit } = fixture();
-    storedUser.mfa = { secretCiphertext: "enc:BASE32SECRET", recoveryCodeHashes: [] };
+    storedUser.mfa = { secretCiphertext: "enc:BASE32SECRET", recoveryCodeHashes: [], lastUsedTotpCounter: 99 };
     challenges.take.mockResolvedValue({
       userId: admin.id, userUpdatedAt: storedUser.updatedAt.toISOString(), rememberMe: false,
       ipAddress: "203.0.113.7", userAgent: "browser"
     });
-    totp.verify.mockReturnValue(false);
+    totp.matchingCounter.mockReturnValue(null);
 
     await expect(service.completeLogin({ challengeToken: "challenge", ...verification }, "203.0.113.7", "browser"))
       .rejects.toBeInstanceOf(UnauthorizedException);
@@ -139,7 +188,7 @@ describe("MfaService", () => {
     expect(tx.session.create).not.toHaveBeenCalled();
     expect(audit.record).toHaveBeenCalledWith({
       organizationId: admin.organizationId,
-      actorId: admin.id,
+      actorId: undefined,
       action: "auth.login_failed",
       targetType: "User",
       targetId: admin.id,
@@ -153,7 +202,7 @@ describe("MfaService", () => {
   it("audits a user-state rejection with the identity found before transaction rollback", async () => {
     const { service, challenges, storedUser, tx, audit } = fixture();
     (storedUser as { status: string }).status = "disabled";
-    storedUser.mfa = { secretCiphertext: "enc:BASE32SECRET", recoveryCodeHashes: [] };
+    storedUser.mfa = { secretCiphertext: "enc:BASE32SECRET", recoveryCodeHashes: [], lastUsedTotpCounter: 99 };
     challenges.take.mockResolvedValue({
       userId: admin.id, userUpdatedAt: storedUser.updatedAt.toISOString(), rememberMe: false,
       ipAddress: "203.0.113.7", userAgent: "browser"
@@ -165,7 +214,7 @@ describe("MfaService", () => {
     expect(tx.session.create).not.toHaveBeenCalled();
     expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({
       organizationId: admin.organizationId,
-      actorId: admin.id,
+      actorId: undefined,
       targetId: admin.id,
       action: "auth.login_failed",
       outcome: "failure"
@@ -203,12 +252,12 @@ describe("MfaService", () => {
   it("fails closed when recording an MFA login failure is unavailable", async () => {
     const { service, challenges, storedUser, tx, totp, audit } = fixture();
     const auditFailure = new Error("audit database unavailable");
-    storedUser.mfa = { secretCiphertext: "enc:BASE32SECRET", recoveryCodeHashes: [] };
+    storedUser.mfa = { secretCiphertext: "enc:BASE32SECRET", recoveryCodeHashes: [], lastUsedTotpCounter: 99 };
     challenges.take.mockResolvedValue({
       userId: admin.id, userUpdatedAt: storedUser.updatedAt.toISOString(), rememberMe: false,
       ipAddress: "203.0.113.7", userAgent: "browser"
     });
-    totp.verify.mockReturnValue(false);
+    totp.matchingCounter.mockReturnValue(null);
     audit.record.mockRejectedValue(auditFailure);
 
     await expect(service.completeLogin({ challengeToken: "challenge", code: "000000" }, "203.0.113.7", "browser"))
@@ -219,7 +268,9 @@ describe("MfaService", () => {
   it("consumes a recovery code once in the same transaction", async () => {
     const { service, challenges, storedUser, tx, totp, audit } = fixture();
     const code = "recovery-code";
-    storedUser.mfa = { secretCiphertext: "enc:BASE32SECRET", recoveryCodeHashes: [service.hashRecoveryCode(code), "another"] };
+    storedUser.mfa = {
+      secretCiphertext: "enc:BASE32SECRET", recoveryCodeHashes: [service.hashRecoveryCode(code), "another"], lastUsedTotpCounter: 99
+    };
     challenges.take.mockResolvedValue({
       userId: admin.id, userUpdatedAt: storedUser.updatedAt.toISOString(), rememberMe: false,
       ipAddress: "203.0.113.7", userAgent: "browser"
@@ -227,7 +278,7 @@ describe("MfaService", () => {
 
     const result = await service.completeLogin({ challengeToken: "challenge", recoveryCode: code }, "203.0.113.7", "browser");
 
-    expect(totp.verify).not.toHaveBeenCalled();
+    expect(totp.matchingCounter).not.toHaveBeenCalled();
     expect(tx.userMfa.update).toHaveBeenCalledWith({ where: { userId: admin.id }, data: { recoveryCodeHashes: ["another"] } });
     expect(result.recoveryCodeUsed).toBe(true);
     expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: "auth.mfa_recovery_code_used", transaction: tx }));
@@ -235,7 +286,7 @@ describe("MfaService", () => {
 
   it("disables MFA only with current password and a second factor, then rotates sessions", async () => {
     const { service, storedUser, tx } = fixture();
-    storedUser.mfa = { secretCiphertext: "enc:BASE32SECRET", recoveryCodeHashes: [] };
+    storedUser.mfa = { secretCiphertext: "enc:BASE32SECRET", recoveryCodeHashes: [], lastUsedTotpCounter: 99 };
 
     const result = await service.disable(admin, "current-token", { currentPassword: "password", code: "123456" });
 

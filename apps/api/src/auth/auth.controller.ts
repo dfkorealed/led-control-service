@@ -65,8 +65,13 @@ export class AuthController {
 
   @Post("mfa/enrollment")
   @UseGuards(SessionAuthGuard)
-  async startMfaEnrollment(@CurrentUser() user: AuthenticatedUser) {
-    return this.mfa().startEnrollment(user);
+  async startMfaEnrollment(@Req() request: AuthenticatedRequest) {
+    return this.mfa().startEnrollment(
+      request.user!,
+      this.currentSessionToken(request),
+      request.ip ?? "unknown",
+      this.readHeader(request.headers["user-agent"])
+    );
   }
 
   @Post("mfa/enrollment/confirm")
@@ -81,7 +86,7 @@ export class AuthController {
     const result = await this.mfa().confirmEnrollment(request.user!, token, {
       enrollmentToken: this.requiredString(value.enrollmentToken, "enrollmentToken"),
       code: this.requiredString(value.code, "code")
-    });
+    }, request.ip ?? "unknown", this.readHeader(request.headers["user-agent"]));
     this.setSessionCookie(response, result.sessionToken, result.expiresAt);
     return { mfaEnabled: true, recoveryCodes: result.recoveryCodes };
   }

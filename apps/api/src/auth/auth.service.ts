@@ -1,6 +1,6 @@
 import { BadRequestException, HttpException, Injectable, InternalServerErrorException, Optional, UnauthorizedException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { AuditService } from "../audit/audit.service";
 import { assertSiteUserCapacity, runSiteUserTransaction } from "../access/site-user-policy";
 import { PrismaService } from "../prisma/prisma.service";
@@ -165,6 +165,7 @@ export class AuthService {
           await tx.session.create({
             data: {
               userId: user.id,
+              familyId: randomUUID(),
               tokenHash: this.hashToken(sessionToken),
               rememberMe: input.rememberMe,
               userAgent: input.userAgent ?? null,
@@ -211,7 +212,7 @@ export class AuthService {
       if (error instanceof UnauthorizedException) {
         await this.audit.record({
           organizationId: rateInput.organizationId,
-          actorId: rateInput.userId,
+          actorId: undefined,
           action: "auth.login_failed",
           targetType: "User",
           targetId: rateInput.userId,
@@ -267,6 +268,8 @@ export class AuthService {
         await tx.session.create({
           data: {
             userId: user.id,
+            familyId: session.familyId,
+            rotatedFromSessionId: session.id,
             tokenHash: this.hashToken(sessionToken),
             rememberMe: session.rememberMe,
             userAgent: session.userAgent,
@@ -311,13 +314,19 @@ export class AuthService {
 
   async logout(sessionToken: string) {
     await this.db().$transaction(async (tx: Prisma.TransactionClient) => {
+      const initial = await tx.session.findUnique({
+        where: { tokenHash: this.hashToken(sessionToken) },
+        include: { user: { select: { id: true, organizationId: true } } }
+      });
+      if (!initial) return;
+      await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "User" WHERE "id" = ${initial.userId} FOR UPDATE`);
       const session = await tx.session.findUnique({
         where: { tokenHash: this.hashToken(sessionToken) },
         include: { user: { select: { id: true, organizationId: true } } }
       });
-      if (!session || session.revokedAt) return;
+      if (!session) return;
       await tx.session.updateMany({
-        where: { id: session.id, revokedAt: null },
+        where: { userId: session.userId, familyId: session.familyId, revokedAt: null },
         data: { revokedAt: new Date() }
       });
       await this.audit.record({

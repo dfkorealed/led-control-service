@@ -25,6 +25,15 @@ describe("TotpService", () => {
     expect(service.verify(rfcSecret, "12345a", now)).toBe(false);
   });
 
+  it("returns the matching RFC 6238 counter so callers can reject replay", () => {
+    const now = 1_700_000_000_000;
+    const currentCounter = Math.floor(now / 30_000);
+
+    expect(service.matchingCounter(rfcSecret, service.codeAt(rfcSecret, now), now)).toBe(currentCounter);
+    expect(service.matchingCounter(rfcSecret, service.codeAt(rfcSecret, now - 30_000), now)).toBe(currentCounter - 1);
+    expect(service.matchingCounter(rfcSecret, "not-a-code", now)).toBeNull();
+  });
+
   it("generates a Base32 secret and a standards-compatible otpauth URI", () => {
     const secret = service.generateSecret();
     const uri = service.buildUri(secret, "admin_01");

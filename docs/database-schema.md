@@ -1275,6 +1275,8 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 | --- | --- | --- | --- | --- |
 | `id` | `String` | 예 | PK, `uuid()` | 세션 ID |
 | `userId` | `String` | 예 | FK -> `User.id`, delete cascade | 사용자 ID. 사용자 영구 삭제 시 함께 삭제 |
+| `familyId` | `String` | 예 | `uuid()` | 최초 로그인부터 보안 상태 변경에 따른 token 회전을 하나로 묶는 세션 계열 ID |
+| `rotatedFromSessionId` | `String?` | 아니오 | Unique, self FK -> `Session.id`, delete set null | 이 세션으로 교체된 직전 세션. 하나의 세션에서 둘 이상의 후속 세션이 생기지 않도록 보장 |
 | `tokenHash` | `String` | 예 | Unique | 세션 토큰 hash |
 | `rememberMe` | `Boolean` | 예 | `false` | 자동 로그인 여부 |
 | `userAgent` | `String?` | 아니오 |  | 접속 user agent |
@@ -1288,10 +1290,14 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 관계:
 
 - `user`: `User`
+- `rotatedFrom`: 직전 `Session?`
+- `rotatedTo`: 이 세션에서 이어진 `Session[]`이며 unique 제약으로 최대 1개
 
 `userId + revokedAt + expiresAt` 복합 index는 사용자별 활성 세션 조회와 일괄 폐기를 지원한다.
-비밀번호 변경과 MFA 등록·해제는 현재 세션을 포함한 기존 활성 세션을 같은 transaction에서 모두 폐기한 뒤, 현재 요청의 접속 정보와 만료 시각을 승계한 새 token hash 행을 만든다. 따라서 변경 전 cookie는 즉시 무효이고 응답의 새 HttpOnly cookie만 유효하다.
-활성 세션 API는 요청 사용자 ID와 `revokedAt IS NULL`, 미래 만료 시각을 모두 적용해 조회한다. 개별 폐기도 세션 ID만 신뢰하지 않고 같은 사용자 ID를 조건에 포함하며, 다른 세션 전체 폐기는 현재 token hash만 제외한다. 두 폐기 작업과 감사 로그는 같은 transaction으로 커밋한다.
+`userId + familyId + revokedAt` 복합 index는 회전 전 token으로 들어온 로그아웃과 세션 폐기가 현재 활성 후속 세션을 찾도록 지원한다.
+최초 로그인은 새 `familyId`를 만든다. 비밀번호 변경과 MFA 등록·해제는 사용자 행을 잠근 transaction에서 현재 세션을 다시 검증하고 기존 활성 세션을 모두 폐기한 뒤, 현재 세션의 `familyId`와 접속 정보·만료 시각을 승계하고 `rotatedFromSessionId`로 직전 행을 가리키는 새 token hash 행을 만든다.
+로그아웃은 이미 폐기된 token도 조회한 뒤 사용자 행을 잠그고 같은 family의 활성 세션을 모두 폐기한다. 따라서 회전 응답과 로그아웃 응답 순서가 뒤바뀌어도 새 cookie가 세션을 되살리지 않는다.
+활성 세션 API는 요청 사용자 ID와 `revokedAt IS NULL`, 미래 만료 시각을 모두 적용해 조회한다. 개별 폐기는 대상 세션의 family 전체를 폐기하고, 다른 세션 전체 폐기는 현재 family만 남긴다. 두 작업도 사용자 행 잠금과 family 재검증 아래 실행되므로 token 회전과 직렬화된다.
 
 ### UserMfa
 
@@ -1302,6 +1308,7 @@ operator/admin의 활성 TOTP 설정이다. 사용자와 1:1이며 viewer는 애
 | `userId` | `String` | 예 | PK, FK -> `User.id`, delete cascade | MFA 소유 사용자 |
 | `secretCiphertext` | `String` | 예 |  | 버전·nonce·ciphertext·인증 태그를 포함한 암호화 TOTP 비밀키 |
 | `recoveryCodeHashes` | `String[]` | 예 |  | 아직 사용하지 않은 고엔트로피 복구 코드의 SHA-256 hash |
+| `lastUsedTotpCounter` | `Int` | 예 | `-1` | 마지막으로 수락한 RFC 6238 30초 counter. 더 큰 counter만 수락해 같은 TOTP 재사용을 차단 |
 | `enabledAt` | `DateTime` | 예 | `now()` | MFA 활성화 시각 |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
 | `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
@@ -1310,8 +1317,9 @@ operator/admin의 활성 TOTP 설정이다. 사용자와 1:1이며 viewer는 애
 
 - `user`: `User`
 
-`20260916090000_account_security` migration은 `UserMfa`, `Session.mfaVerifiedAt`, 사용자별 활성 세션 조회 index를 추가한다. 이번 작업에서는 사용자 DB에 적용하지 않고 새 일회용 PostgreSQL에서만 전체 migration을 검증한다.
-일회용 PostgreSQL 16에서 기존 57개와 이 migration을 합친 전체 58개 `prisma migrate deploy`를 순서대로 적용해 검증했다. 이는 사용자 DB 적용 또는 운영 배포 증거가 아니다.
+`20260916090000_account_security` migration은 `UserMfa`, `Session.mfaVerifiedAt`, 사용자별 활성 세션 조회 index를 추가한다.
+`20260916120000_harden_session_rotation_and_totp` migration은 세션 계열과 회전 self FK, TOTP 마지막 counter를 추가한다. 기존 세션은 각 행의 `id`를 `familyId`로 backfill해 서로 무관한 기존 브라우저 세션이 한 계열로 합쳐지지 않는다. 기존 MFA 행은 알 수 없는 과거 counter 대신 `-1`에서 시작하고 다음 성공 검증부터 단조 증가를 강제한다.
+이번 작업의 migration 검증은 사용자 DB가 아닌 새 일회용 PostgreSQL에서만 수행한다. 이는 사용자 DB 적용 또는 운영 배포 증거가 아니다.
 
 ### ProvisioningSession
 
