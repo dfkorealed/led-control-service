@@ -1,4 +1,6 @@
 import { Prisma } from "@prisma/client";
+import { fixtureStateV2Schema } from "@led-control/shared";
+import { canonicalPayloadHash } from "../automation/automation-payload-hash";
 import { closeFixtureEnergyForRatedWattChange, FixtureStateIngestionService } from "./fixture-state-ingestion.service";
 
 const scope = {
@@ -42,6 +44,57 @@ describe("FixtureStateIngestionService", () => {
     expect(prisma.processedGatewayEvent.create).toHaveBeenCalledTimes(1);
   });
 
+  it("records a future event as a terminal rejection before cursor or aggregate work", async () => {
+    const prisma = fixturePrisma();
+    const service = new FixtureStateIngestionService(prisma as never);
+    const receivedAt = new Date("2026-08-26T00:00:00.000Z");
+    const futureEvent = { ...fixtureEvent(9), eventId: "88888888-8888-4888-8888-888888888888", occurredAt: "9999-01-01T00:00:00.000Z" };
+
+    await expect(service.ingest(scope.gatewayId, futureEvent, receivedAt)).resolves.toMatchObject({
+      status: "rejected_future_timestamp"
+    });
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(prisma.fixtureEnergyStateCursor.findUnique).not.toHaveBeenCalled();
+    expect(prisma.fixtureEnergyDailyAggregate.upsert).not.toHaveBeenCalled();
+    expect(prisma.fixtureEnergyHourlyAggregate.upsert).not.toHaveBeenCalled();
+    expect(prisma.fixture.update).not.toHaveBeenCalled();
+    expect(prisma.processedGatewayEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        eventId: futureEvent.eventId,
+        gatewayId: scope.gatewayId,
+        fixtureId: scope.fixtureId,
+        sequence: 9n,
+        eventType: "fixture_state",
+        occurredAt: new Date(futureEvent.occurredAt),
+        receivedAt,
+        ingestionStatus: "rejected_future_timestamp",
+        payloadHash: fixturePayloadHash(futureEvent)
+      })
+    });
+  });
+
+  it("uses the frozen receipt timestamp for freshness and device timestamp for state ordering", async () => {
+    const prisma = fixturePrisma();
+    const service = new FixtureStateIngestionService(prisma as never);
+    const receivedAt = new Date("2026-08-26T00:00:12.000Z");
+
+    await service.ingest(scope.gatewayId, fixtureEvent(9), receivedAt);
+
+    expect(prisma.fixture.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        lastSeenAt: receivedAt,
+        lastStateOccurredAt: new Date("2026-08-26T00:00:09.000Z")
+      })
+    }));
+    expect(prisma.processedGatewayEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        payloadHash: fixturePayloadHash(fixtureEvent(9)),
+        receivedAt,
+        ingestionStatus: "accepted"
+      })
+    });
+  });
+
   it("returns a committed duplicate without applying energy twice", async () => {
     const prisma = fixturePrisma({
       processedEvent: {
@@ -50,13 +103,56 @@ describe("FixtureStateIngestionService", () => {
         sequence: 9n,
         eventType: "fixture_state",
         occurredAt: new Date("2026-08-26T00:00:09.000Z"),
-        fixtureId: scope.fixtureId
+        fixtureId: scope.fixtureId,
+        payloadHash: fixturePayloadHash(fixtureEvent(9)),
+        ingestionStatus: "accepted"
       }
     });
     const service = new FixtureStateIngestionService(prisma as never);
 
     await expect(service.ingest(scope.gatewayId, fixtureEvent(9))).resolves.toMatchObject({ status: "duplicate" });
     expect(prisma.fixtureEnergyDailyAggregate.upsert).not.toHaveBeenCalled();
+    expect(prisma.fixture.update).not.toHaveBeenCalled();
+  });
+
+  it("returns a previous future rejection only for the exact canonical payload", async () => {
+    const event = fixtureEvent(9);
+    const prisma = fixturePrisma({
+      processedEvent: {
+        eventId: event.eventId,
+        gatewayId: scope.gatewayId,
+        sequence: 9n,
+        eventType: "fixture_state",
+        occurredAt: new Date(event.occurredAt),
+        fixtureId: scope.fixtureId,
+        payloadHash: fixturePayloadHash(event),
+        ingestionStatus: "rejected_future_timestamp"
+      }
+    });
+    const service = new FixtureStateIngestionService(prisma as never);
+
+    await expect(service.ingest(scope.gatewayId, event)).resolves.toMatchObject({ status: "rejected_future_timestamp" });
+    expect(prisma.fixtureEnergyStateCursor.findUnique).not.toHaveBeenCalled();
+    expect(prisma.fixture.update).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when an event identity is replayed with a different payload", async () => {
+    const event = fixtureEvent(9);
+    const prisma = fixturePrisma({
+      processedEvent: {
+        eventId: event.eventId,
+        gatewayId: scope.gatewayId,
+        sequence: 9n,
+        eventType: "fixture_state",
+        occurredAt: new Date(event.occurredAt),
+        fixtureId: scope.fixtureId,
+        payloadHash: fixturePayloadHash(event),
+        ingestionStatus: "accepted"
+      }
+    });
+    const service = new FixtureStateIngestionService(prisma as never);
+
+    await expect(service.ingest(scope.gatewayId, { ...event, brightness: 20 })).rejects.toThrow("fixture state event identity conflict");
     expect(prisma.fixture.update).not.toHaveBeenCalled();
   });
 
@@ -91,7 +187,9 @@ describe("FixtureStateIngestionService", () => {
   it("fails closed when the topic gateway does not own the fixture", async () => {
     const prisma = fixturePrisma({ lockedRows: [] });
     const service = new FixtureStateIngestionService(prisma as never);
-    await expect(service.ingest(scope.gatewayId, fixtureEvent(9))).rejects.toThrow("fixture state scope rejected");
+    const futureEvent = { ...fixtureEvent(9), occurredAt: "9999-01-01T00:00:00.000Z" };
+    await expect(service.ingest(scope.gatewayId, futureEvent, new Date("2026-08-26T00:00:00.000Z")))
+      .rejects.toThrow("fixture state scope rejected");
     expect(prisma.processedGatewayEvent.create).not.toHaveBeenCalled();
   });
 
@@ -205,4 +303,8 @@ function fixtureEvent(sequence: number) {
     rssi: -60,
     hopCount: 1
   };
+}
+
+function fixturePayloadHash(event: ReturnType<typeof fixtureEvent>) {
+  return canonicalPayloadHash(fixtureStateV2Schema.parse(event));
 }

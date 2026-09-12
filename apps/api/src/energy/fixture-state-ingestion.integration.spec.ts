@@ -93,7 +93,8 @@ describeWithDatabase("fixture-state PostgreSQL atomic ingestion", () => {
         firstStateOccurredAt: null,
         lastStateEventId: null,
         lastStateSequence: null,
-        lastStateOccurredAt: null
+        lastStateOccurredAt: null,
+        lastSeenAt: null
       }
     });
     await prisma.energyFixtureIdentity.upsert({
@@ -131,14 +132,67 @@ describeWithDatabase("fixture-state PostgreSQL atomic ingestion", () => {
     expect(ledgerCount).toBe(1);
   });
 
-  function fixtureEvent() {
+  it("keeps a future poison event out of energy state, then ingests the next normal event", async () => {
+    const receivedAt = new Date("2026-08-26T00:00:10.000Z");
+    const poison = fixtureEvent({
+      eventId: "21000000-0000-4000-8000-000000000009",
+      sequence: 1,
+      occurredAt: "9999-01-01T00:00:00.000Z"
+    });
+    const normal = fixtureEvent({
+      eventId: "21000000-0000-4000-8000-000000000010",
+      sequence: 2,
+      occurredAt: "2026-08-26T00:00:09.000Z"
+    });
+
+    await expect(service.ingest(ids.gatewayId, poison, receivedAt)).resolves.toMatchObject({
+      status: "rejected_future_timestamp"
+    });
+    await expect(service.ingest(ids.gatewayId, normal, receivedAt)).resolves.toMatchObject({ status: "ingested" });
+
+    const [fixture, aggregate, hourly, cursor, ledger] = await Promise.all([
+      prisma.fixture.findUniqueOrThrow({ where: { id: ids.fixtureId } }),
+      prisma.fixtureEnergyDailyAggregate.findMany({ where: { fixtureId: ids.fixtureId } }),
+      prisma.fixtureEnergyHourlyAggregate.findMany({ where: { energyFixtureId: ids.energyFixtureId } }),
+      prisma.fixtureEnergyStateCursor.findUniqueOrThrow({ where: { fixtureId: ids.fixtureId } }),
+      prisma.processedGatewayEvent.findMany({
+        where: { fixtureId: ids.fixtureId },
+        orderBy: { sequence: "asc" },
+        select: { sequence: true, occurredAt: true, receivedAt: true, ingestionStatus: true }
+      })
+    ]);
+    expect(aggregate).toHaveLength(1);
+    expect(hourly).toHaveLength(1);
+    expect(cursor.aggregatedThrough).toEqual(new Date("2026-08-26T00:00:09.000Z"));
+    expect(fixture).toMatchObject({
+      lastSeenAt: receivedAt,
+      lastStateOccurredAt: new Date("2026-08-26T00:00:09.000Z"),
+      lastStateSequence: 2n
+    });
+    expect(ledger).toEqual([
+      expect.objectContaining({
+        sequence: 1n,
+        occurredAt: new Date("9999-01-01T00:00:00.000Z"),
+        receivedAt,
+        ingestionStatus: "rejected_future_timestamp"
+      }),
+      expect.objectContaining({
+        sequence: 2n,
+        occurredAt: new Date("2026-08-26T00:00:09.000Z"),
+        receivedAt,
+        ingestionStatus: "accepted"
+      })
+    ]);
+  });
+
+  function fixtureEvent(overrides: { eventId?: string; sequence?: number; occurredAt?: string } = {}) {
     return {
       siteId: ids.siteId,
       gatewayId: ids.gatewayId,
       fixtureId: ids.fixtureId,
-      eventId: "21000000-0000-4000-8000-000000000007",
-      sequence: 1,
-      occurredAt: "2026-08-26T00:00:09.000Z",
+      eventId: overrides.eventId ?? "21000000-0000-4000-8000-000000000007",
+      sequence: overrides.sequence ?? 1,
+      occurredAt: overrides.occurredAt ?? "2026-08-26T00:00:09.000Z",
       brightness: 70,
       powerOn: true,
       status: "online" as const,
