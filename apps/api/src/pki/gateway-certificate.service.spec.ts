@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, ServiceUnavailableException, UnauthorizedException } from "@nestjs/common";
 import type { CertificateAuthorityProvider } from "./certificate-authority.provider";
 import { GatewayCertificateService } from "./gateway-certificate.service";
+import { reconciliationFixture } from "./reconciliation.test-support";
 
 const CSR = "-----BEGIN CERTIFICATE REQUEST-----\nSECRET-MQTT-CSR\n-----END CERTIFICATE REQUEST-----";
 const DEVICE_FINGERPRINT = "AA".repeat(32);
@@ -10,6 +11,20 @@ const INVENTORY_LOCK_TIMEOUT_MS = 10_000;
 const MQTT_TRANSACTION_BUDGET_MS = 140_000;
 
 describe("GatewayCertificateService", () => {
+  it.each(["disabledAt", "status", "pointer", "assignment", "revokedAt"])("rejects post-sign %s drift without persisting a usable certificate", async (drift) => {
+    const { service, prisma, ca } = createFixture();
+    ca.signCsr.mockImplementationOnce(async () => {
+      const current = await prisma.gatewayCertificate.findUnique({ where: { fingerprint: DEVICE_FINGERPRINT } });
+      if (drift === "disabledAt") current.inventory.disabledAt = NOW;
+      if (drift === "status") current.status = "revocation_pending";
+      if (drift === "pointer") current.inventory.certificateFingerprint = MQTT_FINGERPRINT;
+      if (drift === "assignment") current.inventory.claimedGatewayId = "different-gateway";
+      if (drift === "revokedAt") current.revokedAt = NOW;
+      return mqttSignedCertificate();
+    });
+    await expect(service.issueMqttCertificate({ csrPem: CSR, deviceCertificateFingerprint: DEVICE_FINGERPRINT })).rejects.toThrow(ServiceUnavailableException);
+    expect(prisma.gatewayCertificate.create).not.toHaveBeenCalled();
+  });
   it("rejects a device whose inventory has not been claimed", async () => {
     const { service, ca, csrValidator } = createFixture({ inventory: { claimedGatewayId: null, claimedGateway: null } });
 
@@ -111,20 +126,21 @@ describe("GatewayCertificateService", () => {
     });
   });
 
-  it("best-effort revokes the new MQTT certificate when its ledger transaction fails", async () => {
-    const { service, prisma, ca } = createFixture();
+  it("retains the armed revocation obligation when certificate persistence fails", async () => {
+    const { service, prisma, reconciliation } = createFixture();
     prisma.gatewayCertificate.create.mockRejectedValueOnce(new Error("database unavailable"));
 
     await expect(service.issueMqttCertificate({ csrPem: CSR, deviceCertificateFingerprint: DEVICE_FINGERPRINT })).rejects.toThrow(
       ServiceUnavailableException
     );
 
-    expect(ca.revoke).toHaveBeenCalledWith({
+    expect(reconciliation.armSignedCertificate).toHaveBeenCalledWith(expect.objectContaining({
       purpose: "mqtt",
       certificateSerial: "01:02",
       issuer: "CN=MQTT Issuing CA",
       fingerprint: MQTT_FINGERPRINT.match(/.{2}/g)?.join(":")
-    });
+    }));
+    expect(reconciliation.cancelSignedCertificate).not.toHaveBeenCalled();
   });
 
   it("allows a simulated six-second CA delay and configures lock timeout before the advisory lock", async () => {
@@ -151,7 +167,7 @@ describe("GatewayCertificateService", () => {
         timeout: MQTT_TRANSACTION_BUDGET_MS
       });
       expect(executedQueries.map(({ template, values }) => ({ sql: template.join("?"), values }))).toEqual([
-        { sql: "SELECT set_config('lock_timeout', ?, true)", values: [`${INVENTORY_LOCK_TIMEOUT_MS}ms`] },
+        { sql: "SELECT set_config('lock_timeout', '10000ms', true)", values: [] },
         { sql: "SELECT pg_advisory_xact_lock(hashtextextended(?::text, 0))", values: ["inventory-1"] }
       ]);
 
@@ -246,8 +262,9 @@ function createFixture(overrides: {
     gatewayInventory: { update: jest.fn() }
   };
   const executedQueries: Array<{ template: string[]; values: unknown[] }> = [];
-  prisma.$executeRaw = jest.fn((template: TemplateStringsArray, ...values: unknown[]) => {
-    executedQueries.push({ template: Array.from(template), values });
+  prisma.$queryRaw = jest.fn().mockResolvedValue([inventory]);
+  prisma.$executeRaw = jest.fn((template: any, ...values: unknown[]) => {
+    executedQueries.push({ template: template.strings ?? Array.from(template), values: template.values ?? values });
     return Promise.resolve(0);
   });
   prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>, _options: unknown) => callback(prisma));
@@ -266,8 +283,10 @@ function createFixture(overrides: {
     readCrl: jest.fn()
   } as jest.Mocked<CertificateAuthorityProvider>;
   const csrValidator = { validate: jest.fn().mockResolvedValue({ publicKey: {} as CryptoKey }) };
+  const reconciliation = reconciliationFixture();
   return {
-    service: new GatewayCertificateService(prisma, ca, csrValidator),
+    service: new GatewayCertificateService(prisma, ca, csrValidator, reconciliation as never),
+    reconciliation,
     prisma,
     ca,
     csrValidator,
@@ -279,6 +298,7 @@ function createConcurrentFixture() {
   const records: Array<Record<string, unknown>> = [];
   let lock = Promise.resolve();
   const prisma: any = {
+    $queryRaw: jest.fn().mockResolvedValue([]),
     gatewayCertificate: {
       findUnique: jest.fn().mockResolvedValue(baseDeviceCertificate()),
       findFirst: jest.fn(async () => records.find((certificate) => certificate.status === "active") ?? null),
@@ -331,7 +351,7 @@ function createConcurrentFixture() {
   } as jest.Mocked<CertificateAuthorityProvider>;
   const csrValidator = { validate: jest.fn().mockResolvedValue({ publicKey: {} as CryptoKey }) };
 
-  return { service: new GatewayCertificateService(prisma, ca, csrValidator), ca, records };
+  return { service: new GatewayCertificateService(prisma, ca, csrValidator, reconciliationFixture() as never), ca, records };
 }
 
 function mqttSignedCertificate() {
@@ -352,7 +372,7 @@ function baseInventory(): TestInventory {
     certificateFingerprint: DEVICE_FINGERPRINT,
     claimedGatewayId: "gateway-1",
     disabledAt: null,
-    claimedGateway: { id: "gateway-1" }
+    claimedGateway: { id: "gateway-1", certificateFingerprint: DEVICE_FINGERPRINT }
   };
 }
 
@@ -372,7 +392,7 @@ interface TestInventory {
   certificateFingerprint: string | null;
   claimedGatewayId: string | null;
   disabledAt: Date | null;
-  claimedGateway: { id: string } | null;
+  claimedGateway: { id: string; certificateFingerprint?: string } | null;
 }
 
 interface TestDeviceCertificate {

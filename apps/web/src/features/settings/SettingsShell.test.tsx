@@ -73,7 +73,7 @@ describe("SettingsShell", () => {
     const tabs = screen.getByRole("navigation", { name: "설정 메뉴" });
     expect(within(tabs).getByRole("link", { name: "설정 개요" })).toHaveAttribute("aria-current", "page");
     expect(within(tabs).getByRole("link", { name: "맵 관리" })).toBeInTheDocument();
-    expect(within(tabs).getByRole("link", { name: "비밀번호 변경" })).toBeInTheDocument();
+    expect(within(tabs).getByRole("link", { name: "계정 보안" })).toBeInTheDocument();
     expect(within(tabs).queryByRole("link", { name: "유저 관리" })).not.toBeInTheDocument();
     expect(within(tabs).queryByRole("link", { name: "조명 등록" })).not.toBeInTheDocument();
   });
@@ -108,7 +108,7 @@ describe("SettingsShell", () => {
 
     expect(screen.getByRole("group", { name: "Gateway 상태" })).toHaveTextContent(/정상|오프라인|미등록/);
     const security = screen.getByRole("group", { name: "계정·보안" });
-    expect(within(security).getByRole("link", { name: "비밀번호 변경 열기" })).toHaveAttribute(
+    expect(within(security).getByRole("link", { name: "계정 보안 열기" })).toHaveAttribute(
       "href",
       "/settings/security?siteId=site-1#fragment"
     );

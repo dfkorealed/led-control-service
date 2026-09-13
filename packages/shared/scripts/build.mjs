@@ -47,9 +47,9 @@ try {
 
     // Only a previous successful build's manifest grants ownership; unknown dist files are preserved.
     await preflightOutputPaths([...new Set([...previousFiles, ...generatedFiles])]);
-    await removeGeneratedFiles(previousFiles);
     await copyGeneratedFiles(cjsDirectory, "", cjsFiles);
     await copyGeneratedFiles(esmDirectory, "esm", esmFiles);
+    await removeGeneratedFiles(previousFiles.filter((path) => !generatedFiles.includes(path)));
     await writeBuildManifest(generatedFiles);
   } finally {
     await releaseOutputLock();

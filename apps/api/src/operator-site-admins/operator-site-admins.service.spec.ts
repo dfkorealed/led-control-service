@@ -84,10 +84,7 @@ describe("OperatorSiteAdminsService", () => {
     await expect(service.deleteSiteAdmin(operator, "admin-1", "Pending Site")).resolves.toEqual({ ok: true });
 
     expect(order).toEqual(["site", "sessions", "users", "organization"]);
-    expect(transaction.gatewayInventory.updateMany).toHaveBeenCalledWith({
-      where: { OR: [{ claimedGatewayId: { in: [] } }, { id: { in: [] } }] },
-      data: { disabledAt: expect.any(Date) }
-    });
+    expect(transaction.gatewayInventory.updateMany).not.toHaveBeenCalled();
     expect(transaction.site.delete).toHaveBeenCalledWith({ where: { id: "site-1" } });
   });
 
@@ -355,11 +352,13 @@ function createService(overrides: Record<string, jest.Mock> = {}) {
     prepareReportDeletion: overrides.prepareReportDeletion ?? jest.fn().mockResolvedValue(null),
     processNow: overrides.processNow ?? jest.fn().mockResolvedValue({ status: "completed" })
   };
+  const lifecycle = { stageInventoryDisable: jest.fn().mockResolvedValue(["revocation-job"]), processInventoryRevocation: jest.fn().mockResolvedValue({ revoked: 1 }) };
   const service = new OperatorSiteAdminsService(
     prisma as never,
     new PasswordService(),
     audit as never,
-    deletionCleanup as never
+    deletionCleanup as never,
+    lifecycle as never
   );
-  return { service, prisma, transaction, audit };
+  return { service, prisma, transaction, audit, lifecycle };
 }

@@ -155,7 +155,7 @@ test("read, control, admin의 메뉴와 직접 경로 및 수동 제어 API 권�
     await read.page.goto(`/monitoring?siteId=${siteId}`);
     await expect(read.page.getByRole("navigation", { name: "주 메뉴" }).getByRole("link")).toHaveText(["모니터링", "통계", "설정"]);
     await read.page.getByRole("link", { name: "설정", exact: true }).hover();
-    await expect(read.page.getByRole("navigation", { name: "설정 메뉴" }).getByRole("link")).toHaveText(["설정 개요", "맵 관리", "비밀번호 변경"]);
+    await expect(read.page.getByRole("navigation", { name: "설정 메뉴" }).getByRole("link")).toHaveText(["설정 개요", "맵 관리", "계정 보안"]);
     await read.page.goto(`/settings/users?siteId=${siteId}`);
     await expect(read.page).toHaveURL(new RegExp(`/settings\\?siteId=${siteId}`));
     await expect(read.page.getByRole("heading", { name: "설정 개요" })).toBeVisible();
@@ -172,7 +172,7 @@ test("read, control, admin의 메뉴와 직접 경로 및 수동 제어 API 권�
     await control.page.goto(`/monitoring?siteId=${siteId}`);
     await expect(control.page.getByRole("navigation", { name: "주 메뉴" }).getByRole("link")).toHaveText(["모니터링", "제어", "통계", "설정"]);
     await control.page.getByRole("link", { name: "설정", exact: true }).hover();
-    await expect(control.page.getByRole("navigation", { name: "설정 메뉴" }).getByRole("link")).toHaveText(["설정 개요", "맵 관리", "비밀번호 변경"]);
+    await expect(control.page.getByRole("navigation", { name: "설정 메뉴" }).getByRole("link")).toHaveText(["설정 개요", "맵 관리", "계정 보안"]);
     await control.page.goto(`/settings/users?siteId=${siteId}`);
     await expect(control.page).toHaveURL(new RegExp(`/settings\\?siteId=${siteId}`));
     await expect(control.page.getByRole("heading", { name: "유저 관리" })).toHaveCount(0);
@@ -199,7 +199,7 @@ test("read, control, admin의 메뉴와 직접 경로 및 수동 제어 API 권�
     await admin.page.goto(`/monitoring?siteId=${siteId}`);
     await expect(admin.page.getByRole("navigation", { name: "주 메뉴" }).getByRole("link")).toHaveText(["모니터링", "제어", "통계", "설정"]);
     await admin.page.getByRole("link", { name: "설정", exact: true }).hover();
-    await expect(admin.page.getByRole("navigation", { name: "설정 메뉴" }).getByRole("link")).toHaveText(["설정 개요", "유저 관리", "조명 등록", "맵 관리", "비밀번호 변경"]);
+    await expect(admin.page.getByRole("navigation", { name: "설정 메뉴" }).getByRole("link")).toHaveText(["설정 개요", "유저 관리", "조명 등록", "맵 관리", "계정 보안"]);
     await admin.page.goto(`/control?siteId=${siteId}&mode=schedule`);
     await expect(admin.page.getByRole("tab", { name: "수동 제어" })).toBeVisible();
     await expect(admin.page.getByRole("tab", { name: "스케줄 제어" })).toBeVisible();

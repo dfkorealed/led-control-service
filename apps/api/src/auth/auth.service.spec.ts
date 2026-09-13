@@ -8,13 +8,17 @@ import { AuthService } from "./auth.service";
 import { PasswordService } from "./password.service";
 import { AuthController } from "./auth.controller";
 import { SessionAuthGuard } from "./session-auth.guard";
+import { LoginRateLimitService } from "./login-rate-limit.service";
+import { MfaService } from "./mfa.service";
 
 function createAuthService(
   prisma: PrismaService,
   passwords: PasswordService = new PasswordService(),
-  audit: AuditService = new AuditService(prisma)
+  audit: AuditService = { record: jest.fn().mockResolvedValue({ id: "audit" }) } as unknown as AuditService,
+  rateLimiter?: LoginRateLimitService,
+  mfa?: MfaService
 ) {
-  return new AuthService(prisma, passwords, audit);
+  return new AuthService(prisma, passwords, audit, rateLimiter, mfa);
 }
 
 describe("AuthService", () => {
@@ -39,6 +43,7 @@ describe("AuthService", () => {
       user: stored, revokedAt: null, expiresAt: new Date("2026-09-01")
     }) } } as unknown as PrismaService, { verify: jest.fn().mockResolvedValue(true) } as unknown as PasswordService);
     const login = await service.login({ loginId: stored.loginId, password: "temporary password", rememberMe: false });
+    if (!("user" in login)) throw new Error("expected direct session login");
     const sessionUser = await service.getUserBySessionToken(login.sessionToken);
     for (const publicUser of [login.user, sessionUser]) {
       expect(publicUser).toMatchObject({ mustChangePassword });
@@ -166,6 +171,87 @@ describe("AuthService", () => {
     expect(transaction.user.findUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { loginId: "admin_01" } }));
   });
 
+  it("applies the IP/account/tenant limiter before password verification and audits a successful login in the session transaction", async () => {
+    const stored = {
+      id: "admin-1", organizationId: "organization-1", loginId: "admin_01", email: null, name: "Admin",
+      role: "admin", status: "active", organization: { type: "customer" }, passwordHash: "stored-hash", mustChangePassword: false
+    };
+    const { prisma, transaction } = createLoginPrisma(stored);
+    (prisma as any).user = { findUnique: jest.fn().mockResolvedValue({ id: stored.id, organizationId: stored.organizationId }) };
+    (transaction as any).auditLog = { create: jest.fn().mockResolvedValue({ id: "audit-1" }) };
+    const limiter = { consume: jest.fn().mockResolvedValue(undefined), resetAfterSuccess: jest.fn().mockResolvedValue(undefined) };
+    const passwords = { verify: jest.fn().mockResolvedValue(true) };
+    const audit = { record: jest.fn().mockResolvedValue({ id: "audit-1" }) };
+    const service = createAuthService(
+      prisma as unknown as PrismaService,
+      passwords as unknown as PasswordService,
+      audit as unknown as AuditService,
+      limiter as unknown as LoginRateLimitService
+    );
+
+    await service.login({ loginId: " ADMIN_01 ", password: "password", rememberMe: false, ipAddress: "203.0.113.4", userAgent: "browser" });
+
+    expect(limiter.consume).toHaveBeenCalledWith({
+      loginId: "admin_01", ipAddress: "203.0.113.4", organizationId: "organization-1", userId: "admin-1", userAgent: "browser"
+    });
+    expect(limiter.consume.mock.invocationCallOrder[0]).toBeLessThan(passwords.verify.mock.invocationCallOrder[0]);
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({
+      transaction, action: "auth.login_succeeded", outcome: "success", actorId: "admin-1", ipAddress: "203.0.113.4"
+    }));
+    expect(limiter.resetAfterSuccess).toHaveBeenCalledTimes(1);
+  });
+
+  it("audits a generic login failure without creating a session", async () => {
+    const stored = {
+      id: "admin-1", organizationId: "organization-1", loginId: "admin_01", email: null, name: "Admin",
+      role: "admin", status: "active", organization: { type: "customer" }, passwordHash: "stored-hash", mustChangePassword: false
+    };
+    const { prisma, transaction } = createLoginPrisma(stored);
+    (prisma as any).user = { findUnique: jest.fn().mockResolvedValue({ id: stored.id, organizationId: stored.organizationId }) };
+    const limiter = { consume: jest.fn(), resetAfterSuccess: jest.fn() };
+    const audit = { record: jest.fn().mockResolvedValue({ id: "audit-1" }) };
+    const service = createAuthService(
+      prisma as unknown as PrismaService,
+      { verify: jest.fn().mockResolvedValue(false) } as unknown as PasswordService,
+      audit as unknown as AuditService,
+      limiter as unknown as LoginRateLimitService
+    );
+
+    await expect(service.login({ loginId: "admin_01", password: "wrong", rememberMe: false, ipAddress: "203.0.113.4" }))
+      .rejects.toEqual(new UnauthorizedException("Invalid login id or password"));
+    expect(transaction.session.create).not.toHaveBeenCalled();
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: "auth.login_failed", outcome: "failure", actorId: undefined, targetId: stored.id
+    }));
+  });
+
+  it("returns an MFA challenge without creating a session after the password step", async () => {
+    const stored = {
+      id: "admin-1", organizationId: "organization-1", loginId: "admin_01", email: null, name: "Admin",
+      role: "admin", status: "active", organization: { type: "customer" }, passwordHash: "stored-hash",
+      mustChangePassword: false, updatedAt: new Date("2026-09-12T00:00:00Z"), mfa: { userId: "admin-1" }
+    };
+    const { prisma, transaction } = createLoginPrisma(stored);
+    (prisma as any).user = { findUnique: jest.fn().mockResolvedValue({ id: stored.id, organizationId: stored.organizationId }) };
+    const limiter = { consume: jest.fn(), resetAfterSuccess: jest.fn() };
+    const mfa = { createLoginChallenge: jest.fn().mockResolvedValue({ mfaRequired: true, challengeToken: "challenge", expiresAt: now }) };
+    const service = createAuthService(
+      prisma as unknown as PrismaService,
+      { verify: jest.fn().mockResolvedValue(true) } as unknown as PasswordService,
+      { record: jest.fn() } as unknown as AuditService,
+      limiter as unknown as LoginRateLimitService,
+      mfa as unknown as MfaService
+    );
+
+    await expect(service.login({ loginId: "admin_01", password: "password", rememberMe: true, ipAddress: "203.0.113.7", userAgent: "browser" }))
+      .resolves.toEqual({ mfaRequired: true, challengeToken: "challenge", expiresAt: now });
+    expect(transaction.session.create).not.toHaveBeenCalled();
+    expect(limiter.resetAfterSuccess).not.toHaveBeenCalled();
+    expect(mfa.createLoginChallenge).toHaveBeenCalledWith(stored, {
+      rememberMe: true, ipAddress: "203.0.113.7", userAgent: "browser"
+    });
+  });
+
   it("locks and re-reads the user before password verification and session creation in one transaction", async () => {
     const storedUser = {
       id: "admin-1", organizationId: "organization-1", loginId: "admin_01", email: null, name: "Admin",
@@ -258,6 +344,7 @@ describe("AuthService", () => {
     });
 
     const result = await service.login({ loginId: "ADMIN_01", password: "correct horse battery staple", rememberMe: true });
+    if (!("user" in result)) throw new Error("expected direct session login");
 
     expect(result.user).toMatchObject({ loginId: "admin_01" });
     expect(result.user).not.toHaveProperty("email");
@@ -324,7 +411,7 @@ describe("AuthService", () => {
     await expect(service.signup({ token: "token", loginId: "viewer_01", email: null, name: "Viewer", password: "password" } as any)).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it("changes a password, retains the current session, and records non-sensitive audit metadata", async () => {
+  it("changes a password, revokes every old session, rotates the current token, and records non-sensitive audit metadata", async () => {
     const currentToken = "current-token";
     const user = {
       id: "admin-1",
@@ -344,8 +431,12 @@ describe("AuthService", () => {
         update: jest.fn().mockResolvedValue({ ...user, organization: { type: "customer" }, mustChangePassword: false })
       },
       session: {
-        findUnique: jest.fn().mockResolvedValue({ userId: user.id, revokedAt: null, expiresAt: new Date("2026-09-01") }),
-        updateMany: jest.fn().mockResolvedValue({ count: 2 })
+        findUnique: jest.fn().mockResolvedValue({
+          userId: user.id, revokedAt: null, expiresAt: new Date("2026-09-01"), rememberMe: false,
+          userAgent: "browser", ipAddress: "203.0.113.7"
+        }),
+        updateMany: jest.fn().mockResolvedValue({ count: 2 }),
+        create: jest.fn().mockResolvedValue({ id: "replacement-session" })
       },
       auditLog: { create: jest.fn().mockResolvedValue({ id: "audit-1" }) }
     };
@@ -367,13 +458,17 @@ describe("AuthService", () => {
       newPasswordConfirmation: "new password"
     });
 
-    expect(result).toMatchObject({ ok: true, user: { id: user.id, mustChangePassword: false } });
+    expect(result).toMatchObject({ ok: true, user: { id: user.id, mustChangePassword: false }, sessionToken: expect.any(String), expiresAt: new Date("2026-09-01") });
     expect(result).not.toHaveProperty("user.passwordHash");
     expect(transaction.user.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: user.id }, data: { passwordHash: "new-hash", mustChangePassword: false } }));
     expect(transaction.session.updateMany).toHaveBeenCalledWith({
-      where: { userId: user.id, revokedAt: null, tokenHash: { not: service.hashToken(currentToken) } },
+      where: { userId: user.id, revokedAt: null },
       data: { revokedAt: now }
     });
+    expect(transaction.session.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      userId: user.id, tokenHash: expect.not.stringMatching(service.hashToken(currentToken)),
+      rememberMe: false, userAgent: "browser", ipAddress: "203.0.113.7", expiresAt: new Date("2026-09-01")
+    }) });
     expect(auditService.record).toHaveBeenCalledWith(expect.objectContaining({
       actorId: user.id,
       action: "auth.password_changed",
@@ -398,7 +493,7 @@ describe("AuthService", () => {
       },
       session: {
         findUnique: jest.fn().mockResolvedValue({ userId: user.id, revokedAt: null, expiresAt: new Date("2026-09-01") }),
-        updateMany: jest.fn().mockResolvedValue({ count: 0 })
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }), create: jest.fn()
       },
       auditLog: { create: jest.fn() }
     };
@@ -443,7 +538,7 @@ describe("AuthService", () => {
         findUnique: jest.fn().mockResolvedValue({ ...user, passwordHash: "hash", status: reason === "disabled" ? "disabled" : "active" }),
         update: jest.fn()
       },
-      session: { findUnique: jest.fn().mockResolvedValue(reason === "missing" ? null : session), updateMany: jest.fn().mockResolvedValue({ count: 0 }) }
+      session: { findUnique: jest.fn().mockResolvedValue(reason === "missing" ? null : session), updateMany: jest.fn().mockResolvedValue({ count: 0 }), create: jest.fn() }
     };
     const audit = { record: jest.fn() };
     const service = createAuthService({ $transaction: async (callback: (tx: unknown) => unknown) => callback(tx) } as unknown as PrismaService,
@@ -469,6 +564,32 @@ describe("AuthService", () => {
     await expect(service.changePassword({ id: "viewer-1", organizationId: "org-1" }, "token", {
       currentPassword: "temporary password", newPassword: "temporary password", newPasswordConfirmation: "temporary password"
     })).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it("revokes logout and records the session termination in the same transaction", async () => {
+    const tx = {
+      $queryRaw: jest.fn().mockResolvedValue([{ id: "admin-1" }]),
+      session: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: "session-1", userId: "admin-1", familyId: "family-1", revokedAt: new Date(),
+          user: { id: "admin-1", organizationId: "org-1" }
+        }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 })
+      }
+    };
+    const audit = { record: jest.fn() };
+    const service = createAuthService(
+      { $transaction: (callback: (client: typeof tx) => unknown) => callback(tx) } as unknown as PrismaService,
+      undefined,
+      audit as unknown as AuditService
+    );
+    await service.logout("current-token");
+    expect(tx.session.updateMany).toHaveBeenCalledWith({
+      where: { userId: "admin-1", familyId: "family-1", revokedAt: null }, data: { revokedAt: expect.any(Date) }
+    });
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({
+      transaction: tx, action: "auth.logout", targetId: "session-1", actorId: "admin-1"
+    }));
   });
 });
 
@@ -500,7 +621,7 @@ describe("AuthService password mutation error boundary", () => {
     const tx = {
       $executeRaw: jest.fn().mockResolvedValue(1), $queryRaw: jest.fn().mockResolvedValue([{ id: user.id }]),
       user: { findUnique: jest.fn().mockResolvedValue(stored), update: jest.fn().mockResolvedValue({ ...stored, mustChangePassword: false }) },
-      session: { findUnique: jest.fn().mockResolvedValue(session), updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
+      session: { findUnique: jest.fn().mockResolvedValue(session), updateMany: jest.fn().mockResolvedValue({ count: 1 }), create: jest.fn() }
     };
     const passwords = { verify: jest.fn().mockResolvedValue(true), hash: jest.fn().mockResolvedValue(secretHash) };
     const audit = { record: jest.fn() };

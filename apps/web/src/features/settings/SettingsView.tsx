@@ -105,11 +105,11 @@ export function SettingsView({ userRole, siteId }: { userRole: "operator" | "adm
               <ShieldCheck size={20} aria-hidden="true" />
               <div>
                 <span>계정·보안</span>
-                <strong>관리자 비밀번호</strong>
+                <strong>비밀번호 · MFA · 세션</strong>
               </div>
             </div>
             <Link className="ui-button ui-button-secondary" to={{ pathname: "/settings/security", search: location.search, hash: location.hash }}>
-              비밀번호 변경 열기
+              계정 보안 열기
             </Link>
           </Card>
         ) : null}

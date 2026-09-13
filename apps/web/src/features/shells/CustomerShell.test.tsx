@@ -3,6 +3,7 @@ import { cleanup, render, screen, waitFor, within } from "@testing-library/react
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuthUser } from "../../api/auth";
+import { apiGet } from "../../api/client";
 import { CustomerShell } from "./CustomerShell";
 
 vi.mock("../settings/floor-plans/FloorEditorRoute", () => ({ FloorEditorRoute: () => <p>맵 편집 화면</p> }));
@@ -10,7 +11,10 @@ vi.mock("../monitoring/MonitoringView", () => ({ MonitoringView: () => <p>모니
 vi.mock("../control/ControlView", () => ({ ControlView: () => <p>제어 화면</p> }));
 vi.mock("../statistics/StatisticsOverviewPage", () => ({ StatisticsOverviewPage: () => <p>통계 화면</p> }));
 vi.mock("../statistics/reports/StatisticsReportsPage", () => ({ StatisticsReportsPage: () => <p>보고서 화면</p> }));
-vi.mock("../settings/users/SiteUsersView", () => ({ SiteUsersView: ({ siteId }: { siteId?: string }) => <p data-testid="site-users-view">유저 관리 화면 {siteId}</p> }));
+vi.mock("../../api/client", async (original) => ({
+  ...await original<typeof import("../../api/client")>(),
+  apiGet: vi.fn()
+}));
 const dashboardState = vi.hoisted(() => ({
   current: {
     data: undefined as ReturnType<typeof dashboardFor> | undefined,
@@ -65,10 +69,32 @@ function renderShell(path: string, user: AuthUser = adminUser) {
 
 describe("customer shell site context", () => {
   beforeEach(() => {
+    vi.mocked(apiGet).mockReset().mockResolvedValue({ users: [], count: 0, limit: 100 });
     dashboardState.current = { data: dashboardFor({ read: true, control: true, manage: true, commission: true }), isLoading: false, error: null, refetch: vi.fn() };
     vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
   });
   afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+
+  it("keeps navigation and logout available while password settings loads, then preserves its URL", async () => {
+    renderShell("/settings/security?siteId=site&source=account#password");
+
+    expect(within(screen.getByRole("main")).getByRole("status")).toHaveAttribute("aria-live", "polite");
+    expect(screen.getByRole("navigation", { name: "주 메뉴" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "로그아웃" })).toBeEnabled();
+    expect(await screen.findByRole("heading", { name: "계정 보안" })).toBeVisible();
+    expect(within(screen.getByRole("main")).queryByText("화면을 불러오는 중입니다.")).not.toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent("/settings/security?siteId=site&source=account#password");
+  });
+
+  it("redirects a direct users URL without requesting protected user data when manage is denied", async () => {
+    dashboardState.current.data = dashboardFor({ read: true, control: false, manage: false, commission: false });
+    renderShell("/settings/users?siteId=site&source=direct", { ...adminUser, role: "viewer" });
+
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/settings?siteId=site&source=direct"));
+    await screen.findByRole("navigation", { name: "설정 메뉴" });
+    expect(screen.queryByRole("button", { name: "사용자 추가" })).not.toBeInTheDocument();
+    expect(apiGet).not.toHaveBeenCalledWith("/sites/site/users");
+  });
 
   it.each(["b1", "b2", "unknown"])("keeps the site badge independent of the %s editor route", (floor) => {
     renderShell(`/settings/floor-plans/floor-${floor}/edit?siteId=site`);
@@ -92,10 +118,10 @@ describe("customer shell site context", () => {
     ));
   });
 
-  it("opens the released customer report route with the selected site", () => {
+  it("opens the released customer report route with the selected site", async () => {
     renderShell("/statistics/reports?siteId=site");
 
-    expect(screen.getByText("보고서 화면")).toBeInTheDocument();
+    expect(await screen.findByText("보고서 화면")).toBeInTheDocument();
   });
 
   it("does not render a viewer control route before dashboard capabilities are known", () => {
@@ -114,16 +140,16 @@ describe("customer shell site context", () => {
 
     await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/monitoring?siteId=site"));
     expect(screen.queryByRole("link", { name: "제어" })).not.toBeInTheDocument();
-    expect(screen.getByText("모니터링 화면")).toBeInTheDocument();
+    expect(await screen.findByText("모니터링 화면")).toBeInTheDocument();
   });
 
-  it("shows the control route for a control-capable general user", () => {
+  it("shows the control route for a control-capable general user", async () => {
     dashboardState.current = { data: dashboardFor({ read: true, control: true, manage: false, commission: false }), isLoading: false, error: null, refetch: vi.fn() };
 
     renderShell("/control?siteId=site", { ...adminUser, id: "controller", loginId: "controller", role: "viewer" });
 
     expect(screen.getByRole("link", { name: "제어" })).toBeInTheDocument();
-    expect(screen.getByText("제어 화면")).toBeInTheDocument();
+    expect(await screen.findByText("제어 화면")).toBeInTheDocument();
   });
 
   it("uses manage capability instead of admin role for the map edit route", async () => {
@@ -139,25 +165,26 @@ describe("customer shell site context", () => {
     dashboardState.current = { data: dashboardFor({ read: true, control: false, manage: false, commission: false }), isLoading: false, error: null, refetch: vi.fn() };
     renderShell("/settings/security?siteId=site", { ...adminUser, id: "reader", loginId: "reader", role: "viewer" });
 
-    expect(screen.getByRole("heading", { name: "비밀번호 변경" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "계정 보안" })).toBeInTheDocument();
 
     cleanup();
     renderShell("/settings/registration?siteId=site", { ...adminUser, id: "reader", loginId: "reader", role: "viewer" });
     await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/settings?siteId=site"));
   });
 
-  it("orders admin settings tabs with user management before registration", () => {
+  it("orders admin settings tabs with user management before registration", async () => {
     renderShell("/settings?siteId=site");
 
-    const settingsTabs = screen.getByRole("navigation", { name: "설정 메뉴" });
+    const settingsTabs = await screen.findByRole("navigation", { name: "설정 메뉴" });
     const labels = within(settingsTabs).getAllByRole("link").map((link) => link.textContent);
     expect(labels.indexOf("유저 관리")).toBeLessThan(labels.indexOf("조명 등록"));
   });
 
-  it("mounts the real site user management route with the selected site", () => {
+  it("requests and renders site users for the selected site", async () => {
     renderShell("/settings/users?siteId=site");
 
-    expect(screen.getByTestId("site-users-view")).toHaveTextContent("유저 관리 화면 site");
+    expect(await screen.findByText("등록된 사용자가 없습니다.")).toBeVisible();
+    expect(apiGet).toHaveBeenCalledWith("/sites/site/users");
   });
 
   it("keeps manage-capable users on the operational site settings route", async () => {

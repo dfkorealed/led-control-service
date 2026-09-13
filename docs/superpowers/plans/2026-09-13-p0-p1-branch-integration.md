@@ -132,11 +132,15 @@ Verification before completing the merge: Prisma format/generate/validate passed
 - Consumes: the combined API and Web application surface.
 - Produces: audited Redis rate limiting, TOTP MFA, rotating sessions, and security settings UI.
 
-- [ ] Run `git merge --no-ff codex/p0p1-platform-security-ops`.
-- [ ] Preserve monitoring navigation and recovery UI while adding account-security navigation and state.
-- [ ] Union all schema migrations and documentation chronologically.
-- [ ] Run Prisma validation/generation, `git diff --check`, and security-focused API/Web tests.
-- [ ] Complete the merge commit.
+- [x] Run `git merge --no-ff codex/p0p1-platform-security-ops`.
+- [x] Preserve monitoring navigation and recovery UI while adding account-security navigation and state.
+- [x] Union all schema migrations and documentation chronologically.
+- [x] Run Prisma validation/generation, `git diff --check`, and security-focused API/Web tests.
+- [x] Complete the merge commit.
+
+Integration ruling: keep logout unguarded and idempotent so a request carrying a pre-rotation or absent cookie can still clear local state and revoke an active successor family when present; `me`, password change, MFA, and session-management routes remain guarded. Customer routes retain monitoring incidents and the manage-only site-operations route while account security and the other feature routes remain lazy-loaded behind the common loading state.
+
+Verification before completing the merge: Prisma format/generate/validate and `git diff --check` passed; Web auth, operator/customer shell, settings, account security, password, and site operations suites passed 73/73; API auth, trust proxy, audit, user/operator, onboarding, PKI, and editor-lease focused suites passed 352 with 72 environment-gated tests skipped. The first API run exposed two time-sensitive test-contract defects: fixed absolute session expiry timestamps had elapsed on 2026-09-13, and an older boundary assertion expected idempotent logout without a cookie to return 401 despite the final controller contract requiring 201. The tests were updated to use a relative live expiry and to distinguish protected auth endpoints from idempotent logout; focused RED→GREEN rerun passed 28/28 before the complete focused rerun.
 
 ### Task 6: Merge deployment and observability
 

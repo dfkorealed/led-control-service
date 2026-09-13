@@ -157,6 +157,7 @@ enum GatewayCertificateStatus {
   active
   pending
   replaced
+  revocation_pending
   revoked
   expired
 }
@@ -235,6 +236,7 @@ model User {
   administeredSite         Site?                 @relation("SiteAdmin")
   commands                 Command[]
   sessions                 Session[]
+  mfa                      UserMfa?
   provisioningSessions     ProvisioningSession[]
   gatewayClaimAudits       GatewayClaimAudit[]
   siteMemberships          SiteMembership[]
@@ -660,6 +662,33 @@ model GatewayCertificate {
   @@unique([issuer, certificateSerial])
   @@index([inventoryId, purpose, status])
   @@index([gatewayId, purpose, status])
+}
+
+// Deliberately no foreign keys: signed orphans and deletion cleanup must survive
+// the certificate, inventory and site's deletion. Terminal rows retain identity.
+model CertificateRevocationReconciliation {
+  id                String             @id @default(uuid())
+  inventoryId       String
+  certificateId     String?
+  purpose           CertificatePurpose
+  issuer            String
+  certificateSerial String
+  fingerprint       String             @unique
+  source            String
+  attempts          Int                @default(0)
+  nextAttemptAt     DateTime           @default(now())
+  leaseOwner        String?
+  leaseExpiresAt    DateTime?
+  revokedAt         DateTime?
+  completedAt       DateTime?
+  cancelledAt       DateTime?
+  lastError         String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  @@unique([issuer, certificateSerial])
+  @@index([completedAt, cancelledAt, nextAttemptAt, leaseExpiresAt])
+  @@index([inventoryId])
 }
 
 model GatewayClaimAudit {
@@ -1185,20 +1214,38 @@ model Invitation {
 }
 
 model Session {
-  id         String    @id @default(uuid())
-  userId     String
-  tokenHash  String    @unique
-  rememberMe Boolean   @default(false)
-  userAgent  String?
-  ipAddress  String?
-  expiresAt  DateTime
-  revokedAt  DateTime?
-  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  id                   String    @id @default(uuid())
+  userId               String
+  familyId             String    @default(uuid())
+  rotatedFromSessionId String?   @unique
+  tokenHash            String    @unique
+  rememberMe           Boolean   @default(false)
+  userAgent            String?
+  ipAddress            String?
+  expiresAt            DateTime
+  revokedAt            DateTime?
+  mfaVerifiedAt        DateTime?
+  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rotatedFrom          Session?  @relation("SessionRotation", fields: [rotatedFromSessionId], references: [id], onDelete: SetNull)
+  rotatedTo            Session[] @relation("SessionRotation")
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 
+  @@index([userId, revokedAt, expiresAt])
+  @@index([userId, familyId, revokedAt])
   @@index([expiresAt, id])
   @@index([revokedAt, id])
+}
+
+model UserMfa {
+  userId              String   @id
+  secretCiphertext    String
+  recoveryCodeHashes  String[]
+  lastUsedTotpCounter Int      @default(-1)
+  enabledAt           DateTime @default(now())
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model ProvisioningSession {

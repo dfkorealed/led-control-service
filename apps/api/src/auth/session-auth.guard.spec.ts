@@ -61,9 +61,16 @@ describe("SessionAuthGuard pending-password HTTP boundary", () => {
     if (route === "logout") expect(auth.logout).toHaveBeenCalledWith("token");
   });
 
-  it.each(["me", "logout", "change-password"])("does not make auth/%s public", async (route) => {
+  it.each(["me", "change-password"])("does not make auth/%s public", async (route) => {
     const response = await request(`/auth/${route}`, route === "me" ? "GET" : "POST", undefined, false);
     expect(response.status).toBe(401);
+  });
+
+  it("keeps logout idempotent without a cookie so a stale client can always clear local auth state", async () => {
+    const response = await request("/auth/logout", "POST", undefined, false);
+    expect(response.status).toBe(201);
+    expect(await response.json()).toEqual({ ok: true });
+    expect(auth.logout).not.toHaveBeenCalled();
   });
 
   it("permits login and exposes the flag without returning the session token in JSON", async () => {

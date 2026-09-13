@@ -53,7 +53,7 @@
   },
   "scripts": {
     "build": "node scripts/build.mjs",
-    "test": "pnpm run build && vitest run",
+    "test": "vitest run",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit"
   },

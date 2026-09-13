@@ -10,6 +10,7 @@ import {
   realpath,
   rm,
   symlink,
+  watch,
   writeFile
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -17,6 +18,7 @@ import { delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
+import { waitForObservedValue } from "../../../scripts/test-event-wait.mjs";
 
 const execFile = promisify(execFileCallback);
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -39,6 +41,7 @@ const outDirectoryIndex = process.argv.indexOf("--outDir");
 if (outDirectoryIndex === -1 || !process.argv[outDirectoryIndex + 1]) process.exit(2);
 const outDirectory = process.argv[outDirectoryIndex + 1];
 const project = process.argv[process.argv.indexOf("--project") + 1];
+if (project === process.env.FAKE_TSC_FAIL_PROJECT) process.exit(4);
 if (project === "tsconfig.esm.json" && process.env.FAKE_TSC_ESM_SYMLINK_TARGET) {
   symlinkSync(process.env.FAKE_TSC_ESM_SYMLINK_TARGET, outDirectory, "dir");
 } else {
@@ -88,6 +91,70 @@ async function runFixtureBuild(root: string, environment: Record<string, string>
       ...environment
     }
   });
+}
+
+async function waitForPath(path: string, producer?: Promise<unknown>) {
+  return waitForObservedValue({
+    observe: async () => {
+      try {
+        await access(path);
+        return path;
+      } catch {
+        return undefined;
+      }
+    },
+    subscribe: (signal: AbortSignal) => watch(dirname(path), { signal }),
+    producer,
+    description: path
+  });
+}
+
+async function observeReplacementBuild(
+  root: string,
+  barrierDirectory: string,
+  environment: Record<string, string> = {},
+  onStart?: (pid: number | undefined) => void
+) {
+  const enteredPath = join(barrierDirectory, "entered");
+  const releasePath = join(barrierDirectory, "release");
+  const replacementBuild = runFixtureBuild(root, {
+    FAKE_PUBLISH_BARRIER_DIRECTORY: barrierDirectory,
+    ...environment
+  });
+  onStart?.(replacementBuild.child?.pid);
+  const barrierWait = waitForPath(enteredPath, replacementBuild.then(() => {
+    throw new Error("replacement build exited before entering the publication barrier");
+  }));
+
+  let exportedContent: string;
+  try {
+    await barrierWait;
+    exportedContent = await readFile(join(root, "dist", "index.js"), "utf8");
+  } finally {
+    await writeFile(releasePath, "release\n");
+    await replacementBuild.catch(() => undefined);
+  }
+
+  return {
+    exportedContent,
+    buildResult: await replacementBuild
+  };
+}
+
+async function installAfterCleanupBarrier(root: string) {
+  const buildPath = join(root, "scripts", "build.mjs");
+  const source = await readFile(buildPath, "utf8");
+  const cleanupCall = source.split("\n").find((line) => line.includes("await removeGeneratedFiles("));
+  if (!cleanupCall) throw new Error("shared build fixture is missing its generated-file cleanup step");
+  await writeFile(buildPath, source.replace(cleanupCall, `${cleanupCall}
+    if (process.env.FAKE_PUBLISH_BARRIER_DIRECTORY) {
+      const barrierDirectory = process.env.FAKE_PUBLISH_BARRIER_DIRECTORY;
+      const entered = await open(join(barrierDirectory, "entered"), "w");
+      await entered.close();
+      while (!await lstatIfExists(join(barrierDirectory, "release"))) {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+    }`));
 }
 
 const payload = {
@@ -585,6 +652,46 @@ describe.sequential("shared build output cleanup", () => {
     );
   }, 30_000);
 
+  it("keeps an existing export readable while a replacement build publishes", async () => {
+    const root = await createBuildFixture();
+    const barrierDirectory = await createExternalDirectory();
+    await expect(runFixtureBuild(root)).resolves.toMatchObject({ stderr: "" });
+    await installAfterCleanupBarrier(root);
+
+    let writerPid: number | undefined;
+    const result = await observeReplacementBuild(
+      root,
+      barrierDirectory,
+      {},
+      (pid) => { writerPid = pid; }
+    );
+
+    expect(result.exportedContent).toBe("exports.fixtureValue = 1;\n");
+    expect(result.buildResult).toMatchObject({ stderr: "" });
+    expect(isProcessAlive(writerPid)).toBe(false);
+  }, 30_000);
+
+  it("releases and reaps a replacement writer that fails before publishing its barrier", async () => {
+    const root = await createBuildFixture();
+    const barrierDirectory = await createExternalDirectory();
+    const enteredPath = join(barrierDirectory, "entered");
+    const releasePath = join(barrierDirectory, "release");
+    await expect(runFixtureBuild(root)).resolves.toMatchObject({ stderr: "" });
+    await installAfterCleanupBarrier(root);
+
+    let writerPid: number | undefined;
+    await expect(observeReplacementBuild(
+      root,
+      barrierDirectory,
+      { FAKE_TSC_FAIL_PROJECT: "tsconfig.esm.json" },
+      (pid) => { writerPid = pid; }
+    )).rejects.toThrow(/TypeScript build failed for tsconfig\.esm\.json/);
+
+    await expect(access(enteredPath)).rejects.toThrow();
+    await expect(readFile(releasePath, "utf8")).resolves.toBe("release\n");
+    expect(isProcessAlive(writerPid)).toBe(false);
+  }, 30_000);
+
   it("serializes concurrent builds that share the generated output directory", async () => {
     const root = await createBuildFixture();
     const barrierDirectory = await createExternalDirectory();
@@ -602,3 +709,13 @@ describe.sequential("shared build output cleanup", () => {
     );
   }, 30_000);
 });
+
+function isProcessAlive(pid: number | undefined) {
+  if (!pid) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}

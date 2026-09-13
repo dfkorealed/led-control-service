@@ -5,6 +5,10 @@ import { useFloorEditorStore } from "../features/floor-editor/editor-store";
 
 export const authMeQueryKey = ["auth", "me"] as const;
 
+export function authSessionsQueryKey(principal: string) {
+  return ["auth", "sessions", principal] as const;
+}
+
 export interface PrincipalCacheGuard {
   expectedPrincipalKey: string;
   isOperationCurrent: () => boolean;
@@ -43,6 +47,23 @@ export async function refreshPrincipalCache(queryClient: QueryClient, auth: { us
     predicate: (query) => Array.isArray(query.queryKey) && query.queryKey[0] !== "auth"
   });
   queryClient.setQueryData(authMeQueryKey, auth);
+  await queryClient.invalidateQueries({
+    queryKey: authSessionsQueryKey(guard.expectedPrincipalKey),
+    exact: true,
+    refetchType: "active"
+  });
+  if (!canApplyPrincipal(queryClient, auth, guard)) return false;
+  return true;
+}
+
+export async function clearPrincipalCache(queryClient: QueryClient, guard: PrincipalCacheGuard) {
+  if (!canClearPrincipal(queryClient, guard)) return false;
+  await queryClient.cancelQueries();
+  if (!canClearPrincipal(queryClient, guard)) return false;
+  clearEditorDrafts();
+  useFloorEditorStore.getState().reset();
+  queryClient.clear();
+  queryClient.setQueryData(authMeQueryKey, null);
   return true;
 }
 
@@ -60,4 +81,8 @@ function canApplyPrincipal(queryClient: QueryClient, auth: { user: AuthUser }, g
   return guard.isOperationCurrent()
     && principalKey(auth.user) === guard.expectedPrincipalKey
     && hasPrincipal(queryClient, guard.expectedPrincipalKey);
+}
+
+function canClearPrincipal(queryClient: QueryClient, guard: PrincipalCacheGuard) {
+  return guard.isOperationCurrent() && hasPrincipal(queryClient, guard.expectedPrincipalKey);
 }

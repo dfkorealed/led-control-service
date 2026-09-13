@@ -6,6 +6,11 @@
 - **원인**: Prisma raw Date parameter는 `timestamp with time zone`인데 기존 schema의 DateTime 열은 naive UTC `timestamp`다. PostgreSQL의 암묵 변환이 session timezone을 적용하며, 기본 `CURRENT_TIMESTAMP`를 naive 열에 저장하는 경로도 같은 영향을 받는다. 비 UTC에서 잘못 앞당겨진 due 판단이 주입한 clock과 DB 기본 clock 불일치를 가렸다.
 - **해결 및 예방책**: raw 비교값에 `::timestamptz AT TIME ZONE 'UTC'`를 명시하고, 보고서 cleanup 신규 원장에도 같은 `prune(now)`를 전달한다. 대상 DB 기본값은 순방향 migration에서 UTC로 고정한다. lease 소유권 판정처럼 실제 DB clock을 써야 하는 경계는 의도적으로 분리한다.
 - **반복 방지 체크**: 자체 disposable PostgreSQL의 UTC·Asia/Seoul session에서 cutoff 직전/동일/직후, retry 예정 시각과 여러 sweep 수렴을 검증한다. `pg_typeof`로 실제 bound parameter 타입을 확인하고 기본값 생성 경로도 테스트한다. `TIMESTAMP(3)` 반올림과 JS millisecond 절삭의 최대 1ms 차이는 시계 근접 assertion에서만 허용하며 삭제 cutoff의 정확한 포함/제외 assertion은 완화하지 않는다.
+## 2026-09-12 / Writer 잠금만으로 generated output의 reader 안전을 보장할 수 없다
+- **발생했던 문제/실수**: `packages/shared` build끼리는 owner lock으로 직렬화했지만 각 build가 기존 export를 먼저 지우고 다시 복사했다. 같은 checkout에서 root lint와 test가 겹치자 잠금을 사용하지 않는 Web TypeScript reader가 `@led-control/shared/dimming-command`를 해석하는 순간 declaration이 사라져 `TS2307`로 실패했다.
+- **원인**: pnpm의 outer workspace topology 밖에서 leaf script가 dependency build를 다시 시작했고, writer/writer 직렬화를 writer/reader 격리로 확대 해석했다. 실제 polling에서는 export가 8/8 publish cycle마다 29~220ms 사라졌다.
+- **해결 및 예방책**: canonical root lint/typecheck/test/build는 repository owner lock을 전체 dependency build와 consumer 수명 동안 유지한다. lock 안에서 shared와 automation-engine을 각각 한 번 build한 뒤 nested writer가 없는 leaf command만 실행한다. shared publisher는 같은 path의 이전 파일을 먼저 지우지 않고 atomic file rename으로 교체한 뒤 실제 stale manifest file만 제거한다.
+- **반복 방지 체크**: copied real publisher의 cleanup 경계를 명시적 file barrier로 멈춰 기존 export read가 `ENOENT` 없이 성공하는 regression, leaf script의 nested writer 금지 contract, concurrent root lint/test 양 획득 순서와 export absence 0 계측을 유지한다. 긴 test owner를 임의 timeout으로 끊거나 TypeScript retry로 증상을 숨기지 않는다.
 
 ## 2026-09-11 / 사용자 삭제는 FK뿐 아니라 durable 비정규화 데이터까지 추적한다
 - **발생했던 문제/실수**: `Command.requestedBy`와 `ManualOverride.requestedById`를 `SET NULL`로 바꿨지만 MQTT outbox JSON의 요청자 UUID와 수락된 초대 이메일은 관계형 FK 밖에 남아 있었다. 미발행 command row는 사용자 삭제 뒤에도 요청자 식별자를 외부로 발행할 수 있었다.
@@ -631,3 +636,51 @@
 - **원인**: shared 빌드끼리만 잠금으로 직렬화하면 빌드 완료 후 테스트가 산출물을 소비하는 기간도 보호된다고 가정했다.
 - **해결 및 예방책**: 루트 전체 테스트의 workspace 실행을 `--workspace-concurrency=1`로 직렬화한다. package 단독 테스트와 빌드의 기존 잠금은 유지한다.
 - **반복 방지 체크**: 루트 스크립트 계약 테스트에서 workspace concurrency를 검증하고, 최종 게이트는 package별 성공만 조합하지 않고 실제 `pnpm test`를 실행한다.
+## 2026-09-12 / 새 CI 묶음은 실제 disposable 경계에서 계약 진화를 다시 검증한다
+
+- **발생했던 문제/실수**: Workflow 정적 계약과 root unit gate는 통과했지만 첫 disposable integration에서 오래된 DB payload·service double·전역 role fixture가 실패했고, real-backend journey도 현재 Settings route와 다른 전환을 가정했다. HIL preflight도 처음에는 실제 Gateway harness와 다른 cwd/PATH에서 실행됐다.
+- **원인**: CI command의 존재와 순서 검증을 production DB trigger, post-commit lifecycle, 전역 제약, 실제 browser route, package-local 실행 환경의 최신 계약 검증과 동일하게 간주했다.
+- **해결 및 예방책**: 독립 job마다 frozen install과 Prisma Client 생성을 수행하고, task-owned PostgreSQL/Redis에 전체 migration을 적용한 in-band suite, 실제 host prerequisite를 쓰는 one-worker Chromium core, Gateway package와 동일한 cwd·`pnpm exec` context의 fail-closed HIL preflight를 각각 실행한다.
+- **반복 방지 체크**: CI 묶음을 추가하거나 production 계약을 바꾸면 정적 workflow test만으로 완료 처리하지 않는다. 사용자 자원과 분리된 disposable service/lab에서 fixture isolation, DB trigger, transaction 이후 처리, 실제 route와 cwd/PATH를 검증하고 모든 process/container/data cleanup까지 증거로 남긴다.
+
+## 2026-09-12 / watcher 생성과 이벤트 감시 시작은 같은 시점이 아닐 수 있다
+
+- **발생했던 문제/실수**: Signal path를 먼저 확인한 뒤 `fs.watch`를 만들거나, `fs/promises.watch()` iterator를 만든 직후 다시 확인하면 watcher가 이미 활성화됐다고 가정했다. Async generator는 첫 `next()`에서 실제 감시를 시작하므로 그 사이 단 한 번 생성된 signal을 놓쳐 테스트가 무기한 대기할 수 있었고, barrier wait가 cleanup 밖에 있어 writer와 process-group drain도 남을 수 있었다.
+- **원인**: API 객체 생성과 underlying watcher registration을 같은 lifecycle 경계로 취급하고, signal 소비자 실패와 producer/child 종료를 경쟁시키지 않았다.
+- **해결 및 예방책**: Pending `next()`에 resolve/reject handler를 즉시 붙여 watcher를 prime한 뒤 상태를 재확인한다. 이벤트를 받으면 다음 `next()`를 먼저 prime한 뒤 다시 읽어 감시 공백을 만들지 않는다. Observation, producer success/failure, abort, iterator end 모든 승자는 watcher를 닫고, barrier wait/read와 writer·child release/reap은 같은 `try/finally`에 둔다.
+- **반복 방지 체크**: Lazy iterator의 initial miss→prime→recheck와 event→re-prime→recheck 순서를 controlled signal로 고정한 회귀를 둔다. 임의 sleep·재시도에 기대지 않고 producer 조기 종료, pending `next()` rejection, abort, iterator end 각각에서 watcher·listener·writer·child 잔여가 없는지 확인한다.
+
+## 2026-09-12 / empty lock 관찰 뒤 경로가 유지된다고 가정하지 않는다
+
+- **발생했던 문제/실수**: Successor가 old owner의 marker 제거 뒤 빈 lock directory를 확인했지만 cleanup 재검사 전에 old owner가 directory까지 제거했다. 두 번째 `lstat`의 `ENOENT`가 정상 handoff가 아니라 치명 오류로 전파돼 successor root gate가 exit 1이 됐다.
+- **원인**: Empty 상태 snapshot과 이후 cleanup 대상 경로의 존재를 하나의 원자적 사실로 취급했다.
+- **해결 및 예방책**: Empty cleanup의 두 번째 검사에서만 `ENOENT`를 이미 완료된 경쟁 cleanup으로 보고 false/retry한다. Symlink, non-directory, invalid contents와 다른 filesystem 오류는 그대로 실패시킨다.
+- **반복 방지 체크**: 기존 owner marker 때문에 contender publish가 먼저 충돌하고, owner가 marker를 해제한 뒤 contender의 첫 empty read와 두 번째 inspect 사이에 `rmdir`가 실행되는 순서를 filesystem seam으로 고정한다. Root successor handoff를 반복해 nonzero 종료가 0인지 함께 확인한다.
+
+## 2026-09-12 / 보안 상태 변경은 현재 세션 유지가 아니라 토큰 회전으로 연결한다
+
+- **발생했던 문제/실수**: 비밀번호 변경에서 다른 세션만 폐기하고 현재 cookie를 그대로 유지하면 변경 전 탈취된 현재 token이 계속 유효하며, MFA 등록·해제 뒤 인증 강도가 세션에 반영되지 않는다.
+- **원인**: 사용 편의를 위해 현재 세션을 보존하는 것과 요청 흐름을 유지하는 것을 같은 구현으로 간주했다.
+- **해결 및 예방책**: 사용자 행과 현재 세션을 다시 잠가 검증한 transaction에서 모든 기존 세션을 폐기하고 현재 접속 정보·만료 시각만 승계한 새 token hash 행을 만든다. 응답은 새 HttpOnly cookie를 설정하므로 화면 흐름은 유지하되 변경 전 token은 즉시 무효화된다.
+- **반복 방지 체크**: 비밀번호·MFA·권한 변경 테스트는 기존 현재/다른 token이 모두 `401`이고 새 token만 유효한지, 감사 실패 시 상태 변경·폐기·새 세션 생성이 함께 rollback되는지 검사한다. 감사 metadata 금지 키에는 MFA 비밀키·TOTP·복구 코드·세션·챌린지 token을 포함한다.
+
+## 2026-09-12 / Redis 제한 통합 테스트는 DB 정리만으로 격리되지 않는다
+
+- **발생했던 문제/실수**: 인증 통합 테스트가 PostgreSQL 사용자·세션은 정리했지만 고정 IP의 Redis 로그인 제한 key를 남겼다. 전체 suite나 반복 실행에서 앞선 로그인 횟수가 누적돼 뒤 시나리오가 예상보다 먼저 `429`를 받았다.
+- **원인**: TTL이 있는 Redis 상태를 일시 데이터라 보고 테스트 소유 상태와 cleanup 경계를 정의하지 않았다.
+- **해결 및 예방책**: 각 시나리오가 고유 key prefix를 사용하고 종료 시 해당 prefix만 `SCAN`·`DEL`한다. 공유 Redis 전체를 `FLUSHDB`하지 않으며 같은 서비스에서 suite를 연속 실행해 잔여 key가 0인지 확인한다.
+- **반복 방지 체크**: Redis 통합 테스트에는 실행 고유 namespace, `afterEach` 소유 범위 cleanup, 연속 2회 실행을 포함한다. IP 기반 보안 기능은 고정 IP를 suite 전역에서 재사용하지 않는다.
+
+## 2026-09-12 / 세션 회전과 로그아웃은 같은 계열과 잠금 경계를 공유한다
+
+- **발생했던 문제/실수**: 비밀번호·MFA 변경으로 현재 토큰을 회전한 직후 이전 요청의 로그아웃이 도착하면, 활성 세션 guard가 이미 폐기된 이전 토큰을 거부해 새 후속 세션이 남을 수 있었다.
+- **원인**: 토큰 한 행의 활성 여부만 인증 경계로 사용하고, 회전 전후 세션의 계보와 경합 순서를 모델링하지 않았다.
+- **해결 및 예방책**: 최초 로그인부터 회전된 세션에 같은 `familyId`를 부여하고 사용자 행 잠금 아래 계열 전체를 폐기한다. 로그아웃은 활성 세션 guard를 사용하지 않는 멱등 API로 두어 이전 토큰도 서비스 계층까지 전달하고, 응답 경로에서는 항상 쿠키를 삭제한다.
+- **반복 방지 체크**: 회전 응답과 로그아웃 응답 순서를 양방향으로 고정한 테스트에서 이전·후속 토큰이 모두 `401`인지 확인한다. 다른 보호 API의 인증 guard는 그대로 유지됐는지도 controller metadata로 검증한다.
+
+## 2026-09-12 / TOTP는 코드 일치뿐 아니라 마지막 사용 counter를 원자적으로 기록한다
+
+- **발생했던 문제/실수**: 같은 30초 구간의 TOTP를 여러 요청이 재사용하면 stateless 검증만으로 모두 성공할 수 있었다.
+- **원인**: 시간 기반 코드의 암호학적 일치와 한 번만 사용해야 하는 인증 정책을 같은 조건으로 간주했다.
+- **해결 및 예방책**: 검증 함수가 일치한 counter를 반환하고 사용자 행 잠금과 같은 transaction에서 `lastUsedTotpCounter`보다 큰 값만 저장한다. 로그인·등록·해제 경로가 모두 이 규칙을 공유한다.
+- **반복 방지 체크**: 같은 코드의 순차 재사용과 동시 검증에서 하나만 성공하는지, 다음 시간 구간 코드는 성공하는지, 복구 코드는 원자적으로 한 번만 소비되는지 함께 검사한다.

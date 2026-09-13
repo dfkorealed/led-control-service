@@ -1,14 +1,19 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { CircleAlert, LogOut } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { logout, type AuthUser } from "../../api/auth";
 import { authMeQueryKey, clearTenantCache } from "../../api/principal-cache";
-import { SiteAdminManagementView } from "./site-admins/SiteAdminManagementView";
+import { RouteLoadingState } from "../../components/ui/RouteLoadingState";
 import { FeedbackState } from "../../components/ui/FeedbackState";
 import { IconTooltipButton } from "../../components/ui/IconTooltipButton";
+import { UnderlineNavigation, UnderlineNavigationLabel } from "../../components/ui/UnderlineNavigation";
+
+const SiteAdminManagementView = lazy(() => import("./site-admins/SiteAdminManagementView").then((module) => ({ default: module.SiteAdminManagementView })));
+const AccountSecurityView = lazy(() => import("../settings/security/AccountSecurityView").then((module) => ({ default: module.AccountSecurityView })));
 
 export function OperatorShell({ user }: { user: AuthUser }) {
+  const location = useLocation();
   const queryClient = useQueryClient();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState("");
@@ -51,10 +56,27 @@ export function OperatorShell({ user }: { user: AuthUser }) {
       </header>
       <main className="operator-content">
         {logoutError ? <FeedbackState tone="danger" icon={CircleAlert} title={logoutError} /> : null}
-        <Routes>
-          <Route path="/operator/site-admins" element={<SiteAdminManagementView />} />
-          <Route path="*" element={<Navigate to="/operator/site-admins" replace />} />
-        </Routes>
+        <UnderlineNavigation className="operator-navigation" aria-label="운영자 메뉴">
+          <NavLink
+            to={{ pathname: "/operator/site-admins", search: location.search, hash: location.hash }}
+            className={({ isActive }) => isActive ? "ui-underline-navigation-item active" : "ui-underline-navigation-item"}
+          >
+            <UnderlineNavigationLabel>현장 관리자</UnderlineNavigationLabel>
+          </NavLink>
+          <NavLink
+            to={{ pathname: "/operator/security", search: location.search, hash: location.hash }}
+            className={({ isActive }) => isActive ? "ui-underline-navigation-item active" : "ui-underline-navigation-item"}
+          >
+            <UnderlineNavigationLabel>계정 보안</UnderlineNavigationLabel>
+          </NavLink>
+        </UnderlineNavigation>
+        <Suspense fallback={<RouteLoadingState />}>
+          <Routes>
+            <Route path="/operator/site-admins" element={<SiteAdminManagementView />} />
+            <Route path="/operator/security" element={<AccountSecurityView user={user} />} />
+            <Route path="*" element={<Navigate to="/operator/site-admins" replace />} />
+          </Routes>
+        </Suspense>
       </main>
     </div>
   );

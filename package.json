@@ -5,13 +5,16 @@
   "scripts": {
     "dev": "pnpm --filter @led-control/shared build && pnpm --filter @led-control/automation-engine build && node scripts/dev.mjs",
     "dev:local": "pnpm docker:up && pnpm dev",
-    "test": "node --test scripts/dev-runtime.test.mjs scripts/lan-tls-integration.test.mjs && pnpm --filter @led-control/shared build && pnpm --filter @led-control/automation-engine build && pnpm -r --workspace-concurrency=1 test",
+    "test": "node scripts/workspace-gate.mjs test",
+    "test:unit": "node --test scripts/dev-runtime.test.mjs scripts/lan-tls-integration.test.mjs scripts/production-audit-policy.test.mjs scripts/image-size-security.test.mjs scripts/workspace-gate.test.mjs scripts/ci-workflows.test.mjs scripts/ci-hil-preflight.test.mjs tests/mqtt-production-config.node.mjs && pnpm -r test",
     "test:lan-tls": "node --test scripts/lan-tls-integration.test.mjs",
-    "lint": "pnpm -r lint",
-    "typecheck": "pnpm --filter @led-control/shared build && pnpm --filter @led-control/automation-engine build && pnpm -r typecheck",
+    "lint": "node scripts/workspace-gate.mjs lint",
+    "typecheck": "node scripts/workspace-gate.mjs typecheck",
+    "build": "node scripts/workspace-gate.mjs build",
+    "workspace:prepare": "pnpm --filter @led-control/shared build && pnpm --filter @led-control/automation-engine build",
     "gateway:smoke": "pnpm --filter @led-control/shared build && pnpm --filter @led-control/gateway exec node scripts/local-smoke-test.mjs",
-    "gateway:hil:2node": "pnpm --filter @led-control/shared build && pnpm --filter @led-control/gateway exec tsx scripts/hil-2node-test.ts",
-    "gateway:pki:hil": "pnpm --filter @led-control/shared build && pnpm --filter @led-control/gateway exec tsx scripts/pki-hil-test.ts",
+    "gateway:hil:2node": "node scripts/run-gateway-hil.mjs two-node",
+    "gateway:pki:hil": "node scripts/run-gateway-hil.mjs pki",
     "api:pki:e2e": "pnpm --filter @led-control/api exec jest test/gateway-pki.e2e-spec.ts --runInBand",
     "api:vault-token:integration": "VAULT_TOKEN_LIFECYCLE_INTEGRATION=1 pnpm --filter @led-control/api exec jest src/pki/vault-token-lifecycle.spec.ts --runInBand",
     "gateway:soak": "pnpm --filter @led-control/shared build && pnpm --filter @led-control/gateway exec tsx scripts/soak-test.ts",
@@ -27,12 +30,27 @@
     "lab:pki:bootstrap": "PKI_ENV=lab scripts/pki/bootstrap-device-lab.sh",
     "test:lab:pki": "node --test scripts/pki/*.test.mjs scripts/lan-tls-integration.test.mjs",
     "test:lab:pki:integration": "PKI_ENV=lab scripts/pki/bootstrap-device-lab.sh",
+    "ci:integration": "bash scripts/ci-integration.sh",
+    "ci:real-backend": "bash scripts/ci-real-backend-e2e.sh",
+    "ci:production-audit": "bash scripts/ci-production-audit.sh",
+    "ci:hil:preflight": "node scripts/run-gateway-hil.mjs preflight",
+    "audit:production": "node scripts/production-audit-policy.mjs",
     "docker:up": "docker compose up -d",
     "docker:up:production": "docker compose -f docker-compose.yml -f docker-compose.production.yml up -d",
     "docker:down": "docker compose down"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
+    "js-yaml": "4.3.2",
     "typescript": "^5.7.2"
+  },
+  "pnpm": {
+    "overrides": {
+      "@nestjs/platform-express>multer": "2.3.0",
+      "@prisma/config>deepmerge-ts": "8.0.2"
+    },
+    "patchedDependencies": {
+      "image-size@1.2.1": "patches/image-size@1.2.1.patch"
+    }
   }
 }

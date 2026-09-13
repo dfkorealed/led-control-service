@@ -6,6 +6,8 @@ import { PasswordService } from "../auth/password.service";
 import { lockUserForPasswordMutation } from "../auth/user-password-lock";
 import { PrismaService } from "../prisma/prisma.service";
 import { SiteDeletionCleanupService } from "./site-deletion-cleanup.service";
+import { CertificateLifecycleService } from "../pki/certificate-lifecycle.service";
+import { CERTIFICATE_TRANSACTION_TIMEOUT_MS, lockGatewayCertificates, lockGatewayInventory } from "../pki/inventory-certificate-lock";
 
 export interface CreateSiteAdminInput {
   customerName: string;
@@ -67,7 +69,8 @@ export class OperatorSiteAdminsService {
     private readonly prisma: PrismaService,
     private readonly passwords: PasswordService,
     private readonly audit: AuditService,
-    private readonly deletionCleanup: SiteDeletionCleanupService
+    private readonly deletionCleanup: SiteDeletionCleanupService,
+    private readonly certificateLifecycle?: CertificateLifecycleService
   ) {}
 
   async list(user: AuthenticatedUser): Promise<SiteAdminSummary[]> {
@@ -291,16 +294,15 @@ export class OperatorSiteAdminsService {
           throw new ConflictException("site changed during deletion, please retry");
         }
 
-        const gatewayIds = site.gateways.map((gateway) => gateway.id);
-        await tx.gatewayInventory.updateMany({
-          where: {
-            OR: [
-              { claimedGatewayId: { in: gatewayIds } },
-              { id: { in: inventoryIds } }
-            ]
-          },
-          data: { disabledAt: new Date() }
-        });
+        // Acquire every inventory before any certificate/Gateway mutation. IDs
+        // are globally sorted so two overlapping deletions cannot invert locks.
+        const revocationIds: string[] = [];
+        for (const inventoryId of [...inventoryIds].sort()) await lockGatewayInventory(tx, inventoryId);
+        for (const inventoryId of [...inventoryIds].sort()) await lockGatewayCertificates(tx, inventoryId);
+        for (const inventoryId of [...inventoryIds].sort()) {
+          if (!this.certificateLifecycle) throw new ConflictException("inventory certificate revocation unavailable");
+          revocationIds.push(...await this.certificateLifecycle.stageInventoryDisable(tx, inventoryId));
+        }
         const organizationSiteCount = await tx.site.count({ where: { organizationId: admin.organizationId } });
         if (organizationSiteCount === 1) {
           await tx.$queryRaw(Prisma.sql`
@@ -347,11 +349,12 @@ export class OperatorSiteAdminsService {
             gatewayCount: site.gateways.length
           }
         });
-        return { cleanupId: cleanup.id };
-      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+        return { cleanupId: cleanup.id, revocationIds };
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: CERTIFICATE_TRANSACTION_TIMEOUT_MS, timeout: CERTIFICATE_TRANSACTION_TIMEOUT_MS });
       // The committed cleanup row is the authority. Immediate processing keeps the
       // common path fast; startup/polling retries preserve eventual cleanup on failure.
       await this.deletionCleanup.processNow(deletion.cleanupId).catch(() => undefined);
+      await this.certificateLifecycle?.processInventoryRevocation(deletion.revocationIds).catch(() => undefined);
       return { ok: true };
     } catch (error) {
       this.throwMappedPrismaError(error);

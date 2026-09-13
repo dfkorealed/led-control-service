@@ -11,7 +11,7 @@
 - 조직/사용자/인증: `Organization`(`OrganizationType`), `User`, `SiteMembership`, `Invitation`, `Session`
 - 현장/공간/도면: `Site`, `Floor`(`mapRevision`), `FloorPlan`, `FloorMapObject`, `FloorMapRevision`
 - 조명/그룹/게이트웨이/메시 노드: `Fixture`, `FixtureGroup`, `GroupFixture`, `Gateway`, `GatewayInventory`, `MeshNode`, `MeshControlGroup`, `MeshControlGroupMember`, `MeshControlGroupExpectedOperation`, `MeshControlGroupAppliedMember`
-- 게이트웨이 PKI: `GatewayEnrollment`, `GatewayCertificate`
+- 게이트웨이 PKI: `GatewayEnrollment`, `GatewayCertificate`, `CertificateRevocationReconciliation`
 - 제어/모니터링: `Command`, `CommandDispatch`, `CommandFixtureResult`, `MqttOutbox`, `ProcessedGatewayEvent`, `GatewayEventWatermark`, `MonitoringIncident`, `EnergyUsage`
 - 자동 제어: `GatewayAutomationConfiguration`, `LightingSchedule`, `LightingScheduleFixture`, `VehicleEventRule`, `VehicleEventSource`, `VehicleEventTarget`, `ManualOverride`, `ManualOverrideFixture`, `AutomationExecution`, `AutomationExecutionFixtureResult`
 - 감사/삭제 정리: `GatewayClaimAudit`, `AuditLog`, `SiteDeletionCleanup`
@@ -299,6 +299,7 @@ SiteDeletionCleanup (삭제된 Site ID와 외부 정리 대상을 독립 보존)
 | `active` | 현재 사용할 수 있는 인증서 |
 | `pending` | 새 device 인증서. 발급 뒤 10분 안에 새 인증서 mTLS로 activation해야 하며, 그 전까지 active pointer를 변경하지 않음 |
 | `replaced` | 새 인증서로 교체된 인증서 |
+| `revocation_pending` | 논리적 사용 차단을 먼저 확정했고 CA 폐기·CRL 배포를 재시도하는 인증서 |
 | `revoked` | CA에서 폐기된 인증서 |
 | `expired` | 유효기간이 종료된 인증서 |
 
@@ -353,6 +354,7 @@ SiteDeletionCleanup (삭제된 Site ID와 외부 정리 대상을 독립 보존)
 - `administeredSite`: `Site?` (`Site.adminUserId`와 1:1)
 - `commands`: `Command[]`
 - `sessions`: `Session[]`
+- `mfa`: `UserMfa?`
 - `provisioningSessions`: `ProvisioningSession[]`
 - `siteMemberships`: `SiteMembership[]`
 - `floorMapRevisions`: `FloorMapRevision[]`
@@ -876,7 +878,7 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 | `issuer` | `String` | 예 |  | 발급 CA 식별자 |
 | `notBefore` | `DateTime` | 예 |  | 유효 시작 시각 |
 | `notAfter` | `DateTime` | 예 |  | 만료 시각 |
-| `status` | `GatewayCertificateStatus` | 예 | DB enum | `active`, `pending`, `replaced`, `revoked`, `expired` |
+| `status` | `GatewayCertificateStatus` | 예 | DB enum | `active`, `pending`, `replaced`, `revocation_pending`, `revoked`, `expired` |
 | `revokedAt` | `DateTime?` | 아니오 |  | 폐기 시각 |
 | `replacedById` | `String?` | 아니오 | Unique self FK, delete restrict | 이 인증서를 교체한 새 인증서 ID |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
@@ -901,10 +903,35 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 - DB의 self-check와 unique 제약만으로는 cross-inventory, cross-purpose 또는 다중 노드 cycle을 완전히 차단할 수 없다.
 - MQTT 인증서 발급은 inventory ID를 입력으로 한 PostgreSQL transaction-scoped advisory lock 안에서 실행한다. 같은 inventory의 동시 요청은 직렬화되며, 기존 active MQTT 인증서는 `replaced`로 전환한 뒤 새 active 행을 만들고 마지막에 기존 행의 `replacedById`를 새 ID로 연결한다. 세 단계는 하나의 transaction이므로 외부에는 원자적으로 보인다.
 - partial Unique index는 위 서비스 잠금과 별도로 같은 inventory에 active MQTT 인증서가 둘 이상 남지 않도록 DB에서 강제한다. migration은 과거 중복 active 행이 있으면 가장 최근 행만 active로 남기고 나머지는 `replaced`로 정리한 뒤 index를 만든다.
-- Device renewal은 active device 인증서가 만료 30일 안에 있을 때만 P-256 CSR을 server-fixed serial CN/URI SAN으로 서명하고 `pending` 원장을 만든다. Inventory advisory lock과 pending partial unique index가 같은 inventory의 동시 renewal을 하나로 제한하며, 서명 후 원장 기록 또는 CA metadata 검증에 실패한 인증서는 best-effort revoke 후 일반화된 503을 반환한다. 성공 응답은 기존 PEM/`caChainPem` 배열 계약과 claimed gateway ID를 함께 반환한다. pending 인증서로 10분 안에 mTLS activation하면 transaction에서 기존 active를 `replaced`로, pending을 `active`로 바꾸고 inventory/gateway pointer를 함께 바꾼다. grace를 넘긴 pending은 revoke 후 거부한다.
-- Admin inventory disable은 소속 조직의 claimed inventory만 허용한다. `disabledAt`을 먼저 확정해 bootstrap과 MQTT 발급을 즉시 차단한 뒤, 아직 revoke되지 않은 device/MQTT 인증서를 Vault에서 순차 폐기하고 각 성공을 원장에 기록한다. Vault 일부 실패 뒤에도 inventory는 disabled이며 같은 endpoint 호출로 남은 인증서 폐기를 재시도한다.
+- Device renewal은 active device 인증서가 만료 30일 안에 있을 때만 P-256 CSR을 server-fixed serial CN/URI SAN으로 서명하고 `pending` 인증서를 만든다. 최초 device 발급·MQTT 발급·renewal은 공통 inventory advisory/row와 certificate row 잠금 뒤 상태를 재조회하고, CA 서명 직후 독립 transaction으로 폐기 원장을 commit한 뒤 상태·pointer·Gateway 배정을 다시 확인한다. 성공 인증서 저장과 같은 transaction만 원장을 취소하며 rollback은 원장을 유지한다. 원장 자체를 만들지 못하면 즉시 best-effort 폐기하고 일반화된 오류로 실패한다. pending 인증서로 10분 안에 mTLS activation하면 같은 잠금 뒤 기존 active와 pending, Gateway 배정을 확인하여 두 pointer를 함께 바꾼다. grace를 넘긴 pending은 `revocation_pending`과 원장을 남겨 별도로 폐기하며 기존 active는 유지한다.
+- Inventory disable은 active service-provider `operator` 전용이다. 같은 transaction에서 `disabledAt`, device/MQTT 인증서의 `revocation_pending`, inventory/Gateway pointer clear와 폐기 원장을 확정해 즉시 인가를 차단한다. commit 뒤 worker가 CA 폐기와 CRL 배포를 재시도하며 외부 실패 시 일반화된 pending 오류를 반환한다. Site 삭제도 모든 inventory ID와 certificate row를 정렬 잠금한 뒤 같은 staging을 수행하므로 Gateway cascade 후에도 폐기 의무가 남는다.
 - Task 27/29 lifecycle service는 같은 transaction 안에서 기존/후속 인증서가 동일한 `inventoryId`와 `purpose`인지 확인하고, 기존 교체 체인을 잠금 조회해 cycle이 생기지 않는지 검증한 뒤 `replacedById`와 상태를 함께 갱신해야 한다.
 - revoke 대상은 `purpose + issuer + certificateSerial + fingerprint`로 식별해 CA 교체나 serial 충돌 상황에서도 모호하지 않게 한다.
+
+### CertificateRevocationReconciliation
+
+CA 서명 직후 인증서 DB 저장 실패·process crash와 논리적 폐기 후 외부 CA/CRL 장애를 회수하는 영속 원장이다. `20260915090000_certificate_revocation_reconciliation` additive migration으로 추가하며, 인증서·inventory·현장 삭제 후에도 의무가 남도록 FK를 두지 않는다. 완료·취소 행도 삭제하지 않는다.
+
+| 컬럼 | 타입·제약 | 의미 |
+| --- | --- | --- |
+| `id` | String PK, uuid | 원장 ID |
+| `inventoryId`, `certificateId` | String, certificateId nullable, FK 없음 | 대상 식별 metadata |
+| `purpose`, `issuer`, `certificateSerial`, `fingerprint` | purpose DB enum, issuer+serial Unique, fingerprint Unique | PEM 없는 CA 폐기 대상과 두 멱등성 키 |
+| `source` | String | `signed_certificate` 또는 `inventory_revocation`으로 정제 |
+| `attempts`, `nextAttemptAt` | Int 기본 0, DateTime 기본 now | 임대 횟수와 다음 처리 시각 |
+| `leaseOwner`, `leaseExpiresAt` | nullable String / DateTime | claim마다 새 owner와 300초 임대 |
+| `revokedAt`, `completedAt`, `cancelledAt` | nullable DateTime | CA 폐기 성공, CRL 배포 완료, 정상 인증서 저장에 따른 취소 |
+| `lastError` | nullable String | CA/CRL 실패 코드만 저장 |
+| `createdAt`, `updatedAt` | DateTime | 생성·갱신 시각 |
+
+- 처리 인덱스는 `completedAt + cancelledAt + nextAttemptAt + leaseExpiresAt`, 조회 인덱스는 `inventoryId`다.
+- `armSignedCertificate`는 별도 transaction으로 metadata만 commit하며 처리 유예는 180초다. 발급 소비 경로는 공통 `CERTIFICATE_TRANSACTION_TIMEOUT_MS = 140000`을 사용하고, 인증서 저장과 같은 transaction에서 `cancelSignedCertificate`를 호출해야 한다. 이미 임대·폐기·완료된 원장의 취소는 저장을 거부한다.
+- Worker는 시작 시와 30초마다 `FOR UPDATE SKIP LOCKED`로 due 원장을 하나씩 claim한다. CA 폐기는 DB transaction 밖에서 실행하고 결과는 owner와 아직 유효한 lease로 fence한다. CA 성공을 먼저 기록하므로 CRL 실패는 CA를 다시 폐기하지 않고 CRL만 재시도한다. 30초부터 최대 1시간 지수 backoff로 무기한 재시도하며, CRL 배포 경로가 없으면 완료하지 않는다.
+- CRL read → publish → 완료 저장은 목적별 PostgreSQL advisory lock을 가진 최대 15분 transaction에서 실행한다. 두 int key의 첫 값은 예약 namespace `0x504b4943`(`PKIC`), 둘째 값은 device `1` / mqtt `2`다. 이 공간은 inventory의 bigint advisory key와 별개이며 서로 다른 purpose는 직렬화하지 않는다. 잠금 대기는 최대 10초다. CA read 뒤 매 publish 직전에 transaction 유효성과 owner/lease를 다시 조회하고, publish 뒤 CA를 다시 읽어 snapshot이 달라졌으면 최신 snapshot을 재배포한다. 최대 3회 배포·검증(최초 조회 포함 최대 4회 CA read)까지만 시도하며 계속 달라지면 미완료/backoff로 남긴다. publication I/O 중에는 inventory/certificate row lock을 잡지 않으며 완료 직전에 공통 row lock 순서를 적용한다.
+- Vault read의 요청별 상한 120초에 따라 최대 네 번의 네트워크 요청 예산은 8분이다. 15분은 네트워크 요청·인증 토큰/파일 I/O·DB 작업을 합친 transaction 예산이며 파일시스템 호출의 엄격한 상한이 아니다. 5분 row lease 이후에도 살아 있는 transaction은 purpose 잠금을 유지한다. 여러 I/O의 누적 지연이 이 예산을 넘거나 DB session이 유실되면 이미 시작한 publish가 잠금 해제 뒤까지 계속될 수 있다. Prisma가 외부 I/O를 취소하지 못하는 이 경계는 개별 파일 호출이 15분보다 짧아도 발생할 수 있으며 운영 위험으로 남는다.
+- 공통 잠금 순서는 inventory advisory lock → inventory row → ID 순 certificate rows → Gateway다. `stageInventoryRevocation`은 같은 transaction에서 inventory pointer를 비우고 미폐기 인증서를 `revocation_pending`으로 바꾸며 이전 정상 발급의 취소 원장도 다시 연다. Gateway pointer와 `disabledAt` 변경은 소비 경로가 같은 transaction에서 담당한다.
+- 업그레이드 전 `GatewayCertificate.status = revoked`는 CRL 배포 완료를 증명하지 못하므로 완료 판단은 `CertificateRevocationReconciliation.completedAt`을 기준으로 한다. 원장이 없는 legacy revoked 인증서를 disable/revoke 재시도에서 만나면 기존 `status`와 `revokedAt`을 유지하면서 원장 하나를 생성해 CA 폐기·CRL 배포를 안전하게 다시 수행한다. CA 성공 뒤 CRL만 실패하면 같은 원장으로 CRL만 재시도하고, 완료 후 반복 호출은 새 작업이나 추가 CA/CRL 호출을 만들지 않는다. 전체 legacy backfill을 실행하지 않고 해당 inventory 처리 시 복구한다.
+- Task 2~3에서 실제 issue/renew/activate/disable 및 Site 삭제 경로를 연결하고 기존 manufacturing → claim → bootstrap → MQTT E2E와 revoked/disabled 거부를 유지했다. 전용 disposable PostgreSQL 16에 전체 57 migration을 적용하고 별도 Prisma connection과 CA barrier로 양방향 경쟁, `pg_stat_activity`/`pg_locks`의 동일 advisory key 대기, 동시 MQTT 발급의 CA 서명 비중첩, 정상 renewal → activation, disabled 이후 active/pending 0·pointer null·영속 원장, rollback 뒤 새 worker의 폐기를 검증했다. PostgreSQL connection·migration·transaction·lock·원장 저장은 실제이고 CA·CSR 검증·CRL 파일 배포는 fixture다. 사용자 로컬 DB migration과 실제 Vault/CRL 배포·장비/HIL은 실행하지 않았다. 원장 저장과 즉시 CA 폐기가 동시에 실패하는 구간은 CA 측 발급 감사/재조회 없이 완전히 회수할 수 없다.
 
 보안 저장 정책:
 
@@ -1440,18 +1467,51 @@ Prisma Date raw parameter는 timestamptz로 전달되므로 naive UTC `timestamp
 | --- | --- | --- | --- | --- |
 | `id` | `String` | 예 | PK, `uuid()` | 세션 ID |
 | `userId` | `String` | 예 | FK -> `User.id`, delete cascade | 사용자 ID. 사용자 영구 삭제 시 함께 삭제 |
+| `familyId` | `String` | 예 | `uuid()` | 최초 로그인부터 보안 상태 변경에 따른 token 회전을 하나로 묶는 세션 계열 ID |
+| `rotatedFromSessionId` | `String?` | 아니오 | Unique, self FK -> `Session.id`, delete set null | 이 세션으로 교체된 직전 세션. 하나의 세션에서 둘 이상의 후속 세션이 생기지 않도록 보장 |
 | `tokenHash` | `String` | 예 | Unique | 세션 토큰 hash |
 | `rememberMe` | `Boolean` | 예 | `false` | 자동 로그인 여부 |
 | `userAgent` | `String?` | 아니오 |  | 접속 user agent |
 | `ipAddress` | `String?` | 아니오 |  | 접속 IP |
 | `expiresAt` | `DateTime` | 예 |  | 만료 시각 |
 | `revokedAt` | `DateTime?` | 아니오 |  | 폐기 시각 |
+| `mfaVerifiedAt` | `DateTime?` | 아니오 |  | TOTP 또는 복구 코드까지 검증해 발급한 세션의 MFA 검증 시각 |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
 | `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
 
 관계:
 
 - `user`: `User`
+- `rotatedFrom`: 직전 `Session?`
+- `rotatedTo`: 이 세션에서 이어진 `Session[]`이며 unique 제약으로 최대 1개
+
+`userId + revokedAt + expiresAt` 복합 index는 사용자별 활성 세션 조회와 일괄 폐기를 지원한다.
+`userId + familyId + revokedAt` 복합 index는 회전 전 token으로 들어온 로그아웃과 세션 폐기가 현재 활성 후속 세션을 찾도록 지원한다.
+최초 로그인은 새 `familyId`를 만든다. 비밀번호 변경과 MFA 등록·해제는 사용자 행을 잠근 transaction에서 현재 세션을 다시 검증하고 기존 활성 세션을 모두 폐기한 뒤, 현재 세션의 `familyId`와 접속 정보·만료 시각을 승계하고 `rotatedFromSessionId`로 직전 행을 가리키는 새 token hash 행을 만든다.
+로그아웃은 이미 폐기된 token도 조회한 뒤 사용자 행을 잠그고 같은 family의 활성 세션을 모두 폐기한다. 따라서 회전 응답과 로그아웃 응답 순서가 뒤바뀌어도 새 cookie가 세션을 되살리지 않는다.
+활성 세션 API는 요청 사용자 ID와 `revokedAt IS NULL`, 미래 만료 시각을 모두 적용해 조회한다. 개별 폐기는 대상 세션의 family 전체를 폐기하고, 다른 세션 전체 폐기는 현재 family만 남긴다. 두 작업도 사용자 행 잠금과 family 재검증 아래 실행되므로 token 회전과 직렬화된다.
+
+### UserMfa
+
+operator/admin의 활성 TOTP 설정이다. 사용자와 1:1이며 viewer는 애플리케이션 정책상 생성할 수 없다. 원본 비밀키는 `MFA_ENCRYPTION_KEY`로 AES-256-GCM 암호화하고, 복구 코드는 원문을 보관하지 않는다.
+
+| 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
+| --- | --- | --- | --- | --- |
+| `userId` | `String` | 예 | PK, FK -> `User.id`, delete cascade | MFA 소유 사용자 |
+| `secretCiphertext` | `String` | 예 |  | 버전·nonce·ciphertext·인증 태그를 포함한 암호화 TOTP 비밀키 |
+| `recoveryCodeHashes` | `String[]` | 예 |  | 아직 사용하지 않은 고엔트로피 복구 코드의 SHA-256 hash |
+| `lastUsedTotpCounter` | `Int` | 예 | `-1` | 마지막으로 수락한 RFC 6238 30초 counter. 더 큰 counter만 수락해 같은 TOTP 재사용을 차단 |
+| `enabledAt` | `DateTime` | 예 | `now()` | MFA 활성화 시각 |
+| `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
+| `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
+
+관계:
+
+- `user`: `User`
+
+`20260916090000_account_security` migration은 `UserMfa`, `Session.mfaVerifiedAt`, 사용자별 활성 세션 조회 index를 추가한다.
+`20260916120000_harden_session_rotation_and_totp` migration은 세션 계열과 회전 self FK, TOTP 마지막 counter를 추가한다. 기존 세션은 각 행의 `id`를 `familyId`로 backfill해 서로 무관한 기존 브라우저 세션이 한 계열로 합쳐지지 않는다. 기존 MFA 행은 알 수 없는 과거 counter 대신 `-1`에서 시작하고 다음 성공 검증부터 단조 증가를 강제한다.
+이번 작업의 migration 검증은 사용자 DB가 아닌 새 일회용 PostgreSQL에서만 수행한다. 이는 사용자 DB 적용 또는 운영 배포 증거가 아니다.
 
 ### ProvisioningSession
 
@@ -1706,7 +1766,8 @@ node별 `provision-device` command의 durable transactional outbox다. 등록 AP
 | `MeshControlGroupAppliedMember` | PK `groupId + meshNodeId + meshAddress`, Index `groupId + gatewayId` | partial success를 포함한 cloud 확인 실제 subscription pair snapshot |
 | `GroupFixture` | PK `groupId`, `fixtureId` | 같은 조명의 그룹 중복 매핑 방지 |
 | `Invitation` | Unique `tokenHash` | 초대 토큰 hash 중복 방지 |
-| `Session` | Unique `tokenHash` | 세션 토큰 hash 중복 방지 |
+| `Session` | Unique `tokenHash`, `userId + revokedAt + expiresAt` index | 세션 토큰 hash 중복 방지와 사용자별 활성 세션 조회·폐기 가속 |
+| `UserMfa` | PK/FK `userId`, delete cascade | 사용자별 TOTP 설정 하나만 허용하고 계정 삭제 시 보안 정보 제거 |
 | `SiteDeletionCleanup` | Unique `siteId`, retry/lease index | 현장별 외부 정리 작업 1개와 다중 API instance의 crash-safe 재시도 |
 | `DiscoveredMeshNode` | Unique `sessionId`, `deviceUuid` | 같은 등록 세션 안에서 발견 노드 중복 방지 |
 | `ProvisioningSession` | Partial unique `gatewayId WHERE scanStatus IN (pending, scanning)` | Gateway당 outbox 대기·실행 중 scan 1개 제한 |
@@ -1729,8 +1790,11 @@ node별 `provision-device` command의 durable transactional outbox다. 등록 AP
 
 ```text
 User.loginId/password
+→ Redis IP·계정·고객사/IP 제한 확인
 → AuthService 비밀번호 검증
-→ Session 생성
+→ MFA 미사용 계정은 Session 생성
+→ MFA 사용 operator/admin은 Redis 일회성 challenge 발급
+→ TOTP 또는 미사용 복구 코드 검증 뒤 Session 생성
 → HttpOnly cookie 발급
 → 이후 API 요청에서 Session token hash 검증
 ```

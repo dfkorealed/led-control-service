@@ -1,0 +1,151 @@
+name: Software CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "9.15.0"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @led-control/api prisma:generate
+      - run: |
+          pnpm lint
+          pnpm typecheck
+
+  unit:
+    needs: quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "9.15.0"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @led-control/api prisma:generate
+      - run: pnpm test
+
+  postgres-redis-integration:
+    needs: unit
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: led
+          POSTGRES_PASSWORD: led
+          POSTGRES_DB: led_control
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U led -d led_control"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://led:led@127.0.0.1:5432/led_control?schema=public
+      PKI_CONCURRENCY_TEST_DATABASE_URL: postgresql://led:led@127.0.0.1:5432/pki_concurrency?schema=public
+      REDIS_URL: redis://127.0.0.1:6379/15
+      FIXTURE_IDENTIFY_TEST_REDIS_URL: redis://127.0.0.1:6379/14
+      RUN_REDIS_INTEGRATION: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "9.15.0"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @led-control/api prisma:generate
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+      - name: Create dedicated PKI database
+        env:
+          PGPASSWORD: led
+        run: psql -h 127.0.0.1 -U led -d postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE pki_concurrency'
+      - run: pnpm ci:integration
+
+  playwright-real-core:
+    needs: postgres-redis-integration
+    runs-on: ubuntu-latest
+    env:
+      E2E_REAL_BACKEND_LAB: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "9.15.0"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @led-control/api prisma:generate
+      - name: Install real-backend host services
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-16 postgresql-client-16 redis-server redis-tools mosquitto openssl lsof procps
+          echo "$(pg_config --bindir)" >> "$GITHUB_PATH"
+      - run: pnpm --filter @led-control/web exec playwright install --with-deps chromium
+      - run: pnpm ci:real-backend
+
+  build:
+    needs: playwright-real-core
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "9.15.0"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @led-control/api prisma:generate
+      - run: pnpm build
+
+  production-audit:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "9.15.0"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @led-control/api prisma:generate
+      - run: pnpm ci:production-audit

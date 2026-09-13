@@ -13,14 +13,10 @@ import {
 } from "./certificate-authority.provider";
 import { GatewayCsrValidator } from "./csr-validator";
 import type { SignedCertificate } from "./pki.types";
+import { CertificateRevocationReconciliationService } from "./certificate-revocation-reconciliation.service";
+import { CERTIFICATE_TRANSACTION_TIMEOUT_MS, lockGatewayCertificates, lockGatewayInventory } from "./inventory-certificate-lock";
 
 const MQTT_CERTIFICATE_TTL_SECONDS = 90 * 24 * 60 * 60;
-const MAX_VAULT_REQUEST_TIMEOUT_MS = 120_000;
-const INVENTORY_ADVISORY_LOCK_TIMEOUT_MS = 10_000;
-const DATABASE_COMPLETION_MARGIN_MS = 10_000;
-const MQTT_ISSUANCE_TRANSACTION_TIMEOUT_MS =
-  MAX_VAULT_REQUEST_TIMEOUT_MS + INVENTORY_ADVISORY_LOCK_TIMEOUT_MS + DATABASE_COMPLETION_MARGIN_MS;
-const MQTT_ISSUANCE_TRANSACTION_MAX_WAIT_MS = MQTT_ISSUANCE_TRANSACTION_TIMEOUT_MS;
 
 interface IssueMqttCertificateInput {
   csrPem?: unknown;
@@ -32,7 +28,8 @@ export class GatewayCertificateService {
   constructor(
     private readonly prisma: PrismaService,
     @Inject(CERTIFICATE_AUTHORITY_PROVIDER) private readonly certificateAuthority: CertificateAuthorityProvider,
-    private readonly csrValidator: GatewayCsrValidator
+    private readonly csrValidator: GatewayCsrValidator,
+    private readonly reconciliation: CertificateRevocationReconciliationService = new CertificateRevocationReconciliationService(prisma, certificateAuthority)
   ) {}
 
   async issueMqttCertificate(input?: IssueMqttCertificateInput | null) {
@@ -48,6 +45,7 @@ export class GatewayCertificateService {
       !deviceCertificate ||
       deviceCertificate.purpose !== "device" ||
       deviceCertificate.status !== "active" ||
+      deviceCertificate.revokedAt ||
       !inventory ||
       inventory.disabledAt ||
       this.inventoryFingerprint(inventory) !== deviceFingerprint
@@ -67,11 +65,12 @@ export class GatewayCertificateService {
     }
 
     let signed: SignedCertificate | undefined;
+    let reconciliationId: string | undefined;
     try {
       const issuance = await this.db().$transaction(async (tx: any) => {
-        // Keep the advisory-lock wait finite within this transaction, and bind both dynamic values.
-        await tx.$executeRaw`SELECT set_config('lock_timeout', ${`${INVENTORY_ADVISORY_LOCK_TIMEOUT_MS}ms`}, true)`;
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${inventory.id}::text, 0))`;
+        await lockGatewayInventory(tx, inventory.id);
+        await lockGatewayCertificates(tx, inventory.id);
+        await this.assertCurrentIdentity(tx, deviceCertificate.id, deviceFingerprint, inventory.claimedGatewayId);
         signed = await this.certificateAuthority.signCsr({
           purpose: "mqtt",
           csrPem,
@@ -79,6 +78,11 @@ export class GatewayCertificateService {
           uriSans: [`urn:dfkorea:gateway:${inventory.claimedGateway.id}`],
           ttlSeconds: MQTT_CERTIFICATE_TTL_SECONDS
         });
+        reconciliationId = await this.reconciliation.armSignedCertificate({
+          inventoryId: inventory.id, purpose: "mqtt", issuer: signed.issuer,
+          certificateSerial: signed.certificateSerial, fingerprint: signed.fingerprint
+        });
+        await this.assertCurrentIdentity(tx, deviceCertificate.id, deviceFingerprint, inventory.claimedGatewayId);
         const certificateData = this.certificateData(inventory.id, inventory.claimedGateway.id, signed);
         const activeMqttCertificate = await tx.gatewayCertificate.findFirst({
           where: { inventoryId: inventory.id, purpose: "mqtt", status: "active" }
@@ -99,10 +103,11 @@ export class GatewayCertificateService {
           });
         }
 
+        await this.reconciliation.cancelSignedCertificate(tx, reconciliationId);
         return { signed, certificateData };
       }, {
-        maxWait: MQTT_ISSUANCE_TRANSACTION_MAX_WAIT_MS,
-        timeout: MQTT_ISSUANCE_TRANSACTION_TIMEOUT_MS
+        maxWait: CERTIFICATE_TRANSACTION_TIMEOUT_MS,
+        timeout: CERTIFICATE_TRANSACTION_TIMEOUT_MS
       });
 
       return {
@@ -112,8 +117,19 @@ export class GatewayCertificateService {
         notAfter: issuance.certificateData.notAfter.toISOString()
       };
     } catch {
-      if (signed) await this.bestEffortRevoke(signed);
+      if (signed && !reconciliationId) await this.bestEffortRevoke(signed);
       throw new ServiceUnavailableException("MQTT certificate issuance failed");
+    }
+  }
+
+  private async assertCurrentIdentity(tx: any, certificateId: string, fingerprint: string, gatewayId: string) {
+    const current = await tx.gatewayCertificate.findUnique({ where: { id: certificateId }, include: { inventory: { include: { claimedGateway: true } } } });
+    const inventory = current?.inventory;
+    if (!current || current.purpose !== "device" || current.status !== "active" || current.revokedAt ||
+      !inventory || inventory.disabledAt || this.inventoryFingerprint(inventory) !== fingerprint ||
+      current.fingerprint !== fingerprint || inventory.claimedGatewayId !== gatewayId ||
+      inventory.claimedGateway?.id !== gatewayId || inventory.claimedGateway.certificateFingerprint !== fingerprint) {
+      throw new UnauthorizedException("device certificate mismatch");
     }
   }
 
@@ -150,7 +166,7 @@ export class GatewayCertificateService {
         fingerprint: signed.fingerprint
       });
     } catch {
-      // A later lifecycle reconciliation can retry when CA revocation is temporarily unavailable.
+      // With no durable arm, simultaneous DB/CA failure needs CA-side issuance auditing.
     }
   }
 

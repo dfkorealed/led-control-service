@@ -13,7 +13,7 @@
 - `CommandOutcomeActions`는 불확정 결과에 경고·원인·시도 횟수와 “실제 상태 확인”만 제공한다. 상태 확인 중에는 제어 입력과 이력 선택을 잠그며 세 번 소진 시 현장 확인을 안내한다. HTTP 응답 유실은 동일 Get 요청 ID로 조회하고, 일반 제어 응답 유실은 “동일 요청 확인(새 제어 아님)”으로 저장된 원 요청을 재사용한다. `verified_not_applied`에서만 새 요청 ID로 원래 확정 조명 목록·밝기를 재적용하며, 층·구역의 현재 멤버나 편집 중인 선택을 재사용하지 않는다. 적용 완료는 설명만, 부분 적용은 마지막 확인의 대상별 현재값과 새 제어 안내를 제공한다. 세션 무효화·사용자/현장 전환의 요청 중단과 늦은 응답 무시는 유지한다.
 - 저장된 명령 ID 복원은 과거 상세 캐시를 먼저 제거하고 새 서버 상세를 확인한 뒤 잠금을 해제한다. 상태 확인 POST의 응답·dispatch ID를 아직 받지 못했으면 상세가 이전 unknown이어도 조회를 유지한다. 로그아웃이 상태 확인 요청을 중단한 뒤 실패하면 같은 요청 ID로 복구할 수 있으며, 세 번째 시도도 새 시도를 만들지 않고 조회한다. 중단된 요청의 늦은 응답·정리 콜백은 재개한 HTTP 요청의 잠금을 해제하지 않는다.
 - 차량 센서 capability는 node별 최신 revision과 event ID/hash를 영속 watermark에 보존한다. raw 원장 삭제 후 같은 revision을 다른 event로 바꾸면 mutation 없이 rejected ACK를 저장하고, exact replay는 기존 durable ACK를 재사용한다. 서로 다른 node의 같은 revision은 독립적으로 유지하며 임시 PostgreSQL에서 검증했다.
-
+- Route 기능 코드 SHA `34261b6`에서 로그인·최초 비밀번호 변경은 초기 main에 유지하고 고객/운영자 shell과 제어 화면을 dynamic chunk로 분리했다. 역할 shell 전체 화면과 shell 내부 route는 공통 `RouteLoadingState`의 `role="status"`·`aria-live="polite"` 로딩 상태를 사용한다. Task 4 fresh Web 검증은 60 files·686/686 unit, 2,437 modules production build와 main `314.83 kB`/gzip `97.58 kB`(예산 `1,070.00 kB`/`325.00 kB`)를 통과했고, 14개 계획 route chunk와 main의 Konva·Recharts 격리를 audit으로 확인했다. Task 3의 계획된 Chromium 64/64는 1440/1024/760/390/320px에서 제어를 포함한 대표 route 전환을, disposable RealBackendLab 2/2는 실제 API/DB 기반 고객 여정을 검증했다.
 - 공통 고객 셸 상단은 현재 메뉴 제목과 실제 현장명 배지만 표시한다. 기존 층명 기반 `B2 주차장` 표기와 동작 없는 Gateway 정상·오프라인·미등록 상태 배지는 제거하되 설정의 `Gateway 상태` 상세 카드는 유지한다. 로그아웃 위치와 인증·dirty editor 확인 로직은 유지하고, 고객·운영자 셸의 로그아웃은 공통 `IconTooltipButton`으로 아이콘만 표시한다. `로그아웃` 도움말은 hover와 키보드 focus에서 열리고 도움말 위로 포인터를 옮겨도 유지되며 `Escape`로 닫힌다. 모바일 버튼은 52px 실제 터치 영역을 사용한다.
 - 수동·스케줄·이벤트 제어 탭을 통계 상단 메뉴와 같은 밑줄형 공통 `UnderlineNavigation`으로 통일했다. 탭 아이콘은 공통 label의 선택 옵션으로 제공해 제어의 기존 아이콘은 유지하고, 활성 밑줄·색상·44px 높이·가로 스크롤 동작은 통계와 공유한다. 기존 `mode` query, 권한별 탭 노출, `tablist`/`tab` ARIA 연결과 방향키·Home·End roving focus는 변경하지 않았다. 390·320·760px Chromium에서 세 모드 모두 탭과 panel 사이 16px 간격, overflow 내부 focus ring과 document 가로 overflow 부재를 확인했다.
 - 현장 capability를 시스템 role과 분리했다. `read` 일반 유저는 제어 메뉴와 `/control` 직접 진입이 차단되고 수동 제어 API도 `403`이다. `control` 일반 유저는 모니터링·통계와 수동 제어만 사용할 수 있으며 `mode=schedule|event` 직접 URL은 `manual`로 replace된다. admin은 수동·스케줄·이벤트 전체를 사용한다. mock Chromium E2E에서 세 권한의 메뉴·직접 route와 수동 명령 API 허용/거절을 검증했으며, 이는 실제 Gateway/BLE Mesh HIL 증거가 아니다.
@@ -236,7 +236,7 @@
 ## 부족하거나 개선이 필요한 기능
 
 - capability 원장은 생성 후 365일보다 오래되고 현재 node revision과 watermark가 모두 해당 revision보다 높은 superseded 기록만 자동 정리한다. 최신 capability 보고는 보존하며 전체 이벤트 정리는 sweep당 합산 최대 10,000개다. scope/hash가 없는 legacy 원장이나 현재 node·watermark 안전 조건을 증명할 수 없는 기록은 남긴다. watermark는 최신 identity를 보존하고 임의 과거 ID의 exact dedupe는 raw 원장이 남아 있는 기간에 의존한다. 같은 worker의 heartbeat 7일·fixture state 30일 정책과 세부 조건은 [DB 보존 문서](../database-schema.md#운영-데이터-보존과-복구-범위)를 따른다. 사용자/운영 DB migration 적용과 Raspberry Pi/ESP32-H2 replay HIL은 미실행이다.
-
+- 1440/390/320px 결과는 Chromium 자동 브라우저 software 증거다. 실제 iOS/Android native WebView, 수동 in-app 시각 QA, WebView safe-area 실측 또는 Raspberry Pi/ESP32-H2 HIL을 수행한 결과가 아니다. Lazy chunk load 실패의 전용 복구 UI와 prefetch/offline cache도 후속 범위다.
 - 공통 우측 패널의 반응형·overflow 계약은 Chromium 1440/1024/390/320px route fixture로 검증했으며 실제 모바일 WebView safe-area와 브라우저별 scrollbar 표현은 별도 실측이 필요하다.
 - 현재 개별 밝기 제어는 acknowledged Light Lightness Set을 한 번 전송하고 Status를 기다린다. 2026-09-03 HIL 4회 중 3회는 1~2초 내 성공했고 1회는 장치 적용 후 Status 한 패킷 유실로 timeout 됐다. 자동 Set 재전송 없이 후속 Lightness Get으로 실제 적용 여부를 확인하는 API·Gateway·웹 경로는 소프트웨어 구현을 완료했다. 해당 응답 유실 및 복구 경로의 실제 Raspberry Pi/BlueZ/ESP32-H2 HIL이 남아 있다.
 - API/Gateway의 DB·journal 이후 PUBACK 계약은 자동화됐지만, API 종료·Gateway 종료·broker 재연결과 ESP32-H2 cold boot를 동시에 포함한 acceptance/device-status 중복 재전달 및 AppKey 복원은 실장비 전원 차단 HIL로 확인해야 한다.
@@ -272,7 +272,9 @@
 - `apps/api/src/commands/command-delivery-reliability.spec.ts`
 - `apps/api/src/retention/gateway-event-watermark.ts`, `apps/api/src/retention/gateway-event-watermark.integration.spec.ts`
 - `apps/api/src/retention/data-retention.service.ts`, `apps/api/src/retention/data-retention.integration.spec.ts`
-
+- `apps/web/src/App.tsx`
+- `apps/web/src/components/ui/RouteLoadingState.tsx`
+- `apps/web/src/features/shells/CustomerShell.tsx`
 - `apps/web/e2e/site-user-management.spec.ts`
 - `apps/api/src/access/site-access.service.ts`
 - `apps/api/src/commands/commands.service.ts`
