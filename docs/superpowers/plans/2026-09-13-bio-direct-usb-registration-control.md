@@ -671,11 +671,11 @@ git commit -m "feat(gateway): deploy one BIO raw USB device safely"
 - temporary password와 claim code는 Git-ignored mode `0600` local handoff file에만 저장하고 로그·증거·문서에 원문을 남기지 않는다.
 - BIO dongle/lamp module에는 address/brightness/identify/sensor write를 보내지 않는다.
 
-- [ ] **Step 1: 생성 직전 경계를 재검증한다.** canonical `admin4`가 0건이고 `admin3` identity/organization/Site 핵심 해시와 건수가 유지되는지 read-only transaction으로 확인한다.
+- [x] **Step 1: 생성 직전 경계를 재검증한다.** canonical `admin4`가 0건이고 `admin3` identity/organization/Site 핵심 해시와 건수가 유지되는지 read-only transaction으로 확인했다.
 
-- [ ] **Step 2: 기존 operator create API로 admin4 Lab을 만든다.** 별도 customer organization + pending Site + active admin을 transaction으로 생성하고, strong temporary password는 ignored mode `0600` handoff file에만 기록한다.
+- [x] **Step 2: 기존 operator create API로 admin4 Lab을 만든다.** 별도 customer organization + pending Site + active admin을 transaction으로 생성했고, strong temporary password는 ignored mode `0600` handoff file에만 기록했다.
 
-- [ ] **Step 3: 생성 결과와 admin3 보존을 검증한다.** `admin4` exact-one, pending Site/Floor 0, 새 organization 분리와 `admin3` 기존 graph 불변을 확인한다.
+- [x] **Step 3: 생성 결과와 admin3 보존을 검증한다.** `admin4` exact-one, pending Site/Floor 0, 새 organization 분리와 `admin3` 기존 graph 불변을 확인했다. `admin3`의 Floor 2/Fixture 400/Gateway 2는 유지됐다.
 
 - [ ] **Step 4: Pi를 새 manufacturing identity로 등록한다.** old orphan certificate를 새 Gateway ID에 재결속하지 않고 새 serial/device identity와 one-time claim code를 사용한다. 기존 orphan certificate의 active 상태는 제품 PKI 경로로 revoke/disable한 뒤 진행한다.
 
