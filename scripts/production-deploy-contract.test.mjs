@@ -10,6 +10,7 @@ import * as productionConfig from "./production-compose-config.mjs";
 
 const root = path.resolve(import.meta.dirname, "..");
 const source = readFileSync(path.join(root, "docker-compose.production.yml"), "utf8");
+const runbook = readFileSync(path.join(root, "docs/runbooks/production-api-web-deployment.md"), "utf8");
 const required = ["API_IMAGE", "WEB_IMAGE", "POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB", "DATABASE_URL", "REDIS_PASSWORD", "REDIS_URL", "MQTT_URL", "MQTT_PUBLIC_URL", "MQTT_API_INSTANCE_ID", "MQTT_TLS_CERT_DIR", "API_TLS_CERT_DIR", "WEB_TLS_CERT_DIR", "VAULT_ADDR", "VAULT_TOKEN_FILE", "VAULT_CA_CERT_PATH", "VAULT_PKI_DEVICE_MOUNT", "VAULT_PKI_DEVICE_ROLE", "VAULT_PKI_MQTT_MOUNT", "VAULT_PKI_MQTT_ROLE", "OBJECT_STORAGE_ACCESS_KEY", "OBJECT_STORAGE_SECRET_KEY", "OBJECT_STORAGE_BUCKET", "OBJECT_STORAGE_REPORT_BUCKET", "OBJECT_STORAGE_ENDPOINT", "OBJECT_STORAGE_PUBLIC_URL", "OBJECT_STORAGE_REGION", "WEB_PUBLIC_URL", "WEB_HTTPS_ORIGIN", "WEB_HTTP_PORT", "WEB_HTTPS_PORT"];
 required.push("PRODUCTION_COMPOSE_PROJECT", "DEVICE_API_HTTPS_PORT");
 // Config output is never logged; fixtures cannot inherit shell credentials or .env.
@@ -135,6 +136,15 @@ test("only CRL initialization and the API can write dynamic CRL volumes; secrets
   assert.equal(s.api.environment.API_DEVICE_CRL_PATH,'/run/device-crl/device.crl');
   assert.equal(s.api.environment.MQTT_CLIENT_CRL_PATH,'/run/mqtt-crl/mqtt-client.crl');
   assert.equal(s.api.environment.API_MANUFACTURING_CRL_PATH,'/run/api-tls/manufacturing.crl');
+});
+
+test("floor assets and generated reports remain private in object storage", () => {
+  const { config } = render();
+  const command = config.services["object-storage-init"].command.join(" ");
+  assert.equal((command.match(/mc anonymous set none/g) ?? []).length, 2);
+  assert.doesNotMatch(command, /mc anonymous set download/);
+  assert.equal(config.services["object-storage"].environment.MINIO_API_CORS_ALLOW_ORIGIN, "https://web.invalid");
+  assert.doesNotMatch(runbook, /도면 bucket은 공개 download/);
 });
 
 test("production source and commands exclude dev credentials, PEM and merged defaults", () => {

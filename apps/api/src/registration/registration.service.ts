@@ -34,6 +34,16 @@ interface PendingRegistration {
   size: number;
 }
 
+const INTERNAL_REGISTRATION_SESSION_FIELDS = [
+  "scanTerminalEventId",
+  "scanTerminalSequence",
+  "scanTerminalEventType",
+  "scanTerminalPayloadHash",
+  "scanTerminalIngestedAt"
+] as const;
+
+type InternalRegistrationSessionField = typeof INTERNAL_REGISTRATION_SESSION_FIELDS[number];
+
 @Injectable()
 export class RegistrationService {
   constructor(
@@ -48,7 +58,7 @@ export class RegistrationService {
     await this.assertCommissionAccess(user, input.siteId);
 
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      const session = await this.prisma.$transaction(async (tx) => {
         await this.siteAccess.assertCommissionInTransaction(tx, user, input.siteId);
         await this.assertActiveFloorInTransaction(tx, input.siteId, input.floorId);
 
@@ -82,6 +92,7 @@ export class RegistrationService {
         });
         return session;
       });
+      return toRegistrationSessionResponse(session);
     } catch (error) {
       if (this.isGatewayScanConflict(error)) throw new ConflictException({ code: "gateway_scan_in_progress" });
       throw error;
@@ -95,16 +106,17 @@ export class RegistrationService {
     });
     if (!session) throw new NotFoundException("registration session not found");
     await this.assertCommissionAccess(user, session.siteId);
-    return session;
+    return toRegistrationSessionResponse(session);
   }
 
   async listActiveSessions(user: AuthenticatedUser, siteId: string) {
     await this.assertCommissionAccess(user, siteId);
-    return this.prisma.provisioningSession.findMany({
+    const sessions = await this.prisma.provisioningSession.findMany({
       where: { siteId, status: "active" },
       orderBy: { startedAt: "desc" },
       include: { discoveredNodes: { orderBy: { discoveredAt: "asc" } } }
     });
+    return sessions.map(toRegistrationSessionResponse);
   }
 
   async identifyNode(user: AuthenticatedUser, sessionId: string, nodeId: string) {
@@ -127,7 +139,7 @@ export class RegistrationService {
     await this.assertCommissionAccess(user, accessSession.siteId);
 
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      const session = await this.prisma.$transaction(async (tx) => {
         await this.siteAccess.assertCommissionInTransaction(tx, user, accessSession.siteId);
         await this.assertActiveFloorInTransaction(tx, accessSession.siteId, accessSession.floorId);
         await this.lockGateway(tx, accessSession.gatewayId);
@@ -166,6 +178,7 @@ export class RegistrationService {
         });
         return session;
       });
+      return toRegistrationSessionResponse(session);
     } catch (error) {
       if (this.isGatewayScanConflict(error)) throw new ConflictException({ code: "gateway_scan_in_progress" });
       throw error;
@@ -407,7 +420,7 @@ export class RegistrationService {
     const accessSession = await this.prisma.provisioningSession.findUnique({ where: { id: sessionId }, select: { siteId: true } });
     if (!accessSession) throw new NotFoundException("registration session not found");
     await this.assertCommissionAccess(user, accessSession.siteId);
-    return this.prisma.$transaction(async (tx) => {
+    const completed = await this.prisma.$transaction(async (tx) => {
       await this.siteAccess.assertCommissionInTransaction(tx, user, accessSession.siteId);
       await tx.$queryRaw`SELECT "id" FROM "ProvisioningSession" WHERE "id" = ${sessionId} FOR UPDATE`;
       const session = await tx.provisioningSession.findUnique({ where: { id: sessionId } });
@@ -437,6 +450,7 @@ export class RegistrationService {
         include: { discoveredNodes: true }
       });
     });
+    return toRegistrationSessionResponse(completed);
   }
 
   async cancelSession(user: AuthenticatedUser, sessionId: string) {
@@ -447,7 +461,7 @@ export class RegistrationService {
     if (!accessSession) throw new NotFoundException("registration session not found");
     await this.assertCommissionAccess(user, accessSession.siteId);
 
-    return this.prisma.$transaction(async (tx) => {
+    const cancelled = await this.prisma.$transaction(async (tx) => {
       await this.siteAccess.assertCommissionInTransaction(tx, user, accessSession.siteId);
       await tx.$queryRaw`SELECT "id" FROM "ProvisioningSession" WHERE "id" = ${sessionId} FOR UPDATE`;
       const session = await tx.provisioningSession.findUnique({ where: { id: sessionId } });
@@ -475,6 +489,7 @@ export class RegistrationService {
         include: { discoveredNodes: true }
       });
     });
+    return toRegistrationSessionResponse(cancelled);
   }
 
   private assertActiveSession(status: string) {
@@ -534,4 +549,10 @@ export class RegistrationService {
     }
     await this.siteAccess.assert(user, siteId, "commission");
   }
+}
+
+function toRegistrationSessionResponse<T extends object>(session: T): Omit<T, InternalRegistrationSessionField> {
+  const response = { ...session } as T & Partial<Record<InternalRegistrationSessionField, unknown>>;
+  for (const field of INTERNAL_REGISTRATION_SESSION_FIELDS) delete response[field];
+  return response;
 }

@@ -138,7 +138,9 @@ describe("FixturesService", () => {
       jest.useFakeTimers().setSystemTime(now);
       try {
         const prisma = {
-          floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },
+          floor: {
+            findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1", status: "active" })
+          },
           site: { findUnique: jest.fn().mockResolvedValue({ gatewayOfflineAfterSeconds: 120, fixtureStaleAfterSeconds: 240 }) },
           fixture: { findMany: jest.fn().mockResolvedValue([{
             id: "fixture-1", status: "online", healthFaultCodes: [], healthLastSeenAt: now,

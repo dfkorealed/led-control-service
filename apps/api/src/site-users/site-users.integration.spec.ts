@@ -55,9 +55,14 @@ describeDatabase("Site Users PostgreSQL concurrency and deletion", () => {
       cwd: join(__dirname, "../.."), env: { ...process.env, DATABASE_URL: url.toString() }, encoding: "utf8"
     });
     if (generated.status !== 0) throw new Error(`Prisma test DDL failed: ${generated.stderr}`);
-    const migration = readFileSync(join(__dirname, "../../prisma/migrations/20260827090000_operator_admin_account_flow/migration.sql"), "utf8");
-    const triggers = migration.slice(migration.indexOf('CREATE FUNCTION "serialize_admin_assignment_writes"'), migration.lastIndexOf("COMMIT;"));
-    sql(`SET search_path TO "${schema}";\n${generated.stdout}\n${triggers}`);
+    const adminMigration = readFileSync(join(__dirname, "../../prisma/migrations/20260827090000_operator_admin_account_flow/migration.sql"), "utf8");
+    const adminTriggers = adminMigration.slice(adminMigration.indexOf('CREATE FUNCTION "serialize_admin_assignment_writes"'), adminMigration.lastIndexOf("COMMIT;"));
+    const automationMigration = readFileSync(join(__dirname, "../../prisma/migrations/20260829_add_lighting_automation/migration.sql"), "utf8");
+    const automationLock = automationMigration.slice(
+      automationMigration.indexOf('CREATE FUNCTION "lock_automation_membership_mutation"'),
+      automationMigration.indexOf('CREATE FUNCTION "lock_automation_membership_statement"')
+    );
+    sql(`SET search_path TO "${schema}";\n${generated.stdout}\n${adminTriggers}\n${automationLock}`);
     prisma = new PrismaService({ datasources: { db: { url: url.toString() } } });
     competitor = new PrismaService({ datasources: { db: { url: url.toString() } } });
     await prisma.$connect();

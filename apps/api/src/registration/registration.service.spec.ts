@@ -178,6 +178,36 @@ describe("RegistrationService", () => {
     });
   });
 
+  it("returns a completed registration session as JSON without internal terminal replay identity", async () => {
+    const terminalSession = {
+      ...registrationSession(),
+      scanTerminalEventId: "99999999-9999-4999-8999-999999999999",
+      scanTerminalSequence: 2n,
+      scanTerminalEventType: "provisioning_scan_completed",
+      scanTerminalPayloadHash: "a".repeat(64),
+      scanTerminalIngestedAt: new Date("2026-07-01T00:01:00.000Z"),
+      discoveredNodes: []
+    };
+    const { service } = await createModule({
+      provisioningSession: {
+        create: jest.fn(),
+        findUnique: jest.fn().mockResolvedValue(terminalSession),
+        findMany: jest.fn(),
+        update: jest.fn(),
+        updateMany: jest.fn()
+      }
+    });
+
+    const result = await service.getSession(admin, ids.sessionId);
+
+    expect(() => JSON.stringify(result)).not.toThrow();
+    expect(result).not.toHaveProperty("scanTerminalEventId");
+    expect(result).not.toHaveProperty("scanTerminalSequence");
+    expect(result).not.toHaveProperty("scanTerminalEventType");
+    expect(result).not.toHaveProperty("scanTerminalPayloadHash");
+    expect(result).not.toHaveProperty("scanTerminalIngestedAt");
+  });
+
   it("excludes only a reconciliation node while preserving provisioning evidence", async () => {
     const session = { id: ids.sessionId, siteId: ids.siteId, status: "active" };
     const node = {

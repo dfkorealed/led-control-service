@@ -196,10 +196,21 @@ Verification before completing the merge: release bundle, activation/rollback, a
 - Consumes: the complete merged application.
 - Produces: synchronized documentation and final verification evidence.
 
-- [ ] Verify every menu document retains `구현 완료`, `미구현`, `부족하거나 개선이 필요한 기능`, `관련 파일`, and `갱신 규칙`.
-- [ ] Compare `docs/database-schema.md` with the final Prisma schema and migration directory.
-- [ ] Run `pnpm --filter @led-control/api exec prisma validate --schema prisma/schema.prisma` and Prisma generation.
+- [x] Verify every menu document retains `구현 완료`, `미구현`, `부족하거나 개선이 필요한 기능`, `관련 파일`, and `갱신 규칙`.
+- [x] Compare `docs/database-schema.md` with the final Prisma schema and migration directory.
+- [x] Run `pnpm --filter @led-control/api exec prisma validate --schema prisma/schema.prisma` and Prisma generation.
 - [ ] Run `pnpm test`, `pnpm lint`, `pnpm typecheck`, and the workspace production audit command present after integration.
-- [ ] Run `git diff --check` and inspect the complete integration diff and merge graph.
-- [ ] Dispatch an independent whole-branch code review and address any load-bearing findings.
+- [x] Run `git diff --check` and inspect the complete integration diff and merge graph.
+- [x] Dispatch an independent whole-branch code review and address any load-bearing findings.
 - [ ] Record exact commands and results in this plan, commit the integration documentation, and leave feature branches/worktrees intact unless cleanup is separately requested.
+
+Interim integrated-tree evidence recorded 2026-09-13:
+
+- All four menu documents retain the five required sections. Their platform review state, private floor-asset delivery, settings navigation/account-security scope, and historical branch migration counts were reconciled; the combined tree contains 69 migrations.
+- An independent schema/document audit confirmed that the final Prisma models from every P0/P1 branch remain represented in `docs/database-schema.md`. Prisma format/generate succeeded and validate passed with a disposable placeholder `DATABASE_URL`.
+- `pnpm lint`, `pnpm typecheck`, and `pnpm build` each exited 0.
+- `pnpm test` exited 0: root scripts 94/94, Shared 213/213, Automation 28/28, Mobile 1/1, Web 876/876, API 1,531 passed with 437 environment-gated skips, and Gateway 627/627.
+- The first full unit run exposed stale integration-era test doubles for Redis, event watermarks, and active Floor state. Production behavior was retained; the test harnesses were updated and the complete workspace rerun passed.
+- A disposable PostgreSQL 16/Redis 7 run applied all 69 migrations to both isolated databases. The first `pnpm ci:integration` run passed 125/127 and exposed two stale isolated-test contracts: FloorAsset cleanup now intentionally retains its claim during the two-minute backoff, and the SiteUsers per-test schema omitted the production automation membership lock function. Focused RED-to-GREEN verification passed, and the complete isolated rerun passed 13/13 suites and 127/127 tests. No user or production database was changed.
+- The isolated real-backend installation journey first exposed a production defect: completed provisioning sessions leaked a Prisma `BigInt` replay cursor and Express returned HTTP 500 during JSON serialization. All public session response paths now omit the five internal replay-identity fields; the API regression suites passed 48/48, the Web registration suite passed 25/25, and the complete real-backend lab passed 2/2 against disposable PostgreSQL, Redis, and MQTT services.
+- The independent whole-branch review found one critical deployment-policy conflict and one important browser-upload hardening gap. Both floor-asset and report buckets now initialize with `anonymous none`; MinIO CORS is restricted to the required `WEB_PUBLIC_URL`; the runbook preserves authenticated content lookup followed by a 300-second signed GET. The new production deployment regression was observed RED before each fix and passed 11/11 afterward. The reviewer then reported Critical 0, Important 0, Minor 0 and `Ready to merge`.

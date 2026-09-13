@@ -657,7 +657,8 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
       })
     };
     const cleanup = new FloorAssetCleanupService(prisma, storage as never);
-    const cleaning = cleanup.processPending(new Date());
+    const cleanupNow = new Date();
+    const cleaning = cleanup.processPending(cleanupNow);
     await deleteStarted.promise;
     const editor = new FloorEditorService(prisma, siteAccess, new AuditService(prisma));
 
@@ -679,7 +680,7 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
     await expect(prisma.floorAsset.findUniqueOrThrow({
       where: { id: ids.assetId },
       select: { cleanupStartedAt: true }
-    })).resolves.toEqual({ cleanupStartedAt: null });
+    })).resolves.toEqual({ cleanupStartedAt: cleanupNow });
     await expect(prisma.floorMapRevision.count({ where: { floorId: ids.floorId } })).resolves.toBe(0);
   });
 

@@ -82,6 +82,7 @@ services:
     environment:
       MINIO_ROOT_USER: ${OBJECT_STORAGE_ACCESS_KEY:?Set OBJECT_STORAGE_ACCESS_KEY}
       MINIO_ROOT_PASSWORD: ${OBJECT_STORAGE_SECRET_KEY:?Set OBJECT_STORAGE_SECRET_KEY}
+      MINIO_API_CORS_ALLOW_ORIGIN: ${WEB_PUBLIC_URL:?Set WEB_PUBLIC_URL}
     volumes: [object-storage-data:/data]
     tmpfs: [/tmp]
     healthcheck:
@@ -109,7 +110,7 @@ services:
         test "$${OBJECT_STORAGE_BUCKET}" != "$${OBJECT_STORAGE_REPORT_BUCKET}";
         mc alias set local http://object-storage:9000 "$${OBJECT_STORAGE_ACCESS_KEY}" "$${OBJECT_STORAGE_SECRET_KEY}" >/dev/null;
         mc mb --ignore-existing "local/$${OBJECT_STORAGE_BUCKET}";
-        mc anonymous set download "local/$${OBJECT_STORAGE_BUCKET}";
+        mc anonymous set none "local/$${OBJECT_STORAGE_BUCKET}";
         mc mb --ignore-existing "local/$${OBJECT_STORAGE_REPORT_BUCKET}";
         mc anonymous set none "local/$${OBJECT_STORAGE_REPORT_BUCKET}";
 

@@ -5,6 +5,7 @@ import { CommandTimeoutService } from "../commands/command-timeout.service";
 import { MeshControlGroupService } from "../mesh-control-groups/mesh-control-group.service";
 import { MeshGroupSyncWorker } from "../mesh-control-groups/mesh-group-sync.worker";
 import { PrismaService } from "../prisma/prisma.service";
+import { RedisProvider } from "../redis/redis.provider";
 import { MqttModule } from "./mqtt.module";
 import { MqttService } from "./mqtt.service";
 import { MqttShutdownCoordinator } from "./mqtt-shutdown-coordinator.service";
@@ -187,6 +188,11 @@ describe("MqttShutdownCoordinator", () => {
       .useValue(prisma)
       .overrideProvider(MeshControlGroupService)
       .useValue(meshGroups)
+      // MqttModule reaches AuthModule through monitoring incidents. Redis itself is
+      // external to this MQTT shutdown test, so keep only the imported provider's
+      // lifecycle out of the test while preserving the production module graph.
+      .overrideProvider(RedisProvider)
+      .useValue({})
       .compile();
     const mqtt = moduleRef.get(MqttService);
     const meshWorker = moduleRef.get(MeshGroupSyncWorker);

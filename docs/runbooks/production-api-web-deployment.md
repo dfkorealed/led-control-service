@@ -49,7 +49,7 @@ API는 migration과 runtime에 같은 image를 사용한다. 로컬 image ID와 
 
 ## 3. 필수 환경·PKI 경로 확인 — 읽기 전용
 
-필수 입력 34개는 다음과 같다. 내부 URL의 PostgreSQL·Redis credential은 각각 서비스 설정과 일치하고 URL 인코딩해야 한다. 브라우저 origin 두 값은 동일한 승인 HTTPS origin을 사용한다. 도면 bucket은 공개 download, 보고서 bucket은 비공개로 초기화하므로 서로 다른 이름이어야 한다.
+필수 입력 34개는 다음과 같다. 내부 URL의 PostgreSQL·Redis credential은 각각 서비스 설정과 일치하고 URL 인코딩해야 한다. 브라우저 origin 두 값은 동일한 승인 HTTPS origin을 사용한다. 도면·보고서 bucket은 모두 `anonymous none`으로 초기화하고 서로 다른 이름을 사용한다. 도면 업로드용 presigned PUT의 CORS origin은 `WEB_PUBLIC_URL` 하나로 제한하며, 조회는 인증된 API content endpoint가 발급하는 300초 signed GET만 사용한다.
 
 | 구분 | 필수 env key |
 | --- | --- |
@@ -202,7 +202,7 @@ production_compose logs --no-color --since=10m --tail=100 postgres redis mqtt-tl
 | CRL reload 실패 | 승인된 발행 결과·checksum·broker reload log·기한·실제 재접속 검증으로 판단 |
 | migration 실패 | one-shot nonzero는 release 중단; DB 복구 책임자에게 escalate하고 API 선기동 금지 |
 
-Metrics는 process-local이며 재시작 시 초기화된다. 여러 instance 합산, durable 보존, route/tenant label, p95/p99 histogram은 제공하지 않는다. 단일 호스트 Compose는 rolling·multi-region·zero-downtime orchestration을 제공하지 않는다. API/Web은 non-root지만 MinIO는 upstream `/data` 소유권 때문에 UID 0·capability 없음 예외다. Web만 세 host port를 publish하므로 MQTT/Object Storage 공개 접근·TLS·CORS는 별도 운영 구성이 필요하며 smoke로 외부 경로 정상 여부를 판정하지 않는다.
+Metrics는 process-local이며 재시작 시 초기화된다. 여러 instance 합산, durable 보존, route/tenant label, p95/p99 histogram은 제공하지 않는다. 단일 호스트 Compose는 rolling·multi-region·zero-downtime orchestration을 제공하지 않는다. API/Web은 non-root지만 MinIO는 upstream `/data` 소유권 때문에 UID 0·capability 없음 예외다. Web만 세 host port를 publish하므로 MQTT/Object Storage의 외부 TLS 진입점은 별도 운영 구성이 필요하고 smoke로 외부 경로 정상 여부를 판정하지 않는다. Object Storage 진입점을 구성하더라도 두 bucket의 anonymous 접근은 금지하며, CORS는 승인된 `WEB_PUBLIC_URL`에서의 presigned PUT만 허용하고 다운로드는 인증 endpoint에서 발급한 300초 signed GET 경로를 유지한다.
 
 ## 검증 증거와 남은 승인
 

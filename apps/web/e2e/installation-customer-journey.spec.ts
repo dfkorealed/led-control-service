@@ -165,20 +165,20 @@ test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 
   await admin.getByRole("button", { name: "30%", exact: true }).click();
   await admin.getByRole("button", { name: "밝기 적용" }).click();
   await lab.waitForDimmingCommandCount(++expectedDimmingCount);
-  await expect(admin.getByText("조명 적용 완료")).toBeVisible();
+  await expect(admin.getByRole("status", { name: "명령 진행 상태" }).getByText("조명 적용 완료")).toBeVisible();
 
   await admin.getByRole("checkbox", { name: `${fixtureNames[1]} 선택` }).check();
   await admin.getByRole("button", { name: "70%", exact: true }).click();
   await admin.getByRole("button", { name: "밝기 적용" }).click();
   await lab.waitForDimmingCommandCount(++expectedDimmingCount);
-  await expect(admin.getByText("조명 적용 완료")).toBeVisible();
+  await expect(admin.getByRole("status", { name: "명령 진행 상태" }).getByText("조명 적용 완료")).toBeVisible();
 
   await admin.getByRole("button", { name: "층", exact: true }).click();
   await admin.getByRole("button", { name: "B1", exact: true }).click();
   await admin.getByRole("button", { name: "100%", exact: true }).click();
   await admin.getByRole("button", { name: "밝기 적용" }).click();
   await lab.waitForDimmingCommandCount(++expectedDimmingCount);
-  await expect(admin.getByText("조명 적용 완료")).toBeVisible();
+  await expect(admin.getByRole("status", { name: "명령 진행 상태" }).getByText("조명 적용 완료")).toBeVisible();
 
   await admin.getByRole("button", { name: "구역 관리" }).click();
   await admin.getByRole("button", { name: "새 구역" }).click();
@@ -196,7 +196,7 @@ test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 
   await admin.getByRole("button", { name: "0%", exact: true }).click();
   await admin.getByRole("button", { name: "밝기 적용" }).click();
   await lab.waitForDimmingCommandCount(++expectedDimmingCount);
-  await expect(admin.getByText("조명 적용 완료")).toBeVisible();
+  await expect(admin.getByRole("status", { name: "명령 진행 상태" }).getByText("조명 적용 완료")).toBeVisible();
 
   await lab.publishEnergyHistory("available");
   await admin.getByRole("link", { name: "통계" }).click();
@@ -287,13 +287,13 @@ test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 
   expect((await resetResponsePromise).status()).toBe(201);
   await expect(operator.getByRole("status")).toHaveText("관리자 비밀번호를 재설정했습니다.");
 
-  await operator.getByRole("button", { name: `${updatedAdminName} 삭제` }).click();
-  const deleteDialog = operator.getByRole("dialog", { name: `${updatedAdminName} 삭제` });
+  await operator.getByRole("button", { name: `${siteName} 현장 전체 삭제` }).click();
+  const deleteDialog = operator.getByRole("dialog", { name: `${siteName} 현장 전체 삭제` });
   await deleteDialog.getByLabel("삭제할 현장명").fill(siteName);
   const deleteResponsePromise = operator.waitForResponse((response) => (
     response.url().includes("/api/operator/site-admins/") && response.request().method() === "DELETE"
   ));
-  await deleteDialog.getByRole("button", { name: "영구 삭제", exact: true }).click();
+  await deleteDialog.getByRole("button", { name: "현장 전체 삭제", exact: true }).click();
   expect((await deleteResponsePromise).status()).toBe(200);
   await expect(operator.getByText(siteName)).toHaveCount(0);
   lab.assertOperatorNetworkIsolation();
