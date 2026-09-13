@@ -174,9 +174,9 @@ export interface BioUsbDeviceHandle {
 }
 ```
 
-- [ ] **Step 1: exact-one descriptor와 lifecycle RED 테스트를 작성한다.** 0대, 2대, VID/PID 불일치, interface/endpoint/packet 불일치, open 실패, detach 실패, 각 control transfer 실패, poll 실패, release 실패, reattach 실패를 별도 case로 만든다.
+- [x] **Step 1: exact-one descriptor와 lifecycle RED 테스트를 작성한다.** 0대, 2대, VID/PID 불일치, interface/endpoint/packet 불일치, open 실패, detach 실패, 각 control transfer 실패, poll 실패, release 실패, reattach 실패를 별도 case로 만든다.
 
-- [ ] **Step 2: CH34x 8단계 순서 RED 테스트를 작성한다.**
+- [x] **Step 2: CH34x 8단계 순서 RED 테스트를 작성한다.**
 
 ```ts
 expect(handle.calls).toEqual([
@@ -191,29 +191,29 @@ expect(handle.calls).toEqual([
 ]);
 ```
 
-- [ ] **Step 3: RED를 확인한다.**
+- [x] **Step 3: RED를 확인한다.**
 
 Run: `pnpm --filter @led-control/gateway exec vitest run src/bio/bio-direct-usb-connection.test.ts src/bio/node-usb-driver.test.ts`
 
 Expected: direct USB modules가 없어 실패한다.
 
-- [ ] **Step 4: `usb@2.15.0`을 exact dependency로 추가한다.** `apps/gateway/package.json`은 `apply_patch`로 수정하고 lockfile은 package manager로 재계산한다. v2 legacy API의 `getDeviceList`, `Device.controlTransfer`, `Interface.claim/release`, `InEndpoint.startPoll/stopPoll`, `OutEndpoint.transfer`를 사용한다. 별도 `@types/usb`는 추가하지 않는다.
+- [x] **Step 4: `usb@2.15.0`을 exact dependency로 추가한다.** `apps/gateway/package.json`은 `apply_patch`로 수정하고 lockfile은 package manager로 재계산한다. v2 legacy API의 `getDeviceList`, `Device.controlTransfer`, `Interface.claim/release`, `InEndpoint.startPoll/stopPoll`, `OutEndpoint.transfer`를 사용한다. 별도 `@types/usb`는 추가하지 않는다.
 
 Run: `pnpm install --lockfile-only`
 
-- [ ] **Step 5: `NodeUsbDriver`를 최소 구현한다.** `getDeviceList()` 결과에서 `idVendor===0x1a86 && idProduct===0x5523`인 장치를 모두 수집하고 정확히 하나가 아니면 `USB_IDENTITY`로 실패한다. callback API는 Promise wrapper 안에서 한 번만 settle한다.
+- [x] **Step 5: `NodeUsbDriver`를 최소 구현한다.** `getDeviceList()` 결과에서 `idVendor===0x1a86 && idProduct===0x5523`인 장치를 모두 수집하고 정확히 하나가 아니면 `USB_IDENTITY`로 실패한다. callback API는 Promise wrapper 안에서 한 번만 settle한다.
 
-- [ ] **Step 6: `BioDirectUsbConnection`을 구현한다.** open 순서는 descriptor 재검증 → device open → kernel driver detach 여부 기록 → interface claim → 8 control transfers → endpoint 검증 → IN poll 시작이다. close는 poll stop → release → 조건부 reattach → device close이며 어느 단계도 실패를 성공으로 숨기지 않는다.
+- [x] **Step 6: `BioDirectUsbConnection`을 구현한다.** open 순서는 descriptor 재검증 → device open → kernel driver detach 여부 기록 → interface claim → 8 control transfers → endpoint 검증 → IN poll 시작이다. close는 poll stop → release → 조건부 reattach → device close이며 어느 단계도 실패를 성공으로 숨기지 않는다.
 
-- [ ] **Step 7: detach/open 도중 실패한 경우에도 역순 cleanup이 정확히 한 번 실행되는지 GREEN으로 확인한다.**
+- [x] **Step 7: detach/open 도중 실패한 경우에도 역순 cleanup이 정확히 한 번 실행되는지 GREEN으로 확인한다.**
 
 Run: `pnpm --filter @led-control/gateway exec vitest run src/bio/bio-direct-usb-connection.test.ts src/bio/node-usb-driver.test.ts src/bio/bio-usb-transport.test.ts`
 
-- [ ] **Step 8: Docker ARM64 build가 native addon을 load할 수 있게 builder fallback dependency를 추가하고 local build/typecheck를 통과시킨다.** runtime에는 `libudev1`만 유지하고 compiler는 최종 image에 남기지 않는다.
+- [x] **Step 8: Docker ARM64 build가 native addon을 load할 수 있게 builder fallback dependency를 추가하고 local build/typecheck를 통과시킨다.** runtime에는 `libudev1`만 유지하고 compiler는 최종 image에 남기지 않는다.
 
 Run: `pnpm --filter @led-control/gateway typecheck && pnpm --filter @led-control/gateway build`
 
-- [ ] **Step 9: 커밋한다.**
+- [x] **Step 9: 커밋한다.**
 
 ```bash
 git add apps/gateway/src/bio apps/gateway/package.json apps/gateway/docker/Dockerfile pnpm-lock.yaml
