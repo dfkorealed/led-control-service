@@ -398,6 +398,11 @@ export const createRegistrationSessionSchema = z.object({
 
 export type CreateRegistrationSessionInput = z.infer<typeof createRegistrationSessionSchema>;
 
+// Registration identify is deliberately parameter-free. The Gateway owns the
+// BIO vendor packet, fixed force-on interval, and sensor-mode restoration; a
+// browser must never be able to supply timing or raw transport instructions.
+export const identifyRegistrationNodeInputSchema = z.object({}).strict();
+
 const registrationRatedWattSchema = z.union([
   z.number().finite().nonnegative().transform(String),
   z.string().trim().min(1).max(32).regex(/^\d+(?:\.\d+)?$/)
@@ -490,50 +495,88 @@ const provisioningUnicastAddressSchema = z.string().regex(/^0x[0-7][0-9a-f]{3}$/
   "meshAddress must be a BLE Mesh unicast address"
 );
 
-const provisioningDeviceIdentityFields = {
+const provisioningDeviceCommonIdentityFields = {
   commandId: z.string().uuid(),
   sessionId: z.string().uuid(),
   siteId: z.string().uuid(),
   gatewayId: z.string().uuid(),
   nodeId: z.string().uuid(),
-  deviceUuid: z.string().trim().min(1),
-  meshAddress: provisioningUnicastAddressSchema
+  deviceUuid: z.string().trim().min(1)
 };
 
-export const provisioningDeviceCommandV2Schema = z.object({
-  ...provisioningDeviceIdentityFields,
-  requestedAt: z.string().datetime()
-}).strict();
+const provisioningCommandTime = { requestedAt: z.string().datetime() };
+const provisioningDeviceProvisionIdentityFields = {
+  ...provisioningDeviceCommonIdentityFields,
+  operation: z.literal("provision").optional(),
+  meshAddress: provisioningUnicastAddressSchema
+};
+const provisioningDeviceIdentifyIdentityFields = {
+  ...provisioningDeviceCommonIdentityFields,
+  operation: z.literal("identify")
+};
 
-const provisioningDeviceTerminalEnvelope = {
-  ...provisioningDeviceIdentityFields,
+// `operation` remains optional only for the already-deployed provision v2 wire.
+// Every identify command is explicit and has no address or caller-controlled
+// duration/packet fields, so it cannot enter the address allocator path.
+export const provisioningDeviceCommandV2Schema = z.union([
+  z.object({ ...provisioningDeviceIdentifyIdentityFields, ...provisioningCommandTime }).strict(),
+  z.object({ ...provisioningDeviceProvisionIdentityFields, ...provisioningCommandTime }).strict()
+]);
+
+const provisioningDeviceTerminalCommonEnvelope = {
+  ...provisioningDeviceCommonIdentityFields,
   eventId: z.string().uuid(),
   sequence: nonnegativeInt4Schema,
   occurredAt: z.string().datetime()
 };
 
-export const provisioningDeviceTerminalV2Schema = z.discriminatedUnion("status", [
+const provisioningTerminalFailure = {
+  status: z.literal("failed"),
+  errorCode: z.string().trim().min(1),
+  errorMessage: z.string().trim().min(1)
+};
+
+export const provisioningDeviceTerminalV2Schema = z.union([
   z.object({
-    ...provisioningDeviceTerminalEnvelope,
+    ...provisioningDeviceTerminalCommonEnvelope,
+    operation: z.literal("identify"),
+    status: z.literal("completed"),
+    // A BIO identify is successful only after the fixed force-on interval and
+    // the subsequent sensor-mode read-back. `false` must use a failed terminal.
+    restoreConfirmed: z.literal(true)
+  }).strict(),
+  z.object({
+    ...provisioningDeviceTerminalCommonEnvelope,
+    operation: z.literal("identify"),
+    ...provisioningTerminalFailure
+  }).strict(),
+  z.object({
+    ...provisioningDeviceTerminalCommonEnvelope,
+    operation: z.literal("provision").optional(),
+    meshAddress: provisioningUnicastAddressSchema,
     status: z.literal("completed"),
     firmwareVersion: z.string().trim().min(1).optional(),
     rssi: z.number().max(0).nullable().optional(),
     hopCount: z.number().int().nonnegative().nullable().optional()
   }).strict(),
   z.object({
-    ...provisioningDeviceTerminalEnvelope,
-    status: z.literal("failed"),
-    errorCode: z.string().trim().min(1),
-    errorMessage: z.string().trim().min(1)
+    ...provisioningDeviceTerminalCommonEnvelope,
+    operation: z.literal("provision").optional(),
+    meshAddress: provisioningUnicastAddressSchema,
+    ...provisioningTerminalFailure
   }).strict()
 ]);
 
-export const applicationProvisioningDeviceTerminalIngestedAckV2Schema = z.object({
-  ...provisioningDeviceIdentityFields,
+const provisioningDeviceAckEnvelope = {
+  ...provisioningDeviceCommonIdentityFields,
   eventId: z.string().uuid(),
   sequence: nonnegativeInt4Schema,
   ingestedAt: z.string().datetime()
-}).strict();
+};
+export const applicationProvisioningDeviceTerminalIngestedAckV2Schema = z.union([
+  z.object({ ...provisioningDeviceAckEnvelope, operation: z.literal("identify") }).strict(),
+  z.object({ ...provisioningDeviceAckEnvelope, operation: z.literal("provision").optional(), meshAddress: provisioningUnicastAddressSchema }).strict()
+]);
 
 export type ProvisioningDeviceCommandV2 = z.infer<typeof provisioningDeviceCommandV2Schema>;
 export type ProvisioningDeviceTerminalV2 = z.infer<typeof provisioningDeviceTerminalV2Schema>;

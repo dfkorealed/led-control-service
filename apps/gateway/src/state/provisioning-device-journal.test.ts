@@ -32,6 +32,21 @@ afterEach(async () => {
 });
 
 describe("ProvisioningDeviceJournal", () => {
+  it("records identify completion only when the adapter confirms sensor-mode restore", async () => {
+    const { meshAddress: _meshAddress, ...common } = command;
+    const identify: ProvisioningDeviceCommandV2 = { ...common, operation: "identify" };
+    const journal = new ProvisioningDeviceJournal(await journalPath());
+
+    await handleDurableProvisioningDevice({
+      journal,
+      command: identify,
+      execute: async () => ({ restoreConfirmed: true }),
+      nextEnvelope: async () => envelope
+    });
+
+    const [terminal] = await journal.pendingTerminals();
+    expect(terminal.payload).toMatchObject({ operation: "identify", status: "completed", restoreConfirmed: true });
+  });
   it("durably accepts before RF and suppresses an exact duplicate while RF is running", async () => {
     const path = await journalPath();
     const journal = new ProvisioningDeviceJournal(path);

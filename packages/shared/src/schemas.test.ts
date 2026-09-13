@@ -28,6 +28,7 @@ import {
   provisioningCompletedSchema,
   provisioningFailedSchema,
   provisioningScanCompletedSchema,
+  identifyRegistrationNodeInputSchema,
   provisioningScanFailedSchema,
   provisioningScanFoundSchema,
   provisioningScanStartSchema,
@@ -154,6 +155,12 @@ describe("shared schemas", () => {
       siteId: "00000000-0000-4000-8000-000000000003",
       floorId: "00000000-0000-4000-8000-000000000005"
     })).toThrow();
+  });
+
+  it("keeps pre-provision identify parameter-free", () => {
+    expect(identifyRegistrationNodeInputSchema.parse({})).toEqual({});
+    expect(() => identifyRegistrationNodeInputSchema.parse({ durationMs: 30_000 })).toThrow();
+    expect(() => identifyRegistrationNodeInputSchema.parse({ packet: "8201" })).toThrow();
   });
 
   it("correlates provisioning scan starts, found events, and terminal events", () => {
@@ -335,6 +342,35 @@ describe("shared schemas", () => {
       errorCode: "provisioning_timeout",
       errorMessage: "provisioning timeout"
     }).status).toBe("failed");
+
+    const identifyCommand = {
+      operation: "identify" as const,
+      commandId: "77777777-7777-4777-8777-777777777777",
+      sessionId: identity.sessionId,
+      siteId: identity.siteId,
+      gatewayId: identity.gatewayId,
+      nodeId: identity.nodeId,
+      deviceUuid: identity.deviceUuid,
+      requestedAt: "2026-07-01T00:00:08.000Z"
+    };
+    expect(provisioningDeviceCommandV2Schema.parse(identifyCommand)).toEqual(identifyCommand);
+    const { requestedAt: _identifyRequestedAt, ...identifyIdentity } = identifyCommand;
+    expect(provisioningDeviceTerminalV2Schema.parse({
+      ...identifyIdentity,
+      eventId: "88888888-8888-4888-8888-888888888888",
+      sequence: 11,
+      occurredAt: "2026-07-01T00:00:10.000Z",
+      status: "completed",
+      restoreConfirmed: true
+    })).toMatchObject({ operation: "identify", status: "completed", restoreConfirmed: true });
+    expect(() => provisioningDeviceTerminalV2Schema.parse({
+      ...identifyIdentity,
+      eventId: "88888888-8888-4888-8888-888888888888",
+      sequence: 11,
+      occurredAt: "2026-07-01T00:00:10.000Z",
+      status: "completed",
+      restoreConfirmed: false
+    })).toThrow();
   });
 
   it("defines a complete desired mesh group membership set including deletion to empty", () => {

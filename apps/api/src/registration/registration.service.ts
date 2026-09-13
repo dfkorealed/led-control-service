@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, HttpException, HttpStatus, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import {
   CreateRegistrationSessionInput,
   gatewayHeartbeatFreshSince,
@@ -120,14 +120,89 @@ export class RegistrationService {
   }
 
   async identifyNode(user: AuthenticatedUser, sessionId: string, nodeId: string) {
-    const session = await this.prisma.provisioningSession.findUnique({
+    const accessSession = await this.prisma.provisioningSession.findUnique({
       where: { id: sessionId },
-      select: { siteId: true }
+      select: { siteId: true, floorId: true, gatewayId: true }
     });
-    if (!session) throw new NotFoundException("registration session not found");
-    await this.assertCommissionAccess(user, session.siteId);
-    void nodeId;
-    throw new HttpException({ code: "pre_provision_identify_unsupported" }, HttpStatus.NOT_IMPLEMENTED);
+    if (!accessSession) throw new NotFoundException("registration session not found");
+    await this.assertCommissionAccess(user, accessSession.siteId);
+
+    return this.prisma.$transaction(async (tx) => {
+      await this.siteAccess.assertCommissionInTransaction(tx, user, accessSession.siteId);
+      await this.assertActiveFloorInTransaction(tx, accessSession.siteId, accessSession.floorId);
+      await this.lockGateway(tx, accessSession.gatewayId);
+      const gateway = await tx.gateway.findFirst({ where: {
+        id: accessSession.gatewayId,
+        siteId: accessSession.siteId,
+        lastHeartbeatAt: { gte: gatewayHeartbeatFreshSince(new Date()) }
+      } });
+      if (!gateway) throw new ConflictException({ code: "registration_gateway_offline" });
+      await tx.$queryRaw`SELECT "id" FROM "ProvisioningSession" WHERE "id" = ${sessionId} FOR UPDATE`;
+      await tx.$queryRaw`
+        SELECT "id" FROM "DiscoveredMeshNode"
+        WHERE "id" = ${nodeId} AND "sessionId" = ${sessionId}
+        FOR UPDATE
+      `;
+      const session = await tx.provisioningSession.findUnique({ where: { id: sessionId } });
+      if (
+        !session
+        || session.siteId !== accessSession.siteId
+        || session.floorId !== accessSession.floorId
+        || session.gatewayId !== accessSession.gatewayId
+      ) {
+        throw new NotFoundException("registration session not found");
+      }
+      this.assertActiveSession(session.status);
+      if (session.scanStatus !== "completed") {
+        throw new ConflictException({ code: "identify_scan_not_completed" });
+      }
+      const node = await tx.discoveredMeshNode.findUnique({ where: { id: nodeId } });
+      if (!node || node.sessionId !== session.id) throw new NotFoundException("discovered node not found");
+      if (node.scanCorrelationId !== session.scanCorrelationId || node.scanAttempt !== session.scanAttempt) {
+        throw new ConflictException({ code: "identify_node_stale" });
+      }
+      if (node.meshAddress !== null || !["discovered", "identifying"].includes(node.status)) {
+        throw new ConflictException({ code: "identify_node_wrong_state" });
+      }
+
+      const existing = await tx.provisioningDeviceOutbox.findFirst({
+        where: {
+          sessionId,
+          nodeId,
+          deadLetteredAt: null,
+          payload: { path: ["operation"], equals: "identify" }
+        },
+        orderBy: { createdAt: "desc" }
+      });
+      if (node.status === "identifying") {
+        if (!existing) throw new ConflictException({ code: "identify_state_requires_reconciliation" });
+        return { status: "accepted" as const, operationId: existing.id, node };
+      }
+
+      const commandId = randomUUID();
+      const payload = provisioningDeviceCommandV2Schema.parse({
+        operation: "identify",
+        commandId,
+        sessionId,
+        siteId: session.siteId,
+        gatewayId: session.gatewayId,
+        nodeId,
+        deviceUuid: node.deviceUuid,
+        requestedAt: new Date().toISOString()
+      });
+      const updatedNode = await tx.discoveredMeshNode.update({
+        where: { id: node.id },
+        data: { status: "identifying", identifyState: "pending", errorMessage: null }
+      });
+      await tx.provisioningDeviceOutbox.create({ data: {
+        id: commandId,
+        sessionId,
+        nodeId,
+        topic: mqttTopicsV2.gatewayCommand(session.siteId, session.gatewayId, "provisioning/identify-device"),
+        payload
+      } });
+      return { status: "accepted" as const, operationId: commandId, node: updatedNode };
+    });
   }
 
   async retryScan(user: AuthenticatedUser, sessionId: string) {

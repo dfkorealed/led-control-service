@@ -53,6 +53,12 @@ export type RegistrationScanRetryResult = Omit<RegistrationSession, "discoveredN
   discoveredNodes?: DiscoveredRegistrationNode[];
 };
 
+export interface RegistrationIdentifyResult {
+  status: "accepted";
+  operationId: string;
+  node: DiscoveredRegistrationNode;
+}
+
 export function createRegistrationSession(siteId: string, floorId: string, gatewayId: string) {
   return apiPost<RegistrationSession>("/registration-sessions", { siteId, floorId, gatewayId });
 }
@@ -68,6 +74,13 @@ export function getActiveRegistrationSessions(siteId: string) {
 export function excludeRegistrationNode(sessionId: string, nodeId: string) {
   return apiPost<DiscoveredRegistrationNode>(
     `/registration-sessions/${sessionId}/nodes/${nodeId}/exclude`,
+    {}
+  );
+}
+
+export function identifyRegistrationNode(sessionId: string, nodeId: string) {
+  return apiPost<RegistrationIdentifyResult>(
+    `/registration-sessions/${sessionId}/nodes/${nodeId}/identify`,
     {}
   );
 }

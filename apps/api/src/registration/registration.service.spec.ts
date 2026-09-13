@@ -1048,23 +1048,46 @@ describe("RegistrationService", () => {
     );
   });
 
-  it("checks session site commission access before returning stateless identify unsupported", async () => {
-    const { service, prisma, mqtt, siteAccess } = await createModule({
-      provisioningSession: { create: jest.fn(), findUnique: jest.fn().mockResolvedValue({ id: ids.sessionId, siteId: ids.siteId }), update: jest.fn() }
+  it("queues one fixed identify operation without reserving an address or publishing inline", async () => {
+    const session = registrationSession();
+    const node = { id: ids.nodeId, sessionId: ids.sessionId, deviceUuid: "esp32h2-demo-001", status: "discovered", identifyState: "idle", meshAddress: null,
+      scanCorrelationId: currentScanCorrelationId, scanAttempt: 2 };
+    const { service, prisma, mqtt, allocation } = await createModule({
+      provisioningSession: { create: jest.fn(), findUnique: jest.fn().mockResolvedValue(session), update: jest.fn() },
+      discoveredMeshNode: { findUnique: jest.fn().mockResolvedValue(node), update: jest.fn().mockResolvedValue({ ...node, status: "identifying", identifyState: "pending" }) },
+      provisioningDeviceOutbox: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn(({ data }) => ({ ...data })) }
     });
 
-    await expect(service.identifyNode(admin, ids.sessionId, ids.nodeId)).rejects.toEqual(
-      new HttpException({ code: "pre_provision_identify_unsupported" }, 501)
-    );
+    await expect(service.identifyNode(admin, ids.sessionId, ids.nodeId)).resolves.toMatchObject({
+      status: "accepted",
+      node: { id: ids.nodeId, status: "identifying", identifyState: "pending", meshAddress: null }
+    });
 
-    expect(prisma.provisioningSession.findUnique).toHaveBeenCalledWith({ where: { id: ids.sessionId }, select: { siteId: true } });
-    expect(siteAccess.assert).toHaveBeenCalledWith(admin, ids.siteId, "commission");
-    expect(prisma.discoveredMeshNode.findUnique).not.toHaveBeenCalled();
-    expect(prisma.discoveredMeshNode.update).not.toHaveBeenCalled();
+    expect(prisma.provisioningDeviceOutbox.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      sessionId: ids.sessionId,
+      nodeId: ids.nodeId,
+      topic: `sites/${ids.siteId}/gateways/${ids.gatewayId}/commands/provisioning/identify-device`,
+      payload: expect.objectContaining({ operation: "identify", sessionId: ids.sessionId, nodeId: ids.nodeId, deviceUuid: node.deviceUuid })
+    }) });
+    expect(allocation.reserveMeshAddresses).not.toHaveBeenCalled();
     expect(mqtt.publishIdentifyDevice).not.toHaveBeenCalled();
   });
 
-  it("keeps the not-found boundary before identify unsupported", async () => {
+  it("returns the active identify operation for a duplicate click without another outbox row", async () => {
+    const session = registrationSession();
+    const existing = { id: "77777777-7777-4777-8777-777777777777", payload: { operation: "identify" } };
+    const { service, prisma } = await createModule({
+      provisioningSession: { create: jest.fn(), findUnique: jest.fn().mockResolvedValue(session), update: jest.fn() },
+      discoveredMeshNode: { findUnique: jest.fn().mockResolvedValue({ id: ids.nodeId, sessionId: ids.sessionId, deviceUuid: "esp32h2-demo-001", status: "identifying", identifyState: "pending", meshAddress: null,
+        scanCorrelationId: currentScanCorrelationId, scanAttempt: 2 }) },
+      provisioningDeviceOutbox: { findFirst: jest.fn().mockResolvedValue(existing), create: jest.fn() }
+    });
+
+    await expect(service.identifyNode(admin, ids.sessionId, ids.nodeId)).resolves.toMatchObject({ status: "accepted", operationId: existing.id });
+    expect(prisma.provisioningDeviceOutbox.create).not.toHaveBeenCalled();
+  });
+
+  it("keeps the not-found boundary before identify authorization", async () => {
     const { service, siteAccess } = await createModule({
       provisioningSession: { create: jest.fn(), findUnique: jest.fn().mockResolvedValue(null), update: jest.fn() }
     });

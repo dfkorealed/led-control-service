@@ -291,12 +291,13 @@ idf.py -p /dev/cu.usbmodemXXXX erase-flash flash monitor
 3. 층을 만들고 해당 gateway를 층에 연결한다.
 4. ESP32-H2를 unprovisioned 상태로 켠다.
 5. 조명 검색을 시작하고 UUID/RSSI가 나타나는지 확인한다.
-6. 조명 이름, 도면 좌표, 정격 전력을 입력해 등록한다.
-7. gateway 로그에서 `AddNodeComplete`, AppKey, `0x1000`, `0x1300` bind와 publication status를 확인한다.
-8. 제어 메뉴에서 0%, 25%, 50%, 100%를 순서대로 적용한다.
-9. 웹 성공 표시는 MQTT 접수 ACK가 아니라 ESP32의 Light Lightness Status 수신 뒤에만 확인한다.
+6. BIO vendor identify를 지원하는 배포에서는 후보 행의 `식별`을 한 번 눌러 약 2초 force-on 뒤 sensor mode 복원이 확인되는지 본다. API의 `accepted`는 접수일 뿐이며 Web이 `식별 중`에서 완료 또는 명시적 실패로 바뀔 때까지 기다린다. 이 단계는 Mesh 주소·Fixture·mapping을 만들지 않는다.
+7. 조명 이름, 도면 좌표, 정격 전력을 입력해 등록한다.
+8. gateway 로그에서 `AddNodeComplete`, AppKey, `0x1000`, `0x1300` bind와 publication status를 확인한다.
+9. 제어 메뉴에서 0%, 25%, 50%, 100%를 순서대로 적용한다.
+10. 웹 성공 표시는 MQTT 접수 ACK가 아니라 ESP32의 Light Lightness Status 수신 뒤에만 확인한다.
 
-표준 BLE Mesh는 provisioning 전 임의의 노드에 Generic OnOff/Lightness 명령을 보낼 수 없다. 따라서 현재 등록 전 `식별 점멸`은 명시적인 미지원 오류를 반환한다. 이 UX를 유지하려면 펌웨어와 gateway에 별도 vendor provisioning identify protocol을 추가해야 한다.
+표준 BLE Mesh는 provisioning 전 임의의 노드에 Generic OnOff/Lightness 명령을 보낼 수 없다. 따라서 표준 BlueZ adapter의 등록 전 `식별`은 명시적 미지원 실패가 정상이다. BIO vendor adapter만 고정 명령을 실행하며 브라우저는 duration이나 raw packet을 전달할 수 없다. 서버 성공은 MQTT PUBACK가 아니라 Gateway의 sensor-mode 복원 확인 terminal event에 의해 확정된다.
 
 ## 11. 암호화 state verify·drill·restore와 재시작 시험
 

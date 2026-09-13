@@ -9,6 +9,7 @@ import {
   excludeRegistrationNode,
   getActiveRegistrationSessions,
   getRegistrationSession,
+  identifyRegistrationNode,
   registerFixtureBatch,
   retryRegistrationScan,
   type DiscoveredRegistrationNode,
@@ -231,6 +232,19 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
         return next;
       });
       queryClient.invalidateQueries({ queryKey: ["registration-session", session?.id] });
+    }
+  });
+
+  const identifyMutation = useMutation({
+    mutationFn: (nodeId: string) => identifyRegistrationNode(session!.id, nodeId),
+    onSuccess: ({ node: updatedNode }) => {
+      setLocalNodes((current) => replaceNode(current, updatedNode));
+      queryClient.setQueryData<RegistrationSession>(
+        ["registration-session", session?.id],
+        (current) => current
+          ? { ...current, discoveredNodes: replaceNode(current.discoveredNodes, updatedNode) }
+          : current
+      );
     }
   });
 
@@ -528,6 +542,18 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
                     <StatusBadge className={`node-status ${node.status}`} tone={nodeStatusTone(node.status)} icon={nodeStatusIcon(node.status)}>
                       {statusLabels[node.status]}
                     </StatusBadge>
+                    {node.status === "discovered" || node.status === "identifying" ? (
+                      <Button
+                        variant="secondary"
+                        aria-label={`조명 ${index + 1} ${node.status === "identifying" ? "식별 중" : "식별"}`}
+                        disabled={node.status === "identifying" || identifyMutation.isPending || sessionSnapshot.status !== "active"}
+                        isLoading={identifyMutation.isPending && identifyMutation.variables === node.id}
+                        loadingLabel="식별 요청 중"
+                        onClick={() => identifyMutation.mutate(node.id)}
+                      >
+                        {node.status === "identifying" ? "식별 중" : "식별"}
+                      </Button>
+                    ) : null}
                     {node.status === "reconcile_required" ? (
                       <div className="reconcile-actions">
                         <small>장비의 실제 등록 상태를 확인하기 전에는 다시 등록하지 마세요.</small>
@@ -616,6 +642,7 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
             </Button>
           ) : null}
           {excludeMutation.error ? <FeedbackState tone="danger" icon={CircleAlert} title="노드를 현재 세션에서 제외하지 못했습니다." /> : null}
+          {identifyMutation.error ? <FeedbackState tone="danger" icon={CircleAlert} title="조명 식별 요청을 처리하지 못했습니다." /> : null}
           {cancelMutation.error ? <FeedbackState tone="danger" icon={CircleAlert} title="등록 세션을 취소하지 못했습니다." /> : null}
           {sessionQuery.error ? <FeedbackState tone="danger" icon={CircleAlert} title="등록 세션 상태를 다시 확인하지 못했습니다." /> : null}
         </Card>
@@ -646,7 +673,9 @@ export function shouldPollRegistrationSession(session: RegistrationSession | nul
   if (!session || session.status !== "active") return false;
   return session.scanStatus === "pending"
     || session.scanStatus === "scanning"
+    || session.discoveredNodes?.some((node) => node.status === "identifying")
     || session.discoveredNodes?.some((node) => node.status === "provisioning")
+    || localNodes.some((node) => node.status === "identifying")
     || localNodes.some((node) => node.status === "provisioning");
 }
 

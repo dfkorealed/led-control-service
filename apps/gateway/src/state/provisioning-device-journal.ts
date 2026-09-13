@@ -49,6 +49,7 @@ type JournalOptions = {
 };
 
 type ProvisioningDeviceIdentityKey =
+  | "operation"
   | "commandId"
   | "sessionId"
   | "siteId"
@@ -287,6 +288,7 @@ export async function handleDurableProvisioningDevice(input: {
     firmwareVersion?: string;
     rssi?: number | null;
     hopCount?: number | null;
+    restoreConfirmed?: true;
   }>;
   nextEnvelope: () => Promise<{ eventId: string; sequence: number; occurredAt: string }>;
   onDurableAccept?: () => void;
@@ -325,8 +327,10 @@ export function createProvisioningOutcomeUnknownTerminal(
   return terminalEvent(command, {
     ...envelope,
     status: "failed",
-    errorCode: "provisioning_outcome_unknown",
-    errorMessage: "Gateway restarted before the provisioning result was durably recorded."
+    errorCode: operationOf(command) === "identify" ? "identify_outcome_unknown" : "provisioning_outcome_unknown",
+    errorMessage: operationOf(command) === "identify"
+      ? "Gateway restarted before sensor-mode restore confirmation was durably recorded."
+      : "Gateway restarted before the provisioning result was durably recorded."
   });
 }
 
@@ -475,9 +479,13 @@ export class ProvisioningDeviceReplayPublisher {
 
 function createCompletedTerminal(
   command: ProvisioningDeviceCommandV2,
-  result: { firmwareVersion?: string; rssi?: number | null; hopCount?: number | null },
+  result: { firmwareVersion?: string; rssi?: number | null; hopCount?: number | null; restoreConfirmed?: true },
   envelope: { eventId: string; sequence: number; occurredAt: string }
 ) {
+  if (operationOf(command) === "identify") {
+    if (result.restoreConfirmed !== true) throw new Error("identify_restore_unconfirmed");
+    return terminalEvent(command, { ...envelope, status: "completed", restoreConfirmed: true });
+  }
   return terminalEvent(command, {
     ...envelope,
     status: "completed",
@@ -494,8 +502,10 @@ function createFailedTerminal(
   return terminalEvent(command, {
     ...envelope,
     status: "failed",
-    errorCode: "provisioning_failed",
-    errorMessage: "Provisioning failed."
+    errorCode: operationOf(command) === "identify" ? "identify_failed" : "provisioning_failed",
+    errorMessage: operationOf(command) === "identify"
+      ? "Identify did not confirm sensor-mode restore."
+      : "Provisioning failed."
   });
 }
 
@@ -588,7 +598,8 @@ function sameCommand(left: ProvisioningDeviceCommandV2, right: ProvisioningDevic
     left.gatewayId === right.gatewayId &&
     left.nodeId === right.nodeId &&
     left.deviceUuid === right.deviceUuid &&
-    left.meshAddress === right.meshAddress &&
+    operationOf(left) === operationOf(right) &&
+    meshAddressOf(left) === meshAddressOf(right) &&
     left.requestedAt === right.requestedAt;
 }
 
@@ -602,7 +613,8 @@ function sameTerminalCommand(
     terminal.gatewayId === command.gatewayId &&
     terminal.nodeId === command.nodeId &&
     terminal.deviceUuid === command.deviceUuid &&
-    terminal.meshAddress === command.meshAddress;
+    operationOf(terminal) === operationOf(command) &&
+    meshAddressOf(terminal) === meshAddressOf(command);
 }
 
 function sameTerminalAcknowledgement(
@@ -617,7 +629,16 @@ function sameTerminalAcknowledgement(
     terminal.payload.gatewayId === acknowledgement.gatewayId &&
     terminal.payload.nodeId === acknowledgement.nodeId &&
     terminal.payload.deviceUuid === acknowledgement.deviceUuid &&
-    terminal.payload.meshAddress === acknowledgement.meshAddress;
+    operationOf(terminal.payload) === operationOf(acknowledgement) &&
+    meshAddressOf(terminal.payload) === meshAddressOf(acknowledgement);
+}
+
+function operationOf(value: { operation?: "identify" | "provision" }) {
+  return value.operation ?? "provision";
+}
+
+function meshAddressOf(value: object) {
+  return "meshAddress" in value ? value.meshAddress : undefined;
 }
 
 function cloneJournal(value: StoredJournal): StoredJournal {

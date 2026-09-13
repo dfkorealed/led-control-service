@@ -8,6 +8,7 @@ import {
   excludeRegistrationNode,
   getActiveRegistrationSessions,
   getRegistrationSession,
+  identifyRegistrationNode,
   registerFixtureBatch,
   retryRegistrationScan
 } from "../../api/registration";
@@ -22,6 +23,7 @@ vi.mock("../../api/registration", async (importOriginal) => ({
   excludeRegistrationNode: vi.fn(),
   getActiveRegistrationSessions: vi.fn(),
   getRegistrationSession: vi.fn(),
+  identifyRegistrationNode: vi.fn(),
   registerFixtureBatch: vi.fn(),
   retryRegistrationScan: vi.fn()
 }));
@@ -29,6 +31,7 @@ vi.mock("../../api/registration", async (importOriginal) => ({
 const createSessionMock = vi.mocked(createRegistrationSession);
 const activeSessionsMock = vi.mocked(getActiveRegistrationSessions);
 const getSessionMock = vi.mocked(getRegistrationSession);
+const identifyNodeMock = vi.mocked(identifyRegistrationNode);
 const excludeNodeMock = vi.mocked(excludeRegistrationNode);
 const cancelSessionMock = vi.mocked(cancelRegistrationSession);
 const registerBatchMock = vi.mocked(registerFixtureBatch);
@@ -601,6 +604,25 @@ describe("RegistrationPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "선택 조명 등록" }));
     await act(async () => { await vi.advanceTimersByTimeAsync(1_500); });
     expect(getSessionMock.mock.calls.length).toBeGreaterThan(terminalCalls);
+  });
+
+  it("검색된 조명을 한 번 식별 요청하고 identifying 상태를 polling한다", async () => {
+    const discovered = completedSession(mockRegistrationSession.discoveredNodes.slice(0, 1));
+    const identifyingNode = {
+      ...discovered.discoveredNodes[0],
+      status: "identifying" as const,
+      identifyState: "pending"
+    };
+    activeSessionsMock.mockResolvedValue([discovered]);
+    getSessionMock.mockResolvedValue(discovered);
+    identifyNodeMock.mockResolvedValue({ status: "accepted", operationId: "op-1", node: identifyingNode });
+
+    renderPanel();
+
+    fireEvent.click(await screen.findByRole("button", { name: "조명 1 식별" }));
+    await waitFor(() => expect(identifyNodeMock).toHaveBeenCalledWith(discovered.id, identifyingNode.id));
+    expect(screen.getByRole("button", { name: "조명 1 식별 중" })).toBeDisabled();
+    expect(shouldPollRegistrationSession(discovered, [identifyingNode])).toBe(true);
   });
 });
 

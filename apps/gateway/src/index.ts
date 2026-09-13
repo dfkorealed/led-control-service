@@ -23,7 +23,6 @@ import {
   automationConfigAppliedReceiptV1Schema,
   automationExecutionIngestedAckV1Schema,
   vehicleSensorCapabilityIngestedAckV1Schema,
-  identifyDeviceSchema,
   fixtureIdentifyTopics,
   isGatewayCommandExpired,
   mqttTopicsV2,
@@ -36,7 +35,6 @@ import { isLabHilDeployment, resolveGatewayBluetoothCompanyId } from "./deployme
 import { randomUUID } from "node:crypto";
 import type { IPublishPacket, MqttClient } from "mqtt";
 import {
-  applyIdentifyDevice,
   applyProvisionDevice,
   createProvisioningScanFailedPayload,
   configuredVehicleSensorSourceFixtureIds,
@@ -796,9 +794,45 @@ async function main() {
     });
   }
 
-  async function handleIdentifyPayload(payload: Buffer, _source: GatewayMqttClient) {
-    const command = identifyDeviceSchema.parse(JSON.parse(payload.toString()));
-    await stateEventCapacity.run(["*"], () => applyIdentifyDevice(provisioningAdapter, command));
+  async function handleIdentifyPayload(
+    payload: Buffer,
+    _source: GatewayMqttClient,
+    _packet?: IPublishPacket,
+    control?: GatewayDeferredMessageControl
+  ) {
+    let command: ProvisioningDeviceCommandV2;
+    try {
+      command = await handleProvisioningDevicePayloadForCurrentScope({
+        payload,
+        scope: { siteId, gatewayId },
+        operation: "identify",
+        handle: (parsed) => parsed
+      });
+    } catch (error) {
+      control?.acknowledgeDurable();
+      throw error;
+    }
+    const handling = stateEventCapacity.run(["*"], () => handleDurableProvisioningDevice({
+      journal: provisioningDeviceJournal,
+      command,
+      execute: async (accepted) => {
+        if (accepted.operation !== "identify") throw new Error("identify command operation mismatch");
+        // BIO owns the fixed force-on (~2 s), sensor-mode restore packet, and
+        // UUID/address read-back. The server never accepts raw packets or a
+        // caller-supplied duration; returning means restore was confirmed.
+        await provisioningQueue.run(() => provisioningAdapter.identify(accepted));
+        return { restoreConfirmed: true as const };
+      },
+      nextEnvelope: async () => ({ eventId: randomUUID(), sequence: await eventSequence.next(), occurredAt: new Date().toISOString() }),
+      onDurableAccept: () => control?.acknowledgeDurable(),
+      onTerminalPersisted: () => {
+        void provisioningDeviceReplay.wake()
+          .catch((error) => void reportGatewayError(error, "provisioning_identify_terminal_retry"));
+      }
+    }));
+    activeProvisioningHandlers.add(handling);
+    void handling.finally(() => activeProvisioningHandlers.delete(handling)).catch(() => undefined);
+    return handling;
   }
 
   async function handleProvisionDevicePayload(
@@ -812,6 +846,7 @@ async function main() {
       command = await handleProvisioningDevicePayloadForCurrentScope({
         payload,
         scope: { siteId, gatewayId },
+        operation: "provision",
         handle: (parsed) => parsed
       });
     } catch (error) {
@@ -821,7 +856,12 @@ async function main() {
     const handling = stateEventCapacity.run(["*"], () => handleDurableProvisioningDevice({
       journal: provisioningDeviceJournal,
       command,
-      execute: (accepted) => provisioningQueue.run(() => provisioningAdapter.provision(accepted)),
+      execute: (accepted) => {
+        if ((accepted.operation ?? "provision") !== "provision" || !("meshAddress" in accepted)) {
+          throw new Error("provision command operation mismatch");
+        }
+        return provisioningQueue.run(() => provisioningAdapter.provision(accepted));
+      },
       nextEnvelope: async () => ({
         eventId: randomUUID(),
         sequence: await eventSequence.next(),
@@ -1460,11 +1500,15 @@ function subscribeGatewayTopics(
 export async function handleProvisioningDevicePayloadForCurrentScope<T>(input: {
   payload: Buffer;
   scope: { siteId: string; gatewayId: string };
+  operation?: "identify" | "provision";
   handle: (command: ProvisioningDeviceCommandV2) => T | Promise<T>;
 }) {
   const command = provisioningDeviceCommandV2Schema.parse(JSON.parse(input.payload.toString()));
   if (command.siteId !== input.scope.siteId || command.gatewayId !== input.scope.gatewayId) {
     throw new Error("provisioning device command scope mismatch");
+  }
+  if (input.operation && (command.operation ?? "provision") !== input.operation) {
+    throw new Error("provisioning device command operation mismatch");
   }
   return input.handle(command);
 }

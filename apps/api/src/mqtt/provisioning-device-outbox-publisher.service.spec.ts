@@ -23,6 +23,28 @@ const record = {
 };
 
 describe("ProvisioningDeviceOutboxPublisherService", () => {
+  it("marks a published identify as failed when restore confirmation never arrives", async () => {
+    const identify = { ...record, topic: `sites/${payload.siteId}/gateways/${payload.gatewayId}/commands/provisioning/identify-device`,
+      payload: { ...payload, operation: "identify", meshAddress: undefined }, publishedAt: new Date(now.getTime() - 15_001) };
+    delete identify.payload.meshAddress;
+    const tx: any = {
+      $queryRaw: jest.fn().mockResolvedValue([{ id: identify.id, nodeId: identify.nodeId, sessionId: identify.sessionId }]),
+      discoveredMeshNode: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      provisioningDeviceOutbox: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
+    };
+    const prisma: any = { $transaction: jest.fn(async (callback: (value: any) => Promise<unknown>) => callback(tx)) };
+    const service = new ProvisioningDeviceOutboxPublisherService(prisma, {} as never, { clock: () => now });
+
+    await service.expirePublishedIdentifies(now);
+
+    const timeoutSql = tx.$queryRaw.mock.calls[0][0].strings.join(" ");
+    expect(timeoutSql).toContain("NOT EXISTS");
+    expect(timeoutSql).toContain('newer."createdAt" > outbox."createdAt"');
+    expect(tx.discoveredMeshNode.updateMany).toHaveBeenCalledWith({
+      where: { id: identify.nodeId, sessionId: identify.sessionId, status: "identifying", identifyState: { in: ["pending", "running"] } },
+      data: { status: "discovered", identifyState: "failed", errorMessage: "조명 식별 뒤 센서 모드 복원을 확인하지 못했습니다." }
+    });
+  });
   it("claims only available rows with a lease and SKIP LOCKED", async () => {
     const tx = {
       $queryRaw: jest.fn().mockResolvedValue([{ id: record.id }]),
@@ -540,6 +562,7 @@ describe("ProvisioningDeviceOutboxPublisherService", () => {
       workerId: "worker-1",
       pollMs: 1_000
     });
+    jest.spyOn(service, "expirePublishedIdentifies").mockResolvedValue(0);
     jest.spyOn(service, "claimBatch")
       .mockRejectedValueOnce(Object.assign(new Error("private payload"), { code: "P2028" }))
       .mockResolvedValueOnce([record] as never);
