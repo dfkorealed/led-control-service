@@ -92,3 +92,71 @@ git diff --check: exit 0
 - Task 8에서 exact raw USB node, udev/non-root 권한, compose/runtime 설정과 반복 unplug/replug recovery를 검증해야 한다.
 - Task 9에서 승인된 단일 장치의 address assignment, restart recovery, `0/20/60/90/100%` 실제 read-back/육안 반응과 sensor restore를 검증해야 한다.
 - Task 10 전에는 Web/API/Gateway/DB production E2E 또는 완전한 BIO 지원을 주장하지 않는다.
+
+## Review hardening — repeated OS signals and startup cleanup
+
+### Status
+
+DONE_WITH_CONCERNS
+
+Task 7 review의 Important 두 건을 Gateway software 범위에서 보완했다. 실제 BIO 동글, Raspberry Pi Gateway, 운영 MQTT와 배포는 접근하거나 변경하지 않았다.
+
+### Review base and implementation commit
+
+- Verified clean review base: `bf881ba6926031852e31d348dbb7e9562421b3f9`
+- `ad57f7de11f38c81b35e0f128581ce14b2e2774f` — `fix(gateway): retain BIO cleanup ownership`
+
+### Review fixes
+
+- SIGTERM/SIGINT listener를 `once`로 등록하면 첫 signal 직후 제거되어, 느린 USB cleanup 중 같은 실제 OS signal이 다시 왔을 때 Node 기본 종료가 실행됐다. listener는 cleanup 종료 직전까지 유지하고 기존 단일 shutdown promise가 반복 signal을 흡수하도록 변경했다.
+- 종료 callback 직전에 SIGTERM/SIGINT listener를 함께 제거한다. 성공·실패 exit가 결정된 뒤 test host에 handler가 남지 않으며 명시적 unregister도 idempotent하다.
+- 별도 Node child process가 cleanup 중 동일 SIGTERM을 두 번 받는 회귀를 추가했다. child는 두 번째 signal에도 종료되지 않고 `USB_CLEANUP_FINISHED`를 출력한 뒤 code 0으로 종료해야 한다.
+- factory probe가 adapter를 반환한 순간부터 MQTT client 생성이 성공할 때까지 `startGatewayRuntime`이 cleanup ownership을 가진다. MQTT factory가 throw하면 `adapter.stop()`을 await한 뒤 primary failure를 다시 던진다.
+- runtime 반환 뒤 health/journal/controller 구성부터 signal handler 등록 완료까지도 같은 startup-stage cleanup 경계를 적용했다. 중간 동기·비동기 실패 시 direct USB polling stop/interface release/conditional reattach를 포함한 adapter stop을 기다린다.
+- startup primary failure와 adapter cleanup failure가 함께 발생하면 순서를 유지한 `AggregateError`로 둘 다 보존한다.
+
+### Strict RED evidence
+
+실제 child process repeated-signal RED:
+
+```text
+expected { code: 0, signal: null }
+received { code: null, signal: "SIGTERM" }
+USB_CLEANUP_FINISHED 미도달
+```
+
+MQTT 생성 실패 cleanup RED:
+
+```text
+2 failed
+adapter stop calls: expected 1, received 0
+primary Error에 cleanup Error가 보존되지 않음
+```
+
+later-stage startup cleanup RED:
+
+```text
+1 failed
+runGatewayStartupStageWithAdapterCleanup is not a function
+```
+
+각 RED는 production code 변경 전에 확인했고 단계별 최소 구현 뒤 GREEN으로 전환했다.
+
+### Fresh GREEN verification
+
+```text
+review focused: 4 passed
+planned Task 7 focused: 3 files, 85 passed
+healthcheck-state: 5 passed, 0 failed
+Gateway full suite: 76 files, 974 passed
+Docker contracts: 27 passed, 0 failed
+Gateway typecheck: exit 0
+Gateway build: exit 0, dist/gateway.mjs 659.2kb
+git diff --check: exit 0
+```
+
+### Remaining concerns
+
+- child process 검증은 실제 OS signal semantics를 사용하지만 USB cleanup 자체는 시간 제어 fake adapter다.
+- 반복 signal과 startup error를 실제 Pi/systemd/raw USB detach와 결합한 검증은 Task 8–9 범위다.
+- Task 8 deployment, Task 9 승인 HIL, Task 10 production E2E 전에는 production-complete로 판정하지 않는다.
