@@ -53,8 +53,40 @@ source /tmp/gateway-appliance-deploy-lib.sh
 cd "$REMOTE_DIR"
 
 capture_rollback() {
+  [ -f .env.appliance ] && [ -f compose.yml ] || {
+    echo "GATEWAY_ROLLBACK_COMPOSE_INPUT_MISSING" >&2
+    return 1
+  }
+  if ! current_adapter=$(read_compose_dotenv_value .env.appliance GATEWAY_ADAPTER 2>/dev/null); then
+    echo "GATEWAY_ROLLBACK_ADAPTER_INVALID" >&2
+    return 1
+  fi
+  case "$current_adapter" in
+    bluez) ;;
+    bio-usb)
+      [ -f compose.bio-usb.yml ] || {
+        echo "GATEWAY_ROLLBACK_COMPOSE_INPUT_MISSING" >&2
+        return 1
+      }
+      ;;
+    *) echo "GATEWAY_ROLLBACK_ADAPTER_INVALID" >&2; return 1 ;;
+  esac
+
+  # 기존 배포의 adapter와 file set으로 Compose를 실제 렌더링한다. dotenv 값이나
+  # 기본 경로를 추정하지 않으며, source가 하나로 확정되지 않으면 어떤 배포
+  # mutation도 시작하지 않는다.
+  if ! rollback_data_dir=$(resolve_current_gateway_snapshot_root \
+      "$current_adapter" .env.appliance compose.yml compose.bio-usb.yml); then
+    return 1
+  fi
+
   rollback_dir="$REMOTE_DIR/rollback/$(date -u +%Y%m%dT%H%M%SZ)-$$"
   install -d -m 0700 "$REMOTE_DIR/rollback" "$rollback_dir"
+  if ! capture_gateway_data_snapshot "$rollback_data_dir" \
+      "$rollback_dir/gateway-data.tgz" 2>/dev/null; then
+    echo "GATEWAY_ROLLBACK_SNAPSHOT_FAILED" >&2
+    return 1
+  fi
   if docker inspect led-control-gateway >/dev/null 2>&1; then
     # 전체 inspect에는 환경/경로가 포함될 수 있으므로 복구에 필요한 image와
     # lifecycle metadata만 0600 파일에 남긴다.
@@ -65,18 +97,6 @@ capture_rollback() {
   [ ! -f compose.bio-usb.yml ] || cp -p compose.bio-usb.yml "$rollback_dir/compose.bio-usb.yml"
   [ ! -f .env.appliance ] || cp -p .env.appliance "$rollback_dir/.env.appliance"
 
-  rollback_data_dir=/opt/led-control/data
-  if [ -f .env.appliance ]; then
-    # Compose dotenv를 shell source하지 않는다. 공백/따옴표를 보존하되 데이터로만
-    # 읽으며, 누락되거나 상대 경로면 알려진 production 기본값으로 fail closed한다.
-    configured_data_dir=$(read_compose_dotenv_value .env.appliance GATEWAY_DATA_DIR 2>/dev/null || true)
-    if [[ "$configured_data_dir" = /* && "$configured_data_dir" != *$'\n'* ]]; then
-      rollback_data_dir=$configured_data_dir
-    fi
-  fi
-  if [ -d "$rollback_data_dir/gateway" ] && [ -d "$rollback_data_dir/mesh" ]; then
-    capture_gateway_data_snapshot "$rollback_data_dir" "$rollback_dir/gateway-data.tgz"
-  fi
   chmod -R go-rwx "$rollback_dir"
   printf 'Rollback capture: %s\n' "$rollback_dir"
 }
@@ -155,7 +175,7 @@ run_compose() {
   if [ "$ADAPTER" = bio-usb ]; then
     run_with_current_bio_device "$BIO_DEVICE" "$BIO_GID" docker compose "${COMPOSE_ARGS[@]}" "$@"
   else
-    docker compose "${COMPOSE_ARGS[@]}" "$@"
+    run_without_compose_shell_overrides docker compose "${COMPOSE_ARGS[@]}" "$@"
   fi
 }
 
