@@ -1,6 +1,6 @@
 # 모니터링 메뉴 기능 현황
 
-기준일: 2026-09-12
+기준일: 2026-09-13
 
 ## 확정 구현 범위
 
@@ -20,6 +20,8 @@
 - 자동 HIL 판정. 실제 하드웨어 검증은 수동으로 수행한다.
 
 ## 구현 완료
+
+- BIO direct-USB의 Gateway software 상태 경계를 추가했다. canonical BIO UUID/new address가 confirmed mapping으로 전환된 뒤에만 등록 terminal을 완료할 수 있고, 조명 제어 상태는 outer ACK가 아니라 fixture별 brightness/mode read-back이 확인된 report만 발행 대상으로 삼는다. read-back mismatch는 관측 brightness를 fault 상태로 전달한다. BIO sensor cloud source는 빈 목록이며 configure/send는 `bio_sensor_cloud_unsupported`로 fail-closed한다.
 
 - P1 Task 1 서버 계약: `GET/PATCH /sites/:siteId/monitoring-policy`는 read/manage capability와 `expectedUpdatedAt`을 적용해 gateway 만료 `30~900`초(기본 90), fixture stale `60~3600`초(기본 180)를 저장한다. 변경 충돌은 `409 MONITORING_POLICY_CONFLICT`다. 기존 장비 제어·등록의 90초 안전성 기준은 별도로 유지한다.
 - `MonitoringIncident`는 네 유형(`gateway_offline`, `fixture_stale`, `fixture_fault`, `command_failed`)의 발생·확인·담당·해결을 저장한다. Task 2의 30초 freshness sweep은 조건을 자동 수집해 active incident를 생성·갱신하고 조건 회복 시 `automatic_recovery`로 자동 해결한다. 목록 API는 활성 우선 최신순, 현장·필터에 바인딩된 cursor와 최대 100건 limit, 대상·사용자 요약을 제공한다. 관리자는 open 확인, active 담당 지정/해제, 복구 확인 뒤 메모와 수동 해결을 수행한다. 장애 지속은 `409 INCIDENT_STILL_ACTIVE`, 이전 revision은 `409 INCIDENT_CONFLICT`이며 모든 성공 변경은 같은 transaction의 감사 로그로 남긴다.
@@ -142,6 +144,7 @@
 
 ## 미구현
 
+- BIO adapter-aware health와 startup resync 연결(Task 7), raw USB 배포·재연결 복구(Task 8), 실제 registration/control 상태 HIL(Task 9), production Web/DB 모니터링 E2E(Task 10)는 아직 미구현 또는 미검증이다. BIO 차량 센서 cloud telemetry는 1차 범위에서 제외한다.
 - 첫 sweep 전 과거 장애 backfill은 하지 않는다.
 
 - WebSocket/SSE 기반 push 실시간 업데이트
@@ -160,7 +163,7 @@
 - 지도 배율과 스크롤 위치는 현재 화면 세션 상태이며 층 전환·새로고침 시 100% 화면 맞춤으로 초기화된다. 사용자별 마지막 viewport를 저장하는 기능은 제공하지 않는다.
 - 저장 도형 표시 회귀는 deterministic route fixture Chromium에서 검증한다. mock snapshot과 브라우저 합성 결과를 확인하는 범위이며 실제 Gateway, Raspberry Pi, ESP32-H2 또는 현장 도면의 HIL 검증은 아니다.
 - 테스트 데이터는 설정 개요의 설치 완료 assigned `admin` 전용 개발·검증 도구이며, 기본 off 상태이고 API도 비활성화 시 404를 반환한다. 따라서 표시되는 online 상태는 일시적 recent online일 수 있고 freshness 재집계 뒤 offline이 될 수 있으며, 실제 Gateway·Mesh·MQTT 상태나 HIL 검증 증거로 해석할 수 없다.
-- 개별 `provision-device`의 API DB transaction -> MQTT PUBACK과 Gateway RF 전 durable accept, terminal atomic 저장, exact `device-terminal-ingested` ACK 전 bounded replay 및 API terminal ingest/application ACK outbox는 software로 구현됐다. BIO 경로는 durable mapping과 serial 기반까지만 준비됐고 실제 read-only probe가 `LATE_RESPONSE`로 끝나 등록·fixture-state를 만들지 않았다. 실제 broker/Raspberry Pi 재시작 수렴, BIO command golden trace와 조명 상태 HIL 전에는 모니터링에 BIO 장비가 나타나는 것을 완료 조건으로 보지 않는다.
+- 개별 `provision-device`의 API DB transaction -> MQTT PUBACK과 Gateway RF 전 durable accept, terminal atomic 저장, exact `device-terminal-ingested` ACK 전 bounded replay 및 API terminal ingest/application ACK outbox는 software로 구현됐다. BIO adapter도 confirmed/reserved mapping 기반 restart recovery와 read-back 기반 fixture report까지 software로 연결됐지만 Task 7 factory/health에는 아직 활성화되지 않았다. 실제 broker/Raspberry Pi 재시작 수렴, 주소·밝기 HIL과 Task 10 E2E 전에는 모니터링에 BIO 장비가 나타나는 것을 production 완료 조건으로 보지 않는다.
 - pending redirect와 admin commissioning은 React/Vitest 회귀와 Task 9 격리 실백엔드 Chromium E2E로 검증했다. Calm Operations 모바일 390px/320px의 화면 계층·overflow·touch target은 route fixture로 검증했지만, 실제 WebView safe-area와 재설치는 별도이며 Raspberry Pi/ESP32-H2 HIL은 아직 실행하지 않았다.
 - 모니터링 화면은 30초 polling 정책이다. publication 반영 직후 확인이 필요하면 수동 새로고침을 사용할 수 있으며 push는 제공하지 않는다.
 - durable state outbox의 파일 권한·용량 차단과 application ACK 재전송은 자동 테스트로 검증했지만, 실제 broker/API 재시작과 Raspberry Pi 전원 차단을 포함한 HIL은 아직 실행하지 않았다.
@@ -182,6 +185,10 @@
 
 ## 관련 파일
 
+- `apps/gateway/src/adapters/bio-usb-dongle-adapter.ts`
+- `apps/gateway/src/adapters/bio-sensor-capability-unavailable-port.ts`
+- `apps/gateway/src/state/provisioning-device-journal.ts`
+- `apps/gateway/src/commands/gateway-command-handler.ts`
 - `apps/web/src/api/monitoring-incidents.ts`
 - `apps/web/src/api/monitoring-incidents.test.ts`
 - `apps/web/src/features/monitoring/MonitoringIncidentPanel.tsx`

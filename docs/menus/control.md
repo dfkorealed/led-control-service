@@ -1,8 +1,10 @@
 # 제어 메뉴 기능 현황
 
-기준일: 2026-09-11
+기준일: 2026-09-13
 
 ## 구현 완료
+
+- BIO direct-USB 제어의 Gateway software integration을 추가했다. confirmed mapping만 개별 제어에 사용하고 `setOutput`의 UUID/address별 brightness·mode read-back이 일치한 경우에만 fixture report를 `acknowledged: true`, `outcome: applied`로 만든다. mismatch는 실제 관측 brightness와 mode 및 BIO fault code를 failed report로 보존하며, outer USB ACK만으로 fixture-state를 발행하지 않는다. BIO group은 native RF group 성공을 가장하지 않는 local virtual membership이고 confirmed member에 대해 정확히 동시성 4의 unicast로 실행한다.
 
 - 공통 고객 셸 상단은 현재 메뉴 제목과 실제 현장명 배지만 표시한다. 기존 층명 기반 `B2 주차장` 표기와 동작 없는 Gateway 정상·오프라인·미등록 상태 배지는 제거하되 설정의 `Gateway 상태` 상세 카드는 유지한다. 로그아웃 위치와 인증·dirty editor 확인 로직은 유지하고, 고객·운영자 셸의 로그아웃은 공통 `IconTooltipButton`으로 아이콘만 표시한다. `로그아웃` 도움말은 hover와 키보드 focus에서 열리고 도움말 위로 포인터를 옮겨도 유지되며 `Escape`로 닫힌다. 모바일 버튼은 52px 실제 터치 영역을 사용한다.
 - 수동·스케줄·이벤트 제어 탭을 통계 상단 메뉴와 같은 밑줄형 공통 `UnderlineNavigation`으로 통일했다. 탭 아이콘은 공통 label의 선택 옵션으로 제공해 제어의 기존 아이콘은 유지하고, 활성 밑줄·색상·44px 높이·가로 스크롤 동작은 통계와 공유한다. 기존 `mode` query, 권한별 탭 노출, `tablist`/`tab` ARIA 연결과 방향키·Home·End roving focus는 변경하지 않았다. 390·320·760px Chromium에서 세 모드 모두 탭과 panel 사이 16px 간격, overflow 내부 focus ring과 document 가로 overflow 부재를 확인했다.
@@ -213,6 +215,7 @@
 
 ## 미구현
 
+- BIO factory/lifecycle/health 연결(Task 7), non-root raw USB 배포(Task 8), 실제 조명 0/20/60/90/100%와 multi-device concurrency HIL(Task 9), Web/API production E2E(Task 10)는 아직 미구현 또는 미검증이다. BIO native group broadcast는 1차 범위에서 제외한다.
 - 인체 감지, 외부 이벤트, 장면과 복합 조건 rule builder
 - 명령 전송 이력 화면
 - 명령 retry, rollback, cancel
@@ -225,7 +228,7 @@
 
 ## 부족하거나 개선이 필요한 기능
 
-- BIO USB 동글 제어는 CRC/GS frame과 serial transport까지만 software 검증했고 실제 밝기 set/read-back opcode의 승인된 golden vector가 없다. 따라서 BIO 조명은 현재 제어 대상에 등록되지 않으며, USB ACK만으로 `applied`를 만들거나 기존 BlueZ 조명처럼 위장하지 않는다. 제조사 protocol/SDK 또는 격리 Android capture가 확보된 뒤 개별·bounded parallel-unicast와 실제 밝기 read-back HIL을 통과해야 한다.
+- BIO direct-USB 밝기/모드 read-back과 adapter report 계약은 자동 테스트로 검증했지만 실제 firmware 적용 증거가 아니다. Task 7~10의 factory 활성화, 배포, 승인 HIL과 Web E2E 전에는 production 제어 완료로 판정하지 않는다. 특히 장치가 두 대 이상인 group 동시성 4와 부분 실패는 Task 9 장비 수 제약에 따라 보류될 수 있다.
 - 공통 우측 패널의 반응형·overflow 계약은 Chromium 1440/1024/390/320px route fixture로 검증했으며 실제 모바일 WebView safe-area와 브라우저별 scrollbar 표현은 별도 실측이 필요하다.
 - 현재 개별 밝기 제어는 acknowledged Light Lightness Set을 한 번 전송하고 Status를 기다린다. 2026-09-03 HIL 4회 중 3회는 1~2초 내 성공했고 1회는 장치 적용 후 Status 한 패킷 유실로 timeout 됐다. 같은 TID를 사용하는 bounded 재전송 또는 후속 Lightness Get 확인으로 실제 적용과 서버 실패 표시가 어긋나지 않게 보완해야 한다.
 - API/Gateway의 DB·journal 이후 PUBACK 계약은 자동화됐지만, API 종료·Gateway 종료·broker 재연결과 ESP32-H2 cold boot를 동시에 포함한 acceptance/device-status 중복 재전달 및 AppKey 복원은 실장비 전원 차단 HIL로 확인해야 한다.
@@ -252,6 +255,9 @@
 
 ## 관련 파일
 
+- `apps/gateway/src/adapters/bio-usb-dongle-adapter.ts`
+- `apps/gateway/src/bio/bio-dongle-client.ts`
+- `apps/gateway/src/commands/gateway-command-handler.ts`
 - `apps/web/e2e/site-user-management.spec.ts`
 - `apps/api/src/access/site-access.service.ts`
 - `apps/api/src/commands/commands.service.ts`
