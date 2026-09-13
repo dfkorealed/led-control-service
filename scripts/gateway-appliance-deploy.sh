@@ -12,6 +12,12 @@ if [[ "$ADAPTER" != bluez && "$ADAPTER" != bio-usb ]]; then
   echo "--adapter는 bluez 또는 bio-usb만 허용합니다." >&2
   exit 2
 fi
+# 과거 BIO overlay는 BlueZ base의 capability/mount 배열을 합쳐 버린다.
+# 기존 인자를 묵시적으로 새 root에 적용하지 않고, SSH/파일 변경 전에 차단한다.
+if [[ "$ADAPTER" = bio-usb ]]; then
+  echo "GATEWAY_BIO_STANDALONE_REQUIRED: use scripts/gateway-bio-runtime.sh" >&2
+  exit 2
+fi
 if (($# < 1 || $# > 2)); then
   echo "사용법: scripts/gateway-appliance-deploy.sh [--adapter bio-usb] <user@raspberry-pi> [image.tar]" >&2
   exit 2

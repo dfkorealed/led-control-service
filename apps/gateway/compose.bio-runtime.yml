@@ -1,0 +1,63 @@
+# 독립 full BIO runtime: BlueZ base/overlay와 병합하지 않는다. Compose list merge는
+# cap_add/security_opt/volumes를 제거하지 않아 권한을 다시 넓힐 수 있기 때문이다.
+# gateway-bio-runtime.sh가 host의 새 root/USB/identity를 검증·준비한 뒤에만 실행한다.
+services:
+  gateway-bio:
+    image: "${GATEWAY_BIO_IMAGE:?verified immutable image is required}"
+    container_name: led-control-gateway-bio
+    user: "999:999"
+    # Root entrypoint의 mkdir/chown/USB bootstrap은 host preflight가 소유한다.
+    # 여기서는 capability 없이 동일 제품 gateway.mjs를 직접 실행한다. umask는
+    # 상속된 기본값에 의존하지 않아 새 journal/private material도 0600을 유지한다.
+    entrypoint: [/bin/sh, -ec, "umask 077; exec node /opt/led-control/gateway.mjs"]
+    init: true
+    network_mode: host
+    restart: "no"
+    read_only: true
+    privileged: false
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    group_add: ["${GATEWAY_BIO_USB_GID:?fresh USB GID is required}"]
+    devices:
+      - "${GATEWAY_BIO_USB_DEVICE:?fresh exact USB node is required}:${GATEWAY_BIO_USB_DEVICE}:rw"
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=32m
+    environment:
+      GATEWAY_ADAPTER: bio-usb
+      DEVICE_ADAPTER_TYPE: bio-usb
+      GATEWAY_SERIAL: "${GATEWAY_SERIAL:?new manufactured serial is required}"
+      GATEWAY_BOOTSTRAP_URL: "${GATEWAY_BOOTSTRAP_URL:?HTTPS bootstrap URL is required}"
+      GATEWAY_BIO_USB_DEVICE: "${GATEWAY_BIO_USB_DEVICE}"
+      GATEWAY_BIO_USB_GID: "${GATEWAY_BIO_USB_GID}"
+      GATEWAY_HEARTBEAT_MS: "5000"
+      GATEWAY_IDENTITY_ROOT: /var/lib/led-control/identity/device
+      GATEWAY_MQTT_IDENTITY_ROOT: /var/lib/led-control/identity/mqtt
+      GATEWAY_DEVICE_CERT_PATH: /var/lib/led-control/identity/device/current/device.crt
+      GATEWAY_DEVICE_KEY_PATH: /var/lib/led-control/identity/device/current/device.key
+      GATEWAY_BOOTSTRAP_CA_PATH: /var/lib/led-control/identity/device/current/api-ca.crt
+      MQTT_CA_PATH: /var/lib/led-control/identity/mqtt/current/mqtt-ca.crt
+      MQTT_CLIENT_CERT_PATH: /var/lib/led-control/identity/mqtt/current/gateway.crt
+      MQTT_CLIENT_KEY_PATH: /var/lib/led-control/identity/mqtt/current/gateway.key
+      GATEWAY_ASSIGNMENT_PATH: /var/lib/led-control/assignment.json
+      GATEWAY_HEALTH_PATH: /var/lib/led-control/health.json
+      GATEWAY_BIO_MAPPING_PATH: /data/mesh/bio-device-mappings.json
+    volumes:
+      - type: bind
+        source: "${GATEWAY_BIO_DATA_ROOT:?explicit separate data root is required}/gateway"
+        target: /var/lib/led-control
+        bind: { create_host_path: false }
+      - type: bind
+        source: "${GATEWAY_BIO_DATA_ROOT}/identity"
+        target: /var/lib/led-control/identity
+        bind: { create_host_path: false }
+      - type: bind
+        source: "${GATEWAY_BIO_DATA_ROOT}/mesh"
+        target: /data/mesh
+        bind: { create_host_path: false }
+    healthcheck:
+      test: [CMD, /usr/local/bin/gateway-healthcheck]
+      interval: 5s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    stop_grace_period: 20s

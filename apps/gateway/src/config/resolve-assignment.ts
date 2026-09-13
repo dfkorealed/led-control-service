@@ -59,7 +59,7 @@ export async function resolveGatewayAssignment(options: {
   }
 }
 
-function validateExpectedAssignment(assignment: GatewayAssignment, expected?: Pick<GatewayAssignment, "serialNumber" | "siteId" | "gatewayId">) {
+export function validateExpectedAssignment(assignment: GatewayAssignment, expected?: Pick<GatewayAssignment, "serialNumber" | "siteId" | "gatewayId">) {
   if (!expected) return;
   // 기대 ID는 claim 응답과 비교하는 assertion일 뿐, 서버 배정을 대신하지 않는다.
   // 이전 Site의 assignment를 복사해 넣어도 저장/인증서 발급 전에 차단한다.

@@ -60,6 +60,8 @@ RUN pnpm --filter @led-control/gateway exec esbuild scripts/manufacturing-enroll
 # Hardware-free graph: index.ts를 재사용하지 않고 인증 전용 artifact만 묶는다.
 RUN pnpm --filter @led-control/gateway exec esbuild src/bootstrap-only.ts \
       --bundle --platform=node --format=esm --target=node22 --packages=external --outfile=/tmp/bootstrap-only.mjs
+RUN pnpm --filter @led-control/gateway exec esbuild src/bio-runtime-preflight.ts \
+      --bundle --platform=node --format=esm --target=node22 --packages=external --outfile=/tmp/bio-runtime-preflight.mjs
 
 FROM node:22-bookworm-slim AS runtime
 # Bookworm is the OpenSSL 3.0 minor-version contract. Without a Debian snapshot,
@@ -75,6 +77,7 @@ COPY --from=bluez-builder /src/bluez-5.82/mesh/bluetooth-meshd /usr/local/sbin/b
 COPY --from=btmgmt-builder /usr/bin/btmgmt /usr/local/bin/btmgmt
 COPY --from=app-builder /tmp/gateway.mjs /opt/led-control/gateway.mjs
 COPY --from=app-builder /tmp/bootstrap-only.mjs /opt/led-control/bootstrap-only.mjs
+COPY --from=app-builder /tmp/bio-runtime-preflight.mjs /opt/led-control/bio-runtime-preflight.mjs
 COPY --from=app-builder /tmp/manufacturing-enroll.mjs /usr/local/bin/manufacturing-enroll.mjs
 COPY --from=app-builder /tmp/gateway-runtime/node_modules /opt/led-control/node_modules
 COPY apps/gateway/docker/dbus-system.conf /etc/dbus-1/gateway-system.conf
@@ -83,6 +86,7 @@ COPY apps/gateway/docker/entrypoint.sh /usr/local/bin/gateway-entrypoint
 COPY apps/gateway/docker/healthcheck.sh /usr/local/bin/gateway-healthcheck
 COPY apps/gateway/docker/btmgmt-powered.cjs /usr/local/lib/gateway-btmgmt-powered.cjs
 COPY apps/gateway/docker/healthcheck-state.cjs /usr/local/lib/gateway-healthcheck-state.cjs
+COPY apps/gateway/docker/bio-process-check.cjs /usr/local/lib/gateway-bio-process-check.cjs
 COPY scripts/gateway-bio-usb-preflight.sh /usr/local/bin/gateway-bio-usb-preflight
 
 RUN chmod 0755 /usr/local/bin/gateway-entrypoint /usr/local/bin/gateway-healthcheck \

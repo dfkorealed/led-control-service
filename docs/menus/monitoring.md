@@ -159,6 +159,8 @@
 
 ## 부족하거나 개선이 필요한 기능
 
+- 독립 BIO runtime의 non-root/capability0 검증은 online 증거가 아니다. 새 Gateway의 DB heartbeat 3회와 BIO transport/protocol/mapping/MQTT health가 확인되기 전에는 offline/조명 없음 상태를 완료로 바꾸지 않는다. full 배포는 `compose.bio-runtime.yml`의 분리된 경로만 사용하며 기존 BlueZ overlay 병합은 금지한다.
+
 - Gateway `bootstrap-only` 성공은 assignment와 MQTT CONNECT 인증 준비만 뜻한다. heartbeat·adapter·조명 검색을 시작하지 않으므로 모니터링의 offline/조명 없음 상태를 online/등록 완료로 바꾸지 않는다. 전용 CLI의 disposable TLS 테스트와 실제 runtime/BIO HIL은 별도 증거이며, 설정 commissioning이 등록을 소유하는 기존 empty-state 경계는 유지한다.
 
 - P1 인시던트·정책 UI의 1440/1024/390/320 Chromium 통합 workflow·가로 overflow, no-floor/Gateway-only empty/error 접근, map 자동 복구 최종 게이트는 Task 5 review fix를 포함해 `25/25`로 완료했다. 이는 deterministic route/API fixture와 Chromium 합성 결과에 대한 software 증거이며, 실제 MQTT broker, Raspberry Pi/BlueZ/ESP32-H2 HIL, production notification 전송은 실행하지 않았다.

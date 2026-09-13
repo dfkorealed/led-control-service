@@ -7,6 +7,24 @@ import test from "node:test";
 
 const root = path.resolve(import.meta.dirname, "..");
 const script = path.join(root, "scripts/gateway-bio-usb-preflight.sh");
+// 실제 승인 descriptor: interface0, bulk IN82/OUT02, maxPacket32, 추가 interrupt81.
+const descriptor = Buffer.from("12011001ff000208861a23550403000200010902270001010080f00904000003ff010200070582022000000705020220000007058103080001", "hex");
+
+test("preflight rejects malformed descriptor/interface/bulk endpoint before returning deploy coordinates", async () => {
+  await withFixture(async (fixture) => {
+    const dir = await fixture.addUsb("1-1", { vendor: "1a86", product: "5523", bus: "1", device: "2", dev: "189:1" });
+    for (const [offset, value] of [[8, 0], [29, 1], [38, 0x83], [40, 64], [45, 3]]) {
+      const bad = Buffer.from(descriptor); bad[offset] = value;
+      await writeFile(path.join(dir, "descriptors"), bad);
+      const result = fixture.run();
+      assert.notEqual(result.status, 0, `descriptor mutation ${offset} must fail`);
+      assert.equal(result.stdout, "");
+      assert.equal(result.stderr, "BIO_USB_PREFLIGHT_DESCRIPTOR_INVALID\n");
+    }
+    await writeFile(path.join(dir, "descriptors"), descriptor.subarray(0, 41));
+    assert.notEqual(fixture.run().status, 0);
+  });
+});
 
 test("preflight는 exact-one BIO character device의 sysfs identity와 숫자 GID만 출력한다", async () => {
   await withFixture(async (fixture) => {
@@ -103,6 +121,7 @@ async function withFixture(callback) {
         writeFile(path.join(deviceRoot, "busnum"), `${bus}\n`),
         writeFile(path.join(deviceRoot, "devnum"), `${device}\n`),
         writeFile(path.join(deviceRoot, "dev"), `${dev}\n`),
+        writeFile(path.join(deviceRoot, "descriptors"), descriptor),
         writeFile(path.join(nodeDirectory, String(device).padStart(3, "0")), "fixture")
       ]);
       return deviceRoot;

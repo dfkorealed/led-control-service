@@ -10,6 +10,10 @@ claim 응답의 기대 Site/Gateway ID와 제조 serial, 유효 HTTPS bootstrap 
 
 ## 역할 지도
 
+### 독립 BIO 배포
+
+BIO full runtime은 `compose.bio-runtime.yml`과 `scripts/gateway-bio-runtime.sh`만 사용한다. 과거 base+BIO overlay 병합은 BlueZ capability/mount가 남으므로 신규 BIO 배포에 사용하지 않으며 구형 `--adapter bio-usb` launcher는 원격 변경 전에 실패한다. 호스트가 새 root/descriptor/identity를 검증하고 UID999로 디렉터리를 준비하므로 컨테이너는 root entrypoint 없이 UID999·capability0으로 제품 Node runtime을 실행한다. [독립 배포 관문](../../docs/runbooks/raspberry-pi-gateway-appliance.md#독립-bio-runtime-배포)을 따른다. 소프트웨어 격리 검증과 실제 healthy heartbeat/BIO HIL은 별개다.
+
 프론트엔드에서 API 응답을 화면 상태로 바꾸는 경계가 있다면, Gateway는 현장에서는 클라우드 명령을 조명 무선 명령으로 바꾸는 경계다. 다만 브라우저나 웹 서버가 아니라 Raspberry Pi에서 계속 실행되는 현장 process다. 브라우저가 닫혀도 조명이 동작해야 하므로, 통신과 저장소를 Pi 안에서 직접 관리한다.
 
 - **클라우드 방향:** HTTPS bootstrap으로 현장 Gateway의 배정을 받고, mTLS MQTT로 gateway 범위의 명령·ACK·상태를 API와 주고받는다.

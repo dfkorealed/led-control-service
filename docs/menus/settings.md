@@ -375,6 +375,8 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 
 ## 부족하거나 개선이 필요한 기능
 
+- BIO full runtime 배포는 독립 `compose.bio-runtime.yml`과 host launcher로 격리했다. old BlueZ base+BIO overlay 경로는 차단되며 새 root/scope/descriptor 검증 뒤 UID999·capability0으로 시작한다. 이 변경은 설치 보안 소프트웨어이며 실제 healthy heartbeat 3회와 조명 등록은 별도 승인·검증 대상이다. [배포 관문](../runbooks/raspberry-pi-gateway-appliance.md#독립-bio-runtime-배포)을 따른다.
+
 - `bootstrap-only` 설치 CLI는 claim 후 하드웨어를 시작하지 않고 assignment·MQTT identity만 준비한다. 전용 non-root Compose와 새 identity/gateway mount, 기대 Site/Gateway scope, one-shot/no-retry·정제 로그를 제공한다. 이는 인증 준비 소프트웨어이며 웹의 조명 검색·등록 성공이나 실제 Pi/PKI HIL 완료가 아니다. 실패 후 발급 원장 확인과 실제 adapter 시작은 [설치 runbook](../runbooks/device-lab-first-install.md#81-하드웨어-없는-인증-전용-bootstrap)을 따른다.
 
 - BIO direct-USB codec/client/adapter, durable registration recovery, factory/lifecycle, adapter-aware health와 Task 8 non-root 단일-node 배포 계약은 software integration까지 구현했다. Pi preflight도 통과했지만 intended broker의 DNS/TLS baseline과 healthy heartbeat 3회를 확인하지 못해 production container는 변경하지 않았다. `/settings/registration`의 production BIO 등록을 완료로 표시하지 않으며 실제 주소 변경, 0/20/60/90/100% 물리 반응, 재시작/USB 재연결, 다중 장치 충돌은 Task 9~10 증거가 필요하다.

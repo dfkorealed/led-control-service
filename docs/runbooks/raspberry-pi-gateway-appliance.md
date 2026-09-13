@@ -4,6 +4,38 @@
 
 ## 1. 적용 범위
 
+## 독립 BIO runtime 배포
+
+BIO에는 아래 독립 절차를 사용한다. 기존 BlueZ base+BIO overlay의 배열 병합은 NET_ADMIN/NET_RAW·BlueZ seccomp/mesh mount를 남긴다. 구형 `gateway-appliance-deploy.sh --adapter bio-usb`는 SSH 전에 차단되며 아래 파일에 임의 overlay를 추가하지 않는다.
+
+1. 사용자 승인과 bootstrap-only 완료 뒤 clean commit의 ARM64 image/archive checksum·Pi image config digest를 검증한다. 새 image에는 `bio-runtime-preflight.mjs`와 `gateway-bio-process-check.cjs`가 있어야 한다. 이 기능을 추가하기 전 image를 재사용하지 않는다.
+2. Pi staging에 저장소 상대 구조를 유지해 `scripts/gateway-bio-runtime.sh`, `scripts/gateway-bio-usb-preflight.sh`, `apps/gateway/compose.bio-runtime.yml`만 전달한다. old compose/env/container는 덮어쓰지 않는다.
+3. 보호된 shell 환경에서 아래 값을 명시한다. claim code/private key는 env로 넣지 않는다. `COMPOSE_*`, `GATEWAY_DATA_DIR`, 임의 env_file/override는 지원하지 않는다.
+
+```sh
+export GATEWAY_BIO_DATA_ROOT=/opt/led-control/gateway/data-admin4
+export GATEWAY_BIO_IMAGE='<검증한 새 image:tag>'
+export GATEWAY_BIO_IMAGE_ID='sha256:<Pi image config digest>'
+export GATEWAY_BIO_OLD_CONTAINER_ID='<보존할 led-control-gateway의 전체 ID>'
+export GATEWAY_SERIAL='<새 제조 serial>'
+export GATEWAY_EXPECTED_SITE_ID='<보호된 admin4 Site ID>'
+export GATEWAY_EXPECTED_GATEWAY_ID='<보호된 새 Gateway ID>'
+export GATEWAY_BOOTSTRAP_URL=https://192.168.45.148:4000/gateway-bootstrap
+bash scripts/gateway-bio-runtime.sh check
+# check는 host/image/USB만 확인한다. start는 아래 identity gate도 수행한다.
+bash scripts/gateway-bio-runtime.sh start
+```
+
+호스트 검사에는 exact-one `1a86:5523`, binary descriptor interface0·bulk OUT02/IN82·maxPacket32, character-device major/minor, 숫자 GID와 fresh bus/device 경로가 포함된다. 경로는 시작 직전에 다시 읽으며 symlink/잘린 descriptor/다중 대상은 실패한다. 하위 `identity`0750와 `gateway`/`mesh`0700만 UID/GID999로 준비한다. 기존 `data` fallback, recursive chown, old assignment/MQTT copy는 없다.
+
+장비를 넘기기 전에 image의 read-only identity preflight를 network-none·UID999·capability0으로 실행한다. 기존 assignment/새 기대 범위와 device/MQTT chain/key를 제품 Store로 검증하며 API 발급·CONNECT·USB 호출을 하지 않는다. 통과한 뒤에만 정확한 old container ID를 stop하고 삭제하지 않는다. 별도 `led-control-gateway-bio`가 이미 있으면 recreate하지 않고 중단한다. old inspect와 배포 로그는 `/tmp/gateway-bio-deploy.*`0700 안에0600으로 보관한다. raw env/ID가 포함될 수 있으므로 출력·Git 추가하지 않는다.
+
+컨테이너는 user999:999, USB 숫자 group 하나, exact device `rw`, cap_drop ALL, cap_add 없음, no-new-privileges, read-only rootfs로 실행한다. host 준비가 root entrypoint의 mkdir/chown/USB checks를 대체하므로 `umask 077; exec node /opt/led-control/gateway.mjs`가 안전한 실행 경로다. runtime의 실제 `/proc` UID/GID999·CapInh/Prm/Eff/Bnd/Amb0·NoNewPrivs1도 검사한다. 실패하면 새 container만 stop하며 자동 restart/retry하지 않는다. old identity가 폐기됐을 수 있으므로 자동 rollback start도 하지 않는다.
+
+새 identity/gateway/mesh 세 mount 외에 old mesh, DBus, BlueZ/HCI, 전체 `/dev`/USB bus, systemd mount는 없다. BIO mapping은 새 mesh root의 `bio-device-mappings.json`이다. public cert/CSR/CA0644, private key/assignment0600 계약을 유지한다. timesync marker mount가 없어 schedule/event의 clock-trust는 fail-closed하며 이 절차를 자동화 제어 검증으로 확대하지 않는다.
+
+실제 baseline은 별도 승인 후 startup handshake/network query만 허용하고 scan/identify/address/brightness/sensor/reset은 보내지 않는다. BIO health의 transportConnected/protocolReady/mappingValid/MQTT/heartbeatFresh와 실제 새 Gateway DB heartbeat가 서로 다른 3회 증가하는지 확인한다. handshake 실패 시 새 container를 stop하고 추가 장비 명령 없이 보고한다. 이 소프트웨어 변경만으로 baseline/조명 HIL 완료를 기록하지 않는다.
+
 이 문서는 Raspberry Pi 4/CM5에서 Docker 기반 게이트웨이를 설치하고 ESP32-H2 조명을 검색·등록·제어하는 절차다. Pi에는 전체 모노레포를 복사하지 않는다. 다음 파일만 배포한다.
 
 - ARM64 gateway image tar와 SHA-256 파일

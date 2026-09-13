@@ -23,6 +23,25 @@ let events:string[];
 let sockets:Set<TLSSocket>;
 let run: typeof import("./bootstrap-only").runBootstrapOnly;
 
+it("BIO host preflight validates installed scope/identity without network or issuing again", async()=>{
+  expect(await run(env)).toEqual({status:"complete",operation:"bootstrap-only"});
+  const before=[...events];
+  const file=join(import.meta.dirname,"bio-runtime-preflight.ts");
+  await expect(readFile(file,"utf8")).resolves.toBeTypeOf("string");
+  const {validateBioRuntimeIdentity}=await import("./bio-runtime-preflight");
+  await expect(validateBioRuntimeIdentity(env)).resolves.toBeUndefined();
+  await expect(validateBioRuntimeIdentity({...env,GATEWAY_EXPECTED_GATEWAY_ID:siteId})).rejects.toThrow();
+  expect(events).toEqual(before);
+});
+
+it("BIO host preflight rejects absent assignment without bootstrap or hardware work", async()=>{
+  const file=join(import.meta.dirname,"bio-runtime-preflight.ts");
+  await expect(readFile(file,"utf8")).resolves.toBeTypeOf("string");
+  const {validateBioRuntimeIdentity}=await import("./bio-runtime-preflight");
+  await expect(validateBioRuntimeIdentity(env)).rejects.toThrow();
+  expect(events).toEqual([]);
+});
+
 beforeAll(async()=>{
   // This assertion is the initial RED when the dedicated product CLI is absent.
   await expect(readFile(join(import.meta.dirname,"bootstrap-only.ts"),"utf8")).resolves.toContain("runBootstrapOnly");
