@@ -74,7 +74,7 @@
 
 ## 구현 완료
 
-- BIO direct-USB 등록의 Gateway software integration을 추가했다. scanner가 identity namespace를 소유해 BlueZ는 기존 DFK UUID만, BIO는 canonical lowercase `bio:<12-hex>`만 노출한다. BIO 등록은 scan cache 대상의 2초 식별·sensor 복귀 뒤 mapping 예약, UUID 주소 할당, 동일 UUID/new address 재확인, confirmed 전환 순서이며 `0x0001..0x7fff` 밖 주소를 거부한다. cold discovery refresh도 caller별 cancellation/deadline을 transport 최종 write까지 전달한다. scan start ACK가 accepted된 직후 Promise continuation 전에 취소돼도 만료 후 stop write를 보내지 않고 연결 세대를 폐기하며, reject ACK는 scan 소유권으로 표시하지 않는다. 동시에 기다리던 다른 caller는 취소 signal을 공유하지 않고 reconnect 뒤 자기 refresh를 수행한다. accepted GET 뒤 matching device report가 없는 취소·deadline·관측 timeout도 지연 report가 다음 같은 대상 GET에 섞이지 않도록 동일 세대를 폐기하고, 다음 read는 새 descriptor 준비를 기다린다. ACK 전 이미 matching report를 확보한 정상 순서는 유지한다. 실제 Gateway startup journal 경로도 accepted command를 adapter recovery에 먼저 연결해 confirmed mapping은 write 없이 완료로 수렴하고 reserved mapping은 저장된 old/new 주소 reconciliation으로만 판정한다. recovery 계약이 없는 기존 BlueZ는 `provisioning_outcome_unknown`을 유지하며 startup이 주소 write를 맹목적으로 반복하지 않는다. 이는 자동 테스트를 통과한 software 경계이며 production 등록 완료 판정은 아니다.
+- BIO direct-USB 등록의 Gateway software integration을 추가했다. `GATEWAY_ADAPTER=bio-usb` factory는 Company ID와 D-Bus/BlueZ를 요구하지 않고 설정된 mapping path·response/scan timeout으로 direct USB client를 구성하며, 제조사 앱이나 전화에도 의존하지 않는다. adapter 값 누락·미지원은 fail-closed하고 기존 BlueZ 선택은 Company ID와 D-Bus/BlueZ 계약을 그대로 유지한다. scanner가 identity namespace를 소유해 BlueZ는 기존 DFK UUID만, BIO는 canonical lowercase `bio:<12-hex>`만 노출한다. BIO 등록은 scan cache 대상의 2초 식별·sensor 복귀 뒤 mapping 예약, UUID 주소 할당, 동일 UUID/new address 재확인, confirmed 전환 순서이며 `0x0001..0x7fff` 밖 주소를 거부한다. cold discovery refresh도 caller별 cancellation/deadline을 transport 최종 write까지 전달한다. scan start ACK가 accepted된 직후 Promise continuation 전에 취소돼도 만료 후 stop write를 보내지 않고 연결 세대를 폐기하며, reject ACK는 scan 소유권으로 표시하지 않는다. 동시에 기다리던 다른 caller는 취소 signal을 공유하지 않고 reconnect 뒤 자기 refresh를 수행한다. accepted GET 뒤 matching device report가 없는 취소·deadline·관측 timeout도 지연 report가 다음 같은 대상 GET에 섞이지 않도록 동일 세대를 폐기하고, 다음 read는 새 descriptor 준비를 기다린다. ACK 전 이미 matching report를 확보한 정상 순서는 유지한다. 실제 Gateway startup journal 경로도 accepted command를 adapter recovery에 먼저 연결해 confirmed mapping은 write 없이 완료로 수렴하고 reserved mapping은 저장된 old/new 주소 reconciliation으로만 판정한다. recovery 계약이 없는 기존 BlueZ는 `provisioning_outcome_unknown`을 유지하며 startup이 주소 write를 맹목적으로 반복하지 않는다. 이는 자동 테스트를 통과한 software 경계이며 production 등록 완료 판정은 아니다.
 
 - 공통 고객 셸 상단은 현재 메뉴 제목과 실제 현장명 배지만 표시한다. 기존 층명 기반 `B2 주차장` 표기와 동작 없는 Gateway 정상·오프라인·미등록 상태 배지는 제거하되 설정의 `Gateway 상태` 상세 카드는 유지한다. 로그아웃 위치와 인증·dirty editor 확인 로직은 유지하고, 고객·운영자 셸의 로그아웃은 공통 `IconTooltipButton`으로 아이콘만 표시한다. `로그아웃` 도움말은 hover와 키보드 focus에서 열리고 도움말 위로 포인터를 옮겨도 유지되며 `Escape`로 닫힌다. 모바일 버튼은 52px 실제 터치 영역을 사용한다.
 
@@ -345,7 +345,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 
 ## 미구현
 
-- BIO adapter factory 선택·startup/shutdown·adapter-aware health(Task 7), exact raw USB non-root 배포(Task 8), 승인된 단일 장치 주소/제어 HIL(Task 9), Web→API→Gateway production E2E와 최종 운영 문서화(Task 10)는 아직 미구현 또는 미검증이다.
+- exact raw USB non-root 배포와 실장비 재연결 복구(Task 8), 승인된 단일 장치 주소/제어 HIL(Task 9), Web→API→Gateway production E2E와 최종 운영 문서화(Task 10)는 아직 미구현 또는 미검증이다.
 - Scene 04~09와 24~26의 자동 Web/Chromium 검증은 완료했지만 Raspberry Pi/BlueZ/ESP32-H2 HIL과 실제 모바일 WebView safe-area 검증은 미실행이다.
 
 - 초대 링크 발급·전달 방식의 일반 유저 onboarding UI. admin이 직접 계정과 임시 비밀번호를 발급하는 현장 유저 CRUD는 구현 완료했다.
@@ -375,7 +375,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 
 ## 부족하거나 개선이 필요한 기능
 
-- BIO direct-USB codec/client/adapter와 durable registration recovery는 software integration까지 구현했다. 다만 Task 7 factory/lifecycle/health에 아직 연결하지 않았고 Task 8~10 배포·승인 HIL·Web E2E도 남아 있으므로 `/settings/registration`의 production BIO 등록을 완료로 표시하지 않는다. 실제 주소 변경, 0/20/60/90/100% 물리 반응, 재시작/USB 재연결, 다중 장치 충돌은 Task 9~10 증거가 필요하다.
+- BIO direct-USB codec/client/adapter, durable registration recovery, factory/lifecycle과 adapter-aware health는 software integration까지 구현했다. 다만 Task 8~10 배포·승인 HIL·Web E2E가 남아 있으므로 `/settings/registration`의 production BIO 등록을 완료로 표시하지 않는다. 실제 주소 변경, 0/20/60/90/100% 물리 반응, 재시작/USB 재연결, 다중 장치 충돌은 Task 8~10 증거가 필요하다.
 - 맵 편집 우측 패널의 공통 overflow 계약은 Chromium 1440/1024/390/320px route fixture로 검증했으며 실제 모바일 WebView safe-area와 브라우저별 scrollbar 표현은 별도 실측이 필요하다.
 - 테스트 데이터 도구는 개발·검증용 대량 데이터 준비 기능으로, 기본 off이며 실제 장비/MQTT 시뮬레이션이나 실장비 검증을 대체하지 않는다. 생성 직후에도 실제 heartbeat가 없으면 freshness 정책으로 offline 전환될 수 있다. DB schema/migration 변경은 없다.
 - 비밀번호 변경과 setup/commissioning visibility는 Web 회귀와 기존 격리 실백엔드 E2E로 검증했다. Scene 24~26 레이아웃은 1440×900, 1024×768, 390×844, 320×740 자동 Chromium으로 검증했지만 재설치, 수동 in-app Browser 시각 QA와 Raspberry Pi/ESP32-H2 HIL은 아직 실행하지 않았다.
@@ -411,7 +411,10 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 
 - `apps/gateway/src/adapters/bio-usb-dongle-adapter.ts`
 - `apps/gateway/src/adapters/bio-sensor-capability-unavailable-port.ts`
+- `apps/gateway/src/adapters/adapter-factory.ts`
 - `apps/gateway/src/bio/bio-device-mapping-store.ts`
+- `apps/gateway/src/health/appliance-health.ts`
+- `apps/gateway/src/index.ts`
 - `apps/gateway/src/state/provisioning-device-journal.ts`
 - `apps/web/src/features/settings/users/SiteUsersView.tsx`
 - `apps/web/src/features/settings/users/SiteUsersView.test.tsx`
