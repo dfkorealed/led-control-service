@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "pnpm --filter @led-control/shared build && pnpm --filter @led-control/automation-engine build && esbuild src/index.ts --bundle --platform=node --format=esm --target=node22 --packages=external --outfile=dist/gateway.mjs",
+    "build": "pnpm --filter @led-control/shared build && pnpm --filter @led-control/automation-engine build && esbuild src/index.ts --bundle --platform=node --format=esm --target=node22 --packages=external --outfile=dist/gateway.mjs && esbuild src/bootstrap-only.ts --bundle --platform=node --format=esm --target=node22 --packages=external --outfile=dist/bootstrap-only.mjs",
     "dev": "pnpm --filter @led-control/shared build && pnpm --filter @led-control/automation-engine build && tsx src/index.ts",
     "bluez:probe": "tsx scripts/bluez-capability-probe.ts",
     "bio:probe": "tsx scripts/bio-dongle-probe.ts",

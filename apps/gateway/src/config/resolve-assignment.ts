@@ -16,9 +16,15 @@ export async function resolveGatewayAssignment(options: {
   store: AssignmentStoreLike;
   bootstrapClient?: BootstrapClientLike;
   sleep?: (milliseconds: number) => Promise<void>;
+  /** 설치용 one-shot은 미claim을 기다리지 않는다. 상시 runtime의 기존 backoff는 유지한다. */
+  once?: boolean;
+  expected?: Pick<GatewayAssignment, "serialNumber" | "siteId" | "gatewayId">;
 }) {
   const stored = await options.store.read();
-  if (stored) return stored;
+  if (stored) {
+    validateExpectedAssignment(stored, options.expected);
+    return stored;
+  }
 
   const serialNumber = requireManufacturingEnv(options.env, "GATEWAY_SERIAL");
   const client =
@@ -40,14 +46,29 @@ export async function resolveGatewayAssignment(options: {
     // 도달하지 못한다. 반대로 배정이 생긴 뒤에만 아래 저장 단계로 진행한다.
     const assignment = await client.fetchAssignment();
     if (assignment) {
+      validateExpectedAssignment(assignment, options.expected);
       // writeAtomic은 0600 임시 파일을 fsync·rename해 배정을 교체한다. 전원 장애가
       // 난 뒤 부분 JSON으로 시작하거나 현장 배정 정보·Gateway 식별 범위가 넓게 읽히는
       // 일을 막고, 다음 시작에서는 같은 local assignment로 MQTT identity를 준비하게 한다.
       await options.store.writeAtomic(assignment);
       return assignment;
     }
+    if (options.once) throw new Error("gateway is not claimed");
     const delay = Math.min(60_000, 2_000 * 2 ** Math.min(attempt, 5));
     await sleep(delay);
+  }
+}
+
+function validateExpectedAssignment(assignment: GatewayAssignment, expected?: Pick<GatewayAssignment, "serialNumber" | "siteId" | "gatewayId">) {
+  if (!expected) return;
+  // 기대 ID는 claim 응답과 비교하는 assertion일 뿐, 서버 배정을 대신하지 않는다.
+  // 이전 Site의 assignment를 복사해 넣어도 저장/인증서 발급 전에 차단한다.
+  if (assignment.serialNumber !== expected.serialNumber || assignment.siteId !== expected.siteId || assignment.gatewayId !== expected.gatewayId) {
+    throw new Error("gateway assignment scope mismatch");
+  }
+  const broker = new URL(assignment.mqttUrl);
+  if (broker.protocol !== "mqtts:" || !broker.hostname || broker.username || broker.password || broker.search || broker.hash) {
+    throw new Error("gateway assignment broker is invalid");
   }
 }
 

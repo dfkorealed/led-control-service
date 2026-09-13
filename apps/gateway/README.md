@@ -2,6 +2,12 @@
 
 이 앱은 라즈베리파이에서 실행되는 현장 게이트웨이 프로세스다. 클라우드 MQTT 명령을 받아 BLE Mesh adapter 인터페이스로 전달하고, 명령 ACK, 조명 상태, heartbeat, 조명 검색/등록 이벤트를 MQTT로 발행한다.
 
+## 하드웨어 없는 설치 인증
+
+`compose.bootstrap.yml`의 `gateway-bootstrap`은 `bootstrap-only` 전용 artifact를 non-root로 한 번 실행한다. 제품 assignment resolver와 MQTT 인증서 client/store/CONNECT probe를 재사용하지만 adapter, USB, D-Bus/HCI/BlueZ, heartbeat, provisioning 및 MQTT publish/runtime은 시작하지 않는다. 기존 runtime Compose와 병합하지 않고 새 host data root의 `identity`와 `gateway`만 각각 `/data/identity`, `/data/gateway`에 연결한다.
+
+claim 응답의 기대 Site/Gateway ID와 제조 serial, 유효 HTTPS bootstrap URL이 필수이며 권한/경로/인증서/scope preflight 실패는 고정 stage만 출력한다. 발급 요청의 불확실한 실패를 자동 재시도하지 않는다. 성공은 인증 준비이지 실제 조명 설치/HIL 완료가 아니다. 상세 환경, host 권한 준비와 실패 관문은 [Lab 설치 runbook](../../docs/runbooks/device-lab-first-install.md#81-하드웨어-없는-인증-전용-bootstrap)을 따른다.
+
 ## 역할 지도
 
 프론트엔드에서 API 응답을 화면 상태로 바꾸는 경계가 있다면, Gateway는 현장에서는 클라우드 명령을 조명 무선 명령으로 바꾸는 경계다. 다만 브라우저나 웹 서버가 아니라 Raspberry Pi에서 계속 실행되는 현장 process다. 브라우저가 닫혀도 조명이 동작해야 하므로, 통신과 저장소를 Pi 안에서 직접 관리한다.

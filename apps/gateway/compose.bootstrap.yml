@@ -1,0 +1,33 @@
+# 독립 파일이다. Raspberry Pi/BIO runtime overlay와 병합하지 않는다.
+# Host에서 승인된 새 root의 identity와 gateway 디렉터리를 gateway UID로 준비한다.
+# create_host_path=false는 오타로 빈 root가 생겨 다른 identity를 쓰는 것을 막는다.
+services:
+  gateway-bootstrap:
+    image: "${GATEWAY_IMAGE:?verified Gateway image is required}"
+    user: gateway:gateway
+    command: [bootstrap-only]
+    network_mode: host
+    restart: "no"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      disable: true
+    environment:
+      GATEWAY_SERIAL: "${GATEWAY_SERIAL:?manufacturing serial is required}"
+      GATEWAY_EXPECTED_SITE_ID: "${GATEWAY_EXPECTED_SITE_ID:?claimed Site ID is required}"
+      GATEWAY_EXPECTED_GATEWAY_ID: "${GATEWAY_EXPECTED_GATEWAY_ID:?claimed Gateway ID is required}"
+      GATEWAY_BOOTSTRAP_URL: "${GATEWAY_BOOTSTRAP_URL:?HTTPS bootstrap endpoint is required}"
+      GATEWAY_BOOTSTRAP_IDENTITY_DIR: /data/identity
+      GATEWAY_BOOTSTRAP_STATE_DIR: /data/gateway
+    volumes:
+      - type: bind
+        source: "${GATEWAY_BOOTSTRAP_DATA_DIR:?separate data root is required}/identity"
+        target: /data/identity
+        bind:
+          create_host_path: false
+      - type: bind
+        source: "${GATEWAY_BOOTSTRAP_DATA_DIR:?separate data root is required}/gateway"
+        target: /data/gateway
+        bind:
+          create_host_path: false

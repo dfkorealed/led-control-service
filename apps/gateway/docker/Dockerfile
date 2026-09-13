@@ -57,6 +57,10 @@ RUN pnpm --filter @led-control/shared build \
 RUN pnpm --filter @led-control/gateway exec esbuild scripts/manufacturing-enroll.ts \
       --bundle --platform=node --format=esm --target=node22 --outfile=/tmp/manufacturing-enroll.mjs
 
+# Hardware-free graph: index.ts를 재사용하지 않고 인증 전용 artifact만 묶는다.
+RUN pnpm --filter @led-control/gateway exec esbuild src/bootstrap-only.ts \
+      --bundle --platform=node --format=esm --target=node22 --packages=external --outfile=/tmp/bootstrap-only.mjs
+
 FROM node:22-bookworm-slim AS runtime
 # Bookworm is the OpenSSL 3.0 minor-version contract. Without a Debian snapshot,
 # an exact patch pin would disappear as security repositories advance.
@@ -70,6 +74,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=bluez-builder /src/bluez-5.82/mesh/bluetooth-meshd /usr/local/sbin/bluetooth-meshd
 COPY --from=btmgmt-builder /usr/bin/btmgmt /usr/local/bin/btmgmt
 COPY --from=app-builder /tmp/gateway.mjs /opt/led-control/gateway.mjs
+COPY --from=app-builder /tmp/bootstrap-only.mjs /opt/led-control/bootstrap-only.mjs
 COPY --from=app-builder /tmp/manufacturing-enroll.mjs /usr/local/bin/manufacturing-enroll.mjs
 COPY --from=app-builder /tmp/gateway-runtime/node_modules /opt/led-control/node_modules
 COPY apps/gateway/docker/dbus-system.conf /etc/dbus-1/gateway-system.conf

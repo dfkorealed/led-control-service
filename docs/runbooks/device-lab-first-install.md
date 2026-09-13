@@ -216,6 +216,40 @@ pnpm dev
 
 ## 8. Pi 설정, bootstrap과 MQTT 연결
 
+### 8.1 하드웨어 없는 인증 전용 bootstrap
+
+새 `bootstrap-only` artifact가 포함된 **검증된 새 image**에만 적용한다. 기존 image에 파일이 없다면 일반 entrypoint를 대신 실행하지 않는다. 실제 PKI 발급/Pi 파일 변경은 사용자 승인 후 수행하며, disposable TLS 자동 테스트는 실제 장비 발급/HIL 성공 증거가 아니다.
+
+`compose.bootstrap.yml`은 독립 Compose 파일이며 Raspberry Pi/BIO runtime overlay와 **병합하지 않는다**. `gateway:gateway`, 전체 capability 제거, read-only rootfs와 두 bind mount만 사용한다. USB, `/run/dbus`, HCI, mesh mount와 Bluetooth 권한은 없다. entrypoint의 `bootstrap-only` 분기는 공통 mkdir/chown·USB preflight보다 먼저 전용 CLI로 exec하며 CLI 자체도 root 실행을 거부한다.
+
+사전 관문:
+
+1. 제조 device 인증서가 있는 **새** data root, 새 serial, claim 응답의 Site/Gateway ID를 대조한다. 기존 assignment, MQTT/current 또는 mesh 상태를 새 root로 복사하지 않는다. 기대 ID는 서버 응답 비교값이며 임의 assignment를 만드는 입력이 아니다.
+2. image ID와 그 image의 `gateway` UID/GID를 읽기 전용으로 확인한다. 호스트에서 exact 새 `<data-root>/identity`와 `<data-root>/gateway`만 해당 UID/GID 소유로 준비한다. identity 0750, gateway 0700, device key 0600을 유지한다. 재귀 chown·기존 data root 변경·자동 mkdir 우회는 하지 않는다. 잘못된/겹치는/symlink root와 쓰기 권한 부재는 CLI가 거부한다. Compose의 `create_host_path=false`도 누락된 mount의 자동 생성을 막는다.
+3. 제조 trust/API IP SAN, broker DNS/IP SAN, 현재 CRL, active claim, 미완료 폐기 원장 0을 확인한다. Host network 컨테이너도 Pi `/etc/hosts`를 그대로 공유하지 않으므로 실제 DNS를 확인하거나 유효한 IP SAN의 명시 URL을 사용한다. 서버가 반환하는 `assignment.mqttUrl`도 컨테이너에서 해석 가능해야 한다.
+4. 같은 새 identity에 대한 bootstrap/issuance를 동시에 실행하지 않는다. 기존 runtime이 **다른** data root만 사용하고 충돌하지 않으면 그대로 둔다. 기존 runtime에 새 root를 연결하지 않는다.
+
+Pi에서 image와 standalone Compose를 준비한 뒤 다음 환경을 사용한다. 예제 serial/root는 승인된 admin4 설치 전용이며 다른 설치에서는 승인된 값으로 바꾼다. Site/Gateway ID는 claim 응답을 비밀값 비노출 방식으로 전달한다.
+
+```bash
+export GATEWAY_IMAGE='<검증한 bootstrap-only 포함 image:tag>'
+export GATEWAY_BOOTSTRAP_DATA_DIR=/opt/led-control/gateway/data-admin4
+export GATEWAY_SERIAL=GW-RPI-ADMIN4-20260913-01
+export GATEWAY_EXPECTED_SITE_ID='<claim 응답 Site ID>'
+export GATEWAY_EXPECTED_GATEWAY_ID='<claim 응답 Gateway ID>'
+export GATEWAY_BOOTSTRAP_URL=https://192.168.45.148:4000/gateway-bootstrap
+docker compose -f compose.bootstrap.yml config --quiet
+docker compose -f compose.bootstrap.yml run --rm --no-deps gateway-bootstrap
+```
+
+제품 CLI 순서는 device key/체인/serial·root preflight → 실제 assignment resolver → device mTLS CSR 발급 → MQTT key/체인/CN/Gateway ID 검증 → publish 없는 CONNECT probe → atomic current 설치 → 종료다. assignment는 host `<data-root>/gateway/assignment.json`에 0600으로 저장하고 MQTT identity는 `<data-root>/identity/mqtt`에 생성한다. 이후 별도 승인된 runtime Compose는 같은 두 host 디렉터리를 기존 `/var/lib/led-control`과 `/var/lib/led-control/identity`에 연결해 소비한다.
+
+stdout 성공은 `{"status":"complete","operation":"bootstrap-only"}` 하나다. 실패는 stderr의 고정 `stage=preflight|assignment|mqtt`와 nonzero exit로만 보고한다. Native error, URL, ID, PEM, claim code/private key는 출력하지 않는다. unclaimed/HTTP 실패/CONNECT 거부에 자동 retry가 없고 bootstrap HTTP는 전체 10초·256 KiB 제한이다. 실패 후 서버가 이미 발급했을 수 있으므로 DB/발급 원장·현재 파일 확인 전 다시 실행하지 않는다. 검토 후 같은 배정으로 재실행하면 유효한 MQTT identity는 재발급 없이 CONNECT만 확인한다.
+
+성공 후에도 heartbeat, adapter, 조명 검색/등록·제어는 **시작하지 않는다**. 모니터링 offline/조명 없음 상태는 이 단계의 정상 한계다. 별도 runtime 배포·BIO preflight·HIL 관문 전에는 설치 전체 완료로 판정하지 않는다.
+
+### 8.2 상시 runtime 시작 (별도 승인)
+
 Pi에서 실행 설정을 만든다.
 
 ```bash

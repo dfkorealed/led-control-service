@@ -375,6 +375,8 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 
 ## 부족하거나 개선이 필요한 기능
 
+- `bootstrap-only` 설치 CLI는 claim 후 하드웨어를 시작하지 않고 assignment·MQTT identity만 준비한다. 전용 non-root Compose와 새 identity/gateway mount, 기대 Site/Gateway scope, one-shot/no-retry·정제 로그를 제공한다. 이는 인증 준비 소프트웨어이며 웹의 조명 검색·등록 성공이나 실제 Pi/PKI HIL 완료가 아니다. 실패 후 발급 원장 확인과 실제 adapter 시작은 [설치 runbook](../runbooks/device-lab-first-install.md#81-하드웨어-없는-인증-전용-bootstrap)을 따른다.
+
 - BIO direct-USB codec/client/adapter, durable registration recovery, factory/lifecycle, adapter-aware health와 Task 8 non-root 단일-node 배포 계약은 software integration까지 구현했다. Pi preflight도 통과했지만 intended broker의 DNS/TLS baseline과 healthy heartbeat 3회를 확인하지 못해 production container는 변경하지 않았다. `/settings/registration`의 production BIO 등록을 완료로 표시하지 않으며 실제 주소 변경, 0/20/60/90/100% 물리 반응, 재시작/USB 재연결, 다중 장치 충돌은 Task 9~10 증거가 필요하다.
 - 맵 편집 우측 패널의 공통 overflow 계약은 Chromium 1440/1024/390/320px route fixture로 검증했으며 실제 모바일 WebView safe-area와 브라우저별 scrollbar 표현은 별도 실측이 필요하다.
 - 테스트 데이터 도구는 개발·검증용 대량 데이터 준비 기능으로, 기본 off이며 실제 장비/MQTT 시뮬레이션이나 실장비 검증을 대체하지 않는다. 생성 직후에도 실제 heartbeat가 없으면 freshness 정책으로 offline 전환될 수 있다. DB schema/migration 변경은 없다.
@@ -408,6 +410,8 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
   - https://www.lutron.com/us/en/controls/systems/vive
 
 ## 관련 파일
+
+- `apps/gateway/src/bootstrap-only.ts`, `apps/gateway/src/identity/ensure-mqtt-identity.ts`, `apps/gateway/compose.bootstrap.yml`: 하드웨어 없는 설치 인증과 scope/권한 preflight.
 
 - `apps/gateway/src/adapters/bio-usb-dongle-adapter.ts`
 - `apps/gateway/src/adapters/bio-sensor-capability-unavailable-port.ts`

@@ -159,6 +159,8 @@
 
 ## 부족하거나 개선이 필요한 기능
 
+- Gateway `bootstrap-only` 성공은 assignment와 MQTT CONNECT 인증 준비만 뜻한다. heartbeat·adapter·조명 검색을 시작하지 않으므로 모니터링의 offline/조명 없음 상태를 online/등록 완료로 바꾸지 않는다. 전용 CLI의 disposable TLS 테스트와 실제 runtime/BIO HIL은 별도 증거이며, 설정 commissioning이 등록을 소유하는 기존 empty-state 경계는 유지한다.
+
 - P1 인시던트·정책 UI의 1440/1024/390/320 Chromium 통합 workflow·가로 overflow, no-floor/Gateway-only empty/error 접근, map 자동 복구 최종 게이트는 Task 5 review fix를 포함해 `25/25`로 완료했다. 이는 deterministic route/API fixture와 Chromium 합성 결과에 대한 software 증거이며, 실제 MQTT broker, Raspberry Pi/BlueZ/ESP32-H2 HIL, production notification 전송은 실행하지 않았다.
 - 지도 배율과 스크롤 위치는 현재 화면 세션 상태이며 층 전환·새로고침 시 100% 화면 맞춤으로 초기화된다. 사용자별 마지막 viewport를 저장하는 기능은 제공하지 않는다.
 - 저장 도형 표시 회귀는 deterministic route fixture Chromium에서 검증한다. mock snapshot과 브라우저 합성 결과를 확인하는 범위이며 실제 Gateway, Raspberry Pi, ESP32-H2 또는 현장 도면의 HIL 검증은 아니다.
@@ -184,6 +186,8 @@
 - scan lifecycle 자동 테스트는 mock MQTT와 scanner adapter를 사용한다. 실제 host Mosquitto mTLS negative ACL integration에서 Gateway CN certificate의 `acks/state-ingested`, `acks/provisioning/scan-terminal-ingested` publish 거부를 확인했다. Docker 전용 broker persistence 재시작 test는 현재 로컬 Docker daemon 부재로 skip됐다. 실제 Raspberry Pi BlueZ adapter의 scan timeout, broker/Pi/API 재시작을 가로지르는 terminal application ACK 재전달, ESP32-H2 자사 UUID 필터와 terminal event 전달은 HIL에서 별도로 확인해야 한다.
 
 ## 관련 파일
+
+- `apps/gateway/src/bootstrap-only.ts`, `apps/gateway/compose.bootstrap.yml`: 모니터링 상태를 발행하지 않는 설치 인증 전용 명령.
 
 - `apps/gateway/src/adapters/bio-usb-dongle-adapter.ts`
 - `apps/gateway/src/adapters/bio-sensor-capability-unavailable-port.ts`

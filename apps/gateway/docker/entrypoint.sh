@@ -2,6 +2,18 @@
 set -eu
 umask 077
 
+# 설치 인증만 수행하는 독립 명령은 mkdir/chown/USB 검사보다도 먼저 분기한다.
+# Compose의 user=gateway로 시작하며 CLI도 root를 거부한다. 별도 mount를 검증한
+# 뒤 제품 bootstrap/CSR/atomic install만 실행하고 종료하므로 HCI/BlueZ/BIO는
+# 준비하거나 정리할 이유가 없다. 알 수 없는 인수도 hardware 경로로 흘리지 않는다.
+if [ "$#" -gt 0 ]; then
+  if [ "$#" -eq 1 ] && [ "$1" = bootstrap-only ]; then
+    exec node /opt/led-control/bootstrap-only.mjs
+  fi
+  echo 'GATEWAY_ENTRYPOINT_INVALID_COMMAND' >&2
+  exit 1
+fi
+
 mkdir -p /run/dbus /var/run/led-control /var/lib/bluetooth/mesh /var/lib/led-control \
   /var/lib/led-control/identity/device /var/lib/led-control/identity/mqtt
 chmod 0755 /run/dbus

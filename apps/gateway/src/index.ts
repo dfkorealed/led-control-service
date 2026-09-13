@@ -83,6 +83,8 @@ import { createProductionAdapters, resolveGatewayAdapterKind } from "./adapters/
 import { ApplianceHealth, parseHeartbeatInterval } from "./health/appliance-health";
 import type { GatewayAssignment } from "./config/assignment";
 import { MqttCertificateClient } from "./identity/mqtt-certificate-client";
+import { ensureMqttIdentity } from "./identity/ensure-mqtt-identity";
+export { ensureMqttIdentity } from "./identity/ensure-mqtt-identity";
 import { MqttIdentityStore, type PreparedMqttIdentity } from "./identity/mqtt-identity-store";
 import { probeMqttIdentity } from "./identity/mqtt-identity-probe";
 import { KeyMaterialStore } from "./identity/key-material-store";
@@ -1601,26 +1603,6 @@ export async function runGatewayStartupStageWithAdapterCleanup<T>(
     }
     throw startupError;
   }
-}
-
-export async function ensureMqttIdentity(assignment: GatewayAssignment, env: NodeJS.ProcessEnv) {
-  const bootstrapUrl = required(env, "GATEWAY_BOOTSTRAP_URL");
-  const client = new MqttCertificateClient({
-    url: new URL("/gateway-certificates/mqtt", bootstrapUrl).toString(),
-    certificatePath: required(env, "GATEWAY_DEVICE_CERT_PATH"),
-    privateKeyPath: required(env, "GATEWAY_DEVICE_KEY_PATH"),
-    caPath: required(env, "GATEWAY_BOOTSTRAP_CA_PATH")
-  });
-  const deviceIdentityRoot = env.GATEWAY_IDENTITY_ROOT ?? "/var/lib/led-control/identity/device";
-  const mqttIdentityRoot = env.GATEWAY_MQTT_IDENTITY_ROOT ?? "/var/lib/led-control/identity/mqtt";
-  const mqttCaPath = env.GATEWAY_MQTT_CA_SOURCE_PATH ?? join(deviceIdentityRoot, "current", "mqtt-ca.crt");
-  const store = new MqttIdentityStore({ identityRoot: mqttIdentityRoot });
-  await store.ensure(
-    assignment.gatewayId,
-    await readFile(mqttCaPath, "utf8"),
-    (csrPem) => client.requestCertificate(csrPem),
-    (candidate) => probeMqttIdentity(assignment.mqttUrl, candidate)
-  );
 }
 
 function startCertificateRotation(

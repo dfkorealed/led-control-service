@@ -48,6 +48,26 @@ describe("resolveGatewayAssignment", () => {
     ).resolves.toEqual(stored);
     expect(store.writeAtomic).toHaveBeenCalledWith(stored);
   });
+
+  it("one-shot rejects unclaimed after exactly one request without sleeping or writing", async () => {
+    const store = { read: vi.fn().mockResolvedValue(null), writeAtomic: vi.fn() };
+    const bootstrapClient = { fetchAssignment: vi.fn().mockResolvedValue(null) };
+    const sleep = vi.fn().mockRejectedValue(new Error("retry must not run"));
+    await expect(resolveGatewayAssignment({ env: manufacturingEnv(), store, bootstrapClient, sleep,
+      once: true })).rejects.toThrow("gateway is not claimed");
+    expect(bootstrapClient.fetchAssignment).toHaveBeenCalledTimes(1);
+    expect(sleep).not.toHaveBeenCalled();
+    expect(store.writeAtomic).not.toHaveBeenCalled();
+  });
+
+  it.each(["stored", "remote"])("rejects wrong %s assignment before writing or issuing", async (source) => {
+    const store = { read: vi.fn().mockResolvedValue(source === "stored" ? stored : null), writeAtomic: vi.fn() };
+    const bootstrapClient = { fetchAssignment: vi.fn().mockResolvedValue(stored) };
+    await expect(resolveGatewayAssignment({ env: manufacturingEnv(), store, bootstrapClient, once: true,
+      expected: { serialNumber: "NEW", siteId: "new-site", gatewayId: "new-gateway" }
+    })).rejects.toThrow("gateway assignment scope mismatch");
+    expect(store.writeAtomic).not.toHaveBeenCalled();
+  });
 });
 
 function manufacturingEnv() {
