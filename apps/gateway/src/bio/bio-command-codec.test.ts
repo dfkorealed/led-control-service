@@ -45,12 +45,25 @@ describe("BIO installed 1.2.0 traced command codec", () => {
 
   it.each([
     { kind: "setControlMode", target: { kind: "broadcast", networkId: 0 }, mode: "force-off" },
-    { kind: "setHighBrightness", target: { kind: "unicast", networkId: 0, logicalAddress: 0x1234 }, rawHighBrightness: 157 },
-    { kind: "setHighBrightness", target: { kind: "broadcast", networkId: 0 }, rawHighBrightness: 128 },
-    { kind: "setHighBrightness", target: { kind: "unicast", networkId: 0, logicalAddress: 0x1234 }, rawHighBrightness: 128 },
+    { kind: "setHighBrightness", target: { kind: "broadcast", networkId: 0 }, rawHighBrightness: 127 },
+    { kind: "setHighBrightness", target: { kind: "unicast", networkId: 0, logicalAddress: 0x1234 }, rawHighBrightness: 127 },
     { kind: "setHighBrightness", target: { kind: "unicast", networkId: 0, logicalAddress: 0x1234 }, rawHighBrightness: 0 }
   ] satisfies BioOperation[])("fails closed for an otherwise-valid but uncaptured combination: %j", (operation) => {
     expect(() => encodeBioCommand(operation, 75)).toThrowError(expect.objectContaining({ code: "BIO_EVIDENCE_UNAVAILABLE" }));
+  });
+
+  it.each([26, 128, 198, 254, 255])("serializes APK table-backed positive brightness raw %i", (rawHighBrightness) => {
+    const request = encodeBioCommand({ kind: "setHighBrightness", target: {
+      kind: "unicast", networkId: 0, logicalAddress: 0x1234
+    }, rawHighBrightness }, 75);
+
+    expect(request.payload.subarray(15)).toEqual(Buffer.from([0xcd, 0x13, rawHighBrightness]));
+  });
+
+  it.each([2, 25, 127, 253])("rejects arbitrary non-table raw %i", (rawHighBrightness) => {
+    expect(() => encodeBioCommand({ kind: "setHighBrightness", target: {
+      kind: "unicast", networkId: 0, logicalAddress: 0x1234
+    }, rawHighBrightness }, 75)).toThrowError(expect.objectContaining({ code: "BIO_EVIDENCE_UNAVAILABLE" }));
   });
 
   it("does not expose the network-read payload or interpret the probe as device info", () => {

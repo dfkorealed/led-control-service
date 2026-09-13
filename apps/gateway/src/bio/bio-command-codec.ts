@@ -99,11 +99,12 @@ export function encodeBioCommand(operation: BioOperation, sequence: number): Bio
     case "setHighBrightness":
       target = operation.target;
       unsigned(operation.rawHighBrightness, 255);
-      // [확인됨] Task 4의 APK table은 percent 변환 계약이지만, 기존 write allowlist는
-      // Android log에서 포착한 157(broadcast)과 254/255 양 target만 유지한다.
-      // [미확인] 나머지 table raw의 실제 적용은 Task 9 HIL 전까지 extrapolate하지 않는다.
-      if (operation.rawHighBrightness !== 254 && operation.rawHighBrightness !== 255
-        && !(target.kind === "broadcast" && operation.rawHighBrightness === 157)) {
+      // [확인됨] 설치 APK의 deep_all/DEEP_VALUES와 CD13 serializer가 함께 증명하는
+      // positive integer-percent raw만 허용한다. 0%는 raw write가 아니라 force-off 경로다.
+      // 기존 캡처의 157/254/255도 모두 이 표에 포함된다. [미확인] 표의 모든 값이 실제
+      // firmware에 적용되는지는 Task 9 HIL 전까지 확인되지 않았으므로 표 밖 raw bypass는 없다.
+      const mappedPercent = bioRawToPercent(operation.rawHighBrightness);
+      if (mappedPercent === null || mappedPercent === 0) {
         throw new BioEvidenceUnavailableError();
       }
       // [확인됨] CD 13은 Scene.highBrightness의 raw 설정값이다. 현재 출력이나 선형 percent가
