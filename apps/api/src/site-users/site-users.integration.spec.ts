@@ -55,9 +55,14 @@ describeDatabase("Site Users PostgreSQL concurrency and deletion", () => {
       cwd: join(__dirname, "../.."), env: { ...process.env, DATABASE_URL: url.toString() }, encoding: "utf8"
     });
     if (generated.status !== 0) throw new Error(`Prisma test DDL failed: ${generated.stderr}`);
-    const migration = readFileSync(join(__dirname, "../../prisma/migrations/20260827090000_operator_admin_account_flow/migration.sql"), "utf8");
-    const triggers = migration.slice(migration.indexOf('CREATE FUNCTION "serialize_admin_assignment_writes"'), migration.lastIndexOf("COMMIT;"));
-    sql(`SET search_path TO "${schema}";\n${generated.stdout}\n${triggers}`);
+    const adminMigration = readFileSync(join(__dirname, "../../prisma/migrations/20260827090000_operator_admin_account_flow/migration.sql"), "utf8");
+    const adminTriggers = adminMigration.slice(adminMigration.indexOf('CREATE FUNCTION "serialize_admin_assignment_writes"'), adminMigration.lastIndexOf("COMMIT;"));
+    const automationMigration = readFileSync(join(__dirname, "../../prisma/migrations/20260829_add_lighting_automation/migration.sql"), "utf8");
+    const automationLock = automationMigration.slice(
+      automationMigration.indexOf('CREATE FUNCTION "lock_automation_membership_mutation"'),
+      automationMigration.indexOf('CREATE FUNCTION "lock_automation_membership_statement"')
+    );
+    sql(`SET search_path TO "${schema}";\n${generated.stdout}\n${adminTriggers}\n${automationLock}`);
     prisma = new PrismaService({ datasources: { db: { url: url.toString() } } });
     competitor = new PrismaService({ datasources: { db: { url: url.toString() } } });
     await prisma.$connect();
@@ -439,7 +444,7 @@ describeDatabase("Site Users PostgreSQL concurrency and deletion", () => {
       const member = await created.json() as SiteUserJson;
       const stored = await prisma.user.findUniqueOrThrow({ where: { id: member.id } });
       expectNoPasswordSecrets(member, [body.temporaryPassword, stored.passwordHash!]);
-      const memberCookie = await cookie(member.id);
+      let memberCookie = await cookie(member.id);
       const endpoints = [["GET", ""], ["POST", ""], ["PATCH", `/${member.id}`], ["POST", `/${member.id}/reset-password`], ["DELETE", `/${member.id}`]];
       for (const [method, suffix] of endpoints) {
         expect((await request(method, path + suffix)).status).toBe(401);
@@ -457,6 +462,7 @@ describeDatabase("Site Users PostgreSQL concurrency and deletion", () => {
       const changedBody = await changed.json();
       expect(changedBody).toMatchObject({ ok: true, user: { id: member.id, mustChangePassword: false } });
       expectNoPasswordSecrets(changedBody, [body.temporaryPassword, "Personal-password-123", stored.passwordHash!]);
+      memberCookie = changed.headers.get("set-cookie")!.split(";", 1)[0];
       // Updating the password also updates User.updatedAt; use the current version
       // for the later optimistic-lock edit rather than the creation response.
       member.updatedAt = (await prisma.user.findUniqueOrThrow({ where: { id: member.id } })).updatedAt.toISOString();

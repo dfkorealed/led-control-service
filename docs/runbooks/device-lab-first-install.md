@@ -203,16 +203,18 @@ ssh dfkorea@dfkorea.local 'find /opt/led-control/gateway/data/identity/device -m
 
 claim code는 성공 즉시 hash까지 폐기되므로 같은 코드의 두 번째 사용은 실패해야 정상이다. 제조 원장을 직접 수정하거나 Gateway row를 SQL로 만들면 device identity 소유권 검증을 우회하므로 금지한다.
 
-claim 후에는 로컬 Mosquitto ACL에 실제 Gateway UUID를 반영해야 한다. 실행 중인 `pnpm dev`를 `Ctrl+C`로 종료하고 새 터미널에서 다음처럼 재시작한다.
+claim 후에는 로컬 Mosquitto ACL에 실제 Gateway UUID를 반영해야 한다. 제품 claim API는 DB의 소유권과 인증서 binding을 갱신하지만 file-backed 개발 broker의 ACL 파일은 자동으로 다시 쓰지 않는다. 기존 Lab Gateway가 있다면 새 UUID를 comma-separated allowlist에 추가한다. 실행 중인 `pnpm dev`를 `Ctrl+C`로 종료하고 새 터미널에서 다음처럼 재시작한다.
 
 ```bash
 cd "/Users/kim-jh/Documents/led-control-service"
 set -a
 . .local/lab-pki/lab.env
 set +a
-export DEV_GATEWAY_ID='<claim 응답의 gatewayId>'
+export DEV_GATEWAY_IDS='<기존 gatewayId>,<새 claim 응답의 gatewayId>'
 pnpm dev
 ```
+
+단일 장비만 쓰는 기존 환경은 `DEV_GATEWAY_ID`도 지원한다. 두 변수를 동시에 설정할 때 legacy ID가 `DEV_GATEWAY_IDS`에 없으면 잘못된 ACL 축소를 막기 위해 시작이 실패한다. `pnpm dev:local`은 ACL을 원자적으로 먼저 만든 뒤 Docker를 시작하며, Docker도 정적 pattern 예제가 아니라 전용 `.local/mosquitto-runtime` 디렉터리의 exact ACL만 read-only mount한다. 단일 파일 bind는 atomic rename 뒤 이전 inode를 계속 볼 수 있어 사용하지 않는다. ACL은 secret이 아닌 authorization metadata라 전용 부모는 `0755`, 파일은 UID 1883이 읽을 수 있는 `0644`이고, private key와 token 권한은 변경하지 않는다. 이미 8883이 열려 있으면 저장소 소유 Docker service 또는 exact PID/config marker가 일치하는 native Mosquitto만 `SIGHUP`하고 다시 검증한다. 알 수 없는 listener는 종료하거나 재사용하지 않고 fail closed 한다. 목록은 정확한 Gateway UUID만 허용하며 wildcard MQTT principal을 만들지 않는다. 이 Lab/dev 계약은 운영 broker의 인증 정책을 변경하지 않는다.
 
 ## 8. Pi 설정, bootstrap과 MQTT 연결
 

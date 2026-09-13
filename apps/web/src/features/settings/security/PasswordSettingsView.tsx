@@ -7,6 +7,18 @@ import { Button, Card, FeedbackState, PageHeader } from "../../../components/ui"
 import { passwordChangeErrorMessage, validatePasswordChange } from "../../auth/password-form";
 
 export function PasswordSettingsView() {
+  return (
+    <section className="settings-screen">
+      <PageHeader
+        title="비밀번호 변경"
+        description="현재 비밀번호를 확인한 뒤 새 비밀번호를 적용합니다."
+      />
+      <PasswordChangeCard />
+    </section>
+  );
+}
+
+export function PasswordChangeCard() {
   const queryClient = useQueryClient();
   const requestInFlight = useRef(false);
   const mountedRef = useRef(false);
@@ -83,13 +95,14 @@ export function PasswordSettingsView() {
   }
 
   return (
-    <section className="settings-screen">
-      <PageHeader
-        title="비밀번호 변경"
-        description="현재 비밀번호를 확인한 뒤 새 비밀번호를 적용합니다."
-      />
-      <form className="password-settings-form" aria-label="비밀번호 변경" onSubmit={handleSubmit}>
+    <form className="password-settings-form" aria-label="비밀번호 변경" onSubmit={handleSubmit}>
         <Card className="setup-section password-settings-card">
+          <div className="security-card-heading">
+            <div>
+              <h2>비밀번호</h2>
+              <p>현재 비밀번호를 확인한 뒤 새 비밀번호로 변경합니다.</p>
+            </div>
+          </div>
           <div className="setup-form-grid">
             <label>
               현재 비밀번호
@@ -115,7 +128,6 @@ export function PasswordSettingsView() {
           </Button>
         </Card>
       </form>
-    </section>
   );
 }
 

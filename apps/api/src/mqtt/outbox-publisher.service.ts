@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleInit, Optional } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
+import { CommandDispatchKind, Prisma } from "@prisma/client";
 import {
   createGatewayCommandExpiry,
   GatewayDimmingCommandDraftV2,
@@ -8,10 +8,16 @@ import {
   gatewayDimmingCommandDraftV2Schema,
   gatewayDimmingCommandPublishedV2Schema,
   gatewayDimmingCommandV2CompatibilitySchema,
+  GatewayStatusCheckCommandDraftV2,
+  GatewayStatusCheckCommandPublishedV2,
+  gatewayStatusCheckCommandDraftV2Schema,
+  gatewayStatusCheckCommandPublishedV2Schema,
   remainingGatewayCommandMessageExpiry
 } from "@led-control/shared";
 import { randomUUID } from "node:crypto";
 import { PrismaService } from "../prisma/prisma.service";
+import { AutomationClock } from "../automation/automation-clock";
+import { AutomationSnapshotService } from "../automation/automation-snapshot.service";
 import { MqttService } from "./mqtt.service";
 
 const LEASE_MS = 30_000;
@@ -43,7 +49,8 @@ export class OutboxPublisherService implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly mqtt: MqttService,
-    @Optional() options: PublisherOptions = {}
+    @Optional() options: PublisherOptions = {},
+    @Optional() private readonly automationSnapshot: AutomationSnapshotService = new AutomationSnapshotService(new AutomationClock())
   ) {
     this.workerId = options.workerId ?? randomUUID();
     this.random = options.random ?? Math.random;
@@ -93,6 +100,7 @@ export class OutboxPublisherService implements OnModuleInit {
 
   async claimBatch(now = this.clock()) {
     return this.prisma.$transaction(async (tx) => {
+      await this.automationSnapshot.lockMutation(tx);
       const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
         SELECT "id"
         FROM "MqttOutbox"
@@ -118,6 +126,7 @@ export class OutboxPublisherService implements OnModuleInit {
           dispatch: {
             select: {
               commandId: true,
+              kind: true,
               gatewayId: true,
               deliveryMode: true,
               destinationAddress: true,
@@ -155,8 +164,10 @@ export class OutboxPublisherService implements OnModuleInit {
       payload: Prisma.JsonValue;
       attempts: number;
       createdAt: Date;
+      deliveryAttemptedAt?: Date | null;
       dispatch: {
         commandId: string;
+        kind?: CommandDispatchKind;
         gatewayId: string;
         deliveryMode: string;
         destinationAddress: string | null;
@@ -166,19 +177,17 @@ export class OutboxPublisherService implements OnModuleInit {
     }
   ) {
     try {
-      const stored = parseStoredDimmingCommand(record.payload);
-      const draft = stored.draft;
-      assertManualOverridePublishable(draft, this.clock());
+      const stored = parseStoredCommand(record.payload, record.dispatch.kind);
+      if (stored.kind === "dimming") assertManualOverridePublishable(stored.draft, this.clock());
       const prepared = await this.prisma.$transaction(async (tx) => {
-        await this.assertMeshGroupSnapshot(tx, record, draft);
+        await this.automationSnapshot.lockMutation(tx);
+        if (stored.kind === "dimming") await this.assertMeshGroupSnapshot(tx, record, stored.draft);
         const preparedAt = this.clock();
-        assertManualOverridePublishable(draft, preparedAt);
+        if (stored.kind === "dimming") assertManualOverridePublishable(stored.draft, preparedAt);
         const leaseExpiresAt = new Date(preparedAt.getTime() + LEASE_MS);
-        const payload = stored.payload ?? createPublishedDimmingCommand(
-          draft,
-          preparedAt,
-          this.deliveryGeneration()
-        );
+        const payload = stored.payload ?? (stored.kind === "status_check"
+          ? createPublishedStatusCheckCommand(stored.draft, preparedAt, this.deliveryGeneration())
+          : createPublishedDimmingCommand(stored.draft, preparedAt, this.deliveryGeneration()));
         const updated = await tx.mqttOutbox.updateMany({
           where: {
             id: record.id,
@@ -208,8 +217,25 @@ export class OutboxPublisherService implements OnModuleInit {
 
       const publishAt = this.clock();
       if (prepared.leaseExpiresAt.getTime() <= publishAt.getTime() + MQTT_PUBLISH_TIMEOUT_MS) return;
-      assertManualOverridePublishable(toDimmingDraft(prepared.payload), publishAt);
-      const messageExpiryInterval = currentMessageExpiry(prepared.payload, publishAt);
+      if (stored.kind === "dimming") assertManualOverridePublishable(stored.draft, publishAt);
+      currentMessageExpiry(prepared.payload, publishAt);
+
+      const attempted = await this.prisma.$transaction(async (tx) => {
+        await this.automationSnapshot.lockMutation(tx);
+        const attemptedAt = this.clock();
+        if (stored.kind === "dimming") assertManualOverridePublishable(stored.draft, attemptedAt);
+        currentMessageExpiry(prepared.payload, attemptedAt);
+        // Persist before calling MQTT: a lost PUBACK cannot tell whether the broker
+        // accepted the Set. A crash after this commit but before the call deliberately
+        // remains unknown. Keep the first attempt across reclaims of this generation.
+        return tx.mqttOutbox.updateMany({
+          where: { id: record.id, lockedBy: this.workerId, publishedAt: null, deadLetteredAt: null,
+            leaseExpiresAt: { gt: new Date(attemptedAt.getTime() + MQTT_PUBLISH_TIMEOUT_MS) } },
+          data: { deliveryAttemptedAt: record.deliveryAttemptedAt ?? attemptedAt }
+        });
+      });
+      if (attempted.count !== 1) return;
+      const messageExpiryInterval = currentMessageExpiry(prepared.payload, this.clock());
 
       await this.mqtt.publishTopic(record.topic, prepared.payload, {
         messageExpiryInterval,
@@ -217,6 +243,7 @@ export class OutboxPublisherService implements OnModuleInit {
       });
       const publishedAt = this.clock();
       await this.prisma.$transaction(async (tx) => {
+        await this.automationSnapshot.lockMutation(tx);
         const released = await tx.mqttOutbox.updateMany({
           where: { id: record.id, lockedBy: this.workerId, publishedAt: null, deadLetteredAt: null },
           data: {
@@ -258,16 +285,19 @@ export class OutboxPublisherService implements OnModuleInit {
 
       const delay = Math.min(60_000, 1000 * 2 ** Math.max(0, attempts - 1));
       const jitter = Math.floor(delay * 0.2 * this.random());
-      await this.prisma.mqttOutbox.updateMany({
-        where: { id: record.id, lockedBy: this.workerId, publishedAt: null, deadLetteredAt: null },
-        data: {
-          attempts,
-          nextAttemptAt: new Date(failedAt.getTime() + delay + jitter),
-          lastError: message,
-          lockedBy: null,
-          lockedAt: null,
-          leaseExpiresAt: null
-        }
+      await this.prisma.$transaction(async (tx) => {
+        await this.automationSnapshot.lockMutation(tx);
+        await tx.mqttOutbox.updateMany({
+          where: { id: record.id, lockedBy: this.workerId, publishedAt: null, deadLetteredAt: null },
+          data: {
+            attempts,
+            nextAttemptAt: new Date(failedAt.getTime() + delay + jitter),
+            lastError: message,
+            lockedBy: null,
+            lockedAt: null,
+            leaseExpiresAt: null
+          }
+        });
       });
     }
   }
@@ -313,7 +343,7 @@ export class OutboxPublisherService implements OnModuleInit {
   }
 
   private async moveToDeadLetter(
-    record: { id: string; dispatchId: string; dispatch: { commandId: string } },
+    record: { id: string; dispatchId: string; dispatch: { commandId: string; kind?: CommandDispatchKind } },
     attempts: number,
     message: string,
     now: Date
@@ -322,15 +352,18 @@ export class OutboxPublisherService implements OnModuleInit {
   }
 
   private async moveToTerminalFailure(
-    record: { id: string; dispatchId: string; dispatch: { commandId: string } },
+    record: { id: string; dispatchId: string; dispatch: { commandId: string; kind?: CommandDispatchKind } },
     attempts: number,
     message: string,
     now: Date,
     errorCode: "MQTT_DEAD_LETTER" | "MESH_GROUP_STALE" | "MANUAL_OVERRIDE_EXPIRED" | "COMMAND_DELIVERY_EXPIRED"
   ) {
     await this.prisma.$transaction(async (tx) => {
+      // Match ACK, verification and overlap writers: the global lock always comes
+      // before outbox/dispatch/command rows, including terminal delivery failures.
+      await this.automationSnapshot.lockMutation(tx);
       const released = await tx.mqttOutbox.updateMany({
-        where: { id: record.id, lockedBy: this.workerId, publishedAt: null },
+        where: { id: record.id, lockedBy: this.workerId, publishedAt: null, deadLetteredAt: null },
         data: {
           attempts,
           deadLetteredAt: now,
@@ -341,20 +374,61 @@ export class OutboxPublisherService implements OnModuleInit {
         }
       });
       if (released.count !== 1) return;
-      await tx.commandDispatch.updateMany({
-        where: { id: record.dispatchId, status: { in: ["pending", "published"] } },
-        data: { status: "failed", completedAt: now, errorCode, errorMessage: message }
+      const outbox = await tx.mqttOutbox.findUnique({ where: { id: record.id }, select: { deliveryAttemptedAt: true } });
+      const uncertain = outbox?.deliveryAttemptedAt != null;
+      const terminalStatus = uncertain ? "timed_out" : "failed";
+      const closed = await tx.commandDispatch.updateMany({
+        where: { id: record.dispatchId, status: { in: ["pending", "published", "accepted"] } },
+        data: { status: terminalStatus, completedAt: now, errorCode, errorMessage: message }
       });
+      // A conclusive ACK can arrive during MQTT's pending PUBACK. Closing the outbox
+      // is still valid, but losing the dispatch transition forbids result/parent writes.
+      if (closed.count !== 1) return;
       await tx.commandFixtureResult.updateMany({
         where: { dispatchId: record.dispatchId, status: "pending" },
-        data: { status: "failed", occurredAt: now, errorMessage: message }
+        data: { status: terminalStatus, occurredAt: now, errorMessage: message }
       });
+      // A failed observation closes only its dispatch; it cannot establish the original Set outcome.
+      if (record.dispatch.kind === "status_check") return;
+      const command = await tx.command.findUnique({ where: { id: record.dispatch.commandId }, select: { outcome: true } });
+      const legacy = command?.outcome === null;
       await tx.command.updateMany({
-        where: { id: record.dispatch.commandId, status: "pending" },
-        data: { status: "failed", errorMessage: message }
+        where: { id: record.dispatch.commandId, status: "pending", outcome: legacy ? null : "pending" },
+        data: { status: "failed", errorMessage: message,
+          ...(legacy ? {} : { outcome: uncertain ? "unknown" : "not_applied" }) }
       });
     });
   }
+}
+
+function parseStoredCommand(payload: Prisma.JsonValue, kind: CommandDispatchKind = "dimming") {
+  if (kind === "status_check") {
+    return { kind, ...parseStoredStatusCheckCommand(payload) } as const;
+  }
+  return { kind, ...parseStoredDimmingCommand(payload) } as const;
+}
+
+function parseStoredStatusCheckCommand(payload: Prisma.JsonValue): {
+  draft: GatewayStatusCheckCommandDraftV2;
+  payload?: GatewayStatusCheckCommandPublishedV2;
+} {
+  const published = gatewayStatusCheckCommandPublishedV2Schema.safeParse(payload);
+  if (published.success) {
+    const { expiresAt, deliveryGeneration, deliveryGeneratedAt, deliveryWindowMs, ...draft } = published.data;
+    return { draft, payload: published.data };
+  }
+  return { draft: gatewayStatusCheckCommandDraftV2Schema.parse(payload) };
+}
+
+function createPublishedStatusCheckCommand(
+  draft: GatewayStatusCheckCommandDraftV2,
+  generatedAt: Date,
+  deliveryGeneration: string
+) {
+  const { messageExpiryInterval: _messageExpiryInterval, ...delivery } = createGatewayCommandExpiry(
+    generatedAt, undefined, deliveryGeneration
+  );
+  return gatewayStatusCheckCommandPublishedV2Schema.parse({ ...draft, ...delivery });
 }
 
 function parseStoredDimmingCommand(payload: Prisma.JsonValue): {
@@ -398,7 +472,7 @@ function createPublishedDimmingCommand(
   return gatewayDimmingCommandPublishedV2Schema.parse({ ...draft, ...delivery });
 }
 
-function currentMessageExpiry(payload: GatewayDimmingCommandPublishedV2, now: Date) {
+function currentMessageExpiry(payload: { expiresAt: string }, now: Date) {
   try {
     return remainingGatewayCommandMessageExpiry(payload, now);
   } catch (error) {

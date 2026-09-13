@@ -11,8 +11,9 @@ const EVENT_ID = "10000000-0000-4000-8000-000000000006";
 const RECEIVED_AT = new Date("2026-09-12T01:00:01.000Z");
 const EVENT_TYPE = "provisioning_device_terminal";
 const ACK_KEY = `provisioning-device-terminal:${GATEWAY_ID}:${COMMAND_ID}`;
+type ProvisionTerminal = Extract<ProvisioningDeviceTerminalV2, { meshAddress: string; status: "completed" }>;
 
-function completed(overrides: Partial<ProvisioningDeviceTerminalV2> = {}): ProvisioningDeviceTerminalV2 {
+function completed(overrides: Partial<ProvisionTerminal> = {}): ProvisionTerminal {
   return {
     commandId: COMMAND_ID,
     sessionId: SESSION_ID,
@@ -29,7 +30,7 @@ function completed(overrides: Partial<ProvisioningDeviceTerminalV2> = {}): Provi
     rssi: -47,
     hopCount: 1,
     ...overrides
-  } as ProvisioningDeviceTerminalV2;
+  } as ProvisionTerminal;
 }
 
 function commandPayload() {
@@ -46,11 +47,25 @@ function commandPayload() {
   };
 }
 
+function identifyTerminal(overrides: Record<string, unknown> = {}): ProvisioningDeviceTerminalV2 {
+  const { meshAddress: _meshAddress, firmwareVersion: _firmwareVersion, rssi: _rssi, hopCount: _hopCount, ...common } = completed();
+  return {
+    ...common,
+    operation: "identify",
+    status: "completed",
+    restoreConfirmed: true,
+    ...overrides
+  } as ProvisioningDeviceTerminalV2;
+}
+
 function testContext(options: {
   eventById?: Record<string, unknown> | null;
   eventBySequence?: Record<string, unknown> | null;
   storedAck?: Record<string, unknown> | null;
   failDomainWrite?: boolean;
+  identify?: boolean;
+  latestIdentifyCommandId?: string;
+  sessionStatus?: string;
 } = {}) {
   const event = completed();
   const node = {
@@ -60,8 +75,9 @@ function testContext(options: {
     serialNumber: "BIO-001",
     firmwareVersion: "unknown",
     rssi: -70,
-    status: "provisioning",
-    meshAddress: event.meshAddress,
+    status: options.identify ? "identifying" : "provisioning",
+    identifyState: options.identify ? "running" : "blinking",
+    meshAddress: options.identify ? null : event.meshAddress,
     pendingFixtureName: "B1-L001",
     pendingFixtureX: 100,
     pendingFixtureY: 200,
@@ -73,20 +89,28 @@ function testContext(options: {
     siteId: SITE_ID,
     floorId: "10000000-0000-4000-8000-000000000009",
     gatewayId: GATEWAY_ID,
-    status: "active"
+    status: options.sessionStatus ?? "active"
   };
   const outbox = {
     id: COMMAND_ID,
     sessionId: SESSION_ID,
     nodeId: NODE_ID,
-    topic: `sites/${SITE_ID}/gateways/${GATEWAY_ID}/commands/provisioning/provision-device`,
-    payload: commandPayload(),
+    topic: `sites/${SITE_ID}/gateways/${GATEWAY_ID}/commands/provisioning/${options.identify ? "identify-device" : "provision-device"}`,
+    payload: options.identify ? {
+      operation: "identify", commandId: COMMAND_ID, sessionId: SESSION_ID, siteId: SITE_ID,
+      gatewayId: GATEWAY_ID, nodeId: NODE_ID, deviceUuid: event.deviceUuid,
+      requestedAt: "2026-09-12T00:59:00.000Z"
+    } : commandPayload(),
+    createdAt: new Date("2026-09-12T00:59:00.000Z"),
     session,
     node
   };
   const tx: any = {
     $queryRaw: jest.fn().mockResolvedValue([{ id: COMMAND_ID }]),
-    provisioningDeviceOutbox: { findUnique: jest.fn().mockResolvedValue(outbox) },
+    provisioningDeviceOutbox: {
+      findUnique: jest.fn().mockResolvedValue(outbox),
+      findFirst: jest.fn().mockResolvedValue({ id: options.latestIdentifyCommandId ?? COMMAND_ID })
+    },
     processedGatewayEvent: {
       findUnique: jest.fn().mockResolvedValue(options.eventById ?? null),
       findFirst: jest.fn().mockResolvedValue(options.eventBySequence ?? null),
@@ -133,6 +157,134 @@ function testContext(options: {
 }
 
 describe("ProvisioningDeviceTerminalService", () => {
+  it.each(["provisioning", "provisioned"])("drains first-seen exact late identify after timeout and legitimate %s without domain writes", async (status) => {
+    const { service, tx, node, meshControlGroups } = testContext({ identify: true });
+    Object.assign(node, { status, identifyState: "failed", meshAddress: "0x0100" });
+    const before = structuredClone(node);
+    const event = identifyTerminal();
+    await expect(service.ingest({ siteId: SITE_ID, gatewayId: GATEWAY_ID }, event, RECEIVED_AT))
+      .resolves.toMatchObject({ operation: "identify", commandId: COMMAND_ID, eventId: EVENT_ID });
+    expect(node).toEqual(before);
+    expect(tx.discoveredMeshNode.update).not.toHaveBeenCalled();
+    expect(tx.discoveredMeshNode.updateMany).not.toHaveBeenCalled();
+    expect(tx.meshNode.create).not.toHaveBeenCalled();
+    expect(tx.fixture.create).not.toHaveBeenCalled();
+    expect(meshControlGroups.attachProvisionedNode).not.toHaveBeenCalled();
+    expect(tx.processedGatewayEvent.create).toHaveBeenCalledTimes(1);
+    expect(tx.mqttOutbox.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a mismatched late identify command even after its node was registered", async () => {
+    const { service, tx, node } = testContext({ identify: true });
+    Object.assign(node, { status: "provisioned", identifyState: "confirmed", meshAddress: "0x0100" });
+    await expect(service.ingest({ siteId: SITE_ID, gatewayId: GATEWAY_ID }, identifyTerminal({
+      deviceUuid: "44464b4c454401010101aabbccddee00"
+    }), RECEIVED_AT)).rejects.toThrow("stored command identity conflict");
+    expect(tx.processedGatewayEvent.create).not.toHaveBeenCalled();
+    expect(tx.mqttOutbox.create).not.toHaveBeenCalled();
+  });
+
+  it("confirms pre-provision identify only from a restore-confirmed terminal without mapping writes", async () => {
+    const { service, tx, node } = testContext({ identify: true });
+    const event = identifyTerminal();
+
+    await service.ingest({ siteId: SITE_ID, gatewayId: GATEWAY_ID }, event, RECEIVED_AT);
+
+    expect(node).toMatchObject({ status: "discovered", identifyState: "confirmed", errorMessage: null });
+    expect(tx.meshNode.create).not.toHaveBeenCalled();
+    expect(tx.fixture.create).not.toHaveBeenCalled();
+    expect(tx.processedGatewayEvent.create).toHaveBeenCalledTimes(1);
+    expect(tx.mqttOutbox.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      payload: expect.objectContaining({ operation: "identify", commandId: COMMAND_ID })
+    }) });
+  });
+
+  it("records an explicit identify failure without mapping or address side effects", async () => {
+    const { service, tx, node } = testContext({ identify: true });
+    const completedIdentify = identifyTerminal();
+    const { restoreConfirmed: _restoreConfirmed, ...identifyEnvelope } = completedIdentify as Extract<
+      ProvisioningDeviceTerminalV2,
+      { operation: "identify"; status: "completed" }
+    >;
+    const event: ProvisioningDeviceTerminalV2 = {
+      ...identifyEnvelope,
+      status: "failed",
+      errorCode: "RESTORE_UNCONFIRMED",
+      errorMessage: "sensor mode restore was not confirmed"
+    };
+
+    await service.ingest({ siteId: SITE_ID, gatewayId: GATEWAY_ID }, event, RECEIVED_AT);
+
+    expect(node).toMatchObject({
+      status: "discovered",
+      identifyState: "failed",
+      errorMessage: "sensor mode restore was not confirmed",
+      meshAddress: null
+    });
+    expect(tx.meshNode.create).not.toHaveBeenCalled();
+    expect(tx.fixture.create).not.toHaveBeenCalled();
+  });
+
+  it("acknowledges an exact identify terminal replay without applying it twice", async () => {
+    const event = identifyTerminal();
+    const acknowledgement = {
+      operation: "identify",
+      commandId: COMMAND_ID,
+      sessionId: SESSION_ID,
+      siteId: SITE_ID,
+      gatewayId: GATEWAY_ID,
+      nodeId: NODE_ID,
+      deviceUuid: event.deviceUuid,
+      eventId: EVENT_ID,
+      sequence: 41,
+      ingestedAt: "2026-09-12T01:00:00.500Z"
+    };
+    const ledger = {
+      eventId: EVENT_ID,
+      gatewayId: GATEWAY_ID,
+      sequence: 41n,
+      eventType: EVENT_TYPE,
+      payloadHash: independentCanonicalHash(event),
+      occurredAt: new Date(event.occurredAt)
+    };
+    const { service, tx } = testContext({
+      identify: true,
+      eventById: ledger,
+      eventBySequence: ledger,
+      storedAck: {
+        id: "ack-1",
+        gatewayId: GATEWAY_ID,
+        applicationAckKey: ACK_KEY,
+        topic: `sites/${SITE_ID}/gateways/${GATEWAY_ID}/acks/provisioning/device-terminal-ingested`,
+        payload: acknowledgement
+      }
+    });
+
+    await expect(service.ingest({ siteId: SITE_ID, gatewayId: GATEWAY_ID }, event, RECEIVED_AT))
+      .resolves.toEqual(acknowledgement);
+    expect(tx.discoveredMeshNode.update).not.toHaveBeenCalled();
+    expect(tx.processedGatewayEvent.create).not.toHaveBeenCalled();
+    expect(tx.mqttOutbox.create).not.toHaveBeenCalled();
+    expect(tx.mqttOutbox.updateMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not let a late older identify terminal complete a newer identify operation", async () => {
+    const { service, tx, node } = testContext({
+      identify: true,
+      latestIdentifyCommandId: "10000000-0000-4000-8000-000000000099"
+    });
+
+    await service.ingest(
+      { siteId: SITE_ID, gatewayId: GATEWAY_ID },
+      identifyTerminal(),
+      RECEIVED_AT
+    );
+
+    expect(node).toMatchObject({ status: "identifying", identifyState: "running" });
+    expect(tx.discoveredMeshNode.update).not.toHaveBeenCalled();
+    expect(tx.processedGatewayEvent.create).toHaveBeenCalledTimes(1);
+    expect(tx.mqttOutbox.create).toHaveBeenCalledTimes(1);
+  });
   it("atomically completes the stored command and records the fixed ledger identity and durable ACK", async () => {
     const { service, tx, node, event, meshControlGroups } = testContext();
 
@@ -150,9 +302,17 @@ describe("ProvisioningDeviceTerminalService", () => {
         ingestedAt: RECEIVED_AT.toISOString()
       });
 
-    const lockSql = tx.$queryRaw.mock.calls[0][0].strings.join(" ");
-    expect(lockSql).toContain('FROM "ProvisioningDeviceOutbox"');
-    expect(lockSql).toContain("FOR UPDATE");
+    const lockSql = tx.$queryRaw.mock.calls.map(([sql]: any[]) => (
+      Array.isArray(sql) ? sql.join(" ") : sql.strings.join(" ")
+    ));
+    expect(lockSql).toEqual([
+      expect.stringContaining('FROM "Floor"'),
+      expect.stringContaining('FROM "Gateway"'),
+      expect.stringContaining('FROM "ProvisioningSession"'),
+      expect.stringContaining('FROM "DiscoveredMeshNode"'),
+      expect.stringContaining('FROM "ProvisioningDeviceOutbox"')
+    ]);
+    expect(lockSql.every((sql: string) => sql.includes("FOR UPDATE"))).toBe(true);
     expect(node.status).toBe("provisioned");
     expect(meshControlGroups.attachProvisionedNode).toHaveBeenCalledTimes(1);
     expect(tx.processedGatewayEvent.create).toHaveBeenCalledWith({ data: {
@@ -241,6 +401,76 @@ describe("ProvisioningDeviceTerminalService", () => {
     expect(tx.processedGatewayEvent.create).not.toHaveBeenCalled();
     expect(tx.mqttOutbox.create).not.toHaveBeenCalled();
     expect(tx.mqttOutbox.updateMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("replays the durable provision ACK after the node was registered and its mutable address changed", async () => {
+    const event = completed();
+    const acknowledgement = {
+      commandId: COMMAND_ID,
+      sessionId: SESSION_ID,
+      siteId: SITE_ID,
+      gatewayId: GATEWAY_ID,
+      nodeId: NODE_ID,
+      deviceUuid: event.deviceUuid,
+      meshAddress: event.meshAddress,
+      eventId: EVENT_ID,
+      sequence: 41,
+      ingestedAt: "2026-09-12T01:00:00.500Z"
+    };
+    const ledger = {
+      eventId: EVENT_ID,
+      gatewayId: GATEWAY_ID,
+      sequence: 41n,
+      eventType: EVENT_TYPE,
+      payloadHash: independentCanonicalHash(event),
+      occurredAt: new Date(event.occurredAt)
+    };
+    const { service, tx, node } = testContext({
+      eventById: ledger,
+      eventBySequence: ledger,
+      storedAck: {
+        id: "ack-1",
+        gatewayId: GATEWAY_ID,
+        applicationAckKey: ACK_KEY,
+        topic: `sites/${SITE_ID}/gateways/${GATEWAY_ID}/acks/provisioning/device-terminal-ingested`,
+        payload: acknowledgement
+      }
+    });
+    Object.assign(node, { status: "provisioned", meshAddress: "0x0200" });
+
+    await expect(service.ingest({ siteId: SITE_ID, gatewayId: GATEWAY_ID }, event, RECEIVED_AT))
+      .resolves.toEqual(acknowledgement);
+    expect(tx.discoveredMeshNode.update).not.toHaveBeenCalled();
+    expect(tx.meshNode.create).not.toHaveBeenCalled();
+    expect(tx.fixture.create).not.toHaveBeenCalled();
+    expect(tx.mqttOutbox.updateMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("records and acknowledges a late first-seen terminal for a retired session without reviving domain state", async () => {
+    const { service, tx, node, event } = testContext({ sessionStatus: "cancelled" });
+
+    await expect(service.ingest({ siteId: SITE_ID, gatewayId: GATEWAY_ID }, event, RECEIVED_AT))
+      .resolves.toEqual(expect.objectContaining({ commandId: COMMAND_ID, eventId: EVENT_ID }));
+
+    expect(node.status).toBe("provisioning");
+    expect(tx.discoveredMeshNode.update).not.toHaveBeenCalled();
+    expect(tx.meshNode.create).not.toHaveBeenCalled();
+    expect(tx.fixture.create).not.toHaveBeenCalled();
+    expect(tx.processedGatewayEvent.create).toHaveBeenCalledTimes(1);
+    expect(tx.mqttOutbox.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a first-time terminal whose operation does not match the stored command on a registered node", async () => {
+    const { service, tx, node } = testContext();
+    Object.assign(node, { status: "provisioned", meshAddress: "0x0200" });
+
+    await expect(service.ingest(
+      { siteId: SITE_ID, gatewayId: GATEWAY_ID },
+      identifyTerminal(),
+      RECEIVED_AT
+    )).rejects.toThrow("stored command identity conflict");
+    expect(tx.processedGatewayEvent.create).not.toHaveBeenCalled();
+    expect(tx.mqttOutbox.create).not.toHaveBeenCalled();
   });
 
   it.each([

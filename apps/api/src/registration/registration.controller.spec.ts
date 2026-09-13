@@ -45,6 +45,18 @@ describe("RegistrationController", () => {
     expect(retryScan).toHaveBeenCalledWith(user, "11111111-1111-4111-8111-111111111111");
   });
 
+  it("accepts only an empty identify body and delegates without client timing controls", async () => {
+    const identifyNode = jest.fn().mockResolvedValue({ status: "accepted", operationId: "op-1" });
+    const controller = new RegistrationController({ identifyNode } as never);
+    const user = { id: "00000000-0000-4000-8000-000000000002", role: "admin" } as AuthenticatedUser;
+
+    await expect(controller.identifyNode("session-1", "node-1", {}, user))
+      .resolves.toMatchObject({ status: "accepted" });
+    expect(() => controller.identifyNode("session-1", "node-1", { durationMs: 60_000 }, user)).toThrow();
+    expect(identifyNode).toHaveBeenCalledTimes(1);
+    expect(identifyNode).toHaveBeenCalledWith(user, "session-1", "node-1");
+  });
+
   it("delegates active session lookup with the requested site", async () => {
     const listActiveSessions = jest.fn().mockResolvedValue([]);
     const controller = new RegistrationController({ listActiveSessions } as never);

@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { Injectable } from "@nestjs/common";
+import { randomUUID } from "node:crypto";
 import {
   fixtureStateV2Schema,
   mapHealthFaults,
@@ -11,6 +12,7 @@ import { canonicalPayloadHash } from "../automation/automation-payload-hash";
 import { gatewayEventIsTooFarInFuture, gatewayEventMaxFutureSkewMs } from "../mqtt/gateway-event-time";
 import { reconcileLegacyGatewayEventReplay } from "../mqtt/legacy-gateway-event-replay";
 import { PrismaService } from "../prisma/prisma.service";
+import { compareAndAdvanceGatewayEvent } from "../retention/gateway-event-watermark";
 import {
   aggregateFixtureStateTransition,
   closeFixtureEnergyCheckpoint,
@@ -37,6 +39,33 @@ interface LockedFixtureRow {
   timeZone: string;
   tariffKwhRate: Prisma.Decimal;
 }
+
+interface LockedSiteFixtureRow {
+  id: string;
+  energyFixtureId: string | null;
+  ratedWatt: Prisma.Decimal;
+  brightness: number;
+  powerOn: boolean | null;
+  energyTrackingStartedAt: Date;
+  firstStateOccurredAt: Date | null;
+  lastStateEventId: string | null;
+  lastStateSequence: bigint | null;
+  lastStateOccurredAt: Date | null;
+  cursorAggregatedThrough: Date | null;
+  cursorObservedStateOccurredAt: Date | null;
+  cursorBrightness: number | null;
+  cursorPowerOn: boolean | null;
+  cursorRatedWatt: Prisma.Decimal | null;
+  cursorDurationRemainders: Prisma.JsonValue | null;
+}
+
+interface SiteCheckpointClosure {
+  fixtureId: string;
+  energyFixtureId: string;
+  closed: ReturnType<typeof closeFixtureEnergyCheckpoint>;
+}
+
+const ENERGY_WRITE_BATCH_SIZE = 500;
 
 export interface FixtureStateIngestionResult {
   eventId: string;
@@ -82,6 +111,13 @@ export class FixtureStateIngestionService {
       return resultFrom(state, existing.ingestionStatus === "rejected_future_timestamp" ? "rejected_future_timestamp" : "duplicate");
     }
 
+    const [site] = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT "id"
+      FROM "Site"
+      WHERE "id" = ${state.siteId}
+      FOR KEY SHARE
+    `);
+    if (!site) throw new Error("fixture state scope rejected");
     const [fixture] = await tx.$queryRaw<LockedFixtureRow[]>(Prisma.sql`
       SELECT
         f."id",
@@ -139,6 +175,7 @@ export class FixtureStateIngestionService {
           sequence: BigInt(state.sequence),
           eventType: "fixture_state",
           payloadHash,
+          scopeKey: state.fixtureId,
           occurredAt,
           receivedAt,
           ingestionStatus: "rejected_future_timestamp"
@@ -147,10 +184,33 @@ export class FixtureStateIngestionService {
       return resultFrom(state, "rejected_future_timestamp");
     }
 
-    const sequenceConflict = await tx.processedGatewayEvent.findFirst({
-      where: { gatewayId, sequence: BigInt(state.sequence), eventType: "fixture_state" }
+    const ordering = await compareAndAdvanceGatewayEvent(tx, {
+      gatewayId,
+      eventType: "fixture_state",
+      scopeKey: state.fixtureId,
+      sequence: BigInt(state.sequence),
+      eventId: state.eventId,
+      payloadHash,
+      occurredAt
     });
-    if (sequenceConflict) throw new Error("fixture state sequence conflict");
+    if (ordering === "conflict") throw new Error("fixture state event identity conflict");
+    if (ordering === "duplicate") return resultFrom(state, "duplicate");
+
+    await tx.processedGatewayEvent.create({
+      data: {
+        eventId: state.eventId,
+        gatewayId,
+        fixtureId: state.fixtureId,
+        sequence: BigInt(state.sequence),
+        eventType: "fixture_state",
+        payloadHash,
+        scopeKey: state.fixtureId,
+        occurredAt,
+        receivedAt,
+        ingestionStatus: "accepted"
+      }
+    });
+    if (ordering === "stale") return resultFrom(state, "stale_sequence");
 
     const snapshot = toSnapshot(fixture);
     const storedCursor = await tx.fixtureEnergyStateCursor.findUnique({ where: { fixtureId: fixture.id } });
@@ -167,20 +227,6 @@ export class FixtureStateIngestionService {
       },
       timeZone: fixture.timeZone,
       tariffKwhRate: new Prisma.Decimal(fixture.tariffKwhRate)
-    });
-
-    await tx.processedGatewayEvent.create({
-      data: {
-        eventId: state.eventId,
-        gatewayId,
-        fixtureId: state.fixtureId,
-        sequence: BigInt(state.sequence),
-        eventType: "fixture_state",
-        payloadHash,
-        occurredAt,
-        receivedAt,
-        ingestionStatus: "accepted"
-      }
     });
 
     if (transition.status !== "accepted") return resultFrom(state, transition.status);
@@ -267,6 +313,70 @@ export async function closeFixtureEnergyForRatedWattChange(
   return true;
 }
 
+export async function closeSiteEnergyForSettingsChange(
+  tx: Prisma.TransactionClient,
+  input: { siteId: string; timeZone: string; tariffKwhRate: Prisma.Decimal }
+) {
+  // Site settings lock the parent first; every bulk fixture path then takes child locks in ID order.
+  const fixtures = await tx.$queryRaw<LockedSiteFixtureRow[]>(Prisma.sql`
+    SELECT
+      f."id",
+      energy_fixture."id" AS "energyFixtureId",
+      f."ratedWatt",
+      f."brightness",
+      f."powerOn",
+      f."energyTrackingStartedAt",
+      f."firstStateOccurredAt",
+      f."lastStateEventId",
+      f."lastStateSequence",
+      f."lastStateOccurredAt",
+      cursor."aggregatedThrough" AS "cursorAggregatedThrough",
+      cursor."observedStateOccurredAt" AS "cursorObservedStateOccurredAt",
+      cursor."brightness" AS "cursorBrightness",
+      cursor."powerOn" AS "cursorPowerOn",
+      cursor."ratedWatt" AS "cursorRatedWatt",
+      cursor."durationRemainders" AS "cursorDurationRemainders"
+    FROM "Fixture" f
+    LEFT JOIN "EnergyFixtureIdentity" energy_fixture ON energy_fixture."fixtureId" = f."id"
+    LEFT JOIN "FixtureEnergyStateCursor" cursor ON cursor."fixtureId" = f."id"
+    WHERE f."siteId" = ${input.siteId}
+    ORDER BY f."id"
+    FOR UPDATE OF f
+  `);
+  const closedAt = new Date();
+  const closures = fixtures.map((fixture): SiteCheckpointClosure => {
+    if (!fixture.energyFixtureId) throw new Error("fixture energy identity is missing");
+    const snapshot = toSnapshot(fixture);
+    const checkpoint = fixture.cursorAggregatedThrough === null
+      ? createInitialFixtureEnergyCheckpoint(snapshot)
+      : toCheckpoint({
+          aggregatedThrough: fixture.cursorAggregatedThrough,
+          observedStateOccurredAt: fixture.cursorObservedStateOccurredAt,
+          brightness: fixture.cursorBrightness!,
+          powerOn: fixture.cursorPowerOn,
+          ratedWatt: fixture.cursorRatedWatt!,
+          durationRemainders: fixture.cursorDurationRemainders
+        });
+    return {
+      fixtureId: fixture.id,
+      energyFixtureId: fixture.energyFixtureId,
+      closed: closeFixtureEnergyCheckpoint({
+        snapshot,
+        checkpoint,
+        closedAt,
+        nextRatedWatt: new Prisma.Decimal(fixture.ratedWatt),
+        timeZone: input.timeZone,
+        tariffKwhRate: new Prisma.Decimal(input.tariffKwhRate)
+      })
+    };
+  });
+
+  await persistSiteDailyDeltas(tx, closures);
+  await persistSiteHourlyDeltas(tx, closures);
+  await persistSiteCheckpoints(tx, closures);
+  return closedAt;
+}
+
 @Injectable()
 export class FixtureEnergyCheckpointService {
   closeRatedWattInterval(
@@ -277,6 +387,106 @@ export class FixtureEnergyCheckpointService {
   ) {
     return closeFixtureEnergyForRatedWattChange(tx, fixtureId, nextRatedWatt, closedAt);
   }
+
+  closeSiteSettingsIntervals(
+    tx: Prisma.TransactionClient,
+    input: { siteId: string; timeZone: string; tariffKwhRate: Prisma.Decimal }
+  ) {
+    return closeSiteEnergyForSettingsChange(tx, input);
+  }
+}
+
+async function persistSiteDailyDeltas(tx: Prisma.TransactionClient, closures: SiteCheckpointClosure[]) {
+  const rows = closures.flatMap(({ fixtureId, energyFixtureId, closed }) =>
+    closed.dailyDeltas.map((delta) => ({ fixtureId, energyFixtureId, delta }))
+  );
+  for (const batch of batches(rows, ENERGY_WRITE_BATCH_SIZE)) {
+    await tx.$executeRaw(Prisma.sql`
+      INSERT INTO "FixtureEnergyDailyAggregate" (
+        "id", "fixtureId", "energyFixtureId", "localDate", "estimatedKwh", "estimatedCost",
+        "knownSeconds", "unknownSeconds", "createdAt", "updatedAt"
+      )
+      VALUES ${Prisma.join(batch.map(({ fixtureId, energyFixtureId, delta }) => Prisma.sql`(
+        ${randomUUID()}, ${fixtureId}, ${energyFixtureId}, CAST(${localDateString(delta.localDate)} AS DATE), ${delta.estimatedKwh},
+        ${delta.estimatedCost}, ${delta.knownSeconds}, ${delta.unknownSeconds},
+        CURRENT_TIMESTAMP AT TIME ZONE 'UTC', CURRENT_TIMESTAMP AT TIME ZONE 'UTC'
+      )`))}
+      ON CONFLICT ("energyFixtureId", "localDate") DO UPDATE SET
+        "estimatedKwh" = "FixtureEnergyDailyAggregate"."estimatedKwh" + EXCLUDED."estimatedKwh",
+        "estimatedCost" = "FixtureEnergyDailyAggregate"."estimatedCost" + EXCLUDED."estimatedCost",
+        "knownSeconds" = "FixtureEnergyDailyAggregate"."knownSeconds" + EXCLUDED."knownSeconds",
+        "unknownSeconds" = "FixtureEnergyDailyAggregate"."unknownSeconds" + EXCLUDED."unknownSeconds",
+        "updatedAt" = CURRENT_TIMESTAMP AT TIME ZONE 'UTC'
+    `);
+  }
+}
+
+async function persistSiteHourlyDeltas(tx: Prisma.TransactionClient, closures: SiteCheckpointClosure[]) {
+  const rows = closures.flatMap(({ energyFixtureId, closed }) =>
+    closed.hourlyDeltas.map((delta) => ({ energyFixtureId, delta }))
+  );
+  for (const batch of batches(rows, ENERGY_WRITE_BATCH_SIZE)) {
+    await tx.$executeRaw(Prisma.sql`
+      INSERT INTO "FixtureEnergyHourlyAggregate" (
+        "id", "energyFixtureId", "bucketStartUtc", "localDate", "localHour", "utcOffsetMinutes",
+        "estimatedKwh", "knownSeconds", "unknownSeconds", "brightnessWeightedSeconds", "createdAt", "updatedAt"
+      )
+      VALUES ${Prisma.join(batch.map(({ energyFixtureId, delta }) => Prisma.sql`(
+        ${randomUUID()}, ${energyFixtureId}, ${utcTimestamp(delta.bucketStartUtc)},
+        CAST(${localDateString(delta.localDate)} AS DATE), ${delta.localHour},
+        ${delta.utcOffsetMinutes}, ${delta.estimatedKwh}, ${delta.knownSeconds}, ${delta.unknownSeconds},
+        ${delta.brightnessWeightedSeconds}, CURRENT_TIMESTAMP AT TIME ZONE 'UTC',
+        CURRENT_TIMESTAMP AT TIME ZONE 'UTC'
+      )`))}
+      ON CONFLICT ("energyFixtureId", "bucketStartUtc") DO UPDATE SET
+        "estimatedKwh" = "FixtureEnergyHourlyAggregate"."estimatedKwh" + EXCLUDED."estimatedKwh",
+        "knownSeconds" = "FixtureEnergyHourlyAggregate"."knownSeconds" + EXCLUDED."knownSeconds",
+        "unknownSeconds" = "FixtureEnergyHourlyAggregate"."unknownSeconds" + EXCLUDED."unknownSeconds",
+        "brightnessWeightedSeconds" = "FixtureEnergyHourlyAggregate"."brightnessWeightedSeconds"
+          + EXCLUDED."brightnessWeightedSeconds",
+        "updatedAt" = CURRENT_TIMESTAMP AT TIME ZONE 'UTC'
+    `);
+  }
+}
+
+async function persistSiteCheckpoints(tx: Prisma.TransactionClient, closures: SiteCheckpointClosure[]) {
+  for (const batch of batches(closures, ENERGY_WRITE_BATCH_SIZE)) {
+    await tx.$executeRaw(Prisma.sql`
+      INSERT INTO "FixtureEnergyStateCursor" (
+        "fixtureId", "aggregatedThrough", "observedStateOccurredAt", "brightness", "powerOn", "ratedWatt",
+        "durationRemainders", "createdAt", "updatedAt"
+      )
+      VALUES ${Prisma.join(batch.map(({ fixtureId, closed }) => Prisma.sql`(
+        ${fixtureId}, ${utcTimestamp(closed.nextCheckpoint.aggregatedThrough)},
+        ${utcTimestamp(closed.nextCheckpoint.observedStateOccurredAt)},
+        ${closed.nextCheckpoint.brightness}, ${closed.nextCheckpoint.powerOn}, ${closed.nextCheckpoint.ratedWatt},
+        CAST(${JSON.stringify(closed.nextCheckpoint.durationRemainders)} AS JSONB),
+        CURRENT_TIMESTAMP AT TIME ZONE 'UTC', CURRENT_TIMESTAMP AT TIME ZONE 'UTC'
+      )`))}
+      ON CONFLICT ("fixtureId") DO UPDATE SET
+        "aggregatedThrough" = EXCLUDED."aggregatedThrough",
+        "observedStateOccurredAt" = EXCLUDED."observedStateOccurredAt",
+        "brightness" = EXCLUDED."brightness",
+        "powerOn" = EXCLUDED."powerOn",
+        "ratedWatt" = EXCLUDED."ratedWatt",
+        "durationRemainders" = EXCLUDED."durationRemainders",
+        "updatedAt" = CURRENT_TIMESTAMP AT TIME ZONE 'UTC'
+    `);
+  }
+}
+
+function batches<T>(items: T[], size: number) {
+  const result: T[][] = [];
+  for (let start = 0; start < items.length; start += size) result.push(items.slice(start, start + size));
+  return result;
+}
+
+function localDateString(value: Date) {
+  return value.toISOString().slice(0, 10);
+}
+
+function utcTimestamp(value: Date | null) {
+  return Prisma.sql`CAST(${value?.toISOString() ?? null} AS TIMESTAMPTZ) AT TIME ZONE 'UTC'`;
 }
 
 async function persistDailyDeltas(
@@ -346,7 +556,10 @@ function persistCheckpoint(tx: Prisma.TransactionClient, fixtureId: string, chec
   });
 }
 
-function toSnapshot(row: LockedFixtureRow): FixtureEnergySnapshot {
+function toSnapshot(row: Pick<LockedFixtureRow,
+  "energyTrackingStartedAt" | "firstStateOccurredAt" | "lastStateEventId" | "lastStateSequence" |
+  "lastStateOccurredAt" | "brightness" | "powerOn" | "ratedWatt"
+>): FixtureEnergySnapshot {
   return {
     energyTrackingStartedAt: row.energyTrackingStartedAt,
     firstStateOccurredAt: row.firstStateOccurredAt,
@@ -411,12 +624,15 @@ function sameProcessedEvent(
 }
 
 function sameProcessedEventIdentity(
-  event: { gatewayId: string; fixtureId: string | null; sequence: bigint; eventType: string; occurredAt: Date },
+  event: { gatewayId: string; fixtureId: string | null; sequence: bigint; eventType: string; occurredAt: Date; payloadHash?: string | null },
   gatewayId: string,
   state: FixtureStateV2
 ) {
   return event.gatewayId === gatewayId && event.fixtureId === state.fixtureId && event.sequence === BigInt(state.sequence) &&
-    event.eventType === "fixture_state" && event.occurredAt.getTime() === new Date(state.occurredAt).getTime();
+    event.eventType === "fixture_state" && event.occurredAt.getTime() === new Date(state.occurredAt).getTime() &&
+    // Legacy ledger rows lack complete payload hashes; keep their historical
+    // duplicate contract only while the raw row remains retained.
+    (event.payloadHash == null || event.payloadHash === canonicalPayloadHash(state));
 }
 
 function isUniqueConstraintError(error: unknown): error is Prisma.PrismaClientKnownRequestError {

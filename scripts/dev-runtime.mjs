@@ -1,6 +1,21 @@
-import { createHash } from "node:crypto";
-import { readFileSync, watch as watchFile } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
+import {
+  chmodSync,
+  closeSync,
+  fsyncSync,
+  lstatSync,
+  openSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  watch as watchFile,
+  writeFileSync
+} from "node:fs";
 import { basename, dirname, join } from "node:path";
+
+const MAX_DEV_GATEWAY_IDS = 64;
+const CANONICAL_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function resolveDevAppFilters(_args) {
   return ["@led-control/api", "@led-control/web"];
@@ -21,7 +36,8 @@ export function parseEnvFile(content) {
 }
 
 export function resolveDevEnvironment(root, source) {
-  const gatewayId = source.DEV_GATEWAY_ID?.trim();
+  const legacyGatewayId = optionalGatewayId(source.DEV_GATEWAY_ID, "DEV_GATEWAY_ID");
+  const gatewayIds = resolveDevGatewayIds(source, legacyGatewayId);
   const pki = resolvePkiDirectory(root, source);
   const usesLabBundle = Boolean(source.PKI_LAB_CURRENT_DIR?.trim());
   const mqttUrl = mqttsUrl(source.MQTT_URL, "MQTT_URL") ?? "mqtts://localhost:8883";
@@ -35,7 +51,8 @@ export function resolveDevEnvironment(root, source) {
     MQTT_CLIENT_CERT_PATH: source.MQTT_CLIENT_CERT_PATH?.trim() || join(pki, usesLabBundle ? "api-mqtt-client.crt" : "api.crt"),
     MQTT_CLIENT_KEY_PATH: source.MQTT_CLIENT_KEY_PATH?.trim() || join(pki, usesLabBundle ? "api-mqtt-client.key" : "api.key"),
     MQTT_API_INSTANCE_ID: source.MQTT_API_INSTANCE_ID?.trim() || "development",
-    DEV_GATEWAY_ID: gatewayId ?? ""
+    DEV_GATEWAY_ID: legacyGatewayId ?? "",
+    DEV_GATEWAY_IDS: gatewayIds.join(",")
   };
 }
 
@@ -63,7 +80,7 @@ export function renderMosquittoConfig(root, source = {}) {
     "require_certificate true",
     "use_identity_as_username true",
     "tls_version tlsv1.2",
-    `acl_file ${join(root, ".local", "mosquitto.acl")}`,
+    `acl_file ${join(root, ".local", "mosquitto-runtime", "mosquitto.acl")}`,
     "persistence false",
     "log_dest stdout",
     ""
@@ -143,7 +160,8 @@ function checksumOf(content) {
 }
 
 export function renderMosquittoAcl(gatewayIds) {
-  const identities = [...new Set(Array.isArray(gatewayIds) ? gatewayIds : [gatewayIds])].filter(Boolean);
+  const values = Array.isArray(gatewayIds) ? gatewayIds : gatewayIds ? [gatewayIds] : [];
+  const identities = normalizeGatewayIds(values, "gateway ID");
   return [
     "user api-service",
     "topic readwrite sites/#",
@@ -165,4 +183,95 @@ export function renderMosquittoAcl(gatewayIds) {
     ]),
     ""
   ].join("\n");
+}
+
+export function publishMosquittoAcl(destination, gatewayIds) {
+  const content = renderMosquittoAcl(gatewayIds);
+  const parent = dirname(destination);
+  let parentStatus;
+  try {
+    parentStatus = lstatSync(parent);
+  } catch {
+    throw new Error("Mosquitto ACL parent must be a regular directory, not a symlink");
+  }
+  if (!parentStatus.isDirectory() || parentStatus.isSymbolicLink()) {
+    throw new Error("Mosquitto ACL parent must be a regular directory, not a symlink");
+  }
+  const expectedRealParent = join(realpathSync(dirname(parent)), basename(parent));
+  if (realpathSync(parent) !== expectedRealParent) {
+    throw new Error("Mosquitto ACL parent must be a regular directory, not a symlink");
+  }
+  const parentMode = parentStatus.mode & 0o777;
+  if (parentMode !== 0o755) {
+    throw new Error("Mosquitto ACL parent must have mode 0755");
+  }
+  if (typeof process.getuid === "function" && parentStatus.uid !== process.getuid()) {
+    throw new Error("Mosquitto ACL parent must be owned by the invoking user");
+  }
+  try {
+    const destinationStatus = lstatSync(destination);
+    if (!destinationStatus.isFile() || destinationStatus.isSymbolicLink()) {
+      throw new Error("Mosquitto ACL destination must be a regular file, not a symlink");
+    }
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+  const temporaryPath = join(
+    dirname(destination),
+    `.${basename(destination)}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`
+  );
+  let descriptor;
+  try {
+    // ACL entries are authorization metadata, not credential material. The
+    // dedicated 0755 directory and 0644 file let UID 1883 read a read-only
+    // directory bind while keys and tokens retain their stricter permissions.
+    // A same-directory rename keeps publication atomic and changes the inode in
+    // a way the container directory mount can observe before its exact SIGHUP.
+    descriptor = openSync(temporaryPath, "wx", 0o644);
+    writeFileSync(descriptor, content, "utf8");
+    fsyncSync(descriptor);
+    closeSync(descriptor);
+    descriptor = undefined;
+    chmodSync(temporaryPath, 0o644);
+    renameSync(temporaryPath, destination);
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor);
+    rmSync(temporaryPath, { force: true });
+  }
+}
+
+function resolveDevGatewayIds(source, legacyGatewayId) {
+  const configured = source.DEV_GATEWAY_IDS?.trim();
+  if (!configured) return legacyGatewayId ? [legacyGatewayId] : [];
+
+  const tokens = configured.split(",").map((value) => value.trim());
+  if (tokens.some((value) => value.length === 0)) {
+    throw new Error("DEV_GATEWAY_IDS must not contain empty entries");
+  }
+  const gatewayIds = normalizeGatewayIds(tokens, "DEV_GATEWAY_IDS");
+  if (legacyGatewayId && !gatewayIds.includes(legacyGatewayId)) {
+    throw new Error("DEV_GATEWAY_ID conflicts with DEV_GATEWAY_IDS");
+  }
+  return gatewayIds;
+}
+
+function optionalGatewayId(value, label) {
+  const trimmed = value?.trim();
+  return trimmed ? canonicalGatewayId(trimmed, label) : undefined;
+}
+
+function normalizeGatewayIds(values, label) {
+  if (values.length > MAX_DEV_GATEWAY_IDS) {
+    throw new Error(`${label} supports at most ${MAX_DEV_GATEWAY_IDS} gateway IDs`);
+  }
+  const canonical = values.map((value) => canonicalGatewayId(value, label));
+  const unique = [...new Set(canonical)].sort();
+  return unique;
+}
+
+function canonicalGatewayId(value, label) {
+  if (typeof value !== "string" || !CANONICAL_UUID_PATTERN.test(value)) {
+    throw new Error(`${label} must contain canonical UUID gateway IDs`);
+  }
+  return value.toLowerCase();
 }

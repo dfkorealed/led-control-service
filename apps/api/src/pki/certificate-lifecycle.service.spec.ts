@@ -5,6 +5,7 @@ import {
 } from "@nestjs/common";
 import type { CertificateAuthorityProvider } from "./certificate-authority.provider";
 import { CertificateLifecycleService } from "./certificate-lifecycle.service";
+import { reconciliationFixture } from "./reconciliation.test-support";
 
 const ACTIVE_FINGERPRINT = "AA".repeat(32);
 const PENDING_FINGERPRINT = "BB".repeat(32);
@@ -12,6 +13,49 @@ const NOW = new Date("2026-07-15T03:00:00.000Z");
 const CSR = "-----BEGIN CERTIFICATE REQUEST-----\nSECRET-DEVICE-CSR\n-----END CERTIFICATE REQUEST-----";
 
 describe("CertificateLifecycleService", () => {
+  it("does not expose a provider exception body even when the provider uses an HTTP exception", async () => {
+    const { service, certificateAuthority } = createFixture();
+    certificateAuthority.signCsr.mockRejectedValueOnce(new UnauthorizedException("provider-secret CSR PEM"));
+    const error = await service.renewDeviceCertificate({ csrPem: CSR, deviceCertificateFingerprint: ACTIVE_FINGERPRINT }).catch(value => value);
+    expect(error).toBeInstanceOf(ServiceUnavailableException);
+    expect(String(error)).not.toContain("provider-secret");
+  });
+  it("locks activation before accepting an already-active stale preflight", async () => {
+    const { service, prisma } = createFixture({ activationStatus: "active" });
+    prisma.$queryRaw = jest.fn().mockResolvedValue([]);
+    await service.activateDeviceCertificate({ deviceCertificateFingerprint: PENDING_FINGERPRINT });
+    expect(prisma.$queryRaw).toHaveBeenCalled();
+  });
+  it("rejects activation when the pending certificate carries a revocation timestamp", async () => {
+    const { service, prisma } = createFixture();
+    const pending = await prisma.gatewayCertificate.findUnique({ where: { id: "device-pending" } });
+    pending.revokedAt = NOW;
+    await expect(service.activateDeviceCertificate({ deviceCertificateFingerprint: PENDING_FINGERPRINT })).rejects.toThrow(UnauthorizedException);
+    expect(prisma.gatewayCertificate.update).not.toHaveBeenCalled();
+  });
+  it("rejects a pending certificate issued for a different Gateway assignment", async () => {
+    const { service, prisma } = createFixture();
+    const pending = await prisma.gatewayCertificate.findUnique({ where: { id: "device-pending" } });
+    pending.gatewayId = "another-gateway";
+    await expect(service.activateDeviceCertificate({ deviceCertificateFingerprint: PENDING_FINGERPRINT })).rejects.toThrow(UnauthorizedException);
+    expect(prisma.gatewayCertificate.update).not.toHaveBeenCalled();
+  });
+  it.each(["disabledAt", "status", "pointer", "assignment", "revokedAt"])("rejects post-sign renewal %s drift", async (drift) => {
+    const { service, prisma, certificateAuthority } = createFixture();
+    const signed = await certificateAuthority.signCsr({} as never);
+    certificateAuthority.signCsr.mockClear();
+    certificateAuthority.signCsr.mockImplementationOnce(async () => {
+      const current = await prisma.gatewayCertificate.findUnique({ where: { id: "device-active" } });
+      if (drift === "disabledAt") current.inventory.disabledAt = NOW;
+      if (drift === "status") current.status = "revocation_pending";
+      if (drift === "pointer") current.inventory.certificateFingerprint = PENDING_FINGERPRINT;
+      if (drift === "assignment") current.inventory.claimedGatewayId = "different-gateway";
+      if (drift === "revokedAt") current.revokedAt = NOW;
+      return signed;
+    });
+    await expect(service.renewDeviceCertificate({ csrPem: CSR, deviceCertificateFingerprint: ACTIVE_FINGERPRINT })).rejects.toThrow();
+    expect(prisma.gatewayCertificate.create).not.toHaveBeenCalled();
+  });
   it("signs a P-256 CSR inside the 30-day renewal window but preserves the active pointer", async () => {
     const { service, prisma, certificateAuthority } = createFixture({ notAfter: daysFromNow(30) });
 
@@ -133,7 +177,7 @@ describe("CertificateLifecycleService", () => {
   });
 
   it("revokes and rejects a pending device certificate after the 10-minute activation grace period", async () => {
-    const { service, prisma, certificateAuthority } = createFixture({
+    const { service, prisma, reconciliation } = createFixture({
       activationFingerprint: PENDING_FINGERPRINT,
       pendingCreatedAt: new Date(NOW.getTime() - 10 * 60 * 1000 - 1)
     });
@@ -142,44 +186,32 @@ describe("CertificateLifecycleService", () => {
       UnauthorizedException
     );
 
-    expect(certificateAuthority.revoke).toHaveBeenCalledWith(
-      expect.objectContaining({ purpose: "device", certificateSerial: "02:03", fingerprint: PENDING_FINGERPRINT })
+    expect(reconciliation.armSignedCertificate).toHaveBeenCalledWith(
+      expect.objectContaining({ purpose: "device", certificateSerial: "02:03", fingerprint: PENDING_FINGERPRINT, certificateId: "device-pending" })
     );
     expect(prisma.gatewayCertificate.update).toHaveBeenCalledWith({
       where: { id: "device-pending" },
-      data: { status: "revoked", revokedAt: NOW }
+      data: { status: "revocation_pending" }
     });
   });
 
-  it("retries only certificates not yet revoked after an inventory disable partial failure", async () => {
-    const { service, prisma, certificateAuthority, publishCrl } = createFixture();
-    prisma.gatewayCertificate.findMany.mockResolvedValueOnce([
-      certificate("device-active", "device"),
-      certificate("mqtt-active", "mqtt")
-    ]);
-    certificateAuthority.revoke.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error("Vault unavailable"));
-
+  it("commits logical disable before worker processing and returns pending while CRL remains incomplete", async () => {
+    const { service, prisma, reconciliation } = createFixture();
+    prisma.certificateRevocationReconciliation.count.mockResolvedValueOnce(1);
     await expect(service.revokeInventoryCertificates("inventory-1")).rejects.toThrow(ServiceUnavailableException);
-    expect(prisma.gatewayCertificate.update).toHaveBeenCalledTimes(1);
-
-    prisma.gatewayCertificate.findMany.mockResolvedValueOnce([certificate("mqtt-active", "mqtt")]);
-    certificateAuthority.revoke.mockResolvedValueOnce(undefined);
+    expect(prisma.gatewayInventory.update).toHaveBeenCalledWith({ where: { id: "inventory-1" }, data: { disabledAt: NOW } });
+    expect(prisma.gateway.updateMany).toHaveBeenCalledWith({ where: { id: "gateway-1" }, data: { certificateFingerprint: null } });
+    expect(reconciliation.stageInventoryRevocation).toHaveBeenCalledWith(prisma, "inventory-1", NOW);
+    expect(reconciliation.processNow).toHaveBeenCalledWith("revocation-job");
     await expect(service.revokeInventoryCertificates("inventory-1")).resolves.toEqual({ revoked: 1 });
-    expect(certificateAuthority.readCrl).toHaveBeenCalledWith("device");
-    expect(certificateAuthority.readCrl).toHaveBeenCalledWith("mqtt");
-    expect(publishCrl).toHaveBeenCalledWith("/run/pki/device.crl", expect.stringContaining("DEVICE"));
-    expect(publishCrl).toHaveBeenCalledWith("/run/pki/mqtt.crl", expect.stringContaining("MQTT"));
   });
 
   it("retries CRL publication even when every certificate is already revoked", async () => {
-    const { service, certificateAuthority, publishCrl } = createFixture();
-    publishCrl.mockRejectedValueOnce(new Error("disk unavailable"));
-
+    const { service, reconciliation } = createFixture();
+    reconciliation.processNow.mockRejectedValueOnce(new Error("disk unavailable"));
     await expect(service.revokeInventoryCertificates("inventory-1")).rejects.toThrow(ServiceUnavailableException);
-    publishCrl.mockResolvedValue({ changed: true });
-
-    await expect(service.revokeInventoryCertificates("inventory-1")).resolves.toEqual({ revoked: 0 });
-    expect(certificateAuthority.readCrl).toHaveBeenCalledTimes(3);
+    await expect(service.revokeInventoryCertificates("inventory-1")).resolves.toEqual({ revoked: 1 });
+    expect(reconciliation.processNow).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -231,7 +263,9 @@ function createFixture(overrides: {
       update: jest.fn().mockResolvedValue({})
     },
     gatewayInventory: { update: jest.fn().mockResolvedValue({}) },
-    gateway: { update: jest.fn().mockResolvedValue({}) },
+    gateway: { update: jest.fn().mockResolvedValue({}), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    certificateRevocationReconciliation: { count: jest.fn().mockResolvedValue(0), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    $queryRaw: jest.fn().mockResolvedValue([inventory]),
     $executeRaw: jest.fn().mockResolvedValue(0),
     $transaction: jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma))
   };
@@ -246,6 +280,7 @@ function createFixture(overrides: {
       notAfter: daysFromNow(365).toISOString()
     }),
     revoke: jest.fn().mockResolvedValue(undefined),
+    rebuildCrl: jest.fn().mockResolvedValue(undefined),
     readCrl: jest.fn().mockImplementation((purpose) => Promise.resolve(
       `-----BEGIN X509 CRL-----\n${purpose === "device" ? "DEVICE" : "MQTT"}\n-----END X509 CRL-----\n`
     ))
@@ -253,12 +288,14 @@ function createFixture(overrides: {
   const csrValidator = { validate: jest.fn().mockResolvedValue({ publicKey: {} as CryptoKey }) };
   const clock = { now: () => NOW };
   const publishCrl = jest.fn().mockResolvedValue({ changed: true });
+  const reconciliation = reconciliationFixture();
   return {
     service: new CertificateLifecycleService(prisma, certificateAuthority, csrValidator, clock, {
       deviceCrlPath: "/run/pki/device.crl",
       mqttCrlPath: "/run/pki/mqtt.crl",
       publishCrl
-    }),
+    }, reconciliation as never),
+    reconciliation,
     prisma,
     certificateAuthority,
     publishCrl

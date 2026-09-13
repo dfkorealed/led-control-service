@@ -7,6 +7,36 @@
 - **해결 및 예방책**: LAN 변경 복구의 첫 단계에서 assignment ID와 API effective DB를 식별하고, exact Site/Gateway, inventory claim link, active certificate link와 heartbeat 대상 행을 read-only로 대조한다. 하나라도 없으면 hosts·PKI·broker·Gateway를 변경하지 않고 target을 포함한 backup을 먼저 검증하거나 명시적으로 새 설치를 선택한다.
 - **반복 방지 체크**: Lab 재개 점검은 `DB identity → current LAN IP → hosts → PKI SAN/CRL → running broker context → Pi/container DNS → TLS/mTLS/CONNACK → heartbeat 3회` 순서를 따른다. Backup은 TOC 존재만으로 충분하지 않으며 격리 restore에서 exact target과 종속 관계를 확인해야 한다.
 
+## 2026-09-12 / Prisma Date와 naive UTC timestamp의 비교·기본값을 함께 검증한다
+
+- **발생했던 문제/실수**: retention cutoff와 보고서 만료·재시도 비교에서 UTC 기준의 JS Date를 그대로 SQL에 전달해 Asia/Seoul DB session에서 경계가 9시간 이동했다. 보고서 cleanup은 만료까지 1ms 남은 파일을 먼저 삭제하거나 아직 due가 아닌 원장을 다시 claim했다. UTC로 바꾸자 고정 `prune(now)`와 신규 원장의 실제 현재 시각 기본값 차이가 별도로 드러났다.
+- **원인**: Prisma raw Date parameter는 `timestamp with time zone`인데 기존 schema의 DateTime 열은 naive UTC `timestamp`다. PostgreSQL의 암묵 변환이 session timezone을 적용하며, 기본 `CURRENT_TIMESTAMP`를 naive 열에 저장하는 경로도 같은 영향을 받는다. 비 UTC에서 잘못 앞당겨진 due 판단이 주입한 clock과 DB 기본 clock 불일치를 가렸다.
+- **해결 및 예방책**: raw 비교값에 `::timestamptz AT TIME ZONE 'UTC'`를 명시하고, 보고서 cleanup 신규 원장에도 같은 `prune(now)`를 전달한다. 대상 DB 기본값은 순방향 migration에서 UTC로 고정한다. lease 소유권 판정처럼 실제 DB clock을 써야 하는 경계는 의도적으로 분리한다.
+- **반복 방지 체크**: 자체 disposable PostgreSQL의 UTC·Asia/Seoul session에서 cutoff 직전/동일/직후, retry 예정 시각과 여러 sweep 수렴을 검증한다. `pg_typeof`로 실제 bound parameter 타입을 확인하고 기본값 생성 경로도 테스트한다. `TIMESTAMP(3)` 반올림과 JS millisecond 절삭의 최대 1ms 차이는 시계 근접 assertion에서만 허용하며 삭제 cutoff의 정확한 포함/제외 assertion은 완화하지 않는다.
+## 2026-09-13 / 실제 image의 archive·daemon·file 경계를 각각 검증한다
+
+- **발생했던 문제/실수**: Fixture tar만으로는 Docker 29의 gzip blob과 OCI descriptor-valued `.Id`를 재현하지 못했다. 실제 final image는 pnpm의 build-workspace self-reference도 노출했다. 이어 arbitrary DER offset/PEM header와 일반 `*-key` 이름 검사는 Node·crypto library binary, npm 설명 문구, `apt-key`를 개인키 artifact로 오인했다.
+- **해결 및 예방책**: Config SHA, compressed blob SHA, uncompressed diff ID, daemon descriptor ID를 분리하고 실제 load/inspect/run의 container `.Image`까지 결속한다. Runtime inventory 전에는 검증된 build-only self-reference 하나만 제거한다. Content profile v3는 regular file 단위 standalone key/전체 base64/완전한 parseable text PEM을 검사하고 private basename/directory 정책을 일반 public tool 명칭과 구분한다. Complete encrypted-private-key PEM과 strict PKCS#8 EncryptedPrivateKeyInfo DER는 passphrase 없이 구조적으로 거부하고, 일반 암호문·binary 내부 offset·일반 secret·예산 밖 후보는 보장하지 않는다고 명시한다.
+- **반복 방지 체크**: 깨끗한 commit의 실제 image smoke를 fixture 계약 뒤에 실행한다. Gzip corrupt/trailing/oversize·OCI descriptor binding, 정상 library/public SPKI/CA·tool 명칭, 확장자 없는 실제 key 거부와 cleanup을 TDD로 고정하고 실패했던 audit 중단 지점까지 보고한다. Software smoke를 production ARM64/Pi/HIL로 확대하지 않는다.
+
+## 2026-09-13 / Checksum closure와 artifact 진위는 다른 보장이다
+
+- **발생했던 문제/실수**: Image tar와 checksum만 전달하는 절차가 승인된 source/dependency image인지, test-only인지와 별개로 성공처럼 읽힐 수 있었다.
+- **해결 및 예방책**: Full commit·lock hash·config digest·final inventory/SPDX·정적 정책을 immutable bundle로 결속하고 CI가 기본 production verifier의 test-only 거부까지 실제 실행한다. Checksum 전체를 재작성할 수 있는 공격자의 진위를 증명하지는 않으므로 운영 signing·trusted 전달·exact artifact 승인을 별도 관문으로 남긴다. CMS recipient encryption도 producer 서명을 대신하지 않는다.
+- **반복 방지 체크**: 성공한 host smoke를 ARM64/Pi/HIL로 확대하지 않고 실제 artifact identity, platform/test marker, Node/inventory와 default rejection을 함께 기록한다.
+
+## 2026-09-13 / 복구 snapshot과 cleanup도 하나의 소유 경계로 다룬다
+
+- **발생했던 문제/실수**: Gateway와 Mesh만 뜨거운 상태로 tar 복사하면 identity generation·outbox/manifest·automation sidecar가 서로 다른 시점이 될 수 있고, prefix만 맞는 임시 경로를 지우면 unrelated data를 제거할 수 있다.
+- **해결 및 예방책**: Shared lock과 healthy verified baseline 아래 네 root를 quiesce해 암호화한다. Restore는 disposable 검증 뒤 같은 filesystem journal/rename/rollback을 사용한다. Cleanup은 현재 호출이 실제 생성한 경로의 exact physical parent/basename만 확인하고, 실패를 성공으로 숨기지 않는다. State가 TMPDIR을 무시하므로 CI는 실제 mktemp allocation도 관찰해 plaintext 수명을 끝까지 확인한다.
+- **반복 방지 체크**: 실제 ephemeral RSA CMS backup/verify/drill과 closure·권한·live 불변·cleanup assertions를 실행한다. 전체 state 85개를 protected gate에서 직렬 실행해 CMS happy flow뿐 아니라 악성 archive·권한·identity·partial swap·journal rollback도 누락/skip 없이 확인한다. TERM 무시 descendant는 drain→TERM→KILL deadline으로 종료하고 still-live cleanup은 실패로 남긴다.  SIGKILL/power-loss와 journal 이전 orphan은 별도 운영/Linux Pi 검증 한계로 기록한다.
+
+## 2026-09-12 / Writer 잠금만으로 generated output의 reader 안전을 보장할 수 없다
+- **발생했던 문제/실수**: `packages/shared` build끼리는 owner lock으로 직렬화했지만 각 build가 기존 export를 먼저 지우고 다시 복사했다. 같은 checkout에서 root lint와 test가 겹치자 잠금을 사용하지 않는 Web TypeScript reader가 `@led-control/shared/dimming-command`를 해석하는 순간 declaration이 사라져 `TS2307`로 실패했다.
+- **원인**: pnpm의 outer workspace topology 밖에서 leaf script가 dependency build를 다시 시작했고, writer/writer 직렬화를 writer/reader 격리로 확대 해석했다. 실제 polling에서는 export가 8/8 publish cycle마다 29~220ms 사라졌다.
+- **해결 및 예방책**: canonical root lint/typecheck/test/build는 repository owner lock을 전체 dependency build와 consumer 수명 동안 유지한다. lock 안에서 shared와 automation-engine을 각각 한 번 build한 뒤 nested writer가 없는 leaf command만 실행한다. shared publisher는 같은 path의 이전 파일을 먼저 지우지 않고 atomic file rename으로 교체한 뒤 실제 stale manifest file만 제거한다.
+- **반복 방지 체크**: copied real publisher의 cleanup 경계를 명시적 file barrier로 멈춰 기존 export read가 `ENOENT` 없이 성공하는 regression, leaf script의 nested writer 금지 contract, concurrent root lint/test 양 획득 순서와 export absence 0 계측을 유지한다. 긴 test owner를 임의 timeout으로 끊거나 TypeScript retry로 증상을 숨기지 않는다.
+
 ## 2026-09-11 / 사용자 삭제는 FK뿐 아니라 durable 비정규화 데이터까지 추적한다
 - **발생했던 문제/실수**: `Command.requestedBy`와 `ManualOverride.requestedById`를 `SET NULL`로 바꿨지만 MQTT outbox JSON의 요청자 UUID와 수락된 초대 이메일은 관계형 FK 밖에 남아 있었다. 미발행 command row는 사용자 삭제 뒤에도 요청자 식별자를 외부로 발행할 수 있었다.
 - **원인**: 사용자 PII 수명을 관계형 column과 브라우저 cache 위주로 검토하고, durable JSON payload와 가입에 사용된 토큰 원장의 비정규화 복사본을 삭제 그래프에 포함하지 않았다.
@@ -232,6 +262,12 @@
 - **원인**: 런타임 보안 정책만 변경하고 루트 개발 오케스트레이션, 인증서 발급, mock client identity, 고정 포트와 문서를 하나의 실행 계약으로 함께 검증하지 않았다. 상대 인증서 경로도 workspace별 현재 디렉터리에 따라 잘못 해석될 수 있었다.
 - **해결 및 예방책**: 루트 `pnpm dev`가 절대 인증서 경로를 주입하고 개발 PKI, mTLS Mosquitto, DB migration과 자식 프로세스 수명주기를 관리하도록 했다. 런타임 mock identity는 제거하고 실제 claim된 `DEV_GATEWAY_ID`만 허용한다.
 - **반복 방지 체크**: 인증·전송 정책을 강화할 때 API, 실제 gateway, compose, `.env.example`, 루트 실행 명령을 같은 테스트 단위로 확인하고 실제 루트 명령으로 로그인까지 검증한다.
+
+## 2026-09-14 / DB claim과 file-backed 개발 MQTT ACL의 수명주기 불일치
+- **발생했던 문제/실수**: 두 번째 Lab Gateway를 정상 claim했지만 개발 Mosquitto ACL은 legacy `DEV_GATEWAY_ID` 한 개만 렌더링해 새 인증서 CN의 연결을 reason 135로 거부했다.
+- **원인**: 제품의 claim은 DB 소유권과 인증서 binding을 변경하지만 별도 파일인 `.local/mosquitto.acl`을 갱신하지 않는다. 개발 시작 스크립트도 복수의 정상 Gateway가 공존하는 경우를 표현할 설정이 없었다.
+- **해결 및 예방책**: `DEV_GATEWAY_IDS`의 명시적 UUID allowlist를 정규화·중복 제거·정렬해 각 Gateway의 기존 최소권한 topic만 렌더링한다. ACL은 credential이 아닌 authorization metadata이므로 symlink가 아닌 전용 `0755` 디렉터리에 container-readable `0644`로 원자 게시하며 key/token 권한은 바꾸지 않는다. `dev:local`도 ACL 게시 후 Docker를 시작하고 디렉터리를 read-only mount해 rename으로 바뀐 inode를 보게 한다. 실행 중 broker는 저장소 소유 Compose container 또는 mode `0600` PID/config marker와 listener/command가 모두 일치하는 native process만 exact `SIGHUP`한다. 단일 `DEV_GATEWAY_ID`는 하위 호환으로 유지하되 두 설정의 불일치는 fail closed 한다.
+- **반복 방지 체크**: 새 Lab Gateway claim 후 allowlist에 UUID를 추가하고 `pnpm dev`를 재시작한다. 테스트는 복수/legacy/누락/충돌/주입 입력, Docker/native 소유권, ID 제거와 빈 allowlist의 실제 Mosquitto reload를 검증하며 운영 broker에 wildcard 예외를 추가하지 않는다.
 
 ## 2026-07-13 / Raspberry Pi 호스트 패키지와 pnpm store 불일치
 - **발생했던 문제/실수**: Debian 13에서 `rfkill` 명령을 `util-linux` 패키지로 설치하려 했고, 로컬 의존성 갱신은 기존 pnpm store v11과 현재 pnpm 9 store v3가 달라 실패했다.
@@ -540,3 +576,156 @@
 - **원인**: 빈 DB와 새 writer의 hash가 있는 원장만 검증해 이전 writer의 commit 뒤 application ACK 유실 상태를 누락했다.
 - **해결 및 예방책**: topic/DB 소유권과 소유 행 잠금 뒤 exact legacy identity에 첫 인증 replay의 hash를 null 조건부 갱신으로 확정한다. CAS 경합 시 원장을 다시 읽어 같은 hash만 허용하며 snapshot·energy·freshness는 다시 반영하지 않는다. null 자체는 원본 payload와 같다는 증거가 아니라는 신뢰 한계를 기록한다.
 - **반복 방지 체크**: 이전 형태의 원장으로 시작하는 격리 PostgreSQL replay·경합, migration의 과거 freshness 비소급, API duplicate/PUBACK 및 Gateway 실제 publisher의 다음 event 발행을 함께 검사한다.
+
+## 2026-09-12 / PUBACK·장비 Status 유실은 미적용의 증거가 아니다
+
+- **발생했던 문제/실수**: BlueZ가 Lightness Status 유실을 failed로 보고해 API가 not_applied로 분류했고, broker가 Set을 받은 뒤 PUBACK을 잃으면 outbox terminal에서 Command outcome이 pending으로 남았다.
+- **원인**: 요청 거절과 관측 부재를 같은 실패로 취급하고, publish 성공 시각만 기록해 실제 발행 시도 여부를 재시작 후 구분할 수 없었다. 직접 publishClaimed를 호출하는 fake로 실제 reclaim까지 증명했다고 과장했다.
+- **해결 및 예방책**: MQTT 호출 전 deliveryAttemptedAt을 commit하고 발행 시도 이후 응답 유실은 unknown으로 닫는다. 기존 failed+STATUS_TIMEOUT도 원문 aggregate 검증 뒤 timed_out으로 정규화한다. Automation lock을 먼저 얻고 dispatch 전이에 실패한 terminal writer는 결과와 parent를 쓰지 않는다.
+- **반복 방지 체크**: 실제 producer→handler wire와 consumer→Get/overlap을 연결한다. ClaimBatch를 실행하는 stateful 경계에서 retry 성공한 published row와 별도 expiry row를 나눠 검증하고, DB double·실제 PostgreSQL·실장비 HIL의 증거를 구분한다.
+
+## 2026-09-12 / 서명 URL 만료 시각은 실제 발급 경계 뒤에 기록한다
+
+- **발생했던 문제/실수**: 업로드 원장을 먼저 만들었지만 서명 URL 생성이 지연되면 DB에 계산한 만료 시각과 실제 URL의 유효 시간이 어긋나 정리 worker가 아직 유효한 업로드를 삭제할 수 있었다.
+- **원인**: 외부 signer 호출 전 시각을 실제 capability 발급 시각으로 간주했다.
+- **해결 및 예방책**: pending 원장을 먼저 commit하고 signer 성공 뒤 실제 만료 시각을 조건부 갱신한 경우에만 URL을 반환한다. signer 또는 갱신 실패 원장은 NULL 만료 상태로 보존하고 별도 유예 뒤 회수한다.
+- **반복 방지 체크**: 서명 promise를 barrier로 지연한 테스트에서 반환 URL과 durable 만료 시각의 순서를 검증하고, 외부 호출은 DB transaction 밖에 둔다.
+
+## 2026-09-12 / 해시된 JSON migration은 runtime canonicalization과 같아야 한다
+
+- **발생했던 문제/실수**: JSONB의 숫자 문자열을 그대로 해시하면 JavaScript `JSON.stringify`가 지수 표기로 바꾸는 `1e-7`, `1e21` 같은 값에서 revision 무결성 해시가 달라졌다.
+- **원인**: 객체 key 정렬만 맞추고 IEEE-754 변환과 ECMAScript 숫자 직렬화 경계를 포함하지 않았다.
+- **해결 및 예방책**: migration은 변경 전 runtime 해시를 먼저 검증해 불일치하면 중단하고, 같은 key 정렬·배열 순서·숫자 표기 규칙으로 URL 변경 뒤 해시를 재계산한다.
+- **반복 방지 체크**: clean migration과 upgrade migration 모두 nested 객체·배열 및 `1e-7`, `1e-6`, `1e20`, `1e21` 경계값을 실제 PostgreSQL에서 runtime helper 결과와 비교한다.
+
+## 2026-09-12 / 보관 상태는 모든 데이터 생성 경로에서 강제한다
+
+- **발생했던 문제/실수**: dashboard에서 보관 층을 숨겨도 이미 열린 등록 세션이나 늦게 도착한 provisioning 완료 이벤트가 보관 층에 MeshNode와 Fixture를 만들 수 있었다.
+- **원인**: lifecycle을 조회 필터로만 처리하고 등록 시작·재시도·일괄 등록·terminal event의 각 producer에서 다시 확인하지 않았다.
+- **해결 및 예방책**: Floor를 먼저 잠그고 active 상태를 확인한 뒤 session/node 잠금으로 진행한다. 진행 중 등록 세션이 있으면 층 보관도 거부한다.
+- **반복 방지 체크**: lifecycle 도입 시 화면 노출뿐 아니라 모든 create/update producer와 비동기 terminal consumer를 목록화하고 보관 전후 경합 테스트를 둔다.
+
+## 2026-09-12 / 운영 메타데이터 변경은 분석 이력을 함께 보존한다
+
+- **발생했던 문제/실수**: 층 이름, 조명 이름과 정격전력만 현재 행에서 바꾸면 과거·현재 에너지 집계의 dimension 또는 checkpoint가 실제 운영 정보와 분리될 수 있었다.
+- **원인**: 설정 CRUD를 표시용 문자열 수정으로만 보았다.
+- **해결 및 예방책**: 관련 행을 잠근 같은 transaction에서 정격전력 checkpoint를 닫고, 동일한 effectiveAt으로 조명과 층 이름의 에너지 dimension version을 갱신한다.
+- **반복 방지 체크**: Site/Floor/Fixture 메타데이터 쓰기 테스트는 현재 행뿐 아니라 energy checkpoint·dimension 호출과 같은 transaction 경계를 함께 검증한다.
+
+## 2026-09-12 / 요금 기준 변경 전에 열린 에너지 구간을 닫는다
+
+- **발생했던 문제/실수**: 현장 단가나 시간대를 즉시 바꾸면 변경 전에 시작한 열린 조명 구간까지 새 단가·시간 경계로 계산될 수 있었다.
+- **원인**: 설정값이 에너지 계산의 시간축과 금액축을 동시에 결정하지만 일반 메타데이터처럼 갱신했다.
+- **해결 및 예방책**: Site와 Fixture를 안정된 순서로 잠그고 기존 설정으로 변경 시각까지 모든 checkpoint를 먼저 정산한 뒤 설정을 바꾼다. bulk SQL의 timestamp는 세션 시간대가 아니라 UTC 문자열과 명시적 cast를 사용한다.
+- **반복 방지 체크**: 계산 기준 설정을 바꾸는 테스트는 변경 전후 구간 분리, DB 저장 시각과 cursor의 millisecond 일치, 다수 fixture 잠금 순서를 함께 검증한다.
+
+## 2026-09-12 / 행 잠금과 stale write 검출은 별개의 계약이다
+
+- **발생했던 문제/실수**: 조명 행을 `FOR UPDATE`로 잠가 동시 실행은 직렬화했지만, 늦게 저장한 화면이 먼저 저장된 이름과 정격전력을 덮어쓸 수 있었다.
+- **원인**: 서버 내부 경합 제어를 사용자가 본 revision 검증으로 오해했다.
+- **해결 및 예방책**: 관리자 조회 응답에 `updatedAt`을 제공하고 수정 요청의 `expectedUpdatedAt`을 잠긴 행과 비교한다. 충돌한 UI는 같은 요청을 재전송하지 않고 최신 페이지를 다시 읽는다.
+- **반복 방지 체크**: 운영 설정 mutation은 row lock과 함께 stale request 409 및 UI refresh-only 회귀를 둔다.
+
+## 2026-09-12 / 사설 자산 migration은 변환 불가 URL을 먼저 조사한다
+
+- **발생했던 문제/실수**: 알려진 공개 URL만 인증 경로로 바꾸면 대응 자산이 없는 legacy URL은 사설 전환 후 조용히 깨질 수 있었다.
+- **원인**: 정상 변환 행만 검증하고 전체 기존 데이터의 unmatched 집합을 확인하지 않았다.
+- **해결 및 예방책**: DDL 전에 FloorPlan과 revision snapshot의 비어 있지 않은 URL을 전수 검사하고, 하나라도 대응할 수 없으면 오류 건수를 포함해 migration 전체를 중단한다.
+- **반복 방지 체크**: private storage migration은 정상·NULL·빈 값·none·unmatched를 실제 PostgreSQL에서 원자성까지 검증한다.
+
+## 2026-09-12 / 서명 URL의 endpoint는 브라우저에서 도달 가능해야 한다
+
+- **발생했던 문제/실수**: API 컨테이너 내부 S3 주소로 서명된 URL을 브라우저에 반환하면 host가 노출되고 사용자는 해당 주소에 접속할 수 없다.
+- **원인**: storage transport endpoint와 capability 소비자의 endpoint를 하나로 취급했다.
+- **해결 및 예방책**: 내부 통신 endpoint와 브라우저용 bucket base를 분리하고 같은 자격·region·path-style 계약으로 별도 presigning client를 만든다. production에서 public base 누락은 fail-closed한다.
+- **반복 방지 체크**: GET/PUT 서명 테스트는 반환 URL host가 public 설정인지, bucket 경로가 일치하는지와 누락 설정 실패를 검증한다.
+
+## 2026-09-12 / 계산 기준을 읽는 수집도 설정 행을 먼저 잠근다
+
+- **발생했던 문제/실수**: 상태 수집이 이전 Site 단가·시간대를 읽은 뒤 Fixture 잠금에서 대기하면 설정 변경 커밋 후의 checkpoint에 이전 기준을 적용할 수 있었다.
+- **원인**: 설정 변경만 Site -> Fixture 순서를 사용하고, 수집은 Fixture만 잠근 채 Site 값을 함께 조회했다.
+- **해결 및 예방책**: 상태 수집은 서로 호환되는 Site `FOR KEY SHARE`를 먼저 얻고 Fixture를 잠근 뒤 잠긴 Site의 계산 기준을 사용한다. 설정 변경의 Site `FOR UPDATE`는 이 공유 잠금과 충돌하므로 계산 기준 변경은 수집과 직렬화된다.
+- **반복 방지 체크**: 계산 기준을 읽는 모든 writer는 동일한 상위 행 잠금 순서를 사용하며 실제 PostgreSQL에서 중간 대기와 변경 커밋을 교차시켜 결과 금액을 검증한다.
+
+## 2026-09-12 / 업로드 완료와 도메인 저장 완료는 다르다
+
+- **발생했던 문제/실수**: 객체 업로드를 complete해 ready로 만든 뒤 맵을 저장하지 않고 이탈하면 어떤 맵 이력에도 연결되지 않은 파일이 영구 누적됐다.
+- **원인**: pending 업로드만 실패 대상으로 보고, ready 자산이 FloorPlan 또는 revision에 연결됐는지 추적하지 않았다.
+- **해결 및 예방책**: 24시간 유예가 지난 미참조 ready 자산을 서버 worker가 회수한다. 현재 맵과 모든 revision을 확인하고, 맵 저장과 cleanup은 Floor 잠금 및 cleanup claim으로 직렬화한다. 객체 삭제 실패 시 claim을 2분간 backoff로 유지해 오래된 실패 batch가 뒤 자산을 영구 차단하지 않게 한다.
+- **반복 방지 체크**: 비동기 업로드는 전송 완료와 도메인 연결 완료를 나눠 검사하고, 연결 취소·브라우저 종료·저장/정리 양방향 경합을 실제 DB에서 검증한다.
+
+## 2026-09-12 / 브라우저 직접 업로드의 CORS는 배포 URL을 따른다
+
+- **발생했던 문제/실수**: MinIO CORS가 localhost 한 주소에 고정되어 대체 개발 포트와 운영 도메인의 presigned PUT preflight가 실패했다.
+- **원인**: Web 배포 URL 설정과 저장소 CORS 설정을 별도로 관리했고, 현재 MinIO가 지원하지 않는 bucket CORS 명령에 의존했다.
+- **해결 및 예방책**: 번들 MinIO 서버의 `MINIO_API_CORS_ALLOW_ORIGIN`을 `WEB_PUBLIC_URL`에서 주입하고 정적 XML과 `mc cors set`을 제거한다. anonymous 정책은 두 버킷 모두 `none`으로 유지한다.
+- **반복 방지 체크**: Compose contract는 기본 주소와 사용자 지정 주소를 각각 렌더링하고 CORS 값, 고정 MinIO 버전, 비공개 버킷 명령을 함께 검증한다.
+
+## 2026-09-12 / 빌드 잠금은 산출물 소비 기간까지 보호하지 않는다
+
+- **발생했던 문제/실수**: 루트 `pnpm test`가 workspace 테스트를 병렬 실행하면서 여러 package의 pretest가 shared를 다시 빌드했고, API Jest가 shared 파일을 읽는 중 다른 빌드의 atomic 교체가 발생해 모듈을 찾지 못했다.
+- **원인**: shared 빌드끼리만 잠금으로 직렬화하면 빌드 완료 후 테스트가 산출물을 소비하는 기간도 보호된다고 가정했다.
+- **해결 및 예방책**: 루트 전체 테스트의 workspace 실행을 `--workspace-concurrency=1`로 직렬화한다. package 단독 테스트와 빌드의 기존 잠금은 유지한다.
+- **반복 방지 체크**: 루트 스크립트 계약 테스트에서 workspace concurrency를 검증하고, 최종 게이트는 package별 성공만 조합하지 않고 실제 `pnpm test`를 실행한다.
+## 2026-09-12 / 새 CI 묶음은 실제 disposable 경계에서 계약 진화를 다시 검증한다
+
+- **발생했던 문제/실수**: Workflow 정적 계약과 root unit gate는 통과했지만 첫 disposable integration에서 오래된 DB payload·service double·전역 role fixture가 실패했고, real-backend journey도 현재 Settings route와 다른 전환을 가정했다. HIL preflight도 처음에는 실제 Gateway harness와 다른 cwd/PATH에서 실행됐다.
+- **원인**: CI command의 존재와 순서 검증을 production DB trigger, post-commit lifecycle, 전역 제약, 실제 browser route, package-local 실행 환경의 최신 계약 검증과 동일하게 간주했다.
+- **해결 및 예방책**: 독립 job마다 frozen install과 Prisma Client 생성을 수행하고, task-owned PostgreSQL/Redis에 전체 migration을 적용한 in-band suite, 실제 host prerequisite를 쓰는 one-worker Chromium core, Gateway package와 동일한 cwd·`pnpm exec` context의 fail-closed HIL preflight를 각각 실행한다.
+- **반복 방지 체크**: CI 묶음을 추가하거나 production 계약을 바꾸면 정적 workflow test만으로 완료 처리하지 않는다. 사용자 자원과 분리된 disposable service/lab에서 fixture isolation, DB trigger, transaction 이후 처리, 실제 route와 cwd/PATH를 검증하고 모든 process/container/data cleanup까지 증거로 남긴다.
+
+## 2026-09-12 / watcher 생성과 이벤트 감시 시작은 같은 시점이 아닐 수 있다
+
+- **발생했던 문제/실수**: Signal path를 먼저 확인한 뒤 `fs.watch`를 만들거나, `fs/promises.watch()` iterator를 만든 직후 다시 확인하면 watcher가 이미 활성화됐다고 가정했다. Async generator는 첫 `next()`에서 실제 감시를 시작하므로 그 사이 단 한 번 생성된 signal을 놓쳐 테스트가 무기한 대기할 수 있었고, barrier wait가 cleanup 밖에 있어 writer와 process-group drain도 남을 수 있었다.
+- **원인**: API 객체 생성과 underlying watcher registration을 같은 lifecycle 경계로 취급하고, signal 소비자 실패와 producer/child 종료를 경쟁시키지 않았다.
+- **해결 및 예방책**: Pending `next()`에 resolve/reject handler를 즉시 붙여 watcher를 prime한 뒤 상태를 재확인한다. 이벤트를 받으면 다음 `next()`를 먼저 prime한 뒤 다시 읽어 감시 공백을 만들지 않는다. Observation, producer success/failure, abort, iterator end 모든 승자는 watcher를 닫고, barrier wait/read와 writer·child release/reap은 같은 `try/finally`에 둔다.
+- **반복 방지 체크**: Lazy iterator의 initial miss→prime→recheck와 event→re-prime→recheck 순서를 controlled signal로 고정한 회귀를 둔다. 임의 sleep·재시도에 기대지 않고 producer 조기 종료, pending `next()` rejection, abort, iterator end 각각에서 watcher·listener·writer·child 잔여가 없는지 확인한다.
+
+## 2026-09-12 / empty lock 관찰 뒤 경로가 유지된다고 가정하지 않는다
+
+- **발생했던 문제/실수**: Successor가 old owner의 marker 제거 뒤 빈 lock directory를 확인했지만 cleanup 재검사 전에 old owner가 directory까지 제거했다. 두 번째 `lstat`의 `ENOENT`가 정상 handoff가 아니라 치명 오류로 전파돼 successor root gate가 exit 1이 됐다.
+- **원인**: Empty 상태 snapshot과 이후 cleanup 대상 경로의 존재를 하나의 원자적 사실로 취급했다.
+- **해결 및 예방책**: Empty cleanup의 두 번째 검사에서만 `ENOENT`를 이미 완료된 경쟁 cleanup으로 보고 false/retry한다. Symlink, non-directory, invalid contents와 다른 filesystem 오류는 그대로 실패시킨다.
+- **반복 방지 체크**: 기존 owner marker 때문에 contender publish가 먼저 충돌하고, owner가 marker를 해제한 뒤 contender의 첫 empty read와 두 번째 inspect 사이에 `rmdir`가 실행되는 순서를 filesystem seam으로 고정한다. Root successor handoff를 반복해 nonzero 종료가 0인지 함께 확인한다.
+
+## 2026-09-12 / 보안 상태 변경은 현재 세션 유지가 아니라 토큰 회전으로 연결한다
+
+- **발생했던 문제/실수**: 비밀번호 변경에서 다른 세션만 폐기하고 현재 cookie를 그대로 유지하면 변경 전 탈취된 현재 token이 계속 유효하며, MFA 등록·해제 뒤 인증 강도가 세션에 반영되지 않는다.
+- **원인**: 사용 편의를 위해 현재 세션을 보존하는 것과 요청 흐름을 유지하는 것을 같은 구현으로 간주했다.
+- **해결 및 예방책**: 사용자 행과 현재 세션을 다시 잠가 검증한 transaction에서 모든 기존 세션을 폐기하고 현재 접속 정보·만료 시각만 승계한 새 token hash 행을 만든다. 응답은 새 HttpOnly cookie를 설정하므로 화면 흐름은 유지하되 변경 전 token은 즉시 무효화된다.
+- **반복 방지 체크**: 비밀번호·MFA·권한 변경 테스트는 기존 현재/다른 token이 모두 `401`이고 새 token만 유효한지, 감사 실패 시 상태 변경·폐기·새 세션 생성이 함께 rollback되는지 검사한다. 감사 metadata 금지 키에는 MFA 비밀키·TOTP·복구 코드·세션·챌린지 token을 포함한다.
+
+## 2026-09-12 / Redis 제한 통합 테스트는 DB 정리만으로 격리되지 않는다
+
+- **발생했던 문제/실수**: 인증 통합 테스트가 PostgreSQL 사용자·세션은 정리했지만 고정 IP의 Redis 로그인 제한 key를 남겼다. 전체 suite나 반복 실행에서 앞선 로그인 횟수가 누적돼 뒤 시나리오가 예상보다 먼저 `429`를 받았다.
+- **원인**: TTL이 있는 Redis 상태를 일시 데이터라 보고 테스트 소유 상태와 cleanup 경계를 정의하지 않았다.
+- **해결 및 예방책**: 각 시나리오가 고유 key prefix를 사용하고 종료 시 해당 prefix만 `SCAN`·`DEL`한다. 공유 Redis 전체를 `FLUSHDB`하지 않으며 같은 서비스에서 suite를 연속 실행해 잔여 key가 0인지 확인한다.
+- **반복 방지 체크**: Redis 통합 테스트에는 실행 고유 namespace, `afterEach` 소유 범위 cleanup, 연속 2회 실행을 포함한다. IP 기반 보안 기능은 고정 IP를 suite 전역에서 재사용하지 않는다.
+
+## 2026-09-12 / 세션 회전과 로그아웃은 같은 계열과 잠금 경계를 공유한다
+
+- **발생했던 문제/실수**: 비밀번호·MFA 변경으로 현재 토큰을 회전한 직후 이전 요청의 로그아웃이 도착하면, 활성 세션 guard가 이미 폐기된 이전 토큰을 거부해 새 후속 세션이 남을 수 있었다.
+- **원인**: 토큰 한 행의 활성 여부만 인증 경계로 사용하고, 회전 전후 세션의 계보와 경합 순서를 모델링하지 않았다.
+- **해결 및 예방책**: 최초 로그인부터 회전된 세션에 같은 `familyId`를 부여하고 사용자 행 잠금 아래 계열 전체를 폐기한다. 로그아웃은 활성 세션 guard를 사용하지 않는 멱등 API로 두어 이전 토큰도 서비스 계층까지 전달하고, 응답 경로에서는 항상 쿠키를 삭제한다.
+- **반복 방지 체크**: 회전 응답과 로그아웃 응답 순서를 양방향으로 고정한 테스트에서 이전·후속 토큰이 모두 `401`인지 확인한다. 다른 보호 API의 인증 guard는 그대로 유지됐는지도 controller metadata로 검증한다.
+
+## 2026-09-12 / TOTP는 코드 일치뿐 아니라 마지막 사용 counter를 원자적으로 기록한다
+
+- **발생했던 문제/실수**: 같은 30초 구간의 TOTP를 여러 요청이 재사용하면 stateless 검증만으로 모두 성공할 수 있었다.
+- **원인**: 시간 기반 코드의 암호학적 일치와 한 번만 사용해야 하는 인증 정책을 같은 조건으로 간주했다.
+- **해결 및 예방책**: 검증 함수가 일치한 counter를 반환하고 사용자 행 잠금과 같은 transaction에서 `lastUsedTotpCounter`보다 큰 값만 저장한다. 로그인·등록·해제 경로가 모두 이 규칙을 공유한다.
+- **반복 방지 체크**: 같은 코드의 순차 재사용과 동시 검증에서 하나만 성공하는지, 다음 시간 구간 코드는 성공하는지, 복구 코드는 원자적으로 한 번만 소비되는지 함께 검사한다.
+## 2026-09-13 / 안전한 archive 경로 검증과 자원 사용 상한은 별개다
+
+- **발생했던 문제/실수**: Strict USTAR의 경로·타입·중복·manifest를 검증했지만, 4,097개 작은 entry와 512 MiB+1 일반 파일 합계를 허용했고, 단일 초과 size header도 `dd` 출력 파일을 만든 뒤에야 truncated payload로 거부했다. End blocks 뒤 zero padding도 무제한으로 읽었다.
+- **원인**: Streaming이 전체 메모리 적재를 피한다는 사실을 CPU·파일 수·disk 소비의 상한으로 오해했고, manifest 16 MiB 제한을 전체 payload 제한으로 취급했다.
+- **해결 및 예방책**: Nonzero header count를 field 처리 전에, per-file/aggregate size를 payload I/O 전에 고정 상수로 검사한다. Regular 합계와 framing/header/padding/end-block 예산을 분리하며 trailer도 limit+1만 읽는다. Backup은 정확한 future manifest 포함 metadata 예산을 quiesce 전에 같은 profile로 검사한다. 한도 초과 시 데이터 삭제나 부분 백업 대신 operator capacity 조치를 요구한다.
+- **반복 방지 체크**: 실제 ephemeral CMS/USTAR production-boundary RED를 먼저 남기고, permanent CI는 exact production constants를 검증한 disposable script copy만 작은 상수로 치환해 같은 parser/I/O 경계를 빠르게 실행한다. Production env/CLI override는 만들지 않는다. 실제 64+64+100 MiB 운영 크기 acceptance·plaintext cleanup·live 무변경은 원본 shell로 검증하고 protected full-suite exact count에 새 회귀를 포함한다.
+
+## 2026-09-13 / Vault revoke 성공과 CRL 게시 완료는 같은 사실이 아니다
+
+- **발생했던 문제/실수**: Vault 인증서 조회에는 폐기 시각이 기록됐지만 `auto_rebuild`가 반환한 CRL은 폐기 전 cached snapshot이었다. Worker는 게시 전후 bytes가 같다는 이유만으로 원장을 완료했고, 단일 intermediate CRL로 파일을 교체하면서 기존 Root CRL도 유실했다.
+- **원인**: CA의 폐기 원장, CRL 재생성, runtime bundle 게시를 하나의 성공으로 취급했고, 대상 serial 포함 여부와 intermediate+Root 구조를 완료 조건으로 검증하지 않았다.
+- **해결 및 예방책**: 목적별 publication lock 안에서 Vault의 read 방식 CRL rotate endpoint를 명시적으로 호출한 뒤 snapshot을 읽는다. 모든 후보 snapshot에서 해당 원장의 X.509 serial을 양수·최소 DER INTEGER 규칙으로 확인하고, 누락·음수·불필요한 선행 0이면 완료하지 않고 backoff한다. 원자 게시는 read-only로 구성한 trusted Root CRL과 기존 두 번째 block이 정확히 같고 bundle이 intermediate+Root 두 개뿐일 때만 수행한다.
+- **반복 방지 체크**: device와 MQTT 모두에 대해 GET/read rotate 계약, pre-revoke stale CRL, 대상 serial 누락·음수·non-minimal encoding, 게시 후 재시도, 동일 폐기의 멱등 rotate, trusted intermediate+Root 2-block 결과와 Root 누락·교체·추가를 회귀 테스트로 유지한다. CRL bytes 안정성이나 서로 다른 issuer라는 조건만으로 reconciliation을 완료하지 않는다.
+- **후속 교훈**: PKI orchestration script가 자식 signer를 실행해도 자식의 shell 변수는 부모로 역전파되지 않는다. 부모는 signer가 보장하는 고정 artifact 경로를 독립적으로 계산하고, 환경 파일에 쓰기 전에 해당 Root CRL이 존재·readable하며 정확히 한 PEM CRL이고 고정 Root certificate로 검증되는지 확인한다. CRL entry 검증도 첫 serial 일치에서 단락하지 않고 전체 entry를 먼저 canonicalize해야 뒤쪽의 음수·비최소 ASN.1 INTEGER가 숨지 않는다.

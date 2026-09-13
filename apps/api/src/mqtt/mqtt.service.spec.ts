@@ -1,3 +1,4 @@
+import { gatewayEventWatermarkMock } from "../../test/support/gateway-event-watermark.mock";
 import { Logger } from "@nestjs/common";
 import { EventEmitter } from "node:events";
 import { createMqttConnectionOptions, MqttService } from "./mqtt.service";
@@ -191,6 +192,7 @@ describe("MqttService", () => {
         findUnique: jest.fn().mockResolvedValue({ id: sessionId, siteId, gatewayId, status: "active", scanStatus: "scanning", scanCorrelationId, scanAttempt: 1 }),
         update: jest.fn()
       },
+      ...gatewayEventWatermarkMock(),
       processedGatewayEvent: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
       discoveredMeshNode: { upsert: jest.fn().mockResolvedValue(undefined) },
       mqttOutbox: createScanAckOutboxMock()
@@ -217,7 +219,8 @@ describe("MqttService", () => {
     expect((prisma.$queryRaw.mock.calls[0][0] as TemplateStringsArray).join("")).toContain("FOR UPDATE");
     expect(prisma.provisioningSession.update).toHaveBeenCalledWith({
       where: { id: sessionId },
-      data: { scanStatus: "completed", scanCompletedAt: new Date(base.occurredAt), scanFailureCode: null, scanFailureMessage: null }
+      data: expect.objectContaining({ scanStatus: "completed", scanCompletedAt: new Date(base.occurredAt), scanFailureCode: null, scanFailureMessage: null,
+        scanTerminalEventId: "66666666-6666-4666-8666-666666666666", scanTerminalSequence: 2n })
     });
     expect(prisma.processedGatewayEvent.create).toHaveBeenCalledWith({ data: expect.objectContaining({
       eventId: "66666666-6666-4666-8666-666666666666", gatewayId, sequence: 2n, eventType: "provisioning_scan_completed"
@@ -230,7 +233,7 @@ describe("MqttService", () => {
     expect(order).toEqual(["transaction-committed"]);
   });
 
-  it("requeues the durable application ACK for an already committed duplicate terminal", async () => {
+  it("requeues the exact terminal ACK after raw ledger deletion and rejects changed terminal payloads", async () => {
     const siteId = "22222222-2222-4222-8222-222222222222";
     const gatewayId = "33333333-3333-4333-8333-333333333333";
     const sessionId = "11111111-1111-4111-8111-111111111111";
@@ -252,6 +255,7 @@ describe("MqttService", () => {
         findUnique: jest.fn(async () => session),
         update: jest.fn(async ({ data }) => Object.assign(session, data))
       },
+      ...gatewayEventWatermarkMock(),
       processedGatewayEvent: {
         findFirst: jest.fn(async ({ where }) => where.eventId
           ? markers.find((marker) => marker.eventId === where.eventId) ?? null
@@ -269,11 +273,14 @@ describe("MqttService", () => {
 
     await service.handleMessage(topic, payload);
     session.status = "completed";
+    markers.length = 0;
     await service.handleMessage(topic, payload);
 
     expect(prisma.provisioningSession.update).toHaveBeenCalledTimes(1);
     expect(prisma.processedGatewayEvent.create).toHaveBeenCalledTimes(1);
     expect(mqttOutbox.create).toHaveBeenCalledTimes(1);
+    expect(mqttOutbox.updateMany).toHaveBeenCalledTimes(1);
+    await service.handleMessage(topic, Buffer.from(JSON.stringify({ ...event, acceptedNodeCount: 1 })));
     expect(mqttOutbox.updateMany).toHaveBeenCalledTimes(1);
     expect(publishTopic).not.toHaveBeenCalled();
   });
@@ -290,6 +297,7 @@ describe("MqttService", () => {
         }),
         update: jest.fn().mockRejectedValueOnce(new Error("transaction failed")).mockResolvedValueOnce(undefined)
       },
+      ...gatewayEventWatermarkMock(),
       processedGatewayEvent: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
       mqttOutbox: createScanAckOutboxMock(),
       $queryRaw: jest.fn().mockResolvedValue([])
@@ -327,6 +335,7 @@ describe("MqttService", () => {
         }),
         update: jest.fn().mockResolvedValue(undefined)
       },
+      ...gatewayEventWatermarkMock(),
       processedGatewayEvent: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
       mqttOutbox: {
         findUnique: jest.fn().mockResolvedValue(null),
@@ -379,6 +388,7 @@ describe("MqttService", () => {
         findUnique: jest.fn(async () => session),
         update: jest.fn(async ({ data }) => Object.assign(session, data))
       },
+      ...gatewayEventWatermarkMock(),
       processedGatewayEvent: {
         findFirst: jest.fn(async ({ where }) => where.eventId
           ? markers.find((marker) => marker.eventId === where.eventId) ?? null
@@ -413,6 +423,7 @@ describe("MqttService", () => {
     const session = { id: sessionId, siteId, gatewayId, status: "active", scanStatus: "scanning", scanCorrelationId, scanAttempt: 2 };
     const prisma: any = {
       provisioningSession: { findUnique: jest.fn().mockResolvedValue(session), update: jest.fn() },
+      ...gatewayEventWatermarkMock(),
       processedGatewayEvent: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
       discoveredMeshNode: { upsert: jest.fn() },
       mqttOutbox: createScanAckOutboxMock()
@@ -431,7 +442,8 @@ describe("MqttService", () => {
     await service.handleMessage(topic, Buffer.from(JSON.stringify(base)));
     expect(prisma.provisioningSession.update).toHaveBeenCalledWith({
       where: { id: sessionId },
-      data: { scanStatus: "failed", scanCompletedAt: new Date(base.occurredAt), scanFailureCode: "scan_timeout", scanFailureMessage: "조명 검색 시간이 초과되었습니다." }
+      data: expect.objectContaining({ scanStatus: "failed", scanCompletedAt: new Date(base.occurredAt), scanFailureCode: "scan_timeout", scanFailureMessage: "조명 검색 시간이 초과되었습니다.",
+        scanTerminalEventId: base.eventId, scanTerminalSequence: 8n })
     });
     expect(prisma.processedGatewayEvent.create).toHaveBeenCalledWith({ data: expect.objectContaining({ eventType: "provisioning_scan_failed", sequence: 8n }) });
 
@@ -454,6 +466,7 @@ describe("MqttService", () => {
         id: "11111111-1111-4111-8111-111111111111", siteId, gatewayId, status: "active", scanStatus: "scanning",
         scanCorrelationId: "44444444-4444-4444-8444-444444444444", scanAttempt: 1
       }) },
+      ...gatewayEventWatermarkMock(),
       processedGatewayEvent: {
         findFirst: jest.fn().mockResolvedValue(null),
         create: jest.fn(async ({ data }) => { markers.push(data.eventId); })
@@ -491,6 +504,7 @@ describe("MqttService", () => {
       provisioningSession: {
         findUnique: jest.fn().mockResolvedValue({ id: sessionId, siteId, gatewayId, status: "active", scanStatus: "completed", scanCorrelationId, scanAttempt: 1 })
       },
+      ...gatewayEventWatermarkMock(),
       processedGatewayEvent: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
       discoveredMeshNode: { upsert: jest.fn() }
     };
@@ -541,6 +555,7 @@ describe("MqttService", () => {
     const service = new MqttService(
       {} as never,
       createMeshGroupsMock() as never,
+      undefined,
       undefined,
       undefined,
       undefined,
@@ -748,12 +763,7 @@ describe("MqttService", () => {
   });
 
   it("atomically fails a rejected dispatch, its pending fixture results, and its parent command", async () => {
-    const prisma: any = {
-      commandDispatch: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
-      commandFixtureResult: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
-      command: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
-    };
-    prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
+    const { prisma } = reconciliationPrisma(1);
     const service = new MqttService(prisma, createMeshGroupsMock() as never);
 
     await service.handleMessage(
@@ -793,18 +803,13 @@ describe("MqttService", () => {
       }
     });
     expect(prisma.command.updateMany).toHaveBeenCalledWith({
-      where: { id: "11111111-1111-4111-8111-111111111111", status: "pending" },
-      data: { status: "failed", errorMessage: "gateway command expired before execution" }
+      where: { id: "11111111-1111-4111-8111-111111111111", outcome: "pending" },
+      data: { status: "failed", outcome: "not_applied", errorMessage: "one or more gateway dispatches failed" }
     });
   });
 
   it("closes an accepted dispatch when a delayed expiry rejection follows its acceptance", async () => {
-    const prisma: any = {
-      commandDispatch: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
-      commandFixtureResult: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
-      command: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
-    };
-    prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
+    const { prisma } = reconciliationPrisma(1);
     const service = new MqttService(prisma, createMeshGroupsMock() as never);
     const topic = "sites/22222222-2222-4222-8222-222222222222/gateways/55555555-5555-4555-8555-555555555555/acks/acceptance";
 
@@ -826,6 +831,7 @@ describe("MqttService", () => {
 
   it("does not process a device-status ACK for an already terminal dispatch", async () => {
     const prisma: any = {
+      $executeRaw: jest.fn(),
       commandDispatch: { updateMany: jest.fn() },
       commandFixtureResult: { updateMany: jest.fn() }
     };
@@ -884,6 +890,123 @@ describe("MqttService", () => {
   });
 
   it.each([
+    [["timed_out"], "timed_out", "unknown"],
+    [["succeeded"], "succeeded", "applied"],
+    [["succeeded", "failed"], "partially_succeeded", "partially_applied"],
+    [["failed"], "failed", "not_applied"]
+  ])("reconciles dimming results %p into %s / %s", async (statuses, aggregate, outcome) => {
+    const state = reconciliationPrisma(statuses.length);
+    const results = statuses.map((status, index) => fixtureResult(state.results[index].fixtureId, status as any));
+    await state.service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify({ ...deviceStatusAckPayload(), status: aggregate, results })));
+    expect(state.command.outcome).toBe(outcome);
+    expect(state.order.slice(0, 2)).toEqual(["mutation-lock", "dispatch-lock"]);
+  });
+
+  it.each([["dimming", "pending", "not_applied"], ["status_check", "unknown", "unknown"]])(
+    "reconciles a rejected %s dispatch without confusing Get failure with Set failure", async (kind, initial, outcome) => {
+      const state = reconciliationPrisma(1, { kind, verificationAttempt: kind === "status_check" ? 1 : null }, initial);
+      await state.service.handleMessage(deviceStatusTopic().replace("device-status", "acceptance"), Buffer.from(JSON.stringify({
+        ...acceptanceAckPayload(), status: "rejected", errorCode: "COMMAND_EXPIRED"
+      })));
+      expect(state.command.outcome).toBe(outcome);
+      expect(state.order.slice(0, 2)).toEqual(["mutation-lock", "dispatch-lock"]);
+    }
+  );
+
+  it("resolves timeout unknown once from a late dimming ACK and ignores the duplicate", async () => {
+    const state = reconciliationPrisma(1, { status: "timed_out", errorCode: "STATUS_TIMEOUT" }, "unknown");
+    await state.service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify(deviceStatusAckPayload())));
+    expect(state.command.outcome).toBe("applied");
+    expect(state.dispatch.status).toBe("completed");
+    const writes = state.prisma.commandFixtureResult.updateMany.mock.calls.length;
+    await state.service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify(deviceStatusAckPayload())));
+    expect(state.prisma.commandFixtureResult.updateMany).toHaveBeenCalledTimes(writes);
+  });
+
+  it("deduplicates an identical late timeout ACK durably across service restart", async () => {
+    const state = reconciliationPrisma(1, { status: "timed_out", errorCode: "STATUS_TIMEOUT" }, "unknown");
+    const ack = { ...deviceStatusAckPayload(), status: "timed_out", results: [fixtureResult(state.results[0].fixtureId, "timed_out")] };
+    await state.service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify(ack)));
+    const restarted = new MqttService(state.prisma, createMeshGroupsMock() as never);
+    await restarted.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify(ack)));
+    expect(state.command.outcome).toBe("unknown");
+    expect(state.prisma.commandDispatch.updateMany).toHaveBeenCalledTimes(1);
+    expect(state.prisma.commandFixtureResult.updateMany).toHaveBeenCalledTimes(1);
+    expect(state.prisma.command.updateMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects conflicting same-event success but accepts a distinct later success at the same command sequence", async () => {
+    const state = reconciliationPrisma(1);
+    const timeout = { ...deviceStatusAckPayload(), status: "timed_out", results: [fixtureResult(state.results[0].fixtureId, "timed_out")] };
+    const warning = jest.spyOn(Logger.prototype, "warn").mockImplementation();
+    try {
+      await state.service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify(timeout)));
+      await state.service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify(deviceStatusAckPayload())));
+      expect(state.command.outcome).toBe("unknown");
+      expect(state.prisma.commandFixtureResult.updateMany).toHaveBeenCalledTimes(1);
+      expect(warning).toHaveBeenCalledWith("device status ACK event identity conflict");
+      await state.service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify({ ...deviceStatusAckPayload(),
+        eventId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" })));
+      expect(state.command.outcome).toBe("applied");
+      expect(state.prisma.commandFixtureResult.updateMany).toHaveBeenCalledTimes(2);
+    } finally { warning.mockRestore(); }
+  });
+
+  it.each(["DELIVERY_TIMEOUT", "ack_fixture_set_mismatch", null])("does not reopen an unknown terminal dispatch coded %s", async (errorCode) => {
+    const state = reconciliationPrisma(1, { status: "timed_out", errorCode }, "unknown");
+    await state.service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify(deviceStatusAckPayload())));
+    expect(state.command.outcome).toBe("unknown");
+    expect(state.prisma.commandFixtureResult.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("preserves timeout uncertainty after a malformed late ACK so a valid ACK can still converge", async () => {
+    const state = reconciliationPrisma(1, { status: "timed_out", errorCode: "ACCEPTANCE_TIMEOUT" }, "unknown");
+    await state.service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify({ ...deviceStatusAckPayload(),
+      results: [fixtureResult("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "succeeded")] })));
+    expect(state.command.outcome).toBe("unknown");
+    expect(state.dispatch.errorCode).toBe("ACCEPTANCE_TIMEOUT");
+    expect(state.prisma.commandFixtureResult.updateMany).not.toHaveBeenCalled();
+    await state.service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify({ ...deviceStatusAckPayload(),
+      eventId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" })));
+    expect(state.command.outcome).toBe("applied");
+  });
+
+  it("does not reopen a timed-out status-check or relabel a legacy null outcome", async () => {
+    const check = reconciliationPrisma(1, { kind: "status_check", verificationAttempt: 1, status: "timed_out", errorCode: "STATUS_TIMEOUT" }, "unknown");
+    await check.service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify(deviceStatusAckPayload())));
+    expect(check.prisma.commandFixtureResult.updateMany).not.toHaveBeenCalled();
+    const legacy = reconciliationPrisma(1, {}, null);
+    await legacy.service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify(deviceStatusAckPayload())));
+    expect(legacy.command).toMatchObject({ outcome: null, status: "acknowledged" });
+  });
+
+  it.each([
+    [[70, 70], "applied"], [[20, 30], "not_applied"], [[70, 20], "partially_applied"], [[70, null], "unknown"]
+  ])("compares all status-check observations %p to the original brightness", async (brightnesses, outcome) => {
+    const state = reconciliationPrisma(2, { kind: "status_check", verificationAttempt: 1 }, "unknown");
+    const results = brightnesses.map((brightness, index) => ({ fixtureId: state.results[index].fixtureId,
+      status: brightness === null ? "timed_out" : "succeeded", ...(brightness === null ? {} : { brightness }) }));
+    await state.service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify({ ...deviceStatusAckPayload(),
+      status: brightnesses.includes(null) ? "partially_succeeded" : "succeeded", results })));
+    expect(state.command.outcome).toBe(outcome);
+  });
+
+  it("waits for every chunk in one verification attempt and combines their observations", async () => {
+    const state = reconciliationPrisma(1, { kind: "status_check", verificationAttempt: 2 }, "unknown");
+    const sibling = { ...state.dispatch, id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", status: "accepted",
+      fixtureResults: [{ fixtureId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", status: "pending", brightness: null }] };
+    // An older failed attempt must not contaminate this attempt's observations.
+    state.dispatches.push({ ...sibling, id: "old-attempt", verificationAttempt: 1, status: "timed_out" });
+    state.dispatches.push(sibling);
+    await state.service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify(deviceStatusAckPayload())));
+    expect(state.command.outcome).toBe("unknown");
+    await state.service.handleMessage(deviceStatusTopic(), Buffer.from(JSON.stringify({ ...deviceStatusAckPayload(),
+      eventId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      dispatchId: sibling.id, results: [{ fixtureId: sibling.fixtureResults[0].fixtureId, status: "succeeded", brightness: 20 }] })));
+    expect(state.command.outcome).toBe("partially_applied");
+  });
+
+  it.each([
     ["missing", [fixtureResult("99999999-9999-4999-8999-999999999999", "succeeded")]],
     ["duplicate", [
       fixtureResult("99999999-9999-4999-8999-999999999999", "succeeded"),
@@ -921,6 +1044,44 @@ describe("MqttService", () => {
         errorMessage: "device status ACK fixture set mismatch"
       })
     });
+  });
+
+  it("does not create mesh or fixture records when the provisioning floor is archived", async () => {
+    const session = {
+      id: "11111111-1111-4111-8111-111111111111",
+      siteId: "00000000-0000-4000-8000-000000000003",
+      floorId: "00000000-0000-4000-8000-000000000005",
+      gatewayId: "00000000-0000-4000-8000-000000000004",
+      status: "active"
+    };
+    const prisma: any = {
+      provisioningSession: { findUnique: jest.fn().mockResolvedValue(session) },
+      discoveredMeshNode: { findFirst: jest.fn(), update: jest.fn() },
+      floor: { findFirst: jest.fn().mockResolvedValue({ id: session.floorId, status: "archived" }) },
+      meshNode: { findUnique: jest.fn(), create: jest.fn() },
+      fixture: { findFirst: jest.fn(), create: jest.fn() }
+    };
+    prisma.$queryRaw = jest.fn().mockResolvedValue([]);
+    prisma.$transaction = jest.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(prisma));
+    const service = new MqttService(prisma, createMeshGroupsMock() as never);
+
+    await (service as any).completeProvisioning(
+      { siteId: session.siteId, gatewayId: session.gatewayId },
+      {
+        sessionId: session.id,
+        nodeId: "22222222-2222-4222-8222-222222222222",
+        deviceUuid: "esp32h2-b2-001",
+        meshAddress: "0x0101",
+        completedAt: "2026-07-01T00:00:05.000Z"
+      }
+    );
+
+    expect(prisma.floor.findFirst).toHaveBeenCalledWith({
+      where: { id: session.floorId, siteId: session.siteId },
+      select: { status: true }
+    });
+    expect(prisma.meshNode.create).not.toHaveBeenCalled();
+    expect(prisma.fixture.create).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -961,7 +1122,7 @@ describe("MqttService", () => {
     })));
 
     expect(prisma.commandDispatch.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ status: "failed", errorCode: null, errorMessage: null })
+      data: expect.objectContaining({ status: "failed", errorCode: "STATUS_TIMEOUT", errorMessage: null })
     }));
     expect(prisma.commandFixtureResult.updateMany).toHaveBeenCalledTimes(2);
   });
@@ -981,7 +1142,7 @@ describe("MqttService", () => {
     })));
 
     expect(prisma.commandDispatch.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ status: "failed", errorCode: null, errorMessage: null })
+      data: expect.objectContaining({ status: "failed", errorCode: "STATUS_TIMEOUT", errorMessage: null })
     }));
     expect(prisma.commandFixtureResult.updateMany).toHaveBeenCalledTimes(2);
   });
@@ -1690,6 +1851,7 @@ describe("MqttService", () => {
           scanAttempt: 2
         })
       },
+      ...gatewayEventWatermarkMock(),
       processedGatewayEvent: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
       discoveredMeshNode: {
         upsert: jest.fn().mockResolvedValue(undefined)
@@ -1779,6 +1941,7 @@ describe("MqttService", () => {
       provisioningSession: {
         findUnique: jest.fn().mockResolvedValue({ ...node.session, status: "active" })
       },
+      floor: activeFloor(node.session.floorId),
       fixture: {
         update: jest.fn(),
         findFirst: jest.fn().mockResolvedValue(null),
@@ -1829,14 +1992,21 @@ describe("MqttService", () => {
         firmwareVersion: "esp32h2-0.1.0"
       }
     });
-    expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(4);
     expect((prisma.$queryRaw.mock.calls[0][0] as TemplateStringsArray).join(" ").replace(/\s+/g, " ")).toContain(
-      'FROM "ProvisioningSession" WHERE "id" = FOR UPDATE'
+      'FROM "Floor" WHERE "id" = FOR UPDATE'
     );
     expect((prisma.$queryRaw.mock.calls[1][0] as TemplateStringsArray).join(" ").replace(/\s+/g, " ")).toContain(
-      'FROM "DiscoveredMeshNode" WHERE "id" = AND "sessionId" = FOR UPDATE'
+      'FROM "Gateway" WHERE "id" = FOR UPDATE'
     );
-    expect(prisma.$queryRaw.mock.calls[1].slice(1)).toEqual([node.id, node.sessionId]);
+    expect((prisma.$queryRaw.mock.calls[2][0] as TemplateStringsArray).join(" ").replace(/\s+/g, " ")).toContain(
+      'FROM "ProvisioningSession" WHERE "id" = FOR UPDATE'
+    );
+    expect((prisma.$queryRaw.mock.calls[3][0] as TemplateStringsArray).join(" ").replace(/\s+/g, " ")).toContain(
+      'FROM "DiscoveredMeshNode" WHERE "sessionId" = AND "id" IN ( ) ORDER BY "id" FOR UPDATE'
+    );
+    expect(prisma.$queryRaw.mock.calls[3][1]).toBe(node.sessionId);
+    expect(prisma.$queryRaw.mock.calls[3][2].values).toEqual([node.id]);
     expect(prisma.fixture.create).toHaveBeenCalledWith({
       data: {
         id: "22222222-2222-4222-8222-222222222222",
@@ -1914,6 +2084,7 @@ describe("MqttService", () => {
       provisioningSession: {
         findUnique: jest.fn().mockResolvedValue({ ...node.session, status: "active" })
       },
+      floor: activeFloor(node.session.floorId),
       fixture: {
         update: jest.fn(),
         findFirst: jest.fn().mockResolvedValue({
@@ -1993,6 +2164,7 @@ describe("MqttService", () => {
       provisioningSession: {
         findUnique: jest.fn().mockResolvedValue({ ...node.session, status: "active" })
       },
+      floor: activeFloor(node.session.floorId),
       fixture: {
         update: jest.fn(),
         findFirst: jest.fn().mockResolvedValue({
@@ -2071,6 +2243,7 @@ describe("MqttService", () => {
       provisioningSession: {
         findUnique: jest.fn().mockResolvedValue({ ...node.session, status: "active" })
       },
+      floor: activeFloor(node.session.floorId),
       fixture: { update: jest.fn(), findFirst: jest.fn(), create: jest.fn() },
       command: { update: jest.fn() },
       discoveredMeshNode: {
@@ -2130,6 +2303,7 @@ describe("MqttService", () => {
       provisioningSession: {
         findUnique: jest.fn().mockResolvedValue({ ...node.session, status: "active" })
       },
+      floor: activeFloor(node.session.floorId),
       fixture: { update: jest.fn(), findFirst: jest.fn(), create: jest.fn() },
       command: { update: jest.fn() },
       discoveredMeshNode: {
@@ -2204,7 +2378,8 @@ describe("MqttService", () => {
         update: jest.fn()
       },
       meshNode: { findUnique: jest.fn(), create: jest.fn() },
-      fixture: { findFirst: jest.fn(), create: jest.fn() }
+      fixture: { findFirst: jest.fn(), create: jest.fn() },
+      floor: activeFloor(session.floorId)
     };
     prisma.$queryRaw = jest.fn().mockResolvedValue([]);
     prisma.$transaction = jest.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(prisma));
@@ -2221,7 +2396,7 @@ describe("MqttService", () => {
       }
     );
 
-    expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(4);
     expect(prisma.meshNode.findUnique).not.toHaveBeenCalled();
     expect(prisma.meshNode.create).not.toHaveBeenCalled();
     expect(prisma.fixture.create).not.toHaveBeenCalled();
@@ -2446,6 +2621,58 @@ function deviceStatusAckPayload() {
   };
 }
 
+// Stateful persistence boundary: ACK reconciliation runs normally and writes are visible
+// to the following aggregate read and duplicate delivery, without a broker or database.
+function reconciliationPrisma(count: number, overrides: Record<string, unknown> = {}, outcome: string | null = "pending") {
+  const payload = deviceStatusAckPayload();
+  const command = { id: payload.commandId, outcome, brightness: 70, status: outcome === "pending" ? "pending" : "failed" };
+  const results = Array.from({ length: count }, (_, index) => ({
+    fixtureId: index === 0 ? payload.results[0].fixtureId : "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", status: "pending", brightness: null
+  }));
+  const dispatch: any = { id: payload.dispatchId, commandId: command.id, kind: "dimming", verificationAttempt: null,
+    status: "accepted", errorCode: null, fixtureResults: results, ...overrides };
+  const dispatches: any[] = [dispatch];
+  const order: string[] = [];
+  const events = new Map<unknown, { eventId: unknown; gatewayId: unknown; eventType: unknown; payloadHash: unknown }>();
+  const prisma: any = {
+    $executeRaw: jest.fn(async () => { order.push("mutation-lock"); return 1; }),
+    $queryRaw: jest.fn(async (query: TemplateStringsArray, ...values: unknown[]) => {
+      const sql = query.join("");
+      if (sql.includes('INSERT INTO "ProcessedGatewayEvent"')) {
+        const [eventId, gatewayId, eventType, payloadHash] = values;
+        if (events.has(eventId)) return [];
+        events.set(eventId, { eventId, gatewayId, eventType, payloadHash });
+        return [{ eventId }];
+      }
+      const current = dispatches.find((item) => item.id === values[0]);
+      if (sql.includes('FROM "CommandDispatch"')) {
+        order.push("dispatch-lock"); return current ? [{ ...current, outcome: command.outcome, brightness: command.brightness }] : [];
+      }
+      if (sql.includes('FROM "CommandFixtureResult"')) return current?.fixtureResults ?? [];
+      throw new Error(`unexpected reconciliation query: ${sql}`);
+    }),
+    processedGatewayEvent: { findUnique: jest.fn(async ({ where }: any) => events.get(where.eventId) ?? null) },
+    commandDispatch: {
+      updateMany: jest.fn(async ({ where, data }: any) => {
+        const current = dispatches.find((item) => item.id === where.id);
+        if (!current) return { count: 0 };
+        Object.assign(current, data); return { count: 1 };
+      }),
+      count: jest.fn(async () => dispatches.filter((item) => ["pending", "published", "accepted"].includes(item.status)).length),
+      findMany: jest.fn(async ({ where }: any) => dispatches.filter((item) => (!where.kind || item.kind === where.kind)
+        && (!where.verificationAttempt || item.verificationAttempt === where.verificationAttempt)))
+    },
+    commandFixtureResult: { updateMany: jest.fn(async ({ where, data }: any) => {
+      const matches = (dispatches.find((item) => item.id === where.dispatchId)?.fixtureResults ?? [])
+        .filter((result: any) => !where.fixtureId || result.fixtureId === where.fixtureId);
+      matches.forEach((result: any) => Object.assign(result, data)); return { count: matches.length };
+    }) },
+    command: { updateMany: jest.fn(async ({ data }: any) => { Object.assign(command, data); return { count: 1 }; }) }
+  };
+  prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
+  return { prisma, command, dispatch, dispatches, results, order, service: new MqttService(prisma, createMeshGroupsMock() as never) };
+}
+
 function deviceStatusTopic() {
   return "sites/22222222-2222-4222-8222-222222222222/gateways/55555555-5555-4555-8555-555555555555/acks/device-status";
 }
@@ -2460,6 +2687,7 @@ function fixtureResult(fixtureId: string, status: "succeeded" | "failed" | "time
 
 function deviceAckPrisma(expectedFixtureIds: string[]) {
   const prisma: any = {
+    $executeRaw: jest.fn(),
     commandDispatch: {
       findFirst: jest.fn().mockResolvedValue({
         id: deviceStatusAckPayload().dispatchId,
@@ -2467,7 +2695,7 @@ function deviceAckPrisma(expectedFixtureIds: string[]) {
       }),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       count: jest.fn().mockResolvedValue(1),
-      findMany: jest.fn().mockResolvedValue([{ status: "failed" }])
+      findMany: jest.fn().mockResolvedValue([{ status: "accepted", fixtureResults: [] }])
     },
     commandFixtureResult: {
       findMany: jest.fn().mockResolvedValue(expectedFixtureIds.map((fixtureId) => ({ fixtureId }))),
@@ -2477,8 +2705,10 @@ function deviceAckPrisma(expectedFixtureIds: string[]) {
   };
   prisma.$queryRaw = jest.fn(async (query: TemplateStringsArray) => {
     const sql = query.join("");
+    if (sql.includes('INSERT INTO "ProcessedGatewayEvent"')) return [{ eventId: deviceStatusAckPayload().eventId }];
     if (sql.includes('FROM "CommandDispatch"')) {
-      return [{ id: deviceStatusAckPayload().dispatchId, commandId: deviceStatusAckPayload().commandId }];
+      return [{ id: deviceStatusAckPayload().dispatchId, commandId: deviceStatusAckPayload().commandId,
+        kind: "dimming", verificationAttempt: null, status: "accepted", errorCode: null, outcome: "pending", brightness: 70 }];
     }
     if (sql.includes('FROM "CommandFixtureResult"')) {
       return expectedFixtureIds.map((fixtureId) => ({ fixtureId }));
@@ -2501,4 +2731,8 @@ function acceptanceAckPayload() {
     status: "accepted",
     acceptedAt: "2026-07-11T00:00:01.000Z"
   };
+}
+
+function activeFloor(id: string) {
+  return { findFirst: jest.fn().mockResolvedValue({ id, status: "active" }) };
 }

@@ -47,7 +47,29 @@ for (const viewport of viewports) {
 
     await page.goto("/");
     await expect(page.getByRole("heading", { name: /빛을 더 안정적으로/ })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "LED Control 로그인" })).toBeVisible();
+    await expect(page).toHaveTitle("킨다 | 스마트 조명 운영");
+    await expect(page.getByRole("img", { name: "킨다", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "킨다 로그인" })).toBeVisible();
+    const loginButton = page.getByRole("button", { name: "로그인", exact: true });
+    await expect(loginButton).toHaveCSS("background-color", "rgb(37, 111, 161)");
+    await loginButton.hover();
+    await expect(loginButton).toHaveCSS("background-color", "rgb(29, 92, 134)");
+    // 브라우저 computed style은 var() 별칭을 최종 색상으로 해석한다.
+    // 별칭 연결 자체는 KindaLogo 단위 테스트가 원본 CSS에서 검증한다.
+    expect(await page.evaluate(() => {
+      const root = getComputedStyle(document.documentElement);
+      return {
+        primary: root.getPropertyValue("--primary").trim(),
+        surface: root.getPropertyValue("--surface").trim(),
+        text: root.getPropertyValue("--text").trim(),
+        focus: root.getPropertyValue("--focus-ring").trim()
+      };
+    })).toEqual({
+      primary: "#256fa1",
+      surface: "#f4f8fa",
+      text: "#15324a",
+      focus: "0 0 0 3px rgba(37, 111, 161, 0.28)"
+    });
     await expect(page.getByLabel("아이디")).toBeVisible();
     await expect(page.getByLabel("비밀번호")).toBeVisible();
     await expect(page.getByText("연결 조명")).toHaveCount(0);
@@ -61,10 +83,12 @@ for (const viewport of viewports) {
 
     authenticated = true;
     await page.goto("/operator/site-admins");
+    await expect(page.getByRole("img", { name: "킨다 서비스 운영" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "현장 관리자 계정" })).toBeVisible();
     await expect(page.getByLabel("현장 관리자 계정 표")).toBeVisible();
     await expect(page.getByRole("group", { name: "운영 현장" })).toContainText("4");
     await expect(page.getByRole("group", { name: "설치 완료" })).toContainText("2");
+    await expectNoHorizontalOverflow(page);
 
     if (viewport.width <= 760) {
       await expectMinimumTouchTargets(page, ".operator-admin-management > .ui-page-header");
@@ -89,8 +113,8 @@ for (const viewport of viewports) {
       await expectMobileDialogControls(resetDialog);
       await resetDialog.getByRole("button", { name: "김관리 비밀번호 재설정 닫기" }).click();
 
-      await page.getByRole("button", { name: "김관리 삭제" }).click();
-      const deleteDialog = page.getByRole("dialog", { name: "김관리 삭제" });
+      await page.getByRole("button", { name: "인천 물류센터 현장 전체 삭제" }).click();
+      const deleteDialog = page.getByRole("dialog", { name: "인천 물류센터 현장 전체 삭제" });
       await expectMobileDialogControls(deleteDialog);
     }
   });

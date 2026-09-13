@@ -5,6 +5,7 @@ import { canonicalPayloadHash } from "../automation/automation-payload-hash";
 import { Prisma } from "@prisma/client";
 import { FixtureStateIngestionService } from "../energy/fixture-state-ingestion.service";
 import { fixtureStateV2Schema } from "@led-control/shared";
+import { gatewayEventWatermarkMock } from "../../test/support/gateway-event-watermark.mock";
 
 const mqttHandlePublish = require(
   join(dirname(require.resolve("mqtt")), "lib/handlers/publish.js")
@@ -176,14 +177,26 @@ describe("MqttService v2 ordered state", () => {
   });
 
   it("keeps old and equal heartbeat sequences harmless while processing the next heartbeat", async () => {
-    const { service, gateway, ledger } = heartbeatHarness();
+    const { service, gateway, ledger, tx } = heartbeatHarness();
     gateway.lastHeartbeatSequence = 9n;
+    tx.gatewayEventWatermark.findUnique.mockResolvedValue({
+      gatewayId: scope.gatewayId,
+      eventType: "gateway_heartbeat",
+      scopeKey: "",
+      lastSequence: 9n,
+      lastEventId: heartbeatEvent().eventId,
+      lastPayloadHash: canonicalPayloadHash(heartbeatEvent()),
+      lastOccurredAt: new Date(heartbeatEvent().occurredAt)
+    });
     const before = { ...gateway };
     await receiveHeartbeat(service, heartbeatEvent({ sequence: 8 }));
     await receiveHeartbeat(service, heartbeatEvent());
     expect(gateway).toEqual(before);
     expect(ledger.size).toBe(0);
-    await receiveHeartbeat(service, heartbeatEvent({ sequence: 10 }));
+    await receiveHeartbeat(service, heartbeatEvent({
+      eventId: "88888888-8888-4888-8888-888888888888",
+      sequence: 10
+    }));
     expect(gateway.lastHeartbeatSequence).toBe(10n);
   });
 
@@ -849,6 +862,7 @@ function heartbeatHarness() {
     lastHeartbeatSequence: null as bigint | null, firmwareVersion: "v1" };
   const ledger = new Map<string, any>();
   const tx = {
+    ...gatewayEventWatermarkMock(),
     $queryRaw: jest.fn(async (_sql, id, siteId, serialNumber) =>
       id === gateway.id && siteId === gateway.siteId && serialNumber === gateway.serialNumber ? [{ ...gateway }] : []),
     gateway: {
@@ -874,6 +888,7 @@ function heartbeatHarness() {
 
 function fixtureReceiptPrisma(trackingStartedAt: Date, fixtureId: string) {
   const tx = {
+    ...gatewayEventWatermarkMock(),
     $queryRaw: jest.fn().mockResolvedValue([{
       ...scope, id: fixtureId, energyFixtureId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
       ratedWatt: new Prisma.Decimal("40.00"), brightness: 0, powerOn: null,

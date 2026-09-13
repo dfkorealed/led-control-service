@@ -467,7 +467,9 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
       if (signal?.aborted || isAbortError(error)) {
         return failed(fixtureId, brightness, "command_aborted", "timed_out");
       }
-      return failed(fixtureId, brightness, error instanceof Error && error.message.includes("timed out") ? "STATUS_TIMEOUT" : "MESH_SEND_FAILED");
+      const timedOut = error instanceof Error && error.message.includes("timed out");
+      // A missing Status after Send is absent evidence, not proof the Set failed.
+      return failed(fixtureId, brightness, timedOut ? "STATUS_TIMEOUT" : "MESH_SEND_FAILED", timedOut ? "timed_out" : "failed");
     }
   }
 

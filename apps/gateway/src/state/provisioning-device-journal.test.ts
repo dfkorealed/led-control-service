@@ -32,6 +32,21 @@ afterEach(async () => {
 });
 
 describe("ProvisioningDeviceJournal", () => {
+  it("records identify completion only when the adapter confirms sensor-mode restore", async () => {
+    const { meshAddress: _meshAddress, ...common } = command;
+    const identify: ProvisioningDeviceCommandV2 = { ...common, operation: "identify" };
+    const journal = new ProvisioningDeviceJournal(await journalPath());
+
+    await handleDurableProvisioningDevice({
+      journal,
+      command: identify,
+      execute: async () => ({ restoreConfirmed: true }),
+      nextEnvelope: async () => envelope
+    });
+
+    const [terminal] = await journal.pendingTerminals();
+    expect(terminal.payload).toMatchObject({ operation: "identify", status: "completed", restoreConfirmed: true });
+  });
   it("durably accepts before RF and suppresses an exact duplicate while RF is running", async () => {
     const path = await journalPath();
     const journal = new ProvisioningDeviceJournal(path);
@@ -82,6 +97,27 @@ describe("ProvisioningDeviceJournal", () => {
       nextEnvelope: async () => envelope
     })).rejects.toThrow("disk full");
 
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("does not acknowledge an identify delivery when its durable accept fsync fails", async () => {
+    const { meshAddress: _meshAddress, ...common } = command;
+    const identify: ProvisioningDeviceCommandV2 = { ...common, operation: "identify" };
+    const journal = new ProvisioningDeviceJournal(await journalPath(), {
+      write: vi.fn().mockRejectedValue(new Error("disk full"))
+    });
+    const execute = vi.fn();
+    const onDurableAccept = vi.fn();
+
+    await expect(handleDurableProvisioningDevice({
+      journal,
+      command: identify,
+      execute,
+      nextEnvelope: async () => envelope,
+      onDurableAccept
+    })).rejects.toThrow("disk full");
+
+    expect(onDurableAccept).not.toHaveBeenCalled();
     expect(execute).not.toHaveBeenCalled();
   });
 

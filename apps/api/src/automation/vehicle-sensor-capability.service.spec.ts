@@ -1,3 +1,4 @@
+import { gatewayEventWatermarkMock } from "../../test/support/gateway-event-watermark.mock";
 import { BadRequestException } from "@nestjs/common";
 import type { VehicleSensorCapabilityReportV1 } from "@led-control/shared";
 import { createHash } from "node:crypto";
@@ -147,6 +148,7 @@ function testContext(options: {
         return Promise.resolve({});
       })
     },
+    ...gatewayEventWatermarkMock(),
     processedGatewayEvent: {
       findUnique: jest.fn().mockImplementation(({ where }: { where: Record<string, unknown> }) => {
         if (!("eventId" in where)) throw new Error("capability revision lookup must be node-scoped");
@@ -291,6 +293,7 @@ describe("VehicleSensorCapabilityService", () => {
       data: {
         eventId: EVENT_ID,
         gatewayId: GATEWAY_ID,
+        scopeKey: NODE_ID,
         meshNodeId: NODE_ID,
         fixtureId: FIXTURE_ID,
         sequence: 7n,

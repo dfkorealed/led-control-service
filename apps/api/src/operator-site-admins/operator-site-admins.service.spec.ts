@@ -84,10 +84,7 @@ describe("OperatorSiteAdminsService", () => {
     await expect(service.deleteSiteAdmin(operator, "admin-1", "Pending Site")).resolves.toEqual({ ok: true });
 
     expect(order).toEqual(["site", "sessions", "users", "organization"]);
-    expect(transaction.gatewayInventory.updateMany).toHaveBeenCalledWith({
-      where: { OR: [{ claimedGatewayId: { in: [] } }, { id: { in: [] } }] },
-      data: { disabledAt: expect.any(Date) }
-    });
+    expect(transaction.gatewayInventory.updateMany).not.toHaveBeenCalled();
     expect(transaction.site.delete).toHaveBeenCalledWith({ where: { id: "site-1" } });
   });
 
@@ -173,6 +170,20 @@ describe("OperatorSiteAdminsService", () => {
     expect(transaction.siteDeletionCleanup.create).toHaveBeenCalledWith({
       data: { siteId: "site-1", inventoryIds: [], objectKeys: ["floors/floor-1/map.png"] }
     });
+  });
+
+  it("locks the site row before taking the final asset snapshot for deletion", async () => {
+    const { service, transaction } = createService({
+      userFindFirst: jest.fn().mockResolvedValue({
+        id: "admin-1", organizationId: "customer-1",
+        administeredSite: { id: "site-1", name: "Pending Site", gateways: [], floors: [] }
+      })
+    });
+
+    await service.deleteSiteAdmin(operator, "admin-1", "Pending Site");
+
+    const rawQueries = transaction.$queryRaw.mock.calls.map(([query]) => query.strings.join(" "));
+    expect(rawQueries.some((query) => query.includes('FROM "Site"') && query.includes("FOR UPDATE"))).toBe(true);
   });
 
   it("preserves a customer organization and its other users when another site remains", async () => {
@@ -341,11 +352,13 @@ function createService(overrides: Record<string, jest.Mock> = {}) {
     prepareReportDeletion: overrides.prepareReportDeletion ?? jest.fn().mockResolvedValue(null),
     processNow: overrides.processNow ?? jest.fn().mockResolvedValue({ status: "completed" })
   };
+  const lifecycle = { stageInventoryDisable: jest.fn().mockResolvedValue(["revocation-job"]), processInventoryRevocation: jest.fn().mockResolvedValue({ revoked: 1 }) };
   const service = new OperatorSiteAdminsService(
     prisma as never,
     new PasswordService(),
     audit as never,
-    deletionCleanup as never
+    deletionCleanup as never,
+    lifecycle as never
   );
-  return { service, prisma, transaction, audit };
+  return { service, prisma, transaction, audit, lifecycle };
 }

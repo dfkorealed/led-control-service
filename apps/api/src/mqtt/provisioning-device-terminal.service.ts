@@ -12,6 +12,7 @@ import { canonicalPayloadHash } from "../automation/automation-payload-hash";
 import { EnergyDimensionHistoryService } from "../energy/energy-dimension-history.service";
 import { MeshControlGroupService } from "../mesh-control-groups/mesh-control-group.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { lockRegistrationDomain } from "../registration/registration-domain-locks";
 
 export const PROVISIONING_DEVICE_TERMINAL_EVENT_TYPE = "provisioning_device_terminal";
 
@@ -49,6 +50,7 @@ type LockedCommand = NonNullable<Awaited<ReturnType<Prisma.TransactionClient["pr
     firmwareVersion: string;
     rssi: number;
     status: string;
+    identifyState: string;
     meshAddress: string | null;
     pendingFixtureName: string | null;
     pendingFixtureX: number | null;
@@ -94,11 +96,26 @@ export class ProvisioningDeviceTerminalService {
   async completeLegacy(scope: GatewayScope, event: LegacyCompletedEvent) {
     try {
       await this.prisma.$transaction(async (tx) => {
-        await this.lockLegacyRows(tx, event.sessionId, event.nodeId);
+        const sessionScope = await tx.provisioningSession.findUnique({
+          where: { id: event.sessionId },
+          select: { siteId: true, floorId: true, gatewayId: true }
+        });
+        if (!sessionScope || sessionScope.siteId !== scope.siteId || sessionScope.gatewayId !== scope.gatewayId) return;
+        await lockRegistrationDomain(tx, {
+          floorId: sessionScope.floorId,
+          gatewayId: sessionScope.gatewayId,
+          sessionId: event.sessionId,
+          nodeIds: [event.nodeId]
+        });
         const session = await tx.provisioningSession.findUnique({ where: { id: event.sessionId } });
         if (!session || session.status !== "active" || session.siteId !== scope.siteId || session.gatewayId !== scope.gatewayId) {
           return;
         }
+        const floor = await tx.floor.findFirst({
+          where: { id: session.floorId, siteId: session.siteId },
+          select: { status: true }
+        });
+        if (!floor || floor.status !== "active") return;
         const node = await tx.discoveredMeshNode.findFirst({
           where: {
             id: event.nodeId,
@@ -123,7 +140,7 @@ export class ProvisioningDeviceTerminalService {
     receivedAt: Date
   ) {
     const command = await this.lockStoredCommand(tx, event.commandId);
-    if (!command || !storedCommandMatches(command, event)) {
+    if (!command || !storedCommandEnvelopeMatches(command, event)) {
       throw new Error("provisioning device terminal stored command identity conflict");
     }
     if (command.session.siteId !== scope.siteId || command.session.gatewayId !== scope.gatewayId) {
@@ -151,24 +168,81 @@ export class ProvisioningDeviceTerminalService {
     }
 
     if (command.session.status !== "active") {
-      throw new Error("provisioning device terminal session rejected");
-    }
-    if (event.status === "completed") {
-      const applied = await this.applyCompleted(tx, scope, {
-        sessionId: event.sessionId,
-        nodeId: event.nodeId,
-        deviceUuid: event.deviceUuid,
-        meshAddress: event.meshAddress,
-        firmwareVersion: event.firmwareVersion,
-        rssi: event.rssi,
-        hopCount: event.hopCount,
-        completedAt: event.occurredAt
-      }, command.session, command.node, "v2");
-      if (!applied) await this.markUnknownTerminal(tx, command, UNKNOWN_TERMINAL_ERROR);
-    } else {
-      await this.markUnknownTerminal(tx, command, event.errorMessage);
+      // A lifecycle request cannot normally retire an active identify because
+      // both paths lock the session/node in the canonical order. Older
+      // deployments may nevertheless have a command in flight. Drain that
+      // exact durable command by recording its immutable terminal and ACK, but
+      // never revive or otherwise mutate the retired session's domain graph.
+      await this.persistTerminalLedger(tx, event, payloadHash, receivedAt);
+      return this.persistAcknowledgement(tx, event, receivedAt);
     }
 
+    if (event.operation === "identify") {
+      if (!storedCommandNodeIdentityMatches(command, event)) {
+        throw new Error("provisioning device terminal current node identity conflict");
+      }
+      const latestIdentify = await tx.provisioningDeviceOutbox.findFirst({
+        where: {
+          sessionId: command.sessionId,
+          nodeId: command.nodeId,
+          deadLetteredAt: null,
+          payload: { path: ["operation"], equals: "identify" }
+        },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        select: { id: true }
+      });
+      // An earlier command may finish after its timeout and after the user has
+      // started another identify. We still ledger and ACK that terminal so the
+      // Gateway journal can drain, but only the newest command may transition
+      // the node visible to the current browser operation.
+      // Timeout can legitimately release this node for registration before the
+      // first terminal arrives. Its immutable command never contained an
+      // address: comparing it with the newly reserved/registered address would
+      // poison the durable Gateway journal forever. The exact envelope and
+      // stable node ownership were checked above, under the unchanged canonical
+      // locks. Advanced registration retires only this identify's domain effect;
+      // it still commits its ledger + ACK, without touching any registration,
+      // Fixture, session or mapping state. An arbitrary address on a still-
+      // discovered/identifying node is not accepted as legitimate retirement.
+      const registrationAdvanced = command.node.meshAddress !== null
+        && ["provisioning", "provisioned", "reconcile_required"].includes(command.node.status);
+      if (latestIdentify?.id === command.id && !registrationAdvanced) {
+        if (!storedCommandCurrentNodeMatches(command, event)) {
+          throw new Error("provisioning device terminal current node identity conflict");
+        }
+        await this.applyIdentifyTerminal(tx, command, event);
+      }
+    } else {
+      if (!storedCommandCurrentNodeMatches(command, event)) {
+        throw new Error("provisioning device terminal current node identity conflict");
+      }
+      if (event.status === "completed") {
+        const applied = await this.applyCompleted(tx, scope, {
+          sessionId: event.sessionId,
+          nodeId: event.nodeId,
+          deviceUuid: event.deviceUuid,
+          meshAddress: event.meshAddress,
+          firmwareVersion: event.firmwareVersion,
+          rssi: event.rssi,
+          hopCount: event.hopCount,
+          completedAt: event.occurredAt
+        }, command.session, command.node, "v2");
+        if (!applied) await this.markUnknownTerminal(tx, command, UNKNOWN_TERMINAL_ERROR);
+      } else {
+        await this.markUnknownTerminal(tx, command, event.errorMessage);
+      }
+    }
+
+    await this.persistTerminalLedger(tx, event, payloadHash, receivedAt);
+    return this.persistAcknowledgement(tx, event, receivedAt);
+  }
+
+  private async persistTerminalLedger(
+    tx: Prisma.TransactionClient,
+    event: ProvisioningDeviceTerminalV2,
+    payloadHash: string,
+    receivedAt: Date
+  ) {
     await tx.processedGatewayEvent.create({
       data: {
         eventId: event.eventId,
@@ -180,23 +254,43 @@ export class ProvisioningDeviceTerminalService {
         receivedAt
       }
     });
-    return this.persistAcknowledgement(tx, event, receivedAt);
   }
 
   private async lockStoredCommand(tx: Prisma.TransactionClient, commandId: string) {
-    const locked = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-      SELECT outbox."id"
-      FROM "ProvisioningDeviceOutbox" AS outbox
-      INNER JOIN "ProvisioningSession" AS session ON session."id" = outbox."sessionId"
-      INNER JOIN "DiscoveredMeshNode" AS node ON node."id" = outbox."nodeId"
-      WHERE outbox."id" = ${commandId}
-      FOR UPDATE OF outbox, session, node
-    `);
-    if (locked.length !== 1) return null;
-    return tx.provisioningDeviceOutbox.findUnique({
+    const scope = await tx.provisioningDeviceOutbox.findUnique({
+      where: { id: commandId },
+      select: {
+        id: true,
+        sessionId: true,
+        nodeId: true,
+        session: { select: { floorId: true, gatewayId: true } }
+      }
+    });
+    if (!scope) return null;
+
+    // All registration-domain writers use this order. Identifiers are read
+    // optimistically, then every relationship is revalidated after acquiring
+    // Floor -> Gateway -> Session -> Node -> Outbox locks. This avoids the old
+    // join lock whose executor-selected order could invert request/worker code.
+    await lockRegistrationDomain(tx, {
+      floorId: scope.session.floorId,
+      gatewayId: scope.session.gatewayId,
+      sessionId: scope.sessionId,
+      nodeIds: [scope.nodeId],
+      outboxIds: [commandId]
+    });
+    const command = await tx.provisioningDeviceOutbox.findUnique({
       where: { id: commandId },
       include: { session: true, node: true }
-    }) as Promise<LockedCommand | null>;
+    }) as LockedCommand | null;
+    if (
+      !command
+      || command.sessionId !== scope.sessionId
+      || command.nodeId !== scope.nodeId
+      || command.session.floorId !== scope.session.floorId
+      || command.session.gatewayId !== scope.session.gatewayId
+    ) return null;
+    return command;
   }
 
   private async persistAcknowledgement(
@@ -247,7 +341,9 @@ export class ProvisioningDeviceTerminalService {
       gatewayId: event.gatewayId,
       nodeId: event.nodeId,
       deviceUuid: event.deviceUuid,
-      meshAddress: event.meshAddress,
+      ...(event.operation === "identify"
+        ? { operation: "identify" as const }
+        : { ...(event.operation === undefined ? {} : { operation: event.operation }), meshAddress: event.meshAddress }),
       eventId: event.eventId,
       sequence: event.sequence,
       ingestedAt: now.toISOString()
@@ -383,18 +479,37 @@ export class ProvisioningDeviceTerminalService {
     return true;
   }
 
+  private async applyIdentifyTerminal(
+    tx: Prisma.TransactionClient,
+    command: LockedCommand,
+    event: Extract<ProvisioningDeviceTerminalV2, { operation: "identify" }>
+  ) {
+    if (command.node.status === "discovered" && command.node.identifyState === "failed") {
+      // A result arriving after the bounded API timeout is still ledgered and
+      // acknowledged so Gateway replay can drain, but cannot rewrite the
+      // already-visible timeout into success.
+      return;
+    }
+    if (command.node.status !== "identifying" || !["pending", "running"].includes(command.node.identifyState)) {
+      throw new Error("provisioning identify terminal node state rejected");
+    }
+    // The BIO adapter returns success only after its fixed force-on interval
+    // and a verified sensor-mode report. The shared schema makes
+    // restoreConfirmed=false invalid, so no light-left-on ambiguity becomes a
+    // successful registration state.
+    await tx.discoveredMeshNode.update({
+      where: { id: command.node.id },
+      data: event.status === "completed"
+        ? { status: "discovered", identifyState: "confirmed", errorMessage: null }
+        : { status: "discovered", identifyState: "failed", errorMessage: event.errorMessage }
+    });
+  }
+
   private markUnknownTerminal(tx: Prisma.TransactionClient, command: LockedCommand, errorMessage: string) {
     return tx.discoveredMeshNode.update({
       where: { id: command.node.id },
       data: { status: "reconcile_required", errorMessage }
     });
-  }
-
-  private lockLegacyRows(tx: Prisma.TransactionClient, sessionId: string, nodeId: string) {
-    return Promise.all([
-      tx.$queryRaw`SELECT "id" FROM "ProvisioningSession" WHERE "id" = ${sessionId} FOR UPDATE`,
-      tx.$queryRaw`SELECT "id" FROM "DiscoveredMeshNode" WHERE "id" = ${nodeId} AND "sessionId" = ${sessionId} FOR UPDATE`
-    ]);
   }
 
   private markLegacyDeviceUuidConflict(scope: GatewayScope, event: LegacyCompletedEvent) {
@@ -411,18 +526,34 @@ export class ProvisioningDeviceTerminalService {
   }
 }
 
-function storedCommandMatches(command: LockedCommand, event: ProvisioningDeviceTerminalV2) {
+function storedCommandEnvelopeMatches(command: LockedCommand, event: ProvisioningDeviceTerminalV2) {
   const stored = provisioningDeviceCommandV2Schema.safeParse(command.payload);
   if (!stored.success) return false;
-  const expectedTopic = mqttTopicsV2.gatewayCommand(event.siteId, event.gatewayId, "provisioning/provision-device");
+  const operation = operationOf(event);
+  const expectedTopic = mqttTopicsV2.gatewayCommand(
+    event.siteId,
+    event.gatewayId,
+    operation === "identify" ? "provisioning/identify-device" : "provisioning/provision-device"
+  );
   return command.id === event.commandId && command.sessionId === event.sessionId && command.nodeId === event.nodeId &&
     command.topic === expectedTopic && stored.data.commandId === event.commandId &&
     stored.data.sessionId === event.sessionId && stored.data.siteId === event.siteId &&
     stored.data.gatewayId === event.gatewayId && stored.data.nodeId === event.nodeId &&
-    stored.data.deviceUuid === event.deviceUuid && stored.data.meshAddress === event.meshAddress &&
-    command.node.id === event.nodeId && command.node.sessionId === event.sessionId &&
-    command.node.deviceUuid === event.deviceUuid && command.node.meshAddress === event.meshAddress &&
+    stored.data.deviceUuid === event.deviceUuid && operationOf(stored.data) === operation &&
+    meshAddressOf(stored.data) === meshAddressOf(event) &&
     command.session.id === event.sessionId;
+}
+
+function storedCommandCurrentNodeMatches(command: LockedCommand, event: ProvisioningDeviceTerminalV2) {
+  return storedCommandNodeIdentityMatches(command, event) &&
+    (event.operation === "identify"
+      ? command.node.meshAddress === null
+      : command.node.meshAddress === event.meshAddress);
+}
+
+function storedCommandNodeIdentityMatches(command: LockedCommand, event: ProvisioningDeviceTerminalV2) {
+  return command.node.id === event.nodeId && command.node.sessionId === event.sessionId &&
+    command.node.deviceUuid === event.deviceUuid;
 }
 
 function distinctLedgers(first: ProcessedGatewayEvent | null, second: ProcessedGatewayEvent | null) {
@@ -447,7 +578,16 @@ function ackMatchesTerminal(
 ) {
   return ack.commandId === event.commandId && ack.sessionId === event.sessionId && ack.siteId === event.siteId &&
     ack.gatewayId === event.gatewayId && ack.nodeId === event.nodeId && ack.deviceUuid === event.deviceUuid &&
-    ack.meshAddress === event.meshAddress && ack.eventId === event.eventId && ack.sequence === event.sequence;
+    operationOf(ack) === operationOf(event) && meshAddressOf(ack) === meshAddressOf(event) &&
+    ack.eventId === event.eventId && ack.sequence === event.sequence;
+}
+
+function operationOf(value: { operation?: "identify" | "provision" }) {
+  return value.operation ?? "provision";
+}
+
+function meshAddressOf(value: object) {
+  return "meshAddress" in value ? value.meshAddress : undefined;
 }
 
 function isDeviceUuidUniqueConstraintError(error: unknown) {

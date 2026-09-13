@@ -1,7 +1,7 @@
 import type { RestoreFloorEditorRevisionInput, SaveEditorStateInput } from "@led-control/shared";
 import type { FixtureIdentifyRequest, FixtureIdentifyResponse } from "@led-control/shared";
-import { apiGet, apiPost, apiPut, apiRequest } from "./client";
-import type { FloorEditorState } from "../features/floor-editor/editor-types";
+import { ApiError, apiGet, apiPost, apiPut, apiRequest } from "./client";
+import type { FloorAsset, FloorEditorState } from "../features/floor-editor/editor-types";
 
 export function getFloorEditorState(floorId: string) {
   return apiGet<FloorEditorState>(`/floors/${encodeURIComponent(floorId)}/editor-state`);
@@ -62,5 +62,41 @@ export function restoreFloorEditorRevision(floorId: string, revision: number, pa
   return apiPost<FloorEditorState & { skippedFixtureIds: string[] }>(
     `/floors/${encodeURIComponent(floorId)}/editor-revisions/${revision}/restore`,
     payload
+  );
+}
+
+interface FloorAssetUploadIntent {
+  assetId: string;
+  uploadUrl: string;
+  accessPath: string;
+  expiresInSeconds: number;
+}
+
+export async function uploadFloorAsset(floorId: string, file: File): Promise<FloorAsset> {
+  const bytes = await file.arrayBuffer();
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  const sha256 = Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  const checksumSha256 = btoa(String.fromCharCode(...digest));
+  const encodedFloorId = encodeURIComponent(floorId);
+  const intent = await apiPost<FloorAssetUploadIntent>(`/floors/${encodedFloorId}/assets/upload-intent`, {
+    kind: "original",
+    mimeType: file.type,
+    sizeBytes: file.size,
+    sha256
+  });
+  const uploadResponse = await fetch(intent.uploadUrl, {
+    method: "PUT",
+    headers: {
+      "Content-Type": file.type,
+      "x-amz-checksum-sha256": checksumSha256
+    },
+    body: file
+  });
+  if (!uploadResponse.ok) {
+    throw new ApiError(`PUT floor asset failed with ${uploadResponse.status}`, uploadResponse.status, null);
+  }
+  return apiPost<FloorAsset>(
+    `/floors/${encodedFloorId}/assets/${encodeURIComponent(intent.assetId)}/complete`,
+    {}
   );
 }

@@ -75,7 +75,19 @@ test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 
   await admin.getByLabel("지하 층수").fill("1");
   await admin.getByLabel("지상 층수").fill("0");
   await admin.getByRole("button", { name: "층 자동 생성" }).click();
+  const setupResponsePromise = admin.waitForResponse((response) => (
+    response.url().endsWith("/api/setup/initial-site") && response.request().method() === "POST"
+  ));
   await admin.getByRole("button", { name: "초기 설정 완료" }).click();
+  const setupResponse = await setupResponsePromise;
+  expect(setupResponse.status()).toBe(201);
+  await expect(admin).toHaveURL(new RegExp(`/settings\\?siteId=${created.siteId}$`));
+  await expect(admin.getByRole("heading", { name: "설정 개요" })).toBeVisible();
+
+  const settingsNavigation = admin.getByRole("navigation", { name: "설정 메뉴" });
+  await settingsNavigation.getByRole("link", { name: "조명 등록", exact: true }).click();
+  await expect(admin).toHaveURL(new RegExp(`/settings/registration\\?siteId=${created.siteId}$`));
+  await expect(admin.getByRole("heading", { name: "조명 등록", exact: true })).toBeVisible();
   await expect(admin.getByRole("heading", { name: "게이트웨이 등록" })).toBeVisible();
 
   const installation = await lab.readInstallation();
@@ -84,8 +96,15 @@ test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 
   await admin.getByLabel("게이트웨이 이름").fill("Task 9 Gateway");
   await admin.getByLabel("제품 시리얼").fill(lab.gateway.serialNumber);
   await admin.getByLabel("일회성 등록 코드").fill(lab.gateway.claimCode);
+  const claimResponsePromise = admin.waitForResponse((response) => (
+    response.url().endsWith("/api/gateways/claim") && response.request().method() === "POST"
+  ));
   await admin.getByRole("button", { name: "게이트웨이 등록" }).click();
-  await expect(admin.getByRole("heading", { name: "조명 등록" })).toBeVisible();
+  const claimResponse = await claimResponsePromise;
+  expect(claimResponse.status()).toBe(201);
+  await expect(admin.getByLabel("등록 층")).toBeVisible();
+  await expect(admin.getByLabel("등록 게이트웨이")).toBeVisible();
+  await expect(admin.getByRole("button", { name: "조명 검색 시작" })).toBeVisible();
   await lab.attachGatewayPublisher();
 
   await expect.poll(async () => {
@@ -107,10 +126,16 @@ test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 
 
   await admin.getByRole("link", { name: "통계" }).click();
   await expect(admin.getByText("조명 상태가 수집되면 통계가 표시됩니다.")).toBeVisible();
-  await expect(admin.getByText("0 kWh", { exact: true })).toHaveCount(0);
+  await expect(admin.getByRole("group", { name: "오늘 전력 사용량" })).toHaveCount(0);
+  await expect(admin.getByRole("group", { name: "이번 달 누적 전력 사용량" })).toHaveCount(0);
 
-  await admin.getByRole("link", { name: "설정" }).click();
-  await expect(admin.getByRole("heading", { name: "조명 등록" })).toBeVisible();
+  await admin.getByRole("link", { name: "설정", exact: true }).click();
+  await expect(admin.getByRole("heading", { name: "설정 개요" })).toBeVisible();
+  await settingsNavigation.getByRole("link", { name: "조명 등록", exact: true }).click();
+  await expect(admin).toHaveURL((url) => (
+    url.pathname === "/settings/registration" && url.searchParams.get("siteId") === created.siteId
+  ));
+  await expect(admin.getByRole("heading", { name: "조명 등록", exact: true })).toBeVisible();
 
   await admin.reload();
   await admin.getByLabel("등록 층").selectOption(installation.floorId);
@@ -140,20 +165,20 @@ test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 
   await admin.getByRole("button", { name: "30%", exact: true }).click();
   await admin.getByRole("button", { name: "밝기 적용" }).click();
   await lab.waitForDimmingCommandCount(++expectedDimmingCount);
-  await expect(admin.getByText("조명 적용 완료")).toBeVisible();
+  await expect(admin.getByRole("status", { name: "명령 진행 상태" }).getByText("조명 적용 완료")).toBeVisible();
 
   await admin.getByRole("checkbox", { name: `${fixtureNames[1]} 선택` }).check();
   await admin.getByRole("button", { name: "70%", exact: true }).click();
   await admin.getByRole("button", { name: "밝기 적용" }).click();
   await lab.waitForDimmingCommandCount(++expectedDimmingCount);
-  await expect(admin.getByText("조명 적용 완료")).toBeVisible();
+  await expect(admin.getByRole("status", { name: "명령 진행 상태" }).getByText("조명 적용 완료")).toBeVisible();
 
   await admin.getByRole("button", { name: "층", exact: true }).click();
   await admin.getByRole("button", { name: "B1", exact: true }).click();
   await admin.getByRole("button", { name: "100%", exact: true }).click();
   await admin.getByRole("button", { name: "밝기 적용" }).click();
   await lab.waitForDimmingCommandCount(++expectedDimmingCount);
-  await expect(admin.getByText("조명 적용 완료")).toBeVisible();
+  await expect(admin.getByRole("status", { name: "명령 진행 상태" }).getByText("조명 적용 완료")).toBeVisible();
 
   await admin.getByRole("button", { name: "구역 관리" }).click();
   await admin.getByRole("button", { name: "새 구역" }).click();
@@ -171,7 +196,7 @@ test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 
   await admin.getByRole("button", { name: "0%", exact: true }).click();
   await admin.getByRole("button", { name: "밝기 적용" }).click();
   await lab.waitForDimmingCommandCount(++expectedDimmingCount);
-  await expect(admin.getByText("조명 적용 완료")).toBeVisible();
+  await expect(admin.getByRole("status", { name: "명령 진행 상태" }).getByText("조명 적용 완료")).toBeVisible();
 
   await lab.publishEnergyHistory("available");
   await admin.getByRole("link", { name: "통계" }).click();
@@ -180,8 +205,8 @@ test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 
 
   const mapFixtureName = fixtureNames[1];
   const movedX = 240;
-  await admin.getByRole("link", { name: "설정" }).click();
-  await admin.getByRole("link", { name: "맵 관리" }).click();
+  await admin.getByRole("link", { name: "설정", exact: true }).click();
+  await settingsNavigation.getByRole("link", { name: "맵 관리", exact: true }).click();
   await admin.getByRole("link", { name: "B1 맵 설정" }).click();
   const canvas = admin.getByLabel("B1 편집 캔버스");
   await expect(admin.getByRole("button", { name: "선택", exact: true })).toBeEnabled();
@@ -199,8 +224,8 @@ test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 
   await expect(movedFixture).toBeVisible();
   await expect(movedFixture).toHaveCSS("--fixture-left", `${movedX / 12}%`);
 
-  await admin.getByRole("link", { name: "설정" }).click();
-  await admin.getByRole("link", { name: "비밀번호 변경" }).click();
+  await admin.getByRole("link", { name: "설정", exact: true }).click();
+  await settingsNavigation.getByRole("link", { name: "계정 보안", exact: true }).click();
   await admin.getByLabel("현재 비밀번호").fill(lab.admin.password);
   await admin.getByLabel("새 비밀번호", { exact: true }).fill(lab.admin.newPassword);
   await admin.getByLabel("새 비밀번호 확인").fill(lab.admin.newPassword);
@@ -214,7 +239,7 @@ test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 
   await expect(admin.getByText("아이디 또는 비밀번호를 확인해 주세요.")).toBeVisible();
   await admin.getByLabel("비밀번호").fill(lab.admin.newPassword);
   await admin.getByRole("button", { name: "로그인" }).click();
-  await expect(admin.getByRole("heading", { name: "비밀번호 변경" })).toBeVisible();
+  await expect(admin.getByRole("heading", { name: "계정 보안" })).toBeVisible();
   await admin.getByRole("link", { name: "모니터링" }).click();
   await expect(admin.getByRole("combobox", { name: "맵 선택", exact: true })).toBeVisible();
   await admin.getByRole("button", { name: "로그아웃" }).click();
@@ -225,13 +250,14 @@ test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 
   await viewer.goto(`/monitoring?siteId=${created.siteId}`);
   await login(viewer, lab.viewer.loginId, lab.viewer.password);
   await expect(viewer.getByRole("combobox", { name: "맵 선택", exact: true })).toBeVisible();
-  await viewer.getByRole("link", { name: "제어" }).click();
-  await expect(viewer.getByText(/조회 전용 계정입니다/)).toBeVisible();
-  await expect(viewer.getByRole("button", { name: "밝기 적용" })).toBeDisabled();
-  await viewer.getByRole("link", { name: "설정" }).click();
-  await expect(viewer.getByRole("link", { name: "맵 관리" })).toBeVisible();
-  await expect(viewer.getByRole("link", { name: "비밀번호 변경" })).toHaveCount(0);
-  await viewer.getByRole("link", { name: "맵 관리" }).click();
+  await expect(viewer.getByRole("link", { name: "제어", exact: true })).toHaveCount(0);
+  await viewer.getByRole("link", { name: "설정", exact: true }).click();
+  const viewerSettingsNavigation = viewer.getByRole("navigation", { name: "설정 메뉴" });
+  await expect(viewerSettingsNavigation.getByRole("link", { name: "맵 관리", exact: true })).toBeVisible();
+  await expect(viewerSettingsNavigation.getByRole("link", { name: "계정 보안", exact: true })).toBeVisible();
+  await expect(viewerSettingsNavigation.getByRole("link", { name: "유저 관리", exact: true })).toHaveCount(0);
+  await expect(viewerSettingsNavigation.getByRole("link", { name: "조명 등록", exact: true })).toHaveCount(0);
+  await viewerSettingsNavigation.getByRole("link", { name: "맵 관리", exact: true }).click();
   await expect(viewer.getByText("맵 미설정")).toBeVisible();
   await expect(viewer.getByRole("link", { name: /B1 도면 (등록|편집)/ })).toHaveCount(0);
   await lab.screenshot(viewer, testInfo, "03-viewer-read-only");
@@ -261,13 +287,13 @@ test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 
   expect((await resetResponsePromise).status()).toBe(201);
   await expect(operator.getByRole("status")).toHaveText("관리자 비밀번호를 재설정했습니다.");
 
-  await operator.getByRole("button", { name: `${updatedAdminName} 삭제` }).click();
-  const deleteDialog = operator.getByRole("dialog", { name: `${updatedAdminName} 삭제` });
+  await operator.getByRole("button", { name: `${siteName} 현장 전체 삭제` }).click();
+  const deleteDialog = operator.getByRole("dialog", { name: `${siteName} 현장 전체 삭제` });
   await deleteDialog.getByLabel("삭제할 현장명").fill(siteName);
   const deleteResponsePromise = operator.waitForResponse((response) => (
     response.url().includes("/api/operator/site-admins/") && response.request().method() === "DELETE"
   ));
-  await deleteDialog.getByRole("button", { name: "영구 삭제", exact: true }).click();
+  await deleteDialog.getByRole("button", { name: "현장 전체 삭제", exact: true }).click();
   expect((await deleteResponsePromise).status()).toBe(200);
   await expect(operator.getByText(siteName)).toHaveCount(0);
   lab.assertOperatorNetworkIsolation();

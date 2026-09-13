@@ -91,12 +91,37 @@ export const energyReportRequestSchema = scopedRangeSchema.extend({
 }).strict().superRefine((request, context) => addRangeIssue(request, context));
 
 /** Fixture/group IDs are analytics identities, never operational device/group IDs. */
+export const energyReportTargetSchema = z.object({
+  scope: energyScopeSchema, identityId: uuidSchema, label: z.string().min(1)
+}).strict();
+
 export const energyReportTargetsResponseSchema = z.object({
   siteId: uuidSchema,
   timeZone: z.string().min(1),
   lastCompletedDate: calendarDateSchema,
-  targets: z.array(z.object({ scope: energyScopeSchema, identityId: uuidSchema, label: z.string().min(1) }).strict())
+  targets: z.array(energyReportTargetSchema)
 }).strict();
+
+export const energyReportFailureCodeSchema = z.enum([
+  "generation_failed", "storage_unavailable", "rendering_failed", "snapshot_invalid", "attempts_exhausted"
+]);
+export const energyReportFailureSchema = z.object({
+  code: energyReportFailureCodeSchema, message: z.string().min(1), action: z.string().min(1)
+}).strict();
+
+const reportFailures = {
+  REPORT_GENERATION_FAILED: { code: "generation_failed", message: "보고서를 생성하지 못했습니다.", action: "잠시 후 다시 생성해 주세요. 계속 실패하면 관리자에게 문의해 주세요." },
+  REPORT_STORAGE_UNAVAILABLE: { code: "storage_unavailable", message: "보고서 파일 저장소를 사용할 수 없습니다.", action: "잠시 후 다시 생성해 주세요. 계속 실패하면 관리자에게 저장소 상태 확인을 요청해 주세요." },
+  REPORT_RENDERING_FAILED: { code: "rendering_failed", message: "보고서 파일을 만드는 중 오류가 발생했습니다.", action: "다시 생성해 주세요. 계속 실패하면 관리자에게 기간과 대상을 알려 주세요." },
+  REPORT_SNAPSHOT_INVALID: { code: "snapshot_invalid", message: "보고서의 대상 또는 데이터를 확인할 수 없습니다.", action: "대상과 완료된 날짜의 기간을 다시 선택해 생성해 주세요." },
+  REPORT_ATTEMPTS_EXHAUSTED: { code: "attempts_exhausted", message: "보고서 생성 재시도 횟수를 초과했습니다.", action: "잠시 후 새로 생성해 주세요. 계속 실패하면 관리자에게 문의해 주세요." }
+} as const satisfies Record<string, z.infer<typeof energyReportFailureSchema>>;
+
+/** Legacy rows can hold unknown internal codes; only this allowlist crosses the API boundary. */
+function publicReportFailure(code: string): { failureCode: string; failure: z.infer<typeof energyReportFailureSchema> } {
+  const failureCode = Object.hasOwn(reportFailures, code) ? code as keyof typeof reportFailures : "REPORT_GENERATION_FAILED";
+  return { failureCode, failure: { ...reportFailures[failureCode] } };
+}
 
 export const energyReportJobSchema = z.object({
   reportId: uuidSchema,
@@ -108,8 +133,24 @@ export const energyReportJobSchema = z.object({
   startedAt: timestampSchema.nullable(),
   completedAt: timestampSchema.nullable(),
   expiresAt: timestampSchema.nullable(),
-  failureCode: z.string().min(1).nullable()
+  failureCode: z.string().min(1).nullable(),
+  // Missing fields are accepted from older servers and normalized below. Explicit
+  // mismatches are rejected so new clients never show a different target or time.
+  target: energyReportTargetSchema.optional(),
+  requestedAt: timestampSchema.optional(),
+  failure: energyReportFailureSchema.nullable().optional()
 }).strict().superRefine((job, context) => {
+  if (job.target && (job.target.scope !== job.request.scope || job.target.identityId !== job.request.identityId)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "report target must match its request" });
+  }
+  if (job.requestedAt !== undefined && job.requestedAt !== job.createdAt) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "requestedAt must equal createdAt" });
+  }
+  if (job.failure !== undefined && (job.status === "failed"
+    ? !job.failure || job.failure.code !== publicReportFailure(job.failureCode ?? "").failure.code
+    : job.failure !== null)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "failure must match terminal job state" });
+  }
   if (job.status === "queued") {
     if (job.progressPercent !== 0 || job.startedAt !== null || job.completedAt !== null
       || job.expiresAt !== null || job.failureCode !== null) {
@@ -145,7 +186,13 @@ export const energyReportJobSchema = z.object({
     || job.expiresAt === null || job.failureCode !== null) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: "expired jobs retain completed file metadata" });
   }
-});
+}).transform(job => ({
+  ...job,
+  target: job.target ?? { scope: job.request.scope, identityId: job.request.identityId,
+    label: `${{ site: "현장", fixture: "조명", floor: "층", group: "그룹" }[job.request.scope]}: ${job.request.identityId}` },
+  requestedAt: job.createdAt,
+  ...(job.failureCode === null ? { failureCode: null, failure: null } : publicReportFailure(job.failureCode))
+}));
 
 export const energyReportListResponseSchema = z.object({
   reports: z.array(energyReportJobSchema).max(50)

@@ -5,6 +5,24 @@ import { describe, expect, it } from "vitest";
 import { CommandJournal, CommandJournalAutomationCapacityError } from "./command-journal";
 
 describe("CommandJournal", () => {
+  it("preserves missing fixture snapshots when a status check observes only part of its targets", async () => {
+    const path = join(await mkdtemp(join(tmpdir(), "command-partial-snapshot-")), "journal.json");
+    const journal = new CommandJournal(path);
+    await journal.accept("before", {});
+    await journal.complete("before", commandResult("fixture-2", 70, "2026-07-11T00:00:01.000Z"));
+    await journal.accept("check", {});
+    await journal.complete("check", {
+      fixtureStateObserved: true, observedFixtureIds: ["fixture-1"],
+      deviceStatus: { occurredAt: "2026-07-11T00:00:02.000Z", results: [
+        { fixtureId: "fixture-1", status: "succeeded", brightness: 40 },
+        { fixtureId: "fixture-2", status: "timed_out" }
+      ] }
+    });
+    expect(await new CommandJournal(path).latestFixtureSnapshots()).toEqual([
+      expect.objectContaining({ fixtureId: "fixture-1", brightness: 40 }),
+      expect.objectContaining({ fixtureId: "fixture-2", brightness: 70, occurredAt: "2026-07-11T00:00:01.000Z" })
+    ]);
+  });
   it("persists accepted and terminal records with owner-only permissions", async () => {
     const directory = await mkdtemp(join(tmpdir(), "command-journal-"));
     const path = join(directory, "journal.json");

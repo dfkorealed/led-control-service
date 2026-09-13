@@ -13,6 +13,7 @@ import {
 import { randomBytes, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 import { Prisma } from "@prisma/client";
+import { CERTIFICATE_TRANSACTION_TIMEOUT_MS } from "../pki/inventory-certificate-lock";
 import { PrismaService } from "../prisma/prisma.service";
 import { CertificateLifecycleService } from "../pki/certificate-lifecycle.service";
 import { SiteAccessService } from "../access/site-access.service";
@@ -156,15 +157,14 @@ export class GatewayOnboardingService {
   async disableInventory(user: AuthenticatedUser, inventoryId: string) {
     this.assertServiceProviderOperator(user);
     const id = this.requireText(inventoryId, "inventoryId is required");
-    const inventory = await this.db().$transaction(async (tx: any) => {
+    if (!this.certificateLifecycle) throw new ServiceUnavailableException("inventory certificate revocation pending");
+    const jobs = await this.db().$transaction(async (tx: any) => {
       const current = await tx.gatewayInventory.findFirst({ where: { id } });
       if (!current) throw new NotFoundException("inventory not found");
-      if (current.disabledAt) return current;
-      return tx.gatewayInventory.update({ where: { id: current.id }, data: { disabledAt: new Date() } });
-    });
-    if (!this.certificateLifecycle) throw new ServiceUnavailableException("inventory certificate revocation pending");
+      return this.certificateLifecycle!.stageInventoryDisable(tx, current.id);
+    }, { maxWait: CERTIFICATE_TRANSACTION_TIMEOUT_MS, timeout: CERTIFICATE_TRANSACTION_TIMEOUT_MS });
     try {
-      const result = await this.certificateLifecycle.revokeInventoryCertificates(inventory.id);
+      const result = await this.certificateLifecycle.processInventoryRevocation(jobs);
       return { status: "disabled" as const, revoked: result.revoked };
     } catch {
       throw new ServiceUnavailableException("inventory disabled; certificate revocation pending");

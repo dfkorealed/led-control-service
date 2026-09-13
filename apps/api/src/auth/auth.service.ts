@@ -1,12 +1,14 @@
-import { BadRequestException, HttpException, Injectable, InternalServerErrorException, UnauthorizedException } from "@nestjs/common";
+import { BadRequestException, HttpException, Injectable, InternalServerErrorException, Optional, UnauthorizedException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { AuditService } from "../audit/audit.service";
 import { assertSiteUserCapacity, runSiteUserTransaction } from "../access/site-user-policy";
 import { PrismaService } from "../prisma/prisma.service";
 import { normalizeLoginId, type AuthenticatedUser, type OrganizationType, type UserRole } from "./auth.types";
 import { PasswordService } from "./password.service";
 import { lockUserForPasswordMutation } from "./user-password-lock";
+import { LoginRateLimitService, type LoginRateLimitInput } from "./login-rate-limit.service";
+import { MfaService } from "./mfa.service";
 
 const SESSION_COOKIE_NAME = "led_session";
 const NORMAL_SESSION_DAYS = 1;
@@ -55,7 +57,9 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly passwords: PasswordService,
-    private readonly audit: AuditService
+    private readonly audit: AuditService,
+    @Optional() private readonly loginRateLimit?: LoginRateLimitService,
+    @Optional() private readonly mfa?: MfaService
   ) {}
 
   async signup(input: SignupInput) {
@@ -133,12 +137,15 @@ export class AuthService {
     return { user: this.publicUser({ ...user, organization: invitation.organization }) };
   }
 
-  async login(input: LoginInput) {
+  async login(input: LoginInput): Promise<any> {
     if (typeof input?.rememberMe !== "boolean") throw new BadRequestException("rememberMe must be a boolean");
     const loginId = normalizeLoginId(input.loginId);
-    for (let attempt = 1; attempt <= LOGIN_TRANSACTION_ATTEMPTS; attempt += 1) {
-      try {
-        return await this.db().$transaction(async (tx: Prisma.TransactionClient) => {
+    const rateInput = await this.loginRateInput(loginId, input);
+    if (this.loginRateLimit) await this.loginRateLimit.consume(rateInput);
+    try {
+      for (let attempt = 1; attempt <= LOGIN_TRANSACTION_ATTEMPTS; attempt += 1) {
+        try {
+          const result = await this.db().$transaction(async (tx: Prisma.TransactionClient) => {
           const locked = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
             SELECT "id" FROM "User" WHERE "loginId" = ${loginId} FOR UPDATE
           `);
@@ -146,16 +153,19 @@ export class AuthService {
 
           const user = await tx.user.findUnique({
             where: { loginId },
-            include: { organization: { select: { type: true } } }
+            include: { organization: { select: { type: true } }, mfa: { select: { userId: true } } }
           });
           if (!user || user.status !== "active" || !user.passwordHash) throw this.invalidCredentials();
           if (!(await this.passwords.verify(input.password, user.passwordHash))) throw this.invalidCredentials();
+
+          if (user.mfa) return { kind: "mfa" as const, user };
 
           const sessionToken = this.generateToken();
           const expiresAt = this.addDays(new Date(), input.rememberMe ? REMEMBER_ME_SESSION_DAYS : NORMAL_SESSION_DAYS);
           await tx.session.create({
             data: {
               userId: user.id,
+              familyId: randomUUID(),
               tokenHash: this.hashToken(sessionToken),
               rememberMe: input.rememberMe,
               userAgent: input.userAgent ?? null,
@@ -163,12 +173,55 @@ export class AuthService {
               expiresAt
             }
           });
-          return { user: this.publicUser(user), sessionToken, expiresAt };
-        });
-      } catch (error) {
-        if (!this.isTransactionConflictError(error)) throw error;
-        if (attempt === LOGIN_TRANSACTION_ATTEMPTS) throw this.invalidCredentials();
+          await this.audit.record({
+            transaction: tx,
+            organizationId: user.organizationId,
+            actorId: user.id,
+            action: "auth.login_succeeded",
+            targetType: "User",
+            targetId: user.id,
+            outcome: "success",
+            ipAddress: input.ipAddress,
+            userAgent: input.userAgent
+          });
+          return { kind: "session" as const, user: this.publicUser(user), sessionToken, expiresAt };
+          });
+          if (result.kind === "mfa") {
+            if (!this.mfa) throw new InternalServerErrorException("MFA service is unavailable");
+            return this.mfa.createLoginChallenge(result.user, {
+              rememberMe: input.rememberMe,
+              ipAddress: input.ipAddress ?? "unknown",
+              userAgent: input.userAgent
+            });
+          }
+          if (this.loginRateLimit) {
+            try {
+              await this.loginRateLimit.resetAfterSuccess(rateInput);
+            } catch (error) {
+              await this.logout(result.sessionToken);
+              throw error;
+            }
+          }
+          return { user: result.user, sessionToken: result.sessionToken, expiresAt: result.expiresAt };
+        } catch (error) {
+          if (!this.isTransactionConflictError(error)) throw error;
+          if (attempt === LOGIN_TRANSACTION_ATTEMPTS) throw this.invalidCredentials();
+        }
       }
+    } catch (error) {
+      if (error instanceof UnauthorizedException) {
+        await this.audit.record({
+          organizationId: rateInput.organizationId,
+          actorId: undefined,
+          action: "auth.login_failed",
+          targetType: "User",
+          targetId: rateInput.userId,
+          outcome: "failure",
+          ipAddress: input.ipAddress,
+          userAgent: input.userAgent
+        });
+      }
+      throw error;
     }
     throw this.invalidCredentials();
   }
@@ -186,7 +239,7 @@ export class AuthService {
       }
 
       const currentTokenHash = this.hashToken(currentSessionToken);
-      const updatedUser = await this.db().$transaction(async (tx: Prisma.TransactionClient) => {
+      const result = await this.db().$transaction(async (tx: Prisma.TransactionClient) => {
         if (!await lockUserForPasswordMutation(tx, user.id)) {
           throw new UnauthorizedException("Current password is incorrect");
         }
@@ -208,8 +261,22 @@ export class AuthService {
           include: { organization: { select: { type: true } } }
         });
         const revokedSessions = await tx.session.updateMany({
-          where: { userId: user.id, revokedAt: null, tokenHash: { not: currentTokenHash } },
+          where: { userId: user.id, revokedAt: null },
           data: { revokedAt: new Date() }
+        });
+        const sessionToken = this.generateToken();
+        await tx.session.create({
+          data: {
+            userId: user.id,
+            familyId: session.familyId,
+            rotatedFromSessionId: session.id,
+            tokenHash: this.hashToken(sessionToken),
+            rememberMe: session.rememberMe,
+            userAgent: session.userAgent,
+            ipAddress: session.ipAddress,
+            expiresAt: session.expiresAt,
+            mfaVerifiedAt: session.mfaVerifiedAt ?? null
+          }
         });
         await this.audit.record({
           transaction: tx,
@@ -221,9 +288,9 @@ export class AuthService {
           outcome: "success",
           metadata: { revokedSessionCount: revokedSessions.count }
         });
-        return this.publicUser(updated);
+        return { user: this.publicUser(updated), sessionToken, expiresAt: session.expiresAt };
       });
-      return { ok: true, user: updatedUser };
+      return { ok: true, ...result };
     } catch (error) {
       if (error instanceof HttpException) throw error;
       // Prisma mutation errors may embed password hashes in their message/meta.
@@ -246,9 +313,31 @@ export class AuthService {
   }
 
   async logout(sessionToken: string) {
-    await this.db().session.updateMany({
-      where: { tokenHash: this.hashToken(sessionToken), revokedAt: null },
-      data: { revokedAt: new Date() }
+    await this.db().$transaction(async (tx: Prisma.TransactionClient) => {
+      const initial = await tx.session.findUnique({
+        where: { tokenHash: this.hashToken(sessionToken) },
+        include: { user: { select: { id: true, organizationId: true } } }
+      });
+      if (!initial) return;
+      await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "User" WHERE "id" = ${initial.userId} FOR UPDATE`);
+      const session = await tx.session.findUnique({
+        where: { tokenHash: this.hashToken(sessionToken) },
+        include: { user: { select: { id: true, organizationId: true } } }
+      });
+      if (!session) return;
+      await tx.session.updateMany({
+        where: { userId: session.userId, familyId: session.familyId, revokedAt: null },
+        data: { revokedAt: new Date() }
+      });
+      await this.audit.record({
+        transaction: tx,
+        organizationId: session.user.organizationId,
+        actorId: session.user.id,
+        action: "auth.logout",
+        targetType: "Session",
+        targetId: session.id,
+        outcome: "success"
+      });
     });
   }
 
@@ -305,6 +394,16 @@ export class AuthService {
     const next = new Date(date);
     next.setUTCDate(next.getUTCDate() + days);
     return next;
+  }
+
+  private async loginRateInput(loginId: string, input: LoginInput): Promise<LoginRateLimitInput> {
+    const base = { loginId, ipAddress: input.ipAddress ?? "unknown", userAgent: input.userAgent };
+    if (!this.loginRateLimit) return base;
+    const identity = await this.db().user.findUnique({
+      where: { loginId },
+      select: { id: true, organizationId: true }
+    });
+    return { ...base, userId: identity?.id, organizationId: identity?.organizationId };
   }
 
   private db() {

@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   createGatewayAutomationServices,
+  createGatewayStatusCheckRuntime,
   initializeAutomationBeforeManualRecovery,
   observeAutomationFixtureStatuses,
   requeuePendingFixtureObservations,
@@ -44,6 +45,8 @@ import {
   subscribeGatewayCommands
 } from "./index";
 import { StateEventOutboxError } from "./state/state-event-outbox";
+import { CommandJournal } from "./commands/command-journal";
+import type { BleMeshLightingObservation } from "./gateway";
 import { provisioningScanCompletedSchema, provisioningScanFailedSchema, provisioningScanFoundSchema } from "@led-control/shared";
 import { FileAutomationStateStore } from "./automation/automation-state-store";
 import { AutomationTelemetryOutbox } from "./automation/automation-telemetry-outbox";
@@ -63,9 +66,145 @@ const scopedFixtureId = "00000000-0000-4000-8000-000000000005";
 it("defers QoS1 PUBACK for commands whose durable journal must commit first", () => {
   expect(gatewayDeferredPubackTopics(scopedSiteId, scopedGatewayId)).toEqual([
     `sites/${scopedSiteId}/gateways/${scopedGatewayId}/commands/dimming`,
+    `sites/${scopedSiteId}/gateways/${scopedGatewayId}/commands/status-check`,
+    `sites/${scopedSiteId}/gateways/${scopedGatewayId}/commands/provisioning/identify-device`,
     `sites/${scopedSiteId}/gateways/${scopedGatewayId}/commands/provisioning/provision-device`,
     `sites/${scopedSiteId}/gateways/${scopedGatewayId}/commands/automation/config-sync`
   ]);
+});
+
+describe("status check MQTT runtime", () => {
+  async function setup() {
+    const directory = await mkdtemp(join(tmpdir(), "status-runtime-"));
+    const journal = new CommandJournal(join(directory, "journal.json"));
+    const now = Date.now();
+    const command = {
+      commandId: "11111111-1111-4111-8111-111111111111", originalCommandId: "11111111-1111-4111-8111-111111111111",
+      dispatchId: "22222222-2222-4222-8222-222222222222", idempotencyKey: "33333333-3333-4333-8333-333333333333",
+      sequence: 1, siteId: scopedSiteId, gatewayId: scopedGatewayId, targetFixtureIds: [scopedFixtureId],
+      expectedBrightness: 65, verificationAttempt: 1, requestedAt: new Date(now).toISOString(),
+      deliveryGeneratedAt: new Date(now).toISOString(), expiresAt: new Date(now + 10000).toISOString(),
+      deliveryGeneration: "88888888-8888-4888-8888-888888888888", deliveryWindowMs: 10000
+    };
+    const listeners = new Set<(observation: BleMeshLightingObservation) => void>();
+    const events: string[] = [];
+    const adapter = {
+      onLightingObservation: (listener: (observation: BleMeshLightingObservation) => void) => {
+        listeners.add(listener); return () => { listeners.delete(listener); };
+      },
+      resyncLightingFixtures: vi.fn(async (_ids: string[], _signal?: AbortSignal) => {
+        events.push("get");
+        for (const listener of listeners) listener({ fixtureId: scopedFixtureId, brightness: 65, powerOn: true, observedAt: new Date().toISOString() });
+        return { total: 1, configured: 1, observed: 1, timedOut: 0, failed: 0, healthPending: 0 };
+      })
+    };
+    const published: Array<{ topic: string; payload: any }> = [];
+    const publish = vi.fn(async (_source: unknown, topic: string, payload: unknown) => {
+      events.push(topic.endsWith("acceptance") ? "acceptance" : "status"); published.push({ topic, payload });
+    });
+    const runtime = createGatewayStatusCheckRuntime({ adapter, journal, scope: { siteId: scopedSiteId, gatewayId: scopedGatewayId }, publish });
+    const receipt = { properties: { messageExpiryInterval: 10 } } as any;
+    const control = { acknowledgeDurable: () => { events.push("durable"); } };
+    const handle = () => runtime.handle(Buffer.from(JSON.stringify(command)), {} as any, receipt, control);
+    return { directory, journal, command, adapter, listeners, events, published, publish, runtime, handle, control, receipt };
+  }
+
+  it("subscribes to status-check with QoS1 alongside the existing command topics", async () => {
+    const subscribe = vi.fn((_topics, _options, callback) => callback());
+    await subscribeGatewayCommands({ subscribe } as any, { siteId: scopedSiteId, gatewayId: scopedGatewayId }, false);
+    expect(subscribe).toHaveBeenCalledWith(expect.arrayContaining([
+      `sites/${scopedSiteId}/gateways/${scopedGatewayId}/commands/status-check`
+    ]), { qos: 1 }, expect.any(Function));
+  });
+
+  it("publishes durable receipt, acceptance, Get, then device status and replays a failed terminal publish", async () => {
+    const ctx = await setup();
+    try {
+      ctx.publish.mockImplementationOnce(async (_source, topic, payload) => {
+        expect(await ctx.journal.get(ctx.command.idempotencyKey)).toMatchObject({ state: "accepted" });
+        ctx.events.push("acceptance"); ctx.published.push({ topic, payload });
+      }).mockImplementationOnce(async () => { ctx.events.push("status-failed"); throw new Error("broker disconnected"); });
+      await expect(ctx.handle()).rejects.toThrow("broker disconnected");
+      expect(ctx.events).toEqual(["durable", "acceptance", "get", "status-failed"]);
+      const stored = await ctx.journal.get(ctx.command.idempotencyKey);
+      await ctx.handle();
+      expect(ctx.adapter.resyncLightingFixtures).toHaveBeenCalledOnce();
+      expect(ctx.published.at(-1)?.payload).toEqual((stored?.result as any).deviceStatus);
+      expect(ctx.published.at(-1)?.topic).toBe(`sites/${scopedSiteId}/gateways/${scopedGatewayId}/acks/device-status`);
+      expect(ctx.published.at(-2)?.topic).toBe(`sites/${scopedSiteId}/gateways/${scopedGatewayId}/acks/acceptance`);
+    } finally { await ctx.runtime.stopAndDrain(); await rm(ctx.directory, { recursive: true, force: true }); }
+  });
+
+  it("fails closed on a mismatched scope and drains an aborted in-flight Get before stop resolves", async () => {
+    const ctx = await setup();
+    try {
+      await expect(ctx.runtime.handle(Buffer.from(JSON.stringify({ ...ctx.command, gatewayId: scopedFixtureId })), {} as any, ctx.receipt, ctx.control)).rejects.toThrow("scope mismatch");
+      expect(await ctx.journal.get(ctx.command.idempotencyKey)).toBeNull();
+      let signal: AbortSignal | undefined;
+      ctx.adapter.resyncLightingFixtures.mockImplementation(async (_ids, received) => {
+        signal = received;
+        await new Promise<void>(() => undefined);
+        throw new Error("unreachable");
+      });
+      const handling = ctx.handle();
+      await vi.waitFor(() => expect(ctx.adapter.resyncLightingFixtures).toHaveBeenCalledOnce());
+      await ctx.runtime.stopAndDrain();
+      await handling;
+      expect(signal?.aborted).toBe(true);
+      expect(ctx.listeners.size).toBe(0);
+      expect(ctx.published.at(-1)?.payload.status).toBe("timed_out");
+      await expect(ctx.handle()).rejects.toThrow("stopped");
+      expect(ctx.adapter.resyncLightingFixtures).toHaveBeenCalledOnce();
+    } finally { await ctx.runtime.stopAndDrain(); await rm(ctx.directory, { recursive: true, force: true }); }
+  });
+
+  it("replays an acceptance publish failure as indeterminate and rejects a missing broker TTL without Get", async () => {
+    const ctx = await setup();
+    try {
+      ctx.publish.mockRejectedValueOnce(new Error("acceptance publish lost"));
+      await expect(ctx.handle()).rejects.toThrow("acceptance publish lost");
+      await ctx.handle();
+      expect(ctx.published.at(-1)?.payload).toMatchObject({ status: "timed_out", results: [
+        { fixtureId: scopedFixtureId, faultCode: "GATEWAY_RESTART_INDETERMINATE" }
+      ] });
+      expect(ctx.adapter.resyncLightingFixtures).not.toHaveBeenCalled();
+      const expired = { ...ctx.command, idempotencyKey: "99999999-9999-4999-8999-999999999999" };
+      await ctx.runtime.handle(Buffer.from(JSON.stringify(expired)), {} as any, undefined, ctx.control);
+      expect(ctx.published.at(-2)?.payload).toMatchObject({ status: "rejected", errorCode: "COMMAND_EXPIRED" });
+      expect(ctx.adapter.resyncLightingFixtures).not.toHaveBeenCalled();
+    } finally { await ctx.runtime.stopAndDrain(); await rm(ctx.directory, { recursive: true, force: true }); }
+  });
+
+  it("releases a duplicate PUBLISH before the first acceptance PUBACK so MQTT intake cannot deadlock", async () => {
+    const ctx = await setup();
+    let releaseAcceptance!: () => void;
+    const acceptancePuback = new Promise<void>((resolve) => { releaseAcceptance = resolve; });
+    const firstReceipt = vi.fn();
+    const duplicateReceipt = vi.fn(() => releaseAcceptance());
+    const deliveries: Promise<void>[] = [];
+    try {
+      ctx.publish.mockImplementationOnce(async () => { await acceptancePuback; });
+      const payload = Buffer.from(JSON.stringify(ctx.command));
+      deliveries.push(ctx.runtime.handle(payload, {} as any, ctx.receipt, { acknowledgeDurable: firstReceipt }));
+      await vi.waitFor(() => expect(ctx.publish).toHaveBeenCalledOnce());
+      expect(firstReceipt).toHaveBeenCalledOnce();
+      expect(ctx.adapter.resyncLightingFixtures).not.toHaveBeenCalled();
+      // Model MQTT.js serial packet intake: the first acceptance PUBACK is
+      // behind this duplicate PUBLISH's durable receipt callback.
+      deliveries.push(ctx.runtime.handle(payload, {} as any, ctx.receipt, { acknowledgeDurable: duplicateReceipt }));
+      await vi.waitFor(() => expect(duplicateReceipt).toHaveBeenCalledOnce());
+      await Promise.all(deliveries);
+      expect(ctx.adapter.resyncLightingFixtures).toHaveBeenCalledOnce();
+      const terminals = ctx.published.filter(({ topic }) => topic.endsWith("device-status"));
+      expect(terminals).toHaveLength(2);
+      expect(terminals[0].payload).toEqual(terminals[1].payload);
+    } finally {
+      releaseAcceptance();
+      await Promise.allSettled(deliveries);
+      await ctx.runtime.stopAndDrain();
+      await rm(ctx.directory, { recursive: true, force: true });
+    }
+  });
 });
 
 it("publishes provisioning completion before isolating capability refresh failure", async () => {
@@ -251,6 +390,7 @@ describe("startGatewayRuntime", () => {
         scan: vi.fn(),
         startIdentify: vi.fn(),
         stopIdentify: vi.fn(),
+        restoreSensorMode: vi.fn(),
         assignAddress: vi.fn(),
         reconcileAddress: vi.fn(async (nativeUuid: string) => ({
           outcome: "confirmed" as const,
@@ -338,6 +478,50 @@ describe("startGatewayRuntime", () => {
     }
   });
 
+  it("runs only the adapter safety restore after a restarted identify and records outcome-unknown", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "gateway-bio-identify-recovery-"));
+    try {
+      const path = join(directory, "provisioning.json");
+      const { meshAddress: _unusedMeshAddress, ...command } = provisioningCommand({
+        operation: "identify",
+        deviceUuid: "bio:001122334455"
+      });
+      const seed = new ProvisioningDeviceJournal(path);
+      await seed.initialize();
+      await seed.accept(command);
+      const restarted = new ProvisioningDeviceJournal(path);
+      await restarted.initialize();
+      const recoverProvisioning = vi.fn();
+      const recoverIdentifySafety = vi.fn(async () => undefined);
+
+      await recoverProvisioningDevicesOnStartup(restarted, {
+        identify: vi.fn(),
+        provision: vi.fn(),
+        recoverProvisioning,
+        recoverIdentifySafety
+      }, async () => ({
+        eventId: "30000000-0000-4000-8000-000000000004",
+        sequence: 1,
+        occurredAt: "2026-09-13T00:00:01.000Z"
+      }));
+
+      expect(recoverProvisioning).not.toHaveBeenCalled();
+      expect(recoverIdentifySafety).toHaveBeenCalledOnce();
+      expect(recoverIdentifySafety).toHaveBeenCalledWith(command);
+      await expect(restarted.pendingTerminals()).resolves.toEqual([
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            operation: "identify",
+            status: "failed",
+            errorCode: "identify_outcome_unknown"
+          })
+        })
+      ]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("hydrates BIO virtual membership from ready GroupStateStore snapshots on the production startup path", async () => {
     const directory = await mkdtemp(join(tmpdir(), "gateway-bio-group-hydration-"));
     try {
@@ -374,7 +558,8 @@ describe("startGatewayRuntime", () => {
           firmwareVersion: mapping.firmware,
           rssi: -41
         }]),
-        startIdentify: vi.fn(), stopIdentify: vi.fn(), assignAddress: vi.fn(), reconcileAddress: vi.fn(),
+        startIdentify: vi.fn(), stopIdentify: vi.fn(), restoreSensorMode: vi.fn(),
+        assignAddress: vi.fn(), reconcileAddress: vi.fn(),
         setOutput: vi.fn(async () => ({ brightnessPercent: 60, powerOn: true, rawHighBrightness: 198, mode: "force-on" as const }))
       };
       const mappings = {
@@ -1370,6 +1555,7 @@ describe("startGatewayRuntime", () => {
       [
         "sites/site-27/gateways/gateway-27/commands/identify",
         "sites/site-27/gateways/gateway-27/commands/dimming",
+        "sites/site-27/gateways/gateway-27/commands/status-check",
         "sites/site-27/gateways/gateway-27/commands/provisioning/scan-start",
         "sites/site-27/gateways/gateway-27/commands/provisioning/identify-device",
         "sites/site-27/gateways/gateway-27/commands/provisioning/provision-device",

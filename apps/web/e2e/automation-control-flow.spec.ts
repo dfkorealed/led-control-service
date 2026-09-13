@@ -54,14 +54,21 @@ test("admin creates and executes schedule and vehicle event rules", async ({ bro
   await admin.getByLabel("지상 층수").fill("0");
   await admin.getByRole("button", { name: "층 자동 생성" }).click();
   await admin.getByRole("button", { name: "초기 설정 완료" }).click();
+  await expect(admin.getByRole("heading", { name: "설정 개요" })).toBeVisible();
+  await admin.getByRole("navigation", { name: "설정 메뉴" }).getByRole("link", { name: "조명 등록", exact: true }).click();
+  await expect(admin).toHaveURL((url) => url.pathname === "/settings/registration" && url.searchParams.get("siteId") === created.siteId);
 
   const installation = await lab.readInstallation();
   await lab.seedGatewayInventory();
   await admin.getByLabel("게이트웨이 이름").fill("Task 19 Gateway");
   await admin.getByLabel("제품 시리얼").fill(lab.gateway.serialNumber);
   await admin.getByLabel("일회성 등록 코드").fill(lab.gateway.claimCode);
+  const claimResponsePromise = admin.waitForResponse((response) =>
+    response.url().endsWith("/api/gateways/claim") && response.request().method() === "POST");
   await admin.getByRole("button", { name: "게이트웨이 등록" }).click();
-  await expect(admin.getByRole("heading", { name: "조명 등록" })).toBeVisible();
+  expect((await claimResponsePromise).status()).toBe(201);
+  await expect(admin.getByLabel("등록 층")).toBeVisible();
+  await expect(admin.getByLabel("등록 게이트웨이")).toBeVisible();
   await lab.attachGatewayPublisher();
 
   await admin.reload();
@@ -194,14 +201,17 @@ async function createSchedule(page: Page, input: { brightness: number; target: s
   const now = new Date();
   await page.getByRole("button", { name: "스케줄 추가" }).click();
   const dialog = page.getByRole("dialog", { name: "스케줄 추가" });
+  await dialog.getByRole("button", { name: "세부 일정 설정" }).click();
   await dialog.getByLabel("스케줄 이름").fill("Task 19 상시 스케줄");
   await dialog.getByLabel("적용 시작일").fill(siteDate(new Date(now.getTime() - 86_400_000)));
   await dialog.getByLabel("적용 종료일").fill(siteDate(new Date(now.getTime() + 86_400_000)));
   await dialog.getByLabel("시작 시각").fill(siteTime(new Date(now.getTime() - 3_600_000)));
   await dialog.getByLabel("종료 시각").fill(siteTime(new Date(now.getTime() + 3_600_000)));
-  await dialog.getByLabel("반복").selectOption("daily");
+  await dialog.getByLabel("반복", { exact: true }).selectOption("daily");
   await dialog.getByLabel("밝기", { exact: true }).fill(String(input.brightness));
+  await dialog.getByRole("button", { name: "제어 대상 선택" }).click();
   await dialog.getByRole("checkbox", { name: `${input.target} 선택` }).check();
+  await dialog.getByRole("button", { name: "선택 완료" }).click();
   await dialog.getByRole("button", { name: "스케줄 만들기" }).click();
   await expect(dialog).toBeHidden();
 }
@@ -212,13 +222,17 @@ async function createVehicleEvent(
 ) {
   await page.getByRole("button", { name: "이벤트 추가" }).click();
   const dialog = page.getByRole("dialog", { name: "이벤트 추가" });
-  await dialog.getByRole("group", { name: "감지 센서" })
-    .getByRole("checkbox", { name: `${input.source} 선택` }).check();
-  await dialog.getByRole("group", { name: "제어 조명" })
-    .getByRole("checkbox", { name: `${input.target} 선택` }).check();
+  await dialog.getByRole("button", { name: "감지 센서 선택" }).click();
+  await dialog.getByRole("checkbox", { name: `${input.source} 선택` }).check();
+  await dialog.getByRole("button", { name: "선택 완료" }).click();
+  await dialog.getByRole("button", { name: "실행할 조명 선택" }).click();
+  await dialog.getByRole("checkbox", { name: `${input.target} 선택` }).check();
+  await dialog.getByRole("button", { name: "선택 완료" }).click();
+  await dialog.getByRole("button", { name: "고급 설정" }).click();
   await dialog.getByLabel("규칙 이름").fill("Task 19 차량 이벤트");
   await dialog.getByLabel("밝기", { exact: true }).fill(String(input.brightness));
-  await dialog.getByLabel("유지 시간").fill("5");
+  await dialog.getByRole("button", { name: "직접 입력", exact: true }).click();
+  await dialog.getByLabel("유지 시간", { exact: true }).fill("5");
   await dialog.getByRole("button", { name: "저장", exact: true }).click();
   await expect(dialog).toBeHidden();
 }

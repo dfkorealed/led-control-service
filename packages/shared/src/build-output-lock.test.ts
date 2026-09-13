@@ -155,6 +155,39 @@ describe("shared build output lock", () => {
     await expect(release()).resolves.toBe(true);
   });
 
+  it("waits without a deadline when a whole workspace command owns the lock", async () => {
+    const root = await createRoot();
+    const identities = new Map<number, ProcessIdentity>([
+      [101, { state: "active", processStartIdentity: "boot-a" }],
+      [202, { state: "active", processStartIdentity: "boot-b" }]
+    ]);
+    const firstRelease = await acquire(root, { pid: 101, processStartIdentity: "boot-a" }, identities, "token-a");
+    let now = 0;
+    let released = false;
+
+    const secondRelease = await acquireOutputLock({
+      lockPath: lockPath(root),
+      owner: { pid: 202, processStartIdentity: "boot-b" },
+      token: "token-b",
+      timeoutMs: null,
+      pollIntervalMs: 1,
+      now: () => {
+        now += 1_000_000;
+        return now;
+      },
+      sleep: async () => {
+        if (!released) {
+          released = true;
+          await firstRelease();
+        }
+      },
+      readProcessIdentity: async (pid) => identities.get(pid) ?? { state: "missing" }
+    });
+
+    await expect(readOwner(root)).resolves.toMatchObject({ token: "token-b", pid: 202 });
+    await expect(secondRelease()).resolves.toBe(true);
+  });
+
   it("takes over a crashed owner by unlinking only its exact marker", async () => {
     const root = await createRoot();
     await seedLock(root, { pid: 101, processStartIdentity: "boot-a" });
@@ -187,6 +220,34 @@ describe("shared build output lock", () => {
     await expect(readOwner(root)).resolves.toMatchObject({ token: "stale-token" });
   });
 
+  it("can wait without stealing when a workspace owner is briefly unverifiable during release", async () => {
+    const root = await createRoot();
+    const first = { pid: 101, processStartIdentity: "boot-a" };
+    await seedLock(root, first, "token-a");
+    let identityReads = 0;
+
+    const release = await acquireOutputLock({
+      lockPath: lockPath(root),
+      owner: { pid: 202, processStartIdentity: "boot-b" },
+      token: "token-b",
+      timeoutMs: null,
+      waitOnUnknownOwner: true,
+      pollIntervalMs: 1,
+      sleep: async () => {
+        await unlink(ownerMarkerPath(lockPath(root), "token-a"));
+        await rmdir(lockPath(root));
+      },
+      readProcessIdentity: async () => {
+        identityReads += 1;
+        return { state: "unknown" };
+      }
+    });
+
+    expect(identityReads).toBe(1);
+    await expect(readOwner(root)).resolves.toMatchObject({ token: "token-b", pid: 202 });
+    await expect(release()).resolves.toBe(true);
+  });
+
   it("does not let a previous owner release a successor", async () => {
     const root = await createRoot();
     const first = { pid: 101, processStartIdentity: "boot-a" };
@@ -198,6 +259,50 @@ describe("shared build output lock", () => {
 
     await expect(release()).resolves.toBe(false);
     await expect(readOwner(root)).resolves.toMatchObject({ token: "token-b" });
+  });
+
+  it("finishes releasing after its exact marker is removed when a successor publishes before rmdir", async () => {
+    const root = await createRoot();
+    const fixed = lockPath(root);
+    const first = { pid: 101, processStartIdentity: "boot-a" };
+    const second = { pid: 202, processStartIdentity: "boot-b" };
+    let successorPublished = false;
+
+    vi.resetModules();
+    vi.doMock("node:fs/promises", async () => {
+      const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+      return {
+        ...actual,
+        rmdir: async (path: string) => {
+          if (path === fixed && !successorPublished) {
+            successorPublished = true;
+            await actual.writeFile(
+              ownerMarkerPath(fixed, "token-b"),
+              `${JSON.stringify({ version: 1, token: "token-b", ...second })}\n`
+            );
+          }
+          return actual.rmdir(path);
+        }
+      };
+    });
+
+    try {
+      const { acquireOutputLock: instrumentedAcquire } =
+        await import("../scripts/build-output-lock.mjs?release-successor-handoff");
+      const release = await acquireWith(
+        instrumentedAcquire,
+        root,
+        first,
+        new Map([[first.pid, { state: "active", processStartIdentity: first.processStartIdentity }]]),
+        "token-a"
+      );
+
+      await expect(release()).resolves.toBe(true);
+      await expect(readOwner(root)).resolves.toMatchObject({ token: "token-b", pid: second.pid });
+    } finally {
+      vi.doUnmock("node:fs/promises");
+      vi.resetModules();
+    }
   });
 
   it("aborts a late stale takeover when its old marker was replaced by a successor", async () => {
@@ -230,6 +335,62 @@ describe("shared build output lock", () => {
     const release = await acquire(root, { pid: 202, processStartIdentity: "boot-b" }, new Map(), "token-b");
     await expect(readOwner(root)).resolves.toMatchObject({ token: "token-b" });
     await expect(release()).resolves.toBe(true);
+  });
+
+  it("retries when an empty lock disappears before cleanup reinspection", async () => {
+    const root = await createRoot();
+    const fixed = lockPath(root);
+    await seedLock(root, { pid: 101, processStartIdentity: "boot-a" }, "token-a");
+    let ownerReleasedAfterPublishConflict = false;
+    let releasedAfterEmptyInspection = false;
+
+    vi.resetModules();
+    vi.doMock("node:fs/promises", async () => {
+      const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+      return {
+        ...actual,
+        rename: async (oldPath: string, newPath: string) => {
+          try {
+            return await actual.rename(oldPath, newPath);
+          } catch (error) {
+            if (newPath === fixed && !ownerReleasedAfterPublishConflict) {
+              ownerReleasedAfterPublishConflict = true;
+              await actual.unlink(ownerMarkerPath(fixed, "token-a"));
+            }
+            throw error;
+          }
+        },
+        readdir: async (path: string, options?: Parameters<typeof actual.readdir>[1]) => {
+          const entries = await actual.readdir(path, options as never);
+          if (path === fixed && !releasedAfterEmptyInspection) {
+            expect(entries).toEqual([]);
+            releasedAfterEmptyInspection = true;
+            await actual.rmdir(fixed);
+          }
+          return entries;
+        }
+      };
+    });
+
+    try {
+      const { acquireOutputLock: instrumentedAcquire } =
+        await import("../scripts/build-output-lock.mjs?empty-release-rmdir-race");
+      const release = await acquireWith(
+        instrumentedAcquire,
+        root,
+        { pid: 202, processStartIdentity: "boot-b" },
+        new Map(),
+        "token-b"
+      );
+
+      expect(ownerReleasedAfterPublishConflict).toBe(true);
+      expect(releasedAfterEmptyInspection).toBe(true);
+      await expect(readOwner(root)).resolves.toMatchObject({ token: "token-b", pid: 202 });
+      await expect(release()).resolves.toBe(true);
+    } finally {
+      vi.doUnmock("node:fs/promises");
+      vi.resetModules();
+    }
   });
 
   it("fails closed for an abnormal stale lock without removing an external sentinel", async () => {

@@ -37,7 +37,9 @@
 
 등록 화면은 [src/registration/registration.controller.ts](src/registration/registration.controller.ts)와 [src/registration/registration.service.ts](src/registration/registration.service.ts)를 먼저 읽습니다.
 
-`Controller → RegistrationService → ProvisioningSession, DiscoveredMeshNode` 순서로 session과 발견 장비 정보를 관리합니다. scan 재시도와 개별/묶음 등록·완료는 HTTP API로 제공되고, scan 및 provision 명령은 MQTT를 통해 Gateway로 전달됩니다. `identify` HTTP 경로는 현재 존재하지만 `501 NOT_IMPLEMENTED`와 `pre_provision_identify_unsupported`를 반환하므로, 화면에서 동작하는 identify 기능으로 제공하면 안 됩니다.
+`Controller → RegistrationService → ProvisioningSession, DiscoveredMeshNode` 순서로 session과 발견 장비 정보를 관리합니다. scan 재시도와 개별/묶음 등록·완료는 HTTP API로 제공되고, scan, pre-provision identify 및 provision 명령은 durable outbox를 거쳐 MQTT로 Gateway에 전달됩니다. identify는 client duration/raw packet을 받지 않으며 Gateway의 고정 BIO force-on 약 2초와 sensor-mode 복원 확인이 terminal 성공 조건입니다.
+
+식별 mutation의 `operationId`와 session 응답 node의 `identifyOperationId`, `identifyOperationStartedAt`, `updatedAt`를 함께 사용해야 합니다. polling은 repeatable-read snapshot에서 node와 최신 식별 outbox의 ID/생성 시각만 읽고 outbox 본문은 반환하지 않습니다. 이전 operation의 지연된 `confirmed/failed` 응답은 새 식별 retry를 완료할 수 없습니다. 식별 timeout 뒤 정상 등록으로 주소가 생겼더라도 이전의 정확한 식별 terminal은 저장된 불변 명령과 대조한 뒤 ledger/ACK만 기록해 Gateway journal을 비웁니다. 이때 node/session/Fixture/mapping은 변경하지 않으며, 명령·대상 불일치는 계속 거부합니다.
 
 등록 요청은 Gateway에 provision 명령을 보낼 준비만 하며 Fixture를 즉시 만들지 않습니다. Gateway가 provisioning 완료 MQTT 이벤트를 보낸 뒤 [src/mqtt/mqtt.service.ts](src/mqtt/mqtt.service.ts)의 MQTT consumer가 transaction 안에서 `DiscoveredMeshNode → MeshNode → Fixture`를 처리합니다. 여기서 **MQTT consumer**는 broker에서 도착한 Gateway 메시지를 받아 API 저장 로직으로 넘기는 코드입니다. 등록 중 화면은 HTTP 응답만으로 설치 완료를 확정하지 말고, session 상태와 발견 node 목록을 다시 조회해 비동기 완료 결과를 반영해야 합니다.
 
@@ -53,3 +55,13 @@ Gateway는 fixture state topic으로 상태를 보냅니다. [src/mqtt/mqtt.serv
 2. [src/auth/auth.controller.ts](src/auth/auth.controller.ts)와 [src/auth/auth.service.ts](src/auth/auth.service.ts)로 세션 인증 흐름을 확인합니다.
 3. 화면에서 필요한 기능의 Controller를 찾고 같은 이름의 Service, `prisma/schema.prisma` 순서로 읽습니다.
 4. Gateway와 연결되는 기능이라면 마지막으로 [../../packages/shared/src/gateway-contracts.ts](../../packages/shared/src/gateway-contracts.ts)와 [../gateway/src/index.ts](../gateway/src/index.ts)를 함께 봅니다.
+
+## Reverse proxy와 클라이언트 IP
+
+API는 기본적으로 직접 접속을 기준으로 동작하며 요청자가 보낸 `X-Forwarded-For`를 신뢰하지 않습니다. Load balancer나 reverse proxy 뒤에 배포할 때만 `API_TRUST_PROXY`에 신뢰 경계를 명시합니다.
+
+- 고정 proxy 계층이면 hop 수를 정수로 지정합니다. 예: `API_TRUST_PROXY=1`
+- proxy 주소가 정해져 있으면 IP 또는 CIDR을 쉼표로 나열합니다. 예: `API_TRUST_PROXY=10.20.0.10,10.20.0.0/16`
+- `true`, `all`, hostname, 잘못된 CIDR은 시작 단계에서 거부합니다. 인터넷 요청 전체를 proxy로 신뢰하는 설정은 지원하지 않습니다.
+
+이 설정이 실제 배포 경계와 다르면 로그인 IP 제한과 감사 로그의 IP가 proxy 주소로 합쳐지거나 위조될 수 있습니다. 인프라의 실제 proxy hop 또는 source CIDR을 확인한 뒤 설정해야 합니다.

@@ -11,8 +11,8 @@
 - 조직/사용자/인증: `Organization`(`OrganizationType`), `User`, `SiteMembership`, `Invitation`, `Session`
 - 현장/공간/도면: `Site`, `Floor`(`mapRevision`), `FloorPlan`, `FloorMapObject`, `FloorMapRevision`
 - 조명/그룹/게이트웨이/메시 노드: `Fixture`, `FixtureGroup`, `GroupFixture`, `Gateway`, `GatewayInventory`, `MeshNode`, `MeshControlGroup`, `MeshControlGroupMember`, `MeshControlGroupExpectedOperation`, `MeshControlGroupAppliedMember`
-- 게이트웨이 PKI: `GatewayEnrollment`, `GatewayCertificate`
-- 제어/모니터링: `Command`, `CommandDispatch`, `CommandFixtureResult`, `MqttOutbox`, `ProcessedGatewayEvent`, `MonitoringIncident`, `EnergyUsage`
+- 게이트웨이 PKI: `GatewayEnrollment`, `GatewayCertificate`, `CertificateRevocationReconciliation`
+- 제어/모니터링: `Command`, `CommandDispatch`, `CommandFixtureResult`, `MqttOutbox`, `ProcessedGatewayEvent`, `GatewayEventWatermark`, `MonitoringIncident`, `EnergyUsage`
 - 자동 제어: `GatewayAutomationConfiguration`, `LightingSchedule`, `LightingScheduleFixture`, `VehicleEventRule`, `VehicleEventSource`, `VehicleEventTarget`, `ManualOverride`, `ManualOverrideFixture`, `AutomationExecution`, `AutomationExecutionFixtureResult`
 - 감사/삭제 정리: `GatewayClaimAudit`, `AuditLog`, `SiteDeletionCleanup`
 - 조명 검색/등록: `ProvisioningSession`, `ProvisioningScanOutbox`, `ProvisioningDeviceOutbox`, `DiscoveredMeshNode`
@@ -20,7 +20,7 @@
 
 ### EnergyReportJob (P2 보고서)
 
-Migration: `20260912_statistics_p2_reports`. 상태 enum은 `queued`, `processing`, `completed`, `failed`, `expired`, 형식 enum은 `xlsx`, `pdf`다.
+Migration: `20260912_statistics_p2_reports`, 대상명 확장 `20260916_report_operations_metadata`. 상태 enum은 `queued`, `processing`, `completed`, `failed`, `expired`, 형식 enum은 `xlsx`, `pdf`다.
 
 | 필드 | 타입 | 의미 |
 | --- | --- | --- |
@@ -31,10 +31,11 @@ Migration: `20260912_statistics_p2_reports`. 상태 enum은 `queued`, `processin
 | `status`, `progressPercent`, `attemptCount` | enum, `Int`, `Int` | 상태, 0–100 진행률, 0–3 시도 횟수 |
 | `leaseOwner`, `leaseExpiresAt` | `String?`, `DateTime?` | worker 소유권과 만료 시각, 쌍으로 존재 |
 | `requestSnapshot` | `Json` | 생성 시 확정하는 불변 요청 |
+| `targetLabelSnapshot` | `String?` | INSERT transaction에서 확인한 대상명. legacy null을 포함해 이후 변경·채움·삭제 금지 |
 | `dataSnapshot`, `documentSnapshot` | `Json?` | 한 번만 채우는 집계 데이터와 순서가 확정된 공통 문서 |
 | `contentFingerprint` | `String?` | 문서 fingerprint 필드를 제외한 canonical JSON의 SHA-256 |
 | `objectKey`, `contentType`, `sizeBytes`, `contentSha256` | nullable String/Int | private object key, MIME type, 바이트 수, 파일 SHA-256 |
-| `failureCode` | `String?` | 외부 공개 가능한 실패 코드 |
+| `failureCode` | `String?` | worker의 고정 실패 코드. 공개 응답에서 허용 목록으로 다시 정제 |
 | `createdAt`, `updatedAt`, `startedAt`, `completedAt` | `DateTime`, 일부 nullable | 작업 수명주기 |
 | `expiresAt`, `objectDeletedAt` | `DateTime?` | 보관 만료와 실제 object 삭제 확인 시각 |
 
@@ -42,11 +43,15 @@ Migration: `20260912_statistics_p2_reports`. 상태 enum은 `queued`, `processin
 
 상태별 진행률·시각·lease·완료 object 필수 값은 SQL CHECK로 보호한다. 완료 문서는 데이터 스냅샷과 일치하는 fingerprint 필드를 함께 가져야 한다. SQL trigger는 요청·요청자 identity의 변경을 막고, 데이터·문서·fingerprint의 최초 저장 이후 변경/삭제를 막는다. 사용자 FK의 SetNull은 허용하며 요청자 스냅샷은 유지한다. 현장 삭제 시 행은 Cascade 삭제되므로 실제 현장 삭제 workflow에서 object 정리 대상을 삭제 전에 확보해야 한다.
 
+`20260916_report_operations_metadata`는 명시적 `BEGIN/COMMIT`, 10초 `lock_timeout`, 보고서 테이블 배타 잠금 안에서 nullable 대상명 열·빈 문자열 거부 CHECK와 기존 snapshot guard 함수를 함께 갱신한다. 기존 migration checksum은 변경하지 않는다. 대상명은 생성 transaction의 Site 삭제 barrier 확인 뒤 같은 현장에 속한 identity의 최신 저장 이름(층은 현재 이름 우선, 삭제된 층은 이력 이름)을 읽고 문자 지원을 검사해 INSERT한다. 사전 조회 이름을 재사용하지 않으며 과거 이름을 알 수 없는 legacy 행은 null로 둔다. worker가 나중에 실행되거나 운영 객체가 삭제되어도 목록과 새 공통 문서의 `대상` 메타데이터는 저장한 이름을 유지한다. 기존 문서/fingerprint는 다시 쓰지 않는다.
+
+공개 작업은 `target: { scope, identityId, label }`, `requestedAt`과 `failure: { code, message, action } | null`을 제공하며 기존 `createdAt`·`failureCode`도 유지한다. `requestedAt`은 DB에서 읽은 `createdAt`과 정확히 같다. 생성 시각은 JS Date로 명시해 PostgreSQL session timezone의 naive timestamp 기본값에 의존하지 않는다. legacy 대상명은 `현장/조명/층/그룹: identityId`로 표시하고 현재 이름을 조회하지 않는다. 공개 failure code는 `generation_failed`, `storage_unavailable`, `rendering_failed`, `snapshot_invalid`, `attempts_exhausted`만 허용한다. 알 수 없는 내부 code는 기존 필드도 `REPORT_GENERATION_FAILED`로 정제하며 원시 DB/S3/render 오류나 객체 경로를 반환하지 않는다. 공유 parser는 기존 서버에서 누락된 신규 필드를 안전한 기본값으로 채우고, 명시된 대상·요청 시각·실패 상태 불일치는 거부한다. 마이그레이션과 이름 보존·실패 분류는 disposable PostgreSQL에서 검증하며 사용자/운영 DB에는 적용하지 않았다.
+
 보고서 스냅샷은 한 `RepeatableRead` transaction에서 현장 timezone, 이력 차원과 완료된 현지 날짜의 persisted daily/hourly 집계만 읽는다. legacy DB 열 `estimatedKwh`는 보고서 데이터에서 `energyKwh`, 일별 `estimatedCost`는 `cost`, `knownSeconds`는 밝기 가중 계산 및 값 존재 판정용 `durationSeconds`로 매핑한다. `cost`는 저장된 Decimal 문자열 또는 값 없음이며, 현재 state cursor·현재 단가·미완료 날짜는 읽지 않는다. 요약·일별 표·순위에 비용을 포함하고 직전 동일 일수의 전력량/비용 차이 및 이전 값이 0이 아닐 때만 변화율을 산출한다. 적용 단가/원천 산출식의 역사적 증거를 보관한 FK나 snapshot은 없으므로 문서에는 해당 항목을 `데이터 없음`으로 설명하며 현재 단가로 다시 계산하지 않는다.
 
 데이터 snapshot의 identity/dimension/group `from`/`to`는 날짜로 축약하지 않은 전체 ISO UTC 시각이며 시간별 행은 `bucketStartUtc`를 보존한다. 현장 일별 총계는 identity 추적 시작/종료와 무관하게 저장된 사실을 보존한다. 순위와 층·그룹 일별 값은 현지 하루 전체의 이력이 확정된 경우만 포함한다. 시간별 소속은 UTC 한 시간 전체의 이력으로 먼저 판단한 뒤 `localDate`/`localHour`의 요일·시간으로 fold한다. 경계를 걸친 집계를 비례 배분하지 않고 DST 반복 버킷은 같은 셀에 합친다. 일별/시간별 집계 차이를 문서 생성 중 보정하지 않는다.
 
-이 변경은 기존 JSON snapshot의 신규 생성 내용을 보완하며 SQL schema나 migration을 추가하지 않는다. 기존 저장 문서와 fingerprint는 불변으로 보존한다. XLSX/PDF는 같은 순서·값·표시 문자열·계산 설명·fingerprint를 렌더링한다. `GET report-targets`는 기존 analytics identity와 최신 저장 이름/과거 층 이름을 조회해 운영 Fixture/FixtureGroup ID와 혼동하지 않는 tenant-scoped 선택 계약을 제공한다. 반환 label의 글꼴 왕복이 불가능한 항목만 제외하며 무관한 과거 이름 때문에 endpoint 전체가 실패하지 않는다. 접수 전 Site 잠금 밖의 read-only `RepeatableRead` 사전 조회가 실제 범위·날짜·사실로 최종 문서를 만들어 문자/shaping 검사를 수행하고 폐기한다. 이를 `EnergyReportJob`에 저장하지 않으며 첫 worker 시도의 별도 한 transaction에서만 불변 snapshot을 저장한다. worker는 이 최종 문서 문자 검사를 다시 수행하고 이후 재시도는 저장 문서를 유지한다.
+기존 저장 문서와 fingerprint는 불변으로 보존한다. XLSX/PDF는 같은 순서·값·표시 문자열·계산 설명·fingerprint를 렌더링한다. `GET report-targets`는 기존 analytics identity와 최신 저장 이름/과거 층 이름을 조회해 운영 Fixture/FixtureGroup ID와 혼동하지 않는 tenant-scoped 선택 계약을 제공한다. 반환 label의 글꼴 왕복이 불가능한 항목만 제외하며 무관한 과거 이름 때문에 endpoint 전체가 실패하지 않는다. 접수 전 Site 잠금 밖의 read-only `RepeatableRead` 사전 조회가 실제 범위·날짜·사실로 최종 문서를 만들어 문자/shaping 검사를 수행하고 폐기한다. 이를 `EnergyReportJob`에 저장하지 않으며 첫 worker 시도의 별도 한 transaction에서만 불변 snapshot을 저장한다. worker는 이 최종 문서 문자 검사를 다시 수행하고 이후 재시도는 저장 문서를 유지한다.
 
 ### EnergyReportObjectCleanup (보고서 파일 회수 원장)
 
@@ -59,13 +64,63 @@ Migration: `20260913_report_object_cleanup_ledger`. Site/보고서 FK를 두지 
 | `leaseOwner`, `leaseExpiresAt` | nullable String/DateTime | 정리 회차별 UUID와 DB UTC 기준 30초 임대, 둘 다 존재하거나 둘 다 null |
 | `nextAttemptAt`, `lastCleanedAt` | DateTime, DateTime? | 다음 회수 가능 시각, 최근 성공 회수 시각 |
 | `lastError` | `String?` | 정제된 정리 실패 코드 |
+| `deleteAttemptCount`, `deleteRetryCount`, `deleteFailureCount` | `Int`, 기본 0 | 유효 임대를 가진 소유자가 결과를 확정한 정리 회차, 직전 실패 뒤 재시도 회차, 실패 회차의 누적값 |
+| `lastAttemptAt` | `DateTime?` | 가장 최근에 결과를 확정한 정리 회차를 수행한 sweep의 기준 시각 |
+| `lastObservedObjectCount`, `lastObservedBytes` | `Int`, `BigInt`, 기본 0 | 최근 확정 회차에서 HEAD로 확인한 존재 객체 수·크기 합. 중간 실패 시 측정한 부분까지만 기록 |
+| `deletedObjectCount`, `deletedBytes` | `Int`, `BigInt`, 기본 0 | HEAD에서 존재를 확인하고 DELETE 성공 응답을 받은 객체 수·관측 크기 누적값 |
+| `latePutObjectCount`, `latePutBytes` | `Int`, `BigInt`, 기본 0 | 이전 전체 성공 회차 뒤 다시 발견하여 DELETE 성공 응답을 받은 객체 수·관측 크기 누적값 |
 | `createdAt`, `updatedAt` | `DateTime` | 원장 수명주기 |
 
 `(nextAttemptAt, leaseExpiresAt)`와 `siteId` 인덱스를 둔다. 60초마다 최대 50개 원장을 `SKIP LOCKED`로 claim하고, S3 DELETE는 DB 잠금/transaction 밖에서 실행한다. 짧은 후속 transaction에서 보고서→원장 순서로 잠근 뒤 소유자·임대 만료를 다시 검사해 메타데이터 만료/삭제 및 다음 회수 시각을 확정한다. 실패·임대 상실 시 키와 보고서 메타데이터를 유지한다. 성공 후에도 다음 회수를 예약하므로 이미 완료된 현장 정리 뒤의 늦은 업로드도 회수 대상이다. Migration은 기존 `SiteDeletionCleanup`의 보고서 키(완료 원장 포함)를 엄격한 UUID 경로·xlsx/pdf 형식으로 검증하고, 기존 attempt-1만 있어도 같은 형식의 세 키를 이 테이블에 보존한다.
 
+`20260917_report_cleanup_metrics`는 기존 migration을 수정하지 않고 transaction·10초 lock timeout 아래 위 카운터와 비음수/상호 범위 CHECK를 추가한다. 과거 삭제 횟수·바이트는 복원할 수 없어 0에서 시작하며 기존 `lastCleanedAt`은 유지한다. `nextAttemptAt`·`createdAt`의 DB 기본값은 명시적 UTC다. `prune(now)`는 최초 원장에도 같은 `now`를 전달하고 SQL의 만료·재시도 비교에서 Date 파라미터를 naive UTC로 변환한다. 임대 만료 판정은 실제 DB UTC 시각을 사용한다.
+
+각 키의 HEAD와 DELETE는 각각 4초 이내로 제한한다. HEAD 404는 정상 미존재이며 해당 키의 DELETE도 실행해 HEAD 직후의 PUT을 회수한다. 존재 객체는 유효한 0 이상 정수 크기를 먼저 측정하고 DELETE한다. HEAD/DELETE 실패는 원시 오류 없이 `REPORT_OBJECT_CLEANUP_FAILED`만 저장한다. lease 상실 회차는 모든 카운터·최근 관측값·성공 시각을 저장하지 않는다. 실패한 DELETE의 late PUT 카운터는 이후 성공 시 증가하므로 같은 객체의 반복 실패가 수치를 부풀리지 않는다. 부분 성공 DELETE는 전체 회차가 실패해도 유효 임대 아래 누적한다.
+
+카운터는 이 정리 서비스가 확인한 활동량이다. 현장 삭제 서비스의 직접 DELETE, 응답 유실, lease 상실, HEAD와 DELETE 사이 객체 교체 때문에 실제 전체 삭제량·현재 버킷 용량·과금 수치와 같지 않다. 최근 관측값의 합계도 서로 다른 원장의 마지막 회차를 합한 값이다. 원장과 카운터는 메타데이터/현장 삭제 후에도 보존한다.
+
+매 sweep은 `report_object_cleanup_sweep` structured log와 반환값에 처리·purge·실패·재시도·임대 상실 회차 및 `metrics`를 제공한다. `ledgerCount`는 전체 원장 수, `backlogCount`는 미성공/직전 실패 원장과 아직 원장에 등록되지 않은 만료·실패 보고서의 합, `uninventoriedCount`는 그 미등록 보고서 수다. `dueCount`·`oldestDueAgeMs`는 임대 여부와 무관하게 예정 시각이 지난 원장 수·가장 오래 지난 시간이며 대상이 없으면 0이다. `retryPendingCount`는 직전 실패 원장 수다. `deleteRetryCount`는 실패 뒤 실제 재시도만 누적하며 정상 반복 확인은 포함하지 않는다. 나머지 동명 카운터는 원장 전체 합계이고 정밀도 손실·JSON BigInt 오류를 막기 위해 10진 문자열로 출력한다. 전체 원장 합계 조회 비용은 원장 수에 비례하며 외부 metrics 제품·자동 원장 삭제는 추가하지 않았다.
+
 `20260914_report_delete_tombstone_guard`는 `EnergyReportJob`의 `BEFORE DELETE` 행 트리거 `EnergyReportJob_preserve_objects_before_delete`와 함수 `preserve_energy_report_object_tombstone()`을 추가한다. migration은 DELETE와 충돌하는 테이블 잠금을 얻고 트리거 설치까지 하나의 transaction으로 커밋한다. 이 커밋 이후에는 runtime helper를 모르는 구버전 인스턴스의 직접 DELETE·90일 purge·Site FK cascade도 같은 삭제 transaction에서 세 키를 남긴다. reportId/siteId는 엄격한 UUID, 형식은 불변 xlsx/pdf enum에서 검증하고, 잘못된 이력 식별자는 `23514`로 삭제를 중단한다. `objectKey`나 호출자 경로를 삭제 권한으로 사용하지 않는다. 대상 원장 schema는 `TG_TABLE_SCHEMA`로 고정하고 신규 행의 시각은 DB 세션 timezone과 무관하게 UTC로 기록한다.
 
 트리거의 upsert는 기존 세 키를 확장/확인하되 현재 `leaseOwner`, `leaseExpiresAt`, `nextAttemptAt`을 유지한다. 따라서 새 reaper의 fenced finalize가 메타데이터를 삭제해도 스스로 임대를 잃지 않으며 중복 원장을 만들지 않는다. DELETE rollback 시 원장 쓰기도 rollback한다. 트리거는 DB 키 원장만 쓰고 S3 네트워크 호출을 하지 않는다. 보호 범위는 트리거 migration 커밋 이후 정상 DELETE/cascade이며, 관리자가 트리거를 끄거나 TRUNCATE로 우회하는 작업은 이 보장을 깨므로 운영 정리 경로로 사용하지 않는다.
+
+### 보고서 migration 사전 검사와 실패 복구
+
+20260912~14 적용은 구 API, report worker와 Site 삭제/메타데이터 purge를 실행하는 모든 프로세스를 중지한 maintenance barrier 안에서 수행한다. 이미 시작한 transaction도 종료됐는지 확인한다. 20260914의 테이블 잠금은 설치 중의 DELETE/쓰기와 충돌하지만 20260912~13 적용 구간까지 보호하지 않으므로 프로세스 중지가 필요하다. 기존 migration SQL과 checksum은 수정하지 않는다.
+
+`DATABASE_URL`을 대상 DB로 명시적으로 설정한 배포 세션에서 다음 순서로 실행한다. 아래 명령은 운영 절차이며 이번 구현에서 사용자/운영 DB에는 실행하지 않았다.
+
+```bash
+pnpm --filter @led-control/api reports:migration-preflight --phase=pre
+pnpm --filter @led-control/api exec prisma migrate deploy
+pnpm --filter @led-control/api reports:migration-preflight --phase=post
+```
+
+preflight는 `.env`를 자동으로 읽지 않고 PostgreSQL의 `READ ONLY`, `RepeatableRead` transaction으로 검사한다. 검사별 statement timeout 5초, lock timeout 1초를 사용한다. `{ "ok": true, ... }`와 종료 코드 0만 통과로 인정하며, 설정/접속/검사 오류도 종료 코드 1로 차단한다. 출력은 진단 code만 제공하고 URL, 자격 증명, 개인 객체 경로와 원문 DB 오류를 노출하지 않는다. `pre`는 아직 적용하지 않은 보고서 migration을 허용하고, `post`는 세 migration이 모두 완료돼야 통과한다.
+
+- `unfinished_migration`: `finished_at`과 `rolled_back_at`이 모두 null인 migration. `logs`가 null이어도 실패/중단 상태다.
+- `legacy_object_keys_not_array`: 기존 `SiteDeletionCleanup.objectKeys`의 scalar/object/JSON null. 완료 원장도 포함한다.
+- `legacy_report_key_count_exceeded`, `legacy_report_identity_conflict`: 기존 엄격한 UUID 경로를 3개 attempt로 확장한 결과가 3개를 넘거나 같은 report ID가 여러 site에 걸친다. xlsx/pdf가 섞이면 6개가 되어 기존 CHECK를 위반한다.
+- `unexpected_report_catalog`, `report_catalog_missing`, `migration_history_gap`: 이력과 테이블/enum/함수 상태가 불일치한다. 부분 적용 또는 수동 복구 흔적을 자동으로 덮어쓰지 않는다.
+- `report_constraint_missing`, `active_request_index_missing`, `snapshot_trigger_missing_or_disabled`, `delete_trigger_missing_or_disabled`: 검증된 CHECK, 활성 요청 unique index, 활성화된 올바른 함수·이벤트의 보호 트리거가 누락됐다.
+- `legacy_report_backfill_missing`: 기존 cleanup의 확장된 키가 영구 원장에 없거나 site/키가 일치하지 않는다.
+
+preflight는 데이터/카탈로그 검사이며 백업 검증이나 maintenance barrier를 대신하지 않는다. 배포 전에 복구 가능한 백업/PITR 지점을 확보한다. 배포 connection의 PostgreSQL `options`에 `-c lock_timeout=5s -c statement_timeout=120s`를 설정해 잠금 대기와 전체 statement 시간을 제한한다. Prisma URL의 query parameter 예시는 `options=-c%20lock_timeout%3D5s%20-c%20statement_timeout%3D120s`이며 기존 query가 있으면 `&`로 추가한다. 20260914 원본에는 timeout이 없으므로 세션 설정을 생략하지 않는다. 실제 배포 시간 한도는 데이터 규모에 맞춰 검토한다. 적용 후 post 검사와 새 버전의 추가 schema/backfill 검증을 통과한 뒤에만 API/worker를 시작한다.
+
+신규 `20260915_statistics_operations_retention`, `20260916_report_operations_metadata`, `20260917_report_cleanup_metrics`도 같은 barrier에서 순서대로 적용한다. 이 세 migration은 각각 명시적 transaction과 10초 lock timeout을 가지며 기존 파일을 수정하지 않는다. report pre/postflight의 보호 대상은 20260912~14이므로 그것만 통과했다고 신규 watermark·terminal identity backfill, `targetLabelSnapshot` 불변성, cleanup 카운터 CHECK·UTC 기본값까지 검증됐다고 판단하지 않는다. 새 API/worker 시작 전 이 신규 구조를 별도로 확인하고, 시작 후 `data_retention_sweep`와 `report_object_cleanup_sweep`를 관찰한다.
+
+실패 시에는 다음 절차를 따른다.
+
+1. barrier를 유지하고 자동 deploy 재시도를 중단한다. `_prisma_migrations`의 migration 이름, checksum, 시작/완료/rollback 시각, logs, CLI 출력, 해당 PostgreSQL 서버 로그와 preflight 진단을 보존한다. 로그는 제한된 운영 채널에서 취급한다.
+2. 실제 카탈로그와 원장 데이터로 rollback 여부를 판정한다. 20260912~13에는 명시적 transaction이 없으므로 다른 runner에서도 파일 전체가 원자적일 것이라고 가정하지 않는다. 부분 적용 DB에 원본 SQL을 다시 실행하면 이미 존재하는 객체 또는 유실된 backfill 때문에 추가 실패가 발생할 수 있다.
+3. 기본 복구는 검증한 백업/PITR 지점으로 복원한 뒤 원본 migration을 다시 적용하는 것이다. 부분 적용을 보존해야 하는 경우 별도 검토한 순방향 복구 절차로 카탈로그·데이터를 먼저 일치시킨다. 기존 SQL/checksum을 수정하거나 `_prisma_migrations` 행을 임의 삭제하지 않는다.
+4. 완전 rollback과 안전한 재실행을 확인한 담당자만 실패 migration의 `prisma migrate resolve --rolled-back <migration-name>` 사용 여부를 결정한다. `resolve --applied`로 제약/트리거/backfill 검증을 건너뛰지 않는다. 도구는 이러한 복구 명령을 자동 실행하지 않는다.
+5. pre 검사에서 미완료 이력이 정리됐는지 확인한 뒤 단일 deploy와 post 검사를 다시 수행한다. legacy scalar를 빈 배열로 바꾸거나 형식 하나를 임의로 버리는 것은 객체 삭제 권한을 유실할 수 있으므로 원장 데이터의 별도 복구 검토가 필요하다.
+
+자동 회귀는 `REPORT_MIGRATION_SAFETY_TEST=1 pnpm --filter @led-control/api test -- energy-report-migration-safety.integration.spec.ts --runInBand`로 실행한다. PATH의 `initdb`, `pg_ctl`, `psql`을 사용해 임시 디렉터리에 새 PostgreSQL 클러스터와 DB를 만들며 기존 `DATABASE_URL`은 사용하지 않는다. 종료 시 전용 클러스터를 정지하고 임시 파일을 제거한다. 환경변수 없이 실행하면 해당 통합 suite는 skip되며 실제 DB 검증으로 계산하지 않는다.
+
+Prisma 6.19.3/PostgreSQL 16.14의 실제 `migrate deploy`에서 clean replay, 20260911 이후 staged upgrade와 기존 완료 cleanup 키 backfill을 검증했다. 테스트 복사본의 statement 실패는 20260912~13에서도 제출된 SQL batch를 rollback했고, 20260914의 명시적 transaction은 트리거·보고서 DELETE·tombstone 쓰기를 모두 rollback했다. 20260914에서는 Prisma가 중단된 transaction 안에서 오류 logs UPDATE도 시도해 CLI가 `current transaction is aborted`로 끝나고 이력의 `logs`는 null로 남았다. 원래 statement/lock timeout 원인은 PostgreSQL 로그에 남으며 미완료 migration의 단순 재시도는 `P3009`로 차단됐다. 원본과 구분되는 테스트 전용 중간 COMMIT 주입은 부분 카탈로그와 미실행 backfill을 남기며 preflight와 재시도가 이를 거부하는지 검증한다. 별도 두 connection 검증은 테이블 lock timeout, 설치 중 writer 대기와 commit 직후 DELETE의 세 키 보존을 확인한다. 이 결과는 일회성 DB의 소프트웨어 증거이며 운영 DB 복원 실행이나 모든 Prisma/PostgreSQL 버전의 원자성 보장이 아니다.
 
 간단한 관계 흐름은 다음과 같다.
 
@@ -122,6 +177,10 @@ SiteDeletionCleanup (삭제된 Site ID와 외부 정리 대상을 독립 보존)
 | `failed` | 명령 실패 |
 
 ### CommandDispatchStatus / CommandFixtureResultStatus
+
+`CommandOutcome`은 `pending`, `applied`, `not_applied`, `partially_applied`, `unknown`으로 실제 적용 결과를 구분한다. 기존 `CommandStatus`와 별도이며 과거 행은 `outcome = NULL`로 보존한다. `unknown`은 MQTT 발행 시도 뒤 PUBACK·장비 응답 유실 등으로 실제 적용 여부를 확정할 수 없는 상태다.
+
+`CommandDispatchKind`는 기존 Set인 `dimming`(기본값)과 관측용 Get인 `status_check`를 구분한다.
 
 `CommandDispatchStatus`는 gateway별 전송 상태를 `pending`, `published`, `accepted`, `completed`, `failed`, `timed_out`으로 구분한다. `CommandFixtureResultStatus`는 실제 조명별 결과를 `pending`, `succeeded`, `failed`, `timed_out`으로 구분한다. Gateway acceptance와 실제 장비 status ACK를 같은 의미로 취급하지 않는다.
 
@@ -220,7 +279,7 @@ SiteDeletionCleanup (삭제된 Site ID와 외부 정리 대상을 독립 보존)
 | --- | --- |
 | `none` | 배경 없이 격자 캔버스만 사용 |
 | `image` | JPG 또는 PNG 이미지 원본 사용 |
-| `pdf` | PDF 첫 페이지를 렌더링한 이미지 사용 |
+| `pdf` | PDF 원본 자산 연결. 격리 렌더 worker가 만든 ready 이미지가 있을 때만 배경 표시 |
 
 ### CertificatePurpose
 
@@ -240,6 +299,7 @@ SiteDeletionCleanup (삭제된 Site ID와 외부 정리 대상을 독립 보존)
 | `active` | 현재 사용할 수 있는 인증서 |
 | `pending` | 새 device 인증서. 발급 뒤 10분 안에 새 인증서 mTLS로 activation해야 하며, 그 전까지 active pointer를 변경하지 않음 |
 | `replaced` | 새 인증서로 교체된 인증서 |
+| `revocation_pending` | 논리적 사용 차단을 먼저 확정했고 CA 폐기·CRL 배포를 재시도하는 인증서 |
 | `revoked` | CA에서 폐기된 인증서 |
 | `expired` | 유효기간이 종료된 인증서 |
 
@@ -294,6 +354,7 @@ SiteDeletionCleanup (삭제된 Site ID와 외부 정리 대상을 독립 보존)
 - `administeredSite`: `Site?` (`Site.adminUserId`와 1:1)
 - `commands`: `Command[]`
 - `sessions`: `Session[]`
+- `mfa`: `UserMfa?`
 - `provisioningSessions`: `ProvisioningSession[]`
 - `siteMemberships`: `SiteMembership[]`
 - `floorMapRevisions`: `FloorMapRevision[]`
@@ -322,6 +383,7 @@ SiteDeletionCleanup (삭제된 Site ID와 외부 정리 대상을 독립 보존)
 | `timeZone` | `String` | 예 | `Asia/Seoul` | IANA timezone. 상태 기반 에너지 일·월 경계를 계산하는 기준 |
 | `gatewayOfflineAfterSeconds` | `Int` | 예 | `90`, SQL CHECK `30..900` | 모니터링 게이트웨이 heartbeat 만료 기준(초). 장비 제어 안전성의 기존 90초 계약과 별개 |
 | `fixtureStaleAfterSeconds` | `Int` | 예 | `180`, SQL CHECK `60..3600` | 모니터링 조명 상태 수신 만료 기준(초) |
+| `currency` | `String` | 예 | `KRW` | 현재 통계 비용 계산과 표시가 지원하는 고정 통화. 운영 설정 API도 `KRW`만 허용한다. |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
 | `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
 
@@ -345,7 +407,9 @@ admin 연결 제약:
 - Site의 `adminUserId`/`organizationId`, User의 `role`/`status`/`organizationId`, Organization의 `type`에 영향을 주는 INSERT/UPDATE는 각 테이블의 `BEFORE STATEMENT` trigger에서 동일한 transaction-scoped advisory lock을 먼저 얻는다. PostgreSQL이 target row를 잠그기 전에 세 write path를 직렬화하므로 서로 다른 target table에서 시작하는 UPDATE 사이의 row-lock 순환 대기를 막는다. 이 전역 직렬화는 저빈도 계정·현장 관리 작업의 처리량보다 교착 방지를 우선한 계약이다.
 - statement gate를 통과한 뒤 기존 row trigger는 stale snapshot write-skew를 막기 위해 관계 행을 `FOR UPDATE`로 잠그고 변경 후 상태를 검증한다. `Site` trigger는 대상 User와 Organization, `User` trigger는 연결 Site와 Organization, `Organization` trigger는 연결 Site와 User를 transaction 종료까지 안정적으로 유지한다.
 - `adminUserId`의 unique index와 restrict foreign key는 현장당 한 admin, admin당 한 현장, 연결된 admin의 삭제 방지를 함께 보장한다.
-- operator site-admin 관리 API는 customer Organization, 설치 대기 Site, active admin User와 `adminUserId` 연결을 Serializable transaction으로 생성한다. 영구 삭제는 사용자가 입력한 현장명이 현재 이름과 정확히 일치할 때만 실행한다. 같은 transaction에서 제조 `GatewayInventory`를 비활성화하고 외부 정리 대상을 `SiteDeletionCleanup`에 먼저 기록한 뒤, `20260903041451_operator_site_cascade_delete` migration의 ownership cascade로 층·도면·조명·그룹·게이트웨이·명령·등록·에너지·자동화 데이터를 제거한다. Gateway 삭제의 `SET NULL` FK가 inventory claim 연결을 해제한다. 커밋 뒤 worker가 Gateway 인증서를 폐기하고 presigned upload URL 최대 수명 이후 FloorAsset 객체를 삭제하며 실패 시 재시도한다. `GatewayInventory`와 `GatewayCertificate` 원장은 보존한다. 고객사에 다른 Site가 없으면 Session, Invitation, 모든 customer User와 Organization도 삭제한다. 삭제 대상 User를 `FOR UPDATE`로 먼저 잠가 login/session 생성과 직렬화한다. 삭제 감사는 함께 삭제되는 customer가 아니라 service-provider Organization에 `operator.site_deleted`로 보존한다.
+- operator site-admin 관리 API는 customer Organization, 설치 대기 Site, active admin User와 `adminUserId` 연결을 Serializable transaction으로 생성한다. 영구 삭제는 사용자가 입력한 현장명이 현재 이름과 정확히 일치할 때만 실행한다. 최종 삭제 transaction은 FloorAsset upload intent와 동일한 Site 행을 `FOR UPDATE`로 잠근 뒤 자산 목록을 다시 읽는다. 같은 transaction에서 제조 `GatewayInventory`를 비활성화하고 외부 정리 대상을 `SiteDeletionCleanup`에 먼저 기록한 뒤, `20260903041451_operator_site_cascade_delete` migration의 ownership cascade로 층·도면·조명·그룹·게이트웨이·명령·등록·에너지·자동화 데이터를 제거한다. Gateway 삭제의 `SET NULL` FK가 inventory claim 연결을 해제한다. 커밋 뒤 worker가 Gateway 인증서를 폐기하고 presigned upload URL 최대 수명 이후 FloorAsset 객체를 삭제하며 실패 시 재시도한다. `GatewayInventory`와 `GatewayCertificate` 원장은 보존한다. 고객사에 다른 Site가 없으면 Session, Invitation, 모든 customer User와 Organization도 삭제한다. 삭제 대상 User를 `FOR UPDATE`로 잠가 login/session 생성과 직렬화한다. 삭제 감사는 함께 삭제되는 customer가 아니라 service-provider Organization에 `operator.site_deleted`로 보존한다.
+- 설치 후 현장 설정 수정은 admin의 `manage` 권한을 transaction 안에서 다시 확인하고 Site 행을 `FOR UPDATE`로 잠근다. 주소와 kWh 단가는 비어 있을 수 없고 통화는 `KRW`만 허용한다. 요청의 `expectedUpdatedAt`과 잠긴 행의 버전이 다르면 `409 settings_version_conflict`로 거부한다.
+- 시간대 또는 kWh 단가를 바꾸기 전에는 기존 시간대·단가로 모든 조명의 열린 에너지 구간을 변경 시각까지 정산한다. 설정 변경은 Site `FOR UPDATE`, 상태 수집은 서로 호환되는 Site `FOR KEY SHARE`를 먼저 얻은 뒤 Fixture를 잠그므로, 수집끼리는 병렬 진행하면서 대기 중인 수집이 이전 설정을 새 checkpoint에 적용하지 못한다. 다수 조명 정산의 잠금 순서는 Site, Fixture ID 오름차순, aggregate/cursor이며 500행 단위로 UTC 시각을 명시해 저장한다.
 
 ### MonitoringIncident
 
@@ -408,6 +472,8 @@ worker는 API 시작 시와 30초 주기로 만료된 작업을 최대 10개씩 
 | `siteId` | `String` | 예 | FK -> `Site.id` | 소속 현장 |
 | `name` | `String` | 예 |  | 층 이름 |
 | `level` | `Int` | 예 |  | 정렬/층 숫자 |
+| `status` | `FloorStatus` | 예 | `active` | 운영 화면 노출 여부. `archived` 층은 설정 조회에서만 복구 가능 |
+| `displayOrder` | `Int` | 예 | `0` | 설정과 층 선택 UI의 사용자 지정 표시 순서 |
 | `nextFixtureSequence` | `Int` | 예 | `0` | 마지막으로 예약한 자동 조명 이름 순번 |
 | `mapRevision` | `Int` | 예 | `0` | 층 전체 편집 상태의 optimistic concurrency revision |
 | `editorLeaseFence` | `Int` | 예 | `0` | 편집 lease의 monotonic fencing counter |
@@ -432,25 +498,30 @@ worker는 API 시작 시와 30초 주기로 만료된 작업을 최대 10개씩 
 운영 메모:
 
 - `(id, siteId)` Unique는 Fixture의 투영 Site owner FK 기준이다.
+- `(siteId, status, displayOrder)` index로 활성 층과 설정용 정렬 조회를 지원한다. 조명, 활성 구역 또는 진행 중인 조명 등록 세션이 남은 층은 보관할 수 없다.
+- 층 수정과 보관은 admin 재인가 뒤 Floor 행을 잠그고 `expectedUpdatedAt`을 검증한다. 보관된 층은 dashboard와 일반 조명 목록에서 제외되며 새 검색·등록 세션, 재검색·일괄 등록과 terminal provisioning 완료가 조명 또는 MeshNode를 만들지 못한다.
+- 보관된 층은 이미 발급된 편집 lease/token이 있어도 맵 저장·복구, 자산 업로드 시작·완료와 lease 획득·갱신·반납을 수행할 수 없다. 읽기·이력 조회와 만료 pending 자산 정리는 유지한다.
+- 층 이름 변경은 같은 transaction과 시각으로 소속 조명의 현재 에너지 dimension `floorName`을 갱신한다.
 - floor editor save/restore transaction은 `editorLeaseFence`, `editorLeaseTokenHash`, `editorLeaseExpiresAt`, `mapRevision`을 같은 PostgreSQL transaction 안에서 함께 검증한다.
 - Redis key `floor-editor:lease:{floorId}`는 빠른 경합 감지와 best-effort heartbeat cache일 뿐 정본이 아니다. 만료, 강제 해제, successor 획득은 항상 `Floor` row의 lease authority를 먼저 갱신한다.
 - 자동 조명 이름 순번은 등록 transaction에서 `Floor` 행을 `FOR UPDATE`로 잠근 뒤 범위 단위로 예약한다. 삭제된 조명의 순번이나 건너뛴 순번을 재사용하지 않는다.
 
 ### SiteMembership
 
-`operator`와 `viewer`의 현장 접근 범위와 일반 사용자의 현장 권한을 명시적으로 보관한다. `(userId, siteId)`는 unique이며 두 부모가 삭제되면 함께 삭제한다.
+`viewer`의 현장 접근 범위와 일반 사용자의 현장 권한을 명시적으로 보관한다. `userId` 단독 unique로 일반 사용자 한 명이 정확히 한 현장에만 속하게 하며, 기존 `(userId, siteId)` unique도 Prisma 복합 조회 계약을 위해 유지한다. 두 부모가 삭제되면 함께 삭제한다.
 
 | 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
 | --- | --- | --- | --- | --- |
 | `id` | `String` | 예 | PK, `uuid()` | membership ID |
-| `userId` | `String` | 예 | FK -> `User.id`, cascade delete | 사용자 ID |
+| `userId` | `String` | 예 | Unique, FK -> `User.id`, cascade delete | 사용자 ID. 사용자당 membership 최대 1개 |
 | `siteId` | `String` | 예 | FK -> `Site.id`, cascade delete, indexed | 현장 ID |
 | `accessLevel` | `SiteAccessLevel` | 예 | `read` | 현장별 조회 또는 수동 제어 권한. 기존 membership은 migration에서 `read`로 backfill |
 | `createdAt` | `DateTime` | 예 | `now()` | 배정 시각 |
 
 운영 메모:
 
-- signup은 invitation 소비와 `SiteMembership` 생성을 같은 transaction으로 처리한다. scoped `operator`/`viewer` invitation은 유효한 `siteId`가 필요하고, `admin` invitation은 조직 전체 접근 의미를 유지하므로 membership을 만들지 않는다.
+- `20260912110000_single_site_membership` migration은 기존 다중 현장 사용자가 있으면 `SITE_MEMBERSHIP_MULTI_SITE_USER`로 중단한다. 임의로 소속을 삭제하지 않으며 운영자가 데이터를 정리한 뒤 다시 적용해야 한다.
+- signup은 invitation 소비와 `SiteMembership` 생성을 같은 transaction으로 처리한다. scoped `viewer` invitation은 유효한 `siteId`가 필요하고, `admin`은 Site의 `adminUserId` 관계를 사용하므로 membership을 만들지 않는다.
 - `viewer` membership은 반드시 사용자의 customer Organization에 속한 site만 가리켜야 한다. SiteAccess는 권한 판정과 접근 가능한 현장 목록 계산 양쪽에서 이 invariant를 강제한다.
 
 ### FloorMapRevision
@@ -523,8 +594,8 @@ worker는 API 시작 시와 30초 주기로 만료된 작업을 최대 10개씩 
 - 현재 읽기 전용 모니터링 화면은 `imageUrl`, `width`, `height`와 저장된 맵 객체·조명 좌표를 사용한다.
 - 맵 편집기는 `sourceType = none`이거나 `FloorPlan`이 없을 때 배경 없는 격자 캔버스를 표시한다. 배경이 없어도 맵 크기와 `gridSize`를 저장하기 위해 `sourceType = none`인 `FloorPlan`을 생성할 수 있다.
 - `gridSize`는 `20260910000000_floor_plan_grid_size` migration으로 추가한다. 기존 행은 `10`으로 backfill되며 DB와 API가 모두 `5~200` 범위를 검증한다.
-- PDF 업로드는 원본 ready asset URL을 `originalFileUrl`, 첫 페이지 PNG ready asset URL을 `renderedImageUrl`에 저장한다.
-- `imageUrl`, `originalFileUrl`, `renderedImageUrl`은 같은 층의 ready `FloorAsset.publicUrl`만 허용하며 data URL과 임의 외부 URL을 거부한다.
+- PDF 업로드는 원본 ready asset 경로를 `originalFileUrl`에 저장한다. 별도 렌더 자산이 없으면 `imageUrl = ""`, `renderedImageUrl = NULL`로 원본만 연결하며 캔버스 배경은 표시하지 않는다. 첫 페이지 PNG는 후속 격리 렌더 worker가 생성한 ready asset만 연결한다.
+- `imageUrl`, `originalFileUrl`, `renderedImageUrl`은 같은 층의 ready `FloorAsset`을 가리키는 `/api/floors/{floorId}/assets/{assetId}/content` 경로만 허용한다. data URL, 임의 외부 URL과 다른 층 asset 경로는 거부한다.
 
 ### FloorAsset
 
@@ -537,16 +608,22 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 | `kind` | `FloorAssetKind` | 예 | `original`, `rendered` | 원본 또는 렌더 결과 |
 | `status` | `FloorAssetStatus` | 예 | `pending` | 업로드 검증 전/후 상태 |
 | `objectKey` | `String` | 예 | Unique | bucket 내부 object key |
-| `publicUrl` | `String` | 예 |  | 모니터링/에디터 조회 URL |
 | `mimeType` | `String` | 예 |  | 서명된 Content-Type |
 | `sizeBytes` | `BigInt` | 예 |  | 서명된 byte 크기 |
 | `sha256` | `String` | 예 |  | 64자리 hex SHA-256 |
+| `uploadExpiresAt` | `DateTime?` | 아니오 |  | pending PUT URL 만료 시각 |
+| `cleanupStartedAt` | `DateTime?` | 아니오 |  | 만료 자산 정리 작업의 점유 시각 |
 | `readyAt` | `DateTime?` | 아니오 |  | S3 HEAD 검증 완료 시각 |
 
 운영 메모:
 
-- upload intent는 JPEG/PNG/PDF, 1 byte~50 MB, SHA-256 형식을 검증하고 5분짜리 PUT URL을 발급한다.
-- complete 요청은 S3 HEAD의 MIME, 크기, checksum이 모두 intent와 같을 때만 `ready`로 전환한다.
+- upload intent는 JPEG/PNG/PDF, 1 byte~50 MB, SHA-256 형식을 검증하고 DB의 `pending` 원장을 먼저 커밋한 뒤 5분짜리 PUT URL을 발급한다. 서명 성공 뒤 실제 만료 시각이 원장에 기록된 경우에만 URL을 반환한다. 서명 또는 만료 기록이 실패하면 `uploadExpiresAt = NULL`인 원장이 남아 자동 정리 대상이 된다. API 내부 S3 endpoint와 브라우저용 public bucket base를 분리해 문자열 치환 없이 별도 client로 서명하며 production에서 public base 누락은 시작 오류다.
+- complete 요청은 transaction 밖의 S3 HEAD에서 MIME, 크기, checksum을 4초 안에 확인한 뒤 transaction 안에서 Site 관리자 권한, 활성 Floor와 FloorAsset 행을 다시 잠금·검증하고 `ready`로 전환한다. 객체 부재는 404, 권한·timeout·저장소 장애는 503으로 구분한다.
+- API 시작 시와 60초마다 최대 25개의 만료 pending 자산을 조회한다. URL 만료 후 5초가 지난 자산과 서명 단계에서 15분 이상 중단된 NULL 만료 원장을 점유하고, 4초 제한 안에 S3 삭제가 성공하면 원장 행을 삭제한다. 외부 저장소 실패 시 점유를 풀어 다음 주기에 재시도하며 2분 이상 남은 점유는 중단된 작업으로 회수한다.
+- `readyAt` 또는 기존 행의 `createdAt`부터 24시간이 지난 ready 자산이 현재 FloorPlan과 모든 FloorMapRevision snapshot에서 참조되지 않으면 같은 worker가 회수한다. 후보 조회에서 참조 자산을 먼저 제외해 오래된 이력이 batch를 고갈시키지 않는다. ready 객체 삭제 실패는 점유 시각을 2분간 재시도 backoff로 유지해 다음 poll에서 뒤 후보를 처리한다. 맵 저장·복구와 cleanup은 Floor 행을 먼저 잠그고 `cleanupStartedAt`을 다시 확인하므로, 저장이 먼저 끝난 자산은 보존되고 cleanup이 먼저 점유한 자산은 저장되지 않는다.
+- 조회 API는 공개 URL을 반환하지 않는다. 현장 `read` 권한을 확인한 content endpoint가 private bucket에 대해 300초 signed GET을 발급하고 `302`로 연결한다.
+- 번들 MinIO는 `WEB_PUBLIC_URL`을 `MINIO_API_CORS_ALLOW_ORIGIN`으로 전달하며 미설정 시 `http://localhost:5173`을 사용한다. 버킷은 계속 anonymous `none`이고, 지원되지 않는 `mc cors set`이나 localhost 전용 XML에 의존하지 않는다.
+- `20260912090000_floor_asset_private_ledger` migration은 기존 FloorPlan과 FloorMapRevision snapshot의 알려진 asset URL을 인증 경로로 치환하고, 변경된 snapshot의 안정 해시를 다시 계산한 뒤 `publicUrl` 컬럼을 제거한다. 알려진 asset과 대응하지 않는 비어 있지 않은 legacy URL이 하나라도 있으면 전체 migration을 원자적으로 중단한다.
 
 ### FloorMapObject
 
@@ -651,6 +728,8 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 - 첫 MQTT `fixture-state` event가 도착할 때만 online/fault/offline 상태, 밝기, RSSI, hop, lastSeenAt과 `statusReason`을 실제 관측값으로 확정한다. API는 packet 수신 시작 시각을 한 번 고정하고 `occurredAt <= receivedAt + 300,000ms`(정확한 경계 포함)만 수락한다. 이보다 1ms라도 미래인 event는 원장에 terminal rejection만 남기고 Fixture snapshot·에너지 cursor·aggregate에는 접근하지 않는다.
 - freshness worker는 `provisioning_waiting_state`를 gateway offline과 fixture stale 재집계에서 제외한다. 첫 실제 `fixture-state`가 status reason을 보고값으로 바꾼 뒤에는, 보고된 `offline`을 포함해 일반 freshness 규칙을 적용한다.
 - `(floorId, id)` 복합 인덱스는 층별 fixture snapshot의 ID cursor 페이지 조회에 사용한다.
+- 일반 조명 조회는 200개 단위 ID cursor를 사용하며 시리얼·device UUID·Mesh 주소·펌웨어 버전을 노출하지 않는다. 해당 제조 식별 정보는 admin `manage` 권한 전용 설정 endpoint에서만 200개 단위 ID cursor로 조회한다.
+- admin의 조명 이름·정격전력 수정은 Fixture 행을 잠근 뒤 transaction 안에서 권한과 `expectedUpdatedAt`을 다시 확인한다. stale 요청은 `409 settings_version_conflict`로 거부한다. 정격전력 변경은 기존 에너지 checkpoint를 닫고, 이름 또는 정격전력 변경은 같은 시각의 에너지 dimension 이력을 기록한다.
 
 ### FixtureGroup
 
@@ -799,7 +878,7 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 | `issuer` | `String` | 예 |  | 발급 CA 식별자 |
 | `notBefore` | `DateTime` | 예 |  | 유효 시작 시각 |
 | `notAfter` | `DateTime` | 예 |  | 만료 시각 |
-| `status` | `GatewayCertificateStatus` | 예 | DB enum | `active`, `pending`, `replaced`, `revoked`, `expired` |
+| `status` | `GatewayCertificateStatus` | 예 | DB enum | `active`, `pending`, `replaced`, `revocation_pending`, `revoked`, `expired` |
 | `revokedAt` | `DateTime?` | 아니오 |  | 폐기 시각 |
 | `replacedById` | `String?` | 아니오 | Unique self FK, delete restrict | 이 인증서를 교체한 새 인증서 ID |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
@@ -824,10 +903,35 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 - DB의 self-check와 unique 제약만으로는 cross-inventory, cross-purpose 또는 다중 노드 cycle을 완전히 차단할 수 없다.
 - MQTT 인증서 발급은 inventory ID를 입력으로 한 PostgreSQL transaction-scoped advisory lock 안에서 실행한다. 같은 inventory의 동시 요청은 직렬화되며, 기존 active MQTT 인증서는 `replaced`로 전환한 뒤 새 active 행을 만들고 마지막에 기존 행의 `replacedById`를 새 ID로 연결한다. 세 단계는 하나의 transaction이므로 외부에는 원자적으로 보인다.
 - partial Unique index는 위 서비스 잠금과 별도로 같은 inventory에 active MQTT 인증서가 둘 이상 남지 않도록 DB에서 강제한다. migration은 과거 중복 active 행이 있으면 가장 최근 행만 active로 남기고 나머지는 `replaced`로 정리한 뒤 index를 만든다.
-- Device renewal은 active device 인증서가 만료 30일 안에 있을 때만 P-256 CSR을 server-fixed serial CN/URI SAN으로 서명하고 `pending` 원장을 만든다. Inventory advisory lock과 pending partial unique index가 같은 inventory의 동시 renewal을 하나로 제한하며, 서명 후 원장 기록 또는 CA metadata 검증에 실패한 인증서는 best-effort revoke 후 일반화된 503을 반환한다. 성공 응답은 기존 PEM/`caChainPem` 배열 계약과 claimed gateway ID를 함께 반환한다. pending 인증서로 10분 안에 mTLS activation하면 transaction에서 기존 active를 `replaced`로, pending을 `active`로 바꾸고 inventory/gateway pointer를 함께 바꾼다. grace를 넘긴 pending은 revoke 후 거부한다.
-- Admin inventory disable은 소속 조직의 claimed inventory만 허용한다. `disabledAt`을 먼저 확정해 bootstrap과 MQTT 발급을 즉시 차단한 뒤, 아직 revoke되지 않은 device/MQTT 인증서를 Vault에서 순차 폐기하고 각 성공을 원장에 기록한다. Vault 일부 실패 뒤에도 inventory는 disabled이며 같은 endpoint 호출로 남은 인증서 폐기를 재시도한다.
+- Device renewal은 active device 인증서가 만료 30일 안에 있을 때만 P-256 CSR을 server-fixed serial CN/URI SAN으로 서명하고 `pending` 인증서를 만든다. 최초 device 발급·MQTT 발급·renewal은 공통 inventory advisory/row와 certificate row 잠금 뒤 상태를 재조회하고, CA 서명 직후 독립 transaction으로 폐기 원장을 commit한 뒤 상태·pointer·Gateway 배정을 다시 확인한다. 성공 인증서 저장과 같은 transaction만 원장을 취소하며 rollback은 원장을 유지한다. 원장 자체를 만들지 못하면 즉시 best-effort 폐기하고 일반화된 오류로 실패한다. pending 인증서로 10분 안에 mTLS activation하면 같은 잠금 뒤 기존 active와 pending, Gateway 배정을 확인하여 두 pointer를 함께 바꾼다. grace를 넘긴 pending은 `revocation_pending`과 원장을 남겨 별도로 폐기하며 기존 active는 유지한다.
+- Inventory disable은 active service-provider `operator` 전용이다. 같은 transaction에서 `disabledAt`, device/MQTT 인증서의 `revocation_pending`, inventory/Gateway pointer clear와 폐기 원장을 확정해 즉시 인가를 차단한다. commit 뒤 worker가 CA 폐기와 CRL 배포를 재시도하며 외부 실패 시 일반화된 pending 오류를 반환한다. Site 삭제도 모든 inventory ID와 certificate row를 정렬 잠금한 뒤 같은 staging을 수행하므로 Gateway cascade 후에도 폐기 의무가 남는다.
 - Task 27/29 lifecycle service는 같은 transaction 안에서 기존/후속 인증서가 동일한 `inventoryId`와 `purpose`인지 확인하고, 기존 교체 체인을 잠금 조회해 cycle이 생기지 않는지 검증한 뒤 `replacedById`와 상태를 함께 갱신해야 한다.
 - revoke 대상은 `purpose + issuer + certificateSerial + fingerprint`로 식별해 CA 교체나 serial 충돌 상황에서도 모호하지 않게 한다.
+
+### CertificateRevocationReconciliation
+
+CA 서명 직후 인증서 DB 저장 실패·process crash와 논리적 폐기 후 외부 CA/CRL 장애를 회수하는 영속 원장이다. `20260915090000_certificate_revocation_reconciliation` additive migration으로 추가하며, 인증서·inventory·현장 삭제 후에도 의무가 남도록 FK를 두지 않는다. 완료·취소 행도 삭제하지 않는다.
+
+| 컬럼 | 타입·제약 | 의미 |
+| --- | --- | --- |
+| `id` | String PK, uuid | 원장 ID |
+| `inventoryId`, `certificateId` | String, certificateId nullable, FK 없음 | 대상 식별 metadata |
+| `purpose`, `issuer`, `certificateSerial`, `fingerprint` | purpose DB enum, issuer+serial Unique, fingerprint Unique | PEM 없는 CA 폐기 대상과 두 멱등성 키 |
+| `source` | String | `signed_certificate` 또는 `inventory_revocation`으로 정제 |
+| `attempts`, `nextAttemptAt` | Int 기본 0, DateTime 기본 now | 임대 횟수와 다음 처리 시각 |
+| `leaseOwner`, `leaseExpiresAt` | nullable String / DateTime | claim마다 새 owner와 300초 임대 |
+| `revokedAt`, `completedAt`, `cancelledAt` | nullable DateTime | CA 폐기 성공, CRL 배포 완료, 정상 인증서 저장에 따른 취소 |
+| `lastError` | nullable String | CA/CRL 실패 코드만 저장 |
+| `createdAt`, `updatedAt` | DateTime | 생성·갱신 시각 |
+
+- 처리 인덱스는 `completedAt + cancelledAt + nextAttemptAt + leaseExpiresAt`, 조회 인덱스는 `inventoryId`다.
+- `armSignedCertificate`는 별도 transaction으로 metadata만 commit하며 처리 유예는 180초다. 발급 소비 경로는 공통 `CERTIFICATE_TRANSACTION_TIMEOUT_MS = 140000`을 사용하고, 인증서 저장과 같은 transaction에서 `cancelSignedCertificate`를 호출해야 한다. 이미 임대·폐기·완료된 원장의 취소는 저장을 거부한다.
+- Worker는 시작 시와 30초마다 `FOR UPDATE SKIP LOCKED`로 due 원장을 하나씩 claim한다. CA 폐기는 DB transaction 밖에서 실행하고 결과는 owner와 아직 유효한 lease로 fence한다. CA 성공을 먼저 기록하므로 CRL 실패는 CA를 다시 폐기하지 않고 CRL만 재시도한다. 30초부터 최대 1시간 지수 backoff로 무기한 재시도하며, CRL 배포 경로가 없으면 완료하지 않는다.
+- CRL read → publish → 완료 저장은 목적별 PostgreSQL advisory lock을 가진 최대 15분 transaction에서 실행한다. 두 int key의 첫 값은 예약 namespace `0x504b4943`(`PKIC`), 둘째 값은 device `1` / mqtt `2`다. 이 공간은 inventory의 bigint advisory key와 별개이며 서로 다른 purpose는 직렬화하지 않는다. 잠금 대기는 최대 10초다. CA read 뒤 매 publish 직전에 transaction 유효성과 owner/lease를 다시 조회하고, publish 뒤 CA를 다시 읽어 snapshot이 달라졌으면 최신 snapshot을 재배포한다. 최대 3회 배포·검증(최초 조회 포함 최대 4회 CA read)까지만 시도하며 계속 달라지면 미완료/backoff로 남긴다. publication I/O 중에는 inventory/certificate row lock을 잡지 않으며 완료 직전에 공통 row lock 순서를 적용한다.
+- Vault read의 요청별 상한 120초에 따라 최대 네 번의 네트워크 요청 예산은 8분이다. 15분은 네트워크 요청·인증 토큰/파일 I/O·DB 작업을 합친 transaction 예산이며 파일시스템 호출의 엄격한 상한이 아니다. 5분 row lease 이후에도 살아 있는 transaction은 purpose 잠금을 유지한다. 여러 I/O의 누적 지연이 이 예산을 넘거나 DB session이 유실되면 이미 시작한 publish가 잠금 해제 뒤까지 계속될 수 있다. Prisma가 외부 I/O를 취소하지 못하는 이 경계는 개별 파일 호출이 15분보다 짧아도 발생할 수 있으며 운영 위험으로 남는다.
+- 공통 잠금 순서는 inventory advisory lock → inventory row → ID 순 certificate rows → Gateway다. `stageInventoryRevocation`은 같은 transaction에서 inventory pointer를 비우고 미폐기 인증서를 `revocation_pending`으로 바꾸며 이전 정상 발급의 취소 원장도 다시 연다. Gateway pointer와 `disabledAt` 변경은 소비 경로가 같은 transaction에서 담당한다.
+- 업그레이드 전 `GatewayCertificate.status = revoked`는 CRL 배포 완료를 증명하지 못하므로 완료 판단은 `CertificateRevocationReconciliation.completedAt`을 기준으로 한다. 원장이 없는 legacy revoked 인증서를 disable/revoke 재시도에서 만나면 기존 `status`와 `revokedAt`을 유지하면서 원장 하나를 생성해 CA 폐기·CRL 배포를 안전하게 다시 수행한다. CA 성공 뒤 CRL만 실패하면 같은 원장으로 CRL만 재시도하고, 완료 후 반복 호출은 새 작업이나 추가 CA/CRL 호출을 만들지 않는다. 전체 legacy backfill을 실행하지 않고 해당 inventory 처리 시 복구한다.
+- Task 2~3에서 실제 issue/renew/activate/disable 및 Site 삭제 경로를 연결하고 기존 manufacturing → claim → bootstrap → MQTT E2E와 revoked/disabled 거부를 유지했다. 전용 disposable PostgreSQL 16에 전체 57 migration을 적용하고 별도 Prisma connection과 CA barrier로 양방향 경쟁, `pg_stat_activity`/`pg_locks`의 동일 advisory key 대기, 동시 MQTT 발급의 CA 서명 비중첩, 정상 renewal → activation, disabled 이후 active/pending 0·pointer null·영속 원장, rollback 뒤 새 worker의 폐기를 검증했다. PostgreSQL connection·migration·transaction·lock·원장 저장은 실제이고 CA·CSR 검증·CRL 파일 배포는 fixture다. 사용자 로컬 DB migration과 실제 Vault/CRL 배포·장비/HIL은 실행하지 않았다. 원장 저장과 즉시 CA 폐기가 동시에 실패하는 구간은 CA 측 발급 감사/재조회 없이 완전히 회수할 수 없다.
 
 보안 저장 정책:
 
@@ -981,6 +1085,7 @@ cloud가 ACK로 확인한 실제 group subscription pair snapshot이다. 복합 
 | `targetFixtureIds` | `Json` | 예 | `[]` | 명령 생성 transaction에서 확정한 조명 ID snapshot |
 | `brightness` | `Int` | 예 |  | 요청 밝기 0-100 |
 | `status` | `CommandStatus` | 예 | `pending` | 명령 상태 |
+| `outcome` | `CommandOutcome?` | 아니오 | 기본값 없음 | 실제 적용 결과. 기존 행은 `NULL`, 신규 producer가 명시 |
 | `errorMessage` | `String?` | 아니오 |  | 실패 사유 |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
 | `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
@@ -1004,6 +1109,9 @@ cloud가 ACK로 확인한 실제 group subscription pair snapshot이다. 복합 
 
 | `CommandDispatch` 추가 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
 | --- | --- | --- | --- | --- |
+| `kind` | `CommandDispatchKind` | 예 | `dimming` | Set 전송 또는 후속 상태 조회 |
+| `verificationAttempt` | `Int?` | 아니오 | 기본값 없음 | `status_check`의 시도 번호, shared wire에서 1~3 강제 |
+| `clientRequestId` | `String?` | 아니오 | 전역 Unique | 상태 조회 HTTP 재요청 멱등 키. 기존 dimming은 `NULL` |
 | `deliveryMode` | `String` | 예 | `unicast` | `unicast`, `parallel_unicast`, `mesh_group` |
 | `destinationAddress` | `String?` | 아니오 |  | `mesh_group`일 때 사용할 BLE Mesh Group Address |
 | `meshControlGroupId` | `String?` | 아니오 | `gatewayId`와 복합 FK -> `MeshControlGroup(id, gatewayId)`, `ON DELETE RESTRICT` | 명령 생성 시 선택한 Mesh control group snapshot |
@@ -1012,6 +1120,14 @@ cloud가 ACK로 확인한 실제 group subscription pair snapshot이다. 복합 
 `unicast`와 `parallel_unicast`는 조명 수만큼 실제 전송하고, `mesh_group`은 `destinationAddress`에 한 번 전송한다. floor/group target은 `MeshControlGroup.status = ready`인 주소만 사용하며 준비되지 않은 group을 unicast로 대체하지 않는다. Mesh group dispatch는 그룹 삭제로 명령 감사 snapshot이 사라지지 않도록 `ON DELETE RESTRICT` 관계를 사용하고, `(meshControlGroupId, status)` index로 발행 대기 명령 검증을 지원한다.
 
 `Gateway.nextCommandSequence`는 gateway별 dispatch sequence를 트랜잭션 안에서 원자 증가시키는 카운터다. 동시 제어 요청에서도 `(gatewayId, sequence)`가 충돌하지 않도록 `max(sequence)+1` 계산을 사용하지 않는다.
+
+`20260912090000_command_outcome_status_check`는 두 enum과 nullable outcome/상태 조회 identity, 기본값 `dimming`인 dispatch kind, nullable `MqttOutbox.deliveryAttemptedAt`을 추가하는 순방향 migration이다. 아직 적용하지 않은 이 migration에 최종 리뷰 보정을 포함했다. 과거 outcome·시도 번호·요청 ID·발행 시각을 backfill하지 않는다. 이 작업에서는 migration 파일 작성 및 Prisma validate/generate만 수행하고 어떤 DB에도 적용하지 않았다.
+
+P0/P1 배포는 구버전과 혼용하면 안전하지 않다. 신규 제어와 상태 확인 기능을 닫고 구버전 API/publisher를 stop-and-drain한 뒤 migration을 적용해야 한다. 신규 publisher와 Gateway, API ACK consumer가 모두 배포되어 준비된 뒤 status-check producer/API와 UI를 활성화한다. 특히 기존 publisher는 `deliveryAttemptedAt`을 기록하지 않고 status-check wire를 처리하지 못하며, 기존 consumer는 BlueZ의 `failed + STATUS_TIMEOUT`을 미적용으로 오판한다. 기존 미해결 명령의 `outcome=NULL`은 과거 발행 여부를 추정하지 않고 그대로 유지한다. 이 순서는 운영 절차이며 이번 작업에서 배포나 migration 적용을 실행한 것은 아니다.
+
+상태 조회 outbox는 `sites/{siteId}/gateways/{gatewayId}/commands/status-check`로 발행한다. Strict draft는 기존 command identity와 `originalCommandId`, 중복 없는 `targetFixtureIds` 1~64개, `expectedBrightness` 0~100, `verificationAttempt` 1~3, `requestedAt`을 사용한다. 원 명령 snapshot이 64개를 넘으면 정렬한 64개 단위 dispatch들로 나누되 모두 같은 논리 `verificationAttempt`에 속하고 첫 dispatch만 HTTP `clientRequestId`를 가진다. 따라서 65~1,000개 원 대상도 한 번의 상태 확인이며 최대 3회 제한은 chunk 수가 아니라 논리 시도 번호로 계산한다. 모든 chunk의 dispatch/result/outbox와 gateway sequence 증가는 하나의 DB transaction에서 생성되어 중간 chunk 실패 시 전체 rollback된다.
+
+Published payload는 `deliveryGeneration`, `deliveryGeneratedAt`, `deliveryWindowMs`, `expiresAt`을 더하며 요청자 PII·override·Mesh 그룹 정보를 허용하지 않는다. 발행 시점 기준 최대 10초·초 단위 expiry를 durable 저장하고, PUBACK 유실 뒤에도 동일 generation을 재사용하며 남은 MQTT TTL만 감소시킨다. Status-check 발행 실패·timeout은 해당 dispatch/result만 닫고 원 명령의 `unknown`은 유지한다. Gateway는 acceptance receipt를 journal에 먼저 내구 저장한 뒤 Generic OnOff/Lightness Get을 실행하며, API는 시도의 모든 chunk가 terminal일 때 관측 밝기를 원 요청과 비교해 전부 일치 `applied`, 전부 불일치 `not_applied`, 혼합 `partially_applied`, 미관측 포함 `unknown`으로 수렴한다. 어떤 경로도 밝기 Set을 자동 재전송하지 않는다.
 
 `CommandFixtureResult`는 `(dispatchId, fixtureId)` 복합 PK로 실제 조명별 `succeeded`, `failed`, `timed_out`, 밝기, fault, RSSI, hop, 발생 시각을 저장한다. 일부 노드 실패를 그룹 전체 성공으로 숨기지 않는다.
 
@@ -1039,12 +1155,19 @@ MQTT 실패나 PUBACK 유실 뒤 retry는 generation과 wire payload를 다시 �
 
 이 migration은 구버전 command producer/publisher와 신버전을 동시에 운영하는 rolling deploy를 허용하지 않는다. Control write를 freeze하고 구버전 API와 command publisher를 stop-and-drain한 뒤, 마지막 구버전 publisher 종료부터 broker 최대 command expiry 10초를 기다린다. 그 다음 migration을 적용하고 신버전 API/publisher만 시작해 command smoke를 통과한 뒤 write를 재개한다. CHECK는 DB 재삽입을 fail-closed하지만 이미 최종 DB fence를 지난 구버전 worker의 메모리 publish는 막을 수 없으므로 이 순서를 생략할 수 없다. 상세 절차는 Gateway appliance runbook의 requester PII migration 유지보수 절을 따른다.
 
-Pending delivery timeout은 Dispatch보다 `MqttOutbox`를 먼저 조건부 dead-letter 선점한다. `lockedBy IS NULL` 또는 `leaseExpiresAt <= now`인 미발행 row를 정확히 1개 선점한 경우에만 Dispatch, 조명별 결과, Command를 종료한다. 필수 1:1 outbox가 없거나 active publisher lease가 있으면 fail-closed로 아무 terminal 전이도 하지 않는다. Outbox 선점 뒤 Dispatch 상태 경쟁을 잃으면 전용 오류로 transaction 전체를 rollback한다. 따라서 publisher claim과 timeout은 같은 outbox row update에서 직렬화된다. Published/accepted timeout은 outbox 선점 없이 기존 Dispatch 조건부 종료를 사용한다. 실패 시 지수 backoff와 jitter를 적용하며 최대 10회 또는 생성 후 15분을 넘으면 `deadLetteredAt`을 기록하고 dispatch와 조명별 결과를 실패로 종료한다. 프로세스가 중단돼도 lease 만료 후 다른 인스턴스가 레코드를 회수한다.
+Pending delivery timeout은 Dispatch보다 `MqttOutbox`를 먼저 조건부 dead-letter 선점한다. `lockedBy IS NULL` 또는 `leaseExpiresAt <= now`인 미발행 row를 정확히 1개 선점한 경우에만 Dispatch, 조명별 결과, Command를 종료한다. 필수 1:1 outbox가 없거나 active publisher lease가 있으면 fail-closed로 아무 terminal 전이도 하지 않는다. Outbox 선점 뒤 Dispatch 상태 경쟁을 잃으면 전용 오류로 transaction 전체를 rollback한다. 따라서 publisher claim과 timeout은 같은 outbox row update에서 직렬화된다. Published/accepted timeout은 outbox 선점 없이 기존 Dispatch 조건부 종료를 사용한다. 실패 시 지수 backoff와 jitter를 적용하며 최대 10회 또는 생성 후 15분을 넘으면 `deadLetteredAt`을 기록하며 dispatch와 조명별 결과는 아래 발행 시도 증거에 따라 분류한다. 프로세스가 중단돼도 lease 만료 후 다른 인스턴스가 레코드를 회수한다.
+
+Command publisher는 MQTT 호출 직전에 lease를 다시 확인하고 첫 `deliveryAttemptedAt`을 transaction으로 commit한다. 이 기록 이후 PUBACK을 잃으면 `publishedAt=NULL`, dispatch `pending`이어도 실제 Set을 전달했을 수 있다. Expiry/dead-letter 및 pending timeout worker는 이 내구 기록을 읽어 dimming을 `unknown`으로 닫고, 발행 시도 없이 검증에서 거절된 경우만 `not_applied`로 분류한다. `attempts` 횟수는 발행 증거로 사용하지 않는다. 기록 commit 직후 MQTT 호출 전 crash도 보수적으로 `unknown`이며 자동 Set 재시도는 추가하지 않았다.
+
+Publisher의 claim/prepare/발행 시도 기록/retry/terminal 갱신은 automation global lock을 outbox·dispatch·command 잠금보다 먼저 얻는다. MQTT 네트워크 대기에는 transaction을 유지하지 않는다. Terminal outbox를 닫더라도 dispatch 조건부 전이에 실패하면 조명 결과와 원 명령은 갱신하지 않아 먼저 확정한 ACK를 보존한다. 발행 불확실 dispatch는 `timed_out` 증거와 오류 코드를 남기며 `unknown`인 dimming에 한해 늦은 ACK를 수렴시킨다. Status-check publisher 실패는 원 Set outcome을 결정하지 않는다.
+
+BlueZ의 Lightness Status 유실은 신규 Gateway에서 `timed_out + STATUS_TIMEOUT`으로 발행한다. API consumer는 기존 `failed + STATUS_TIMEOUT`도 원문 aggregate와 event/hash를 검증한 뒤 `timed_out`으로 정규화하고 관측하지 못한 밝기는 저장하지 않는다. 이 경우 outcome은 `unknown`이므로 겹치는 새 Set은 막고 실제 상태 Get을 허용한다.
 
 | `MqttOutbox` 컬럼 | 타입 | 설명 |
 | --- | --- | --- |
 | `id` | `String` | PK, `uuid()` |
 | `dispatchId` | `String?` | command row의 Unique FK -> `CommandDispatch.id`; delete cascade |
+| `deliveryAttemptedAt` | `DateTime?` | Command MQTT 호출 전 최초 시도 commit 시각. PUBACK 성공 시각과 별도이며 구형 행은 `NULL` |
 | `gatewayId` | `String?` | automation config/application ACK row의 FK -> `Gateway.id`; delete cascade |
 | `applicationAckKey` | `String?` | application ACK row의 deterministic Gateway/node/event/report-hash scoped unique identity |
 | `revision` | `Int?` | automation config revision, DB check `>= 0` |
@@ -1250,6 +1373,7 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 | `sequence` | `BigInt` | 예 | unique tuple | event type별 영속 순서, capability에는 `capabilityRevision` 저장 |
 | `eventType` | `String` | 예 | unique tuple | 이벤트 계약 식별자 |
 | `payloadHash` | `String?` | 아니오 | `NULL` 또는 `sha256:<64 lowercase hex>` CHECK | canonical complete payload hash; legacy event는 null 허용 |
+| `scopeKey` | `String?` | 아니오 | immutable identity, FK 없음 | 신규 fixture는 Fixture ID, capability는 canonical MeshNode ID, scan은 session ID, heartbeat는 빈 문자열. 복구 불가능한 legacy는 null |
 | `occurredAt` | `DateTime` | 예 |  | Gateway 발생/검증 시각 |
 | `receivedAt` | `DateTime` | 예 | `now()` | fixture-state/heartbeat는 API가 packet 수신을 시작한 서버 시각, 그 밖의 producer는 명시하지 않으면 DB row 생성 시각 |
 | `ingestionStatus` | `GatewayEventIngestionStatus` | 예 | `accepted` | 정상 처리 또는 durable terminal future timestamp 거부 결과 |
@@ -1260,6 +1384,52 @@ MQTT QoS 1 중복 및 순서 역전을 차단하는 이벤트 원장이다. `eve
 Final Fix에서 기존 fixture-state/heartbeat의 `payloadHash=null` 행은 topic/DB scope 검증과 소유 Fixture/Gateway 행 잠금 뒤에만 보완한다. eventId로 조회한 기존 행의 gateway, fixture(heartbeat는 null), sequence, eventType, occurredAt이 모두 같으면 첫 인증 replay의 canonical hash를 `UPDATE ... WHERE eventId = ... AND payloadHash IS NULL`로 같은 transaction에서 확정한다. 조건부 갱신이 0행이면 재조회한 identity/hash가 정확히 같은 경우만 기존 terminal 결과를 반환하며 다른 replay는 fail-closed 한다. migration-default `accepted` fixture event는 `duplicate` ACK로 종료하고 상태·집계를 다시 반영하지 않는다.
 
 null은 원래 payload 동등성의 증거가 아니며 첫 인증 replay가 과거 원장의 hash를 확정한다는 신뢰 한계가 있다. 새 future rejection은 최초 기록부터 hash를 보유한다. 보완은 hash만 변경하므로 ledger의 `receivedAt`/`ingestionStatus`, fixture/gateway snapshot, energy aggregate/cursor/checkpoint를 보존한다. 기존 `Fixture.lastSeenAt`/`Gateway.lastHeartbeatAt`은 migration도 재작성하지 않으며, 서버 수신 시각 freshness 보장은 새 정상 event가 수락된 값에 적용한다. 과거 장비 시각으로 오염된 값의 소급 정정은 포함하지 않는다. 스키마/migration 파일 자체는 Final Fix에서 변경하지 않는다.
+
+`device_status_ack`도 이 원장을 사용한다. API는 dispatch/command row lock 아래 ACK 전체의 canonical hash를 계산해 `eventId`, Gateway, event type과 함께 먼저 claim한다. 같은 `eventId`·같은 hash의 QoS 1 재전달은 상태를 다시 적용하지 않고, 같은 identity의 Gateway/type/hash가 다르면 정제된 충돌 경고만 남긴 채 payload와 명령 상태를 변경하지 않는다. ACK wire의 command sequence는 새 이벤트마다 증가하지 않으므로 이 event type의 ledger sequence는 같은 Gateway/type 원장 안에서 별도로 할당한다. timeout 뒤 늦은 ACK 수렴도 이 dedupe 경계를 통과한 한 번의 유효 terminal evidence만 반영한다.
+
+`20260915_statistics_operations_retention`부터 모든 신규 소비 경로는 complete payload hash와 scope를 저장하고, 원장·watermark·상태 변경을 같은 transaction에서 commit한다. 보존 선별용 `(eventType, createdAt, eventId)` index를 추가했다. 이 migration은 삭제 worker를 실행하지 않는다.
+
+### GatewayEventWatermark
+
+원장이 정리된 이후에도 stream의 최신 sequence와 payload identity를 보존하는 compact 상태다. `(gatewayId, eventType, scopeKey)`가 PK이며 `lastEventId`는 전역 unique다. `gatewayId`만 cascade FK를 가지므로 Fixture/Node가 사라져도 해당 Gateway의 최신 stream identity는 남는다.
+
+| 컬럼 | 타입 | 의미 |
+| --- | --- | --- |
+| `gatewayId`, `eventType`, `scopeKey` | `String` | heartbeat와 scan은 빈 scope, fixture는 Fixture ID, capability는 canonical MeshNode ID |
+| `lastSequence` | `BigInt` | 양수 high-water. fixture와 capability는 각 scope별로 전진한다 |
+| `lastEventId` | `String` | 마지막 이벤트 ID; 다른 stream의 최신 identity 재사용을 차단한다 |
+| `lastPayloadHash` | `String?` | complete canonical payload hash. 원본 payload가 없는 legacy 값은 null |
+| `lastOccurredAt` | `DateTime` | 마지막 이벤트의 발생 시각 |
+| `updatedAt` | `DateTime` | high-water 갱신 시각 |
+
+- gateway/type advisory transaction lock은 첫 INSERT와 cross-fixture 같은 sequence 경쟁을 직렬화한다. 같은 sequence/ID/hash/발생 시각만 duplicate이며 낮은 sequence는 기존 stale ACK 규약으로 처리하고 같은 sequence의 변경된 identity는 거부한다. Fixture cursor/snapshot, capability 상태, raw ledger와 ACK의 기존 추가 검증은 유지한다.
+- scan은 기존 gateway/type 전체 순서 의미를 유지한다. 과거 PGE에는 session ID가 없으므로 watermark를 session별로 바꾸지 않으며 새 PGE의 `scopeKey`에는 보존 정책용 session ID를 별도로 기록한다.
+- 원장 보존 기간 안에서는 기존 전역 event ID 및 per-type sequence unique/check를 유지한다. 원장 삭제 뒤에는 각 stream의 최신 identity와 단조 high-water만 남는다. 이미 더 높은 값으로 대체된 임의 과거 ID나 다른 fixture의 과거 sequence 충돌까지 영구 기억하지 않는다. Gateway identity 안에서 sequence를 reset/reuse하지 않는 장비 계약이 계속 필요하다.
+- migration은 writer 정지 뒤 10초 `lock_timeout`과 명시적 transaction/table barrier 안에서 실행한다. 원장의 동일 sequence 충돌과 snapshot/원장 identity 불일치는 오류로 중단하며 전체 rollback한다. raw 최신 값과 Fixture/Gateway cursor를 비교해 더 높은 값으로 backfill하고, 같은 identity의 실제 hash가 있으면 보존한다. 알 수 없는 event type은 watermark 생성 대상에서 제외한다.
+- hash 또는 session scope를 복원할 수 없는 legacy 원장은 추정값으로 채우지 않는다. null hash는 watermark duplicate 검증의 wildcard가 아니며, legacy exact replay는 남아 있는 raw 원장에 의존한다. 특히 legacy scan의 raw scope/hash와 terminal identity는 null로 남으므로 현재 retention worker도 이를 보존한다.
+- 같은 migration에서 Session의 `(expiresAt, id)`·`(revokedAt, id)`, FloorMapRevision의 `(createdAt, id)` index를 추가했다. migration 자체는 데이터를 삭제하지 않으며 API의 `RetentionModule`이 아래 보존 worker를 시작한다.
+- 검증은 `GATEWAY_EVENT_WATERMARK_TEST=1 pnpm --filter @led-control/api test -- gateway-event-watermark.integration.spec.ts --runInBand`가 직접 만든 임시 PostgreSQL에서 수행했다. 사용자/운영 DB에는 적용하지 않았다.
+
+### 운영 데이터 보존과 복구 범위
+
+`DataRetentionService`는 60초마다 다음 대상을 정리한다. 각 삭제는 안정된 정렬과 `FOR UPDATE SKIP LOCKED`를 사용하는 단일 SQL statement다. 후보의 시각이 cutoff와 같으면 보존하고 더 오래된 행만 제거한다. 수동 호출과 timer는 진행 중 promise를 공유하며 `unref()`·종료 drain을 적용하고, Prisma 연결은 모든 worker의 module destroy 이후 최종 shutdown 단계에서 닫는다.
+
+| 대상 | 보존 기준 | 삭제 전 안전 조건 / 한 sweep 상한 |
+| --- | --- | --- |
+| `gateway_heartbeat` | 생성 후 7일 | Gateway snapshot·watermark가 원장 이상이며 동일 sequence의 identity가 일치 |
+| `fixture_state` | 생성 후 30일 | 동일 gateway의 Fixture snapshot과 energy cursor가 해당 원장을 포괄하고 watermark가 원장 이상 |
+| `provisioning_scan_found/completed/failed` | 생성 후 90일 | 전체 등록 session과 scan이 terminal이고 완전한 terminal ACK identity·watermark 유지; terminal 원장은 저장 identity와 정확히 일치 |
+| `vehicle_sensor_capability` | 생성 후 365일 | 현재 node revision과 watermark가 모두 원장보다 엄격히 큼; 최신 보고는 보존 |
+| `Session` | 만료 또는 폐기 후 30일 | 활성 session 보존; 최대 10,000행 |
+| `FloorMapRevision` | floor별 최신 100개 또는 최근 365일 중 넓은 범위 | revision 번호 내림차순으로 최신 100개 보호; 나머지 최대 1,000행 |
+
+이벤트 네 유형은 합산 최대 10,000행이다. 모든 이벤트 후보는 완전한 scope/hash와 최신 watermark가 필요하며 같은 sequence이면 ID/hash/발생 시각도 일치해야 한다. 알 수 없는 유형, legacy 불완전 원장, 삭제된 fixture·cursor 누락처럼 안전 조건을 충족하지 못하는 행은 무기한 남을 수 있다. 배치 상한은 인스턴스의 sweep당 값이며 여러 인스턴스는 서로 잠근 행을 건너뛴다. `data_retention_sweep`는 기준 시각·소요 시간·대상별 삭제 수와 성공/실패를 기록하고 실패 시 `failedStage`와 앞 단계에서 이미 완료된 삭제 수를 남긴다.
+
+임의 과거 event ID의 exact dedupe 보장은 실제 raw 원장이 남아 있는 기간에 한정된다. 원장 정리 이후에는 최신 stream identity/high-water만 유지하므로 장비 sequence를 Gateway identity 안에서 reset/reuse하지 않아야 한다. 도면은 위 보존 범위에서만 복구할 수 있고 제거한 revision의 외부 archive·복구 기능은 없다. 일별 집계와 분석 dimension/membership 이력은 이 worker의 삭제 대상이 아니다.
+
+`Session` 정리는 token hash·IP·user agent의 장기 보유를 줄인다. `AuditLog`의 3년 hot retention은 회사·법무 승인 전의 제안이며 자동 삭제로 구현하지 않았다. `GatewayClaimAudit`와 폐기된 인증서 chain은 제조·보안 감사 보존 대상으로, 설계상 7년 또는 별도 승인 전까지 보존하며 이번 작업에 자동 purge를 포함하지 않는다. 이 문구는 법정 보존 의무나 승인된 삭제 일정의 확정이 아니다.
+
+Prisma Date raw parameter는 timestamptz로 전달되므로 naive UTC `timestamp` 열과 비교할 때 `::timestamptz AT TIME ZONE 'UTC'`를 명시한다. `DATA_RETENTION_TEST=1 pnpm --filter @led-control/api test -- data-retention --runInBand`는 자체 disposable PostgreSQL의 Asia/Seoul session에서 정확한 cutoff·배치 제한·두 connection 잠금/수렴·실제 Nest 종료 연결 회수를 검증한다. 사용자/운영 DB 적용이나 운영 데이터 복구를 실행한 결과는 아니다.
 
 ### Invitation
 
@@ -1297,18 +1467,51 @@ null은 원래 payload 동등성의 증거가 아니며 첫 인증 replay가 과
 | --- | --- | --- | --- | --- |
 | `id` | `String` | 예 | PK, `uuid()` | 세션 ID |
 | `userId` | `String` | 예 | FK -> `User.id`, delete cascade | 사용자 ID. 사용자 영구 삭제 시 함께 삭제 |
+| `familyId` | `String` | 예 | `uuid()` | 최초 로그인부터 보안 상태 변경에 따른 token 회전을 하나로 묶는 세션 계열 ID |
+| `rotatedFromSessionId` | `String?` | 아니오 | Unique, self FK -> `Session.id`, delete set null | 이 세션으로 교체된 직전 세션. 하나의 세션에서 둘 이상의 후속 세션이 생기지 않도록 보장 |
 | `tokenHash` | `String` | 예 | Unique | 세션 토큰 hash |
 | `rememberMe` | `Boolean` | 예 | `false` | 자동 로그인 여부 |
 | `userAgent` | `String?` | 아니오 |  | 접속 user agent |
 | `ipAddress` | `String?` | 아니오 |  | 접속 IP |
 | `expiresAt` | `DateTime` | 예 |  | 만료 시각 |
 | `revokedAt` | `DateTime?` | 아니오 |  | 폐기 시각 |
+| `mfaVerifiedAt` | `DateTime?` | 아니오 |  | TOTP 또는 복구 코드까지 검증해 발급한 세션의 MFA 검증 시각 |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
 | `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
 
 관계:
 
 - `user`: `User`
+- `rotatedFrom`: 직전 `Session?`
+- `rotatedTo`: 이 세션에서 이어진 `Session[]`이며 unique 제약으로 최대 1개
+
+`userId + revokedAt + expiresAt` 복합 index는 사용자별 활성 세션 조회와 일괄 폐기를 지원한다.
+`userId + familyId + revokedAt` 복합 index는 회전 전 token으로 들어온 로그아웃과 세션 폐기가 현재 활성 후속 세션을 찾도록 지원한다.
+최초 로그인은 새 `familyId`를 만든다. 비밀번호 변경과 MFA 등록·해제는 사용자 행을 잠근 transaction에서 현재 세션을 다시 검증하고 기존 활성 세션을 모두 폐기한 뒤, 현재 세션의 `familyId`와 접속 정보·만료 시각을 승계하고 `rotatedFromSessionId`로 직전 행을 가리키는 새 token hash 행을 만든다.
+로그아웃은 이미 폐기된 token도 조회한 뒤 사용자 행을 잠그고 같은 family의 활성 세션을 모두 폐기한다. 따라서 회전 응답과 로그아웃 응답 순서가 뒤바뀌어도 새 cookie가 세션을 되살리지 않는다.
+활성 세션 API는 요청 사용자 ID와 `revokedAt IS NULL`, 미래 만료 시각을 모두 적용해 조회한다. 개별 폐기는 대상 세션의 family 전체를 폐기하고, 다른 세션 전체 폐기는 현재 family만 남긴다. 두 작업도 사용자 행 잠금과 family 재검증 아래 실행되므로 token 회전과 직렬화된다.
+
+### UserMfa
+
+operator/admin의 활성 TOTP 설정이다. 사용자와 1:1이며 viewer는 애플리케이션 정책상 생성할 수 없다. 원본 비밀키는 `MFA_ENCRYPTION_KEY`로 AES-256-GCM 암호화하고, 복구 코드는 원문을 보관하지 않는다.
+
+| 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
+| --- | --- | --- | --- | --- |
+| `userId` | `String` | 예 | PK, FK -> `User.id`, delete cascade | MFA 소유 사용자 |
+| `secretCiphertext` | `String` | 예 |  | 버전·nonce·ciphertext·인증 태그를 포함한 암호화 TOTP 비밀키 |
+| `recoveryCodeHashes` | `String[]` | 예 |  | 아직 사용하지 않은 고엔트로피 복구 코드의 SHA-256 hash |
+| `lastUsedTotpCounter` | `Int` | 예 | `-1` | 마지막으로 수락한 RFC 6238 30초 counter. 더 큰 counter만 수락해 같은 TOTP 재사용을 차단 |
+| `enabledAt` | `DateTime` | 예 | `now()` | MFA 활성화 시각 |
+| `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
+| `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
+
+관계:
+
+- `user`: `User`
+
+`20260916090000_account_security` migration은 `UserMfa`, `Session.mfaVerifiedAt`, 사용자별 활성 세션 조회 index를 추가한다.
+`20260916120000_harden_session_rotation_and_totp` migration은 세션 계열과 회전 self FK, TOTP 마지막 counter를 추가한다. 기존 세션은 각 행의 `id`를 `familyId`로 backfill해 서로 무관한 기존 브라우저 세션이 한 계열로 합쳐지지 않는다. 기존 MFA 행은 알 수 없는 과거 counter 대신 `-1`에서 시작하고 다음 성공 검증부터 단조 증가를 강제한다.
+이번 작업의 migration 검증은 사용자 DB가 아닌 새 일회용 PostgreSQL에서만 수행한다. 이는 사용자 DB 적용 또는 운영 배포 증거가 아니다.
 
 ### ProvisioningSession
 
@@ -1329,6 +1532,11 @@ null은 원래 payload 동등성의 증거가 아니며 첫 인증 replay가 과
 | `scanCompletedAt` | `DateTime?` | 아니오 |  | 완료 또는 실패 수신 시각 |
 | `scanFailureCode` | `String?` | 아니오 |  | Gateway가 분류한 비밀값 없는 실패 코드 |
 | `scanFailureMessage` | `String?` | 아니오 |  | 사용자 노출 가능한 실패 설명 |
+| `scanTerminalEventId` | `String?` | 아니오 | terminal identity CHECK | 마지막으로 commit한 terminal event ID |
+| `scanTerminalSequence` | `BigInt?` | 아니오 | 양수 | terminal의 sequence |
+| `scanTerminalEventType` | `String?` | 아니오 | completed/failed 두 event type만 허용 | terminal 종류 |
+| `scanTerminalPayloadHash` | `String?` | 아니오 | canonical SHA-256 | acceptedNodeCount 또는 failure message를 포함한 전체 terminal hash |
+| `scanTerminalIngestedAt` | `DateTime?` | 아니오 | 최초 ACK 시각 | raw와 ACK outbox가 모두 없어도 같은 ACK payload 재생성 |
 | `startedAt` | `DateTime` | 예 | `now()` | 시작 시각 |
 | `completedAt` | `DateTime?` | 아니오 |  | 완료 시각 |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
@@ -1350,7 +1558,7 @@ null은 원래 payload 동등성의 증거가 아니며 첫 인증 replay가 과
 - `POST /registration-sessions`와 retry는 `pending` session state, 새 correlation/attempt와 `ProvisioningScanOutbox` row를 하나의 transaction에서 만든다. partial unique index `ProvisioningSession_single_scanning_gateway_key`는 `status=active`인 Gateway 하나에만 `pending` 또는 `scanning` scan 하나를 허용한다.
 - `20260826150000_add_provisioning_scan_outbox` migration은 foundation migration이 남긴 모든 historical `pending/scanning` session을 `failed` (`legacy_scan_closed`) terminal state로 먼저 수렴시킨 뒤 active-only partial unique index를 만든다. 당시에는 durable scan-start outbox가 없었으므로 과거 active session도 재발행하지 않고 종료하는 fail-closed migration 정책이다.
 - publisher는 leased outbox를 처리할 때만 `pending -> scanning`으로 전이한 뒤 strict v2 scan-start payload를 발행한다. MQTT callback timeout은 기본 10초(`PROVISIONING_SCAN_OUTBOX_PUBLISH_TIMEOUT_MS`)로 30초 lease보다 짧아야 하며, timeout/reject는 attempt backoff로 기록한다. publish 전 process crash는 lease 만료 뒤 같은 correlation/attempt로 재시도하며, 최대 3회 또는 5분 실패는 outbox dead-letter와 `scan_start_publish_failed` terminal state를 같은 transaction에서 기록한다.
-- found/completed/failed event는 session, correlation ID, attempt와 topic scope가 현재 행과 일치할 때만 반영한다. `ProcessedGatewayEvent`의 eventId 및 gateway/sequence/eventType 원장은 같은 transaction에서 중복·낮은 sequence를 차단한다. completed/failed는 원장 생성과 `ProvisioningSession` terminal 변경 transaction이 commit된 뒤에만 scan-terminal application ACK를 발행한다. 동일 terminal event가 재전달되면 exact 원장과 terminal snapshot을 다시 확인해 ACK를 재발행한다.
+- found/completed/failed event는 session, correlation ID, attempt와 topic scope가 현재 행과 일치할 때만 반영한다. `ProcessedGatewayEvent`와 gateway/type watermark는 같은 transaction에서 중복·낮은 sequence를 차단한다. completed/failed는 원장·watermark·session terminal identity와 ACK outbox를 같은 transaction에 저장한다. 신규 terminal identity의 5개 컬럼은 전부 null 또는 전부 non-null이어야 한다. 동일 terminal은 현재 session identity/hash/snapshot과 맞을 때 raw 삭제 뒤에도 최초 `ingestedAt`의 application ACK를 재발행하며, 상태나 acceptedNodeCount/failure message를 변경한 재전송은 거부한다. Legacy terminal은 기존 raw/ACK 원장이 있어야 동일하게 재발행할 수 있다.
 - 등록 batch는 node를 `provisioning`으로 바꾸고 command ID, session/site/gateway/node/device/address identity를 가진 `ProvisioningDeviceOutbox` row를 같은 transaction에서 만든다. HTTP `accepted`는 broker 연결이나 PUBACK이 아니라 이 durable transaction의 commit을 뜻한다.
 
 ### ProvisioningScanOutbox
@@ -1558,7 +1766,8 @@ node별 `provision-device` command의 durable transactional outbox다. 등록 AP
 | `MeshControlGroupAppliedMember` | PK `groupId + meshNodeId + meshAddress`, Index `groupId + gatewayId` | partial success를 포함한 cloud 확인 실제 subscription pair snapshot |
 | `GroupFixture` | PK `groupId`, `fixtureId` | 같은 조명의 그룹 중복 매핑 방지 |
 | `Invitation` | Unique `tokenHash` | 초대 토큰 hash 중복 방지 |
-| `Session` | Unique `tokenHash` | 세션 토큰 hash 중복 방지 |
+| `Session` | Unique `tokenHash`, `userId + revokedAt + expiresAt` index | 세션 토큰 hash 중복 방지와 사용자별 활성 세션 조회·폐기 가속 |
+| `UserMfa` | PK/FK `userId`, delete cascade | 사용자별 TOTP 설정 하나만 허용하고 계정 삭제 시 보안 정보 제거 |
 | `SiteDeletionCleanup` | Unique `siteId`, retry/lease index | 현장별 외부 정리 작업 1개와 다중 API instance의 crash-safe 재시도 |
 | `DiscoveredMeshNode` | Unique `sessionId`, `deviceUuid` | 같은 등록 세션 안에서 발견 노드 중복 방지 |
 | `ProvisioningSession` | Partial unique `gatewayId WHERE scanStatus IN (pending, scanning)` | Gateway당 outbox 대기·실행 중 scan 1개 제한 |
@@ -1581,8 +1790,11 @@ node별 `provision-device` command의 durable transactional outbox다. 등록 AP
 
 ```text
 User.loginId/password
+→ Redis IP·계정·고객사/IP 제한 확인
 → AuthService 비밀번호 검증
-→ Session 생성
+→ MFA 미사용 계정은 Session 생성
+→ MFA 사용 operator/admin은 Redis 일회성 challenge 발급
+→ TOTP 또는 미사용 복구 코드 검증 뒤 Session 생성
 → HttpOnly cookie 발급
 → 이후 API 요청에서 Session token hash 검증
 ```
@@ -1610,11 +1822,18 @@ Gateway heartbeat MQTT event
 
 ```text
 웹 제어 요청
-→ Command pending 생성
-→ MQTT dimming command 발행
-→ gateway command ACK event
-→ Command status/errorMessage 갱신
+→ Command pending/outcome=pending 생성
+→ MQTT dimming Set 발행
+→ acceptance 진행 상태 반영 및 device-status ACK의 eventId/hash 중복 제거
+→ 적용 여부가 불확실하면 outcome=unknown
+→ control 권한 사용자가 POST /commands/{id}/status-checks
+→ dispatch당 최대 64개로 chunk한 status_check outbox 생성(논리 시도 최대 3회)
+→ Gateway durable receipt 뒤 Generic OnOff/Lightness Get
+→ 모든 chunk 관측 결과를 expected brightness와 비교해 outcome 수렴
+→ not_applied에서만 Web이 새 clientRequestId의 안전 재적용을 제공
 ```
+
+HTTP 응답 유실 복구는 기존 dimming/status-check `clientRequestId`로 저장 결과를 재조회할 뿐 새 물리 Set을 만들지 않는다. 실제 재적용은 `not_applied` 확인 뒤 사용자가 명시적으로 실행하는 새 Command다.
 
 ### 조명 검색/등록
 

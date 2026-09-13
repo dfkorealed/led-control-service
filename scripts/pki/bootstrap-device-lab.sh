@@ -10,6 +10,9 @@ LAB_VAULT_PORT="${LAB_VAULT_PORT:-18200}"
 VAULT_ADDR="${VAULT_ADDR:-http://127.0.0.1:${LAB_VAULT_PORT}}"
 VAULT_BIN="${VAULT_BIN:-vault}"
 LAB_PKI_DIR="$ROOT_DIR/.local/lab-pki"
+LAB_ROOT_DIR="$LAB_PKI_DIR/root"
+ROOT_CERT_PATH="$LAB_ROOT_DIR/root.crt"
+ROOT_CRL_PATH="$LAB_ROOT_DIR/root.crl"
 SERVICE_ROOT="$LAB_PKI_DIR/services"
 SERVICE_DIR="$SERVICE_ROOT/current"
 MANUFACTURING_DIR="$LAB_PKI_DIR/manufacturing"
@@ -103,7 +106,7 @@ write_env_line() {
 }
 
 validate_outputs() {
-  local name
+  local name crl_begin_count crl_end_count
   for name in api.crt api.chain.crt mqtt-server.crt mqtt-ca.crt api-ca.crt device-ca.crt api-mqtt-client.crt device.crl mqtt-client.crl; do
     assert_public_file "$SERVICE_DIR/$name" "$name" "$SERVICE_ROOT"
   done
@@ -114,6 +117,14 @@ validate_outputs() {
     assert_public_file "$MANUFACTURING_DIR/$name" "$name" "$MANUFACTURING_DIR"
   done
   assert_secret_file "$MANUFACTURING_DIR/station.key" "station.key" "$MANUFACTURING_DIR"
+  assert_public_file "$ROOT_CERT_PATH" "Lab Root certificate" "$LAB_ROOT_DIR"
+  assert_public_file "$ROOT_CRL_PATH" "Lab Root CRL" "$LAB_ROOT_DIR"
+  [[ -r "$ROOT_CRL_PATH" ]] || die "Lab Root CRL을 읽을 수 없습니다."
+  crl_begin_count="$(awk '/^-----BEGIN X509 CRL-----$/{count++} END{print count+0}' "$ROOT_CRL_PATH")"
+  crl_end_count="$(awk '/^-----END X509 CRL-----$/{count++} END{print count+0}' "$ROOT_CRL_PATH")"
+  [[ "$crl_begin_count" == 1 && "$crl_end_count" == 1 ]] || die "Lab Root CRL은 정확히 한 개여야 합니다."
+  openssl crl -in "$ROOT_CRL_PATH" -noout -verify -CAfile "$ROOT_CERT_PATH" >/dev/null 2>&1 ||
+    die "Lab Root CRL이 Lab Root certificate와 일치하지 않습니다."
 }
 
 issue_application_token() {
@@ -212,6 +223,7 @@ write_lab_env() {
     write_env_line VAULT_PKI_MQTT_MOUNT gateway-mqtt-pki
     write_env_line VAULT_PKI_MQTT_ROLE gateway-mqtt
     write_env_line PKI_LAB_CURRENT_DIR "$SERVICE_DIR"
+    write_env_line PKI_ROOT_CRL_PATH "$ROOT_CRL_PATH"
     write_env_line MQTT_URL "mqtts://${LAB_MQTT_DNS}:8883"
     write_env_line MQTT_PUBLIC_URL "mqtts://${LAB_MQTT_DNS}:8883"
     write_env_line MQTT_CA_PATH "$SERVICE_DIR/mqtt-ca.crt"

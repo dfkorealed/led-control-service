@@ -27,6 +27,7 @@ export function EnergyRankingList({
         <div><span className="eyebrow">순위</span><h3>에너지 사용 비교</h3></div>
         <span>{items.length}개 항목</span>
       </header>
+      {metric === "cost" ? <p className="statistics-ranking-cost-basis">당시 적용 단가의 저장 비용</p> : null}
       {items.length === 0 ? <p className="statistics-ranking-empty">순위를 계산할 수 있는 데이터가 없습니다.</p> : (
         <ol>
           {items.map((item) => (

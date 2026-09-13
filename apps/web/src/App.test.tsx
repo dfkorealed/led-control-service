@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { apiGet, apiPost } from "./api/client";
+import { ApiError, apiGet, apiPost } from "./api/client";
 import type { InitialSiteSetupRequest } from "./api/setup";
 import { dirtyEditorSentinelKey } from "./features/floor-editor/dirty-editor-history";
 import { useFloorEditorStore } from "./features/floor-editor/editor-store";
@@ -14,12 +14,21 @@ import {
   mockRegistrationSession
 } from "./test/fixtures";
 import type { RegistrationSession } from "./api/registration";
-import { App } from "./App";
+import { AppRoot as App } from "./AppRoot";
 import { settingsSectionsFor } from "./features/settings/settings-sections";
 import {
   activeCommandStorageKey,
   saveActiveCommandRequest
 } from "./features/control/active-command-store";
+
+let activeClient: QueryClient;
+vi.mock("@tanstack/react-query", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@tanstack/react-query")>();
+  return { ...actual, QueryClientProvider: (props: import("@tanstack/react-query").QueryClientProviderProps) => {
+    activeClient = props.client;
+    return <actual.QueryClientProvider {...props} />;
+  } };
+});
 
 const authState = vi.hoisted(() => ({
   user: {
@@ -64,7 +73,8 @@ Object.defineProperty(window, "matchMedia", {
   }))
 });
 
-vi.mock("./api/client", () => ({
+vi.mock("./api/client", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./api/client")>(),
   apiGet: vi.fn((path: string) => {
     const dashboardResponse = (fallback: unknown) => {
       const response = apiState.dashboardResponses.shift()?.() ?? Promise.resolve(apiState.dashboard ?? fallback);
@@ -76,7 +86,7 @@ vi.mock("./api/client", () => ({
       }));
     };
     if (path === "/auth/me") {
-      return authState.user ? Promise.resolve({ user: authState.user }) : Promise.reject(new Error("Unauthorized"));
+      return authState.user ? Promise.resolve({ user: authState.user }) : Promise.reject(new ApiError("Unauthorized", 401, null));
     }
     if (path === "/sites") {
       return Promise.resolve([
@@ -328,6 +338,26 @@ describe("App", () => {
     cleanup();
   });
 
+  // Exercise cold role imports before login tests populate React.lazy's module cache.
+  it.each([
+    ["admin", "/monitoring", "모니터링"],
+    ["operator", "/operator/site-admins", "현장 관리자 계정"]
+  ] as const)("keeps the %s role shell behind the shared route loading boundary", async (role, path, completedContent) => {
+    window.history.replaceState({}, "", path);
+    authState.user = {
+      ...authState.user!,
+      organizationType: role === "operator" ? "service_provider" : "customer",
+      role,
+      mustChangePassword: false
+    };
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["auth", "me"], { user: authState.user });
+    render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>);
+
+    expect(screen.getByRole("status")).toHaveTextContent("화면을 불러오는 중입니다.");
+    expect(await screen.findByRole(role === "operator" ? "heading" : "link", { name: completedContent })).toBeInTheDocument();
+  });
+
   it("로그인은 운영 요약 없이 Calm Operations 브랜드와 실제 폼만 표시한다", async () => {
     authState.user = null;
     const queryClient = new QueryClient();
@@ -338,7 +368,7 @@ describe("App", () => {
     );
 
     expect(await screen.findByRole("heading", { name: /빛을 더 안정적으로/ })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "LED Control 로그인" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "킨다 로그인" })).toBeInTheDocument();
     expect(screen.queryByText("연결 조명")).not.toBeInTheDocument();
     expect(screen.queryByText("정상 운영")).not.toBeInTheDocument();
     expect(screen.queryByText(/^(Gateway|게이트웨이)$/i)).not.toBeInTheDocument();
@@ -357,7 +387,7 @@ describe("App", () => {
     await oldMutation.execute({ password: "old-principal-password" });
     render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>);
 
-    await screen.findByRole("heading", { name: "LED Control 로그인" });
+    await screen.findByRole("heading", { name: "킨다 로그인" });
     expect(screen.getByLabelText("아이디")).toHaveValue("");
     expect(screen.getByLabelText("비밀번호")).toHaveValue("");
     expect(screen.queryByText(/회원\s*가입|초대 코드/)).not.toBeInTheDocument();
@@ -372,12 +402,12 @@ describe("App", () => {
         rememberMe: true
       });
     });
-    await waitFor(() => expect(queryClient.getQueryData(["auth", "me"])).toMatchObject({
+    await waitFor(() => expect(activeClient.getQueryData(["auth", "me"])).toMatchObject({
       user: { loginId: "admin_01", organizationId: "organization-ADMIN_01" }
     }));
     expect(queryClient.getQueryData(["dashboard", "old-tenant"])).toBeUndefined();
     expect(queryClient.getMutationCache().getAll()).toHaveLength(0);
-    expect(JSON.stringify(queryClient.getQueryCache().getAll().map((query) => query.state.data))).not.toContain("old-tenant-data");
+    expect(JSON.stringify(activeClient.getQueryCache().getAll().map((query) => query.state.data))).not.toContain("old-tenant-data");
     expect(JSON.stringify(queryClient.getMutationCache().getAll().map((mutation) => mutation.state))).not.toContain("password");
   });
 
@@ -387,7 +417,7 @@ describe("App", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
     render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>);
 
-    await screen.findByRole("heading", { name: "LED Control 로그인" });
+    await screen.findByRole("heading", { name: "킨다 로그인" });
     fireEvent.change(screen.getByLabelText("아이디"), { target: { value: "admin_01" } });
     fireEvent.change(screen.getByLabelText("비밀번호"), { target: { value: "failed-login-password" } });
     fireEvent.click(screen.getByRole("button", { name: "로그인" }));
@@ -451,7 +481,7 @@ describe("App", () => {
       await queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
     });
 
-    expect(await screen.findByRole("heading", { name: "LED Control 로그인" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "킨다 로그인" })).toBeInTheDocument();
     expect(screen.queryByText("이전 고객 대시보드")).not.toBeInTheDocument();
     await waitFor(() => expect(queryClient.getQueryData(["tenant", "dashboard"])).toBeUndefined());
     expect(queryClient.getMutationCache().getAll()).toHaveLength(0);
@@ -487,7 +517,7 @@ describe("App", () => {
       await queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
     });
 
-    await waitFor(() => expect(queryClient.getQueryData(["auth", "me"])).toMatchObject({
+    await waitFor(() => expect(activeClient.getQueryData(["auth", "me"])).toMatchObject({
       user: { id: "user-2", organizationId: "organization-2" }
     }));
     await waitFor(() => expect(apiGet).toHaveBeenCalledWith("/sites/default/dashboard"));
@@ -693,7 +723,7 @@ describe("App", () => {
     const queryClient = new QueryClient();
     render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>);
 
-    expect(await screen.findByRole("heading", { name: "비밀번호 변경" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "계정 보안" })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/settings/security");
     expect(window.location.search).toBe("?siteId=site-2");
     expect(screen.getByLabelText("현재 비밀번호")).toBeInTheDocument();
@@ -1205,7 +1235,7 @@ describe("App", () => {
       brightness: 70,
       clientRequestId: expect.any(String)
     }), { signal: expect.any(AbortSignal) }));
-    expect(await screen.findByText("일부 조명 적용 실패", {}, { timeout: 3000 })).toBeInTheDocument();
+    expect(await screen.findByText("일부 조명 적용 실패", { selector: ".command-progress-card strong" }, { timeout: 3000 })).toBeInTheDocument();
     expect(screen.getByText("2 / 2 처리")).toBeInTheDocument();
     expect(screen.getByText("B2-L02: 장비 응답 오류")).toBeInTheDocument();
   });
@@ -1270,7 +1300,7 @@ describe("App", () => {
 
     expect(confirm).toHaveBeenCalled();
     expect(apiPost).toHaveBeenCalledWith("/auth/logout", {});
-    expect(await screen.findByRole("heading", { name: "LED Control 로그인" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "킨다 로그인" })).toBeInTheDocument();
     expect(useFloorEditorStore.getState().isDirty).toBe(false);
   });
 
@@ -1351,7 +1381,7 @@ describe("App", () => {
         resolveLogout();
         await Promise.resolve();
       });
-      expect(await screen.findByRole("heading", { name: "LED Control 로그인" })).toBeInTheDocument();
+      expect(await screen.findByRole("heading", { name: "킨다 로그인" })).toBeInTheDocument();
       expect(sessionStorage.getItem(recoveryKey)).toBeNull();
     }
   );
@@ -1386,7 +1416,7 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "로그아웃" }));
 
-    const retryButton = await screen.findByRole("button", { name: "동일 요청 다시 전송" });
+    const retryButton = await screen.findByRole("button", { name: "동일 요청 확인(새 제어 아님)" });
     expect(retryButton).toBeDisabled();
     fireEvent.click(retryButton);
     expect(vi.mocked(apiPost).mock.calls.filter(([path]) => path === "/commands/dimming")).toHaveLength(1);
@@ -1395,7 +1425,7 @@ describe("App", () => {
       resolveLogout();
       await Promise.resolve();
     });
-    expect(await screen.findByRole("heading", { name: "LED Control 로그인" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "킨다 로그인" })).toBeInTheDocument();
   });
 
   it("unblocks command retry when logout fails", async () => {
@@ -1424,7 +1454,7 @@ describe("App", () => {
     ));
 
     fireEvent.click(screen.getByRole("button", { name: "로그아웃" }));
-    expect(await screen.findByRole("button", { name: "동일 요청 다시 전송" })).toBeDisabled();
+    expect(await screen.findByRole("button", { name: "동일 요청 확인(새 제어 아님)" })).toBeDisabled();
 
     await act(async () => {
       rejectLogout(new Error("logout unavailable"));
@@ -1432,7 +1462,7 @@ describe("App", () => {
     });
 
     expect(await screen.findByRole("alert")).toHaveTextContent("로그아웃에 실패했습니다");
-    const retryButton = screen.getByRole("button", { name: "동일 요청 다시 전송" });
+    const retryButton = screen.getByRole("button", { name: "동일 요청 확인(새 제어 아님)" });
     expect(retryButton).toBeEnabled();
     fireEvent.click(retryButton);
 
@@ -1440,6 +1470,67 @@ describe("App", () => {
       vi.mocked(apiPost).mock.calls.filter(([path]) => path === "/commands/dimming")
     ).toHaveLength(2));
     expect(await screen.findByText("명령을 전송했습니다. 장비 응답을 기다리는 중입니다.")).toBeInTheDocument();
+  });
+
+  it.each(["success", "failure", "abort"])("recovers the third status-check after failed logout with transport result %s", async (lateResult) => {
+    const commandId = "command-created-1";
+    const unknown = {
+      id: commandId, stage: "verification_required", outcome: "unknown", verificationAttemptCount: 2,
+      dispatchCount: 1, completedFixtureCount: 1, totalFixtureCount: 1, errorMessage: null, dispatches: []
+    };
+    apiState.commandStatus = unknown;
+    let finishOldCheck: (value: unknown) => void = () => undefined;
+    let failOldCheck: (reason: unknown) => void = () => undefined;
+    let rejectLogout: (reason: unknown) => void = () => undefined;
+    let finishRecovery: (value: unknown) => void = () => undefined;
+    let checkSignal: AbortSignal | undefined;
+    const checkBodies: unknown[] = [];
+    vi.mocked(apiPost).mockImplementation((path, body, options) => {
+      if (path === "/commands/dimming") return Promise.resolve({ id: commandId, dispatchCount: 1 });
+      if (path === "/auth/logout") return new Promise((_resolve, reject) => { rejectLogout = reject; });
+      if (path.endsWith("/status-checks")) {
+        checkBodies.push(body);
+        if (checkBodies.length === 1) {
+          checkSignal = options?.signal;
+          // Simulate a transport that completes late despite AbortSignal.
+          return new Promise((resolve, reject) => {
+            finishOldCheck = resolve;
+            failOldCheck = reject;
+            if (lateResult === "abort") options?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+          });
+        }
+        return new Promise((resolve) => { finishRecovery = resolve; });
+      }
+      return Promise.resolve({});
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><App /></QueryClientProvider>);
+    fireEvent.click(await screen.findByRole("link", { name: "제어" }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: "B2-L01 선택" }));
+    fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
+    fireEvent.click(await screen.findByRole("button", { name: "실제 상태 확인" }));
+    fireEvent.click(screen.getByRole("button", { name: "로그아웃" }));
+    expect(checkSignal?.aborted).toBe(true);
+    apiState.commandStatus = { ...unknown, verificationAttemptCount: 3, dispatches: [{ id: "third-check", kind: "status_check", verificationAttempt: 3, status: "timed_out", gateway: { id: "gw", name: "GW" }, results: [], errorMessage: null }] };
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: ["command-status", commandId] });
+      rejectLogout(new Error("logout failed"));
+    });
+    const recover = await screen.findByRole("button", { name: "동일 상태 확인 요청 조회" });
+    expect(recover).toBeEnabled();
+    fireEvent.click(recover);
+    await waitFor(() => expect(checkBodies).toHaveLength(2));
+    expect(checkBodies[1]).toEqual(checkBodies[0]);
+    await act(async () => {
+      if (lateResult === "success") finishOldCheck({ dispatchId: "stale-dispatch", dispatchIds: ["stale-dispatch"], verificationAttempt: 3 });
+      else if (lateResult === "failure") failOldCheck(new Error("late failure"));
+    });
+    expect(recover).toBeDisabled();
+    expect(screen.getByRole("slider", { name: "밝기" })).toBeDisabled();
+    await act(async () => finishRecovery({ dispatchId: "third-check", dispatchIds: ["third-check"], verificationAttempt: 3 }));
+    expect(await screen.findByText(/현장 확인이 필요합니다/)).toBeInTheDocument();
+    expect(screen.getByRole("slider", { name: "밝기" })).toBeEnabled();
+    expect(vi.mocked(apiPost).mock.calls.filter(([path]) => path === "/commands/dimming")).toHaveLength(1);
   });
 
   it("routes an admin with no fixtures to the settings-only registration screen", async () => {

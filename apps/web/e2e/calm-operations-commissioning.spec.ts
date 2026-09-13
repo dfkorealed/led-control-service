@@ -102,7 +102,7 @@ for (const viewport of viewports) {
 
     await withFixturePage(browser, baseURL, viewport, async (page) => {
       await installSettingsApiRoutes(page, "admin", { fixtures: [], includeGateway: false, ids: fixtureIds() });
-      await page.goto(`/settings?siteId=${ids.site}`);
+      await page.goto(`/settings/registration?siteId=${ids.site}`);
       await expect(page.getByRole("region", { name: "Gateway 연결" })).toBeVisible();
       await page.getByLabel("제품 시리얼").fill("GW-E2E-NEW");
       await page.getByLabel("일회성 등록 코드").fill("claim-code");
@@ -124,7 +124,7 @@ for (const viewport of viewports) {
         registrationSession: pending,
         registrationPollingSessions: [scanning, completed]
       });
-      await page.goto(`/settings?siteId=${ids.site}`);
+      await page.goto(`/settings/registration?siteId=${ids.site}`);
       await selectRegistrationTargets(page);
       await expectCommissioningActionsReachable(page, ["조명 검색 시작"], viewport.width);
       await startSearch(page);
@@ -151,7 +151,7 @@ for (const viewport of viewports) {
         registrationRetrySession: retryPending,
         registrationPollingSessions: [retryScanning, retryCompleted]
       });
-      await page.goto(`/settings?siteId=${ids.site}`);
+      await page.goto(`/settings/registration?siteId=${ids.site}`);
       await expect(page.getByText("검색된 미등록 조명이 없습니다.")).toBeVisible();
       await expectCommissioningActionsReachable(page, ["다시 검색", "등록 세션 취소"], viewport.width);
       await page.getByRole("button", { name: "다시 검색" }).click();
@@ -165,7 +165,7 @@ for (const viewport of viewports) {
     await withFixturePage(browser, baseURL, viewport, async (page) => {
       const discovered = registrationSession("completed", [discoveredNode]);
       await installSettingsApiRoutes(page, "admin", { fixtures: [], ids: fixtureIds(), activeRegistrationSessions: [discovered] });
-      await page.goto(`/settings?siteId=${ids.site}`);
+      await page.goto(`/settings/registration?siteId=${ids.site}`);
       await expect(page.getByLabel("조명 1 선택")).toBeVisible();
       await page.getByLabel("조명 1 선택").check();
       await expectRegistrationStepStates(page, ["complete", "current", "pending", "pending"]);
@@ -173,9 +173,8 @@ for (const viewport of viewports) {
       await expectCommissioningActionsReachable(page, ["선택 조명 등록"], viewport.width);
       await expectMobileRegionTargetsReachable(page, ".registration-config-form", viewport.width);
       await page.getByRole("radio", { name: "개별 설정" }).check();
-      await page.getByLabel("조명 1 X 좌표").fill("120");
-      await page.getByRole("button", { name: "선택 조명 등록" }).click();
-      await expect(page.locator(".individual-error")).toHaveText("X와 Y 좌표를 모두 입력하거나 모두 비워주세요.");
+      await page.getByLabel("조명 1 이름").fill("입구 조명");
+      await expect(page.getByLabel("조명 1 이름")).toHaveValue("입구 조명");
       await expectNoHorizontalOverflow(page);
       await expectCommissioningActionsReachable(page, ["선택 조명 등록"], viewport.width);
       await expectMobileRegionTargetsReachable(page, ".registration-panel", viewport.width);
@@ -184,7 +183,7 @@ for (const viewport of viewports) {
     await withFixturePage(browser, baseURL, viewport, async (page) => {
       const reconcile = registrationSession("completed", [{ ...discoveredNode, status: "reconcile_required", errorMessage: "Gateway ACK 확인 필요" }]);
       await installSettingsApiRoutes(page, "admin", { fixtures: [], ids: fixtureIds(), activeRegistrationSessions: [reconcile] });
-      await page.goto(`/settings?siteId=${ids.site}`);
+      await page.goto(`/settings/registration?siteId=${ids.site}`);
       await expectRegistrationStepStates(page, ["complete", "complete", "complete", "current"]);
       await expect(page.getByText("게이트웨이 장비 응답 확인 필요")).toBeVisible();
       await expect(page.getByText("Gateway ACK 확인 필요")).toHaveCount(0);
@@ -197,6 +196,39 @@ for (const viewport of viewports) {
     });
   });
 }
+
+test("accepted identify retry ignores a delayed earlier terminal and keeps polling its own operation", async ({ browser, baseURL }) => {
+  await withFixturePage(browser, baseURL, { width: 390, height: 844 }, async (page) => {
+    await page.clock.install({ time: new Date(scanTimeline.firstScanCompletedAt) });
+    const discovered = registrationSession("completed", [discoveredNode]);
+    await installSettingsApiRoutes(page, "admin", { fixtures: [], ids: fixtureIds(), activeRegistrationSessions: [discovered] });
+    const retry = { ...discoveredNode, status: "identifying" as const, identifyState: "pending", identifyOperationStartedAt: "2026-08-26T00:00:32Z", updatedAt: "2026-08-26T00:00:32Z" };
+    let started = false;
+    let terminalAllowed = false;
+    let oldPolls = 0;
+    await page.route(`**/registration-sessions/${discovered.id}`, async (route) => {
+      const node = !started ? discoveredNode : terminalAllowed
+        ? { ...discoveredNode, identifyState: "confirmed", identifyOperationId: "op-2", identifyOperationStartedAt: retry.identifyOperationStartedAt, updatedAt: "2026-08-26T00:00:34Z" }
+        : { ...discoveredNode, identifyState: "failed", identifyOperationId: "op-1", identifyOperationStartedAt: "2026-08-26T00:00:30Z", updatedAt: "2026-08-26T00:00:31Z" };
+      if (started && !terminalAllowed) oldPolls += 1;
+      await route.fulfill({ json: registrationSession("completed", [node]) });
+    });
+    await page.route(`**/registration-sessions/${discovered.id}/nodes/${discoveredNode.id}/identify`, async (route) => {
+      started = true;
+      await route.fulfill({ status: 202, json: { status: "accepted", operationId: "op-2", node: retry } });
+    });
+    await page.goto(`/settings/registration?siteId=${ids.site}`);
+    await page.getByRole("button", { name: "조명 1 식별" }).click();
+    await expect(page.getByRole("button", { name: "조명 1 식별 중" })).toBeDisabled();
+    await page.clock.fastForward(1500);
+    await expect.poll(() => oldPolls).toBeGreaterThan(0);
+    await expect(page.getByRole("button", { name: "조명 1 식별 중" })).toBeDisabled();
+    terminalAllowed = true;
+    await page.clock.fastForward(1500);
+    await expect(page.getByText("식별 완료")).toBeVisible();
+    await expect(page.getByRole("button", { name: "조명 1 식별" })).toBeEnabled();
+  });
+});
 
 test("registration progress exposes provisioning, completed, and failed semantics", async ({ browser, baseURL }) => {
   const viewport = { width: 390, height: 844 };
@@ -218,7 +250,7 @@ test("registration progress exposes provisioning, completed, and failed semantic
   for (const { session, states } of cases) {
     await withFixturePage(browser, baseURL, viewport, async (page) => {
       await installSettingsApiRoutes(page, "admin", { fixtures: [], ids: fixtureIds(), activeRegistrationSessions: [session] });
-      await page.goto(`/settings?siteId=${ids.site}`);
+      await page.goto(`/settings/registration?siteId=${ids.site}`);
       await expectRegistrationStepStates(page, states);
       await expectNoHorizontalOverflow(page);
     });

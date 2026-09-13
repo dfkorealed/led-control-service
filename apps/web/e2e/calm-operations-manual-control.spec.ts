@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import type { FixtureGroupMetadata } from "@led-control/shared";
+import type { CommandStatusResponse } from "../src/api/commands";
 import { expectMinimumTouchTargets, expectMinimumTouchTargetsAfterScrolling, expectNoHorizontalOverflow } from "./support/layout-assertions";
 import { installSettingsApiRoutes, type SettingsFixture } from "./support/settings-api";
 
@@ -38,13 +39,83 @@ const viewports = [
   { width: 320, height: 740 }
 ] as const;
 
+for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+  test(`${viewport.width}px 명령 이력 상태 확인과 원래 대상 안전 재적용`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    const api = await installManualControlFixture(page, "admin");
+    const commandId = "77777777-7777-4777-8777-777777777799";
+    let checking = false;
+    let verified = false;
+    const checkRequests: Array<{ clientRequestId: string }> = [];
+    const historyRequests: URL[] = [];
+    const original: CommandStatusResponse = {
+      id: commandId, siteId: ids.site, stage: "verification_required", outcome: "unknown", targetType: "floor", targetId: ids.floor,
+      targetFixtureIds: [ids.fixture], brightness: 30, verificationAttemptCount: 0, dispatchCount: 1,
+      totalFixtureCount: 1, completedFixtureCount: 1, createdAt: "2026-09-12T01:00:00.000Z", errorMessage: "STATUS_TIMEOUT",
+      dispatches: [{ id: "original-dispatch", kind: "dimming", status: "timed_out", gateway: { id: ids.gateway, name: "GW" }, errorMessage: null, results: [commandResult("timed_out", null)] }]
+    };
+    await page.route("**/api/commands**", async (route) => {
+      const url = new URL(route.request().url());
+      if (url.pathname === "/api/commands") {
+        historyRequests.push(url);
+        return route.fulfill({ json: { items: Array.from({ length: url.searchParams.has("cursor") ? 4 : 20 }, (_, index) => ({ ...original, id: index === 0 && !url.searchParams.has("cursor") ? commandId : `77777777-7777-4777-8777-${String((url.searchParams.has("cursor") ? 50 : 10) + index).padStart(12, "0")}` })), nextCursor: url.searchParams.has("cursor") ? null : "next-page" } });
+      }
+      if (url.pathname === `/api/commands/${commandId}/status-checks`) {
+        checkRequests.push(route.request().postDataJSON());
+        if (checkRequests.length === 1) return route.abort("failed");
+        checking = true;
+        return route.fulfill({ json: { dispatchId: "check-dispatch", dispatchIds: ["check-dispatch"], verificationAttempt: 1, terminalStatusUrl: `/commands/${commandId}` } });
+      }
+      if (url.pathname === `/api/commands/${commandId}`) return route.fulfill({ json: {
+        ...original, stage: verified ? "verified_not_applied" : "verification_required", outcome: verified ? "not_applied" : "unknown",
+        verificationAttemptCount: checking ? 1 : 0,
+        dispatches: checking ? [...original.dispatches, { id: "check-dispatch", kind: "status_check", verificationAttempt: 1, status: verified ? "completed" : "accepted", gateway: { id: ids.gateway, name: "GW" }, errorMessage: null, results: [{ ...commandResult("succeeded", null), brightness: 70 }] }] : original.dispatches
+      } });
+      return route.fallback();
+    });
+    await page.goto(`/control?siteId=${ids.site}`);
+    const history = page.getByRole("region", { name: "최근 명령 이력" });
+    await page.getByRole("searchbox", { name: "명령 이력 검색" }).fill("B2");
+    await expect.poll(() => historyRequests.at(-1)?.searchParams.get("query")).toBe("B2");
+    await page.getByRole("combobox", { name: "명령 상태 필터" }).selectOption("verification_required");
+    await expect.poll(() => historyRequests.at(-1)?.searchParams.get("stage")).toBe("verification_required");
+    await history.getByRole("button", { name: "더 보기" }).click();
+    await expect.poll(() => historyRequests.at(-1)?.searchParams.get("cursor")).toBe("next-page");
+    await history.getByRole("button", { name: new RegExp(commandId) }).click();
+    await expect(page.getByRole("button", { name: "안전하게 다시 적용" })).toHaveCount(0);
+    await page.getByRole("button", { name: "명령 상세 닫기" }).click();
+    await history.getByRole("button", { name: new RegExp(commandId) }).click();
+    await page.getByRole("button", { name: "실제 상태 확인", exact: true }).click();
+    await page.getByRole("button", { name: "동일 상태 확인 요청 조회" }).click();
+    await expect(page.getByRole("button", { name: "실제 상태 확인 중" })).toBeDisabled();
+    await expect(page.getByRole("slider", { name: "밝기" })).toBeDisabled();
+    expect(checkRequests[1]).toEqual(checkRequests[0]);
+    expect(api.dimmingRequests).toHaveLength(0);
+    verified = true;
+    await expect(page.getByRole("button", { name: "안전하게 다시 적용" })).toBeEnabled();
+    await page.getByRole("button", { name: "100%" }).click();
+    await page.getByRole("button", { name: "안전하게 다시 적용" }).click();
+    await expect.poll(() => api.dimmingRequests.at(-1)).toMatchObject({ brightness: 30, target: { type: "fixtures", fixtureIds: [ids.fixture] } });
+    await expectNoHorizontalOverflow(page);
+    if (viewport.width > 1120) {
+      const dimensions = await page.evaluate(() => {
+        const list = document.querySelector<HTMLElement>(".command-history-list")!;
+        return { overflow: getComputedStyle(list).overflowY, listHeight: list.clientHeight, contentHeight: list.scrollHeight, documentHeight: document.documentElement.scrollHeight, viewportHeight: window.innerHeight };
+      });
+      expect(dimensions.overflow).toBe("auto");
+      expect(dimensions.listHeight).toBeLessThan(dimensions.contentHeight);
+      expect(dimensions.documentHeight).toBeLessThanOrEqual(dimensions.viewportHeight);
+    }
+  });
+}
+
 for (const viewport of viewports) {
   test(`${viewport.width}px 수동 제어는 대상·명령 결과·저장 구역 계약을 유지한다`, async ({ page }) => {
     await page.clock.install({ time: new Date("2026-09-01T00:00:00.000Z") });
     await page.setViewportSize(viewport);
     const api = await installManualControlFixture(page, "admin");
     await page.goto(`/control?siteId=${ids.site}`);
-    await expect(page.getByRole("heading", { name: "조명 제어" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "조명 밝기 제어", exact: true })).toBeVisible();
     if (viewport.width <= 760) await expectMinimumTouchTargetsAfterScrolling(page, ".control-screen");
 
     await page.getByRole("checkbox", { name: "B2-L02 선택" }).check();
@@ -121,7 +192,7 @@ for (const viewport of viewports) {
     await page.goto(`/control?siteId=${ids.site}`);
 
     await expect(page).toHaveURL(new RegExp(`/monitoring\\?siteId=${ids.site}$`));
-    await expect(page.getByRole("heading", { name: "조명 제어" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "조명 밝기 제어", exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "밝기 적용" })).toHaveCount(0);
     await expectNoHorizontalOverflow(page);
   });
@@ -133,7 +204,7 @@ for (const viewport of viewports) {
     await page.getByRole("checkbox", { name: "B2-L01 선택" }).check();
     await page.getByRole("button", { name: "밝기 적용" }).click();
     successApi.setCommandStatus({ stage: "completed", results: [commandResult("succeeded", null)] });
-    await expect(page.getByText("조명 적용 완료")).toBeVisible();
+    await expect(page.getByRole("status", { name: "명령 진행 상태" }).getByText("조명 적용 완료")).toBeVisible();
 
     const timeoutPage = await page.context().newPage({ viewport });
     try {
@@ -266,6 +337,9 @@ async function installManualControlFixture(
   await page.route("**/api/**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
+    if (url.pathname === "/api/commands" && request.method() === "GET") {
+      return route.fulfill({ json: { items: [], nextCursor: null } });
+    }
     if (url.pathname === `/api/sites/${ids.site}/fixture-groups` && request.method() === "GET") {
       return route.fulfill({ json: [savedZone] });
     }

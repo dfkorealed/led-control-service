@@ -1,12 +1,13 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Activity, BarChart3, LogOut, MapPin, SlidersHorizontal } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { logout, type AuthUser } from "../../api/auth";
 import { authMeQueryKey, clearTenantCache } from "../../api/principal-cache";
 import { useDashboard, type SiteCapabilities } from "../../api/queries";
+import { KindaLogo } from "../../components/brand/KindaLogo";
 import { IconTooltipButton } from "../../components/ui";
-import { ControlView } from "../control/ControlView";
+import { RouteLoadingState } from "../../components/ui/RouteLoadingState";
 import {
   blockActiveCommandSession,
   unblockActiveCommandSession
@@ -14,19 +15,23 @@ import {
 import { clearActiveCommandsForUser } from "../control/active-command-store";
 import { hasDirtyEditorSentinel } from "../floor-editor/dirty-editor-history";
 import { useFloorEditorStore } from "../floor-editor/editor-store";
-import { MonitoringView } from "../monitoring/MonitoringView";
-import { SettingsShell } from "../settings/SettingsShell";
-import { FloorEditorRoute } from "../settings/floor-plans/FloorEditorRoute";
-import { FloorPlanSettingsView } from "../settings/floor-plans/FloorPlanSettingsView";
-import { SettingsView } from "../settings/SettingsView";
-import { RegistrationSettingsView } from "../settings/registration/RegistrationSettingsView";
-import { PasswordSettingsView } from "../settings/security/PasswordSettingsView";
-import { SiteUsersView } from "../settings/users/SiteUsersView";
-import { StatisticsOverviewPage } from "../statistics/StatisticsOverviewPage";
-import { StatisticsAnalysisPage } from "../statistics/analysis/StatisticsAnalysisPage";
-import { StatisticsReportsPage } from "../statistics/reports/StatisticsReportsPage";
-import { StatisticsIndexRedirect, StatisticsShell } from "../statistics/StatisticsShell";
 import { SettingsNavigationItem } from "./SettingsNavigationItem";
+
+const MonitoringView = lazy(() => import("../monitoring/MonitoringView").then((module) => ({ default: module.MonitoringView })));
+const ControlView = lazy(() => import("../control/ControlView").then((module) => ({ default: module.ControlView })));
+const StatisticsShell = lazy(() => import("../statistics/StatisticsShell").then((module) => ({ default: module.StatisticsShell })));
+const StatisticsIndexRedirect = lazy(() => import("../statistics/StatisticsShell").then((module) => ({ default: module.StatisticsIndexRedirect })));
+const StatisticsOverviewPage = lazy(() => import("../statistics/StatisticsOverviewPage").then((module) => ({ default: module.StatisticsOverviewPage })));
+const StatisticsAnalysisPage = lazy(() => import("../statistics/analysis/StatisticsAnalysisPage").then((module) => ({ default: module.StatisticsAnalysisPage })));
+const StatisticsReportsPage = lazy(() => import("../statistics/reports/StatisticsReportsPage").then((module) => ({ default: module.StatisticsReportsPage })));
+const SettingsShell = lazy(() => import("../settings/SettingsShell").then((module) => ({ default: module.SettingsShell })));
+const SettingsView = lazy(() => import("../settings/SettingsView").then((module) => ({ default: module.SettingsView })));
+const SiteUsersView = lazy(() => import("../settings/users/SiteUsersView").then((module) => ({ default: module.SiteUsersView })));
+const RegistrationSettingsView = lazy(() => import("../settings/registration/RegistrationSettingsView").then((module) => ({ default: module.RegistrationSettingsView })));
+const FloorPlanSettingsView = lazy(() => import("../settings/floor-plans/FloorPlanSettingsView").then((module) => ({ default: module.FloorPlanSettingsView })));
+const FloorEditorRoute = lazy(() => import("../settings/floor-plans/FloorEditorRoute").then((module) => ({ default: module.FloorEditorRoute })));
+const AccountSecurityView = lazy(() => import("../settings/security/AccountSecurityView").then((module) => ({ default: module.AccountSecurityView })));
+const SiteOperationsView = lazy(() => import("../settings/site/SiteOperationsView").then((module) => ({ default: module.SiteOperationsView })));
 
 const items = [
   { path: "/monitoring", destination: "/monitoring", label: "모니터링", icon: Activity },
@@ -170,13 +175,7 @@ export function CustomerShell({ user }: { user: AuthUser }) {
         </nav>
       ) : (
         <aside className="sidebar">
-          <div className="brand">
-            <span className="brand-mark">LC</span>
-            <div>
-              <strong>LED Control</strong>
-              <span>관제 센터</span>
-            </div>
-          </div>
+          <KindaLogo context="관제 센터" compact />
           <nav className="nav-list" aria-label="주 메뉴">
             <PrimaryNavigation capabilities={capabilities} search={location.search} />
           </nav>
@@ -203,53 +202,61 @@ export function CustomerShell({ user }: { user: AuthUser }) {
             {logoutError ? <span className="danger-text" role="alert">{logoutError}</span> : null}
           </div>
         </header>
-        <Routes>
-          <Route path="/monitoring" element={<MonitoringView userRole={user.role} siteId={siteId} currentUser={{ id: user.id, name: user.name, loginId: user.loginId, status: user.status }} />} />
-          <Route
-            path="/control"
-            element={capabilities.control ? (
-              <ControlView
-                siteId={siteId}
-                userId={user.id}
-                userRole={user.role}
-                commandSessionBlocked={isLoggingOut}
+        <Suspense fallback={<RouteLoadingState />}>
+          <Routes>
+            <Route path="/monitoring" element={<MonitoringView userRole={user.role} siteId={siteId} />} />
+            <Route
+              path="/control"
+              element={capabilities.control ? (
+                <ControlView
+                  siteId={siteId}
+                  userId={user.id}
+                  userRole={user.role}
+                  commandSessionBlocked={isLoggingOut}
+                />
+              ) : <Navigate to={`/monitoring${location.search}`} replace />}
+            />
+            <Route path="/statistics" element={<StatisticsShell siteId={siteId ?? dashboard?.site.id} />}>
+              <Route index element={<StatisticsIndexRedirect />} />
+              <Route path="overview" element={<StatisticsOverviewPage />} />
+              <Route path="analysis" element={<StatisticsAnalysisPage />} />
+              <Route path="reports" element={<StatisticsReportsPage />} />
+              <Route path="*" element={<StatisticsIndexRedirect />} />
+            </Route>
+            <Route path="/settings" element={<SettingsShell capabilities={capabilities} selectedSiteId={siteId ?? dashboard?.site.id} />}>
+              <Route index element={<SettingsView userRole={user.role} siteId={siteId} />} />
+              <Route
+                path="site"
+                element={capabilities.manage
+                  ? <SiteOperationsView siteId={selectedSiteId} />
+                  : <Navigate to={`/settings${location.search}`} replace />}
               />
-            ) : <Navigate to={`/monitoring${location.search}`} replace />}
-          />
-          <Route path="/statistics" element={<StatisticsShell siteId={siteId ?? dashboard?.site.id} />}>
-            <Route index element={<StatisticsIndexRedirect />} />
-            <Route path="overview" element={<StatisticsOverviewPage />} />
-            <Route path="analysis" element={<StatisticsAnalysisPage />} />
-            <Route path="reports" element={<StatisticsReportsPage />} />
-            <Route path="*" element={<StatisticsIndexRedirect />} />
-          </Route>
-          <Route path="/settings" element={<SettingsShell capabilities={capabilities} selectedSiteId={siteId ?? dashboard?.site.id} />}>
-            <Route index element={<SettingsView userRole={user.role} siteId={siteId} />} />
-            <Route
-              path="users"
-              element={capabilities.manage
-                ? <SiteUsersView siteId={selectedSiteId} />
-                : <Navigate to={`/settings${location.search}`} replace />}
-            />
-            <Route
-              path="registration"
-              element={capabilities.manage ? <RegistrationSettingsView siteId={siteId} /> : <Navigate to={`/settings${location.search}`} replace />}
-            />
-            <Route path="floor-plans" element={<FloorPlanSettingsView siteId={siteId} capabilities={capabilities} />} />
-            <Route
-              path="floor-plans/:floorId/edit"
-              element={capabilities.manage
-                ? <FloorEditorRoute capabilities={capabilities} />
-                : <Navigate to={`/settings/floor-plans${location.search}`} replace />}
-            />
-            <Route
-              path="security"
-              element={<PasswordSettingsView />}
-            />
-            <Route path="*" element={<Navigate to={`/settings${location.search}`} replace />} />
-          </Route>
-          <Route path="*" element={<Navigate to={`/monitoring${location.search}`} replace />} />
-        </Routes>
+              <Route
+                path="users"
+                element={capabilities.manage
+                  ? <SiteUsersView siteId={selectedSiteId} />
+                  : <Navigate to={`/settings${location.search}`} replace />}
+              />
+              <Route
+                path="registration"
+                element={capabilities.manage ? <RegistrationSettingsView siteId={siteId} /> : <Navigate to={`/settings${location.search}`} replace />}
+              />
+              <Route path="floor-plans" element={<FloorPlanSettingsView siteId={siteId} capabilities={capabilities} />} />
+              <Route
+                path="floor-plans/:floorId/edit"
+                element={capabilities.manage
+                  ? <FloorEditorRoute capabilities={capabilities} />
+                  : <Navigate to={`/settings/floor-plans${location.search}`} replace />}
+              />
+              <Route
+                path="security"
+                element={<AccountSecurityView user={user} />}
+              />
+              <Route path="*" element={<Navigate to={`/settings${location.search}`} replace />} />
+            </Route>
+            <Route path="*" element={<Navigate to={`/monitoring${location.search}`} replace />} />
+          </Routes>
+        </Suspense>
       </main>
     </div>
   );

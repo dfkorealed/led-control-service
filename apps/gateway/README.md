@@ -24,6 +24,66 @@ BIO full runtime은 `compose.bio-runtime.yml`과 `scripts/gateway-bio-runtime.sh
 
 Gateway의 unit/mock test는 journal·outbox·MQTT 재연결·BlueZ adapter의 메시지 변환처럼 소프트웨어 계약을 검증한다. 이 결과는 실제 무선 송수신이나 전원 복구를 보장하지 않는다. Raspberry Pi, BlueZ D-Bus, ESP32-H2와 RF 환경을 함께 쓰는 HIL은 아래 절차로 별도 실행·판정하며, 현재 문서에 명시된 HIL 상태를 자동 테스트 성공으로 바꾸지 않는다.
 
+## 검증된 release와 암호화 복구 (2026-09-13)
+
+개발/CI에는 Node 22+, pnpm 9.15.0, Docker daemon/Buildx, OpenSSL 3와 C compiler가 필요하다. Pi host에는 Node 대신 Bash, GNU coreutils/tar(`timeout`, `sync -f`, `mv -T` 포함), util-linux `flock`, OpenSSL 3, Docker/Compose가 필요하다.
+
+```bash
+pnpm workspace:prepare
+pnpm gateway:release:ci
+pnpm gateway:appliance:build
+```
+
+CI 명령은 clean checkout에서 실제 `linux/amd64` **test-only** image/bundle을 만들고, trusted policy·full HEAD로 검증하며 기본 production verify의 거부도 확인한다. 검증한 archive의 실제 load→inspect→read-only/network-none run 경계에서 activation과 같은 shell identity 판단으로 daemon ID/OCI labels와 container `.Image`를 결속하고 Node 22·최종 inventory를 확인한다. 이어 전체 state suite 98개(악성 archive/path·권한·identity·partial swap·journal rollback·용량 상한 포함)를 serial로 실행한다. 그 결과 안에 명시적 ephemeral RSA CMS backup→verify→drill→disposable restore happy flow 1개·98 pass·실패/skip/cancel 0을 요구하고 자기 image/container/artifact/key/plaintext를 정리한다. 전체 Compose activation/state의 fixture와 macOS compatibility shim은 실제 Pi/ARM64·power-loss/HIL 증거가 아니다. Production audit가 이 gate를 Web/dependency 전에 정확히 한 번 실행한다. Test image와 산출물은 배포하지 않는다. 실행 deadline 45분, child 30분, 종료 뒤 drain 3초→TERM 2초→KILL 2초, cleanup 2분(+최대 5초 hard backstop), protected workflow 60분 한도를 둔다. Still-live process group/cleanup 실패는 exit 3이며 해당 staging을 지우지 않는다.
+
+State v1은 manifest 포함 4,096 nonzero headers, 파일별 256 MiB·regular 합계 512 MiB(manifest 포함)·manifest 16 MiB, 별도 framing 4,201,472 bytes·전체 decoded 541,072,384 bytes·ciphertext 544 MiB로 제한된다. Automation state/outbox/reserve 각각 64 MiB와 state-event outbox 100 MiB 및 serialization/identity generation 여유를 기준으로 정했으며 env/CLI override는 없다. Producer는 hash/quiesce 전 metadata로, parser는 header 처리/payload 생성 전에 검사한다. 초과 시 데이터 삭제·부분 백업 없이 operator ACK drain/승인된 capacity·retention 조치가 필요하다. Framing 계산과 oversized 기존 backup 처리, restore 승인 경계는 [운영 runbook](../../docs/runbooks/raspberry-pi-gateway-appliance.md)을 따른다.
+
+2026-09-13 bounded state review fix 기능 코드 `0f12135`은 새 budget **13/13**, 전체 state **98/98**, current combined behavior **358/358**, Gateway contracts **30/30**·syntax/diff를 통과했다. Clean canonical gate는 **16분 21.113초**에 artifact/activation **223/223**, 전체 state **98/98**(그 안의 실제 CMS happy flow 1개, skip 0), 실제 Node **22.23.2**·OS **120**/Node **263** inventory, Docker 29 config/descriptor/container identity·v3 검사와 cleanup을 통과했다. 이후 같은 clean 코드의 전체 `pnpm ci:production-audit`도 **16분 41.939초**에 같은 in-band gate·MQTT 설정/실제 MQTT 각 **2/2**·Gateway contracts **30/30**·Web container **5/5**·dependency **820개** 정책(기존 승인 예외 3·unexpected 0)까지 통과했다. 정확한 SHA·이전 실패와 한계는 [실행 계획](../../docs/superpowers/plans/2026-09-12-gateway-release-backup-recovery.md)과 최종 fix 보고서에 기록하며, 실제 production ARM64/Pi/HIL 완료로 해석하지 않는다.
+
+기본 production build는 `dist/gateway-appliance/<version>-<full-commit>-<config-prefix>/`에 다음 7개 파일을 생성한다. Dirty build 예외는 없다.
+
+```text
+appliance.env
+checksums.sha256
+compose.yml
+docker/seccomp-bluez-mesh.json
+gateway-image-linux-arm64.tar
+release-manifest.json
+sbom.spdx.json
+```
+
+```bash
+BUNDLE=/absolute/approved/release-directory
+EXPECTED_COMMIT=$(git rev-parse HEAD)
+POLICY_SHA=$(sha256sum apps/gateway/release-policy.json | awk '{print $1}')
+node scripts/gateway-release-bundle.mjs verify --bundle "$BUNDLE" \
+  --policy apps/gateway/release-policy.json --expected-commit "$EXPECTED_COMMIT"
+scripts/gateway-appliance-release.sh verify "$BUNDLE" --policy-sha256 "$POLICY_SHA"
+# 운영 승인·현장 encrypted backup·preflight가 준비된 뒤에만 실행한다.
+scripts/gateway-appliance-deploy.sh user@raspberry-pi "$BUNDLE"
+```
+
+Deploy 입력은 loose tar가 아니라 **bundle directory**다. `appliance.env`와 state metadata는 데이터이며 source/eval하지 않는다. Site `.env.appliance`, identity/private key는 전송 bundle에 포함하지 않는다. Checksum/provenance는 서명이 아니므로 trusted policy/full commit·승인된 artifact 전달과 운영 signing/recipient custody는 별도 관문이다. 정확한 검사 범위는 [RELEASE-BUNDLE.md](RELEASE-BUNDLE.md)를 따른다.
+
+Docker 29의 gzip blob SHA, uncompressed layer diff ID, config SHA와 daemon descriptor SHA는 서로 다른 좌표다. 새 14-key env의 descriptor와 config를 구분하며 verifier/activation/state helper를 새 producer보다 먼저 갱신한다. 기존 13-key shell rollback은 기존 config-ID 조건을 유지한다. Content scan v3는 파일 단위 standalone DER/PEM, 전체 base64 key, text 안 complete parseable PEM을 검사한다. Complete encrypted-private-key PEM과 strict whole-file PKCS#8 EncryptedPrivateKeyInfo DER는 passphrase 없이 구조적으로 거부한다. Binary 내부 offset·marker-only 설명·임의 secret 탐지를 보장하지 않으며 이전 v1/v2 profile을 v3로 재인증하지 않는다.
+
+Pi의 승인된 trusted helper directory에서 다음 인터페이스를 사용한다. `activate`는 자체 preflight 후 image/env/health를 확인하고 마지막에만 `current`/`previous`를 바꾼다. 기존 service에 검증된 `current` baseline이 없으면 자동 legacy migration을 하지 않고 거부한다. `rollback`은 임의 tag가 아닌 검증된 `previous`만 선택한다.
+
+```bash
+sudo /usr/local/lib/led-control/gateway-appliance-release.sh activate "$BUNDLE" --policy-sha256 "$POLICY_SHA"
+sudo /usr/local/lib/led-control/gateway-appliance-release.sh rollback --policy-sha256 "$POLICY_SHA"
+BACKUP=/srv/led-control-backups/approved-new-backup
+RECIPIENT=/absolute/approved/recipient.crt
+RECIPIENT_KEY=/absolute/off-device-custody/recipient.key
+sudo /usr/local/lib/led-control/gateway-appliance-state.sh backup "$BACKUP" --recipient "$RECIPIENT" --policy-sha256 "$POLICY_SHA"
+/usr/local/lib/led-control/gateway-appliance-state.sh verify "$BACKUP" --recipient "$RECIPIENT" --key "$RECIPIENT_KEY"
+/usr/local/lib/led-control/gateway-appliance-state.sh drill "$BACKUP" --recipient "$RECIPIENT" --key "$RECIPIENT_KEY"
+# 별도 restore 승인과 key 접근이 있을 때만:
+sudo /usr/local/lib/led-control/gateway-appliance-state.sh restore "$BACKUP" --recipient "$RECIPIENT" --key "$RECIPIENT_KEY" --policy-sha256 "$POLICY_SHA"
+```
+
+Backup은 검증된 healthy current를 잠시 중지하고 `GATEWAY_DATA_DIR/{gateway,mesh,identity,factory-trust}`를 같은 시점에 묶는다. 최종 artifact는 `backup.env`, `checksums.sha256`, `state.cms`만 남기며 plaintext tar를 만들지 않는다. Backup 위치는 appliance/data root **밖**이어야 한다. Recipient private key는 backup/상시 Pi에 두지 않고 off-device escrow에서 관리하며 verify/drill은 live Docker/data를 건드리지 않는다. Release/state는 같은 `.appliance-operation.lock`을 쓰고 pending journal을 임의 삭제하지 않는다. Exit code·권한·복구 절차·SIGKILL 한계는 [Pi runbook](../../docs/runbooks/raspberry-pi-gateway-appliance.md)에 고정한다.
+
 ## Registered Fixture Identification (2026-09-09)
 
 - `commands/identify` and `events/identify-result` use the dedicated strict version-1 shared contract in the assigned `sites/{siteId}/gateways/{gatewayId}` namespace. Existing production/lab static ACL and dev ACL generator authorize these channels through gateway-CN-scoped command-read/event-write rules; API also validates topic, payload, active claim and MQTT certificate ledger.
@@ -242,7 +302,7 @@ Pi image와 signed firmware artifact를 각각 배포한다. `--test-build` bina
 
 ```bash
 scripts/gateway-appliance-deploy.sh "$PI_HOST" \
-  dist/gateway-appliance/led-control-gateway-<revision>-linux-arm64.tar
+  /absolute/approved/gateway-release-directory
 
 export IDF_PATH="${IDF_PATH:-$HOME/esp/esp-idf}"
 export CONFIG_LED_CONTROL_BLUETOOTH_COMPANY_ID='<owner decimal Company ID>'
@@ -448,7 +508,7 @@ WantedBy=multi-user.target
 
 connect recovery는 아직 application ACK를 받지 못한 terminal을 original `eventId`와 `sequence`로 직렬 drain한다. 연결 뒤 새 terminal이 생기면 retry scheduler를 깨우고, ACK가 없으면 1초부터 30초까지 exponential bounded backoff로 같은 terminal을 재발행한다. idle journal은 polling하지 않으며 connection 안의 drain은 single-flight다. 각 recovery publish는 30초 scan outbox lease보다 짧은 10초 안에 끝나야 한다. MQTT close는 예약 timer와 callback 대기를 모두 취소하고, reconnect는 새 connection generation에서 즉시 drain을 재시작한다. broker PUBACK은 전송만 확인하므로 `deliveredAt`을 기록하지 않는다. API가 `ProcessedGatewayEvent`와 `ProvisioningSession` transaction을 commit한 뒤 발행한 `acks/provisioning/scan-terminal-ingested`의 `eventId`, `sequence`, `sessionId`, `scanCorrelationId`, `scanAttempt`가 저장 terminal과 모두 일치할 때만 delivered로 전환하고 retry timer를 정리한다. ACK를 받지 못한 terminal과 running record는 retention과 capacity eviction에서 제외한다. 이 보호 record 때문에 1,000개 한도를 넘으면 새 scan을 시작하지 않고 fail-closed 한다. delivered terminal만 ACK의 `ingestedAt`부터 24시간 보존한 뒤 제거한다. 경로는 `GATEWAY_PROVISIONING_SCAN_JOURNAL_PATH`로 바꿀 수 있다.
 
-개별 provisioning v2 command는 RF 실행 전에 `/var/lib/led-control/provisioning-device-journal.json`에 원자 저장하고 그 durability barrier 뒤에만 inbound QoS 1 PUBACK을 연다. 같은 `commandId`의 exact payload는 진행 중이면 RF를 중복 실행하지 않고, terminal 상태면 저장된 exact `eventId`/`sequence`를 재사용한다. 같은 `commandId`의 identity가 달라지면 RF 전에 fail-closed 한다. RF 종료 뒤 terminal도 file fsync, rename, parent directory fsync를 통과한 다음 발행하며 broker PUBACK 뒤에도 application ACK 전까지 reconnect와 process restart에서 재발행한다. exact device terminal ACK는 pending replay marker만 삭제하고 command/terminal tombstone은 24시간 보존해 늦은 duplicate 실행을 막는다. 재시작 때 `accepted`만 남은 command는 장비가 이미 provision됐을 가능성이 있으므로 RF를 다시 보내지 않고 `provisioning_outcome_unknown` terminal로 보수적으로 수렴한다. 경로는 `GATEWAY_PROVISIONING_DEVICE_JOURNAL_PATH`로 바꿀 수 있으며 shutdown은 진행 중 provisioning handler와 마지막 terminal handoff를 drain한 뒤 MQTT를 닫는다.
+개별 provisioning/identify v2 command는 RF 실행 전에 `/var/lib/led-control/provisioning-device-journal.json`에 원자 저장하고 그 durability barrier 뒤에만 exact command topic의 inbound QoS 1 PUBACK을 연다. journal fsync가 실패하면 PUBACK과 RF 실행을 모두 하지 않는다. 같은 `commandId`의 exact payload는 진행 중이면 RF를 중복 실행하지 않고, terminal 상태면 저장된 exact `eventId`/`sequence`를 재사용한다. 같은 `commandId`의 identity가 달라지면 RF 전에 fail-closed 한다. RF 종료 뒤 terminal도 file fsync, rename, parent directory fsync를 통과한 다음 발행하며 broker PUBACK 뒤에도 application ACK 전까지 reconnect와 process restart에서 재발행한다. exact device terminal ACK는 pending replay marker만 삭제하고 command/terminal tombstone은 24시간 보존해 늦은 duplicate 실행을 막는다. 재시작 때 `accepted`만 남은 command는 장비가 이미 동작했을 가능성이 있으므로 RF를 다시 보내지 않고 `provisioning_outcome_unknown` terminal로 보수적으로 수렴한다. 경로는 `GATEWAY_PROVISIONING_DEVICE_JOURNAL_PATH`로 바꿀 수 있으며 shutdown은 진행 중 handler와 마지막 terminal handoff를 drain한 뒤 MQTT를 닫는다.
 
 Gateway MQTT certificate는 ACK namespace에서 Gateway가 실제 생성하는 `acks/acceptance`, `acks/device-status`만 publish할 수 있다. API transaction commit을 증명하는 `acks/state-ingested`, `acks/provisioning/scan-terminal-ingested`, `acks/automation/config-applied-ingested`, execution/capability ingested ACK는 Gateway read-only이며 self-publish는 Mosquitto ACL에서 거부한다. Config receipt read 권한도 certificate CN과 같은 Gateway ID topic에만 한정되고 cross-Gateway delivery는 거부된다.
 

@@ -1,4 +1,5 @@
 import { ConflictException, HttpException, NotFoundException } from "@nestjs/common";
+import type { Prisma } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { SiteAccessService } from "../access/site-access.service";
 import type { AuthenticatedUser } from "../auth/auth.types";
@@ -6,6 +7,7 @@ import { MeshControlGroupService } from "../mesh-control-groups/mesh-control-gro
 import { PrismaService } from "../prisma/prisma.service";
 import { RegistrationAllocationService } from "../registration/registration-allocation.service";
 import { RegistrationService } from "../registration/registration.service";
+import type { CertificateLifecycleService } from "../pki/certificate-lifecycle.service";
 import { GatewayOnboardingService } from "./gateway-onboarding.service";
 
 const databaseUrl = process.env.GATEWAY_ONBOARDING_REGISTRATION_TEST_DATABASE_URL;
@@ -48,9 +50,25 @@ describeWithDatabase("Gateway onboarding and registration PostgreSQL integration
   it("allows only the assigned admin to claim, start and read commissioning while the operator can disable inventory", async () => {
     const scenario = await createScenario("access", 3);
     const access = new SiteAccessService(prisma);
-    const onboarding = new GatewayOnboardingService(prisma, access, {
-      revokeInventoryCertificates: jest.fn().mockResolvedValue({ revoked: 0 })
-    } as never);
+    const disabledAt = new Date("2026-09-12T00:00:00.000Z");
+    const lifecycleEvents: string[] = [];
+    const lifecycle = {
+      stageInventoryDisable: jest.fn(async (tx: Prisma.TransactionClient, inventoryId: string) => {
+        lifecycleEvents.push("stage");
+        await tx.gatewayInventory.update({ where: { id: inventoryId }, data: { disabledAt } });
+        return [];
+      }),
+      processInventoryRevocation: jest.fn(async (jobs: string[]) => {
+        const persisted = await prisma.gatewayInventory.findUniqueOrThrow({
+          where: { id: scenario.inventories[0].id },
+          select: { disabledAt: true }
+        });
+        expect(persisted.disabledAt).toEqual(disabledAt);
+        lifecycleEvents.push("process");
+        return { revoked: jobs.length };
+      })
+    } as unknown as CertificateLifecycleService;
+    const onboarding = new GatewayOnboardingService(prisma, access, lifecycle);
     const registration = new RegistrationService(
       prisma,
       { publishProvisionDevice: jest.fn() } as never,
@@ -80,6 +98,9 @@ describeWithDatabase("Gateway onboarding and registration PostgreSQL integration
 
     await expect(onboarding.disableInventory(scenario.operator, scenario.inventories[0].id))
       .resolves.toEqual({ status: "disabled", revoked: 0 });
+    expect(lifecycleEvents).toEqual(["stage", "process"]);
+    expect(lifecycle.stageInventoryDisable).toHaveBeenCalledWith(expect.anything(), scenario.inventories[0].id);
+    expect(lifecycle.processInventoryRevocation).toHaveBeenCalledWith([]);
 
     await prisma.gateway.update({ where: { id: claimed.gatewayId }, data: { lastHeartbeatAt: new Date() } });
     const session = await registration.createSession(scenario.admin, {

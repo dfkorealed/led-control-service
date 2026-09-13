@@ -9,6 +9,7 @@ import {
   excludeRegistrationNode,
   getActiveRegistrationSessions,
   getRegistrationSession,
+  identifyRegistrationNode,
   registerFixtureBatch,
   retryRegistrationScan,
   type DiscoveredRegistrationNode,
@@ -100,6 +101,12 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
   const sessionSnapshot = sessionQuery.data ?? session;
 
   useEffect(() => {
+    if (!sessionQuery.data || sessionQuery.data.scanStatus !== "completed") return;
+    const remoteNodes = currentScanNodes(sessionQuery.data);
+    setLocalNodes((current) => mergeRegistrationNodeLists(current, remoteNodes));
+  }, [sessionQuery.data]);
+
+  useEffect(() => {
     if (session?.status === "active" || !activeSessionsQuery.data?.[0]) return;
     restoreSession(activeSessionsQuery.data[0]);
   }, [activeSessionsQuery.data, session]);
@@ -118,7 +125,7 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
     );
     for (const node of remoteNodes) {
       const localNode = byId.get(node.id);
-      if (!localNode || statusProgress[node.status] >= statusProgress[localNode.status]) byId.set(node.id, node);
+      byId.set(node.id, localNode ? mergeRegistrationNodeProgress(localNode, node) : node);
     }
     const currentNodes = Array.from(byId.values());
     return [...currentNodes, ...historicUnresolvedNodes.filter((node) => !currentNodeIds.has(node.id))];
@@ -234,6 +241,23 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
     }
   });
 
+  const identifyMutation = useMutation({
+    mutationFn: (nodeId: string) => identifyRegistrationNode(session!.id, nodeId),
+    onSuccess: ({ operationId, node }) => {
+      // The mutation receipt is the ownership boundary. Keep its ID even if a
+      // compatibility presenter omitted the additive node metadata; otherwise
+      // an already-in-flight poll for the previous attempt can settle a retry.
+      const updatedNode = { ...node, identifyOperationId: operationId };
+      setLocalNodes((current) => replaceNode(current, updatedNode));
+      queryClient.setQueryData<RegistrationSession>(
+        ["registration-session", session?.id],
+        (current) => current
+          ? { ...current, discoveredNodes: replaceNode(current.discoveredNodes, updatedNode) }
+          : current
+      );
+    }
+  });
+
   const completeMutation = useMutation({
     mutationFn: () => completeRegistrationSession(session!.id),
     onSuccess: (completed) => {
@@ -295,7 +319,13 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
       error: displayTransportMessage(nodeErrors[node.id] ?? node.errorMessage)
     };
   });
-  const sessionNodes = sessionSnapshot?.discoveredNodes ?? [];
+  // The visible list is scoped to the current scan plus unresolved historic
+  // work, but completion must remember provisioned nodes from earlier scans.
+  // Merge identify terminals first so stale optimistic state cannot hide them.
+  const sessionNodes = (sessionSnapshot?.discoveredNodes ?? []).map((remoteNode) => {
+    const localNode = localNodes.find((candidate) => candidate.id === remoteNode.id);
+    return localNode ? mergeRegistrationNodeProgress(localNode, remoteNode) : remoteNode;
+  });
   const hasProvisionedNode = sessionNodes.some((node) => node.status === "provisioned");
   const hasUnresolvedNode = sessionNodes.some((node) => node.status === "provisioning" || node.status === "reconcile_required");
   const isTerminalScan = sessionSnapshot?.scanStatus === "completed" || sessionSnapshot?.scanStatus === "failed";
@@ -507,7 +537,9 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
             ) : (
               nodes.map((node, index) => {
                 const rowError = displayTransportMessage(nodeErrors[node.id]
-                  ?? ((node.status === "failed" || node.status === "reconcile_required") ? node.errorMessage : null));
+                  ?? ((node.status === "failed" || node.status === "reconcile_required" || node.identifyState === "failed")
+                    ? node.errorMessage
+                    : null));
                 return (
                   <div className={`node-row${selectedNodeIds.includes(node.id) ? " selected" : ""}`} key={node.id}>
                     <label className="node-selection">
@@ -523,11 +555,26 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
                       <strong>{node.serialNumber}</strong>
                       <span>{node.deviceUuid}</span>
                       <small>RSSI {node.rssi} dBm</small>
+                      {node.status === "discovered" && node.identifyState === "confirmed" ? (
+                        <small className="success-text">식별 완료</small>
+                      ) : null}
                       {rowError ? <small className="danger-text">{rowError}</small> : null}
                     </div>
                     <StatusBadge className={`node-status ${node.status}`} tone={nodeStatusTone(node.status)} icon={nodeStatusIcon(node.status)}>
                       {statusLabels[node.status]}
                     </StatusBadge>
+                    {node.status === "discovered" || node.status === "identifying" ? (
+                      <Button
+                        variant="secondary"
+                        aria-label={`조명 ${index + 1} ${node.status === "identifying" ? "식별 중" : "식별"}`}
+                        disabled={node.status === "identifying" || identifyMutation.isPending || sessionSnapshot.status !== "active"}
+                        isLoading={identifyMutation.isPending && identifyMutation.variables === node.id}
+                        loadingLabel="식별 요청 중"
+                        onClick={() => identifyMutation.mutate(node.id)}
+                      >
+                        {node.status === "identifying" ? "식별 중" : "식별"}
+                      </Button>
+                    ) : null}
                     {node.status === "reconcile_required" ? (
                       <div className="reconcile-actions">
                         <small>장비의 실제 등록 상태를 확인하기 전에는 다시 등록하지 마세요.</small>
@@ -616,6 +663,7 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
             </Button>
           ) : null}
           {excludeMutation.error ? <FeedbackState tone="danger" icon={CircleAlert} title="노드를 현재 세션에서 제외하지 못했습니다." /> : null}
+          {identifyMutation.error ? <FeedbackState tone="danger" icon={CircleAlert} title="조명 식별 요청을 처리하지 못했습니다." /> : null}
           {cancelMutation.error ? <FeedbackState tone="danger" icon={CircleAlert} title="등록 세션을 취소하지 못했습니다." /> : null}
           {sessionQuery.error ? <FeedbackState tone="danger" icon={CircleAlert} title="등록 세션 상태를 다시 확인하지 못했습니다." /> : null}
         </Card>
@@ -644,10 +692,70 @@ function isRegisterableNode(node: DiscoveredRegistrationNode, session: Registrat
 
 export function shouldPollRegistrationSession(session: RegistrationSession | null | undefined, localNodes: DiscoveredRegistrationNode[]) {
   if (!session || session.status !== "active") return false;
+  const localById = new Map(localNodes.map((node) => [node.id, node]));
+  const remoteById = new Map((session.discoveredNodes ?? []).map((node) => [node.id, node]));
+  const remoteInProgress = [...remoteById.values()].some((remoteNode) => {
+    const effective = localById.has(remoteNode.id)
+      ? mergeRegistrationNodeProgress(localById.get(remoteNode.id)!, remoteNode)
+      : remoteNode;
+    return effective.status === "identifying" || effective.status === "provisioning";
+  });
+  const localOnlyInProgress = localNodes.some((localNode) => {
+    const remoteNode = remoteById.get(localNode.id);
+    const effective = remoteNode ? mergeRegistrationNodeProgress(localNode, remoteNode) : localNode;
+    return effective.status === "identifying" || effective.status === "provisioning";
+  });
   return session.scanStatus === "pending"
     || session.scanStatus === "scanning"
-    || session.discoveredNodes?.some((node) => node.status === "provisioning")
-    || localNodes.some((node) => node.status === "provisioning");
+    || remoteInProgress
+    || localOnlyInProgress;
+}
+
+function mergeRegistrationNodeLists(
+  localNodes: DiscoveredRegistrationNode[],
+  remoteNodes: DiscoveredRegistrationNode[]
+) {
+  const remoteById = new Map(remoteNodes.map((node) => [node.id, node]));
+  return localNodes.map((localNode) => {
+    const remoteNode = remoteById.get(localNode.id);
+    return remoteNode ? mergeRegistrationNodeProgress(localNode, remoteNode) : localNode;
+  });
+}
+
+export function mergeRegistrationNodeProgress(
+  localNode: DiscoveredRegistrationNode,
+  remoteNode: DiscoveredRegistrationNode
+) {
+  const localOwner = localNode.identifyOperationId;
+  const remoteOwner = remoteNode.identifyOperationId;
+  if (localOwner && localOwner !== remoteOwner) {
+    const localStarted = Date.parse(localNode.identifyOperationStartedAt ?? "");
+    const remoteStarted = Date.parse(remoteNode.identifyOperationStartedAt ?? "");
+    // Different IDs are different operations, not different progress ranks.
+    // Only a positively newer server operation can replace known ownership;
+    // missing/invalid metadata and delayed earlier terminals fail closed.
+    if (!remoteOwner || !Number.isFinite(localStarted) || !Number.isFinite(remoteStarted) || remoteStarted <= localStarted) {
+      return localNode;
+    }
+    if (localNode.status === "discovered" || localNode.status === "identifying") return remoteNode;
+  }
+  if (localOwner && localOwner === remoteOwner) {
+    const localRevision = Date.parse(localNode.updatedAt ?? "");
+    const remoteRevision = Date.parse(remoteNode.updatedAt ?? "");
+    if (Number.isFinite(localRevision) && (!Number.isFinite(remoteRevision) || remoteRevision < localRevision)) return localNode;
+  }
+  const localIdentifyTerminal = localNode.status === "discovered"
+    && (localNode.identifyState === "confirmed" || localNode.identifyState === "failed");
+  const remoteIdentifyTerminal = remoteNode.status === "discovered"
+    && (remoteNode.identifyState === "confirmed" || remoteNode.identifyState === "failed");
+
+  // Identify intentionally returns the node to `discovered`, so its terminal
+  // state is authoritative even though the generic registration status rank
+  // is numerically lower than `identifying`. Conversely, a delayed poll must
+  // not resurrect an operation after the terminal response was displayed.
+  if (remoteIdentifyTerminal && localNode.status === "identifying") return remoteNode;
+  if (localIdentifyTerminal && remoteNode.status === "identifying") return localNode;
+  return statusProgress[remoteNode.status] >= statusProgress[localNode.status] ? remoteNode : localNode;
 }
 
 function currentScanNodes(session: RegistrationSession) {

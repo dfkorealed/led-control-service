@@ -23,6 +23,7 @@ export type EnergyReportDataSnapshot = {
   capturedAt: string;
   site: { id: string; name: string; timeZone: string };
   comparisonRange: { from: string; to: string };
+  targetLabelSnapshot?: string;
   fixtures: ReportFixtureSnapshot[];
 };
 
@@ -119,10 +120,11 @@ export class EnergyReportDocumentBuilder {
     ] });
     const input = energyReportDocumentFingerprintInputSchema.parse({ schemaVersion: 1, reportId, title: "조명 에너지 보고서",
       metadata: [
-        { label: "현장", ...textCell(data.site.name) },
+        { label: "현장", ...textCell(request.scope === "site" ? data.targetLabelSnapshot ?? data.site.name : data.site.name) },
         { label: "시간대", ...textCell(data.site.timeZone) },
         { label: "기간", ...textCell(`${request.from} ~ ${request.to}`) },
         { label: "범위", ...textCell(`${{ site: "현장", fixture: "조명", floor: "층", group: "그룹" }[request.scope]}: ${request.identityId}`) },
+        ...(data.targetLabelSnapshot == null ? [] : [{ label: "대상", ...textCell(data.targetLabelSnapshot) }]),
         { label: "기준 시각", ...textCell(data.capturedAt) }
       ], sections });
     // Validate only text retained in this selected, completed-period document.

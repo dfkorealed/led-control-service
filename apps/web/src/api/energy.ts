@@ -25,7 +25,7 @@ import {
   type EnergyScope
 } from "@led-control/shared/energy-p2-contracts";
 import { useQuery } from "@tanstack/react-query";
-import { apiGet, apiPost } from "./client";
+import { ApiError, apiGet, apiPost } from "./client";
 
 const API_BASE_URL = "/api";
 const REPORT_POLL_INTERVAL_MS = 3_000;
@@ -184,7 +184,13 @@ export async function downloadEnergyCsv(siteId: string, request: Omit<EnergyRepo
     `${API_BASE_URL}/energy/sites/${encodeURIComponent(siteId)}/exports/csv?${parameters.toString()}`,
     { credentials: "include" }
   );
-  if (!response.ok) throw new Error(`CSV export failed with ${response.status}`);
+  if (!response.ok) {
+    throw new ApiError(
+      `GET energy CSV export failed with ${response.status}`,
+      response.status,
+      await readResponseErrorBody(response)
+    );
+  }
 
   const blobUrl = URL.createObjectURL(await response.blob());
   const anchor = document.createElement("a");
@@ -196,6 +202,52 @@ export async function downloadEnergyCsv(siteId: string, request: Omit<EnergyRepo
   } finally {
     anchor.remove();
     URL.revokeObjectURL(blobUrl);
+  }
+}
+
+export type EnergyReportRequestAction = "create" | "regenerate" | "download" | "csv";
+
+const reportActionLabels: Record<EnergyReportRequestAction, { label: string; object: string; subject: string }> = {
+  create: { label: "보고서 요청", object: "보고서 요청을", subject: "보고서 요청이" },
+  regenerate: { label: "보고서 다시 생성", object: "보고서 다시 생성을", subject: "보고서 다시 생성이" },
+  download: { label: "보고서 다운로드", object: "보고서 다운로드를", subject: "보고서 다운로드가" },
+  csv: { label: "CSV 내보내기", object: "CSV 내보내기를", subject: "CSV 내보내기가" }
+};
+
+/** Maps transport and HTTP failures without exposing raw API/storage details. */
+export function energyReportRequestErrorMessage(error: unknown, action: EnergyReportRequestAction): string {
+  const actionLabel = reportActionLabels[action];
+  if (error instanceof TypeError) {
+    return `네트워크 연결을 확인한 뒤 ${actionLabel.object} 다시 시도해 주세요.`;
+  }
+  if (!(error instanceof ApiError)) {
+    return `${actionLabel.object} 완료하지 못했습니다. 잠시 후 다시 시도해 주세요.`;
+  }
+  if (error.status === 400 || error.status === 422) {
+    return `${actionLabel.label} 입력을 확인해 주세요. 기간·대상·지원 문자를 수정한 뒤 다시 시도해 주세요.`;
+  }
+  if (error.status === 404) {
+    if (action === "download") return "보고서 파일이 없거나 만료되었습니다. 다시 생성해 주세요.";
+    if (action === "regenerate") return "다시 생성할 보고서의 대상 또는 이력을 찾을 수 없습니다. 새 조건으로 요청해 주세요.";
+    if (action === "csv") return "CSV 대상 또는 이력을 찾을 수 없습니다. 대상을 다시 선택해 주세요.";
+    return "보고서 요청 대상 또는 이력을 찾을 수 없습니다. 대상을 다시 선택해 주세요.";
+  }
+  if (error.status === 409) {
+    return `${actionLabel.subject} 현재 상태와 충돌했습니다. 삭제 또는 동일 요청 처리가 끝난 뒤 다시 시도해 주세요.`;
+  }
+  if (error.status >= 500) {
+    return `서버에서 ${actionLabel.object} 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.`;
+  }
+  return `${actionLabel.object} 완료하지 못했습니다. 잠시 후 다시 시도해 주세요.`;
+}
+
+async function readResponseErrorBody(response: Response): Promise<unknown> {
+  try {
+    return (response.headers.get("Content-Type") ?? "").includes("json")
+      ? await response.json()
+      : await response.text();
+  } catch {
+    return null;
   }
 }
 

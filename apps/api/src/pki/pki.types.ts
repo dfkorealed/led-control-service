@@ -4,6 +4,7 @@ export type GatewayCertificateStatus =
   | "active"
   | "pending"
   | "replaced"
+  | "revocation_pending"
   | "revoked"
   | "expired";
 

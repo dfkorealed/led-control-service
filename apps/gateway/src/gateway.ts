@@ -97,6 +97,11 @@ export interface ProvisioningAdapter {
   vehicleSensorCloudSupported?: boolean;
   identify(command: IdentifyDevicePayload): Promise<void>;
   provision(command: ProvisionDevicePayload): Promise<ProvisioningCompletedPayload>;
+  /**
+   * Crash 복구 전용 안전 동작이다. identify를 다시 실행하는 API가 아니며, adapter가
+   * 식별 대상의 안전 모드 복귀만 독립적으로 증명할 수 있을 때만 구현한다.
+   */
+  recoverIdentifySafety?(command: IdentifyDevicePayload): Promise<void>;
   recoverProvisioning?(command: ProvisionDevicePayload): Promise<ProvisioningCompletedPayload>;
 }
 

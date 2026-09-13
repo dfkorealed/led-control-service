@@ -1,5 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
-import { expectMinimumTouchTargets, expectNoHorizontalOverflow } from "./support/layout-assertions";
+import {
+  expectMinimumTouchTargets,
+  expectMinimumTouchTargetsAfterScrolling,
+  expectNoHorizontalOverflow
+} from "./support/layout-assertions";
 
 const editorState = {
   floor: {
@@ -54,7 +58,16 @@ for (const viewport of [
     expect(layout.bodyWidth).toBeLessThanOrEqual(layout.viewportWidth);
     expect(layout.shellWidth).toBeGreaterThan(viewport.width < 500 ? viewport.width - 40 : 800);
     await expectNoHorizontalOverflow(page);
-    if (viewport.width <= 760) await expectMinimumTouchTargets(page, ".app-shell");
+    if (viewport.width <= 760) {
+      await page.locator(".floor-editor-toolbar").scrollIntoViewIfNeeded();
+      await expectMinimumTouchTargets(page, ".floor-editor-toolbar");
+      await expectMinimumTouchTargets(page, ".editor-snap");
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await expectMinimumTouchTargets(page, ".bottom-nav");
+      await expectMinimumTouchTargetsAfterScrolling(page, ".settings-subnavigation");
+    }
+    await expectMinimumTouchTargetsAfterScrolling(page, ".editor-revision-list");
+    if (viewport.width <= 760) await expectMinimumTouchTargetsAfterScrolling(page, ".app-shell");
     const path = testInfo.outputPath(`editor-panels-${viewport.width}.png`);
     await page.screenshot({ path, fullPage: true });
     await testInfo.attach(`editor-panels-${viewport.width}`, { path, contentType: "image/png" });
@@ -187,6 +200,7 @@ async function mockEditorApi(page: Page, state: MockEditorState = editorState) {
     if (path === "/sites") return route.fulfill({ json: [{ id: "site-2", name: "물류센터", customerName: "고객사" }] });
     if (path === "/sites/site-2/dashboard") {
       return route.fulfill({ json: {
+        capabilities: { read: true, control: true, manage: true, commission: true },
         site: {
           id: "site-2",
           name: "물류센터",

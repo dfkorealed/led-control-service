@@ -8,6 +8,7 @@ import {
 } from "@led-control/shared";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
+import { compareAndAdvanceGatewayEvent } from "../retention/gateway-event-watermark";
 import { AutomationClock } from "./automation-clock";
 import { canonicalPayloadHash } from "./automation-payload-hash";
 import { AutomationSnapshotService, compareAutomationIds } from "./automation-snapshot.service";
@@ -85,14 +86,21 @@ export class VehicleSensorCapabilityService {
         return this.persistAck(tx, report, payloadHash, "duplicate", null);
       }
 
-      if (capabilityRevision < node.vehicleSensorCapabilityRevision) {
+      if (capabilityRevision === node.vehicleSensorCapabilityRevision && !sameCapabilityState(node, report)) {
+        return this.persistAck(tx, report, payloadHash, "rejected", "capability_state_conflict");
+      }
+      const ordering = await compareAndAdvanceGatewayEvent(tx, {
+        gatewayId: report.gatewayId, eventType: VEHICLE_SENSOR_CAPABILITY_EVENT_TYPE, scopeKey: node.id,
+        sequence: capabilityRevision, eventId: report.eventId, payloadHash, occurredAt: new Date(report.verifiedAt)
+      });
+      if (ordering === "conflict") return this.persistAck(tx, report, payloadHash, "rejected", "capability_event_conflict");
+      if (ordering === "duplicate") return this.persistAck(tx, report, payloadHash, "duplicate", null);
+
+      if (ordering === "stale" || capabilityRevision < node.vehicleSensorCapabilityRevision) {
         await this.createLedger(tx, node, report, payloadHash);
         return this.persistAck(tx, report, payloadHash, "stale", null);
       }
       if (capabilityRevision === node.vehicleSensorCapabilityRevision) {
-        if (!sameCapabilityState(node, report)) {
-          return this.persistAck(tx, report, payloadHash, "rejected", "capability_state_conflict");
-        }
         await this.createLedger(tx, node, report, payloadHash);
         return this.persistAck(tx, report, payloadHash, "duplicate", null);
       }
@@ -205,6 +213,7 @@ export class VehicleSensorCapabilityService {
         eventId: report.eventId,
         gatewayId: report.gatewayId,
         meshNodeId: node.id,
+        scopeKey: node.id,
         fixtureId: node.fixtureId,
         sequence: BigInt(report.capabilityRevision),
         eventType: VEHICLE_SENSOR_CAPABILITY_EVENT_TYPE,

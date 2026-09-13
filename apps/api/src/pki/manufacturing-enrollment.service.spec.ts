@@ -4,6 +4,7 @@ import { rootCertificates } from "node:tls";
 import { promisify } from "node:util";
 import type { CertificateAuthorityProvider } from "./certificate-authority.provider";
 import { ManufacturingEnrollmentService } from "./manufacturing-enrollment.service";
+import { reconciliationFixture } from "./reconciliation.test-support";
 
 const scrypt = promisify(scryptCallback);
 const NOW = new Date("2026-07-15T03:00:00.000Z");
@@ -33,6 +34,20 @@ describe("ManufacturingEnrollmentService", () => {
 
   afterEach(() => {
     jest.useRealTimers();
+  });
+
+  it("locks the inventory before initial device signing and rejects post-sign disable", async () => {
+    const { service, prisma, ca, inventory } = createFixture();
+    prisma.$executeRaw = jest.fn().mockResolvedValue(0);
+    prisma.$queryRaw = jest.fn().mockResolvedValue([inventory]);
+    ca.signCsr.mockImplementationOnce(async () => {
+      expect(prisma.$queryRaw).toHaveBeenCalled();
+      inventory!.disabledAt = NOW;
+      return signedCertificate();
+    });
+    await expect(service.enrollDevice({ serialNumber: SERIAL, token: TOKEN, csrPem: CSR })).rejects.toThrow();
+    expect(prisma.$queryRaw).toHaveBeenCalled();
+    expect(prisma.gatewayCertificate.create).not.toHaveBeenCalled();
   });
 
   it("stores only a salted scrypt hash for the 256-bit secret and returns an id.secret token once", async () => {
@@ -236,7 +251,7 @@ describe("ManufacturingEnrollmentService", () => {
     ["non-certificate", ["DEVICE PUBLIC CA"]],
     ["partially invalid", [DEVICE_CA_CERTIFICATE_PEM, "not a certificate"]]
   ])("rejects a %s device CA chain before recording issuance", async (_case, caChainPem) => {
-    const { service, prisma, ca, enrollment } = createFixture();
+    const { service, prisma, ca, enrollment, reconciliation } = createFixture();
     ca.signCsr.mockResolvedValue({ ...signedCertificate(), caChainPem });
 
     await expect(service.enrollDevice({ serialNumber: SERIAL, token: TOKEN, csrPem: CSR })).rejects.toThrow(
@@ -244,13 +259,14 @@ describe("ManufacturingEnrollmentService", () => {
     );
 
     expect(prisma.gatewayCertificate.create).not.toHaveBeenCalled();
-    expect(ca.revoke).toHaveBeenCalledWith({
+    expect(reconciliation.armSignedCertificate).toHaveBeenCalledWith(expect.objectContaining({
       purpose: "device",
       certificateSerial: "01:02",
       issuer: "CN=Device Issuing CA",
       fingerprint: fingerprintWithColons("AA".repeat(32))
-    });
-    expect(enrollment).toMatchObject({ usedAt: NOW, outcome: "failed", failureReason: "certificate_signing_failed" });
+    }));
+    expect(reconciliation.cancelSignedCertificate).not.toHaveBeenCalled();
+    expect(enrollment).toMatchObject({ usedAt: NOW, outcome: "failed", failureReason: "persistence_failed" });
   });
 
   it("keeps the token consumed when Vault signing fails", async () => {
@@ -267,18 +283,19 @@ describe("ManufacturingEnrollmentService", () => {
     );
   });
 
-  it("best-effort revokes an issued certificate when the persistence transaction fails", async () => {
-    const { service, prisma, ca, enrollment } = createFixture();
-    prisma.$transaction.mockRejectedValueOnce(new Error(`database failed with ${TOKEN}`));
+  it("retains the armed certificate when persistence fails", async () => {
+    const { service, prisma, ca, enrollment, reconciliation } = createFixture();
+    prisma.gatewayCertificate.create.mockRejectedValueOnce(new Error(`database failed with ${TOKEN}`));
 
     const error = await service.enrollDevice({ serialNumber: SERIAL, token: TOKEN, csrPem: CSR }).catch((caught: unknown) => caught);
 
-    expect(ca.revoke).toHaveBeenCalledWith({
+    expect(reconciliation.armSignedCertificate).toHaveBeenCalledWith(expect.objectContaining({
       purpose: "device",
       certificateSerial: "01:02",
       issuer: "CN=Device Issuing CA",
       fingerprint: fingerprintWithColons("AA".repeat(32))
-    });
+    }));
+    expect(reconciliation.cancelSignedCertificate).not.toHaveBeenCalled();
     expect(String(error)).toContain("device certificate enrollment failed");
     expect(String(error)).not.toContain(TOKEN);
     expect(enrollment).toMatchObject({ usedAt: NOW, outcome: "failed", failureReason: "persistence_failed" });
@@ -323,19 +340,23 @@ function createFixture(overrides: {
     gatewayCertificate: { create: jest.fn().mockResolvedValue({ id: "certificate-1" }) }
   };
   prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
+  prisma.$executeRaw = jest.fn().mockResolvedValue(0);
+  prisma.$queryRaw = jest.fn().mockResolvedValue([inventory]);
 
   const ca = {
     signCsr: jest.fn().mockResolvedValue(signedCertificate()),
     revoke: jest.fn().mockResolvedValue(undefined),
+    rebuildCrl: jest.fn(),
     readCrl: jest.fn()
   } as jest.Mocked<CertificateAuthorityProvider>;
   const csrValidator = { validate: jest.fn().mockResolvedValue({ publicKey: {} as CryptoKey }) };
+  const reconciliation = reconciliationFixture();
   const service = new ManufacturingEnrollmentService(prisma, ca, csrValidator, {
     apiCaBundlePem: "API PUBLIC CA",
     mqttCaBundlePem: "MQTT PUBLIC CA",
     manufacturingCaFingerprint: "BB".repeat(32)
-  });
-  return { service, prisma, ca, csrValidator, inventory, enrollment };
+  }, reconciliation as never);
+  return { service, prisma, ca, csrValidator, inventory, enrollment, reconciliation };
 }
 
 function baseInventory(): TestInventory {

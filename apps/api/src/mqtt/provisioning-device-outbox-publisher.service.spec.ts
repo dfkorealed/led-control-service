@@ -2,6 +2,7 @@ import { Logger } from "@nestjs/common";
 import { ProvisioningDeviceOutboxPublisherService } from "./provisioning-device-outbox-publisher.service";
 
 const now = new Date("2026-09-03T00:00:00.000Z");
+const floorId = "55555555-5555-4555-8555-555555555555";
 const payload = {
   commandId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
   sessionId: "11111111-1111-4111-8111-111111111111",
@@ -23,6 +24,85 @@ const record = {
 };
 
 describe("ProvisioningDeviceOutboxPublisherService", () => {
+  it("marks a published identify as failed when restore confirmation never arrives", async () => {
+    const identify = { ...record, topic: `sites/${payload.siteId}/gateways/${payload.gatewayId}/commands/provisioning/identify-device`,
+      payload: { ...payload, operation: "identify", meshAddress: undefined }, publishedAt: new Date(now.getTime() - 15_001) };
+    delete identify.payload.meshAddress;
+    const tx: any = {
+      $queryRaw: jest.fn().mockResolvedValue([]),
+      discoveredMeshNode: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: identify.nodeId,
+          sessionId: identify.sessionId,
+          status: "identifying",
+          identifyState: "running",
+          session: { id: identify.sessionId, siteId: payload.siteId, floorId, gatewayId: payload.gatewayId, status: "active" }
+        }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 })
+      },
+      provisioningDeviceOutbox: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
+    };
+    const prisma: any = {
+      $queryRaw: jest.fn().mockResolvedValue([{
+        id: identify.id, nodeId: identify.nodeId, sessionId: identify.sessionId, createdAt: identify.createdAt
+      }]),
+      $transaction: jest.fn(async (callback: (value: any) => Promise<unknown>) => callback(tx))
+    };
+    const service = new ProvisioningDeviceOutboxPublisherService(prisma, {} as never, { clock: () => now });
+
+    await service.expirePublishedIdentifies(now);
+
+    const timeoutSql = prisma.$queryRaw.mock.calls[0][0].strings.join(" ");
+    expect(timeoutSql).toContain("NOT EXISTS");
+    expect(timeoutSql).toContain('newer."createdAt" > outbox."createdAt"');
+    expect(tx.discoveredMeshNode.updateMany).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        id: identify.nodeId,
+        sessionId: identify.sessionId,
+        status: "identifying",
+        identifyState: { in: ["pending", "running"] },
+        session: { status: "active" },
+        deviceOutbox: expect.any(Object)
+      }),
+      data: { status: "discovered", identifyState: "failed", errorMessage: "조명 식별 뒤 센서 모드 복원을 확인하지 못했습니다." }
+    });
+  });
+
+  it("does not let an older identify dead-letter mutate a newer identify operation", async () => {
+    const tx: any = {
+      $queryRaw: jest.fn().mockResolvedValue([{ id: record.nodeId }]),
+      provisioningDeviceOutbox: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      discoveredMeshNode: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: record.nodeId,
+          sessionId: record.sessionId,
+          session: { id: record.sessionId, siteId: payload.siteId, floorId, gatewayId: payload.gatewayId, status: "active" }
+        }),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 })
+      }
+    };
+    const prisma: any = { $transaction: jest.fn(async (callback: (value: any) => Promise<unknown>) => callback(tx)) };
+    const service = new ProvisioningDeviceOutboxPublisherService(prisma, {} as never, {
+      workerId: "worker-1",
+      clock: () => now
+    });
+
+    await (service as any).deadLetterTerminal(record, {
+      attempts: 8,
+      terminalAt: now,
+      message: "publish failed",
+      operation: "identify"
+    });
+
+    expect(tx.discoveredMeshNode.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        id: record.nodeId,
+        deviceOutbox: { none: expect.objectContaining({
+          payload: { path: ["operation"], equals: "identify" }
+        }) }
+      })
+    }));
+  });
   it("claims only available rows with a lease and SKIP LOCKED", async () => {
     const tx = {
       $queryRaw: jest.fn().mockResolvedValue([{ id: record.id }]),
@@ -96,7 +176,7 @@ describe("ProvisioningDeviceOutboxPublisherService", () => {
           deviceUuid: payload.deviceUuid,
           meshAddress: payload.meshAddress,
           status: "provisioning",
-          session: { siteId: payload.siteId, gatewayId: payload.gatewayId, status: "active" }
+          session: { id: payload.sessionId, siteId: payload.siteId, floorId, gatewayId: payload.gatewayId, status: "active" }
         }),
         updateMany: jest.fn().mockResolvedValue({ count: 1 })
       },
@@ -116,6 +196,16 @@ describe("ProvisioningDeviceOutboxPublisherService", () => {
 
     await service.publishClaimed(record as never);
 
+    const lockSql = prisma.$queryRaw.mock.calls.map(([sql]: any[]) => (
+      Array.isArray(sql) ? sql.join(" ") : sql.strings.join(" ")
+    ));
+    expect(lockSql).toEqual([
+      expect.stringContaining('FROM "Floor"'),
+      expect.stringContaining('FROM "Gateway"'),
+      expect.stringContaining('FROM "ProvisioningSession"'),
+      expect.stringContaining('FROM "DiscoveredMeshNode"'),
+      expect.stringContaining('FROM "ProvisioningDeviceOutbox"')
+    ]);
     expect(mqtt.publishTopic).toHaveBeenCalledWith(record.topic, payload, { timeoutMs: 10_000 });
     expect(prisma.provisioningDeviceOutbox.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: {
@@ -141,7 +231,7 @@ describe("ProvisioningDeviceOutboxPublisherService", () => {
           deviceUuid: payload.deviceUuid,
           meshAddress: payload.meshAddress,
           status: "provisioning",
-          session: { siteId: payload.siteId, gatewayId: payload.gatewayId, status: "active" }
+          session: { id: payload.sessionId, siteId: payload.siteId, floorId, gatewayId: payload.gatewayId, status: "active" }
         }),
         updateMany: jest.fn().mockResolvedValue({ count: 1 })
       },
@@ -187,7 +277,7 @@ describe("ProvisioningDeviceOutboxPublisherService", () => {
           deviceUuid: payload.deviceUuid,
           meshAddress: payload.meshAddress,
           status: "provisioning",
-          session: { siteId: payload.siteId, gatewayId: payload.gatewayId, status: "active" }
+          session: { id: payload.sessionId, siteId: payload.siteId, floorId, gatewayId: payload.gatewayId, status: "active" }
         }),
         updateMany: jest.fn().mockResolvedValue({ count: 1 })
       },
@@ -249,7 +339,7 @@ describe("ProvisioningDeviceOutboxPublisherService", () => {
           deviceUuid: state.deviceUuid,
           meshAddress: payload.meshAddress,
           status: state.status,
-          session: { siteId: payload.siteId, gatewayId: payload.gatewayId, status: state.sessionStatus }
+          session: { id: payload.sessionId, siteId: payload.siteId, floorId, gatewayId: payload.gatewayId, status: state.sessionStatus }
         }),
         updateMany: jest.fn().mockResolvedValue({ count: state.shouldReconcile ? 1 : 0 })
       },
@@ -299,7 +389,7 @@ describe("ProvisioningDeviceOutboxPublisherService", () => {
           deviceUuid: payload.deviceUuid,
           meshAddress: payload.meshAddress,
           status: "provisioning",
-          session: { siteId: payload.siteId, gatewayId: payload.gatewayId, status: "active" }
+          session: { id: payload.sessionId, siteId: payload.siteId, floorId, gatewayId: payload.gatewayId, status: "active" }
         })
       },
       provisioningDeviceOutbox: {
@@ -334,7 +424,7 @@ describe("ProvisioningDeviceOutboxPublisherService", () => {
           deviceUuid: payload.deviceUuid,
           meshAddress: payload.meshAddress,
           status: "provisioning",
-          session: { siteId: payload.siteId, gatewayId: payload.gatewayId, status: "active" }
+          session: { id: payload.sessionId, siteId: payload.siteId, floorId, gatewayId: payload.gatewayId, status: "active" }
         })
       },
       provisioningDeviceOutbox: {
@@ -369,7 +459,7 @@ describe("ProvisioningDeviceOutboxPublisherService", () => {
           deviceUuid: payload.deviceUuid,
           meshAddress: payload.meshAddress,
           status: "provisioning",
-          session: { siteId: payload.siteId, gatewayId: payload.gatewayId, status: "active" }
+          session: { id: payload.sessionId, siteId: payload.siteId, floorId, gatewayId: payload.gatewayId, status: "active" }
         }),
         updateMany: jest.fn()
       },
@@ -405,7 +495,7 @@ describe("ProvisioningDeviceOutboxPublisherService", () => {
           deviceUuid: payload.deviceUuid,
           meshAddress: payload.meshAddress,
           status: "provisioning",
-          session: { siteId: payload.siteId, gatewayId: payload.gatewayId, status: "active" }
+          session: { id: payload.sessionId, siteId: payload.siteId, floorId, gatewayId: payload.gatewayId, status: "active" }
         }),
         updateMany: jest.fn().mockResolvedValue({ count: 1 })
       }
@@ -449,7 +539,7 @@ describe("ProvisioningDeviceOutboxPublisherService", () => {
           deviceUuid: payload.deviceUuid,
           meshAddress: payload.meshAddress,
           status: "provisioning",
-          session: { siteId: payload.siteId, gatewayId: payload.gatewayId, status: "active" }
+          session: { id: payload.sessionId, siteId: payload.siteId, floorId, gatewayId: payload.gatewayId, status: "active" }
         }),
         updateMany: jest.fn()
       },
@@ -497,7 +587,7 @@ describe("ProvisioningDeviceOutboxPublisherService", () => {
           deviceUuid: payload.deviceUuid,
           meshAddress: payload.meshAddress,
           status: "provisioning",
-          session: { siteId: payload.siteId, gatewayId: payload.gatewayId, status: "active" }
+          session: { id: payload.sessionId, siteId: payload.siteId, floorId, gatewayId: payload.gatewayId, status: "active" }
         }),
         updateMany: jest.fn()
       },
@@ -540,6 +630,7 @@ describe("ProvisioningDeviceOutboxPublisherService", () => {
       workerId: "worker-1",
       pollMs: 1_000
     });
+    jest.spyOn(service, "expirePublishedIdentifies").mockResolvedValue(0);
     jest.spyOn(service, "claimBatch")
       .mockRejectedValueOnce(Object.assign(new Error("private payload"), { code: "P2028" }))
       .mockResolvedValueOnce([record] as never);

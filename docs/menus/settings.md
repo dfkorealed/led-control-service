@@ -2,14 +2,14 @@
 
 > 모든 설계와 완료 판정은 양산 기준을 사용한다. 코드·자동 테스트 완료와 Raspberry Pi/ESP32-H2 실기 검증 완료를 구분하며, 실기 증거가 없으면 양산 E2E 완료로 표시하지 않는다.
 
-기준일: 2026-09-13
+기준일: 2026-09-12
 
 ## 현재 우선순위
 
-- 2026-09-09 승인 맵 편집 개선은 소프트웨어 구현과 최종 회귀 검증을 완료했다. 층별 미배치 목록 드래그 배치, 단일 조명 우상단 `배치 해제`와 확인 팝업, Undo/Redo·검색·일괄 편집·등록 후 식별을 연결했다. 두 층 실제 API/DB 브라우저 E2E는 2026-09-10 통과했다. PDF/JPG/PNG 업로드·교체 및 CAD/AI 활용은 보류하되 기존 자산과 좌표는 보존한다. 최신 범위와 Task 1~11은 [에디터 설계](../superpowers/specs/2026-07-06-floor-editor-design.md) 및 [실행 계획](../superpowers/plans/2026-07-06-floor-editor-implementation.md)의 2026-09-09 절을 따른다. 실장비 검증·배포는 사용자 요청으로 후속이다.
-- Scene 24~26 설정 개요·역할별 navigation·도면 목록/편집·비밀번호 변경 UI 교정은 완료했다. 새로운 설정 도메인 기능은 아래 미구현 목록과 후속 범위를 유지한다.
+- 2026-09-09 승인 맵 편집 개선은 소프트웨어 구현과 최종 회귀 검증을 완료했다. 층별 미배치 목록 드래그 배치, 단일 조명 우상단 `배치 해제`와 확인 팝업, Undo/Redo·검색·일괄 편집·등록 후 식별을 연결했다. 두 층 실제 API/DB 브라우저 E2E는 2026-09-10 통과했다. 2026-09-12에는 PDF/JPG/PNG 비공개 업로드·교체·연결 제거 UI를 추가했으며 CAD/AI 변환과 PDF 렌더 worker는 보류한다. 최신 범위와 Task 1~11은 [에디터 설계](../superpowers/specs/2026-07-06-floor-editor-design.md) 및 [실행 계획](../superpowers/plans/2026-07-06-floor-editor-implementation.md)의 2026-09-09 절을 따른다. 실장비 검증·배포는 사용자 요청으로 후속이다.
+- Scene 24~26 설정 개요·역할별 navigation·도면 목록/편집·계정 보안 UI 교정은 완료했다. 새로운 설정 도메인 기능은 아래 미구현 목록과 후속 범위를 유지한다.
 - 기존 맵 편집기는 계속 설정 메뉴가 소유하며, 저장한 배경, 도형, 텍스트, 색상과 조명 배치를 모니터링에서 읽기 전용으로 재사용한다.
-- 현장 일반 유저 관리와 본인 비밀번호 변경은 구현 완료했다. MFA·세션 관리·공통 감사 조회, 현장/층 운영 CRUD, 조명/그룹 관리, 정책/알림, OTA, 외부 연동의 미구현 상태는 유지한다.
+- 현장 일반 유저 관리, 본인 비밀번호 변경, operator/admin MFA, 모든 역할의 활성 세션 관리와 설치 후 현장·층·조명 메타데이터 운영 관리는 구현 완료했다. 구역은 기존 목록 조회와 안전한 보관 전환만 제공한다. 공통 감사 조회, 구역 생성·수정, 정책/알림, OTA, 외부 연동의 미구현 상태는 유지한다.
 - BLE Mesh floor/zone Group Address와 subscription 동기화는 설정 화면 확장이 아니라 제어 기반 기능으로 구현한다. 기존 FixtureGroup 데이터만 사용하며 이번 범위에서 그룹 CRUD UI는 추가하지 않는다.
 - Task 6에서 로그인 화면을 `loginId` 전용으로 정리하고 operator/customer shell을 분리했다. Task 7에서 operator는 설정을 포함한 고객 메뉴 대신 `/operator/site-admins` 전용 목록으로 replace되며, 현장·관리자 생성, 기존 현장 관리자 지정, 수정, 비밀번호 재설정과 삭제를 제공한다. 삭제는 현장명을 다시 입력한 경우에만 실행하며 해당 현장의 층·도면·조명·게이트웨이·제어·통계 데이터와 고객사 계정을 영구 삭제한다. Task 8에서 assigned admin의 최초 설치와 commissioning 역할 노출을 웹에 연결했다.
 - P2 보고서가 있는 현장도 모든 비공개 시도 파일 삭제 후에만 DB에서 삭제한다. 처리 중 보고서는 `409`, 저장소 정리 실패는 `503`으로 현장 삭제를 보류하며 재시도할 수 있다. 생성/claim은 Site 잠금 뒤 준비 원장을 재확인하고, 기존 원장 아래 남은 processing도 임대 만료 후 worker가 회수한다. 삭제 성공과 도면·인증서 정리 완료 뒤에도 독립된 보고서 키 원장이 늦은 업로드를 반복 회수한다. 이 준비 단계에서 중단되면 운영자가 현장 삭제를 다시 요청해야 한다.
@@ -74,14 +74,25 @@
 
 ## 구현 완료
 
-- BIO direct-USB 등록의 Gateway software integration을 추가했다. `GATEWAY_ADAPTER=bio-usb` factory는 Company ID와 D-Bus/BlueZ를 요구하지 않고 설정된 mapping path·response/scan timeout으로 direct USB client를 구성하며, 제조사 앱이나 전화에도 의존하지 않는다. adapter 값 누락·미지원은 fail-closed하고 기존 BlueZ 선택은 Company ID와 D-Bus/BlueZ 계약을 그대로 유지한다. factory probe로 adapter를 획득한 직후부터 MQTT client·health/journal/controller 초기화와 signal handler 등록이 끝날 때까지 cleanup ownership을 유지한다. 그 사이 실패하면 adapter stop을 기다리고, primary와 USB cleanup 오류가 함께 발생하면 둘 다 보존한다. scanner가 identity namespace를 소유해 BlueZ는 기존 DFK UUID만, BIO는 canonical lowercase `bio:<12-hex>`만 노출한다. BIO 등록은 scan cache 대상의 2초 식별·sensor 복귀 뒤 mapping 예약, UUID 주소 할당, 동일 UUID/new address 재확인, confirmed 전환 순서이며 `0x0001..0x7fff` 밖 주소를 거부한다. cold discovery refresh도 caller별 cancellation/deadline을 transport 최종 write까지 전달한다. scan start ACK가 accepted된 직후 Promise continuation 전에 취소돼도 만료 후 stop write를 보내지 않고 연결 세대를 폐기하며, reject ACK는 scan 소유권으로 표시하지 않는다. 동시에 기다리던 다른 caller는 취소 signal을 공유하지 않고 reconnect 뒤 자기 refresh를 수행한다. accepted GET 뒤 matching device report가 없는 취소·deadline·관측 timeout도 지연 report가 다음 같은 대상 GET에 섞이지 않도록 동일 세대를 폐기하고, 다음 read는 새 descriptor 준비를 기다린다. ACK 전 이미 matching report를 확보한 정상 순서는 유지한다. 실제 Gateway startup journal 경로도 accepted command를 adapter recovery에 먼저 연결해 confirmed mapping은 write 없이 완료로 수렴하고 reserved mapping은 저장된 old/new 주소 reconciliation으로만 판정한다. recovery 계약이 없는 기존 BlueZ는 `provisioning_outcome_unknown`을 유지하며 startup이 주소 write를 맹목적으로 반복하지 않는다. Task 8은 `--adapter bio-usb`에서 기존 image/compose/env와 Gateway data를 먼저 rollback capture하고 exact-one preflight 성공 뒤에만 단일-node overlay로 Gateway service를 recreate하도록 구현했다. rollback은 기존 adapter의 BlueZ/BIO file set과 env-file을 실제 `docker compose config`로 렌더링하고 stale shell override를 제거한다. exact Gateway/Mesh bind가 같은 안전한 canonical root로 해석될 때만 제한된 `sudo tar`로 0600 archive를 만들며, config·source·snapshot 실패나 누락에는 기본 경로로 대체하지 않고 배포 mutation 전에 중단한다. 재연결 시에도 stale shell/env-file 값보다 현재 preflight node/GID를 Compose에 우선한다. 이는 자동 테스트와 Pi read-only preflight를 통과한 software 경계이며 production 등록 완료 판정은 아니다.
+- 도면 이력은 층별 **최근 100개 또는 최근 365일 중 넓은 범위**를 보존하고, 범위 밖 이력은 분당 최대 1,000개씩 정리한다. 보존된 이력만 목록 조회·복구할 수 있다. 로그인 `Session`은 만료 또는 폐기 후 30일이 지난 행만 분당 최대 10,000개씩 정리하며 활성 세션은 보존한다.
+- 게이트웨이 이벤트 원장은 heartbeat 7일, 조명 상태 30일, 종료된 검색 세션 이벤트 90일, 대체된 차량 센서 capability 365일 이후에 안전 조건을 확인해 분당 최대 10,000개씩 정리한다. watermark·현재 상태·검색 terminal ACK identity가 부족하면 보존한다. 각 정리는 안정된 순서와 `SKIP LOCKED`를 사용하고, 중복 timer 실행을 막으며 삭제 건수·실패 단계를 구조화 로그로 남긴다. 기간 경계와 두 연결의 잠금 건너뛰기·재실행 수렴은 일회성 PostgreSQL에서 검증했다.
+- API 종료 시 정리 timer를 중지하고 진행 중인 정리 작업을 마친 뒤 Prisma 연결을 닫는다. 실제 Nest 모듈 종료에서 삭제 완료·최종 disconnect 순서와 남는 DB 연결이 없음을 일회성 PostgreSQL로 검증했다.
 
+- 신규 scan completed/failed는 session에 전체 payload hash·event ID·sequence·최초 ACK 시각을 보존한다. raw 이벤트와 ACK outbox가 삭제된 뒤에도 동일 terminal은 최초 application ACK로 재생성하고 변경된 acceptedNodeCount/failure message는 거부한다. found의 gateway/type 순서는 session을 바꿔도 watermark로 유지하며 임시 PostgreSQL에서 검증했다.
+- 등록 세션 API는 terminal replay identity와 `BigInt` sequence를 서버 내부 복구 정보로만 유지하고 HTTP 응답에서는 제외한다. 완료된 첫 검색의 상태 조회, 재검색, 두 조명 등록과 세션 완료가 격리 RealBackendLab의 실제 PostgreSQL·Redis·MQTT·브라우저 여정 2/2에서 통과했다.
+- 플랫폼 Task 4 최종 소프트웨어 검증은 root lint/typecheck/build exit 0, root script 58/58·Shared 203·Automation 28·Mobile 1·Web 64 files 712/712·API 120 suites 1,138 통과/289 환경 의존 제외·Gateway 64 files 608/608(총 2,748 통과/289 제외)다. 전체 Chromium은 194개 중 189 통과/5 opt-in 제외(188개 mock/브라우저 회귀 + 실제 disposable automation journey 1개), main 319.19 kB/gzip 99.21 kB다. Production 계약 18/18, 전체 audit의 MQTT 설정 2/2·Gateway container 24/24·required MQTT 2/2와 새 smoke `led-production-smoke-a9dac54a523c9484dbc4b9eade7b9d5e`의 당시 브랜치 빈 DB 57/57 migrations, TLS/mTLS·CRL·장애 복구·exact cleanup을 통과했다. Dependency 820개 중 기존 승인 예외 High 2/Moderate 1, unexpected 0이며 무취약 판정이 아니다. 운영 배포·사용자 DB·실제 외부 Vault/MQTT/Object Storage·native WebView·HIL·외부 관측 연결은 미검증이다. [운영 runbook](../runbooks/production-api-web-deployment.md)에 절차와 한계를 기록했다. 최종 독립 검토는 Critical/Important/Minor 0, PASS로 승인됐다.
+
+- 플랫폼 Task 4 최종 회귀에서 기준부터 존재한 맵 리비전 복구 버튼의 클릭 영역 부족을 발견했다. 해당 버튼만 44×44px에서 52×52px로 확대해 기존 둥근 모서리 안에서도 연속 44×44px hit 영역을 확보했다(`ad864f9`). 공통 Button 크기·권한·복구 동작은 변경하지 않았으며 320/390/1024/1440px layout·overflow·touch 계약을 통과했다. 이는 Task 3 recovery 변경의 회귀가 아닌 기존 접근성 보완이다.
+
+- 플랫폼 Task 3에서 공통 앱 셸 복구를 구현했다. 초기 인증 401은 기존 로그인, 403과 그 밖의 비일시 오류는 권한·재로그인 안내로 분기한다. 브라우저가 부팅부터 offline이면 요청 없이 서비스 복구 화면을 표시하고 online 복귀 시 인증을 재개한다. 네트워크·전송 timeout·5xx는 자동 최대 2회 재시도하고 실패하면 `다시 시도`로 연결을 복구한다. `AppRoot`의 boundary는 App 자체의 hook/render와 Router/lazy shell 실패를 단일 main·alert·포커스 heading으로 표시한다. 인증 실패·재로그인·principal 전환 시 새 QueryClient를 먼저 활성화해 늦은 이전 mutation callback을 폐기된 client에 격리한다. 재로그인은 앱 active-command namespace와 tenant/auth 캐시·초안을 정리하고 최대 5초 logout 종료 뒤 로그인으로 수렴한다. 무관한 저장값과 최초 정상 부팅의 제어 복구 기록은 유지하며 원시 오류/응답/stack은 표시하지 않는다. Task 3 Web 64 files·712/712 unit, 관련 auth/shell Chromium 23/23(신규 복구 10개 포함), typecheck/build와 main `319.19 kB`/gzip `99.21 kB` bundle audit를 통과했다.
+
+- Route 기능 코드 SHA `34261b6`에서 로그인·최초 비밀번호 변경은 초기 main에 유지하고 고객/운영자 shell과 설정 shell·개요·유저·등록·도면·편집기·계정 보안 화면을 각각 dynamic chunk로 분리했다. 역할 shell 전체 화면과 shell 내부 route는 공통 `RouteLoadingState`의 `role="status"`·`aria-live="polite"` 로딩 상태를 사용한다. 별도 Web route bundle 작업 당시 Task 4 Web 검증은 60 files·686/686 unit, 2,437 modules production build와 main `314.83 kB`/gzip `97.58 kB`(예산 `1,070.00 kB`/`325.00 kB`)를 통과했고, 14개 계획 route chunk와 main의 Konva·Recharts 격리를 audit으로 확인했다. 같은 별도 작업 당시 Task 3 Chromium 64/64는 1440/1024/760/390/320px에서 설정·도면 편집을 포함한 대표 route 전환을, disposable RealBackendLab 2/2는 실제 API/DB 기반 고객 여정을 검증했다.
 - 공통 고객 셸 상단은 현재 메뉴 제목과 실제 현장명 배지만 표시한다. 기존 층명 기반 `B2 주차장` 표기와 동작 없는 Gateway 정상·오프라인·미등록 상태 배지는 제거하되 설정의 `Gateway 상태` 상세 카드는 유지한다. 로그아웃 위치와 인증·dirty editor 확인 로직은 유지하고, 고객·운영자 셸의 로그아웃은 공통 `IconTooltipButton`으로 아이콘만 표시한다. `로그아웃` 도움말은 hover와 키보드 focus에서 열리고 도움말 위로 포인터를 옮겨도 유지되며 `Escape`로 닫힌다. 모바일 버튼은 52px 실제 터치 영역을 사용한다.
 
 - admin 전용 `/settings/users`에서 현장 일반 유저를 최대 100명까지 조회·검색·생성·수정·비활성화·재활성화·비밀번호 초기화·영구 삭제한다. 일반 유저는 시스템 role `viewer`를 유지하고 현장 capability만 `read | control`로 분리한다. `control`은 `read`를 포함하며 admin 설정 화면에는 접근하지 못한다. 일반 유저가 `/settings/users`를 직접 열면 `/settings`로 replace되며 mock 및 격리 실백엔드 Chromium에서 확인한다. 비활성화는 기존 세션을 즉시 폐기하고 재로그인을 차단하며, 영구 삭제는 로그인 아이디 확인 뒤 사용자·membership·세션을 제거한다. 비밀번호가 포함된 생성·초기화 요청은 React Query mutation cache를 사용하지 않는다. API 응답·DOM/input·Web Storage의 평문 부재는 E2E가, React Query cache의 password·삭제 PII 부재는 API/View 단위 테스트가 검증한다.
 - 사용자 수정과 상태 변경은 `expectedUpdatedAt`으로 충돌을 감지한다. 비밀번호 변경처럼 다른 요청이 user revision을 갱신해 상태 변경이 `SITE_USER_CHANGED`로 거부되면, UI는 최신 목록을 다시 조회해 사용자가 요청한 상태만 한 번 재시도한다. 서버는 모든 쓰기 transaction 안에서 호출자 admin과 대상 Site를 다시 인가한다.
 
-- 설정 Shell의 자동 Grid 행은 남는 세로 공간을 나눠 늘리지 않고 상단부터 배치한다. 설정 개요, 조명 등록, 맵 관리, 비밀번호 변경 페이지는 현장 선택기 바로 아래의 일정한 간격에서 시작하며 1440/1024/390/320px Chromium 위치 계약으로 검증한다.
+- 설정 Shell의 자동 Grid 행은 남는 세로 공간을 나눠 늘리지 않고 상단부터 배치한다. 설정 개요, 현장 관리, 조명 등록, 맵 관리, 계정 보안 페이지는 현장 선택기 바로 아래의 일정한 간격에서 시작하며 1440/1024/390/320px Chromium 위치 계약으로 검증한다.
 - 맵 편집기의 오른쪽 속성·배치·레이어 영역은 이름 있는 공통 `SidePanel`과 `ui-side-panel-layout` overflow 계약을 사용한다. 긴 조명명과 속성값은 패널 폭 안에서 줄바꿈하고, 높이가 제한되면 오른쪽 영역 내부에서 스크롤해 속성 UI가 화면 밖으로 잘리지 않는다.
 
 - 맵 편집 화면의 기능명과 진입 메뉴를 `맵 관리`/`맵 편집`으로 통일했다. 아무 요소도 선택하지 않으면 우측 속성 패널에는 맵 너비·높이·격자 간격만 표시하고, 조명 단일/다중 선택과 네모·세모·선·텍스트 선택 시에는 해당 요소에 유효한 속성만 표시한다. 선택이 바뀌면 속성 탭으로 자동 복귀한다.
@@ -116,20 +127,23 @@
 - 설정·맵 편집 화면은 1440×900, 1024×768, 390×844, 320×740에서 overflow와 패널 배치를 고정한다. 1024px 및 390px/320px의 설정 개요·admin 비밀번호 화면과 viewer security guard, 모바일 floor asset·속성 필드·revision action을 실제 route에서 검증한다. 설정 상단 탭은 모바일에서 가로 스크롤하며 직접 URL로 진입해도 현재 탭을 자동으로 화면 안에 노출한다. 760px 이하의 공통 helper는 root 아래 interactive element 중 disabled/hidden, `.sr-only`/`aria-hidden`, `display`/`visibility`/`opacity`로 숨긴 조상을 제외하고 현재 viewport 및 실제 overflow clip과 교차하는 effective target을 검사한다. usable intersection을 1 CSS px 이하 cell로 나누고 각 cell 중앙 hit sample이 target 또는 그 descendant인 연속 44×44px 후보가 하나 이상일 때만 통과하며, 부분·완전 occlusion은 정상 peer가 있어도 실패한다. checkbox/radio는 모든 associated label과 input fallback 중 이 조건을 만족하는 후보를 사용한다. viewport-fixed target은 transform/filter/perspective 등 fixed containing block을 만드는 조상이 있을 때만 ancestor overflow clip을 적용한다.
 - 주 메뉴의 설정 항목은 입력 방식과 화면 크기에 관계없이 query string과 hash를 유지한 `/settings` 개요로 이동한다. 하위 화면 전환은 설정 본문의 상단 탭에서 수행한다.
 - 설정 본문의 내부 `설정 메뉴` 사이드바를 제거하고 현장 선택기를 수평 context row에 유지했다. 기존 현장 전환 dirty 확인 및 editor store 폐기, 상세 route와 `siteId` query 보존 계약은 그대로 유지한다.
-- 설정 탭에는 역할별로 승인된 화면만 노출한다. admin은 `설정 개요`, `유저 관리`, `조명 등록`, `맵 관리`, `비밀번호 변경`을 사용하고 viewer는 `설정 개요`, `맵 관리`, `비밀번호 변경`을 사용한다. viewer의 맵 관리는 읽기 전용이다. 기존 미구현 placeholder 메뉴와 customer 설정의 operator 노출은 제거했다.
-- Scene 24 설정 개요는 현재 dashboard/role/route 데이터만 사용해 `현장 정보`, `층·도면`, `Gateway 상태`, admin 전용 `계정·보안` 카드를 표시한다. 맵 관리와 비밀번호 변경 action은 실제 route 링크이고 현재 `siteId` query와 hash fragment를 보존한다. firmware, session, 마지막 변경 시각처럼 현재 API가 반환하지 않는 값은 표시하지 않는다.
+- 설정 탭에는 역할별로 승인된 화면만 노출한다. admin은 `설정 개요`, `현장 관리`, `유저 관리`, `조명 등록`, `맵 관리`, `계정 보안`을 사용하고 viewer는 `설정 개요`, `맵 관리`, `계정 보안`을 사용한다. viewer의 맵 관리는 읽기 전용이다. 기존 미구현 placeholder 메뉴와 customer 설정의 operator 노출은 제거했다.
+- Scene 24 설정 개요는 현재 dashboard/role/route 데이터만 사용해 `현장 정보`, `층·도면`, `Gateway 상태`, admin 전용 `계정·보안` 카드를 표시한다. 맵 관리와 계정 보안 action은 실제 route 링크이고 현재 `siteId` query와 hash fragment를 보존한다. firmware와 마지막 변경 시각처럼 현재 API가 반환하지 않는 값은 표시하지 않는다.
 - operator가 만든 pending Site는 assigned admin이 customer route에서 `/settings?siteId=...`로 replace된 최초 설치 UI에서 address, tariff, timeZone, floors로 완성한다. CustomerShell은 installationStatus 확인 전 child route를 fail-closed하고, `POST /setup/initial-site`에는 `{ siteId, address, tariffKwhRate, timeZone?, floors }`만 전송한다. 성공하면 정확한 dashboard key를 갱신하고 dashboard prefix를 invalidate한다. Task 9 격리 실백엔드 E2E는 이 흐름과 password 교체 후 이전 비밀번호 실패/새 비밀번호 로그인을 검증했다. 재설치와 모바일은 범위 밖이고 Raspberry Pi/ESP32-H2 HIL은 미실행이다.
 - 설치 완료 뒤 admin은 admin 전용 `/settings/registration`에서 Gateway claim 또는 조명 등록을 수행할 수 있다. 모니터링은 등록 0개 상태에서도 이 mutation UI를 렌더링하지 않는다. viewer는 claim, registration, setup mutation UI를 보지 않고 operator는 전용 shell 때문에 customer 설정에 진입하지 않는다.
 - Scene 04~09 설치·Gateway claim·조명 검색·일괄/개별 등록·상태 확인 화면은 공통 `Card`, `Button`, `StatusBadge`, `FeedbackState`, `ProgressSteps`로 정보 위계를 표시한다. 초기 설치는 현장 정보부터 운영 시작까지, 등록은 검색·등록 정보·장비 등록·상태 확인 단계를 실제 session 상태로 표현한다.
 - 설치·claim·registration UI는 기존 실제 setup/claim/registration API payload, query key, mutation, active session polling·복구와 cache invalidation을 그대로 사용한다. `reconcile_required` 노드는 기존 명시적 확인·제외·상태 재조회 흐름을 유지하며 viewer와 operator에는 mutation UI를 노출하지 않는다.
 - Ethernet, mTLS, 장비 online 같은 prototype 전용 사전 점검은 현재 API가 제공하지 않아 구현하지 않았다. `calm-operations-commissioning.spec.ts`의 browser fixture는 화면·API route 계약 검증일 뿐 Raspberry Pi/ESP32-H2 hardware-in-the-loop 증거가 아니다.
-- Scene 26 비밀번호 변경은 현재/새/확인 비밀번호, 기존 최소 8자 검증, 확인 불일치, 정확한 현재 비밀번호 오류, 일반 오류와 중복 제출 차단을 공통 danger/success feedback으로 표시한다. 평문 비밀번호는 React Query mutation/cache에 넣지 않고 component-local state와 요청 본문에만 두며, 성공 또는 화면 이탈 시 제거하고 실패 시 재시도 입력을 유지한다. 성공 시 현재 세션은 유지하고 기존 API가 동일 사용자의 다른 활성 세션만 revoke하는 동작을 변경하지 않았다.
+- Scene 26 비밀번호 변경은 현재/새/확인 비밀번호, 기존 최소 8자 검증, 확인 불일치, 정확한 현재 비밀번호 오류, 일반 오류와 중복 제출 차단을 공통 danger/success feedback으로 표시한다. 평문 비밀번호는 React Query mutation/cache에 넣지 않고 component-local state와 요청 본문에만 두며, 성공 또는 화면 이탈 시 제거하고 실패 시 재시도 입력을 유지한다. 성공 시 모든 기존 세션을 폐기하고 현재 접속은 새 토큰으로 회전해 화면 흐름을 유지한다. 웹은 회전 직후 해당 principal의 세션 목록을 다시 조회한다.
+- `/settings/security`는 기존 비밀번호 변경과 operator/admin의 MFA 상태·등록·확인·해제, 모든 역할의 활성 세션 조회·개별 종료·다른 세션 전체 종료를 실제 인증 API에 연결한다. operator는 기존 현장 관리자 화면과 분리된 `/operator/security`에서 같은 `AccountSecurityView`를 사용한다. 현재 세션을 표시하고 종료 전 확인하며 loading/empty/success/error와 `aria-live` 피드백을 제공한다.
+- 현재 세션 종료는 먼저 principal query를 취소한 뒤 서버 상태를 재확인하고 인증·tenant cache를 모두 제거한다. 이미 회전돼 폐기된 쿠키로 로그아웃해도 서버는 같은 세션 계열의 활성 후속 세션을 폐기하고 쿠키를 지운다.
+- MFA 비밀키·TOTP·복구 코드·비밀번호는 component-local state와 요청 본문에만 두고 React Query cache에 저장하지 않는다. MFA와 세션 query key에는 `userId:organizationId` principal을 포함하며 계정 전환 시 보안 입력 화면을 remount한다. mutation 응답도 요청 당시 principal과 현재 `auth/me`가 일치할 때만 해당 principal key를 갱신해 이전 계정의 지연 응답이 새 인증 cache를 변경하지 못한다.
 - Scene 25~26 도면 목록과 편집 route의 편집 가능 역할은 assigned admin만이다. admin은 등록/편집 action을 사용하고 viewer는 neutral `읽기 전용` 상태와 저장된 도면만 보며, operator는 customer shell을 mount하지 않는다. 편집기는 도구 rail·canvas·속성·버전 region을 유지하고 lease 상실은 읽기 전용 warning, `409`는 강제 덮어쓰기 없이 `최신 버전 다시 불러오기`만 제공한다.
 - 맵 editor의 lease token/fence heartbeat와 fail-closed deadline, atomic save, dirty confirm/cancel 및 browser history sentinel, revision 조회·복구, asset upload 중 save/restore lock은 기존 상태와 callback을 그대로 사용한다.
 - `POST /setup/initial-site`는 assigned active customer `admin`만 `{ siteId, address, tariffKwhRate, timeZone?, floors }`로 호출할 수 있다. transaction 안에서 target Site row를 `FOR UPDATE`로 잠그고 assigned admin 및 pending 상태를 재검증한 뒤 기존 Site와 Floors/FloorPlan만 갱신한다.
 - 최초 설치는 Organization, Site, SiteMembership을 새로 만들지 않으며 주소·단가·층 중 하나라도 없으면 `pending`, 모두 있으면 `installed`다. 재호출과 Serializable 충돌은 `409`로 반환한다.
 - `POST /setup/floors`도 assigned admin의 `commission` capability를 요구한다. 기존 floor 이름·level 중복과 floorPlan 생성 검증은 유지한다.
-- `POST /gateways/claim`과 모든 `registration-sessions` route는 `admin` controller role 및 service의 active customer admin + 대상 Site `commission` 검사를 함께 적용한다. registration mutation은 create body 또는 저장된 session의 `siteId`를 권위 데이터로 사용해 transaction 첫 단계에서 Site를 잠그고 권한을 재검증하며, 이후 `Site -> Gateway -> Session -> Node` 순서로 필요한 행만 잠근다. get/identify는 read-only service 권한 검사만 수행한다.
+- `POST /gateways/claim`과 모든 `registration-sessions` route는 `admin` controller role 및 service의 active customer admin + 대상 Site `commission` 검사를 함께 적용한다. registration mutation은 create body 또는 저장된 session의 `siteId`를 권위 데이터로 사용해 transaction 첫 단계에서 Site를 잠그고 권한을 재검증하며, 이후 공통 `Floor -> Gateway -> Session -> Node -> DeviceOutbox/EventLedger` 순서로 필요한 행을 잠근다. Publisher의 `SKIP LOCKED` lease claim은 별도 짧은 transaction에서 끝내고 domain mutation은 lease CAS와 공통 순서로 다시 검증해 outbox-first deadlock을 만들지 않는다. get은 read-only service 권한 검사만 수행한다. 등록 전 identify는 빈 body만 허용하고 같은 transaction에서 active session, 완료된 최신 scan, 같은 Site의 healthy Gateway와 발견 node를 다시 검증한다.
 - Gateway firmware version은 사용자 입력이 아니라 heartbeat로 자동 갱신한다.
 - 현장 일반 유저 영구 삭제는 관계형 요청자 FK만 익명화하지 않고, 해당 사용자의 command-dispatch MQTT outbox에서 legacy `requestedBy`를 같은 transaction으로 제거한다. 초대 가입 계정은 조직·현장·정규화 이메일이 일치하는 수락 완료 Invitation도 함께 삭제하며, 미수락·다른 범위 초대와 이메일이 없는 admin 직접 생성 계정은 보존한다. 실제 PostgreSQL 회귀는 pending outbox의 requester 부재와 후속 발행, 초대 PII 범위 삭제를 검증한다.
 - 설정 개요에 현장 정보, 층·도면, Gateway 상태, admin 계정·보안을 구분한 실제 데이터 카드와 route action을 제공한다.
@@ -137,22 +151,24 @@
 - 등록 패널은 층과 Gateway를 명시적으로 선택해 `siteId`, `floorId`, `gatewayId`를 전송하고 BLE Mesh 후보·provisioning 요청을 제공한다. 설치 완료 assigned admin에게만 노출되며 viewer와 operator는 볼 수 없다. Task 9 격리 실백엔드 E2E는 0건 검색, 재검색, 자사 node 2개 일괄 등록을 검증했다. API는 Gateway heartbeat가 정확히 90초 전인 경우까지 fresh로 허용한다.
 - provisioning 완료 이벤트로 `MeshNode`와 `Fixture`를 만들고 실패 이벤트의 사유를 저장한다. 새 Fixture는 `offline + provisioning_waiting_state`로 만들며, 첫 실제 fixture-state 전에는 online/fault, 밝기, lastSeenAt을 확정하지 않는다. 다른 현장 UUID 재사용 또는 `MeshNode.deviceUuid` unique 경쟁만 해당 node 실패로 기록하며, 다른 unique/transaction 오류는 재전파한다.
 - 제조 장비 원장 기반 `POST /gateways/claim`은 assigned active customer admin만 수행한다. claim은 serial trim 정규화 뒤 serial별 PostgreSQL transaction advisory lock으로 같은 serial 시도를 직렬화하고, 같은 transaction에서 Site 잠금 재검증, 15분 실패 횟수 판정, terminal audit, inventory 잠금과 단회 claim-code 소비를 완료한다. invalid·unavailable·already-consumed·rate-limited·success를 모두 commit한 뒤 기존 정제된 `401/409/429`로 변환하며 claim code와 내부 reason을 응답에 노출하지 않는다. 다른 serial은 전역 잠금을 공유하지 않는다. device-certificate 기반 `POST /gateway-bootstrap`과 manufacturing enrollment 경계는 바꾸지 않았다.
-- `POST /gateway-inventories/:inventoryId/disable`은 고객 commissioning이 아닌 제조 보안 동작으로 active service-provider `operator`만 수행하며 customer SiteAccess를 요구하지 않는다. inventory disable 뒤 certificate revocation 동작도 유지한다.
+- `POST /gateway-inventories/:inventoryId/disable`은 제조 보안 동작으로 active service-provider `operator`만 수행하며 customer SiteAccess를 요구하지 않는다. 최초 device 발급·MQTT 발급·renewal·activation과 공통 inventory 잠금을 사용하고, 같은 commit에 disabled 상태·인증서 `revocation_pending`·두 device pointer 제거·영속 폐기 원장을 저장한다. commit 뒤 CA/CRL worker가 폐기하며 외부 장애에도 원장을 재시도한다. Site 삭제도 같은 staging을 거쳐 Gateway cascade 뒤 폐기 의무를 유지한다. 별도 disposable PostgreSQL 16에서 양방향 경쟁 16개와 기존 manufacturing → claim → bootstrap → MQTT 및 revoked/disabled E2E 2개를 통과했다. PostgreSQL lock·transaction·원장 저장은 실제이고 CA·CSR·CRL 파일 배포는 fixture다. 이번 변경은 software/API 신뢰성 보완이며 설정 화면이나 사용자 action을 새로 추가하지 않았다. 사용자 DB migration, 실제 Vault/CRL 배포와 장비/HIL 검증은 미실행이다.
 - Claim 성공과 invalid·unavailable·already-consumed·rate-limited terminal 결과를 모두 감사하며, 병렬 invalid 요청도 serial별 선형화 경계에서 최대 5회의 비싼 claim-code 검증만 수행한다.
+- 업그레이드 전 이미 `revoked`이지만 CRL 완료 원장이 없는 인증서도 inventory disable/revoke 재시도에서 회수한다. 기존 상태·폐기 시각은 보존하고, CA/CRL 정리가 실패하면 같은 영속 원장을 재시도하며 완료 뒤 중복 작업을 만들지 않는다. 실제 lifecycle·reconciliation과 전용 PostgreSQL을 연결한 legacy 회귀를 포함해 통합 17개와 기존 PKI E2E 2개를 통과했다. 사용자 DB backfill이나 실제 CA/CRL 배포는 수행하지 않았다.
 - Raspberry Pi appliance가 실제 BlueZ scan/provisioning adapter와 영속 Mesh identity를 사용한다.
 - 실제 Gateway MQTT scan 이벤트만 후보로 저장하며 런타임 mock 검색 경로는 제거했다.
 - 실제 Gateway scan은 shared DFK product identity 계약을 통과한 ESP32-H2 UUID만 등록 후보로 반환한다. UUID 필터는 제품 식별용이며 제조 원장, claim과 Gateway mTLS 인증을 대체하지 않는다.
+- 검색된 BIO 조명의 `식별`은 주소를 예약하거나 `MeshNode`/`Fixture`/mapping을 만들지 않고 전용 durable outbox에 정확히 한 번 접수한다. Gateway가 vendor BIO 명령으로 약 2초간 force-on한 뒤 sensor mode 복원을 확인해야만 `confirmed`가 되며, 복원 미확인·장비 오류·15초 결과 timeout은 발견 행의 명시적 실패 사유로 표시한다. 중복 클릭/재전송은 같은 operation을 반환한다. Web은 mutation의 `operationId`를 보존하고 node의 `identifyOperationId`/`identifyOperationStartedAt`/`updatedAt`로 현재 요청과 최신 revision의 terminal만 수용한다. 이전 요청의 지연 `confirmed|failed`는 새 retry를 완료하지 못하며 polling을 계속한다. API는 node와 최신 outbox 소유권을 같은 읽기 snapshot에서 조회한다. timeout 뒤 정상 등록·주소 배정이 끝나도 이전의 정확한 terminal은 ledger/ACK만 기록하고 node/session/Fixture/mapping을 변경하지 않는다. 식별 진행 중에는 재검색·주소 예약/등록·세션 완료·취소를 거부해 terminal과 lifecycle 변경을 직렬화한다. 표준 BlueZ adapter는 provisioning 전 식별을 지원하지 않아 명시적 실패가 정상이며, 실제 BIO HIL 재검증은 배포 후 후속이다.
 - 층별 자동 조명 이름 순번과 게이트웨이별 Mesh unicast 주소를 PostgreSQL 소유 행 잠금으로 원자 예약하는 기반을 구현했다. Mesh 주소는 `0x0001~0x7fff` 범위를 벗어나면 등록을 거부한다.
 - 일괄·개별 조명 등록 API는 유효한 node만 원자 예약하고 node별 검증 실패를 분리한다. 신규 조명은 지도 공간과 무관하게 미배치로 등록한다. 구버전 placement 입력은 호환 수신하되 좌표로 적용하지 않는다. 불명확한 provisioning 결과는 `reconcile_required`로 격리한다.
 - 조명 등록 화면의 검색 node 개별/전체 선택, 일괄·개별 설정 전환과 선택 조명 등록은 설치 완료 assigned admin의 commissioning UI로 노출된다. viewer와 operator에는 mutation UI를 노출하지 않는다. Task 9 software E2E는 production API와 test-support MQTT publisher 경로를 검증했고 shared `parseDfkDeviceUuid`로 invalid/타사 UUID 1개가 scan-found에서 제외됨을 확인했다. 실제 BlueZ/RF Gateway scan과 Raspberry Pi/ESP32-H2 HIL은 미실행이다.
-- Konva 에디터의 사각형·삼각형·선·텍스트, 색상, 이동, 크기 변경, 조명 정보·위치 편집과 확대·축소를 유지한다. 기존 파일 배경은 표시하지만 신규 도면 업로드/교체 진입점은 보류 정책에 따라 숨긴다. 기존 자산을 삭제하거나 좌표를 다시 생성하지 않는다.
+- Konva 에디터의 사각형·삼각형·선·텍스트, 색상, 이동, 크기 변경, 조명 정보·위치 편집과 확대·축소를 유지한다. PNG/JPG/PDF를 선택해 비공개 자산으로 업로드하고 ready 완료 뒤 편집 초안에 연결한다. 연결 제거는 맵 전용 초안으로 바꾸며 저장 전 운영 도면과 object storage 원본을 삭제하지 않는다.
 - 맵 편집기 toolbar와 revision 복구 icon action은 desktop과 760px 이하 layout에서 표시·동작을 검증한다. 760px 이하에서는 선택 fixture의 조명명·정격 전력·X/Y·크기 property input과 revision 복구를 포함해 위 helper 정의에 해당하는 control의 실제 usable intersection이 최소 44×44px를 유지한다. 360px 이하 toolbar는 3열로 wrap해 마지막 action이 가로 clip에 걸리지 않게 한다.
 - 설정 에디터와 모니터링 읽기 전용 지도는 `FloorMapObjectNode`의 사각형·삼각형·선·텍스트 geometry를 공유한다. Transformer, drag와 변경 callback은 설정 에디터에서만 활성화한다.
-- PDF/JPG/PNG 원본과 렌더링 결과를 S3 호환 저장소에 저장하고 준비 완료된 asset URL만 도면에 연결한다.
+- PDF/JPG/PNG 원본을 S3 호환 저장소에 저장하고 ready 자산의 인증 접근 경로만 도면에 연결한다. PDF는 렌더 자산이 없으면 원본만 연결하고 기존 렌더 배경을 보존한다.
 - `owner`를 제거하고 `operator/admin/viewer` 3단계 역할과 서비스 운영사/고객사 Organization 유형을 Prisma schema에 적용했다. legacy migration은 현장 유무로 서비스 운영사를 추론하지 않으며 기존 Organization을 모두 customer로, legacy owner/operator와 invitation을 admin으로 유지한다.
 - 기존 viewer가 고객사 현장 조회 권한을 유지하도록 `SiteMembership`을 비파괴 migration에서 backfill한다.
 - invitation signup은 viewer 초대 전용 호환 API다. `{ token, loginId, email, name, password }`에서 `Invitation.email`은 연락 이메일과만 비교하고 정규화한 `loginId`를 별도 로그인 식별자로 저장한다. 공개 signup UI는 Task 6에서 제거했으며 API 호환만 유지한다. operator/admin invitation signup은 거부하며 viewer는 자기 고객사 Organization에 속한 유효한 `Invitation.siteId`의 membership을 transaction으로 생성한다.
-- operator site-admin 관리 API는 `GET/POST /operator/site-admins`, `POST /operator/sites/:siteId/admin`, `PATCH /operator/site-admins/:userId`, `POST /operator/site-admins/:userId/reset-password`, `DELETE /operator/site-admins/:userId`를 제공한다. 생성·교체·수정·비밀번호 재설정·삭제는 active service-provider operator만 호출할 수 있다. 삭제 요청은 body의 `confirmationSiteName`이 현재 현장명과 정확히 일치해야 한다. 서버는 같은 DB transaction에서 GatewayInventory를 비활성화하고 `SiteDeletionCleanup` 작업을 생성한 뒤 Site 소유 데이터 전체를 cascade 삭제한다. 고객사에 남은 현장이 없으면 admin·viewer 세션, 사용자, 초대와 customer Organization도 삭제한다. 삭제할 사용자를 먼저 잠가 동시 로그인 세션 생성을 차단한다. 커밋 뒤 cleanup worker가 Gateway 인증서를 즉시 폐기하고, 기존 presigned upload URL이 만료된 뒤 도면 원본 파일을 삭제한다. 외부 정리 실패는 lease와 지수 backoff로 재시도한다. 다른 Gateway에 claim된 인증서 inventory가 연결된 비정상 데이터는 `409`로 중단해 타 현장 장비를 보호한다. 제조 장비·인증서 원장, 완료된 cleanup 작업과 service-provider 감사 로그 `operator.site_deleted`는 보존한다. 비밀번호와 hash는 응답 및 audit metadata에 포함하지 않는다. Task 7의 operator 전용 웹 목록은 이 여섯 endpoint를 소비한다. create/assign/reset의 평문 비밀번호는 React Query cache, API response 또는 완료 안내에 저장하지 않고, 성공 또는 사용자가 dialog를 닫을 때 component input state에서 제거한다. 실패 뒤 열린 dialog의 입력은 재시도를 위해 유지한다. `ApiError.body.message`가 정확히 `loginId already exists`인 409만 loginId field 오류와 focus로 연결하고, serialization 등 다른 409는 재시도 alert로 표시한다.
+- operator site-admin 관리 API는 `GET/POST /operator/site-admins`, `POST /operator/sites/:siteId/admin`, `PATCH /operator/site-admins/:userId`, `POST /operator/site-admins/:userId/reset-password`, `DELETE /operator/site-admins/:userId`를 제공한다. 생성·교체·수정·비밀번호 재설정·삭제는 active service-provider operator만 호출할 수 있다. 삭제 command와 dialog는 관리자 삭제가 아니라 `현장 전체 삭제`로 표시하며, body의 `confirmationSiteName`이 현재 현장명과 정확히 일치해야 한다. 서버는 같은 DB transaction에서 GatewayInventory를 비활성화하고 `SiteDeletionCleanup` 작업을 생성한 뒤 Site 소유 데이터 전체를 cascade 삭제한다. 고객사에 남은 현장이 없으면 admin·viewer 세션, 사용자, 초대와 customer Organization도 삭제한다. 삭제할 사용자를 먼저 잠가 동시 로그인 세션 생성을 차단한다. 커밋 뒤 cleanup worker가 Gateway 인증서를 즉시 폐기하고, 기존 presigned upload URL이 만료된 뒤 도면 원본 파일을 삭제한다. 외부 정리 실패는 lease와 지수 backoff로 재시도한다. 다른 Gateway에 claim된 인증서 inventory가 연결된 비정상 데이터는 `409`로 중단해 타 현장 장비를 보호한다. 제조 장비·인증서 원장, 완료된 cleanup 작업과 service-provider 감사 로그 `operator.site_deleted`는 보존한다. 비밀번호와 hash는 응답 및 audit metadata에 포함하지 않는다. operator 전용 웹 목록은 이 여섯 endpoint를 소비한다. create/assign/reset의 평문 비밀번호는 React Query cache, API response 또는 완료 안내에 저장하지 않고, 성공 또는 사용자가 dialog를 닫을 때 component input state에서 제거한다. 실패 뒤 열린 dialog의 입력은 재시도를 위해 유지한다. `ApiError.body.message`가 정확히 `loginId already exists`인 409만 loginId field 오류와 focus로 연결하고, serialization 등 다른 409는 재시도 alert로 표시한다.
 - operator 초기/reset 비밀번호 입력은 서버와 같은 최소 8자를 client에서 검사하고 서버의 password-policy `400`도 field alert로 표시한다. 현장 삭제 dialog는 현장명을 정확히 입력하기 전 `영구 삭제` 버튼을 비활성화하고, 성공 뒤 제거된 행 대신 안정적인 `현장 및 관리자 생성` command로 focus를 복원한다. API/Web 단위 테스트와 실제 PostgreSQL 통합 테스트로 고객사·현장·계정·세션 삭제를 검증한다.
 - `PUT /floors/:floorId/editor-state`는 `Floor.mapRevision` optimistic update, normalized row 변경, canonical `FloorMapRevision` snapshot/SHA-256과 `floor_editor.saved` 감사를 하나의 Serializable Prisma transaction으로 저장한다. fixture/object의 층 소속, 중복 ID와 준비되지 않은 asset은 optimistic mutation 전에 거부한다.
 - `GET /floors/:floorId/editor-revisions`는 현장 `read`, `POST /floors/:floorId/editor-revisions/:revision/restore`는 `manage` 권한을 요구한다. 복구는 `expectedRevision` 충돌을 `409`로 처리하고, 사라진 fixture를 생성하지 않고 `skippedFixtureIds`로 반환하며 새 revision과 `floor_editor.restored` 감사를 같은 transaction에 남긴다.
@@ -169,7 +185,7 @@
 - 일반 admin 영속 write는 외부 SiteAccess precheck를 UX 최적화로만 사용한다. dimming command create, fixture-group create/update/delete/resync와 floor-editor save/restore는 transaction 첫 단계에서 Site row를 잠그고 assigned active customer admin을 다시 확인하며, reassignment/disable race는 실제 PostgreSQL 회귀로 차단한다.
 - 수정 전 legacy migration을 적용한 로컬 개발 DB는 checksum 충돌이 발생할 수 있다. 데이터가 불필요한 경우에만 reset을 선택하고, 보존이 필요하면 감사 후 수동 보정 migration을 사용한다. 설정 기능은 자동 reset이나 파괴적 DB 명령을 실행하지 않는다.
 - **폐기된 Task 4 시점 기록:** 당시 registration session 생성·조회·identify·register·complete는 operator controller 계약이라 새 SiteAccess 완료 경로로 사용할 수 없었다. 현재 Task 5 API는 assigned admin controller/service 이중 검사와 mutation transaction 내부 재검증까지 완료했고, Task 8에서 설치 완료 admin의 웹 commissioning 진입점을 연결했다.
-- `GET /floors/:floorId/assets`는 현장 `read` 권한, upload intent와 complete는 `manage` 권한을 확인해 customer admin의 설치 후 도면 교체를 허용하고 viewer 변경은 차단한다.
+- `GET /floors/:floorId/assets`와 content redirect는 현장 `read` 권한, upload intent와 complete는 `manage` 권한을 확인한다. private bucket의 장기 URL은 응답하지 않고 안정적인 API 경로가 300초 signed GET으로 연결된다. upload intent는 pending 원장을 먼저 커밋하며, 만료된 미완료 자산은 60초 주기 bounded sweeper가 저장소 삭제 실패를 재시도한다. 현장 삭제와 intent 생성은 같은 Site 잠금으로 직렬화한다.
 - 주 메뉴를 `/monitoring`, `/control`, `/statistics`, `/settings` URL route와 링크 navigation으로 전환했다. 이 고객 shell은 admin/viewer만 mount하며 선택 현장의 `siteId` query는 주 메뉴와 설정 하위 메뉴 이동에도 유지된다.
 - operator는 전용 `OperatorShell`만 mount한다. `/settings`와 하위 경로를 포함한 operator 직접 URL/새로고침은 history replace로 `/operator/site-admins`에 수렴하고 `/sites` 또는 dashboard query를 실행하지 않는다. 현재 route는 header, 로그인 아이디, 로그아웃과 현장 관리자 운영 테이블을 제공한다. dialog는 `role="dialog"`, `aria-modal`, Escape/취소, 최초 focus와 trigger focus 복원을 지원한다. assign/delete 성공처럼 기존 trigger가 목록 refetch에서 제거될 수 있는 경우에는 안정적인 `현장 및 관리자 생성` command로 focus를 복원하며, 작은 화면에서는 표를 가로 스크롤한다.
 - `/settings/floor-plans`는 admin/viewer가 새로고침과 직접 진입할 수 있는 층별 도면 목록을 제공한다. assigned admin만 서버 SiteAccess에 따라 실제 편집할 수 있다.
@@ -188,7 +204,7 @@
 - operator는 고객 설정 shell을 mount하지 않으며 고객 Site 목록과 capability를 갖지 않는다. assigned admin과 viewer만 허용된 범위의 Site API를 사용한다. Task 8은 pending admin 최초 설치 UI와 설치 완료 admin의 Gateway/registration 역할 노출을 연결했다.
 - 현장 선택기는 `GET /sites` 응답의 `customerName`과 `name`을 함께 사용하고 URL의 `siteId`를 갱신하며 일반 설정 route의 pathname, 다른 query parameter와 hash fragment를 유지한다. operator에게 배정 현장을 표시하던 설명은 폐기됐으며 현재 `GET /sites`는 operator에게 고객 Site를 반환하지 않는다. floor 편집 route에서 승인된 현장 전환은 current draft를 baseline으로 되돌려 dirty를 해제하고 이전 floorId를 버린 뒤 새 현장의 `/settings/floor-plans`로 이동한다. 취소 시 draft와 URL을 유지하며, 승인 후 다음 현장 전환에는 폐기 확인을 반복하지 않는다. dashboard, floor fixture, statistics query key는 모두 `siteId`를 포함하며, 선택된 현장은 `/sites/:siteId/dashboard`, `/sites/:siteId/floors/:floorId/fixtures`, `/energy/sites/:siteId/estimate`를 호출해 다른 고객 현장의 캐시를 재사용하지 않는다.
 - dirty editor에서 상단 `로그아웃` 버튼을 눌러도 동일한 폐기 확인을 거친다. 취소하면 session과 draft를 유지하고, 승인한 뒤에만 draft를 버리고 `/auth/logout` 후 auth query를 로그인 화면으로 전환한다.
-- 설정 상단 탭은 admin에게 `설정 개요`, `유저 관리`, `조명 등록`, `맵 관리`, `비밀번호 변경`을, viewer에게 `설정 개요`, `맵 관리`, `비밀번호 변경`을 제공한다. `조명 등록` UI는 설정 개요에서 분리한 admin 전용 `/settings/registration`에서만 제공한다. 등록할 Gateway가 없으면 같은 화면에서 Gateway 등록을 먼저 안내하고, Gateway가 있으면 기존 검색·식별·등록 workflow를 그대로 사용한다. viewer가 이 URL로 직접 접근하면 query string을 유지한 설정 개요로 replace하며 허용되지 않은 설정 하위 URL도 설정 개요로 수렴한다.
+- 설정 상단 탭은 admin에게 `설정 개요`, `현장 관리`, `유저 관리`, `조명 등록`, `맵 관리`, `계정 보안`을, viewer에게 `설정 개요`, `맵 관리`, `계정 보안`을 제공한다. `현장 관리`는 admin 전용 `/settings/site`에서 현장·층·조명 메타데이터와 구역 보관을 제공한다. `계정 보안`은 비밀번호 변경, operator/admin MFA·복구 코드, 모든 역할의 활성 세션 관리를 제공한다. `조명 등록` UI는 설정 개요에서 분리한 admin 전용 `/settings/registration`에서만 제공한다. 등록할 Gateway가 없으면 같은 화면에서 Gateway 등록을 먼저 안내하고, Gateway가 있으면 기존 검색·식별·등록 workflow를 그대로 사용한다. viewer가 관리 URL로 직접 접근하면 query string을 유지한 설정 개요로 replace하며 허용되지 않은 설정 하위 URL도 설정 개요로 수렴한다.
 - 웹 Dockerfile은 production API 요청을 same-origin `/api`로 빌드한다. nginx official template entrypoint가 `API_UPSTREAM`(기본 `http://api:4000`)을 주입하고 `/api/*`를 reverse proxy하며, SPA fallback으로 `/settings/floor-plans` 같은 deep route 새로고침을 `index.html`로 응답한다. Vite 개발 서버는 `/api`를 기본 `http://localhost:4000` upstream으로 proxy해 로컬 API 개발 동작을 유지한다.
 
 ## 확정 구현 설계
@@ -196,7 +212,7 @@
 ### 화면과 라우팅
 
 - 주 메뉴를 `/monitoring`, `/control`, `/statistics`, `/settings` URL로 표현한다.
-- 이전 정보 구조에 있던 `/settings/floors`, `/settings/fixtures`, `/settings/gateways`, `/settings/commissioning`은 현재 구현 route가 아니다. 현장·층, 조명·그룹, Gateway, 정책, 알림, 펌웨어, 외부 연동과 장비 상태 상세 workflow는 현재 미구현/후속으로 유지한다.
+- 이전 정보 구조에 있던 `/settings/floors`, `/settings/fixtures`, `/settings/gateways`, `/settings/commissioning`은 현재 구현 route가 아니다. 현장·층·조명 메타데이터와 구역 목록·보관은 `/settings/site`로 통합했다. 구역 생성·수정, Gateway 진단, 정책, 알림, 펌웨어, 외부 연동과 장비 상태 상세 workflow는 현재 미구현/후속으로 유지한다.
 - 맵 편집기는 `/settings/floor-plans/:floorId/edit` 전체 작업 화면으로 연다.
 - `MonitoringView`는 에디터 조회 상태와 `맵 편집` 버튼 없이 읽기 전용 도면만 표시한다. 설정 에디터 route가 실제 state 조회와 저장·취소 navigation을 소유한다.
 - 모니터링 empty state는 등록 UI를 직접 렌더링하지 않고 admin에게 `/settings/registration` 이동 경로를 안내한다.
@@ -224,22 +240,22 @@
 - lease와 별도로 revision 불일치 시 `409 Conflict`를 반환하고 강제 덮어쓰기를 허용하지 않는다. save/restore는 lease fence와 `mapRevision`을 모두 통과해야 한다.
 - 변경사항이 있으면 화면 이탈을 확인하고 네트워크 오류 시 클라이언트 편집 상태를 유지한다.
 - 도면 저장소는 비공개로 전환하고 만료 시간이 짧은 서명 URL로 업로드·조회한다.
-- 확장자 대신 실제 MIME을 검사하고 이미지는 재인코딩하며 PDF는 격리된 worker에서 렌더링한다.
-- 원본 PDF는 다운로드 전용으로 제공하며 실패하거나 검역되지 않은 파일은 현재 도면에 연결하지 않는다.
+- 확장자에 의존하지 않고 선언한 MIME, 크기와 SHA-256 checksum을 upload intent와 S3 HEAD에서 검증한다. 이미지 재인코딩과 PDF 격리 렌더 worker는 후속 범위다.
+- 원본 PDF는 인증된 조회 경로로 연결하되 캔버스 배경으로 사용하지 않는다. 향후 격리 worker가 만든 ready 이미지만 배경에 연결한다.
 
 ### 현장과 층
 
-- 현장명, 주소, 시간대, 통화와 kWh 요금을 수정한다.
+- 현장명, 주소, 시간대와 kWh 요금을 수정한다. 주소와 단가는 필수이고 통화는 현재 통계 계약에 맞춰 `KRW`로 고정한다. 시간대·단가 변경 전 기존 조건으로 열린 에너지 구간을 정산한다.
 - 층 이름, level, 표시 순서와 활성 상태를 관리한다.
-- 층은 hard delete 대신 archive하며 조명이나 Gateway 담당 범위가 남아 있으면 archive를 차단한다.
-- `Site.timezone`, `Site.currency`, `Floor.status`, `Floor.displayOrder`를 명시적 필드로 추가한다.
+- 층은 hard delete 대신 archive하며 조명, 활성 구역 또는 진행 중인 등록 작업이 남아 있으면 archive를 차단한다. 보관 뒤에는 기존 편집 token이 있어도 맵·자산·lease mutation을 거부한다.
+- `Site.timeZone`, `Site.currency`, `Floor.status`, `Floor.displayOrder`를 명시적 필드로 사용한다.
 
 ### 조명과 그룹
 
-- 1,000개 이상 조명을 서버 페이지네이션하고 층, 상태, 그룹, 통신 품질로 필터링한다.
-- assigned admin은 조명 이름, 정격전력, 도면 좌표와 표시 크기를 수정한다. viewer는 저장된 도면과 조명 정보를 읽기 전용으로 본다.
+- 현장 관리 탭은 선택 층의 조명과 제조 식별 정보를 200개 단위 cursor로 조회한다. 상태, 그룹, 통신 품질 필터는 후속 범위다.
+- assigned admin은 현장 관리 탭에서 조명 이름과 정격전력을 수정하고, 도면 좌표와 표시 크기는 맵 관리에서 수정한다. viewer는 저장된 도면과 조명 정보를 읽기 전용으로 본다.
 - 제품 serial, Mesh 주소, 펌웨어, 인증 관련 값은 읽기 전용이다.
-- 그룹 생성·수정·archive와 구성원의 일괄 추가·제외를 지원한다.
+- 현장 관리 탭은 기존 그룹 목록 조회와 확인 후 archive 전환만 지원한다. 그룹 생성·수정과 구성원 일괄 추가·제외는 후속 범위다.
 - 장비 교체는 논리 Fixture와 전력 이력을 유지하고 연결된 MeshNode만 교체하는 별도 workflow로 구현한다.
 
 ### Gateway와 시운전
@@ -281,15 +297,15 @@
 
 - `GET/PATCH /sites/:siteId/settings`
 - `POST /sites/:siteId/floors`
-- `PATCH /floors/:floorId`
-- `POST /floors/:floorId/archive`
+- `PATCH /sites/:siteId/floors/:floorId`
+- `POST /sites/:siteId/floors/:floorId/archive`
 - `PUT /sites/:siteId/floors/order`
 - `GET/PUT /floors/:floorId/editor-state`
 - `GET /floors/:floorId/editor-revisions?cursor={revision}&limit={1..100}`
 - `POST /floors/:floorId/editor-revisions/:revision/restore`
 - `POST/DELETE /floors/:floorId/editor-lease`
-- `GET /sites/:siteId/fixtures`
-- `PATCH /fixtures/:fixtureId/profile`
+- `GET /sites/:siteId/floors/:floorId/fixtures/settings?cursor={fixtureId}&limit={1..200}`
+- `PATCH /sites/:siteId/floors/:floorId/fixtures/:fixtureId`
 - `POST/PATCH /sites/:siteId/groups`
 - `PUT /fixture-groups/:groupId/fixtures`
 - `GET/PATCH /sites/:siteId/operation-policy`
@@ -305,7 +321,7 @@
 - `AlertRule`, `NotificationChannel`, `NotificationRecipient`, `NotificationDelivery`
 - `AuditLog`
 - OTA package, deployment, target와 result 모델
-- `Site.timezone`, `Site.currency`
+- `Site.timeZone`, `Site.currency`
 - `Floor.status`, `Floor.displayOrder`, `Floor.mapRevision`
 
 DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 같은 커밋에서 갱신한다.
@@ -345,18 +361,15 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 
 ## 미구현
 
-- exact raw USB non-root 배포와 실장비 재연결 복구(Task 8), 승인된 단일 장치 주소/제어 HIL(Task 9), Web→API→Gateway production E2E와 최종 운영 문서화(Task 10)는 아직 미구현 또는 미검증이다.
 - Scene 04~09와 24~26의 자동 Web/Chromium 검증은 완료했지만 Raspberry Pi/BlueZ/ESP32-H2 HIL과 실제 모바일 WebView safe-area 검증은 미실행이다.
 
 - 초대 링크 발급·전달 방식의 일반 유저 onboarding UI. admin이 직접 계정과 임시 비밀번호를 발급하는 현장 유저 CRUD는 구현 완료했다.
-- 현장 정보 수정과 층 CRUD/archive UI
-- 비공개 도면 asset과 보안 처리 pipeline
-- 조명 정보·그룹 CRUD 관리 화면
+- 구역 생성·수정과 구성원 관리 화면. 기존 구역 목록·보관 전환은 구현 완료했다.
+- PDF 첫 페이지를 별도 이미지로 만드는 격리 렌더 worker와 CAD/AI 변환 pipeline
 - 다중 Gateway와 층 coverage
 - ESP32-H2 factory reset과 장비 교체 workflow
 - 시운전 보고서
 - 운영 정책과 알림
-- MFA·세션 관리 UI
 - 공통 설정 감사 로그
 - 서명된 OTA package, 단계 배포, 중단과 rollback
 - 외부 API·Webhook·BMS 연동 설정
@@ -375,26 +388,31 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 
 ## 부족하거나 개선이 필요한 기능
 
-- BIO full runtime 배포는 독립 `compose.bio-runtime.yml`과 host launcher로 격리했다. old BlueZ base+BIO overlay 경로는 차단되며 새 root/scope/descriptor 검증 뒤 UID999·capability0으로 시작한다. 이 변경은 설치 보안 소프트웨어이며 실제 healthy heartbeat 3회와 조명 등록은 별도 승인·검증 대상이다. [배포 관문](../runbooks/raspberry-pi-gateway-appliance.md#독립-bio-runtime-배포)을 따른다.
+- BIO full runtime 배포는 독립 `compose.bio-runtime.yml`과 `scripts/gateway-bio-runtime.sh`로 BlueZ appliance와 격리한다. 기존 `gateway-appliance-deploy.sh --adapter bio-usb` overlay 경로는 원격 변경 전에 차단한다. 새 runtime은 exact USB와 전용 상태 root를 확인한 뒤 UID 999·capability 0으로 시작한다. 이번 identify 계약이 포함된 image의 실제 healthy heartbeat와 2초 점등/센서 모드 복원은 재배포 후 확인해야 한다.
+- `bootstrap-only` 설치 CLI는 조명 하드웨어를 시작하지 않고 Gateway assignment와 MQTT identity만 준비한다. 새 admin/site 초기 설정에서 제조사 앱 없이 인증을 완료하기 위한 경계이며, claim 성공을 조명 검색·등록 성공으로 확대하지 않는다. 발급 원장 확인과 실제 adapter 기동은 [설치 runbook](../runbooks/device-lab-first-install.md#81-하드웨어-없는-인증-전용-bootstrap)을 따른다.
 
-- `bootstrap-only` 설치 CLI는 claim 후 하드웨어를 시작하지 않고 assignment·MQTT identity만 준비한다. 전용 non-root Compose와 새 identity/gateway mount, 기대 Site/Gateway scope, one-shot/no-retry·정제 로그를 제공한다. 이는 인증 준비 소프트웨어이며 웹의 조명 검색·등록 성공이나 실제 Pi/PKI HIL 완료가 아니다. 실패 후 발급 원장 확인과 실제 adapter 시작은 [설치 runbook](../runbooks/device-lab-first-install.md#81-하드웨어-없는-인증-전용-bootstrap)을 따른다.
+- 과거 scan은 raw 원장에 session scope/전체 hash가 없어 terminal identity를 추정 backfill하지 않는다. scope/hash 또는 필요한 현재 상태가 부족한 legacy 원장과 알 수 없는 이벤트 유형은 자동 정리에서도 보존한다. 삭제된 조명의 상태 원장처럼 안전 조건을 더 이상 증명할 수 없는 데이터도 남을 수 있다. 사용자 DB migration 적용·운영 배포와 실장비 검증은 실행하지 않았다.
+- 도면 정리 이후 보존 범위 밖의 revision은 복구할 수 없으며 외부 이력 보관·archive 기능은 없다. `AuditLog`, `GatewayClaimAudit`, 인증서 이력은 이번 자동 삭제 대상에 포함하지 않는다.
+- `AuditLog` 3년 hot retention은 회사·법무 승인 전 제안이다. `GatewayClaimAudit`와 폐기된 인증서 chain의 7년 또는 별도 승인 전 보존은 설계 기준이며, 이번 worker가 해당 시점에 삭제하는 기능은 없다. Session 자동 정리는 만료·폐기 후 30일이 지난 행만 대상으로 하며 보안 감사 보존 정책과 구분한다. 전체 보존 조건과 migration 적용 순서는 [DB 문서](../database-schema.md#운영-데이터-보존과-복구-범위)를 따른다.
+- 플랫폼 운영 배포 절차는 [API·Web runbook](../runbooks/production-api-web-deployment.md)을 따른다. 단일 호스트 Compose, 외부 Vault·공개 MQTT/Object Storage 연결, 장비 mTLS 공개 SAN, CRL 갱신 후 수동 broker SIGHUP, API 교체 후 nginx upstream 재해석·재시작이 운영 조건이다. Process-local 지표만 제공하며 외부 metrics/dashboard/alert/log shipping은 구성하지 않았다. 운영 배포·사용자 DB 적용·실장비 HIL과 native WebView·수동 시각 QA는 이번 자동 검증에 포함하지 않는다.
 
-- BIO direct-USB codec/client/adapter, durable registration recovery, factory/lifecycle, adapter-aware health와 Task 8 non-root 단일-node 배포 계약은 software integration까지 구현했다. Pi preflight도 통과했지만 intended broker의 DNS/TLS baseline과 healthy heartbeat 3회를 확인하지 못해 production container는 변경하지 않았다. `/settings/registration`의 production BIO 등록을 완료로 표시하지 않으며 실제 주소 변경, 0/20/60/90/100% 물리 반응, 재시작/USB 재연결, 다중 장치 충돌은 Task 9~10 증거가 필요하다.
+- 1440/390/320px 결과는 Chromium 자동 브라우저 software 증거다. 실제 iOS/Android native WebView, 수동 in-app 시각 QA, WebView safe-area 실측 또는 Raspberry Pi/ESP32-H2 HIL을 수행한 결과가 아니다. Lazy chunk 실패의 복구 UI는 플랫폼 Task 3에서 구현했으며, prefetch/offline cache는 후속 범위다. Task 3 오류 주입은 Vite에서 실제 앱 셸의 동적 import 요청을 차단한 deterministic Chromium 결과이며, 운영 CDN/container 배포나 실제 backend 장애·HIL 검증을 의미하지 않는다.
 - 맵 편집 우측 패널의 공통 overflow 계약은 Chromium 1440/1024/390/320px route fixture로 검증했으며 실제 모바일 WebView safe-area와 브라우저별 scrollbar 표현은 별도 실측이 필요하다.
 - 테스트 데이터 도구는 개발·검증용 대량 데이터 준비 기능으로, 기본 off이며 실제 장비/MQTT 시뮬레이션이나 실장비 검증을 대체하지 않는다. 생성 직후에도 실제 heartbeat가 없으면 freshness 정책으로 offline 전환될 수 있다. DB schema/migration 변경은 없다.
 - 비밀번호 변경과 setup/commissioning visibility는 Web 회귀와 기존 격리 실백엔드 E2E로 검증했다. Scene 24~26 레이아웃은 1440×900, 1024×768, 390×844, 320×740 자동 Chromium으로 검증했지만 재설치, 수동 in-app Browser 시각 QA와 Raspberry Pi/ESP32-H2 HIL은 아직 실행하지 않았다.
-- 설정 shell은 역할별 navigation, 설치 wizard, 설정 개요, 도면 목록/편집과 admin 비밀번호 변경을 제공한다. 현재 미구현/후속인 현장·층 상세 CRUD, 조명·그룹 상세 관리, Gateway 진단, 정책, 알림, 펌웨어, 외부 연동과 장비 상태 상세 workflow는 route placeholder가 아니라 아직 제공하지 않는 범위다.
+- 설정 shell은 역할별 navigation, 설치 wizard, 설정 개요, 현장·층·조명 메타데이터 운영, 구역 목록·보관, 도면 목록/편집과 계정 보안을 제공한다. 계정 보안에는 비밀번호 변경, operator/admin MFA·복구 코드, 모든 역할의 활성 세션 관리가 포함된다. 현재 미구현/후속인 구역 생성·수정, Gateway 진단, 정책, 알림, 펌웨어, 외부 연동과 장비 상태 상세 workflow는 route placeholder가 아니라 아직 제공하지 않는 범위다.
 - 평탄화된 설정 콘텐츠와 에디터 workbench의 시각 계층만 정리했으며, pending setup/Gateway claim/registration 흐름과 맵 editor lease·dirty guard·atomic save/restore·단축키·map bounds의 기존 제약 및 후속 실장비 검증 범위는 변경하지 않았다.
 - 설정 상단 탭은 공통 밑줄형 navigation의 44px 포커스·가로 스크롤 계약을 사용한다. 실제 모바일 WebView safe-area와 네이티브 navigation 통합 검증은 후속 작업이다.
 - dirty 내부 이동 guard는 링크, 현장 전환과 same-URL sentinel 기반 브라우저 history 이동을 확인한다. Task 10 이후 추가되는 programmatic navigation 경로도 같은 discard/guard 계약에 연결해야 한다.
 - Gateway claim과 registration API 및 웹 UI는 assigned admin commissioning으로 전환됐고 Task 9 software E2E를 통과했다. inventory disable은 제조 보안 경계로 active service-provider operator 전용을 유지한다. 실제 장비 검증은 미실행이다.
-- 현재 도면 asset은 장기 공개 URL을 응답하므로 민감한 건물 도면에 맞는 private access로 전환해야 한다.
+- 도면 asset의 private 조회, DB-first 업로드 원장, 만료 pending 회수, 24시간 지난 미참조 ready 자산 회수와 PDF/JPG/PNG 선택·업로드·교체·연결 제거 UI는 구현했다. 현재 맵과 모든 과거 revision의 자산은 보존하고 맵 저장과 cleanup 경합도 Floor 잠금으로 직렬화한다. ready 삭제 실패는 2분 backoff로 뒤 후보를 먼저 진행한다. PDF 첫 페이지를 이미지로 만드는 격리 렌더 worker와 실제 운영 object storage 장애 주입 검증은 후속 Task다.
+- PKI 폐기 대기·재시도 원장의 전용 운영 UI는 아직 없다. CA 서명 응답 뒤 원장을 commit하기 전 process crash 또는 원장 저장과 즉시 폐기가 모두 실패하는 이중 장애는 CA 측 발급 감사/재조회 없이는 완전히 회수할 수 없다. CRL의 15분은 네트워크·인증 토큰/파일 I/O·DB 작업을 합친 transaction 예산이지 개별 filesystem 호출의 엄격한 상한이 아니며, 누적 예산 초과나 DB session 유실 뒤 이미 시작한 publish가 계속될 수 있어 실제 Vault/CRL 운영 검증이 필요하다.
 - 다중 Gateway coverage와 층별 radio 품질 진단은 아직 제공하지 않으므로, 사용자가 선택한 Gateway가 해당 층을 실제로 커버하는지는 설치 검증 절차로 확인해야 한다.
 - 실제 ESP32-H2 검색·provisioning·model bind, RF 품질과 전체 OTA는 실기 검증 증거가 아직 부족하다.
 - 저장 구역 생성·수정 UI/API는 제어 메뉴에서 제공한다. 전체 suite에서 opt-in DB URL 부재로 skip된 PostgreSQL 구역 생성 rollback 통합 회귀는 로컬 개발 PostgreSQL URL을 명시한 별도 실행에서 1/1 통과했다. Raspberry Pi/BlueZ/ESP32-H2를 연결한 zone 제어 Gate는 `not_executed`이며 자동 단위·브라우저 fixture나 DB rollback 회귀를 실장비 완료 증거로 간주하지 않는다.
 - 등록 패널의 물리 provisioning 상태는 1.5초 polling으로 반영하고, 검색·등록·상태 확인의 display-only 진행 단계를 제공한다. `reconcile_required` 장비의 실제 현장 복구 판단과 자동 질의는 아직 제공하지 않는다.
-- MinIO 기반 local S3 integration test는 준비됐지만 현재 개발 머신에 Docker CLI가 없어 실제 실행 증거는 아직 없다.
-- PDF는 첫 페이지만 도면 배경으로 렌더링한다. 다중 페이지 선택과 원본 PDF 파일 관리 UI는 후속 작업이다.
+- 로컬 MinIO에서 signed PUT, HEAD checksum, 익명 GET 거부와 300초 signed GET 통합 테스트를 통과했다. 브라우저가 접근할 public bucket base와 API 내부 endpoint는 별도 설정하고, 번들 MinIO CORS origin은 `WEB_PUBLIC_URL`에서 주입한다. 실제 운영 object storage 장애 주입은 후속이다.
+- PDF는 현재 비공개 원본으로만 연결하고 캔버스 배경으로 렌더링하지 않는다. 첫 페이지 렌더 worker와 다중 페이지 선택은 후속 작업이다.
 - 조명 다중 선택·일괄 이동, 도형 개별 삭제, Undo/Redo, 격자 스냅과 조명 키보드 미세 조정을 제공한다. 다중 도형 동시 편집과 전용 회전 도구는 후속 범위다.
 - CAD/DWG/DXF import와 AI 도면 해석 기반 editor object 자동 생성은 후속 MVP 범위다.
 
@@ -413,18 +431,28 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 
 ## 관련 파일
 
-- `apps/gateway/src/bootstrap-only.ts`, `apps/gateway/src/identity/ensure-mqtt-identity.ts`, `apps/gateway/compose.bootstrap.yml`: 하드웨어 없는 설치 인증과 scope/권한 preflight.
-
+- `apps/gateway/src/bootstrap-only.ts`, `apps/gateway/src/identity/ensure-mqtt-identity.ts`, `apps/gateway/compose.bootstrap.yml`
 - `apps/gateway/src/adapters/bio-usb-dongle-adapter.ts`
 - `apps/gateway/src/adapters/bio-sensor-capability-unavailable-port.ts`
 - `apps/gateway/src/adapters/adapter-factory.ts`
 - `apps/gateway/src/bio/bio-device-mapping-store.ts`
-- `apps/gateway/compose.bio-usb.yml`
-- `scripts/gateway-appliance-deploy.sh`
-- `scripts/gateway-bio-usb-preflight.sh`
+- `apps/gateway/compose.bio-runtime.yml`
+- `scripts/gateway-bio-runtime.sh`
 - `apps/gateway/src/health/appliance-health.ts`
-- `apps/gateway/src/index.ts`
 - `apps/gateway/src/state/provisioning-device-journal.ts`
+
+- `apps/api/src/retention/data-retention.service.ts`, `apps/api/src/retention/retention.module.ts`
+- `apps/api/src/retention/data-retention.service.spec.ts`, `apps/api/src/retention/data-retention.integration.spec.ts`
+
+- `apps/api/src/retention/gateway-event-watermark.ts`, `apps/api/prisma/migrations/20260915_statistics_operations_retention/migration.sql`
+- [API·Web 운영 배포와 장애 대응](../runbooks/production-api-web-deployment.md)
+
+- `apps/web/src/components/ui/AppRecoveryState.tsx`
+- `apps/web/src/components/ui/AppErrorBoundary.tsx`
+- `apps/web/src/AppRoot.tsx`
+- `apps/web/src/App.recovery.test.tsx`
+- `apps/web/e2e/app-shell-recovery.spec.ts`
+
 - `apps/web/src/features/settings/users/SiteUsersView.tsx`
 - `apps/web/src/features/settings/users/SiteUsersView.test.tsx`
 - `apps/web/src/api/site-users.ts`
@@ -436,6 +464,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - `apps/web/src/features/transport-copy.ts`
 - `apps/web/src/features/transport-copy.test.ts`
 - `apps/web/src/App.tsx`
+- `apps/web/src/components/ui/RouteLoadingState.tsx`
 - `apps/web/src/api/queries.ts`
 - `apps/web/src/features/settings/SettingsShell.tsx`
 - `apps/web/src/features/settings/settings-sections.ts`
@@ -443,6 +472,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - `apps/web/src/features/shells/SettingsNavigationItem.tsx`
 - `apps/web/src/features/sites/SiteSwitcher.tsx`
 - `apps/web/Dockerfile`
+- `apps/web/scripts/audit-schedule-bundle.mjs`
 - `apps/web/nginx.conf.template`
 - `apps/web/src/features/settings/SettingsView.tsx`
 - `apps/web/src/features/settings/registration/RegistrationSettingsView.tsx`
@@ -452,6 +482,10 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - `apps/web/src/features/settings/floor-plans/FloorEditorRoute.tsx`
 - `apps/web/src/features/settings/security/PasswordSettingsView.tsx`
 - `apps/web/src/features/settings/security/PasswordSettingsView.test.tsx`
+- `apps/web/src/features/settings/site/SiteOperationsView.tsx`
+- `apps/web/src/features/settings/site/SiteOperationsView.test.tsx`
+- `apps/web/src/api/site-settings.ts`
+- `apps/web/e2e/settings-operations.spec.ts`
 - `apps/web/src/features/settings/TestDataToolsPanel.tsx`
 - `apps/web/src/features/settings/TestDataToolsPanel.test.tsx`
 - `apps/web/src/api/test-data.ts`

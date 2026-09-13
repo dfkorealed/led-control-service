@@ -4,6 +4,7 @@ import { GatewayOnboardingService } from "../src/gateway-onboarding/gateway-onbo
 import { SiteAccessService } from "../src/access/site-access.service";
 import { PrismaService } from "../src/prisma/prisma.service";
 import type { CertificateAuthorityProvider } from "../src/pki/certificate-authority.provider";
+import { CertificateRevocationReconciliationService } from "../src/pki/certificate-revocation-reconciliation.service";
 import { GatewayCertificateService } from "../src/pki/gateway-certificate.service";
 import { ManufacturingEnrollmentService } from "../src/pki/manufacturing-enrollment.service";
 
@@ -29,6 +30,7 @@ describeWithDatabase("gateway PKI PostgreSQL E2E", () => {
   beforeEach(async () => {
     await prisma.gatewayClaimAudit.deleteMany();
     await prisma.gatewayCertificate.deleteMany();
+    await prisma.certificateRevocationReconciliation.deleteMany();
     await prisma.gatewayEnrollment.deleteMany();
     await prisma.gatewayInventory.deleteMany();
     await prisma.gateway.deleteMany();
@@ -70,6 +72,9 @@ describeWithDatabase("gateway PKI PostgreSQL E2E", () => {
       { purpose: "device", fingerprint: DEVICE_FINGERPRINT, status: "active" },
       { purpose: "mqtt", fingerprint: MQTT_FINGERPRINT, status: "active" }
     ]);
+    expect(await prisma.certificateRevocationReconciliation.count({
+      where: { cancelledAt: { not: null }, completedAt: null }
+    })).toBe(2);
   });
 
   it("terminally rejects serial mismatch and CSR tampering, then blocks disabled or revoked identities", async () => {
@@ -111,13 +116,15 @@ function services(prisma: PrismaService, validator = { validate: jest.fn().mockR
       notAfter: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString()
     })),
     revoke: jest.fn(),
+    rebuildCrl: jest.fn(),
     readCrl: jest.fn()
   };
+  const reconciliation = new CertificateRevocationReconciliationService(prisma, certificateAuthority);
   return {
     manufacturing: new ManufacturingEnrollmentService(prisma, certificateAuthority, validator as never, {
       apiCaBundlePem: rootCertificates[0], mqttCaBundlePem: rootCertificates[0], manufacturingCaFingerprint: "CC".repeat(32)
-    }),
+    }, reconciliation),
     onboarding: new GatewayOnboardingService(prisma, new SiteAccessService(prisma)),
-    mqtt: new GatewayCertificateService(prisma, certificateAuthority, validator as never)
+    mqtt: new GatewayCertificateService(prisma, certificateAuthority, validator as never, reconciliation)
   };
 }

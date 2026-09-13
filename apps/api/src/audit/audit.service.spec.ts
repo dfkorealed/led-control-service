@@ -29,7 +29,10 @@ describe("AuditService", () => {
     expect(prisma.auditLog.create).not.toHaveBeenCalled();
   });
 
-  it.each(["claimCode", "password", "passwordHash", "currentPassword", "newPassword", "privateKey", "certificatePem"])("rejects %s in audit metadata", async (key) => {
+  it.each([
+    "claimCode", "password", "passwordHash", "currentPassword", "newPassword", "privateKey", "certificatePem",
+    "mfaSecret", "totpCode", "recoveryCode", "sessionToken", "challengeToken"
+  ])("rejects %s in audit metadata", async (key) => {
     const service = await createService();
 
     await expect(service.record({

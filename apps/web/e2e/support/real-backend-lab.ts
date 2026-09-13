@@ -359,7 +359,7 @@ export class RealBackendLab {
     try {
       await this.assertPortsAvailable();
       await mkdir(this.labDir, { recursive: true });
-      await this.run("pnpm", ["--filter", "@led-control/shared", "build"]);
+      await this.run("pnpm", ["run", "workspace:prepare"]);
       await this.run("pnpm", ["--filter", "@led-control/api", "prisma:generate"]);
       await this.run("pnpm", ["--filter", "@led-control/api", "build"]);
       await this.run("pnpm", ["--filter", "@led-control/web", "build"]);

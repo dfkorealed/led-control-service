@@ -1,5 +1,9 @@
 import { Body, Controller, Get, Param, Post, Query, UseGuards } from "@nestjs/common";
-import { createRegistrationSessionSchema, registerFixtureBatchSchema } from "@led-control/shared";
+import {
+  createRegistrationSessionSchema,
+  identifyRegistrationNodeInputSchema,
+  registerFixtureBatchSchema
+} from "@led-control/shared";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { SessionAuthGuard } from "../auth/session-auth.guard";
 import { AuthenticatedUser } from "../auth/auth.types";
@@ -39,8 +43,10 @@ export class RegistrationController {
   identifyNode(
     @Param("sessionId") sessionId: string,
     @Param("nodeId") nodeId: string,
+    @Body() body: unknown,
     @CurrentUser() user: AuthenticatedUser
   ) {
+    identifyRegistrationNodeInputSchema.parse(body);
     return this.registrationService.identifyNode(user, sessionId, nodeId);
   }
 

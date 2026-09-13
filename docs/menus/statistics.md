@@ -4,6 +4,22 @@
 
 ## 구현 완료
 
+- 보고서 객체 정리는 HEAD의 존재 여부·크기를 측정하고 시도·실패·재시도, 관측·삭제·late PUT 객체 수와 바이트를 영구 원장에 기록한다. HEAD 404는 정상이며 lease를 잃은 회차는 지표를 저장하지 않는다. sweep 로그에 미등록 대상을 포함한 backlog, oldest due, 재시도·실패·late PUT 합계를 제공한다. UTC/서울 DB 세션에서 정확한 만료·재시도 경계와 고정 `prune(now)`, 51건 정리 수렴을 검증했다.
+
+- 보고서 생성 transaction에서 현장·조명·층·그룹의 대상명을 고정해 이름 변경·운영 객체 삭제 후에도 목록과 새 XLSX/PDF 공통 문서에 유지한다. 공개 응답은 `target`, `requestedAt`(기존 `createdAt`과 동일), `failure`의 코드·사유·행동 안내를 추가하고 기존 필드를 보존한다. 저장소·렌더링·스냅샷·시도 소진 오류를 구분하며 알 수 없는 내부 오류는 일반 실패로 정제한다. 일회성 PostgreSQL에서 legacy null 보존, 이름 변경·삭제, 재시도 실패 분류와 원시 오류 미노출을 검증했다.
+
+- 보고서 목록은 접수 당시 대상명, 범위·기간·형식, 요청 시각, 완료/만료 파일의 만료 시각을 표시하고 실패 사유와 다음 행동을 함께 안내한다. 다운로드·다시 생성 버튼의 접근성 이름에는 대상명이 포함된다. 생성·재생성·다운로드·CSV 오류는 `ApiError`의 `400/422`, `404`, `409`, `5xx`와 fetch `TypeError`를 구분해 입력 수정, 대상/파일 부재·만료, 충돌, 서버, 네트워크 안내로 매핑하며 원시 서버 오류는 표시하지 않는다. 320px Chromium에서 메타데이터가 둘 이상의 행으로 감기고 작업 버튼과 문서가 가로로 넘치지 않음을 확인했다.
+
+- 개요의 누적·일별·월별 비용과 분석 순위·보고서/CSV 비용은 “당시 적용 단가의 저장 비용”으로, 월 forecast·24시간 100% baseline·예상 절감 비용은 “현재 설정 단가 기준”으로 구분해 표시한다. 저장 비용을 현재 단가로 소급 계산한 예상 청구액으로 표현하지 않는다.
+
+- 이벤트 원장이 정리된 이후에도 fixture별 최신 sequence·payload hash를 보존하여 동일 상태를 재적산하지 않고 변경된 payload 재전송을 거부한다. watermark·원장·일별/시간별 적산·cursor·snapshot은 하나의 transaction이며 임시 PostgreSQL에서 중복, 동시 수신과 전체 rollback을 확인했다.
+
+- 운영 데이터 정리 worker는 60초마다 이벤트 원장의 `createdAt`을 기준으로 heartbeat 7일, fixture state 30일, terminal scan 90일, superseded capability 365일보다 오래된 안전한 행만 합산 최대 10,000개씩 제거한다. 최신 watermark와 각 유형의 snapshot/cursor/terminal ACK identity를 함께 확인하며 cutoff와 같은 시각은 보존한다. `FOR UPDATE SKIP LOCKED`와 실행 중복 방지·종료 drain을 적용한다. 시간별 집계의 24개월 정리, 보고서의 7일 파일/90일 메타데이터 정리는 각각 별도 정책이다.
+- 플랫폼 Task 4 최종 소프트웨어 검증은 root lint/typecheck/build exit 0, root script 58/58·Shared 203·Automation 28·Mobile 1·Web 64 files 712/712·API 120 suites 1,138 통과/289 환경 의존 제외·Gateway 64 files 608/608(총 2,748 통과/289 제외)다. 전체 Chromium은 194개 중 189 통과/5 opt-in 제외(188개 mock/브라우저 회귀 + 실제 disposable automation journey 1개), main 319.19 kB/gzip 99.21 kB다. Production 계약 18/18, 전체 audit의 MQTT 설정 2/2·Gateway container 24/24·required MQTT 2/2와 새 smoke `led-production-smoke-a9dac54a523c9484dbc4b9eade7b9d5e`의 당시 브랜치 빈 DB 57/57 migrations, TLS/mTLS·CRL·장애 복구·exact cleanup을 통과했다. Dependency 820개 중 기존 승인 예외 High 2/Moderate 1, unexpected 0이며 무취약 판정이 아니다. 운영 배포·사용자 DB·실제 외부 Vault/MQTT/Object Storage·native WebView·HIL·외부 관측 연결은 미검증이다. [운영 runbook](../runbooks/production-api-web-deployment.md)에 절차와 한계를 기록했다. 최종 독립 검토는 Critical/Important/Minor 0, PASS로 승인됐다.
+
+- 플랫폼 Task 3에서 공통 앱 셸 복구를 구현했다. 초기 인증 401은 기존 로그인, 403과 그 밖의 비일시 오류는 권한·재로그인 안내로 분기한다. 브라우저가 부팅부터 offline이면 요청 없이 서비스 복구 화면을 표시하고 online 복귀 시 인증을 재개한다. 네트워크·전송 timeout·5xx는 자동 최대 2회 재시도하고 실패하면 `다시 시도`로 연결을 복구한다. `AppRoot`의 boundary는 App 자체의 hook/render와 Router/lazy shell 실패를 단일 main·alert·포커스 heading으로 표시한다. 인증 실패·재로그인·principal 전환 시 새 QueryClient를 먼저 활성화해 늦은 이전 mutation callback을 폐기된 client에 격리한다. 재로그인은 앱 active-command namespace와 tenant/auth 캐시·초안을 정리하고 최대 5초 logout 종료 뒤 로그인으로 수렴한다. 무관한 저장값과 최초 정상 부팅의 제어 복구 기록은 유지하며 원시 오류/응답/stack은 표시하지 않는다. Task 3 Web 64 files·712/712 unit, 관련 auth/shell Chromium 23/23(신규 복구 10개 포함), typecheck/build와 main `319.19 kB`/gzip `99.21 kB` bundle audit를 통과했다.
+
+- Route 기능 코드 SHA `34261b6`에서 로그인·최초 비밀번호 변경은 초기 main에 유지하고 고객/운영자 shell과 통계 shell·개요·분석·보고서를 각각 dynamic chunk로 분리했다. 역할 shell 전체 화면과 shell 내부 route는 공통 `RouteLoadingState`의 `role="status"`·`aria-live="polite"` 로딩 상태를 사용한다. 별도 Web route bundle 작업 당시 Task 4 Web 검증은 60 files·686/686 unit, 2,437 modules production build와 main `314.83 kB`/gzip `97.58 kB`(예산 `1,070.00 kB`/`325.00 kB`)를 통과했고, 14개 계획 route chunk와 main의 Konva·Recharts 격리를 audit으로 확인했다. 같은 별도 작업 당시 Task 3 Chromium 64/64는 1440/1024/760/390/320px에서 통계를 포함한 대표 route 전환을, disposable RealBackendLab 2/2는 실제 API/DB 기반 고객 여정을 검증했다.
 - 공통 고객 셸 상단은 현재 메뉴 제목과 실제 현장명 배지만 표시한다. 기존 층명 기반 `B2 주차장` 표기와 동작 없는 Gateway 정상·오프라인·미등록 상태 배지는 제거하되 설정의 `Gateway 상태` 상세 카드는 유지한다. 로그아웃 위치와 인증·dirty editor 확인 로직은 유지하고, 고객·운영자 셸의 로그아웃은 공통 `IconTooltipButton`으로 아이콘만 표시한다. `로그아웃` 도움말은 hover와 키보드 focus에서 열리고 도움말 위로 포인터를 옮겨도 유지되며 `Escape`로 닫힌다. 모바일 버튼은 52px 실제 터치 영역을 사용한다.
 
 - P2 표준 보고서는 저장된 일별 전력량·비용을 요약/일별 표/조명·층·그룹 순위에 포함하고, 직전 동일 일수의 저장 합계와 차이·변화율을 함께 제공한다. 이전 값이 0이거나 없는 변화율은 `데이터 없음`이며 비용 0과 비용 없음은 구분한다. 과거 적용 단가·원천 산출식은 일별 집계와 연결된 증거가 없으므로 `데이터 없음`으로 명시하고, 현재 단가를 소급 적용하지 않는다. 두 형식은 같은 집계 출처·합산식·반올림 설명까지 포함한다.
@@ -22,12 +38,12 @@
 - P2 보고서 서버 렌더러는 고정된 `EnergyReportDocument`의 제목·메타데이터·섹션·원시값·표시값·행 순서·fingerprint를 같은 순회로 XLSX/PDF에 기록한다. XLSX 숫자 셀을 유지하고 PDF에는 저장소의 OFL Noto Sans KR 폰트를 포함한다. 파일을 다시 읽은 셀/페이지 글리프 manifest를 문서와 대조하며, 긴 한글 이름과 A4 페이지 분할을 검증한다. CRLF 원문을 두 형식에서 보존하고, PDF는 실제 페이지·텍스트 좌표·연속 조각 순서로 행을 검증하여 페이지나 행 교환을 감지한다.
 - `/statistics/reports`는 기간과 현장·조명·층·그룹 범위를 선택해 XLSX 또는 PDF의 동일한 표준 보고서를 요청한다. 비현장 범위의 대상 정보가 로딩 중이거나 비어 있으면 대상 상태를 알리고 보고서·CSV 요청을 막아 현장 ID를 다른 범위 identity로 대체하지 않는다. 목록은 대기·생성 중·완료·실패·만료 상태를 표시하며, 활성 작업만 3초마다 갱신한다. 완료 파일의 서명 URL은 다운로드 클릭 때만 받아 캐시에 보관하지 않고, 실패·만료 작업은 재생성 중복을 막고 실패 피드백을 제공한다. 같은 기간·범위는 CSV 내보내기에도 사용하며 응답 첨부 파일을 즉시 다운로드한다.
 - `POST /energy/sites/:siteId/reports`는 strict 공통 요청을 받아 `202` 작업을 반환하고 현장·요청자·동일 요청의 활성 작업을 중복 생성하지 않는다. 목록(최신 50개), 상세, 다운로드 API는 데이터 조회 전에 현장 read 권한을 검사하고 다른 현장의 보고서 ID는 `404`로 숨긴다. worker가 첫 시도에서 완료된 날짜의 문서를 저장하고 이후 재시도는 이 저장 문서만 렌더링한다. PostgreSQL `SKIP LOCKED`, 30초 임대·10초 갱신, 최대 3회 시도와 살아 있는 소유자/시도 번호 검증을 적용한다.
-- 보고서는 공개 도면과 분리된 비공개 버킷의 시도별 키에 업로드한다. 25 MB 상한과 HEAD 크기·MIME·SHA-256 검증 후 7일 만료 시각을 저장하며, 완료·미만료 파일만 안전한 파일명의 300초 서명 URL로 제공한다. 보고서 API와 파일은 no-store이고, `GET /energy/sites/:siteId/exports/csv`는 공통 문서의 메타데이터·표·표시값을 UTF-8 BOM, CSV 인용, 수식 접두어 방어를 적용해 행 단위 스트림으로 내보낸다.
-- 로컬 MinIO 초기화는 전체 셸 절차를 `sh -c`의 단일 인자로 전달해 공개 도면용 `floor-assets`와 비공개 보고서용 `energy-reports` 버킷을 빠짐없이 만든다. Compose가 명령을 여러 인자로 분리해 초기화 컨테이너가 종료 코드 2로 실패하던 회귀를 실제 `docker compose config` 결과로 고정했다. 수정 후 초기화 컨테이너 종료 코드 0, 두 버킷 존재, 보고서 버킷의 private 정책을 확인했고, 이전과 동일한 현장 XLSX 요청을 새 작업으로 생성해 첫 시도 완료와 68,757바이트 파일 다운로드를 검증했다. 기존 실패 작업은 장애 이력으로 보존한다.
+- 보고서는 비공개 도면 자산과 분리된 비공개 버킷의 시도별 키에 업로드한다. 25 MB 상한과 HEAD 크기·MIME·SHA-256 검증 후 7일 만료 시각을 저장하며, 완료·미만료 파일만 안전한 파일명의 300초 서명 URL로 제공한다. 보고서 API와 파일은 no-store이고, `GET /energy/sites/:siteId/exports/csv`는 공통 문서의 메타데이터·표·표시값을 UTF-8 BOM, CSV 인용, 수식 접두어 방어를 적용해 행 단위 스트림으로 내보낸다.
+- 로컬 MinIO 초기화는 전체 셸 절차를 `sh -c`의 단일 인자로 전달해 익명 접근을 차단한 도면 자산용 `floor-assets`와 비공개 보고서용 `energy-reports` 버킷을 빠짐없이 만든다. 브라우저는 도면 원본에 직접 공개 접근하지 않고 권한을 검사하는 API endpoint에서 300초 signed GET을 발급받는다. Compose가 명령을 여러 인자로 분리해 초기화 컨테이너가 종료 코드 2로 실패하던 회귀를 실제 `docker compose config` 결과로 고정했다. 수정 후 초기화 컨테이너 종료 코드 0, 두 버킷 존재, 두 버킷의 private 정책을 확인했고, 이전과 동일한 현장 XLSX 요청을 새 작업으로 생성해 첫 시도 완료와 68,757바이트 파일 다운로드를 검증했다. 기존 실패 작업은 장애 이력으로 보존한다.
 - 사용량 분석은 선택한 조명·층·그룹 순위 항목을 scope로 하는 P2 시간대 히트맵을 제공한다. 현장 timezone을 받은 뒤에만 최근 완료 28일을 조회하며, 에너지/밝기 전환, 7×24 시간대 버튼, 실제 0과 수집 데이터 없음의 구분, 선택 상세·재시도·빈 상태를 제공한다. 시간대 버튼과 지표 전환은 최소 44px 조작 영역이며, 좁은 화면의 24열 표는 카드 내부에서만 가로 스크롤한다.
 - 통계 상단 메뉴의 밑줄형 시각·반응형 계약을 공통 `UnderlineNavigation`으로 분리해 제어 메뉴와 공유한다. 통계의 `NavLink`, query/hash 보존과 무아이콘 표현은 그대로 유지하며, 공통 label은 필요한 소비자만 장식 아이콘을 넣을 수 있다. Chromium computed style 비교와 공통 내부 focus ring 검증으로 제어 탭과 같은 시각 계약을 확인했다.
 - 통계 route를 `StatisticsShell` 아래의 서브메뉴 구조로 분리했다. `개요`, P1 `사용 분석`, P2 `보고서`만 노출하며 `/statistics`와 알 수 없는 하위 route는 query/hash를 보존해 `/statistics/overview`로 replace 이동한다. 주 메뉴의 통계 active 상태는 모든 통계 하위 route에서 유지된다.
-- `/statistics/analysis`에서 조명·층·그룹 단위를 전환하고 사용량, 예상 비용, 현장 기여도, 조명당 평균 기준으로 최대 400일을 높은 순/낮은 순 정렬한다. 순위 목록은 수집률과 포함 조명 수를 표시하고 선택 항목의 사용량·비용·기여도, 이전 동일 기간 변화, 일별 추이와 조명별 구성을 상세 패널에 제공한다.
+- `/statistics/analysis`에서 조명·층·그룹 단위를 전환하고 사용량, 저장 비용, 현장 기여도, 조명당 평균 기준으로 최대 400일을 높은 순/낮은 순 정렬한다. 순위 목록은 수집률과 포함 조명 수를 표시하고 선택 항목의 사용량·저장 비용·기여도, 이전 동일 기간 변화, 일별 추이와 조명별 구성을 상세 패널에 제공한다.
 - `GET /energy/sites/:siteId/rankings`는 strict shared query/response 계약을 사용하고 `read` 권한을 데이터 조회 전에 확인한다. 수집률 80% 미만 또는 구조 이력을 신뢰할 수 없는 항목은 별도 `unranked`로 반환하며, 그룹 중복 소속 합계가 현장 총계와 같지 않을 수 있음을 응답과 화면에서 알린다.
 - 운영 `Fixture`/`FixtureGroup`과 분석 identity를 분리하고 이름·층·정격 W 및 그룹 membership의 유효기간 이력을 저장한다. 신규 조명 확정, 도면의 이름·정격 W 변경, 그룹 생성·수정·retire가 운영 변경과 같은 transaction에서 이력을 갱신한다. migration 이전 일별 합계는 현장 총계에는 포함하지만 당시 차원을 복원하지 않고 순위에서 제외한다.
 - 상태 ingest는 기존 일별 집계와 신규 UTC 시간별 집계를 이벤트 원장·checkpoint·최신 조명 상태와 같은 transaction에 dual-write한다. 시간별 row에는 현지 날짜·시간과 UTC offset을 함께 저장해 DST 반복 시간을 구분하고 known/unknown 초, 밝기 가중 초를 보존한다.
@@ -88,8 +104,18 @@
 
 ## 부족하거나 개선이 필요한 기능
 
+- legacy 보고서 작업은 요청 당시 이름이 없어 범위와 identity ID로 표시한다. 새 migration은 격리 PostgreSQL에서만 검증했으며 사용자/운영 DB에는 적용하지 않았다.
+
+- 임의 과거 event ID의 exact dedupe는 해당 raw 원장이 남아 있는 기간에 의존한다. 정리 뒤에는 stream별 최신 identity·단조 high-water와 scan terminal ACK identity를 유지하며 Gateway identity 내 sequence reset/reuse는 허용하지 않는다. scope/hash가 없는 legacy 원장, 알 수 없는 유형, 삭제된 fixture·누락된 cursor 등 안전 조건을 증명할 수 없는 원장은 기한 없이 남을 수 있다. scan watermark는 기존 gateway/type 전체 순서이고 raw scope만 session ID다. 사용자 DB 적용과 실장비 재전송 검증은 미실행이다.
+- 배포는 구 API·report worker·삭제 작업을 중지한 maintenance barrier에서 읽기 전용 preflight → 단일 migration deploy → postflight 및 신규 schema/backfill 검증 → 새 API/worker 시작 순서로 진행해야 한다. 기존 migration checksum은 보존한다. 실패 이력·카탈로그·PostgreSQL 로그를 보존하며 자동 resolve나 부분 적용 덮어쓰기를 하지 않는다. 상세 복구 절차는 [DB 문서](../database-schema.md#보고서-migration-사전-검사와-실패-복구)를 따른다.
+
+- 보고서 파일의 7일 만료는 조회·다운로드에서 즉시 적용하며 물리 삭제는 60초 정리 주기와 backlog·저장소 상태에 따라 늦을 수 있다. 원장별 최대 3개 키의 HEAD·DELETE는 각각 4초 제한이며 DB transaction 밖에서 수행한다. PUT 10초·HEAD 4초 제한은 네트워크 보호일 뿐 정지한 프로세스의 미래 PUT을 막는 증거로 쓰지 않는다. 회수 원장은 자동 삭제하지 않으므로 크기, 반복 HEAD·DELETE와 전체 카운터 합계 조회 비용이 보고서 수에 따라 증가한다. 요청/문서 데이터는 원장에 포함하지 않는다. 매우 많은 보고서가 있는 현장의 삭제는 전체 시도 키 목록과 순차 저장소 삭제에 시간이 걸릴 수 있다.
+- 정리 지표는 HEAD에서 확인한 객체의 DELETE 성공 응답을 기준으로 하며 물리 저장 용량·과금 증거가 아니다. 현장 삭제의 직접 DELETE, 응답 유실·임대 상실·동시 객체 교체는 지표와 실제 삭제량 차이를 만들 수 있다. 실패한 late PUT 삭제는 이후 성공할 때 누적하며, 기존 원장의 과거 카운터는 복원하지 않고 새 migration부터 0으로 시작한다. 사용자/운영 DB에는 migration을 적용하지 않았다.
+- 플랫폼 운영 배포 절차는 [API·Web runbook](../runbooks/production-api-web-deployment.md)을 따른다. 단일 호스트 Compose, 외부 Vault·공개 MQTT/Object Storage 연결, 장비 mTLS 공개 SAN, CRL 갱신 후 수동 broker SIGHUP, API 교체 후 nginx upstream 재해석·재시작이 운영 조건이다. Process-local 지표만 제공하며 외부 metrics/dashboard/alert/log shipping은 구성하지 않았다. 운영 배포·사용자 DB 적용·실장비 HIL과 native WebView·수동 시각 QA는 이번 자동 검증에 포함하지 않는다.
+
+- 1440/390/320px 결과는 Chromium 자동 브라우저 software 증거다. 실제 iOS/Android native WebView, 수동 in-app 시각 QA, WebView safe-area 실측 또는 Raspberry Pi/ESP32-H2 HIL을 수행한 결과가 아니다. Lazy chunk 실패의 복구 UI는 플랫폼 Task 3에서 구현했으며, prefetch/offline cache는 후속 범위다. Task 3 오류 주입은 Vite에서 실제 앱 셸의 동적 import 요청을 차단한 deterministic Chromium 결과이며, 운영 CDN/container 배포나 실제 backend 장애·HIL 검증을 의미하지 않는다.
 - 보고서 파일의 7일 만료는 조회·다운로드에서 즉시 적용하며 물리 삭제는 60초 정리 주기와 backlog·저장소 상태에 따라 늦을 수 있다. 원장별 최대 3회 DELETE는 각 4초 제한이며 DB transaction 밖에서 수행한다. PUT 10초·HEAD 4초 제한은 네트워크 보호일 뿐 정지한 프로세스의 미래 PUT을 막는 증거로 쓰지 않는다. 회수 원장은 자동 삭제하지 않으므로 크기와 반복 DELETE 비용이 보고서 수에 따라 증가한다. 요청/문서 데이터는 원장에 포함하지 않는다. 매우 많은 보고서가 있는 현장의 삭제는 전체 시도 키 목록과 순차 저장소 삭제에 시간이 걸릴 수 있다.
-- `OBJECT_STORAGE_REPORT_BUCKET`은 공개 도면 버킷과 달라야 하며 운영 저장소에서도 익명 읽기가 없는 버킷을 별도로 준비해야 한다. 로컬 compose는 기본 `energy-reports` 버킷에 익명 접근 금지를 적용한다. 보고서 스냅샷과 생성 파일은 서버 메모리에 존재하며 CSV 출력 문자열만 스트리밍한다. 작업 수락 전 Site 잠금 밖의 read-only 사전 조회로 실제 문서를 만들어 날짜·대상·출력 문자 지원 여부를 확인하고 폐기한다. 따라서 접수에도 집계 조회 비용이 추가되며 worker는 첫 시도에서 별도의 한 transaction으로 불변 스냅샷을 저장하고 재검사한다. 수락 이후 데이터 변경이나 저장소 오류로 생성이 실패할 수 있다.
+- `OBJECT_STORAGE_REPORT_BUCKET`은 비공개 도면 자산 버킷과 분리해야 하며 운영 저장소에서도 두 버킷 모두 익명 읽기를 허용하지 않아야 한다. 로컬 compose는 기본 `floor-assets`와 `energy-reports` 버킷에 익명 접근 금지를 적용한다. 보고서 스냅샷과 생성 파일은 서버 메모리에 존재하며 CSV 출력 문자열만 스트리밍한다. 작업 수락 전 Site 잠금 밖의 read-only 사전 조회로 실제 문서를 만들어 날짜·대상·출력 문자 지원 여부를 확인하고 폐기한다. 따라서 접수에도 집계 조회 비용이 추가되며 worker는 첫 시도에서 별도의 한 transaction으로 불변 스냅샷을 저장하고 재검사한다. 수락 이후 데이터 변경이나 저장소 오류로 생성이 실패할 수 있다.
 - 글꼴 지원은 Unicode 전체가 아니다. 최종 출력에 있는 NBSP(U+00A0), VS16(U+FE0F), ZWJ(U+200D), NFD 한글의 자동 조합 등 원문 왕복이 불가능한 문자/문자열은 `400 Unsupported report …`로 거절한다. NFC 한글과 지원되는 결합 악센트·emoji는 허용하며 무관한 이력 이름을 이유로 거절하지 않는다. 이미 저장된 보고서 문서는 불변 원본을 유지하며 새 비용/정밀 이력 규칙의 문서는 같은 기간으로 새로 요청한다.
 - 24시간·100% 기준선은 조회 시점의 현재 등록 조명과 정격 W를 사용한다. 조회 기간 중 등록·삭제·정격 변경이 있었다면 당시 조명 구성으로 소급 보정하지 않으므로 장기 비교의 절대값 해석에 주의해야 한다.
 - 직전·전년 동기간 비교는 현재 누적 이력의 구조를 그대로 사용하고 과거 조명 구성 변경을 복원하지 않는다. 현재 응답의 history quality는 `legacy_structure_unknown`이며, 이력 snapshot을 도입하기 전까지 구성 효과와 실제 운영 절감 효과를 분리할 수 없다.
@@ -99,7 +125,7 @@
 - 공통 간격 토큰과 배치 규칙은 통계 메뉴에만 1차 적용했다. 모니터링·제어·설정의 기존 임의 간격은 각 메뉴 개선 시 동일한 규칙으로 전환해야 한다.
 - 공통 우측 패널의 반응형·overflow 계약은 Chromium 1440/1024/390/320px route fixture로 검증했으며 실제 모바일 WebView safe-area와 브라우저별 scrollbar 표현은 별도 실측이 필요하다.
 - summary/series의 `generatedAt`은 요청별로 한 번 고정되지만 여러 DB read가 하나의 repeatable-read snapshot으로 묶여 있지는 않다. 상태 ingest가 조회 중간에 commit되면 응답 내부 누적·forecast가 서로 다른 순간을 볼 수 있으므로 양산 정산 정확도가 필요해질 때 read-only repeatable-read transaction으로 묶어야 한다.
-- 과거 누적 비용은 각 상태 적산 당시 단가를 사용하고 forecast와 24시간 baseline은 현재 단가를 사용한다. 현재 UI는 이 차이를 별도 설명하지 않으므로 단가 변경 이력이 있는 현장에서는 비용 비교 기준을 명시해야 한다.
+- 과거 누적 비용은 각 상태 적산 당시 단가를 사용하고 forecast와 24시간 baseline은 현재 단가를 사용한다. UI는 두 기준을 구분해 표시하지만 복합 요금제나 실제 청구서 금액을 뜻하지 않는다.
 - 근거 없는 절감 지표, 피크 시간, 추천 정책 고정 문구는 제거했다.
 - 브라우저 자동 검증은 route fixture와 test-only MQTT publisher를 사용한 실백엔드 E2E까지 완료했지만 실제 Raspberry Pi, ESP32-H2, BLE Mesh 상태 publication을 포함한 HIL 결과는 아니다.
 - 예상 전기료는 단일 단가 기반이며 복합 요금제를 반영하지 않는다.
@@ -108,12 +134,31 @@
 
 ## 관련 파일
 
+- `apps/api/src/retention/gateway-event-watermark.ts`, `apps/api/src/retention/gateway-event-watermark.integration.spec.ts`
+- `apps/api/src/retention/data-retention.service.ts`, `apps/api/src/retention/data-retention.integration.spec.ts`, `apps/api/src/retention/retention.module.ts`
+- `apps/api/scripts/check-report-migration-preflight.mjs`, `apps/api/src/energy/reports/energy-report-migration-safety.integration.spec.ts`
+- `apps/api/prisma/migrations/20260915_statistics_operations_retention/migration.sql`, `apps/api/prisma/migrations/20260916_report_operations_metadata/migration.sql`, `apps/api/prisma/migrations/20260917_report_cleanup_metrics/migration.sql`
+- [API·Web 운영 배포와 장애 대응](../runbooks/production-api-web-deployment.md)
+
+- `apps/web/src/components/ui/AppRecoveryState.tsx`
+- `apps/web/src/components/ui/AppErrorBoundary.tsx`
+- `apps/web/src/AppRoot.tsx`
+- `apps/web/src/App.recovery.test.tsx`
+- `apps/web/e2e/app-shell-recovery.spec.ts`
+
+- `apps/web/src/App.tsx`
+- `apps/web/src/components/ui/RouteLoadingState.tsx`
+- `apps/web/src/features/shells/CustomerShell.tsx`
+- `apps/web/scripts/audit-schedule-bundle.mjs`
 - `apps/api/src/energy/reports/energy-report-targets.service.ts`
 - `apps/api/src/energy/reports/energy-report-upgrade.integration.spec.ts`
 - `apps/api/src/energy/reports/report-text.ts`
 - `apps/api/src/energy/reports/report-pdf-layout.ts`
 - `apps/api/src/energy/reports/energy-csv-export.service.ts`
 - `apps/api/src/energy/reports/energy-report-jobs.service.ts`
+- `apps/api/src/energy/reports/energy-report-metadata.integration.spec.ts`
+- `apps/api/prisma/migrations/20260916_report_operations_metadata/migration.sql`
+- `apps/api/prisma/migrations/20260917_report_cleanup_metrics/migration.sql`
 - `apps/api/src/energy/reports/energy-report-worker.service.ts`
 - `apps/api/src/energy/reports/energy-report-cleanup.service.ts`
 - `apps/api/src/energy/reports/energy-report-cleanup.service.spec.ts`
@@ -186,4 +231,4 @@
 
 ## 갱신 규칙
 
-통계 메뉴의 집계 기준, 차트, 요금 계산, 내보내기 기능이 바뀌면 이 문서를 같은 작업 안에서 갱신한다.
+통계 메뉴의 집계 기준, 차트, 요금 계산, 내보내기, 원장 보존·중복 방지와 보고서 정리 지표가 바뀌면 이 문서를 같은 작업 안에서 갱신한다. 보존 범위·DB 구조 변경은 DB 문서 및 영향받는 설정 메뉴와 함께 반영하고, 격리 자동 검증·실장비 검증·사용자 DB 적용 여부를 구분한다.

@@ -17,13 +17,17 @@ import { OperatorSiteAdminsModule } from "./operator-site-admins/operator-site-a
 import { PkiModule } from "./pki/pki.module";
 import { PrismaModule } from "./prisma/prisma.module";
 import { RegistrationModule } from "./registration/registration.module";
+import { RetentionModule } from "./retention/retention.module";
 import { SetupModule } from "./setup/setup.module";
 import { SitesModule } from "./sites/sites.module";
 import { SiteUsersModule } from "./site-users/site-users.module";
+import { SiteSettingsModule } from "./site-settings/site-settings.module";
 import { TestDataModule } from "./test-data/test-data.module";
+import { ObservabilityModule } from "./observability/observability.module";
 
 @Module({
   imports: [
+    ObservabilityModule,
     FixtureIdentifyModule,
     PrismaModule,
     AuthModule,
@@ -32,10 +36,12 @@ import { TestDataModule } from "./test-data/test-data.module";
     AutomationModule,
     SitesModule,
     MonitoringIncidentsModule,
+    SiteSettingsModule,
     SiteUsersModule,
     CommandsModule,
     EnergyModule,
     RegistrationModule,
+    RetentionModule,
     MeshControlGroupModule,
     SetupModule,
     FloorEditorModule,

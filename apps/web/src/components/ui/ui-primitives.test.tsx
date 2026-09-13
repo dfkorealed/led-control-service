@@ -11,6 +11,7 @@ import {
   ModalDialog,
   PageHeader,
   ProgressSteps,
+  RouteLoadingState,
   SidePanel,
   StatusBadge,
   UnderlineNavigation,
@@ -31,11 +32,36 @@ describe("Calm Operations UI primitives", () => {
   afterAll(() => stylesheet.remove());
   afterEach(cleanup);
 
+  it("resolves nested CSS aliases while preserving unresolved and circular references", () => {
+    const resolved = resolveStylesheetVariables(`
+      :root {
+        --brand-blue: #256fa1;
+        --primary: var(--brand-blue);
+        --cycle-a: var(--cycle-b);
+        --cycle-b: var(--cycle-a);
+      }
+      .alias { color: var(--primary); }
+      .missing { color: var(--missing); }
+      .cycle { color: var(--cycle-a); }
+    `);
+
+    expect(resolved).toContain(".alias { color: #256fa1; }");
+    expect(resolved).toContain(".missing { color: var(--missing); }");
+    expect(resolved).toMatch(/\.cycle \{ color: var\(--cycle-[ab]\); \}/);
+  });
+
   it("keeps button semantics while exposing variant and loading state", () => {
     render(<Button variant="primary" isLoading>저장</Button>);
 
     expect(screen.getByRole("button", { name: "저장 중" })).toBeDisabled();
     expect(screen.getByRole("button")).toHaveClass("ui-button", "ui-button-primary");
+  });
+
+  it("announces a route transition with a polite, understandable Korean loading state", () => {
+    render(<RouteLoadingState />);
+
+    expect(screen.getByRole("status")).toHaveAttribute("aria-live", "polite");
+    expect(screen.getByRole("status")).toHaveTextContent("화면을 불러오는 중입니다.");
   });
 
   it("forwards a button ref to the native control", () => {
@@ -349,7 +375,19 @@ function resolveStylesheetVariables(source: string) {
     Array.from(source.matchAll(/(--[\w-]+):\s*([^;]+);/g), ([, name, value]) => [name, value.trim()])
   );
 
-  return source.replace(/var\((--[\w-]+)\)/g, (declaration, name: string) => variables.get(name) ?? declaration);
+  function resolveVariable(name: string, resolving = new Set<string>()): string {
+    const value = variables.get(name);
+    if (!value || resolving.has(name)) return `var(${name})`;
+
+    const nestedResolving = new Set(resolving).add(name);
+    return value.replace(/var\((--[\w-]+)\)/g, (declaration, nestedName: string) => (
+      variables.has(nestedName) ? resolveVariable(nestedName, nestedResolving) : declaration
+    ));
+  }
+
+  return source.replace(/var\((--[\w-]+)\)/g, (declaration, name: string) => (
+    variables.has(name) ? resolveVariable(name) : declaration
+  ));
 }
 
 function relativeLuminance(color: string) {

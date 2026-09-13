@@ -1,0 +1,69 @@
+name: Protected LED HIL
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type RUN_LED_HIL to authorize protected hardware execution
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: led-hil
+  cancel-in-progress: false
+
+jobs:
+  led-hil:
+    runs-on: [self-hosted, led-hil]
+    environment: hil
+    timeout-minutes: 240
+    env:
+      HIL_CONFIRMATION: ${{ inputs.confirmation }}
+      HIL_GATEWAY_SERIAL: ${{ secrets.HIL_GATEWAY_SERIAL }}
+      HIL_NODE1_PORT: ${{ secrets.HIL_NODE1_PORT }}
+      HIL_NODE2_PORT: ${{ secrets.HIL_NODE2_PORT }}
+      HIL_CA_PATH: ${{ secrets.HIL_CA_PATH }}
+      HIL_GATEWAY_CERT_PATH: ${{ secrets.HIL_GATEWAY_CERT_PATH }}
+      HIL_GATEWAY_KEY_PATH: ${{ secrets.HIL_GATEWAY_KEY_PATH }}
+      HIL_CLAIM_COMMAND_JSON: ${{ secrets.HIL_CLAIM_COMMAND_JSON }}
+      HIL_BOOTSTRAP_COMMAND_JSON: ${{ secrets.HIL_BOOTSTRAP_COMMAND_JSON }}
+      HIL_SECURE_MQTT_COMMAND_JSON: ${{ secrets.HIL_SECURE_MQTT_COMMAND_JSON }}
+      HIL_SCAN_COMMAND_JSON: ${{ secrets.HIL_SCAN_COMMAND_JSON }}
+      HIL_PROVISION_COMMAND_JSON: ${{ secrets.HIL_PROVISION_COMMAND_JSON }}
+      HIL_BIND_COMMAND_JSON: ${{ secrets.HIL_BIND_COMMAND_JSON }}
+      HIL_INDIVIDUAL_CONTROL_COMMAND_JSON: ${{ secrets.HIL_INDIVIDUAL_CONTROL_COMMAND_JSON }}
+      HIL_GROUP_CONTROL_COMMAND_JSON: ${{ secrets.HIL_GROUP_CONTROL_COMMAND_JSON }}
+      HIL_STALE_EVENT_COMMAND_JSON: ${{ secrets.HIL_STALE_EVENT_COMMAND_JSON }}
+      HIL_OFFLINE_COMMAND_JSON: ${{ secrets.HIL_OFFLINE_COMMAND_JSON }}
+      HIL_RESTART_RECOVERY_COMMAND_JSON: ${{ secrets.HIL_RESTART_RECOVERY_COMMAND_JSON }}
+      HIL_ACL_NEGATIVE_COMMAND_JSON: ${{ secrets.HIL_ACL_NEGATIVE_COMMAND_JSON }}
+      PKI_HIL_MANUFACTURING_COMMAND_JSON: ${{ secrets.PKI_HIL_MANUFACTURING_COMMAND_JSON }}
+      PKI_HIL_TOKEN_REUSE_COMMAND_JSON: ${{ secrets.PKI_HIL_TOKEN_REUSE_COMMAND_JSON }}
+      PKI_HIL_CSR_TAMPER_COMMAND_JSON: ${{ secrets.PKI_HIL_CSR_TAMPER_COMMAND_JSON }}
+      PKI_HIL_SERIAL_MISMATCH_COMMAND_JSON: ${{ secrets.PKI_HIL_SERIAL_MISMATCH_COMMAND_JSON }}
+      PKI_HIL_WRONG_CA_COMMAND_JSON: ${{ secrets.PKI_HIL_WRONG_CA_COMMAND_JSON }}
+      PKI_HIL_CLAIM_BOOTSTRAP_MQTT_COMMAND_JSON: ${{ secrets.PKI_HIL_CLAIM_BOOTSTRAP_MQTT_COMMAND_JSON }}
+      PKI_HIL_RESTART_RECOVERY_COMMAND_JSON: ${{ secrets.PKI_HIL_RESTART_RECOVERY_COMMAND_JSON }}
+      PKI_HIL_MQTT_ROTATION_COMMAND_JSON: ${{ secrets.PKI_HIL_MQTT_ROTATION_COMMAND_JSON }}
+      PKI_HIL_TWO_GATEWAY_FINGERPRINT_COMMAND_JSON: ${{ secrets.PKI_HIL_TWO_GATEWAY_FINGERPRINT_COMMAND_JSON }}
+      PKI_HIL_SECRET_SCAN_COMMAND_JSON: ${{ secrets.PKI_HIL_SECRET_SCAN_COMMAND_JSON }}
+      PKI_HIL_REPEAT: "3"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "9.15.0"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Fail-closed authorization and hardware preflight
+        run: pnpm ci:hil:preflight
+      - name: PKI HIL
+        run: pnpm gateway:pki:hil
+      - name: Two-node lifecycle HIL
+        run: pnpm gateway:hil:2node -- --repeat 3

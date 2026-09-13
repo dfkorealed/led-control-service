@@ -70,7 +70,7 @@ describe("SiteAdminManagementView", () => {
     expect(screen.getByRole("button", { name: "현장 및 관리자 생성" })).toBeVisible();
     expect(screen.getByRole("button", { name: "김관리 수정" })).toBeVisible();
     expect(screen.getByRole("button", { name: "김관리 비밀번호 재설정" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "김관리 삭제" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "인천 물류센터 현장 전체 삭제" })).toBeVisible();
     expect(screen.getByRole("button", { name: "강남 주차장 관리자 지정" })).toBeVisible();
   });
 
@@ -298,10 +298,12 @@ describe("SiteAdminManagementView", () => {
     renderView();
     await screen.findByText("customer_admin");
 
-    fireEvent.click(screen.getByRole("button", { name: "김관리 삭제" }));
-    const dialog = screen.getByRole("dialog", { name: "김관리 삭제" });
-    expect(within(dialog).getByText(/현장과 관련 데이터가 영구 삭제됩니다/)).toBeVisible();
-    const confirmButton = within(dialog).getByRole("button", { name: "영구 삭제" });
+    fireEvent.click(screen.getByRole("button", { name: "인천 물류센터 현장 전체 삭제" }));
+    const dialog = screen.getByRole("dialog", { name: "인천 물류센터 현장 전체 삭제" });
+    expect(within(dialog).getByText(/현장, 관리자, 일반 사용자/)).toBeVisible();
+    expect(within(dialog).getByText(/장비.*자동화.*통계 메타데이터/)).toBeVisible();
+    expect(within(dialog).getByText(/외부 자산은 비동기로 정리/)).toBeVisible();
+    const confirmButton = within(dialog).getByRole("button", { name: "현장 전체 삭제" });
     expect(confirmButton).toBeDisabled();
     fireEvent.change(within(dialog).getByLabelText("삭제할 현장명"), { target: { value: "인천 물류센터" } });
     expect(confirmButton).toBeEnabled();
@@ -398,13 +400,13 @@ describe("SiteAdminManagementView", () => {
     await screen.findByText("customer_admin");
 
     const createCommand = screen.getByRole("button", { name: "현장 및 관리자 생성" });
-    fireEvent.click(screen.getByRole("button", { name: "김관리 삭제" }));
-    const dialog = within(screen.getByRole("dialog", { name: "김관리 삭제" }));
+    fireEvent.click(screen.getByRole("button", { name: "인천 물류센터 현장 전체 삭제" }));
+    const dialog = within(screen.getByRole("dialog", { name: "인천 물류센터 현장 전체 삭제" }));
     fireEvent.change(dialog.getByLabelText("삭제할 현장명"), { target: { value: "인천 물류센터" } });
-    fireEvent.click(dialog.getByRole("button", { name: "영구 삭제" }));
+    fireEvent.click(dialog.getByRole("button", { name: "현장 전체 삭제" }));
 
     await waitFor(() => expect(screen.queryByText("인천 물류센터")).not.toBeInTheDocument());
-    expect(screen.queryByRole("button", { name: "김관리 삭제" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "인천 물류센터 현장 전체 삭제" })).not.toBeInTheDocument();
     await waitFor(() => expect(document.activeElement).toBe(createCommand));
   });
 
@@ -416,11 +418,11 @@ describe("SiteAdminManagementView", () => {
     renderView();
     await screen.findByText("customer_admin");
 
-    const trigger = screen.getByRole("button", { name: "김관리 삭제" });
+    const trigger = screen.getByRole("button", { name: "인천 물류센터 현장 전체 삭제" });
     fireEvent.click(trigger);
-    const dialog = within(screen.getByRole("dialog", { name: "김관리 삭제" }));
+    const dialog = within(screen.getByRole("dialog", { name: "인천 물류센터 현장 전체 삭제" }));
     fireEvent.change(dialog.getByLabelText("삭제할 현장명"), { target: { value: "인천 물류센터" } });
-    fireEvent.click(dialog.getByRole("button", { name: "영구 삭제" }));
+    fireEvent.click(dialog.getByRole("button", { name: "현장 전체 삭제" }));
 
     await waitFor(() => expect(api.listSiteAdmins).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());

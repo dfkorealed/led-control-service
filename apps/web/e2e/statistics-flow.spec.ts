@@ -100,14 +100,23 @@ function heatmap(url: URL) {
     cells: Array.from({ length: 168 }, (_, index) => ({ weekday: Math.floor(index / 24), hour: index % 24,
       value: index === 1 ? null : index === 0 ? 0 : url.searchParams.get("metric") === "brightness" ? 50 : 0.5 })) };
 }
-function browserReport(status: EnergyReportJob["status"], format: "xlsx" | "pdf" = "xlsx"): EnergyReportJob {
+function browserReport(
+  status: EnergyReportJob["status"],
+  format: "xlsx" | "pdf" = "xlsx",
+  request: EnergyReportJob["request"] = {
+    from: "2026-09-01", to: "2026-09-07", scope: "site", identityId: reportSiteId, format
+  }
+): EnergyReportJob {
   return { reportId: `30000000-0000-4000-8000-0000000000${format === "xlsx" ? "40" : "41"}`, siteId: reportSiteId,
-    request: { from: "2026-09-01", to: "2026-09-07", scope: "site", identityId: reportSiteId, format }, status,
+    request, status,
     progressPercent: status === "processing" ? 40 : status === "completed" || status === "expired" ? 100 : 0,
     createdAt: generatedAt, startedAt: status === "queued" ? null : generatedAt,
     completedAt: status === "completed" || status === "expired" ? generatedAt : null,
     expiresAt: status === "completed" || status === "expired" ? "2026-09-19T00:00:00.000Z" : null,
-    failureCode: status === "failed" ? "REPORT_GENERATION_FAILED" : null };
+    failureCode: status === "failed" ? "REPORT_GENERATION_FAILED" : null,
+    target: { scope: request.scope, identityId: request.identityId, label: request.scope === "site" ? "보고서 현장" : `${request.scope} 이력 대상` },
+    requestedAt: generatedAt,
+    failure: status === "failed" ? { code: "generation_failed", message: "보고서를 생성하지 못했습니다.", action: "잠시 후 다시 생성해 주세요." } : null };
 }
 
 test("creates both report formats, polls state, downloads actual renderer bytes with identical extracted content, and retries", async ({ page }) => {
@@ -139,7 +148,7 @@ test("creates both report formats, polls state, downloads actual renderer bytes 
   await page.route("**/energy/sites/*/reports", async route => {
     if (route.request().method() === "POST") {
       const request = route.request().postDataJSON(); requests.push(request);
-      const job = { ...browserReport("queued", request.format), request };
+      const job = browserReport("queued", request.format, request);
       records = [job]; await route.fulfill({ status: 202, json: job });
     } else await route.fulfill({ json: { reports: records } });
   });
@@ -166,7 +175,7 @@ test("creates both report formats, polls state, downloads actual renderer bytes 
     records = [browserReport("completed", format)];
     await page.clock.runFor(3000);
     const download = page.waitForEvent("download");
-    await page.getByRole("button", { name: "다운로드", exact: true }).click();
+    await page.getByRole("button", { name: /보고서 다운로드$/ }).click();
     const file = await download;
     expect(file.suggestedFilename()).toBe(`report.${format}`);
     expect(await readFile((await file.path())!)).toEqual(Buffer.from(fixtures[format].bytes, "base64"));
@@ -177,7 +186,7 @@ test("creates both report formats, polls state, downloads actual renderer bytes 
     records = [browserReport(status, "pdf")];
     await page.reload();
     await expect(page.getByText(status === "failed" ? "생성 실패" : "만료됨", { exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "다시 생성" }).click();
+    await page.getByRole("button", { name: /보고서 다시 생성$/ }).click();
     await expect(page.getByText("대기 중", { exact: true })).toBeVisible();
     expect(requests.at(-1)).toEqual(browserReport("queued", "pdf").request);
   }
@@ -190,7 +199,7 @@ test("selects analytics fixture/group history and bounds dates to the site's com
   await page.route("**/energy/sites/*/reports", async route => {
     if (route.request().method() === "POST") {
       const request = route.request().postDataJSON(); requests.push(request);
-      await route.fulfill({ status: 202, json: { ...browserReport("queued"), request } });
+      await route.fulfill({ status: 202, json: browserReport("queued", request.format, request) });
     } else await route.fulfill({ json: { reports: [] } });
   });
   await page.goto(`/statistics/reports?siteId=${reportSiteId}`);
@@ -235,7 +244,31 @@ for (const width of [1440, 1024, 390, 320]) {
     const heatmapPath = testInfo.outputPath(`heatmap-${width}.png`);
     await page.screenshot({ path: heatmapPath });
     await testInfo.attach(`heatmap-${width}`, { path: heatmapPath, contentType: "image/png" });
+    const narrowTargetLabel = "320픽셀에서도 온전히 보이는 매우 긴 보고서 대상 이름";
+    if (width === 320) {
+      await page.route("**/energy/sites/*/reports", route => route.fulfill({ json: { reports: [{
+        ...browserReport("completed"),
+        target: { scope: "site", identityId: reportSiteId, label: narrowTargetLabel }
+      }] } }));
+    }
     await page.getByRole("link", { name: "보고서", exact: true }).click();
+    if (width === 320) {
+      const report = page.getByRole("article", { name: `${narrowTargetLabel} 보고서` });
+      await expect(report).toBeVisible();
+      await expect(report.getByRole("button", { name: `${narrowTargetLabel} 보고서 다운로드` })).toBeVisible();
+      const wrapping = await report.getByRole("group", { name: "보고서 메타데이터" }).evaluate((metadata) => {
+        const bounds = metadata.getBoundingClientRect();
+        const itemBounds = Array.from(metadata.children, child => child.getBoundingClientRect());
+        return {
+          flexWrap: getComputedStyle(metadata).flexWrap,
+          rowCount: new Set(itemBounds.map(item => Math.round(item.top))).size,
+          insideCard: itemBounds.every(item => item.right <= bounds.right + 1)
+        };
+      });
+      expect(wrapping).toMatchObject({ flexWrap: "wrap", insideCard: true });
+      expect(wrapping.rowCount).toBeGreaterThanOrEqual(2);
+      await expectNoHorizontalOverflow(page);
+    }
     await page.getByRole("button", { name: "보고서 만들기" }).click();
     const dialog = page.getByRole("dialog");
     await expect(dialog.getByRole("button", { name: "CSV 내보내기" })).toBeVisible();

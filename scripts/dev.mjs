@@ -1,16 +1,19 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createConnection } from "node:net";
 import { connect as connectTls } from "node:tls";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
 import {
+  publishNativeBrokerIdentity,
+  reloadExistingDevelopmentBroker,
+  removeNativeBrokerIdentity
+} from "./dev-broker.mjs";
+import { prepareDevelopmentRuntime } from "./dev-prepare.mjs";
+import {
   parseEnvFile,
   resolveDevAppFilters,
   resolveMosquittoTlsPaths,
-  renderMosquittoAcl,
-  renderMosquittoConfig,
-  resolveDevEnvironment,
   startMosquittoCrlReload
 } from "./dev-runtime.mjs";
 
@@ -27,7 +30,8 @@ const sourceEnv = { ...fileEnv, ...process.env };
 if (sourceEnv.AUTOMATION_E2E_SIMULATOR === "1") {
   fail("AUTOMATION_E2E_SIMULATOR는 private child IPC를 제공하는 Chromium RealBackendLab에서만 실행할 수 있습니다.");
 }
-const env = resolveDevEnvironment(root, sourceEnv);
+const { env, gatewayIds, aclPath, nativeConfigPath } = prepareDevelopmentRuntime(root, sourceEnv);
+const nativeIdentityPath = join(root, ".local", "mosquitto.host.pid.json");
 const appFilters = resolveDevAppFilters(process.argv.slice(2));
 const apiPort = Number(env.API_PORT || 4000);
 const webPort = Number(env.WEB_PORT || 5173);
@@ -37,24 +41,22 @@ await requireService("Redis", 6379, "brew services start redis 또는 pnpm docke
 await requireFreePort(apiPort, "API_PORT");
 await requireFreePort(webPort, "WEB_PORT");
 
-ensureDevelopmentPki(env.DEV_GATEWAY_ID, usesExternalMqttPki(sourceEnv));
-const localDir = join(root, ".local");
-mkdirSync(localDir, { recursive: true });
-writeFileSync(
-  join(localDir, "mosquitto.acl"),
-  renderMosquittoAcl(env.DEV_GATEWAY_ID),
-  { mode: 0o600 }
-);
-writeFileSync(join(localDir, "mosquitto.host.conf"), renderMosquittoConfig(root, env), { mode: 0o600 });
-
-if (!(await isPortOpen(8883))) {
+if (await isPortOpen(8883)) {
+  try {
+    reloadExistingDevelopmentBroker({ root, aclPath, nativeIdentityPath });
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error));
+  }
+} else {
   const mosquitto = findMosquitto();
-  broker = spawn(mosquitto, ["-c", join(localDir, "mosquitto.host.conf")], {
+  broker = spawn(mosquitto, ["-c", nativeConfigPath], {
     cwd: root,
     env,
     stdio: "inherit"
   });
+  publishNativeBrokerIdentity(nativeIdentityPath, { pid: broker.pid, root, binary: mosquitto, config: nativeConfigPath });
   broker.once("exit", (code) => {
+    removeNativeBrokerIdentity(nativeIdentityPath, broker.pid);
     if (!stopping) {
       console.error(`[dev] 로컬 mTLS Mosquitto가 예기치 않게 종료되었습니다 (exit ${code ?? "unknown"}).`);
       process.exitCode = code || 1;
@@ -73,9 +75,9 @@ apps = spawn(
   { cwd: root, env, stdio: "inherit" }
 );
 
-console.log(env.DEV_GATEWAY_ID
-  ? "[dev] 실제 장비 모드입니다. claim된 Raspberry Pi gateway의 MQTT 연결만 허용합니다."
-  : "[dev] 게이트웨이 미할당 온보딩 모드입니다. 현장과 gateway claim 후 DEV_GATEWAY_ID를 설정하고 재시작하세요.");
+console.log(gatewayIds.length
+  ? `[dev] 실제 장비 모드입니다. 명시된 ${gatewayIds.length}개 Raspberry Pi gateway의 MQTT 연결만 허용합니다.`
+  : "[dev] 게이트웨이 미할당 온보딩 모드입니다. 현장과 gateway claim 후 DEV_GATEWAY_IDS를 설정하고 재시작하세요.");
 
 function stop(signal = "SIGTERM") {
   if (stopping) return;
@@ -91,43 +93,6 @@ apps.once("exit", (code, signal) => {
   stop();
   process.exitCode = signal ? 130 : code ?? 1;
 });
-
-function ensureDevelopmentPki(gatewayId, externalPki) {
-  const pki = join(root, ".local", "pki");
-  if (externalPki) {
-    const required = [
-      env.MQTT_CA_PATH,
-      env.MQTT_CLIENT_CERT_PATH,
-      env.MQTT_CLIENT_KEY_PATH,
-      ...Object.values(resolveMosquittoTlsPaths(root, env))
-    ];
-    const missing = [...new Set(required)].filter((path) => !existsSync(path));
-    if (missing.length) fail(`명시한 Vault TLS bundle 파일을 찾지 못했습니다: ${missing.join(", ")}`);
-    return;
-  }
-  if (!existsSync(join(pki, "ca.crt")) || !existsSync(join(pki, "api.crt")) || !existsSync(join(pki, "broker.crt"))) {
-    runChecked(join(root, "scripts", "dev-pki", "create-ca.sh"), [], env);
-  }
-  if (gatewayId) {
-    const certificateName = `gateway-${gatewayId}`;
-    if (!existsSync(join(pki, `${certificateName}.crt`)) || !existsSync(join(pki, `${certificateName}.key`))) {
-      runChecked(join(root, "scripts", "dev-pki", "issue-gateway-cert.sh"), [gatewayId], env);
-    }
-  }
-}
-
-function usesExternalMqttPki(source) {
-  return Boolean(
-    source.PKI_LAB_CURRENT_DIR?.trim() ||
-      source.MQTT_CA_PATH?.trim() ||
-      source.MQTT_CLIENT_CERT_PATH?.trim() ||
-      source.MQTT_CLIENT_KEY_PATH?.trim() ||
-      source.MQTT_SERVER_CLIENT_CA_PATH?.trim() ||
-      source.MQTT_SERVER_CERT_PATH?.trim() ||
-      source.MQTT_SERVER_KEY_PATH?.trim() ||
-      source.MQTT_CLIENT_CRL_PATH?.trim()
-  );
-}
 
 function findMosquitto() {
   const candidates = [

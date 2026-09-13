@@ -1,7 +1,11 @@
 import { Prisma } from "@prisma/client";
 import { fixtureStateV2Schema } from "@led-control/shared";
 import { canonicalPayloadHash } from "../automation/automation-payload-hash";
-import { closeFixtureEnergyForRatedWattChange, FixtureStateIngestionService } from "./fixture-state-ingestion.service";
+import {
+  closeFixtureEnergyForRatedWattChange,
+  closeSiteEnergyForSettingsChange,
+  FixtureStateIngestionService
+} from "./fixture-state-ingestion.service";
 
 const scope = {
   siteId: "22222222-2222-4222-8222-222222222222",
@@ -11,6 +15,32 @@ const scope = {
 };
 
 describe("FixtureStateIngestionService", () => {
+  it("recognizes the latest exact replay after raw ledger deletion without reapplying energy", async () => {
+    const prisma = fixturePrisma({ watermark: fixtureWatermark(), lastStateSequence: 9n });
+    const service = new FixtureStateIngestionService(prisma as never);
+    await expect(service.ingest(scope.gatewayId, fixtureEvent(9))).resolves.toMatchObject({ status: "duplicate" });
+    expect(prisma.fixture.update).not.toHaveBeenCalled();
+    expect(prisma.fixtureEnergyDailyAggregate.upsert).not.toHaveBeenCalled();
+  });
+
+  it("rejects a corrupt latest replay after raw ledger deletion", async () => {
+    const prisma = fixturePrisma({ watermark: fixtureWatermark(), lastStateSequence: 9n });
+    const service = new FixtureStateIngestionService(prisma as never);
+    await expect(service.ingest(scope.gatewayId, { ...fixtureEvent(9), brightness: 20 })).rejects.toThrow("conflict");
+    expect(prisma.fixture.update).not.toHaveBeenCalled();
+  });
+
+  it("shares the site lock before exclusively locking the fixture and reading energy settings", async () => {
+    const prisma = fixturePrisma();
+    const service = new FixtureStateIngestionService(prisma as never);
+
+    await service.ingest(scope.gatewayId, fixtureEvent(9));
+
+    const lockSql = prisma.$queryRaw.mock.calls.map(([query]: [{ sql: string }]) => query.sql);
+    expect(lockSql[0]).toMatch(/FROM "Site"[\s\S]*FOR KEY SHARE/);
+    expect(lockSql[1]).toMatch(/FROM "Fixture" f[\s\S]*FOR UPDATE OF f/);
+  });
+
   it("atomically persists the ledger, aggregate, checkpoint, and latest fixture snapshot", async () => {
     const prisma = fixturePrisma();
     const service = new FixtureStateIngestionService(prisma as never);
@@ -54,7 +84,9 @@ describe("FixtureStateIngestionService", () => {
     await expect(service.ingest(scope.gatewayId, futureEvent, receivedAt)).resolves.toMatchObject({
       status: "rejected_future_timestamp"
     });
-    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+    // The settings contract adds a Site key-share lock before the existing
+    // Fixture row lock; future rejection must stop after those two scope locks.
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);
     expect(prisma.fixtureEnergyStateCursor.findUnique).not.toHaveBeenCalled();
     expect(prisma.fixtureEnergyDailyAggregate.upsert).not.toHaveBeenCalled();
     expect(prisma.fixtureEnergyHourlyAggregate.upsert).not.toHaveBeenCalled();
@@ -333,6 +365,68 @@ describe("FixtureStateIngestionService", () => {
       update: expect.objectContaining({ ratedWatt: new Prisma.Decimal("80.00") })
     }));
   });
+
+  it("locks all site fixtures once and batch-closes them with the previous timezone and tariff", async () => {
+    jest.useFakeTimers().setSystemTime(new Date("2026-08-26T15:01:00.000Z"));
+    const rows = ["fixture-b", "fixture-a"].map((fixtureId, index) => ({
+      ...fixturePrisma().__row,
+      id: fixtureId,
+      energyFixtureId: `energy-${index}`,
+      brightness: 50,
+      powerOn: true,
+      lastStateOccurredAt: new Date("2026-08-26T14:59:00.000Z"),
+      cursorAggregatedThrough: new Date("2026-08-26T14:59:00.000Z"),
+      cursorObservedStateOccurredAt: new Date("2026-08-26T14:59:00.000Z"),
+      cursorBrightness: 50,
+      cursorPowerOn: true,
+      cursorRatedWatt: new Prisma.Decimal("40.00"),
+      cursorDurationRemainders: []
+    }));
+    const tx: any = {
+      $queryRaw: jest.fn().mockResolvedValue(rows),
+      $executeRaw: jest.fn().mockResolvedValue(2)
+    };
+
+    try {
+      await expect(closeSiteEnergyForSettingsChange(tx, {
+        siteId: scope.siteId,
+        timeZone: "Asia/Seoul",
+        tariffKwhRate: new Prisma.Decimal("120.00")
+      })).resolves.toEqual(new Date("2026-08-26T15:01:00.000Z"));
+    } finally {
+      jest.useRealTimers();
+    }
+
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(tx.$queryRaw.mock.calls[0][0].sql).toMatch(
+      /WHERE f\."siteId" = \?\s+ORDER BY f\."id"\s+FOR UPDATE OF f/
+    );
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(3);
+    for (const [query] of tx.$executeRaw.mock.calls as Array<[{ sql: string }]>) {
+      expect(query.sql).toContain("CURRENT_TIMESTAMP AT TIME ZONE 'UTC'");
+    }
+    const dailyWrite = tx.$executeRaw.mock.calls
+      .map(([query]: [{ sql: string; values: unknown[] }]) => query)
+      .find((query: { sql: string }) => query.sql.includes('"FixtureEnergyDailyAggregate"'));
+    expect(dailyWrite).toBeDefined();
+    expect(dailyWrite!.sql).toContain("CAST(? AS DATE)");
+    expect(dailyWrite!.values.filter((value: unknown) => /^2026-08-2[67]$/.test(String(value))))
+      .toEqual(["2026-08-26", "2026-08-27", "2026-08-26", "2026-08-27"]);
+    expect(dailyWrite!.values.filter((value: unknown) => value instanceof Prisma.Decimal).map(String))
+      .toEqual(["0.00033333333333333333333", "0.04", "0.00033333333333333333333", "0.04",
+        "0.00033333333333333333333", "0.04", "0.00033333333333333333333", "0.04"]);
+    const hourlyWrite = tx.$executeRaw.mock.calls
+      .map(([query]: [{ sql: string; values: unknown[] }]) => query)
+      .find((query: { sql: string }) => query.sql.includes('"FixtureEnergyHourlyAggregate"'))!;
+    expect(hourlyWrite.sql).toContain("CAST(? AS TIMESTAMPTZ) AT TIME ZONE 'UTC'");
+    expect(hourlyWrite.values).toContain("2026-08-26T15:00:00.000Z");
+    const cursorWrite = tx.$executeRaw.mock.calls
+      .map(([query]: [{ sql: string; values: unknown[] }]) => query)
+      .find((query: { sql: string }) => query.sql.includes('"FixtureEnergyStateCursor"'))!;
+    expect(cursorWrite.sql).toContain("CAST(? AS TIMESTAMPTZ) AT TIME ZONE 'UTC'");
+    expect(cursorWrite.values).toContain("2026-08-26T15:01:00.000Z");
+    expect(cursorWrite.values).not.toContainEqual(new Date("2026-08-26T15:01:00.000Z"));
+  });
 });
 
 function fixturePrisma(options: {
@@ -341,6 +435,7 @@ function fixturePrisma(options: {
   processedEvent?: unknown;
   cursor?: unknown;
   lockedRows?: unknown[];
+  watermark?: unknown;
 } = {}) {
   const row = {
     id: scope.fixtureId,
@@ -363,7 +458,15 @@ function fixturePrisma(options: {
   };
   const prisma: any = {
     __row: row,
-    $queryRaw: jest.fn().mockResolvedValue(options.lockedRows ?? [row]),
+    $executeRaw: jest.fn().mockResolvedValue(1),
+    gatewayEventWatermark: {
+      findUnique: jest.fn().mockResolvedValue(options.watermark ?? null),
+      findFirst: jest.fn().mockResolvedValue(null),
+      upsert: jest.fn().mockResolvedValue(undefined)
+    },
+    $queryRaw: jest.fn(async (query: { sql: string }) => query.sql.includes('FROM "Site"')
+      ? [{ id: scope.siteId }]
+      : (options.lockedRows ?? [row])),
     processedGatewayEvent: {
       findUnique: jest.fn().mockResolvedValue(options.processedEvent ?? null),
       findFirst: jest.fn().mockResolvedValue(null),
@@ -385,6 +488,15 @@ function fixturePrisma(options: {
   };
   prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
   return prisma;
+}
+
+function fixtureWatermark() {
+  return {
+    gatewayId: scope.gatewayId, eventType: "fixture_state", scopeKey: scope.fixtureId,
+    lastSequence: 9n, lastEventId: fixtureEvent(9).eventId,
+    lastPayloadHash: canonicalPayloadHash(fixtureStateV2Schema.parse(fixtureEvent(9))),
+    lastOccurredAt: new Date(fixtureEvent(9).occurredAt), updatedAt: new Date()
+  };
 }
 
 function fixtureEvent(sequence: number) {

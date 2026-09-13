@@ -35,7 +35,8 @@ const BIO_DEVICE_UUID = /^bio:[0-9a-f]{12}$/;
 const BIO_GROUP_UNICAST_CONCURRENCY = 4;
 
 type BioClientPort = Pick<BioDongleClient,
-  "scan" | "startIdentify" | "stopIdentify" | "assignAddress" | "reconcileAddress" | "setOutput">;
+  "scan" | "startIdentify" | "stopIdentify" | "restoreSensorMode" | "assignAddress" |
+  "reconcileAddress" | "setOutput">;
 type BioMappingPort = Pick<BioDeviceMappingStore,
   "findByDeviceUuidIncludingReserved" | "reserve" | "confirm" | "findByFixtureId" |
   "findByLogicalAddress" | "listConfirmed">;
@@ -92,6 +93,28 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
   async identify(command: IdentifyDevicePayload) {
     requireBioUuid(command.deviceUuid);
     await this.client.startIdentify(command.deviceUuid);
+  }
+
+  /**
+   * Gateway가 identify의 `force-on` 전송과 2초 뒤 `sensor` 복귀 사이에서 죽었을 때만
+   * 사용하는 안전 복구 경로다.
+   *
+   * BIO의 제어 모드 패킷(명령 0x10)은 지속 상태를 바꾸므로 프로세스가 죽었다고 자동으로
+   * sensor 모드로 돌아오지 않는다. 그렇다고 startIdentify를 다시 호출하면 사용자가 누르지
+   * 않은 2초 점등이 한 번 더 발생한다. 따라서 새 scan(명령 0x01/응답 0x12)으로 동일한
+   * `bio:<12-hex>` UUID의 현재 network/address를 다시 확인한 뒤, `sensor` 값(0x00)의
+   * 제어 모드 패킷만 한 번 보내고 같은 UUID/address의 report까지 확인한다.
+   *
+   * scan에서 정확한 UUID를 찾지 못하면 다른 주소를 추측해 쓰지 않는다. 호출자는 이 복구의
+   * 성공 여부와 무관하게 원래 identify 결과를 outcome-unknown으로 남겨야 한다. sensor 복귀는
+   * 안전 조치이지, 중단된 식별 명령이 성공했다는 증거가 아니기 때문이다.
+   */
+  async recoverIdentifySafety(command: IdentifyDevicePayload): Promise<void> {
+    requireBioUuid(command.deviceUuid);
+    await this.refreshDiscovery();
+    const device = this.discoveredByUuid.get(command.deviceUuid);
+    if (!device) throw new BioUsbError("BIO_DEVICE_NOT_FOUND", "BIO identify recovery UUID was not rediscovered");
+    await this.client.restoreSensorMode({ ...device });
   }
 
   async provision(command: ProvisionDevicePayload): Promise<ProvisioningCompletedPayload> {

@@ -59,6 +59,21 @@ describe("BioUsbDongleAdapter", () => {
     }]);
   });
 
+  it("recovers an interrupted identify with UUID rediscovery and sensor-only restore", async () => {
+    const f = createFixture();
+    f.client.scan.mockResolvedValue([discovered]);
+    f.client.restoreSensorMode.mockResolvedValue(undefined);
+
+    await expect(f.adapter.recoverIdentifySafety({
+      ...provisioningCommand
+    })).resolves.toBeUndefined();
+
+    expect(f.client.scan).toHaveBeenCalledOnce();
+    expect(f.client.restoreSensorMode).toHaveBeenCalledOnce();
+    expect(f.client.restoreSensorMode).toHaveBeenCalledWith(discovered);
+    expect(f.client.startIdentify).not.toHaveBeenCalled();
+  });
+
   it("orders identify restore, reservation, UUID assignment, confirmation, and completion", async () => {
     const events: string[] = [];
     const f = createFixture(events);
@@ -494,7 +509,8 @@ function createFixture(events: string[] = []) {
     stopIdentify: vi.fn(),
     assignAddress: vi.fn(),
     reconcileAddress: vi.fn(),
-    setOutput: vi.fn()
+    setOutput: vi.fn(),
+    restoreSensorMode: vi.fn()
   };
   const mappings = {
     findByDeviceUuidIncludingReserved: vi.fn(async (): Promise<any> => { events.push("lookup-mapping"); return null; }),

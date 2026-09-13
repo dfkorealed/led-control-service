@@ -7,6 +7,7 @@
 - 조명 검색 결과에서 여러 장치를 선택한 뒤 일괄 또는 개별 정보를 설정할 수 있게 한다. 일괄 설정 이름은 층별 prefix와 서버가 원자 예약한 순번으로 자동 생성한다.
 - ESP32-H2 firmware device UUID의 자사 namespace를 검증해 자사 제품만 검색 결과와 provisioning session에 반영한다.
 - 설정 에디터에서 저장한 도면 배경, 도형, 텍스트, 색상과 조명 위치를 동일한 Konva renderer로 읽기 전용 표시한다.
+- 도면 배경은 DB에 공개 URL을 저장하지 않고 인증된 `/api/floors/{floorId}/assets/{assetId}/content` 경로로 조회한다. API는 현장 read 권한을 확인한 뒤 300초 signed GET으로 연결하며 pending·타 현장·삭제 자산은 표시하지 않는다.
 - 장비 상태는 BLE Mesh Health Current의 현재 fault만 수집하고 통신 품질 평가는 확장하지 않는다.
 
 상세 계약은 `docs/superpowers/specs/2026-08-19-monitoring-control-focused-completion-design.md`를 따른다.
@@ -21,17 +22,19 @@
 
 ## 구현 완료
 
-- BIO direct-USB의 Gateway software 상태 경계를 추가했다. `GATEWAY_ADAPTER=bio-usb` factory는 Company ID나 D-Bus/BlueZ 없이 direct USB client와 mapping store를 만들며, health는 transport 연결·protocol 준비·mapping 유효·MQTT 연결·heartbeat freshness가 모두 참일 때만 healthy다. health JSON/log에는 adapter 종류와 boolean 상태만 노출하고 raw USB path/descriptor/protocol payload/UUID/secret은 싣지 않는다. canonical BIO UUID/new address가 confirmed mapping으로 전환된 뒤에만 등록 terminal을 완료할 수 있고, 조명 제어 상태는 outer ACK가 아니라 fixture별 read-back을 근거로 삼는다. mismatch에서 exact table로 환산 가능한 실제 brightness와 `force-on`/`force-off` mode가 함께 확인된 경우만 power를 그대로 정해 fault fixture-state를 발행한다. mode 누락·`sensor`·raw-only 관측은 내부 진단 metadata에 보존하되 brightness나 power를 추정하지 않아 상태 이벤트를 만들지 않는다. mode 계약이 없는 기존 BlueZ factory/health/fixture-state 동작은 유지한다. BIO sensor cloud source는 빈 목록이며 configure/send는 `bio_sensor_cloud_unsupported`로 fail-closed한다. Task 8 software 배포 계약은 host와 container에서 exact-one USB identity·character node·숫자 GID를 재검증하고, 계산된 node 하나와 supplemental group만 전달하며, BIO process에서 D-Bus/HCI/BlueZ를 시작하지 않는다.
+- BIO direct-USB Gateway의 상태 판정은 transport 연결, protocol 준비, durable mapping 유효성, MQTT 연결, heartbeat freshness가 모두 참일 때만 healthy다. 외부 health 응답에는 adapter 종류와 boolean 상태만 포함하고 USB 경로·descriptor·장치 UUID·raw protocol payload·인증정보는 노출하지 않는다. BIO sensor cloud source는 지원하지 않으므로 빈 목록을 반환하고 configure/send는 명시적으로 실패한다. 전용 배포는 exact-one USB 장치와 숫자 GID를 host/container 양쪽에서 재검증하며 BIO 프로세스에 D-Bus/HCI/BlueZ를 제공하지 않는다.
 
 - P1 Task 1 서버 계약: `GET/PATCH /sites/:siteId/monitoring-policy`는 read/manage capability와 `expectedUpdatedAt`을 적용해 gateway 만료 `30~900`초(기본 90), fixture stale `60~3600`초(기본 180)를 저장한다. 변경 충돌은 `409 MONITORING_POLICY_CONFLICT`다. 기존 장비 제어·등록의 90초 안전성 기준은 별도로 유지한다.
 - `MonitoringIncident`는 네 유형(`gateway_offline`, `fixture_stale`, `fixture_fault`, `command_failed`)의 발생·확인·담당·해결을 저장한다. Task 2의 30초 freshness sweep은 조건을 자동 수집해 active incident를 생성·갱신하고 조건 회복 시 `automatic_recovery`로 자동 해결한다. 목록 API는 활성 우선 최신순, 현장·필터에 바인딩된 cursor와 최대 100건 limit, 대상·사용자 요약을 제공한다. 관리자는 open 확인, active 담당 지정/해제, 복구 확인 뒤 메모와 수동 해결을 수행한다. 장애 지속은 `409 INCIDENT_STILL_ACTIVE`, 이전 revision은 `409 INCIDENT_CONFLICT`이며 모든 성공 변경은 같은 transaction의 감사 로그로 남긴다.
-- P1 Task 4 Web은 기존 공통 SidePanel 안에 키보드 이동이 가능한 `조명 상세` / `인시던트 {활성 건수}` 탭을 제공한다. 현장 전체 인시던트의 상태·유형 필터, cursor 더 보기, 발생·최근 관측·확인자·담당자·자동/수동 해결·메모 이력을 표시한다. 인시던트 API도 30초 polling을 적용하고 초기 오류에는 재시도, background 오류에는 기존 목록을 유지한다. 현장에 층이 없거나 Gateway만 있고 조명이 0개이거나 선택 층 fixture 최초 조회가 실패해도 site-wide 인시던트와 manage 전용 정책·조치는 empty/error 안내 옆에서 계속 접근할 수 있다. 층이 없을 때 비활성 floor query의 로딩·실패·stale 안내는 표시하지 않으며, 탭 전환이나 조치 후에도 지도 배율·층·조명 선택을 유지한다.
-- P1 Task 5 Chromium은 cached dashboard/fixture/map의 background 부분 실패에도 기존 KPI·도면·선택 층/조명·120% 지도 배율을 보존한다. 수동 지도 갱신 실패 표시는 같은 층의 기존 cached 객체나 observer 재마운트만으로 지우지 않고, 더 최신 `dataUpdatedAt`의 성공한 자동 poll 뒤에만 지도 경고와 지도에서 비롯된 toolbar 오류를 해제하며 선택·배율을 보존한다. 함께 실패한 dashboard·fixture source의 toolbar 오류는 해당 source가 회복되기 전까지 유지한다. 정지한 browser clock에서 서버 snapshot의 정확한 60,000ms 경계는 fresh이고 60,001ms부터 stale인 계약을 검증한다. `gateway_offline`, `fixture_stale`, Health 기반 `fixture_fault`, `command_failed`는 selector·marker 접근성 이름·badge·상세 원인·권장 조치에서 공통 presenter 결과를 사용한다. 관리자의 확인·유효 UUID 자기 지정·대상 복구 뒤 메모 해결과 120/300초 정책 저장 요청도 연속 revision payload로 검증한다. 1440×900, 1024×768, 390×844, 320×740 각각에서 fixture 선택·120% 배율을 만든 뒤 incident tab과 정책 dialog를 열어도 선택/배율을 유지하며 페이지·지도·상세 패널의 가로 clipping/overflow가 없는 계약을 포함해 monitoring Chromium `25/25`를 통과했다.
-- 수정 권한은 dashboard `capabilities.manage === true`만 따른다. read-only는 조치·정책 form을 보지 못하며 site-users API도 호출하지 않는다. manage 사용자는 open 확인, active 담당 지정/해제, 1~2000자 해결 메모를 제출하고 현재 행의 `updatedAt`을 전달한다. 저장 중 필터 변경으로 폼이 다시 mount되어도 중복 요청을 차단한다. 네 종류의 `409` 충돌은 한국어로 구분하고 최신 목록을 재조회하며, 행이 해결되어 폼이 사라진 뒤에도 실패 안내를 유지한다.
-- 담당자 후보는 활성 일반 사용자와 현재 인증된 활성 manage 사용자의 최소 identity를 ID로 중복 제거해 구성한다. 일반 사용자 목록 API에 관리자가 포함되지 않아도 관리자 단독 현장에서 자기 자신을 지정할 수 있다. read-only에서는 이 identity가 수정 권한을 만들지 않으며, API가 최종 현장 관리자/멤버 범위를 검증한다. 목록에 없는 기존 담당자의 표시·해제는 유지한다. 다른 관리자의 신규 지정은 별도 후보 조회 계약이 없는 현재 범위에 포함하지 않는다.
-- `판정 기준`은 공통 ModalDialog에서 현재 값을 초기화하고 정확한 정수 범위를 검증한다. 저장 중 닫기를 막고 완료 시 trigger로 focus를 돌려준다. 성공 시 해당 현장의 policy/dashboard/floor-fixtures/incident 캐시를 갱신하며, 기본 현장 dashboard 별칭도 cached Site가 일치할 때만 갱신한다. 정책 충돌은 입력값을 보존하고 최신 서버 revision의 명시적 재검토를 요구한다. 재검토 뒤 서버 값이 다시 바뀌면 재확인을 요구하고, policy 재조회 오류에도 입력 화면을 유지한다.
+- 2026-09-13부터 사용자용 모니터링 SidePanel은 탭 없이 선택 조명의 상태·밝기·장비 정보만 표시한다. `인시던트 {활성 건수}`, 인시던트 이력·필터·조치와 `판정 기준` UI를 제거했으며, 모니터링 route는 인시던트·현장 사용자 API를 요청하지 않는다. 서버의 자동 장애 판정, 이력 저장과 관리 API는 내부 운영 기반으로 유지한다.
+- P1 Task 5의 cached dashboard/fixture/map 복구 계약은 유지한다. background 부분 실패에도 기존 KPI·도면·선택 층/조명·지도 배율을 보존하고, 더 최신 성공 응답에서 해당 source 경고만 해제한다. 정지한 browser clock의 60,000ms fresh/60,001ms stale 경계와 네 장애 원인의 selector·marker·badge·상세 원인·권장 조치 일관성도 유지한다.
 - 수동 해결의 현재 장애 판정은 `Site → Gateway → Fixture → Incident` 순서 잠금 아래 다시 읽는다. Gateway는 heartbeat 변경을 막으면서 상태 수집의 FK 검사를 허용하는 `FOR NO KEY UPDATE`를 사용한다. fixture stale 판단에 영향을 주는 연결 Gateway heartbeat도 해결 commit까지 고정하며, 잠금 대기 중 소유 Gateway가 바뀌면 `409 INCIDENT_TARGET_CHANGED`로 재조회를 요구한다.
+- Gateway heartbeat와 조명 상태 수신은 원장과 compact watermark를 같은 transaction에 저장한다. 원장 삭제 후에도 최신 조명 상태의 exact duplicate와 payload 충돌을 구분하고 낮은 sequence로 snapshot/적산이 되돌아가지 않는다. 임시 PostgreSQL 검증이며 실장비 결과는 아니다.
+- 플랫폼 Task 4 최종 소프트웨어 검증은 root lint/typecheck/build exit 0, root script 58/58·Shared 203·Automation 28·Mobile 1·Web 64 files 712/712·API 120 suites 1,138 통과/289 환경 의존 제외·Gateway 64 files 608/608(총 2,748 통과/289 제외)다. 전체 Chromium은 194개 중 189 통과/5 opt-in 제외(188개 mock/브라우저 회귀 + 실제 disposable automation journey 1개), main 319.19 kB/gzip 99.21 kB다. Production 계약 18/18, 전체 audit의 MQTT 설정 2/2·Gateway container 24/24·required MQTT 2/2와 새 smoke `led-production-smoke-a9dac54a523c9484dbc4b9eade7b9d5e`의 당시 브랜치 빈 DB 57/57 migrations, TLS/mTLS·CRL·장애 복구·exact cleanup을 통과했다. Dependency 820개 중 기존 승인 예외 High 2/Moderate 1, unexpected 0이며 무취약 판정이 아니다. 운영 배포·사용자 DB·실제 외부 Vault/MQTT/Object Storage·native WebView·HIL·외부 관측 연결은 미검증이다. [운영 runbook](../runbooks/production-api-web-deployment.md)에 절차와 한계를 기록했다. 최종 독립 검토는 Critical/Important/Minor 0, PASS로 승인됐다.
 
+- 플랫폼 Task 3에서 공통 앱 셸 복구를 구현했다. 초기 인증 401은 기존 로그인, 403과 그 밖의 비일시 오류는 권한·재로그인 안내로 분기한다. 브라우저가 부팅부터 offline이면 요청 없이 서비스 복구 화면을 표시하고 online 복귀 시 인증을 재개한다. 네트워크·전송 timeout·5xx는 자동 최대 2회 재시도하고 실패하면 `다시 시도`로 연결을 복구한다. `AppRoot`의 boundary는 App 자체의 hook/render와 Router/lazy shell 실패를 단일 main·alert·포커스 heading으로 표시한다. 인증 실패·재로그인·principal 전환 시 새 QueryClient를 먼저 활성화해 늦은 이전 mutation callback을 폐기된 client에 격리한다. 재로그인은 앱 active-command namespace와 tenant/auth 캐시·초안을 정리하고 최대 5초 logout 종료 뒤 로그인으로 수렴한다. 무관한 저장값과 최초 정상 부팅의 제어 복구 기록은 유지하며 원시 오류/응답/stack은 표시하지 않는다. Task 3 Web 64 files·712/712 unit, 관련 auth/shell Chromium 23/23(신규 복구 10개 포함), typecheck/build와 main `319.19 kB`/gzip `99.21 kB` bundle audit를 통과했다.
+
+- Route 기능 코드 SHA `34261b6`에서 로그인·최초 비밀번호 변경은 초기 main에 유지하고 고객/운영자 shell과 모니터링 화면을 dynamic chunk로 분리했다. 역할 shell 전체 화면과 shell 내부 route는 공통 `RouteLoadingState`의 `role="status"`·`aria-live="polite"` 로딩 상태를 사용한다. 별도 Web route bundle 작업 당시 Task 4 Web 검증은 60 files·686/686 unit, 2,437 modules production build와 main `314.83 kB`/gzip `97.58 kB`(예산 `1,070.00 kB`/`325.00 kB`)를 통과했고, 14개 계획 route chunk와 main의 Konva·Recharts 격리를 audit으로 확인했다. 같은 별도 작업 당시 Task 3 Chromium 64/64는 1440/1024/760/390/320px에서 모니터링을 포함한 대표 route 전환을, disposable RealBackendLab 2/2는 실제 API/DB 기반 고객 여정을 검증했다.
 - 공통 고객 셸 상단은 현재 메뉴 제목과 실제 현장명 배지만 표시한다. 기존 층명 기반 `B2 주차장` 표기와 동작 없는 Gateway 정상·오프라인·미등록 상태 배지는 제거하되 설정의 `Gateway 상태` 상세 카드는 유지한다. 로그아웃 위치와 인증·dirty editor 확인 로직은 유지하고, 고객·운영자 셸의 로그아웃은 공통 `IconTooltipButton`으로 아이콘만 표시한다. `로그아웃` 도움말은 hover와 키보드 focus에서 열리고 도움말 위로 포인터를 옮겨도 유지되며 `Escape`로 닫힌다. 모바일 버튼은 52px 실제 터치 영역을 사용한다.
 - 현장 일반 유저의 `read`와 `control` capability는 모두 모니터링 메뉴와 해당 현장 dashboard 조회를 허용한다. 신규 일반 유저는 임시 비밀번호로 최초 로그인한 뒤 전용 강제 변경 화면을 완료해야 모니터링으로 진입한다. mock Chromium은 read/control/admin의 주 메뉴 exact 범위와 강제 변경 전 보호 API `403`을 검증한다. 격리 PostgreSQL/API Chromium은 실제 `403 PASSWORD_CHANGE_REQUIRED`, 변경 후 read 메뉴, `/settings/users` 직접 접근 차단, 비활성 세션의 다음 보호 요청 `401`과 재로그인 거절을 검증했다. Gateway나 ESP32-H2를 사용한 검증은 아니다.
 
@@ -51,7 +54,7 @@
 - 운영 화면 상단은 선택 층 기준 `전체 조명`, `정상`, `점검 필요`, `오프라인` 4개 `MetricCard`를 compact하게 표시한다. 오프라인은 등록 직후 첫 상태를 기다리는 `provisioning_waiting_state`를 포함하며 점검 필요 오른쪽에 배치한다. 평균 밝기와 별도 빠른 상태 영역은 제거해 지도 높이를 확보했다. KPI 열/행 계약은 1440px 4/1, 1024px 2/2, 390px 2/2, 320px 1/4이고 해당 네 viewport에서 document horizontal overflow를 자동 검증한다.
 - KPI 다음에는 `층 도면`, `선택 조명 상세` 순서를 유지한다. 데스크톱 지도는 남은 뷰포트 높이를 모두 사용하고 현재 viewport에 맞춘 100%를 기준으로 10% 단위 확대·축소와 화면 맞춤을 제공한다. `Ctrl`/`Cmd`+휠은 브라우저 기본 확대를 취소하는 non-passive listener로 포인터 중심 zoom만 수행하고, 배경 이미지의 native drag를 비활성화해 빈 지도 drag와 일반 scroll로 안정적인 상하좌우 이동을 제공한다. marker 선택은 그대로 유지한다. 확대된 원본 비율 지도는 전용 viewport 안에서만 overflow되고 모바일 zoom control은 48px touch target을 제공한다.
 - 선택 조명 상세는 도면보다 좁은 고정 범위 패널에 배치하고 현재 밝기와 장비 사실만 표시하며 별도 점검 큐는 제공하지 않는다. 패널과 하위 grid item은 축소 가능한 너비를 사용하고 긴 장비·게이트웨이 이름을 패널 안에서 줄바꿈해 document-level 가로 스크롤을 만들지 않는다. 정상·장애·오프라인·첫 상태 확인 대기는 선택 상세의 `StatusBadge`와 지도 범례에서 icon + visible text로 구분한다. 모든 marker는 모서리 3px의 20px 네모로 표시하고 내부에 이름·밝기 문자와 bar를 렌더링하지 않으며, 정확한 정보는 기존 `title`/`aria-label`과 우측 상세 패널에 유지한다. online marker는 `0~9`, `10~19`, …, `80~89`, `90~100`% 밝기를 10단계로 분류하고 범위 밖은 clamp한다. 각 단계는 brown/orange 없이 cool slate/gray에서 neutral light, lemon/bright ivory로 이어지는 정적 fill·glow를 사용하며 단계가 높아질수록 실제 렌더링 밝기와 glow가 증가한다. fault는 red/double 테두리를 제거하고 같은 밝기 단계의 일반 border/fill/glow와 우상단 red 8px 배지만 사용한다. offline과 `provisioning_waiting_state`는 저장 밝기와 무관하게 무발광 dashed/dotted 상태 스타일을 유지한다. 도면 좌측 상단의 층/`실시간 조명 배치` 라벨은 제거하고, 상태 범례는 지도와 함께 스크롤되지 않는 비상호작용 overlay로 이동 안내 바로 위에 고정해 아래 marker·drag·wheel 입력을 가로채지 않는다. 모바일에서는 기존 공간 절약 정책에 따라 이동 안내를 숨기고 범례만 유지하되 줌 컨트롤과 겹치지 않도록 상단 간격을 확보한다. marker별 상태 문구나 SVG를 1,000개까지 반복 렌더링하지 않으며 기존 한국어 접근성 이름과 선택 상태는 유지한다.
-- 모니터링은 등록 조명 유무와 무관하게 Gateway claim, 조명 등록 패널·버튼·dialog를 렌더링하지 않는다. 등록 0개인 admin에게는 설정의 admin 전용 `/settings/registration` 이동 경로를 제공하고 viewer에게는 관리자가 설정에서 등록해야 한다고 안내하며, 두 역할 모두 이 안내와 별개로 현장 전체 인시던트 이력을 볼 수 있다. manage capability가 있는 사용자는 Gateway-only 인시던트 조치와 판정 기준도 계속 사용할 수 있다. Gateway claim, active registration session 복구와 조명 등록 workflow는 설정 메뉴만 소유한다.
+- 모니터링은 등록 조명 유무와 무관하게 Gateway claim, 조명 등록 패널·버튼·dialog 및 인시던트 이력·조치·판정 기준 UI를 렌더링하지 않는다. 등록 0개인 admin에게는 설정의 admin 전용 `/settings/registration` 이동 경로를 제공하고 viewer에게는 관리자가 설정에서 등록해야 한다고 안내한다. Gateway claim, active registration session 복구와 조명 등록 workflow는 설정 메뉴만 소유한다.
 - Task 8에서 pending assigned admin이 `/monitoring`, `/control`, `/statistics`, 설정 하위 직접 URL로 들어오면 CustomerShell이 조회한 dashboard의 selected/default `siteId`를 유지해 `/settings?siteId=...`로 replace한다. `/settings`에서는 배정된 고객사·현장명을 읽기 전용으로 표시하고 주소·단가·층만 입력하는 최초 설치 화면을 제공한다.
 - CustomerShell은 admin dashboard의 `installationStatus`가 확인되기 전에는 customer child route를 mount하지 않는다. 확인 중에는 설치 상태 loading UI를, 최초 조회 실패에는 retry UI를 표시하며 성공 setup 응답은 actual site key와 `['dashboard', 'default']` cache에 함께 반영해 실패한 background refetch가 있어도 installed guard 상태를 유지한다.
 - 설치 완료 후 등록 조명이 0개인 모니터링은 admin에게 설정의 조명 등록 페이지 링크만 제공한다. viewer는 읽기 전용 안내만 보며 claim, 등록, setup mutation UI를 볼 수 없다. operator는 customer shell을 mount하지 않는다.
@@ -60,7 +63,7 @@
 - `GET /sites/:siteId/dashboard`, 층별 fixture 조회와 기본 에너지 추정은 `AuthenticatedUser + SiteAccessService`로 현장 read 권한을 확인한다. 다른 admin 현장, 미배정 viewer와 operator 고객 현장은 `404`로 숨긴다.
 - dashboard `site`는 `customerName`, nullable `address`/`tariffKwhRate`, `timeZone`, 그리고 주소·단가·층 존재 여부에서 계산한 `pending|installed` 설치 상태를 함께 반환한다.
 - assigned admin은 pending Site의 최초 주소·단가·시간대·층을 API로 완료할 수 있으며, 설치가 끝난 뒤 자기 현장의 Gateway claim과 조명 검색·등록 commissioning API를 호출할 수 있다. `POST /gateways/claim`은 정규화한 serial별 transaction advisory lock 아래 Site row 재검증, rolling failure count, terminal audit와 inventory claim을 한 decision boundary에서 처리한다. 병렬 invalid 요청은 최대 5회의 claim-code 검증만 수행하고 invalid·unavailable·already-consumed·rate-limited·success를 모두 commit한 뒤 정제된 응답을 반환하며, 다른 serial은 전역 잠금을 공유하지 않는다.
-- registration session 생성은 body `siteId`, 조회·재검색·identify·개별/일괄 등록·완료는 저장된 session `siteId`의 `commission` capability를 검사한다. create/retry/register/register-batch/complete mutation은 transaction 첫 단계에서 Site를 잠그고 assigned admin을 다시 확인한 뒤 `Site -> Gateway -> Session -> Node` 순서로 잠가 재배정·비활성화된 stale admin의 session/outbox/node/complete mutation을 차단한다. get/identify는 read-only service 권한 검사만 수행한다. 기존 durable scan outbox, allocator와 provisioning 상태 전이는 그대로 유지한다.
+- registration session 생성은 body `siteId`, 조회·재검색·identify·개별/일괄 등록·완료는 저장된 session `siteId`의 `commission` capability를 검사한다. mutation은 Site 권한을 transaction 안에서 다시 확인하고 등록 domain의 `Floor -> Gateway -> Session -> Node -> Outbox` 잠금 순서를 지켜 재배정·비활성화된 stale admin과 식별/등록 lifecycle 경합을 차단한다. 조회는 read-only 권한 검사와 일관된 polling snapshot을 사용한다. 기존 durable scan outbox, allocator와 provisioning 상태 전이는 그대로 유지한다.
 - `GET /registration-sessions/active?siteId=...`는 현장 commission 권한을 검사하고 active 세션을 최신순으로 반환한다. 웹은 페이지 재진입과 새로고침 시 가장 최근 세션의 층, 게이트웨이, 검색 attempt와 발견 노드를 자동 복구하며 여러 세션이 있으면 사용자가 전환할 수 있다. active 조회가 끝나거나 실패 복구되기 전에는 새 검색을 시작하지 않는다.
 - 조명 수와 관계없이 모니터링 화면에는 `조명 등록` 버튼이나 등록 dialog를 제공하지 않는다. 진행 중 session의 복구·완료·취소와 추가 검색은 설정의 `/settings/registration`에서만 수행한다.
 - 로컬 실행에는 검색 결과 생성기가 없으며 Raspberry Pi/ESP32-H2가 꺼져 있으면 검색 결과 0개를 유지한다.
@@ -78,9 +81,9 @@
 - Gateway는 shared DFKLED UUID parser를 통과한 장치만 `scan-found` v2 topic으로 발행한다. `(sessionId, scanCorrelationId, scanAttempt)`별 0600 atomic journal은 running duplicate가 scanner를 다시 시작하지 않게 하고, terminal은 원래 eventId/sequence를 가진 동일 event로 재발행한다. restart에서 남은 running record는 새 scan 대신 정제된 failed terminal로 수렴하며, 손상·권한 오류 journal은 fail-closed 한다. application ACK를 받지 못한 terminal과 running은 retention·capacity eviction에서 제외하고, 이 보호 record 때문에 1,000개 한도를 채우면 새 scan을 fail-closed 한다. ACK를 받은 delivered terminal만 24시간 보존한다.
 - `POST /registration-sessions/:sessionId/scan/retry`는 terminal scan이며 `provisioning` 또는 `reconcile_required` 노드가 없을 때만 재시작한다. gateway별 `status=active`인 `pending/scanning` partial unique 제약으로 같은 gateway의 동시 검색을 막고, 신규·retry 충돌 모두 `gateway_scan_in_progress`를 반환한다. publisher MQTT timeout은 기본 10초로 30초 lease보다 짧으며 process crash는 lease 만료 뒤 같은 attempt를 재시도한다. timeout/reject는 backoff를 증가시키고 최대 3회 또는 5분 실패는 사용자용 고정 메시지와 함께 `failed`로 복구한다.
 - API provisioning scan/device command outbox worker는 initial·interval batch의 transient DB 실패를 scheduler 경계에서 격리하고 worker별 single-flight로 실행한다. Mesh group sync도 single-flight로 실행하며 종료가 시작되면 다음 record/group publish를 시작하지 않는다. `MqttShutdownCoordinator`가 command, scan, provisioning device, automation outbox worker와 `MeshGroupSyncWorker`를 멱등 drain하고, inbound MQTT listener를 분리한 뒤 진행 중 handler와 ACK publish를 모두 기다린 다음에만 `MqttService.close()`를 호출한다. Mesh subscription sync, provisioning terminal ACK와 mesh resync ACK는 PUBACK 무응답 시 10초에 packet ID를 취소해 active drain을 끝내며 timeout rejection은 payload·topic·오류 상세를 노출하지 않는 최상위 오류 경계에서 격리한다. MQTT close는 graceful `end` callback을 await하고 5초 timeout에 force close callback을 추가 1초간 기다려 영구 hang 없이 Nest module 종료를 마친다.
-- scanning 또는 pending scan, 미해결 `provisioning/reconcile_required`, 등록 성공 조명 0개는 registration session 완료를 거부한다. 성공 조명이 없고 미해결 노드도 없는 terminal session은 `POST /registration-sessions/:sessionId/cancel`로 `cancelled` 종료한다. provisioning 전 identify API는 session site의 commission 권한과 404 경계를 확인한 뒤 `501 pre_provision_identify_unsupported`를 반환하며, 발견 node 상태를 바꾸거나 MQTT 명령을 발행하지 않는다.
-- 웹 등록 패널은 `completed` 0건에서 검색 결과 없음과 `다시 검색`을, `failed`에서 API가 제공한 정제된 실패 메시지와 `다시 검색`을 표시한다. provisioning 전 점멸 확인 UI와 호출 경로는 제거했다.
-- 등록 세션 polling은 `pending/scanning` 또는 provisioning node가 있을 때만 1.5초 간격으로 수행한다. terminal scan과 `reconcile_required`에서는 자동 polling을 중지하고 사용자가 상태를 다시 확인한다. 등록 요청 또는 서버 응답이 provisioning을 관측하면 polling을 다시 시작한다. 다시 검색 요청을 시작하는 즉시 이전 후보, 선택, 제출 상태와 개별 초안을 비우고 POST 응답은 relation이 없는 상태 전이 응답으로 취급한 뒤 canonical session GET으로 수렴한다.
+- scanning 또는 pending scan, 진행 중 `identifying`, 미해결 `provisioning/reconcile_required`, 등록 성공 조명 0개는 registration session 완료를 거부한다. 성공 조명이 없고 미해결 노드도 없는 terminal session은 `POST /registration-sessions/:sessionId/cancel`로 `cancelled` 종료한다. provisioning 전 BIO identify는 commission 권한·활성 session·Gateway와 현재 scan 후보를 transaction에서 다시 확인한 뒤 durable outbox로 접수하며, 표준 BlueZ adapter는 미지원 terminal을 반환한다.
+- 웹 등록 패널은 `completed` 0건에서 검색 결과 없음과 `다시 검색`을, `failed`에서 API가 제공한 정제된 실패 메시지와 `다시 검색`을 표시한다. 발견 BIO 조명의 `식별`은 고정 force-on 뒤 sensor mode 복원을 확인하는 비동기 동작이며 주소/Fixture/mapping 생성과 분리된다. 소프트웨어 경합 회귀를 검증했으며 실제 BIO HIL 재검증은 후속이다.
+- 등록 세션 polling은 `pending/scanning` 또는 identifying/provisioning node가 있을 때 1.5초 간격으로 수행한다. 식별 mutation의 operation ID와 서버 node의 `identifyOperationId`/`identifyOperationStartedAt`/`updatedAt`를 보존·대조하여 이전 요청 terminal이 새 retry의 polling을 끝내지 못하게 한다. timeout 뒤 등록이 진행된 이전 식별 terminal은 ledger/ACK만 기록하고 등록 상태는 변경하지 않는다. terminal scan과 `reconcile_required`에서는 진행 operation이 없으면 자동 polling을 중지하고 사용자가 상태를 다시 확인한다. 다시 검색 요청을 시작하는 즉시 이전 후보, 선택, 제출 상태와 개별 초안을 비우고 POST 응답은 relation이 없는 상태 전이 응답으로 취급한 뒤 canonical session GET으로 수렴한다.
 - 등록 후보는 현재 scan이 `completed`이고 node의 `scanCorrelationId`와 `scanAttempt`가 session의 현재 identity와 모두 exact match일 때만 노출하고 등록할 수 있다. 서로 다른 API/Gateway wall-clock의 `scanStartedAt`과 `discoveredAt`은 attempt 판정에 사용하지 않으며, identity가 `null`인 legacy row와 이전 attempt relation은 fail-closed로 숨긴다.
 - provisioning 완료를 session polling으로 관측하면 현재 층 `floor-fixtures`, `floor-map`과 해당 `registration-session`을 갱신해 등록 화면을 유지한다. 사용자가 `등록 세션 완료`를 누른 뒤 현 화면 `dashboard`와 기본/현장별 dashboard cache를 갱신해 운영 화면으로 전환한다. 새 fixture는 첫 실제 상태 전까지 기존 API 계약대로 `상태 확인 대기`로 표시한다.
 - 등록 batch transaction은 실제 provisioning publish 전에 해당 층의 `MeshControlGroup`을 선확보해 group address 소진이나 gateway/site 불일치를 미리 실패시킨다.
@@ -144,7 +147,6 @@
 
 ## 미구현
 
-- raw USB non-root 배포 계약은 software와 Pi read-only preflight까지 검증했지만 production container 적용·실제 재연결 복구는 MQTT baseline 실패로 중단했다. registration/control 상태 HIL(Task 9), production Web/DB 모니터링 E2E(Task 10)는 아직 미구현 또는 미검증이다. BIO 차량 센서 cloud telemetry는 1차 범위에서 제외한다.
 - 첫 sweep 전 과거 장애 backfill은 하지 않는다.
 
 - WebSocket/SSE 기반 push 실시간 업데이트
@@ -159,15 +161,15 @@
 
 ## 부족하거나 개선이 필요한 기능
 
-- 독립 BIO runtime의 non-root/capability0 검증은 online 증거가 아니다. 새 Gateway의 DB heartbeat 3회와 BIO transport/protocol/mapping/MQTT health가 확인되기 전에는 offline/조명 없음 상태를 완료로 바꾸지 않는다. full 배포는 `compose.bio-runtime.yml`의 분리된 경로만 사용하며 기존 BlueZ overlay 병합은 금지한다.
+- 자동으로 저장되는 인시던트 이력과 현장별 판정 기준을 사용자 화면에서 관리하는 UI는 제공하지 않는다. 필요해질 경우 일반 사용자 모니터링과 분리된 내부 운영자 화면으로 별도 설계해야 한다.
+- 원장 정리 worker는 생성 후 7일보다 오래된 heartbeat와 30일보다 오래된 fixture state를 최신 Gateway/Fixture snapshot·watermark 및 fixture energy cursor가 해당 기록을 포괄할 때만 삭제한다. superseded capability는 365일 정책이며 전체 이벤트는 sweep당 합산 최대 10,000개다. cutoff와 같은 시각, scope/hash가 없는 legacy 원장, 삭제된 fixture·누락된 cursor 등 안전 조건을 증명할 수 없는 기록은 보존한다. watermark는 stream별 최신 identity만 유지하므로 임의 과거 ID의 exact dedupe는 raw 원장이 남아 있는 기간에 의존한다. 세부 조건은 [DB 보존 문서](../database-schema.md#운영-데이터-보존과-복구-범위)를 따르며 사용자/운영 DB migration 적용과 실장비 replay HIL은 아직 실행하지 않았다.
+- 플랫폼 운영 배포 절차는 [API·Web runbook](../runbooks/production-api-web-deployment.md)을 따른다. 단일 호스트 Compose, 외부 Vault·공개 MQTT/Object Storage 연결, 장비 mTLS 공개 SAN, CRL 갱신 후 수동 broker SIGHUP, API 교체 후 nginx upstream 재해석·재시작이 운영 조건이다. Process-local 지표만 제공하며 외부 metrics/dashboard/alert/log shipping은 구성하지 않았다. 운영 배포·사용자 DB 적용·실장비 HIL과 native WebView·수동 시각 QA는 이번 자동 검증에 포함하지 않는다.
 
-- Gateway `bootstrap-only` 성공은 assignment와 MQTT CONNECT 인증 준비만 뜻한다. heartbeat·adapter·조명 검색을 시작하지 않으므로 모니터링의 offline/조명 없음 상태를 online/등록 완료로 바꾸지 않는다. 전용 CLI의 disposable TLS 테스트와 실제 runtime/BIO HIL은 별도 증거이며, 설정 commissioning이 등록을 소유하는 기존 empty-state 경계는 유지한다.
-
-- P1 인시던트·정책 UI의 1440/1024/390/320 Chromium 통합 workflow·가로 overflow, no-floor/Gateway-only empty/error 접근, map 자동 복구 최종 게이트는 Task 5 review fix를 포함해 `25/25`로 완료했다. 이는 deterministic route/API fixture와 Chromium 합성 결과에 대한 software 증거이며, 실제 MQTT broker, Raspberry Pi/BlueZ/ESP32-H2 HIL, production notification 전송은 실행하지 않았다.
+- 1440/390/320px 결과는 Chromium 자동 브라우저 software 증거다. 실제 iOS/Android native WebView, 수동 in-app 시각 QA, WebView safe-area 실측 또는 Raspberry Pi/ESP32-H2 HIL을 수행한 결과가 아니다. Lazy chunk 실패의 복구 UI는 플랫폼 Task 3에서 구현했으며, prefetch/offline cache는 후속 범위다. Task 3 오류 주입은 Vite에서 실제 앱 셸의 동적 import 요청을 차단한 deterministic Chromium 결과이며, 운영 CDN/container 배포나 실제 backend 장애·HIL 검증을 의미하지 않는다.
 - 지도 배율과 스크롤 위치는 현재 화면 세션 상태이며 층 전환·새로고침 시 100% 화면 맞춤으로 초기화된다. 사용자별 마지막 viewport를 저장하는 기능은 제공하지 않는다.
 - 저장 도형 표시 회귀는 deterministic route fixture Chromium에서 검증한다. mock snapshot과 브라우저 합성 결과를 확인하는 범위이며 실제 Gateway, Raspberry Pi, ESP32-H2 또는 현장 도면의 HIL 검증은 아니다.
 - 테스트 데이터는 설정 개요의 설치 완료 assigned `admin` 전용 개발·검증 도구이며, 기본 off 상태이고 API도 비활성화 시 404를 반환한다. 따라서 표시되는 online 상태는 일시적 recent online일 수 있고 freshness 재집계 뒤 offline이 될 수 있으며, 실제 Gateway·Mesh·MQTT 상태나 HIL 검증 증거로 해석할 수 없다.
-- 개별 `provision-device`의 API DB transaction -> MQTT PUBACK과 Gateway RF 전 durable accept, terminal atomic 저장, exact `device-terminal-ingested` ACK 전 bounded replay 및 API terminal ingest/application ACK outbox는 software로 구현됐다. BIO adapter도 confirmed/reserved mapping 기반 restart recovery, factory 선택, adapter-aware health와 read-back 기반 fixture report까지 software로 연결됐다. 이는 제조사 앱/전화 없이 동작하는 software 계약 증거이며, 실제 broker/Raspberry Pi 재시작·USB 재연결 수렴, 주소·밝기 HIL과 Task 10 E2E 전에는 모니터링에 BIO 장비가 나타나는 것을 production 완료 조건으로 보지 않는다.
+- 개별 `provision-device`의 API DB transaction -> MQTT PUBACK과 Gateway RF 전 durable accept, terminal atomic 저장, exact `device-terminal-ingested` ACK 전 bounded replay는 software로 구현됐다. 다만 이 ACK를 생성하는 API terminal ingest/ACK outbox는 Task 3 범위여서 현재 production 통합에서는 device terminal이 계속 pending replay로 남는다. API/Gateway 프로세스 전원 차단 전체 구간의 자동 수렴과 실제 broker/Raspberry Pi/ESP32-H2 재시작 HIL은 Task 3 이후 검증해야 한다.
 - pending redirect와 admin commissioning은 React/Vitest 회귀와 Task 9 격리 실백엔드 Chromium E2E로 검증했다. Calm Operations 모바일 390px/320px의 화면 계층·overflow·touch target은 route fixture로 검증했지만, 실제 WebView safe-area와 재설치는 별도이며 Raspberry Pi/ESP32-H2 HIL은 아직 실행하지 않았다.
 - 모니터링 화면은 30초 polling 정책이다. publication 반영 직후 확인이 필요하면 수동 새로고침을 사용할 수 있으며 push는 제공하지 않는다.
 - durable state outbox의 파일 권한·용량 차단과 application ACK 재전송은 자동 테스트로 검증했지만, 실제 broker/API 재시작과 Raspberry Pi 전원 차단을 포함한 HIL은 아직 실행하지 않았다.
@@ -189,26 +191,26 @@
 
 ## 관련 파일
 
-- `apps/gateway/src/bootstrap-only.ts`, `apps/gateway/compose.bootstrap.yml`: 모니터링 상태를 발행하지 않는 설치 인증 전용 명령.
-
-- `apps/gateway/src/adapters/bio-usb-dongle-adapter.ts`
-- `apps/gateway/src/adapters/bio-sensor-capability-unavailable-port.ts`
-- `apps/gateway/src/adapters/adapter-factory.ts`
-- `apps/gateway/docker/healthcheck-state.cjs`
-- `apps/gateway/compose.bio-usb.yml`
-- `scripts/gateway-bio-usb-preflight.sh`
-- `apps/gateway/src/state/provisioning-device-journal.ts`
-- `apps/gateway/src/commands/gateway-command-handler.ts`
-- `apps/web/src/api/monitoring-incidents.ts`
-- `apps/web/src/api/monitoring-incidents.test.ts`
-- `apps/web/src/features/monitoring/MonitoringIncidentPanel.tsx`
-- `apps/web/src/features/monitoring/MonitoringIncidentPanel.test.tsx`
-- `apps/web/src/features/monitoring/MonitoringPolicyDialog.tsx`
-- `apps/web/src/features/monitoring/MonitoringPolicyDialog.test.tsx`
+- `apps/web/src/features/monitoring/MonitoringView.tsx`
+- `apps/web/src/features/monitoring/MonitoringView.test.tsx`
+- `apps/web/e2e/calm-operations-monitoring.spec.ts`
 - `apps/web/src/features/shells/CustomerShell.monitoring.test.tsx`
 - `apps/api/src/monitoring-incidents`
 - `apps/api/prisma/migrations/20260912100000_monitoring_policy_incidents/migration.sql`
+- `apps/api/src/retention/gateway-event-watermark.ts`, `apps/api/src/retention/gateway-event-watermark.integration.spec.ts`
+- `apps/api/src/retention/data-retention.service.ts`, `apps/api/src/retention/data-retention.integration.spec.ts`
+- [API·Web 운영 배포와 장애 대응](../runbooks/production-api-web-deployment.md)
 
+- `apps/web/src/components/ui/AppRecoveryState.tsx`
+- `apps/web/src/components/ui/AppErrorBoundary.tsx`
+- `apps/web/src/AppRoot.tsx`
+- `apps/web/src/App.recovery.test.tsx`
+- `apps/web/e2e/app-shell-recovery.spec.ts`
+
+- `apps/web/src/App.tsx`
+- `apps/web/src/components/ui/RouteLoadingState.tsx`
+- `apps/web/src/features/shells/CustomerShell.tsx`
+- `apps/web/scripts/audit-schedule-bundle.mjs`
 - `apps/web/e2e/site-user-management.spec.ts`
 - `apps/web/e2e/site-user-management-real.spec.ts`
 - `apps/api/src/site-users`

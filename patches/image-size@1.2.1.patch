@@ -1,0 +1,62 @@
+diff --git a/dist/detector.js b/dist/detector.js
+index 6b9ef6f78b905eed1469035e979b10bf8172b411..6dc2b3e04255468152607b411e9686ff9ac7bb37 100644
+--- a/dist/detector.js
++++ b/dist/detector.js
+@@ -3,6 +3,25 @@ Object.defineProperty(exports, "__esModule", { value: true });
+ exports.detector = void 0;
+ const index_1 = require("./types/index");
+ const keys = Object.keys(index_1.typeHandlers);
++// These parsers have no upstream safe release as of 2026-09-12. Detect their
++// signatures without invoking any parser so malformed build assets cannot
++// enter the known infinite-loop paths (GHSA-w3rx-r6r6-pgpr,
++// GHSA-5p2g-fcmc-qvqq).
++const securityDecoder = new TextDecoder();
++function securityDisabledType(input) {
++    if (securityDecoder.decode(input.slice(0, 4)) === 'icns')
++        return 'icns';
++    if (input[0] === 0xff && input[1] === 0x0a)
++        return 'jxl-stream';
++    if (input[0] === 0x00 && input[1] === 0x00 && input[2] === 0x00 && input[3] === 0x0c &&
++        securityDecoder.decode(input.slice(4, 8)) === 'JXL ' &&
++        input[8] === 0x0d && input[9] === 0x0a && input[10] === 0x87 && input[11] === 0x0a)
++        return 'jxl';
++    const boxType = securityDecoder.decode(input.slice(4, 8));
++    const brand = securityDecoder.decode(input.slice(8, 12));
++    if (boxType === 'ftyp' && ['avif', 'mif1', 'msf1', 'heic', 'heix', 'hevc', 'hevx'].includes(brand))
++        return 'heif';
++}
+ // This map helps avoid validating for every single image type
+ const firstBytes = {
+     0x38: 'psd',
+@@ -17,6 +36,9 @@ const firstBytes = {
+     0xff: 'jpg',
+ };
+ function detector(input) {
++    const disabledType = securityDisabledType(input);
++    if (disabledType)
++        return disabledType;
+     const byte = input[0];
+     if (byte in firstBytes) {
+         const type = firstBytes[byte];
+diff --git a/dist/index.js b/dist/index.js
+index 6b0ca64fd536ea49da2908707b8f749153e5d98c..ec4a16ffcad8d9f36378ffabb6b6815934193c5e 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -15,6 +15,7 @@ const globalOptions = {
+     disabledFS: false,
+     disabledTypes: [],
+ };
++const securityDisabledTypes = new Set(['heif', 'icns', 'jxl', 'jxl-stream']);
+ /**
+  * Return size information based on an Uint8Array
+  *
+@@ -26,6 +27,9 @@ function lookup(input, filepath) {
+     // detect the file type.. don't rely on the extension
+     const type = (0, detector_1.detector)(input);
+     if (typeof type !== 'undefined') {
++        if (securityDisabledTypes.has(type)) {
++            throw new TypeError('security-disabled image type: ' + (type === 'jxl-stream' ? 'jxl' : type));
++        }
+         if (globalOptions.disabledTypes.indexOf(type) > -1) {
+             throw new TypeError('disabled file type: ' + type);
+         }

@@ -13,4 +13,17 @@ describe("FixturesController", () => {
       limit: 100
     });
   });
+
+  it("forwards the admin settings fixture listing context", async () => {
+    const service = { getFloorFixtureSettings: jest.fn().mockResolvedValue({ items: [] }) };
+    const controller = new FixturesController(service as never);
+    const user = { id: "user-1", organizationId: "org-1", role: "admin" } as never;
+
+    await controller.getFloorFixtureSettings("site-1", "floor-1", "fixture-20", "100", user);
+
+    expect(service.getFloorFixtureSettings).toHaveBeenCalledWith(user, "site-1", "floor-1", {
+      cursor: "fixture-20",
+      limit: 100
+    });
+  });
 });

@@ -12,16 +12,17 @@ import {
   type DeviceStatusAckV2,
   type FixtureStateV2,
   type GatewayDimmingCommandV2Compatible,
+  type GatewayStatusCheckCommandV2Compatible,
   type ProvisionDevicePayload,
   type ProvisioningCompletedPayload,
   type ProvisioningDeviceCommandV2,
   type ProvisioningFailedPayload,
   gatewayDimmingCommandV2CompatibilitySchema,
+  gatewayStatusCheckCommandV2CompatibilitySchema,
   gatewayHeartbeatV2Schema,
   automationConfigAppliedReceiptV1Schema,
   automationExecutionIngestedAckV1Schema,
   vehicleSensorCapabilityIngestedAckV1Schema,
-  identifyDeviceSchema,
   fixtureIdentifyTopics,
   isGatewayCommandExpired,
   mqttTopicsV2,
@@ -34,7 +35,6 @@ import { isLabHilDeployment, resolveGatewayBluetoothCompanyId } from "./deployme
 import { randomUUID } from "node:crypto";
 import type { IPublishPacket, MqttClient } from "mqtt";
 import {
-  applyIdentifyDevice,
   applyProvisionDevice,
   createProvisioningScanFailedPayload,
   configuredVehicleSensorSourceFixtureIds,
@@ -51,6 +51,7 @@ export {
 import { createAssignmentStore, resolveGatewayAssignment } from "./config/resolve-assignment";
 import { createMqttClient } from "./mqtt/create-mqtt-client";
 import { CommandJournal } from "./commands/command-journal";
+import { handleGatewayStatusCheck, type GatewayStatusCheckOptions } from "./commands/gateway-status-check-handler";
 import {
   executeAutomationDimmingActions,
   handleGatewayDimmingCommand,
@@ -238,6 +239,62 @@ export function createGatewayCommandReceipt(
   return { receivedAtMonotonicMs: monotonicClock(), brokerRemainingTtlMs };
 }
 
+export function createGatewayStatusCheckRuntime(input: {
+  adapter: Pick<BleMeshAdapter, "onLightingObservation" | "resyncLightingFixtures">;
+  journal: Pick<CommandJournal, "get" | "accept" | "complete">;
+  scope: { siteId: string; gatewayId: string };
+  publish: (source: GatewayMqttClient, topic: string, payload: unknown) => Promise<void>;
+  timeoutMs?: number;
+  monotonicClock?: () => number;
+  isCommandExpired?: GatewayStatusCheckOptions["isCommandExpired"];
+}) {
+  const stopping = new AbortController();
+  const active = new Set<Promise<void>>();
+  async function handlePayload(payload: Buffer, source: GatewayMqttClient, packet?: IPublishPacket,
+    control?: Pick<GatewayDeferredMessageControl, "acknowledgeDurable">) {
+    if (stopping.signal.aborted) throw new Error("status check runtime stopped");
+    const receipt = createGatewayCommandReceipt(packet, input.monotonicClock);
+    let command: GatewayStatusCheckCommandV2Compatible;
+    try {
+      command = gatewayStatusCheckCommandV2CompatibilitySchema.parse(JSON.parse(payload.toString()));
+      if (command.siteId !== input.scope.siteId || command.gatewayId !== input.scope.gatewayId) {
+        throw new Error("status check command scope mismatch");
+      }
+    } catch (error) {
+      // Invalid or wrong-scope payloads cannot be repaired by redelivery.
+      control?.acknowledgeDurable();
+      throw error;
+    }
+    let acceptancePublished = false;
+    const result = await handleGatewayStatusCheck(input.adapter, input.journal, command, async (acceptance) => {
+      await input.publish(source, mqttTopicsV2.acceptanceAck(command.siteId, command.gatewayId), acceptance);
+      acceptancePublished = true;
+    }, {
+      ...(input.timeoutMs === undefined ? {} : { timeoutMs: input.timeoutMs }),
+      ...(input.monotonicClock ? { monotonicClock: input.monotonicClock } : {}),
+      ...(input.isCommandExpired ? { isCommandExpired: input.isCommandExpired } : {}),
+      receipt, signal: stopping.signal, onDurableReceipt: () => control?.acknowledgeDurable()
+    });
+    if (!acceptancePublished) {
+      await input.publish(source, mqttTopicsV2.acceptanceAck(command.siteId, command.gatewayId), result.acceptance);
+    }
+    await input.publish(source, mqttTopicsV2.deviceStatusAck(command.siteId, command.gatewayId), result.deviceStatus);
+  }
+  return {
+    handle(payload: Buffer, source: GatewayMqttClient, packet?: IPublishPacket,
+      control?: Pick<GatewayDeferredMessageControl, "acknowledgeDurable">) {
+      const handling = handlePayload(payload, source, packet, control);
+      active.add(handling);
+      void handling.finally(() => active.delete(handling)).catch(() => undefined);
+      return handling;
+    },
+    async stopAndDrain() {
+      stopping.abort();
+      await Promise.allSettled([...active]);
+    }
+  };
+}
+
 export async function initializeAutomationBeforeManualRecovery(
   automationRuntime: Pick<AutomationRuntime, "initialize">,
   recoverManualHandoffs: () => Promise<void>
@@ -302,6 +359,23 @@ export async function recoverProvisioningDevicesOnStartup(
   nextEnvelope: () => Promise<{ eventId: string; sequence: number; occurredAt: string }>
 ) {
   await journal.recoverAccepted(async (command) => {
+    if (command.operation === "identify") {
+      // Identify는 약 2초 force-on 뒤 sensor-mode 복원 report까지 한 묶음으로 확인해야
+      // 성공이다. accepted만 남은 재시작 시점에는 어느 단계에서 전원이 끊겼는지 알 수 없다.
+      // 그래서 startIdentify/force-on은 절대 재전송하지 않는다. 다만 BIO의 force-on은 지속
+      // 상태라서 중간 SIGKILL 뒤 조명이 계속 켜질 수 있으므로, adapter가 제공하는 경우에는
+      // exact UUID 재검색 + sensor-only write/read-back 안전 복구만 best-effort로 수행한다.
+      // 복구가 성공해도 과거 2초 식별의 완료 증거가 되지 않고, 실패해도 다른 주소를 추측해
+      // 쓰면 안 되므로 terminal은 항상 outcome-unknown이다. 사용자는 Web에서 새 operation을
+      // 명시적으로 실행해 다시 식별할 수 있다.
+      try {
+        await adapter.recoverIdentifySafety?.(command);
+      } catch {
+        // 안전 복구 실패는 startup과 durable terminal 생성을 막지 않는다. 아래 outcome-unknown이
+        // 사용자에게 재확인이 필요하다는 사실을 보존하며, 임의 재점등/주소 write는 하지 않는다.
+      }
+      return createProvisioningOutcomeUnknownTerminal(command, await nextEnvelope());
+    }
     if (!adapter.recoverProvisioning) {
       // [확인됨] 기존 BlueZ adapter는 crash 뒤 물리 provisioning 결과를 증명할 recovery
       // 계약이 없으므로 기존 outcome_unknown terminal을 그대로 유지한다.
@@ -668,6 +742,15 @@ async function main() {
     onError: (error) => void reportGatewayError(error, "automation_current_config_request_retry")
   });
 
+  const statusChecks = createGatewayStatusCheckRuntime({
+    adapter, journal: commandJournal, scope: { siteId, gatewayId }, publish,
+    timeoutMs: commandTimeoutMs, monotonicClock: gatewayMonotonicClock,
+    isCommandExpired: async (expiresAt) => {
+      const now = new Date();
+      return await clockTrust.isTrusted(now) && isGatewayCommandExpired(expiresAt, now);
+    }
+  });
+
   async function handleDimmingPayloadV2(
     payload: Buffer,
     source: GatewayMqttClient,
@@ -780,9 +863,45 @@ async function main() {
     });
   }
 
-  async function handleIdentifyPayload(payload: Buffer, _source: GatewayMqttClient) {
-    const command = identifyDeviceSchema.parse(JSON.parse(payload.toString()));
-    await stateEventCapacity.run(["*"], () => applyIdentifyDevice(provisioningAdapter, command));
+  async function handleIdentifyPayload(
+    payload: Buffer,
+    _source: GatewayMqttClient,
+    _packet?: IPublishPacket,
+    control?: GatewayDeferredMessageControl
+  ) {
+    let command: ProvisioningDeviceCommandV2;
+    try {
+      command = await handleProvisioningDevicePayloadForCurrentScope({
+        payload,
+        scope: { siteId, gatewayId },
+        operation: "identify",
+        handle: (parsed) => parsed
+      });
+    } catch (error) {
+      control?.acknowledgeDurable();
+      throw error;
+    }
+    const handling = stateEventCapacity.run(["*"], () => handleDurableProvisioningDevice({
+      journal: provisioningDeviceJournal,
+      command,
+      execute: async (accepted) => {
+        if (accepted.operation !== "identify") throw new Error("identify command operation mismatch");
+        // BIO owns the fixed force-on (~2 s), sensor-mode restore packet, and
+        // UUID/address read-back. The server never accepts raw packets or a
+        // caller-supplied duration; returning means restore was confirmed.
+        await provisioningQueue.run(() => provisioningAdapter.identify(accepted));
+        return { restoreConfirmed: true as const };
+      },
+      nextEnvelope: async () => ({ eventId: randomUUID(), sequence: await eventSequence.next(), occurredAt: new Date().toISOString() }),
+      onDurableAccept: () => control?.acknowledgeDurable(),
+      onTerminalPersisted: () => {
+        void provisioningDeviceReplay.wake()
+          .catch((error) => void reportGatewayError(error, "provisioning_identify_terminal_retry"));
+      }
+    }));
+    activeProvisioningHandlers.add(handling);
+    void handling.finally(() => activeProvisioningHandlers.delete(handling)).catch(() => undefined);
+    return handling;
   }
 
   async function handleProvisionDevicePayload(
@@ -796,6 +915,7 @@ async function main() {
       command = await handleProvisioningDevicePayloadForCurrentScope({
         payload,
         scope: { siteId, gatewayId },
+        operation: "provision",
         handle: (parsed) => parsed
       });
     } catch (error) {
@@ -805,7 +925,12 @@ async function main() {
     const handling = stateEventCapacity.run(["*"], () => handleDurableProvisioningDevice({
       journal: provisioningDeviceJournal,
       command,
-      execute: (accepted) => provisioningQueue.run(() => provisioningAdapter.provision(accepted)),
+      execute: (accepted) => {
+        if ((accepted.operation ?? "provision") !== "provision" || !("meshAddress" in accepted)) {
+          throw new Error("provision command operation mismatch");
+        }
+        return provisioningQueue.run(() => provisioningAdapter.provision(accepted));
+      },
       nextEnvelope: async () => ({
         eventId: randomUUID(),
         sequence: await eventSequence.next(),
@@ -932,6 +1057,7 @@ async function main() {
         await publishFixtureIdentifyResult(source, result, identifyResultAbort.signal);
       },
       [mqttTopicsV2.gatewayCommand(siteId, gatewayId, "dimming")]: handleDimmingPayloadV2,
+      [mqttTopicsV2.gatewayCommand(siteId, gatewayId, "status-check")]: statusChecks.handle,
       [mqttTopicsV2.gatewayCommand(siteId, gatewayId, "provisioning/scan-start")]: handleProvisioningScanPayload,
       [mqttTopicsV2.gatewayCommand(siteId, gatewayId, "provisioning/identify-device")]: handleIdentifyPayload,
       [mqttTopicsV2.gatewayCommand(siteId, gatewayId, "provisioning/provision-device")]: handleProvisionDevicePayload,
@@ -1021,6 +1147,7 @@ async function main() {
     },
     onBeforeStop: async () => {
       identifyResultAbort.abort();
+      await statusChecks.stopAndDrain();
       await fixtureIdentify.stop();
       await Promise.all([...activeProvisioningHandlers].map((handling) => handling.catch(() => undefined)));
       await provisioningQueue.drain();
@@ -1047,6 +1174,7 @@ async function main() {
       runtime: mqttRuntime,
       drainBeforeMqttStop: async () => {
         detachSoftwareAutomationSimulatorIpc?.();
+        const statusCheckDrain = statusChecks.stopAndDrain();
         const schedulerDrain = scheduleRuntime.stopAndDrain();
         const meshResyncDrain = meshResyncWorker.stopAndDrain();
         const targetedResyncDrain = targetedLightingResync.stopAndDrain();
@@ -1056,7 +1184,7 @@ async function main() {
         automationTelemetryCoordinator.stop();
         automationStorage.headroom.stop();
         await fixtureStatusReservation.release();
-        await Promise.all([schedulerDrain, meshResyncDrain, targetedResyncDrain, vehicleSensorDrain]);
+        await Promise.all([statusCheckDrain, schedulerDrain, meshResyncDrain, targetedResyncDrain, vehicleSensorDrain]);
         stateEventPublisher.disconnect();
         automationAckPublisher.disconnect();
         automationConfigRequester.disconnect();
@@ -1075,6 +1203,8 @@ async function main() {
 export function gatewayDeferredPubackTopics(siteId: string, gatewayId: string) {
   return [
     mqttTopicsV2.gatewayCommand(siteId, gatewayId, "dimming"),
+    mqttTopicsV2.gatewayCommand(siteId, gatewayId, "status-check"),
+    mqttTopicsV2.gatewayCommand(siteId, gatewayId, "provisioning/identify-device"),
     mqttTopicsV2.gatewayCommand(siteId, gatewayId, "provisioning/provision-device"),
     mqttTopics.automationConfig(siteId, gatewayId)
   ];
@@ -1434,6 +1564,7 @@ export function gatewayCommandTopics(siteId: string, gatewayId: string) {
   return [
     fixtureIdentifyTopics.command(siteId, gatewayId),
     mqttTopicsV2.gatewayCommand(siteId, gatewayId, "dimming"),
+    mqttTopicsV2.gatewayCommand(siteId, gatewayId, "status-check"),
     mqttTopicsV2.gatewayCommand(siteId, gatewayId, "provisioning/scan-start"),
     mqttTopicsV2.gatewayCommand(siteId, gatewayId, "provisioning/identify-device"),
     mqttTopicsV2.gatewayCommand(siteId, gatewayId, "provisioning/provision-device"),
@@ -1469,11 +1600,15 @@ function subscribeGatewayTopics(
 export async function handleProvisioningDevicePayloadForCurrentScope<T>(input: {
   payload: Buffer;
   scope: { siteId: string; gatewayId: string };
+  operation?: "identify" | "provision";
   handle: (command: ProvisioningDeviceCommandV2) => T | Promise<T>;
 }) {
   const command = provisioningDeviceCommandV2Schema.parse(JSON.parse(input.payload.toString()));
   if (command.siteId !== input.scope.siteId || command.gatewayId !== input.scope.gatewayId) {
     throw new Error("provisioning device command scope mismatch");
+  }
+  if (input.operation && (command.operation ?? "provision") !== input.operation) {
+    throw new Error("provisioning device command operation mismatch");
   }
   return input.handle(command);
 }

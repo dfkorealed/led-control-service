@@ -93,7 +93,9 @@ export class SiteUsersService {
         }, select: { id: true }
       });
       await tx.siteMembership.update({ where: { userId_siteId: { userId, siteId } }, data: { accessLevel: body.accessLevel } });
-      if (body.status === "disabled") await this.revokeSessions(tx, userId);
+      if (current.status !== body.status || current.siteMemberships[0].accessLevel !== body.accessLevel) {
+        await this.revokeSessions(tx, userId);
+      }
       await this.record(tx, user, siteId, "updated", userId);
       return this.summary(await this.member(tx, siteId, organizationId, userId));
     });

@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { apiGet, apiPost } from "./client";
+import { apiDelete, apiGet, apiPost, isTransientApiError } from "./client";
 import { authMeQueryKey } from "./principal-cache";
 
 export interface AuthUser {
@@ -17,12 +17,54 @@ export function useCurrentUser() {
   return useQuery({
     queryKey: authMeQueryKey,
     queryFn: () => apiGet<{ user: AuthUser }>("/auth/me"),
-    retry: false
+    retry: (failureCount, error) => failureCount < 2 && isTransientApiError(error),
+    // 세션 세대 교체 시 전달한 auth 결과를 즉시 재요청하지 않는다. 수동 retry/online resume는 유지한다.
+    refetchOnMount: false,
+    retryOnMount: false
   });
 }
 
+export interface MfaLoginChallenge {
+  mfaRequired: true;
+  challengeToken: string;
+  expiresAt: string;
+}
+
+export type LoginResponse = { user: AuthUser } | MfaLoginChallenge;
+
+export interface MfaStatus {
+  enabled: boolean;
+  enabledAt: string | null;
+}
+
+export interface MfaEnrollment {
+  enrollmentToken: string;
+  secret: string;
+  otpauthUri: string;
+  expiresAt: string;
+}
+
+export interface AuthSession {
+  id: string;
+  rememberMe: boolean;
+  userAgent: string | null;
+  ipAddress: string | null;
+  createdAt: string;
+  expiresAt: string;
+  current: boolean;
+  mfaVerified: boolean;
+}
+
 export function login(input: { loginId: string; password: string; rememberMe: boolean }) {
-  return apiPost<{ user: AuthUser }>("/auth/login", input);
+  return apiPost<LoginResponse>("/auth/login", input);
+}
+
+export function completeMfaLogin(input: {
+  challengeToken: string;
+  code?: string;
+  recoveryCode?: string;
+}) {
+  return apiPost<{ user: AuthUser; recoveryCodeUsed: boolean }>("/auth/login/mfa", input);
 }
 
 export function signup(input: { token: string; loginId: string; email: string; name: string; password: string }) {
@@ -33,10 +75,51 @@ export function logout() {
   return apiPost<{ ok: boolean }>("/auth/logout", {});
 }
 
+export async function logoutAfterRecovery() {
+  const controller = new AbortController();
+  // 장애 중인 logout도 로그인 화면을 영구히 막지 않도록 제한한다. 이 동안 새 로그인은 시작하지 않는다.
+  const timeout = window.setTimeout(() => controller.abort(), 5_000);
+  try {
+    await apiPost("/auth/logout", {}, { signal: controller.signal });
+  } catch {
+    // 서버 세션 종료 실패와 무관하게 로컬 principal은 폐기하고 기존 로그인 화면으로 수렴한다.
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
 export function changePassword(input: {
   currentPassword: string;
   newPassword: string;
   newPasswordConfirmation: string;
 }) {
   return apiPost<{ ok: true; user: AuthUser }>("/auth/change-password", input);
+}
+
+export function getMfaStatus() {
+  return apiGet<MfaStatus>("/auth/mfa");
+}
+
+export function startMfaEnrollment() {
+  return apiPost<MfaEnrollment>("/auth/mfa/enrollment", {});
+}
+
+export function confirmMfaEnrollment(input: { enrollmentToken: string; code: string }) {
+  return apiPost<{ mfaEnabled: true; recoveryCodes: string[] }>("/auth/mfa/enrollment/confirm", input);
+}
+
+export function disableMfa(input: { currentPassword: string; code?: string; recoveryCode?: string }) {
+  return apiPost<{ mfaEnabled: false }>("/auth/mfa/disable", input);
+}
+
+export function listAuthSessions() {
+  return apiGet<{ sessions: AuthSession[] }>("/auth/sessions");
+}
+
+export function revokeAuthSession(sessionId: string) {
+  return apiDelete<{ ok: true }>(`/auth/sessions/${encodeURIComponent(sessionId)}`);
+}
+
+export function revokeOtherAuthSessions() {
+  return apiPost<{ ok: true; revokedSessionCount: number }>("/auth/sessions/revoke-others", {});
 }

@@ -1,6 +1,6 @@
 # Raspberry Pi 게이트웨이 Appliance 운영 절차
 
-> 현재 상태: **코드 완료·실기 미검증**. 실물 Pi/ESP32와 offline Root/Vault backup 승인 증거는 확인하지 않았다.
+> 이번 release/recovery 작업은 **소프트웨어 검증** 범위다. 아래 운영 명령은 승인 후 절차이며 이번 작업에서 SSH/Pi 배포·운영 key·사용자 데이터·HIL은 실행하지 않는다. 기존 실기 기록은 새 manager의 rollout/power-loss 검증을 대신하지 않는다.
 
 ## 1. 적용 범위
 
@@ -51,11 +51,10 @@ SIGKILL/전원 손실로 남은 lock은 자동 복구 대상이 아니다. 승�
 
 이 문서는 Raspberry Pi 4/CM5에서 Docker 기반 게이트웨이를 설치하고 ESP32-H2 조명을 검색·등록·제어하는 절차다. Pi에는 전체 모노레포를 복사하지 않는다. 다음 파일만 배포한다.
 
-- ARM64 gateway image tar와 SHA-256 파일
-- `compose.yml`
-- `.env.appliance`
-- 장비별 mTLS 인증서
-- 영속 데이터 디렉터리
+- 검증된 immutable ARM64 bundle directory(7개 파일)
+- 승인된 checkout의 release/state manager와 공통 shell library
+
+현장 `.env.appliance`, identity와 영속 data는 bundle/업로드 목록과 분리한다. 어떤 bundle/state/env/journal metadata도 `source`/`eval`하지 않는다. Trusted common shell library만 코드로 설치한다.
 
 컨테이너는 private system D-Bus, BlueZ 5.82 `bluetooth-meshd`, Node.js 22 gateway를 순서대로 실행한다. `/var/lib/bluetooth/mesh`의 BlueZ network DB와 `/var/lib/led-control`의 token·주소 mapping·명령 상태·automation source state는 재부팅 후에도 유지한다. Cold boot 뒤 host가 marker를 생성할 수 있도록 호스트 `/run/systemd/timesync` 디렉터리 전체를 컨테이너의 같은 경로에 read-only bind mount한다.
 
@@ -98,25 +97,37 @@ test -f /run/systemd/timesync/synchronized
 
 ## 4. ARM64 이미지 생성
 
-Docker Buildx가 있는 개발 PC에서 실행한다. 기본값은 dirty working tree를 거부한다.
+Node 22+, pnpm 9.15.0, Docker daemon/Buildx, OpenSSL 3와 C compiler가 있는 clean 개발/CI checkout에서 실행한다. Dirty 예외는 없다. 전체 state 결과는 98 pass·실패/cancel/skip 0과 named CMS happy flow 정확히 1개를 요구한다. Gate 45분/child 30분, launcher 이후 drain 3초→TERM 2초→KILL 2초, cleanup 2분(+5초 hard backstop), workflow 60분 한도이며 still-live group은 staging을 보존하고 exit 3이다. CI는 protected `production-audit` 안에서 Web/dependency 전에 정확히 한 번 같은 gate를 실행하며, 실패/cleanup 실패를 skip하지 않는다.
 
 ```bash
-cd "/Users/kim-jh/Documents/led-control-service"
+pnpm workspace:prepare
+pnpm gateway:release:ci
 pnpm gateway:appliance:build
 ```
 
-결과는 `dist/gateway-appliance`에 생성된다.
+CI는 실제 `linux/amd64`, `GATEWAY_RELEASE_TEST_MODE=1`만 만들고 Node 22/final inventory, 기본 production verify 거부와 전체 state 98개를 직렬 검증한 뒤 자기 산출물을 삭제한다. 이 이미지는 배포 승인이 아니다. 기본 production build 결과는 `dist/gateway-appliance/<version>-<full-40-char-commit>-<image-config-prefix>/`다.
 
 ```text
-led-control-gateway-<git revision>-linux-arm64.tar
-led-control-gateway-<git revision>-linux-arm64.tar.sha256
-led-control-gateway-<git revision>-linux-arm64.tar.env
+appliance.env
+checksums.sha256
+compose.yml
+docker/seccomp-bluez-mesh.json
+gateway-image-linux-arm64.tar
+release-manifest.json
+sbom.spdx.json
 ```
 
-임시 개발 검증만 dirty build를 허용한다.
+2026-09-13 bounded state review fix 기능 코드 `0f12135`의 clean software gate는 artifact/activation **223/223**, 전체 state **98/98**(실제 CMS happy flow 1개 포함, skip 0), 실제 Docker 29 `linux/amd64` test-only image·Node 22.23.2·OS 120/Node 263 inventory·v3 검사, archive load/inspect/run의 descriptor/container `.Image` 일치와 cleanup을 **16분 21.113초**에 확인했다. 같은 clean 코드의 전체 production audit도 같은 in-band gate·MQTT 설정/실제 MQTT 각 **2/2**·Gateway contracts **30/30**·Web container **5/5**·dependency **820개** 정책(기존 승인 예외 3·unexpected 0)까지 **16분 41.939초**에 통과했다. 이는 승인할 production ARM64 artifact의 생성·Pi rollout·RF·전원 차단 검증을 대신하지 않는다.
+
+승인할 **production bundle 자체**를 Node verifier로 다시 검사한다. Policy SHA는 bundle 안 값을 신뢰하지 않고 승인된 checkout의 정적 policy에서 계산한다. Source full commit, lock hash, config digest, SPDX OS/Node inventory, BlueZ pin과 exact firmware compatibility를 변경 기록에 결속한다. Checksum은 무결성 확인이지 서명이 아니며 운영 signing/전달 진위 확인은 별도 승인 관문이다.
 
 ```bash
-ALLOW_DIRTY_BUILD=1 pnpm gateway:appliance:build
+BUNDLE=/absolute/approved/release-directory
+EXPECTED_COMMIT=$(git rev-parse HEAD)
+POLICY_SHA=$(sha256sum apps/gateway/release-policy.json | awk '{print $1}')
+node scripts/gateway-release-bundle.mjs verify --bundle "$BUNDLE" \
+  --policy apps/gateway/release-policy.json --expected-commit "$EXPECTED_COMMIT"
+scripts/gateway-appliance-release.sh verify "$BUNDLE" --policy-sha256 "$POLICY_SHA"
 ```
 
 ## 5. 제조 identity와 인증서 준비
@@ -129,13 +140,10 @@ ALLOW_DIRTY_BUILD=1 pnpm gateway:appliance:build
 
 웹 claim 후 API가 assignment를 반환하면 gateway가 이를 `/var/lib/led-control/assignment.json`에 저장하고 MQTT key·CSR·인증서를 자동 발급한다. 장비 private key는 Pi의 Docker volume 안에서만 생성되며 제조 PC로 전송하지 않는다.
 
-먼저 `gateway-appliance-deploy.sh`를 한 번 실행한다. image는 Pi에 load되고 제조 identity가 없다는 메시지와 exit code 2로 멈추는 것이 정상이다. 제조 PC에는 API가 신뢰하는 station mTLS 인증서·key·CA가 있어야 한다.
+제조 enrollment는 별도 승인된 bootstrap/image load 절차로 수행한다. 새 release manager를 identity 생성 도구로 실행하지 않는다. 제조 PC에는 API가 신뢰하는 station mTLS 인증서·key·CA가 있어야 한다. 아래 image 좌표는 승인된 bundle 검증 출력에서 확인한 값으로 직접 지정하며 metadata 파일을 실행하지 않는다.
 
 ```bash
-set -a
-. dist/gateway-appliance/led-control-gateway-<revision>-linux-arm64.tar.env
-set +a
-export GATEWAY_IMAGE="$GATEWAY_IMAGE_REPOSITORY:$GATEWAY_IMAGE_TAG"
+export GATEWAY_IMAGE='<approved repository>:<approved exact tag>'
 export MANUFACTURING_API_URL='https://<API DNS 또는 IP>:4000'
 export STATION_CERT="$PWD/.local/manufacturing/station.crt"
 export STATION_KEY="$PWD/.local/manufacturing/station.key"
@@ -151,12 +159,12 @@ label JSON은 `0600`이며 web claim에 사용할 일회성 code를 포함한다
 
 ## 6. Pi 설정 파일
 
-Pi에서 템플릿을 복사한다.
+Pi에는 승인된 별도 준비 절차로 site 설정을 설치한다. Deploy script는 `.env.appliance.example`이나 site env를 보내지 않는다. Single-line dotenv만 지원하고 multiline/export/CRLF/NUL/마지막 LF 누락은 preflight에서 거부한다. 관리 data/image 값은 literal이며 shell interpolation을 하지 않는다.
 
 ```bash
 cd /opt/led-control/gateway
-cp .env.appliance.example .env.appliance
 nano .env.appliance
+sudo chmod 0640 .env.appliance
 ```
 
 필수 값의 예시는 다음과 같다.
@@ -175,17 +183,49 @@ GATEWAY_BOOTSTRAP_URL=https://<API IP>:4000/gateway-bootstrap
 
 `GATEWAY_SERIAL`은 Pi가 자동으로 만드는 값이 아니라 제조 원장과 일치하는 장비 고유값이다. 로컬 개발 장비는 충돌하지 않는 `GW-RPI-...` 값을 정해 API 제조 장비 등록에도 같은 값을 사용한다.
 
-## 7. 자동 배포
+## 7. 승인·recipient custody·backup·preflight·activation
 
-설정과 인증서를 먼저 Pi에 준비한 뒤 개발 PC에서 실행한다.
+Pi host prerequisite는 Bash, GNU coreutils/tar(`timeout`, `sync -f`, `mv -T` 포함), util-linux `flock`, OpenSSL 3, Docker/Compose다. Node/Python은 요구하지 않는다. 승인된 `gateway-appliance-release.sh`, `gateway-appliance-state.sh`, `gateway-appliance-common.sh`를 같은 `/usr/local/lib/led-control/`에 설치하고 root 외 쓰기를 막는다. Deploy는 release/common을 unique remote staging으로 보내지만 state helper의 상시 설치를 대신하지 않는다.
+
+기존 journal 복구를 먼저 마치고 승인된 helper 파일을 Pi에 별도로 전달한 뒤 설치한다.
+
+```bash
+sudo install -d -o root -g root -m 0755 /usr/local/lib/led-control
+sudo install -o root -g root -m 0755 \
+  /absolute/approved-helpers/gateway-appliance-release.sh \
+  /absolute/approved-helpers/gateway-appliance-state.sh \
+  /absolute/approved-helpers/gateway-appliance-common.sh /usr/local/lib/led-control/
+```
+
+기존 container가 있는데 검증된 `current` bundle이 없으면 **verified baseline migration/registration이 먼저 필요**하며 자동 activation은 exit 1로 중단한다. 기존 태그를 임의로 current에 등록하지 않는다. 이 migration 도구는 제공하지 않으므로 별도 운영 승인·검증 절차가 필요하다. 진짜 최초 설치(기존 container/current 없음)는 별도 경로로 허용되지만 healthy current가 없으므로 아래 pre-update backup을 수행한 것으로 기록할 수 없다.
+
+업데이트 순서는 build → CI verify → exact artifact 운영 승인 → recipient/escrow 확인 → encrypted backup 및 off-device drill → preflight → activate → health/current/previous 확인이다. Recipient는 승인된 **RSA 공개 인증서**만 Pi에 상시 배치한다. Private key는 off-device escrow에서 접근통제·이중 보관하며 ciphertext와 같은 위치/Pi에 상시 두지 않는다. CI에서 생성한 ephemeral recipient는 운영에 사용하지 않는다.
+
+현재 정상 baseline이 있는 승인된 Pi에서, appliance/data root 밖의 기존 보호된 backup parent를 사용한다.
+
+```bash
+BACKUP=/srv/led-control-backups/approved-new-backup
+RECIPIENT=/etc/led-control-backup/recipient.crt
+POLICY_SHA='<approved checkout sha256sum result>'
+sudo /usr/local/lib/led-control/gateway-appliance-state.sh backup "$BACKUP" \
+  --recipient "$RECIPIENT" --policy-sha256 "$POLICY_SHA"
+```
+
+이 명령은 shared lock 아래 healthy current를 확인하고 quiesce한 뒤 네 root의 같은 시점 snapshot을 암호화하며, 이전 service 재시작/health 성공 뒤에만 backup directory를 공개한다. 기존 backup을 덮어쓰지 않는다. 승인된 별도 전달 경로로 off-device recovery workstation에 복사한 뒤 `verify`/`drill`을 수행한다(11절). Artifact/recipient 인증서 진위와 cross-release state 호환성은 hash만으로 승인하지 않는다.
+
+Bundle-only verify는 JSON/SPDX/layer를 재검사하는 Node CI보다 좁은 shell closure/env/policy 검증이다. Live preflight는 `activate` 내부에 포함되며 별도 `preflight` subcommand는 없다. Safe physical paths, single-link identity/key `0600`·identity directory `0750`, generation-contained current, disk 여유, authoritative Compose image/project/data와 image digest를 모두 통과한 뒤에만 service/env를 바꾼다.
+
+승인된 workstation에서 bundle **directory**를 지정한다.
 
 ```bash
 scripts/gateway-appliance-deploy.sh \
   dfkorea@dfkorea.local \
-  dist/gateway-appliance/led-control-gateway-<revision>-linux-arm64.tar
+  "$BUNDLE"
 ```
 
-스크립트는 checksum 검증, `docker image load`, Compose 적용, health 대기를 수행한다. `.env.appliance` 또는 인증서가 없으면 image를 실행하지 않고 누락 파일을 출력한다.
+Pi에 bundle이 이미 있으면 동일한 승인 후 `sudo /usr/local/lib/led-control/gateway-appliance-release.sh activate /absolute/bundle --policy-sha256 "$POLICY_SHA"`를 사용한다. Checksum-verified archive load 뒤 exact tag의 daemon ID와 OCI labels를 config/descriptor에 결속하고, site image 좌표 원자 갱신과 captured-ID matching health 뒤에만 `previous`→`current` pointer를 바꾼다. Candidate 실패는 검증된 old release/env/pointer를 복원하고 health를 확인한다. Remote upload staging은 자동 삭제되지 않으므로 운영자가 해당 호출에서 반환된 exact staging 경로만 확인해 정리한다.
+
+새 producer의 env는 config와 `GATEWAY_IMAGE_DESCRIPTOR_DIGEST`를 구분하는 exact 14-key다. Docker 29 `.Id`는 config가 아니라 OCI descriptor일 수 있으므로 이름만 보고 혼용하지 않는다. 새 verifier와 release/common/state helper를 먼저 준비하며, 기존 13-key shell rollback은 config-ID 조건으로 유지한다. Node content profile v3는 각 regular file의 standalone DER/PEM·전체 base64 key·UTF-8 text의 complete parseable PEM을 검사하며, complete encrypted-private-key PEM·strict whole-file PKCS#8 EncryptedPrivateKeyInfo DER는 passphrase 없이 구조적으로 거부한다. v1/v2 profile 재인증, binary 내부 offset, marker-only 설명, arbitrary token/secret 탐지는 범위 밖이다. 세부 bounds와 gzip/OCI 검증은 `apps/gateway/RELEASE-BUNDLE.md`를 따른다.
 
 ### Command requester PII migration 유지보수
 
@@ -209,21 +249,38 @@ scripts/gateway-appliance-deploy.sh \
 
 Gateway를 먼저 배포하거나 10초 drain을 생략하면 clock-untrusted 현장의 legacy timed command는 `legacy_timing_unverifiable` terminal 실패로 기록되고 RF를 실행하지 않는다. Legacy wire에는 pre-broker delay를 증명할 generation metadata가 없으므로 이 배포 순서는 선택 사항이 아니다. Clock-trusted Gateway의 legacy command와 새 generation을 받은 clock-untrusted Gateway command는 정상 처리한다.
 
-## 8. Pi에서 직접 실행
+## 8. Health·current/previous·rollback 확인
 
-이미 image가 로드된 경우 다음 명령을 사용한다.
+Loose image tag나 원본 compose로 manager를 우회해 재적용하지 않는다. Activation 후 읽기 전용으로 확인한다.
 
 ```bash
 cd /opt/led-control/gateway
-set -a
-. ./*.tar.env
-set +a
-docker compose --env-file .env.appliance -f compose.yml up -d --remove-orphans
-docker compose -f compose.yml ps
-docker compose -f compose.yml logs -f gateway-appliance
+readlink current
+readlink previous
+docker inspect --format '{{.Image}} {{.State.Health.Status}}' led-control-gateway
+docker logs --tail=200 led-control-gateway
 ```
 
 상태 파일은 컨테이너의 `/var/run/led-control/health.json`에 있다.
+
+`current`는 승인한 `releases/<releaseId>`, `previous`는 직전 verified release여야 한다(최초 설치 previous 부재는 정상). 실제 `.Image`가 승인된 archive/tag에서 load 후 검증·캡처한 daemon ID(config 또는 결속된 descriptor)와 같고 `healthy`인지 확인한다. Rollback은 데이터나 identity를 되돌리지 않으며 검증된 previous가 있을 때만 다음 명령을 쓴다.
+
+```bash
+sudo /usr/local/lib/led-control/gateway-appliance-release.sh rollback --policy-sha256 "$POLICY_SHA"
+```
+
+Release/state 공통 lock은 `/opt/led-control/gateway/.appliance-operation.lock`이며 inode를 unlink/recreate하지 않는다. `.activation.journal`(8-field)과 `.state.journal`(9-field)은 `0600` strict data-only 파일이다. 새 작업보다 기존 journal 복구가 먼저이며 다른 종류 journal이 있으면 중단한다. Journal/snapshot/rollback copy를 임의 삭제하거나 필드를 고치지 않는다. 구형 schema/custom-TMPDIR journal이 남아 있으면 해당 버전으로 승인된 recovery를 마친 뒤 helper를 업그레이드한다.
+
+| 종료 코드 | 판정·조치 |
+| --- | --- |
+| `0` | 정상 완료 또는 이미 exact current가 healthy. |
+| `1` | 검증/preflight 거부 또는 후보 실패 후 기존 상태 정상 복구. 원인을 확인하고 새 승인을 판단한다. |
+| `2` | CLI 사용 오류. |
+| `3` | 복구/cleanup 실패·불명확 journal. 증거를 보존하고 새 mutation을 중지한다. |
+| `4` | shared lock 경합. 기존 작업 종료를 확인한다. |
+| state `130/143` | INT/TERM 중단. 복구 실패는 `3`이 우선한다. |
+
+Docker 호출은 metadata 15초, Compose 120초, image load 300초에 TERM, 5초 뒤 KILL로 bounded하며 health는 최대 60회/2초 간격이다. Docker client timeout이 daemon 작업 취소를 증명하지는 않는다. SIGKILL/power-loss는 trap을 실행하지 못한다. Durable journal이 있으면 다음 invocation이 복구하며 journal 이전 또는 비변경 verify/drill의 `/tmp/.gateway-state.<nonce>`는 제한된 plaintext가 남을 수 있다. Root-owned sticky `01777` physical `/tmp`에서 exact 소유 경로를 검토한 뒤 운영자가 정리하며 광범위 glob 삭제를 금지한다.
 
 ```bash
 docker exec led-control-gateway cat /var/run/led-control/health.json
@@ -279,51 +336,70 @@ idf.py -p /dev/cu.usbmodemXXXX erase-flash flash monitor
 3. 층을 만들고 해당 gateway를 층에 연결한다.
 4. ESP32-H2를 unprovisioned 상태로 켠다.
 5. 조명 검색을 시작하고 UUID/RSSI가 나타나는지 확인한다.
-6. 조명 이름, 도면 좌표, 정격 전력을 입력해 등록한다.
-7. gateway 로그에서 `AddNodeComplete`, AppKey, `0x1000`, `0x1300` bind와 publication status를 확인한다.
-8. 제어 메뉴에서 0%, 25%, 50%, 100%를 순서대로 적용한다.
-9. 웹 성공 표시는 MQTT 접수 ACK가 아니라 ESP32의 Light Lightness Status 수신 뒤에만 확인한다.
+6. BIO vendor identify를 지원하는 배포에서는 후보 행의 `식별`을 한 번 눌러 약 2초 force-on 뒤 sensor mode 복원이 확인되는지 본다. API의 `accepted`는 접수일 뿐이며 Web이 `식별 중`에서 완료 또는 명시적 실패로 바뀔 때까지 기다린다. 이 단계는 Mesh 주소·Fixture·mapping을 만들지 않는다.
+7. 조명 이름, 도면 좌표, 정격 전력을 입력해 등록한다.
+8. gateway 로그에서 `AddNodeComplete`, AppKey, `0x1000`, `0x1300` bind와 publication status를 확인한다.
+9. 제어 메뉴에서 0%, 25%, 50%, 100%를 순서대로 적용한다.
+10. 웹 성공 표시는 MQTT 접수 ACK가 아니라 ESP32의 Light Lightness Status 수신 뒤에만 확인한다.
 
-표준 BLE Mesh는 provisioning 전 임의의 노드에 Generic OnOff/Lightness 명령을 보낼 수 없다. 따라서 현재 등록 전 `식별 점멸`은 명시적인 미지원 오류를 반환한다. 이 UX를 유지하려면 펌웨어와 gateway에 별도 vendor provisioning identify protocol을 추가해야 한다.
+표준 BLE Mesh는 provisioning 전 임의의 노드에 Generic OnOff/Lightness 명령을 보낼 수 없다. 따라서 표준 BlueZ adapter의 등록 전 `식별`은 명시적 미지원 실패가 정상이다. BIO vendor adapter만 고정 명령을 실행하며 브라우저는 duration이나 raw packet을 전달할 수 없다. 서버 성공은 MQTT PUBACK가 아니라 Gateway의 sensor-mode 복원 확인 terminal event에 의해 확정된다.
 
-## 11. 재시작과 복구 시험
+## 11. 암호화 state verify·drill·restore와 재시작 시험
 
 조명 등록 후 다음 순서로 시험한다.
 
 ```bash
 cd /opt/led-control/gateway
-docker compose -f compose.yml restart gateway-appliance
+docker restart led-control-gateway
 sudo reboot
 ```
 
-재부팅 후 같은 fixture ID와 unicast address로 재-provision 없이 제어돼야 한다. 재시작 시 활성 schedule/manual/event의 desired brightness가 이미 durable state와 같으면 같은 Mesh 명령을 다시 보내지 않아야 한다. Override 또는 occurrence 종료 뒤에는 현재 더 높은 source를 유지하고, 모두 끝난 경우 저장한 시작 전 brightness로 복귀해야 한다. Compose가 실제 mount에 사용하는 `.env.appliance`를 로드한 뒤 gateway와 mesh 디렉터리를 같은 archive로 백업한다.
+재시작 시험은 승인된 HIL이며 현재 software gate 통과와 다르다. 재부팅 후 같은 fixture ID/unicast, Mesh/AppKey와 source 우선순위를 확인한다. State backup은 `gateway`, `mesh`, `identity`, `factory-trust` 네 root를 항상 함께 취급한다. 최종 artifact는 `backup.env`, `checksums.sha256`, `state.cms` 3개이며 plaintext tar를 만들거나 부분 root만 복원하지 않는다.
 
 ```bash
-cd /opt/led-control/gateway
-set -a
-. ./.env.appliance
-set +a
-GATEWAY_DATA_DIR="${GATEWAY_DATA_DIR:-/opt/led-control/data}"
-BACKUP_PATH="/opt/led-control/gateway-data-backup-$(date +%Y%m%d%H%M%S).tgz"
-sudo tar -C "$GATEWAY_DATA_DIR" -czf "$BACKUP_PATH" gateway mesh
-sudo tar -tzf "$BACKUP_PATH" | grep -E 'gateway/(automation-state|automation-snapshot|automation-telemetry|state-event-outbox).json(.gap|.reserve|.manifest.json)?|^mesh/'
+BACKUP=/absolute/off-device/approved-backup
+RECIPIENT=/absolute/custody/recipient.crt
+RECIPIENT_KEY=/absolute/custody/recipient.key
+/usr/local/lib/led-control/gateway-appliance-state.sh verify "$BACKUP" --recipient "$RECIPIENT" --key "$RECIPIENT_KEY"
+/usr/local/lib/led-control/gateway-appliance-state.sh drill "$BACKUP" --recipient "$RECIPIENT" --key "$RECIPIENT_KEY"
 ```
 
-`gateway`와 `mesh` 중 하나만 복원하면 token과 BlueZ DB가 불일치할 수 있으므로 항상 같은 시점의 묶음으로 복원한다. 복원할 때도 같은 `GATEWAY_DATA_DIR`을 사용한다.
+Verify/drill은 실제 CMS 복호화와 strict archive/manifest 검증만 하고 live root/Docker를 읽거나 바꾸지 않는다. Drill은 두 번째 복호화/재추출도 독립 검증한다. Inner manifest는 path/type/mode/uid/gid/size/hash/symlink를 결속한다. V1은 ASCII 상대 directory 99 bytes/file·link 100 bytes까지이며 hardlink, 일반 symlink, special file, tar extension, ACL/xattr/mtime을 지원하지 않는다. Identity의 device/mqtt `current`만 자기 `generations/<id>`로 연결 가능하다. Byte 수/권한뿐 아니라 outbox와 manifest/automation sidecar가 같은 snapshot에 있어야 한다.
+
+V1 state 용량 예산은 고정이며 환경 변수/CLI로 올릴 수 없다(MiB = 1,048,576 bytes).
+
+| 구분 | 상한 |
+| --- | --- |
+| Nonzero USTAR headers | 4,096개 — manifest 포함, directory·symlink·zero-byte·duplicate header도 계산 |
+| 일반 파일별 decoded bytes | 256 MiB (268,435,456 bytes) |
+| 일반 파일 decoded 합계 | 512 MiB (536,870,912 bytes), 내부 manifest 포함 |
+| 내부 manifest | 16 MiB |
+| 별도 framing | 4,201,472 bytes = `4096 × (512 header + 511 최대 padding) + 2 × 512 end blocks + 10240 trailing zero bytes` |
+| Decoded archive 전체 | 541,072,384 bytes = regular 합계 + framing |
+| `state.cms` ciphertext | 544 MiB (570,425,344 bytes), CMS BER/암호화 overhead 여유 포함 |
+
+현재 automation state·telemetry outbox·reserve 각각 64 MiB와 state-event outbox 100 MiB가 기준이다. 파일별 256 MiB는 state-event JSON serialization/metadata 여유를, 합계 512 MiB는 sidecar·mesh·factory trust·identity generations 여유를 제공한다. 4,096 entries는 세대 누적을 허용하면서 작은/빈 파일 폭주 비용도 제한한다. 이는 모든 runtime 파일이 동시에 최대 크기로 누적돼도 항상 백업된다는 보장은 아니다.
+
+Backup은 본문 hash/정지 전에 metadata와 정확한 미래 manifest 크기로 같은 예산을 검사하고, quiesced snapshot에서 다시 검사한다. Parser는 초과 header 처리·payload `dd`/`mkdir` 전에 거절하며 end-block 뒤 zero padding도 bounded read만 한다. 초과 시 plaintext는 정리하고 live state와 기존 백업을 보존하며 부분 백업을 내보내지 않는다. Operator가 ACK drain·승인된 retention/저장 용량 계획을 해결한 뒤 다시 실행해야 한다. Outbox/manifest/identity generation을 임의 삭제하거나 archive를 잘라 우회하지 않는다. 기존 oversized backup도 이 profile로 복원되지 않으므로 별도 검토된 capacity/profile 변경이 필요하다.
+
+Live restore는 별도 복구 승인, 적절한 UID/GID 복원 권한과 현재 healthy verified release가 필요하다. Private key를 Pi에서 일시 접근해야 한다면 승인된 custody 절차·0600/단기 mount로 제한하고 사용 후 off-device 보관으로 회수한다. Key/passphrase/복호화 payload를 CLI 로그·보고서·Git에 출력하지 않는다.
 
 ```bash
-docker compose --env-file .env.appliance -f compose.yml stop gateway-appliance
-sudo tar -C "$GATEWAY_DATA_DIR" -xzf "$BACKUP_PATH" gateway mesh
-sudo chmod 0700 "$GATEWAY_DATA_DIR/gateway"
-docker compose --env-file .env.appliance -f compose.yml up -d gateway-appliance
+BACKUP=/srv/led-control-backups/approved-backup
+RECIPIENT=/etc/led-control-backup/recipient.crt
+RECIPIENT_KEY=/run/led-control-recovery/recipient.key
+sudo /usr/local/lib/led-control/gateway-appliance-state.sh restore "$BACKUP" \
+  --recipient "$RECIPIENT" --key "$RECIPIENT_KEY" --policy-sha256 "$POLICY_SHA"
 ```
+
+복원은 두 번의 disposable 검증 뒤 shared lock을 잡고 같은 filesystem staging에서 네 root를 순서대로 rename한다. Partial swap/unhealthy 실패 시 모든 old root를 복원하고 health를 확인한다. `committed` decision 이후에만 rollback copy를 제거한다. Image pointers/site env/DB는 백업 대상이 아니며 source release로 자동 image downgrade나 state migration을 하지 않는다.
 
 ## 12. 장애 진단
 
 ```bash
 bluetoothctl show
 rfkill list bluetooth
-docker compose -f /opt/led-control/gateway/compose.yml ps
+docker ps --filter name=led-control-gateway
 docker logs --tail=200 led-control-gateway
 docker exec led-control-gateway dbus-send --system --print-reply \
   --dest=org.freedesktop.DBus /org/freedesktop/DBus \
@@ -350,23 +426,7 @@ docker exec led-control-gateway dbus-send --system --print-reply \
 - `legacy_timing_unverifiable`: Clock-untrusted Gateway가 delivery generation/remaining metadata가 없는 legacy timed wire를 받았다. Acceptance 뒤 fixture별 terminal failure를 기록하지만 RF와 manual state 생성은 수행하지 않는다. 같은 old payload를 재발행하지 말고 old publisher가 모두 종료됐는지 확인한 뒤 broker expiry 10초 drain을 다시 수행한다. 현장 clock trust를 복구하거나 새 API publisher가 만든 generation wire로 새 명령을 생성한다.
 - token/mesh DB 손상: 임의 재생성하지 말고 같은 시점 백업을 복원하거나 현장 전체를 명시적으로 재-provision한다.
 
-outbox 백업이 없어 복원이 불가능하면 담당 운영자의 데이터 유실 승인과 장애 기록이 필요하다. 컨테이너를 중지하고 현재 파일을 별도 보관한 뒤 **두 파일을 함께** 제거해야만 새 first-run으로 초기화할 수 있다. 이 절차는 미ACK 이벤트를 복구하지 못하며 API 통계에는 마지막 정상 상태 이후 구간이 unknown으로 남는다. 재시작 후 강제 resync 결과와 현장 조명 상태를 대조하기 전에는 제어·등록을 재개하지 않는다.
-
-```bash
-cd /opt/led-control/gateway
-set -a
-. ./.env.appliance
-set +a
-GATEWAY_DATA_DIR="${GATEWAY_DATA_DIR:-/opt/led-control/data}"
-docker compose --env-file .env.appliance -f compose.yml stop gateway-appliance
-sudo tar --ignore-failed-read -C "$GATEWAY_DATA_DIR/gateway" \
-  -czf "state-outbox-incident-$(date +%Y%m%d%H%M%S).tgz" \
-  state-event-outbox.json state-event-outbox.json.manifest.json
-sudo rm -f "$GATEWAY_DATA_DIR/gateway/state-event-outbox.json" \
-  "$GATEWAY_DATA_DIR/gateway/state-event-outbox.json.manifest.json"
-sudo chmod 0700 "$GATEWAY_DATA_DIR/gateway"
-docker compose --env-file .env.appliance -f compose.yml up -d gateway-appliance
-```
+검증된 encrypted backup이 없어 복원이 불가능하면 데이터 유실 승인과 별도 사고 대응 절차가 필요하다. 이 runbook은 plaintext tar, partial root 복사, outbox/manifest 삭제 또는 임의 re-provision을 복구 대체로 제공하지 않는다. 손상 상태는 approved encrypted forensic 절차로 보존하고, 공유 lock/journal과 unreadable baseline을 해결하기 전 제어·등록을 재개하지 않는다.
 
 ## 13. 양산 판정 관문
 

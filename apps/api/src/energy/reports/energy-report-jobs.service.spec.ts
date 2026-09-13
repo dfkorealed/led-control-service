@@ -17,7 +17,7 @@ const now = new Date("2026-09-10T00:00:00Z");
 function job(overrides: Record<string, unknown> = {}) {
   return { id: reportId, siteId, requestSnapshot: request, status: "queued", progressPercent: 0,
     createdAt: now, startedAt: null, completedAt: null, expiresAt: null, failureCode: null,
-    objectKey: null, format: "xlsx", objectDeletedAt: null, ...overrides };
+    objectKey: null, format: "xlsx", objectDeletedAt: null, targetLabelSnapshot: null, ...overrides };
 }
 function setup() {
   const prisma = { $transaction: jest.fn(), $queryRaw: jest.fn().mockResolvedValue([{ id: siteId }]),
@@ -36,6 +36,35 @@ function setup() {
 }
 
 describe("EnergyReportJobsService", () => {
+  it("captures the label in the enqueue transaction after the discarded preflight", async () => {
+    const { service, prisma, client } = setup();
+    prisma.site.findUniqueOrThrow.mockResolvedValueOnce({ id: siteId, name: "사전 조회 이름", timeZone: "UTC" })
+      .mockResolvedValue({ id: siteId, name: "접수 이름", timeZone: "UTC" });
+    try {
+      const result = await service.create(user, siteId, request, now);
+      expect(result).toMatchObject({ target: { scope: "site", identityId: siteId, label: "접수 이름" },
+        requestedAt: result.createdAt, failure: null });
+      expect(prisma.energyReportJob.create.mock.calls[0][0].data.targetLabelSnapshot).toBe("접수 이름");
+      expect(prisma.site.findUniqueOrThrow.mock.invocationCallOrder[1]).toBeGreaterThan(prisma.$queryRaw.mock.invocationCallOrder[0]);
+    } finally { client.destroy(); }
+  });
+
+  it.each(["detail", "list"] as const)("%s preserves a stored target and redacts unknown legacy failure text", async method => {
+    const { service, prisma, client } = setup();
+    const row = job({ targetLabelSnapshot: "삭제된 조명", requestSnapshot: { ...request, scope: "fixture", identityId: actorId },
+      status: "failed", startedAt: now, failureCode: "database password=private-token" });
+    prisma.energyReportJob.findFirst.mockResolvedValue(row as never);
+    prisma.energyReportJob.findMany.mockResolvedValue([row] as never);
+    try {
+      const result = method === "detail" ? await service.detail(user, siteId, reportId) : (await service.list(user, siteId)).reports[0];
+      expect(result).toMatchObject({ target: { scope: "fixture", identityId: actorId, label: "삭제된 조명" },
+        requestedAt: now.toISOString(), failureCode: "REPORT_GENERATION_FAILED",
+        failure: { code: "generation_failed", message: expect.any(String), action: expect.any(String) } });
+      expect(JSON.stringify(result)).not.toContain("private-token");
+      expect(prisma.site.findUniqueOrThrow).not.toHaveBeenCalled();
+    } finally { client.destroy(); }
+  });
+
   it("discards the read-only text preflight and persists only request/actor metadata for the worker", async () => {
     const { service, prisma, access, client } = setup();
     const result = await service.create(user, siteId, request, now);
