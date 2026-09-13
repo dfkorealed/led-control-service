@@ -32,9 +32,9 @@ bio-usb)
   esac
 
   # Docker group_add로 받은 숫자 GID는 image의 /etc/group에 없을 수 있다.
-  # initgroups를 다시 계산하지 않고 supplementary groups를 보존하며, Node에는
-  # root UID와 Linux capability를 넘기지 않는다.
-  exec setpriv --reuid gateway --regid gateway --keep-groups \
+  # 검증한 USB GID 하나만 supplementary group으로 다시 지정해 root group을
+  # 버린다. BIO overlay의 SETPCAP도 bounding-set과 함께 Node 실행 전에 제거한다.
+  exec setpriv --reuid gateway --regid gateway --groups "$BIO_GID" \
     --bounding-set=-all --inh-caps=-all --ambient-caps=-all \
     node /opt/led-control/gateway.mjs
   ;;

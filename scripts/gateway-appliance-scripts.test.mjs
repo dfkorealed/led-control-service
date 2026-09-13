@@ -28,6 +28,9 @@ test("deploy script는 image를 먼저 load하고 제조 identity 검증 뒤 Com
   assert.match(source, /seccomp-bluez-mesh\.json/);
   assert.doesNotMatch(source, /chown -R[^\n]*\$REMOTE_DIR/);
   assert.match(source, /install -d -m 0750/);
+  assert.doesNotMatch(source, /^\s*(?:source|\.)\s+[^\n]*\.env/m, "dotenv 파일을 shell source하면 안 된다");
+  assert.match(source, /read_compose_dotenv_value/);
+  assert.match(source, /capture_gateway_data_snapshot/);
 });
 
 test("deploy script는 실제 배포한 image 좌표를 appliance 환경 파일에 영속화한다", async () => {
@@ -64,8 +67,9 @@ test("deploy script는 bio-usb만 명시적으로 선택하고 rollback capture�
     /BIO_PREFLIGHT=\$\(env -u GATEWAY_BIO_USB_SYSFS_ROOT -u GATEWAY_BIO_USB_DEV_ROOT \/tmp\/gateway-bio-usb-preflight\.sh\)/
   );
   assert.ok(source.indexOf("\ncapture_rollback\n") < source.indexOf("BIO_PREFLIGHT=$("));
-  assert.ok(source.indexOf("BIO_PREFLIGHT=$(") < source.indexOf('docker compose "${COMPOSE_ARGS[@]}" up -d'));
+  assert.ok(source.indexOf("BIO_PREFLIGHT=$(") < source.indexOf("run_compose up -d"));
   assert.match(source, /up -d[^\n]*--force-recreate[^\n]*gateway-appliance/);
+  assert.match(source, /run_with_current_bio_device "\$BIO_DEVICE" "\$BIO_GID"/);
 });
 
 test("deploy script는 unknown adapter를 원격 작업 전에 거부한다", () => {

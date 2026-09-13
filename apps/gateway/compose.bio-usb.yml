@@ -8,3 +8,7 @@ services:
       - "${GATEWAY_BIO_USB_DEVICE}:${GATEWAY_BIO_USB_DEVICE}:rwm"
     group_add:
       - "${GATEWAY_BIO_USB_GID}"
+    # setpriv가 bounding set을 완전히 비우기 위한 bootstrap capability다.
+    # BIO entrypoint가 Node 실행 전에 제거하며 BlueZ 기본 compose에는 추가하지 않는다.
+    cap_add:
+      - SETPCAP

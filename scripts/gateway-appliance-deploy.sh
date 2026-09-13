@@ -41,6 +41,7 @@ scp \
   "$ROOT_DIR/apps/gateway/docker/seccomp-bluez-mesh.json" \
   "$ROOT_DIR/apps/gateway/.env.appliance.example" \
   "$ROOT_DIR/scripts/gateway-bio-usb-preflight.sh" \
+  "$ROOT_DIR/scripts/gateway-appliance-deploy-lib.sh" \
   "$TARGET:/tmp/"
 
 ssh "$TARGET" bash -s -- "$REMOTE_DIR" "$ARCHIVE_NAME" "$ADAPTER" <<'REMOTE'
@@ -48,6 +49,7 @@ set -euo pipefail
 REMOTE_DIR=$1
 ARCHIVE_NAME=$2
 ADAPTER=$3
+source /tmp/gateway-appliance-deploy-lib.sh
 cd "$REMOTE_DIR"
 
 capture_rollback() {
@@ -63,14 +65,17 @@ capture_rollback() {
   [ ! -f compose.bio-usb.yml ] || cp -p compose.bio-usb.yml "$rollback_dir/compose.bio-usb.yml"
   [ ! -f .env.appliance ] || cp -p .env.appliance "$rollback_dir/.env.appliance"
 
+  rollback_data_dir=/opt/led-control/data
   if [ -f .env.appliance ]; then
-    set -a
-    . ./.env.appliance
-    set +a
+    # Compose dotenv를 shell source하지 않는다. 공백/따옴표를 보존하되 데이터로만
+    # 읽으며, 누락되거나 상대 경로면 알려진 production 기본값으로 fail closed한다.
+    configured_data_dir=$(read_compose_dotenv_value .env.appliance GATEWAY_DATA_DIR 2>/dev/null || true)
+    if [[ "$configured_data_dir" = /* && "$configured_data_dir" != *$'\n'* ]]; then
+      rollback_data_dir=$configured_data_dir
+    fi
   fi
-  rollback_data_dir=${GATEWAY_DATA_DIR:-/opt/led-control/data}
   if [ -d "$rollback_data_dir/gateway" ] && [ -d "$rollback_data_dir/mesh" ]; then
-    tar -C "$rollback_data_dir" -czf "$rollback_dir/gateway-data.tgz" gateway mesh
+    capture_gateway_data_snapshot "$rollback_data_dir" "$rollback_dir/gateway-data.tgz"
   fi
   chmod -R go-rwx "$rollback_dir"
   printf 'Rollback capture: %s\n' "$rollback_dir"
@@ -98,6 +103,7 @@ mv /tmp/compose.bio-usb.yml "$REMOTE_DIR/compose.bio-usb.yml"
 mv /tmp/seccomp-bluez-mesh.json "$REMOTE_DIR/docker/seccomp-bluez-mesh.json"
 mv /tmp/.env.appliance.example "$REMOTE_DIR/.env.appliance.example"
 mv /tmp/gateway-bio-usb-preflight.sh "$REMOTE_DIR/gateway-bio-usb-preflight.sh"
+mv /tmp/gateway-appliance-deploy-lib.sh "$REMOTE_DIR/gateway-appliance-deploy-lib.sh"
 sha256sum -c "$ARCHIVE_NAME.sha256"
 docker image load --input "$ARCHIVE_NAME"
 
@@ -109,9 +115,16 @@ for file in device.crt device.key api-ca.crt mqtt-ca.crt; do
   sudo test -s "data/identity/device/current/$file" || { echo "제조 identity 누락: $REMOTE_DIR/data/identity/device/current/$file" >&2; exit 2; }
 done
 
-set -a
-. "./$ARCHIVE_NAME.env"
-set +a
+if ! GATEWAY_IMAGE_REPOSITORY=$(read_compose_dotenv_value "./$ARCHIVE_NAME.env" GATEWAY_IMAGE_REPOSITORY) ||
+   ! GATEWAY_IMAGE_TAG=$(read_compose_dotenv_value "./$ARCHIVE_NAME.env" GATEWAY_IMAGE_TAG); then
+  echo "Image archive metadata is missing or malformed" >&2
+  exit 2
+fi
+[[ "$GATEWAY_IMAGE_REPOSITORY" =~ ^[A-Za-z0-9][A-Za-z0-9./:_-]*$ &&
+   "$GATEWAY_IMAGE_TAG" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] || {
+  echo "Image archive metadata is invalid" >&2
+  exit 2
+}
 
 upsert_env_value() {
   key=$1
@@ -136,18 +149,29 @@ if [ "$ADAPTER" = bio-usb ]; then
   COMPOSE_ARGS+=(-f compose.bio-usb.yml)
   # USB bus/device 번호는 재연결마다 바뀔 수 있어 preflight 직후 Gateway
   # service 하나만 recreate한다. 다른 appliance state나 service는 건드리지 않는다.
-  docker compose "${COMPOSE_ARGS[@]}" up -d --no-deps --force-recreate gateway-appliance
+fi
+
+run_compose() {
+  if [ "$ADAPTER" = bio-usb ]; then
+    run_with_current_bio_device "$BIO_DEVICE" "$BIO_GID" docker compose "${COMPOSE_ARGS[@]}" "$@"
+  else
+    docker compose "${COMPOSE_ARGS[@]}" "$@"
+  fi
+}
+
+if [ "$ADAPTER" = bio-usb ]; then
+  run_compose up -d --no-deps --force-recreate gateway-appliance
 else
-  docker compose "${COMPOSE_ARGS[@]}" up -d --remove-orphans
+  run_compose up -d --remove-orphans
 fi
 
 for _ in $(seq 1 60); do
   STATUS=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}starting{{end}}' led-control-gateway 2>/dev/null || true)
-  [ "$STATUS" = healthy ] && { docker compose "${COMPOSE_ARGS[@]}" ps; exit 0; }
+  [ "$STATUS" = healthy ] && { run_compose ps; exit 0; }
   [ "$STATUS" = unhealthy ] && break
   sleep 2
 done
-docker compose "${COMPOSE_ARGS[@]}" ps
-docker compose "${COMPOSE_ARGS[@]}" logs --tail=100 gateway-appliance
+run_compose ps
+run_compose logs --tail=100 gateway-appliance
 exit 1
 REMOTE

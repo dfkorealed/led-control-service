@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import path from "node:path";
 import test from "node:test";
+import { promisify } from "node:util";
 
 const dockerDir = import.meta.dirname;
+const execFileAsync = promisify(execFile);
 
 test("appliance image는 고정된 BlueZ 5.82 소스를 검증해 빌드한다", async () => {
   const dockerfile = await readFile(path.join(dockerDir, "Dockerfile"), "utf8");
@@ -98,8 +100,39 @@ test("BIO entrypoint는 raw USB identity와 supplemental group을 재검증하�
   assert.match(bioBranch, /gateway-bio-usb-preflight/);
   assert.match(bioBranch, /GATEWAY_BIO_USB_DEVICE/);
   assert.match(bioBranch, /GATEWAY_BIO_USB_GID/);
-  assert.match(bioBranch, /setpriv[\s\S]*--reuid gateway[\s\S]*--regid gateway[\s\S]*--keep-groups[\s\S]*node \/opt\/led-control\/gateway\.mjs/);
+  assert.match(bioBranch, /setpriv[\s\S]*--reuid gateway[\s\S]*--regid gateway[\s\S]*--groups "\$BIO_GID"[\s\S]*node \/opt\/led-control\/gateway\.mjs/);
+  assert.doesNotMatch(bioBranch, /--keep-groups/);
   assert.doesNotMatch(bioBranch, /dbus-daemon|dbus-send|btmgmt|bluetooth-meshd|generic:hci|\/sys\/class\/bluetooth/);
+});
+
+test("BIO privilege transition은 USB group만 남기고 Node의 capability 집합을 모두 비운다", async () => {
+  const { stdout } = await execFileAsync("docker", [
+    "run", "--rm",
+    "--cap-drop", "ALL",
+    "--cap-add", "SETUID",
+    "--cap-add", "SETGID",
+    "--cap-add", "SETPCAP",
+    "--group-add", "812",
+    "--security-opt", "no-new-privileges:true",
+    "--entrypoint", "setpriv",
+    "node:22-bookworm-slim",
+    "--reuid", "65532",
+    "--regid", "65532",
+    "--groups", "812",
+    "--bounding-set=-all",
+    "--inh-caps=-all",
+    "--ambient-caps=-all",
+    "--", "sh", "-c",
+    "id -u; id -G; grep -E '^(Cap(Inh|Prm|Eff|Bnd|Amb)|NoNewPrivs):' /proc/self/status"
+  ]);
+  const lines = stdout.trim().split("\n");
+
+  assert.equal(lines[0], "65532");
+  assert.equal(lines[1], "65532 812");
+  for (const field of ["CapInh", "CapPrm", "CapEff", "CapBnd", "CapAmb"]) {
+    assert.match(stdout, new RegExp(`^${field}:\\s+0{16}$`, "m"));
+  }
+  assert.match(stdout, /^NoNewPrivs:\s+1$/m);
 });
 
 test("BlueZ entrypoint는 기존 D-Bus, HCI reset, bluetooth-meshd 시작을 유지한다", async () => {

@@ -10,11 +10,25 @@ EXPECTED_VENDOR=1a86
 EXPECTED_PRODUCT=5523
 matches=()
 
+read_sysfs_value() {
+  local value
+  IFS= read -r value < "$1" || return 1
+  printf '%s' "$value"
+}
+
 shopt -s nullglob
 for candidate in "$SYSFS_ROOT"/*; do
   [ -f "$candidate/idVendor" ] && [ -f "$candidate/idProduct" ] || continue
-  vendor=$(tr '[:upper:]' '[:lower:]' < "$candidate/idVendor")
-  product=$(tr '[:upper:]' '[:lower:]' < "$candidate/idProduct")
+  if ! vendor=$(read_sysfs_value "$candidate/idVendor" 2>/dev/null); then
+    echo "BIO_USB_PREFLIGHT_SYSFS_READ_FAILED" >&2
+    exit 1
+  fi
+  if ! product=$(read_sysfs_value "$candidate/idProduct" 2>/dev/null); then
+    echo "BIO_USB_PREFLIGHT_SYSFS_READ_FAILED" >&2
+    exit 1
+  fi
+  vendor=$(printf '%s' "$vendor" | tr '[:upper:]' '[:lower:]')
+  product=$(printf '%s' "$product" | tr '[:upper:]' '[:lower:]')
   if [ "$vendor" = "$EXPECTED_VENDOR" ] && [ "$product" = "$EXPECTED_PRODUCT" ]; then
     matches+=("$candidate")
   fi
@@ -26,9 +40,14 @@ if [ "${#matches[@]}" -ne 1 ]; then
 fi
 
 sysfs_device=${matches[0]}
-bus=$(<"$sysfs_device/busnum")
-device=$(<"$sysfs_device/devnum")
-sysfs_dev=$(<"$sysfs_device/dev")
+# Redirection 오류에는 sysfs basename이 포함될 수 있으므로 하위 stderr를 버리고
+# 외부에는 고정 code만 보낸다. TOCTOU로 파일이 사라져도 raw topology는 숨긴다.
+if ! bus=$(read_sysfs_value "$sysfs_device/busnum" 2>/dev/null) ||
+   ! device=$(read_sysfs_value "$sysfs_device/devnum" 2>/dev/null) ||
+   ! sysfs_dev=$(read_sysfs_value "$sysfs_device/dev" 2>/dev/null); then
+  echo "BIO_USB_PREFLIGHT_SYSFS_READ_FAILED" >&2
+  exit 1
+fi
 [[ "$bus" =~ ^[0-9]+$ && "$device" =~ ^[0-9]+$ && "$sysfs_dev" =~ ^[0-9]+:[0-9]+$ ]] || {
   echo "BIO USB sysfs metadata is invalid" >&2
   exit 1
@@ -44,7 +63,10 @@ device_path="$DEV_ROOT/$bus_padded/$device_padded"
 
 # GNU stat의 type/major/minor/GID를 한 번에 읽어 node 교체 경합과 일반 파일
 # 대체를 함께 차단한다. sysfs의 dev 번호까지 같아야 descriptor와 node가 같다.
-stat_value=$(stat -c '%F|%t|%T|%g' "$device_path")
+if ! stat_value=$(stat -c '%F|%t|%T|%g' "$device_path" 2>/dev/null); then
+  echo "BIO_USB_PREFLIGHT_STAT_FAILED" >&2
+  exit 1
+fi
 IFS='|' read -r file_type major_hex minor_hex device_gid <<< "$stat_value"
 [[ "$file_type" = "character special file" && "$major_hex" =~ ^[0-9a-fA-F]+$ && "$minor_hex" =~ ^[0-9a-fA-F]+$ ]] || {
   echo "BIO USB node is not a character device" >&2

@@ -46,10 +46,16 @@ test("BIO overlay는 계산된 raw USB node 하나와 숫자 supplemental group�
     assert.equal(service.environment.GATEWAY_ADAPTER, "bio-usb");
     assert.equal(service.environment.GATEWAY_BIO_USB_DEVICE, "/dev/bus/usb/002/007");
     assert.equal(service.environment.GATEWAY_BIO_USB_GID, "812");
+    assert.ok(service.cap_add.includes("SETPCAP"));
     assert.equal(service.volumes.some((volume) => volume.source === "/dev" || volume.source === "/dev/bus/usb"), false);
   } finally {
     await rm(fixture, { recursive: true, force: true });
   }
+});
+
+test("BIO 전용 SETPCAP bootstrap은 기본 BlueZ compose capability를 바꾸지 않는다", async () => {
+  const compose = await readFile(path.join(gatewayDir, "compose.raspberry-pi.yml"), "utf8");
+  assert.doesNotMatch(compose, /- SETPCAP\b/);
 });
 
 test("BlueZ Mesh seccomp profile은 Docker 기본 차단을 유지하고 AF_ALG만 추가 허용한다", async () => {

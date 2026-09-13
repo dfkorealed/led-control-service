@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -46,6 +46,33 @@ test("preflight는 숫자가 아닌 device GID를 거부한다", async () => {
   });
 });
 
+test("preflight는 sysfs TOCTOU read 실패에 raw path를 노출하지 않는다", async () => {
+  await withFixture(async (fixture) => {
+    const deviceRoot = await fixture.addUsb("sensitive-device-name", {
+      vendor: "1a86", product: "5523", bus: "1", device: "2", dev: "189:1"
+    });
+    await unlink(path.join(deviceRoot, "busnum"));
+    const result = fixture.run();
+
+    assert.notEqual(result.status, 0);
+    assert.equal(result.stderr, "BIO_USB_PREFLIGHT_SYSFS_READ_FAILED\n");
+    assert.doesNotMatch(result.stderr, /sensitive-device-name|bio-usb-preflight-/);
+  });
+});
+
+test("preflight는 stat 실패의 raw command/path stderr를 억제한다", async () => {
+  await withFixture(async (fixture) => {
+    await fixture.addUsb("sensitive-device-name", {
+      vendor: "1a86", product: "5523", bus: "1", device: "2", dev: "189:1"
+    });
+    const result = fixture.run({ statFailure: true });
+
+    assert.notEqual(result.status, 0);
+    assert.equal(result.stderr, "BIO_USB_PREFLIGHT_STAT_FAILED\n");
+    assert.doesNotMatch(result.stderr, /sensitive-device-name|bio-usb-preflight-/);
+  });
+});
+
 async function withFixture(callback) {
   const fixtureRoot = await mkdtemp(path.join(os.tmpdir(), "bio-usb-preflight-"));
   const sysfsRoot = path.join(fixtureRoot, "sysfs");
@@ -53,7 +80,15 @@ async function withFixture(callback) {
   const binRoot = path.join(fixtureRoot, "bin");
   await Promise.all([mkdir(sysfsRoot), mkdir(devRoot), mkdir(binRoot)]);
   const stat = path.join(binRoot, "stat");
-  await writeFile(stat, "#!/bin/sh\nprintf '%s\\n' \"${BIO_TEST_STAT:-character special file|bd|1|812}\"\n");
+  await writeFile(stat, [
+    "#!/bin/sh",
+    'if [ "${BIO_TEST_STAT_FAIL:-0}" = 1 ]; then',
+    '  printf \'stat leaked args: %s\\n\' "$*" >&2',
+    "  exit 9",
+    "fi",
+    'printf \'%s\\n\' "${BIO_TEST_STAT:-character special file|bd|1|812}"',
+    ""
+  ].join("\n"));
   await chmod(stat, 0o755);
 
   const fixture = {
@@ -70,8 +105,9 @@ async function withFixture(callback) {
         writeFile(path.join(deviceRoot, "dev"), `${dev}\n`),
         writeFile(path.join(nodeDirectory, String(device).padStart(3, "0")), "fixture")
       ]);
+      return deviceRoot;
     },
-    run({ stat: statOutput } = {}) {
+    run({ stat: statOutput, statFailure = false } = {}) {
       return spawnSync(script, [], {
         encoding: "utf8",
         env: {
@@ -79,6 +115,7 @@ async function withFixture(callback) {
           PATH: `${binRoot}:${process.env.PATH}`,
           GATEWAY_BIO_USB_SYSFS_ROOT: sysfsRoot,
           GATEWAY_BIO_USB_DEV_ROOT: devRoot,
+          BIO_TEST_STAT_FAIL: statFailure ? "1" : "0",
           ...(statOutput ? { BIO_TEST_STAT: statOutput } : {})
         }
       });
