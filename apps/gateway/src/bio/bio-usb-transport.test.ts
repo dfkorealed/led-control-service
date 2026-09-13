@@ -609,9 +609,10 @@ describe("BioUsbTransport", () => {
     await flush();
     device.receive("47530100fe");
     await first;
+    const queuedWriteStarts: string[] = [];
     const queued = settled(value.transport.request(
       { command: 0, payload: hex("01") },
-      { deadlineAt: Date.now() + 10 }
+      { deadlineAt: Date.now() + 10, onWriteStarted: () => queuedWriteStarts.push("started") }
     ));
     try {
       await vi.advanceTimersByTimeAsync(10);
@@ -619,11 +620,28 @@ describe("BioUsbTransport", () => {
       releaseWrite();
       await flush();
       expect(device.writes).toEqual(["4753820000", "47530000ff"]);
+      expect(queuedWriteStarts).toEqual([]);
     } finally {
       releaseWrite?.();
       await value.transport.stop();
     }
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("reports physical write ownership only when connection.write is actually invoked", async () => {
+    const value = harness(); await ready(value);
+    const started: string[] = [];
+    const request = value.transport.request(
+      { command: 0, payload: Buffer.alloc(0) },
+      { onWriteStarted: () => started.push("started") }
+    );
+    await flush();
+
+    expect(value.devices[0].writes).toEqual(["4753820000", "47530000ff"]);
+    expect(started).toEqual(["started"]);
+    value.devices[0].receive("47530100fe");
+    await request;
+    await value.transport.stop();
   });
 
   it.each(["timeout", "malformed", "disconnect", "write-error"])("retires %s generation and rejects queued writes without replay after reconnect", async (failure) => {

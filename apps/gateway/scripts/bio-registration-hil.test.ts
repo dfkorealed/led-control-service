@@ -1,5 +1,10 @@
+import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { BioAddressConflictError } from "../src/bio/bio-dongle-client";
 import {
   decodePassiveHilObservation,
   fingerprintBioUuid,
@@ -41,11 +46,13 @@ function harness(observations: HilDiscoveredDevice[] = [device]) {
     discoverFresh: vi.fn(async () => [device]),
     reserveTemporaryMapping: vi.fn(async () => undefined),
     confirmTemporaryMapping: vi.fn(async () => undefined),
-    assignAddressOnce: vi.fn(async () => ({ outcome: "confirmed" as const, device: { ...device, logicalAddress: 0x0100 } })),
+    assignAddressOnce: vi.fn(async (_device, _newAddress, control) => {
+      control?.onWriteStarted?.();
+      return { outcome: "confirmed" as const, device: { ...device, logicalAddress: 0x0100 } };
+    }),
     readState: vi.fn(async () => ({ brightnessPercent: 60, mode: "sensor" as const })),
-    setOutput: vi.fn(async () => undefined),
+    setOutput: vi.fn(async (_device, _percent, control) => { control?.onWriteStarted?.(); }),
     restoreSensorMode: vi.fn(async () => undefined),
-    restartAndRecover: vi.fn(async () => undefined),
     close: vi.fn(async () => undefined)
   };
   const dependencies: BioRegistrationHilDependencies = {
@@ -169,40 +176,58 @@ describe("guarded BIO registration HIL CLI", () => {
     expect(JSON.parse(h.output[0])).toMatchObject({ status: "FAILED", errors: ["CONFIRMATION_MISMATCH"] });
   });
 
-  it("uses only a temporary mapping, assigns once, verifies getters and every output, and restores sensor mode", async () => {
+  it("uses only a temporary mapping, assigns once, verifies phase-one getters and outputs, and restores sensor mode", async () => {
     const h = harness();
     const request = confirmation();
 
-    expect(await runBioRegistrationHil(request.args, h.dependencies)).toBe(0);
+    expect(await runBioRegistrationHil(request.args, h.dependencies)).toBe(4);
 
     expect(h.dependencies.createTemporaryMapping).toHaveBeenCalledTimes(1);
     expect(h.dependencies.createWritableSession).toHaveBeenCalledWith("/tmp/bio-registration-hil-test/mappings.json");
     expect(h.writer.discoverFresh).toHaveBeenCalledTimes(1);
     expect(h.writer.reserveTemporaryMapping).toHaveBeenCalledWith(device, 0x0100);
     expect(h.writer.assignAddressOnce).toHaveBeenCalledTimes(1);
-    expect(h.writer.assignAddressOnce).toHaveBeenCalledWith(device, 0x0100);
+    expect(h.writer.assignAddressOnce).toHaveBeenCalledWith(device, 0x0100, expect.objectContaining({
+      onWriteStarted: expect.any(Function)
+    }));
     expect(h.writer.confirmTemporaryMapping).toHaveBeenCalledWith(expect.objectContaining({ logicalAddress: 0x0100 }));
-    expect(h.writer.readState).toHaveBeenCalledWith(expect.objectContaining({ logicalAddress: 0x0100 }));
-    expect(h.writer.setOutput).toHaveBeenCalledTimes(6);
-    expect(h.writer.setOutput).toHaveBeenNthCalledWith(1, expect.objectContaining({ logicalAddress: 0x0100 }), 0);
-    expect(h.writer.setOutput).toHaveBeenNthCalledWith(2, expect.anything(), 20);
-    expect(h.writer.setOutput).toHaveBeenNthCalledWith(3, expect.anything(), 60);
-    expect(h.writer.setOutput).toHaveBeenNthCalledWith(4, expect.anything(), 90);
-    expect(h.writer.setOutput).toHaveBeenNthCalledWith(5, expect.anything(), 100);
-    expect(h.writer.setOutput).toHaveBeenNthCalledWith(6, expect.anything(), 20);
-    expect(h.dependencies.confirmVisualStep).toHaveBeenCalledTimes(6);
-    expect(h.writer.restartAndRecover).toHaveBeenCalledTimes(1);
-    expect(h.writer.restoreSensorMode).toHaveBeenCalledTimes(7);
+    expect(h.writer.readState).toHaveBeenCalledWith(
+      expect.objectContaining({ logicalAddress: 0x0100 }),
+      expect.any(AbortSignal)
+    );
+    expect(h.writer.setOutput).toHaveBeenCalledTimes(5);
+    expect(h.writer.setOutput).toHaveBeenNthCalledWith(1, expect.objectContaining({ logicalAddress: 0x0100 }), 0, expect.anything());
+    expect(h.writer.setOutput).toHaveBeenNthCalledWith(2, expect.anything(), 20, expect.anything());
+    expect(h.writer.setOutput).toHaveBeenNthCalledWith(3, expect.anything(), 60, expect.anything());
+    expect(h.writer.setOutput).toHaveBeenNthCalledWith(4, expect.anything(), 90, expect.anything());
+    expect(h.writer.setOutput).toHaveBeenNthCalledWith(5, expect.anything(), 100, expect.anything());
+    expect(h.dependencies.confirmVisualStep).toHaveBeenCalledTimes(5);
+    expect(h.writer.restoreSensorMode).toHaveBeenCalledTimes(6);
     expect(h.writer.close).toHaveBeenCalledTimes(1);
     expect(h.dependencies.removeTemporaryMapping).toHaveBeenCalledTimes(1);
     expect(JSON.parse(h.output[0])).toEqual({
-      status: "HIL_WRITE_SEQUENCE_COMPLETED",
+      status: "PROCESS_RESTART_DRIVER_REQUIRED",
+      completedPhase: "ADDRESS_AND_OUTPUT_VALIDATION",
       fingerprint: request.fingerprint,
       oldAddress: "0x1234",
       newAddress: "0x0100",
       networkId: "0x0021",
       temporaryMapping: "REMOVED",
+      step7: "INCOMPLETE",
       multiDeviceGroup: "DEFERRED_INSUFFICIENT_HARDWARE"
+    });
+  });
+
+  it("stops after the first process phase instead of simulating a Gateway restart in one process", async () => {
+    const h = harness();
+
+    expect(await runBioRegistrationHil(confirmation().args, h.dependencies)).toBe(4);
+
+    expect(h.writer.setOutput).toHaveBeenCalledTimes(5);
+    expect(JSON.parse(h.output[0])).toMatchObject({
+      status: "PROCESS_RESTART_DRIVER_REQUIRED",
+      completedPhase: "ADDRESS_AND_OUTPUT_VALIDATION",
+      temporaryMapping: "REMOVED"
     });
   });
 
@@ -220,11 +245,27 @@ describe("guarded BIO registration HIL CLI", () => {
     expect(JSON.parse(h.output[0])).toMatchObject({ status: "FAILED", errors: ["TEMP_MAPPING_PATH_FORBIDDEN"] });
   });
 
+  it("does not send a sensor restore when fresh identity validation fails before any state write", async () => {
+    const h = harness();
+    h.writer.discoverFresh = vi.fn(async () => [{ ...device, logicalAddress: 0x1235 }]);
+
+    expect(await runBioRegistrationHil(confirmation().args, h.dependencies)).toBe(1);
+
+    expect(h.writer.assignAddressOnce).not.toHaveBeenCalled();
+    expect(h.writer.restoreSensorMode).not.toHaveBeenCalled();
+    expect(h.writer.close).toHaveBeenCalledTimes(1);
+    expect(h.dependencies.removeTemporaryMapping).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(h.output[0])).toMatchObject({ status: "FAILED", errors: ["FRESH_DISCOVERY_MISMATCH"] });
+  });
+
   it.each(["unchanged", "unknown"] as const)("never retries when one assignment reconciles as %s", async (outcome) => {
     const h = harness();
-    h.writer.assignAddressOnce = vi.fn(async () => outcome === "unchanged"
-      ? { outcome, device }
-      : { outcome, code: "BIO_ADDRESS_STATE_UNKNOWN" as const });
+    h.writer.assignAddressOnce = vi.fn(async (_device, _newAddress, control) => {
+      control?.onWriteStarted?.();
+      return outcome === "unchanged"
+        ? { outcome, device }
+        : { outcome, code: "BIO_ADDRESS_STATE_UNKNOWN" as const, safeRestoreDevices: [device, { ...device, logicalAddress: 0x0100 }] };
+    });
 
     expect(await runBioRegistrationHil(confirmation().args, h.dependencies)).toBe(1);
 
@@ -240,6 +281,65 @@ describe("guarded BIO registration HIL CLI", () => {
     expect(JSON.parse(h.output[0])).toMatchObject({ status: "FAILED", errors: ["BIO_ADDRESS_STATE_UNKNOWN"] });
   });
 
+  it("does not restore when cancellation wins before the address frame owns a physical write", async () => {
+    const h = harness();
+    h.writer.assignAddressOnce = vi.fn(async () => { throw new DOMException("cancelled", "AbortError"); });
+
+    expect(await runBioRegistrationHil(confirmation().args, h.dependencies)).toBe(1);
+
+    expect(h.writer.restoreSensorMode).not.toHaveBeenCalled();
+    expect(JSON.parse(h.output[0])).toMatchObject({ status: "FAILED", errors: ["CANCELLED"] });
+  });
+
+  it("rejects a claimed assignment outcome when no physical address write was observed", async () => {
+    const h = harness();
+    h.writer.assignAddressOnce = vi.fn(async () => ({
+      outcome: "confirmed" as const,
+      device: { ...device, logicalAddress: 0x0100 }
+    }));
+
+    expect(await runBioRegistrationHil(confirmation().args, h.dependencies)).toBe(1);
+
+    expect(h.writer.setOutput).not.toHaveBeenCalled();
+    expect(h.writer.restoreSensorMode).not.toHaveBeenCalled();
+    expect(JSON.parse(h.output[0])).toMatchObject({
+      status: "FAILED",
+      errors: ["ADDRESS_WRITE_OWNERSHIP_MISSING"]
+    });
+  });
+
+  it("restores only the proven old identity when the requested address collides after assignment", async () => {
+    const h = harness();
+    h.writer.assignAddressOnce = vi.fn(async (_device, _newAddress, control) => {
+      control?.onWriteStarted?.();
+      throw new BioAddressConflictError([{
+        ...device,
+        deviceUuid: `bio:${device.nativeUuid}`
+      }]);
+    });
+
+    expect(await runBioRegistrationHil(confirmation().args, h.dependencies)).toBe(1);
+
+    expect(h.writer.restoreSensorMode).toHaveBeenCalledTimes(1);
+    expect(h.writer.restoreSensorMode).toHaveBeenCalledWith(device);
+    expect(h.writer.restoreSensorMode).not.toHaveBeenCalledWith(expect.objectContaining({ logicalAddress: 0x0100 }));
+  });
+
+  it("does not trust unbranded collision metadata as authority for a restore write", async () => {
+    const h = harness();
+    h.writer.assignAddressOnce = vi.fn(async (_device, _newAddress, control) => {
+      control?.onWriteStarted?.();
+      throw Object.assign(new Error("untrusted collision metadata"), {
+        code: "BIO_ADDRESS_CONFLICT",
+        safeRestoreDevices: [device]
+      });
+    });
+
+    expect(await runBioRegistrationHil(confirmation().args, h.dependencies)).toBe(1);
+
+    expect(h.writer.restoreSensorMode).not.toHaveBeenCalled();
+  });
+
   it("preserves primary, sensor-restore, close, and temporary-cleanup failures without leaking messages", async () => {
     const h = harness();
     h.writer.readState = vi.fn(async () => { throw Object.assign(new Error(`uuid=${device.nativeUuid}`), { code: "READBACK_FAILED" }); });
@@ -252,9 +352,132 @@ describe("guarded BIO registration HIL CLI", () => {
     expect(JSON.parse(h.output[0])).toEqual({
       status: "FAILED",
       errors: ["READBACK_FAILED", "RESTORE_FAILED", "CLOSE_FAILED", "TEMP_CLEANUP_FAILED"],
-      temporaryMapping: "CLEANUP_UNCONFIRMED"
+      temporaryMapping: "RETAINED"
     });
     expect(h.output[0]).not.toMatch(/001122334455|deadbeef|\/dev\/bus|secret|payload|descriptor/i);
+  });
+
+  it("preserves an output primary failure before step restore, final restore, close, and cleanup failures", async () => {
+    const h = harness();
+    h.writer.setOutput = vi.fn(async (_device, _percent, control) => {
+      control?.onWriteStarted?.();
+      throw Object.assign(new Error("primary"), { code: "OUTPUT_FAILED" });
+    });
+    h.writer.restoreSensorMode = vi.fn(async () => { throw Object.assign(new Error("restore"), { code: "RESTORE_FAILED" }); });
+    h.writer.close = vi.fn(async () => { throw Object.assign(new Error("close"), { code: "CLOSE_FAILED" }); });
+    h.dependencies.removeTemporaryMapping = vi.fn(async () => { throw Object.assign(new Error("busy"), { code: "EBUSY" }); });
+
+    expect(await runBioRegistrationHil(confirmation().args, h.dependencies)).toBe(1);
+
+    expect(JSON.parse(h.output[0])).toEqual({
+      status: "FAILED",
+      errors: ["OUTPUT_FAILED", "RESTORE_FAILED", "RESTORE_FAILED", "CLOSE_FAILED", "TEMP_CLEANUP_FAILED"],
+      temporaryMapping: "RETAINED"
+    });
+  });
+
+  it.each(["SIGINT", "SIGTERM"] as const)("keeps repeated %s inside a real child until restore, close, and cleanup complete", async (terminationSignal) => {
+    const directory = await mkdtemp(join(tmpdir(), "bio-hil-signal-test-"));
+    const childPath = join(directory, "child.mts");
+    const moduleUrl = new URL("./bio-registration-hil.ts", import.meta.url).href;
+    await writeFile(childPath, `
+      import { runBioRegistrationHil } from ${JSON.stringify(moduleUrl)};
+      const device = { nativeUuid: "001122334455", logicalAddress: 0x1234, networkId: 0x21, firmwareVersion: "1", rssi: -1 };
+      const writer = {
+        discoverFresh: async () => [device], reserveTemporaryMapping: async () => {},
+        assignAddressOnce: async (_device, _address, control) => {
+          control?.onWriteStarted?.();
+          return { outcome: "confirmed", device: { ...device, logicalAddress: 0x0100 } };
+        },
+        confirmTemporaryMapping: async () => {}, readState: async () => ({ brightnessPercent: 20, mode: "sensor" }),
+        setOutput: async (_device, percent, control) => { control?.onWriteStarted?.(); console.log("OUTPUT:" + percent); },
+        restoreSensorMode: async () => { console.log("RESTORE"); },
+        close: async () => { console.log("CLOSE"); }
+      };
+      const code = await runBioRegistrationHil([
+        "--execute", "--fingerprint", "sha256:48f4634d1002f9f3", "--old-address", "0x1234",
+        "--new-address", "0x0100", "--confirm-address-change", "CHANGE:sha256:48f4634d1002f9f3:0x1234->0x0100"
+      ], {
+        createReadOnlySession: () => ({ discover: async () => [device], close: async () => {} }),
+        createWritableSession: async () => writer,
+        createTemporaryMapping: async () => ({ directory: "/tmp/bio-registration-hil-child", path: "/tmp/bio-registration-hil-child/mappings.json" }),
+        removeTemporaryMapping: async () => { console.log("CLEANUP"); },
+        confirmVisualStep: async (_percent, signal) => {
+          console.log("PROMPT");
+          await new Promise((_, reject) => signal.addEventListener("abort", () => reject(new DOMException("cancelled", "AbortError")), { once: true }));
+          return false;
+        },
+        output: (line) => console.log("RESULT:" + line)
+      });
+      console.log("EXIT:" + code);
+      process.exitCode = code;
+    `, { mode: 0o600 });
+
+    const child = spawn(process.execPath, ["--import", "tsx", childPath], {
+      cwd: new URL("..", import.meta.url).pathname,
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+      if (stdout.includes("PROMPT") && !stdout.includes("SIGNALLED")) {
+        stdout += "SIGNALLED\n";
+        child.kill(terminationSignal);
+        child.kill(terminationSignal);
+      }
+    });
+    const result = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolveResult, reject) => {
+      const timeout = setTimeout(() => { child.kill("SIGKILL"); reject(new Error("signal child timed out")); }, 10_000);
+      child.once("close", (code, signal) => { clearTimeout(timeout); resolveResult({ code, signal }); });
+    });
+    await rm(directory, { recursive: true, force: true });
+
+    expect({ ...result, stderr }).toEqual({ code: 1, signal: null, stderr: "" });
+    expect(stdout).toContain("RESTORE");
+    expect(stdout).toContain("CLOSE");
+    expect(stdout).toContain("CLEANUP");
+    expect(stdout).toContain('RESULT:{"status":"FAILED"');
+    expect(stdout).toContain("EXIT:1");
+    expect(stdout.match(/OUTPUT:/g)).toHaveLength(1);
+  }, 15_000);
+
+  it("bounds hanging restoration, close, and temporary cleanup after cancellation", async () => {
+    const h = harness();
+    const never = () => new Promise<void>(() => {});
+    h.writer.setOutput = vi.fn(async (_device, _percent, control) => {
+      control?.onWriteStarted?.();
+      throw Object.assign(new Error("cancelled"), { code: "STOPPED" });
+    });
+    h.writer.restoreSensorMode = vi.fn(never);
+    h.writer.close = vi.fn(never);
+    h.dependencies.removeTemporaryMapping = vi.fn(never);
+    h.dependencies.cleanupTimeoutMs = 5;
+
+    expect(await runBioRegistrationHil(confirmation().args, h.dependencies)).toBe(1);
+
+    expect(JSON.parse(h.output[0])).toEqual({
+      status: "FAILED",
+      errors: ["STOPPED", "RESTORE_TIMEOUT", "RESTORE_TIMEOUT", "CLOSE_TIMEOUT", "TEMP_CLEANUP_FAILED"],
+      temporaryMapping: "RETAINED"
+    });
+  });
+
+  it("bounds a hanging read-only client close while preserving the discovery cancellation", async () => {
+    const h = harness();
+    h.readonlySession.discover = vi.fn(async () => { throw Object.assign(new Error("cancelled"), { code: "STOPPED" }); });
+    h.readonlySession.close = vi.fn(() => new Promise<void>(() => {}));
+    h.dependencies.cleanupTimeoutMs = 5;
+
+    expect(await runBioRegistrationHil(["--dry-run"], h.dependencies)).toBe(1);
+
+    expect(JSON.parse(h.output[0])).toEqual({
+      status: "FAILED",
+      errors: ["STOPPED", "CLOSE_TIMEOUT"]
+    });
   });
 
   it("does not expose factory-reset, password, arbitrary frame, or raw identity options", () => {

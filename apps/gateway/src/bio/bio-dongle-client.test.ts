@@ -517,6 +517,23 @@ describe("BIO evidence-gated dongle client", () => {
     await h.client.close();
   });
 
+  it("reports only collision-free target UUID observations as safe restoration identities", async () => {
+    const h = harness(75, { scanDurationMs: 100 }); await ready(h);
+    const reconciling = h.client.reconcileAddress("bio:001122334455", 0x1234, 0x2345);
+    void reconciling.catch(() => {});
+    await drivePendingScan(h, [
+      discoveryHex("001122334455", 0x1234),
+      discoveryHex("001122334455", 0x2345),
+      discoveryHex("aabbccddeeff", 0x2345)
+    ]);
+
+    await expect(reconciling).rejects.toMatchObject({
+      code: "BIO_ADDRESS_CONFLICT",
+      safeRestoreDevices: [{ nativeUuid: "001122334455", logicalAddress: 0x1234 }]
+    });
+    await h.client.close();
+  });
+
   it("reconciles old-only before retrying the same assignment once, then confirms new-only evidence", async () => {
     const h = harness(75, { scanDurationMs: 100 }); await ready(h);
     await finishScan(h, [discoveryHex("001122334455", 0x1234)]);
@@ -551,6 +568,42 @@ describe("BIO evidence-gated dongle client", () => {
       device: { logicalAddress: 0x1234 }
     });
     expect(commandBodies(h.device).filter((body) => body.startsWith("b881"))).toHaveLength(1);
+    await h.client.close();
+  });
+
+  it("returns both collision-free target observations for unknown address reconciliation", async () => {
+    const h = harness(75, { scanDurationMs: 100 }); await ready(h);
+    await finishScan(h, [discoveryHex("001122334455", 0x1234)]);
+    const assigning = h.client.assignAddressOnce("bio:001122334455", 0x2345);
+    await flush();
+    h.device.receive("55aa1101002055");
+    await drivePendingScan(h, [
+      discoveryHex("001122334455", 0x1234),
+      discoveryHex("001122334455", 0x2345)
+    ]);
+
+    await expect(assigning).resolves.toMatchObject({
+      outcome: "unknown",
+      safeRestoreDevices: [
+        { nativeUuid: "001122334455", logicalAddress: 0x1234 },
+        { nativeUuid: "001122334455", logicalAddress: 0x2345 }
+      ]
+    });
+    await h.client.close();
+  });
+
+  it("returns every checksum-validated scan observation before UUID deduplication", async () => {
+    const h = harness(75, { scanDurationMs: 100 }); await ready(h);
+    const scanning = h.client.scanObservations();
+    await drivePendingScan(h, [
+      discoveryHex("001122334455", 0x1234, -41),
+      discoveryHex("001122334455", 0x2345, -50)
+    ]);
+
+    await expect(scanning).resolves.toMatchObject([
+      { nativeUuid: "001122334455", logicalAddress: 0x1234, rssi: -41 },
+      { nativeUuid: "001122334455", logicalAddress: 0x2345, rssi: -50 }
+    ]);
     await h.client.close();
   });
 

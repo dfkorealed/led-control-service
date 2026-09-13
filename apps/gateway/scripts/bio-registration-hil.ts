@@ -6,6 +6,7 @@ import { createInterface } from "node:readline/promises";
 import { pathToFileURL } from "node:url";
 import { BioDeviceMappingStore } from "../src/bio/bio-device-mapping-store";
 import {
+  BioAddressConflictError,
   BioDongleClient,
   type BioAddressAssignmentResult,
   type BioDiscoveredDevice,
@@ -19,6 +20,7 @@ import { BioUsbTransport } from "../src/bio/bio-usb-transport";
 
 const DEFAULT_TIMEOUT_MS = 3_000;
 const PASSIVE_DISCOVERY_MS = 5_000;
+const CLEANUP_TIMEOUT_MS = 10_000;
 const OUTPUT_STEPS = [0, 20, 60, 90, 100] as const;
 
 export interface HilDiscoveredDevice {
@@ -30,19 +32,26 @@ export interface HilDiscoveredDevice {
 }
 
 export interface HilReadOnlySession {
-  discover(): Promise<HilDiscoveredDevice[]>;
+  discover(signal?: AbortSignal): Promise<HilDiscoveredDevice[]>;
   close(): Promise<void>;
 }
 
 export interface HilWritableSession {
-  discoverFresh(): Promise<HilDiscoveredDevice[]>;
+  discoverFresh(signal?: AbortSignal): Promise<HilDiscoveredDevice[]>;
   reserveTemporaryMapping(device: HilDiscoveredDevice, newAddress: number): Promise<void>;
-  assignAddressOnce(device: HilDiscoveredDevice, newAddress: number): Promise<BioAddressAssignmentResult>;
+  assignAddressOnce(
+    device: HilDiscoveredDevice,
+    newAddress: number,
+    control?: { signal?: AbortSignal; onWriteStarted?: () => void }
+  ): Promise<BioAddressAssignmentResult>;
   confirmTemporaryMapping(device: HilDiscoveredDevice): Promise<void>;
-  readState(device: HilDiscoveredDevice): Promise<{ brightnessPercent: number | null; mode: BioControlMode }>;
-  setOutput(device: HilDiscoveredDevice, percent: number): Promise<void>;
+  readState(device: HilDiscoveredDevice, signal?: AbortSignal): Promise<{ brightnessPercent: number | null; mode: BioControlMode }>;
+  setOutput(
+    device: HilDiscoveredDevice,
+    percent: number,
+    control?: { signal?: AbortSignal; onWriteStarted?: () => void }
+  ): Promise<void>;
   restoreSensorMode(device: HilDiscoveredDevice): Promise<void>;
-  restartAndRecover(device: HilDiscoveredDevice): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -53,7 +62,8 @@ export interface BioRegistrationHilDependencies {
   createWritableSession?: (mappingPath: string) => Promise<HilWritableSession>;
   createTemporaryMapping?: () => Promise<TemporaryMappingLocation>;
   removeTemporaryMapping?: (location: TemporaryMappingLocation) => Promise<void>;
-  confirmVisualStep?: (percent: number) => Promise<boolean>;
+  confirmVisualStep?: (percent: number, signal: AbortSignal) => Promise<boolean>;
+  cleanupTimeoutMs?: number;
   output?: (line: string) => void;
 }
 
@@ -100,9 +110,30 @@ export async function runBioRegistrationHil(
     return 2;
   }
 
+  const cancellation = new AbortController();
+  const removeSignalHandlers = installSignalCancellation(cancellation);
+  try {
+    return await runBioRegistrationHilWithSignal(options, dependencies, output, cancellation.signal);
+  } finally {
+    removeSignalHandlers();
+  }
+}
+
+async function runBioRegistrationHilWithSignal(
+  options: HilOptions,
+  dependencies: BioRegistrationHilDependencies,
+  output: (line: string) => void,
+  signal: AbortSignal
+): Promise<number> {
+  const cleanupTimeoutMs = dependencies.cleanupTimeoutMs ?? CLEANUP_TIMEOUT_MS;
+  if (!Number.isInteger(cleanupTimeoutMs) || cleanupTimeoutMs < 1) {
+    outputFailure(output, [new HilSafetyError("INVALID_CLEANUP_TIMEOUT")]);
+    return 1;
+  }
   let observed: HilDiscoveredDevice;
   try {
-    observed = await discoverReadOnly(dependencies);
+    observed = await discoverReadOnly(dependencies, signal, cleanupTimeoutMs);
+    throwIfHilCancelled(signal);
   } catch (error) {
     outputFailure(output, [error]);
     return 1;
@@ -145,21 +176,25 @@ export async function runBioRegistrationHil(
     outputFailure(output, [error]);
     return 1;
   }
-  return executeWriteHil(options, observed, fingerprint, dependencies, output);
+  return executeWriteHil(options, observed, fingerprint, dependencies, output, signal, cleanupTimeoutMs);
 }
 
-async function discoverReadOnly(dependencies: BioRegistrationHilDependencies): Promise<HilDiscoveredDevice> {
+async function discoverReadOnly(
+  dependencies: BioRegistrationHilDependencies,
+  signal: AbortSignal,
+  cleanupTimeoutMs: number
+): Promise<HilDiscoveredDevice> {
   // 별도 factory가 dry-run capability 경계다. 이 블록에서는 write-capable session을 참조하지 않는다.
   const session = dependencies.createReadOnlySession?.() ?? new PassiveReadOnlySession();
   let primary: unknown;
   let result: HilDiscoveredDevice | undefined;
   try {
-    result = selectExactlyOne(await session.discover());
+    result = selectExactlyOne(await session.discover(signal));
   } catch (error) {
     primary = error;
   }
   try {
-    await session.close();
+    await boundedCleanup(() => session.close(), cleanupTimeoutMs, "CLOSE_TIMEOUT");
   } catch (error) {
     if (primary === undefined) primary = error;
     else primary = new AggregateError([primary, error], "BIO read-only discovery and cleanup failed");
@@ -173,87 +208,149 @@ async function executeWriteHil(
   observed: HilDiscoveredDevice,
   fingerprint: string,
   dependencies: BioRegistrationHilDependencies,
-  output: (line: string) => void
+  output: (line: string) => void,
+  signal: AbortSignal,
+  cleanupTimeoutMs: number
 ): Promise<number> {
   const createTemporaryMapping = dependencies.createTemporaryMapping ?? defaultCreateTemporaryMapping;
   const removeTemporaryMapping = dependencies.removeTemporaryMapping ?? defaultRemoveTemporaryMapping;
   const confirmVisualStep = dependencies.confirmVisualStep ?? defaultConfirmVisualStep;
   let location: TemporaryMappingLocation | undefined;
+  let temporaryMappingState: "RETAINED" | "REMOVED" | undefined;
   let writer: HilWritableSession | undefined;
   const failures: unknown[] = [];
   let target: HilDiscoveredDevice = observed;
-  let finalRestoreTargets: HilDiscoveredDevice[] = [observed];
+  let processRestartRequired = false;
+  // [확인됨] read-only observation/fresh gate는 lamp state를 바꾸지 않는다. 실제 state/address
+  // write 소유권을 얻기 전에는 sensor restore도 새로운 물리 write이므로 후보를 만들지 않는다.
+  let finalRestoreTargets: HilDiscoveredDevice[] = [];
 
   try {
     const candidateLocation = await createTemporaryMapping();
     assertTemporaryMappingLocation(candidateLocation);
     location = candidateLocation;
+    temporaryMappingState = "RETAINED";
+    throwIfHilCancelled(signal);
     writer = await (dependencies.createWritableSession?.(location.path) ?? Promise.resolve(new ProductWritableSession(location.path)));
-    const fresh = selectExactlyOne(await writer.discoverFresh());
+    throwIfHilCancelled(signal);
+    const fresh = selectExactlyOne(await writer.discoverFresh(signal));
+    throwIfHilCancelled(signal);
     assertSameFreshDevice(observed, fresh);
     assertAvailableNewAddress(fresh, options.newAddress);
     await writer.reserveTemporaryMapping(fresh, options.newAddress);
+    throwIfHilCancelled(signal);
 
     // [확인됨] 이 API는 address outer 0x10을 정확히 한 번만 생성한다. ACK 성공/실패/timeout은
     // 적용 판정이 아니며 이어지는 old/new scan 결과만 사용한다. old-only/unknown에는 재시도 없다.
-    // [추정] write 뒤 판정 자체가 throw/unknown이면 실제 주소는 old/new 어느 쪽일 수도 있으므로
-    // 종료 안전 복귀는 두 주소 모두 시도한다. 한 쪽 실패가 다른 후보 복귀를 막지 않는다.
-    finalRestoreTargets = [fresh, { ...fresh, logicalAddress: options.newAddress }];
-    const assignment = await writer.assignAddressOnce(fresh, options.newAddress);
+    // [확인됨] write 뒤 unknown/collision에서는 post-write scan이 같은 target UUID로 확인하고
+    // 다른 UUID와 logical-address 충돌이 없었던 identity만 복귀 후보가 된다. 관측되지 않은
+    // old/new 주소나 충돌 destination에는 sensor frame을 추정 전송하지 않는다.
+    let addressWriteStarted = false;
+    let assignment: BioAddressAssignmentResult;
+    try {
+      assignment = await writer.assignAddressOnce(fresh, options.newAddress, {
+        signal,
+        onWriteStarted: () => { addressWriteStarted = true; }
+      });
+    } catch (error) {
+      // [확인됨] queue 취소 등으로 native write 소유권을 얻지 못했다면 restore도 전송하지
+      // 않는다. write가 실제 시작된 뒤 reconciliation이 collision을 보고했다면 client가
+      // 다른 UUID와 주소 충돌이 없는 target UUID 관측만 safeRestoreDevices로 전달한다.
+      finalRestoreTargets = addressWriteStarted
+        ? safeRestoreTargetsFromError(error, fresh, options.newAddress)
+        : [];
+      throw error;
+    }
+    if (!addressWriteStarted) throw new HilSafetyError("ADDRESS_WRITE_OWNERSHIP_MISSING");
     if (assignment.outcome === "unchanged") {
-      finalRestoreTargets = [{ ...assignment.device }];
+      finalRestoreTargets = addressWriteStarted ? [{ ...assignment.device }] : [];
       throw new HilSafetyError("BIO_ADDRESS_STATE_UNKNOWN");
     }
-    if (assignment.outcome === "unknown") throw new HilSafetyError("BIO_ADDRESS_STATE_UNKNOWN");
+    if (assignment.outcome === "unknown") {
+      finalRestoreTargets = addressWriteStarted
+        ? validateSafeRestoreTargets(assignment.safeRestoreDevices, fresh, options.newAddress)
+        : [];
+      throw new HilSafetyError("BIO_ADDRESS_STATE_UNKNOWN");
+    }
     target = { ...assignment.device };
-    finalRestoreTargets = [target];
+    finalRestoreTargets = addressWriteStarted ? [target] : [];
     await writer.confirmTemporaryMapping(target);
-    await writer.readState(target);
+    throwIfHilCancelled(signal);
+    await writer.readState(target, signal);
+    throwIfHilCancelled(signal);
 
     for (const percent of OUTPUT_STEPS) {
-      try {
-        await writer.setOutput(target, percent);
-        if (!await confirmVisualStep(percent)) throw new HilSafetyError("VISUAL_CONFIRMATION_REJECTED");
-      } finally {
-        await writer.restoreSensorMode(target);
-      }
+      let stateWriteStarted = false;
+      await runPreservingPrimaryAndRestore(async () => {
+        throwIfHilCancelled(signal);
+        await writer.setOutput(target, percent, {
+          signal,
+          onWriteStarted: () => { stateWriteStarted = true; }
+        });
+        throwIfHilCancelled(signal);
+        if (!await confirmVisualStep(percent, signal)) throw new HilSafetyError("VISUAL_CONFIRMATION_REJECTED");
+        throwIfHilCancelled(signal);
+      }, async () => {
+        // [확인됨] setOutput이 queue에서 취소되어 native state write가 시작되지 않았다면 이 단계의
+        // restore도 보내지 않는다. 하나라도 실제 write가 시작된 경우에만 검증된 target으로 복귀한다.
+        if (stateWriteStarted) await writer.restoreSensorMode(target);
+      }, cleanupTimeoutMs);
     }
-    await writer.restartAndRecover(target);
-    try {
-      await writer.setOutput(target, 20);
-      if (!await confirmVisualStep(20)) throw new HilSafetyError("VISUAL_CONFIRMATION_REJECTED");
-    } finally {
-      await writer.restoreSensorMode(target);
-    }
+    // [확인됨] 같은 process 안에서 client instance만 다시 만드는 것은 Gateway process restart가
+    // 아니다. integrity-bound handoff/re-invocation driver가 아직 없으므로 phase 1 이후 반드시
+    // 중단한다. [미확인] 실제 process boundary 뒤 mapping 복구와 20%→sensor 검증은 Step 7로
+    // 남으며, 이 CLI는 그 완료 상태를 만들지 않는다.
+    processRestartRequired = true;
   } catch (error) {
     failures.push(error);
   } finally {
     if (writer) {
       for (const restoreTarget of finalRestoreTargets) {
-        try { await writer.restoreSensorMode(restoreTarget); } catch (error) { failures.push(error); }
+        try {
+          await boundedCleanup(
+            () => writer!.restoreSensorMode(restoreTarget),
+            cleanupTimeoutMs,
+            "RESTORE_TIMEOUT"
+          );
+        } catch (error) { failures.push(error); }
       }
-      try { await writer.close(); } catch (error) { failures.push(error); }
+      try { await boundedCleanup(() => writer!.close(), cleanupTimeoutMs, "CLOSE_TIMEOUT"); }
+      catch (error) { failures.push(error); }
     }
     if (location) {
-      try { await removeTemporaryMapping(location); } catch (error) { failures.push(error); }
+      try {
+        await boundedCleanup(
+          () => removeTemporaryMapping(location!),
+          cleanupTimeoutMs,
+          "TEMP_CLEANUP_FAILED"
+        );
+        temporaryMappingState = "REMOVED";
+      } catch (error) {
+        failures.push(asTemporaryCleanupFailure(error));
+        temporaryMappingState = "RETAINED";
+      }
     }
   }
 
   if (failures.length > 0) {
-    outputFailure(output, failures, location ? "CLEANUP_UNCONFIRMED" : undefined,
-      location && !failures.some((error) => errorCode(error) === "TEMP_CLEANUP_FAILED") ? "REMOVED" : undefined);
+    outputFailure(output, failures, temporaryMappingState);
     return 1;
   }
-  output(JSON.stringify({
-    status: "HIL_WRITE_SEQUENCE_COMPLETED",
-    fingerprint,
-    oldAddress: formatAddress(observed.logicalAddress),
-    newAddress: formatAddress(options.newAddress),
-    networkId: formatAddress(observed.networkId),
-    temporaryMapping: "REMOVED",
-    multiDeviceGroup: "DEFERRED_INSUFFICIENT_HARDWARE"
-  }));
-  return 0;
+  if (processRestartRequired) {
+    output(JSON.stringify({
+      status: "PROCESS_RESTART_DRIVER_REQUIRED",
+      completedPhase: "ADDRESS_AND_OUTPUT_VALIDATION",
+      fingerprint,
+      oldAddress: formatAddress(observed.logicalAddress),
+      newAddress: formatAddress(options.newAddress),
+      networkId: formatAddress(observed.networkId),
+      temporaryMapping: temporaryMappingState,
+      step7: "INCOMPLETE",
+      multiDeviceGroup: "DEFERRED_INSUFFICIENT_HARDWARE"
+    }));
+    return 4;
+  }
+  throw new HilSafetyError("PROCESS_RESTART_DRIVER_REQUIRED");
 }
 
 class PassiveReadOnlySession implements HilReadOnlySession {
@@ -277,9 +374,9 @@ class PassiveReadOnlySession implements HilReadOnlySession {
     });
   }
 
-  async discover(): Promise<HilDiscoveredDevice[]> {
+  async discover(signal?: AbortSignal): Promise<HilDiscoveredDevice[]> {
     await this.transport.start();
-    await delay(PASSIVE_DISCOVERY_MS);
+    await controlledHilDelay(PASSIVE_DISCOVERY_MS, signal);
     return this.observations.map((device) => ({ ...device }));
   }
 
@@ -300,9 +397,12 @@ class ProductWritableSession implements HilWritableSession {
     this.client = this.createClient();
   }
 
-  async discoverFresh(): Promise<HilDiscoveredDevice[]> {
+  async discoverFresh(signal?: AbortSignal): Promise<HilDiscoveredDevice[]> {
     await this.client.probe();
-    return (await this.client.scan()).map(fromClientDevice);
+    // [확인됨] HIL gate에서는 UUID별 마지막 report로 합쳐진 product scan을 쓰면 같은 UUID의
+    // 상충 address/network가 사라진다. 성공한 한 scan window의 전체 검증 관측을 넘겨
+    // selectExactlyOne이 dedupe 전에 duplicate/collision을 거부하게 한다.
+    return (await this.client.scanObservations({ signal })).map(fromClientDevice);
   }
 
   async reserveTemporaryMapping(device: HilDiscoveredDevice, newAddress: number): Promise<void> {
@@ -315,8 +415,12 @@ class ProductWritableSession implements HilWritableSession {
     });
   }
 
-  assignAddressOnce(device: HilDiscoveredDevice, newAddress: number): Promise<BioAddressAssignmentResult> {
-    return this.client.assignAddressOnce(device.nativeUuid, newAddress);
+  assignAddressOnce(
+    device: HilDiscoveredDevice,
+    newAddress: number,
+    control: { signal?: AbortSignal; onWriteStarted?: () => void } = {}
+  ): Promise<BioAddressAssignmentResult> {
+    return this.client.assignAddressOnce(device.nativeUuid, newAddress, control);
   }
 
   async confirmTemporaryMapping(device: HilDiscoveredDevice): Promise<void> {
@@ -324,15 +428,19 @@ class ProductWritableSession implements HilWritableSession {
     await this.mappings.confirm(this.reservedDeviceUuid, device.logicalAddress);
   }
 
-  async readState(device: HilDiscoveredDevice): Promise<{ brightnessPercent: number | null; mode: BioControlMode }> {
+  async readState(device: HilDiscoveredDevice, signal?: AbortSignal): Promise<{ brightnessPercent: number | null; mode: BioControlMode }> {
     const target = verifiedTarget(device);
-    const brightness = await this.client.readBrightness(target);
-    const mode = await this.client.readDeviceInfo(target);
+    const brightness = await this.client.readBrightness(target, { signal });
+    const mode = await this.client.readDeviceInfo(target, { signal });
     return { brightnessPercent: brightness.brightnessPercent, mode: mode.mode };
   }
 
-  async setOutput(device: HilDiscoveredDevice, percent: number): Promise<void> {
-    await this.client.setOutput(verifiedTarget(device), percent);
+  async setOutput(
+    device: HilDiscoveredDevice,
+    percent: number,
+    control: { signal?: AbortSignal; onWriteStarted?: () => void } = {}
+  ): Promise<void> {
+    await this.client.setOutput(verifiedTarget(device), percent, control);
   }
 
   async restoreSensorMode(device: HilDiscoveredDevice): Promise<void> {
@@ -340,15 +448,6 @@ class ProductWritableSession implements HilWritableSession {
     await this.client.setControlMode(target, "sensor");
     const report = await this.client.readDeviceInfo(target);
     if (report.mode !== "sensor") throw new BioUsbError("BIO_CONTROL_MODE_STATE_MISMATCH", "BIO sensor restore was not confirmed");
-  }
-
-  async restartAndRecover(device: HilDiscoveredDevice): Promise<void> {
-    await this.client.close();
-    this.client = this.createClient();
-    const stored = await this.mappings.findByNativeUuid(device.nativeUuid);
-    if (!stored || stored.logicalAddress !== device.logicalAddress) throw new HilSafetyError("TEMP_MAPPING_RECOVERY_FAILED");
-    const fresh = selectExactlyOne(await this.discoverFresh());
-    assertSameFreshDevice(device, fresh);
   }
 
   close(): Promise<void> { return this.client.close(); }
@@ -430,6 +529,45 @@ function assertAvailableNewAddress(device: HilDiscoveredDevice, newAddress: numb
   if (newAddress === device.logicalAddress) throw new HilSafetyError("BIO_ADDRESS_CONFLICT");
 }
 
+function safeRestoreTargetsFromError(
+  error: unknown,
+  target: HilDiscoveredDevice,
+  newAddress: number
+): HilDiscoveredDevice[] {
+  if (!(error instanceof BioAddressConflictError)) return [];
+  return validateSafeRestoreTargets(error.safeRestoreDevices, target, newAddress);
+}
+
+function validateSafeRestoreTargets(
+  candidates: unknown[],
+  target: HilDiscoveredDevice,
+  newAddress: number
+): HilDiscoveredDevice[] {
+  const unique = new Map<string, HilDiscoveredDevice>();
+  for (const candidate of candidates) {
+    if (!isHilDiscoveredDevice(candidate) || candidate.nativeUuid !== target.nativeUuid
+      || (candidate.logicalAddress !== target.logicalAddress && candidate.logicalAddress !== newAddress)) continue;
+    validateDevice(candidate);
+    unique.set(`${candidate.logicalAddress}:${candidate.networkId}`, {
+      nativeUuid: candidate.nativeUuid,
+      logicalAddress: candidate.logicalAddress,
+      networkId: candidate.networkId,
+      firmwareVersion: candidate.firmwareVersion,
+      rssi: candidate.rssi
+    });
+  }
+  return [...unique.values()];
+}
+
+function isHilDiscoveredDevice(value: unknown): value is HilDiscoveredDevice {
+  return Boolean(value && typeof value === "object"
+    && "nativeUuid" in value && typeof value.nativeUuid === "string"
+    && "logicalAddress" in value && typeof value.logicalAddress === "number"
+    && "networkId" in value && typeof value.networkId === "number"
+    && "firmwareVersion" in value && typeof value.firmwareVersion === "string"
+    && "rssi" in value && typeof value.rssi === "number");
+}
+
 function validateDevice(value: HilDiscoveredDevice) {
   fingerprintBioUuid(value.nativeUuid);
   validateAddress(value.logicalAddress);
@@ -504,19 +642,51 @@ function assertTemporaryMappingLocation(location: TemporaryMappingLocation) {
   }
 }
 
-async function defaultConfirmVisualStep(percent: number): Promise<boolean> {
+async function defaultConfirmVisualStep(percent: number, signal: AbortSignal): Promise<boolean> {
   const prompt = createInterface({ input: process.stdin, output: process.stdout });
   try {
-    return (await prompt.question(`${percent}% 육안 반응을 확인했으면 YES를 입력하세요: `)) === "YES";
+    return (await prompt.question(`${percent}% 육안 반응을 확인했으면 YES를 입력하세요: `, { signal })) === "YES";
   } finally {
     prompt.close();
   }
 }
 
-function delay(milliseconds: number) { return new Promise<void>((resolve) => setTimeout(resolve, milliseconds)); }
+function installSignalCancellation(controller: AbortController): () => void {
+  // [확인됨] listener가 등록된 동안 Node의 기본 SIGINT/SIGTERM 즉시 종료는 비활성화된다.
+  // 첫 signal은 새 작업/visual wait를 취소하고, 반복 signal도 같은 AbortController만 갱신해
+  // sensor restore, client close, 임시 mapping cleanup의 finally를 건너뛰지 못한다.
+  const cancel = () => controller.abort();
+  process.on("SIGINT", cancel);
+  process.on("SIGTERM", cancel);
+  return () => {
+    process.off("SIGINT", cancel);
+    process.off("SIGTERM", cancel);
+  };
+}
+
+function controlledHilDelay(milliseconds: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) { reject(new DOMException("HIL cancelled", "AbortError")); return; }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", cancel);
+      resolve();
+    }, milliseconds);
+    const cancel = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", cancel);
+      reject(new DOMException("HIL cancelled", "AbortError"));
+    };
+    signal?.addEventListener("abort", cancel, { once: true });
+  });
+}
+
+function throwIfHilCancelled(signal: AbortSignal): void {
+  if (signal.aborted) throw new DOMException("HIL cancelled", "AbortError");
+}
 
 function errorCode(error: unknown): string {
   if (error instanceof AggregateError) return "AGGREGATE_ERROR";
+  if (error instanceof Error && error.name === "AbortError") return "CANCELLED";
   if (error && typeof error === "object" && "code" in error && typeof error.code === "string") return error.code;
   return "HIL_FAILED";
 }
@@ -526,14 +696,52 @@ function flattenErrorCodes(error: unknown): string[] {
   return [errorCode(error)];
 }
 
+async function runPreservingPrimaryAndRestore(
+  action: () => Promise<void>,
+  restore: () => Promise<void>,
+  cleanupTimeoutMs: number
+): Promise<void> {
+  let primary: unknown;
+  try { await action(); } catch (error) { primary = error; }
+  let restoreFailure: unknown;
+  try { await boundedCleanup(restore, cleanupTimeoutMs, "RESTORE_TIMEOUT"); }
+  catch (error) { restoreFailure = error; }
+  if (primary !== undefined && restoreFailure !== undefined) {
+    throw new AggregateError([primary, restoreFailure], "BIO action and sensor restore failed");
+  }
+  if (primary !== undefined) throw primary;
+  if (restoreFailure !== undefined) throw restoreFailure;
+}
+
+async function boundedCleanup(
+  action: () => Promise<void>,
+  timeoutMs: number,
+  timeoutCode: string
+): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      action(),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new HilSafetyError(timeoutCode)), timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+function asTemporaryCleanupFailure(error: unknown): unknown {
+  if (errorCode(error) === "TEMP_CLEANUP_FAILED") return error;
+  return Object.assign(new HilSafetyError("TEMP_CLEANUP_FAILED"), { cause: error });
+}
+
 function outputFailure(
   output: (line: string) => void,
   failures: unknown[],
-  cleanupUnconfirmed?: "CLEANUP_UNCONFIRMED",
-  cleanupConfirmed?: "REMOVED"
+  temporaryMapping?: "RETAINED" | "REMOVED"
 ) {
   const errors = failures.flatMap(flattenErrorCodes);
-  const temporaryMapping = errors.includes("TEMP_CLEANUP_FAILED") ? cleanupUnconfirmed : cleanupConfirmed;
   output(JSON.stringify({ status: "FAILED", errors, ...(temporaryMapping ? { temporaryMapping } : {}) }));
 }
 

@@ -25,6 +25,7 @@ export type BioDongleClientOptions = Pick<BioTransportOptions, "timeoutMs"> & {
 export interface BioOperationControl {
   signal?: AbortSignal;
   deadlineAt?: number;
+  onWriteStarted?: () => void;
 }
 export interface BioCommandAcceptance { outcome: "dongle-accepted"; deviceApplied: false }
 export interface BioDiscoveredDevice {
@@ -38,7 +39,21 @@ export interface BioDiscoveredDevice {
 export type BioAddressAssignmentResult =
   | { outcome: "confirmed"; device: BioDiscoveredDevice }
   | { outcome: "unchanged"; device: BioDiscoveredDevice }
-  | { outcome: "unknown"; code: "BIO_ADDRESS_STATE_UNKNOWN" };
+  | { outcome: "unknown"; code: "BIO_ADDRESS_STATE_UNKNOWN"; safeRestoreDevices: BioDiscoveredDevice[] };
+/**
+ * [확인됨] address reconciliation scan이 다른 UUID의 destination 점유를 확인한 실패다.
+ * safeRestoreDevices에는 같은 scan에서 target UUID가 확인되고 다른 UUID와 logical address를
+ * 공유하지 않은 관측만 담는다. [미확인] 목록에 없는 주소는 안전하다고 추정하지 않는다.
+ */
+export class BioAddressConflictError extends BioUsbError {
+  readonly safeRestoreDevices: BioDiscoveredDevice[];
+
+  constructor(devices: BioDiscoveredDevice[]) {
+    super("BIO_ADDRESS_CONFLICT", "Requested BIO address is occupied by another UUID");
+    this.name = "BioAddressConflictError";
+    this.safeRestoreDevices = devices.map((device) => ({ ...device }));
+  }
+}
 export type BioVerifiedLampTarget = Extract<BioLampTarget, { kind: "unicast" }> & { nativeUuid: string };
 
 type ReadbackEvent = Extract<BioResponse, { kind: "high-brightness-report" | "control-mode-report" }>;
@@ -174,6 +189,18 @@ export class BioDongleClient {
     return devices;
   }
 
+  /**
+   * [확인됨] HIL safety gate는 UUID별 마지막 값으로 합쳐진 product scan보다 먼저, 같은 scan
+   * window의 checksum-validated `0x12` 관측을 전부 검사해야 duplicate UUID/address collision을
+   * 숨기지 않는다. 이 API도 start/stop ACK가 모두 끝난 성공 scan만 반환하며 raw packet은
+   * 노출하지 않는다. [추정] 반복된 동일 관측은 RF 재전송일 수 있으므로 호출자가 exact
+   * identity/address/network 중복과 상충을 구분한다.
+   */
+  async scanObservations(control: BioOperationControl = {}): Promise<BioDiscoveredDevice[]> {
+    await this.scan(control);
+    return this.lastScanObservations.map((device) => ({ ...device }));
+  }
+
   async stopScan(control: BioOperationControl = {}): Promise<BioCommandAcceptance> {
     return this.send({ kind: "stopScan" }, control);
   }
@@ -274,13 +301,16 @@ export class BioDongleClient {
     await this.scan(control);
     throwIfOperationStopped(control);
     const devices = this.lastScanObservations;
+    const safeRestoreDevices = collectCollisionFreeTargetObservations(devices, nativeUuid);
     const conflict = devices.find((device) => device.logicalAddress === newAddress && device.nativeUuid !== nativeUuid);
-    if (conflict) throw new BioUsbError("BIO_ADDRESS_CONFLICT", "Requested BIO address is occupied by another UUID");
+    if (conflict) {
+      throw new BioAddressConflictError(safeRestoreDevices);
+    }
     const oldDevice = devices.find((device) => device.nativeUuid === nativeUuid && device.logicalAddress === oldAddress);
     const newDevice = devices.find((device) => device.nativeUuid === nativeUuid && device.logicalAddress === newAddress);
     if (newDevice && !oldDevice) return { outcome: "confirmed", device: { ...newDevice } };
     if (oldDevice && !newDevice) return { outcome: "unchanged", device: { ...oldDevice } };
-    return { outcome: "unknown", code: "BIO_ADDRESS_STATE_UNKNOWN" };
+    return { outcome: "unknown", code: "BIO_ADDRESS_STATE_UNKNOWN", safeRestoreDevices };
   }
 
   async readBrightness(target: BioLampTarget | BioVerifiedLampTarget, control: BioOperationControl = {}) {
@@ -644,6 +674,27 @@ function toDiscoveredDevice(response: Extract<BioResponse, { kind: "discovery" }
 
 function toTarget(device: BioDiscoveredDevice): Extract<BioLampTarget, { kind: "unicast" }> {
   return { kind: "unicast", networkId: device.networkId, logicalAddress: device.logicalAddress };
+}
+
+/**
+ * [확인됨] sensor restore는 UUID가 target과 일치하고, 같은 logical address에 다른 UUID가
+ * 한 번도 관측되지 않은 identity에만 허용한다. 같은 UUID의 old/new 동시 관측은 주소 적용이
+ * 불명확하다는 증거이므로 둘 다 보존할 수 있지만, 다른 UUID와 충돌한 destination은 제외한다.
+ * [미확인] 관측되지 않은 주소의 현재 점유 상태는 증명할 수 없으므로 restore 후보로 만들지 않는다.
+ */
+function collectCollisionFreeTargetObservations(
+  devices: BioDiscoveredDevice[],
+  nativeUuid: string
+): BioDiscoveredDevice[] {
+  const conflictingAddresses = new Set(devices
+    .filter((device) => device.nativeUuid !== nativeUuid)
+    .map((device) => device.logicalAddress));
+  const unique = new Map<string, BioDiscoveredDevice>();
+  for (const device of devices) {
+    if (device.nativeUuid !== nativeUuid || conflictingAddresses.has(device.logicalAddress)) continue;
+    unique.set(`${device.logicalAddress}:${device.networkId}`, device);
+  }
+  return [...unique.values()].map((device) => ({ ...device }));
 }
 
 function normalizeNativeUuid(nativeId: string) {

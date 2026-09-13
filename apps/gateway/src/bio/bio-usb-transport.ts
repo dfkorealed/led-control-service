@@ -28,6 +28,8 @@ export interface BioUsbRequest {
 export interface BioUsbOperationControl {
   signal?: AbortSignal;
   deadlineAt?: number;
+  /** [확인됨] callback은 queue 진입이 아니라 native connection.write 호출 직전에 한 번 실행된다. */
+  onWriteStarted?: () => void;
 }
 interface PendingRequest {
   command: number;
@@ -236,6 +238,7 @@ export class BioUsbTransport {
     this.active = request;
     this.writing = true;
     this.armResponseTimeout();
+    request.control?.onWriteStarted?.();
     void this.connection!.write(request.bytes).then(() => {
       if (!this.current(generation)) return;
       this.writing = false;
