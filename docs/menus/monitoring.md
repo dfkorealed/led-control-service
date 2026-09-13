@@ -21,7 +21,7 @@
 
 ## 구현 완료
 
-- BIO direct-USB의 Gateway software 상태 경계를 추가했다. canonical BIO UUID/new address가 confirmed mapping으로 전환된 뒤에만 등록 terminal을 완료할 수 있고, 조명 제어 상태는 outer ACK가 아니라 fixture별 read-back을 근거로 삼는다. mismatch에서 exact table로 환산 가능한 실제 brightness만 fault fixture-state로 발행하며 mode/raw-only 관측은 내부 진단 metadata에 보존하되 필수 brightness를 추정하지 않아 상태 이벤트를 만들지 않는다. BIO sensor cloud source는 빈 목록이며 configure/send는 `bio_sensor_cloud_unsupported`로 fail-closed한다.
+- BIO direct-USB의 Gateway software 상태 경계를 추가했다. canonical BIO UUID/new address가 confirmed mapping으로 전환된 뒤에만 등록 terminal을 완료할 수 있고, 조명 제어 상태는 outer ACK가 아니라 fixture별 read-back을 근거로 삼는다. mismatch에서 exact table로 환산 가능한 실제 brightness와 `force-on`/`force-off` mode가 함께 확인된 경우만 power를 그대로 정해 fault fixture-state를 발행한다. mode 누락·`sensor`·raw-only 관측은 내부 진단 metadata에 보존하되 brightness나 power를 추정하지 않아 상태 이벤트를 만들지 않는다. mode 계약이 없는 기존 BlueZ fixture-state 동작은 유지한다. BIO sensor cloud source는 빈 목록이며 configure/send는 `bio_sensor_cloud_unsupported`로 fail-closed한다.
 
 - P1 Task 1 서버 계약: `GET/PATCH /sites/:siteId/monitoring-policy`는 read/manage capability와 `expectedUpdatedAt`을 적용해 gateway 만료 `30~900`초(기본 90), fixture stale `60~3600`초(기본 180)를 저장한다. 변경 충돌은 `409 MONITORING_POLICY_CONFLICT`다. 기존 장비 제어·등록의 90초 안전성 기준은 별도로 유지한다.
 - `MonitoringIncident`는 네 유형(`gateway_offline`, `fixture_stale`, `fixture_fault`, `command_failed`)의 발생·확인·담당·해결을 저장한다. Task 2의 30초 freshness sweep은 조건을 자동 수집해 active incident를 생성·갱신하고 조건 회복 시 `automatic_recovery`로 자동 해결한다. 목록 API는 활성 우선 최신순, 현장·필터에 바인딩된 cursor와 최대 100건 limit, 대상·사용자 요약을 제공한다. 관리자는 open 확인, active 담당 지정/해제, 복구 확인 뒤 메모와 수동 해결을 수행한다. 장애 지속은 `409 INCIDENT_STILL_ACTIVE`, 이전 revision은 `409 INCIDENT_CONFLICT`이며 모든 성공 변경은 같은 transaction의 감사 로그로 남긴다.

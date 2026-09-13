@@ -150,3 +150,68 @@ git diff --check: exit 0
 - 본 결과는 fake transport/store와 자동 테스트에 근거한 software integration 검증이다.
 - Task 7의 factory/lifecycle/health 연결, Task 8 deployment contract, Task 9 승인 HIL, Task 10 production Web E2E는 여전히 필요하다.
 - identify post-expiry sensor restore 및 address/brightness physical truth는 Task 9에서 실제 장치로 확인해야 한다.
+
+## Second review hardening — 2026-09-13
+
+### Status
+
+DONE_WITH_CONCERNS
+
+Task 6의 residual Important 세 건을 Gateway software 범위에서 보완했다. 실제 BIO 동글, Raspberry Pi Gateway, 조명, 운영 MQTT, 배포는 접근하거나 변경하지 않았다. Task 7–10과 승인 HIL이 남아 있으므로 production-complete로 판정하지 않는다.
+
+### Fix base and commit
+
+- Verified clean fix base: `341ad11e9728b3e10127ca42ae6b2aba3f6127c4`
+- Implementation fix: `08e9539bcbf8a7955b2d38397968b437a70984f0` — `fix(gateway): close BIO cancellation ownership gaps`
+
+### Review fixes
+
+- `BioUsbTransport.request()`가 signal/deadline을 pending request와 최종 `connection.write()` 직전까지 소유한다. queue에서 취소된 요청은 제거·`AbortError` 처리하고 listener/timer를 정리한다.
+- 이미 physical write가 시작된 active request 취소는 connection generation을 즉시 폐기하고 close/reconnect한다. 이전 generation의 늦은 ACK는 다음 request를 만족시킬 수 없다. 기존 정상 FIFO와 Task 1 response ownership은 유지한다.
+- reviewer와 같은 `prior write pending → ACK로 client queue 해제 → brightness queued → abort → prior write resolve` 회귀에서 `cd13` write가 발생하지 않음을 real transport/fake connection으로 고정했다.
+- adapter의 mapping lookup, cold discovery, identify/output 경로가 같은 caller control을 전달한다. discovery refresh는 caller끼리 promise를 공유하지 않고 serial ownership을 가지며, 한 caller가 시작된 scan을 취소해 generation을 폐기해도 독립 caller는 자기 deadline으로 reconnect를 기다린 뒤 새 scan을 수행한다.
+- scan start ACK 뒤 취소에서는 만료 뒤 stop write를 보내지 않고 connection generation을 폐기한다. 수집 중이던 결과는 cache나 성공으로 공개하지 않는다.
+- BIO success report도 실제 mode를 보존한다. brightness mismatch는 가능한 경우 mode read-back까지 수집한 뒤 실제 raw/percent/mode를 함께 보고한다.
+- BIO fixture-state는 실제 table-backed brightness와 exact `force-on`/`force-off`가 모두 있을 때만 발행한다. mode 누락 또는 `sensor`에는 power를 brightness로 추정하지 않는다. mode 계약이 없는 기존 BlueZ 발행 동작은 유지한다.
+
+### Strict RED evidence
+
+초기 residual regression RED:
+
+```text
+Test Files  5 failed (5)
+Tests       11 failed | 211 passed (222)
+```
+
+Transport active cancellation을 timeout이 아닌 즉시 상태 assertion으로 좁힌 RED:
+
+```text
+Test Files  1 failed (1)
+Tests       1 failed | 59 skipped (60)
+```
+
+Self-review에서 발견한 독립 scan reconnect RED:
+
+```text
+Test Files  1 failed (1)
+Tests       1 failed | 58 skipped (59)
+```
+
+### GREEN verification
+
+```text
+residual focused: 5 files, 224 passed
+planned focused Task 6: 5 files, 86 passed
+BIO/relevant Gateway/BlueZ: 20 files, 510 passed
+Gateway full suite: 76 files, 956 passed
+Docker contracts: 24 passed, 0 failed
+Gateway typecheck: exit 0
+Gateway build: exit 0, dist/gateway.mjs 568.5kb
+git diff --check: exit 0
+```
+
+### Remaining concerns
+
+- 본 결과는 fake connection/store와 자동 테스트에 근거한 software integration 검증이다.
+- connection retirement가 실제 CH34x/동글의 scan 상태와 delayed byte를 격리하는지는 Task 8 deployment 및 Task 9 승인 HIL에서 확인해야 한다.
+- Task 7 factory/lifecycle/health, Task 8 배포, Task 9 실장비 등록·제어, Task 10 production Web E2E는 여전히 필요하다.
