@@ -4,7 +4,7 @@
 
 ## 구현 완료
 
-- BIO direct-USB 제어의 Gateway software integration을 추가했다. `GATEWAY_ADAPTER=bio-usb` factory는 제조사 앱/전화나 D-Bus/BlueZ 없이 direct USB adapter를 선택하고, vehicle sensor cloud refresh를 호출하지 않는다. SIGTERM/SIGINT는 MQTT intake를 먼저 막고 runtime drain/stop 뒤 USB polling 중지·interface release·필요 시 kernel driver reattach를 포함한 adapter stop을 기다린다. cleanup 도중 같은 OS signal이 반복돼도 listener와 단일 shutdown promise를 유지하며, 실제 child process 회귀에서 `USB_CLEANUP_FINISHED` 뒤 정상 exit하는 계약을 확인했다. confirmed mapping만 개별 제어에 사용하고 `setOutput`의 UUID/address별 brightness·mode read-back이 일치한 경우에만 fixture report를 `acknowledged: true`, `outcome: applied`로 만든다. cancellation/deadline은 client queue뿐 아니라 transport pending request와 최종 `connection.write` 직전까지 재검사한다. 이미 write된 active request가 취소되면 연결 세대를 폐기해 늦은 ACK가 다음 요청을 만족시키지 못하게 한다. GET outer ACK가 accepted됐지만 matching device report가 오기 전에 취소·deadline·관측 timeout이 발생해도 waiter 제거만으로 끝내지 않고 연결을 폐기하며, 다음 read는 reconnect된 새 세대를 기다린다. ACK 전 matching report를 이미 확보한 경우는 정상 순서로 보존한다. 만료 뒤 write는 안전 복귀용 identify sensor restore 한 번만 예외다. mismatch의 실제 table-backed brightness와 mode/raw metadata는 내부 관측으로 보존하지만, BIO fixture-state는 brightness와 exact `force-on`/`force-off` mode가 함께 관측된 경우만 발행한다. mode 누락·`sensor` 또는 table 밖 raw에는 요청 brightness/power를 대입하지 않는다. BIO group은 native RF group 성공을 가장하지 않는 local virtual membership이고 durable ready snapshot을 startup에 confirmed node/address만 수화한다. mesh-group과 `parallel_unicast`를 포함한 모든 multi-unicast 경로는 상위 요청값과 무관하게 최대 동시성 4다.
+- BIO direct-USB 제어의 Gateway software integration을 추가했다. `GATEWAY_ADAPTER=bio-usb` factory는 제조사 앱/전화나 D-Bus/BlueZ 없이 direct USB adapter를 선택하고, vehicle sensor cloud refresh를 호출하지 않는다. SIGTERM/SIGINT는 MQTT intake를 먼저 막고 runtime drain/stop 뒤 USB polling 중지·interface release·필요 시 kernel driver reattach를 포함한 adapter stop을 기다린다. cleanup 도중 같은 OS signal이 반복돼도 listener와 단일 shutdown promise를 유지하며, 실제 child process 회귀에서 `USB_CLEANUP_FINISHED` 뒤 정상 exit하는 계약을 확인했다. confirmed mapping만 개별 제어에 사용하고 `setOutput`의 UUID/address별 brightness·mode read-back이 일치한 경우에만 fixture report를 `acknowledged: true`, `outcome: applied`로 만든다. cancellation/deadline은 client queue뿐 아니라 transport pending request와 최종 `connection.write` 직전까지 재검사한다. 이미 write된 active request가 취소되면 연결 세대를 폐기해 늦은 ACK가 다음 요청을 만족시키지 못하게 한다. GET outer ACK가 accepted됐지만 matching device report가 오기 전에 취소·deadline·관측 timeout이 발생해도 waiter 제거만으로 끝내지 않고 연결을 폐기하며, 다음 read는 reconnect된 새 세대를 기다린다. ACK 전 matching report를 이미 확보한 경우는 정상 순서로 보존한다. 만료 뒤 write는 안전 복귀용 identify sensor restore 한 번만 예외다. mismatch의 실제 table-backed brightness와 mode/raw metadata는 내부 관측으로 보존하지만, BIO fixture-state는 brightness와 exact `force-on`/`force-off` mode가 함께 관측된 경우만 발행한다. mode 누락·`sensor` 또는 table 밖 raw에는 요청 brightness/power를 대입하지 않는다. BIO group은 native RF group 성공을 가장하지 않는 local virtual membership이고 durable ready snapshot을 startup에 confirmed node/address만 수화한다. mesh-group과 `parallel_unicast`를 포함한 모든 multi-unicast 경로는 상위 요청값과 무관하게 최대 동시성 4다. Task 8은 BIO process의 supplemental USB group을 유지하면서 UID와 capability를 제거하고 Node만 실행하며, provisioning device-terminal application ACK는 Gateway read-only, acceptance/device-status는 write-only인 MQTT ACL 방향을 유지한다.
 
 - 공통 고객 셸 상단은 현재 메뉴 제목과 실제 현장명 배지만 표시한다. 기존 층명 기반 `B2 주차장` 표기와 동작 없는 Gateway 정상·오프라인·미등록 상태 배지는 제거하되 설정의 `Gateway 상태` 상세 카드는 유지한다. 로그아웃 위치와 인증·dirty editor 확인 로직은 유지하고, 고객·운영자 셸의 로그아웃은 공통 `IconTooltipButton`으로 아이콘만 표시한다. `로그아웃` 도움말은 hover와 키보드 focus에서 열리고 도움말 위로 포인터를 옮겨도 유지되며 `Escape`로 닫힌다. 모바일 버튼은 52px 실제 터치 영역을 사용한다.
 - 수동·스케줄·이벤트 제어 탭을 통계 상단 메뉴와 같은 밑줄형 공통 `UnderlineNavigation`으로 통일했다. 탭 아이콘은 공통 label의 선택 옵션으로 제공해 제어의 기존 아이콘은 유지하고, 활성 밑줄·색상·44px 높이·가로 스크롤 동작은 통계와 공유한다. 기존 `mode` query, 권한별 탭 노출, `tablist`/`tab` ARIA 연결과 방향키·Home·End roving focus는 변경하지 않았다. 390·320·760px Chromium에서 세 모드 모두 탭과 panel 사이 16px 간격, overflow 내부 focus ring과 document 가로 overflow 부재를 확인했다.
@@ -215,7 +215,7 @@
 
 ## 미구현
 
-- non-root raw USB 배포와 실장비 재연결 복구(Task 8), 실제 조명 0/20/60/90/100%와 multi-device concurrency HIL(Task 9), Web/API production E2E(Task 10)는 아직 미구현 또는 미검증이다. BIO native group broadcast는 1차 범위에서 제외한다.
+- non-root raw USB 배포 계약은 software와 Pi read-only preflight까지 검증했지만 production 적용·실장비 재연결 복구는 MQTT baseline 실패로 중단했다. 실제 조명 0/20/60/90/100%와 multi-device concurrency HIL(Task 9), Web/API production E2E(Task 10)는 아직 미구현 또는 미검증이다. BIO native group broadcast는 1차 범위에서 제외한다.
 - 인체 감지, 외부 이벤트, 장면과 복합 조건 rule builder
 - 명령 전송 이력 화면
 - 명령 retry, rollback, cancel
@@ -228,7 +228,7 @@
 
 ## 부족하거나 개선이 필요한 기능
 
-- BIO direct-USB factory/lifecycle/health와 밝기/모드 read-back adapter 계약은 자동 테스트로 검증했지만 실제 firmware·Raspberry Pi 배포 증거가 아니다. Task 8~10의 배포, 승인 HIL과 Web E2E 전에는 production 제어 완료로 판정하지 않는다. 특히 장치가 두 대 이상인 group 동시성 4와 부분 실패는 Task 9 장비 수 제약에 따라 보류될 수 있다.
+- BIO direct-USB factory/lifecycle/health, 밝기/모드 read-back adapter와 Task 8 최소권한 배포 계약은 자동 테스트로 검증했지만 production image 배포나 실제 firmware 제어 증거가 아니다. MQTT baseline 복구와 Task 9~10의 승인 HIL·Web E2E 전에는 production 제어 완료로 판정하지 않는다. 특히 장치가 두 대 이상인 group 동시성 4와 부분 실패는 Task 9 장비 수 제약에 따라 보류될 수 있다.
 - 공통 우측 패널의 반응형·overflow 계약은 Chromium 1440/1024/390/320px route fixture로 검증했으며 실제 모바일 WebView safe-area와 브라우저별 scrollbar 표현은 별도 실측이 필요하다.
 - 현재 개별 밝기 제어는 acknowledged Light Lightness Set을 한 번 전송하고 Status를 기다린다. 2026-09-03 HIL 4회 중 3회는 1~2초 내 성공했고 1회는 장치 적용 후 Status 한 패킷 유실로 timeout 됐다. 같은 TID를 사용하는 bounded 재전송 또는 후속 Lightness Get 확인으로 실제 적용과 서버 실패 표시가 어긋나지 않게 보완해야 한다.
 - API/Gateway의 DB·journal 이후 PUBACK 계약은 자동화됐지만, API 종료·Gateway 종료·broker 재연결과 ESP32-H2 cold boot를 동시에 포함한 acceptance/device-status 중복 재전달 및 AppKey 복원은 실장비 전원 차단 HIL로 확인해야 한다.
@@ -259,6 +259,8 @@
 - `apps/gateway/src/adapters/adapter-factory.ts`
 - `apps/gateway/src/bio/bio-dongle-client.ts`
 - `apps/gateway/src/health/appliance-health.ts`
+- `apps/gateway/compose.bio-usb.yml`
+- `infra/mosquitto.acl.example`
 - `apps/gateway/src/commands/gateway-command-handler.ts`
 - `apps/web/e2e/site-user-management.spec.ts`
 - `apps/api/src/access/site-access.service.ts`
