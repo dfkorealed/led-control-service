@@ -74,7 +74,7 @@
 
 ## 구현 완료
 
-- BIO direct-USB 등록의 Gateway software integration을 추가했다. scanner가 identity namespace를 소유해 BlueZ는 기존 DFK UUID만, BIO는 canonical lowercase `bio:<12-hex>`만 노출한다. BIO 등록은 scan cache 대상의 2초 식별·sensor 복귀 뒤 mapping 예약, UUID 주소 할당, 동일 UUID/new address 재확인, confirmed 전환 순서이며 `0x0001..0x7fff` 밖 주소를 거부한다. accepted command 재시작은 confirmed mapping이면 write 없이 완료로 수렴하고 reserved mapping이면 저장된 old/new 주소 reconciliation 결과로만 판정한다. 이는 자동 테스트를 통과한 software 경계이며 production 등록 완료 판정은 아니다.
+- BIO direct-USB 등록의 Gateway software integration을 추가했다. scanner가 identity namespace를 소유해 BlueZ는 기존 DFK UUID만, BIO는 canonical lowercase `bio:<12-hex>`만 노출한다. BIO 등록은 scan cache 대상의 2초 식별·sensor 복귀 뒤 mapping 예약, UUID 주소 할당, 동일 UUID/new address 재확인, confirmed 전환 순서이며 `0x0001..0x7fff` 밖 주소를 거부한다. 실제 Gateway startup journal 경로도 accepted command를 adapter recovery에 먼저 연결해 confirmed mapping은 write 없이 완료로 수렴하고 reserved mapping은 저장된 old/new 주소 reconciliation으로만 판정한다. recovery 계약이 없는 기존 BlueZ는 `provisioning_outcome_unknown`을 유지하며 startup이 주소 write를 맹목적으로 반복하지 않는다. 이는 자동 테스트를 통과한 software 경계이며 production 등록 완료 판정은 아니다.
 
 - 공통 고객 셸 상단은 현재 메뉴 제목과 실제 현장명 배지만 표시한다. 기존 층명 기반 `B2 주차장` 표기와 동작 없는 Gateway 정상·오프라인·미등록 상태 배지는 제거하되 설정의 `Gateway 상태` 상세 카드는 유지한다. 로그아웃 위치와 인증·dirty editor 확인 로직은 유지하고, 고객·운영자 셸의 로그아웃은 공통 `IconTooltipButton`으로 아이콘만 표시한다. `로그아웃` 도움말은 hover와 키보드 focus에서 열리고 도움말 위로 포인터를 옮겨도 유지되며 `Escape`로 닫힌다. 모바일 버튼은 52px 실제 터치 영역을 사용한다.
 
