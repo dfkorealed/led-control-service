@@ -269,7 +269,7 @@ git add apps/gateway/scripts/bio-dongle-probe.ts apps/gateway/scripts/bio-dongle
 git commit -m "feat(gateway): probe BIO dongle over direct USB"
 ```
 
-**Gate result: BLOCKED.** 제품 경로 probe는 유효한 `0x03` 대신 CRC16-valid `0x12` 알림만 수신해 3016ms에 안전하게 timeout했다. GET_NWK `0x0b`는 전송하지 않았으며 Task 4 이후는 이 gate가 통과할 때까지 시작하지 않는다.
+**Gate result: PASSED.** 비동기 startup 알림 drain과 두 converter literal 완료 gate를 적용한 제품 경로 probe가 52ms 안에 CRC16 `0x03`(payload 12 bytes)과 decoder-valid CRC16 GET_NWK `0x0b`(payload 13 bytes)를 확인했다. outer `0x10`과 상태 변경 명령은 전송하지 않았고, USB driver 및 운영 container fingerprint가 복구·불변임을 확인했다. Redacted evidence SHA-256은 `22d0829433b0b9a985ab73970b01bc93104e16fe83394fedc16eb745e0856499`이다.
 
 ---
 
