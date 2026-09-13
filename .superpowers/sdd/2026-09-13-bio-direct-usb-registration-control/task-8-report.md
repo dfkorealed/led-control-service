@@ -11,6 +11,7 @@ Task 8의 non-root 단일 raw USB software 배포 계약과 Raspberry Pi read-on
 - 확인한 clean base: `930a52e54a8c0f1d9b39df80889ab96769c26b7a`
 - 구현 커밋: `b80e550` — `feat(gateway): deploy one BIO raw USB device safely`
 - self-review hardening: `42a9210` — `fix(gateway): prevent BIO preflight root overrides`
+- review hardening: `ebdefee` — `fix(gateway): harden BIO deployment boundaries`
 - DB schema와 firmware는 변경하지 않았다.
 
 ## 구현
@@ -20,21 +21,21 @@ Task 8의 non-root 단일 raw USB software 배포 계약과 Raspberry Pi read-on
 - sysfs에서 허용된 BIO VID:PID가 정확히 한 대인지 매 실행 다시 계산한다.
 - 현재 bus/device 번호로 계산한 node가 실제 character device인지, sysfs의 major/minor와 같은지, GID가 숫자인지 모두 확인한다.
 - host preflight 결과를 compose에 전달한 뒤 container entrypoint가 같은 identity/node/GID를 다시 확인한다. test root override는 entrypoint가 제거하므로 production container 검증을 우회할 수 없다.
-- 오류와 보고서에는 raw USB node, descriptor, protocol payload 또는 장치 identity를 남기지 않는다.
+- sysfs read/stat이 TOCTOU나 권한 문제로 실패해도 하위 명령 stderr를 버리고 고정 오류 code만 낸다. 오류와 보고서에는 raw USB node, descriptor, protocol payload 또는 장치 identity를 남기지 않는다.
 
 ### 최소 권한 compose와 entrypoint
 
 - BIO overlay는 preflight가 계산한 node 하나만 동일 container 경로에 `rwm`으로 전달하고 숫자 supplemental group 하나만 추가한다.
 - `privileged`, root user, whole `/dev`, whole `/dev/bus/usb` mapping은 추가하지 않았다.
 - BIO entrypoint는 D-Bus daemon, `btmgmt`, `bluetooth-meshd`, HCI setup을 실행하지 않는다.
-- 숫자 GID가 image의 `/etc/group`에 없을 수 있어 Docker가 준 supplementary group을 보존한 채 `gateway` UID/GID로 전환한다. 동시에 bounding/inheritable/ambient capability를 모두 제거하고 Node만 `exec`한다.
+- 숫자 GID가 image의 `/etc/group`에 없을 수 있어 검증한 USB GID 하나만 supplementary group으로 지정하고 root group은 제거한 채 `gateway` UID/GID로 전환한다. BIO overlay에만 bounding set 제거용 `SETPCAP` bootstrap을 추가하고, Node 실행 전 permitted/effective/inheritable/bounding/ambient capability가 모두 0인지와 `no-new-privileges` 유지를 disposable container 계약으로 확인했다.
 - 기존 BlueZ branch의 D-Bus, HCI reset, mesh daemon, non-root Node 시작 순서는 유지했다.
 
 ### Fail-closed deploy와 rollback capture
 
 - `--adapter bio-usb`만 명시적으로 허용하고 unknown/hybrid 값은 SSH 전에 거부한다. 인자가 없으면 기존 `bluez` 경로다.
-- 현재 container image/lifecycle metadata, compose, env, Gateway/Mesh data archive를 권한 제한된 rollback directory에 먼저 기록한 뒤 BIO preflight를 실행한다.
-- preflight 성공 뒤에만 image 좌표, adapter, 현재 USB node/GID를 env에 원자 반영하고 base compose와 BIO overlay로 Gateway service 하나만 강제 재생성한다.
+- 현재 container image/lifecycle metadata, compose, env, Gateway/Mesh data archive를 권한 제한된 rollback directory에 먼저 기록한 뒤 BIO preflight를 실행한다. Compose dotenv를 shell source하지 않고 필요한 key만 비실행 문자 파서로 읽으며, 보호된 state는 제한된 `sudo tar` 뒤 SSH 사용자에게 archive 하나만 돌려 0600으로 고정한다.
+- preflight 성공 뒤에만 image 좌표, adapter, 현재 USB node/GID를 env에 원자 반영하고 base compose와 BIO overlay로 Gateway service 하나만 강제 재생성한다. 모든 BIO compose 호출에는 현재 preflight 값을 process environment로 명시해 stale exported/env-file 값보다 우선한다.
 - 재연결로 bus/device 번호가 바뀌면 저장된 node를 그대로 재사용하지 않고 deploy preflight를 다시 거쳐야 한다.
 
 ### MQTT ACL
@@ -72,29 +73,40 @@ deploy preflight root override 차단: 5 passed, 1 failed
 
 Remote deploy와 container entrypoint 모두 test-only root override 환경을 제거하도록 보완한 뒤 focused `10/10`으로 전환했다.
 
+Review hardening RED:
+
+```text
+safe dotenv/stale Compose/sudo rollback/capability/path redaction contracts: 32 passed, 9 failed
+```
+
+실패 9건은 dotenv shell source, stale exported USB 값, 비권한 tar, BIO bounding capability 잔존 가능성, root supplementary group 유지, sysfs/stat 원문 stderr 노출을 각각 재현했다. production을 완화하지 않고 위의 비실행 파서·현재 값 wrapper·제한 sudo snapshot·BIO-only bootstrap/drop·고정 오류 code로 수정한 뒤 focused `41/41`로 전환했다.
+
 ## Fresh 검증
 
 ```bash
-node --test apps/gateway/docker/compose-contract.test.mjs apps/gateway/docker/container-contract.test.mjs scripts/gateway-bio-usb-preflight.test.mjs scripts/gateway-appliance-scripts.test.mjs scripts/dev-runtime.test.mjs
-node --test apps/gateway/docker/*.test.mjs scripts/gateway-appliance-scripts.test.mjs scripts/gateway-host-prepare.test.mjs scripts/dev-runtime.test.mjs
+node --test scripts/gateway-appliance-deploy-lib.test.mjs scripts/gateway-appliance-scripts.test.mjs apps/gateway/docker/compose-contract.test.mjs apps/gateway/docker/container-contract.test.mjs scripts/gateway-bio-usb-preflight.test.mjs
+node --test apps/gateway/docker/*.test.mjs scripts/gateway-bio-usb-preflight.test.mjs scripts/gateway-appliance-deploy-lib.test.mjs scripts/gateway-appliance-scripts.test.mjs scripts/gateway-host-prepare.test.mjs scripts/dev-runtime.test.mjs
 pnpm --filter @led-control/gateway test
 pnpm --filter @led-control/gateway typecheck
 pnpm --filter @led-control/gateway build
-bash -n scripts/gateway-bio-usb-preflight.sh scripts/gateway-appliance-deploy.sh
+bash -n scripts/gateway-bio-usb-preflight.sh scripts/gateway-appliance-deploy.sh scripts/gateway-appliance-deploy-lib.sh
 sh -n apps/gateway/docker/entrypoint.sh
 git diff --check
 ```
 
 결과:
 
-- planned contracts `50/50`
-- expanded contracts `55/55`
+- review focused contracts `41/41`
+- expanded contracts `66/66`
 - Gateway `974/974`
-- typecheck exit `0`
+- typecheck 단독 fresh run exit `0` (앞선 병렬 test/typecheck/build 실행에서는 shared build output 경합으로 한 번 실패해, build 완료 뒤 순차 재실행으로 원인을 분리했다.)
 - build exit `0`, `dist/gateway.mjs 659.2kb`
 - 모든 변경 shell syntax와 diff check exit `0`
+- `shellcheck`은 실행 환경에 설치되어 있지 않아 수행하지 못했다.
 
 ## Live read-only 진단
+
+Review hardening에서는 live SSH, 실장비, 배포 명령을 다시 실행하지 않았으며 아래는 최초 Task 8에서 이미 수집한 read-only 기준선이다. assignment, certificate, ACL, 운영 container/image/data를 변경하지 않았다.
 
 ### 운영 container 기준선
 
