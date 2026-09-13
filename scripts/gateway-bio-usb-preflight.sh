@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export LC_ALL=C
 
 # BIO 동글은 USB serial descriptor가 없어 동일 VID:PID 여러 대를 안전하게
 # 구분할 수 없다. 따라서 매 실행 시 sysfs를 다시 읽고 exact-one만 허용한다.

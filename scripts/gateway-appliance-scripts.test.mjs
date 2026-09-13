@@ -59,6 +59,10 @@ test("deploy script는 bio-usb만 명시적으로 선택하고 rollback capture�
   assert.match(source, /compose\.bio-usb\.yml/);
   assert.match(source, /GATEWAY_BIO_USB_DEVICE/);
   assert.match(source, /GATEWAY_BIO_USB_GID/);
+  assert.match(
+    source,
+    /BIO_PREFLIGHT=\$\(env -u GATEWAY_BIO_USB_SYSFS_ROOT -u GATEWAY_BIO_USB_DEV_ROOT \/tmp\/gateway-bio-usb-preflight\.sh\)/
+  );
   assert.ok(source.indexOf("\ncapture_rollback\n") < source.indexOf("BIO_PREFLIGHT=$("));
   assert.ok(source.indexOf("BIO_PREFLIGHT=$(") < source.indexOf('docker compose "${COMPOSE_ARGS[@]}" up -d'));
   assert.match(source, /up -d[^\n]*--force-recreate[^\n]*gateway-appliance/);

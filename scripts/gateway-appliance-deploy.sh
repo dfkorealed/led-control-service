@@ -83,7 +83,7 @@ BIO_DEVICE=""
 BIO_GID=""
 if [ "$ADAPTER" = bio-usb ]; then
   chmod 0755 /tmp/gateway-bio-usb-preflight.sh
-  BIO_PREFLIGHT=$(/tmp/gateway-bio-usb-preflight.sh)
+  BIO_PREFLIGHT=$(env -u GATEWAY_BIO_USB_SYSFS_ROOT -u GATEWAY_BIO_USB_DEV_ROOT /tmp/gateway-bio-usb-preflight.sh)
   BIO_DEVICE=$(printf '%s\n' "$BIO_PREFLIGHT" | sed -n 's/^GATEWAY_BIO_USB_DEVICE=//p')
   BIO_GID=$(printf '%s\n' "$BIO_PREFLIGHT" | sed -n 's/^GATEWAY_BIO_USB_GID=//p')
   [[ "$BIO_DEVICE" =~ ^/dev/bus/usb/[0-9]{3}/[0-9]{3}$ && "$BIO_GID" =~ ^[0-9]+$ ]] || {
