@@ -2,10 +2,12 @@ import { pathToFileURL } from "node:url";
 import type { BioFrame, BioProtocol } from "../src/bio/bio-frame-codec";
 import { BioSerialTransport, type BioTransportOptions } from "../src/bio/bio-serial-transport";
 import { BioUsbError } from "../src/bio/bio-usb-error";
+import { decodeBioResponse } from "../src/bio/bio-command-codec";
 
 interface ProbeOptions {
   devicePath: string;
   protocol: BioProtocol;
+  profile: "legacy" | "android-v1.2.0";
   timeoutMs: number;
 }
 type ProbeDependencies = Pick<BioTransportOptions, "inspector" | "connectionFactory"> & {
@@ -16,6 +18,7 @@ function parseArguments(args: string[]): ProbeOptions {
   const options: ProbeOptions = {
     devicePath: "/dev/serial/by-id/usb-1a86_CH57x-if00-port0",
     protocol: "crc16",
+    profile: "android-v1.2.0",
     timeoutMs: 300
   };
   const seen = new Set<string>();
@@ -26,9 +29,11 @@ function parseArguments(args: string[]): ProbeOptions {
     seen.add(key);
     if (key === "--device" && [options.devicePath, "/dev/bio-dongle"].includes(value)) options.devicePath = value;
     else if (key === "--protocol" && (value === "crc16" || value === "gs")) options.protocol = value;
+    else if (key === "--profile" && (value === "legacy" || value === "android-v1.2.0")) options.profile = value;
     else if (key === "--timeout-ms" && /^[0-9]+$/.test(value) && Number(value) >= 1 && Number(value) <= 10000) options.timeoutMs = Number(value);
     else throw new Error("Invalid arguments");
   }
+  if (options.profile === "android-v1.2.0" && options.protocol !== "crc16") throw new Error("Unobserved protocol");
   return options;
 }
 
@@ -49,9 +54,12 @@ export async function runBioDongleProbe(args: string[], dependencies: ProbeDepen
     ...options,
     inspector: dependencies.inspector,
     connectionFactory: dependencies.connectionFactory,
-    // start() sends only the reviewed literal 0x82 probe and validates 0x83.
-    // Mapping readiness here means nothing about a module: no request() follows.
-    validateReadiness: async (frame) => { response = frame; }
+    // Only the profile's read-only probe is sent. No lamp request() follows.
+    // GET_NWK includes sensitive fields: validate shape without retaining them in output.
+    validateReadiness: async (frame) => {
+      if (options.profile === "android-v1.2.0" && decodeBioResponse(frame).kind !== "probe") throw new BioUsbError("READINESS", "BIO probe was not validated");
+      response = frame;
+    }
   });
   try {
     await transport.start();
@@ -67,7 +75,7 @@ export async function runBioDongleProbe(args: string[], dependencies: ProbeDepen
     return 1;
   }
   output(JSON.stringify({
-    ok: true, operation: "probe", protocol: response.protocol, responseCommand: "0x83",
+    ok: true, operation: "probe", protocol: response.protocol, responseCommand: `0x${response.command.toString(16).padStart(2, "0")}`,
     payloadBytes: response.payload.length, payload: "[REDACTED]"
   }));
   return 0;

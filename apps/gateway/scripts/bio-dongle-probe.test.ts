@@ -42,7 +42,7 @@ describe("read-only BIO probe CLI", () => {
     ["gs", "4753820000", "475383007c"]
   ])("sends only the exact %s probe and closes after validated 83", async (protocol, request, response) => {
     const h = harness();
-    const result = runBioDongleProbe(["--device", "/dev/bio-dongle", "--protocol", protocol], h.dependencies);
+    const result = runBioDongleProbe(["--profile", "legacy", "--device", "/dev/bio-dongle", "--protocol", protocol], h.dependencies);
     await flush();
     expect(h.device.writes).toEqual([request]);
     h.device.emit("data", Buffer.from(response, "hex"));
@@ -56,7 +56,7 @@ describe("read-only BIO probe CLI", () => {
 
   it("redacts actual response bytes, including ASCII identifiers", async () => {
     const h = harness();
-    const result = runBioDongleProbe(["--protocol", "gs"], h.dependencies);
+    const result = runBioDongleProbe(["--profile", "legacy", "--protocol", "gs"], h.dependencies);
     await flush();
     // Synthetic parser fixture, not a hardware command vector: 83+06+'secret' = 030F, folded complement ED.
     h.device.emit("data", Buffer.from("47538306736563726574ed", "hex"));
@@ -70,7 +70,8 @@ describe("read-only BIO probe CLI", () => {
     ["scan"], ["--command", "0x82"], ["--payload", "00"], ["--raw"],
     ["--protocol", "auto"], ["--protocol", "gs", "--protocol", "crc16"],
     ["--device", "/dev/ttyUSB0"], ["--device"], ["--timeout-ms", "0"],
-    ["--timeout-ms", "10001"], ["--timeout-ms", "1.5"], ["--timeout-ms", "1e3"]
+    ["--timeout-ms", "10001"], ["--timeout-ms", "1.5"], ["--timeout-ms", "1e3"],
+    ["--protocol", "gs"], ["--profile", "unknown"]
   ])("rejects unsupported arguments %j before opening hardware", async (...args) => {
     const h = harness();
     expect(await runBioDongleProbe(args, h.dependencies)).toBe(2);
@@ -85,7 +86,7 @@ describe("read-only BIO probe CLI", () => {
     ["55aa83006080", "LATE_RESPONSE"]
   ])("rejects invalid/wrong response %s", async (response, error) => {
     const h = harness();
-    const result = runBioDongleProbe(["--protocol", "gs"], h.dependencies);
+    const result = runBioDongleProbe(["--profile", "legacy", "--protocol", "gs"], h.dependencies);
     await flush();
     h.device.emit("data", Buffer.from(response, "hex"));
     expect(await result).toBe(1);
@@ -103,7 +104,7 @@ describe("read-only BIO probe CLI", () => {
     expect(await result).toBe(1);
     expect(JSON.parse(h.output[0])).toMatchObject({ ok: false, error: "TIMEOUT" });
     await vi.advanceTimersByTimeAsync(40000);
-    expect(h.device.writes).toEqual(["55aa82000000"]);
+    expect(h.device.writes).toEqual(["55aa0a000710"]);
     expect(h.device.isOpen).toBe(false);
   });
 
@@ -119,10 +120,23 @@ describe("read-only BIO probe CLI", () => {
     h.device.closeError = new Error("secret=736563726574");
     const result = runBioDongleProbe([], h.dependencies);
     await flush();
-    h.device.emit("data", Buffer.from("55aa83006080", "hex"));
+    h.device.emit("data", Buffer.from("55aa0b0d0001000000000000010c000320c50e", "hex"));
     expect(await result).toBe(1);
     expect(h.output).toHaveLength(1);
     expect(JSON.parse(h.output[0])).toMatchObject({ ok: false, error: "CLOSE_FAILED" });
     expect(h.output[0]).not.toMatch(/secret|736563726574/);
+  });
+
+  it("defaults to the observed network query and tolerates separate discovery/info notifications", async () => {
+    const h = harness();
+    const result = runBioDongleProbe([], h.dependencies); await flush();
+    expect(h.device.writes).toEqual(["55aa0a000710"]);
+    h.device.emit("data", Buffer.from("55aa030c02050320682f0000000300001147", "hex"));
+    h.device.emit("data", Buffer.from("55aa121cd3001122334455832e1234c00000000a0105050859320201000300006bcc", "hex"));
+    h.device.emit("data", Buffer.from("55aa0b0d0001000000000000010c000320c50e", "hex"));
+    expect(await result).toBe(0);
+    expect(JSON.parse(h.output[0])).toEqual({ ok: true, operation: "probe", protocol: "crc16", responseCommand: "0x0b", payloadBytes: 13, payload: "[REDACTED]" });
+    expect(h.output.join("\n")).not.toContain("001122334455");
+    expect(h.device.isOpen).toBe(false);
   });
 });

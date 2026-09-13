@@ -20,7 +20,7 @@ class Device extends EventEmitter implements SerialPortDevice {
   receive(value: string) { this.emit("data", hex(value)); }
 }
 
-function harness(options: { protocol?: "crc16" | "gs" | "auto"; validateReadiness?: () => Promise<void>; vendor?: string; timeoutMs?: number } = {}) {
+function harness(options: { protocol?: "crc16" | "gs" | "auto"; profile?: "android-v1.2.0"; validateReadiness?: () => Promise<void>; vendor?: string; timeoutMs?: number } = {}) {
   const devices: Device[] = [];
   const fs: UsbIdentityFs = {
     stat: async () => ({ rdev: 48128, isCharacterDevice: () => true }),
@@ -29,7 +29,7 @@ function harness(options: { protocol?: "crc16" | "gs" | "auto"; validateReadines
     readFile: async (path) => path.endsWith("idVendor") ? options.vendor ?? "1a86" : "5523"
   };
   const transport = new BioSerialTransport({
-    devicePath: "/dev/bio-dongle", protocol: options.protocol ?? "gs", timeoutMs: options.timeoutMs,
+    devicePath: "/dev/bio-dongle", protocol: options.protocol ?? "gs", profile: options.profile, timeoutMs: options.timeoutMs,
     inspector: new LinuxUsbIdentityInspector(fs),
     connectionFactory: (path) => {
       const device = new Device(); devices.push(device);
@@ -52,6 +52,104 @@ async function ready(value: ReturnType<typeof harness>) {
 describe("BioSerialTransport", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
+
+  it("uses the traced network read instead of requiring an unobserved 83 response", async () => {
+    const h = harness({ profile: "android-v1.2.0", protocol: "crc16" });
+    const start = h.transport.start(); void start.catch(() => {}); await flush();
+    expect(h.devices[0].writes).toEqual(["55aa0a000710"]);
+    h.devices[0].receive("55aa0b0d0001000000000000010c000320c50e");
+    await start;
+    expect(h.transport.snapshot().ready).toBe(true);
+    await h.transport.stop();
+  });
+
+  it("routes unsolicited 03 and 12 separately without consuming an active or queued ACK", async () => {
+    const h = harness({ profile: "android-v1.2.0", protocol: "crc16" });
+    const notifications: number[] = [];
+    h.transport.onNotification?.((frame) => notifications.push(frame.command));
+    const start = settled(h.transport.start()); await flush();
+    h.devices[0].receive("55aa030c02050320682f0000000300001147");
+    h.devices[0].receive("55aa0b0d0001000000000000010c000320c50e");
+    await start;
+    expect(h.transport.snapshot().ready).toBe(true);
+    const first = h.transport.request({ command: 0x10, payload: hex("00000000000000804701feffff00008305") });
+    const second = h.transport.request({ command: 0x10, payload: hex("00000000000000804801feffff000085") });
+    void first.catch(() => {}); void second.catch(() => {}); await flush();
+    h.devices[0].receive("55aa121cd3001122334455832e1234c00000000a0105050859320201000300006bcc");
+    await flush();
+    expect(notifications).toEqual([3, 18]);
+    expect(h.devices[0].writes).toHaveLength(2);
+    h.devices[0].receive("55aa1101002055"); await first; await flush();
+    expect(h.devices[0].writes).toHaveLength(3);
+    h.devices[0].receive("55aa1101002055"); await second;
+    await h.transport.stop();
+  });
+
+  it("holds a queued request behind partial unsolicited bytes until their ownership is known", async () => {
+    const h = harness({ profile: "android-v1.2.0", protocol: "crc16" });
+    const start = settled(h.transport.start()); await flush();
+    h.devices[0].receive("55aa0b0d0001000000000000010c000320c50e"); await start;
+    const frame = "55aa121cd3001122334455832e1234c00000000a0105050859320201000300006bcc";
+    h.devices[0].receive(frame.slice(0, 8));
+    expect(h.transport.snapshot().ready).toBe(true);
+    const request = h.transport.request({ command: 0x10, payload: hex("00000000000000804801feffff000085") });
+    void request.catch(() => {}); await flush();
+    expect(h.devices[0].writes).toHaveLength(1);
+    h.devices[0].receive(frame.slice(8)); await flush();
+    expect(h.devices[0].writes).toHaveLength(2);
+    h.devices[0].receive("55aa1101002055"); await request;
+    await h.transport.stop();
+  });
+
+  it("rejects unobserved GS/auto selection for the installed Android profile", () => {
+    expect(() => harness({ profile: "android-v1.2.0", protocol: "gs" })).toThrow();
+    expect(() => harness({ profile: "android-v1.2.0", protocol: "auto" })).toThrow();
+  });
+
+  it("does not let a notification callback's new request consume a coalesced stale ACK", async () => {
+    const h = harness({ profile: "android-v1.2.0", protocol: "crc16" });
+    const start = settled(h.transport.start()); await flush();
+    h.devices[0].receive("55aa0b0d0001000000000000010c000320c50e"); await start;
+    let requested: Promise<unknown> | undefined;
+    h.transport.onNotification(() => {
+      requested = settled(h.transport.request({ command: 0x10, payload: hex("00000000000000804801feffff000085") }));
+    });
+    h.devices[0].receive("55aa121cd3001122334455832e1234c00000000a0105050859320201000300006bcc55aa1101002055");
+    await flush();
+    expect(await requested).toMatchObject({ code: "LATE_RESPONSE" });
+    expect(h.devices[0].writes).toEqual(["55aa0a000710"]);
+    await h.transport.stop();
+  });
+
+  it("rejects a partial idle ACK before any queued request can own it", async () => {
+    const h = harness({ profile: "android-v1.2.0", protocol: "crc16" });
+    const start = settled(h.transport.start()); await flush();
+    h.devices[0].receive("55aa0b0d0001000000000000010c000320c50e"); await start;
+    h.devices[0].receive("55aa11");
+    const request = settled(h.transport.request({ command: 0x10, payload: hex("00000000000000804801feffff000085") }));
+    await flush();
+    expect(h.devices[0].writes).toHaveLength(1);
+    h.devices[0].receive("01002055");
+    expect(await request).toMatchObject({ code: "LATE_RESPONSE" });
+    expect(h.devices[0].writes).toHaveLength(1);
+    await h.transport.stop();
+  });
+
+  it("bounds incomplete notification blocking and stop cancels its retry", async () => {
+    const h = harness({ profile: "android-v1.2.0", protocol: "crc16" });
+    const start = settled(h.transport.start()); await flush();
+    h.devices[0].receive("55aa0b0d0001000000000000010c000320c50e"); await start;
+    h.devices[0].receive("55aa121c");
+    const request = settled(h.transport.request({ command: 0x10, payload: hex("00000000000000804801feffff000085") }));
+    await vi.advanceTimersByTimeAsync(299);
+    expect(h.transport.snapshot().ready).toBe(true);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await request).toMatchObject({ code: "TIMEOUT" });
+    expect(h.devices[0].writes).toEqual(["55aa0a000710"]);
+    await h.transport.stop();
+    await vi.advanceTimersByTimeAsync(40000);
+    expect(h.devices).toHaveLength(1);
+  });
 
   it("sends each exact probe literal and requires checksummed command 83 readiness", async () => {
     for (const [protocol, probe, response] of [["crc16", "55aa82000000", "55aa83006080"], ["gs", "4753820000", "475383007c"]] as const) {

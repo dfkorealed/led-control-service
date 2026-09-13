@@ -14,6 +14,8 @@ export interface BioTransportSnapshot {
 }
 export interface BioTransportOptions {
   devicePath?: string;
+  /** Installed Android 1.2.0 has separate ACK/notification channels; physical CRC-mode HIL is still required. */
+  profile?: "legacy" | "android-v1.2.0";
   protocol?: BioProtocol | "auto";
   timeoutMs?: number;
   inspector?: LinuxUsbIdentityInspector;
@@ -36,12 +38,14 @@ interface PendingRequest {
 export class BioSerialTransport {
   private status: BioTransportSnapshot = { state: "stopped", generation: 0, transportConnected: false, protocolReady: false, ready: false };
   private readonly listeners = new Set<(state: BioTransportSnapshot) => void>();
+  private readonly notificationListeners = new Set<(frame: BioFrame) => void>();
   private readonly codec = new BioFrameCodec();
   private readonly queue: PendingRequest[] = [];
   private connection?: SerialConnection;
   private unsubscribe: (() => void)[] = [];
   private active?: PendingRequest;
   private timeout?: ReturnType<typeof setTimeout>;
+  private partialTimeout?: ReturnType<typeof setTimeout>;
   private reconnectTimer?: ReturnType<typeof setTimeout>;
   private running = false;
   private writing = false;
@@ -54,6 +58,9 @@ export class BioSerialTransport {
   constructor(private readonly options: BioTransportOptions) {
     const timeout = options.timeoutMs ?? 300;
     if (!Number.isInteger(timeout) || timeout < 1 || timeout > 2147483647) throw new RangeError("Invalid BIO response timeout");
+    if (options.profile === "android-v1.2.0" && options.protocol !== undefined && options.protocol !== "crc16") {
+      throw new RangeError("Installed BIO profile has only CRC frame evidence");
+    }
     this.nextProtocol = options.protocol === "gs" ? "gs" : "crc16";
   }
 
@@ -73,7 +80,10 @@ export class BioSerialTransport {
     const bytes = this.status.protocol === "crc16" ? encodeCrcFrame(request.command, request.payload) : encodeGsFrame(request.command, request.payload);
     return new Promise<BioFrame>((resolve, reject) => {
       this.queue.push({ command: request.command, bytes, resolve, reject });
-      this.pump();
+      // A notification listener can enqueue reentrantly while receive() still
+      // owns other frames from the same chunk. Inspect those before writing.
+      if (this.options.profile === "android-v1.2.0") void Promise.resolve().then(() => this.pump());
+      else this.pump();
     });
   }
 
@@ -93,6 +103,10 @@ export class BioSerialTransport {
   onState(listener: (state: BioTransportSnapshot) => void): () => void {
     this.listeners.add(listener);
     return () => { this.listeners.delete(listener); };
+  }
+  onNotification(listener: (frame: BioFrame) => void): () => void {
+    this.notificationListeners.add(listener);
+    return () => { this.notificationListeners.delete(listener); };
   }
 
   private connect(): Promise<void> {
@@ -129,8 +143,11 @@ export class BioSerialTransport {
     this.update({ state: "probing", transportConnected: true });
     // The APK probes deliberately have zero trailers; normal frame encoders
     // must never be used here or taught to bypass response checksum validation.
-    const literal = this.status.protocol === "crc16" ? "55aa82000000" : "4753820000";
-    const probe = await new Promise<BioFrame>((resolve, reject) => this.send({ command: 0x82, bytes: Buffer.from(literal, "hex"), resolve, reject }));
+    // Installed-app trace uses GET_NWK 0A/0B; 82 is a legacy converter hint,
+    // not evidence that every connected dongle must return command 83.
+    const traced = this.options.profile === "android-v1.2.0";
+    const literal = traced ? "55aa0a000710" : this.status.protocol === "crc16" ? "55aa82000000" : "4753820000";
+    const probe = await new Promise<BioFrame>((resolve, reject) => this.send({ command: traced ? 0x0a : 0x82, bytes: Buffer.from(literal, "hex"), resolve, reject }));
     if (!this.current(generation)) return;
     this.update({ state: "validating", protocolReady: true });
     try {
@@ -146,7 +163,7 @@ export class BioSerialTransport {
   }
 
   private pump() {
-    if (!this.status.ready || this.active || this.writing) return;
+    if (!this.status.ready || this.active || this.writing || this.codec.hasPendingFrame()) return;
     const next = this.queue.shift();
     if (next) this.send(next);
   }
@@ -171,6 +188,12 @@ export class BioSerialTransport {
         this.fail(generation, new BioUsbError("MALFORMED_FRAME", "Malformed BIO frame"));
         break;
       }
+      if (this.options.profile === "android-v1.2.0" && event.frame.protocol === "crc16" && [0x03, 0x12].includes(event.frame.command)) {
+        // These frames cannot acknowledge the in-flight request. A device RX
+        // may arrive before/after 11 or with an unrelated device sequence.
+        for (const listener of this.notificationListeners) listener(event.frame);
+        continue;
+      }
       if (!this.active || event.frame.protocol !== this.status.protocol || event.frame.command !== this.active.command + 1) {
         this.fail(generation, new BioUsbError("LATE_RESPONSE", "Unexpected or late BIO response"));
         break;
@@ -183,9 +206,19 @@ export class BioSerialTransport {
     }
     // A partial duplicate, including its first header byte, already belongs to
     // the previous request. Never let its later tail complete a queued request.
+    if (!this.codec.hasPendingFrame() && this.partialTimeout) {
+      clearTimeout(this.partialTimeout);
+      this.partialTimeout = undefined;
+    }
     if (this.current(generation) && !this.active && this.codec.hasPendingFrame()) {
-      this.fail(generation, new BioUsbError("LATE_RESPONSE", "BIO response candidate crossed request ownership"));
-      return;
+      if (this.options.profile !== "android-v1.2.0") {
+        this.fail(generation, new BioUsbError("LATE_RESPONSE", "BIO response candidate crossed request ownership"));
+        return;
+      }
+      // An idle fragmented notification is normal. Keep subsequent requests
+      // queued until its full header/frame establishes ownership; a duplicate
+      // ACK then fails while no new request can consume it. Bound stalled input.
+      this.partialTimeout ??= setTimeout(() => this.fail(generation, new BioUsbError("TIMEOUT", "BIO partial notification timed out")), this.options.timeoutMs ?? 300);
     }
     // Finish inspecting complete and partial candidates before another request
     // becomes eligible to own bytes from this connection.
@@ -198,7 +231,7 @@ export class BioSerialTransport {
 
   private fail(generation: number, error: BioUsbError) {
     if (!this.current(generation)) return;
-    if (this.status.state === "probing" && (this.options.protocol ?? "auto") === "auto") {
+    if (this.options.profile !== "android-v1.2.0" && this.status.state === "probing" && (this.options.protocol ?? "auto") === "auto") {
       this.nextProtocol = this.status.protocol === "crc16" ? "gs" : "crc16";
     } else if (this.status.protocol) this.nextProtocol = this.status.protocol;
     // Observe the rejection without replacing the failed cleanup barrier with
@@ -217,6 +250,8 @@ export class BioSerialTransport {
     this.status = { ...this.status, generation: this.status.generation + 1, transportConnected: false, protocolReady: false, ready: false };
     if (this.timeout) clearTimeout(this.timeout);
     this.timeout = undefined;
+    if (this.partialTimeout) clearTimeout(this.partialTimeout);
+    this.partialTimeout = undefined;
     this.codec.reset();
     this.active?.reject(error);
     this.active = undefined;

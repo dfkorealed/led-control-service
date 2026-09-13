@@ -1,0 +1,342 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "kind": "android-application-logcat",
+    "sha256": "b2d99a154c6fb29da6e59d4714425c1608ace9ba219c62053a054277b896681a",
+    "apkSha256": "38b908d233019888da7b0cfb77c8f5f6cf8a6f36cd2afb2f1b0cf59357f95a1d",
+    "package": "com.groundspace.lightcontrol",
+    "version": "1.2.0",
+    "versionCode": 320,
+    "limits": [
+      "Canonical 55AA frames before/after the app converter; physical USB CRC/GS selection is not established by this log.",
+      "User visually confirmed individual 99%/100% and force-ON/sensor restoration; CD13 still has no correlated read-back.",
+      "0x9d UI percentage was not observed; highBrightness is a raw scene setting, not a linear percentage."
+    ]
+  },
+  "normalization": {
+    "description": "Structure-preserving identity placeholders with independently recomputed CRC. Not original device identities.",
+    "nativeUuid": "001122334455",
+    "logicalAddress": 4660,
+    "unobservedGroupPlaceholder": 36865,
+    "networkProbe": "Payload offsets 0..7 (addresses/network/password) replaced with zeros except unicast placeholder 0001. Network 0000 is a placeholder; no password is retained.",
+    "preserved": "Lengths, non-identity payload fields, sequence, RSSI, host 01fe, broadcast ffff and default group c000 retained."
+  },
+  "requests": [
+    {
+      "name": "probe-network-read",
+      "operation": {
+        "kind": "probe"
+      },
+      "sequence": 0,
+      "hex": "55aa0a000710",
+      "sourceSha256": "b2d99a154c6fb29da6e59d4714425c1608ace9ba219c62053a054277b896681a"
+    },
+    {
+      "name": "setHighBrightness-broadcast-seq-65",
+      "operation": {
+        "kind": "setHighBrightness",
+        "target": {
+          "kind": "broadcast",
+          "networkId": 0
+        },
+        "rawHighBrightness": 254
+      },
+      "sequence": 65,
+      "hex": "55aa101200000000000000804101feffff0000cd13fe2437",
+      "sourceSha256": "b2d99a154c6fb29da6e59d4714425c1608ace9ba219c62053a054277b896681a"
+    },
+    {
+      "name": "setHighBrightness-broadcast-seq-66",
+      "operation": {
+        "kind": "setHighBrightness",
+        "target": {
+          "kind": "broadcast",
+          "networkId": 0
+        },
+        "rawHighBrightness": 255
+      },
+      "sequence": 66,
+      "hex": "55aa101200000000000000804201feffff0000cd13ff15f8",
+      "sourceSha256": "b2d99a154c6fb29da6e59d4714425c1608ace9ba219c62053a054277b896681a"
+    },
+    {
+      "name": "setHighBrightness-broadcast-seq-67",
+      "operation": {
+        "kind": "setHighBrightness",
+        "target": {
+          "kind": "broadcast",
+          "networkId": 0
+        },
+        "rawHighBrightness": 157
+      },
+      "sequence": 67,
+      "hex": "55aa101200000000000000804301feffff0000cd139dc5d4",
+      "sourceSha256": "b2d99a154c6fb29da6e59d4714425c1608ace9ba219c62053a054277b896681a"
+    },
+    {
+      "name": "setHighBrightness-broadcast-seq-68",
+      "operation": {
+        "kind": "setHighBrightness",
+        "target": {
+          "kind": "broadcast",
+          "networkId": 0
+        },
+        "rawHighBrightness": 255
+      },
+      "sequence": 68,
+      "hex": "55aa101200000000000000804401feffff0000cd13fff5e7",
+      "sourceSha256": "b2d99a154c6fb29da6e59d4714425c1608ace9ba219c62053a054277b896681a"
+    },
+    {
+      "name": "setControlMode-broadcast-seq-69",
+      "operation": {
+        "kind": "setControlMode",
+        "target": {
+          "kind": "broadcast",
+          "networkId": 0
+        },
+        "mode": "force-on"
+      },
+      "sequence": 69,
+      "hex": "55aa101200000000000000804501feffff0000cd1203a5f3",
+      "sourceSha256": "b2d99a154c6fb29da6e59d4714425c1608ace9ba219c62053a054277b896681a"
+    },
+    {
+      "name": "setControlMode-broadcast-seq-70",
+      "operation": {
+        "kind": "setControlMode",
+        "target": {
+          "kind": "broadcast",
+          "networkId": 0
+        },
+        "mode": "sensor"
+      },
+      "sequence": 70,
+      "hex": "55aa101200000000000000804601feffff0000cd120015fd",
+      "sourceSha256": "b2d99a154c6fb29da6e59d4714425c1608ace9ba219c62053a054277b896681a"
+    },
+    {
+      "name": "scan-broadcast-seq-71",
+      "operation": {
+        "kind": "scan"
+      },
+      "sequence": 71,
+      "hex": "55aa101100000000000000804701feffff00008305daee",
+      "sourceSha256": "b2d99a154c6fb29da6e59d4714425c1608ace9ba219c62053a054277b896681a"
+    },
+    {
+      "name": "stopScan-broadcast-seq-72",
+      "operation": {
+        "kind": "stopScan"
+      },
+      "sequence": 72,
+      "hex": "55aa101000000000000000804801feffff000085fc09",
+      "sourceSha256": "b2d99a154c6fb29da6e59d4714425c1608ace9ba219c62053a054277b896681a"
+    },
+    {
+      "name": "setHighBrightness-unicast-seq-75",
+      "operation": {
+        "kind": "setHighBrightness",
+        "target": {
+          "kind": "unicast",
+          "networkId": 0,
+          "logicalAddress": 4660
+        },
+        "rawHighBrightness": 254
+      },
+      "sequence": 75,
+      "hex": "55aa101200000000000000804b01fe12340000cd13fe2962",
+      "sourceSha256": "b2d99a154c6fb29da6e59d4714425c1608ace9ba219c62053a054277b896681a"
+    },
+    {
+      "name": "setHighBrightness-unicast-seq-76",
+      "operation": {
+        "kind": "setHighBrightness",
+        "target": {
+          "kind": "unicast",
+          "networkId": 0,
+          "logicalAddress": 4660
+        },
+        "rawHighBrightness": 255
+      },
+      "sequence": 76,
+      "hex": "55aa101200000000000000804c01fe12340000cd13ff5978",
+      "sourceSha256": "b2d99a154c6fb29da6e59d4714425c1608ace9ba219c62053a054277b896681a"
+    },
+    {
+      "name": "setControlMode-unicast-seq-77",
+      "operation": {
+        "kind": "setControlMode",
+        "target": {
+          "kind": "unicast",
+          "networkId": 0,
+          "logicalAddress": 4660
+        },
+        "mode": "force-on"
+      },
+      "sequence": 77,
+      "hex": "55aa101200000000000000804d01fe12340000cc120358ac",
+      "sourceSha256": "b2d99a154c6fb29da6e59d4714425c1608ace9ba219c62053a054277b896681a"
+    },
+    {
+      "name": "setControlMode-unicast-seq-78",
+      "operation": {
+        "kind": "setControlMode",
+        "target": {
+          "kind": "unicast",
+          "networkId": 0,
+          "logicalAddress": 4660
+        },
+        "mode": "sensor"
+      },
+      "sequence": 78,
+      "hex": "55aa101200000000000000804e01fe12340000cc1200e8a2",
+      "sourceSha256": "b2d99a154c6fb29da6e59d4714425c1608ace9ba219c62053a054277b896681a"
+    },
+    {
+      "name": "setHighBrightness-unicast-seq-79",
+      "operation": {
+        "kind": "setHighBrightness",
+        "target": {
+          "kind": "unicast",
+          "networkId": 0,
+          "logicalAddress": 4660
+        },
+        "rawHighBrightness": 254
+      },
+      "sequence": 79,
+      "hex": "55aa101200000000000000804f01fe12340000cd13fe68b7",
+      "sourceSha256": "b2d99a154c6fb29da6e59d4714425c1608ace9ba219c62053a054277b896681a"
+    },
+    {
+      "name": "setHighBrightness-unicast-seq-80",
+      "operation": {
+        "kind": "setHighBrightness",
+        "target": {
+          "kind": "unicast",
+          "networkId": 0,
+          "logicalAddress": 4660
+        },
+        "rawHighBrightness": 255
+      },
+      "sequence": 80,
+      "hex": "55aa101200000000000000805001fe12340000cd13ff98d2",
+      "sourceSha256": "b2d99a154c6fb29da6e59d4714425c1608ace9ba219c62053a054277b896681a"
+    },
+    {
+      "name": "stopScan-broadcast-seq-73",
+      "operation": {
+        "kind": "stopScan"
+      },
+      "sequence": 73,
+      "hex": "55aa101000000000000000804901feffff0000853dc5",
+      "sourceSha256": "b2d99a154c6fb29da6e59d4714425c1608ace9ba219c62053a054277b896681a"
+    },
+    {
+      "name": "stopScan-broadcast-seq-74",
+      "operation": {
+        "kind": "stopScan"
+      },
+      "sequence": 74,
+      "hex": "55aa101000000000000000804a01feffff0000857dd0",
+      "sourceSha256": "b2d99a154c6fb29da6e59d4714425c1608ace9ba219c62053a054277b896681a"
+    },
+    {
+      "name": "setControlMode-unicast-seq-81",
+      "operation": {
+        "kind": "setControlMode",
+        "target": {
+          "kind": "unicast",
+          "networkId": 0,
+          "logicalAddress": 4660
+        },
+        "mode": "force-off"
+      },
+      "sequence": 81,
+      "hex": "55aa101200000000000000805101fe12340000cc120118c7",
+      "sourceSha256": "b2d99a154c6fb29da6e59d4714425c1608ace9ba219c62053a054277b896681a"
+    },
+    {
+      "name": "setControlMode-unicast-seq-82",
+      "operation": {
+        "kind": "setControlMode",
+        "target": {
+          "kind": "unicast",
+          "networkId": 0,
+          "logicalAddress": 4660
+        },
+        "mode": "sensor"
+      },
+      "sequence": 82,
+      "hex": "55aa101200000000000000805201fe12340000cc12002908",
+      "sourceSha256": "b2d99a154c6fb29da6e59d4714425c1608ace9ba219c62053a054277b896681a"
+    }
+  ],
+  "responses": [
+    {
+      "name": "probe-network-response",
+      "hex": "55aa0b0d0001000000000000010c000320c50e",
+      "sourceSha256": "b2d99a154c6fb29da6e59d4714425c1608ace9ba219c62053a054277b896681a"
+    },
+    {
+      "name": "unsolicited-dongle-info",
+      "hex": "55aa030c02050320682f0000000300001147",
+      "sourceSha256": "b2d99a154c6fb29da6e59d4714425c1608ace9ba219c62053a054277b896681a"
+    },
+    {
+      "name": "outer-ack",
+      "hex": "55aa1101002055",
+      "sourceSha256": "b2d99a154c6fb29da6e59d4714425c1608ace9ba219c62053a054277b896681a"
+    },
+    {
+      "name": "lamp-notification-seq-46",
+      "hex": "55aa121cd3001122334455832e1234c00000000a0105050859320201000300006bcc",
+      "sourceSha256": "b2d99a154c6fb29da6e59d4714425c1608ace9ba219c62053a054277b896681a"
+    },
+    {
+      "name": "lamp-notification-seq-119",
+      "hex": "55aa1212da0011223344558377123401fe00004f1203e394",
+      "sourceSha256": "b2d99a154c6fb29da6e59d4714425c1608ace9ba219c62053a054277b896681a"
+    },
+    {
+      "name": "lamp-notification-seq-120",
+      "hex": "55aa1212d70011223344558378123401fe00004f1200010a",
+      "sourceSha256": "b2d99a154c6fb29da6e59d4714425c1608ace9ba219c62053a054277b896681a"
+    },
+    {
+      "name": "lamp-notification-seq-6",
+      "hex": "55aa1210d900112233445500061234900100000c4bfa",
+      "sourceSha256": "b2d99a154c6fb29da6e59d4714425c1608ace9ba219c62053a054277b896681a"
+    },
+    {
+      "name": "lamp-notification-seq-11",
+      "hex": "55aa1218d7001122334455030b12349001000009010100000000000043aa",
+      "sourceSha256": "b2d99a154c6fb29da6e59d4714425c1608ace9ba219c62053a054277b896681a"
+    },
+    {
+      "name": "lamp-notification-seq-12",
+      "hex": "55aa1218d6001122334455030c1234900100000901010000000000005c0d",
+      "sourceSha256": "b2d99a154c6fb29da6e59d4714425c1608ace9ba219c62053a054277b896681a"
+    },
+    {
+      "name": "lamp-notification-seq-27",
+      "hex": "55aa1218d6001122334455031b12349001000009010100000000000013f3",
+      "sourceSha256": "b2d99a154c6fb29da6e59d4714425c1608ace9ba219c62053a054277b896681a"
+    },
+    {
+      "name": "lamp-notification-seq-35",
+      "hex": "55aa1210d700112233445500231234900100000c0db9",
+      "sourceSha256": "b2d99a154c6fb29da6e59d4714425c1608ace9ba219c62053a054277b896681a"
+    },
+    {
+      "name": "lamp-notification-seq-148",
+      "hex": "55aa1212d90011223344558394123401fe00004f12016648",
+      "sourceSha256": "b2d99a154c6fb29da6e59d4714425c1608ace9ba219c62053a054277b896681a"
+    },
+    {
+      "name": "lamp-notification-seq-149",
+      "hex": "55aa1212d80011223344558395123401fe00004f1200a7b1",
+      "sourceSha256": "b2d99a154c6fb29da6e59d4714425c1608ace9ba219c62053a054277b896681a"
+    }
+  ]
+}
