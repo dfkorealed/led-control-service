@@ -12,6 +12,7 @@ Task 8의 non-root 단일 raw USB software 배포 계약과 Raspberry Pi read-on
 - 구현 커밋: `b80e550` — `feat(gateway): deploy one BIO raw USB device safely`
 - self-review hardening: `42a9210` — `fix(gateway): prevent BIO preflight root overrides`
 - review hardening: `ebdefee` — `fix(gateway): harden BIO deployment boundaries`
+- rollback source hardening: `b35e7d5` — `fix(gateway): snapshot rendered Compose data source`
 - DB schema와 firmware는 변경하지 않았다.
 
 ## 구현
@@ -34,7 +35,7 @@ Task 8의 non-root 단일 raw USB software 배포 계약과 Raspberry Pi read-on
 ### Fail-closed deploy와 rollback capture
 
 - `--adapter bio-usb`만 명시적으로 허용하고 unknown/hybrid 값은 SSH 전에 거부한다. 인자가 없으면 기존 `bluez` 경로다.
-- 현재 container image/lifecycle metadata, compose, env, Gateway/Mesh data archive를 권한 제한된 rollback directory에 먼저 기록한 뒤 BIO preflight를 실행한다. Compose dotenv를 shell source하지 않고 필요한 key만 비실행 문자 파서로 읽으며, 보호된 state는 제한된 `sudo tar` 뒤 SSH 사용자에게 archive 하나만 돌려 0600으로 고정한다.
+- 현재 container image/lifecycle metadata, compose, env, Gateway/Mesh data archive를 권한 제한된 rollback directory에 먼저 기록한 뒤 BIO preflight를 실행한다. 기존 배포의 adapter에 따라 BlueZ/BIO Compose file set과 env-file을 실제 `docker compose config`로 렌더링하며, process environment의 stale override는 rollback과 실제 배포 모두에서 제거한다. exact Gateway/Mesh bind가 하나씩 같은 non-root canonical sibling으로 확인되어야 하며 config·source·snapshot 실패나 누락에는 기본 경로로 대체하거나 건너뛰지 않는다. 보호된 state는 제한된 `sudo tar` 뒤 SSH 사용자에게 archive 하나만 돌려 0600으로 고정한다.
 - preflight 성공 뒤에만 image 좌표, adapter, 현재 USB node/GID를 env에 원자 반영하고 base compose와 BIO overlay로 Gateway service 하나만 강제 재생성한다. 모든 BIO compose 호출에는 현재 preflight 값을 process environment로 명시해 stale exported/env-file 값보다 우선한다.
 - 재연결로 bus/device 번호가 바뀌면 저장된 node를 그대로 재사용하지 않고 deploy preflight를 다시 거쳐야 한다.
 
@@ -81,6 +82,14 @@ safe dotenv/stale Compose/sudo rollback/capability/path redaction contracts: 32 
 
 실패 9건은 dotenv shell source, stale exported USB 값, 비권한 tar, BIO bounding capability 잔존 가능성, root supplementary group 유지, sysfs/stat 원문 stderr 노출을 각각 재현했다. production을 완화하지 않고 위의 비실행 파서·현재 값 wrapper·제한 sudo snapshot·BIO-only bootstrap/drop·고정 오류 code로 수정한 뒤 focused `41/41`로 전환했다.
 
+Rollback source review RED:
+
+```text
+rendered Compose rollback source contracts: 3 passed, 6 failed
+```
+
+실패 6건은 dotenv 값을 직접 읽어 fallback하던 구현이 공백·중첩 보간, relative bind, stale shell override, BlueZ/BIO file set, 0/복수/ambiguous mount와 missing/unreadable source를 안전하게 결정하지 못함을 고정했다. 실제 Compose JSON을 렌더링해 canonical source를 검증하고 그 source의 marker가 archive에 들어가는 계약으로 수정한 뒤 deploy focused `15/15`로 전환했다.
+
 ## Fresh 검증
 
 ```bash
@@ -97,9 +106,10 @@ git diff --check
 결과:
 
 - review focused contracts `41/41`
-- expanded contracts `66/66`
+- deploy focused contracts `15/15`
+- expanded contracts `72/72`
 - Gateway `974/974`
-- typecheck 단독 fresh run exit `0` (앞선 병렬 test/typecheck/build 실행에서는 shared build output 경합으로 한 번 실패해, build 완료 뒤 순차 재실행으로 원인을 분리했다.)
+- typecheck 순차 fresh run exit `0`
 - build exit `0`, `dist/gateway.mjs 659.2kb`
 - 모든 변경 shell syntax와 diff check exit `0`
 - `shellcheck`은 실행 환경에 설치되어 있지 않아 수행하지 못했다.
