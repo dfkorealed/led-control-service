@@ -620,7 +620,7 @@ git commit -m "feat(web): brand login as kinda"
 - Consumes: Task 2의 `KindaLogo`.
 - Produces: 고객 셸 접근성 이름 `킨다 관제 센터`, 운영자 셸 접근성 이름 `킨다 서비스 운영`.
 
-- [ ] **Step 1: 두 셸의 실패 테스트를 먼저 추가한다.**
+- [x] **Step 1: 두 셸의 실패 테스트를 먼저 추가한다.**
 
 `CustomerShell.test.tsx`의 기존 desktop `matchMedia` 조건에서 다음 case를 추가한다.
 
@@ -643,13 +643,13 @@ it("운영자 헤더에 킨다 서비스 운영 브랜드를 표시한다", asyn
 });
 ```
 
-- [ ] **Step 2: 두 셸 테스트가 기존 LC 마크와 이름 때문에 실패하는지 확인한다.**
+- [x] **Step 2: 두 셸 테스트가 기존 LC 마크와 이름 때문에 실패하는지 확인한다.**
 
 Run: `pnpm --filter @led-control/web test -- src/features/shells/CustomerShell.test.tsx src/features/operator/OperatorShell.test.tsx`
 
 Expected: 두 `KindaLogo` 접근성 이름을 찾지 못해 실패한다.
 
-- [ ] **Step 3: 고객 셸 rail의 기존 브랜드 블록을 교체한다.**
+- [x] **Step 3: 고객 셸 rail의 기존 브랜드 블록을 교체한다.**
 
 상단 import에 다음을 추가한다.
 
@@ -663,7 +663,7 @@ desktop sidebar의 기존 `.brand` 블록을 다음으로 교체한다.
 <KindaLogo context="관제 센터" compact />
 ```
 
-- [ ] **Step 4: 운영자 헤더의 기존 브랜드 블록을 교체한다.**
+- [x] **Step 4: 운영자 헤더의 기존 브랜드 블록을 교체한다.**
 
 상단 import에 다음을 추가한다.
 
@@ -677,7 +677,7 @@ import { KindaLogo } from "../../components/brand/KindaLogo";
 <KindaLogo className="operator-brand" context="서비스 운영" />
 ```
 
-- [ ] **Step 5: 셸 focused 회귀와 CSS 잔존 selector를 검증한다.**
+- [x] **Step 5: 셸 focused 회귀와 CSS 잔존 selector를 검증한다.**
 
 Run: `pnpm --filter @led-control/web test -- src/features/shells/CustomerShell.test.tsx src/features/operator/OperatorShell.test.tsx`
 
@@ -687,7 +687,7 @@ Run: `rg -n '\.brand-mark|className="brand' apps/web/src`
 
 Expected: 출력이 없다.
 
-- [ ] **Step 6: 두 셸 접점을 커밋한다.**
+- [x] **Step 6: 두 셸 접점을 커밋한다.**
 
 ```bash
 git add apps/web/src/features/shells/CustomerShell.tsx apps/web/src/features/shells/CustomerShell.test.tsx apps/web/src/features/operator/OperatorShell.tsx apps/web/src/features/operator/OperatorShell.test.tsx
