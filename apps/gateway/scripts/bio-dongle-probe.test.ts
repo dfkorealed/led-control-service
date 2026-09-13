@@ -1,151 +1,153 @@
 import { EventEmitter } from "node:events";
+import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { BioByteConnection } from "../src/bio/bio-byte-connection";
-import { BioUsbError } from "../src/bio/bio-usb-error";
+import type { BioUsbDescriptor, BioUsbDeviceHandle, BioUsbDriver } from "../src/bio/node-usb-driver";
 import { runBioDongleProbe } from "./bio-dongle-probe";
 
-class Device extends EventEmitter implements BioByteConnection {
-  isOpen = false;
-  writes: string[] = [];
-  closeError?: Error;
-  async open() { this.isOpen = true; }
-  async write(bytes: Uint8Array) { this.writes.push(Buffer.from(bytes).toString("hex")); }
-  async close() {
-    if (this.closeError) throw this.closeError;
-    this.isOpen = false;
+const descriptor: BioUsbDescriptor = {
+  idVendor: 0x1a86,
+  idProduct: 0x5523,
+  busNumber: 1,
+  deviceAddress: 4,
+  interfaceNumber: 0,
+  bulkOutAddress: 0x02,
+  bulkInAddress: 0x82,
+  maxPacketSize: 32
+};
+
+class ProbeHandle extends EventEmitter implements BioUsbDeviceHandle {
+  readonly calls: Array<[string, ...unknown[]]> = [];
+  readonly writes: string[] = [];
+  private input?: (bytes: Buffer) => void;
+
+  descriptor(): BioUsbDescriptor {
+    this.calls.push(["descriptor"]);
+    return { ...descriptor };
   }
-  onData(listener: (bytes: Buffer) => void): () => void {
-    this.on("data", listener);
-    return () => { this.off("data", listener); };
+  open(): void { this.calls.push(["open"]); }
+  detachKernelDriver(): boolean { this.calls.push(["detachKernelDriver"]); return true; }
+  claim(): void { this.calls.push(["claim"]); }
+  async controlOut(request: number, value: number, index: number): Promise<void> {
+    this.calls.push(["controlOut", request, value, index]);
   }
-  onDisconnect(listener: (error: Error) => void): () => void {
-    this.on("error", listener);
-    return () => { this.off("error", listener); };
+  async controlIn(request: number, value: number, index: number, length: number): Promise<Buffer> {
+    this.calls.push(["controlIn", request, value, index, length]);
+    return Buffer.alloc(length);
   }
+  async transferOut(bytes: Uint8Array): Promise<void> {
+    const hex = Buffer.from(bytes).toString("hex");
+    this.calls.push(["transferOut", hex]);
+    this.writes.push(hex);
+    if (hex === "4753820000") {
+      queueMicrotask(() => this.input?.(Buffer.from("55aa030c02050320682f0000000300001147", "hex")));
+    }
+    if (hex === "55aa0a000710") {
+      queueMicrotask(() => this.input?.(Buffer.from("55aa0b0d0001000000000000010c000320c50e", "hex")));
+    }
+  }
+  startInput(listener: (bytes: Buffer) => void): void { this.calls.push(["startInput"]); this.input = listener; }
+  async stopInput(): Promise<void> { this.calls.push(["stopInput"]); }
+  async release(): Promise<void> { this.calls.push(["release"]); }
+  reattachKernelDriver(): void { this.calls.push(["reattachKernelDriver"]); }
+  close(): void { this.calls.push(["close"]); }
 }
 
-function harness(vendorId = "1a86") {
-  const device = new Device();
+class ProbeDriver implements BioUsbDriver {
+  finds = 0;
+  constructor(readonly handle: ProbeHandle) {}
+  findExactDevice(): BioUsbDeviceHandle { this.finds += 1; return this.handle; }
+}
+
+function harness() {
+  const handle = new ProbeHandle();
+  const driver = new ProbeDriver(handle);
   const output: string[] = [];
-  const paths: string[] = [];
-  const dependencies = {
-    output: (line: string) => output.push(line),
-    connectionFactory: (path: string) => {
-      paths.push(path);
-      if (vendorId !== "1a86") throw new BioUsbError("USB_IDENTITY", "Unexpected BIO USB identity");
-      return device;
+  return {
+    handle,
+    driver,
+    output,
+    dependencies: {
+      driverFactory: () => driver,
+      output: (line: string) => output.push(line),
+      now: (() => {
+        const values = [100, 137];
+        return () => values.shift() ?? 137;
+      })()
     }
   };
-  return { device, output, paths, dependencies };
 }
-const flush = async () => { for (let index = 0; index < 40; index++) await Promise.resolve(); };
 
-describe("read-only BIO probe CLI", () => {
+describe("read-only BIO direct USB probe CLI", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
-  it.each([
-    ["crc16", "55aa82000000", "55aa83006080"],
-    ["gs", "4753820000", "475383007c"]
-  ])("sends only the exact %s probe and closes after validated 83", async (protocol, request, response) => {
+  it("uses direct USB for only converter startup and GET_NWK, then emits redacted metadata", async () => {
     const h = harness();
-    const result = runBioDongleProbe(["--profile", "legacy", "--device", "/dev/bio-dongle", "--protocol", protocol], h.dependencies);
-    await flush();
-    expect(h.device.writes).toEqual([request]);
-    h.device.emit("data", Buffer.from(response, "hex"));
-    expect(await result).toBe(0);
-    expect(h.paths).toEqual(["/dev/bio-dongle"]);
-    expect(h.device.isOpen).toBe(false);
-    expect(JSON.parse(h.output[0])).toEqual({ ok: true, operation: "probe", protocol, responseCommand: "0x83", payloadBytes: 0, payload: "[REDACTED]" });
-    await vi.advanceTimersByTimeAsync(40000);
-    expect(h.device.writes).toEqual([request]);
+
+    expect(await runBioDongleProbe([], h.dependencies)).toBe(0);
+
+    expect(h.driver.finds).toBe(1);
+    expect(h.handle.calls.slice(0, 13)).toEqual([
+      ["descriptor"],
+      ["open"],
+      ["detachKernelDriver"],
+      ["claim"],
+      ["controlOut", 0xa1, 0x0000, 0x0000],
+      ["controlIn", 0x5f, 0x0000, 0x0000, 2],
+      ["controlOut", 0x9a, 0x1312, 0xd982],
+      ["controlOut", 0x9a, 0x0f2c, 0x0004],
+      ["controlIn", 0x95, 0x2518, 0x0000, 2],
+      ["controlOut", 0x9a, 0x2727, 0x0000],
+      ["controlOut", 0xa4, 0x00ff, 0x0000],
+      ["controlOut", 0xa1, 0xc39c, 0xcc8b],
+      ["descriptor"]
+    ]);
+    expect(h.handle.writes).toEqual(["55aa82000000", "4753820000", "55aa0a000710"]);
+    expect(h.handle.calls.slice(-4)).toEqual([
+      ["stopInput"], ["release"], ["reattachKernelDriver"], ["close"]
+    ]);
+    expect(JSON.parse(h.output[0])).toEqual({
+      adapterKind: "bio-usb",
+      descriptor: "1a86:5523/interface0/out02/in82/packet32",
+      converterInfo: { protocol: "crc16", command: "0x03", payloadBytes: 12 },
+      networkProbe: { protocol: "crc16", command: "0x0b", payloadBytes: 13 },
+      elapsedMs: 37
+    });
+    expect(h.output[0]).not.toMatch(/001122334455|password|raw|payload\s*"/i);
   });
 
-  it("redacts actual response bytes, including ASCII identifiers", async () => {
-    const h = harness();
-    const result = runBioDongleProbe(["--profile", "legacy", "--protocol", "gs"], h.dependencies);
-    await flush();
-    // Synthetic parser fixture, not a hardware command vector: 83+06+'secret' = 030F, folded complement ED.
-    h.device.emit("data", Buffer.from("47538306736563726574ed", "hex"));
-    expect(await result).toBe(0);
-    expect(h.output.join("\n")).not.toMatch(/secret|736563726574/);
-    expect(JSON.parse(h.output[0])).toMatchObject({ payloadBytes: 6, payload: "[REDACTED]" });
-    expect(h.paths).toEqual(["/dev/serial/by-id/usb-1a86_CH57x-if00-port0"]);
-  });
-
   it.each([
-    ["scan"], ["--command", "0x82"], ["--payload", "00"], ["--raw"],
-    ["--protocol", "auto"], ["--protocol", "gs", "--protocol", "crc16"],
-    ["--device", "/dev/ttyUSB0"], ["--device"], ["--timeout-ms", "0"],
-    ["--timeout-ms", "10001"], ["--timeout-ms", "1.5"], ["--timeout-ms", "1e3"],
-    ["--protocol", "gs"], ["--profile", "unknown"]
-  ])("rejects unsupported arguments %j before opening hardware", async (...args) => {
+    ["scan"], ["--command", "0x10"], ["--payload", "00"], ["--raw"],
+    ["--device", "/dev/bus/usb/001/004"], ["--protocol", "gs"], ["--profile", "legacy"],
+    ["--timeout-ms"], ["--timeout-ms", "0"], ["--timeout-ms", "10001"],
+    ["--timeout-ms", "1.5"], ["--timeout-ms", "100", "--timeout-ms", "200"]
+  ])("rejects unsupported arguments %j before selecting USB", async (...args) => {
     const h = harness();
+
     expect(await runBioDongleProbe(args, h.dependencies)).toBe(2);
-    expect(h.paths).toEqual([]);
-    expect(h.device.writes).toEqual([]);
-    expect(JSON.parse(h.output[0])).toMatchObject({ ok: false, error: "INVALID_ARGUMENTS" });
+
+    expect(h.driver.finds).toBe(0);
+    expect(h.handle.writes).toEqual([]);
+    expect(JSON.parse(h.output[0])).toEqual({ error: "INVALID_ARGUMENTS", elapsedMs: 37 });
   });
 
-  it.each([
-    ["4753830000", "MALFORMED_FRAME"],
-    ["475385007a", "LATE_RESPONSE"],
-    ["55aa83006080", "LATE_RESPONSE"]
-  ])("rejects invalid/wrong response %s", async (response, error) => {
+  it("does not expose raw or lamp-state command hooks in the CLI source", () => {
+    const source = readFileSync(new URL("./bio-dongle-probe.ts", import.meta.url), "utf8");
+
+    expect(source).not.toMatch(/setBrightness|setControlMode|assignAddress/);
+    expect(source).not.toMatch(/--command|--payload|--raw|0x10/);
+  });
+
+  it("redacts native failures and still closes a partially acquired direct device", async () => {
     const h = harness();
-    const result = runBioDongleProbe(["--profile", "legacy", "--protocol", "gs"], h.dependencies);
-    await flush();
-    h.device.emit("data", Buffer.from(response, "hex"));
-    expect(await result).toBe(1);
-    expect(JSON.parse(h.output[0])).toMatchObject({ ok: false, error });
-    expect(h.device.isOpen).toBe(false);
-    await vi.advanceTimersByTimeAsync(40000);
-    expect(h.device.writes).toEqual(["4753820000"]);
-  });
+    h.handle.transferOut = async () => { throw new Error("uuid=001122334455 password=secret raw=deadbeef"); };
 
-  it("stops at the chosen timeout without fallback or reconnect probes", async () => {
-    const h = harness();
-    const result = runBioDongleProbe(["--timeout-ms", "500"], h.dependencies);
-    await flush();
-    await vi.advanceTimersByTimeAsync(500);
-    expect(await result).toBe(1);
-    expect(JSON.parse(h.output[0])).toMatchObject({ ok: false, error: "TIMEOUT" });
-    await vi.advanceTimersByTimeAsync(40000);
-    expect(h.device.writes).toEqual(["55aa82000000", "4753820000"]);
-    expect(h.device.isOpen).toBe(false);
-  });
-
-  it("fails USB identity from the connection factory without writing", async () => {
-    const h = harness("ffff");
     expect(await runBioDongleProbe([], h.dependencies)).toBe(1);
-    expect(h.device.writes).toEqual([]);
-    expect(JSON.parse(h.output[0])).toMatchObject({ ok: false, error: "USB_IDENTITY" });
-  });
 
-  it("does not report success or disclose native errors when close fails", async () => {
-    const h = harness();
-    h.device.closeError = new Error("secret=736563726574");
-    const result = runBioDongleProbe([], h.dependencies);
-    await flush();
-    h.device.emit("data", Buffer.from("55aa030c02050320682f0000000300001147", "hex")); await flush();
-    h.device.emit("data", Buffer.from("55aa0b0d0001000000000000010c000320c50e", "hex"));
-    expect(await result).toBe(1);
-    expect(h.output).toHaveLength(1);
-    expect(JSON.parse(h.output[0])).toMatchObject({ ok: false, error: "CLOSE_FAILED" });
-    expect(h.output[0]).not.toMatch(/secret|736563726574/);
-  });
-
-  it("defaults to the observed network query and tolerates separate discovery/info notifications", async () => {
-    const h = harness();
-    const result = runBioDongleProbe([], h.dependencies); await flush();
-    expect(h.device.writes).toEqual(["55aa82000000", "4753820000"]);
-    h.device.emit("data", Buffer.from("55aa030c02050320682f0000000300001147", "hex")); await flush();
-    expect(h.device.writes).toEqual(["55aa82000000", "4753820000", "55aa0a000710"]);
-    h.device.emit("data", Buffer.from("55aa121cd3001122334455832e1234c00000000a0105050859320201000300006bcc", "hex"));
-    h.device.emit("data", Buffer.from("55aa0b0d0001000000000000010c000320c50e", "hex"));
-    expect(await result).toBe(0);
-    expect(JSON.parse(h.output[0])).toEqual({ ok: true, operation: "probe", protocol: "crc16", responseCommand: "0x0b", payloadBytes: 13, payload: "[REDACTED]" });
-    expect(h.output.join("\n")).not.toContain("001122334455");
-    expect(h.device.isOpen).toBe(false);
+    expect(JSON.parse(h.output[0])).toEqual({ error: "DISCONNECTED", elapsedMs: 37 });
+    expect(h.output[0]).not.toMatch(/001122334455|password|secret|deadbeef|raw/i);
+    expect(h.handle.calls.slice(-4)).toEqual([
+      ["stopInput"], ["release"], ["reattachKernelDriver"], ["close"]
+    ]);
   });
 });

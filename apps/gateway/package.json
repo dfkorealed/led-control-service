@@ -7,6 +7,7 @@
     "build": "pnpm --filter @led-control/shared build && pnpm --filter @led-control/automation-engine build && esbuild src/index.ts --bundle --platform=node --format=esm --target=node22 --packages=external --outfile=dist/gateway.mjs",
     "dev": "pnpm --filter @led-control/shared build && pnpm --filter @led-control/automation-engine build && tsx src/index.ts",
     "bluez:probe": "tsx scripts/bluez-capability-probe.ts",
+    "bio:probe": "tsx scripts/bio-dongle-probe.ts",
     "test": "pnpm --filter @led-control/shared build && pnpm --filter @led-control/automation-engine build && vitest run",
     "test:contracts": "node --test docker/*.test.mjs",
     "test:mqtt-integration": "node --test docker/mqtt-persistence.integration.mjs",

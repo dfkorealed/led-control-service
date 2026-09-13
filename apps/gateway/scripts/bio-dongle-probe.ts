@@ -1,88 +1,161 @@
 import { pathToFileURL } from "node:url";
-import type { BioByteConnection } from "../src/bio/bio-byte-connection";
-import type { BioFrame, BioProtocol } from "../src/bio/bio-frame-codec";
-import { BioUsbTransport } from "../src/bio/bio-usb-transport";
+import { BioDirectUsbConnection } from "../src/bio/bio-direct-usb-connection";
+import type { BioFrame } from "../src/bio/bio-frame-codec";
+import {
+  NodeUsbDriver,
+  type BioUsbDescriptor,
+  type BioUsbDeviceHandle,
+  type BioUsbDriver
+} from "../src/bio/node-usb-driver";
 import { BioUsbError } from "../src/bio/bio-usb-error";
-import { decodeBioResponse } from "../src/bio/bio-command-codec";
+import { BioUsbTransport } from "../src/bio/bio-usb-transport";
 
 interface ProbeOptions {
-  devicePath: string;
-  protocol: BioProtocol;
-  profile: "legacy" | "android-v1.2.0";
   timeoutMs: number;
 }
-type ProbeDependencies = {
-  connectionFactory?: (devicePath: string) => BioByteConnection;
-  output?: (line: string) => void;
-};
 
-function parseArguments(args: string[]): ProbeOptions {
-  const options: ProbeOptions = {
-    devicePath: "/dev/serial/by-id/usb-1a86_CH57x-if00-port0",
-    protocol: "crc16",
-    profile: "android-v1.2.0",
-    timeoutMs: 300
-  };
-  const seen = new Set<string>();
-  for (let index = 0; index < args.length; index += 2) {
-    const key = args[index];
-    const value = args[index + 1];
-    if (!value || seen.has(key)) throw new Error("Invalid arguments");
-    seen.add(key);
-    if (key === "--device" && [options.devicePath, "/dev/bio-dongle"].includes(value)) options.devicePath = value;
-    else if (key === "--protocol" && (value === "crc16" || value === "gs")) options.protocol = value;
-    else if (key === "--profile" && (value === "legacy" || value === "android-v1.2.0")) options.profile = value;
-    else if (key === "--timeout-ms" && /^[0-9]+$/.test(value) && Number(value) >= 1 && Number(value) <= 10000) options.timeoutMs = Number(value);
-    else throw new Error("Invalid arguments");
-  }
-  if (options.profile === "android-v1.2.0" && options.protocol !== "crc16") throw new Error("Unobserved protocol");
-  return options;
+interface ProbeDependencies {
+  driverFactory?: () => BioUsbDriver;
+  output?: (line: string) => void;
+  now?: () => number;
 }
 
-/** One read-only attempt. There is intentionally no raw command or payload API. */
+interface FrameMetadata {
+  protocol: "crc16" | "gs";
+  command: string;
+  payloadBytes: number;
+}
+
+class DescriptorCapturingHandle implements BioUsbDeviceHandle {
+  constructor(
+    private readonly handle: BioUsbDeviceHandle,
+    private readonly capture: (descriptor: BioUsbDescriptor) => void
+  ) {}
+
+  descriptor(): BioUsbDescriptor {
+    const value = this.handle.descriptor();
+    this.capture(value);
+    return value;
+  }
+  open(): void { this.handle.open(); }
+  detachKernelDriver(): boolean { return this.handle.detachKernelDriver(); }
+  claim(): void { this.handle.claim(); }
+  controlOut(request: number, value: number, index: number): Promise<void> {
+    return this.handle.controlOut(request, value, index);
+  }
+  controlIn(request: number, value: number, index: number, length: number): Promise<Buffer> {
+    return this.handle.controlIn(request, value, index, length);
+  }
+  transferOut(bytes: Uint8Array): Promise<void> { return this.handle.transferOut(bytes); }
+  startInput(listener: (bytes: Buffer) => void, onError: (error: Error) => void): void {
+    this.handle.startInput(listener, onError);
+  }
+  stopInput(): Promise<void> { return this.handle.stopInput(); }
+  release(): Promise<void> { return this.handle.release(); }
+  reattachKernelDriver(): void { this.handle.reattachKernelDriver(); }
+  close(): void { this.handle.close(); }
+}
+
+class DescriptorCapturingDriver implements BioUsbDriver {
+  descriptor?: BioUsbDescriptor;
+
+  constructor(private readonly driver: BioUsbDriver) {}
+
+  findExactDevice(): BioUsbDeviceHandle {
+    return new DescriptorCapturingHandle(
+      this.driver.findExactDevice(),
+      (value) => { this.descriptor = { ...value }; }
+    );
+  }
+}
+
+function parseArguments(args: string[]): ProbeOptions {
+  if (args.length === 0) return { timeoutMs: 1000 };
+  if (args.length !== 2 || args[0] !== "--timeout-ms") throw new Error("Invalid arguments");
+  const value = args[1];
+  if (!/^[0-9]+$/.test(value)) throw new Error("Invalid arguments");
+  const timeoutMs = Number(value);
+  if (timeoutMs < 1 || timeoutMs > 10000) throw new Error("Invalid arguments");
+  return { timeoutMs };
+}
+
+function frameMetadata(frame: BioFrame): FrameMetadata {
+  return {
+    protocol: frame.protocol,
+    command: `0x${frame.command.toString(16).padStart(2, "0")}`,
+    payloadBytes: frame.payload.length
+  };
+}
+
+function descriptorMetadata(value: BioUsbDescriptor): string {
+  return [
+    `${value.idVendor.toString(16).padStart(4, "0")}:${value.idProduct.toString(16).padStart(4, "0")}`,
+    `interface${value.interfaceNumber}`,
+    `out${value.bulkOutAddress.toString(16).padStart(2, "0")}`,
+    `in${value.bulkInAddress.toString(16).padStart(2, "0")}`,
+    `packet${value.maxPacketSize}`
+  ].join("/");
+}
+
+/** Runs the one fixed product readiness sequence and returns no device-owned data. */
 export async function runBioDongleProbe(args: string[], dependencies: ProbeDependencies = {}): Promise<number> {
   const output = dependencies.output ?? ((line: string) => console.log(line));
+  const now = dependencies.now ?? Date.now;
+  const startedAt = now();
+  const elapsedMs = () => Math.max(0, Math.round(now() - startedAt));
   let options: ProbeOptions;
   try {
     options = parseArguments(args);
   } catch {
-    output(JSON.stringify({ ok: false, operation: "probe", error: "INVALID_ARGUMENTS" }));
+    output(JSON.stringify({ error: "INVALID_ARGUMENTS", elapsedMs: elapsedMs() }));
     return 2;
   }
 
-  let response: BioFrame | undefined;
+  const driver = new DescriptorCapturingDriver(dependencies.driverFactory?.() ?? new NodeUsbDriver(undefined, {
+    transferTimeoutMs: options.timeoutMs
+  }));
+  let converterInfo: BioFrame | undefined;
+  let networkProbe: BioFrame | undefined;
   let failure: unknown;
   const transport = new BioUsbTransport({
-    protocol: options.protocol,
-    profile: options.profile,
+    profile: "android-v1.2.0",
+    protocol: "crc16",
     timeoutMs: options.timeoutMs,
-    connectionFactory: () => {
-      if (!dependencies.connectionFactory) throw new BioUsbError("USB_IDENTITY", "BIO USB connection is not configured");
-      return dependencies.connectionFactory(options.devicePath);
-    },
-    // Only the profile's read-only probe is sent. No lamp request() follows.
-    // GET_NWK includes sensitive fields: validate shape without retaining them in output.
+    connectionFactory: () => new BioDirectUsbConnection(driver),
     validateReadiness: async (frame) => {
-      if (options.profile === "android-v1.2.0" && decodeBioResponse(frame).kind !== "probe") throw new BioUsbError("READINESS", "BIO probe was not validated");
-      response = frame;
+      if (frame.protocol !== "crc16" || frame.command !== 0x0b) {
+        throw new BioUsbError("READINESS", "BIO network probe was not validated");
+      }
+      networkProbe = frame;
     }
   });
+  const unsubscribe = transport.onNotification((frame) => {
+    if (!converterInfo && frame.command === 0x03) converterInfo = frame;
+  });
+
   try {
     await transport.start();
   } catch (error) {
     failure = error;
   } finally {
-    // Cancel the transport's reconnect timer even on a failed first probe.
-    // A close failure overrides success because descriptor ownership is uncertain.
+    unsubscribe();
     try { await transport.stop(); } catch (error) { failure = error; }
   }
-  if (failure || !response) {
-    output(JSON.stringify({ ok: false, operation: "probe", error: failure instanceof BioUsbError ? failure.code : "PROBE_FAILED" }));
+
+  if (failure || !driver.descriptor || !converterInfo || !networkProbe) {
+    output(JSON.stringify({
+      error: failure instanceof BioUsbError ? failure.code : "PROBE_FAILED",
+      elapsedMs: elapsedMs()
+    }));
     return 1;
   }
+
   output(JSON.stringify({
-    ok: true, operation: "probe", protocol: response.protocol, responseCommand: `0x${response.command.toString(16).padStart(2, "0")}`,
-    payloadBytes: response.payload.length, payload: "[REDACTED]"
+    adapterKind: "bio-usb",
+    descriptor: descriptorMetadata(driver.descriptor),
+    converterInfo: frameMetadata(converterInfo),
+    networkProbe: frameMetadata(networkProbe),
+    elapsedMs: elapsedMs()
   }));
   return 0;
 }
