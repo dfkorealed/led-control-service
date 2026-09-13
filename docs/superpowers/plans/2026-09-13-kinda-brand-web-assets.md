@@ -275,7 +275,7 @@ git commit -m "feat(web): add kinda switch flip assets"
 - Consumes: Task 1의 `/brand/kinda-mark.svg`.
 - Produces: `KindaLogo({ context?: string, className?: string, compact?: boolean }): JSX.Element`와 `.kinda-logo*` CSS 계약.
 
-- [ ] **Step 1: 마크·한글 텍스트·접근성 이름의 실패 테스트를 작성한다.**
+- [x] **Step 1: 마크·한글 텍스트·접근성 이름의 실패 테스트를 작성한다.**
 
 ```tsx
 import { readFileSync } from "node:fs";
@@ -317,13 +317,13 @@ describe("KindaLogo", () => {
 });
 ```
 
-- [ ] **Step 2: 컴포넌트 테스트가 import 오류로 실패하는지 확인한다.**
+- [x] **Step 2: 컴포넌트 테스트가 import 오류로 실패하는지 확인한다.**
 
 Run: `pnpm --filter @led-control/web test -- src/components/brand/KindaLogo.test.tsx`
 
 Expected: `Failed to resolve import "./KindaLogo"`로 실패한다.
 
-- [ ] **Step 3: 공통 로고 컴포넌트를 최소 구현한다.**
+- [x] **Step 3: 공통 로고 컴포넌트를 최소 구현한다.**
 
 ```tsx
 export interface KindaLogoProps {
@@ -348,7 +348,7 @@ export function KindaLogo({ context, className, compact = false }: KindaLogoProp
 }
 ```
 
-- [ ] **Step 4: 브랜드 토큰과 접점 공통 CSS를 추가하고 기존 브랜드 임시 규칙을 제거한다.**
+- [x] **Step 4: 브랜드 토큰과 접점 공통 CSS를 추가하고 기존 브랜드 임시 규칙을 제거한다.**
 
 `:root`의 브랜드·주요 UI alias는 다음처럼 정의한다. 기존 `--success`, `--warning`, `--danger`는 각각 `#15803d`, `#b45309`, `#dc2626`으로 유지해 브랜드 Coral과 분리한다.
 
@@ -444,7 +444,7 @@ Blue/White는 `5.43:1`이고 hover `#1D5C86`/White는 일반 텍스트 기준을
 }
 ```
 
-- [ ] **Step 5: 공통 컴포넌트 회귀를 통과시킨다.**
+- [x] **Step 5: 공통 컴포넌트 회귀를 통과시킨다.**
 
 Run: `pnpm --filter @led-control/web test -- src/components/brand/KindaLogo.test.tsx src/components/brand/brand-assets.test.ts src/components/ui/ui-primitives.test.tsx`
 
@@ -454,7 +454,7 @@ Run: `pnpm --filter @led-control/web typecheck`
 
 Expected: 종료 코드 `0`이다.
 
-- [ ] **Step 6: 공통 브랜드 컴포넌트를 커밋한다.**
+- [x] **Step 6: 공통 브랜드 컴포넌트를 커밋한다.**
 
 ```bash
 git add apps/web/src/components/brand apps/web/src/styles.css
