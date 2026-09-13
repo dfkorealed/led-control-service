@@ -297,9 +297,9 @@ export function percentToBioRaw(percent: number): number;
 export function bioRawToPercent(raw: number): number | null;
 ```
 
-- [ ] **Step 1: APK static evidence를 fixture metadata에 기록한다.** installed APK SHA-256 `38b908d233019888da7b0cfb77c8f5f6cf8a6f36cd2afb2f1b0cf59357f95a1d`, `Network.setUnicastAddressByUuid`, DPID `0x81`, UUID 6 bytes, ADDRESS big-endian, base opcode `0x38`을 적는다.
+- [x] **Step 1: APK static evidence를 fixture metadata에 기록한다.** installed APK SHA-256 `38b908d233019888da7b0cfb77c8f5f6cf8a6f36cd2afb2f1b0cf59357f95a1d`, `Network.setUnicastAddressByUuid`, DPID `0x81`, UUID 6 bytes, ADDRESS big-endian, base opcode `0x38`을 적는다.
 
-- [ ] **Step 2: brightness mapping RED 테스트를 작성한다.** integer service percent는 `deep_all`의 동일 표시값을 찾은 index의 `DEEP_VALUES`를 사용한다. 대표점은 아래 값으로 고정한다.
+- [x] **Step 2: brightness mapping RED 테스트를 작성한다.** integer service percent는 `deep_all`의 동일 표시값을 찾은 index의 `DEEP_VALUES`를 사용한다. 대표점은 아래 값으로 고정한다.
 
 ```ts
 expect(percentToBioRaw(0)).toBe(0);
@@ -311,7 +311,7 @@ expect(percentToBioRaw(99)).toBe(254);
 expect(percentToBioRaw(100)).toBe(255);
 ```
 
-- [ ] **Step 3: address serializer RED 테스트를 작성한다.** body는 `b8 81 <uuid-6> <address-BE>`이고 lamp header destination은 관측된 현재 address다. UUID가 6 bytes가 아니거나 address가 `0x0001..0x7fff` 밖이면 frame을 만들지 않는다.
+- [x] **Step 3: address serializer RED 테스트를 작성한다.** body는 `b8 81 <uuid-6> <address-BE>`이고 lamp header destination은 관측된 현재 address다. UUID가 6 bytes가 아니거나 address가 `0x0001..0x7fff` 밖이면 frame을 만들지 않는다.
 
 ```ts
 expect(encodeBioCommand({
@@ -322,19 +322,19 @@ expect(encodeBioCommand({
 }, 0x53).payload.subarray(15)).toEqual(Buffer.from("b8810011223344552345", "hex"));
 ```
 
-- [ ] **Step 4: read-back RED 테스트를 작성한다.** high brightness GET body는 `4e 13`, response body는 `4f 13 <raw>`, control mode GET body는 `4e 12`, response body는 `4f 12 <mode>`다. outer `0x11`은 read-back 값으로 해석하지 않는다.
+- [x] **Step 4: read-back RED 테스트를 작성한다.** high brightness GET body는 `4e 13`, response body는 `4f 13 <raw>`, control mode GET body는 `4e 12`, response body는 `4f 12 <mode>`다. outer `0x11`은 read-back 값으로 해석하지 않는다.
 
-- [ ] **Step 5: RED를 확인한다.**
-
-Run: `pnpm --filter @led-control/gateway exec vitest run src/bio/bio-brightness-table.test.ts src/bio/bio-command-codec.test.ts`
-
-- [ ] **Step 6: 101개 integer mapping과 command encode/decode를 최소 구현한다.** reverse mapping은 exact raw 값만 percent로 반환하며 근사 반올림하지 않는다.
-
-- [ ] **Step 7: malformed response, wrong UUID/address, unsupported DPID, non-exact raw 값 테스트를 GREEN으로 만든다.**
+- [x] **Step 5: RED를 확인한다.**
 
 Run: `pnpm --filter @led-control/gateway exec vitest run src/bio/bio-brightness-table.test.ts src/bio/bio-command-codec.test.ts`
 
-- [ ] **Step 8: 커밋한다.**
+- [x] **Step 6: 101개 integer mapping과 command encode/decode를 최소 구현한다.** reverse mapping은 exact raw 값만 percent로 반환하며 근사 반올림하지 않는다.
+
+- [x] **Step 7: malformed response, wrong UUID/address, unsupported DPID, non-exact raw 값 테스트를 GREEN으로 만든다.**
+
+Run: `pnpm --filter @led-control/gateway exec vitest run src/bio/bio-brightness-table.test.ts src/bio/bio-command-codec.test.ts`
+
+- [x] **Step 8: 커밋한다.**
 
 ```bash
 git add apps/gateway/src/bio/bio-brightness-table* apps/gateway/src/bio/bio-command-codec* apps/gateway/test/fixtures/bio-protocol-v1.json
@@ -392,7 +392,7 @@ export type BioAddressAssignmentResult =
 await expect(client.setOutput(target, 60)).resolves.toEqual({
   brightnessPercent: 60,
   powerOn: true,
-  rawHighBrightness: 179,
+  rawHighBrightness: 198,
   mode: "force-on"
 });
 ```
