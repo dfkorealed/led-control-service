@@ -444,13 +444,13 @@ export interface ProvisioningScannerAdapter {
 }
 ```
 
-- [ ] **Step 1: adapter-owned identity RED 테스트를 작성한다.** BlueZ는 기존 DFK UUID만, BIO는 `bio:[0-9a-f]{12}`만 수락한다. `publishProvisioningScanLifecycle`의 전역 `parseDfkDeviceUuid` filter를 제거하고 adapter predicate를 사용한다.
+- [x] **Step 1: adapter-owned identity RED 테스트를 작성한다.** BlueZ는 기존 DFK UUID만, BIO는 `bio:[0-9a-f]{12}`만 수락한다. `publishProvisioningScanLifecycle`의 전역 `parseDfkDeviceUuid` filter를 제거하고 adapter predicate를 사용한다.
 
-- [ ] **Step 2: provisioning RED 테스트를 작성한다.** `meshAddress`를 `0x0001..0x7fff`로 parse하고, scan cache 대상 확인 → 2초 identify/restore → mapping reserve → UUID address assignment → 신규 address 동일 UUID 확인 → mapping confirm → completed payload 순서만 허용한다.
+- [x] **Step 2: provisioning RED 테스트를 작성한다.** `meshAddress`를 `0x0001..0x7fff`로 parse하고, scan cache 대상 확인 → 2초 identify/restore → mapping reserve → UUID address assignment → 신규 address 동일 UUID 확인 → mapping confirm → completed payload 순서만 허용한다.
 
-- [ ] **Step 3: restart recovery RED 테스트를 작성한다.** durable provisioning command가 accepted 상태로 복구될 때 confirmed mapping은 동일 terminal로 수렴하고, reserved mapping은 old/new scan reconciliation 결과로만 수렴한다.
+- [x] **Step 3: restart recovery RED 테스트를 작성한다.** durable provisioning command가 accepted 상태로 복구될 때 confirmed mapping은 동일 terminal로 수렴하고, reserved mapping은 old/new scan reconciliation 결과로만 수렴한다.
 
-- [ ] **Step 4: individual/group control RED 테스트를 작성한다.** confirmed mapping만 제어하고 group은 bounded concurrency `4`의 unicast로 실행한다. 각 fixture의 read-back 결과를 별도 report로 반환한다.
+- [x] **Step 4: individual/group control RED 테스트를 작성한다.** confirmed mapping만 제어하고 group은 bounded concurrency `4`의 unicast로 실행한다. 각 fixture의 read-back 결과를 별도 report로 반환한다.
 
 ```ts
 expect(report).toEqual({
@@ -463,21 +463,21 @@ expect(report).toEqual({
 });
 ```
 
-- [ ] **Step 5: sensor capability RED 테스트를 작성한다.** source 목록은 빈 배열이고 configure/send는 `bio_sensor_cloud_unsupported`로 실패한다. BIO provisioning 완료 뒤 vehicle capability refresh를 enqueue하지 않는다.
+- [x] **Step 5: sensor capability RED 테스트를 작성한다.** source 목록은 빈 배열이고 configure/send는 `bio_sensor_cloud_unsupported`로 실패한다. BIO provisioning 완료 뒤 vehicle capability refresh를 enqueue하지 않는다.
 
-- [ ] **Step 6: RED를 확인한다.**
-
-Run: `pnpm --filter @led-control/gateway exec vitest run src/adapters/bio-usb-dongle-adapter.test.ts src/adapters/bio-sensor-capability-unavailable-port.test.ts src/gateway.test.ts src/state/provisioning-device-journal.test.ts src/commands/gateway-command-handler.test.ts`
-
-- [ ] **Step 7: 세 기존 port와 virtual group membership을 구현한다.** native BIO group 가입 성공을 가장하지 않고 confirmed local membership만 저장한다.
-
-- [ ] **Step 8: fault propagation과 fixture observation을 연결한다.** read-back mismatch는 관측 brightness/mode를 포함한 failed report로 전달하고 outer ACK만 받은 상태는 fixture-state를 발행하지 않는다.
-
-- [ ] **Step 9: GREEN을 확인한다.**
+- [x] **Step 6: RED를 확인한다.**
 
 Run: `pnpm --filter @led-control/gateway exec vitest run src/adapters/bio-usb-dongle-adapter.test.ts src/adapters/bio-sensor-capability-unavailable-port.test.ts src/gateway.test.ts src/state/provisioning-device-journal.test.ts src/commands/gateway-command-handler.test.ts`
 
-- [ ] **Step 10: 커밋한다.**
+- [x] **Step 7: 세 기존 port와 virtual group membership을 구현한다.** native BIO group 가입 성공을 가장하지 않고 confirmed local membership만 저장한다.
+
+- [x] **Step 8: fault propagation과 fixture observation을 연결한다.** read-back mismatch는 관측 brightness/mode를 포함한 failed report로 전달하고 outer ACK만 받은 상태는 fixture-state를 발행하지 않는다.
+
+- [x] **Step 9: GREEN을 확인한다.**
+
+Run: `pnpm --filter @led-control/gateway exec vitest run src/adapters/bio-usb-dongle-adapter.test.ts src/adapters/bio-sensor-capability-unavailable-port.test.ts src/gateway.test.ts src/state/provisioning-device-journal.test.ts src/commands/gateway-command-handler.test.ts`
+
+- [x] **Step 10: 커밋한다.**
 
 ```bash
 git add apps/gateway/src/adapters apps/gateway/src/gateway.ts apps/gateway/src/gateway.test.ts apps/gateway/src/state/provisioning-device-journal* apps/gateway/src/commands/gateway-command-handler.test.ts
