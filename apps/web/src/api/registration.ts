@@ -13,6 +13,11 @@ export interface DiscoveredRegistrationNode {
   firmwareVersion: string;
   status: "discovered" | "identifying" | "provisioning" | "provisioned" | "failed" | "reconcile_required";
   identifyState: string;
+  // Additive API metadata: legacy responses may omit it, but an owned local
+  // operation cannot be completed by an unowned/older polling response.
+  identifyOperationId?: string | null;
+  identifyOperationStartedAt?: string | null;
+  updatedAt?: string;
   meshAddress: string | null;
   errorMessage: string | null;
   pendingFixtureSize?: number | null;

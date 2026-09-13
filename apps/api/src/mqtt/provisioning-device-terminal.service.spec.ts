@@ -157,6 +157,33 @@ function testContext(options: {
 }
 
 describe("ProvisioningDeviceTerminalService", () => {
+  it.each(["provisioning", "provisioned"])("drains first-seen exact late identify after timeout and legitimate %s without domain writes", async (status) => {
+    const { service, tx, node, meshControlGroups } = testContext({ identify: true });
+    Object.assign(node, { status, identifyState: "failed", meshAddress: "0x0100" });
+    const before = structuredClone(node);
+    const event = identifyTerminal();
+    await expect(service.ingest({ siteId: SITE_ID, gatewayId: GATEWAY_ID }, event, RECEIVED_AT))
+      .resolves.toMatchObject({ operation: "identify", commandId: COMMAND_ID, eventId: EVENT_ID });
+    expect(node).toEqual(before);
+    expect(tx.discoveredMeshNode.update).not.toHaveBeenCalled();
+    expect(tx.discoveredMeshNode.updateMany).not.toHaveBeenCalled();
+    expect(tx.meshNode.create).not.toHaveBeenCalled();
+    expect(tx.fixture.create).not.toHaveBeenCalled();
+    expect(meshControlGroups.attachProvisionedNode).not.toHaveBeenCalled();
+    expect(tx.processedGatewayEvent.create).toHaveBeenCalledTimes(1);
+    expect(tx.mqttOutbox.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a mismatched late identify command even after its node was registered", async () => {
+    const { service, tx, node } = testContext({ identify: true });
+    Object.assign(node, { status: "provisioned", identifyState: "confirmed", meshAddress: "0x0100" });
+    await expect(service.ingest({ siteId: SITE_ID, gatewayId: GATEWAY_ID }, identifyTerminal({
+      deviceUuid: "44464b4c454401010101aabbccddee00"
+    }), RECEIVED_AT)).rejects.toThrow("stored command identity conflict");
+    expect(tx.processedGatewayEvent.create).not.toHaveBeenCalled();
+    expect(tx.mqttOutbox.create).not.toHaveBeenCalled();
+  });
+
   it("confirms pre-provision identify only from a restore-confirmed terminal without mapping writes", async () => {
     const { service, tx, node } = testContext({ identify: true });
     const event = identifyTerminal();

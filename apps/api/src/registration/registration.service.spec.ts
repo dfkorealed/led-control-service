@@ -8,6 +8,11 @@ import { MeshControlGroupService } from "../mesh-control-groups/mesh-control-gro
 import { RegistrationAllocationService } from "./registration-allocation.service";
 import { RegistrationService } from "./registration.service";
 
+const publicIdentifyInclude = { deviceOutbox: {
+  where: { payload: { path: ["operation"], equals: "identify" } },
+  orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 1, select: { id: true, createdAt: true }
+} };
+
 describe("RegistrationService", () => {
   const ids = {
     siteId: "00000000-0000-4000-8000-000000000003",
@@ -174,7 +179,7 @@ describe("RegistrationService", () => {
     expect(prisma.provisioningSession.findMany).toHaveBeenCalledWith({
       where: { siteId: ids.siteId, status: "active" },
       orderBy: { startedAt: "desc" },
-      include: { discoveredNodes: { orderBy: { discoveredAt: "asc" } } }
+      include: { discoveredNodes: { orderBy: { discoveredAt: "asc" }, include: publicIdentifyInclude } }
     });
   });
 
@@ -353,7 +358,7 @@ describe("RegistrationService", () => {
     expect(prisma.provisioningSession.update).toHaveBeenCalledWith({
       where: { id: ids.sessionId },
       data: { status: "cancelled", completedAt: expect.any(Date) },
-      include: { discoveredNodes: true }
+      include: { discoveredNodes: { include: publicIdentifyInclude } }
     });
   });
 
@@ -937,7 +942,7 @@ describe("RegistrationService", () => {
         scanAttempt: 1,
         scanStartedAt: null
       },
-      include: { discoveredNodes: true }
+      include: { discoveredNodes: { include: publicIdentifyInclude } }
     });
     expect(prisma.provisioningScanOutbox.create).toHaveBeenCalledWith({ data: {
       sessionId: ids.sessionId,
@@ -1094,6 +1099,22 @@ describe("RegistrationService", () => {
     await expect(service.retryScan(admin, ids.sessionId)).rejects.toEqual(
       new ConflictException({ code: "gateway_scan_in_progress" })
     );
+  });
+
+  it("presents polling identify ownership and revision without leaking the stored outbox", async () => {
+    const operation = { id: "77777777-7777-4777-8777-777777777777", createdAt: new Date("2026-09-14T01:00:00Z") };
+    const updatedAt = new Date("2026-09-14T01:00:01Z");
+    const { service, prisma } = await createModule({ provisioningSession: {
+      findUnique: jest.fn().mockResolvedValue({ ...registrationSession(), discoveredNodes: [{
+        ...discoveredNode(), status: "discovered", identifyState: "confirmed", updatedAt, deviceOutbox: [operation]
+      }] })
+    } });
+    const result = JSON.parse(JSON.stringify(await service.getSession(admin, ids.sessionId)));
+    expect(result.discoveredNodes[0]).toMatchObject({
+      identifyOperationId: operation.id, identifyOperationStartedAt: "2026-09-14T01:00:00.000Z", updatedAt: "2026-09-14T01:00:01.000Z"
+    });
+    expect(result.discoveredNodes[0]).not.toHaveProperty("deviceOutbox");
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: "RepeatableRead" });
   });
 
   it("queues one fixed identify operation without reserving an address or publishing inline", async () => {
@@ -1261,7 +1282,7 @@ describe("RegistrationService", () => {
     expect(result.status).toBe("completed");
     expect((prisma.$queryRaw.mock.calls[0][0] as TemplateStringsArray).join("")).toContain("FOR UPDATE");
     expect(prisma.provisioningSession.update).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: ids.sessionId }, data: { status: "completed", completedAt: expect.any(Date) }, include: { discoveredNodes: true }
+      where: { id: ids.sessionId }, data: { status: "completed", completedAt: expect.any(Date) }, include: { discoveredNodes: { include: publicIdentifyInclude } }
     }));
   });
 

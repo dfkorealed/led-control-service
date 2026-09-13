@@ -45,6 +45,18 @@ const INTERNAL_REGISTRATION_SESSION_FIELDS = [
 
 type InternalRegistrationSessionField = typeof INTERNAL_REGISTRATION_SESSION_FIELDS[number];
 
+// Polling must identify the operation whose state it reports, not merely a
+// node's reusable "confirmed/failed" string. Select only immutable ownership
+// metadata (including timed-out/dead-lettered operations), never command payloads.
+const identifyOperationInclude = {
+  deviceOutbox: {
+    where: { payload: { path: ["operation"], equals: "identify" } },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    take: 1,
+    select: { id: true, createdAt: true }
+  }
+} satisfies Prisma.DiscoveredMeshNodeInclude;
+
 @Injectable()
 export class RegistrationService {
   constructor(
@@ -86,7 +98,7 @@ export class RegistrationService {
             scanAttempt: 1,
             scanStartedAt: null
           },
-          include: { discoveredNodes: true }
+          include: { discoveredNodes: { include: identifyOperationInclude } }
         });
         await tx.provisioningScanOutbox.create({
           data: this.createScanOutboxData(session, scanCorrelationId, 1)
@@ -101,10 +113,13 @@ export class RegistrationService {
   }
 
   async getSession(user: AuthenticatedUser, sessionId: string) {
-    const session = await this.prisma.provisioningSession.findUnique({
+    // Prisma can fetch included relations with separate SQL statements. One
+    // repeatable-read snapshot prevents an old terminal node from being paired
+    // with retry #2's newly inserted outbox ownership between those statements.
+    const session = await this.prisma.$transaction((tx) => tx.provisioningSession.findUnique({
       where: { id: sessionId },
-      include: { site: true, discoveredNodes: { orderBy: { discoveredAt: "asc" } } }
-    });
+      include: { site: true, discoveredNodes: { orderBy: { discoveredAt: "asc" }, include: identifyOperationInclude } }
+    }), { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
     if (!session) throw new NotFoundException("registration session not found");
     await this.assertCommissionAccess(user, session.siteId);
     return toRegistrationSessionResponse(session);
@@ -112,11 +127,11 @@ export class RegistrationService {
 
   async listActiveSessions(user: AuthenticatedUser, siteId: string) {
     await this.assertCommissionAccess(user, siteId);
-    const sessions = await this.prisma.provisioningSession.findMany({
+    const sessions = await this.prisma.$transaction((tx) => tx.provisioningSession.findMany({
       where: { siteId, status: "active" },
       orderBy: { startedAt: "desc" },
-      include: { discoveredNodes: { orderBy: { discoveredAt: "asc" } } }
-    });
+      include: { discoveredNodes: { orderBy: { discoveredAt: "asc" }, include: identifyOperationInclude } }
+    }), { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
     return sessions.map(toRegistrationSessionResponse);
   }
 
@@ -167,11 +182,11 @@ export class RegistrationService {
           deadLetteredAt: null,
           payload: { path: ["operation"], equals: "identify" }
         },
-        orderBy: { createdAt: "desc" }
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }]
       });
       if (node.status === "identifying") {
         if (!existing) throw new ConflictException({ code: "identify_state_requires_reconciliation" });
-        return { status: "accepted" as const, operationId: existing.id, node };
+        return { status: "accepted" as const, operationId: existing.id, node: toRegistrationNodeResponse(node, existing) };
       }
 
       const commandId = randomUUID();
@@ -189,14 +204,14 @@ export class RegistrationService {
         where: { id: node.id },
         data: { status: "identifying", identifyState: "pending", errorMessage: null }
       });
-      await tx.provisioningDeviceOutbox.create({ data: {
+      const operation = await tx.provisioningDeviceOutbox.create({ data: {
         id: commandId,
         sessionId,
         nodeId,
         topic: mqttTopicsV2.gatewayCommand(session.siteId, session.gatewayId, "provisioning/identify-device"),
         payload
       } });
-      return { status: "accepted" as const, operationId: commandId, node: updatedNode };
+      return { status: "accepted" as const, operationId: commandId, node: toRegistrationNodeResponse(updatedNode, operation) };
     });
   }
 
@@ -508,7 +523,7 @@ export class RegistrationService {
       return tx.provisioningSession.update({
         where: { id: sessionId },
         data: { status: "completed", completedAt: new Date() },
-        include: { discoveredNodes: true }
+        include: { discoveredNodes: { include: identifyOperationInclude } }
       });
     });
     return toRegistrationSessionResponse(completed);
@@ -547,7 +562,7 @@ export class RegistrationService {
       return tx.provisioningSession.update({
         where: { id: sessionId },
         data: { status: "cancelled", completedAt: new Date() },
-        include: { discoveredNodes: true }
+        include: { discoveredNodes: { include: identifyOperationInclude } }
       });
     });
     return toRegistrationSessionResponse(cancelled);
@@ -643,5 +658,21 @@ export class RegistrationService {
 function toRegistrationSessionResponse<T extends object>(session: T): Omit<T, InternalRegistrationSessionField> {
   const response = { ...session } as T & Partial<Record<InternalRegistrationSessionField, unknown>>;
   for (const field of INTERNAL_REGISTRATION_SESSION_FIELDS) delete response[field];
+  if ("discoveredNodes" in response && Array.isArray(response.discoveredNodes)) {
+    response.discoveredNodes = response.discoveredNodes.map((node) => toRegistrationNodeResponse(node));
+  }
   return response;
+}
+
+function toRegistrationNodeResponse<T extends object>(
+  node: T,
+  operation?: { id: string; createdAt: Date }
+) {
+  const { deviceOutbox, ...publicNode } = node as T & { deviceOutbox?: Array<{ id: string; createdAt: Date }> };
+  const latest = operation ?? deviceOutbox?.[0];
+  return {
+    ...publicNode,
+    identifyOperationId: latest?.id ?? null,
+    identifyOperationStartedAt: latest?.createdAt ?? null
+  };
 }

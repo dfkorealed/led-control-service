@@ -197,6 +197,39 @@ for (const viewport of viewports) {
   });
 }
 
+test("accepted identify retry ignores a delayed earlier terminal and keeps polling its own operation", async ({ browser, baseURL }) => {
+  await withFixturePage(browser, baseURL, { width: 390, height: 844 }, async (page) => {
+    await page.clock.install({ time: new Date(scanTimeline.firstScanCompletedAt) });
+    const discovered = registrationSession("completed", [discoveredNode]);
+    await installSettingsApiRoutes(page, "admin", { fixtures: [], ids: fixtureIds(), activeRegistrationSessions: [discovered] });
+    const retry = { ...discoveredNode, status: "identifying" as const, identifyState: "pending", identifyOperationStartedAt: "2026-08-26T00:00:32Z", updatedAt: "2026-08-26T00:00:32Z" };
+    let started = false;
+    let terminalAllowed = false;
+    let oldPolls = 0;
+    await page.route(`**/registration-sessions/${discovered.id}`, async (route) => {
+      const node = !started ? discoveredNode : terminalAllowed
+        ? { ...discoveredNode, identifyState: "confirmed", identifyOperationId: "op-2", identifyOperationStartedAt: retry.identifyOperationStartedAt, updatedAt: "2026-08-26T00:00:34Z" }
+        : { ...discoveredNode, identifyState: "failed", identifyOperationId: "op-1", identifyOperationStartedAt: "2026-08-26T00:00:30Z", updatedAt: "2026-08-26T00:00:31Z" };
+      if (started && !terminalAllowed) oldPolls += 1;
+      await route.fulfill({ json: registrationSession("completed", [node]) });
+    });
+    await page.route(`**/registration-sessions/${discovered.id}/nodes/${discoveredNode.id}/identify`, async (route) => {
+      started = true;
+      await route.fulfill({ status: 202, json: { status: "accepted", operationId: "op-2", node: retry } });
+    });
+    await page.goto(`/settings/registration?siteId=${ids.site}`);
+    await page.getByRole("button", { name: "조명 1 식별" }).click();
+    await expect(page.getByRole("button", { name: "조명 1 식별 중" })).toBeDisabled();
+    await page.clock.fastForward(1500);
+    await expect.poll(() => oldPolls).toBeGreaterThan(0);
+    await expect(page.getByRole("button", { name: "조명 1 식별 중" })).toBeDisabled();
+    terminalAllowed = true;
+    await page.clock.fastForward(1500);
+    await expect(page.getByText("식별 완료")).toBeVisible();
+    await expect(page.getByRole("button", { name: "조명 1 식별" })).toBeEnabled();
+  });
+});
+
 test("registration progress exposes provisioning, completed, and failed semantics", async ({ browser, baseURL }) => {
   const viewport = { width: 390, height: 844 };
   const cases = [

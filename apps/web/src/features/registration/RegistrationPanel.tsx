@@ -243,7 +243,11 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
 
   const identifyMutation = useMutation({
     mutationFn: (nodeId: string) => identifyRegistrationNode(session!.id, nodeId),
-    onSuccess: ({ node: updatedNode }) => {
+    onSuccess: ({ operationId, node }) => {
+      // The mutation receipt is the ownership boundary. Keep its ID even if a
+      // compatibility presenter omitted the additive node metadata; otherwise
+      // an already-in-flight poll for the previous attempt can settle a retry.
+      const updatedNode = { ...node, identifyOperationId: operationId };
       setLocalNodes((current) => replaceNode(current, updatedNode));
       queryClient.setQueryData<RegistrationSession>(
         ["registration-session", session?.id],
@@ -722,6 +726,24 @@ export function mergeRegistrationNodeProgress(
   localNode: DiscoveredRegistrationNode,
   remoteNode: DiscoveredRegistrationNode
 ) {
+  const localOwner = localNode.identifyOperationId;
+  const remoteOwner = remoteNode.identifyOperationId;
+  if (localOwner && localOwner !== remoteOwner) {
+    const localStarted = Date.parse(localNode.identifyOperationStartedAt ?? "");
+    const remoteStarted = Date.parse(remoteNode.identifyOperationStartedAt ?? "");
+    // Different IDs are different operations, not different progress ranks.
+    // Only a positively newer server operation can replace known ownership;
+    // missing/invalid metadata and delayed earlier terminals fail closed.
+    if (!remoteOwner || !Number.isFinite(localStarted) || !Number.isFinite(remoteStarted) || remoteStarted <= localStarted) {
+      return localNode;
+    }
+    if (localNode.status === "discovered" || localNode.status === "identifying") return remoteNode;
+  }
+  if (localOwner && localOwner === remoteOwner) {
+    const localRevision = Date.parse(localNode.updatedAt ?? "");
+    const remoteRevision = Date.parse(remoteNode.updatedAt ?? "");
+    if (Number.isFinite(localRevision) && (!Number.isFinite(remoteRevision) || remoteRevision < localRevision)) return localNode;
+  }
   const localIdentifyTerminal = localNode.status === "discovered"
     && (localNode.identifyState === "confirmed" || localNode.identifyState === "failed");
   const remoteIdentifyTerminal = remoteNode.status === "discovered"

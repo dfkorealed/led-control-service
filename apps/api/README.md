@@ -39,6 +39,8 @@
 
 `Controller → RegistrationService → ProvisioningSession, DiscoveredMeshNode` 순서로 session과 발견 장비 정보를 관리합니다. scan 재시도와 개별/묶음 등록·완료는 HTTP API로 제공되고, scan, pre-provision identify 및 provision 명령은 durable outbox를 거쳐 MQTT로 Gateway에 전달됩니다. identify는 client duration/raw packet을 받지 않으며 Gateway의 고정 BIO force-on 약 2초와 sensor-mode 복원 확인이 terminal 성공 조건입니다.
 
+식별 mutation의 `operationId`와 session 응답 node의 `identifyOperationId`, `identifyOperationStartedAt`, `updatedAt`를 함께 사용해야 합니다. polling은 repeatable-read snapshot에서 node와 최신 식별 outbox의 ID/생성 시각만 읽고 outbox 본문은 반환하지 않습니다. 이전 operation의 지연된 `confirmed/failed` 응답은 새 식별 retry를 완료할 수 없습니다. 식별 timeout 뒤 정상 등록으로 주소가 생겼더라도 이전의 정확한 식별 terminal은 저장된 불변 명령과 대조한 뒤 ledger/ACK만 기록해 Gateway journal을 비웁니다. 이때 node/session/Fixture/mapping은 변경하지 않으며, 명령·대상 불일치는 계속 거부합니다.
+
 등록 요청은 Gateway에 provision 명령을 보낼 준비만 하며 Fixture를 즉시 만들지 않습니다. Gateway가 provisioning 완료 MQTT 이벤트를 보낸 뒤 [src/mqtt/mqtt.service.ts](src/mqtt/mqtt.service.ts)의 MQTT consumer가 transaction 안에서 `DiscoveredMeshNode → MeshNode → Fixture`를 처리합니다. 여기서 **MQTT consumer**는 broker에서 도착한 Gateway 메시지를 받아 API 저장 로직으로 넘기는 코드입니다. 등록 중 화면은 HTTP 응답만으로 설치 완료를 확정하지 말고, session 상태와 발견 node 목록을 다시 조회해 비동기 완료 결과를 반영해야 합니다.
 
 ### 5. Gateway가 보내는 조명 상태

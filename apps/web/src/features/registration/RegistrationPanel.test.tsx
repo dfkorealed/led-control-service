@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  type RegistrationSession,
   cancelRegistrationSession,
   completeRegistrationSession,
   createRegistrationSession,
@@ -635,8 +636,8 @@ describe("RegistrationPanel", () => {
     ["failed", "sensor mode restore timeout", "sensor mode restore 시간 초과"]
   ] as const)("accepted 식별이 remote %s에 도달하면 polling을 끝내고 결과를 표시한다", async (identifyState, errorMessage, expected) => {
     const discovered = completedSession(mockRegistrationSession.discoveredNodes.slice(0, 1));
-    const acceptedNode = { ...discovered.discoveredNodes[0], status: "identifying" as const, identifyState: "pending" };
-    const terminalNode = { ...discovered.discoveredNodes[0], status: "discovered" as const, identifyState, errorMessage };
+    const acceptedNode = { ...discovered.discoveredNodes[0], status: "identifying" as const, identifyState: "pending", identifyOperationId: "op-1", identifyOperationStartedAt: "2026-09-14T01:00:00Z", updatedAt: "2026-09-14T01:00:00Z" };
+    const terminalNode = { ...discovered.discoveredNodes[0], status: "discovered" as const, identifyState, errorMessage, identifyOperationId: "op-1", identifyOperationStartedAt: "2026-09-14T01:00:00Z", updatedAt: "2026-09-14T01:00:01Z" };
     const terminal = completedSession([terminalNode]);
     activeSessionsMock.mockResolvedValue([discovered]);
     getSessionMock.mockResolvedValueOnce(discovered).mockResolvedValue(terminal);
@@ -653,6 +654,47 @@ describe("RegistrationPanel", () => {
     expect(await screen.findByText(expected)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "조명 1 식별" })).toBeEnabled();
     expect(shouldPollRegistrationSession(terminal, [acceptedNode])).toBe(false);
+  });
+
+  it("mutation operationId를 보존하여 이전 요청의 terminal poll이 새 retry UI를 완료하지 못한다", async () => {
+    const discovered = completedSession(mockRegistrationSession.discoveredNodes.slice(0, 1));
+    const base = discovered.discoveredNodes[0];
+    const accepted = { ...base, status: "identifying" as const, identifyState: "pending", identifyOperationStartedAt: "2026-09-14T01:00:02Z", updatedAt: "2026-09-14T01:00:02Z" };
+    const stale = { ...base, status: "discovered" as const, identifyState: "confirmed", identifyOperationId: "op-1", identifyOperationStartedAt: "2026-09-14T01:00:00Z", updatedAt: "2026-09-14T01:00:01Z" };
+    activeSessionsMock.mockResolvedValue([discovered]);
+    getSessionMock.mockResolvedValue(discovered);
+    identifyNodeMock.mockResolvedValue({ status: "accepted", operationId: "op-2", node: accepted });
+    const client = renderPanel();
+    fireEvent.click(await screen.findByRole("button", { name: "조명 1 식별" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "조명 1 식별 중" })).toBeDisabled());
+    expect(client.getQueryData<RegistrationSession>(["registration-session", discovered.id])?.discoveredNodes[0]).toHaveProperty("identifyOperationId", "op-2");
+    await act(async () => { await client.fetchQuery({ queryKey: ["registration-session", discovered.id], queryFn: async () => completedSession([stale]) }); });
+    expect(screen.getByRole("button", { name: "조명 1 식별 중" })).toBeDisabled();
+    expect(screen.queryByText("식별 완료")).not.toBeInTheDocument();
+    const current = { ...stale, identifyOperationId: "op-2", identifyOperationStartedAt: accepted.identifyOperationStartedAt, updatedAt: "2026-09-14T01:00:03Z" };
+    await act(async () => { await client.fetchQuery({ queryKey: ["registration-session", discovered.id], queryFn: async () => completedSession([current]) }); });
+    expect(await screen.findByText("식별 완료")).toBeInTheDocument();
+  });
+
+  it.each(["confirmed", "failed"])("이전 operation의 지연 %s poll은 accepted retry를 완료하지 않고 polling을 유지한다", (identifyState) => {
+    const base = mockRegistrationSession.discoveredNodes[0];
+    const retry = { ...base, status: "identifying" as const, identifyState: "pending", identifyOperationId: "op-2", identifyOperationStartedAt: "2026-09-14T01:00:02Z", updatedAt: "2026-09-14T01:00:02Z" };
+    const stale = { ...base, status: "discovered" as const, identifyState, identifyOperationId: "op-1", identifyOperationStartedAt: "2026-09-14T01:00:00Z", updatedAt: "2026-09-14T01:00:01Z" };
+    expect(mergeRegistrationNodeProgress(retry, stale)).toEqual(retry);
+    expect(shouldPollRegistrationSession(completedSession([stale]), [retry])).toBe(true);
+    const current = { ...stale, identifyOperationId: "op-2", identifyOperationStartedAt: retry.identifyOperationStartedAt, updatedAt: "2026-09-14T01:00:03Z" };
+    expect(mergeRegistrationNodeProgress(retry, current)).toEqual(current);
+    expect(shouldPollRegistrationSession(completedSession([current]), [retry])).toBe(false);
+  });
+
+  it("동일 operation의 오래된 revision은 무시하고 명시적으로 새로운 operation은 수용한다", () => {
+    const base = { ...mockRegistrationSession.discoveredNodes[0], identifyOperationId: "op-2", identifyOperationStartedAt: "2026-09-14T01:00:02Z", updatedAt: "2026-09-14T01:00:03Z" };
+    const local = { ...base, status: "identifying" as const, identifyState: "running" };
+    const stale = { ...base, status: "discovered" as const, identifyState: "failed", updatedAt: "2026-09-14T01:00:01Z" };
+    expect(mergeRegistrationNodeProgress(local, stale)).toEqual(local);
+    const terminal = { ...base, status: "discovered" as const, identifyState: "confirmed" };
+    const newer = { ...local, identifyOperationId: "op-3", identifyOperationStartedAt: "2026-09-14T01:00:04Z", updatedAt: "2026-09-14T01:00:04Z" };
+    expect(mergeRegistrationNodeProgress(terminal, newer)).toEqual(newer);
   });
 
   it("terminal identify를 stale identifying poll보다 우선하고 provision 상태는 낮추지 않는다", () => {

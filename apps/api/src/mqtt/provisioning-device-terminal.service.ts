@@ -177,14 +177,10 @@ export class ProvisioningDeviceTerminalService {
       return this.persistAcknowledgement(tx, event, receivedAt);
     }
 
-    // Durable replay is decided above from immutable command/event identity.
-    // Only a first-seen terminal may depend on mutable node state: successful
-    // provisioning can assign an address before a Gateway retries the event.
-    if (!storedCommandCurrentNodeMatches(command, event)) {
-      throw new Error("provisioning device terminal current node identity conflict");
-    }
-
     if (event.operation === "identify") {
+      if (!storedCommandNodeIdentityMatches(command, event)) {
+        throw new Error("provisioning device terminal current node identity conflict");
+      }
       const latestIdentify = await tx.provisioningDeviceOutbox.findFirst({
         where: {
           sessionId: command.sessionId,
@@ -199,23 +195,42 @@ export class ProvisioningDeviceTerminalService {
       // started another identify. We still ledger and ACK that terminal so the
       // Gateway journal can drain, but only the newest command may transition
       // the node visible to the current browser operation.
-      if (latestIdentify?.id === command.id) {
+      // Timeout can legitimately release this node for registration before the
+      // first terminal arrives. Its immutable command never contained an
+      // address: comparing it with the newly reserved/registered address would
+      // poison the durable Gateway journal forever. The exact envelope and
+      // stable node ownership were checked above, under the unchanged canonical
+      // locks. Advanced registration retires only this identify's domain effect;
+      // it still commits its ledger + ACK, without touching any registration,
+      // Fixture, session or mapping state. An arbitrary address on a still-
+      // discovered/identifying node is not accepted as legitimate retirement.
+      const registrationAdvanced = command.node.meshAddress !== null
+        && ["provisioning", "provisioned", "reconcile_required"].includes(command.node.status);
+      if (latestIdentify?.id === command.id && !registrationAdvanced) {
+        if (!storedCommandCurrentNodeMatches(command, event)) {
+          throw new Error("provisioning device terminal current node identity conflict");
+        }
         await this.applyIdentifyTerminal(tx, command, event);
       }
-    } else if (event.status === "completed") {
-      const applied = await this.applyCompleted(tx, scope, {
-        sessionId: event.sessionId,
-        nodeId: event.nodeId,
-        deviceUuid: event.deviceUuid,
-        meshAddress: event.meshAddress,
-        firmwareVersion: event.firmwareVersion,
-        rssi: event.rssi,
-        hopCount: event.hopCount,
-        completedAt: event.occurredAt
-      }, command.session, command.node, "v2");
-      if (!applied) await this.markUnknownTerminal(tx, command, UNKNOWN_TERMINAL_ERROR);
     } else {
-      await this.markUnknownTerminal(tx, command, event.errorMessage);
+      if (!storedCommandCurrentNodeMatches(command, event)) {
+        throw new Error("provisioning device terminal current node identity conflict");
+      }
+      if (event.status === "completed") {
+        const applied = await this.applyCompleted(tx, scope, {
+          sessionId: event.sessionId,
+          nodeId: event.nodeId,
+          deviceUuid: event.deviceUuid,
+          meshAddress: event.meshAddress,
+          firmwareVersion: event.firmwareVersion,
+          rssi: event.rssi,
+          hopCount: event.hopCount,
+          completedAt: event.occurredAt
+        }, command.session, command.node, "v2");
+        if (!applied) await this.markUnknownTerminal(tx, command, UNKNOWN_TERMINAL_ERROR);
+      } else {
+        await this.markUnknownTerminal(tx, command, event.errorMessage);
+      }
     }
 
     await this.persistTerminalLedger(tx, event, payloadHash, receivedAt);
@@ -530,11 +545,15 @@ function storedCommandEnvelopeMatches(command: LockedCommand, event: Provisionin
 }
 
 function storedCommandCurrentNodeMatches(command: LockedCommand, event: ProvisioningDeviceTerminalV2) {
-  return command.node.id === event.nodeId && command.node.sessionId === event.sessionId &&
-    command.node.deviceUuid === event.deviceUuid &&
+  return storedCommandNodeIdentityMatches(command, event) &&
     (event.operation === "identify"
       ? command.node.meshAddress === null
       : command.node.meshAddress === event.meshAddress);
+}
+
+function storedCommandNodeIdentityMatches(command: LockedCommand, event: ProvisioningDeviceTerminalV2) {
+  return command.node.id === event.nodeId && command.node.sessionId === event.sessionId &&
+    command.node.deviceUuid === event.deviceUuid;
 }
 
 function distinctLedgers(first: ProcessedGatewayEvent | null, second: ProcessedGatewayEvent | null) {
