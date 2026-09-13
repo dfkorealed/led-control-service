@@ -209,12 +209,88 @@ describe("BioUsbTransport", () => {
     }
   });
 
+  it("keeps early info owned through both converter writes and a later partial GS info", async () => {
+    let finishSecondLiteral!: () => void;
+    const h = harness({ profile: "android-v1.2.0", protocol: "crc16", configureDevice: (device) => {
+      device.open = async () => {
+        device.isOpen = true;
+        device.receive(validInfo03.toString("hex"));
+      };
+      device.write = async (bytes) => {
+        device.writes.push(Buffer.from(bytes).toString("hex"));
+        if (device.writes.length === 1) {
+          device.receive(validGsInfo03.subarray(0, 14).toString("hex"));
+        }
+        if (device.writes.length === 2) {
+          await new Promise<void>((resolve) => { finishSecondLiteral = resolve; });
+        }
+      };
+    } });
+    const starting = settled(h.transport.start());
+    try {
+      await flush();
+      expect(h.devices[0].writes).toEqual(["55aa82000000", "4753820000"]);
+
+      finishSecondLiteral();
+      await flush();
+      expect(h.devices[0].writes).toEqual(["55aa82000000", "4753820000"]);
+
+      h.devices[0].receive(validGsInfo03.subarray(14).toString("hex"));
+      await flush();
+      expect(h.devices[0].writes).toEqual(["55aa82000000", "4753820000", "55aa0a000710"]);
+
+      h.devices[0].receive(validNetwork0b);
+      expect(await starting).toBeUndefined();
+      expect(h.transport.snapshot().ready).toBe(true);
+    } finally {
+      finishSecondLiteral?.();
+      await h.transport.stop();
+      await starting;
+    }
+  });
+
   it("keeps the original converter-info deadline while a proven startup frame is partial", async () => {
     const h = harness({ profile: "android-v1.2.0", protocol: "crc16", timeoutMs: 300 });
     const starting = settled(h.transport.start());
     try {
       await flush();
       h.devices[0].receive(Buffer.concat([validInfo03, validGsInfo03.subarray(0, 14)]).toString("hex"));
+      await vi.advanceTimersByTimeAsync(299);
+      expect(h.devices[0].writes).toEqual(["55aa82000000", "4753820000"]);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await starting).toMatchObject({ code: "TIMEOUT" });
+      expect(h.devices[0].writes).toEqual(["55aa82000000", "4753820000"]);
+    } finally {
+      await h.transport.stop();
+      await starting;
+    }
+  });
+
+  it("does not extend the converter-info deadline for repeated allowlisted notifications", async () => {
+    const h = harness({ profile: "android-v1.2.0", protocol: "crc16", timeoutMs: 300 });
+    const starting = settled(h.transport.start());
+    try {
+      await flush();
+      for (let elapsed = 0; elapsed < 300; elapsed += 100) {
+        h.devices[0].receive(validNotification12.toString("hex"));
+        await vi.advanceTimersByTimeAsync(elapsed === 200 ? 99 : 100);
+      }
+      expect(h.devices[0].writes).toEqual(["55aa82000000", "4753820000"]);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await starting).toMatchObject({ code: "TIMEOUT" });
+      expect(h.devices[0].writes).toEqual(["55aa82000000", "4753820000"]);
+    } finally {
+      await h.transport.stop();
+      await starting;
+    }
+  });
+
+  it("bounds a classification-incomplete startup header after valid info without granting GET_NWK", async () => {
+    const h = harness({ profile: "android-v1.2.0", protocol: "crc16", timeoutMs: 300 });
+    const starting = settled(h.transport.start());
+    try {
+      await flush();
+      h.devices[0].receive(`${validInfo03.toString("hex")}55`);
       await vi.advanceTimersByTimeAsync(299);
       expect(h.devices[0].writes).toEqual(["55aa82000000", "4753820000"]);
       await vi.advanceTimersByTimeAsync(1);

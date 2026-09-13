@@ -41,7 +41,7 @@ export class BioUsbTransport {
   private connection?: BioByteConnection;
   private unsubscribe: (() => void)[] = [];
   private active?: PendingRequest;
-  private startup?: { infoSeen: boolean; resolve: () => void; reject: (error: BioUsbError) => void };
+  private startup?: { infoSeen: boolean; literalsComplete: boolean; resolve: () => void; reject: (error: BioUsbError) => void };
   private timeout?: ReturnType<typeof setTimeout>;
   private partialTimeout?: ReturnType<typeof setTimeout>;
   private reconnectTimer?: ReturnType<typeof setTimeout>;
@@ -135,7 +135,7 @@ export class BioUsbTransport {
     // 두 82 literal 뒤의 유효 03을 준비 완료로 사용했다. 82 자체의 제조사 명칭/필드 의미는
     // [미확인]이며, zero trailer literal을 일반 checksum 응답이나 83 ACK로 해석하지 않는다.
     const startup = traced ? new Promise<void>((resolve, reject) => {
-      this.startup = { infoSeen: false, resolve, reject };
+      this.startup = { infoSeen: false, literalsComplete: false, resolve, reject };
       this.timeout = setTimeout(() => this.fail(generation, new BioUsbError("TIMEOUT", "BIO converter info timed out")), this.options.timeoutMs ?? 300);
     }) : undefined;
     void startup?.catch(() => {});
@@ -150,6 +150,10 @@ export class BioUsbTransport {
         if (!this.current(generation)) return;
         await connection.write(Buffer.from(literal, "hex"));
       }
+      if (!this.current(generation)) return;
+      if (this.startup) this.startup.literalsComplete = true;
+      this.advanceStartup(generation);
+      if (!this.current(generation)) return;
       await startup;
       if (!this.current(generation)) return;
       // [확인됨] 원래 converter-info deadline은 두 native write와 startup 알림 drain 전체를
@@ -245,25 +249,7 @@ export class BioUsbTransport {
       this.active = undefined;
       completed.resolve(event.frame);
     }
-    if (this.current(generation) && this.startup) {
-      const pending = this.codec.pendingCandidate();
-      // [확인됨] startup 중 실제로 관찰된 drain 대상은 CRC16 12와 CRC16/GS 03뿐이다.
-      // [추정] 0B/기타 command 후보는 이전 응답일 수 있으므로 즉시 LATE_RESPONSE로 닫고,
-      // command조차 아직 없는 split header만 원래 startup deadline 안에서 더 기다린다.
-      // 별도 quiet sleep을 두지 않아 USB timing 추측이 요청 소유권 규칙이 되지 않게 한다.
-      const allowedStartupCandidate = pending?.command === undefined
-        || pending.command === 0x03
-        || (pending.protocol === "crc16" && pending.command === 0x12);
-      if (pending && !allowedStartupCandidate) {
-        this.fail(generation, new BioUsbError("LATE_RESPONSE", "Unexpected BIO response candidate during converter startup"));
-        return;
-      }
-      if (!pending && this.startup.infoSeen) {
-        const completed = this.startup;
-        this.startup = undefined;
-        completed.resolve();
-      }
-    }
+    this.advanceStartup(generation);
     // A partial duplicate, including its first header byte, already belongs to
     // the previous request. Never let its later tail complete a queued request.
     if (!this.codec.hasPendingFrame() && this.partialTimeout) {
@@ -284,6 +270,33 @@ export class BioUsbTransport {
     // Finish inspecting complete and partial candidates before another request
     // becomes eligible to own bytes from this connection.
     void Promise.resolve().then(() => { if (this.current(generation)) this.pump(); });
+  }
+
+  private advanceStartup(generation: number): void {
+    if (!this.current(generation) || !this.startup) return;
+    // [확인됨] APK 호환 순서상 두 literal은 하나의 고정 startup 단계다. open 중 먼저 온
+    // partial 후보도 literal 전송을 생략시키지 않으며, 둘 다 완료된 뒤에만 분류한다.
+    if (!this.startup.literalsComplete) return;
+    const pending = this.codec.pendingCandidate();
+    // [확인됨] startup 중 실제로 관찰된 drain 대상은 CRC16 12와 CRC16/GS 03뿐이다.
+    // [추정] 0B/기타 command 후보는 이전 응답일 수 있으므로 즉시 LATE_RESPONSE로 닫고,
+    // command조차 아직 없는 split header만 원래 startup deadline 안에서 더 기다린다.
+    // 별도 quiet sleep을 두지 않아 USB timing 추측이 요청 소유권 규칙이 되지 않게 한다.
+    const allowedStartupCandidate = pending?.command === undefined
+      || pending.command === 0x03
+      || (pending.protocol === "crc16" && pending.command === 0x12);
+    if (pending && !allowedStartupCandidate) {
+      this.fail(generation, new BioUsbError("LATE_RESPONSE", "Unexpected BIO response candidate during converter startup"));
+      return;
+    }
+    // [확인됨] GET_NWK 소유권은 (1) checksum-valid 03 수신, (2) 두 fixed literal의
+    // native write 완료, (3) codec pending 후보 없음이 모두 참일 때만 열린다. 어느 조건을
+    // 기다리더라도 최초 converter-info deadline은 그대로이며 새 timer를 만들지 않는다.
+    if (!pending && this.startup.infoSeen && this.startup.literalsComplete) {
+      const completed = this.startup;
+      this.startup = undefined;
+      completed.resolve();
+    }
   }
 
   private current(generation: number) {
