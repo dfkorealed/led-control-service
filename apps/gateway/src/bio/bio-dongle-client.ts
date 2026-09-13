@@ -1,4 +1,5 @@
 import { randomInt } from "node:crypto";
+import { SerialTaskQueue } from "../runtime/serial-task-queue";
 import { percentToBioRaw } from "./bio-brightness-table";
 import { BioUsbTransport, type BioTransportOptions } from "./bio-usb-transport";
 import { BioDirectUsbConnection } from "./bio-direct-usb-connection";
@@ -37,6 +38,8 @@ export type BioAddressAssignmentResult =
 export type BioVerifiedLampTarget = Extract<BioLampTarget, { kind: "unicast" }> & { nativeUuid: string };
 
 type ReadbackEvent = Extract<BioResponse, { kind: "high-brightness-report" | "control-mode-report" }>;
+type BioReadbackOperation = Extract<BioOperation,
+  { kind: "readHighBrightness" | "readControlMode" | "setControlMode" }>;
 
 /**
  * BIO direct-USB 상위 lifecycle client.
@@ -54,6 +57,7 @@ export class BioDongleClient {
   private readonly scanDurationMs: number;
   private readonly observationTimeoutMs: number;
   private readonly reconnectReadyTimeoutMs: number;
+  private readonly operationQueue = new SerialTaskQueue();
   private readonly identifySessions = new Map<string, { controller: AbortController; promise: Promise<BioDiscoveredDevice> }>();
   private sequence: number;
   private probeResult?: Extract<BioResponse, { kind: "probe" }>;
@@ -312,42 +316,79 @@ export class BioDongleClient {
     }
   }
 
-  private async requestReadback(
-    operation: BioOperation,
+  private requestReadback(
+    operation: BioReadbackOperation,
     expected: { nativeUuid: string; logicalAddress: number }
   ): Promise<ReadbackEvent> {
-    const waiting = this.waitForReadback(expected);
+    return this.operationQueue.run(() => this.requestReadbackOwned(operation, expected));
+  }
+
+  private async requestReadbackOwned(
+    operation: BioReadbackOperation,
+    expected: { nativeUuid: string; logicalAddress: number }
+  ): Promise<ReadbackEvent> {
+    const expectedKind = operation.kind === "readHighBrightness"
+      ? "high-brightness-report"
+      : "control-mode-report";
+    const waiting = this.waitForReadback(expected, expectedKind);
     try {
-      await this.send(operation);
-      return await waiting.promise;
+      // [확인됨] 캡처상 장치 0x12가 동글 outer 0x11보다 먼저 올 수 있으므로 listener를
+      // wire write 전에 등록한다. waiter result에는 이 시점부터 rejection handler가 붙어 있다.
+      await this.sendDirect(operation);
+      const observed = await waiting.result;
+      if (!observed.ok) throw observed.error;
+      return observed.value;
     } catch (error) {
       waiting.cancel();
       throw error;
     }
   }
 
-  private waitForReadback(expected: { nativeUuid: string; logicalAddress: number }) {
+  private waitForReadback(
+    expected: { nativeUuid: string; logicalAddress: number },
+    expectedKind: ReadbackEvent["kind"]
+  ) {
     let unsubscribe = () => {};
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let rejectWait!: (error: BioUsbError) => void;
+    let settled = false;
+    const cleanup = () => {
+      if (timer) clearTimeout(timer);
+      timer = undefined;
+      unsubscribe();
+    };
     const promise = new Promise<ReadbackEvent>((resolve, reject) => {
+      rejectWait = reject;
       unsubscribe = this.onEvent((event) => {
-        if ((event.kind !== "high-brightness-report" && event.kind !== "control-mode-report")
+        if (event.kind !== expectedKind
           || event.deviceUuid !== `bio:${expected.nativeUuid}`
           || event.logicalAddress !== expected.logicalAddress) return;
-        if (timer) clearTimeout(timer);
-        unsubscribe();
+        settled = true;
+        cleanup();
         resolve(event);
       });
       timer = setTimeout(() => {
-        unsubscribe();
+        settled = true;
+        cleanup();
         reject(new BioUsbError("TIMEOUT", "BIO matching device read-back timed out"));
       }, this.observationTimeoutMs);
     });
+    // [확인됨] native report에는 request transaction ID가 없다. UUID/address/DPID만으로
+    // correlation하므로 global operation queue가 command write부터 matching report까지를
+    // 독점한다. per-target 병렬화는 address 변경/지연 DPID를 안전하게 구분할 근거가 없다.
+    // [추정] ACK보다 짧은 observation timeout도 가능하므로 raw rejection을 즉시 outcome으로
+    // 변환해 process unhandledRejection을 막고, caller에는 하나의 통제된 실패만 전달한다.
+    const result = promise.then(
+      (value) => ({ ok: true as const, value }),
+      (error: unknown) => ({ ok: false as const, error })
+    );
     return {
-      promise,
+      result,
       cancel: () => {
-        if (timer) clearTimeout(timer);
-        unsubscribe();
+        if (settled) return;
+        settled = true;
+        cleanup();
+        rejectWait(new BioUsbError("STOPPED", "BIO read-back wait was cancelled"));
       }
     };
   }
@@ -414,7 +455,11 @@ export class BioDongleClient {
     });
   }
 
-  private async send(operation: BioOperation): Promise<BioCommandAcceptance> {
+  private send(operation: BioOperation): Promise<BioCommandAcceptance> {
+    return this.operationQueue.run(() => this.sendDirect(operation));
+  }
+
+  private async sendDirect(operation: BioOperation): Promise<BioCommandAcceptance> {
     const request = encodeBioCommand(operation, this.sequence);
     this.sequence = (this.sequence + 1) & 0xff;
     const response = decodeBioResponse(await this.transport.request(request));

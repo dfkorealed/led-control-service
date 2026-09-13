@@ -478,6 +478,110 @@ describe("BIO evidence-gated dongle client", () => {
     await mode.client.close();
   });
 
+  it("handles an observation timeout while its GET is queued or awaiting ACK without an unhandled rejection or leaked waiter", async () => {
+    const h = harness(75, { observationTimeoutMs: 50 }); await ready(h);
+    const unhandled: unknown[] = [];
+    const recordUnhandled = (reason: unknown) => { unhandled.push(reason); };
+    process.on("unhandledRejection", recordUnhandled);
+    try {
+      const blocker = h.client.stopScan(); void blocker.catch(() => {});
+      const reading = h.client.readBrightness(verifiedTarget); void reading.catch(() => {});
+      await flush();
+      expect(commandBodies(h.device).at(-1)).toBe("85");
+
+      await vi.advanceTimersByTimeAsync(50);
+      h.device.receive("55aa1101002055");
+      await flush();
+      expect(commandBodies(h.device).at(-1)).toBe("4e13");
+      await vi.advanceTimersByTimeAsync(50);
+      h.device.receive("55aa1101002055");
+
+      await expect(blocker).resolves.toEqual({ outcome: "dongle-accepted", deviceApplied: false });
+      await expect(reading).rejects.toMatchObject({ code: "TIMEOUT" });
+      await flush();
+      expect(unhandled).toEqual([]);
+      expect((h.client as unknown as { listeners: Set<unknown> }).listeners.size).toBe(0);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      process.off("unhandledRejection", recordUnhandled);
+      await h.client.close();
+    }
+  });
+
+  it("cleans the matching-report waiter immediately when the GET outer ACK is rejected", async () => {
+    const h = harness(75, { observationTimeoutMs: 100 }); await ready(h);
+    const reading = h.client.readBrightness(verifiedTarget); void reading.catch(() => {});
+    await flush();
+    h.device.emit("data", encodeCrcFrame(0x11, Buffer.from([1])));
+
+    await expect(reading).rejects.toMatchObject({ code: "BIO_DONGLE_REJECTED" });
+    expect((h.client as unknown as { listeners: Set<unknown> }).listeners.size).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+    h.device.receive(brightnessReportHex("001122334455", 0x1234, 198));
+    await flush();
+    expect((h.client as unknown as { listeners: Set<unknown> }).listeners.size).toBe(0);
+    await h.client.close();
+  });
+
+  it("serializes two same-target GET operations through each command and its own report", async () => {
+    const h = harness(75, { observationTimeoutMs: 100 }); await ready(h);
+    const first = h.client.readBrightness(verifiedTarget); void first.catch(() => {});
+    const second = h.client.readBrightness(verifiedTarget); void second.catch(() => {});
+    let secondSettled = false;
+    void second.finally(() => { secondSettled = true; }).catch(() => {});
+    await flush();
+    expect(commandBodies(h.device).filter((body) => body === "4e13")).toHaveLength(1);
+
+    h.device.receive("55aa1101002055");
+    await flush();
+    expect(commandBodies(h.device).filter((body) => body === "4e13")).toHaveLength(1);
+    h.device.receive(brightnessReportHex("001122334455", 0x1234, 198));
+    await expect(first).resolves.toMatchObject({ rawHighBrightness: 198 });
+    await flush();
+    expect(commandBodies(h.device).filter((body) => body === "4e13")).toHaveLength(2);
+
+    h.device.receive("55aa1101002055");
+    await flush();
+    expect(secondSettled).toBe(false);
+    h.device.receive(brightnessReportHex("001122334455", 0x1234, 199));
+    await expect(second).resolves.toMatchObject({ rawHighBrightness: 199 });
+    await h.client.close();
+  });
+
+  it("ignores a delayed control-mode DPID during brightness GET and accepts brightness before outer ACK", async () => {
+    const h = harness(75, { observationTimeoutMs: 100 }); await ready(h);
+    const reading = h.client.readBrightness(verifiedTarget); void reading.catch(() => {});
+    let settled = false;
+    void reading.finally(() => { settled = true; }).catch(() => {});
+    await flush();
+
+    h.device.receive(modeReportHex("001122334455", 0x1234, 3));
+    h.device.receive(brightnessReportHex("001122334455", 0x1234, 198));
+    await flush();
+    expect(settled).toBe(false);
+    h.device.receive("55aa1101002055");
+
+    await expect(reading).resolves.toMatchObject({ kind: "high-brightness-report", rawHighBrightness: 198 });
+    await h.client.close();
+  });
+
+  it("ignores a delayed brightness DPID during control-mode GET and accepts mode before outer ACK", async () => {
+    const h = harness(75, { observationTimeoutMs: 100 }); await ready(h);
+    const reading = h.client.readDeviceInfo(verifiedTarget); void reading.catch(() => {});
+    let settled = false;
+    void reading.finally(() => { settled = true; }).catch(() => {});
+    await flush();
+
+    h.device.receive(brightnessReportHex("001122334455", 0x1234, 198));
+    h.device.receive(modeReportHex("001122334455", 0x1234, 0));
+    await flush();
+    expect(settled).toBe(false);
+    h.device.receive("55aa1101002055");
+
+    await expect(reading).resolves.toMatchObject({ kind: "control-mode-report", mode: "sensor" });
+    await h.client.close();
+  });
+
   it("rejects invalid service percentages and non-table raw writes before serializing them", async () => {
     const h = harness(); await ready(h);
     for (const percent of [-1, 1.5, 101]) {
