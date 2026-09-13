@@ -32,6 +32,14 @@ bash scripts/gateway-bio-runtime.sh start
 
 컨테이너는 user999:999, USB 숫자 group 하나, exact device `rw`, cap_drop ALL, cap_add 없음, no-new-privileges, read-only rootfs로 실행한다. host 준비가 root entrypoint의 mkdir/chown/USB checks를 대체하므로 `umask 077; exec node /opt/led-control/gateway.mjs`가 안전한 실행 경로다. runtime의 실제 `/proc` UID/GID999·CapInh/Prm/Eff/Bnd/Amb0·NoNewPrivs1도 검사한다. 실패하면 새 container만 stop하며 자동 restart/retry하지 않는다. old identity가 폐기됐을 수 있으므로 자동 rollback start도 하지 않는다.
 
+배포의 첫 container-name 검사 전에 Pi 고정 lock `/opt/led-control/gateway/.bio-runtime-deploy.lock`을 원자적으로 생성한다. 다른 data root도 같은 USB/container 이름을 공유하므로 같은 lock을 쓴다. 경합이나 기존/stale lock에는 즉시 실패하며 timeout/PID 추정으로 삭제하지 않는다. 시작 직전 candidate 이름의 부재를 다시 확인한 뒤에만 exact old ID를 stop한다.
+
+`compose up` 대신 `compose create --no-recreate` → 이번 실행의 난수 ownership label/image 확인 → exact container ID 저장 → `docker start <exact ID>` 순서다. 생성 API가 실패해도 해당 label의 단일 ID만 회수한다. 이름이 다른 container로 교체되더라도 검사/privilege/lifecycle/cleanup 대상을 새 이름의 ID로 바꾸지 않는다. 이후 모든 작업은 보호된 evidence의 `candidate-id`에 결속된다.
+
+EXIT/SIGINT/SIGTERM/SIGHUP 또는 부분 create/start 실패는 exact candidate를 stop하고 daemon의 `Running=false`, restart0을 확인한다. foreground Docker 요청은 완료 후 회수하여 client 중단 뒤 늦게 생성되는 orphan을 피한다. 중지 확인/API/ownership/lock 해제 실패는 고정 오류와 nonzero exit로 드러내고 lock을 보존한다. stopped candidate도 자동 삭제하지 않는다. old container는 인증서 폐기·이전 scope 가능성이 있어 자동 재시작하지 않는다.
+
+SIGKILL/전원 손실로 남은 lock은 자동 복구 대상이 아니다. 승인된 운영자가 보호된 evidence의 label·exact ID, daemon 상태와 진행 중 launcher 부재를 확인하고 필요한 exact candidate 중지를 완료한 뒤에만 빈 lock 디렉터리를 `rmdir`로 해제한다. recursive 삭제·이름만으로 추정한 candidate 정리·old identity 자동 rollback은 금지한다. 모든 정상 검증이 끝날 때까지 lock을 유지하며 lock 해제 실패도 candidate를 정지시키고 실패로 보고한다.
+
 새 identity/gateway/mesh 세 mount 외에 old mesh, DBus, BlueZ/HCI, 전체 `/dev`/USB bus, systemd mount는 없다. BIO mapping은 새 mesh root의 `bio-device-mappings.json`이다. public cert/CSR/CA0644, private key/assignment0600 계약을 유지한다. timesync marker mount가 없어 schedule/event의 clock-trust는 fail-closed하며 이 절차를 자동화 제어 검증으로 확대하지 않는다.
 
 실제 baseline은 별도 승인 후 startup handshake/network query만 허용하고 scan/identify/address/brightness/sensor/reset은 보내지 않는다. BIO health의 transportConnected/protocolReady/mappingValid/MQTT/heartbeatFresh와 실제 새 Gateway DB heartbeat가 서로 다른 3회 증가하는지 확인한다. handshake 실패 시 새 container를 stop하고 추가 장비 명령 없이 보고한다. 이 소프트웨어 변경만으로 baseline/조명 HIL 완료를 기록하지 않는다.

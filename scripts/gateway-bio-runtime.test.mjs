@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawnSync, spawn } from "node:child_process";
 import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
@@ -23,10 +23,12 @@ test("host start validates identities and fresh USB before stopping only the exp
  withHostFixture((fixture)=>{
   const result=fixture.run();assert.equal(result.status,0,result.stderr);
   const calls=fixture.calls();
+  assert(calls.indexOf("lock-acquired")<calls.indexOf("name-gate"));
   assert(calls.indexOf("identity-check")<calls.indexOf("old-stop"));
   assert.equal(calls.filter(x=>x==="usb-check").length,2);
   assert(calls.lastIndexOf("usb-check")<calls.indexOf("old-stop"));
   assert(calls.indexOf("old-stop")<calls.indexOf("start"));assert(calls.includes("pid-check"));
+  assert(calls.indexOf("lock-released")>calls.indexOf("pid-check"));
   assert(!calls.some(x=>/delete|recreate|restart/.test(x)));
   assert(!result.stdout.includes("SECRET"));
   const evidence=result.stdout.match(/evidence=(\S+)/)?.[1];if(evidence)rmSync(evidence,{recursive:true,force:true});
@@ -38,25 +40,86 @@ test("identity failure or changed USB never stops the old container",()=>{
  });}
 });
 
+test("name collision at the second gate never stops the old container",()=>withHostFixture(f=>{
+ const result=f.run("name-collision");assert.notEqual(result.status,0);assert(!f.calls().includes("old-stop"));
+}));
+test("partial Compose create/API failure cleans only this invocation's immutable candidate",()=>withHostFixture(f=>{
+ const result=f.run("partial-create");assert.notEqual(result.status,0);assert(f.calls().includes("candidate-stop:"+'c'.repeat(64)));assert(!f.calls().includes("start"));
+}));
+test("partial Docker start failure and replacement race never clean the replacement name",()=>{
+ for(const failure of ["partial-start","replace-name"]){withHostFixture(f=>{
+  const result=f.run(failure);assert.notEqual(result.status,0);
+  assert(f.calls().includes("candidate-stop:"+'c'.repeat(64)));assert(!f.calls().some(c=>c.includes('d'.repeat(64))));
+ });}
+});
+test("cleanup stop failure is surfaced and retains the lock for manual recovery",()=>withHostFixture(f=>{
+ const result=f.run("cleanup-failure");assert.notEqual(result.status,0);assert.match(result.stderr,/BIO_RUNTIME_CLEANUP_FAILED/);assert(f.lockExists());
+}));
+test("stale lock is never automatically removed",()=>withHostFixture(f=>{
+ f.seedLock();const result=f.run();assert.notEqual(result.status,0);assert.match(result.stderr,/BIO_RUNTIME_LOCKED/);assert(f.lockExists());assert(!f.calls().includes("old-stop"));
+}));
+test("final lock release failure stops the candidate rather than reporting a failed running deployment",()=>withHostFixture(f=>{
+ const result=f.run("lock-release-failure");assert.notEqual(result.status,0);assert.match(result.stderr,/BIO_RUNTIME_LOCK_RELEASE_FAILED/);assert.doesNotMatch(result.stdout,/BIO_RUNTIME_STARTED/);assert(f.calls().includes("candidate-stop:"+'c'.repeat(64)));assert(f.lockExists());
+}));
+test("concurrent launcher fails closed and TERM/INT clean the exact owned candidate",async()=>{
+ for(const signal of ["SIGTERM","SIGINT"]){await withHostFixture(async f=>{
+  const first=f.spawn("pause-start");
+  await f.waitFor("start");
+  const second=f.runCurrent();assert.notEqual(second.status,0);assert.match(second.stderr,/BIO_RUNTIME_LOCKED/);
+  first.kill(signal);
+  const result=await f.result(first);assert.notEqual(result.code,0);
+  assert(f.calls().includes("candidate-stop:"+'c'.repeat(64)));assert(!f.lockExists());
+ });}
+});
+
 function withHostFixture(callback){
  const dir=mkdtempSync(resolve(tmpdir(),"bio-host-contract-"));
  mkdirSync(resolve(dir,"scripts"));mkdirSync(resolve(dir,"apps/gateway"),{recursive:true});mkdirSync(resolve(dir,"bin"));
  writeFileSync(resolve(dir,"scripts/gateway-bio-runtime.sh"),readFileSync(script));
  writeFileSync(resolve(dir,"apps/gateway/compose.bio-runtime.yml"),"services: {}\n");
  const log=resolve(dir,"calls"), failure=resolve(dir,"failure");writeFileSync(log,"");writeFileSync(failure,"");
- const helper=`#!/usr/bin/env node\nconst fs=require('fs');const a=process.argv.slice(2);const log=${JSON.stringify(log)};const failure=fs.readFileSync(${JSON.stringify(failure)},'utf8');const add=x=>fs.appendFileSync(log,x+'\\n');`;
+ const lock=resolve(dir,'lock'),state=resolve(dir,'candidate');
+ const helper=`#!/usr/bin/env node\nconst fs=require('fs');const a=process.argv.slice(2);const log=${JSON.stringify(log)};const failure=fs.readFileSync(${JSON.stringify(failure)},'utf8');const add=x=>fs.appendFileSync(log,x+'\\n');const lock=${JSON.stringify(lock)},state=${JSON.stringify(state)};`;
  writeFileSync(resolve(dir,"bin/sudo"),helper+`
- if(a[1]==='realpath')console.log(a.at(-1));else if(a[1]==='stat')console.log('directory|755|0');else if(a[1]==='install')add('prepare');
+ if(a[1]==='mkdir'){try{fs.mkdirSync(lock);add('lock-acquired');}catch{process.exit(1);}}
+ else if(a[1]==='rmdir'){if(failure==='lock-release-failure')process.exit(1);fs.rmdirSync(lock);add('lock-released');}
+ else if(a[1]==='realpath')console.log(a.at(-1));
+ else if(a[1]==='stat')console.log(a.includes('%d:%i')?'1:1234':'directory|755|0');else if(a[1]==='install')add('prepare');
  `,{mode:0o755});
  writeFileSync(resolve(dir,"bin/docker"),helper+`
  if(a[0]==='image')console.log('sha256:'+'a'.repeat(64)+' linux/arm64');
- else if(a[0]==='inspect') {if(a[1]==='led-control-gateway-bio')process.exit(1);console.log(a.includes('--format')?'b'.repeat(64):'{}');}
+ else if(a[0]==='container'&&a[1]==='ls'){
+  const filter=a[a.indexOf('--filter')+1]||'';
+  if(filter.startsWith('name=')){add('name-gate');if(failure==='name-collision'&&fs.readFileSync(log,'utf8').split('name-gate').length>2)console.log('d'.repeat(64));}
+  else if(fs.existsSync(state))console.log('c'.repeat(64));
+ }
+ else if(a[0]==='inspect') {
+  if(a[1]==='led-control-gateway-bio'){add('MUTABLE-NAME-INSPECT');if(failure==='replace-name')console.log('d'.repeat(64));else process.exit(1);}
+  if(a[1]==='c'.repeat(64)){
+   const info=JSON.parse(fs.readFileSync(state));const format=a[a.indexOf('--format')+1]||'';
+   if(format.includes('Labels'))console.log('c'.repeat(64)+' '+info.token+' sha256:'+'a'.repeat(64));
+   else if(format.includes('State.Running'))console.log(info.running?'true 0':'false 0');else console.log('{}');
+  }else console.log(a.includes('--format')?'b'.repeat(64):'{}');
+ }
  else if(a[0]==='run'){add('identity-check');if(failure==='identity')process.exit(1);console.log('BIO_RUNTIME_IDENTITY_VALID');}
- else if(a[0]==='stop'){if(a[1]!=='b'.repeat(64))process.exit(90);add('old-stop');}
- else if(a[0]==='compose'){if(a.includes('config'))console.log('{}');else {if(!a.includes('--pull')||!a.includes('never')||a.includes('-f')&&a.filter(x=>x==='-f').length!==1)process.exit(91);add('start');}}
- else if(a[0]==='exec'){add('pid-check');console.log('BIO_RUNTIME_PROCESS_ISOLATED');}
+ else if(a[0]==='stop'){
+  const id=a.at(-1);if(id==='b'.repeat(64))add('old-stop');else if(id==='c'.repeat(64)){add('candidate-stop:'+id);if(failure==='cleanup-failure')process.exit(1);const info=JSON.parse(fs.readFileSync(state));info.running=false;fs.writeFileSync(state,JSON.stringify(info));}else {add('FORBIDDEN-STOP:'+id);process.exit(90);}
+ }
+ else if(a[0]==='start'){
+  if(a[1]!=='c'.repeat(64))process.exit(93);add('start');const info=JSON.parse(fs.readFileSync(state));info.running=true;fs.writeFileSync(state,JSON.stringify(info));
+  if(failure==='partial-start')process.exit(1);if(failure==='pause-start')setTimeout(()=>{},500);
+ }
+ else if(a[0]==='compose'){
+  if(a.includes('config'))console.log('{}');else {
+   if(!a.includes('--pull')||!a.includes('never')||a.filter(x=>x==='-f').length!==1)process.exit(91);
+   add('create');fs.writeFileSync(state,JSON.stringify({running:false,token:process.env.GATEWAY_BIO_DEPLOYMENT_ID}));
+   if(failure==='partial-create')process.exit(1);
+  }
+ }
+ else if(a[0]==='exec'){if(a[1]!=='c'.repeat(64)){add('MUTABLE-NAME-EXEC');process.exit(94);}add('pid-check');if(failure==='replace-name'||failure==='cleanup-failure')process.exit(1);console.log('BIO_RUNTIME_PROCESS_ISOLATED');}
  else process.exit(99);
  `,{mode:0o755});
+ writeFileSync(resolve(dir,"bin/mktemp"),helper+`console.log(fs.mkdtempSync(${JSON.stringify(resolve(dir,'evidence-'))}));`,{mode:0o755});
  writeFileSync(resolve(dir,"scripts/gateway-bio-usb-preflight.sh"),helper+`
  const count=fs.readFileSync(log,'utf8').split('usb-check').length-1;add('usb-check');console.log('GATEWAY_BIO_USB_DEVICE=/dev/bus/usb/002/'+(failure==='usb-change'&&count?'008':'007'));console.log('GATEWAY_BIO_USB_GID=812');
  `,{mode:0o755});
@@ -64,9 +127,12 @@ function withHostFixture(callback){
  const nodeStub=readFileSync(resolve(dir,"scripts/gateway-bio-usb-preflight.sh"),'utf8');
  writeFileSync(resolve(dir,"scripts/gateway-bio-usb-preflight-node"),nodeStub,{mode:0o755});
  writeFileSync(resolve(dir,"scripts/gateway-bio-usb-preflight.sh"),`#!/bin/bash\nexec ${JSON.stringify(resolve(dir,"scripts/gateway-bio-usb-preflight-node"))}\n`);
- const fixture={calls:()=>readFileSync(log,'utf8').trim().split('\n'),run:(mode='')=>{
-  writeFileSync(failure,mode);
-  return spawnSync('bash',[resolve(dir,'scripts/gateway-bio-runtime.sh'),'start'],{encoding:'utf8',env:{PATH:`${dir}/bin:${process.env.PATH}`,GATEWAY_BIO_DATA_ROOT:'/opt/led-control/gateway/data-admin4',GATEWAY_BIO_IMAGE:'led-control-gateway:verified',GATEWAY_BIO_IMAGE_ID:`sha256:${'a'.repeat(64)}`,GATEWAY_BIO_OLD_CONTAINER_ID:'b'.repeat(64),GATEWAY_SERIAL:'NEW-SERIAL',GATEWAY_EXPECTED_SITE_ID:'11111111-1111-4111-8111-111111111111',GATEWAY_EXPECTED_GATEWAY_ID:'22222222-2222-4222-8222-222222222222',GATEWAY_BOOTSTRAP_URL:'https://192.168.45.148:4000/gateway-bootstrap'}});
- }};
- try{callback(fixture);}finally{rmSync(dir,{recursive:true,force:true});}
+ const options={encoding:'utf8',env:{PATH:`${dir}/bin:${process.env.PATH}`,GATEWAY_BIO_DATA_ROOT:'/opt/led-control/gateway/data-admin4',GATEWAY_BIO_IMAGE:'led-control-gateway:verified',GATEWAY_BIO_IMAGE_ID:`sha256:${'a'.repeat(64)}`,GATEWAY_BIO_OLD_CONTAINER_ID:'b'.repeat(64),GATEWAY_SERIAL:'NEW-SERIAL',GATEWAY_EXPECTED_SITE_ID:'11111111-1111-4111-8111-111111111111',GATEWAY_EXPECTED_GATEWAY_ID:'22222222-2222-4222-8222-222222222222',GATEWAY_BOOTSTRAP_URL:'https://192.168.45.148:4000/gateway-bootstrap'}};
+ const args=[resolve(dir,'scripts/gateway-bio-runtime.sh'),'start'];
+ const fixture={calls:()=>readFileSync(log,'utf8').trim().split('\n'),seedLock:()=>mkdirSync(lock),lockExists:()=>existsSync(lock),run:(mode='')=>{writeFileSync(failure,mode);return spawnSync('bash',args,options);},runCurrent:()=>spawnSync('bash',args,options),spawn:(mode)=>{writeFileSync(failure,mode);return spawn('bash',args,options);},
+ waitFor:async(message)=>{for(let i=0;i<300;i++){if(readFileSync(log,'utf8').split('\n').includes(message))return;await new Promise(r=>setTimeout(r,20));}throw new Error('fixture wait timeout');},
+ result:child=>new Promise(resolve=>{let stdout='',stderr='';child.stdout.on('data',b=>stdout+=b);child.stderr.on('data',b=>stderr+=b);child.on('close',code=>resolve({code,stdout,stderr}));})};
+ let result;try{result=callback(fixture);}catch(error){rmSync(dir,{recursive:true,force:true});throw error;}
+ if(result?.then)return result.finally(()=>rmSync(dir,{recursive:true,force:true}));
+ rmSync(dir,{recursive:true,force:true});
 }

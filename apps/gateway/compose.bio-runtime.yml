@@ -5,6 +5,10 @@ services:
   gateway-bio:
     image: "${GATEWAY_BIO_IMAGE:?verified immutable image is required}"
     container_name: led-control-gateway-bio
+    # 부분 create/start 실패에서도 다른 실행의 container를 정지하지 않도록
+    # host launcher가 매번 새 ownership token을 생성하고 exact ID와 함께 검증한다.
+    labels:
+      io.led-control.bio.deployment: "${GATEWAY_BIO_DEPLOYMENT_ID:?host deployment ownership token is required}"
     user: "999:999"
     # Root entrypoint의 mkdir/chown/USB bootstrap은 host preflight가 소유한다.
     # 여기서는 capability 없이 동일 제품 gateway.mjs를 직접 실행한다. umask는

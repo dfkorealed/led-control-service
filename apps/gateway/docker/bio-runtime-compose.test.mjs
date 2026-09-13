@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
 import test from "node:test";
 const root=resolve(import.meta.dirname,"../..");
-const env={...process.env,GATEWAY_BIO_IMAGE:"led-control-gateway:verified",GATEWAY_BIO_DATA_ROOT:"/opt/led-control/gateway/data-admin4",GATEWAY_BIO_USB_DEVICE:"/dev/bus/usb/002/007",GATEWAY_BIO_USB_GID:"812",GATEWAY_SERIAL:"GW-NEW-01",GATEWAY_BOOTSTRAP_URL:"https://192.168.45.148:4000/gateway-bootstrap"};
+const env={...process.env,GATEWAY_BIO_DEPLOYMENT_ID:"12345678901234567890123456789012",GATEWAY_BIO_IMAGE:"led-control-gateway:verified",GATEWAY_BIO_DATA_ROOT:"/opt/led-control/gateway/data-admin4",GATEWAY_BIO_USB_DEVICE:"/dev/bus/usb/002/007",GATEWAY_BIO_USB_GID:"812",GATEWAY_SERIAL:"GW-NEW-01",GATEWAY_BOOTSTRAP_URL:"https://192.168.45.148:4000/gateway-bootstrap"};
 function rendered(file){return JSON.parse(execFileSync("docker",["compose","--env-file","/dev/null","-f",file,"config","--format","json"],{env,encoding:"utf8"})).services;}
 function isolated(s){
  assert.equal(s.user,"999:999");assert.deepEqual(s.cap_drop,["ALL"]);assert.deepEqual(s.cap_add??[],[]);
@@ -13,6 +13,7 @@ function isolated(s){
  assert.deepEqual(s.security_opt,["no-new-privileges:true"]);assert.deepEqual(s.group_add,["812"]);
  assert.deepEqual(s.devices,[{source:"/dev/bus/usb/002/007",target:"/dev/bus/usb/002/007",permissions:"rw"}]);
  assert.equal(s.container_name,"led-control-gateway-bio");assert.equal(s.restart,"no");
+ assert.equal(s.labels["io.led-control.bio.deployment"],"12345678901234567890123456789012");
  assert.deepEqual(s.entrypoint,["/bin/sh","-ec","umask 077; exec node /opt/led-control/gateway.mjs"]);
  assert.equal(s.environment.GATEWAY_ADAPTER,"bio-usb");assert.equal(s.environment.DEVICE_ADAPTER_TYPE,"bio-usb");
  assert.deepEqual(s.volumes.map(v=>[v.source,v.target]),[["/opt/led-control/gateway/data-admin4/gateway","/var/lib/led-control"],["/opt/led-control/gateway/data-admin4/identity","/var/lib/led-control/identity"],["/opt/led-control/gateway/data-admin4/mesh","/data/mesh"]]);
