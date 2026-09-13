@@ -613,11 +613,11 @@ git commit -m "feat(gateway): deploy one BIO raw USB device safely"
 - Required input: exact fingerprint + old address + new address confirmation
 - Safety restore: final sensor mode attempt on every exit path
 
-- [ ] **Step 1: HIL CLI safety RED 테스트를 작성한다.** dry-run 외에는 `--fingerprint`, `--old-address`, `--new-address`, `--confirm-address-change`가 모두 정확히 일치해야 한다. factory reset/password/arbitrary hex option은 제공하지 않는다.
+- [x] **Step 1: HIL CLI safety RED 테스트를 작성한다.** dry-run 외에는 `--fingerprint`, `--old-address`, `--new-address`, `--confirm-address-change`가 모두 정확히 일치해야 한다. factory reset/password/arbitrary hex option은 제공하지 않는다.
 
-- [ ] **Step 2: CLI를 구현하고 dry-run으로 한 장치만 선택한다.** multiple discovery, duplicate UUID, address collision은 모두 실패한다.
+- [x] **Step 2: CLI를 구현하고 dry-run으로 한 장치만 선택한다.** multiple discovery, duplicate UUID, address collision은 모두 실패한다.
 
-- [ ] **Step 2a: HIL 전용 임시 mapping/data 경로를 사용한다.** production `/var/lib/led-control/bio-device-mappings.json`과 API provisioning journal에는 쓰지 않아 Task 10의 Web 등록이 최초 등록 흐름을 그대로 검증하게 한다.
+- [x] **Step 2a: HIL 전용 임시 mapping/data 경로를 사용한다.** production `/var/lib/led-control/bio-device-mappings.json`과 API provisioning journal에는 쓰지 않아 Task 10의 Web 등록이 최초 등록 흐름을 그대로 검증하게 한다.
 
 - [ ] **Step 3: 사용자에게 dry-run의 redacted fingerprint와 old/new address를 제시하고 명시 확인을 받는다.** 확인 전에는 address write를 실행하지 않는다.
 
@@ -631,7 +631,7 @@ git commit -m "feat(gateway): deploy one BIO raw USB device safely"
 
 - [ ] **Step 8: raw identity/payload를 제거한 HIL report와 SHA-256을 기록한다.** 장치가 한 대이므로 multi-device group 결과는 `보류(장비 부족)`로 기록한다.
 
-- [ ] **Step 9: 커밋한다.**
+- [x] **Step 9: 커밋한다.**
 
 ```bash
 git add apps/gateway/scripts/bio-registration-hil.ts apps/gateway/scripts/bio-registration-hil.test.ts
