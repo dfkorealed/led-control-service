@@ -1,6 +1,6 @@
 # 모니터링 메뉴 기능 현황
 
-기준일: 2026-09-12
+기준일: 2026-09-13
 
 ## 확정 구현 범위
 
@@ -24,11 +24,8 @@
 
 - P1 Task 1 서버 계약: `GET/PATCH /sites/:siteId/monitoring-policy`는 read/manage capability와 `expectedUpdatedAt`을 적용해 gateway 만료 `30~900`초(기본 90), fixture stale `60~3600`초(기본 180)를 저장한다. 변경 충돌은 `409 MONITORING_POLICY_CONFLICT`다. 기존 장비 제어·등록의 90초 안전성 기준은 별도로 유지한다.
 - `MonitoringIncident`는 네 유형(`gateway_offline`, `fixture_stale`, `fixture_fault`, `command_failed`)의 발생·확인·담당·해결을 저장한다. Task 2의 30초 freshness sweep은 조건을 자동 수집해 active incident를 생성·갱신하고 조건 회복 시 `automatic_recovery`로 자동 해결한다. 목록 API는 활성 우선 최신순, 현장·필터에 바인딩된 cursor와 최대 100건 limit, 대상·사용자 요약을 제공한다. 관리자는 open 확인, active 담당 지정/해제, 복구 확인 뒤 메모와 수동 해결을 수행한다. 장애 지속은 `409 INCIDENT_STILL_ACTIVE`, 이전 revision은 `409 INCIDENT_CONFLICT`이며 모든 성공 변경은 같은 transaction의 감사 로그로 남긴다.
-- P1 Task 4 Web은 기존 공통 SidePanel 안에 키보드 이동이 가능한 `조명 상세` / `인시던트 {활성 건수}` 탭을 제공한다. 현장 전체 인시던트의 상태·유형 필터, cursor 더 보기, 발생·최근 관측·확인자·담당자·자동/수동 해결·메모 이력을 표시한다. 인시던트 API도 30초 polling을 적용하고 초기 오류에는 재시도, background 오류에는 기존 목록을 유지한다. 현장에 층이 없거나 Gateway만 있고 조명이 0개이거나 선택 층 fixture 최초 조회가 실패해도 site-wide 인시던트와 manage 전용 정책·조치는 empty/error 안내 옆에서 계속 접근할 수 있다. 층이 없을 때 비활성 floor query의 로딩·실패·stale 안내는 표시하지 않으며, 탭 전환이나 조치 후에도 지도 배율·층·조명 선택을 유지한다.
-- P1 Task 5 Chromium은 cached dashboard/fixture/map의 background 부분 실패에도 기존 KPI·도면·선택 층/조명·120% 지도 배율을 보존한다. 수동 지도 갱신 실패 표시는 같은 층의 기존 cached 객체나 observer 재마운트만으로 지우지 않고, 더 최신 `dataUpdatedAt`의 성공한 자동 poll 뒤에만 지도 경고와 지도에서 비롯된 toolbar 오류를 해제하며 선택·배율을 보존한다. 함께 실패한 dashboard·fixture source의 toolbar 오류는 해당 source가 회복되기 전까지 유지한다. 정지한 browser clock에서 서버 snapshot의 정확한 60,000ms 경계는 fresh이고 60,001ms부터 stale인 계약을 검증한다. `gateway_offline`, `fixture_stale`, Health 기반 `fixture_fault`, `command_failed`는 selector·marker 접근성 이름·badge·상세 원인·권장 조치에서 공통 presenter 결과를 사용한다. 관리자의 확인·유효 UUID 자기 지정·대상 복구 뒤 메모 해결과 120/300초 정책 저장 요청도 연속 revision payload로 검증한다. 1440×900, 1024×768, 390×844, 320×740 각각에서 fixture 선택·120% 배율을 만든 뒤 incident tab과 정책 dialog를 열어도 선택/배율을 유지하며 페이지·지도·상세 패널의 가로 clipping/overflow가 없는 계약을 포함해 monitoring Chromium `25/25`를 통과했다.
-- 수정 권한은 dashboard `capabilities.manage === true`만 따른다. read-only는 조치·정책 form을 보지 못하며 site-users API도 호출하지 않는다. manage 사용자는 open 확인, active 담당 지정/해제, 1~2000자 해결 메모를 제출하고 현재 행의 `updatedAt`을 전달한다. 저장 중 필터 변경으로 폼이 다시 mount되어도 중복 요청을 차단한다. 네 종류의 `409` 충돌은 한국어로 구분하고 최신 목록을 재조회하며, 행이 해결되어 폼이 사라진 뒤에도 실패 안내를 유지한다.
-- 담당자 후보는 활성 일반 사용자와 현재 인증된 활성 manage 사용자의 최소 identity를 ID로 중복 제거해 구성한다. 일반 사용자 목록 API에 관리자가 포함되지 않아도 관리자 단독 현장에서 자기 자신을 지정할 수 있다. read-only에서는 이 identity가 수정 권한을 만들지 않으며, API가 최종 현장 관리자/멤버 범위를 검증한다. 목록에 없는 기존 담당자의 표시·해제는 유지한다. 다른 관리자의 신규 지정은 별도 후보 조회 계약이 없는 현재 범위에 포함하지 않는다.
-- `판정 기준`은 공통 ModalDialog에서 현재 값을 초기화하고 정확한 정수 범위를 검증한다. 저장 중 닫기를 막고 완료 시 trigger로 focus를 돌려준다. 성공 시 해당 현장의 policy/dashboard/floor-fixtures/incident 캐시를 갱신하며, 기본 현장 dashboard 별칭도 cached Site가 일치할 때만 갱신한다. 정책 충돌은 입력값을 보존하고 최신 서버 revision의 명시적 재검토를 요구한다. 재검토 뒤 서버 값이 다시 바뀌면 재확인을 요구하고, policy 재조회 오류에도 입력 화면을 유지한다.
+- 2026-09-13부터 사용자용 모니터링 SidePanel은 탭 없이 선택 조명의 상태·밝기·장비 정보만 표시한다. `인시던트 {활성 건수}`, 인시던트 이력·필터·조치와 `판정 기준` UI를 제거했으며, 모니터링 route는 인시던트·현장 사용자 API를 요청하지 않는다. 서버의 자동 장애 판정, 이력 저장과 관리 API는 내부 운영 기반으로 유지한다.
+- P1 Task 5의 cached dashboard/fixture/map 복구 계약은 유지한다. background 부분 실패에도 기존 KPI·도면·선택 층/조명·지도 배율을 보존하고, 더 최신 성공 응답에서 해당 source 경고만 해제한다. 정지한 browser clock의 60,000ms fresh/60,001ms stale 경계와 네 장애 원인의 selector·marker·badge·상세 원인·권장 조치 일관성도 유지한다.
 - 수동 해결의 현재 장애 판정은 `Site → Gateway → Fixture → Incident` 순서 잠금 아래 다시 읽는다. Gateway는 heartbeat 변경을 막으면서 상태 수집의 FK 검사를 허용하는 `FOR NO KEY UPDATE`를 사용한다. fixture stale 판단에 영향을 주는 연결 Gateway heartbeat도 해결 commit까지 고정하며, 잠금 대기 중 소유 Gateway가 바뀌면 `409 INCIDENT_TARGET_CHANGED`로 재조회를 요구한다.
 - Gateway heartbeat와 조명 상태 수신은 원장과 compact watermark를 같은 transaction에 저장한다. 원장 삭제 후에도 최신 조명 상태의 exact duplicate와 payload 충돌을 구분하고 낮은 sequence로 snapshot/적산이 되돌아가지 않는다. 임시 PostgreSQL 검증이며 실장비 결과는 아니다.
 - 플랫폼 Task 4 최종 소프트웨어 검증은 root lint/typecheck/build exit 0, root script 58/58·Shared 203·Automation 28·Mobile 1·Web 64 files 712/712·API 120 suites 1,138 통과/289 환경 의존 제외·Gateway 64 files 608/608(총 2,748 통과/289 제외)다. 전체 Chromium은 194개 중 189 통과/5 opt-in 제외(188개 mock/브라우저 회귀 + 실제 disposable automation journey 1개), main 319.19 kB/gzip 99.21 kB다. Production 계약 18/18, 전체 audit의 MQTT 설정 2/2·Gateway container 24/24·required MQTT 2/2와 새 smoke `led-production-smoke-a9dac54a523c9484dbc4b9eade7b9d5e`의 당시 브랜치 빈 DB 57/57 migrations, TLS/mTLS·CRL·장애 복구·exact cleanup을 통과했다. Dependency 820개 중 기존 승인 예외 High 2/Moderate 1, unexpected 0이며 무취약 판정이 아니다. 운영 배포·사용자 DB·실제 외부 Vault/MQTT/Object Storage·native WebView·HIL·외부 관측 연결은 미검증이다. [운영 runbook](../runbooks/production-api-web-deployment.md)에 절차와 한계를 기록했다. 최종 독립 검토는 Critical/Important/Minor 0, PASS로 승인됐다.
@@ -55,7 +52,7 @@
 - 운영 화면 상단은 선택 층 기준 `전체 조명`, `정상`, `점검 필요`, `오프라인` 4개 `MetricCard`를 compact하게 표시한다. 오프라인은 등록 직후 첫 상태를 기다리는 `provisioning_waiting_state`를 포함하며 점검 필요 오른쪽에 배치한다. 평균 밝기와 별도 빠른 상태 영역은 제거해 지도 높이를 확보했다. KPI 열/행 계약은 1440px 4/1, 1024px 2/2, 390px 2/2, 320px 1/4이고 해당 네 viewport에서 document horizontal overflow를 자동 검증한다.
 - KPI 다음에는 `층 도면`, `선택 조명 상세` 순서를 유지한다. 데스크톱 지도는 남은 뷰포트 높이를 모두 사용하고 현재 viewport에 맞춘 100%를 기준으로 10% 단위 확대·축소와 화면 맞춤을 제공한다. `Ctrl`/`Cmd`+휠은 브라우저 기본 확대를 취소하는 non-passive listener로 포인터 중심 zoom만 수행하고, 배경 이미지의 native drag를 비활성화해 빈 지도 drag와 일반 scroll로 안정적인 상하좌우 이동을 제공한다. marker 선택은 그대로 유지한다. 확대된 원본 비율 지도는 전용 viewport 안에서만 overflow되고 모바일 zoom control은 48px touch target을 제공한다.
 - 선택 조명 상세는 도면보다 좁은 고정 범위 패널에 배치하고 현재 밝기와 장비 사실만 표시하며 별도 점검 큐는 제공하지 않는다. 패널과 하위 grid item은 축소 가능한 너비를 사용하고 긴 장비·게이트웨이 이름을 패널 안에서 줄바꿈해 document-level 가로 스크롤을 만들지 않는다. 정상·장애·오프라인·첫 상태 확인 대기는 선택 상세의 `StatusBadge`와 지도 범례에서 icon + visible text로 구분한다. 모든 marker는 모서리 3px의 20px 네모로 표시하고 내부에 이름·밝기 문자와 bar를 렌더링하지 않으며, 정확한 정보는 기존 `title`/`aria-label`과 우측 상세 패널에 유지한다. online marker는 `0~9`, `10~19`, …, `80~89`, `90~100`% 밝기를 10단계로 분류하고 범위 밖은 clamp한다. 각 단계는 brown/orange 없이 cool slate/gray에서 neutral light, lemon/bright ivory로 이어지는 정적 fill·glow를 사용하며 단계가 높아질수록 실제 렌더링 밝기와 glow가 증가한다. fault는 red/double 테두리를 제거하고 같은 밝기 단계의 일반 border/fill/glow와 우상단 red 8px 배지만 사용한다. offline과 `provisioning_waiting_state`는 저장 밝기와 무관하게 무발광 dashed/dotted 상태 스타일을 유지한다. 도면 좌측 상단의 층/`실시간 조명 배치` 라벨은 제거하고, 상태 범례는 지도와 함께 스크롤되지 않는 비상호작용 overlay로 이동 안내 바로 위에 고정해 아래 marker·drag·wheel 입력을 가로채지 않는다. 모바일에서는 기존 공간 절약 정책에 따라 이동 안내를 숨기고 범례만 유지하되 줌 컨트롤과 겹치지 않도록 상단 간격을 확보한다. marker별 상태 문구나 SVG를 1,000개까지 반복 렌더링하지 않으며 기존 한국어 접근성 이름과 선택 상태는 유지한다.
-- 모니터링은 등록 조명 유무와 무관하게 Gateway claim, 조명 등록 패널·버튼·dialog를 렌더링하지 않는다. 등록 0개인 admin에게는 설정의 admin 전용 `/settings/registration` 이동 경로를 제공하고 viewer에게는 관리자가 설정에서 등록해야 한다고 안내하며, 두 역할 모두 이 안내와 별개로 현장 전체 인시던트 이력을 볼 수 있다. manage capability가 있는 사용자는 Gateway-only 인시던트 조치와 판정 기준도 계속 사용할 수 있다. Gateway claim, active registration session 복구와 조명 등록 workflow는 설정 메뉴만 소유한다.
+- 모니터링은 등록 조명 유무와 무관하게 Gateway claim, 조명 등록 패널·버튼·dialog 및 인시던트 이력·조치·판정 기준 UI를 렌더링하지 않는다. 등록 0개인 admin에게는 설정의 admin 전용 `/settings/registration` 이동 경로를 제공하고 viewer에게는 관리자가 설정에서 등록해야 한다고 안내한다. Gateway claim, active registration session 복구와 조명 등록 workflow는 설정 메뉴만 소유한다.
 - Task 8에서 pending assigned admin이 `/monitoring`, `/control`, `/statistics`, 설정 하위 직접 URL로 들어오면 CustomerShell이 조회한 dashboard의 selected/default `siteId`를 유지해 `/settings?siteId=...`로 replace한다. `/settings`에서는 배정된 고객사·현장명을 읽기 전용으로 표시하고 주소·단가·층만 입력하는 최초 설치 화면을 제공한다.
 - CustomerShell은 admin dashboard의 `installationStatus`가 확인되기 전에는 customer child route를 mount하지 않는다. 확인 중에는 설치 상태 loading UI를, 최초 조회 실패에는 retry UI를 표시하며 성공 setup 응답은 actual site key와 `['dashboard', 'default']` cache에 함께 반영해 실패한 background refetch가 있어도 installed guard 상태를 유지한다.
 - 설치 완료 후 등록 조명이 0개인 모니터링은 admin에게 설정의 조명 등록 페이지 링크만 제공한다. viewer는 읽기 전용 안내만 보며 claim, 등록, setup mutation UI를 볼 수 없다. operator는 customer shell을 mount하지 않는다.
@@ -162,7 +159,7 @@
 
 ## 부족하거나 개선이 필요한 기능
 
-- P1 인시던트·정책 UI의 1440/1024/390/320 Chromium 통합 workflow·가로 overflow, no-floor/Gateway-only empty/error 접근, map 자동 복구 최종 게이트는 Task 5 review fix를 포함해 `25/25`로 완료했다. 이는 deterministic route/API fixture와 Chromium 합성 결과에 대한 software 증거이며, 실제 MQTT broker, Raspberry Pi/BlueZ/ESP32-H2 HIL, production notification 전송은 실행하지 않았다.
+- 자동으로 저장되는 인시던트 이력과 현장별 판정 기준을 사용자 화면에서 관리하는 UI는 제공하지 않는다. 필요해질 경우 일반 사용자 모니터링과 분리된 내부 운영자 화면으로 별도 설계해야 한다.
 - 원장 정리 worker는 생성 후 7일보다 오래된 heartbeat와 30일보다 오래된 fixture state를 최신 Gateway/Fixture snapshot·watermark 및 fixture energy cursor가 해당 기록을 포괄할 때만 삭제한다. superseded capability는 365일 정책이며 전체 이벤트는 sweep당 합산 최대 10,000개다. cutoff와 같은 시각, scope/hash가 없는 legacy 원장, 삭제된 fixture·누락된 cursor 등 안전 조건을 증명할 수 없는 기록은 보존한다. watermark는 stream별 최신 identity만 유지하므로 임의 과거 ID의 exact dedupe는 raw 원장이 남아 있는 기간에 의존한다. 세부 조건은 [DB 보존 문서](../database-schema.md#운영-데이터-보존과-복구-범위)를 따르며 사용자/운영 DB migration 적용과 실장비 replay HIL은 아직 실행하지 않았다.
 - 플랫폼 운영 배포 절차는 [API·Web runbook](../runbooks/production-api-web-deployment.md)을 따른다. 단일 호스트 Compose, 외부 Vault·공개 MQTT/Object Storage 연결, 장비 mTLS 공개 SAN, CRL 갱신 후 수동 broker SIGHUP, API 교체 후 nginx upstream 재해석·재시작이 운영 조건이다. Process-local 지표만 제공하며 외부 metrics/dashboard/alert/log shipping은 구성하지 않았다. 운영 배포·사용자 DB 적용·실장비 HIL과 native WebView·수동 시각 QA는 이번 자동 검증에 포함하지 않는다.
 
@@ -192,12 +189,9 @@
 
 ## 관련 파일
 
-- `apps/web/src/api/monitoring-incidents.ts`
-- `apps/web/src/api/monitoring-incidents.test.ts`
-- `apps/web/src/features/monitoring/MonitoringIncidentPanel.tsx`
-- `apps/web/src/features/monitoring/MonitoringIncidentPanel.test.tsx`
-- `apps/web/src/features/monitoring/MonitoringPolicyDialog.tsx`
-- `apps/web/src/features/monitoring/MonitoringPolicyDialog.test.tsx`
+- `apps/web/src/features/monitoring/MonitoringView.tsx`
+- `apps/web/src/features/monitoring/MonitoringView.test.tsx`
+- `apps/web/e2e/calm-operations-monitoring.spec.ts`
 - `apps/web/src/features/shells/CustomerShell.monitoring.test.tsx`
 - `apps/api/src/monitoring-incidents`
 - `apps/api/prisma/migrations/20260912100000_monitoring_policy_incidents/migration.sql`

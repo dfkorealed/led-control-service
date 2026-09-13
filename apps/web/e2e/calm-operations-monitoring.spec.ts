@@ -2,14 +2,11 @@ import { expect, test, type Page } from "@playwright/test";
 import { expectMinimumTouchTargetsAfterScrolling, expectNoHorizontalOverflow } from "./support/layout-assertions";
 import { installSettingsApiRoutes, type SettingsFixture } from "./support/settings-api";
 import type { RegistrationSession } from "../src/api/registration";
-import type { IncidentAction, MonitoringIncident, MonitoringPolicy } from "../src/api/monitoring-incidents";
 
 const ids = {
   site: "22222222-2222-4222-8222-222222222222",
   floor: "44444444-4444-4444-8444-444444444444",
-  gateway: "77777777-7777-4777-8777-777777777771",
-  admin: "88888888-8888-4888-8888-888888888888",
-  incident: "99999999-9999-4999-8999-999999999999"
+  gateway: "77777777-7777-4777-8777-777777777771"
 } as const;
 
 const fixtures: SettingsFixture[] = [
@@ -472,48 +469,38 @@ test("등록된 조명이 있는 관리자도 모니터링에서 등록 UI를 �
   await expect(page.getByRole("dialog", { name: "조명 등록" })).toHaveCount(0);
 });
 
-test("게이트웨이만 있는 현장의 관리자는 empty 안내에서 인시던트 조치와 판정 기준을 사용한다", async ({ page }) => {
+test("게이트웨이만 있는 현장의 관리자는 설정 이동 안내만 본다", async ({ page }) => {
   await installMonitoringFixture(page, { fixtureRows: [] });
-  const reliability = await installMonitoringReliabilityRoutes(page, { targetKind: "gateway" });
+  let incidentRequests = 0;
+  await page.route("**/monitoring-incidents**", async (route) => {
+    incidentRequests += 1;
+    await route.fulfill({ json: { incidents: [], activeCount: 0, nextCursor: null } });
+  });
   await page.goto(`/monitoring?siteId=${ids.site}`);
 
   await expect(page.getByRole("heading", { name: "등록된 조명이 없습니다" })).toBeVisible();
-  const incidentTab = page.getByRole("tab", { name: "인시던트 1" });
-  await expect(incidentTab).toBeVisible();
-  await incidentTab.click();
-  const history = page.getByRole("list", { name: "인시던트 이력" });
-  await expect(history.getByText("게이트웨이 오프라인", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "확인", exact: true }).click();
-  await expect(history.getByText("확인됨", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "판정 기준" }).click();
-  await expect(page.getByRole("dialog", { name: "판정 기준" })).toBeVisible();
-  expect(reliability.incidentActions).toEqual([
-    { action: "acknowledge", expectedUpdatedAt: "2026-09-12T00:01:00.000Z" }
-  ]);
+  await expect(page.getByRole("link", { name: "설정 페이지로 이동" })).toBeVisible();
+  await expect(page.getByText(/인시던트/)).toHaveCount(0);
+  expect(incidentRequests).toBe(0);
 });
 
-test("게이트웨이만 있는 현장의 조회 사용자는 empty 안내와 읽기 전용 인시던트 이력을 함께 본다", async ({ page }) => {
+test("게이트웨이만 있는 현장의 조회 사용자는 설치 대기 안내만 본다", async ({ page }) => {
   await installSettingsApiRoutes(page, "viewer", {
     fixtures: [],
     ids: { siteId: ids.site, floorId: ids.floor, gatewayId: ids.gateway }
   });
-  await installMonitoringReliabilityRoutes(page, { role: "viewer", targetKind: "gateway" });
   await page.goto(`/monitoring?siteId=${ids.site}`);
 
   await expect(page.getByRole("region", { name: "Viewer 설치 대기" })).toBeVisible();
-  await page.getByRole("tab", { name: "인시던트 1" }).click();
-  await expect(page.getByRole("list", { name: "인시던트 이력" }).getByText("게이트웨이 오프라인", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "확인", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "판정 기준" })).toHaveCount(0);
+  await expect(page.getByText(/인시던트/)).toHaveCount(0);
 });
 
-test("층이 없는 현장의 관리자는 floor 조회 경고 없이 empty 안내와 site-wide 조치·정책을 사용한다", async ({ page }) => {
+test("층이 없는 현장의 관리자는 floor 조회 경고 없이 empty 안내를 사용한다", async ({ page }) => {
   const api = await installSettingsApiRoutes(page, "admin", {
     fixtures: [],
     includeFloor: false,
     ids: { siteId: ids.site, floorId: ids.floor, gatewayId: ids.gateway }
   });
-  await installMonitoringReliabilityRoutes(page, { targetKind: "gateway" });
   await page.goto(`/monitoring?siteId=${ids.site}`);
 
   await expect(page.getByRole("heading", { name: "등록된 조명이 없습니다" })).toBeVisible();
@@ -523,20 +510,15 @@ test("층이 없는 현장의 관리자는 floor 조회 경고 없이 empty 안�
   await expect(page.getByRole("button", { name: "새로고침" })).toBeEnabled();
   expect(api.fixturePageRequests).toBe(0);
   expect(api.mapSnapshotRequests).toBe(0);
-  await page.getByRole("tab", { name: "인시던트 1" }).click();
-  await expect(page.getByRole("list", { name: "인시던트 이력" }).getByText("게이트웨이 오프라인", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "확인", exact: true })).toBeEnabled();
-  await page.getByRole("button", { name: "판정 기준" }).click();
-  await expect(page.getByRole("dialog", { name: "판정 기준" })).toBeVisible();
+  await expect(page.getByText(/인시던트/)).toHaveCount(0);
 });
 
-test("층이 없는 현장의 조회 사용자는 floor 조회 경고 없이 empty 안내와 site-wide 이력을 본다", async ({ page }) => {
+test("층이 없는 현장의 조회 사용자는 floor 조회 경고 없이 empty 안내를 본다", async ({ page }) => {
   const api = await installSettingsApiRoutes(page, "viewer", {
     fixtures: [],
     includeFloor: false,
     ids: { siteId: ids.site, floorId: ids.floor, gatewayId: ids.gateway }
   });
-  await installMonitoringReliabilityRoutes(page, { role: "viewer", targetKind: "gateway" });
   await page.goto(`/monitoring?siteId=${ids.site}`);
 
   await expect(page.getByRole("region", { name: "Viewer 설치 대기" })).toBeVisible();
@@ -544,22 +526,17 @@ test("층이 없는 현장의 조회 사용자는 floor 조회 경고 없이 emp
   await expect(page.getByRole("alert")).toHaveCount(0);
   expect(api.fixturePageRequests).toBe(0);
   expect(api.mapSnapshotRequests).toBe(0);
-  await page.getByRole("tab", { name: "인시던트 1" }).click();
-  await expect(page.getByRole("list", { name: "인시던트 이력" }).getByText("게이트웨이 오프라인", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "확인", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "판정 기준" })).toHaveCount(0);
+  await expect(page.getByText(/인시던트/)).toHaveCount(0);
 });
 
-test("fixture 최초 조회 실패가 site-wide 인시던트 이력을 숨기지 않는다", async ({ page }) => {
+test("fixture 최초 조회 실패에도 인시던트 UI를 노출하지 않는다", async ({ page }) => {
   await installMonitoringFixture(page);
   const failures = await installMonitoringRefreshFailures(page);
   failures.failNextFixtureRequests(3);
-  await installMonitoringReliabilityRoutes(page, { targetKind: "gateway" });
   await page.goto(`/monitoring?siteId=${ids.site}`);
 
   await expect(page.getByText("조명 상태를 불러오지 못했습니다.", { exact: true })).toBeVisible();
-  await page.getByRole("tab", { name: "인시던트 1" }).click();
-  await expect(page.getByRole("list", { name: "인시던트 이력" }).getByText("게이트웨이 오프라인", { exact: true })).toBeVisible();
+  await expect(page.getByText(/인시던트/)).toHaveCount(0);
 });
 
 for (const dimensions of [{ width: 2400, height: 600 }, { width: 600, height: 2400 }]) {
@@ -657,79 +634,20 @@ test("네 monitoring 장애 원인은 selector·marker·badge·상세 설명에�
   }
 });
 
-test("관리자는 인시던트를 확인·담당·해결하고 현장 판정 기준을 저장한다", async ({ page }) => {
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await installMonitoringFixture(page, { fixtureRows: reliabilityFixtures });
-  const reliability = await installMonitoringReliabilityRoutes(page);
-  await page.goto(`/monitoring?siteId=${ids.site}`);
-
-  const incidentTab = page.getByRole("tab", { name: "인시던트 1" });
-  await expect(incidentTab).toBeVisible();
-  await incidentTab.click();
-  await expect(page.getByRole("heading", { name: "인시던트 이력" })).toBeVisible();
-  const incidentList = page.getByRole("list", { name: "인시던트 이력" });
-  await expect(incidentList.getByText("조명 수신 지연", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "확인", exact: true }).click();
-  await expect(incidentList.getByText("확인됨", { exact: true })).toBeVisible();
-
-  const assignee = page.getByRole("combobox", { name: "담당자" });
-  await expect(assignee).toBeEnabled();
-  await assignee.selectOption(ids.admin);
-  await page.getByRole("button", { name: "담당 저장" }).click();
-  await expect(incidentList.getByRole("definition").filter({ hasText: "고객 관리자 (admin_user)" })).toBeVisible();
-
-  reliability.recoverIncidentTarget();
-  await page.getByRole("textbox", { name: "해결 메모" }).fill("현장 통신 복구 확인");
-  await page.getByRole("button", { name: "해결", exact: true }).click();
-  await expect(incidentList.getByText("해결됨", { exact: true })).toBeVisible();
-  await expect(page.getByText("현장 통신 복구 확인", { exact: true })).toBeVisible();
-  await expect(page.getByText("활성 인시던트 0건", { exact: true })).toBeVisible();
-
-  await page.getByRole("button", { name: "판정 기준" }).click();
-  const dialog = page.getByRole("dialog", { name: "판정 기준" });
-  await expect(dialog).toBeVisible();
-  await page.getByRole("spinbutton", { name: "게이트웨이 오프라인 기준 (초)" }).fill("120");
-  await page.getByRole("spinbutton", { name: "조명 수신 지연 기준 (초)" }).fill("300");
-  await dialog.getByRole("button", { name: "저장" }).click();
-  await expect(dialog).toHaveCount(0);
-  await expect(page.getByText("판정 기준을 저장했습니다.")).toBeVisible();
-
-  expect(reliability.incidentActions).toEqual([
-    { action: "acknowledge", expectedUpdatedAt: "2026-09-12T00:01:00.000Z" },
-    { action: "assign", userId: ids.admin, expectedUpdatedAt: "2026-09-12T00:01:01.000Z" },
-    { action: "resolve", note: "현장 통신 복구 확인", expectedUpdatedAt: "2026-09-12T00:01:02.000Z" }
-  ]);
-  const resolvedIncident = reliability.currentIncident();
-  expect(Date.parse(resolvedIncident.resolvedAt ?? "")).toBeGreaterThan(Date.parse(resolvedIncident.lastObservedAt));
-  expect(reliability.policyUpdates).toEqual([{
-    gatewayOfflineAfterSeconds: 120,
-    fixtureStaleAfterSeconds: 300,
-    expectedUpdatedAt: "2026-09-12T00:00:00.000Z"
-  }]);
-});
-
 for (const viewport of viewports) {
-  test(`${viewport.width}px 인시던트·판정 기준 패널은 page/panel 경계를 벗어나지 않는다`, async ({ page }) => {
+  test(`${viewport.width}px 상세 패널은 조명 정보만 표시하고 page/panel 경계를 벗어나지 않는다`, async ({ page }) => {
     await page.setViewportSize(viewport);
     await installMonitoringFixture(page, { fixtureRows: reliabilityFixtures });
-    await installMonitoringReliabilityRoutes(page);
     await page.goto(`/monitoring?siteId=${ids.site}`);
 
     await selectReliabilityFixtureAt120Percent(page);
-    const incidentTab = page.getByRole("tab", { name: "인시던트 1" });
-    await expect(incidentTab).toBeVisible();
-    await incidentTab.click();
-    await expect(page.getByRole("heading", { name: "인시던트 이력" })).toBeVisible();
+    const detailPanel = page.getByRole("complementary", { name: "선택 조명 상세" });
+    await expect(detailPanel.getByRole("region", { name: "선택 조명 정보" })).toBeVisible();
+    await expect(detailPanel.getByText(/인시던트/)).toHaveCount(0);
+    await expect(detailPanel.getByRole("button", { name: "판정 기준" })).toHaveCount(0);
     await expectReliabilitySelectionAndZoom(page);
     await expectNoHorizontalOverflow(page);
     await expectElementFitsViewportAndOwnWidth(page, ".detail-panel");
-    await expectElementFitsViewportAndOwnWidth(page, ".monitoring-incidents");
-
-    await page.getByRole("button", { name: "판정 기준" }).click();
-    await expect(page.getByRole("dialog", { name: "판정 기준" })).toBeVisible();
-    await expectReliabilitySelectionAndZoom(page);
-    await expectNoHorizontalOverflow(page);
-    await expectElementFitsViewportAndOwnWidth(page, ".monitoring-policy-dialog");
   });
 }
 
@@ -793,128 +711,6 @@ async function installMonitoringRefreshFailures(page: Page) {
     failNextFixtureRequests(count: number) { fixtureFailuresRemaining = count; },
     failedDashboardRequests: () => failedDashboardRequestCount,
     failedFixtureRequests: () => failedFixtureRequestCount
-  };
-}
-
-async function installMonitoringReliabilityRoutes(page: Page, {
-  role = "admin",
-  targetKind = "fixture"
-}: { role?: "admin" | "viewer"; targetKind?: "fixture" | "gateway" } = {}) {
-  const currentAdmin = { id: ids.admin, name: "고객 관리자", loginId: "admin_user" };
-  const incidentActions: Array<IncidentAction & { expectedUpdatedAt: string }> = [];
-  const policyUpdates: Array<Omit<MonitoringPolicy, "id" | "updatedAt"> & { expectedUpdatedAt: string }> = [];
-  // Production re-reads the target under lock and rejects manual resolution while
-  // the condition is active; the browser fixture exposes that recovery edge explicitly.
-  let targetRecovered = false;
-  let revision = 0;
-  let incident: MonitoringIncident = {
-    id: ids.incident,
-    siteId: ids.site,
-    type: targetKind === "gateway" ? "gateway_offline" : "fixture_stale",
-    status: "open",
-    target: targetKind === "gateway"
-      ? { kind: "gateway", id: ids.gateway, name: "Gateway B2" }
-      : { kind: "fixture", id: staleFixtureId, name: "B2-L003", floorId: ids.floor },
-    openedAt: "2026-09-12T00:00:00.000Z",
-    lastObservedAt: "2026-09-12T00:01:00.000Z",
-    acknowledgedAt: null,
-    resolvedAt: null,
-    createdAt: "2026-09-12T00:00:00.000Z",
-    updatedAt: "2026-09-12T00:01:00.000Z",
-    acknowledgedBy: null,
-    assignedTo: null,
-    resolvedBy: null,
-    resolutionKind: null,
-    resolutionNote: null
-  };
-  let policy: MonitoringPolicy = {
-    id: ids.site,
-    gatewayOfflineAfterSeconds: 90,
-    fixtureStaleAfterSeconds: 180,
-    updatedAt: "2026-09-12T00:00:00.000Z"
-  };
-
-  await page.route("**/api/auth/me", (route) => route.fulfill({
-    json: {
-      user: {
-        ...currentAdmin,
-        organizationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-        organizationType: "customer",
-        role,
-        status: "active"
-      }
-    }
-  }));
-  await page.route(`**/api/sites/${ids.site}/monitoring-incidents**`, async (route) => {
-    const request = route.request();
-    const url = new URL(request.url());
-    if (request.method() === "PATCH") {
-      const action = request.postDataJSON() as IncidentAction & { expectedUpdatedAt: string };
-      if (!url.pathname.endsWith(`/monitoring-incidents/${ids.incident}`)) {
-        return route.fulfill({ status: 404, json: { message: "incident not found" } });
-      }
-      if (action.expectedUpdatedAt !== incident.updatedAt) {
-        return route.fulfill({ status: 409, json: { code: "INCIDENT_CONFLICT", message: "incident revision conflict" } });
-      }
-      if (action.action === "assign" && action.userId !== null && action.userId !== ids.admin) {
-        return route.fulfill({ status: 400, json: { message: "userId must be a UUID for this site" } });
-      }
-      if (action.action === "resolve" && !targetRecovered) {
-        return route.fulfill({ status: 409, json: { code: "INCIDENT_STILL_ACTIVE", message: "incident condition is still active" } });
-      }
-      incidentActions.push(action);
-      const updatedAt = `2026-09-12T00:01:0${++revision}.000Z`;
-      if (action.action === "acknowledge") {
-        incident = { ...incident, status: "acknowledged", acknowledgedAt: updatedAt, acknowledgedBy: currentAdmin, updatedAt };
-      } else if (action.action === "assign") {
-        incident = { ...incident, assignedTo: action.userId ? currentAdmin : null, updatedAt };
-      } else {
-        incident = {
-          ...incident,
-          status: "resolved",
-          resolvedAt: updatedAt,
-          resolvedBy: currentAdmin,
-          resolutionKind: "operator_confirmed",
-          resolutionNote: action.note,
-          updatedAt
-        };
-      }
-      return route.fulfill({ json: incident });
-    }
-
-    const status = url.searchParams.get("status") ?? "all";
-    const type = url.searchParams.get("type") ?? "all";
-    const matches = (status === "all" || status === incident.status) && (type === "all" || type === incident.type);
-    return route.fulfill({
-      json: {
-        incidents: matches ? [incident] : [],
-        activeCount: incident.status === "resolved" ? 0 : 1,
-        nextCursor: null
-      }
-    });
-  });
-  await page.route(`**/api/sites/${ids.site}/monitoring-policy`, async (route) => {
-    if (route.request().method() === "PATCH") {
-      const update = route.request().postDataJSON() as Omit<MonitoringPolicy, "id" | "updatedAt"> & { expectedUpdatedAt: string };
-      policyUpdates.push(update);
-      policy = {
-        id: ids.site,
-        gatewayOfflineAfterSeconds: update.gatewayOfflineAfterSeconds,
-        fixtureStaleAfterSeconds: update.fixtureStaleAfterSeconds,
-        updatedAt: "2026-09-12T00:10:00.000Z"
-      };
-    }
-    return route.fulfill({ json: policy });
-  });
-  await page.route(`**/api/sites/${ids.site}/users`, (route) => route.fulfill({
-    json: { users: [], count: 0, limit: 100 }
-  }));
-
-  return {
-    incidentActions,
-    policyUpdates,
-    recoverIncidentTarget() { targetRecovered = true; },
-    currentIncident: () => incident
   };
 }
 
