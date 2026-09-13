@@ -1,40 +1,74 @@
 import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { BioSerialTransport, type BioTransportSnapshot } from "./bio-serial-transport";
-import { LinuxUsbIdentityInspector, type UsbIdentityFs } from "./linux-usb-identity-inspector";
-import { NodeSerialConnection, type SerialPortDevice } from "./node-serial-connection";
+import type { BioByteConnection } from "./bio-byte-connection";
+import { BioUsbTransport, type BioTransportSnapshot } from "./bio-usb-transport";
 
 const hex = (value: string) => Buffer.from(value, "hex");
 const flush = async () => { for (let index = 0; index < 30; index++) await Promise.resolve(); };
 const settled = <T>(promise: Promise<T>) => promise.then((value) => value, (error: unknown) => error);
+const validInfo03 = Buffer.from("55aa030c02050320682f0000000300001147", "hex");
 
-class Device extends EventEmitter implements SerialPortDevice {
+class FakeBioByteConnection implements BioByteConnection {
+  readonly writes: Buffer[] = [];
+  private readonly dataListeners = new Set<(bytes: Buffer) => void>();
+  private readonly disconnectListeners = new Set<(error: Error) => void>();
+
+  async open(): Promise<void> {}
+  async write(bytes: Uint8Array): Promise<void> { this.writes.push(Buffer.from(bytes)); }
+  async close(): Promise<void> {}
+  onData(listener: (bytes: Buffer) => void): () => void {
+    this.dataListeners.add(listener);
+    return () => { this.dataListeners.delete(listener); };
+  }
+  onDisconnect(listener: (error: Error) => void): () => void {
+    this.disconnectListeners.add(listener);
+    return () => { this.disconnectListeners.delete(listener); };
+  }
+  emit(bytes: Buffer): void {
+    for (const listener of this.dataListeners) listener(bytes);
+  }
+}
+
+function createTransport(connection: BioByteConnection): BioUsbTransport {
+  return new BioUsbTransport({
+    profile: "android-v1.2.0",
+    protocol: "crc16",
+    connectionFactory: () => connection,
+    validateReadiness: async () => {}
+  });
+}
+
+class HarnessConnection extends EventEmitter implements BioByteConnection {
   isOpen = false;
   writes: string[] = [];
   writeError?: Error;
-  open(callback: (error?: Error | null) => void) { this.isOpen = true; callback(); }
-  write(bytes: Buffer, callback: (error?: Error | null) => void) { this.writes.push(bytes.toString("hex")); callback(this.writeError); return true; }
-  drain(callback: (error?: Error | null) => void) { callback(); }
-  flush(callback: (error?: Error | null) => void) { callback(); }
-  close(callback: (error?: Error | null) => void) { this.isOpen = false; this.emit("close"); callback(); }
+  async open() { this.isOpen = true; }
+  async write(bytes: Uint8Array) {
+    this.writes.push(Buffer.from(bytes).toString("hex"));
+    if (this.writeError) throw this.writeError;
+  }
+  async close() { this.isOpen = false; this.emit("close"); }
+  onData(listener: (bytes: Buffer) => void): () => void {
+    this.on("data", listener);
+    return () => { this.off("data", listener); };
+  }
+  onDisconnect(listener: (error: Error) => void): () => void {
+    const closed = () => listener(new Error("BIO byte connection closed"));
+    this.on("error", listener);
+    this.on("close", closed);
+    return () => { this.off("error", listener); this.off("close", closed); };
+  }
   receive(value: string) { this.emit("data", hex(value)); }
 }
 
-function harness(options: { protocol?: "crc16" | "gs" | "auto"; profile?: "android-v1.2.0"; validateReadiness?: () => Promise<void>; vendor?: string; timeoutMs?: number; configureDevice?: (device: Device) => void } = {}) {
-  const devices: Device[] = [];
-  const fs: UsbIdentityFs = {
-    stat: async () => ({ rdev: 48128, isCharacterDevice: () => true }),
-    realpath: async () => "/sys/devices/usb1/1-1",
-    readdir: async () => ["1-1"],
-    readFile: async (path) => path.endsWith("idVendor") ? options.vendor ?? "1a86" : "5523"
-  };
-  const transport = new BioSerialTransport({
-    devicePath: "/dev/bio-dongle", protocol: options.protocol ?? "gs", profile: options.profile, timeoutMs: options.timeoutMs,
-    inspector: new LinuxUsbIdentityInspector(fs),
-    connectionFactory: (path) => {
-      const device = new Device(); devices.push(device);
+function harness(options: { protocol?: "crc16" | "gs" | "auto"; profile?: "android-v1.2.0"; validateReadiness?: () => Promise<void>; timeoutMs?: number; configureDevice?: (device: HarnessConnection) => void } = {}) {
+  const devices: HarnessConnection[] = [];
+  const transport = new BioUsbTransport({
+    protocol: options.protocol ?? "gs", profile: options.profile, timeoutMs: options.timeoutMs,
+    connectionFactory: () => {
+      const device = new HarnessConnection(); devices.push(device);
       options.configureDevice?.(device);
-      return new NodeSerialConnection(path, () => device);
+      return device;
     },
     validateReadiness: options.validateReadiness ?? (async () => {})
   });
@@ -50,9 +84,23 @@ async function ready(value: ReturnType<typeof harness>) {
   await starting;
 }
 
-describe("BioSerialTransport", () => {
+describe("BioUsbTransport", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
+
+  it("rejects a response candidate that started before the request write", async () => {
+    const connection = new FakeBioByteConnection();
+    const transport = createTransport(connection);
+    const starting = transport.start();
+    connection.emit(validInfo03);
+    connection.emit(Buffer.from("55aa0b", "hex"));
+
+    await expect(starting).rejects.toMatchObject({ code: "LATE_RESPONSE" });
+    expect(connection.writes).toEqual([
+      Buffer.from("55aa82000000", "hex"),
+      Buffer.from("4753820000", "hex")
+    ]);
+  });
 
   // GS 03+00+FC is a synthetic checksum/parser case, not an additional captured payload.
   it.each(["55aa030c02050320682f0000000300001147", "47530300fc"])("sends both converter literals then waits for valid info %s before network read", async (info) => {
@@ -69,12 +117,11 @@ describe("BioSerialTransport", () => {
     await h.transport.stop();
   });
 
-  it("preserves power-on info arriving inside native open before its callback", async () => {
+  it("preserves power-on info arriving during connection open", async () => {
     const h = harness({ profile: "android-v1.2.0", protocol: "crc16", configureDevice: (device) => {
-      device.open = (callback) => {
+      device.open = async () => {
         device.isOpen = true;
         device.receive("55aa030c02050320682f0000000300001147");
-        callback();
       };
     } });
     const start = settled(h.transport.start());
@@ -88,16 +135,14 @@ describe("BioSerialTransport", () => {
     }
   });
 
-  it("does not flush away queued startup info on the Android native-open path", async () => {
+  it("preserves queued startup info on the Android open path", async () => {
     const h = harness({ profile: "android-v1.2.0", protocol: "crc16", configureDevice: (device) => {
-      let buffered = true;
-      device.open = (callback) => {
-        device.isOpen = true; callback();
+      device.open = async () => {
+        device.isOpen = true;
         void Promise.resolve().then(() => Promise.resolve()).then(() => {
-          if (buffered) device.receive("55aa030c02050320682f0000000300001147");
+          device.receive("55aa030c02050320682f0000000300001147");
         });
       };
-      device.flush = (callback) => { buffered = false; callback(); };
     } });
     const start = settled(h.transport.start()); await flush();
     expect(h.devices[0].writes).toEqual(["55aa82000000", "4753820000", "55aa0a000710"]);
@@ -106,10 +151,13 @@ describe("BioSerialTransport", () => {
     await h.transport.stop();
   });
 
-  it("bounds converter writes even when info arrives before native drain completes", async () => {
-    let drain!: () => void;
+  it("bounds converter writes even when info arrives before a write completes", async () => {
+    let finishWrite!: () => void;
     const h = harness({ profile: "android-v1.2.0", protocol: "crc16", configureDevice: (device) => {
-      device.drain = (callback) => { drain = () => callback(); };
+      device.write = async (bytes) => {
+        device.writes.push(Buffer.from(bytes).toString("hex"));
+        await new Promise<void>((resolve) => { finishWrite = resolve; });
+      };
     } });
     let outcome: unknown;
     void settled(h.transport.start()).then((value) => { outcome = value; }); await flush();
@@ -119,7 +167,7 @@ describe("BioSerialTransport", () => {
       expect(outcome).toMatchObject({ code: "TIMEOUT" });
     } finally {
       await h.transport.stop();
-      drain(); await flush();
+      finishWrite(); await flush();
     }
     expect(h.devices[0].writes).toEqual(["55aa82000000"]);
     expect(vi.getTimerCount()).toBe(0);
@@ -416,12 +464,6 @@ describe("BioSerialTransport", () => {
     expect(value.devices).toHaveLength(7);
   });
 
-  it("fails USB validation before opening any port", async () => {
-    const value = harness({ vendor: "ffff" });
-    await expect(value.transport.start()).rejects.toMatchObject({ code: "USB_IDENTITY" });
-    expect(value.devices).toHaveLength(0); await value.transport.stop();
-  });
-
   it("readiness rejection keeps control blocked", async () => {
     const value = harness({ validateReadiness: async () => { throw new Error("mapping invalid"); } });
     const starting = settled(value.transport.start()); await flush();
@@ -473,11 +515,13 @@ describe("BioSerialTransport", () => {
     await value.transport.stop();
   });
 
-  it("waits for the retired file descriptor to close before opening a replacement", async () => {
+  it("waits for the retired connection to close before opening a replacement", async () => {
     const value = harness(); await ready(value);
     const device = value.devices[0];
     let close!: () => void;
-    device.close = (callback) => { close = () => { device.isOpen = false; callback(); }; };
+    device.close = () => new Promise<void>((resolve) => {
+      close = () => { device.isOpen = false; resolve(); };
+    });
     device.emit("error", new Error("disconnected"));
     await vi.advanceTimersByTimeAsync(2000);
     expect(value.devices).toHaveLength(1);
@@ -487,10 +531,10 @@ describe("BioSerialTransport", () => {
     await value.transport.stop();
   });
 
-  it("preserves failed descriptor closure and blocks replacement probes and false stop success", async () => {
+  it("preserves failed connection closure and blocks replacement probes and false stop success", async () => {
     const value = harness(); await ready(value);
     const device = value.devices[0];
-    device.close = (callback) => { callback(new Error("descriptor still open")); };
+    device.close = async () => { throw new Error("connection still open"); };
     const active = settled(value.transport.request({ command: 0, payload: hex("") }));
     const queued = settled(value.transport.request({ command: 0, payload: hex("01") }));
     device.emit("error", new Error("connection fault"));
@@ -511,7 +555,7 @@ describe("BioSerialTransport", () => {
 
   it("reports a direct stop close error without publishing a stopped state", async () => {
     const value = harness(); await ready(value);
-    value.devices[0].close = (callback) => { callback(new Error("close failed")); };
+    value.devices[0].close = async () => { throw new Error("close failed"); };
     const states: string[] = [];
     value.transport.onState((state) => states.push(state.state));
     await expect(value.transport.stop()).rejects.toMatchObject({ code: "CLOSE_FAILED" });
@@ -523,7 +567,9 @@ describe("BioSerialTransport", () => {
   it("rejects a reconnect attempt already waiting when delayed closure fails", async () => {
     const value = harness(); await ready(value);
     let failClose!: () => void;
-    value.devices[0].close = (callback) => { failClose = () => callback(new Error("late close failure")); };
+    value.devices[0].close = () => new Promise<void>((_resolve, reject) => {
+      failClose = () => reject(new Error("late close failure"));
+    });
     value.devices[0].emit("error", new Error("fault"));
     await vi.advanceTimersByTimeAsync(2000);
     expect(value.devices).toHaveLength(1);
@@ -537,18 +583,21 @@ describe("BioSerialTransport", () => {
     await expect(value.transport.stop()).rejects.toMatchObject({ code: "CLOSE_FAILED" });
   });
 
-  it("does not advance queued writes while a prior response arrived before serial drain", async () => {
+  it("does not advance queued writes while a prior response arrived before write completion", async () => {
     const value = harness(); await ready(value);
     const device = value.devices[0];
-    const drains: (() => void)[] = [];
-    device.drain = (callback) => { drains.push(() => callback()); };
+    const writeCompletions: (() => void)[] = [];
+    device.write = async (bytes) => {
+      device.writes.push(Buffer.from(bytes).toString("hex"));
+      await new Promise<void>((resolve) => { writeCompletions.push(resolve); });
+    };
     const first = value.transport.request({ command: 0, payload: hex("") });
     const second = settled(value.transport.request({ command: 0, payload: hex("01") }));
     await flush(); device.receive("47530100fe"); await first; await flush();
     expect(device.writes).toEqual(["4753820000", "47530000ff"]);
-    drains.shift()!(); await flush();
+    writeCompletions.shift()!(); await flush();
     expect(device.writes).toEqual(["4753820000", "47530000ff", "4753000101fd"]);
     await value.transport.stop(); expect(await second).toMatchObject({ code: "STOPPED" });
-    drains.shift()!(); await flush(); expect(value.transport.snapshot().ready).toBe(false);
+    writeCompletions.shift()!(); await flush(); expect(value.transport.snapshot().ready).toBe(false);
   });
 });

@@ -1,7 +1,6 @@
+import type { BioByteConnection } from "./bio-byte-connection";
 import { BioFrameCodec, encodeCrcFrame, encodeGsFrame, type BioFrame, type BioProtocol } from "./bio-frame-codec";
 import { BioUsbError, type BioUsbErrorCode } from "./bio-usb-error";
-import { LinuxUsbIdentityInspector } from "./linux-usb-identity-inspector";
-import { NodeSerialConnection, type SerialConnection } from "./node-serial-connection";
 
 export interface BioTransportSnapshot {
   state: "stopped" | "connecting" | "probing" | "validating" | "ready" | "reconnecting" | "closing" | "close-failed";
@@ -13,18 +12,16 @@ export interface BioTransportSnapshot {
   lastError?: BioUsbErrorCode;
 }
 export interface BioTransportOptions {
-  devicePath?: string;
   /** Installed Android 1.2.0 uses converter-info startup and separate ACK/notification channels. */
   profile?: "legacy" | "android-v1.2.0";
   protocol?: BioProtocol | "auto";
   timeoutMs?: number;
-  inspector?: LinuxUsbIdentityInspector;
-  connectionFactory?: (path: string) => SerialConnection;
+  connectionFactory: () => BioByteConnection;
   /** The adapter must validate its durable mapping before enabling requests. */
   validateReadiness: (probe: BioFrame) => Promise<void>;
 }
 /** Raw substrate only: callers must gate operation encodings on verified traces. */
-export interface BioSerialRequest {
+export interface BioUsbRequest {
   command: number;
   payload: Uint8Array;
 }
@@ -35,13 +32,13 @@ interface PendingRequest {
   reject: (error: BioUsbError) => void;
 }
 
-export class BioSerialTransport {
+export class BioUsbTransport {
   private status: BioTransportSnapshot = { state: "stopped", generation: 0, transportConnected: false, protocolReady: false, ready: false };
   private readonly listeners = new Set<(state: BioTransportSnapshot) => void>();
   private readonly notificationListeners = new Set<(frame: BioFrame) => void>();
   private readonly codec = new BioFrameCodec();
   private readonly queue: PendingRequest[] = [];
-  private connection?: SerialConnection;
+  private connection?: BioByteConnection;
   private unsubscribe: (() => void)[] = [];
   private active?: PendingRequest;
   private startup?: { resolve: () => void; reject: (error: BioUsbError) => void };
@@ -75,7 +72,7 @@ export class BioSerialTransport {
     return this.connect();
   }
 
-  async request(request: BioSerialRequest): Promise<BioFrame> {
+  async request(request: BioUsbRequest): Promise<BioFrame> {
     if (!this.status.ready) throw new BioUsbError("NOT_READY", "BIO transport is not ready");
     if (request.command === 0xff) throw new RangeError("BIO command has no one-byte successor response");
     const bytes = this.status.protocol === "crc16" ? encodeCrcFrame(request.command, request.payload) : encodeGsFrame(request.command, request.payload);
@@ -118,23 +115,20 @@ export class BioSerialTransport {
     this.attempt = { promise, resolve, reject };
     this.update({ state: "connecting", generation, protocol: this.nextProtocol });
     void this.openAndProbe(generation).catch((cause: unknown) => {
-      const error = cause instanceof BioUsbError ? cause : new BioUsbError("DISCONNECTED", "BIO serial connection failed", { cause });
+      const error = cause instanceof BioUsbError ? cause : new BioUsbError("DISCONNECTED", "BIO USB connection failed", { cause });
       this.fail(generation, error);
     });
     return promise;
   }
 
   private async openAndProbe(generation: number) {
-    await this.closing;
+    if (this.connection) await this.closing;
     if (!this.current(generation)) return;
-    const devicePath = this.options.devicePath ?? "/dev/serial/by-id/usb-1a86_CH57x-if00-port0";
-    await (this.options.inspector ?? new LinuxUsbIdentityInspector()).inspect(devicePath);
-    if (!this.current(generation)) return;
-    const connection = (this.options.connectionFactory ?? ((path) => new NodeSerialConnection(path)))(devicePath);
+    const connection = this.options.connectionFactory();
     this.connection = connection;
     this.unsubscribe = [
       connection.onData((bytes) => this.receive(generation, bytes)),
-      connection.onDisconnect(() => this.fail(generation, new BioUsbError("DISCONNECTED", "BIO serial disconnected")))
+      connection.onDisconnect(() => this.fail(generation, new BioUsbError("DISCONNECTED", "BIO USB disconnected")))
     ];
     const traced = this.options.profile === "android-v1.2.0";
     // Arm before native open so even an early info frame is preserved. HIL
@@ -144,7 +138,7 @@ export class BioSerialTransport {
       this.timeout = setTimeout(() => this.fail(generation, new BioUsbError("TIMEOUT", "BIO converter info timed out")), this.options.timeoutMs ?? 300);
     }) : undefined;
     void startup?.catch(() => {});
-    await connection.open(traced ? { preserveInput: true } : undefined);
+    await connection.open();
     if (!this.current(generation)) {
       await connection.close();
       return;
@@ -167,7 +161,7 @@ export class BioSerialTransport {
     // Installed-app trace uses GET_NWK 0A/0B; 82 is a legacy converter hint,
     // not evidence that every connected dongle must return command 83.
     const literal = traced ? "55aa0a000710" : this.status.protocol === "crc16" ? "55aa82000000" : "4753820000";
-    const probe = await new Promise<BioFrame>((resolve, reject) => this.send({ command: traced ? 0x0a : 0x82, bytes: Buffer.from(literal, "hex"), resolve, reject }));
+    const probe = await new Promise<BioFrame>((resolve, reject) => this.begin({ command: traced ? 0x0a : 0x82, bytes: Buffer.from(literal, "hex"), resolve, reject }));
     if (!this.current(generation)) return;
     this.update({ state: "validating", protocolReady: true });
     try {
@@ -185,19 +179,31 @@ export class BioSerialTransport {
   private pump() {
     if (!this.status.ready || this.active || this.writing || this.codec.hasPendingFrame()) return;
     const next = this.queue.shift();
-    if (next) this.send(next);
+    if (next) this.begin(next);
   }
 
-  private send(request: PendingRequest) {
+  private begin(request: PendingRequest) {
+    if (this.codec.hasPendingFrame()) {
+      this.fail(this.status.generation, new BioUsbError(
+        "LATE_RESPONSE",
+        "BIO response candidate started before request ownership"
+      ));
+      return;
+    }
     const generation = this.status.generation;
     this.active = request;
     this.writing = true;
-    this.timeout = setTimeout(() => this.fail(generation, new BioUsbError("TIMEOUT", "BIO response timed out")), this.options.timeoutMs ?? 300);
+    this.armResponseTimeout();
     void this.connection!.write(request.bytes).then(() => {
       if (!this.current(generation)) return;
       this.writing = false;
       this.pump();
-    }, () => this.fail(generation, new BioUsbError("DISCONNECTED", "BIO serial write failed")));
+    }, () => this.fail(generation, new BioUsbError("DISCONNECTED", "BIO USB write failed")));
+  }
+
+  private armResponseTimeout() {
+    const generation = this.status.generation;
+    this.timeout = setTimeout(() => this.fail(generation, new BioUsbError("TIMEOUT", "BIO response timed out")), this.options.timeoutMs ?? 300);
   }
 
   private receive(generation: number, bytes: Buffer) {
@@ -294,7 +300,7 @@ export class BioSerialTransport {
       // Retain ownership until native close confirms the descriptor was closed.
       if (this.connection === connection) this.connection = undefined;
     }).catch((cause: unknown) => {
-      this.closeError ??= new BioUsbError("CLOSE_FAILED", "BIO serial descriptor closure was not confirmed", { cause });
+      this.closeError ??= new BioUsbError("CLOSE_FAILED", "BIO USB connection closure was not confirmed", { cause });
       this.attempt?.reject(this.closeError);
       this.attempt = undefined;
       this.running = false;

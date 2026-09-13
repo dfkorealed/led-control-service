@@ -1,24 +1,24 @@
 import { randomInt } from "node:crypto";
-import { BioSerialTransport, type BioTransportOptions } from "./bio-serial-transport";
+import { BioUsbTransport, type BioTransportOptions } from "./bio-usb-transport";
 import { BioEvidenceUnavailableError, decodeBioResponse, encodeBioCommand, type BioControlMode, type BioLampTarget, type BioOperation, type BioResponse } from "./bio-command-codec";
 import { BioUsbError } from "./bio-usb-error";
 export type BioClientEvent = Exclude<BioResponse, { kind: "probe" | "outer-ack" }> | { kind: "invalid-notification" };
-export type BioDongleClientOptions = Pick<BioTransportOptions, "devicePath" | "timeoutMs" | "inspector" | "connectionFactory"> & { initialSequence?: number };
+export type BioDongleClientOptions = Pick<BioTransportOptions, "connectionFactory" | "timeoutMs"> & { initialSequence?: number };
 export interface BioCommandAcceptance { outcome: "dongle-accepted"; deviceApplied: false }
 
 /** Traced operations only. ACK acceptance and unsolicited device observations remain separate. */
 export class BioDongleClient {
-  private readonly transport: BioSerialTransport;
+  private readonly transport: BioUsbTransport;
   private readonly listeners = new Set<(event: BioClientEvent) => void>();
   private sequence: number;
   private probeResult?: Extract<BioResponse, { kind: "probe" }>;
 
-  constructor(options: BioDongleClientOptions = {}) {
+  constructor(options: BioDongleClientOptions) {
     this.sequence = options.initialSequence ?? randomInt(10, 100);
     if (!Number.isInteger(this.sequence) || this.sequence < 0 || this.sequence > 255) throw new RangeError("Invalid BIO initial sequence");
-    this.transport = new BioSerialTransport({
-      devicePath: options.devicePath, timeoutMs: options.timeoutMs,
-      inspector: options.inspector, connectionFactory: options.connectionFactory,
+    this.transport = new BioUsbTransport({
+      timeoutMs: options.timeoutMs,
+      connectionFactory: options.connectionFactory,
       profile: "android-v1.2.0", protocol: "crc16",
       validateReadiness: async (frame) => {
         const parsed = decodeBioResponse(frame);

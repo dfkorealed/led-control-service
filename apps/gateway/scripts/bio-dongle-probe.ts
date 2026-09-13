@@ -1,6 +1,7 @@
 import { pathToFileURL } from "node:url";
+import type { BioByteConnection } from "../src/bio/bio-byte-connection";
 import type { BioFrame, BioProtocol } from "../src/bio/bio-frame-codec";
-import { BioSerialTransport, type BioTransportOptions } from "../src/bio/bio-serial-transport";
+import { BioUsbTransport } from "../src/bio/bio-usb-transport";
 import { BioUsbError } from "../src/bio/bio-usb-error";
 import { decodeBioResponse } from "../src/bio/bio-command-codec";
 
@@ -10,7 +11,8 @@ interface ProbeOptions {
   profile: "legacy" | "android-v1.2.0";
   timeoutMs: number;
 }
-type ProbeDependencies = Pick<BioTransportOptions, "inspector" | "connectionFactory"> & {
+type ProbeDependencies = {
+  connectionFactory?: (devicePath: string) => BioByteConnection;
   output?: (line: string) => void;
 };
 
@@ -50,10 +52,14 @@ export async function runBioDongleProbe(args: string[], dependencies: ProbeDepen
 
   let response: BioFrame | undefined;
   let failure: unknown;
-  const transport = new BioSerialTransport({
-    ...options,
-    inspector: dependencies.inspector,
-    connectionFactory: dependencies.connectionFactory,
+  const transport = new BioUsbTransport({
+    protocol: options.protocol,
+    profile: options.profile,
+    timeoutMs: options.timeoutMs,
+    connectionFactory: () => {
+      if (!dependencies.connectionFactory) throw new BioUsbError("USB_IDENTITY", "BIO USB connection is not configured");
+      return dependencies.connectionFactory(options.devicePath);
+    },
     // Only the profile's read-only probe is sent. No lamp request() follows.
     // GET_NWK includes sensitive fields: validate shape without retaining them in output.
     validateReadiness: async (frame) => {

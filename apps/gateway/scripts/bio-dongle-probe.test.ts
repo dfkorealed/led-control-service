@@ -1,18 +1,27 @@
 import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { LinuxUsbIdentityInspector } from "../src/bio/linux-usb-identity-inspector";
-import { NodeSerialConnection, type SerialPortDevice } from "../src/bio/node-serial-connection";
+import type { BioByteConnection } from "../src/bio/bio-byte-connection";
+import { BioUsbError } from "../src/bio/bio-usb-error";
 import { runBioDongleProbe } from "./bio-dongle-probe";
 
-class Device extends EventEmitter implements SerialPortDevice {
+class Device extends EventEmitter implements BioByteConnection {
   isOpen = false;
   writes: string[] = [];
   closeError?: Error;
-  open(callback: (error?: Error | null) => void) { this.isOpen = true; callback(); }
-  write(bytes: Buffer, callback: (error?: Error | null) => void) { this.writes.push(bytes.toString("hex")); callback(); return true; }
-  drain(callback: (error?: Error | null) => void) { callback(); }
-  flush(callback: (error?: Error | null) => void) { callback(); }
-  close(callback: (error?: Error | null) => void) { this.isOpen = false; callback(this.closeError); }
+  async open() { this.isOpen = true; }
+  async write(bytes: Uint8Array) { this.writes.push(Buffer.from(bytes).toString("hex")); }
+  async close() {
+    if (this.closeError) throw this.closeError;
+    this.isOpen = false;
+  }
+  onData(listener: (bytes: Buffer) => void): () => void {
+    this.on("data", listener);
+    return () => { this.off("data", listener); };
+  }
+  onDisconnect(listener: (error: Error) => void): () => void {
+    this.on("error", listener);
+    return () => { this.off("error", listener); };
+  }
 }
 
 function harness(vendorId = "1a86") {
@@ -21,13 +30,11 @@ function harness(vendorId = "1a86") {
   const paths: string[] = [];
   const dependencies = {
     output: (line: string) => output.push(line),
-    inspector: new LinuxUsbIdentityInspector({
-      stat: async () => ({ rdev: 48128, isCharacterDevice: () => true }),
-      realpath: async () => "/sys/devices/usb1/1-1",
-      readdir: async () => ["1-1"],
-      readFile: async (path: string) => path.endsWith("idVendor") ? vendorId : "5523"
-    }),
-    connectionFactory: (path: string) => { paths.push(path); return new NodeSerialConnection(path, () => device); }
+    connectionFactory: (path: string) => {
+      paths.push(path);
+      if (vendorId !== "1a86") throw new BioUsbError("USB_IDENTITY", "Unexpected BIO USB identity");
+      return device;
+    }
   };
   return { device, output, paths, dependencies };
 }
@@ -108,7 +115,7 @@ describe("read-only BIO probe CLI", () => {
     expect(h.device.isOpen).toBe(false);
   });
 
-  it("fails USB identity preflight without writing", async () => {
+  it("fails USB identity from the connection factory without writing", async () => {
     const h = harness("ffff");
     expect(await runBioDongleProbe([], h.dependencies)).toBe(1);
     expect(h.device.writes).toEqual([]);

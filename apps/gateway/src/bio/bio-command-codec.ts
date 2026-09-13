@@ -1,5 +1,5 @@
 import type { BioFrame } from "./bio-frame-codec";
-import type { BioSerialRequest } from "./bio-serial-transport";
+import type { BioUsbRequest } from "./bio-usb-transport";
 import { BioUsbError } from "./bio-usb-error";
 
 export type BioLampTarget = { kind: "broadcast"; networkId: number } | { kind: "unicast"; networkId: number; logicalAddress: number };
@@ -35,7 +35,7 @@ function unsigned(value: number, max: number, min = 0): void {
 }
 
 /** Installed-app 1.2.0 profile only; arbitrary opcodes and percent conversion are not exposed. */
-export function encodeBioCommand(operation: BioOperation, sequence: number): BioSerialRequest {
+export function encodeBioCommand(operation: BioOperation, sequence: number): BioUsbRequest {
   unsigned(sequence, 255);
   if (operation.kind === "probe") return { command: 0x0a, payload: Buffer.alloc(0) };
   let target: BioLampTarget = { kind: "broadcast", networkId: 0 };

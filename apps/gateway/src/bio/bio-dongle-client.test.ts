@@ -1,9 +1,8 @@
 import { EventEmitter } from "node:events";
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { BioByteConnection } from "./bio-byte-connection";
 import { BioDongleClient, type BioClientEvent } from "./bio-dongle-client";
-import { LinuxUsbIdentityInspector } from "./linux-usb-identity-inspector";
-import { NodeSerialConnection, type SerialPortDevice } from "./node-serial-connection";
 import { encodeCrcFrame } from "./bio-frame-codec";
 import type { BioOperation } from "./bio-command-codec";
 
@@ -14,26 +13,27 @@ const capturedControls = fixture.requests.filter((vector) => vector.operation.ki
 
 const target = { kind: "unicast", logicalAddress: 0x1234, networkId: 0 } as const;
 const flush = async () => { for (let index = 0; index < 40; index++) await Promise.resolve(); };
-class Device extends EventEmitter implements SerialPortDevice {
+class Device extends EventEmitter implements BioByteConnection {
   isOpen = false;
   writes: Buffer[] = [];
-  open(done: (error?: Error | null) => void) { this.isOpen = true; done(); }
-  flush(done: (error?: Error | null) => void) { done(); }
-  write(bytes: Buffer, done: (error?: Error | null) => void) { this.writes.push(Buffer.from(bytes)); done(); }
-  drain(done: (error?: Error | null) => void) { done(); }
-  close(done: (error?: Error | null) => void) { this.isOpen = false; done(); }
+  async open() { this.isOpen = true; }
+  async write(bytes: Uint8Array) { this.writes.push(Buffer.from(bytes)); }
+  async close() { this.isOpen = false; }
+  onData(listener: (bytes: Buffer) => void): () => void {
+    this.on("data", listener);
+    return () => { this.off("data", listener); };
+  }
+  onDisconnect(listener: (error: Error) => void): () => void {
+    this.on("error", listener);
+    return () => { this.off("error", listener); };
+  }
   receive(hex: string) { this.emit("data", Buffer.from(hex, "hex")); }
 }
 function harness(initialSequence = 75) {
   const device = new Device();
   const client = new BioDongleClient({
     initialSequence,
-    inspector: new LinuxUsbIdentityInspector({
-      stat: async () => ({ rdev: 48128, isCharacterDevice: () => true }),
-      realpath: async () => "/sys/devices/usb1/1-1", readdir: async () => ["1-1"],
-      readFile: async (path) => path.endsWith("idVendor") ? "1a86" : "5523"
-    }),
-    connectionFactory: (path) => new NodeSerialConnection(path, () => device)
+    connectionFactory: () => device
   });
   return { client, device };
 }
@@ -65,7 +65,7 @@ describe("BIO evidence-gated dongle client", () => {
     await h.client.close();
   });
 
-  it.each(capturedControls)("preserves captured control $name at the serial boundary", async ({ operation, sequence, hex }) => {
+  it.each(capturedControls)("preserves captured control $name at the byte boundary", async ({ operation, sequence, hex }) => {
     const h = harness(sequence); await ready(h);
     const result = operation.kind === "setHighBrightness"
       ? h.client.setBrightness(operation.target, { rawHighBrightness: operation.rawHighBrightness })
@@ -83,7 +83,7 @@ describe("BIO evidence-gated dongle client", () => {
     { name: "unicast raw 157", invoke: (client: BioDongleClient) => client.setBrightness(target, { rawHighBrightness: 157 }) },
     { name: "broadcast uncaptured raw 128", invoke: (client: BioDongleClient) => client.setBrightness({ kind: "broadcast", networkId: 0 }, { rawHighBrightness: 128 }) },
     { name: "unicast uncaptured raw 128", invoke: (client: BioDongleClient) => client.setBrightness(target, { rawHighBrightness: 128 }) }
-  ])("rejects $name before any additional serial write or sequence consumption", async ({ invoke }) => {
+  ])("rejects $name before any additional byte write or sequence consumption", async ({ invoke }) => {
     const h = harness(75); await ready(h);
     let failure: unknown;
     const rejected = invoke(h.client).catch((error: unknown) => { failure = error; });
