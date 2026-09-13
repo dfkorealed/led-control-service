@@ -1,5 +1,12 @@
 # 프로젝트 오답 노트 (Lessons Learned)
 
+## 2026-09-13 / LAN·PKI 복구 전에 Gateway DB identity의 존재를 확인한다
+
+- **발생했던 문제/실수**: Pi assignment와 실행 API의 Gateway ID는 일치했지만 현재 PostgreSQL에는 해당 Site/Gateway 행이 없었다. 네트워크만 고치면 heartbeat가 복구될 것으로 보고 DNS·인증서 교체를 준비했으나, 제조 inventory와 MQTT certificate는 `gatewayId=NULL`인 orphan 상태였고 backup 후보에도 target Gateway가 없었다.
+- **원인**: Site 삭제는 Gateway와 하위 데이터를 cascade 삭제하고 inventory/certificate/claim audit의 일부 FK는 `SET NULL`로 남긴다. 반면 Pi assignment와 실행 환경은 과거 Gateway ID를 계속 보존할 수 있어, 설정 문자열 일치만으로 DB 수신 대상이 존재한다고 판단할 수 없다.
+- **해결 및 예방책**: LAN 변경 복구의 첫 단계에서 assignment ID와 API effective DB를 식별하고, exact Site/Gateway, inventory claim link, active certificate link와 heartbeat 대상 행을 read-only로 대조한다. 하나라도 없으면 hosts·PKI·broker·Gateway를 변경하지 않고 target을 포함한 backup을 먼저 검증하거나 명시적으로 새 설치를 선택한다.
+- **반복 방지 체크**: Lab 재개 점검은 `DB identity → current LAN IP → hosts → PKI SAN/CRL → running broker context → Pi/container DNS → TLS/mTLS/CONNACK → heartbeat 3회` 순서를 따른다. Backup은 TOC 존재만으로 충분하지 않으며 격리 restore에서 exact target과 종속 관계를 확인해야 한다.
+
 ## 2026-09-11 / 사용자 삭제는 FK뿐 아니라 durable 비정규화 데이터까지 추적한다
 - **발생했던 문제/실수**: `Command.requestedBy`와 `ManualOverride.requestedById`를 `SET NULL`로 바꿨지만 MQTT outbox JSON의 요청자 UUID와 수락된 초대 이메일은 관계형 FK 밖에 남아 있었다. 미발행 command row는 사용자 삭제 뒤에도 요청자 식별자를 외부로 발행할 수 있었다.
 - **원인**: 사용자 PII 수명을 관계형 column과 브라우저 cache 위주로 검토하고, durable JSON payload와 가입에 사용된 토큰 원장의 비정규화 복사본을 삭제 그래프에 포함하지 않았다.

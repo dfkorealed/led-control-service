@@ -613,11 +613,11 @@ git commit -m "feat(gateway): deploy one BIO raw USB device safely"
 - Back up current Lab PKI service generation metadata, Pi hosts/compose/env/data and running container metadata before mutation; never record private key/token contents.
 - Do not deploy the BIO image or execute any lamp write in this task.
 
-- [ ] **Step 1: Phase-1 evidence를 다시 수집한다.** 현재 Mac LAN IP, local listeners/processes, effective `MQTT_URL`, current MQTT certificate DNS/IP SAN, Pi와 running container의 `getent`, TCP 8883, TLS hostname/mTLS, Gateway health/heartbeat를 순서대로 재현한다.
+- [x] **Step 1: Phase-1 evidence를 다시 수집한다.** 현재 Mac LAN IP, local listeners/processes, effective `MQTT_URL`, current MQTT certificate DNS/IP SAN, Pi와 running container의 `getent`, TCP 8883, TLS hostname/mTLS, Gateway health/heartbeat를 순서대로 재현한다.
 
-- [ ] **Step 2: 단일 root-cause hypothesis를 확정한다.** API/MQTT 실행 환경, Lab certificate generation, Pi host mapping 가운데 불일치한 경계를 명시하고 변경 전 증거 SHA-256을 기록한다.
+- [x] **Step 2: 단일 root-cause hypothesis를 확정한다.** API/MQTT 실행 환경, Lab certificate generation, Pi host mapping 가운데 불일치한 경계를 명시하고 변경 전 증거 SHA-256을 기록한다.
 
-- [ ] **Step 3: 자동화 결함이 있으면 RED를 먼저 작성한다.** 기존 runbook만으로 올바르게 복구되면 제품 코드를 바꾸지 않는다. 재현 가능한 script 결함이 있을 때만 failing contract를 만든 뒤 최소 수정한다.
+- [x] **Step 3: 자동화 결함이 있으면 RED를 먼저 작성한다.** 기존 runbook만으로 올바르게 복구되면 제품 코드를 바꾸지 않는다. 재현 가능한 script 결함이 있을 때만 failing contract를 만든 뒤 최소 수정한다. 이번 조사에서는 자동화 결함보다 현재 DB의 target Site/Gateway 관계 부재가 선행 차단 원인으로 확인되어 제품 코드를 변경하지 않았다.
 
 - [ ] **Step 4: rollback 자료를 만든다.** Lab PKI current generation과 실행 env의 비밀 원문을 출력하지 않고 권한 제한 backup을 만들며, Pi `/etc/hosts`, compose/env/data와 container ID/image/StartedAt/restart count를 보존한다.
 
@@ -629,7 +629,7 @@ git commit -m "feat(gateway): deploy one BIO raw USB device safely"
 
 - [ ] **Step 8: 서로 다른 healthy heartbeat 3회를 확인한다.** API DB의 `lastHeartbeatAt` 증가, Gateway health와 container lifecycle을 함께 대조한다.
 
-- [ ] **Step 9: 문서와 증거를 갱신하고 커밋한다.** `docs/project-status.md`, Task 8 Step 9와 이 체크리스트를 실제 결과와 일치시킨다.
+- [x] **Step 9: 문서와 증거를 갱신하고 커밋한다.** `docs/project-status.md`, Task 8 Step 9와 이 체크리스트를 실제 결과와 일치시킨다. Task 8의 healthy heartbeat Step 9는 미완료로 유지한다.
 
 ---
 
