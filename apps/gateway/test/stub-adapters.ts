@@ -46,6 +46,7 @@ export class StubBleMeshAdapter implements BleMeshAdapter {
 
 export class StubProvisioningScannerAdapter implements ProvisioningScannerAdapter {
   constructor(private readonly options: { count?: number; floorName?: string } = {}) {}
+  acceptsDeviceUuid() { return true; }
   async scan(command: ProvisioningScanStartPayload) {
     const count = this.options.count ?? 4;
     const floorName = this.options.floorName ?? "B2";

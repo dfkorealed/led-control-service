@@ -153,7 +153,7 @@ export function createSoftwareAutomationSimulator(options: {
         };
       },
     },
-    scanner: { async scan() { return []; } },
+    scanner: { acceptsDeviceUuid() { return true; }, async scan() { return []; } },
     provisioning: {
       async identify() {},
       async provision(command) {

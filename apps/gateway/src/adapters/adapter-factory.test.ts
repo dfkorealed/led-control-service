@@ -37,6 +37,7 @@ describe("createProductionAdapters", () => {
       resyncFixtureStates: vi.fn(),
       resyncLightingFixtures: vi.fn(),
       syncGroupSubscriptions: vi.fn(),
+      acceptsDeviceUuid: vi.fn(() => true),
       scan: vi.fn(),
       identify: vi.fn(),
       provision: vi.fn(),
@@ -81,6 +82,7 @@ describe("createProductionAdapters", () => {
       resyncFixtureStates: vi.fn(),
       resyncLightingFixtures: vi.fn(),
       syncGroupSubscriptions: vi.fn(),
+      acceptsDeviceUuid: vi.fn(() => true),
       scan: vi.fn(),
       identify: vi.fn(),
       provision: vi.fn()

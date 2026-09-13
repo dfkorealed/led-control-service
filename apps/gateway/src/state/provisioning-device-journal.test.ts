@@ -127,6 +127,33 @@ describe("ProvisioningDeviceJournal", () => {
     ]);
   });
 
+  it("lets an adapter reconcile an accepted restart before choosing the durable terminal", async () => {
+    const path = await journalPath();
+    await new ProvisioningDeviceJournal(path).accept(command);
+    const restarted = new ProvisioningDeviceJournal(path);
+    const recover = vi.fn().mockResolvedValue({ firmwareVersion: "1.2.3.4", rssi: -41, hopCount: null });
+    const execute = vi.fn();
+
+    await handleDurableProvisioningDevice({
+      journal: restarted,
+      command,
+      execute,
+      recover,
+      nextEnvelope: async () => envelope
+    });
+
+    expect(execute).not.toHaveBeenCalled();
+    expect(recover).toHaveBeenCalledOnce();
+    await expect(restarted.pendingTerminals()).resolves.toEqual([
+      expect.objectContaining({ payload: expect.objectContaining({
+        status: "completed",
+        firmwareVersion: "1.2.3.4",
+        rssi: -41,
+        hopCount: null
+      }) })
+    ]);
+  });
+
   it("stores a terminal atomically before publish and reuses it for exact duplicates", async () => {
     const path = await journalPath();
     const journal = new ProvisioningDeviceJournal(path);

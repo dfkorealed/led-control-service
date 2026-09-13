@@ -114,6 +114,18 @@ export class BioDeviceMappingStore {
     return this.findConfirmed((mapping) => mapping.deviceUuid === `bio:${nativeUuid}`);
   }
 
+  /**
+   * [확인됨] durable provisioning accepted 복구만 reserved row를 볼 수 있다. 일반 제어
+   * lookup은 계속 confirmed-only이며, caller는 old/new UUID reconciliation 없이 reserve를
+   * hardware 적용 상태로 해석하면 안 된다.
+   */
+  async findByDeviceUuidIncludingReserved(deviceUuid: string) {
+    const nativeUuid = parseBioDeviceUuid(deviceUuid);
+    const state = await this.read();
+    const mapping = state.mappings.find((row) => row.deviceUuid === `bio:${nativeUuid}`);
+    return mapping ? { ...mapping } : null;
+  }
+
   async findByNativeUuid(nativeUuid: string) {
     const canonicalNativeUuid = parseBioDeviceUuid(formatBioDeviceUuid(nativeUuid));
     return this.findConfirmed((mapping) => mapping.nativeUuid === canonicalNativeUuid);

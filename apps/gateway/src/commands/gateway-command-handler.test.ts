@@ -656,6 +656,39 @@ describe("handleGatewayDimmingCommand", () => {
     expect(result.deviceStatus.results[0]).toMatchObject({ brightness: 30 });
   });
 
+  it("preserves a BIO read-back mismatch as an observed failed fixture result", async () => {
+    const result = await handleGatewayDimmingCommand(
+      {
+        setBrightness: vi.fn(async () => [{
+          fixtureId: command.targetFixtureIds[0],
+          acknowledged: false,
+          outcome: "failed" as const,
+          brightness: 38,
+          mode: "sensor" as const,
+          faultCode: "BIO_CONTROL_MODE_STATE_MISMATCH",
+          rssi: -41,
+          hopCount: null
+        }])
+      } as any,
+      memoryJournal(new Map()),
+      command
+    );
+
+    expect(result.fixtureStateObserved).toBe(true);
+    expect(result.observedFixtureIds).toEqual(command.targetFixtureIds);
+    expect(result.deviceStatus).toMatchObject({
+      status: "failed",
+      results: [{
+        fixtureId: command.targetFixtureIds[0],
+        status: "failed",
+        brightness: 38,
+        faultCode: "BIO_CONTROL_MODE_STATE_MISMATCH",
+        rssi: -41,
+        hopCount: null
+      }]
+    });
+  });
+
   it("aborts the adapter signal when the outer command timeout expires", async () => {
     vi.useFakeTimers();
     try {

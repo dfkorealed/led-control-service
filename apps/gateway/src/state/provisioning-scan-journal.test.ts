@@ -37,7 +37,7 @@ describe("ProvisioningScanJournal", () => {
   it("does not start a second scanner for a duplicate running scan-start", async () => {
     const journal = new ProvisioningScanJournal(await journalPath());
     let finishScan: (nodes: []) => void = () => undefined;
-    const scanner = { scan: vi.fn(() => new Promise<[]>(resolve => { finishScan = resolve; })) };
+    const scanner = { acceptsDeviceUuid: () => true, scan: vi.fn(() => new Promise<[]>(resolve => { finishScan = resolve; })) };
     const publish = vi.fn().mockResolvedValue(undefined);
     const nextEnvelope = vi.fn().mockResolvedValue({
       eventId: "66666666-6666-4666-8666-666666666666", sequence: 1, occurredAt: "2026-08-26T00:00:01.000Z"
@@ -63,7 +63,7 @@ describe("ProvisioningScanJournal", () => {
 
     const firstJournal = new ProvisioningScanJournal(path, journalOptions);
     await handleDurableProvisioningScan({
-      adapter: { scan: vi.fn().mockResolvedValue([]) },
+      adapter: { acceptsDeviceUuid: () => true, scan: vi.fn().mockResolvedValue([]) },
       journal: firstJournal,
       command,
       nextEnvelope: vi.fn().mockResolvedValue(envelope),
@@ -79,7 +79,7 @@ describe("ProvisioningScanJournal", () => {
     });
 
     const replayPublish = vi.fn().mockResolvedValue(undefined);
-    const replayScanner = { scan: vi.fn() };
+    const replayScanner = { acceptsDeviceUuid: () => true, scan: vi.fn() };
     await handleDurableProvisioningScan({
       adapter: replayScanner,
       journal: new ProvisioningScanJournal(path, journalOptions),
@@ -295,7 +295,7 @@ describe("ProvisioningScanJournal", () => {
     let releaseInitial!: () => void;
     const initialPublish = vi.fn(() => new Promise<void>((resolve) => { releaseInitial = resolve; }));
     const scan = handleDurableProvisioningScan({
-      adapter: { scan: vi.fn().mockResolvedValue([]) },
+      adapter: { acceptsDeviceUuid: () => true, scan: vi.fn().mockResolvedValue([]) },
       journal,
       command,
       nextEnvelope: vi.fn().mockResolvedValue({
@@ -420,7 +420,7 @@ describe("ProvisioningScanJournal", () => {
     const path = await journalPath();
     const interrupted = new ProvisioningScanJournal(path);
     await interrupted.begin(command);
-    const scanner = { scan: vi.fn() };
+    const scanner = { acceptsDeviceUuid: () => true, scan: vi.fn() };
     const publish = vi.fn().mockResolvedValue(undefined);
 
     await handleDurableProvisioningScan({
@@ -444,7 +444,7 @@ describe("ProvisioningScanJournal", () => {
     const path = await journalPath();
     await writeFile(path, "{not-json", "utf8");
     await chmod(path, 0o600);
-    const scanner = { scan: vi.fn() };
+    const scanner = { acceptsDeviceUuid: () => true, scan: vi.fn() };
 
     await expect(handleDurableProvisioningScan({
       adapter: scanner,

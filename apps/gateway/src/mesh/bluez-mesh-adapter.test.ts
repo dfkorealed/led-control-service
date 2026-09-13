@@ -52,6 +52,14 @@ function fixture(options: { responseTimeoutMs?: number; observationCoherenceMs?:
 }
 
 describe("BluezMeshAdapter", () => {
+  it("accepts only the existing DFK provisioning UUID namespace", () => {
+    const adapter = fixture().adapter;
+
+    expect(adapter.acceptsDeviceUuid("44464b4c454401010101aabbccddeeff")).toBe(true);
+    expect(adapter.acceptsDeviceUuid("bio:a1b2c3d4e5f6")).toBe(false);
+    expect(adapter.acceptsDeviceUuid("00112233445566778899aabbccddeeff")).toBe(false);
+  });
+
   it("uses the bound Health client for Attention without Lightness or statistics side effects", async () => {
     const now = Date.now();
     const f = fixture({ now: () => now });

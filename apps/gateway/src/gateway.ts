@@ -13,7 +13,6 @@ import type {
 import {
   automationConfigAppliedV1Schema,
   mqttTopicsV2,
-  parseDfkDeviceUuid,
   provisioningScanCompletedSchema,
   provisioningScanFailedSchema,
   provisioningScanFoundSchema
@@ -82,6 +81,7 @@ export interface BleMeshResyncReport {
 }
 
 export interface ProvisioningScannerAdapter {
+  acceptsDeviceUuid(deviceUuid: string): boolean;
   scan(command: ProvisioningScanStartPayload): Promise<ProvisioningScanFoundDevice[]>;
 }
 
@@ -98,6 +98,7 @@ export interface BleMeshCommandReport {
   faultCode?: string;
   rssi: number | null;
   hopCount: number | null;
+  mode?: "sensor" | "force-off" | "force-on";
 }
 
 export async function applyProvisioningScan(adapter: ProvisioningScannerAdapter, command: ProvisioningScanStartPayload) {
@@ -315,8 +316,10 @@ export async function publishProvisioningScanLifecycle(input: {
 }) {
   let nodes: ProvisioningScanFoundDevice[];
   try {
+    // [확인됨] UUID namespace 소유권은 active adapter가 판정한다. BIO를 DFK UUID로
+    // 위장하거나 전역 allowlist가 다른 adapter의 identity를 누락시키지 않는다.
     nodes = (await applyProvisioningScan(input.adapter, input.command))
-      .filter((node) => parseDfkDeviceUuid(node.deviceUuid) !== null);
+      .filter((node) => input.adapter.acceptsDeviceUuid(node.deviceUuid));
     for (const node of nodes) {
       await input.publish(
         mqttTopicsV2.provisioningScanFound(input.command.siteId, input.command.gatewayId),

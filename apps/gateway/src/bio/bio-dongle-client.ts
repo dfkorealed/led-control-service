@@ -1,6 +1,6 @@
 import { randomInt } from "node:crypto";
 import { SerialTaskQueue } from "../runtime/serial-task-queue";
-import { percentToBioRaw } from "./bio-brightness-table";
+import { bioRawToPercent, percentToBioRaw } from "./bio-brightness-table";
 import { BioUsbTransport, type BioTransportOptions } from "./bio-usb-transport";
 import { BioDirectUsbConnection } from "./bio-direct-usb-connection";
 import {
@@ -263,7 +263,10 @@ export class BioDongleClient {
       await this.setControlMode(expected.target, "force-off");
       const mode = await this.readDeviceInfo(target);
       if (mode.mode !== "force-off") {
-        throw new BioUsbError("BIO_CONTROL_MODE_STATE_MISMATCH", "BIO force-off read-back did not match");
+        throw Object.assign(
+          new BioUsbError("BIO_CONTROL_MODE_STATE_MISMATCH", "BIO force-off read-back did not match"),
+          { observedBrightnessPercent: 0, observedMode: mode.mode }
+        );
       }
       return { brightnessPercent: 0, powerOn: false, mode: "force-off" as const };
     }
@@ -272,11 +275,20 @@ export class BioDongleClient {
     await this.setControlMode(expected.target, "force-on");
     const brightness = await this.readBrightness(target);
     if (brightness.rawHighBrightness !== rawHighBrightness) {
-      throw new BioUsbError("BIO_BRIGHTNESS_STATE_MISMATCH", "BIO high-brightness read-back did not match");
+      throw Object.assign(
+        new BioUsbError("BIO_BRIGHTNESS_STATE_MISMATCH", "BIO high-brightness read-back did not match"),
+        {
+          observedRawHighBrightness: brightness.rawHighBrightness,
+          observedBrightnessPercent: bioRawToPercent(brightness.rawHighBrightness)
+        }
+      );
     }
     const mode = await this.readDeviceInfo(target);
     if (mode.mode !== "force-on") {
-      throw new BioUsbError("BIO_CONTROL_MODE_STATE_MISMATCH", "BIO force-on read-back did not match");
+      throw Object.assign(
+        new BioUsbError("BIO_CONTROL_MODE_STATE_MISMATCH", "BIO force-on read-back did not match"),
+        { observedBrightnessPercent: brightnessPercent, observedMode: mode.mode }
+      );
     }
     return { brightnessPercent, powerOn: true, rawHighBrightness, mode: "force-on" as const };
   }

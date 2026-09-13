@@ -231,8 +231,10 @@ async function executeGatewayDimmingCommand(
         () => controller.abort()
       )
     );
+    // [확인됨] acknowledged는 adapter가 read-back까지 검증한 applied만 뜻한다. BIO outer ACK
+    // 단독은 여기에 도달하지 않으며, mismatch만 관측값을 보존한 failed fixture state가 된다.
     observedFixtureIds = reports
-      .filter((report) => report.acknowledged || report.faultCode === "state_mismatch")
+      .filter(isObservedReport)
       .map((report) => report.fixtureId);
     fixtureStateObserved = observedFixtureIds.length > 0;
     const results = reports.map((report) => ({
@@ -242,7 +244,7 @@ async function executeGatewayDimmingCommand(
         : report.outcome === "timed_out"
           ? ("timed_out" as const)
           : ("failed" as const),
-      ...(report.acknowledged || report.faultCode === "state_mismatch" ? { brightness: report.brightness } : {}),
+      ...(isObservedReport(report) ? { brightness: report.brightness } : {}),
       ...(report.faultCode ? { faultCode: report.faultCode } : {}),
       rssi: report.rssi,
       hopCount: report.hopCount
@@ -430,6 +432,12 @@ function validateReports(expectedFixtureIds: string[], reports: Awaited<ReturnTy
   }
   const byFixture = new Map(reports.map((report) => [report.fixtureId, report]));
   return expectedFixtureIds.map((fixtureId) => byFixture.get(fixtureId)!);
+}
+
+function isObservedReport(report: Awaited<ReturnType<BleMeshAdapter["setBrightness"]>>[number]) {
+  return report.acknowledged || report.faultCode === "state_mismatch" ||
+    report.faultCode === "BIO_BRIGHTNESS_STATE_MISMATCH" ||
+    report.faultCode === "BIO_CONTROL_MODE_STATE_MISMATCH";
 }
 
 function validateAutomationActions(actions: AutomationDimmingAction[]) {

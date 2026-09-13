@@ -1,6 +1,7 @@
 import type { EventEmitter } from "node:events";
 import {
   mapHealthFaults,
+  parseDfkDeviceUuid,
   type IdentifyDevicePayload,
   type MeshGroupSubscriptionResultPayload,
   type MeshGroupSubscriptionSyncPayload,
@@ -174,6 +175,11 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
       oobCapability: row.oobCapability,
       firmwareVersion: "unknown"
     }));
+  }
+
+  /** [확인됨] BlueZ discovery는 기존 DFK manufacturer UUID namespace만 계속 소유한다. */
+  acceptsDeviceUuid(deviceUuid: string) {
+    return parseDfkDeviceUuid(deviceUuid) !== null;
   }
 
   async provision(command: ProvisionDevicePayload): Promise<ProvisioningCompletedPayload> {

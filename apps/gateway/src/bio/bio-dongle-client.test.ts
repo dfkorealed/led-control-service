@@ -465,7 +465,11 @@ describe("BIO evidence-gated dongle client", () => {
     brightness.device.receive("55aa1101002055"); await flush();
     brightness.device.receive("55aa1101002055");
     brightness.device.receive(brightnessReportHex("001122334455", 0x1234, 199));
-    await expect(wrongBrightness).rejects.toMatchObject({ code: "BIO_BRIGHTNESS_STATE_MISMATCH" });
+    await expect(wrongBrightness).rejects.toMatchObject({
+      code: "BIO_BRIGHTNESS_STATE_MISMATCH",
+      observedBrightnessPercent: 61,
+      observedRawHighBrightness: 199
+    });
     await brightness.client.close();
 
     const mode = harness(75, { observationTimeoutMs: 100 }); await ready(mode);
@@ -474,7 +478,11 @@ describe("BIO evidence-gated dongle client", () => {
     mode.device.receive("55aa1101002055"); await flush();
     mode.device.receive("55aa1101002055");
     mode.device.receive(modeReportHex("001122334455", 0x1234, 0));
-    await expect(wrongMode).rejects.toMatchObject({ code: "BIO_CONTROL_MODE_STATE_MISMATCH" });
+    await expect(wrongMode).rejects.toMatchObject({
+      code: "BIO_CONTROL_MODE_STATE_MISMATCH",
+      observedBrightnessPercent: 0,
+      observedMode: "sensor"
+    });
     await mode.client.close();
   });
 

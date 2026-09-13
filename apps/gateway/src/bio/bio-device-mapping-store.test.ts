@@ -174,6 +174,9 @@ describe("BioDeviceMappingStore", () => {
     await expect(store.findByNativeUuid(firstMapping.nativeUuid)).resolves.toBeNull();
     await expect(store.findByLogicalAddress(firstMapping.logicalAddress)).resolves.toBeNull();
     await expect(store.listConfirmed()).resolves.toEqual([]);
+    await expect(store.findByDeviceUuidIncludingReserved(firstMapping.deviceUuid)).resolves.toEqual(
+      expect.objectContaining({ status: "reserved", commandId: firstMapping.commandId })
+    );
   });
 
   it("rejects reserved confirmation with a different logical address and does not expose it", async () => {

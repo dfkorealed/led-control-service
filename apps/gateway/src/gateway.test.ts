@@ -86,7 +86,7 @@ describe("gateway provisioning", () => {
       adapter: { scan: async () => [
         { deviceUuid: "44464b4c454401010101aabbccddeeff", serialNumber: "own", rssi: -50, oobCapability: "none", firmwareVersion: "1.0.0" },
         { deviceUuid: "other-vendor:001", serialNumber: "other", rssi: -51, oobCapability: "none", firmwareVersion: "1.0.0" }
-      ] },
+      ], acceptsDeviceUuid: (deviceUuid) => deviceUuid === "44464b4c454401010101aabbccddeeff" },
       command,
       nextEnvelope: async () => ({ eventId: "66666666-6666-4666-8666-666666666666", sequence: 1, occurredAt: "2026-08-26T00:00:00.000Z" }),
       publish
@@ -97,10 +97,42 @@ describe("gateway provisioning", () => {
     expect(publish.mock.calls[1][1]).toMatchObject({ acceptedNodeCount: 1 });
   });
 
+  it("delegates scan identity ownership to the active adapter instead of a global DFK filter", async () => {
+    const publish = vi.fn().mockResolvedValue(undefined);
+    const acceptsDeviceUuid = vi.fn((deviceUuid: string) => /^bio:[0-9a-f]{12}$/.test(deviceUuid));
+    const command = {
+      sessionId: "11111111-1111-4111-8111-111111111111",
+      siteId: "22222222-2222-4222-8222-222222222222",
+      gatewayId: "33333333-3333-4333-8333-333333333333",
+      floorId: "44444444-4444-4444-8444-444444444444",
+      scanCorrelationId: "55555555-5555-4555-8555-555555555555",
+      scanAttempt: 1,
+      requestedAt: "2026-07-01T00:00:00.000Z"
+    };
+
+    await publishProvisioningScanLifecycle({
+      adapter: {
+        acceptsDeviceUuid,
+        scan: async () => [
+          { deviceUuid: "bio:a1b2c3d4e5f6", serialNumber: "bio:a1b2c3d4e5f6", rssi: -42, oobCapability: "none", firmwareVersion: "1.2.3.4" },
+          { deviceUuid: "44464b4c454401010101aabbccddeeff", serialNumber: "dfk", rssi: -50, oobCapability: "none", firmwareVersion: "1.0.0" }
+        ]
+      },
+      command,
+      nextEnvelope: async () => ({ eventId: "66666666-6666-4666-8666-666666666666", sequence: 1, occurredAt: "2026-08-26T00:00:00.000Z" }),
+      publish
+    });
+
+    expect(acceptsDeviceUuid).toHaveBeenCalledTimes(2);
+    expect(publish).toHaveBeenCalledTimes(2);
+    expect(publish.mock.calls[0][1]).toMatchObject({ deviceUuid: "bio:a1b2c3d4e5f6" });
+    expect(publish.mock.calls[1][1]).toMatchObject({ acceptedNodeCount: 1 });
+  });
+
   it("publishes exactly one failed terminal event when scanning throws", async () => {
     const publish = vi.fn().mockResolvedValue(undefined);
     await publishProvisioningScanLifecycle({
-      adapter: { scan: async () => { throw new Error("Bluetooth adapter /secret/path unavailable"); } },
+      adapter: { acceptsDeviceUuid: () => true, scan: async () => { throw new Error("Bluetooth adapter /secret/path unavailable"); } },
       command: {
         sessionId: "11111111-1111-4111-8111-111111111111", siteId: "22222222-2222-4222-8222-222222222222",
         gatewayId: "33333333-3333-4333-8333-333333333333", floorId: "44444444-4444-4444-8444-444444444444",
@@ -119,7 +151,7 @@ describe("gateway provisioning", () => {
     const publish = vi.fn().mockRejectedValueOnce(new Error("broker acknowledgement lost"));
 
     await expect(publishProvisioningScanLifecycle({
-      adapter: { scan: async () => [] },
+      adapter: { acceptsDeviceUuid: () => true, scan: async () => [] },
       command: {
         sessionId: "11111111-1111-4111-8111-111111111111", siteId: "22222222-2222-4222-8222-222222222222",
         gatewayId: "33333333-3333-4333-8333-333333333333", floorId: "44444444-4444-4444-8444-444444444444",

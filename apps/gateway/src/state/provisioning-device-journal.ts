@@ -288,6 +288,11 @@ export async function handleDurableProvisioningDevice(input: {
     rssi?: number | null;
     hopCount?: number | null;
   }>;
+  recover?: (command: ProvisioningDeviceCommandV2) => Promise<{
+    firmwareVersion?: string;
+    rssi?: number | null;
+    hopCount?: number | null;
+  }>;
   nextEnvelope: () => Promise<{ eventId: string; sequence: number; occurredAt: string }>;
   onDurableAccept?: () => void;
   onTerminalPersisted?: () => void;
@@ -303,7 +308,18 @@ export async function handleDurableProvisioningDevice(input: {
 
   let terminal: ProvisioningDeviceTerminalEvent;
   if (accepted.kind === "recovered") {
-    terminal = createProvisioningOutcomeUnknownTerminal(input.command, await input.nextEnvelope());
+    if (!input.recover) {
+      terminal = createProvisioningOutcomeUnknownTerminal(input.command, await input.nextEnvelope());
+    } else {
+      // [확인됨] generic journal은 command ownership만 보존한다. adapter가 명시적으로 제공한
+      // recovery만 confirmed mapping 또는 reserved old/new reconciliation을 근거로 terminal을 만든다.
+      try {
+        const result = await input.recover(input.command);
+        terminal = createCompletedTerminal(input.command, result, await input.nextEnvelope());
+      } catch {
+        terminal = createFailedTerminal(input.command, await input.nextEnvelope());
+      }
+    }
   } else {
     try {
       const result = await input.execute(input.command);
