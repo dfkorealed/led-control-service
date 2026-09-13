@@ -22,6 +22,15 @@ describe("BIO installed 1.2.0 traced command codec", () => {
     expect(encodeCrcFrame(request.command, request.payload).toString("hex")).toBe(hex);
   });
 
+  it.each([
+    { kind: "setControlMode", target: { kind: "broadcast", networkId: 0 }, mode: "force-off" },
+    { kind: "setHighBrightness", target: { kind: "unicast", networkId: 0, logicalAddress: 0x1234 }, rawHighBrightness: 157 },
+    { kind: "setHighBrightness", target: { kind: "broadcast", networkId: 0 }, rawHighBrightness: 128 },
+    { kind: "setHighBrightness", target: { kind: "unicast", networkId: 0, logicalAddress: 0x1234 }, rawHighBrightness: 128 }
+  ] satisfies BioOperation[])("fails closed for an otherwise-valid but uncaptured combination: %j", (operation) => {
+    expect(() => encodeBioCommand(operation, 75)).toThrowError(expect.objectContaining({ code: "BIO_EVIDENCE_UNAVAILABLE" }));
+  });
+
   it("does not expose the network-read payload or interpret the probe as device info", () => {
     expect(decodeBioResponse(response("probe-network-response"))).toEqual({ kind: "probe", protocol: "crc16", responseCommand: 0x0b, payloadBytes: 13 });
   });

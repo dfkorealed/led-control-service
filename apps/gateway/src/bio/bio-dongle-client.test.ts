@@ -1,9 +1,16 @@
 import { EventEmitter } from "node:events";
+import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BioDongleClient, type BioClientEvent } from "./bio-dongle-client";
 import { LinuxUsbIdentityInspector } from "./linux-usb-identity-inspector";
 import { NodeSerialConnection, type SerialPortDevice } from "./node-serial-connection";
 import { encodeCrcFrame } from "./bio-frame-codec";
+import type { BioOperation } from "./bio-command-codec";
+
+const fixture = JSON.parse(readFileSync(new URL("../../test/fixtures/bio-protocol-v1.json", import.meta.url), "utf8")) as {
+  requests: { name: string; operation: BioOperation; sequence: number; hex: string }[];
+};
+const capturedControls = fixture.requests.filter((vector) => vector.operation.kind === "setHighBrightness" || vector.operation.kind === "setControlMode");
 
 const target = { kind: "unicast", logicalAddress: 0x1234, networkId: 0 } as const;
 const flush = async () => { for (let index = 0; index < 40; index++) await Promise.resolve(); };
@@ -55,6 +62,41 @@ describe("BIO evidence-gated dongle client", () => {
     h.device.receive("55aa1101002055");
     expect(await result).toEqual({ outcome: "dongle-accepted", deviceApplied: false });
     await h.client.close();
+  });
+
+  it.each(capturedControls)("preserves captured control $name at the serial boundary", async ({ operation, sequence, hex }) => {
+    const h = harness(sequence); await ready(h);
+    const result = operation.kind === "setHighBrightness"
+      ? h.client.setBrightness(operation.target, { rawHighBrightness: operation.rawHighBrightness })
+      : operation.kind === "setControlMode" ? h.client.setControlMode(operation.target, operation.mode)
+      : Promise.reject(new Error("Expected a captured control operation"));
+    await flush();
+    expect(h.device.writes[1].toString("hex")).toBe(hex);
+    h.device.receive("55aa1101002055");
+    expect(await result).toEqual({ outcome: "dongle-accepted", deviceApplied: false });
+    await h.client.close();
+  });
+
+  it.each([
+    { name: "broadcast force-off", invoke: (client: BioDongleClient) => client.setControlMode({ kind: "broadcast", networkId: 0 }, "force-off") },
+    { name: "unicast raw 157", invoke: (client: BioDongleClient) => client.setBrightness(target, { rawHighBrightness: 157 }) },
+    { name: "broadcast uncaptured raw 128", invoke: (client: BioDongleClient) => client.setBrightness({ kind: "broadcast", networkId: 0 }, { rawHighBrightness: 128 }) },
+    { name: "unicast uncaptured raw 128", invoke: (client: BioDongleClient) => client.setBrightness(target, { rawHighBrightness: 128 }) }
+  ])("rejects $name before any additional serial write or sequence consumption", async ({ invoke }) => {
+    const h = harness(75); await ready(h);
+    let failure: unknown;
+    const rejected = invoke(h.client).catch((error: unknown) => { failure = error; });
+    try {
+      await flush();
+      expect(failure).toMatchObject({ code: "BIO_EVIDENCE_UNAVAILABLE" });
+      expect(h.device.writes.map((bytes) => bytes.toString("hex"))).toEqual(["55aa0a000710"]);
+      await rejected;
+      const accepted = h.client.setBrightness(target, { rawHighBrightness: 254 }); await flush();
+      expect(h.device.writes[1].toString("hex")).toBe("55aa101200000000000000804b01fe12340000cd13fe2962");
+      h.device.receive("55aa1101002055"); await accepted;
+    } finally {
+      await h.client.close();
+    }
   });
 
   it("delivers discovery before the scan ACK and never uses discovery as that ACK", async () => {

@@ -46,6 +46,12 @@ export function encodeBioCommand(operation: BioOperation, sequence: number): Bio
     case "setHighBrightness":
       target = operation.target;
       unsigned(operation.rawHighBrightness, 255);
+      // A byte-range check is not evidence: Android 1.2.0 captured 157 only for
+      // broadcast, and 254/255 for both targets. Do not extrapolate other values.
+      if (operation.rawHighBrightness !== 254 && operation.rawHighBrightness !== 255
+        && !(target.kind === "broadcast" && operation.rawHighBrightness === 157)) {
+        throw new BioEvidenceUnavailableError();
+      }
       // CD13 is Scene.highBrightness (raw setting), not current output or linear percent.
       // bit 0 requests no lamp answer; bit 7 disables debug. Outer 11 is still emitted.
       body = [0xcd, 0x13, operation.rawHighBrightness];
@@ -53,7 +59,8 @@ export function encodeBioCommand(operation: BioOperation, sequence: number): Bio
     case "setControlMode": {
       target = operation.target;
       const mode = operation.mode === "sensor" ? 0 : operation.mode === "force-off" ? 1 : operation.mode === "force-on" ? 3 : undefined;
-      if (mode === undefined) throw new BioEvidenceUnavailableError();
+      // Force-OFF was captured only as unicast; its broadcast encoding is unproven.
+      if (mode === undefined || (operation.mode === "force-off" && target.kind !== "unicast")) throw new BioEvidenceUnavailableError();
       body = [target.kind === "unicast" ? 0xcc : 0xcd, 0x12, mode];
       break;
     }
