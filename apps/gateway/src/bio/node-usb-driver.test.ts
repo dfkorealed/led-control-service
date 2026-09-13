@@ -4,12 +4,24 @@ import { NodeUsbDriver, type LegacyUsbApi, type LegacyUsbDevice } from "./node-u
 
 class FakeEndpoint extends EventEmitter {
   readonly descriptor: { bEndpointAddress: number; bmAttributes: number; wMaxPacketSize: number };
-  readonly startPoll = vi.fn();
-  readonly stopPoll = vi.fn((callback: (error?: Error) => void) => callback());
+  pollActive = false;
+  endOnStop = true;
+  readonly startPoll = vi.fn(() => { this.pollActive = true; });
+  readonly stopPoll = vi.fn((callback?: (error?: Error) => void) => {
+    if (!this.pollActive) throw new Error("Polling is not active.");
+    this.pollActive = false;
+    if (callback) this.once("end", callback);
+    if (this.endOnStop) this.emit("end");
+  });
   readonly transfer = vi.fn((_bytes: Buffer, callback: (error?: Error) => void) => callback());
   constructor(address: number, packetSize = 32) {
     super();
     this.descriptor = { bEndpointAddress: address, bmAttributes: 2, wMaxPacketSize: packetSize };
+  }
+  nativePollFailure(error: Error, finish = true): void {
+    this.emit("error", error);
+    this.pollActive = false;
+    if (finish) this.emit("end");
   }
 }
 
@@ -139,6 +151,64 @@ describe("NodeUsbDriver", () => {
     expect(device.close).toHaveBeenCalledTimes(1);
   });
 
+  it("recognizes a native error/end auto-stop without calling stopPoll again", async () => {
+    const { device, input } = fakeDevice();
+    const handle = new NodeUsbDriver(api(device)).findExactDevice();
+    const errors: Error[] = [];
+    handle.open();
+    handle.startInput(() => {}, (error) => errors.push(error));
+
+    input.nativePollFailure(new Error("recoverable input failure"));
+
+    await expect(handle.stopInput()).resolves.toBeUndefined();
+    expect(errors.map(({ message }) => message)).toEqual(["recoverable input failure"]);
+    expect(input.stopPoll).not.toHaveBeenCalled();
+    expect(input.listenerCount("data")).toBe(0);
+    expect(input.listenerCount("error")).toBe(0);
+    expect(input.listenerCount("end")).toBe(0);
+  });
+
+  it("awaits a native auto-stop already in progress and settles concurrent cleanup once", async () => {
+    const { device, input } = fakeDevice();
+    const handle = new NodeUsbDriver(api(device)).findExactDevice();
+    handle.open();
+    handle.startInput(() => {}, () => {});
+    input.nativePollFailure(new Error("recoverable input failure"), false);
+    let settled = 0;
+
+    const first = handle.stopInput().then(() => { settled += 1; });
+    const second = handle.stopInput().then(() => { settled += 1; });
+    await Promise.resolve();
+    expect(settled).toBe(0);
+    expect(input.stopPoll).not.toHaveBeenCalled();
+
+    input.emit("end");
+    await Promise.all([first, second]);
+    expect(settled).toBe(2);
+    expect(input.stopPoll).not.toHaveBeenCalled();
+    expect(input.listenerCount("data")).toBe(0);
+    expect(input.listenerCount("error")).toBe(0);
+    expect(input.listenerCount("end")).toBe(0);
+  });
+
+  it("preserves a genuine stopPoll failure while cleaning listeners once", async () => {
+    const { device, input } = fakeDevice();
+    input.stopPoll.mockImplementation(() => { throw new Error("native stop failed"); });
+    const handle = new NodeUsbDriver(api(device)).findExactDevice();
+    handle.open();
+    handle.startInput(() => {}, () => {});
+
+    const first = handle.stopInput();
+    const second = handle.stopInput();
+
+    await expect(first).rejects.toThrow("native stop failed");
+    await expect(second).rejects.toThrow("native stop failed");
+    expect(input.stopPoll).toHaveBeenCalledTimes(1);
+    expect(input.listenerCount("data")).toBe(0);
+    expect(input.listenerCount("error")).toBe(0);
+    expect(input.listenerCount("end")).toBe(0);
+  });
+
   it("settles callback wrappers once when a native callback fires twice", async () => {
     const { device, input, output, usbInterface } = fakeDevice();
     device.controlTransfer.mockImplementation((_type, _request, _value, _index, dataOrLength, callback) => {
@@ -146,7 +216,11 @@ describe("NodeUsbDriver", () => {
       callback(new Error("late control error"));
     });
     output.transfer.mockImplementation((_bytes, callback) => { callback(); callback(new Error("late output error")); });
-    input.stopPoll.mockImplementation((callback) => { callback(); callback(new Error("late poll error")); });
+    input.stopPoll.mockImplementation((callback) => {
+      if (!callback) throw new Error("Expected stop callback");
+      callback();
+      callback(new Error("late poll error"));
+    });
     usbInterface.release.mockImplementation((_closeEndpoints, callback) => { callback(); callback(new Error("late release error")); });
     const handle = new NodeUsbDriver(api(device)).findExactDevice();
     handle.open();

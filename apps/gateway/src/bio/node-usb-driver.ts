@@ -27,10 +27,13 @@ interface LegacyEndpoint {
   timeout?: number;
   on(event: "data", listener: (bytes: Buffer) => void): unknown;
   on(event: "error", listener: (error: Error) => void): unknown;
+  on(event: "end", listener: () => void): unknown;
   off(event: "data", listener: (bytes: Buffer) => void): unknown;
   off(event: "error", listener: (error: Error) => void): unknown;
+  off(event: "end", listener: () => void): unknown;
 }
 interface LegacyInEndpoint extends LegacyEndpoint {
+  pollActive: boolean;
   startPoll(nTransfers?: number, transferSize?: number): unknown;
   stopPoll(callback?: (error?: Error) => void): void;
 }
@@ -138,7 +141,12 @@ class NodeUsbDeviceHandle implements BioUsbDeviceHandle {
   private output?: LegacyOutEndpoint;
   private inputListener?: (bytes: Buffer) => void;
   private inputErrorListener?: (error: Error) => void;
+  private inputEndListener?: () => void;
   private pollAttempted = false;
+  private pollEnded = false;
+  private pollEnd?: Promise<void>;
+  private resolvePollEnd?: () => void;
+  private stoppingInput?: Promise<void>;
 
   constructor(private readonly device: LegacyUsbDevice, private readonly transferTimeoutMs: number) {}
 
@@ -227,24 +235,60 @@ class NodeUsbDeviceHandle implements BioUsbDeviceHandle {
     if (!input) throw new Error("BIO USB bulk IN endpoint is unavailable");
     this.inputListener = listener;
     this.inputErrorListener = onError;
+    this.pollEnded = false;
+    this.pollEnd = new Promise<void>((resolve) => { this.resolvePollEnd = resolve; });
+    this.inputEndListener = () => {
+      this.pollEnded = true;
+      this.resolvePollEnd?.();
+      this.clearInputListeners(input);
+    };
     input.on("data", listener);
     input.on("error", onError);
+    input.on("end", this.inputEndListener);
     this.pollAttempted = true;
-    input.startPoll(1, BIO_MAX_PACKET_SIZE);
+    try {
+      input.startPoll(1, BIO_MAX_PACKET_SIZE);
+    } catch (error) {
+      if (!input.pollActive) {
+        this.pollEnded = true;
+        this.resolvePollEnd?.();
+        this.clearInputListeners(input);
+      }
+      throw error;
+    }
   }
 
-  async stopInput(): Promise<void> {
+  stopInput(): Promise<void> {
+    this.stoppingInput ??= this.stopInputOnce();
+    return this.stoppingInput;
+  }
+
+  private async stopInputOnce(): Promise<void> {
     const input = this.input;
     if (!input || !this.pollAttempted) return;
     try {
+      if (this.pollEnded) return;
+      if (!input.pollActive) {
+        // usb@2.15.0 sets pollActive=false before emitting end when it
+        // auto-stops after a transfer error. That is an in-progress stop, not
+        // permission to call stopPoll() again or suppress unrelated failures.
+        await this.pollEnd;
+        return;
+      }
       await callbackPromise<void>((done) => input.stopPoll((error) => done(error, undefined)));
     } finally {
-      if (this.inputListener) input.off("data", this.inputListener);
-      if (this.inputErrorListener) input.off("error", this.inputErrorListener);
-      this.inputListener = undefined;
-      this.inputErrorListener = undefined;
+      this.clearInputListeners(input);
       this.pollAttempted = false;
     }
+  }
+
+  private clearInputListeners(input: LegacyInEndpoint): void {
+    if (this.inputListener) input.off("data", this.inputListener);
+    if (this.inputErrorListener) input.off("error", this.inputErrorListener);
+    if (this.inputEndListener) input.off("end", this.inputEndListener);
+    this.inputListener = undefined;
+    this.inputErrorListener = undefined;
+    this.inputEndListener = undefined;
   }
 
   release(): Promise<void> {
