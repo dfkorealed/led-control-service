@@ -128,7 +128,7 @@ test("비활성화된 일반 유저의 현재 세션과 재로그인을 실제 A
   const protectedStatus = await user.evaluate(async () => (await fetch("/api/sites", { credentials: "include" })).status);
   expect(protectedStatus).toBe(401);
   await user.reload();
-  await expect(user.getByRole("heading", { name: "LED Control 로그인" })).toBeVisible();
+  await expect(user.getByRole("heading", { name: "킨다 로그인" })).toBeVisible();
   await login(user, loginId, permanentPassword);
   await expect(user.getByText("아이디 또는 비밀번호를 확인해 주세요.")).toBeVisible();
 

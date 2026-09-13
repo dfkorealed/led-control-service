@@ -64,7 +64,7 @@ describe("operator shell route boundary", () => {
     renderShell();
 
     expect(screen.getByRole("img", { name: "킨다 서비스 운영" })).toBeVisible();
-    expect(screen.queryByText("LED Control")).not.toBeInTheDocument();
+    expect(screen.queryByText(/LED\s+Control/)).not.toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "현장 관리자 계정" })).toBeVisible();
   });
 

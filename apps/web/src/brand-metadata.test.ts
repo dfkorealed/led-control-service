@@ -12,6 +12,6 @@ describe("킨다 브라우저 메타데이터", () => {
       '<link rel="icon" type="image/png" sizes="32x32" href="/brand/favicon-32.png" />',
     );
     expect(html).toContain('<meta name="theme-color" content="#15324A" />');
-    expect(html).not.toContain("LED Control");
+    expect(html).not.toMatch(/LED\s+Control/);
   });
 });

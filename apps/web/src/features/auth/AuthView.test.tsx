@@ -52,7 +52,7 @@ describe("AuthView MFA login", () => {
     const introduction = screen.getByRole("region", { name: "킨다 소개" });
     expect(within(introduction).getByRole("img", { name: "킨다" })).toBeVisible();
     expect(screen.getByRole("heading", { name: "킨다 로그인" })).toBeVisible();
-    expect(screen.queryByText("LED Control")).not.toBeInTheDocument();
+    expect(screen.queryByText(/LED\s+Control/)).not.toBeInTheDocument();
   });
 
   it("일반 로그인 응답은 기존 인증 완료 흐름을 유지한다", async () => {

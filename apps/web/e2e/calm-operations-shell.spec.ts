@@ -28,7 +28,7 @@ for (const viewport of responsiveViewports) {
       await expect(bottomNav).toHaveCount(0);
       await expect(rail).toHaveCSS("width", "92px");
       await expect(topbar).toHaveCSS("min-height", "72px");
-      await expect(page.locator(".brand-mark")).toBeVisible();
+      await expect(page.getByRole("img", { name: "킨다 관제 센터" })).toBeVisible();
       const logout = page.getByRole("button", { name: "로그아웃", exact: true });
       await logout.hover();
       const tooltip = page.getByRole("tooltip", { name: "로그아웃" });

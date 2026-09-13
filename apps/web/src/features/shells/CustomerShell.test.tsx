@@ -79,7 +79,7 @@ describe("customer shell site context", () => {
     renderShell("/monitoring?siteId=site");
 
     expect(screen.getByRole("img", { name: "킨다 관제 센터" })).toBeVisible();
-    expect(screen.queryByText("LED Control")).not.toBeInTheDocument();
+    expect(screen.queryByText(/LED\s+Control/)).not.toBeInTheDocument();
   });
 
   it("keeps navigation and logout available while password settings loads, then preserves its URL", async () => {

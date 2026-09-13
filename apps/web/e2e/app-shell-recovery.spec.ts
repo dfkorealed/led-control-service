@@ -16,7 +16,7 @@ test("browser offline at boot shows recovery and resumes the real shell when con
   await page.goto("/monitoring?siteId=site-1");
   expect(await page.evaluate(() => navigator.onLine)).toBe(false);
   await expectRecovery(page, "서비스에 연결할 수 없습니다");
-  await expect(page.getByRole("heading", { name: "LED Control 로그인" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "킨다 로그인" })).toHaveCount(0);
   expect(api.requests.filter((request) => request === "GET /auth/me")).toHaveLength(0);
   await context.setOffline(false);
   await expect(page.getByRole("combobox", { name: "맵 선택" })).toBeVisible();
@@ -47,7 +47,7 @@ for (const width of [1440, 1024, 390, 320]) {
     await page.goto("/monitoring?siteId=site-1");
     await expectRecovery(page, "서비스에 연결할 수 없습니다");
     expect(authRequests).toBe(3);
-    await expect(page.getByRole("heading", { name: "LED Control 로그인" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "킨다 로그인" })).toHaveCount(0);
     available = true;
     await page.keyboard.press("Tab");
     await expect(page.getByRole("button", { name: "다시 시도" })).toBeFocused();
@@ -84,7 +84,7 @@ test("401 uses the existing login without retry", async ({ page }) => {
     return route.fulfill({ status: 401, json: { message: secret } });
   });
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "LED Control 로그인" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "킨다 로그인" })).toBeVisible();
   expect(requests).toBe(1);
   await expect(page.getByRole("alert")).toHaveCount(0);
 });
@@ -109,7 +109,7 @@ test("403 relogin clears only tenant drafts and reaches login even when logout f
   await page.keyboard.press("Tab");
   await expect(page.getByRole("button", { name: "다시 로그인" })).toBeFocused();
   await page.keyboard.press("Enter");
-  await expect(page.getByRole("heading", { name: "LED Control 로그인" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "킨다 로그인" })).toBeVisible();
   expect(requests).toEqual(["/api/auth/me", "/api/auth/logout"]);
   expect(await page.evaluate(() => localStorage.getItem("unrelated-preference"))).toBe("keep");
 });
@@ -138,7 +138,7 @@ for (const action of ["reload", "relogin"] as const) {
     } else {
       await page.route("**/api/auth/logout", (route) => route.fulfill({ status: 503, json: { message: secret } }));
       await page.getByRole("button", { name: "다시 로그인" }).click();
-      await expect(page.getByRole("heading", { name: "LED Control 로그인" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "킨다 로그인" })).toBeVisible();
       expect(chunkRequests).toBe(1);
       await expect(page.getByRole("alert")).toHaveCount(0);
     }

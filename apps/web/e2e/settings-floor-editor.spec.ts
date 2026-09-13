@@ -345,7 +345,7 @@ test("dirty editor logout keeps the draft on cancel and logs out only after conf
   });
   await page.getByRole("button", { name: "로그아웃" }).click();
 
-  await expect(page.getByRole("heading", { name: "LED Control 로그인" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "킨다 로그인" })).toBeVisible();
   expect(api.logoutRequests).toBe(1);
   await expect.poll(async () => page.evaluate(async () => (await fetch("/api/auth/me")).status)).toBe(401);
 });
@@ -410,7 +410,7 @@ for (const viewport of responsiveViewports.filter(({ width }) => width <= 390)) 
         await dialog.dismiss();
       });
       await page.getByRole("button", { name: "로그아웃" }).click();
-      await expect(page.getByRole("heading", { name: "LED Control 로그인" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "킨다 로그인" })).toBeVisible();
       expect(unexpectedDialogs).toEqual([]);
       expect(api.logoutRequests).toBe(1);
     } finally {
