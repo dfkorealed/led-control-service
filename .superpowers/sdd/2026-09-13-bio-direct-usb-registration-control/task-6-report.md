@@ -215,3 +215,62 @@ git diff --check: exit 0
 - 본 결과는 fake connection/store와 자동 테스트에 근거한 software integration 검증이다.
 - connection retirement가 실제 CH34x/동글의 scan 상태와 delayed byte를 격리하는지는 Task 8 deployment 및 Task 9 승인 HIL에서 확인해야 한다.
 - Task 7 factory/lifecycle/health, Task 8 배포, Task 9 실장비 등록·제어, Task 10 production Web E2E는 여전히 필요하다.
+
+## Third review hardening — 2026-09-13
+
+### Status
+
+DONE_WITH_CONCERNS
+
+Task 6의 counted Important와 인접한 GET cancellation ownership 문제를 Gateway software 범위에서 보완했다. 실제 BIO 동글, Raspberry Pi Gateway, 조명, 운영 MQTT, 배포는 접근하거나 변경하지 않았다. Task 7–10과 승인 HIL이 남아 있으므로 production-complete로 판정하지 않는다.
+
+### Fix base and commit
+
+- Verified clean fix base: `0b6d3f6eb9a52b9d8a66434231227ed0a1b636d4`
+- Implementation fix: `b24a0e4` — `fix(gateway): retire uncertain BIO async ownership`
+- 메뉴 문서와 이 보고서는 동일 fix round의 별도 documentation commit으로 기록한다.
+
+### Review fixes
+
+- scan start outer ACK는 exact accepted status를 decode한 직후, post-ACK cancellation 검사보다 먼저 소유권 callback을 실행한다. ACK 수신과 Promise continuation 사이에 signal이 동기적으로 abort돼도 accepted scan 표식을 잃지 않고 connection generation을 폐기한다.
+- reject status는 scan accepted로 표시하지 않는다. 동기 abort가 함께 발생해도 post-expiry stop write나 불필요한 descriptor retirement를 만들지 않는다.
+- GET outer ACK가 accepted됐지만 matching UUID/address/DPID report가 아직 없으면 caller abort/deadline 및 observation timeout에서 waiter만 제거하지 않고 generation을 폐기한다. close barrier를 기다린 뒤 operation queue를 넘기며 다음 read는 자기 control로 reconnect된 새 세대를 기다린다.
+- 이전 descriptor listener를 제거하고 generation을 올리므로 old connection의 지연 report는 다음 같은 대상 GET을 만족시킬 수 없다. ACK보다 먼저 matching report를 이미 확보한 정상 순서는 불필요하게 폐기하지 않는다.
+- retirement는 ready generation에서 한 번만 `fail/retire`하고 이후 호출은 같은 close barrier를 기다리는 기존 idempotent 경계를 유지한다. listener와 observation timer는 waiter 종료 시 정리하고, retirement 뒤 남는 timer는 reconnect lifecycle 하나뿐이며 client close에서 제거된다.
+- transport queue cancellation, discovery control 전파, observed power truth, identify sensor restore 예외, BlueZ/recovery/virtual group/concurrency 4 계약은 변경하지 않았다.
+
+### Strict RED evidence
+
+ACK 직후 동기 abort 회귀 두 건의 초기 RED:
+
+```text
+Test Files  1 failed (1)
+Tests       2 failed | 59 skipped (61)
+```
+
+두 테스트 모두 이전 fake connection이 계속 open인 실제 결함으로 실패했다. 추가 self-review에서 accepted GET observation timeout도 같은 지연 report 위험을 가진다는 RED를 확인했다.
+
+```text
+Test Files  1 failed (1)
+Tests       1 failed | 62 skipped (63)
+```
+
+### GREEN verification
+
+```text
+BIO dongle client: 63 passed
+transport/client/adapter core: 3 files, 146 passed
+planned focused Task 6: 5 files, 86 passed
+BIO/relevant Gateway/BlueZ: 17 files, 449 passed
+Gateway full suite: 76 files, 960 passed
+Docker contracts: 24 passed, 0 failed
+Gateway typecheck: exit 0
+Gateway build: exit 0, dist/gateway.mjs 568.5kb
+git diff --check: exit 0
+```
+
+### Remaining concerns
+
+- 본 결과는 fake connection/store와 자동 테스트에 근거한 software integration 검증이다.
+- generation retirement와 실제 USB descriptor close가 CH34x/BIO 동글의 지연 scan/report byte를 격리하는지는 Task 8 deployment 및 Task 9 승인 HIL에서 확인해야 한다.
+- Task 7 factory/lifecycle/health, Task 8 배포, Task 9 실장비 등록·제어, Task 10 production Web E2E는 여전히 필요하다.
