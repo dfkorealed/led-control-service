@@ -4,6 +4,8 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 import yaml from "js-yaml";
+import "./gateway-release-ci.test.mjs";
+import "./gateway-release-process.test.mjs";
 
 const root = path.resolve(import.meta.dirname, "..");
 const softwareJobNames = [
@@ -167,6 +169,25 @@ test("production audit cannot skip Docker, MQTT persistence, container, bundle, 
   ]) assert.match(script, new RegExp(escapeRegExp(contract)));
 });
 
+test("production audit protects one canonical Gateway release artifact and restore drill gate", async () => {
+  const workflow = await parseWorkflow("ci.yml");
+  const script = await readFile(path.join(root, "scripts/ci-production-audit.sh"), "utf8");
+  const pkg = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+  assertReleaseGate(workflow, script, pkg);
+  for (const mutation of ["if", "continue-on-error"]) {
+    const altered = structuredClone(workflow);
+    findRunStep(altered.jobs["production-audit"], "pnpm ci:production-audit")[mutation] = true;
+    assert.throws(() => assertReleaseGate(altered, script, pkg), /must not declare/);
+  }
+  assert.throws(() => assertReleaseGate(workflow, script.replace("pnpm gateway:release:ci", "true"), pkg), /exactly once/);
+  assert.throws(() => assertReleaseGate(workflow, script + "\npnpm gateway:release:ci\n", pkg), /exactly once/);
+  for (const timeout of [undefined, 0, 360, "${{ inputs.timeout }}"]) {
+    const altered = structuredClone(workflow);
+    altered.jobs["production-audit"]["timeout-minutes"] = timeout;
+    assert.throws(() => assertReleaseGate(altered, script, pkg), /bounded production audit timeout/);
+  }
+});
+
 test("HIL is manual, protected, serialized, exact-confirmation, and fail-closed before execution", async () => {
   const workflow = await parseWorkflow("hil.yml");
   assert.deepEqual(Object.keys(workflow.on), ["workflow_dispatch"]);
@@ -228,6 +249,23 @@ async function parseWorkflow(name) {
   const parsed = yaml.load(source);
   assert.ok(parsed && typeof parsed === "object" && parsed.jobs, `${name} must parse as a workflow`);
   return parsed;
+}
+
+function assertReleaseGate(workflow, script, pkg) {
+  const job = workflow.jobs["production-audit"];
+  assert.equal(job["timeout-minutes"], 60, "bounded production audit timeout must be 60 minutes");
+  assertCannotBeSkipped(job, "production-audit job");
+  const step = findRunStep(job, "pnpm ci:production-audit");
+  assert.equal(step.name, "Gateway release artifact and restore drill / production audit");
+  assertCannotBeSkipped(step, "Gateway release gate");
+  const buildx = job.steps.find((item) => item.uses === "docker/setup-buildx-action@v3");
+  assert.ok(buildx, "Buildx must be explicitly installed");
+  assertCannotBeSkipped(buildx, "Buildx setup");
+  assert.ok(job.steps.indexOf(buildx) < job.steps.indexOf(step));
+  assert.equal(pkg.scripts["gateway:release:ci"], "node scripts/gateway-release-ci.mjs");
+  assert.equal(script.match(/^pnpm gateway:release:ci$/gm)?.length, 1, "canonical gate must run exactly once, unconditionally");
+  assert.ok(script.indexOf("pnpm gateway:release:ci") < script.indexOf("test:bundle-audit"));
+  assert.equal(stepCommands(job).match(/pnpm gateway:release:ci/g)?.length ?? 0, 0, "workflow must not run the nested gate twice");
 }
 
 function assertSoftwareJobSetup(job, name, { generatePrisma = true } = {}) {

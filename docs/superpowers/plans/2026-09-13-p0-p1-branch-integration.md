@@ -172,10 +172,14 @@ Verification before completing the merge: API observability, readiness, structur
 - Consumes: the common platform hardening base.
 - Produces: signed release bundles, atomic activation/rollback, encrypted backup/restore, and protected release gates.
 
-- [ ] Run `git merge --no-ff codex/p0p1-platform-gateway-release`.
-- [ ] Preserve the already-merged security, deployment, and Gateway release documentation.
-- [ ] Run `git diff --check`, Gateway release contract tests, and Gateway unit tests.
-- [ ] Complete the merge commit.
+- [x] Run `git merge --no-ff codex/p0p1-platform-gateway-release`.
+- [x] Preserve the already-merged security, deployment, and Gateway release documentation.
+- [x] Run `git diff --check`, Gateway release contract tests, and Gateway unit tests.
+- [x] Complete the merge commit.
+
+Integration ruling: retain the deployment/observability operating contract and append the Gateway release/state recovery gate as an independent appliance boundary. The shared operation lock, pending journal recovery, immutable artifact identity, private-material scan, bounded archive profile, and CMS backup/restore requirements remain unchanged; production signing custody, ARM64/Pi activation, power-loss, RF, and HIL are still explicit external gates rather than merge-time actions.
+
+Verification before completing the merge: release bundle, activation/rollback, archive/private-material, and appliance script contracts passed 223/223; Gateway Compose/container contracts passed 30/30; `git diff --check` passed. The full 98-test encrypted state/CMS suite and actual Docker release build are intentionally retained for the final production audit gate because they take roughly 16 minutes and must run once against the completed integrated tree, not once per intermediate merge.
 
 ### Task 8: Reconcile combined documentation and verify the integrated tree
 

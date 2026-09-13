@@ -6,6 +6,24 @@
 - **원인**: Prisma raw Date parameter는 `timestamp with time zone`인데 기존 schema의 DateTime 열은 naive UTC `timestamp`다. PostgreSQL의 암묵 변환이 session timezone을 적용하며, 기본 `CURRENT_TIMESTAMP`를 naive 열에 저장하는 경로도 같은 영향을 받는다. 비 UTC에서 잘못 앞당겨진 due 판단이 주입한 clock과 DB 기본 clock 불일치를 가렸다.
 - **해결 및 예방책**: raw 비교값에 `::timestamptz AT TIME ZONE 'UTC'`를 명시하고, 보고서 cleanup 신규 원장에도 같은 `prune(now)`를 전달한다. 대상 DB 기본값은 순방향 migration에서 UTC로 고정한다. lease 소유권 판정처럼 실제 DB clock을 써야 하는 경계는 의도적으로 분리한다.
 - **반복 방지 체크**: 자체 disposable PostgreSQL의 UTC·Asia/Seoul session에서 cutoff 직전/동일/직후, retry 예정 시각과 여러 sweep 수렴을 검증한다. `pg_typeof`로 실제 bound parameter 타입을 확인하고 기본값 생성 경로도 테스트한다. `TIMESTAMP(3)` 반올림과 JS millisecond 절삭의 최대 1ms 차이는 시계 근접 assertion에서만 허용하며 삭제 cutoff의 정확한 포함/제외 assertion은 완화하지 않는다.
+## 2026-09-13 / 실제 image의 archive·daemon·file 경계를 각각 검증한다
+
+- **발생했던 문제/실수**: Fixture tar만으로는 Docker 29의 gzip blob과 OCI descriptor-valued `.Id`를 재현하지 못했다. 실제 final image는 pnpm의 build-workspace self-reference도 노출했다. 이어 arbitrary DER offset/PEM header와 일반 `*-key` 이름 검사는 Node·crypto library binary, npm 설명 문구, `apt-key`를 개인키 artifact로 오인했다.
+- **해결 및 예방책**: Config SHA, compressed blob SHA, uncompressed diff ID, daemon descriptor ID를 분리하고 실제 load/inspect/run의 container `.Image`까지 결속한다. Runtime inventory 전에는 검증된 build-only self-reference 하나만 제거한다. Content profile v3는 regular file 단위 standalone key/전체 base64/완전한 parseable text PEM을 검사하고 private basename/directory 정책을 일반 public tool 명칭과 구분한다. Complete encrypted-private-key PEM과 strict PKCS#8 EncryptedPrivateKeyInfo DER는 passphrase 없이 구조적으로 거부하고, 일반 암호문·binary 내부 offset·일반 secret·예산 밖 후보는 보장하지 않는다고 명시한다.
+- **반복 방지 체크**: 깨끗한 commit의 실제 image smoke를 fixture 계약 뒤에 실행한다. Gzip corrupt/trailing/oversize·OCI descriptor binding, 정상 library/public SPKI/CA·tool 명칭, 확장자 없는 실제 key 거부와 cleanup을 TDD로 고정하고 실패했던 audit 중단 지점까지 보고한다. Software smoke를 production ARM64/Pi/HIL로 확대하지 않는다.
+
+## 2026-09-13 / Checksum closure와 artifact 진위는 다른 보장이다
+
+- **발생했던 문제/실수**: Image tar와 checksum만 전달하는 절차가 승인된 source/dependency image인지, test-only인지와 별개로 성공처럼 읽힐 수 있었다.
+- **해결 및 예방책**: Full commit·lock hash·config digest·final inventory/SPDX·정적 정책을 immutable bundle로 결속하고 CI가 기본 production verifier의 test-only 거부까지 실제 실행한다. Checksum 전체를 재작성할 수 있는 공격자의 진위를 증명하지는 않으므로 운영 signing·trusted 전달·exact artifact 승인을 별도 관문으로 남긴다. CMS recipient encryption도 producer 서명을 대신하지 않는다.
+- **반복 방지 체크**: 성공한 host smoke를 ARM64/Pi/HIL로 확대하지 않고 실제 artifact identity, platform/test marker, Node/inventory와 default rejection을 함께 기록한다.
+
+## 2026-09-13 / 복구 snapshot과 cleanup도 하나의 소유 경계로 다룬다
+
+- **발생했던 문제/실수**: Gateway와 Mesh만 뜨거운 상태로 tar 복사하면 identity generation·outbox/manifest·automation sidecar가 서로 다른 시점이 될 수 있고, prefix만 맞는 임시 경로를 지우면 unrelated data를 제거할 수 있다.
+- **해결 및 예방책**: Shared lock과 healthy verified baseline 아래 네 root를 quiesce해 암호화한다. Restore는 disposable 검증 뒤 같은 filesystem journal/rename/rollback을 사용한다. Cleanup은 현재 호출이 실제 생성한 경로의 exact physical parent/basename만 확인하고, 실패를 성공으로 숨기지 않는다. State가 TMPDIR을 무시하므로 CI는 실제 mktemp allocation도 관찰해 plaintext 수명을 끝까지 확인한다.
+- **반복 방지 체크**: 실제 ephemeral RSA CMS backup/verify/drill과 closure·권한·live 불변·cleanup assertions를 실행한다. 전체 state 85개를 protected gate에서 직렬 실행해 CMS happy flow뿐 아니라 악성 archive·권한·identity·partial swap·journal rollback도 누락/skip 없이 확인한다. TERM 무시 descendant는 drain→TERM→KILL deadline으로 종료하고 still-live cleanup은 실패로 남긴다.  SIGKILL/power-loss와 journal 이전 orphan은 별도 운영/Linux Pi 검증 한계로 기록한다.
+
 ## 2026-09-12 / Writer 잠금만으로 generated output의 reader 안전을 보장할 수 없다
 - **발생했던 문제/실수**: `packages/shared` build끼리는 owner lock으로 직렬화했지만 각 build가 기존 export를 먼저 지우고 다시 복사했다. 같은 checkout에서 root lint와 test가 겹치자 잠금을 사용하지 않는 Web TypeScript reader가 `@led-control/shared/dimming-command`를 해석하는 순간 declaration이 사라져 `TS2307`로 실패했다.
 - **원인**: pnpm의 outer workspace topology 밖에서 leaf script가 dependency build를 다시 시작했고, writer/writer 직렬화를 writer/reader 격리로 확대 해석했다. 실제 polling에서는 export가 8/8 publish cycle마다 29~220ms 사라졌다.
@@ -684,3 +702,9 @@
 - **원인**: 시간 기반 코드의 암호학적 일치와 한 번만 사용해야 하는 인증 정책을 같은 조건으로 간주했다.
 - **해결 및 예방책**: 검증 함수가 일치한 counter를 반환하고 사용자 행 잠금과 같은 transaction에서 `lastUsedTotpCounter`보다 큰 값만 저장한다. 로그인·등록·해제 경로가 모두 이 규칙을 공유한다.
 - **반복 방지 체크**: 같은 코드의 순차 재사용과 동시 검증에서 하나만 성공하는지, 다음 시간 구간 코드는 성공하는지, 복구 코드는 원자적으로 한 번만 소비되는지 함께 검사한다.
+## 2026-09-13 / 안전한 archive 경로 검증과 자원 사용 상한은 별개다
+
+- **발생했던 문제/실수**: Strict USTAR의 경로·타입·중복·manifest를 검증했지만, 4,097개 작은 entry와 512 MiB+1 일반 파일 합계를 허용했고, 단일 초과 size header도 `dd` 출력 파일을 만든 뒤에야 truncated payload로 거부했다. End blocks 뒤 zero padding도 무제한으로 읽었다.
+- **원인**: Streaming이 전체 메모리 적재를 피한다는 사실을 CPU·파일 수·disk 소비의 상한으로 오해했고, manifest 16 MiB 제한을 전체 payload 제한으로 취급했다.
+- **해결 및 예방책**: Nonzero header count를 field 처리 전에, per-file/aggregate size를 payload I/O 전에 고정 상수로 검사한다. Regular 합계와 framing/header/padding/end-block 예산을 분리하며 trailer도 limit+1만 읽는다. Backup은 정확한 future manifest 포함 metadata 예산을 quiesce 전에 같은 profile로 검사한다. 한도 초과 시 데이터 삭제나 부분 백업 대신 operator capacity 조치를 요구한다.
+- **반복 방지 체크**: 실제 ephemeral CMS/USTAR production-boundary RED를 먼저 남기고, permanent CI는 exact production constants를 검증한 disposable script copy만 작은 상수로 치환해 같은 parser/I/O 경계를 빠르게 실행한다. Production env/CLI override는 만들지 않는다. 실제 64+64+100 MiB 운영 크기 acceptance·plaintext cleanup·live 무변경은 원본 shell로 검증하고 protected full-suite exact count에 새 회귀를 포함한다.

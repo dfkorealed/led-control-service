@@ -3,81 +3,25 @@ set -euo pipefail
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 if (($# < 1 || $# > 2)); then
-  echo "사용법: scripts/gateway-appliance-deploy.sh <user@raspberry-pi> [image.tar]" >&2
+  echo '사용법: scripts/gateway-appliance-deploy.sh <user@raspberry-pi> [bundle-dir]' >&2
   exit 2
 fi
 TARGET=$1
-ARCHIVE=${2:-$(find "$ROOT_DIR/dist/gateway-appliance" -name '*-linux-arm64.tar' -type f -print 2>/dev/null | sort | tail -n 1)}
-[ -n "$ARCHIVE" ] && [ -f "$ARCHIVE" ] || { echo "배포할 ARM64 image archive가 없습니다." >&2; exit 1; }
-[ -f "$ARCHIVE.sha256" ] || { echo "$ARCHIVE.sha256 파일이 없습니다." >&2; exit 1; }
-[ -f "$ARCHIVE.env" ] || { echo "$ARCHIVE.env 파일이 없습니다." >&2; exit 1; }
-
-ARCHIVE_DIR=$(dirname "$ARCHIVE")
-ARCHIVE_NAME=$(basename "$ARCHIVE")
-if command -v sha256sum >/dev/null; then
-  (cd "$ARCHIVE_DIR" && sha256sum -c "$ARCHIVE_NAME.sha256")
-else
-  (cd "$ARCHIVE_DIR" && shasum -a 256 -c "$ARCHIVE_NAME.sha256")
+[[ "$TARGET" =~ ^[A-Za-z0-9_.-]+@[A-Za-z0-9_.:-]+$ ]] || { echo '잘못된 SSH 대상입니다.' >&2; exit 2; }
+BUNDLE=${2:-}
+if [ -z "$BUNDLE" ]; then
+  BUNDLE=$(find "$ROOT_DIR/dist/gateway-appliance" -mindepth 1 -maxdepth 1 -type d ! -name '.*' -print 2>/dev/null | sort | tail -n 1)
 fi
-
-REMOTE_DIR=/opt/led-control/gateway
-# Existing identity keys are owned by the container's gateway user. Only prepare
-# directory entries here; recursive chown would make 0600 device keys unreadable.
-ssh "$TARGET" "sudo install -d -m 0750 -o \"\$USER\" -g \"\$(id -gn)\" $REMOTE_DIR $REMOTE_DIR/docker $REMOTE_DIR/data $REMOTE_DIR/data/gateway $REMOTE_DIR/data/mesh $REMOTE_DIR/data/identity $REMOTE_DIR/data/factory-trust"
-scp \
-  "$ARCHIVE" "$ARCHIVE.sha256" "$ARCHIVE.env" \
-  "$ROOT_DIR/apps/gateway/compose.raspberry-pi.yml" \
-  "$ROOT_DIR/apps/gateway/docker/seccomp-bluez-mesh.json" \
-  "$ROOT_DIR/apps/gateway/.env.appliance.example" \
-  "$TARGET:/tmp/"
-
-ssh "$TARGET" bash -s -- "$REMOTE_DIR" "$ARCHIVE_NAME" <<'REMOTE'
-set -euo pipefail
-REMOTE_DIR=$1
-ARCHIVE_NAME=$2
-mv "/tmp/$ARCHIVE_NAME" "/tmp/$ARCHIVE_NAME.sha256" "/tmp/$ARCHIVE_NAME.env" "$REMOTE_DIR/"
-mv /tmp/compose.raspberry-pi.yml "$REMOTE_DIR/compose.yml"
-mv /tmp/seccomp-bluez-mesh.json "$REMOTE_DIR/docker/seccomp-bluez-mesh.json"
-mv /tmp/.env.appliance.example "$REMOTE_DIR/.env.appliance.example"
-cd "$REMOTE_DIR"
-sha256sum -c "$ARCHIVE_NAME.sha256"
-docker image load --input "$ARCHIVE_NAME"
-
-if [ ! -f .env.appliance ]; then
-  echo "$REMOTE_DIR/.env.appliance를 .env.appliance.example 기준으로 작성한 뒤 다시 실행하세요." >&2
-  exit 2
-fi
-for file in device.crt device.key api-ca.crt mqtt-ca.crt; do
-  sudo test -s "data/identity/device/current/$file" || { echo "제조 identity 누락: $REMOTE_DIR/data/identity/device/current/$file" >&2; exit 2; }
-done
-
-set -a
-. "./$ARCHIVE_NAME.env"
-set +a
-
-upsert_env_value() {
-  key=$1
-  value=$2
-  temporary=$(mktemp ".env.appliance.tmp.XXXXXX")
-  awk -v key="$key" 'substr($0, 1, length(key) + 1) != key "=" { print }' .env.appliance > "$temporary"
-  printf '%s=%s\n' "$key" "$value" >> "$temporary"
-  chmod --reference=.env.appliance "$temporary"
-  mv "$temporary" .env.appliance
-}
-
-# Compose가 다음 재시작에서도 방금 검증·load한 immutable image를 선택하도록
-# archive metadata를 장비 설정에 남긴다. 기존 site/identity 설정은 그대로 보존한다.
-upsert_env_value GATEWAY_IMAGE_REPOSITORY "$GATEWAY_IMAGE_REPOSITORY"
-upsert_env_value GATEWAY_IMAGE_TAG "$GATEWAY_IMAGE_TAG"
-docker compose --env-file .env.appliance -f compose.yml up -d --remove-orphans
-
-for _ in $(seq 1 60); do
-  STATUS=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}starting{{end}}' led-control-gateway 2>/dev/null || true)
-  [ "$STATUS" = healthy ] && { docker compose -f compose.yml ps; exit 0; }
-  [ "$STATUS" = unhealthy ] && break
-  sleep 2
-done
-docker compose -f compose.yml ps
-docker compose -f compose.yml logs --tail=100 gateway-appliance
-exit 1
-REMOTE
+[ -n "$BUNDLE" ] && [ -d "$BUNDLE" ] && [ ! -L "$BUNDLE" ] || { echo 'immutable release bundle directory가 필요합니다.' >&2; exit 1; }
+BUNDLE_NAME=$(basename "$BUNDLE")
+[[ "$BUNDLE_NAME" =~ ^[A-Za-z0-9_.+-]+$ ]] || { echo 'bundle directory 이름이 안전하지 않습니다.' >&2; exit 1; }
+# Trusted manager and policy digest come from the checkout, never the bundle.
+POLICY_SHA=$(sha256sum "$ROOT_DIR/apps/gateway/release-policy.json")
+POLICY_SHA=${POLICY_SHA%% *}
+MANAGER=$ROOT_DIR/scripts/gateway-appliance-release.sh
+/bin/bash "$MANAGER" verify "$BUNDLE" --policy-sha256 "$POLICY_SHA"
+REMOTE_STAGE=$(ssh "$TARGET" 'mktemp -d /tmp/led-control-gateway-upload.XXXXXX')
+[[ "$REMOTE_STAGE" =~ ^/tmp/led-control-gateway-upload\.[A-Za-z0-9]+$ ]] || { echo '원격 staging 경로를 확인할 수 없습니다.' >&2; exit 1; }
+# No identity, site env, private key or obsolete loose artifact is transmitted.
+scp -r "$BUNDLE" "$MANAGER" "$ROOT_DIR/scripts/gateway-appliance-common.sh" "$TARGET:$REMOTE_STAGE/"
+ssh "$TARGET" "sudo /bin/bash '$REMOTE_STAGE/gateway-appliance-release.sh' activate '$REMOTE_STAGE/$BUNDLE_NAME' --policy-sha256 '$POLICY_SHA'"

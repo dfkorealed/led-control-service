@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
-import { spawn } from "node:child_process";
+import { lstat, mkdir, mkdtemp, readFile, readlink, rm, symlink, writeFile } from "node:fs/promises";
+import { spawn, spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
@@ -60,6 +61,34 @@ test("appliance build context는 shared 패키지의 실제 build entry를 포�
   assert.match(dockerfile, /COPY packages\/shared\/tsconfig\.esm\.json packages\/shared\/tsconfig\.esm\.json/);
   assert.match(dockerfile, /pnpm --filter @led-control\/shared build/);
   assert.match(dockerfile, /pnpm --filter @led-control\/automation-engine build/);
+});
+
+test("runtime packaging removes only pnpm's exact build-workspace Gateway symlink before inventory", async t => {
+  const dockerfile = await readFile(path.join(dockerDir, "Dockerfile"), "utf8");
+  const unlink = dockerfile.split("\n\n").find(block => block.includes("unlink /tmp/gateway-runtime"))?.match(/RUN [\s\S]*/)?.[0];
+  assert.ok(unlink, "runtime symlink check/removal command required");
+  expectOrder(dockerfile, "deploy --prod /tmp/gateway-runtime", unlink);
+  expectOrder(dockerfile, unlink, "COPY --from=app-builder /tmp/gateway-runtime/node_modules");
+  // Do not weaken inventory's dangling/escaping dependency checks or silently
+  // prune arbitrary dependencies to hide the real-image packaging regression.
+  assert.doesNotMatch(dockerfile, /find[^\n]*-xtype l[^\n]*-delete/);
+  for (const kind of ["expected", "wrong-target", "regular", "directory", "missing"]) await t.test(kind, async t => {
+    const runtime = await mkdtemp(path.join(tmpdir(), "gateway-runtime-contract-"));
+    t.after(() => rm(runtime, { recursive: true, force: true }));
+    const entry = path.join(runtime, "node_modules/.pnpm/node_modules/@led-control/gateway");
+    await mkdir(path.dirname(entry), { recursive: true });
+    if (kind === "expected" || kind === "wrong-target") await symlink(kind === "expected" ? "../../../../../../workspace/apps/gateway" : "../../different-package", entry);
+    if (kind === "regular") await writeFile(entry, "must not be removed");
+    if (kind === "directory") await mkdir(entry);
+    const result = spawnSync("/bin/sh", ["-c", unlink.replace(/^RUN /, "").replaceAll("/tmp/gateway-runtime", runtime)], { encoding: "utf8" });
+    if (kind === "expected") { assert.equal(result.status, 0, result.stderr); await assert.rejects(lstat(entry), { code: "ENOENT" }); }
+    else {
+      assert.notEqual(result.status, 0, "unexpected pnpm layout must fail the image build");
+      if (kind === "wrong-target") assert.equal(await readlink(entry), "../../different-package");
+      if (kind === "regular") assert.equal(await readFile(entry, "utf8"), "must not be removed");
+      if (kind === "directory") assert.equal((await lstat(entry)).isDirectory(), true);
+    }
+  });
 });
 
 test("appliance image는 bluetoothd 없이 배포판 kernel management btmgmt를 포함한다", async () => {

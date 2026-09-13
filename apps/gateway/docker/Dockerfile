@@ -32,6 +32,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends procps \
 RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
 WORKDIR /workspace
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY patches patches
 COPY apps/gateway/package.json apps/gateway/package.json
 COPY packages/automation-engine/package.json packages/automation-engine/package.json
 COPY packages/shared/package.json packages/shared/package.json
@@ -52,6 +53,13 @@ RUN pnpm --filter @led-control/shared build \
       --outfile=/tmp/gateway.mjs \
     && pnpm --filter @led-control/gateway deploy --prod /tmp/gateway-runtime \
     && find /tmp/gateway-runtime/node_modules -type f -name '*.md' -delete
+
+# pnpm 9 also links this package back to /workspace/apps/gateway. Only the
+# bundled entrypoint and dependencies ship, so that build-only self-reference
+# would dangle after COPY. Leave every dependency link to strict inventory.
+RUN test -L /tmp/gateway-runtime/node_modules/.pnpm/node_modules/@led-control/gateway \
+    && test "$(readlink /tmp/gateway-runtime/node_modules/.pnpm/node_modules/@led-control/gateway)" = "../../../../../../workspace/apps/gateway" \
+    && unlink /tmp/gateway-runtime/node_modules/.pnpm/node_modules/@led-control/gateway
 
 RUN pnpm --filter @led-control/gateway exec esbuild scripts/manufacturing-enroll.ts \
       --bundle --platform=node --format=esm --target=node22 --outfile=/tmp/manufacturing-enroll.mjs
@@ -82,6 +90,18 @@ RUN chmod 0755 /usr/local/bin/gateway-entrypoint /usr/local/bin/gateway-healthch
     && chmod 0755 /usr/local/bin/btmgmt /usr/local/bin/manufacturing-enroll.mjs \
     && mkdir -p /var/lib/led-control/identity /var/lib/bluetooth/mesh /run/dbus \
     && chown -R gateway:gateway /var/lib/led-control
+
+# The build/CI wrapper sets full-commit OCI version/revision/source and exact
+# firmware/BlueZ policy labels, then verifies them against this image's config.
+LABEL org.opencontainers.image.title="LED Control Gateway" \
+      com.led-control.inventory.schema="led-control-gateway-inventory/v1"
+# Generate the inventory from installed runtime packages, not the lockfile or
+# builder packages. Keep it in the image so bundle verification can bind SPDX
+# contents to config digest -> layer digests -> these exact inventory bytes.
+COPY scripts/gateway-release-bundle.mjs /tmp/gateway-release-bundle.mjs
+RUN node /tmp/gateway-release-bundle.mjs inventory \
+      --root /opt/led-control --output /usr/local/share/gateway-release-inventory.json \
+    && rm /tmp/gateway-release-bundle.mjs
 
 ENV NODE_ENV=production
 ENV DBUS_SYSTEM_BUS_ADDRESS=unix:path=/run/dbus/system_bus_socket

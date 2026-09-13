@@ -1,0 +1,5 @@
+# Task 3 independent review — eefe471
+
+Below is the review text supplied by the orchestrator, preserved verbatim.
+
+리뷰 전문 요지(그대로 기록): Spec compliance 대부분 구현됐으나 Important 3건으로 완료 보류. Strengths: production no Node/Python/jq; common source side-effect test pass; CMS streaming/exact outer closure/recipient binding/inner manifest regeneration/identity modes clear; shared flock/cross-journal/four-root rollback/committed cleanup structure. Important 1: state.sh path validator allows 100-byte dir but tar trailing slash causes USTAR prefix and parser rejection; backup exit0 then verify exit1. Producer/parser limits align, boundary regression. Important 2: TMPDIR=$DATA_DIR/gateway makes restore move its workspace with live root, exit3+journal; verify/drill writes plaintext live. Trusted temp or overlap reject, recovery same. Important 3: journal nested WORKSPACE/STAGE accepted by prefix+basename and recursive-deletes sentinel; exact dirname and cleanup revalidation. Minor: crash tests only some phases, rename-before-phase/rollback/committed cleanup gaps; GNU/Linux durability untested. Ready No.
