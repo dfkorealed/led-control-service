@@ -20,7 +20,7 @@ export function prepareDevelopmentRuntime(root, sourceEnv, { run = defaultRun } 
   const aclPath = join(mqttRuntimeDirectory, "mosquitto.acl");
   const nativeConfigPath = join(localDirectory, "mosquitto.host.conf");
   mkdirSync(localDirectory, { recursive: true });
-  mkdirSync(mqttRuntimeDirectory, { mode: 0o755 });
+  ensureMosquittoRuntimeDirectory(mqttRuntimeDirectory);
   // Claims update product state only. Both supported dev launch paths call this
   // before broker startup so the file-backed ACL is never a stale wildcard or
   // a previous Gateway allowlist, including when the new list is empty.
@@ -28,6 +28,22 @@ export function prepareDevelopmentRuntime(root, sourceEnv, { run = defaultRun } 
   writeFileSync(nativeConfigPath, renderMosquittoConfig(root, env), { mode: 0o600 });
   chmodSync(nativeConfigPath, 0o600);
   return { env, gatewayIds, aclPath, nativeConfigPath };
+}
+
+function ensureMosquittoRuntimeDirectory(directory) {
+  let created = false;
+  try {
+    mkdirSync(directory, { mode: 0o755 });
+    created = true;
+  } catch (error) {
+    if (error?.code !== "EEXIST") throw error;
+  }
+  // dev:local prepares before docker:up, and dev.mjs deliberately prepares
+  // again before it reloads an already-running broker. Only normalize a
+  // directory created by this call (the umask may narrow its mode); the ACL
+  // publisher strictly validates every pre-existing path instead of silently
+  // repairing a symlink, foreign owner, or unsafe mode.
+  if (created) chmodSync(directory, 0o755);
 }
 
 function ensureDevelopmentPki(root, env, gatewayIds, externalPki, run) {

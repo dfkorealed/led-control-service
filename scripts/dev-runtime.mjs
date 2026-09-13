@@ -6,6 +6,7 @@ import {
   lstatSync,
   openSync,
   readFileSync,
+  realpathSync,
   renameSync,
   rmSync,
   watch as watchFile,
@@ -195,7 +196,17 @@ export function publishMosquittoAcl(destination, gatewayIds) {
   if (!parentStatus.isDirectory() || parentStatus.isSymbolicLink()) {
     throw new Error("Mosquitto ACL parent must be a regular directory, not a symlink");
   }
-  chmodSync(parent, 0o755);
+  const expectedRealParent = join(realpathSync(dirname(parent)), basename(parent));
+  if (realpathSync(parent) !== expectedRealParent) {
+    throw new Error("Mosquitto ACL parent must be a regular directory, not a symlink");
+  }
+  const parentMode = parentStatus.mode & 0o777;
+  if (parentMode !== 0o755) {
+    throw new Error("Mosquitto ACL parent must have mode 0755");
+  }
+  if (typeof process.getuid === "function" && parentStatus.uid !== process.getuid()) {
+    throw new Error("Mosquitto ACL parent must be owned by the invoking user");
+  }
   try {
     const destinationStatus = lstatSync(destination);
     if (!destinationStatus.isFile() || destinationStatus.isSymbolicLink()) {

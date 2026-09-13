@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createConnection, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -27,6 +27,7 @@ test("native broker reload는 제거·빈 allowlist를 즉시 거부하고 API i
   let broker;
   mkdirSync(local, { recursive: true });
   mkdirSync(runtime, { recursive: true });
+  chmodSync(runtime, 0o755);
   mkdirSync(pki, { recursive: true });
   try {
     createCertificates(pki);
@@ -69,7 +70,7 @@ test("native broker reload는 제거·빈 allowlist를 즉시 거부하고 API i
   }
 });
 
-test("Docker directory bind는 UID 1883이 새 ACL inode를 읽고 제거·빈 allowlist를 reload한다", {
+test("Docker directory bind는 호출 UID가 비밀키와 새 ACL inode를 읽고 제거·빈 allowlist를 reload한다", {
   skip: process.env.DEV_MQTT_ACL_INTEGRATION === "1" ? false : "set DEV_MQTT_ACL_INTEGRATION=1 for the Docker Mosquitto fixture"
 }, async () => {
   const root = mkdtempSync(join(tmpdir(), "led-control-acl-docker-"));
@@ -80,7 +81,10 @@ test("Docker directory bind는 UID 1883이 새 ACL inode를 읽고 제거·빈 a
   const port = await freePort();
   const container = `led-control-acl-${process.pid}-${port}`;
   const publisherBinary = commandPath("mosquitto_pub");
+  const invokingUid = process.getuid();
+  const invokingGid = process.getgid();
   mkdirSync(runtime, { recursive: true });
+  chmodSync(runtime, 0o755);
   mkdirSync(config, { recursive: true });
   mkdirSync(pki, { recursive: true });
   try {
@@ -98,14 +102,19 @@ test("Docker directory bind는 UID 1883이 새 ACL inode를 읽고 제거·빈 a
       "persistence false",
       ""
     ].join("\n"), { mode: 0o644 });
+    assert.equal(statSync(join(pki, "broker.key")).mode & 0o777, 0o600);
     execFileSync("docker", [
-      "run", "-d", "--name", container, "-p", `127.0.0.1:${port}:8883`,
+      "run", "-d", "--name", container, "--user", `${invokingUid}:${invokingGid}`,
+      "-p", `127.0.0.1:${port}:8883`,
       "-v", `${config}:/mosquitto/config:ro`, "-v", `${runtime}:/mosquitto/runtime:ro`,
       "-v", `${pki}:/mosquitto/certs:ro`, "eclipse-mosquitto:2"
     ], { stdio: "ignore" });
     await waitForPort(port);
 
-    assert.equal(execFileSync("docker", ["exec", "-u", "1883:1883", container, "cat", "/mosquitto/runtime/mosquitto.acl"], { encoding: "utf8" }), readFileSync(aclPath, "utf8"));
+    assert.equal(containerProcessUid(container), String(invokingUid));
+    execFileSync("docker", ["exec", container, "test", "-r", "/mosquitto/certs/broker.key"]);
+    assert.equal(execFileSync("docker", ["exec", container, "stat", "-c", "%a", "/mosquitto/certs/broker.key"], { encoding: "utf8" }).trim(), "600");
+    assert.equal(execFileSync("docker", ["exec", container, "cat", "/mosquitto/runtime/mosquitto.acl"], { encoding: "utf8" }), readFileSync(aclPath, "utf8"));
     const oldInode = containerInode(container);
     publishMosquittoAcl(aclPath, [ALLOWED_ID]);
     const newInode = containerInode(container);
@@ -157,6 +166,14 @@ function commandPath(command) {
 
 function containerInode(container) {
   return execFileSync("docker", ["exec", container, "stat", "-c", "%i", "/mosquitto/runtime/mosquitto.acl"], { encoding: "utf8" }).trim();
+}
+
+function containerProcessUid(container) {
+  return execFileSync(
+    "docker",
+    ["exec", container, "sh", "-c", "awk '/^Uid:/ { print $2; exit }' /proc/1/status"],
+    { encoding: "utf8" }
+  ).trim();
 }
 
 async function freePort() {

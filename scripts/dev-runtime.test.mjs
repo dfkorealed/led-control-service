@@ -172,7 +172,8 @@ test("Mosquitto ACL은 전용 0755 디렉터리에 원자 게시되고 container
   const first = "11111111-1111-4111-8111-111111111111";
   const second = "22222222-2222-4222-8222-222222222222";
   try {
-    mkdirSync(runtime, { mode: 0o700 });
+    mkdirSync(runtime, { mode: 0o755 });
+    chmodSync(runtime, 0o755);
     publishMosquittoAcl(destination, [second, first, second]);
 
     assert.equal(readFileSync(destination, "utf8"), renderMosquittoAcl([first, second]));
@@ -184,11 +185,26 @@ test("Mosquitto ACL은 전용 0755 디렉터리에 원자 게시되고 container
   }
 });
 
+test("Mosquitto ACL 게시기는 기존 runtime 디렉터리의 안전하지 않은 권한을 고치지 않고 거부한다", () => {
+  const directory = mkdtempSync(join(tmpdir(), "led-control-acl-mode-"));
+  const runtime = join(directory, "runtime");
+  try {
+    mkdirSync(runtime, { mode: 0o700 });
+    chmodSync(runtime, 0o700);
+
+    assert.throws(() => publishMosquittoAcl(join(runtime, "mosquitto.acl"), []), /mode 0755/i);
+    assert.equal(statSync(runtime).mode & 0o777, 0o700);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("Mosquitto ACL 게시기는 symlink parent와 symlink destination을 거부한다", () => {
   const directory = mkdtempSync(join(tmpdir(), "led-control-acl-path-"));
   const real = join(directory, "real");
   const linked = join(directory, "linked");
   mkdirSync(real);
+  chmodSync(real, 0o755);
   symlinkSync(real, linked);
   try {
     assert.throws(() => publishMosquittoAcl(join(linked, "mosquitto.acl"), []), /regular directory.*symlink/i);
@@ -205,7 +221,7 @@ test("Mosquitto ACL 게시기는 symlink parent와 symlink destination을 거부
   }
 });
 
-test("prepare-only 실행은 앱이나 broker를 시작하지 않고 ACL과 native config를 먼저 게시한다", () => {
+test("prepare-only 실행은 연속 두 번에도 ACL을 원자 재게시하고 앱이나 broker를 시작하지 않는다", () => {
   const directory = mkdtempSync(join(tmpdir(), "led-control-prepare-"));
   const bundle = join(directory, "bundle");
   const started = [];
@@ -219,18 +235,28 @@ test("prepare-only 실행은 앱이나 broker를 시작하지 않고 ACL과 nati
     "mqtt-client.crl"
   ]) writeFileSync(join(bundle, filename), "fixture");
   try {
-    const prepared = prepareDevelopmentRuntime(directory, {
+    const source = {
       PKI_LAB_CURRENT_DIR: bundle,
       DEV_GATEWAY_IDS: "22222222-2222-4222-8222-222222222222,11111111-1111-4111-8111-111111111111"
-    }, { run: (...args) => started.push(args) });
+    };
+    const firstPrepared = prepareDevelopmentRuntime(directory, source, { run: (...args) => started.push(args) });
+    const firstAcl = readFileSync(firstPrepared.aclPath, "utf8");
+    const firstInode = statSync(firstPrepared.aclPath).ino;
+    const prepared = prepareDevelopmentRuntime(directory, source, { run: (...args) => started.push(args) });
 
     assert.deepEqual(prepared.gatewayIds, [
       "11111111-1111-4111-8111-111111111111",
       "22222222-2222-4222-8222-222222222222"
     ]);
+    assert.equal(prepared.aclPath, firstPrepared.aclPath);
+    assert.equal(readFileSync(prepared.aclPath, "utf8"), firstAcl);
+    assert.notEqual(statSync(prepared.aclPath).ino, firstInode);
     assert.match(readFileSync(join(directory, ".local", "mosquitto-runtime", "mosquitto.acl"), "utf8"), /^user api-service$/m);
     assert.match(readFileSync(join(directory, ".local", "mosquitto.host.conf"), "utf8"), /acl_file .*\.local\/mosquitto-runtime\/mosquitto\.acl/);
     assert.equal(statSync(join(directory, ".local", "mosquitto-runtime")).mode & 0o777, 0o755);
+    if (typeof process.getuid === "function") {
+      assert.equal(statSync(join(directory, ".local", "mosquitto-runtime")).uid, process.getuid());
+    }
     assert.equal(statSync(join(directory, ".local", "mosquitto-runtime", "mosquitto.acl")).mode & 0o777, 0o644);
     assert.deepEqual(started, []);
   } finally {
@@ -288,9 +314,12 @@ test("기본 pnpm dev는 실제 장비 시험을 위해 mock gateway를 실행�
 
 test("통합 로컬 개발 명령은 ACL prepare를 Docker 시작보다 먼저 완료한다", () => {
   const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  const developmentSource = readFileSync(new URL("./dev.mjs", import.meta.url), "utf8");
 
   assert.equal(packageJson.scripts["dev:local"], "pnpm dev:prepare && pnpm docker:up && pnpm dev");
   assert.equal(packageJson.scripts["dev:prepare"], "node scripts/dev-prepare.mjs");
+  assert.match(packageJson.scripts.dev, /node scripts\/dev\.mjs/);
+  assert.match(developmentSource, /prepareDevelopmentRuntime\(root, sourceEnv\)/);
 });
 
 test("루트 전체 테스트는 shared 산출물 준비와 consumer lifetime을 workspace gate로 보호한다", () => {
