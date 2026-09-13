@@ -1067,8 +1067,8 @@ describe("startGatewayRuntime", () => {
     ]);
   });
 
-  it("keeps BIO mismatch mode metadata and exposes only its real table-backed brightness for publication", () => {
-    const known = observedFixtureResults({
+  it("keeps BIO mismatch metadata but requires an exact force mode before publication", () => {
+    const sensor = observedFixtureResults({
       fixtureStateObserved: true,
       observedFixtureIds: [scopedFixtureId],
       fixtureObservations: [{ fixtureId: scopedFixtureId, brightness: 38, mode: "sensor" }],
@@ -1081,32 +1081,47 @@ describe("startGatewayRuntime", () => {
         }]
       }
     } as never);
-    const unknown = observedFixtureResults({
-      fixtureStateObserved: false,
-      observedFixtureIds: [],
-      fixtureObservations: [{ fixtureId: scopedFixtureId, mode: "force-on" }],
+    const forced = observedFixtureResults({
+      fixtureStateObserved: true,
+      observedFixtureIds: [scopedFixtureId],
+      fixtureObservations: [{ fixtureId: scopedFixtureId, brightness: 38, mode: "force-on" }],
       deviceStatus: {
         results: [{
           fixtureId: scopedFixtureId,
           status: "failed",
-          faultCode: "BIO_CONTROL_MODE_STATE_MISMATCH"
+          brightness: 38,
+          faultCode: "BIO_BRIGHTNESS_STATE_MISMATCH"
+        }]
+      }
+    } as never);
+    const unknown = observedFixtureResults({
+      fixtureStateObserved: true,
+      observedFixtureIds: [scopedFixtureId],
+      fixtureObservations: [{ fixtureId: scopedFixtureId, brightness: 38 }],
+      deviceStatus: {
+        results: [{
+          fixtureId: scopedFixtureId,
+          status: "failed",
+          brightness: 38,
+          faultCode: "BIO_BRIGHTNESS_STATE_MISMATCH"
         }]
       }
     } as never);
 
-    expect(known).toEqual([{
+    expect(sensor).toEqual([]);
+    expect(forced).toEqual([{
       fixtureId: scopedFixtureId,
       status: "failed",
       brightness: 38,
-      mode: "sensor",
-      faultCode: "BIO_CONTROL_MODE_STATE_MISMATCH"
+      mode: "force-on",
+      faultCode: "BIO_BRIGHTNESS_STATE_MISMATCH"
     }]);
     expect(unknown).toEqual([]);
   });
 
-  it("publishes a BIO mismatch with real brightness and never substitutes requested brightness for a mode-only mismatch", async () => {
+  it("publishes BIO power only from exact force mode and suppresses missing or sensor mode", async () => {
     const publish = vi.fn().mockResolvedValue(undefined);
-    const next = vi.fn().mockResolvedValueOnce(31);
+    const next = vi.fn().mockResolvedValueOnce(31).mockResolvedValueOnce(32);
     await publishObservedDeviceStates({
       siteId: scopedSiteId,
       gatewayId: scopedGatewayId,
@@ -1128,25 +1143,54 @@ describe("startGatewayRuntime", () => {
       eventSequence: { next },
       publish,
       result: {
-        fixtureStateObserved: false,
-        observedFixtureIds: [],
-        fixtureObservations: [{ fixtureId: scopedFixtureId, mode: "force-on" }],
+        fixtureStateObserved: true,
+        observedFixtureIds: [scopedFixtureId],
+        fixtureObservations: [{ fixtureId: scopedFixtureId, brightness: 38 }],
         deviceStatus: {
           occurredAt: "2026-09-13T00:00:01.000Z",
-          results: [{ fixtureId: scopedFixtureId, status: "failed", faultCode: "BIO_CONTROL_MODE_STATE_MISMATCH" }]
+          results: [{ fixtureId: scopedFixtureId, status: "failed", brightness: 38, faultCode: "BIO_BRIGHTNESS_STATE_MISMATCH" }]
         }
       } as never
     });
+    for (const [mode, occurredAt] of [["force-on", "2026-09-13T00:00:02.000Z"], ["force-off", "2026-09-13T00:00:03.000Z"]] as const) {
+      await publishObservedDeviceStates({
+        siteId: scopedSiteId,
+        gatewayId: scopedGatewayId,
+        eventSequence: { next },
+        publish,
+        result: {
+          fixtureStateObserved: true,
+          observedFixtureIds: [scopedFixtureId],
+          fixtureObservations: [{ fixtureId: scopedFixtureId, brightness: 38, mode }],
+          deviceStatus: {
+            occurredAt,
+            results: [{ fixtureId: scopedFixtureId, status: "failed", brightness: 38, faultCode: "BIO_BRIGHTNESS_STATE_MISMATCH" }]
+          }
+        } as never
+      });
+    }
 
-    expect(publish).toHaveBeenCalledTimes(1);
-    expect(publish).toHaveBeenCalledWith(
+    expect(publish).toHaveBeenCalledTimes(2);
+    expect(publish).toHaveBeenNthCalledWith(
+      1,
       `sites/${scopedSiteId}/gateways/${scopedGatewayId}/state/fixtures`,
       expect.objectContaining({
         fixtureId: scopedFixtureId,
         brightness: 38,
         powerOn: true,
         status: "fault",
-        faultCode: "BIO_CONTROL_MODE_STATE_MISMATCH"
+        faultCode: "BIO_BRIGHTNESS_STATE_MISMATCH"
+      })
+    );
+    expect(publish).toHaveBeenNthCalledWith(
+      2,
+      `sites/${scopedSiteId}/gateways/${scopedGatewayId}/state/fixtures`,
+      expect.objectContaining({
+        fixtureId: scopedFixtureId,
+        brightness: 38,
+        powerOn: false,
+        status: "fault",
+        faultCode: "BIO_BRIGHTNESS_STATE_MISMATCH"
       })
     );
   });

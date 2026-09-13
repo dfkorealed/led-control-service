@@ -656,7 +656,7 @@ describe("handleGatewayDimmingCommand", () => {
     expect(result.deviceStatus.results[0]).toMatchObject({ brightness: 30 });
   });
 
-  it("preserves a BIO read-back mismatch as an observed failed fixture result", async () => {
+  it("preserves a BIO sensor-mode mismatch without marking power-unknown state publishable", async () => {
     const result = await handleGatewayDimmingCommand(
       {
         setBrightness: vi.fn(async () => [{
@@ -674,8 +674,8 @@ describe("handleGatewayDimmingCommand", () => {
       command
     );
 
-    expect(result.fixtureStateObserved).toBe(true);
-    expect(result.observedFixtureIds).toEqual(command.targetFixtureIds);
+    expect(result.fixtureStateObserved).toBe(false);
+    expect(result.observedFixtureIds).toEqual([]);
     expect(result.fixtureObservations).toEqual([{
       fixtureId: command.targetFixtureIds[0],
       brightness: 38,
@@ -692,6 +692,33 @@ describe("handleGatewayDimmingCommand", () => {
         hopCount: null
       }]
     });
+  });
+
+  it("marks a BIO mismatch publishable only when brightness and exact force mode were observed", async () => {
+    const result = await handleGatewayDimmingCommand(
+      {
+        setBrightness: vi.fn(async () => [{
+          fixtureId: command.targetFixtureIds[0],
+          acknowledged: false,
+          outcome: "failed" as const,
+          brightness: 38,
+          mode: "force-off" as const,
+          faultCode: "BIO_BRIGHTNESS_STATE_MISMATCH",
+          rssi: -41,
+          hopCount: null
+        }])
+      } as any,
+      memoryJournal(new Map()),
+      command
+    );
+
+    expect(result.fixtureStateObserved).toBe(true);
+    expect(result.observedFixtureIds).toEqual(command.targetFixtureIds);
+    expect(result.fixtureObservations).toEqual([{
+      fixtureId: command.targetFixtureIds[0],
+      brightness: 38,
+      mode: "force-off"
+    }]);
   });
 
   it("preserves a mode-only BIO mismatch without marking unknown brightness publishable", async () => {

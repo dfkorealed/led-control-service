@@ -254,11 +254,12 @@ async function executeGatewayDimmingCommand(
         ? []
         : [observation];
     });
-    // [확인됨] mode/raw만 관측되고 table-backed percent가 없으면 진단 metadata는 보존하되
-    // 필수 brightness가 있는 fixture-state 발행 대상으로 올리지 않는다.
-    observedFixtureIds = fixtureObservations
-      .filter((observation) => typeof observation.brightness === "number")
-      .map((observation) => observation.fixtureId);
+    // [확인됨] BIO power는 brightness나 sensor mode에서 유도하지 않는다. table-backed
+    // brightness와 exact force-on/off가 함께 관측된 report만 fixture-state 대상으로 올린다.
+    // mode 계약이 없는 기존 BlueZ report는 기존 brightness 기반 발행 동작을 유지한다.
+    observedFixtureIds = reports
+      .filter(isPublishableFixtureStateReport)
+      .map((report) => report.fixtureId);
     fixtureStateObserved = observedFixtureIds.length > 0;
     const results = reports.map((report) => ({
       fixtureId: report.fixtureId,
@@ -461,6 +462,13 @@ function isObservedReport(report: Awaited<ReturnType<BleMeshAdapter["setBrightne
   return (report.acknowledged && typeof report.brightness === "number") || report.faultCode === "state_mismatch" ||
     report.faultCode === "BIO_BRIGHTNESS_STATE_MISMATCH" ||
     report.faultCode === "BIO_CONTROL_MODE_STATE_MISMATCH";
+}
+
+function isPublishableFixtureStateReport(report: Awaited<ReturnType<BleMeshAdapter["setBrightness"]>>[number]) {
+  if (!isObservedReport(report) || typeof report.brightness !== "number") return false;
+  const bioObservation = report.faultCode?.startsWith("BIO_") ||
+    report.rawBrightness !== undefined || report.mode !== undefined;
+  return !bioObservation || report.mode === "force-on" || report.mode === "force-off";
 }
 
 function validateAutomationActions(actions: AutomationDimmingAction[]) {

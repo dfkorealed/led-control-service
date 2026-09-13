@@ -29,6 +29,7 @@ import type {
   BioDeviceMappingStore
 } from "../bio/bio-device-mapping-store";
 import { BioUsbError } from "../bio/bio-usb-error";
+import { SerialTaskQueue } from "../runtime/serial-task-queue";
 
 const BIO_DEVICE_UUID = /^bio:[0-9a-f]{12}$/;
 const BIO_GROUP_UNICAST_CONCURRENCY = 4;
@@ -52,7 +53,8 @@ type DurableProvisioningCommand = ProvisionDevicePayload & { commandId: string }
  * - [확인됨] BIO group은 native RF subscription/broadcast가 아니라 confirmed mapping의 local
  *   virtual membership이다. group 제어는 hard limit 4의 unicast이고 native group 성공을 말하지 않는다.
  * - [확인됨] outer ACK는 fixture state가 아니다. `setOutput`이 UUID/address read-back까지
- *   검증한 경우만 acknowledged/applied이고 mismatch는 관측 brightness/mode를 failed report로 보존한다.
+ *   검증한 경우만 acknowledged/applied이고 mismatch는 실제 brightness/raw/mode만 보존한다.
+ *   BIO power는 exact force-on/off에서만 확정하며 sensor/누락 mode를 brightness로 추정하지 않는다.
  * - [미확인] 이 software integration의 실제 주소/밝기 동작은 Task 9 HIL 전까지 미확인이다.
  */
 export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerAdapter, ProvisioningAdapter {
@@ -60,7 +62,7 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
   private readonly now: () => Date;
   private readonly discoveredByUuid = new Map<string, BioDiscoveredDevice>();
   private readonly virtualGroups = new Map<number, Set<string>>();
-  private scanRefresh: Promise<BioDiscoveredDevice[]> | undefined;
+  private readonly discoveryQueue = new SerialTaskQueue();
 
   constructor(
     private readonly client: BioClientPort,
@@ -143,10 +145,13 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
   }
 
   async setAttention(fixtureId: string, expiresAt: number, action: "start" | "stop", signal?: AbortSignal) {
-    if (signal?.aborted || Date.now() >= expiresAt) throw new Error("command_expired");
+    const control = { signal, deadlineAt: expiresAt };
+    throwIfExpired(control);
     const mapping = await this.mappings.findByFixtureId(fixtureId);
+    throwIfExpired(control);
     if (!mapping) throw new Error("fixture_not_registered");
-    await this.requireDiscovered(mapping);
+    await this.requireDiscovered(mapping, control);
+    throwIfExpired(control);
     if (action === "start") await this.client.startIdentify(mapping.deviceUuid, { signal, deadlineAt: expiresAt });
     else await this.client.stopIdentify(mapping.deviceUuid);
     return action === "start" ? 2 : 0;
@@ -167,7 +172,7 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
     if (!mapping) return failed(fixtureId, undefined, "fixture_not_registered");
     let device: BioDiscoveredDevice | undefined;
     try {
-      device = await this.requireDiscovered(mapping);
+      device = await this.requireDiscovered(mapping, { signal, deadlineAt });
       if (expired(signal, deadlineAt)) return failed(fixtureId, undefined, "command_expired", "timed_out", device.rssi);
       const outputTarget = target(device, mapping.logicalAddress);
       const observed = signal || deadlineAt !== undefined
@@ -181,6 +186,7 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
         acknowledged: true,
         outcome: "applied",
         brightness: observed.brightnessPercent,
+        mode: observed.mode,
         rssi: device.rssi,
         hopCount: null
       };
@@ -282,19 +288,29 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
     return unobservedResync(fixtureIds.length);
   }
 
-  private async refreshDiscovery() {
-    this.scanRefresh ??= this.client.scan().then((devices) => {
+  private refreshDiscovery(control: { signal?: AbortSignal; deadlineAt?: number } = {}) {
+    // [확인됨] discovery refresh를 caller 간 공유하지 않는다. 각 caller는 serial queue에서
+    // 자기 cancellation/deadline을 다시 검사하고 자기 scan만 소유하므로 한 caller 취소가
+    // 독립 caller의 refresh를 함께 실패시키지 않는다.
+    return this.discoveryQueue.run(async () => {
+      throwIfExpired(control);
+      const devices = await this.client.scan(control);
+      throwIfExpired(control);
       this.discoveredByUuid.clear();
       for (const device of devices) if (this.acceptsDeviceUuid(device.deviceUuid)) this.remember(device);
       return devices.map((device) => ({ ...device }));
-    }).finally(() => { this.scanRefresh = undefined; });
-    return this.scanRefresh;
+    });
   }
 
-  private async requireDiscovered(mapping: BioDeviceMapping) {
+  private async requireDiscovered(
+    mapping: BioDeviceMapping,
+    control: { signal?: AbortSignal; deadlineAt?: number } = {}
+  ) {
+    throwIfExpired(control);
     let device = this.discoveredByUuid.get(mapping.deviceUuid);
     if (!device || device.logicalAddress !== mapping.logicalAddress) {
-      await this.refreshDiscovery();
+      await this.refreshDiscovery(control);
+      throwIfExpired(control);
       device = this.discoveredByUuid.get(mapping.deviceUuid);
     }
     if (!device || device.logicalAddress !== mapping.logicalAddress) {
@@ -435,6 +451,10 @@ function failed(
 
 function expired(signal?: AbortSignal, deadlineAt?: number) {
   return Boolean(signal?.aborted || (deadlineAt !== undefined && Date.now() >= deadlineAt));
+}
+
+function throwIfExpired(control: { signal?: AbortSignal; deadlineAt?: number }) {
+  if (expired(control.signal, control.deadlineAt)) throw new Error("command_expired");
 }
 
 function positiveConcurrency(value: number) {

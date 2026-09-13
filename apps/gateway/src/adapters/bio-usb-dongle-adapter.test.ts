@@ -159,6 +159,7 @@ describe("BioUsbDongleAdapter", () => {
       acknowledged: true,
       outcome: "applied",
       brightness: 60,
+      mode: "force-on",
       rssi: -41,
       hopCount: null
     });
@@ -198,6 +199,79 @@ describe("BioUsbDongleAdapter", () => {
       deadlineAt
     });
     expect(report).toMatchObject({ acknowledged: false, outcome: "failed" });
+  });
+
+  it("starts no cold discovery scan when output is aborted during mapping lookup", async () => {
+    const f = createFixture();
+    const controller = new AbortController();
+    let releaseLookup!: (mapping: ReturnType<typeof confirmedMapping>) => void;
+    f.mappings.findByFixtureId.mockImplementation(() => new Promise((resolve) => { releaseLookup = resolve; }));
+    const applying = f.adapter.applyUnicast(provisioningCommand.nodeId, 60, controller.signal, Date.now() + 1_000);
+    void applying.catch(() => {});
+    await Promise.resolve();
+
+    controller.abort();
+    releaseLookup(confirmedMapping());
+
+    await expect(applying).resolves.toMatchObject({ outcome: "timed_out", faultCode: "command_expired" });
+    expect(f.client.scan).not.toHaveBeenCalled();
+    expect(f.client.setOutput).not.toHaveBeenCalled();
+  });
+
+  it("starts no cold discovery scan when attention is aborted during mapping lookup", async () => {
+    const f = createFixture();
+    const controller = new AbortController();
+    let releaseLookup!: (mapping: ReturnType<typeof confirmedMapping>) => void;
+    f.mappings.findByFixtureId.mockImplementation(() => new Promise((resolve) => { releaseLookup = resolve; }));
+    const attention = f.adapter.setAttention(
+      provisioningCommand.nodeId,
+      Date.now() + 1_000,
+      "start",
+      controller.signal
+    );
+    void attention.catch(() => {});
+    await Promise.resolve();
+
+    controller.abort();
+    releaseLookup(confirmedMapping());
+
+    await expect(attention).rejects.toThrow("command_expired");
+    expect(f.client.scan).not.toHaveBeenCalled();
+    expect(f.client.startIdentify).not.toHaveBeenCalled();
+  });
+
+  it("does not share one caller-owned discovery refresh with an independent caller", async () => {
+    const f = createFixture();
+    const firstController = new AbortController();
+    const secondController = new AbortController();
+    let rejectFirstScan!: (error: unknown) => void;
+    f.mappings.findByFixtureId.mockResolvedValue(confirmedMapping());
+    f.client.scan
+      .mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectFirstScan = reject; }))
+      .mockResolvedValueOnce([{ ...discovered, logicalAddress: 0x0101 }]);
+    f.client.setOutput.mockResolvedValue({ brightnessPercent: 60, powerOn: true, rawHighBrightness: 198, mode: "force-on" });
+
+    const first = f.adapter.applyUnicast(provisioningCommand.nodeId, 60, firstController.signal, Date.now() + 1_000);
+    void first.catch(() => {});
+    await Promise.resolve();
+    const second = f.adapter.applyUnicast(provisioningCommand.nodeId, 60, secondController.signal, Date.now() + 1_000);
+    void second.catch(() => {});
+    await Promise.resolve();
+
+    firstController.abort();
+    rejectFirstScan(new DOMException("cancelled", "AbortError"));
+
+    await expect(first).resolves.toMatchObject({ outcome: "timed_out", faultCode: "command_expired" });
+    await expect(second).resolves.toMatchObject({ acknowledged: true, outcome: "applied", mode: "force-on" });
+    expect(f.client.scan).toHaveBeenCalledTimes(2);
+    expect(f.client.scan).toHaveBeenNthCalledWith(1, {
+      signal: firstController.signal,
+      deadlineAt: expect.any(Number)
+    });
+    expect(f.client.scan).toHaveBeenNthCalledWith(2, {
+      signal: secondController.signal,
+      deadlineAt: expect.any(Number)
+    });
   });
 
   it("propagates observed brightness and mode from a read-back mismatch", async () => {

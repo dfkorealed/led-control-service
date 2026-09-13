@@ -213,6 +213,53 @@ describe("BIO evidence-gated dongle client", () => {
     await h.client.close();
   });
 
+  it("retires the connection when a started scan is aborted instead of writing stop after expiry", async () => {
+    const h = harness(71, { scanDurationMs: 100 }); await ready(h);
+    const controller = new AbortController();
+    const scanning = h.client.scan({ signal: controller.signal });
+    void scanning.catch(() => {});
+    await flush();
+    h.device.receive("55aa1101002055");
+    await flush();
+
+    controller.abort();
+    await flush();
+
+    await expect(scanning).rejects.toMatchObject({ name: "AbortError" });
+    expect(commandBodies(h.device)).toEqual(["8305"]);
+    expect(h.device.isOpen).toBe(false);
+    await h.client.close();
+  });
+
+  it("lets a separately owned scan wait for reconnect after another caller retires its scan", async () => {
+    const h = harness(71, { scanDurationMs: 100 }); await ready(h);
+    const firstController = new AbortController();
+    const first = h.client.scan({ signal: firstController.signal });
+    void first.catch(() => {});
+    await flush();
+    h.device.receive("55aa1101002055");
+    await flush();
+    firstController.abort();
+    await expect(first).rejects.toMatchObject({ name: "AbortError" });
+
+    const second = h.client.scan({ deadlineAt: Date.now() + 5_000 });
+    void second.catch(() => {});
+    await vi.advanceTimersByTimeAsync(2_000);
+    await flush();
+    await recoverReady(h.device);
+    expect(commandBodies(h.device).filter((body) => body === "8305")).toHaveLength(2);
+    h.device.receive("55aa1101002055");
+    h.device.receive(discoveryHex("001122334455", 0x1234));
+    await vi.advanceTimersByTimeAsync(100);
+    await flush();
+    h.device.receive("55aa1101002055");
+
+    await expect(second).resolves.toEqual([
+      expect.objectContaining({ deviceUuid: "bio:001122334455", logicalAddress: 0x1234 })
+    ]);
+    await h.client.close();
+  });
+
   it("calls stopScan from finally after a scan-start error and does not return without its ACK", async () => {
     const h = harness(71, { scanDurationMs: 100 }); await ready(h);
     const scanning = h.client.scan();
@@ -541,6 +588,66 @@ describe("BIO evidence-gated dongle client", () => {
     await h.client.close();
   });
 
+  it("removes an aborted brightness request queued behind a physically pending prior write", async () => {
+    const h = harness(75, { observationTimeoutMs: 100 }); await ready(h);
+    let releaseWrite!: () => void;
+    h.device.write = async (bytes) => {
+      h.device.writes.push(Buffer.from(bytes));
+      await new Promise<void>((resolve) => { releaseWrite = resolve; });
+    };
+    const controller = new AbortController();
+    const blocker = h.client.stopScan();
+    const setting = h.client.setOutput(verifiedTarget, 60, { signal: controller.signal });
+    let settingOutcome: unknown;
+    void setting.then(
+      (value) => { settingOutcome = value; },
+      (error: unknown) => { settingOutcome = error; }
+    );
+    try {
+      await flush();
+      expect(commandBodies(h.device).at(-1)).toBe("85");
+      h.device.receive("55aa1101002055");
+      await blocker;
+      await flush();
+
+      controller.abort();
+      await flush();
+
+      expect(settingOutcome).toMatchObject({ name: "AbortError" });
+      releaseWrite();
+      await flush();
+      expect(commandBodies(h.device)).not.toContain("cd13c6");
+    } finally {
+      releaseWrite?.();
+      await h.client.close();
+      await setting.catch(() => {});
+    }
+  });
+
+  it("collects the observed force mode before reporting a brightness mismatch", async () => {
+    const h = harness(75, { observationTimeoutMs: 100 }); await ready(h);
+    const setting = h.client.setOutput(verifiedTarget, 60);
+    void setting.catch(() => {});
+    await flush();
+    h.device.receive("55aa1101002055"); await flush();
+    h.device.receive("55aa1101002055"); await flush();
+    h.device.receive("55aa1101002055");
+    h.device.receive(brightnessReportHex("001122334455", 0x1234, 199));
+    await flush();
+
+    expect(commandBodies(h.device).at(-1)).toBe("4e12");
+    h.device.receive("55aa1101002055");
+    h.device.receive(modeReportHex("001122334455", 0x1234, 3));
+
+    await expect(setting).rejects.toMatchObject({
+      code: "BIO_BRIGHTNESS_STATE_MISMATCH",
+      observedBrightnessPercent: 61,
+      observedRawHighBrightness: 199,
+      observedMode: "force-on"
+    });
+    await h.client.close();
+  });
+
   it("fails with exact mismatch codes and never promotes outer ACK to applied", async () => {
     const brightness = harness(75, { observationTimeoutMs: 100 }); await ready(brightness);
     const wrongBrightness = brightness.client.setOutput(verifiedTarget, 60); void wrongBrightness.catch(() => {});
@@ -549,10 +656,14 @@ describe("BIO evidence-gated dongle client", () => {
     brightness.device.receive("55aa1101002055"); await flush();
     brightness.device.receive("55aa1101002055");
     brightness.device.receive(brightnessReportHex("001122334455", 0x1234, 199));
+    await flush();
+    brightness.device.receive("55aa1101002055");
+    brightness.device.receive(modeReportHex("001122334455", 0x1234, 0));
     await expect(wrongBrightness).rejects.toMatchObject({
       code: "BIO_BRIGHTNESS_STATE_MISMATCH",
       observedBrightnessPercent: 61,
-      observedRawHighBrightness: 199
+      observedRawHighBrightness: 199,
+      observedMode: "sensor"
     });
     await brightness.client.close();
 

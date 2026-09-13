@@ -565,6 +565,67 @@ describe("BioUsbTransport", () => {
     await value.transport.stop();
   });
 
+  it("retires an actively written aborted request so its late ACK cannot satisfy the next generation", async () => {
+    const value = harness(); await ready(value);
+    const oldDevice = value.devices[0];
+    const oldData = oldDevice.listeners("data")[0] as (bytes: Buffer) => void;
+    const controller = new AbortController();
+    const active = settled((value.transport.request as any)(
+      { command: 0, payload: hex("") },
+      { signal: controller.signal }
+    ));
+    await flush();
+    controller.abort();
+    await flush();
+    try {
+      expect(value.transport.snapshot()).toMatchObject({ state: "reconnecting", ready: false });
+      expect(await active).toMatchObject({ name: "AbortError" });
+
+      await vi.advanceTimersByTimeAsync(2000);
+      await flush();
+      expect(value.devices).toHaveLength(2);
+      value.devices[1].receive("475383007c");
+      await flush();
+      const fresh = value.transport.request({ command: 0, payload: hex("01") });
+      await flush();
+      oldData(hex("4753010102fb"));
+      value.devices[1].receive("4753010103fa");
+      await expect(fresh).resolves.toMatchObject({ payload: hex("03") });
+    } finally {
+      await value.transport.stop();
+    }
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("removes a queued request at its deadline before the prior native write releases", async () => {
+    const value = harness(); await ready(value);
+    const device = value.devices[0];
+    let releaseWrite!: () => void;
+    device.write = async (bytes) => {
+      device.writes.push(Buffer.from(bytes).toString("hex"));
+      await new Promise<void>((resolve) => { releaseWrite = resolve; });
+    };
+    const first = value.transport.request({ command: 0, payload: hex("") });
+    await flush();
+    device.receive("47530100fe");
+    await first;
+    const queued = settled(value.transport.request(
+      { command: 0, payload: hex("01") },
+      { deadlineAt: Date.now() + 10 }
+    ));
+    try {
+      await vi.advanceTimersByTimeAsync(10);
+      expect(await queued).toMatchObject({ name: "AbortError" });
+      releaseWrite();
+      await flush();
+      expect(device.writes).toEqual(["4753820000", "47530000ff"]);
+    } finally {
+      releaseWrite?.();
+      await value.transport.stop();
+    }
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it.each(["timeout", "malformed", "disconnect", "write-error"])("retires %s generation and rejects queued writes without replay after reconnect", async (failure) => {
     const value = harness(); await ready(value);
     const oldDevice = value.devices[0];

@@ -25,11 +25,19 @@ export interface BioUsbRequest {
   command: number;
   payload: Uint8Array;
 }
+export interface BioUsbOperationControl {
+  signal?: AbortSignal;
+  deadlineAt?: number;
+}
 interface PendingRequest {
   command: number;
   bytes: Buffer;
   resolve: (frame: BioFrame) => void;
-  reject: (error: BioUsbError) => void;
+  reject: (error: unknown) => void;
+  control?: BioUsbOperationControl;
+  controlTimeout?: ReturnType<typeof setTimeout>;
+  cancelForControl?: () => void;
+  settled?: boolean;
 }
 
 export class BioUsbTransport {
@@ -72,17 +80,40 @@ export class BioUsbTransport {
     return this.connect();
   }
 
-  async request(request: BioUsbRequest): Promise<BioFrame> {
+  async request(request: BioUsbRequest, control: BioUsbOperationControl = {}): Promise<BioFrame> {
+    throwIfOperationStopped(control);
     if (!this.status.ready) throw new BioUsbError("NOT_READY", "BIO transport is not ready");
     if (request.command === 0xff) throw new RangeError("BIO command has no one-byte successor response");
     const bytes = this.status.protocol === "crc16" ? encodeCrcFrame(request.command, request.payload) : encodeGsFrame(request.command, request.payload);
     return new Promise<BioFrame>((resolve, reject) => {
-      this.queue.push({ command: request.command, bytes, resolve, reject });
+      const pending: PendingRequest = { command: request.command, bytes, resolve, reject, control };
+      pending.cancelForControl = () => this.cancelPendingRequest(pending);
+      control.signal?.addEventListener("abort", pending.cancelForControl, { once: true });
+      if (control.deadlineAt !== undefined) {
+        pending.controlTimeout = setTimeout(
+          pending.cancelForControl,
+          Math.min(2_147_483_647, Math.max(0, control.deadlineAt - Date.now()))
+        );
+      }
+      this.queue.push(pending);
+      // Abort can race the first check and listener installation. The second check removes
+      // the queued owner synchronously, before any later pump can reach connection.write().
+      if (operationStopped(control)) pending.cancelForControl();
       // A notification listener can enqueue reentrantly while receive() still
       // owns other frames from the same chunk. Inspect those before writing.
       if (this.options.profile === "android-v1.2.0") void Promise.resolve().then(() => this.pump());
       else this.pump();
     });
+  }
+
+  async retireCancelledOperation(): Promise<void> {
+    if (this.status.ready) {
+      // [확인됨] scan start ACK 뒤 caller가 취소되면 STOP write도 만료 후 새 write가 된다.
+      // dongle scan 상태가 남았을 가능성이 있으므로 descriptor 세대를 폐기해 다음 요청이
+      // 같은 byte stream을 소유하지 못하게 하고, reconnect probe로만 새 소유권을 연다.
+      this.fail(this.status.generation, new BioUsbError("STOPPED", "BIO operation cancelled after a physical write"));
+    }
+    await this.closing;
   }
 
   async stop(): Promise<void> {
@@ -188,6 +219,11 @@ export class BioUsbTransport {
   }
 
   private begin(request: PendingRequest) {
+    if (request.control && operationStopped(request.control)) {
+      this.rejectRequest(request, abortError());
+      this.pump();
+      return;
+    }
     if (this.codec.hasPendingFrame()) {
       this.fail(this.status.generation, new BioUsbError(
         "LATE_RESPONSE",
@@ -247,7 +283,7 @@ export class BioUsbTransport {
       this.timeout = undefined;
       const completed = this.active;
       this.active = undefined;
-      completed.resolve(event.frame);
+      this.resolveRequest(completed, event.frame);
     }
     this.advanceStartup(generation);
     // A partial duplicate, including its first header byte, already belongs to
@@ -329,9 +365,9 @@ export class BioUsbTransport {
     this.codec.reset();
     this.startup?.reject(error);
     this.startup = undefined;
-    this.active?.reject(error);
+    if (this.active) this.rejectRequest(this.active, error);
     this.active = undefined;
-    for (const pending of this.queue.splice(0)) pending.reject(error);
+    for (const pending of this.queue.splice(0)) this.rejectRequest(pending, error);
     this.attempt?.reject(error);
     this.attempt = undefined;
     this.writing = false;
@@ -354,8 +390,62 @@ export class BioUsbTransport {
     return this.closing;
   }
 
+  private cancelPendingRequest(request: PendingRequest) {
+    if (request.settled) return;
+    const queuedIndex = this.queue.indexOf(request);
+    if (queuedIndex >= 0) {
+      this.queue.splice(queuedIndex, 1);
+      this.rejectRequest(request, abortError());
+      this.pump();
+      return;
+    }
+    if (this.active === request) {
+      // [확인됨] 이미 connection.write를 호출한 request의 늦은 ACK는 취소 뒤 다음 request와
+      // 구분할 transaction ID가 없다. caller는 즉시 AbortError를 받고, stream은 close/reconnect로
+      // 세대 폐기해 late ACK가 다음 owner를 만족시키지 못하게 한다.
+      this.rejectRequest(request, abortError());
+      this.fail(this.status.generation, new BioUsbError("STOPPED", "BIO active request cancelled"));
+      return;
+    }
+    this.rejectRequest(request, abortError());
+  }
+
+  private resolveRequest(request: PendingRequest, frame: BioFrame) {
+    if (request.settled) return;
+    request.settled = true;
+    this.cleanupRequestControl(request);
+    request.resolve(frame);
+  }
+
+  private rejectRequest(request: PendingRequest, error: unknown) {
+    if (request.settled) return;
+    request.settled = true;
+    this.cleanupRequestControl(request);
+    request.reject(error);
+  }
+
+  private cleanupRequestControl(request: PendingRequest) {
+    if (request.controlTimeout) clearTimeout(request.controlTimeout);
+    request.controlTimeout = undefined;
+    if (request.cancelForControl) request.control?.signal?.removeEventListener("abort", request.cancelForControl);
+    request.cancelForControl = undefined;
+  }
+
   private update(change: Partial<BioTransportSnapshot>) {
     this.status = { ...this.status, ...change };
     for (const listener of this.listeners) listener(this.snapshot());
   }
+}
+
+function operationStopped(control: BioUsbOperationControl) {
+  return Boolean(control.signal?.aborted ||
+    (control.deadlineAt !== undefined && Date.now() >= control.deadlineAt));
+}
+
+function throwIfOperationStopped(control: BioUsbOperationControl) {
+  if (operationStopped(control)) throw abortError();
+}
+
+function abortError() {
+  return new DOMException("BIO operation cancelled or expired", "AbortError");
 }

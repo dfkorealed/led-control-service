@@ -1276,6 +1276,9 @@ export function observedFixtureResults(result: Pick<GatewayCommandResult,
       const brightness = observation.brightness;
       if (typeof brightness !== "number") return [];
       const fixture = resultsByFixture.get(observation.fixtureId);
+      const bioObservation = fixture?.faultCode?.startsWith("BIO_") ||
+        observation.rawBrightness !== undefined || observation.mode !== undefined;
+      if (bioObservation && observation.mode !== "force-on" && observation.mode !== "force-off") return [];
       return fixture ? [{ ...fixture, ...observation, brightness }] : [];
     });
   }
@@ -1303,8 +1306,8 @@ export async function publishObservedDeviceStates(input: {
 }) {
   for (const fixture of observedFixtureResults(input.result)) {
     const brightness = fixture.brightness;
-    // [확인됨] observedFixtureResults는 number brightness만 반환한다. 요청값 fallback은 실제 관측이
-    // 아니므로 금지하며, mode가 있으면 power state 판단에 보존해서 사용한다.
+    // [확인됨] BIO는 exact force-on/off가 있는 결과만 여기 도달한다. brightness>0 fallback은
+    // mode report 계약이 없는 기존 BlueZ 결과에만 유지하며 sensor/누락 mode는 발행하지 않는다.
     if (brightness === undefined) continue;
     const powerOn = fixture.mode === "force-off" ? false : fixture.mode === "force-on" ? true : brightness > 0;
     const state = fixtureStateV2Schema.parse({

@@ -50,8 +50,9 @@ type BioReadbackOperation = Extract<BioOperation,
  *
  * - [확인됨] 외부 0x11 status 0은 동글의 TX 수락일 뿐이며 `deviceApplied`는 항상 false다.
  *   주소는 UUID/old/new scan 증거, 제어는 동일 UUID/address의 0x12 read-back으로만 확정한다.
- * - [확인됨] scan cache는 한 scan window에서 UUID별 마지막 report의 address/RSSI를 보관하고,
- *   deadline 종료·오류 모두 finally에서 stop ACK까지 확인한 경우에만 현재 cache로 교체한다.
+ * - [확인됨] scan cache는 한 scan window에서 UUID별 마지막 report의 address/RSSI를 보관한다.
+ *   정상 종료·일반 오류는 stop ACK까지 확인하고, cancellation/deadline은 새 stop write 대신
+ *   connection generation을 폐기한 경우에만 실패로 반환해 같은 stream의 후속 사용을 막는다.
  * - [확인됨] 설치 APK의 address/brightness/getter serializer와 exact brightness table을 쓴다.
  *   [미확인] 이 정적 계약의 실제 firmware 적용은 Task 9 단일 장치 HIL 전까지 미확인이다.
  */
@@ -121,10 +122,13 @@ export class BioDongleClient {
   }
 
   /**
-   * [확인됨] scan 성공은 start ACK만이 아니라 fixed deadline 뒤 finally의 stop ACK까지 필요하다.
-   * stop ACK가 없으면 수집 목록을 cache/성공으로 공개하지 않아 동글의 scan 상태를 추정하지 않는다.
+   * [확인됨] scan 성공은 start ACK만이 아니라 fixed window 뒤 stop ACK까지 필요하다.
+   * 취소 시에는 stop을 새로 쓰지 않고 connection generation을 폐기하며, 어느 실패에서도
+   * 수집 목록을 cache/성공으로 공개하지 않아 동글의 scan 상태를 추정하지 않는다.
    */
   async scan(control: BioOperationControl = {}): Promise<BioDiscoveredDevice[]> {
+    throwIfOperationStopped(control);
+    await this.waitUntilReadyIfReconnecting(control);
     throwIfOperationStopped(control);
     if (this.activeScan) throw new Error("BIO scan is already active");
     const collected = new Map<string, BioDiscoveredDevice>();
@@ -132,16 +136,21 @@ export class BioDongleClient {
     this.activeScan = collected;
     this.activeScanObservations = observations;
     let failure: unknown;
+    let scanStarted = false;
     try {
       await this.send({ kind: "scan" }, control);
+      scanStarted = true;
       await controlledDelay(this.scanDurationMs, control);
     } catch (error) {
       failure = error;
     } finally {
       try {
-        // [확인됨] expiry 뒤 새 physical write를 금지한다. scan stop도 새 write이므로
-        // 취소된 caller 대신 보내지 않으며, transport lifecycle 복구는 Task 8 범위에 남긴다.
-        if (!operationStopped(control)) await this.stopScan(control);
+        // [확인됨] expiry 뒤 scan stop도 새 physical write이므로 보내지 않는다. start ACK 뒤
+        // 취소라면 dongle scan 상태를 신뢰할 수 없어 connection generation을 폐기하고 reconnect
+        // probe가 새 stream ownership을 열게 한다. start write 중 취소는 transport가 이미 폐기한다.
+        if (operationStopped(control)) {
+          if (scanStarted) await this.transport.retireCancelledOperation();
+        } else await this.stopScan(control);
       } catch (stopError) {
         // stop ACK는 성공 list의 필수 gate다. start/window 오류가 이미 있어도 불확실한
         // dongle scan lifecycle을 더 구체적인 stop 실패로 덮어 fail-closed한다.
@@ -298,18 +307,36 @@ export class BioDongleClient {
     throwIfOperationStopped(control);
     const brightness = await this.readBrightness(target, control);
     throwIfOperationStopped(control);
+    const observedBrightnessPercent = bioRawToPercent(brightness.rawHighBrightness);
+    let mode: Awaited<ReturnType<BioDongleClient["readDeviceInfo"]>>;
+    try {
+      // [확인됨] power truth는 brightness로 유도할 수 없다. brightness mismatch여도 안전하게
+      // 가능한 경우 mode GET까지 수집해 force-on/off/sensor 관측을 같은 failure에 보존한다.
+      mode = await this.readDeviceInfo(target, control);
+    } catch (cause) {
+      throwIfOperationStopped(control);
+      if (brightness.rawHighBrightness !== rawHighBrightness) {
+        throw Object.assign(
+          new BioUsbError("BIO_BRIGHTNESS_STATE_MISMATCH", "BIO high-brightness read-back did not match", { cause }),
+          {
+            observedRawHighBrightness: brightness.rawHighBrightness,
+            observedBrightnessPercent
+          }
+        );
+      }
+      throw cause;
+    }
+    throwIfOperationStopped(control);
     if (brightness.rawHighBrightness !== rawHighBrightness) {
       throw Object.assign(
         new BioUsbError("BIO_BRIGHTNESS_STATE_MISMATCH", "BIO high-brightness read-back did not match"),
         {
           observedRawHighBrightness: brightness.rawHighBrightness,
-          observedBrightnessPercent: bioRawToPercent(brightness.rawHighBrightness)
+          observedBrightnessPercent,
+          observedMode: mode.mode
         }
       );
     }
-    const observedBrightnessPercent = bioRawToPercent(brightness.rawHighBrightness);
-    const mode = await this.readDeviceInfo(target, control);
-    throwIfOperationStopped(control);
     if (mode.mode !== "force-on") {
       throw Object.assign(
         new BioUsbError("BIO_CONTROL_MODE_STATE_MISMATCH", "BIO force-on read-back did not match"),
@@ -545,7 +572,7 @@ export class BioDongleClient {
     throwIfOperationStopped(control);
     const request = encodeBioCommand(operation, this.sequence);
     this.sequence = (this.sequence + 1) & 0xff;
-    const response = decodeBioResponse(await this.transport.request(request));
+    const response = decodeBioResponse(await this.transport.request(request, control));
     throwIfOperationStopped(control);
     if (response.kind !== "outer-ack") throw new BioUsbError("MALFORMED_FRAME", "BIO outer ACK was not validated");
     if (!response.accepted) throw Object.assign(new Error("BIO dongle rejected the command"), { code: "BIO_DONGLE_REJECTED" });
