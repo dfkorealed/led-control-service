@@ -50,55 +50,69 @@ export class MqttCertificateClient {
     }
   }
 
-  private post(body: Buffer, tls: { cert: Buffer; key: Buffer; ca: Buffer }) {
-    return new Promise<string>((resolve, reject) => {
-      let settled = false;
-      const rejectOnce = () => {
-        if (settled) return;
-        settled = true;
-        reject(new Error("request failed"));
-      };
-      const request = httpsRequest(this.url, {
-        method: "POST",
-        cert: tls.cert,
-        key: tls.key,
-        ca: tls.ca,
-        rejectUnauthorized: true,
-        checkServerIdentity,
-        headers: { accept: "application/json", "content-type": "application/json", "content-length": body.byteLength }
-      }, (response) => {
-        const declaredLength = Number(response.headers["content-length"] ?? 0);
-        if (Number.isFinite(declaredLength) && declaredLength > this.maxResponseBytes) {
-          response.destroy();
-          rejectOnce();
-          return;
-        }
-        const chunks: Buffer[] = [];
-        let received = 0;
-        response.on("data", (chunk: Buffer) => {
-          received += chunk.byteLength;
-          if (received > this.maxResponseBytes) {
+  private async post(body: Buffer, tls: { cert: Buffer; key: Buffer; ca: Buffer }) {
+    let request: ReturnType<typeof httpsRequest> | undefined;
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await new Promise<string>((resolve, reject) => {
+        let settled = false;
+        const rejectOnce = () => {
+          if (settled) return;
+          settled = true;
+          reject(new Error("request failed"));
+          request?.destroy();
+        };
+        request = httpsRequest(this.url, {
+          method: "POST",
+          cert: tls.cert,
+          key: tls.key,
+          ca: tls.ca,
+          rejectUnauthorized: true,
+          checkServerIdentity,
+          headers: { accept: "application/json", "content-type": "application/json", "content-length": body.byteLength }
+        }, (response) => {
+          const declaredLength = Number(response.headers["content-length"] ?? 0);
+          if (Number.isFinite(declaredLength) && declaredLength > this.maxResponseBytes) {
             response.destroy();
             rejectOnce();
             return;
           }
-          chunks.push(chunk);
+          const chunks: Buffer[] = [];
+          let received = 0;
+          response.on("data", (chunk: Buffer) => {
+            received += chunk.byteLength;
+            if (received > this.maxResponseBytes) {
+              response.destroy();
+              rejectOnce();
+              return;
+            }
+            chunks.push(chunk);
+          });
+          response.on("error", rejectOnce);
+          response.on("aborted", rejectOnce);
+          response.on("end", () => {
+            if (settled) return;
+            if (!response.statusCode || response.statusCode < 200 || response.statusCode >= 300) {
+              rejectOnce();
+              return;
+            }
+            settled = true;
+            resolve(Buffer.concat(chunks).toString("utf8"));
+          });
         });
-        response.on("error", rejectOnce);
-        response.on("end", () => {
-          if (settled) return;
-          if (!response.statusCode || response.statusCode < 200 || response.statusCode >= 300) {
-            rejectOnce();
-            return;
-          }
-          settled = true;
-          resolve(Buffer.concat(chunks).toString("utf8"));
-        });
+        // Socket idle timeout은 지속적인 작은 응답 조각마다 갱신되어 발급 작업을
+        // 무한히 붙잡을 수 있다. One-shot과 runtime 모두 요청 전체 시간을 제한하고
+        // 재시도하지 않는다. 동기 TLS 생성 오류에는 timer를 만들지 않는다.
+        deadline = setTimeout(rejectOnce, this.timeoutMs);
+        request.on("error", rejectOnce);
+        request.end(body);
       });
-      request.setTimeout(this.timeoutMs, () => request.destroy());
-      request.on("error", rejectOnce);
-      request.end(body);
-    });
+    } catch {
+      request?.destroy();
+      throw new Error("request failed");
+    } finally {
+      clearTimeout(deadline);
+    }
   }
 }
 

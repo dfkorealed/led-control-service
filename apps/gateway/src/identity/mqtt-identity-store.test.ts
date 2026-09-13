@@ -1,5 +1,5 @@
 import { execFile as execFileCallback } from "node:child_process";
-import { chmod, mkdir, mkdtemp, readFile, readdir, readlink, rename, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, readlink, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { promisify } from "node:util";
@@ -9,6 +9,31 @@ import { MqttIdentityStore } from "./mqtt-identity-store";
 const execFile = promisify(execFileCallback);
 
 describe("MqttIdentityStore", () => {
+  it.each(["wide-mode", "symlink"])("does not repair an untrusted %s MQTT root", async (kind) => {
+    const fixture = await createFixture();
+    const outside = join(fixture.directory, "outside");
+    await mkdir(join(fixture.directory, "identity"), { mode: 0o750 });
+    await mkdir(outside, { mode: 0o700 });
+    await chmod(outside, 0o700);
+    if (kind === "symlink") await symlink(outside, fixture.identityRoot);
+    else {
+      await mkdir(fixture.identityRoot, { mode: 0o777 });
+      await chmod(fixture.identityRoot, 0o777);
+    }
+    let issued = false;
+    try {
+      await expect(fixture.store.ensure("gateway-27", fixture.mqttCaPem, async () => {
+        issued = true;
+        throw new Error("issuance must not run");
+      })).rejects.toThrow();
+      expect(issued).toBe(false);
+      expect((await stat(outside)).mode & 0o777).toBe(0o700);
+      if (kind === "wide-mode") expect((await stat(fixture.identityRoot)).mode & 0o777).toBe(0o777);
+    } finally {
+      await rm(fixture.directory, { recursive: true, force: true });
+    }
+  });
+
   it("normalizes newly created layout directories after a restrictive appliance umask", async () => {
     const fixture = await createFixture();
     await mkdir(fixture.identityRoot, { recursive: true, mode: 0o750 });

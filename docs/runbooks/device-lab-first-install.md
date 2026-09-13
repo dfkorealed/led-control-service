@@ -246,6 +246,8 @@ docker compose -f compose.bootstrap.yml run --rm --no-deps gateway-bootstrap
 
 stdout 성공은 `{"status":"complete","operation":"bootstrap-only"}` 하나다. 실패는 stderr의 고정 `stage=preflight|assignment|mqtt`와 nonzero exit로만 보고한다. Native error, URL, ID, PEM, claim code/private key는 출력하지 않는다. unclaimed/HTTP 실패/CONNECT 거부에 자동 retry가 없고 bootstrap HTTP는 전체 10초·256 KiB 제한이다. 실패 후 서버가 이미 발급했을 수 있으므로 DB/발급 원장·현재 파일 확인 전 다시 실행하지 않는다. 검토 후 같은 배정으로 재실행하면 유효한 MQTT identity는 재발급 없이 CONNECT만 확인한다.
 
+entrypoint의 `umask 077`은 그대로 유지한다. 새 MQTT root와 generation 디렉터리는 해당 프로세스 소유의 일반 0700 디렉터리일 때만 0750으로 정규화하고 private key는 계속 0600이다. 기존 넓은 권한이나 symlink를 chmod로 우회하지 않는다. `<data-root>/gateway`는 사전 준비한 0700 mount가 필요하며 누락 시 생성하지 않고 실패한다. MQTT 인증서 HTTP도 idle-only가 아닌 전체 요청 deadline(기본 10초)을 사용하며, 두 HTTP client는 동기 TLS 생성 오류와 모든 완료/실패 경로에서 timer를 정리한다.
+
 성공 후에도 heartbeat, adapter, 조명 검색/등록·제어는 **시작하지 않는다**. 모니터링 offline/조명 없음 상태는 이 단계의 정상 한계다. 별도 runtime 배포·BIO preflight·HIL 관문 전에는 설치 전체 완료로 판정하지 않는다.
 
 ### 8.2 상시 runtime 시작 (별도 승인)

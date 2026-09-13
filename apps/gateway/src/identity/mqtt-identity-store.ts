@@ -281,16 +281,9 @@ export class MqttIdentityStore {
   }
 
   private async ensureLayout() {
-    await mkdir(this.options.identityRoot, { recursive: true, mode: 0o750 });
-    await assertPlainDirectory(this.options.identityRoot, "MQTT identity storage directory is invalid", 0o750);
+    await ensurePrivateDirectory(this.options.identityRoot);
     for (const name of ["pending-generations", "generations"]) {
-      const path = join(this.options.identityRoot, name);
-      await mkdir(path, { recursive: true, mode: 0o750 });
-      const metadata = await lstat(path);
-      if (metadata.isDirectory() && !metadata.isSymbolicLink() && (metadata.mode & 0o777) === 0o700) {
-        await chmod(path, 0o750);
-      }
-      await assertPlainDirectory(path, "MQTT identity storage directory is invalid", 0o750);
+      await ensurePrivateDirectory(join(this.options.identityRoot, name));
     }
   }
 
@@ -319,6 +312,21 @@ export class MqttIdentityStore {
       throw new PointerReplacementError(pointerChanged);
     }
   }
+}
+
+async function ensurePrivateDirectory(path: string) {
+  await mkdir(path, { recursive: true, mode: 0o750 });
+  const metadata = await lstat(path);
+  // mkdir의 mode는 최종 권한이 아니다. 실제 appliance의 umask 077이 0750을
+  // 0700으로 마스킹하므로 새 mqtt root도 자식들과 같이 명시적으로 정규화한다.
+  // 이 프로세스 소유의 일반 디렉터리이며 owner-only인 경우만 group read/search를
+  // 복구한다. Symlink/다른 소유자/이미 넓은 권한은 고치지 않고 기존 검증으로
+  // 거부한다. 재귀 chmod나 전역 umask 완화는 없고 모든 private key는 0600이다.
+  if (metadata.isDirectory() && !metadata.isSymbolicLink() &&
+      metadata.uid === process.getuid?.() && (metadata.mode & 0o777) === 0o700) {
+    await chmod(path, 0o750);
+  }
+  await assertPlainDirectory(path, "MQTT identity storage directory is invalid", 0o750);
 }
 
 async function writeFileAtomic(path: string, contents: string, mode: number) {
