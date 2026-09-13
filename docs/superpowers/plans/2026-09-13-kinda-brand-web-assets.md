@@ -714,7 +714,7 @@ git commit -m "feat(web): brand application shells as kinda"
 - Consumes: Task 1~5의 정본 자산, 메타데이터와 세 브랜드 접점.
 - Produces: 1440/1024/390/320 Chromium 증거, 사용자 노출 `LED Control` 0건과 완료 상태 기록.
 
-- [ ] **Step 1: E2E 기대를 새 브랜드 계약으로 수렴한다.**
+- [x] **Step 1: E2E 기대를 새 브랜드 계약으로 수렴한다.**
 
 모든 `LED Control 로그인` role 기대를 `킨다 로그인`으로 바꾸고, `calm-operations-shell.spec.ts`의 `.brand-mark` 기대는 다음으로 교체한다.
 
@@ -756,7 +756,7 @@ Run: `pnpm --filter @led-control/web exec playwright test e2e/calm-operations-au
 
 Expected: Task 4·5의 구현을 통해 새 제목과 로고 기대가 모든 지정 viewport에서 통과한다.
 
-- [ ] **Step 2: 나머지 인증 E2E 문자열을 새 사용자 표기로 수렴한다.**
+- [x] **Step 2: 나머지 인증 E2E 문자열을 새 사용자 표기로 수렴한다.**
 
 `app-shell-recovery.spec.ts`, `settings-floor-editor.spec.ts`, `site-user-management-real.spec.ts`에서 role 기반 로그인 제목만 다음 문자열로 교체한다.
 
@@ -766,7 +766,7 @@ page.getByRole("heading", { name: "킨다 로그인" })
 
 실제 백엔드가 필요한 `site-user-management-real.spec.ts`의 실행 방식과 opt-in gate는 바꾸지 않는다.
 
-- [ ] **Step 3: 사용자 노출 범위의 구 브랜드와 기술 식별자 경계를 정적으로 검사한다.**
+- [x] **Step 3: 사용자 노출 범위의 구 브랜드와 기술 식별자 경계를 정적으로 검사한다.**
 
 Run: `rg -n 'LED Control|>LC<' apps/web/src apps/web/e2e apps/web/index.html`
 
@@ -780,7 +780,7 @@ Run: `git diff --name-only -- docs/menus`
 
 Expected: 출력이 없다.
 
-- [ ] **Step 4: 자산 재현성과 전체 Web 단위 검증을 실행한다.**
+- [x] **Step 4: 자산 재현성과 전체 Web 단위 검증을 실행한다.**
 
 Run: `pnpm --filter @led-control/web brand:assets && git diff --exit-code -- apps/web/public/brand/kinda-mark-512.png apps/web/public/brand/favicon-32.png`
 
@@ -794,13 +794,13 @@ Run: `pnpm --filter @led-control/web typecheck && pnpm --filter @led-control/web
 
 Expected: 두 명령 모두 종료 코드 `0`이고 Vite가 brand public 자산을 `dist/brand`로 복사한다.
 
-- [ ] **Step 5: 핵심 접점 Chromium 회귀를 실행한다.**
+- [x] **Step 5: 핵심 접점 Chromium 회귀를 실행한다.**
 
 Run: `pnpm --filter @led-control/web exec playwright test e2e/calm-operations-auth-operator.spec.ts e2e/calm-operations-shell.spec.ts e2e/app-shell-recovery.spec.ts e2e/settings-floor-editor.spec.ts --project=chromium --workers=1`
 
 Expected: 네 spec이 모든 기존 viewport·인증 복구·셸·맵 편집 계약과 새 브랜드 기대를 통과한다. 자동 Chromium은 Web software 증거이며 실제 모바일 WebView나 장비 검증으로 기록하지 않는다.
 
-- [ ] **Step 6: 프로젝트 상태의 현재 행을 실행 완료로 갱신한다.**
+- [x] **Step 6: 프로젝트 상태의 현재 행을 실행 완료로 갱신한다.**
 
 작업 상태 표 최상단의 `킨다 O안 스위치 플립 브랜드 적용` 행을 다음 내용으로 교체한다.
 
@@ -808,7 +808,7 @@ Expected: 네 spec이 모든 기존 viewport·인증 복구·셸·맵 편집 계
 | 킨다 O안 스위치 플립 브랜드 적용 | 완료(소프트웨어) | 스위치 플립 SVG 정본과 재현 가능한 PNG·파비콘, HTML 한글 `킨다`를 조합한 공통 `KindaLogo`, 브라우저 메타데이터, 로그인·고객·운영자 셸의 사용자 노출 브랜드 교체를 완료했다. 브랜드 자산·메타데이터·화면 단위 테스트, 전체 Web Vitest, typecheck, production build와 핵심 접점 Chromium 회귀를 통과했다. 기술 package 이름과 API·DB·MQTT·BLE Mesh·firmware는 변경하지 않았고 모바일 스토어 아이콘, 인쇄 발주, 실물 장비 라벨, 실제 모바일 WebView·HIL은 범위 밖이다. [설계](superpowers/specs/2026-09-13-kinda-visual-identity-design.md) · [실행 계획](superpowers/plans/2026-09-13-kinda-brand-web-assets.md) |
 ```
 
-- [ ] **Step 7: 최종 diff와 문서 경계를 검증한다.**
+- [x] **Step 7: 최종 diff와 문서 경계를 검증한다.**
 
 Run: `git diff --check`
 
@@ -818,7 +818,7 @@ Run: `git status --short`
 
 Expected: 계획에 열거한 Web 파일과 `docs/project-status.md`만 변경되고 `docs/menus/*.md`는 없다.
 
-- [ ] **Step 8: E2E와 완료 상태를 커밋한다.**
+- [x] **Step 8: E2E와 완료 상태를 커밋한다.**
 
 ```bash
 git add apps/web/e2e docs/project-status.md
