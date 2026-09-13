@@ -677,11 +677,11 @@ git commit -m "feat(gateway): deploy one BIO raw USB device safely"
 
 - [x] **Step 3: 생성 결과와 admin3 보존을 검증한다.** `admin4` exact-one, pending Site/Floor 0, 새 organization 분리와 `admin3` 기존 graph 불변을 확인했다. `admin3`의 Floor 2/Fixture 400/Gateway 2는 유지됐다.
 
-- [ ] **Step 4: Pi를 새 manufacturing identity로 등록한다.** old orphan certificate를 새 Gateway ID에 재결속하지 않고 새 serial/device identity와 one-time claim code를 사용한다. 기존 orphan certificate의 active 상태는 제품 PKI 경로로 revoke/disable한 뒤 진행한다.
+- [ ] **Step 4: manufacturing보다 먼저 Lab LAN/API/PKI를 복구한다.** current LAN에 맞춰 API service certificate, device/MQTT/manufacturing CRL과 application token을 갱신하고 Mac/Pi name resolution 및 station mTLS를 검증한다. 실행 중 API는 main checkout의 DB migration과 durable reconciliation 계약이 일치할 때만 PKI-enabled 환경으로 재시작한다.
 
-- [ ] **Step 5: admin4 initial setup과 Gateway claim/bootstrap을 완료한다.** 최소 한 층을 만들고 새 claim code를 한 번만 사용하며 성공 후 원문을 폐기한다.
+- [ ] **Step 5: orphan certificate를 폐기하고 Pi를 새 manufacturing identity로 등록한다.** old inventory exact-one과 admin3 무관성을 확인한 뒤 제품 disable/reconciliation 경로로 device·MQTT certificate와 CRL 폐기를 완료한다. old certificate를 새 Gateway ID에 재결속하지 않고, 기존 data root와 분리된 `/data-admin4`에 새 serial/device identity와 one-time claim code를 생성한다.
 
-- [ ] **Step 6: Task 8a LAN/PKI/MQTT 복구를 실행한다.** current LAN, hosts, SAN/CRL, runtime broker, Pi/container DNS를 일치시키고 DNS → TCP → TLS/mTLS → MQTT CONNACK을 검증한다.
+- [ ] **Step 6: admin4 initial setup과 Gateway claim/bootstrap을 완료한다.** 최소 한 층을 만들고 새 claim code를 한 번만 사용하며 성공 후 원문을 폐기한다. 새 runtime은 `/data-admin4/{identity,gateway,mesh}`만 사용하고 DNS → TCP → TLS/mTLS → MQTT CONNACK을 검증한다.
 
 - [ ] **Step 7: healthy heartbeat 3회를 확인한다.** 새 Gateway ID의 DB timestamp 증가와 Gateway/container health를 대조한다.
 
