@@ -208,9 +208,19 @@ export class BioUsbTransport {
 
   private receive(generation: number, bytes: Buffer) {
     if (!this.current(generation)) return;
-    for (const event of this.codec.push(bytes)) {
+    const events = this.codec.push(bytes);
+    for (const [index, event] of events.entries()) {
       if (!this.current(generation)) break;
       if (event.type === "malformed") {
+        const recoveredStartupInfo = event.reason === "checksum"
+          && this.options.profile === "android-v1.2.0"
+          && this.startup !== undefined
+          && this.active === undefined
+          && events.slice(index + 1).some((candidate) => candidate.type === "frame" && candidate.frame.command === 0x03);
+        // Converter detection can interrupt a streaming 12 notification. Only
+        // a valid 03 already recovered in this same batch proves safe resync;
+        // request-owned, length, and isolated malformed input still fail closed.
+        if (recoveredStartupInfo) continue;
         this.fail(generation, new BioUsbError("MALFORMED_FRAME", "Malformed BIO frame"));
         break;
       }

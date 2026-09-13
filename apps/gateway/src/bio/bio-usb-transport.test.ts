@@ -151,6 +151,58 @@ describe("BioUsbTransport", () => {
     await h.transport.stop();
   });
 
+  it("resynchronizes from a truncated startup notification before valid converter info", async () => {
+    const h = harness({ profile: "android-v1.2.0", protocol: "crc16" });
+    const notifications: number[] = [];
+    h.transport.onNotification((frame) => notifications.push(frame.command));
+    const starting = settled(h.transport.start());
+    try {
+      await flush();
+      expect(h.devices[0].writes).toEqual(["55aa82000000", "4753820000"]);
+
+      // Captured metadata boundary: a 16-byte-payload 12 stops after 14
+      // total bytes, then checksum recovery finds CRC and GS info frames.
+      h.devices[0].receive("55aa121000000000000000000000");
+      h.devices[0].receive("55aa030c000000000000000000000000b9ce4753030c000000000000000000000000f0");
+      await flush();
+
+      expect(h.devices[0].writes).toEqual([
+        "55aa82000000",
+        "4753820000",
+        "55aa0a000710"
+      ]);
+      expect(notifications).toEqual([0x03, 0x03]);
+      h.devices[0].receive("55aa0b0d0001000000000000010c000320c50e");
+      expect(await starting).toBeUndefined();
+      expect(h.transport.snapshot().ready).toBe(true);
+    } finally {
+      await h.transport.stop();
+      await starting;
+    }
+  });
+
+  it("fails closed when GET_NWK owns a malformed response before valid info", async () => {
+    const h = harness({ profile: "android-v1.2.0", protocol: "crc16" });
+    const starting = settled(h.transport.start());
+    try {
+      await flush();
+      h.devices[0].receive("55aa030c000000000000000000000000b9ce");
+      await flush();
+      expect(h.devices[0].writes).toEqual([
+        "55aa82000000",
+        "4753820000",
+        "55aa0a000710"
+      ]);
+
+      h.devices[0].receive("55aa0b00068155aa030c000000000000000000000000b9ce");
+      expect(await starting).toMatchObject({ code: "MALFORMED_FRAME" });
+      expect(h.transport.snapshot().ready).toBe(false);
+    } finally {
+      await h.transport.stop();
+      await starting;
+    }
+  });
+
   it("bounds converter writes even when info arrives before a write completes", async () => {
     let finishWrite!: () => void;
     const h = harness({ profile: "android-v1.2.0", protocol: "crc16", configureDevice: (device) => {
