@@ -58,6 +58,7 @@ import {
   recoverPendingManualAutomationHandoffs,
   type GatewayCommandReceipt,
   type GatewayCommandResult,
+  type GatewayFixtureObservation,
   type ManualOverrideCoordinator
 } from "./commands/gateway-command-handler";
 import { EventSequenceStore } from "./state/event-sequence-store";
@@ -65,6 +66,8 @@ import { ProvisioningScanJournal } from "./state/provisioning-scan-journal";
 import {
   ProvisioningDeviceJournal,
   ProvisioningDeviceReplayPublisher,
+  createCompletedTerminal,
+  createFailedTerminal,
   createProvisioningOutcomeUnknownTerminal,
   handleDurableProvisioningDevice
 } from "./state/provisioning-device-journal";
@@ -291,6 +294,40 @@ export async function handleProvisionDeviceCommand(input: {
   }
 }
 
+export async function recoverProvisioningDevicesOnStartup(
+  journal: Pick<ProvisioningDeviceJournal, "recoverAccepted">,
+  adapter: ProvisioningAdapter,
+  nextEnvelope: () => Promise<{ eventId: string; sequence: number; occurredAt: string }>
+) {
+  await journal.recoverAccepted(async (command) => {
+    if (!adapter.recoverProvisioning) {
+      // [확인됨] 기존 BlueZ adapter는 crash 뒤 물리 provisioning 결과를 증명할 recovery
+      // 계약이 없으므로 기존 outcome_unknown terminal을 그대로 유지한다.
+      return createProvisioningOutcomeUnknownTerminal(command, await nextEnvelope());
+    }
+    try {
+      // [확인됨] BIO만 제공하는 recovery는 confirmed mapping의 write-free 수렴 또는
+      // reserved old/new reconciliation만 수행한다. startup이 address write를 재시도하지 않는다.
+      const result = await adapter.recoverProvisioning(command);
+      return createCompletedTerminal(command, result, await nextEnvelope());
+    } catch {
+      return createFailedTerminal(command, await nextEnvelope());
+    }
+  });
+}
+
+export async function hydrateAdapterGroupState(
+  adapter: Pick<BleMeshAdapter, "hydrateGroupSubscriptions">,
+  stateStore: Pick<GroupStateStore, "readReadySnapshots">
+) {
+  if (!adapter.hydrateGroupSubscriptions) return 0;
+  const snapshots = await stateStore.readReadySnapshots();
+  // [확인됨] startup은 durable ready snapshot만 adapter-local state로 전달한다. BIO는
+  // confirmed mapping만 수화하며 native group subscription 또는 cloud resync 성공을 만들지 않는다.
+  await adapter.hydrateGroupSubscriptions(snapshots);
+  return snapshots.length;
+}
+
 config({ path: resolve(process.cwd(), "../../.env") });
 config();
 
@@ -380,18 +417,17 @@ async function main() {
     })
   }));
   const provisioningDeviceReplay = new ProvisioningDeviceReplayPublisher(provisioningDeviceJournal);
-  await provisioningDeviceJournal.recoverAccepted(async (command) =>
-    createProvisioningOutcomeUnknownTerminal(command, {
+  await recoverProvisioningDevicesOnStartup(provisioningDeviceJournal, provisioningAdapter, async () => ({
       eventId: randomUUID(),
       sequence: await eventSequence.next(),
       occurredAt: new Date().toISOString()
-    })
-  );
+    }));
   const activeProvisioningHandlers = new Set<Promise<unknown>>();
   const groupStateStore = new GroupStateStore(
     process.env.GATEWAY_MESH_GROUP_STATE_PATH ?? "/var/lib/led-control/mesh-groups.json"
   );
   const groupRestore = await groupStateStore.initialize();
+  await hydrateAdapterGroupState(adapter, groupStateStore);
   const groupQueue = new KeyedSerialTaskQueue();
   const groupResyncStore = new MeshGroupResyncStore(
     process.env.GATEWAY_MESH_GROUP_RESYNC_PATH ?? "/var/lib/led-control/mesh-group-resync.json",
@@ -672,7 +708,7 @@ async function main() {
         await publish(source, mqttTopicsV2.acceptanceAck(siteId, gatewayId), result.acceptance);
       }
       await publish(source, mqttTopicsV2.deviceStatusAck(siteId, gatewayId), result.deviceStatus);
-      if (shouldPublishFixtureStates(result)) await publishDeviceStates(result, command.brightness, stateReservation);
+      if (shouldPublishFixtureStates(result)) await publishDeviceStates(result, stateReservation);
     } finally {
       if (stateReservation) await stateEventOutbox.release(stateReservation);
     }
@@ -680,7 +716,6 @@ async function main() {
 
   async function publishDeviceStates(
     result: GatewayCommandResult,
-    fallbackBrightness: number,
     reservation?: StateEventCapacityReservation
   ) {
     await publishObservedDeviceStates({
@@ -688,8 +723,7 @@ async function main() {
       gatewayId,
       eventSequence,
       publish: (_topic, state) => enqueueFixtureState(state, reservation),
-      result,
-      fallbackBrightness
+      result
     });
   }
 
@@ -1231,17 +1265,31 @@ export function automationStateHealthReason(error: unknown) {
   return error.code;
 }
 
-export function observedFixtureResults(result: Pick<GatewayCommandResult, "deviceStatus" | "fixtureStateObserved" | "observedFixtureIds">) {
+export function observedFixtureResults(result: Pick<GatewayCommandResult,
+  "deviceStatus" | "fixtureStateObserved" | "observedFixtureIds" | "fixtureObservations">): Array<
+    DeviceStatusAckV2["results"][number] & GatewayFixtureObservation & { brightness: number }
+  > {
   if (!result.fixtureStateObserved) return [];
+  if (result.fixtureObservations) {
+    const resultsByFixture = new Map(result.deviceStatus.results.map((fixture) => [fixture.fixtureId, fixture]));
+    return result.fixtureObservations.flatMap((observation) => {
+      const brightness = observation.brightness;
+      if (typeof brightness !== "number") return [];
+      const fixture = resultsByFixture.get(observation.fixtureId);
+      return fixture ? [{ ...fixture, ...observation, brightness }] : [];
+    });
+  }
   const observedIds = new Set(
     result.observedFixtureIds ?? result.deviceStatus.results
       .filter((fixture) => fixture.status === "succeeded" || (fixture.faultCode === "state_mismatch" && fixture.brightness !== undefined))
       .map((fixture) => fixture.fixtureId)
   );
-  return result.deviceStatus.results.filter((fixture) =>
+  return result.deviceStatus.results.flatMap((fixture) =>
     observedIds.has(fixture.fixtureId) &&
-    fixture.brightness !== undefined &&
-    (fixture.status === "succeeded" || fixture.faultCode === "state_mismatch")
+      fixture.brightness !== undefined &&
+      (fixture.status === "succeeded" || fixture.faultCode === "state_mismatch")
+      ? [{ ...fixture, brightness: fixture.brightness }]
+      : []
   );
 }
 
@@ -1250,11 +1298,15 @@ export async function publishObservedDeviceStates(input: {
   gatewayId: string;
   eventSequence: Pick<EventSequenceStore, "next">;
   publish: (topic: string, payload: FixtureStateV2) => Promise<void>;
-  result: Pick<GatewayCommandResult, "deviceStatus" | "fixtureStateObserved" | "observedFixtureIds">;
-  fallbackBrightness: number;
+  result: Pick<GatewayCommandResult,
+    "deviceStatus" | "fixtureStateObserved" | "observedFixtureIds" | "fixtureObservations">;
 }) {
   for (const fixture of observedFixtureResults(input.result)) {
-    const brightness = fixture.brightness ?? input.fallbackBrightness;
+    const brightness = fixture.brightness;
+    // [확인됨] observedFixtureResults는 number brightness만 반환한다. 요청값 fallback은 실제 관측이
+    // 아니므로 금지하며, mode가 있으면 power state 판단에 보존해서 사용한다.
+    if (brightness === undefined) continue;
+    const powerOn = fixture.mode === "force-off" ? false : fixture.mode === "force-on" ? true : brightness > 0;
     const state = fixtureStateV2Schema.parse({
       siteId: input.siteId,
       gatewayId: input.gatewayId,
@@ -1263,7 +1315,7 @@ export async function publishObservedDeviceStates(input: {
       occurredAt: input.result.deviceStatus.occurredAt,
       fixtureId: fixture.fixtureId,
       brightness,
-      powerOn: brightness > 0,
+      powerOn,
       status: fixture.status === "succeeded" ? "online" : "fault",
       statusReason: fixture.status === "succeeded" ? "reported" : "command_failed",
       ...(fixture.faultCode ? { faultCode: fixture.faultCode } : {}),

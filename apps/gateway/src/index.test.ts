@@ -32,7 +32,9 @@ import {
   stateEventOutboxHealthReason,
   handoffPersistedAutomationTelemetryGap,
   handleProvisionDeviceCommand,
+  hydrateAdapterGroupState,
   recordAndHandoffAutomationTelemetryGap,
+  recoverProvisioningDevicesOnStartup,
   startGatewayRuntime,
   subscribeGatewayAcknowledgements,
   subscribeGatewayCommands
@@ -46,6 +48,9 @@ import {
   handleGatewayDimmingCommand,
   recoverPendingManualAutomationHandoffs
 } from "./commands/gateway-command-handler";
+import { ProvisioningDeviceJournal } from "./state/provisioning-device-journal";
+import { GroupStateStore } from "./mesh/group-state-store";
+import { BioUsbDongleAdapter } from "./adapters/bio-usb-dongle-adapter";
 
 const scopedSiteId = "00000000-0000-4000-8000-000000000003";
 const scopedGatewayId = "00000000-0000-4000-8000-000000000004";
@@ -185,7 +190,190 @@ const assignment = {
   configVersion: 1
 };
 
+function provisioningCommand(overrides: Record<string, unknown> = {}) {
+  return {
+    commandId: "10000000-0000-4000-8000-000000000000",
+    sessionId: "11000000-0000-4000-8000-000000000000",
+    siteId: scopedSiteId,
+    gatewayId: scopedGatewayId,
+    nodeId: "20000000-0000-4000-8000-000000000000",
+    deviceUuid: "00112233445566778899aabbccddeeff",
+    meshAddress: "0x0101",
+    requestedAt: "2026-09-13T00:00:00.000Z",
+    ...overrides
+  } as any;
+}
+
 describe("startGatewayRuntime", () => {
+  it("recovers confirmed and reserved BIO accepted commands through the production startup journal path", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "gateway-bio-provisioning-recovery-"));
+    try {
+      const path = join(directory, "provisioning.json");
+      const confirmedCommand = provisioningCommand({
+        commandId: "10000000-0000-4000-8000-000000000001",
+        nodeId: "20000000-0000-4000-8000-000000000001",
+        deviceUuid: "bio:001122334455",
+        meshAddress: "0x0101"
+      });
+      const reservedCommand = provisioningCommand({
+        commandId: "10000000-0000-4000-8000-000000000002",
+        nodeId: "20000000-0000-4000-8000-000000000002",
+        deviceUuid: "bio:001122334466",
+        meshAddress: "0x0102"
+      });
+      const seed = new ProvisioningDeviceJournal(path);
+      await seed.initialize();
+      await seed.accept(confirmedCommand);
+      await seed.accept(reservedCommand);
+      const client = {
+        scan: vi.fn(),
+        startIdentify: vi.fn(),
+        stopIdentify: vi.fn(),
+        assignAddress: vi.fn(),
+        reconcileAddress: vi.fn(async (nativeUuid: string) => ({
+          outcome: "confirmed" as const,
+          device: {
+            nativeUuid,
+            deviceUuid: `bio:${nativeUuid}`,
+            logicalAddress: 0x0102,
+            networkId: 0,
+            firmwareVersion: "1.2.3.4",
+            rssi: -42
+          }
+        })),
+        setOutput: vi.fn()
+      };
+      const mappings = {
+        findByDeviceUuidIncludingReserved: vi.fn(async (deviceUuid: string) => ({
+          fixtureId: deviceUuid.endsWith("55") ? confirmedCommand.nodeId : reservedCommand.nodeId,
+          nodeId: deviceUuid.endsWith("55") ? confirmedCommand.nodeId : reservedCommand.nodeId,
+          deviceUuid,
+          nativeUuid: deviceUuid.slice(4),
+          logicalAddress: deviceUuid.endsWith("55") ? 0x0101 : 0x0102,
+          observedLogicalAddressBeforeAssignment: deviceUuid.endsWith("55") ? 0x1234 : 0x1235,
+          commandId: deviceUuid.endsWith("55") ? confirmedCommand.commandId : reservedCommand.commandId,
+          firmware: "1.2.3.4",
+          protocol: "crc16" as const,
+          status: deviceUuid.endsWith("55") ? "confirmed" as const : "reserved" as const,
+          updatedAt: "2026-09-13T00:00:00.000Z"
+        })),
+        reserve: vi.fn(),
+        confirm: vi.fn(),
+        findByFixtureId: vi.fn(),
+        findByLogicalAddress: vi.fn(),
+        listConfirmed: vi.fn(async () => [])
+      };
+      const adapter = new BioUsbDongleAdapter(client, mappings);
+      const restarted = new ProvisioningDeviceJournal(path);
+      await restarted.initialize();
+      let sequence = 0;
+
+      await recoverProvisioningDevicesOnStartup(restarted, adapter, async () => ({
+        eventId: sequence++ === 0
+          ? "30000000-0000-4000-8000-000000000001"
+          : "30000000-0000-4000-8000-000000000002",
+        sequence,
+        occurredAt: "2026-09-13T00:00:01.000Z"
+      }));
+
+      const terminals = await restarted.pendingTerminals();
+      expect(terminals.map(({ payload }) => payload.status)).toEqual(["completed", "completed"]);
+      expect(client.reconcileAddress).toHaveBeenCalledOnce();
+      expect(client.reconcileAddress).toHaveBeenCalledWith("001122334466", 0x1235, 0x0102);
+      expect(client.assignAddress).not.toHaveBeenCalled();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps the existing BlueZ startup fallback outcome-unknown when the adapter has no recovery contract", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "gateway-bluez-provisioning-recovery-"));
+    try {
+      const path = join(directory, "provisioning.json");
+      const command = provisioningCommand();
+      const seed = new ProvisioningDeviceJournal(path);
+      await seed.initialize();
+      await seed.accept(command);
+      const restarted = new ProvisioningDeviceJournal(path);
+      await restarted.initialize();
+
+      await recoverProvisioningDevicesOnStartup(restarted, {
+        identify: vi.fn(),
+        provision: vi.fn()
+      }, async () => ({
+        eventId: "30000000-0000-4000-8000-000000000003",
+        sequence: 1,
+        occurredAt: "2026-09-13T00:00:01.000Z"
+      }));
+
+      await expect(restarted.pendingTerminals()).resolves.toEqual([
+        expect.objectContaining({
+          payload: expect.objectContaining({ status: "failed", errorCode: "provisioning_outcome_unknown" })
+        })
+      ]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("hydrates BIO virtual membership from ready GroupStateStore snapshots on the production startup path", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "gateway-bio-group-hydration-"));
+    try {
+      const path = join(directory, "groups.json");
+      const identity = {
+        groupId: "40000000-0000-4000-8000-000000000001",
+        groupAddress: "0xc000",
+        version: 1
+      };
+      const member = { meshNodeId: "50000000-0000-4000-8000-000000000001", meshAddress: "0x0101" };
+      const seed = new GroupStateStore(path);
+      await seed.initialize();
+      await seed.writeConfiguring(identity);
+      await seed.writeReady(identity, [member]);
+      const mapping = {
+        fixtureId: "60000000-0000-4000-8000-000000000001",
+        nodeId: member.meshNodeId,
+        deviceUuid: "bio:001122334455",
+        nativeUuid: "001122334455",
+        logicalAddress: 0x0101,
+        observedLogicalAddressBeforeAssignment: 0x1234,
+        commandId: "70000000-0000-4000-8000-000000000001",
+        firmware: "1.2.3.4",
+        protocol: "crc16" as const,
+        status: "confirmed" as const,
+        updatedAt: "2026-09-13T00:00:00.000Z"
+      };
+      const client = {
+        scan: vi.fn(async () => [{
+          nativeUuid: mapping.nativeUuid,
+          deviceUuid: mapping.deviceUuid,
+          logicalAddress: mapping.logicalAddress,
+          networkId: 0,
+          firmwareVersion: mapping.firmware,
+          rssi: -41
+        }]),
+        startIdentify: vi.fn(), stopIdentify: vi.fn(), assignAddress: vi.fn(), reconcileAddress: vi.fn(),
+        setOutput: vi.fn(async () => ({ brightnessPercent: 60, powerOn: true, rawHighBrightness: 198, mode: "force-on" as const }))
+      };
+      const mappings = {
+        findByDeviceUuidIncludingReserved: vi.fn(), reserve: vi.fn(), confirm: vi.fn(),
+        findByFixtureId: vi.fn(async () => mapping),
+        findByLogicalAddress: vi.fn(async (address: number) => address === mapping.logicalAddress ? mapping : null),
+        listConfirmed: vi.fn(async () => [mapping])
+      };
+      const adapter = new BioUsbDongleAdapter(client, mappings);
+      await adapter.scan({} as never);
+
+      await hydrateAdapterGroupState(adapter, new GroupStateStore(path));
+
+      await expect(adapter.applyMeshGroup(0xc000, [mapping.fixtureId], 60)).resolves.toEqual([
+        expect.objectContaining({ fixtureId: mapping.fixtureId, acknowledged: true, outcome: "applied" })
+      ]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("connects Task 11 hot reload to the durable scheduler and executor", async () => {
     const directory = await mkdtemp(join(tmpdir(), "gateway-automation-wiring-"));
     try {
@@ -879,6 +1067,90 @@ describe("startGatewayRuntime", () => {
     ]);
   });
 
+  it("keeps BIO mismatch mode metadata and exposes only its real table-backed brightness for publication", () => {
+    const known = observedFixtureResults({
+      fixtureStateObserved: true,
+      observedFixtureIds: [scopedFixtureId],
+      fixtureObservations: [{ fixtureId: scopedFixtureId, brightness: 38, mode: "sensor" }],
+      deviceStatus: {
+        results: [{
+          fixtureId: scopedFixtureId,
+          status: "failed",
+          brightness: 38,
+          faultCode: "BIO_CONTROL_MODE_STATE_MISMATCH"
+        }]
+      }
+    } as never);
+    const unknown = observedFixtureResults({
+      fixtureStateObserved: false,
+      observedFixtureIds: [],
+      fixtureObservations: [{ fixtureId: scopedFixtureId, mode: "force-on" }],
+      deviceStatus: {
+        results: [{
+          fixtureId: scopedFixtureId,
+          status: "failed",
+          faultCode: "BIO_CONTROL_MODE_STATE_MISMATCH"
+        }]
+      }
+    } as never);
+
+    expect(known).toEqual([{
+      fixtureId: scopedFixtureId,
+      status: "failed",
+      brightness: 38,
+      mode: "sensor",
+      faultCode: "BIO_CONTROL_MODE_STATE_MISMATCH"
+    }]);
+    expect(unknown).toEqual([]);
+  });
+
+  it("publishes a BIO mismatch with real brightness and never substitutes requested brightness for a mode-only mismatch", async () => {
+    const publish = vi.fn().mockResolvedValue(undefined);
+    const next = vi.fn().mockResolvedValueOnce(31);
+    await publishObservedDeviceStates({
+      siteId: scopedSiteId,
+      gatewayId: scopedGatewayId,
+      eventSequence: { next },
+      publish,
+      result: {
+        fixtureStateObserved: true,
+        observedFixtureIds: [scopedFixtureId],
+        fixtureObservations: [{ fixtureId: scopedFixtureId, brightness: 38, mode: "sensor" }],
+        deviceStatus: {
+          occurredAt: "2026-09-13T00:00:00.000Z",
+          results: [{ fixtureId: scopedFixtureId, status: "failed", brightness: 38, faultCode: "BIO_CONTROL_MODE_STATE_MISMATCH" }]
+        }
+      } as never
+    });
+    await publishObservedDeviceStates({
+      siteId: scopedSiteId,
+      gatewayId: scopedGatewayId,
+      eventSequence: { next },
+      publish,
+      result: {
+        fixtureStateObserved: false,
+        observedFixtureIds: [],
+        fixtureObservations: [{ fixtureId: scopedFixtureId, mode: "force-on" }],
+        deviceStatus: {
+          occurredAt: "2026-09-13T00:00:01.000Z",
+          results: [{ fixtureId: scopedFixtureId, status: "failed", faultCode: "BIO_CONTROL_MODE_STATE_MISMATCH" }]
+        }
+      } as never
+    });
+
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(publish).toHaveBeenCalledWith(
+      `sites/${scopedSiteId}/gateways/${scopedGatewayId}/state/fixtures`,
+      expect.objectContaining({
+        fixtureId: scopedFixtureId,
+        brightness: 38,
+        powerOn: true,
+        status: "fault",
+        faultCode: "BIO_CONTROL_MODE_STATE_MISMATCH"
+      })
+    );
+  });
+
   it("publishes fixture state only for the observed member of a partial command", async () => {
     const publish = vi.fn().mockResolvedValue(undefined);
     const next = vi.fn().mockResolvedValue(21);
@@ -887,7 +1159,6 @@ describe("startGatewayRuntime", () => {
       gatewayId: scopedGatewayId,
       eventSequence: { next },
       publish,
-      fallbackBrightness: 70,
       result: {
         fixtureStateObserved: true,
         observedFixtureIds: [scopedFixtureId],

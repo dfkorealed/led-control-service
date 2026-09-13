@@ -11,6 +11,7 @@ import type {
   BleMeshAdapter,
   BleMeshCommandReport,
   BleMeshFixtureStatus,
+  BleMeshGroupSnapshot,
   BleMeshLightingObservation,
   BleMeshResyncReport,
   ProvisioningAdapter,
@@ -146,7 +147,7 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
     const mapping = await this.mappings.findByFixtureId(fixtureId);
     if (!mapping) throw new Error("fixture_not_registered");
     await this.requireDiscovered(mapping);
-    if (action === "start") await this.client.startIdentify(mapping.deviceUuid);
+    if (action === "start") await this.client.startIdentify(mapping.deviceUuid, { signal, deadlineAt: expiresAt });
     else await this.client.stopIdentify(mapping.deviceUuid);
     return action === "start" ? 2 : 0;
   }
@@ -161,14 +162,20 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
     signal?: AbortSignal,
     deadlineAt?: number
   ): Promise<BleMeshCommandReport> {
-    if (expired(signal, deadlineAt)) return failed(fixtureId, brightness, "command_expired", "timed_out");
+    if (expired(signal, deadlineAt)) return failed(fixtureId, undefined, "command_expired", "timed_out");
     const mapping = await this.mappings.findByFixtureId(fixtureId);
-    if (!mapping) return failed(fixtureId, brightness, "fixture_not_registered");
+    if (!mapping) return failed(fixtureId, undefined, "fixture_not_registered");
     let device: BioDiscoveredDevice | undefined;
     try {
       device = await this.requireDiscovered(mapping);
-      if (expired(signal, deadlineAt)) return failed(fixtureId, brightness, "command_expired", "timed_out", device.rssi);
-      const observed = await this.client.setOutput(target(device, mapping.logicalAddress), brightness);
+      if (expired(signal, deadlineAt)) return failed(fixtureId, undefined, "command_expired", "timed_out", device.rssi);
+      const outputTarget = target(device, mapping.logicalAddress);
+      const observed = signal || deadlineAt !== undefined
+        ? await this.client.setOutput(outputTarget, brightness, { signal, deadlineAt })
+        : await this.client.setOutput(outputTarget, brightness);
+      if (expired(signal, deadlineAt)) {
+        return failed(fixtureId, undefined, "command_expired", "timed_out", device.rssi);
+      }
       return {
         fixtureId,
         acknowledged: true,
@@ -178,9 +185,13 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
         hopCount: null
       };
     } catch (error) {
-      const observation = readbackObservation(error, brightness);
+      if (expired(signal, deadlineAt)) {
+        return failed(fixtureId, undefined, "command_expired", "timed_out", device?.rssi ?? null);
+      }
+      const observation = readbackObservation(error);
       return {
         ...failed(fixtureId, observation.brightness, errorCode(error), "failed", device?.rssi ?? null),
+        ...(observation.rawBrightness === undefined ? {} : { rawBrightness: observation.rawBrightness }),
         ...(observation.mode ? { mode: observation.mode } : {})
       };
     }
@@ -193,7 +204,9 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
     signal?: AbortSignal,
     deadlineAt?: number
   ) {
-    return mapWithConcurrency(fixtureIds, positiveConcurrency(concurrency),
+    // [확인됨] 상위 handler가 8을 요청해도 BIO wire는 global correlation 제약이 있으므로
+    // 모든 multi-unicast 진입점에서 hard maximum 4를 다시 강제한다.
+    return mapWithConcurrency(fixtureIds, Math.min(positiveConcurrency(concurrency), BIO_GROUP_UNICAST_CONCURRENCY),
       (fixtureId) => this.applyUnicast(fixtureId, brightness, signal, deadlineAt));
   }
 
@@ -207,7 +220,7 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
     requireGroupAddress(groupAddress);
     const members = this.virtualGroups.get(groupAddress);
     if (!members || fixtureIds.some((fixtureId) => !members.has(fixtureId))) {
-      return fixtureIds.map((fixtureId) => failed(fixtureId, brightness, "bio_virtual_group_not_ready"));
+      return fixtureIds.map((fixtureId) => failed(fixtureId, undefined, "bio_virtual_group_not_ready"));
     }
     // BIO firmware native group 적용을 가장하지 않는다. local membership의 각 confirmed fixture만
     // 정확히 4개 worker에서 개별 UUID/address read-back 제어한다.
@@ -227,7 +240,7 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
     for (const operation of command.expectedOperations) {
       const address = parseBioMeshAddress(operation.meshAddress);
       const mapping = await this.mappings.findByLogicalAddress(address);
-      if (!mapping) {
+      if (!mapping || mapping.nodeId !== operation.meshNodeId) {
         operations.push({ ...operation, status: "failed", error: "bio_mapping_not_confirmed" });
         continue;
       }
@@ -245,6 +258,16 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
       operations,
       occurredAt: this.now().toISOString()
     };
+  }
+
+  async hydrateGroupSubscriptions(snapshots: BleMeshGroupSnapshot[]) {
+    // [확인됨] restart hydration은 durable ready snapshot을 local virtual membership으로만
+    // 복원한다. native subscription을 보내거나 성공으로 가장하지 않고 confirmed mapping만 남긴다.
+    this.virtualGroups.clear();
+    for (const snapshot of snapshots) {
+      const groupAddress = parseGroupAddress(snapshot.groupAddress);
+      this.virtualGroups.set(groupAddress, await this.confirmedFixtureSet(snapshot.members));
+    }
   }
 
   onFixtureStatus(_listener: (status: BleMeshFixtureStatus) => void) { return () => undefined; }
@@ -288,7 +311,7 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
     const fixtures = new Set<string>();
     for (const member of members) {
       const mapping = await this.mappings.findByLogicalAddress(parseBioMeshAddress(member.meshAddress));
-      if (mapping) fixtures.add(mapping.fixtureId);
+      if (mapping?.nodeId === member.meshNodeId) fixtures.add(mapping.fixtureId);
     }
     return fixtures;
   }
@@ -375,24 +398,39 @@ function errorCode(error: unknown) {
     : "bio_control_failed";
 }
 
-function readbackObservation(error: unknown, requestedBrightness: number) {
-  if (!error || typeof error !== "object") return { brightness: requestedBrightness, mode: undefined };
-  const row = error as { observedBrightnessPercent?: unknown; observedMode?: unknown };
-  const brightness = typeof row.observedBrightnessPercent === "number" ? row.observedBrightnessPercent : requestedBrightness;
+function readbackObservation(error: unknown): {
+  brightness?: number;
+  rawBrightness?: number;
+  mode?: "sensor" | "force-off" | "force-on";
+} {
+  if (!error || typeof error !== "object") return {};
+  const row = error as { observedBrightnessPercent?: unknown; observedRawHighBrightness?: unknown; observedMode?: unknown };
+  // [확인됨] table 밖 raw 또는 mode-only report는 실제 percent를 말하지 않는다. 요청값을
+  // 관측값으로 대체하지 않고 brightness를 생략하며, 독립적으로 확인된 mode만 보존한다.
+  const brightness = typeof row.observedBrightnessPercent === "number" ? row.observedBrightnessPercent : undefined;
+  const rawBrightness = typeof row.observedRawHighBrightness === "number" ? row.observedRawHighBrightness : undefined;
   const mode = row.observedMode === "sensor" || row.observedMode === "force-off" || row.observedMode === "force-on"
     ? row.observedMode
     : undefined;
-  return { brightness, mode } as { brightness: number; mode: "sensor" | "force-off" | "force-on" | undefined };
+  return { brightness, rawBrightness, mode };
 }
 
 function failed(
   fixtureId: string,
-  brightness: number,
+  brightness: number | undefined,
   faultCode: string,
   outcome: "failed" | "timed_out" = "failed",
   rssi: number | null = null
 ): BleMeshCommandReport {
-  return { fixtureId, acknowledged: false, outcome, brightness, faultCode, rssi, hopCount: null };
+  return {
+    fixtureId,
+    acknowledged: false,
+    outcome,
+    ...(brightness === undefined ? {} : { brightness }),
+    faultCode,
+    rssi,
+    hopCount: null
+  };
 }
 
 function expired(signal?: AbortSignal, deadlineAt?: number) {

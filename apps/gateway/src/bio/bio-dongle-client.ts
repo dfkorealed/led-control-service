@@ -22,6 +22,10 @@ export type BioDongleClientOptions = Pick<BioTransportOptions, "timeoutMs"> & {
   observationTimeoutMs?: number;
   reconnectReadyTimeoutMs?: number;
 };
+export interface BioOperationControl {
+  signal?: AbortSignal;
+  deadlineAt?: number;
+}
 export interface BioCommandAcceptance { outcome: "dongle-accepted"; deviceApplied: false }
 export interface BioDiscoveredDevice {
   nativeUuid: string;
@@ -120,7 +124,8 @@ export class BioDongleClient {
    * [확인됨] scan 성공은 start ACK만이 아니라 fixed deadline 뒤 finally의 stop ACK까지 필요하다.
    * stop ACK가 없으면 수집 목록을 cache/성공으로 공개하지 않아 동글의 scan 상태를 추정하지 않는다.
    */
-  async scan(): Promise<BioDiscoveredDevice[]> {
+  async scan(control: BioOperationControl = {}): Promise<BioDiscoveredDevice[]> {
+    throwIfOperationStopped(control);
     if (this.activeScan) throw new Error("BIO scan is already active");
     const collected = new Map<string, BioDiscoveredDevice>();
     const observations: BioDiscoveredDevice[] = [];
@@ -128,13 +133,15 @@ export class BioDongleClient {
     this.activeScanObservations = observations;
     let failure: unknown;
     try {
-      await this.send({ kind: "scan" });
-      await delay(this.scanDurationMs);
+      await this.send({ kind: "scan" }, control);
+      await controlledDelay(this.scanDurationMs, control);
     } catch (error) {
       failure = error;
     } finally {
       try {
-        await this.stopScan();
+        // [확인됨] expiry 뒤 새 physical write를 금지한다. scan stop도 새 write이므로
+        // 취소된 caller 대신 보내지 않으며, transport lifecycle 복구는 Task 8 범위에 남긴다.
+        if (!operationStopped(control)) await this.stopScan(control);
       } catch (stopError) {
         // stop ACK는 성공 list의 필수 gate다. start/window 오류가 이미 있어도 불확실한
         // dongle scan lifecycle을 더 구체적인 stop 실패로 덮어 fail-closed한다.
@@ -144,21 +151,24 @@ export class BioDongleClient {
       this.activeScanObservations = undefined;
     }
     if (failure !== undefined) throw failure;
+    throwIfOperationStopped(control);
     const devices = [...collected.values()].map((device) => ({ ...device }));
     this.lastScanObservations = observations.map((device) => ({ ...device }));
     this.scanCache = new Map(devices.map((device) => [device.deviceUuid, device]));
     return devices;
   }
 
-  async stopScan(): Promise<BioCommandAcceptance> { return this.send({ kind: "stopScan" }); }
-
-  /** APK-table-backed raw setter. It still returns only dongle acceptance, never application. */
-  async setBrightness(target: BioLampTarget, value: { rawHighBrightness: number }): Promise<BioCommandAcceptance> {
-    return this.send({ kind: "setHighBrightness", target, rawHighBrightness: value.rawHighBrightness });
+  async stopScan(control: BioOperationControl = {}): Promise<BioCommandAcceptance> {
+    return this.send({ kind: "stopScan" }, control);
   }
 
-  async setControlMode(target: BioLampTarget, mode: BioControlMode): Promise<BioCommandAcceptance> {
-    return this.send({ kind: "setControlMode", target, mode });
+  /** APK-table-backed raw setter. It still returns only dongle acceptance, never application. */
+  async setBrightness(target: BioLampTarget, value: { rawHighBrightness: number }, control: BioOperationControl = {}): Promise<BioCommandAcceptance> {
+    return this.send({ kind: "setHighBrightness", target, rawHighBrightness: value.rawHighBrightness }, control);
+  }
+
+  async setControlMode(target: BioLampTarget, mode: BioControlMode, control: BioOperationControl = {}): Promise<BioCommandAcceptance> {
+    return this.send({ kind: "setControlMode", target, mode }, control);
   }
 
   /**
@@ -166,15 +176,19 @@ export class BioDongleClient {
    * restore를 최종 시도한다. cancel/timeout/throw도 이 finally 성격을 우회하지 않는다.
    * 동일 UUID/address의 sensor report가 없으면 ACK가 있어도 복귀 미확정이다.
    */
-  async startIdentify(nativeId: string): Promise<BioDiscoveredDevice> {
+  async startIdentify(nativeId: string, control: BioOperationControl = {}): Promise<BioDiscoveredDevice> {
     const device = this.resolveCachedDevice(nativeId);
     if (this.identifySessions.has(device.nativeUuid)) throw new Error("BIO identify is already active");
     const controller = new AbortController();
-    const promise = this.runIdentify(device, controller.signal);
+    const forwardAbort = () => controller.abort();
+    if (control.signal?.aborted) controller.abort();
+    else control.signal?.addEventListener("abort", forwardAbort, { once: true });
+    const promise = this.runIdentify(device, { ...control, signal: controller.signal });
     this.identifySessions.set(device.nativeUuid, { controller, promise });
     try {
       return await promise;
     } finally {
+      control.signal?.removeEventListener("abort", forwardAbort);
       this.identifySessions.delete(device.nativeUuid);
     }
   }
@@ -199,7 +213,8 @@ export class BioDongleClient {
    * old/new scan을 먼저 수행하고, old-only가 확인된 경우에만 같은 command를 한 번 더 보낸다.
    * [미확인] Task 9 HIL 전까지 APK address serializer의 실장비 적용은 확인되지 않았다.
    */
-  async assignAddress(nativeId: string, logicalAddress: number): Promise<BioAddressAssignmentResult> {
+  async assignAddress(nativeId: string, logicalAddress: number, control: BioOperationControl = {}): Promise<BioAddressAssignmentResult> {
+    throwIfOperationStopped(control);
     validateLogicalAddress(logicalAddress);
     const device = this.resolveCachedDevice(nativeId);
     const operation: BioOperation = {
@@ -208,21 +223,24 @@ export class BioDongleClient {
       nativeUuid: device.nativeUuid,
       logicalAddress
     };
-    await this.sendUncertainWrite(operation);
-    let result = await this.reconcileAddress(device.nativeUuid, device.logicalAddress, logicalAddress);
+    await this.sendUncertainWrite(operation, control);
+    let result = await this.reconcileAddress(device.nativeUuid, device.logicalAddress, logicalAddress, control);
     if (result.outcome !== "unchanged") return result;
 
-    await this.sendUncertainWrite(operation);
-    result = await this.reconcileAddress(device.nativeUuid, device.logicalAddress, logicalAddress);
+    throwIfOperationStopped(control);
+    await this.sendUncertainWrite(operation, control);
+    result = await this.reconcileAddress(device.nativeUuid, device.logicalAddress, logicalAddress, control);
     return result;
   }
 
-  async reconcileAddress(nativeId: string, oldAddress: number, newAddress: number): Promise<BioAddressAssignmentResult> {
+  async reconcileAddress(nativeId: string, oldAddress: number, newAddress: number, control: BioOperationControl = {}): Promise<BioAddressAssignmentResult> {
+    throwIfOperationStopped(control);
     const nativeUuid = normalizeNativeUuid(nativeId);
     validateLogicalAddress(oldAddress);
     validateLogicalAddress(newAddress);
-    await this.waitUntilReadyIfReconnecting();
-    await this.scan();
+    await this.waitUntilReadyIfReconnecting(control);
+    await this.scan(control);
+    throwIfOperationStopped(control);
     const devices = this.lastScanObservations;
     const conflict = devices.find((device) => device.logicalAddress === newAddress && device.nativeUuid !== nativeUuid);
     if (conflict) throw new BioUsbError("BIO_ADDRESS_CONFLICT", "Requested BIO address is occupied by another UUID");
@@ -233,18 +251,18 @@ export class BioDongleClient {
     return { outcome: "unknown", code: "BIO_ADDRESS_STATE_UNKNOWN" };
   }
 
-  async readBrightness(target: BioLampTarget | BioVerifiedLampTarget) {
+  async readBrightness(target: BioLampTarget | BioVerifiedLampTarget, control: BioOperationControl = {}) {
     const expected = this.resolveReadbackTarget(target);
-    const report = await this.requestReadback({ kind: "readHighBrightness", target: expected.target }, expected);
+    const report = await this.requestReadback({ kind: "readHighBrightness", target: expected.target }, expected, control);
     if (report.kind !== "high-brightness-report") {
       throw new BioUsbError("MALFORMED_FRAME", "BIO high-brightness report was not returned");
     }
     return report;
   }
 
-  async readDeviceInfo(target: BioLampTarget | BioVerifiedLampTarget) {
+  async readDeviceInfo(target: BioLampTarget | BioVerifiedLampTarget, control: BioOperationControl = {}) {
     const expected = this.resolveReadbackTarget(target);
-    const report = await this.requestReadback({ kind: "readControlMode", target: expected.target }, expected);
+    const report = await this.requestReadback({ kind: "readControlMode", target: expected.target }, expected, control);
     if (report.kind !== "control-mode-report") {
       throw new BioUsbError("MALFORMED_FRAME", "BIO control-mode report was not returned");
     }
@@ -256,24 +274,30 @@ export class BioDongleClient {
    * 두 read-back이 모두 일치해야 applied 결과를 만든다. 0은 force-off와 mode read만 한다.
    * [미확인] 정적 APK 근거의 실제 밝기 적용은 Task 9 HIL에서 별도로 검증해야 한다.
    */
-  async setOutput(target: BioVerifiedLampTarget, brightnessPercent: number) {
+  async setOutput(target: BioVerifiedLampTarget, brightnessPercent: number, control: BioOperationControl = {}) {
+    throwIfOperationStopped(control);
     const rawHighBrightness = percentToBioRaw(brightnessPercent);
     const expected = this.resolveReadbackTarget(target);
     if (brightnessPercent === 0) {
-      await this.setControlMode(expected.target, "force-off");
-      const mode = await this.readDeviceInfo(target);
+      await this.setControlMode(expected.target, "force-off", control);
+      throwIfOperationStopped(control);
+      const mode = await this.readDeviceInfo(target, control);
+      throwIfOperationStopped(control);
       if (mode.mode !== "force-off") {
         throw Object.assign(
           new BioUsbError("BIO_CONTROL_MODE_STATE_MISMATCH", "BIO force-off read-back did not match"),
-          { observedBrightnessPercent: 0, observedMode: mode.mode }
+          { observedMode: mode.mode }
         );
       }
       return { brightnessPercent: 0, powerOn: false, mode: "force-off" as const };
     }
 
-    await this.setBrightness(expected.target, { rawHighBrightness });
-    await this.setControlMode(expected.target, "force-on");
-    const brightness = await this.readBrightness(target);
+    await this.setBrightness(expected.target, { rawHighBrightness }, control);
+    throwIfOperationStopped(control);
+    await this.setControlMode(expected.target, "force-on", control);
+    throwIfOperationStopped(control);
+    const brightness = await this.readBrightness(target, control);
+    throwIfOperationStopped(control);
     if (brightness.rawHighBrightness !== rawHighBrightness) {
       throw Object.assign(
         new BioUsbError("BIO_BRIGHTNESS_STATE_MISMATCH", "BIO high-brightness read-back did not match"),
@@ -283,14 +307,20 @@ export class BioDongleClient {
         }
       );
     }
-    const mode = await this.readDeviceInfo(target);
+    const observedBrightnessPercent = bioRawToPercent(brightness.rawHighBrightness);
+    const mode = await this.readDeviceInfo(target, control);
+    throwIfOperationStopped(control);
     if (mode.mode !== "force-on") {
       throw Object.assign(
         new BioUsbError("BIO_CONTROL_MODE_STATE_MISMATCH", "BIO force-on read-back did not match"),
-        { observedBrightnessPercent: brightnessPercent, observedMode: mode.mode }
+        {
+          observedRawHighBrightness: brightness.rawHighBrightness,
+          observedBrightnessPercent,
+          observedMode: mode.mode
+        }
       );
     }
-    return { brightnessPercent, powerOn: true, rawHighBrightness, mode: "force-on" as const };
+    return { brightnessPercent: observedBrightnessPercent!, powerOn: true, rawHighBrightness, mode: "force-on" as const };
   }
 
   onEvent(listener: (event: BioClientEvent) => void): () => void {
@@ -298,15 +328,18 @@ export class BioDongleClient {
     return () => { this.listeners.delete(listener); };
   }
 
-  private async runIdentify(device: BioDiscoveredDevice, signal: AbortSignal): Promise<BioDiscoveredDevice> {
+  private async runIdentify(device: BioDiscoveredDevice, control: BioOperationControl): Promise<BioDiscoveredDevice> {
     let primaryFailure: unknown;
     try {
-      await this.setControlMode(toTarget(device), "force-on");
-      await delay(2000, signal);
+      await this.setControlMode(toTarget(device), "force-on", control);
+      await controlledDelay(2000, control);
     } catch (error) {
       primaryFailure = error;
     }
     try {
+      // [확인됨] identify가 force-on을 시작했거나 queue에서 취소됐더라도 sensor 복귀는
+      // 안전 상태를 위한 유일한 post-expiry physical write 예외다. 이 restore 자체는 새
+      // caller deadline을 상속하지 않으며 UUID/address mode report까지 best-effort로 확인한다.
       await this.restoreSensorMode(device);
     } catch (cause) {
       throw new BioUsbError(
@@ -330,25 +363,32 @@ export class BioDongleClient {
 
   private requestReadback(
     operation: BioReadbackOperation,
-    expected: { nativeUuid: string; logicalAddress: number }
+    expected: { nativeUuid: string; logicalAddress: number },
+    control: BioOperationControl = {}
   ): Promise<ReadbackEvent> {
-    return this.operationQueue.run(() => this.requestReadbackOwned(operation, expected));
+    return this.operationQueue.run(() => {
+      throwIfOperationStopped(control);
+      return this.requestReadbackOwned(operation, expected, control);
+    });
   }
 
   private async requestReadbackOwned(
     operation: BioReadbackOperation,
-    expected: { nativeUuid: string; logicalAddress: number }
+    expected: { nativeUuid: string; logicalAddress: number },
+    control: BioOperationControl = {}
   ): Promise<ReadbackEvent> {
+    throwIfOperationStopped(control);
     const expectedKind = operation.kind === "readHighBrightness"
       ? "high-brightness-report"
       : "control-mode-report";
-    const waiting = this.waitForReadback(expected, expectedKind);
+    const waiting = this.waitForReadback(expected, expectedKind, control);
     try {
       // [확인됨] 캡처상 장치 0x12가 동글 outer 0x11보다 먼저 올 수 있으므로 listener를
       // wire write 전에 등록한다. waiter result에는 이 시점부터 rejection handler가 붙어 있다.
-      await this.sendDirect(operation);
+      await this.sendDirect(operation, control);
       const observed = await waiting.result;
       if (!observed.ok) throw observed.error;
+      throwIfOperationStopped(control);
       return observed.value;
     } catch (error) {
       waiting.cancel();
@@ -358,15 +398,23 @@ export class BioDongleClient {
 
   private waitForReadback(
     expected: { nativeUuid: string; logicalAddress: number },
-    expectedKind: ReadbackEvent["kind"]
+    expectedKind: ReadbackEvent["kind"],
+    control: BioOperationControl = {}
   ) {
     let unsubscribe = () => {};
     let timer: ReturnType<typeof setTimeout> | undefined;
-    let rejectWait!: (error: BioUsbError) => void;
+    let rejectWait!: (error: unknown) => void;
     let settled = false;
+    const cancelForControl = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      rejectWait(abortError());
+    };
     const cleanup = () => {
       if (timer) clearTimeout(timer);
       timer = undefined;
+      control.signal?.removeEventListener("abort", cancelForControl);
       unsubscribe();
     };
     const promise = new Promise<ReadbackEvent>((resolve, reject) => {
@@ -379,11 +427,16 @@ export class BioDongleClient {
         cleanup();
         resolve(event);
       });
+      control.signal?.addEventListener("abort", cancelForControl, { once: true });
+      const remaining = remainingOperationMs(control);
       timer = setTimeout(() => {
         settled = true;
         cleanup();
-        reject(new BioUsbError("TIMEOUT", "BIO matching device read-back timed out"));
-      }, this.observationTimeoutMs);
+        reject(operationStopped(control)
+          ? abortError()
+          : new BioUsbError("TIMEOUT", "BIO matching device read-back timed out"));
+      }, Math.min(this.observationTimeoutMs, remaining));
+      if (operationStopped(control)) cancelForControl();
     });
     // [확인됨] native report에는 request transaction ID가 없다. UUID/address/DPID만으로
     // correlation하므로 global operation queue가 command write부터 matching report까지를
@@ -431,17 +484,20 @@ export class BioDongleClient {
     };
   }
 
-  private async sendUncertainWrite(operation: BioOperation): Promise<void> {
+  private async sendUncertainWrite(operation: BioOperation, control: BioOperationControl = {}): Promise<void> {
     try {
-      await this.send(operation);
+      await this.send(operation, control);
     } catch {
+      throwIfOperationStopped(control);
       // [확인됨] ACK는 device state가 아니다. ACK 유실/거부/transport timeout 뒤에도
       // write를 즉시 반복하지 않고 reconnect readiness 뒤 scan evidence로만 판정한다.
     }
-    await this.waitUntilReadyIfReconnecting();
+    await this.waitUntilReadyIfReconnecting(control);
+    throwIfOperationStopped(control);
   }
 
-  private async waitUntilReadyIfReconnecting(): Promise<void> {
+  private async waitUntilReadyIfReconnecting(control: BioOperationControl = {}): Promise<void> {
+    throwIfOperationStopped(control);
     const snapshot = this.transport.snapshot();
     if (snapshot.ready) return;
     if (snapshot.state === "stopped" || snapshot.state === "close-failed") {
@@ -449,32 +505,48 @@ export class BioDongleClient {
     }
     await new Promise<void>((resolve, reject) => {
       let timer: ReturnType<typeof setTimeout> | undefined;
-      const unsubscribe = this.transport.onState((state) => {
+      let unsubscribe = () => {};
+      const abort = () => finish(() => reject(abortError()));
+      const finish = (settle: () => void) => {
+        if (timer) clearTimeout(timer);
+        timer = undefined;
+        control.signal?.removeEventListener("abort", abort);
+        unsubscribe();
+        settle();
+      };
+      unsubscribe = this.transport.onState((state) => {
         if (state.ready) {
-          if (timer) clearTimeout(timer);
-          unsubscribe();
-          resolve();
+          finish(resolve);
         } else if (state.state === "stopped" || state.state === "close-failed") {
-          if (timer) clearTimeout(timer);
-          unsubscribe();
-          reject(new BioUsbError("NOT_READY", "BIO transport did not recover for reconciliation"));
+          finish(() => reject(new BioUsbError("NOT_READY", "BIO transport did not recover for reconciliation")));
         }
       });
+      control.signal?.addEventListener("abort", abort, { once: true });
+      const remaining = remainingOperationMs(control);
+      const timeoutMs = Math.min(this.reconnectReadyTimeoutMs, remaining);
       timer = setTimeout(() => {
-        unsubscribe();
-        reject(new BioUsbError("TIMEOUT", "BIO transport recovery timed out"));
-      }, this.reconnectReadyTimeoutMs);
+        if (remaining <= this.reconnectReadyTimeoutMs) finish(() => reject(abortError()));
+        else finish(() => reject(new BioUsbError("TIMEOUT", "BIO transport recovery timed out")));
+      }, timeoutMs);
+    });
+    throwIfOperationStopped(control);
+  }
+
+  private send(operation: BioOperation, control: BioOperationControl = {}): Promise<BioCommandAcceptance> {
+    return this.operationQueue.run(() => {
+      // [확인됨] queue 대기 중 deadline/abort가 지나면 소유권을 얻은 직후 다시 검사해
+      // expired command가 새 USB frame을 시작하지 못하게 한다.
+      throwIfOperationStopped(control);
+      return this.sendDirect(operation, control);
     });
   }
 
-  private send(operation: BioOperation): Promise<BioCommandAcceptance> {
-    return this.operationQueue.run(() => this.sendDirect(operation));
-  }
-
-  private async sendDirect(operation: BioOperation): Promise<BioCommandAcceptance> {
+  private async sendDirect(operation: BioOperation, control: BioOperationControl = {}): Promise<BioCommandAcceptance> {
+    throwIfOperationStopped(control);
     const request = encodeBioCommand(operation, this.sequence);
     this.sequence = (this.sequence + 1) & 0xff;
     const response = decodeBioResponse(await this.transport.request(request));
+    throwIfOperationStopped(control);
     if (response.kind !== "outer-ack") throw new BioUsbError("MALFORMED_FRAME", "BIO outer ACK was not validated");
     if (!response.accepted) throw Object.assign(new Error("BIO dongle rejected the command"), { code: "BIO_DONGLE_REJECTED" });
     return { outcome: "dongle-accepted", deviceApplied: false };
@@ -513,27 +585,44 @@ function positiveDuration(value: number, label: string) {
   return value;
 }
 
-function delay(milliseconds: number, signal?: AbortSignal) {
+function controlledDelay(milliseconds: number, control: BioOperationControl = {}) {
   return new Promise<void>((resolve, reject) => {
-    if (signal?.aborted) {
+    if (operationStopped(control)) {
       reject(abortError());
       return;
     }
+    const remaining = remainingOperationMs(control);
+    const waitMs = Math.min(milliseconds, remaining);
     const timer = setTimeout(() => {
-      signal?.removeEventListener("abort", cancel);
-      resolve();
-    }, milliseconds);
+      control.signal?.removeEventListener("abort", cancel);
+      if (operationStopped(control)) reject(abortError());
+      else resolve();
+    }, waitMs);
     const cancel = () => {
       clearTimeout(timer);
-      signal?.removeEventListener("abort", cancel);
+      control.signal?.removeEventListener("abort", cancel);
       reject(abortError());
     };
-    signal?.addEventListener("abort", cancel, { once: true });
+    control.signal?.addEventListener("abort", cancel, { once: true });
   });
 }
 
+function operationStopped(control: BioOperationControl) {
+  return Boolean(control.signal?.aborted ||
+    (control.deadlineAt !== undefined && Date.now() >= control.deadlineAt));
+}
+
+function throwIfOperationStopped(control: BioOperationControl) {
+  if (operationStopped(control)) throw abortError();
+}
+
+function remainingOperationMs(control: BioOperationControl) {
+  if (control.deadlineAt === undefined) return 2_147_483_647;
+  return Math.max(0, control.deadlineAt - Date.now());
+}
+
 function abortError() {
-  return new DOMException("BIO identify cancelled", "AbortError");
+  return new DOMException("BIO operation cancelled or expired", "AbortError");
 }
 
 function isAbortError(error: unknown) {

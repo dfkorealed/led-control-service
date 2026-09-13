@@ -35,6 +35,14 @@ export interface GatewayCommandResult {
   deviceStatus: DeviceStatusAckV2;
   fixtureStateObserved: boolean;
   observedFixtureIds?: string[];
+  fixtureObservations?: GatewayFixtureObservation[];
+}
+
+export interface GatewayFixtureObservation {
+  fixtureId: string;
+  brightness?: number;
+  rawBrightness?: number;
+  mode?: "sensor" | "force-off" | "force-on";
 }
 
 export interface ManualOverrideCoordinator {
@@ -209,6 +217,7 @@ async function executeGatewayDimmingCommand(
   let deviceStatus: DeviceStatusAckV2;
   let fixtureStateObserved = false;
   let observedFixtureIds: string[] = [];
+  let fixtureObservations: GatewayFixtureObservation[] = [];
   try {
     if (command.overrideUntil) {
       if (options.receipt) await options.automation?.prepare(command, options.receipt);
@@ -233,9 +242,23 @@ async function executeGatewayDimmingCommand(
     );
     // [확인됨] acknowledged는 adapter가 read-back까지 검증한 applied만 뜻한다. BIO outer ACK
     // 단독은 여기에 도달하지 않으며, mismatch만 관측값을 보존한 failed fixture state가 된다.
-    observedFixtureIds = reports
-      .filter(isObservedReport)
-      .map((report) => report.fixtureId);
+    fixtureObservations = reports.flatMap((report) => {
+      if (!isObservedReport(report)) return [];
+      const observation: GatewayFixtureObservation = {
+        fixtureId: report.fixtureId,
+        ...(typeof report.brightness === "number" ? { brightness: report.brightness } : {}),
+        ...(typeof report.rawBrightness === "number" ? { rawBrightness: report.rawBrightness } : {}),
+        ...(report.mode ? { mode: report.mode } : {})
+      };
+      return observation.brightness === undefined && observation.rawBrightness === undefined && !observation.mode
+        ? []
+        : [observation];
+    });
+    // [확인됨] mode/raw만 관측되고 table-backed percent가 없으면 진단 metadata는 보존하되
+    // 필수 brightness가 있는 fixture-state 발행 대상으로 올리지 않는다.
+    observedFixtureIds = fixtureObservations
+      .filter((observation) => typeof observation.brightness === "number")
+      .map((observation) => observation.fixtureId);
     fixtureStateObserved = observedFixtureIds.length > 0;
     const results = reports.map((report) => ({
       fixtureId: report.fixtureId,
@@ -244,7 +267,7 @@ async function executeGatewayDimmingCommand(
         : report.outcome === "timed_out"
           ? ("timed_out" as const)
           : ("failed" as const),
-      ...(isObservedReport(report) ? { brightness: report.brightness } : {}),
+      ...(isObservedReport(report) && typeof report.brightness === "number" ? { brightness: report.brightness } : {}),
       ...(report.faultCode ? { faultCode: report.faultCode } : {}),
       rssi: report.rssi,
       hopCount: report.hopCount
@@ -271,7 +294,7 @@ async function executeGatewayDimmingCommand(
     });
   }
 
-  const result = { acceptance, deviceStatus, fixtureStateObserved, observedFixtureIds };
+  const result = { acceptance, deviceStatus, fixtureStateObserved, observedFixtureIds, fixtureObservations };
   await completeWithAutomationHandoff(journal, command, result, options);
   return result;
 }
@@ -351,11 +374,11 @@ export async function executeAutomationDimmingActions(
           : report.outcome === "timed_out"
             ? "timed_out" as const
             : "failed" as const;
-        const observed = report.acknowledged || report.faultCode === "state_mismatch";
+        const observed = isObservedReport(report) && typeof report.brightness === "number";
         results.set(report.fixtureId, {
           fixtureId: report.fixtureId,
           status,
-          brightnessPercent: observed ? report.brightness : null,
+          brightnessPercent: observed ? report.brightness! : null,
           faultCode: report.faultCode ?? null,
           errorCode: status === "succeeded" ? null : report.faultCode ?? "mesh_command_failed",
           occurredAt
@@ -435,7 +458,7 @@ function validateReports(expectedFixtureIds: string[], reports: Awaited<ReturnTy
 }
 
 function isObservedReport(report: Awaited<ReturnType<BleMeshAdapter["setBrightness"]>>[number]) {
-  return report.acknowledged || report.faultCode === "state_mismatch" ||
+  return (report.acknowledged && typeof report.brightness === "number") || report.faultCode === "state_mismatch" ||
     report.faultCode === "BIO_BRIGHTNESS_STATE_MISMATCH" ||
     report.faultCode === "BIO_CONTROL_MODE_STATE_MISMATCH";
 }

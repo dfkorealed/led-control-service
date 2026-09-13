@@ -87,6 +87,14 @@ export class GroupStateStore {
     return group ? group.members.map((member) => ({ ...member })) : [];
   }
 
+  async readReadySnapshots(): Promise<DurableGroupState[]> {
+    await this.initialize();
+    if (!this.available) return [];
+    return this.state.groups
+      .filter((group) => group.status === "ready")
+      .map((group) => ({ ...group, members: group.members.map((member) => ({ ...member })) }));
+  }
+
   private async restore(): Promise<{ reason: GroupStateRestoreReason }> {
     let rawState: unknown | null;
     let rawManifest: unknown | null;

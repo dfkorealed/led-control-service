@@ -177,6 +177,29 @@ describe("BioUsbDongleAdapter", () => {
     });
   });
 
+  it("propagates command cancellation and deadline to the BIO client operation", async () => {
+    const f = createFixture();
+    const controller = new AbortController();
+    const deadlineAt = Date.now() + 1_000;
+    f.client.scan.mockResolvedValue([{ ...discovered, logicalAddress: 0x0101 }]);
+    f.mappings.findByFixtureId.mockResolvedValue(confirmedMapping());
+    f.client.setOutput.mockRejectedValue(new DOMException("cancelled", "AbortError"));
+    await f.adapter.scan(scanCommand);
+
+    const report = await f.adapter.applyUnicast(
+      provisioningCommand.nodeId,
+      60,
+      controller.signal,
+      deadlineAt
+    );
+
+    expect(f.client.setOutput).toHaveBeenCalledWith(expect.any(Object), 60, {
+      signal: controller.signal,
+      deadlineAt
+    });
+    expect(report).toMatchObject({ acknowledged: false, outcome: "failed" });
+  });
+
   it("propagates observed brightness and mode from a read-back mismatch", async () => {
     const f = createFixture();
     f.client.scan.mockResolvedValue([{ ...discovered, logicalAddress: 0x0101 }]);
@@ -194,6 +217,33 @@ describe("BioUsbDongleAdapter", () => {
       brightness: 38,
       mode: "sensor",
       faultCode: "BIO_CONTROL_MODE_STATE_MISMATCH",
+      rssi: -41,
+      hopCount: null
+    });
+  });
+
+  it("does not substitute requested brightness when a BIO read-back has no table-backed percent", async () => {
+    const f = createFixture();
+    f.client.scan.mockResolvedValue([{ ...discovered, logicalAddress: 0x0101 }]);
+    f.mappings.findByFixtureId.mockResolvedValue(confirmedMapping());
+    f.client.setOutput.mockRejectedValue(Object.assign(
+      new Error("BIO high-brightness read-back did not match"),
+      {
+        code: "BIO_BRIGHTNESS_STATE_MISMATCH",
+        observedRawHighBrightness: 127,
+        observedBrightnessPercent: null
+      }
+    ));
+
+    await f.adapter.scan(scanCommand);
+    const report = await f.adapter.applyUnicast(provisioningCommand.nodeId, 60);
+
+    expect(report).toEqual({
+      fixtureId: provisioningCommand.nodeId,
+      acknowledged: false,
+      outcome: "failed",
+      rawBrightness: 127,
+      faultCode: "BIO_BRIGHTNESS_STATE_MISMATCH",
       rssi: -41,
       hopCount: null
     });
@@ -249,6 +299,45 @@ describe("BioUsbDongleAdapter", () => {
     expect(f.client.setOutput).toHaveBeenCalledTimes(5);
   });
 
+  it("caps an explicitly requested parallel-unicast concurrency of eight at four", async () => {
+    const f = createFixture();
+    const fixtureIds = Array.from({ length: 5 }, (_, index) => `${(index + 1).toString(16).padStart(8, "0")}-0000-4000-8000-000000000000`);
+    const mappings = fixtureIds.map((fixtureId, index) => confirmedMapping({
+      fixtureId,
+      nodeId: fixtureId,
+      deviceUuid: `bio:00000000000${index + 1}`,
+      nativeUuid: `00000000000${index + 1}`,
+      logicalAddress: 0x0101 + index
+    }));
+    f.mappings.findByFixtureId.mockImplementation(async (fixtureId: string) =>
+      mappings.find((mapping) => mapping.fixtureId === fixtureId) ?? null
+    );
+    f.client.scan.mockResolvedValue(mappings.map((mapping) => ({
+      ...discovered,
+      nativeUuid: mapping.nativeUuid,
+      deviceUuid: mapping.deviceUuid,
+      logicalAddress: mapping.logicalAddress
+    })));
+    await f.adapter.scan(scanCommand);
+    let active = 0;
+    let maxActive = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    f.client.setOutput.mockImplementation(async () => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await gate;
+      active -= 1;
+      return { brightnessPercent: 60, powerOn: true, rawHighBrightness: 198, mode: "force-on" };
+    });
+
+    const applying = f.adapter.applyParallelUnicast(fixtureIds, 60, 8);
+    await vi.waitFor(() => expect(active).toBe(4));
+    release();
+    await expect(applying).resolves.toHaveLength(5);
+    expect(maxActive).toBe(4);
+  });
+
   it("fails virtual membership operations whose address lacks a confirmed mapping", async () => {
     const f = createFixture();
     f.mappings.findByLogicalAddress.mockResolvedValue(null);
@@ -274,6 +363,52 @@ describe("BioUsbDongleAdapter", () => {
 
     await expect(f.adapter.applyMeshGroup(0xc000, [mapping.fixtureId], 60)).resolves.toEqual([
       expect.objectContaining({ fixtureId: mapping.fixtureId, acknowledged: true, outcome: "applied" })
+    ]);
+  });
+
+  it("hydrates only confirmed local virtual members from a ready startup snapshot", async () => {
+    const f = createFixture();
+    const mapping = confirmedMapping();
+    const wrongIdentityMapping = confirmedMapping({
+      fixtureId: "88888888-8888-4888-8888-888888888888",
+      nodeId: "99999999-9999-4999-8999-999999999999",
+      deviceUuid: "bio:001122334466",
+      nativeUuid: "001122334466",
+      logicalAddress: 0x0102
+    });
+    f.mappings.findByLogicalAddress.mockImplementation(async (address: number) =>
+      address === mapping.logicalAddress ? mapping : address === wrongIdentityMapping.logicalAddress ? wrongIdentityMapping : null
+    );
+    f.mappings.findByFixtureId.mockImplementation(async (fixtureId: string) =>
+      fixtureId === mapping.fixtureId ? mapping : fixtureId === wrongIdentityMapping.fixtureId ? wrongIdentityMapping : null
+    );
+    f.client.scan.mockResolvedValue([
+      { ...discovered, logicalAddress: mapping.logicalAddress },
+      {
+        ...discovered,
+        nativeUuid: wrongIdentityMapping.nativeUuid,
+        deviceUuid: wrongIdentityMapping.deviceUuid,
+        logicalAddress: wrongIdentityMapping.logicalAddress
+      }
+    ]);
+    f.client.setOutput.mockResolvedValue({ brightnessPercent: 60, powerOn: true, rawHighBrightness: 198, mode: "force-on" });
+    await f.adapter.scan(scanCommand);
+
+    await f.adapter.hydrateGroupSubscriptions([{
+      groupId: "77777777-7777-4777-8777-777777777777",
+      groupAddress: "0xc000",
+      version: 1,
+      members: [
+        { meshNodeId: mapping.nodeId, meshAddress: "0x0101" },
+        { meshNodeId: "88888888-8888-4888-8888-888888888888", meshAddress: "0x0102" }
+      ]
+    }]);
+
+    await expect(f.adapter.applyMeshGroup(0xc000, [mapping.fixtureId], 60)).resolves.toEqual([
+      expect.objectContaining({ fixtureId: mapping.fixtureId, acknowledged: true, outcome: "applied" })
+    ]);
+    await expect(f.adapter.applyMeshGroup(0xc000, [wrongIdentityMapping.fixtureId], 60)).resolves.toEqual([
+      expect.objectContaining({ faultCode: "bio_virtual_group_not_ready" })
     ]);
   });
 });
@@ -331,14 +466,14 @@ function groupCommand(mappings: ReturnType<typeof confirmedMapping>[]): MeshGrou
     version: 1,
     groupAddress: "0xc000",
     reconciliationMode: "full_state",
-    desiredMembers: mappings.map((mapping, index) => ({
-      meshNodeId: `${(0xa0000000 + index).toString(16)}-0000-4000-8000-000000000000`,
+    desiredMembers: mappings.map((mapping) => ({
+      meshNodeId: String(mapping.nodeId),
       meshAddress: `0x${Number(mapping.logicalAddress).toString(16).padStart(4, "0")}`
     })),
     expectedOperations: mappings.map((mapping, index) => ({
       operationId: `${(0xb0000000 + index).toString(16)}-0000-4000-8000-000000000000`,
       action: "add" as const,
-      meshNodeId: `${(0xa0000000 + index).toString(16)}-0000-4000-8000-000000000000`,
+      meshNodeId: String(mapping.nodeId),
       meshAddress: `0x${Number(mapping.logicalAddress).toString(16).padStart(4, "0")}`
     })),
     requestedAt: "2026-09-13T00:00:00.000Z"

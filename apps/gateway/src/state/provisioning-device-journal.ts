@@ -489,7 +489,7 @@ export class ProvisioningDeviceReplayPublisher {
   }
 }
 
-function createCompletedTerminal(
+export function createCompletedTerminal(
   command: ProvisioningDeviceCommandV2,
   result: { firmwareVersion?: string; rssi?: number | null; hopCount?: number | null },
   envelope: { eventId: string; sequence: number; occurredAt: string }
@@ -503,7 +503,7 @@ function createCompletedTerminal(
   });
 }
 
-function createFailedTerminal(
+export function createFailedTerminal(
   command: ProvisioningDeviceCommandV2,
   envelope: { eventId: string; sequence: number; occurredAt: string }
 ) {

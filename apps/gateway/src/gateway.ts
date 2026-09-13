@@ -44,6 +44,14 @@ export interface BleMeshAdapter {
   resyncFixtureStates(signal?: AbortSignal): Promise<BleMeshResyncReport>;
   resyncLightingFixtures(fixtureIds: string[], signal?: AbortSignal): Promise<BleMeshResyncReport>;
   syncGroupSubscriptions(command: MeshGroupSubscriptionSyncPayload, appliedMembers?: MeshGroupSubscriptionSyncPayload["desiredMembers"]): Promise<MeshGroupSubscriptionResultPayload>;
+  hydrateGroupSubscriptions?(snapshots: BleMeshGroupSnapshot[]): Promise<void>;
+}
+
+export interface BleMeshGroupSnapshot {
+  groupId: string;
+  groupAddress: string;
+  version: number;
+  members: Array<{ meshNodeId: string; meshAddress: string }>;
 }
 
 export function configuredVehicleSensorSourceFixtureIds(snapshot: AutomationSnapshotV1 | null) {
@@ -89,6 +97,7 @@ export interface ProvisioningAdapter {
   vehicleSensorCloudSupported?: boolean;
   identify(command: IdentifyDevicePayload): Promise<void>;
   provision(command: ProvisionDevicePayload): Promise<ProvisioningCompletedPayload>;
+  recoverProvisioning?(command: ProvisionDevicePayload): Promise<ProvisioningCompletedPayload>;
 }
 
 export async function requestVehicleSensorCapabilityRefresh(
@@ -107,7 +116,8 @@ export interface BleMeshCommandReport {
   fixtureId: string;
   acknowledged: boolean;
   outcome?: "applied" | "failed" | "timed_out";
-  brightness: number;
+  brightness?: number;
+  rawBrightness?: number;
   faultCode?: string;
   rssi: number | null;
   hopCount: number | null;

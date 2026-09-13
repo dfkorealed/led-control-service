@@ -676,6 +676,11 @@ describe("handleGatewayDimmingCommand", () => {
 
     expect(result.fixtureStateObserved).toBe(true);
     expect(result.observedFixtureIds).toEqual(command.targetFixtureIds);
+    expect(result.fixtureObservations).toEqual([{
+      fixtureId: command.targetFixtureIds[0],
+      brightness: 38,
+      mode: "sensor"
+    }]);
     expect(result.deviceStatus).toMatchObject({
       status: "failed",
       results: [{
@@ -687,6 +692,32 @@ describe("handleGatewayDimmingCommand", () => {
         hopCount: null
       }]
     });
+  });
+
+  it("preserves a mode-only BIO mismatch without marking unknown brightness publishable", async () => {
+    const result = await handleGatewayDimmingCommand(
+      {
+        setBrightness: vi.fn(async () => [{
+          fixtureId: command.targetFixtureIds[0],
+          acknowledged: false,
+          outcome: "failed" as const,
+          mode: "force-on" as const,
+          faultCode: "BIO_CONTROL_MODE_STATE_MISMATCH",
+          rssi: -41,
+          hopCount: null
+        }])
+      } as any,
+      memoryJournal(new Map()),
+      command
+    );
+
+    expect(result.fixtureStateObserved).toBe(false);
+    expect(result.observedFixtureIds).toEqual([]);
+    expect(result.fixtureObservations).toEqual([{
+      fixtureId: command.targetFixtureIds[0],
+      mode: "force-on"
+    }]);
+    expect(result.deviceStatus.results[0]).not.toHaveProperty("brightness");
   });
 
   it("aborts the adapter signal when the outer command timeout expires", async () => {
