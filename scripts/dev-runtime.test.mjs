@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 import {
   parseEnvFile,
@@ -140,19 +142,58 @@ test("통합 로컬 개발 명령은 Docker 인프라를 먼저 시작한 뒤 �
   assert.equal(packageJson.scripts["dev:local"], "pnpm docker:up && pnpm dev");
 });
 
-test("MinIO 초기화는 전체 버킷 생성 절차를 하나의 셸 스크립트 인자로 전달한다", () => {
-  const result = spawnSync("docker", ["compose", "config", "--format", "json"], {
-    cwd: new URL("..", import.meta.url),
-    encoding: "utf8"
-  });
+test("루트 전체 테스트는 shared 산출물을 소비하는 workspace 테스트를 직렬 실행한다", () => {
+  const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
-  assert.equal(result.status, 0, result.stderr);
-  const compose = JSON.parse(result.stdout);
+  assert.match(packageJson.scripts.test, /pnpm -r --workspace-concurrency=1 test$/);
+});
+
+test("MinIO 초기화는 전체 버킷 생성 절차를 하나의 셸 스크립트 인자로 전달한다", () => {
+  const compose = renderCompose();
   const command = compose.services["object-storage-init"].command;
   assert.equal(command.length, 1);
   assert.match(command[0], /until mc alias set[\s\S]+do sleep 2; done/);
   assert.match(command[0], /mc mb --ignore-existing[\s\S]+energy-reports/);
   assert.match(command[0], /mc anonymous set none/);
+});
+
+test("MinIO 초기화는 floor-assets bucket 생성 실패를 종료 코드로 전파한다", () => {
+  const result = runObjectStorageInitWithMcFailure("mb --ignore-existing local/floor-assets");
+
+  assert.notEqual(result.status, 0, result.stderr);
+});
+
+test("MinIO 초기화는 floor-assets private policy 적용 실패를 종료 코드로 전파한다", () => {
+  const result = runObjectStorageInitWithMcFailure("anonymous set none local/floor-assets");
+
+  assert.notEqual(result.status, 0, result.stderr);
+});
+
+test("고정 MinIO 서버는 미설정 WEB_PUBLIC_URL에 개발 CORS origin을 사용한다", () => {
+  const compose = renderCompose({ WEB_PUBLIC_URL: "" });
+  const objectStorage = compose.services["object-storage"];
+
+  assert.equal(objectStorage.image, "minio/minio:RELEASE.2025-04-22T22-12-26Z");
+  assert.equal(objectStorage.environment.MINIO_API_CORS_ALLOW_ORIGIN, "http://localhost:5173");
+});
+
+test("고정 MinIO 서버는 사용자 지정 WEB_PUBLIC_URL을 CORS origin으로 정확히 전달한다", () => {
+  const compose = renderCompose({ WEB_PUBLIC_URL: "http://127.0.0.1:4173" });
+
+  assert.equal(
+    compose.services["object-storage"].environment.MINIO_API_CORS_ALLOW_ORIGIN,
+    "http://127.0.0.1:4173"
+  );
+});
+
+test("MinIO 초기화는 private bucket 정책만 적용하고 지원되지 않는 bucket CORS 설정을 사용하지 않는다", () => {
+  const compose = renderCompose();
+  const objectStorageInit = compose.services["object-storage-init"];
+  const command = objectStorageInit.command[0];
+
+  assert.doesNotMatch(command, /mc cors/);
+  assert.equal((command.match(/mc anonymous set none/g) ?? []).length, 2);
+  assert.equal(objectStorageInit.volumes, undefined);
 });
 
 test("추가 인자가 있어도 제품 개발 프로세스만 실행한다", () => {
@@ -261,4 +302,32 @@ function createCrlWatcherHarness() {
       return cancelled;
     }
   };
+}
+
+function renderCompose(environment = {}) {
+  const result = spawnSync("docker", ["compose", "config", "--format", "json"], {
+    cwd: new URL("..", import.meta.url),
+    encoding: "utf8",
+    env: { ...process.env, ...environment }
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  return JSON.parse(result.stdout);
+}
+
+function runObjectStorageInitWithMcFailure(failingArguments) {
+  const directory = mkdtempSync(join(tmpdir(), "led-control-mc-"));
+  const fakeMcPath = join(directory, "mc");
+  writeFileSync(fakeMcPath, `#!/bin/sh\nif [ "$*" = "${failingArguments}" ]; then exit 42; fi\nexit 0\n`);
+  chmodSync(fakeMcPath, 0o755);
+
+  try {
+    const command = renderCompose().services["object-storage-init"].command[0].replaceAll("$${", "${");
+    return spawnSync("/bin/sh", ["-c", command], {
+      encoding: "utf8",
+      env: { ...process.env, PATH: `${directory}:${process.env.PATH ?? ""}` }
+    });
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 }

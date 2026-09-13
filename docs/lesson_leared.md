@@ -547,3 +547,87 @@
 - **원인**: 요청 거절과 관측 부재를 같은 실패로 취급하고, publish 성공 시각만 기록해 실제 발행 시도 여부를 재시작 후 구분할 수 없었다. 직접 publishClaimed를 호출하는 fake로 실제 reclaim까지 증명했다고 과장했다.
 - **해결 및 예방책**: MQTT 호출 전 deliveryAttemptedAt을 commit하고 발행 시도 이후 응답 유실은 unknown으로 닫는다. 기존 failed+STATUS_TIMEOUT도 원문 aggregate 검증 뒤 timed_out으로 정규화한다. Automation lock을 먼저 얻고 dispatch 전이에 실패한 terminal writer는 결과와 parent를 쓰지 않는다.
 - **반복 방지 체크**: 실제 producer→handler wire와 consumer→Get/overlap을 연결한다. ClaimBatch를 실행하는 stateful 경계에서 retry 성공한 published row와 별도 expiry row를 나눠 검증하고, DB double·실제 PostgreSQL·실장비 HIL의 증거를 구분한다.
+
+## 2026-09-12 / 서명 URL 만료 시각은 실제 발급 경계 뒤에 기록한다
+
+- **발생했던 문제/실수**: 업로드 원장을 먼저 만들었지만 서명 URL 생성이 지연되면 DB에 계산한 만료 시각과 실제 URL의 유효 시간이 어긋나 정리 worker가 아직 유효한 업로드를 삭제할 수 있었다.
+- **원인**: 외부 signer 호출 전 시각을 실제 capability 발급 시각으로 간주했다.
+- **해결 및 예방책**: pending 원장을 먼저 commit하고 signer 성공 뒤 실제 만료 시각을 조건부 갱신한 경우에만 URL을 반환한다. signer 또는 갱신 실패 원장은 NULL 만료 상태로 보존하고 별도 유예 뒤 회수한다.
+- **반복 방지 체크**: 서명 promise를 barrier로 지연한 테스트에서 반환 URL과 durable 만료 시각의 순서를 검증하고, 외부 호출은 DB transaction 밖에 둔다.
+
+## 2026-09-12 / 해시된 JSON migration은 runtime canonicalization과 같아야 한다
+
+- **발생했던 문제/실수**: JSONB의 숫자 문자열을 그대로 해시하면 JavaScript `JSON.stringify`가 지수 표기로 바꾸는 `1e-7`, `1e21` 같은 값에서 revision 무결성 해시가 달라졌다.
+- **원인**: 객체 key 정렬만 맞추고 IEEE-754 변환과 ECMAScript 숫자 직렬화 경계를 포함하지 않았다.
+- **해결 및 예방책**: migration은 변경 전 runtime 해시를 먼저 검증해 불일치하면 중단하고, 같은 key 정렬·배열 순서·숫자 표기 규칙으로 URL 변경 뒤 해시를 재계산한다.
+- **반복 방지 체크**: clean migration과 upgrade migration 모두 nested 객체·배열 및 `1e-7`, `1e-6`, `1e20`, `1e21` 경계값을 실제 PostgreSQL에서 runtime helper 결과와 비교한다.
+
+## 2026-09-12 / 보관 상태는 모든 데이터 생성 경로에서 강제한다
+
+- **발생했던 문제/실수**: dashboard에서 보관 층을 숨겨도 이미 열린 등록 세션이나 늦게 도착한 provisioning 완료 이벤트가 보관 층에 MeshNode와 Fixture를 만들 수 있었다.
+- **원인**: lifecycle을 조회 필터로만 처리하고 등록 시작·재시도·일괄 등록·terminal event의 각 producer에서 다시 확인하지 않았다.
+- **해결 및 예방책**: Floor를 먼저 잠그고 active 상태를 확인한 뒤 session/node 잠금으로 진행한다. 진행 중 등록 세션이 있으면 층 보관도 거부한다.
+- **반복 방지 체크**: lifecycle 도입 시 화면 노출뿐 아니라 모든 create/update producer와 비동기 terminal consumer를 목록화하고 보관 전후 경합 테스트를 둔다.
+
+## 2026-09-12 / 운영 메타데이터 변경은 분석 이력을 함께 보존한다
+
+- **발생했던 문제/실수**: 층 이름, 조명 이름과 정격전력만 현재 행에서 바꾸면 과거·현재 에너지 집계의 dimension 또는 checkpoint가 실제 운영 정보와 분리될 수 있었다.
+- **원인**: 설정 CRUD를 표시용 문자열 수정으로만 보았다.
+- **해결 및 예방책**: 관련 행을 잠근 같은 transaction에서 정격전력 checkpoint를 닫고, 동일한 effectiveAt으로 조명과 층 이름의 에너지 dimension version을 갱신한다.
+- **반복 방지 체크**: Site/Floor/Fixture 메타데이터 쓰기 테스트는 현재 행뿐 아니라 energy checkpoint·dimension 호출과 같은 transaction 경계를 함께 검증한다.
+
+## 2026-09-12 / 요금 기준 변경 전에 열린 에너지 구간을 닫는다
+
+- **발생했던 문제/실수**: 현장 단가나 시간대를 즉시 바꾸면 변경 전에 시작한 열린 조명 구간까지 새 단가·시간 경계로 계산될 수 있었다.
+- **원인**: 설정값이 에너지 계산의 시간축과 금액축을 동시에 결정하지만 일반 메타데이터처럼 갱신했다.
+- **해결 및 예방책**: Site와 Fixture를 안정된 순서로 잠그고 기존 설정으로 변경 시각까지 모든 checkpoint를 먼저 정산한 뒤 설정을 바꾼다. bulk SQL의 timestamp는 세션 시간대가 아니라 UTC 문자열과 명시적 cast를 사용한다.
+- **반복 방지 체크**: 계산 기준 설정을 바꾸는 테스트는 변경 전후 구간 분리, DB 저장 시각과 cursor의 millisecond 일치, 다수 fixture 잠금 순서를 함께 검증한다.
+
+## 2026-09-12 / 행 잠금과 stale write 검출은 별개의 계약이다
+
+- **발생했던 문제/실수**: 조명 행을 `FOR UPDATE`로 잠가 동시 실행은 직렬화했지만, 늦게 저장한 화면이 먼저 저장된 이름과 정격전력을 덮어쓸 수 있었다.
+- **원인**: 서버 내부 경합 제어를 사용자가 본 revision 검증으로 오해했다.
+- **해결 및 예방책**: 관리자 조회 응답에 `updatedAt`을 제공하고 수정 요청의 `expectedUpdatedAt`을 잠긴 행과 비교한다. 충돌한 UI는 같은 요청을 재전송하지 않고 최신 페이지를 다시 읽는다.
+- **반복 방지 체크**: 운영 설정 mutation은 row lock과 함께 stale request 409 및 UI refresh-only 회귀를 둔다.
+
+## 2026-09-12 / 사설 자산 migration은 변환 불가 URL을 먼저 조사한다
+
+- **발생했던 문제/실수**: 알려진 공개 URL만 인증 경로로 바꾸면 대응 자산이 없는 legacy URL은 사설 전환 후 조용히 깨질 수 있었다.
+- **원인**: 정상 변환 행만 검증하고 전체 기존 데이터의 unmatched 집합을 확인하지 않았다.
+- **해결 및 예방책**: DDL 전에 FloorPlan과 revision snapshot의 비어 있지 않은 URL을 전수 검사하고, 하나라도 대응할 수 없으면 오류 건수를 포함해 migration 전체를 중단한다.
+- **반복 방지 체크**: private storage migration은 정상·NULL·빈 값·none·unmatched를 실제 PostgreSQL에서 원자성까지 검증한다.
+
+## 2026-09-12 / 서명 URL의 endpoint는 브라우저에서 도달 가능해야 한다
+
+- **발생했던 문제/실수**: API 컨테이너 내부 S3 주소로 서명된 URL을 브라우저에 반환하면 host가 노출되고 사용자는 해당 주소에 접속할 수 없다.
+- **원인**: storage transport endpoint와 capability 소비자의 endpoint를 하나로 취급했다.
+- **해결 및 예방책**: 내부 통신 endpoint와 브라우저용 bucket base를 분리하고 같은 자격·region·path-style 계약으로 별도 presigning client를 만든다. production에서 public base 누락은 fail-closed한다.
+- **반복 방지 체크**: GET/PUT 서명 테스트는 반환 URL host가 public 설정인지, bucket 경로가 일치하는지와 누락 설정 실패를 검증한다.
+
+## 2026-09-12 / 계산 기준을 읽는 수집도 설정 행을 먼저 잠근다
+
+- **발생했던 문제/실수**: 상태 수집이 이전 Site 단가·시간대를 읽은 뒤 Fixture 잠금에서 대기하면 설정 변경 커밋 후의 checkpoint에 이전 기준을 적용할 수 있었다.
+- **원인**: 설정 변경만 Site -> Fixture 순서를 사용하고, 수집은 Fixture만 잠근 채 Site 값을 함께 조회했다.
+- **해결 및 예방책**: 상태 수집은 서로 호환되는 Site `FOR KEY SHARE`를 먼저 얻고 Fixture를 잠근 뒤 잠긴 Site의 계산 기준을 사용한다. 설정 변경의 Site `FOR UPDATE`는 이 공유 잠금과 충돌하므로 계산 기준 변경은 수집과 직렬화된다.
+- **반복 방지 체크**: 계산 기준을 읽는 모든 writer는 동일한 상위 행 잠금 순서를 사용하며 실제 PostgreSQL에서 중간 대기와 변경 커밋을 교차시켜 결과 금액을 검증한다.
+
+## 2026-09-12 / 업로드 완료와 도메인 저장 완료는 다르다
+
+- **발생했던 문제/실수**: 객체 업로드를 complete해 ready로 만든 뒤 맵을 저장하지 않고 이탈하면 어떤 맵 이력에도 연결되지 않은 파일이 영구 누적됐다.
+- **원인**: pending 업로드만 실패 대상으로 보고, ready 자산이 FloorPlan 또는 revision에 연결됐는지 추적하지 않았다.
+- **해결 및 예방책**: 24시간 유예가 지난 미참조 ready 자산을 서버 worker가 회수한다. 현재 맵과 모든 revision을 확인하고, 맵 저장과 cleanup은 Floor 잠금 및 cleanup claim으로 직렬화한다. 객체 삭제 실패 시 claim을 2분간 backoff로 유지해 오래된 실패 batch가 뒤 자산을 영구 차단하지 않게 한다.
+- **반복 방지 체크**: 비동기 업로드는 전송 완료와 도메인 연결 완료를 나눠 검사하고, 연결 취소·브라우저 종료·저장/정리 양방향 경합을 실제 DB에서 검증한다.
+
+## 2026-09-12 / 브라우저 직접 업로드의 CORS는 배포 URL을 따른다
+
+- **발생했던 문제/실수**: MinIO CORS가 localhost 한 주소에 고정되어 대체 개발 포트와 운영 도메인의 presigned PUT preflight가 실패했다.
+- **원인**: Web 배포 URL 설정과 저장소 CORS 설정을 별도로 관리했고, 현재 MinIO가 지원하지 않는 bucket CORS 명령에 의존했다.
+- **해결 및 예방책**: 번들 MinIO 서버의 `MINIO_API_CORS_ALLOW_ORIGIN`을 `WEB_PUBLIC_URL`에서 주입하고 정적 XML과 `mc cors set`을 제거한다. anonymous 정책은 두 버킷 모두 `none`으로 유지한다.
+- **반복 방지 체크**: Compose contract는 기본 주소와 사용자 지정 주소를 각각 렌더링하고 CORS 값, 고정 MinIO 버전, 비공개 버킷 명령을 함께 검증한다.
+
+## 2026-09-12 / 빌드 잠금은 산출물 소비 기간까지 보호하지 않는다
+
+- **발생했던 문제/실수**: 루트 `pnpm test`가 workspace 테스트를 병렬 실행하면서 여러 package의 pretest가 shared를 다시 빌드했고, API Jest가 shared 파일을 읽는 중 다른 빌드의 atomic 교체가 발생해 모듈을 찾지 못했다.
+- **원인**: shared 빌드끼리만 잠금으로 직렬화하면 빌드 완료 후 테스트가 산출물을 소비하는 기간도 보호된다고 가정했다.
+- **해결 및 예방책**: 루트 전체 테스트의 workspace 실행을 `--workspace-concurrency=1`로 직렬화한다. package 단독 테스트와 빌드의 기존 잠금은 유지한다.
+- **반복 방지 체크**: 루트 스크립트 계약 테스트에서 workspace concurrency를 검증하고, 최종 게이트는 package별 성공만 조합하지 않고 실제 `pnpm test`를 실행한다.

@@ -4875,6 +4875,12 @@ button.group-card {
   padding: 8px 10px;
 }
 
+.floor-asset-file-input {
+  min-height: 44px;
+  padding: 8px 0;
+  font: inherit;
+}
+
 .editor-property-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

@@ -272,6 +272,12 @@ export class OperatorSiteAdminsService {
       const inventoryIds = this.inventoryIds(targetSite.gateways);
       const reportCleanup = await this.deletionCleanup.prepareReportDeletion(targetSite.id);
       const deletion = await this.prisma.$transaction(async (tx) => {
+        // Upload intent creation takes the same Site lock. Once acquired, no new
+        // FloorAsset can commit before this transaction captures and deletes the site.
+        const lockedSites = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+          SELECT "id" FROM "Site" WHERE "id" = ${targetSite.id} FOR UPDATE
+        `);
+        if (lockedSites.length !== 1) throw new NotFoundException("customer site not found");
         const admin = await this.findManagedAdmin(tx, adminId);
         const site = admin.administeredSite!;
         const currentInventoryIds = this.inventoryIds(site.gateways);

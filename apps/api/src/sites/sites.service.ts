@@ -43,6 +43,7 @@ export class SitesService {
       where: { id: siteId },
       include: {
         floors: {
+          where: { status: "active" },
           orderBy: { level: "asc" },
           include: {
             floorPlan: true
@@ -50,7 +51,7 @@ export class SitesService {
         },
         organization: { select: { name: true } },
         groups: {
-          where: { lifecycleStatus: "active" },
+          where: { lifecycleStatus: "active", floor: { is: { status: "active" } } },
           include: { groupFixtures: true },
           orderBy: { name: "asc" }
         },
@@ -75,7 +76,7 @@ export class SitesService {
 
     const fixtures = includeFixtures
       ? await this.prisma.fixture.findMany({
-          where: { floor: { siteId: site.id } },
+          where: { floor: { siteId: site.id, status: "active" } },
           orderBy: { name: "asc" },
           include: { meshNode: { include: { gateway: true } } }
         })
@@ -222,7 +223,7 @@ export class SitesService {
 
   private async getFixtureSummary(siteId: string, policy: MonitoringPolicy, now: Date) {
     const fixtures = await this.prisma.fixture.findMany({
-      where: { floor: { siteId } },
+      where: { floor: { siteId, status: "active" } },
       select: {
         reportedStatus: true,
         reportedStatusReason: true,

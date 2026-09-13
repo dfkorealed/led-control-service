@@ -30,7 +30,7 @@ describe("RegistrationService", () => {
   function createModule(prismaOverrides = {}, mqttOverrides = {}, meshGroupOverrides = {}) {
     const prisma: any = {
       site: { findUnique: jest.fn().mockResolvedValue({ id: ids.siteId }) },
-      floor: { findFirst: jest.fn().mockResolvedValue({ id: ids.floorId, siteId: ids.siteId }) },
+      floor: { findFirst: jest.fn().mockResolvedValue({ id: ids.floorId, siteId: ids.siteId, status: "active" }) },
       gateway: { findFirst: jest.fn().mockResolvedValue({ id: ids.gatewayId, siteId: ids.siteId }) },
       provisioningSession: {
         create: jest.fn().mockResolvedValue({
@@ -369,6 +369,68 @@ describe("RegistrationService", () => {
     expect(prisma.provisioningScanOutbox.create).not.toHaveBeenCalled();
   });
 
+  it("rejects session creation when the transaction-locked floor is archived", async () => {
+    const { service, prisma } = await createModule({
+      floor: { findFirst: jest.fn().mockResolvedValue({ id: ids.floorId, siteId: ids.siteId, status: "archived" }) }
+    });
+
+    await expect(service.createSession(admin, {
+      siteId: ids.siteId,
+      floorId: ids.floorId,
+      gatewayId: ids.gatewayId
+    })).rejects.toEqual(new ConflictException({ code: "floor_archived" }));
+    expect(prisma.provisioningSession.create).not.toHaveBeenCalled();
+    expect(prisma.provisioningScanOutbox.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects scan retry when the persisted session floor is archived", async () => {
+    const session = {
+      ...registrationSession(),
+      scanStatus: "failed",
+      scanAttempt: 1
+    };
+    const { service, prisma } = await createModule({
+      floor: { findFirst: jest.fn().mockResolvedValue({ id: ids.floorId, siteId: ids.siteId, status: "archived" }) },
+      provisioningSession: {
+        create: jest.fn(), findUnique: jest.fn().mockResolvedValue(session), update: jest.fn(), updateMany: jest.fn()
+      }
+    });
+
+    await expect(service.retryScan(admin, ids.sessionId))
+      .rejects.toEqual(new ConflictException({ code: "floor_archived" }));
+    expect(prisma.provisioningSession.update).not.toHaveBeenCalled();
+    expect(prisma.provisioningScanOutbox.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects batch registration when the persisted session floor is archived", async () => {
+    const { service, prisma } = await createModule({
+      floor: { findFirst: jest.fn().mockResolvedValue({ id: ids.floorId, siteId: ids.siteId, status: "archived" }) },
+      provisioningSession: {
+        create: jest.fn(), findUnique: jest.fn().mockResolvedValue(registrationSession()), update: jest.fn()
+      }
+    });
+
+    await expect(service.registerBatch(admin, ids.sessionId, registrationBatchInput()))
+      .rejects.toEqual(new ConflictException({ code: "floor_archived" }));
+    expect(prisma.discoveredMeshNode.update).not.toHaveBeenCalled();
+    expect(prisma.provisioningDeviceOutbox.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects single-node registration when the persisted session floor is archived", async () => {
+    const { service, prisma } = await createModule({
+      floor: { findFirst: jest.fn().mockResolvedValue({ id: ids.floorId, siteId: ids.siteId, status: "archived" }) },
+      provisioningSession: {
+        create: jest.fn(), findUnique: jest.fn().mockResolvedValue(registrationSession()), update: jest.fn()
+      }
+    });
+
+    await expect(service.registerNode(admin, ids.sessionId, ids.nodeId, {
+      fixtureName: "B2-L001", x: 10, y: 20
+    })).rejects.toEqual(new ConflictException({ code: "floor_archived" }));
+    expect(prisma.discoveredMeshNode.update).not.toHaveBeenCalled();
+    expect(prisma.provisioningDeviceOutbox.create).not.toHaveBeenCalled();
+  });
+
   it("rechecks persisted session commission access inside retryScan before session or outbox mutation", async () => {
     const session = {
       id: ids.sessionId,
@@ -477,7 +539,15 @@ describe("RegistrationService", () => {
     });
     prisma.$queryRaw.mockImplementation(async (strings: TemplateStringsArray) => {
       const query = strings.join("");
-      lockOrder.push(query.includes("Gateway") ? "gateway" : query.includes("ProvisioningSession") ? "session" : "node");
+      lockOrder.push(
+        query.includes("Floor")
+          ? "floor"
+          : query.includes("Gateway")
+            ? "gateway"
+            : query.includes("ProvisioningSession")
+              ? "session"
+              : "node"
+      );
       return [];
     });
 
@@ -494,7 +564,7 @@ describe("RegistrationService", () => {
       expect.objectContaining({ nodeId: ids.nodeId, fixtureName: "B2-L001", status: "accepted" }),
       { nodeId: secondNodeId, status: "validation_failed", error: "discovered node not found" }
     ]);
-    expect(lockOrder).toEqual(["site", "gateway", "session", "node"]);
+    expect(lockOrder).toEqual(["site", "floor", "gateway", "session", "node"]);
     expect(allocation.reserveFixtureNumbers).toHaveBeenCalledWith(prisma, ids.floorId, 1, 1);
     expect(allocation.reserveMeshAddresses).toHaveBeenCalledWith(prisma, ids.gatewayId, 1);
     expect(prisma.discoveredMeshNode.update).toHaveBeenCalledWith({

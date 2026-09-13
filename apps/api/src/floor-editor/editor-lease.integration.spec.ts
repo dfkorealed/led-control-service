@@ -15,32 +15,22 @@ describeWithDependencies("Editor lease PostgreSQL and Redis integration", () => 
   const ids = {
     providerOrganizationId: "10000000-0000-4000-8000-000000000001",
     customerOrganizationId: "10000000-0000-4000-8000-000000000002",
-    operatorAId: "20000000-0000-4000-8000-000000000003",
-    operatorBId: "20000000-0000-4000-8000-000000000004",
+    adminId: "20000000-0000-4000-8000-000000000003",
     siteId: "20000000-0000-4000-8000-000000000005",
     floorId: "20000000-0000-4000-8000-000000000006",
     fixtureId: "20000000-0000-4000-8000-000000000007"
   };
-  const operatorA = {
-    id: ids.operatorAId,
-    organizationId: ids.providerOrganizationId,
-    organizationType: "service_provider" as const,
-    loginId: "lease_operator_a",
-    name: "Lease Operator A",
-    role: "operator" as const,
+  const admin = {
+    id: ids.adminId,
+    organizationId: ids.customerOrganizationId,
+    organizationType: "customer" as const,
+    loginId: "lease_admin",
+    name: "Lease Admin",
+    role: "admin" as const,
     mustChangePassword: false,
     status: "active" as const
   };
-  const operatorB = {
-    id: ids.operatorBId,
-    organizationId: ids.providerOrganizationId,
-    organizationType: "service_provider" as const,
-    loginId: "lease_operator_b",
-    name: "Lease Operator B",
-    role: "operator" as const,
-    mustChangePassword: false,
-    status: "active" as const
-  };
+  const secondAdminSession = { ...admin };
 
   let prisma: PrismaService;
   let lockingPrisma: PrismaService;
@@ -68,8 +58,6 @@ describeWithDependencies("Editor lease PostgreSQL and Redis integration", () => 
     });
     if (existingProvider) {
       ids.providerOrganizationId = existingProvider.id;
-      operatorA.organizationId = existingProvider.id;
-      operatorB.organizationId = existingProvider.id;
     } else {
       await prisma.organization.create({
         data: { id: ids.providerOrganizationId, name: "Provider", type: "service_provider" }
@@ -82,45 +70,24 @@ describeWithDependencies("Editor lease PostgreSQL and Redis integration", () => 
     });
 
     await prisma.user.upsert({
-      where: { id: operatorA.id },
+      where: { id: admin.id },
       create: {
-        id: operatorA.id,
-        organizationId: operatorA.organizationId,
-        loginId: operatorA.loginId,
+        id: admin.id,
+        organizationId: admin.organizationId,
+        loginId: admin.loginId,
         email: null,
-        name: operatorA.name,
+        name: admin.name,
         passwordHash: "test",
-        role: operatorA.role,
-        status: operatorA.status
+        role: admin.role,
+        status: admin.status
       },
       update: {
-        organizationId: operatorA.organizationId,
-        loginId: operatorA.loginId,
+        organizationId: admin.organizationId,
+        loginId: admin.loginId,
         email: null,
-        name: operatorA.name,
-        role: operatorA.role,
-        status: operatorA.status
-      }
-    });
-    await prisma.user.upsert({
-      where: { id: operatorB.id },
-      create: {
-        id: operatorB.id,
-        organizationId: operatorB.organizationId,
-        loginId: operatorB.loginId,
-        email: null,
-        name: operatorB.name,
-        passwordHash: "test",
-        role: operatorB.role,
-        status: operatorB.status
-      },
-      update: {
-        organizationId: operatorB.organizationId,
-        loginId: operatorB.loginId,
-        email: null,
-        name: operatorB.name,
-        role: operatorB.role,
-        status: operatorB.status
+        name: admin.name,
+        role: admin.role,
+        status: admin.status
       }
     });
     await prisma.site.upsert({
@@ -130,9 +97,10 @@ describeWithDependencies("Editor lease PostgreSQL and Redis integration", () => 
         organizationId: ids.customerOrganizationId,
         name: "Lease integration site",
         address: "Test",
-        tariffKwhRate: "100.00"
+        tariffKwhRate: "100.00",
+        adminUserId: admin.id
       },
-      update: {}
+      update: { adminUserId: admin.id }
     });
     await prisma.floor.upsert({
       where: { id: ids.floorId },
@@ -143,16 +111,6 @@ describeWithDependencies("Editor lease PostgreSQL and Redis integration", () => 
       where: { id: ids.fixtureId },
       create: { id: ids.fixtureId, floorId: ids.floorId, name: "B1-L01", ratedWatt: "40.00", x: 10, y: 10, size: 20 },
       update: { floorId: ids.floorId, name: "B1-L01", ratedWatt: "40.00", x: 10, y: 10, size: 20 }
-    });
-    await prisma.siteMembership.upsert({
-      where: { userId_siteId: { userId: ids.operatorAId, siteId: ids.siteId } },
-      create: { userId: ids.operatorAId, siteId: ids.siteId },
-      update: {}
-    });
-    await prisma.siteMembership.upsert({
-      where: { userId_siteId: { userId: ids.operatorBId, siteId: ids.siteId } },
-      create: { userId: ids.operatorBId, siteId: ids.siteId },
-      update: {}
     });
   });
 
@@ -168,6 +126,7 @@ describeWithDependencies("Editor lease PostgreSQL and Redis integration", () => 
     await prisma.floor.update({
       where: { id: ids.floorId },
       data: {
+        status: "active",
         mapRevision: 0,
         editorLeaseFence: 0,
         editorLeaseTokenHash: null,
@@ -219,7 +178,7 @@ describeWithDependencies("Editor lease PostgreSQL and Redis integration", () => 
   }
 
   async function createBaselineRevision(token: string, fence: number) {
-    return floorEditorService.saveEditorState(operatorA, ids.floorId, {
+    return floorEditorService.saveEditorState(admin, ids.floorId, {
       expectedRevision: 0,
       leaseToken: token,
       leaseFence: fence,
@@ -231,25 +190,25 @@ describeWithDependencies("Editor lease PostgreSQL and Redis integration", () => 
   }
 
   it("allows only one active holder and advances the fence for a successor after expiry", async () => {
-    const first = await leaseService.acquire(ids.floorId, operatorA);
+    const first = await leaseService.acquire(ids.floorId, admin);
     expect(first).toMatchObject({ editable: true, fence: 1 });
 
-    const readOnly = await leaseService.acquire(ids.floorId, operatorB);
-    expect(readOnly).toMatchObject({ editable: false, fence: 1, holderName: operatorA.name });
+    const readOnly = await leaseService.acquire(ids.floorId, secondAdminSession);
+    expect(readOnly).toMatchObject({ editable: false, fence: 1, holderName: admin.name });
 
     await prisma.floor.update({
       where: { id: ids.floorId },
       data: { editorLeaseExpiresAt: new Date(Date.now() - 1_000) }
     });
 
-    const successor = await leaseService.acquire(ids.floorId, operatorB);
+    const successor = await leaseService.acquire(ids.floorId, secondAdminSession);
     expect(successor).toMatchObject({ editable: true, fence: 2 });
     expect(successor.token).toEqual(expect.any(String));
     expect(successor.token).not.toBe(first.token);
   });
 
   it("rejects renewals that expire while waiting on the authoritative PostgreSQL row lock", async () => {
-    const lease = await leaseService.acquire(ids.floorId, operatorA);
+    const lease = await leaseService.acquire(ids.floorId, admin);
     if (!lease.token) throw new Error("expected active lease token");
     await prisma.floor.update({
       where: { id: ids.floorId },
@@ -258,7 +217,7 @@ describeWithDependencies("Editor lease PostgreSQL and Redis integration", () => 
 
     let renewalPromise: Promise<Awaited<ReturnType<typeof leaseService.acquire>>> | null = null;
     await lockFloorAuthorityRow(async () => {
-      renewalPromise = leaseService.acquire(ids.floorId, operatorA, lease.token!);
+      renewalPromise = leaseService.acquire(ids.floorId, admin, lease.token!);
       await waitForExpiry();
     });
     const renewal = await renewalPromise;
@@ -267,7 +226,7 @@ describeWithDependencies("Editor lease PostgreSQL and Redis integration", () => 
   });
 
   it("rejects stale predecessor save and restore after an expiry successor even without Redis state, while allowing the successor to continue", async () => {
-    const first = await leaseService.acquire(ids.floorId, operatorA);
+    const first = await leaseService.acquire(ids.floorId, admin);
     if (!first.token || !first.fence) throw new Error("expected active lease token");
     await createBaselineRevision(first.token, first.fence);
     await prisma.floor.update({
@@ -276,11 +235,11 @@ describeWithDependencies("Editor lease PostgreSQL and Redis integration", () => 
     });
     await redisProvider.getClient().del(`floor-editor:lease:${ids.floorId}`);
 
-    const successor = await leaseService.acquire(ids.floorId, operatorB);
+    const successor = await leaseService.acquire(ids.floorId, secondAdminSession);
     if (!successor.token || !successor.fence) throw new Error("expected successor lease token");
     await redisProvider.getClient().del(`floor-editor:lease:${ids.floorId}`);
 
-    await expect(floorEditorService.saveEditorState(operatorA, ids.floorId, {
+    await expect(floorEditorService.saveEditorState(admin, ids.floorId, {
       expectedRevision: 1,
       leaseToken: first.token,
       leaseFence: first.fence,
@@ -290,13 +249,13 @@ describeWithDependencies("Editor lease PostgreSQL and Redis integration", () => 
       objectDeletes: []
     })).rejects.toBeInstanceOf(ConflictException);
 
-    await expect(floorEditorService.restoreEditorRevision(operatorA, ids.floorId, 1, {
+    await expect(floorEditorService.restoreEditorRevision(admin, ids.floorId, 1, {
       expectedRevision: 1,
       leaseToken: first.token,
       leaseFence: first.fence
     })).rejects.toBeInstanceOf(ConflictException);
 
-    await expect(floorEditorService.saveEditorState(operatorB, ids.floorId, {
+    await expect(floorEditorService.saveEditorState(secondAdminSession, ids.floorId, {
       expectedRevision: 1,
       leaseToken: successor.token,
       leaseFence: successor.fence,
@@ -306,7 +265,7 @@ describeWithDependencies("Editor lease PostgreSQL and Redis integration", () => 
       objectDeletes: []
     })).resolves.toMatchObject({ floor: { mapRevision: 2 }, fixtures: [{ id: ids.fixtureId, x: 60 }] });
 
-    await expect(floorEditorService.restoreEditorRevision(operatorB, ids.floorId, 1, {
+    await expect(floorEditorService.restoreEditorRevision(secondAdminSession, ids.floorId, 1, {
       expectedRevision: 2,
       leaseToken: successor.token,
       leaseFence: successor.fence
@@ -317,16 +276,16 @@ describeWithDependencies("Editor lease PostgreSQL and Redis integration", () => 
   });
 
   it("rejects stale predecessor save and restore after a force release creates a successor", async () => {
-    const first = await leaseService.acquire(ids.floorId, operatorA);
+    const first = await leaseService.acquire(ids.floorId, admin);
     if (!first.token || !first.fence) throw new Error("expected active lease token");
     await createBaselineRevision(first.token, first.fence);
 
-    await expect(leaseService.release(ids.floorId, operatorB, true)).resolves.toEqual({ released: true });
-    const successor = await leaseService.acquire(ids.floorId, operatorB);
+    await expect(leaseService.release(ids.floorId, secondAdminSession, true)).resolves.toEqual({ released: true });
+    const successor = await leaseService.acquire(ids.floorId, secondAdminSession);
     if (!successor.token || !successor.fence) throw new Error("expected successor lease token");
     await redisProvider.getClient().del(`floor-editor:lease:${ids.floorId}`);
 
-    await expect(floorEditorService.saveEditorState(operatorA, ids.floorId, {
+    await expect(floorEditorService.saveEditorState(admin, ids.floorId, {
       expectedRevision: 1,
       leaseToken: first.token,
       leaseFence: first.fence,
@@ -336,7 +295,7 @@ describeWithDependencies("Editor lease PostgreSQL and Redis integration", () => 
       objectDeletes: []
     })).rejects.toBeInstanceOf(ConflictException);
 
-    await expect(floorEditorService.saveEditorState(operatorB, ids.floorId, {
+    await expect(floorEditorService.saveEditorState(secondAdminSession, ids.floorId, {
       expectedRevision: 1,
       leaseToken: successor.token,
       leaseFence: successor.fence,
@@ -346,13 +305,13 @@ describeWithDependencies("Editor lease PostgreSQL and Redis integration", () => 
       objectDeletes: []
     })).resolves.toMatchObject({ floor: { mapRevision: 2 }, fixtures: [{ id: ids.fixtureId, x: 60 }] });
 
-    await expect(floorEditorService.restoreEditorRevision(operatorA, ids.floorId, 1, {
+    await expect(floorEditorService.restoreEditorRevision(admin, ids.floorId, 1, {
       expectedRevision: 2,
       leaseToken: first.token,
       leaseFence: first.fence
     })).rejects.toBeInstanceOf(ConflictException);
 
-    await expect(floorEditorService.restoreEditorRevision(operatorB, ids.floorId, 1, {
+    await expect(floorEditorService.restoreEditorRevision(secondAdminSession, ids.floorId, 1, {
       expectedRevision: 2,
       leaseToken: successor.token,
       leaseFence: successor.fence
@@ -363,7 +322,7 @@ describeWithDependencies("Editor lease PostgreSQL and Redis integration", () => 
   });
 
   it("rejects saves and restores that become stale while waiting on the authoritative PostgreSQL row lock", async () => {
-    const lease = await leaseService.acquire(ids.floorId, operatorA);
+    const lease = await leaseService.acquire(ids.floorId, admin);
     if (!lease.token || !lease.fence) throw new Error("expected active lease token");
     await createBaselineRevision(lease.token, lease.fence);
     await prisma.floor.update({
@@ -373,7 +332,7 @@ describeWithDependencies("Editor lease PostgreSQL and Redis integration", () => 
 
     let staleSave: Promise<unknown> | null = null;
     await lockFloorAuthorityRow(async () => {
-      staleSave = floorEditorService.saveEditorState(operatorA, ids.floorId, {
+      staleSave = floorEditorService.saveEditorState(admin, ids.floorId, {
         expectedRevision: 1,
         leaseToken: lease.token!,
         leaseFence: lease.fence!,
@@ -386,12 +345,12 @@ describeWithDependencies("Editor lease PostgreSQL and Redis integration", () => 
     });
     await expect(staleSave).rejects.toBeInstanceOf(ConflictException);
 
-    const successor = await leaseService.acquire(ids.floorId, operatorB);
+    const successor = await leaseService.acquire(ids.floorId, secondAdminSession);
     if (!successor.token || !successor.fence) throw new Error("expected successor lease token");
 
     let staleRestore: Promise<unknown> | null = null;
     await lockFloorAuthorityRow(async () => {
-      staleRestore = floorEditorService.restoreEditorRevision(operatorA, ids.floorId, 1, {
+      staleRestore = floorEditorService.restoreEditorRevision(admin, ids.floorId, 1, {
         expectedRevision: 1,
         leaseToken: lease.token!,
         leaseFence: lease.fence!
@@ -400,7 +359,7 @@ describeWithDependencies("Editor lease PostgreSQL and Redis integration", () => 
     });
     await expect(staleRestore).rejects.toBeInstanceOf(ConflictException);
 
-    await expect(floorEditorService.restoreEditorRevision(operatorB, ids.floorId, 1, {
+    await expect(floorEditorService.restoreEditorRevision(secondAdminSession, ids.floorId, 1, {
       expectedRevision: 1,
       leaseToken: successor.token,
       leaseFence: successor.fence
@@ -411,10 +370,10 @@ describeWithDependencies("Editor lease PostgreSQL and Redis integration", () => 
   });
 
   it("keeps mapRevision as a final conflict guard after a valid lease check", async () => {
-    const lease = await leaseService.acquire(ids.floorId, operatorA);
+    const lease = await leaseService.acquire(ids.floorId, admin);
     if (!lease.token || !lease.fence) throw new Error("expected active lease token");
 
-    await floorEditorService.saveEditorState(operatorA, ids.floorId, {
+    await floorEditorService.saveEditorState(admin, ids.floorId, {
       expectedRevision: 0,
       leaseToken: lease.token,
       leaseFence: lease.fence,
@@ -424,7 +383,7 @@ describeWithDependencies("Editor lease PostgreSQL and Redis integration", () => 
       objectDeletes: []
     });
 
-    await expect(floorEditorService.saveEditorState(operatorA, ids.floorId, {
+    await expect(floorEditorService.saveEditorState(admin, ids.floorId, {
       expectedRevision: 0,
       leaseToken: lease.token,
       leaseFence: lease.fence,

@@ -21,6 +21,7 @@ import { FloorPlanSettingsView } from "../settings/floor-plans/FloorPlanSettings
 import { SettingsView } from "../settings/SettingsView";
 import { RegistrationSettingsView } from "../settings/registration/RegistrationSettingsView";
 import { PasswordSettingsView } from "../settings/security/PasswordSettingsView";
+import { SiteOperationsView } from "../settings/site/SiteOperationsView";
 import { SiteUsersView } from "../settings/users/SiteUsersView";
 import { StatisticsOverviewPage } from "../statistics/StatisticsOverviewPage";
 import { StatisticsAnalysisPage } from "../statistics/analysis/StatisticsAnalysisPage";
@@ -225,6 +226,12 @@ export function CustomerShell({ user }: { user: AuthUser }) {
           </Route>
           <Route path="/settings" element={<SettingsShell capabilities={capabilities} selectedSiteId={siteId ?? dashboard?.site.id} />}>
             <Route index element={<SettingsView userRole={user.role} siteId={siteId} />} />
+            <Route
+              path="site"
+              element={capabilities.manage
+                ? <SiteOperationsView siteId={selectedSiteId} />
+                : <Navigate to={`/settings${location.search}`} replace />}
+            />
             <Route
               path="users"
               element={capabilities.manage

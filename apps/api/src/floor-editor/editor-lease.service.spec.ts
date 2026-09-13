@@ -1,4 +1,4 @@
-import { ForbiddenException, NotFoundException } from "@nestjs/common";
+import { ConflictException, ForbiddenException, NotFoundException } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { SiteAccessService } from "../access/site-access.service";
 import { AuditService } from "../audit/audit.service";
@@ -18,10 +18,12 @@ describe("EditorLeaseService", () => {
 
   async function createService({
     floorState,
+    lockedFloorState,
     update = jest.fn().mockResolvedValue({ id: floorId }),
     auditRecord = jest.fn().mockResolvedValue({ id: "audit-1" })
   }: {
     floorState?: Record<string, unknown> | null;
+    lockedFloorState?: Record<string, unknown> | null;
     update?: jest.Mock;
     auditRecord?: jest.Mock;
   } = {}) {
@@ -29,6 +31,7 @@ describe("EditorLeaseService", () => {
     const resolvedFloorState = floorState === undefined ? {
       id: floorId,
       siteId,
+      status: "active",
       editorLeaseFence: 4,
       editorLeaseTokenHash: hashEditorLeaseToken("holder-token"),
       editorLeaseHolderId: adminA.id,
@@ -36,6 +39,7 @@ describe("EditorLeaseService", () => {
       editorLeaseAcquiredAt: now,
       editorLeaseExpiresAt: new Date(now.getTime() + 60_000)
     } : floorState;
+    const resolvedLockedFloorState = lockedFloorState === undefined ? resolvedFloorState : lockedFloorState;
     const floorFindUnique = jest.fn().mockResolvedValue(resolvedFloorState);
     const prisma = {
       floor: {
@@ -48,9 +52,9 @@ describe("EditorLeaseService", () => {
           update
         },
         $queryRaw: jest.fn()
-          .mockResolvedValueOnce(resolvedFloorState ? [{
+          .mockResolvedValueOnce(resolvedLockedFloorState ? [{
             id: floorId,
-            ...resolvedFloorState
+            ...resolvedLockedFloorState
           }] : [])
           .mockResolvedValue([{ dbNow: now }])
       }))
@@ -75,6 +79,7 @@ describe("EditorLeaseService", () => {
       floorState: {
         id: floorId,
         siteId,
+        status: "active",
         editorLeaseFence: 4,
         editorLeaseTokenHash: null,
         editorLeaseHolderId: null,
@@ -137,6 +142,7 @@ describe("EditorLeaseService", () => {
       floorState: {
         id: floorId,
         siteId,
+        status: "active",
         editorLeaseFence: 2_147_483_647,
         editorLeaseTokenHash: null,
         editorLeaseHolderId: null,
@@ -153,5 +159,45 @@ describe("EditorLeaseService", () => {
     const { service } = await createService({ floorState: null });
 
     await expect(service.acquire(floorId, adminA)).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it.each([
+    ["acquire", async (service: EditorLeaseService) => service.acquire(floorId, adminA)],
+    ["renew", async (service: EditorLeaseService) => service.acquire(floorId, adminA, "holder-token")],
+    ["owned release", async (service: EditorLeaseService) => service.release(floorId, adminA, false, "holder-token")],
+    ["force release", async (service: EditorLeaseService) => service.release(floorId, adminB, true)]
+  ])("rejects %s when the transaction-locked floor is archived", async (_label, mutate) => {
+    const { service, prisma, redis, auditRecord } = await createService({
+      floorState: {
+        id: floorId,
+        siteId,
+        status: "active",
+        editorLeaseFence: 4,
+        editorLeaseTokenHash: hashEditorLeaseToken("holder-token"),
+        editorLeaseHolderId: adminA.id,
+        editorLeaseHolderName: adminA.name,
+        editorLeaseAcquiredAt: new Date(),
+        editorLeaseExpiresAt: new Date(Date.now() + 60_000)
+      },
+      lockedFloorState: {
+        id: floorId,
+        siteId,
+        status: "archived",
+        editorLeaseFence: 4,
+        editorLeaseTokenHash: hashEditorLeaseToken("holder-token"),
+        editorLeaseHolderId: adminA.id,
+        editorLeaseHolderName: adminA.name,
+        editorLeaseAcquiredAt: new Date(),
+        editorLeaseExpiresAt: new Date(Date.now() + 60_000)
+      }
+    });
+
+    await expect(mutate(service)).rejects.toEqual(new ConflictException({ code: "floor_archived" }));
+
+    expect(prisma.floor.update).not.toHaveBeenCalled();
+    expect(redis.set).not.toHaveBeenCalled();
+    expect(redis.eval).not.toHaveBeenCalled();
+    expect(redis.del).not.toHaveBeenCalled();
+    if (_label !== "force release") expect(auditRecord).not.toHaveBeenCalled();
   });
 });

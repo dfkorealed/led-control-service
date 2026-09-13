@@ -107,12 +107,16 @@ Verification before completing the merge: Prisma format/generate/validate passed
 - Consumes: the merged monitoring/statistics data model.
 - Produces: durable asset upload lifecycle and safe site/floor/fixture settings operations.
 
-- [ ] Run `git merge --no-ff codex/p0p1-settings-assets`.
-- [ ] Union schema and module registration without removing monitoring/statistics providers.
-- [ ] Preserve all ingestion tests and combine assertions where fixtures overlap.
-- [ ] Reconcile database, lesson, project, settings, and monitoring documentation.
-- [ ] Run Prisma validation/generation, `git diff --check`, and settings-focused tests.
-- [ ] Complete the merge commit.
+- [x] Run `git merge --no-ff codex/p0p1-settings-assets`.
+- [x] Union schema and module registration without removing monitoring/statistics providers.
+- [x] Preserve all ingestion tests and combine assertions where fixtures overlap.
+- [x] Reconcile database, lesson, project, settings, and monitoring documentation.
+- [x] Run Prisma validation/generation, `git diff --check`, and settings-focused tests.
+- [x] Complete the merge commit.
+
+Integration ruling: fixture-state ingestion acquires the Site `FOR KEY SHARE` lock before the Fixture `FOR UPDATE` lock, then applies the monitoring replay/future-time checks and statistics watermark transition. If this ruling is wrong, a concurrent tariff/time-zone update can split one energy interval across inconsistent settings; the merged lock-order unit test and final disposable-PostgreSQL integration gate protect the decision.
+
+Verification before completing the merge: Prisma format/generate/validate passed; API fixture ingestion, MQTT, site settings, floor asset, and editor lease focused suites passed 179/179 after updating the future-event test to require exactly the two intended scope locks; Web shell/settings suites passed 28/28. The merged PostgreSQL integration suite compiled and reported its 9 environment-gated tests as skipped; it remains scheduled for the final isolated integration gate. `git diff --cached --check` passed.
 
 ### Task 5: Merge account security
 

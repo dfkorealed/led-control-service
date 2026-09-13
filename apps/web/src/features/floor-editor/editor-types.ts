@@ -27,6 +27,19 @@ export interface FloorPlanDraft {
   version: number;
 }
 
+export interface FloorAsset {
+  id: string;
+  kind: "original" | "rendered";
+  status: "pending" | "ready";
+  mimeType: "image/png" | "image/jpeg" | "application/pdf";
+  sizeBytes: number;
+  sha256: string;
+  accessPath: string;
+  readyAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface EditorFixture {
   id: string;
   name: string;

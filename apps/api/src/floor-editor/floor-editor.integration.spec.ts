@@ -16,6 +16,7 @@ import { FixturesService } from "../fixtures/fixtures.service";
 import { EnergyService } from "../energy/energy.service";
 import { EnergyAnalyticsQueryService } from "../energy/energy-analytics-query.service";
 import { createHash, randomUUID } from "node:crypto";
+import { FloorAssetCleanupService } from "./floor-asset-cleanup.service";
 
 const databaseUrl = process.env.FLOOR_EDITOR_TEST_DATABASE_URL;
 const describeWithDatabase = databaseUrl ? describe : describe.skip;
@@ -37,7 +38,7 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
     foreignFixtureId: "10000000-0000-4000-8000-000000000012",
     assetId: "10000000-0000-4000-8000-000000000013"
   };
-  const readyAssetUrl = "https://assets.example/integration-floor.png";
+  const readyAssetPath = `/api/floors/${ids.floorId}/assets/${ids.assetId}/content`;
   const operator = {
     id: ids.operatorId,
     organizationId: ids.customerOrganizationId,
@@ -202,7 +203,6 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
         kind: "original",
         status: "ready",
         objectKey: "integration/floor.png",
-        publicUrl: readyAssetUrl,
         mimeType: "image/png",
         sizeBytes: 1024n,
         sha256: "a".repeat(64),
@@ -213,7 +213,6 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
         kind: "original",
         status: "ready",
         objectKey: "integration/floor.png",
-        publicUrl: readyAssetUrl,
         mimeType: "image/png",
         sizeBytes: 1024n,
         sha256: "a".repeat(64),
@@ -231,6 +230,7 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
     await prisma.floor.update({
       where: { id: ids.floorId },
       data: {
+        status: "active",
         mapRevision: 0,
         editorLeaseFence: 0,
         editorLeaseTokenHash: null,
@@ -244,6 +244,10 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
       where: { id: ids.fixtureId },
       data: { name: "B1-L01", ratedWatt: "40.00", x: 10, y: 10, size: 20,
         placementStatus: "placed", positionVerifiedAt: null }
+    });
+    await prisma.floorAsset.update({
+      where: { id: ids.assetId },
+      data: { status: "ready", cleanupStartedAt: null, readyAt: new Date() }
     });
   });
 
@@ -538,9 +542,9 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
     };
     const floorPlan = {
       sourceType: "image" as const,
-      imageUrl: readyAssetUrl,
-      originalFileUrl: readyAssetUrl,
-      renderedImageUrl: readyAssetUrl,
+      imageUrl: readyAssetPath,
+      originalFileUrl: readyAssetPath,
+      renderedImageUrl: readyAssetPath,
       width: 1200,
       height: 800
     };
@@ -590,6 +594,93 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
     expect(revisionThree.snapshotSha256).toBe(revisionOne.snapshotSha256);
     await expect(prisma.floorMapObject.count({ where: { floorId: ids.floorId } })).resolves.toBe(1);
     await expect(prisma.auditLog.count({ where: { siteId: ids.siteId } })).resolves.toBe(3);
+  });
+
+  it("preserves an old ready asset when editor save wins the cleanup race", async () => {
+    await activateLease();
+    await prisma.floorAsset.update({
+      where: { id: ids.assetId },
+      data: { readyAt: new Date(Date.now() - 25 * 60 * 60_000), cleanupStartedAt: null }
+    });
+    const saveReachedAudit = deferred<void>();
+    const releaseSave = deferred<void>();
+    const audit = {
+      record: jest.fn(async () => {
+        saveReachedAudit.resolve();
+        await releaseSave.promise;
+      })
+    };
+    const editor = new FloorEditorService(prisma, siteAccess, audit as never);
+    const storage = { deleteObject: jest.fn().mockResolvedValue(undefined) };
+    const cleanup = new FloorAssetCleanupService(prisma, storage as never);
+    const saving = editor.saveEditorState(operator, ids.floorId, {
+      ...saveInput,
+      floorPlan: {
+        sourceType: "image",
+        imageUrl: readyAssetPath,
+        originalFileUrl: readyAssetPath,
+        renderedImageUrl: readyAssetPath,
+        width: 1200,
+        height: 800
+      },
+      fixtureUpdates: []
+    });
+    await saveReachedAudit.promise;
+
+    const cleaning = cleanup.processPending(new Date());
+    await new Promise((resolve) => setTimeout(resolve, 75));
+    expect(storage.deleteObject).not.toHaveBeenCalled();
+
+    releaseSave.resolve();
+    await saving;
+    await cleaning;
+    expect(storage.deleteObject).not.toHaveBeenCalled();
+    await expect(prisma.floorAsset.findUniqueOrThrow({
+      where: { id: ids.assetId },
+      select: { cleanupStartedAt: true }
+    })).resolves.toEqual({ cleanupStartedAt: null });
+  });
+
+  it("rejects an editor save when cleanup claims the ready asset first", async () => {
+    await activateLease();
+    await prisma.floorAsset.update({
+      where: { id: ids.assetId },
+      data: { readyAt: new Date(Date.now() - 25 * 60 * 60_000), cleanupStartedAt: null }
+    });
+    const deleteStarted = deferred<void>();
+    const releaseDelete = deferred<void>();
+    const storage = {
+      deleteObject: jest.fn(async () => {
+        deleteStarted.resolve();
+        await releaseDelete.promise;
+        throw new Error("storage unavailable");
+      })
+    };
+    const cleanup = new FloorAssetCleanupService(prisma, storage as never);
+    const cleaning = cleanup.processPending(new Date());
+    await deleteStarted.promise;
+    const editor = new FloorEditorService(prisma, siteAccess, new AuditService(prisma));
+
+    await expect(editor.saveEditorState(operator, ids.floorId, {
+      ...saveInput,
+      floorPlan: {
+        sourceType: "image",
+        imageUrl: readyAssetPath,
+        originalFileUrl: readyAssetPath,
+        renderedImageUrl: readyAssetPath,
+        width: 1200,
+        height: 800
+      },
+      fixtureUpdates: []
+    })).rejects.toThrow("ready floor assets");
+
+    releaseDelete.resolve();
+    await cleaning;
+    await expect(prisma.floorAsset.findUniqueOrThrow({
+      where: { id: ids.assetId },
+      select: { cleanupStartedAt: true }
+    })).resolves.toEqual({ cleanupStartedAt: null });
+    await expect(prisma.floorMapRevision.count({ where: { floorId: ids.floorId } })).resolves.toBe(0);
   });
 
   it("skips a fixture removed after the source revision instead of recreating it", async () => {
@@ -732,3 +823,9 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
     await expect(prisma.auditLog.count({ where: { siteId: ids.siteId } })).resolves.toBe(1);
   });
 });
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}

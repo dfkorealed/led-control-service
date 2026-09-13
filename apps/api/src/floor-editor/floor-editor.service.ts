@@ -19,6 +19,7 @@ import { buildFloorEditorSnapshot, hashFloorEditorSnapshot } from "./floor-edito
 import { FixtureEnergyCheckpointService } from "../energy/fixture-state-ingestion.service";
 import { EnergyDimensionHistoryService } from "../energy/energy-dimension-history.service";
 import { EditorPatch, persistEditorPatches } from "./editor-batch-persistence";
+import { assertActiveFloorStatus } from "./floor-lifecycle";
 
 export const EDITOR_TRANSACTION_OPTIONS = {
   isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 5_000, timeout: 15_000
@@ -113,6 +114,7 @@ interface PreparedSaveEditorState {
 }
 
 interface LockedFloorLeaseAuthority {
+  status: string;
   mapRevision: number;
   editorLeaseFence: number;
   editorLeaseTokenHash: string | null;
@@ -157,6 +159,9 @@ export class FloorEditorService {
         const authorizedSite = await this.siteAccess.assertManageInTransaction(tx, user, access.siteId);
         await this.assertAtomicSaveTargets(tx, floorId, prepared);
         const changedAt = await this.incrementRevision(tx, floorId, prepared.expectedRevision, prepared.leaseToken, prepared.leaseFence);
+        if (prepared.floorPlan) {
+          await this.assertReadyAssetUrls(floorId, prepared.floorPlan, tx);
+        }
         await this.applySaveChanges(tx, floorId, prepared, changedAt);
 
         const floor = await this.loadSnapshotFloor(tx, floorId);
@@ -254,7 +259,6 @@ export class FloorEditorService {
         if (!source) throw new NotFoundException("floor revision not found");
 
         const snapshot = this.parseSnapshot(source.snapshot);
-        await this.assertSnapshotAssetsReady(tx, floorId, snapshot);
         const existingFixtureIds = await this.existingFixtureIds(tx, floorId, snapshot.fixtures.map((fixture) => fixture.id));
         const skippedFixtureIds = snapshot.fixtures
           .map((fixture) => fixture.id)
@@ -262,6 +266,7 @@ export class FloorEditorService {
           .sort();
 
         const changedAt = await this.incrementRevision(tx, floorId, input.expectedRevision, input.leaseToken, input.leaseFence);
+        await this.assertSnapshotAssetsReady(tx, floorId, snapshot);
         await this.applySnapshot(tx, floorId, snapshot, existingFixtureIds, changedAt);
 
         const floor = await this.loadSnapshotFloor(tx, floorId);
@@ -470,9 +475,6 @@ export class FloorEditorService {
       this.normalizeObjectGeometryPatch(update.data, objectStates.get(update.id));
     }
 
-    if (input.floorPlan) {
-      await this.assertReadyAssetUrls(floorId, input.floorPlan, tx);
-    }
   }
 
   private async preflightObjectUpdates(
@@ -525,6 +527,7 @@ export class FloorEditorService {
   ) {
     const floor = await this.lockFloorLeaseAuthority(tx, floorId);
     if (!floor) throw new NotFoundException("floor not found");
+    assertActiveFloorStatus(floor.status);
     const leaseActive = Boolean(
       floor.editorLeaseTokenHash &&
       floor.editorLeaseFence === leaseFence &&
@@ -548,6 +551,7 @@ export class FloorEditorService {
   private async lockFloorLeaseAuthority(tx: Prisma.TransactionClient, floorId: string) {
     const rows = await tx.$queryRaw<Omit<LockedFloorLeaseAuthority, "dbNow">[]>(Prisma.sql`
       SELECT
+        "status"::text AS "status",
         "mapRevision",
         "editorLeaseFence",
         "editorLeaseTokenHash",
@@ -788,19 +792,19 @@ export class FloorEditorService {
       data.sourceType = input.sourceType;
     }
     if (input.imageUrl !== undefined) {
-      data.imageUrl = input.imageUrl.trim() === "" ? "" : this.objectStorageUrl(input.imageUrl, "imageUrl");
+      data.imageUrl = input.imageUrl.trim() === "" ? "" : this.floorAssetAccessPath(input.imageUrl, "imageUrl").path;
     }
     if (input.originalFileUrl !== undefined) {
       data.originalFileUrl =
         input.originalFileUrl === null || input.originalFileUrl.trim() === ""
           ? input.originalFileUrl
-          : this.objectStorageUrl(input.originalFileUrl, "originalFileUrl");
+          : this.floorAssetAccessPath(input.originalFileUrl, "originalFileUrl").path;
     }
     if (input.renderedImageUrl !== undefined) {
       data.renderedImageUrl =
         input.renderedImageUrl === null || input.renderedImageUrl.trim() === ""
           ? input.renderedImageUrl
-          : this.objectStorageUrl(input.renderedImageUrl, "renderedImageUrl");
+          : this.floorAssetAccessPath(input.renderedImageUrl, "renderedImageUrl").path;
     }
     if (input.width !== undefined) data.width = this.positiveInteger(input.width, "width");
     if (input.height !== undefined) data.height = this.positiveInteger(input.height, "height");
@@ -822,10 +826,18 @@ export class FloorEditorService {
       new Set([data.imageUrl, data.originalFileUrl, data.renderedImageUrl].filter((url): url is string => Boolean(url)))
     );
     if (urls.length === 0) return;
-    const readyCount = await client.floorAsset.count({
-      where: { floorId, status: "ready", publicUrl: { in: urls } }
+    const references = urls.map((url) => this.floorAssetAccessPath(url, "floor plan URL"));
+    if (references.some((reference) => reference.floorId !== floorId)) {
+      throw new BadRequestException("floor plan URLs must reference ready floor assets");
+    }
+    const assetIds = [...new Set(references.map((reference) => reference.assetId))];
+    const readyAssets = await client.floorAsset.findMany({
+      where: { floorId, status: "ready", cleanupStartedAt: null, id: { in: assetIds } },
+      select: { id: true }
     });
-    if (readyCount !== urls.length) throw new BadRequestException("floor plan URLs must reference ready floor assets");
+    if (new Set(readyAssets.map((asset) => asset.id)).size !== assetIds.length) {
+      throw new BadRequestException("floor plan URLs must reference ready floor assets");
+    }
   }
 
   private buildFixtureData(input: UpdateFixtureInput) {
@@ -893,14 +905,20 @@ export class FloorEditorService {
     return value.trim();
   }
 
-  private objectStorageUrl(value: unknown, field: string) {
+  private floorAssetAccessPath(value: unknown, field: string) {
     const result = this.trimOptionalString(value, field);
     if (result === "") throw new BadRequestException(`${field} must not be empty`);
+    const match = /^\/api\/floors\/([^/]+)\/assets\/([^/]+)\/content$/.exec(result);
+    if (!match) throw new BadRequestException(`${field} must be a floor asset access path`);
     try {
-      const url = new URL(result);
-      if (url.protocol === "http:" || url.protocol === "https:") return result;
-    } catch {}
-    throw new BadRequestException(`${field} must be an object storage URL`);
+      const floorId = decodeURIComponent(match[1]);
+      const assetId = decodeURIComponent(match[2]);
+      const path = `/api/floors/${encodeURIComponent(floorId)}/assets/${encodeURIComponent(assetId)}/content`;
+      if (!floorId || !assetId || path !== result) throw new Error("non-canonical floor asset path");
+      return { floorId, assetId, path };
+    } catch {
+      throw new BadRequestException(`${field} must be a floor asset access path`);
+    }
   }
 
   private nullableTrimmedString(value: unknown, field: string) {

@@ -1348,6 +1348,21 @@ export class MqttService implements OnModuleInit {
   ) {
     try {
       await this.prisma.$transaction(async (tx) => {
+        const sessionScope = await tx.provisioningSession.findUnique({
+          where: { id: event.sessionId },
+          select: { siteId: true, floorId: true, gatewayId: true }
+        });
+        if (
+          !sessionScope
+          || sessionScope.siteId !== topicScope.siteId
+          || sessionScope.gatewayId !== topicScope.gatewayId
+        ) return;
+
+        await tx.$queryRaw`
+          SELECT "id" FROM "Floor"
+          WHERE "id" = ${sessionScope.floorId} AND "siteId" = ${sessionScope.siteId}
+          FOR UPDATE
+        `;
         await tx.$queryRaw`
           SELECT "id" FROM "ProvisioningSession"
           WHERE "id" = ${event.sessionId}
@@ -1364,8 +1379,15 @@ export class MqttService implements OnModuleInit {
           !session ||
           session.status !== "active" ||
           session.siteId !== topicScope.siteId ||
-          session.gatewayId !== topicScope.gatewayId
+          session.gatewayId !== topicScope.gatewayId ||
+          session.floorId !== sessionScope.floorId
         ) return;
+
+        const floor = await tx.floor.findFirst({
+          where: { id: session.floorId, siteId: session.siteId },
+          select: { status: true }
+        });
+        if (!floor || floor.status !== "active") return;
 
         const node = await tx.discoveredMeshNode.findFirst({
           where: {

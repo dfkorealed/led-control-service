@@ -143,6 +143,11 @@ enum FloorAssetStatus {
   ready
 }
 
+enum FloorStatus {
+  active
+  archived
+}
+
 enum CertificatePurpose {
   device
   mqtt
@@ -255,6 +260,7 @@ model Site {
   address                    String?
   tariffKwhRate              Decimal?                         @db.Decimal(10, 2)
   timeZone                   String                           @default("Asia/Seoul")
+  currency                   String                           @default("KRW")
   gatewayOfflineAfterSeconds Int                              @default(90)
   fixtureStaleAfterSeconds   Int                              @default(180)
   organization               Organization                     @relation(fields: [organizationId], references: [id])
@@ -304,6 +310,8 @@ model Floor {
   siteId                String
   name                  String
   level                 Int
+  status                FloorStatus           @default(active)
+  displayOrder          Int                   @default(0)
   nextFixtureSequence   Int                   @default(0)
   mapRevision           Int                   @default(0)
   editorLeaseFence      Int                   @default(0)
@@ -325,11 +333,12 @@ model Floor {
 
   @@unique([id, siteId])
   @@index([siteId])
+  @@index([siteId, status, displayOrder])
 }
 
 model SiteMembership {
   id          String          @id @default(uuid())
-  userId      String
+  userId      String          @unique
   siteId      String
   accessLevel SiteAccessLevel @default(read)
   user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -412,21 +421,23 @@ model MonitoringIncident {
 }
 
 model FloorAsset {
-  id        String           @id @default(uuid())
-  floorId   String
-  kind      FloorAssetKind
-  status    FloorAssetStatus @default(pending)
-  objectKey String           @unique
-  publicUrl String
-  mimeType  String
-  sizeBytes BigInt
-  sha256    String
-  readyAt   DateTime?
-  floor     Floor            @relation(fields: [floorId], references: [id], onDelete: Cascade)
-  createdAt DateTime         @default(now())
-  updatedAt DateTime         @updatedAt
+  id               String           @id @default(uuid())
+  floorId          String
+  kind             FloorAssetKind
+  status           FloorAssetStatus @default(pending)
+  objectKey        String           @unique
+  mimeType         String
+  sizeBytes        BigInt
+  sha256           String
+  uploadExpiresAt  DateTime?
+  cleanupStartedAt DateTime?
+  readyAt          DateTime?
+  floor            Floor            @relation(fields: [floorId], references: [id], onDelete: Cascade)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
 
   @@index([floorId, status, createdAt])
+  @@index([status, uploadExpiresAt, cleanupStartedAt])
 }
 
 model FloorPlan {
