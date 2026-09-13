@@ -132,12 +132,13 @@ test("real-backend core installs host services and runs one Chromium worker", as
   const workflow = await parseWorkflow("ci.yml");
   const job = workflow.jobs["playwright-real-core"];
   const commands = stepCommands(job);
-  for (const dependency of ["postgresql-16", "postgresql-client-16", "redis-server", "redis-tools", "mosquitto", "openssl", "lsof", "procps"]) {
+  for (const dependency of ["postgresql-16", "postgresql-client-16", "redis-server", "redis-tools", "mosquitto", "mosquitto-clients", "openssl", "lsof", "procps"]) {
     assert.match(commands, new RegExp(`\\b${escapeRegExp(dependency)}\\b`));
   }
   assert.match(commands, /pg_config --bindir/);
   assert.match(commands, /playwright install --with-deps chromium/);
   assert.equal(job.env.E2E_REAL_BACKEND_LAB, "1");
+  assertStepRuns(job, "DEV_MQTT_ACL_INTEGRATION=1 node --test scripts/dev-mqtt-acl.integration.test.mjs");
   assertStepRuns(job, "pnpm ci:real-backend");
 
   const script = await readFile(path.join(root, "scripts/ci-real-backend-e2e.sh"), "utf8");

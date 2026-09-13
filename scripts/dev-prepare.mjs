@@ -16,9 +16,11 @@ export function prepareDevelopmentRuntime(root, sourceEnv, { run = defaultRun } 
   ensureDevelopmentPki(root, env, gatewayIds, usesExternalMqttPki(sourceEnv), run);
 
   const localDirectory = join(root, ".local");
-  const aclPath = join(localDirectory, "mosquitto.acl");
+  const mqttRuntimeDirectory = join(localDirectory, "mosquitto-runtime");
+  const aclPath = join(mqttRuntimeDirectory, "mosquitto.acl");
   const nativeConfigPath = join(localDirectory, "mosquitto.host.conf");
   mkdirSync(localDirectory, { recursive: true });
+  mkdirSync(mqttRuntimeDirectory, { mode: 0o755 });
   // Claims update product state only. Both supported dev launch paths call this
   // before broker startup so the file-backed ACL is never a stale wildcard or
   // a previous Gateway allowlist, including when the new list is empty.

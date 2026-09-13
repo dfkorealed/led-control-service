@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createConnection, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,11 +11,14 @@ import { publishMosquittoAcl } from "./dev-runtime.mjs";
 const ALLOWED_ID = "11111111-1111-4111-8111-111111111111";
 const REMOVED_ID = "22222222-2222-4222-8222-222222222222";
 
-test("native broker reload는 제거·빈 allowlist를 즉시 거부하고 API identity는 유지한다", async () => {
+test("native broker reload는 제거·빈 allowlist를 즉시 거부하고 API identity는 유지한다", {
+  skip: process.env.DEV_MQTT_ACL_INTEGRATION === "1" ? false : "set DEV_MQTT_ACL_INTEGRATION=1 for the host Mosquitto fixture"
+}, async () => {
   const root = mkdtempSync(join(tmpdir(), "led-control-acl-integration-"));
   const local = join(root, ".local");
   const pki = join(root, "pki");
-  const aclPath = join(local, "mosquitto.acl");
+  const runtime = join(local, "mosquitto-runtime");
+  const aclPath = join(runtime, "mosquitto.acl");
   const configPath = join(local, "mosquitto.host.conf");
   const identityPath = join(local, "mosquitto.host.pid.json");
   const brokerBinary = commandPath("mosquitto");
@@ -23,6 +26,7 @@ test("native broker reload는 제거·빈 allowlist를 즉시 거부하고 API i
   const port = await freePort();
   let broker;
   mkdirSync(local, { recursive: true });
+  mkdirSync(runtime, { recursive: true });
   mkdirSync(pki, { recursive: true });
   try {
     createCertificates(pki);
@@ -65,6 +69,61 @@ test("native broker reload는 제거·빈 allowlist를 즉시 거부하고 API i
   }
 });
 
+test("Docker directory bind는 UID 1883이 새 ACL inode를 읽고 제거·빈 allowlist를 reload한다", {
+  skip: process.env.DEV_MQTT_ACL_INTEGRATION === "1" ? false : "set DEV_MQTT_ACL_INTEGRATION=1 for the Docker Mosquitto fixture"
+}, async () => {
+  const root = mkdtempSync(join(tmpdir(), "led-control-acl-docker-"));
+  const runtime = join(root, "runtime");
+  const config = join(root, "config");
+  const pki = join(root, "pki");
+  const aclPath = join(runtime, "mosquitto.acl");
+  const port = await freePort();
+  const container = `led-control-acl-${process.pid}-${port}`;
+  const publisherBinary = commandPath("mosquitto_pub");
+  mkdirSync(runtime, { recursive: true });
+  mkdirSync(config, { recursive: true });
+  mkdirSync(pki, { recursive: true });
+  try {
+    createCertificates(pki);
+    publishMosquittoAcl(aclPath, [ALLOWED_ID, REMOVED_ID]);
+    writeFileSync(join(config, "mosquitto.conf"), [
+      "listener 8883 0.0.0.0",
+      "allow_anonymous false",
+      "cafile /mosquitto/certs/ca.crt",
+      "certfile /mosquitto/certs/broker.crt",
+      "keyfile /mosquitto/certs/broker.key",
+      "require_certificate true",
+      "use_identity_as_username true",
+      "acl_file /mosquitto/runtime/mosquitto.acl",
+      "persistence false",
+      ""
+    ].join("\n"), { mode: 0o644 });
+    execFileSync("docker", [
+      "run", "-d", "--name", container, "-p", `127.0.0.1:${port}:8883`,
+      "-v", `${config}:/mosquitto/config:ro`, "-v", `${runtime}:/mosquitto/runtime:ro`,
+      "-v", `${pki}:/mosquitto/certs:ro`, "eclipse-mosquitto:2"
+    ], { stdio: "ignore" });
+    await waitForPort(port);
+
+    assert.equal(execFileSync("docker", ["exec", "-u", "1883:1883", container, "cat", "/mosquitto/runtime/mosquitto.acl"], { encoding: "utf8" }), readFileSync(aclPath, "utf8"));
+    const oldInode = containerInode(container);
+    publishMosquittoAcl(aclPath, [ALLOWED_ID]);
+    const newInode = containerInode(container);
+    assert.notEqual(newInode, oldInode);
+    execFileSync("docker", ["kill", "--signal=SIGHUP", container], { stdio: "ignore" });
+    assert.equal(publish(publisherBinary, pki, port, ALLOWED_ID, `sites/site/gateways/${ALLOWED_ID}/state/light`).status, 0);
+    assertDenied(publish(publisherBinary, pki, port, REMOVED_ID, `sites/site/gateways/${REMOVED_ID}/state/light`));
+
+    publishMosquittoAcl(aclPath, []);
+    execFileSync("docker", ["kill", "--signal=SIGHUP", container], { stdio: "ignore" });
+    assertDenied(publish(publisherBinary, pki, port, ALLOWED_ID, `sites/site/gateways/${ALLOWED_ID}/state/light`));
+    assert.equal(publish(publisherBinary, pki, port, "api-service", "sites/site/api-check").status, 0);
+  } finally {
+    spawnSync("docker", ["rm", "-f", container], { stdio: "ignore" });
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 function createCertificates(directory) {
   run("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", "/CN=dev-acl-test-ca", "-keyout", "ca.key", "-out", "ca.crt"], directory);
   issue(directory, "broker", "broker", ["-extfile", "server.ext"]);
@@ -94,6 +153,10 @@ function run(command, args, cwd) {
 
 function commandPath(command) {
   return execFileSync("sh", ["-c", `command -v ${command}`], { encoding: "utf8" }).trim();
+}
+
+function containerInode(container) {
+  return execFileSync("docker", ["exec", container, "stat", "-c", "%i", "/mosquitto/runtime/mosquitto.acl"], { encoding: "utf8" }).trim();
 }
 
 async function freePort() {

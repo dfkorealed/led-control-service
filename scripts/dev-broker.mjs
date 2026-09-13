@@ -14,7 +14,8 @@ import {
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 
-const CONTAINER_ACL_PATH = "/mosquitto/config/mosquitto.acl";
+const CONTAINER_ACL_DIRECTORY = "/mosquitto/runtime";
+const CONTAINER_ACL_PATH = `${CONTAINER_ACL_DIRECTORY}/mosquitto.acl`;
 
 export function publishNativeBrokerIdentity(destination, identity) {
   if (!Number.isSafeInteger(identity.pid) || identity.pid <= 0) {
@@ -48,7 +49,7 @@ export function reloadExistingDevelopmentBroker({
       "failed to reload the repo-owned Docker mqtt-tls broker"
     );
     const mountedAcl = requireSuccess(
-      run("docker", ["exec", owner.id, "cat", CONTAINER_ACL_PATH], { cwd: root }),
+      run("docker", ["exec", "-u", "1883:1883", owner.id, "cat", CONTAINER_ACL_PATH], { cwd: root }),
       "failed to verify the Docker mqtt-tls ACL mount"
     ).stdout;
     if (mountedAcl !== readFileSync(aclPath, "utf8")) {
@@ -124,14 +125,14 @@ function assertRepoDockerBroker(containerId, root, aclPath, port, run) {
   }
   const labels = container?.Config?.Labels ?? {};
   const portBindings = container?.NetworkSettings?.Ports?.[`${port}/tcp`] ?? [];
-  const aclMount = container?.Mounts?.filter((mount) => mount.Destination === CONTAINER_ACL_PATH) ?? [];
+  const aclMount = container?.Mounts?.filter((mount) => mount.Destination === CONTAINER_ACL_DIRECTORY) ?? [];
   if (
     !container?.State?.Running ||
     labels["com.docker.compose.service"] !== "mqtt-tls" ||
     resolve(labels["com.docker.compose.project.working_dir"] ?? "") !== resolve(root) ||
     !portBindings.some((binding) => binding.HostPort === String(port)) ||
     aclMount.length !== 1 ||
-    resolve(aclMount[0].Source ?? "") !== resolve(aclPath) ||
+    resolve(aclMount[0].Source ?? "") !== resolve(dirname(aclPath)) ||
     aclMount[0].RW !== false
   ) {
     throw new Error(`an unmanaged process owns port ${port}`);

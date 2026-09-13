@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -165,17 +165,41 @@ test("Gateway allowlist는 malformed, 빈 token, topic injection, 허용량 초�
   );
 });
 
-test("Mosquitto ACL은 정렬된 내용으로 원자 게시되고 정확히 0600 권한을 갖는다", () => {
+test("Mosquitto ACL은 전용 0755 디렉터리에 원자 게시되고 container-readable 0644 권한을 갖는다", () => {
   const directory = mkdtempSync(join(tmpdir(), "led-control-acl-"));
-  const destination = join(directory, "mosquitto.acl");
+  const runtime = join(directory, "runtime");
+  const destination = join(runtime, "mosquitto.acl");
   const first = "11111111-1111-4111-8111-111111111111";
   const second = "22222222-2222-4222-8222-222222222222";
   try {
+    mkdirSync(runtime, { mode: 0o700 });
     publishMosquittoAcl(destination, [second, first, second]);
 
     assert.equal(readFileSync(destination, "utf8"), renderMosquittoAcl([first, second]));
-    assert.equal(statSync(destination).mode & 0o777, 0o600);
-    assert.deepEqual(readdirSync(directory), ["mosquitto.acl"]);
+    assert.equal(statSync(runtime).mode & 0o777, 0o755);
+    assert.equal(statSync(destination).mode & 0o777, 0o644);
+    assert.deepEqual(readdirSync(runtime), ["mosquitto.acl"]);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("Mosquitto ACL 게시기는 symlink parent와 symlink destination을 거부한다", () => {
+  const directory = mkdtempSync(join(tmpdir(), "led-control-acl-path-"));
+  const real = join(directory, "real");
+  const linked = join(directory, "linked");
+  mkdirSync(real);
+  symlinkSync(real, linked);
+  try {
+    assert.throws(() => publishMosquittoAcl(join(linked, "mosquitto.acl"), []), /regular directory.*symlink/i);
+    const destination = join(real, "mosquitto.acl");
+    const target = join(directory, "target");
+    writeFileSync(target, "old");
+    symlinkSync(target, destination);
+    assert.throws(() => publishMosquittoAcl(destination, []), /regular file.*symlink/i);
+    const directoryDestination = join(real, "directory-target");
+    mkdirSync(directoryDestination);
+    assert.throws(() => publishMosquittoAcl(directoryDestination, []), /regular file.*symlink/i);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -204,9 +228,10 @@ test("prepare-only 실행은 앱이나 broker를 시작하지 않고 ACL과 nati
       "11111111-1111-4111-8111-111111111111",
       "22222222-2222-4222-8222-222222222222"
     ]);
-    assert.match(readFileSync(join(directory, ".local", "mosquitto.acl"), "utf8"), /^user api-service$/m);
-    assert.match(readFileSync(join(directory, ".local", "mosquitto.host.conf"), "utf8"), /acl_file .*\.local\/mosquitto\.acl/);
-    assert.equal(statSync(join(directory, ".local", "mosquitto.acl")).mode & 0o777, 0o600);
+    assert.match(readFileSync(join(directory, ".local", "mosquitto-runtime", "mosquitto.acl"), "utf8"), /^user api-service$/m);
+    assert.match(readFileSync(join(directory, ".local", "mosquitto.host.conf"), "utf8"), /acl_file .*\.local\/mosquitto-runtime\/mosquitto\.acl/);
+    assert.equal(statSync(join(directory, ".local", "mosquitto-runtime")).mode & 0o777, 0o755);
+    assert.equal(statSync(join(directory, ".local", "mosquitto-runtime", "mosquitto.acl")).mode & 0o777, 0o644);
     assert.deepEqual(started, []);
   } finally {
     rmSync(directory, { recursive: true, force: true });
@@ -351,9 +376,9 @@ test("production Mosquitto 설정은 mTLS, CRL, TLS 1.2와 최소권한 ACL을 �
 
 test("Compose 개발 broker는 생성된 exact ACL과 certificate directory만 read-only로 mount한다", () => {
   const mqtt = renderCompose().services["mqtt-tls"];
-  const aclMount = mqtt.volumes.find((volume) => volume.target === "/mosquitto/config/mosquitto.acl");
+  const aclMount = mqtt.volumes.find((volume) => volume.target === "/mosquitto/runtime");
 
-  assert.equal(aclMount.source, new URL("../.local/mosquitto.acl", import.meta.url).pathname);
+  assert.equal(aclMount.source, new URL("../.local/mosquitto-runtime", import.meta.url).pathname);
   assert.equal(aclMount.read_only, true);
   assert.doesNotMatch(aclMount.source, /infra\/mosquitto\.acl\.example$/);
   assert.ok(mqtt.volumes.some((volume) => volume.target === "/mosquitto/certs" && volume.read_only));
@@ -361,15 +386,16 @@ test("Compose 개발 broker는 생성된 exact ACL과 certificate directory만 r
 
 test("repo-owned Docker broker만 exact container SIGHUP 후 mounted ACL 일치를 검증한다", () => {
   const directory = mkdtempSync(join(tmpdir(), "led-control-docker-owner-"));
-  const aclPath = join(directory, ".local", "mosquitto.acl");
+  const runtimePath = join(directory, ".local", "mosquitto-runtime");
+  const aclPath = join(runtimePath, "mosquitto.acl");
   const signals = [];
-  mkdirSync(join(directory, ".local"), { recursive: true });
-  writeFileSync(aclPath, "user api-service\ntopic readwrite sites/#\n\n", { mode: 0o600 });
+  mkdirSync(runtimePath, { recursive: true });
+  writeFileSync(aclPath, "user api-service\ntopic readwrite sites/#\n\n", { mode: 0o644 });
   const inspection = [{
     Config: { Labels: { "com.docker.compose.project.working_dir": directory, "com.docker.compose.service": "mqtt-tls" } },
     State: { Running: true },
     NetworkSettings: { Ports: { "8883/tcp": [{ HostIp: "0.0.0.0", HostPort: "8883" }] } },
-    Mounts: [{ Source: aclPath, Destination: "/mosquitto/config/mosquitto.acl", RW: false }]
+    Mounts: [{ Source: runtimePath, Destination: "/mosquitto/runtime", RW: false }]
   }];
   const run = (command, args) => {
     if (command === "docker" && args.join(" ") === "compose ps -q mqtt-tls") return ok("repo-mqtt-container\n");
@@ -378,7 +404,7 @@ test("repo-owned Docker broker만 exact container SIGHUP 후 mounted ACL 일치�
       signals.push(args.slice(1));
       return ok("repo-mqtt-container\n");
     }
-    if (command === "docker" && args.join(" ") === "exec repo-mqtt-container cat /mosquitto/config/mosquitto.acl") {
+    if (command === "docker" && args.join(" ") === "exec -u 1883:1883 repo-mqtt-container cat /mosquitto/runtime/mosquitto.acl") {
       return ok(readFileSync(aclPath, "utf8"));
     }
     return failed(`unexpected ${command} ${args.join(" ")}`);
@@ -397,13 +423,15 @@ test("repo-owned Docker broker만 exact container SIGHUP 후 mounted ACL 일치�
 test("exact pid/config/listener가 일치하는 managed native broker만 SIGHUP한다", () => {
   const directory = mkdtempSync(join(tmpdir(), "led-control-native-owner-"));
   const local = join(directory, ".local");
-  const aclPath = join(local, "mosquitto.acl");
+  const runtime = join(local, "mosquitto-runtime");
+  const aclPath = join(runtime, "mosquitto.acl");
   const config = join(local, "mosquitto.host.conf");
   const binary = join(directory, "mosquitto");
   const identityPath = join(local, "mosquitto.host.pid.json");
   const signals = [];
   mkdirSync(local, { recursive: true });
-  writeFileSync(aclPath, "user api-service\ntopic readwrite sites/#\n\n", { mode: 0o600 });
+  mkdirSync(runtime, { mode: 0o755 });
+  writeFileSync(aclPath, "user api-service\ntopic readwrite sites/#\n\n", { mode: 0o644 });
   writeFileSync(config, `acl_file ${aclPath}\n`);
   writeFileSync(binary, "native broker fixture");
   chmodSync(binary, 0o755);

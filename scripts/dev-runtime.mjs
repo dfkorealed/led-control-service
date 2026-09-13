@@ -3,6 +3,7 @@ import {
   chmodSync,
   closeSync,
   fsyncSync,
+  lstatSync,
   openSync,
   readFileSync,
   renameSync,
@@ -78,7 +79,7 @@ export function renderMosquittoConfig(root, source = {}) {
     "require_certificate true",
     "use_identity_as_username true",
     "tls_version tlsv1.2",
-    `acl_file ${join(root, ".local", "mosquitto.acl")}`,
+    `acl_file ${join(root, ".local", "mosquitto-runtime", "mosquitto.acl")}`,
     "persistence false",
     "log_dest stdout",
     ""
@@ -184,20 +185,42 @@ export function renderMosquittoAcl(gatewayIds) {
 
 export function publishMosquittoAcl(destination, gatewayIds) {
   const content = renderMosquittoAcl(gatewayIds);
+  const parent = dirname(destination);
+  let parentStatus;
+  try {
+    parentStatus = lstatSync(parent);
+  } catch {
+    throw new Error("Mosquitto ACL parent must be a regular directory, not a symlink");
+  }
+  if (!parentStatus.isDirectory() || parentStatus.isSymbolicLink()) {
+    throw new Error("Mosquitto ACL parent must be a regular directory, not a symlink");
+  }
+  chmodSync(parent, 0o755);
+  try {
+    const destinationStatus = lstatSync(destination);
+    if (!destinationStatus.isFile() || destinationStatus.isSymbolicLink()) {
+      throw new Error("Mosquitto ACL destination must be a regular file, not a symlink");
+    }
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
   const temporaryPath = join(
     dirname(destination),
     `.${basename(destination)}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`
   );
   let descriptor;
   try {
-    // The temporary file lives beside the destination so rename is an atomic
-    // replacement. Explicit chmod avoids inheriting a permissive developer umask.
-    descriptor = openSync(temporaryPath, "wx", 0o600);
+    // ACL entries are authorization metadata, not credential material. The
+    // dedicated 0755 directory and 0644 file let UID 1883 read a read-only
+    // directory bind while keys and tokens retain their stricter permissions.
+    // A same-directory rename keeps publication atomic and changes the inode in
+    // a way the container directory mount can observe before its exact SIGHUP.
+    descriptor = openSync(temporaryPath, "wx", 0o644);
     writeFileSync(descriptor, content, "utf8");
     fsyncSync(descriptor);
     closeSync(descriptor);
     descriptor = undefined;
-    chmodSync(temporaryPath, 0o600);
+    chmodSync(temporaryPath, 0o644);
     renameSync(temporaryPath, destination);
   } finally {
     if (descriptor !== undefined) closeSync(descriptor);

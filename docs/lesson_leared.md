@@ -259,7 +259,7 @@
 ## 2026-09-14 / DB claim과 file-backed 개발 MQTT ACL의 수명주기 불일치
 - **발생했던 문제/실수**: 두 번째 Lab Gateway를 정상 claim했지만 개발 Mosquitto ACL은 legacy `DEV_GATEWAY_ID` 한 개만 렌더링해 새 인증서 CN의 연결을 reason 135로 거부했다.
 - **원인**: 제품의 claim은 DB 소유권과 인증서 binding을 변경하지만 별도 파일인 `.local/mosquitto.acl`을 갱신하지 않는다. 개발 시작 스크립트도 복수의 정상 Gateway가 공존하는 경우를 표현할 설정이 없었다.
-- **해결 및 예방책**: `DEV_GATEWAY_IDS`의 명시적 UUID allowlist를 정규화·중복 제거·정렬해 각 Gateway의 기존 최소권한 topic만 렌더링하고, ACL을 원자적으로 권한 `0600`으로 게시한다. `dev:local`도 ACL 게시 후 Docker를 시작하고 exact 파일을 mount한다. 실행 중 broker는 저장소 소유 Compose container 또는 mode `0600` PID/config marker와 listener/command가 모두 일치하는 native process만 exact `SIGHUP`한다. 단일 `DEV_GATEWAY_ID`는 하위 호환으로 유지하되 두 설정의 불일치는 fail closed 한다.
+- **해결 및 예방책**: `DEV_GATEWAY_IDS`의 명시적 UUID allowlist를 정규화·중복 제거·정렬해 각 Gateway의 기존 최소권한 topic만 렌더링한다. ACL은 credential이 아닌 authorization metadata이므로 symlink가 아닌 전용 `0755` 디렉터리에 container-readable `0644`로 원자 게시하며 key/token 권한은 바꾸지 않는다. `dev:local`도 ACL 게시 후 Docker를 시작하고 디렉터리를 read-only mount해 rename으로 바뀐 inode를 보게 한다. 실행 중 broker는 저장소 소유 Compose container 또는 mode `0600` PID/config marker와 listener/command가 모두 일치하는 native process만 exact `SIGHUP`한다. 단일 `DEV_GATEWAY_ID`는 하위 호환으로 유지하되 두 설정의 불일치는 fail closed 한다.
 - **반복 방지 체크**: 새 Lab Gateway claim 후 allowlist에 UUID를 추가하고 `pnpm dev`를 재시작한다. 테스트는 복수/legacy/누락/충돌/주입 입력, Docker/native 소유권, ID 제거와 빈 allowlist의 실제 Mosquitto reload를 검증하며 운영 broker에 wildcard 예외를 추가하지 않는다.
 
 ## 2026-07-13 / Raspberry Pi 호스트 패키지와 pnpm store 불일치

@@ -67,7 +67,7 @@ Lab Vault 실행, Lab Root 서명, 제조 station 발급부터 Raspberry Pi clai
    pnpm dev
    ```
 
-   API는 `4000`, Web은 `5173` 포트를 고정 사용한다. 기존 프로세스가 포트를 점유하거나 PostgreSQL/Redis가 꺼져 있으면 원인과 실행 명령을 시작 전에 출력한다. 최초 claim 전에는 `DEV_GATEWAY_IDS`를 비워 API/Web 온보딩 모드로 실행한다. claim은 DB 소유권만 바꾸며 file-backed 개발 broker ACL을 자동으로 다시 쓰지 않는다. claim 후 DB에 생성된 실제 `Gateway.id`를 comma-separated `DEV_GATEWAY_IDS`에 추가하고 `pnpm dev`를 재시작해야 모든 로컬 MQTT 인증서 identity가 허용된다. 재시작 시 저장소 소유 Docker `mqtt-tls` 또는 이 스크립트가 기록한 exact native PID/config만 `SIGHUP`하며, 다른 프로세스가 8883을 점유하면 기존 ACL을 신뢰하지 않고 시작을 중단한다. 목록에서 제거한 ID와 빈 목록도 reload 후 즉시 차단된다. 기존 단일 장비용 `DEV_GATEWAY_ID`도 계속 지원하지만, 두 변수를 함께 설정하면 그 ID가 복수 목록에도 포함되어야 한다.
+   API는 `4000`, Web은 `5173` 포트를 고정 사용한다. 기존 프로세스가 포트를 점유하거나 PostgreSQL/Redis가 꺼져 있으면 원인과 실행 명령을 시작 전에 출력한다. 최초 claim 전에는 `DEV_GATEWAY_IDS`를 비워 API/Web 온보딩 모드로 실행한다. claim은 DB 소유권만 바꾸며 file-backed 개발 broker ACL을 자동으로 다시 쓰지 않는다. claim 후 DB에 생성된 실제 `Gateway.id`를 comma-separated `DEV_GATEWAY_IDS`에 추가하고 `pnpm dev`를 재시작해야 모든 로컬 MQTT 인증서 identity가 허용된다. ACL은 secret이 아닌 authorization metadata이며 전용 `.local/mosquitto-runtime` 디렉터리를 Docker에 read-only mount하므로 원자 rename 뒤의 새 inode도 reload에서 보인다. 재시작 시 저장소 소유 Docker `mqtt-tls` 또는 이 스크립트가 기록한 exact native PID/config만 `SIGHUP`하며, 다른 프로세스가 8883을 점유하면 기존 ACL을 신뢰하지 않고 시작을 중단한다. 목록에서 제거한 ID와 빈 목록도 reload 후 즉시 차단된다. 기존 단일 장비용 `DEV_GATEWAY_ID`도 계속 지원하지만, 두 변수를 함께 설정하면 그 ID가 복수 목록에도 포함되어야 한다.
 
 5. PC 웹 앱에 접속합니다.
 

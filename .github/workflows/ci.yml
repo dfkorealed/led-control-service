@@ -113,8 +113,10 @@ jobs:
       - name: Install real-backend host services
         run: |
           sudo apt-get update
-          sudo apt-get install -y postgresql-16 postgresql-client-16 redis-server redis-tools mosquitto openssl lsof procps
+          sudo apt-get install -y postgresql-16 postgresql-client-16 redis-server redis-tools mosquitto mosquitto-clients openssl lsof procps
           echo "$(pg_config --bindir)" >> "$GITHUB_PATH"
+      - name: Verify generated development MQTT ACL reload
+        run: DEV_MQTT_ACL_INTEGRATION=1 node --test scripts/dev-mqtt-acl.integration.test.mjs
       - run: pnpm --filter @led-control/web exec playwright install --with-deps chromium
       - run: pnpm ci:real-backend
 
