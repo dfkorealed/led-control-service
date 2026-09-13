@@ -1,21 +1,25 @@
 :root {
-  color: #152238;
-  background: #f6f9fe;
+  color: var(--brand-navy);
+  background: var(--brand-paper);
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --primary: #0b63e5;
-  --primary-hover: #0759d5;
-  --primary-soft: #e9f2ff;
-  --surface: #f6f9fe;
+  --brand-navy: #15324a;
+  --brand-blue: #256fa1;
+  --brand-coral: #ff7a5c;
+  --brand-paper: #f4f8fa;
+  --primary: var(--brand-blue);
+  --primary-hover: #1d5c86;
+  --primary-soft: #e8f2f8;
+  --surface: var(--brand-paper);
   --panel: #ffffff;
   --border: #dbe7f5;
-  --text: #152238;
+  --text: var(--brand-navy);
   --muted: #64748b;
   --subtle: #73839a;
   --success: #15803d;
   --warning: #b45309;
   --danger: #dc2626;
-  --focus-ring: 0 0 0 3px rgba(11, 99, 229, 0.24);
+  --focus-ring: 0 0 0 3px rgba(37, 111, 161, 0.28);
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -50,6 +54,11 @@
   border: 1px solid var(--primary);
   background: var(--primary);
   color: #fff;
+}
+
+.ui-button-primary:hover:not(:disabled) {
+  border-color: var(--primary-hover);
+  background: var(--primary-hover);
 }
 
 .ui-button-secondary,
@@ -300,40 +309,55 @@ button {
   backdrop-filter: blur(18px);
 }
 
-.brand {
-  display: flex;
-  flex-direction: column;
+.kinda-logo {
+  display: inline-flex;
   align-items: center;
+  gap: 12px;
+  color: var(--brand-navy);
+}
+
+.kinda-logo-mark {
+  display: block;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+}
+
+.kinda-logo-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.kinda-logo-copy strong {
+  color: var(--brand-navy);
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.kinda-logo-copy > span {
+  color: var(--brand-blue);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.sidebar .kinda-logo {
+  flex-direction: column;
   gap: 0;
   margin-bottom: 25px;
 }
 
-.brand-mark {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 42px;
-  height: 42px;
-  border-radius: 14px;
-  background: var(--primary);
-  color: #ffffff;
-  font-weight: 900;
-}
-
-.brand > div > strong,
-.brand > div > span {
+.sidebar .kinda-logo-copy {
   display: none;
 }
 
-.brand strong {
-  color: var(--text);
-  font-size: 16px;
+.auth-brand {
+  margin-bottom: 28px;
 }
 
-.brand > div > span {
-  color: var(--primary);
-  font-size: 12px;
-  font-weight: 800;
+.operator-brand {
+  margin: 0;
 }
 
 .nav-list {
@@ -395,10 +419,6 @@ button {
   border-bottom: 1px solid var(--border);
   background: var(--panel);
   padding: 16px 24px;
-}
-
-.operator-brand {
-  margin: 0;
 }
 
 .operator-header-actions {
@@ -905,10 +925,6 @@ button {
   max-width: 540px;
 }
 
-.auth-brand-panel .auth-brand {
-  margin-bottom: 28px;
-}
-
 .auth-brand-panel h1 {
   margin: 0;
   color: var(--text);
@@ -929,10 +945,6 @@ button {
   width: min(100%, 440px);
   padding: 24px;
   box-shadow: var(--shadow);
-}
-
-.auth-brand {
-  margin-bottom: 28px;
 }
 
 .auth-heading {
