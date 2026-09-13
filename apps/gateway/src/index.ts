@@ -79,7 +79,7 @@ import {
   StateEventReservationSlot,
   type StateEventCapacityReservation
 } from "./state/state-event-outbox";
-import { createProductionAdapters } from "./adapters/adapter-factory";
+import { createProductionAdapters, resolveGatewayAdapterKind } from "./adapters/adapter-factory";
 import { ApplianceHealth, parseHeartbeatInterval } from "./health/appliance-health";
 import type { GatewayAssignment } from "./config/assignment";
 import { MqttCertificateClient } from "./identity/mqtt-certificate-client";
@@ -337,13 +337,18 @@ async function main() {
   // 준비한 뒤 MQTT를 연다. 순서가 바뀌면 재시작 때 재발행할 이벤트의 저장소 없이
   // 명령을 받거나, 다른 현장의 메시지를 다음 계층으로 전달할 수 있다.
   const softwareAutomationSimulator = createSoftwareAutomationSimulatorFromEnvironment(process.env);
+  const configuredAdapterKind = softwareAutomationSimulator ? "bluez" : resolveGatewayAdapterKind(process.env);
   if (process.env.GATEWAY_PHASE0_PROBE === "1") {
-    await createProductionAdapters(process.env);
-    console.log(JSON.stringify({ status: "passed", capability: "bluez-mesh-bootstrap" }));
+    const adapters = await createProductionAdapters(process.env);
+    console.log(JSON.stringify({ status: "passed", adapterKind: adapters.adapterKind }));
+    await adapters.stop();
     process.exit(0);
   }
   const heartbeatMs = parseGatewayHeartbeatInterval(process.env.GATEWAY_HEARTBEAT_MS);
-  const health = new ApplianceHealth(process.env.GATEWAY_HEALTH_PATH ?? "/var/run/led-control/health.json", { heartbeatMs });
+  const health = new ApplianceHealth(process.env.GATEWAY_HEALTH_PATH ?? "/var/run/led-control/health.json", {
+    heartbeatMs,
+    adapterKind: configuredAdapterKind
+  });
   await health.startingUnassigned();
   let detachSoftwareAutomationSimulatorIpc: (() => unknown) | undefined;
   if (softwareAutomationSimulator) {
@@ -357,7 +362,6 @@ async function main() {
       createAdapters: async () => softwareAutomationSimulator.adapters
     } : {})
   });
-  if (!runtime.adapters.healthProbes) throw new Error("BlueZ health probes are unavailable");
   health.setProbes(runtime.adapters.healthProbes);
   const assignment = runtime.assignment;
   await health.startingAssigned();
@@ -365,11 +369,14 @@ async function main() {
   const gatewayFirmwareVersion = process.env.GATEWAY_FIRMWARE_VERSION || "gateway-dev-local";
   const commandTimeoutMs = parseCommandTimeout(process.env.GATEWAY_BLE_STATUS_TIMEOUT_MS);
   const adapters = runtime.adapters;
-  const bluetoothCompanyId = resolveGatewayBluetoothCompanyId(process.env);
-  if (isLabHilDeployment(process.env)) {
+  // [확인됨] Company ID와 vendor Sensor model은 BlueZ cloud sensor 경계에만 속한다.
+  // BIO는 제조사 앱/휴대폰뿐 아니라 D-Bus와 Bluetooth Company ID도 요구하지 않는다.
+  const bluetoothCompanyId = adapters.vehicleSensorCloudSupported
+    ? resolveGatewayBluetoothCompanyId(process.env)
+    : undefined;
+  if (bluetoothCompanyId !== undefined && isLabHilDeployment(process.env)) {
     console.warn("LAB HIL ONLY: non-production RFU Bluetooth Company ID 0xFFFE; NOT FOR PRODUCTION");
   }
-  const vehicleSensorVendorModel = createVehicleSensorVendorModel(bluetoothCompanyId);
   await health.meshReady();
   const adapter = adapters.dimming;
   const fixtureIdentify = new FixtureIdentifyRuntime({ siteId, gatewayId,
@@ -583,37 +590,44 @@ async function main() {
     { siteId, gatewayId },
     { onError: (error) => void reportGatewayError(error, "vehicle_sensor_capability_publish") }
   );
-  const vehicleSensorClient = new VehicleSensorClient({
-    vendorModel: vehicleSensorVendorModel,
-    listConfiguredSourceFixtureIds: () =>
-      configuredVehicleSensorSourceFixtureIds(scheduleRuntime.currentSnapshot),
-    resolveByFixtureId: (fixtureId) => adapters.vehicleSensors.resolveByFixtureId(fixtureId),
-    resolveBySourceUnicast: (sourceUnicast) => adapters.vehicleSensors.resolveBySourceUnicast(sourceUnicast),
-    recordInput: (input) => scheduleRuntime.recordVehicleSensorInput(input),
-    recordVendorInput: (input, identity) => scheduleRuntime.recordVehicleSensorEvent(input, identity),
-    send: (destination, payload) => adapters.vehicleSensors.send(destination, payload),
-    warn: (warning) => console.warn("Gateway vehicle sensor input rejected", warning)
-  });
-  const vehicleSensorController = new VehicleSensorGatewayController({
-    port: adapters.vehicleSensors,
-    client: vehicleSensorClient,
-    journal: vehicleSensorCapabilityJournal,
-    publisher: vehicleSensorCapabilityPublisher,
-    diagnose: (diagnostic) => {
-      console.warn("Gateway vehicle sensor diagnostic", diagnostic);
-      if (diagnostic.event === "vehicle_sensor_capability_ack_rejected") {
-        void reportGatewayError(new Error(diagnostic.event), "vehicle_sensor_capability_ack");
-      } else if (diagnostic.event === "vehicle_sensor_capability_configuration_failed" ||
-        diagnostic.event === "vehicle_sensor_capability_refresh_failed") {
-        // Sensor capability setup is a degraded automation feature, not a gateway
-        // liveness failure. Keep lighting control online and report it separately.
-        void reportGatewayError(new Error(diagnostic.event), "vehicle_sensor_capability_configuration");
+  let vehicleSensorController: VehicleSensorGatewayController | undefined;
+  let initialVehicleSensorCapabilityRefresh: Promise<unknown> = Promise.resolve(false);
+  if (adapters.vehicleSensorCloudSupported) {
+    const vehicleSensorVendorModel = createVehicleSensorVendorModel(bluetoothCompanyId!);
+    const vehicleSensorClient = new VehicleSensorClient({
+      vendorModel: vehicleSensorVendorModel,
+      listConfiguredSourceFixtureIds: () =>
+        configuredVehicleSensorSourceFixtureIds(scheduleRuntime.currentSnapshot),
+      resolveByFixtureId: (fixtureId) => adapters.vehicleSensors.resolveByFixtureId(fixtureId),
+      resolveBySourceUnicast: (sourceUnicast) => adapters.vehicleSensors.resolveBySourceUnicast(sourceUnicast),
+      recordInput: (input) => scheduleRuntime.recordVehicleSensorInput(input),
+      recordVendorInput: (input, identity) => scheduleRuntime.recordVehicleSensorEvent(input, identity),
+      send: (destination, payload) => adapters.vehicleSensors.send(destination, payload),
+      warn: (warning) => console.warn("Gateway vehicle sensor input rejected", warning)
+    });
+    vehicleSensorController = new VehicleSensorGatewayController({
+      port: adapters.vehicleSensors,
+      client: vehicleSensorClient,
+      journal: vehicleSensorCapabilityJournal,
+      publisher: vehicleSensorCapabilityPublisher,
+      diagnose: (diagnostic) => {
+        console.warn("Gateway vehicle sensor diagnostic", diagnostic);
+        if (diagnostic.event === "vehicle_sensor_capability_ack_rejected") {
+          void reportGatewayError(new Error(diagnostic.event), "vehicle_sensor_capability_ack");
+        } else if (diagnostic.event === "vehicle_sensor_capability_configuration_failed" ||
+          diagnostic.event === "vehicle_sensor_capability_refresh_failed") {
+          // Sensor capability setup is a degraded automation feature, not a gateway
+          // liveness failure. Keep lighting control online and report it separately.
+          void reportGatewayError(new Error(diagnostic.event), "vehicle_sensor_capability_configuration");
+        }
       }
-    }
-  });
-  await vehicleSensorController.initialize();
-  const initialVehicleSensorCapabilityRefresh = vehicleSensorController.refreshCapabilities()
-    .catch((error) => reportGatewayError(error, "vehicle_sensor_capability_configuration"));
+    });
+    await vehicleSensorController.initialize();
+    initialVehicleSensorCapabilityRefresh = refreshVehicleSensorCapabilitiesIfSupported(
+      adapters.vehicleSensorCloudSupported,
+      () => vehicleSensorController!.refreshCapabilities()
+    ).catch((error) => reportGatewayError(error, "vehicle_sensor_capability_configuration"));
+  }
   const stopAutomationFixtureStatusIntake = observeAutomationFixtureStatuses(
     adapter,
     scheduleRuntime,
@@ -800,6 +814,7 @@ async function main() {
           .catch((error) => void reportGatewayError(error, "provisioning_device_terminal_retry"));
       },
       onCompleted: () => {
+        if (!adapters.vehicleSensorCloudSupported || !vehicleSensorController) return;
         void requestVehicleSensorCapabilityRefresh(
           provisioningAdapter,
           command.nodeId,
@@ -831,7 +846,7 @@ async function main() {
       if (result.changed) void automationTelemetryPublisher.wake()
         .catch((error) => void reportGatewayError(error, "automation_gap_publish"));
     }
-    await vehicleSensorController.refreshConfiguration();
+    await vehicleSensorController?.refreshConfiguration();
   }
 
   const fixtureStatusReservation = new StateEventReservationSlot(stateEventOutbox);
@@ -952,10 +967,12 @@ async function main() {
         if (result === "deleted") void automationTelemetryPublisher.wake()
           .catch((error) => void reportGatewayError(error, "automation_telemetry_publish"));
       },
-      [mqttTopics.vehicleSensorCapabilityIngested(siteId, gatewayId)]: (payload) =>
-        vehicleSensorController.acknowledge(
+      [mqttTopics.vehicleSensorCapabilityIngested(siteId, gatewayId)]: (payload) => {
+        if (!vehicleSensorController) throw new Error("bio_sensor_cloud_unsupported");
+        return vehicleSensorController.acknowledge(
           vehicleSensorCapabilityIngestedAckV1Schema.parse(JSON.parse(payload.toString()))
-        )
+        );
+      }
     },
     deferredPubackTopics: gatewayDeferredPubackTopics(siteId, gatewayId),
     onMessageError: (error, topic) => reportGatewayError(error, `mqtt_message:${topic}`),
@@ -968,9 +985,9 @@ async function main() {
           (topic, request) => publish(mqttRuntime.client, topic, request)
         ),
         automationTelemetryPublisher.connect(mqttRuntime.client),
-        vehicleSensorController.reconnect(
+        ...(vehicleSensorController ? [vehicleSensorController.reconnect(
           (topic, report) => publish(mqttRuntime.client, topic, report)
-        )
+        )] : [])
       ]),
       connectOperationalServices: async () => {
         await health.mqttConnected();
@@ -996,7 +1013,7 @@ async function main() {
       automationAckPublisher.disconnect();
       automationConfigRequester.disconnect();
       automationTelemetryPublisher.disconnect();
-      vehicleSensorController.disconnect();
+      vehicleSensorController?.disconnect();
       return health.unhealthy("mqtt_disconnected");
     },
     onBeforeStop: async () => {
@@ -1007,7 +1024,7 @@ async function main() {
       await Promise.all([
         provisioningDeviceReplay.stopAndDrain(),
         automationTelemetryPublisher.stopAndDrain(),
-        vehicleSensorController.stopAndDrain()
+        vehicleSensorController?.stopAndDrain() ?? Promise.resolve()
       ]);
     },
     onError: () => health.unhealthy("mqtt_error"),
@@ -1030,7 +1047,7 @@ async function main() {
         const schedulerDrain = scheduleRuntime.stopAndDrain();
         const meshResyncDrain = meshResyncWorker.stopAndDrain();
         const targetedResyncDrain = targetedLightingResync.stopAndDrain();
-        const vehicleSensorDrain = vehicleSensorController.stopAndDrain();
+        const vehicleSensorDrain = vehicleSensorController?.stopAndDrain() ?? Promise.resolve();
         stopAutomationFixtureStatusIntake();
         stopFixtureStatusIntake?.();
         automationTelemetryCoordinator.stop();
@@ -1040,7 +1057,8 @@ async function main() {
         stateEventPublisher.disconnect();
         automationAckPublisher.disconnect();
         automationConfigRequester.disconnect();
-      }
+      },
+      adapter: adapters
     })
   }, rotation);
 
@@ -1459,6 +1477,7 @@ export async function handleProvisioningDevicePayloadForCurrentScope<T>(input: {
 export async function drainGatewayProcessShutdown(input: {
   runtime: Pick<GatewayMqttRuntime, "quiesceCommandIntake" | "stop">;
   drainBeforeMqttStop: () => Promise<void>;
+  adapter: { stop(): Promise<void> };
 }) {
   const errors: unknown[] = [];
   // Shutdown stages are independent cleanup boundaries. A failed unsubscribe must
@@ -1466,7 +1485,12 @@ export async function drainGatewayProcessShutdown(input: {
   for (const operation of [
     () => input.runtime.quiesceCommandIntake(),
     input.drainBeforeMqttStop,
-    () => input.runtime.stop()
+    () => input.runtime.stop(),
+    // [확인됨] MQTT command intake와 publisher drain/client stop이 먼저 끝난 뒤 adapter를
+    // 닫는다. BIO stop은 USB IN poll 중지 → interface release → 조건부 kernel reattach를
+    // await한다. [추정] signal 중복은 상위 handler의 단일 promise가 이 순서를 한 번만 소유한다.
+    // 실제 Pi process signal/USB 탈착 조합은 Task 8~10 전까지 [미확인]이다.
+    () => input.adapter.stop()
   ]) {
     try {
       await operation();
@@ -1476,6 +1500,15 @@ export async function drainGatewayProcessShutdown(input: {
   }
   if (errors.length > 1) throw new AggregateError(errors, "Gateway process shutdown failed");
   if (errors.length === 1) throw errors[0];
+}
+
+export async function refreshVehicleSensorCapabilitiesIfSupported(
+  supported: boolean,
+  refresh: () => Promise<unknown>
+) {
+  if (!supported) return false;
+  await refresh();
+  return true;
 }
 
 export function createGatewayShutdownHandler(

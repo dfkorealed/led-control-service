@@ -141,6 +141,15 @@ test("root healthcheck는 Mesh가 점유한 management socket을 재조회하지
   assert.doesNotMatch(healthcheckState, /!health\.hciPowered/);
 });
 
+test("healthcheck는 BIO adapter에서 D-Bus와 HCI를 요구하지 않고 unknown kind를 거부한다", async () => {
+  const healthcheck = await readFile(path.join(dockerDir, "healthcheck.sh"), "utf8");
+
+  assert.match(healthcheck, /case "\$\{GATEWAY_ADAPTER:-\}" in/);
+  assert.match(healthcheck, /bluez\)[\s\S]*dbus-send[\s\S]*test -d "\/sys\/class\/bluetooth\/\$HCI_NAME"[\s\S]*;;/);
+  assert.match(healthcheck, /bio-usb\)[\s\S]*?;;/);
+  assert.match(healthcheck, /\*\) exit 1 ;;/);
+});
+
 test("root healthcheck btmgmt verifier accepts only selected powered controllers", async () => {
   await assert.doesNotReject(checkBtmgmt("hci7", [
     "hci7: Primary controller",

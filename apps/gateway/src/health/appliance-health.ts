@@ -3,13 +3,16 @@ import type { BleMeshResyncReport } from "../gateway";
 
 export interface ApplianceHealthState {
   version: 1;
+  adapterKind: "bluez" | "bio-usb";
   status: "starting-unassigned" | "starting" | "healthy" | "unhealthy";
   assignment: boolean;
   mesh: boolean;
   mqtt: boolean;
   mapping: boolean;
-  dbusOwner: boolean;
-  bluezAttached: boolean;
+  dbusOwner?: boolean;
+  bluezAttached?: boolean;
+  transportConnected?: boolean;
+  protocolReady?: boolean;
   mappingValid: boolean;
   heartbeatFresh: boolean;
   lastHeartbeatPublishedAt: string | null;
@@ -18,21 +21,33 @@ export interface ApplianceHealthState {
   reason?: string;
 }
 
-export interface ApplianceHealthProbes {
+export interface BluezApplianceHealthProbes {
+  adapterKind: "bluez";
   dbusOwner: () => Promise<boolean>;
   bluezAttached: () => Promise<boolean>;
   mappingValid: () => Promise<boolean>;
 }
 
+export interface BioUsbApplianceHealthProbes {
+  adapterKind: "bio-usb";
+  transportConnected: () => Promise<boolean>;
+  protocolReady: () => Promise<boolean>;
+  mappingValid: () => Promise<boolean>;
+}
+
+export type ApplianceHealthProbes = BluezApplianceHealthProbes | BioUsbApplianceHealthProbes;
+
 export interface ApplianceHealthOptions {
   now?: () => Date;
   heartbeatMs?: number;
+  adapterKind?: ApplianceHealthProbes["adapterKind"];
   probes?: ApplianceHealthProbes;
 }
 
 export class ApplianceHealth {
   private readonly now: () => Date;
   private readonly heartbeatMs: number;
+  private readonly adapterKind: ApplianceHealthProbes["adapterKind"];
   private probes: ApplianceHealthProbes;
   private assignment = false;
   private mqtt = false;
@@ -47,10 +62,18 @@ export class ApplianceHealth {
   ) {
     this.now = options.now ?? (() => new Date());
     this.heartbeatMs = parseHeartbeatInterval(options.heartbeatMs);
-    this.probes = options.probes ?? unavailableProbes;
+    const adapterKind = options.adapterKind ?? options.probes?.adapterKind ?? "bluez";
+    if (options.probes && options.probes.adapterKind !== adapterKind) {
+      throw new Error("health adapter kind does not match its probes");
+    }
+    this.adapterKind = adapterKind;
+    this.probes = options.probes ?? unavailableProbes(adapterKind);
   }
 
   setProbes(probes: ApplianceHealthProbes) {
+    if (probes.adapterKind !== this.adapterKind) {
+      throw new Error("health adapter kind does not match its probes");
+    }
     this.probes = probes;
   }
 
@@ -58,18 +81,19 @@ export class ApplianceHealth {
     this.assignment = false;
     this.mqtt = false;
     this.lastHeartbeatPublishedAt = null;
+    const adapter = this.adapterState(false, false);
     return this.write({
       status: "starting-unassigned",
+      adapterKind: this.probes.adapterKind,
       assignment: false,
       mesh: false,
       mqtt: false,
       mapping: false,
-      dbusOwner: false,
-      bluezAttached: false,
       mappingValid: false,
       heartbeatFresh: false,
       lastHeartbeatPublishedAt: null,
-      meshResync: null
+      meshResync: null,
+      ...adapter
     });
   }
 
@@ -116,12 +140,15 @@ export class ApplianceHealth {
   }
 
   async refresh(reason?: string) {
-    const [dbusOwner, bluezAttached, mappingValid] = await Promise.all([
-      probe(this.probes.dbusOwner),
-      probe(this.probes.bluezAttached),
-      probe(this.probes.mappingValid)
-    ]);
-    const mesh = dbusOwner && bluezAttached;
+    // [확인됨] adapter kind가 probe 집합을 판별한다. BIO 분기에서는 BlueZ/D-Bus
+    // 함수를 구조적으로 받지 않으므로 해당 daemon을 조회하거나 필요 조건으로 만들지 않는다.
+    // [추정] boolean snapshot은 그 순간의 readiness이며 raw USB descriptor/경로/UUID/payload를
+    // health 파일로 운반하지 않는다. 실제 탈착 복구는 Task 8~10 현장 검증 전까지 [미확인]이다.
+    const adapter = this.probes.adapterKind === "bluez"
+      ? await bluezHealth(this.probes)
+      : await bioUsbHealth(this.probes);
+    const mesh = adapter.mesh;
+    const mappingValid = adapter.mappingValid;
     const mapping = mappingValid;
     const lastHeartbeatPublishedAt = this.lastHeartbeatPublishedAt?.toISOString() ?? null;
     const heartbeatFresh = this.isHeartbeatFresh();
@@ -135,17 +162,19 @@ export class ApplianceHealth {
           : "starting";
     return this.write({
       status,
+      adapterKind: this.probes.adapterKind,
       assignment: this.assignment,
       mesh,
       mqtt: this.mqtt,
       mapping,
-      dbusOwner,
-      bluezAttached,
       mappingValid,
       heartbeatFresh,
       lastHeartbeatPublishedAt,
       meshResync: this.lastMeshResync,
-      ...(status === "unhealthy" ? { reason: failure ?? healthFailureReason({ dbusOwner, bluezAttached, mappingValid, heartbeatFresh }) } : {})
+      ...adapter.details,
+      ...(status === "unhealthy" ? {
+        reason: failure ?? healthFailureReason(this.probes.adapterKind, adapter.details, mappingValid, heartbeatFresh)
+      } : {})
     });
   }
 
@@ -162,6 +191,12 @@ export class ApplianceHealth {
     const age = this.now().getTime() - this.lastHeartbeatPublishedAt.getTime();
     return age >= 0 && age <= Math.max(30_000, this.heartbeatMs * 3);
   }
+
+  private adapterState(first: boolean, second: boolean) {
+    return this.probes.adapterKind === "bluez"
+      ? { dbusOwner: first, bluezAttached: second }
+      : { transportConnected: first, protocolReady: second };
+  }
 }
 
 export function parseHeartbeatInterval(value: number | undefined) {
@@ -172,11 +207,20 @@ export function parseHeartbeatInterval(value: number | undefined) {
   return heartbeatMs;
 }
 
-const unavailableProbes: ApplianceHealthProbes = {
-  dbusOwner: async () => false,
-  bluezAttached: async () => false,
-  mappingValid: async () => false
-};
+function unavailableProbes(adapterKind: ApplianceHealthProbes["adapterKind"]): ApplianceHealthProbes {
+  if (adapterKind === "bio-usb") return {
+    adapterKind,
+    transportConnected: async () => false,
+    protocolReady: async () => false,
+    mappingValid: async () => false
+  };
+  return {
+    adapterKind,
+    dbusOwner: async () => false,
+    bluezAttached: async () => false,
+    mappingValid: async () => false
+  };
+}
 
 async function probe(check: () => Promise<boolean>) {
   try {
@@ -186,15 +230,34 @@ async function probe(check: () => Promise<boolean>) {
   }
 }
 
-function healthFailureReason(state: {
-  dbusOwner: boolean;
-  bluezAttached: boolean;
-  mappingValid: boolean;
-  heartbeatFresh: boolean;
-}) {
-  if (!state.dbusOwner) return "dbus_owner_missing";
-  if (!state.bluezAttached) return "bluez_not_attached";
-  if (!state.mappingValid) return "mapping_invalid";
+async function bluezHealth(probes: BluezApplianceHealthProbes) {
+  const [dbusOwner, bluezAttached, mappingValid] = await Promise.all([
+    probe(probes.dbusOwner), probe(probes.bluezAttached), probe(probes.mappingValid)
+  ]);
+  return { mesh: dbusOwner && bluezAttached, mappingValid, details: { dbusOwner, bluezAttached } };
+}
+
+async function bioUsbHealth(probes: BioUsbApplianceHealthProbes) {
+  const [transportConnected, protocolReady, mappingValid] = await Promise.all([
+    probe(probes.transportConnected), probe(probes.protocolReady), probe(probes.mappingValid)
+  ]);
+  return { mesh: transportConnected && protocolReady, mappingValid, details: { transportConnected, protocolReady } };
+}
+
+function healthFailureReason(
+  adapterKind: ApplianceHealthProbes["adapterKind"],
+  state: { dbusOwner?: boolean; bluezAttached?: boolean; transportConnected?: boolean; protocolReady?: boolean },
+  mappingValid: boolean,
+  heartbeatFresh: boolean
+) {
+  if (adapterKind === "bluez") {
+    if (!state.dbusOwner) return "dbus_owner_missing";
+    if (!state.bluezAttached) return "bluez_not_attached";
+  } else {
+    if (!state.transportConnected) return "bio_transport_disconnected";
+    if (!state.protocolReady) return "bio_protocol_not_ready";
+  }
+  if (!mappingValid) return "mapping_invalid";
   return "heartbeat_stale";
 }
 

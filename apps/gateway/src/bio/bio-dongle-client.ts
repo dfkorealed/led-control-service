@@ -115,6 +115,12 @@ export class BioDongleClient {
     return { ...this.probeResult };
   }
 
+  /** [확인됨] health에는 USB identity나 payload가 아닌 transport readiness boolean만 전달한다. */
+  transportSnapshot() {
+    const { transportConnected, protocolReady } = this.transport.snapshot();
+    return { transportConnected, protocolReady };
+  }
+
   async close(): Promise<void> {
     for (const session of this.identifySessions.values()) session.controller.abort();
     await Promise.allSettled([...this.identifySessions.values()].map((session) => session.promise));

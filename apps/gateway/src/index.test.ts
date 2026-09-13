@@ -35,6 +35,7 @@ import {
   hydrateAdapterGroupState,
   recordAndHandoffAutomationTelemetryGap,
   recoverProvisioningDevicesOnStartup,
+  refreshVehicleSensorCapabilitiesIfSupported,
   startGatewayRuntime,
   subscribeGatewayAcknowledgements,
   subscribeGatewayCommands
@@ -137,8 +138,10 @@ it("quiesces process MQTT intake before blocking worker drains and stops the cli
     quiesceCommandIntake: vi.fn(async () => { calls.push("quiesce"); }),
     stop: vi.fn(async () => { calls.push("stop"); })
   };
+  const adapter = { stop: vi.fn(async () => { calls.push("adapter-stop"); }) };
   const shutdown = drainGatewayProcessShutdown({
     runtime,
+    adapter,
     drainBeforeMqttStop: async () => {
       calls.push("drain");
       await drain;
@@ -149,7 +152,7 @@ it("quiesces process MQTT intake before blocking worker drains and stops the cli
   expect(runtime.stop).not.toHaveBeenCalled();
   releaseDrain();
   await shutdown;
-  expect(calls).toEqual(["quiesce", "drain", "stop"]);
+  expect(calls).toEqual(["quiesce", "drain", "stop", "adapter-stop"]);
 });
 
 it("runs every shutdown stage and aggregates failures after command quiesce rejects", async () => {
@@ -157,6 +160,7 @@ it("runs every shutdown stage and aggregates failures after command quiesce reje
   const quiesceError = new Error("UNSUBACK failed");
   const drainError = new Error("replay drain failed");
   const stopError = new Error("MQTT stop failed");
+  const adapterStopError = new Error("USB release failed");
   const runtime = {
     quiesceCommandIntake: vi.fn(async () => {
       calls.push("quiesce");
@@ -170,6 +174,12 @@ it("runs every shutdown stage and aggregates failures after command quiesce reje
 
   const shutdown = drainGatewayProcessShutdown({
     runtime,
+    adapter: {
+      stop: vi.fn(async () => {
+        calls.push("adapter-stop");
+        throw adapterStopError;
+      })
+    },
     drainBeforeMqttStop: async () => {
       calls.push("drain");
       throw drainError;
@@ -177,9 +187,18 @@ it("runs every shutdown stage and aggregates failures after command quiesce reje
   });
 
   await expect(shutdown).rejects.toMatchObject({
-    errors: [quiesceError, drainError, stopError]
+    errors: [quiesceError, drainError, stopError, adapterStopError]
   });
-  expect(calls).toEqual(["quiesce", "drain", "stop"]);
+  expect(calls).toEqual(["quiesce", "drain", "stop", "adapter-stop"]);
+});
+
+it("does not refresh vehicle sensor cloud capabilities for an unsupported adapter", async () => {
+  const refresh = vi.fn(async () => undefined);
+
+  await expect(refreshVehicleSensorCapabilitiesIfSupported(false, refresh)).resolves.toBe(false);
+  expect(refresh).not.toHaveBeenCalled();
+  await expect(refreshVehicleSensorCapabilitiesIfSupported(true, refresh)).resolves.toBe(true);
+  expect(refresh).toHaveBeenCalledTimes(1);
 });
 
 const assignment = {
@@ -1259,17 +1278,46 @@ describe("startGatewayRuntime", () => {
   });
 
   it("stops the MQTT runtime before exiting for SIGTERM", async () => {
-    const stop = vi.fn().mockResolvedValue(undefined);
+    const calls: string[] = [];
+    let releaseAdapter!: () => void;
+    const adapterBarrier = new Promise<void>((resolve) => { releaseAdapter = resolve; });
+    const stop = vi.fn(() => drainGatewayProcessShutdown({
+      runtime: {
+        quiesceCommandIntake: vi.fn(async () => { calls.push("mqtt-intake-stop"); }),
+        stop: vi.fn(async () => { calls.push("mqtt-stop"); })
+      },
+      drainBeforeMqttStop: async () => undefined,
+      adapter: { stop: vi.fn(async () => { calls.push("adapter-stop"); await adapterBarrier; }) }
+    }));
     const stopRotation = vi.fn().mockResolvedValue(undefined);
     const exit = vi.fn();
     const unregister = registerGatewayShutdownHandlers({ stop } as never, { stop: stopRotation } as never, exit);
 
     process.emit("SIGTERM", "SIGTERM");
+    await vi.waitFor(() => expect(calls).toEqual(["mqtt-intake-stop", "mqtt-stop", "adapter-stop"]));
+    expect(exit).not.toHaveBeenCalled();
+    releaseAdapter();
     await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0));
 
     expect(stop).toHaveBeenCalledTimes(1);
     expect(stopRotation).toHaveBeenCalledTimes(1);
     unregister();
+  });
+
+  it("runs one idempotent shutdown for repeated SIGINT and exits non-zero after adapter cleanup failure", async () => {
+    const exit = vi.fn();
+    const stop = vi.fn(async () => { throw new Error("BIO_USB_RELEASE_FAILED"); });
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const unregister = registerGatewayShutdownHandlers({ stop } as never, exit);
+
+    process.emit("SIGINT", "SIGINT");
+    process.emit("SIGINT", "SIGINT");
+    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(1));
+
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(errorLog).toHaveBeenCalledWith("Gateway shutdown failed", expect.any(Error));
+    unregister();
+    errorLog.mockRestore();
   });
 
   it("rejects an invalid heartbeat interval before gateway startup", () => {

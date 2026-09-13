@@ -8,11 +8,17 @@ try {
     health.status !== "healthy" ||
     !health.assignment ||
     !health.mqtt ||
-    !health.dbusOwner ||
-    !health.bluezAttached ||
     !health.mappingValid ||
     !health.heartbeatFresh
   ) process.exit(1);
+
+  // Health state is discriminated before adapter-specific booleans are read.
+  // BIO never inherits D-Bus/BlueZ as an implicit readiness dependency.
+  if (health.adapterKind === "bluez") {
+    if (!health.dbusOwner || !health.bluezAttached) process.exit(1);
+  } else if (health.adapterKind === "bio-usb") {
+    if (!health.transportConnected || !health.protocolReady) process.exit(1);
+  } else process.exit(1);
 
   const heartbeatMs = Number(process.env.GATEWAY_HEARTBEAT_MS ?? 5000);
   if (!Number.isInteger(heartbeatMs) || heartbeatMs < 1 || heartbeatMs > 86_400_000) process.exit(1);

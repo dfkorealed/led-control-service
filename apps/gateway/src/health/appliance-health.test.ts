@@ -1,7 +1,7 @@
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ApplianceHealth } from "./appliance-health";
 
 it("records unassigned and probe-derived appliance states atomically", async () => {
@@ -11,6 +11,7 @@ it("records unassigned and probe-derived appliance states atomically", async () 
     now: () => new Date("2026-07-13T00:00:00.000Z"),
     heartbeatMs: 5_000,
     probes: {
+      adapterKind: "bluez",
       dbusOwner: async () => dbusOwner,
       bluezAttached: async () => true,
       mappingValid: async () => true
@@ -23,6 +24,7 @@ it("records unassigned and probe-derived appliance states atomically", async () 
   await health.heartbeatPublished();
   await expect(health.read()).resolves.toMatchObject({
     status: "healthy",
+    adapterKind: "bluez",
     assignment: true,
     mesh: true,
     mqtt: true,
@@ -44,11 +46,70 @@ it("records unassigned and probe-derived appliance states atomically", async () 
   });
 });
 
+it("uses only BIO transport, protocol, mapping, MQTT, and heartbeat booleans for health", async () => {
+  const file = path.join(await mkdtemp(path.join(tmpdir(), "gateway-health-bio-")), "health.json");
+  let protocolReady = true;
+  const dbusOwner = vi.fn(async () => { throw new Error("BIO must not call D-Bus"); });
+  const bluezAttached = vi.fn(async () => { throw new Error("BIO must not inspect BlueZ"); });
+  const health = new ApplianceHealth(file, {
+    adapterKind: "bio-usb",
+    now: () => new Date("2026-09-13T00:00:00.000Z"),
+    probes: {
+      adapterKind: "bio-usb",
+      transportConnected: async () => true,
+      protocolReady: async () => protocolReady,
+      mappingValid: async () => true,
+      dbusOwner,
+      bluezAttached
+    } as never
+  });
+
+  await health.startingAssigned();
+  await health.heartbeatPublished();
+  await expect(health.read()).resolves.toMatchObject({
+    status: "healthy",
+    adapterKind: "bio-usb",
+    assignment: true,
+    mqtt: true,
+    transportConnected: true,
+    protocolReady: true,
+    mappingValid: true,
+    heartbeatFresh: true
+  });
+  const healthy = await health.read();
+  expect(healthy).not.toHaveProperty("dbusOwner");
+  expect(healthy).not.toHaveProperty("bluezAttached");
+  expect(JSON.stringify(healthy)).not.toMatch(/\/dev\/bus\/usb|descriptor|payload|uuid|secret/i);
+  expect(dbusOwner).not.toHaveBeenCalled();
+  expect(bluezAttached).not.toHaveBeenCalled();
+
+  protocolReady = false;
+  await health.refresh();
+  await expect(health.read()).resolves.toMatchObject({
+    status: "unhealthy",
+    adapterKind: "bio-usb",
+    protocolReady: false,
+    reason: "bio_protocol_not_ready"
+  });
+});
+
+it("rejects probes for a different adapter kind instead of changing the health discriminator", async () => {
+  const health = new ApplianceHealth("/tmp/health.json", { adapterKind: "bio-usb" });
+
+  expect(() => health.setProbes({
+    adapterKind: "bluez",
+    dbusOwner: async () => true,
+    bluezAttached: async () => true,
+    mappingValid: async () => true
+  })).toThrow("health adapter kind does not match its probes");
+});
+
 it("keeps HCI power out of the non-root application health state", async () => {
   const file = path.join(await mkdtemp(path.join(tmpdir(), "gateway-health-")), "health.json");
   const health = new ApplianceHealth(file, {
     now: () => new Date("2026-08-30T00:00:00.000Z"),
     probes: {
+      adapterKind: "bluez",
       dbusOwner: async () => true,
       bluezAttached: async () => true,
       mappingValid: async () => true
@@ -71,6 +132,7 @@ it("keeps a state outbox capacity blocker sticky across heartbeats until explici
     now: () => new Date("2026-08-26T00:00:00.000Z"),
     heartbeatMs: 5_000,
     probes: {
+      adapterKind: "bluez",
       dbusOwner: async () => true,
       bluezAttached: async () => true,
       mappingValid: async () => true
@@ -97,6 +159,7 @@ it("fails closed when the last successful heartbeat timestamp is in the future",
   const health = new ApplianceHealth(file, {
     now: () => now,
     probes: {
+      adapterKind: "bluez",
       dbusOwner: async () => true,
       bluezAttached: async () => true,
       mappingValid: async () => true
@@ -118,6 +181,7 @@ it.each([
   const health = new ApplianceHealth(file, {
     now: () => new Date("2026-08-11T00:00:00.000Z"),
     probes: {
+      adapterKind: "bluez",
       dbusOwner: async () => true,
       bluezAttached: async () => true,
       mappingValid: async () => true
@@ -142,6 +206,7 @@ it("records a healthy lighting resync while late Health Current clears its pendi
   const health = new ApplianceHealth(file, {
     now: () => new Date("2026-08-11T00:00:00.000Z"),
     probes: {
+      adapterKind: "bluez",
       dbusOwner: async () => true,
       bluezAttached: async () => true,
       mappingValid: async () => true

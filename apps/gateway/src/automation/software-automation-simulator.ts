@@ -122,6 +122,7 @@ export function createSoftwareAutomationSimulator(options: {
   };
 
   const adapters: GatewayAdapters = {
+    adapterKind: "bluez",
     dimming: {
       setBrightness: applyBrightness,
       applyUnicast: async (fixtureId, brightness) => (await applyBrightness([fixtureId], brightness))[0]!,
@@ -204,11 +205,14 @@ export function createSoftwareAutomationSimulator(options: {
         return () => sensorListeners.delete(listener);
       },
     },
+    vehicleSensorCloudSupported: true,
     healthProbes: {
+      adapterKind: "bluez",
       async dbusOwner() { return true; },
       async bluezAttached() { return true; },
       async mappingValid() { return true; },
     },
+    async stop() {},
   };
 
   return {

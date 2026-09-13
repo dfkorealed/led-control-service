@@ -13,6 +13,12 @@ import {
 import { TEST_BLUETOOTH_COMPANY_ID } from "../test-fixtures/vehicle-sensor-protocol";
 
 describe("createProductionAdapters", () => {
+  it("fails closed when the production adapter is missing or unknown", async () => {
+    for (const value of [undefined, "", "stub", "command", "hybrid"]) {
+      await expect(createProductionAdapters({ GATEWAY_ADAPTER: value })).rejects.toThrow("PRODUCTION_ADAPTER_REQUIRED");
+    }
+  });
+
   it("rejects stub and command adapters in every environment", async () => {
     await expect(createProductionAdapters({ GATEWAY_ADAPTER: "stub" })).rejects.toThrow("PRODUCTION_ADAPTER_REQUIRED");
     await expect(createProductionAdapters({ GATEWAY_ADAPTER: "command" })).rejects.toThrow("PRODUCTION_ADAPTER_REQUIRED");
@@ -48,6 +54,12 @@ describe("createProductionAdapters", () => {
         configureSource: vi.fn(),
         send: vi.fn(async () => undefined),
         onMessage: vi.fn(() => () => undefined)
+      },
+      healthProbes: {
+        adapterKind: "bluez" as const,
+        dbusOwner: vi.fn(async () => true),
+        bluezAttached: vi.fn(async () => true),
+        mappingValid: vi.fn(async () => true)
       }
     };
     const createBluezAdapter = vi.fn(async () => adapter);
@@ -95,13 +107,115 @@ describe("createProductionAdapters", () => {
       send: vi.fn(async () => undefined),
       onMessage: vi.fn(() => () => undefined)
     };
-    const createBluezAdapter = vi.fn(async () => Object.assign(adapter, { vehicleSensors }));
+    const healthProbes = {
+      adapterKind: "bluez" as const,
+      dbusOwner: vi.fn(async () => true),
+      bluezAttached: vi.fn(async () => true),
+      mappingValid: vi.fn(async () => true)
+    };
+    const stop = vi.fn(async () => undefined);
+    const createBluezAdapter = vi.fn(async () => Object.assign(adapter, { vehicleSensors, healthProbes, stop }));
     const result = await createProductionAdapters(
       { GATEWAY_ADAPTER: "bluez", GATEWAY_BLUETOOTH_COMPANY_ID: "0x1234" },
       { createBluezAdapter }
     );
-    expect(result).toEqual({ dimming: adapter, scanner: adapter, provisioning: adapter, vehicleSensors });
+    expect(result).toMatchObject({
+      adapterKind: "bluez",
+      dimming: adapter,
+      scanner: adapter,
+      provisioning: adapter,
+      vehicleSensors,
+      vehicleSensorCloudSupported: true,
+      healthProbes
+    });
     expect(createBluezAdapter).toHaveBeenCalledWith(0x1234);
+    await result.stop();
+    expect(stop).toHaveBeenCalledTimes(1);
+  });
+
+  it("constructs BIO direct USB without reading a Company Identifier or BlueZ dependency", async () => {
+    const connection = { kind: "direct-usb" };
+    const createBioConnection = vi.fn(() => connection);
+    const client = {
+      probe: vi.fn(async () => ({ kind: "probe" })),
+      close: vi.fn(async () => undefined),
+      transportSnapshot: vi.fn(() => ({ transportConnected: true, protocolReady: true }))
+    };
+    const createBioClient = vi.fn((options: { connectionFactory: () => unknown }) => {
+      expect(options.connectionFactory()).toBe(connection);
+      return client;
+    });
+    const mappings = { validate: vi.fn(async () => undefined) };
+    const createBioMappingStore = vi.fn(() => mappings);
+    const adapter = {
+      setBrightness: vi.fn(),
+      onFixtureStatus: vi.fn(() => () => undefined),
+      onLightingObservation: vi.fn(() => () => undefined),
+      resyncFixtureStates: vi.fn(),
+      resyncLightingFixtures: vi.fn(),
+      syncGroupSubscriptions: vi.fn(),
+      acceptsDeviceUuid: vi.fn(() => true),
+      scan: vi.fn(),
+      identify: vi.fn(),
+      provision: vi.fn()
+    };
+    const createBioAdapter = vi.fn(() => adapter);
+    const vehicleSensors = {
+      listConfirmedSources: vi.fn(async () => []),
+      resolveByFixtureId: vi.fn(async () => null),
+      resolveBySourceUnicast: vi.fn(async () => null),
+      configureSource: vi.fn(),
+      send: vi.fn(),
+      onMessage: vi.fn(() => () => undefined)
+    };
+    const createBioVehicleSensors = vi.fn(() => vehicleSensors);
+
+    const result = await createProductionAdapters({
+      GATEWAY_ADAPTER: "bio-usb",
+      GATEWAY_BIO_MAPPING_PATH: "/data/bio-mappings.json",
+      GATEWAY_BIO_RESPONSE_TIMEOUT_MS: "450",
+      GATEWAY_BIO_SCAN_DURATION_MS: "6500"
+    }, {
+      createBioConnection: createBioConnection as never,
+      createBioClient: createBioClient as never,
+      createBioMappingStore: createBioMappingStore as never,
+      createBioAdapter: createBioAdapter as never,
+      createBioVehicleSensors: createBioVehicleSensors as never
+    });
+
+    expect(createBioClient).toHaveBeenCalledWith({
+      connectionFactory: expect.any(Function),
+      timeoutMs: 450,
+      scanDurationMs: 6500
+    });
+    expect(createBioMappingStore).toHaveBeenCalledWith("/data/bio-mappings.json");
+    expect(createBioAdapter).toHaveBeenCalledWith(client, mappings);
+    expect(client.probe).toHaveBeenCalledTimes(1);
+    expect(mappings.validate).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      adapterKind: "bio-usb",
+      dimming: adapter,
+      scanner: adapter,
+      provisioning: adapter,
+      vehicleSensors,
+      vehicleSensorCloudSupported: false,
+      healthProbes: { adapterKind: "bio-usb" }
+    });
+    expect(result.healthProbes).not.toHaveProperty("dbusOwner");
+    expect(result.healthProbes).not.toHaveProperty("bluezAttached");
+    await result.stop();
+    expect(client.close).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["0", "-1", "NaN", "1.5"])("rejects invalid BIO timeout or scan duration %s", async (value) => {
+    await expect(createProductionAdapters({
+      GATEWAY_ADAPTER: "bio-usb",
+      GATEWAY_BIO_RESPONSE_TIMEOUT_MS: value
+    })).rejects.toThrow("BIO timeout and scan settings");
+    await expect(createProductionAdapters({
+      GATEWAY_ADAPTER: "bio-usb",
+      GATEWAY_BIO_SCAN_DURATION_MS: value
+    })).rejects.toThrow("BIO timeout and scan settings");
   });
 
   it("keeps stub adapter construction out of the gateway entrypoint", () => {
@@ -131,6 +245,8 @@ describe("createProductionAdapters", () => {
       { nodePath: "/org/bluez/mesh/node1" } as never,
       { validate: vi.fn() } as never
     );
+    expect(probes.adapterKind).toBe("bluez");
+    if (probes.adapterKind !== "bluez") throw new Error("expected BlueZ health probes");
 
     await expect(probes.bluezAttached()).resolves.toBe(true);
     transport.call.mockResolvedValueOnce('<node><interface name="org.bluez.mesh.Management1"/></node>');

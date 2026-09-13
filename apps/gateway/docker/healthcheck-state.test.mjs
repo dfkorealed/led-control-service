@@ -49,10 +49,35 @@ test("healthcheck state relies on the live BlueZ attach state instead of a compe
   }, "5000", null), /healthcheck failed/);
 });
 
+test("healthcheck state accepts BIO only when its direct USB boolean gates are all true", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "gateway-healthcheck-bio-"));
+  const lastHeartbeatPublishedAt = new Date().toISOString();
+  const healthy = {
+    adapterKind: "bio-usb",
+    transportConnected: true,
+    protocolReady: true,
+    mappingValid: true,
+    lastHeartbeatPublishedAt
+  };
+
+  await assert.doesNotReject(check(directory, healthy));
+  for (const key of ["transportConnected", "protocolReady", "mappingValid"]) {
+    await assert.rejects(check(directory, { ...healthy, [key]: false }), /healthcheck failed/);
+  }
+});
+
+test("healthcheck state fails closed for a missing or unknown adapter kind", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "gateway-healthcheck-kind-"));
+  const lastHeartbeatPublishedAt = new Date().toISOString();
+  await assert.rejects(check(directory, { adapterKind: undefined, lastHeartbeatPublishedAt }), /healthcheck failed/);
+  await assert.rejects(check(directory, { adapterKind: "hybrid", lastHeartbeatPublishedAt }), /healthcheck failed/);
+});
+
 async function check(directory, overrides, heartbeatMs = "5000", powered = "1") {
   const healthPath = path.join(directory, "health.json");
   await writeFile(healthPath, JSON.stringify({
     status: "healthy",
+    adapterKind: "bluez",
     assignment: true,
     mqtt: true,
     dbusOwner: true,
