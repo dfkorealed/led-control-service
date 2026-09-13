@@ -13,6 +13,33 @@
       "0x9d UI percentage was not observed; highBrightness is a raw scene setting, not a linear percentage."
     ]
   },
+  "staticEvidence": {
+    "installedApkSha256": "38b908d233019888da7b0cfb77c8f5f6cf8a6f36cd2afb2f1b0cf59357f95a1d",
+    "addressAssignment": {
+      "method": "Network.setUnicastAddressByUuid",
+      "baseOpcode": 56,
+      "noDebugOpcode": 184,
+      "dpid": 129,
+      "uuidBytes": 6,
+      "addressByteOrder": "big-endian"
+    },
+    "brightness": {
+      "labels": "deep_all",
+      "values": "Scene.DEEP_VALUES",
+      "serviceMapping": "exact integer label lookup only; 0 is reserved for force-off"
+    },
+    "readBack": {
+      "highBrightnessGetBody": "4e13",
+      "highBrightnessResponseBody": "4f13<raw-byte>",
+      "controlModeGetBody": "4e12",
+      "controlModeResponseBody": "4f12<mode-byte>"
+    },
+    "hardwareValidation": "not-run-task-9-hil",
+    "limitations": [
+      "These contracts are reconstructed from the installed APK and are not hardware-verified address/read-back evidence.",
+      "Outer command 0x11 proves dongle acceptance only; it does not prove device application or read-back."
+    ]
+  },
   "normalization": {
     "description": "Structure-preserving identity placeholders with independently recomputed CRC. Not original device identities.",
     "nativeUuid": "001122334455",
