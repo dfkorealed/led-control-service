@@ -189,8 +189,6 @@
 
 ## 관련 파일
 
-- `apps/web/src/api/monitoring-incidents.ts`
-- `apps/web/src/api/monitoring-incidents.test.ts`
 - `apps/web/src/features/monitoring/MonitoringView.tsx`
 - `apps/web/src/features/monitoring/MonitoringView.test.tsx`
 - `apps/web/e2e/calm-operations-monitoring.spec.ts`
