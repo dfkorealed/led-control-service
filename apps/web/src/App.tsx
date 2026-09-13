@@ -1,11 +1,12 @@
-import { useQueryClient } from "@tanstack/react-query";
-import { lazy, Suspense, useLayoutEffect, useState } from "react";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { lazy, Suspense, useLayoutEffect } from "react";
 import { BrowserRouter, useNavigate } from "react-router-dom";
-import { useCurrentUser } from "./api/auth";
-import { clearTenantCache, replacePrincipalCache } from "./api/principal-cache";
+import { useCurrentUser, type AuthUser } from "./api/auth";
+import { isApiStatus, isTransientApiError } from "./api/client";
+import { clearTenantCache, principalKey } from "./api/principal-cache";
 import { AuthView } from "./features/auth/AuthView";
 import { RequiredPasswordChangeView } from "./features/auth/RequiredPasswordChangeView";
-import { RouteLoadingState } from "./components/ui";
+import { AppRecoveryState, RouteLoadingState } from "./components/ui";
 import "./styles.css";
 
 const CustomerShell = lazy(async () => ({
@@ -15,69 +16,55 @@ const OperatorShell = lazy(async () => ({
   default: (await import("./features/operator/OperatorShell")).OperatorShell
 }));
 
-export function App() {
-  const queryClient = useQueryClient();
-  const [principalGeneration, setPrincipalGeneration] = useState(0);
-
-  async function handleAuthenticated(auth: Parameters<typeof replacePrincipalCache>[1]) {
-    await replacePrincipalCache(queryClient, auth);
-    setPrincipalGeneration((generation) => generation + 1);
-  }
-
-  return (
-    <BrowserRouter>
-      <AppContent key={principalGeneration} onAuthenticated={handleAuthenticated} />
-    </BrowserRouter>
-  );
+interface AppProps {
+  acceptedPrincipal: string | null;
+  onAuthenticated: (auth: { user: AuthUser }) => Promise<void>;
+  onRelogin: () => void;
+  onAuthRejected: (error: Error) => void;
+  onPrincipalChanged: (auth: { user: AuthUser }) => void;
 }
 
-function AppContent({ onAuthenticated }: { onAuthenticated: Parameters<typeof AuthView>[0]["onAuthenticated"] }) {
+export function App(props: AppProps) {
   const queryClient = useQueryClient();
+  return <BrowserRouter><AppRuntime {...props} queryClient={queryClient} /></BrowserRouter>;
+}
+
+function AppRuntime(props: AppProps & { queryClient: QueryClient }) {
+  const { queryClient } = props;
+  // 비밀번호 변경의 cache 교체 후 navigate가 인증 observer도 다시 연결하도록 Router 안에 함께 둔다.
   const navigate = useNavigate();
-  const { data: auth, isLoading: isAuthLoading, error: authError } = useCurrentUser();
-  const principalKey = auth?.user ? `${auth.user.id}:${auth.user.organizationId}` : null;
-  const [acceptedPrincipalKey, setAcceptedPrincipalKey] = useState<string | null>();
+  const query = useCurrentUser();
+  const key = query.data?.user ? principalKey(query.data.user) : null;
 
   useLayoutEffect(() => {
-    if (isAuthLoading) return;
-    if (authError || !auth?.user) {
-      clearTenantCache(queryClient);
-      setAcceptedPrincipalKey(null);
-      return;
-    }
-    if (acceptedPrincipalKey === undefined) {
-      setAcceptedPrincipalKey(principalKey);
-      return;
-    }
-    if (acceptedPrincipalKey !== principalKey) {
-      clearTenantCache(queryClient);
-      setAcceptedPrincipalKey(principalKey);
-    }
-  }, [acceptedPrincipalKey, auth?.user, authError, isAuthLoading, principalKey, queryClient]);
+    if (query.error) props.onAuthRejected(query.error);
+    else if (query.data?.user && key !== props.acceptedPrincipal) props.onPrincipalChanged(query.data);
+  }, [key, props, query.data, query.error]);
 
-  if (isAuthLoading) {
-    return <main className="auth-shell"><section className="auth-panel">인증 상태를 확인하는 중</section></main>;
+  let content;
+  if (query.isPaused) {
+    content = <AppRecoveryState variant="service_unavailable" onRetry={() => { void query.refetch(); }} onRelogin={props.onRelogin} />;
+  } else if (query.isLoading) {
+    content = <main className="auth-shell"><section className="auth-panel">인증 상태를 확인하는 중</section></main>;
+  } else if (query.error && !isApiStatus(query.error, 401)) {
+    content = <AppRecoveryState
+      variant={isTransientApiError(query.error) ? "service_unavailable" : "forbidden"}
+      onRetry={() => { clearTenantCache(queryClient); void query.refetch(); }}
+      onRelogin={props.onRelogin}
+      isPending={query.isFetching}
+    />;
+  } else if (query.error || !query.data?.user) {
+    content = <AuthView onAuthenticated={props.onAuthenticated} />;
+  } else if (key !== props.acceptedPrincipal) {
+    content = <RouteLoadingState variant="page" />;
+  } else {
+    content = query.data.user.mustChangePassword
+      ? <RequiredPasswordChangeView user={query.data.user} onCompleted={() => {
+        navigate("/monitoring", { replace: true });
+      }} />
+      : <Suspense fallback={<RouteLoadingState variant="page" />}>
+        {query.data.user.role === "operator" ? <OperatorShell user={query.data.user} /> : <CustomerShell user={query.data.user} />}
+      </Suspense>;
   }
-
-  if (authError || !auth?.user) {
-    return <AuthView onAuthenticated={onAuthenticated} />;
-  }
-
-  if (auth.user.mustChangePassword) {
-    return <RequiredPasswordChangeView user={auth.user} onCompleted={() => {
-      navigate("/monitoring", { replace: true });
-    }} />;
-  }
-
-  if (acceptedPrincipalKey !== undefined && acceptedPrincipalKey !== principalKey) {
-    return <main className="auth-shell"><section className="auth-panel">인증 계정을 전환하는 중</section></main>;
-  }
-
-  return (
-    <Suspense fallback={<RouteLoadingState variant="page" />}>
-      {auth.user.role === "operator"
-        ? <OperatorShell user={auth.user} />
-        : <CustomerShell user={auth.user} />}
-    </Suspense>
-  );
+  return content;
 }

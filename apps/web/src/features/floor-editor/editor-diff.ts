@@ -149,7 +149,7 @@ function toFloorPlanUpdate(floorPlan: FloorEditorState["floor"]["floorPlan"]): E
   }
   if (sourceType === "pdf") {
     return {
-      sourceType,
+      sourceType: "pdf",
       imageUrl: floorPlan.imageUrl,
       originalFileUrl: floorPlan.originalFileUrl ?? floorPlan.imageUrl,
       renderedImageUrl: floorPlan.renderedImageUrl ?? null,
@@ -159,7 +159,7 @@ function toFloorPlanUpdate(floorPlan: FloorEditorState["floor"]["floorPlan"]): E
     };
   }
   return {
-    sourceType,
+    sourceType: "image",
     imageUrl: floorPlan.imageUrl,
     originalFileUrl: floorPlan.originalFileUrl ?? floorPlan.imageUrl,
     renderedImageUrl: floorPlan.renderedImageUrl ?? floorPlan.imageUrl,

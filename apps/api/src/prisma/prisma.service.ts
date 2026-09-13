@@ -13,4 +13,8 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnAppli
     // can reopen Prisma after disconnect and leave a connection alive on close.
     await this.$disconnect();
   }
+
+  async probeReadiness() {
+    await this.$queryRaw`SELECT 1`;
+  }
 }

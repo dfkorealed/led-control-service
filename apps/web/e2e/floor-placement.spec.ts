@@ -17,7 +17,7 @@ async function editorFixture(page: Page, count = 24, alreadyPlaced = false) {
     const path = new URL(route.request().url()).pathname.replace(/^\/api/, "");
     if (path === "/auth/me") return route.fulfill({ json: { user: { id: "user-1", organizationId: "org-1", organizationType: "customer", loginId: "admin", name: "관리자", role: "admin", status: "active" } } });
     if (path === "/sites") return route.fulfill({ json: [{ id: "site-1", name: "검증 현장" }] });
-    if (path === "/sites/site-1/dashboard") return route.fulfill({ json: { site: { id: "site-1", name: "검증 현장", customerName: "고객사", installationStatus: "installed", address: null, tariffKwhRate: 160, timeZone: "Asia/Seoul" }, summary: { totalFixtures: count + 2, onlineFixtures: count + 2, faultFixtures: 0, averageBrightness: 70 }, floors: Object.values(states).map((s) => ({ ...s.floor, fixtures: [], meshControlGroups: [] })), groups: [], gateways: [] } });
+    if (path === "/sites/site-1/dashboard") return route.fulfill({ json: { capabilities: { read: true, control: true, manage: true, commission: true }, site: { id: "site-1", name: "검증 현장", customerName: "고객사", installationStatus: "installed", address: null, tariffKwhRate: 160, timeZone: "Asia/Seoul" }, summary: { totalFixtures: count + 2, onlineFixtures: count + 2, faultFixtures: 0, averageBrightness: 70 }, floors: Object.values(states).map((s) => ({ ...s.floor, fixtures: [], meshControlGroups: [] })), groups: [], gateways: [] } });
     const floorId = path.match(/\/floors\/(floor-\d)/)?.[1];
     if (floorId && path.endsWith("/editor-lease")) return route.fulfill({ json: { editable: true, token: `lease-${floorId}`, fence: 1 } });
     if (floorId && path.endsWith("/editor-revisions")) return route.fulfill({ json: { items: [], nextCursor: null } });
@@ -121,6 +121,9 @@ for (const zoom of [0.5, 1, 2]) {
   test(`pointer drop uses pan and ${zoom}x zoom, Escape restores the rendered transform`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await editorFixture(page);
+    // This case measures unsnapped fractional transforms for both drops;
+    // default grid snapping has its own editor-layout regression.
+    await page.getByLabel("격자 스냅").uncheck();
     const canvas = page.getByTestId("floor-editor-canvas");
     for (let step = 0; step < Math.round(Math.abs(zoom - 1) * 10); step++) {
       await page.getByRole("button", { name: zoom < 1 ? "축소" : "확대", exact: true }).click();

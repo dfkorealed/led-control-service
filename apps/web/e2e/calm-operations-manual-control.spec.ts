@@ -115,7 +115,7 @@ for (const viewport of viewports) {
     await page.setViewportSize(viewport);
     const api = await installManualControlFixture(page, "admin");
     await page.goto(`/control?siteId=${ids.site}`);
-    await expect(page.getByRole("heading", { name: "조명 밝기 제어" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "조명 밝기 제어", exact: true })).toBeVisible();
     if (viewport.width <= 760) await expectMinimumTouchTargetsAfterScrolling(page, ".control-screen");
 
     await page.getByRole("checkbox", { name: "B2-L02 선택" }).check();
@@ -192,7 +192,7 @@ for (const viewport of viewports) {
     await page.goto(`/control?siteId=${ids.site}`);
 
     await expect(page).toHaveURL(new RegExp(`/monitoring\\?siteId=${ids.site}$`));
-    await expect(page.getByRole("heading", { name: "조명 제어" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "조명 밝기 제어", exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "밝기 적용" })).toHaveCount(0);
     await expectNoHorizontalOverflow(page);
   });

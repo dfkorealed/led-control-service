@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { apiDelete, apiGet, apiPost } from "./client";
+import { apiDelete, apiGet, apiPost, isTransientApiError } from "./client";
 import { authMeQueryKey } from "./principal-cache";
 
 export interface AuthUser {
@@ -17,7 +17,10 @@ export function useCurrentUser() {
   return useQuery({
     queryKey: authMeQueryKey,
     queryFn: () => apiGet<{ user: AuthUser }>("/auth/me"),
-    retry: false
+    retry: (failureCount, error) => failureCount < 2 && isTransientApiError(error),
+    // 세션 세대 교체 시 전달한 auth 결과를 즉시 재요청하지 않는다. 수동 retry/online resume는 유지한다.
+    refetchOnMount: false,
+    retryOnMount: false
   });
 }
 
@@ -70,6 +73,19 @@ export function signup(input: { token: string; loginId: string; email: string; n
 
 export function logout() {
   return apiPost<{ ok: boolean }>("/auth/logout", {});
+}
+
+export async function logoutAfterRecovery() {
+  const controller = new AbortController();
+  // 장애 중인 logout도 로그인 화면을 영구히 막지 않도록 제한한다. 이 동안 새 로그인은 시작하지 않는다.
+  const timeout = window.setTimeout(() => controller.abort(), 5_000);
+  try {
+    await apiPost("/auth/logout", {}, { signal: controller.signal });
+  } catch {
+    // 서버 세션 종료 실패와 무관하게 로컬 principal은 폐기하고 기존 로그인 화면으로 수렴한다.
+  } finally {
+    window.clearTimeout(timeout);
+  }
 }
 
 export function changePassword(input: {

@@ -152,11 +152,15 @@ Verification before completing the merge: Prisma format/generate/validate and `g
 - Consumes: account security and the combined application shell.
 - Produces: health/metrics/logging, immutable production images, production Compose, and app-shell recovery.
 
-- [ ] Run `git merge --no-ff codex/p0p1-platform-deploy-observability`.
-- [ ] Combine account-security shell behavior with offline, authorization, and lazy-load recovery behavior.
-- [ ] Preserve all security and deployment documentation entries.
-- [ ] Run `git diff --check` and deployment/observability contract tests.
-- [ ] Complete the merge commit.
+- [x] Run `git merge --no-ff codex/p0p1-platform-deploy-observability`.
+- [x] Combine account-security shell behavior with offline, authorization, and lazy-load recovery behavior.
+- [x] Preserve all security and deployment documentation entries.
+- [x] Run `git diff --check` and deployment/observability contract tests.
+- [x] Complete the merge commit.
+
+Integration ruling: API bootstrap uses structured observability options and the shared runtime lifecycle while retaining explicit reverse-proxy trust configuration; storage readiness adds `HeadBucket` without removing private browser-facing presign clients or bounded report/floor-asset I/O. Web auth retains the complete MFA/session surface and adds transient startup retries plus bounded recovery logout. Settings E2E navigates through the now-plain settings link and expects the merged `현장 관리`/`계정 보안` labels.
+
+Verification before completing the merge: API observability, readiness, structured logging, object-storage, and trust-proxy suites passed 75/75; Web auth/App recovery/customer shell/settings suites passed 107/107, with an additional editor/auth/recovery rerun passing 24/24; root deployment/runtime/workspace-gate contracts passed 35/35; API and Web typecheck passed after rebuilding the stale Shared `dist`; `git diff --check` passed. The first focused run exposed two superseded test assumptions—cross-module `onModuleDestroy` order, which Nest does not guarantee, and the pre-security single-line root test command—so the tests now assert terminal not-ready state/all dependency cleanup and the canonical workspace gate respectively. The first Web typecheck also demonstrated that Shared generated output predated the nullable PDF floor-plan contract; rebuilding Shared restored the current declaration output, and explicit PDF/image discriminants remain in the editor diff conversion.
 
 ### Task 7: Merge Gateway release and recovery
 

@@ -142,10 +142,11 @@ test("통합 로컬 개발 명령은 Docker 인프라를 먼저 시작한 뒤 �
   assert.equal(packageJson.scripts["dev:local"], "pnpm docker:up && pnpm dev");
 });
 
-test("루트 전체 테스트는 shared 산출물을 소비하는 workspace 테스트를 직렬 실행한다", () => {
+test("루트 전체 테스트는 shared 산출물 준비와 consumer lifetime을 workspace gate로 보호한다", () => {
   const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
-  assert.match(packageJson.scripts.test, /pnpm -r --workspace-concurrency=1 test$/);
+  assert.equal(packageJson.scripts.test, "node scripts/workspace-gate.mjs test");
+  assert.match(packageJson.scripts["test:unit"], /&& pnpm -r test$/);
 });
 
 test("MinIO 초기화는 전체 버킷 생성 절차를 하나의 셸 스크립트 인자로 전달한다", () => {
@@ -208,7 +209,7 @@ test("production Mosquitto 설정은 mTLS, CRL, TLS 1.2와 최소권한 ACL을 �
   assert.match(config, /^cafile \/mosquitto\/certs\/mqtt-ca\.crt$/m);
   assert.match(config, /^certfile \/mosquitto\/certs\/mqtt-server\.crt$/m);
   assert.match(config, /^keyfile \/mosquitto\/certs\/mqtt-server\.key$/m);
-  assert.match(config, /^crlfile \/mosquitto\/certs\/mqtt-client\.crl$/m);
+  assert.match(config, /^crlfile \/mosquitto\/crls\/mqtt-client\.crl$/m);
   assert.match(config, /^require_certificate true$/m);
   assert.match(config, /^use_identity_as_username true$/m);
   assert.match(config, /^tls_version tlsv1\.2$/m);

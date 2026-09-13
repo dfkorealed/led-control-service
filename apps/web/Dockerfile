@@ -1,4 +1,4 @@
-FROM node:22-alpine AS build
+FROM node:22.20.0-alpine3.22 AS build
 
 WORKDIR /app
 
@@ -15,11 +15,16 @@ COPY packages/shared packages/shared
 RUN pnpm --filter @led-control/shared build
 RUN pnpm --filter @led-control/web build
 
-FROM nginx:1.27-alpine
+FROM nginx:1.27.5-alpine
 
-ENV API_UPSTREAM=http://api:4000
+# Render only the HTTPS origin. nginx variables must survive envsubst unchanged.
+ENV NGINX_ENVSUBST_FILTER=WEB_HTTPS_ORIGIN
+RUN sed -i 's@^pid .*;@pid /tmp/nginx.pid;@; /user  nginx;/d' /etc/nginx/nginx.conf
+RUN printf '\ninclude /etc/nginx/stream.conf;\n' >> /etc/nginx/nginx.conf
 
 COPY apps/web/nginx.conf.template /etc/nginx/templates/default.conf.template
+COPY apps/web/nginx.stream.conf /etc/nginx/stream.conf
 COPY --from=build /app/apps/web/dist /usr/share/nginx/html
 
-EXPOSE 80
+USER nginx
+EXPOSE 8080 8443 9443

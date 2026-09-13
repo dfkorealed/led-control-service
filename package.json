@@ -36,7 +36,9 @@
     "ci:hil:preflight": "node scripts/run-gateway-hil.mjs preflight",
     "audit:production": "node scripts/production-audit-policy.mjs",
     "docker:up": "docker compose up -d",
-    "docker:up:production": "docker compose -f docker-compose.yml -f docker-compose.production.yml up -d",
+    "production:contract": "node --test scripts/production-deploy-contract.test.mjs apps/api/container-contract.node.mjs apps/web/container-contract.node.mjs",
+    "production:smoke": "bash scripts/production-compose-smoke.sh",
+    "docker:up:production": "node -- scripts/production-compose-config.mjs up --project \"${PRODUCTION_COMPOSE_PROJECT:?Set production-specific PRODUCTION_COMPOSE_PROJECT}\" --env-file \"${PRODUCTION_ENV_FILE:?Set PRODUCTION_ENV_FILE}\"",
     "docker:down": "docker compose down"
   },
   "devDependencies": {

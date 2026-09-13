@@ -66,6 +66,8 @@ for (const viewport of [
       await expectMinimumTouchTargets(page, ".bottom-nav");
       await expectMinimumTouchTargetsAfterScrolling(page, ".settings-subnavigation");
     }
+    await expectMinimumTouchTargetsAfterScrolling(page, ".editor-revision-list");
+    if (viewport.width <= 760) await expectMinimumTouchTargetsAfterScrolling(page, ".app-shell");
     const path = testInfo.outputPath(`editor-panels-${viewport.width}.png`);
     await page.screenshot({ path, fullPage: true });
     await testInfo.attach(`editor-panels-${viewport.width}`, { path, contentType: "image/png" });

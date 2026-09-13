@@ -140,7 +140,7 @@ test("Vault-issued LAN bundle enforces MQTT mTLS, CRL, DNS/IP SAN, and productio
     const config = readFileSync(mosquittoConfig, "utf8");
     for (const line of [
       "cafile /mosquitto/certs/mqtt-ca.crt", "certfile /mosquitto/certs/mqtt-server.crt", "keyfile /mosquitto/certs/mqtt-server.key",
-      "crlfile /mosquitto/certs/mqtt-client.crl", "require_certificate true", "use_identity_as_username true"
+      "crlfile /mosquitto/crls/mqtt-client.crl", "require_certificate true", "use_identity_as_username true"
     ]) assert.match(config, new RegExp(`^${line}$`, "m"));
 
     let acceptedConnections = 0;
