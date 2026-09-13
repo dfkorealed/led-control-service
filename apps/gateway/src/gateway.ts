@@ -86,8 +86,21 @@ export interface ProvisioningScannerAdapter {
 }
 
 export interface ProvisioningAdapter {
+  vehicleSensorCloudSupported?: boolean;
   identify(command: IdentifyDevicePayload): Promise<void>;
   provision(command: ProvisionDevicePayload): Promise<ProvisioningCompletedPayload>;
+}
+
+export async function requestVehicleSensorCapabilityRefresh(
+  adapter: Pick<ProvisioningAdapter, "vehicleSensorCloudSupported">,
+  nodeId: string,
+  refresh: (nodeId: string) => Promise<void>
+) {
+  // [확인됨] BIO adapter는 조명 내부 sensor mode와 cloud 차량 센서 capability를 분리한다.
+  // 명시적 false이면 provisioning 완료 뒤에도 가짜 capability bind/refresh를 만들지 않는다.
+  if (adapter.vehicleSensorCloudSupported === false) return false;
+  await refresh(nodeId);
+  return true;
 }
 
 export interface BleMeshCommandReport {

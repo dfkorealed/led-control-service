@@ -40,7 +40,8 @@ import {
   configuredVehicleSensorSourceFixtureIds,
   handleAutomationConfigPayload,
   ProvisioningScanRecoveryPublisher,
-  handleDurableProvisioningScan
+  handleDurableProvisioningScan,
+  requestVehicleSensorCapabilityRefresh
 } from "./gateway";
 export {
   createProvisioningScanCompletedPayload,
@@ -765,7 +766,11 @@ async function main() {
           .catch((error) => void reportGatewayError(error, "provisioning_device_terminal_retry"));
       },
       onCompleted: () => {
-        void vehicleSensorController.requestCapabilityRefresh(command.nodeId).catch(() => {
+        void requestVehicleSensorCapabilityRefresh(
+          provisioningAdapter,
+          command.nodeId,
+          (nodeId) => vehicleSensorController.requestCapabilityRefresh(nodeId)
+        ).catch(() => {
           void reportGatewayError(
             new Error("vehicle_sensor_capability_refresh_pending"),
             "vehicle_sensor_capability_configuration"

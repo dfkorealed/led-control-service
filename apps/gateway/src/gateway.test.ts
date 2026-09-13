@@ -3,7 +3,8 @@ import {
   applyProvisionDevice,
   applyProvisioningScan,
   handleAutomationConfigPayload,
-  publishProvisioningScanLifecycle
+  publishProvisioningScanLifecycle,
+  requestVehicleSensorCapabilityRefresh
 } from "./gateway";
 import { StubProvisioningAdapter, StubProvisioningScannerAdapter } from "../test/stub-adapters";
 import { AutomationRuntimeError } from "./automation/automation-runtime";
@@ -187,6 +188,32 @@ describe("configuredVehicleSensorSourceFixtureIds", () => {
 
     expect(configuredVehicleSensorSourceFixtureIds(snapshot)).toEqual(["source-a", "source-b"]);
     expect(configuredVehicleSensorSourceFixtureIds(null)).toEqual([]);
+  });
+});
+
+describe("requestVehicleSensorCapabilityRefresh", () => {
+  it("does not enqueue a cloud sensor refresh for BIO provisioning", async () => {
+    const refresh = vi.fn();
+
+    await expect(requestVehicleSensorCapabilityRefresh(
+      { vehicleSensorCloudSupported: false },
+      "44444444-4444-4444-8444-444444444444",
+      refresh
+    )).resolves.toBe(false);
+
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("preserves the existing refresh for adapters that support vehicle sensor cloud", async () => {
+    const refresh = vi.fn().mockResolvedValue(undefined);
+
+    await expect(requestVehicleSensorCapabilityRefresh(
+      {},
+      "44444444-4444-4444-8444-444444444444",
+      refresh
+    )).resolves.toBe(true);
+
+    expect(refresh).toHaveBeenCalledWith("44444444-4444-4444-8444-444444444444");
   });
 });
 
