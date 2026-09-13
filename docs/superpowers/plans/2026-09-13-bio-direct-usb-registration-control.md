@@ -235,19 +235,19 @@ git commit -m "feat(gateway): open BIO dongle through direct USB"
 - Success: valid `0x03` and valid CRC16 `0x0b`
 - Forbidden: outer command `0x10`, address assignment, brightness, mode, password, reset
 
-- [ ] **Step 1: CLI allowlist RED 테스트를 작성한다.** source contract에서 `setBrightness`, `setControlMode`, `assignAddress`, arbitrary hex option이 노출되지 않음을 검사한다.
+- [x] **Step 1: CLI allowlist RED 테스트를 작성한다.** source contract에서 `setBrightness`, `setControlMode`, `assignAddress`, arbitrary hex option이 노출되지 않음을 검사한다.
 
-- [ ] **Step 2: CLI를 `BioDirectUsbConnection`/`BioUsbTransport`로 교체하고 JSON output은 descriptor, protocol, command, payload length, elapsed time만 내보낸다.** UUID, network password, raw payload는 출력하지 않는다.
+- [x] **Step 2: CLI를 `BioDirectUsbConnection`/`BioUsbTransport`로 교체하고 JSON output은 descriptor, protocol, command, payload length, elapsed time만 내보낸다.** UUID, network password, raw payload는 출력하지 않는다.
 
-- [ ] **Step 3: focused test와 build를 통과시킨다.**
+- [x] **Step 3: focused test와 build를 통과시킨다.**
 
 Run: `pnpm --filter @led-control/gateway exec vitest run scripts/bio-dongle-probe.test.ts src/bio/bio-direct-usb-connection.test.ts src/bio/bio-usb-transport.test.ts`
 
 Run: `pnpm --filter @led-control/gateway build`
 
-- [ ] **Step 4: 현재 Gateway container fingerprint를 기록한다.** container ID, image ID, StartedAt, RestartCount만 저장하고 env/secret은 출력하지 않는다.
+- [x] **Step 4: 현재 Gateway container fingerprint를 기록한다.** container ID, image ID, StartedAt, RestartCount만 저장하고 env/secret은 출력하지 않는다.
 
-- [ ] **Step 5: disposable ARM64 image를 만들고 현재 raw node 한 개만 같은 경로로 mapping해 probe를 non-root `gateway` user로 실행한다.** 운영 compose, MQTT identity, data volume은 전달하지 않는다.
+- [x] **Step 5: disposable ARM64 image를 만들고 현재 raw node 한 개만 같은 경로로 mapping해 probe를 non-root `gateway` user로 실행한다.** 운영 compose, MQTT identity, data volume은 전달하지 않는다.
 
 Expected:
 
@@ -258,16 +258,18 @@ converterInfo=valid-03
 networkProbe=valid-0b
 ```
 
-- [ ] **Step 6: probe 성공 후 kernel driver가 다시 연결됐고 `/dev/ttyUSB0`가 복구됐는지 확인한다.** 운영 container ID/StartedAt/RestartCount가 Step 4와 같아야 한다.
+- [x] **Step 6: probe 종료 후 kernel driver가 다시 연결됐고 `/dev/ttyUSB0`가 복구됐는지 확인한다.** 운영 container ID/StartedAt/RestartCount가 Step 4와 같아야 한다.
 
-- [ ] **Step 7: disposable container/image를 제거하고 redacted evidence SHA-256을 progress ledger에 기록한다.** 실패하면 Task 4 이후를 시작하지 않고 direct connection cleanup을 수정한다.
+- [x] **Step 7: disposable container/image를 제거하고 redacted evidence SHA-256을 progress ledger에 기록한다.** 실패하면 Task 4 이후를 시작하지 않고 direct connection cleanup을 수정한다.
 
-- [ ] **Step 8: 커밋한다.**
+- [x] **Step 8: 커밋한다.**
 
 ```bash
 git add apps/gateway/scripts/bio-dongle-probe.ts apps/gateway/scripts/bio-dongle-probe.test.ts apps/gateway/package.json
 git commit -m "feat(gateway): probe BIO dongle over direct USB"
 ```
+
+**Gate result: BLOCKED.** 제품 경로 probe는 유효한 `0x03` 대신 CRC16-valid `0x12` 알림만 수신해 3016ms에 안전하게 timeout했다. GET_NWK `0x0b`는 전송하지 않았으며 Task 4 이후는 이 gate가 통과할 때까지 시작하지 않는다.
 
 ---
 
