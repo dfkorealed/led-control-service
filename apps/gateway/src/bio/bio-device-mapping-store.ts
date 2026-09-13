@@ -29,9 +29,17 @@ interface StoredMappings {
 }
 
 /**
- * Keeps the BIO adapter's hardware identity/address relationship durable. A
- * reservation is intentionally invisible to all lookup methods: callers must
- * complete device read-back before a mapping can drive control or recovery.
+ * BIO hardware UUID와 논리 주소의 durable 관계를 보관한다.
+ *
+ * - [확인됨] logical address는 캡처된 packet의 big-endian 16-bit 값이며 유효 범위는
+ *   unicast `0x0001..0x7fff`다. `0xffff` broadcast는 저장 가능한 장치 주소가 아니다.
+ * - [추정] 예약은 동시 등록 충돌을 막기 위한 소프트웨어 상태일 뿐 hardware 적용 증거가
+ *   아니다. 그래서 `reserved` row는 모든 control lookup에서 숨긴다.
+ * - [확인됨] `confirm`은 예약 UUID와 장치가 반환했다고 caller가 전달한 address가 다르면
+ *   거부하고, fixture/node/UUID/address 어느 key도 중복되면 fail-closed한다. [추정] caller는
+ *   실제 장치 read-back을 마친 뒤에만 이 API를 호출해야 한다.
+ * - [미확인] address assignment/read-back opcode 자체는 아직 구현 근거가 없다. 이 store가
+ *   존재한다는 사실을 hardware 등록 완료로 해석하면 안 된다.
  */
 export class BioDeviceMappingStore {
   private queue: Promise<unknown> = Promise.resolve();

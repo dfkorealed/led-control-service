@@ -25,6 +25,20 @@ export type BioResponse =
   | (BioLampObservation & { kind: "control-mode-report"; mode: BioControlMode })
   | { kind: "unsupported-notification"; outerCommand: number; payloadBytes: number };
 
+/**
+ * 캡처 기반 command 계약
+ *
+ * - [확인됨] 외부 0A/0B는 GET_NWK 요청/응답이며 0B는 CRC16 + payload 13 bytes만 허용한다.
+ *   네트워크/비밀번호로 보이는 개별 필드 의미는 [미확인]이고 이 parser 밖으로 내보내지 않는다.
+ * - [확인됨] 외부 10은 dongle TX, 11은 1-byte dongle ACK, 12는 비동기 module RX다.
+ *   ACK status 0은 dongle 수락일 뿐 조명이 실제 적용했다는 뜻이 아니다.
+ * - [확인됨] 10/12 payload header는 byte 0 RSSI, 1..6 native UUID, 7 control/TTL,
+ *   8 sequence, 9..10 source/logical address, 11..12 destination, 13..14 network ID,
+ *   15 이후 inner body이며 주소/네트워크 값은 big-endian이다.
+ * - [미확인] 03 payload의 세부 필드와 전체 12 inner opcode 목록은 문서화되지 않았다.
+ *   아래에서 명시적으로 고정한 캡처 조합 외에는 unsupported로 유지한다.
+ */
+
 export class BioEvidenceUnavailableError extends Error {
   readonly code = "BIO_EVIDENCE_UNAVAILABLE";
   constructor() { super("This BIO operation has no approved request/response evidence"); }
@@ -34,7 +48,7 @@ function unsigned(value: number, max: number, min = 0): void {
   if (!Number.isInteger(value) || value < min || value > max) throw new RangeError("Invalid BIO command parameter");
 }
 
-/** Installed-app 1.2.0 profile only; arbitrary opcodes and percent conversion are not exposed. */
+/** [확인됨] 설치 앱 1.2.0 캡처 조합만 허용하며 임의 opcode/percent 변환을 노출하지 않는다. */
 export function encodeBioCommand(operation: BioOperation, sequence: number): BioUsbRequest {
   unsigned(sequence, 255);
   if (operation.kind === "probe") return { command: 0x0a, payload: Buffer.alloc(0) };
@@ -52,8 +66,8 @@ export function encodeBioCommand(operation: BioOperation, sequence: number): Bio
         && !(target.kind === "broadcast" && operation.rawHighBrightness === 157)) {
         throw new BioEvidenceUnavailableError();
       }
-      // CD13 is Scene.highBrightness (raw setting), not current output or linear percent.
-      // bit 0 requests no lamp answer; bit 7 disables debug. Outer 11 is still emitted.
+      // [확인됨] CD 13은 Scene.highBrightness의 raw 설정값이다. 현재 출력이나 선형 percent가
+      // 아니다. 캡처상 bit 0은 lamp answer 미요청, bit 7은 debug 비활성이고 외부 11은 온다.
       body = [0xcd, 0x13, operation.rawHighBrightness];
       break;
     case "setControlMode": {
@@ -70,7 +84,8 @@ export function encodeBioCommand(operation: BioOperation, sequence: number): Bio
   if (target.kind !== "broadcast" && target.kind !== "unicast") throw new BioEvidenceUnavailableError();
   if (target.kind === "unicast") unsigned(target.logicalAddress, 0x7fff, 1);
   const payload = Buffer.alloc(15 + body.length);
-  // LampHeader: RSSI=0, empty UUID, ctrl=1/ttl=0, byte sequence, BE src/dst/nid.
+  // [확인됨] TX LampHeader: RSSI=0, 빈 UUID, ctrl=1/ttl=0, byte sequence,
+  // big-endian source/destination/network ID. inner body offset은 15다.
   payload[7] = 0x80;
   payload[8] = sequence;
   payload.writeUInt16BE(0x01fe, 9);
@@ -82,7 +97,7 @@ export function encodeBioCommand(operation: BioOperation, sequence: number): Bio
 
 function invalid(): never { throw new BioUsbError("MALFORMED_FRAME", "Invalid BIO traced response"); }
 
-/** The caller supplies a CRC-validated frame; sensitive network fields never leave this parser. */
+/** [확인됨] caller가 checksum 검증된 frame을 주며 민감한 0B 필드는 parser 밖으로 내보내지 않는다. */
 export function decodeBioResponse(frame: BioFrame): BioResponse {
   const p = frame.payload;
   if (frame.protocol !== "crc16") return invalid();

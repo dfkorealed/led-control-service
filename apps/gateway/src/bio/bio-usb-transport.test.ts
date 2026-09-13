@@ -7,6 +7,9 @@ const hex = (value: string) => Buffer.from(value, "hex");
 const flush = async () => { for (let index = 0; index < 30; index++) await Promise.resolve(); };
 const settled = <T>(promise: Promise<T>) => promise.then((value) => value, (error: unknown) => error);
 const validInfo03 = Buffer.from("55aa030c02050320682f0000000300001147", "hex");
+const validGsInfo03 = Buffer.from("4753030c000000000000000000000000f0", "hex");
+const validNetwork0b = "55aa0b0d0001000000000000010c000320c50e";
+const validNotification12 = Buffer.from("55aa121cd3001122334455832e1234c00000000a0105050859320201000300006bcc", "hex");
 
 class FakeBioByteConnection implements BioByteConnection {
   readonly writes: Buffer[] = [];
@@ -175,6 +178,89 @@ describe("BioUsbTransport", () => {
       h.devices[0].receive("55aa0b0d0001000000000000010c000320c50e");
       expect(await starting).toBeUndefined();
       expect(h.transport.snapshot().ready).toBe(true);
+    } finally {
+      await h.transport.stop();
+      await starting;
+    }
+  });
+
+  it("waits for the captured partial GS info tail before granting GET_NWK ownership", async () => {
+    const h = harness({ profile: "android-v1.2.0", protocol: "crc16" });
+    const notifications: number[] = [];
+    h.transport.onNotification((frame) => notifications.push(frame.command));
+    const starting = settled(h.transport.start());
+    try {
+      await flush();
+      h.devices[0].receive(Buffer.concat([validInfo03, validGsInfo03.subarray(0, 14)]).toString("hex"));
+      await flush();
+
+      expect(h.devices[0].writes).toEqual(["55aa82000000", "4753820000"]);
+      h.devices[0].receive(validGsInfo03.subarray(14).toString("hex"));
+      await flush();
+      expect(h.devices[0].writes).toEqual(["55aa82000000", "4753820000", "55aa0a000710"]);
+      expect(notifications).toEqual([0x03, 0x03]);
+
+      h.devices[0].receive(validNetwork0b);
+      expect(await starting).toBeUndefined();
+      expect(h.transport.snapshot().ready).toBe(true);
+    } finally {
+      await h.transport.stop();
+      await starting;
+    }
+  });
+
+  it("keeps the original converter-info deadline while a proven startup frame is partial", async () => {
+    const h = harness({ profile: "android-v1.2.0", protocol: "crc16", timeoutMs: 300 });
+    const starting = settled(h.transport.start());
+    try {
+      await flush();
+      h.devices[0].receive(Buffer.concat([validInfo03, validGsInfo03.subarray(0, 14)]).toString("hex"));
+      await vi.advanceTimersByTimeAsync(299);
+      expect(h.devices[0].writes).toEqual(["55aa82000000", "4753820000"]);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await starting).toMatchObject({ code: "TIMEOUT" });
+      expect(h.devices[0].writes).toEqual(["55aa82000000", "4753820000"]);
+    } finally {
+      await h.transport.stop();
+      await starting;
+    }
+  });
+
+  it.each([
+    ["partial premature 0b", "55aa0b"],
+    ["partial unknown GS command", "475344"]
+  ])("rejects %s before request ownership and never writes GET_NWK", async (_name, partial) => {
+    const h = harness({ profile: "android-v1.2.0", protocol: "crc16" });
+    const starting = settled(h.transport.start());
+    try {
+      await flush();
+      h.devices[0].receive(`${validInfo03.toString("hex")}${partial}`);
+      expect(await starting).toMatchObject({ code: "LATE_RESPONSE" });
+      expect(h.devices[0].writes).toEqual(["55aa82000000", "4753820000"]);
+    } finally {
+      await h.transport.stop();
+      await starting;
+    }
+  });
+
+  it("drains a fragmented CRC16 12 startup notification without consuming it as a response", async () => {
+    const h = harness({ profile: "android-v1.2.0", protocol: "crc16" });
+    const notifications: number[] = [];
+    h.transport.onNotification((frame) => notifications.push(frame.command));
+    const starting = settled(h.transport.start());
+    try {
+      await flush();
+      h.devices[0].receive(Buffer.concat([validInfo03, validNotification12.subarray(0, 8)]).toString("hex"));
+      await flush();
+      expect(h.devices[0].writes).toEqual(["55aa82000000", "4753820000"]);
+
+      h.devices[0].receive(validNotification12.subarray(8).toString("hex"));
+      await flush();
+      expect(h.devices[0].writes).toEqual(["55aa82000000", "4753820000", "55aa0a000710"]);
+      expect(notifications).toEqual([0x03, 0x12]);
+
+      h.devices[0].receive(validNetwork0b);
+      expect(await starting).toBeUndefined();
     } finally {
       await h.transport.stop();
       await starting;

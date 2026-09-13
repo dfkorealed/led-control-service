@@ -15,6 +15,17 @@ interface ProbeOptions {
   timeoutMs: number;
 }
 
+/**
+ * Task 3 read-only product probe allowlist
+ *
+ * [확인됨] 실행 경로는 exact descriptor/open, 캡처된 CH34x 초기화, 두 고정 82 literal,
+ * checksum-valid 03 준비, GET_NWK 0A, CRC16 0B의 정확한 13-byte payload 검증뿐이다.
+ * 임의 command/raw payload 인자를 제공하지 않으므로 외부 10, 주소/밝기/mode/password/reset
+ * write로 확장할 수 없다. 출력은 descriptor와 protocol/command/payload length/elapsed만 남기며
+ * UUID, 비밀번호로 보이는 0B bytes, 원시 payload는 성공/실패 모두 redaction한다.
+ * [미확인] 03/0B 개별 payload 필드 의미는 probe 성공 조건에 사용하지 않는다.
+ */
+
 interface ProbeDependencies {
   driverFactory?: () => BioUsbDriver;
   output?: (line: string) => void;
@@ -98,7 +109,7 @@ function descriptorMetadata(value: BioUsbDescriptor): string {
   ].join("/");
 }
 
-/** Runs the one fixed product readiness sequence and returns no device-owned data. */
+/** [확인됨] 위 한 가지 고정 read-only 준비 시퀀스만 실행하고 device-owned data는 반환하지 않는다. */
 export async function runBioDongleProbe(args: string[], dependencies: ProbeDependencies = {}): Promise<number> {
   const output = dependencies.output ?? ((line: string) => console.log(line));
   const now = dependencies.now ?? Date.now;

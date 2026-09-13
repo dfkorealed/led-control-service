@@ -10,7 +10,11 @@ export type BioDongleClientOptions = Pick<BioTransportOptions, "timeoutMs"> & {
 };
 export interface BioCommandAcceptance { outcome: "dongle-accepted"; deviceApplied: false }
 
-/** Traced operations only. ACK acceptance and unsolicited device observations remain separate. */
+/**
+ * [확인됨] 이 client는 캡처된 operation만 transport에 전달한다. 외부 11의 status 0은
+ * dongle이 TX 요청을 수락했다는 뜻이고, 실제 조명 적용은 별도의 12 관측/물리 확인 없이는
+ * 승격하지 않는다. [미확인] opcode를 편의상 추측하는 API는 의도적으로 제공하지 않는다.
+ */
 export class BioDongleClient {
   private readonly transport: BioUsbTransport;
   private readonly listeners = new Set<(event: BioClientEvent) => void>();
@@ -37,14 +41,15 @@ export class BioDongleClient {
         if (parsed.kind === "probe" || parsed.kind === "outer-ack") return;
         event = parsed;
       } catch {
-        // Invalid unsolicited data never becomes device state or a failed unrelated command.
+        // [추정] 비동기 12의 손상은 동시에 진행 중인 ACK 요청과 다른 소유권이다. 따라서
+        // device state로 만들지 않되, 무관한 요청 실패로 바꾸지도 않고 invalid event로 격리한다.
         event = { kind: "invalid-notification" };
       }
       for (const listener of this.listeners) listener(event);
     });
   }
 
-  /** Opens/probes once per connection generation; this does not validate durable fixture mappings. */
+  /** [확인됨] 세대별 USB/GET_NWK만 검증하며 fixture의 durable mapping 확인을 대신하지 않는다. */
   async probe(): Promise<Extract<BioResponse, { kind: "probe" }>> {
     await this.transport.start();
     if (!this.probeResult) throw new BioUsbError("READINESS", "BIO traced probe was not validated");
@@ -62,7 +67,7 @@ export class BioDongleClient {
     return this.send({ kind: "setControlMode", target, mode });
   }
 
-  // These methods deliberately have no opcodes: explicit captures are still missing.
+  // [미확인] identify/address/read-back opcode 캡처가 없으므로 method에 임의 bytes를 넣지 않는다.
   async startIdentify(_nativeId: string): Promise<never> { throw new BioEvidenceUnavailableError(); }
   async stopIdentify(_nativeId: string): Promise<never> { throw new BioEvidenceUnavailableError(); }
   async assignAddress(_nativeId: string, _logicalAddress: number): Promise<never> { throw new BioEvidenceUnavailableError(); }

@@ -12,6 +12,13 @@ const USB_TRANSFER_TYPE_BULK = 0x02;
 const USB_REQUEST_VENDOR_DEVICE_OUT = 0x40;
 const USB_REQUEST_VENDOR_DEVICE_IN = 0xc0;
 
+/**
+ * [확인됨] libusb requestType `0x40`은 vendor/device/OUT, `0xc0`은
+ * vendor/device/IN이다. BIO 장치는 interface 0의 `0x02` OUT/`0x82` IN bulk endpoint와
+ * 32-byte max packet을 사용한다. 이 값들은 descriptor와 HIL에서 함께 확인된 값이며,
+ * 다른 endpoint를 발견했다고 자동 채택하면 엉뚱한 USB 기능을 소유할 수 있다.
+ */
+
 interface LegacyEndpointDescriptor {
   bEndpointAddress: number;
   bmAttributes: number;
@@ -247,6 +254,8 @@ class NodeUsbDeviceHandle implements BioUsbDeviceHandle {
     input.on("end", this.inputEndListener);
     this.pollAttempted = true;
     try {
+      // [확인됨] 한 transfer/32 bytes로 poll하면 실제 endpoint packet 경계와 일치한다.
+      // 상위 codec은 프레임이 이 경계에서 자르거나 합쳐질 수 있음을 전제로 stream을 조립한다.
       input.startPoll(1, BIO_MAX_PACKET_SIZE);
     } catch (error) {
       if (!input.pollActive) {
@@ -269,9 +278,9 @@ class NodeUsbDeviceHandle implements BioUsbDeviceHandle {
     try {
       if (this.pollEnded) return;
       if (!input.pollActive) {
-        // usb@2.15.0 sets pollActive=false before emitting end when it
-        // auto-stops after a transfer error. That is an in-progress stop, not
-        // permission to call stopPoll() again or suppress unrelated failures.
+        // [확인됨] usb@2.15.0은 transfer 오류 자동 정지 때 end보다 먼저 pollActive=false로
+        // 바꾼다. 이는 정지 완료가 아니라 진행 중 상태다. end를 기다려 native poll 소유권을
+        // 확인하며 stopPoll을 중복 호출하거나 별도 오류를 숨기지 않는다.
         await this.pollEnd;
         return;
       }

@@ -51,6 +51,11 @@ describe("BIO frame codec", () => {
     expect(codec.push(hex("007c"))).toEqual([]);
     expect(codec.push(hex("475383007c"))).toHaveLength(1);
   });
+  it("reports only the classified header metadata for a pending candidate", () => {
+    const codec = new BioFrameCodec();
+    codec.push(hex("4753030c00000000000000000000"));
+    expect(codec.pendingCandidate()).toEqual({ protocol: "gs", command: 0x03 });
+  });
   it("does not accept exceptional probe literals as checksummed responses", () => {
     expect(new BioFrameCodec().push(hex("55aa82000000"))[0]).toMatchObject({ type: "malformed" });
     expect(new BioFrameCodec().push(hex("4753820000"))[0]).toMatchObject({ type: "malformed" });

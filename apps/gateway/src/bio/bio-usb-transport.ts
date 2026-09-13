@@ -12,7 +12,7 @@ export interface BioTransportSnapshot {
   lastError?: BioUsbErrorCode;
 }
 export interface BioTransportOptions {
-  /** Installed Android 1.2.0 uses converter-info startup and separate ACK/notification channels. */
+  /** [확인됨] Android 1.2.0은 converter-info startup과 ACK/notification 채널을 분리한다. */
   profile?: "legacy" | "android-v1.2.0";
   protocol?: BioProtocol | "auto";
   timeoutMs?: number;
@@ -20,7 +20,7 @@ export interface BioTransportOptions {
   /** The adapter must validate its durable mapping before enabling requests. */
   validateReadiness: (probe: BioFrame) => Promise<void>;
 }
-/** Raw substrate only: callers must gate operation encodings on verified traces. */
+/** [미확인] 임의 opcode 의미는 제조사 문서가 없으므로, 상위 계층은 캡처된 요청만 전달해야 한다. */
 export interface BioUsbRequest {
   command: number;
   payload: Uint8Array;
@@ -41,7 +41,7 @@ export class BioUsbTransport {
   private connection?: BioByteConnection;
   private unsubscribe: (() => void)[] = [];
   private active?: PendingRequest;
-  private startup?: { resolve: () => void; reject: (error: BioUsbError) => void };
+  private startup?: { infoSeen: boolean; resolve: () => void; reject: (error: BioUsbError) => void };
   private timeout?: ReturnType<typeof setTimeout>;
   private partialTimeout?: ReturnType<typeof setTimeout>;
   private reconnectTimer?: ReturnType<typeof setTimeout>;
@@ -131,10 +131,11 @@ export class BioUsbTransport {
       connection.onDisconnect(() => this.fail(generation, new BioUsbError("DISCONNECTED", "BIO USB disconnected")))
     ];
     const traced = this.options.profile === "android-v1.2.0";
-    // Arm before native open so even an early info frame is preserved. HIL
-    // requires both converter literals, not a passive power-on wait or an 83 ACK.
+    // [확인됨] native open 중에도 03이 올 수 있으므로 먼저 수신 소유권을 건다. APK/HIL은
+    // 두 82 literal 뒤의 유효 03을 준비 완료로 사용했다. 82 자체의 제조사 명칭/필드 의미는
+    // [미확인]이며, zero trailer literal을 일반 checksum 응답이나 83 ACK로 해석하지 않는다.
     const startup = traced ? new Promise<void>((resolve, reject) => {
-      this.startup = { resolve, reject };
+      this.startup = { infoSeen: false, resolve, reject };
       this.timeout = setTimeout(() => this.fail(generation, new BioUsbError("TIMEOUT", "BIO converter info timed out")), this.options.timeoutMs ?? 300);
     }) : undefined;
     void startup?.catch(() => {});
@@ -151,15 +152,15 @@ export class BioUsbTransport {
       }
       await startup;
       if (!this.current(generation)) return;
-      // Keep the startup deadline through both native write/drain operations,
-      // even if info arrived early. The network request gets its own deadline.
+      // [확인됨] 원래 converter-info deadline은 두 native write와 startup 알림 drain 전체를
+      // 감싼다. 반복 알림이 이 시간을 연장하지 않으며, 이후 GET_NWK는 별도 deadline을 갖는다.
       if (this.timeout) clearTimeout(this.timeout);
       this.timeout = undefined;
     }
-    // The APK probes deliberately have zero trailers; normal frame encoders
-    // must never be used here or taught to bypass response checksum validation.
-    // Installed-app trace uses GET_NWK 0A/0B; 82 is a legacy converter hint,
-    // not evidence that every connected dongle must return command 83.
+    // [확인됨] APK의 82 probe 두 개는 checksum이 아닌 zero trailer를 가진 고정 literal이다.
+    // 일반 encoder/decoder를 예외 처리해 만들면 응답 검증까지 약해지므로 byte를 그대로 유지한다.
+    // [확인됨] 설치 앱은 GET_NWK 0A 요청과 CRC16 0B 응답을 썼다. 82는 startup literal의
+    // command byte일 뿐 모든 dongle이 83을 반환한다는 근거가 아니다.
     const literal = traced ? "55aa0a000710" : this.status.protocol === "crc16" ? "55aa82000000" : "4753820000";
     const probe = await new Promise<BioFrame>((resolve, reject) => this.begin({ command: traced ? 0x0a : 0x82, bytes: Buffer.from(literal, "hex"), resolve, reject }));
     if (!this.current(generation)) return;
@@ -217,20 +218,18 @@ export class BioUsbTransport {
           && this.startup !== undefined
           && this.active === undefined
           && events.slice(index + 1).some((candidate) => candidate.type === "frame" && candidate.frame.command === 0x03);
-        // Converter detection can interrupt a streaming 12 notification. Only
-        // a valid 03 already recovered in this same batch proves safe resync;
-        // request-owned, length, and isolated malformed input still fail closed.
+        // [추정] converter startup이 진행 중인 12를 끊을 수 있다. 같은 batch 뒤에서 checksum이
+        // 유효한 03을 실제로 복구한 경우만 그 checksum 오류를 건너뛴다. request-owned/length/
+        // 단독 malformed는 제조사 의미가 [미확인]이므로 계속 fail-closed다.
         if (recoveredStartupInfo) continue;
         this.fail(generation, new BioUsbError("MALFORMED_FRAME", "Malformed BIO frame"));
         break;
       }
       if (this.options.profile === "android-v1.2.0" && (event.frame.command === 0x03 || (event.frame.protocol === "crc16" && event.frame.command === 0x12))) {
-        // Converter detection can return 03 in either validated framing. Only
-        // 03 releases startup; device RX 12 and unrelated ACKs never do.
-        if (event.frame.command === 0x03 && this.startup) {
-          this.startup.resolve();
-          this.startup = undefined;
-        }
+        // [확인됨] 03 converter-info는 CRC16/GS 양쪽 캡처가 있고 12는 CRC16 비동기 RX다.
+        // 03을 봤다는 사실만 기록하고, 같은 stream의 허용된 partial 후보가 끝나기 전에는
+        // GET_NWK 소유권을 주지 않는다. 12나 무관한 ACK는 준비 완료를 만들지 못한다.
+        if (event.frame.command === 0x03 && this.startup) this.startup.infoSeen = true;
         // These frames cannot acknowledge the in-flight request. A device RX
         // may arrive before/after 11 or with an unrelated device sequence.
         for (const listener of this.notificationListeners) listener(event.frame);
@@ -246,6 +245,25 @@ export class BioUsbTransport {
       this.active = undefined;
       completed.resolve(event.frame);
     }
+    if (this.current(generation) && this.startup) {
+      const pending = this.codec.pendingCandidate();
+      // [확인됨] startup 중 실제로 관찰된 drain 대상은 CRC16 12와 CRC16/GS 03뿐이다.
+      // [추정] 0B/기타 command 후보는 이전 응답일 수 있으므로 즉시 LATE_RESPONSE로 닫고,
+      // command조차 아직 없는 split header만 원래 startup deadline 안에서 더 기다린다.
+      // 별도 quiet sleep을 두지 않아 USB timing 추측이 요청 소유권 규칙이 되지 않게 한다.
+      const allowedStartupCandidate = pending?.command === undefined
+        || pending.command === 0x03
+        || (pending.protocol === "crc16" && pending.command === 0x12);
+      if (pending && !allowedStartupCandidate) {
+        this.fail(generation, new BioUsbError("LATE_RESPONSE", "Unexpected BIO response candidate during converter startup"));
+        return;
+      }
+      if (!pending && this.startup.infoSeen) {
+        const completed = this.startup;
+        this.startup = undefined;
+        completed.resolve();
+      }
+    }
     // A partial duplicate, including its first header byte, already belongs to
     // the previous request. Never let its later tail complete a queued request.
     if (!this.codec.hasPendingFrame() && this.partialTimeout) {
@@ -257,9 +275,10 @@ export class BioUsbTransport {
         this.fail(generation, new BioUsbError("LATE_RESPONSE", "BIO response candidate crossed request ownership"));
         return;
       }
-      // An idle fragmented notification is normal. Keep subsequent requests
-      // queued until its full header/frame establishes ownership; a duplicate
-      // ACK then fails while no new request can consume it. Bound stalled input.
+      if (this.startup) return;
+      // [확인됨] idle 상태의 분할 03/12 알림은 정상 캡처에 존재한다. 완전한 header/frame이
+      // 소유권을 확정할 때까지 다음 요청을 막고, 지연 ACK는 새 요청이 소비하지 못하게 한다.
+      // startup 이후의 멈춘 partial도 timeout으로 제한한다.
       this.partialTimeout ??= setTimeout(() => this.fail(generation, new BioUsbError("TIMEOUT", "BIO partial notification timed out")), this.options.timeoutMs ?? 300);
     }
     // Finish inspecting complete and partial candidates before another request
