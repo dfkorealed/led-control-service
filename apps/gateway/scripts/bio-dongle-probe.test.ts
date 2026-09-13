@@ -18,6 +18,7 @@ const descriptor: BioUsbDescriptor = {
 class ProbeHandle extends EventEmitter implements BioUsbDeviceHandle {
   readonly calls: Array<[string, ...unknown[]]> = [];
   readonly writes: string[] = [];
+  networkResponse = "55aa0b0d0001000000000000010c000320c50e";
   private input?: (bytes: Buffer) => void;
 
   descriptor(): BioUsbDescriptor {
@@ -42,7 +43,7 @@ class ProbeHandle extends EventEmitter implements BioUsbDeviceHandle {
       queueMicrotask(() => this.input?.(Buffer.from("55aa030c02050320682f0000000300001147", "hex")));
     }
     if (hex === "55aa0a000710") {
-      queueMicrotask(() => this.input?.(Buffer.from("55aa0b0d0001000000000000010c000320c50e", "hex")));
+      queueMicrotask(() => this.input?.(Buffer.from(this.networkResponse, "hex")));
     }
   }
   startInput(listener: (bytes: Buffer) => void): void { this.calls.push(["startInput"]); this.input = listener; }
@@ -113,6 +114,16 @@ describe("read-only BIO direct USB probe CLI", () => {
       networkProbe: { protocol: "crc16", command: "0x0b", payloadBytes: 13 },
       elapsedMs: 37
     });
+    expect(h.output[0]).not.toMatch(/001122334455|password|raw|payload\s*"/i);
+  });
+
+  it("rejects a CRC-valid zero-length GET_NWK response", async () => {
+    const h = harness();
+    h.handle.networkResponse = "55aa0b000680";
+
+    expect(await runBioDongleProbe([], h.dependencies)).toBe(1);
+
+    expect(JSON.parse(h.output[0])).toEqual({ error: "READINESS", elapsedMs: 37 });
     expect(h.output[0]).not.toMatch(/001122334455|password|raw|payload\s*"/i);
   });
 

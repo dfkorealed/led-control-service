@@ -1,5 +1,6 @@
 import { pathToFileURL } from "node:url";
 import { BioDirectUsbConnection } from "../src/bio/bio-direct-usb-connection";
+import { decodeBioResponse } from "../src/bio/bio-command-codec";
 import type { BioFrame } from "../src/bio/bio-frame-codec";
 import {
   NodeUsbDriver,
@@ -123,7 +124,7 @@ export async function runBioDongleProbe(args: string[], dependencies: ProbeDepen
     timeoutMs: options.timeoutMs,
     connectionFactory: () => new BioDirectUsbConnection(driver),
     validateReadiness: async (frame) => {
-      if (frame.protocol !== "crc16" || frame.command !== 0x0b) {
+      if (decodeBioResponse(frame).kind !== "probe") {
         throw new BioUsbError("READINESS", "BIO network probe was not validated");
       }
       networkProbe = frame;
