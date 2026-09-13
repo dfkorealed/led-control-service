@@ -68,13 +68,13 @@ export interface BioUsbRequest {
 }
 ```
 
-- [ ] **Step 1: 현재 전체 Gateway test를 기록한다.**
+- [x] **Step 1: 현재 전체 Gateway test를 기록한다.**
 
 Run: `pnpm --filter @led-control/gateway test`
 
 Expected: 현재 branch의 기존 suite가 통과한다. 실패하면 이 계획 변경과 분리해 원인을 기록한다.
 
-- [ ] **Step 2: byte connection 이름과 response ownership RED 테스트를 작성한다.** 다음 테스트는 `0x0a` request 전에 `55 aa 0b` partial input이 시작되고 request 뒤 tail이 도착해도 ready가 되지 않으며 write 자체가 실행되지 않아야 한다.
+- [x] **Step 2: byte connection 이름과 response ownership RED 테스트를 작성한다.** 다음 테스트는 `0x0a` request 전에 `55 aa 0b` partial input이 시작되고 request 뒤 tail이 도착해도 ready가 되지 않으며 write 자체가 실행되지 않아야 한다.
 
 ```ts
 it("rejects a response candidate that started before the request write", async () => {
@@ -92,13 +92,13 @@ it("rejects a response candidate that started before the request write", async (
 });
 ```
 
-- [ ] **Step 3: RED를 확인한다.**
+- [x] **Step 3: RED를 확인한다.**
 
 Run: `pnpm --filter @led-control/gateway exec vitest run src/bio/bio-usb-transport.test.ts src/bio/bio-dongle-client.test.ts`
 
 Expected: 새 module import와 pre-request partial-frame assertion이 실패한다.
 
-- [ ] **Step 4: `BioByteConnection`, `BioUsbTransport`, error 경계를 최소 구현한다.** 모든 request는 active owner를 설정하기 직전에 `codec.hasPendingFrame()`을 검사한다. pending candidate가 있으면 write하지 않고 generation을 retire하며 `LATE_RESPONSE`를 반환한다. startup의 `0x0a`도 일반 요청과 동일한 ownership gate를 사용한다.
+- [x] **Step 4: `BioByteConnection`, `BioUsbTransport`, error 경계를 최소 구현한다.** 모든 request는 active owner를 설정하기 직전에 `codec.hasPendingFrame()`을 검사한다. pending candidate가 있으면 write하지 않고 generation을 retire하며 `LATE_RESPONSE`를 반환한다. startup의 `0x0a`도 일반 요청과 동일한 ownership gate를 사용한다.
 
 ```ts
 private begin(request: PendingRequest) {
@@ -117,11 +117,11 @@ private begin(request: PendingRequest) {
 }
 ```
 
-- [ ] **Step 5: 기존 one-in-flight, late response, reconnect `2s→32s`, close-failure 테스트를 새 이름으로 옮기고 GREEN을 확인한다.**
+- [x] **Step 5: 기존 one-in-flight, late response, reconnect `2s→32s`, close-failure 테스트를 새 이름으로 옮기고 GREEN을 확인한다.**
 
 Run: `pnpm --filter @led-control/gateway exec vitest run src/bio/bio-frame-codec.test.ts src/bio/bio-usb-transport.test.ts src/bio/bio-dongle-client.test.ts`
 
-- [ ] **Step 6: typecheck 후 커밋한다.**
+- [x] **Step 6: typecheck 후 커밋한다.**
 
 Run: `pnpm --filter @led-control/gateway typecheck`
 
