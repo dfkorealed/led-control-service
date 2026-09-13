@@ -348,6 +348,8 @@ git commit -m "feat(gateway): encode BIO registration and read-back commands"
 **Files:**
 - Modify: `apps/gateway/src/bio/bio-dongle-client.ts`
 - Modify: `apps/gateway/src/bio/bio-dongle-client.test.ts`
+- Modify: `apps/gateway/src/bio/bio-command-codec.ts`
+- Modify: `apps/gateway/src/bio/bio-command-codec.test.ts`
 - Modify: `apps/gateway/src/bio/bio-device-mapping-store.ts`
 - Modify: `apps/gateway/src/bio/bio-device-mapping-store.test.ts`
 - Modify: `apps/gateway/src/bio/bio-usb-error.ts`
@@ -370,13 +372,13 @@ export type BioAddressAssignmentResult =
   | { outcome: "unknown"; code: "BIO_ADDRESS_STATE_UNKNOWN" };
 ```
 
-- [ ] **Step 1: scan aggregation RED 테스트를 작성한다.** discovery notification을 UUID별 최신 RSSI/address로 dedupe하고 scan deadline 뒤 `stopScan`을 finally에서 호출하며, stop ACK가 없으면 성공 list를 반환하지 않는다.
+- [x] **Step 1: scan aggregation RED 테스트를 작성한다.** discovery notification을 UUID별 최신 RSSI/address로 dedupe하고 scan deadline 뒤 `stopScan`을 finally에서 호출하며, stop ACK가 없으면 성공 list를 반환하지 않는다.
 
-- [ ] **Step 2: identify RED 테스트를 작성한다.** 대상 UUID를 현재 scan cache에서 resolve하고 force-on을 보낸 뒤 2초 후 sensor mode를 보낸다. cancel, timeout, thrown error에서도 sensor restore를 최종 시도하고 동일 UUID/address의 sensor-mode report가 없으면 `BIO_IDENTIFY_RESTORE_UNCONFIRMED`로 실패한다.
+- [x] **Step 2: identify RED 테스트를 작성한다.** 대상 UUID를 현재 scan cache에서 resolve하고 force-on을 보낸 뒤 2초 후 sensor mode를 보낸다. cancel, timeout, thrown error에서도 sensor restore를 최종 시도하고 동일 UUID/address의 sensor-mode report가 없으면 `BIO_IDENTIFY_RESTORE_UNCONFIRMED`로 실패한다.
 
-- [ ] **Step 3: mapping journal v2 RED 테스트를 작성한다.** reserved row에 `observedLogicalAddressBeforeAssignment`를 저장하고 v1 confirmed row는 안전하게 읽되 v1 reserved row는 address state unknown으로 처리한다. 같은 command의 identical reservation은 idempotent하고 UUID/address 충돌은 실패한다.
+- [x] **Step 3: mapping journal v2 RED 테스트를 작성한다.** reserved row에 `observedLogicalAddressBeforeAssignment`를 저장하고 v1 confirmed row는 안전하게 읽되 v1 reserved row는 address state unknown으로 처리한다. 같은 command의 identical reservation은 idempotent하고 UUID/address 충돌은 실패한다.
 
-- [ ] **Step 4: address reconciliation RED 테스트를 작성한다.** ACK 성공/유실과 무관하게 scan 결과를 아래처럼 판정한다.
+- [x] **Step 4: address reconciliation RED 테스트를 작성한다.** ACK 성공/유실과 무관하게 scan 결과를 아래처럼 판정한다.
 
 | old UUID/address | new UUID/address | 판정 |
 | --- | --- | --- |
@@ -386,7 +388,7 @@ export type BioAddressAssignmentResult =
 | 없음 | 없음 | `BIO_ADDRESS_STATE_UNKNOWN` |
 | 다른 UUID가 new 사용 | 없음 | `BIO_ADDRESS_CONFLICT` |
 
-- [ ] **Step 5: verified brightness RED 테스트를 작성한다.** percent `1..100`은 raw high brightness set → force-on → readHighBrightness → readControlMode 순서이며 둘 다 일치해야 applied다. percent `0`은 force-off → readControlMode만 실행한다.
+- [x] **Step 5: verified brightness RED 테스트를 작성한다.** percent `1..100`은 raw high brightness set → force-on → readHighBrightness → readControlMode 순서이며 둘 다 일치해야 applied다. percent `0`은 force-off → readControlMode만 실행한다.
 
 ```ts
 await expect(client.setOutput(target, 60)).resolves.toEqual({
@@ -397,21 +399,21 @@ await expect(client.setOutput(target, 60)).resolves.toEqual({
 });
 ```
 
-- [ ] **Step 6: RED를 확인한다.**
+- [x] **Step 6: RED를 확인한다.**
 
 Run: `pnpm --filter @led-control/gateway exec vitest run src/bio/bio-dongle-client.test.ts src/bio/bio-device-mapping-store.test.ts`
 
-- [ ] **Step 7: client와 mapping migration을 최소 구현한다.** timeout 뒤 assign write를 즉시 반복하지 않고 `reconcileAddress()`를 먼저 호출한다. old만 확인된 경우에만 동일 command를 최대 한 번 재전송하고 다시 reconcile한다.
+- [x] **Step 7: client와 mapping migration을 최소 구현한다.** timeout 뒤 assign write를 즉시 반복하지 않고 `reconcileAddress()`를 먼저 호출한다. old만 확인된 경우에만 동일 command를 최대 한 번 재전송하고 다시 reconcile한다.
 
-- [ ] **Step 8: mismatch fault를 명시적으로 보존한다.** high brightness mismatch는 `BIO_BRIGHTNESS_STATE_MISMATCH`, mode mismatch는 `BIO_CONTROL_MODE_STATE_MISMATCH`, 주소 불명은 `BIO_ADDRESS_STATE_UNKNOWN`이다.
+- [x] **Step 8: mismatch fault를 명시적으로 보존한다.** high brightness mismatch는 `BIO_BRIGHTNESS_STATE_MISMATCH`, mode mismatch는 `BIO_CONTROL_MODE_STATE_MISMATCH`, 주소 불명은 `BIO_ADDRESS_STATE_UNKNOWN`이다.
 
-- [ ] **Step 9: GREEN과 typecheck를 확인한다.**
+- [x] **Step 9: GREEN과 typecheck를 확인한다.**
 
 Run: `pnpm --filter @led-control/gateway exec vitest run src/bio`
 
 Run: `pnpm --filter @led-control/gateway typecheck`
 
-- [ ] **Step 10: 커밋한다.**
+- [x] **Step 10: 커밋한다.**
 
 ```bash
 git add apps/gateway/src/bio
