@@ -104,7 +104,7 @@ describe("read-only BIO probe CLI", () => {
     expect(await result).toBe(1);
     expect(JSON.parse(h.output[0])).toMatchObject({ ok: false, error: "TIMEOUT" });
     await vi.advanceTimersByTimeAsync(40000);
-    expect(h.device.writes).toEqual(["55aa0a000710"]);
+    expect(h.device.writes).toEqual(["55aa82000000", "4753820000"]);
     expect(h.device.isOpen).toBe(false);
   });
 
@@ -120,6 +120,7 @@ describe("read-only BIO probe CLI", () => {
     h.device.closeError = new Error("secret=736563726574");
     const result = runBioDongleProbe([], h.dependencies);
     await flush();
+    h.device.emit("data", Buffer.from("55aa030c02050320682f0000000300001147", "hex")); await flush();
     h.device.emit("data", Buffer.from("55aa0b0d0001000000000000010c000320c50e", "hex"));
     expect(await result).toBe(1);
     expect(h.output).toHaveLength(1);
@@ -130,8 +131,9 @@ describe("read-only BIO probe CLI", () => {
   it("defaults to the observed network query and tolerates separate discovery/info notifications", async () => {
     const h = harness();
     const result = runBioDongleProbe([], h.dependencies); await flush();
-    expect(h.device.writes).toEqual(["55aa0a000710"]);
-    h.device.emit("data", Buffer.from("55aa030c02050320682f0000000300001147", "hex"));
+    expect(h.device.writes).toEqual(["55aa82000000", "4753820000"]);
+    h.device.emit("data", Buffer.from("55aa030c02050320682f0000000300001147", "hex")); await flush();
+    expect(h.device.writes).toEqual(["55aa82000000", "4753820000", "55aa0a000710"]);
     h.device.emit("data", Buffer.from("55aa121cd3001122334455832e1234c00000000a0105050859320201000300006bcc", "hex"));
     h.device.emit("data", Buffer.from("55aa0b0d0001000000000000010c000320c50e", "hex"));
     expect(await result).toBe(0);

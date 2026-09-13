@@ -1,7 +1,7 @@
 import type { EventEmitter } from "node:events";
 import { SerialPort } from "serialport";
 export interface SerialConnection {
-  open(): Promise<void>;
+  open(options?: { preserveInput?: boolean }): Promise<void>;
   write(bytes: Buffer): Promise<void>;
   close(): Promise<void>;
   onData(listener: (bytes: Buffer) => void): () => void;
@@ -32,15 +32,16 @@ export class NodeSerialConnection implements SerialConnection {
     this.device.on("error", (error: Error) => this.disconnected(error));
     this.device.on("close", () => this.disconnected(new Error("Serial connection closed")));
   }
-  open(): Promise<void> {
-    this.opening = this.openAndFlush();
+  open(options: { preserveInput?: boolean } = {}): Promise<void> {
+    this.opening = this.openAndFlush(options.preserveInput ?? false);
     return this.opening;
   }
-  private async openAndFlush(): Promise<void> {
+  private async openAndFlush(preserveInput: boolean): Promise<void> {
     await this.callback((done) => this.device.open(done));
-    // A new JS generation also needs to discard bytes buffered by the old
-    // serial session before the read-only protocol probe is sent.
-    await this.callback((done) => this.device.flush(done));
+    // Legacy sessions discard old kernel-buffered bytes before their probe.
+    // Android converter-info startup must retain input that can arrive as soon
+    // as native open completes, before any request/response pair is active.
+    if (!preserveInput) await this.callback((done) => this.device.flush(done));
   }
   async write(bytes: Buffer): Promise<void> {
     await this.callback((done) => this.device.write(bytes, done));

@@ -39,6 +39,7 @@ function harness(initialSequence = 75) {
 }
 async function ready(h: ReturnType<typeof harness>) {
   const probe = h.client.probe(); void probe.catch(() => {}); await flush();
+  h.device.receive("55aa030c02050320682f0000000300001147"); await flush();
   h.device.receive("55aa0b0d0001000000000000010c000320c50e");
   return probe;
 }
@@ -50,7 +51,7 @@ describe("BIO evidence-gated dongle client", () => {
   it("opens using the observed read-only network query and returns no network secret", async () => {
     const h = harness();
     expect(await ready(h)).toEqual({ kind: "probe", protocol: "crc16", responseCommand: 11, payloadBytes: 13 });
-    expect(h.device.writes.map((b) => b.toString("hex"))).toEqual(["55aa0a000710"]);
+    expect(h.device.writes.map((b) => b.toString("hex"))).toEqual(["55aa82000000", "4753820000", "55aa0a000710"]);
     await h.client.close();
     expect(h.device.isOpen).toBe(false);
   });
@@ -58,7 +59,7 @@ describe("BIO evidence-gated dongle client", () => {
   it("returns only dongle acceptance for the observed unicast raw high-brightness setting", async () => {
     const h = harness(); await ready(h);
     const result = h.client.setBrightness(target, { rawHighBrightness: 254 }); await flush();
-    expect(h.device.writes[1].toString("hex")).toBe("55aa101200000000000000804b01fe12340000cd13fe2962");
+    expect(h.device.writes[3].toString("hex")).toBe("55aa101200000000000000804b01fe12340000cd13fe2962");
     h.device.receive("55aa1101002055");
     expect(await result).toEqual({ outcome: "dongle-accepted", deviceApplied: false });
     await h.client.close();
@@ -71,7 +72,7 @@ describe("BIO evidence-gated dongle client", () => {
       : operation.kind === "setControlMode" ? h.client.setControlMode(operation.target, operation.mode)
       : Promise.reject(new Error("Expected a captured control operation"));
     await flush();
-    expect(h.device.writes[1].toString("hex")).toBe(hex);
+    expect(h.device.writes[3].toString("hex")).toBe(hex);
     h.device.receive("55aa1101002055");
     expect(await result).toEqual({ outcome: "dongle-accepted", deviceApplied: false });
     await h.client.close();
@@ -89,10 +90,10 @@ describe("BIO evidence-gated dongle client", () => {
     try {
       await flush();
       expect(failure).toMatchObject({ code: "BIO_EVIDENCE_UNAVAILABLE" });
-      expect(h.device.writes.map((bytes) => bytes.toString("hex"))).toEqual(["55aa0a000710"]);
+      expect(h.device.writes.map((bytes) => bytes.toString("hex"))).toEqual(["55aa82000000", "4753820000", "55aa0a000710"]);
       await rejected;
       const accepted = h.client.setBrightness(target, { rawHighBrightness: 254 }); await flush();
-      expect(h.device.writes[1].toString("hex")).toBe("55aa101200000000000000804b01fe12340000cd13fe2962");
+      expect(h.device.writes[3].toString("hex")).toBe("55aa101200000000000000804b01fe12340000cd13fe2962");
       h.device.receive("55aa1101002055"); await accepted;
     } finally {
       await h.client.close();
@@ -105,7 +106,7 @@ describe("BIO evidence-gated dongle client", () => {
     h.client.onEvent((event) => events.push(event));
     const result = h.client.scan(); let settled = false; void result.then(() => { settled = true; });
     await flush();
-    expect(h.device.writes[1].toString("hex")).toBe("55aa101100000000000000804701feffff00008305daee");
+    expect(h.device.writes[3].toString("hex")).toBe("55aa101100000000000000804701feffff00008305daee");
     h.device.receive("55aa121cd3001122334455832e1234c00000000a0105050859320201000300006bcc"); await flush();
     expect(events).toMatchObject([{ kind: "discovery", deviceUuid: "bio:001122334455", logicalAddress: 0x1234 }]);
     expect(settled).toBe(false);
@@ -118,7 +119,7 @@ describe("BIO evidence-gated dongle client", () => {
     const events: BioClientEvent[] = [];
     const unsubscribe = h.client.onEvent((event) => events.push(event));
     const result = h.client.setControlMode(target, "force-on"); await flush();
-    expect(h.device.writes[1].toString("hex")).toBe("55aa101200000000000000804d01fe12340000cc120358ac");
+    expect(h.device.writes[3].toString("hex")).toBe("55aa101200000000000000804d01fe12340000cc120358ac");
     h.device.receive("55aa1212da0011223344558377123401fe00004f1203e39455aa1101002055");
     expect(await result).toEqual({ outcome: "dongle-accepted", deviceApplied: false });
     expect(events).toMatchObject([{ kind: "control-mode-report", mode: "force-on", sequence: 119 }]);
@@ -134,18 +135,18 @@ describe("BIO evidence-gated dongle client", () => {
       () => h.client.startIdentify("bio:001122334455"), () => h.client.stopIdentify("bio:001122334455"),
       () => h.client.assignAddress("bio:001122334455", 1), () => h.client.readBrightness(target), () => h.client.readDeviceInfo(target)
     ]) await expect(operation()).rejects.toMatchObject({ code: "BIO_EVIDENCE_UNAVAILABLE" });
-    expect(h.device.writes).toHaveLength(1);
+    expect(h.device.writes).toHaveLength(3);
     await h.client.close();
   });
 
   it("serializes requests, advances the byte sequence and sends stop only once per call", async () => {
     const h = harness(255); await ready(h);
     const first = h.client.stopScan(); const second = h.client.stopScan(); await flush();
-    expect(h.device.writes).toHaveLength(2);
-    expect(h.device.writes[1][12]).toBe(255);
+    expect(h.device.writes).toHaveLength(4);
+    expect(h.device.writes[3][12]).toBe(255);
     h.device.receive("55aa1101002055"); await first; await flush();
-    expect(h.device.writes).toHaveLength(3);
-    expect(h.device.writes[2][12]).toBe(0);
+    expect(h.device.writes).toHaveLength(5);
+    expect(h.device.writes[4][12]).toBe(0);
     h.device.receive("55aa1101002055"); await second;
     await h.client.close();
   });

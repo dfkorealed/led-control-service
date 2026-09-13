@@ -64,6 +64,19 @@ describe("NodeSerialConnection", () => {
     expect(received).toEqual([]);
     await connection.close();
   });
+  it("preserves kernel-buffered power-on info when explicitly requested", async () => {
+    const device = new Device();
+    device.bufferedInput = Buffer.from("55aa030c02050320682f0000000300001147", "hex");
+    const connection = new NodeSerialConnection("/dev/bio-dongle", () => device);
+    const received: string[] = [];
+    connection.onData((bytes) => received.push(bytes.toString("hex")));
+    await connection.open({ preserveInput: true });
+    // Simulate native delivery of queued input without issuing a serial write.
+    if (device.bufferedInput) device.emit("data", device.bufferedInput);
+    expect(received).toEqual(["55aa030c02050320682f0000000300001147"]);
+    expect(device.writes).toEqual([]);
+    await connection.close();
+  });
   it("waits for a pending native open before closing the descriptor once", async () => {
     const device = new Device();
     let finishOpen!: () => void;

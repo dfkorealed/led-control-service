@@ -20,7 +20,7 @@ class Device extends EventEmitter implements SerialPortDevice {
   receive(value: string) { this.emit("data", hex(value)); }
 }
 
-function harness(options: { protocol?: "crc16" | "gs" | "auto"; profile?: "android-v1.2.0"; validateReadiness?: () => Promise<void>; vendor?: string; timeoutMs?: number } = {}) {
+function harness(options: { protocol?: "crc16" | "gs" | "auto"; profile?: "android-v1.2.0"; validateReadiness?: () => Promise<void>; vendor?: string; timeoutMs?: number; configureDevice?: (device: Device) => void } = {}) {
   const devices: Device[] = [];
   const fs: UsbIdentityFs = {
     stat: async () => ({ rdev: 48128, isCharacterDevice: () => true }),
@@ -33,6 +33,7 @@ function harness(options: { protocol?: "crc16" | "gs" | "auto"; profile?: "andro
     inspector: new LinuxUsbIdentityInspector(fs),
     connectionFactory: (path) => {
       const device = new Device(); devices.push(device);
+      options.configureDevice?.(device);
       return new NodeSerialConnection(path, () => device);
     },
     validateReadiness: options.validateReadiness ?? (async () => {})
@@ -53,14 +54,114 @@ describe("BioSerialTransport", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
-  it("uses the traced network read instead of requiring an unobserved 83 response", async () => {
+  // GS 03+00+FC is a synthetic checksum/parser case, not an additional captured payload.
+  it.each(["55aa030c02050320682f0000000300001147", "47530300fc"])("sends both converter literals then waits for valid info %s before network read", async (info) => {
     const h = harness({ profile: "android-v1.2.0", protocol: "crc16" });
     const start = h.transport.start(); void start.catch(() => {}); await flush();
-    expect(h.devices[0].writes).toEqual(["55aa0a000710"]);
+    expect(h.devices[0].writes).toEqual(["55aa82000000", "4753820000"]);
+    h.devices[0].receive("55aa121cd3001122334455832e1234c00000000a0105050859320201000300006bcc"); await flush();
+    expect(h.devices[0].writes).toEqual(["55aa82000000", "4753820000"]);
+    h.devices[0].receive(info); await flush();
+    expect(h.devices[0].writes).toEqual(["55aa82000000", "4753820000", "55aa0a000710"]);
     h.devices[0].receive("55aa0b0d0001000000000000010c000320c50e");
     await start;
     expect(h.transport.snapshot().ready).toBe(true);
     await h.transport.stop();
+  });
+
+  it("preserves power-on info arriving inside native open before its callback", async () => {
+    const h = harness({ profile: "android-v1.2.0", protocol: "crc16", configureDevice: (device) => {
+      device.open = (callback) => {
+        device.isOpen = true;
+        device.receive("55aa030c02050320682f0000000300001147");
+        callback();
+      };
+    } });
+    const start = settled(h.transport.start());
+    try {
+      await flush();
+      expect(h.devices[0].writes).toEqual(["55aa82000000", "4753820000", "55aa0a000710"]);
+      h.devices[0].receive("55aa0b0d0001000000000000010c000320c50e"); await start;
+      expect(h.transport.snapshot().ready).toBe(true);
+    } finally {
+      await h.transport.stop();
+    }
+  });
+
+  it("does not flush away queued startup info on the Android native-open path", async () => {
+    const h = harness({ profile: "android-v1.2.0", protocol: "crc16", configureDevice: (device) => {
+      let buffered = true;
+      device.open = (callback) => {
+        device.isOpen = true; callback();
+        void Promise.resolve().then(() => Promise.resolve()).then(() => {
+          if (buffered) device.receive("55aa030c02050320682f0000000300001147");
+        });
+      };
+      device.flush = (callback) => { buffered = false; callback(); };
+    } });
+    const start = settled(h.transport.start()); await flush();
+    expect(h.devices[0].writes).toEqual(["55aa82000000", "4753820000", "55aa0a000710"]);
+    h.devices[0].receive("55aa0b0d0001000000000000010c000320c50e"); await start;
+    expect(h.transport.snapshot().ready).toBe(true);
+    await h.transport.stop();
+  });
+
+  it("bounds converter writes even when info arrives before native drain completes", async () => {
+    let drain!: () => void;
+    const h = harness({ profile: "android-v1.2.0", protocol: "crc16", configureDevice: (device) => {
+      device.drain = (callback) => { drain = () => callback(); };
+    } });
+    let outcome: unknown;
+    void settled(h.transport.start()).then((value) => { outcome = value; }); await flush();
+    h.devices[0].receive("55aa030c02050320682f0000000300001147");
+    try {
+      await vi.advanceTimersByTimeAsync(300);
+      expect(outcome).toMatchObject({ code: "TIMEOUT" });
+    } finally {
+      await h.transport.stop();
+      drain(); await flush();
+    }
+    expect(h.devices[0].writes).toEqual(["55aa82000000"]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each(["55aa83006080", "55aa0b0d0001000000000000010c000320c50e"])("does not let premature %s replace converter info", async (response) => {
+    const h = harness({ profile: "android-v1.2.0", protocol: "crc16" });
+    const start = settled(h.transport.start()); await flush();
+    h.devices[0].receive(response);
+    expect(await start).toMatchObject({ code: "LATE_RESPONSE" });
+    expect(h.devices[0].writes).toEqual(["55aa82000000", "4753820000"]);
+    await h.transport.stop();
+  });
+
+  it("bounds the power-on wait and requires a new generation's own info frame", async () => {
+    const h = harness({ profile: "android-v1.2.0", protocol: "crc16" });
+    const start = settled(h.transport.start()); await flush();
+    expect(h.devices[0].writes).toEqual(["55aa82000000", "4753820000"]);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(await start).toMatchObject({ code: "TIMEOUT" });
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(h.devices).toHaveLength(2);
+    h.devices[0].receive("55aa030c02050320682f0000000300001147"); await flush();
+    expect(h.devices[1].writes).toEqual(["55aa82000000", "4753820000"]);
+    h.devices[1].receive("55aa030c02050320682f0000000300001147"); await flush();
+    expect(h.devices[1].writes).toEqual(["55aa82000000", "4753820000", "55aa0a000710"]);
+    await h.transport.stop();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each(["stop", "disconnect", "invalid-crc"])("retires the power-on wait on %s without a late probe", async (cause) => {
+    const h = harness({ profile: "android-v1.2.0", protocol: "crc16" });
+    const start = settled(h.transport.start()); await flush();
+    if (cause === "stop") await h.transport.stop();
+    else if (cause === "disconnect") h.devices[0].emit("close");
+    else h.devices[0].receive("55aa030c02050320682f0000000300001100");
+    expect(await start).toMatchObject({ code: cause === "stop" ? "STOPPED" : cause === "disconnect" ? "DISCONNECTED" : "MALFORMED_FRAME" });
+    h.devices[0].receive("55aa030c02050320682f0000000300001147"); await flush();
+    expect(h.devices[0].writes).toEqual(["55aa82000000", "4753820000"]);
+    expect(h.transport.snapshot().ready).toBe(false);
+    await h.transport.stop();
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("routes unsolicited 03 and 12 separately without consuming an active or queued ACK", async () => {
@@ -68,7 +169,7 @@ describe("BioSerialTransport", () => {
     const notifications: number[] = [];
     h.transport.onNotification?.((frame) => notifications.push(frame.command));
     const start = settled(h.transport.start()); await flush();
-    h.devices[0].receive("55aa030c02050320682f0000000300001147");
+    h.devices[0].receive("55aa030c02050320682f0000000300001147"); await flush();
     h.devices[0].receive("55aa0b0d0001000000000000010c000320c50e");
     await start;
     expect(h.transport.snapshot().ready).toBe(true);
@@ -78,9 +179,9 @@ describe("BioSerialTransport", () => {
     h.devices[0].receive("55aa121cd3001122334455832e1234c00000000a0105050859320201000300006bcc");
     await flush();
     expect(notifications).toEqual([3, 18]);
-    expect(h.devices[0].writes).toHaveLength(2);
+    expect(h.devices[0].writes).toHaveLength(4);
     h.devices[0].receive("55aa1101002055"); await first; await flush();
-    expect(h.devices[0].writes).toHaveLength(3);
+    expect(h.devices[0].writes).toHaveLength(5);
     h.devices[0].receive("55aa1101002055"); await second;
     await h.transport.stop();
   });
@@ -88,15 +189,16 @@ describe("BioSerialTransport", () => {
   it("holds a queued request behind partial unsolicited bytes until their ownership is known", async () => {
     const h = harness({ profile: "android-v1.2.0", protocol: "crc16" });
     const start = settled(h.transport.start()); await flush();
+    h.devices[0].receive("55aa030c02050320682f0000000300001147"); await flush();
     h.devices[0].receive("55aa0b0d0001000000000000010c000320c50e"); await start;
     const frame = "55aa121cd3001122334455832e1234c00000000a0105050859320201000300006bcc";
     h.devices[0].receive(frame.slice(0, 8));
     expect(h.transport.snapshot().ready).toBe(true);
     const request = h.transport.request({ command: 0x10, payload: hex("00000000000000804801feffff000085") });
     void request.catch(() => {}); await flush();
-    expect(h.devices[0].writes).toHaveLength(1);
+    expect(h.devices[0].writes).toHaveLength(3);
     h.devices[0].receive(frame.slice(8)); await flush();
-    expect(h.devices[0].writes).toHaveLength(2);
+    expect(h.devices[0].writes).toHaveLength(4);
     h.devices[0].receive("55aa1101002055"); await request;
     await h.transport.stop();
   });
@@ -109,6 +211,7 @@ describe("BioSerialTransport", () => {
   it("does not let a notification callback's new request consume a coalesced stale ACK", async () => {
     const h = harness({ profile: "android-v1.2.0", protocol: "crc16" });
     const start = settled(h.transport.start()); await flush();
+    h.devices[0].receive("55aa030c02050320682f0000000300001147"); await flush();
     h.devices[0].receive("55aa0b0d0001000000000000010c000320c50e"); await start;
     let requested: Promise<unknown> | undefined;
     h.transport.onNotification(() => {
@@ -117,27 +220,29 @@ describe("BioSerialTransport", () => {
     h.devices[0].receive("55aa121cd3001122334455832e1234c00000000a0105050859320201000300006bcc55aa1101002055");
     await flush();
     expect(await requested).toMatchObject({ code: "LATE_RESPONSE" });
-    expect(h.devices[0].writes).toEqual(["55aa0a000710"]);
+    expect(h.devices[0].writes).toEqual(["55aa82000000", "4753820000", "55aa0a000710"]);
     await h.transport.stop();
   });
 
   it("rejects a partial idle ACK before any queued request can own it", async () => {
     const h = harness({ profile: "android-v1.2.0", protocol: "crc16" });
     const start = settled(h.transport.start()); await flush();
+    h.devices[0].receive("55aa030c02050320682f0000000300001147"); await flush();
     h.devices[0].receive("55aa0b0d0001000000000000010c000320c50e"); await start;
     h.devices[0].receive("55aa11");
     const request = settled(h.transport.request({ command: 0x10, payload: hex("00000000000000804801feffff000085") }));
     await flush();
-    expect(h.devices[0].writes).toHaveLength(1);
+    expect(h.devices[0].writes).toHaveLength(3);
     h.devices[0].receive("01002055");
     expect(await request).toMatchObject({ code: "LATE_RESPONSE" });
-    expect(h.devices[0].writes).toHaveLength(1);
+    expect(h.devices[0].writes).toHaveLength(3);
     await h.transport.stop();
   });
 
   it("bounds incomplete notification blocking and stop cancels its retry", async () => {
     const h = harness({ profile: "android-v1.2.0", protocol: "crc16" });
     const start = settled(h.transport.start()); await flush();
+    h.devices[0].receive("55aa030c02050320682f0000000300001147"); await flush();
     h.devices[0].receive("55aa0b0d0001000000000000010c000320c50e"); await start;
     h.devices[0].receive("55aa121c");
     const request = settled(h.transport.request({ command: 0x10, payload: hex("00000000000000804801feffff000085") }));
@@ -145,7 +250,7 @@ describe("BioSerialTransport", () => {
     expect(h.transport.snapshot().ready).toBe(true);
     await vi.advanceTimersByTimeAsync(1);
     expect(await request).toMatchObject({ code: "TIMEOUT" });
-    expect(h.devices[0].writes).toEqual(["55aa0a000710"]);
+    expect(h.devices[0].writes).toEqual(["55aa82000000", "4753820000", "55aa0a000710"]);
     await h.transport.stop();
     await vi.advanceTimersByTimeAsync(40000);
     expect(h.devices).toHaveLength(1);

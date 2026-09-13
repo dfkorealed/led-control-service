@@ -14,7 +14,7 @@ export interface BioTransportSnapshot {
 }
 export interface BioTransportOptions {
   devicePath?: string;
-  /** Installed Android 1.2.0 has separate ACK/notification channels; physical CRC-mode HIL is still required. */
+  /** Installed Android 1.2.0 uses converter-info startup and separate ACK/notification channels. */
   profile?: "legacy" | "android-v1.2.0";
   protocol?: BioProtocol | "auto";
   timeoutMs?: number;
@@ -44,6 +44,7 @@ export class BioSerialTransport {
   private connection?: SerialConnection;
   private unsubscribe: (() => void)[] = [];
   private active?: PendingRequest;
+  private startup?: { resolve: () => void; reject: (error: BioUsbError) => void };
   private timeout?: ReturnType<typeof setTimeout>;
   private partialTimeout?: ReturnType<typeof setTimeout>;
   private reconnectTimer?: ReturnType<typeof setTimeout>;
@@ -135,17 +136,36 @@ export class BioSerialTransport {
       connection.onData((bytes) => this.receive(generation, bytes)),
       connection.onDisconnect(() => this.fail(generation, new BioUsbError("DISCONNECTED", "BIO serial disconnected")))
     ];
-    await connection.open();
+    const traced = this.options.profile === "android-v1.2.0";
+    // Arm before native open so even an early info frame is preserved. HIL
+    // requires both converter literals, not a passive power-on wait or an 83 ACK.
+    const startup = traced ? new Promise<void>((resolve, reject) => {
+      this.startup = { resolve, reject };
+      this.timeout = setTimeout(() => this.fail(generation, new BioUsbError("TIMEOUT", "BIO converter info timed out")), this.options.timeoutMs ?? 300);
+    }) : undefined;
+    void startup?.catch(() => {});
+    await connection.open(traced ? { preserveInput: true } : undefined);
     if (!this.current(generation)) {
       await connection.close();
       return;
     }
     this.update({ state: "probing", transportConnected: true });
+    if (traced) {
+      for (const literal of ["55aa82000000", "4753820000"]) {
+        if (!this.current(generation)) return;
+        await connection.write(Buffer.from(literal, "hex"));
+      }
+      await startup;
+      if (!this.current(generation)) return;
+      // Keep the startup deadline through both native write/drain operations,
+      // even if info arrived early. The network request gets its own deadline.
+      if (this.timeout) clearTimeout(this.timeout);
+      this.timeout = undefined;
+    }
     // The APK probes deliberately have zero trailers; normal frame encoders
     // must never be used here or taught to bypass response checksum validation.
     // Installed-app trace uses GET_NWK 0A/0B; 82 is a legacy converter hint,
     // not evidence that every connected dongle must return command 83.
-    const traced = this.options.profile === "android-v1.2.0";
     const literal = traced ? "55aa0a000710" : this.status.protocol === "crc16" ? "55aa82000000" : "4753820000";
     const probe = await new Promise<BioFrame>((resolve, reject) => this.send({ command: traced ? 0x0a : 0x82, bytes: Buffer.from(literal, "hex"), resolve, reject }));
     if (!this.current(generation)) return;
@@ -188,7 +208,13 @@ export class BioSerialTransport {
         this.fail(generation, new BioUsbError("MALFORMED_FRAME", "Malformed BIO frame"));
         break;
       }
-      if (this.options.profile === "android-v1.2.0" && event.frame.protocol === "crc16" && [0x03, 0x12].includes(event.frame.command)) {
+      if (this.options.profile === "android-v1.2.0" && (event.frame.command === 0x03 || (event.frame.protocol === "crc16" && event.frame.command === 0x12))) {
+        // Converter detection can return 03 in either validated framing. Only
+        // 03 releases startup; device RX 12 and unrelated ACKs never do.
+        if (event.frame.command === 0x03 && this.startup) {
+          this.startup.resolve();
+          this.startup = undefined;
+        }
         // These frames cannot acknowledge the in-flight request. A device RX
         // may arrive before/after 11 or with an unrelated device sequence.
         for (const listener of this.notificationListeners) listener(event.frame);
@@ -253,6 +279,8 @@ export class BioSerialTransport {
     if (this.partialTimeout) clearTimeout(this.partialTimeout);
     this.partialTimeout = undefined;
     this.codec.reset();
+    this.startup?.reject(error);
+    this.startup = undefined;
     this.active?.reject(error);
     this.active = undefined;
     for (const pending of this.queue.splice(0)) pending.reject(error);
