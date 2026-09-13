@@ -473,7 +473,7 @@ git commit -m "feat(web): add kinda logo component"
 - Consumes: Task 1의 SVG와 PNG public URL.
 - Produces: 브라우저 제목 `킨다 | 스마트 조명 운영`, SVG 우선 파비콘, 32px PNG fallback과 Navy theme color.
 
-- [ ] **Step 1: 메타데이터 실패 테스트를 작성한다.**
+- [x] **Step 1: 메타데이터 실패 테스트를 작성한다.**
 
 ```ts
 import { readFileSync } from "node:fs";
@@ -491,13 +491,13 @@ describe("킨다 브라우저 메타데이터", () => {
 });
 ```
 
-- [ ] **Step 2: 기존 제목 때문에 실패하는지 확인한다.**
+- [x] **Step 2: 기존 제목 때문에 실패하는지 확인한다.**
 
 Run: `pnpm --filter @led-control/web test -- src/brand-metadata.test.ts`
 
 Expected: `킨다 | 스마트 조명 운영` 기대가 실패한다.
 
-- [ ] **Step 3: `index.html`의 `head`를 다음처럼 교체한다.**
+- [x] **Step 3: `index.html`의 `head`를 다음처럼 교체한다.**
 
 ```html
 <head>
@@ -510,7 +510,7 @@ Expected: `킨다 | 스마트 조명 운영` 기대가 실패한다.
 </head>
 ```
 
-- [ ] **Step 4: 메타데이터 테스트와 production 복사를 검증한다.**
+- [x] **Step 4: 메타데이터 테스트와 production 복사를 검증한다.**
 
 Run: `pnpm --filter @led-control/web test -- src/brand-metadata.test.ts`
 
@@ -520,7 +520,7 @@ Run: `pnpm --filter @led-control/web build`
 
 Expected: 종료 코드 `0`이며 `apps/web/dist/brand/kinda-mark.svg`, `apps/web/dist/brand/kinda-mark-512.png`, `apps/web/dist/brand/favicon-32.png`가 존재한다.
 
-- [ ] **Step 5: 브라우저 메타데이터를 커밋한다.**
+- [x] **Step 5: 브라우저 메타데이터를 커밋한다.**
 
 ```bash
 git add apps/web/index.html apps/web/src/brand-metadata.test.ts
