@@ -599,6 +599,40 @@ git commit -m "feat(gateway): deploy one BIO raw USB device safely"
 
 ---
 
+### Task 8a: Lab MQTT DNS/SAN baseline recovery
+
+**Files:**
+- Evidence only, Git-ignored: `.superpowers/sdd/2026-09-13-bio-direct-usb-registration-control/task-8a-mqtt-recovery/`
+- Modify when state changes: `docs/project-status.md`
+- Modify when a repeatable gap is found: `docs/lesson_leared.md`
+- Modify only if an automation defect is reproduced: `scripts/pki/bootstrap-device-lab.sh`, `scripts/pki/bootstrap-device-lab.test.mjs`, `scripts/lan-tls-integration.test.mjs`, `scripts/dev.mjs`, `scripts/dev-runtime.mjs`, corresponding tests
+
+**Recovery boundary:**
+- Current LAN address, `lab.env`, service certificate SAN, running API/MQTT environment, Pi host resolution and container resolution must describe the same `api.led.lan` / `mqtt.led.lan` endpoint.
+- Preserve DB Site/Gateway IDs, claim state, device identity and Gateway client certificate.
+- Back up current Lab PKI service generation metadata, Pi hosts/compose/env/data and running container metadata before mutation; never record private key/token contents.
+- Do not deploy the BIO image or execute any lamp write in this task.
+
+- [ ] **Step 1: Phase-1 evidence를 다시 수집한다.** 현재 Mac LAN IP, local listeners/processes, effective `MQTT_URL`, current MQTT certificate DNS/IP SAN, Pi와 running container의 `getent`, TCP 8883, TLS hostname/mTLS, Gateway health/heartbeat를 순서대로 재현한다.
+
+- [ ] **Step 2: 단일 root-cause hypothesis를 확정한다.** API/MQTT 실행 환경, Lab certificate generation, Pi host mapping 가운데 불일치한 경계를 명시하고 변경 전 증거 SHA-256을 기록한다.
+
+- [ ] **Step 3: 자동화 결함이 있으면 RED를 먼저 작성한다.** 기존 runbook만으로 올바르게 복구되면 제품 코드를 바꾸지 않는다. 재현 가능한 script 결함이 있을 때만 failing contract를 만든 뒤 최소 수정한다.
+
+- [ ] **Step 4: rollback 자료를 만든다.** Lab PKI current generation과 실행 env의 비밀 원문을 출력하지 않고 권한 제한 backup을 만들며, Pi `/etc/hosts`, compose/env/data와 container ID/image/StartedAt/restart count를 보존한다.
+
+- [ ] **Step 5: 현재 LAN IP로 Lab PKI와 runtime을 복구한다.** `LAB_API_IP`와 `LAB_MQTT_IP`를 같은 검증된 LAN IP로 사용해 `lab:pki:bootstrap`을 실행하고 새 `lab.env`로 API/MQTT를 재기동한다. 기존 DB, claim, Gateway device/client identity는 초기화하거나 재발급하지 않는다.
+
+- [ ] **Step 6: Pi와 container name resolution을 복구한다.** Pi의 두 `.led.lan` 이름을 같은 LAN IP로 원자 갱신하고, 기존 image와 data를 유지한 채 Gateway service만 재생성해 container 내부 resolution을 갱신한다.
+
+- [ ] **Step 7: DNS → TCP → TLS SAN/mTLS → MQTT CONNACK을 확인한다.** 어느 단계든 실패하면 후속 BIO 배포와 HIL을 중단하고 rollback 또는 보존 상태를 기록한다.
+
+- [ ] **Step 8: 서로 다른 healthy heartbeat 3회를 확인한다.** API DB의 `lastHeartbeatAt` 증가, Gateway health와 container lifecycle을 함께 대조한다.
+
+- [ ] **Step 9: 문서와 증거를 갱신하고 커밋한다.** `docs/project-status.md`, Task 8 Step 9와 이 체크리스트를 실제 결과와 일치시킨다.
+
+---
+
 ### Task 9: Approved single-device address and control HIL
 
 **Files:**
