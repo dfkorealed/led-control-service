@@ -13,6 +13,7 @@ import {
 } from "../src/bio/bio-dongle-client";
 import { BioDirectUsbConnection } from "../src/bio/bio-direct-usb-connection";
 import { decodeBioResponse, type BioControlMode } from "../src/bio/bio-command-codec";
+import type { BioFrame } from "../src/bio/bio-frame-codec";
 import { BioUsbError } from "../src/bio/bio-usb-error";
 import { BioUsbTransport } from "../src/bio/bio-usb-transport";
 
@@ -271,12 +272,8 @@ class PassiveReadOnlySession implements HilReadOnlySession {
       }
     });
     this.unsubscribe = this.transport.onNotification((frame) => {
-      try {
-        const response = decodeBioResponse(frame);
-        if (response.kind === "discovery") this.observations.push(toHilDevice(response));
-      } catch {
-        // [확인됨] 손상되거나 미지원인 비동기 알림은 identity 후보가 아니다. payload를 기록하지 않는다.
-      }
+      const observation = decodePassiveHilObservation(frame);
+      if (observation) this.observations.push(observation);
     });
   }
 
@@ -457,12 +454,24 @@ function confirmationLiteral(fingerprint: string, oldAddress: string, newAddress
   return `CHANGE:${fingerprint}:${oldAddress}->${newAddress}`;
 }
 
-function toHilDevice(response: Extract<ReturnType<typeof decodeBioResponse>, { kind: "discovery" }>): HilDiscoveredDevice {
+/**
+ * [확인됨] transport가 여기까지 전달한 CRC16 frame은 outer checksum/길이를 이미 검증했다.
+ * outer `0x12` 공통 LampHeader에서 byte 1..6은 UUID, 9..10은 source/current address,
+ * 13..14는 network ID이고 두 16-bit 값은 big-endian이다. Task 3 실장비는 scan 명령 없이
+ * payload 16-byte `0x12`를 반복 송신했으므로 이 공통 header만 passive identity로 사용한다.
+ * [추정] byte 15 이후의 inner opcode가 discovery가 아니어도 header identity는 동일하다.
+ * [미확인] 이 짧은 알림에는 firmware 의미가 확인되지 않았으므로 값을 만들지 않고
+ * `unreported`로 둔다. raw UUID/header/payload 자체는 어떤 출력에도 전달하지 않는다.
+ */
+export function decodePassiveHilObservation(frame: BioFrame): HilDiscoveredDevice | null {
+  if (frame.protocol !== "crc16" || frame.command !== 0x12 || frame.payload.length < 15) return null;
+  const payload = frame.payload;
   return {
-    nativeUuid: response.deviceUuid.slice(4), logicalAddress: response.logicalAddress,
-    networkId: response.networkId,
-    firmwareVersion: `${response.firmware.major}.${response.firmware.minor}.${response.firmware.revision}.${response.firmware.build}`,
-    rssi: response.rssiDbm
+    nativeUuid: payload.subarray(1, 7).toString("hex"),
+    logicalAddress: payload.readUInt16BE(9),
+    networkId: payload.readUInt16BE(13),
+    firmwareVersion: "unreported",
+    rssi: payload.readInt8(0)
   };
 }
 

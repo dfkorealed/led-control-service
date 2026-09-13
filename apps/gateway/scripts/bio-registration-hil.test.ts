@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import {
+  decodePassiveHilObservation,
   fingerprintBioUuid,
   runBioRegistrationHil,
   type BioRegistrationHilDependencies,
@@ -59,6 +60,24 @@ function harness(observations: HilDiscoveredDevice[] = [device]) {
 }
 
 describe("guarded BIO registration HIL CLI", () => {
+  it("extracts only the confirmed common header from a checksum-validated passive outer 0x12", () => {
+    const payload = Buffer.alloc(16);
+    payload.write("001122334455", 1, "hex");
+    payload.writeUInt16BE(0x1234, 9);
+    payload.writeUInt16BE(0x0021, 13);
+    payload[15] = 0x7f;
+
+    expect(decodePassiveHilObservation({ protocol: "crc16", command: 0x12, payload })).toEqual({
+      nativeUuid: "001122334455",
+      logicalAddress: 0x1234,
+      networkId: 0x0021,
+      firmwareVersion: "unreported",
+      rssi: 0
+    });
+    expect(decodePassiveHilObservation({ protocol: "crc16", command: 0x03, payload })).toBeNull();
+    expect(decodePassiveHilObservation({ protocol: "crc16", command: 0x12, payload: payload.subarray(0, 14) })).toBeNull();
+  });
+
   it("dry-run constructs only the passive read-only session and emits a redacted confirmation tuple", async () => {
     const h = harness();
 
