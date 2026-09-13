@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **2026-09-13 supersession:** Task 1~3과 Task 4의 traced codec/client 결과는 유지한다. 실장비에서 실패한 serial transport 기반 Task 4 hardware gate와 Task 5~10은 `docs/superpowers/plans/2026-09-13-bio-direct-usb-registration-control.md`가 대체한다.
+
 **Goal:** 실제 `1a86:5523` BIO USB-UART 동글로 센서통신모듈을 검색·등록하고 기존 서비스에서 개별·그룹 밝기와 점멸을 안전하게 제어한다.
 
 **Architecture:** 기존 Web/API/MQTT durability 계약을 유지하고 Gateway 내부에 frame codec, serial transport, durable mapping, `BioUsbDongleAdapter`를 추가한다. 기본 BlueZ 경로는 보존하며 1차 배포는 `GATEWAY_ADAPTER=bio-usb` 전용 모드로 수행한다. 확인되지 않은 opcode는 APK 추정값으로 넣지 않고 제조사 문서 또는 격리망 golden trace로만 활성화한다.
