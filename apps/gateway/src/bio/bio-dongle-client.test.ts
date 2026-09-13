@@ -40,6 +40,24 @@ function harness(initialSequence = 75, options: { scanDurationMs?: number; obser
   return { client, device };
 }
 
+function generationHarness(initialSequence = 75, options: { scanDurationMs?: number; observationTimeoutMs?: number } = {}) {
+  const devices: Device[] = [];
+  const client = new BioDongleClient({
+    initialSequence,
+    ...options,
+    connectionFactory: () => {
+      const device = new Device();
+      devices.push(device);
+      return device;
+    }
+  });
+  return {
+    client,
+    devices,
+    get device() { return devices[devices.length - 1]!; }
+  };
+}
+
 function discoveryHex(nativeUuid: string, logicalAddress: number, rssi = -45) {
   const payload = Buffer.alloc(28);
   payload.writeInt8(rssi, 0);
@@ -228,6 +246,61 @@ describe("BIO evidence-gated dongle client", () => {
     await expect(scanning).rejects.toMatchObject({ name: "AbortError" });
     expect(commandBodies(h.device)).toEqual(["8305"]);
     expect(h.device.isOpen).toBe(false);
+    await h.client.close();
+  });
+
+  it("retires a scan whose accepted ACK is followed by synchronous abort before the client continuation", async () => {
+    const h = generationHarness(71, { scanDurationMs: 100 }); await ready(h);
+    const firstDevice = h.device;
+    const controller = new AbortController();
+    const first = h.client.scan({ signal: controller.signal });
+    void first.catch(() => {});
+    await flush();
+
+    firstDevice.receive("55aa1101002055");
+    controller.abort();
+    await flush();
+
+    await expect(first).rejects.toMatchObject({ name: "AbortError" });
+    expect(commandBodies(firstDevice)).toEqual(["8305"]);
+    expect(firstDevice.isOpen).toBe(false);
+
+    const second = h.client.scan({ deadlineAt: Date.now() + 5_000 });
+    void second.catch(() => {});
+    await flush();
+    expect(h.devices).toHaveLength(1);
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    await flush();
+    expect(h.devices).toHaveLength(2);
+    await recoverReady(h.device);
+    expect(commandBodies(h.device)).toEqual(["8305"]);
+    h.device.receive("55aa1101002055");
+    await vi.advanceTimersByTimeAsync(100);
+    await flush();
+    h.device.receive("55aa1101002055");
+
+    await expect(second).resolves.toEqual([]);
+    await h.client.close();
+  });
+
+  it("does not retire or stop after a rejected scan ACK followed by synchronous abort", async () => {
+    const h = generationHarness(71, { scanDurationMs: 100 }); await ready(h);
+    const device = h.device;
+    const controller = new AbortController();
+    const scanning = h.client.scan({ signal: controller.signal });
+    void scanning.catch(() => {});
+    await flush();
+
+    device.emit("data", encodeCrcFrame(0x11, Buffer.from([1])));
+    controller.abort();
+    await flush();
+
+    await expect(scanning).rejects.toMatchObject({ code: "BIO_DONGLE_REJECTED" });
+    expect(commandBodies(device)).toEqual(["8305"]);
+    expect(device.isOpen).toBe(true);
+    expect(h.devices).toHaveLength(1);
+    expect(vi.getTimerCount()).toBe(0);
     await h.client.close();
   });
 
@@ -705,7 +778,8 @@ describe("BIO evidence-gated dongle client", () => {
       await flush();
       expect(unhandled).toEqual([]);
       expect((h.client as unknown as { listeners: Set<unknown> }).listeners.size).toBe(0);
-      expect(vi.getTimerCount()).toBe(0);
+      // The accepted GET timed out without a report, so only reconnect remains scheduled.
+      expect(vi.getTimerCount()).toBe(1);
     } finally {
       process.off("unhandledRejection", recordUnhandled);
       await h.client.close();
@@ -742,8 +816,68 @@ describe("BIO evidence-gated dongle client", () => {
 
     expect((h.client as unknown as { listeners: Set<unknown> }).listeners.size).toBe(0);
     await expect(reading).rejects.toMatchObject({ name: "AbortError" });
+    // The sole remaining timer owns the intentional reconnect after generation retirement.
+    expect(vi.getTimerCount()).toBe(1);
+    await h.client.close();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("retires an accepted cancelled GET so its delayed report cannot satisfy the next same-target GET", async () => {
+    const h = generationHarness(75, { observationTimeoutMs: 100 }); await ready(h);
+    const firstDevice = h.device;
+    const controller = new AbortController();
+    const first = h.client.readBrightness(verifiedTarget, { signal: controller.signal });
+    void first.catch(() => {});
+    await flush();
+
+    firstDevice.receive("55aa1101002055");
+    controller.abort();
+    const second = h.client.readBrightness(verifiedTarget, { deadlineAt: Date.now() + 5_000 });
+    void second.catch(() => {});
+    await flush();
+
+    await expect(first).rejects.toMatchObject({ name: "AbortError" });
+    expect(firstDevice.isOpen).toBe(false);
+    expect(h.devices).toHaveLength(1);
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    await flush();
+    expect(h.devices).toHaveLength(2);
+    await recoverReady(h.device);
+    expect(commandBodies(h.device)).toEqual(["4e13"]);
+    h.device.receive("55aa1101002055");
+    await flush();
+
+    let secondSettled = false;
+    void second.finally(() => { secondSettled = true; }).catch(() => {});
+    firstDevice.receive(brightnessReportHex("001122334455", 0x1234, 198));
+    await flush();
+    expect(secondSettled).toBe(false);
+
+    h.device.receive(brightnessReportHex("001122334455", 0x1234, 199));
+    await expect(second).resolves.toMatchObject({ rawHighBrightness: 199 });
+    expect((h.client as unknown as { listeners: Set<unknown> }).listeners.size).toBe(0);
     expect(vi.getTimerCount()).toBe(0);
     await h.client.close();
+  });
+
+  it("retires an accepted GET when its matching device report times out", async () => {
+    const h = generationHarness(75, { observationTimeoutMs: 100 }); await ready(h);
+    const device = h.device;
+    const reading = h.client.readBrightness(verifiedTarget);
+    void reading.catch(() => {});
+    await flush();
+
+    device.receive("55aa1101002055");
+    await flush();
+    await vi.advanceTimersByTimeAsync(100);
+    await flush();
+
+    await expect(reading).rejects.toMatchObject({ code: "TIMEOUT" });
+    expect(device.isOpen).toBe(false);
+    expect(commandBodies(device)).toEqual(["4e13"]);
+    await h.client.close();
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("serializes two same-target GET operations through each command and its own report", async () => {

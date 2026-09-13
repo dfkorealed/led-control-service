@@ -136,20 +136,21 @@ export class BioDongleClient {
     this.activeScan = collected;
     this.activeScanObservations = observations;
     let failure: unknown;
-    let scanStarted = false;
+    let scanAccepted = false;
     try {
-      await this.send({ kind: "scan" }, control);
-      scanStarted = true;
+      await this.send({ kind: "scan" }, control, () => { scanAccepted = true; });
       await controlledDelay(this.scanDurationMs, control);
     } catch (error) {
       failure = error;
     } finally {
       try {
-        // [확인됨] expiry 뒤 scan stop도 새 physical write이므로 보내지 않는다. start ACK 뒤
-        // 취소라면 dongle scan 상태를 신뢰할 수 없어 connection generation을 폐기하고 reconnect
-        // probe가 새 stream ownership을 열게 한다. start write 중 취소는 transport가 이미 폐기한다.
+        // [확인됨] accepted ACK는 sendDirect의 첫 await continuation에서 exact status를 decode한
+        // 직후, post-ACK abort 검사보다 먼저 표시한다. ACK 직후 caller가 동기적으로 abort했어도
+        // scan ownership을 잃지 않는다. expiry 뒤 stop은 새 physical write이므로 보내지 않고,
+        // accepted scan은 generation을 폐기한다. reject status는 accepted로 표시하지 않으며
+        // start write 중 취소는 transport가 이미 폐기한다.
         if (operationStopped(control)) {
-          if (scanStarted) await this.transport.retireCancelledOperation();
+          if (scanAccepted) await this.transport.retireCancelledOperation();
         } else await this.stopScan(control);
       } catch (stopError) {
         // stop ACK는 성공 list의 필수 gate다. start/window 오류가 이미 있어도 불확실한
@@ -393,7 +394,9 @@ export class BioDongleClient {
     expected: { nativeUuid: string; logicalAddress: number },
     control: BioOperationControl = {}
   ): Promise<ReadbackEvent> {
-    return this.operationQueue.run(() => {
+    return this.operationQueue.run(async () => {
+      throwIfOperationStopped(control);
+      await this.waitUntilReadyIfReconnecting(control);
       throwIfOperationStopped(control);
       return this.requestReadbackOwned(operation, expected, control);
     });
@@ -409,16 +412,26 @@ export class BioDongleClient {
       ? "high-brightness-report"
       : "control-mode-report";
     const waiting = this.waitForReadback(expected, expectedKind, control);
+    let requestAccepted = false;
     try {
       // [확인됨] 캡처상 장치 0x12가 동글 outer 0x11보다 먼저 올 수 있으므로 listener를
       // wire write 전에 등록한다. waiter result에는 이 시점부터 rejection handler가 붙어 있다.
-      await this.sendDirect(operation, control);
+      await this.sendDirect(operation, control, () => { requestAccepted = true; });
       const observed = await waiting.result;
       if (!observed.ok) throw observed.error;
       throwIfOperationStopped(control);
       return observed.value;
     } catch (error) {
+      const reportMatched = waiting.hasMatched();
       waiting.cancel();
+      if (requestAccepted && !reportMatched) {
+        // [확인됨] GET ACK 뒤 아직 matching 0x12가 없으면 UUID/address/DPID만으로 늦은
+        // report와 다음 GET을 구분할 수 없다. caller abort/deadline뿐 아니라 observation timeout도
+        // waiter 제거만으로는 부족하므로 같은 generation을 폐기하고 close가 확인된 뒤 queue를
+        // 넘긴다. ACK보다 먼저 이미 matching report를 확보한 경우에는 남은 late report
+        // ownership이 없으므로 불필요한 retirement를 피한다.
+        await this.transport.retireCancelledOperation();
+      }
       throw error;
     }
   }
@@ -432,6 +445,7 @@ export class BioDongleClient {
     let timer: ReturnType<typeof setTimeout> | undefined;
     let rejectWait!: (error: unknown) => void;
     let settled = false;
+    let matched = false;
     const cancelForControl = () => {
       if (settled) return;
       settled = true;
@@ -450,6 +464,7 @@ export class BioDongleClient {
         if (event.kind !== expectedKind
           || event.deviceUuid !== `bio:${expected.nativeUuid}`
           || event.logicalAddress !== expected.logicalAddress) return;
+        matched = true;
         settled = true;
         cleanup();
         resolve(event);
@@ -476,6 +491,7 @@ export class BioDongleClient {
     );
     return {
       result,
+      hasMatched: () => matched,
       cancel: () => {
         if (settled) return;
         settled = true;
@@ -559,23 +575,36 @@ export class BioDongleClient {
     throwIfOperationStopped(control);
   }
 
-  private send(operation: BioOperation, control: BioOperationControl = {}): Promise<BioCommandAcceptance> {
+  private send(
+    operation: BioOperation,
+    control: BioOperationControl = {},
+    onAccepted?: () => void
+  ): Promise<BioCommandAcceptance> {
     return this.operationQueue.run(() => {
       // [확인됨] queue 대기 중 deadline/abort가 지나면 소유권을 얻은 직후 다시 검사해
       // expired command가 새 USB frame을 시작하지 못하게 한다.
       throwIfOperationStopped(control);
-      return this.sendDirect(operation, control);
+      return this.sendDirect(operation, control, onAccepted);
     });
   }
 
-  private async sendDirect(operation: BioOperation, control: BioOperationControl = {}): Promise<BioCommandAcceptance> {
+  private async sendDirect(
+    operation: BioOperation,
+    control: BioOperationControl = {},
+    onAccepted?: () => void
+  ): Promise<BioCommandAcceptance> {
     throwIfOperationStopped(control);
     const request = encodeBioCommand(operation, this.sequence);
     this.sequence = (this.sequence + 1) & 0xff;
     const response = decodeBioResponse(await this.transport.request(request, control));
-    throwIfOperationStopped(control);
     if (response.kind !== "outer-ack") throw new BioUsbError("MALFORMED_FRAME", "BIO outer ACK was not validated");
     if (!response.accepted) throw Object.assign(new Error("BIO dongle rejected the command"), { code: "BIO_DONGLE_REJECTED" });
+    // [확인됨] accepted ownership은 ACK decode 직후 post-ACK abort 검사보다 먼저 기록한다.
+    // transport가 ACK를 resolve한 직후 signal이 바뀌어도 이 continuation은 exact status를 먼저
+    // 분류하므로 상위 scan/GET이 generation을 폐기할 근거를 잃지 않는다. reject status에는
+    // 이 callback을 호출하지 않는다.
+    onAccepted?.();
+    throwIfOperationStopped(control);
     return { outcome: "dongle-accepted", deviceApplied: false };
   }
 }

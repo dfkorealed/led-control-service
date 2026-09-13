@@ -109,8 +109,9 @@ export class BioUsbTransport {
   async retireCancelledOperation(): Promise<void> {
     if (this.status.ready) {
       // [확인됨] scan start ACK 뒤 caller가 취소되면 STOP write도 만료 후 새 write가 된다.
-      // dongle scan 상태가 남았을 가능성이 있으므로 descriptor 세대를 폐기해 다음 요청이
-      // 같은 byte stream을 소유하지 못하게 하고, reconnect probe로만 새 소유권을 연다.
+      // 또한 accepted GET 뒤 matching report가 없으면 transaction ID가 없어 늦은 report를
+      // 다음 GET과 구분할 수 없다. 두 경우 모두 descriptor 세대를 폐기해 다음 요청이 같은
+      // byte stream을 소유하지 못하게 하고, reconnect probe로만 새 소유권을 연다.
       this.fail(this.status.generation, new BioUsbError("STOPPED", "BIO operation cancelled after a physical write"));
     }
     await this.closing;
