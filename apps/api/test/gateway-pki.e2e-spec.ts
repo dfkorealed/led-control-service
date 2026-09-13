@@ -116,6 +116,7 @@ function services(prisma: PrismaService, validator = { validate: jest.fn().mockR
       notAfter: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString()
     })),
     revoke: jest.fn(),
+    rebuildCrl: jest.fn(),
     readCrl: jest.fn()
   };
   const reconciliation = new CertificateRevocationReconciliationService(prisma, certificateAuthority);

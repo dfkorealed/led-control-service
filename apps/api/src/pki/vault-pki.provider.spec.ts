@@ -154,6 +154,25 @@ describe("VaultPkiProvider", () => {
     expect({ method, url }).toEqual({ method: "GET", url: expectedPath });
   });
 
+  it.each([
+    ["device", "/v1/device-pki/crl/rotate"],
+    ["mqtt", "/v1/mqtt-pki/crl/rotate"]
+  ] as const)("forces the %s CRL to rebuild before reconciliation fetches it", async (purpose, expectedPath) => {
+    const requests: CapturedRequest[] = [];
+    const address = await startServer((request, response) => {
+      captureRequest(request).then((captured) => {
+        requests.push(captured);
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify({ data: {} }));
+      });
+    });
+    const provider = new VaultPkiProvider(options(address, tokenFile));
+
+    await (provider as any).rebuildCrl(purpose);
+
+    expect(requests).toEqual([{ method: "POST", url: expectedPath, body: {} }]);
+  });
+
   it("rejects non-PEM CRL responses without exposing the body", async () => {
     const address = await startServer((request, response) => {
       request.resume();

@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { PrismaService } from "../prisma/prisma.service";
 import { CERTIFICATE_AUTHORITY_PROVIDER, type CertificateAuthorityProvider } from "./certificate-authority.provider";
 import { CERTIFICATE_LIFECYCLE_CONFIGURATION, type CertificateLifecycleConfiguration } from "./certificate-lifecycle.configuration";
-import { publishCrlAtomically } from "./crl-publisher";
+import { assertCrlContainsSerial, publishCrlAtomically } from "./crl-publisher";
 import { lockGatewayCertificates, lockGatewayInventory } from "./inventory-certificate-lock";
 import type { RevokeCertificateInput } from "./pki.types";
 
@@ -170,7 +170,13 @@ export class CertificateRevocationReconciliationService implements OnModuleInit,
         await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(
           ${CRL_ADVISORY_NAMESPACE}::integer, ${row.purpose === "device" ? 1 : 2}::integer
         )`);
+        // A successful Vault revoke updates its certificate record before an
+        // auto_rebuild CRL is necessarily regenerated. Force an idempotent
+        // rotation while this purpose lock is held, including CRL-only retries,
+        // so the following fetch cannot be the stable pre-revocation snapshot.
+        await this.certificateAuthority.rebuildCrl(row.purpose);
         let snapshot = await this.certificateAuthority.readCrl(row.purpose);
+        assertCrlContainsSerial(snapshot, row.certificateSerial);
         let confirmed = false;
         for (let attempt = 0; attempt < MAX_CRL_PUBLICATIONS; attempt += 1) {
           // Prisma timeouts do not cancel an awaiting JS callback. Re-query after
@@ -185,6 +191,10 @@ export class CertificateRevocationReconciliationService implements OnModuleInit,
           // concurrent revoke may advance the CRL during I/O; confirm convergence
           // before completion, otherwise publish the freshly read snapshot again.
           const latest = await this.certificateAuthority.readCrl(row.purpose);
+          // Byte stability proves only that Vault served the same cached bytes.
+          // Completion is gated on the exact job serial remaining in every
+          // candidate snapshot; otherwise the durable job backs off and retries.
+          assertCrlContainsSerial(latest, row.certificateSerial);
           if (latest === snapshot) {
             confirmed = true;
             break;

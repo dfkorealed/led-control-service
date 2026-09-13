@@ -5,6 +5,7 @@ export const CERTIFICATE_AUTHORITY_PROVIDER = Symbol("CERTIFICATE_AUTHORITY_PROV
 export interface CertificateAuthorityProvider {
   signCsr(input: SignCsrInput): Promise<SignedCertificate>;
   revoke(input: RevokeCertificateInput): Promise<void>;
+  rebuildCrl(purpose: CertificatePurpose): Promise<void>;
   readCrl(purpose: CertificatePurpose): Promise<string>;
 }
 
@@ -14,6 +15,10 @@ export class UnavailableCertificateAuthorityProvider implements CertificateAutho
   }
 
   async revoke(_input: RevokeCertificateInput): Promise<void> {
+    throw new Error("certificate authority is unavailable");
+  }
+
+  async rebuildCrl(_purpose: CertificatePurpose): Promise<void> {
     throw new Error("certificate authority is unavailable");
   }
 

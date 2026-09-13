@@ -1,6 +1,7 @@
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createTestCrl } from "./crl.test-support";
 import { publishCrlAtomically } from "./crl-publisher";
 
 const CRL = "-----BEGIN X509 CRL-----\nMIIB\n-----END X509 CRL-----\n";
@@ -31,5 +32,19 @@ describe("publishCrlAtomically", () => {
 
     await expect(publishCrlAtomically(path, "SECRET-CRL")).rejects.toThrow("CRL must be PEM encoded");
     await expect(readFile(path, "utf8")).rejects.toThrow();
+  });
+
+  it("atomically replaces the intermediate while preserving exactly one existing Root CRL", async () => {
+    const path = join(directory, "device.crl.pem");
+    const staleIntermediate = await createTestCrl(["AA01"], "CN=Device Intermediate", 0);
+    const refreshedIntermediate = await createTestCrl(["AA01", "BB02"], "CN=Device Intermediate", 1);
+    const root = await createTestCrl([], "CN=Lab Root", 0);
+    await writeFile(path, `${staleIntermediate.trim()}\n${root.trim()}\n`, { mode: 0o644 });
+
+    await publishCrlAtomically(path, refreshedIntermediate);
+
+    const published = await readFile(path, "utf8");
+    expect(published.match(/-----BEGIN X509 CRL-----/g)).toHaveLength(2);
+    expect(published).toBe(`${refreshedIntermediate.trim()}\n${root.trim()}\n`);
   });
 });

@@ -346,6 +346,7 @@ function createFixture(overrides: {
   const ca = {
     signCsr: jest.fn().mockResolvedValue(signedCertificate()),
     revoke: jest.fn().mockResolvedValue(undefined),
+    rebuildCrl: jest.fn(),
     readCrl: jest.fn()
   } as jest.Mocked<CertificateAuthorityProvider>;
   const csrValidator = { validate: jest.fn().mockResolvedValue({ publicKey: {} as CryptoKey }) };

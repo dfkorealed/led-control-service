@@ -8,6 +8,7 @@ import { ManufacturingEnrollmentService } from "./manufacturing-enrollment.servi
 import { rootCertificates } from "node:tls";
 import { OperatorSiteAdminsService } from "../operator-site-admins/operator-site-admins.service";
 import { HttpException, ServiceUnavailableException } from "@nestjs/common";
+import { createTestCrl } from "./crl.test-support";
 
 const databaseUrl = process.env.PKI_CONCURRENCY_TEST_DATABASE_URL;
 const integration = databaseUrl ? describe : describe.skip;
@@ -53,7 +54,12 @@ integration("certificate inventory concurrency (disposable PostgreSQL only)", ()
     await first.gatewayCertificate.create({ data: { inventoryId, gatewayId, purpose: "device", certificateSerial: "01", fingerprint: ACTIVE, issuer: "device-ca", status: "active", notBefore: new Date(Date.now() - 86400000), notAfter: new Date(Date.now() + 86400000) } });
     await first.gatewayCertificate.create({ data: { inventoryId, gatewayId, purpose: "device", certificateSerial: "02", fingerprint: PENDING, issuer: "device-ca", status: "pending", notBefore: new Date(), notAfter: new Date(Date.now() + 864000000) } });
     sequence = 10;
-    ca = { signCsr: jest.fn(async () => signed()), revoke: jest.fn(async () => { throw new Error("provider-secret"); }), readCrl: jest.fn() };
+    ca = {
+      signCsr: jest.fn(async () => signed()),
+      revoke: jest.fn(async () => { throw new Error("provider-secret"); }),
+      rebuildCrl: jest.fn(),
+      readCrl: jest.fn()
+    };
   });
   function signed() {
     sequence += 1;
@@ -77,7 +83,7 @@ integration("certificate inventory concurrency (disposable PostgreSQL only)", ()
     expect(await first.certificateRevocationReconciliation.count()).toBe(0);
 
     ca.revoke.mockResolvedValue(undefined);
-    ca.readCrl.mockResolvedValue("fixture-current-crl");
+    ca.readCrl.mockResolvedValue(await createTestCrl([certificate.certificateSerial]));
     const publishCrl = jest.fn().mockRejectedValueOnce(new Error("fixture CRL destination unavailable"))
       .mockResolvedValue({ changed: true });
     const configuration = { deviceCrlPath: "/fixture/device.crl", publishCrl };
@@ -280,7 +286,7 @@ integration("certificate inventory concurrency (disposable PostgreSQL only)", ()
     expect(await second.gatewayCertificate.count({ where: { fingerprint: orphan.fingerprint } })).toBe(0);
     await second.certificateRevocationReconciliation.update({ where: { id: orphan.id }, data: { nextAttemptAt: new Date(0) } });
     ca.revoke.mockResolvedValue(undefined);
-    ca.readCrl.mockResolvedValue(Buffer.from("current-crl"));
+    ca.readCrl.mockResolvedValue(await createTestCrl([orphan.certificateSerial]));
     const restarted = new CertificateRevocationReconciliationService(second as never, ca, { deviceCrlPath: "/fixture/device.crl", mqttCrlPath: "/fixture/mqtt.crl", publishCrl: jest.fn().mockResolvedValue({ changed: true }) });
     await restarted.processNow(orphan.id);
     const completed = await second.certificateRevocationReconciliation.findUniqueOrThrow({ where: { id: orphan.id } });

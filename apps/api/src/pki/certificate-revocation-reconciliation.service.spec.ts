@@ -1,6 +1,7 @@
 import { ServiceUnavailableException } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import { CertificateRevocationReconciliationService } from "./certificate-revocation-reconciliation.service";
+import { createTestCrl } from "./crl.test-support";
 import { lockGatewayCertificates, lockGatewayInventory } from "./inventory-certificate-lock";
 
 const NOW = new Date("2026-09-12T00:00:00.000Z");
@@ -9,6 +10,19 @@ const metadata = {
   issuer: "device-ca", certificateSerial: "AA01", fingerprint: "AB".repeat(32),
   source: "signed_certificate" as const
 };
+
+let crlAa01: string;
+let crlBb02: string;
+let crlBoth: string;
+let changingCrls: string[];
+
+beforeAll(async () => {
+  crlAa01 = await createTestCrl(["AA01"], "CN=Test Intermediate", 0);
+  crlBb02 = await createTestCrl(["BB02"], "CN=Test Intermediate", 1);
+  crlBoth = await createTestCrl(["AA01", "BB02"], "CN=Test Intermediate", 2);
+  changingCrls = await Promise.all(Array.from({ length: 6 }, (_, index) =>
+    createTestCrl(["AA01"], "CN=Test Intermediate", index + 3)));
+});
 
 function job(overrides: Record<string, unknown> = {}) {
   return {
@@ -42,7 +56,12 @@ function setup() {
     $queryRaw: jest.fn().mockResolvedValue([])
   };
   const prisma: any = { ...tx, $transaction: jest.fn(async (callback: any) => callback(tx)) };
-  const ca = { signCsr: jest.fn(), revoke: jest.fn().mockResolvedValue(undefined), readCrl: jest.fn().mockResolvedValue("fixture-crl") };
+  const ca = {
+    signCsr: jest.fn(),
+    revoke: jest.fn().mockResolvedValue(undefined),
+    rebuildCrl: jest.fn().mockResolvedValue(undefined),
+    readCrl: jest.fn().mockImplementation(async () => crlAa01)
+  };
   const config = { deviceCrlPath: "/test/device.crl", mqttCrlPath: "/test/mqtt.crl", publishCrl: jest.fn().mockResolvedValue(undefined) };
   const service = new CertificateRevocationReconciliationService(prisma, ca, config);
   return { service, prisma, tx, ledger, rows, ca, config };
@@ -120,7 +139,7 @@ describe("CertificateRevocationReconciliationService", () => {
     tx.$queryRaw.mockResolvedValueOnce([job({ revokedAt: NOW, certificateId: "certificate-1", attempts: 2 })]);
     await service.processNow("job-1");
     expect(ca.revoke).toHaveBeenCalledTimes(1);
-    expect(config.publishCrl).toHaveBeenLastCalledWith("/test/device.crl", "fixture-crl");
+    expect(config.publishCrl).toHaveBeenLastCalledWith("/test/device.crl", crlAa01);
     expect(ledger.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ completedAt: NOW }) }));
     expect(tx.gatewayCertificate.updateMany).toHaveBeenCalledWith({
       where: { id: "certificate-1", inventoryId: "inventory-1", fingerprint: metadata.fingerprint },
@@ -179,13 +198,47 @@ describe("CertificateRevocationReconciliationService", () => {
     expect(config.publishCrl).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["device", "/test/device.crl"],
+    ["mqtt", "/test/mqtt.crl"]
+  ] as const)("forces a fresh %s CRL before reading and publishing it", async (purpose, path) => {
+    const { service, tx, ca, config, ledger } = setup();
+    tx.$queryRaw.mockResolvedValueOnce([job({ purpose, revokedAt: NOW })]);
+    let rebuilt = false;
+    ca.rebuildCrl.mockImplementation(async () => { rebuilt = true; });
+    ca.readCrl.mockImplementation(async () => rebuilt ? crlAa01 : crlBb02);
+
+    await service.processNow("job-1");
+
+    expect(ca.rebuildCrl).toHaveBeenCalledWith(purpose);
+    expect(ca.rebuildCrl.mock.invocationCallOrder[0]).toBeLessThan(ca.readCrl.mock.invocationCallOrder[0]);
+    expect(config.publishCrl).toHaveBeenCalledWith(path, crlAa01);
+    expect(ledger.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ completedAt: NOW })
+    }));
+  });
+
+  it.each(["device", "mqtt"] as const)("keeps a %s job pending when the fetched CRL omits its exact serial", async purpose => {
+    const { service, tx, ca, config, ledger } = setup();
+    tx.$queryRaw.mockResolvedValueOnce([job({ purpose, revokedAt: NOW })]);
+    ca.readCrl.mockResolvedValue(crlBb02);
+
+    await service.processNow("job-1");
+
+    expect(config.publishCrl).not.toHaveBeenCalled();
+    expect(ledger.updateMany.mock.calls.every(([input]) => !input.data.completedAt)).toBe(true);
+    expect(ledger.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ lastError: "crl_publish_failed", leaseOwner: null, leaseExpiresAt: null })
+    }));
+  });
+
   it("re-reads the CA after publication and replaces a snapshot that became stale before completion", async () => {
     const { service, tx, ca, config, ledger } = setup();
     tx.$queryRaw.mockResolvedValueOnce([job({ revokedAt: NOW })]);
-    ca.readCrl.mockResolvedValueOnce("snapshot-1").mockResolvedValue("snapshot-2");
+    ca.readCrl.mockResolvedValueOnce(crlAa01).mockResolvedValue(crlBoth);
     await service.processNow("job-1");
     expect(config.publishCrl.mock.calls).toEqual([
-      ["/test/device.crl", "snapshot-1"], ["/test/device.crl", "snapshot-2"]
+      ["/test/device.crl", crlAa01], ["/test/device.crl", crlBoth]
     ]);
     expect(ca.readCrl).toHaveBeenCalledTimes(3);
     expect(ledger.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ completedAt: NOW }) }));
@@ -198,7 +251,7 @@ describe("CertificateRevocationReconciliationService", () => {
     ca.readCrl.mockImplementation(async () => {
       version += 1;
       if (version > 6) throw new Error("CA fixture unavailable after six versions");
-      return `snapshot-${version}`;
+      return changingCrls[version - 1];
     });
     await service.processNow("job-1");
     expect(config.publishCrl).toHaveBeenCalledTimes(3);
@@ -230,19 +283,20 @@ describe("CertificateRevocationReconciliationService", () => {
   it("leaves a post-publish crash uncompleted and a restarted worker re-reads and publishes the latest CRL", async () => {
     const { service, prisma, tx, ledger, ca, config } = setup();
     tx.$queryRaw.mockResolvedValueOnce([job({ revokedAt: NOW })]);
-    ca.readCrl.mockResolvedValueOnce("snapshot-1").mockRejectedValueOnce(new Error("publication interrupted before confirmation"));
+    ca.readCrl.mockResolvedValueOnce(crlAa01).mockRejectedValueOnce(new Error("publication interrupted before confirmation"));
     await service.processNow("job-1");
-    expect(config.publishCrl).toHaveBeenCalledWith("/test/device.crl", "snapshot-1");
+    expect(config.publishCrl).toHaveBeenCalledWith("/test/device.crl", crlAa01);
     expect(ledger.updateMany.mock.calls.every(([input]) => !input.data.completedAt)).toBe(true);
     tx.$queryRaw.mockResolvedValueOnce([job({ revokedAt: NOW, leaseOwner: "restarted-claim", attempts: 2 })]);
-    ca.readCrl.mockResolvedValue("snapshot-2");
+    ca.readCrl.mockResolvedValue(crlBoth);
     const restarted = new CertificateRevocationReconciliationService(prisma, ca, config);
     await restarted.processNow("job-1");
-    expect(config.publishCrl).toHaveBeenLastCalledWith("/test/device.crl", "snapshot-2");
+    expect(config.publishCrl).toHaveBeenLastCalledWith("/test/device.crl", crlBoth);
     expect(ledger.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ leaseOwner: "restarted-claim" }), data: expect.objectContaining({ completedAt: NOW })
     }));
     expect(ca.revoke).not.toHaveBeenCalled();
+    expect(ca.rebuildCrl).toHaveBeenCalledTimes(2);
   });
 
   it("stages logical revocation and reopens the previously cancelled signed obligation", async () => {
@@ -316,12 +370,13 @@ function concurrentWorkers(secondPurpose: "device" | "mqtt" = "device") {
       revoked.push(certificateSerial);
       if (certificateSerial === "BB02") secondRevoked.resolve();
     }),
-    readCrl: jest.fn(async (purpose: string) => `${purpose}:${revoked.join(",")}`)
+    rebuildCrl: jest.fn().mockResolvedValue(undefined),
+    readCrl: jest.fn(async () => revoked.includes("BB02") ? crlBoth : crlAa01)
   };
   const config = {
     deviceCrlPath: "/test/device.crl", mqttCrlPath: "/test/mqtt.crl",
     publishCrl: jest.fn(async (path: string, crl: string) => {
-      if (crl === "device:AA01") {
+      if (crl === crlAa01) {
         firstPublishStarted.resolve();
         await releaseFirstPublish.promise;
       }
@@ -400,7 +455,7 @@ describe("CRL publication across worker instances", () => {
     state.releaseFirstPublish.resolve();
     await Promise.all([first, second]);
     expect(readsWhileFirstPublishes).toBe(1);
-    expect(state.published.get("/test/device.crl")).toBe("device:AA01,BB02");
+    expect(state.published.get("/test/device.crl")).toBe(crlBoth);
     expect(state.rows.map(row => row.completedAt)).toEqual([NOW, NOW]);
   });
 
@@ -418,7 +473,7 @@ describe("CRL publication across worker instances", () => {
     await Promise.all([first, second]);
     expect(state.rows[0].completedAt).toBeNull();
     expect(state.rows[1].completedAt).toEqual(NOW);
-    expect(state.published.get("/test/device.crl")).toBe("device:AA01,BB02");
+    expect(state.published.get("/test/device.crl")).toBe(crlBoth);
   });
 
   it("holds the purpose lock through fenced finalization", async () => {
@@ -435,7 +490,7 @@ describe("CRL publication across worker instances", () => {
     state.releaseFirstFinalize.resolve();
     await Promise.all([first, second]);
     expect(readsWhileFinalizing).toBe(2);
-    expect(state.published.get("/test/device.crl")).toBe("device:AA01,BB02");
+    expect(state.published.get("/test/device.crl")).toBe(crlBoth);
   });
 
   it("lets MQTT finish while device publication is blocked", async () => {
@@ -449,7 +504,7 @@ describe("CRL publication across worker instances", () => {
     state.releaseFirstPublish.resolve();
     await Promise.all([first, second]);
     expect(mqttCompletedWhileDeviceBlocked).toEqual(NOW);
-    expect(state.published.get("/test/mqtt.crl")).toBe("mqtt:AA01,BB02");
+    expect(state.published.get("/test/mqtt.crl")).toBe(crlBoth);
   });
 
   it("keeps the publication lock beyond a row lease so a successor claim of that same row publishes last", async () => {
@@ -468,7 +523,7 @@ describe("CRL publication across worker instances", () => {
     state.releaseFirstPublish.resolve();
     await Promise.all([first, successor]);
     expect(readsWhilePredecessorPublishes).toBe(1);
-    expect(state.published.get("/test/device.crl")).toBe("device:AA01,BB02");
+    expect(state.published.get("/test/device.crl")).toBe(crlBoth);
     expect(state.rows[0].completedAt).toEqual(resumedAt);
   });
 });

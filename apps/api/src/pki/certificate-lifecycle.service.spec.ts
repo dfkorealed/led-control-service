@@ -280,6 +280,7 @@ function createFixture(overrides: {
       notAfter: daysFromNow(365).toISOString()
     }),
     revoke: jest.fn().mockResolvedValue(undefined),
+    rebuildCrl: jest.fn().mockResolvedValue(undefined),
     readCrl: jest.fn().mockImplementation((purpose) => Promise.resolve(
       `-----BEGIN X509 CRL-----\n${purpose === "device" ? "DEVICE" : "MQTT"}\n-----END X509 CRL-----\n`
     ))

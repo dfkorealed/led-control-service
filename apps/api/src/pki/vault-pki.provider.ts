@@ -69,6 +69,15 @@ export class VaultPkiProvider implements CertificateAuthorityProvider {
     });
   }
 
+  async rebuildCrl(purpose: CertificatePurpose): Promise<void> {
+    const rolePath = this.rolePaths[purpose];
+    // Vault's auto_rebuild mode may continue serving the cached CRL after a
+    // successful revoke until its rebuild window. Reconciliation needs the
+    // just-revoked serial now, so force the documented idempotent rotation
+    // before downloading the publication snapshot.
+    await this.requestJson(`/v1/${encodeURIComponent(rolePath.mount)}/crl/rotate`, {});
+  }
+
   async readCrl(purpose: CertificatePurpose): Promise<string> {
     const rolePath = this.rolePaths[purpose];
     const token = await readVaultToken(this.options.tokenFile);
