@@ -51,7 +51,7 @@ export interface HilWritableSession {
     percent: number,
     control?: { signal?: AbortSignal; onWriteStarted?: () => void }
   ): Promise<void>;
-  restoreSensorMode(device: HilDiscoveredDevice): Promise<void>;
+  restoreSensorMode(device: HilDiscoveredDevice, control?: { deadlineAt?: number }): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -293,7 +293,11 @@ async function executeWriteHil(
       }, async () => {
         // [확인됨] setOutput이 queue에서 취소되어 native state write가 시작되지 않았다면 이 단계의
         // restore도 보내지 않는다. 하나라도 실제 write가 시작된 경우에만 검증된 target으로 복귀한다.
-        if (stateWriteStarted) await writer.restoreSensorMode(target);
+        if (stateWriteStarted) {
+          // [확인됨] user cancellation signal은 이미 abort 상태이므로 복귀에 재사용하지 않는다.
+          // 별도 deadline 안에서 transport recovery probe와 sensor read-back까지 확인한다.
+          await writer.restoreSensorMode(target, { deadlineAt: Date.now() + cleanupTimeoutMs });
+        }
       }, cleanupTimeoutMs);
     }
     // [확인됨] 같은 process 안에서 client instance만 다시 만드는 것은 Gateway process restart가
@@ -308,7 +312,7 @@ async function executeWriteHil(
       for (const restoreTarget of finalRestoreTargets) {
         try {
           await boundedCleanup(
-            () => writer!.restoreSensorMode(restoreTarget),
+            () => writer!.restoreSensorMode(restoreTarget, { deadlineAt: Date.now() + cleanupTimeoutMs }),
             cleanupTimeoutMs,
             "RESTORE_TIMEOUT"
           );
@@ -443,17 +447,26 @@ class ProductWritableSession implements HilWritableSession {
     await this.client.setOutput(verifiedTarget(device), percent, control);
   }
 
-  async restoreSensorMode(device: HilDiscoveredDevice): Promise<void> {
-    const target = verifiedTarget(device);
-    await this.client.setControlMode(target, "sensor");
-    const report = await this.client.readDeviceInfo(target);
-    if (report.mode !== "sensor") throw new BioUsbError("BIO_CONTROL_MODE_STATE_MISMATCH", "BIO sensor restore was not confirmed");
+  async restoreSensorMode(device: HilDiscoveredDevice, control: { deadlineAt?: number } = {}): Promise<void> {
+    // [확인됨] cancellation로 descriptor 세대가 폐기됐을 수 있으므로 public client 복귀 API가
+    // fresh converter/GET_NWK readiness를 먼저 기다린다. 호출자 작업의 aborted signal은 넘기지
+    // 않고 cleanup 전용 deadline만 사용한다. [미확인] recovery를 증명하지 못하면 sensor 상태나
+    // USB driver 재부착을 성공으로 보고하지 않고 오류를 cleanup 결과에 보존한다.
+    await this.client.restoreSensorMode(verifiedTarget(device), control);
   }
 
   close(): Promise<void> { return this.client.close(); }
 
   private createClient() {
-    return new BioDongleClient({ timeoutMs: DEFAULT_TIMEOUT_MS, scanDurationMs: PASSIVE_DISCOVERY_MS });
+    // [확인됨] CLI의 10초 cleanup gate보다 transport descriptor retirement를 먼저
+    // terminal 상태로 만든다. 이 3초는 성공으로 간주하는 시간이 아니라, 미완료 시
+    // CLOSE_FAILED/영구 write 차단으로 전환하는 상한이다. [미확인] timeout이 난 native
+    // release/reattach 단계는 완료됐다고 기록하지 않는다.
+    return new BioDongleClient({
+      timeoutMs: DEFAULT_TIMEOUT_MS,
+      retirementTimeoutMs: DEFAULT_TIMEOUT_MS,
+      scanDurationMs: PASSIVE_DISCOVERY_MS
+    });
   }
 }
 

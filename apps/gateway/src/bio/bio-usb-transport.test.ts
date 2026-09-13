@@ -64,10 +64,11 @@ class HarnessConnection extends EventEmitter implements BioByteConnection {
   receive(value: string) { this.emit("data", hex(value)); }
 }
 
-function harness(options: { protocol?: "crc16" | "gs" | "auto"; profile?: "android-v1.2.0"; validateReadiness?: () => Promise<void>; timeoutMs?: number; configureDevice?: (device: HarnessConnection) => void } = {}) {
+function harness(options: { protocol?: "crc16" | "gs" | "auto"; profile?: "android-v1.2.0"; validateReadiness?: () => Promise<void>; timeoutMs?: number; retirementTimeoutMs?: number; configureDevice?: (device: HarnessConnection) => void } = {}) {
   const devices: HarnessConnection[] = [];
   const transport = new BioUsbTransport({
     protocol: options.protocol ?? "gs", profile: options.profile, timeoutMs: options.timeoutMs,
+    retirementTimeoutMs: options.retirementTimeoutMs,
     connectionFactory: () => {
       const device = new HarnessConnection(); devices.push(device);
       options.configureDevice?.(device);
@@ -822,6 +823,39 @@ describe("BioUsbTransport", () => {
     expect(value.devices).toHaveLength(2);
     expect(value.devices[1].writes).toEqual(["4753820000"]);
     await value.transport.stop();
+  });
+
+  it("bounds cancellation retirement and permanently disables writes when native close never settles", async () => {
+    const value = harness({ retirementTimeoutMs: 25 }); await ready(value);
+    const device = value.devices[0];
+    device.close = () => new Promise<void>(() => {});
+    const controller = new AbortController();
+    const active = settled(value.transport.request(
+      { command: 0, payload: hex("") },
+      { signal: controller.signal }
+    ));
+    await flush();
+    const writesAtCancellation = [...device.writes];
+
+    controller.abort();
+    const retirement = settled(value.transport.retireCancelledOperation());
+    await vi.advanceTimersByTimeAsync(24);
+    let retirementOutcome: unknown;
+    void retirement.then((outcome) => { retirementOutcome = outcome; });
+    await flush();
+    expect(retirementOutcome).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(1);
+    await flush();
+
+    expect(await active).toMatchObject({ name: "AbortError" });
+    expect(await retirement).toMatchObject({ code: "CLOSE_FAILED" });
+    expect(value.transport.snapshot()).toMatchObject({ state: "close-failed", lastError: "CLOSE_FAILED", ready: false });
+    await vi.advanceTimersByTimeAsync(64_000);
+    expect(value.devices).toHaveLength(1);
+    expect(device.writes).toEqual(writesAtCancellation);
+    await expect(value.transport.request({ command: 0, payload: hex("01") })).rejects.toMatchObject({ code: "NOT_READY" });
+    await expect(value.transport.start()).rejects.toMatchObject({ code: "CLOSE_FAILED" });
+    await expect(value.transport.stop()).rejects.toMatchObject({ code: "CLOSE_FAILED" });
   });
 
   it("preserves failed connection closure and blocks replacement probes and false stop success", async () => {

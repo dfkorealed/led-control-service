@@ -231,6 +231,20 @@ describe("guarded BIO registration HIL CLI", () => {
     });
   });
 
+  it("gives every sensor restoration an independent bounded cleanup deadline", async () => {
+    const h = harness();
+    const controls: Array<{ deadlineAt?: number } | undefined> = [];
+    h.writer.restoreSensorMode = vi.fn(async (_device, control?: { deadlineAt?: number }) => {
+      controls.push(control);
+    });
+
+    expect(await runBioRegistrationHil(confirmation().args, h.dependencies)).toBe(4);
+
+    expect(controls).toHaveLength(6);
+    expect(controls.every((control) => typeof control?.deadlineAt === "number" && control.deadlineAt > Date.now())).toBe(true);
+    expect(controls.every((control) => !("signal" in control!))).toBe(true);
+  });
+
   it("rejects a production mapping location before creating a write-capable session", async () => {
     const h = harness();
     h.dependencies.createTemporaryMapping = vi.fn(async () => ({
@@ -273,8 +287,16 @@ describe("guarded BIO registration HIL CLI", () => {
     expect(h.writer.setOutput).not.toHaveBeenCalled();
     expect(h.writer.restoreSensorMode).toHaveBeenCalledTimes(outcome === "unknown" ? 2 : 1);
     if (outcome === "unknown") {
-      expect(h.writer.restoreSensorMode).toHaveBeenNthCalledWith(1, expect.objectContaining({ logicalAddress: 0x1234 }));
-      expect(h.writer.restoreSensorMode).toHaveBeenNthCalledWith(2, expect.objectContaining({ logicalAddress: 0x0100 }));
+      expect(h.writer.restoreSensorMode).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({ logicalAddress: 0x1234 }),
+        expect.objectContaining({ deadlineAt: expect.any(Number) })
+      );
+      expect(h.writer.restoreSensorMode).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ logicalAddress: 0x0100 }),
+        expect.objectContaining({ deadlineAt: expect.any(Number) })
+      );
     }
     expect(h.writer.close).toHaveBeenCalledTimes(1);
     expect(h.dependencies.removeTemporaryMapping).toHaveBeenCalledTimes(1);
@@ -321,7 +343,10 @@ describe("guarded BIO registration HIL CLI", () => {
     expect(await runBioRegistrationHil(confirmation().args, h.dependencies)).toBe(1);
 
     expect(h.writer.restoreSensorMode).toHaveBeenCalledTimes(1);
-    expect(h.writer.restoreSensorMode).toHaveBeenCalledWith(device);
+    expect(h.writer.restoreSensorMode).toHaveBeenCalledWith(
+      device,
+      expect.objectContaining({ deadlineAt: expect.any(Number) })
+    );
     expect(h.writer.restoreSensorMode).not.toHaveBeenCalledWith(expect.objectContaining({ logicalAddress: 0x0100 }));
   });
 
@@ -444,6 +469,105 @@ describe("guarded BIO registration HIL CLI", () => {
     expect(stdout).toContain("EXIT:1");
     expect(stdout.match(/OUTPUT:/g)).toHaveLength(1);
   }, 15_000);
+
+  it("bounds repeated-signal cancellation through a real client when native close never settles", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "bio-hil-real-client-signal-"));
+    const childPath = join(directory, "child.mts");
+    const hilModuleUrl = new URL("./bio-registration-hil.ts", import.meta.url).href;
+    const clientModuleUrl = new URL("../src/bio/bio-dongle-client.ts", import.meta.url).href;
+    await writeFile(childPath, `
+      import { EventEmitter } from "node:events";
+      import { runBioRegistrationHil } from ${JSON.stringify(hilModuleUrl)};
+      import { BioDongleClient } from ${JSON.stringify(clientModuleUrl)};
+      const identity = { nativeUuid: "001122334455", logicalAddress: 0x1234, networkId: 0x21, firmwareVersion: "1", rssi: -1 };
+      let factories = 0;
+      let writesAtClose = -1;
+      class HangingConnection extends EventEmitter {
+        writes = [];
+        async open() {}
+        async write(bytes) {
+          const hex = Buffer.from(bytes).toString("hex");
+          this.writes.push(hex);
+          if (hex === "4753820000") queueMicrotask(() => this.emit("data", Buffer.from("55aa030c02050320682f0000000300001147", "hex")));
+          else if (hex.startsWith("55aa0a")) queueMicrotask(() => this.emit("data", Buffer.from("55aa0b0d0001000000000000010c000320c50e", "hex")));
+          else if (hex.startsWith("55aa10")) {
+            console.log("ACTIVE_WRITE");
+            queueMicrotask(() => this.emit("data", Buffer.from("55aa1101002055", "hex")));
+          }
+        }
+        close() {
+          writesAtClose = this.writes.length;
+          console.log("NATIVE_CLOSE_STARTED");
+          return new Promise(() => {});
+        }
+        onData(listener) { this.on("data", listener); return () => this.off("data", listener); }
+        onDisconnect(listener) { this.on("error", listener); return () => this.off("error", listener); }
+      }
+      const connection = new HangingConnection();
+      const client = new BioDongleClient({
+        timeoutMs: 100, scanDurationMs: 5_000, observationTimeoutMs: 100,
+        reconnectReadyTimeoutMs: 500, retirementTimeoutMs: 100,
+        connectionFactory: () => { factories += 1; return connection; }
+      });
+      const writer = {
+        discoverFresh: async () => [identity], reserveTemporaryMapping: async () => {},
+        assignAddressOnce: async (_device, _address, control) => {
+          control?.onWriteStarted?.();
+          return { outcome: "confirmed", device: { ...identity, logicalAddress: 0x0100 } };
+        },
+        confirmTemporaryMapping: async () => {}, readState: async () => ({ brightnessPercent: 20, mode: "sensor" }),
+        setOutput: async (_device, _percent, control) => client.scan(control),
+        restoreSensorMode: async (device, control) => client.restoreSensorMode(device, control),
+        close: async () => client.close()
+      };
+      const code = await runBioRegistrationHil([
+        "--execute", "--fingerprint", "sha256:48f4634d1002f9f3", "--old-address", "0x1234",
+        "--new-address", "0x0100", "--confirm-address-change", "CHANGE:sha256:48f4634d1002f9f3:0x1234->0x0100"
+      ], {
+        createReadOnlySession: () => ({ discover: async () => [identity], close: async () => {} }),
+        createWritableSession: async () => { await client.probe(); return writer; },
+        createTemporaryMapping: async () => ({ directory: "/tmp/bio-registration-hil-real-child", path: "/tmp/bio-registration-hil-real-child/mappings.json" }),
+        removeTemporaryMapping: async () => { console.log("CLEANUP"); },
+        confirmVisualStep: async () => true,
+        cleanupTimeoutMs: 250,
+        output: (line) => console.log("RESULT:" + line)
+      });
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      console.log("COUNTS:" + factories + ":" + writesAtClose + ":" + connection.writes.length);
+      console.log("EXIT:" + code);
+      process.exitCode = code;
+    `, { mode: 0o600 });
+
+    const child = spawn(process.execPath, ["--import", "tsx", childPath], {
+      cwd: new URL("..", import.meta.url).pathname,
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+      if (stdout.includes("ACTIVE_WRITE") && !stdout.includes("SIGNALLED")) {
+        stdout += "SIGNALLED\n";
+        child.kill("SIGTERM");
+        child.kill("SIGTERM");
+      }
+    });
+    const result = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolveResult, reject) => {
+      const timeout = setTimeout(() => { child.kill("SIGKILL"); reject(new Error("real-client signal child timed out")); }, 5_000);
+      child.once("close", (code, signal) => { clearTimeout(timeout); resolveResult({ code, signal }); });
+    });
+    await rm(directory, { recursive: true, force: true });
+
+    expect({ ...result, stderr }).toEqual({ code: 1, signal: null, stderr: "" });
+    expect(stdout).toContain("NATIVE_CLOSE_STARTED");
+    expect(stdout).toContain("CLEANUP");
+    expect(stdout).toContain('RESULT:{"status":"FAILED","errors":["CANCELLED","CLOSE_FAILED","NOT_READY","NOT_READY","CLOSE_FAILED"]');
+    expect(stdout).toContain("COUNTS:1:4:4");
+    expect(stdout).toContain("EXIT:1");
+  }, 10_000);
 
   it("bounds hanging restoration, close, and temporary cleanup after cancellation", async () => {
     const h = harness();

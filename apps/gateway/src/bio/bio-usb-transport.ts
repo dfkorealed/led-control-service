@@ -16,6 +16,8 @@ export interface BioTransportOptions {
   profile?: "legacy" | "android-v1.2.0";
   protocol?: BioProtocol | "auto";
   timeoutMs?: number;
+  /** [확인됨] native descriptor 폐기는 이 상한 안에서 성공 또는 영구 write 차단으로 판정한다. */
+  retirementTimeoutMs?: number;
   connectionFactory: () => BioByteConnection;
   /** The adapter must validate its durable mapping before enabling requests. */
   validateReadiness: (probe: BioFrame) => Promise<void>;
@@ -61,11 +63,16 @@ export class BioUsbTransport {
   private nextProtocol: BioProtocol;
   private closing: Promise<void> = Promise.resolve();
   private closeError?: BioUsbError;
+  private readonly retirementTimeoutMs: number;
   private attempt?: { promise: Promise<void>; resolve: () => void; reject: (error: BioUsbError) => void };
 
   constructor(private readonly options: BioTransportOptions) {
     const timeout = options.timeoutMs ?? 300;
     if (!Number.isInteger(timeout) || timeout < 1 || timeout > 2147483647) throw new RangeError("Invalid BIO response timeout");
+    this.retirementTimeoutMs = options.retirementTimeoutMs ?? 10_000;
+    if (!Number.isInteger(this.retirementTimeoutMs) || this.retirementTimeoutMs < 1 || this.retirementTimeoutMs > 2147483647) {
+      throw new RangeError("Invalid BIO retirement timeout");
+    }
     if (options.profile === "android-v1.2.0" && options.protocol !== undefined && options.protocol !== "crc16") {
       throw new RangeError("Installed BIO profile has only CRC frame evidence");
     }
@@ -377,11 +384,18 @@ export class BioUsbTransport {
     this.writing = false;
     for (const unsubscribe of this.unsubscribe.splice(0)) unsubscribe();
     const connection = this.connection;
-    this.closing = this.closing.then(async () => {
+    const nativeClose = this.closing.then(async () => {
       await connection?.close();
       // Retain ownership until native close confirms the descriptor was closed.
       if (this.connection === connection) this.connection = undefined;
-    }).catch((cause: unknown) => {
+    });
+    // [확인됨] active request cancellation 뒤 descriptor close를 무기한 기다리면 CLI의
+    // sensor 복귀/temporary cleanup까지 도달하지 못한다. timeout은 native close를 성공으로
+    // 간주하지 않는다. transport를 영구 중지하고 reconnect/write 권한을 닫은 뒤
+    // CLOSE_FAILED로 소유권 불확실성을 보존한다. [미확인] libusb stopInput/release/reattach 중
+    // 어디에서 멈췄는지는 backend가 완료를 알리지 않으므로 USB release나 kernel-driver
+    // 재부착을 추정하지 않는다. 남은 native promise는 write 경로와 분리되어 정리만 가능하다.
+    this.closing = boundedRetirement(nativeClose, this.retirementTimeoutMs).catch((cause: unknown) => {
       this.closeError ??= new BioUsbError("CLOSE_FAILED", "BIO USB connection closure was not confirmed", { cause });
       this.attempt?.reject(this.closeError);
       this.attempt = undefined;
@@ -452,4 +466,16 @@ function throwIfOperationStopped(control: BioUsbOperationControl) {
 
 function abortError() {
   return new DOMException("BIO operation cancelled or expired", "AbortError");
+}
+
+function boundedRetirement(retirement: Promise<void>, timeoutMs: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    retirement,
+    new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new Error("BIO native connection retirement timed out")), timeoutMs);
+    })
+  ]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
 }

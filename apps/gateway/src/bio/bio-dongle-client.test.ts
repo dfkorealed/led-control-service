@@ -30,7 +30,7 @@ class Device extends EventEmitter implements BioByteConnection {
   }
   receive(hex: string) { this.emit("data", Buffer.from(hex, "hex")); }
 }
-function harness(initialSequence = 75, options: { scanDurationMs?: number; observationTimeoutMs?: number } = {}) {
+function harness(initialSequence = 75, options: { scanDurationMs?: number; observationTimeoutMs?: number; retirementTimeoutMs?: number } = {}) {
   const device = new Device();
   const client = new BioDongleClient({
     initialSequence,
@@ -40,7 +40,12 @@ function harness(initialSequence = 75, options: { scanDurationMs?: number; obser
   return { client, device };
 }
 
-function generationHarness(initialSequence = 75, options: { scanDurationMs?: number; observationTimeoutMs?: number } = {}) {
+function generationHarness(initialSequence = 75, options: {
+  scanDurationMs?: number;
+  observationTimeoutMs?: number;
+  retirementTimeoutMs?: number;
+  configureDevice?: (device: Device) => void;
+} = {}) {
   const devices: Device[] = [];
   const client = new BioDongleClient({
     initialSequence,
@@ -48,6 +53,7 @@ function generationHarness(initialSequence = 75, options: { scanDurationMs?: num
     connectionFactory: () => {
       const device = new Device();
       devices.push(device);
+      options.configureDevice?.(device);
       return device;
     }
   });
@@ -284,6 +290,38 @@ describe("BIO evidence-gated dongle client", () => {
     await h.client.close();
   });
 
+  it("bounds a hanging native close while preserving cancellation and preventing late writes or reconnect", async () => {
+    const h = generationHarness(71, {
+      scanDurationMs: 100,
+      retirementTimeoutMs: 25,
+      configureDevice: (device) => { device.close = () => new Promise<void>(() => {}); }
+    });
+    await ready(h);
+    const device = h.device;
+    const controller = new AbortController();
+    const scanning = h.client.scan({ signal: controller.signal });
+    void scanning.catch(() => {});
+    await flush();
+    device.receive("55aa1101002055");
+    await flush();
+    const writesAtCancellation = device.writes.map((bytes) => bytes.toString("hex"));
+
+    controller.abort();
+    await vi.advanceTimersByTimeAsync(25);
+    await flush();
+
+    const failure = await scanning.catch((error: unknown) => error) as AggregateError;
+    expect(failure).toBeInstanceOf(AggregateError);
+    expect(failure.errors).toEqual([
+      expect.objectContaining({ name: "AbortError" }),
+      expect.objectContaining({ code: "CLOSE_FAILED" })
+    ]);
+    await vi.advanceTimersByTimeAsync(64_000);
+    expect(h.devices).toHaveLength(1);
+    expect(device.writes.map((bytes) => bytes.toString("hex"))).toEqual(writesAtCancellation);
+    await expect(h.client.close()).rejects.toMatchObject({ code: "CLOSE_FAILED" });
+  });
+
   it("does not retire or stop after a rejected scan ACK followed by synchronous abort", async () => {
     const h = generationHarness(71, { scanDurationMs: 100 }); await ready(h);
     const device = h.device;
@@ -517,6 +555,22 @@ describe("BIO evidence-gated dongle client", () => {
     await h.client.close();
   });
 
+  it("rejects old-only reconciliation when a foreign UUID also occupies the old restoration address", async () => {
+    const h = harness(75, { scanDurationMs: 100 }); await ready(h);
+    const reconciling = h.client.reconcileAddress("bio:001122334455", 0x1234, 0x2345);
+    void reconciling.catch(() => {});
+    await drivePendingScan(h, [
+      discoveryHex("001122334455", 0x1234),
+      discoveryHex("aabbccddeeff", 0x1234)
+    ]);
+
+    await expect(reconciling).rejects.toMatchObject({
+      code: "BIO_ADDRESS_CONFLICT",
+      safeRestoreDevices: []
+    });
+    await h.client.close();
+  });
+
   it("reports only collision-free target UUID observations as safe restoration identities", async () => {
     const h = harness(75, { scanDurationMs: 100 }); await ready(h);
     const reconciling = h.client.reconcileAddress("bio:001122334455", 0x1234, 0x2345);
@@ -714,6 +768,59 @@ describe("BIO evidence-gated dongle client", () => {
     await expect(setting).rejects.toMatchObject({ name: "AbortError" });
     expect((h.client as unknown as { listeners: Set<unknown> }).listeners.size).toBe(0);
     await h.client.close();
+  });
+
+  it("waits for a proven fresh transport generation before a cancellation-independent sensor restore write", async () => {
+    const h = generationHarness(75, { observationTimeoutMs: 100 }); await ready(h);
+    const oldDevice = h.device;
+    const controller = new AbortController();
+    const setting = h.client.setOutput(verifiedTarget, 60, { signal: controller.signal });
+    void setting.catch(() => {});
+    await flush();
+    expect(commandBodies(oldDevice).at(-1)).toBe("cd13c6");
+
+    controller.abort();
+    await expect(setting).rejects.toMatchObject({ name: "AbortError" });
+    const restore = h.client.restoreSensorMode(verifiedTarget, { deadlineAt: Date.now() + 5_000 });
+    void restore.catch(() => {});
+    await flush();
+    expect(commandBodies(oldDevice)).not.toContain("cc1200");
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    await flush();
+    expect(h.devices).toHaveLength(2);
+    await recoverReady(h.device);
+    expect(commandBodies(h.device).at(-1)).toBe("cc1200");
+    h.device.receive(modeReportHex("001122334455", 0x1234, 0) + "55aa1101002055");
+
+    await expect(restore).resolves.toBeUndefined();
+    expect(commandBodies(oldDevice)).not.toContain("cc1200");
+    await h.client.close();
+  });
+
+  it("bounds cancellation-independent sensor restoration when transport recovery cannot be proven", async () => {
+    const h = generationHarness(75, { observationTimeoutMs: 100 }); await ready(h);
+    const controller = new AbortController();
+    const setting = h.client.setOutput(verifiedTarget, 60, { signal: controller.signal });
+    void setting.catch(() => {});
+    await flush();
+    controller.abort();
+    await expect(setting).rejects.toMatchObject({ name: "AbortError" });
+
+    let outcome: unknown;
+    const restore = h.client.restoreSensorMode(verifiedTarget, { deadlineAt: Date.now() + 25 });
+    void restore.then(
+      (value) => { outcome = value; },
+      (error: unknown) => { outcome = error; }
+    );
+    await vi.advanceTimersByTimeAsync(25);
+    await flush();
+
+    expect(outcome).toMatchObject({ name: "AbortError" });
+    expect(h.devices).toHaveLength(1);
+    expect(commandBodies(h.device)).not.toContain("cc1200");
+    await h.client.close();
+    await restore.catch(() => {});
   });
 
   it("checks the deadline after acquiring the operation queue and starts no expired output write", async () => {

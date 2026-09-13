@@ -15,7 +15,7 @@ import { formatBioDeviceUuid, parseBioDeviceUuid } from "./bio-device-identity";
 import { BioUsbError } from "./bio-usb-error";
 
 export type BioClientEvent = Exclude<BioResponse, { kind: "probe" | "outer-ack" }> | { kind: "invalid-notification" };
-export type BioDongleClientOptions = Pick<BioTransportOptions, "timeoutMs"> & {
+export type BioDongleClientOptions = Pick<BioTransportOptions, "timeoutMs" | "retirementTimeoutMs"> & {
   connectionFactory?: BioTransportOptions["connectionFactory"];
   initialSequence?: number;
   scanDurationMs?: number;
@@ -94,6 +94,7 @@ export class BioDongleClient {
     this.reconnectReadyTimeoutMs = positiveDuration(options.reconnectReadyTimeoutMs ?? 35000, "reconnect ready timeout");
     this.transport = new BioUsbTransport({
       timeoutMs: options.timeoutMs,
+      retirementTimeoutMs: options.retirementTimeoutMs,
       connectionFactory: options.connectionFactory ?? (() => new BioDirectUsbConnection()),
       profile: "android-v1.2.0", protocol: "crc16",
       validateReadiness: async (frame) => {
@@ -174,9 +175,14 @@ export class BioDongleClient {
           if (scanAccepted) await this.transport.retireCancelledOperation();
         } else await this.stopScan(control);
       } catch (stopError) {
-        // stop ACK는 성공 list의 필수 gate다. start/window 오류가 이미 있어도 불확실한
-        // dongle scan lifecycle을 더 구체적인 stop 실패로 덮어 fail-closed한다.
-        failure = stopError;
+        // stop ACK/descriptor retirement는 성공 list의 필수 gate다. start/window 취소와
+        // cleanup 실패는 서로 다른 사실이므로 후자를 앞선 primary 위에 덮지 않는다.
+        // [확인됨] AggregateError 순서는 primary → retirement이며 HIL redacted error 배열도
+        // 이 순서를 유지한다. [미확인] CLOSE_FAILED 뒤 native USB release/reattach는 성공으로
+        // 추정하지 않는다.
+        failure = failure === undefined
+          ? stopError
+          : new AggregateError([failure, stopError], "BIO scan and transport retirement failed");
       }
       this.activeScan = undefined;
       this.activeScanObservations = undefined;
@@ -302,7 +308,14 @@ export class BioDongleClient {
     throwIfOperationStopped(control);
     const devices = this.lastScanObservations;
     const safeRestoreDevices = collectCollisionFreeTargetObservations(devices, nativeUuid);
-    const conflict = devices.find((device) => device.logicalAddress === newAddress && device.nativeUuid !== nativeUuid);
+    // [확인됨] reconciliation 결과는 후속 제어뿐 아니라 sensor 복귀 목적지의 권한 증거다.
+    // 따라서 새 주소만이 아니라 "변경되지 않음"으로 반환할 old 주소도 다른 UUID와 공유하면
+    // target에게 쓴다고 보장할 수 없다. [미확인] 충돌 시 어느 물리 lamp가 frame을 적용할지는
+    // 추정하지 않고, 두 restoration 후보 모두 collision-free일 때만 상위 계층에 넘긴다.
+    const conflict = devices.find((device) =>
+      (device.logicalAddress === oldAddress || device.logicalAddress === newAddress)
+      && device.nativeUuid !== nativeUuid
+    );
     if (conflict) {
       throw new BioAddressConflictError(safeRestoreDevices);
     }
@@ -432,10 +445,25 @@ export class BioDongleClient {
     return { ...device };
   }
 
-  private async restoreSensorMode(device: BioDiscoveredDevice): Promise<void> {
-    await this.waitUntilReadyIfReconnecting();
+  /**
+   * 취소된 write가 descriptor 세대를 폐기한 뒤 사용하는 검증형 sensor 복귀 API다.
+   * [확인됨] 호출자의 취소 signal을 재사용하지 않고 별도의 cleanup deadline을 넘길 수 있으며,
+   * fresh converter/GET_NWK probe로 transport ready가 다시 확인되기 전에는 0x10 sensor frame을
+   * 만들지 않는다. [미확인] recovery가 실패한 descriptor의 release/driver 재부착 상태는
+   * 성공으로 추정하지 않고 NOT_READY/CLOSE_FAILED/AbortError로 호출자에게 보존한다.
+   */
+  async restoreSensorMode(
+    device: Pick<BioDiscoveredDevice, "nativeUuid" | "logicalAddress" | "networkId">,
+    control: BioOperationControl = {}
+  ): Promise<void> {
+    await this.waitUntilReadyIfReconnecting(control);
+    throwIfOperationStopped(control);
     const expected = { nativeUuid: device.nativeUuid, logicalAddress: device.logicalAddress, target: toTarget(device) };
-    const report = await this.requestReadback({ kind: "setControlMode", target: expected.target, mode: "sensor" }, expected);
+    const report = await this.requestReadback(
+      { kind: "setControlMode", target: expected.target, mode: "sensor" },
+      expected,
+      control
+    );
     if (report.kind !== "control-mode-report" || report.mode !== "sensor") {
       throw new BioUsbError("BIO_CONTROL_MODE_STATE_MISMATCH", "BIO sensor-mode read-back did not match");
     }
@@ -482,7 +510,14 @@ export class BioDongleClient {
         // waiter 제거만으로는 부족하므로 같은 generation을 폐기하고 close가 확인된 뒤 queue를
         // 넘긴다. ACK보다 먼저 이미 matching report를 확보한 경우에는 남은 late report
         // ownership이 없으므로 불필요한 retirement를 피한다.
-        await this.transport.retireCancelledOperation();
+        try {
+          await this.transport.retireCancelledOperation();
+        } catch (retirementError) {
+          throw new AggregateError(
+            [error, retirementError],
+            "BIO read-back and transport retirement failed"
+          );
+        }
       }
       throw error;
     }
@@ -672,7 +707,7 @@ function toDiscoveredDevice(response: Extract<BioResponse, { kind: "discovery" }
   };
 }
 
-function toTarget(device: BioDiscoveredDevice): Extract<BioLampTarget, { kind: "unicast" }> {
+function toTarget(device: Pick<BioDiscoveredDevice, "logicalAddress" | "networkId">): Extract<BioLampTarget, { kind: "unicast" }> {
   return { kind: "unicast", networkId: device.networkId, logicalAddress: device.logicalAddress };
 }
 
