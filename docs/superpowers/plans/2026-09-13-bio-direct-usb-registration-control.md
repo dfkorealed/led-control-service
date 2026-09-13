@@ -677,7 +677,7 @@ git commit -m "feat(gateway): deploy one BIO raw USB device safely"
 
 - [x] **Step 3: 생성 결과와 admin3 보존을 검증한다.** `admin4` exact-one, pending Site/Floor 0, 새 organization 분리와 `admin3` 기존 graph 불변을 확인했다. `admin3`의 Floor 2/Fixture 400/Gateway 2는 유지됐다.
 
-- [ ] **Step 4: manufacturing보다 먼저 Lab LAN/API/PKI를 복구한다.** current LAN에 맞춰 API service certificate, device/MQTT/manufacturing CRL과 application token을 갱신하고 Mac/Pi name resolution 및 station mTLS를 검증한다. 실행 중 API는 main checkout의 DB migration과 durable reconciliation 계약이 일치할 때만 PKI-enabled 환경으로 재시작한다.
+- [x] **Step 4: manufacturing보다 먼저 Lab LAN/API/PKI를 복구한다.** CA identity를 유지한 채 current LAN IP SAN의 API/MQTT service certificate, device/MQTT/manufacturing CRL과 application token을 갱신했다. Pi name resolution, API HTTPS/station mTLS, MQTT TLS를 검증했고 main DB migration은 69/69·적용 0건이다. Mac hosts는 관리자 권한이 없어 변경하지 않고 Mac-side URL을 current IP로 명시한다.
 
 - [ ] **Step 5: orphan certificate를 폐기하고 Pi를 새 manufacturing identity로 등록한다.** old inventory exact-one과 admin3 무관성을 확인한 뒤 제품 disable/reconciliation 경로로 device·MQTT certificate와 CRL 폐기를 완료한다. old certificate를 새 Gateway ID에 재결속하지 않고, 기존 data root와 분리된 `/data-admin4`에 새 serial/device identity와 one-time claim code를 생성한다.
 
