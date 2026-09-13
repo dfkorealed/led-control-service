@@ -29,6 +29,21 @@ for (const viewport of responsiveViewports) {
       await expect(rail).toHaveCSS("width", "92px");
       await expect(topbar).toHaveCSS("min-height", "72px");
       await expect(page.getByRole("img", { name: "킨다 관제 센터" })).toBeVisible();
+
+      const [railBounds, logoMarkBounds, navigationItemBounds] = await Promise.all([
+        rail.boundingBox(),
+        rail.locator(".kinda-logo-mark").boundingBox(),
+        rail.locator(".nav-item").first().boundingBox()
+      ]);
+      expect(railBounds, "데스크톱 사이드바의 실제 경계 상자").not.toBeNull();
+      expect(logoMarkBounds, "데스크톱 로고 마크의 실제 경계 상자").not.toBeNull();
+      expect(navigationItemBounds, "데스크톱 탐색 항목의 실제 경계 상자").not.toBeNull();
+      const railCenter = railBounds!.x + railBounds!.width / 2;
+      const logoCenter = logoMarkBounds!.x + logoMarkBounds!.width / 2;
+      const navigationCenter = navigationItemBounds!.x + navigationItemBounds!.width / 2;
+      expect(Math.abs(logoCenter - railCenter), "로고와 사이드바 중심선의 거리").toBeLessThanOrEqual(0.5);
+      expect(Math.abs(logoCenter - navigationCenter), "로고와 탐색 항목 중심선의 거리").toBeLessThanOrEqual(0.5);
+
       const logout = page.getByRole("button", { name: "로그아웃", exact: true });
       await logout.hover();
       const tooltip = page.getByRole("tooltip", { name: "로그아웃" });

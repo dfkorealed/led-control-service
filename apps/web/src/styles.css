@@ -343,6 +343,8 @@ button {
 }
 
 .sidebar .kinda-logo {
+  display: flex;
+  width: 100%;
   flex-direction: column;
   gap: 0;
   margin-bottom: 25px;
