@@ -477,7 +477,7 @@ describe("guarded BIO registration HIL CLI", () => {
     const clientModuleUrl = new URL("../src/bio/bio-dongle-client.ts", import.meta.url).href;
     await writeFile(childPath, `
       import { EventEmitter } from "node:events";
-      import { runBioRegistrationHil } from ${JSON.stringify(hilModuleUrl)};
+      import { runBioRegistrationHilStandalone } from ${JSON.stringify(hilModuleUrl)};
       import { BioDongleClient } from ${JSON.stringify(clientModuleUrl)};
       const identity = { nativeUuid: "001122334455", logicalAddress: 0x1234, networkId: 0x21, firmwareVersion: "1", rssi: -1 };
       let factories = 0;
@@ -520,22 +520,23 @@ describe("guarded BIO registration HIL CLI", () => {
         restoreSensorMode: async (device, control) => client.restoreSensorMode(device, control),
         close: async () => client.close()
       };
-      const code = await runBioRegistrationHil([
+      setInterval(() => {}, 1_000);
+      await runBioRegistrationHilStandalone([
         "--execute", "--fingerprint", "sha256:48f4634d1002f9f3", "--old-address", "0x1234",
         "--new-address", "0x0100", "--confirm-address-change", "CHANGE:sha256:48f4634d1002f9f3:0x1234->0x0100"
       ], {
         createReadOnlySession: () => ({ discover: async () => [identity], close: async () => {} }),
         createWritableSession: async () => { await client.probe(); return writer; },
         createTemporaryMapping: async () => ({ directory: "/tmp/bio-registration-hil-real-child", path: "/tmp/bio-registration-hil-real-child/mappings.json" }),
-        removeTemporaryMapping: async () => { console.log("CLEANUP"); },
+        removeTemporaryMapping: async () => {
+          await new Promise((resolve) => setTimeout(resolve, 250));
+          console.log("COUNTS:" + factories + ":" + writesAtClose + ":" + connection.writes.length);
+          console.log("CLEANUP");
+        },
         confirmVisualStep: async () => true,
-        cleanupTimeoutMs: 250,
-        output: (line) => console.log("RESULT:" + line)
+        cleanupTimeoutMs: 500
       });
-      await new Promise((resolve) => setTimeout(resolve, 250));
-      console.log("COUNTS:" + factories + ":" + writesAtClose + ":" + connection.writes.length);
-      console.log("EXIT:" + code);
-      process.exitCode = code;
+      console.log("AFTER_STANDALONE_CLEANUP");
     `, { mode: 0o600 });
 
     const child = spawn(process.execPath, ["--import", "tsx", childPath], {
@@ -564,10 +565,53 @@ describe("guarded BIO registration HIL CLI", () => {
     expect({ ...result, stderr }).toEqual({ code: 1, signal: null, stderr: "" });
     expect(stdout).toContain("NATIVE_CLOSE_STARTED");
     expect(stdout).toContain("CLEANUP");
-    expect(stdout).toContain('RESULT:{"status":"FAILED","errors":["CANCELLED","CLOSE_FAILED","NOT_READY","NOT_READY","CLOSE_FAILED"]');
+    const finalDiagnostic = '{"status":"FAILED","errors":["CANCELLED","CLOSE_FAILED","NOT_READY","NOT_READY","CLOSE_FAILED"],"temporaryMapping":"REMOVED"}';
+    expect(stdout.trimEnd().endsWith(finalDiagnostic)).toBe(true);
     expect(stdout).toContain("COUNTS:1:4:4");
-    expect(stdout).toContain("EXIT:1");
+    expect(stdout).not.toContain(device.nativeUuid);
+    expect(stdout).not.toContain("AFTER_STANDALONE_CLEANUP");
   }, 10_000);
+
+  it("forces the standalone CLI to exit after a complete synchronous diagnostic even when a referenced handle remains", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "bio-hil-standalone-exit-"));
+    const childPath = join(directory, "child.mts");
+    const moduleUrl = new URL("./bio-registration-hil.ts", import.meta.url).href;
+    await writeFile(childPath, `
+      const moduleUrl = ${JSON.stringify(moduleUrl)};
+      process.argv.splice(1, process.argv.length - 1, new URL(moduleUrl).pathname, "--raw");
+      setInterval(() => {}, 1_000);
+      await import(moduleUrl);
+      console.log("AFTER_STANDALONE_MAIN");
+    `, { mode: 0o600 });
+
+    const child = spawn(process.execPath, ["--import", "tsx", childPath], {
+      cwd: new URL("..", import.meta.url).pathname,
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    let stdout = "";
+    let stderr = "";
+    let parentHadToKill = false;
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    const result = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolveResult) => {
+      const timeout = setTimeout(() => {
+        parentHadToKill = true;
+        child.kill("SIGKILL");
+      }, 750);
+      child.once("close", (code, signal) => {
+        clearTimeout(timeout);
+        resolveResult({ code, signal });
+      });
+    });
+    await rm(directory, { recursive: true, force: true });
+
+    expect(parentHadToKill).toBe(false);
+    expect({ ...result, stderr }).toEqual({ code: 2, signal: null, stderr: "" });
+    expect(stdout).toBe('{"status":"INVALID_ARGUMENTS"}\n');
+    expect(stdout).not.toContain("AFTER_STANDALONE_MAIN");
+  }, 5_000);
 
   it("bounds hanging restoration, close, and temporary cleanup after cancellation", async () => {
     const h = harness();

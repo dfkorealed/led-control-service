@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { writeSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
@@ -21,6 +22,7 @@ import { BioUsbTransport } from "../src/bio/bio-usb-transport";
 const DEFAULT_TIMEOUT_MS = 3_000;
 const PASSIVE_DISCOVERY_MS = 5_000;
 const CLEANUP_TIMEOUT_MS = 10_000;
+const FINAL_DIAGNOSTIC_MAX_BYTES = 4_096;
 const OUTPUT_STEPS = [0, 20, 60, 90, 100] as const;
 
 export interface HilDiscoveredDevice {
@@ -758,6 +760,59 @@ function outputFailure(
   output(JSON.stringify({ status: "FAILED", errors, ...(temporaryMapping ? { temporaryMapping } : {}) }));
 }
 
+/**
+ * [확인됨] standalone executable 전용 종료 경계다. 모듈 import만으로는 process.exit를
+ * 호출하지 않으며 실제 CLI main과 격리된 child-process 회귀만 이 함수를 명시 호출한다.
+ */
+export async function runBioRegistrationHilStandalone(
+  args: string[],
+  dependencies: BioRegistrationHilDependencies = {}
+): Promise<never> {
+  let diagnostic: string | undefined;
+  let exitCode = 1;
+  try {
+    // [확인됨] runBioRegistrationHil이 반환하는 시점에는 sensor restore, transport close,
+    // temporary mapping cleanup이 각각 성공 또는 bounded failure로 기록됐다. standalone만
+    // 마지막 진단을 메모리에 보관해 cleanup 중간 출력과 섞이지 않게 한다.
+    exitCode = await runBioRegistrationHil(args, {
+      ...dependencies,
+      output: (line) => { diagnostic = line; }
+    });
+  } catch {
+    // [추정] 예상 밖의 JS 예외도 message/stack/raw packet을 노출하지 않고 고정 code만 남긴다.
+    diagnostic = JSON.stringify({ status: "FAILED", errors: ["HIL_FAILED"] });
+    exitCode = 1;
+  }
+
+  // [확인됨] final JSON은 작은 단일 record로 제한하고 synchronous fd write가 완료된 뒤에만
+  // process를 종료한다. process.exitCode만 설정하면 libusb/native handle이 남은 경우 event
+  // loop가 끝나지 않는다. 명시적 exit는 import 시가 아니라 이 standalone main 경로에서만,
+  // transport non-write/cleanup terminal decision 이후 실행한다.
+  const finalDiagnostic = diagnostic ?? JSON.stringify({ status: "FAILED", errors: ["HIL_FAILED"] });
+  try {
+    writeStandaloneDiagnostic(process.stdout.fd, finalDiagnostic);
+  } catch {
+    // stdout pipe 자체가 닫힌 경우에도 raw error를 만들지 않고 stderr에 같은 redacted JSON을
+    // 한 번 동기 기록한다. 두 fd가 모두 불능이어도 cleanup 뒤 explicit exit는 지연하지 않는다.
+    try { writeStandaloneDiagnostic(process.stderr.fd, finalDiagnostic); } catch {}
+  } finally {
+    process.exit(exitCode);
+  }
+}
+
+function writeStandaloneDiagnostic(fileDescriptor: number, value: string): void {
+  const requested = Buffer.from(`${value}\n`, "utf8");
+  const bytes = requested.length <= FINAL_DIAGNOSTIC_MAX_BYTES
+    ? requested
+    : Buffer.from('{"status":"FAILED","errors":["DIAGNOSTIC_TOO_LARGE"]}\n', "utf8");
+  let offset = 0;
+  while (offset < bytes.length) {
+    const written = writeSync(fileDescriptor, bytes, offset, bytes.length - offset);
+    if (written < 1) throw new Error("BIO HIL final diagnostic write did not progress");
+    offset += written;
+  }
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  process.exitCode = await runBioRegistrationHil(process.argv.slice(2));
+  await runBioRegistrationHilStandalone(process.argv.slice(2));
 }
