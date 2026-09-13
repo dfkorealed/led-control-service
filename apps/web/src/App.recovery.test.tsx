@@ -46,7 +46,7 @@ describe("app auth recovery (real client and shells)", () => {
     mount(async () => response(200, { user }));
     expect(await screen.findByRole("heading", { name: "서비스에 연결할 수 없습니다" })).toHaveFocus();
     expect(requests).toEqual([]);
-    expect(screen.queryByRole("heading", { name: "LED Control 로그인" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "킨다 로그인" })).not.toBeInTheDocument();
     await act(async () => { onlineManager.setOnline(true); });
     expect(await screen.findByRole("heading", { name: "현장 관리자 계정" })).toBeVisible();
     expect(requests.filter((path) => path === "/api/auth/me")).toHaveLength(1);
@@ -68,7 +68,7 @@ describe("app auth recovery (real client and shells)", () => {
     await act(async () => { await oldClient.invalidateQueries({ queryKey: authMeQueryKey }); });
     await screen.findByRole("heading", { name: "다시 로그인이 필요합니다" });
     fireEvent.click(screen.getByRole("button", { name: "다시 로그인" }));
-    await screen.findByRole("heading", { name: "LED Control 로그인" });
+    await screen.findByRole("heading", { name: "킨다 로그인" });
     fireEvent.change(screen.getByLabelText("아이디"), { target: { value: user.loginId } });
     fireEvent.change(screen.getByLabelText("비밀번호"), { target: { value: "new-password" } });
     fireEvent.click(screen.getByRole("button", { name: "로그인" }));
@@ -89,7 +89,7 @@ describe("app auth recovery (real client and shells)", () => {
     expect(await screen.findByRole("heading", { name: "화면을 불러오지 못했습니다" })).toHaveFocus();
     expect(document.body).not.toHaveTextContent("secret-App-runtime");
     fireEvent.click(screen.getByRole("button", { name: "다시 로그인" }));
-    expect(await screen.findByRole("heading", { name: "LED Control 로그인" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "킨다 로그인" })).toBeVisible();
     expect(client).not.toBe(oldClient);
     expect(client.getQueryData(authMeQueryKey)).toBeNull();
     expect(client.getQueryData(["dashboard", "old-site"])).toBeUndefined();
@@ -116,20 +116,20 @@ describe("app auth recovery (real client and shells)", () => {
     const relogin = screen.getByRole("button", { name: "다시 로그인" });
     await act(async () => { relogin.click(); relogin.click(); });
     expect(requests.filter((path) => path === "/api/auth/logout")).toHaveLength(1);
-    expect(screen.queryByRole("heading", { name: "LED Control 로그인" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "킨다 로그인" })).not.toBeInTheDocument();
     await act(async () => { await vi.advanceTimersByTimeAsync(4_999); });
     expect(logoutSignal?.aborted).toBe(false);
-    expect(screen.queryByRole("heading", { name: "LED Control 로그인" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "킨다 로그인" })).not.toBeInTheDocument();
     await act(async () => { await vi.advanceTimersByTimeAsync(1); });
     expect(logoutSignal?.aborted).toBe(true);
-    expect(screen.getByRole("heading", { name: "LED Control 로그인" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "킨다 로그인" })).toBeVisible();
     expect(client.getQueryData(authMeQueryKey)).toBeNull();
     expect(requests).not.toContain("/api/auth/login");
   });
 
   it("catches classifying 401 as transient: one request reaches existing login", async () => {
     mount(async () => response(401));
-    expect(await screen.findByRole("heading", { name: "LED Control 로그인" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "킨다 로그인" })).toBeVisible();
     expect(requests).toEqual(["/api/auth/me"]);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
@@ -145,7 +145,7 @@ describe("app auth recovery (real client and shells)", () => {
     expect(client.getQueryData(["dashboard", "old"])).toBeUndefined();
     expect(requests).toEqual(["/api/auth/me"]);
     fireEvent.click(screen.getByRole("button", { name: "다시 로그인" }));
-    expect(await screen.findByRole("heading", { name: "LED Control 로그인" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "킨다 로그인" })).toBeVisible();
     expect(client.getQueryData(["auth", "other-session"])).toBeUndefined();
     expect(client.getQueryData(authMeQueryKey)).toBeNull();
     expect(requests).toEqual(["/api/auth/me", "/api/auth/logout"]);
@@ -166,7 +166,7 @@ describe("app auth recovery (real client and shells)", () => {
     });
     expect(await screen.findByRole("heading", { name: "서비스에 연결할 수 없습니다" })).toHaveFocus();
     expect(requests).toEqual(["/api/auth/me", "/api/auth/me", "/api/auth/me"]);
-    expect(screen.queryByRole("heading", { name: "LED Control 로그인" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "킨다 로그인" })).not.toBeInTheDocument();
     expect(document.body).not.toHaveTextContent("secret-tenant-url-stack");
     client.setQueryData(["dashboard", "old"], { secret: "old-tenant" });
     available = true;
@@ -204,7 +204,7 @@ describe("app auth recovery (real client and shells)", () => {
     expect(screen.queryByRole("heading", { name: "현장 관리자 계정" })).not.toBeInTheDocument();
     expect(client.getQueryData(["dashboard", "old"])).toBeUndefined();
     fireEvent.click(screen.getByRole("button", { name: "다시 로그인" }));
-    await screen.findByRole("heading", { name: "LED Control 로그인" });
+    await screen.findByRole("heading", { name: "킨다 로그인" });
     expect(sessionStorage.getItem(activeCommandStorageKey(user.id, "old-site"))).toBeNull();
     expect(sessionStorage.getItem("unrelated-preference")).toBe("keep");
   });

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../api/client";
 import { completeMfaLogin, login, type AuthUser } from "../../api/auth";
@@ -44,6 +44,15 @@ describe("AuthView MFA login", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+  });
+
+  it("킨다 브랜드와 한글 로그인 제목을 표시한다", () => {
+    renderView();
+
+    const introduction = screen.getByRole("region", { name: "킨다 소개" });
+    expect(within(introduction).getByRole("img", { name: "킨다" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "킨다 로그인" })).toBeVisible();
+    expect(screen.queryByText("LED Control")).not.toBeInTheDocument();
   });
 
   it("일반 로그인 응답은 기존 인증 완료 흐름을 유지한다", async () => {

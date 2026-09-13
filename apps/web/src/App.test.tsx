@@ -368,7 +368,7 @@ describe("App", () => {
     );
 
     expect(await screen.findByRole("heading", { name: /빛을 더 안정적으로/ })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "LED Control 로그인" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "킨다 로그인" })).toBeInTheDocument();
     expect(screen.queryByText("연결 조명")).not.toBeInTheDocument();
     expect(screen.queryByText("정상 운영")).not.toBeInTheDocument();
     expect(screen.queryByText(/^(Gateway|게이트웨이)$/i)).not.toBeInTheDocument();
@@ -387,7 +387,7 @@ describe("App", () => {
     await oldMutation.execute({ password: "old-principal-password" });
     render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>);
 
-    await screen.findByRole("heading", { name: "LED Control 로그인" });
+    await screen.findByRole("heading", { name: "킨다 로그인" });
     expect(screen.getByLabelText("아이디")).toHaveValue("");
     expect(screen.getByLabelText("비밀번호")).toHaveValue("");
     expect(screen.queryByText(/회원\s*가입|초대 코드/)).not.toBeInTheDocument();
@@ -417,7 +417,7 @@ describe("App", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
     render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>);
 
-    await screen.findByRole("heading", { name: "LED Control 로그인" });
+    await screen.findByRole("heading", { name: "킨다 로그인" });
     fireEvent.change(screen.getByLabelText("아이디"), { target: { value: "admin_01" } });
     fireEvent.change(screen.getByLabelText("비밀번호"), { target: { value: "failed-login-password" } });
     fireEvent.click(screen.getByRole("button", { name: "로그인" }));
@@ -481,7 +481,7 @@ describe("App", () => {
       await queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
     });
 
-    expect(await screen.findByRole("heading", { name: "LED Control 로그인" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "킨다 로그인" })).toBeInTheDocument();
     expect(screen.queryByText("이전 고객 대시보드")).not.toBeInTheDocument();
     await waitFor(() => expect(queryClient.getQueryData(["tenant", "dashboard"])).toBeUndefined());
     expect(queryClient.getMutationCache().getAll()).toHaveLength(0);
@@ -1300,7 +1300,7 @@ describe("App", () => {
 
     expect(confirm).toHaveBeenCalled();
     expect(apiPost).toHaveBeenCalledWith("/auth/logout", {});
-    expect(await screen.findByRole("heading", { name: "LED Control 로그인" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "킨다 로그인" })).toBeInTheDocument();
     expect(useFloorEditorStore.getState().isDirty).toBe(false);
   });
 
@@ -1381,7 +1381,7 @@ describe("App", () => {
         resolveLogout();
         await Promise.resolve();
       });
-      expect(await screen.findByRole("heading", { name: "LED Control 로그인" })).toBeInTheDocument();
+      expect(await screen.findByRole("heading", { name: "킨다 로그인" })).toBeInTheDocument();
       expect(sessionStorage.getItem(recoveryKey)).toBeNull();
     }
   );
@@ -1425,7 +1425,7 @@ describe("App", () => {
       resolveLogout();
       await Promise.resolve();
     });
-    expect(await screen.findByRole("heading", { name: "LED Control 로그인" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "킨다 로그인" })).toBeInTheDocument();
   });
 
   it("unblocks command retry when logout fails", async () => {

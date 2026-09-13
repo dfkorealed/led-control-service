@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { ArrowLeft, CircleAlert, KeyRound, LockKeyhole } from "lucide-react";
 import { completeMfaLogin, login, type AuthUser, type MfaLoginChallenge } from "../../api/auth";
+import { KindaLogo } from "../../components/brand/KindaLogo";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
 import { FeedbackState } from "../../components/ui/FeedbackState";
@@ -83,8 +84,8 @@ export function AuthView({ onAuthenticated }: AuthViewProps) {
 
   return (
     <main className="auth-shell">
-      <section className="auth-brand-panel" aria-label="LED Control 소개">
-        <div className="brand auth-brand"><span className="brand-mark">LC</span><strong>LED Control</strong></div>
+      <section className="auth-brand-panel" aria-label="킨다 소개">
+        <KindaLogo className="auth-brand" />
         <h1>빛을 더 안정적으로,<br />현장을 더 선명하게.</h1>
         <p>주차장 LED 조명의 상태, 제어, 에너지 사용량을 하나의 차분한 운영 화면에서 확인하세요.</p>
       </section>
@@ -131,7 +132,7 @@ export function AuthView({ onAuthenticated }: AuthViewProps) {
           <>
             <div className="auth-heading">
               <span className="eyebrow">계정 로그인</span>
-              <h2>LED Control 로그인</h2>
+              <h2>킨다 로그인</h2>
             </div>
             <form className="auth-form" onSubmit={submit}>
           <label>
