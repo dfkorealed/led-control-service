@@ -568,29 +568,29 @@ git commit -m "feat(gateway): start and monitor the BIO USB adapter"
 - Compose mapping: `${GATEWAY_BIO_USB_DEVICE}:${GATEWAY_BIO_USB_DEVICE}:rwm`
 - Compose group: `${GATEWAY_BIO_USB_GID}`
 
-- [ ] **Step 1: compose/preflight RED contracts를 작성한다.** exact-one `1a86:5523`, character device, sysfs descriptor 일치, numeric GID를 검사한다. whole `/dev`, whole `/dev/bus/usb`, privileged, root user가 있으면 실패한다.
+- [x] **Step 1: compose/preflight RED contracts를 작성한다.** exact-one `1a86:5523`, character device, sysfs descriptor 일치, numeric GID를 검사한다. whole `/dev`, whole `/dev/bus/usb`, privileged, root user가 있으면 실패한다.
 
-- [ ] **Step 2: entrypoint branch RED 테스트를 작성한다.** `bio-usb`는 dbus-daemon, btmgmt, bluetooth-meshd, HCI 설정을 실행하지 않고 `gateway` user로 Node만 시작한다. `bluez` branch는 기존 startup을 유지한다.
+- [x] **Step 2: entrypoint branch RED 테스트를 작성한다.** `bio-usb`는 dbus-daemon, btmgmt, bluetooth-meshd, HCI 설정을 실행하지 않고 `gateway` user로 Node만 시작한다. `bluez` branch는 기존 startup을 유지한다.
 
-- [ ] **Step 3: RED를 확인한다.**
-
-Run: `node --test apps/gateway/docker/compose-contract.test.mjs apps/gateway/docker/container-contract.test.mjs scripts/gateway-bio-usb-preflight.test.mjs scripts/gateway-appliance-scripts.test.mjs scripts/dev-runtime.test.mjs`
-
-- [ ] **Step 4: overlay와 preflight를 구현한다.** USB bus/device 번호가 바뀌면 old path를 재사용하지 않고 preflight가 새 path를 계산한 뒤 Gateway service만 recreate한다.
-
-- [ ] **Step 5: deploy script에 `--adapter bio-usb`를 추가한다.** base compose와 BIO overlay를 함께 전달하고 preflight 성공 뒤에만 `docker compose up -d`를 실행한다. rollback용 기존 image tag와 compose/env backup을 먼저 기록한다.
-
-- [ ] **Step 6: ACL을 확인한다.** 기존 provisioning device-terminal application ACK는 read-only, acceptance/device-status는 write-only라는 방향을 유지한다. BIO를 이유로 wildcard ACL을 추가하지 않는다.
-
-- [ ] **Step 7: GREEN을 확인한다.**
+- [x] **Step 3: RED를 확인한다.**
 
 Run: `node --test apps/gateway/docker/compose-contract.test.mjs apps/gateway/docker/container-contract.test.mjs scripts/gateway-bio-usb-preflight.test.mjs scripts/gateway-appliance-scripts.test.mjs scripts/dev-runtime.test.mjs`
 
-- [ ] **Step 8: `systematic-debugging`으로 Gateway의 기존 `.lan` MQTT assignment를 조사한다.** API 설치 원장의 intended broker hostname과 비교한 뒤 DNS → TCP 8883 → TLS SAN/mTLS → MQTT CONNACK 순서로 확인한다. 원장 값이 잘못된 경우에만 해당 scope의 assignment를 수정한다.
+- [x] **Step 4: overlay와 preflight를 구현한다.** USB bus/device 번호가 바뀌면 old path를 재사용하지 않고 preflight가 새 path를 계산한 뒤 Gateway service만 recreate한다.
+
+- [x] **Step 5: deploy script에 `--adapter bio-usb`를 추가한다.** base compose와 BIO overlay를 함께 전달하고 preflight 성공 뒤에만 `docker compose up -d`를 실행한다. rollback용 기존 image tag와 compose/env backup을 먼저 기록한다.
+
+- [x] **Step 6: ACL을 확인한다.** 기존 provisioning device-terminal application ACK는 read-only, acceptance/device-status는 write-only라는 방향을 유지한다. BIO를 이유로 wildcard ACL을 추가하지 않는다.
+
+- [x] **Step 7: GREEN을 확인한다.**
+
+Run: `node --test apps/gateway/docker/compose-contract.test.mjs apps/gateway/docker/container-contract.test.mjs scripts/gateway-bio-usb-preflight.test.mjs scripts/gateway-appliance-scripts.test.mjs scripts/dev-runtime.test.mjs`
+
+- [x] **Step 8: `systematic-debugging`으로 Gateway의 기존 `.lan` MQTT assignment를 조사한다.** API 설치 원장의 intended broker hostname과 비교한 뒤 DNS → TCP 8883 → TLS SAN/mTLS → MQTT CONNACK 순서로 확인한다. 원장 값이 잘못된 경우에만 해당 scope의 assignment를 수정한다.
 
 - [ ] **Step 9: 운영 container를 바꾸기 전에 MQTT healthy heartbeat 3회를 확인한다.** baseline 복구가 실패하면 BIO full deployment를 중단하고 원인과 rollback 상태를 기록한다.
 
-- [ ] **Step 10: 커밋한다.**
+- [x] **Step 10: 커밋한다.**
 
 ```bash
 git add apps/gateway/compose.bio-usb.yml apps/gateway/docker apps/gateway/.env.appliance.example infra/mosquitto.acl.example scripts/gateway-bio-usb-preflight* scripts/gateway-appliance-deploy.sh scripts/gateway-appliance-scripts.test.mjs scripts/dev-runtime.mjs scripts/dev-runtime.test.mjs
