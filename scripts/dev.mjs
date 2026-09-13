@@ -6,9 +6,9 @@ import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
 import {
   parseEnvFile,
+  publishMosquittoAcl,
   resolveDevAppFilters,
   resolveMosquittoTlsPaths,
-  renderMosquittoAcl,
   renderMosquittoConfig,
   resolveDevEnvironment,
   startMosquittoCrlReload
@@ -28,6 +28,7 @@ if (sourceEnv.AUTOMATION_E2E_SIMULATOR === "1") {
   fail("AUTOMATION_E2E_SIMULATOR는 private child IPC를 제공하는 Chromium RealBackendLab에서만 실행할 수 있습니다.");
 }
 const env = resolveDevEnvironment(root, sourceEnv);
+const gatewayIds = env.DEV_GATEWAY_IDS ? env.DEV_GATEWAY_IDS.split(",") : [];
 const appFilters = resolveDevAppFilters(process.argv.slice(2));
 const apiPort = Number(env.API_PORT || 4000);
 const webPort = Number(env.WEB_PORT || 5173);
@@ -37,14 +38,13 @@ await requireService("Redis", 6379, "brew services start redis 또는 pnpm docke
 await requireFreePort(apiPort, "API_PORT");
 await requireFreePort(webPort, "WEB_PORT");
 
-ensureDevelopmentPki(env.DEV_GATEWAY_ID, usesExternalMqttPki(sourceEnv));
+ensureDevelopmentPki(gatewayIds, usesExternalMqttPki(sourceEnv));
 const localDir = join(root, ".local");
 mkdirSync(localDir, { recursive: true });
-writeFileSync(
-  join(localDir, "mosquitto.acl"),
-  renderMosquittoAcl(env.DEV_GATEWAY_ID),
-  { mode: 0o600 }
-);
+// A product Gateway claim changes database ownership, not this file-backed Lab
+// broker ACL. Each permitted certificate CN therefore remains an explicit UUID
+// in DEV_GATEWAY_IDS and is republished only when the developer restarts dev.
+publishMosquittoAcl(join(localDir, "mosquitto.acl"), gatewayIds);
 writeFileSync(join(localDir, "mosquitto.host.conf"), renderMosquittoConfig(root, env), { mode: 0o600 });
 
 if (!(await isPortOpen(8883))) {
@@ -73,9 +73,9 @@ apps = spawn(
   { cwd: root, env, stdio: "inherit" }
 );
 
-console.log(env.DEV_GATEWAY_ID
-  ? "[dev] 실제 장비 모드입니다. claim된 Raspberry Pi gateway의 MQTT 연결만 허용합니다."
-  : "[dev] 게이트웨이 미할당 온보딩 모드입니다. 현장과 gateway claim 후 DEV_GATEWAY_ID를 설정하고 재시작하세요.");
+console.log(gatewayIds.length
+  ? `[dev] 실제 장비 모드입니다. 명시된 ${gatewayIds.length}개 Raspberry Pi gateway의 MQTT 연결만 허용합니다.`
+  : "[dev] 게이트웨이 미할당 온보딩 모드입니다. 현장과 gateway claim 후 DEV_GATEWAY_IDS를 설정하고 재시작하세요.");
 
 function stop(signal = "SIGTERM") {
   if (stopping) return;
@@ -92,7 +92,7 @@ apps.once("exit", (code, signal) => {
   process.exitCode = signal ? 130 : code ?? 1;
 });
 
-function ensureDevelopmentPki(gatewayId, externalPki) {
+function ensureDevelopmentPki(gatewayIds, externalPki) {
   const pki = join(root, ".local", "pki");
   if (externalPki) {
     const required = [
@@ -108,7 +108,7 @@ function ensureDevelopmentPki(gatewayId, externalPki) {
   if (!existsSync(join(pki, "ca.crt")) || !existsSync(join(pki, "api.crt")) || !existsSync(join(pki, "broker.crt"))) {
     runChecked(join(root, "scripts", "dev-pki", "create-ca.sh"), [], env);
   }
-  if (gatewayId) {
+  for (const gatewayId of gatewayIds) {
     const certificateName = `gateway-${gatewayId}`;
     if (!existsSync(join(pki, `${certificateName}.crt`)) || !existsSync(join(pki, `${certificateName}.key`))) {
       runChecked(join(root, "scripts", "dev-pki", "issue-gateway-cert.sh"), [gatewayId], env);

@@ -256,6 +256,12 @@
 - **해결 및 예방책**: 루트 `pnpm dev`가 절대 인증서 경로를 주입하고 개발 PKI, mTLS Mosquitto, DB migration과 자식 프로세스 수명주기를 관리하도록 했다. 런타임 mock identity는 제거하고 실제 claim된 `DEV_GATEWAY_ID`만 허용한다.
 - **반복 방지 체크**: 인증·전송 정책을 강화할 때 API, 실제 gateway, compose, `.env.example`, 루트 실행 명령을 같은 테스트 단위로 확인하고 실제 루트 명령으로 로그인까지 검증한다.
 
+## 2026-09-14 / DB claim과 file-backed 개발 MQTT ACL의 수명주기 불일치
+- **발생했던 문제/실수**: 두 번째 Lab Gateway를 정상 claim했지만 개발 Mosquitto ACL은 legacy `DEV_GATEWAY_ID` 한 개만 렌더링해 새 인증서 CN의 연결을 reason 135로 거부했다.
+- **원인**: 제품의 claim은 DB 소유권과 인증서 binding을 변경하지만 별도 파일인 `.local/mosquitto.acl`을 갱신하지 않는다. 개발 시작 스크립트도 복수의 정상 Gateway가 공존하는 경우를 표현할 설정이 없었다.
+- **해결 및 예방책**: `DEV_GATEWAY_IDS`의 명시적 UUID allowlist를 정규화·중복 제거·정렬해 각 Gateway의 기존 최소권한 topic만 렌더링하고, ACL을 원자적으로 권한 `0600`으로 게시한다. 단일 `DEV_GATEWAY_ID`는 하위 호환으로 유지하되 두 설정의 불일치는 fail closed 한다.
+- **반복 방지 체크**: 새 Lab Gateway claim 후 allowlist에 UUID를 추가하고 `pnpm dev`를 재시작한다. 테스트는 복수/legacy/누락/충돌/주입 입력과 deterministic ACL을 함께 검증하며 운영 broker에 wildcard 예외를 추가하지 않는다.
+
 ## 2026-07-13 / Raspberry Pi 호스트 패키지와 pnpm store 불일치
 - **발생했던 문제/실수**: Debian 13에서 `rfkill` 명령을 `util-linux` 패키지로 설치하려 했고, 로컬 의존성 갱신은 기존 pnpm store v11과 현재 pnpm 9 store v3가 달라 실패했다.
 - **원인**: macOS와 Debian의 패키지 구성을 일반화했고, workspace의 기존 `node_modules`가 어떤 pnpm/store로 설치됐는지 확인하기 전에 add 명령을 실행했다.

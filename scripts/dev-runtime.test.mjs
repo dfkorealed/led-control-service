@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
   parseEnvFile,
+  publishMosquittoAcl,
   resolveDevAppFilters,
   resolveDevEnvironment,
   renderMosquittoAcl,
@@ -95,7 +96,94 @@ test("명시한 Vault client 경로는 PKI_LAB_CURRENT_DIR 없이도 Mosquitto b
 test("DEV_GATEWAY_ID가 없으면 mock identity 없이 온보딩 모드로 시작한다", () => {
   const env = resolveDevEnvironment("/workspace/led-control", {});
   assert.equal(env.DEV_GATEWAY_ID, "");
-  assert.doesNotMatch(renderMosquittoAcl(env.DEV_GATEWAY_ID), /user undefined|user mock|user demo/i);
+  assert.equal(env.DEV_GATEWAY_IDS, "");
+  assert.equal(renderMosquittoAcl([]), "user api-service\ntopic readwrite sites/#\n\n");
+});
+
+test("DEV_GATEWAY_IDS는 복수 UUID를 trim, 소문자화, 중복 제거하고 안정적으로 정렬한다", () => {
+  const first = "11111111-1111-4111-8111-111111111111";
+  const second = "22222222-2222-4222-8222-222222222222";
+  const env = resolveDevEnvironment("/workspace/led-control", {
+    DEV_GATEWAY_IDS: ` ${second.toUpperCase()}, ${first}, ${second} `
+  });
+
+  assert.equal(env.DEV_GATEWAY_IDS, `${first},${second}`);
+  const acl = renderMosquittoAcl(env.DEV_GATEWAY_IDS.split(","));
+  assert.equal((acl.match(/^user api-service$/gm) ?? []).length, 1);
+  assert.equal((acl.match(new RegExp(`^user ${first}$`, "gm")) ?? []).length, 1);
+  assert.equal((acl.match(new RegExp(`^user ${second}$`, "gm")) ?? []).length, 1);
+  assert.ok(acl.indexOf(`user ${first}`) < acl.indexOf(`user ${second}`));
+});
+
+test("legacy DEV_GATEWAY_ID는 기존 단일 장비 동작을 유지하며 복수 allowlist로 승격된다", () => {
+  const gatewayId = "11111111-1111-4111-8111-111111111111";
+  const env = resolveDevEnvironment("/workspace/led-control", { DEV_GATEWAY_ID: gatewayId.toUpperCase() });
+
+  assert.equal(env.DEV_GATEWAY_ID, gatewayId);
+  assert.equal(env.DEV_GATEWAY_IDS, gatewayId);
+  assert.match(renderMosquittoAcl(env.DEV_GATEWAY_IDS.split(",")), new RegExp(`^user ${gatewayId}$`, "m"));
+});
+
+test("legacy와 복수 설정을 함께 쓰면 legacy가 allowlist에 포함될 때만 허용한다", () => {
+  const first = "11111111-1111-4111-8111-111111111111";
+  const second = "22222222-2222-4222-8222-222222222222";
+  assert.equal(
+    resolveDevEnvironment("/workspace/led-control", {
+      DEV_GATEWAY_ID: first,
+      DEV_GATEWAY_IDS: `${second},${first}`
+    }).DEV_GATEWAY_IDS,
+    `${first},${second}`
+  );
+  assert.throws(
+    () =>
+      resolveDevEnvironment("/workspace/led-control", {
+        DEV_GATEWAY_ID: first,
+        DEV_GATEWAY_IDS: second
+      }),
+    /DEV_GATEWAY_ID conflicts with DEV_GATEWAY_IDS/
+  );
+});
+
+test("Gateway allowlist는 malformed, 빈 token, topic injection, 허용량 초과를 fail closed 한다", () => {
+  const valid = "11111111-1111-4111-8111-111111111111";
+  for (const value of ["not-a-uuid", `${valid},`, `${valid},,${valid}`, `${valid}\nuser attacker`]) {
+    assert.throws(() => resolveDevEnvironment("/workspace/led-control", { DEV_GATEWAY_IDS: value }), /DEV_GATEWAY_IDS/);
+  }
+  assert.throws(() => renderMosquittoAcl([`${valid}\ntopic readwrite #`]), /gateway ID/i);
+  const tooMany = Array.from(
+    { length: 65 },
+    (_, index) => `00000000-0000-4000-8000-${index.toString(16).padStart(12, "0")}`
+  ).join(",");
+  assert.throws(
+    () => resolveDevEnvironment("/workspace/led-control", { DEV_GATEWAY_IDS: tooMany }),
+    /at most 64/
+  );
+});
+
+test("Mosquitto ACL은 정렬된 내용으로 원자 게시되고 정확히 0600 권한을 갖는다", () => {
+  const directory = mkdtempSync(join(tmpdir(), "led-control-acl-"));
+  const destination = join(directory, "mosquitto.acl");
+  const first = "11111111-1111-4111-8111-111111111111";
+  const second = "22222222-2222-4222-8222-222222222222";
+  try {
+    publishMosquittoAcl(destination, [second, first, second]);
+
+    assert.equal(readFileSync(destination, "utf8"), renderMosquittoAcl([first, second]));
+    assert.equal(statSync(destination).mode & 0o777, 0o600);
+    assert.deepEqual(readdirSync(directory), ["mosquitto.acl"]);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("개발 시작 스크립트는 정규화된 복수 ID를 PKI와 원자 ACL 게시에 함께 사용한다", () => {
+  const source = readFileSync(new URL("./dev.mjs", import.meta.url), "utf8");
+
+  assert.match(source, /const gatewayIds = env\.DEV_GATEWAY_IDS \? env\.DEV_GATEWAY_IDS\.split\(","\) : \[\]/);
+  assert.match(source, /ensureDevelopmentPki\(gatewayIds,/);
+  assert.match(source, /publishMosquittoAcl\(join\(localDir, "mosquitto\.acl"\), gatewayIds\)/);
+  assert.match(source, /for \(const gatewayId of gatewayIds\)/);
+  assert.doesNotMatch(source, /renderMosquittoAcl\(env\.DEV_GATEWAY_ID\)/);
 });
 
 test("host Mosquitto 설정은 mTLS와 gateway-scoped ACL을 강제한다", () => {

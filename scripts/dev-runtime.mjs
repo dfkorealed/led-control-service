@@ -1,6 +1,19 @@
-import { createHash } from "node:crypto";
-import { readFileSync, watch as watchFile } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
+import {
+  chmodSync,
+  closeSync,
+  fsyncSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  watch as watchFile,
+  writeFileSync
+} from "node:fs";
 import { basename, dirname, join } from "node:path";
+
+const MAX_DEV_GATEWAY_IDS = 64;
+const CANONICAL_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function resolveDevAppFilters(_args) {
   return ["@led-control/api", "@led-control/web"];
@@ -21,7 +34,8 @@ export function parseEnvFile(content) {
 }
 
 export function resolveDevEnvironment(root, source) {
-  const gatewayId = source.DEV_GATEWAY_ID?.trim();
+  const legacyGatewayId = optionalGatewayId(source.DEV_GATEWAY_ID, "DEV_GATEWAY_ID");
+  const gatewayIds = resolveDevGatewayIds(source, legacyGatewayId);
   const pki = resolvePkiDirectory(root, source);
   const usesLabBundle = Boolean(source.PKI_LAB_CURRENT_DIR?.trim());
   const mqttUrl = mqttsUrl(source.MQTT_URL, "MQTT_URL") ?? "mqtts://localhost:8883";
@@ -35,7 +49,8 @@ export function resolveDevEnvironment(root, source) {
     MQTT_CLIENT_CERT_PATH: source.MQTT_CLIENT_CERT_PATH?.trim() || join(pki, usesLabBundle ? "api-mqtt-client.crt" : "api.crt"),
     MQTT_CLIENT_KEY_PATH: source.MQTT_CLIENT_KEY_PATH?.trim() || join(pki, usesLabBundle ? "api-mqtt-client.key" : "api.key"),
     MQTT_API_INSTANCE_ID: source.MQTT_API_INSTANCE_ID?.trim() || "development",
-    DEV_GATEWAY_ID: gatewayId ?? ""
+    DEV_GATEWAY_ID: legacyGatewayId ?? "",
+    DEV_GATEWAY_IDS: gatewayIds.join(",")
   };
 }
 
@@ -143,7 +158,8 @@ function checksumOf(content) {
 }
 
 export function renderMosquittoAcl(gatewayIds) {
-  const identities = [...new Set(Array.isArray(gatewayIds) ? gatewayIds : [gatewayIds])].filter(Boolean);
+  const values = Array.isArray(gatewayIds) ? gatewayIds : gatewayIds ? [gatewayIds] : [];
+  const identities = normalizeGatewayIds(values, "gateway ID");
   return [
     "user api-service",
     "topic readwrite sites/#",
@@ -164,4 +180,63 @@ export function renderMosquittoAcl(gatewayIds) {
     ]),
     ""
   ].join("\n");
+}
+
+export function publishMosquittoAcl(destination, gatewayIds) {
+  const content = renderMosquittoAcl(gatewayIds);
+  const temporaryPath = join(
+    dirname(destination),
+    `.${basename(destination)}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`
+  );
+  let descriptor;
+  try {
+    // The temporary file lives beside the destination so rename is an atomic
+    // replacement. Explicit chmod avoids inheriting a permissive developer umask.
+    descriptor = openSync(temporaryPath, "wx", 0o600);
+    writeFileSync(descriptor, content, "utf8");
+    fsyncSync(descriptor);
+    closeSync(descriptor);
+    descriptor = undefined;
+    chmodSync(temporaryPath, 0o600);
+    renameSync(temporaryPath, destination);
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor);
+    rmSync(temporaryPath, { force: true });
+  }
+}
+
+function resolveDevGatewayIds(source, legacyGatewayId) {
+  const configured = source.DEV_GATEWAY_IDS?.trim();
+  if (!configured) return legacyGatewayId ? [legacyGatewayId] : [];
+
+  const tokens = configured.split(",").map((value) => value.trim());
+  if (tokens.some((value) => value.length === 0)) {
+    throw new Error("DEV_GATEWAY_IDS must not contain empty entries");
+  }
+  const gatewayIds = normalizeGatewayIds(tokens, "DEV_GATEWAY_IDS");
+  if (legacyGatewayId && !gatewayIds.includes(legacyGatewayId)) {
+    throw new Error("DEV_GATEWAY_ID conflicts with DEV_GATEWAY_IDS");
+  }
+  return gatewayIds;
+}
+
+function optionalGatewayId(value, label) {
+  const trimmed = value?.trim();
+  return trimmed ? canonicalGatewayId(trimmed, label) : undefined;
+}
+
+function normalizeGatewayIds(values, label) {
+  if (values.length > MAX_DEV_GATEWAY_IDS) {
+    throw new Error(`${label} supports at most ${MAX_DEV_GATEWAY_IDS} gateway IDs`);
+  }
+  const canonical = values.map((value) => canonicalGatewayId(value, label));
+  const unique = [...new Set(canonical)].sort();
+  return unique;
+}
+
+function canonicalGatewayId(value, label) {
+  if (typeof value !== "string" || !CANONICAL_UUID_PATTERN.test(value)) {
+    throw new Error(`${label} must contain canonical UUID gateway IDs`);
+  }
+  return value.toLowerCase();
 }
