@@ -204,7 +204,7 @@ export function CustomerShell({ user }: { user: AuthUser }) {
         </header>
         <Suspense fallback={<RouteLoadingState />}>
           <Routes>
-            <Route path="/monitoring" element={<MonitoringView userRole={user.role} siteId={siteId} currentUser={{ id: user.id, name: user.name, loginId: user.loginId, status: user.status }} />} />
+            <Route path="/monitoring" element={<MonitoringView userRole={user.role} siteId={siteId} />} />
             <Route
               path="/control"
               element={capabilities.control ? (
