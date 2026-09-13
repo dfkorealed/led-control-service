@@ -515,21 +515,21 @@ export interface GatewayAdapters {
 }
 ```
 
-- [ ] **Step 1: factory RED 테스트를 작성한다.** `bluez`는 Company ID를 계속 요구하고 `bio-usb`는 Company ID/D-Bus를 요구하지 않으며 exact USB client, mapping path, timeout/scan settings를 생성한다. 누락/unknown adapter는 실패한다.
+- [x] **Step 1: factory RED 테스트를 작성한다.** `bluez`는 Company ID를 계속 요구하고 `bio-usb`는 Company ID/D-Bus를 요구하지 않으며 exact USB client, mapping path, timeout/scan settings를 생성한다. 누락/unknown adapter는 실패한다.
 
-- [ ] **Step 2: discriminated health RED 테스트를 작성한다.** BIO는 `transportConnected`, `protocolReady`, `mappingValid`, MQTT, heartbeat freshness가 모두 true여야 healthy이고 `dbusOwner`/`bluezAttached`를 호출하지 않는다. BlueZ 판정은 기존과 동일하다.
+- [x] **Step 2: discriminated health RED 테스트를 작성한다.** BIO는 `transportConnected`, `protocolReady`, `mappingValid`, MQTT, heartbeat freshness가 모두 true여야 healthy이고 `dbusOwner`/`bluezAttached`를 호출하지 않는다. BlueZ 판정은 기존과 동일하다.
 
-- [ ] **Step 3: shutdown RED 테스트를 작성한다.** SIGTERM/SIGINT에서 MQTT intake 중지 후 adapter `stop()`이 USB poll/release/reattach를 완료해야 process shutdown이 끝난다.
+- [x] **Step 3: shutdown RED 테스트를 작성한다.** SIGTERM/SIGINT에서 MQTT intake 중지 후 adapter `stop()`이 USB poll/release/reattach를 완료해야 process shutdown이 끝난다.
 
-- [ ] **Step 4: RED를 확인한다.**
+- [x] **Step 4: RED를 확인한다.**
 
 Run: `pnpm --filter @led-control/gateway exec vitest run src/adapters/adapter-factory.test.ts src/index.test.ts src/health/appliance-health.test.ts`
 
 Run: `node --test apps/gateway/docker/healthcheck-state.test.mjs`
 
-- [ ] **Step 5: factory, conditional vehicle sensor refresh, lifecycle과 health JSON을 구현한다.** health log는 `adapterKind`와 boolean 상태만 포함하고 descriptor raw path나 protocol payload를 포함하지 않는다.
+- [x] **Step 5: factory, conditional vehicle sensor refresh, lifecycle과 health JSON을 구현한다.** health log는 `adapterKind`와 boolean 상태만 포함하고 descriptor raw path나 protocol payload를 포함하지 않는다.
 
-- [ ] **Step 6: GREEN과 build를 확인한다.**
+- [x] **Step 6: GREEN과 build를 확인한다.**
 
 Run: `pnpm --filter @led-control/gateway exec vitest run src/adapters/adapter-factory.test.ts src/index.test.ts src/health/appliance-health.test.ts`
 
@@ -537,7 +537,7 @@ Run: `node --test apps/gateway/docker/healthcheck-state.test.mjs`
 
 Run: `pnpm --filter @led-control/gateway typecheck && pnpm --filter @led-control/gateway build`
 
-- [ ] **Step 7: 커밋한다.**
+- [x] **Step 7: 커밋한다.**
 
 ```bash
 git add apps/gateway/src/adapters/adapter-factory* apps/gateway/src/index* apps/gateway/src/health apps/gateway/docker/healthcheck-state*
