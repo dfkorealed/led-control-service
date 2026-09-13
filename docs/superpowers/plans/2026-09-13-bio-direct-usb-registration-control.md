@@ -633,6 +633,34 @@ git commit -m "feat(gateway): deploy one BIO raw USB device safely"
 
 ---
 
+### Task 8b: Approved admin3 Lab reset and Gateway re-enrollment
+
+**User-approved destructive boundary:**
+- `admin3`이 소유한 customer organization, its only Site and all Site-owned data, `admin3`, and the one additional User in the same organization may be deleted without a recoverable backup.
+- Unrelated organizations, Sites, Users, inventories, certificates, database schemas and services are out of scope.
+- Do not reset the BIO dongle or lamp module and do not send address/brightness/identify/sensor writes.
+- Store new temporary admin password and claim code only in a local Git-ignored mode `0600` handoff file; never print them in logs or evidence.
+
+- [ ] **Step 1: destructive preflight를 실행한다.** canonical `admin3`가 active admin exact-one이고 organization exact-one/Site exact-one인지, unrelated scope와 분리됐는지 read-only transaction으로 다시 확인한다. 복구본 대신 hash/count manifest만 기록한다.
+
+- [ ] **Step 2: 기존 제품 operator 삭제 경로를 사용한다.** 삭제 전 현재 session에서 target hash/count를 재확인하고, Site report object cleanup과 연결된 certificate/inventory cleanup을 포함한 제품 API를 실행한다. 직접 cascade SQL로 우회하지 않는다.
+
+- [ ] **Step 3: 삭제 후 경계를 검증한다.** target organization/Site/admin/other-user와 종속 행이 제거됐고 unrelated aggregate가 유지됐는지 확인한다. 외부 object와 revocation/cleanup 실패가 있으면 새 설치를 중단한다.
+
+- [ ] **Step 4: 새 admin3 설치 주체를 만든다.** 기존 operator API로 새 organization, pending Site, `admin3` admin을 만들고 temporary password를 `0600` handoff file에 기록한다. 비밀번호 원문은 DB/Git/명령 출력에 남기지 않는다.
+
+- [ ] **Step 5: 기존 orphan identity를 폐기하고 Pi를 새 manufacturing identity로 등록한다.** old device/MQTT certificates를 제품 PKI 경로로 revoke/replace하고 새 serial/device identity를 사용한다. old certificate를 새 Gateway ID에 재결속하지 않는다.
+
+- [ ] **Step 6: 새 Site의 initial setup과 Gateway claim/bootstrap을 완료한다.** 새 one-time claim code를 제품 API로 한 번만 사용하고, claim 성공 후 원문을 폐기한다. floor가 없으면 조명 등록이 불가능하므로 최소 한 층을 제품 setup API로 생성한다.
+
+- [ ] **Step 7: Task 8a LAN/PKI/MQTT 복구를 다시 실행한다.** current LAN, hosts, SAN/CRL, runtime broker, Pi/container DNS를 일치시키고 DNS → TCP → TLS/mTLS → MQTT CONNACK을 검증한다.
+
+- [ ] **Step 8: healthy heartbeat 3회를 확인한다.** 새 Gateway ID의 API DB timestamp 증가, Gateway health와 container lifecycle을 대조한다.
+
+- [ ] **Step 9: 상태판·메뉴·교훈·계획을 실제 결과로 갱신하고 커밋한다.** reset/re-enrollment과 BIO deployment/HIL 완료를 구분한다.
+
+---
+
 ### Task 9: Approved single-device address and control HIL
 
 **Files:**
