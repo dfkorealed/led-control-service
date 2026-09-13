@@ -5,6 +5,7 @@ import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom"
 import { logout, type AuthUser } from "../../api/auth";
 import { authMeQueryKey, clearTenantCache } from "../../api/principal-cache";
 import { useDashboard, type SiteCapabilities } from "../../api/queries";
+import { KindaLogo } from "../../components/brand/KindaLogo";
 import { IconTooltipButton } from "../../components/ui";
 import { RouteLoadingState } from "../../components/ui/RouteLoadingState";
 import {
@@ -174,13 +175,7 @@ export function CustomerShell({ user }: { user: AuthUser }) {
         </nav>
       ) : (
         <aside className="sidebar">
-          <div className="brand">
-            <span className="brand-mark">LC</span>
-            <div>
-              <strong>LED Control</strong>
-              <span>관제 센터</span>
-            </div>
-          </div>
+          <KindaLogo context="관제 센터" compact />
           <nav className="nav-list" aria-label="주 메뉴">
             <PrimaryNavigation capabilities={capabilities} search={location.search} />
           </nav>

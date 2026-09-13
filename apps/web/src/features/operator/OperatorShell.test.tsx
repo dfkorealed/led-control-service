@@ -60,6 +60,14 @@ describe("operator shell route boundary", () => {
     expect(screen.getByLabelText("현재 경로")).toHaveTextContent("/operator/site-admins?source=direct#accounts");
   });
 
+  it("운영자 헤더에 킨다 서비스 운영 브랜드를 표시한다", async () => {
+    renderShell();
+
+    expect(screen.getByRole("img", { name: "킨다 서비스 운영" })).toBeVisible();
+    expect(screen.queryByText("LED Control")).not.toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "현장 관리자 계정" })).toBeVisible();
+  });
+
   it("redirects an unknown direct URL to site admin management", async () => {
     renderShell("/monitoring?siteId=site-1#floor");
 

@@ -75,6 +75,13 @@ describe("customer shell site context", () => {
   });
   afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
+  it("데스크톱 셸에 킨다 관제 센터 브랜드를 표시한다", () => {
+    renderShell("/monitoring?siteId=site");
+
+    expect(screen.getByRole("img", { name: "킨다 관제 센터" })).toBeVisible();
+    expect(screen.queryByText("LED Control")).not.toBeInTheDocument();
+  });
+
   it("keeps navigation and logout available while password settings loads, then preserves its URL", async () => {
     renderShell("/settings/security?siteId=site&source=account#password");
 

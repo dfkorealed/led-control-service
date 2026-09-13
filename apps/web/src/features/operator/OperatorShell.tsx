@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { logout, type AuthUser } from "../../api/auth";
 import { authMeQueryKey, clearTenantCache } from "../../api/principal-cache";
+import { KindaLogo } from "../../components/brand/KindaLogo";
 import { RouteLoadingState } from "../../components/ui/RouteLoadingState";
 import { FeedbackState } from "../../components/ui/FeedbackState";
 import { IconTooltipButton } from "../../components/ui/IconTooltipButton";
@@ -35,13 +36,7 @@ export function OperatorShell({ user }: { user: AuthUser }) {
   return (
     <div className="operator-shell">
       <header className="operator-header">
-        <div className="brand operator-brand">
-          <span className="brand-mark">LC</span>
-          <div>
-            <strong>LED Control</strong>
-            <span>서비스 운영</span>
-          </div>
-        </div>
+        <KindaLogo className="operator-brand" context="서비스 운영" />
         <div className="operator-header-actions">
           <span className="operator-login-id">{user.loginId}</span>
           <IconTooltipButton
