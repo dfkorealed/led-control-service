@@ -30,7 +30,7 @@ services:
       - "8883:8883"
     volumes:
       - ${MOSQUITTO_TLS_CONFIG_PATH:-./infra/mosquitto.dev-tls.conf}:/mosquitto/config/mosquitto.conf:ro
-      - ./infra/mosquitto.acl.example:/mosquitto/config/mosquitto.acl:ro
+      - ./.local/mosquitto.acl:/mosquitto/config/mosquitto.acl:ro
       - ${MQTT_TLS_CERT_DIR:-./.local/pki}:/mosquitto/certs:ro
       - mosquitto-data:/mosquitto/data
 

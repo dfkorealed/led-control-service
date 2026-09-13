@@ -214,7 +214,7 @@ export DEV_GATEWAY_IDS='<기존 gatewayId>,<새 claim 응답의 gatewayId>'
 pnpm dev
 ```
 
-단일 장비만 쓰는 기존 환경은 `DEV_GATEWAY_ID`도 지원한다. 두 변수를 동시에 설정할 때 legacy ID가 `DEV_GATEWAY_IDS`에 없으면 잘못된 ACL 축소를 막기 위해 시작이 실패한다. 목록은 정확한 Gateway UUID만 허용하며 wildcard MQTT principal을 만들지 않는다. 이 Lab/dev 계약은 운영 broker의 인증 정책을 변경하지 않는다.
+단일 장비만 쓰는 기존 환경은 `DEV_GATEWAY_ID`도 지원한다. 두 변수를 동시에 설정할 때 legacy ID가 `DEV_GATEWAY_IDS`에 없으면 잘못된 ACL 축소를 막기 위해 시작이 실패한다. `pnpm dev:local`은 ACL을 원자적으로 먼저 만든 뒤 Docker를 시작하며, Docker도 정적 pattern 예제가 아니라 이 exact ACL만 read-only mount한다. 이미 8883이 열려 있으면 저장소 소유 Docker service 또는 exact PID/config marker가 일치하는 native Mosquitto만 `SIGHUP`하고 다시 검증한다. 알 수 없는 listener는 종료하거나 재사용하지 않고 fail closed 한다. 목록은 정확한 Gateway UUID만 허용하며 wildcard MQTT principal을 만들지 않는다. 이 Lab/dev 계약은 운영 broker의 인증 정책을 변경하지 않는다.
 
 ## 8. Pi 설정, bootstrap과 MQTT 연결
 

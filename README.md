@@ -57,7 +57,7 @@ Lab Vault 실행, Lab Root 서명, 제조 station 발급부터 Raspberry Pi clai
 
    기존 운영 DB의 `loginId` 전환은 유지보수 창에서 write freeze → 구버전 API와 worker 완전 drain → expand, backfill, contract migration 완료 → 새 `loginId` API/Web 배포 → smoke 확인과 write 재개 순서로 수행합니다. 전환 중 실행 가능한 API 인스턴스를 남기지 않으므로 `loginId IS NULL` 사용자가 로그인해야 하는 구간이 없으며 email 로그인 fallback은 배포하지 않습니다. 빈 DB는 migration 전체 적용 후 새 API/Web만 시작합니다.
 
-4. API와 Web을 실제 장비 모드로 실행합니다. Docker를 사용하는 경우 아래 통합 명령이 인프라를 먼저 시작합니다. Homebrew로 PostgreSQL과 Redis를 실행하는 경우에는 기존 `pnpm dev`를 사용합니다. 두 명령 모두 누락된 개발용 PKI와 `.env`의 `DEV_GATEWAY_IDS`에 명시한 각 Gateway용 인증서를 생성하고, 8883 mTLS broker를 시작하고, 대기 중인 DB migration을 적용합니다. Raspberry Pi gateway와 ESP32-H2가 동작하지 않으면 조명 검색 결과는 0개가 정상입니다.
+4. API와 Web을 실제 장비 모드로 실행합니다. Docker를 사용하는 경우 아래 통합 명령이 exact ACL/PKI 준비를 먼저 완료한 뒤 인프라를 시작합니다. Homebrew로 PostgreSQL과 Redis를 실행하는 경우에는 기존 `pnpm dev`를 사용합니다. 두 명령 모두 누락된 개발용 PKI와 `.env`의 `DEV_GATEWAY_IDS`에 명시한 각 Gateway용 인증서를 생성하고, 8883 mTLS broker를 시작하고, 대기 중인 DB migration을 적용합니다. Raspberry Pi gateway와 ESP32-H2가 동작하지 않으면 조명 검색 결과는 0개가 정상입니다.
 
    ```bash
    # Docker 방식
@@ -67,7 +67,7 @@ Lab Vault 실행, Lab Root 서명, 제조 station 발급부터 Raspberry Pi clai
    pnpm dev
    ```
 
-   API는 `4000`, Web은 `5173` 포트를 고정 사용한다. 기존 프로세스가 포트를 점유하거나 PostgreSQL/Redis가 꺼져 있으면 원인과 실행 명령을 시작 전에 출력한다. 최초 claim 전에는 `DEV_GATEWAY_IDS`를 비워 API/Web 온보딩 모드로 실행한다. claim은 DB 소유권만 바꾸며 file-backed 개발 broker ACL을 자동으로 다시 쓰지 않는다. claim 후 DB에 생성된 실제 `Gateway.id`를 comma-separated `DEV_GATEWAY_IDS`에 추가하고 `pnpm dev`를 재시작해야 모든 로컬 MQTT 인증서 identity가 허용된다. 기존 단일 장비용 `DEV_GATEWAY_ID`도 계속 지원하지만, 두 변수를 함께 설정하면 그 ID가 복수 목록에도 포함되어야 한다.
+   API는 `4000`, Web은 `5173` 포트를 고정 사용한다. 기존 프로세스가 포트를 점유하거나 PostgreSQL/Redis가 꺼져 있으면 원인과 실행 명령을 시작 전에 출력한다. 최초 claim 전에는 `DEV_GATEWAY_IDS`를 비워 API/Web 온보딩 모드로 실행한다. claim은 DB 소유권만 바꾸며 file-backed 개발 broker ACL을 자동으로 다시 쓰지 않는다. claim 후 DB에 생성된 실제 `Gateway.id`를 comma-separated `DEV_GATEWAY_IDS`에 추가하고 `pnpm dev`를 재시작해야 모든 로컬 MQTT 인증서 identity가 허용된다. 재시작 시 저장소 소유 Docker `mqtt-tls` 또는 이 스크립트가 기록한 exact native PID/config만 `SIGHUP`하며, 다른 프로세스가 8883을 점유하면 기존 ACL을 신뢰하지 않고 시작을 중단한다. 목록에서 제거한 ID와 빈 목록도 reload 후 즉시 차단된다. 기존 단일 장비용 `DEV_GATEWAY_ID`도 계속 지원하지만, 두 변수를 함께 설정하면 그 ID가 복수 목록에도 포함되어야 한다.
 
 5. PC 웹 앱에 접속합니다.
 

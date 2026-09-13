@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -13,6 +13,11 @@ import {
   renderMosquittoConfig,
   startMosquittoCrlReload
 } from "./dev-runtime.mjs";
+import {
+  publishNativeBrokerIdentity,
+  reloadExistingDevelopmentBroker
+} from "./dev-broker.mjs";
+import { prepareDevelopmentRuntime } from "./dev-prepare.mjs";
 
 test("루트 env 파일의 주석, 따옴표, 빈 값을 안전하게 읽는다", () => {
   assert.deepEqual(parseEnvFile('# comment\nAPI_PORT=4000\nDATABASE_URL="postgres://local/db"\nEMPTY=\n'), {
@@ -176,14 +181,46 @@ test("Mosquitto ACL은 정렬된 내용으로 원자 게시되고 정확히 0600
   }
 });
 
-test("개발 시작 스크립트는 정규화된 복수 ID를 PKI와 원자 ACL 게시에 함께 사용한다", () => {
+test("prepare-only 실행은 앱이나 broker를 시작하지 않고 ACL과 native config를 먼저 게시한다", () => {
+  const directory = mkdtempSync(join(tmpdir(), "led-control-prepare-"));
+  const bundle = join(directory, "bundle");
+  const started = [];
+  mkdirSync(bundle, { recursive: true });
+  for (const filename of [
+    "mqtt-ca.crt",
+    "api-mqtt-client.crt",
+    "api-mqtt-client.key",
+    "mqtt-server.crt",
+    "mqtt-server.key",
+    "mqtt-client.crl"
+  ]) writeFileSync(join(bundle, filename), "fixture");
+  try {
+    const prepared = prepareDevelopmentRuntime(directory, {
+      PKI_LAB_CURRENT_DIR: bundle,
+      DEV_GATEWAY_IDS: "22222222-2222-4222-8222-222222222222,11111111-1111-4111-8111-111111111111"
+    }, { run: (...args) => started.push(args) });
+
+    assert.deepEqual(prepared.gatewayIds, [
+      "11111111-1111-4111-8111-111111111111",
+      "22222222-2222-4222-8222-222222222222"
+    ]);
+    assert.match(readFileSync(join(directory, ".local", "mosquitto.acl"), "utf8"), /^user api-service$/m);
+    assert.match(readFileSync(join(directory, ".local", "mosquitto.host.conf"), "utf8"), /acl_file .*\.local\/mosquitto\.acl/);
+    assert.equal(statSync(join(directory, ".local", "mosquitto.acl")).mode & 0o777, 0o600);
+    assert.deepEqual(started, []);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("개발 시작 스크립트는 prepare 결과만 사용하고 기존 8883 broker를 검증·reload한다", () => {
   const source = readFileSync(new URL("./dev.mjs", import.meta.url), "utf8");
 
-  assert.match(source, /const gatewayIds = env\.DEV_GATEWAY_IDS \? env\.DEV_GATEWAY_IDS\.split\(","\) : \[\]/);
-  assert.match(source, /ensureDevelopmentPki\(gatewayIds,/);
-  assert.match(source, /publishMosquittoAcl\(join\(localDir, "mosquitto\.acl"\), gatewayIds\)/);
-  assert.match(source, /for \(const gatewayId of gatewayIds\)/);
-  assert.doesNotMatch(source, /renderMosquittoAcl\(env\.DEV_GATEWAY_ID\)/);
+  assert.match(source, /prepareDevelopmentRuntime\(root, sourceEnv\)/);
+  assert.match(source, /reloadExistingDevelopmentBroker\(\{ root, aclPath/);
+  assert.match(source, /publishNativeBrokerIdentity\(nativeIdentityPath,/);
+  assert.match(source, /removeNativeBrokerIdentity\(nativeIdentityPath, broker\.pid\)/);
+  assert.doesNotMatch(source, /if \(!\(await isPortOpen\(8883\)\)\) \{/);
 });
 
 test("host Mosquitto 설정은 mTLS와 gateway-scoped ACL을 강제한다", () => {
@@ -224,10 +261,11 @@ test("기본 pnpm dev는 실제 장비 시험을 위해 mock gateway를 실행�
   assert.deepEqual(resolveDevAppFilters([]), ["@led-control/api", "@led-control/web"]);
 });
 
-test("통합 로컬 개발 명령은 Docker 인프라를 먼저 시작한 뒤 기존 dev를 실행한다", () => {
+test("통합 로컬 개발 명령은 ACL prepare를 Docker 시작보다 먼저 완료한다", () => {
   const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
-  assert.equal(packageJson.scripts["dev:local"], "pnpm docker:up && pnpm dev");
+  assert.equal(packageJson.scripts["dev:local"], "pnpm dev:prepare && pnpm docker:up && pnpm dev");
+  assert.equal(packageJson.scripts["dev:prepare"], "node scripts/dev-prepare.mjs");
 });
 
 test("루트 전체 테스트는 shared 산출물 준비와 consumer lifetime을 workspace gate로 보호한다", () => {
@@ -311,11 +349,104 @@ test("production Mosquitto 설정은 mTLS, CRL, TLS 1.2와 최소권한 ACL을 �
   assert.doesNotMatch(acl, /^pattern write .*\/acks\/(?:state-ingested|provisioning\/scan-terminal-ingested)$/m);
 });
 
-test("Compose는 선택 가능한 Mosquitto config와 certificate directory를 read-only로 mount한다", () => {
-  const compose = readFileSync(new URL("../docker-compose.yml", import.meta.url), "utf8");
+test("Compose 개발 broker는 생성된 exact ACL과 certificate directory만 read-only로 mount한다", () => {
+  const mqtt = renderCompose().services["mqtt-tls"];
+  const aclMount = mqtt.volumes.find((volume) => volume.target === "/mosquitto/config/mosquitto.acl");
 
-  assert.match(compose, /\$\{MOSQUITTO_TLS_CONFIG_PATH:-\.\/infra\/mosquitto\.dev-tls\.conf\}:\/mosquitto\/config\/mosquitto\.conf:ro/);
-  assert.match(compose, /\$\{MQTT_TLS_CERT_DIR:-\.\/\.local\/pki\}:\/mosquitto\/certs:ro/);
+  assert.equal(aclMount.source, new URL("../.local/mosquitto.acl", import.meta.url).pathname);
+  assert.equal(aclMount.read_only, true);
+  assert.doesNotMatch(aclMount.source, /infra\/mosquitto\.acl\.example$/);
+  assert.ok(mqtt.volumes.some((volume) => volume.target === "/mosquitto/certs" && volume.read_only));
+});
+
+test("repo-owned Docker broker만 exact container SIGHUP 후 mounted ACL 일치를 검증한다", () => {
+  const directory = mkdtempSync(join(tmpdir(), "led-control-docker-owner-"));
+  const aclPath = join(directory, ".local", "mosquitto.acl");
+  const signals = [];
+  mkdirSync(join(directory, ".local"), { recursive: true });
+  writeFileSync(aclPath, "user api-service\ntopic readwrite sites/#\n\n", { mode: 0o600 });
+  const inspection = [{
+    Config: { Labels: { "com.docker.compose.project.working_dir": directory, "com.docker.compose.service": "mqtt-tls" } },
+    State: { Running: true },
+    NetworkSettings: { Ports: { "8883/tcp": [{ HostIp: "0.0.0.0", HostPort: "8883" }] } },
+    Mounts: [{ Source: aclPath, Destination: "/mosquitto/config/mosquitto.acl", RW: false }]
+  }];
+  const run = (command, args) => {
+    if (command === "docker" && args.join(" ") === "compose ps -q mqtt-tls") return ok("repo-mqtt-container\n");
+    if (command === "docker" && args[0] === "inspect") return ok(JSON.stringify(inspection));
+    if (command === "docker" && args[0] === "kill") {
+      signals.push(args.slice(1));
+      return ok("repo-mqtt-container\n");
+    }
+    if (command === "docker" && args.join(" ") === "exec repo-mqtt-container cat /mosquitto/config/mosquitto.acl") {
+      return ok(readFileSync(aclPath, "utf8"));
+    }
+    return failed(`unexpected ${command} ${args.join(" ")}`);
+  };
+  try {
+    assert.deepEqual(
+      reloadExistingDevelopmentBroker({ root: directory, aclPath, run }),
+      { kind: "docker", id: "repo-mqtt-container" }
+    );
+    assert.deepEqual(signals, [["--signal=SIGHUP", "repo-mqtt-container"]]);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("exact pid/config/listener가 일치하는 managed native broker만 SIGHUP한다", () => {
+  const directory = mkdtempSync(join(tmpdir(), "led-control-native-owner-"));
+  const local = join(directory, ".local");
+  const aclPath = join(local, "mosquitto.acl");
+  const config = join(local, "mosquitto.host.conf");
+  const binary = join(directory, "mosquitto");
+  const identityPath = join(local, "mosquitto.host.pid.json");
+  const signals = [];
+  mkdirSync(local, { recursive: true });
+  writeFileSync(aclPath, "user api-service\ntopic readwrite sites/#\n\n", { mode: 0o600 });
+  writeFileSync(config, `acl_file ${aclPath}\n`);
+  writeFileSync(binary, "native broker fixture");
+  chmodSync(binary, 0o755);
+  publishNativeBrokerIdentity(identityPath, { pid: 4321, root: directory, binary, config });
+  const run = (command, args) => {
+    if (command === "docker") return ok("");
+    if (command === "lsof") return ok("4321\n4321\n");
+    if (command === "ps") return ok(`${binary} -c ${config}\n`);
+    return failed(`unexpected ${command} ${args.join(" ")}`);
+  };
+  try {
+    assert.deepEqual(
+      reloadExistingDevelopmentBroker({
+        root: directory,
+        aclPath,
+        nativeIdentityPath: identityPath,
+        run,
+        signalProcess: (pid, signal) => signals.push([pid, signal])
+      }),
+      { kind: "native", pid: 4321 }
+    );
+    assert.deepEqual(signals, [[4321, "SIGHUP"]]);
+    assert.equal(statSync(identityPath).mode & 0o777, 0o600);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("8883 owner가 repo Docker 또는 managed native와 exact 일치하지 않으면 fail closed 한다", () => {
+  const directory = mkdtempSync(join(tmpdir(), "led-control-unknown-owner-"));
+  const aclPath = join(directory, "mosquitto.acl");
+  writeFileSync(aclPath, "user api-service\ntopic readwrite sites/#\n\n", { mode: 0o600 });
+  const signals = [];
+  const run = (command) => command === "docker" ? ok("") : command === "lsof" ? ok("9999\n") : failed("unexpected");
+  try {
+    assert.throws(
+      () => reloadExistingDevelopmentBroker({ root: directory, aclPath, run, signalProcess: (...args) => signals.push(args) }),
+      /unmanaged process owns port 8883/i
+    );
+    assert.deepEqual(signals, []);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("host Mosquitto는 변경된 CRL에만 SIGHUP하고 임시 파일과 동일 checksum은 무시한다", () => {
@@ -402,6 +533,14 @@ function renderCompose(environment = {}) {
 
   assert.equal(result.status, 0, result.stderr);
   return JSON.parse(result.stdout);
+}
+
+function ok(stdout = "") {
+  return { status: 0, stdout, stderr: "" };
+}
+
+function failed(stderr) {
+  return { status: 1, stdout: "", stderr };
 }
 
 function runObjectStorageInitWithMcFailure(failingArguments) {
