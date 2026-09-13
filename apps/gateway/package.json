@@ -19,7 +19,7 @@
     "@led-control/shared": "workspace:*",
     "dotenv": "^16.4.7",
     "mqtt": "^5.10.3",
-    "serialport": "13.0.0"
+    "usb": "2.15.0"
   },
   "devDependencies": {
     "esbuild": "^0.21.5",

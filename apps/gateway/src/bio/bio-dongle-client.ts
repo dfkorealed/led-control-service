@@ -1,9 +1,13 @@
 import { randomInt } from "node:crypto";
 import { BioUsbTransport, type BioTransportOptions } from "./bio-usb-transport";
+import { BioDirectUsbConnection } from "./bio-direct-usb-connection";
 import { BioEvidenceUnavailableError, decodeBioResponse, encodeBioCommand, type BioControlMode, type BioLampTarget, type BioOperation, type BioResponse } from "./bio-command-codec";
 import { BioUsbError } from "./bio-usb-error";
 export type BioClientEvent = Exclude<BioResponse, { kind: "probe" | "outer-ack" }> | { kind: "invalid-notification" };
-export type BioDongleClientOptions = Pick<BioTransportOptions, "connectionFactory" | "timeoutMs"> & { initialSequence?: number };
+export type BioDongleClientOptions = Pick<BioTransportOptions, "timeoutMs"> & {
+  connectionFactory?: BioTransportOptions["connectionFactory"];
+  initialSequence?: number;
+};
 export interface BioCommandAcceptance { outcome: "dongle-accepted"; deviceApplied: false }
 
 /** Traced operations only. ACK acceptance and unsolicited device observations remain separate. */
@@ -18,7 +22,7 @@ export class BioDongleClient {
     if (!Number.isInteger(this.sequence) || this.sequence < 0 || this.sequence > 255) throw new RangeError("Invalid BIO initial sequence");
     this.transport = new BioUsbTransport({
       timeoutMs: options.timeoutMs,
-      connectionFactory: options.connectionFactory,
+      connectionFactory: options.connectionFactory ?? (() => new BioDirectUsbConnection()),
       profile: "android-v1.2.0", protocol: "crc16",
       validateReadiness: async (frame) => {
         const parsed = decodeBioResponse(frame);
