@@ -21,6 +21,37 @@ test("Raspberry Pi compose는 host network와 read-only runtime을 사용한다"
   assert.doesNotMatch(compose, /seccomp=unconfined/);
 });
 
+test("BIO overlay는 계산된 raw USB node 하나와 숫자 supplemental group만 추가한다", async () => {
+  const fixture = await mkdtemp(path.join(os.tmpdir(), "gateway-bio-compose-"));
+  try {
+    await writeFile(path.join(fixture, "compose.yml"), await readFile(path.join(gatewayDir, "compose.raspberry-pi.yml")));
+    await writeFile(path.join(fixture, "compose.bio-usb.yml"), await readFile(path.join(gatewayDir, "compose.bio-usb.yml")));
+    await writeFile(path.join(fixture, ".env.appliance"), "");
+    const { stdout } = await execFileAsync("docker", [
+      "compose", "-f", "compose.yml", "-f", "compose.bio-usb.yml", "config", "--format", "json"
+    ], {
+      cwd: fixture,
+      env: {
+        ...process.env,
+        GATEWAY_BIO_USB_DEVICE: "/dev/bus/usb/002/007",
+        GATEWAY_BIO_USB_GID: "812"
+      }
+    });
+    const service = JSON.parse(stdout).services["gateway-appliance"];
+
+    assert.equal(service.privileged ?? false, false);
+    assert.notEqual(service.user, "root");
+    assert.deepEqual(service.group_add, ["812"]);
+    assert.deepEqual(service.devices, [{ source: "/dev/bus/usb/002/007", target: "/dev/bus/usb/002/007", permissions: "rwm" }]);
+    assert.equal(service.environment.GATEWAY_ADAPTER, "bio-usb");
+    assert.equal(service.environment.GATEWAY_BIO_USB_DEVICE, "/dev/bus/usb/002/007");
+    assert.equal(service.environment.GATEWAY_BIO_USB_GID, "812");
+    assert.equal(service.volumes.some((volume) => volume.source === "/dev" || volume.source === "/dev/bus/usb"), false);
+  } finally {
+    await rm(fixture, { recursive: true, force: true });
+  }
+});
+
 test("BlueZ Mesh seccomp profile은 Docker 기본 차단을 유지하고 AF_ALG만 추가 허용한다", async () => {
   const profile = JSON.parse(await readFile(path.join(gatewayDir, "docker/seccomp-bluez-mesh.json"), "utf8"));
   const socketRules = profile.syscalls.filter((rule) => rule.names.includes("socket") && rule.action === "SCMP_ACT_ALLOW");

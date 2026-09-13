@@ -78,8 +78,10 @@ COPY apps/gateway/docker/entrypoint.sh /usr/local/bin/gateway-entrypoint
 COPY apps/gateway/docker/healthcheck.sh /usr/local/bin/gateway-healthcheck
 COPY apps/gateway/docker/btmgmt-powered.cjs /usr/local/lib/gateway-btmgmt-powered.cjs
 COPY apps/gateway/docker/healthcheck-state.cjs /usr/local/lib/gateway-healthcheck-state.cjs
+COPY scripts/gateway-bio-usb-preflight.sh /usr/local/bin/gateway-bio-usb-preflight
 
 RUN chmod 0755 /usr/local/bin/gateway-entrypoint /usr/local/bin/gateway-healthcheck \
+    && chmod 0755 /usr/local/bin/gateway-bio-usb-preflight \
     && chmod 0755 /usr/local/bin/btmgmt /usr/local/bin/manufacturing-enroll.mjs \
     && mkdir -p /var/lib/led-control/identity /var/lib/bluetooth/mesh /run/dbus \
     && chown -R gateway:gateway /var/lib/led-control

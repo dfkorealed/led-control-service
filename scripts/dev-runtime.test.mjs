@@ -111,6 +111,10 @@ test("host Mosquitto 설정은 mTLS와 gateway-scoped ACL을 강제한다", () =
     acl,
     /topic read sites\/\+\/gateways\/00000000-0000-4000-8000-000000000004\/acks\/provisioning\/scan-terminal-ingested/
   );
+  assert.match(
+    acl,
+    /topic read sites\/\+\/gateways\/00000000-0000-4000-8000-000000000004\/acks\/provisioning\/device-terminal-ingested/
+  );
   assert.match(acl, /topic read sites\/\+\/gateways\/00000000-0000-4000-8000-000000000004\/acks\/state-ingested/);
   assert.match(
     acl,
@@ -175,10 +179,12 @@ test("production Mosquitto 설정은 mTLS, CRL, TLS 1.2와 최소권한 ACL을 �
   assert.doesNotMatch(config, /allow_anonymous true|require_certificate false|use_identity_as_username false/i);
   assert.match(acl, /^pattern read sites\/\+\/gateways\/%u\/acks\/state-ingested$/m);
   assert.match(acl, /^pattern read sites\/\+\/gateways\/%u\/acks\/provisioning\/scan-terminal-ingested$/m);
+  assert.match(acl, /^pattern read sites\/\+\/gateways\/%u\/acks\/provisioning\/device-terminal-ingested$/m);
   assert.match(acl, /^pattern write sites\/\+\/gateways\/%u\/acks\/acceptance$/m);
   assert.match(acl, /^pattern write sites\/\+\/gateways\/%u\/acks\/device-status$/m);
   assert.doesNotMatch(acl, /^pattern write .*\/acks\/#$/m);
   assert.doesNotMatch(acl, /^pattern write .*\/acks\/(?:state-ingested|provisioning\/scan-terminal-ingested)$/m);
+  assert.doesNotMatch(acl, /^pattern write .*\/acks\/provisioning\/device-terminal-ingested$/m);
 });
 
 test("Compose는 선택 가능한 Mosquitto config와 certificate directory를 read-only로 mount한다", () => {

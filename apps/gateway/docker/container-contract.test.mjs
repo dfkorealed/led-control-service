@@ -91,6 +91,27 @@ test("appliance runtime은 Node 22와 전용 non-root gateway 사용자를 사�
   expectOrder(entrypoint, "-S /run/dbus/system_bus_socket", "bluetooth-meshd --nodetach");
 });
 
+test("BIO entrypoint는 raw USB identity와 supplemental group을 재검증하고 BlueZ stack 없이 gateway로 exec한다", async () => {
+  const entrypoint = await readFile(path.join(dockerDir, "entrypoint.sh"), "utf8");
+  const bioBranch = entrypoint.match(/bio-usb\)([\s\S]*?)^\s*bluez\)/m)?.[1] ?? "";
+
+  assert.match(bioBranch, /gateway-bio-usb-preflight/);
+  assert.match(bioBranch, /GATEWAY_BIO_USB_DEVICE/);
+  assert.match(bioBranch, /GATEWAY_BIO_USB_GID/);
+  assert.match(bioBranch, /setpriv[\s\S]*--reuid gateway[\s\S]*--regid gateway[\s\S]*--keep-groups[\s\S]*node \/opt\/led-control\/gateway\.mjs/);
+  assert.doesNotMatch(bioBranch, /dbus-daemon|dbus-send|btmgmt|bluetooth-meshd|generic:hci|\/sys\/class\/bluetooth/);
+});
+
+test("BlueZ entrypoint는 기존 D-Bus, HCI reset, bluetooth-meshd 시작을 유지한다", async () => {
+  const entrypoint = await readFile(path.join(dockerDir, "entrypoint.sh"), "utf8");
+  const bluezBranch = entrypoint.match(/bluez\)([\s\S]*?)^\*\)/m)?.[1] ?? "";
+
+  assert.match(bluezBranch, /dbus-daemon/);
+  assert.match(bluezBranch, /btmgmt/);
+  assert.match(bluezBranch, /bluetooth-meshd/);
+  assert.match(bluezBranch, /runuser -u gateway -- node \/opt\/led-control\/gateway\.mjs/);
+});
+
 test("BlueZ 상세 로그는 명시적인 진단 플래그에서만 활성화된다", async () => {
   const entrypoint = await readFile(path.join(dockerDir, "entrypoint.sh"), "utf8");
 

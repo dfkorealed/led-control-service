@@ -1,0 +1,10 @@
+services:
+  gateway-appliance:
+    environment:
+      GATEWAY_ADAPTER: bio-usb
+      GATEWAY_BIO_USB_DEVICE: "${GATEWAY_BIO_USB_DEVICE:?BIO USB preflight device is required}"
+      GATEWAY_BIO_USB_GID: "${GATEWAY_BIO_USB_GID:?BIO USB preflight group is required}"
+    devices:
+      - "${GATEWAY_BIO_USB_DEVICE}:${GATEWAY_BIO_USB_DEVICE}:rwm"
+    group_add:
+      - "${GATEWAY_BIO_USB_GID}"

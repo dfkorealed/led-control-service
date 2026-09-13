@@ -9,6 +9,36 @@ chmod 0750 /var/lib/led-control/identity /var/lib/led-control/identity/device /v
 chmod 0700 /var/lib/led-control
 chown gateway:gateway /var/lib/led-control /var/lib/led-control/identity \
   /var/lib/led-control/identity/device /var/lib/led-control/identity/mqtt /var/run/led-control
+
+case "${GATEWAY_ADAPTER:-}" in
+bio-usb)
+  # Host preflight 결과만 신뢰하지 않는다. Container namespace에서도 현재
+  # descriptor/node/GID를 다시 대조해 stale bind나 바뀐 장치를 fail-closed 한다.
+  BIO_PREFLIGHT=$(env -u GATEWAY_BIO_USB_SYSFS_ROOT -u GATEWAY_BIO_USB_DEV_ROOT \
+    gateway-bio-usb-preflight)
+  BIO_DEVICE=$(printf '%s\n' "$BIO_PREFLIGHT" | sed -n 's/^GATEWAY_BIO_USB_DEVICE=//p')
+  BIO_GID=$(printf '%s\n' "$BIO_PREFLIGHT" | sed -n 's/^GATEWAY_BIO_USB_GID=//p')
+  [ -n "${GATEWAY_BIO_USB_DEVICE:-}" ] && [ "$BIO_DEVICE" = "$GATEWAY_BIO_USB_DEVICE" ] || {
+    echo "BIO USB preflight device changed before startup" >&2
+    exit 1
+  }
+  [ -n "${GATEWAY_BIO_USB_GID:-}" ] && [ "$BIO_GID" = "$GATEWAY_BIO_USB_GID" ] || {
+    echo "BIO USB preflight group changed before startup" >&2
+    exit 1
+  }
+  case " $(id -G) " in
+    *" $BIO_GID "*) ;;
+    *) echo "BIO USB supplemental group is unavailable" >&2; exit 1 ;;
+  esac
+
+  # Docker group_add로 받은 숫자 GID는 image의 /etc/group에 없을 수 있다.
+  # initgroups를 다시 계산하지 않고 supplementary groups를 보존하며, Node에는
+  # root UID와 Linux capability를 넘기지 않는다.
+  exec setpriv --reuid gateway --regid gateway --keep-groups \
+    --bounding-set=-all --inh-caps=-all --ambient-caps=-all \
+    node /opt/led-control/gateway.mjs
+  ;;
+bluez)
 rm -f /run/dbus/system_bus_socket
 
 # The gateway process runs without root. Keep only the D-Bus runtime socket
@@ -112,3 +142,9 @@ done
 runuser -u gateway -- node /opt/led-control/gateway.mjs &
 GATEWAY_PID=$!
 wait "$GATEWAY_PID"
+  ;;
+*)
+  echo "GATEWAY_ADAPTER must be bluez or bio-usb" >&2
+  exit 1
+  ;;
+esac

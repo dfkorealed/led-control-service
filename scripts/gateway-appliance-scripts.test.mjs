@@ -38,7 +38,7 @@ test("deploy script는 실제 배포한 image 좌표를 appliance 환경 파일�
   assert.match(source, /mktemp "\.env\.appliance\.tmp\.XXXXXX"/);
   assert.match(source, /mv "\$temporary" \.env\.appliance/);
   assert.ok(
-    source.indexOf("upsert_env_value GATEWAY_IMAGE_TAG") < source.indexOf("docker compose --env-file"),
+    source.indexOf("upsert_env_value GATEWAY_IMAGE_TAG") < source.indexOf('docker compose "${COMPOSE_ARGS[@]}"'),
     "image tag must be persisted before Compose resolves the service image"
   );
 });
@@ -48,4 +48,27 @@ test("deploy script는 잘못된 CLI 인자를 exit 2로 거부한다", () => {
     const result = spawnSync(path.join(root, "scripts/gateway-appliance-deploy.sh"), args, { encoding: "utf8" });
     assert.equal(result.status, 2);
   }
+});
+
+test("deploy script는 bio-usb만 명시적으로 선택하고 rollback capture와 preflight 뒤 Gateway만 recreate한다", async () => {
+  const source = await readFile(path.join(root, "scripts/gateway-appliance-deploy.sh"), "utf8");
+
+  assert.match(source, /--adapter bio-usb/);
+  assert.match(source, /capture_rollback/);
+  assert.match(source, /gateway-bio-usb-preflight\.sh/);
+  assert.match(source, /compose\.bio-usb\.yml/);
+  assert.match(source, /GATEWAY_BIO_USB_DEVICE/);
+  assert.match(source, /GATEWAY_BIO_USB_GID/);
+  assert.ok(source.indexOf("\ncapture_rollback\n") < source.indexOf("BIO_PREFLIGHT=$("));
+  assert.ok(source.indexOf("BIO_PREFLIGHT=$(") < source.indexOf('docker compose "${COMPOSE_ARGS[@]}" up -d'));
+  assert.match(source, /up -d[^\n]*--force-recreate[^\n]*gateway-appliance/);
+});
+
+test("deploy script는 unknown adapter를 원격 작업 전에 거부한다", () => {
+  const result = spawnSync(path.join(root, "scripts/gateway-appliance-deploy.sh"), [
+    "--adapter", "hybrid", "gateway@example.test", "image.tar"
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 2);
+  assert.doesNotMatch(result.stderr, /ssh|scp/);
 });

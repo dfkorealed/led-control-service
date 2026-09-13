@@ -1,0 +1,93 @@
+import assert from "node:assert/strict";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { spawnSync } from "node:child_process";
+import test from "node:test";
+
+const root = path.resolve(import.meta.dirname, "..");
+const script = path.join(root, "scripts/gateway-bio-usb-preflight.sh");
+
+test("preflight는 exact-one BIO character device의 sysfs identity와 숫자 GID만 출력한다", async () => {
+  await withFixture(async (fixture) => {
+    await fixture.addUsb("1-1", { vendor: "1a86", product: "5523", bus: "2", device: "7", dev: "189:134" });
+    const result = fixture.run({ stat: "character special file|bd|86|812" });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(
+      result.stdout,
+      `GATEWAY_BIO_USB_DEVICE=${fixture.devRoot}/002/007\nGATEWAY_BIO_USB_GID=812\n`
+    );
+  });
+});
+
+test("preflight는 BIO 동글이 없거나 둘 이상이면 fail-closed 한다", async () => {
+  await withFixture(async (fixture) => {
+    assert.notEqual(fixture.run().status, 0);
+    await fixture.addUsb("1-1", { vendor: "1a86", product: "5523", bus: "1", device: "2", dev: "189:1" });
+    await fixture.addUsb("1-2", { vendor: "1A86", product: "5523", bus: "1", device: "3", dev: "189:2" });
+    assert.notEqual(fixture.run().status, 0);
+  });
+});
+
+test("preflight는 character device가 아니거나 sysfs dev 번호가 다른 node를 거부한다", async () => {
+  await withFixture(async (fixture) => {
+    await fixture.addUsb("1-1", { vendor: "1a86", product: "5523", bus: "1", device: "2", dev: "189:1" });
+
+    assert.notEqual(fixture.run({ stat: "regular file|bd|1|812" }).status, 0);
+    assert.notEqual(fixture.run({ stat: "character special file|bd|2|812" }).status, 0);
+  });
+});
+
+test("preflight는 숫자가 아닌 device GID를 거부한다", async () => {
+  await withFixture(async (fixture) => {
+    await fixture.addUsb("1-1", { vendor: "1a86", product: "5523", bus: "1", device: "2", dev: "189:1" });
+    assert.notEqual(fixture.run({ stat: "character special file|bd|1|not-a-gid" }).status, 0);
+  });
+});
+
+async function withFixture(callback) {
+  const fixtureRoot = await mkdtemp(path.join(os.tmpdir(), "bio-usb-preflight-"));
+  const sysfsRoot = path.join(fixtureRoot, "sysfs");
+  const devRoot = path.join(fixtureRoot, "dev");
+  const binRoot = path.join(fixtureRoot, "bin");
+  await Promise.all([mkdir(sysfsRoot), mkdir(devRoot), mkdir(binRoot)]);
+  const stat = path.join(binRoot, "stat");
+  await writeFile(stat, "#!/bin/sh\nprintf '%s\\n' \"${BIO_TEST_STAT:-character special file|bd|1|812}\"\n");
+  await chmod(stat, 0o755);
+
+  const fixture = {
+    devRoot,
+    async addUsb(name, { vendor, product, bus, device, dev }) {
+      const deviceRoot = path.join(sysfsRoot, name);
+      const nodeDirectory = path.join(devRoot, String(bus).padStart(3, "0"));
+      await Promise.all([mkdir(deviceRoot), mkdir(nodeDirectory, { recursive: true })]);
+      await Promise.all([
+        writeFile(path.join(deviceRoot, "idVendor"), `${vendor}\n`),
+        writeFile(path.join(deviceRoot, "idProduct"), `${product}\n`),
+        writeFile(path.join(deviceRoot, "busnum"), `${bus}\n`),
+        writeFile(path.join(deviceRoot, "devnum"), `${device}\n`),
+        writeFile(path.join(deviceRoot, "dev"), `${dev}\n`),
+        writeFile(path.join(nodeDirectory, String(device).padStart(3, "0")), "fixture")
+      ]);
+    },
+    run({ stat: statOutput } = {}) {
+      return spawnSync(script, [], {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: `${binRoot}:${process.env.PATH}`,
+          GATEWAY_BIO_USB_SYSFS_ROOT: sysfsRoot,
+          GATEWAY_BIO_USB_DEV_ROOT: devRoot,
+          ...(statOutput ? { BIO_TEST_STAT: statOutput } : {})
+        }
+      });
+    }
+  };
+
+  try {
+    await callback(fixture);
+  } finally {
+    await rm(fixtureRoot, { recursive: true, force: true });
+  }
+}
