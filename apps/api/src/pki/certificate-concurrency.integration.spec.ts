@@ -86,7 +86,7 @@ integration("certificate inventory concurrency (disposable PostgreSQL only)", ()
     ca.readCrl.mockResolvedValue(await createTestCrl([certificate.certificateSerial]));
     const publishCrl = jest.fn().mockRejectedValueOnce(new Error("fixture CRL destination unavailable"))
       .mockResolvedValue({ changed: true });
-    const configuration = { deviceCrlPath: "/fixture/device.crl", publishCrl };
+    const configuration = { deviceCrlPath: "/fixture/device.crl", trustedRootCrlPem: "fixture-root", publishCrl };
     const reconciliation = new CertificateRevocationReconciliationService(first as never, ca, configuration);
     const lifecycle = new CertificateLifecycleService(first as never, ca, validator, undefined, configuration, reconciliation);
 
@@ -287,7 +287,10 @@ integration("certificate inventory concurrency (disposable PostgreSQL only)", ()
     await second.certificateRevocationReconciliation.update({ where: { id: orphan.id }, data: { nextAttemptAt: new Date(0) } });
     ca.revoke.mockResolvedValue(undefined);
     ca.readCrl.mockResolvedValue(await createTestCrl([orphan.certificateSerial]));
-    const restarted = new CertificateRevocationReconciliationService(second as never, ca, { deviceCrlPath: "/fixture/device.crl", mqttCrlPath: "/fixture/mqtt.crl", publishCrl: jest.fn().mockResolvedValue({ changed: true }) });
+    const restarted = new CertificateRevocationReconciliationService(second as never, ca, {
+      deviceCrlPath: "/fixture/device.crl", mqttCrlPath: "/fixture/mqtt.crl", trustedRootCrlPem: "fixture-root",
+      publishCrl: jest.fn().mockResolvedValue({ changed: true })
+    });
     await restarted.processNow(orphan.id);
     const completed = await second.certificateRevocationReconciliation.findUniqueOrThrow({ where: { id: orphan.id } });
     expect(completed.cancelledAt).toBeNull();

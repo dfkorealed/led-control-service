@@ -212,6 +212,7 @@ write_lab_env() {
     write_env_line VAULT_PKI_MQTT_MOUNT gateway-mqtt-pki
     write_env_line VAULT_PKI_MQTT_ROLE gateway-mqtt
     write_env_line PKI_LAB_CURRENT_DIR "$SERVICE_DIR"
+    write_env_line PKI_ROOT_CRL_PATH "$ROOT_CRL_PATH"
     write_env_line MQTT_URL "mqtts://${LAB_MQTT_DNS}:8883"
     write_env_line MQTT_PUBLIC_URL "mqtts://${LAB_MQTT_DNS}:8883"
     write_env_line MQTT_CA_PATH "$SERVICE_DIR/mqtt-ca.crt"

@@ -15,6 +15,7 @@ import {
 import { PkiModule } from "./pki.module";
 import { CertificateRevocationReconciliationService } from "./certificate-revocation-reconciliation.service";
 import { VaultPkiProvider } from "./vault-pki.provider";
+import { createTestCrl } from "./crl.test-support";
 
 const environmentKeys = [
   "NODE_ENV",
@@ -31,6 +32,7 @@ const environmentKeys = [
   "API_MANUFACTURING_CLIENT_CA_PATH",
   "API_DEVICE_CRL_PATH",
   "MQTT_CLIENT_CRL_PATH",
+  "PKI_ROOT_CRL_PATH",
   "PKI_API_CA_BUNDLE_PATH",
   "PKI_MQTT_CA_BUNDLE_PATH"
 ] as const;
@@ -43,6 +45,7 @@ describe("PkiModule", () => {
   let manufacturingCaFile: string;
   let apiCaBundleFile: string;
   let mqttCaBundleFile: string;
+  let rootCrlFile: string;
 
   beforeAll(() => {
     for (const key of environmentKeys) originalEnvironment.set(key, process.env[key]);
@@ -56,11 +59,13 @@ describe("PkiModule", () => {
     manufacturingCaFile = join(temporaryDirectory, "manufacturing-ca.pem");
     apiCaBundleFile = join(temporaryDirectory, "api-ca-bundle.pem");
     mqttCaBundleFile = join(temporaryDirectory, "mqtt-ca-bundle.pem");
+    rootCrlFile = join(temporaryDirectory, "root.crl");
     await writeFile(tokenFile, "vault-token", { mode: 0o600 });
     await writeFile(caFile, rootCertificates[0]);
     await writeFile(manufacturingCaFile, rootCertificates[0]);
     await writeFile(apiCaBundleFile, rootCertificates[0]);
     await writeFile(mqttCaBundleFile, rootCertificates[0]);
+    await writeFile(rootCrlFile, await createTestCrl([], "CN=Test Root"));
   });
 
   afterEach(async () => {
@@ -145,6 +150,7 @@ describe("PkiModule", () => {
     "API_MANUFACTURING_CLIENT_CA_PATH",
     "API_DEVICE_CRL_PATH",
     "MQTT_CLIENT_CRL_PATH",
+    "PKI_ROOT_CRL_PATH",
     "PKI_API_CA_BUNDLE_PATH",
     "PKI_MQTT_CA_BUNDLE_PATH"
   ] as const)("fails closed when production %s is missing", async (missingKey) => {
@@ -168,6 +174,7 @@ describe("PkiModule", () => {
       API_MANUFACTURING_CLIENT_CA_PATH: manufacturingCaFile,
       API_DEVICE_CRL_PATH: join(temporaryDirectory, "device.crl"),
       MQTT_CLIENT_CRL_PATH: join(temporaryDirectory, "mqtt.crl"),
+      PKI_ROOT_CRL_PATH: rootCrlFile,
       PKI_API_CA_BUNDLE_PATH: apiCaBundleFile,
       PKI_MQTT_CA_BUNDLE_PATH: mqttCaBundleFile
     });

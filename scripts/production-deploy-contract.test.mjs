@@ -135,6 +135,7 @@ test("only CRL initialization and the API can write dynamic CRL volumes; secrets
   assert.ok(s['mqtt-tls'].volumes.some(m=>m.source==='mqtt-crl'&&m.read_only));
   assert.equal(s.api.environment.API_DEVICE_CRL_PATH,'/run/device-crl/device.crl');
   assert.equal(s.api.environment.MQTT_CLIENT_CRL_PATH,'/run/mqtt-crl/mqtt-client.crl');
+  assert.equal(s.api.environment.PKI_ROOT_CRL_PATH,'/run/api-tls/device.crl');
   assert.equal(s.api.environment.API_MANUFACTURING_CRL_PATH,'/run/api-tls/manufacturing.crl');
 });
 

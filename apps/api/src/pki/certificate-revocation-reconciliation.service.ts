@@ -160,7 +160,8 @@ export class CertificateRevocationReconciliationService implements OnModuleInit,
       }
       failureCode = "crl_publish_failed";
       const path = row.purpose === "device" ? this.configuration.deviceCrlPath : this.configuration.mqttCrlPath;
-      if (!path) throw new Error("CRL publication destination unavailable");
+      if (!path || !this.configuration.trustedRootCrlPem) throw new Error("CRL publication destination unavailable");
+      const trustedRootCrlPem = this.configuration.trustedRootCrlPem;
       await this.prisma.$transaction(async tx => {
         // The file is shared by all certificate rows of this purpose. A row lease
         // alone cannot prevent an older snapshot overwriting a newer one. This
@@ -186,7 +187,7 @@ export class CertificateRevocationReconciliationService implements OnModuleInit,
             where: this.fence(row), select: { id: true }
           });
           if (!live) return;
-          await this.configuration.publishCrl(path, snapshot);
+          await this.configuration.publishCrl(path, snapshot, trustedRootCrlPem);
           // CA revoke itself is intentionally outside the publication lock. A
           // concurrent revoke may advance the CRL during I/O; confirm convergence
           // before completion, otherwise publish the freshly read snapshot again.

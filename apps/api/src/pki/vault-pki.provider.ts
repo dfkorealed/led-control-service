@@ -75,7 +75,7 @@ export class VaultPkiProvider implements CertificateAuthorityProvider {
     // successful revoke until its rebuild window. Reconciliation needs the
     // just-revoked serial now, so force the documented idempotent rotation
     // before downloading the publication snapshot.
-    await this.requestJson(`/v1/${encodeURIComponent(rolePath.mount)}/crl/rotate`, {});
+    await this.requestJson(`/v1/${encodeURIComponent(rolePath.mount)}/crl/rotate`, undefined, "GET");
   }
 
   async readCrl(purpose: CertificatePurpose): Promise<string> {
@@ -137,9 +137,13 @@ export class VaultPkiProvider implements CertificateAuthorityProvider {
     }
   }
 
-  private async requestJson(path: string, body: Record<string, unknown>): Promise<VaultResponse> {
+  private async requestJson(
+    path: string,
+    body?: Record<string, unknown>,
+    method: "GET" | "POST" = "POST"
+  ): Promise<VaultResponse> {
     const token = await readVaultToken(this.options.tokenFile);
-    const payload = Buffer.from(JSON.stringify(body), "utf8");
+    const payload = body === undefined ? undefined : Buffer.from(JSON.stringify(body), "utf8");
     const url = new URL(path, this.baseUrl);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.options.requestTimeoutMs);
@@ -147,12 +151,11 @@ export class VaultPkiProvider implements CertificateAuthorityProvider {
     try {
       return await new Promise<VaultResponse>((resolve, reject) => {
         const requestOptions: HttpsRequestOptions = {
-          method: "POST",
+          method,
           signal: controller.signal,
           headers: {
             accept: "application/json",
-            "content-type": "application/json",
-            "content-length": payload.byteLength,
+            ...(payload ? { "content-type": "application/json", "content-length": payload.byteLength } : {}),
             "x-vault-token": token,
             ...(this.options.namespace ? { "x-vault-namespace": this.options.namespace } : {})
           },

@@ -60,6 +60,11 @@ openssl('req','-x509','-newkey','rsa:2048','-nodes','-days','2','-subj','/CN=Dis
 write('index',''); write('serial','1000\n'); write('crlnumber','1000\n');
 write('ca.cnf', `[ca]\ndefault_ca=CA\n[CA]\ndatabase=${dir}/index\nserial=${dir}/serial\ncrlnumber=${dir}/crlnumber\nprivate_key=${dir}/ca.key\ncertificate=${dir}/ca.crt\ndefault_md=sha256\ndefault_crl_days=2\n`);
 openssl('ca','-gencrl','-config','ca.cnf','-out','ca.crl');
+openssl('req','-x509','-newkey','rsa:2048','-nodes','-days','2','-subj','/CN=Disposable smoke Root','-keyout','root.key','-out','root.crt');
+write('root-index',''); write('root-serial','1000\n'); write('root-crlnumber','1000\n');
+write('root.cnf', `[ca]\ndefault_ca=CA\n[CA]\ndatabase=${dir}/root-index\nserial=${dir}/root-serial\ncrlnumber=${dir}/root-crlnumber\nprivate_key=${dir}/root.key\ncertificate=${dir}/root.crt\ndefault_md=sha256\ndefault_crl_days=2\n`);
+openssl('ca','-gencrl','-config','root.cnf','-out','root.crl');
+write('crl.bundle', `${readFileSync(path.join(dir,'ca.crl'),'utf8').trim()}\n${readFileSync(path.join(dir,'root.crl'),'utf8').trim()}\n`);
 function cert(name, cn, usage, san='') {
   openssl('req','-new','-newkey','rsa:2048','-nodes','-subj',`/CN=${cn}`,'-keyout',`${name}.key`,'-out',`${name}.csr`);
   write(`${name}.ext`, `basicConstraints=CA:FALSE\nkeyUsage=digitalSignature,keyEncipherment\nextendedKeyUsage=${usage}\n${san ? `subjectAltName=${san}\n` : ''}`);
@@ -70,7 +75,8 @@ cert('client','api-service','clientAuth');
 cert('manufacturing','smoke-manufacturing-station','clientAuth');
 for (const [source, targets] of Object.entries({
   'ca.crt':['api-tls/api-ca.crt','api-tls/device-ca.crt','api-tls/manufacturing-ca.crt','mqtt-tls/mqtt-ca.crt','web-tls/web-ca.crt','vault/ca.crt'],
-  'ca.crl':['api-tls/device.crl','api-tls/manufacturing.crl','mqtt-tls/mqtt-client.crl'],
+  'crl.bundle':['api-tls/device.crl','mqtt-tls/mqtt-client.crl'],
+  'ca.crl':['api-tls/manufacturing.crl'],
   'server.crt':['api-tls/api.crt','mqtt-tls/mqtt-server.crt','web-tls/web.crt','vault/server.crt'],
   'server.key':['api-tls/api.key','mqtt-tls/mqtt-server.key','web-tls/web.key','vault/server.key'],
   'client.crt':['mqtt-tls/api-client.crt'], 'client.key':['mqtt-tls/api-client.key']
@@ -193,13 +199,14 @@ try {
   assert.notEqual(digest(nextCrl),digest(originalDevice));
   // Invoke the existing production writer inside the real non-root API image.
   // Its fsync + same-directory atomic rename must succeed on both volumes.
-  run('docker',['compose','-p',project,'-f',path.join(dir,'rendered.json'),'exec','-T','api','node','-e',"const fs=require('fs');const {publishCrlAtomically}=require('./dist/src/pki/crl-publisher');const pem=fs.readFileSync(0,'utf8');Promise.all([publishCrlAtomically(process.env.API_DEVICE_CRL_PATH,pem),publishCrlAtomically(process.env.MQTT_CLIENT_CRL_PATH,pem)]).then(r=>{if(!r.every(v=>v.changed))process.exit(1)}).catch(()=>process.exit(1));"],{input:nextCrl,stdio:['pipe','pipe','pipe']});
+  run('docker',['compose','-p',project,'-f',path.join(dir,'rendered.json'),'exec','-T','api','node','-e',"const fs=require('fs');const {publishCrlAtomically,trustedRootCrlFromBundle}=require('./dist/src/pki/crl-publisher');const pem=fs.readFileSync(0,'utf8');const root=trustedRootCrlFromBundle(fs.readFileSync(process.env.PKI_ROOT_CRL_PATH,'utf8'));Promise.all([publishCrlAtomically(process.env.API_DEVICE_CRL_PATH,pem,root),publishCrlAtomically(process.env.MQTT_CLIENT_CRL_PATH,pem,root)]).then(r=>{if(!r.every(v=>v.changed))process.exit(1)}).catch(()=>process.exit(1));"],{input:nextCrl,stdio:['pipe','pipe','pipe']});
+  const publishedBundle=Buffer.from(`${nextCrl.toString().trim()}\n${readFileSync(path.join(dir,'root.crl'),'utf8').trim()}\n`);
   const publishedHash=compose('exec','-T','mqtt-tls','sha256sum','/mosquitto/crls/mqtt-client.crl').trim().split(/\s/)[0];
-  assert.equal(publishedHash,digest(nextCrl));
-  assert.equal(compose('exec','-T','api','node','-e',"console.log(require('crypto').createHash('sha256').update(require('fs').readFileSync(process.env.API_DEVICE_CRL_PATH)).digest('hex'))").trim(),digest(nextCrl));
+  assert.equal(publishedHash,digest(publishedBundle));
+  assert.equal(compose('exec','-T','api','node','-e',"console.log(require('crypto').createHash('sha256').update(require('fs').readFileSync(process.env.API_DEVICE_CRL_PATH)).digest('hex'))").trim(),digest(publishedBundle));
   compose('exec','-T','mqtt-tls','sh','-c','test ! -w /mosquitto/crls/mqtt-client.crl');
   compose('run','--rm','--no-deps','crl-init');
-  assert.equal(compose('exec','-T','mqtt-tls','sha256sum','/mosquitto/crls/mqtt-client.crl').trim().split(/\s/)[0],digest(nextCrl));
+  assert.equal(compose('exec','-T','mqtt-tls','sha256sum','/mosquitto/crls/mqtt-client.crl').trim().split(/\s/)[0],digest(publishedBundle));
   assert.equal(digest(readFileSync(path.join(dir,'api-tls/device.crl'))),digest(originalDevice));
   assert.equal(digest(readFileSync(path.join(dir,'mqtt-tls/mqtt-client.crl'))),digest(originalMqtt));
   compose('kill','--signal','SIGHUP','mqtt-tls');

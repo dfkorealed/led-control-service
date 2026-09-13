@@ -713,5 +713,5 @@
 
 - **발생했던 문제/실수**: Vault 인증서 조회에는 폐기 시각이 기록됐지만 `auto_rebuild`가 반환한 CRL은 폐기 전 cached snapshot이었다. Worker는 게시 전후 bytes가 같다는 이유만으로 원장을 완료했고, 단일 intermediate CRL로 파일을 교체하면서 기존 Root CRL도 유실했다.
 - **원인**: CA의 폐기 원장, CRL 재생성, runtime bundle 게시를 하나의 성공으로 취급했고, 대상 serial 포함 여부와 intermediate+Root 구조를 완료 조건으로 검증하지 않았다.
-- **해결 및 예방책**: 목적별 publication lock 안에서 Vault CRL rotate를 명시적으로 실행한 뒤 snapshot을 읽는다. 모든 후보 snapshot에서 해당 원장의 X.509 serial을 canonical numeric hex로 확인하고, 누락 시 완료하지 않고 backoff한다. 원자 게시 시 같은 issuer의 intermediate만 교체하고 기존의 서로 다른 issuer Root CRL 하나를 보존한다.
-- **반복 방지 체크**: device와 MQTT 모두에 대해 pre-revoke stale CRL, 대상 serial 누락, 게시 후 재시도, 동일 폐기의 멱등 rotate, 정확한 intermediate+Root 2-block 결과를 회귀 테스트로 유지한다. CRL bytes 안정성만으로 reconciliation을 완료하지 않는다.
+- **해결 및 예방책**: 목적별 publication lock 안에서 Vault의 read 방식 CRL rotate endpoint를 명시적으로 호출한 뒤 snapshot을 읽는다. 모든 후보 snapshot에서 해당 원장의 X.509 serial을 양수·최소 DER INTEGER 규칙으로 확인하고, 누락·음수·불필요한 선행 0이면 완료하지 않고 backoff한다. 원자 게시는 read-only로 구성한 trusted Root CRL과 기존 두 번째 block이 정확히 같고 bundle이 intermediate+Root 두 개뿐일 때만 수행한다.
+- **반복 방지 체크**: device와 MQTT 모두에 대해 GET/read rotate 계약, pre-revoke stale CRL, 대상 serial 누락·음수·non-minimal encoding, 게시 후 재시도, 동일 폐기의 멱등 rotate, trusted intermediate+Root 2-block 결과와 Root 누락·교체·추가를 회귀 테스트로 유지한다. CRL bytes 안정성이나 서로 다른 issuer라는 조건만으로 reconciliation을 완료하지 않는다.

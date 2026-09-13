@@ -170,7 +170,7 @@ describe("VaultPkiProvider", () => {
 
     await (provider as any).rebuildCrl(purpose);
 
-    expect(requests).toEqual([{ method: "POST", url: expectedPath, body: {} }]);
+    expect(requests).toEqual([{ method: "GET", url: expectedPath, body: {} }]);
   });
 
   it("rejects non-PEM CRL responses without exposing the body", async () => {
@@ -244,7 +244,9 @@ async function captureRequest(request: IncomingMessage): Promise<CapturedRequest
   return {
     method: request.method,
     url: request.url,
-    body: JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>
+    body: chunks.length
+      ? JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>
+      : {}
   };
 }
 

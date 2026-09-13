@@ -27,11 +27,11 @@ path "gateway-mqtt-pki/crl/pem" {
 # regenerates its cached CRL. The API may force only these two purpose-local
 # rotations; it still has no issuer, Root, policy, or server-signing rights.
 path "gateway-device-pki/crl/rotate" {
-  capabilities = ["update"]
+  capabilities = ["read"]
 }
 
 path "gateway-mqtt-pki/crl/rotate" {
-  capabilities = ["update"]
+  capabilities = ["read"]
 }
 
 path "auth/token/lookup-self" {

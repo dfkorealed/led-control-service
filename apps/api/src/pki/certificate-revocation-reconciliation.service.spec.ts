@@ -14,12 +14,14 @@ const metadata = {
 let crlAa01: string;
 let crlBb02: string;
 let crlBoth: string;
+let rootCrl: string;
 let changingCrls: string[];
 
 beforeAll(async () => {
   crlAa01 = await createTestCrl(["AA01"], "CN=Test Intermediate", 0);
   crlBb02 = await createTestCrl(["BB02"], "CN=Test Intermediate", 1);
   crlBoth = await createTestCrl(["AA01", "BB02"], "CN=Test Intermediate", 2);
+  rootCrl = await createTestCrl([], "CN=Test Root", 0);
   changingCrls = await Promise.all(Array.from({ length: 6 }, (_, index) =>
     createTestCrl(["AA01"], "CN=Test Intermediate", index + 3)));
 });
@@ -62,7 +64,12 @@ function setup() {
     rebuildCrl: jest.fn().mockResolvedValue(undefined),
     readCrl: jest.fn().mockImplementation(async () => crlAa01)
   };
-  const config = { deviceCrlPath: "/test/device.crl", mqttCrlPath: "/test/mqtt.crl", publishCrl: jest.fn().mockResolvedValue(undefined) };
+  const config = {
+    deviceCrlPath: "/test/device.crl",
+    mqttCrlPath: "/test/mqtt.crl",
+    trustedRootCrlPem: rootCrl,
+    publishCrl: jest.fn().mockResolvedValue(undefined)
+  };
   const service = new CertificateRevocationReconciliationService(prisma, ca, config);
   return { service, prisma, tx, ledger, rows, ca, config };
 }
@@ -139,7 +146,7 @@ describe("CertificateRevocationReconciliationService", () => {
     tx.$queryRaw.mockResolvedValueOnce([job({ revokedAt: NOW, certificateId: "certificate-1", attempts: 2 })]);
     await service.processNow("job-1");
     expect(ca.revoke).toHaveBeenCalledTimes(1);
-    expect(config.publishCrl).toHaveBeenLastCalledWith("/test/device.crl", crlAa01);
+    expect(config.publishCrl).toHaveBeenLastCalledWith("/test/device.crl", crlAa01, rootCrl);
     expect(ledger.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ completedAt: NOW }) }));
     expect(tx.gatewayCertificate.updateMany).toHaveBeenCalledWith({
       where: { id: "certificate-1", inventoryId: "inventory-1", fingerprint: metadata.fingerprint },
@@ -212,7 +219,7 @@ describe("CertificateRevocationReconciliationService", () => {
 
     expect(ca.rebuildCrl).toHaveBeenCalledWith(purpose);
     expect(ca.rebuildCrl.mock.invocationCallOrder[0]).toBeLessThan(ca.readCrl.mock.invocationCallOrder[0]);
-    expect(config.publishCrl).toHaveBeenCalledWith(path, crlAa01);
+    expect(config.publishCrl).toHaveBeenCalledWith(path, crlAa01, rootCrl);
     expect(ledger.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ completedAt: NOW })
     }));
@@ -238,7 +245,7 @@ describe("CertificateRevocationReconciliationService", () => {
     ca.readCrl.mockResolvedValueOnce(crlAa01).mockResolvedValue(crlBoth);
     await service.processNow("job-1");
     expect(config.publishCrl.mock.calls).toEqual([
-      ["/test/device.crl", crlAa01], ["/test/device.crl", crlBoth]
+      ["/test/device.crl", crlAa01, rootCrl], ["/test/device.crl", crlBoth, rootCrl]
     ]);
     expect(ca.readCrl).toHaveBeenCalledTimes(3);
     expect(ledger.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ completedAt: NOW }) }));
@@ -285,13 +292,13 @@ describe("CertificateRevocationReconciliationService", () => {
     tx.$queryRaw.mockResolvedValueOnce([job({ revokedAt: NOW })]);
     ca.readCrl.mockResolvedValueOnce(crlAa01).mockRejectedValueOnce(new Error("publication interrupted before confirmation"));
     await service.processNow("job-1");
-    expect(config.publishCrl).toHaveBeenCalledWith("/test/device.crl", crlAa01);
+    expect(config.publishCrl).toHaveBeenCalledWith("/test/device.crl", crlAa01, rootCrl);
     expect(ledger.updateMany.mock.calls.every(([input]) => !input.data.completedAt)).toBe(true);
     tx.$queryRaw.mockResolvedValueOnce([job({ revokedAt: NOW, leaseOwner: "restarted-claim", attempts: 2 })]);
     ca.readCrl.mockResolvedValue(crlBoth);
     const restarted = new CertificateRevocationReconciliationService(prisma, ca, config);
     await restarted.processNow("job-1");
-    expect(config.publishCrl).toHaveBeenLastCalledWith("/test/device.crl", crlBoth);
+    expect(config.publishCrl).toHaveBeenLastCalledWith("/test/device.crl", crlBoth, rootCrl);
     expect(ledger.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ leaseOwner: "restarted-claim" }), data: expect.objectContaining({ completedAt: NOW })
     }));
@@ -375,6 +382,7 @@ function concurrentWorkers(secondPurpose: "device" | "mqtt" = "device") {
   };
   const config = {
     deviceCrlPath: "/test/device.crl", mqttCrlPath: "/test/mqtt.crl",
+    trustedRootCrlPem: rootCrl,
     publishCrl: jest.fn(async (path: string, crl: string) => {
       if (crl === crlAa01) {
         firstPublishStarted.resolve();

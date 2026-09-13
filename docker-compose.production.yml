@@ -179,6 +179,7 @@ services:
       API_MANUFACTURING_CLIENT_CA_PATH: /run/api-tls/manufacturing-ca.crt
       API_DEVICE_CRL_PATH: /run/device-crl/device.crl
       API_MANUFACTURING_CRL_PATH: /run/api-tls/manufacturing.crl
+      PKI_ROOT_CRL_PATH: /run/api-tls/device.crl
       PKI_API_CA_BUNDLE_PATH: /run/api-tls/api-ca.crt
       PKI_MQTT_CA_BUNDLE_PATH: /run/mqtt-tls/mqtt-ca.crt
       PKI_PROVIDER: vault

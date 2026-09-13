@@ -24,7 +24,7 @@ import {
   CertificateLifecycleService,
   type CertificateLifecycleConfiguration
 } from "./certificate-lifecycle.service";
-import { publishCrlAtomically } from "./crl-publisher";
+import { publishCrlAtomically, trustedRootCrlFromBundle } from "./crl-publisher";
 import { CertificateRevocationReconciliationService } from "./certificate-revocation-reconciliation.service";
 
 @Module({
@@ -45,6 +45,7 @@ import { CertificateRevocationReconciliationService } from "./certificate-revoca
       useFactory: (): CertificateLifecycleConfiguration => ({
         deviceCrlPath: productionPath(process.env, "API_DEVICE_CRL_PATH"),
         mqttCrlPath: productionPath(process.env, "MQTT_CLIENT_CRL_PATH"),
+        trustedRootCrlPem: readTrustedRootCrl(process.env),
         publishCrl: publishCrlAtomically
       })
     },
@@ -155,6 +156,18 @@ function productionPath(env: NodeJS.ProcessEnv, key: string): string | undefined
   const value = env[key]?.trim();
   if (env.NODE_ENV === "production" && !value) throw new Error(`${key} is required in production`);
   return value || undefined;
+}
+
+function readTrustedRootCrl(env: NodeJS.ProcessEnv) {
+  const path = productionPath(env, "PKI_ROOT_CRL_PATH");
+  if (!path) return undefined;
+  try {
+    // The configured path is read-only deployment trust input. It may be a
+    // standalone Root CRL or the verified intermediate+Root seed bundle.
+    return trustedRootCrlFromBundle(readFileSync(path, "utf8"));
+  } catch {
+    throw new Error("PKI_ROOT_CRL_PATH does not contain a trusted Root CRL");
+  }
 }
 
 

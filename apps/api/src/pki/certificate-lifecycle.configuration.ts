@@ -5,5 +5,6 @@ export const CERTIFICATE_LIFECYCLE_CONFIGURATION = Symbol("CERTIFICATE_LIFECYCLE
 export interface CertificateLifecycleConfiguration {
   deviceCrlPath?: string;
   mqttCrlPath?: string;
+  trustedRootCrlPem?: string;
   publishCrl: typeof publishCrlAtomically;
 }
