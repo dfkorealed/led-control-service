@@ -633,7 +633,9 @@ git commit -m "feat(gateway): deploy one BIO raw USB device safely"
 
 ---
 
-### Task 8b: Approved admin3 Lab reset and Gateway re-enrollment
+### Task 8b: Cancelled admin3 Lab reset
+
+> **Cancelled before mutation:** 사용자가 destructive reset을 `admin4` 별도 설치로 대체했다. operator 인증 Session 1건 외에는 `DELETE /operator/site-admins/:userId`와 `POST /operator/site-admins`가 호출되지 않았고, `admin3` organization/Site/User/Floor/Fixture/Gateway graph는 그대로 보존됐다. 아래 체크리스트는 실행하지 않는다.
 
 **User-approved destructive boundary:**
 - `admin3`이 소유한 customer organization, its only Site and all Site-owned data, `admin3`, and the one additional User in the same organization may be deleted without a recoverable backup.
@@ -658,6 +660,32 @@ git commit -m "feat(gateway): deploy one BIO raw USB device safely"
 - [ ] **Step 8: healthy heartbeat 3회를 확인한다.** 새 Gateway ID의 API DB timestamp 증가, Gateway health와 container lifecycle을 대조한다.
 
 - [ ] **Step 9: 상태판·메뉴·교훈·계획을 실제 결과로 갱신하고 커밋한다.** reset/re-enrollment과 BIO deployment/HIL 완료를 구분한다.
+
+---
+
+### Task 8c: Separate admin4 Lab installation and Gateway re-enrollment
+
+**User-approved boundary:**
+- 기존 `admin3` organization/Site/User/device graph는 변경하거나 삭제하지 않는다.
+- 기존 operator API로 독립된 customer organization, pending Site, canonical `admin4` admin을 새로 만든다.
+- temporary password와 claim code는 Git-ignored mode `0600` local handoff file에만 저장하고 로그·증거·문서에 원문을 남기지 않는다.
+- BIO dongle/lamp module에는 address/brightness/identify/sensor write를 보내지 않는다.
+
+- [ ] **Step 1: 생성 직전 경계를 재검증한다.** canonical `admin4`가 0건이고 `admin3` identity/organization/Site 핵심 해시와 건수가 유지되는지 read-only transaction으로 확인한다.
+
+- [ ] **Step 2: 기존 operator create API로 admin4 Lab을 만든다.** 별도 customer organization + pending Site + active admin을 transaction으로 생성하고, strong temporary password는 ignored mode `0600` handoff file에만 기록한다.
+
+- [ ] **Step 3: 생성 결과와 admin3 보존을 검증한다.** `admin4` exact-one, pending Site/Floor 0, 새 organization 분리와 `admin3` 기존 graph 불변을 확인한다.
+
+- [ ] **Step 4: Pi를 새 manufacturing identity로 등록한다.** old orphan certificate를 새 Gateway ID에 재결속하지 않고 새 serial/device identity와 one-time claim code를 사용한다. 기존 orphan certificate의 active 상태는 제품 PKI 경로로 revoke/disable한 뒤 진행한다.
+
+- [ ] **Step 5: admin4 initial setup과 Gateway claim/bootstrap을 완료한다.** 최소 한 층을 만들고 새 claim code를 한 번만 사용하며 성공 후 원문을 폐기한다.
+
+- [ ] **Step 6: Task 8a LAN/PKI/MQTT 복구를 실행한다.** current LAN, hosts, SAN/CRL, runtime broker, Pi/container DNS를 일치시키고 DNS → TCP → TLS/mTLS → MQTT CONNACK을 검증한다.
+
+- [ ] **Step 7: healthy heartbeat 3회를 확인한다.** 새 Gateway ID의 DB timestamp 증가와 Gateway/container health를 대조한다.
+
+- [ ] **Step 8: 상태판·메뉴·교훈·계획을 실제 결과로 갱신하고 커밋한다.** admin4 설치, Gateway baseline, BIO deployment/HIL 완료 여부를 분리해 기록한다.
 
 ---
 
