@@ -230,6 +230,28 @@ export class BioDongleClient {
    * [미확인] Task 9 HIL 전까지 APK address serializer의 실장비 적용은 확인되지 않았다.
    */
   async assignAddress(nativeId: string, logicalAddress: number, control: BioOperationControl = {}): Promise<BioAddressAssignmentResult> {
+    let result = await this.assignAddressOnce(nativeId, logicalAddress, control);
+    if (result.outcome !== "unchanged") return result;
+
+    const device = result.device;
+    const operation: BioOperation = {
+      kind: "assignAddress",
+      target: { kind: "unicast", networkId: device.networkId, logicalAddress: device.logicalAddress },
+      nativeUuid: device.nativeUuid,
+      logicalAddress
+    };
+    throwIfOperationStopped(control);
+    await this.sendUncertainWrite(operation, control);
+    result = await this.reconcileAddress(device.nativeUuid, device.logicalAddress, logicalAddress, control);
+    return result;
+  }
+
+  /**
+   * [확인됨] Task 9의 승인 관문은 주소 frame을 정확히 한 번만 보낸 뒤 ACK 상태와 무관하게
+   * old/new scan으로 판정한다. old-only도 자동 재전송하지 않고 호출자에게 그대로 반환한다.
+   * [미확인] 실제 모듈의 주소 적용 여부는 guarded HIL 전까지 확인되지 않았다.
+   */
+  async assignAddressOnce(nativeId: string, logicalAddress: number, control: BioOperationControl = {}): Promise<BioAddressAssignmentResult> {
     throwIfOperationStopped(control);
     validateLogicalAddress(logicalAddress);
     const device = this.resolveCachedDevice(nativeId);
@@ -240,13 +262,7 @@ export class BioDongleClient {
       logicalAddress
     };
     await this.sendUncertainWrite(operation, control);
-    let result = await this.reconcileAddress(device.nativeUuid, device.logicalAddress, logicalAddress, control);
-    if (result.outcome !== "unchanged") return result;
-
-    throwIfOperationStopped(control);
-    await this.sendUncertainWrite(operation, control);
-    result = await this.reconcileAddress(device.nativeUuid, device.logicalAddress, logicalAddress, control);
-    return result;
+    return this.reconcileAddress(device.nativeUuid, device.logicalAddress, logicalAddress, control);
   }
 
   async reconcileAddress(nativeId: string, oldAddress: number, newAddress: number, control: BioOperationControl = {}): Promise<BioAddressAssignmentResult> {

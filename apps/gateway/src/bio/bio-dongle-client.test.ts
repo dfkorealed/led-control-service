@@ -536,6 +536,24 @@ describe("BIO evidence-gated dongle client", () => {
     await h.client.close();
   });
 
+  it("assigns an address exactly once and returns old-only reconciliation without retrying", async () => {
+    const h = harness(75, { scanDurationMs: 100 }); await ready(h);
+    await finishScan(h, [discoveryHex("001122334455", 0x1234)]);
+    const assigning = h.client.assignAddressOnce("bio:001122334455", 0x2345);
+    await flush();
+    expect(requestBody(h.device, 5)).toBe("b8810011223344552345");
+    h.device.receive("55aa1101002055");
+
+    await drivePendingScan(h, [discoveryHex("001122334455", 0x1234)]);
+
+    await expect(assigning).resolves.toMatchObject({
+      outcome: "unchanged",
+      device: { logicalAddress: 0x1234 }
+    });
+    expect(commandBodies(h.device).filter((body) => body.startsWith("b881"))).toHaveLength(1);
+    await h.client.close();
+  });
+
   it("does not issue a second address write when cancellation arrives after old-address reconciliation", async () => {
     const h = harness(75, { scanDurationMs: 100 }); await ready(h);
     await finishScan(h, [discoveryHex("001122334455", 0x1234)]);
