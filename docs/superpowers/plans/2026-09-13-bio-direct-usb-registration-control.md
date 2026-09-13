@@ -681,9 +681,9 @@ git commit -m "feat(gateway): deploy one BIO raw USB device safely"
 
 - [x] **Step 5: orphan certificate를 폐기하고 Pi를 새 manufacturing identity로 등록한다.** 제품 disable/reconciliation과 수정된 CRL publication을 거쳐 old device·MQTT certificate가 API/broker에서 실제 거부됨을 확인했다. 새 serial은 기존 data root와 분리된 `/data-admin4/identity`에 exact-one enabled/unclaimed inventory와 active device certificate로 등록했고, one-time claim code는 ignored mode `0600` label에만 보관했다.
 
-- [ ] **Step 6: admin4 initial setup과 Gateway claim/bootstrap을 완료한다.** 최소 한 층을 만들고 새 claim code를 한 번만 사용하며 성공 후 원문을 폐기한다. 새 runtime은 `/data-admin4/{identity,gateway,mesh}`만 사용하고 DNS → TCP → TLS/mTLS → MQTT CONNACK을 검증한다.
+- [x] **Step 6: admin4 initial setup과 Gateway claim/bootstrap을 완료한다.** `1층`을 만들고 claim code를 한 번만 사용한 뒤 원문 label을 삭제했다. hardware-free bootstrap-only 경로로 `/data-admin4/{identity,gateway}`에 assignment와 MQTT identity를 설치했고 mTLS CONNECT를 검증했다.
 
-- [ ] **Step 7: healthy heartbeat 3회를 확인한다.** 새 Gateway ID의 DB timestamp 증가와 Gateway/container health를 대조한다.
+- [x] **Step 7: healthy heartbeat 3회를 확인한다.** standalone BIO runtime을 UID 999/capabilities 0/exact USB·admin4 roots로 시작했고 transport/protocol/mapping/MQTT health가 모두 true인 상태에서 DB heartbeat sequence `8 → 11 → 13`, RestartCount 0을 확인했다. command/outbox/provisioning과 lamp state write는 0건이었다.
 
 - [ ] **Step 8: 상태판·메뉴·교훈·계획을 실제 결과로 갱신하고 커밋한다.** admin4 설치, Gateway baseline, BIO deployment/HIL 완료 여부를 분리해 기록한다.
 
