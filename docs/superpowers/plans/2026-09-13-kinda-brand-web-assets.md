@@ -70,7 +70,7 @@
 - Consumes: 팔레트 Navy `#15324A`, Blue `#256FA1`, Coral `#FF7A5C`와 O안 형태 의미.
 - Produces: public URL `/brand/kinda-mark.svg`, `/brand/kinda-mark-reversed.svg`, `/brand/kinda-mark-monochrome.svg`, `/brand/kinda-mark-512.png`, `/brand/favicon-32.png` 및 `pnpm --filter @led-control/web brand:assets` 명령.
 
-- [ ] **Step 1: 정본·파생 자산 계약의 실패 테스트를 작성한다.**
+- [x] **Step 1: 정본·파생 자산 계약의 실패 테스트를 작성한다.**
 
 ```ts
 import { existsSync, readFileSync } from "node:fs";
@@ -153,13 +153,13 @@ describe("킨다 브랜드 자산", () => {
 });
 ```
 
-- [ ] **Step 2: 자산 테스트가 파일 부재로 실패하는지 확인한다.**
+- [x] **Step 2: 자산 테스트가 파일 부재로 실패하는지 확인한다.**
 
 Run: `pnpm --filter @led-control/web test -- src/components/brand/brand-assets.test.ts`
 
 Expected: `ENOENT: no such file or directory, open 'public/brand/kinda-mark.svg'`로 실패한다.
 
-- [ ] **Step 3: 다음 SVG를 마크 정본으로 추가한다.**
+- [x] **Step 3: 다음 SVG를 마크 정본으로 추가한다.**
 
 ```svg
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" role="img" aria-labelledby="kinda-mark-title">
@@ -204,7 +204,7 @@ Expected: `ENOENT: no such file or directory, open 'public/brand/kinda-mark.svg'
 </svg>
 ```
 
-- [ ] **Step 4: 기존 Playwright만 사용하는 PNG 생성기를 추가한다.**
+- [x] **Step 4: 기존 Playwright만 사용하는 PNG 생성기를 추가한다.**
 
 ```js
 import { readFile } from "node:fs/promises";
@@ -245,7 +245,7 @@ try {
 "brand:assets": "node scripts/render-brand-assets.mjs"
 ```
 
-- [ ] **Step 5: PNG를 생성하고 자산 계약을 통과시킨다.**
+- [x] **Step 5: PNG를 생성하고 자산 계약을 통과시킨다.**
 
 Run: `pnpm --filter @led-control/web brand:assets`
 
@@ -255,7 +255,7 @@ Run: `pnpm --filter @led-control/web test -- src/components/brand/brand-assets.t
 
 Expected: 정본 기하, 변형 색상, 16px 식별성과 PNG signature 계약이 모두 통과한다.
 
-- [ ] **Step 6: 정본과 생성기를 커밋한다.**
+- [x] **Step 6: 정본과 생성기를 커밋한다.**
 
 ```bash
 git add apps/web/package.json apps/web/public/brand apps/web/scripts/render-brand-assets.mjs apps/web/src/components/brand/brand-assets.test.ts
