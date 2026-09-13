@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+import { spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -36,6 +38,7 @@ import {
   recordAndHandoffAutomationTelemetryGap,
   recoverProvisioningDevicesOnStartup,
   refreshVehicleSensorCapabilitiesIfSupported,
+  runGatewayStartupStageWithAdapterCleanup,
   startGatewayRuntime,
   subscribeGatewayAcknowledgements,
   subscribeGatewayCommands
@@ -1320,6 +1323,35 @@ describe("startGatewayRuntime", () => {
     errorLog.mockRestore();
   });
 
+  it("keeps the real SIGTERM handler installed until slow USB cleanup finishes", async () => {
+    const fixture = fileURLToPath(new URL("./test-fixtures/shutdown-signal-child.ts", import.meta.url));
+    const child = spawn(process.execPath, ["--import", "tsx", fixture], {
+      cwd: process.cwd(),
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    let output = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8").on("data", (chunk) => { output += chunk; });
+    child.stderr.setEncoding("utf8").on("data", (chunk) => { stderr += chunk; });
+    const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
+      child.once("exit", (code, signal) => resolve({ code, signal }));
+    });
+
+    try {
+      await vi.waitFor(() => expect(output).toContain("SIGNAL_HANDLER_READY"), { timeout: 5_000 });
+      expect(child.kill("SIGTERM")).toBe(true);
+      await vi.waitFor(() => expect(output).toContain("USB_CLEANUP_STARTED"), { timeout: 5_000 });
+      expect(child.kill("SIGTERM")).toBe(true);
+
+      await expect(exited).resolves.toEqual({ code: 0, signal: null });
+      expect(output).toContain("USB_CLEANUP_FINISHED");
+      expect(output.indexOf("USB_CLEANUP_STARTED")).toBeLessThan(output.indexOf("USB_CLEANUP_FINISHED"));
+      expect(stderr).toBe("");
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+    }
+  }, 10_000);
+
   it("rejects an invalid heartbeat interval before gateway startup", () => {
     expect(() => parseGatewayHeartbeatInterval("NaN")).toThrow("positive finite integer");
     expect(() => parseGatewayHeartbeatInterval("Infinity")).toThrow("positive finite integer");
@@ -1424,6 +1456,58 @@ describe("startGatewayRuntime", () => {
 
     expect(createAdapters).not.toHaveBeenCalled();
     expect(createMqtt).not.toHaveBeenCalled();
+  });
+
+  it("awaits adapter cleanup before rejecting when MQTT client construction fails", async () => {
+    const primaryError = new Error("MQTT client construction failed");
+    let releaseCleanup!: () => void;
+    const cleanupBarrier = new Promise<void>((resolve) => { releaseCleanup = resolve; });
+    const stop = vi.fn(() => cleanupBarrier);
+    const startup = startGatewayRuntime({
+      env: {},
+      resolveAssignment: async () => assignment,
+      ensureMqttIdentity: async () => undefined,
+      createAdapters: (async () => ({ stop })) as never,
+      createMqtt: (() => { throw primaryError; }) as never
+    });
+    let settled = false;
+    void startup.catch(() => { settled = true; });
+
+    await vi.waitFor(() => expect(stop).toHaveBeenCalledTimes(1));
+    expect(settled).toBe(false);
+    releaseCleanup();
+    await expect(startup).rejects.toBe(primaryError);
+  });
+
+  it("preserves MQTT construction and adapter cleanup errors together", async () => {
+    const primaryError = new Error("MQTT client construction failed");
+    const cleanupError = new Error("USB release failed");
+
+    await expect(startGatewayRuntime({
+      env: {},
+      resolveAssignment: async () => assignment,
+      ensureMqttIdentity: async () => undefined,
+      createAdapters: (async () => ({ stop: async () => { throw cleanupError; } })) as never,
+      createMqtt: (() => { throw primaryError; }) as never
+    })).rejects.toMatchObject({
+      errors: [primaryError, cleanupError]
+    });
+  });
+
+  it("keeps adapter cleanup ownership through later startup initialization failures", async () => {
+    const primaryError = new Error("health initialization failed");
+    let cleanupFinished = false;
+    const adapter = {
+      async stop() {
+        await Promise.resolve();
+        cleanupFinished = true;
+      }
+    };
+
+    await expect(runGatewayStartupStageWithAdapterCleanup(adapter, async () => {
+      throw primaryError;
+    })).rejects.toBe(primaryError);
+    expect(cleanupFinished).toBe(true);
   });
 
   it("starts BlueZ and MQTT only after the assigned MQTT identity is ready", async () => {

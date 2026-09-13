@@ -362,6 +362,7 @@ async function main() {
       createAdapters: async () => softwareAutomationSimulator.adapters
     } : {})
   });
+  await runGatewayStartupStageWithAdapterCleanup(runtime.adapters, async () => {
   health.setProbes(runtime.adapters.healthProbes);
   const assignment = runtime.assignment;
   await health.startingAssigned();
@@ -1066,6 +1067,7 @@ async function main() {
     console.error(`Gateway MQTT ${context} failed`, error);
     return health.unhealthy("mqtt_error");
   }
+  });
 }
 
 export function gatewayDeferredPubackTopics(siteId: string, gatewayId: string) {
@@ -1536,13 +1538,27 @@ export function registerGatewayShutdownHandlers(
   rotationOrExit?: Pick<CertificateRotation, "stop"> | ((code: number) => void),
   exit: (code: number) => void = (code) => process.exit(code)
 ) {
-  const shutdown = createGatewayShutdownHandler(runtime, rotationOrExit, exit);
-  process.once("SIGTERM", shutdown);
-  process.once("SIGINT", shutdown);
-  return () => {
+  let registered = true;
+  const unregister = () => {
+    if (!registered) return;
+    registered = false;
     process.removeListener("SIGTERM", shutdown);
     process.removeListener("SIGINT", shutdown);
   };
+  const rotation = typeof rotationOrExit === "function" ? undefined : rotationOrExit;
+  const requestedExit = typeof rotationOrExit === "function" ? rotationOrExit : exit;
+  const shutdown = createGatewayShutdownHandler(runtime, rotation, (code) => {
+    unregister();
+    requestedExit(code);
+  });
+  // [확인됨] `once`는 첫 signal 직후 listener를 제거해, 느린 USB poll/release/reattach 중
+  // 같은 OS signal이 다시 오면 Node 기본 동작이 process를 즉시 종료하게 한다. cleanup이
+  // 끝날 때까지 두 listener를 유지하고 단일 shutdown promise로 중복 signal을 흡수한다.
+  // [추정] 종료 callback 직전에 listener를 제거하면 test host 누수 없이 결정적 exit가 된다.
+  // 실제 systemd stop/restart의 반복 signal timing은 Task 8 배포 검증 전까지 [미확인]이다.
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
+  return unregister;
 }
 
 export async function startGatewayRuntime(options: {
@@ -1557,11 +1573,34 @@ export async function startGatewayRuntime(options: {
   ))();
   await (options.ensureMqttIdentity ?? ensureMqttIdentity)(assignment, options.env);
   const adapters = await (options.createAdapters ?? createProductionAdapters)(options.env);
-  const client = (options.createMqtt ?? createMqttClient)(
-    { ...options.env, MQTT_URL: assignment.mqttUrl },
-    { gatewayId: assignment.gatewayId }
-  );
-  return { assignment, adapters, client };
+  return runGatewayStartupStageWithAdapterCleanup(adapters, async () => {
+    const client = (options.createMqtt ?? createMqttClient)(
+      { ...options.env, MQTT_URL: assignment.mqttUrl },
+      { gatewayId: assignment.gatewayId }
+    );
+    return { assignment, adapters, client };
+  });
+}
+
+export async function runGatewayStartupStageWithAdapterCleanup<T>(
+  adapter: { stop(): Promise<void> },
+  initialize: () => Promise<T>
+): Promise<T> {
+  try {
+    return await initialize();
+  } catch (startupError) {
+    // [확인됨] factory probe 뒤에는 direct USB poll/interface ownership이 열린 상태일 수 있다.
+    // MQTT 생성부터 health/journal/controller 구성과 signal handler 등록 완료까지 발생한 모든
+    // 동기·비동기 startup 실패는 polling stop → release → 조건부 reattach를 반드시 await한다.
+    // [추정] primary failure가 운영 원인이고 cleanup failure는 독립 복구 원인이므로 둘 다 보존한다.
+    // 실제 Pi 전원/USB 탈착을 섞은 startup 실패 수렴은 Task 8~9 전까지 [미확인]이다.
+    try {
+      await adapter.stop();
+    } catch (cleanupError) {
+      throw new AggregateError([startupError, cleanupError], "Gateway startup and adapter cleanup failed");
+    }
+    throw startupError;
+  }
 }
 
 export async function ensureMqttIdentity(assignment: GatewayAssignment, env: NodeJS.ProcessEnv) {
