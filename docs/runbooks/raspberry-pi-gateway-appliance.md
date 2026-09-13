@@ -14,6 +14,7 @@ BIO에는 아래 독립 절차를 사용한다. 기존 BlueZ base+BIO overlay의
 
 ```sh
 export GATEWAY_BIO_DATA_ROOT=/opt/led-control/gateway/data-admin4
+export GATEWAY_BIO_DEPLOYMENT_UID="$(id -u)"
 export GATEWAY_BIO_IMAGE='<검증한 새 image:tag>'
 export GATEWAY_BIO_IMAGE_ID='sha256:<Pi image config digest>'
 export GATEWAY_BIO_OLD_CONTAINER_ID='<보존할 led-control-gateway의 전체 ID>'
@@ -27,6 +28,10 @@ bash scripts/gateway-bio-runtime.sh start
 ```
 
 호스트 검사에는 exact-one `1a86:5523`, binary descriptor interface0·bulk OUT02/IN82·maxPacket32, character-device major/minor, 숫자 GID와 fresh bus/device 경로가 포함된다. 경로는 시작 직전에 다시 읽으며 symlink/잘린 descriptor/다중 대상은 실패한다. 하위 `identity`0750와 `gateway`/`mesh`0700만 UID/GID999로 준비한다. 기존 `data` fallback, recursive chown, old assignment/MQTT copy는 없다.
+
+`GATEWAY_BIO_DEPLOYMENT_UID`는 SSH로 인증한 **Pi 배포 계정**에서 `id -u`로 읽어 필수 입력으로 전달한다. Mac UID를 전달하거나 launcher 전체를 sudo로 실행하지 않는다. launcher는 현재 `id -u`와 대조하며 root0/runtime999/nobody65534, leading-zero/비숫자/범위 초과 값을 거부한다. 기존 `/opt/led-control/gateway`가 배포 계정 UID1000·0750 소유인 것은 정상이며 공유 parent를 runtime UID로 chown하지 않는다.
+
+배포 UID 예외는 기존 ancestor에만 적용한다. 모든 ancestor는 canonical real directory이며 group/other 쓰기 금지다. identity0750, gateway/mesh0700은 이미 UID/GID999여야 하며 틀린 소유권을 자동 보정하지 않는다. 없는 새 mesh만 원자적으로 생성해999:999로 준비한다. BIO mapping 파일도 regular UID/GID999·0600이어야 한다. 초기와 old stop/새 candidate start 직전의 owner/group/mode/device/inode snapshot이 다르면 허용 UID끼리의 변경이라도 중단한다.
 
 장비를 넘기기 전에 image의 read-only identity preflight를 network-none·UID999·capability0으로 실행한다. 기존 assignment/새 기대 범위와 device/MQTT chain/key를 제품 Store로 검증하며 API 발급·CONNECT·USB 호출을 하지 않는다. 통과한 뒤에만 정확한 old container ID를 stop하고 삭제하지 않는다. 별도 `led-control-gateway-bio`가 이미 있으면 recreate하지 않고 중단한다. old inspect와 배포 로그는 `/tmp/gateway-bio-deploy.*`0700 안에0600으로 보관한다. raw env/ID가 포함될 수 있으므로 출력·Git 추가하지 않는다.
 

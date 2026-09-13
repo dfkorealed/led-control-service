@@ -12,6 +12,12 @@ fail_gate() { echo BIO_RUNTIME_PREFLIGHT_FAILED >&2; exit 1; }
 [[ ${GATEWAY_BIO_DATA_ROOT:-} =~ ^/opt/led-control/gateway/data-[a-z0-9][a-z0-9-]*$ ]] || fail_input
 [[ ${GATEWAY_BIO_IMAGE:-} =~ ^[a-zA-Z0-9./:_-]+$ && ${GATEWAY_BIO_IMAGE_ID:-} =~ ^sha256:[a-f0-9]{64}$ ]] || fail_input
 [[ ${GATEWAY_BIO_OLD_CONTAINER_ID:-} =~ ^[a-f0-9]{64}$ ]] || fail_input
+# 로그인한 배포 계정의 UID를 호출자가 명시하고 현재 id -u와 다시 대조한다.
+# root/runtime/nobody를 배포 계정으로 오인하거나 leading-zero/산술식 주입으로
+# 소유권 allowlist를 넓히지 않는다. sudo로 launcher 전체를 실행하지 않는다.
+[[ ${GATEWAY_BIO_DEPLOYMENT_UID:-} =~ ^[1-9][0-9]{0,9}$ ]] || fail_input
+(( GATEWAY_BIO_DEPLOYMENT_UID <= 2147483647 && GATEWAY_BIO_DEPLOYMENT_UID != 999 && GATEWAY_BIO_DEPLOYMENT_UID != 65534 )) || fail_input
+[[ $(id -u) = "$GATEWAY_BIO_DEPLOYMENT_UID" ]] || fail_input
 [[ ${GATEWAY_SERIAL:-} =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] || fail_input
 for value in "${GATEWAY_EXPECTED_SITE_ID:-}" "${GATEWAY_EXPECTED_GATEWAY_ID:-}"; do
   [[ $value =~ ^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[1-8][a-fA-F0-9]{3}-[89aAbB][a-fA-F0-9]{3}-[a-fA-F0-9]{12}$ ]] || fail_input
@@ -26,15 +32,52 @@ COMPOSE_PATH="$ROOT_DIR/apps/gateway/compose.bio-runtime.yml"
 # socket을 쓰는 Pi host 전용이며 원격 Docker daemon은 지원하지 않는다.
 docker_local() { env -i PATH="$PATH" docker "$@"; }
 
-# canonical root 및 각 직접 자식만 준비한다. symlink/그룹 쓰기 가능한 parent를
-# 따라 chown하지 않으며 recursive chown, old data copy, identity overwrite는 금지다.
-for directory in /opt /opt/led-control /opt/led-control/gateway "$GATEWAY_BIO_DATA_ROOT"; do
-  [[ $(sudo -n realpath -e "$directory" 2>/dev/null) = "$directory" ]] || fail_gate
-  metadata=$(sudo -n stat -c '%F|%a|%u' "$directory" 2>/dev/null) || fail_gate
-  IFS='|' read -r kind mode owner <<< "$metadata"
-  [[ $kind = directory && ( $owner = 0 || $owner = 999 ) && $mode =~ ^[0-7]{3,4}$ ]] || fail_gate
-  (( (8#$mode & 0022) == 0 )) || fail_gate
-done
+plain_metadata() {
+  local path=$1
+  [[ $(sudo -n realpath -e "$path" 2>/dev/null) = "$path" ]] || return 1
+  sudo -n stat -c '%F|%a|%u|%g|%d:%i' "$path" 2>/dev/null
+}
+ancestor_snapshot() {
+  local directory metadata kind mode owner group inode
+  [[ $(id -u) = "$GATEWAY_BIO_DEPLOYMENT_UID" ]] || return 1
+  # 기존 제품 배포는 shared parent를 SSH 배포 계정(예: UID1000)이 소유한다.
+  # 이것을 runtime UID로 chown하면 다른 배포 경로까지 바뀐다. 따라서 인증된
+  # 배포 UID는 기존 ancestor에만 허용하고 아래 leaf/file 검사에는 전달하지 않는다.
+  for directory in /opt /opt/led-control /opt/led-control/gateway "$GATEWAY_BIO_DATA_ROOT"; do
+    metadata=$(plain_metadata "$directory") || return 1
+    IFS='|' read -r kind mode owner group inode <<< "$metadata"
+    [[ $kind = directory && ( $owner = 0 || $owner = 999 || $owner = "$GATEWAY_BIO_DEPLOYMENT_UID" ) && $mode =~ ^[0-7]{3}$ ]] || return 1
+    (( (8#$mode & 0022) == 0 )) || return 1
+    printf '%s|%s\n' "$directory" "$metadata"
+  done
+}
+runtime_roots_snapshot() {
+  local leaf directory metadata kind mode owner group inode expected mapping unexpected_owner
+  for leaf in identity gateway mesh; do
+    directory="$GATEWAY_BIO_DATA_ROOT/$leaf"
+    if sudo -n test -e "$directory" || sudo -n test -L "$directory"; then
+      metadata=$(plain_metadata "$directory") || return 1
+      IFS='|' read -r kind mode owner group inode <<< "$metadata"
+      expected=700; [[ $leaf != identity ]] || expected=750
+      [[ $kind = directory && $owner = 999 && $group = 999 && $mode = "$expected" ]] || return 1
+      # ancestor UID 예외가 certificate/journal/current pointer로 전파되지 않는다.
+      # find는 symlink를 따라가지 않고 같은 filesystem의 실제 소유권만 확인한다.
+      # private key 내용이나 문제 파일 경로는 출력하지 않으며 권한/체인 검증은
+      # 아래 network-none 제품 identity Store가 추가로 수행한다.
+      unexpected_owner=$(sudo -n find "$directory" -xdev \( ! -uid 999 -o ! -gid 999 \) -print -quit 2>/dev/null) || return 1
+      [[ -z $unexpected_owner ]] || return 1
+      printf '%s|%s\n' "$leaf" "$metadata"
+    elif [[ $leaf = mesh ]]; then printf 'mesh|absent\n'; else return 1; fi
+  done
+  mapping="$GATEWAY_BIO_DATA_ROOT/mesh/bio-device-mappings.json"
+  if sudo -n test -e "$mapping" || sudo -n test -L "$mapping"; then
+    metadata=$(plain_metadata "$mapping") || return 1
+    IFS='|' read -r kind mode owner group inode <<< "$metadata"
+    [[ $kind = 'regular file' && $owner = 999 && $group = 999 && $mode = 600 ]] || return 1
+    printf 'mapping|%s\n' "$metadata"
+  else printf 'mapping|absent\n'; fi
+}
+ancestors_before=$(ancestor_snapshot) || fail_gate
 
 # 이 Pi의 고정 container-name/USB 소유권은 data-root가 달라도 공유된다. 따라서
 # root별 lock이 아니라 하나의 host deployment lock을 원자적 mkdir로 잡는다.
@@ -127,16 +170,7 @@ candidate_name_absent() {
   [[ -z $ids ]]
 }
 candidate_name_absent || fail_gate
-for leaf in identity gateway mesh; do
-  directory="$GATEWAY_BIO_DATA_ROOT/$leaf"
-  if sudo -n test -e "$directory" || sudo -n test -L "$directory"; then
-    [[ $(sudo -n realpath -e "$directory" 2>/dev/null) = "$directory" ]] || fail_gate
-    metadata=$(sudo -n stat -c '%F|%a|%u' "$directory" 2>/dev/null) || fail_gate
-    IFS='|' read -r kind mode owner <<< "$metadata"
-    [[ $kind = directory && ( $owner = 0 || $owner = 999 ) ]] || fail_gate
-    (( (8#$mode & 0022) == 0 )) || fail_gate
-  elif [[ $leaf != mesh ]]; then fail_gate; fi
-done
+roots_before=$(runtime_roots_snapshot) || fail_gate
 
 usb_state=$(env -u GATEWAY_BIO_USB_SYSFS_ROOT -u GATEWAY_BIO_USB_DEV_ROOT bash "$ROOT_DIR/scripts/gateway-bio-usb-preflight.sh") || fail_gate
 export GATEWAY_BIO_USB_DEVICE=$(printf '%s\n' "$usb_state" | sed -n 's/^GATEWAY_BIO_USB_DEVICE=//p')
@@ -144,8 +178,14 @@ export GATEWAY_BIO_USB_GID=$(printf '%s\n' "$usb_state" | sed -n 's/^GATEWAY_BIO
 [[ $GATEWAY_BIO_USB_DEVICE =~ ^/dev/bus/usb/[0-9]{3}/[0-9]{3}$ && $GATEWAY_BIO_USB_GID =~ ^[0-9]+$ ]] || fail_gate
 if [[ $1 = check ]]; then echo BIO_RUNTIME_HOST_VALID; exit 0; fi
 
-sudo -n install -d -o 999 -g 999 -m 0750 "$GATEWAY_BIO_DATA_ROOT/identity" || fail_gate
-sudo -n install -d -o 999 -g 999 -m 0700 "$GATEWAY_BIO_DATA_ROOT/gateway" "$GATEWAY_BIO_DATA_ROOT/mesh" || fail_gate
+[[ $(ancestor_snapshot) = "$ancestors_before" && $(runtime_roots_snapshot) = "$roots_before" ]] || fail_gate
+# 기존 identity/gateway는 bootstrap이 이미 UID999와 정확한 mode로 준비했어야
+# 한다. owner가 다르면 chown으로 덮지 않고 거부한다. 오직 없는 새 mesh만 만든다.
+if ! sudo -n test -e "$GATEWAY_BIO_DATA_ROOT/mesh"; then
+  sudo -n mkdir -m 0700 "$GATEWAY_BIO_DATA_ROOT/mesh" || fail_gate
+  sudo -n chown 999:999 "$GATEWAY_BIO_DATA_ROOT/mesh" || fail_gate
+fi
+roots_prepared=$(runtime_roots_snapshot) || fail_gate
 evidence=$(mktemp -d /tmp/gateway-bio-deploy.XXXXXX)
 # 현 image/env/mount/lifecycle은 rollback 판단용 protected evidence다. private key
 # 파일은 복사하지 않는다. old container는 정확한 ID 하나만 stop하고 삭제하지 않는다.
@@ -166,6 +206,9 @@ compose() {
     docker compose --env-file /dev/null -p "led-control-bio-$deployment_id" -f "$COMPOSE_PATH" "$@"
 }
 compose config --format json > "$evidence/compose.json" 2> "$evidence/compose-error.log" || fail_gate
+# 다른 허용 UID로 바뀐 경우도 처음 승인한 inode/owner/mode와 다르면 거부한다.
+# 이 snapshot 비교는 validation 중 parent/leaf 교체를 정상 설치로 수용하지 않는다.
+[[ $(ancestor_snapshot) = "$ancestors_before" && $(runtime_roots_snapshot) = "$roots_prepared" ]] || fail_gate
 candidate_name_absent || fail_gate
 docker_local stop "$old_id" > "$evidence/old-stop.log" 2>&1 || fail_gate
 # up가 API 오류/중단 전에 이미 장비를 시작하는 모호한 창을 없앤다. 먼저 create만
@@ -176,6 +219,7 @@ compose create --no-recreate --no-build --pull never gateway-bio > "$evidence/cr
 capture_candidate || fail_gate
 [[ -n $candidate_id ]] || fail_gate
 printf '%s\n' "$candidate_id" > "$evidence/candidate-id"
+[[ $(ancestor_snapshot) = "$ancestors_before" && $(runtime_roots_snapshot) = "$roots_prepared" ]] || fail_gate
 docker_local start "$candidate_id" > "$evidence/start.log" 2>&1 || { echo BIO_RUNTIME_START_FAILED >&2; exit 1; }
 # start 성공 직후 실제 Node process의 UID/GID999, Cap*0, NoNewPrivs1을 검증한다.
 # invariant가 어긋나면 새 BIO container만 stop한다. image 내부 helper가 없거나
