@@ -3,6 +3,7 @@ import { mqttTopicsV2, provisioningDeviceCommandV2Schema } from "@led-control/sh
 import { Prisma } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { PrismaService } from "../prisma/prisma.service";
+import { lockRegistrationDomain } from "../registration/registration-domain-locks";
 import { MqttService } from "./mqtt.service";
 
 const LEASE_MS = 30_000;
@@ -124,40 +125,56 @@ export class ProvisioningDeviceOutboxPublisherService implements OnModuleInit {
 
   async expirePublishedIdentifies(now = this.clock()) {
     const cutoff = new Date(now.getTime() - IDENTIFY_RESULT_TIMEOUT_MS);
-    return this.prisma.$transaction(async (tx) => {
-      const rows = await tx.$queryRaw<Array<{ id: string; nodeId: string; sessionId: string }>>(Prisma.sql`
-        SELECT outbox."id", outbox."nodeId", outbox."sessionId"
-        FROM "ProvisioningDeviceOutbox" AS outbox
-        INNER JOIN "DiscoveredMeshNode" AS node ON node."id" = outbox."nodeId"
-        INNER JOIN "ProvisioningSession" AS session ON session."id" = outbox."sessionId"
-        WHERE outbox."publishedAt" IS NOT NULL
-          AND outbox."publishedAt" <= ${cutoff}
-          AND outbox."payload"->>'operation' = 'identify'
-          AND NOT EXISTS (
-            SELECT 1
-            FROM "ProvisioningDeviceOutbox" AS newer
-            WHERE newer."sessionId" = outbox."sessionId"
-              AND newer."nodeId" = outbox."nodeId"
-              AND newer."deadLetteredAt" IS NULL
-              AND newer."payload"->>'operation' = 'identify'
-              AND (
-                newer."createdAt" > outbox."createdAt"
-                OR (newer."createdAt" = outbox."createdAt" AND newer."id" > outbox."id")
-              )
-          )
-          AND node."status" = 'identifying'
-          AND node."identifyState" IN ('pending', 'running')
-          AND session."status" = 'active'
-        ORDER BY outbox."publishedAt" ASC
-        FOR UPDATE OF outbox, node SKIP LOCKED
-        LIMIT 50
-      `);
-      for (const row of rows) {
+    // Candidate selection intentionally owns no locks. Each candidate below
+    // gets its own domain transaction, so two workers can never retain one
+    // node while waiting for another candidate in a different order.
+    const rows = await this.prisma.$queryRaw<Array<{ id: string; nodeId: string; sessionId: string; createdAt: Date }>>(Prisma.sql`
+      SELECT outbox."id", outbox."nodeId", outbox."sessionId", outbox."createdAt"
+      FROM "ProvisioningDeviceOutbox" AS outbox
+      INNER JOIN "DiscoveredMeshNode" AS node ON node."id" = outbox."nodeId"
+      INNER JOIN "ProvisioningSession" AS session ON session."id" = outbox."sessionId"
+      WHERE outbox."publishedAt" IS NOT NULL
+        AND outbox."publishedAt" <= ${cutoff}
+        AND outbox."payload"->>'operation' = 'identify'
+        AND NOT EXISTS (
+          SELECT 1
+          FROM "ProvisioningDeviceOutbox" AS newer
+          WHERE newer."sessionId" = outbox."sessionId"
+            AND newer."nodeId" = outbox."nodeId"
+            AND newer."deadLetteredAt" IS NULL
+            AND newer."payload"->>'operation' = 'identify'
+            AND (
+              newer."createdAt" > outbox."createdAt"
+              OR (newer."createdAt" = outbox."createdAt" AND newer."id" > outbox."id")
+            )
+        )
+        AND node."status" = 'identifying'
+        AND node."identifyState" IN ('pending', 'running')
+        AND session."status" = 'active'
+      ORDER BY outbox."publishedAt" ASC
+      LIMIT 50
+    `);
+    for (const row of rows) {
+      await this.prisma.$transaction(async (tx) => {
+        // Candidate discovery holds no row lock. Acquiring Outbox first here
+        // inverted the request/terminal domain order and could deadlock. Each
+        // candidate is now locked Floor -> Gateway -> Session -> Node ->
+        // Outbox, then every mutable predicate is rechecked atomically below.
+        const node = await this.lockCommandDomain(tx, row);
+        if (!node || node.status !== "identifying" || !["pending", "running"].includes(node.identifyState)
+          || node.session.status !== "active") return;
         // MQTT PUBACK only proves broker receipt. A successful BIO identify
         // requires the terminal event emitted after the fixed force-on period
         // and verified sensor-mode restoration, so silence is explicit failure.
         const failed = await tx.discoveredMeshNode.updateMany({
-          where: { id: row.nodeId, sessionId: row.sessionId, status: "identifying", identifyState: { in: ["pending", "running"] } },
+          where: {
+            id: row.nodeId,
+            sessionId: row.sessionId,
+            status: "identifying",
+            identifyState: { in: ["pending", "running"] },
+            session: { status: "active" },
+            ...currentIdentifyCommandGuard(row)
+          },
           data: { status: "discovered", identifyState: "failed", errorMessage: IDENTIFY_TIMEOUT_MESSAGE }
         });
         if (failed.count === 1) {
@@ -166,9 +183,9 @@ export class ProvisioningDeviceOutboxPublisherService implements OnModuleInit {
             data: { lastError: "identify_result_timeout" }
           });
         }
-      }
-      return rows.length;
-    });
+      });
+    }
+    return rows.length;
   }
 
   async publishClaimed(record: {
@@ -204,11 +221,7 @@ export class ProvisioningDeviceOutboxPublisherService implements OnModuleInit {
       }
       const prepared = await this.prisma.$transaction(async (tx) => {
         const checkedAt = this.clock();
-        await tx.$queryRaw`SELECT "id" FROM "DiscoveredMeshNode" WHERE "id" = ${record.nodeId} FOR UPDATE`;
-        const node = await tx.discoveredMeshNode.findUnique({
-          where: { id: record.nodeId },
-          include: { session: { select: { siteId: true, gatewayId: true, status: true } } }
-        });
+        const node = await this.lockCommandDomain(tx, record);
         const current = node
           && (operation === "identify"
             ? node.status === "identifying" && ["pending", "running"].includes(node.identifyState)
@@ -276,7 +289,13 @@ export class ProvisioningDeviceOutboxPublisherService implements OnModuleInit {
       });
       if (operation === "identify" && published.count === 1) {
         await this.prisma.discoveredMeshNode.updateMany({
-          where: { id: record.nodeId, sessionId: record.sessionId, status: "identifying", identifyState: "pending" },
+          where: {
+            id: record.nodeId,
+            sessionId: record.sessionId,
+            status: "identifying",
+            identifyState: "pending",
+            ...currentIdentifyCommandGuard(record)
+          },
           data: { identifyState: "running" }
         });
       }
@@ -349,18 +368,54 @@ export class ProvisioningDeviceOutboxPublisherService implements OnModuleInit {
   }
 
   private async deadLetterTerminal(
-    record: { id: string; sessionId: string; nodeId: string },
+    record: { id: string; sessionId: string; nodeId: string; createdAt: Date },
     terminal: { attempts: number; terminalAt: Date; message: string; operation: "identify" | "provision" }
   ) {
     return this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT "id" FROM "DiscoveredMeshNode" WHERE "id" = ${record.nodeId} FOR UPDATE`;
+      if (!await this.lockCommandDomain(tx, record)) return false;
       return this.deadLetterTerminalInTransaction(tx, record, terminal);
     });
   }
 
+  private async lockCommandDomain(
+    tx: Prisma.TransactionClient,
+    record: { id: string; sessionId: string; nodeId: string }
+  ) {
+    const scope = await tx.discoveredMeshNode.findUnique({
+      where: { id: record.nodeId },
+      include: { session: { select: { id: true, siteId: true, floorId: true, gatewayId: true, status: true } } }
+    });
+    if (!scope || scope.sessionId !== record.sessionId || scope.session.id !== record.sessionId) return null;
+
+    // Global registration-domain lock order. The SKIP LOCKED lease claim is a
+    // separate short transaction, so this worker never holds Outbox while it
+    // waits for request/terminal locks. The lease-token CAS below decides
+    // ownership only after these domain locks are held.
+    await lockRegistrationDomain(tx, {
+      floorId: scope.session.floorId,
+      gatewayId: scope.session.gatewayId,
+      sessionId: record.sessionId,
+      nodeIds: [record.nodeId],
+      outboxIds: [record.id]
+    });
+
+    const current = await tx.discoveredMeshNode.findUnique({
+      where: { id: record.nodeId },
+      include: { session: { select: { id: true, siteId: true, floorId: true, gatewayId: true, status: true } } }
+    });
+    if (
+      !current
+      || current.sessionId !== record.sessionId
+      || current.session.id !== scope.session.id
+      || current.session.floorId !== scope.session.floorId
+      || current.session.gatewayId !== scope.session.gatewayId
+    ) return null;
+    return current;
+  }
+
   private async deadLetterTerminalInTransaction(
     tx: Prisma.TransactionClient,
-    record: { id: string; sessionId: string; nodeId: string },
+    record: { id: string; sessionId: string; nodeId: string; createdAt: Date },
     terminal: { attempts: number; terminalAt: Date; message: string; operation: "identify" | "provision" }
   ) {
     const deadLettered = await tx.provisioningDeviceOutbox.updateMany({
@@ -383,7 +438,13 @@ export class ProvisioningDeviceOutboxPublisherService implements OnModuleInit {
     if (deadLettered.count !== 1) return false;
     if (terminal.operation === "identify") {
       await tx.discoveredMeshNode.updateMany({
-        where: { id: record.nodeId, sessionId: record.sessionId, status: "identifying", session: { status: "active" } },
+        where: {
+          id: record.nodeId,
+          sessionId: record.sessionId,
+          status: "identifying",
+          session: { status: "active" },
+          ...currentIdentifyCommandGuard(record)
+        },
         data: { status: "discovered", identifyState: "failed", errorMessage: PUBLISH_FAILURE_MESSAGE }
       });
     } else {
@@ -399,4 +460,20 @@ export class ProvisioningDeviceOutboxPublisherService implements OnModuleInit {
 function identifyOperation(payload: Prisma.JsonValue): "identify" | "provision" {
   const parsed = provisioningDeviceCommandV2Schema.safeParse(payload);
   return parsed.success && parsed.data.operation === "identify" ? "identify" : "provision";
+}
+
+function currentIdentifyCommandGuard(
+  record: { id: string; createdAt: Date }
+): Prisma.DiscoveredMeshNodeWhereInput {
+  return {
+    deviceOutbox: {
+      none: {
+        payload: { path: ["operation"], equals: "identify" },
+        OR: [
+          { createdAt: { gt: record.createdAt } },
+          { createdAt: record.createdAt, id: { gt: record.id } }
+        ]
+      }
+    }
+  };
 }

@@ -1126,6 +1126,7 @@ export function gatewayDeferredPubackTopics(siteId: string, gatewayId: string) {
   return [
     mqttTopicsV2.gatewayCommand(siteId, gatewayId, "dimming"),
     mqttTopicsV2.gatewayCommand(siteId, gatewayId, "status-check"),
+    mqttTopicsV2.gatewayCommand(siteId, gatewayId, "provisioning/identify-device"),
     mqttTopicsV2.gatewayCommand(siteId, gatewayId, "provisioning/provision-device"),
     mqttTopics.automationConfig(siteId, gatewayId)
   ];

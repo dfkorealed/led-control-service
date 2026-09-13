@@ -58,6 +58,7 @@ it("defers QoS1 PUBACK for commands whose durable journal must commit first", ()
   expect(gatewayDeferredPubackTopics(scopedSiteId, scopedGatewayId)).toEqual([
     `sites/${scopedSiteId}/gateways/${scopedGatewayId}/commands/dimming`,
     `sites/${scopedSiteId}/gateways/${scopedGatewayId}/commands/status-check`,
+    `sites/${scopedSiteId}/gateways/${scopedGatewayId}/commands/provisioning/identify-device`,
     `sites/${scopedSiteId}/gateways/${scopedGatewayId}/commands/provisioning/provision-device`,
     `sites/${scopedSiteId}/gateways/${scopedGatewayId}/commands/automation/config-sync`
   ]);

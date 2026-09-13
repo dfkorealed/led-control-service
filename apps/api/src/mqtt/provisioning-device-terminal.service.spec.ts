@@ -65,6 +65,7 @@ function testContext(options: {
   failDomainWrite?: boolean;
   identify?: boolean;
   latestIdentifyCommandId?: string;
+  sessionStatus?: string;
 } = {}) {
   const event = completed();
   const node = {
@@ -88,7 +89,7 @@ function testContext(options: {
     siteId: SITE_ID,
     floorId: "10000000-0000-4000-8000-000000000009",
     gatewayId: GATEWAY_ID,
-    status: "active"
+    status: options.sessionStatus ?? "active"
   };
   const outbox = {
     id: COMMAND_ID,
@@ -274,9 +275,17 @@ describe("ProvisioningDeviceTerminalService", () => {
         ingestedAt: RECEIVED_AT.toISOString()
       });
 
-    const lockSql = tx.$queryRaw.mock.calls[0][0].strings.join(" ");
-    expect(lockSql).toContain('FROM "ProvisioningDeviceOutbox"');
-    expect(lockSql).toContain("FOR UPDATE");
+    const lockSql = tx.$queryRaw.mock.calls.map(([sql]: any[]) => (
+      Array.isArray(sql) ? sql.join(" ") : sql.strings.join(" ")
+    ));
+    expect(lockSql).toEqual([
+      expect.stringContaining('FROM "Floor"'),
+      expect.stringContaining('FROM "Gateway"'),
+      expect.stringContaining('FROM "ProvisioningSession"'),
+      expect.stringContaining('FROM "DiscoveredMeshNode"'),
+      expect.stringContaining('FROM "ProvisioningDeviceOutbox"')
+    ]);
+    expect(lockSql.every((sql: string) => sql.includes("FOR UPDATE"))).toBe(true);
     expect(node.status).toBe("provisioned");
     expect(meshControlGroups.attachProvisionedNode).toHaveBeenCalledTimes(1);
     expect(tx.processedGatewayEvent.create).toHaveBeenCalledWith({ data: {
@@ -365,6 +374,76 @@ describe("ProvisioningDeviceTerminalService", () => {
     expect(tx.processedGatewayEvent.create).not.toHaveBeenCalled();
     expect(tx.mqttOutbox.create).not.toHaveBeenCalled();
     expect(tx.mqttOutbox.updateMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("replays the durable provision ACK after the node was registered and its mutable address changed", async () => {
+    const event = completed();
+    const acknowledgement = {
+      commandId: COMMAND_ID,
+      sessionId: SESSION_ID,
+      siteId: SITE_ID,
+      gatewayId: GATEWAY_ID,
+      nodeId: NODE_ID,
+      deviceUuid: event.deviceUuid,
+      meshAddress: event.meshAddress,
+      eventId: EVENT_ID,
+      sequence: 41,
+      ingestedAt: "2026-09-12T01:00:00.500Z"
+    };
+    const ledger = {
+      eventId: EVENT_ID,
+      gatewayId: GATEWAY_ID,
+      sequence: 41n,
+      eventType: EVENT_TYPE,
+      payloadHash: independentCanonicalHash(event),
+      occurredAt: new Date(event.occurredAt)
+    };
+    const { service, tx, node } = testContext({
+      eventById: ledger,
+      eventBySequence: ledger,
+      storedAck: {
+        id: "ack-1",
+        gatewayId: GATEWAY_ID,
+        applicationAckKey: ACK_KEY,
+        topic: `sites/${SITE_ID}/gateways/${GATEWAY_ID}/acks/provisioning/device-terminal-ingested`,
+        payload: acknowledgement
+      }
+    });
+    Object.assign(node, { status: "provisioned", meshAddress: "0x0200" });
+
+    await expect(service.ingest({ siteId: SITE_ID, gatewayId: GATEWAY_ID }, event, RECEIVED_AT))
+      .resolves.toEqual(acknowledgement);
+    expect(tx.discoveredMeshNode.update).not.toHaveBeenCalled();
+    expect(tx.meshNode.create).not.toHaveBeenCalled();
+    expect(tx.fixture.create).not.toHaveBeenCalled();
+    expect(tx.mqttOutbox.updateMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("records and acknowledges a late first-seen terminal for a retired session without reviving domain state", async () => {
+    const { service, tx, node, event } = testContext({ sessionStatus: "cancelled" });
+
+    await expect(service.ingest({ siteId: SITE_ID, gatewayId: GATEWAY_ID }, event, RECEIVED_AT))
+      .resolves.toEqual(expect.objectContaining({ commandId: COMMAND_ID, eventId: EVENT_ID }));
+
+    expect(node.status).toBe("provisioning");
+    expect(tx.discoveredMeshNode.update).not.toHaveBeenCalled();
+    expect(tx.meshNode.create).not.toHaveBeenCalled();
+    expect(tx.fixture.create).not.toHaveBeenCalled();
+    expect(tx.processedGatewayEvent.create).toHaveBeenCalledTimes(1);
+    expect(tx.mqttOutbox.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a first-time terminal whose operation does not match the stored command on a registered node", async () => {
+    const { service, tx, node } = testContext();
+    Object.assign(node, { status: "provisioned", meshAddress: "0x0200" });
+
+    await expect(service.ingest(
+      { siteId: SITE_ID, gatewayId: GATEWAY_ID },
+      identifyTerminal(),
+      RECEIVED_AT
+    )).rejects.toThrow("stored command identity conflict");
+    expect(tx.processedGatewayEvent.create).not.toHaveBeenCalled();
+    expect(tx.mqttOutbox.create).not.toHaveBeenCalled();
   });
 
   it.each([

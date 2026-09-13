@@ -209,7 +209,7 @@ describe("RegistrationService", () => {
   });
 
   it("excludes only a reconciliation node while preserving provisioning evidence", async () => {
-    const session = { id: ids.sessionId, siteId: ids.siteId, status: "active" };
+    const session = { ...registrationSession() };
     const node = {
       ...discoveredNode(),
       status: "reconcile_required",
@@ -239,19 +239,23 @@ describe("RegistrationService", () => {
       return { id: ids.siteId };
     });
     prisma.$queryRaw.mockImplementation(async (strings: TemplateStringsArray) => {
-      lockOrder.push(strings.join("").includes("ProvisioningSession") ? "session" : "node");
+      const sql = strings.join("");
+      lockOrder.push(sql.includes('"Floor"') ? "floor"
+        : sql.includes('"Gateway"') ? "gateway"
+          : sql.includes('"ProvisioningSession"') ? "session" : "node");
       return [];
     });
 
     await expect(service.excludeNode(admin, ids.sessionId, ids.nodeId)).resolves.toEqual(updated);
 
     expect(siteAccess.assertCommissionInTransaction).toHaveBeenCalledWith(prisma, admin, ids.siteId);
-    expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);
-    expect(lockOrder).toEqual(["site", "session", "node"]);
-    expect((prisma.$queryRaw.mock.calls[1][0] as TemplateStringsArray).join(" ").replace(/\s+/g, " ")).toContain(
-      'WHERE "id" = AND "sessionId" = FOR UPDATE'
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(4);
+    expect(lockOrder).toEqual(["site", "floor", "gateway", "session", "node"]);
+    expect((prisma.$queryRaw.mock.calls[3][0] as TemplateStringsArray).join(" ").replace(/\s+/g, " ")).toContain(
+      'WHERE "sessionId" = AND "id" IN ( ) ORDER BY "id" FOR UPDATE'
     );
-    expect(prisma.$queryRaw.mock.calls[1].slice(1)).toEqual([ids.nodeId, ids.sessionId]);
+    expect(prisma.$queryRaw.mock.calls[3][1]).toBe(ids.sessionId);
+    expect(prisma.$queryRaw.mock.calls[3][2].values).toEqual([ids.nodeId]);
     expect(prisma.discoveredMeshNode.update).toHaveBeenCalledWith({
       where: { id: ids.nodeId },
       data: { status: "failed", errorMessage: "MQTT connection closed; 현재 세션에서 제외됨" }
@@ -312,7 +316,7 @@ describe("RegistrationService", () => {
   });
 
   it("cancels an empty terminal session and returns its discovered nodes", async () => {
-    const session = { id: ids.sessionId, siteId: ids.siteId, status: "active", scanStatus: "completed" };
+    const session = registrationSession();
     const cancelled = { ...session, status: "cancelled", completedAt: new Date(), discoveredNodes: [] };
     const count = jest.fn().mockResolvedValue(0);
     const { service, prisma, siteAccess } = await createModule({
@@ -331,15 +335,18 @@ describe("RegistrationService", () => {
       lockOrder.push("site");
       return { id: ids.siteId };
     });
-    prisma.$queryRaw.mockImplementation(async () => {
-      lockOrder.push("session");
+    prisma.$queryRaw.mockImplementation(async (strings: TemplateStringsArray) => {
+      const sql = strings.join("");
+      lockOrder.push(sql.includes('"Floor"') ? "floor"
+        : sql.includes('"Gateway"') ? "gateway"
+          : sql.includes('"ProvisioningSession"') ? "session" : "nodes");
       return [];
     });
 
     await expect(service.cancelSession(admin, ids.sessionId)).resolves.toEqual(cancelled);
 
     expect(siteAccess.assertCommissionInTransaction).toHaveBeenCalledWith(prisma, admin, ids.siteId);
-    expect(lockOrder).toEqual(["site", "session"]);
+    expect(lockOrder).toEqual(["site", "floor", "gateway", "session", "nodes"]);
     expect(count).toHaveBeenCalledWith({
       where: { sessionId: ids.sessionId, status: { in: ["provisioning", "reconcile_required", "provisioned"] } }
     });
@@ -636,7 +643,11 @@ describe("RegistrationService", () => {
     const node = discoveredNode();
     const { service, prisma } = await createModule({
       provisioningSession: { findUnique: jest.fn().mockResolvedValue({ ...session, floor: { ...session.floor, floorPlan: { width: 1, height: 1 } } }) },
-      discoveredMeshNode: { findMany: jest.fn().mockResolvedValue([node]), update: jest.fn().mockResolvedValue(node) }
+      discoveredMeshNode: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        findMany: jest.fn().mockResolvedValue([node]),
+        update: jest.fn().mockResolvedValue(node)
+      }
     });
     const result = await service.registerBatch(admin, ids.sessionId, {
       mode: "batch", defaults: { namePrefix: "L", startNumber: 1, digits: 3, ratedWatt: "40", size: 20 },
@@ -811,6 +822,27 @@ describe("RegistrationService", () => {
     });
     expect(prisma.provisioningDeviceOutbox.create).toHaveBeenCalledTimes(1);
     expect(mqtt.publishProvisionDevice).not.toHaveBeenCalled();
+  });
+
+  it("rejects batch registration while any identify operation is in flight", async () => {
+    const session = registrationSession();
+    const { service, prisma, allocation } = await createModule({
+      provisioningSession: { create: jest.fn(), findUnique: jest.fn().mockResolvedValue(session), update: jest.fn() },
+      discoveredMeshNode: {
+        findFirst: jest.fn().mockResolvedValue({ id: ids.nodeId, status: "identifying" }),
+        findMany: jest.fn(),
+        findUnique: jest.fn(),
+        count: jest.fn(),
+        update: jest.fn(),
+        updateMany: jest.fn()
+      }
+    });
+
+    await expect(service.registerBatch(admin, ids.sessionId, registrationBatchInput())).rejects.toEqual(
+      new ConflictException({ code: "registration_identify_in_progress" })
+    );
+    expect(allocation.reserveMeshAddresses).not.toHaveBeenCalled();
+    expect(prisma.provisioningDeviceOutbox.create).not.toHaveBeenCalled();
   });
 
   it("rejects a customer admin from starting provisioning", async () => {
@@ -1010,6 +1042,22 @@ describe("RegistrationService", () => {
     expect(prisma.provisioningScanOutbox.create).not.toHaveBeenCalled();
   });
 
+  it("rejects scan retry while identify is in flight", async () => {
+    const session = { ...registrationSession(), scanAttempt: 1 };
+    const { service, prisma } = await createModule({
+      provisioningSession: { create: jest.fn(), findUnique: jest.fn().mockResolvedValue(session), update: jest.fn() },
+      discoveredMeshNode: {
+        findFirst: jest.fn().mockResolvedValue({ id: ids.nodeId, status: "identifying" }),
+        findMany: jest.fn(), findUnique: jest.fn(), count: jest.fn(), update: jest.fn(), updateMany: jest.fn()
+      }
+    });
+
+    await expect(service.retryScan(admin, ids.sessionId)).rejects.toEqual(
+      new ConflictException({ code: "registration_identify_in_progress" })
+    );
+    expect(prisma.provisioningScanOutbox.create).not.toHaveBeenCalled();
+  });
+
   it("maps a new session partial unique conflict to gateway_scan_in_progress", async () => {
     const { service } = await createModule({
       provisioningSession: {
@@ -1106,8 +1154,8 @@ describe("RegistrationService", () => {
       rssi: -54,
       oobCapability: "static-oob",
       firmwareVersion: "mock-node-0.1.0",
-      status: "identifying",
-      identifyState: "blinking",
+      status: "discovered",
+      identifyState: "confirmed",
       scanCorrelationId: currentScanCorrelationId,
       scanAttempt: 2,
       meshAddress: null,
@@ -1257,6 +1305,26 @@ describe("RegistrationService", () => {
     expect(count).toHaveBeenCalledWith({
       where: { sessionId: ids.sessionId, status: { in: ["provisioning", "reconcile_required"] } }
     });
+    expect(prisma.provisioningSession.update).not.toHaveBeenCalled();
+  });
+
+  it.each(["complete", "cancel"] as const)("rejects %s while identify is in flight", async (action) => {
+    const session = { ...registrationSession(), scanStatus: "completed" as const };
+    const { service, prisma } = await createModule({
+      provisioningSession: {
+        create: jest.fn(), findUnique: jest.fn().mockResolvedValue(session), findMany: jest.fn(),
+        update: jest.fn(), updateMany: jest.fn()
+      },
+      discoveredMeshNode: {
+        findFirst: jest.fn().mockResolvedValue({ id: ids.nodeId, status: "identifying" }),
+        findMany: jest.fn(), findUnique: jest.fn(), count: jest.fn(), update: jest.fn(), updateMany: jest.fn()
+      }
+    });
+
+    const result = action === "complete"
+      ? service.completeSession(admin, ids.sessionId)
+      : service.cancelSession(admin, ids.sessionId);
+    await expect(result).rejects.toEqual(new ConflictException({ code: "registration_identify_in_progress" }));
     expect(prisma.provisioningSession.update).not.toHaveBeenCalled();
   });
 

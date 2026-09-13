@@ -12,6 +12,7 @@ import { canonicalPayloadHash } from "../automation/automation-payload-hash";
 import { EnergyDimensionHistoryService } from "../energy/energy-dimension-history.service";
 import { MeshControlGroupService } from "../mesh-control-groups/mesh-control-group.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { lockRegistrationDomain } from "../registration/registration-domain-locks";
 
 export const PROVISIONING_DEVICE_TERMINAL_EVENT_TYPE = "provisioning_device_terminal";
 
@@ -100,7 +101,12 @@ export class ProvisioningDeviceTerminalService {
           select: { siteId: true, floorId: true, gatewayId: true }
         });
         if (!sessionScope || sessionScope.siteId !== scope.siteId || sessionScope.gatewayId !== scope.gatewayId) return;
-        await this.lockLegacyRows(tx, sessionScope, event.sessionId, event.nodeId);
+        await lockRegistrationDomain(tx, {
+          floorId: sessionScope.floorId,
+          gatewayId: sessionScope.gatewayId,
+          sessionId: event.sessionId,
+          nodeIds: [event.nodeId]
+        });
         const session = await tx.provisioningSession.findUnique({ where: { id: event.sessionId } });
         if (!session || session.status !== "active" || session.siteId !== scope.siteId || session.gatewayId !== scope.gatewayId) {
           return;
@@ -134,7 +140,7 @@ export class ProvisioningDeviceTerminalService {
     receivedAt: Date
   ) {
     const command = await this.lockStoredCommand(tx, event.commandId);
-    if (!command || !storedCommandMatches(command, event)) {
+    if (!command || !storedCommandEnvelopeMatches(command, event)) {
       throw new Error("provisioning device terminal stored command identity conflict");
     }
     if (command.session.siteId !== scope.siteId || command.session.gatewayId !== scope.gatewayId) {
@@ -162,8 +168,22 @@ export class ProvisioningDeviceTerminalService {
     }
 
     if (command.session.status !== "active") {
-      throw new Error("provisioning device terminal session rejected");
+      // A lifecycle request cannot normally retire an active identify because
+      // both paths lock the session/node in the canonical order. Older
+      // deployments may nevertheless have a command in flight. Drain that
+      // exact durable command by recording its immutable terminal and ACK, but
+      // never revive or otherwise mutate the retired session's domain graph.
+      await this.persistTerminalLedger(tx, event, payloadHash, receivedAt);
+      return this.persistAcknowledgement(tx, event, receivedAt);
     }
+
+    // Durable replay is decided above from immutable command/event identity.
+    // Only a first-seen terminal may depend on mutable node state: successful
+    // provisioning can assign an address before a Gateway retries the event.
+    if (!storedCommandCurrentNodeMatches(command, event)) {
+      throw new Error("provisioning device terminal current node identity conflict");
+    }
+
     if (event.operation === "identify") {
       const latestIdentify = await tx.provisioningDeviceOutbox.findFirst({
         where: {
@@ -198,6 +218,16 @@ export class ProvisioningDeviceTerminalService {
       await this.markUnknownTerminal(tx, command, event.errorMessage);
     }
 
+    await this.persistTerminalLedger(tx, event, payloadHash, receivedAt);
+    return this.persistAcknowledgement(tx, event, receivedAt);
+  }
+
+  private async persistTerminalLedger(
+    tx: Prisma.TransactionClient,
+    event: ProvisioningDeviceTerminalV2,
+    payloadHash: string,
+    receivedAt: Date
+  ) {
     await tx.processedGatewayEvent.create({
       data: {
         eventId: event.eventId,
@@ -209,23 +239,43 @@ export class ProvisioningDeviceTerminalService {
         receivedAt
       }
     });
-    return this.persistAcknowledgement(tx, event, receivedAt);
   }
 
   private async lockStoredCommand(tx: Prisma.TransactionClient, commandId: string) {
-    const locked = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-      SELECT outbox."id"
-      FROM "ProvisioningDeviceOutbox" AS outbox
-      INNER JOIN "ProvisioningSession" AS session ON session."id" = outbox."sessionId"
-      INNER JOIN "DiscoveredMeshNode" AS node ON node."id" = outbox."nodeId"
-      WHERE outbox."id" = ${commandId}
-      FOR UPDATE OF outbox, session, node
-    `);
-    if (locked.length !== 1) return null;
-    return tx.provisioningDeviceOutbox.findUnique({
+    const scope = await tx.provisioningDeviceOutbox.findUnique({
+      where: { id: commandId },
+      select: {
+        id: true,
+        sessionId: true,
+        nodeId: true,
+        session: { select: { floorId: true, gatewayId: true } }
+      }
+    });
+    if (!scope) return null;
+
+    // All registration-domain writers use this order. Identifiers are read
+    // optimistically, then every relationship is revalidated after acquiring
+    // Floor -> Gateway -> Session -> Node -> Outbox locks. This avoids the old
+    // join lock whose executor-selected order could invert request/worker code.
+    await lockRegistrationDomain(tx, {
+      floorId: scope.session.floorId,
+      gatewayId: scope.session.gatewayId,
+      sessionId: scope.sessionId,
+      nodeIds: [scope.nodeId],
+      outboxIds: [commandId]
+    });
+    const command = await tx.provisioningDeviceOutbox.findUnique({
       where: { id: commandId },
       include: { session: true, node: true }
-    }) as Promise<LockedCommand | null>;
+    }) as LockedCommand | null;
+    if (
+      !command
+      || command.sessionId !== scope.sessionId
+      || command.nodeId !== scope.nodeId
+      || command.session.floorId !== scope.session.floorId
+      || command.session.gatewayId !== scope.session.gatewayId
+    ) return null;
+    return command;
   }
 
   private async persistAcknowledgement(
@@ -447,19 +497,6 @@ export class ProvisioningDeviceTerminalService {
     });
   }
 
-  private lockLegacyRows(
-    tx: Prisma.TransactionClient,
-    scope: { siteId: string; floorId: string },
-    sessionId: string,
-    nodeId: string
-  ) {
-    return Promise.all([
-      tx.$queryRaw`SELECT "id" FROM "Floor" WHERE "id" = ${scope.floorId} AND "siteId" = ${scope.siteId} FOR UPDATE`,
-      tx.$queryRaw`SELECT "id" FROM "ProvisioningSession" WHERE "id" = ${sessionId} FOR UPDATE`,
-      tx.$queryRaw`SELECT "id" FROM "DiscoveredMeshNode" WHERE "id" = ${nodeId} AND "sessionId" = ${sessionId} FOR UPDATE`
-    ]);
-  }
-
   private markLegacyDeviceUuidConflict(scope: GatewayScope, event: LegacyCompletedEvent) {
     return this.prisma.discoveredMeshNode.updateMany({
       where: {
@@ -474,7 +511,7 @@ export class ProvisioningDeviceTerminalService {
   }
 }
 
-function storedCommandMatches(command: LockedCommand, event: ProvisioningDeviceTerminalV2) {
+function storedCommandEnvelopeMatches(command: LockedCommand, event: ProvisioningDeviceTerminalV2) {
   const stored = provisioningDeviceCommandV2Schema.safeParse(command.payload);
   if (!stored.success) return false;
   const operation = operationOf(event);
@@ -489,10 +526,15 @@ function storedCommandMatches(command: LockedCommand, event: ProvisioningDeviceT
     stored.data.gatewayId === event.gatewayId && stored.data.nodeId === event.nodeId &&
     stored.data.deviceUuid === event.deviceUuid && operationOf(stored.data) === operation &&
     meshAddressOf(stored.data) === meshAddressOf(event) &&
-    command.node.id === event.nodeId && command.node.sessionId === event.sessionId &&
-    command.node.deviceUuid === event.deviceUuid &&
-    (operation === "identify" ? command.node.meshAddress === null : command.node.meshAddress === meshAddressOf(event)) &&
     command.session.id === event.sessionId;
+}
+
+function storedCommandCurrentNodeMatches(command: LockedCommand, event: ProvisioningDeviceTerminalV2) {
+  return command.node.id === event.nodeId && command.node.sessionId === event.sessionId &&
+    command.node.deviceUuid === event.deviceUuid &&
+    (event.operation === "identify"
+      ? command.node.meshAddress === null
+      : command.node.meshAddress === event.meshAddress);
 }
 
 function distinctLedgers(first: ProcessedGatewayEvent | null, second: ProcessedGatewayEvent | null) {

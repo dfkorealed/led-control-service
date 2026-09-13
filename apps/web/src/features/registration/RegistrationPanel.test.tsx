@@ -13,7 +13,12 @@ import {
   retryRegistrationScan
 } from "../../api/registration";
 import { mockDashboard, mockRegistrationSession } from "../../test/fixtures";
-import { RegistrationPanel, registrationSteps, shouldPollRegistrationSession } from "./RegistrationPanel";
+import {
+  RegistrationPanel,
+  mergeRegistrationNodeProgress,
+  registrationSteps,
+  shouldPollRegistrationSession
+} from "./RegistrationPanel";
 
 vi.mock("../../api/registration", async (importOriginal) => ({
   ...await importOriginal<typeof import("../../api/registration")>(),
@@ -623,6 +628,41 @@ describe("RegistrationPanel", () => {
     await waitFor(() => expect(identifyNodeMock).toHaveBeenCalledWith(discovered.id, identifyingNode.id));
     expect(screen.getByRole("button", { name: "조명 1 식별 중" })).toBeDisabled();
     expect(shouldPollRegistrationSession(discovered, [identifyingNode])).toBe(true);
+  });
+
+  it.each([
+    ["confirmed", null, "식별 완료"],
+    ["failed", "sensor mode restore timeout", "sensor mode restore 시간 초과"]
+  ] as const)("accepted 식별이 remote %s에 도달하면 polling을 끝내고 결과를 표시한다", async (identifyState, errorMessage, expected) => {
+    const discovered = completedSession(mockRegistrationSession.discoveredNodes.slice(0, 1));
+    const acceptedNode = { ...discovered.discoveredNodes[0], status: "identifying" as const, identifyState: "pending" };
+    const terminalNode = { ...discovered.discoveredNodes[0], status: "discovered" as const, identifyState, errorMessage };
+    const terminal = completedSession([terminalNode]);
+    activeSessionsMock.mockResolvedValue([discovered]);
+    getSessionMock.mockResolvedValueOnce(discovered).mockResolvedValue(terminal);
+    identifyNodeMock.mockResolvedValue({ status: "accepted", operationId: "op-1", node: acceptedNode });
+    const queryClient = renderPanel();
+
+    fireEvent.click(await screen.findByRole("button", { name: "조명 1 식별" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "조명 1 식별 중" })).toBeDisabled());
+    await queryClient.fetchQuery({
+      queryKey: ["registration-session", discovered.id],
+      queryFn: () => getSessionMock(discovered.id)
+    });
+
+    expect(await screen.findByText(expected)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "조명 1 식별" })).toBeEnabled();
+    expect(shouldPollRegistrationSession(terminal, [acceptedNode])).toBe(false);
+  });
+
+  it("terminal identify를 stale identifying poll보다 우선하고 provision 상태는 낮추지 않는다", () => {
+    const base = mockRegistrationSession.discoveredNodes[0];
+    const confirmed = { ...base, status: "discovered" as const, identifyState: "confirmed", errorMessage: null };
+    const stale = { ...base, status: "identifying" as const, identifyState: "running" };
+    const provisioned = { ...base, status: "provisioned" as const, identifyState: "confirmed" };
+
+    expect(mergeRegistrationNodeProgress(confirmed, stale)).toEqual(confirmed);
+    expect(mergeRegistrationNodeProgress(provisioned, confirmed)).toEqual(provisioned);
   });
 });
 

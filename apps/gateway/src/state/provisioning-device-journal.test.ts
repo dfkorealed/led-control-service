@@ -100,6 +100,27 @@ describe("ProvisioningDeviceJournal", () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
+  it("does not acknowledge an identify delivery when its durable accept fsync fails", async () => {
+    const { meshAddress: _meshAddress, ...common } = command;
+    const identify: ProvisioningDeviceCommandV2 = { ...common, operation: "identify" };
+    const journal = new ProvisioningDeviceJournal(await journalPath(), {
+      write: vi.fn().mockRejectedValue(new Error("disk full"))
+    });
+    const execute = vi.fn();
+    const onDurableAccept = vi.fn();
+
+    await expect(handleDurableProvisioningDevice({
+      journal,
+      command: identify,
+      execute,
+      nextEnvelope: async () => envelope,
+      onDurableAccept
+    })).rejects.toThrow("disk full");
+
+    expect(onDurableAccept).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it("converges an accepted-only restart to one outcome-unknown terminal without repeating RF", async () => {
     const path = await journalPath();
     await new ProvisioningDeviceJournal(path).accept(command);

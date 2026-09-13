@@ -1992,17 +1992,21 @@ describe("MqttService", () => {
         firmwareVersion: "esp32h2-0.1.0"
       }
     });
-    expect(prisma.$queryRaw).toHaveBeenCalledTimes(3);
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(4);
     expect((prisma.$queryRaw.mock.calls[0][0] as TemplateStringsArray).join(" ").replace(/\s+/g, " ")).toContain(
-      'FROM "Floor" WHERE "id" = AND "siteId" = FOR UPDATE'
+      'FROM "Floor" WHERE "id" = FOR UPDATE'
     );
     expect((prisma.$queryRaw.mock.calls[1][0] as TemplateStringsArray).join(" ").replace(/\s+/g, " ")).toContain(
-      'FROM "ProvisioningSession" WHERE "id" = FOR UPDATE'
+      'FROM "Gateway" WHERE "id" = FOR UPDATE'
     );
     expect((prisma.$queryRaw.mock.calls[2][0] as TemplateStringsArray).join(" ").replace(/\s+/g, " ")).toContain(
-      'FROM "DiscoveredMeshNode" WHERE "id" = AND "sessionId" = FOR UPDATE'
+      'FROM "ProvisioningSession" WHERE "id" = FOR UPDATE'
     );
-    expect(prisma.$queryRaw.mock.calls[2].slice(1)).toEqual([node.id, node.sessionId]);
+    expect((prisma.$queryRaw.mock.calls[3][0] as TemplateStringsArray).join(" ").replace(/\s+/g, " ")).toContain(
+      'FROM "DiscoveredMeshNode" WHERE "sessionId" = AND "id" IN ( ) ORDER BY "id" FOR UPDATE'
+    );
+    expect(prisma.$queryRaw.mock.calls[3][1]).toBe(node.sessionId);
+    expect(prisma.$queryRaw.mock.calls[3][2].values).toEqual([node.id]);
     expect(prisma.fixture.create).toHaveBeenCalledWith({
       data: {
         id: "22222222-2222-4222-8222-222222222222",
@@ -2392,7 +2396,7 @@ describe("MqttService", () => {
       }
     );
 
-    expect(prisma.$queryRaw).toHaveBeenCalledTimes(3);
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(4);
     expect(prisma.meshNode.findUnique).not.toHaveBeenCalled();
     expect(prisma.meshNode.create).not.toHaveBeenCalled();
     expect(prisma.fixture.create).not.toHaveBeenCalled();

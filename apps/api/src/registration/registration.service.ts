@@ -15,6 +15,7 @@ import { MeshControlGroupService } from "../mesh-control-groups/mesh-control-gro
 import { MqttService } from "../mqtt/mqtt.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { RegistrationAllocationService } from "./registration-allocation.service";
+import { lockRegistrationDomain } from "./registration-domain-locks";
 
 interface RegisterNodeInput {
   fixtureName: string;
@@ -129,20 +130,14 @@ export class RegistrationService {
 
     return this.prisma.$transaction(async (tx) => {
       await this.siteAccess.assertCommissionInTransaction(tx, user, accessSession.siteId);
-      await this.assertActiveFloorInTransaction(tx, accessSession.siteId, accessSession.floorId);
-      await this.lockGateway(tx, accessSession.gatewayId);
+      await lockRegistrationDomain(tx, { ...accessSession, sessionId, nodeIds: [nodeId] });
+      await this.assertActiveFloorStateInTransaction(tx, accessSession.siteId, accessSession.floorId);
       const gateway = await tx.gateway.findFirst({ where: {
         id: accessSession.gatewayId,
         siteId: accessSession.siteId,
         lastHeartbeatAt: { gte: gatewayHeartbeatFreshSince(new Date()) }
       } });
       if (!gateway) throw new ConflictException({ code: "registration_gateway_offline" });
-      await tx.$queryRaw`SELECT "id" FROM "ProvisioningSession" WHERE "id" = ${sessionId} FOR UPDATE`;
-      await tx.$queryRaw`
-        SELECT "id" FROM "DiscoveredMeshNode"
-        WHERE "id" = ${nodeId} AND "sessionId" = ${sessionId}
-        FOR UPDATE
-      `;
       const session = await tx.provisioningSession.findUnique({ where: { id: sessionId } });
       if (
         !session
@@ -216,15 +211,15 @@ export class RegistrationService {
     try {
       const session = await this.prisma.$transaction(async (tx) => {
         await this.siteAccess.assertCommissionInTransaction(tx, user, accessSession.siteId);
-        await this.assertActiveFloorInTransaction(tx, accessSession.siteId, accessSession.floorId);
-        await this.lockGateway(tx, accessSession.gatewayId);
-        await tx.$queryRaw`SELECT "id" FROM "ProvisioningSession" WHERE "id" = ${sessionId} FOR UPDATE`;
+        await lockRegistrationDomain(tx, { ...accessSession, sessionId, allSessionNodes: true });
+        await this.assertActiveFloorStateInTransaction(tx, accessSession.siteId, accessSession.floorId);
         const current = await tx.provisioningSession.findUnique({ where: { id: sessionId } });
-        if (!current) throw new NotFoundException("registration session not found");
+        this.assertSessionScope(current, accessSession);
         this.assertActiveSession(current.status);
         if (current.scanStatus !== "completed" && current.scanStatus !== "failed") {
           throw new ConflictException({ code: "scan_retry_requires_terminal_scan" });
         }
+        await this.assertNoIdentifyInFlight(tx, sessionId);
         const unresolvedNodeCount = await tx.discoveredMeshNode.count({
           where: {
             sessionId,
@@ -298,28 +293,20 @@ export class RegistrationService {
     // accepted는 이 DB commit만 뜻하며 MQTT PUBACK, 물리 provisioning, Fixture 확정을 뜻하지 않는다.
     const prepared = await this.prisma.$transaction(async (tx) => {
       await this.siteAccess.assertCommissionInTransaction(tx, user, accessSession.siteId);
-      await this.assertActiveFloorInTransaction(tx, accessSession.siteId, accessSession.floorId);
-      await this.lockGateway(tx, accessSession.gatewayId);
-      await tx.$queryRaw`
-        SELECT "id" FROM "ProvisioningSession" WHERE "id" = ${sessionId} FOR UPDATE
-      `;
+      await lockRegistrationDomain(tx, { ...accessSession, sessionId, allSessionNodes: true });
+      await this.assertActiveFloorStateInTransaction(tx, accessSession.siteId, accessSession.floorId);
       const session = await tx.provisioningSession.findUnique({
         where: { id: sessionId },
         include: { floor: { include: { floorPlan: true } } }
       });
-      if (!session) throw new NotFoundException("registration session not found");
+      this.assertSessionScope(session, accessSession);
       this.assertActiveSession(session.status);
       if (session.scanStatus !== "completed") {
         throw new ConflictException({ code: "registration_scan_not_completed" });
       }
-      await this.meshControlGroups.ensureFloorGroup(tx, session.gatewayId, session.floorId);
-
       const nodeIds = input.nodes.map((node) => node.nodeId).sort();
-      await tx.$queryRaw`
-        SELECT "id" FROM "DiscoveredMeshNode"
-        WHERE "sessionId" = ${sessionId} AND "id" IN (${Prisma.join(nodeIds)})
-        ORDER BY "id" FOR UPDATE
-      `;
+      await this.assertNoIdentifyInFlight(tx, sessionId);
+      await this.meshControlGroups.ensureFloorGroup(tx, session.gatewayId, session.floorId);
       const nodes = await tx.discoveredMeshNode.findMany({
         where: { sessionId, id: { in: nodeIds } }
       });
@@ -340,7 +327,7 @@ export class RegistrationService {
           failures.set(requested.nodeId, "discovered node not found");
           continue;
         }
-        if (node.status !== "discovered" && node.status !== "identifying") {
+        if (node.status !== "discovered") {
           failures.set(requested.nodeId, "discovered node is not available for registration");
           continue;
         }
@@ -455,25 +442,19 @@ export class RegistrationService {
   async excludeNode(user: AuthenticatedUser, sessionId: string, nodeId: string) {
     const accessSession = await this.prisma.provisioningSession.findUnique({
       where: { id: sessionId },
-      select: { siteId: true }
+      select: { siteId: true, floorId: true, gatewayId: true }
     });
     if (!accessSession) throw new NotFoundException("registration session not found");
     await this.assertCommissionAccess(user, accessSession.siteId);
 
     return this.prisma.$transaction(async (tx) => {
       await this.siteAccess.assertCommissionInTransaction(tx, user, accessSession.siteId);
-      await tx.$queryRaw`SELECT "id" FROM "ProvisioningSession" WHERE "id" = ${sessionId} FOR UPDATE`;
+      await lockRegistrationDomain(tx, { ...accessSession, sessionId, nodeIds: [nodeId] });
+      await this.assertActiveFloorStateInTransaction(tx, accessSession.siteId, accessSession.floorId);
       const session = await tx.provisioningSession.findUnique({ where: { id: sessionId } });
-      if (!session || session.siteId !== accessSession.siteId) {
-        throw new NotFoundException("registration session not found");
-      }
+      this.assertSessionScope(session, accessSession);
       this.assertActiveSession(session.status);
 
-      await tx.$queryRaw`
-        SELECT "id" FROM "DiscoveredMeshNode"
-        WHERE "id" = ${nodeId} AND "sessionId" = ${sessionId}
-        FOR UPDATE
-      `;
       const node = await tx.discoveredMeshNode.findFirst({ where: { id: nodeId, sessionId } });
       if (!node) throw new NotFoundException("discovered node not found");
       if (node.status !== "reconcile_required") {
@@ -492,18 +473,23 @@ export class RegistrationService {
   }
 
   async completeSession(user: AuthenticatedUser, sessionId: string) {
-    const accessSession = await this.prisma.provisioningSession.findUnique({ where: { id: sessionId }, select: { siteId: true } });
+    const accessSession = await this.prisma.provisioningSession.findUnique({
+      where: { id: sessionId },
+      select: { siteId: true, floorId: true, gatewayId: true }
+    });
     if (!accessSession) throw new NotFoundException("registration session not found");
     await this.assertCommissionAccess(user, accessSession.siteId);
     const completed = await this.prisma.$transaction(async (tx) => {
       await this.siteAccess.assertCommissionInTransaction(tx, user, accessSession.siteId);
-      await tx.$queryRaw`SELECT "id" FROM "ProvisioningSession" WHERE "id" = ${sessionId} FOR UPDATE`;
+      await lockRegistrationDomain(tx, { ...accessSession, sessionId, allSessionNodes: true });
+      await this.assertActiveFloorStateInTransaction(tx, accessSession.siteId, accessSession.floorId);
       const session = await tx.provisioningSession.findUnique({ where: { id: sessionId } });
-      if (!session) throw new NotFoundException("registration session not found");
+      this.assertSessionScope(session, accessSession);
       this.assertActiveSession(session.status);
       if (session.scanStatus !== "completed" && session.scanStatus !== "failed") {
         throw new ConflictException({ code: "scan_session_not_terminal" });
       }
+      await this.assertNoIdentifyInFlight(tx, sessionId);
       const unresolvedNodeCount = await tx.discoveredMeshNode.count({
         where: {
           sessionId,
@@ -531,22 +517,22 @@ export class RegistrationService {
   async cancelSession(user: AuthenticatedUser, sessionId: string) {
     const accessSession = await this.prisma.provisioningSession.findUnique({
       where: { id: sessionId },
-      select: { siteId: true }
+      select: { siteId: true, floorId: true, gatewayId: true }
     });
     if (!accessSession) throw new NotFoundException("registration session not found");
     await this.assertCommissionAccess(user, accessSession.siteId);
 
     const cancelled = await this.prisma.$transaction(async (tx) => {
       await this.siteAccess.assertCommissionInTransaction(tx, user, accessSession.siteId);
-      await tx.$queryRaw`SELECT "id" FROM "ProvisioningSession" WHERE "id" = ${sessionId} FOR UPDATE`;
+      await lockRegistrationDomain(tx, { ...accessSession, sessionId, allSessionNodes: true });
+      await this.assertActiveFloorStateInTransaction(tx, accessSession.siteId, accessSession.floorId);
       const session = await tx.provisioningSession.findUnique({ where: { id: sessionId } });
-      if (!session || session.siteId !== accessSession.siteId) {
-        throw new NotFoundException("registration session not found");
-      }
+      this.assertSessionScope(session, accessSession);
       this.assertActiveSession(session.status);
       if (session.scanStatus !== "completed" && session.scanStatus !== "failed") {
         throw new ConflictException({ code: "scan_session_not_terminal" });
       }
+      await this.assertNoIdentifyInFlight(tx, sessionId);
 
       const blockingNodeCount = await tx.discoveredMeshNode.count({
         where: {
@@ -571,8 +557,28 @@ export class RegistrationService {
     if (status !== "active") throw new BadRequestException("registration session is not active");
   }
 
+  private assertSessionScope(
+    session: { siteId: string; floorId: string; gatewayId: string } | null,
+    expected: { siteId: string; floorId: string; gatewayId: string }
+  ): asserts session is { siteId: string; floorId: string; gatewayId: string } {
+    if (
+      !session
+      || session.siteId !== expected.siteId
+      || session.floorId !== expected.floorId
+      || session.gatewayId !== expected.gatewayId
+    ) throw new NotFoundException("registration session not found");
+  }
+
   private async lockGateway(tx: Prisma.TransactionClient, gatewayId: string) {
     await tx.$queryRaw`SELECT "id" FROM "Gateway" WHERE "id" = ${gatewayId} FOR UPDATE`;
+  }
+
+  private async assertNoIdentifyInFlight(tx: Prisma.TransactionClient, sessionId: string) {
+    const identifying = await tx.discoveredMeshNode.findFirst({
+      where: { sessionId, status: "identifying" },
+      select: { id: true }
+    });
+    if (identifying) throw new ConflictException({ code: "registration_identify_in_progress" });
   }
 
   private async assertActiveFloorInTransaction(
@@ -585,6 +591,14 @@ export class RegistrationService {
       WHERE "id" = ${floorId} AND "siteId" = ${siteId}
       FOR UPDATE
     `;
+    await this.assertActiveFloorStateInTransaction(tx, siteId, floorId);
+  }
+
+  private async assertActiveFloorStateInTransaction(
+    tx: Prisma.TransactionClient,
+    siteId: string,
+    floorId: string
+  ) {
     const floor = await tx.floor.findFirst({
       where: { id: floorId, siteId },
       select: { status: true }
