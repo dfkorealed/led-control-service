@@ -541,7 +541,7 @@ git commit -m "feat(web): brand browser metadata as kinda"
 - Consumes: Task 2의 `KindaLogo`.
 - Produces: 접근성 영역 `킨다 소개`, 로그인 제목 `킨다 로그인`, HTML 텍스트 기반 기본 로고.
 
-- [ ] **Step 1: 로그인 브랜드 실패 테스트를 먼저 추가한다.**
+- [x] **Step 1: 로그인 브랜드 실패 테스트를 먼저 추가한다.**
 
 `AuthView.test.tsx`의 Testing Library import에 `within`을 추가하고 다음 case를 넣는다.
 
@@ -555,13 +555,13 @@ it("킨다 브랜드와 한글 로그인 제목을 표시한다", () => {
 });
 ```
 
-- [ ] **Step 2: 로그인 테스트가 기존 표기로 실패하는지 확인한다.**
+- [x] **Step 2: 로그인 테스트가 기존 표기로 실패하는지 확인한다.**
 
 Run: `pnpm --filter @led-control/web test -- src/features/auth/AuthView.test.tsx`
 
 Expected: `킨다 소개` 영역 또는 `킨다 로그인` 제목을 찾지 못해 실패한다.
 
-- [ ] **Step 3: `AuthView`의 브랜드 영역과 제목만 교체한다.**
+- [x] **Step 3: `AuthView`의 브랜드 영역과 제목만 교체한다.**
 
 상단 import에 다음을 추가한다.
 
@@ -583,7 +583,7 @@ import { KindaLogo } from "../../components/brand/KindaLogo";
 <h2>킨다 로그인</h2>
 ```
 
-- [ ] **Step 4: App 인증·복구 테스트의 사용자 노출 제목을 정확히 수렴한다.**
+- [x] **Step 4: App 인증·복구 테스트의 사용자 노출 제목을 정확히 수렴한다.**
 
 `App.test.tsx`와 `App.recovery.test.tsx`의 모든 role 기반 제목 기대에서 문자열만 다음처럼 교체한다. 인증 흐름, 부정 assertion, 비동기 대기 방식은 바꾸지 않는다.
 
@@ -593,13 +593,13 @@ await screen.findByRole("heading", { name: "킨다 로그인" });
 screen.queryByRole("heading", { name: "킨다 로그인" });
 ```
 
-- [ ] **Step 5: 로그인 focused 회귀를 통과시킨다.**
+- [x] **Step 5: 로그인 focused 회귀를 통과시킨다.**
 
 Run: `pnpm --filter @led-control/web test -- src/features/auth/AuthView.test.tsx src/App.test.tsx src/App.recovery.test.tsx`
 
 Expected: 세 테스트 파일이 모두 통과하며 인증·MFA·복구 case가 유지된다.
 
-- [ ] **Step 6: 로그인 접점을 커밋한다.**
+- [x] **Step 6: 로그인 접점을 커밋한다.**
 
 ```bash
 git add apps/web/src/features/auth/AuthView.tsx apps/web/src/features/auth/AuthView.test.tsx apps/web/src/App.test.tsx apps/web/src/App.recovery.test.tsx
