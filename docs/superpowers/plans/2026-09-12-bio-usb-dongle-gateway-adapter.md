@@ -144,13 +144,19 @@ git commit -m "feat(gateway): add BIO serial protocol transport"
 - [ ] **Step 2: Task 3 산출물로 aarch64 disposable probe image를 만들고, 현재 운영 container를 재시작하지 않은 채 exact device 한 개만 `--device ...:/dev/bio-dongle`로 전달해 USB descriptor와 read-only probe를 `umask 077` 증거 파일로 수집한다.** MQTT 자격 증명과 운영 data volume은 전달하지 않는다. probe 응답이 없으면 이 Task를 중단하고 opcode를 추정하지 않는다.
 
   상태: 2026-09-12 CRC literal probe 1회는 `LATE_RESPONSE`로 실패했다. 운영 container fingerprint는 유지됐고 disposable image/container는 정리했다. 유효 `0x83`과 기능별 golden vector가 없어 이 단계와 후속 단계는 차단 상태다.
+
+  추가 상태: 2026-09-13 동글을 Gateway에 다시 연결해 serial과 APK의 CH34x 초기화를 복제한 direct-USB 진단을 실행했다. 실제 물리 구간에서 checksum-valid CRC16 `0x12` 상태 프레임과 주소 `24548`/network `0`은 확인했지만 GET_NWK `0x0B`는 오지 않았다. Gateway에서 보낸 unicast OFF/sensor 및 broadcast ON/sensor에도 outer `0x11`/inner mode report가 없어 송신 성공은 입증되지 않았다. 커널 드라이버는 복구됐고 운영 container는 동일 ID/restart 0을 유지했으며 임시 image는 모두 제거했다. 따라서 RX/framing만 검증 완료이고 write-capable hardware gate는 계속 미완료다.
 - [ ] **Step 3: 제조사 문서 또는 격리 Android capture로 scan/identify/address/brightness/info vector를 기능별 한 개 이상 확보한다.** 비밀번호·현장 식별 bytes는 fixture에서 제거하고 source trace SHA-256만 남긴다.
-- [ ] **Step 4: byte-for-byte RED 테스트를 작성한다.** fixture의 모든 request encoder와 response parser가 정확히 일치해야 한다.
-- [ ] **Step 5: command codec과 client를 구현하고 GREEN을 확인한다.**
+
+  상태: 2026-09-13 Galaxy S24 Ultra(Android 16)에서 vendor 앱 1.2.0의 자체 `Writing`/`Received` 로그로 startup, scan/stop, broadcast 및 주소 `24548` 대상 brightness, force-ON/OFF와 sensor 복원, outer ACK, device response, discovery/status vector를 수집했다. 사용자가 개별 99%→100%와 force-ON→sensor 복귀의 실제 LED 반응도 확인했다. 원본은 git-ignored 0600 evidence이며 SHA-256은 `b2d99a154c6fb29da6e59d4714425c1608ace9ba219c62053a054277b896681a`다. 주소 변경·reset·비밀번호 변경은 실행하지 않았고, identify는 현장 안전 확인 전이라 아직 수집하지 않았다.
+- [x] **Step 4: byte-for-byte RED 테스트를 작성한다.** fixture의 모든 request encoder와 response parser가 정확히 일치해야 한다.
+- [x] **Step 5: command codec과 client를 구현하고 GREEN을 확인한다.**
+
+  상태: Android에서 캡처된 조합만 구현했고 미관측 target/value, identify, address, explicit read는 `BIO_EVIDENCE_UNAVAILABLE`로 write 전에 차단한다. 결과는 outer ACK 수락과 device applied를 분리한다. Gateway 실장비 TX gate는 위 Step 2 상태 때문에 아직 닫혀 있다.
 
 Run: `pnpm --filter @led-control/gateway exec vitest run src/bio/bio-command-codec.test.ts src/bio/bio-dongle-client.test.ts`
 
-- [ ] **Step 6: 커밋한다.**
+- [x] **Step 6: 커밋한다.**
 
 ```bash
 git add apps/gateway/test/fixtures/bio-protocol-v1.json apps/gateway/src/bio/bio-command-codec* apps/gateway/src/bio/bio-dongle-client* apps/gateway/scripts/bio-dongle-probe.ts apps/gateway/scripts/bio-dongle-probe.test.ts
