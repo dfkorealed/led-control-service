@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { Agent, request } from "node:https";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -29,7 +29,13 @@ function makeSandbox() {
   for (const [name, body] of Object.entries({
     "lab-vault.sh": 'echo vault-start >> "$LAB_TEST_LOG"',
     "bootstrap-lab-vault.sh": 'echo "vault-$1" >> "$LAB_TEST_LOG"',
-    "sign-lab-intermediates.sh": 'echo sign >> "$LAB_TEST_LOG"',
+    "sign-lab-intermediates.sh": `
+echo sign >> "$LAB_TEST_LOG"
+root_dir="$(dirname "$PKI_SERVICE_CERT_DIR")/root"
+mkdir -p "$root_dir"
+cp "$LAB_TEST_ROOT_CRL_FIXTURE" "$root_dir/root.crl"
+cp "$LAB_TEST_ROOT_CERT_FIXTURE" "$root_dir/root.crt"
+chmod 0644 "$root_dir/root.crl" "$root_dir/root.crt"`,
     "issue-lab-service-cert.sh": `
 echo service >> "$LAB_TEST_LOG"
 [[ "${'${LAB_TEST_FAIL_SERVICE:-0}'}" != 1 ]] || exit 42
@@ -79,7 +85,8 @@ if [[ "\${LAB_TEST_FAIL_PUBLISH:-0}" == 1 && "\${1:-}" == -e && "\${2:-}" == *re
 exec "$LAB_TEST_REAL_NODE" "$@"
 `);
   chmodSync(node, 0o755);
-  return { directory, bin, log, script: join(scriptDirectory, "bootstrap-device-lab.sh") };
+  const rootFixture = createRootCrlFixture(directory);
+  return { directory, bin, log, script: join(scriptDirectory, "bootstrap-device-lab.sh"), rootFixture };
 }
 
 function run(fixture, overrides = {}) {
@@ -96,6 +103,8 @@ function run(fixture, overrides = {}) {
       LAB_TEST_LOG: fixture.log,
       VAULT_BIN: join(fixture.bin, "vault"),
       LAB_MANUFACTURING_DIR: join(fixture.directory, ".local", "lab-pki", "manufacturing"),
+      LAB_TEST_ROOT_CRL_FIXTURE: fixture.rootFixture.crl,
+      LAB_TEST_ROOT_CERT_FIXTURE: fixture.rootFixture.certificate,
       ...overrides
     }
   });
@@ -168,6 +177,11 @@ test("Vault bootstrap 순서와 제한 token, CRL, 절대 경로 lab.env를 생�
     assert.match(env, /MQTT_URL="mqtts:\/\/mqtt\.led\.lan:8883"/);
     assert.match(env, /VITE_API_PROXY_TARGET="https:\/\/api\.led\.lan:4000"/);
     assert.match(env, /NODE_EXTRA_CA_CERTS="[^"]+\/services\/current\/api-ca\.crt"/);
+    const configuredRootCrlPath = /^PKI_ROOT_CRL_PATH="([^"]+)"$/m.exec(env)?.[1];
+    assert.equal(realpathSync(configuredRootCrlPath), realpathSync(join(pki, "root", "root.crl")));
+    const rootCrl = readFileSync(configuredRootCrlPath, "utf8");
+    assert.equal(rootCrl.match(/-----BEGIN X509 CRL-----/g)?.length, 1);
+    execFileSync("openssl", ["crl", "-in", configuredRootCrlPath, "-noout", "-verify", "-CAfile", join(pki, "root", "root.crt")], { stdio: "pipe" });
     for (const name of ["device.crl", "mqtt-client.crl"]) assert.equal(existsSync(join(pki, "services", "current", name)), true);
     assert.equal(existsSync(join(pki, "manufacturing", "manufacturing.crl")), true);
   } finally {
@@ -310,6 +324,30 @@ test("재실행은 orphan accessor를 먼저 reconcile하고 성공한 항목만
 function prepareRootToken(fixture) {
   mkdirSync(join(fixture.directory, ".local", "lab-vault"), { recursive: true });
   writeFileSync(join(fixture.directory, ".local", "lab-vault", "root-token"), "root-token\n", { mode: 0o600 });
+}
+
+function createRootCrlFixture(directory) {
+  const fixtureDirectory = join(directory, "root-crl-fixture");
+  const certificate = join(fixtureDirectory, "root.crt");
+  const key = join(fixtureDirectory, "root.key");
+  const crl = join(fixtureDirectory, "root.crl");
+  mkdirSync(join(fixtureDirectory, "newcerts"), { recursive: true });
+  writeFileSync(join(fixtureDirectory, "index.txt"), "");
+  writeFileSync(join(fixtureDirectory, "serial"), "1000\n");
+  writeFileSync(join(fixtureDirectory, "crlnumber"), "1000\n");
+  writeFileSync(join(fixtureDirectory, "openssl.cnf"), [
+    "[ ca ]", "default_ca = root_ca", "[ root_ca ]",
+    `database = ${join(fixtureDirectory, "index.txt")}`,
+    `new_certs_dir = ${join(fixtureDirectory, "newcerts")}`,
+    `certificate = ${certificate}`, `private_key = ${key}`,
+    `serial = ${join(fixtureDirectory, "serial")}`,
+    `crlnumber = ${join(fixtureDirectory, "crlnumber")}`,
+    "default_md = sha256", "default_crl_days = 1", ""
+  ].join("\n"));
+  openssl(["ecparam", "-name", "prime256v1", "-genkey", "-noout", "-out", key], fixtureDirectory);
+  openssl(["req", "-x509", "-new", "-key", key, "-out", certificate, "-days", "1", "-subj", "/CN=Fixture Lab Root", "-addext", "basicConstraints=critical,CA:true", "-addext", "keyUsage=critical,keyCertSign,cRLSign"], fixtureDirectory);
+  openssl(["ca", "-batch", "-config", join(fixtureDirectory, "openssl.cnf"), "-gencrl", "-out", crl], fixtureDirectory);
+  return { certificate, crl };
 }
 
 function readFileNames(directory) {

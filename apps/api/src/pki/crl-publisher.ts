@@ -47,7 +47,10 @@ export function assertCrlContainsSerial(pem: string, certificateSerial: string) 
   // X.509 serials are ASN.1 INTEGER values. Compare their canonical numeric
   // hexadecimal form so an encoding-only leading 00 cannot evade or falsely
   // fail the exact revoked-certificate check.
-  const contains = blocks[0].crl.entries.some(entry => normalizeDerSerial(entry.serialNumber) === expected);
+  // Validate every ASN.1 INTEGER before membership testing. A short-circuiting
+  // search would otherwise hide a malformed later entry after an earlier match.
+  const revokedSerials = blocks[0].crl.entries.map(entry => normalizeDerSerial(entry.serialNumber));
+  const contains = revokedSerials.includes(expected);
   if (!contains) throw new Error("CA CRL snapshot does not contain the revoked certificate");
 }
 

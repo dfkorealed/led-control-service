@@ -84,4 +84,13 @@ describe("publishCrlAtomically", () => {
     expect(() => assertCrlContainsSerial(nonMinimal, "AA01")).toThrow();
     expect(() => assertCrlContainsSerial(positive, "0000AA01")).toThrow();
   });
+
+  it.each([
+    ["negative", ["0102", "AA01"]],
+    ["non-minimal", ["0102", "00000102"]]
+  ])("rejects a later %s revoked serial even after an earlier valid match", async (_label, serials) => {
+    const crl = await createTestCrl(serials, "CN=Device Intermediate", 0, false);
+
+    expect(() => assertCrlContainsSerial(crl, "0102")).toThrow();
+  });
 });
