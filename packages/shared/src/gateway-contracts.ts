@@ -28,6 +28,8 @@ export const mqttTopicsV2 = {
   provisioningDeviceTerminal: (siteId: string, gatewayId: string) =>
     `sites/${siteId}/gateways/${gatewayId}/events/provisioning/device-terminal`,
   fixtureState: (siteId: string, gatewayId: string) => `sites/${siteId}/gateways/${gatewayId}/state/fixtures`,
+  fixturePresence: (siteId: string, gatewayId: string) =>
+    `sites/${siteId}/gateways/${gatewayId}/state/fixture-presence`,
   heartbeat: (siteId: string, gatewayId: string) => `sites/${siteId}/gateways/${gatewayId}/state/heartbeat`,
   meshGroupResyncRequest: (siteId: string, gatewayId: string) =>
     `sites/${siteId}/gateways/${gatewayId}/events/mesh-group/resync-request`,
@@ -369,6 +371,17 @@ export const fixtureStateV2Schema = orderedGatewayEventSchema.extend({
   hopCount: z.number().int().nonnegative().nullable()
 });
 
+// Presence reports liveness/control telemetry only; fixture output state belongs
+// to fixtureStateV2Schema and must not leak into this contract.
+export const fixturePresenceV2Schema = orderedGatewayEventSchema.extend({
+  fixtureId: z.string().uuid(),
+  controlMode: z.enum(["sensor", "force-off", "force-on"]),
+  rawHighBrightness: z.number().int().min(0).max(0xff),
+  configuredBrightness: z.number().int().min(0).max(100).nullable(),
+  rssi: z.number().max(0).nullable(),
+  hopCount: z.number().int().nonnegative().nullable()
+}).strict();
+
 export const gatewayHeartbeatV2Schema = orderedGatewayEventSchema.extend({
   gatewaySerial: z.string().min(1),
   firmwareVersion: z.string().min(1),
@@ -402,6 +415,7 @@ export type ApplicationProvisioningScanTerminalIngestedAckV2 = z.infer<
   typeof applicationProvisioningScanTerminalIngestedAckV2Schema
 >;
 export type FixtureStateV2 = z.infer<typeof fixtureStateV2Schema>;
+export type FixturePresenceV2 = z.infer<typeof fixturePresenceV2Schema>;
 export type GatewayHeartbeatV2 = z.infer<typeof gatewayHeartbeatV2Schema>;
 export type MeshGroupResyncRequestV2 = z.infer<typeof meshGroupResyncRequestV2Schema>;
 export type MeshGroupResyncAckV2 = z.infer<typeof meshGroupResyncAckV2Schema>;

@@ -6,6 +6,7 @@ import {
   deviceStatusAckV2Schema,
   deriveDeviceStatusAckStatus,
   fixtureStateV2Schema,
+  fixturePresenceV2Schema,
   gatewayDimmingCommandDraftV2CompatibilitySchema,
   gatewayDimmingCommandDraftV2Schema,
   gatewayDimmingCommandV2CompatibilitySchema,
@@ -34,6 +35,20 @@ const eventId = "44444444-4444-4444-8444-444444444444";
 const occurredAt = "2026-07-11T00:00:00.000Z";
 
 describe("gateway-scoped MQTT v2 contracts", () => {
+  it("defines a strict fixture presence topic and payload without output state fields", () => {
+    const presence = {
+      eventId, siteId, gatewayId, fixtureId, sequence: 11, occurredAt,
+      controlMode: "sensor" as const, rawHighBrightness: 127,
+      configuredBrightness: null, rssi: -41, hopCount: null
+    };
+
+    expect(mqttTopicsV2.fixturePresence(siteId, gatewayId)).toBe(
+      `sites/${siteId}/gateways/${gatewayId}/state/fixture-presence`
+    );
+    expect(fixturePresenceV2Schema.parse(presence)).toEqual(presence);
+    expect(() => fixturePresenceV2Schema.parse({ ...presence, brightness: 38, powerOn: true })).toThrow();
+  });
+
   const statusCheckDraft = {
     commandId, dispatchId, siteId, gatewayId,
     idempotencyKey: `${dispatchId}:${gatewayId}`, sequence: 8,
