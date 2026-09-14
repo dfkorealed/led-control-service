@@ -6,6 +6,22 @@ import { createHash } from "node:crypto";
 import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 
 describe("ObjectStorageService", () => {
+  const recorded = "reports/11111111-1111-1111-1111-111111111111/22222222-2222-2222-2222-222222222222/attempt-1.pdf";
+  it("deletes only distinct recorded report keys and validates the entire batch before I/O", async () => {
+    const send = jest.fn().mockResolvedValue({});
+    const storage = new ObjectStorageService({ send } as never, { bucket: "floor-assets", publicBaseUrl: "" });
+    await (storage as any).deleteRecordedReportObjects([recorded, recorded]);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0][0].input).toEqual({ Bucket: "energy-reports", Key: recorded });
+    send.mockClear();
+    await expect((storage as any).deleteRecordedReportObjects([recorded, "floors/secret.png"])).rejects.toBeInstanceOf(BadRequestException);
+    expect(send).not.toHaveBeenCalled();
+  });
+  it("redacts provider failures from recorded report deletion", async () => {
+    const send = jest.fn().mockRejectedValue(new Error("SECRET-PROVIDER-ENDPOINT"));
+    const storage = new ObjectStorageService({ send } as never, { bucket: "floor-assets", publicBaseUrl: "" });
+    await expect((storage as any).deleteRecordedReportObjects([recorded])).rejects.toThrow("report object cleanup unavailable");
+  });
   const service = new ObjectStorageService({} as never, {
     bucket: "floor-assets",
     publicBaseUrl: "http://localhost:9000/floor-assets",

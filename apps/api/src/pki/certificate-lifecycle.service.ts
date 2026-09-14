@@ -8,7 +8,7 @@ import {
   UnauthorizedException
 } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
-import { Prisma } from "@prisma/client";
+import { Prisma, type GatewayRecommissionJob } from "@prisma/client";
 import { CertificateRevocationReconciliationService } from "./certificate-revocation-reconciliation.service";
 import { CERTIFICATE_TRANSACTION_TIMEOUT_MS, lockGatewayCertificates, lockGatewayInventory } from "./inventory-certificate-lock";
 import {
@@ -197,6 +197,37 @@ export class CertificateLifecycleService {
     }
   }
 
+  async revokeMqttCertificatesForRecommission(inventoryId: string, jobId: string) {
+    const ids = await this.prisma.$transaction(async tx => {
+      const jobs = await tx.$queryRaw<GatewayRecommissionJob[]>(Prisma.sql`
+        SELECT * FROM "GatewayRecommissionJob" WHERE "id" = ${jobId} FOR UPDATE
+      `);
+      const job = jobs[0];
+      if (!job || job.inventoryId !== inventoryId || !["prepared", "mqtt_revocation_pending", "mqtt_revoked"].includes(job.status)) {
+        throw new ConflictException("gateway recommission cannot revoke MQTT certificates");
+      }
+      const staged = await this.reconciliation.stagePurposeRevocation(tx, inventoryId, "mqtt", "gateway_recommission", this.clock.now());
+      if (job.status !== "mqtt_revoked") await tx.gatewayRecommissionJob.update({ where: { id: jobId }, data: { status: "mqtt_revocation_pending" } });
+      return staged;
+    }, { timeout: CERTIFICATE_TRANSACTION_TIMEOUT_MS });
+    try {
+      await this.processInventoryRevocation(ids);
+      await this.prisma.$transaction(async tx => {
+        await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "GatewayRecommissionJob" WHERE "id" = ${jobId} FOR UPDATE`);
+        await lockGatewayInventory(tx, inventoryId);
+        await lockGatewayCertificates(tx, inventoryId);
+        await assertMqttRevocationCompleted(tx, inventoryId);
+        // MQTT CRL 게시 완료는 되돌릴 수 없다. 이 뒤 DB 초기화가 실패해도 구 런타임을
+        // 재시작하지 않고 mqtt_revoked 작업으로 운영자 재시도를 이어가야 한다.
+        await tx.gatewayRecommissionJob.updateMany({ where: { id: jobId, status: { in: ["prepared", "mqtt_revocation_pending", "mqtt_revoked"] } },
+          data: { status: "mqtt_revoked", revokedAt: this.clock.now(), lastError: null } });
+      });
+    } catch {
+      throw new ServiceUnavailableException("gateway recommission MQTT revocation pending");
+    }
+    return { revoked: ids.length };
+  }
+
   async stageInventoryDisable(tx: Prisma.TransactionClient, inventoryId: string) {
     const inventory = await lockGatewayInventory(tx, inventoryId);
     if (!inventory) return [];
@@ -322,4 +353,18 @@ export class CertificateLifecycleService {
   private db() {
     return this.prisma as any;
   }
+}
+
+export async function assertMqttRevocationCompleted(tx: Prisma.TransactionClient, inventoryId: string) {
+  const incomplete = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    SELECT certificate."id" FROM "GatewayCertificate" certificate
+    WHERE certificate."inventoryId" = ${inventoryId} AND certificate."purpose" = 'mqtt'
+      AND (certificate."status" <> 'revoked' OR certificate."revokedAt" IS NULL OR NOT EXISTS (
+        SELECT 1 FROM "CertificateRevocationReconciliation" obligation
+        WHERE obligation."inventoryId" = certificate."inventoryId" AND obligation."certificateId" = certificate."id"
+          AND obligation."fingerprint" = certificate."fingerprint" AND obligation."purpose" = 'mqtt'
+          AND obligation."completedAt" IS NOT NULL AND obligation."revokedAt" IS NOT NULL AND obligation."cancelledAt" IS NULL
+      ))
+  `);
+  if (incomplete.length) throw new ServiceUnavailableException("gateway recommission MQTT revocation pending");
 }

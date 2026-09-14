@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, Optional } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, Optional, ServiceUnavailableException } from "@nestjs/common";
 import { DeleteObjectCommand, GetObjectCommand, HeadBucketCommand, HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { createHash, randomUUID } from "node:crypto";
@@ -64,6 +64,20 @@ export class ObjectStorageService {
   async deleteReportObject(key: string) {
     return this.client.send(new DeleteObjectCommand({ Bucket: this.reportBucket(key), Key: key }),
       { abortSignal: AbortSignal.timeout(4_000) });
+  }
+
+  async deleteRecordedReportObjects(value: unknown): Promise<void> {
+    if (!Array.isArray(value) || value.some(key => typeof key !== "string")) {
+      throw new BadRequestException("invalid recorded report object keys");
+    }
+    const keys = [...new Set(value as string[])];
+    // 전체 목록을 먼저 검증하여 뒤쪽의 잘못된 키 때문에 부분 삭제가 발생하지 않게 한다.
+    keys.forEach(key => this.reportBucket(key));
+    try {
+      for (const key of keys) await this.deleteReportObject(key);
+    } catch {
+      throw new ServiceUnavailableException("report object cleanup unavailable");
+    }
   }
 
   async createReportDownloadUrl(key: string, filename: string): Promise<string> {

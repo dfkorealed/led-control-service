@@ -1,5 +1,5 @@
 import { Inject, Injectable, OnModuleDestroy, OnModuleInit, Optional, ServiceUnavailableException } from "@nestjs/common";
-import { Prisma, type CertificateRevocationReconciliation } from "@prisma/client";
+import { Prisma, type CertificateRevocationReconciliation, type GatewayCertificate, type CertificatePurpose } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { PrismaService } from "../prisma/prisma.service";
 import { CERTIFICATE_AUTHORITY_PROVIDER, type CertificateAuthorityProvider } from "./certificate-authority.provider";
@@ -27,7 +27,7 @@ const CRL_TRANSACTION_TIMEOUT_MS = 15 * 60_000;
 // Must exceed CERTIFICATE_TRANSACTION_TIMEOUT_MS (140s). The independent commit
 // survives rollback/crash, while the delay protects successful certificate writes.
 const SIGNED_CERTIFICATE_GRACE_MS = 180_000;
-type RevocationSource = "signed_certificate" | "inventory_revocation";
+type RevocationSource = "signed_certificate" | "inventory_revocation" | "gateway_recommission";
 
 export interface ArmSignedCertificateInput extends RevokeCertificateInput {
   inventoryId: string;
@@ -88,12 +88,23 @@ export class CertificateRevocationReconciliationService implements OnModuleInit,
     await lockGatewayInventory(tx, inventoryId);
     const certificates = await lockGatewayCertificates(tx, inventoryId);
     await tx.gatewayInventory.updateMany({ where: { id: inventoryId }, data: { certificateFingerprint: null } });
+    return this.stageCertificates(tx, certificates, "inventory_revocation", now);
+  }
+
+  async stagePurposeRevocation(tx: Prisma.TransactionClient, inventoryId: string, purpose: CertificatePurpose,
+    source: RevocationSource, now = new Date()): Promise<string[]> {
+    await lockGatewayInventory(tx, inventoryId);
+    const certificates = await lockGatewayCertificates(tx, inventoryId);
+    return this.stageCertificates(tx, certificates.filter(certificate => certificate.purpose === purpose), source, now);
+  }
+
+  private async stageCertificates(tx: Prisma.TransactionClient, certificates: GatewayCertificate[], source: RevocationSource, now: Date) {
     const ids: string[] = [];
     for (const certificate of certificates) {
       // Legacy releases persisted revoked before CRL publication, without this
       // ledger. Only completedAt proves both steps finished. On first encounter
       // safely re-revoke/republish, retaining the original certificate history.
-      const row = await this.record(tx, this.metadata({ ...certificate, certificateId: certificate.id, source: "inventory_revocation" }), now);
+      const row = await this.record(tx, this.metadata({ ...certificate, certificateId: certificate.id, source }), now);
       if (row.completedAt) {
         // A retained completed identity is already revoked in the CA and CRL.
         await tx.gatewayCertificate.updateMany({ where: { id: certificate.id }, data: { status: "revoked", revokedAt: certificate.revokedAt ?? row.revokedAt ?? now } });
@@ -103,7 +114,7 @@ export class CertificateRevocationReconciliationService implements OnModuleInit,
       // Successful issuance cancelled this identity earlier. Reopening it is an
       // explicit new revocation, and must not steal a live worker's lease.
       await tx.certificateRevocationReconciliation.updateMany({ where: { id: row.id, completedAt: null }, data: {
-        certificateId: certificate.id, cancelledAt: null, nextAttemptAt: now, source: "inventory_revocation"
+        certificateId: certificate.id, cancelledAt: null, nextAttemptAt: now, source
       } });
       ids.push(row.id);
     }
@@ -241,7 +252,7 @@ export class CertificateRevocationReconciliationService implements OnModuleInit,
       inventoryId: input.inventoryId, certificateId: input.certificateId ?? null, purpose: input.purpose,
       issuer: input.issuer.trim(), certificateSerial: input.certificateSerial.replace(/[:-]/g, "").trim().toUpperCase(),
       fingerprint: input.fingerprint.replace(/:/g, "").trim().toUpperCase(),
-      source: input.source === "inventory_revocation" ? "inventory_revocation" : "signed_certificate"
+      source: input.source === "inventory_revocation" || input.source === "gateway_recommission" ? input.source : "signed_certificate"
     };
   }
 

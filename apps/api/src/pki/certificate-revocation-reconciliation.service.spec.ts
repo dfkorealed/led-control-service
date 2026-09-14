@@ -75,6 +75,21 @@ function setup() {
 }
 
 describe("CertificateRevocationReconciliationService", () => {
+  it("stages only MQTT identities for recommission and leaves every device status and pointer untouched", async () => {
+    const { service, tx, rows } = setup();
+    const certificates = ["active", "pending", "replaced"].flatMap((status, index) => [
+      { ...metadata, id: `device-${index}`, status, revokedAt: null },
+      { ...metadata, id: `mqtt-${index}`, purpose: "mqtt", status, revokedAt: null,
+        issuer: "mqtt-ca", certificateSerial: `BB0${index}`, fingerprint: `${index}B`.repeat(32) }
+    ]);
+    tx.$queryRaw.mockResolvedValueOnce([{ id: "inventory-1" }]).mockResolvedValueOnce(certificates);
+    await (service as any).stagePurposeRevocation(tx, "inventory-1", "mqtt", "gateway_recommission", NOW);
+    expect(rows).toHaveLength(3);
+    expect(rows.every(row => row.purpose === "mqtt" && row.source === "gateway_recommission")).toBe(true);
+    expect(tx.gatewayInventory.updateMany).not.toHaveBeenCalled();
+    expect(tx.gatewayCertificate.updateMany.mock.calls.map(([call]: any[]) => call.where.id)).toEqual(["mqtt-0", "mqtt-1", "mqtt-2"]);
+  });
+
   beforeEach(() => { jest.useFakeTimers(); jest.setSystemTime(NOW); });
   afterEach(() => { jest.useRealTimers(); });
 

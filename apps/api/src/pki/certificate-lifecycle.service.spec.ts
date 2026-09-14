@@ -13,6 +13,18 @@ const NOW = new Date("2026-07-15T03:00:00.000Z");
 const CSR = "-----BEGIN CERTIFICATE REQUEST-----\nSECRET-DEVICE-CSR\n-----END CERTIFICATE REQUEST-----";
 
 describe("CertificateLifecycleService", () => {
+  it("leaves recommission pending if reconciliation has not completed", async () => {
+    const { service, prisma, reconciliation } = createFixture();
+    prisma.$queryRaw.mockResolvedValue([{ id: "reset-1", inventoryId: "inventory-1", status: "prepared" }]);
+    prisma.gatewayRecommissionJob = { update: jest.fn().mockResolvedValue({}) };
+    (reconciliation as any).stagePurposeRevocation = jest.fn().mockResolvedValue(["mqtt-job"]);
+    prisma.certificateRevocationReconciliation.count.mockResolvedValue(1);
+    await expect((service as any).revokeMqttCertificatesForRecommission("inventory-1", "reset-1"))
+      .rejects.toBeInstanceOf(ServiceUnavailableException);
+    expect(prisma.gatewayRecommissionJob.update.mock.calls.some(([input]: any[]) => input.data.status === "mqtt_revoked")).toBe(false);
+    expect(prisma.gatewayInventory.update).not.toHaveBeenCalled();
+    expect(prisma.gateway.updateMany).not.toHaveBeenCalled();
+  });
   it("does not expose a provider exception body even when the provider uses an HTTP exception", async () => {
     const { service, certificateAuthority } = createFixture();
     certificateAuthority.signCsr.mockRejectedValueOnce(new UnauthorizedException("provider-secret CSR PEM"));

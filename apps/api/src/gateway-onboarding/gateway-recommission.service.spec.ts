@@ -6,6 +6,12 @@ const ids = {
 };
 
 describe("GatewayRecommissionService", () => {
+  it("rejects plaintext claim credentials before reading or deleting installation data", async () => {
+    const db = fixture();
+    await expect((service(db) as any).apply("job-1", "a".repeat(64), "plaintext-claim-code"))
+      .rejects.toThrow("invalid claim code hash");
+    expect(db.$transaction).not.toHaveBeenCalled();
+  });
   it("returns a redacted, stable preview for exactly one claimed installation", async () => {
     const first = service(fixture());
     const second = service(fixture({ reverseCollections: true }));
@@ -87,9 +93,9 @@ function fixture(overrides: {
     overrides.missingSite ? [] : [{ id: ids.siteId }],
     overrides.missingInventory ? [] : [{ id: ids.inventoryId, serialNumber: ids.serialNumber, claimedGatewayId: overrides.unclaimed ? null : ids.gatewayId, disabledAt: overrides.disabled ? new Date() : null }],
     [
-      { purpose: "device", status: "active", certificateSerial: "certificate-private-material" },
-      { purpose: "mqtt", status: "active", certificateSerial: "certificate-private-material" },
-      { purpose: "mqtt", status: "pending", certificateSerial: "certificate-private-material" }
+      { id: "cert-device", purpose: "device", status: "active", certificateSerial: "certificate-private-material" },
+      { id: "cert-mqtt-active", purpose: "mqtt", status: "active", certificateSerial: "certificate-private-material" },
+      { id: "cert-mqtt-pending", purpose: "mqtt", status: "pending", certificateSerial: "certificate-private-material" }
     ],
     overrides.multipleGateways ? [{ id: ids.gatewayId, siteId: ids.siteId, serialNumber: ids.serialNumber }, { id: "gateway-2", siteId: ids.siteId, serialNumber: ids.serialNumber }]
       : [{ id: ids.gatewayId, siteId: ids.siteId, serialNumber: ids.serialNumber }],
