@@ -83,7 +83,7 @@ export class CommandJournal {
       const data = await this.readData();
       this.prune(data);
       if (data.records[idempotencyKey]) return false;
-      if (isTimedCommandWrapper(command)) this.assertAutomationCapacity(data);
+      if (isManualCommandWrapper(command)) this.assertAutomationCapacity(data);
       data.records[idempotencyKey] = {
         state: "accepted",
         command,
@@ -271,17 +271,20 @@ export class CommandJournal {
 
 function needsConservativeHandoff(record: Pick<JournalRecord, "state" | "command">) {
   if (record.state !== "completed") return false;
-  return isTimedCommandWrapper(record.command);
+  return isManualCommandWrapper(record.command);
 }
 
-function isTimedCommandWrapper(value: unknown) {
-  const wrapper = value as { command?: { overrideUntil?: unknown } };
-  return typeof wrapper?.command?.overrideUntil === "string";
+function isManualCommandWrapper(value: unknown) {
+  const wrapper = value as { command?: { overrideUntil?: unknown; targetFixtureIds?: unknown; brightness?: unknown } };
+  const command = wrapper?.command;
+  // Legacy journals identify timed controls by overrideUntil; new controls have target and brightness only.
+  return typeof command?.overrideUntil === "string" ||
+    (Array.isArray(command?.targetFixtureIds) && typeof command?.brightness === "number");
 }
 
 function isPendingAutomationRecovery(record: Pick<JournalRecord, "state" | "command" | "automationHandoff">) {
   return (record.state === "completed" && record.automationHandoff === "pending") ||
-    (record.state === "accepted" && isTimedCommandWrapper(record.command));
+    (record.state === "accepted" && isManualCommandWrapper(record.command));
 }
 
 function positiveLimit(value: number, name: string) {

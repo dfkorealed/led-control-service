@@ -1,6 +1,5 @@
 import { getActiveOccurrence } from "@led-control/automation-engine";
 import {
-  GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS,
   type AutomationExecutionFixtureResultV1,
   type AutomationSnapshotV1,
   type LightingScheduleSnapshotV1,
@@ -37,15 +36,11 @@ export interface DesiredLightingAction {
   occurrenceKey: string | null;
 }
 
-export interface ManualOverrideInput {
+export interface ManualControlInput {
   sourceId: string;
   fixtureIds: string[];
   brightnessPercent: number;
-  startedAt: string;
-  overrideUntil: string;
-  deliveryWindowMs: number;
-  overrideRemainingMs?: number;
-  timingSource?: "legacy_wire";
+  requestedAt: string;
 }
 
 export interface AutomationTerminalHandoff {
@@ -88,7 +83,7 @@ export interface ScheduleRuntimeOptions {
 export interface ManualOverridePrepareDiagnostic {
   event: "manual_override_prepare_slow";
   sourceId: string;
-  stage: "waiting_for_serialization" | "checking_clock" | "persisting_state";
+  stage: "waiting_for_serialization" | "persisting_state";
   activationPending: boolean;
   elapsedMs: number;
 }
@@ -103,8 +98,6 @@ interface ActivationCheckpoint {
   snapshot: AutomationSnapshotV1 | null;
   state: PersistedAutomationStateV4;
   vehicleHoldDeadlines: Array<[string, number]>;
-  manualOverrideDeadlines: Array<[string, number]>;
-  recoveredManualPendingTrust: string[];
 }
 
 const DEFAULT_TICK_INTERVAL_MS = 1_000;
@@ -117,9 +110,6 @@ export class ScheduleRuntime {
   private snapshot: AutomationSnapshotV1 | null = null;
   private initialized = false;
   private timer: NodeJS.Timeout | null = null;
-  private readonly manualOverrideDeadlines = new Map<string, number>();
-  private readonly recoveredManualPendingTrust = new Set<string>();
-  private readonly manualCommandsInFlight = new Set<string>();
   private readonly pendingObservationFixtures = new Set<string>();
   private activationCheckpoint: ActivationCheckpoint | null = null;
   private activationSettled: Promise<void> = Promise.resolve();
@@ -142,9 +132,6 @@ export class ScheduleRuntime {
     return this.enqueue(async () => {
       if (this.initialized) return this.state();
       const state = await this.options.store.initialize();
-      for (const fixtureId of Object.keys(state.manualOverrides)) {
-        this.recoveredManualPendingTrust.add(fixtureId);
-      }
       for (const fixtureId of Object.keys(state.unverifiedDesiredByFixture)) {
         this.pendingObservationFixtures.add(fixtureId);
       }
@@ -196,14 +183,6 @@ export class ScheduleRuntime {
         await this.options.store.updateControlState(() => structuredClone(checkpoint.state));
         this.snapshot = checkpoint.snapshot ? structuredClone(checkpoint.snapshot) : null;
         this.vehicleRuntime.restore(checkpoint.vehicleHoldDeadlines);
-        this.manualOverrideDeadlines.clear();
-        for (const [fixtureId, deadline] of checkpoint.manualOverrideDeadlines) {
-          this.manualOverrideDeadlines.set(fixtureId, deadline);
-        }
-        this.recoveredManualPendingTrust.clear();
-        for (const fixtureId of checkpoint.recoveredManualPendingTrust) {
-          this.recoveredManualPendingTrust.add(fixtureId);
-        }
       } finally {
         this.finishActivation();
       }
@@ -321,7 +300,10 @@ export class ScheduleRuntime {
             results: [recoveredResult]
           }));
         }
-        if (!hasActiveSource(state, fixtureId)) delete state.baseBrightnessByFixture[fixtureId];
+        const manual = state.pendingManualControls[fixtureId];
+        if (manual && recoveredResult) {
+          settleManualControl(state, fixtureId, manual.sourceId, recoveredResult);
+        }
         return state;
       });
       if (recoveredAction && recoveredResult) {
@@ -335,7 +317,7 @@ export class ScheduleRuntime {
     });
   }
 
-  prepareManualOverride(input: ManualOverrideInput): Promise<void> {
+  prepareManualControl(input: ManualControlInput): Promise<void> {
     const startedAt = this.monotonicClock();
     let stage: ManualOverridePrepareDiagnostic["stage"] = "waiting_for_serialization";
     const slowThresholdMs = this.options.manualOverrideSlowThresholdMs ?? 1_000;
@@ -351,47 +333,21 @@ export class ScheduleRuntime {
     diagnosticTimer.unref();
     return this.runExternal(async () => {
       await this.ensureInitialized();
-      validateManualOverride(input);
-      const wallNow = this.wallClock();
-      const monotonicNow = this.monotonicClock();
-      const durationMs = Date.parse(input.overrideUntil) - Date.parse(input.startedAt);
-      stage = "checking_clock";
-      const trusted = await this.options.clockTrust.isTrusted(wallNow);
-      if (!trusted && input.timingSource === "legacy_wire") {
-        throw new ScheduleRuntimeError("legacy_timing_unverifiable");
-      }
-      const remainingMs = trusted
-        ? Math.min(
-          Date.parse(input.overrideUntil) - wallNow.getTime(),
-          input.overrideRemainingMs ?? Number.POSITIVE_INFINITY
-        )
-        : input.overrideRemainingMs ?? Math.min(
-          durationMs,
-          input.deliveryWindowMs,
-          GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS
-        );
-      if (remainingMs <= 0) throw new ScheduleRuntimeError("manual_override_expired");
+      validateManualControl(input);
       stage = "persisting_state";
       await this.options.store.updateControlState((state) => {
         for (const fixtureId of input.fixtureIds) {
-          const base = captureBase(state, fixtureId);
+          const base = state.baseBrightnessByFixture[fixtureId] ??
+            state.currentByFixture[fixtureId] ?? state.lastDesiredByFixture[fixtureId] ?? null;
           if (base === null && !this.options.allowManualStateInitialization) {
             throw new ScheduleRuntimeError("automation_current_state_unavailable");
           }
-          state.manualOverrides[fixtureId] = {
+          state.pendingManualControls[fixtureId] = {
             sourceId: input.sourceId,
             brightnessPercent: input.brightnessPercent,
-            startedAt: input.startedAt,
-            overrideUntil: input.overrideUntil,
-            // [BIO 호환 예외] BIO 조명이 sensor mode일 때 high-brightness GET은 센서가 켰을 때
-            // 사용할 설정값일 뿐, 이 순간 LED의 실제 밝기가 아니다. 따라서 sensor mode polling은
-            // currentByFixture/baseBrightnessByFixture를 채우지 않으며 첫 수동 제어에는 숫자 base가 없다.
-            //
-            // 이 옵션은 BIO adapter에서만 켠다. 여기의 요청 밝기는 기존 영속 schema가 요구하는
-            // preBrightness 자리를 채우는 provisional 값이며, 관측된 현재 상태로 승격하지 않는다.
-            // 실제 USB 명령 뒤 SET ACK, brightness GET, force-on/off mode GET이 모두 검증되어
-            // handoffManualTerminal이 succeeded를 받을 때만 current/lastDesired/base가 확정된다.
-            // 실패하면 manual override만 제거되고 아래 provisional 값은 복원 기준으로 사용되지 않는다.
+            requestedAt: input.requestedAt,
+            // BIO sensor mode has no observed LED brightness before its first manual command.
+            // Retain a provisional value only in pending state; failure never promotes it to baseline.
             preBrightness: base ?? input.brightnessPercent
           };
           const previous = state.transitionsByFixture[fixtureId];
@@ -402,18 +358,13 @@ export class ScheduleRuntime {
             sourceId: input.sourceId,
             occurrenceKey: null,
             attempt: previous?.sourceId === input.sourceId ? previous.attempt + 1 : 1,
-            startedAt: input.startedAt,
+            startedAt: input.requestedAt,
             status: null,
             terminalAt: null
           };
         }
         return state;
       });
-      for (const fixtureId of input.fixtureIds) {
-        this.recoveredManualPendingTrust.delete(fixtureId);
-        this.manualCommandsInFlight.add(fixtureId);
-        this.manualOverrideDeadlines.set(fixtureId, monotonicNow + remainingMs);
-      }
     }).finally(() => clearTimeout(diagnosticTimer));
   }
 
@@ -424,63 +375,32 @@ export class ScheduleRuntime {
     return this.runExternal(async () => {
       await this.ensureInitialized();
       const actions: DesiredLightingAction[] = [];
-      const settledFixtures: Array<{ fixtureId: string; failed: boolean }> = [];
+      const settledFixtures: string[] = [];
+      const settledResults: AutomationExecutionFixtureResultV1[] = [];
       await this.options.store.updateControlState((state) => {
         for (const result of results) {
-          const override = state.manualOverrides[result.fixtureId];
-          if (override?.sourceId !== sourceId) continue;
+          const manual = state.pendingManualControls[result.fixtureId];
+          if (manual?.sourceId !== sourceId) continue;
           actions.push({
-            fixtureId: result.fixtureId,
-            brightnessPercent: override.brightnessPercent,
-            sourceType: "manual_override",
-            sourceId,
-            occurrenceKey: null
+            fixtureId: result.fixtureId, brightnessPercent: manual.brightnessPercent,
+            sourceType: "manual_override", sourceId, occurrenceKey: null
           });
-          const pending = state.transitionsByFixture[result.fixtureId];
-          state.transitionsByFixture[result.fixtureId] = {
-            ...(pending ?? {
-              brightnessPercent: override.brightnessPercent,
-              sourceType: "manual_override",
-              sourceId,
-              occurrenceKey: null,
-              attempt: 1,
-              startedAt: override.startedAt
-            }),
-            phase: "terminal",
-            status: result.status,
-            terminalAt: result.occurredAt
-          };
-          if (result.brightnessPercent !== null) {
-            state.currentByFixture[result.fixtureId] = result.brightnessPercent;
-            if (result.status === "succeeded") {
-              state.lastDesiredByFixture[result.fixtureId] = result.brightnessPercent;
-              if (!hasActiveAutomaticSource(state, result.fixtureId)) {
-                state.baseBrightnessByFixture[result.fixtureId] = result.brightnessPercent;
-              }
-            }
-          }
-          if (result.status !== "succeeded") {
-            delete state.manualOverrides[result.fixtureId];
-          }
-          settledFixtures.push({ fixtureId: result.fixtureId, failed: result.status !== "succeeded" });
+          settleManualControl(state, result.fixtureId, sourceId, result);
+          settledFixtures.push(result.fixtureId);
+          settledResults.push(result);
         }
         if (this.snapshot) {
           this.appendTelemetryHandoff(state, terminalTelemetryRecords({
             revision: this.snapshot.revision,
             actions,
-            results
+            results: settledResults
           }));
         }
         return state;
       });
-      for (const settled of settledFixtures) {
-        this.recoveredManualPendingTrust.delete(settled.fixtureId);
-        this.manualCommandsInFlight.delete(settled.fixtureId);
-        this.pendingObservationFixtures.delete(settled.fixtureId);
-        if (settled.failed) this.manualOverrideDeadlines.delete(settled.fixtureId);
-      }
+      for (const fixtureId of settledFixtures) this.pendingObservationFixtures.delete(fixtureId);
       await this.flushTelemetryHandoffs();
-      await this.handoff(actions, results);
+      await this.handoff(actions, settledResults);
     });
   }
 
@@ -541,30 +461,18 @@ export class ScheduleRuntime {
     const previousSnapshot = this.snapshot;
     const now = this.wallClock();
     const trusted = await this.options.clockTrust.isTrusted(now);
-    const monotonicNow = this.monotonicClock();
     const lifecycleEvents: AutomationLifecycleEvent[] = [];
-    const manualOverrideDeadlines = new Map(this.manualOverrideDeadlines);
-    const recoveredManualPendingTrust = new Set(this.recoveredManualPendingTrust);
     let vehicleHoldDeadlines: Array<[string, number]> | undefined;
     await this.options.store.updateControlState((state) => {
-      reconcileManualOverrides(
-        state,
-        now,
-        monotonicNow,
-        trusted,
-        manualOverrideDeadlines,
-        recoveredManualPendingTrust
-      );
       const vehicle = this.vehicleRuntime.planReconcile(state, snapshot, trusted);
       vehicleHoldDeadlines = vehicle.holdDeadlines;
       lifecycleEvents.push(...vehicle.events);
       lifecycleEvents.push(...reconcileSchedules(state, snapshot, now, trusted));
+      pruneManualSuppressions(state, snapshot);
       const tagged = lifecycleEvents.map((event) => tagLifecycleRevision(event, snapshot, previousSnapshot));
       this.appendTelemetryHandoff(state, lifecycleTelemetryRecords({ revision: snapshot.revision, events: tagged }));
       return state;
     });
-    replaceMap(this.manualOverrideDeadlines, manualOverrideDeadlines);
-    replaceSet(this.recoveredManualPendingTrust, recoveredManualPendingTrust);
     this.vehicleRuntime.restore(vehicleHoldDeadlines!);
     await this.captureMissingBases(snapshot);
     return this.computeDesired(
@@ -604,38 +512,18 @@ export class ScheduleRuntime {
     const fixtures = relevantFixtures(snapshot, state);
 
     for (const fixtureId of fixtures) {
-      const recoveredManual = this.recoveredManualPendingTrust.has(fixtureId)
-        ? state.manualOverrides[fixtureId]
-        : undefined;
-      const manual = state.manualOverrides[fixtureId];
-      // A recovered override has unknown absolute remaining time until wall-clock trust returns.
-      // Keep the output already observed before restart as the manual candidate so lower-priority
-      // automatic sources cannot take over or trigger duplicate RF during that uncertainty.
-      const recoveredManualBrightness = recoveredManual
-        ? state.currentByFixture[fixtureId] ??
-          state.lastDesiredByFixture[fixtureId] ??
-          recoveredManual.brightnessPercent
-        : undefined;
       const events = Object.entries(state.vehicleRules)
         .filter(([, vehicle]) => vehicle.targetFixtureIds.includes(fixtureId))
-        .map(([ruleId, vehicle]) => ({ sourceId: ruleId, brightness: vehicle.brightnessPercent }));
-      const schedule = activeScheduleCandidate(snapshot, state, fixtureId);
-      const hasSource = Boolean(manual || events.length > 0 || schedule);
+        .map(([ruleId, vehicle]) => ({
+          sourceId: ruleId, startedAt: vehicle.startedAt, brightness: vehicle.brightnessPercent
+        }));
+      const schedules = activeScheduleCandidates(snapshot, state, fixtureId);
+      const hasSource = events.length > 0 || schedules.length > 0;
       if (hasSource && state.baseBrightnessByFixture[fixtureId] === undefined) continue;
-      const current = (recoveredManual
-        ? state.currentByFixture[fixtureId] ?? state.lastDesiredByFixture[fixtureId]
-        : state.baseBrightnessByFixture[fixtureId])
-        ?? state.currentByFixture[fixtureId]
-        ?? state.lastDesiredByFixture[fixtureId]
-        ?? null;
+      const current = state.baseBrightnessByFixture[fixtureId]
+        ?? state.currentByFixture[fixtureId] ?? state.lastDesiredByFixture[fixtureId] ?? null;
       const resolved = resolveDesiredState({
-        manual: manual ? {
-          sourceId: manual.sourceId,
-          brightness: recoveredManualBrightness ?? manual.brightnessPercent
-        } : null,
-        events,
-        schedule,
-        current
+        events, schedules, current, suppression: state.manualAutomationSuppressions[fixtureId]
       });
       desired[fixtureId] = resolved.brightness;
       actions.set(fixtureId, toAction(fixtureId, resolved));
@@ -653,17 +541,9 @@ export class ScheduleRuntime {
     const changed = [...computed.actions.values()].filter((action) =>
       state.lastDesiredByFixture[action.fixtureId] !== action.brightnessPercent &&
       !this.pendingObservationFixtures.has(action.fixtureId) &&
-      !(action.sourceType === "manual_override" && this.manualCommandsInFlight.has(action.fixtureId))
+      !state.pendingManualControls[action.fixtureId]
     );
-    const settledBaseFixtures = [...computed.actions.values()]
-      .filter((action) =>
-        action.sourceType === "current" &&
-        state.baseBrightnessByFixture[action.fixtureId] !== undefined &&
-        state.lastDesiredByFixture[action.fixtureId] === action.brightnessPercent
-      )
-      .map((action) => action.fixtureId);
-
-    if (changed.length === 0 && settledBaseFixtures.length === 0) {
+    if (changed.length === 0) {
       await this.flushTelemetryHandoffs();
       await this.handoffLifecycle(computed.lifecycleEvents);
       return;
@@ -684,17 +564,8 @@ export class ScheduleRuntime {
           terminalAt: null
         };
       }
-      for (const fixtureId of settledBaseFixtures) {
-        if (!hasActiveSource(next, fixtureId)) delete next.baseBrightnessByFixture[fixtureId];
-      }
       return next;
     });
-    if (changed.length === 0) {
-      await this.flushTelemetryHandoffs();
-      await this.handoffLifecycle(computed.lifecycleEvents);
-      return;
-    }
-
     let results: AutomationExecutionFixtureResultV1[];
     try {
       results = validateTerminalResults(changed, await this.options.execute(changed));
@@ -724,9 +595,6 @@ export class ScheduleRuntime {
           next.currentByFixture[result.fixtureId] = result.brightnessPercent;
           if (result.status === "succeeded") {
             next.lastDesiredByFixture[result.fixtureId] = result.brightnessPercent;
-          }
-          if (result.status === "succeeded" && action.sourceType === "current" && !hasActiveSource(next, result.fixtureId)) {
-            delete next.baseBrightnessByFixture[result.fixtureId];
           }
         }
         this.appendTelemetryHandoff(next, terminalTelemetryRecords({
@@ -807,9 +675,7 @@ export class ScheduleRuntime {
     this.activationCheckpoint = {
       snapshot: this.snapshot ? structuredClone(this.snapshot) : null,
       state: this.state(),
-      vehicleHoldDeadlines: this.vehicleRuntime.checkpoint(),
-      manualOverrideDeadlines: [...this.manualOverrideDeadlines],
-      recoveredManualPendingTrust: [...this.recoveredManualPendingTrust]
+      vehicleHoldDeadlines: this.vehicleRuntime.checkpoint()
     };
     this.activationSettled = new Promise<void>((resolve) => { this.settleActivation = resolve; });
   }
@@ -852,52 +718,10 @@ function sameTransition(
     previous.sourceId === action.sourceId && previous.occurrenceKey === action.occurrenceKey;
 }
 
-function replaceMap<K, V>(target: Map<K, V>, source: Map<K, V>) {
-  target.clear();
-  for (const [key, value] of source) target.set(key, value);
-}
-
-function replaceSet<T>(target: Set<T>, source: Set<T>) {
-  target.clear();
-  for (const value of source) target.add(value);
-}
-
 export class ScheduleRuntimeError extends Error {
-  constructor(readonly code:
-    | "automation_current_state_unavailable"
-    | "manual_override_expired"
-    | "legacy_timing_unverifiable") {
+  constructor(readonly code: "automation_current_state_unavailable") {
     super(code);
     this.name = "ScheduleRuntimeError";
-  }
-}
-
-function reconcileManualOverrides(
-  state: PersistedAutomationStateV4,
-  now: Date,
-  monotonicNow: number,
-  trusted: boolean,
-  deadlines: Map<string, number>,
-  recoveredPendingTrust: Set<string>
-) {
-  for (const [fixtureId, override] of Object.entries(state.manualOverrides)) {
-    let deadline = deadlines.get(fixtureId);
-    if (deadline === undefined && trusted) {
-      const remaining = Date.parse(override.overrideUntil) - now.getTime();
-      if (remaining <= 0) {
-        delete state.manualOverrides[fixtureId];
-        recoveredPendingTrust.delete(fixtureId);
-        continue;
-      }
-      deadline = monotonicNow + remaining;
-      deadlines.set(fixtureId, deadline);
-      recoveredPendingTrust.delete(fixtureId);
-    }
-    if (deadline !== undefined && monotonicNow >= deadline) {
-      delete state.manualOverrides[fixtureId];
-      deadlines.delete(fixtureId);
-      recoveredPendingTrust.delete(fixtureId);
-    }
   }
 }
 
@@ -957,6 +781,58 @@ function reconcileSchedules(
   return events;
 }
 
+function settleManualControl(
+  state: PersistedAutomationStateV4,
+  fixtureId: string,
+  sourceId: string,
+  result: AutomationExecutionFixtureResultV1
+) {
+  const manual = state.pendingManualControls[fixtureId];
+  if (manual?.sourceId !== sourceId) return;
+  state.transitionsByFixture[fixtureId] = {
+    phase: "terminal", brightnessPercent: manual.brightnessPercent,
+    sourceType: "manual_override", sourceId, occurrenceKey: null,
+    attempt: state.transitionsByFixture[fixtureId]?.attempt ?? 1,
+    startedAt: manual.requestedAt, status: result.status, terminalAt: result.occurredAt
+  };
+  if (result.status === "succeeded" && result.brightnessPercent !== null) {
+    state.currentByFixture[fixtureId] = result.brightnessPercent;
+    state.lastDesiredByFixture[fixtureId] = result.brightnessPercent;
+    state.baseBrightnessByFixture[fixtureId] = result.brightnessPercent;
+    delete state.unverifiedDesiredByFixture[fixtureId];
+    const schedules = Object.entries(state.activeOccurrences)
+      .filter(([, occurrence]) => Object.hasOwn(occurrence.preBrightness, fixtureId))
+      .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+      .map(([scheduleId, occurrence]) => ({ scheduleId, occurrenceKey: occurrence.key }));
+    const vehicleEvents = Object.entries(state.vehicleRules)
+      .filter(([, vehicle]) => vehicle.targetFixtureIds.includes(fixtureId))
+      .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+      .map(([ruleId, vehicle]) => ({ ruleId, startedAt: vehicle.startedAt }));
+    if (schedules.length || vehicleEvents.length) {
+      state.manualAutomationSuppressions[fixtureId] = {
+        sourceId, appliedAt: result.occurredAt, schedules, vehicleEvents
+      };
+    } else delete state.manualAutomationSuppressions[fixtureId];
+  }
+  delete state.pendingManualControls[fixtureId];
+}
+
+function pruneManualSuppressions(state: PersistedAutomationStateV4, snapshot: AutomationSnapshotV1) {
+  for (const [fixtureId, suppression] of Object.entries(state.manualAutomationSuppressions)) {
+    suppression.schedules = suppression.schedules.filter((identity) =>
+      state.activeOccurrences[identity.scheduleId]?.key === identity.occurrenceKey &&
+      snapshot.schedules.some((schedule) => schedule.id === identity.scheduleId && schedule.fixtureIds.includes(fixtureId))
+    );
+    suppression.vehicleEvents = suppression.vehicleEvents.filter((identity) => {
+      const vehicle = state.vehicleRules[identity.ruleId];
+      return vehicle?.startedAt === identity.startedAt && vehicle.targetFixtureIds.includes(fixtureId);
+    });
+    if (!suppression.schedules.length && !suppression.vehicleEvents.length) {
+      delete state.manualAutomationSuppressions[fixtureId];
+    }
+  }
+}
+
 function scheduleLifecycle(
   kind: "schedule_started" | "schedule_ended",
   ruleId: string,
@@ -991,24 +867,25 @@ function tagLifecycleRevision(
   };
 }
 
-function activeScheduleCandidate(
+function activeScheduleCandidates(
   snapshot: AutomationSnapshotV1,
   state: PersistedAutomationStateV4,
   fixtureId: string
 ) {
+  const candidates = [];
   for (const [scheduleId, occurrence] of Object.entries(state.activeOccurrences)) {
     const schedule = snapshot.schedules.find((candidate) =>
       candidate.id === scheduleId && candidate.fixtureIds.includes(fixtureId)
     );
     if (schedule) {
-      return {
+      candidates.push({
         sourceId: scheduleId,
         occurrenceKey: occurrence.key,
         brightness: actionBrightness(schedule)
-      };
+      });
     }
   }
-  return null;
+  return candidates;
 }
 
 function actionBrightness(rule: LightingScheduleSnapshotV1 | VehicleEventRuleSnapshotV1) {
@@ -1030,21 +907,11 @@ function relevantFixtures(snapshot: AutomationSnapshotV1, state: PersistedAutoma
     ...Object.keys(state.baseBrightnessByFixture),
     ...Object.keys(state.lastDesiredByFixture),
     ...Object.keys(state.unverifiedDesiredByFixture),
-    ...Object.keys(state.manualOverrides),
+    ...Object.keys(state.pendingManualControls),
     ...snapshot.schedules.flatMap((schedule) => schedule.fixtureIds),
     ...Object.values(state.vehicleRules).flatMap((vehicle) => vehicle.targetFixtureIds)
   ]);
   return [...fixtures].sort();
-}
-
-function hasActiveSource(state: PersistedAutomationStateV4, fixtureId: string) {
-  if (state.manualOverrides[fixtureId]) return true;
-  return hasActiveAutomaticSource(state, fixtureId);
-}
-
-function hasActiveAutomaticSource(state: PersistedAutomationStateV4, fixtureId: string) {
-  if (Object.values(state.activeOccurrences).some((occurrence) => occurrence.preBrightness[fixtureId] !== undefined)) return true;
-  return Object.values(state.vehicleRules).some((vehicle) => vehicle.targetFixtureIds.includes(fixtureId));
 }
 
 function toAction(fixtureId: string, resolved: ResolvedLightingState): DesiredLightingAction {
@@ -1092,21 +959,12 @@ function sanitizeErrorCode(value: string) {
   return sanitized || "automation_mesh_execution_failed";
 }
 
-function validateManualOverride(input: ManualOverrideInput) {
+function validateManualControl(input: ManualControlInput) {
   validateBrightness(input.brightnessPercent);
   if (input.fixtureIds.length === 0 || new Set(input.fixtureIds).size !== input.fixtureIds.length) {
-    throw new Error("manual override fixtures must be non-empty and unique");
+    throw new Error("manual control fixtures must be non-empty and unique");
   }
-  if (Date.parse(input.startedAt) >= Date.parse(input.overrideUntil)) {
-    throw new Error("manual override must end after it starts");
-  }
-  if (!Number.isSafeInteger(input.deliveryWindowMs) || input.deliveryWindowMs <= 0) {
-    throw new Error("manual override delivery window must be a positive safe integer");
-  }
-  if (input.overrideRemainingMs !== undefined &&
-    (!Number.isSafeInteger(input.overrideRemainingMs) || input.overrideRemainingMs <= 0)) {
-    throw new Error("manual override remaining duration must be a positive safe integer");
-  }
+  if (!Number.isFinite(Date.parse(input.requestedAt))) throw new Error("invalid manual request timestamp");
 }
 
 function validateBrightness(value: number) {

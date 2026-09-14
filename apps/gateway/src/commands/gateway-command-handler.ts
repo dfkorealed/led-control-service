@@ -45,7 +45,7 @@ export interface GatewayFixtureObservation {
   mode?: "sensor" | "force-off" | "force-on";
 }
 
-export interface ManualOverrideCoordinator {
+export interface ManualControlCoordinator {
   prepare(command: GatewayDimmingCommandV2Compatible, receipt?: GatewayCommandReceipt): Promise<void>;
   handoff(command: GatewayDimmingCommandV2Compatible, terminal: DeviceStatusAckV2): Promise<void>;
 }
@@ -76,7 +76,7 @@ export interface GatewayCommandOptions {
   groupQueue?: Pick<KeyedSerialTaskQueue, "run">;
   beforeExecution?: () => Promise<void>;
   isCommandExpired?: (expiresAt: string) => Promise<boolean> | boolean;
-  automation?: ManualOverrideCoordinator;
+  automation?: ManualControlCoordinator;
   onAutomationError?: (error: unknown) => void;
   receipt?: GatewayCommandReceipt;
   monotonicClock?: () => number;
@@ -115,12 +115,11 @@ export function handleGatewayDimmingCommand(
 
 export async function recoverPendingManualAutomationHandoffs(
   journal: ManualAutomationRecoveryJournal,
-  automation: ManualOverrideCoordinator
+  automation: ManualControlCoordinator
 ) {
   for (const recovery of await journal.pendingAutomationRecoveries()) {
     const wrapper = recovery.command as { command?: unknown };
     const command = gatewayDimmingCommandV2CompatibilitySchema.parse(wrapper.command);
-    if (!command.overrideUntil) continue;
     const result = recovery.state === "completed"
       ? recovery.result as GatewayCommandResult
       : createIndeterminateResult(command);
@@ -219,10 +218,8 @@ async function executeGatewayDimmingCommand(
   let observedFixtureIds: string[] = [];
   let fixtureObservations: GatewayFixtureObservation[] = [];
   try {
-    if (command.overrideUntil) {
-      if (options.receipt) await options.automation?.prepare(command, options.receipt);
-      else await options.automation?.prepare(command);
-    }
+    if (options.receipt) await options.automation?.prepare(command, options.receipt);
+    else await options.automation?.prepare(command);
     // Automation persistence can consume the last part of the broker delivery window.
     if (await commandExpired(command.expiresAt, options)) {
       return rejectExpiredCommand(journal, command, true, options);
@@ -319,7 +316,7 @@ async function completeWithAutomationHandoff(
   result: GatewayCommandResult,
   options: GatewayCommandOptions
 ) {
-  const pending = Boolean(command.overrideUntil && options.automation);
+  const pending = Boolean(options.automation);
   await journal.complete(command.idempotencyKey, result, { automationHandoffPending: pending });
   if (pending) await replayAutomationHandoff(journal, command, result, options);
 }
@@ -330,7 +327,7 @@ async function replayAutomationHandoff(
   result: GatewayCommandResult,
   options: GatewayCommandOptions
 ) {
-  if (!command.overrideUntil || !options.automation) return;
+  if (!options.automation) return;
   try {
     await options.automation.handoff(command, result.deviceStatus);
     await journal.markAutomationHandoffComplete?.(command.idempotencyKey);

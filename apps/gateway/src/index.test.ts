@@ -15,7 +15,7 @@ import {
   executeAutomationWithBestEffortTelemetry,
   gatewayDeferredPubackTopics,
   enqueueAutomationFixtureStates,
-  createManualOverrideCoordinator,
+  createManualControlCoordinator,
   enqueueFixturePresence,
   createFixturePresencePublisher,
   createFixtureStatusPublisher,
@@ -769,12 +769,12 @@ describe("startGatewayRuntime", () => {
     }
   });
 
-  it("keeps new-generation timing metadata strict while mapping terminal results", async () => {
+  it("passes only manual intent to runtime while mapping terminal results", async () => {
     const scheduleRuntime = {
-      prepareManualOverride: vi.fn().mockResolvedValue(undefined),
+      prepareManualControl: vi.fn().mockResolvedValue(undefined),
       handoffManualTerminal: vi.fn().mockResolvedValue(undefined)
     };
-    const coordinator = createManualOverrideCoordinator(scheduleRuntime);
+    const coordinator = createManualControlCoordinator(scheduleRuntime);
     const command = {
       commandId: "11111111-1111-4111-8111-111111111111",
       targetFixtureIds: [scopedFixtureId],
@@ -797,14 +797,11 @@ describe("startGatewayRuntime", () => {
       results: [{ fixtureId: scopedFixtureId, status: "timed_out", errorMessage: "private adapter detail" }]
     } as never);
 
-    expect(scheduleRuntime.prepareManualOverride).toHaveBeenCalledWith({
+    expect(scheduleRuntime.prepareManualControl).toHaveBeenCalledWith({
       sourceId: "11111111-1111-4111-8111-111111111111",
       fixtureIds: [scopedFixtureId],
       brightnessPercent: 60,
-      startedAt: "2026-08-30T01:00:00.000Z",
-      overrideUntil: "2026-08-30T02:00:00.000Z",
-      deliveryWindowMs: 7_000,
-      overrideRemainingMs: 3_597_000
+      requestedAt: "2026-08-30T01:00:00.000Z"
     });
     expect(scheduleRuntime.handoffManualTerminal).toHaveBeenCalledWith(
       "11111111-1111-4111-8111-111111111111",
@@ -819,12 +816,12 @@ describe("startGatewayRuntime", () => {
     );
   });
 
-  it("marks a legacy timed wire without inventing absolute remaining metadata", async () => {
+  it("passes legacy wire intent without expiry metadata to runtime", async () => {
     const scheduleRuntime = {
-      prepareManualOverride: vi.fn().mockResolvedValue(undefined),
+      prepareManualControl: vi.fn().mockResolvedValue(undefined),
       handoffManualTerminal: vi.fn().mockResolvedValue(undefined)
     };
-    const coordinator = createManualOverrideCoordinator(scheduleRuntime, () => 5_000);
+    const coordinator = createManualControlCoordinator(scheduleRuntime);
     const command = {
       ...timedGatewayCommand(),
       requestedAt: "2026-08-30T01:00:00.000Z",
@@ -837,21 +834,18 @@ describe("startGatewayRuntime", () => {
       brokerRemainingTtlMs: 7_000
     });
 
-    expect(scheduleRuntime.prepareManualOverride).toHaveBeenCalledWith({
+    expect(scheduleRuntime.prepareManualControl).toHaveBeenCalledWith({
       sourceId: command.commandId,
       fixtureIds: command.targetFixtureIds,
       brightnessPercent: command.brightness,
-      startedAt: command.requestedAt,
-      overrideUntil: command.overrideUntil,
-      deliveryWindowMs: 7_000,
-      timingSource: "legacy_wire"
+      requestedAt: command.requestedAt
     });
   });
 
   it.each([
     ["one hour", "2026-08-30T02:00:00.000Z"],
     ["30 days", "2026-09-29T01:00:00.000Z"]
-  ])("rejects an old-publisher %s timed wire on an untrusted Gateway without RF", async (_case, overrideUntil) => {
+  ])("applies an old-publisher %s wire as manual intent on an untrusted Gateway", async (_case, overrideUntil) => {
     const directory = await mkdtemp(join(tmpdir(), "gateway-untrusted-legacy-wire-"));
     try {
       const stateStore = new FileAutomationStateStore(join(directory, "state.json"));
@@ -875,7 +869,9 @@ describe("startGatewayRuntime", () => {
         overrideUntil,
         expiresAt: "2026-08-30T01:00:10.000Z"
       };
-      const setBrightness = vi.fn();
+      const setBrightness = vi.fn(async (fixtureIds: string[], brightness: number) => fixtureIds.map((fixtureId) => ({
+        fixtureId, acknowledged: true, brightness, rssi: null, hopCount: null
+      })));
 
       const result = await handleGatewayDimmingCommand(
         { setBrightness } as never,
@@ -883,7 +879,7 @@ describe("startGatewayRuntime", () => {
         command,
         undefined,
         {
-          automation: createManualOverrideCoordinator(services.scheduleRuntime, () => 5_000),
+          automation: createManualControlCoordinator(services.scheduleRuntime),
           receipt: {
             receivedAtMonotonicMs: 5_000,
             brokerRemainingTtlMs: 10_000
@@ -893,16 +889,10 @@ describe("startGatewayRuntime", () => {
         }
       );
 
-      expect(setBrightness).not.toHaveBeenCalled();
-      expect(result.deviceStatus).toMatchObject({
-        status: "failed",
-        results: [{
-          fixtureId: scopedFixtureId,
-          status: "failed",
-          errorMessage: "legacy_timing_unverifiable"
-        }]
-      });
-      expect(services.scheduleRuntime.state().manualOverrides).toEqual({});
+      expect(setBrightness).toHaveBeenCalledWith([scopedFixtureId], 60);
+      expect(result.deviceStatus.status).toBe("succeeded");
+      expect(services.scheduleRuntime.state().pendingManualControls).toEqual({});
+      expect(services.scheduleRuntime.state().baseBrightnessByFixture[scopedFixtureId]).toBe(60);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
@@ -961,7 +951,7 @@ describe("startGatewayRuntime", () => {
         command as never,
         undefined,
         {
-          automation: createManualOverrideCoordinator(services.scheduleRuntime, () => 5_000),
+          automation: createManualControlCoordinator(services.scheduleRuntime),
           receipt: {
             receivedAtMonotonicMs: 5_000,
             brokerRemainingTtlMs: 10_000
@@ -973,10 +963,8 @@ describe("startGatewayRuntime", () => {
 
       expect(setBrightness).toHaveBeenCalledWith([scopedFixtureId], 60);
       expect(result.deviceStatus.status).toBe("succeeded");
-      expect(services.scheduleRuntime.state().manualOverrides[scopedFixtureId]).toMatchObject({
-        brightnessPercent: 60,
-        overrideUntil
-      });
+      expect(services.scheduleRuntime.state().pendingManualControls).toEqual({});
+      expect(services.scheduleRuntime.state().baseBrightnessByFixture[scopedFixtureId]).toBe(60);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
@@ -1000,7 +988,7 @@ describe("startGatewayRuntime", () => {
         execute: vi.fn()
       });
       await services.scheduleRuntime.initialize();
-      const command = timedGatewayCommand();
+      const command = baselineGatewayCommand();
       const adapter = {
         applyUnicast: async (targetFixtureId: string, brightness: number) => ({
           fixtureId: targetFixtureId,
@@ -1020,7 +1008,7 @@ describe("startGatewayRuntime", () => {
         command,
         undefined,
         {
-          automation: createManualOverrideCoordinator(services.scheduleRuntime, () => 5_000),
+          automation: createManualControlCoordinator(services.scheduleRuntime),
           receipt: { receivedAtMonotonicMs: 5_000, brokerRemainingTtlMs: 10_000 },
           monotonicClock: () => 5_000,
           isCommandExpired: () => false
@@ -1038,7 +1026,7 @@ describe("startGatewayRuntime", () => {
     }
   });
 
-  it("initializes the real snapshot runtime before replaying a pending manual terminal handoff", async () => {
+  it.each(["accepted", "completed"] as const)("converges %s no-expiry manual journal state after snapshot initialization", async (recoveryState) => {
     const directory = await mkdtemp(join(tmpdir(), "gateway-manual-recovery-order-"));
     try {
       const stateStore = new FileAutomationStateStore(join(directory, "state.json"));
@@ -1047,11 +1035,10 @@ describe("startGatewayRuntime", () => {
         state.currentByFixture[scopedFixtureId] = 20;
         state.baseBrightnessByFixture[scopedFixtureId] = 20;
         state.lastDesiredByFixture[scopedFixtureId] = 20;
-        state.manualOverrides[scopedFixtureId] = {
+        state.pendingManualControls[scopedFixtureId] = {
           sourceId: "11111111-1111-4111-8111-111111111111",
           brightnessPercent: 60,
-          startedAt: "2026-08-30T01:00:00.000Z",
-          overrideUntil: "2026-08-30T02:00:00.000Z",
+          requestedAt: "2026-08-30T01:00:00.000Z",
           preBrightness: 20
         };
         state.transitionsByFixture[scopedFixtureId] = {
@@ -1084,18 +1071,18 @@ describe("startGatewayRuntime", () => {
         onTerminalResults: terminalHandoff
       });
       await services.scheduleRuntime.initialize();
-      const command = timedGatewayCommand();
+      const command = baselineGatewayCommand();
       const journal = {
         pendingAutomationRecoveries: async () => [{
           idempotencyKey: command.idempotencyKey,
-          state: "completed" as const,
+          state: recoveryState,
           command: { command },
           result: successfulGatewayCommandResult(command)
         }],
         complete: vi.fn(),
         markAutomationHandoffComplete: vi.fn().mockResolvedValue(undefined)
       };
-      const coordinator = createManualOverrideCoordinator(services.scheduleRuntime);
+      const coordinator = createManualControlCoordinator(services.scheduleRuntime);
 
       await initializeAutomationBeforeManualRecovery(
         services.automationRuntime,
@@ -1105,6 +1092,9 @@ describe("startGatewayRuntime", () => {
       expect(services.automationRuntime.currentRevision).toBe(1);
       expect(terminalHandoff).toHaveBeenCalledWith(expect.objectContaining({ revision: 1 }));
       expect(journal.markAutomationHandoffComplete).toHaveBeenCalledWith(command.idempotencyKey);
+      expect(stateStore.read().pendingManualControls).toEqual({});
+      expect(stateStore.read().baseBrightnessByFixture[scopedFixtureId]).toBe(recoveryState === "completed" ? 60 : 20);
+      expect(stateStore.read().transitionsByFixture[scopedFixtureId]?.status).toBe(recoveryState === "completed" ? "succeeded" : "timed_out");
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
@@ -1999,7 +1989,18 @@ function timedGatewayCommand() {
   };
 }
 
-function successfulGatewayCommandResult(command: ReturnType<typeof timedGatewayCommand>) {
+function baselineGatewayCommand() {
+  const { overrideUntil: _legacyExpiry, ...command } = timedGatewayCommand();
+  return {
+    ...command,
+    expiresAt: "2026-08-30T01:00:10.000Z",
+    deliveryGeneration: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    deliveryGeneratedAt: "2026-08-30T01:00:00.000Z",
+    deliveryWindowMs: 10_000
+  };
+}
+
+function successfulGatewayCommandResult(command: Omit<ReturnType<typeof timedGatewayCommand>, "overrideUntil">) {
   return {
     acceptance: {
       commandId: command.commandId,

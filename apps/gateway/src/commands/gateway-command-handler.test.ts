@@ -55,14 +55,14 @@ describe("handleGatewayDimmingCommand", () => {
     expect(adapter.commands).toHaveLength(1);
   });
 
-  it("durably prepares a timed manual override before RF and hands off its terminal fixture results once", async () => {
+  it.each([false, true])("durably prepares manual control before RF and hands off once (legacy expiry: %s)", async (legacy) => {
     const events: string[] = [];
     const adapter = new StubBleMeshAdapter();
     const automation = {
       prepare: vi.fn(async () => { events.push("prepared"); }),
       handoff: vi.fn(async () => { events.push("handoff"); })
     };
-    const timed = { ...command, overrideUntil: new Date(Date.now() + 3_600_000).toISOString() };
+    const timed = legacy ? { ...command, overrideUntil: new Date(Date.now() + 3_600_000).toISOString() } : command;
     const records = new Map<string, any>();
 
     const first = await handleGatewayDimmingCommand(
@@ -164,8 +164,8 @@ describe("handleGatewayDimmingCommand", () => {
     });
   });
 
-  it("replays accepted-only manual preparation during startup without waiting for broker redelivery", async () => {
-    const timed = { ...command, overrideUntil: new Date(Date.now() + 3_600_000).toISOString() };
+  it.each([false, true])("replays accepted manual preparation without broker redelivery (legacy expiry: %s)", async (legacy) => {
+    const timed = legacy ? { ...command, overrideUntil: new Date(Date.now() + 3_600_000).toISOString() } : command;
     const completed: unknown[] = [];
     const marked: string[] = [];
     const journal = {
