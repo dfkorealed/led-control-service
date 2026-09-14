@@ -95,7 +95,7 @@ export class CommandsService {
       return await this.prisma.$transaction(async (tx) => {
         await this.automationSnapshot.lockMutation(tx);
         await this.siteAccess.assertControlInTransaction(tx, user, input.siteId);
-        const existing = await this.findIdempotentCommand(tx, user, input, requestFingerprint);
+        const existing = await this.findIdempotentCommand(tx, user, input);
         if (existing) return existing;
 
         const now = this.clock.now();
@@ -217,7 +217,7 @@ export class CommandsService {
       return this.prisma.$transaction(async (tx) => {
         await this.automationSnapshot.lockMutation(tx);
         await this.siteAccess.assertControlInTransaction(tx, user, input.siteId);
-        const existing = await this.findIdempotentCommand(tx, user, input, requestFingerprint);
+        const existing = await this.findIdempotentCommand(tx, user, input);
         if (!existing) throw error;
         return existing;
       });
@@ -251,8 +251,7 @@ export class CommandsService {
   private async findIdempotentCommand(
     tx: Prisma.TransactionClient,
     user: AuthenticatedUser,
-    input: CreateDimmingCommandInput,
-    requestFingerprint: string
+    input: CreateDimmingCommandInput
   ) {
     const existing = await tx.command.findUnique({
       where: {
@@ -265,14 +264,10 @@ export class CommandsService {
       include: idempotentCommandInclude
     });
     if (!existing) return null;
-    // Rows created by the retired timed API hashed a nullable/explicit expiry.
-    // Recover them from the stored audit value while all new requests hash only target and brightness.
-    const matchesLegacyFingerprint = existing.requestFingerprint === createLegacyRequestFingerprint(
-      input.target,
-      input.brightness,
-      existing.manualOverride?.overrideUntil
-    );
-    if (existing.requestFingerprint !== requestFingerprint && !matchesLegacyFingerprint) {
+    // Retired clients hashed the raw optional expiry, whose lexical precision cannot
+    // be reconstructed from PostgreSQL TIMESTAMP(3). The persisted Command columns
+    // are the canonical idempotency boundary across both historical and new rows.
+    if (!matchesStoredRequest(existing, input.target, input.brightness)) {
       throw new ConflictException({ code: "client_request_id_payload_conflict" });
     }
     return this.toCreateResponse(existing);
@@ -489,14 +484,6 @@ function createRequestFingerprint(target: DimmingTarget, brightness: number) {
   return createFingerprint(target, brightness);
 }
 
-function createLegacyRequestFingerprint(target: DimmingTarget, brightness: number, overrideUntil?: Date | null) {
-  return createHash("sha256").update(JSON.stringify({
-    target: canonicalizeTarget(target),
-    brightness,
-    overrideUntil: overrideUntil?.toISOString() ?? null
-  })).digest("hex");
-}
-
 function createFingerprint(target: DimmingTarget, brightness: number) {
   return createHash("sha256").update(JSON.stringify({
     target: canonicalizeTarget(target),
@@ -512,6 +499,20 @@ function canonicalizeTarget(target: DimmingTarget) {
       : target.type === "floor"
         ? [target.type, target.floorId]
         : [target.type, target.groupId];
+}
+
+function matchesStoredRequest(command: IdempotentCommand, target: DimmingTarget, brightness: number) {
+  if (command.brightness !== brightness || command.targetType !== target.type) return false;
+  if (target.type === "fixture") return command.targetId === target.fixtureId;
+  if (target.type === "floor") return command.targetId === target.floorId;
+  if (target.type === "group") return command.targetId === target.groupId;
+
+  const storedFixtureIds = Array.isArray(command.targetFixtureIds)
+    ? command.targetFixtureIds.filter((fixtureId): fixtureId is string => typeof fixtureId === "string").sort()
+    : [];
+  const requestedFixtureIds = [...target.fixtureIds].sort();
+  return storedFixtureIds.length === requestedFixtureIds.length
+    && storedFixtureIds.every((fixtureId, index) => fixtureId === requestedFixtureIds[index]);
 }
 
 function isDeliveryMode(value: unknown): value is DeliveryMode {

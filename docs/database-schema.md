@@ -1108,7 +1108,7 @@ cloud가 ACK로 확인한 실제 group subscription pair snapshot이다. 복합 
 - `targetType`, `targetId`는 다형 대상 구조라 DB FK로 직접 강제하지 않는다. API는 사용자 입력을 그대로 신뢰하지 않고 같은 transaction 안에서 현장 소속 Fixture/Floor/FixtureGroup 관계를 다시 조회한다.
 - `targetFixtureIds`는 명령 생성 시점의 권위 있는 대상 snapshot이다. 이후 층이나 구역 구성이 변경돼도 이미 생성된 명령의 fixture별 결과 집합은 바뀌지 않는다.
 - MQTT command ACK 수신 시 `status`, `errorMessage`가 갱신된다.
-- `(siteId, requestedBy, clientRequestId)` unique는 동일 사용자·현장 요청의 중복 Command, Outbox, Gateway sequence 생성을 차단한다. 동일 ID에 다른 fingerprint가 오면 API는 conflict로 처리한다.
+- `(siteId, requestedBy, clientRequestId)` unique는 동일 사용자·현장 요청의 중복 Command, Outbox, Gateway sequence 생성을 차단한다. 현재 fingerprint는 안정 정렬 target·brightness만 해시한다. 과거 API는 optional expiry의 원문까지 해시했으므로 PostgreSQL `TIMESTAMP(3)`에서 원래 소수점 표기를 역산하지 않는다. Idempotent recovery는 저장된 `targetType`, `targetId`/`targetFixtureIds`, `brightness`를 canonical 요청과 비교하며, 동일 ID에 target 또는 brightness가 다르면 API는 conflict로 처리한다.
 - `ManualOverride.commandId`는 `Command.id`를 직접 참조하는 1:1 FK다. 사용자 영구 삭제로 요청자 값이 `NULL`이 되어도 수동 override와 명령 이력 관계는 유지된다.
 
 ### CommandDispatch / CommandFixtureResult / MqttOutbox

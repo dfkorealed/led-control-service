@@ -384,6 +384,77 @@ describe("CommandsService", () => {
     expect(tx.command.create).not.toHaveBeenCalled();
   });
 
+  it.each([
+    {
+      history: "omitted-expiry default",
+      requestFingerprint: "ebb97ca49953e447f57bf56e48c9f3db04c18e351d9cd0b01e7d5192fffa3fc0",
+      storedOverrideUntil: "2026-08-29T01:00:00.000Z"
+    },
+    {
+      history: "noncanonical fractional precision",
+      requestFingerprint: "2c3da047f757e65ab82b29951ea2ec8aec10647c74a9b97f0e52ab58ce275288",
+      storedOverrideUntil: "2026-08-29T01:00:00.100Z"
+    }
+  ])("recovers a historical $history command from stored command semantics", async ({
+    requestFingerprint,
+    storedOverrideUntil
+  }) => {
+    const clientRequestId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const { service, tx } = createHarness({
+      existingCommand: {
+        id: ids.command,
+        siteId: ids.site,
+        requestedBy: ids.user,
+        clientRequestId,
+        requestFingerprint,
+        targetType: "fixture",
+        targetId: ids.fixture1,
+        targetFixtureIds: [ids.fixture1],
+        brightness: 75,
+        createdAt: new Date("2026-07-01T00:00:00.000Z"),
+        manualOverride: { overrideUntil: new Date(storedOverrideUntil) },
+        dispatches: [{ deliveryMode: "unicast" }]
+      }
+    });
+
+    await expect(service.createDimmingCommand(operator, {
+      siteId: ids.site,
+      clientRequestId,
+      target: { type: "fixture", fixtureId: ids.fixture1 },
+      brightness: 75
+    })).resolves.toMatchObject({ id: ids.command, deliveryMode: "unicast" });
+    expect(tx.command.create).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["brightness", { target: { type: "fixture" as const, fixtureId: ids.fixture1 }, brightness: 74 }],
+    ["target", { target: { type: "fixture" as const, fixtureId: ids.fixture2 }, brightness: 75 }]
+  ])("rejects a historical request ID reused with different %s semantics", async (_difference, changed) => {
+    const clientRequestId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const { service } = createHarness({
+      existingCommand: {
+        id: ids.command,
+        siteId: ids.site,
+        requestedBy: ids.user,
+        clientRequestId,
+        requestFingerprint: "ebb97ca49953e447f57bf56e48c9f3db04c18e351d9cd0b01e7d5192fffa3fc0",
+        targetType: "fixture",
+        targetId: ids.fixture1,
+        targetFixtureIds: [ids.fixture1],
+        brightness: 75,
+        createdAt: new Date("2026-07-01T00:00:00.000Z"),
+        manualOverride: { overrideUntil: new Date("2026-08-29T01:00:00.000Z") },
+        dispatches: [{ deliveryMode: "unicast" }]
+      }
+    });
+
+    await expect(service.createDimmingCommand(operator, {
+      siteId: ids.site,
+      clientRequestId,
+      ...changed
+    })).rejects.toMatchObject({ response: { code: "client_request_id_payload_conflict" } });
+  });
+
   it("normalizes different legacy overrideUntil values to the same idempotent command", async () => {
     const { service, tx } = createHarness({ fixtures: [fixture(ids.fixture1)] });
     const canonicalInput = {
