@@ -29,6 +29,20 @@ export interface PersistedManualOverrideState {
   preBrightness: number;
 }
 
+export interface PersistedManualControlState {
+  sourceId: string;
+  brightnessPercent: number;
+  requestedAt: string;
+  preBrightness: number;
+}
+
+export interface PersistedManualAutomationSuppressionState {
+  sourceId: string;
+  appliedAt: string;
+  schedules: Array<{ scheduleId: string; occurrenceKey: string }>;
+  vehicleEvents: Array<{ ruleId: string; startedAt: string }>;
+}
+
 export interface PersistedVehicleRuleState {
   activeSourceFixtureIds: string[];
   targetFixtureIds: string[];
@@ -74,10 +88,11 @@ const MAX_VEHICLE_SENSOR_INBOX_SOURCES = 10_000;
 const MAX_RECENT_VEHICLE_SENSOR_BOOTS = 8;
 const MAX_AUTOMATION_STATE_BYTES = 64 * 1024 * 1024;
 
-export interface PersistedAutomationStateV4 {
-  schemaVersion: 5;
+export interface PersistedAutomationStateV6 {
+  schemaVersion: 6;
   activeOccurrences: Record<string, PersistedOccurrenceState>;
-  manualOverrides: Record<string, PersistedManualOverrideState>;
+  pendingManualControls: Record<string, PersistedManualControlState>;
+  manualAutomationSuppressions: Record<string, PersistedManualAutomationSuppressionState>;
   vehicleRules: Record<string, PersistedVehicleRuleState>;
   currentByFixture: Record<string, number>;
   baseBrightnessByFixture: Record<string, number>;
@@ -89,7 +104,9 @@ export interface PersistedAutomationStateV4 {
   vehicleSensorInbox: PersistedVehicleSensorInboxSource[];
 }
 
-export type PersistedAutomationStateV3 = PersistedAutomationStateV4;
+// Historical import names refer to the current in-memory schema; only the parser accepts older disk shapes.
+export type PersistedAutomationStateV4 = PersistedAutomationStateV6;
+export type PersistedAutomationStateV3 = PersistedAutomationStateV6;
 
 type StateWriter = (path: string, value: unknown) => Promise<void>;
 
@@ -624,9 +641,10 @@ function isEnospc(error: unknown): error is NodeJS.ErrnoException {
 
 export function emptyAutomationState(): PersistedAutomationStateV4 {
   return {
-    schemaVersion: 5,
+    schemaVersion: 6,
     activeOccurrences: {},
-    manualOverrides: {},
+    pendingManualControls: {},
+    manualAutomationSuppressions: {},
     vehicleRules: {},
     currentByFixture: {},
     baseBrightnessByFixture: {},
@@ -640,6 +658,28 @@ export function emptyAutomationState(): PersistedAutomationStateV4 {
 }
 
 export function parseAutomationState(value: unknown): PersistedAutomationStateV4 {
+  if (hasExactKeys(value, [
+    "schemaVersion", "activeOccurrences", "pendingManualControls", "manualAutomationSuppressions",
+    "vehicleRules", "currentByFixture", "baseBrightnessByFixture", "lastDesiredByFixture",
+    "unverifiedDesiredByFixture", "transitionsByFixture", "telemetryGap", "pendingTelemetryHandoffs",
+    "vehicleSensorInbox"
+  ]) && value.schemaVersion === 6) {
+    return {
+      schemaVersion: 6,
+      activeOccurrences: parseRecord(value.activeOccurrences, parseOccurrence),
+      pendingManualControls: parseFixtureRecord(value.pendingManualControls, parseManualControl),
+      manualAutomationSuppressions: parseFixtureRecord(value.manualAutomationSuppressions, parseManualSuppression),
+      vehicleRules: parseRecord(value.vehicleRules, parseVehicleRule),
+      currentByFixture: parseBrightnessRecord(value.currentByFixture),
+      baseBrightnessByFixture: parseBrightnessRecord(value.baseBrightnessByFixture),
+      lastDesiredByFixture: parseBrightnessRecord(value.lastDesiredByFixture),
+      unverifiedDesiredByFixture: parseBrightnessRecord(value.unverifiedDesiredByFixture),
+      transitionsByFixture: parseRecord(value.transitionsByFixture, parseTransition),
+      telemetryGap: parseTelemetryGap(value.telemetryGap),
+      pendingTelemetryHandoffs: parseTelemetryHandoffs(value.pendingTelemetryHandoffs),
+      vehicleSensorInbox: parseVehicleSensorInbox(value.vehicleSensorInbox)
+    };
+  }
   if (hasExactKeys(value, [
     "schemaVersion",
     "activeOccurrences",
@@ -774,10 +814,13 @@ function parseAutomationStateFields(
   pendingTelemetryHandoffs: PersistedAutomationTelemetryHandoff[],
   vehicleSensorInbox: PersistedVehicleSensorInboxSource[] = []
 ): PersistedAutomationStateV4 {
-  return {
-    schemaVersion: 5,
+  // Validate every legacy field before dropping timed overrides, including entries that cannot migrate.
+  const manualOverrides = parseRecord(value.manualOverrides, parseManualOverride);
+  const state: PersistedAutomationStateV6 = {
+    schemaVersion: 6,
     activeOccurrences: parseRecord(value.activeOccurrences, parseOccurrence),
-    manualOverrides: parseRecord(value.manualOverrides, parseManualOverride),
+    pendingManualControls: {},
+    manualAutomationSuppressions: {},
     vehicleRules: parseRecord(value.vehicleRules, parseVehicleRule),
     currentByFixture: parseBrightnessRecord(value.currentByFixture),
     baseBrightnessByFixture: parseBrightnessRecord(value.baseBrightnessByFixture),
@@ -788,6 +831,46 @@ function parseAutomationStateFields(
     pendingTelemetryHandoffs,
     vehicleSensorInbox
   };
+  return migrateV5ManualState(state, manualOverrides);
+}
+
+function migrateV5ManualState(
+  state: PersistedAutomationStateV6,
+  manualOverrides: Record<string, PersistedManualOverrideState>
+): PersistedAutomationStateV6 {
+  for (const [fixtureId, manual] of Object.entries(manualOverrides)) {
+    const transition = state.transitionsByFixture[fixtureId];
+    // A terminal from another source/request cannot establish that this manual command applied.
+    if (transition && (transition.sourceType !== "manual_override" || transition.sourceId !== manual.sourceId ||
+      transition.brightnessPercent !== manual.brightnessPercent)) continue;
+    if (transition?.phase === "pending") {
+      state.pendingManualControls[parseUuid(fixtureId)] = parseManualControl({
+        sourceId: manual.sourceId, brightnessPercent: manual.brightnessPercent,
+        requestedAt: manual.startedAt, preBrightness: manual.preBrightness
+      });
+      continue;
+    }
+    // Failure wins over coincidentally matching observations. Provisional preBrightness is never evidence.
+    if (transition && transition.status !== "succeeded") continue;
+    if (!transition && state.currentByFixture[fixtureId] !== manual.brightnessPercent &&
+      state.lastDesiredByFixture[fixtureId] !== manual.brightnessPercent) continue;
+    const schedules = Object.entries(state.activeOccurrences)
+      .filter(([, occurrence]) => Object.hasOwn(occurrence.preBrightness, fixtureId))
+      .map(([scheduleId, occurrence]) => ({ scheduleId, occurrenceKey: occurrence.key }))
+      .sort((left, right) => compareIdentity([left.scheduleId, left.occurrenceKey], [right.scheduleId, right.occurrenceKey]));
+    const vehicleEvents = Object.entries(state.vehicleRules)
+      .filter(([, rule]) => rule.targetFixtureIds.includes(fixtureId))
+      .map(([ruleId, rule]) => ({ ruleId, startedAt: rule.startedAt }))
+      .sort((left, right) => compareIdentity([left.ruleId, left.startedAt], [right.ruleId, right.startedAt]));
+    state.manualAutomationSuppressions[parseUuid(fixtureId)] = parseManualSuppression({
+      sourceId: manual.sourceId,
+      // Older observation-only state has no acknowledgement time; retain request time without consulting expiry.
+      appliedAt: transition?.terminalAt ?? manual.startedAt,
+      schedules, vehicleEvents
+    });
+    state.baseBrightnessByFixture[fixtureId] = manual.brightnessPercent;
+  }
+  return state;
 }
 
 function recordVehicleSensorReceipt(
@@ -1016,6 +1099,62 @@ function parseManualOverride(value: unknown): PersistedManualOverrideState {
     overrideUntil,
     preBrightness: parseBrightness(value.preBrightness)
   };
+}
+
+function parseManualControl(value: unknown): PersistedManualControlState {
+  if (!hasExactKeys(value, ["sourceId", "brightnessPercent", "requestedAt", "preBrightness"])) {
+    throw new Error("invalid manual control state");
+  }
+  return {
+    sourceId: parseUuid(value.sourceId), brightnessPercent: parseBrightness(value.brightnessPercent),
+    requestedAt: parseTimestamp(value.requestedAt), preBrightness: parseBrightness(value.preBrightness)
+  };
+}
+
+function parseManualSuppression(value: unknown): PersistedManualAutomationSuppressionState {
+  if (!hasExactKeys(value, ["sourceId", "appliedAt", "schedules", "vehicleEvents"])) {
+    throw new Error("invalid manual suppression state");
+  }
+  const schedules = parseSortedIdentities(value.schedules, (item) => {
+    if (!hasExactKeys(item, ["scheduleId", "occurrenceKey"])) throw new Error("invalid schedule suppression");
+    return { scheduleId: parseUuid(item.scheduleId), occurrenceKey: parseString(item.occurrenceKey) };
+  }, (item) => [item.scheduleId, item.occurrenceKey]);
+  const vehicleEvents = parseSortedIdentities(value.vehicleEvents, (item) => {
+    if (!hasExactKeys(item, ["ruleId", "startedAt"])) throw new Error("invalid vehicle suppression");
+    return { ruleId: parseUuid(item.ruleId), startedAt: parseTimestamp(item.startedAt) };
+  }, (item) => [item.ruleId, item.startedAt]);
+  return { sourceId: parseUuid(value.sourceId), appliedAt: parseTimestamp(value.appliedAt), schedules, vehicleEvents };
+}
+
+function compareIdentity(left: [string, string], right: [string, string]) {
+  for (let index = 0; index < 2; index += 1) {
+    if (left[index]! < right[index]!) return -1;
+    if (left[index]! > right[index]!) return 1;
+  }
+  return 0;
+}
+
+function parseSortedIdentities<T>(value: unknown, parse: (item: unknown) => T, identity: (item: T) => [string, string]): T[] {
+  if (!Array.isArray(value) || value.length > 10_000) throw new Error("invalid suppression identities");
+  const entries = value.map(parse);
+  if (entries.some((entry, index) => index > 0 && compareIdentity(identity(entries[index - 1]!), identity(entry)) >= 0)) {
+    throw new Error("suppression identities must be sorted and unique");
+  }
+  return entries;
+}
+
+function parseFixtureRecord<T>(value: unknown, parse: (entry: unknown) => T): Record<string, T> {
+  const result = parseRecord(value, parse);
+  Object.keys(result).forEach(parseUuid);
+  return result;
+}
+
+function parseUuid(value: unknown): string {
+  const id = parseString(value);
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
+    throw new Error("invalid UUID");
+  }
+  return id;
 }
 
 function parseVehicleRule(value: unknown): PersistedVehicleRuleState {
