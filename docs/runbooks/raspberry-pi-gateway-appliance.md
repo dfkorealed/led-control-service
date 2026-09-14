@@ -45,7 +45,7 @@ EXIT/SIGINT/SIGTERM/SIGHUP 또는 부분 create/start 실패는 exact candidate�
 
 SIGKILL/전원 손실로 남은 lock은 자동 복구 대상이 아니다. 승인된 운영자가 보호된 evidence의 label·exact ID, daemon 상태와 진행 중 launcher 부재를 확인하고 필요한 exact candidate 중지를 완료한 뒤에만 빈 lock 디렉터리를 `rmdir`로 해제한다. recursive 삭제·이름만으로 추정한 candidate 정리·old identity 자동 rollback은 금지한다. 모든 정상 검증이 끝날 때까지 lock을 유지하며 lock 해제 실패도 candidate를 정지시키고 실패로 보고한다.
 
-새 identity/gateway/mesh 세 mount 외에 old mesh, DBus, BlueZ/HCI, 전체 `/dev`/USB bus, systemd mount는 없다. BIO mapping은 새 mesh root의 `bio-device-mappings.json`이다. public cert/CSR/CA0644, private key/assignment0600 계약을 유지한다. timesync marker mount가 없어 schedule/event의 clock-trust는 fail-closed하며 이 절차를 자동화 제어 검증으로 확대하지 않는다.
+새 identity/gateway/mesh mount 외에 old mesh, DBus, BlueZ/HCI, 전체 `/dev`/USB bus는 없다. BIO mapping은 새 mesh root의 `bio-device-mappings.json`이다. public cert/CSR/CA0644, private key/assignment0600 계약을 유지한다. 자동화 엔진이 host NTP 동기화 상태를 확인할 수 있도록 `/run/systemd/timesync` 디렉터리만 같은 경로에 read-only bind한다. 전체 `/run/systemd` 또는 marker 파일 하나만 bind하지 않는다. 디렉터리 bind는 host가 marker inode를 교체해도 container가 최신 상태를 보게 하며, `create_host_path: false`는 잘못 준비된 host에서 빈 경로가 자동 생성되어 장애가 숨는 것을 막는다. host 또는 container에서 `synchronized` regular file이 보이지 않으면 schedule/event 경계는 계속 fail-closed한다.
 
 실제 baseline은 별도 승인 후 startup handshake/network query만 허용하고 scan/identify/address/brightness/sensor/reset은 보내지 않는다. BIO health의 transportConnected/protocolReady/mappingValid/MQTT/heartbeatFresh와 실제 새 Gateway DB heartbeat가 서로 다른 3회 증가하는지 확인한다. handshake 실패 시 새 container를 stop하고 추가 장비 명령 없이 보고한다. 이 소프트웨어 변경만으로 baseline/조명 HIL 완료를 기록하지 않는다.
 
@@ -295,6 +295,8 @@ docker exec led-control-gateway test -d /run/systemd/timesync
 docker exec led-control-gateway test -f /run/systemd/timesync/synchronized
 docker exec led-control-gateway stat -c '%a %U:%G %n' /var/lib/led-control/automation-state.json
 ```
+
+독립 BIO runtime은 위 명령의 container 이름만 `led-control-gateway-bio`로 바꿔 같은 항목을 확인한다. 스케줄 HIL 전에는 `automation-state.json`의 활성 manual override와 종료 시각도 확인한다. 활성 수동제어는 설계상 스케줄보다 우선하므로 이를 시간 동기화 장애로 오인하지 않는다. 상태 파일을 직접 편집하거나 삭제해 override를 해제하지 말고, 지정 종료 시각까지 기다리거나 서비스에서 종료 시각이 더 짧은 새 수동제어를 정상 전송한다.
 
 claim 전에는 `starting-unassigned`가 정상이다. claim 후 `healthy`는 선언값이 아니라 다음 실제 probe가 모두 통과하고 마지막 heartbeat publish가 `max(30초, GATEWAY_HEARTBEAT_MS x 3)` 이내일 때만 기록된다.
 

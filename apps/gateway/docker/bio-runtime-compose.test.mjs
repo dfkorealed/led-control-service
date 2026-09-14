@@ -16,7 +16,7 @@ function isolated(s){
  assert.equal(s.labels["io.led-control.bio.deployment"],"12345678901234567890123456789012");
  assert.deepEqual(s.entrypoint,["/bin/sh","-ec","umask 077; exec node /opt/led-control/gateway.mjs"]);
  assert.equal(s.environment.GATEWAY_ADAPTER,"bio-usb");assert.equal(s.environment.DEVICE_ADAPTER_TYPE,"bio-usb");
- assert.deepEqual(s.volumes.map(v=>[v.source,v.target]),[["/opt/led-control/gateway/data-admin4/gateway","/var/lib/led-control"],["/opt/led-control/gateway/data-admin4/identity","/var/lib/led-control/identity"],["/opt/led-control/gateway/data-admin4/mesh","/data/mesh"]]);
+ assert.deepEqual(s.volumes.map(v=>[v.source,v.target]),[["/opt/led-control/gateway/data-admin4/gateway","/var/lib/led-control"],["/opt/led-control/gateway/data-admin4/identity","/var/lib/led-control/identity"],["/opt/led-control/gateway/data-admin4/mesh","/data/mesh"],["/run/systemd/timesync","/run/systemd/timesync"]]);
  for(const v of s.volumes)assert.equal(v.bind.create_host_path,false);
  assert.equal(s.environment.GATEWAY_BIO_MAPPING_PATH,"/data/mesh/bio-device-mappings.json");
  assert(!Object.keys(s.environment).some(k=>/BLUEZ|DBUS|HCI/.test(k)));
@@ -32,6 +32,18 @@ test("legacy base+BIO merge retains HCI capabilities and fails the isolation gat
 test("standalone BIO rendered configuration has no inherited hardware privilege or old mount",()=>{
  const file=join(root,"gateway/compose.bio-runtime.yml");assert(existsSync(file),"standalone isolation configuration is required");
  const services=rendered(file);assert.deepEqual(Object.keys(services),["gateway-bio"]);isolated(services["gateway-bio"]);
+});
+test("standalone BIO runtime exposes only the host timesync directory as read-only",()=>{
+ const service=rendered(join(root,"gateway/compose.bio-runtime.yml"))["gateway-bio"];
+ const timesync=service.volumes.filter(volume=>volume.target.startsWith("/run/systemd"));
+
+ assert.deepEqual(timesync,[{
+  type:"bind",
+  source:"/run/systemd/timesync",
+  target:"/run/systemd/timesync",
+  read_only:true,
+  bind:{create_host_path:false}
+ }]);
 });
 test("legacy BIO deployment fails before attempting remote work",()=>{
  const r=spawnSync(join(root,"../scripts/gateway-appliance-deploy.sh"),["--adapter","bio-usb","forbidden@example.test","not-an-archive"],{encoding:"utf8"});

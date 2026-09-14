@@ -58,6 +58,22 @@ services:
         source: "${GATEWAY_BIO_DATA_ROOT}/mesh"
         target: /data/mesh
         bind: { create_host_path: false }
+      # Gateway 자동화 엔진은 wall-clock 스케줄을 실행하기 전에 host NTP 동기화
+      # 완료 표식(`/run/systemd/timesync/synchronized`)을 확인한다. BIO runtime은
+      # host network만 공유하므로 이 bind가 없으면 시계 자체가 정확해도 표식을
+      # 볼 수 없어 모든 schedule 시작을 fail-closed한다.
+      #
+      # marker 파일 하나가 아니라 상위 timesync 디렉터리를 bind하는 이유는 host가
+      # 재동기화할 때 marker inode를 새로 만들거나 교체해도 container가 최신 파일을
+      # 계속 보게 하기 위해서다. 전체 `/run/systemd`는 불필요한 host runtime 정보를
+      # 노출하므로 금지하고, 이 디렉터리만 read-only로 제공한다. host 경로가 없는
+      # 장비에서 Docker가 빈 디렉터리를 자동 생성하면 동기화 실패를 정상 상태처럼
+      # 숨길 수 있으므로 create_host_path도 반드시 false로 둔다.
+      - type: bind
+        source: /run/systemd/timesync
+        target: /run/systemd/timesync
+        read_only: true
+        bind: { create_host_path: false }
     healthcheck:
       test: [CMD, /usr/local/bin/gateway-healthcheck]
       interval: 5s
