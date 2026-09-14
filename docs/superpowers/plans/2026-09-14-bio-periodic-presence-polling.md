@@ -56,7 +56,7 @@
 - Produces: `fixturePresenceV2Schema`, `FixturePresenceV2`
 - Produces: `mqttTopicsV2.fixturePresence(siteId, gatewayId)`
 
-- [ ] **Step 1: Write failing contract and boundary tests**
+- [x] **Step 1: Write failing contract and boundary tests**
 
 Add literal assertions proving the topic, strict absence of output fields, and exact freshness boundary:
 
@@ -78,7 +78,7 @@ expect(FIXTURE_PRESENCE_POLL_INTERVAL_MS).toBe(600_000);
 expect(FIXTURE_OPERATIONAL_FRESHNESS_MS).toBe(1_200_000);
 ```
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run:
 
@@ -88,7 +88,7 @@ pnpm --filter @led-control/shared test -- gateway-contracts.test.ts freshness.te
 
 Expected: FAIL because the presence schema/topic and fixture constants are not exported.
 
-- [ ] **Step 3: Add the minimal shared implementation**
+- [x] **Step 3: Add the minimal shared implementation**
 
 Implement the constants and strict schema:
 
@@ -111,7 +111,7 @@ export const fixturePresenceV2Schema = orderedGatewayEventSchema.extend({
 
 Add the exact topic builder and exported inferred type.
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4: Verify GREEN**
 
 Run the Step 2 command, then:
 
@@ -122,7 +122,7 @@ pnpm --filter @led-control/shared build
 
 Expected: all commands exit 0.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/shared/src/gateway-contracts.ts packages/shared/src/gateway-contracts.test.ts packages/shared/src/freshness.ts packages/shared/src/freshness.test.ts
@@ -142,7 +142,7 @@ git commit -m "feat(shared): define fixture presence contract"
 - Produces: `BackgroundMeshResyncOptions.pollIntervalMs?: number`
 - Preserves: immediate `schedule()`, exponential retry, rerun coalescing, bounded shutdown
 
-- [ ] **Step 1: Write failing fake-timer tests**
+- [x] **Step 1: Write failing fake-timer tests**
 
 Add tests that observe real worker calls rather than timer internals:
 
@@ -168,7 +168,7 @@ it("runs again ten minutes after a successful pass without overlap", async () =>
 
 Add a second test that stops after a successful pass, advances 600,000ms, and asserts no new call. Add a validation test rejecting `pollIntervalMs` values `0`, `-1`, `1.5`, and `Number.MAX_SAFE_INTEGER + 1`.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 ```bash
 pnpm --filter @led-control/gateway test -- src/runtime/background-mesh-resync.test.ts
@@ -176,13 +176,13 @@ pnpm --filter @led-control/gateway test -- src/runtime/background-mesh-resync.te
 
 Expected: FAIL because a successful pass currently arms no regular timer.
 
-- [ ] **Step 3: Implement one non-overlapping regular timer**
+- [x] **Step 3: Implement one non-overlapping regular timer**
 
 Import the shared default, validate the constructor option, and add `pollTimer`. After a drain settles without a pending immediate rerun, call `armPoll()`; `armPoll()` calls `schedule()` once after the interval and uses `unref()`. `schedule()` clears an armed poll timer before starting immediate work so reconnect and manual resync reset the next regular deadline. `stopAndDrain()` clears retry and poll timers before aborting.
 
 Keep retry behavior authoritative for incomplete/error passes: a retry is armed immediately by existing backoff, while the regular poll is armed only after the next complete pass. Add a detailed comment explaining that fixed-delay scheduling prevents USB requests from overlapping when a pass itself is slow.
 
-- [ ] **Step 4: Verify GREEN and regression behavior**
+- [x] **Step 4: Verify GREEN and regression behavior**
 
 ```bash
 pnpm --filter @led-control/gateway test -- src/runtime/background-mesh-resync.test.ts src/automation/schedule-runtime.test.ts
@@ -190,7 +190,7 @@ pnpm --filter @led-control/gateway test -- src/runtime/background-mesh-resync.te
 
 Expected: existing retry/coalescing/shutdown tests and new 10-minute tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/gateway/src/runtime/background-mesh-resync.ts apps/gateway/src/runtime/background-mesh-resync.test.ts
@@ -212,7 +212,7 @@ git commit -m "feat(gateway): schedule ten minute fixture resync"
 - Consumes: `BioDongleClient.readBrightness(target, control)` and `readDeviceInfo(target, control)`
 - Produces: truthful `BleMeshResyncReport`
 
-- [ ] **Step 1: Write failing BIO resync tests**
+- [x] **Step 1: Write failing BIO resync tests**
 
 Extend the client fake with complete response shapes and add a success test:
 
@@ -245,7 +245,7 @@ Add independent tests for wrong UUID/address, brightness-only partial response, 
 
 Add targeted resync tests for all three modes: `sensor` emits presence but no lighting observation, `force-off` emits `{brightness: 0, powerOn: false}`, and `force-on` with a table-backed percent emits `{brightness: configuredBrightness, powerOn: true}`. A `force-on` response whose raw brightness has no table-backed percent must emit presence only. Assert `resyncLightingFixtures([fixtureId])` never queries an unrequested confirmed mapping.
 
-- [ ] **Step 2: Run the adapter test and verify RED**
+- [x] **Step 2: Run the adapter test and verify RED**
 
 ```bash
 pnpm --filter @led-control/gateway test -- src/adapters/bio-usb-dongle-adapter.test.ts
@@ -253,7 +253,7 @@ pnpm --filter @led-control/gateway test -- src/adapters/bio-usb-dongle-adapter.t
 
 Expected: FAIL because BIO resync returns `unobservedResync` and exposes no presence listener.
 
-- [ ] **Step 3: Implement the minimal serial poll**
+- [x] **Step 3: Implement the minimal serial poll**
 
 Add this adapter-side shape:
 
@@ -273,7 +273,7 @@ Add `readBrightness` and `readDeviceInfo` to `BioClientPort`, an async-capable l
 
 Factor the confirmed mapping loop so full and targeted resync share identity checks and GET ordering. Targeted resync also emits `BleMeshLightingObservation` only for exact `force-off` and table-backed `force-on`; sensor and unmapped raw brightness never become output observations. Reuse the codec-provided `brightnessPercent` rather than recalculating raw bytes. Add comments that sensor mode reports configured high brightness, not instantaneous LED output, and that the serial loop exists because the dongle has one global response correlation slot.
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4: Verify GREEN**
 
 ```bash
 pnpm --filter @led-control/gateway test -- src/adapters/bio-usb-dongle-adapter.test.ts src/bio/bio-dongle-client.test.ts
@@ -282,7 +282,7 @@ pnpm --filter @led-control/gateway typecheck
 
 Expected: tests and typecheck exit 0.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/gateway/src/gateway.ts apps/gateway/src/adapters/bio-usb-dongle-adapter.ts apps/gateway/src/adapters/bio-usb-dongle-adapter.test.ts
@@ -305,13 +305,13 @@ git commit -m "feat(gateway): observe BIO fixture presence"
 - Produces: `createFixturePresencePublisher(...)`
 - Preserves: existing state outbox JSON version 1 and application ACK deletion contract
 
-- [ ] **Step 1: Write failing outbox compatibility tests**
+- [x] **Step 1: Write failing outbox compatibility tests**
 
 Create one fixture-state and one fixture-presence event, enqueue both, recreate `StateEventOutbox` from the same temporary file, and assert the restored records retain their distinct topics in FIFO order. ACK the first event and assert only the second remains. Add a corrupt-record test whose presence payload is stored under the fixture-state topic and must fail initialization.
 
 Add an index publisher test with a literal presence input and assert the emitted payload has a generated UUID/sequence, `occurredAt=observedAt`, no `brightness`, no `powerOn`, and topic `mqttTopicsV2.fixturePresence(...)`.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 ```bash
 pnpm --filter @led-control/gateway test -- src/state/state-event-outbox.test.ts src/index.test.ts
@@ -319,7 +319,7 @@ pnpm --filter @led-control/gateway test -- src/state/state-event-outbox.test.ts 
 
 Expected: FAIL because the outbox parser only accepts `FixtureStateV2` and the Gateway has no presence publisher.
 
-- [ ] **Step 3: Generalize the outbox without weakening validation**
+- [x] **Step 3: Generalize the outbox without weakening validation**
 
 Define:
 
@@ -344,7 +344,7 @@ fixturePresenceV2Schema.parse({
 
 Add comments explaining why presence shares durability with state but never acquires state/energy semantics.
 
-- [ ] **Step 4: Verify GREEN and restart behavior**
+- [x] **Step 4: Verify GREEN and restart behavior**
 
 ```bash
 pnpm --filter @led-control/gateway test -- src/state/state-event-outbox.test.ts src/index.test.ts src/runtime/background-mesh-resync.test.ts
@@ -353,7 +353,7 @@ pnpm --filter @led-control/gateway build
 
 Expected: all commands exit 0.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/gateway/src/state/state-event-outbox.ts apps/gateway/src/state/state-event-outbox.test.ts apps/gateway/src/index.ts apps/gateway/src/index.test.ts
@@ -377,7 +377,7 @@ git commit -m "feat(gateway): persist BIO presence events"
 - Produces Fixture columns: `bioControlMode`, `bioConfiguredBrightness`, `bioRawHighBrightness`, `lastPresenceEventId`, `lastPresenceSequence`, `lastPresenceOccurredAt`
 - Preserves: output state and every energy checkpoint/aggregate
 
-- [ ] **Step 1: Write failing ingestion behavior tests**
+- [x] **Step 1: Write failing ingestion behavior tests**
 
 Seed a claimed Gateway, MeshNode, Fixture, and EnergyFixtureIdentity. Ingest a sensor presence at a fixed API receive time and assert:
 
@@ -402,7 +402,7 @@ expect(await prisma.fixtureEnergyHourlyAggregate.count()).toBe(0);
 
 Add tests for exact duplicate ACK, altered replay rejection, wrong gateway/site/fixture scope, stale sequence, reverse time, future timestamp, and restoration only from persisted `fixture_stale`/`gateway_offline`. Assert `command_failed`, fault and `provisioning_waiting_state` survive a successful presence.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 ```bash
 pnpm --filter @led-control/api exec jest src/fixtures/fixture-presence-ingestion.service.spec.ts src/fixtures/fixture-presence-ingestion.integration.spec.ts --runInBand
@@ -410,7 +410,7 @@ pnpm --filter @led-control/api exec jest src/fixtures/fixture-presence-ingestion
 
 Expected: FAIL because the Prisma fields and ingestion service do not exist.
 
-- [ ] **Step 3: Add migration and regenerate Prisma**
+- [x] **Step 3: Add migration and regenerate Prisma**
 
 The migration must:
 
@@ -433,13 +433,13 @@ Add named CHECK constraints for the three BIO value ranges and an all-null-or-al
 pnpm --filter @led-control/api prisma:generate
 ```
 
-- [ ] **Step 4: Implement presence-only transaction semantics**
+- [x] **Step 4: Implement presence-only transaction semantics**
 
 Use `fixturePresenceV2Schema`, `canonicalPayloadHash`, `gatewayEventIsTooFarInFuture`, and `compareAndAdvanceGatewayEvent` with `eventType: "fixture_presence"` and `scopeKey: fixtureId`. Lock the Site, Gateway, and Fixture in that order and verify the Fixture belongs to both wire scopes. Persist a `ProcessedGatewayEvent` row for accepted/rejected ordering outcomes.
 
 For accepted events, update only the six presence fields, `lastSeenAt`, `rssi`, `hopCount`, plus conditional restoration of freshness-produced offline state. Do not import or call energy aggregation helpers. Return the same `{eventId, sequence, fixtureId, status}` shape used by `applicationStateIngestedAckV2Schema`.
 
-- [ ] **Step 5: Verify GREEN and schema contract**
+- [x] **Step 5: Verify GREEN and schema contract**
 
 ```bash
 pnpm --filter @led-control/api exec jest src/fixtures/fixture-presence-ingestion.service.spec.ts src/fixtures/fixture-presence-ingestion.integration.spec.ts src/monitoring-incidents/monitoring-schema.integration.spec.ts --runInBand
@@ -448,7 +448,7 @@ pnpm --filter @led-control/api typecheck
 
 Expected: all commands exit 0 and existing state fields remain unchanged in the integration assertion.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/api/prisma/schema.prisma apps/api/prisma/migrations/20260918120000_bio_fixture_presence_polling apps/api/src/fixtures/fixture-presence-ingestion.service.ts apps/api/src/fixtures/fixture-presence-ingestion.service.spec.ts apps/api/src/fixtures/fixture-presence-ingestion.integration.spec.ts apps/api/src/monitoring-incidents/monitoring-schema.integration.spec.ts
@@ -471,7 +471,7 @@ git commit -m "feat(api): ingest BIO fixture presence"
 - Produces: QoS 1 DB-commit-before-PUBACK handling for both fixture state topics
 - Produces: existing `state-ingested` application ACK for presence
 
-- [ ] **Step 1: Write failing MQTT boundary tests**
+- [x] **Step 1: Write failing MQTT boundary tests**
 
 Add tests proving:
 
@@ -482,7 +482,7 @@ Add tests proving:
 5. wrong topic scope and forged suffix are rejected;
 6. the normal message listener does not execute presence ingestion a second time after custom ACK.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 ```bash
 pnpm --filter @led-control/api exec jest src/mqtt/mqtt.service.spec.ts src/mqtt/mqtt-v2-state.spec.ts src/mqtt/topic-scope.spec.ts --runInBand
@@ -490,7 +490,7 @@ pnpm --filter @led-control/api exec jest src/mqtt/mqtt.service.spec.ts src/mqtt/
 
 Expected: FAIL because presence is neither subscribed nor handled by the durable path.
 
-- [ ] **Step 3: Add one shared durable observation dispatcher**
+- [x] **Step 3: Add one shared durable observation dispatcher**
 
 Register `FixturePresenceIngestionService` in `mqtt.module.ts` and inject a narrow `Pick<..., "ingest">` into `MqttService`. Replace fixture-state-only suffix checks with an exact predicate:
 
@@ -500,11 +500,11 @@ function isDurableFixtureObservationTopic(topic: string) {
 }
 ```
 
-The custom ACK path must dispatch state topics to `FixtureStateIngestionService` and presence topics to `FixturePresenceIngestionService`, validate exact `parseGatewayTopic(...).channel`, publish the existing `applicationStateIngestedAckV2Schema`, and only then return broker success. Preserve per-Gateway inbound serialization and stream-close-on-transaction-failure behavior.
+The custom ACK path must dispatch state topics to `FixtureStateIngestionService` and presence topics to `FixturePresenceIngestionService`, validate exact `parseGatewayTopic(...).channel`, and commit the DB transaction before returning broker success. After `done(0)` releases MQTT.js's inbound parser, publish the existing `applicationStateIngestedAckV2Schema` asynchronously; do not await an outbound QoS 1 publish while the parser is still blocked on the inbound callback. Preserve per-Gateway inbound serialization and stream-close-on-transaction-failure behavior. If the process stops between broker PUBACK and application ACK, the Gateway retains the outbox record and retries it, while API deduplication absorbs the replay.
 
 Add detailed comments differentiating MQTT PUBACK from the application ACK and explaining why both event types share the same durable queue.
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4: Verify GREEN**
 
 ```bash
 pnpm --filter @led-control/shared build
@@ -514,7 +514,7 @@ pnpm --filter @led-control/api build
 
 Expected: all commands exit 0.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/api/src/mqtt/mqtt.module.ts apps/api/src/mqtt/mqtt.service.ts apps/api/src/mqtt/mqtt.service.spec.ts apps/api/src/mqtt/mqtt-v2-state.spec.ts apps/api/src/mqtt/topic-scope.spec.ts
@@ -546,7 +546,7 @@ git commit -m "feat(api): receive durable fixture presence"
 - Produces API metadata: `bioControlMode`, `bioConfiguredBrightness`, `bioRawHighBrightness`
 - Produces Web `MONITORING_REFRESH_INTERVAL_MS = 600_000`
 
-- [ ] **Step 1: Write failing 20-minute boundary tests**
+- [x] **Step 1: Write failing 20-minute boundary tests**
 
 Change operational tests to use literal cases:
 
@@ -563,7 +563,7 @@ Add identify assertions that lastSeen exactly 1,200,000ms old is accepted and 1,
 
 Change Web query tests to assert `refetchInterval` and `staleTime` are `600_000` while `refetchOnWindowFocus=true` and `retry=2` remain.
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 ```bash
 pnpm --filter @led-control/api exec jest src/fixtures/fixture-freshness.service.spec.ts src/fixture-identify/fixture-identify.service.spec.ts src/monitoring-incidents/monitoring-conditions.spec.ts src/sites/sites.service.spec.ts src/fixtures/fixtures.service.spec.ts --runInBand
@@ -572,7 +572,7 @@ pnpm --filter @led-control/web test -- src/api/queries.test.tsx
 
 Expected: FAIL on the current 180-second and 30-second behavior.
 
-- [ ] **Step 3: Replace duplicated operational literals and update DTO projections**
+- [x] **Step 3: Replace duplicated operational literals and update DTO projections**
 
 Use `fixtureOperationalFreshSince(now)` in identify and `FIXTURE_OPERATIONAL_FRESHNESS_MS` in the persisted freshness sweep. Change only `DEFAULT_MONITORING_POLICY.fixtureStaleAfterSeconds` to `1200`; keep `gatewayOfflineAfterSeconds=90` and `FIXTURE_FRESHNESS_POLL_MS` default 30,000.
 
@@ -584,7 +584,7 @@ export const MONITORING_REFRESH_INTERVAL_MS = 10 * 60 * 1_000;
 
 Do not modify query invalidation or focus refetch behavior. Add comments distinguishing configured BIO brightness from actual `brightness`.
 
-- [ ] **Step 4: Verify GREEN and control boundary**
+- [x] **Step 4: Verify GREEN and control boundary**
 
 ```bash
 pnpm --filter @led-control/api exec jest src/fixtures/fixture-freshness.service.spec.ts src/fixture-identify/fixture-identify.service.spec.ts src/monitoring-incidents/monitoring-conditions.spec.ts src/sites/sites.service.spec.ts src/fixtures/fixtures.service.spec.ts src/monitoring-incidents/monitoring-control-boundary.integration.spec.ts --runInBand
@@ -594,7 +594,7 @@ pnpm --filter @led-control/web typecheck
 
 Expected: exact 20-minute boundary and 10-minute Web policy tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/api/src/fixtures apps/api/src/fixture-identify apps/api/src/monitoring-incidents/monitoring-conditions.ts apps/api/src/monitoring-incidents/monitoring-conditions.spec.ts apps/api/src/sites/sites.service.ts apps/api/src/sites/sites.service.spec.ts apps/web/src/api/queries.ts apps/web/src/api/queries.test.tsx apps/web/src/test/fixtures.ts
@@ -615,7 +615,7 @@ git commit -m "feat: apply ten minute polling freshness policy"
 - Documents: DB fields, 10-minute polling, 20-minute stale, state/presence distinction
 - Verifies: no BIO write during poll and live service receives presence
 
-- [ ] **Step 1: Update required documentation**
+- [x] **Step 1: Update required documentation**
 
 Record the following exact facts:
 
@@ -626,7 +626,7 @@ Record the following exact facts:
 
 Preserve every menu document section: `구현 완료`, `미구현`, `부족하거나 개선이 필요한 기능`, `관련 파일`, `갱신 규칙`.
 
-- [ ] **Step 2: Run static and focused regression gates**
+- [x] **Step 2: Run static and focused regression gates**
 
 ```bash
 git diff --check
@@ -654,11 +654,11 @@ state-ingested application ACK
 
 Assert no `assignAddress`, `setBrightness`, `setControlMode`, `identify`, or sensor-restore write appears between poll start and completion. Confirm API `lastSeenAt` advances, BIO metadata matches the response, and stored `brightness`/`powerOn` do not change.
 
-- [ ] **Step 4: Verify timing policy safely**
+- [x] **Step 4: Verify timing policy safely**
 
 Use fake clocks or test-only interval overrides rather than waiting 20 real minutes. Demonstrate one successful pass, one missed 10-minute pass that remains fresh, and the 20-minute + 1ms boundary becoming stale. Restore production interval values before building the deployment image.
 
-- [ ] **Step 5: Review final diff and commit**
+- [x] **Step 5: Review final diff and commit**
 
 ```bash
 git diff --check
