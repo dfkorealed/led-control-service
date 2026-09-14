@@ -15,12 +15,14 @@ import { FixtureStateIngestionService } from "../energy/fixture-state-ingestion.
 import { EnergyDimensionHistoryService } from "../energy/energy-dimension-history.service";
 import { MonitoringIncidentsModule } from "../monitoring-incidents/monitoring-incidents.module";
 import { ProvisioningDeviceTerminalService } from "./provisioning-device-terminal.service";
+import { FixturePresenceIngestionService } from "../fixtures/fixture-presence-ingestion.service";
 
 @Module({
   imports: [PrismaModule, MeshControlGroupModule, AutomationRuntimeModule, MonitoringIncidentsModule],
   providers: [
     MqttService,
     FixtureStateIngestionService,
+    FixturePresenceIngestionService,
     EnergyDimensionHistoryService,
     FixtureFreshnessService,
     OutboxPublisherService,

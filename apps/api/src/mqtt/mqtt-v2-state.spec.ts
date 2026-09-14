@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { canonicalPayloadHash } from "../automation/automation-payload-hash";
 import { Prisma } from "@prisma/client";
 import { FixtureStateIngestionService } from "../energy/fixture-state-ingestion.service";
-import { fixtureStateV2Schema } from "@led-control/shared";
+import { fixturePresenceV2Schema, fixtureStateV2Schema } from "@led-control/shared";
 import { gatewayEventWatermarkMock } from "../../test/support/gateway-event-watermark.mock";
 
 const mqttHandlePublish = require(
@@ -824,6 +824,129 @@ describe("MqttService v2 ordered state", () => {
     )).rejects.toThrow("database unavailable");
     expect(publish).not.toHaveBeenCalled();
   });
+
+  it("commits fixture presence in the gateway queue before PUBACK and publishes its exact application ACK", async () => {
+    const committed = deferred<void>();
+    const presence = { ingest: jest.fn(async (_gatewayId, event) => {
+      await committed.promise;
+      return { eventId: event.eventId, sequence: event.sequence, fixtureId: event.fixtureId, status: "ingested" as const };
+    }) };
+    const service = new MqttService(
+      {} as never,
+      { attachProvisionedNode: jest.fn() } as never,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      presence as never
+    );
+    const client = mqttClientHarness(service);
+    const publish = jest.spyOn(service, "publishTopic").mockResolvedValue();
+    const done = jest.fn();
+
+    mqttInternals(service).createCustomHandleAcks()(
+      fixturePresenceTopic,
+      Buffer.from(JSON.stringify(fixturePresenceEvent(11))),
+      { qos: 1, messageId: 101 },
+      done
+    );
+    await flushPromises();
+
+    expect(presence.ingest).toHaveBeenCalledWith(scope.gatewayId, expect.objectContaining({
+      eventId: fixturePresenceEvent(11).eventId, sequence: 11, fixtureId: fixturePresenceEvent(11).fixtureId
+    }), expect.any(Date));
+    expect(done).not.toHaveBeenCalled();
+    committed.resolve();
+    await waitFor(() => done.mock.calls.length === 1);
+    await service.stopInboundAndDrain();
+
+    expect(done).toHaveBeenCalledWith(0);
+    expect(publish).toHaveBeenCalledWith(
+      `sites/${scope.siteId}/gateways/${scope.gatewayId}/acks/state-ingested`,
+      expect.objectContaining({
+        eventId: fixturePresenceEvent(11).eventId, sequence: 11, fixtureId: fixturePresenceEvent(11).fixtureId, status: "ingested"
+      }),
+      expect.objectContaining({ timeoutMs: 10_000 })
+    );
+    expect(client.stream.destroy).not.toHaveBeenCalled();
+  });
+
+  it("closes the stream without PUBACK when fixture presence ingestion fails", async () => {
+    const presence = { ingest: jest.fn().mockRejectedValue(new Error("database unavailable")) };
+    const service = new MqttService(
+      {} as never,
+      { attachProvisionedNode: jest.fn() } as never,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      presence as never
+    );
+    const client = mqttClientHarness(service);
+    jest.spyOn((service as any).logger, "error").mockImplementation(() => undefined);
+    const done = jest.fn();
+
+    mqttInternals(service).createCustomHandleAcks()(
+      fixturePresenceTopic,
+      Buffer.from(JSON.stringify(fixturePresenceEvent(11))),
+      { qos: 1, messageId: 102 },
+      done
+    );
+    await waitFor(() => client.stream.destroy.mock.calls.length === 1);
+    await service.stopInboundAndDrain();
+
+    expect(done).not.toHaveBeenCalled();
+    expect(client.stream.destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects forged durable observation suffixes before fixture presence ingestion", async () => {
+    const presence = { ingest: jest.fn() };
+    const service = new MqttService(
+      {} as never,
+      { attachProvisionedNode: jest.fn() } as never,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      presence as never
+    );
+
+    await expect(service.handleFixturePresencePacket(
+      `sites/${scope.siteId}/gateways/${scope.gatewayId}/forged/state/fixture-presence`,
+      Buffer.from(JSON.stringify(fixturePresenceEvent(11)))
+    )).rejects.toThrow("fixture presence topic scope rejected");
+    expect(presence.ingest).not.toHaveBeenCalled();
+  });
+
+  it("does not ingest fixture presence twice when done emits the normal MQTT message listener", async () => {
+    const presence = { ingest: jest.fn(async (_gatewayId, event) => ({
+      eventId: event.eventId, sequence: event.sequence, fixtureId: event.fixtureId, status: "ingested" as const
+    })) };
+    const service = new MqttService(
+      {} as never,
+      { attachProvisionedNode: jest.fn() } as never,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      presence as never
+    );
+    const client = mqttClientHarness(service);
+    jest.spyOn(service, "publishTopic").mockResolvedValue();
+    const packet = { qos: 1, messageId: 103 };
+    const payload = Buffer.from(JSON.stringify(fixturePresenceEvent(11)));
+    const done = jest.fn(() => client.emit("message", fixturePresenceTopic, payload, packet));
+
+    mqttInternals(service).createCustomHandleAcks()(fixturePresenceTopic, payload, packet, done);
+    await waitFor(() => done.mock.calls.length === 1);
+    await service.stopInboundAndDrain();
+
+    expect(presence.ingest).toHaveBeenCalledTimes(1);
+  });
 });
 
 function fixtureEvent(sequence: number) {
@@ -846,6 +969,22 @@ function fixtureEvent(sequence: number) {
 const heartbeatReceivedAt = new Date("2026-09-12T00:00:00.000Z");
 const heartbeatTopic = `sites/${scope.siteId}/gateways/${scope.gatewayId}/state/heartbeat`;
 const fixtureTopic = `sites/${scope.siteId}/gateways/${scope.gatewayId}/state/fixtures`;
+const fixturePresenceTopic = `sites/${scope.siteId}/gateways/${scope.gatewayId}/state/fixture-presence`;
+
+function fixturePresenceEvent(sequence: number) {
+  return fixturePresenceV2Schema.parse({
+    ...scope,
+    eventId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    sequence,
+    occurredAt: "2026-09-14T00:00:11.000Z",
+    fixtureId: "66666666-6666-4666-8666-666666666666",
+    controlMode: "sensor",
+    rawHighBrightness: 127,
+    configuredBrightness: null,
+    rssi: -41,
+    hopCount: null
+  });
+}
 
 function heartbeatEvent(overrides: Record<string, unknown> = {}) {
   return { ...scope, eventId: "77777777-7777-4777-8777-777777777777", sequence: 9,

@@ -548,6 +548,10 @@ describe("MqttService", () => {
       expect.arrayContaining(["sites/+/gateways/+/events/provisioning/device-terminal"]),
       { qos: 1 }
     );
+    expect(subscribe).toHaveBeenCalledWith(
+      expect.arrayContaining(["sites/+/gateways/+/state/fixture-presence"]),
+      { qos: 1 }
+    );
   });
 
   it("routes only the exact scoped V2 provisioning device terminal channel to durable ingest", async () => {

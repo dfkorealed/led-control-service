@@ -5,6 +5,7 @@ import {
   applicationProvisioningScanTerminalIngestedAckV2Schema,
   deriveDeviceStatusAckStatus,
   deviceStatusAckV2Schema,
+  fixturePresenceV2Schema,
   fixtureStateV2Schema,
   fixtureIdentifyResultSchema,
   fixtureIdentifyTopics,
@@ -43,6 +44,7 @@ import { AutomationClock } from "../automation/automation-clock";
 import { canonicalPayloadHash } from "../automation/automation-payload-hash";
 import { reconcileLegacyGatewayEventReplay } from "./legacy-gateway-event-replay";
 import { FixtureStateIngestionService } from "../energy/fixture-state-ingestion.service";
+import { FixturePresenceIngestionService } from "../fixtures/fixture-presence-ingestion.service";
 import { EnergyDimensionHistoryService } from "../energy/energy-dimension-history.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { compareAndAdvanceGatewayEvent } from "../retention/gateway-event-watermark";
@@ -54,6 +56,10 @@ const MQTT_BACKGROUND_PUBLISH_TIMEOUT_MS = 10_000;
 const MQTT_CLOSE_TIMEOUT_MS = 5_000;
 const MQTT_FORCE_CLOSE_TIMEOUT_MS = 1_000;
 const MQTT_GATEWAY_INBOUND_QUEUE_CAPACITY = 256;
+
+function isDurableFixtureObservationTopic(topic: string) {
+  return topic.endsWith("/state/fixtures") || topic.endsWith("/state/fixture-presence");
+}
 
 interface LockedCommandDispatch {
   id: string;
@@ -123,6 +129,7 @@ export class MqttService implements OnModuleInit {
   private inboundStopped = false;
   private closing = false;
   private readonly fixtureStateIngestion: Pick<FixtureStateIngestionService, "ingest">;
+  private readonly fixturePresenceIngestion: Pick<FixturePresenceIngestionService, "ingest">;
   private readonly provisioningDeviceTerminal: Pick<ProvisioningDeviceTerminalService, "ingest" | "completeLegacy">;
 
   constructor(
@@ -132,9 +139,11 @@ export class MqttService implements OnModuleInit {
     @Optional() private readonly automationConsumer?: AutomationMqttConsumerService,
     @Optional() private readonly energyDimensions?: EnergyDimensionHistoryService,
     @Optional() private readonly automationSnapshot: AutomationSnapshotService = new AutomationSnapshotService(new AutomationClock()),
-    @Optional() provisioningDeviceTerminal?: ProvisioningDeviceTerminalService
+    @Optional() provisioningDeviceTerminal?: ProvisioningDeviceTerminalService,
+    fixturePresenceIngestion?: FixturePresenceIngestionService
   ) {
     this.fixtureStateIngestion = fixtureStateIngestion ?? new FixtureStateIngestionService(prisma);
+    this.fixturePresenceIngestion = fixturePresenceIngestion ?? new FixturePresenceIngestionService(prisma);
     this.provisioningDeviceTerminal = provisioningDeviceTerminal
       ?? new ProvisioningDeviceTerminalService(prisma, meshControlGroups, energyDimensions);
   }
@@ -157,7 +166,11 @@ export class MqttService implements OnModuleInit {
         { qos: 1 }
       );
       client.subscribe(["sites/+/gateways/+/acks/acceptance", "sites/+/gateways/+/acks/device-status"], { qos: 1 });
-      client.subscribe(["sites/+/gateways/+/state/fixtures", "sites/+/gateways/+/state/heartbeat"], { qos: 1 });
+      client.subscribe([
+        "sites/+/gateways/+/state/fixtures",
+        "sites/+/gateways/+/state/fixture-presence",
+        "sites/+/gateways/+/state/heartbeat"
+      ], { qos: 1 });
       client.subscribe([
         "sites/+/gateways/+/events/automation/config-applied",
         "sites/+/gateways/+/events/automation/current-config-request",
@@ -272,7 +285,7 @@ export class MqttService implements OnModuleInit {
   }
 
   private acceptInboundMessage(topic: string, payload: Buffer, packet?: IPublishPacket) {
-    if (topic.endsWith("/state/fixtures")) return;
+    if (isDurableFixtureObservationTopic(topic)) return;
 
     if (!packet || packet.qos !== 1) {
       this.startInboundHandler(topic, payload);
@@ -393,7 +406,7 @@ export class MqttService implements OnModuleInit {
         done(0);
         return;
       }
-      if (!topic.endsWith("/state/fixtures")) {
+      if (!isDurableFixtureObservationTopic(topic)) {
         this.handleInboundPacketBeforeAck(topic, payload, packet, done);
         return;
       }
@@ -401,19 +414,22 @@ export class MqttService implements OnModuleInit {
         this.client?.stream.destroy();
         return;
       }
-      // state/fixtures QoS 1의 PUBACK은 API MQTT client가 broker에서 전달받은 PUBLISH를 처리한 뒤 보내는 MQTT 전달 확인일 뿐 DB 반영 확인은 아니다.
-      // event ID·sequence·topic scope를 검증하고 DB commit 뒤 done()을 호출해 재전송과 잘못된 Gateway 범위가 다음 처리 계층으로 섞이지 않게 한다.
-      // Queue delay must not turn a future packet into an accepted event or advance freshness.
+      // MQTT PUBACK(done(0))은 broker가 이 PUBLISH를 API client에게 전달한 것의 수신 확인이다.
+      // 반대 방향의 state-ingested application ACK는 Gateway가 자신의 durable outbox record를 지워도 되는
+      // 도메인 확인이므로, PUBACK과 같은 성공 의미로 합치거나 그 publish 완료를 여기서 기다리면 안 된다.
+      // state와 presence는 schema·저장 의미가 서로 다르지만, 둘 다 같은 Gateway의 Fixture row/receipt를
+      // 갱신한다. 따라서 하나의 bounded per-Gateway queue에서 직렬화해 commit 순서와 backpressure를 함께
+      // 보존한다. Queue delay must not turn a future packet into an accepted event or advance freshness.
       const receivedAt = new Date();
       let handler!: Promise<void>;
-      handler = this.runInGatewayInboundQueue(topic, () => this.ingestFixtureStatePacket(topic, payload, receivedAt))
+      handler = this.runInGatewayInboundQueue(topic, () => this.ingestFixtureObservationPacket(topic, payload, receivedAt))
         .then(({ scope, acknowledgement }) => {
           done(0);
           return this.publishFixtureStateAcknowledgement(scope.siteId, scope.gatewayId, acknowledgement).catch((error) => {
-            this.logger.error(`fixture state application ACK publish failed after DB commit (error=${this.errorKind(error)})`);
+            this.logger.error(`fixture observation application ACK publish failed after DB commit (error=${this.errorKind(error)})`);
           });
         })
-        .catch((error) => this.rejectFixtureStateDelivery(error))
+        .catch((error) => this.rejectFixtureObservationDelivery(error))
         .finally(() => this.activeInboundHandlers.delete(handler));
       this.activeInboundHandlers.add(handler);
     };
@@ -582,11 +598,11 @@ export class MqttService implements OnModuleInit {
     client.stream.destroy();
   }
 
-  private rejectFixtureStateDelivery(error: unknown) {
-    this.logger.error(`fixture state transaction failed before PUBACK (error=${this.errorKind(error)})`);
+  private rejectFixtureObservationDelivery(error: unknown) {
+    this.logger.error(`fixture observation transaction failed before PUBACK (error=${this.errorKind(error)})`);
     const client = this.client;
     if (!client) return;
-    // Closing the transport without an MQTT PUBACK preserves the broker session's QoS 1 redelivery.
+    // MQTT PUBACK 없이 transport를 닫아 broker QoS 1 session의 재전달을 보존한다.
     // Do not pass the database error to the stream: that can become an unhandled EventEmitter error.
     client.stream.destroy();
   }
@@ -600,7 +616,7 @@ export class MqttService implements OnModuleInit {
   private async ingestFixtureStatePacket(topic: string, payload: Buffer, receivedAt: Date) {
     const scope = parseGatewayTopic(topic);
     const state = fixtureStateV2Schema.parse(JSON.parse(payload.toString()));
-    if (!scope || scope.siteId !== state.siteId || scope.gatewayId !== state.gatewayId) {
+    if (!scope || scope.channel !== "state/fixtures" || scope.siteId !== state.siteId || scope.gatewayId !== state.gatewayId) {
       throw new Error("fixture state topic scope rejected");
     }
     const ingested = await this.fixtureStateIngestion.ingest(scope.gatewayId, state, receivedAt);
@@ -609,6 +625,34 @@ export class MqttService implements OnModuleInit {
       ingestedAt: new Date().toISOString()
     });
     return { scope, acknowledgement };
+  }
+
+  async handleFixturePresencePacket(topic: string, payload: Buffer, receivedAt = new Date()) {
+    const { scope, acknowledgement } = await this.ingestFixturePresencePacket(topic, payload, receivedAt);
+    await this.publishFixtureStateAcknowledgement(scope.siteId, scope.gatewayId, acknowledgement);
+    return acknowledgement;
+  }
+
+  private async ingestFixturePresencePacket(topic: string, payload: Buffer, receivedAt: Date) {
+    const scope = parseGatewayTopic(topic);
+    const presence = fixturePresenceV2Schema.parse(JSON.parse(payload.toString()));
+    if (!scope || scope.channel !== "state/fixture-presence" ||
+      scope.siteId !== presence.siteId || scope.gatewayId !== presence.gatewayId) {
+      throw new Error("fixture presence topic scope rejected");
+    }
+    const ingested = await this.fixturePresenceIngestion.ingest(scope.gatewayId, presence, receivedAt);
+    const acknowledgement = applicationStateIngestedAckV2Schema.parse({
+      ...ingested,
+      ingestedAt: new Date().toISOString()
+    });
+    return { scope, acknowledgement };
+  }
+
+  private ingestFixtureObservationPacket(topic: string, payload: Buffer, receivedAt: Date) {
+    const scope = parseGatewayTopic(topic);
+    if (scope?.channel === "state/fixtures") return this.ingestFixtureStatePacket(topic, payload, receivedAt);
+    if (scope?.channel === "state/fixture-presence") return this.ingestFixturePresencePacket(topic, payload, receivedAt);
+    throw new Error("fixture observation topic scope rejected");
   }
 
   private publishFixtureStateAcknowledgement(
@@ -651,7 +695,7 @@ export class MqttService implements OnModuleInit {
       return;
     }
 
-    if (topic.endsWith("/state/fixtures")) {
+    if (isDurableFixtureObservationTopic(topic)) {
       // MQTT 5 customHandleAcks owns this path so broker PUBACK follows the database commit.
       return;
     }

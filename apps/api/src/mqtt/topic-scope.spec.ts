@@ -9,6 +9,14 @@ describe("gateway MQTT topic scope", () => {
     });
   });
 
+  it("preserves the fixture presence channel for exact MQTT routing", () => {
+    expect(parseGatewayTopic("sites/site-1/gateways/gateway-1/state/fixture-presence")).toEqual({
+      siteId: "site-1",
+      gatewayId: "gateway-1",
+      channel: "state/fixture-presence"
+    });
+  });
+
   it("rejects payload scope that differs from the topic", () => {
     expect(() =>
       assertGatewayScope(
