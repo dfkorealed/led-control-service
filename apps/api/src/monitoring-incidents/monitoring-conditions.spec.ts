@@ -2,14 +2,14 @@ import { isMonitoringConditionActive } from "./monitoring-conditions";
 
 describe("current monitoring conditions", () => {
   const now = new Date("2026-09-12T00:10:00.000Z");
-  const policy = { gatewayOfflineAfterSeconds: 90, fixtureStaleAfterSeconds: 180 };
+  const policy = { gatewayOfflineAfterSeconds: 90, fixtureStaleAfterSeconds: 1200 };
   const fixture = { lastSeenAt: now, reportedStatusReason: null, healthFaultCodes: [], healthLastSeenAt: now };
 
   it("keeps the exact threshold fresh and expires one millisecond later", () => {
     for (const [age, expected] of [[90_000, false], [90_001, true]] as const) {
       expect(isMonitoringConditionActive("gateway_offline", { gateway: { lastHeartbeatAt: new Date(now.getTime() - age) } }, policy, now)).toBe(expected);
     }
-    for (const [age, expected] of [[180_000, false], [180_001, true]] as const) {
+    for (const [age, expected] of [[1_200_000, false], [1_200_001, true]] as const) {
       expect(isMonitoringConditionActive("fixture_stale", { gateway: { lastHeartbeatAt: now }, fixture: { ...fixture, lastSeenAt: new Date(now.getTime() - age) } }, policy, now)).toBe(expected);
     }
   });

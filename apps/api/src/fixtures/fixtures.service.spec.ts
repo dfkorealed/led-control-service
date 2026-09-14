@@ -10,7 +10,7 @@ describe("FixturesService", () => {
   it("returns an accessible site cursor page with gateway readiness", async () => {
     const heartbeat = new Date();
     const prisma: any = {
-      site: { findUnique: jest.fn().mockResolvedValue({ gatewayOfflineAfterSeconds: 90, fixtureStaleAfterSeconds: 180 }) },
+      site: { findUnique: jest.fn().mockResolvedValue({ gatewayOfflineAfterSeconds: 90, fixtureStaleAfterSeconds: 1200 }) },
       floor: {
         findFirst: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }),
         findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1", status: "active" })
@@ -33,6 +33,9 @@ describe("FixturesService", () => {
             hopCount: 1,
             commandSuccessRate: 0.99,
             lastSeenAt: new Date("2026-07-12T00:00:00.000Z"),
+            bioControlMode: "sensor",
+            bioConfiguredBrightness: null,
+            bioRawHighBrightness: 127,
             healthFaultCodes: [4, 1],
             healthLastSeenAt: new Date("2026-07-12T00:00:01.000Z"),
             meshNode: {
@@ -63,6 +66,9 @@ describe("FixturesService", () => {
           gateway: { id: "gateway-1", name: "Gateway B2", connectionStatus: "online" },
           status: "fault",
           health: { faultCodes: [1, 4], observedAt: "2026-07-12T00:00:01.000Z" },
+          bioControlMode: "sensor",
+          bioConfiguredBrightness: null,
+          bioRawHighBrightness: 127,
           controllable: false,
           controlBlockReason: "fixture_fault"
         }

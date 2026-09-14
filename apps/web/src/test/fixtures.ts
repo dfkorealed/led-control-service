@@ -12,7 +12,7 @@ export const mockUser = {
 
 export const mockDashboard: Dashboard = {
   generatedAt: "2026-09-12T00:00:00.000Z",
-  monitoringPolicy: { gatewayOfflineAfterSeconds: 90, fixtureStaleAfterSeconds: 180 },
+  monitoringPolicy: { gatewayOfflineAfterSeconds: 90, fixtureStaleAfterSeconds: 1200 },
   site: {
     id: "00000000-0000-4000-8000-000000000003",
     name: "Demo Underground Parking",
@@ -59,6 +59,9 @@ export const mockDashboard: Dashboard = {
           hopCount: status === "offline" ? null : 1 + (index % 3),
           commandSuccessRate: status === "fault" ? 0.72 : status === "offline" ? null : 0.98,
           lastSeenAt: "2026-07-01T00:00:00.000Z",
+          bioControlMode: index === 0 ? "sensor" as const : null,
+          bioConfiguredBrightness: null,
+          bioRawHighBrightness: index === 0 ? 127 : null,
           gateway: {
             id: "00000000-0000-4000-8000-000000000004",
             name: "Gateway B2",
@@ -93,6 +96,9 @@ export const mockDashboard: Dashboard = {
         hopCount: 1,
         commandSuccessRate: 0.99,
         lastSeenAt: "2026-07-01T00:00:00.000Z",
+        bioControlMode: null,
+        bioConfiguredBrightness: null,
+        bioRawHighBrightness: null,
         gateway: {
           id: "00000000-0000-4000-8000-000000000004",
           name: "Gateway B2",

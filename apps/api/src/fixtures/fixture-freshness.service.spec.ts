@@ -36,6 +36,19 @@ describe("FixtureFreshnessService", () => {
     expect(tx.fixture.updateMany.mock.invocationCallOrder[1]).toBeLessThan(reconciler.reconcile.mock.invocationCallOrder[0]);
   });
 
+  it.each([
+    [1_200_000, false],
+    [1_200_001, true]
+  ] as const)("marks fixture age %d stale=%s", async (age, stale) => {
+    const { service, tx } = setup();
+    await service.markStaleFixtures(now);
+
+    const fixtureStaleUpdate = tx.fixture.updateMany.mock.calls[1][0];
+    const cutoff = fixtureStaleUpdate.where.AND[1].OR[0].lastSeenAt.lt as Date;
+    expect(cutoff).toEqual(new Date(now.getTime() - 1_200_000));
+    expect(new Date(now.getTime() - age).getTime() < cutoff.getTime()).toBe(stale);
+  });
+
   it("bounds each transaction, continues after first-Site failure, and retries it next tick without logging tenant data", async () => {
     const { service, prisma, reconciler } = setup();
     const log = jest.spyOn((service as any).logger, "error").mockImplementation(() => undefined);

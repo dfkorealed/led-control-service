@@ -2,7 +2,7 @@ import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import type { FixtureGroupMetadata, FloorMapSnapshot } from "@led-control/shared";
 import { apiGet } from "./client";
 
-export const MONITORING_REFRESH_INTERVAL_MS = 30 * 1000;
+export const MONITORING_REFRESH_INTERVAL_MS = 10 * 60 * 1_000;
 
 export const monitoringQueryPolicy = {
   staleTime: MONITORING_REFRESH_INTERVAL_MS,
@@ -62,6 +62,11 @@ export interface Dashboard {
       positionVerifiedAt?: string | null;
       ratedWatt: number;
       brightness: number;
+      // BIO configured brightness는 센서 모드의 설정값이며 실제 LED 출력 brightness가 아니다.
+      // 실제 출력은 fixture-state read-back만 반영한다.
+      bioControlMode?: "sensor" | "force-off" | "force-on" | null;
+      bioConfiguredBrightness?: number | null;
+      bioRawHighBrightness?: number | null;
       status: "online" | "offline" | "fault";
       statusReason?: "reported" | "mesh_publication" | "startup_resync" | "fixture_stale" | "gateway_offline" | "command_failed" | "provisioning_waiting_state" | null;
       health: { faultCodes: number[]; observedAt: string } | null;

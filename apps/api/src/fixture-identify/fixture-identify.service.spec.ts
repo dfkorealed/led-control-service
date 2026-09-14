@@ -50,6 +50,22 @@ it("rejects offline or unregistered fixtures without MQTT", async () => {
   await expect(h.request()).rejects.toThrow("gateway_offline");
   expect(h.mqtt.publishTopic).not.toHaveBeenCalled();
 });
+it.each([
+  [1_200_000, false],
+  [1_200_001, true]
+] as const)("accepts fixture age %d when offline=%s", async (age, offline) => {
+  const now = new Date("2026-09-14T00:20:00.000Z");
+  jest.useFakeTimers().setSystemTime(now);
+  const h = setup();
+  h.fixture.lastSeenAt = new Date(now.getTime() - age);
+  jest.spyOn(h.service as any, "dispatchAndWait").mockResolvedValue({
+    commandId: "command", sessionId: "session", fixtureId, action: "start",
+    expiresAt: new Date(now.getTime() + 10_000).toISOString(), dispatchStatus: "broker_accepted", status: "timed_out"
+  });
+
+  if (offline) await expect(h.request()).rejects.toThrow("fixture_offline");
+  else await expect(h.request()).resolves.toMatchObject({ status: "timed_out" });
+});
 it("rejects unregistered, wrong-floor, and inactive-certificate targets", async () => {
   const h = setup();
   h.tx.fixture.findFirst.mockResolvedValueOnce(null as never);

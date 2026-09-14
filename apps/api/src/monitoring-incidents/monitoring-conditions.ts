@@ -6,7 +6,7 @@ export interface MonitoringPolicy {
   fixtureStaleAfterSeconds: number;
 }
 export const DEFAULT_MONITORING_POLICY: MonitoringPolicy = {
-  gatewayOfflineAfterSeconds: 90, fixtureStaleAfterSeconds: 180
+  gatewayOfflineAfterSeconds: 90, fixtureStaleAfterSeconds: 1200
 };
 
 export function isMonitoringGatewayOnline(

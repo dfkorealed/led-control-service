@@ -111,6 +111,11 @@ export class FixturesService {
           positionVerifiedAt: fixture.positionVerifiedAt?.toISOString() ?? null,
           ratedWatt: Number(fixture.ratedWatt),
           brightness: fixture.brightness,
+          // BIO configuredBrightness는 장치에 설정된 밝기이며 현재 LED 출력 brightness가 아닙니다.
+          // 실제 출력은 fixture-state read-back만 갱신하므로 presence metadata와 혼합하지 않습니다.
+          bioControlMode: fixture.bioControlMode,
+          bioConfiguredBrightness: fixture.bioConfiguredBrightness,
+          bioRawHighBrightness: fixture.bioRawHighBrightness,
           status,
           statusReason,
           health,

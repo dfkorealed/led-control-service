@@ -163,6 +163,11 @@ export class SitesService {
           positionVerifiedAt: fixture.positionVerifiedAt?.toISOString() ?? null,
           ratedWatt: Number(fixture.ratedWatt),
           brightness: fixture.brightness,
+          // BIO의 configuredBrightness는 센서 모드에서 설정된 목표값일 뿐 실제 LED 출력값이 아닙니다.
+          // 실제 brightness는 fixture-state read-back만 반영하므로 presence 수신으로 바꾸지 않습니다.
+          bioControlMode: fixture.bioControlMode,
+          bioConfiguredBrightness: fixture.bioConfiguredBrightness,
+          bioRawHighBrightness: fixture.bioRawHighBrightness,
           status,
           statusReason,
           health,

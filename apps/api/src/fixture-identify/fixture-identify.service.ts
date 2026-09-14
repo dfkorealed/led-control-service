@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { FIXTURE_IDENTIFY_TTL_MS, fixtureIdentifyCommandSchema, fixtureIdentifyRequestSchema, fixtureIdentifyResultSchema,
-  fixtureIdentifyTopics, gatewayHeartbeatFreshSince, type FixtureIdentifyCommand, type FixtureIdentifyResponse, type FixtureIdentifyResult } from "@led-control/shared";
+  fixtureIdentifyTopics, fixtureOperationalFreshSince, gatewayHeartbeatFreshSince, type FixtureIdentifyCommand, type FixtureIdentifyResponse, type FixtureIdentifyResult } from "@led-control/shared";
 import { Prisma } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { SiteAccessService } from "../access/site-access.service";
@@ -63,7 +63,7 @@ export class FixtureIdentifyService implements OnModuleInit, OnModuleDestroy {
         !gateway.certificates.some((certificate) => certificate.inventoryId === gateway.inventory!.id) ||
         fixture.statusReason === "provisioning_waiting_state") throw new ConflictException("fixture_not_registered");
       if (!gateway.lastHeartbeatAt || gateway.lastHeartbeatAt < gatewayHeartbeatFreshSince(now)) throw new ConflictException("gateway_offline");
-      if (fixture.status === "offline" || !fixture.lastSeenAt || fixture.lastSeenAt.getTime() < now.getTime() - 180_000) throw new ConflictException("fixture_offline");
+      if (fixture.status === "offline" || !fixture.lastSeenAt || fixture.lastSeenAt < fixtureOperationalFreshSince(now)) throw new ConflictException("fixture_offline");
       const command = fixtureIdentifyCommandSchema.parse({ version: 1, commandId, sessionId, fixtureId, siteId: site.id,
         gatewayId: gateway.id, action: request.action, requestedAt: now.toISOString(),
         expiresAt: new Date(now.getTime() + FIXTURE_IDENTIFY_TTL_MS).toISOString() });

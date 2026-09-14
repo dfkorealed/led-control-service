@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
-import { gatewayHeartbeatFreshSince } from "@led-control/shared";
+import { FIXTURE_OPERATIONAL_FRESHNESS_MS, gatewayHeartbeatFreshSince } from "@led-control/shared";
 import { MonitoringIncidentReconcilerService } from "../monitoring-incidents/monitoring-incident-reconciler.service";
 import { PrismaService } from "../prisma/prisma.service";
 
@@ -55,9 +55,9 @@ export class FixtureFreshnessService implements OnModuleInit, OnModuleDestroy {
         // deterministic callers; scheduled sweeps always use the current clock.
         const now = observedAt ?? new Date();
         // Persisted operational status is consumed by Commands/Identify. Never
-        // let a monitoring preference alter their fixed 90s/180s safety policy.
+        // let a monitoring preference alter their fixed 90초/20분 safety policy.
         const gatewayCutoff = gatewayHeartbeatFreshSince(now);
-        const fixtureCutoff = new Date(now.getTime() - 180_000);
+        const fixtureCutoff = new Date(now.getTime() - FIXTURE_OPERATIONAL_FRESHNESS_MS);
         const observedFixture = { OR: [
           { reportedStatusReason: { not: "provisioning_waiting_state" } }, { reportedStatusReason: null }
         ] };

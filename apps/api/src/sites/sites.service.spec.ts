@@ -38,7 +38,7 @@ describe("SitesService", () => {
       id: "site-1",
       name: "Demo Site",
       gatewayOfflineAfterSeconds: 90,
-      fixtureStaleAfterSeconds: 180,
+      fixtureStaleAfterSeconds: 1200,
       address: "Seoul",
       tariffKwhRate: "160.00",
       timeZone: "Asia/Seoul",
@@ -141,6 +141,7 @@ describe("SitesService", () => {
         reportedStatus: "online", reportedStatusReason: "reported",
         ratedWatt: "40", rssi: -58, hopCount: 1, commandSuccessRate: 0.98,
         lastSeenAt: new Date(),
+        bioControlMode: "sensor", bioConfiguredBrightness: null, bioRawHighBrightness: 127,
         healthFaultCodes: [], healthLastSeenAt: new Date("2026-07-01T00:00:01.000Z"),
         meshNode: {
           gateway: { id: "gateway-1", name: "Gateway B2", lastHeartbeatAt: new Date() },
@@ -151,7 +152,8 @@ describe("SitesService", () => {
       {
         id: "fixture-2", floorId: "floor-1", name: "L2", x: 30, y: 40, brightness: 0, status: "online",
         reportedStatus: "online", reportedStatusReason: "reported",
-        ratedWatt: "40", rssi: null, hopCount: null, commandSuccessRate: null, lastSeenAt: null, meshNode: null,
+        ratedWatt: "40", rssi: null, hopCount: null, commandSuccessRate: null, lastSeenAt: null,
+        bioControlMode: null, bioConfiguredBrightness: null, bioRawHighBrightness: null, meshNode: null,
         healthFaultCodes: [1], healthLastSeenAt: new Date("2026-07-01T00:00:02.000Z")
       }
     ]);
@@ -186,6 +188,9 @@ describe("SitesService", () => {
     expect(dashboard.floors[0].fixtures[0].rssi).toBe(-58);
     expect(dashboard.floors[0].fixtures[0]).toMatchObject({
       health: { faultCodes: [], observedAt: "2026-07-01T00:00:01.000Z" },
+      bioControlMode: "sensor",
+      bioConfiguredBrightness: null,
+      bioRawHighBrightness: 127,
       gateway: { id: "gateway-1", name: "Gateway B2", connectionStatus: "online" },
       vehicleSensorCapabilityStatus: "supported",
       vehicleSensorCapabilityVerifiedAt: "2026-08-31T00:00:00.000Z",
@@ -242,7 +247,7 @@ describe("SitesService", () => {
     expect(prisma.site.findFirst).not.toHaveBeenCalled();
     expect(dashboard).toEqual({
       generatedAt: expect.any(String),
-      monitoringPolicy: { gatewayOfflineAfterSeconds: 90, fixtureStaleAfterSeconds: 180 },
+      monitoringPolicy: { gatewayOfflineAfterSeconds: 90, fixtureStaleAfterSeconds: 1200 },
       site: {
         id: "",
         name: "현장 미등록",
@@ -324,7 +329,7 @@ describe("SitesService", () => {
           id: "site-1",
           name: "Boundary Site",
           gatewayOfflineAfterSeconds: 90,
-          fixtureStaleAfterSeconds: 180,
+          fixtureStaleAfterSeconds: 1200,
           address: "Seoul",
           tariffKwhRate: "160.00",
           timeZone: "Asia/Seoul",
