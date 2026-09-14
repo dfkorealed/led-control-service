@@ -1,8 +1,10 @@
 import { PrismaService } from "../prisma/prisma.service";
+import { disposablePostgres } from "../../test/support/disposable-postgres";
 import { FixturePresenceIngestionService } from "./fixture-presence-ingestion.service";
 
-const databaseUrl = process.env.FIXTURE_PRESENCE_TEST_DATABASE_URL;
-const describeWithDatabase = databaseUrl ? describe : describe.skip;
+let databaseUrl = process.env.FIXTURE_PRESENCE_TEST_DATABASE_URL;
+const selfOwnedDatabase = process.env.FIXTURE_PRESENCE_DISPOSABLE_POSTGRES === "1";
+const describeWithDatabase = databaseUrl || selfOwnedDatabase ? describe : describe.skip;
 
 describeWithDatabase("fixture-presence PostgreSQL ingestion", () => {
   const ids = {
@@ -16,8 +18,17 @@ describeWithDatabase("fixture-presence PostgreSQL ingestion", () => {
   };
   let prisma: PrismaService;
   let service: FixturePresenceIngestionService;
+  let cluster: Awaited<ReturnType<typeof disposablePostgres>> | undefined;
+  const originalDatabaseUrl = process.env.DATABASE_URL;
 
   beforeAll(async () => {
+    if (selfOwnedDatabase) {
+      cluster = await disposablePostgres();
+      databaseUrl = cluster.database();
+      const deployed = cluster.deploy(databaseUrl);
+      expect(deployed.status).toBe(0);
+      expect(deployed.stderr).not.toContain("Error");
+    }
     process.env.DATABASE_URL = databaseUrl;
     prisma = new PrismaService();
     await prisma.$connect();
@@ -35,15 +46,33 @@ describeWithDatabase("fixture-presence PostgreSQL ingestion", () => {
     await prisma.fixtureEnergyDailyAggregate.deleteMany({ where: { fixtureId: ids.fixtureId } });
     await prisma.fixtureEnergyHourlyAggregate.deleteMany({ where: { energyFixtureId: ids.energyFixtureId } });
     await prisma.fixtureEnergyStateCursor.deleteMany({ where: { fixtureId: ids.fixtureId } });
+    const fixtureBaseline = {
+      meshNodeId: ids.meshNodeId,
+      brightness: 38,
+      powerOn: null,
+      lastStateEventId: "31111111-1111-4111-8111-111111111111",
+      lastStateSequence: 4n,
+      lastStateOccurredAt: new Date("2026-09-14T00:00:04.000Z"),
+      lastPresenceEventId: null,
+      lastPresenceSequence: null,
+      lastPresenceOccurredAt: null,
+      status: "offline" as const,
+      statusReason: "fixture_stale"
+    };
     await prisma.fixture.upsert({
       where: { id: ids.fixtureId },
-      create: { id: ids.fixtureId, floorId: ids.floorId, meshNodeId: ids.meshNodeId, name: "B1-L01", ratedWatt: "40.00", x: 10, y: 10 },
-      update: { meshNodeId: ids.meshNodeId, brightness: 38, powerOn: null, lastStateEventId: "31111111-1111-4111-8111-111111111111", lastStateSequence: 4n, lastStateOccurredAt: new Date("2026-09-14T00:00:04.000Z"), lastPresenceEventId: null, lastPresenceSequence: null, lastPresenceOccurredAt: null, status: "offline", statusReason: "fixture_stale" }
+      create: { id: ids.fixtureId, floorId: ids.floorId, name: "B1-L01", ratedWatt: "40.00", x: 10, y: 10, ...fixtureBaseline },
+      update: fixtureBaseline
     });
     await prisma.energyFixtureIdentity.upsert({ where: { fixtureId: ids.fixtureId }, create: { id: ids.energyFixtureId, siteId: ids.siteId, fixtureId: ids.fixtureId, trackingStartedAt: new Date("2026-09-14T00:00:00.000Z") }, update: { retiredAt: null } });
   });
 
-  afterAll(async () => prisma?.$disconnect());
+  afterAll(async () => {
+    await prisma?.$disconnect();
+    cluster?.stop();
+    if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = originalDatabaseUrl;
+  });
 
   it("updates liveness and BIO metadata without changing output state or energy", async () => {
     const receivedAt = new Date("2026-09-14T00:00:12.000Z");
@@ -52,9 +81,9 @@ describeWithDatabase("fixture-presence PostgreSQL ingestion", () => {
 
     const saved = await prisma.fixture.findUniqueOrThrow({ where: { id: ids.fixtureId } });
     expect(saved).toMatchObject({ lastSeenAt: receivedAt, rssi: -41, hopCount: null, bioControlMode: "sensor", bioConfiguredBrightness: null, bioRawHighBrightness: 127, brightness: 38, powerOn: null, lastStateEventId: "31111111-1111-4111-8111-111111111111", lastPresenceEventId: event.eventId, lastPresenceSequence: 9n, lastPresenceOccurredAt: new Date(event.occurredAt), status: "online", statusReason: "reported" });
-    expect(await prisma.fixtureEnergyDailyAggregate.count()).toBe(0);
-    expect(await prisma.fixtureEnergyHourlyAggregate.count()).toBe(0);
-    expect(await prisma.fixtureEnergyStateCursor.count()).toBe(0);
+    expect(await prisma.fixtureEnergyDailyAggregate.count({ where: { fixtureId: ids.fixtureId } })).toBe(0);
+    expect(await prisma.fixtureEnergyHourlyAggregate.count({ where: { energyFixtureId: ids.energyFixtureId } })).toBe(0);
+    expect(await prisma.fixtureEnergyStateCursor.count({ where: { fixtureId: ids.fixtureId } })).toBe(0);
   });
 
   it.each(["command_failed", "fixture_fault", "provisioning_waiting_state"])("does not clear non-freshness blocker %s", async (statusReason) => {

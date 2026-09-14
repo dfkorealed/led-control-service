@@ -82,6 +82,20 @@ describe("FixturePresenceIngestionService", () => {
     expect(reverse.fixture.update).not.toHaveBeenCalled();
   });
 
+  it("rejects a watermark-only altered replay before reverse-time stale acknowledgement", async () => {
+    const original = presence({ occurredAt: "2026-09-14T00:00:10.000Z" });
+    const altered = presence({ rawHighBrightness: 126 });
+    const prisma = presencePrisma({
+      watermark: watermarkFor(original),
+      lastPresenceOccurredAt: new Date("2026-09-14T00:00:11.000Z")
+    });
+
+    await expect(new FixturePresenceIngestionService(prisma as never).ingest(scope.gatewayId, altered))
+      .rejects.toThrow("fixture presence event identity conflict");
+    expect(prisma.processedGatewayEvent.create).not.toHaveBeenCalled();
+    expect(prisma.fixture.update).not.toHaveBeenCalled();
+  });
+
   it("records future timestamp rejection before watermark or fixture writes", async () => {
     const prisma = presencePrisma();
     const event = presence({ occurredAt: "9999-01-01T00:00:00.000Z" });
@@ -155,9 +169,16 @@ function watermark(lastSequence: bigint) {
   };
 }
 
+function watermarkFor(event: ReturnType<typeof presence>) {
+  return {
+    gatewayId: scope.gatewayId, eventType: "fixture_presence", scopeKey: scope.fixtureId, lastSequence: BigInt(event.sequence),
+    lastEventId: event.eventId, lastPayloadHash: canonicalPayloadHash(event), lastOccurredAt: new Date(event.occurredAt)
+  };
+}
+
 function presencePrisma(options: {
   processedEvent?: ReturnType<typeof ledger>;
-  watermark?: ReturnType<typeof watermark>;
+  watermark?: ReturnType<typeof watermark> | ReturnType<typeof watermarkFor>;
   lockedFixture?: boolean;
   lastPresenceOccurredAt?: Date | null;
   statusReason?: string | null;

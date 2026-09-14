@@ -125,8 +125,13 @@ export class FixturePresenceIngestionService {
 
     // sequence가 증가했더라도 과거 관측 시간을 최신 checkpoint로 되돌리면 다음
     // freshness 판정이 실제보다 오래된 값을 보게 된다. timestamp 역행은 watermark를
-    // 전진시키지 않고 ACK 가능한 stale 결과만 남긴다.
+    // 전진시키지 않고 ACK 가능한 stale 결과만 남긴다. 단, watermark만 남은 eventId의
+    // 동일 sequence도 먼저 대조해야 한다. 이를 생략하면 변조된 과거 payload가 stale
+    // ACK로 원장을 새로 만들어 재전송 무결성 경계를 우회할 수 있다.
     if (fixture.lastPresenceOccurredAt && occurredAt < fixture.lastPresenceOccurredAt) {
+      const reverseOrdering = await compareReverseTimeWatermark(tx, gatewayId, presence, payloadHash, occurredAt);
+      if (reverseOrdering === "conflict") throw new Error("fixture presence event identity conflict");
+      if (reverseOrdering === "duplicate") return resultFrom(presence, "duplicate");
       await createLedger(tx, gatewayId, presence, payloadHash, occurredAt, receivedAt, "accepted");
       return resultFrom(presence, "stale_sequence");
     }
@@ -169,6 +174,30 @@ export class FixturePresenceIngestionService {
     });
     return resultFrom(presence, "ingested");
   }
+}
+
+async function compareReverseTimeWatermark(
+  tx: Prisma.TransactionClient,
+  gatewayId: string,
+  presence: FixturePresenceV2,
+  payloadHash: string,
+  occurredAt: Date
+): Promise<"stale" | "duplicate" | "conflict"> {
+  const key = { gatewayId, eventType: "fixture_presence", scopeKey: presence.fixtureId };
+  // compareAndAdvanceGatewayEvent normally owns this lookup and the advisory
+  // lock. Reverse-time reports deliberately must not advance the watermark,
+  // so perform only its identity checks here before recording a stale outcome.
+  const collision = await tx.gatewayEventWatermark.findFirst({ where: { lastEventId: presence.eventId, NOT: key } });
+  if (collision) return "conflict";
+  const current = await tx.gatewayEventWatermark.findUnique({ where: { gatewayId_eventType_scopeKey: key } });
+  if (!current) return "stale";
+
+  const sequence = BigInt(presence.sequence);
+  if (current.lastEventId === presence.eventId && sequence !== current.lastSequence) return "conflict";
+  if (sequence < current.lastSequence) return "stale";
+  if (sequence > current.lastSequence) return "stale";
+  return current.lastEventId === presence.eventId && current.lastPayloadHash === payloadHash &&
+    current.lastOccurredAt.getTime() === occurredAt.getTime() ? "duplicate" : "conflict";
 }
 
 function createLedger(
