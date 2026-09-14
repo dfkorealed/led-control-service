@@ -582,6 +582,31 @@ describe("BioUsbDongleAdapter", () => {
       expect(received).toEqual([]);
     });
 
+    it.each([
+      ["brightness GET", "canonical UUID", { deviceUuid: "bio:001122334455" }],
+      ["brightness GET", "logical address", { logicalAddress: 0x0102 }],
+      ["brightness GET", "network ID", { networkId: 0x7789 }],
+      ["mode GET", "canonical UUID", { deviceUuid: "bio:001122334455" }],
+      ["mode GET", "logical address", { logicalAddress: 0x0102 }],
+      ["mode GET", "network ID", { networkId: 0x7789 }]
+    ] as const)("rejects a mismatched %s %s without emitting presence or lighting", async (get, _component, mismatch) => {
+      const f = readyForOnePresence();
+      const validBrightness = brightnessReport(198, 60);
+      const validMode = modeReport("force-on");
+      f.client.readBrightness.mockResolvedValue(get === "brightness GET" ? { ...validBrightness, ...mismatch } : validBrightness);
+      f.client.readDeviceInfo.mockResolvedValue(get === "mode GET" ? { ...validMode, ...mismatch } : validMode);
+      const presences: BleMeshFixturePresence[] = [];
+      const lightingObservations: unknown[] = [];
+      f.adapter.onFixturePresence((value) => { presences.push(value); });
+      f.adapter.onLightingObservation((value) => lightingObservations.push(value));
+
+      await expect(f.adapter.resyncLightingFixtures([provisioningCommand.nodeId])).resolves.toEqual({
+        total: 1, configured: 1, observed: 0, healthPending: 0, timedOut: 0, failed: 1
+      });
+      expect(presences).toEqual([]);
+      expect(lightingObservations).toEqual([]);
+    });
+
     it("counts BIO timeout separately from an ordinary observation failure", async () => {
       const f = readyForOnePresence();
       f.client.readBrightness.mockRejectedValue(new BioUsbError("TIMEOUT", "BIO GET timed out"));
