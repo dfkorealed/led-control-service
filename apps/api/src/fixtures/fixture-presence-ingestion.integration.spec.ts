@@ -57,7 +57,9 @@ describeWithDatabase("fixture-presence PostgreSQL ingestion", () => {
       lastPresenceSequence: null,
       lastPresenceOccurredAt: null,
       status: "offline" as const,
-      statusReason: "fixture_stale"
+      statusReason: "fixture_stale",
+      reportedStatus: "online" as const,
+      reportedStatusReason: "reported"
     };
     await prisma.fixture.upsert({
       where: { id: ids.fixtureId },
@@ -91,6 +93,35 @@ describeWithDatabase("fixture-presence PostgreSQL ingestion", () => {
     await service.ingest(ids.gatewayId, presence());
     expect(await prisma.fixture.findUniqueOrThrow({ where: { id: ids.fixtureId } })).toMatchObject({ statusReason });
   });
+
+  it.each(["fixture_stale", "gateway_offline"])(
+    "restores the persisted command failure after a %s freshness transition",
+    async (freshnessReason) => {
+      // FixtureFreshnessService changes only this operational pair. The
+      // accepted fixture-state remains the authoritative command blocker.
+      await prisma.fixture.update({ where: { id: ids.fixtureId }, data: {
+        status: "offline",
+        statusReason: freshnessReason,
+        reportedStatus: "offline",
+        reportedStatusReason: "command_failed"
+      } });
+
+      await service.ingest(ids.gatewayId, presence());
+
+      const saved = await prisma.fixture.findUniqueOrThrow({ where: { id: ids.fixtureId } });
+      expect(saved).toMatchObject({
+        status: "offline",
+        statusReason: "command_failed",
+        reportedStatus: "offline",
+        reportedStatusReason: "command_failed",
+        brightness: 38,
+        powerOn: null
+      });
+      expect(await prisma.fixtureEnergyDailyAggregate.count({ where: { fixtureId: ids.fixtureId } })).toBe(0);
+      expect(await prisma.fixtureEnergyHourlyAggregate.count({ where: { energyFixtureId: ids.energyFixtureId } })).toBe(0);
+      expect(await prisma.fixtureEnergyStateCursor.count({ where: { fixtureId: ids.fixtureId } })).toBe(0);
+    }
+  );
 
   function presence(overrides: Record<string, unknown> = {}) {
     return {

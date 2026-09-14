@@ -16,6 +16,8 @@ interface LockedFixtureRow {
   id: string;
   lastPresenceOccurredAt: Date | null;
   statusReason: string | null;
+  reportedStatus: "online" | "offline" | "fault";
+  reportedStatusReason: string | null;
 }
 
 export interface FixturePresenceIngestionResult {
@@ -94,7 +96,8 @@ export class FixturePresenceIngestionService {
     if (!gateway) throw new Error("fixture presence scope rejected");
 
     const [fixture] = await tx.$queryRaw<LockedFixtureRow[]>(Prisma.sql`
-      SELECT f."id", f."lastPresenceOccurredAt", f."statusReason"
+      SELECT f."id", f."lastPresenceOccurredAt", f."statusReason",
+        f."reportedStatus", f."reportedStatusReason"
       FROM "Fixture" f
       INNER JOIN "Floor" fl ON fl."id" = f."floorId"
       INNER JOIN "MeshNode" mn ON mn."id" = f."meshNodeId"
@@ -168,12 +171,27 @@ export class FixturePresenceIngestionService {
         lastPresenceSequence: BigInt(presence.sequence),
         lastPresenceOccurredAt: occurredAt,
         ...(fixture.statusReason === "fixture_stale" || fixture.statusReason === "gateway_offline"
-          ? { status: "online", statusReason: "reported" }
+          ? restoreReportedOperationalState(fixture)
           : {})
       }
     });
     return resultFrom(presence, "ingested");
   }
+}
+
+function restoreReportedOperationalState(fixture: Pick<LockedFixtureRow, "reportedStatus" | "reportedStatusReason">) {
+  // [확인됨] Fixture는 두 층의 상태를 보관한다. status/statusReason은 freshness
+  // worker가 일시적으로 gateway_offline/fixture_stale로 덮는 운영 상태이고,
+  // reportedStatus/reportedStatusReason은 마지막 실제 fixture-state의 결과다.
+  // BIO presence는 GET 성공이라는 생존 증거일 뿐 명령 성공·fault 해제·등록 완료나
+  // 실제 LED 출력 관측이 아니다. 따라서 freshness-only 상태에서만 원래 보고 상태를
+  // 복원하며, command_failed/fault/provisioning blocker를 online으로 만들지 않는다.
+  // reportedStatus는 DB non-null enum이므로 별도 추정값을 만들지 않는다. 다만 이유가
+  // 없는 정상 online 보고만 기존 호환 표기인 online/reported로 정규화한다.
+  if (fixture.reportedStatus === "online" && (fixture.reportedStatusReason === null || fixture.reportedStatusReason === "reported")) {
+    return { status: "online" as const, statusReason: "reported" };
+  }
+  return { status: fixture.reportedStatus, statusReason: fixture.reportedStatusReason ?? "reported" };
 }
 
 async function compareReverseTimeWatermark(

@@ -116,6 +116,26 @@ describe("FixturePresenceIngestionService", () => {
     expect(prisma.fixture.update.mock.calls[0][0].data).toMatchObject({ status: "online", statusReason: "reported" });
   });
 
+  it.each(["fixture_stale", "gateway_offline"])(
+    "restores the persisted command failure after freshness marks the fixture %s",
+    async (statusReason) => {
+      const prisma = presencePrisma({
+        statusReason,
+        reportedStatus: "offline",
+        reportedStatusReason: "command_failed"
+      });
+
+      await new FixturePresenceIngestionService(prisma as never).ingest(scope.gatewayId, presence());
+
+      // A presence GET proves only BIO reachability. It must not turn a prior
+      // command failure into an operationally controllable online fixture.
+      expect(prisma.fixture.update.mock.calls[0][0].data).toMatchObject({
+        status: "offline",
+        statusReason: "command_failed"
+      });
+    }
+  );
+
   it.each(["command_failed", "fixture_fault", "provisioning_waiting_state"])("preserves non-freshness status %s", async (statusReason) => {
     const prisma = presencePrisma({ statusReason });
     await new FixturePresenceIngestionService(prisma as never).ingest(scope.gatewayId, presence());
@@ -182,10 +202,15 @@ function presencePrisma(options: {
   lockedFixture?: boolean;
   lastPresenceOccurredAt?: Date | null;
   statusReason?: string | null;
+  reportedStatus?: "online" | "offline" | "fault";
+  reportedStatusReason?: string | null;
 } = {}) {
   const row = {
     id: scope.fixtureId, siteId: scope.siteId, gatewayId: scope.gatewayId,
-    lastPresenceOccurredAt: options.lastPresenceOccurredAt ?? null, statusReason: options.statusReason ?? "fixture_stale"
+    lastPresenceOccurredAt: options.lastPresenceOccurredAt ?? null,
+    statusReason: options.statusReason ?? "fixture_stale",
+    reportedStatus: options.reportedStatus ?? "online",
+    reportedStatusReason: options.reportedStatusReason ?? "reported"
   };
   const prisma: any = {
     $executeRaw: jest.fn().mockResolvedValue(1),
