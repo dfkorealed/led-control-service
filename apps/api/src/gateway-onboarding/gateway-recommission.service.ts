@@ -90,8 +90,10 @@ export class GatewayRecommissionService {
     const siteId = requiredText(input.siteId);
     const serialNumber = requiredText(input.serialNumber);
 
-    // The order is intentional: Site prevents concurrent topology changes, then the
-    // inventory/certificate identity, then its claimed Gateway fence the reset.
+    // The order is intentional: Site, then inventory/certificates, then Gateway
+    // establish the topology fence. This does not lock every child/retention row;
+    // the later destructive worker must revalidate/fence this digest snapshot rather
+    // than treating the preparation transaction as a broad deletion lock.
     const sites = await tx.$queryRaw<IdRow[]>(Prisma.sql`
       SELECT "id" FROM "Site" WHERE "id" = ${siteId} FOR UPDATE
     `);
@@ -131,14 +133,18 @@ export class GatewayRecommissionService {
     const provisioningSessionRows = await ids(tx, Prisma.sql`SELECT "id" FROM "ProvisioningSession" WHERE "gatewayId" = ${gateway.id} ORDER BY "id"`);
     const commandRows = await ids(tx, Prisma.sql`SELECT "id" FROM "Command" WHERE "siteId" = ${siteId} ORDER BY "id"`);
     const automationExecutionRows = await ids(tx, Prisma.sql`SELECT "id" FROM "AutomationExecution" WHERE "gatewayId" = ${gateway.id} ORDER BY "id"`);
-    const monitoringIncidentRows = await ids(tx, Prisma.sql`SELECT "id" FROM "MonitoringIncident" WHERE "gatewayId" = ${gateway.id} ORDER BY "id"`);
+    // Fixture incidents intentionally have gatewayId=NULL; Site is the complete
+    // validated installation boundary and includes resolved history too.
+    const monitoringIncidentRows = await ids(tx, Prisma.sql`SELECT "id" FROM "MonitoringIncident" WHERE "siteId" = ${siteId} ORDER BY "id"`);
     const processedGatewayEventRows = await ids(tx, Prisma.sql`SELECT "eventId" AS "id" FROM "ProcessedGatewayEvent" WHERE "gatewayId" = ${gateway.id} ORDER BY "eventId"`);
     const watermarkRows = await tx.$queryRaw<Array<{ eventType: string; scopeKey: string }>>(Prisma.sql`
       SELECT "eventType", "scopeKey" FROM "GatewayEventWatermark" WHERE "gatewayId" = ${gateway.id}
       ORDER BY "eventType", "scopeKey"
     `);
-    const energyFixtureIdentityRows = await idsByFixture(tx, fixtureIds);
-    const energyGroupIdentityRows = await idsByGroup(tx, fixtureGroupRows.map(row => row.id));
+    // Identity links are nullable after a prior fixture/group deletion. Site is the
+    // durable installation boundary, so include both live and retired history.
+    const energyFixtureIdentityRows = await idsBySite(tx, "EnergyFixtureIdentity", siteId);
+    const energyGroupIdentityRows = await idsBySite(tx, "EnergyGroupIdentity", siteId);
     const energyAggregateRows = await aggregateIds(tx, fixtureIds, energyFixtureIdentityRows.map(row => row.id));
     const reportRows = await tx.$queryRaw<ReportRow[]>(Prisma.sql`
       SELECT "id", "siteId", "format", "attemptCount" FROM "EnergyReportJob"
@@ -157,7 +163,9 @@ export class GatewayRecommissionService {
       gateway: gatewayRows, fixture: fixtureRows, meshNode: meshNodeRows, fixtureGroup: fixtureGroupRows,
       provisioningSession: provisioningSessionRows, command: commandRows, automationExecution: automationExecutionRows,
       monitoringIncident: monitoringIncidentRows, processedGatewayEvent: processedGatewayEventRows,
-      gatewayEventWatermark: watermarkRows.map(row => ({ id: `${row.eventType}\u0000${row.scopeKey}` })),
+      // PostgreSQL JSONB rejects U+0000. A JSON tuple is collision-free for the
+      // composite primary key and remains a valid string value in targetSnapshot.
+      gatewayEventWatermark: watermarkRows.map(row => ({ id: JSON.stringify([row.eventType, row.scopeKey]) })),
       energyFixtureIdentity: energyFixtureIdentityRows, energyGroupIdentity: energyGroupIdentityRows,
       energyAggregate: energyAggregateRows, energyReport: reportRows, floorMapRevision: floorMapRevisionRows,
       gatewayClaimAudit: gatewayClaimAuditRows
@@ -193,14 +201,15 @@ async function ids(tx: Pick<Prisma.TransactionClient, "$queryRaw">, query: Prism
   return tx.$queryRaw<IdRow[]>(query);
 }
 
-async function idsByFixture(tx: Pick<Prisma.TransactionClient, "$queryRaw">, fixtureIds: string[]) {
-  if (!fixtureIds.length) return [] as IdRow[];
-  return ids(tx, Prisma.sql`SELECT "id" FROM "EnergyFixtureIdentity" WHERE "fixtureId" IN (${Prisma.join(fixtureIds)}) ORDER BY "id"`);
-}
-
-async function idsByGroup(tx: Pick<Prisma.TransactionClient, "$queryRaw">, groupIds: string[]) {
-  if (!groupIds.length) return [] as IdRow[];
-  return ids(tx, Prisma.sql`SELECT "id" FROM "EnergyGroupIdentity" WHERE "groupId" IN (${Prisma.join(groupIds)}) ORDER BY "id"`);
+async function idsBySite(
+  tx: Pick<Prisma.TransactionClient, "$queryRaw">,
+  table: "EnergyFixtureIdentity" | "EnergyGroupIdentity",
+  siteId: string
+) {
+  const query = table === "EnergyFixtureIdentity"
+    ? Prisma.sql`SELECT "id" FROM "EnergyFixtureIdentity" WHERE "siteId" = ${siteId} ORDER BY "id"`
+    : Prisma.sql`SELECT "id" FROM "EnergyGroupIdentity" WHERE "siteId" = ${siteId} ORDER BY "id"`;
+  return ids(tx, query);
 }
 
 async function aggregateIds(tx: Pick<Prisma.TransactionClient, "$queryRaw">, fixtureIds: string[], energyFixtureIds: string[]) {
