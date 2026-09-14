@@ -80,7 +80,7 @@ describe("BioUsbDongleAdapter", () => {
     f.mappings.findByDeviceUuidIncludingReserved.mockImplementation(async () => { events.push("lookup-mapping"); return null; });
     f.client.startIdentify.mockImplementation(async () => { events.push("identify-restored"); return discovered; });
     f.mappings.reserve.mockImplementation(async () => { events.push("mapping-reserved"); return reservedMapping(); });
-    f.client.assignAddress.mockImplementation(async () => {
+    f.client.assignAddressOnce.mockImplementation(async () => {
       events.push("address-confirmed-by-scan");
       return { outcome: "confirmed", device: { ...discovered, logicalAddress: 0x0101 } };
     });
@@ -115,6 +115,28 @@ describe("BioUsbDongleAdapter", () => {
       firmware: discovered.firmwareVersion,
       protocol: "crc16"
     });
+  });
+
+  it("sends a newly approved address exactly once and leaves an unchanged result unresolved", async () => {
+    const f = createFixture();
+    f.mappings.findByDeviceUuidIncludingReserved.mockResolvedValue(null);
+    f.client.startIdentify.mockResolvedValue(discovered);
+    f.mappings.reserve.mockResolvedValue(reservedMapping());
+    // 기존 자동 재시도 API가 성공하도록 만들어 두어도 production adapter는 이 경로를
+    // 호출하면 안 된다. 실제 1회 write API의 unchanged는 주소 미확정으로 종료돼야 한다.
+    f.client.assignAddress.mockResolvedValue({
+      outcome: "confirmed",
+      device: { ...discovered, logicalAddress: 0x0101 }
+    });
+    f.client.assignAddressOnce.mockResolvedValue({ outcome: "unchanged", device: discovered });
+
+    await expect(f.adapter.provision(provisioningCommand)).rejects.toMatchObject({
+      code: "BIO_ADDRESS_STATE_UNKNOWN"
+    });
+
+    expect(f.client.assignAddressOnce).toHaveBeenCalledOnce();
+    expect(f.client.assignAddress).not.toHaveBeenCalled();
+    expect(f.mappings.confirm).not.toHaveBeenCalled();
   });
 
   it.each(["0x0000", "0x8000", "0xc000", "0101", "0x001"])(
@@ -508,6 +530,7 @@ function createFixture(events: string[] = []) {
     startIdentify: vi.fn(),
     stopIdentify: vi.fn(),
     assignAddress: vi.fn(),
+    assignAddressOnce: vi.fn(),
     reconcileAddress: vi.fn(),
     setOutput: vi.fn(),
     restoreSensorMode: vi.fn()

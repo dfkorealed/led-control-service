@@ -35,7 +35,7 @@ const BIO_DEVICE_UUID = /^bio:[0-9a-f]{12}$/;
 const BIO_GROUP_UNICAST_CONCURRENCY = 4;
 
 type BioClientPort = Pick<BioDongleClient,
-  "scan" | "startIdentify" | "stopIdentify" | "restoreSensorMode" | "assignAddress" |
+  "scan" | "startIdentify" | "stopIdentify" | "restoreSensorMode" | "assignAddressOnce" |
   "reconcileAddress" | "setOutput">;
 type BioMappingPort = Pick<BioDeviceMappingStore,
   "findByDeviceUuidIncludingReserved" | "reserve" | "confirm" | "findByFixtureId" |
@@ -137,7 +137,11 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
       firmware: identified.firmwareVersion,
       protocol: "crc16"
     });
-    const assigned = await this.client.assignAddress(identified.nativeUuid, logicalAddress);
+    // 주소는 장치의 지속 식별자이므로 ACK 유실이나 old-address 재관측만으로 같은 write를
+    // 자동 반복하지 않는다. assignAddressOnce는 실제 address frame을 최대 1회만 만들고,
+    // 이어지는 UUID old/new scan 결과가 confirmed일 때만 mapping을 활성화한다. unchanged와
+    // unknown은 상위 등록을 reconcile_required로 닫아 운영자가 현 상태를 다시 판단하게 한다.
+    const assigned = await this.client.assignAddressOnce(identified.nativeUuid, logicalAddress);
     const confirmed = requireConfirmedAssignment(assigned);
     assertSameDeviceAtAddress(command.deviceUuid, logicalAddress, confirmed);
     await this.mappings.confirm(command.deviceUuid, logicalAddress);

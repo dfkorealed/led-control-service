@@ -392,6 +392,7 @@ describe("startGatewayRuntime", () => {
         stopIdentify: vi.fn(),
         restoreSensorMode: vi.fn(),
         assignAddress: vi.fn(),
+        assignAddressOnce: vi.fn(),
         reconcileAddress: vi.fn(async (nativeUuid: string) => ({
           outcome: "confirmed" as const,
           device: {
@@ -559,7 +560,7 @@ describe("startGatewayRuntime", () => {
           rssi: -41
         }]),
         startIdentify: vi.fn(), stopIdentify: vi.fn(), restoreSensorMode: vi.fn(),
-        assignAddress: vi.fn(), reconcileAddress: vi.fn(),
+        assignAddress: vi.fn(), assignAddressOnce: vi.fn(), reconcileAddress: vi.fn(),
         setOutput: vi.fn(async () => ({ brightnessPercent: 60, powerOn: true, rawHighBrightness: 198, mode: "force-on" as const }))
       };
       const mappings = {
