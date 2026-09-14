@@ -237,6 +237,34 @@ describe("BIO evidence-gated dongle client", () => {
     await h.client.close();
   });
 
+  it("holds the global operation queue for the complete scan window before starting a GET", async () => {
+    const h = harness(71, { scanDurationMs: 100, observationTimeoutMs: 100 });
+    await ready(h);
+    const scanning = h.client.scan();
+    const reading = h.client.readBrightness(verifiedTarget);
+    void reading.catch(() => {});
+    await flush();
+
+    expect(requestBody(h.device, 3)).toBe("8305");
+    h.device.receive("55aa1101002055");
+    await flush();
+    // Scan-start ACK 뒤에도 100ms 수집 window와 stop ACK가 끝나기 전에는
+    // 같은 전역 response slot을 쓰는 brightness GET이 wire에 나오면 안 된다.
+    expect(h.device.writes).toHaveLength(4);
+
+    h.device.receive(discoveryHex("001122334455", 0x1234));
+    await vi.advanceTimersByTimeAsync(100);
+    await flush();
+    expect(requestBody(h.device, 4)).toBe("85");
+    h.device.receive("55aa1101002055");
+    await scanning;
+    await flush();
+    expect(requestBody(h.device, 5)).toBe("4e13");
+    h.device.receive(brightnessReportHex("001122334455", 0x1234, 198) + "55aa1101002055");
+    await expect(reading).resolves.toMatchObject({ kind: "high-brightness-report", rawHighBrightness: 198 });
+    await h.client.close();
+  });
+
   it("retires the connection when a started scan is aborted instead of writing stop after expiry", async () => {
     const h = harness(71, { scanDurationMs: 100 }); await ready(h);
     const controller = new AbortController();

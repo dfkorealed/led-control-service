@@ -148,7 +148,17 @@ export class BioDongleClient {
    * 취소 시에는 stop을 새로 쓰지 않고 connection generation을 폐기하며, 어느 실패에서도
    * 수집 목록을 cache/성공으로 공개하지 않아 동글의 scan 상태를 추정하지 않는다.
    */
-  async scan(control: BioOperationControl = {}): Promise<BioDiscoveredDevice[]> {
+  scan(control: BioOperationControl = {}): Promise<BioDiscoveredDevice[]> {
+    // 동글은 scan 시작 ACK 뒤 일정 시간 동안 0x12 discovery를 비동기로 내보낸다.
+    // start/stop frame만 각각 queue에 넣고 수집 window 동안 소유권을 풀면 다른 GET이
+    // 그 사이에 끼어들어 transaction ID 없는 0x12를 서로의 응답으로 오인하거나 동글이
+    // 명령을 거부한다. scan 호출 순간 global queue 자리를 먼저 예약하고, stop ACK까지
+    // 하나의 operation으로 유지한다. queue 안에서는 재진입 deadlock을 피하려고 아래
+    // owned 구현이 sendDirect를 사용한다.
+    return this.operationQueue.run(() => this.scanOwned(control));
+  }
+
+  private async scanOwned(control: BioOperationControl): Promise<BioDiscoveredDevice[]> {
     throwIfOperationStopped(control);
     await this.waitUntilReadyIfReconnecting(control);
     throwIfOperationStopped(control);
@@ -160,7 +170,7 @@ export class BioDongleClient {
     let failure: unknown;
     let scanAccepted = false;
     try {
-      await this.send({ kind: "scan" }, control, () => { scanAccepted = true; });
+      await this.sendDirect({ kind: "scan" }, control, () => { scanAccepted = true; });
       await controlledDelay(this.scanDurationMs, control);
     } catch (error) {
       failure = error;
@@ -173,7 +183,7 @@ export class BioDongleClient {
         // start write 중 취소는 transport가 이미 폐기한다.
         if (operationStopped(control)) {
           if (scanAccepted) await this.transport.retireCancelledOperation();
-        } else await this.stopScan(control);
+        } else await this.sendDirect({ kind: "stopScan" }, control);
       } catch (stopError) {
         // stop ACK/descriptor retirement는 성공 list의 필수 gate다. start/window 취소와
         // cleanup 실패는 서로 다른 사실이므로 후자를 앞선 primary 위에 덮지 않는다.
