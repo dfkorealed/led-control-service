@@ -4,6 +4,7 @@ import {
   FIXTURE_PRESENCE_POLL_INTERVAL_MS,
   GATEWAY_HEARTBEAT_FRESHNESS_MS,
   fixtureOperationalFreshSince,
+  isFixtureOperationalFresh,
   gatewayHeartbeatFreshSince,
   isGatewayHeartbeatFresh
 } from "./freshness";
@@ -28,5 +29,14 @@ describe("fixture operational freshness", () => {
     expect(fixtureOperationalFreshSince(now)).toEqual(new Date("2026-09-14T00:00:00.000Z"));
     expect(FIXTURE_PRESENCE_POLL_INTERVAL_MS).toBe(600_000);
     expect(FIXTURE_OPERATIONAL_FRESHNESS_MS).toBe(1_200_000);
+  });
+
+  it("uses an inclusive cutoff for operational presence consumers", () => {
+    const now = new Date("2026-09-14T00:20:00.000Z");
+    const cutoff = fixtureOperationalFreshSince(now);
+
+    expect(isFixtureOperationalFresh(cutoff, now)).toBe(true);
+    expect(isFixtureOperationalFresh(new Date(cutoff.getTime() - 1), now)).toBe(false);
+    expect(isFixtureOperationalFresh(null, now)).toBe(false);
   });
 });

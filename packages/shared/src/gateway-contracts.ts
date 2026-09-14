@@ -371,8 +371,8 @@ export const fixtureStateV2Schema = orderedGatewayEventSchema.extend({
   hopCount: z.number().int().nonnegative().nullable()
 });
 
-// Presence reports liveness/control telemetry only; fixture output state belongs
-// to fixtureStateV2Schema and must not leak into this contract.
+// Presence는 liveness/control telemetry만 보고하며 fixture 출력 상태는 별도 계약인
+// fixtureStateV2Schema가 소유하므로 이 계약에 brightness/powerOn 등을 섞지 않습니다.
 export const fixturePresenceV2Schema = orderedGatewayEventSchema.extend({
   fixtureId: z.string().uuid(),
   controlMode: z.enum(["sensor", "force-off", "force-on"]),
