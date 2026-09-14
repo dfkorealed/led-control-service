@@ -715,6 +715,31 @@ model GatewayClaimAudit {
   @@index([siteId, createdAt])
 }
 
+// 외래 키를 두지 않는다. 재설치 작업은 Gateway를 포함한 설치 데이터를 삭제한 뒤에도
+// 재시작·감사·정리의 fence로 남아야 한다. 또한 resetDigest에는 인증서/도면 payload가 아닌
+// 삭제 대상의 count와 정확한 row ID만 넣어, 재시도 중 대상이 바뀌면 감지하면서 비밀은 보관하지 않는다.
+model GatewayRecommissionJob {
+  id             String   @id @default(uuid())
+  siteId         String
+  inventoryId    String
+  gatewayId      String
+  serialNumber   String
+  resetDigest    String
+  targetSnapshot Json
+  objectKeys     Json
+  status         String
+  lastError      String?
+  preparedAt     DateTime @default(now())
+  revokedAt      DateTime?
+  appliedAt      DateTime?
+  finalizedAt    DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([inventoryId, createdAt])
+  @@index([status, updatedAt])
+}
+
 model MeshNode {
   id                                String                        @id @default(uuid())
   gatewayId                         String
