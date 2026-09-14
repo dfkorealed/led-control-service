@@ -587,6 +587,22 @@ describe("BioUsbDongleAdapter", () => {
       expect(f.client.startIdentify).not.toHaveBeenCalled();
     });
 
+    it("invokes read-only methods with the original BIO client as their receiver", async () => {
+      const f = readyForOnePresence();
+      f.client.readBrightness.mockImplementation(function (this: typeof f.client) {
+        if (this !== f.client) throw new Error("BIO client receiver was detached");
+        return Promise.resolve(brightnessReport(127, null));
+      });
+      f.client.readDeviceInfo.mockImplementation(function (this: typeof f.client) {
+        if (this !== f.client) throw new Error("BIO client receiver was detached");
+        return Promise.resolve(modeReport("sensor"));
+      });
+
+      await expect(f.adapter.resyncFixtureStates()).resolves.toEqual({
+        total: 1, configured: 1, observed: 1, healthPending: 0, timedOut: 0, failed: 0
+      });
+    });
+
     it.each([
       ["native UUID", { ...discovered, nativeUuid: "001122334455", logicalAddress: 0x0101 }],
       ["logical address", { ...discovered, logicalAddress: 0x0102 }]

@@ -425,7 +425,12 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
     if (!this.client.readBrightness || !this.client.readDeviceInfo) {
       throw new BioUsbError("BIO_DEVICE_NOT_FOUND", "BIO client does not support read-only fixture observation");
     }
-    return { readBrightness: this.client.readBrightness, readDeviceInfo: this.client.readDeviceInfo };
+    // `BioDongleClient`의 두 메서드는 내부 scan cache와 operation queue를 `this`로 읽는다.
+    // 메서드 참조만 새 object에 복사하면 JavaScript receiver가 그 임시 object로 바뀌어
+    // 실제 장비에서 GET frame을 만들기 전에 TypeError가 난다. 테스트 double처럼 this를
+    // 쓰지 않는 함수만 통과하는 형태를 피하려고, 존재 확인 뒤 원래 client 객체 자체를
+    // 반환한다. 따라서 호출 시 receiver와 client의 USB/queue 상태가 같은 인스턴스다.
+    return this.client as Required<Pick<BioDongleClient, "readBrightness" | "readDeviceInfo">>;
   }
 
   private async deliverPresence(presence: BleMeshFixturePresence) {
