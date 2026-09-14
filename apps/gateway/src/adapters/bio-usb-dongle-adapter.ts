@@ -284,7 +284,13 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
     for (const operation of command.expectedOperations) {
       const address = parseBioMeshAddress(operation.meshAddress);
       const mapping = await this.mappings.findByLogicalAddress(address);
-      if (!mapping || mapping.nodeId !== operation.meshNodeId) {
+      // BIO mapping의 nodeId는 등록 후보에서 이어진 Fixture ID이고, group command의
+      // meshNodeId는 API가 등록 완료 뒤 만든 MeshNode ID라 서로 다른 ID 공간이다.
+      // 둘을 같다고 비교하면 주소·UUID가 confirmed인 정상 장치도 그룹 등록에 실패한다.
+      // findByLogicalAddress는 confirmed mapping만 반환하며, 실제 group 제어 직전에는
+      // virtualGroups의 Fixture ID와 command의 Fixture ID를 다시 대조하므로 이 단계는
+      // 불필요한 ID 변환 없이 confirmed 하드웨어 주소만 local membership으로 바꾼다.
+      if (!mapping) {
         operations.push({ ...operation, status: "failed", error: "bio_mapping_not_confirmed" });
         continue;
       }
@@ -496,7 +502,12 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
     const fixtures = new Set<string>();
     for (const member of members) {
       const mapping = await this.mappings.findByLogicalAddress(parseBioMeshAddress(member.meshAddress));
-      if (mapping?.nodeId === member.meshNodeId) fixtures.add(mapping.fixtureId);
+      // GroupStateStore는 API MeshNode ID와 주소를 보존하지만 BIO mapping은 등록 후보에서
+      // 이어진 Fixture ID를 보존한다. 두 UUID를 변환하려고 별도 alias DB를 만들지 않고,
+      // 양쪽이 공통으로 신뢰하는 confirmed logical address로 Fixture ID를 복원한다.
+      // 주소가 미확정이면 lookup이 null이므로 membership에 포함되지 않으며, 이후 실제
+      // group command도 요청 Fixture ID가 이 Set에 없으면 RF 전송 전에 실패한다.
+      if (mapping) fixtures.add(mapping.fixtureId);
     }
     return fixtures;
   }

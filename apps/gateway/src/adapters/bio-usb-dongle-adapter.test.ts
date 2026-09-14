@@ -484,9 +484,26 @@ describe("BioUsbDongleAdapter", () => {
     expect(f.client.setOutput).not.toHaveBeenCalled();
   });
 
-  it("restores confirmed virtual membership from the durable applied snapshot", async () => {
+  it("accepts a confirmed BIO address when the API mesh node uses a separate ID", async () => {
     const f = createFixture();
     const mapping = confirmedMapping();
+    const apiMeshNodeId = "88888888-8888-4888-8888-888888888888";
+    const group = groupCommand([mapping]);
+    f.mappings.findByLogicalAddress.mockResolvedValue(mapping);
+
+    await expect(f.adapter.syncGroupSubscriptions({
+      ...group,
+      desiredMembers: group.desiredMembers.map((member) => ({ ...member, meshNodeId: apiMeshNodeId })),
+      expectedOperations: group.expectedOperations.map((operation) => ({ ...operation, meshNodeId: apiMeshNodeId }))
+    })).resolves.toMatchObject({
+      operations: [{ meshNodeId: apiMeshNodeId, meshAddress: "0x0101", status: "ready" }]
+    });
+  });
+
+  it("restores confirmed virtual membership when the durable mesh node uses a separate ID", async () => {
+    const f = createFixture();
+    const mapping = confirmedMapping();
+    const apiMeshNodeId = "88888888-8888-4888-8888-888888888888";
     f.mappings.findByLogicalAddress.mockResolvedValue(mapping);
     f.mappings.findByFixtureId.mockResolvedValue(mapping);
     f.client.scan.mockResolvedValue([{ ...discovered, logicalAddress: mapping.logicalAddress }]);
@@ -494,38 +511,27 @@ describe("BioUsbDongleAdapter", () => {
     await f.adapter.scan(scanCommand);
     const base = groupCommand([mapping]);
 
-    await f.adapter.syncGroupSubscriptions({ ...base, expectedOperations: [] }, base.desiredMembers);
+    await f.adapter.syncGroupSubscriptions(
+      { ...base, expectedOperations: [] },
+      base.desiredMembers.map((member) => ({ ...member, meshNodeId: apiMeshNodeId }))
+    );
 
     await expect(f.adapter.applyMeshGroup(0xc000, [mapping.fixtureId], 60)).resolves.toEqual([
       expect.objectContaining({ fixtureId: mapping.fixtureId, acknowledged: true, outcome: "applied" })
     ]);
   });
 
-  it("hydrates only confirmed local virtual members from a ready startup snapshot", async () => {
+  it("hydrates only address-confirmed fixtures and rejects another fixture before group control", async () => {
     const f = createFixture();
     const mapping = confirmedMapping();
-    const wrongIdentityMapping = confirmedMapping({
-      fixtureId: "88888888-8888-4888-8888-888888888888",
-      nodeId: "99999999-9999-4999-8999-999999999999",
-      deviceUuid: "bio:001122334466",
-      nativeUuid: "001122334466",
-      logicalAddress: 0x0102
-    });
+    const otherFixtureId = "88888888-8888-4888-8888-888888888888";
     f.mappings.findByLogicalAddress.mockImplementation(async (address: number) =>
-      address === mapping.logicalAddress ? mapping : address === wrongIdentityMapping.logicalAddress ? wrongIdentityMapping : null
+      address === mapping.logicalAddress ? mapping : null
     );
     f.mappings.findByFixtureId.mockImplementation(async (fixtureId: string) =>
-      fixtureId === mapping.fixtureId ? mapping : fixtureId === wrongIdentityMapping.fixtureId ? wrongIdentityMapping : null
+      fixtureId === mapping.fixtureId ? mapping : null
     );
-    f.client.scan.mockResolvedValue([
-      { ...discovered, logicalAddress: mapping.logicalAddress },
-      {
-        ...discovered,
-        nativeUuid: wrongIdentityMapping.nativeUuid,
-        deviceUuid: wrongIdentityMapping.deviceUuid,
-        logicalAddress: wrongIdentityMapping.logicalAddress
-      }
-    ]);
+    f.client.scan.mockResolvedValue([{ ...discovered, logicalAddress: mapping.logicalAddress }]);
     f.client.setOutput.mockResolvedValue({ brightnessPercent: 60, powerOn: true, rawHighBrightness: 198, mode: "force-on" });
     await f.adapter.scan(scanCommand);
 
@@ -534,15 +540,15 @@ describe("BioUsbDongleAdapter", () => {
       groupAddress: "0xc000",
       version: 1,
       members: [
-        { meshNodeId: mapping.nodeId, meshAddress: "0x0101" },
-        { meshNodeId: "88888888-8888-4888-8888-888888888888", meshAddress: "0x0102" }
+        { meshNodeId: "99999999-9999-4999-8999-999999999999", meshAddress: "0x0101" },
+        { meshNodeId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", meshAddress: "0x0102" }
       ]
     }]);
 
     await expect(f.adapter.applyMeshGroup(0xc000, [mapping.fixtureId], 60)).resolves.toEqual([
       expect.objectContaining({ fixtureId: mapping.fixtureId, acknowledged: true, outcome: "applied" })
     ]);
-    await expect(f.adapter.applyMeshGroup(0xc000, [wrongIdentityMapping.fixtureId], 60)).resolves.toEqual([
+    await expect(f.adapter.applyMeshGroup(0xc000, [otherFixtureId], 60)).resolves.toEqual([
       expect.objectContaining({ faultCode: "bio_virtual_group_not_ready" })
     ]);
   });
