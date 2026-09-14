@@ -5,32 +5,21 @@ export interface GatewayCommandDeliveryGeneration {
   deliveryGeneration: string;
   deliveryGeneratedAt: string;
   deliveryWindowMs: number;
-  overrideRemainingMs?: number;
   expiresAt: string;
 }
 
 export function createGatewayCommandExpiry(
   publishedAt: Date,
-  overrideUntil: string | undefined,
   deliveryGeneration: string
 ) {
   const generatedAt = publishedAt.getTime();
-  const deliveryDeadline = generatedAt + GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS;
-  const absoluteDeadline = overrideUntil === undefined ? deliveryDeadline : Date.parse(overrideUntil);
-  if (!Number.isFinite(absoluteDeadline)) throw new Error("invalid manual override expiry");
-  if (absoluteDeadline <= generatedAt) throw new Error("manual override already expired");
-  const overrideRemainingMs = overrideUntil === undefined ? undefined : absoluteDeadline - generatedAt;
-  const rawWindowMs = Math.min(deliveryDeadline, absoluteDeadline) - generatedAt;
-  const messageExpiryInterval = Math.floor(rawWindowMs / 1_000);
-  if (messageExpiryInterval <= 0) throw new Error("gateway command delivery window is less than one second");
-  const deliveryWindowMs = messageExpiryInterval * 1_000;
+  const deliveryWindowMs = GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS;
   return {
     deliveryGeneration,
     deliveryGeneratedAt: publishedAt.toISOString(),
     deliveryWindowMs,
-    ...(overrideRemainingMs === undefined ? {} : { overrideRemainingMs }),
     expiresAt: new Date(generatedAt + deliveryWindowMs).toISOString(),
-    messageExpiryInterval
+    messageExpiryInterval: deliveryWindowMs / 1_000
   };
 }
 
