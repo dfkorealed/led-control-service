@@ -16,6 +16,7 @@ import {
   gatewayDeferredPubackTopics,
   enqueueAutomationFixtureStates,
   createManualOverrideCoordinator,
+  enqueueFixturePresence,
   createFixturePresencePublisher,
   createFixtureStatusPublisher,
   createProvisioningScanCompletedPayload,
@@ -30,6 +31,7 @@ import {
   handleProvisioningDevicePayloadForCurrentScope,
   parseGatewayHeartbeatInterval,
   recordMeshResyncOutcome,
+  recoverStateEventCapacityAfterAcknowledgement,
   registerGatewayShutdownHandlers,
   shouldPublishFinalAcceptance,
   shouldPublishFixtureStates,
@@ -43,12 +45,13 @@ import {
   runGatewayStartupStageWithAdapterCleanup,
   startGatewayRuntime,
   subscribeGatewayAcknowledgements,
-  subscribeGatewayCommands
+  subscribeGatewayCommands,
+  observeFixturePresenceIntake
 } from "./index";
 import { StateEventOutboxError } from "./state/state-event-outbox";
 import { CommandJournal } from "./commands/command-journal";
 import type { BleMeshFixturePresence, BleMeshLightingObservation } from "./gateway";
-import { mqttTopicsV2, provisioningScanCompletedSchema, provisioningScanFailedSchema, provisioningScanFoundSchema } from "@led-control/shared";
+import { mqttTopicsV2, provisioningScanCompletedSchema, provisioningScanFailedSchema, provisioningScanFoundSchema, type FixturePresenceV2 } from "@led-control/shared";
 import { FileAutomationStateStore } from "./automation/automation-state-store";
 import { AutomationTelemetryOutbox } from "./automation/automation-telemetry-outbox";
 import { automationScope, automationSnapshot } from "./automation/automation-test-fixtures";
@@ -207,6 +210,136 @@ describe("status check MQTT runtime", () => {
     }
   });
 });
+
+describe("fixture presence runtime intake", () => {
+  const presence: BleMeshFixturePresence = {
+    fixtureId: scopedFixtureId,
+    controlMode: "sensor",
+    rawHighBrightness: 127,
+    configuredBrightness: null,
+    rssi: -41,
+    hopCount: null,
+    observedAt: "2026-09-14T00:00:01.000Z"
+  };
+
+  it("does not schedule resync after a non-capacity presence write failure and later ACK", async () => {
+    let listener: ((value: BleMeshFixturePresence) => Promise<void> | void) | undefined;
+    let blocked = false;
+    const capacity = {
+      run: vi.fn(async (_fixtureIds, operation) => operation({ id: "presence-reservation" })),
+      block: vi.fn(async () => { blocked = true; }),
+      isBlocked: () => blocked,
+      recoverAndReserve: vi.fn()
+    };
+    const intake = observeFixturePresenceIntake({
+      adapter: { onFixturePresence: (next) => { listener = next; return vi.fn(); } },
+      stateEventCapacity: capacity as never,
+      enqueue: (value, reservation) => enqueueFixturePresence({
+        outbox: { enqueue: vi.fn().mockRejectedValue(new Error("disk I/O failed")) },
+        stateEventPublisher: { wake: vi.fn() },
+        stateEventCapacity: capacity as never
+      }, fixturePresenceEvent(value), reservation)
+    });
+
+    await expect(listener?.(presence)).rejects.toThrow("disk I/O failed");
+    expect(capacity.run).toHaveBeenCalledWith([scopedFixtureId], expect.any(Function));
+    expect(capacity.block).not.toHaveBeenCalled();
+
+    const scheduleFullResync = vi.fn();
+    await expect(recoverStateEventCapacityAfterAcknowledgement({
+      stateEventCapacity: capacity as never,
+      armFixtureStatusIntake: vi.fn(),
+      scheduleFullResync
+    })).resolves.toBe(false);
+    expect(capacity.recoverAndReserve).not.toHaveBeenCalled();
+    expect(scheduleFullResync).not.toHaveBeenCalled();
+    await intake.stopAndDrain();
+  });
+
+  it("schedules full resync only after a capacity failure recovers a reservation", async () => {
+    let listener: ((value: BleMeshFixturePresence) => Promise<void> | void) | undefined;
+    let blocked = false;
+    const recoveredReservation = { id: "recovered-reservation" };
+    const capacity = {
+      run: vi.fn(async (_fixtureIds, operation) => operation({ id: "presence-reservation" })),
+      block: vi.fn(async () => { blocked = true; }),
+      isBlocked: () => blocked,
+      recoverAndReserve: vi.fn(async () => blocked ? recoveredReservation : null)
+    };
+    const intake = observeFixturePresenceIntake({
+      adapter: { onFixturePresence: (next) => { listener = next; return vi.fn(); } },
+      stateEventCapacity: capacity as never,
+      enqueue: (value, reservation) => enqueueFixturePresence({
+        outbox: { enqueue: vi.fn().mockRejectedValue(new StateEventOutboxError("STATE_OUTBOX_CAPACITY", "full")) },
+        stateEventPublisher: { wake: vi.fn() },
+        stateEventCapacity: capacity as never
+      }, fixturePresenceEvent(value), reservation)
+    });
+
+    await expect(listener?.(presence)).rejects.toMatchObject({ code: "STATE_OUTBOX_CAPACITY" });
+    expect(capacity.block).toHaveBeenCalledOnce();
+
+    const armFixtureStatusIntake = vi.fn().mockResolvedValue(true);
+    const scheduleFullResync = vi.fn();
+    await expect(recoverStateEventCapacityAfterAcknowledgement({
+      stateEventCapacity: capacity as never,
+      armFixtureStatusIntake,
+      scheduleFullResync
+    })).resolves.toBe(true);
+    expect(armFixtureStatusIntake).toHaveBeenCalledWith(recoveredReservation);
+    expect(scheduleFullResync).toHaveBeenCalledOnce();
+    await intake.stopAndDrain();
+  });
+
+  it("reserves one fixture slot, awaits durable enqueue, and drains active presence intake after unsubscribe", async () => {
+    let listener: ((value: BleMeshFixturePresence) => Promise<void> | void) | undefined;
+    const unsubscribe = vi.fn();
+    let releaseEnqueue!: () => void;
+    const enqueueBarrier = new Promise<void>((resolve) => { releaseEnqueue = resolve; });
+    const stateEventCapacity = {
+      run: vi.fn(async (_fixtureIds, operation) => operation({ id: "presence-reservation" }))
+    };
+    const enqueue = vi.fn(async () => { await enqueueBarrier; });
+    const intake = observeFixturePresenceIntake({
+      adapter: { onFixturePresence: (next) => { listener = next; return unsubscribe; } },
+      stateEventCapacity: stateEventCapacity as never,
+      enqueue
+    });
+
+    const handling = listener?.(presence);
+    await vi.waitFor(() => expect(enqueue).toHaveBeenCalledOnce());
+    expect(stateEventCapacity.run).toHaveBeenCalledWith([scopedFixtureId], expect.any(Function));
+    const stop = intake.stopAndDrain();
+    expect(unsubscribe).toHaveBeenCalledOnce();
+    listener?.(presence);
+    expect(stateEventCapacity.run).toHaveBeenCalledOnce();
+    let stopped = false;
+    void stop.then(() => { stopped = true; });
+    await Promise.resolve();
+    expect(stopped).toBe(false);
+
+    releaseEnqueue();
+    await handling;
+    await stop;
+    expect(stopped).toBe(true);
+  });
+});
+
+function fixturePresenceEvent(presence: BleMeshFixturePresence): FixturePresenceV2 {
+  return {
+    siteId: scopedSiteId,
+    gatewayId: scopedGatewayId,
+    eventId: "99999999-9999-4999-8999-999999999999",
+    sequence: 42,
+    occurredAt: presence.observedAt,
+    fixtureId: presence.fixtureId,
+    controlMode: presence.controlMode,
+    rawHighBrightness: presence.rawHighBrightness,
+    configuredBrightness: presence.configuredBrightness,
+    rssi: presence.rssi,
+    hopCount: presence.hopCount
+  };
+}
 
 it("publishes provisioning completion before isolating capability refresh failure", async () => {
   const command = {

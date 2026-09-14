@@ -319,6 +319,69 @@ export function observeAutomationFixtureStatuses(
   });
 }
 
+export function observeFixturePresenceIntake(input: {
+  adapter: Pick<BleMeshAdapter, "onFixturePresence">;
+  stateEventCapacity: Pick<StateEventCapacityGate, "run">;
+  enqueue: (presence: BleMeshFixturePresence, reservation: StateEventCapacityReservation) => Promise<void>;
+}) {
+  const active = new Set<Promise<void>>();
+  let stopping = false;
+  const unsubscribe = input.adapter.onFixturePresence?.((presence) => {
+    if (stopping) return;
+    const handling = input.stateEventCapacity.run([presence.fixtureId], (reservation) =>
+      input.enqueue(presence, reservation)
+    );
+    active.add(handling);
+    void handling.finally(() => active.delete(handling)).catch(() => undefined);
+    return handling;
+  });
+
+  return {
+    async stopAndDrain() {
+      stopping = true;
+      // [확인됨] unsubscribe를 먼저 해야 BIO의 직렬 poll loop가 새 sequence/reservation을
+      // 시작하지 않는다. 이미 시작한 write는 outbox와 publisher보다 먼저 settle시켜야
+      // shutdown 중 sequence 저장·durable enqueue가 해제된 리소스를 뒤늦게 사용하지 않는다.
+      unsubscribe?.();
+      await Promise.allSettled([...active]);
+    }
+  };
+}
+
+export async function enqueueFixturePresence(
+  input: {
+    outbox: Pick<StateEventOutbox, "enqueue">;
+    stateEventPublisher: Pick<StateEventOutboxPublisher, "wake">;
+    stateEventCapacity: Pick<StateEventCapacityGate, "block">;
+  },
+  presence: FixturePresenceV2,
+  reservation: StateEventCapacityReservation
+) {
+  try {
+    await input.outbox.enqueue(presence, reservation);
+    input.stateEventPublisher.wake();
+  } catch (error) {
+    if (isStateEventOutboxCapacityError(error)) await input.stateEventCapacity.block();
+    throw error;
+  }
+}
+
+export async function recoverStateEventCapacityAfterAcknowledgement(input: {
+  stateEventCapacity: Pick<StateEventCapacityGate, "isBlocked" | "recoverAndReserve">;
+  armFixtureStatusIntake: (reservation: StateEventCapacityReservation) => Promise<unknown>;
+  scheduleFullResync: () => unknown;
+}) {
+  if (!input.stateEventCapacity.isBlocked()) return false;
+  const reservation = await input.stateEventCapacity.recoverAndReserve(["*"]);
+  if (!reservation) return false;
+  await input.armFixtureStatusIntake(reservation);
+  // [확인됨] capacity로 빠진 presence는 ACK 뒤 새 full resync에서만 다시 관측한다.
+  // 동일 head를 ACK 전 반복 발행해도 BIOS GET 관측 자체는 복구되지 않으므로, reservation을
+  // 실제로 회복한 뒤에만 read-only poll을 예약한다.
+  input.scheduleFullResync();
+  return true;
+}
+
 export function requeuePendingFixtureObservations(
   runtime: Pick<ScheduleRuntime, "pendingObservationFixtureIds">,
   targeted: Pick<TargetedLightingResyncQueue, "requeuePendingFixtures">
@@ -839,30 +902,26 @@ async function main() {
     }
   }
 
-  const stopFixturePresenceIntake = adapter.onFixturePresence?.(async (presence) => {
-    // [확인됨] presence는 BIO GET이 성공했다는 생존 관측이므로 state outbox와 같은
-    // owner-only durability·application ACK를 쓴다. 다만 sensor mode의 configured brightness는
-    // 실제 LED 출력이 아니므로 brightness/power/energy state로 승격하지 않는다.
-    await stateEventCapacity.run([presence.fixtureId], async (reservation) => {
+  const fixturePresenceIntake = observeFixturePresenceIntake({
+    adapter,
+    stateEventCapacity,
+    enqueue: async (presence, reservation) => {
+      // [확인됨] presence는 BIO GET이 성공했다는 생존 관측이므로 state outbox와 같은
+      // owner-only durability·application ACK를 쓴다. 다만 sensor mode의 configured brightness는
+      // 실제 LED 출력이 아니므로 brightness/power/energy state로 승격하지 않는다.
       const publishFixturePresence = createFixturePresencePublisher({
         siteId,
         gatewayId,
         eventSequence,
-        publish: (_topic, event) => enqueueFixturePresence(event, reservation)
+        publish: (_topic, event) => enqueueFixturePresence({
+          outbox: stateEventOutbox,
+          stateEventPublisher,
+          stateEventCapacity
+        }, event, reservation)
       });
       await publishFixturePresence(presence);
-    });
-  });
-
-  async function enqueueFixturePresence(presence: FixturePresenceV2, reservation: StateEventCapacityReservation) {
-    try {
-      await stateEventOutbox.enqueue(presence, reservation);
-      stateEventPublisher.wake();
-    } catch (error) {
-      await stateEventCapacity.block();
-      throw error;
     }
-  }
+  });
 
   function publish(client: Pick<MqttClient, "publish">, topic: string, payload: unknown) {
     return new Promise<void>((resolve, reject) => {
@@ -1098,15 +1157,12 @@ async function main() {
         provisioningDeviceReplay.acknowledgeTerminal(JSON.parse(payload.toString())),
       [mqttTopicsV2.stateIngestedAck(siteId, gatewayId)]: async (payload) => {
         const removed = await stateEventPublisher.acknowledge(JSON.parse(payload.toString()));
-        if (removed && stateEventCapacity.isBlocked()) {
-          const reservation = await stateEventCapacity.recoverAndReserve(["*"]);
-          if (reservation) {
-            await armFixtureStatusIntake(reservation);
-            // [확인됨] capacity로 누락된 presence는 delivery ACK 뒤에만 재관측한다.
-            // ACK 전 재시도는 동일 outbox head만 반복하므로, 여기서 full resync를 예약해
-            // durability 회복 후 BIO의 다음 read-only 관측이 다시 enqueue되게 한다.
-            meshResyncWorker.schedule(true);
-          }
+        if (removed) {
+          await recoverStateEventCapacityAfterAcknowledgement({
+            stateEventCapacity,
+            armFixtureStatusIntake,
+            scheduleFullResync: () => meshResyncWorker.schedule(true)
+          });
         }
       },
       [mqttTopics.automationConfigAppliedReceipt(siteId, gatewayId)]: async (payload) => {
@@ -1210,7 +1266,7 @@ async function main() {
         const targetedResyncDrain = targetedLightingResync.stopAndDrain();
         const vehicleSensorDrain = vehicleSensorController?.stopAndDrain() ?? Promise.resolve();
         stopAutomationFixtureStatusIntake();
-        stopFixturePresenceIntake?.();
+        await fixturePresenceIntake.stopAndDrain();
         stopFixtureStatusIntake?.();
         automationTelemetryCoordinator.stop();
         automationStorage.headroom.stop();
@@ -1254,6 +1310,10 @@ export function stateEventOutboxHealthReason(error: unknown) {
     case "STATE_OUTBOX_MANIFEST_CORRUPT":
       return "state_outbox_corrupt";
   }
+}
+
+function isStateEventOutboxCapacityError(error: unknown) {
+  return error instanceof StateEventOutboxError && error.code === "STATE_OUTBOX_CAPACITY";
 }
 
 export function connectGatewayServices(options: {
