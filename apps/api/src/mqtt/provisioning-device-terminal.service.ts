@@ -19,6 +19,7 @@ export const PROVISIONING_DEVICE_TERMINAL_EVENT_TYPE = "provisioning_device_term
 const DEVICE_UUID_CONFLICT_ERROR = "device UUID is already registered by another site";
 const FIXTURE_FLOOR_CONFLICT_ERROR = "fixture is already assigned to another floor";
 const PROVISIONING_WAITING_STATE = "provisioning_waiting_state";
+const BIO_DEVICE_UUID = /^bio:[0-9a-f]{12}$/;
 const UNKNOWN_TERMINAL_ERROR = "조명 등록 결과를 자동 확정하지 못했습니다. 장비 상태를 확인해 주세요.";
 
 type GatewayScope = { siteId: string; gatewayId: string };
@@ -415,6 +416,7 @@ export class ProvisioningDeviceTerminalService {
 
     let fixture = existingFixture;
     if (!fixture) {
+      const bioHardwareConfirmed = BIO_DEVICE_UUID.test(event.deviceUuid);
       const createdFixture = await tx.fixture.create({
         data: {
           id: node.id,
@@ -425,15 +427,23 @@ export class ProvisioningDeviceTerminalService {
           x: node.pendingFixtureX,
           y: node.pendingFixtureY,
           size: node.pendingFixtureSize ?? 20,
-          status: "offline",
-          statusReason: PROVISIONING_WAITING_STATE,
-          reportedStatus: "offline",
-          reportedStatusReason: PROVISIONING_WAITING_STATE,
+          // 일반 BLE Mesh 등록 완료는 주소 설정만 증명할 수 있어 첫 fixture-state
+          // telemetry까지 offline으로 둔다. 반면 BIO adapter의 completed terminal은
+          // `bio:<native UUID>` 장치를 새 주소에서 다시 발견한 뒤에만 생성된다. 따라서
+          // 해당 terminal 자체를 통신 가능성의 근거로 사용해 제어 관문을 연다.
+          // 단, sensor 모드는 순간 출력 밝기/전원 여부를 알려 주지 않는다. online을
+          // power-on으로 해석하거나 설정 밝기를 실제 밝기로 복사하지 않고 아래의
+          // brightness=0과 DB 기본값 powerOn=null을 유지한다. 첫 수동 제어 read-back이
+          // 도착하면 일반 fixture-state 경로가 실제 brightness/power 상태를 갱신한다.
+          status: bioHardwareConfirmed ? "online" : "offline",
+          statusReason: bioHardwareConfirmed ? null : PROVISIONING_WAITING_STATE,
+          reportedStatus: bioHardwareConfirmed ? "online" : "offline",
+          reportedStatusReason: bioHardwareConfirmed ? null : PROVISIONING_WAITING_STATE,
           brightness: 0,
-          rssi: null,
-          hopCount: null,
+          rssi: bioHardwareConfirmed ? event.rssi ?? null : null,
+          hopCount: bioHardwareConfirmed ? event.hopCount ?? null : null,
           commandSuccessRate: null,
-          lastSeenAt: null
+          lastSeenAt: bioHardwareConfirmed ? new Date(event.completedAt) : null
         }
       });
       fixture = createdFixture;

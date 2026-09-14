@@ -33,8 +33,7 @@ function completed(overrides: Partial<ProvisionTerminal> = {}): ProvisionTermina
   } as ProvisionTerminal;
 }
 
-function commandPayload() {
-  const event = completed();
+function commandPayload(event = completed()) {
   return {
     commandId: event.commandId,
     sessionId: event.sessionId,
@@ -66,8 +65,9 @@ function testContext(options: {
   identify?: boolean;
   latestIdentifyCommandId?: string;
   sessionStatus?: string;
+  deviceUuid?: string;
 } = {}) {
-  const event = completed();
+  const event = completed(options.deviceUuid ? { deviceUuid: options.deviceUuid } : {});
   const node = {
     id: NODE_ID,
     sessionId: SESSION_ID,
@@ -100,7 +100,7 @@ function testContext(options: {
       operation: "identify", commandId: COMMAND_ID, sessionId: SESSION_ID, siteId: SITE_ID,
       gatewayId: GATEWAY_ID, nodeId: NODE_ID, deviceUuid: event.deviceUuid,
       requestedAt: "2026-09-12T00:59:00.000Z"
-    } : commandPayload(),
+    } : commandPayload(event),
     createdAt: new Date("2026-09-12T00:59:00.000Z"),
     session,
     node
@@ -330,6 +330,41 @@ describe("ProvisioningDeviceTerminalService", () => {
       revision: null,
       topic: `sites/${SITE_ID}/gateways/${GATEWAY_ID}/acks/provisioning/device-terminal-ingested`,
       payload: expect.objectContaining({ eventId: EVENT_ID, sequence: 41 })
+    }) });
+  });
+
+  it("marks a newly provisioned BIO fixture online from its hardware-confirmed terminal without inventing power state", async () => {
+    const { service, tx, event } = testContext({ deviceUuid: "bio:aabbccddeeff" });
+
+    await service.ingest({ siteId: SITE_ID, gatewayId: GATEWAY_ID }, event, RECEIVED_AT);
+
+    expect(tx.fixture.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      status: "online",
+      statusReason: null,
+      reportedStatus: "online",
+      reportedStatusReason: null,
+      lastSeenAt: new Date("2026-09-12T01:00:00.000Z"),
+      rssi: -47,
+      hopCount: 1,
+      brightness: 0
+    }) });
+    expect(tx.fixture.create.mock.calls[0][0].data).not.toHaveProperty("powerOn");
+  });
+
+  it("keeps non-BIO fixtures offline until their normal state telemetry arrives", async () => {
+    const { service, tx, event } = testContext();
+
+    await service.ingest({ siteId: SITE_ID, gatewayId: GATEWAY_ID }, event, RECEIVED_AT);
+
+    expect(tx.fixture.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      status: "offline",
+      statusReason: "provisioning_waiting_state",
+      reportedStatus: "offline",
+      reportedStatusReason: "provisioning_waiting_state",
+      lastSeenAt: null,
+      rssi: null,
+      hopCount: null,
+      brightness: 0
     }) });
   });
 
