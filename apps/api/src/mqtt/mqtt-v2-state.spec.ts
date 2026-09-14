@@ -901,6 +901,89 @@ describe("MqttService v2 ordered state", () => {
     expect(client.stream.destroy).toHaveBeenCalledTimes(1);
   });
 
+  it("serializes fixture state and presence from the same gateway before acknowledging either packet", async () => {
+    const stateStarted = deferred<void>();
+    const releaseState = deferred<void>();
+    const presenceStarted = deferred<void>();
+    const state = { ingest: jest.fn(async (_gatewayId, event) => {
+      stateStarted.resolve();
+      await releaseState.promise;
+      return { eventId: event.eventId, sequence: event.sequence, fixtureId: event.fixtureId, status: "ingested" as const };
+    }) };
+    const presence = { ingest: jest.fn(async (_gatewayId, event) => {
+      presenceStarted.resolve();
+      return { eventId: event.eventId, sequence: event.sequence, fixtureId: event.fixtureId, status: "ingested" as const };
+    }) };
+    const service = new MqttService(
+      {} as never,
+      { attachProvisionedNode: jest.fn() } as never,
+      state as never,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      presence as never
+    );
+    const client = mqttClientHarness(service);
+    jest.spyOn(service, "publishTopic").mockResolvedValue();
+    const stateDone = jest.fn();
+    const presenceDone = jest.fn();
+    const handle = mqttInternals(service).createCustomHandleAcks();
+
+    handle(fixtureTopic, Buffer.from(JSON.stringify(fixtureEvent(20))), { qos: 1, messageId: 104 }, stateDone);
+    await stateStarted.promise;
+    handle(fixturePresenceTopic, Buffer.from(JSON.stringify(fixturePresenceEvent(21))), { qos: 1, messageId: 105 }, presenceDone);
+    await flushPromises();
+
+    expect(presence.ingest).not.toHaveBeenCalled();
+    expect(stateDone).not.toHaveBeenCalled();
+    expect(presenceDone).not.toHaveBeenCalled();
+    releaseState.resolve();
+    await presenceStarted.promise;
+    await waitFor(() => stateDone.mock.calls.length === 1 && presenceDone.mock.calls.length === 1);
+    await service.stopInboundAndDrain();
+
+    expect(stateDone).toHaveBeenCalledWith(0);
+    expect(presenceDone).toHaveBeenCalledWith(0);
+    expect(stateDone.mock.invocationCallOrder[0]).toBeLessThan(presenceDone.mock.invocationCallOrder[0]);
+    expect(client.stream.destroy).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["siteId", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"],
+    ["gatewayId", "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"]
+  ] as const)("rejects fixture presence with a mismatched payload %s before broker PUBACK", async (field, value) => {
+    const presence = { ingest: jest.fn() };
+    const service = new MqttService(
+      {} as never,
+      { attachProvisionedNode: jest.fn() } as never,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      presence as never
+    );
+    const client = mqttClientHarness(service);
+    const publish = jest.spyOn(service, "publishTopic").mockResolvedValue();
+    jest.spyOn((service as any).logger, "error").mockImplementation(() => undefined);
+    const done = jest.fn();
+
+    mqttInternals(service).createCustomHandleAcks()(
+      fixturePresenceTopic,
+      Buffer.from(JSON.stringify({ ...fixturePresenceEvent(22), [field]: value })),
+      { qos: 1, messageId: field === "siteId" ? 106 : 107 },
+      done
+    );
+    await waitFor(() => client.stream.destroy.mock.calls.length === 1);
+    await service.stopInboundAndDrain();
+
+    expect(presence.ingest).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
+    expect(done).not.toHaveBeenCalled();
+    expect(client.stream.destroy).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects forged durable observation suffixes before fixture presence ingestion", async () => {
     const presence = { ingest: jest.fn() };
     const service = new MqttService(
@@ -936,7 +1019,7 @@ describe("MqttService v2 ordered state", () => {
       presence as never
     );
     const client = mqttClientHarness(service);
-    jest.spyOn(service, "publishTopic").mockResolvedValue();
+    const publish = jest.spyOn(service, "publishTopic").mockResolvedValue();
     const packet = { qos: 1, messageId: 103 };
     const payload = Buffer.from(JSON.stringify(fixturePresenceEvent(11)));
     const done = jest.fn(() => client.emit("message", fixturePresenceTopic, payload, packet));
@@ -946,6 +1029,19 @@ describe("MqttService v2 ordered state", () => {
     await service.stopInboundAndDrain();
 
     expect(presence.ingest).toHaveBeenCalledTimes(1);
+    expect(done).toHaveBeenCalledTimes(1);
+    expect(done).toHaveBeenCalledWith(0);
+    expect(publish).toHaveBeenCalledWith(
+      `sites/${scope.siteId}/gateways/${scope.gatewayId}/acks/state-ingested`,
+      expect.objectContaining({
+        eventId: fixturePresenceEvent(11).eventId,
+        sequence: 11,
+        fixtureId: fixturePresenceEvent(11).fixtureId,
+        status: "ingested"
+      }),
+      expect.objectContaining({ timeoutMs: 10_000 })
+    );
+    expect(client.stream.destroy).not.toHaveBeenCalled();
   });
 });
 
