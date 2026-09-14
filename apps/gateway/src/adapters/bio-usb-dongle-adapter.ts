@@ -358,7 +358,7 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
       if (signal?.aborted) return report;
       if (isBioTimeout(error)) report.timedOut = mappings.length;
       else report.failed = mappings.length;
-      addFailureCode(failureCodes, errorCode(error), mappings.length);
+      addFailureCodes(failureCodes, error, mappings.length);
       return withFailureCodes(report, failureCodes);
     }
 
@@ -399,7 +399,7 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
         // resync report는 동일 실패가 여러 fixture에서 반복돼도 code별 횟수만 남긴다.
         // exception message에는 USB path/packet 값이 들어갈 수 있으므로 상위 health/log로
         // 전달하지 않는다. `errorCode`가 승인된 BioUsbError code 또는 일반 fallback만 만든다.
-        addFailureCode(failureCodes, errorCode(error));
+        addFailureCodes(failureCodes, error);
       }
     }
     return withFailureCodes(report, failureCodes);
@@ -580,7 +580,7 @@ function assertExactReadbackIdentity(
 }
 
 function isBioTimeout(error: unknown) {
-  return error instanceof BioUsbError && error.code === "TIMEOUT";
+  return bioFailureCodes(error).includes("TIMEOUT");
 }
 
 function lightingObservationFromPresence(presence: BleMeshFixturePresence): BleMeshLightingObservation | undefined {
@@ -598,14 +598,27 @@ function lightingObservationFromPresence(presence: BleMeshFixturePresence): BleM
   return undefined;
 }
 
-function errorCode(error: unknown) {
-  return error && typeof error === "object" && "code" in error && typeof error.code === "string"
+function bioFailureCodes(error: unknown): string[] {
+  if (error instanceof AggregateError) {
+    // [확인됨] BIO GET은 장치 report timeout 뒤 늦은 패킷이 다음 명령과 섞이지 않도록
+    // 현재 USB transport를 폐기한다. 이때 원래 GET 실패와 transport 폐기 실패가 함께 나면
+    // AggregateError가 된다. 바깥 AggregateError에는 code가 없으므로 기존 구현은 실제
+    // TIMEOUT/CLOSE_FAILED를 `bio_control_failed` 하나로 가렸다. message/stack/UUID/raw packet은
+    // 로그에 싣지 않고, 내부 오류가 이미 제공하는 안정된 code만 재귀적으로 추출한다.
+    const nested = error.errors.flatMap((failure) => bioFailureCodes(failure));
+    return nested.length > 0 ? nested : ["bio_control_failed"];
+  }
+  return [error && typeof error === "object" && "code" in error && typeof error.code === "string"
     ? error.code
-    : "bio_control_failed";
+    : "bio_control_failed"];
 }
 
-function addFailureCode(codes: Record<string, number>, code: string, count = 1) {
-  codes[code] = (codes[code] ?? 0) + count;
+function errorCode(error: unknown) {
+  return bioFailureCodes(error)[0] ?? "bio_control_failed";
+}
+
+function addFailureCodes(codes: Record<string, number>, error: unknown, count = 1) {
+  for (const code of bioFailureCodes(error)) codes[code] = (codes[code] ?? 0) + count;
 }
 
 function withFailureCodes(report: BleMeshResyncReport, codes: Record<string, number>): BleMeshResyncReport {

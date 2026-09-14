@@ -642,6 +642,19 @@ describe("BioUsbDongleAdapter", () => {
       });
     });
 
+    it("preserves each safe BIO code nested in an aggregate read-back failure", async () => {
+      const f = readyForOnePresence();
+      f.client.readBrightness.mockRejectedValue(new AggregateError([
+        new BioUsbError("TIMEOUT", "BIO GET timed out"),
+        new BioUsbError("CLOSE_FAILED", "BIO USB retirement failed")
+      ], "BIO read-back and transport retirement failed"));
+
+      await expect(f.adapter.resyncFixtureStates()).resolves.toEqual({
+        total: 1, configured: 1, observed: 0, healthPending: 0, timedOut: 1, failed: 0,
+        failureCodes: { TIMEOUT: 1, CLOSE_FAILED: 1 }
+      });
+    });
+
     it("continues serial presence polling after one mapping fails", async () => {
       const f = createFixture();
       const second = confirmedMapping({
