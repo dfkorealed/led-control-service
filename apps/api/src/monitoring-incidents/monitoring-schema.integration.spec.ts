@@ -29,7 +29,7 @@ const databaseUrl = process.env.MONITORING_INCIDENTS_TEST_DATABASE_URL;
       AND column_name IN ('gatewayOfflineAfterSeconds', 'fixtureStaleAfterSeconds') ORDER BY column_name
     `;
     expect(columns).toEqual([
-      { column_name: "fixtureStaleAfterSeconds", column_default: "180" },
+      { column_name: "fixtureStaleAfterSeconds", column_default: "1200" },
       { column_name: "gatewayOfflineAfterSeconds", column_default: "90" }
     ]);
     const [table] = await prisma.$queryRaw<{ present: boolean }[]>`
@@ -61,6 +61,58 @@ const databaseUrl = process.env.MONITORING_INCIDENTS_TEST_DATABASE_URL;
     expect(result.stderr).not.toContain("ERROR");
     expect(result.status).toBe(0);
     expect(result.stdout).toContain("legacy|기존 현장|90|180");
+  });
+
+  it("adds BIO presence metadata, exact range checks, and an atomic checkpoint", () => {
+    const migration = readFileSync(join(__dirname,
+      "../../prisma/migrations/20260918120000_bio_fixture_presence_polling/migration.sql"), "utf8")
+      .replace(/^BEGIN;\s*/, "").replace(/COMMIT;\s*$/, "");
+    const url = new URL(databaseUrl!);
+    const password = decodeURIComponent(url.password);
+    url.password = ""; url.searchParams.delete("schema");
+    const result = spawnSync("psql", ["-X", "-At", "-v", "ON_ERROR_STOP=1", "--dbname", url.toString()], {
+      encoding: "utf8", env: { ...process.env, PGPASSWORD: password }, input: `
+        BEGIN;
+        CREATE SCHEMA presence_upgrade_${process.pid};
+        SET LOCAL search_path TO presence_upgrade_${process.pid};
+        CREATE TABLE "Site" ("id" TEXT PRIMARY KEY, "fixtureStaleAfterSeconds" INTEGER NOT NULL DEFAULT 180);
+        CREATE TABLE "Fixture" ("id" TEXT PRIMARY KEY);
+        INSERT INTO "Site" ("id") VALUES ('legacy');
+        ${migration}
+        INSERT INTO "Site" ("id") VALUES ('new');
+        SELECT "id" || '|' || "fixtureStaleAfterSeconds" FROM "Site" ORDER BY "id";
+        SELECT conname FROM pg_constraint WHERE conrelid = '"Fixture"'::regclass AND contype = 'c' ORDER BY conname;
+        SELECT indexname FROM pg_indexes WHERE schemaname = current_schema() AND tablename = 'Fixture' ORDER BY indexname;
+        DO $$ BEGIN
+          INSERT INTO "Fixture" ("id", "bioControlMode") VALUES ('bad-mode', 'guess');
+          RAISE EXCEPTION 'control-mode check was not enforced';
+        EXCEPTION WHEN check_violation THEN NULL; END $$;
+        DO $$ BEGIN
+          INSERT INTO "Fixture" ("id", "bioConfiguredBrightness") VALUES ('bad-configured', 101);
+          RAISE EXCEPTION 'configured-brightness check was not enforced';
+        EXCEPTION WHEN check_violation THEN NULL; END $$;
+        DO $$ BEGIN
+          INSERT INTO "Fixture" ("id", "bioRawHighBrightness") VALUES ('bad-raw', 256);
+          RAISE EXCEPTION 'raw-brightness check was not enforced';
+        EXCEPTION WHEN check_violation THEN NULL; END $$;
+        DO $$ BEGIN
+          INSERT INTO "Fixture" ("id", "lastPresenceEventId") VALUES ('partial-checkpoint', 'event');
+          RAISE EXCEPTION 'presence checkpoint check was not enforced';
+        EXCEPTION WHEN check_violation THEN NULL; END $$;
+        INSERT INTO "Fixture" ("id") VALUES ('all-null-checkpoint');
+        INSERT INTO "Fixture" ("id", "lastPresenceEventId", "lastPresenceSequence", "lastPresenceOccurredAt")
+          VALUES ('complete-checkpoint', 'event', 1, '2026-09-14T00:00:00Z');
+        ROLLBACK;`
+    });
+    expect(result.stderr).not.toContain("ERROR");
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("legacy|1200");
+    expect(result.stdout).toContain("new|1200");
+    expect(result.stdout).toContain("Fixture_bioControlMode_check");
+    expect(result.stdout).toContain("Fixture_bioConfiguredBrightness_check");
+    expect(result.stdout).toContain("Fixture_bioRawHighBrightness_check");
+    expect(result.stdout).toContain("Fixture_presenceCheckpoint_check");
+    expect(result.stdout).toContain("Fixture_lastPresenceEventId_key");
   });
 
   it("backfills reported state without changing operational state or revisions and defaults new fixtures offline", () => {

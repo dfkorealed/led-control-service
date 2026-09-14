@@ -264,7 +264,7 @@ model Site {
   timeZone                   String                           @default("Asia/Seoul")
   currency                   String                           @default("KRW")
   gatewayOfflineAfterSeconds Int                              @default(90)
-  fixtureStaleAfterSeconds   Int                              @default(180)
+  fixtureStaleAfterSeconds   Int                              @default(1200)
   organization               Organization                     @relation(fields: [organizationId], references: [id])
   admin                      User?                            @relation("SiteAdmin", fields: [adminUserId], references: [id], onDelete: Restrict)
   floors                     Floor[]
@@ -480,6 +480,12 @@ model Fixture {
   lastStateEventId           String?                            @unique
   lastStateSequence          BigInt?
   lastStateOccurredAt        DateTime?
+  bioControlMode             String?
+  bioConfiguredBrightness    Int?
+  bioRawHighBrightness       Int?
+  lastPresenceEventId        String?                            @unique
+  lastPresenceSequence       BigInt?
+  lastPresenceOccurredAt     DateTime?
   statusReason               String?
   reportedStatus             FixtureStatus                      @default(offline)
   reportedStatusReason       String?
