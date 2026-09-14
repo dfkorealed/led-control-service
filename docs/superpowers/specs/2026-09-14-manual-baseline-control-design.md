@@ -66,14 +66,14 @@ MQTT outbox draft는 새 명령에 `overrideUntil`을 넣지 않는다. broker d
 Automation state를 schema version 6으로 올리고 다음 구조를 사용한다.
 
 ```ts
-interface PendingManualControlState {
+interface PersistedManualControlState {
   sourceId: string;
   brightnessPercent: number;
   requestedAt: string;
   preBrightness: number;
 }
 
-interface ManualAutomationSuppressionState {
+interface PersistedManualAutomationSuppressionState {
   sourceId: string;
   appliedAt: string;
   schedules: Array<{ scheduleId: string; occurrenceKey: string }>;
