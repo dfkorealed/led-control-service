@@ -82,7 +82,11 @@ import {
   StateEventReservationSlot,
   type StateEventCapacityReservation
 } from "./state/state-event-outbox";
-import { createProductionAdapters, resolveGatewayAdapterKind } from "./adapters/adapter-factory";
+import {
+  createProductionAdapters,
+  resolveGatewayAdapterKind,
+  type GatewayAdapterKind
+} from "./adapters/adapter-factory";
 import { ApplianceHealth, parseHeartbeatInterval } from "./health/appliance-health";
 import type { GatewayAssignment } from "./config/assignment";
 import { MqttCertificateClient } from "./identity/mqtt-certificate-client";
@@ -159,6 +163,7 @@ export function createGatewayAutomationServices(options: {
   scope: AutomationScope;
   clockTrust: ClockTrustProvider;
   execute: ScheduleRuntimeOptions["execute"];
+  adapterKind?: GatewayAdapterKind;
   requestFixtureObservation?: ScheduleRuntimeOptions["requestFixtureObservation"];
   wallClock?: () => Date;
   monotonicClock?: () => number;
@@ -172,6 +177,9 @@ export function createGatewayAutomationServices(options: {
     store: options.stateStore,
     clockTrust: options.clockTrust,
     execute: options.execute,
+    // BIO sensor mode에서는 순간 출력 밝기를 읽을 수 없으므로, 검증된 첫 수동 SET/GET 결과가
+    // 자동화 상태의 최초 숫자 기준을 만들 수 있게 한다. BlueZ와 test 기본값은 계속 fail-closed다.
+    allowManualStateInitialization: options.adapterKind === "bio-usb",
     ...(options.requestFixtureObservation ? { requestFixtureObservation: options.requestFixtureObservation } : {}),
     ...(options.wallClock ? { wallClock: options.wallClock } : {}),
     ...(options.monotonicClock ? { monotonicClock: options.monotonicClock } : {}),
@@ -668,6 +676,7 @@ async function main() {
     ),
     stateStore: automationStateStore,
     scope: { siteId, gatewayId },
+    adapterKind: adapters.adapterKind,
     clockTrust,
     ...(softwareAutomationSimulator ? {
       wallClock: softwareAutomationSimulator.wallClock,

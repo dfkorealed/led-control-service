@@ -799,6 +799,51 @@ describe("ScheduleRuntime", () => {
     expect(test.execute).not.toHaveBeenCalled();
   });
 
+  it("lets an explicitly capable adapter establish its first known state from a successful manual command", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "schedule-runtime-first-manual-state-"));
+    directories.push(directory);
+    const store = new FileAutomationStateStore(join(directory, "state.json"));
+    const runtime = new ScheduleRuntime({
+      store,
+      wallClock: () => new Date("2026-08-30T01:00:00.000Z"),
+      monotonicClock: () => 1_000,
+      clockTrust: { isTrusted: async () => true },
+      execute: vi.fn(executeSuccessfully),
+      allowManualStateInitialization: true
+    });
+    await runtime.initialize();
+
+    await expect(runtime.prepareManualOverride(
+      manualOverride(60, "2026-08-30T02:00:00.000Z")
+    )).resolves.toBeUndefined();
+
+    // Preparing the command must not turn an unobserved value into a claimed hardware state.
+    expect(runtime.state().currentByFixture).toEqual({});
+    expect(runtime.state().baseBrightnessByFixture).toEqual({});
+
+    await runtime.handoffManualTerminal(
+      "00000000-0000-4000-8000-000000000105",
+      [successfulTerminal(fixtureId, 60)]
+    );
+
+    expect(runtime.state()).toMatchObject({
+      currentByFixture: { [fixtureId]: 60 },
+      baseBrightnessByFixture: { [fixtureId]: 60 },
+      lastDesiredByFixture: { [fixtureId]: 60 }
+    });
+  });
+
+  it("keeps the default adapter policy fail-closed when no current fixture state exists", async () => {
+    const test = await runtimeFixture("2026-08-30T01:00:00.000Z");
+
+    await expect(test.runtime.prepareManualOverride(
+      manualOverride(60, "2026-08-30T02:00:00.000Z")
+    )).rejects.toMatchObject({ code: "automation_current_state_unavailable" });
+
+    expect(test.runtime.state().manualOverrides).toEqual({});
+    expect(test.runtime.state().transitionsByFixture).toEqual({});
+  });
+
   it("keeps an untrusted long manual override for its transit-adjusted monotonic lifetime", async () => {
     const test = await runtimeFixture("2026-08-30T01:00:00.000Z");
     await test.runtime.recordFixtureState(fixtureId, 20);

@@ -75,6 +75,7 @@ export interface ScheduleRuntimeOptions {
   clockTrust: ClockTrustProvider;
   execute: (actions: DesiredLightingAction[]) => Promise<AutomationExecutionFixtureResultV1[]>;
   requestFixtureObservation?: (fixtureIds: string[]) => Promise<void> | void;
+  allowManualStateInitialization?: boolean;
   onLifecycleEvents?: (handoff: AutomationLifecycleHandoff) => Promise<void>;
   onTerminalResults?: (handoff: AutomationTerminalHandoff) => Promise<void>;
   flushTelemetryHandoffs?: () => Promise<void>;
@@ -374,13 +375,24 @@ export class ScheduleRuntime {
       await this.options.store.updateControlState((state) => {
         for (const fixtureId of input.fixtureIds) {
           const base = captureBase(state, fixtureId);
-          if (base === null) throw new ScheduleRuntimeError("automation_current_state_unavailable");
+          if (base === null && !this.options.allowManualStateInitialization) {
+            throw new ScheduleRuntimeError("automation_current_state_unavailable");
+          }
           state.manualOverrides[fixtureId] = {
             sourceId: input.sourceId,
             brightnessPercent: input.brightnessPercent,
             startedAt: input.startedAt,
             overrideUntil: input.overrideUntil,
-            preBrightness: base
+            // [BIO 호환 예외] BIO 조명이 sensor mode일 때 high-brightness GET은 센서가 켰을 때
+            // 사용할 설정값일 뿐, 이 순간 LED의 실제 밝기가 아니다. 따라서 sensor mode polling은
+            // currentByFixture/baseBrightnessByFixture를 채우지 않으며 첫 수동 제어에는 숫자 base가 없다.
+            //
+            // 이 옵션은 BIO adapter에서만 켠다. 여기의 요청 밝기는 기존 영속 schema가 요구하는
+            // preBrightness 자리를 채우는 provisional 값이며, 관측된 현재 상태로 승격하지 않는다.
+            // 실제 USB 명령 뒤 SET ACK, brightness GET, force-on/off mode GET이 모두 검증되어
+            // handoffManualTerminal이 succeeded를 받을 때만 current/lastDesired/base가 확정된다.
+            // 실패하면 manual override만 제거되고 아래 provisional 값은 복원 기준으로 사용되지 않는다.
+            preBrightness: base ?? input.brightnessPercent
           };
           const previous = state.transitionsByFixture[fixtureId];
           state.transitionsByFixture[fixtureId] = {

@@ -982,6 +982,62 @@ describe("startGatewayRuntime", () => {
     }
   });
 
+  it("lets the BIO adapter establish the first automation state through verified manual read-back", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "gateway-bio-first-manual-state-"));
+    try {
+      const services = createGatewayAutomationServices({
+        configStore: {
+          load: async () => null,
+          apply: async () => undefined,
+          restore: async () => undefined
+        },
+        stateStore: new FileAutomationStateStore(join(directory, "state.json")),
+        scope: automationScope,
+        adapterKind: "bio-usb",
+        wallClock: () => new Date("2026-08-30T01:00:00.000Z"),
+        monotonicClock: () => 5_000,
+        clockTrust: { isTrusted: async () => true },
+        execute: vi.fn()
+      });
+      await services.scheduleRuntime.initialize();
+      const command = timedGatewayCommand();
+      const adapter = {
+        applyUnicast: async (targetFixtureId: string, brightness: number) => ({
+          fixtureId: targetFixtureId,
+          acknowledged: true,
+          outcome: "applied" as const,
+          brightness,
+          rawBrightness: 99,
+          mode: "force-on" as const,
+          rssi: -68,
+          hopCount: null
+        })
+      };
+
+      const result = await handleGatewayDimmingCommand(
+        adapter as never,
+        memoryGatewayJournal(),
+        command,
+        undefined,
+        {
+          automation: createManualOverrideCoordinator(services.scheduleRuntime, () => 5_000),
+          receipt: { receivedAtMonotonicMs: 5_000, brokerRemainingTtlMs: 10_000 },
+          monotonicClock: () => 5_000,
+          isCommandExpired: () => false
+        }
+      );
+
+      expect(result.deviceStatus.status).toBe("succeeded");
+      expect(services.scheduleRuntime.state()).toMatchObject({
+        currentByFixture: { [scopedFixtureId]: 60 },
+        baseBrightnessByFixture: { [scopedFixtureId]: 60 },
+        lastDesiredByFixture: { [scopedFixtureId]: 60 }
+      });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("initializes the real snapshot runtime before replaying a pending manual terminal handoff", async () => {
     const directory = await mkdtemp(join(tmpdir(), "gateway-manual-recovery-order-"));
     try {
