@@ -208,7 +208,7 @@ git commit -m "feat(gateway): schedule ten minute fixture resync"
 
 **Interfaces:**
 - Produces: `BleMeshFixturePresence`
-- Produces: optional `BleMeshAdapter.onFixturePresence(listener): unsubscribe`
+- Produces: optional `BleMeshAdapter.onFixturePresence(listener: (presence) => Promise<void> | void): unsubscribe`
 - Consumes: `BioDongleClient.readBrightness(target, control)` and `readDeviceInfo(target, control)`
 - Produces: truthful `BleMeshResyncReport`
 
@@ -269,7 +269,7 @@ export interface BleMeshFixturePresence {
 }
 ```
 
-Add `readBrightness` and `readDeviceInfo` to `BioClientPort`, a listener `Set`, and a serial `for...of` loop. Run one `refreshDiscovery({ signal })`, require exact device UUID/native UUID/logical address, construct `BioVerifiedLampTarget`, then call the two GET methods with `{ signal }`. Count a `BioUsbError` code `TIMEOUT` as `timedOut`; count other per-device failures as `failed`. Emit only after both GETs complete and wrap each listener call so a consumer cannot invalidate adapter observation.
+Add `readBrightness` and `readDeviceInfo` to `BioClientPort`, an async-capable listener `Set`, and a serial `for...of` loop. Run one `refreshDiscovery({ signal })`, require exact device UUID/native UUID/logical address, construct `BioVerifiedLampTarget`, then call the two GET methods with `{ signal }`. Count a `BioUsbError` code `TIMEOUT` as `timedOut`; count other per-device failures as `failed`. Emit only after both GETs complete. Await each listener's delivery attempt before advancing to the next mapping so back-to-back device responses cannot outrun durable intake; isolate a rejected/throwing consumer so it cannot invalidate the adapter's transport observation.
 
 Factor the confirmed mapping loop so full and targeted resync share identity checks and GET ordering. Targeted resync also emits `BleMeshLightingObservation` only for exact `force-off` and table-backed `force-on`; sensor and unmapped raw brightness never become output observations. Reuse the codec-provided `brightnessPercent` rather than recalculating raw bytes. Add comments that sensor mode reports configured high brightness, not instantaneous LED output, and that the serial loop exists because the dongle has one global response correlation slot.
 
@@ -329,7 +329,7 @@ export type GatewayStateEvent = FixtureStateV2 | FixturePresenceV2;
 
 Parse each stored record by exact topic: fixture-state topic uses `fixtureStateV2Schema`; fixture-presence topic uses `fixturePresenceV2Schema`; every other topic fails closed. Update publisher callback and clone/equality helpers for the union. Preserve payload byte recomputation, scope checks, duplicate event-id rejection, file mode and capacity reservation behavior.
 
-In `index.ts`, install a presence intake only when `adapter.onFixturePresence` exists. It must reserve one outbox slot before attaching, unsubscribe after consuming that slot, enqueue via the durable outbox, re-arm after success, and use the same capacity recovery full-resync fence as fixture status intake. Build the wire event as:
+In `index.ts`, install a presence intake only when `adapter.onFixturePresence` exists. The async listener must call `stateEventCapacity.run([presence.fixtureId], ...)` so each observation reserves its own outbox slot before enqueue and resolves only after the durable write completes. Capacity failure marks the existing state-outbox blocker; application ACK recovery schedules a full resync so a dropped delivery attempt is observed again. Build the wire event as:
 
 ```ts
 fixturePresenceV2Schema.parse({
