@@ -22,7 +22,7 @@ admin4 계정의 사용자·현장·층은 유지하면서, 기존 Gateway와 �
 
 검증 가능한 전용 recommission 도구를 추가한다. 수동 SQL과 임의 Docker 명령은 관계 누락, 잘못된 data root, secret 노출, 두 runtime의 동시 USB open 위험이 있어 사용하지 않는다. 새 제조 serial을 만드는 방식은 제조 station을 요구하고 사용자가 원하는 Web 최초 등록 흐름과 맞지 않는다.
 
-도구는 preview와 apply를 분리한다. preview가 만든 exact target digest를 apply가 다시 요구하며, target Site·Inventory·Gateway·container·data root의 identity가 달라졌으면 어떤 삭제도 수행하지 않는다. 범용 `--all`, wildcard, 임의 경로와 환경변수 기반 recursive delete는 제공하지 않는다.
+도구는 preview와 apply를 분리한다. API는 DB snapshot의 `apiResetDigest`, Pi helper는 filesystem/container snapshot의 `hostResetDigest`를 각각 만들며 두 값은 서로 같은 값이 아니다. Apply는 자기 경계의 digest를 다시 요구하고, Pi evidence에는 승인된 API job ID와 `apiResetDigest`도 함께 결속한다. target Site·Inventory·Gateway·container·data root의 identity가 달라졌으면 어떤 삭제도 수행하지 않는다. 범용 `--all`, wildcard, 임의 경로와 환경변수 기반 recursive delete는 제공하지 않는다.
 
 ## 구성 요소
 
@@ -61,7 +61,8 @@ Pi에는 기존 `gateway-bio-runtime.sh`의 최초 start 계약을 약화시키�
 - allowlist 형식의 `/opt/led-control/gateway/data-<installation>` data root
 - 실행 중인 BIO candidate의 full 64자리 container ID
 - 로그인한 deployment UID
-- preview에서 생성된 filesystem/container `resetDigest`
+- preview에서 생성된 filesystem/container `hostResetDigest`
+- prepare된 API job ID와 DB snapshot `apiResetDigest`
 
 Preview는 current container ID/image/name/running/restart 상태, deploy lock 부재, exact-one BIO USB, data root와 device identity/mapping의 type·owner·mode·inode를 검사한다. secret, UUID, assignment, certificate, mapping payload는 출력하지 않는다.
 
