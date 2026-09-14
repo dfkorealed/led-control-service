@@ -349,6 +349,7 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
       timedOut: 0,
       failed: 0
     };
+    const failureCodes: Record<string, number> = {};
     if (signal?.aborted || mappings.length === 0) return report;
 
     try {
@@ -357,7 +358,8 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
       if (signal?.aborted) return report;
       if (isBioTimeout(error)) report.timedOut = mappings.length;
       else report.failed = mappings.length;
-      return report;
+      addFailureCode(failureCodes, errorCode(error), mappings.length);
+      return withFailureCodes(report, failureCodes);
     }
 
     // [확인됨] BIO 동글은 command별 독립 correlation ID가 아니라 전역 단일 response slot을 쓴다.
@@ -394,9 +396,13 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
         if (signal?.aborted) break;
         if (isBioTimeout(error)) report.timedOut += 1;
         else report.failed += 1;
+        // resync report는 동일 실패가 여러 fixture에서 반복돼도 code별 횟수만 남긴다.
+        // exception message에는 USB path/packet 값이 들어갈 수 있으므로 상위 health/log로
+        // 전달하지 않는다. `errorCode`가 승인된 BioUsbError code 또는 일반 fallback만 만든다.
+        addFailureCode(failureCodes, errorCode(error));
       }
     }
-    return report;
+    return withFailureCodes(report, failureCodes);
   }
 
   private requireExactDiscoveredMapping(mapping: BioDeviceMapping) {
@@ -596,6 +602,14 @@ function errorCode(error: unknown) {
   return error && typeof error === "object" && "code" in error && typeof error.code === "string"
     ? error.code
     : "bio_control_failed";
+}
+
+function addFailureCode(codes: Record<string, number>, code: string, count = 1) {
+  codes[code] = (codes[code] ?? 0) + count;
+}
+
+function withFailureCodes(report: BleMeshResyncReport, codes: Record<string, number>): BleMeshResyncReport {
+  return Object.keys(codes).length === 0 ? report : { ...report, failureCodes: { ...codes } };
 }
 
 function readbackObservation(error: unknown): {

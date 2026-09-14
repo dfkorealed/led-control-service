@@ -585,7 +585,8 @@ describe("BioUsbDongleAdapter", () => {
       f.client.scan.mockResolvedValue([device]);
 
       await expect(f.adapter.resyncFixtureStates()).resolves.toEqual({
-        total: 1, configured: 1, observed: 0, healthPending: 0, timedOut: 0, failed: 1
+        total: 1, configured: 1, observed: 0, healthPending: 0, timedOut: 0, failed: 1,
+        failureCodes: { BIO_DEVICE_NOT_FOUND: 1 }
       });
       expect(f.client.readBrightness).not.toHaveBeenCalled();
       expect(f.client.readDeviceInfo).not.toHaveBeenCalled();
@@ -599,7 +600,8 @@ describe("BioUsbDongleAdapter", () => {
       f.adapter.onFixturePresence((value) => { received.push(value); });
 
       await expect(f.adapter.resyncFixtureStates()).resolves.toEqual({
-        total: 1, configured: 1, observed: 0, healthPending: 0, timedOut: 0, failed: 1
+        total: 1, configured: 1, observed: 0, healthPending: 0, timedOut: 0, failed: 1,
+        failureCodes: { bio_control_failed: 1 }
       });
       expect(received).toEqual([]);
     });
@@ -623,7 +625,8 @@ describe("BioUsbDongleAdapter", () => {
       f.adapter.onLightingObservation((value) => lightingObservations.push(value));
 
       await expect(f.adapter.resyncLightingFixtures([provisioningCommand.nodeId])).resolves.toEqual({
-        total: 1, configured: 1, observed: 0, healthPending: 0, timedOut: 0, failed: 1
+        total: 1, configured: 1, observed: 0, healthPending: 0, timedOut: 0, failed: 1,
+        failureCodes: { BIO_DEVICE_NOT_FOUND: 1 }
       });
       expect(presences).toEqual([]);
       expect(lightingObservations).toEqual([]);
@@ -634,7 +637,8 @@ describe("BioUsbDongleAdapter", () => {
       f.client.readBrightness.mockRejectedValue(new BioUsbError("TIMEOUT", "BIO GET timed out"));
 
       await expect(f.adapter.resyncFixtureStates()).resolves.toEqual({
-        total: 1, configured: 1, observed: 0, healthPending: 0, timedOut: 1, failed: 0
+        total: 1, configured: 1, observed: 0, healthPending: 0, timedOut: 1, failed: 0,
+        failureCodes: { TIMEOUT: 1 }
       });
     });
 
@@ -660,7 +664,8 @@ describe("BioUsbDongleAdapter", () => {
       f.adapter.onFixturePresence((value) => { received.push(value); });
 
       await expect(f.adapter.resyncFixtureStates()).resolves.toEqual({
-        total: 2, configured: 2, observed: 1, healthPending: 0, timedOut: 0, failed: 1
+        total: 2, configured: 2, observed: 1, healthPending: 0, timedOut: 0, failed: 1,
+        failureCodes: { bio_control_failed: 1 }
       });
       expect(received).toEqual([expect.objectContaining({ fixtureId: second.fixtureId, controlMode: "force-on" })]);
     });

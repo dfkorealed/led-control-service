@@ -97,6 +97,12 @@ export interface BleMeshResyncReport {
   healthPending: number;
   timedOut: number;
   failed: number;
+  /**
+   * Adapter가 공개 가능한 안정된 error code별 실패 수다. UUID, 주소, raw packet,
+   * exception message/stack은 포함하지 않아 운영 로그에서도 장치 식별 정보가 새지 않는다.
+   * 성공·취소처럼 실패가 없으면 필드를 생략해 기존 report 계약을 유지한다.
+   */
+  failureCodes?: Record<string, number>;
 }
 
 export interface ProvisioningScannerAdapter {
