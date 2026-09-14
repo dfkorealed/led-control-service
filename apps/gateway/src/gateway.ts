@@ -40,6 +40,7 @@ export interface BleMeshAdapter {
   ): Promise<BleMeshCommandReport[]>;
   onFixtureStatus(listener: (status: BleMeshFixtureStatus) => void): () => void;
   onLightingObservation(listener: (observation: BleMeshLightingObservation) => void): () => void;
+  onFixturePresence?(listener: (presence: BleMeshFixturePresence) => Promise<void> | void): () => void;
   onResyncReport?(listener: (report: BleMeshResyncReport) => void): () => void;
   resyncFixtureStates(signal?: AbortSignal): Promise<BleMeshResyncReport>;
   resyncLightingFixtures(fixtureIds: string[], signal?: AbortSignal): Promise<BleMeshResyncReport>;
@@ -65,6 +66,16 @@ export interface BleMeshLightingObservation {
   fixtureId: string;
   brightness: number;
   powerOn: boolean;
+  observedAt: string;
+}
+
+export interface BleMeshFixturePresence {
+  fixtureId: string;
+  controlMode: "sensor" | "force-off" | "force-on";
+  rawHighBrightness: number;
+  configuredBrightness: number | null;
+  rssi: number | null;
+  hopCount: number | null;
   observedAt: string;
 }
 

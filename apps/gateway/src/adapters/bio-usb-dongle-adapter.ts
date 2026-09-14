@@ -11,6 +11,7 @@ import type {
   BleMeshAdapter,
   BleMeshCommandReport,
   BleMeshFixtureStatus,
+  BleMeshFixturePresence,
   BleMeshGroupSnapshot,
   BleMeshLightingObservation,
   BleMeshResyncReport,
@@ -36,7 +37,8 @@ const BIO_GROUP_UNICAST_CONCURRENCY = 4;
 
 type BioClientPort = Pick<BioDongleClient,
   "scan" | "startIdentify" | "stopIdentify" | "restoreSensorMode" | "assignAddressOnce" |
-  "reconcileAddress" | "setOutput">;
+  "reconcileAddress" | "setOutput"> &
+  Partial<Pick<BioDongleClient, "readBrightness" | "readDeviceInfo">>;
 type BioMappingPort = Pick<BioDeviceMappingStore,
   "findByDeviceUuidIncludingReserved" | "reserve" | "confirm" | "findByFixtureId" |
   "findByLogicalAddress" | "listConfirmed">;
@@ -64,6 +66,8 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
   private readonly discoveredByUuid = new Map<string, BioDiscoveredDevice>();
   private readonly virtualGroups = new Map<number, Set<string>>();
   private readonly discoveryQueue = new SerialTaskQueue();
+  private readonly lightingObservationListeners = new Set<(observation: BleMeshLightingObservation) => void>();
+  private readonly fixturePresenceListeners = new Set<(presence: BleMeshFixturePresence) => Promise<void> | void>();
 
   constructor(
     private readonly client: BioClientPort,
@@ -304,15 +308,131 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
   }
 
   onFixtureStatus(_listener: (status: BleMeshFixtureStatus) => void) { return () => undefined; }
-  onLightingObservation(_listener: (observation: BleMeshLightingObservation) => void) { return () => undefined; }
-
-  async resyncFixtureStates(_signal?: AbortSignal): Promise<BleMeshResyncReport> {
-    const mappings = await this.mappings.listConfirmed();
-    return unobservedResync(mappings.length);
+  onLightingObservation(listener: (observation: BleMeshLightingObservation) => void) {
+    this.lightingObservationListeners.add(listener);
+    return () => this.lightingObservationListeners.delete(listener);
   }
 
-  async resyncLightingFixtures(fixtureIds: string[], _signal?: AbortSignal): Promise<BleMeshResyncReport> {
-    return unobservedResync(fixtureIds.length);
+  onFixturePresence(listener: (presence: BleMeshFixturePresence) => Promise<void> | void) {
+    this.fixturePresenceListeners.add(listener);
+    return () => this.fixturePresenceListeners.delete(listener);
+  }
+
+  async resyncFixtureStates(signal?: AbortSignal): Promise<BleMeshResyncReport> {
+    const mappings = await this.mappings.listConfirmed();
+    return this.resyncConfirmedMappings(mappings, signal, false);
+  }
+
+  async resyncLightingFixtures(fixtureIds: string[], signal?: AbortSignal): Promise<BleMeshResyncReport> {
+    const requested = new Set(fixtureIds);
+    const mappings = (await this.mappings.listConfirmed()).filter((mapping) => requested.has(mapping.fixtureId));
+    return this.resyncConfirmedMappings(mappings, signal, true);
+  }
+
+  private async resyncConfirmedMappings(
+    mappings: BioDeviceMapping[],
+    signal: AbortSignal | undefined,
+    emitLightingObservation: boolean
+  ): Promise<BleMeshResyncReport> {
+    const report: BleMeshResyncReport = {
+      total: mappings.length,
+      configured: mappings.length,
+      observed: 0,
+      healthPending: 0,
+      timedOut: 0,
+      failed: 0
+    };
+    if (signal?.aborted || mappings.length === 0) return report;
+
+    try {
+      await this.refreshDiscovery({ signal });
+    } catch (error) {
+      if (signal?.aborted) return report;
+      if (isBioTimeout(error)) report.timedOut = mappings.length;
+      else report.failed = mappings.length;
+      return report;
+    }
+
+    // [확인됨] BIO 동글은 command별 독립 correlation ID가 아니라 전역 단일 response slot을 쓴다.
+    // 따라서 다음 fixture의 GET을 먼저 보내면 직전 fixture의 늦은 0x12 report가 잘못 결합될 수 있다.
+    // mapping마다 brightness GET → mode GET → durable listener 전달까지 반드시 완료한 뒤 다음 fixture로 진행한다.
+    for (const mapping of mappings) {
+      if (signal?.aborted) break;
+      try {
+        const device = this.requireExactDiscoveredMapping(mapping);
+        const verifiedTarget = target(device, mapping.logicalAddress);
+        const control = { signal };
+        const client = this.requireReadOnlyClient();
+        const brightness = await client.readBrightness(verifiedTarget, control);
+        const mode = await client.readDeviceInfo(verifiedTarget, control);
+        assertExactReadbackIdentity(mapping, device, brightness);
+        assertExactReadbackIdentity(mapping, device, mode);
+        const presence: BleMeshFixturePresence = {
+          fixtureId: mapping.fixtureId,
+          controlMode: mode.mode,
+          rawHighBrightness: brightness.rawHighBrightness,
+          configuredBrightness: brightness.brightnessPercent,
+          rssi: device.rssi,
+          hopCount: null,
+          observedAt: this.now().toISOString()
+        };
+
+        // [확인됨] sensor mode의 high-brightness 값은 장치에 저장된 설정값이며 현재 LED 출력이 아니다.
+        // sensor의 감지 결과로 실제 점등/소등이 달라질 수 있으므로 presence에는 보존하되 brightness/powerOn
+        // 상태 관측으로 변환하지 않는다. force-on도 codec table에 없는 raw 값은 percent를 증명하지 못한다.
+        await this.deliverPresence(presence);
+        if (emitLightingObservation) await this.deliverLightingObservation(presence);
+        report.observed += 1;
+      } catch (error) {
+        if (signal?.aborted) break;
+        if (isBioTimeout(error)) report.timedOut += 1;
+        else report.failed += 1;
+      }
+    }
+    return report;
+  }
+
+  private requireExactDiscoveredMapping(mapping: BioDeviceMapping) {
+    const device = this.discoveredByUuid.get(mapping.deviceUuid);
+    // [확인됨] confirmed mapping의 canonical BIO UUID, native UUID, logical address는 모두 동일한
+    // 물리 lamp를 가리켜야 한다. UUID만 또는 address만 일치하는 discovery/readback은 주소 재사용·
+    // stale scan·다른 lamp report일 수 있으므로 GET을 보내거나 presence로 승격하지 않는다.
+    if (!device || device.deviceUuid !== mapping.deviceUuid || device.nativeUuid !== mapping.nativeUuid ||
+      device.logicalAddress !== mapping.logicalAddress) {
+      throw new BioUsbError("BIO_DEVICE_NOT_FOUND", "Confirmed BIO UUID/native UUID/address was not rediscovered");
+    }
+    return { ...device };
+  }
+
+  private requireReadOnlyClient(): Required<Pick<BioDongleClient, "readBrightness" | "readDeviceInfo">> {
+    if (!this.client.readBrightness || !this.client.readDeviceInfo) {
+      throw new BioUsbError("BIO_DEVICE_NOT_FOUND", "BIO client does not support read-only fixture observation");
+    }
+    return { readBrightness: this.client.readBrightness, readDeviceInfo: this.client.readDeviceInfo };
+  }
+
+  private async deliverPresence(presence: BleMeshFixturePresence) {
+    for (const listener of this.fixturePresenceListeners) {
+      try {
+        await listener({ ...presence });
+      } catch {
+        // [확인됨] durable outbox consumer의 일시 오류는 USB transport 관측 실패가 아니다. 한 listener가
+        // throw/reject해도 같은 fixture의 verified GET 결과와 다음 fixture의 serial polling을 무효화하지 않는다.
+      }
+    }
+  }
+
+  private async deliverLightingObservation(presence: BleMeshFixturePresence) {
+    const observation = lightingObservationFromPresence(presence);
+    if (!observation) return;
+    for (const listener of this.lightingObservationListeners) {
+      try {
+        await listener({ ...observation });
+      } catch {
+        // [확인됨] legacy lighting observer도 transport observation과 분리된다. 수신자 예외가 GET 성공을
+        // 실패로 바꾸면 retry가 write 없는 polling이라도 event 순서와 durable intake의 원인을 흐리게 한다.
+      }
+    }
   }
 
   private refreshDiscovery(control: { signal?: AbortSignal; deadlineAt?: number } = {}) {
@@ -433,6 +553,36 @@ function completed(command: ProvisionDevicePayload, firmwareVersion: string, rss
 
 function target(device: BioDiscoveredDevice, logicalAddress: number): BioVerifiedLampTarget {
   return { kind: "unicast", nativeUuid: device.nativeUuid, networkId: device.networkId, logicalAddress };
+}
+
+function assertExactReadbackIdentity(
+  mapping: BioDeviceMapping,
+  device: BioDiscoveredDevice,
+  report: { deviceUuid: string; networkId: number; logicalAddress: number }
+) {
+  if (report.deviceUuid !== mapping.deviceUuid || report.deviceUuid !== device.deviceUuid ||
+    report.networkId !== device.networkId || report.logicalAddress !== mapping.logicalAddress) {
+    throw new BioUsbError("BIO_DEVICE_NOT_FOUND", "BIO GET report identity did not match confirmed UUID/native UUID/address");
+  }
+}
+
+function isBioTimeout(error: unknown) {
+  return error instanceof BioUsbError && error.code === "TIMEOUT";
+}
+
+function lightingObservationFromPresence(presence: BleMeshFixturePresence): BleMeshLightingObservation | undefined {
+  if (presence.controlMode === "force-off") {
+    return { fixtureId: presence.fixtureId, brightness: 0, powerOn: false, observedAt: presence.observedAt };
+  }
+  if (presence.controlMode === "force-on" && presence.configuredBrightness !== null) {
+    return {
+      fixtureId: presence.fixtureId,
+      brightness: presence.configuredBrightness,
+      powerOn: true,
+      observedAt: presence.observedAt
+    };
+  }
+  return undefined;
 }
 
 function errorCode(error: unknown) {

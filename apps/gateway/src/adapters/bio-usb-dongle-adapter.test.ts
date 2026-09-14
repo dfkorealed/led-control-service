@@ -5,6 +5,8 @@ import type {
   ProvisioningScanStartPayload
 } from "@led-control/shared";
 import { BioUsbDongleAdapter } from "./bio-usb-dongle-adapter";
+import { BioUsbError } from "../bio/bio-usb-error";
+import type { BleMeshFixturePresence } from "../gateway";
 
 const scanCommand: ProvisioningScanStartPayload = {
   sessionId: "11111111-1111-4111-8111-111111111111",
@@ -522,6 +524,169 @@ describe("BioUsbDongleAdapter", () => {
       expect.objectContaining({ faultCode: "bio_virtual_group_not_ready" })
     ]);
   });
+
+  describe("read-only fixture presence resync", () => {
+    it("emits a sensor presence after one verified brightness and mode GET without sending control writes", async () => {
+      const f = createFixture();
+      f.mappings.listConfirmed.mockResolvedValue([confirmedMapping()]);
+      f.client.scan.mockResolvedValue([{ ...discovered, logicalAddress: 0x0101 }]);
+      f.client.readBrightness.mockResolvedValue(brightnessReport(127, null));
+      f.client.readDeviceInfo.mockResolvedValue(modeReport("sensor"));
+      const received: BleMeshFixturePresence[] = [];
+      f.adapter.onFixturePresence((value) => { received.push(value); });
+
+      await expect(f.adapter.resyncFixtureStates()).resolves.toEqual({
+        total: 1, configured: 1, observed: 1, healthPending: 0, timedOut: 0, failed: 0
+      });
+
+      expect(received).toEqual([{
+        fixtureId: provisioningCommand.nodeId,
+        controlMode: "sensor",
+        rawHighBrightness: 127,
+        configuredBrightness: null,
+        rssi: -41,
+        hopCount: null,
+        observedAt: "2026-09-13T00:00:02.000Z"
+      }]);
+      expect(f.client.setOutput).not.toHaveBeenCalled();
+      expect(f.client.assignAddressOnce).not.toHaveBeenCalled();
+      expect(f.client.restoreSensorMode).not.toHaveBeenCalled();
+      expect(f.client.startIdentify).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["native UUID", { ...discovered, nativeUuid: "001122334455", logicalAddress: 0x0101 }],
+      ["logical address", { ...discovered, logicalAddress: 0x0102 }]
+    ])("rejects a rediscovered %s mismatch before either GET", async (_name, device) => {
+      const f = createFixture();
+      f.mappings.listConfirmed.mockResolvedValue([confirmedMapping()]);
+      f.client.scan.mockResolvedValue([device]);
+
+      await expect(f.adapter.resyncFixtureStates()).resolves.toEqual({
+        total: 1, configured: 1, observed: 0, healthPending: 0, timedOut: 0, failed: 1
+      });
+      expect(f.client.readBrightness).not.toHaveBeenCalled();
+      expect(f.client.readDeviceInfo).not.toHaveBeenCalled();
+    });
+
+    it("does not emit a partial brightness-only response", async () => {
+      const f = readyForOnePresence();
+      f.client.readBrightness.mockResolvedValue(brightnessReport(198, 60));
+      f.client.readDeviceInfo.mockRejectedValue(new Error("mode report missing"));
+      const received: BleMeshFixturePresence[] = [];
+      f.adapter.onFixturePresence((value) => { received.push(value); });
+
+      await expect(f.adapter.resyncFixtureStates()).resolves.toEqual({
+        total: 1, configured: 1, observed: 0, healthPending: 0, timedOut: 0, failed: 1
+      });
+      expect(received).toEqual([]);
+    });
+
+    it("counts BIO timeout separately from an ordinary observation failure", async () => {
+      const f = readyForOnePresence();
+      f.client.readBrightness.mockRejectedValue(new BioUsbError("TIMEOUT", "BIO GET timed out"));
+
+      await expect(f.adapter.resyncFixtureStates()).resolves.toEqual({
+        total: 1, configured: 1, observed: 0, healthPending: 0, timedOut: 1, failed: 0
+      });
+    });
+
+    it("continues serial presence polling after one mapping fails", async () => {
+      const f = createFixture();
+      const second = confirmedMapping({
+        fixtureId: "77777777-7777-4777-8777-777777777777",
+        nodeId: "77777777-7777-4777-8777-777777777777",
+        deviceUuid: "bio:001122334455",
+        nativeUuid: "001122334455",
+        logicalAddress: 0x0102
+      });
+      f.mappings.listConfirmed.mockResolvedValue([confirmedMapping(), second]);
+      f.client.scan.mockResolvedValue([
+        { ...discovered, logicalAddress: 0x0101 },
+        { ...discovered, ...second, networkId: discovered.networkId, firmwareVersion: discovered.firmwareVersion, rssi: -42 }
+      ]);
+      f.client.readBrightness
+        .mockRejectedValueOnce(new Error("first device unavailable"))
+        .mockResolvedValueOnce({ ...brightnessReport(198, 60), deviceUuid: second.deviceUuid, logicalAddress: second.logicalAddress });
+      f.client.readDeviceInfo.mockResolvedValueOnce({ ...modeReport("force-on"), deviceUuid: second.deviceUuid, logicalAddress: second.logicalAddress });
+      const received: BleMeshFixturePresence[] = [];
+      f.adapter.onFixturePresence((value) => { received.push(value); });
+
+      await expect(f.adapter.resyncFixtureStates()).resolves.toEqual({
+        total: 2, configured: 2, observed: 1, healthPending: 0, timedOut: 0, failed: 1
+      });
+      expect(received).toEqual([expect.objectContaining({ fixtureId: second.fixtureId, controlMode: "force-on" })]);
+    });
+
+    it("stops before the next fixture when its abort signal is raised", async () => {
+      const f = createFixture();
+      const second = confirmedMapping({
+        fixtureId: "77777777-7777-4777-8777-777777777777",
+        nodeId: "77777777-7777-4777-8777-777777777777",
+        deviceUuid: "bio:001122334455",
+        nativeUuid: "001122334455",
+        logicalAddress: 0x0102
+      });
+      const controller = new AbortController();
+      f.mappings.listConfirmed.mockResolvedValue([confirmedMapping(), second]);
+      f.client.scan.mockResolvedValue([{ ...discovered, logicalAddress: 0x0101 }, { ...discovered, ...second, rssi: -42 }]);
+      f.client.readBrightness.mockResolvedValue(brightnessReport(198, 60));
+      f.client.readDeviceInfo.mockImplementation(async () => {
+        controller.abort();
+        return modeReport("force-on");
+      });
+
+      await expect(f.adapter.resyncFixtureStates(controller.signal)).resolves.toEqual({
+        total: 2, configured: 2, observed: 1, healthPending: 0, timedOut: 0, failed: 0
+      });
+      expect(f.client.readBrightness).toHaveBeenCalledOnce();
+    });
+
+    it("isolates a throwing durable presence listener", async () => {
+      const f = readyForOnePresence();
+      f.client.readBrightness.mockResolvedValue(brightnessReport(198, 60));
+      f.client.readDeviceInfo.mockResolvedValue(modeReport("force-on"));
+      f.adapter.onFixturePresence(() => { throw new Error("durable intake unavailable"); });
+
+      await expect(f.adapter.resyncFixtureStates()).resolves.toEqual({
+        total: 1, configured: 1, observed: 1, healthPending: 0, timedOut: 0, failed: 0
+      });
+    });
+
+    it.each([
+      ["sensor", 198, 60, "sensor", undefined],
+      ["force-off", 198, 60, "force-off", { brightness: 0, powerOn: false }],
+      ["force-on", 198, 60, "force-on", { brightness: 60, powerOn: true }],
+      ["unmapped force-on", 127, null, "force-on", undefined]
+    ] as const)("only turns %s mode into a truthful lighting observation", async (_name, raw, configured, mode, lighting) => {
+      const f = readyForOnePresence();
+      f.client.readBrightness.mockResolvedValue(brightnessReport(raw, configured));
+      f.client.readDeviceInfo.mockResolvedValue(modeReport(mode));
+      const presences: BleMeshFixturePresence[] = [];
+      const lightingObservations: unknown[] = [];
+      f.adapter.onFixturePresence((value) => { presences.push(value); });
+      f.adapter.onLightingObservation((value) => lightingObservations.push(value));
+
+      await expect(f.adapter.resyncLightingFixtures([provisioningCommand.nodeId])).resolves.toEqual({
+        total: 1, configured: 1, observed: 1, healthPending: 0, timedOut: 0, failed: 0
+      });
+      expect(presences).toHaveLength(1);
+      expect(lightingObservations).toEqual(lighting === undefined ? [] : [expect.objectContaining(lighting)]);
+    });
+
+    it("does not query a confirmed mapping outside a targeted lighting resync", async () => {
+      const f = readyForOnePresence();
+      const unrequested = confirmedMapping({ fixtureId: "77777777-7777-4777-8777-777777777777" });
+      f.mappings.listConfirmed.mockResolvedValue([confirmedMapping(), unrequested]);
+      f.client.readBrightness.mockResolvedValue(brightnessReport(198, 60));
+      f.client.readDeviceInfo.mockResolvedValue(modeReport("force-on"));
+
+      await f.adapter.resyncLightingFixtures([provisioningCommand.nodeId]);
+
+      expect(f.client.readBrightness).toHaveBeenCalledOnce();
+      expect(f.client.readBrightness).toHaveBeenCalledWith(expect.objectContaining({ logicalAddress: 0x0101 }), expect.any(Object));
+    });
+  });
 });
 
 function createFixture(events: string[] = []) {
@@ -533,7 +698,9 @@ function createFixture(events: string[] = []) {
     assignAddressOnce: vi.fn(),
     reconcileAddress: vi.fn(),
     setOutput: vi.fn(),
-    restoreSensorMode: vi.fn()
+    restoreSensorMode: vi.fn(),
+    readBrightness: vi.fn(),
+    readDeviceInfo: vi.fn()
   };
   const mappings = {
     findByDeviceUuidIncludingReserved: vi.fn(async (): Promise<any> => { events.push("lookup-mapping"); return null; }),
@@ -547,6 +714,34 @@ function createFixture(events: string[] = []) {
     client,
     mappings,
     adapter: new BioUsbDongleAdapter(client, mappings, { now: () => new Date("2026-09-13T00:00:02.000Z") })
+  };
+}
+
+function readyForOnePresence() {
+  const f = createFixture();
+  f.mappings.listConfirmed.mockResolvedValue([confirmedMapping()]);
+  f.client.scan.mockResolvedValue([{ ...discovered, logicalAddress: 0x0101 }]);
+  return f;
+}
+
+function brightnessReport(rawHighBrightness: number, brightnessPercent: number | null) {
+  return {
+    kind: "high-brightness-report" as const,
+    deviceUuid: discovered.deviceUuid,
+    networkId: discovered.networkId,
+    logicalAddress: 0x0101,
+    rawHighBrightness,
+    brightnessPercent
+  };
+}
+
+function modeReport(mode: "sensor" | "force-off" | "force-on") {
+  return {
+    kind: "control-mode-report" as const,
+    deviceUuid: discovered.deviceUuid,
+    networkId: discovered.networkId,
+    logicalAddress: 0x0101,
+    mode
   };
 }
 
