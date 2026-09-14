@@ -164,7 +164,7 @@ git commit -m "refactor(control): remove manual expiry from command contract"
 - Consumes: Task 1 canonical/compatibility request and Gateway schemas
 - Produces: `ManualOverride.overrideUntil: Date | null`, target+brightness idempotency fingerprint, expiry 없는 MQTT draft/published command
 
-- [ ] **Step 1: Prisma schema/migration RED 계약 작성**
+- [x] **Step 1: Prisma schema/migration RED 계약 작성**
 
 ```ts
 expect(modelFields.ManualOverride).toContain("overrideUntil DateTime?");
@@ -174,7 +174,7 @@ expect(migration).toContain('"overrideUntil" IS NULL');
 
 기존 non-null legacy 행을 넣은 뒤 migration 후 값이 유지되고, null expiry 신규 행과 target cardinality가 허용되는 PostgreSQL integration case도 추가한다.
 
-- [ ] **Step 2: API 명령·publisher RED 테스트 작성**
+- [x] **Step 2: API 명령·publisher RED 테스트 작성**
 
 ```ts
 await service.createDimmingCommand(operator, canonicalInput);
@@ -188,7 +188,7 @@ expect(transaction.mqttOutbox.create).toHaveBeenCalledWith(expect.objectContaini
 
 같은 target/brightness/clientRequestId에 legacy `overrideUntil`만 다른 요청은 같은 canonical command로 복구되고, publisher 결과에 `overrideRemainingMs`가 없다는 case를 함께 추가한다.
 
-- [ ] **Step 3: API focused tests의 예상 실패 확인**
+- [x] **Step 3: API focused tests의 예상 실패 확인**
 
 Run:
 
@@ -199,7 +199,7 @@ pnpm --filter @led-control/api exec jest src/commands/commands.service.spec.ts s
 
 Expected: 기본 1시간 계산, non-null schema와 timed outbox assertion 때문에 FAIL.
 
-- [ ] **Step 4: 순방향 migration과 Prisma schema 구현**
+- [x] **Step 4: 순방향 migration과 Prisma schema 구현**
 
 ```sql
 ALTER TABLE "ManualOverride"
@@ -217,7 +217,7 @@ ALTER TABLE "ManualOverride" ADD CONSTRAINT "ManualOverride_time_range_check" CH
 
 Prisma field는 `overrideUntil DateTime?`로 변경하고 기존 migration은 수정하지 않는다.
 
-- [ ] **Step 5: CommandsService와 publisher 최소 구현**
+- [x] **Step 5: CommandsService와 publisher 최소 구현**
 
 `DEFAULT_OVERRIDE_DURATION_MS`, `MAX_OVERRIDE_DURATION_MS`, `resolveOverrideUntil()`을 제거한다. 새 row는 `overrideUntil: null`, 새 outbox payload는 Task 1 canonical draft를 사용한다. `createRequestFingerprint(target, brightness)`는 종료 시각을 받지 않으며 `toCreateResponse()`는 expiry를 반환하지 않는다. Publisher는 `assertManualOverridePublishable()`과 `ManualOverrideExpiredError`를 제거하고 다음 호출을 사용한다.
 
@@ -227,11 +227,11 @@ const { messageExpiryInterval: _messageExpiryInterval, ...delivery } =
 return gatewayDimmingCommandPublishedV2Schema.parse({ ...draft, ...delivery });
 ```
 
-- [ ] **Step 6: DB 문서 갱신**
+- [x] **Step 6: DB 문서 갱신**
 
 `docs/database-schema.md`의 `ManualOverride.overrideUntil`을 nullable legacy compatibility field로 바꾸고, null인 새 row는 수동 기본 밝기 명령 감사용이며 Gateway가 만료 판단에 사용하지 않는다고 기록한다. migration 이름과 변경된 CHECK를 명시한다.
 
-- [ ] **Step 7: API focused, Prisma validate와 typecheck 확인**
+- [x] **Step 7: API focused, Prisma validate와 typecheck 확인**
 
 Run:
 
@@ -244,7 +244,7 @@ pnpm --filter @led-control/api typecheck
 
 Expected: 모두 PASS. PostgreSQL URL이 필요한 migration case는 disposable DB에서 별도 실행하고 환경 부재를 성공으로 기록하지 않는다.
 
-- [ ] **Step 8: API·DB 커밋**
+- [x] **Step 8: API·DB 커밋**
 
 ```bash
 git add apps/api/prisma apps/api/src/automation/automation-schema.spec.ts apps/api/src/commands apps/api/src/mqtt/outbox-publisher.service.ts apps/api/src/mqtt/outbox-publisher.service.spec.ts docs/database-schema.md
