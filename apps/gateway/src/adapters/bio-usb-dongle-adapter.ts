@@ -358,7 +358,7 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
       if (signal?.aborted) return report;
       if (isBioTimeout(error)) report.timedOut = mappings.length;
       else report.failed = mappings.length;
-      addFailureCodes(failureCodes, error, mappings.length);
+      addFailureCodes(failureCodes, error, mappings.length, "BIO_RESYNC_DISCOVERY_FAILED");
       return withFailureCodes(report, failureCodes);
     }
 
@@ -367,13 +367,17 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
     // mapping마다 brightness GET → mode GET → durable listener 전달까지 반드시 완료한 뒤 다음 fixture로 진행한다.
     for (const mapping of mappings) {
       if (signal?.aborted) break;
+      let uncodedFailure = "BIO_RESYNC_TARGET_FAILED";
       try {
         const device = this.requireExactDiscoveredMapping(mapping);
         const verifiedTarget = target(device, mapping.logicalAddress);
         const control = { signal };
         const client = this.requireReadOnlyClient();
+        uncodedFailure = "BIO_RESYNC_BRIGHTNESS_READ_FAILED";
         const brightness = await client.readBrightness(verifiedTarget, control);
+        uncodedFailure = "BIO_RESYNC_MODE_READ_FAILED";
         const mode = await client.readDeviceInfo(verifiedTarget, control);
+        uncodedFailure = "BIO_RESYNC_IDENTITY_CHECK_FAILED";
         assertExactReadbackIdentity(mapping, device, brightness);
         assertExactReadbackIdentity(mapping, device, mode);
         const presence: BleMeshFixturePresence = {
@@ -399,7 +403,7 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
         // resync report는 동일 실패가 여러 fixture에서 반복돼도 code별 횟수만 남긴다.
         // exception message에는 USB path/packet 값이 들어갈 수 있으므로 상위 health/log로
         // 전달하지 않는다. `errorCode`가 승인된 BioUsbError code 또는 일반 fallback만 만든다.
-        addFailureCodes(failureCodes, error);
+        addFailureCodes(failureCodes, error, 1, uncodedFailure);
       }
     }
     return withFailureCodes(report, failureCodes);
@@ -598,27 +602,34 @@ function lightingObservationFromPresence(presence: BleMeshFixturePresence): BleM
   return undefined;
 }
 
-function bioFailureCodes(error: unknown): string[] {
+function bioFailureCodes(error: unknown, uncodedFallback = "bio_control_failed"): string[] {
   if (error instanceof AggregateError) {
     // [확인됨] BIO GET은 장치 report timeout 뒤 늦은 패킷이 다음 명령과 섞이지 않도록
     // 현재 USB transport를 폐기한다. 이때 원래 GET 실패와 transport 폐기 실패가 함께 나면
     // AggregateError가 된다. 바깥 AggregateError에는 code가 없으므로 기존 구현은 실제
     // TIMEOUT/CLOSE_FAILED를 `bio_control_failed` 하나로 가렸다. message/stack/UUID/raw packet은
     // 로그에 싣지 않고, 내부 오류가 이미 제공하는 안정된 code만 재귀적으로 추출한다.
-    const nested = error.errors.flatMap((failure) => bioFailureCodes(failure));
-    return nested.length > 0 ? nested : ["bio_control_failed"];
+    const nested = error.errors.flatMap((failure) => bioFailureCodes(failure, uncodedFallback));
+    return nested.length > 0 ? nested : [uncodedFallback];
   }
   return [error && typeof error === "object" && "code" in error && typeof error.code === "string"
     ? error.code
-    : "bio_control_failed"];
+    : uncodedFallback];
 }
 
 function errorCode(error: unknown) {
   return bioFailureCodes(error)[0] ?? "bio_control_failed";
 }
 
-function addFailureCodes(codes: Record<string, number>, error: unknown, count = 1) {
-  for (const code of bioFailureCodes(error)) codes[code] = (codes[code] ?? 0) + count;
+function addFailureCodes(
+  codes: Record<string, number>,
+  error: unknown,
+  count = 1,
+  uncodedFallback = "bio_control_failed"
+) {
+  // 일반 Error에 native USB 상세 문자열이 들어 있어도 그대로 내보내지 않는다. 대신 caller가
+  // 알고 있는 최소 단계만 고정 code로 붙여 discovery/brightness GET/mode GET을 구분한다.
+  for (const code of bioFailureCodes(error, uncodedFallback)) codes[code] = (codes[code] ?? 0) + count;
 }
 
 function withFailureCodes(report: BleMeshResyncReport, codes: Record<string, number>): BleMeshResyncReport {

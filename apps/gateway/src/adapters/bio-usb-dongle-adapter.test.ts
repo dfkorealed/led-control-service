@@ -548,6 +548,17 @@ describe("BioUsbDongleAdapter", () => {
   });
 
   describe("read-only fixture presence resync", () => {
+    it("classifies an uncoded discovery failure without exposing its message", async () => {
+      const f = createFixture();
+      f.mappings.listConfirmed.mockResolvedValue([confirmedMapping()]);
+      f.client.scan.mockRejectedValue(new Error("native details must stay private"));
+
+      await expect(f.adapter.resyncFixtureStates()).resolves.toEqual({
+        total: 1, configured: 1, observed: 0, healthPending: 0, timedOut: 0, failed: 1,
+        failureCodes: { BIO_RESYNC_DISCOVERY_FAILED: 1 }
+      });
+    });
+
     it("emits a sensor presence after one verified brightness and mode GET without sending control writes", async () => {
       const f = createFixture();
       f.mappings.listConfirmed.mockResolvedValue([confirmedMapping()]);
@@ -601,7 +612,7 @@ describe("BioUsbDongleAdapter", () => {
 
       await expect(f.adapter.resyncFixtureStates()).resolves.toEqual({
         total: 1, configured: 1, observed: 0, healthPending: 0, timedOut: 0, failed: 1,
-        failureCodes: { bio_control_failed: 1 }
+        failureCodes: { BIO_RESYNC_MODE_READ_FAILED: 1 }
       });
       expect(received).toEqual([]);
     });
@@ -678,7 +689,7 @@ describe("BioUsbDongleAdapter", () => {
 
       await expect(f.adapter.resyncFixtureStates()).resolves.toEqual({
         total: 2, configured: 2, observed: 1, healthPending: 0, timedOut: 0, failed: 1,
-        failureCodes: { bio_control_failed: 1 }
+        failureCodes: { BIO_RESYNC_BRIGHTNESS_READ_FAILED: 1 }
       });
       expect(received).toEqual([expect.objectContaining({ fixtureId: second.fixtureId, controlMode: "force-on" })]);
     });
