@@ -382,7 +382,7 @@ SiteDeletionCleanup (삭제된 Site ID와 외부 정리 대상을 독립 보존)
 | `tariffKwhRate` | `Decimal(10,2)?` | 아니오 |  | kWh 단가. 설치 대기 현장에서는 `NULL`이며, 단가가 없으면 energy 비용 산출을 요청할 수 없다. |
 | `timeZone` | `String` | 예 | `Asia/Seoul` | IANA timezone. 상태 기반 에너지 일·월 경계를 계산하는 기준 |
 | `gatewayOfflineAfterSeconds` | `Int` | 예 | `90`, SQL CHECK `30..900` | 모니터링 게이트웨이 heartbeat 만료 기준(초). 장비 제어 안전성의 기존 90초 계약과 별개 |
-| `fixtureStaleAfterSeconds` | `Int` | 예 | `180`, SQL CHECK `60..3600` | 모니터링 조명 상태 수신 만료 기준(초) |
+| `fixtureStaleAfterSeconds` | `Int` | 예 | `1200`, SQL CHECK `60..3600` | 조명 presence/실제 상태 수신 freshness 기준(초). 정확히 1,200초는 fresh이고 그보다 1ms라도 지나면 stale이다. |
 | `currency` | `String` | 예 | `KRW` | 현재 통계 비용 계산과 표시가 지원하는 고정 통화. 운영 설정 API도 `KRW`만 허용한다. |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
 | `updatedAt` | `DateTime` | 예 | `@updatedAt` | 수정 시각 |
@@ -687,17 +687,23 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 | `size` | `Float` | 예 | `20` | 도면 에디터에서 표시되는 조명 노드 지름 |
 | `placementStatus` | `FixturePlacementStatus` | 예 | `unplaced` | 지도 배치 상태: `unplaced`, `placed`. 등록/제어 가능 여부와 독립 |
 | `positionVerifiedAt` | `DateTime?` | 아니오 | `NULL`; 미배치는 NULL 강제 CHECK | 사람이 위치를 명시적으로 확인한 서버 시각 |
-| `status` | `FixtureStatus` | 예 | `offline` | 고정 90초 Gateway/180초 Fixture freshness가 반영된 운영 상태; Commands/Identify 소비 |
+| `status` | `FixtureStatus` | 예 | `offline` | 고정 90초 Gateway/1,200초 Fixture freshness가 반영된 운영 상태; Commands/Identify 소비 |
 | `reportedStatus` | `FixtureStatus` | 예 | `offline` | 마지막 수락 fixture-state의 status; freshness sweep은 변경하지 않음 |
 | `reportedStatusReason` | `String?` | 아니오 | `NULL` | 마지막 수락 보고 사유; command_failed 및 첫 상태 대기 보존 |
 | `brightness` | `Int` | 예 | `0` | 현재 밝기 0-100 |
 | `rssi` | `Int?` | 아니오 |  | 최근 RSSI |
 | `hopCount` | `Int?` | 아니오 |  | 최근 BLE Mesh hop 수 |
 | `commandSuccessRate` | `Float?` | 아니오 |  | 최근 명령 성공률 |
-| `lastSeenAt` | `DateTime?` | 아니오 |  | API가 마지막 수락 fixture-state를 받은 서버 수신 시각; freshness 기준 |
+| `lastSeenAt` | `DateTime?` | 아니오 |  | API가 마지막 수락 fixture-state 또는 fixture-presence를 받은 서버 수신 시각; freshness 기준 |
 | `lastStateEventId` | `String?` | 아니오 | Unique | 마지막 적용 MQTT v2 이벤트 ID |
 | `lastStateSequence` | `BigInt?` | 아니오 |  | 마지막 적용 gateway sequence |
 | `lastStateOccurredAt` | `DateTime?` | 아니오 |  | 검증된 장치 상태 발생 시각; energy 순서·cursor/checkpoint 기준 |
+| `bioControlMode` | `String?` | 아니오 | `sensor`, `force-off`, `force-on` 또는 `NULL` CHECK | 마지막 수락 BIO presence의 제어 모드. `sensor`는 실제 LED 출력 상태를 뜻하지 않음 |
+| `bioConfiguredBrightness` | `Int?` | 아니오 | `NULL` 또는 CHECK `0..100` | BIO high-brightness GET의 변환 가능한 설정값. 실제 출력 밝기가 아님 |
+| `bioRawHighBrightness` | `Int?` | 아니오 | `NULL` 또는 CHECK `0..255` | BIO high-brightness GET이 반환한 원시 1-byte 값 |
+| `lastPresenceEventId` | `String?` | 아니오 | Unique; presence checkpoint 3개가 함께 `NULL`이거나 모두 non-`NULL`인 CHECK | 마지막 적용 `fixture-presence` MQTT v2 이벤트 ID |
+| `lastPresenceSequence` | `BigInt?` | 아니오 | 위 checkpoint CHECK에 포함 | 마지막 적용 presence gateway sequence |
+| `lastPresenceOccurredAt` | `DateTime?` | 아니오 | 위 checkpoint CHECK에 포함 | 마지막 적용 presence 장치 관측 시각; 에너지 checkpoint에는 사용하지 않음 |
 | `statusReason` | `String?` | 아니오 |  | 고정 운영 상태의 근거; freshness가 fixture_stale/gateway_offline으로 변경 가능 |
 | `healthFaultCodes` | `Json?` | 아니오 | JSON number 배열 | 마지막 BLE Mesh Health Current의 정규화된 8비트 fault code 목록 |
 | `healthLastSeenAt` | `DateTime?` | 아니오 |  | 마지막 BLE Mesh Health Current 관측 시각 |
@@ -719,7 +725,9 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 
 - `Floor`는 `(id, siteId)`, `MeshNode`는 `(id, gatewayId)` Unique를 제공한다. Fixture는 `(id, siteId, gatewayId)`와 `(meshNodeId, gatewayId)` Unique, `(floorId, siteId)` index를 가진다.
 - `Fixture_mesh_owner_shape_check`는 `meshNodeId/gatewayId`가 함께 값이 있거나 함께 `NULL`이도록 강제한다. Trigger는 INSERT와 owner 필드 UPDATE에서 Floor/MeshNode의 실제 owner를 파생하고 caller가 직접 준 불일치 값을 거부한다. Floor Site 또는 MeshNode Gateway 변경은 composite FK `ON UPDATE CASCADE`로 Fixture projection에 전달되며, automation join이 Fixture owner key를 참조 중이면 그 join의 `ON UPDATE RESTRICT` FK가 전체 owner 변경을 거부한다.
-- `rssi`, `hopCount`, `commandSuccessRate`, `lastSeenAt`은 장기 이력 테이블이 아니라 최신 모니터링 snapshot이다. 수락된 fixture-state는 `lastSeenAt = API receivedAt`으로 저장하므로 미래 장비 시계가 stale 판정을 지연시키지 못한다. 반면 `lastStateOccurredAt`은 검증된 장비 `occurredAt`을 보존해 에너지 순서·cursor/checkpoint에만 사용한다.
+- `rssi`, `hopCount`, `commandSuccessRate`, `lastSeenAt`은 장기 이력 테이블이 아니라 최신 모니터링 snapshot이다. 수락된 fixture-state 또는 fixture-presence는 `lastSeenAt = API receivedAt`으로 저장하므로 미래 장비 시계가 stale 판정을 지연시키지 못한다. 반면 `lastStateOccurredAt`은 검증된 실제 상태 `occurredAt`을 보존해 에너지 순서·cursor/checkpoint에만 사용한다.
+- `20260918120000_bio_fixture_presence_polling` migration은 Site 기본 stale 값과 기존 기본값 `180`을 `1200`으로 올리되, 사용자가 따로 정한 다른 값은 보존한다. 같은 migration은 위 BIO metadata 3개와 presence checkpoint 3개를 추가한다. 모드·밝기·원시값 범위와 checkpoint의 all-null/all-present 형태는 SQL CHECK로 강제하고 event ID에는 unique index를 둔다.
+- `fixture-presence` ingestion은 `lastSeenAt`, RSSI/hop과 BIO metadata/checkpoint만 갱신한다. freshness가 만든 `fixture_stale` 또는 `gateway_offline` 상태만 보고된 상태로 복원할 수 있으며, `brightness`, `powerOn`, `firstStateOccurredAt`, 실제 state checkpoint, 에너지 cursor 및 일·시간 집계는 절대 변경하지 않는다.
 - `healthFaultCodes`, `healthLastSeenAt`도 이력 테이블이 아닌 최신 Health Current snapshot이다. fault code `0x00`은 제거하고 나머지는 중복 제거·오름차순 정렬해 저장한다. 유효한 Health Current를 아직 받지 못했거나 JSON이 유효하지 않으면 API는 `확인 대기`로 응답한다.
 - `20260819092000_add_fixture_health_snapshot` migration은 기존 조명에 두 컬럼을 nullable로 추가한다. 따라서 migration 직후 기존 조명은 첫 Health Current 수신 전까지 `확인 대기` 상태다.
 - `20260912110000_fixture_reported_state`는 reported 두 컬럼을 additive로 만들고 기존 status/statusReason을 복사한 뒤 reportedStatus를 NOT NULL/default offline으로 설정한다. 운영 상태·수신 시각·updatedAt은 변경하지 않는다. 과거에 freshness가 덮어쓴 장비 보고는 추정 복원하지 않으며 새 수락 보고부터 정확히 보존한다. 배포 시 migration 후 모든 수집 API를 새 버전으로 교체해야 하고 구버전 writer와 장기 혼용하지 않는다.
