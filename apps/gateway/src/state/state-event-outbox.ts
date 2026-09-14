@@ -3,9 +3,11 @@ import { mkdir, stat } from "node:fs/promises";
 import { dirname } from "node:path";
 import {
   applicationStateIngestedAckV2Schema,
+  fixturePresenceV2Schema,
   fixtureStateV2Schema,
   mqttTopicsV2,
   type ApplicationStateIngestedAckV2,
+  type FixturePresenceV2,
   type FixtureStateV2
 } from "@led-control/shared";
 import { readJsonFile, writeJsonAtomic } from "../mesh/mesh-store-file";
@@ -23,10 +25,12 @@ export interface StateEventOutboxScope {
 
 export interface StoredStateEvent {
   topic: string;
-  payload: FixtureStateV2;
+  payload: GatewayStateEvent;
   payloadBytes: number;
   enqueuedAt: string;
 }
+
+export type GatewayStateEvent = FixtureStateV2 | FixturePresenceV2;
 
 interface StoredOutbox {
   version: 1;
@@ -120,9 +124,9 @@ export class StateEventOutbox {
     return this.exclusive(async () => this.reservations.delete(reservation.id));
   }
 
-  enqueue(payload: FixtureStateV2, reservation?: StateEventCapacityReservation): Promise<StoredStateEvent> {
+  enqueue(payload: GatewayStateEvent, reservation?: StateEventCapacityReservation): Promise<StoredStateEvent> {
     return this.exclusive(async () => {
-      const parsed = fixtureStateV2Schema.parse(payload);
+      const parsed = parseGatewayStateEvent(payload);
       this.assertScope(parsed);
       const state = await this.load();
       const existing = state.records.find((record) => record.payload.eventId === parsed.eventId);
@@ -141,7 +145,7 @@ export class StateEventOutbox {
       }
 
       const record: StoredStateEvent = {
-        topic: mqttTopicsV2.fixtureState(this.scope.siteId, this.scope.gatewayId),
+        topic: gatewayStateEventTopic(parsed),
         payload: parsed,
         payloadBytes,
         enqueuedAt: new Date().toISOString()
@@ -265,7 +269,7 @@ export class StateEventOutbox {
     }
   }
 
-  private assertScope(payload: FixtureStateV2) {
+  private assertScope(payload: GatewayStateEvent) {
     if (payload.siteId !== this.scope.siteId || payload.gatewayId !== this.scope.gatewayId) {
       throw new Error("state event outbox scope mismatch");
     }
@@ -468,7 +472,7 @@ export class StateEventCapacityGate {
 }
 
 export class StateEventOutboxPublisher {
-  private publish: ((topic: string, payload: FixtureStateV2) => Promise<void>) | undefined;
+  private publish: ((topic: string, payload: GatewayStateEvent) => Promise<void>) | undefined;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private generation = 0;
   private retryDelayMs: number;
@@ -494,7 +498,7 @@ export class StateEventOutboxPublisher {
     this.retryDelayMs = this.retryInitialDelayMs;
   }
 
-  async connect(publish: (topic: string, payload: FixtureStateV2) => Promise<void>) {
+  async connect(publish: (topic: string, payload: GatewayStateEvent) => Promise<void>) {
     this.generation += 1;
     this.publish = publish;
     this.retryDelayMs = this.retryInitialDelayMs;
@@ -581,9 +585,8 @@ function parseStoredOutbox(
         Number.isNaN(Date.parse(raw.enqueuedAt)) || !Number.isInteger(raw.payloadBytes)) {
       throw new Error("invalid state event outbox");
     }
-    const payload = fixtureStateV2Schema.parse(raw.payload);
-    if (payload.siteId !== scope.siteId || payload.gatewayId !== scope.gatewayId ||
-        raw.topic !== mqttTopicsV2.fixtureState(scope.siteId, scope.gatewayId) || eventIds.has(payload.eventId)) {
+    const payload = parseStoredGatewayStateEvent(raw.topic, raw.payload, scope);
+    if (payload.siteId !== scope.siteId || payload.gatewayId !== scope.gatewayId || eventIds.has(payload.eventId)) {
       throw new Error("invalid state event outbox");
     }
     eventIds.add(payload.eventId);
@@ -618,17 +621,48 @@ function isOwnedByCurrentUser(uid: number) {
 }
 
 function cloneRecord(record: StoredStateEvent): StoredStateEvent {
-  return { ...record, payload: { ...record.payload, health: record.payload.health ? { ...record.payload.health } : undefined } };
+  return {
+    ...record,
+    payload: "health" in record.payload
+      ? { ...record.payload, health: record.payload.health ? { ...record.payload.health } : undefined }
+      : { ...record.payload }
+  };
 }
 
-function sameEvent(left: FixtureStateV2, right: FixtureStateV2) {
+function sameEvent(left: GatewayStateEvent, right: GatewayStateEvent) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-function sameAcknowledgement(payload: FixtureStateV2, acknowledgement: ApplicationStateIngestedAckV2) {
+function sameAcknowledgement(payload: GatewayStateEvent, acknowledgement: ApplicationStateIngestedAckV2) {
   return payload.eventId === acknowledgement.eventId &&
     payload.sequence === acknowledgement.sequence &&
     payload.fixtureId === acknowledgement.fixtureId;
+}
+
+function parseGatewayStateEvent(value: unknown): GatewayStateEvent {
+  const fixtureState = fixtureStateV2Schema.safeParse(value);
+  if (fixtureState.success) return fixtureState.data;
+  return fixturePresenceV2Schema.parse(value);
+}
+
+function parseStoredGatewayStateEvent(
+  topic: string,
+  value: unknown,
+  scope: StateEventOutboxScope
+): GatewayStateEvent {
+  if (topic === mqttTopicsV2.fixtureState(scope.siteId, scope.gatewayId)) {
+    return fixtureStateV2Schema.parse(value);
+  }
+  if (topic === mqttTopicsV2.fixturePresence(scope.siteId, scope.gatewayId)) {
+    return fixturePresenceV2Schema.parse(value);
+  }
+  throw new Error("invalid state event outbox");
+}
+
+function gatewayStateEventTopic(event: GatewayStateEvent) {
+  return "brightness" in event
+    ? mqttTopicsV2.fixtureState(event.siteId, event.gatewayId)
+    : mqttTopicsV2.fixturePresence(event.siteId, event.gatewayId);
 }
 
 function sameScope(value: unknown, scope: StateEventOutboxScope) {

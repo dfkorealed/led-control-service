@@ -2,12 +2,13 @@ import { chmod, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mqttTopicsV2, type FixtureStateV2 } from "@led-control/shared";
+import { mqttTopicsV2, type FixturePresenceV2, type FixtureStateV2 } from "@led-control/shared";
 import {
   StateEventCapacityGate,
   StateEventOutbox,
   StateEventOutboxPublisher,
-  StateEventReservationSlot
+  StateEventReservationSlot,
+  type GatewayStateEvent
 } from "./state-event-outbox";
 
 const directories: string[] = [];
@@ -22,6 +23,55 @@ afterEach(async () => {
 });
 
 describe("StateEventOutbox", () => {
+  it("restores state and presence records in FIFO order and ACKs only the matching event", async () => {
+    const path = await outboxPath();
+    const outbox = new StateEventOutbox(path, scope);
+    const state = fixtureState(7);
+    const presence = fixturePresence(8);
+    await outbox.initialize();
+    await outbox.enqueue(state);
+    await outbox.enqueue(presence);
+
+    const restored = new StateEventOutbox(path, scope);
+    await restored.initialize();
+    expect(await restored.pending()).toEqual([
+      expect.objectContaining({ topic: mqttTopicsV2.fixtureState(scope.siteId, scope.gatewayId), payload: state }),
+      expect.objectContaining({ topic: mqttTopicsV2.fixturePresence(scope.siteId, scope.gatewayId), payload: presence })
+    ]);
+
+    await expect(restored.acknowledge({
+      eventId: state.eventId,
+      sequence: state.sequence,
+      fixtureId: state.fixtureId,
+      status: "ingested",
+      ingestedAt: "2026-09-14T00:00:02.000Z"
+    })).resolves.toBe(true);
+    expect(await restored.pending()).toEqual([
+      expect.objectContaining({ topic: mqttTopicsV2.fixturePresence(scope.siteId, scope.gatewayId), payload: presence })
+    ]);
+  });
+
+  it("fails closed when a presence payload is persisted under the fixture-state topic", async () => {
+    const path = await outboxPath();
+    const outbox = new StateEventOutbox(path, scope);
+    const presence = fixturePresence(8);
+    await outbox.initialize();
+    const payloadBytes = Buffer.byteLength(JSON.stringify(presence), "utf8");
+    await writeFile(path, JSON.stringify({
+      version: 1,
+      scope,
+      records: [{
+        topic: mqttTopicsV2.fixtureState(scope.siteId, scope.gatewayId),
+        payload: presence,
+        payloadBytes,
+        enqueuedAt: "2026-09-14T00:00:01.000Z"
+      }],
+      totalPayloadBytes: payloadBytes
+    }), { mode: 0o600 });
+
+    await expect(new StateEventOutbox(path, scope).initialize()).rejects.toThrow("invalid state event outbox");
+  });
+
   it("advances the actual publisher after a legacy committed head receives a reconciled duplicate ACK", async () => {
     const path = await outboxPath();
     const original = new StateEventOutbox(path, scope);
@@ -34,7 +84,7 @@ describe("StateEventOutbox", () => {
     const restored = new StateEventOutbox(path, scope);
     await restored.initialize();
     const publisher = new StateEventOutboxPublisher(restored);
-    const published: FixtureStateV2[] = [];
+    const published: GatewayStateEvent[] = [];
     const duplicate = { eventId: committed.eventId, sequence: committed.sequence, fixtureId: committed.fixtureId,
       status: "duplicate", ingestedAt: "2026-09-12T00:00:02.000Z" };
     try {
@@ -63,7 +113,7 @@ describe("StateEventOutbox", () => {
     const next = fixtureState(8);
     await outbox.enqueue(poison);
     await outbox.enqueue(next);
-    const published: FixtureStateV2[] = [];
+    const published: GatewayStateEvent[] = [];
     const publisher = new StateEventOutboxPublisher(outbox);
     const acknowledgement = {
       eventId: poison.eventId,
@@ -315,6 +365,21 @@ function fixtureState(sequence: number): FixtureStateV2 {
     statusReason: "reported",
     rssi: -60,
     hopCount: 1
+  };
+}
+
+function fixturePresence(sequence: number): FixturePresenceV2 {
+  return {
+    ...scope,
+    eventId: "99999999-9999-4999-8999-999999999999",
+    sequence,
+    occurredAt: "2026-09-14T00:00:01.000Z",
+    fixtureId: "66666666-6666-4666-8666-666666666666",
+    controlMode: "sensor",
+    rawHighBrightness: 127,
+    configuredBrightness: null,
+    rssi: -41,
+    hopCount: null
   };
 }
 

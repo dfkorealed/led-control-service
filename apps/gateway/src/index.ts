@@ -10,6 +10,7 @@ import {
   type AutomationConfigAppliedReceiptV1,
   type AutomationExecutionFixtureResultV1,
   type DeviceStatusAckV2,
+  type FixturePresenceV2,
   type FixtureStateV2,
   type GatewayDimmingCommandV2Compatible,
   type GatewayStatusCheckCommandV2Compatible,
@@ -27,6 +28,7 @@ import {
   isGatewayCommandExpired,
   mqttTopicsV2,
   mqttTopics,
+  fixturePresenceV2Schema,
   fixtureStateV2Schema,
   provisioningDeviceCommandV2Schema,
   provisioningScanStartSchema
@@ -103,7 +105,7 @@ import {
   startControlPlaneWithBackgroundMeshResync
 } from "./runtime/background-mesh-resync";
 import { SerialTaskQueue } from "./runtime/serial-task-queue";
-import type { BleMeshAdapter, BleMeshFixtureStatus, BleMeshResyncReport, ProvisioningAdapter } from "./gateway";
+import type { BleMeshAdapter, BleMeshFixturePresence, BleMeshFixtureStatus, BleMeshResyncReport, ProvisioningAdapter } from "./gateway";
 import { GroupSubscriptionHandler } from "./mesh/group-subscription-handler";
 import { GroupStateStore } from "./mesh/group-state-store";
 import { KeyedSerialTaskQueue } from "./runtime/keyed-serial-task-queue";
@@ -837,6 +839,31 @@ async function main() {
     }
   }
 
+  const stopFixturePresenceIntake = adapter.onFixturePresence?.(async (presence) => {
+    // [확인됨] presence는 BIO GET이 성공했다는 생존 관측이므로 state outbox와 같은
+    // owner-only durability·application ACK를 쓴다. 다만 sensor mode의 configured brightness는
+    // 실제 LED 출력이 아니므로 brightness/power/energy state로 승격하지 않는다.
+    await stateEventCapacity.run([presence.fixtureId], async (reservation) => {
+      const publishFixturePresence = createFixturePresencePublisher({
+        siteId,
+        gatewayId,
+        eventSequence,
+        publish: (_topic, event) => enqueueFixturePresence(event, reservation)
+      });
+      await publishFixturePresence(presence);
+    });
+  });
+
+  async function enqueueFixturePresence(presence: FixturePresenceV2, reservation: StateEventCapacityReservation) {
+    try {
+      await stateEventOutbox.enqueue(presence, reservation);
+      stateEventPublisher.wake();
+    } catch (error) {
+      await stateEventCapacity.block();
+      throw error;
+    }
+  }
+
   function publish(client: Pick<MqttClient, "publish">, topic: string, payload: unknown) {
     return new Promise<void>((resolve, reject) => {
       client.publish(topic, JSON.stringify(payload), { qos: 1 }, (error) => (error ? reject(error) : resolve()));
@@ -1075,6 +1102,9 @@ async function main() {
           const reservation = await stateEventCapacity.recoverAndReserve(["*"]);
           if (reservation) {
             await armFixtureStatusIntake(reservation);
+            // [확인됨] capacity로 누락된 presence는 delivery ACK 뒤에만 재관측한다.
+            // ACK 전 재시도는 동일 outbox head만 반복하므로, 여기서 full resync를 예약해
+            // durability 회복 후 BIO의 다음 read-only 관측이 다시 enqueue되게 한다.
             meshResyncWorker.schedule(true);
           }
         }
@@ -1180,6 +1210,7 @@ async function main() {
         const targetedResyncDrain = targetedLightingResync.stopAndDrain();
         const vehicleSensorDrain = vehicleSensorController?.stopAndDrain() ?? Promise.resolve();
         stopAutomationFixtureStatusIntake();
+        stopFixturePresenceIntake?.();
         stopFixtureStatusIntake?.();
         automationTelemetryCoordinator.stop();
         automationStorage.headroom.stop();
@@ -1522,6 +1553,32 @@ export function createFixtureStatusPublisher(input: {
       hopCount: status.hopCount
     });
     await input.publish(mqttTopicsV2.fixtureState(input.siteId, input.gatewayId), state);
+  };
+}
+
+export function createFixturePresencePublisher(input: {
+  siteId: string;
+  gatewayId: string;
+  eventSequence: Pick<EventSequenceStore, "next">;
+  publish: (topic: string, payload: FixturePresenceV2) => Promise<void>;
+}) {
+  return async (presence: BleMeshFixturePresence) => {
+    // [확인됨] observedAt은 BIO가 두 GET 응답을 확인한 시각이다. publish 시각으로 바꾸면
+    // outbox 재전송·MQTT 단절이 장치의 실제 마지막 생존 관측을 새것처럼 보이게 한다.
+    const event = fixturePresenceV2Schema.parse({
+      siteId: input.siteId,
+      gatewayId: input.gatewayId,
+      eventId: randomUUID(),
+      sequence: await input.eventSequence.next(),
+      occurredAt: presence.observedAt,
+      fixtureId: presence.fixtureId,
+      controlMode: presence.controlMode,
+      rawHighBrightness: presence.rawHighBrightness,
+      configuredBrightness: presence.configuredBrightness,
+      rssi: presence.rssi,
+      hopCount: presence.hopCount
+    });
+    await input.publish(mqttTopicsV2.fixturePresence(input.siteId, input.gatewayId), event);
   };
 }
 

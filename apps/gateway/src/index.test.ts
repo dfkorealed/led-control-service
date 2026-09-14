@@ -16,6 +16,7 @@ import {
   gatewayDeferredPubackTopics,
   enqueueAutomationFixtureStates,
   createManualOverrideCoordinator,
+  createFixturePresencePublisher,
   createFixtureStatusPublisher,
   createProvisioningScanCompletedPayload,
   createProvisioningScanFailedPayload,
@@ -46,8 +47,8 @@ import {
 } from "./index";
 import { StateEventOutboxError } from "./state/state-event-outbox";
 import { CommandJournal } from "./commands/command-journal";
-import type { BleMeshLightingObservation } from "./gateway";
-import { provisioningScanCompletedSchema, provisioningScanFailedSchema, provisioningScanFoundSchema } from "@led-control/shared";
+import type { BleMeshFixturePresence, BleMeshLightingObservation } from "./gateway";
+import { mqttTopicsV2, provisioningScanCompletedSchema, provisioningScanFailedSchema, provisioningScanFoundSchema } from "@led-control/shared";
 import { FileAutomationStateStore } from "./automation/automation-state-store";
 import { AutomationTelemetryOutbox } from "./automation/automation-telemetry-outbox";
 import { automationScope, automationSnapshot } from "./automation/automation-test-fixtures";
@@ -1464,6 +1465,47 @@ describe("startGatewayRuntime", () => {
         statusReason: "mesh_publication"
       })
     );
+  });
+
+  it("publishes a BIO presence observation without inferring output state", async () => {
+    const publish = vi.fn().mockResolvedValue(undefined);
+    const publishFixturePresence = createFixturePresencePublisher({
+      siteId: scopedSiteId,
+      gatewayId: scopedGatewayId,
+      eventSequence: { next: vi.fn().mockResolvedValue(42) },
+      publish
+    });
+    const presence: BleMeshFixturePresence = {
+      fixtureId: scopedFixtureId,
+      controlMode: "sensor",
+      rawHighBrightness: 127,
+      configuredBrightness: null,
+      rssi: -41,
+      hopCount: null,
+      observedAt: "2026-09-14T00:00:01.000Z"
+    };
+
+    await publishFixturePresence(presence);
+
+    expect(publish).toHaveBeenCalledWith(
+      mqttTopicsV2.fixturePresence(scopedSiteId, scopedGatewayId),
+      expect.objectContaining({
+        siteId: scopedSiteId,
+        gatewayId: scopedGatewayId,
+        eventId: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i),
+        sequence: 42,
+        occurredAt: presence.observedAt,
+        fixtureId: scopedFixtureId,
+        controlMode: "sensor",
+        rawHighBrightness: 127,
+        configuredBrightness: null,
+        rssi: -41,
+        hopCount: null
+      })
+    );
+    const payload = publish.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(payload).not.toHaveProperty("brightness");
+    expect(payload).not.toHaveProperty("powerOn");
   });
 
   it("stops the MQTT runtime before exiting for SIGTERM", async () => {
