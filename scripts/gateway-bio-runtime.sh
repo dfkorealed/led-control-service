@@ -51,8 +51,39 @@ ancestor_snapshot() {
     printf '%s|%s\n' "$directory" "$metadata"
   done
 }
+
+docker_nested_identity_mountpoint_snapshot() {
+  local path metadata kind mode owner group inode unexpected_child
+  path="$GATEWAY_BIO_DATA_ROOT/gateway/identity"
+  if sudo -n test -e "$path" || sudo -n test -L "$path"; then
+    metadata=$(plain_metadata "$path") || return 1
+    IFS='|' read -r kind mode owner group inode <<< "$metadata"
+    # Compose는 `/var/lib/led-control` 전체와 그 아래 `identity`를 각각 bind
+    # mount한다. Docker가 두 번째 mount의 host-side 연결 지점을 만들면서
+    # gateway 저장소 안에 이 정확한 빈 directory 하나를 root:root/0755로
+    # 남길 수 있다. 제품 identity 내용은 sibling identity 저장소에 있고 이
+    # directory에는 없어야 한다. 따라서 경로·종류·owner·mode·비어 있음을
+    # 모두 만족한 경우만 Docker mountpoint artifact로 인정한다.
+    #
+    # 이 예외를 gateway tree 전체의 root 소유 허용으로 넓히면 journal이나
+    # current pointer가 UID999 대신 root에 의해 바뀌어도 놓치게 된다. symlink,
+    # 다른 owner/mode, 단 하나의 child라도 있는 경우에는 정상 mountpoint라고
+    # 추측하지 않고 기존과 동일하게 preflight를 중단한다.
+    [[ $kind = directory && $owner = 0 && $group = 0 && $mode = 755 ]] || return 1
+    unexpected_child=$(sudo -n find "$path" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null) || return 1
+    [[ -z $unexpected_child ]] || return 1
+    printf '%s' "$metadata"
+  else
+    printf 'absent'
+  fi
+}
+
 runtime_roots_snapshot() {
   local leaf directory metadata kind mode owner group inode expected mapping unexpected_owner
+  local nested_identity_mountpoint nested_identity_state
+  nested_identity_mountpoint="$GATEWAY_BIO_DATA_ROOT/gateway/identity"
+  nested_identity_state=$(docker_nested_identity_mountpoint_snapshot) || return 1
+  printf 'docker-identity-mountpoint|%s\n' "$nested_identity_state"
   for leaf in identity gateway mesh; do
     directory="$GATEWAY_BIO_DATA_ROOT/$leaf"
     if sudo -n test -e "$directory" || sudo -n test -L "$directory"; then
@@ -64,7 +95,15 @@ runtime_roots_snapshot() {
       # find는 symlink를 따라가지 않고 같은 filesystem의 실제 소유권만 확인한다.
       # private key 내용이나 문제 파일 경로는 출력하지 않으며 권한/체인 검증은
       # 아래 network-none 제품 identity Store가 추가로 수행한다.
-      unexpected_owner=$(sudo -n find "$directory" -xdev \( ! -uid 999 -o ! -gid 999 \) -print -quit 2>/dev/null) || return 1
+      if [[ $leaf = gateway && $nested_identity_state != absent ]]; then
+        # 위 helper가 exact empty Docker artifact임을 먼저 증명한 경우에만 해당
+        # directory 자체를 prune한다. 그 아래를 순회하지 않는 이유도 내용이
+        # 비어 있음을 별도 검사했기 때문이며, 나머지 gateway tree의 UID/GID
+        # 검사는 기존과 동일하게 999:999만 허용한다.
+        unexpected_owner=$(sudo -n find "$directory" -xdev -path "$nested_identity_mountpoint" -prune -o \( ! -uid 999 -o ! -gid 999 \) -print -quit 2>/dev/null) || return 1
+      else
+        unexpected_owner=$(sudo -n find "$directory" -xdev \( ! -uid 999 -o ! -gid 999 \) -print -quit 2>/dev/null) || return 1
+      fi
       [[ -z $unexpected_owner ]] || return 1
       printf '%s|%s\n' "$leaf" "$metadata"
     elif [[ $leaf = mesh ]]; then printf 'mesh|absent\n'; else return 1; fi

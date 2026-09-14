@@ -391,7 +391,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 
 ## 부족하거나 개선이 필요한 기능
 
-- BIO full runtime 배포는 독립 `compose.bio-runtime.yml`과 `scripts/gateway-bio-runtime.sh`로 BlueZ appliance와 격리한다. 기존 `gateway-appliance-deploy.sh --adapter bio-usb` overlay 경로는 원격 변경 전에 차단한다. 새 runtime은 exact USB와 전용 상태 root를 확인한 뒤 UID 999·capability 0으로 시작한다. 이번 identify 계약이 포함된 image의 실제 healthy heartbeat와 2초 점등/센서 모드 복원은 재배포 후 확인해야 한다.
+- BIO full runtime 배포는 독립 `compose.bio-runtime.yml`과 `scripts/gateway-bio-runtime.sh`로 BlueZ appliance와 격리한다. 기존 `gateway-appliance-deploy.sh --adapter bio-usb` overlay 경로는 원격 변경 전에 차단한다. 새 runtime은 exact USB와 전용 상태 root를 확인한 뒤 UID 999·capability 0으로 시작한다. 실제 Pi의 재배포에서는 Docker가 중첩 bind mount 연결을 위해 `$DATA_ROOT/gateway/identity`에 남긴 빈 `root:root/0755` directory만 명시적 mountpoint artifact로 인정한다. canonical exact path·directory 종류·소유자·mode·비어 있음을 모두 재검증한 뒤 그 한 경로만 ownership scan에서 prune하며, symlink·내용 존재·다른 owner/mode/type 또는 그 밖의 root 소유 runtime 파일은 기존처럼 old container 정지 전에 거부한다. identify image의 healthy heartbeat와 실제 2초 점등/센서 모드 복원은 확인했으며, 동일 주소 등록 수렴 image의 재배포와 Fixture 생성 검증은 진행 중이다.
 - `bootstrap-only` 설치 CLI는 조명 하드웨어를 시작하지 않고 Gateway assignment와 MQTT identity만 준비한다. 새 admin/site 초기 설정에서 제조사 앱 없이 인증을 완료하기 위한 경계이며, claim 성공을 조명 검색·등록 성공으로 확대하지 않는다. 발급 원장 확인과 실제 adapter 기동은 [설치 runbook](../runbooks/device-lab-first-install.md#81-하드웨어-없는-인증-전용-bootstrap)을 따른다.
 
 - 과거 scan은 raw 원장에 session scope/전체 hash가 없어 terminal identity를 추정 backfill하지 않는다. scope/hash 또는 필요한 현재 상태가 부족한 legacy 원장과 알 수 없는 이벤트 유형은 자동 정리에서도 보존한다. 삭제된 조명의 상태 원장처럼 안전 조건을 더 이상 증명할 수 없는 데이터도 남을 수 있다. 사용자 DB migration 적용·운영 배포와 실장비 검증은 실행하지 않았다.

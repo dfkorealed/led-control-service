@@ -59,6 +59,23 @@ test("runtime files cannot inherit deployment UID and only an absent mesh is pre
  withHostFixture(f=>{const result=f.run('runtime-file-owner');assert.notEqual(result.status,0);assert(!f.calls().includes('old-stop'));});
  withHostFixture(f=>{const result=f.run('missing-mesh');assert.equal(result.status,0,result.stderr);assert(f.calls().includes('mesh-created'));assert(f.calls().includes('mesh-owned-999'));});
 });
+test("only Docker's exact empty root-owned nested identity mountpoint is tolerated",()=>{
+ withHostFixture(f=>{
+  const result=f.run('docker-identity-mountpoint');
+  assert.equal(result.status,0,JSON.stringify({stderr:result.stderr,calls:f.calls()}));
+ });
+ for(const mode of [
+  'docker-identity-mountpoint-not-empty',
+  'docker-identity-mountpoint-wide-mode',
+  'docker-identity-mountpoint-wrong-owner',
+  'docker-identity-mountpoint-file',
+  'docker-identity-mountpoint-symlink',
+ ])withHostFixture(f=>{
+  const result=f.run(mode);
+  assert.notEqual(result.status,0,mode);
+  assert(!f.calls().includes('old-stop'));
+ });
+});
 
 test("name collision at the second gate never stops the old container",()=>withHostFixture(f=>{
  const result=f.run("name-collision");assert.notEqual(result.status,0);assert(!f.calls().includes("old-stop"));
@@ -103,13 +120,29 @@ function withHostFixture(callback){
  writeFileSync(resolve(dir,"bin/sudo"),helper+`
  if(a[1]==='mkdir'){try{if(a.at(-1).endsWith('/mesh')){fs.mkdirSync(mesh);add('mesh-created');}else{fs.mkdirSync(lock);add('lock-acquired');}}catch{process.exit(1);}}
  else if(a[1]==='chown'){if(a[2]!=='999:999'||!a.at(-1).endsWith('/mesh'))process.exit(1);add('mesh-owned-999');}
- else if(a[1]==='find'){if(failure==='runtime-file-owner')console.log('/redacted-owned-file');}
+ else if(a[1]==='find'){
+  const target=a[2],nested='/opt/led-control/gateway/data-admin4/gateway/identity';
+  if(target===nested&&a.includes('-mindepth')){
+   if(failure==='docker-identity-mountpoint-not-empty')console.log(nested+'/unexpected-file');
+  }else if(failure==='runtime-file-owner')console.log('/redacted-owned-file');
+  else if(target.endsWith('/gateway')&&failure.startsWith('docker-identity-mountpoint')&&!a.includes('-prune'))console.log(nested);
+ }
  else if(a[1]==='rmdir'){if(failure==='lock-release-failure')process.exit(1);fs.rmdirSync(lock);add('lock-released');}
- else if(a[1]==='realpath')console.log(a.at(-1)==='/opt/led-control/gateway'&&failure==='ancestor-symlink'?'/different':a.at(-1));
- else if(a[1]==='test'){if(a.at(-1).endsWith('/mesh')&&failure==='missing-mesh'&&!fs.existsSync(mesh))process.exit(1);if(a.at(-1).endsWith('.json')&&failure!=='mapping-deployment-owner')process.exit(1);}
+ else if(a[1]==='realpath'){
+  const p=a.at(-1),nested='/opt/led-control/gateway/data-admin4/gateway/identity';
+  console.log(p===nested&&failure==='docker-identity-mountpoint-symlink'?'/different':p==='/opt/led-control/gateway'&&failure==='ancestor-symlink'?'/different':p);
+ }
+ else if(a[1]==='test'){
+  const p=a.at(-1),nested='/opt/led-control/gateway/data-admin4/gateway/identity';
+  if(p===nested){
+   if(!failure.startsWith('docker-identity-mountpoint'))process.exit(1);
+   if(a.includes('-L')&&failure!=='docker-identity-mountpoint-symlink')process.exit(1);
+  }else if(p.endsWith('/mesh')&&failure==='missing-mesh'&&!fs.existsSync(mesh))process.exit(1);
+  else if(p.endsWith('.json')&&failure!=='mapping-deployment-owner')process.exit(1);
+ }
  else if(a[1]==='stat'){
   if(a.includes('%d:%i'))console.log('1:1234');else{
-   const p=a.at(-1),leaf=['/identity','/gateway','/mesh'].some(suffix=>p.endsWith(suffix))&&p.includes('data-admin4/'),mapping=p.endsWith('.json');
+   const p=a.at(-1),nested=p==='/opt/led-control/gateway/data-admin4/gateway/identity',leaf=!nested&&['/identity','/gateway','/mesh'].some(suffix=>p.endsWith(suffix))&&p.includes('data-admin4/'),mapping=p.endsWith('.json');
    let owner=leaf?999:p==='/opt/led-control/gateway'?1000:0,mode=leaf?(p.endsWith('/identity')?'750':'700'):'755';
    if(p==='/opt/led-control/gateway'){
     mode=failure==='ancestor-writable'?'770':'750';
@@ -117,8 +150,9 @@ function withHostFixture(callback){
     if(failure==='ancestor-owner-change'&&fs.readFileSync(log,'utf8').includes('identity-check'))owner=0;
    }
    if(leaf){if(failure==='leaf-deployment-owner'||failure==='leaf-owner-change'&&fs.readFileSync(log,'utf8').includes('identity-check'))owner=1000;if(failure==='leaf-root-owner')owner=0;if(failure==='leaf-wide-mode')mode='755';}
+   if(nested){if(failure==='docker-identity-mountpoint-wide-mode')mode='777';if(failure==='docker-identity-mountpoint-wrong-owner')owner=999;}
    if(mapping){owner=1000;mode='600';}
-   const metadata=(mapping?'regular file':'directory')+'|'+mode+'|'+owner;
+   const kind=mapping||nested&&failure==='docker-identity-mountpoint-file'?'regular file':'directory',metadata=kind+'|'+mode+'|'+owner;
    console.log(a.some(x=>x.includes('%g'))?metadata+'|'+(leaf?999:0)+'|1:42':metadata);
   }
  }else if(a[1]==='install')add('prepare');
