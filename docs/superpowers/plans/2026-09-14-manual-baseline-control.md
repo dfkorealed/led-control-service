@@ -40,7 +40,7 @@
 - Consumes: 기존 `DimmingTarget`, Gateway command identity/delivery schemas
 - Produces: 종료 시각 없는 `CreateDimmingCommandInput`, `GatewayDimmingCommandDraftV2`, `GatewayDimmingCommandPublishedV2`; old timed payload를 허용하는 compatibility schemas; `createGatewayCommandExpiry(publishedAt, deliveryGeneration)`
 
-- [ ] **Step 1: canonical 요청과 legacy 정규화 RED 테스트 작성**
+- [x] **Step 1: canonical 요청과 legacy 정규화 RED 테스트 작성**
 
 ```ts
 const canonical = { siteId, clientRequestId, target: { type: "fixture", fixtureId }, brightness: 60 };
@@ -50,7 +50,7 @@ expect(createDimmingCommandRequestSchema.parse({ ...canonical, overrideUntil }))
 expect(() => createDimmingCommandRequestSchema.parse({ ...canonical, overrideUntil: "invalid" })).toThrow();
 ```
 
-- [ ] **Step 2: canonical/compatibility Gateway wire와 delivery RED 테스트 작성**
+- [x] **Step 2: canonical/compatibility Gateway wire와 delivery RED 테스트 작성**
 
 ```ts
 expect(gatewayDimmingCommandDraftV2Schema.parse(newDraft)).not.toHaveProperty("overrideUntil");
@@ -62,7 +62,7 @@ expect(createGatewayCommandExpiry(generatedAt, generation)).toEqual(expect.objec
 }));
 ```
 
-- [ ] **Step 3: focused Shared tests가 새 요구 때문에 실패하는지 확인**
+- [x] **Step 3: focused Shared tests가 새 요구 때문에 실패하는지 확인**
 
 Run:
 
@@ -73,7 +73,7 @@ pnpm --filter @led-control/shared exec vitest run src/schemas.test.ts src/gatewa
 
 Expected: 기존 canonical schema가 `overrideUntil`을 허용하고 delivery helper가 세 번째 인자를 요구하므로 FAIL.
 
-- [ ] **Step 4: canonical과 compatibility schema를 분리해 최소 구현**
+- [x] **Step 4: canonical과 compatibility schema를 분리해 최소 구현**
 
 ```ts
 const createDimmingCommandFields = {
@@ -110,7 +110,7 @@ export const createDimmingCommandRequestSchema = z.union([
 
 `gatewayDimmingCommandFields`에서도 `overrideUntil`을 제거한다. Canonical draft/published schemas는 core fields만 사용하고 compatibility schemas만 `overrideUntil`/`overrideRemainingMs`가 있는 old variants를 포함한다. 미사용 `ManualOverrideWindow`와 `manualOverrideWindowSchema` export를 제거한다.
 
-- [ ] **Step 5: delivery helper를 transport TTL 전용으로 변경**
+- [x] **Step 5: delivery helper를 transport TTL 전용으로 변경**
 
 ```ts
 export function createGatewayCommandExpiry(publishedAt: Date, deliveryGeneration: string) {
@@ -126,7 +126,7 @@ export function createGatewayCommandExpiry(publishedAt: Date, deliveryGeneration
 }
 ```
 
-- [ ] **Step 6: Shared focused와 전체 테스트·typecheck 확인**
+- [x] **Step 6: Shared focused와 전체 테스트·typecheck 확인**
 
 Run:
 
@@ -138,7 +138,7 @@ pnpm --filter @led-control/shared typecheck
 
 Expected: 새 focused tests와 전체 Shared가 모두 PASS.
 
-- [ ] **Step 7: Shared 계약 커밋**
+- [x] **Step 7: Shared 계약 커밋**
 
 ```bash
 git add packages/shared/src
