@@ -1,3 +1,4 @@
+import { FIXTURE_PRESENCE_POLL_INTERVAL_MS } from "@led-control/shared";
 import type { BleMeshResyncReport } from "../gateway";
 
 interface BackgroundMeshResyncOptions {
@@ -6,6 +7,7 @@ interface BackgroundMeshResyncOptions {
   onError?: (error: unknown) => Promise<void> | void;
   retryBaseMs?: number;
   retryMaxMs?: number;
+  pollIntervalMs?: number;
   stopTimeoutMs?: number;
 }
 
@@ -32,12 +34,18 @@ export class BackgroundMeshResyncWorker {
   private controller: AbortController | null = null;
   private readonly retryBaseMs: number;
   private readonly retryMaxMs: number;
+  private readonly pollIntervalMs: number;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private pollTimer: ReturnType<typeof setTimeout> | null = null;
   private retryAttempt = 0;
 
   constructor(private readonly options: BackgroundMeshResyncOptions) {
     this.retryBaseMs = positiveInteger(options.retryBaseMs ?? DEFAULT_RETRY_BASE_MS, "full resync retry base");
     this.retryMaxMs = positiveInteger(options.retryMaxMs ?? DEFAULT_RETRY_MAX_MS, "full resync retry maximum");
+    this.pollIntervalMs = positiveInteger(
+      options.pollIntervalMs ?? FIXTURE_PRESENCE_POLL_INTERVAL_MS,
+      "full resync poll interval"
+    );
     if (this.retryMaxMs < this.retryBaseMs) throw new Error("full resync retry maximum must cover its base");
   }
 
@@ -52,6 +60,7 @@ export class BackgroundMeshResyncWorker {
       return true;
     }
     this.clearRetry();
+    this.clearPoll();
     this.current = this.drain().finally(() => {
       this.current = null;
     });
@@ -62,6 +71,7 @@ export class BackgroundMeshResyncWorker {
     this.stopping = true;
     this.rerunRequested = false;
     this.clearRetry();
+    this.clearPoll();
     this.controller?.abort();
     if (this.current) {
       await settleWithin(this.current, this.options.stopTimeoutMs ?? DEFAULT_STOP_TIMEOUT_MS);
@@ -94,6 +104,7 @@ export class BackgroundMeshResyncWorker {
       }
     } while (this.rerunRequested && !this.stopping);
     if (retryNeeded) this.armRetry();
+    else this.armPoll();
   }
 
   private armRetry() {
@@ -111,6 +122,24 @@ export class BackgroundMeshResyncWorker {
     if (!this.retryTimer) return;
     clearTimeout(this.retryTimer);
     this.retryTimer = null;
+  }
+
+  private armPoll() {
+    if (this.pollTimer || this.stopping) return;
+    // 고정 지연 방식은 성공한 전체 동기화가 끝난 뒤에만 다음 10분 타이머를 시작합니다.
+    // USB 동글 응답이 평소보다 오래 걸려도 이전 요청이 끝나기 전에 다음 요청을 시작하지 않아
+    // 동일 fixture에 대한 Mesh 조회가 겹치지 않으며, 실제 경과 시간은 처리 시간만큼 자연스럽게 늘어납니다.
+    this.pollTimer = setTimeout(() => {
+      this.pollTimer = null;
+      this.schedule();
+    }, this.pollIntervalMs);
+    this.pollTimer.unref();
+  }
+
+  private clearPoll() {
+    if (!this.pollTimer) return;
+    clearTimeout(this.pollTimer);
+    this.pollTimer = null;
   }
 }
 

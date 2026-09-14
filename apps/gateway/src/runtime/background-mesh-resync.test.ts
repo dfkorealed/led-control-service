@@ -16,6 +16,57 @@ const completeReport = {
 };
 
 describe("BackgroundMeshResyncWorker", () => {
+  it("runs again ten minutes after a successful pass without overlap", async () => {
+    vi.useFakeTimers();
+    try {
+      const first = deferred<typeof completeReport>();
+      const run = vi.fn().mockImplementationOnce(() => first.promise).mockResolvedValue(completeReport);
+      const worker = new BackgroundMeshResyncWorker({ run, onReport: vi.fn(), pollIntervalMs: 600_000 });
+
+      worker.schedule();
+      await vi.advanceTimersByTimeAsync(600_000);
+      expect(run).toHaveBeenCalledTimes(1);
+
+      first.resolve(completeReport);
+      await vi.advanceTimersByTimeAsync(599_999);
+      expect(run).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(run).toHaveBeenCalledTimes(2);
+
+      await worker.stopAndDrain();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not run another full resync after shutdown clears a successful pass poll", async () => {
+    vi.useFakeTimers();
+    try {
+      const run = vi.fn().mockResolvedValue(completeReport);
+      const worker = new BackgroundMeshResyncWorker({ run, onReport: vi.fn(), pollIntervalMs: 600_000 });
+
+      worker.schedule();
+      await vi.advanceTimersByTimeAsync(0);
+      await worker.stopAndDrain();
+      await vi.advanceTimersByTimeAsync(600_000);
+
+      expect(run).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1])(
+    "rejects an invalid full-resync poll interval of %s milliseconds",
+    (pollIntervalMs) => {
+      expect(() => new BackgroundMeshResyncWorker({
+        run: vi.fn(),
+        onReport: vi.fn(),
+        pollIntervalMs
+      })).toThrow("full resync poll interval must be a positive safe integer");
+    }
+  );
+
   it("makes the control plane available without awaiting a slow 1,000-fixture resync", async () => {
     const resync = deferred<typeof completeReport>();
     const onReport = vi.fn().mockResolvedValue(undefined);
