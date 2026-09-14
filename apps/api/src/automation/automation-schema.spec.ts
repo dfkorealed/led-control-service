@@ -71,6 +71,13 @@ const manualCommandExecutionMigrationPath = join(
 const manualCommandExecutionMigration = existsSync(manualCommandExecutionMigrationPath)
   ? readFileSync(manualCommandExecutionMigrationPath, "utf8")
   : "";
+const manualControlBaselineMigrationPath = join(
+  __dirname,
+  "../../prisma/migrations/20260914090000_manual_control_baseline/migration.sql"
+);
+const manualControlBaselineMigration = existsSync(manualControlBaselineMigrationPath)
+  ? readFileSync(manualControlBaselineMigrationPath, "utf8")
+  : "";
 const prismaSchema = readFileSync(join(__dirname, "../../prisma/schema.prisma"), "utf8");
 const prisma = new PrismaClient();
 const databaseUrl = process.env.AUTOMATION_SCHEMA_TEST_DATABASE_URL;
@@ -112,6 +119,23 @@ describe("automation Prisma schema contract", () => {
     expect(modelFields.LightingSchedule).toContain("targetCount");
     expect(modelFields.VehicleEventRule).toEqual(expect.arrayContaining(["sourceCount", "targetCount"]));
     expect(modelFields.ManualOverride).toContain("targetCount");
+  });
+
+  it("makes only the manual override expiry nullable through a forward migration", () => {
+    const manualOverride = Prisma.dmmf.datamodel.models.find((model) => model.name === "ManualOverride");
+    const modelFields = Object.fromEntries(
+      Prisma.dmmf.datamodel.models.map((model) => [
+        model.name,
+        model.fields.map((field) => `${field.name} ${field.type}${field.isRequired ? "" : "?"}`)
+      ])
+    );
+
+    expect(modelFields.ManualOverride).toContain("overrideUntil DateTime?");
+    expect(manualOverride?.fields.find((field) => field.name === "startedAt")?.isRequired).toBe(true);
+    expect(manualControlBaselineMigration).toContain('ALTER COLUMN "overrideUntil" DROP NOT NULL');
+    expect(manualControlBaselineMigration).toContain('"overrideUntil" IS NULL');
+    expect(manualControlBaselineMigration).toContain('DROP CONSTRAINT "ManualOverride_time_range_check"');
+    expect(manualControlBaselineMigration).toContain('ADD CONSTRAINT "ManualOverride_time_range_check"');
   });
 
   it("exposes fail-closed vehicle sensor capability metadata on MeshNode", () => {
@@ -489,6 +513,86 @@ describe("automation Prisma schema contract", () => {
     expect(migration).toMatch(
       /AutomationExecutionFixtureResult_fixtureId_fkey[\s\S]*?REFERENCES "Fixture"\("id"\) ON DELETE SET NULL/
     );
+  });
+});
+
+describeWithPostgres("manual control baseline migration PostgreSQL rehearsal", () => {
+  const schemaName = `manual_control_baseline_${process.pid}`.toLowerCase();
+
+  afterAll(() => {
+    executeSql(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE;`);
+  });
+
+  it("preserves timed history and accepts a nullable audit row with its required target", () => {
+    executeSql(`
+      DROP SCHEMA IF EXISTS "${schemaName}" CASCADE;
+      CREATE SCHEMA "${schemaName}";
+      SET search_path TO "${schemaName}";
+      CREATE TABLE "ManualOverride" (
+        "id" TEXT PRIMARY KEY,
+        "startedAt" TIMESTAMP(3) NOT NULL,
+        "overrideUntil" TIMESTAMP(3) NOT NULL,
+        "endedAt" TIMESTAMP(3),
+        "targetCount" INTEGER NOT NULL DEFAULT 0,
+        CONSTRAINT "ManualOverride_time_range_check" CHECK (
+          "overrideUntil" > "startedAt"
+          AND ("endedAt" IS NULL OR ("endedAt" >= "startedAt" AND "endedAt" <= "overrideUntil"))
+        )
+      );
+      CREATE TABLE "ManualOverrideFixture" (
+        "manualOverrideId" TEXT NOT NULL REFERENCES "ManualOverride"("id") ON DELETE CASCADE,
+        "fixtureId" TEXT NOT NULL,
+        PRIMARY KEY ("manualOverrideId", "fixtureId")
+      );
+      CREATE FUNCTION "maintain_manual_override_target_count_test"() RETURNS trigger AS $$
+      BEGIN
+        UPDATE "ManualOverride"
+        SET "targetCount" = "targetCount" + CASE WHEN TG_OP = 'INSERT' THEN 1 ELSE -1 END
+        WHERE "id" = COALESCE(NEW."manualOverrideId", OLD."manualOverrideId");
+        RETURN COALESCE(NEW, OLD);
+      END;
+      $$ LANGUAGE plpgsql;
+      CREATE TRIGGER "ManualOverrideFixture_count_test"
+      AFTER INSERT OR DELETE ON "ManualOverrideFixture"
+      FOR EACH ROW EXECUTE FUNCTION "maintain_manual_override_target_count_test"();
+      CREATE FUNCTION "validate_manual_override_target_count_test"() RETURNS trigger AS $$
+      DECLARE
+        override_id TEXT := COALESCE(NEW."manualOverrideId", OLD."manualOverrideId");
+        stored_count INTEGER;
+        actual_count INTEGER;
+      BEGIN
+        SELECT "targetCount" INTO stored_count FROM "ManualOverride" WHERE "id" = override_id;
+        SELECT COUNT(*) INTO actual_count FROM "ManualOverrideFixture" WHERE "manualOverrideId" = override_id;
+        IF stored_count < 1 OR stored_count <> actual_count THEN
+          RAISE EXCEPTION 'manual override requires at least one target fixture';
+        END IF;
+        RETURN COALESCE(NEW, OLD);
+      END;
+      $$ LANGUAGE plpgsql;
+      CREATE CONSTRAINT TRIGGER "ManualOverride_target_cardinality_test"
+      AFTER INSERT OR UPDATE OR DELETE ON "ManualOverrideFixture"
+      DEFERRABLE INITIALLY DEFERRED
+      FOR EACH ROW EXECUTE FUNCTION "validate_manual_override_target_count_test"();
+      BEGIN;
+      INSERT INTO "ManualOverride" ("id", "startedAt", "overrideUntil")
+      VALUES ('legacy', '2026-09-14T00:00:00Z', '2026-09-14T01:00:00Z');
+      INSERT INTO "ManualOverrideFixture" ("manualOverrideId", "fixtureId") VALUES ('legacy', 'fixture-a');
+      COMMIT;
+      ${manualControlBaselineMigration}
+      BEGIN;
+      INSERT INTO "ManualOverride" ("id", "startedAt", "overrideUntil")
+      VALUES ('baseline', '2026-09-14T02:00:00Z', NULL);
+      INSERT INTO "ManualOverrideFixture" ("manualOverrideId", "fixtureId") VALUES ('baseline', 'fixture-b');
+      COMMIT;
+    `);
+
+    expect(querySql(`
+      SET search_path TO "${schemaName}";
+      SELECT
+        (SELECT "overrideUntil" IS NOT NULL FROM "ManualOverride" WHERE "id" = 'legacy') || ':' ||
+        (SELECT "overrideUntil" IS NULL FROM "ManualOverride" WHERE "id" = 'baseline') || ':' ||
+        (SELECT "targetCount" FROM "ManualOverride" WHERE "id" = 'baseline');
+    `)).toBe("true:true:1");
   });
 });
 

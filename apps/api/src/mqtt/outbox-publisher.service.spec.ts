@@ -308,14 +308,21 @@ describe("OutboxPublisherService", () => {
     expect(stored.payload).toEqual(preparedPayload);
   });
 
-  it("terminally rejects a delayed outbox command after its stored overrideUntil", async () => {
+  it("publishes a delayed legacy timed command without carrying its override expiry forward", async () => {
     const now = new Date("2026-07-11T00:02:00.000Z");
     const prisma: any = {
       $executeRaw: jest.fn().mockResolvedValue(1),
-      mqttOutbox: { findUnique: jest.fn().mockResolvedValue({ deliveryAttemptedAt: null }), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      mqttOutbox: {
+        findUnique: jest.fn().mockResolvedValue({ deliveryAttemptedAt: null }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        count: jest.fn().mockResolvedValue(1)
+      },
       commandDispatch: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
       commandFixtureResult: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
-      command: { findUnique: jest.fn().mockResolvedValue({ outcome: "pending" }), updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
+      command: {
+        findUnique: jest.fn().mockResolvedValue({ outcome: "pending" }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 })
+      }
     };
     prisma.$transaction = jest.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma));
     const mqtt = { publishTopic: jest.fn() };
@@ -334,13 +341,14 @@ describe("OutboxPublisherService", () => {
       dispatch: { commandId: "command-1" }
     } as never);
 
-    expect(mqtt.publishTopic).not.toHaveBeenCalled();
-    expect(prisma.commandDispatch.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ status: "failed", errorCode: "MANUAL_OVERRIDE_EXPIRED" })
-    }));
+    expect(mqtt.publishTopic).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.not.objectContaining({ overrideUntil: expect.anything(), overrideRemainingMs: expect.anything() }),
+      { messageExpiryInterval: 10, timeoutMs: 20_000 }
+    );
   });
 
-  it("caps MQTT and command expiry at a near absolute override end", async () => {
+  it("replaces a legacy near-expiry payload with a fixed ten-second delivery generation", async () => {
     const now = new Date("2026-07-11T00:01:00.000Z");
     const prisma: any = {
       $executeRaw: jest.fn().mockResolvedValue(1),
@@ -388,15 +396,16 @@ describe("OutboxPublisherService", () => {
       expect.objectContaining({
         deliveryGeneration,
         deliveryGeneratedAt: "2026-07-11T00:01:00.000Z",
-        deliveryWindowMs: 3_000,
-        overrideRemainingMs: 3_500,
-        expiresAt: "2026-07-11T00:01:03.000Z"
+        deliveryWindowMs: 10_000,
+        expiresAt: "2026-07-11T00:01:10.000Z"
       }),
-      { messageExpiryInterval: 3, timeoutMs: 20_000 }
+      { messageExpiryInterval: 10, timeoutMs: 20_000 }
     );
+    expect(mqtt.publishTopic.mock.calls[0][1]).not.toHaveProperty("overrideUntil");
+    expect(mqtt.publishTopic.mock.calls[0][1]).not.toHaveProperty("overrideRemainingMs");
   });
 
-  it("does not republish a timed command after its absolute override expires between attempts", async () => {
+  it("retries a legacy timed command after its former override expiry", async () => {
     let now = new Date("2026-07-11T00:01:00.000Z");
     const prisma: any = {
       $executeRaw: jest.fn().mockResolvedValue(1),
@@ -430,8 +439,8 @@ describe("OutboxPublisherService", () => {
     now = new Date("2026-07-11T00:01:06.000Z");
     await service.publishClaimed({ ...record, attempts: 1 } as never);
 
-    expect(mqtt.publishTopic).toHaveBeenCalledTimes(1);
-    expect(prisma.commandDispatch.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+    expect(mqtt.publishTopic).toHaveBeenCalledTimes(2);
+    expect(prisma.commandDispatch.updateMany).not.toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ errorCode: "MANUAL_OVERRIDE_EXPIRED" })
     }));
   });

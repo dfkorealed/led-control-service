@@ -1106,7 +1106,7 @@ model ManualOverride {
   requestedById     String?
   brightnessPercent Int
   startedAt         DateTime
-  overrideUntil     DateTime
+  overrideUntil     DateTime?
   endedAt           DateTime?
   targetCount       Int                     @default(0)
   site              Site                    @relation(fields: [siteId], references: [id], onDelete: Cascade, onUpdate: Restrict)
