@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **2026-09-14 실행 전환:** 사용자가 모든 기존 계정·서비스 데이터를 백업 없이 삭제하는 전체 초기화를 승인해, 이 문서의 admin4 부분 recommission 경로는 실환경에 적용하지 않았다. Task 1은 검토까지 완료됐지만 Task 2 구현은 독립 검토 중 다른 Site의 비활성 `FixtureGroup`이 Gateway cascade로 미리보기 없이 삭제될 수 있는 Important blocker가 확인된 상태에서 중단됐다. Tasks 3~6과 recommission CLI는 실행하지 않는다. 실제 초기 설치는 빈 PostgreSQL schema·Redis·object-storage와 빈 Pi 운영 root에서 다시 시작했으며, 제조 CA/Vault와 source artifact만 유지했다.
+
 **Goal:** admin4의 계정·Site·Floor·제조 device identity만 보존하고 기존 Gateway/Fixture 및 모든 파생 이력을 제거한 뒤, Web claim과 조명 등록을 처음부터 수행해 새 BIO presence runtime을 실장비에서 검증한다.
 
 **Architecture:** API의 durable recommission job이 exact reset 대상과 digest를 고정하고 MQTT certificate 폐기 완료 뒤에만 DB cleanup과 새 claim hash를 확정한다. Raspberry Pi의 별도 reset helper는 exact container/data-root snapshot을 같은 digest에 결속해 old runtime을 격리하고 device identity만 보존하며, 기존 BIO launcher는 검증된 reset evidence가 있을 때만 fresh runtime 시작을 허용한다. Web은 기존 onboarding/registration UI를 그대로 사용하고 성공한 HIL 뒤 old container/data와 평문 claim file을 finalize한다.
@@ -41,7 +43,7 @@
 - Produces: durable `GatewayRecommissionJob` state and exact `resetDigest`
 - Consumes later: Task 2 certificate staging and cleanup, Task 3 CLI
 
-- [ ] **Step 1: Write failing preview and schema tests**
+- [x] **Step 1: Write failing preview and schema tests**
 
 Add unit cases for one admin4 Site/one claimed Inventory/Gateway, exact relation counts, redacted certificate counts, stable digest, changed-row digest mismatch, wrong Site/serial, multiple Gateways, unbound Fixture, disabled/unclaimed Inventory and a second active job. Add a disposable PostgreSQL integration test that applies all migrations and verifies the partial active-job uniqueness and status CHECK.
 
@@ -66,7 +68,7 @@ export interface GatewayRecommissionPreview {
 }
 ```
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 ```bash
 pnpm --filter @led-control/api exec jest src/gateway-onboarding/gateway-recommission.service.spec.ts src/gateway-onboarding/gateway-recommission.integration.spec.ts --runInBand
@@ -74,7 +76,7 @@ pnpm --filter @led-control/api exec jest src/gateway-onboarding/gateway-recommis
 
 Expected: FAIL because the model, migration and service do not exist.
 
-- [ ] **Step 3: Add the durable job schema**
+- [x] **Step 3: Add the durable job schema**
 
 Add a no-FK audit/job model so Gateway deletion cannot erase the reset fence:
 
@@ -104,13 +106,13 @@ model GatewayRecommissionJob {
 
 The SQL migration adds a named status CHECK for `prepared|mqtt_revocation_pending|mqtt_revoked|applied|finalized|failed` and a partial unique index on `inventoryId` while status is active. Regenerate Prisma and validate the schema.
 
-- [ ] **Step 4: Implement preview and prepare**
+- [x] **Step 4: Implement preview and prepare**
 
 Lock/read in Site → Inventory/certificates → Gateway order, require exact-one installation topology, count every deletion family, collect report object keys with existing `reportAttemptKeys`, and hash a canonical sorted snapshot with SHA-256. `prepare` recomputes the preview under transaction locks, requires the caller digest, creates one job and stores only redacted counts/IDs/object keys.
 
 Add a Korean comment explaining why a no-FK job must survive deletion and why the digest includes counts plus exact row IDs without certificate material.
 
-- [ ] **Step 5: Verify GREEN**
+- [x] **Step 5: Verify GREEN**
 
 ```bash
 pnpm --filter @led-control/api prisma:generate
@@ -118,7 +120,7 @@ GATEWAY_RECOMMISSION_DISPOSABLE_POSTGRES=1 pnpm --filter @led-control/api exec j
 pnpm --filter @led-control/api typecheck
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/api/prisma/schema.prisma apps/api/prisma/migrations/20260914170000_gateway_recommission_job apps/api/src/gateway-onboarding/gateway-recommission.service.ts apps/api/src/gateway-onboarding/gateway-recommission.service.spec.ts apps/api/src/gateway-onboarding/gateway-recommission.integration.spec.ts
