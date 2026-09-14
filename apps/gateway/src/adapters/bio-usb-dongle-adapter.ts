@@ -145,7 +145,14 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
     // 자동 반복하지 않는다. assignAddressOnce는 실제 address frame을 최대 1회만 만들고,
     // 이어지는 UUID old/new scan 결과가 confirmed일 때만 mapping을 활성화한다. unchanged와
     // unknown은 상위 등록을 reconcile_required로 닫아 운영자가 현 상태를 다시 판단하게 한다.
-    const assigned = await this.client.assignAddressOnce(identified.nativeUuid, logicalAddress);
+    // 제조사 모듈이 allocator의 목표 주소를 이미 사용 중이면 주소 SET은 상태를 바꾸지
+    // 않으며, 기존 old/new 배타 판정에서는 성공 증거도 만들 수 없다. 이 경우에는 같은
+    // 주소를 다시 쓰지 않고 fresh scan 기반 reconciliation만 수행한다. client는 정확한
+    // UUID가 목표 주소를 단독 점유하는 경우에만 confirmed를 반환하므로, DB 초기화 뒤
+    // 재등록도 안전하게 수렴하면서 불필요한 비휘발성 주소 write를 피한다.
+    const assigned = identified.logicalAddress === logicalAddress
+      ? await this.client.reconcileAddress(identified.nativeUuid, logicalAddress, logicalAddress)
+      : await this.client.assignAddressOnce(identified.nativeUuid, logicalAddress);
     const confirmed = requireConfirmedAssignment(assigned);
     assertSameDeviceAtAddress(command.deviceUuid, logicalAddress, confirmed);
     await this.mappings.confirm(command.deviceUuid, logicalAddress);

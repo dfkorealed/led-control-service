@@ -55,6 +55,12 @@ describe("ProvisioningDeviceOutboxPublisherService", () => {
     const timeoutSql = prisma.$queryRaw.mock.calls[0][0].strings.join(" ");
     expect(timeoutSql).toContain("NOT EXISTS");
     expect(timeoutSql).toContain('newer."createdAt" > outbox."createdAt"');
+    // Prisma binds JavaScript Date values as TIMESTAMPTZ while this schema's
+    // DateTime columns are PostgreSQL TIMESTAMP WITHOUT TIME ZONE containing
+    // UTC wall-clock values. The predicate must normalize the bound cutoff to
+    // a UTC timestamp before comparison; otherwise an Asia/Seoul DB session
+    // treats a just-published command as nine hours old.
+    expect(timeoutSql).toContain("AT TIME ZONE 'UTC'");
     expect(tx.discoveredMeshNode.updateMany).toHaveBeenCalledWith({
       where: expect.objectContaining({
         id: identify.nodeId,

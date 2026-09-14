@@ -546,6 +546,18 @@ describe("BIO evidence-gated dongle client", () => {
     await h.client.close();
   });
 
+  it("confirms an already-desired address from collision-free UUID scan evidence", async () => {
+    const h = harness(75, { scanDurationMs: 100 }); await ready(h);
+    const reconciling = h.client.reconcileAddress("bio:001122334455", 0x1234, 0x1234);
+    await drivePendingScan(h, [discoveryHex("001122334455", 0x1234)]);
+
+    await expect(reconciling).resolves.toMatchObject({
+      outcome: "confirmed",
+      device: { deviceUuid: "bio:001122334455", logicalAddress: 0x1234 }
+    });
+    await h.client.close();
+  });
+
   it("rejects address reconciliation when another UUID occupies the requested address", async () => {
     const h = harness(75, { scanDurationMs: 100 }); await ready(h);
     const reconciling = h.client.reconcileAddress("bio:001122334455", 0x1234, 0x2345);

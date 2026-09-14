@@ -134,7 +134,13 @@ export class ProvisioningDeviceOutboxPublisherService implements OnModuleInit {
       INNER JOIN "DiscoveredMeshNode" AS node ON node."id" = outbox."nodeId"
       INNER JOIN "ProvisioningSession" AS session ON session."id" = outbox."sessionId"
       WHERE outbox."publishedAt" IS NOT NULL
-        AND outbox."publishedAt" <= ${cutoff}
+        -- Prisma는 JavaScript Date cutoff를 TIMESTAMPTZ 파라미터로 바인딩하지만,
+        -- 기존 Prisma DateTime 컬럼은 UTC wall-clock 값을 담은 TIMESTAMP WITHOUT
+        -- TIME ZONE이다. 둘을 그대로 비교하면 PostgreSQL이 컬럼 쪽을 현재 DB 세션
+        -- 시간대(예: Asia/Seoul)로 해석해 방금 발행한 identify를 9시간 지난 것으로
+        -- 오판한다. cutoff를 먼저 UTC의 timezone-less timestamp로 맞춰 두 피연산자의
+        -- 의미와 타입을 동일하게 유지한다.
+        AND outbox."publishedAt" <= (CAST(${cutoff} AS TIMESTAMPTZ) AT TIME ZONE 'UTC')
         AND outbox."payload"->>'operation' = 'identify'
         AND NOT EXISTS (
           SELECT 1

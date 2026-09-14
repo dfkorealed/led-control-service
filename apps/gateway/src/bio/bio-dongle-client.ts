@@ -321,6 +321,17 @@ export class BioDongleClient {
     }
     const oldDevice = devices.find((device) => device.nativeUuid === nativeUuid && device.logicalAddress === oldAddress);
     const newDevice = devices.find((device) => device.nativeUuid === nativeUuid && device.logicalAddress === newAddress);
+    // 초기 설치 DB의 allocator가 장치에 이미 저장된 주소와 같은 값을 배정할 수 있다.
+    // 이때 oldDevice와 newDevice는 같은 관측 하나를 가리키므로 아래의 일반 old/new
+    // 배타 판정만으로는 항상 unknown이 된다. 위 충돌 검사까지 통과했다면 fresh scan에서
+    // 정확한 UUID가 목표 주소를 단독 점유한다는 충분한 증거가 있으므로, 물리 주소 변경이
+    // 필요 없는 정상 수렴으로 확정한다. 장치가 없거나 다른 UUID가 주소를 공유하면 이
+    // 분기에 도달해도 성공하지 않으며 각각 unknown/충돌로 유지된다.
+    if (oldAddress === newAddress) {
+      return newDevice
+        ? { outcome: "confirmed", device: { ...newDevice } }
+        : { outcome: "unknown", code: "BIO_ADDRESS_STATE_UNKNOWN", safeRestoreDevices };
+    }
     if (newDevice && !oldDevice) return { outcome: "confirmed", device: { ...newDevice } };
     if (oldDevice && !newDevice) return { outcome: "unchanged", device: { ...oldDevice } };
     return { outcome: "unknown", code: "BIO_ADDRESS_STATE_UNKNOWN", safeRestoreDevices };

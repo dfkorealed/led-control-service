@@ -141,6 +141,28 @@ describe("BioUsbDongleAdapter", () => {
     expect(f.mappings.confirm).not.toHaveBeenCalled();
   });
 
+  it("skips the address write when the exact UUID already owns the allocated address", async () => {
+    const f = createFixture();
+    const alreadyAllocated = { ...provisioningCommand, meshAddress: "0x1234" };
+    f.mappings.findByDeviceUuidIncludingReserved.mockResolvedValue(null);
+    f.client.startIdentify.mockResolvedValue(discovered);
+    f.mappings.reserve.mockResolvedValue(reservedMapping({
+      logicalAddress: 0x1234,
+      observedLogicalAddressBeforeAssignment: 0x1234
+    }));
+    f.client.reconcileAddress.mockResolvedValue({ outcome: "confirmed", device: discovered });
+    f.mappings.confirm.mockResolvedValue(confirmedMapping({ logicalAddress: 0x1234 }));
+
+    await expect(f.adapter.provision(alreadyAllocated)).resolves.toMatchObject({
+      deviceUuid: provisioningCommand.deviceUuid,
+      meshAddress: "0x1234"
+    });
+
+    expect(f.client.reconcileAddress).toHaveBeenCalledWith(discovered.nativeUuid, 0x1234, 0x1234);
+    expect(f.client.assignAddressOnce).not.toHaveBeenCalled();
+    expect(f.mappings.confirm).toHaveBeenCalledWith(provisioningCommand.deviceUuid, 0x1234);
+  });
+
   it.each(["0x0000", "0x8000", "0xc000", "0101", "0x001"])(
     "rejects invalid unicast mesh address %s before device work",
     async (meshAddress) => {
