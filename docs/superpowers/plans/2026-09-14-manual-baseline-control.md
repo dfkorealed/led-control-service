@@ -666,7 +666,7 @@ Support **14/14 passed (8.0초)**, Web typecheck exit 0. Lab은 owned PostgreSQL
 - Consumes: Task 1–6 committed branch
 - Produces: 검증 수치, external validation 경계와 clean final branch
 
-- [ ] **Step 1: Prisma와 공유 산출물 준비**
+- [x] **Step 1: Prisma와 공유 산출물 준비**
 
 Run:
 
@@ -678,7 +678,7 @@ pnpm --filter @led-control/api prisma:validate
 
 Expected: frozen install, generate, validate PASS; tracked lockfile 변경 없음.
 
-- [ ] **Step 2: canonical 정적·단위·빌드 gate 실행**
+- [x] **Step 2: canonical 정적·단위·빌드 gate 실행**
 
 Run serially:
 
@@ -691,7 +691,7 @@ pnpm build
 
 Expected: 네 command 모두 exit 0. 기존 environment-gated skip은 정확한 이유와 개수를 기록하고 새 관련 테스트 skip은 허용하지 않는다.
 
-- [ ] **Step 3: 관련 Chromium과 software integration 실행**
+- [x] **Step 3: 관련 Chromium과 software integration 실행**
 
 Run serially:
 
@@ -702,7 +702,7 @@ E2E_REAL_BACKEND_LAB=1 pnpm --filter @led-control/web exec playwright test e2e/a
 
 Expected: mock UI flow와 실제 API/Gateway/MQTT software flow PASS. 실장비 증거로 기록하지 않는다.
 
-- [ ] **Step 4: 전체 production audit 실행**
+- [x] **Step 4: 전체 production audit 실행**
 
 Run:
 
