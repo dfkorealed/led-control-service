@@ -67,7 +67,20 @@ export class VehicleEventRuntime {
     );
 
     for (const rule of rules) {
-      const existing = state.vehicleRules[rule.id];
+      let existing: PersistedVehicleRuleState | undefined = state.vehicleRules[rule.id];
+      const deadline = deadlines.get(rule.id);
+      // Sensor input can arrive after hold expiry but before the next scheduler tick.
+      // Close that activation first so High starts a new identity and cannot revive old manual suppression.
+      // A restored hold without a monotonic deadline still requires trusted-UTC reconciliation.
+      if (existing && existing.activeSourceFixtureIds.length === 0 && existing.holdUntil !== null &&
+        deadline !== undefined && monotonicNow >= deadline) {
+        events.push(lifecycle("event_ended", rule.id, vehicleOccurrenceKey(rule.id, existing.startedAt), now, {
+          reason: "hold_expired", targetFixtureIds: existing.targetFixtureIds
+        }));
+        delete state.vehicleRules[rule.id];
+        deadlines.delete(rule.id);
+        existing = undefined;
+      }
       const sources = new Set(existing?.activeSourceFixtureIds ?? []);
       const sourceWasActive = sources.has(input.sourceFixtureId);
       if (!active && !sourceWasActive) continue;

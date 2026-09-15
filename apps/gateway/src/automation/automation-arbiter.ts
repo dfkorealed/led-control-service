@@ -1,10 +1,8 @@
-export interface ManualLightingCandidate {
-  sourceId: string;
-  brightness: number;
-}
+import type { PersistedManualAutomationSuppressionState } from "./automation-state-store";
 
 export interface VehicleLightingCandidate {
   sourceId: string;
+  startedAt: string;
   brightness: number;
 }
 
@@ -24,29 +22,30 @@ export interface ResolvedLightingState {
 }
 
 export interface LightingCandidates {
-  manual: ManualLightingCandidate | null;
   events: VehicleLightingCandidate[];
-  schedule: ScheduleLightingCandidate | null;
+  schedules: ScheduleLightingCandidate[];
+  suppression?: Pick<PersistedManualAutomationSuppressionState, "schedules" | "vehicleEvents">;
   current: number | null;
   defaultBrightness?: number;
 }
 
 export function resolveDesiredState(candidates: LightingCandidates): ResolvedLightingState {
-  if (candidates.manual) {
-    return resolved("manual_override", candidates.manual.sourceId, null, candidates.manual.brightness);
-  }
-
-  const event = [...candidates.events].sort((left, right) =>
+  const event = candidates.events.filter((candidate) => !candidates.suppression?.vehicleEvents.some((item) =>
+    item.ruleId === candidate.sourceId && item.startedAt === candidate.startedAt
+  )).sort((left, right) =>
     right.brightness - left.brightness || left.sourceId.localeCompare(right.sourceId)
   )[0];
   if (event) return resolved("vehicle_event_rule", event.sourceId, null, event.brightness);
 
-  if (candidates.schedule) {
+  const schedule = candidates.schedules.find((candidate) => !candidates.suppression?.schedules.some((item) =>
+    item.scheduleId === candidate.sourceId && item.occurrenceKey === candidate.occurrenceKey
+  ));
+  if (schedule) {
     return resolved(
       "schedule",
-      candidates.schedule.sourceId,
-      candidates.schedule.occurrenceKey,
-      candidates.schedule.brightness
+      schedule.sourceId,
+      schedule.occurrenceKey,
+      schedule.brightness
     );
   }
 

@@ -87,7 +87,8 @@ test("admin creates and executes schedule and vehicle event rules", async ({ bro
 
   const preconnectTargetName = await lab.readRegisteredFixtureName(lab.fixtures[0].serialNumber);
   await admin.goto(`/control?siteId=${created.siteId}&mode=schedule`);
-  await createSchedule(admin, { brightness: 40, target: preconnectTargetName });
+  const scheduleReference = new Date();
+  await createSchedule(admin, { brightness: 40, target: preconnectTargetName, now: scheduleReference });
   const firstConnect = await lab.assertDesiredConfigPublishedBeforeFirstGatewayConnect();
   await lab.startAutomationGateway({ targetName, sensorName });
   await lab.waitForVehicleSensorCapability(sensorName);
@@ -109,32 +110,39 @@ test("admin creates and executes schedule and vehicle event rules", async ({ bro
   await admin.goto(`/control?siteId=${created.siteId}&mode=manual`);
   await admin.getByRole("checkbox", { name: `${targetName} 선택` }).check();
   await admin.getByRole("slider", { name: "밝기" }).fill("60");
-  const manualOverrideUntil = new Date(Date.now() + 10 * 60_000);
-  manualOverrideUntil.setSeconds(0, 0);
-  await admin.getByLabel("수동 override 종료 시각").fill(localDateTimeMinute(manualOverrideUntil));
   await admin.getByRole("button", { name: "밝기 적용" }).click();
-  await expect(admin.getByText("조명 적용 완료")).toBeVisible();
+  await expect(admin.getByText("조명 적용 완료 · 기본 밝기로 저장됨", { exact: true })).toBeVisible();
   await lab.waitForFixtureBrightness(targetName, 60);
   await expectFixtureBrightness(admin, created.siteId, targetName, "60%");
 
-  await lab.advanceAutomationClockTo(manualOverrideUntil.getTime() - 1_000);
   await lab.assertAutomationBrightnessPhase({
-    phase: "manual-before-expiry",
-    cause: "manual_override_active",
+    phase: "manual-suppresses-current-event",
+    cause: "manual_baseline_applied",
     fixtureName: targetName,
     brightness: 60,
   });
-  await lab.advanceAutomationClock(1_001);
+  await lab.injectSensorEdge(sensorName, "cleared");
+  await lab.waitForAutomationExecutionKind("event_extended");
+  await lab.advanceAutomationClockTo((await lab.latestVehicleHoldUntil()) + 1);
+  await lab.waitForFixtureBrightness(targetName, 60);
+  await lab.assertAutomationBrightnessPhase({
+    phase: "current-event-ended-baseline",
+    cause: "current_schedule_and_vehicle_activation_suppressed",
+    fixtureName: targetName,
+    brightness: 60,
+  });
+  await lab.injectSensorEdge(sensorName, "detected");
   await lab.waitForFixtureBrightness(targetName, 80);
   await lab.assertAutomationBrightnessPhase({
-    phase: "manual-after-expiry",
-    cause: "manual_override_expired_vehicle_priority_resumed",
+    phase: "next-event-resumes",
+    cause: "new_vehicle_activation",
     fixtureName: targetName,
     brightness: 80,
   });
   await expectFixtureBrightness(admin, created.siteId, targetName, "80%");
   await lab.injectSensorEdge(sensorName, "cleared");
-  await lab.waitForAutomationExecutionKind("event_extended");
+  // Wait for this activation's persisted deadline, not the prior event_extended row.
+  await lab.waitForAutomationExecutionKind("event_extended", 2);
   const vehicleHoldUntilMs = await lab.latestVehicleHoldUntil();
   await lab.assertAutomationBrightnessPhase({
     phase: "vehicle-clear-immediate",
@@ -150,14 +158,34 @@ test("admin creates and executes schedule and vehicle event rules", async ({ bro
     brightness: 80,
   });
   await lab.advanceAutomationClock(1_001);
-  await lab.waitForFixtureBrightness(targetName, 40);
+  await lab.waitForFixtureBrightness(targetName, 60);
   await lab.assertAutomationBrightnessPhase({
     phase: "vehicle-hold-after-deadline",
-    cause: "vehicle_hold_expired_schedule_resumed",
+    cause: "new_vehicle_activation_ended_baseline_restored",
+    fixtureName: targetName,
+    brightness: 60,
+  });
+  await expectFixtureBrightness(admin, created.siteId, targetName, "60%");
+
+  // Asia/Seoul has no DST: the next now-1h/now+1h daily window uses this same reference.
+  await lab.advanceAutomationClockTo(scheduleReference.getTime() + 23 * 60 * 60 * 1_000 + 1);
+  await lab.waitForFixtureBrightness(targetName, 40);
+  await lab.assertAutomationBrightnessPhase({
+    phase: "next-schedule-resumes",
+    cause: "new_daily_occurrence",
     fixtureName: targetName,
     brightness: 40,
   });
   await expectFixtureBrightness(admin, created.siteId, targetName, "40%");
+  await lab.advanceAutomationClockTo(scheduleReference.getTime() + 25 * 60 * 60 * 1_000 + 1);
+  await lab.waitForFixtureBrightness(targetName, 60);
+  await lab.assertAutomationBrightnessPhase({
+    phase: "next-schedule-ended-baseline",
+    cause: "daily_occurrence_ended_baseline_restored",
+    fixtureName: targetName,
+    brightness: 60,
+  });
+  await expectFixtureBrightness(admin, created.siteId, targetName, "60%");
 
   await lab.assertAutomationEvidence({ targetName, sensorName });
 
@@ -175,7 +203,7 @@ test("admin creates and executes schedule and vehicle event rules", async ({ bro
   await lab.assertDeletedScheduleDoesNotExecute(deletedScheduleId);
 
   await lab.stopAutomationGateway();
-  await createSchedule(admin, { brightness: 40, target: targetName });
+  await createSchedule(admin, { brightness: 40, target: targetName, now: scheduleReference });
   const apiRestart = await lab.waitForPublishedDesiredRevisionAhead("api-restart-published");
   await lab.stopApi();
   await lab.resetMqttBrokerSessions();
@@ -197,8 +225,8 @@ async function login(page: Page, loginId: string, password: string) {
   await expect(page.getByRole("button", { name: "로그아웃" })).toBeVisible();
 }
 
-async function createSchedule(page: Page, input: { brightness: number; target: string }) {
-  const now = new Date();
+async function createSchedule(page: Page, input: { brightness: number; target: string; now: Date }) {
+  const now = input.now;
   await page.getByRole("button", { name: "스케줄 추가" }).click();
   const dialog = page.getByRole("dialog", { name: "스케줄 추가" });
   await dialog.getByRole("button", { name: "세부 일정 설정" }).click();
@@ -269,9 +297,4 @@ function siteTime(date: Date) {
     minute: "2-digit",
     hourCycle: "h23",
   }).format(date);
-}
-
-function localDateTimeMinute(date: Date) {
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
-  return local.toISOString().slice(0, 16);
 }

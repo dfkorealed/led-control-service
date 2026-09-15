@@ -8,7 +8,6 @@ import {
   automationExecutionEventV1Schema,
   automationExecutionIngestedAckV1Schema,
   automationSnapshotV1Schema,
-  manualOverrideWindowSchema,
   vehicleSensorCapabilityIngestedAckV1Schema,
   vehicleSensorCapabilityReportV1Schema
 } from "./automation-contracts";
@@ -276,19 +275,6 @@ describe("automation shared contracts", () => {
       ingestedAt: occurredAt,
       siteId: "not-a-site-id"
     }).success).toBe(false);
-  });
-
-  it("validates a nonempty manual override window", () => {
-    const override = {
-      fixtureIds: [fixtureId],
-      brightnessPercent: 40,
-      startedAt: occurredAt,
-      overrideUntil: "2026-08-29T01:00:00.000Z"
-    };
-
-    expect(manualOverrideWindowSchema.parse(override)).toEqual(override);
-    expect(() => manualOverrideWindowSchema.parse({ ...override, fixtureIds: [fixtureId, fixtureId] })).toThrow();
-    expect(() => manualOverrideWindowSchema.parse({ ...override, overrideUntil: "not-an-instant" })).toThrow();
   });
 
   it("strictly validates supported and unsupported vehicle sensor capability reports", () => {

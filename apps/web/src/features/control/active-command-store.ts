@@ -1,5 +1,5 @@
 import type { CreateDimmingCommandInput } from "@led-control/shared";
-import { createDimmingCommandSchema } from "@led-control/shared/dimming-command";
+import { createDimmingCommandRequestSchema } from "@led-control/shared/dimming-command";
 import { canonicalizeDimmingCommandInput } from "../../api/commands";
 
 const STORAGE_PREFIX = "led-control:active-command:";
@@ -129,7 +129,9 @@ function loadRecord(userId: string, siteId: string): ActiveCommandRecord | null 
 }
 
 function parseCommandRequest(value: unknown): CreateDimmingCommandInput | null {
-  const parsed = createDimmingCommandSchema.safeParse(value);
+  // The compatibility schema accepts previously persisted timed commands and
+  // strips their obsolete expiry before the request can be replayed.
+  const parsed = createDimmingCommandRequestSchema.safeParse(value);
   return parsed.success ? parsed.data : null;
 }
 

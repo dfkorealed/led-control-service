@@ -53,13 +53,13 @@ describe("active command store", () => {
     });
   });
 
-  it("preserves overrideUntil so response-loss recovery replays the identical command fingerprint", () => {
-    const request = { ...REQUEST, overrideUntil: "2026-09-03T01:30:00.000Z" };
-
-    saveActiveCommandRequest(USER_A, REQUEST.siteId, request);
+  it("normalizes a legacy stored expiry away before response-loss recovery", () => {
+    sessionStorage.setItem(activeCommandStorageKey(USER_A, REQUEST.siteId), JSON.stringify({
+      request: { ...REQUEST, overrideUntil: "2026-09-03T01:30:00.000Z" }
+    }));
 
     expect(loadActiveCommandRequest(USER_A, REQUEST.siteId)).toEqual({
-      ...request,
+      ...REQUEST,
       target: { type: "fixtures", fixtureIds: [...REQUEST.target.fixtureIds].sort() }
     });
   });

@@ -5859,8 +5859,7 @@ button.group-card {
   .control-screen .control-search-field,
   .control-screen .control-search-field input,
   .control-screen .select-field select,
-  .control-screen .dial-card input,
-  .control-screen .control-override-field input {
+  .control-screen .dial-card input {
     min-height: 44px;
   }
 

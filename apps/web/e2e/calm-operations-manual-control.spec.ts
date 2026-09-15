@@ -34,7 +34,7 @@ const savedZone: FixtureGroupMetadata = {
 
 const viewports = [
   { width: 1440, height: 900 },
-  { width: 1024, height: 768 },
+  { width: 1366, height: 768 },
   { width: 390, height: 844 },
   { width: 320, height: 740 }
 ] as const;
@@ -133,17 +133,17 @@ for (const viewport of viewports) {
 
     await page.getByRole("checkbox", { name: "B2-L01 선택" }).check();
     await page.getByRole("button", { name: "30%" }).click();
-    await page.getByLabel("수동 override 종료 시각").fill("2026-09-01T10:30");
+    await expect(page.getByLabel("수동 override 종료 시각")).toHaveCount(0);
     await page.getByRole("button", { name: "밝기 적용" }).click();
     await expect.poll(() => api.dimmingRequests.at(-1)).toMatchObject({
-      brightness: 30,
-      overrideUntil: "2026-09-01T01:30:00.000Z"
+      brightness: 30
     });
+    expect(api.dimmingRequests.at(-1)).not.toHaveProperty("overrideUntil");
+    expect(api.dimmingRequests.at(-1)).not.toHaveProperty("overrideRemainingMs");
     await expect(page.getByRole("list", { name: "명령 진행" })).toContainText("장비 응답");
     await expect(page.getByRole("checkbox", { name: "B2-L01 선택" })).toBeDisabled();
     await expect(page.getByRole("button", { name: "층" })).toBeDisabled();
     await expect(page.getByRole("button", { name: "30%" })).toBeDisabled();
-    await expect(page.getByLabel("수동 override 종료 시각")).toBeDisabled();
     await expect(page.getByRole("button", { name: "밝기 적용 중" })).toBeDisabled();
 
     await page.reload();
@@ -204,7 +204,7 @@ for (const viewport of viewports) {
     await page.getByRole("checkbox", { name: "B2-L01 선택" }).check();
     await page.getByRole("button", { name: "밝기 적용" }).click();
     successApi.setCommandStatus({ stage: "completed", results: [commandResult("succeeded", null)] });
-    await expect(page.getByRole("status", { name: "명령 진행 상태" }).getByText("조명 적용 완료")).toBeVisible();
+    await expect(page.getByRole("status", { name: "명령 진행 상태" }).getByText("조명 적용 완료 · 기본 밝기로 저장됨")).toBeVisible();
 
     const timeoutPage = await page.context().newPage({ viewport });
     try {
@@ -270,7 +270,6 @@ async function readStableControlRects(page: Page) {
     const selectors = {
       dial: ".dial-card",
       presets: ".preset-row",
-      override: ".control-override-field",
       submit: ".control-panel-body > .ui-button-primary"
     } as const;
     if (!panel || !badge || !body || !feedback) throw new Error("manual control layout is incomplete");

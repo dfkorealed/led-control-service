@@ -71,9 +71,6 @@ const idempotentCommandInclude = {
 
 type IdempotentCommand = Prisma.CommandGetPayload<{ include: typeof idempotentCommandInclude }>;
 
-const DEFAULT_OVERRIDE_DURATION_MS = 60 * 60 * 1000;
-const MAX_OVERRIDE_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
-
 @Injectable()
 export class CommandsService {
   constructor(
@@ -92,18 +89,16 @@ export class CommandsService {
 
     await this.siteAccess.assert(user, input.siteId, "control");
 
-    const requestFingerprint = createRequestFingerprint(input.target, input.brightness, input.overrideUntil);
+    const requestFingerprint = createRequestFingerprint(input.target, input.brightness);
 
     try {
       return await this.prisma.$transaction(async (tx) => {
         await this.automationSnapshot.lockMutation(tx);
         await this.siteAccess.assertControlInTransaction(tx, user, input.siteId);
-        const existing = await this.findIdempotentCommand(tx, user, input, requestFingerprint);
+        const existing = await this.findIdempotentCommand(tx, user, input);
         if (existing) return existing;
 
         const now = this.clock.now();
-        const overrideUntil = resolveOverrideUntil(input.overrideUntil, now);
-
         const mappings = await this.resolveTargetMappings(tx, input.siteId, input.target);
         if (mappings.length === 0) {
           throw new BadRequestException("control target not found in the user's site");
@@ -142,7 +137,7 @@ export class CommandsService {
             requestedById: user.id,
             brightnessPercent: input.brightness,
             startedAt: now,
-            overrideUntil,
+            overrideUntil: null,
             fixtures: {
               createMany: {
                 data: resolved.fixtureIds.map((fixtureId) => ({
@@ -199,8 +194,7 @@ export class CommandsService {
             }
             : {}),
           brightness: command.brightness,
-          requestedAt: command.createdAt.toISOString(),
-          overrideUntil: manualOverride.overrideUntil.toISOString()
+          requestedAt: command.createdAt.toISOString()
         });
         await tx.mqttOutbox.create({
           data: {
@@ -223,7 +217,7 @@ export class CommandsService {
       return this.prisma.$transaction(async (tx) => {
         await this.automationSnapshot.lockMutation(tx);
         await this.siteAccess.assertControlInTransaction(tx, user, input.siteId);
-        const existing = await this.findIdempotentCommand(tx, user, input, requestFingerprint);
+        const existing = await this.findIdempotentCommand(tx, user, input);
         if (!existing) throw error;
         return existing;
       });
@@ -257,8 +251,7 @@ export class CommandsService {
   private async findIdempotentCommand(
     tx: Prisma.TransactionClient,
     user: AuthenticatedUser,
-    input: CreateDimmingCommandInput,
-    requestFingerprint: string
+    input: CreateDimmingCommandInput
   ) {
     const existing = await tx.command.findUnique({
       where: {
@@ -271,12 +264,10 @@ export class CommandsService {
       include: idempotentCommandInclude
     });
     if (!existing) return null;
-    // Pre-Task 10 commands have no ManualOverride and hash only target/brightness.
-    // Limit this fallback to omitted overrides so a timed payload cannot reuse a legacy request ID.
-    const matchesLegacyFingerprint = !existing.manualOverride
-      && input.overrideUntil === undefined
-      && existing.requestFingerprint === createLegacyRequestFingerprint(input.target, input.brightness);
-    if (existing.requestFingerprint !== requestFingerprint && !matchesLegacyFingerprint) {
+    // Retired clients hashed the raw optional expiry, whose lexical precision cannot
+    // be reconstructed from PostgreSQL TIMESTAMP(3). The persisted Command columns
+    // are the canonical idempotency boundary across both historical and new rows.
+    if (!matchesStoredRequest(existing, input.target, input.brightness)) {
       throw new ConflictException({ code: "client_request_id_payload_conflict" });
     }
     return this.toCreateResponse(existing);
@@ -296,7 +287,6 @@ export class CommandsService {
       selectedTargetCount: fixtureIds.length,
       transmissionCount: deliveryMode === "mesh_group" ? dispatches.length : fixtureIds.length,
       deliveryMode,
-      ...(manualOverride ? { overrideUntil: manualOverride.overrideUntil.toISOString() } : {}),
       terminalStatusUrl: `/commands/${storedCommand.id}`
     };
   }
@@ -490,51 +480,39 @@ export class CommandsService {
   }
 }
 
-function createRequestFingerprint(target: DimmingTarget, brightness: number, requestedOverrideUntil?: string) {
-  return createFingerprint(target, brightness, requestedOverrideUntil ?? null);
-}
-
-function createLegacyRequestFingerprint(target: DimmingTarget, brightness: number) {
+function createRequestFingerprint(target: DimmingTarget, brightness: number) {
   return createFingerprint(target, brightness);
 }
 
-function createFingerprint(target: DimmingTarget, brightness: number, overrideUntil?: string | null) {
-  const canonicalTarget = target.type === "fixture"
+function createFingerprint(target: DimmingTarget, brightness: number) {
+  return createHash("sha256").update(JSON.stringify({
+    target: canonicalizeTarget(target),
+    brightness
+  })).digest("hex");
+}
+
+function canonicalizeTarget(target: DimmingTarget) {
+  return target.type === "fixture"
     ? [target.type, target.fixtureId]
     : target.type === "fixtures"
       ? [target.type, ...target.fixtureIds.slice().sort()]
       : target.type === "floor"
         ? [target.type, target.floorId]
         : [target.type, target.groupId];
-  const payload = overrideUntil === undefined
-    ? { target: canonicalTarget, brightness }
-    : { target: canonicalTarget, brightness, overrideUntil };
-  return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
 }
 
-function resolveOverrideUntil(rawOverrideUntil: unknown, now: Date) {
-  const nowMs = now.getTime();
-  if (!Number.isFinite(nowMs)) throw new Error("clock returned an invalid current time");
-  if (rawOverrideUntil === undefined) return new Date(nowMs + DEFAULT_OVERRIDE_DURATION_MS);
-  if (typeof rawOverrideUntil !== "string" || !isIsoInstant(rawOverrideUntil)) {
-    throw new BadRequestException("overrideUntil must be an ISO instant");
-  }
+function matchesStoredRequest(command: IdempotentCommand, target: DimmingTarget, brightness: number) {
+  if (command.brightness !== brightness || command.targetType !== target.type) return false;
+  if (target.type === "fixture") return command.targetId === target.fixtureId;
+  if (target.type === "floor") return command.targetId === target.floorId;
+  if (target.type === "group") return command.targetId === target.groupId;
 
-  const overrideUntil = new Date(rawOverrideUntil);
-  if (!Number.isFinite(overrideUntil.getTime()) || overrideUntil.toISOString().slice(0, 10) !== rawOverrideUntil.slice(0, 10)) {
-    throw new BadRequestException("overrideUntil must be an ISO instant");
-  }
-  if (overrideUntil.getTime() <= nowMs) {
-    throw new BadRequestException("overrideUntil must be in the future");
-  }
-  if (overrideUntil.getTime() > nowMs + MAX_OVERRIDE_DURATION_MS) {
-    throw new BadRequestException("overrideUntil must be within 30 days");
-  }
-  return overrideUntil;
-}
-
-function isIsoInstant(value: string) {
-  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(value);
+  const storedFixtureIds = Array.isArray(command.targetFixtureIds)
+    ? command.targetFixtureIds.filter((fixtureId): fixtureId is string => typeof fixtureId === "string").sort()
+    : [];
+  const requestedFixtureIds = [...target.fixtureIds].sort();
+  return storedFixtureIds.length === requestedFixtureIds.length
+    && storedFixtureIds.every((fixtureId, index) => fixtureId === requestedFixtureIds[index]);
 }
 
 function isDeliveryMode(value: unknown): value is DeliveryMode {

@@ -65,15 +65,14 @@ describe("command delivery uncertainty across publisher, ACK ingestion and recov
     expect(h.unlockedMutations).toEqual([]);
   });
 
-  it.each(["MANUAL_OVERRIDE_EXPIRED", "MQTT_DEAD_LETTER"])("keeps proven pre-send %s not_applied even when claim attempts exist", async (errorCode) => {
+  it("keeps a proven pre-send dead-letter not_applied even when claim attempts exist", async () => {
     const h = harness();
     h.outbox.attempts = 9;
-    h.outbox.payload = errorCode === "MANUAL_OVERRIDE_EXPIRED"
-      ? { ...draft, overrideUntil: startedAt.toISOString() } : { invalid: true };
+    h.outbox.payload = { invalid: true };
     await h.publisher().processBatch();
     expect(h.mqtt.publishTopic).not.toHaveBeenCalled();
     expect(h.outbox.deliveryAttemptedAt).toBeNull();
-    expect(h.dispatch.errorCode).toBe(errorCode);
+    expect(h.dispatch.errorCode).toBe("MQTT_DEAD_LETTER");
     expect(h.command.outcome).toBe("not_applied");
     await expect(h.verification.requestStatusCheck(user, ids.command, { clientRequestId: randomUUID() }))
       .rejects.toMatchObject({ response: { code: "command_outcome_not_unknown" } });
@@ -153,16 +152,19 @@ describe("command delivery uncertainty across publisher, ACK ingestion and recov
     expect(lost.outbox.deliveryAttemptedAt).toBeNull();
   });
 
-  it("does not turn an earlier physical attempt into not_applied when its override later expires", async () => {
+  it("publishes a legacy timed draft using only a fresh delivery generation", async () => {
     const h = harness();
     h.outbox.payload = { ...draft, overrideUntil: new Date(startedAt.getTime() + 5_000).toISOString() };
     await h.publisher().processBatch();
-    h.advance(6_000);
-    await h.publisher().processBatch();
-    expect(h.dispatch.errorCode).toBe("MANUAL_OVERRIDE_EXPIRED");
-    expect(h.command.outcome).toBe("unknown");
-    await h.ack();
-    expect(h.command.outcome).toBe("applied");
+    expect(h.mqtt.publishTopic).toHaveBeenCalledTimes(1);
+    const published = h.mqtt.publishTopic.mock.calls[0][1];
+    expect(published).not.toHaveProperty("overrideUntil");
+    expect(published).not.toHaveProperty("overrideRemainingMs");
+    expect(published).toMatchObject({
+      deliveryGeneratedAt: startedAt.toISOString(),
+      deliveryWindowMs: 10_000,
+      expiresAt: new Date(startedAt.getTime() + 10_000).toISOString()
+    });
   });
 
   it("reclaims a status-check with the same generation and reduced TTL, then never reclaims its published row", async () => {

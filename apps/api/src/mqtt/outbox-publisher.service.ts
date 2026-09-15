@@ -178,12 +178,10 @@ export class OutboxPublisherService implements OnModuleInit {
   ) {
     try {
       const stored = parseStoredCommand(record.payload, record.dispatch.kind);
-      if (stored.kind === "dimming") assertManualOverridePublishable(stored.draft, this.clock());
       const prepared = await this.prisma.$transaction(async (tx) => {
         await this.automationSnapshot.lockMutation(tx);
         if (stored.kind === "dimming") await this.assertMeshGroupSnapshot(tx, record, stored.draft);
         const preparedAt = this.clock();
-        if (stored.kind === "dimming") assertManualOverridePublishable(stored.draft, preparedAt);
         const leaseExpiresAt = new Date(preparedAt.getTime() + LEASE_MS);
         const payload = stored.payload ?? (stored.kind === "status_check"
           ? createPublishedStatusCheckCommand(stored.draft, preparedAt, this.deliveryGeneration())
@@ -198,7 +196,9 @@ export class OutboxPublisherService implements OnModuleInit {
           },
           data: {
             leaseExpiresAt,
-            ...(stored.payload ? {} : { payload })
+            // Compatibility normalization must be durable even if an existing
+            // delivery generation is already expired and will never be published.
+            payload
           }
         });
         return updated.count === 1 ? { payload, leaseExpiresAt } : null;
@@ -217,13 +217,11 @@ export class OutboxPublisherService implements OnModuleInit {
 
       const publishAt = this.clock();
       if (prepared.leaseExpiresAt.getTime() <= publishAt.getTime() + MQTT_PUBLISH_TIMEOUT_MS) return;
-      if (stored.kind === "dimming") assertManualOverridePublishable(stored.draft, publishAt);
       currentMessageExpiry(prepared.payload, publishAt);
 
       const attempted = await this.prisma.$transaction(async (tx) => {
         await this.automationSnapshot.lockMutation(tx);
         const attemptedAt = this.clock();
-        if (stored.kind === "dimming") assertManualOverridePublishable(stored.draft, attemptedAt);
         currentMessageExpiry(prepared.payload, attemptedAt);
         // Persist before calling MQTT: a lost PUBACK cannot tell whether the broker
         // accepted the Set. A crash after this commit but before the call deliberately
@@ -267,10 +265,6 @@ export class OutboxPublisherService implements OnModuleInit {
       const attempts = record.attempts + 1;
       if (error instanceof StaleMeshGroupError) {
         await this.moveToTerminalFailure(record, attempts, message, failedAt, "MESH_GROUP_STALE");
-        return;
-      }
-      if (error instanceof ManualOverrideExpiredError) {
-        await this.moveToTerminalFailure(record, attempts, message, failedAt, "MANUAL_OVERRIDE_EXPIRED");
         return;
       }
       if (error instanceof CommandDeliveryExpiredError) {
@@ -356,7 +350,7 @@ export class OutboxPublisherService implements OnModuleInit {
     attempts: number,
     message: string,
     now: Date,
-    errorCode: "MQTT_DEAD_LETTER" | "MESH_GROUP_STALE" | "MANUAL_OVERRIDE_EXPIRED" | "COMMAND_DELIVERY_EXPIRED"
+    errorCode: "MQTT_DEAD_LETTER" | "MESH_GROUP_STALE" | "COMMAND_DELIVERY_EXPIRED"
   ) {
     await this.prisma.$transaction(async (tx) => {
       // Match ACK, verification and overlap writers: the global lock always comes
@@ -425,9 +419,8 @@ function createPublishedStatusCheckCommand(
   generatedAt: Date,
   deliveryGeneration: string
 ) {
-  const { messageExpiryInterval: _messageExpiryInterval, ...delivery } = createGatewayCommandExpiry(
-    generatedAt, undefined, deliveryGeneration
-  );
+  const { messageExpiryInterval: _messageExpiryInterval, ...delivery } =
+    createGatewayCommandExpiry(generatedAt, deliveryGeneration);
   return gatewayStatusCheckCommandPublishedV2Schema.parse({ ...draft, ...delivery });
 }
 
@@ -443,6 +436,18 @@ function parseStoredDimmingCommand(payload: Prisma.JsonValue): {
 
   const compatible = gatewayDimmingCommandV2CompatibilitySchema.safeParse(payload);
   if (!compatible.success) throw draft.error;
+  if ("deliveryGeneration" in compatible.data) {
+    // A lost PUBACK can leave an already-published legacy wire in the outbox.
+    // Scrub only compatibility fields: recreating delivery metadata renews freshness.
+    const normalized = { ...compatible.data } as Record<string, unknown>;
+    delete normalized.overrideUntil;
+    delete normalized.overrideRemainingMs;
+    delete normalized.requestedBy;
+    return {
+      draft: toDimmingDraft(compatible.data),
+      payload: gatewayDimmingCommandPublishedV2Schema.parse(normalized)
+    };
+  }
   return { draft: toDimmingDraft(compatible.data) };
 }
 
@@ -452,6 +457,7 @@ function toDimmingDraft(payload: Record<string, unknown>): GatewayDimmingCommand
   delete draft.deliveryGeneration;
   delete draft.deliveryGeneratedAt;
   delete draft.deliveryWindowMs;
+  delete draft.overrideUntil;
   delete draft.overrideRemainingMs;
   // Historical rows can contain requester PII. Compatibility parsing accepts
   // the old wire, but every newly persisted/published generation omits it.
@@ -464,11 +470,8 @@ function createPublishedDimmingCommand(
   generatedAt: Date,
   deliveryGeneration: string
 ) {
-  const { messageExpiryInterval: _messageExpiryInterval, ...delivery } = createGatewayCommandExpiry(
-    generatedAt,
-    draft.overrideUntil,
-    deliveryGeneration
-  );
+  const { messageExpiryInterval: _messageExpiryInterval, ...delivery } =
+    createGatewayCommandExpiry(generatedAt, deliveryGeneration);
   return gatewayDimmingCommandPublishedV2Schema.parse({ ...draft, ...delivery });
 }
 
@@ -477,12 +480,6 @@ function currentMessageExpiry(payload: { expiresAt: string }, now: Date) {
     return remainingGatewayCommandMessageExpiry(payload, now);
   } catch (error) {
     throw new CommandDeliveryExpiredError(error);
-  }
-}
-
-function assertManualOverridePublishable(draft: GatewayDimmingCommandDraftV2, now: Date) {
-  if (draft.overrideUntil && Date.parse(draft.overrideUntil) <= now.getTime()) {
-    throw new ManualOverrideExpiredError();
   }
 }
 
@@ -495,13 +492,6 @@ class MeshGroupConfiguringError extends Error {
 class StaleMeshGroupError extends Error {
   constructor(reason: string) {
     super(`Mesh 그룹 명령 스냅샷이 만료되었습니다: ${reason}`);
-  }
-}
-
-class ManualOverrideExpiredError extends Error {
-  constructor() {
-    super("manual override expired before MQTT publish");
-    this.name = "ManualOverrideExpiredError";
   }
 }
 

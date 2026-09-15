@@ -1,5 +1,12 @@
 # 프로젝트 오답 노트 (Lessons Learned)
 
+## 2026-09-15 / 테스트 컨테이너 삭제 뒤 익명 볼륨도 검증한다
+
+- **발생했던 문제/실수**: 실제 MQTT persistence/ACL 테스트와 production audit는 통과했지만 Mosquitto 컨테이너 3개가 만든 익명 로그 볼륨 3개가 남았다.
+- **원인**: 데이터 경로를 bind mount해도 image의 별도 `VOLUME /mosquitto/log`는 익명 볼륨을 만든다. `docker rm`과 `docker rm -f`는 컨테이너만 지우므로 컨테이너 목록이 비었다는 사실로 전체 정리를 판정할 수 없다.
+- **해결 및 예방책**: 생성한 정확한 컨테이너만 `docker rm -v`/`-fv`로 지운다. 실행 중 daemon의 mount 목록에서 해당 컨테이너와 볼륨 ID를 기록하고 종료 후 잔여가 없음을 검사한다. 기존 volume이나 전역 prune을 정리 대상으로 삼지 않는다.
+- **반복 방지 체크**: 실제 broker 재시작과 ACL 시나리오 둘 다 container/volume 정리 assertion을 수행한다. 누락된 `-v`는 2개 테스트를 실패시키며, fresh 실행 전후 기존 Docker 자원 identity가 보존되는지 독립 확인한다.
+
 ## 2026-09-13 / LAN·PKI 복구 전에 Gateway DB identity의 존재를 확인한다
 
 - **발생했던 문제/실수**: Pi assignment와 실행 API의 Gateway ID는 일치했지만 현재 PostgreSQL에는 해당 Site/Gateway 행이 없었다. 네트워크만 고치면 heartbeat가 복구될 것으로 보고 DNS·인증서 교체를 준비했으나, 제조 inventory와 MQTT certificate는 `gatewayId=NULL`인 orphan 상태였고 backup 후보에도 target Gateway가 없었다.

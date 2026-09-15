@@ -13,6 +13,8 @@ import { randomUUID } from "node:crypto";
 import { BleMeshAdapter } from "../gateway";
 import type { GroupStateIdentity, GroupStateStore } from "../mesh/group-state-store";
 import type { KeyedSerialTaskQueue } from "../runtime/keyed-serial-task-queue";
+import type { ManualTerminalContext } from "../automation/schedule-runtime";
+import { parseManualTerminalSourceContext, type ManualTerminalSourceContext } from "../automation/automation-state-store";
 
 interface JournalLike {
   get(key: string): Promise<{
@@ -36,6 +38,7 @@ export interface GatewayCommandResult {
   fixtureStateObserved: boolean;
   observedFixtureIds?: string[];
   fixtureObservations?: GatewayFixtureObservation[];
+  manualTerminalContext?: ManualTerminalSourceContext;
 }
 
 export interface GatewayFixtureObservation {
@@ -45,9 +48,10 @@ export interface GatewayFixtureObservation {
   mode?: "sensor" | "force-off" | "force-on";
 }
 
-export interface ManualOverrideCoordinator {
+export interface ManualControlCoordinator {
   prepare(command: GatewayDimmingCommandV2Compatible, receipt?: GatewayCommandReceipt): Promise<void>;
-  handoff(command: GatewayDimmingCommandV2Compatible, terminal: DeviceStatusAckV2): Promise<void>;
+  handoff(command: GatewayDimmingCommandV2Compatible, terminal: DeviceStatusAckV2, context?: ManualTerminalContext): Promise<void>;
+  captureTerminalContext?(command: GatewayDimmingCommandV2Compatible, terminal: DeviceStatusAckV2): ManualTerminalSourceContext;
 }
 
 export interface GatewayCommandReceipt {
@@ -76,7 +80,7 @@ export interface GatewayCommandOptions {
   groupQueue?: Pick<KeyedSerialTaskQueue, "run">;
   beforeExecution?: () => Promise<void>;
   isCommandExpired?: (expiresAt: string) => Promise<boolean> | boolean;
-  automation?: ManualOverrideCoordinator;
+  automation?: ManualControlCoordinator;
   onAutomationError?: (error: unknown) => void;
   receipt?: GatewayCommandReceipt;
   monotonicClock?: () => number;
@@ -115,19 +119,18 @@ export function handleGatewayDimmingCommand(
 
 export async function recoverPendingManualAutomationHandoffs(
   journal: ManualAutomationRecoveryJournal,
-  automation: ManualOverrideCoordinator
+  automation: ManualControlCoordinator
 ) {
   for (const recovery of await journal.pendingAutomationRecoveries()) {
     const wrapper = recovery.command as { command?: unknown };
     const command = gatewayDimmingCommandV2CompatibilitySchema.parse(wrapper.command);
-    if (!command.overrideUntil) continue;
     const result = recovery.state === "completed"
       ? recovery.result as GatewayCommandResult
       : createIndeterminateResult(command);
     if (recovery.state === "accepted") {
       await journal.complete(recovery.idempotencyKey, result, { automationHandoffPending: true });
     }
-    await automation.handoff(command, result.deviceStatus);
+    await automation.handoff(command, result.deviceStatus, terminalContext(command, result, "recovery"));
     await journal.markAutomationHandoffComplete(recovery.idempotencyKey);
   }
 }
@@ -144,7 +147,7 @@ async function executeGatewayDimmingCommand(
     options.onDurableReceipt?.();
     const result = existing.result as GatewayCommandResult;
     if (existing.automationHandoff === "pending") {
-      await replayAutomationHandoff(journal, command, result, options);
+      await replayAutomationHandoff(journal, command, result, options, "recovery");
     }
     return result;
   }
@@ -152,7 +155,7 @@ async function executeGatewayDimmingCommand(
     options.onDurableReceipt?.();
     const stored = existing.command as { acceptance?: AcceptanceAckV2 };
     const result = createIndeterminateResult(command, stored.acceptance);
-    await completeWithAutomationHandoff(journal, command, result, options);
+    await completeWithAutomationHandoff(journal, command, result, options, "recovery");
     return result;
   }
 
@@ -219,10 +222,8 @@ async function executeGatewayDimmingCommand(
   let observedFixtureIds: string[] = [];
   let fixtureObservations: GatewayFixtureObservation[] = [];
   try {
-    if (command.overrideUntil) {
-      if (options.receipt) await options.automation?.prepare(command, options.receipt);
-      else await options.automation?.prepare(command);
-    }
+    if (options.receipt) await options.automation?.prepare(command, options.receipt);
+    else await options.automation?.prepare(command);
     // Automation persistence can consume the last part of the broker delivery window.
     if (await commandExpired(command.expiresAt, options)) {
       return rejectExpiredCommand(journal, command, true, options);
@@ -317,26 +318,47 @@ async function completeWithAutomationHandoff(
   journal: JournalLike,
   command: GatewayDimmingCommandV2Compatible,
   result: GatewayCommandResult,
-  options: GatewayCommandOptions
+  options: GatewayCommandOptions,
+  context: ManualTerminalContext = "live"
 ) {
-  const pending = Boolean(command.overrideUntil && options.automation);
+  const pending = Boolean(options.automation);
+  if (context === "live" && options.automation?.captureTerminalContext) {
+    result.manualTerminalContext = options.automation.captureTerminalContext(command, result.deviceStatus);
+    terminalContext(command, result, context);
+  }
   await journal.complete(command.idempotencyKey, result, { automationHandoffPending: pending });
-  if (pending) await replayAutomationHandoff(journal, command, result, options);
+  if (pending) await replayAutomationHandoff(journal, command, result, options, context);
 }
 
 async function replayAutomationHandoff(
   journal: JournalLike,
   command: GatewayDimmingCommandV2Compatible,
   result: GatewayCommandResult,
-  options: GatewayCommandOptions
+  options: GatewayCommandOptions,
+  context: ManualTerminalContext
 ) {
-  if (!command.overrideUntil || !options.automation) return;
+  if (!options.automation) return;
   try {
-    await options.automation.handoff(command, result.deviceStatus);
+    await options.automation.handoff(command, result.deviceStatus, terminalContext(command, result, context));
     await journal.markAutomationHandoffComplete?.(command.idempotencyKey);
   } catch (error) {
     options.onAutomationError?.(error);
   }
+}
+
+function terminalContext(
+  command: GatewayDimmingCommandV2Compatible,
+  result: GatewayCommandResult,
+  fallback: ManualTerminalContext
+): ManualTerminalContext {
+  if (result.manualTerminalContext === undefined) return fallback;
+  const context = parseManualTerminalSourceContext(result.manualTerminalContext);
+  const successes = result.deviceStatus.results.filter((fixture) => fixture.status === "succeeded" && typeof fixture.brightness === "number");
+  if (Object.keys(context.suppressions).length !== successes.length || successes.some((fixture) => {
+    const suppression = context.suppressions[fixture.fixtureId];
+    return !suppression || suppression.sourceId !== command.commandId || suppression.appliedAt !== result.deviceStatus.occurredAt;
+  })) throw new Error("manual terminal source context does not match the successful result");
+  return context;
 }
 
 export async function executeAutomationDimmingActions(
