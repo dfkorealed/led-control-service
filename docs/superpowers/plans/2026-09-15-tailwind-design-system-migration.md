@@ -35,10 +35,10 @@
 | C | `모니터링 페이지 기능 개선` (`01a088f3-9a15-7802-bd31-cfcfcba2f4d1`) | 7 | Task 1~5 커밋 통합 후 |
 | C | `제어 페이지 기능 개선` (`01a088db-9c18-7fc1-8ec4-9782efb8ad20`) | 8 | Task 1~5 커밋 통합 후 |
 | C | `설정 페이지 기능 개선` (`019f1d62-874a-7c13-b6f4-ab125bdb5714`) | 9, 이후 10 | Task 1~5, Task 9 순서 |
-| C | `Shell·인증·운영 UI 개선` (`01a0a55c-d098-71f3-83ab-b1d9384c26b2`) | 11 | Task 1~5와 Task 9 커밋 통합 후 |
+| C | `Shell·인증·운영 UI 개선` (`01a0a55c-d098-71f3-83ab-b1d9384c26b2`) | 11 | Task 1~5와 Task 10 커밋 통합 후 |
 | D | `서비스 UI 개선` + 총괄 | 12 | Task 6~11 통합 후 |
 
-동일 checkout을 사용하므로 단계 A와 페이지 migration을 동시에 실행하지 않는다. 단계 C의 페이지 작업은 소유 파일이 겹치지 않을 때만 병렬 실행한다. `styles.css`, `components/ui/index.ts`, `App.tsx`, `CustomerShell.tsx`는 표의 소유 세션 외에는 수정하지 않는다.
+동일 checkout을 사용하므로 단계 A와 페이지 migration을 동시에 실행하지 않는다. 단계 C의 페이지 작업은 소유 파일이 겹치지 않을 때만 병렬 실행한다. Task 10과 Task 11은 모두 모니터링·설정 메뉴 문서를 갱신하므로 Task 10을 먼저 완료하고 Task 11을 시작한다. `styles.css`, `components/ui/index.ts`, `App.tsx`, `CustomerShell.tsx`는 표의 소유 세션 외에는 수정하지 않는다.
 
 ---
 
@@ -1195,8 +1195,8 @@ git commit -m "refactor(web): complete Tailwind UI migration"
 - [ ] Task 1~5의 각 커밋과 focused test 증거를 확인한다.
 - [ ] foundation HEAD를 Task 6~11 담당 세션에 전달한다.
 - [ ] Task 6 pilot 결과로 공통 API 변경이 필요하면 UI 기반 세션에서만 수정·검증한다.
-- [ ] Task 7, 8, 9, 11을 소유 파일 기준으로 병렬 진행한다.
-- [ ] Task 9 통과 뒤 Task 10을 시작한다.
+- [ ] Task 7, 8, 9를 소유 파일 기준으로 병렬 진행한다.
+- [ ] Task 9 통과 뒤 Task 10을 시작하고, Task 10 통과 뒤 Task 11을 시작한다.
 - [ ] 각 담당 세션의 결과는 보고만 믿지 않고 diff와 검증 명령을 총괄이 재실행한다.
 - [ ] Task 12에서 정책 baseline 0, 전체 Web test/typecheck/build/E2E를 확인한다.
 - [ ] 완료된 커밋을 `codex/mvp1-cloud-web`에 순서대로 통합하고 최종 결과를 사용자에게 보고한다.
