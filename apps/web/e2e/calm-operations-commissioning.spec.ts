@@ -239,8 +239,11 @@ test("registration separates available and existing devices and submits only the
 
   await page.goto(`/settings/registration?siteId=${ids.site}`);
 
+  const availableSelection = page.getByLabel("조명 1 선택");
+  const nodeSelectionControls = page.getByLabel(/^조명 \d+ 선택$/);
   await expect(page.getByText(availableNode.serialNumber)).toBeVisible();
-  await expect(page.getByLabel("조명 1 선택")).toBeEnabled();
+  await expect(availableSelection).toBeEnabled();
+  await expect(nodeSelectionControls).toHaveCount(1);
   await expect(page.getByText(registeredInSiteNode.serialNumber)).not.toBeVisible();
   await expect(page.getByText(registeredInSiteNode.existingRegistration.fixtureName)).not.toBeVisible();
   await expect(page.getByText(registeredInSiteNode.existingRegistration.floorName)).not.toBeVisible();
@@ -253,11 +256,40 @@ test("registration separates available and existing devices and submits only the
   await expect(page.getByText(registeredInSiteNode.existingRegistration.floorName)).toBeVisible();
   await expect(page.getByText(registeredElsewhereNode.serialNumber)).toHaveCount(0);
   await expect(page.getByText(registeredElsewhereNode.deviceUuid)).toHaveCount(0);
+  await expect(page.locator(".registered-node-details input[type='checkbox']")).toHaveCount(0);
 
-  await page.getByLabel("조명 1 선택").check();
+  await page.getByLabel("등록 가능 조명 전체 선택").check();
+  await expect(availableSelection).toBeChecked();
+  await expect(nodeSelectionControls).toHaveCount(1);
   await page.getByRole("button", { name: "선택 조명 등록" }).click();
-  await expect.poll(() => api.registrationBatchRequests).toHaveLength(1);
-  expect(api.registrationBatchRequests[0].nodes).toEqual([{ nodeId: availableNode.id }]);
+  await expect.poll(() => api.registrationBatchRequests).toEqual([{
+    mode: "batch",
+    defaults: {
+      namePrefix: "B2-L",
+      startNumber: 1,
+      digits: 3,
+      ratedWatt: "40.00",
+      size: 20
+    },
+    nodes: [{ nodeId: availableNode.id }]
+  }]);
+
+  const capturedRequest = JSON.stringify(api.registrationBatchRequests[0]);
+  const protectedRegistrationValues = [
+    registeredInSiteNode.id,
+    registeredInSiteNode.serialNumber,
+    registeredInSiteNode.deviceUuid,
+    registeredInSiteNode.existingRegistration.fixtureId,
+    registeredInSiteNode.existingRegistration.fixtureName,
+    registeredInSiteNode.existingRegistration.floorId,
+    registeredInSiteNode.existingRegistration.floorName,
+    registeredElsewhereNode.id,
+    registeredElsewhereNode.serialNumber,
+    registeredElsewhereNode.deviceUuid
+  ];
+  for (const protectedValue of protectedRegistrationValues) {
+    expect(capturedRequest).not.toContain(protectedValue);
+  }
 });
 
 test("accepted identify retry ignores a delayed earlier terminal and keeps polling its own operation", async ({ browser, baseURL }) => {
