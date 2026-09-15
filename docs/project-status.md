@@ -135,6 +135,7 @@
 ### 실장비 검증
 
 - Raspberry Pi 4의 제조 등록, 일회성 claim, Gateway bootstrap, 장비·MQTT 인증서 발급과 broker mTLS 접속은 실장비로 통과했다. Company ID 발급 전용 `lab-hil` Gateway gate와 ESP32-H2 fullclean target build/manifest/전용 flash gate도 자동 검증했다.
+- 2026-09-15 Lab Ethernet 망 변경에서 서버 `172.30.1.89`, Pi 유선 `172.30.1.25`로 API/MQTT TLS IP SAN, Pi name resolution, Gateway assignment와 bootstrap endpoint를 갱신했다. 기존 DB Site/Gateway ID, claim, device/MQTT client identity와 BIO mapping은 유지했다. 새 BIO runtime은 RestartCount 0의 `healthy`, mapping `observed=1`, 연속 DB heartbeat 3회를 기록했고 Web 70%·0%·100%·30% 명령은 모두 장치 read-back까지 `applied/succeeded`로 완료됐다. Lab 서버 IP는 DHCP이므로 주소 예약 또는 공인 DNS/VPN 전환 전에는 다음 망 변경 시 endpoint 복구가 다시 필요하다.
 - Raspberry Pi와 ESP32-H2 사이 단일 노드 검색·provisioning·등록, Gateway 컨테이너 재시작 뒤 Mesh/AppKey 복원, 상태 resync와 개별 밝기 제어 RF HIL을 통과했다. 90%·20%·60%는 API terminal/DB/ESP Status까지 성공했고, 40%는 ESP 적용 후 Status 유실로 `STATUS_TIMEOUT`이 발생해 명령 확인 재시도가 남았다.
 - 단일 노드 schedule 시작/종료와 센서 High/Low, 5초·6초 hold 및 수정 규칙 재실행은 통과했다. 다중 노드·Mesh Group, 실제 마이크로웨이브 센서/LED converter 전기 연결, packet loss, cloud 단절, Gateway/ESP 동시 전원 차단과 telemetry replay HIL은 아직 실행하지 않았다.
 

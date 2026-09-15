@@ -617,19 +617,19 @@ git commit -m "feat(gateway): deploy one BIO raw USB device safely"
 
 - [x] **Step 2: 단일 root-cause hypothesis를 확정한다.** API/MQTT 실행 환경, Lab certificate generation, Pi host mapping 가운데 불일치한 경계를 명시하고 변경 전 증거 SHA-256을 기록한다.
 
-- [x] **Step 3: 자동화 결함이 있으면 RED를 먼저 작성한다.** 기존 runbook만으로 올바르게 복구되면 제품 코드를 바꾸지 않는다. 재현 가능한 script 결함이 있을 때만 failing contract를 만든 뒤 최소 수정한다. 이번 조사에서는 자동화 결함보다 현재 DB의 target Site/Gateway 관계 부재가 선행 차단 원인으로 확인되어 제품 코드를 변경하지 않았다.
+- [x] **Step 3: 자동화 결함이 있으면 RED를 먼저 작성한다.** 기존 runbook만으로 올바르게 복구되면 제품 코드를 바꾸지 않는다. 재현 가능한 script 결함이 있을 때만 failing contract를 만든 뒤 최소 수정한다. 2026-09-15 재조사에서는 Mac `172.30.1.89`, Pi Ethernet `172.30.1.25`, Mac hosts `172.30.1.22`, Gateway assignment/bootstrap `192.168.45.57` 불일치와 종료된 `restart=no` BIO container가 단일 원인이었으며 제품 코드 결함은 재현되지 않았다.
 
-- [ ] **Step 4: rollback 자료를 만든다.** Lab PKI current generation과 실행 env의 비밀 원문을 출력하지 않고 권한 제한 backup을 만들며, Pi `/etc/hosts`, compose/env/data와 container ID/image/StartedAt/restart count를 보존한다.
+- [x] **Step 4: rollback 자료를 만든다.** Local evidence는 `.superpowers/sdd/2026-09-13-bio-direct-usb-registration-control/task-8a-mqtt-recovery/20260915-172-30-1-89/`에 0700/0600으로, Pi의 hosts·assignment·container inspect·data metadata는 `/opt/led-control/gateway/network-recovery-20260915-172-30-1-89`에 root 0700/0600으로 보존했다. Private key/token 원문은 증거에 복사하거나 출력하지 않았다.
 
-- [ ] **Step 5: 현재 LAN IP로 Lab PKI와 runtime을 복구한다.** `LAB_API_IP`와 `LAB_MQTT_IP`를 같은 검증된 LAN IP로 사용해 `lab:pki:bootstrap`을 실행하고 새 `lab.env`로 API/MQTT를 재기동한다. 기존 DB, claim, Gateway device/client identity는 초기화하거나 재발급하지 않는다.
+- [x] **Step 5: 현재 LAN IP로 Lab PKI와 runtime을 복구한다.** `LAB_API_IP=LAB_MQTT_IP=172.30.1.89`로 service certificate와 application token을 원자 갱신하고 API/MQTT/Web을 새 bundle로 재기동했다. API/MQTT 인증서는 `.led.lan` DNS와 `172.30.1.89` IP SAN을 함께 가지며 DB, claim, Gateway device/client identity와 BIO mapping은 유지했다. Mac hosts는 비대화형 관리자 권한이 없어 변경하지 않고 local-only `lab.env`의 MQTT/API public endpoint를 IP SAN URL로 고정해 동일 명령 재시작도 유지되게 했다.
 
-- [ ] **Step 6: Pi와 container name resolution을 복구한다.** Pi의 두 `.led.lan` 이름을 같은 LAN IP로 원자 갱신하고, 기존 image와 data를 유지한 채 Gateway service만 재생성해 container 내부 resolution을 갱신한다.
+- [x] **Step 6: Pi와 container name resolution을 복구한다.** Pi의 `api.led.lan`·`mqtt.led.lan`을 `172.30.1.89`로 갱신했다. Bootstrap 응답이 기존 Site/Gateway/serial과 새 `mqtts://172.30.1.89:8883`을 반환하는 것을 mTLS로 확인한 뒤 assignment를 UID 999·0600·file/directory fsync·atomic rename으로 교체했다. 기존 BIO container는 rollback용 이름으로 보존하고 같은 image/data/USB identity로 `GATEWAY_BOOTSTRAP_URL=https://172.30.1.89:4000/gateway-bootstrap` runtime만 재생성했다.
 
-- [ ] **Step 7: DNS → TCP → TLS SAN/mTLS → MQTT CONNACK을 확인한다.** 어느 단계든 실패하면 후속 BIO 배포와 HIL을 중단하고 rollback 또는 보존 상태를 기록한다.
+- [x] **Step 7: DNS → TCP → TLS SAN/mTLS → MQTT CONNACK을 확인한다.** Pi DNS, local API/Web listeners, API health, API device mTLS bootstrap, MQTT server SAN과 API client mTLS를 통과했다. Pi `172.30.1.25`의 Gateway certificate가 broker에 TLS 1.3으로 접속했고 Gateway health의 assignment/mesh/MQTT/mapping/transport/protocol이 모두 true다.
 
-- [ ] **Step 8: 서로 다른 healthy heartbeat 3회를 확인한다.** API DB의 `lastHeartbeatAt` 증가, Gateway health와 container lifecycle을 함께 대조한다.
+- [x] **Step 8: 서로 다른 healthy heartbeat 3회를 확인한다.** DB `lastHeartbeatAt`이 `00:18:07.113 → 00:18:12.113 → 00:18:17.114Z`로 증가했다. 새 BIO container는 exact image에서 `running/healthy`, RestartCount 0이며 기존 mapping 한 대를 `observed=1`, 실패 0으로 복원했다. 같은 Web session의 70%·0%·100%·30% 명령도 모두 command `acknowledged/applied`, dispatch `completed`, fixture `succeeded`와 요청 밝기 read-back으로 끝났다.
 
-- [x] **Step 9: 문서와 증거를 갱신하고 커밋한다.** `docs/project-status.md`, Task 8 Step 9와 이 체크리스트를 실제 결과와 일치시킨다. Task 8의 healthy heartbeat Step 9는 미완료로 유지한다.
+- [x] **Step 9: 문서와 증거를 갱신하고 커밋한다.** `docs/project-status.md`, 설정·제어 메뉴 문서와 이 체크리스트를 2026-09-15 실제 결과에 맞췄다. 제품 코드와 DB schema는 변경하지 않았다.
 
 ---
 
