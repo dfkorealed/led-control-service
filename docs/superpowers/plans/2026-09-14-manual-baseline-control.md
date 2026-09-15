@@ -563,7 +563,7 @@ git commit -m "feat(web): remove manual control end time"
 - Consumes: Task 1–5 전체 Web/API/Gateway flow
 - Produces: 실제 PostgreSQL·Redis·mTLS Mosquitto software E2E와 일치하는 메뉴/배포 문서
 
-- [ ] **Step 1: RealBackendLab RED 시나리오 변경**
+- [x] **Step 1: RealBackendLab RED 시나리오 변경**
 
 기존 `manual-before-expiry`/`manual-after-expiry` clock advance를 제거하고 다음 exact phase를 기록한다.
 
@@ -610,7 +610,7 @@ await lab.waitForFixtureBrightness(targetName, 60);
 
 Helper signature를 `input: { brightness: number; target: string; now: Date }`로 바꾸고 내부 `const now = new Date()` 대신 `const now = input.now`를 사용해 form 입력과 clock advance가 같은 경계를 공유하게 한다.
 
-- [ ] **Step 2: RealBackendLab가 기존 동작 때문에 실패하는지 확인**
+- [x] **Step 2: RealBackendLab가 기존 동작 때문에 실패하는지 확인**
 
 Run:
 
@@ -620,15 +620,15 @@ E2E_REAL_BACKEND_LAB=1 pnpm --filter @led-control/web exec playwright test e2e/a
 
 Expected: 기존 시간 기반 override 또는 새 source 재개 미구현이면 FAIL. 필수 PostgreSQL/Redis/Mosquitto 환경이 없으면 skip을 성공으로 취급하지 말고 미실행 사유로 기록한다.
 
-- [ ] **Step 3: 통합 fixture와 기대값을 새 계약에 맞춰 최소 수정**
+- [x] **Step 3: 통합 fixture와 기대값을 새 계약에 맞춰 최소 수정**
 
 Lab helper가 phase 이름만 기록하도록 유지하고 production API/Gateway 코드를 우회하는 simulator endpoint나 직접 state mutation을 추가하지 않는다. 새 이벤트는 실제 sensor edge, 새 schedule은 private test clock의 실제 occurrence 계산을 사용한다.
 
-- [ ] **Step 4: 제어·Gateway·runbook 문서 갱신**
+- [x] **Step 4: 제어·Gateway·runbook 문서 갱신**
 
 `docs/menus/control.md`에서 datetime/1시간/30일/timed expiry 설명을 새 기본 밝기·현재 source suppression·다음 source 재개 계약으로 교체한다. `apps/gateway/README.md`와 Raspberry Pi runbook에는 V5 backup → Gateway → DB/API → Web 순서 및 rollback 시 이전 state backup 동반 복원을 기록한다. software E2E와 실제 HIL을 구분한다.
 
-- [ ] **Step 5: 문서/통합 커밋**
+- [x] **Step 5: 문서/통합 커밋**
 
 ```bash
 git add apps/web/e2e/automation-control-flow.spec.ts apps/gateway/README.md docs/runbooks/raspberry-pi-gateway-appliance.md docs/menus/control.md docs/project-status.md docs/superpowers/plans/2026-09-14-manual-baseline-control.md
