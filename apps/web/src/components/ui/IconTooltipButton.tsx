@@ -1,12 +1,18 @@
 import type { LucideIcon } from "lucide-react";
 import { forwardRef, useEffect, useId, useRef, useState, type ButtonHTMLAttributes } from "react";
+import { cva } from "class-variance-authority";
+import { cn } from "./utils/cn";
 
 export interface IconTooltipButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "aria-label" | "children"> {
   icon: LucideIcon;
   label: string;
   isLoading?: boolean;
   loadingLabel?: string;
+  variant?: "default";
+  isDisabled?: boolean;
 }
+
+const tooltipButton = cva("ui-icon-tooltip-button inline-flex min-h-11 min-w-11 items-center justify-center rounded-control border-0 bg-transparent p-0 text-action-primary cursor-pointer hover:bg-action-primary-soft focus-visible:bg-action-primary-soft focus-visible:outline-none focus-visible:shadow-focus disabled:cursor-not-allowed disabled:opacity-60", { variants: { variant: { default: "" } } });
 
 export const IconTooltipButton = forwardRef<HTMLButtonElement, IconTooltipButtonProps>(function IconTooltipButton(
   {
@@ -16,6 +22,8 @@ export const IconTooltipButton = forwardRef<HTMLButtonElement, IconTooltipButton
     loadingLabel = "처리 중",
     className = "",
     disabled,
+    isDisabled,
+    variant = "default",
     ...props
   },
   ref
@@ -40,7 +48,7 @@ export const IconTooltipButton = forwardRef<HTMLButtonElement, IconTooltipButton
 
   return (
     <span
-      className="ui-icon-tooltip"
+      className="ui-icon-tooltip relative inline-flex shrink-0"
       onMouseEnter={() => {
         if (!isDismissedByEscape.current) setIsTooltipOpen(true);
       }}
@@ -78,16 +86,16 @@ export const IconTooltipButton = forwardRef<HTMLButtonElement, IconTooltipButton
         ref={ref}
         type="button"
         {...props}
-        className={`ui-icon-tooltip-button ${className}`.trim()}
+        className={cn(tooltipButton({ variant }), className)}
         aria-label={accessibleLabel}
         aria-describedby={isTooltipOpen ? tooltipId : undefined}
         aria-busy={isLoading || undefined}
-        disabled={disabled || isLoading}
+        disabled={disabled || isDisabled || isLoading}
       >
         <Icon size={18} aria-hidden="true" />
       </button>
       {isTooltipOpen ? (
-        <span id={tooltipId} className="ui-icon-tooltip-label" role="tooltip">
+        <span id={tooltipId} className="ui-icon-tooltip-label absolute top-full left-1/2 z-60 mt-2 -translate-x-1/2 rounded-control bg-surface-inverse px-2 py-1.5 text-caption font-bold whitespace-nowrap text-content-inverse shadow-popover" role="tooltip">
           {accessibleLabel}
         </span>
       ) : null}

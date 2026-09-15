@@ -5,6 +5,8 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   Button,
+  Card,
+  IconButton,
   FeedbackState,
   IconTooltipButton,
   MetricCard,
@@ -34,6 +36,113 @@ describe("Calm Operations UI primitives", () => {
 
   afterAll(() => stylesheet.remove());
   afterEach(cleanup);
+
+  it.each(["primary", "secondary", "ghost", "danger", "link"] as const)("supports the %s button variant and merges caller padding", (variant) => {
+    const ref = createRef<HTMLButtonElement>();
+    render(<Button ref={ref} variant={variant} size="lg" className="px-3 w-full">저장</Button>);
+    expect(ref.current).toBe(screen.getByRole("button", { name: "저장" }));
+    expect(ref.current).toHaveClass("px-3", "w-full", "text-body-lg");
+    expect(ref.current).not.toHaveClass("px-6");
+  });
+
+  it.each([["sm", "text-body-sm"], ["md", "text-body"], ["lg", "text-body-lg"]] as const)("shares %s size and an actual interactive ref with IconButton", (size, typographyClass) => {
+    const ref = createRef<HTMLButtonElement>();
+    render(<IconButton ref={ref} aria-label="새로고침" size={size} variant="ghost" className="w-full"><CircleCheck /></IconButton>);
+    expect(ref.current).toBe(screen.getByRole("button", { name: "새로고침" }));
+    expect(ref.current).toHaveClass("w-full", typographyClass);
+  });
+
+  it.each([{ disabled: true }, { isDisabled: true }, { isLoading: true }])("prevents native activation for %j", (state) => {
+    let clicks = 0;
+    render(<Button {...state} onClick={() => { clicks += 1; }}>저장</Button>);
+    fireEvent.click(screen.getByRole("button"));
+    expect(screen.getByRole("button")).toBeDisabled();
+    expect(clicks).toBe(0);
+  });
+
+  it("preserves native form submit and caller click behavior", () => {
+    let submits = 0;
+    let clicks = 0;
+    render(<form onSubmit={(event) => { event.preventDefault(); submits += 1; }}><Button type="submit" onClick={() => { clicks += 1; }}>저장</Button></form>);
+    fireEvent.click(screen.getByRole("button"));
+    expect(clicks).toBe(1);
+    expect(submits).toBe(1);
+  });
+
+  it("preserves the implicit native submit type", () => {
+    let submits = 0;
+    render(<form onSubmit={(event) => { event.preventDefault(); submits += 1; }}><Button>저장</Button></form>);
+    fireEvent.click(screen.getByRole("button"));
+    expect(submits).toBe(1);
+  });
+
+  it.each([0, 1])("delivers one native click and one press for click detail %s without adding a tab index", (detail) => {
+    const events: string[] = [];
+    render(<Button onClick={() => events.push("click")} onPress={(event) => events.push(`press:${event.pointerType}`)}>실행</Button>);
+    const button = screen.getByRole("button");
+    fireEvent.click(button, { detail });
+    expect(events).toEqual(["click", detail === 0 ? "press:virtual" : "press:mouse"]);
+    expect(button).not.toHaveAttribute("tabindex");
+  });
+
+  it.each(["Enter", " "])("maps the browser %s activation click to one keyboard press", (key) => {
+    const events: string[] = [];
+    render(<Button onClick={() => events.push("click")} onPress={(event) => events.push(`${event.pointerType}:${event.key}`)}>실행</Button>);
+    const button = screen.getByRole("button");
+    fireEvent.keyDown(button, { key });
+    // JSDOM does not perform keyboard default actions; the browser emits this
+    // single click (Enter on keydown, Space on keyup) for a native button.
+    fireEvent.click(button, { detail: 0 });
+    fireEvent.keyUp(button, { key });
+    expect(events).toEqual(["click", `keyboard:${key}`]);
+  });
+
+  it("lets native click cancellation prevent press and form submission", () => {
+    let submits = 0;
+    let presses = 0;
+    render(<form onSubmit={(event) => { event.preventDefault(); submits += 1; }}><Button onClick={(event) => event.preventDefault()} onPress={() => { presses += 1; }}>저장</Button></form>);
+    fireEvent.click(screen.getByRole("button"));
+    expect(presses).toBe(0);
+    expect(submits).toBe(0);
+  });
+
+  it.each([false, true])("respects press propagation opt-in %s without altering native-only clicks", (propagate) => {
+    let parentClicks = 0;
+    render(<div onClick={() => { parentClicks += 1; }}><Button onPress={(event) => { if (propagate) event.continuePropagation(); }}>실행</Button></div>);
+    fireEvent.click(screen.getByRole("button"));
+    expect(parentClicks).toBe(propagate ? 1 : 0);
+  });
+
+  it.each(["default", "selected", "danger"] as const)("preserves Card tone %s as a compatibility alias for variant", (tone) => {
+    const { rerender } = render(<Card tone={tone} data-testid="card">카드</Card>);
+    const classes = screen.getByTestId("card").className;
+    rerender(<Card variant={tone} data-testid="card">카드</Card>);
+    expect(screen.getByTestId("card").className).toBe(classes);
+  });
+
+  it("forwards every presentation primitive root with a closed default variant and merged className", () => {
+    const refs = [createRef<HTMLElement>(), createRef<HTMLElement>(), createRef<HTMLSpanElement>(), createRef<HTMLElement>(), createRef<HTMLElement>(), createRef<HTMLOListElement>(), createRef<HTMLElement>(), createRef<HTMLElement>(), createRef<HTMLElement>(), createRef<HTMLSpanElement>(), createRef<HTMLElement>()] as const;
+    render(<>
+      <Card ref={refs[0]} variant="default" className="p-6" data-testid="primitive-0">카드</Card>
+      <FeedbackState ref={refs[1]} variant="default" className="p-6" data-testid="primitive-1" icon={CircleCheck} title="알림" />
+      <StatusBadge ref={refs[2]} variant="default" className="p-6" data-testid="primitive-2" tone="success" icon={CircleCheck}>정상</StatusBadge>
+      <MetricCard ref={refs[3]} variant="default" className="p-6" data-testid="primitive-3" label="조명" value={42} />
+      <PageHeader ref={refs[4]} variant="default" className="p-6" data-testid="primitive-4" title="현황" />
+      <ProgressSteps ref={refs[5]} variant="default" className="p-6" data-testid="primitive-5" label="진행" steps={[]} />
+      <RouteLoadingState ref={refs[6]} variant="panel" className="p-6" data-testid="primitive-6" />
+      <SidePanel ref={refs[7]} variant="default" className="p-6" data-testid="primitive-7">상세</SidePanel>
+      <UnderlineNavigation ref={refs[8]} variant="default" className="p-6" data-testid="primitive-8">메뉴</UnderlineNavigation>
+      <UnderlineNavigationLabel ref={refs[9]} variant="default" className="p-6" data-testid="primitive-9">탭</UnderlineNavigationLabel>
+      <RouteLoadingState ref={refs[10]} variant="page" className="p-6" data-testid="primitive-10" />
+    </>);
+    refs.forEach((ref, index) => {
+      expect(ref.current).toBe(screen.getByTestId(`primitive-${index}`));
+      expect(ref.current).toHaveClass("p-6");
+      expect(ref.current).not.toHaveClass("p-3.5", "p-4");
+      expect(ref.current).not.toHaveAttribute("variant");
+    });
+    expect(screen.getByText("42")).toHaveClass("text-metric", "tabular-nums");
+  });
 
   it("resolves nested CSS aliases while preserving unresolved and circular references", () => {
     const resolved = resolveStylesheetVariables(`
@@ -91,6 +200,21 @@ describe("Calm Operations UI primitives", () => {
 
     fireEvent.keyDown(button, { key: "Escape" });
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+  });
+
+  it("merges tooltip trigger classes, forwards its interactive ref and normalizes isDisabled", () => {
+    const ref = createRef<HTMLButtonElement>();
+    render(<IconTooltipButton ref={ref} variant="default" icon={LogOut} label="로그아웃" className="p-2" isDisabled />);
+    expect(ref.current).toBe(screen.getByRole("button", { name: "로그아웃" }));
+    expect(ref.current).toBeDisabled();
+    expect(ref.current).toHaveClass("p-2", "text-action-primary");
+    expect(ref.current).not.toHaveClass("p-0");
+  });
+
+  it("renders the opened tooltip with semantic surface and text tokens", () => {
+    render(<IconTooltipButton icon={LogOut} label="로그아웃" />);
+    fireEvent.focus(screen.getByRole("button"));
+    expect(screen.getByRole("tooltip")).toHaveClass("bg-surface-inverse", "text-content-inverse", "text-caption");
   });
 
   it("renders status with an icon and visible label", () => {

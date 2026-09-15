@@ -237,7 +237,7 @@ git commit -m "feat(web): add Tailwind design token foundation"
 **Interfaces:**
 - Produces: `cn(...classes)`, `themeColor(token)`, `Heading`, `Text`, Button/IconButton과 토큰화된 기존 공통 primitive 전체.
 
-- [ ] **Step 1: ref·className·typography 계약 테스트를 먼저 작성한다**
+- [x] **Step 1: ref·className·typography 계약 테스트를 먼저 작성한다**
 
 ```tsx
 it("forwards typography refs without adding margins", () => {
@@ -253,13 +253,13 @@ it("merges a caller button class after the variant", () => {
 });
 ```
 
-- [ ] **Step 2: 새 export가 없어 실패하는지 확인한다**
+- [x] **Step 2: 새 export가 없어 실패하는지 확인한다**
 
 Run: `pnpm --filter @led-control/web test -- src/components/ui/Typography.test.tsx src/components/ui/ui-primitives.test.tsx`
 
 Expected: FAIL because `Heading` and `Text` are not exported.
 
-- [ ] **Step 3: utility와 typography API를 구현한다**
+- [x] **Step 3: utility와 typography API를 구현한다**
 
 ```ts
 export function cn(...classes: Array<string | false | null | undefined>) {
@@ -281,7 +281,7 @@ export type TextTone = "primary" | "secondary" | "muted" | "inverse" | "danger" 
 
 `Heading`과 `Text`는 `forwardRef`, polymorphic `as`, `variant`, `className`을 지원하고 외부 margin을 항상 0으로 둔다. `metric`은 `tabular-nums`를 포함한다. `themeColor`은 typed `ThemeColorToken`만 받아 `getComputedStyle(document.documentElement).getPropertyValue('--color-' + token).trim()`을 반환한다.
 
-- [ ] **Step 4: 기존 primitive를 CVA와 Tailwind로 전환한다**
+- [x] **Step 4: 기존 primitive를 CVA와 Tailwind로 전환한다**
 
 Button props를 다음 계약으로 유지·확장한다.
 
@@ -299,7 +299,7 @@ export interface ButtonProps extends AriaButtonProps {
 
 `ui-primitives.test.tsx`는 모든 public component를 table-driven 방식으로 렌더링해 기본 variant, 지원 variant, caller `className`과 ref 전달을 확인한다.
 
-- [ ] **Step 5: focused tests와 policy를 통과시킨다**
+- [x] **Step 5: focused tests와 policy를 통과시킨다**
 
 Run:
 
@@ -311,12 +311,14 @@ pnpm --filter @led-control/web typecheck
 
 Expected: all commands exit 0.
 
-- [ ] **Step 6: 커밋한다**
+- [x] **Step 6: 커밋한다**
 
 ```bash
 git add apps/web/src/components/ui
 git commit -m "feat(web): add typed Tailwind UI primitives"
 ```
+
+**Task 2 검증 결과(2026-09-16):** 기준 `0c7d5d94`에서 missing export·size·disabled·root ref 계약의 실제 RED 32 failed/36 passed 후 focused 83/83(typography 24·primitive 59), 전체 Web 78 files·938/938, typecheck/build/ui:check(기존 2,344건·신규 0건)와 diff 검사를 통과했다. 실제 Chromium 메모리 fixture에서도 Enter/Space/mouse의 click·press 각 1회, native implicit submit과 disabled를 확인했다. Button은 React Aria Button의 자동 `tabindex=0`이 기존 ModalDialog 초기 focus selector에 영향을 주므로 총괄 결정에 따라 native semantic adapter로 유지하고 React Aria 타입의 `isDisabled`/`onPress`만 지원한다. 기존 native type·disabled·onClick, modal focus 회귀와 `ui-*` compatibility hook은 보존했다. React Aria field/date/overlay 전환, menu migration, legacy global cascade 제거 및 전체 E2E/HIL은 이번 완료 범위가 아니다. 독립 검토 후 Task 3으로 진행한다.
 
 ### Task 3: Field, text, number와 selection 컴포넌트 구현
 
