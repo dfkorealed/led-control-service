@@ -8,6 +8,7 @@ import type { FloorAsset, FloorEditorState } from "./editor-types";
 import { useFloorEditorStore } from "./editor-store";
 import { saveEditorDraft } from "./editor-drafts";
 import { clearTenantCache } from "../../api/principal-cache";
+import { prepareLegacyStylesheetForJsdom } from "../../test/legacy-stylesheet";
 
 const floorEditorApi = vi.hoisted(() => ({
   listFloorEditorRevisions: vi.fn(),
@@ -18,7 +19,7 @@ const floorEditorApi = vi.hoisted(() => ({
 
 vi.mock("../../api/floor-editor", () => floorEditorApi);
 
-const styles = readFileSync("src/styles.css", "utf8");
+const styles = prepareLegacyStylesheetForJsdom(readFileSync("src/styles.css", "utf8"));
 let stylesheet: HTMLStyleElement;
 
 const editorState: FloorEditorState = {

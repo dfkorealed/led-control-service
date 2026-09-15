@@ -286,12 +286,13 @@ export type TextTone = "primary" | "secondary" | "muted" | "inverse" | "danger" 
 Button props를 다음 계약으로 유지·확장한다.
 
 ```ts
-export interface ButtonProps extends AriaButtonProps {
+export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement>, Pick<AriaButtonProps, "isDisabled" | "onPress"> {
   variant?: "primary" | "secondary" | "ghost" | "danger" | "link";
   size?: "sm" | "md" | "lg";
   isLoading?: boolean;
   loadingLabel?: string;
   className?: string;
+  children: ReactNode;
 }
 ```
 
@@ -319,6 +320,14 @@ git commit -m "feat(web): add typed Tailwind UI primitives"
 ```
 
 **Task 2 검증 결과(2026-09-16):** 기준 `0c7d5d94`에서 missing export·size·disabled·root ref 계약의 실제 RED 32 failed/36 passed 후 focused 83/83(typography 24·primitive 59), 전체 Web 78 files·938/938, typecheck/build/ui:check(기존 2,344건·신규 0건)와 diff 검사를 통과했다. 실제 Chromium 메모리 fixture에서도 Enter/Space/mouse의 click·press 각 1회, native implicit submit과 disabled를 확인했다. Button은 React Aria Button의 자동 `tabindex=0`이 기존 ModalDialog 초기 focus selector에 영향을 주므로 총괄 결정에 따라 native semantic adapter로 유지하고 React Aria 타입의 `isDisabled`/`onPress`만 지원한다. 기존 native type·disabled·onClick, modal focus 회귀와 `ui-*` compatibility hook은 보존했다. React Aria field/date/overlay 전환, menu migration, legacy global cascade 제거 및 전체 E2E/HIL은 이번 완료 범위가 아니다. 독립 검토 후 Task 3으로 진행한다.
+
+**Task 2 Fix Round 1 검증 결과(2026-09-16):** `45d9a109`의 실제 production-build Chromium에서 size·caller override·keyboard 좌표 RED 7 failed/1 passed를 확인한 뒤 공통 compatibility 규칙을 components 계층으로 이동하고 중복 font reset을 기존 base로 통합했다. 모든 Button size, caller padding, tooltip padding/size, legacy sidebar/row action/tooltip alignment와 Enter/Space 좌표가 8/8 GREEN이다. 위 Button interface 예제도 실제 native + `Pick<AriaButtonProps, "isDisabled" | "onPress">` 범위와 일치시켰다.
+
+- [x] 공통 CSS 계층과 selector 경계를 보존하고 blanket important 없이 production utility/caller 우선순위를 검증한다.
+- [x] Layer 첫 selector 누락을 synthetic RED 2 failed → 정책 34/34 GREEN으로 수정해 별도 `4199a487`에 커밋한다. Immutable anchor·baseline은 유지하고 현재 부채 2,342건/신규 0건(중복 reset 실제 제거 2건)을 확인한다.
+- [x] JSDOM-only compatibility loader를 공통화하고 helper RED→GREEN 2/2, 기존 UI·브랜드·편집기 assertion 유지, focused 93/93·전체 Web 80 files/948개 연속 단독 실행 2회·typecheck·build·ui:check·diff 검사를 완료한다.
+
+동시 full/focused Vitest·policy compile·production build 실행에서 API 초기화 오류 37건이 한 번 관측됐다. API/feature 코드 변경 없이 단독 full 실행 두 번(9.18초/9.20초)은 모두 통과했으며 동시 transform/cache 경합은 가설이지 확정 원인이 아니다. Production cascade의 검증 근거는 JSDOM flattening이 아니라 실제 Chromium이다. Feature production과 모달 focus는 변경하지 않았고 메뉴별 legacy cascade·전체 E2E/HIL은 후속 범위다. Task 2 독립 재검토 후 Task 3으로 진행한다.
 
 ### Task 3: Field, text, number와 selection 컴포넌트 구현
 

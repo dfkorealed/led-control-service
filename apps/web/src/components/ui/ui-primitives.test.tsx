@@ -20,11 +20,12 @@ import {
   UnderlineNavigationLabel
 } from ".";
 import type { StatusTone } from ".";
+import { prepareLegacyStylesheetForJsdom } from "../../test/legacy-stylesheet";
 
 // JSDOM은 Tailwind @theme/import를 처리하지 않으므로 실제 테마 선언을
 // 표준 :root로 펼친 뒤 기존 alias resolver와 CSS cascade로 대비를 검증한다.
 const styles = readFileSync("src/styles/theme.css", "utf8").replace("@theme static", ":root")
-  + readFileSync("src/styles.css", "utf8").replace(/@import\s+[^;]+;/g, "");
+  + prepareLegacyStylesheetForJsdom(readFileSync("src/styles.css", "utf8"));
 let stylesheet: HTMLStyleElement;
 
 describe("Calm Operations UI primitives", () => {

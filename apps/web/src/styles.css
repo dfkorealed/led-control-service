@@ -44,233 +44,236 @@
   --bottom-nav-space: calc(68px + env(safe-area-inset-bottom));
 }
 
-.ui-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  min-height: 44px;
-  cursor: pointer;
-  border-radius: var(--radius-control);
-  padding: 0 16px;
-  font-weight: 700;
-}
+/* 기본 primitive의 호환 규칙은 utility 아래에서만 적용한다. */
+@layer components {
+  .ui-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 44px;
+    cursor: pointer;
+    border-radius: var(--radius-control);
+    padding: 0 16px;
+    font-weight: 700;
+  }
 
-.ui-button:focus-visible {
-  outline: 0;
-  box-shadow: var(--focus-ring);
-}
+  .ui-button:focus-visible {
+    outline: 0;
+    box-shadow: var(--focus-ring);
+  }
 
-.ui-button-primary {
-  border: 1px solid var(--primary);
-  background: var(--primary);
-  color: #fff;
-}
+  .ui-button-primary {
+    border: 1px solid var(--primary);
+    background: var(--primary);
+    color: #fff;
+  }
 
-.ui-button-primary:hover:not(:disabled) {
-  border-color: var(--primary-hover);
-  background: var(--primary-hover);
-}
+  .ui-button-primary:hover:not(:disabled) {
+    border-color: var(--primary-hover);
+    background: var(--primary-hover);
+  }
 
-.ui-button-secondary,
-.ui-button-ghost {
-  border: 1px solid var(--border);
-  background: var(--panel);
-  color: var(--primary);
-}
+  .ui-button-secondary,
+  .ui-button-ghost {
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--primary);
+  }
 
-.ui-button-danger {
-  border: 1px solid #fecaca;
-  background: #fff7f7;
-  color: #b91c1c;
-}
+  .ui-button-danger {
+    border: 1px solid #fecaca;
+    background: #fff7f7;
+    color: #b91c1c;
+  }
 
-.ui-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.58;
-}
+  .ui-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.58;
+  }
 
-.ui-card,
-.ui-metric-card {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-card);
-  background: var(--panel);
-}
+  .ui-card,
+  .ui-metric-card {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+    background: var(--panel);
+  }
 
-.ui-side-panel {
-  min-width: 0;
-  max-width: 100%;
-  overflow-x: hidden;
-  overflow-y: auto;
-  overflow-wrap: anywhere;
-  overscroll-behavior: contain;
-}
+  .ui-side-panel {
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overflow-wrap: anywhere;
+    overscroll-behavior: contain;
+  }
 
-.ui-side-panel > * {
-  min-width: 0;
-  max-width: 100%;
-}
+  .ui-side-panel > * {
+    min-width: 0;
+    max-width: 100%;
+  }
 
-.ui-status-badge {
-  display: inline-flex;
-  min-height: 28px;
-  align-items: center;
-  gap: 6px;
-  border-radius: 999px;
-  padding: 4px 9px;
-  font-weight: 700;
-  font-size: 12px;
-  white-space: nowrap;
-}
+  .ui-status-badge {
+    display: inline-flex;
+    min-height: 28px;
+    align-items: center;
+    gap: 6px;
+    border-radius: 999px;
+    padding: 4px 9px;
+    font-weight: 700;
+    font-size: 12px;
+    white-space: nowrap;
+  }
 
-.ui-status-badge[data-tone="success"] {
-  background: #ecfdf3;
-  color: #15803d;
-}
+  .ui-status-badge[data-tone="success"] {
+    background: #ecfdf3;
+    color: #15803d;
+  }
 
-.ui-status-badge[data-tone="warning"] {
-  background: #fffbeb;
-  color: #a16207;
-}
+  .ui-status-badge[data-tone="warning"] {
+    background: #fffbeb;
+    color: #a16207;
+  }
 
-.ui-status-badge[data-tone="danger"] {
-  background: #fff1f2;
-  color: #be123c;
-}
+  .ui-status-badge[data-tone="danger"] {
+    background: #fff1f2;
+    color: #be123c;
+  }
 
-.ui-status-badge[data-tone="neutral"] {
-  background: #f1f5f9;
-  color: #475569;
-}
+  .ui-status-badge[data-tone="neutral"] {
+    background: #f1f5f9;
+    color: #475569;
+  }
 
-.ui-status-badge[data-tone="info"] {
-  background: var(--primary-soft);
-  color: var(--primary);
-}
+  .ui-status-badge[data-tone="info"] {
+    background: var(--primary-soft);
+    color: var(--primary);
+  }
 
-.ui-feedback-state {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-card);
-  background: #f1f5f9;
-  color: var(--muted);
-  padding: 14px;
-}
+  .ui-feedback-state {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+    background: #f1f5f9;
+    color: var(--muted);
+    padding: 14px;
+  }
 
-.ui-feedback-state[data-tone="neutral"] {
-  background: #f1f5f9;
-}
+  .ui-feedback-state[data-tone="neutral"] {
+    background: #f1f5f9;
+  }
 
-.ui-feedback-state > div {
-  display: grid;
-  gap: 6px;
-}
+  .ui-feedback-state > div {
+    display: grid;
+    gap: 6px;
+  }
 
-.ui-feedback-state p {
-  margin: 0;
-  color: inherit;
-  line-height: 1.55;
-}
+  .ui-feedback-state p {
+    margin: 0;
+    color: inherit;
+    line-height: 1.55;
+  }
 
-.ui-feedback-state[data-tone="info"] {
-  border-color: #cfe0f5;
-  background: #e9f2ff;
-  color: #0b63e5;
-}
+  .ui-feedback-state[data-tone="info"] {
+    border-color: #cfe0f5;
+    background: #e9f2ff;
+    color: #0b63e5;
+  }
 
-.ui-feedback-state[data-tone="success"] {
-  border-color: #bbf7d0;
-  background: #ecfdf3;
-  color: #166534;
-}
+  .ui-feedback-state[data-tone="success"] {
+    border-color: #bbf7d0;
+    background: #ecfdf3;
+    color: #166534;
+  }
 
-.ui-feedback-state[data-tone="warning"] {
-  border-color: #fed7aa;
-  background: #fff7e6;
-  color: #92400e;
-}
+  .ui-feedback-state[data-tone="warning"] {
+    border-color: #fed7aa;
+    background: #fff7e6;
+    color: #92400e;
+  }
 
-.ui-feedback-state[data-tone="danger"] {
-  border-color: #fecaca;
-  background: #fff1f2;
-  color: #991b1b;
-}
+  .ui-feedback-state[data-tone="danger"] {
+    border-color: #fecaca;
+    background: #fff1f2;
+    color: #991b1b;
+  }
 
-.ui-progress-steps {
-  display: flex;
-  gap: 12px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
+  .ui-progress-steps {
+    display: flex;
+    gap: 12px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
 
-.ui-progress-steps li {
-  display: grid;
-  grid-template-columns: 28px minmax(0, 1fr);
-  align-items: start;
-  gap: 8px;
-  min-width: 0;
-  color: var(--muted);
-}
+  .ui-progress-steps li {
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr);
+    align-items: start;
+    gap: 8px;
+    min-width: 0;
+    color: var(--muted);
+  }
 
-.ui-progress-index {
-  display: inline-grid;
-  width: 28px;
-  height: 28px;
-  place-items: center;
-  border: 2px solid #cbd5e1;
-  border-radius: 50%;
-  background: var(--panel);
-  color: inherit;
-  font-size: 12px;
-  font-weight: 800;
-}
+  .ui-progress-index {
+    display: inline-grid;
+    width: 28px;
+    height: 28px;
+    place-items: center;
+    border: 2px solid #cbd5e1;
+    border-radius: 50%;
+    background: var(--panel);
+    color: inherit;
+    font-size: 12px;
+    font-weight: 800;
+  }
 
-.ui-progress-steps strong,
-.ui-progress-steps small {
-  display: block;
-}
+  .ui-progress-steps strong,
+  .ui-progress-steps small {
+    display: block;
+  }
 
-.ui-progress-state {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-top: 2px;
-  color: inherit;
-  font-size: 12px;
-  font-weight: 700;
-}
+  .ui-progress-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 2px;
+    color: inherit;
+    font-size: 12px;
+    font-weight: 700;
+  }
 
-.ui-progress-steps small {
-  margin-top: 2px;
-  color: var(--muted);
-}
+  .ui-progress-steps small {
+    margin-top: 2px;
+    color: var(--muted);
+  }
 
-.ui-progress-steps li[data-state="complete"],
-.ui-progress-steps li[data-state="current"] {
-  color: var(--primary);
-}
+  .ui-progress-steps li[data-state="complete"],
+  .ui-progress-steps li[data-state="current"] {
+    color: var(--primary);
+  }
 
-.ui-progress-steps li[data-state="complete"] .ui-progress-index,
-.ui-progress-steps li[data-state="current"] .ui-progress-index {
-  border-color: var(--primary);
-  background: var(--primary);
-  color: #fff;
-}
+  .ui-progress-steps li[data-state="complete"] .ui-progress-index,
+  .ui-progress-steps li[data-state="current"] .ui-progress-index {
+    border-color: var(--primary);
+    background: var(--primary);
+    color: #fff;
+  }
 
-.ui-progress-steps li[data-state="error"] {
-  color: var(--danger);
-}
+  .ui-progress-steps li[data-state="error"] {
+    color: var(--danger);
+  }
 
-.ui-progress-steps li[data-state="error"] .ui-progress-index {
-  border-color: var(--danger);
-  background: #fff1f2;
-}
+  .ui-progress-steps li[data-state="error"] .ui-progress-index {
+    border-color: var(--danger);
+    background: #fff1f2;
+  }
 
-.ui-metric-card strong {
-  font-variant-numeric: tabular-nums;
+  .ui-metric-card strong {
+    font-variant-numeric: tabular-nums;
+  }
 }
 
 * {
@@ -281,12 +284,6 @@ body {
   margin: 0;
   min-width: 320px;
   background: var(--surface);
-}
-
-button,
-input,
-select {
-  font: inherit;
 }
 
 button {
@@ -745,67 +742,70 @@ button {
   gap: 8px;
 }
 
-.ui-icon-tooltip {
-  position: relative;
-  display: inline-flex;
-  flex: 0 0 auto;
-}
+/* Tooltip 호환 규칙도 caller utility가 덮어쓸 수 있는 component 계층에 둔다. */
+@layer components {
+  .ui-icon-tooltip {
+    position: relative;
+    display: inline-flex;
+    flex: 0 0 auto;
+  }
 
-.ui-icon-tooltip-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 52px;
-  min-width: 52px;
-  height: 52px;
-  min-height: 52px;
-  border: 0;
-  border-radius: 12px;
-  background: transparent;
-  color: var(--primary);
-  padding: 0;
-  cursor: pointer;
-}
+  .ui-icon-tooltip-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 52px;
+    min-width: 52px;
+    height: 52px;
+    min-height: 52px;
+    border: 0;
+    border-radius: 12px;
+    background: transparent;
+    color: var(--primary);
+    padding: 0;
+    cursor: pointer;
+  }
 
-.ui-icon-tooltip-button:is(:hover, :focus-visible) {
-  background: var(--primary-soft);
-}
+  .ui-icon-tooltip-button:is(:hover, :focus-visible) {
+    background: var(--primary-soft);
+  }
 
-.ui-icon-tooltip-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
-}
+  .ui-icon-tooltip-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
 
-.ui-icon-tooltip-button[aria-busy="true"] {
-  cursor: wait;
-}
+  .ui-icon-tooltip-button[aria-busy="true"] {
+    cursor: wait;
+  }
 
-.ui-icon-tooltip-label {
-  position: absolute;
-  z-index: 60;
-  top: calc(100% + 8px);
-  left: 50%;
-  max-width: calc(100vw - 24px);
-  border-radius: 8px;
-  background: #172033;
-  color: #ffffff;
-  padding: 6px 9px;
-  box-shadow: var(--shadow-popover);
-  font-size: 12px;
-  font-weight: 800;
-  line-height: 1.2;
-  pointer-events: auto;
-  transform: translateX(-50%);
-  white-space: nowrap;
-}
+  .ui-icon-tooltip-label {
+    position: absolute;
+    z-index: 60;
+    top: calc(100% + 8px);
+    left: 50%;
+    max-width: calc(100vw - 24px);
+    border-radius: 8px;
+    background: #172033;
+    color: #ffffff;
+    padding: 6px 9px;
+    box-shadow: var(--shadow-popover);
+    font-size: 12px;
+    font-weight: 800;
+    line-height: 1.2;
+    pointer-events: auto;
+    transform: translateX(-50%);
+    white-space: nowrap;
+  }
 
-.ui-icon-tooltip-label::before {
-  position: absolute;
-  right: 0;
-  bottom: 100%;
-  left: 0;
-  height: 8px;
-  content: "";
+  .ui-icon-tooltip-label::before {
+    position: absolute;
+    right: 0;
+    bottom: 100%;
+    left: 0;
+    height: 8px;
+    content: "";
+  }
 }
 
 :is(.topbar-actions, .operator-header-actions) .ui-icon-tooltip-label {
@@ -1871,63 +1871,66 @@ button {
   max-width: 100%;
 }
 
-.ui-underline-navigation {
-  align-self: start;
-  width: 100%;
-  min-width: 0;
-  max-width: 100%;
-  overflow-x: auto;
-  border-bottom: 1px solid var(--border);
-  scrollbar-width: thin;
-}
+/* 공통 navigation의 기본 규칙은 feature별 legacy selector와 분리한다. */
+@layer components {
+  .ui-underline-navigation {
+    align-self: start;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: auto;
+    border-bottom: 1px solid var(--border);
+    scrollbar-width: thin;
+  }
 
-.ui-underline-navigation-track {
-  display: flex;
-  width: max-content;
-  min-width: 100%;
-  gap: var(--space-2);
-}
+  .ui-underline-navigation-track {
+    display: flex;
+    width: max-content;
+    min-width: 100%;
+    gap: var(--space-2);
+  }
 
-.ui-underline-navigation-item {
-  display: inline-flex;
-  flex: 0 0 auto;
-  min-height: 44px;
-  align-items: center;
-  justify-content: center;
-  appearance: none;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  border-radius: 0;
-  background: transparent;
-  padding: 0 var(--space-3);
-  color: var(--muted);
-  font: inherit;
-  font-size: 14px;
-  font-weight: 700;
-  text-decoration: none;
-  white-space: nowrap;
-  cursor: pointer;
-}
+  .ui-underline-navigation-item {
+    display: inline-flex;
+    flex: 0 0 auto;
+    min-height: 44px;
+    align-items: center;
+    justify-content: center;
+    appearance: none;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    background: transparent;
+    padding: 0 var(--space-3);
+    color: var(--muted);
+    font: inherit;
+    font-size: 14px;
+    font-weight: 700;
+    text-decoration: none;
+    white-space: nowrap;
+    cursor: pointer;
+  }
 
-.ui-underline-navigation-item:is(.active, [aria-current="page"], [aria-selected="true"]) {
-  border-bottom-color: var(--primary);
-  color: var(--primary);
-}
+  .ui-underline-navigation-item:is(.active, [aria-current="page"], [aria-selected="true"]) {
+    border-bottom-color: var(--primary);
+    color: var(--primary);
+  }
 
-.ui-underline-navigation-item:focus-visible {
-  box-shadow: inset var(--focus-ring);
-}
+  .ui-underline-navigation-item:focus-visible {
+    box-shadow: inset var(--focus-ring);
+  }
 
-.ui-underline-navigation-label {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-}
+  .ui-underline-navigation-label {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+  }
 
-.ui-underline-navigation-icon {
-  display: inline-flex;
-  flex: 0 0 auto;
+  .ui-underline-navigation-icon {
+    display: inline-flex;
+    flex: 0 0 auto;
+  }
 }
 
 .settings-screen .ui-page-header,

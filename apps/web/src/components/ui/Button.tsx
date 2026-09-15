@@ -55,7 +55,10 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
         type: "press", target: event.currentTarget,
         pointerType: origin.key ? "keyboard" : origin.pointerType ?? (event.detail === 0 ? "virtual" : "mouse"),
         key: origin.key, shiftKey: event.shiftKey, ctrlKey: event.ctrlKey, metaKey: event.metaKey, altKey: event.altKey,
-        x: event.clientX - bounds.left, y: event.clientY - bounds.top,
+        // Keyboard-generated clicks have zero viewport coordinates. A press
+        // without a physical pointer is located at the control's center.
+        x: origin.key || (!origin.pointerType && event.detail === 0) ? bounds.width / 2 : event.clientX - bounds.left,
+        y: origin.key || (!origin.pointerType && event.detail === 0) ? bounds.height / 2 : event.clientY - bounds.top,
         continuePropagation: () => { propagate = true; }
       });
       if (!propagate) event.stopPropagation();

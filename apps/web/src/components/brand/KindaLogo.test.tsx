@@ -4,6 +4,7 @@ import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { KindaLogo } from "./KindaLogo";
 import { Button, StatusBadge } from "../ui";
+import { prepareLegacyStylesheetForJsdom } from "../../test/legacy-stylesheet";
 
 describe("KindaLogo", () => {
   it("마크와 한글 브랜드명을 하나의 접근성 이름으로 조합한다", () => {
@@ -24,7 +25,7 @@ describe("KindaLogo", () => {
 
   it("주요 버튼은 브랜드 Blue를 사용하고 상태 badge의 의미색을 보존한다", () => {
     const source = readFileSync("src/styles/theme.css", "utf8").replace("@theme static", ":root")
-      + readFileSync("src/styles.css", "utf8").replace(/@import\s+[^;]+;/g, "");
+      + prepareLegacyStylesheetForJsdom(readFileSync("src/styles.css", "utf8"));
     const variables = new Map(Array.from(source.matchAll(/(--[\w-]+):\s*([^;]+);/g), ([, name, value]) => [name, value.trim()]));
     // JSDOM의 custom property 계산 한계를 보완하되 기대 색상은 실제 컴포넌트의
     // 계산된 스타일에서 확인한다. 선언 순서나 alias의 중간 이름에는 의존하지 않는다.
