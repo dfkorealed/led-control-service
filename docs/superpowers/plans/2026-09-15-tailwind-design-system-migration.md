@@ -204,6 +204,8 @@ git commit -m "feat(web): add Tailwind design token foundation"
 
 **Task 1 검증 결과(2026-09-15):** 정책 missing-module RED 후 15/15 GREEN, Web unit 77 files·888/888, typecheck·build·ui:check와 frozen offline install exit 0. 구현 이전 `d0fe85ee` inventory 2,396건에서 제거된 16건을 차감해 baseline 35 files·2,380건, 신규 위반 0건이다. 실제 Vite 메모리 fixture에서 semantic·spacing·typography·`max-compact` CSS 생성과 test fixture 제외를 검증했고 1440/1024/390/320 통계 responsive Chromium 4/4를 통과했다. 기존 테스트 두 파일만 canonical theme와 실제 계산된 스타일 검증으로 보정했으며 production feature/API는 변경하지 않았다. 전체 E2E·전체 메뉴 migration·HIL은 미실행이며 다음 단계는 Task 2다.
 
+> **Task 1 Fix Round 1(2026-09-16):** 27/27 정책 회귀(실제 Vite compile 포함), Web 888/888, typecheck/build/ui:check를 통과했다. `p-px`·정적 spacing/font 계산·line-height slash·미승인 token/breakpoint, semantic var 오탐/JSX literal 누락, query receiver/selector allowance 상쇄와 import suffix/optional call/comment를 보정했다. 신뢰 anchor `24b5ea59` Git source로 재계산한 baseline은 35 files·2,344건, 신규 위반 0건이다. sourceRef와 allowance의 Git 검증도 추가했다. 기존 2,380건 대비 오탐 42건 제거와 기존 계산식 6건 신규 분류이며 production feature 파일은 변경하지 않았다. 독립 재검토 후 Task 2로 진행한다.
+
 ### Task 2: class utility, typography와 기존 기본 primitive 전환
 
 **Owner:** `서비스 UI 개선`
@@ -1111,6 +1113,8 @@ git commit -m "refactor(web): migrate shell auth and operator UI"
 ```
 
 ### Task 12: legacy CSS 제거, zero-baseline과 전체 회귀 검증
+
+- [ ] **정책 CI 연결:** `ui:check`와 `test:ui-policy`를 canonical Web/CI 검증에 연결한다. CI checkout에서 정책의 신뢰 Git commit object를 확보하고, 누락을 skip하지 않고 fail-closed하는지 확인한다.
 
 **Owner:** `서비스 UI 개선`이 CSS를 정리하고, 총괄이 최종 검증·통합한다.
 

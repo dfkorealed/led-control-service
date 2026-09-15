@@ -1,6 +1,6 @@
 # UI 간격 규칙
 
-기준일: 2026-09-15
+기준일: 2026-09-16
 
 ## 목적과 적용 범위
 
@@ -73,7 +73,13 @@ pnpm --filter @led-control/web build
 
 차단 항목은 arbitrary spacing/color/typography, 미승인 숫자 spacing과 기본 palette/typography utility, CSS·inline 정적 spacing/typography와 literal color, production `querySelector`/`querySelectorAll`(TypeScript generic 포함), 미승인 CSS 파일/import/selector, 공통 UI 밖의 신규 native form style이다. 검사기는 정적 문자열을 읽는 lexical guard이므로 동적 클래스 조합·전체 JS/CSS 의미 해석과 런타임 geometry의 타당성은 코드 검토로 보완한다.
 
-baseline은 구현 이전 `d0fe85ee`의 Git 소스로 2,396건을 inventory한 뒤 이번 alias 전환으로 없어진 16건을 차감한 **35개 파일 2,380건**이다. 파일·규칙별 총량과 정확한 위반 문자열별 개수가 증가하면 exit 1이다. 다른 신규 위반으로 기존 allowance를 대체할 수 없으며 신규 파일의 allowance는 0이다. 규칙별 잔량은 selector 1,129, literal spacing 527, raw color 361, literal typography 230, raw form style 116, DOM query 8, CSS import 5, CSS file 4다. 후속 migration은 감소한 allowance를 함께 줄이고 자동 baseline 증가 명령은 제공하지 않는다. 기존 일반 CSS 4개와 `App.tsx`의 기존 CSS import도 이 부채에 포함돼 있다.
+baseline은 Task 1 최초 2,380건에서 Fix Round 1의 검사 정확도 보정 후 **35개 파일 2,344건**이다. 승인된 구현 커밋 `24b5ea593e860575f7bf1007781146cf1101beb7`의 production 소스로 다시 계산했다. border-side를 위치 간격으로 읽던 오탐 38건과 semantic 변수 이름의 색상 오탐 4건을 제거하고, 기존 정적 spacing 계산 3건과 typography 계산 3건을 새로 탐지했다. production 소스를 바꿔 줄인 수치는 아니다. 규칙별 잔량은 selector 1,129, literal spacing 492, raw color 357, literal typography 233, raw form style 116, DOM query 8, CSS import 5, CSS file 4다.
+
+파일·규칙 총량과 정확한 match별 개수가 증가하면 exit 1이다. DOM query match는 receiver와 중첩/template selector 인자를 포함한 전체 호출로 정규화하므로 receiver/selector를 바꾼 신규 query로 allowance를 대체할 수 없다. 신규 파일 allowance는 0이다. baseline의 `sourceRef`는 scanner에 고정된 위 승인 Git commit과 일치해야 하고, 각 allowance는 해당 Git source를 현재 scanner로 재계산한 상한 이하여야 한다. sourceRef·baseline만 고쳐 새 위반을 승인할 수 없다. Git object가 없거나 allowance가 변조되면 fail-closed한다. 후속 migration은 감소한 allowance를 함께 줄이며 신뢰 commit 변경은 별도 정책 코드 검토 대상이다. Git 기반 검사이므로 CI checkout에는 승인 commit object가 필요하다.
+
+`p-px`와 정적 `calc`/`clamp` 간격, semantic typography의 `/7`·`/[17px]`·변수 line-height modifier, 계산식 안의 literal font-size를 거부한다. 측정/percentage/viewport를 사용하는 runtime position은 별도 예외이며 일반 padding/margin/gap에 임의 간격을 더하는 수단으로 쓰지 않는다. 허용 token 이름은 승인 commit의 canonical `theme.css`에서 읽는다. 신규 `--text-rogue`, `bg-surface-pannel` 같은 오타와 `max-[777px]:*` 같은 임의 breakpoint는 정책 오류다. CSS import의 query/hash suffix도 원본 resource ID 기준으로 검사한다.
+
+주석 처리는 기존 TypeScript parser의 실제 trivia 위치를 사용해 trailing/JSX comment를 제거하고 URL·문자열·template 내용을 보존한다. CSS는 문자열을 인식하는 comment scan을 사용한다. `test:ui-policy`에는 실제 Vite 메모리 빌드의 semantic/spacing/typography/`max-compact` 생성 및 test fixture 클래스 제외 검증이 포함된다. standalone 두 정책 command의 CI 연결은 Task 12 체크리스트에서 완료한다.
 
 - 1440×900, 1024×768, 390×844, 320×740 뷰포트에서 계산된 section gap, grid gap, panel padding을 확인한다.
 - 상태 badge가 absolute positioning으로 빈 영역을 예약하지 않는지 확인한다.

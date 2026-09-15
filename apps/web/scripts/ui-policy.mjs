@@ -1,6 +1,17 @@
 import { readFile, readdir } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import ts from "typescript";
+import { execFileSync } from "node:child_process";
+
+// Updating this reviewed trust anchor is a policy change, never a baseline edit.
+const approvedSourceRef = "24b5ea593e860575f7bf1007781146cf1101beb7";
+const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+function approvedSource(path) {
+  return execFileSync("git", ["show", `${approvedSourceRef}:apps/web/${path}`], { cwd: webRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+}
+const themeTokens = new Set([...approvedSource("src/styles/theme.css").matchAll(/(--[\w-]+)\s*:/g)].map(match => match[1]));
+const themeResets = new Set(["--color-*", "--text-*", "--radius-*", "--shadow-*", "--breakpoint-*"]);
 
 const spacing = new Set(["0", "0.5", "1", "1.5", "2", "2.5", "3", "3.5", "4", "4.5", "5", "6", "7", "8", "10", "12", "16"]);
 const approvedCss = new Set(["src/styles.css", "src/styles/theme.css", "src/styles/base.css", "src/styles/exceptions.css"]);
@@ -9,6 +20,88 @@ const testPath = /(?:^|\/)(?:test|tests|__tests__|e2e)(?:\/|$)|\.(?:test|spec)\.
 const colorLiteral = /#[\da-f]{3,8}\b|\b(?:rgba?|hsla?|oklch|oklab|lch|lab|color)\([^;{}]*?\)/gi;
 const namedColors = new Set(("aliceblue antiquewhite aqua aquamarine azure beige bisque black blanchedalmond blue blueviolet brown burlywood cadetblue chartreuse chocolate coral cornflowerblue cornsilk crimson cyan darkblue darkcyan darkgoldenrod darkgray darkgreen darkgrey darkkhaki darkmagenta darkolivegreen darkorange darkorchid darkred darksalmon darkseagreen darkslateblue darkslategray darkslategrey darkturquoise darkviolet deeppink deepskyblue dimgray dimgrey dodgerblue firebrick floralwhite forestgreen fuchsia gainsboro ghostwhite gold goldenrod gray green greenyellow grey honeydew hotpink indianred indigo ivory khaki lavender lavenderblush lawngreen lemonchiffon lightblue lightcoral lightcyan lightgoldenrodyellow lightgray lightgreen lightgrey lightpink lightsalmon lightseagreen lightskyblue lightslategray lightslategrey lightsteelblue lightyellow lime limegreen linen magenta maroon mediumaquamarine mediumblue mediumorchid mediumpurple mediumseagreen mediumslateblue mediumspringgreen mediumturquoise mediumvioletred midnightblue mintcream mistyrose moccasin navajowhite navy oldlace olive olivedrab orange orangered orchid palegoldenrod palegreen paleturquoise palevioletred papayawhip peachpuff peru pink plum powderblue purple rebeccapurple red rosybrown royalblue saddlebrown salmon sandybrown seagreen seashell sienna silver skyblue slateblue slategray slategrey snow springgreen steelblue tan teal thistle tomato turquoise violet wheat white whitesmoke yellow yellowgreen").split(" "));
 
+// CSS functions and quoted React style values may contain commas; only a
+// delimiter outside them ends the value. This preserves the complete debt match.
+function styleValue(source, start) {
+  let depth = 0;
+  let quote = "";
+  let end = start;
+  for (; end < source.length; end++) {
+    const char = source[end];
+    if (quote) {
+      if (char === "\\") end++;
+      else if (char === quote) quote = "";
+    } else if (char === '"' || char === "'") quote = char;
+    else if (char === "(") depth++;
+    else if (char === ")") depth--;
+    else if (depth === 0 && /[;,\n}]/.test(char)) break;
+  }
+  return source.slice(start, end).trim();
+}
+
+function parseScript(source, path) {
+  return ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+}
+
+function maskComments(source, path) {
+  const spans = new Map();
+  const literals = [];
+  if (path.endsWith(".css")) {
+    let quote = "";
+    for (let index = 0; index < source.length; index++) {
+      const char = source[index];
+      if (quote) {
+        if (char === "\\") index++;
+        else if (char === quote) quote = "";
+      } else if (char === '"' || char === "'") quote = char;
+      else if (source.startsWith("/*", index)) {
+        const close = source.indexOf("*/", index + 2);
+        const end = close < 0 ? source.length : close + 2;
+        spans.set(index, end);
+        index = end - 1;
+      }
+    }
+  } else {
+    const file = parseScript(source, path);
+    const collect = position => {
+      for (const range of [...ts.getLeadingCommentRanges(source, position) ?? [], ...ts.getTrailingCommentRanges(source, position) ?? []]) spans.set(range.pos, range.end);
+    };
+    function visit(node) {
+      if (ts.isStringLiteral(node) || [ts.SyntaxKind.NoSubstitutionTemplateLiteral, ts.SyntaxKind.TemplateHead, ts.SyntaxKind.TemplateMiddle, ts.SyntaxKind.TemplateTail, ts.SyntaxKind.RegularExpressionLiteral, ts.SyntaxKind.JsxText, ts.SyntaxKind.JsxTextAllWhiteSpaces].includes(node.kind)) literals.push([node.getStart(file), node.end]);
+      // JSX text is literal content even when it begins with // or /*.
+      if (node.kind === ts.SyntaxKind.JsxText || node.kind === ts.SyntaxKind.JsxTextAllWhiteSpaces) return;
+      collect(node.pos);
+      collect(node.end);
+      for (const child of node.getChildren(file)) visit(child);
+    }
+    visit(file);
+  }
+  let masked = source;
+  for (const [start, end] of spans) {
+    // A parent's trailing trivia query can see the next JSX text as a comment;
+    // syntax-owned literal ranges override that ambiguous lexical candidate.
+    if (!literals.some(([from, to]) => start >= from && start < to)) masked = masked.slice(0, start) + source.slice(start, end).replace(/[^\r\n]/g, " ") + masked.slice(end);
+  }
+  return masked;
+}
+
+function queryFingerprints(source, path) {
+  // TypeScript is already the app's compiler dependency. Its existing parser
+  // preserves nested/template selector arguments without a second parser package.
+  const file = parseScript(source, path);
+  const printer = ts.createPrinter({ removeComments: true });
+  const calls = new Map();
+  function visit(node) {
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
+      && /^(?:querySelector|querySelectorAll)$/.test(node.expression.name.text)) {
+      calls.set(node.expression.name.getStart(file), printer.printNode(ts.EmitHint.Expression, node, file));
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(file);
+  return calls;
+}
+
 /** A lexical migration guard, not a CSS/JS type checker. Exact debt matches keep
  * a removed legacy violation from silently authorizing a different new one. */
 export function inspectUiSource(path, source) {
@@ -16,19 +109,36 @@ export function inspectUiSource(path, source) {
   if (testPath.test(path)) return [];
   const violations = [];
   const add = (rule, match, index = 0) => violations.push({ rule, path, match, index });
-  let text = source.replace(/\/\*[\s\S]*?\*\//g, value => " ".repeat(value.length))
-    .replace(/^\s*\/\/[^\n]*/gm, value => " ".repeat(value.length));
+  let text = maskComments(source, path);
   // Only declarations inside the canonical @theme block own raw palette and
   // typed scale values. Ordinary rules in this file still pass through policy.
   if (path === "src/styles/theme.css") {
-    text = text.replace(/@theme(?:\s+static)?\s*\{[^{}]*\}/g, block => block.replace(
-      /--(?:color-(?:(?:brand|surface|content|border|action|status|chart|fixture)-[\w-]+|\*)|text-[\w*-]+|radius-[\w*-]+|shadow-[\w*-]+|breakpoint-[\w*-]+|spacing)\s*:[^;]+;/g,
-      value => " ".repeat(value.length)
+    text = text.replace(/@theme(?:\s+static)?\s*\{[^{}]*\}/g, (block, blockIndex) => block.replace(
+      /(--[\w*-]+)\s*:[^;]+;/g,
+      (value, name, offset) => {
+        if (themeTokens.has(name) || themeResets.has(name)) return " ".repeat(value.length);
+        add("unapproved-theme-token", name, blockIndex + offset);
+        return value;
+      }
     ));
   }
   const scan = (regex, callback) => { for (const match of text.matchAll(regex)) callback(match); };
+  scan(/(?<![\w-])(?:(?:max-|min-)\[[^\]\n]+\]|(?:max-|min-)?(?:sm|md|lg|xl|2xl|compact|tablet)):/g, m => {
+    const name = m[0].replace(/^(?:max-|min-)/, "").slice(0, -1);
+    if (!themeTokens.has(`--breakpoint-${name}`)) add("unapproved-breakpoint", m[0], m.index);
+  });
+  scan(/(?<![\w-])(?:bg|text|border(?:-[trblxyse])?|ring(?:-offset)?|outline|fill|stroke|decoration|accent|caret|from|via|to)-((?:brand|surface|content|border|action|status|chart|fixture)-[\w-]+)/g, m => {
+    if (!themeTokens.has(`--color-${m[1]}`)) add("unapproved-color", m[0], m.index);
+  });
+  scan(/(?<![\w-])text-([a-z][\w-]*)(?![\w-]|\s*:)/g, m => {
+    if (!themeTokens.has(`--text-${m[1]}`) && !/^(?:brand|surface|content|border|action|status|chart|fixture|red|blue|green|gray|slate|zinc|neutral|stone|amber|orange|yellow|purple|pink|rose|indigo|cyan|teal|emerald|lime|sky|violet|fuchsia)-/.test(m[1]) && !/^(?:xs|sm|base|lg|xl|black|white|left|right|center|start|end|justify|wrap|nowrap|balance|pretty|ellipsis|clip)$/.test(m[1])) add("unapproved-typography", m[0], m.index);
+  });
+  scan(/(?<![\w-])(rounded|shadow)-([a-z][\w-]*)/g, m => {
+    if (m[2] !== "none" && !themeTokens.has(`--${m[1] === "rounded" ? "radius" : "shadow"}-${m[2]}`)) add("unapproved-theme-utility", m[0], m.index);
+  });
   const spacePrefix = "(?:p[trblxyse]?|m[trblxyse]?|gap(?:-[xy])?|space-[xy]|inset(?:-[xy])?|top|right|bottom|left|start|end|scroll-[pm][trblxyse]?)";
   scan(new RegExp(`(?<![\\w-])-?${spacePrefix}-(?:\\[[^\\]\\n]+\\]|\\([^\\)\\n]+\\))`, "g"), m => add("arbitrary-spacing", m[0], m.index));
+  scan(new RegExp(`(?<![\\w-])-?${spacePrefix}-px(?![\\w-])`, "g"), m => add("unapproved-spacing", m[0], m.index));
   scan(new RegExp(`(?<![\\w-])-?${spacePrefix}-(\\d+(?:\\.\\d+)?)(?![\\w.])(?:\\/\\d+)?`, "g"), m => {
     const fraction = m[0].includes("/");
     const geometryFraction = /^-?(?:inset(?:-[xy])?|top|right|bottom|left|start|end)-/.test(m[0]);
@@ -41,10 +151,18 @@ export function inspectUiSource(path, source) {
   });
   scan(/(?<![\w-])(?:text-(?:xs|sm|base|lg|xl|\d+xl)|leading-(?:\d+(?:\.\d+)?|none|tight|snug|normal|relaxed|loose)|tracking-(?:tighter|tight|normal|wide|wider|widest))(?![\w-])/g, m => add("unapproved-typography", m[0], m.index));
   scan(/(?<![\w-])(?:leading|tracking)-(?:\[[^\]\n]+\]|\([^\)\n]+\))/g, m => add("arbitrary-typography", m[0], m.index));
+  // Each semantic text size owns its paired line height; no slash override is
+  // approved. Color opacity modifiers such as text-content-primary/70 differ.
+  scan(/(?<![\w-])text-(?:display|page-title|section-title|card-title|body-lg|body-sm|body|label|caption|overline|metric)\/(?:\[[^\]\n]+\]|\([^\)\n]+\)|[^\s"'<>}]+)/g, m => add("unapproved-typography", m[0], m.index));
   scan(/(?<![\w-])(?:bg|text|border|ring|outline|fill|stroke|decoration|accent|caret|from|via|to)-(?:[a-z]+-\d{2,3}|black|white)(?![\w-])/g, m => add("unapproved-color", m[0], m.index));
-  scan(/\b(?:querySelector|querySelectorAll)\s*(?:<[^;\n]+?>\s*)?\(/g, m => add("query-selector", m[0], m.index));
+  let queries;
+  scan(/\b(?:querySelector|querySelectorAll)\s*(?:\?\.\s*)?(?:<[^;\n]+?>\s*)?\(/g, m => {
+    queries ??= queryFingerprints(text, path);
+    // A match in incomplete/invalid source must not inherit a short allowance.
+    add("query-selector", queries.get(m.index) ?? text.slice(m.index).split("\n")[0], m.index);
+  });
   scan(/(?:@import\s+(?:url\(\s*)?|\bimport\s*(?:\(\s*)?|\bfrom\s*)["']([^"']+)["']/g, m => {
-    if (!m[1].endsWith(".css") && !m[0].startsWith("@import")) return;
+    if (!m[1].split(/[?#]/, 1)[0].endsWith(".css") && !m[0].startsWith("@import")) return;
     const allowed = path === "src/styles.css" && entryImports.has(m[1]) || path === "src/main.tsx" && m[1] === "./styles.css";
     if (!allowed) add("css-import", m[1], m.index);
   });
@@ -54,21 +172,34 @@ export function inspectUiSource(path, source) {
   if (!path.startsWith("src/components/ui/")) {
     scan(/<(?:input|select|textarea|button)\b[^>]*?\b(?:className|style)\s*=/g, m => add("raw-form-style", m[0].replace(/\s+/g, " "), m.index));
   }
-  scan(/\b(padding(?:-[\w]+|[A-Z]\w*)?|margin(?:-[\w]+|[A-Z]\w*)?|gap|row-gap|column-gap|rowGap|columnGap|top|right|bottom|left|inset)\s*:\s*([^;,\n}]+)/g, m => {
-    const value = m[2].split(/,(?![^()]*\))/)[0];
+  scan(/(?<![\w-])((?:scroll-)?padding(?:-[\w]+|[A-Z]\w*)?|(?:scroll-)?margin(?:-[\w]+|[A-Z]\w*)?|gap|row-gap|column-gap|rowGap|columnGap|top|right|bottom|left|inset)\s*:\s*/g, m => {
+    const value = styleValue(text, m.index + m[0].length);
     if (/(?:\d*\.)?\d+(?:px|rem)\b/.test(value) || /^\s*["']?-?(?!0(?:\s|["']|$))\d+(?:\.\d+)?\s*(?:["']|$)/.test(value)) {
-      // Percentage, viewport and runtime calc()/var() geometry are separately
-      // reviewed exceptions; they do not authorize literal static spacing.
-      if (!/^(?:calc|clamp|var)\(/.test(value.trim())) add("literal-spacing", `${m[1]}: ${value.trim()}`, m.index);
+      // Only runtime position calculations receive the geometry exception.
+      // Static calc()/clamp() and padding/margin/gap cannot add off-scale values.
+      const position = /^(?:top|right|bottom|left|inset)$/.test(m[1]);
+      if (!(position && /var\(--|\d(?:%|(?:[sdl]?v[whib]))/.test(value))) add("literal-spacing", `${m[1]}: ${value}`, m.index);
     }
   });
-  scan(/\b(font-size|fontSize|line-height|lineHeight|letter-spacing|letterSpacing)\s*:\s*([^;,\n}]+)/g, m => {
-    const value = m[2].split(/,(?![^()]*\))/)[0].trim();
-    if (/^['"]?-?(?:\d|\.\d)/.test(value) && !/^['"]?0['"]?$/.test(value)) add("literal-typography", `${m[1]}: ${value}`, m.index);
+  scan(/\b(font-size|fontSize|line-height|lineHeight|letter-spacing|letterSpacing)\s*:\s*/g, m => {
+    const value = styleValue(text, m.index + m[0].length);
+    if ((/^['"]?-?(?:\d|\.\d)/.test(value) && !/^['"]?0['"]?$/.test(value)) || /\d(?:px|rem|em)\b/.test(value)) add("literal-typography", `${m[1]}: ${value}`, m.index);
   });
-  scan(/\b(?:color|background(?:-color|Color)?|border(?:-[\w]+|[A-Z]\w*)?|fill|stroke|outline(?:-color|Color)?)\s*[:=]\s*["']?([^;\n}"']+)/g, m => {
-    for (const word of m[1].matchAll(/\b[a-z]+\b/gi)) if (namedColors.has(word[0].toLowerCase())) add("raw-color", word[0], m.index + word.index);
-  });
+  const colorProperty = "(?:color|background(?:-color|Color)?|border(?:-[\\w]+|[A-Z]\\w*)?|fill|stroke|outline(?:-color|Color)?)";
+  const inspectNamedColors = (value, index) => {
+    // CSS custom properties are one identifier, not separate color words.
+    // Fallback values in var(--token, red) remain subject to the color policy.
+    for (const word of value.matchAll(/--[\w-]+|[a-z][\w-]*/gi)) {
+      if (namedColors.has(word[0].toLowerCase())) add("raw-color", word[0], index + word.index);
+    }
+  };
+  if (path.endsWith(".css")) {
+    scan(new RegExp(`\\b${colorProperty}\\s*:\\s*`, "g"), m => inspectNamedColors(styleValue(text, m.index + m[0].length), m.index + m[0].length));
+  } else {
+    // Only literal property/attribute values have CSS color semantics here.
+    // Runtime expressions such as palette.red are not literal named colors.
+    scan(new RegExp(`\\b${colorProperty}\\s*[:=]\\s*(?:\\{\\s*)?(["'])((?:\\\\.|(?!\\1)[\\s\\S])*?)\\1`, "g"), m => inspectNamedColors(m[2], m.index));
+  }
   if (path.endsWith(".css")) {
     if (!approvedCss.has(path)) add("css-file", path);
     scan(/(?:^|[{};])\s*([^{};]+)\{/g, m => {
@@ -95,6 +226,22 @@ async function sourceFiles(directory) {
 async function check(root) {
   const baseline = JSON.parse(await readFile(resolve(root, "scripts/ui-policy-baseline.json"), "utf8"));
   if (baseline.version !== 1 || !baseline.files) throw new Error("Unsupported UI policy baseline");
+  const actualRef = execFileSync("git", ["rev-parse", "--verify", `${approvedSourceRef}^{commit}`], { cwd: webRoot, encoding: "utf8" }).trim();
+  if (baseline.sourceRef !== approvedSourceRef || actualRef !== approvedSourceRef) throw new Error("UI baseline sourceRef is not the reviewed Git commit");
+  // Recompute the maximum permitted debt from immutable committed source.
+  // Editing sourceRef, rule totals, or match allowances in the same working tree
+  // cannot authorize new debt. Missing Git objects/source files fail closed.
+  for (const [path, rules] of Object.entries(baseline.files)) {
+    if (!path.startsWith("src/") || path.includes("\\") || path.split("/").some(part => !part || part === "." || part === "..")) throw new Error(`Invalid baseline path: ${path}`);
+    const committed = inspectUiSource(path, approvedSource(path));
+    for (const [rule, debt] of Object.entries(rules)) {
+      const allowances = Object.entries(debt.matches ?? {});
+      if (!Number.isInteger(debt.count) || debt.count < 0 || debt.count !== allowances.reduce((sum, [, count]) => sum + count, 0)) throw new Error(`Invalid baseline count: ${path}: ${rule}`);
+      for (const [match, count] of allowances) {
+        if (!Number.isInteger(count) || count <= 0 || count > committed.filter(v => v.rule === rule && v.match === match).length) throw new Error(`Baseline exceeds reviewed source: ${path}: ${rule}: ${match}`);
+      }
+    }
+  }
   let count = 0;
   const failures = [];
   for (const file of await sourceFiles(resolve(root, "src"))) {

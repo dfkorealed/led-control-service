@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "sourceRef": "d0fe85ee2fbd0b334eab908d00cdb717653ef2de",
+  "sourceRef": "24b5ea593e860575f7bf1007781146cf1101beb7",
   "files": {
     "src/App.tsx": {
       "css-import": {
@@ -14,7 +14,7 @@
       "query-selector": {
         "count": 1,
         "matches": {
-          "querySelectorAll<HTMLElement>(": 1
+          "dialogElement.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)": 1
         }
       },
       "raw-form-style": {
@@ -28,7 +28,7 @@
       "query-selector": {
         "count": 1,
         "matches": {
-          "querySelectorAll<HTMLButtonElement>(": 1
+          "dialog.current?.querySelectorAll<HTMLButtonElement>(\"button:not(:disabled)\")": 1
         }
       }
     },
@@ -96,8 +96,9 @@
       "query-selector": {
         "count": 3,
         "matches": {
-          "querySelector<HTMLElement>(": 2,
-          "querySelectorAll<HTMLElement>(": 1
+          "dialogRef.current?.querySelector<HTMLElement>(`.ui-modal-body ${focusableSelector}`)": 1,
+          "dialogRef.current?.querySelector<HTMLElement>(focusableSelector)": 1,
+          "dialogRef.current?.querySelectorAll<HTMLElement>(focusableSelector)": 1
         }
       }
     },
@@ -206,7 +207,7 @@
       "query-selector": {
         "count": 1,
         "matches": {
-          "querySelectorAll<HTMLElement>(": 1
+          "dialogElement.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)": 1
         }
       }
     },
@@ -254,7 +255,7 @@
       "query-selector": {
         "count": 1,
         "matches": {
-          "querySelector<HTMLElement>(": 1
+          "document.querySelector<HTMLElement>(`[data-testid=\"placement-fixture-${CSS.escape(fixture.id)}\"]`)": 1
         }
       }
     },
@@ -325,7 +326,7 @@
       "query-selector": {
         "count": 1,
         "matches": {
-          "querySelector<HTMLElement>(": 1
+          "navigationRef.current?.querySelector<HTMLElement>('[aria-current=\"page\"]')": 1
         }
       }
     },
@@ -378,11 +379,10 @@
         }
       },
       "literal-spacing": {
-        "count": 26,
+        "count": 24,
         "matches": {
           "gap: 24px": 1,
           "gap: 14px": 1,
-          "top: 1px solid var(--border)": 1,
           "padding-top: 20px": 1,
           "padding: 16px": 1,
           "gap: 12px": 3,
@@ -395,7 +395,6 @@
           "margin: 10px 0 0": 1,
           "gap: 5px": 1,
           "margin: 0 0 12px": 1,
-          "left: 2px solid var(--border)": 1,
           "padding-left: 9px": 1,
           "margin: 3px 0 0": 1,
           "gap: 8px 16px": 1,
@@ -483,7 +482,7 @@
         }
       },
       "literal-spacing": {
-        "count": 26,
+        "count": 24,
         "matches": {
           "gap: 16px": 1,
           "gap: 10px": 1,
@@ -491,7 +490,6 @@
           "top: 13px": 1,
           "left: 12px": 1,
           "padding-left: 36px": 1,
-          "bottom: 1px solid #e2e8f0": 1,
           "padding: 13px 14px": 1,
           "gap: 5px": 1,
           "margin: -4px 0 0": 1,
@@ -501,7 +499,6 @@
           "padding: 10px 12px": 1,
           "margin-top: 7px": 2,
           "padding: 3px": 1,
-          "top: 1px solid #e2e8f0": 1,
           "padding-top: 14px": 1,
           "gap: 3px": 1,
           "gap: 8px": 1,
@@ -1577,9 +1574,8 @@
         }
       },
       "raw-color": {
-        "count": 290,
+        "count": 286,
         "matches": {
-          "navy": 3,
           "#ffffff": 43,
           "#64748b": 6,
           "#15803d": 2,
@@ -1609,7 +1605,6 @@
           "rgba(232, 241, 255, 0.72)": 1,
           "rgba(247, 250, 255, 0)": 2,
           "rgba(255, 255, 255, 0.92)": 1,
-          "blue": 1,
           "#b9d5ff": 3,
           "#f2f7ff": 2,
           "rgba(23, 32, 51, 0.4)": 1,
@@ -1698,7 +1693,7 @@
         }
       },
       "literal-spacing": {
-        "count": 449,
+        "count": 418,
         "matches": {
           "gap: 8px": 34,
           "padding: 0 16px": 1,
@@ -1709,7 +1704,6 @@
           "gap: 12px": 36,
           "gap: 4px": 13,
           "margin-top: 2px": 3,
-          "right: 1px solid var(--border)": 2,
           "padding: 16px 10px 14px": 1,
           "gap: 2px": 5,
           "margin-bottom: 25px": 1,
@@ -1719,7 +1713,6 @@
           "padding: 6px 4px": 2,
           "margin: 20px 24px 24px": 1,
           "gap: 18px": 6,
-          "bottom: 1px solid var(--border)": 16,
           "padding: 16px 24px": 1,
           "gap: 20px": 1,
           "padding: 40px 24px": 1,
@@ -1768,15 +1761,12 @@
           "right: -5px": 1,
           "margin-top: 12px": 3,
           "padding: 12px": 12,
-          "bottom: 2px solid transparent": 1,
-          "top: 1px solid var(--border)": 13,
           "padding: 11px 0": 1,
           "padding-top: 16px": 2,
           "padding: 14px 0": 1,
           "padding: 28px": 1,
           "margin: 6px 0 8px": 1,
           "margin: 4px 0 0": 2,
-          "left: 3px solid #f59e0b": 1,
           "padding: 10px 12px": 5,
           "padding: 4px 8px": 1,
           "top: -20px": 1,
@@ -1784,7 +1774,6 @@
           "padding: 18px 0": 2,
           "padding-bottom: 10px": 2,
           "bottom: -20px": 1,
-          "padding: 14px 0 max(14px": 1,
           "padding: 5px 9px": 3,
           "padding-top: 14px": 2,
           "padding: 12px 0": 2,
@@ -1800,7 +1789,6 @@
           "padding: 10px 0": 2,
           "padding-right: 8px": 1,
           "padding-left: 8px": 1,
-          "left: 3px solid #d97706": 1,
           "padding: 10px 16px": 1,
           "padding: 7px 10px": 1,
           "padding: 8px": 1,
@@ -1826,11 +1814,15 @@
           "top: -16px": 1,
           "bottom: -16px": 1,
           "inset: 56px 12px 12px": 1,
-          "padding: 24px 14px": 1
+          "padding: 24px 14px": 1,
+          "padding: clamp(20px, 5vw, 40px)": 1,
+          "gap: clamp(32px, 8vw, 120px)": 1,
+          "padding: 14px 0 max(14px, env(safe-area-inset-bottom))": 1,
+          "padding-bottom: calc(12px + env(safe-area-inset-bottom))": 1
         }
       },
       "literal-typography": {
-        "count": 206,
+        "count": 209,
         "matches": {
           "font-size: 12px": 50,
           "line-height: 1.55": 7,
@@ -1863,7 +1855,10 @@
           "line-height: 1.5": 1,
           "line-height: 24px": 1,
           "font-size: 36px": 1,
-          "line-height: 1.1": 1
+          "line-height: 1.1": 1,
+          "font-size: clamp(22px, 4vw, 28px)": 1,
+          "font-size: clamp(34px, 4vw, 54px)": 1,
+          "font-size: clamp(24px, 2.4vw, 32px)": 1
         }
       },
       "raw-form-style": {
