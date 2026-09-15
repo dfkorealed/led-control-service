@@ -12,7 +12,7 @@ export interface FormFieldProps extends FieldVisualProps, FieldStateProps {
   /** Slot-based controls (e.g. Slider) need the label inside their React Aria context. */
   labelMode?: "native" | "aria";
   labelPlacement?: "above" | "inline";
-  children: ReactNode | ((attributes: FieldControlAttributes, inlineLabel: ReactNode) => ReactNode);
+  children: (attributes: FieldControlAttributes, inlineLabel: ReactNode) => ReactNode;
 }
 
 export const FormField = forwardRef<HTMLDivElement, FormFieldProps>(function FormField(
@@ -38,7 +38,7 @@ export const FormField = forwardRef<HTMLDivElement, FormFieldProps>(function For
       : isGroup
       ? <Text as="span" id={labelId} variant="label">{label}</Text>
       : <Text as="label" id={labelId} htmlFor={controlId} variant="label">{label}</Text>)}
-    {typeof children === "function" ? children(attributes, label != null ? <Text as="span" id={labelId} variant="body">{label}</Text> : null) : children}
+    {children(attributes, label != null ? <Text as="span" id={labelId} variant={size === "sm" ? "body-sm" : size === "lg" ? "body-lg" : "body"}>{label}</Text> : null)}
     {/* Secondary content is only 4.45:1 on the canvas. Keep help readable on
         both the page canvas and panel surfaces using the approved primary token. */}
     {description != null && <Text id={descriptionId} variant="caption">{description}</Text>}

@@ -92,6 +92,34 @@ describe.each(names)("%s family", (name) => {
 });
 
 describe("domain and keyboard contracts", () => {
+  it.each([
+    { isSelected: false, isIndeterminate: false, mark: "" },
+    { isSelected: true, isIndeterminate: false, mark: "✓" },
+    { isSelected: false, isIndeterminate: true, mark: "−" },
+    { isSelected: true, isIndeterminate: true, mark: "−" }
+  ])("Checkbox distinguishes selected=$isSelected mixed=$isIndeterminate visually", ({ mark, ...state }) => {
+    render(<UI.Checkbox label="대상" {...state} />);
+    const input = screen.getByRole("checkbox", { name: "대상" });
+    expect(input).toHaveProperty("indeterminate", state.isIndeterminate);
+    expect(input.closest("label")?.querySelector('[aria-hidden="true"]')).toHaveTextContent(new RegExp(`^${mark}$`));
+  });
+  it.each(["Checkbox", "Switch", "Slider"] as const)("%s preserves caller input ID and DOM relationships", (name) => {
+    const ref = createRef<HTMLInputElement>();
+    render(<><span id="external-help">외부 도움</span>{field(name, { id: "caller-control", ref, "data-contract": "caller-data", "aria-describedby": "external-help", "aria-controls": "external-help" })}</>);
+    const input = control(name);
+    expect(document.getElementById("caller-control")).toBe(input);
+    expect(ref.current).toBe(input);
+    expect(input).toHaveAccessibleDescription(expect.stringContaining("외부 도움"));
+    expect(input).toHaveAttribute("aria-controls", "external-help");
+    expect(input.closest('[data-contract="caller-data"]')).not.toBeNull();
+  });
+  it.each(["Checkbox", "Switch"] as const)("%s inline label uses the requested size typography", (name) => {
+    for (const [size, typography] of [["sm", "text-body-sm"], ["md", "text-body"], ["lg", "text-body-lg"]]) {
+      const { unmount } = render(field(name, { size }));
+      expect(screen.getByText("대상")).toHaveClass(typography);
+      unmount();
+    }
+  });
   it("keeps public domain and variant types closed", () => {
     expectTypeOf<UI.TextFieldProps["value"]>().toEqualTypeOf<string | undefined>();
     expectTypeOf<UI.NumberFieldProps["value"]>().toEqualTypeOf<number | null | undefined>();
@@ -106,15 +134,35 @@ describe("domain and keyboard contracts", () => {
     expectTypeOf<NonNullable<UI.FieldVisualProps["size"]>>().toEqualTypeOf<"sm" | "md" | "lg">();
     // @ts-expect-error File selection cannot be controlled by a value prop.
     const file = <UI.FileField value="plan.png" />;
+    // @ts-expect-error Native file inputs have no read-only selection mode.
+    const readOnlyFile = <UI.FileField isReadOnly />;
+    // @ts-expect-error Plain children cannot receive FormField's linked attributes.
+    const plainField = <UI.FormField label="이름"><input /></UI.FormField>;
     // @ts-expect-error Numeric intermediate strings belong to TextField.
     const number = <UI.NumberField value="1." />;
     // @ts-expect-error Generic keys cannot silently widen to strings.
     const select = <UI.SelectBox<0 | 1> items={[]} selectedKey="0" />;
-    void [file, number, select];
+    void [file, readOnlyFile, plainField, number, select];
   });
   it("preserves external ARIA labels and combines caller and field descriptions", () => {
     render(<><span id="external-label">외부 이름</span><span id="external-help">외부 도움</span><UI.TextField aria-labelledby="external-label" aria-describedby="external-help" description="필드 도움" /></>);
     expect(screen.getByRole("textbox", { name: "외부 이름" })).toHaveAccessibleDescription("필드 도움 외부 도움");
+  });
+  it("FormField render children receive native states and exact linked IDs", () => {
+    render(<UI.FormField id="linked" label="이름" description="도움" errorMessage="오류" isInvalid isRequired isReadOnly>{attributes => <input {...attributes} />}</UI.FormField>);
+    const input = screen.getByRole("textbox", { name: "이름" });
+    expect(input).toHaveAttribute("id", "linked");
+    expect(input).toHaveAttribute("aria-describedby", "linked-description linked-error");
+    expect(input).toHaveAccessibleDescription("도움 오류");
+    expect(input).toBeRequired();
+    expect(input).toHaveAttribute("readonly");
+  });
+  it("FileField keeps unsupported readonly states out of native DOM", () => {
+    render(<UI.FileField label="파일" isRequired />);
+    const input = screen.getByLabelText("파일");
+    expect(input).toBeRequired();
+    expect(input).not.toHaveAttribute("readonly");
+    expect(input).not.toHaveAttribute("isReadOnly");
   });
   it.each(["CheckboxGroup", "RadioGroup"] as const)("%s separates option names from option descriptions", (name) => {
     const Component = UI[name];
@@ -286,5 +334,24 @@ describe("domain and keyboard contracts", () => {
     fireEvent.keyDown(slider, { key: "ArrowRight" });
     expect(onChange).not.toHaveBeenCalled();
     expect(slider).toHaveValue("100");
+    fireEvent.keyDown(slider, { key: "Home" });
+    expect(onChange.mock.calls).toEqual([[0]]);
+    fireEvent.keyDown(slider, { key: "ArrowLeft" });
+    expect(onChange.mock.calls).toEqual([[0]]);
+    fireEvent.keyDown(slider, { key: "ArrowRight" });
+    expect(onChange.mock.calls).toEqual([[0], [10]]);
+    fireEvent.keyDown(slider, { key: "End" });
+    expect(onChange.mock.calls).toEqual([[0], [10], [100]]);
+    expect(slider).toHaveValue("100");
+    act(() => slider.blur());
+    fireEvent.click(screen.getByText("밝기"));
+    expect(slider).toHaveFocus();
+  });
+});
+
+describe.each(["TextField", "SearchField", "PasswordField", "TextArea", "NumberField", "SelectBox", "ComboBox", "Checkbox", "CheckboxGroup", "RadioGroup", "Switch"] as const)("%s native validation", name => {
+  it.each([undefined, "native", "aria"] as const)("preserves required validationBehavior=%s", validationBehavior => {
+    render(<form aria-label="검증">{field(name, { isRequired: true, validationBehavior })}</form>);
+    expect((screen.getByRole("form", { name: "검증" }) as HTMLFormElement).checkValidity()).toBe(validationBehavior === "aria");
   });
 });

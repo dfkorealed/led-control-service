@@ -29,7 +29,7 @@ export const SelectBox = forwardRef(function SelectBox<T extends FieldKey>(
   { label, description, errorMessage, variant, size, className, id, items, selectedKey, defaultSelectedKey, onSelectionChange, ...props }: SelectBoxProps<T>, ref: Ref<HTMLButtonElement>
 ) {
   return <FormField {...{ label, description, errorMessage, variant, size, className, id }} isDisabled={props.isDisabled} isInvalid={props.isInvalid}>
-    {(attributes) => <Select {...props} {...fieldAria(attributes, props)} validationBehavior="aria" className="contents" selectedKey={selectedKey} defaultSelectedKey={defaultSelectedKey}
+    {(attributes) => <Select {...props} {...fieldAria(attributes, props)} className="contents" selectedKey={selectedKey} defaultSelectedKey={defaultSelectedKey}
       disabledKeys={items.filter((item) => item.isDisabled).map((item) => item.id)} onSelectionChange={(key) => onSelectionChange?.(selectedItemKey(items, key))}>
       <Button id={attributes.id} ref={ref} data-invalid={props.isInvalid || undefined} aria-labelledby={fieldAria(attributes, props)["aria-labelledby"]} className={cn(attributes.className, "flex items-center justify-between gap-2 text-left")}>
         <SelectValue /><span aria-hidden="true">▾</span>

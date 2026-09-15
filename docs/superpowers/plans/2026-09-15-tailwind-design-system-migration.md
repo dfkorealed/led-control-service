@@ -359,6 +359,7 @@ git commit -m "feat(web): add typed Tailwind UI primitives"
 - Create: `apps/web/e2e/ui-fields.spec.ts` (승인된 browser-only 검증 확장)
 - Modify: `apps/web/playwright.ui-cascade.config.ts`
 - Modify: `scripts/ci-workflows.test.mjs`
+- Modify: `apps/web/package.json`, `pnpm-lock.yaml` (Fix Round 1 승인: 기존 resolved `react-aria@3.52.1` 직접 고정)
 
 **Interfaces:**
 - Produces: `TextField`, `SearchField`, `PasswordField`, `TextArea`, `NumberField`, `FileField`, `SelectBox<T>`, `ComboBox<T>`, `Checkbox`, `CheckboxGroup`, `RadioGroup`, `Switch`, `Slider`.
@@ -486,6 +487,12 @@ git commit -m "feat(web): add accessible form field primitives"
 Chromium 설치 뒤 실행하는 기존 `e2e:ui-cascade` 경로에 field 7개를 추가해 총 15/15(2 files)를 통과했고 CI discovery/순서 계약은 38/38이다. Native Space 단일 toggle, FileList/동일 파일 재선택, actual ref/focus-visible, popup keyboard/disabled skip, 숫자·radio·slider key, 계산된 variant/size/caller cascade와 production CSS axe를 검증했다. 실제 axe RED에서 canvas 설명 대비 4.45:1과 selected 설명 대비 4.18:1을 발견해 theme 값 변경 없이 승인 `content-primary`로 보완했다(SelectBox/ComboBox 공통 option 포함). JSDOM은 pseudo geometry를 측정할 수 없어 해당 측정만 브라우저 증거로 분리하며 axe rule 자체는 끄지 않았다. Browser 없는 일반 Web unit은 계속 독립 실행 가능하다.
 
 Production build main은 651.01 kB/gzip 199.41 kB이며 Vite의 500 kB chunk 경고가 남는다. Page/feature production, 기존 모달·compatibility hooks, API/DB/MQTT/firmware는 변경하지 않았다. 전체 메뉴 전환·전체 E2E/HIL·실제 보조기기 수동 검증은 미실행이고 Task 4는 시작하지 않았다. Task 3 독립 검토를 기다린다.
+
+**Task 3 Fix Round 1(2026-09-16):** 독립 리뷰의 mixed 표시/ID/라벨 typography를 실제 unit RED 8 failed·129 passed, Chromium RED 3 failed로 재현했다. Checkbox는 React Aria render state로 빈 표시·✓·−를 구분하며 mixed가 selected보다 우선한다. Checkbox/Switch의 sm/md/lg 실제 라벨은 13/14/16px이고 caller ID는 actual input/ref와 일치한다. Slider는 기존 resolved `react-aria@3.52.1`을 직접 exact dependency로 추가하고 공개 `useSliderThumb`/`useFocusRing` 및 RAC state/track/label contexts를 조합했다. 실제 mounted track ref로 keyboard/move를 유지하고 native range input에 ID·aria-controls를 전달한다. 내부 라벨의 generated-ID lookup 회귀도 unit/browser RED→GREEN으로 보완해 public state를 통한 focus를 유지한다. 내부 child 복제·DOM 속성 사후 수정·새 react-stately 의존성은 없다. Lockfile은 Web importer 3줄만 늘고 frozen offline install과 production fixture의 단일 react-aria 버전 검사가 통과했다.
+
+추가 QA의 강제 ARIA validation은 unit RED 21 failed(11 family×3 mode), browser native submit RED로 재현 후 제거했다. Caller `validationBehavior`와 React Aria native 기본값을 보존하고 CheckboxGroup 항목에도 caller mode를 전달해 33/33 검증을 통과했다. `FormField.children`은 속성을 전달하는 render function으로만 제한하고 `FileField.isReadOnly`는 공개 타입에서 제거했다. 두 compile-time RED `@ts-expect-error`와 linked-ID/DOM non-leak 회귀를 확인했다. 최종 focused 172/172, Chromium 19/19(기존 8+field 11), typecheck를 통과했으며 33 실제 form의 checkValidity/requestSubmit, 외부·내부 label focus, Arrow/Home/End·step/min/max·단일 callback, class cascade와 전체 field fixture axe를 포함한다. 일반 unit에 browser 의존성을 추가하지 않았고 Task 4는 미착수·독립 재검토 대기다.
+
+Fix Round 1 최종 전체 검증은 Web 80 files·1,112/1,112, 정책 41/41, CI 계약 38/38, ui:check 기존 2,359/신규 0, typecheck/build·diff 검사 exit 0이다. Main bundle 650.83 kB/gzip 199.47 kB이며 500 kB 경고는 남는다. 승인 anchor/baseline·page/feature production·기존 compatibility·API/장비 코드는 변경하지 않았다.
 
 ### Task 4: Calendar, DatePicker와 TimePicker 구현
 

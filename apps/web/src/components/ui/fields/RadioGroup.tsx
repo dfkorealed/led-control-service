@@ -17,7 +17,7 @@ export const RadioGroup = forwardRef<HTMLDivElement, RadioGroupProps>(function R
   { label, description, errorMessage, variant, size, className, id, items, ...props }, ref
 ) {
   return <FormField {...{ label, description, errorMessage, variant, size, className, id }} isGroup isDisabled={props.isDisabled} isInvalid={props.isInvalid}>
-    {(attributes) => <AriaRadioGroup {...props} {...fieldAria(attributes, props)} id={attributes.id} ref={ref} validationBehavior="aria" className={props.orientation === "horizontal" ? "flex flex-row flex-wrap gap-2" : "flex flex-col gap-2"}>
+    {(attributes) => <AriaRadioGroup {...props} {...fieldAria(attributes, props)} id={attributes.id} ref={ref} className={props.orientation === "horizontal" ? "flex flex-row flex-wrap gap-2" : "flex flex-col gap-2"}>
       {items.map((item) => <RadioOption key={item.value} item={item} variant={variant} size={size} />)}
     </AriaRadioGroup>}
   </FormField>;

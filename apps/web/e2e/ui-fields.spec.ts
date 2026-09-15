@@ -14,7 +14,7 @@ const require = createRequire(import.meta.url);
 const fixture = String.raw`
 import React from "react";
 import {createRoot} from "react-dom/client";
-import {TextField, NumberField, FileField, SelectBox, ComboBox, Checkbox, CheckboxGroup, RadioGroup, Switch, Slider} from "/src/components/ui/index.ts";
+import {TextField, SearchField, PasswordField, TextArea, NumberField, FileField, SelectBox, ComboBox, Checkbox, CheckboxGroup, RadioGroup, Switch, Slider} from "/src/components/ui/index.ts";
 import "/src/styles.css";
 const el = React.createElement;
 window.fieldEvents = {};
@@ -33,12 +33,21 @@ createRoot(document.getElementById("root")).render(el("main", {className:"flex f
   el(NumberField,{label:"수량",defaultValue:2,minValue:0,maxValue:4,step:2,onChange:record("number"),ref:ref("number")}),
   el(SelectBox,{label:"층 선택",items,defaultSelectedKey:0,onSelectionChange:record("select"),ref:ref("select")}),
   el(ComboBox,{label:"층 검색",items,onSelectionChange:record("combo"),ref:ref("combo")}),
-  el(Checkbox,{label:"체크",onChange:record("checkbox"),ref:ref("checkbox")}),
-  el(Switch,{label:"전환",onChange:record("switch"),ref:ref("switch")}),
+  el(Checkbox,{label:"체크",id:"check","data-contract":"checkbox","aria-describedby":"external-help","aria-controls":"external-help",onChange:record("checkbox"),ref:ref("checkbox")}),
+  el(Switch,{label:"전환",id:"switch","data-contract":"switch","aria-describedby":"external-help","aria-controls":"external-help",onChange:record("switch"),ref:ref("switch")}),
+  ...[Checkbox,Switch].flatMap((Component,index)=>["sm","md","lg"].map(size=>el(Component,{key:index+size,label:index+" label "+size,size}))),
+  ...[[false,false],[true,false],[false,true],[true,true]].map(([isSelected,isIndeterminate],index)=>el(Checkbox,{key:"state"+index,label:"상태 "+index,isSelected,isIndeterminate})),
   el(CheckboxGroup,{label:"복수 층",items:choices,defaultValue:["0"],onChange:record("group")}),
   el(RadioGroup,{label:"단일 층",items:choices,defaultValue:"0",onChange:record("radio")}),
-  el(Slider,{label:"밝기",defaultValue:90,minValue:0,maxValue:100,step:10,onChange:record("slider"),ref:ref("slider")}),
-  el("form",null,el(FileField,{label:"도면",accept:"image/png",multiple:true,ref:ref("file"),onChange:files=>{window.fileIdentity.push(files === window.fieldRefs.file.files);record("files")(files ? Array.from(files).map(file=>file.name) : null);}}),el("button",{type:"reset"},"초기화"))
+  el(Slider,{label:"밝기",id:"slider","data-contract":"slider","aria-describedby":"external-help","aria-controls":"external-help",defaultValue:90,minValue:0,maxValue:100,step:10,onChange:record("slider"),ref:ref("slider")}),
+  el("p",{id:"external-help"},"외부 도움"),
+  ...["check","switch","slider"].map(id=>el("label",{key:id,htmlFor:id},"외부 "+id)),
+  el("form",null,el(FileField,{label:"도면",accept:"image/png",multiple:true,ref:ref("file"),onChange:files=>{window.fileIdentity.push(files === window.fieldRefs.file.files);record("files")(files ? Array.from(files).map(file=>file.name) : null);}}),el("button",{type:"reset"},"초기화")),
+  ...Object.entries({TextField,SearchField,PasswordField,TextArea,NumberField,SelectBox,ComboBox,Checkbox,CheckboxGroup,RadioGroup,Switch}).flatMap(([name,Component])=>[undefined,"native","aria"].map(validationBehavior=>{
+    const key=name+"-"+(validationBehavior??"default");
+    const collection=["SelectBox","ComboBox"].includes(name)?items:choices;
+    return el("form",{key,"aria-label":key,onSubmit:event=>{event.preventDefault();record(key)("submitted");}},el(Component,{label:key,isRequired:true,validationBehavior,...(["SelectBox","ComboBox","CheckboxGroup","RadioGroup"].includes(name)?{items:collection}:{})}));
+  }))
 ));
 `;
 const compile = String.raw`
@@ -48,6 +57,8 @@ const source=readFileSync(0,"utf8");
 const entry="virtual:ui-fields-fixture";
 const result=await build({logLevel:"silent",build:{write:false,rollupOptions:{input:entry}},plugins:[{name:"ui-fields-production-fixture",enforce:"pre",resolveId(id){if(id===entry)return "\0"+entry;},load(id){if(id==="\0"+entry)return source;}}]});
 if(Array.isArray(result)||!("output" in result))throw Error("Expected one production build");
+const ariaVersions=new Set(result.output.flatMap(asset=>asset.type==="chunk"?Object.keys(asset.modules):[]).map(id=>id.match(/\/react-aria@([\d.]+)/)?.[1]).filter(Boolean));
+if(ariaVersions.size!==1||!ariaVersions.has("3.52.1"))throw Error("Expected exactly one bundled react-aria version: "+[...ariaVersions]);
 const script=result.output.find(asset=>asset.type==="chunk"&&asset.isEntry);
 if(!script)throw Error("Missing fixture entry");
 const links=result.output.filter(asset=>asset.fileName.endsWith(".css")).map(asset=>'<link rel="stylesheet" href="/'+asset.fileName+'">').join("");
@@ -96,6 +107,52 @@ test.describe("production field browser contracts", () => {
     expect(await page.evaluate(() => document.activeElement === window.fieldRefs.sm)).toBe(true);
     expect(await input.evaluate((element) => getComputedStyle(element).boxShadow)).not.toBe("none");
   });
+  test("shows empty, selected and mixed checkbox marks as distinct non-color cues", async ({ page }) => {
+    for (const [index, mark, mixed] of [[0, "", false], [1, "✓", false], [2, "−", true], [3, "−", true]] as const) {
+      const input = page.getByRole("checkbox", { name: `상태 ${index}`, exact: true });
+      expect(await input.evaluate((element: HTMLInputElement) => element.indeterminate)).toBe(mixed);
+      const indicator = input.locator('xpath=ancestor::label').locator('[aria-hidden="true"]');
+      await expect(indicator).toHaveText(mark);
+      if (mark) await expect(indicator.getByText(mark, { exact: true })).toBeVisible();
+    }
+  });
+  test("caller IDs resolve to actual inputs and external labels activate them", async ({ page }) => {
+    for (const [name, id] of [["checkbox", "check"], ["switch", "switch"], ["slider", "slider"]]) {
+      const input = page.locator(`input[id="${id}"]`);
+      await expect(input).toHaveCount(1);
+      expect(await input.evaluate((element, key) => element === window.fieldRefs[key], name)).toBe(true);
+      await expect(input).toHaveAttribute("aria-controls", "external-help");
+      await expect(input).toHaveAccessibleDescription(/외부 도움/);
+      await expect(input.locator(`xpath=ancestor::*[@data-contract="${name}"]`)).toHaveCount(1);
+      await page.getByText(`외부 ${id}`, { exact: true }).click();
+      await expect(input).toBeFocused();
+      if (name !== "slider") {
+        await expect(input).toBeChecked();
+        expect(await page.evaluate(key => window.fieldEvents[key], name)).toEqual([true]);
+      }
+    }
+    await page.getByRole("textbox", { name: "sm", exact: true }).focus();
+    await page.getByText("밝기", { exact: true }).click();
+    await expect(page.getByRole("slider", { name: "밝기" })).toBeFocused();
+  });
+  test("inline checkbox and switch labels compute distinct size typography", async ({ page }) => {
+    for (const index of [0, 1]) {
+      for (const [size, font] of [["sm", "13px"], ["md", "14px"], ["lg", "16px"]]) {
+        await expect(page.getByText(`${index} label ${size}`, { exact: true })).toHaveCSS("font-size", font);
+      }
+    }
+  });
+  test("native required constraints block form submission unless aria validation is requested", async ({ page }) => {
+    for (const name of ["TextField", "SearchField", "PasswordField", "TextArea", "NumberField", "SelectBox", "ComboBox", "Checkbox", "CheckboxGroup", "RadioGroup", "Switch"]) {
+      for (const mode of ["default", "native", "aria"]) {
+        const key = `${name}-${mode}`;
+        const form = page.getByRole("form", { name: key, exact: true });
+        expect(await form.evaluate((element: HTMLFormElement) => element.checkValidity()), key).toBe(mode === "aria");
+        await form.evaluate((element: HTMLFormElement) => element.requestSubmit());
+        expect(await page.evaluate(key => window.fieldEvents[key] ?? [], key), key).toEqual(mode === "aria" ? ["submitted"] : []);
+      }
+    }
+  });
   test("native Space toggles checkbox and switch once each", async ({ page }) => {
     for (const [role, label, name] of [["checkbox", "체크", "checkbox"], ["switch", "전환", "switch"]] as const) {
       const input = page.getByRole(role, { name: label, exact: true });
@@ -139,6 +196,12 @@ test.describe("production field browser contracts", () => {
     await slider.press("ArrowRight");
     await slider.press("ArrowRight");
     expect(await page.evaluate(() => window.fieldEvents.slider)).toEqual([100]);
+    await slider.press("Home");
+    await slider.press("ArrowLeft");
+    await slider.press("ArrowRight");
+    await slider.press("End");
+    expect(await page.evaluate(() => window.fieldEvents.slider)).toEqual([100, 0, 10, 100]);
+    await expect(slider).toHaveValue("100");
     expect(await page.evaluate(() => document.activeElement === window.fieldRefs.slider)).toBe(true);
   });
   test("delivers the real FileList unchanged and allows reset then same-file selection", async ({ page }) => {

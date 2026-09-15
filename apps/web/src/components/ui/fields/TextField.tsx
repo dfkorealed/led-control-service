@@ -13,7 +13,7 @@ export const TextField = forwardRef<HTMLInputElement, TextFieldProps>(function T
   { label, description, errorMessage, variant, size, className, id, placeholder, ...props }, ref
 ) {
   return <FormField {...{ label, description, errorMessage, variant, size, className, id }} isDisabled={props.isDisabled} isInvalid={props.isInvalid}>
-    {(attributes) => <AriaTextField {...props} {...fieldAria(attributes, props)} validationBehavior="aria" className="contents">
+    {(attributes) => <AriaTextField {...props} {...fieldAria(attributes, props)} className="contents">
       <Input id={attributes.id} ref={ref} placeholder={placeholder} className={attributes.className} />
     </AriaTextField>}
   </FormField>;
@@ -28,7 +28,7 @@ export const TextArea = forwardRef<HTMLTextAreaElement, TextAreaProps>(function 
   { label, description, errorMessage, variant, size, className, id, placeholder, rows, cols, wrap, ...props }, ref
 ) {
   return <FormField {...{ label, description, errorMessage, variant, size, className, id }} isDisabled={props.isDisabled} isInvalid={props.isInvalid}>
-    {(attributes) => <AriaTextField {...props} {...fieldAria(attributes, props)} validationBehavior="aria" className="contents">
+    {(attributes) => <AriaTextField {...props} {...fieldAria(attributes, props)} className="contents">
       <AriaTextArea id={attributes.id} ref={ref} placeholder={placeholder} rows={rows} cols={cols} wrap={wrap} className={attributes.className} />
     </AriaTextField>}
   </FormField>;

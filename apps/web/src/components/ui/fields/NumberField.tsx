@@ -13,7 +13,7 @@ export const NumberField = forwardRef<HTMLInputElement, NumberFieldProps>(functi
   { label, description, errorMessage, variant, size, className, id, placeholder, value, defaultValue, onChange, ...props }, ref
 ) {
   return <FormField {...{ label, description, errorMessage, variant, size, className, id }} isDisabled={props.isDisabled} isInvalid={props.isInvalid}>
-    {(attributes) => <AriaNumberField {...props} {...fieldAria(attributes, props)} validationBehavior="aria" className="contents"
+    {(attributes) => <AriaNumberField {...props} {...fieldAria(attributes, props)} className="contents"
       // React Aria represents an empty numeric field with NaN. The public
       // contract uses null; undefined remains exclusively uncontrolled mode.
       value={value === null ? NaN : value} defaultValue={defaultValue === null ? NaN : defaultValue}
