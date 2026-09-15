@@ -13,6 +13,7 @@ import { randomUUID } from "node:crypto";
 import { BleMeshAdapter } from "../gateway";
 import type { GroupStateIdentity, GroupStateStore } from "../mesh/group-state-store";
 import type { KeyedSerialTaskQueue } from "../runtime/keyed-serial-task-queue";
+import type { ManualTerminalContext } from "../automation/schedule-runtime";
 
 interface JournalLike {
   get(key: string): Promise<{
@@ -47,7 +48,7 @@ export interface GatewayFixtureObservation {
 
 export interface ManualControlCoordinator {
   prepare(command: GatewayDimmingCommandV2Compatible, receipt?: GatewayCommandReceipt): Promise<void>;
-  handoff(command: GatewayDimmingCommandV2Compatible, terminal: DeviceStatusAckV2): Promise<void>;
+  handoff(command: GatewayDimmingCommandV2Compatible, terminal: DeviceStatusAckV2, context?: ManualTerminalContext): Promise<void>;
 }
 
 export interface GatewayCommandReceipt {
@@ -126,7 +127,7 @@ export async function recoverPendingManualAutomationHandoffs(
     if (recovery.state === "accepted") {
       await journal.complete(recovery.idempotencyKey, result, { automationHandoffPending: true });
     }
-    await automation.handoff(command, result.deviceStatus);
+    await automation.handoff(command, result.deviceStatus, "recovery");
     await journal.markAutomationHandoffComplete(recovery.idempotencyKey);
   }
 }
@@ -143,7 +144,7 @@ async function executeGatewayDimmingCommand(
     options.onDurableReceipt?.();
     const result = existing.result as GatewayCommandResult;
     if (existing.automationHandoff === "pending") {
-      await replayAutomationHandoff(journal, command, result, options);
+      await replayAutomationHandoff(journal, command, result, options, "recovery");
     }
     return result;
   }
@@ -151,7 +152,7 @@ async function executeGatewayDimmingCommand(
     options.onDurableReceipt?.();
     const stored = existing.command as { acceptance?: AcceptanceAckV2 };
     const result = createIndeterminateResult(command, stored.acceptance);
-    await completeWithAutomationHandoff(journal, command, result, options);
+    await completeWithAutomationHandoff(journal, command, result, options, "recovery");
     return result;
   }
 
@@ -314,22 +315,24 @@ async function completeWithAutomationHandoff(
   journal: JournalLike,
   command: GatewayDimmingCommandV2Compatible,
   result: GatewayCommandResult,
-  options: GatewayCommandOptions
+  options: GatewayCommandOptions,
+  context: ManualTerminalContext = "live"
 ) {
   const pending = Boolean(options.automation);
   await journal.complete(command.idempotencyKey, result, { automationHandoffPending: pending });
-  if (pending) await replayAutomationHandoff(journal, command, result, options);
+  if (pending) await replayAutomationHandoff(journal, command, result, options, context);
 }
 
 async function replayAutomationHandoff(
   journal: JournalLike,
   command: GatewayDimmingCommandV2Compatible,
   result: GatewayCommandResult,
-  options: GatewayCommandOptions
+  options: GatewayCommandOptions,
+  context: ManualTerminalContext
 ) {
   if (!options.automation) return;
   try {
-    await options.automation.handoff(command, result.deviceStatus);
+    await options.automation.handoff(command, result.deviceStatus, context);
     await journal.markAutomationHandoffComplete?.(command.idempotencyKey);
   } catch (error) {
     options.onAutomationError?.(error);

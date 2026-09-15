@@ -36,6 +36,28 @@ afterEach(async () => {
 });
 
 describe("ScheduleRuntime", () => {
+  it.each(["vehicle", "schedule"])("suppresses the existing %s after live manual success on an untrusted rolled-back clock", async (source) => {
+    const test = await runtimeFixture("2026-08-30T01:00:00.000Z");
+    await test.runtime.recordFixtureState(fixtureId, 20);
+    await activate(test.runtime, snapshot(source === "vehicle"
+      ? { vehicleEventRules: [vehicleRule(80, 5)] }
+      : { schedules: [dailySchedule()] }));
+    if (source === "vehicle") await test.runtime.recordVehicleSensorState(sourceFixtureId, true);
+    test.wall.set("2026-08-30T00:50:00.000Z");
+    test.trust.trusted = false;
+    await test.runtime.prepareManualControl({ ...manualControl(60), requestedAt: test.wall.now().toISOString() });
+    await test.runtime.handoffManualTerminal(manualControl(60).sourceId, [{
+      ...successfulTerminal(fixtureId, 60), occurredAt: "2026-08-30T00:50:01.000Z"
+    }]);
+    expect(test.runtime.state().manualAutomationSuppressions[fixtureId]).toMatchObject(source === "vehicle"
+      ? { vehicleEvents: [{ ruleId: vehicleRuleId, startedAt: "2026-08-30T01:00:00.000Z" }] }
+      : { schedules: [{ scheduleId, occurrenceKey: `${scheduleId}:2026-08-30` }] });
+    test.execute.mockClear();
+    await test.runtime.tick();
+    expect(test.execute).not.toHaveBeenCalled();
+    expect(test.runtime.state().baseBrightnessByFixture[fixtureId]).toBe(60);
+  });
+
   it("does not suppress vehicle activations begun after a delayed successful manual result", async () => {
     const test = await runtimeFixture("2026-08-30T01:00:00.000Z");
     await test.runtime.recordFixtureState(fixtureId, 20);
@@ -43,7 +65,7 @@ describe("ScheduleRuntime", () => {
     await test.runtime.prepareManualControl(manualControl(60));
     test.wall.set("2026-08-30T01:30:00.000Z");
     await test.runtime.recordVehicleSensorState(sourceFixtureId, true);
-    await test.runtime.handoffManualTerminal(manualControl(60).sourceId, [successfulTerminal(fixtureId, 60)]);
+    await test.runtime.handoffManualTerminal(manualControl(60).sourceId, [successfulTerminal(fixtureId, 60)], "recovery");
     expect(test.runtime.state().manualAutomationSuppressions).toEqual({});
     await test.runtime.tick();
     expect(test.execute).toHaveBeenLastCalledWith([

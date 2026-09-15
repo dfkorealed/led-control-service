@@ -211,9 +211,10 @@ export function createManualControlCoordinator(
       brightnessPercent: command.brightness,
       requestedAt: command.requestedAt
     }),
-    handoff: (command, terminal) => runtime.handoffManualTerminal(
+    handoff: (command, terminal, context = "live") => runtime.handoffManualTerminal(
       command.commandId,
-      manualTerminalResults(terminal)
+      manualTerminalResults(terminal),
+      context
     )
   };
 }

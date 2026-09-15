@@ -43,6 +43,8 @@ export interface ManualControlInput {
   requestedAt: string;
 }
 
+export type ManualTerminalContext = "live" | "recovery";
+
 export interface AutomationTerminalHandoff {
   revision: number;
   actions: DesiredLightingAction[];
@@ -302,7 +304,8 @@ export class ScheduleRuntime {
         }
         const manual = state.pendingManualControls[fixtureId];
         if (manual && recoveredResult) {
-          settleManualControl(state, fixtureId, manual.sourceId, recoveredResult);
+          // This is a fresh observation, even when the pending request survived a restart.
+          settleManualControl(state, fixtureId, manual.sourceId, recoveredResult, "live");
         }
         return state;
       });
@@ -370,7 +373,8 @@ export class ScheduleRuntime {
 
   handoffManualTerminal(
     sourceId: string,
-    results: AutomationExecutionFixtureResultV1[]
+    results: AutomationExecutionFixtureResultV1[],
+    context: ManualTerminalContext = "live"
   ): Promise<void> {
     return this.runExternal(async () => {
       await this.ensureInitialized();
@@ -385,7 +389,7 @@ export class ScheduleRuntime {
             fixtureId: result.fixtureId, brightnessPercent: manual.brightnessPercent,
             sourceType: "manual_override", sourceId, occurrenceKey: null
           });
-          settleManualControl(state, result.fixtureId, sourceId, result);
+          settleManualControl(state, result.fixtureId, sourceId, result, context);
           settledFixtures.push(result.fixtureId);
           settledResults.push(result);
         }
@@ -787,7 +791,8 @@ function settleManualControl(
   state: PersistedAutomationStateV4,
   fixtureId: string,
   sourceId: string,
-  result: AutomationExecutionFixtureResultV1
+  result: AutomationExecutionFixtureResultV1,
+  context: ManualTerminalContext
 ) {
   const manual = state.pendingManualControls[fixtureId];
   if (manual?.sourceId !== sourceId) return;
@@ -802,19 +807,19 @@ function settleManualControl(
     state.lastDesiredByFixture[fixtureId] = result.brightnessPercent;
     state.baseBrightnessByFixture[fixtureId] = result.brightnessPercent;
     delete state.unverifiedDesiredByFixture[fixtureId];
-    // Journal recovery can occur in a later occurrence/activation. Only still-active identities
-    // that also existed at hardware success may be suppressed; ended identities need no retention.
-    // Compare persisted UTC instants, not occurrence-key dates, including overnight/local-time schedules.
+    // Live hardware success supersedes the sources active now, including after a wall-clock rollback.
+    // Only explicitly historical journal results use UTC intervals to exclude later activations.
+    // Wall-clock ordering/trust cannot distinguish these cases, so the caller supplies the context.
     const appliedAtMs = Date.parse(result.occurredAt);
     const schedules = Object.entries(state.activeOccurrences)
       .filter(([, occurrence]) => Object.hasOwn(occurrence.preBrightness, fixtureId) &&
-        Date.parse(occurrence.startedAt) <= appliedAtMs && appliedAtMs < Date.parse(occurrence.endsAt))
+        (context === "live" || (Date.parse(occurrence.startedAt) <= appliedAtMs && appliedAtMs < Date.parse(occurrence.endsAt))))
       .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
       .map(([scheduleId, occurrence]) => ({ scheduleId, occurrenceKey: occurrence.key }));
     const vehicleEvents = Object.entries(state.vehicleRules)
       .filter(([, vehicle]) => vehicle.targetFixtureIds.includes(fixtureId) &&
-        Date.parse(vehicle.startedAt) <= appliedAtMs &&
-        (vehicle.holdUntil === null || appliedAtMs < Date.parse(vehicle.holdUntil)))
+        (context === "live" || (Date.parse(vehicle.startedAt) <= appliedAtMs &&
+          (vehicle.holdUntil === null || appliedAtMs < Date.parse(vehicle.holdUntil)))))
       .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
       .map(([ruleId, vehicle]) => ({ ruleId, startedAt: vehicle.startedAt }));
     if (schedules.length || vehicleEvents.length) {

@@ -812,7 +812,8 @@ describe("startGatewayRuntime", () => {
         faultCode: null,
         errorCode: "status_timeout",
         occurredAt: "2026-08-30T01:00:01.000Z"
-      }]
+      }],
+      "live"
     );
   });
 

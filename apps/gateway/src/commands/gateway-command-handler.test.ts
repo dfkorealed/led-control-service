@@ -76,7 +76,7 @@ describe("handleGatewayDimmingCommand", () => {
 
     expect(events).toEqual(["accepted", "prepared", "handoff"]);
     expect(automation.prepare).toHaveBeenCalledWith(timed);
-    expect(automation.handoff).toHaveBeenCalledWith(timed, first.deviceStatus);
+    expect(automation.handoff).toHaveBeenCalledWith(timed, first.deviceStatus, "live");
     expect(duplicate).toEqual(first);
     expect(adapter.commands).toHaveLength(1);
   });
@@ -130,6 +130,8 @@ describe("handleGatewayDimmingCommand", () => {
     expect(duplicate).toEqual(first);
     expect(adapter.commands).toHaveLength(1);
     expect(automation.handoff).toHaveBeenCalledTimes(2);
+    expect(automation.handoff).toHaveBeenNthCalledWith(1, timed, first.deviceStatus, "live");
+    expect(automation.handoff).toHaveBeenNthCalledWith(2, timed, first.deviceStatus, "recovery");
     expect(records.get(command.idempotencyKey)).toMatchObject({ automationHandoff: "completed" });
   });
 
@@ -157,7 +159,7 @@ describe("handleGatewayDimmingCommand", () => {
     expect(recovered.deviceStatus.status).toBe("timed_out");
     expect(adapter.commands).toHaveLength(0);
     expect(automation.prepare).not.toHaveBeenCalled();
-    expect(automation.handoff).toHaveBeenCalledWith(timed, recovered.deviceStatus);
+    expect(automation.handoff).toHaveBeenCalledWith(timed, recovered.deviceStatus, "recovery");
     expect(records.get(command.idempotencyKey)).toMatchObject({
       state: "completed",
       automationHandoff: "completed"
@@ -187,7 +189,8 @@ describe("handleGatewayDimmingCommand", () => {
     })]);
     expect(automation.handoff).toHaveBeenCalledWith(
       timed,
-      expect.objectContaining({ status: "timed_out" })
+      expect.objectContaining({ status: "timed_out" }),
+      "recovery"
     );
     expect(marked).toEqual([command.idempotencyKey]);
   });
@@ -219,7 +222,8 @@ describe("handleGatewayDimmingCommand", () => {
     );
     expect(automation.handoff).toHaveBeenCalledWith(
       legacy,
-      expect.objectContaining({ status: "timed_out" })
+      expect.objectContaining({ status: "timed_out" }),
+      "recovery"
     );
     expect(journal.markAutomationHandoffComplete).toHaveBeenCalledWith(legacy.idempotencyKey);
   });
@@ -246,7 +250,7 @@ describe("handleGatewayDimmingCommand", () => {
       results: [{ fixtureId: command.targetFixtureIds[0], status: "failed" }]
     });
     expect(adapter.commands).toHaveLength(0);
-    expect(automation.handoff).toHaveBeenCalledWith(timed, result.deviceStatus);
+    expect(automation.handoff).toHaveBeenCalledWith(timed, result.deviceStatus, "live");
   });
 
   it("rejects a command whose publish-relative expiry passed without calling BLE or observing fixture state", async () => {
@@ -412,7 +416,8 @@ describe("handleGatewayDimmingCommand", () => {
     expect(adapter.commands).toHaveLength(0);
     expect(automation.handoff).toHaveBeenCalledWith(
       expect.any(Object),
-      expect.objectContaining({ status: "failed" })
+      expect.objectContaining({ status: "failed" }),
+      "live"
     );
   });
 
