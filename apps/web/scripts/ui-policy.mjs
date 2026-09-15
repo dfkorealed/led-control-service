@@ -105,6 +105,17 @@ function queryFingerprints(source, path) {
   return calls;
 }
 
+function scriptLiteralRanges(source, path) {
+  const file = parseScript(source, path);
+  const ranges = [];
+  function visit(node) {
+    if (ts.isStringLiteral(node) || ts.isTemplateLiteralToken(node)) ranges.push([node.getStart(file), node.end]);
+    ts.forEachChild(node, visit);
+  }
+  visit(file);
+  return ranges;
+}
+
 /** A lexical migration guard, not a CSS/JS type checker. Exact debt matches keep
  * a removed legacy violation from silently authorizing a different new one. */
 export function inspectUiSource(path, source) {
@@ -138,7 +149,12 @@ export function inspectUiSource(path, source) {
     for (const name of themeTokens) if (!declarations.has(name)) add("missing-theme-token", name);
   }
   const scan = (regex, callback) => { for (const match of text.matchAll(regex)) callback(match); };
+  // Responsive candidates in scripts live inside strings/template segments.
+  // A CVA size map's sm:/md:/lg: keys (or TypeScript property signatures) are
+  // syntax, not utilities. CSS @apply candidates still use the CSS source.
+  const responsiveRanges = path.endsWith(".css") ? null : scriptLiteralRanges(text, path);
   scan(/(?<![\w-])(?:(?:max-|min-)\[[^\]\n]+\]|(?:max-|min-)?(?:sm|md|lg|xl|2xl|compact|tablet)):/g, m => {
+    if (responsiveRanges && !responsiveRanges.some(([start, end]) => m.index >= start && m.index + m[0].length <= end)) return;
     const name = m[0].replace(/^(?:max-|min-)/, "").slice(0, -1);
     if (!themeTokens.has(`--breakpoint-${name}`)) add("unapproved-breakpoint", m[0], m.index);
   });

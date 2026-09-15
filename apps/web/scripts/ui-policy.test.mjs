@@ -193,6 +193,22 @@ test("allows exact entry imports and main entry only", () => {
   assert.ok(inspectUiSource("src/page.tsx", 'import("./page.css");').some(v => v.rule === "css-import"));
 });
 
+test("does not mistake JavaScript variant object keys for responsive utility prefixes", () => {
+  const source = 'const sm = "px-3"; const classes = {sm:sm, md:"px-4", lg: { padding: "12%" }}; type Sizes = {sm:string; md: string; lg?: string};';
+  assert.deepEqual(inspectUiSource("src/components/ui/fields/field-types.ts", source), []);
+});
+
+test("still rejects actual unapproved responsive prefixes inside class strings and templates", () => {
+  const samples = [
+    ['const classes = { sm: "sm:p-3", md: "md:hover:bg-surface-panel" };', ["sm:", "md:"]],
+    ['<div className="lg:flex xl:p-4" />', ["lg:", "xl:"]],
+    ['const classes = `2xl:p-4 ${active ? "md:block" : "lg:hidden"} max-[777px]:p-4`;', ["2xl:", "md:", "lg:", "max-[777px]:"]],
+    ['const prefix = "sm:"; const classes = `${prefix}p-4`;', ["sm:"]],
+    ['const classes = "tablet:flex max-compact:p-4";', []]
+  ];
+  for (const [source, expected] of samples) assert.deepEqual(inspectUiSource("src/New.tsx", source).filter(v => v.rule === "unapproved-breakpoint").map(v => v.match), expected);
+});
+
 test("inventories unapproved CSS files, selectors and raw form styling", () => {
   const violations = inspectUiSource("src/page.css", '.new-panel { display: grid; } input { appearance: none; }');
   assert.ok(violations.some(v => v.rule === "css-file"));
