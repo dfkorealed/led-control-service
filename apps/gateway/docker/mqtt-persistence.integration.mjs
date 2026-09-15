@@ -29,6 +29,7 @@ test("Mosquitto restores an offline gateway QoS 1 command after broker restart",
   let gateway;
   let publisher;
   let resumedGateway;
+  const ownedResources = { containers: [], volumes: [] };
 
   try {
     await chmod(directory, 0o755);
@@ -36,7 +37,7 @@ test("Mosquitto restores an offline gateway QoS 1 command after broker restart",
     await writeFile(join(configDirectory, "mosquitto.conf"), brokerConfig(), { mode: 0o644 });
     await mkdir(dataDirectory);
     await chmod(dataDirectory, 0o777);
-    await startBroker({ containerName, configDirectory, dataDirectory, port });
+    await startBroker({ containerName, configDirectory, dataDirectory, port, ownedResources });
 
     const url = `mqtt://127.0.0.1:${port}`;
     const topic = "sites/test/gateways/test/commands/dimming";
@@ -52,9 +53,11 @@ test("Mosquitto restores an offline gateway QoS 1 command after broker restart",
     await waitForFile(join(dataDirectory, "mosquitto.db"));
 
     await execFile("docker", ["stop", containerName]);
-    await execFile("docker", ["rm", containerName]);
+    // Remove image-declared anonymous log storage as well as this exact broker;
+    // the bind-mounted persistence fixture must survive the restart.
+    await execFile("docker", ["rm", "-v", containerName]);
     containerName = `led-mqtt-persistence-${randomUUID()}`;
-    await startBroker({ containerName, configDirectory, dataDirectory, port });
+    await startBroker({ containerName, configDirectory, dataDirectory, port, ownedResources });
 
     const received = new Promise((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error("queued MQTT command was not delivered")), 10_000);
@@ -74,8 +77,9 @@ test("Mosquitto restores an offline gateway QoS 1 command after broker restart",
     await end(resumedGateway);
     await end(gateway);
     await end(publisher);
-    await execFile("docker", ["rm", "-f", containerName]).catch(() => undefined);
+    await execFile("docker", ["rm", "-fv", containerName]).catch(() => undefined);
     await rm(directory, { recursive: true, force: true });
+    await assertBrokerResourcesRemoved(ownedResources);
   }
 });
 
@@ -97,6 +101,7 @@ test("Mosquitto enforces directional automation convergence ACLs for a Gateway c
   let gateway;
   let api;
   let hostBroker;
+  const ownedResources = { containers: [], volumes: [] };
 
   try {
     await chmod(directory, 0o755);
@@ -116,7 +121,7 @@ test("Mosquitto enforces directional automation convergence ACLs for a Gateway c
       ? tlsBrokerConfig()
       : tlsBrokerConfig({ listener: port, certificatesDirectory, aclPath }), { mode: 0o644 });
     if (useDocker) {
-      await startBroker({ containerName, configDirectory, certificatesDirectory, dataDirectory, port, containerPort: 8883 });
+      await startBroker({ containerName, configDirectory, certificatesDirectory, dataDirectory, port, containerPort: 8883, ownedResources });
     } else {
       hostBroker = startHostBroker(configPath);
     }
@@ -187,9 +192,10 @@ test("Mosquitto enforces directional automation convergence ACLs for a Gateway c
   } finally {
     await end(gateway);
     await end(api);
-    if (useDocker) await execFile("docker", ["rm", "-f", containerName]).catch(() => undefined);
+    if (useDocker) await execFile("docker", ["rm", "-fv", containerName]).catch(() => undefined);
     await stopHostBroker(hostBroker);
     await rm(directory, { recursive: true, force: true });
+    if (useDocker) await assertBrokerResourcesRemoved(ownedResources);
   }
 });
 
@@ -236,18 +242,23 @@ async function hostMosquittoAvailable() {
   }
 }
 
-async function startBroker({ containerName, configDirectory, certificatesDirectory, dataDirectory, port, containerPort = 1883 }) {
+async function startBroker({ containerName, configDirectory, certificatesDirectory, dataDirectory, port, containerPort = 1883, ownedResources }) {
   const mounts = [
     "-v", `${configDirectory}:/mosquitto/config:ro`,
     "-v", `${dataDirectory}:/mosquitto/data`
   ];
   if (certificatesDirectory) mounts.push("-v", `${certificatesDirectory}:/mosquitto/certs:ro`);
+  ownedResources.containers.push(containerName);
   await execFile("docker", [
     "run", "--detach", "--name", containerName, "--user", "1883:1883",
     "-p", `${port}:${containerPort}`,
     ...mounts,
     dockerImage
   ]);
+  // The image also declares /mosquitto/log as a volume. Capture daemon-assigned
+  // identities before removing a broker so cleanup assertions cannot lose them.
+  const { stdout: mountJson } = await execFile("docker", ["inspect", "--format", "{{json .Mounts}}", containerName]);
+  ownedResources.volumes.push(...JSON.parse(mountJson).filter((mount) => mount.Type === "volume").map((mount) => mount.Name));
   await sleep(100);
   const { stdout } = await execFile("docker", ["inspect", "--format", "{{.State.Running}}", containerName]);
   if (stdout.trim() === "true") return;
@@ -256,6 +267,16 @@ async function startBroker({ containerName, configDirectory, certificatesDirecto
     stderr: error.stderr ?? ""
   }));
   throw new Error(`Mosquitto container exited during startup: ${logs}${stderr}`);
+}
+
+async function assertBrokerResourcesRemoved({ containers, volumes }) {
+  for (const name of containers) {
+    const { stdout } = await execFile("docker", ["ps", "-aq", "--filter", `name=^/${name}$`]);
+    assert.equal(stdout.trim(), "", `owned broker remains: ${name}`);
+  }
+  const { stdout } = await execFile("docker", ["volume", "ls", "--format", "{{.Name}}"]);
+  const remaining = new Set(stdout.trim().split("\n"));
+  assert.deepEqual(volumes.filter((name) => remaining.has(name)), [], "owned broker anonymous volumes remain");
 }
 
 function tlsBrokerConfig({
