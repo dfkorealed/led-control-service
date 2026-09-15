@@ -5198,6 +5198,18 @@ button.group-card {
   overflow-wrap: anywhere;
 }
 
+.registration-eligibility-warning {
+  margin: 0;
+  border: 1px solid #f3c98b;
+  border-radius: 8px;
+  background: #fff8eb;
+  padding: 12px;
+  color: #8a4b08;
+  font-size: 13px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
 .registration-selection-toolbar {
   display: flex;
   align-items: center;

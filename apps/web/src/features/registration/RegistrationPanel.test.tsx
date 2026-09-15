@@ -2,6 +2,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  type DiscoveredRegistrationNode,
+  type RegistrationEligibility,
   type RegistrationSession,
   cancelRegistrationSession,
   completeRegistrationSession,
@@ -342,9 +344,9 @@ describe("RegistrationPanel", () => {
   });
 
   it("등록 가능 조명만 기본 후보와 전체 선택 및 등록 payload에 포함한다", async () => {
-    const [legacyAvailable, explicitAvailable, registeredInSite, registeredElsewhere] = mockRegistrationSession.discoveredNodes;
+    const [firstAvailable, explicitAvailable, registeredInSite, registeredElsewhere] = mockRegistrationSession.discoveredNodes;
     const session = completedSession([
-      legacyAvailable,
+      firstAvailable,
       { ...explicitAvailable, registrationEligibility: "available" as const, existingRegistration: null },
       {
         ...registeredInSite,
@@ -361,7 +363,7 @@ describe("RegistrationPanel", () => {
     activeSessionsMock.mockResolvedValue([session]);
     getSessionMock.mockResolvedValue(session);
     registerBatchMock.mockResolvedValue({
-      items: [legacyAvailable, explicitAvailable].map((node) => ({ nodeId: node.id, status: "accepted" as const }))
+      items: [firstAvailable, explicitAvailable].map((node) => ({ nodeId: node.id, status: "accepted" as const }))
     });
 
     renderPanel();
@@ -377,8 +379,76 @@ describe("RegistrationPanel", () => {
     await waitFor(() => expect(registerBatchMock).toHaveBeenCalledWith(
       session.id,
       expect.objectContaining({
-        nodes: [{ nodeId: legacyAvailable.id }, { nodeId: explicitAvailable.id }]
+        nodes: [{ nodeId: firstAvailable.id }, { nodeId: explicitAvailable.id }]
       })
+    ));
+  });
+
+  it("누락 및 알 수 없는 eligibility 장치의 identity를 숨기고 generic 제외 문구만 표시한다", async () => {
+    const missingEligibility = withoutRegistrationContract(mockRegistrationSession.discoveredNodes[0]);
+    const unknownEligibility = {
+      ...mockRegistrationSession.discoveredNodes[1],
+      registrationEligibility: "future_eligibility" as RegistrationEligibility,
+      existingRegistration: null
+    };
+    const session = completedSession([missingEligibility, unknownEligibility]);
+    activeSessionsMock.mockResolvedValue([session]);
+    getSessionMock.mockResolvedValue(session);
+
+    renderPanel();
+
+    await screen.findByRole("status", { name: "조명 검색 상태" });
+    expect(screen.queryByText(missingEligibility.serialNumber)).not.toBeInTheDocument();
+    expect(screen.queryByText(missingEligibility.deviceUuid)).not.toBeInTheDocument();
+    expect(screen.queryByText(`RSSI ${missingEligibility.rssi} dBm`)).not.toBeInTheDocument();
+    expect(screen.queryByText(unknownEligibility.serialNumber)).not.toBeInTheDocument();
+    expect(screen.queryByText(unknownEligibility.deviceUuid)).not.toBeInTheDocument();
+    expect(screen.getByText("등록 상태를 확인할 수 없는 장치 2개를 제외했습니다.")).toBeInTheDocument();
+    expect(screen.queryByText(/다른 현장 등록/)).not.toBeInTheDocument();
+    expect(screen.queryByText("다른 현장에 등록된 장치입니다. 보안을 위해 상세 정보는 표시하지 않습니다.")).not.toBeInTheDocument();
+  });
+
+  it("eligibility가 누락된 장치를 전체 선택과 설정 form 대상에서 제외한다", async () => {
+    const missingEligibility = withoutRegistrationContract(mockRegistrationSession.discoveredNodes[0]);
+    const available = {
+      ...mockRegistrationSession.discoveredNodes[1],
+      registrationEligibility: "available" as const,
+      existingRegistration: null
+    };
+    const session = completedSession([missingEligibility, available]);
+    activeSessionsMock.mockResolvedValue([session]);
+    getSessionMock.mockResolvedValue(session);
+
+    renderPanel();
+
+    fireEvent.click(await screen.findByRole("checkbox", { name: "등록 가능 조명 전체 선택" }));
+    expect(screen.getByText("1개 선택")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: "개별 설정" }));
+    expect(screen.getByRole("group", { name: available.serialNumber })).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: missingEligibility.serialNumber })).not.toBeInTheDocument();
+  });
+
+  it("eligibility가 누락된 장치를 등록 payload에서 제외한다", async () => {
+    const missingEligibility = withoutRegistrationContract(mockRegistrationSession.discoveredNodes[0]);
+    const available = {
+      ...mockRegistrationSession.discoveredNodes[1],
+      registrationEligibility: "available" as const,
+      existingRegistration: null
+    };
+    const session = completedSession([missingEligibility, available]);
+    activeSessionsMock.mockResolvedValue([session]);
+    getSessionMock.mockResolvedValue(session);
+    registerBatchMock.mockResolvedValue({
+      items: [{ nodeId: available.id, status: "accepted" }]
+    });
+    renderPanel();
+
+    fireEvent.click(await screen.findByRole("checkbox", { name: "등록 가능 조명 전체 선택" }));
+    fireEvent.click(screen.getByRole("button", { name: "선택 조명 등록" }));
+
+    await waitFor(() => expect(registerBatchMock).toHaveBeenCalledWith(
+      session.id,
+      expect.objectContaining({ nodes: [{ nodeId: available.id }] })
     ));
   });
 
@@ -988,4 +1058,13 @@ function deferred<T>() {
     reject = rejectPromise;
   });
   return { promise, resolve, reject };
+}
+
+function withoutRegistrationContract(node: DiscoveredRegistrationNode) {
+  const {
+    registrationEligibility: _registrationEligibility,
+    existingRegistration: _existingRegistration,
+    ...malformedNode
+  } = node;
+  return malformedNode as unknown as DiscoveredRegistrationNode;
 }

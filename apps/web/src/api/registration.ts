@@ -33,8 +33,8 @@ export interface DiscoveredRegistrationNode {
   scanCorrelationId: string | null;
   scanAttempt: number | null;
   discoveredAt: string;
-  registrationEligibility?: RegistrationEligibility;
-  existingRegistration?: ExistingRegistration | null;
+  registrationEligibility: RegistrationEligibility;
+  existingRegistration: ExistingRegistration | null;
 }
 
 export interface RegisterFixtureBatchResult {

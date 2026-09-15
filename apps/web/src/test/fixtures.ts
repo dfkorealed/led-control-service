@@ -233,6 +233,8 @@ export const mockRegistrationSession: RegistrationSession = {
     errorMessage: null,
     scanCorrelationId: "44444444-4444-4444-8444-444444444444",
     scanAttempt: 1,
-    discoveredAt: "2026-07-01T00:00:01.000Z"
+    discoveredAt: "2026-07-01T00:00:01.000Z",
+    registrationEligibility: "available",
+    existingRegistration: null
   }))
 };
