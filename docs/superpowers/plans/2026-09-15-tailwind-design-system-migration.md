@@ -63,7 +63,7 @@
 - Consumes: 기존 `styles.css`의 `:root` 토큰과 production literal inventory.
 - Produces: `pnpm --filter @led-control/web ui:check`; Tailwind utilities `p-0.5`부터 `p-16`, semantic color utilities, `max-compact:*` responsive variant.
 
-- [ ] **Step 1: 정책 검사의 실패 테스트를 작성한다**
+- [x] **Step 1: 정책 검사의 실패 테스트를 작성한다**
 
 ```js
 import test from "node:test";
@@ -80,13 +80,13 @@ test("accepts approved semantic utilities", () => {
 });
 ```
 
-- [ ] **Step 2: 검사 모듈이 없어 실패하는지 확인한다**
+- [x] **Step 2: 검사 모듈이 없어 실패하는지 확인한다**
 
 Run: `node --test apps/web/scripts/ui-policy.test.mjs`
 
 Expected: FAIL with `ERR_MODULE_NOT_FOUND` for `ui-policy.mjs`.
 
-- [ ] **Step 3: dependency와 Tailwind Vite plugin을 추가한다**
+- [x] **Step 3: dependency와 Tailwind Vite plugin을 추가한다**
 
 Run:
 
@@ -97,7 +97,7 @@ pnpm --filter @led-control/web add -D tailwindcss@4.3.3 @tailwindcss/vite@4.3.3 
 
 Change `apps/web/vite.config.ts` to import `tailwindcss` from `@tailwindcss/vite` and use `plugins: [tailwindcss(), react()]`.
 
-- [ ] **Step 4: 고정 테마를 정의한다**
+- [x] **Step 4: 고정 테마를 정의한다**
 
 `apps/web/src/styles.css`의 첫 줄은 다음 import만 두고 기존 규칙은 import 아래 compatibility 영역에 유지한다.
 
@@ -169,7 +169,7 @@ Change `apps/web/vite.config.ts` to import `tailwindcss` from `@tailwindcss/vite
 
 상태 background/border, chart, fixture 토큰은 inventory의 실제 값을 이름별로 추가한다. `base.css`에는 `html`, `body`, `button/input/select/textarea`의 font inheritance와 `:focus-visible` 기본값만 둔다. `exceptions.css`는 파일 머리말에 허용 범위를 주석으로 기록하고 비어 있는 상태로 시작한다.
 
-- [ ] **Step 5: 정책 검사와 baseline을 구현한다**
+- [x] **Step 5: 정책 검사와 baseline을 구현한다**
 
 `inspectUiSource(path, source)`는 arbitrary spacing/color, literal color, production `querySelector`와 승인되지 않은 CSS import를 `{ rule, path, match }[]`로 반환한다. CLI는 `ui-policy-baseline.json`의 파일별 위반 개수보다 증가하면 exit 1을 반환한다. `package.json`에 아래 scripts를 추가한다.
 
@@ -180,7 +180,7 @@ Change `apps/web/vite.config.ts` to import `tailwindcss` from `@tailwindcss/vite
 }
 ```
 
-- [ ] **Step 6: 검사·typecheck·build를 통과시킨다**
+- [x] **Step 6: 검사·typecheck·build를 통과시킨다**
 
 Run:
 
@@ -193,7 +193,7 @@ pnpm --filter @led-control/web build
 
 Expected: all commands exit 0; Vite output contains generated Tailwind utilities.
 
-- [ ] **Step 7: 간격 문서와 첫 커밋을 만든다**
+- [x] **Step 7: 간격 문서와 첫 커밋을 만든다**
 
 `docs/ui-spacing.md`에 16개 허용값, `max-compact` 사용법, CSS 예외와 policy command를 기록한다.
 
@@ -201,6 +201,8 @@ Expected: all commands exit 0; Vite output contains generated Tailwind utilities
 git add apps/web/package.json pnpm-lock.yaml apps/web/vite.config.ts apps/web/src/styles.css apps/web/src/styles apps/web/scripts/ui-policy.mjs apps/web/scripts/ui-policy.test.mjs apps/web/scripts/ui-policy-baseline.json docs/ui-spacing.md
 git commit -m "feat(web): add Tailwind design token foundation"
 ```
+
+**Task 1 검증 결과(2026-09-15):** 정책 missing-module RED 후 15/15 GREEN, Web unit 77 files·888/888, typecheck·build·ui:check와 frozen offline install exit 0. 구현 이전 `d0fe85ee` inventory 2,396건에서 제거된 16건을 차감해 baseline 35 files·2,380건, 신규 위반 0건이다. 실제 Vite 메모리 fixture에서 semantic·spacing·typography·`max-compact` CSS 생성과 test fixture 제외를 검증했고 1440/1024/390/320 통계 responsive Chromium 4/4를 통과했다. 기존 테스트 두 파일만 canonical theme와 실제 계산된 스타일 검증으로 보정했으며 production feature/API는 변경하지 않았다. 전체 E2E·전체 메뉴 migration·HIL은 미실행이며 다음 단계는 Task 2다.
 
 ### Task 2: class utility, typography와 기존 기본 primitive 전환
 

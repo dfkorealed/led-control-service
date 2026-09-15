@@ -1,0 +1,5 @@
+/* 허용 범위: Konva/Recharts 런타임 geometry, 측정 기반 custom property,
+ * 복잡한 keyframe 및 브라우저·라이브러리 제약 selector.
+ * 추가 시 이유·적용 대상·utility로 대체할 수 없는 근거를 기록하고 정책 승인을 받는다.
+ * 정적 padding/margin/gap/color는 예외로 허용하지 않는다. 현재 예외 규칙 없음.
+ */

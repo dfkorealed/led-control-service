@@ -1,8 +1,9 @@
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [tailwindcss(), react()],
   envDir: "../..",
   server: {
     proxy: {
@@ -16,6 +17,7 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     setupFiles: "./src/test/setup.ts",
-    exclude: ["**/node_modules/**", "**/dist/**", "e2e/**"]
+    // node:test 정책 검사는 test:ui-policy 명령에서 독립 실행한다.
+    exclude: ["**/node_modules/**", "**/dist/**", "e2e/**", "scripts/ui-policy.test.mjs"]
   }
 });

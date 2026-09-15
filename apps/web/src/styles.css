@@ -1,35 +1,46 @@
+@import "tailwindcss";
+@import "./styles/theme.css";
+@import "./styles/base.css";
+@import "./styles/exceptions.css";
+
+/* 검사 fixture의 미승인 예제 클래스가 production CSS로 생성되지 않게 한다. */
+@source not "../scripts";
+@source not "../e2e";
+@source not "./**/*.test.{ts,tsx}";
+@source not "./**/*.spec.{ts,tsx}";
+@source not "./test";
+
+/* Compatibility: 메뉴별 migration이 끝날 때까지 기존 selector를 유지한다. */
 :root {
   color: var(--brand-navy);
   background: var(--brand-paper);
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --brand-navy: #15324a;
-  --brand-blue: #256fa1;
-  --brand-coral: #ff7a5c;
-  --brand-paper: #f4f8fa;
+  --brand-navy: var(--color-brand-navy);
+  --brand-blue: var(--color-brand-blue);
+  --brand-coral: var(--color-brand-coral);
+  --brand-paper: var(--color-brand-paper);
   --primary: var(--brand-blue);
-  --primary-hover: #1d5c86;
-  --primary-soft: #e8f2f8;
+  --primary-hover: var(--color-action-primary-hover);
+  --primary-soft: var(--color-action-primary-soft);
   --surface: var(--brand-paper);
-  --panel: #ffffff;
-  --border: #dbe7f5;
+  --panel: var(--color-surface-panel);
+  --border: var(--color-border-default);
   --text: var(--brand-navy);
-  --muted: #64748b;
-  --subtle: #73839a;
-  --success: #15803d;
-  --warning: #b45309;
-  --danger: #dc2626;
-  --focus-ring: 0 0 0 3px rgba(37, 111, 161, 0.28);
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-5: 24px;
-  --space-6: 32px;
-  --radius-control: 10px;
-  --radius-card: 14px;
-  --shadow-popover: 0 18px 40px rgba(15, 23, 42, 0.18);
-  --shadow: 0 8px 24px rgba(30, 64, 175, 0.06);
+  --muted: var(--color-content-secondary);
+  --subtle: var(--color-content-muted);
+  --success: var(--color-status-success-foreground);
+  --warning: var(--color-status-warning-foreground);
+  --danger: var(--color-status-danger-foreground);
+  --focus-ring: var(--shadow-focus);
+  --space-1: calc(var(--spacing) * 1);
+  --space-2: calc(var(--spacing) * 2);
+  --space-3: calc(var(--spacing) * 3);
+  --space-4: calc(var(--spacing) * 4);
+  --space-5: calc(var(--spacing) * 6);
+  --space-6: calc(var(--spacing) * 8);
+  --radius-card: var(--radius-panel);
+  --shadow: var(--shadow-panel);
   --bottom-nav-space: calc(68px + env(safe-area-inset-bottom));
 }
 

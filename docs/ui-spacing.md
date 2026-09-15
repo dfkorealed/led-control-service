@@ -1,10 +1,10 @@
 # UI 간격 규칙
 
-기준일: 2026-09-10
+기준일: 2026-09-15
 
 ## 목적과 적용 범위
 
-이 문서는 Web UI의 화면·그리드·카드·패널 배치 간격을 일관되게 유지하기 위한 기준이다. 아이콘·badge·타이포그래피의 기존 내부 수치는 이 문서의 1차 전환 범위에 포함하지 않는다. 신규 화면과 수정하는 화면은 아래 배치 규칙을 적용하며, 기존 화면은 메뉴별 개선 작업에서 점진적으로 전환한다.
+이 문서는 Web UI의 간격·색상·타이포그래피 토큰과 정책 검사 기준이다. `apps/web/src/styles/theme.css`의 CSS-first `@theme static`이 단일 토큰 원천이며 JavaScript Tailwind config는 만들지 않는다. 신규 화면과 수정하는 화면은 승인 utility를 적용하고 기존 화면은 메뉴별로 전환한다. 현재 Task 1 기반만 완료했으며 공통 컴포넌트와 페이지 전환은 후속 작업이다.
 
 - 1차 적용: 통계 메뉴
 - 후속 적용: 모니터링, 제어, 설정 메뉴
@@ -12,16 +12,28 @@
 
 ## 간격 스케일
 
-새로 정의하는 레이아웃 간격은 4px 배수를 사용한다. `apps/web/src/styles.css`의 공통 토큰을 사용하고 기능 스타일에 임의의 레이아웃 값을 반복해 추가하지 않는다.
+허용 간격은 아래 16개 값이다. Tailwind의 `--spacing: 4px` 곱셈 기능은 임의 숫자도 생성하므로 `ui:check`가 이 목록을 별도로 강제한다. `0`은 간격 초기화 예외이며 승인값 개수에 포함하지 않는다.
 
-| 토큰 | 값 | 용도 |
-| --- | ---: | --- |
-| `--space-1` | 4px | 아이콘과 라벨, tooltip 내부처럼 가장 밀접한 정보 |
-| `--space-2` | 8px | 라벨과 값, 제목과 보조 설명, 작은 컨트롤 내부 |
-| `--space-3` | 12px | 카드 내 행, 안내문, 밀접한 행 사이 |
-| `--space-4` | 16px | 관련된 카드 사이, 모바일 카드 padding, 기본 패널 gap |
-| `--space-5` | 24px | 독립된 화면 섹션 사이, 데스크톱 카드 padding |
-| `--space-6` | 32px | 화면의 큰 단락을 명확히 나눌 때만 사용 |
+| 값 | utility 예시 | 용도 |
+| ---: | --- | --- |
+| 2px | `p-0.5` | 작은 광학 보정 |
+| 4px | `gap-1` | 아이콘과 라벨 |
+| 6px | `gap-1.5` | 작은 인라인 요소 |
+| 8px | `gap-2` | 라벨과 값 |
+| 10px | `p-2.5` | compact control |
+| 12px | `gap-3` | 카드 내부 행 |
+| 14px | `p-3.5` | 기존 밀도 보존 |
+| 16px | `gap-4` | 패널 gap·모바일 padding |
+| 18px | `p-4.5` | 제한적 중간 단계 |
+| 20px | `gap-5` | control group |
+| 24px | `p-6` | 독립 섹션·데스크톱 padding |
+| 28px | `gap-7` | 큰 제목 블록 |
+| 32px | `gap-8` | 큰 단락 |
+| 40px | `p-10` | shell 여백 |
+| 48px | `p-12` | 큰 layout 여백 |
+| 64px | `p-16` | 최상위 빈 상태 |
+
+기존 `--space-1..6`은 각각 4/8/12/16/24/32px를 유지하는 `--spacing`의 compatibility alias다. 특히 기존 `--space-5`는 `p-6`, `--space-6`은 `p-8`에 대응한다. 숫자만 그대로 utility 이름으로 바꾸지 않는다. 음수 margin/위치 utility에도 같은 승인값을 적용한다.
 
 ## 배치 원칙
 
@@ -34,10 +46,10 @@
 
 ## 반응형과 예외
 
-- 760px 이하에서는 패널 padding만 24px에서 16px로 줄이고, 섹션 간 24px 리듬은 유지한다.
+- 신규 utility는 `p-6 max-compact:p-4`처럼 쓴다. `compact=47.5rem`(기본 16px 기준 760px), `tablet=64rem`이며 `max-compact`는 **760px 미만**이다. 기존 compatibility CSS의 `max-width: 760px`는 경계값을 포함하므로 페이지 전환 시 760px 경계도 확인한다. 섹션 간 24px 리듬은 유지한다.
 - 44px 최소 터치 영역, safe area, 차트 높이는 간격 토큰이 아닌 사용성 제약이므로 예외로 다룬다.
 - 텍스트 줄바꿈으로 카드 높이가 달라질 수 있으며, 정렬을 위해 내용을 잘라내거나 터치 영역을 줄이지 않는다.
-- 4px 배수가 아닌 값이 필요하면 브라우저 렌더링 또는 외부 라이브러리 제약인지 확인하고 예외 이유를 스타일 주석에 기록한다.
+- `0`, percentage/viewport, runtime geometry 계산, border 1px과 최소 터치 영역 44px는 일반 spacing과 구분한다. `exceptions.css`는 비어 있으며 Konva/Recharts geometry, 복잡한 keyframe, 브라우저·라이브러리 selector만 승인 대상이다. 이유·대상·utility로 대체할 수 없는 근거를 주석으로 기록하고 정책 allowlist를 별도 검토한다. 정적 padding/margin/gap/color는 예외로 옮기지 않는다.
 
 ## 통계 메뉴 적용
 
@@ -49,6 +61,40 @@
 
 ## 검증 규칙
 
+```bash
+node --test apps/web/scripts/ui-policy.test.mjs
+pnpm --filter @led-control/web ui:check
+pnpm --filter @led-control/web typecheck
+pnpm --filter @led-control/web test
+pnpm --filter @led-control/web build
+```
+
+정책은 production `src`의 CSS/JS/TS/JSX/TSX를 검사한다. 테스트 파일·test/e2e 디렉터리는 제외한다. Tailwind source에서도 scripts/e2e/test fixture를 제외하여 금지 예시 클래스가 배포 CSS로 생성되지 않게 한다. `theme.css`의 `@theme` 안 semantic color와 typed scale 선언만 literal을 허용하며, 해당 파일의 일반 CSS 규칙은 계속 검사한다.
+
+차단 항목은 arbitrary spacing/color/typography, 미승인 숫자 spacing과 기본 palette/typography utility, CSS·inline 정적 spacing/typography와 literal color, production `querySelector`/`querySelectorAll`(TypeScript generic 포함), 미승인 CSS 파일/import/selector, 공통 UI 밖의 신규 native form style이다. 검사기는 정적 문자열을 읽는 lexical guard이므로 동적 클래스 조합·전체 JS/CSS 의미 해석과 런타임 geometry의 타당성은 코드 검토로 보완한다.
+
+baseline은 구현 이전 `d0fe85ee`의 Git 소스로 2,396건을 inventory한 뒤 이번 alias 전환으로 없어진 16건을 차감한 **35개 파일 2,380건**이다. 파일·규칙별 총량과 정확한 위반 문자열별 개수가 증가하면 exit 1이다. 다른 신규 위반으로 기존 allowance를 대체할 수 없으며 신규 파일의 allowance는 0이다. 규칙별 잔량은 selector 1,129, literal spacing 527, raw color 361, literal typography 230, raw form style 116, DOM query 8, CSS import 5, CSS file 4다. 후속 migration은 감소한 allowance를 함께 줄이고 자동 baseline 증가 명령은 제공하지 않는다. 기존 일반 CSS 4개와 `App.tsx`의 기존 CSS import도 이 부채에 포함돼 있다.
+
 - 1440×900, 1024×768, 390×844, 320×740 뷰포트에서 계산된 section gap, grid gap, panel padding을 확인한다.
 - 상태 badge가 absolute positioning으로 빈 영역을 예약하지 않는지 확인한다.
 - 간격 변경 후에도 문서 수준 가로 overflow와 44×44px 터치 영역 회귀를 함께 실행한다.
+
+## 색상 inventory와 semantic mapping
+
+색상값은 [theme.css](../apps/web/src/styles/theme.css)에만 새로 선언한다. 아래는 초기 역할 매핑이며 기존 페이지 literal은 baseline 부채로 유지한다. 우연히 같은 값이어도 역할이 다른 토큰은 구분한다.
+
+| 기존 출처·역할 | semantic token | 보존한 값 |
+| --- | --- | --- |
+| 전역 root의 Navy/Blue/Coral/Paper | `brand-*`, `content-primary`, `action-primary`, `surface-canvas` | `#15324a`, `#256fa1`, `#ff7a5c`, `#f4f8fa` |
+| panel/inset/tooltip 역상, 본문/비활성·경계 | `surface-*`, `content-*`, `border-*` | 기존 panel, feedback, tooltip, control 선언 |
+| primary hover/soft, danger button | `action-*` | `#1d5c86`, `#e8f2f8`, `#fff7f7`/`#b91c1c`/`#fecaca` |
+| status badge·feedback | `status-{neutral,info,success,warning,danger}-{foreground,background,border}` | 기본 상태값과 기존 배경·경계값 |
+| badge/feedback의 별도 대비색 | `status-*-badge`, `status-*-feedback-*` | `#a16207`, `#be123c`, `#0b63e5`, `#166534`, `#92400e`, `#991b1b` 등 |
+| StatisticsOverview 실제 사용량·EnergyComparison 기준/예측 | `chart-usage`, `chart-baseline`, `chart-forecast` | `#256fa1`, `#e8f2f8`, `#b45309` |
+| 비용/경고 의미, ranking line, grid와 점 | `chart-cost`, `chart-ranking`, `chart-grid`, `chart-point` | `#b45309`, `#2563eb`, `#dbe7f5`, `#ffffff` |
+| heatmap cell·legend의 기존 단계 | `chart-heatmap-{empty,default,1..5}` | `#eff6ff`, `#dbeafe`, `#bfdbfe`, `#93c5fd`, `#60a5fa`, `#2563eb`, `#1e3a8a` |
+| fixture-dot의 online/awaiting/offline/fault | `fixture-connected`, `fixture-inspection`, `fixture-offline`, `fixture-fault` | `#15803d`, `#ca8a04`, `#94a3b8`, `#dc2626` |
+| fixture-dot 밝기 10단계 | `fixture-brightness-1..10`, `fixture-off`, `fixture-on` | 기존 `#334155`부터 `#fffde8`까지 각 단계 |
+| EditorFixtureNode/FloorEditorCanvas/EditorMinimap | `fixture-editor-*` | 기존 online `#159f81`, offline `#8b929f`, fault `#d84c58`, 선택 `#185ed0` 및 도형/guide/preview 값 |
+
+`chart-cost`는 현재 warning 기반 비용 의미를 초기 매핑한 Task 2 typed adapter 최소 토큰이다. 아직 독립 비용 시계열은 구현하지 않았다. `action-primary-active`는 기존 hover와 같은 색으로 시작하며 새로운 상호작용을 추가하지 않는다. 색상 adapter와 공통 컴포넌트 전환은 Task 2 이후다.
