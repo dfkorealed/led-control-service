@@ -552,6 +552,7 @@ git commit -m "feat(web): remove manual control end time"
 
 **Files:**
 - Modify: `apps/web/e2e/automation-control-flow.spec.ts`
+- Modify: `apps/web/e2e/support/real-backend-lab.ts` (7개 action phase와 종료 원인 attribution oracle)
 - Modify: `apps/gateway/README.md`
 - Modify: `docs/runbooks/raspberry-pi-gateway-appliance.md`
 - Modify: `docs/menus/control.md`
@@ -635,6 +636,25 @@ git commit -m "docs(control): record manual baseline automation flow"
 ```
 
 ---
+
+### Task 6 실행 증거
+
+2026-09-15, Task 1~5 구현 HEAD `13ec5b5e` 위에서 수행했다. Task 6 체크박스는 controller가 별도 갱신한다.
+
+- 기본 포트 exact RealBackendLab command는 beforeAll에서 Redis 16379/Mosquitto 18883 bind 충돌로 **1 failed, 시나리오 미실행**이었다. 다른 프로세스는 건드리지 않고 기존 `E2E_LAB_*` 설정으로 격리했다.
+- RED: 격리 포트의 기존 spec은 제거된 datetime input에서 **1 failed (body 32.0초)**. 새 baseline 시나리오는 모든 밝기 checkpoint를 실행한 뒤 기존 helper의 `expected 5 target action phases, received 7`로 **1 failed (body 50.6초)**였다. 이는 이미 구현된 Task 1~5 production 동작의 RED가 아닌 stale 통합 fixture/oracle의 RED다.
+- Oracle 보정 중 baseline 복귀를 `current`로 기대한 실행은 **1 failed (body 47.3초)**였다. Production `automation-telemetry-handoff.ts`의 `terminalSource()`는 종료 rule/occurrence를 원인으로 보존하므로 차량 종료는 `vehicle_event_rule`, schedule 종료는 `schedule`로 기대값만 수정했다.
+- GREEN: 아래 명령은 **Chromium 1 passed (59.2초), body 32.1초, 실패·skip 0**. 일곱 RF action `40→80→60→80→60→40→60`, 여덟 밝기 checkpoint, 19 unique production event = 19 exact ACK = 19 DB rows, durable telemetry outbox records 0/gap false를 확인했다. 최초 연결·세션 만료 재연결·규칙 삭제·API 재시작 수렴도 포함한다.
+
+```bash
+E2E_LAB_POSTGRES_PORT=25432 E2E_LAB_REDIS_PORT=26379 E2E_LAB_MQTT_PORT=28883 E2E_LAB_API_PORT=24000 E2E_LAB_WEB_PORT=25173 E2E_REAL_BACKEND_LAB=1 pnpm --filter @led-control/web exec playwright test e2e/automation-control-flow.spec.ts --workers=1
+pnpm --filter @led-control/web exec playwright test e2e/real-backend-lab-support.spec.ts --workers=1
+pnpm --filter @led-control/web typecheck
+```
+
+Support **14/14 passed (8.0초)**, Web typecheck exit 0. Lab은 owned PostgreSQL·Redis·mTLS Mosquitto/process와 임시 DB·PKI·socket을 cleanup했고 선택한 TCP 포트 listener가 없음을 확인했다. Docker, 사용자 DB migration, 운영 배포, 실제 backup/restore, Pi/BIO/BlueZ/ESP32-H2 HIL은 수행하지 않았다. V5 state 백업→Gateway→DB/API→Web 순서와 이전 release+V5 backup 동반 rollback을 제어/Gateway/runbook/status에 반영했다. 전체 branch 회귀와 최종 검토는 Task 7 범위다.
+
+상세 report와 보존한 세 evidence JSON은 `.superpowers/sdd/2026-09-14-manual-baseline-control/task-6-report.md` 및 `task-6-evidence/`에 있다.
 
 ### Task 7: 전체 검증과 최종 상태
 

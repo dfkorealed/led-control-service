@@ -1,6 +1,6 @@
 # 메뉴 완성 작업 상태판
 
-기준일: 2026-09-14
+기준일: 2026-09-15
 
 ## 현재 마일스톤
 
@@ -19,7 +19,9 @@
 
 ## 작업 상태
 
-수동 기본 밝기 제어 변경은 **설계·구현 계획 완료, 실행 대기**다. 수동 종료 시각을 Web/API/wire에서 제거하고 성공한 조명별 밝기를 Gateway 영속 기본값으로 전환한다. 명령 당시 활성인 schedule occurrence·vehicle activation만 정확한 identity로 억제하며 다음 occurrence/activation부터 자동 제어가 다시 적용된다. 기존 미만료 override는 확인된 밝기만 기본값으로 승격하고 남은 시간은 폐기한다. nullable DB 호환 migration과 V5→V6 Gateway state migration, Gateway→API→Web 배포 순서를 포함하며 사용자 DB·운영 배포·실장비/HIL은 실행하지 않는다.
+수동 기본 밝기 제어는 **Task 1~6 구현·software 통합 검증 완료, Task 7 전체 회귀·최종 검토 대기**다. Web/API/wire의 종료 필드를 제거했고 성공한 fixture만 영속 기본 밝기로 저장한다. 실제 수동 성공 시점의 schedule occurrence·vehicle activation만 exact identity로 억제하며 새 실행부터 이벤트>스케줄 우선순위로 재개하고 종료 후 기본값으로 돌아온다. V5→V6 migration은 확인된 성공만 승격하고 남은 시간을 폐기한다. 운영 순서는 **V5 state 백업 → Gateway → DB/API → Web**, rollback은 이전 release와 대응 V5 backup을 함께 복원한다. 사용자 DB migration·운영 배포·실제 backup/restore·Pi/BIO/BlueZ/ESP32-H2 HIL은 미실행이다.
+
+2026-09-15 Task 6 RealBackendLab은 격리 PostgreSQL·Redis·mTLS Mosquitto와 production Web→API→outbox/MQTT→Gateway에서 **Chromium 1/1 passed (59.2초, body 32.1초), 실패·skip 0**이다. 현재 event/schedule 억제, 새 event 80%→기본값 60%, 다음 daily occurrence 40%→60%, 삭제·세션 소멸 재연결·API 재시작을 검증했다. 실행 event/ACK/DB 각 19건과 telemetry outbox 0/gap false가 일치했다. 기본 포트 첫 실행은 Redis/Mosquitto 충돌로 시나리오 미실행이었고 기존 lab 포트 설정으로 격리 후 통과했다. 아래 과거 Task 기록의 timed override 계약과 HIL 결과는 당시 release 이력이며 현재 기본 밝기 동작·배포 검증의 근거로 사용하지 않는다.
 
 - 플랫폼 Task 4 최종 회귀에서 기준부터 존재한 맵 리비전 복구 버튼의 클릭 영역을 selector 한정 52×52px로 보완했다(`ad864f9`). 320/390/1024/1440px의 연속 44×44px hit·layout·overflow 계약을 통과했다. Stale E2E 사용자 경로·fixture 정합(`651a3ce`)과 Gateway durable observation 완료 대기(`e3daa6a`)는 별도 test-only 수정이며 API/권한/복구 동작과 timeout/retry는 변경하지 않았다.
 
@@ -27,7 +29,7 @@
 
 | 작업 | 상태 | 내용 |
 | --- | --- | --- |
-| 수동 override 제거·기본 밝기 전환 | 설계·구현 계획 완료(실행 대기) | 개별·다중 수동 제어에서 종료 시각을 제거하고 성공 fixture만 기본 밝기로 저장한다. 현재 자동 source는 수동 적용 즉시 억제하고 다음 schedule occurrence 또는 vehicle activation부터 기존 이벤트>스케줄 우선순위로 재개한다. [설계](superpowers/specs/2026-09-14-manual-baseline-control-design.md) · [실행 계획](superpowers/plans/2026-09-14-manual-baseline-control.md) |
+| 수동 override 제거·기본 밝기 전환 | Task 1~6 완료(소프트웨어), 최종 회귀 대기 | 종료 시각 없는 Web/API/wire, fixture별 영속 기본값과 현재 source 억제, 새 occurrence/activation 재개, V5→V6 migration을 구현했다. Task 6 RealBackendLab 1/1과 7개 RF action phase·8개 밝기 checkpoint를 확인했다. V5 백업→Gateway→DB/API→Web rollout 문서를 준비했으며 사용자 DB·운영 배포·HIL은 미실행이다. [설계](superpowers/specs/2026-09-14-manual-baseline-control-design.md) · [실행 계획](superpowers/plans/2026-09-14-manual-baseline-control.md) |
 | BIO USB 동글 Gateway Adapter | 구현 중(제어/read-back 검증) | 제조사 앱 없이 direct USB로 동글을 초기화하고 BIO 장치를 검색·식별·주소 할당·밝기 제어/read-back하는 codec, client, durable mapping, Gateway adapter/factory/health와 exact-one non-root 배포 계약을 구현했다. 전체 서비스 DB 초기화 뒤 신규 고객 Site/Gateway를 제품 Web로 설정하고, Lab TLS/MQTT identity를 발급해 standalone BIO runtime의 healthy heartbeat와 `bio:e466e5265fe4` 검색을 확인했다. 2초 force-on과 sensor mode 복원은 실제 LED와 Gateway `restoreConfirmed=true` 저널로 확인했다. `Asia/Seoul` DB 세션의 identify timeout 비교와 기존 주소/allocator 주소가 모두 `0x0100`인 동일 주소 수렴을 보완했다. Docker의 정확한 빈 `gateway/identity` 중첩 mountpoint만 엄격 검증 후 허용해 수정 runtime을 Pi에 배포했고, 실패 terminal/ACK 원장을 exact 보상한 HIL에서 mapping `confirmed`, node `provisioned`, MeshNode/Fixture 각 1개, 새 completed 원장/ACK 생성을 확인했다. 이후 최초 read-only polling의 `bio_control_failed`/`BIO_DEVICE_NOT_FOUND` 교대 실패로 full/targeted resync가 scan window와 GET을 중첩하는 원인을 특정했다. scan 시작부터 stop ACK까지 client 전역 queue를 소유하도록 회귀 수정했으며, 다음 단계는 이 image를 Pi에 재배포해 online 상태와 밝기 제어/read-back을 검증하는 것이다. [설계](superpowers/specs/2026-09-12-bio-usb-dongle-gateway-adapter-design.md) · [실행 계획](superpowers/plans/2026-09-13-bio-direct-usb-registration-control.md) |
 | 킨다 O안 스위치 플립 브랜드 적용 | 완료(소프트웨어) | 스위치 플립 SVG 정본과 재현 가능한 PNG·파비콘, HTML 한글 `킨다`를 조합한 공통 `KindaLogo`, 브라우저 메타데이터, 로그인·고객·운영자 셸의 사용자 노출 브랜드 교체를 완료했다. 브랜드 자산·메타데이터·화면 단위 테스트, 전체 Web Vitest, typecheck, production build와 핵심 접점 Chromium 회귀를 통과했다. 기술 package 이름과 API·DB·MQTT·BLE Mesh·firmware는 변경하지 않았고 모바일 스토어 아이콘, 인쇄 발주, 실물 장비 라벨, 실제 모바일 WebView·HIL은 범위 밖이다. [설계](superpowers/specs/2026-09-13-kinda-visual-identity-design.md) · [실행 계획](superpowers/plans/2026-09-13-kinda-brand-web-assets.md) |
 | 바이오일렉트로닉스 USB 동글 호환성 검토 | 완료(정적·무장비, 조건부 호환) | APK `1.1.314`가 CH34x USB-UART(`115200 8N1`)와 `55 AA` CRC-16 또는 `GS` checksum frame을 사용하며, USB와 BLE GATT가 동일 상위 command channel을 운반함을 확인했다. 현재 Gateway port 뒤에 `usb-dongle` adapter를 추가하는 PoC는 현실적이다. 공식 앱은 `1.2.0`으로 버전이 다르고 실제 동글 PID, RF 표준·암호화, 주소/그룹 mapping, 장치 적용 ACK, sensor scaling은 미확정이다. 실제 장비는 제어하지 않았으며, 제조사 protocol/SDK·공급권 자료와 격리망 golden trace, 2-node/장애/72시간 HIL을 통과하기 전에는 양산 호환으로 판정하지 않는다. [검토 결과](superpowers/plans/2026-09-12-bio-usb-dongle-compatibility-review.md#검토-결과) |

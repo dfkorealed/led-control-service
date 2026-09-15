@@ -238,16 +238,19 @@ Pi에 bundle이 이미 있으면 동일한 승인 후 `sudo /usr/local/lib/led-c
 5. 신버전 API와 command publisher만 시작한다. 구·신 버전을 동시에 운영하지 않는다.
 6. 요청자 키가 없는 command create/publish smoke와 API health를 확인한 뒤 control write를 재개한다.
 
-### Timed manual wire Gateway rolling upgrade
+### 수동 기본 밝기 V6 rollout·rollback
 
-위 requester PII migration을 포함하지 않는 timed manual wire rolling upgrade는 다음 순서를 고정한다.
+현재 수동 기본 밝기 release의 순서는 **V5 state 백업 → Gateway → DB/API → Web**이다. 구 timed manual release의 API 우선 순서를 이 release에 적용하지 않는다. 새 Gateway는 old/new dimming wire와 V5/V6 state를 모두 읽지만 구 Gateway는 종료 필드가 없는 새 명령을 처리하지 못한다.
 
-1. Strict delivery generation을 발행하는 새 API publisher를 먼저 가동하고 기존 legacy outbox를 normalize한다. 이미 `overrideUntil`이 지난 row가 `MANUAL_OVERRIDE_EXPIRED`로 종료되는지 확인한다.
-2. Legacy wire를 만들 수 있는 old publisher instance와 worker를 모두 종료한다. 새 publisher가 동작 중이라는 이유로 old publisher 종료를 생략하지 않는다.
-3. 마지막 old publisher 종료 시점부터 broker 최대 message expiry인 10초를 온전히 기다려 persistent session과 queued QoS 1 legacy packet을 drain한다.
-4. 10초 drain이 끝난 뒤에만 Gateway image를 배포한다.
+1. Control write를 freeze하고 모든 구 API publisher/worker를 stop-and-drain한다. 마지막 종료 뒤 broker command TTL 10초를 온전히 기다린다. Requester PII 등 함께 배포하는 maintenance migration의 관문도 지킨다.
+2. 기존 Gateway를 quiesce하고 승인된 state backup/verify 절차로 **V5 state를 쓰던 release와 같은 시점의 gateway state 전체**를 백업한다. Automation state/snapshot, command journal, outbox를 한 세트로 보존하며 release identity와 backup hash를 기록한다. 단일 state 파일을 실행 중 복사하는 방법으로 대체하지 않는다.
+3. Old/new wire와 V5/V6 state를 읽는 새 Gateway를 먼저 배포한다. V6 `pendingManualControls`, `manualAutomationSuppressions`, `baseBrightnessByFixture` 복구와 readiness를 확인한다. V5에서 확인된 성공 manual만 기본값으로 승격하고 남은 종료 시간은 폐기한다. Pending/실패/불명확 결과를 성공으로 추정하지 않는다.
+4. `20260914090000_manual_control_baseline` nullable migration과 새 API를 적용한다. `ManualOverride.overrideUntil`은 nullable legacy 감사 필드이고 새 row는 null이다. 새 command payload에 `overrideUntil`/`overrideRemainingMs`가 없고 delivery generation/RF deadline이 유지되는지 확인한다.
+5. 종료 시각 입력이 없는 Web을 배포하고, 성공한 조명별 기본 밝기·현재 source 억제·새 source 재개를 확인한 뒤 control write를 재개한다.
 
-Gateway를 먼저 배포하거나 10초 drain을 생략하면 clock-untrusted 현장의 legacy timed command는 `legacy_timing_unverifiable` terminal 실패로 기록되고 RF를 실행하지 않는다. Legacy wire에는 pre-broker delay를 증명할 generation metadata가 없으므로 이 배포 순서는 선택 사항이 아니다. Clock-trusted Gateway의 legacy command와 새 generation을 받은 clock-untrusted Gateway command는 정상 처리한다.
+Rollback은 control write freeze, publisher/Gateway drain와 broker TTL 대기 뒤 **이전 release와 그에 대응하는 V5 backup을 함께 복원**한다. V6 파일에 구 binary만 연결하지 않는다. API·Web도 같은 계약의 이전 버전으로 맞춘다. DB에 새 nullable 이력이 있으면 구 API 호환성을 검증하고, 이를 확인하기 전 `NOT NULL` 복구나 이력 삭제를 수행하지 않는다. Backup 이후의 제어/관측 이력은 복원 상태에 없으므로 Mesh resync와 실제 밝기를 확인한 뒤 서비스를 재개한다.
+
+이 절차는 운영 준비 문서다. 이번 변경에서 사용자 DB migration, Pi 배포, 실제 state backup/restore, firmware flash와 HIL은 미실행이다. RealBackendLab은 격리 PostgreSQL·Redis·mTLS Mosquitto와 production Web/API/outbox/MQTT/Gateway software를 검증하며 Raspberry Pi/BIO/BlueZ/ESP32-H2의 RF·전원 복구 HIL을 대신하지 않는다.
 
 ## 8. Health·current/previous·rollback 확인
 
@@ -287,7 +290,7 @@ docker exec led-control-gateway cat /var/run/led-control/health.json
 docker inspect --format '{{json .State.Health}}' led-control-gateway
 ```
 
-Automation config와 실행 상태는 각각 `/var/lib/led-control/automation-snapshot.json`, `/var/lib/led-control/automation-state.json`에 있고 timed manual handoff phase는 `/var/lib/led-control/command-journal.json`에 있다. 파일을 수동 편집하지 않는다. Clock directory mount와 파일 권한은 다음처럼 확인한다.
+Automation config와 V6 실행 상태는 각각 `/var/lib/led-control/automation-snapshot.json`, `/var/lib/led-control/automation-state.json`에 있고 manual handoff phase는 `/var/lib/led-control/command-journal.json`에 있다. 성공한 기본 밝기와 현재 source suppression은 V6 state에 보존된다. 파일을 수동 편집하지 않는다. Clock directory mount와 파일 권한은 다음처럼 확인한다.
 
 ```bash
 docker inspect --format '{{range .Mounts}}{{println .Source "->" .Destination .Mode}}{{end}}' led-control-gateway
@@ -296,7 +299,7 @@ docker exec led-control-gateway test -f /run/systemd/timesync/synchronized
 docker exec led-control-gateway stat -c '%a %U:%G %n' /var/lib/led-control/automation-state.json
 ```
 
-독립 BIO runtime은 위 명령의 container 이름만 `led-control-gateway-bio`로 바꿔 같은 항목을 확인한다. 스케줄 HIL 전에는 `automation-state.json`의 활성 manual override와 종료 시각도 확인한다. 활성 수동제어는 설계상 스케줄보다 우선하므로 이를 시간 동기화 장애로 오인하지 않는다. 상태 파일을 직접 편집하거나 삭제해 override를 해제하지 말고, 지정 종료 시각까지 기다리거나 서비스에서 종료 시각이 더 짧은 새 수동제어를 정상 전송한다.
+독립 BIO runtime은 위 명령의 container 이름만 `led-control-gateway-bio`로 바꿔 같은 항목을 확인한다. 스케줄 HIL 전에는 기본 밝기와 `manualAutomationSuppressions`의 exact source identity를 확인한다. 수동 성공 당시 진행 중이던 occurrence/activation은 억제되며 종료 시각을 기다려 해제하는 동작은 없다. 다음 새 schedule occurrence 또는 종료/hold를 마친 뒤의 새 vehicle activation으로 자동 제어가 재개하고 자동 실행 종료 후 기본 밝기로 돌아온다. 이를 clock 장애로 오인하거나 state 파일을 편집·삭제하지 않는다.
 
 claim 전에는 `starting-unassigned`가 정상이다. claim 후 `healthy`는 선언값이 아니라 다음 실제 probe가 모두 통과하고 마지막 heartbeat publish가 `max(30초, GATEWAY_HEARTBEAT_MS x 3)` 이내일 때만 기록된다.
 
@@ -419,12 +422,12 @@ docker exec led-control-gateway dbus-send --system --print-reply \
 - `automation_state_durability_degraded`: shared headroom release/retry 뒤에도 control state atomic write가 `ENOSPC`이거나 최초 gap의 state·journal 수용이 아직 모두 실패해 Gateway가 명시적 degraded source를 유지하고 있다. Schedule, vehicle event와 manual RF가 계속되는 것이 정상이다. 새 exact handoff와 최초 gap은 preallocated `.gap` journal로 전환하고, journal까지 실패한 gap은 process 안의 단일 cumulative retry source로 유지한다. Handoff/gap cleanup은 memory-only clear를 하지 않고 memory와 disk source 및 outbox receipt를 유지한 채 1초~30초 bounded backoff로 재시도한다. 같은 filesystem의 비-Gateway 로그/임시 파일을 정리하고 반복 재시작하지 않는다. Free space가 회복되면 같은 identity가 outbox로 이동하고 retry가 publisher를 깨우며, durable clear 뒤 receipt가 제거된다. Process가 journal 수용 전에 종료되면 in-memory source까지 보존할 저장 매체가 없으므로 blocker가 해제되기 전 강제 종료를 피한다.
 - `mesh_resync_pending`: MQTT control plane과 heartbeat는 가용하지만 bounded background lighting resync가 아직 끝나지 않았다. 1,000개 offline fixture는 concurrency 4와 fixture timeout에 따라 오래 걸릴 수 있다. Error 또는 `timedOut`/`failed` report는 250ms부터 최대 30초까지 backoff로 자동 rerun되므로 `mesh_resync` 진행 로그와 OnOff/Lightness Status를 확인하며 Gateway를 반복 재시작하지 않는다.
 - `mesh_resync_failed`: adapter attach 또는 address inventory 단계가 실패했다. MQTT/ACK/manual control은 계속 가용하며 worker가 capped backoff로 재시도한다. D-Bus owner, BlueZ attach와 mapping 파일을 복구하고 다음 `mesh_resync` report를 확인한다. Automation state의 restart pending ID는 targeted queue에 자동 seed되고 full/targeted pass마다 durable source에서 capacity 단위로 재삽입되므로 파일에서 fence를 삭제하지 않는다. 개별 fixture 실패는 report의 `failed`에 격리되며 실제 OnOff/Lightness 관측 전에는 fence가 유지된다.
-- `COMMAND_AUTOMATION_HANDOFF_CAPACITY`: 완료되지 않은 timed manual recovery가 별도 10,000건 상한에 도달해 새 명령 intake를 fail-closed했다. Pending record는 24시간 TTL, 30일 override 경과와 일반 command eviction으로 삭제되지 않는다. MQTT/API와 automation state 오류를 복구해 handoff를 완료한 뒤 journal record가 `automationHandoff=completed`로 바뀌는지 확인하며 파일을 삭제하거나 pending을 수동 완료 처리하지 않는다.
+- `COMMAND_AUTOMATION_HANDOFF_CAPACITY`: 완료되지 않은 manual recovery가 별도 10,000건 상한에 도달해 새 명령 intake를 fail-closed했다. Pending record는 24시간 TTL과 일반 command eviction으로 삭제되지 않는다. MQTT/API와 automation state 오류를 복구해 handoff를 완료한 뒤 journal record가 `automationHandoff=completed`로 바뀌는지 확인하며 파일을 삭제하거나 pending을 수동 완료 처리하지 않는다.
 - `automation-state.json`의 `telemetryGap`이 `null`이 아님: 해당 최초/최종 시각과 건수의 terminal telemetry가 아직 outbox에 인계되지 않았거나 fixed journal 수용값을 process state에 mirror한 상태다. 로컬 RF는 계속된 상태이므로 현장 밝기를 확인하고 파일을 지우거나 gap을 수동 수정하지 않는다. Gateway가 stable handoff ID와 provenance로 gap journal/outbox에 멱등 인계하고 application ACK까지 보존하므로 storage 복구 뒤 drain을 확인한다. Disk 파일의 count가 process/journal보다 작아도 cumulative receipt가 stale replay를 delta 0으로 처리하므로 수동으로 맞추지 않는다.
 - `automation_telemetry_unavailable`: execution telemetry regular outbox, shared 64 MiB headroom 또는 outbox JSON이 `ENOSPC`, permission, corruption으로 degraded됐다. Scheduler, manual control과 local RF는 계속되는 것이 정상이다. 먼저 같은 filesystem의 비-Gateway 로그/임시 파일을 정리하고 `automation-telemetry.json`, `.gap`, `.reserve`의 소유자와 `0600` 권한을 확인한다. `.reserve`는 startup에 한 번 할당되며 정상 commit에서는 inode/내용이 바뀌지 않는다. 실제 `ENOSPC` 때 한 번 제거된 뒤 free space가 128 MiB 이상으로 검증될 때만 background로 재생성된다. `.gap`은 두 4 KiB block을 번갈아 갱신하고 마지막 일반/cumulative source receipt와 outbox accepted aggregate baseline·acceptance identity/hash만 고정 저장한다. Source metadata가 교체돼도 count는 baseline 이후 delta로 복구되고 outbox는 이미 흡수된 obsolete general receipt를 제거해 recovery metadata를 bounded하게 유지한다. 현재 state pending handoff/gap과 journal current/cumulative/aggregate/baseline receipt는 자동 보호되므로 파일을 편집·truncate·복사 중 교체하거나 receipt/state handoff를 수동 clear하지 않는다.
 - `automation-telemetry.json` 포화: regular file과 JSON metadata를 합쳐 64 MiB 상한이며 공용 `.reserve` 64 MiB와 `.gap` 8 KiB는 별도 sidecar다. MQTT/API application ACK 경로를 복구하면 ACK된 원본이 제거되고 journal gap이 stable handoff로 outbox에 이동한다. Commit-uncertain 상태에서는 visible target을 확정할 수 있을 때까지 restart fence가 records/gap 이중 분류를 막는다. Broker PUBACK만으로 파일을 삭제하지 않으며 application ACK 전 원본, state pending handoff, gap journal 중 어느 것도 수동 삭제하지 않는다.
 - Schedule이 경계에서 실행되지 않음: Compose mount가 exact marker file이 아니라 `/run/systemd/timesync -> /run/systemd/timesync ro`인지, 호스트와 컨테이너 marker가 regular file인지, `timedatectl show -p NTPSynchronized --value`가 `yes`인지 확인한다. Rollback 뒤에는 marker mtime이 다시 갱신될 때까지 clock-untrusted가 정상이다. 이 상태는 새 schedule 전이와 restart UTC expiry만 멈추며 timed manual 입력과 현재 process의 manual/vehicle monotonic hold는 계속돼야 한다.
-- `MANUAL_OVERRIDE_EXPIRED`: API outbox의 stored override end가 발행 또는 재발행 전에 지났다. 해당 command는 의도적으로 MQTT/RF로 보내지 않으므로 outbox를 되살리지 말고 새 제어 명령을 생성한다.
+- `COMMAND_DELIVERY_EXPIRED`: command의 10초 delivery generation이 만료됐다. 해당 outbox를 되살리지 말고 실제 상태/기존 명령 결과를 확인한 뒤 새 요청을 생성한다. 기본 밝기의 유지 시간은 무기한이며 과거 이력의 `MANUAL_OVERRIDE_EXPIRED`를 현재 동작으로 해석하지 않는다.
 - `legacy_timing_unverifiable`: Clock-untrusted Gateway가 delivery generation/remaining metadata가 없는 legacy timed wire를 받았다. Acceptance 뒤 fixture별 terminal failure를 기록하지만 RF와 manual state 생성은 수행하지 않는다. 같은 old payload를 재발행하지 말고 old publisher가 모두 종료됐는지 확인한 뒤 broker expiry 10초 drain을 다시 수행한다. 현장 clock trust를 복구하거나 새 API publisher가 만든 generation wire로 새 명령을 생성한다.
 - token/mesh DB 손상: 임의 재생성하지 말고 같은 시점 백업을 복원하거나 현장 전체를 명시적으로 재-provision한다.
 
@@ -438,7 +441,7 @@ docker exec led-control-gateway dbus-send --system --print-reply \
 - 한 노드 전원 차단 시 부분 실패와 나머지 노드 성공 확인
 - MQTT 단절·재연결과 QoS 1 중복 명령 idempotency 확인
 - Pi/container/ESP32 재부팅 복구 확인
-- MQTT 단절 중 schedule 시작·종료, override/event overlap, 동일 desired와 재시작 duplicate RF 억제 확인
+- MQTT 단절 중 schedule 시작·종료, 수동 기본 밝기·현재 source 억제·새 occurrence/activation 재개, 동일 desired와 재시작 duplicate RF 억제 확인
 - NTP marker 제거와 5분 이상 wall-clock rollback에서 새 schedule boundary만 보류되는지 확인
 - 72시간 soak 동안 메모리 증가, D-Bus 단절, sequence 역전 없음
 - 실제 주차장 층별 RF walk와 음영 지역 기록
