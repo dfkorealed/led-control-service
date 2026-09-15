@@ -307,10 +307,11 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
     && !startMutation.isPending;
   const preExistingRegistrationNodes = nodes.filter(isPreExistingRegistrationNode);
   const unknownEligibilityNodes = nodes.filter((node) => !hasKnownRegistrationEligibility(node));
-  const excludedNodeCount = preExistingRegistrationNodes.length + unknownEligibilityNodes.length;
-  const visibleNodes = nodes.filter((node) =>
-    hasKnownRegistrationEligibility(node) && !isPreExistingRegistrationNode(node)
-  );
+  const hiddenUnknownEligibilityNodes = unknownEligibilityNodes.filter((node) => !isRegistrationProgressNode(node));
+  const excludedNodeCount = preExistingRegistrationNodes.length + hiddenUnknownEligibilityNodes.length;
+  const visibleNodes = nodes.filter((node) => hasKnownRegistrationEligibility(node)
+    ? !isPreExistingRegistrationNode(node)
+    : isRegistrationProgressNode(node));
   const registeredInSiteNodes = preExistingRegistrationNodes.filter((node) => node.registrationEligibility === "registered_in_site");
   const registeredElsewhereCount = preExistingRegistrationNodes.length - registeredInSiteNodes.length;
   const selectedNodes = visibleNodes.filter((node) => selectedNodeIds.includes(node.id));
@@ -547,25 +548,30 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
               <div className="node-row muted-node">게이트웨이가 미등록 조명을 검색하는 중입니다.</div>
             ) : (
               visibleNodes.map((node, index) => {
-                const hidesIdentity = node.registrationEligibility === "registered_elsewhere";
+                const hasKnownEligibility = hasKnownRegistrationEligibility(node);
+                const hidesIdentity = !hasKnownEligibility || node.registrationEligibility === "registered_elsewhere";
                 const rowError = displayTransportMessage(nodeErrors[node.id]
                   ?? ((node.status === "failed" || node.status === "reconcile_required" || node.identifyState === "failed")
                     ? node.errorMessage
                     : null));
                 return (
-                  <div className={`node-row${selectedNodeIds.includes(node.id) ? " selected" : ""}`} key={node.id}>
-                    <label className="node-selection">
-                      <input
-                        type="checkbox"
-                        aria-label={`조명 ${index + 1} 선택`}
-                        checked={selectedNodeIds.includes(node.id)}
-                        disabled={!isRegisterableNode(node, sessionSnapshot)}
-                        onChange={() => toggleNode(node.id)}
-                      />
-                    </label>
+                  <div className={`node-row${isAvailableRegistrationNode(node) && selectedNodeIds.includes(node.id) ? " selected" : ""}`} key={node.id}>
+                    {hasKnownEligibility ? (
+                      <label className="node-selection">
+                        <input
+                          type="checkbox"
+                          aria-label={`조명 ${index + 1} 선택`}
+                          checked={selectedNodeIds.includes(node.id)}
+                          disabled={!isRegisterableNode(node, sessionSnapshot)}
+                          onChange={() => toggleNode(node.id)}
+                        />
+                      </label>
+                    ) : <span aria-hidden="true" />}
                     <div className="node-identity">
                       {hidesIdentity ? (
-                        <span>다른 현장에 등록된 장치입니다. 보안을 위해 상세 정보는 표시하지 않습니다.</span>
+                        <span>{hasKnownEligibility
+                          ? "다른 현장에 등록된 장치입니다. 보안을 위해 상세 정보는 표시하지 않습니다."
+                          : "등록 상태를 확인할 수 없는 장치입니다. 식별 정보는 표시하지 않습니다."}</span>
                       ) : (
                         <>
                           <strong>{node.serialNumber}</strong>
@@ -645,9 +651,9 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
               </div>
             </details>
           ) : null}
-          {unknownEligibilityNodes.length > 0 ? (
+          {hiddenUnknownEligibilityNodes.length > 0 ? (
             <p className="registration-eligibility-warning">
-              등록 상태를 확인할 수 없는 장치 {unknownEligibilityNodes.length}개를 제외했습니다.
+              등록 상태를 확인할 수 없는 장치 {hiddenUnknownEligibilityNodes.length}개를 제외했습니다.
             </p>
           ) : null}
           {visibleNodes.length > 0 && sessionSnapshot.scanStatus !== "failed" ? (
@@ -740,11 +746,15 @@ function isAvailableRegistrationNode(node: DiscoveredRegistrationNode) {
   return node.registrationEligibility === "available";
 }
 
+function isRegistrationProgressNode(node: DiscoveredRegistrationNode) {
+  return node.status === "provisioning"
+    || node.status === "provisioned"
+    || node.status === "reconcile_required";
+}
+
 export function isPreExistingRegistrationNode(node: DiscoveredRegistrationNode) {
   if (!hasKnownRegistrationEligibility(node) || isAvailableRegistrationNode(node)) return false;
-  return node.status !== "provisioning"
-    && node.status !== "provisioned"
-    && node.status !== "reconcile_required";
+  return !isRegistrationProgressNode(node);
 }
 
 function isRegisterableNode(node: DiscoveredRegistrationNode, session: RegistrationSession | null) {

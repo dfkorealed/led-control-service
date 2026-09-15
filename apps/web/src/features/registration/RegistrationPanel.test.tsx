@@ -45,6 +45,11 @@ const excludeNodeMock = vi.mocked(excludeRegistrationNode);
 const cancelSessionMock = vi.mocked(cancelRegistrationSession);
 const registerBatchMock = vi.mocked(registerFixtureBatch);
 const retryScanMock = vi.mocked(retryRegistrationScan);
+const statusLabelsForTest = {
+  provisioning: "등록 중",
+  provisioned: "등록 완료",
+  reconcile_required: "확인 필요"
+} as const;
 
 describe("RegistrationPanel", () => {
   beforeEach(() => {
@@ -406,6 +411,84 @@ describe("RegistrationPanel", () => {
     expect(screen.getByText("등록 상태를 확인할 수 없는 장치 2개를 제외했습니다.")).toBeInTheDocument();
     expect(screen.queryByText(/다른 현장 등록/)).not.toBeInTheDocument();
     expect(screen.queryByText("다른 현장에 등록된 장치입니다. 보안을 위해 상세 정보는 표시하지 않습니다.")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["provisioning", "missing"],
+    ["provisioned", "unknown"],
+    ["reconcile_required", "missing"]
+  ] as const)(
+    "%s 상태의 eligibility가 %s여도 진행 행은 generic 정보로 유지한다",
+    async (status, eligibilityState) => {
+      const sourceNode = {
+        ...mockRegistrationSession.discoveredNodes[0],
+        status,
+        existingRegistration: {
+          fixtureId: "fixture-secret",
+          fixtureName: "기존 현장 조명",
+          floorId: "floor-secret",
+          floorName: "기존 현장 층"
+        }
+      };
+      const progressNode = eligibilityState === "missing"
+        ? withoutRegistrationContract(sourceNode)
+        : { ...sourceNode, registrationEligibility: "future_eligibility" as RegistrationEligibility };
+      const session = completedSession([progressNode]);
+      activeSessionsMock.mockResolvedValue([session]);
+      getSessionMock.mockResolvedValue(session);
+
+      renderPanel();
+
+      expect(await screen.findByText("등록 상태를 확인할 수 없는 장치입니다. 식별 정보는 표시하지 않습니다.")).toBeInTheDocument();
+      expect(screen.getByText(statusLabelsForTest[status])).toBeInTheDocument();
+      expect(screen.queryByText(progressNode.serialNumber)).not.toBeInTheDocument();
+      expect(screen.queryByText(progressNode.deviceUuid)).not.toBeInTheDocument();
+      expect(screen.queryByText(`RSSI ${progressNode.rssi} dBm`)).not.toBeInTheDocument();
+      expect(screen.queryByText("기존 현장 조명")).not.toBeInTheDocument();
+      expect(screen.queryByText("기존 현장 층")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("조명 1 선택")).not.toBeInTheDocument();
+      expect(screen.queryByRole("checkbox", { name: "등록 가능 조명 전체 선택" })).not.toBeInTheDocument();
+      expect(screen.queryByText("1개 제외")).not.toBeInTheDocument();
+      expect(screen.queryByText("등록 상태를 확인할 수 없는 장치 1개를 제외했습니다.")).not.toBeInTheDocument();
+    }
+  );
+
+  it("새로고침으로 복구한 unknown reconcile 행은 복구 동작을 유지하고 완료와 재등록을 차단한다", async () => {
+    const unknownReconcile = {
+      ...mockRegistrationSession.discoveredNodes[0],
+      status: "reconcile_required" as const,
+      registrationEligibility: "future_eligibility" as RegistrationEligibility,
+      existingRegistration: {
+        fixtureId: "fixture-secret",
+        fixtureName: "복구 전 기존 조명",
+        floorId: "floor-secret",
+        floorName: "복구 전 기존 층"
+      }
+    };
+    const provisioned = {
+      ...mockRegistrationSession.discoveredNodes[1],
+      status: "provisioned" as const
+    };
+    const session = completedSession([unknownReconcile, provisioned]);
+    activeSessionsMock.mockResolvedValue([session]);
+    getSessionMock.mockResolvedValue(session);
+
+    renderPanel();
+
+    expect(await screen.findByText("등록 상태를 확인할 수 없는 장치입니다. 식별 정보는 표시하지 않습니다.")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "상태 다시 확인" })).toBeEnabled();
+    expect(screen.getByLabelText("장비 상태를 확인했으며 현재 세션에서 제외")).toBeEnabled();
+    expect(screen.getByRole("button", { name: "현재 세션에서 제외" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "등록 세션 완료" })).toBeDisabled();
+    expect(screen.queryByLabelText("조명 1 선택")).not.toBeInTheDocument();
+    expect(screen.queryByText(unknownReconcile.serialNumber)).not.toBeInTheDocument();
+    expect(screen.queryByText(unknownReconcile.deviceUuid)).not.toBeInTheDocument();
+    expect(screen.queryByText(`RSSI ${unknownReconcile.rssi} dBm`)).not.toBeInTheDocument();
+    expect(screen.queryByText("복구 전 기존 조명")).not.toBeInTheDocument();
+    expect(screen.queryByText("복구 전 기존 층")).not.toBeInTheDocument();
+    expect(screen.queryByText("1개 제외")).not.toBeInTheDocument();
+    expect(screen.queryByText("등록 상태를 확인할 수 없는 장치 1개를 제외했습니다.")).not.toBeInTheDocument();
+    expect(registerBatchMock).not.toHaveBeenCalled();
   });
 
   it("eligibility가 누락된 장치를 전체 선택과 설정 form 대상에서 제외한다", async () => {
