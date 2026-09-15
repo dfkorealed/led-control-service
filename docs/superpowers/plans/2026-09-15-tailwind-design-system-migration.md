@@ -356,11 +356,14 @@ git commit -m "feat(web): add typed Tailwind UI primitives"
 - Create: `apps/web/src/components/ui/fields/fields.test.tsx`
 - Create: `apps/web/src/test/a11y.ts`
 - Modify: `apps/web/src/components/ui/index.ts`
+- Create: `apps/web/e2e/ui-fields.spec.ts` (승인된 browser-only 검증 확장)
+- Modify: `apps/web/playwright.ui-cascade.config.ts`
+- Modify: `scripts/ci-workflows.test.mjs`
 
 **Interfaces:**
 - Produces: `TextField`, `SearchField`, `PasswordField`, `TextArea`, `NumberField`, `FileField`, `SelectBox<T>`, `ComboBox<T>`, `Checkbox`, `CheckboxGroup`, `RadioGroup`, `Switch`, `Slider`.
 
-- [ ] **Step 1: 공통 상태·ref·keyboard 테스트를 작성한다**
+- [x] **Step 1: 공통 상태·ref·keyboard 테스트를 작성한다**
 
 ```tsx
 it("connects a field label, help and error to the input", () => {
@@ -383,13 +386,13 @@ it("has no serious axe violations", async () => {
 });
 ```
 
-- [ ] **Step 2: 새 컴포넌트가 없어 실패하는지 확인한다**
+- [x] **Step 2: 새 컴포넌트가 없어 실패하는지 확인한다**
 
 Run: `pnpm --filter @led-control/web test -- src/components/ui/fields/fields.test.tsx`
 
 Expected: FAIL on missing field exports.
 
-- [ ] **Step 3: 공통 field 계약을 구현한다**
+- [x] **Step 3: 공통 field 계약을 구현한다**
 
 ```ts
 export interface FieldVisualProps {
@@ -453,11 +456,11 @@ NumberField는 값이 실제로 `number | null`인 UI에만 사용하고 임의 
 
 `apps/web/src/test/a11y.ts`는 `axe.run(container)` 결과를 받아 지정 impact의 violation만 반환한다. fields test는 각 component family를 table-driven 방식으로 렌더링해 variant, `sm | md | lg`, disabled/invalid 상태, `className`, root/control ref와 serious/critical axe violation 0건을 확인한다.
 
-- [ ] **Step 4: 검색·비밀번호·textarea를 TextField thin wrapper로 만든다**
+- [x] **Step 4: 검색·비밀번호·textarea를 TextField thin wrapper로 만든다**
 
 `SearchField`는 `type="search"`, `PasswordField`는 `type="password"`, `TextArea`는 React Aria `TextArea`를 사용한다. 세 wrapper 모두 실제 input/textarea ref를 전달하고 base field variant를 공유한다.
 
-- [ ] **Step 5: 테스트·typecheck·policy를 통과시킨다**
+- [x] **Step 5: 테스트·typecheck·policy를 통과시킨다**
 
 Run:
 
@@ -469,12 +472,20 @@ pnpm --filter @led-control/web ui:check
 
 Expected: all commands exit 0.
 
-- [ ] **Step 6: 커밋한다**
+- [x] **Step 6: 커밋한다**
 
 ```bash
 git add apps/web/src/components/ui/fields apps/web/src/components/ui/index.ts
 git commit -m "feat(web): add accessible form field primitives"
 ```
+
+**Task 3 검증 결과(2026-09-16):** 14 family missing-export의 실제 RED 117/117 실패를 먼저 확인하고 field 계약 128/128 GREEN, 전체 Web 80 files·1,068/1,068, typecheck/build/ui:check 및 diff 검사를 통과했다. TextField의 `""`·`"-"`·`"1."`·범위 밖 문자열, NumberField의 `number | null`, FileField의 실제 FileList identity, selection 숫자/문자 key와 단일 callback을 보존했다. Input/textarea/file/checkbox/switch/slider는 실제 input ref, SelectBox는 trigger ref, FormField와 group은 root ref를 제공한다. Closed variant/size는 실제 styled control에도 적용하고 caller className은 field layout root에 병합한다. React Aria 1.21.1의 NumberField는 VoiceOver 호환상 spinbutton 대신 named textbox + `aria-roledescription="Number field"`를 사용하므로 숫자 키보드·min/max/step으로 동작을 검증했다.
+
+승인된 별도 정책 수정 `5d566840`은 CVA `sm:`/`md:`/`lg:` 객체 key를 responsive utility로 오인하던 오류를 RED 2/2 실패→정책 41/41로 보완했다. 실제 미승인 responsive utility 거부는 유지했으며 immutable anchor `24b5ea59`와 baseline 2,361건은 변경하지 않았다. 현재 기존 부채 2,359건/신규 0건이다.
+
+Chromium 설치 뒤 실행하는 기존 `e2e:ui-cascade` 경로에 field 7개를 추가해 총 15/15(2 files)를 통과했고 CI discovery/순서 계약은 38/38이다. Native Space 단일 toggle, FileList/동일 파일 재선택, actual ref/focus-visible, popup keyboard/disabled skip, 숫자·radio·slider key, 계산된 variant/size/caller cascade와 production CSS axe를 검증했다. 실제 axe RED에서 canvas 설명 대비 4.45:1과 selected 설명 대비 4.18:1을 발견해 theme 값 변경 없이 승인 `content-primary`로 보완했다(SelectBox/ComboBox 공통 option 포함). JSDOM은 pseudo geometry를 측정할 수 없어 해당 측정만 브라우저 증거로 분리하며 axe rule 자체는 끄지 않았다. Browser 없는 일반 Web unit은 계속 독립 실행 가능하다.
+
+Production build main은 651.01 kB/gzip 199.41 kB이며 Vite의 500 kB chunk 경고가 남는다. Page/feature production, 기존 모달·compatibility hooks, API/DB/MQTT/firmware는 변경하지 않았다. 전체 메뉴 전환·전체 E2E/HIL·실제 보조기기 수동 검증은 미실행이고 Task 4는 시작하지 않았다. Task 3 독립 검토를 기다린다.
 
 ### Task 4: Calendar, DatePicker와 TimePicker 구현
 
