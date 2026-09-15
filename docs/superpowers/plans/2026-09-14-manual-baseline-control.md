@@ -263,7 +263,7 @@ git commit -m "feat(api): persist manual controls without expiry"
 - Consumes: V1–V5 persisted automation state
 - Produces: `PersistedAutomationStateV6`, `pendingManualControls`, `manualAutomationSuppressions`, V5→V6 migration
 
-- [ ] **Step 1: V6 round-trip과 exact validation RED 테스트 작성**
+- [x] **Step 1: V6 round-trip과 exact validation RED 테스트 작성**
 
 ```ts
 const state = emptyAutomationState();
@@ -282,11 +282,11 @@ expect(() => parseAutomationState({ ...state, extra: true })).toThrow();
 
 중복 schedule/event identity, 잘못된 UUID/timestamp/brightness, 10,000 fixture 상한 초과를 fail-closed하는 case를 포함한다.
 
-- [ ] **Step 2: V5 migration RED 테스트 작성**
+- [x] **Step 2: V5 migration RED 테스트 작성**
 
 terminal success, pending, failed/timed_out, transition 없음+관측 일치, transition 없음+관측 불일치 다섯 fixture를 한 V5 state에 넣는다. 기대값은 success/관측 일치만 기본값과 당시 active source suppression으로 승격, pending은 `pendingManualControls`, 나머지는 제거다.
 
-- [ ] **Step 3: state-store focused tests의 예상 실패 확인**
+- [x] **Step 3: state-store focused tests의 예상 실패 확인**
 
 Run:
 
@@ -296,7 +296,7 @@ pnpm --filter @led-control/gateway exec vitest run src/automation/automation-sta
 
 Expected: schemaVersion 6과 신규 map이 없어 FAIL.
 
-- [ ] **Step 4: V6 타입과 parser 구현**
+- [x] **Step 4: V6 타입과 parser 구현**
 
 ```ts
 export interface PersistedAutomationStateV6 {
@@ -318,11 +318,11 @@ export interface PersistedAutomationStateV6 {
 
 `emptyAutomationState()`는 V6 exact keys를 만들고 parser는 sorted unique identity arrays만 허용한다.
 
-- [ ] **Step 5: V5 migration 구현**
+- [x] **Step 5: V5 migration 구현**
 
 `parseAutomationState()`의 V5 branch에서 old fields를 먼저 전부 검증한 뒤 `migrateV5ManualState()`를 호출한다. 성공 판정은 terminal succeeded 또는 `currentByFixture/lastDesiredByFixture === brightnessPercent`일 때만 허용한다. 성공 fixture suppression은 V5 `activeOccurrences[*].preBrightness`와 `vehicleRules[*].targetFixtureIds`에서 exact identity를 만든다. pending transition은 요청값을 기본값으로 승격하지 않는다.
 
-- [ ] **Step 6: state-store focused와 전체 Gateway state tests 확인**
+- [x] **Step 6: state-store focused와 전체 Gateway state tests 확인**
 
 Run:
 
@@ -333,7 +333,7 @@ pnpm --filter @led-control/gateway typecheck
 
 Expected: V1–V6 restore/round-trip과 typecheck PASS.
 
-- [ ] **Step 7: Gateway state 커밋**
+- [x] **Step 7: Gateway state 커밋**
 
 ```bash
 git add apps/gateway/src/automation/automation-state-store.ts apps/gateway/src/automation/automation-state-store.test.ts
@@ -360,7 +360,7 @@ git commit -m "feat(gateway): migrate manual control state to baselines"
 - Consumes: Task 1 new/legacy wire, Task 3 V6 state
 - Produces: `prepareManualControl(input)`, `handoffManualTerminal(sourceId, results)`, `ManualControlCoordinator`; identity-filtered desired state
 
-- [ ] **Step 1: 수동 성공·부분 실패 RED 테스트 작성**
+- [x] **Step 1: 수동 성공·부분 실패 RED 테스트 작성**
 
 ```ts
 const previousFailedBase = store.read().baseBrightnessByFixture[failedId];
@@ -380,7 +380,7 @@ expect(store.read().baseBrightnessByFixture[failedId]).toBe(previousFailedBase);
 
 두 fixture가 schedule/event 활성 중인 fixture도 포함하고 성공 fixture만 현재 source identities를 suppression에 갖는지 확인한다.
 
-- [ ] **Step 2: 다음 occurrence/activation 재개 RED 테스트 작성**
+- [x] **Step 2: 다음 occurrence/activation 재개 RED 테스트 작성**
 
 같은 schedule occurrence와 같은 vehicle activation의 recompute는 수동 60%를 유지해야 한다. occurrence key가 바뀐 schedule start 또는 Low→새 High로 `startedAt`이 바뀐 event는 자동 밝기를 적용하고, 종료 뒤 60%로 복귀해야 한다.
 
@@ -403,11 +403,11 @@ expect(test.execute).toHaveBeenLastCalledWith([
 ]);
 ```
 
-- [ ] **Step 3: restart·journal·clock-untrusted RED 테스트 작성**
+- [x] **Step 3: restart·journal·clock-untrusted RED 테스트 작성**
 
 종료 시각 없는 command의 accepted/completed journal handoff가 skip되지 않고 V6 pending을 수렴시키는지, restart 뒤 suppression이 유지되는지, clock trust false에서도 manual prepare가 성공하는지 검증한다. MQTT/RF expiry가 지난 command는 계속 RF 전에 실패해야 한다.
 
-- [ ] **Step 4: focused Gateway tests의 예상 실패 확인**
+- [x] **Step 4: focused Gateway tests의 예상 실패 확인**
 
 Run:
 
@@ -417,7 +417,7 @@ pnpm --filter @led-control/gateway exec vitest run src/automation/schedule-runti
 
 Expected: runtime이 `overrideUntil`을 요구하고 old active manual이 자동 후보를 계속 선점하므로 FAIL.
 
-- [ ] **Step 5: prepare/handoff를 시간 독립 수동 제어로 변경**
+- [x] **Step 5: prepare/handoff를 시간 독립 수동 제어로 변경**
 
 ```ts
 export interface ManualControlInput {
@@ -433,7 +433,7 @@ handoffManualTerminal(sourceId: string, results: AutomationExecutionFixtureResul
 
 prepare는 `pendingManualControls`와 pending transition만 저장한다. handoff success는 실제 결과 밝기를 current/lastDesired/base에 쓰고 그 시점의 active schedule/event identities를 suppression으로 snapshot한 뒤 pending을 제거한다. 실패는 pending만 제거한다.
 
-- [ ] **Step 6: suppression-aware arbitration과 cleanup 구현**
+- [x] **Step 6: suppression-aware arbitration과 cleanup 구현**
 
 ```ts
 const events = activeEvents.filter(({ sourceId, startedAt }) =>
@@ -446,11 +446,11 @@ const schedule = activeSchedules.find(({ sourceId, occurrenceKey }) =>
 
 `baseBrightnessByFixture`는 자동 source가 사라져도 삭제하지 않는다. 종료·설정 변경 lifecycle에서 더 이상 active하지 않은 suppression identity만 제거하고, 두 배열이 모두 비면 fixture record를 제거한다.
 
-- [ ] **Step 7: coordinator와 journal recovery 구현**
+- [x] **Step 7: coordinator와 journal recovery 구현**
 
 `createManualOverrideCoordinator`를 `createManualControlCoordinator`로 바꾸되 old/new compatible wire 모두 `requestedAt`, target, brightness만 runtime에 전달한다. `recoverPendingManualAutomationHandoffs()`의 `if (!command.overrideUntil) continue`를 제거해 새 command도 복구한다. Broker remaining TTL은 command 실행 deadline에만 사용하고 manual state 입력에는 전달하지 않는다.
 
-- [ ] **Step 8: Gateway focused·전체 테스트와 typecheck 확인**
+- [x] **Step 8: Gateway focused·전체 테스트와 typecheck 확인**
 
 Run:
 
@@ -462,7 +462,7 @@ pnpm --filter @led-control/gateway typecheck
 
 Expected: focused와 전체 Gateway 모두 PASS, timed expiry 기대는 새 source identity 기대값으로 교체됨.
 
-- [ ] **Step 9: Gateway 동작 커밋**
+- [x] **Step 9: Gateway 동작 커밋**
 
 ```bash
 git add apps/gateway/src
