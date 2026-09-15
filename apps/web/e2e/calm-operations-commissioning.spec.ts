@@ -39,7 +39,9 @@ const discoveredNode = {
   errorMessage: null,
   scanCorrelationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
   scanAttempt: 1,
-  discoveredAt: scanTimeline.firstNodeDiscoveredAt
+  discoveredAt: scanTimeline.firstNodeDiscoveredAt,
+  registrationEligibility: "available" as const,
+  existingRegistration: null
 };
 
 function registrationSession(
@@ -196,6 +198,67 @@ for (const viewport of viewports) {
     });
   });
 }
+
+test("registration separates available and existing devices and submits only the available node", async ({ page }) => {
+  const availableNode = {
+    ...discoveredNode,
+    serialNumber: "AVAILABLE-SERIAL-001",
+    deviceUuid: "available-device-uuid"
+  };
+  const registeredInSiteNode = {
+    ...discoveredNode,
+    id: "66666666-6666-4666-8666-666666666667",
+    serialNumber: "SAME-SITE-SERIAL-002",
+    deviceUuid: "same-site-device-uuid",
+    registrationEligibility: "registered_in_site" as const,
+    existingRegistration: {
+      fixtureId: "fixture-existing",
+      fixtureName: "기존 복도등",
+      floorId: "floor-existing",
+      floorName: "지하 1층"
+    }
+  };
+  const registeredElsewhereNode = {
+    ...discoveredNode,
+    id: "66666666-6666-4666-8666-666666666668",
+    serialNumber: "FOREIGN-SERIAL-MUST-NOT-RENDER",
+    deviceUuid: "foreign-device-uuid-must-not-render",
+    registrationEligibility: "registered_elsewhere" as const,
+    existingRegistration: null
+  };
+  const session = registrationSession("completed", [
+    availableNode,
+    registeredInSiteNode,
+    registeredElsewhereNode
+  ]);
+  const api = await installSettingsApiRoutes(page, "admin", {
+    fixtures: [],
+    ids: fixtureIds(),
+    activeRegistrationSessions: [session]
+  });
+
+  await page.goto(`/settings/registration?siteId=${ids.site}`);
+
+  await expect(page.getByText(availableNode.serialNumber)).toBeVisible();
+  await expect(page.getByLabel("조명 1 선택")).toBeEnabled();
+  await expect(page.getByText(registeredInSiteNode.serialNumber)).not.toBeVisible();
+  await expect(page.getByText(registeredInSiteNode.existingRegistration.fixtureName)).not.toBeVisible();
+  await expect(page.getByText(registeredInSiteNode.existingRegistration.floorName)).not.toBeVisible();
+  await expect(page.getByText(registeredElsewhereNode.serialNumber)).toHaveCount(0);
+  await expect(page.getByText(registeredElsewhereNode.deviceUuid)).toHaveCount(0);
+
+  await page.getByText("기존 등록 조명 2개 제외됨").click();
+  await expect(page.getByText(registeredInSiteNode.serialNumber)).toBeVisible();
+  await expect(page.getByText(registeredInSiteNode.existingRegistration.fixtureName)).toBeVisible();
+  await expect(page.getByText(registeredInSiteNode.existingRegistration.floorName)).toBeVisible();
+  await expect(page.getByText(registeredElsewhereNode.serialNumber)).toHaveCount(0);
+  await expect(page.getByText(registeredElsewhereNode.deviceUuid)).toHaveCount(0);
+
+  await page.getByLabel("조명 1 선택").check();
+  await page.getByRole("button", { name: "선택 조명 등록" }).click();
+  await expect.poll(() => api.registrationBatchRequests).toHaveLength(1);
+  expect(api.registrationBatchRequests[0].nodes).toEqual([{ nodeId: availableNode.id }]);
+});
 
 test("accepted identify retry ignores a delayed earlier terminal and keeps polling its own operation", async ({ browser, baseURL }) => {
   await withFixturePage(browser, baseURL, { width: 390, height: 844 }, async (page) => {

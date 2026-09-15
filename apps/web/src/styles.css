@@ -6137,7 +6137,7 @@ button.group-card {
   }
 
   .node-row .node-status,
-  .node-row > .secondary-button,
+  .node-row > .ui-button,
   .node-row > .reconcile-actions {
     grid-column: 2;
     justify-self: start;

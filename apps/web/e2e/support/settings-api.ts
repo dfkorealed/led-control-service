@@ -5,7 +5,11 @@ import {
   type CreateDimmingCommandInput,
   type FloorMapSnapshot
 } from "@led-control/shared";
-import type { RegistrationScanRetryResult, RegistrationSession } from "../../src/api/registration";
+import type {
+  RegisterFixtureBatchInput,
+  RegistrationScanRetryResult,
+  RegistrationSession
+} from "../../src/api/registration";
 
 export type SettingsRole = "operator" | "admin" | "viewer";
 
@@ -104,6 +108,7 @@ export interface SettingsApiFixtureState {
   commandStatusRequests: string[];
   registrationSessionRequests: number;
   registrationScanRetryRequests: number;
+  registrationBatchRequests: RegisterFixtureBatchInput[];
   updateFixture: (fixtureId: string, update: Pick<SettingsFixture, "status" | "brightness">) => void;
   setCommandStatus: (input: { stage: FixtureCommandStage; results: FixtureCommandResult[] }) => void;
 }
@@ -220,6 +225,7 @@ export async function installSettingsApiRoutes(
     commandStatusRequests: [],
     registrationSessionRequests: 0,
     registrationScanRetryRequests: 0,
+    registrationBatchRequests: [],
     updateFixture: (fixtureId, update) => {
       const fixture = fixtureState.find((candidate) => candidate.id === fixtureId);
       if (!fixture) throw new Error(`fixture not found: ${fixtureId}`);
@@ -295,6 +301,20 @@ export async function installSettingsApiRoutes(
       state.registrationScanRetryRequests += 1;
       registrationRetryStarted = true;
       return route.fulfill({ json: structuredClone(retriedRegistrationSession) });
+    }
+    if (path === `/registration-sessions/${initialRegistrationSession?.id}/nodes/register-batch` && request.method() === "POST") {
+      const payload = request.postDataJSON() as RegisterFixtureBatchInput;
+      state.registrationBatchRequests.push(structuredClone(payload));
+      return route.fulfill({
+        status: 202,
+        json: {
+          items: payload.nodes.map((node) => ({
+            nodeId: node.nodeId,
+            status: "accepted",
+            fixtureName: "fixtureName" in node ? node.fixtureName : undefined
+          }))
+        }
+      });
     }
     if (path === "/sites/default/dashboard" || path === `/sites/${ids.siteId}/dashboard`) {
       state.dashboardRequests += 1;

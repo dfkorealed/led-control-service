@@ -106,7 +106,9 @@ const discoveredNode = {
   errorMessage: null,
   scanCorrelationId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
   scanAttempt: 2,
-  discoveredAt: "2026-08-26T00:01:59.000Z"
+  discoveredAt: "2026-08-26T00:01:59.000Z",
+  registrationEligibility: "available" as const,
+  existingRegistration: null
 };
 
 async function installBrowserContractFixture(page: Parameters<typeof installSettingsApiRoutes>[0]) {
