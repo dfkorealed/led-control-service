@@ -18,6 +18,29 @@ test("accepts all approved spacing steps, semantic colors and typography", () =>
   assert.deepEqual(inspectUiSource("sample.tsx", source), []);
 });
 
+test("layer wrappers preserve first-selector and raw-form fingerprints without hiding debt", () => {
+  const css = '.first { padding: 13px; color: red; } button.custom { margin: 4px; }';
+  const expected = inspectUiSource("src/styles.css", css);
+  assert.deepEqual(expected.filter(v => v.rule === "css-selector").map(v => v.match), [".first", "button.custom"]);
+  assert.deepEqual(expected.filter(v => v.rule === "raw-form-style").map(v => v.match), ["button.custom"]);
+  for (const wrapped of [
+    `@layer components { ${css} }`,
+    `@layer { ${css} }`,
+    `@layer components { @layer controls { ${css} } }`,
+    `@media (min-width: 760px) { @layer components { ${css} } }`
+  ]) assert.deepEqual(inspectUiSource("src/styles.css", wrapped), expected, wrapped);
+});
+
+test("adjacent component layers count each first selector exactly once", () => {
+  const css = '@layer components { button.first {} } @layer components { input.second {} }';
+  const violations = inspectUiSource("src/styles.css", css);
+  assert.deepEqual(violations.map(v => [v.rule, v.match]), [
+    ["css-selector", "button.first"], ["raw-form-style", "button.first"],
+    ["css-selector", "input.second"], ["raw-form-style", "input.second"]
+  ]);
+  assert.deepEqual(inspectUiSource("src/styles/base.css", '@layer base { button, input, select, textarea { font: inherit; } }'), []);
+});
+
 test("blocks numeric spacing outside the approved scale, including variants and negatives", () => {
   assert.deepEqual(inspectUiSource("sample.tsx", '"p-9 hover:gap-11 -mt-13 max-compact:px-0.75 inset-15"').map(v => v.rule), Array(5).fill("unapproved-spacing"));
 });

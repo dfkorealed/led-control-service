@@ -233,13 +233,22 @@ export function inspectUiSource(path, source) {
   }
   if (path.endsWith(".css")) {
     if (!approvedCss.has(path)) add("css-file", path);
-    scan(/(?:^|[{};])\s*([^{};]+)\{/g, m => {
+    const selectorPattern = /(?:^|[{};])\s*([^{};]+)\{/g;
+    let m;
+    while ((m = selectorPattern.exec(text))) {
       const selector = m[1].trim().replace(/\s+/g, " ");
-      if (selector.startsWith("@")) return;
+      if (/^@layer\b/.test(selector)) {
+        // The opening layer brace is also the next selector's boundary. Reuse
+        // it instead of consuming the first child rule with the at-rule scan.
+        // Keep existing selector normalization and anchored fingerprints intact.
+        selectorPattern.lastIndex -= 1;
+        continue;
+      }
+      if (selector.startsWith("@")) continue;
       const baseAllowed = path === "src/styles/base.css" && ["html", "body", "button, input, select, textarea", ":focus-visible"].includes(selector);
       if (!baseAllowed) add("css-selector", selector, m.index);
       if (/(?:^|[\s,>+~])(?:input|select|textarea|button)(?=[\s.#[:>+~,]|$)/.test(selector) && !baseAllowed) add("raw-form-style", selector, m.index);
-    });
+    }
   }
   return violations.sort((a, b) => a.index - b.index).map(({ index, ...violation }) => violation);
 }
