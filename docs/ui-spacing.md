@@ -81,7 +81,9 @@ baseline은 Task 1 최초 2,380건에서 Fix Round 1의 검사 정확도 보정 
 
 주석 처리는 기존 TypeScript parser의 실제 trivia 위치를 사용해 trailing/JSX comment를 제거하고 URL·문자열·template 내용을 보존한다. CSS는 문자열을 인식하는 comment scan을 사용한다. `test:ui-policy`에는 실제 Vite 메모리 빌드의 semantic/spacing/typography/`max-compact` 생성 및 test fixture 클래스 제외 검증이 포함된다. standalone 두 정책 command의 CI 연결은 Task 12 체크리스트에서 완료한다.
 
-색상은 JSX no-substitution template, `backgroundImage`/`background-image`, `boxShadow`/`box-shadow` 및 `text-shadow`의 gradient/shadow literal도 검사한다. semantic `var(--color-...)`와 runtime palette/shadow 표현식은 literal named color로 오인하지 않는다. Fix Round 2 검증은 정책 29/29, Web 888/888, typecheck/build/ui:check 통과이며 baseline은 수정 없이 2,344건을 유지한다.
+색상은 JSX template의 정적 구간, `backgroundImage`/`background-image`, `boxShadow`/`box-shadow`, `text-shadow`, `filter`/`drop-shadow` 및 SVG `stopColor`/`stop-color`의 literal도 검사한다. TypeScript AST로 template expression을 분리하므로 semantic `var(--color-...)`와 runtime palette/shadow 표현식은 named color로 오인하지 않는다. URL payload는 제외하되 그 뒤 쉼표·줄바꿈으로 연결된 gradient는 계속 검사한다. Fix Round 3 검증은 정책 32/32, Web 888/888, typecheck/build/ui:check 통과이며 baseline은 수정 없이 2,344건을 유지한다.
+
+Canonical theme는 단 하나의 `@theme static` block에 승인 anchor의 모든 token을 정확히 한 번씩 선언해야 한다. Token이나 block 삭제, 같은 값의 중복 선언, unknown/value 변경, `@theme inline` 같은 다른 형식과 추가 block은 fail-closed한다. 공백·주석·마지막 세미콜론 생략 허용은 유지한다.
 
 - 1440×900, 1024×768, 390×844, 320×740 뷰포트에서 계산된 section gap, grid gap, panel padding을 확인한다.
 - 상태 badge가 absolute positioning으로 빈 영역을 예약하지 않는지 확인한다.

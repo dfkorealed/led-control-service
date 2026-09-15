@@ -25,7 +25,7 @@ const namedColors = new Set(("aliceblue antiquewhite aqua aquamarine azure beige
 
 // CSS functions and quoted React style values may contain commas; only a
 // delimiter outside them ends the value. This preserves the complete debt match.
-function styleValue(source, start) {
+function styleValue(source, start, commaDelimiter = true) {
   let depth = 0;
   let quote = "";
   let end = start;
@@ -37,7 +37,7 @@ function styleValue(source, start) {
     } else if (char === '"' || char === "'") quote = char;
     else if (char === "(") depth++;
     else if (char === ")") depth--;
-    else if (depth === 0 && /[;,\n}]/.test(char)) break;
+    else if (depth === 0 && (/[;}]/.test(char) || commaDelimiter && /[,\n]/.test(char))) break;
   }
   return source.slice(start, end).trim();
 }
@@ -116,10 +116,15 @@ export function inspectUiSource(path, source) {
   // Only declarations inside the canonical @theme block own raw palette and
   // typed scale values. Ordinary rules in this file still pass through policy.
   if (path === "src/styles/theme.css") {
-    text = text.replace(/@theme(?:\s+static)?\s*\{[^{}]*\}/g, (block, blockIndex) => block.replace(
+    const blocks = [...text.matchAll(/@theme\b[^{}]*\{/g)];
+    if (blocks.length !== 1 || !/^@theme\s+static\s*\{$/.test(blocks[0]?.[0] ?? "")) add("unapproved-theme-block", "Expected exactly one @theme static block");
+    const declarations = new Map();
+    text = text.replace(/@theme\s+static\s*\{[^{}]*\}/g, (block, blockIndex) => block.replace(
       /(--[\w*-]+)\s*:\s*([^;}]*)(?:;|(?=\}))/g,
       (value, name, rawValue, offset) => {
         if (themeTokens.has(name)) {
+          declarations.set(name, (declarations.get(name) ?? 0) + 1);
+          if (declarations.get(name) > 1) add("duplicate-theme-token", name, blockIndex + offset);
           const currentValue = normalizeThemeValue(rawValue);
           if (currentValue !== themeValues.get(name)) add("unapproved-theme-value", `${name}: ${currentValue}`, blockIndex + offset);
           return " ".repeat(value.length);
@@ -128,6 +133,9 @@ export function inspectUiSource(path, source) {
         return value;
       }
     ));
+    // Removing tokens breaks semantic utilities just as changing their values
+    // does. The complete immutable inventory is required, exactly once each.
+    for (const name of themeTokens) if (!declarations.has(name)) add("missing-theme-token", name);
   }
   const scan = (regex, callback) => { for (const match of text.matchAll(regex)) callback(match); };
   scan(/(?<![\w-])(?:(?:max-|min-)\[[^\]\n]+\]|(?:max-|min-)?(?:sm|md|lg|xl|2xl|compact|tablet)):/g, m => {
@@ -192,24 +200,36 @@ export function inspectUiSource(path, source) {
     const value = styleValue(text, m.index + m[0].length);
     if ((/^['"]?-?(?:\d|\.\d)/.test(value) && !/^['"]?0['"]?$/.test(value)) || /\d(?:px|rem|em)\b/.test(value)) add("literal-typography", `${m[1]}: ${value}`, m.index);
   });
-  const colorProperty = "(?:color|background(?:-color|Color|-image|Image)?|(?:box|text)(?:-shadow|Shadow)|border(?:-[\\w]+|[A-Z]\\w*)?|fill|stroke|outline(?:-color|Color)?)";
+  const colorProperty = "(?:color|background(?:-color|Color|-image|Image)?|(?:box|text)(?:-shadow|Shadow)|border(?:-[\\w]+|[A-Z]\\w*)?|fill|stroke|stop(?:-color|Color)|(?:backdrop-)?filter|backdropFilter|outline(?:-color|Color)?)";
   const inspectNamedColors = (value, index) => {
+    // URL payloads are resource identifiers, not CSS color expressions. Keep
+    // adjacent gradient/filter functions in the value subject to inspection.
+    value = value.replace(/\burl\(\s*(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|(?:\\.|[^)\\])*)\s*\)/gi, url => " ".repeat(url.length));
     // CSS custom properties are one identifier, not separate color words.
     // Fallback values in var(--token, red) remain subject to the color policy.
-    for (const word of value.matchAll(/--[\w-]+|[a-z][\w-]*/gi)) {
+    for (const word of value.matchAll(/--[\w-]+|[a-z]+/gi)) {
       if (namedColors.has(word[0].toLowerCase())) add("raw-color", word[0], index + word.index);
     }
   };
   if (path.endsWith(".css")) {
-    scan(new RegExp(`\\b${colorProperty}\\s*:\\s*`, "g"), m => inspectNamedColors(styleValue(text, m.index + m[0].length), m.index + m[0].length));
+    scan(new RegExp(`\\b${colorProperty}\\s*:\\s*`, "g"), m => inspectNamedColors(styleValue(text, m.index + m[0].length, false), m.index + m[0].length));
   } else {
-    // Only literal property/attribute values have CSS color semantics here.
-    // Runtime expressions such as palette.red are not literal named colors.
-    scan(new RegExp(`\\b${colorProperty}\\s*[:=]\\s*(?:\\{\\s*)?(["'\`])((?:\\\\.|(?!\\1)[\\s\\S])*?)\\1`, "g"), m => {
-      // Only no-substitution templates are static CSS values. Interpolated
-      // runtime expressions retain their existing geometry/palette contract.
-      if (m[1] !== "`" || !m[2].includes("${")) inspectNamedColors(m[2], m.index);
-    });
+    const file = parseScript(text, path);
+    const propertyPattern = new RegExp(`^${colorProperty}$`);
+    function visitColorValues(node) {
+      if ((ts.isPropertyAssignment(node) || ts.isJsxAttribute(node)) && propertyPattern.test(node.name.text ?? node.name.getText(file))) {
+        let value = node.initializer;
+        if (value && ts.isJsxExpression(value)) value = value.expression;
+        if (value && (ts.isStringLiteral(value) || ts.isNoSubstitutionTemplateLiteral(value))) inspectNamedColors(value.text, node.getStart(file));
+        else if (value && ts.isTemplateExpression(value)) {
+          // Read only static segments. A separator prevents an expression from
+          // merging adjacent words; its identifiers are never CSS color text.
+          inspectNamedColors([value.head.text, ...value.templateSpans.map(span => span.literal.text)].join(" "), node.getStart(file));
+        }
+      }
+      ts.forEachChild(node, visitColorValues);
+    }
+    visitColorValues(file);
   }
   if (path.endsWith(".css")) {
     if (!approvedCss.has(path)) add("css-file", path);

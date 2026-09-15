@@ -208,6 +208,8 @@ git commit -m "feat(web): add Tailwind design token foundation"
 
 > **Task 1 Fix Round 2(2026-09-16):** 승인 Git theme의 token 이름→값 검증과 template/image/shadow literal color 검사를 RED→GREEN으로 보강했다. 정책 29/29(실제 Vite compile 포함), Web 888/888, typecheck/build/ui:check 통과. baseline은 승인 `24b5ea59` source 기준 35 files·2,344건 그대로이며 신규 0건이다. feature/Task 2 파일 변경 없이 독립 재검토를 기다린다.
 
+> **Task 1 Fix Round 3(2026-09-16):** 승인 theme token 전체의 exactly-once inventory와 단일 static block을 검사해 누락·중복·alternate/extra block을 거부한다. Template 정적 구간·filter/SVG stopColor 색상을 검사하고 URL payload 오탐을 제거했다. 정책 32/32(실제 Vite compile 포함), Web 888/888, typecheck/build/ui:check 통과. baseline·feature 소스는 변경 없이 35 files·2,344건, 신규 0건이다. 독립 재검토 후 Task 2를 재개한다.
+
 ### Task 2: class utility, typography와 기존 기본 primitive 전환
 
 **Owner:** `서비스 UI 개선`

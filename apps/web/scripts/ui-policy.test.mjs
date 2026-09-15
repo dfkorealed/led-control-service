@@ -62,6 +62,19 @@ test("I7 catches literal template, image and shadow colors without treating runt
   assert.deepEqual(inspectUiSource("src/styles/base.css", 'body { background-image: linear-gradient(var(--color-brand-blue), var(--color-brand-coral)); box-shadow: var(--shadow-panel); }'), []);
 });
 
+test("I9 scans template static segments, filter and SVG stop colors but not expressions or URL payloads", () => {
+  const source = '<stop stopColor={`white-${suffix}`} style={{ backgroundImage: `linear-gradient(red, ${palette.blue})`, filter: "drop-shadow(0 0 2px red)" }} />';
+  assert.deepEqual(inspectUiSource("src/New.tsx", source).map(v => v.match), ["white", "red", "red"]);
+  assert.deepEqual(inspectUiSource("src/styles/base.css", 'body { filter: drop-shadow(0 0 2px blue); stop-color: red; }').map(v => v.match), ["blue", "red"]);
+  assert.deepEqual(inspectUiSource("src/New.tsx", '<stop stopColor={`${palette.white}`} style={{ backgroundImage: `linear-gradient(var(--color-brand-blue), ${palette.red})`, filter: filters.red }} />'), []);
+});
+
+test("I9 ignores URL payload words while scanning adjacent gradient colors", () => {
+  assert.deepEqual(inspectUiSource("src/New.tsx", '<div style={{ backgroundImage: "url(/images/white.png)" }} />'), []);
+  assert.deepEqual(inspectUiSource("src/styles/base.css", 'body { background-image: url("/images/red.png"), linear-gradient(blue, var(--color-brand-blue)); }').map(v => v.match), ["blue"]);
+  assert.deepEqual(inspectUiSource("src/styles/base.css", 'body { background-image: url("/images/red.png"),\n linear-gradient(blue, var(--color-brand-blue)); }').map(v => v.match), ["blue"]);
+});
+
 test("blocks stock and arbitrary typography, fractional padding and subpixel literals", () => {
   assert.deepEqual(inspectUiSource("sample.tsx", '"text-sm leading-7 tracking-wide text-[17px] p-1/2"; style={{ gap: 0.5 }}').map(v => v.rule), ["unapproved-typography", "unapproved-typography", "unapproved-typography", "arbitrary-typography", "unapproved-spacing", "literal-spacing"]);
 });
@@ -77,9 +90,9 @@ test("rejects static CSS and inline typography hidden in calculations", () => {
   assert.equal(inspectUiSource("src/New.tsx", 'style={{ fontSize: "calc(17px)" }}')[0].rule, "literal-typography");
 });
 
-test("theme permits only token declarations, not arbitrary rules or new CSS imports", () => {
+test("theme permits only token declarations, not arbitrary rules or new CSS imports", async () => {
   const path = "src/styles/theme.css";
-  assert.deepEqual(inspectUiSource(path, '@theme static { --color-surface-panel: #ffffff; --text-body: 0.875rem; --text-body--line-height: 1.375rem; --radius-control: 0.625rem; --shadow-panel: 0 8px 24px rgb(30 64 175 / 0.06); --spacing: 4px; --breakpoint-compact: 47.5rem; }'), []);
+  assert.deepEqual(inspectUiSource(path, await readFile(new URL("../src/styles/theme.css", import.meta.url), "utf8")), []);
   assert.ok(inspectUiSource(path, 'body { color: #fff; padding: 13px; }').some(v => v.rule === "raw-color"));
   assert.ok(inspectUiSource(path, '@import "./rogue.css";').some(v => v.rule === "css-import"));
   assert.ok(inspectUiSource("src/other/theme.css", '@theme { --color-test: #fff; }').some(v => v.rule === "raw-color"));
@@ -95,7 +108,24 @@ test("I6 rejects changed anchored theme values across every token family", async
   }
   assert.deepEqual(inspectUiSource(path, theme.replace("0 8px 24px rgb(30 64 175 / 0.06)", "0  /* explanation */ 8px\n 24px rgb( 30 64 175/0.06 )")), []);
   assert.ok(inspectUiSource(path, "@theme static { --spacing: 13px }").some(v => v.rule === "unapproved-theme-value"));
-  assert.deepEqual(inspectUiSource(path, "@theme static { --spacing: 4px }"), []);
+  assert.deepEqual(inspectUiSource(path, theme.replace("--breakpoint-tablet: 64rem;", "--breakpoint-tablet: 64rem")), []);
+});
+
+test("I8 requires one complete canonical theme declaration inventory", async () => {
+  const path = "src/styles/theme.css";
+  const theme = await readFile(new URL("../src/styles/theme.css", import.meta.url), "utf8");
+  const cases = [
+    [theme.replace(/--color-chart-cost:[^;]+;/, ""), "missing-theme-token"],
+    [theme.replace(/--breakpoint-tablet:[^;]+;/, ""), "missing-theme-token"],
+    ["/* theme removed */", "missing-theme-token"],
+    [theme.replace("--spacing: 4px;", "--spacing: 4px; --spacing: 4px;"), "duplicate-theme-token"],
+    [theme.replace("--spacing: 4px;", "--rogue: 4px; --spacing: 4px;"), "unapproved-theme-token"],
+    [theme.replace("--spacing: 4px;", "--spacing: 13px;"), "unapproved-theme-value"],
+    [theme.replace("@theme static", "@theme inline"), "unapproved-theme-block"],
+    [theme + "\n@theme static {}", "unapproved-theme-block"],
+    ["@theme inline { --spacing: 13px; }", "unapproved-theme-block"],
+  ];
+  assert.deepEqual(cases.map(([source, rule]) => inspectUiSource(path, source).some(v => v.rule === rule)), Array(9).fill(true));
 });
 
 test("rejects unknown theme names, semantic typos and arbitrary responsive breakpoints", () => {
