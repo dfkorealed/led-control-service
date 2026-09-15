@@ -40,9 +40,9 @@
         }
       },
       "css-selector": {
-        "count": 8,
+        "count": 9,
         "matches": {
-          ".ui-modal-backdrop": 1,
+          ".ui-modal-backdrop": 2,
           ".ui-modal-dialog": 2,
           ".ui-modal-header": 1,
           ".ui-modal-header h2": 1,
@@ -338,13 +338,13 @@
         }
       },
       "css-selector": {
-        "count": 41,
+        "count": 44,
         "matches": {
-          ".site-operations-screen": 1,
+          ".site-operations-screen": 2,
           ".site-operations-section": 2,
           ".site-operations-card": 2,
           ".site-operations-form": 1,
-          ".site-information-grid": 1,
+          ".site-information-grid": 2,
           ".floor-form-grid": 1,
           ".fixture-form-grid": 1,
           ".site-operations-field": 1,
@@ -353,7 +353,7 @@
           ".site-operations-form-actions": 2,
           ".site-information-grid .site-operations-form-actions": 1,
           ".site-operations-list": 1,
-          ".site-operations-row-heading": 2,
+          ".site-operations-row-heading": 3,
           ".site-operations-row-heading > div": 1,
           ".site-operations-row-heading strong": 1,
           ".site-operations-row-heading > div > span": 1,
@@ -441,10 +441,10 @@
         }
       },
       "css-selector": {
-        "count": 39,
+        "count": 41,
         "matches": {
           ".site-users-screen": 1,
-          ".site-users-toolbar": 1,
+          ".site-users-toolbar": 2,
           ".site-users-toolbar input, .site-users-toolbar select, .site-user-field input": 1,
           ".site-users-search": 2,
           ".site-users-search svg": 1,
@@ -478,7 +478,8 @@
           ".site-user-account-summary": 1,
           ".site-user-account-summary dt": 1,
           ".site-user-account-summary dd": 1,
-          ".site-user-delete-warning": 1
+          ".site-user-delete-warning": 1,
+          ".site-users-toolbar, .site-user-form-grid": 1
         }
       },
       "literal-spacing": {
@@ -646,7 +647,7 @@
     },
     "src/styles.css": {
       "css-selector": {
-        "count": 1030,
+        "count": 1041,
         "matches": {
           ":root": 1,
           ".ui-button": 1,
@@ -1117,7 +1118,7 @@
           ".control-manual-panel .control-panel .panel-title-row h3": 1,
           ".control-manual-panel .control-target-picker": 1,
           ".control-manual-panel .control-target-list": 1,
-          ".schedule-control-panel": 1,
+          ".schedule-control-panel": 2,
           ".control-manual-panel :is(.control-panel-body, .control-panel-feedback)": 1,
           ".fixture-group-dialog-backdrop": 1,
           ".fixture-group-dialog": 1,
@@ -1168,7 +1169,7 @@
           ".device-control-identity small": 1,
           ".device-control-card > span:last-child": 1,
           ".control-panel": 1,
-          ".control-target-column": 1,
+          ".control-target-column": 2,
           ".command-history-panel": 1,
           ".command-history-panel h3, .command-outcome-actions p": 1,
           ".command-history-filters": 1,
@@ -1211,9 +1212,9 @@
           ".statistics-chart-panel, .statistics-cost-panel": 2,
           ".statistics-screen": 1,
           ".statistics-comparison-section": 1,
-          ".statistics-comparison-heading": 1,
+          ".statistics-comparison-heading": 2,
           ".statistics-comparison-heading h3, .statistics-comparison-chart-panel h3, .period-comparison-panel h3": 1,
-          ".statistics-comparison-kpis": 1,
+          ".statistics-comparison-kpis": 2,
           ".statistics-comparison-unavailable": 1,
           ".statistics-comparison-layout": 2,
           ".statistics-comparison-chart-panel, .period-comparison-panel": 3,
@@ -1264,14 +1265,14 @@
           ".statistics-cost-list dd": 1,
           ".statistics-cost-list small": 1,
           ".statistics-savings[data-tone=\"danger\"] dd, .statistics-savings[data-tone=\"danger\"] small": 1,
-          ".statistics-analysis-filters": 1,
+          ".statistics-analysis-filters": 2,
           ".statistics-analysis-filters label": 2,
           ".statistics-analysis-filters select, .statistics-analysis-filters input": 1,
           ".statistics-analysis-summary": 1,
           ".statistics-analysis-summary > div": 1,
           ".statistics-analysis-summary span": 1,
           ".statistics-analysis-summary strong": 1,
-          ".statistics-analysis-layout": 1,
+          ".statistics-analysis-layout": 2,
           ".statistics-ranking-list, .statistics-ranking-detail": 1,
           ".statistics-ranking-list > header, .statistics-ranking-detail > header": 1,
           ".statistics-ranking-list h3, .statistics-ranking-detail h3, .statistics-fixture-breakdown h4": 1,
@@ -1506,7 +1507,7 @@
           ".success-text": 1,
           ".settings-grid": 1,
           ".compact-list": 1,
-          ".monitoring-screen .summary-row": 1,
+          ".monitoring-screen .summary-row": 2,
           ".panel-title-row, .device-list-panel": 1,
           ".statistics-comparison-heading .segmented-control": 1,
           ".statistics-comparison-heading .segmented-control button": 1,
@@ -1523,7 +1524,7 @@
           ".fixture-group-dialog .fixture-group-form-actions > button": 1,
           ".operator-dialog-actions > button": 1,
           ".bottom-nav": 1,
-          ".bottom-nav .nav-item": 1,
+          ".bottom-nav .nav-item": 2,
           ".topbar, .screen-heading, .floor-editor-topbar": 1,
           ".monitoring-heading-actions, .floor-editor-actions": 1,
           ".monitoring-screen .ui-page-header": 1,
@@ -1570,7 +1571,10 @@
           ".monitoring-screen .ui-feedback-state[data-tone=\"neutral\"], .settings-screen .ui-feedback-state[data-tone=\"neutral\"], .statistics-screen .ui-feedback-state[data-tone=\"neutral\"]": 1,
           ".monitoring-screen .ui-feedback-state[data-tone=\"info\"], .settings-screen .ui-feedback-state[data-tone=\"info\"], .statistics-screen .ui-feedback-state[data-tone=\"info\"]": 1,
           ".monitoring-screen .ui-feedback-state[data-tone=\"warning\"], .settings-screen .ui-feedback-state[data-tone=\"warning\"], .statistics-screen .ui-feedback-state[data-tone=\"warning\"]": 1,
-          ".monitoring-screen .ui-feedback-state[data-tone=\"danger\"], .settings-screen .ui-feedback-state[data-tone=\"danger\"], .statistics-screen .ui-feedback-state[data-tone=\"danger\"]": 1
+          ".monitoring-screen .ui-feedback-state[data-tone=\"danger\"], .settings-screen .ui-feedback-state[data-tone=\"danger\"], .statistics-screen .ui-feedback-state[data-tone=\"danger\"]": 1,
+          ".monitoring-dashboard": 1,
+          ".content > .control-screen": 1,
+          "*, *::before, *::after": 1
         }
       },
       "raw-color": {

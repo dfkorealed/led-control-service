@@ -237,11 +237,29 @@ export function inspectUiSource(path, source) {
     let m;
     while ((m = selectorPattern.exec(text))) {
       const selector = m[1].trim().replace(/\s+/g, " ");
-      if (/^@layer\b/.test(selector)) {
-        // The opening layer brace is also the next selector's boundary. Reuse
-        // it instead of consuming the first child rule with the at-rule scan.
-        // Keep existing selector normalization and anchored fingerprints intact.
+      if (/^@(?:layer|media|supports|container|scope|document|starting-style)\b/.test(selector)) {
+        // Every grouping rule's opening brace is also its first child's
+        // boundary, recursively. Keep normalization/fingerprints unchanged.
         selectorPattern.lastIndex -= 1;
+        continue;
+      }
+      if (/^@(?:-[\w]+-)?keyframes\b/.test(selector)) {
+        // Keyframes contain animation steps, not element selectors. Skip the
+        // balanced block only for selector classification; declaration/color
+        // policy above still examines its contents. Quoted braces are data.
+        let depth = 1;
+        let quote = "";
+        let end = selectorPattern.lastIndex;
+        for (; end < text.length && depth; end++) {
+          const char = text[end];
+          if (quote) {
+            if (char === "\\") end++;
+            else if (char === quote) quote = "";
+          } else if (char === '"' || char === "'") quote = char;
+          else if (char === "{") depth++;
+          else if (char === "}") depth--;
+        }
+        selectorPattern.lastIndex = end - 1;
         continue;
       }
       if (selector.startsWith("@")) continue;

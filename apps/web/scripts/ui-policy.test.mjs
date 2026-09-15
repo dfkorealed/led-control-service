@@ -41,6 +41,33 @@ test("adjacent component layers count each first selector exactly once", () => {
   assert.deepEqual(inspectUiSource("src/styles/base.css", '@layer base { button, input, select, textarea { font: inherit; } }'), []);
 });
 
+for (const group of ["@media (min-width: 760px)", "@supports (display: grid)", "@supports (display: grid) { @media (min-width: 760px)"]) {
+  test(`nested layer ${group} preserves every first form selector`, () => {
+    const nested = `${group} { button.first {} input.second {} }${group.includes("{") ? " }" : ""}`;
+    assert.deepEqual(inspectUiSource("src/styles.css", `@layer components { ${nested} }`).map(v => [v.rule, v.match]), [
+      ["css-selector", "button.first"], ["raw-form-style", "button.first"],
+      ["css-selector", "input.second"], ["raw-form-style", "input.second"]
+    ]);
+  });
+}
+
+test("keyframe steps are not selectors and do not hide adjacent form rules", () => {
+  for (const prefix of ["@keyframes", "@-webkit-keyframes"]) {
+    const css = `@layer components { @supports (display: grid) { ${prefix} pulse { from { opacity: 0; } 25%, 50% { opacity: .5; } to { opacity: 1; } } button.first {} } input.second {} }`;
+    assert.deepEqual(inspectUiSource("src/styles.css", css).map(v => [v.rule, v.match]), [
+      ["css-selector", "button.first"], ["raw-form-style", "button.first"],
+      ["css-selector", "input.second"], ["raw-form-style", "input.second"]
+    ]);
+  }
+});
+
+test("keyframe declarations retain color and spacing debt without selector debt", () => {
+  assert.deepEqual(inspectUiSource("src/styles.css", '@keyframes pulse { from { color: red; } to { padding: 13px; content: "}"; } } button.next {}').map(v => [v.rule, v.match]), [
+    ["raw-color", "red"], ["literal-spacing", "padding: 13px"],
+    ["css-selector", "button.next"], ["raw-form-style", "button.next"]
+  ]);
+});
+
 test("blocks numeric spacing outside the approved scale, including variants and negatives", () => {
   assert.deepEqual(inspectUiSource("sample.tsx", '"p-9 hover:gap-11 -mt-13 max-compact:px-0.75 inset-15"').map(v => v.rule), Array(5).fill("unapproved-spacing"));
 });
