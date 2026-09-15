@@ -1,4 +1,15 @@
 export { Button } from "./Button";
+export { Calendar } from "./date/Calendar";
+export type { CalendarProps } from "./date/Calendar";
+export { DatePicker } from "./date/DatePicker";
+export type { DatePickerProps } from "./date/DatePicker";
+export { DateRangePicker } from "./date/DateRangePicker";
+export type { DateRangePickerProps } from "./date/DateRangePicker";
+export { TimePicker } from "./date/TimePicker";
+export type { TimePickerProps } from "./date/TimePicker";
+export { parseIsoDate, formatIsoDate, parseLocalTime, formatLocalTime } from "./date/date-adapters";
+export type { DateRangeValue } from "./date/date-adapters";
+export type { FocusableFieldHandle } from "./date/date-field";
 export { FormField } from "./fields/FormField";
 export type { FormFieldProps, FieldControlAttributes } from "./fields/FormField";
 export { TextField, SearchField, PasswordField, TextArea } from "./fields/TextField";

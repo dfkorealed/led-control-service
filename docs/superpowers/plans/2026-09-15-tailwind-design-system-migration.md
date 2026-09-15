@@ -507,12 +507,15 @@ Fix Round 1 최종 전체 검증은 Web 80 files·1,112/1,112, 정책 41/41, CI 
 - Create: `apps/web/src/components/ui/date/DateRangePicker.tsx`
 - Create: `apps/web/src/components/ui/date/TimePicker.tsx`
 - Create: `apps/web/src/components/ui/date/date-components.test.tsx`
+- Create: `apps/web/src/components/ui/date/date-field.tsx`
+- Create: `apps/web/e2e/ui-dates.spec.ts`
+- Modify: `apps/web/playwright.ui-cascade.config.ts`, `scripts/ci-workflows.test.mjs` (browser-installed foundation 검증 확장)
 - Modify: `apps/web/src/components/ui/index.ts`
 
 **Interfaces:**
 - Produces: `parseIsoDate(value: string): CalendarDate`, `formatIsoDate(value: DateValue): string`, `parseLocalTime(value: string): Time`, `formatLocalTime(value: TimeValue): string`, `FocusableFieldHandle` and date/time components.
 
-- [ ] **Step 1: date-only와 24시간제 실패 테스트를 작성한다**
+- [x] **Step 1: date-only와 24시간제 실패 테스트를 작성한다**
 
 ```tsx
 it("round-trips a date-only value without UTC shifting", () => {
@@ -525,13 +528,13 @@ it("uses Korean labels and a 24-hour time field", () => {
 });
 ```
 
-- [ ] **Step 2: adapter가 없어 실패하는지 확인한다**
+- [x] **Step 2: adapter가 없어 실패하는지 확인한다**
 
 Run: `TZ=America/Los_Angeles pnpm --filter @led-control/web test -- src/components/ui/date/date-components.test.tsx`
 
 Expected: FAIL on missing exports.
 
-- [ ] **Step 3: 문자열 경계 adapter를 구현한다**
+- [x] **Step 3: 문자열 경계 adapter를 구현한다**
 
 ```ts
 export const parseIsoDate = (value: string) => parseDate(value);
@@ -542,7 +545,7 @@ export const formatLocalTime = (value: TimeValue) => value.toString().slice(0, 5
 
 native `Date`와 `toISOString()`은 date-only adapter에서 사용하지 않는다.
 
-- [ ] **Step 4: React Aria date/time wrapper를 구현한다**
+- [x] **Step 4: React Aria date/time wrapper를 구현한다**
 
 DatePicker와 TimePicker의 외부 계약은 다음과 같다.
 
@@ -569,7 +572,7 @@ export interface TimePickerProps extends FieldVisualProps {
 
 DatePicker, DateRangePicker와 TimePicker의 forwarded ref는 `FocusableFieldHandle`이며 `focus()`가 첫 editable segment로 이동한다. 내부에서는 `I18nProvider locale="ko-KR"`, `hourCycle={24}`, `DateInput`, `DateSegment`, `CalendarGrid`, `Popover`, `Dialog`를 사용한다.
 
-- [ ] **Step 5: timezone·keyboard·ref 테스트를 통과시킨다**
+- [x] **Step 5: timezone·keyboard·ref 테스트를 통과시킨다**
 
 Run:
 
@@ -581,12 +584,18 @@ pnpm --filter @led-control/web typecheck
 
 Expected: both timezones pass with identical date strings.
 
-- [ ] **Step 6: 커밋한다**
+- [x] **Step 6: 커밋한다**
 
 ```bash
 git add apps/web/src/components/ui/date apps/web/src/components/ui/index.ts
 git commit -m "feat(web): add accessible date and time controls"
 ```
+
+**Task 4 검증 결과(2026-09-16):** 승인 기준 `44a47234`에서 missing-export RED를 서울·로스앤젤레스 각각 41 failed/1 type-only passed로 확인했다. 날짜·시간 public 값은 `YYYY-MM-DD`, `HH:mm`, `{ start: string; end: string } | null`이며 malformed 문자열과 모순된 min/max는 `RangeError`로 거부한다. 날짜 경계에는 native `Date`·UTC 변환을 사용하지 않는다. 역순 범위와 범위 밖 값은 정상적인 편집 중간 상태이므로 원래 문자열을 보존하고 React Aria validation에 맡긴다. 역순 범위를 throw하면 연도 세그먼트 수정이 crash하는 RED를 확인해 이 계약을 고정했다.
+
+`FocusableFieldHandle.element`는 caller id를 가진 안정적인 control/root DOM이고 `focus()`는 locale 순서의 첫 editable segment로 이동한다. disabled/readOnly에서는 editable segment가 없으므로 명시적 no-op이다. Calendar/DatePicker/DateRangePicker/TimePicker는 `ko-KR`, 시간 24시간제, typed variant/size, 실제 control 스타일, label/help/error·외부 ARIA와 caller/default validationBehavior를 보존한다. 일부 세그먼트를 지울 때는 React Aria의 편집 중간 상태를 유지하며 모두 비우면 `null`을 정확히 한 번 전달한다. Calendar는 native form control이 아니므로 `isRequired`/`validationBehavior`를 공개하지 않는다.
+
+Production Chromium에서 popup의 기본 12px viewport inset과 310px calendar가 320px 폭을 1px 넘는 RED를 재현하고 승인된 4px inset으로 보완했다. 실제 Enter/Escape·focus 복귀·ArrowRight/Enter 날짜 선택·윤년/월 경계·min/max·역순 범위 편집·Backspace/Delete 전체 지우기·9개 native/default/aria form·320px overflow·44px target·axe serious/critical 0을 검증했다. 양 TZ focused 각각 **54/54**, 전체 Web **81 files·1,166/1,166**, production Chromium **30/30**(primitive 8+field 12+date 10), CI 계약 **38/38**, typecheck/build/diff·ui:check **기존 2,359/신규 0건**을 통과했다. Main은 **799.48 kB/gzip 245.88 kB**이고 기존 500 kB chunk 경고는 남는다. 일반 unit은 browser를 요구하지 않으며, 새 date browser suite는 기존 browser-installed CI 단계에만 연결했다. Page/feature·Task 5 overlay·기존 모달·장비 계약은 변경하지 않았다. 메뉴 migration·전체 E2E·HIL·실제 보조기기 수동 검증은 미실행이며 **Task 4 독립 QA 대기, Task 5 미착수**다.
 
 ### Task 5: Dropdown과 overlay/dialog 체계 통합
 

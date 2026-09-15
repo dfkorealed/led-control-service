@@ -172,9 +172,10 @@ test("production UI cascade runs after browser installation, outside browserless
     env: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: path.join(root, ".missing-ui-cascade-browser") }
   });
   assert.equal(discovered.status, 0, discovered.stdout + discovered.stderr);
-  assert.match(discovered.stdout, /Total: 20 tests in 2 files/);
+  assert.match(discovered.stdout, /Total: 30 tests in 3 files/);
   assert.match(discovered.stdout, /ui-cascade\.spec\.ts/);
   assert.match(discovered.stdout, /ui-fields\.spec\.ts/);
+  assert.match(discovered.stdout, /ui-dates\.spec\.ts/);
 });
 
 test("production audit cannot skip Docker, MQTT persistence, container, bundle, or dependency policy", async () => {
