@@ -312,6 +312,7 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
   const visibleNodes = nodes.filter((node) => hasKnownRegistrationEligibility(node)
     ? !isPreExistingRegistrationNode(node)
     : isRegistrationProgressNode(node));
+  const registrationFormNodes = visibleNodes.filter(hasKnownRegistrationEligibility);
   const registeredInSiteNodes = preExistingRegistrationNodes.filter((node) => node.registrationEligibility === "registered_in_site");
   const registeredElsewhereCount = preExistingRegistrationNodes.length - registeredInSiteNodes.length;
   const selectedNodes = visibleNodes.filter((node) => selectedNodeIds.includes(node.id));
@@ -656,7 +657,7 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
               등록 상태를 확인할 수 없는 장치 {hiddenUnknownEligibilityNodes.length}개를 제외했습니다.
             </p>
           ) : null}
-          {visibleNodes.length > 0 && sessionSnapshot.scanStatus !== "failed" ? (
+          {registrationFormNodes.length > 0 && sessionSnapshot.scanStatus !== "failed" ? (
             <div className="registration-config">
               <div className="registration-mode-toggle" role="radiogroup" aria-label="조명 설정 방식">
                 <label className={mode === "batch" ? "active" : ""}>

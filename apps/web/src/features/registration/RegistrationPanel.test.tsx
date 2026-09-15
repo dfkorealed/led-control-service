@@ -448,6 +448,8 @@ describe("RegistrationPanel", () => {
       expect(screen.queryByText("기존 현장 층")).not.toBeInTheDocument();
       expect(screen.queryByLabelText("조명 1 선택")).not.toBeInTheDocument();
       expect(screen.queryByRole("checkbox", { name: "등록 가능 조명 전체 선택" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("radiogroup", { name: "조명 설정 방식" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "선택 조명 등록" })).not.toBeInTheDocument();
       expect(screen.queryByText("1개 제외")).not.toBeInTheDocument();
       expect(screen.queryByText("등록 상태를 확인할 수 없는 장치 1개를 제외했습니다.")).not.toBeInTheDocument();
     }
