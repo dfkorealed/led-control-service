@@ -484,7 +484,7 @@ git commit -m "feat(gateway): resume automation after persistent manual baseline
 - Consumes: Task 1 `CreateDimmingCommandInput`, Task 2 expiry 없는 response
 - Produces: 종료 시각 입력이 없는 수동 제어 UI와 target+brightness 복구 request
 
-- [ ] **Step 1: UI·payload RED 테스트 작성**
+- [x] **Step 1: UI·payload RED 테스트 작성**
 
 ```ts
 expect(screen.queryByLabelText("수동 override 종료 시각")).not.toBeInTheDocument();
@@ -496,11 +496,11 @@ expect(mocks.apiPost).toHaveBeenCalledWith("/commands/dimming", expect.not.objec
 
 active-command-store는 target+brightness request가 round-trip되고 legacy localStorage의 `overrideUntil`은 canonical 복구에서 제거되는 case를 추가한다.
 
-- [ ] **Step 2: Chromium route RED 기대값 작성**
+- [x] **Step 2: Chromium route RED 기대값 작성**
 
 `calm-operations-manual-control.spec.ts`에서 datetime fill/disabled assertion을 제거하고 captured request에 `overrideUntil`이 없음을 확인한다. 1440×900, 1366×768, 390×844, 320×740에서 document-level overflow와 44×44px 유효 target 계약은 유지한다.
 
-- [ ] **Step 3: focused Web tests의 예상 실패 확인**
+- [x] **Step 3: focused Web tests의 예상 실패 확인**
 
 Run:
 
@@ -510,7 +510,7 @@ pnpm --filter @led-control/web exec vitest run src/features/control/ControlView.
 
 Expected: 기존 datetime 입력과 payload가 남아 있어 FAIL.
 
-- [ ] **Step 4: ControlView와 API type 최소 구현**
+- [x] **Step 4: ControlView와 API type 최소 구현**
 
 `overrideUntilLocal`, `defaultOverrideUntilLocal`, `overrideUntilFromLocal`, `validateOverrideUntil`과 form field를 제거한다. submit payload는 다음 exact shape만 만든다.
 
@@ -525,7 +525,7 @@ const request = canonicalizeDimmingCommandInput({
 
 `CreateDimmingCommandResponse.overrideUntil`도 제거한다. 성공 표시가 생성되는 기존 분기에서만 “조명 적용 완료 · 기본 밝기로 저장됨”을 사용한다.
 
-- [ ] **Step 5: Web focused·전체·Chromium·typecheck/build 확인**
+- [x] **Step 5: Web focused·전체·Chromium·typecheck/build 확인**
 
 Run:
 
@@ -539,7 +539,7 @@ pnpm --filter @led-control/web build
 
 Expected: unit, 네 viewport Chromium, typecheck와 production build PASS.
 
-- [ ] **Step 6: Web 커밋**
+- [x] **Step 6: Web 커밋**
 
 ```bash
 git add apps/web
