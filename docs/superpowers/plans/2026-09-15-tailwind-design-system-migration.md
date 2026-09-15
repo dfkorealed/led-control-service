@@ -319,6 +319,7 @@ git commit -m "feat(web): add typed Tailwind UI primitives"
 - Create: `apps/web/src/components/ui/fields/FormField.tsx`
 - Create: `apps/web/src/components/ui/fields/TextField.tsx`
 - Create: `apps/web/src/components/ui/fields/NumberField.tsx`
+- Create: `apps/web/src/components/ui/fields/FileField.tsx`
 - Create: `apps/web/src/components/ui/fields/SelectBox.tsx`
 - Create: `apps/web/src/components/ui/fields/ComboBox.tsx`
 - Create: `apps/web/src/components/ui/fields/Checkbox.tsx`
@@ -330,7 +331,7 @@ git commit -m "feat(web): add typed Tailwind UI primitives"
 - Modify: `apps/web/src/components/ui/index.ts`
 
 **Interfaces:**
-- Produces: `TextField`, `SearchField`, `PasswordField`, `TextArea`, `NumberField`, `SelectBox<T>`, `ComboBox<T>`, `Checkbox`, `CheckboxGroup`, `RadioGroup`, `Switch`, `Slider`.
+- Produces: `TextField`, `SearchField`, `PasswordField`, `TextArea`, `NumberField`, `FileField`, `SelectBox<T>`, `ComboBox<T>`, `Checkbox`, `CheckboxGroup`, `RadioGroup`, `Switch`, `Slider`.
 
 - [ ] **Step 1: 공통 상태·ref·keyboard 테스트를 작성한다**
 
@@ -403,9 +404,25 @@ export interface SelectBoxProps<T extends Key> extends FieldVisualProps {
   placeholder?: string;
   isDisabled?: boolean;
 }
+
+export interface NumberFieldProps extends FieldVisualProps {
+  value: number | null;
+  onChange(value: number | null): void;
+  minValue?: number;
+  maxValue?: number;
+  step?: number;
+}
+
+export interface FileFieldProps extends FieldVisualProps {
+  accept?: string;
+  multiple?: boolean;
+  onChange(files: FileList | null): void;
+}
 ```
 
 React Aria `TextField`, `Input`, `Label`, `FieldError`, `Select`, `ListBox`, `Popover`, `Checkbox`, `RadioGroup`, `Switch`, `Slider`를 wrapper 내부에서 조합한다. `data-invalid`, `data-disabled`, `data-focus-visible`, `data-selected` 상태는 CVA/Tailwind data variant로 스타일링한다.
+
+NumberField는 값이 실제로 `number | null`인 UI에만 사용하고 임의 clamp를 하지 않는다. 빈 문자열, 소수점 입력 중간 상태나 범위 밖 값을 domain validation까지 보존해야 하는 요금·정격전력·스케줄 입력은 TextField에 `inputMode="decimal"` 또는 `inputMode="numeric"`를 사용한다. FileField는 native file input을 공통 label/error/variant 안에 넣고 실제 `HTMLInputElement` ref와 FileList를 그대로 전달한다.
 
 `apps/web/src/test/a11y.ts`는 `axe.run(container)` 결과를 받아 지정 impact의 violation만 반환한다. fields test는 각 component family를 table-driven 방식으로 렌더링해 variant, `sm | md | lg`, disabled/invalid 상태, `className`, root/control ref와 serious/critical axe violation 0건을 확인한다.
 
@@ -446,7 +463,7 @@ git commit -m "feat(web): add accessible form field primitives"
 - Modify: `apps/web/src/components/ui/index.ts`
 
 **Interfaces:**
-- Produces: `parseIsoDate(value: string): CalendarDate`, `formatIsoDate(value: DateValue): string`, `parseLocalTime(value: string): Time`, `formatLocalTime(value: TimeValue): string` and date/time components.
+- Produces: `parseIsoDate(value: string): CalendarDate`, `formatIsoDate(value: DateValue): string`, `parseLocalTime(value: string): Time`, `formatLocalTime(value: TimeValue): string`, `FocusableFieldHandle` and date/time components.
 
 - [ ] **Step 1: date-only와 24시간제 실패 테스트를 작성한다**
 
@@ -490,6 +507,11 @@ export interface DatePickerProps extends FieldVisualProps {
   onChange(value: string | null): void;
 }
 
+export interface FocusableFieldHandle {
+  focus(): void;
+  readonly element: HTMLElement | null;
+}
+
 export interface TimePickerProps extends FieldVisualProps {
   value: string | null;
   minValue?: string;
@@ -498,7 +520,7 @@ export interface TimePickerProps extends FieldVisualProps {
 }
 ```
 
-내부에서는 `I18nProvider locale="ko-KR"`, `hourCycle={24}`, `DateInput`, `DateSegment`, `CalendarGrid`, `Popover`, `Dialog`를 사용한다.
+DatePicker, DateRangePicker와 TimePicker의 forwarded ref는 `FocusableFieldHandle`이며 `focus()`가 첫 editable segment로 이동한다. 내부에서는 `I18nProvider locale="ko-KR"`, `hourCycle={24}`, `DateInput`, `DateSegment`, `CalendarGrid`, `Popover`, `Dialog`를 사용한다.
 
 - [ ] **Step 5: timezone·keyboard·ref 테스트를 통과시킨다**
 
@@ -583,6 +605,8 @@ export interface ConfirmDialogProps {
   fallbackFocusElement?: HTMLElement | null;
 }
 ```
+
+ModalDialog와 ConfirmDialog는 화면별 접근성 이름을 보존할 수 있도록 `closeLabel?: string`을 받고 기본값은 `"닫기"`다. React Aria의 중첩 overlay stack을 사용해 자식 ConfirmDialog가 열려 있을 때 부모 focus scope가 자식 focus를 되돌리지 않게 한다.
 
 `returnFocusRef`/`fallbackFocusRef`를 신규 호출의 기본 계약으로 사용한다. 기존 호출자가 가진 element 기반 `returnFocusElement`/`fallbackFocusElement`도 migration 기간에 보존하고 ref가 없을 때만 사용한다. legacy import 경로는 re-export adapter로 한 migration 단계 동안 유지하고, 모든 page migration이 끝난 Task 12에서 제거한다.
 
@@ -805,7 +829,7 @@ ControlTargetPicker의 select/checkbox/radio, ControlView의 brightness range/nu
 
 - [ ] **Step 4: schedule와 vehicle event form을 전환한다**
 
-ScheduleDialog의 time/date/number/select/checkbox, VehicleEventDialog와 AutomationQuickFields의 form controls를 교체한다. 기존 `schedule-form.ts`, `vehicle-event-form.ts` validation과 API payload는 그대로 사용한다.
+ScheduleDialog의 time/date/number/select/checkbox, VehicleEventDialog와 AutomationQuickFields의 form controls를 교체한다. schedule/event에서 빈 값·범위 밖 값·소수점 중간 문자열을 검증해야 하는 숫자 입력은 TextField `inputMode="numeric" | "decimal"`을 사용하고, 수동 ControlView처럼 실제 number state인 brightness만 NumberField를 사용한다. DatePicker/TimePicker validation focus는 `FocusableFieldHandle`을 사용한다. 기존 `schedule-form.ts`, `vehicle-event-form.ts` validation과 API payload는 그대로 사용한다.
 
 - [ ] **Step 5: 자체 dialog와 focus hook을 제거한다**
 
@@ -879,7 +903,7 @@ Expected: source assertion fails on `SettingsSubnavigation.tsx`.
 
 - [ ] **Step 3: shell, security, site operation과 user form을 전환한다**
 
-NavLink callback ref 또는 item ref map으로 활성 tab을 직접 보관한다. SiteSwitcher는 label 또는 `aria-label`을 가진 SelectBox로 바꾸고 SettingsShell 테스트의 native `combobox` 기대를 trigger `button`과 option keyboard 계약으로 갱신한다. AccountSecurity, PasswordSettings, SiteOperations, SiteUser form/reset/delete dialog를 TextField/PasswordField/SelectBox/Checkbox/ModalDialog/ConfirmDialog로 전환한다.
+NavLink callback ref 또는 item ref map으로 활성 tab을 직접 보관한다. SiteSwitcher는 label 또는 `aria-label`을 가진 SelectBox로 바꾸고 SettingsShell 테스트의 native `combobox` 기대를 trigger `button`과 option keyboard 계약으로 갱신한다. dirty 상태에서 선택한 다음 현장 id를 SettingsShell state에 보관하고 ConfirmDialog 확인 뒤에만 draft 폐기와 navigate를 실행한다. AccountSecurity의 현재 세션 종료 `window.confirm`, PasswordSettings, SiteOperations, SiteUser form/reset/delete dialog도 TextField/PasswordField/SelectBox/Checkbox/ModalDialog/ConfirmDialog로 전환한다. 요금·정격전력처럼 문자열 중간 상태가 필요한 숫자 입력은 NumberField가 아니라 TextField `inputMode="decimal"`을 사용해 기존 validation과 payload 문자열을 보존한다.
 
 - [ ] **Step 4: feature CSS를 제거하고 Tailwind로 옮긴다**
 
@@ -914,11 +938,14 @@ git commit -m "refactor(web): migrate settings to design system"
 - Modify: `apps/web/src/features/registration/RegistrationPanel.tsx`
 - Modify: `apps/web/src/features/registration/RegistrationPanel.test.tsx`
 - Modify: `apps/web/src/features/floor-editor/EditorBatchPlacementPanel.tsx`
+- Modify: `apps/web/src/features/floor-editor/EditorFixtureNode.tsx`
 - Modify: `apps/web/src/features/floor-editor/EditorLayersPanel.tsx`
+- Modify: `apps/web/src/features/floor-editor/EditorMinimap.tsx`
 - Modify: `apps/web/src/features/floor-editor/EditorPropertiesPanel.tsx`
 - Modify: `apps/web/src/features/floor-editor/FixturePlacementAction.tsx`
 - Modify: `apps/web/src/features/floor-editor/FixturePlacementList.tsx`
 - Modify: `apps/web/src/features/floor-editor/FloorAssetUploadPanel.tsx`
+- Modify: `apps/web/src/features/floor-editor/FloorEditorCanvas.tsx`
 - Modify: `apps/web/src/features/floor-editor/FloorEditorView.tsx`
 - Modify: `apps/web/src/features/floor-editor/FloorEditorView.test.tsx`
 - Modify: `apps/web/src/features/settings/floor-plans/FloorEditorRoute.tsx`
@@ -958,11 +985,11 @@ Expected: new shared-control assertion fails.
 
 - [ ] **Step 3: 등록 form과 선택 UI를 전환한다**
 
-RegistrationPanel, FixtureBatchForm, FixtureIndividualForm, GatewayClaimPanel과 SetupWizard의 select, checkbox, radio, text와 number controls를 공통 컴포넌트로 교체한다. active session disable, registered-elsewhere, partial failure, gateway claim과 payload semantics를 유지한다. 현재 route에서 노출하지 않는 RfPlanningPanel도 policy 위반이 남지 않게 공통 컴포넌트와 토큰으로 전환하되 새 route를 추가하지 않는다.
+RegistrationPanel, FixtureBatchForm, FixtureIndividualForm, GatewayClaimPanel과 SetupWizard의 select, checkbox, radio, text와 number controls를 공통 컴포넌트로 교체한다. 정격전력과 이름 자릿수처럼 문자열 중간 상태가 필요한 값은 TextField `inputMode="decimal" | "numeric"`을 사용한다. active session disable, registered-elsewhere, partial failure, gateway claim과 payload semantics를 유지한다. FloorAssetUploadPanel의 파일 입력은 FileField로 교체한다. 현재 route에서 노출하지 않는 RfPlanningPanel도 policy 위반이 남지 않게 공통 컴포넌트와 토큰으로 전환하되 새 route를 추가하지 않는다.
 
 - [ ] **Step 4: floor editor의 정적 UI만 Tailwind로 전환한다**
 
-list search, tabs, properties, batch placement, asset panel, actions와 confirm dialog를 공통 UI로 교체한다. Konva canvas position/scale, virtual list translate, minimap geometry는 inline runtime style로 유지하고 이유를 코드 주석과 `exceptions.css` allowlist에 기록하도록 UI 기반 담당에게 요청한다.
+list search, tabs, properties, batch placement, asset panel, actions와 confirm dialog를 공통 UI로 교체한다. Konva canvas position/scale, virtual list translate, minimap geometry는 inline runtime style로 유지하고 이유를 코드 주석과 `exceptions.css` allowlist에 기록하도록 UI 기반 담당에게 요청한다. FloorEditorCanvas, EditorFixtureNode와 EditorMinimap의 정적 raw color는 `themeColor()` adapter로 교체하고 geometry 예외로 남기지 않는다. FixturePlacementAction과 FixturePlacementList는 callback ref registry를 공유해 production `document.querySelector`를 제거한다.
 
 - [ ] **Step 5: `window.confirm`을 공통 ConfirmDialog로 교체한다**
 
