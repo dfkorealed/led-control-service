@@ -118,6 +118,7 @@ jobs:
       - name: Verify generated development MQTT ACL reload
         run: DEV_MQTT_ACL_INTEGRATION=1 node --test scripts/dev-mqtt-acl.integration.test.mjs
       - run: pnpm --filter @led-control/web exec playwright install --with-deps chromium
+      - run: pnpm --filter @led-control/web e2e:ui-cascade
       - run: pnpm ci:real-backend
 
   build:

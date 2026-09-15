@@ -2,7 +2,7 @@
  * JSDOM cannot parse cascade layers. Compatibility rules in styles.css are
  * indented inside top-level components blocks, so remove only those wrappers
  * and unsupported imports for legacy DOM/color/layout tests. Preserve nested
- * media rules. This does not emulate cascade priorities: ui-cascade.test.ts
+ * media rules. This does not emulate cascade priorities: e2e/ui-cascade.spec.ts
  * verifies the untouched production CSS in real Chromium instead.
  */
 export function prepareLegacyStylesheetForJsdom(source: string): string {

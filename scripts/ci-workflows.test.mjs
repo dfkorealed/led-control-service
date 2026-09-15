@@ -155,6 +155,27 @@ test("real-backend core installs host services and runs one Chromium worker", as
   assert.match(missingOptIn.stderr, /E2E_REAL_BACKEND_LAB must equal 1/);
 });
 
+test("production UI cascade runs after browser installation, outside browserless unit CI", async () => {
+  const workflow = await parseWorkflow("ci.yml");
+  const job = workflow.jobs["playwright-real-core"];
+  const command = "pnpm --filter @led-control/web e2e:ui-cascade";
+  const install = job.steps.findIndex(step => step.run?.includes("playwright install --with-deps chromium"));
+  const cascade = job.steps.findIndex(step => step.run === command);
+  assert.ok(cascade > install && install >= 0, "production cascade must run after Chromium installation");
+  assertCannotBeSkipped(job.steps[cascade], "production UI cascade step");
+  assert.ok(!stepCommands(workflow.jobs.unit).includes("e2e:ui-cascade"), "unit CI has no browser installation");
+
+  // Exercise package/config discovery without launching a browser. Deleting
+  // the suite or breaking its separate invocation must fail the unit gate.
+  const discovered = spawnSync("pnpm", ["--filter", "@led-control/web", "e2e:ui-cascade", "--list"], {
+    cwd: root, encoding: "utf8", timeout: 30_000,
+    env: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: path.join(root, ".missing-ui-cascade-browser") }
+  });
+  assert.equal(discovered.status, 0, discovered.stdout + discovered.stderr);
+  assert.match(discovered.stdout, /Total: 8 tests in 1 file/);
+  assert.match(discovered.stdout, /ui-cascade\.spec\.ts/);
+});
+
 test("production audit cannot skip Docker, MQTT persistence, container, bundle, or dependency policy", async () => {
   const script = await readFile(path.join(root, "scripts/ci-production-audit.sh"), "utf8");
   for (const contract of [

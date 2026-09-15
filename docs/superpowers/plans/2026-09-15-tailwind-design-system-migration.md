@@ -329,6 +329,14 @@ git commit -m "feat(web): add typed Tailwind UI primitives"
 
 동시 full/focused Vitest·policy compile·production build 실행에서 API 초기화 오류 37건이 한 번 관측됐다. API/feature 코드 변경 없이 단독 full 실행 두 번(9.18초/9.20초)은 모두 통과했으며 동시 transform/cache 경합은 가설이지 확정 원인이 아니다. Production cascade의 검증 근거는 JSDOM flattening이 아니라 실제 Chromium이다. Feature production과 모달 focus는 변경하지 않았고 메뉴별 legacy cascade·전체 E2E/HIL은 후속 범위다. Task 2 독립 재검토 후 Task 3으로 진행한다.
 
+**Task 2 Fix Round 2 검증 결과(2026-09-16):** 중첩 group의 첫 selector와 keyframe 회귀 RED 3 failed/1 passed를 확인하고 grouping brace를 재귀적으로 보존하되 keyframe step은 selector로 분류하지 않도록 보완했다. Keyframe의 색상·spacing 검사는 유지한다. 정책 39/39 및 별도 scanner 커밋 `0645bff5`를 완료했다.
+
+- [x] 동일 immutable `24b5ea59` source의 inventory로만 baseline을 재계산한다. 기존 media 첫 selector 17건(css-selector만, 13개 기존 fingerprint 빈도 증가·4개 신규 노출 fingerprint)을 반영해 baseline 2,361건, current 2,359건/신규 0건이다. 초기 29개 경고 중 나머지 12개는 rule-total 초과 연쇄 경고였으며 별도 allowance를 추가하지 않았다.
+- [x] 실제 missing-browser 환경에서 기존 unit cascade suite 실패를 재현한 뒤 8개 assertion을 `e2e/ui-cascade.spec.ts`로 이동한다. `e2e:ui-cascade`는 production memory build만 사용하며 dev/backend server를 요구하지 않는다. CI의 기존 Chromium install 뒤 필수 단계로 실행한다.
+- [x] CI 연결 missing-step RED→GREEN과 브라우저 없는 `--list` discovery를 추가한다. Browserless Web 79 files·940/940, focused 85/85, CI contracts 38/38과 browser-enabled production cascade 8/8, typecheck/build/ui:check/diff를 통과한다.
+
+실행: `pnpm --filter @led-control/web e2e:ui-cascade` (Chromium 설치 필요). 일반 `pnpm test`는 browser를 요구하지 않으며 browser가 없는 E2E 명령은 명시적으로 실패한다. 기존 948개는 이제 unit 940개 + 필수 Chromium 8개로 분리된 것이며 assertion을 제거하거나 skip하지 않았다. Feature production·모달·장비 코드는 변경하지 않았고 Task 3은 독립 재검토 이후다.
+
 ### Task 3: Field, text, number와 selection 컴포넌트 구현
 
 **Owner:** `서비스 UI 개선`

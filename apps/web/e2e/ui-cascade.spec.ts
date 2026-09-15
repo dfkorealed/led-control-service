@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { beforeAll, describe, expect, it } from "vitest";
+import { expect, test } from "@playwright/test";
 
 interface ControlStyle { minHeight: string; padding: string; fontSize: string; lineHeight: string; width: string; height: string }
 interface Observations {
@@ -9,8 +9,8 @@ interface Observations {
   keyboard: { key: string; x: number; y: number; width: number; height: number }[];
 }
 
-// esbuild requires Node's own Uint8Array realm. Running build and Chromium in a
-// child keeps this regression independent of the Web suite's JSDOM globals.
+// Run the production build and its browser fixture in an isolated Node process;
+// neither the application's dev server nor the unit suite's JSDOM is involved.
 const measureProduction = String.raw`
 import {readFile} from "node:fs/promises";
 import {createServer} from "node:http";
@@ -97,36 +97,37 @@ try {
 }
 `;
 
-describe("production primitive CSS cascade", () => {
+test.describe("production primitive CSS cascade", () => {
+  test.setTimeout(35_000);
   let observed: Observations;
-  beforeAll(() => {
+  test.beforeAll(() => {
     observed = JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", measureProduction], { encoding: "utf8", timeout: 30_000 }));
-  }, 35_000);
+  });
 
-  it.each([
+  for (const [id, minHeight, padding, fontSize, lineHeight] of [
     ["sm", "44px", "0px 12px", "13px", "20px"],
     ["md", "44px", "0px 16px", "14px", "22px"],
     ["lg", "48px", "8px 24px", "16px", "24px"]
-  ])("applies %s size from the production utilities", (id, minHeight, padding, fontSize, lineHeight) => {
+  ]) test(`applies ${id} size from the production utilities`, () => {
     expect(observed.controls[id]).toMatchObject({ minHeight, padding, fontSize, lineHeight });
   });
 
-  it("lets caller padding override the large button padding", () => {
+  test("lets caller padding override the large button padding", () => {
     expect(observed.controls.override.padding).toBe("8px 12px");
   });
 
-  it("lets callers size and pad the tooltip's actual button", () => {
+  test("lets callers size and pad the tooltip's actual button", () => {
     expect(observed.controls["tooltip-override"]).toMatchObject({ padding: "8px", width: "64px", height: "64px" });
   });
 
-  it("preserves the default tooltip touch area and unrelated legacy layout rules", () => {
+  test("preserves the default tooltip touch area and unrelated legacy layout rules", () => {
     expect(observed.controls["tooltip-default"]).toMatchObject({ width: "52px", height: "52px" });
     expect(observed.sidebar).toEqual({ width: "92px", padding: "16px 10px 14px" });
     expect(observed.controls["legacy-row-action"].minHeight).toBe("36px");
     expect(observed.tooltipAlignment).toEqual({ right: "0px", transform: "none" });
   });
 
-  it.each(["Enter", "Space"])("uses element-center coordinates for a real %s activation", key => {
+  for (const key of ["Enter", "Space"]) test(`uses element-center coordinates for a real ${key} activation`, () => {
     const event = observed.keyboard.find(event => event.key === key)!;
     expect(event.x).toBeCloseTo(event.width / 2);
     expect(event.y).toBeCloseTo(event.height / 2);
