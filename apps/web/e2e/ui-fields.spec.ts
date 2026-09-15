@@ -40,6 +40,10 @@ createRoot(document.getElementById("root")).render(el("main", {className:"flex f
   el(CheckboxGroup,{label:"복수 층",items:choices,defaultValue:["0"],onChange:record("group")}),
   el(RadioGroup,{label:"단일 층",items:choices,defaultValue:"0",onChange:record("radio")}),
   el(Slider,{label:"밝기",id:"slider","data-contract":"slider","aria-describedby":"external-help","aria-controls":"external-help",defaultValue:90,minValue:0,maxValue:100,step:10,onChange:record("slider"),ref:ref("slider")}),
+  ...["sm","md","lg"].flatMap(size=>[0,50,100].map(value=>{
+    const key="geometry-"+size+"-"+value;
+    return el(Slider,{key,label:key,size,defaultValue:value,minValue:0,maxValue:100,step:10,onChange:record(key)});
+  })),
   el("p",{id:"external-help"},"외부 도움"),
   ...["check","switch","slider"].map(id=>el("label",{key:id,htmlFor:id},"외부 "+id)),
   el("form",null,el(FileField,{label:"도면",accept:"image/png",multiple:true,ref:ref("file"),onChange:files=>{window.fileIdentity.push(files === window.fieldRefs.file.files);record("files")(files ? Array.from(files).map(file=>file.name) : null);}}),el("button",{type:"reset"},"초기화")),
@@ -203,6 +207,36 @@ test.describe("production field browser contracts", () => {
     expect(await page.evaluate(() => window.fieldEvents.slider)).toEqual([100, 0, 10, 100]);
     await expect(slider).toHaveValue("100");
     expect(await page.evaluate(() => document.activeElement === window.fieldRefs.slider)).toBe(true);
+  });
+  test("centers slider thumbs on the track at every size and endpoint without changing drag", async ({ page }) => {
+    for (const size of ["sm", "md", "lg"]) {
+      for (const value of [0, 50, 100]) {
+        const input = page.getByRole("slider", { name: `geometry-${size}-${value}`, exact: true });
+        const track = input.locator('xpath=ancestor::*[@data-field]').locator(".relative");
+        const thumb = input.locator('xpath=ancestor::div[contains(@class,"rounded-pill")]');
+        const bar = track.locator(':scope > [aria-hidden="true"]');
+        const [trackBox, thumbBox, barBox] = await Promise.all([track.boundingBox(), thumb.boundingBox(), bar.boundingBox()]);
+        expect(trackBox).not.toBeNull();
+        expect(thumbBox).not.toBeNull();
+        expect(barBox).not.toBeNull();
+        const trackY = trackBox!.y + trackBox!.height / 2;
+        expect(Math.abs(barBox!.y + barBox!.height / 2 - trackY), `${size}/${value} bar`).toBeLessThanOrEqual(0.5);
+        expect(Math.abs(thumbBox!.y + thumbBox!.height / 2 - trackY), `${size}/${value} thumb`).toBeLessThanOrEqual(0.5);
+        expect(Math.abs(thumbBox!.x + thumbBox!.width / 2 - (trackBox!.x + trackBox!.width * value / 100)), `${size}/${value} horizontal`).toBeLessThanOrEqual(0.5);
+      }
+    }
+    const input = page.getByRole("slider", { name: "geometry-md-50", exact: true });
+    await input.scrollIntoViewIfNeeded();
+    const track = (await input.locator('xpath=ancestor::*[@data-field]').locator(".relative").boundingBox())!;
+    await page.mouse.move(track.x + track.width / 2, track.y + track.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(track.x + track.width * 0.8, track.y + track.height / 2);
+    await page.mouse.up();
+    await expect(input).toHaveValue("80");
+    expect(await page.evaluate(() => window.fieldEvents["geometry-md-50"])).toEqual([80]);
+    await input.press("ArrowRight");
+    await expect(input).toHaveValue("90");
+    expect(await page.evaluate(() => window.fieldEvents["geometry-md-50"])).toEqual([80, 90]);
   });
   test("delivers the real FileList unchanged and allows reset then same-file selection", async ({ page }) => {
     const input = page.getByLabel("도면", { exact: true });

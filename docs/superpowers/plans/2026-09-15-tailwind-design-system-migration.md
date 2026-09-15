@@ -494,6 +494,8 @@ Production build main은 651.01 kB/gzip 199.41 kB이며 Vite의 500 kB chunk 경
 
 Fix Round 1 최종 전체 검증은 Web 80 files·1,112/1,112, 정책 41/41, CI 계약 38/38, ui:check 기존 2,359/신규 0, typecheck/build·diff 검사 exit 0이다. Main bundle 650.83 kB/gzip 199.47 kB이며 500 kB 경고는 남는다. 승인 anchor/baseline·page/feature production·기존 compatibility·API/장비 코드는 변경하지 않았다.
 
+**Task 3 Fix Round 2(2026-09-16):** QA의 slider thumb 수직 오차를 실제 production Chromium RED 1 failed(중심 delta 22px, 허용 0.5px)로 재현했다. Hook의 `translateY(-50%)` 기준점이 없었던 원인을 승인 정적 `top-1/2` anchor 한 곳으로 보완했다. sm/md/lg×0/50/100의 9개 조합에서 bar/track/thumb 수직 중심과 thumb 수평 위치를 0.5px 이하로 검증하고, 실제 drag 50→80 및 ArrowRight 90의 단일 callback을 유지했다. Focused 172/172, 전체 Web 80 files·1,112/1,112, Chromium 20/20(기존 8+field 12), 정책 41/41·CI 계약 38/38·typecheck/build·diff 검사와 ui:check 기존 2,359/신규 0건을 통과했다. Main은 650.84 kB/gzip 199.48 kB로 기존 chunk 경고가 남으며, production 변경은 Slider의 정적 class와 설명 주석뿐이다. Task 4는 미착수·독립 재검토 대기다.
+
 ### Task 4: Calendar, DatePicker와 TimePicker 구현
 
 **Owner:** `서비스 UI 개선`

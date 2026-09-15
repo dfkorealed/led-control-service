@@ -25,7 +25,8 @@ function SliderInputThumb({ inputRef, id, ...props }: Pick<SliderProps, "id" | "
   const { focusProps, isFocusVisible } = useFocusRing();
   // RAC SliderThumb generates its input ID and omits aria-controls. Public hooks
   // retain its state/drag/keyboard behavior while we own the native input props.
-  return <div {...thumbProps} data-focus-visible={isFocusVisible || undefined} data-disabled={isDisabled || undefined} className="flex h-11 w-11 items-center justify-center rounded-pill outline-none data-focus-visible:shadow-focus data-disabled:opacity-60">
+  // Anchor the hook's translateY(-50%) at the track center, not its static position.
+  return <div {...thumbProps} data-focus-visible={isFocusVisible || undefined} data-disabled={isDisabled || undefined} className="top-1/2 flex h-11 w-11 items-center justify-center rounded-pill outline-none data-focus-visible:shadow-focus data-disabled:opacity-60">
     <VisuallyHidden><input {...mergeProps(inputProps, focusProps)} id={id} aria-controls={props["aria-controls"]} ref={inputRef} /></VisuallyHidden>
     <span aria-hidden="true" className="h-5 w-5 rounded-pill border border-action-primary bg-action-primary" />
   </div>;
