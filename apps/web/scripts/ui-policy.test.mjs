@@ -53,6 +53,15 @@ test("I3 accepts semantic custom properties and catches literal JSX/style color 
   assert.deepEqual(inspectUiSource("src/New.tsx", '<path fill={palette.red} style={{ color: palette.blue }} />'), []);
 });
 
+test("I7 catches literal template, image and shadow colors without treating runtime values as CSS", () => {
+  const jsx = '<path fill={`white`} style={{ backgroundImage: "linear-gradient(red, blue)", boxShadow: `0 0 2px red` }} />';
+  assert.deepEqual(inspectUiSource("src/New.tsx", jsx).map(v => v.match), ["white", "red", "blue", "red"]);
+  assert.deepEqual(inspectUiSource("src/styles/base.css", 'body { background-image: linear-gradient(red, blue); box-shadow: 0 0 2px red; text-shadow: 0 0 2px blue; }').map(v => v.match), ["red", "blue", "red", "blue"]);
+  assert.deepEqual(inspectUiSource("src/New.tsx", '<div style={{ backgroundImage: "linear-gradient(#123456, rgb(1 2 3))", boxShadow: `0 0 2px #fff` }} />').map(v => v.rule), Array(3).fill("raw-color"));
+  assert.deepEqual(inspectUiSource("src/New.tsx", '<path fill={`${palette.white}`} style={{ backgroundImage: palette.red, boxShadow: shadows.blue, color: `var(--color-brand-blue)` }} />'), []);
+  assert.deepEqual(inspectUiSource("src/styles/base.css", 'body { background-image: linear-gradient(var(--color-brand-blue), var(--color-brand-coral)); box-shadow: var(--shadow-panel); }'), []);
+});
+
 test("blocks stock and arbitrary typography, fractional padding and subpixel literals", () => {
   assert.deepEqual(inspectUiSource("sample.tsx", '"text-sm leading-7 tracking-wide text-[17px] p-1/2"; style={{ gap: 0.5 }}').map(v => v.rule), ["unapproved-typography", "unapproved-typography", "unapproved-typography", "arbitrary-typography", "unapproved-spacing", "literal-spacing"]);
 });
@@ -70,10 +79,23 @@ test("rejects static CSS and inline typography hidden in calculations", () => {
 
 test("theme permits only token declarations, not arbitrary rules or new CSS imports", () => {
   const path = "src/styles/theme.css";
-  assert.deepEqual(inspectUiSource(path, '@theme static { --color-surface-panel: #fff; --text-body: 0.875rem; --text-body--line-height: 1.375rem; --radius-control: 0.625rem; --shadow-panel: 0 8px 24px rgb(30 64 175 / 0.06); --spacing: 4px; --breakpoint-compact: 47.5rem; }'), []);
+  assert.deepEqual(inspectUiSource(path, '@theme static { --color-surface-panel: #ffffff; --text-body: 0.875rem; --text-body--line-height: 1.375rem; --radius-control: 0.625rem; --shadow-panel: 0 8px 24px rgb(30 64 175 / 0.06); --spacing: 4px; --breakpoint-compact: 47.5rem; }'), []);
   assert.ok(inspectUiSource(path, 'body { color: #fff; padding: 13px; }').some(v => v.rule === "raw-color"));
   assert.ok(inspectUiSource(path, '@import "./rogue.css";').some(v => v.rule === "css-import"));
   assert.ok(inspectUiSource("src/other/theme.css", '@theme { --color-test: #fff; }').some(v => v.rule === "raw-color"));
+});
+
+test("I6 rejects changed anchored theme values across every token family", async () => {
+  const path = "src/styles/theme.css";
+  const theme = await readFile(new URL("../src/styles/theme.css", import.meta.url), "utf8");
+  assert.deepEqual(inspectUiSource(path, theme), []);
+  for (const [name, value] of [["--spacing", "13px"], ["--text-body", "13px"], ["--breakpoint-compact", "777px"], ["--color-brand-blue", "red"], ["--radius-panel", "1px"], ["--shadow-panel", "0 0 2px red"], ["--color-*", "red"]]) {
+    const changed = theme.replace(new RegExp(`${name.replace("*", "\\*")}: [^;]+;`), `${name}: ${value};`);
+    assert.ok(inspectUiSource(path, changed).some(v => v.rule === "unapproved-theme-value"), name);
+  }
+  assert.deepEqual(inspectUiSource(path, theme.replace("0 8px 24px rgb(30 64 175 / 0.06)", "0  /* explanation */ 8px\n 24px rgb( 30 64 175/0.06 )")), []);
+  assert.ok(inspectUiSource(path, "@theme static { --spacing: 13px }").some(v => v.rule === "unapproved-theme-value"));
+  assert.deepEqual(inspectUiSource(path, "@theme static { --spacing: 4px }"), []);
 });
 
 test("rejects unknown theme names, semantic typos and arbitrary responsive breakpoints", () => {

@@ -206,6 +206,8 @@ git commit -m "feat(web): add Tailwind design token foundation"
 
 > **Task 1 Fix Round 1(2026-09-16):** 27/27 정책 회귀(실제 Vite compile 포함), Web 888/888, typecheck/build/ui:check를 통과했다. `p-px`·정적 spacing/font 계산·line-height slash·미승인 token/breakpoint, semantic var 오탐/JSX literal 누락, query receiver/selector allowance 상쇄와 import suffix/optional call/comment를 보정했다. 신뢰 anchor `24b5ea59` Git source로 재계산한 baseline은 35 files·2,344건, 신규 위반 0건이다. sourceRef와 allowance의 Git 검증도 추가했다. 기존 2,380건 대비 오탐 42건 제거와 기존 계산식 6건 신규 분류이며 production feature 파일은 변경하지 않았다. 독립 재검토 후 Task 2로 진행한다.
 
+> **Task 1 Fix Round 2(2026-09-16):** 승인 Git theme의 token 이름→값 검증과 template/image/shadow literal color 검사를 RED→GREEN으로 보강했다. 정책 29/29(실제 Vite compile 포함), Web 888/888, typecheck/build/ui:check 통과. baseline은 승인 `24b5ea59` source 기준 35 files·2,344건 그대로이며 신규 0건이다. feature/Task 2 파일 변경 없이 독립 재검토를 기다린다.
+
 ### Task 2: class utility, typography와 기존 기본 primitive 전환
 
 **Owner:** `서비스 UI 개선`

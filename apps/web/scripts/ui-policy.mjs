@@ -10,8 +10,11 @@ const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 function approvedSource(path) {
   return execFileSync("git", ["show", `${approvedSourceRef}:apps/web/${path}`], { cwd: webRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 }
-const themeTokens = new Set([...approvedSource("src/styles/theme.css").matchAll(/(--[\w-]+)\s*:/g)].map(match => match[1]));
-const themeResets = new Set(["--color-*", "--text-*", "--radius-*", "--shadow-*", "--breakpoint-*"]);
+// Normalize formatting, not CSS meaning: token values remain owned by the
+// reviewed Git source. Preserve separators between numbers/identifiers.
+const normalizeThemeValue = value => value.trim().replace(/\s+/g, " ").replace(/\s*([(),/])\s*/g, "$1");
+const themeValues = new Map([...maskComments(approvedSource("src/styles/theme.css"), "theme.css").matchAll(/(--[\w*-]+)\s*:\s*([^;]+);/g)].map(match => [match[1], normalizeThemeValue(match[2])]));
+const themeTokens = new Set(themeValues.keys());
 
 const spacing = new Set(["0", "0.5", "1", "1.5", "2", "2.5", "3", "3.5", "4", "4.5", "5", "6", "7", "8", "10", "12", "16"]);
 const approvedCss = new Set(["src/styles.css", "src/styles/theme.css", "src/styles/base.css", "src/styles/exceptions.css"]);
@@ -114,9 +117,13 @@ export function inspectUiSource(path, source) {
   // typed scale values. Ordinary rules in this file still pass through policy.
   if (path === "src/styles/theme.css") {
     text = text.replace(/@theme(?:\s+static)?\s*\{[^{}]*\}/g, (block, blockIndex) => block.replace(
-      /(--[\w*-]+)\s*:[^;]+;/g,
-      (value, name, offset) => {
-        if (themeTokens.has(name) || themeResets.has(name)) return " ".repeat(value.length);
+      /(--[\w*-]+)\s*:\s*([^;}]*)(?:;|(?=\}))/g,
+      (value, name, rawValue, offset) => {
+        if (themeTokens.has(name)) {
+          const currentValue = normalizeThemeValue(rawValue);
+          if (currentValue !== themeValues.get(name)) add("unapproved-theme-value", `${name}: ${currentValue}`, blockIndex + offset);
+          return " ".repeat(value.length);
+        }
         add("unapproved-theme-token", name, blockIndex + offset);
         return value;
       }
@@ -185,7 +192,7 @@ export function inspectUiSource(path, source) {
     const value = styleValue(text, m.index + m[0].length);
     if ((/^['"]?-?(?:\d|\.\d)/.test(value) && !/^['"]?0['"]?$/.test(value)) || /\d(?:px|rem|em)\b/.test(value)) add("literal-typography", `${m[1]}: ${value}`, m.index);
   });
-  const colorProperty = "(?:color|background(?:-color|Color)?|border(?:-[\\w]+|[A-Z]\\w*)?|fill|stroke|outline(?:-color|Color)?)";
+  const colorProperty = "(?:color|background(?:-color|Color|-image|Image)?|(?:box|text)(?:-shadow|Shadow)|border(?:-[\\w]+|[A-Z]\\w*)?|fill|stroke|outline(?:-color|Color)?)";
   const inspectNamedColors = (value, index) => {
     // CSS custom properties are one identifier, not separate color words.
     // Fallback values in var(--token, red) remain subject to the color policy.
@@ -198,7 +205,11 @@ export function inspectUiSource(path, source) {
   } else {
     // Only literal property/attribute values have CSS color semantics here.
     // Runtime expressions such as palette.red are not literal named colors.
-    scan(new RegExp(`\\b${colorProperty}\\s*[:=]\\s*(?:\\{\\s*)?(["'])((?:\\\\.|(?!\\1)[\\s\\S])*?)\\1`, "g"), m => inspectNamedColors(m[2], m.index));
+    scan(new RegExp(`\\b${colorProperty}\\s*[:=]\\s*(?:\\{\\s*)?(["'\`])((?:\\\\.|(?!\\1)[\\s\\S])*?)\\1`, "g"), m => {
+      // Only no-substitution templates are static CSS values. Interpolated
+      // runtime expressions retain their existing geometry/palette contract.
+      if (m[1] !== "`" || !m[2].includes("${")) inspectNamedColors(m[2], m.index);
+    });
   }
   if (path.endsWith(".css")) {
     if (!approvedCss.has(path)) add("css-file", path);

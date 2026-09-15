@@ -69,7 +69,7 @@ pnpm --filter @led-control/web test
 pnpm --filter @led-control/web build
 ```
 
-정책은 production `src`의 CSS/JS/TS/JSX/TSX를 검사한다. 테스트 파일·test/e2e 디렉터리는 제외한다. Tailwind source에서도 scripts/e2e/test fixture를 제외하여 금지 예시 클래스가 배포 CSS로 생성되지 않게 한다. `theme.css`의 `@theme` 안 semantic color와 typed scale 선언만 literal을 허용하며, 해당 파일의 일반 CSS 규칙은 계속 검사한다.
+정책은 production `src`의 CSS/JS/TS/JSX/TSX를 검사한다. 테스트 파일·test/e2e 디렉터리는 제외한다. Tailwind source에서도 scripts/e2e/test fixture를 제외하여 금지 예시 클래스가 배포 CSS로 생성되지 않게 한다. `theme.css`의 `@theme` 안 semantic color와 typed scale 선언만 literal을 허용하며, 해당 파일의 일반 CSS 규칙은 계속 검사한다. Fix Round 2부터 승인 Git theme의 이름→값 map과 비교하므로 spacing·typography·breakpoint·color·radius·shadow·namespace reset의 값 변경도 별도의 anchor 검토가 필요하다. 주석·공백·함수 구분자 주변 서식과 마지막 세미콜론 생략은 허용하지만 값의 의미를 자동 동치 변환하지 않는다.
 
 차단 항목은 arbitrary spacing/color/typography, 미승인 숫자 spacing과 기본 palette/typography utility, CSS·inline 정적 spacing/typography와 literal color, production `querySelector`/`querySelectorAll`(TypeScript generic 포함), 미승인 CSS 파일/import/selector, 공통 UI 밖의 신규 native form style이다. 검사기는 정적 문자열을 읽는 lexical guard이므로 동적 클래스 조합·전체 JS/CSS 의미 해석과 런타임 geometry의 타당성은 코드 검토로 보완한다.
 
@@ -80,6 +80,8 @@ baseline은 Task 1 최초 2,380건에서 Fix Round 1의 검사 정확도 보정 
 `p-px`와 정적 `calc`/`clamp` 간격, semantic typography의 `/7`·`/[17px]`·변수 line-height modifier, 계산식 안의 literal font-size를 거부한다. 측정/percentage/viewport를 사용하는 runtime position은 별도 예외이며 일반 padding/margin/gap에 임의 간격을 더하는 수단으로 쓰지 않는다. 허용 token 이름은 승인 commit의 canonical `theme.css`에서 읽는다. 신규 `--text-rogue`, `bg-surface-pannel` 같은 오타와 `max-[777px]:*` 같은 임의 breakpoint는 정책 오류다. CSS import의 query/hash suffix도 원본 resource ID 기준으로 검사한다.
 
 주석 처리는 기존 TypeScript parser의 실제 trivia 위치를 사용해 trailing/JSX comment를 제거하고 URL·문자열·template 내용을 보존한다. CSS는 문자열을 인식하는 comment scan을 사용한다. `test:ui-policy`에는 실제 Vite 메모리 빌드의 semantic/spacing/typography/`max-compact` 생성 및 test fixture 클래스 제외 검증이 포함된다. standalone 두 정책 command의 CI 연결은 Task 12 체크리스트에서 완료한다.
+
+색상은 JSX no-substitution template, `backgroundImage`/`background-image`, `boxShadow`/`box-shadow` 및 `text-shadow`의 gradient/shadow literal도 검사한다. semantic `var(--color-...)`와 runtime palette/shadow 표현식은 literal named color로 오인하지 않는다. Fix Round 2 검증은 정책 29/29, Web 888/888, typecheck/build/ui:check 통과이며 baseline은 수정 없이 2,344건을 유지한다.
 
 - 1440×900, 1024×768, 390×844, 320×740 뷰포트에서 계산된 section gap, grid gap, panel padding을 확인한다.
 - 상태 badge가 absolute positioning으로 빈 영역을 예약하지 않는지 확인한다.
