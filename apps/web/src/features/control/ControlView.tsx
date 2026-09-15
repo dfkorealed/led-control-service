@@ -78,7 +78,6 @@ export function ControlView({
   const queryClient = useQueryClient();
   const [selection, setSelection] = useState<ControlSelection>(emptySelection);
   const [brightness, setBrightness] = useState(70);
-  const [overrideUntilLocal, setOverrideUntilLocal] = useState(() => defaultOverrideUntilLocal());
   const [message, setMessage] = useState("");
   const [verificationError, setVerificationError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -158,7 +157,6 @@ export function ControlView({
     activeScope.current = { generation, userId, siteId: activeSiteId };
     setIsSubmitting(false);
     setSelection(emptySelection);
-    setOverrideUntilLocal(defaultOverrideUntilLocal());
     setMessage("");
     setVerificationError("");
     setTerminalResult(null);
@@ -208,19 +206,11 @@ export function ControlView({
   async function submitCommand() {
     if (!data || !target || !canSubmit || isActiveCommandSessionBlocked(userId)) return;
 
-    const overrideUntil = overrideUntilFromLocal(overrideUntilLocal);
-    const overrideValidationError = validateOverrideUntil(overrideUntil);
-    if (overrideValidationError) {
-      setMessage(overrideValidationError);
-      return;
-    }
-
     const request = canonicalizeDimmingCommandInput({
       siteId: data.site.id,
       clientRequestId: crypto.randomUUID(),
       target,
-      brightness,
-      ...(overrideUntil ? { overrideUntil } : {})
+      brightness
     });
     saveActiveCommandRequest(userId, data.site.id, request);
     setCommandUserId(userId);
@@ -441,7 +431,7 @@ export function ControlView({
       <PageHeader
         title="조명 밝기 제어"
         headingLevel={3}
-        description="제어 대상을 선택한 뒤 밝기와 수동 override 시간을 적용합니다."
+        description="제어 대상을 선택한 뒤 밝기를 적용합니다."
         actions={(
           <Button
             ref={groupDialogOpenerRef}
@@ -523,21 +513,6 @@ export function ControlView({
                 </Button>
               ))}
             </div>
-
-            <label className="form-field control-override-field">
-              <span>수동 override 종료 시각</span>
-              <input
-                type="datetime-local"
-                aria-label="수동 override 종료 시각"
-                value={overrideUntilLocal}
-                disabled={controlsLocked}
-                onChange={(event) => {
-                  setOverrideUntilLocal(event.target.value);
-                  setMessage("");
-                }}
-              />
-              <small>비워두면 서버 기본값을 사용합니다.</small>
-            </label>
 
             <Button variant="primary" type="button" onClick={submitCommand} disabled={!canSubmit}>
               {commandSessionBlocked ? "로그아웃 중" : controlsLocked && !readOnly ? "밝기 적용 중" : "밝기 적용"}
@@ -687,7 +662,7 @@ function CommandProgress({ status }: { status: NonNullable<ReturnType<typeof use
   return (
     <div className="command-progress-card">
       <span>최근 명령 상태</span>
-      <strong>{commandStageLabel(status.stage)}</strong>
+      <strong>{status.stage === "completed" ? "조명 적용 완료 · 기본 밝기로 저장됨" : commandStageLabel(status.stage)}</strong>
       <small>{status.completedFixtureCount} / {status.totalFixtureCount} 처리</small>
       <ProgressSteps label="명령 진행" steps={commandSteps(status.stage)} />
       {failedResults.map((result) => (
@@ -769,29 +744,4 @@ function definitiveRejectionMessage(error: { status: number; body?: unknown }): 
   }
   if (error.status === 409) return "동일 요청 ID가 다른 제어 내용과 충돌했습니다. 새 제어 요청을 실행하세요.";
   return `제어 요청이 거부되었습니다(${error.status}). 입력과 권한을 확인하세요.`;
-}
-
-function defaultOverrideUntilLocal(now = new Date()) {
-  const date = new Date(now.getTime() + 60 * 60 * 1000);
-  date.setSeconds(0, 0);
-  return [
-    date.getFullYear(),
-    String(date.getMonth() + 1).padStart(2, "0"),
-    String(date.getDate()).padStart(2, "0")
-  ].join("-") + `T${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
-}
-
-function overrideUntilFromLocal(value: string) {
-  if (!value) return undefined;
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date.toISOString();
-}
-
-function validateOverrideUntil(overrideUntil: string | null | undefined, now = new Date()) {
-  if (overrideUntil === undefined) return null;
-  if (overrideUntil === null) return "종료 시각을 확인해 주세요.";
-  const until = Date.parse(overrideUntil);
-  if (until <= now.getTime()) return "종료 시각은 현재 이후여야 합니다.";
-  if (until > now.getTime() + 30 * 24 * 60 * 60 * 1000) return "종료 시각은 30일 이내여야 합니다.";
-  return null;
 }

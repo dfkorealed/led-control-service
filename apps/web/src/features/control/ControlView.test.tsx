@@ -1005,7 +1005,7 @@ describe("ControlView 대상 선택", () => {
 
     renderControl();
 
-    expect(await within(screen.getByRole("status", { name: "명령 진행 상태" })).findByText("조명 적용 완료")).toBeInTheDocument();
+    expect(await within(screen.getByRole("status", { name: "명령 진행 상태" })).findByText("조명 적용 완료 · 기본 밝기로 저장됨")).toBeInTheDocument();
     expect(screen.queryByText("진행 중 명령을 찾을 수 없어 제어 잠금을 해제했습니다")).not.toBeInTheDocument();
     expect(screen.queryByText("명령 상태를 불러오지 못했습니다. 연결을 확인한 뒤 다시 조회하세요.")).not.toBeInTheDocument();
   });
@@ -1093,57 +1093,23 @@ describe("ControlView 대상 선택", () => {
     expect(await screen.findByText(`이벤트 패널 ${dashboard.site.id}`)).toBeInTheDocument();
   });
 
-  it("sends a local override end time as an ISO instant and rejects invalid windows", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-08-31T00:00:00.000Z"));
+  it("submits the selected target and brightness without expiry UI or fields", async () => {
     renderControl();
 
+    expect(screen.queryByLabelText("수동 override 종료 시각")).not.toBeInTheDocument();
     fireEvent.click(screen.getByLabelText("B2-L001 선택"));
-    const overrideInput = screen.getByLabelText("수동 override 종료 시각");
-    fireEvent.change(overrideInput, { target: { value: "2026-08-30T23:59" } });
-    fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
-    expect(screen.getByText("종료 시각은 현재 이후여야 합니다.")).toBeInTheDocument();
-    expect(mocks.apiPost).not.toHaveBeenCalled();
-
-    fireEvent.change(overrideInput, { target: { value: "2026-10-01T00:00" } });
-    fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
-    expect(screen.getByText("종료 시각은 30일 이내여야 합니다.")).toBeInTheDocument();
-
-    fireEvent.change(overrideInput, { target: { value: "2026-08-31T10:00" } });
-    fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
-    expect(mocks.apiPost).toHaveBeenCalledWith("/commands/dimming", expect.objectContaining({
-      overrideUntil: new Date("2026-08-31T10:00").toISOString()
-    }), { signal: expect.any(AbortSignal) });
-  });
-
-  it("omits an empty override end time so the server applies its default window", async () => {
-    renderControl();
-    fireEvent.click(screen.getByLabelText("B2-L001 선택"));
-    fireEvent.change(screen.getByLabelText("수동 override 종료 시각"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "30%" }));
     fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
 
     await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledTimes(1));
+    expect(mocks.apiPost).toHaveBeenCalledWith("/commands/dimming", expect.objectContaining({
+      siteId: dashboard.site.id,
+      clientRequestId: expect.any(String),
+      target: { type: "fixture", fixtureId: fixtureIds.b2First },
+      brightness: 30
+    }), { signal: expect.any(AbortSignal) });
     expect(mocks.apiPost.mock.calls[0][1]).not.toHaveProperty("overrideUntil");
-  });
-
-  it.each(["site", "user"])("recalculates the one-hour override default when the %s scope changes", async (scope) => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-08-31T00:00:00.000Z"));
-    const { rerender } = renderControl();
-    const overrideInput = screen.getByLabelText("수동 override 종료 시각");
-    fireEvent.change(overrideInput, { target: { value: "2030-01-01T00:00" } });
-    vi.setSystemTime(new Date("2026-08-31T05:00:00.000Z"));
-
-    if (scope === "site") {
-      const nextSiteId = "00000000-0000-4000-8000-000000000099";
-      const nextDashboard: Dashboard = { ...dashboard, site: { ...dashboard.site, id: nextSiteId, name: "다음 현장" } };
-      mocks.useControlDashboard.mockReturnValue({ data: nextDashboard, isLoading: false, error: null });
-      rerender(controlElement(nextSiteId));
-    } else {
-      rerender(controlElement(dashboard.site.id, "admin", USER_B));
-    }
-
-    expect(screen.getByLabelText("수동 override 종료 시각")).toHaveValue(localDateTimeValue(new Date("2026-08-31T06:00:00.000Z")));
+    expect(mocks.apiPost.mock.calls[0][1]).not.toHaveProperty("overrideRemainingMs");
   });
 
   it("uses roving tab focus and selects modes with circular arrow, Home, and End keys", async () => {
@@ -1286,14 +1252,6 @@ function createFixture(
     controlBlockReason: null,
     ...overrides
   };
-}
-
-function localDateTimeValue(date: Date) {
-  return [
-    date.getFullYear(),
-    String(date.getMonth() + 1).padStart(2, "0"),
-    String(date.getDate()).padStart(2, "0")
-  ].join("-") + `T${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
 function createLargeDashboard(fixtureCount: number): Dashboard {
