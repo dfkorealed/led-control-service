@@ -310,9 +310,12 @@ describe("ProvisioningDeviceTerminalService", () => {
       expect.stringContaining('FROM "Gateway"'),
       expect.stringContaining('FROM "ProvisioningSession"'),
       expect.stringContaining('FROM "DiscoveredMeshNode"'),
-      expect.stringContaining('FROM "ProvisioningDeviceOutbox"')
+      expect.stringContaining('FROM "ProvisioningDeviceOutbox"'),
+      expect.stringContaining("pg_advisory_xact_lock(hashtextextended(")
     ]);
-    expect(lockSql.every((sql: string) => sql.includes("FOR UPDATE"))).toBe(true);
+    expect(lockSql.slice(0, 5).every((sql: string) => sql.includes("FOR UPDATE"))).toBe(true);
+    expect(tx.$queryRaw.mock.calls[5][1]).toBe(event.deviceUuid);
+    expect(tx.$queryRaw.mock.invocationCallOrder[5]).toBeLessThan(tx.meshNode.findUnique.mock.invocationCallOrder[0]);
     expect(node.status).toBe("provisioned");
     expect(meshControlGroups.attachProvisionedNode).toHaveBeenCalledTimes(1);
     expect(tx.processedGatewayEvent.create).toHaveBeenCalledWith({ data: {

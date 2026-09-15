@@ -1996,7 +1996,7 @@ describe("MqttService", () => {
         firmwareVersion: "esp32h2-0.1.0"
       }
     });
-    expect(prisma.$queryRaw).toHaveBeenCalledTimes(4);
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(5);
     expect((prisma.$queryRaw.mock.calls[0][0] as TemplateStringsArray).join(" ").replace(/\s+/g, " ")).toContain(
       'FROM "Floor" WHERE "id" = FOR UPDATE'
     );
@@ -2011,6 +2011,13 @@ describe("MqttService", () => {
     );
     expect(prisma.$queryRaw.mock.calls[3][1]).toBe(node.sessionId);
     expect(prisma.$queryRaw.mock.calls[3][2].values).toEqual([node.id]);
+    expect((prisma.$queryRaw.mock.calls[4][0] as TemplateStringsArray).join(" ").replace(/\s+/g, " ")).toContain(
+      "pg_advisory_xact_lock(hashtextextended("
+    );
+    expect(prisma.$queryRaw.mock.calls[4][1]).toBe(node.deviceUuid);
+    expect(prisma.$queryRaw.mock.invocationCallOrder[4]).toBeLessThan(
+      prisma.meshNode.findUnique.mock.invocationCallOrder[0]
+    );
     expect(prisma.fixture.create).toHaveBeenCalledWith({
       data: {
         id: "22222222-2222-4222-8222-222222222222",
