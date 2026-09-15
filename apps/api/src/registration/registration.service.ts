@@ -57,6 +57,26 @@ const identifyOperationInclude = {
   }
 } satisfies Prisma.DiscoveredMeshNodeInclude;
 
+const registrationResponseSelect = {
+  deviceUuid: true,
+  gateway: { select: { siteId: true } },
+  fixture: {
+    select: {
+      id: true,
+      name: true,
+      floorId: true,
+      floor: { select: { name: true } }
+    }
+  }
+} satisfies Prisma.MeshNodeSelect;
+
+const registrationSiteSelect = {
+  deviceUuid: true,
+  gateway: { select: { siteId: true } }
+} satisfies Prisma.MeshNodeSelect;
+
+type RegistrationResponseRecord = Prisma.MeshNodeGetPayload<{ select: typeof registrationResponseSelect }>;
+
 @Injectable()
 export class RegistrationService {
   constructor(
@@ -103,9 +123,9 @@ export class RegistrationService {
         await tx.provisioningScanOutbox.create({
           data: this.createScanOutboxData(session, scanCorrelationId, 1)
         });
-        return session;
-      });
-      return toRegistrationSessionResponse(session);
+        return toRegistrationSessionResponse(tx, session);
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+      return session;
     } catch (error) {
       if (this.isGatewayScanConflict(error)) throw new ConflictException({ code: "gateway_scan_in_progress" });
       throw error;
@@ -116,23 +136,28 @@ export class RegistrationService {
     // Prisma can fetch included relations with separate SQL statements. One
     // repeatable-read snapshot prevents an old terminal node from being paired
     // with retry #2's newly inserted outbox ownership between those statements.
-    const session = await this.prisma.$transaction((tx) => tx.provisioningSession.findUnique({
-      where: { id: sessionId },
-      include: { site: true, discoveredNodes: { orderBy: { discoveredAt: "asc" }, include: identifyOperationInclude } }
-    }), { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+    const session = await this.prisma.$transaction(async (tx) => {
+      const stored = await tx.provisioningSession.findUnique({
+        where: { id: sessionId },
+        include: { site: true, discoveredNodes: { orderBy: { discoveredAt: "asc" }, include: identifyOperationInclude } }
+      });
+      return stored ? toRegistrationSessionResponse(tx, stored) : null;
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
     if (!session) throw new NotFoundException("registration session not found");
     await this.assertCommissionAccess(user, session.siteId);
-    return toRegistrationSessionResponse(session);
+    return session;
   }
 
   async listActiveSessions(user: AuthenticatedUser, siteId: string) {
     await this.assertCommissionAccess(user, siteId);
-    const sessions = await this.prisma.$transaction((tx) => tx.provisioningSession.findMany({
-      where: { siteId, status: "active" },
-      orderBy: { startedAt: "desc" },
-      include: { discoveredNodes: { orderBy: { discoveredAt: "asc" }, include: identifyOperationInclude } }
-    }), { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
-    return sessions.map(toRegistrationSessionResponse);
+    return this.prisma.$transaction(async (tx) => {
+      const sessions = await tx.provisioningSession.findMany({
+        where: { siteId, status: "active" },
+        orderBy: { startedAt: "desc" },
+        include: { discoveredNodes: { orderBy: { discoveredAt: "asc" }, include: identifyOperationInclude } }
+      });
+      return toRegistrationSessionResponses(tx, sessions);
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
   }
 
   async identifyNode(user: AuthenticatedUser, sessionId: string, nodeId: string) {
@@ -186,7 +211,11 @@ export class RegistrationService {
       });
       if (node.status === "identifying") {
         if (!existing) throw new ConflictException({ code: "identify_state_requires_reconciliation" });
-        return { status: "accepted" as const, operationId: existing.id, node: toRegistrationNodeResponse(node, existing) };
+        return {
+          status: "accepted" as const,
+          operationId: existing.id,
+          node: await toRegistrationNodeResponse(tx, session.siteId, node, existing)
+        };
       }
 
       const commandId = randomUUID();
@@ -211,8 +240,12 @@ export class RegistrationService {
         topic: mqttTopicsV2.gatewayCommand(session.siteId, session.gatewayId, "provisioning/identify-device"),
         payload
       } });
-      return { status: "accepted" as const, operationId: commandId, node: toRegistrationNodeResponse(updatedNode, operation) };
-    });
+      return {
+        status: "accepted" as const,
+        operationId: commandId,
+        node: await toRegistrationNodeResponse(tx, session.siteId, updatedNode, operation)
+      };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
   }
 
   async retryScan(user: AuthenticatedUser, sessionId: string) {
@@ -261,9 +294,9 @@ export class RegistrationService {
         await tx.provisioningScanOutbox.create({
           data: this.createScanOutboxData(session, scanCorrelationId, session.scanAttempt)
         });
-        return session;
-      });
-      return toRegistrationSessionResponse(session);
+        return toRegistrationSessionResponse(tx, session);
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+      return session;
     } catch (error) {
       if (this.isGatewayScanConflict(error)) throw new ConflictException({ code: "gateway_scan_in_progress" });
       throw error;
@@ -291,8 +324,17 @@ export class RegistrationService {
     const item = result.items[0];
     if (item.status === "validation_failed") throw new BadRequestException(item.error);
 
-    const discoveredNode = await this.prisma.discoveredMeshNode.findUnique({ where: { id: nodeId } });
-    if (!discoveredNode) throw new NotFoundException("discovered node not found");
+    const discoveredNode = await this.prisma.$transaction(async (tx) => {
+      const session = await tx.provisioningSession.findUnique({
+        where: { id: sessionId },
+        select: { siteId: true }
+      });
+      const node = await tx.discoveredMeshNode.findUnique({ where: { id: nodeId } });
+      if (!session || !node || node.sessionId !== sessionId) {
+        throw new NotFoundException("discovered node not found");
+      }
+      return toRegistrationNodeResponse(tx, session.siteId, node);
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
     return { fixture: null, discoveredNode };
   }
 
@@ -321,7 +363,6 @@ export class RegistrationService {
       }
       const nodeIds = input.nodes.map((node) => node.nodeId).sort();
       await this.assertNoIdentifyInFlight(tx, sessionId);
-      await this.meshControlGroups.ensureFloorGroup(tx, session.gatewayId, session.floorId);
       const nodes = await tx.discoveredMeshNode.findMany({
         where: { sessionId, id: { in: nodeIds } }
       });
@@ -368,9 +409,34 @@ export class RegistrationService {
         });
       }
 
+      const existingMeshNodes = candidates.length > 0
+        ? await tx.meshNode.findMany({
+          where: { deviceUuid: { in: candidates.map((candidate) => candidate.deviceUuid) } },
+          select: registrationSiteSelect
+        })
+        : [];
+      const existingByDeviceUuid = new Map(existingMeshNodes.flatMap((meshNode) => meshNode.deviceUuid
+        ? [[meshNode.deviceUuid, meshNode] as const]
+        : []));
+      const availableCandidates = candidates.filter((candidate) => {
+        const existing = existingByDeviceUuid.get(candidate.deviceUuid);
+        if (!existing) return true;
+        failures.set(
+          candidate.nodeId,
+          existing.gateway.siteId === session.siteId
+            ? "fixture already registered in this site"
+            : "fixture already registered in another site"
+        );
+        return false;
+      });
+
+      if (availableCandidates.length > 0) {
+        await this.meshControlGroups.ensureFloorGroup(tx, session.gatewayId, session.floorId);
+      }
+
       // Legacy placement input remains accepted but is intentionally ignored. Numeric zeroes
       // satisfy the provisioning contract only; the new Fixture default is unplaced, not (0,0).
-      const positioned = candidates.map((candidate) => ({ ...candidate, x: 0, y: 0 }));
+      const positioned = availableCandidates.map((candidate) => ({ ...candidate, x: 0, y: 0 }));
 
       const generatedNameCandidates = positioned.filter((candidate) => !candidate.fixtureName);
       const fixtureNumbers = generatedNameCandidates.length > 0
@@ -449,7 +515,7 @@ export class RegistrationService {
             fixtureName: registrationsByNodeId.get(node.nodeId)!.fixtureName
           })
       };
-    });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
 
     return { items: prepared.items };
   }
@@ -480,11 +546,12 @@ export class RegistrationService {
       const errorMessage = node.errorMessage
         ? `${node.errorMessage}; ${excludedMessage}`
         : excludedMessage;
-      return tx.discoveredMeshNode.update({
+      const updated = await tx.discoveredMeshNode.update({
         where: { id: nodeId },
         data: { status: "failed", errorMessage }
       });
-    });
+      return toRegistrationNodeResponse(tx, session.siteId, updated);
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
   }
 
   async completeSession(user: AuthenticatedUser, sessionId: string) {
@@ -520,13 +587,14 @@ export class RegistrationService {
       if (provisionedCount < 1) {
         throw new ConflictException({ code: "registration_session_requires_provisioned_node" });
       }
-      return tx.provisioningSession.update({
+      const updated = await tx.provisioningSession.update({
         where: { id: sessionId },
         data: { status: "completed", completedAt: new Date() },
         include: { discoveredNodes: { include: identifyOperationInclude } }
       });
-    });
-    return toRegistrationSessionResponse(completed);
+      return toRegistrationSessionResponse(tx, updated);
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+    return completed;
   }
 
   async cancelSession(user: AuthenticatedUser, sessionId: string) {
@@ -559,13 +627,14 @@ export class RegistrationService {
         throw new ConflictException({ code: "registration_session_not_empty" });
       }
 
-      return tx.provisioningSession.update({
+      const updated = await tx.provisioningSession.update({
         where: { id: sessionId },
         data: { status: "cancelled", completedAt: new Date() },
         include: { discoveredNodes: { include: identifyOperationInclude } }
       });
-    });
-    return toRegistrationSessionResponse(cancelled);
+      return toRegistrationSessionResponse(tx, updated);
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+    return cancelled;
   }
 
   private assertActiveSession(status: string) {
@@ -655,24 +724,111 @@ export class RegistrationService {
   }
 }
 
-function toRegistrationSessionResponse<T extends object>(session: T): Omit<T, InternalRegistrationSessionField> {
-  const response = { ...session } as T & Partial<Record<InternalRegistrationSessionField, unknown>>;
-  for (const field of INTERNAL_REGISTRATION_SESSION_FIELDS) delete response[field];
-  if ("discoveredNodes" in response && Array.isArray(response.discoveredNodes)) {
-    response.discoveredNodes = response.discoveredNodes.map((node) => toRegistrationNodeResponse(node));
-  }
+interface RegistrationNodeShape {
+  deviceUuid: string;
+  [key: string]: unknown;
+}
+
+interface RegistrationSessionShape {
+  siteId: string;
+  discoveredNodes?: RegistrationNodeShape[];
+  [key: string]: unknown;
+}
+
+type RegistrationNodeResponse = RegistrationNodeShape & {
+  identifyOperationId: string | null;
+  identifyOperationStartedAt: Date | null;
+  registrationEligibility: "available" | "registered_in_site" | "registered_elsewhere";
+  existingRegistration: {
+    fixtureId: string | null;
+    fixtureName: string | null;
+    floorId: string | null;
+    floorName: string | null;
+  } | null;
+};
+
+async function toRegistrationSessionResponse<T extends RegistrationSessionShape>(
+  tx: Prisma.TransactionClient,
+  session: T
+): Promise<Omit<T, InternalRegistrationSessionField>> {
+  const [response] = await toRegistrationSessionResponses(tx, [session]);
   return response;
 }
 
-function toRegistrationNodeResponse<T extends object>(
+async function toRegistrationSessionResponses<T extends RegistrationSessionShape>(
+  tx: Prisma.TransactionClient,
+  sessions: T[]
+): Promise<Array<Omit<T, InternalRegistrationSessionField>>> {
+  const responses = sessions.map((session) => {
+    const response = { ...session } as RegistrationSessionShape & Partial<Record<InternalRegistrationSessionField, unknown>>;
+    for (const field of INTERNAL_REGISTRATION_SESSION_FIELDS) delete response[field];
+    return response;
+  });
+  const nodes = responses.flatMap((response) => Array.isArray(response.discoveredNodes) ? response.discoveredNodes : []);
+  const registrationsByDeviceUuid = await findRegistrationResponses(tx, nodes.map((node) => node.deviceUuid));
+
+  for (const response of responses) {
+    if (!Array.isArray(response.discoveredNodes)) continue;
+    response.discoveredNodes = response.discoveredNodes.map((node) => presentRegistrationNode(
+      response.siteId,
+      node,
+      registrationsByDeviceUuid.get(node.deviceUuid)
+    ));
+  }
+  return responses as unknown as Array<Omit<T, InternalRegistrationSessionField>>;
+}
+
+async function toRegistrationNodeResponse<T extends RegistrationNodeShape>(
+  tx: Prisma.TransactionClient,
+  siteId: string,
   node: T,
-  operation?: { id: string; createdAt: Date }
+  operation?: { id: string; createdAt?: Date }
 ) {
+  const registrationsByDeviceUuid = await findRegistrationResponses(tx, [node.deviceUuid]);
+  return presentRegistrationNode(siteId, node, registrationsByDeviceUuid.get(node.deviceUuid), operation);
+}
+
+async function findRegistrationResponses(
+  tx: Prisma.TransactionClient,
+  deviceUuids: string[]
+): Promise<Map<string, RegistrationResponseRecord>> {
+  const uniqueDeviceUuids = [...new Set(deviceUuids)];
+  if (uniqueDeviceUuids.length === 0) return new Map();
+  const registrations = await tx.meshNode.findMany({
+    where: { deviceUuid: { in: uniqueDeviceUuids } },
+    select: registrationResponseSelect
+  });
+  return new Map(registrations.flatMap((registration) => registration.deviceUuid
+    ? [[registration.deviceUuid, registration] as const]
+    : []));
+}
+
+function presentRegistrationNode<T extends RegistrationNodeShape>(
+  siteId: string,
+  node: T,
+  registration?: RegistrationResponseRecord,
+  operation?: { id: string; createdAt?: Date }
+): RegistrationNodeResponse {
   const { deviceOutbox, ...publicNode } = node as T & { deviceOutbox?: Array<{ id: string; createdAt: Date }> };
   const latest = operation ?? deviceOutbox?.[0];
+  const registrationEligibility = !registration
+    ? "available" as const
+    : registration.gateway.siteId === siteId
+      ? "registered_in_site" as const
+      : "registered_elsewhere" as const;
+  const existingRegistration = registration && registration.gateway.siteId === siteId
+    ? {
+      fixtureId: registration.fixture?.id ?? null,
+      fixtureName: registration.fixture?.name ?? null,
+      floorId: registration.fixture?.floorId ?? null,
+      floorName: registration.fixture?.floor.name ?? null
+    }
+    : null;
   return {
     ...publicNode,
     identifyOperationId: latest?.id ?? null,
-    identifyOperationStartedAt: latest?.createdAt ?? null
-  };
+    identifyOperationStartedAt: latest?.createdAt ?? null,
+    registrationEligibility,
+    existingRegistration
+  } as unknown as RegistrationNodeResponse;
 }

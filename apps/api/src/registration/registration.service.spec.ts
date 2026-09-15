@@ -70,6 +70,7 @@ describe("RegistrationService", () => {
       },
       meshNode: {
         count: jest.fn().mockResolvedValue(256),
+        findMany: jest.fn().mockResolvedValue([]),
         create: jest.fn()
       },
       fixture: {
@@ -183,6 +184,47 @@ describe("RegistrationService", () => {
     });
   });
 
+  it("classifies nodes from all active sessions with one registration lookup", async () => {
+    const firstNode = discoveredNode();
+    const secondNode = {
+      ...discoveredNode(),
+      id: "22222222-2222-4222-8222-222222222223",
+      sessionId: "11111111-1111-4111-8111-111111111112",
+      deviceUuid: "esp32h2-registered"
+    };
+    const sessions = [
+      { ...registrationSession(), discoveredNodes: [firstNode] },
+      { ...registrationSession(), id: secondNode.sessionId, discoveredNodes: [secondNode] }
+    ];
+    const { service, prisma } = await createModule({
+      provisioningSession: { findMany: jest.fn().mockResolvedValue(sessions) },
+      meshNode: {
+        findMany: jest.fn().mockResolvedValue([{
+          deviceUuid: secondNode.deviceUuid,
+          gateway: { siteId: ids.siteId },
+          fixture: null
+        }])
+      }
+    });
+
+    const result = await service.listActiveSessions(admin, ids.siteId);
+
+    expect(result[0].discoveredNodes[0]).toMatchObject({
+      registrationEligibility: "available",
+      existingRegistration: null
+    });
+    expect(result[1].discoveredNodes[0]).toMatchObject({
+      registrationEligibility: "registered_in_site",
+      existingRegistration: {
+        fixtureId: null,
+        fixtureName: null,
+        floorId: null,
+        floorName: null
+      }
+    });
+    expect(prisma.meshNode.findMany).toHaveBeenCalledTimes(1);
+  });
+
   it("returns a completed registration session as JSON without internal terminal replay identity", async () => {
     const terminalSession = {
       ...registrationSession(),
@@ -211,6 +253,126 @@ describe("RegistrationService", () => {
     expect(result).not.toHaveProperty("scanTerminalEventType");
     expect(result).not.toHaveProperty("scanTerminalPayloadHash");
     expect(result).not.toHaveProperty("scanTerminalIngestedAt");
+  });
+
+  it("classifies discovered nodes without exposing another site's registration metadata", async () => {
+    const availableNode = discoveredNode();
+    const sameSiteNode = {
+      ...discoveredNode(),
+      id: "22222222-2222-4222-8222-222222222223",
+      deviceUuid: "esp32h2-same-site"
+    };
+    const sameSiteWithoutFixtureNode = {
+      ...discoveredNode(),
+      id: "22222222-2222-4222-8222-222222222224",
+      deviceUuid: "esp32h2-same-site-no-fixture"
+    };
+    const elsewhereNode = {
+      ...discoveredNode(),
+      id: "22222222-2222-4222-8222-222222222225",
+      deviceUuid: "esp32h2-another-site"
+    };
+    const session = {
+      ...registrationSession(),
+      discoveredNodes: [availableNode, sameSiteNode, sameSiteWithoutFixtureNode, elsewhereNode]
+    };
+    const { service, prisma } = await createModule({
+      provisioningSession: {
+        findUnique: jest.fn().mockResolvedValue(session),
+        findMany: jest.fn()
+      },
+      meshNode: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            deviceUuid: sameSiteNode.deviceUuid,
+            gateway: { siteId: ids.siteId },
+            fixture: {
+              id: ids.fixtureId,
+              name: "B2-L013",
+              floorId: ids.floorId,
+              floor: { name: "B2" }
+            }
+          },
+          {
+            deviceUuid: sameSiteWithoutFixtureNode.deviceUuid,
+            gateway: { siteId: ids.siteId },
+            fixture: null
+          },
+          {
+            deviceUuid: elsewhereNode.deviceUuid,
+            gateway: { siteId: "99999999-9999-4999-8999-999999999999" },
+            fixture: {
+              id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+              name: "Secret fixture",
+              floorId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+              floor: { name: "Secret floor" }
+            }
+          }
+        ])
+      }
+    });
+
+    const result = await service.getSession(admin, ids.sessionId);
+
+    expect(result.discoveredNodes).toEqual([
+      expect.objectContaining({
+        id: availableNode.id,
+        registrationEligibility: "available",
+        existingRegistration: null
+      }),
+      expect.objectContaining({
+        id: sameSiteNode.id,
+        registrationEligibility: "registered_in_site",
+        existingRegistration: {
+          fixtureId: ids.fixtureId,
+          fixtureName: "B2-L013",
+          floorId: ids.floorId,
+          floorName: "B2"
+        }
+      }),
+      expect.objectContaining({
+        id: sameSiteWithoutFixtureNode.id,
+        registrationEligibility: "registered_in_site",
+        existingRegistration: {
+          fixtureId: null,
+          fixtureName: null,
+          floorId: null,
+          floorName: null
+        }
+      }),
+      expect.objectContaining({
+        id: elsewhereNode.id,
+        registrationEligibility: "registered_elsewhere",
+        existingRegistration: null
+      })
+    ]);
+    expect(JSON.stringify(result.discoveredNodes[3])).not.toContain("Secret");
+    expect(prisma.meshNode.findMany).toHaveBeenCalledTimes(1);
+    expect(prisma.meshNode.findMany).toHaveBeenCalledWith({
+      where: {
+        deviceUuid: {
+          in: [
+            availableNode.deviceUuid,
+            sameSiteNode.deviceUuid,
+            sameSiteWithoutFixtureNode.deviceUuid,
+            elsewhereNode.deviceUuid
+          ]
+        }
+      },
+      select: {
+        deviceUuid: true,
+        gateway: { select: { siteId: true } },
+        fixture: {
+          select: {
+            id: true,
+            name: true,
+            floorId: true,
+            floor: { select: { name: true } }
+          }
+        }
+      }
+    });
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: "RepeatableRead" });
   });
 
   it("excludes only a reconciliation node while preserving provisioning evidence", async () => {
@@ -251,7 +413,13 @@ describe("RegistrationService", () => {
       return [];
     });
 
-    await expect(service.excludeNode(admin, ids.sessionId, ids.nodeId)).resolves.toEqual(updated);
+    await expect(service.excludeNode(admin, ids.sessionId, ids.nodeId)).resolves.toEqual({
+      ...updated,
+      identifyOperationId: null,
+      identifyOperationStartedAt: null,
+      registrationEligibility: "available",
+      existingRegistration: null
+    });
 
     expect(siteAccess.assertCommissionInTransaction).toHaveBeenCalledWith(prisma, admin, ids.siteId);
     expect(prisma.$queryRaw).toHaveBeenCalledTimes(4);
@@ -641,6 +809,92 @@ describe("RegistrationService", () => {
     const outboxData = prisma.provisioningDeviceOutbox.create.mock.calls[0][0].data;
     expect(outboxData.id).toBe(outboxData.payload.commandId);
     expect(mqtt.publishProvisionDevice).not.toHaveBeenCalled();
+  });
+
+  it("rejects registered device UUIDs before reservations and accepts only new batch candidates", async () => {
+    const sameSiteNode = discoveredNode();
+    const elsewhereNode = {
+      ...discoveredNode(),
+      id: "55555555-5555-4555-8555-555555555555",
+      deviceUuid: "esp32h2-another-site"
+    };
+    const availableNode = {
+      ...discoveredNode(),
+      id: "66666666-6666-4666-8666-666666666666",
+      deviceUuid: "esp32h2-available"
+    };
+    const session = registrationSession();
+    const { service, prisma, allocation, meshGroups } = await createModule({
+      provisioningSession: {
+        findUnique: jest.fn().mockResolvedValue(session),
+        update: jest.fn()
+      },
+      discoveredMeshNode: {
+        findFirst: jest.fn(),
+        findUnique: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([sameSiteNode, elsewhereNode, availableNode]),
+        update: jest.fn().mockImplementation(({ where, data }) => Promise.resolve({
+          ...[sameSiteNode, elsewhereNode, availableNode].find((node) => node.id === where.id),
+          ...data
+        }))
+      },
+      meshNode: {
+        findMany: jest.fn().mockResolvedValue([
+          { deviceUuid: sameSiteNode.deviceUuid, gateway: { siteId: ids.siteId } },
+          {
+            deviceUuid: elsewhereNode.deviceUuid,
+            gateway: { siteId: "99999999-9999-4999-8999-999999999999" }
+          }
+        ])
+      }
+    });
+
+    const result = await service.registerBatch(admin, ids.sessionId, {
+      mode: "batch",
+      defaults: { namePrefix: "B2-L", startNumber: 1, digits: 3, ratedWatt: "40.00", size: 20 },
+      nodes: [sameSiteNode, elsewhereNode, availableNode].map((node) => ({
+        nodeId: node.id,
+        placement: { mode: "auto" as const }
+      }))
+    });
+
+    expect(result.items).toEqual([
+      {
+        nodeId: sameSiteNode.id,
+        status: "validation_failed",
+        error: "fixture already registered in this site"
+      },
+      {
+        nodeId: elsewhereNode.id,
+        status: "validation_failed",
+        error: "fixture already registered in another site"
+      },
+      {
+        nodeId: availableNode.id,
+        status: "accepted",
+        fixtureName: "B2-L001"
+      }
+    ]);
+    expect(prisma.meshNode.findMany).toHaveBeenCalledWith({
+      where: { deviceUuid: { in: [sameSiteNode.deviceUuid, elsewhereNode.deviceUuid, availableNode.deviceUuid] } },
+      select: { deviceUuid: true, gateway: { select: { siteId: true } } }
+    });
+    expect(allocation.reserveFixtureNumbers).toHaveBeenCalledWith(prisma, ids.floorId, 1, 1);
+    expect(allocation.reserveMeshAddresses).toHaveBeenCalledWith(prisma, ids.gatewayId, 1);
+    expect(prisma.discoveredMeshNode.update).toHaveBeenCalledTimes(1);
+    expect(prisma.discoveredMeshNode.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: availableNode.id }
+    }));
+    expect(prisma.provisioningDeviceOutbox.create).toHaveBeenCalledTimes(1);
+    expect(prisma.provisioningDeviceOutbox.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ nodeId: availableNode.id })
+    });
+    expect(prisma.meshNode.findMany.mock.invocationCallOrder[0]).toBeLessThan(
+      meshGroups.ensureFloorGroup.mock.invocationCallOrder[0]
+    );
+    expect(prisma.meshNode.findMany.mock.invocationCallOrder[0]).toBeLessThan(
+      allocation.reserveMeshAddresses.mock.invocationCallOrder[0]
+    );
   });
 
   it("accepts registration on a full floor and ignores legacy placement coordinates", async () => {
@@ -1129,7 +1383,14 @@ describe("RegistrationService", () => {
 
     await expect(service.identifyNode(admin, ids.sessionId, ids.nodeId)).resolves.toMatchObject({
       status: "accepted",
-      node: { id: ids.nodeId, status: "identifying", identifyState: "pending", meshAddress: null }
+      node: {
+        id: ids.nodeId,
+        status: "identifying",
+        identifyState: "pending",
+        meshAddress: null,
+        registrationEligibility: "available",
+        existingRegistration: null
+      }
     });
 
     expect(prisma.provisioningDeviceOutbox.create).toHaveBeenCalledWith({ data: expect.objectContaining({
@@ -1206,6 +1467,7 @@ describe("RegistrationService", () => {
       },
       meshNode: {
         count: jest.fn().mockResolvedValue(256),
+        findMany: jest.fn().mockResolvedValue([]),
         create: jest.fn()
       },
       fixture: {
@@ -1225,7 +1487,16 @@ describe("RegistrationService", () => {
       }
     );
 
-    expect(result).toEqual({ fixture: null, discoveredNode: provisioningNode });
+    expect(result).toEqual({
+      fixture: null,
+      discoveredNode: {
+        ...provisioningNode,
+        identifyOperationId: null,
+        identifyOperationStartedAt: null,
+        registrationEligibility: "available",
+        existingRegistration: null
+      }
+    });
     expect(prisma.discoveredMeshNode.update).toHaveBeenCalledWith({
       where: { id: ids.nodeId },
       data: {
@@ -1260,6 +1531,7 @@ describe("RegistrationService", () => {
   });
 
   it("completes a registration session only after terminal scan state", async () => {
+    const provisionedNode = { ...discoveredNode(), status: "provisioned" };
     const { service, prisma } = await createModule({
       provisioningSession: {
         create: jest.fn(),
@@ -1268,18 +1540,44 @@ describe("RegistrationService", () => {
           status: "active", scanStatus: "completed", siteId: ids.siteId,
           site: { organizationId: ids.organizationId }
         }),
-        update: jest.fn().mockResolvedValue({ id: ids.sessionId, status: "completed" })
+        update: jest.fn().mockResolvedValue({
+          id: ids.sessionId,
+          siteId: ids.siteId,
+          status: "completed",
+          discoveredNodes: [provisionedNode]
+        })
       },
       discoveredMeshNode: {
         findFirst: jest.fn(), findMany: jest.fn(), findUnique: jest.fn(),
         count: jest.fn().mockResolvedValueOnce(0).mockResolvedValueOnce(1),
         update: jest.fn(), updateMany: jest.fn()
+      },
+      meshNode: {
+        findMany: jest.fn().mockResolvedValue([{
+          deviceUuid: provisionedNode.deviceUuid,
+          gateway: { siteId: ids.siteId },
+          fixture: {
+            id: ids.fixtureId,
+            name: "B2-L001",
+            floorId: ids.floorId,
+            floor: { name: "B2" }
+          }
+        }])
       }
     });
 
     const result = await service.completeSession(admin, ids.sessionId);
 
     expect(result.status).toBe("completed");
+    expect(result.discoveredNodes[0]).toMatchObject({
+      registrationEligibility: "registered_in_site",
+      existingRegistration: {
+        fixtureId: ids.fixtureId,
+        fixtureName: "B2-L001",
+        floorId: ids.floorId,
+        floorName: "B2"
+      }
+    });
     expect((prisma.$queryRaw.mock.calls[0][0] as TemplateStringsArray).join("")).toContain("FOR UPDATE");
     expect(prisma.provisioningSession.update).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: ids.sessionId }, data: { status: "completed", completedAt: expect.any(Date) }, include: { discoveredNodes: { include: publicIdentifyInclude } }
