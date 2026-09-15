@@ -713,15 +713,15 @@ pnpm ci:production-audit
 
 Expected: Compose/MQTT/Gateway/Web/dependency policy가 끝까지 exit 0이고 owned container/artifact가 정리됨.
 
-- [ ] **Step 5: independent code review 수행**
+- [x] **Step 5: independent code review 수행**
 
 Reviewer에게 spec, plan, base SHA와 전체 diff를 제공한다. 요구사항 누락, mixed-version wire, nullable migration, V5→V6 불명확 상태, partial success, source identity cleanup, crash recovery와 문서 증거를 Critical/Important/Minor로 검토받는다. 발견 사항은 별도 TDD fix commit 후 같은 범위 검증을 재실행한다.
 
-- [ ] **Step 6: 상태판과 계획을 실제 증거로 완료 처리**
+- [x] **Step 6: 상태판과 계획을 실제 증거로 완료 처리**
 
 `docs/project-status.md`의 행을 `완료(소프트웨어)`로 바꾸고 정확한 test/build/E2E/audit 수치와 사용자 DB migration·운영 배포·Pi/BIO/BlueZ/ESP32-H2 HIL 미실행을 기록한다. 이 계획의 완료 step만 `[x]`로 바꾼다.
 
-- [ ] **Step 7: 최종 문서 커밋과 clean 확인**
+- [x] **Step 7: 최종 문서 커밋과 clean 확인**
 
 ```bash
 git add docs/project-status.md docs/superpowers/plans/2026-09-14-manual-baseline-control.md
