@@ -36,13 +36,29 @@ afterEach(async () => {
 });
 
 describe("ScheduleRuntime", () => {
+  it("does not suppress vehicle activations begun after a delayed successful manual result", async () => {
+    const test = await runtimeFixture("2026-08-30T01:00:00.000Z");
+    await test.runtime.recordFixtureState(fixtureId, 20);
+    await activate(test.runtime, snapshot({ vehicleEventRules: [vehicleRule(80, 5)] }));
+    await test.runtime.prepareManualControl(manualControl(60));
+    test.wall.set("2026-08-30T01:30:00.000Z");
+    await test.runtime.recordVehicleSensorState(sourceFixtureId, true);
+    await test.runtime.handoffManualTerminal(manualControl(60).sourceId, [successfulTerminal(fixtureId, 60)]);
+    expect(test.runtime.state().manualAutomationSuppressions).toEqual({});
+    await test.runtime.tick();
+    expect(test.execute).toHaveBeenLastCalledWith([
+      expect.objectContaining({ fixtureId, brightnessPercent: 80, sourceType: "vehicle_event_rule" })
+    ]);
+  });
   it("prunes only ended or removed source identities while preserving the manual baseline", async () => {
     const test = await runtimeFixture("2026-08-30T01:30:00.000Z");
     await test.runtime.recordFixtureState(fixtureId, 20);
     await activate(test.runtime, snapshot({ schedules: [dailySchedule()], vehicleEventRules: [vehicleRule(80, 5)] }));
     await test.runtime.recordVehicleSensorState(sourceFixtureId, true);
     await test.runtime.prepareManualControl(manualControl(60));
-    await test.runtime.handoffManualTerminal(manualControl(60).sourceId, [successfulTerminal(fixtureId, 60)]);
+    await test.runtime.handoffManualTerminal(manualControl(60).sourceId, [{
+      ...successfulTerminal(fixtureId, 60), occurredAt: "2026-08-30T01:30:01.000Z"
+    }]);
     test.execute.mockClear();
     await activate(test.runtime, snapshot({ vehicleEventRules: [vehicleRule(80, 5)] }));
     expect(test.store.read().manualAutomationSuppressions[fixtureId]).toMatchObject({
@@ -110,14 +126,14 @@ describe("ScheduleRuntime", () => {
     });
     expect(test.store.read().baseBrightnessByFixture).toEqual({ [fixtureId]: 20, [failedId]: 30 });
     await test.runtime.handoffManualTerminal(fixtureUuid(105), [
-      successfulTerminal(fixtureId, 60),
+      { ...successfulTerminal(fixtureId, 60), occurredAt: "2026-08-30T01:30:01.000Z" },
       { ...successfulTerminal(failedId, 60), status: "failed", brightnessPercent: null }
     ]);
     expect(test.store.read().baseBrightnessByFixture).toEqual({ [fixtureId]: 60, [failedId]: 30 });
     expect(test.store.read().pendingManualControls).toEqual({});
     expect(test.store.read().manualAutomationSuppressions).toEqual({
       [fixtureId]: {
-        sourceId: fixtureUuid(105), appliedAt: "2026-08-30T01:00:01.000Z",
+        sourceId: fixtureUuid(105), appliedAt: "2026-08-30T01:30:01.000Z",
         schedules: [{ scheduleId, occurrenceKey: `${scheduleId}:2026-08-30` }],
         vehicleEvents: [{ ruleId: vehicleRuleId, startedAt: "2026-08-30T01:30:00.000Z" }]
       }
@@ -170,12 +186,12 @@ describe("ScheduleRuntime", () => {
     await test.runtime.recordVehicleSensorState(sourceFixtureId, false);
     test.monotonic.advance(5_001);
     test.wall.set("2026-08-30T01:00:06.000Z");
-    await test.runtime.tick();
-    expect(test.store.read().manualAutomationSuppressions).toEqual({});
+    // No tick runs between the elapsed hold and High; the input transaction must end the old activation.
     await test.runtime.recordVehicleSensorState(sourceFixtureId, true);
     expect(test.execute).toHaveBeenLastCalledWith([
       expect.objectContaining({ fixtureId, brightnessPercent: 80, sourceType: "vehicle_event_rule" })
     ]);
+    expect(test.store.read().manualAutomationSuppressions).toEqual({});
     await test.runtime.recordVehicleSensorState(sourceFixtureId, false);
     test.monotonic.advance(5_001);
     await test.runtime.tick();

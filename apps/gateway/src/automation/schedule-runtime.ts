@@ -418,6 +418,7 @@ export class ScheduleRuntime {
         const planned = this.vehicleRuntime.planRecordInput(state, this.snapshot!, input);
         lifecycleEvents = planned.events;
         holdDeadlines = planned.holdDeadlines;
+        pruneManualSuppressions(state, this.snapshot!);
         this.appendTelemetryHandoff(state, lifecycleTelemetryRecords({
           revision: this.snapshot!.revision,
           events: lifecycleEvents
@@ -443,6 +444,7 @@ export class ScheduleRuntime {
         const planned = this.vehicleRuntime.planRecordInput(state, this.snapshot!, input);
         lifecycleEvents = planned.events;
         holdDeadlines = planned.holdDeadlines;
+        pruneManualSuppressions(state, this.snapshot!);
         this.appendTelemetryHandoff(state, lifecycleTelemetryRecords({
           revision: this.snapshot!.revision,
           events: lifecycleEvents
@@ -800,12 +802,19 @@ function settleManualControl(
     state.lastDesiredByFixture[fixtureId] = result.brightnessPercent;
     state.baseBrightnessByFixture[fixtureId] = result.brightnessPercent;
     delete state.unverifiedDesiredByFixture[fixtureId];
+    // Journal recovery can occur in a later occurrence/activation. Only still-active identities
+    // that also existed at hardware success may be suppressed; ended identities need no retention.
+    // Compare persisted UTC instants, not occurrence-key dates, including overnight/local-time schedules.
+    const appliedAtMs = Date.parse(result.occurredAt);
     const schedules = Object.entries(state.activeOccurrences)
-      .filter(([, occurrence]) => Object.hasOwn(occurrence.preBrightness, fixtureId))
+      .filter(([, occurrence]) => Object.hasOwn(occurrence.preBrightness, fixtureId) &&
+        Date.parse(occurrence.startedAt) <= appliedAtMs && appliedAtMs < Date.parse(occurrence.endsAt))
       .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
       .map(([scheduleId, occurrence]) => ({ scheduleId, occurrenceKey: occurrence.key }));
     const vehicleEvents = Object.entries(state.vehicleRules)
-      .filter(([, vehicle]) => vehicle.targetFixtureIds.includes(fixtureId))
+      .filter(([, vehicle]) => vehicle.targetFixtureIds.includes(fixtureId) &&
+        Date.parse(vehicle.startedAt) <= appliedAtMs &&
+        (vehicle.holdUntil === null || appliedAtMs < Date.parse(vehicle.holdUntil)))
       .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
       .map(([ruleId, vehicle]) => ({ ruleId, startedAt: vehicle.startedAt }));
     if (schedules.length || vehicleEvents.length) {

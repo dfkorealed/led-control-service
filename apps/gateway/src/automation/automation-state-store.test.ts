@@ -175,6 +175,34 @@ describe("V6 automation state", () => {
         startedAt: requestedAt, overrideUntil: requestedAt, preBrightness: 30 }
     } })).toThrow();
   });
+
+  it.each([
+    ["other source", "schedule", scheduleId, 60, "succeeded", true],
+    ["other failed command", "manual_override", ruleId, 60, "failed", true],
+    ["contradictory brightness", "manual_override", commandId, 40, "succeeded", true],
+    ["same-command failed", "manual_override", commandId, 60, "failed", false],
+    ["same-command timed out", "manual_override", commandId, 60, "timed_out", false],
+    ["same-command failed with contradictory brightness", "manual_override", commandId, 40, "failed", false],
+    ["same-command timed out with contradictory brightness", "manual_override", commandId, 40, "timed_out", false]
+  ] as const)("uses confirmed observation for %s without overriding explicit manual failure", (_name, sourceType, sourceId, brightnessPercent, status, promote) => {
+    for (const observationField of ["currentByFixture", "lastDesiredByFixture"]) {
+      const result = parseAutomationState({
+        ...legacyV5State(), [observationField]: { [fixtureId]: 60 },
+        manualOverrides: { [fixtureId]: {
+          sourceId: commandId, brightnessPercent: 60, startedAt: requestedAt,
+          overrideUntil: appliedAt, preBrightness: 30
+        } },
+        transitionsByFixture: { [fixtureId]: {
+          phase: "terminal", sourceType, sourceId, brightnessPercent,
+          occurrenceKey: null, attempt: 1, startedAt: requestedAt, status, terminalAt: appliedAt
+        } }
+      });
+      expect(result.baseBrightnessByFixture).toEqual(promote ? { [fixtureId]: 60 } : {});
+      expect(result.manualAutomationSuppressions).toEqual(promote ? {
+        [fixtureId]: { sourceId: commandId, appliedAt: requestedAt, schedules: [], vehicleEvents: [] }
+      } : {});
+    }
+  });
 });
 
 afterEach(async () => {

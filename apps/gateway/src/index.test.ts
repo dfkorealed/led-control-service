@@ -1026,6 +1026,63 @@ describe("startGatewayRuntime", () => {
     }
   });
 
+  it.each([
+    ["UTC", "01:00", "02:00", "2026-08-30T01:30:00.000Z", "2026-08-31T01:30:00.000Z", "2026-08-31T02:00:00.000Z"],
+    ["Asia/Seoul", "23:00", "02:00", "2026-08-30T16:30:00.000Z", "2026-08-31T16:30:00.000Z", "2026-08-31T17:00:00.000Z"]
+  ])("does not suppress the next %s occurrence when replaying yesterday's completed journal", async (timeZone, localStartTime, localEndTime, succeededAt, recoveredAt, endedAt) => {
+    const directory = await mkdtemp(join(tmpdir(), "late-manual-journal-"));
+    try {
+      const path = join(directory, "state.json");
+      const command = baselineGatewayCommand();
+      const persisted = automationSnapshot(1, { timeZone, schedules: [{
+        id: "00000000-0000-4000-8000-000000000103", name: "Daily", status: "enabled",
+        activeFrom: "2026-08-01T00:00:00.000Z", activeUntil: "2026-09-30T23:59:59.000Z",
+        localStartTime, localEndTime,
+        recurrence: { kind: "daily", weeklyDays: [], monthlyDay: null, yearlyMonth: null, yearlyDay: null },
+        action: { dimmingEnabled: true, brightnessPercent: 40 }, fixtureIds: [scopedFixtureId]
+      }] });
+      let wall = succeededAt;
+      const execute = vi.fn(async (actions: Array<{ fixtureId: string; brightnessPercent: number }>) => actions.map((action) => ({
+        fixtureId: action.fixtureId, brightnessPercent: action.brightnessPercent,
+        status: "succeeded" as const, faultCode: null, errorCode: null, occurredAt: wall
+      })));
+      const createServices = () => createGatewayAutomationServices({
+        configStore: { load: async () => persisted, apply: async () => undefined, restore: async () => undefined },
+        stateStore: new FileAutomationStateStore(path), scope: automationScope,
+        wallClock: () => new Date(wall), clockTrust: { isTrusted: async () => true }, execute
+      });
+      const first = createServices();
+      await first.scheduleRuntime.initialize();
+      await first.scheduleRuntime.recordFixtureState(scopedFixtureId, 20);
+      await first.automationRuntime.initialize();
+      await createManualControlCoordinator(first.scheduleRuntime).prepare(command);
+      const journalPath = join(directory, "journal.json");
+      const journal = new CommandJournal(journalPath);
+      await journal.accept(command.idempotencyKey, { command });
+      const result = successfulGatewayCommandResult(command);
+      result.deviceStatus.occurredAt = succeededAt;
+      await journal.complete(command.idempotencyKey, result, { automationHandoffPending: true });
+
+      wall = recoveredAt;
+      const restarted = createServices();
+      await restarted.scheduleRuntime.initialize();
+      execute.mockClear();
+      await initializeAutomationBeforeManualRecovery(restarted.automationRuntime, () =>
+        recoverPendingManualAutomationHandoffs(new CommandJournal(journalPath), createManualControlCoordinator(restarted.scheduleRuntime))
+      );
+      expect(restarted.scheduleRuntime.state().manualAutomationSuppressions).toEqual({});
+      await restarted.scheduleRuntime.tick();
+      expect(execute).toHaveBeenLastCalledWith([
+        expect.objectContaining({ fixtureId: scopedFixtureId, brightnessPercent: 40, sourceType: "schedule" })
+      ]);
+      wall = endedAt;
+      await restarted.scheduleRuntime.tick();
+      expect(execute).toHaveBeenLastCalledWith([
+        expect.objectContaining({ fixtureId: scopedFixtureId, brightnessPercent: 60, sourceType: "current" })
+      ]);
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
   it.each(["accepted", "completed"] as const)("converges %s no-expiry manual journal state after snapshot initialization", async (recoveryState) => {
     const directory = await mkdtemp(join(tmpdir(), "gateway-manual-recovery-order-"));
     try {

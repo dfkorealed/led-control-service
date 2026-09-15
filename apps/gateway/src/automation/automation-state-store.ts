@@ -840,19 +840,22 @@ function migrateV5ManualState(
 ): PersistedAutomationStateV6 {
   for (const [fixtureId, manual] of Object.entries(manualOverrides)) {
     const transition = state.transitionsByFixture[fixtureId];
-    // A terminal from another source/request cannot establish that this manual command applied.
-    if (transition && (transition.sourceType !== "manual_override" || transition.sourceId !== manual.sourceId ||
-      transition.brightnessPercent !== manual.brightnessPercent)) continue;
-    if (transition?.phase === "pending") {
+    const sameCommand = transition?.sourceType === "manual_override" && transition.sourceId === manual.sourceId;
+    // Explicit failure of this command wins even when its transition brightness is contradictory.
+    if (sameCommand && (transition.status === "failed" || transition.status === "timed_out")) continue;
+    const matchingTransition = sameCommand && transition.brightnessPercent === manual.brightnessPercent
+      ? transition : undefined;
+    if (matchingTransition?.phase === "pending") {
       state.pendingManualControls[parseUuid(fixtureId)] = parseManualControl({
         sourceId: manual.sourceId, brightnessPercent: manual.brightnessPercent,
         requestedAt: manual.startedAt, preBrightness: manual.preBrightness
       });
       continue;
     }
-    // Failure wins over coincidentally matching observations. Provisional preBrightness is never evidence.
-    if (transition && transition.status !== "succeeded") continue;
-    if (!transition && state.currentByFixture[fixtureId] !== manual.brightnessPercent &&
+    // Missing/contradictory transitions cannot prove success, but confirmed observations still can.
+    // Provisional preBrightness and unverified desired values are never completion evidence.
+    const succeeded = matchingTransition?.phase === "terminal" && matchingTransition.status === "succeeded";
+    if (!succeeded && state.currentByFixture[fixtureId] !== manual.brightnessPercent &&
       state.lastDesiredByFixture[fixtureId] !== manual.brightnessPercent) continue;
     const schedules = Object.entries(state.activeOccurrences)
       .filter(([, occurrence]) => Object.hasOwn(occurrence.preBrightness, fixtureId))
@@ -865,7 +868,7 @@ function migrateV5ManualState(
     state.manualAutomationSuppressions[parseUuid(fixtureId)] = parseManualSuppression({
       sourceId: manual.sourceId,
       // Older observation-only state has no acknowledgement time; retain request time without consulting expiry.
-      appliedAt: transition?.terminalAt ?? manual.startedAt,
+      appliedAt: succeeded ? matchingTransition.terminalAt! : manual.startedAt,
       schedules, vehicleEvents
     });
     state.baseBrightnessByFixture[fixtureId] = manual.brightnessPercent;
