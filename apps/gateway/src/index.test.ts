@@ -51,7 +51,7 @@ import {
 import { StateEventOutboxError } from "./state/state-event-outbox";
 import { CommandJournal } from "./commands/command-journal";
 import type { BleMeshFixturePresence, BleMeshLightingObservation } from "./gateway";
-import { mqttTopicsV2, provisioningScanCompletedSchema, provisioningScanFailedSchema, provisioningScanFoundSchema, type FixturePresenceV2 } from "@led-control/shared";
+import { deviceStatusAckV2Schema, mqttTopicsV2, provisioningScanCompletedSchema, provisioningScanFailedSchema, provisioningScanFoundSchema, type FixturePresenceV2 } from "@led-control/shared";
 import { FileAutomationStateStore } from "./automation/automation-state-store";
 import { AutomationTelemetryOutbox } from "./automation/automation-telemetry-outbox";
 import { automationScope, automationSnapshot } from "./automation/automation-test-fixtures";
@@ -771,6 +771,7 @@ describe("startGatewayRuntime", () => {
 
   it("passes only manual intent to runtime while mapping terminal results", async () => {
     const scheduleRuntime = {
+      captureManualTerminalContext: vi.fn().mockReturnValue({ suppressions: {} }),
       prepareManualControl: vi.fn().mockResolvedValue(undefined),
       handoffManualTerminal: vi.fn().mockResolvedValue(undefined)
     };
@@ -819,6 +820,7 @@ describe("startGatewayRuntime", () => {
 
   it("passes legacy wire intent without expiry metadata to runtime", async () => {
     const scheduleRuntime = {
+      captureManualTerminalContext: vi.fn().mockReturnValue({ suppressions: {} }),
       prepareManualControl: vi.fn().mockResolvedValue(undefined),
       handoffManualTerminal: vi.fn().mockResolvedValue(undefined)
     };
@@ -1027,10 +1029,101 @@ describe("startGatewayRuntime", () => {
     }
   });
 
-  it.each([
+  it.each(["vehicle", "schedule"])("recovers %s suppression from the real terminal journal after rollback and crash", async (source) => {
+    const directory = await mkdtemp(join(tmpdir(), "manual-rollback-crash-"));
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      let wall = "2026-08-30T01:00:00.000Z";
+      let monotonic = 5_000;
+      let trusted = true;
+      vi.setSystemTime(new Date(wall));
+      const sourceFixtureId = "00000000-0000-4000-8000-000000000102";
+      const ruleId = "00000000-0000-4000-8000-000000000104";
+      const scheduleId = "00000000-0000-4000-8000-000000000103";
+      const persisted = automationSnapshot(1, { timeZone: "UTC", ...(source === "vehicle" ? {
+        vehicleEventRules: [{ id: ruleId, name: "Vehicle", status: "enabled",
+          sourceFixtureIds: [sourceFixtureId], targetFixtureIds: [scopedFixtureId],
+          action: { dimmingEnabled: true, brightnessPercent: 80 }, holdSeconds: 5 }]
+      } : { schedules: [{ id: scheduleId, name: "Daily", status: "enabled",
+        activeFrom: "2026-08-01T00:00:00.000Z", activeUntil: "2026-09-30T23:59:59.000Z",
+        localStartTime: "01:00", localEndTime: "02:00",
+        recurrence: { kind: "daily", weeklyDays: [], monthlyDay: null, yearlyMonth: null, yearlyDay: null },
+        action: { dimmingEnabled: true, brightnessPercent: 80 }, fixtureIds: [scopedFixtureId] }]
+      }) });
+      const execute = vi.fn(async (actions: Array<{ fixtureId: string; brightnessPercent: number }>) => actions.map((action) => ({
+        ...action, status: "succeeded" as const, faultCode: null, errorCode: null, occurredAt: wall
+      })));
+      const createServices = () => createGatewayAutomationServices({
+        configStore: { load: async () => persisted, apply: async () => undefined, restore: async () => undefined },
+        stateStore: new FileAutomationStateStore(join(directory, "state.json")), scope: automationScope,
+        wallClock: () => new Date(wall), monotonicClock: () => monotonic,
+        clockTrust: { isTrusted: async () => trusted }, execute
+      });
+      const first = createServices();
+      await first.scheduleRuntime.initialize();
+      await first.scheduleRuntime.recordFixtureState(scopedFixtureId, 20);
+      await first.automationRuntime.initialize();
+      if (source === "vehicle") await first.scheduleRuntime.recordVehicleSensorState(sourceFixtureId, true);
+      expect(first.scheduleRuntime.state().currentByFixture[scopedFixtureId]).toBe(80);
+      wall = "2026-08-30T00:50:00.000Z";
+      trusted = false;
+      vi.setSystemTime(new Date(wall));
+      const command = { ...baselineGatewayCommand(), requestedAt: wall, deliveryGeneratedAt: wall, expiresAt: "2026-08-30T00:50:10.000Z" };
+      const journalPath = join(directory, "journal.json");
+      const setBrightness = vi.fn(async (ids: string[], brightness: number) => ids.map((fixtureId) => ({
+        fixtureId, acknowledged: true, brightness, rssi: null, hopCount: null
+      })));
+      const coordinator = createManualControlCoordinator(first.scheduleRuntime);
+      const result = await handleGatewayDimmingCommand({ setBrightness } as never, new CommandJournal(journalPath), command, undefined, {
+        automation: { ...coordinator, handoff: async () => { throw new Error("crash after terminal fsync before automation handoff"); } },
+        receipt: { receivedAtMonotonicMs: 5_000, brokerRemainingTtlMs: 10_000 }, monotonicClock: () => 5_000
+      });
+      expect(result.deviceStatus.status).toBe("succeeded");
+      expect(result.deviceStatus.occurredAt).toBe(wall);
+      expect((await new CommandJournal(journalPath).get(command.idempotencyKey))?.automationHandoff).toBe("pending");
+
+      const restarted = createServices();
+      await restarted.scheduleRuntime.initialize();
+      await initializeAutomationBeforeManualRecovery(restarted.automationRuntime, () =>
+        recoverPendingManualAutomationHandoffs(new CommandJournal(journalPath), createManualControlCoordinator(restarted.scheduleRuntime))
+      );
+      execute.mockClear();
+      await restarted.scheduleRuntime.tick();
+      expect(execute).not.toHaveBeenCalled();
+      expect(restarted.scheduleRuntime.state().baseBrightnessByFixture[scopedFixtureId]).toBe(60);
+      expect(restarted.scheduleRuntime.state().manualAutomationSuppressions[scopedFixtureId]).toMatchObject(source === "vehicle"
+        ? { vehicleEvents: [{ ruleId, startedAt: "2026-08-30T01:00:00.000Z" }] }
+        : { schedules: [{ scheduleId, occurrenceKey: `${scheduleId}:2026-08-30` }] });
+      await recoverPendingManualAutomationHandoffs(new CommandJournal(journalPath), createManualControlCoordinator(restarted.scheduleRuntime));
+      expect(setBrightness).toHaveBeenCalledTimes(1);
+      expect(await new CommandJournal(journalPath).pendingAutomationRecoveries()).toEqual([]);
+      // A later source instance must be eligible despite the recovered suppression.
+      trusted = true;
+      if (source === "vehicle") {
+        await restarted.scheduleRuntime.recordVehicleSensorState(sourceFixtureId, false);
+        wall = "2026-08-30T01:10:00.000Z";
+        monotonic += 6_000;
+        await restarted.scheduleRuntime.tick();
+        await restarted.scheduleRuntime.recordVehicleSensorState(sourceFixtureId, true);
+      } else {
+        wall = "2026-08-31T01:30:00.000Z";
+        await restarted.scheduleRuntime.tick();
+      }
+      expect(execute).toHaveBeenLastCalledWith([
+        expect.objectContaining({ fixtureId: scopedFixtureId, brightnessPercent: 80 })
+      ]);
+    } finally {
+      vi.useRealTimers();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it.each(([
     ["UTC", "01:00", "02:00", "2026-08-30T01:30:00.000Z", "2026-08-31T01:30:00.000Z", "2026-08-31T02:00:00.000Z"],
     ["Asia/Seoul", "23:00", "02:00", "2026-08-30T16:30:00.000Z", "2026-08-31T16:30:00.000Z", "2026-08-31T17:00:00.000Z"]
-  ])("does not suppress the next %s occurrence when replaying yesterday's completed journal", async (timeZone, localStartTime, localEndTime, succeededAt, recoveredAt, endedAt) => {
+  ] as const).flatMap(([timeZone, localStartTime, localEndTime, succeededAt, recoveredAt, endedAt]) =>
+    [false, true].map((captured) => ({ timeZone, localStartTime, localEndTime, succeededAt, recoveredAt, endedAt, captured }))
+  ))("does not suppress the next $timeZone occurrence when replaying yesterday's completed journal (captured=$captured)", async ({ timeZone, localStartTime, localEndTime, succeededAt, recoveredAt, endedAt, captured }) => {
     const directory = await mkdtemp(join(tmpdir(), "late-manual-journal-"));
     try {
       const path = join(directory, "state.json");
@@ -1042,7 +1135,7 @@ describe("startGatewayRuntime", () => {
         recurrence: { kind: "daily", weeklyDays: [], monthlyDay: null, yearlyMonth: null, yearlyDay: null },
         action: { dimmingEnabled: true, brightnessPercent: 40 }, fixtureIds: [scopedFixtureId]
       }] });
-      let wall = succeededAt;
+      let wall: string = succeededAt;
       const execute = vi.fn(async (actions: Array<{ fixtureId: string; brightnessPercent: number }>) => actions.map((action) => ({
         fixtureId: action.fixtureId, brightnessPercent: action.brightnessPercent,
         status: "succeeded" as const, faultCode: null, errorCode: null, occurredAt: wall
@@ -1060,8 +1153,9 @@ describe("startGatewayRuntime", () => {
       const journalPath = join(directory, "journal.json");
       const journal = new CommandJournal(journalPath);
       await journal.accept(command.idempotencyKey, { command });
-      const result = successfulGatewayCommandResult(command);
+      const result: ReturnType<typeof successfulGatewayCommandResult> & { manualTerminalContext?: unknown } = successfulGatewayCommandResult(command);
       result.deviceStatus.occurredAt = succeededAt;
+      if (captured) result.manualTerminalContext = createManualControlCoordinator(first.scheduleRuntime).captureTerminalContext!(command, deviceStatusAckV2Schema.parse(result.deviceStatus));
       await journal.complete(command.idempotencyKey, result, { automationHandoffPending: true });
 
       wall = recoveredAt;

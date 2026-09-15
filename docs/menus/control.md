@@ -4,6 +4,8 @@
 
 ## 구현 완료
 
+- 기존 published 수동 payload를 재처리할 때 `deliveryGeneration`, `deliveryGeneratedAt`, `deliveryWindowMs`, `expiresAt`을 보존하고 구 수동 종료·requester 필드만 영속적으로 제거한다. PUBACK 유실·재시작으로 배달 기한이 늘어나지 않는다. Gateway는 하드웨어 성공 시점의 활성 schedule occurrence·차량 activation 식별자를 terminal journal에 함께 저장해 UTC rollback 직후 crash에서도 현재 source 억제를 복구한다. 다음 occurrence·새 activation은 정확한 식별자 비교로 재개하며, 문맥이 없는 구 journal은 기존 UTC 기반 복구를 유지한다. 이 보완은 software 회귀 범위이며 실장비 HIL 증거는 아니다.
+
 - 수동 기본 밝기 software E2E는 2026-09-15 RealBackendLab **1/1 passed (59.2초, body 32.1초)**, 실패·skip 0으로 확인했다. 현재 schedule/event 억제, 새 event와 다음 daily occurrence의 재개 및 각각 60% 복귀, 삭제·재연결·API 재시작을 검증했고 production execution/ACK/DB 각 19건·telemetry outbox 0/gap false가 일치했다. Lab support 14/14와 Web typecheck도 통과했다. 기본 포트 충돌 첫 실행은 시나리오 미실행이며 격리 포트 재실행 결과와 구분한다. 이번 기본 밝기 release의 사용자 DB 적용·운영 배포·Pi/BIO/BlueZ/ESP32-H2 HIL은 미실행이다.
 
 - BIO direct-USB 제어를 Gateway의 실제 adapter로 연결했다. `GATEWAY_ADAPTER=bio-usb`는 제조사 앱·휴대전화·BlueZ 없이 USB 동글을 직접 열고, 확정된 BIO UUID↔주소 mapping만 개별 제어에 사용한다. 밝기/모드 SET 뒤 UUID·주소가 일치하는 GET report를 다시 확인해야 성공으로 판정하며, mode가 없거나 `sensor`이거나 table 밖 raw 값이면 요청값을 실제 상태로 추정하지 않는다. 프로세스 종료 시에는 MQTT 입력을 먼저 막고 runtime drain, USB polling 중지, interface release, 필요 시 kernel driver 재연결을 순서대로 기다린다. 전용 BIO 컨테이너는 UID 999, capability 0, exact USB 하나만 사용하고 D-Bus/HCI/BlueZ 권한을 받지 않는다. 2026-09-14 admin4 단일 장치 HIL에서 약 2초 점등과 sensor 복귀, 동일 장치 주소 `0x5fe4 → 0x0100` 1회 변경, 새 주소 재발견과 confirmed mapping, 서비스 수동 밝기 제어를 확인했다. 등록 직후 BIO Fixture를 해당 hardware-confirmed terminal 근거로 online 처리하되 센서 모드 밝기·전원은 추정하지 않는 API 보완도 유지한다.

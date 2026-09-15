@@ -43,6 +43,17 @@ export interface PersistedManualAutomationSuppressionState {
   vehicleEvents: Array<{ ruleId: string; startedAt: string }>;
 }
 
+export interface ManualTerminalSourceContext {
+  suppressions: Record<string, PersistedManualAutomationSuppressionState>;
+}
+
+// Terminal journals reuse the exact, bounded V6 suppression parser. Unknown
+// fields or malformed identities must not silently fall back to UTC recovery.
+export function parseManualTerminalSourceContext(value: unknown): ManualTerminalSourceContext {
+  if (!hasExactKeys(value, ["suppressions"])) throw new Error("invalid manual terminal source context");
+  return { suppressions: parseFixtureRecord(value.suppressions, parseManualSuppression) };
+}
+
 export interface PersistedVehicleRuleState {
   activeSourceFixtureIds: string[];
   targetFixtureIds: string[];

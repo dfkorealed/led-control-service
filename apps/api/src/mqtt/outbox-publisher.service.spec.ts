@@ -62,6 +62,69 @@ function meshRecord(overrides: Record<string, unknown> = {}) {
 }
 
 describe("OutboxPublisherService", () => {
+  it.each([
+    { restartAt: "2026-07-11T00:01:03.200Z", remainingTtl: 6 },
+    { restartAt: "2026-07-11T00:01:10.000Z", remainingTtl: 0 }
+  ])("preserves a legacy published deadline after PUBACK loss and restart at $restartAt", async ({ restartAt, remainingTtl }) => {
+    const originalDelivery = {
+      deliveryGeneration,
+      deliveryGeneratedAt: "2026-07-11T00:01:00.000Z",
+      deliveryWindowMs: 10_000,
+      expiresAt: "2026-07-11T00:01:10.000Z"
+    };
+    // The previous publisher durably wrote this generation before sending MQTT;
+    // its PUBACK was lost, so a new process claims the still-unpublished row.
+    let durablePayload = {
+      ...historicalDimmingPayload, ...originalDelivery,
+      overrideUntil: "2026-07-11T01:00:00.000Z", overrideRemainingMs: 3_540_000
+    } as Record<string, unknown>;
+    const prisma: any = {
+      $executeRaw: jest.fn().mockResolvedValue(1),
+      mqttOutbox: {
+        findUnique: jest.fn().mockResolvedValue({ deliveryAttemptedAt: new Date(originalDelivery.deliveryGeneratedAt) }),
+        updateMany: jest.fn(async ({ data }) => {
+          if (data.payload) durablePayload = structuredClone(data.payload);
+          return { count: 1 };
+        }),
+        count: jest.fn().mockResolvedValue(1)
+      },
+      commandDispatch: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      commandFixtureResult: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      command: { findUnique: jest.fn().mockResolvedValue({ outcome: "pending" }), updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
+    };
+    prisma.$transaction = jest.fn(async (callback) => callback(prisma));
+    const expectedPayload = { ...dimmingPayload, ...originalDelivery };
+    const mqtt = { publishTopic: jest.fn(async (_topic, payload) => {
+      expect(durablePayload).toEqual(expectedPayload);
+      expect(payload).toEqual(expectedPayload);
+    }) };
+    const newGeneration = jest.fn(() => "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
+    const restarted = new OutboxPublisherService(prisma, mqtt as never, {
+      workerId: "restarted-worker", clock: () => new Date(restartAt), deliveryGeneration: newGeneration
+    });
+    await restarted.publishClaimed({
+      id: "outbox-1", dispatchId: "dispatch-1", topic: "sites/s/gateways/g/commands/dimming",
+      payload: durablePayload, attempts: 1, createdAt: new Date("2026-07-11T00:00:00.000Z"),
+      dispatch: { commandId: "command-1" }
+    } as never);
+
+    expect(durablePayload).toEqual(expectedPayload);
+    expect(newGeneration).not.toHaveBeenCalled();
+    if (remainingTtl > 0) {
+      expect(mqtt.publishTopic).toHaveBeenCalledWith(expect.any(String), expectedPayload, {
+        messageExpiryInterval: remainingTtl, timeoutMs: 20_000
+      });
+    } else {
+      expect(mqtt.publishTopic).not.toHaveBeenCalled();
+      expect(prisma.commandDispatch.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ status: "timed_out", errorCode: "COMMAND_DELIVERY_EXPIRED" })
+      }));
+      expect(prisma.command.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ outcome: "unknown" })
+      }));
+    }
+  });
+
   it("prepares status-check without dimming guards and reuses an explicitly supplied persisted generation", async () => {
     let now = new Date("2026-07-11T00:01:00.000Z");
     const draft = {

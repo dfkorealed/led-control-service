@@ -14,6 +14,7 @@ import { BleMeshAdapter } from "../gateway";
 import type { GroupStateIdentity, GroupStateStore } from "../mesh/group-state-store";
 import type { KeyedSerialTaskQueue } from "../runtime/keyed-serial-task-queue";
 import type { ManualTerminalContext } from "../automation/schedule-runtime";
+import { parseManualTerminalSourceContext, type ManualTerminalSourceContext } from "../automation/automation-state-store";
 
 interface JournalLike {
   get(key: string): Promise<{
@@ -37,6 +38,7 @@ export interface GatewayCommandResult {
   fixtureStateObserved: boolean;
   observedFixtureIds?: string[];
   fixtureObservations?: GatewayFixtureObservation[];
+  manualTerminalContext?: ManualTerminalSourceContext;
 }
 
 export interface GatewayFixtureObservation {
@@ -49,6 +51,7 @@ export interface GatewayFixtureObservation {
 export interface ManualControlCoordinator {
   prepare(command: GatewayDimmingCommandV2Compatible, receipt?: GatewayCommandReceipt): Promise<void>;
   handoff(command: GatewayDimmingCommandV2Compatible, terminal: DeviceStatusAckV2, context?: ManualTerminalContext): Promise<void>;
+  captureTerminalContext?(command: GatewayDimmingCommandV2Compatible, terminal: DeviceStatusAckV2): ManualTerminalSourceContext;
 }
 
 export interface GatewayCommandReceipt {
@@ -127,7 +130,7 @@ export async function recoverPendingManualAutomationHandoffs(
     if (recovery.state === "accepted") {
       await journal.complete(recovery.idempotencyKey, result, { automationHandoffPending: true });
     }
-    await automation.handoff(command, result.deviceStatus, "recovery");
+    await automation.handoff(command, result.deviceStatus, terminalContext(command, result, "recovery"));
     await journal.markAutomationHandoffComplete(recovery.idempotencyKey);
   }
 }
@@ -319,6 +322,10 @@ async function completeWithAutomationHandoff(
   context: ManualTerminalContext = "live"
 ) {
   const pending = Boolean(options.automation);
+  if (context === "live" && options.automation?.captureTerminalContext) {
+    result.manualTerminalContext = options.automation.captureTerminalContext(command, result.deviceStatus);
+    terminalContext(command, result, context);
+  }
   await journal.complete(command.idempotencyKey, result, { automationHandoffPending: pending });
   if (pending) await replayAutomationHandoff(journal, command, result, options, context);
 }
@@ -332,11 +339,26 @@ async function replayAutomationHandoff(
 ) {
   if (!options.automation) return;
   try {
-    await options.automation.handoff(command, result.deviceStatus, context);
+    await options.automation.handoff(command, result.deviceStatus, terminalContext(command, result, context));
     await journal.markAutomationHandoffComplete?.(command.idempotencyKey);
   } catch (error) {
     options.onAutomationError?.(error);
   }
+}
+
+function terminalContext(
+  command: GatewayDimmingCommandV2Compatible,
+  result: GatewayCommandResult,
+  fallback: ManualTerminalContext
+): ManualTerminalContext {
+  if (result.manualTerminalContext === undefined) return fallback;
+  const context = parseManualTerminalSourceContext(result.manualTerminalContext);
+  const successes = result.deviceStatus.results.filter((fixture) => fixture.status === "succeeded" && typeof fixture.brightness === "number");
+  if (Object.keys(context.suppressions).length !== successes.length || successes.some((fixture) => {
+    const suppression = context.suppressions[fixture.fixtureId];
+    return !suppression || suppression.sourceId !== command.commandId || suppression.appliedAt !== result.deviceStatus.occurredAt;
+  })) throw new Error("manual terminal source context does not match the successful result");
+  return context;
 }
 
 export async function executeAutomationDimmingActions(

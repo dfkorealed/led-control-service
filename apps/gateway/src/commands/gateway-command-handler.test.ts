@@ -25,6 +25,33 @@ const command = {
 };
 
 describe("handleGatewayDimmingCommand", () => {
+  it.each(["unknown key", "bad fixture", "duplicate identity", "capacity", "wrong source", "wrong terminal", "missing success"])(
+    "rejects malformed terminal suppression context during replay: %s", async (fault) => {
+      const terminal = "2026-08-30T00:50:00.000Z";
+      const identity = { ruleId: "00000000-0000-4000-8000-000000000104", startedAt: "2026-08-30T01:00:00.000Z" };
+      const suppression = { sourceId: command.commandId, appliedAt: terminal, schedules: [], vehicleEvents: [identity] };
+      const context: any = { suppressions: { [command.targetId]: suppression } };
+      if (fault === "unknown key") context.extra = true;
+      if (fault === "bad fixture") context.suppressions = { invalid: suppression };
+      if (fault === "duplicate identity") suppression.vehicleEvents.push(identity);
+      if (fault === "capacity") suppression.vehicleEvents = Array.from({ length: 10_001 }, () => identity);
+      if (fault === "wrong source") suppression.sourceId = command.dispatchId;
+      if (fault === "wrong terminal") suppression.appliedAt = "2026-08-30T00:51:00.000Z";
+      if (fault === "missing success") context.suppressions = {};
+      const journal = {
+        pendingAutomationRecoveries: async () => [{
+          idempotencyKey: command.idempotencyKey, state: "completed" as const, command: { command },
+          result: { deviceStatus: { occurredAt: terminal, results: [{ fixtureId: command.targetId, status: "succeeded", brightness: 65 }] },
+            manualTerminalContext: context }
+        }], complete: vi.fn(), markAutomationHandoffComplete: vi.fn()
+      };
+      const automation = { prepare: vi.fn(), handoff: vi.fn() };
+      await expect(recoverPendingManualAutomationHandoffs(journal, automation)).rejects.toThrow();
+      expect(automation.handoff).not.toHaveBeenCalled();
+      expect(journal.markAutomationHandoffComplete).not.toHaveBeenCalled();
+    }
+  );
+
   it("validates the production BLE status timeout at startup", () => {
     expect(parseCommandTimeout(undefined)).toBe(8000);
     expect(parseCommandTimeout("29000")).toBe(29000);

@@ -209,7 +209,8 @@ ALTER TABLE "ManualOverride" DROP CONSTRAINT "ManualOverride_time_range_check";
 ALTER TABLE "ManualOverride" ADD CONSTRAINT "ManualOverride_time_range_check" CHECK (
   ("overrideUntil" IS NULL AND "endedAt" IS NULL)
   OR (
-    "overrideUntil" > "startedAt"
+    "overrideUntil" IS NOT NULL
+    AND "overrideUntil" > "startedAt"
     AND ("endedAt" IS NULL OR ("endedAt" >= "startedAt" AND "endedAt" <= "overrideUntil"))
   )
 );
@@ -237,12 +238,12 @@ Run:
 
 ```bash
 pnpm --filter @led-control/api prisma:generate
-pnpm --filter @led-control/api prisma:validate
+DATABASE_URL=postgresql://validation:validation@127.0.0.1:25432/validation pnpm --filter @led-control/api exec prisma validate
 pnpm --filter @led-control/api exec jest src/commands/commands.service.spec.ts src/commands/command-delivery-reliability.spec.ts src/mqtt/outbox-publisher.service.spec.ts src/automation/automation-schema.spec.ts --runInBand
 pnpm --filter @led-control/api typecheck
 ```
 
-Expected: 모두 PASS. PostgreSQL URL이 필요한 migration case는 disposable DB에서 별도 실행하고 환경 부재를 성공으로 기록하지 않는다.
+Expected: 모두 PASS. `prisma validate`는 문법적으로 유효한 disposable `DATABASE_URL`을 요구하지만 DB 연결·migration을 수행하지 않는 schema 검증이다. 위 URL은 검증 전용 placeholder다. PostgreSQL 연결이 필요한 migration case는 disposable DB에서 별도 실행하고 환경 부재를 성공으로 기록하지 않는다.
 
 - [x] **Step 8: API·DB 커밋**
 
@@ -673,10 +674,10 @@ Run:
 ```bash
 pnpm install --frozen-lockfile
 pnpm --filter @led-control/api prisma:generate
-pnpm --filter @led-control/api prisma:validate
+DATABASE_URL=postgresql://validation:validation@127.0.0.1:25432/validation pnpm --filter @led-control/api exec prisma validate
 ```
 
-Expected: frozen install, generate, validate PASS; tracked lockfile 변경 없음.
+Expected: frozen install, generate, validate PASS; tracked lockfile 변경 없음. `exec prisma validate`는 문법적으로 유효한 disposable `DATABASE_URL`을 사용하는 비접속 schema 검증이다. 위 placeholder로 사용자 DB에 연결하거나 migration을 적용하지 않는다.
 
 - [x] **Step 2: canonical 정적·단위·빌드 gate 실행**
 

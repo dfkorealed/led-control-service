@@ -14,6 +14,7 @@ import {
 import type { ClockTrustProvider } from "./clock-trust-provider";
 import {
   FileAutomationStateStore,
+  type ManualTerminalSourceContext,
   type PersistedAutomationStateV4,
   type VehicleSensorEventIdentity
 } from "./automation-state-store";
@@ -43,7 +44,7 @@ export interface ManualControlInput {
   requestedAt: string;
 }
 
-export type ManualTerminalContext = "live" | "recovery";
+export type ManualTerminalContext = "live" | "recovery" | ManualTerminalSourceContext;
 
 export interface AutomationTerminalHandoff {
   revision: number;
@@ -371,6 +372,15 @@ export class ScheduleRuntime {
     }).finally(() => clearTimeout(diagnosticTimer));
   }
 
+  captureManualTerminalContext(sourceId: string, results: AutomationExecutionFixtureResultV1[]): ManualTerminalSourceContext {
+    // Capture synchronously at hardware success, before journal fsync or another
+    // queued activation can change the sources that this manual result supersedes.
+    const state = this.state();
+    return { suppressions: Object.fromEntries(results
+      .filter((result) => result.status === "succeeded" && result.brightnessPercent !== null)
+      .map((result) => [result.fixtureId, manualSuppressionAtTerminal(state, result.fixtureId, sourceId, result.occurredAt, "live")])) };
+  }
+
   handoffManualTerminal(
     sourceId: string,
     results: AutomationExecutionFixtureResultV1[],
@@ -393,6 +403,9 @@ export class ScheduleRuntime {
           settledFixtures.push(result.fixtureId);
           settledResults.push(result);
         }
+        // Replay may occur after the recorded occurrence/activation ended. Exact
+        // identities must never suppress its replacement, even if UTC rolled back.
+        if (this.snapshot) pruneManualSuppressions(state, this.snapshot);
         if (this.snapshot) {
           this.appendTelemetryHandoff(state, terminalTelemetryRecords({
             revision: this.snapshot.revision,
@@ -807,28 +820,38 @@ function settleManualControl(
     state.lastDesiredByFixture[fixtureId] = result.brightnessPercent;
     state.baseBrightnessByFixture[fixtureId] = result.brightnessPercent;
     delete state.unverifiedDesiredByFixture[fixtureId];
-    // Live hardware success supersedes the sources active now, including after a wall-clock rollback.
-    // Only explicitly historical journal results use UTC intervals to exclude later activations.
-    // Wall-clock ordering/trust cannot distinguish these cases, so the caller supplies the context.
-    const appliedAtMs = Date.parse(result.occurredAt);
-    const schedules = Object.entries(state.activeOccurrences)
-      .filter(([, occurrence]) => Object.hasOwn(occurrence.preBrightness, fixtureId) &&
-        (context === "live" || (Date.parse(occurrence.startedAt) <= appliedAtMs && appliedAtMs < Date.parse(occurrence.endsAt))))
-      .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
-      .map(([scheduleId, occurrence]) => ({ scheduleId, occurrenceKey: occurrence.key }));
-    const vehicleEvents = Object.entries(state.vehicleRules)
-      .filter(([, vehicle]) => vehicle.targetFixtureIds.includes(fixtureId) &&
-        (context === "live" || (Date.parse(vehicle.startedAt) <= appliedAtMs &&
-          (vehicle.holdUntil === null || appliedAtMs < Date.parse(vehicle.holdUntil)))))
-      .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
-      .map(([ruleId, vehicle]) => ({ ruleId, startedAt: vehicle.startedAt }));
-    if (schedules.length || vehicleEvents.length) {
-      state.manualAutomationSuppressions[fixtureId] = {
-        sourceId, appliedAt: result.occurredAt, schedules, vehicleEvents
-      };
+    // New journal records carry causal source identities from hardware success.
+    // Old journals have no such evidence and retain the historical UTC fallback.
+    const suppression = typeof context === "string"
+      ? manualSuppressionAtTerminal(state, fixtureId, sourceId, result.occurredAt, context)
+      : context.suppressions[fixtureId];
+    if (suppression && (suppression.schedules.length || suppression.vehicleEvents.length)) {
+      state.manualAutomationSuppressions[fixtureId] = structuredClone(suppression);
     } else delete state.manualAutomationSuppressions[fixtureId];
   }
   delete state.pendingManualControls[fixtureId];
+}
+
+function manualSuppressionAtTerminal(
+  state: PersistedAutomationStateV4,
+  fixtureId: string,
+  sourceId: string,
+  appliedAt: string,
+  context: "live" | "recovery"
+) {
+  const appliedAtMs = Date.parse(appliedAt);
+  const schedules = Object.entries(state.activeOccurrences)
+    .filter(([, occurrence]) => Object.hasOwn(occurrence.preBrightness, fixtureId) &&
+      (context === "live" || (Date.parse(occurrence.startedAt) <= appliedAtMs && appliedAtMs < Date.parse(occurrence.endsAt))))
+    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+    .map(([scheduleId, occurrence]) => ({ scheduleId, occurrenceKey: occurrence.key }));
+  const vehicleEvents = Object.entries(state.vehicleRules)
+    .filter(([, vehicle]) => vehicle.targetFixtureIds.includes(fixtureId) &&
+      (context === "live" || (Date.parse(vehicle.startedAt) <= appliedAtMs &&
+        (vehicle.holdUntil === null || appliedAtMs < Date.parse(vehicle.holdUntil)))))
+    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+    .map(([ruleId, vehicle]) => ({ ruleId, startedAt: vehicle.startedAt }));
+  return { sourceId, appliedAt, schedules, vehicleEvents };
 }
 
 function pruneManualSuppressions(state: PersistedAutomationStateV4, snapshot: AutomationSnapshotV1) {

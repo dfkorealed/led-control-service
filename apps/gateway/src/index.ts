@@ -202,9 +202,10 @@ export function createGatewayAutomationServices(options: {
 }
 
 export function createManualControlCoordinator(
-  runtime: Pick<ScheduleRuntime, "prepareManualControl" | "handoffManualTerminal">
+  runtime: Pick<ScheduleRuntime, "prepareManualControl" | "handoffManualTerminal" | "captureManualTerminalContext">
 ): ManualControlCoordinator {
   return {
+    captureTerminalContext: (command, terminal) => runtime.captureManualTerminalContext(command.commandId, manualTerminalResults(terminal)),
     prepare: (command) => runtime.prepareManualControl({
       sourceId: command.commandId,
       fixtureIds: command.targetFixtureIds,

@@ -196,7 +196,9 @@ export class OutboxPublisherService implements OnModuleInit {
           },
           data: {
             leaseExpiresAt,
-            ...(stored.payload ? {} : { payload })
+            // Compatibility normalization must be durable even if an existing
+            // delivery generation is already expired and will never be published.
+            payload
           }
         });
         return updated.count === 1 ? { payload, leaseExpiresAt } : null;
@@ -434,6 +436,18 @@ function parseStoredDimmingCommand(payload: Prisma.JsonValue): {
 
   const compatible = gatewayDimmingCommandV2CompatibilitySchema.safeParse(payload);
   if (!compatible.success) throw draft.error;
+  if ("deliveryGeneration" in compatible.data) {
+    // A lost PUBACK can leave an already-published legacy wire in the outbox.
+    // Scrub only compatibility fields: recreating delivery metadata renews freshness.
+    const normalized = { ...compatible.data } as Record<string, unknown>;
+    delete normalized.overrideUntil;
+    delete normalized.overrideRemainingMs;
+    delete normalized.requestedBy;
+    return {
+      draft: toDimmingDraft(compatible.data),
+      payload: gatewayDimmingCommandPublishedV2Schema.parse(normalized)
+    };
+  }
   return { draft: toDimmingDraft(compatible.data) };
 }
 
