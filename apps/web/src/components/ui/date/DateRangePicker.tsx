@@ -13,7 +13,7 @@ export interface DateRangePickerProps extends Omit<DateFieldOptions, "name"> {
   maxValue?: string;
   onChange(value: DateRangeValue | null): void;
 }
-export const DateRangePicker = forwardRef<FocusableFieldHandle, DateRangePickerProps>(function DateRangePicker(
+export const DateRangePicker = /* @__PURE__ */ forwardRef<FocusableFieldHandle, DateRangePickerProps>(function DateRangePicker(
   { value, onChange, minValue, maxValue, label, description, errorMessage, variant, size, className, id, ...props }, ref
 ) {
   const focus = useSegmentedField(ref, props.isDisabled, props.isReadOnly);

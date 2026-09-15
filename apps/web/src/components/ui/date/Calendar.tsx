@@ -27,7 +27,9 @@ export function CalendarContent() {
   </>;
 }
 
-export const Calendar = forwardRef<HTMLDivElement, CalendarProps>(function Calendar(
+// Creating a forwarded component has no application side effects. Keep an
+// unused public barrel export removable until a page actually consumes it.
+export const Calendar = /* @__PURE__ */ forwardRef<HTMLDivElement, CalendarProps>(function Calendar(
   { value, onChange, minValue, maxValue, label, description, errorMessage, variant, size, className, id, ...props }, ref
 ) {
   return <I18nProvider locale="ko-KR"><FormField {...{ label, description, errorMessage, variant, size, className, id }} isGroup isDisabled={props.isDisabled} isInvalid={props.isInvalid}>

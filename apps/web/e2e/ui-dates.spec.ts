@@ -31,6 +31,9 @@ createRoot(document.getElementById("root")).render(el("main",{className:"flex fl
   el(Field,{id:"date",value:"2024-02-29",minValue:"2024-02-28",maxValue:"2024-03-02"}),
   el(Field,{kind:DateRangePicker,id:"range",value:{start:"2024-02-28",end:"2024-02-29"},minValue:"2024-02-28",maxValue:"2024-03-02",validationBehavior:"aria"}),
   el(Field,{kind:TimePicker,id:"time",value:"23:58",minValue:"00:00",maxValue:"23:59"}),
+  el(Field,{kind:TimePicker,id:"time-max",value:"23:59",maxValue:"17:00",validationBehavior:"aria"}),
+  el(Field,{kind:TimePicker,id:"time-min",value:"07:00",minValue:"09:00",validationBehavior:"aria"}),
+  el(Field,{kind:TimePicker,id:"time-error",value:"12:00",isInvalid:true,errorMessage:"입력 확인"}),
   ...[DatePicker,DateRangePicker,TimePicker].flatMap((kind,index)=>["Backspace","Delete"].map(key=>el(Field,{kind,id:"clear-"+index+"-"+key,key:index+key,value:index===2?"01:01":index===1?{start:"0001-01-01",end:"0001-01-01"}:"0001-01-01"}))),
   el(Calendar,{id:"calendar",label:"캘린더",value:"2024-02-29",minValue:"2024-02-28",maxValue:"2024-03-02",onChange:record("calendar")}),
   ...[DatePicker,DateRangePicker,TimePicker].flatMap((kind,index)=>[undefined,"native","aria"].map(validationBehavior=>{
@@ -44,6 +47,8 @@ import {readFileSync} from "node:fs"; import {build} from "vite";
 const source=readFileSync(0,"utf8"), entry="virtual:ui-dates-fixture";
 const result=await build({logLevel:"silent",build:{write:false,rollupOptions:{input:entry}},plugins:[{name:"ui-dates-production-fixture",enforce:"pre",resolveId(id){if(id===entry)return "\0"+entry;},load(id){if(id==="\0"+entry)return source;}}]});
 if(Array.isArray(result)||!("output" in result))throw Error("Expected production build");
+const modules=result.output.flatMap(asset=>asset.type==="chunk"?Object.keys(asset.modules):[]);
+for(const name of ["Calendar","DatePicker","DateRangePicker","TimePicker"])if(!modules.some(id=>id.endsWith("/components/ui/date/"+name+".tsx")))throw Error("Missing used date export: "+name);
 const script=result.output.find(asset=>asset.type==="chunk"&&asset.isEntry);
 const links=result.output.filter(asset=>asset.fileName.endsWith(".css")).map(asset=>'<link rel="stylesheet" href="/'+asset.fileName+'">').join("");
 const html='<!doctype html><html lang="ko"><head><meta name="viewport" content="width=device-width, initial-scale=1"><title>Date contracts</title>'+links+'</head><body><div id="root"></div><script type="module" src="/'+script.fileName+'"></script></body></html>';
@@ -80,6 +85,22 @@ test.describe("production date and time contracts", () => {
     }
     expect(await page.locator("#filled").evaluate((el) => getComputedStyle(el).backgroundColor)).not.toBe(await page.locator("#field-0-md").evaluate((el) => getComputedStyle(el).backgroundColor));
     await expect(page.locator("#ghost")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    const normalBorder = await page.locator("#time").evaluate((el) => getComputedStyle(el).borderColor);
+    const errorBorder = await page.locator("#time-error").evaluate((el) => getComputedStyle(el).borderColor);
+    expect(errorBorder).not.toBe(normalBorder);
+    for (const id of ["time-max", "time-min"]) {
+      const control = page.locator(`#${id}`);
+      await expect(control.getByRole("spinbutton").first()).toHaveAttribute("aria-invalid", "true");
+      await expect(control).toHaveCSS("border-color", errorBorder);
+      const originalElement = await control.elementHandle();
+      const hours = control.getByRole("spinbutton").first();
+      for (let step = 0; step < (id === "time-max" ? 6 : 2); step++) await hours.press(id === "time-max" ? "ArrowDown" : "ArrowUp");
+      if (id === "time-max") await control.getByRole("spinbutton").nth(1).press("Home");
+      await expect(hours).not.toHaveAttribute("aria-invalid", "true");
+      await expect(control).toHaveCSS("border-color", normalBorder);
+      expect(await originalElement!.evaluate((element) => element.isConnected)).toBe(true);
+      expect(await page.evaluate((id) => window.dateRefs[id].element === document.getElementById(id), id)).toBe(true);
+    }
   });
   test("preserves root IDs, handles, caller ARIA and non-editable states", async ({ page }) => {
     for (const index of [0, 1, 2]) {
@@ -164,6 +185,18 @@ test.describe("production date and time contracts", () => {
       const valid = await page.getByRole("form", { name: id }).evaluate((form: HTMLFormElement) => { const valid = form.checkValidity(); form.requestSubmit(); return valid; });
       expect(valid).toBe(mode === "aria");
       expect(await page.evaluate((id) => window.dateEvents[id] ?? [], id)).toEqual(mode === "aria" ? ["submitted"] : []);
+      if (index === 2 && mode !== "aria") {
+        const control = page.locator(`#${id}`);
+        await expect(control.getByRole("spinbutton").first()).toHaveAttribute("aria-invalid", "true");
+        const errorBorder = await page.locator("#time-error").evaluate((el) => getComputedStyle(el).borderColor);
+        await expect(control).toHaveCSS("border-color", errorBorder);
+        await control.getByRole("spinbutton").first().press("1");
+        await control.getByRole("spinbutton").nth(1).press("0");
+        await page.keyboard.press("Tab");
+        expect(await page.getByRole("form", { name: id }).evaluate((form: HTMLFormElement) => form.checkValidity())).toBe(true);
+        await expect(control.getByRole("spinbutton").first()).not.toHaveAttribute("aria-invalid", "true");
+        await expect(control).toHaveCSS("border-color", await page.locator("#time").evaluate((el) => getComputedStyle(el).borderColor));
+      }
     }
   });
   test("fits 320px and provides 44px calendar, trigger and segment touch targets", async ({ page }) => {

@@ -597,6 +597,15 @@ git commit -m "feat(web): add accessible date and time controls"
 
 Production Chromium에서 popup의 기본 12px viewport inset과 310px calendar가 320px 폭을 1px 넘는 RED를 재현하고 승인된 4px inset으로 보완했다. 실제 Enter/Escape·focus 복귀·ArrowRight/Enter 날짜 선택·윤년/월 경계·min/max·역순 범위 편집·Backspace/Delete 전체 지우기·9개 native/default/aria form·320px overflow·44px target·axe serious/critical 0을 검증했다. 양 TZ focused 각각 **54/54**, 전체 Web **81 files·1,166/1,166**, production Chromium **30/30**(primitive 8+field 12+date 10), CI 계약 **38/38**, typecheck/build/diff·ui:check **기존 2,359/신규 0건**을 통과했다. Main은 **799.48 kB/gzip 245.88 kB**이고 기존 500 kB chunk 경고는 남는다. 일반 unit은 browser를 요구하지 않으며, 새 date browser suite는 기존 browser-installed CI 단계에만 연결했다. Page/feature·Task 5 overlay·기존 모달·장비 계약은 변경하지 않았다. 메뉴 migration·전체 E2E·HIL·실제 보조기기 수동 검증은 미실행이며 **Task 4 독립 QA 대기, Task 5 미착수**다.
 
+**Task 4 Fix Round 1(2026-09-16):** 독립 검토의 날짜 경계·자동 invalid 스타일과 추가 bundle 지적을 보완했다.
+
+- [x] 서울·로스앤젤레스 각각 `0000-01-01`이 예외 없이 `0001-01-01`로 바뀌는 RED 1 failed/57 passed를 재현하고, 파싱 뒤 원문과 canonical 문자열의 일치를 검증한다. `0000-02-29` 거부, `0001-01-01`·`9999-12-31`·윤일의 정상 round trip과 분 단위 시간의 canonical 계약을 유지한다.
+- [x] TimePicker min/max·native submit에서 ARIA는 invalid지만 실제 border는 정상 gray인 production Chromium RED 2/2를 재현한다. 공개 TimeField render state로 실제 styled root의 data-invalid를 연결하고 min/max·native/default submit·explicit invalid 및 정상 값 복구의 ARIA/border·stable root를 검증한다. DOM 탐색·중복 validation은 추가하지 않는다.
+- [x] date forwardRef 초기화 5개에 PURE 주석을 명시하고 public barrel exports를 유지한다. Normal app과 메모리의 no-date-export control은 **650,839자/gzip 199,478바이트/513모듈**, SHA-256 `3d066d0e14576befcb3fcc8464ca1cb5a4bb1df08a6670055c53846e1f6fbef2`로 같아 Task 3 main baseline을 정확히 복구했다. PURE 제거 negative control은 **799,670자/gzip 245,948바이트/672모듈**이며, 명시적 consumer는 네 date 모듈을 모두 포함하고 Node SSR에서 네 컴포넌트를 실제 렌더링한다.
+- [x] Task 2의 transform/cache 경합을 피하도록 bundle 회귀를 일반 Vitest에서 제거하고 `apps/web/scripts/date-bundle.mjs`와 package `test:date-bundle` 별도 직렬 gate로 제공한다. `.github/workflows/ci.yml`의 unit `pnpm test` 뒤 조건 없이 실행하며 CI contract는 누락/if/continue-on-error 우회를 거부한다. 일반 Web test는 production Vite build를 시작하지 않는다.
+
+최종 양 TZ focused **각각 58/58**, 전체 Web **81 files·1,170/1,170**, Chromium **30/30**, 별도 bundle gate **1/1 두 번**, CI 계약 **39/39**, typecheck/build·diff 및 ui:check **기존 2,359/신규 0건**을 통과했다. Production date fixture는 네 date 모듈의 실제 포함도 검사하며 기존 keyboard/ref/ARIA/44px/320px/axe serious·critical 0을 유지한다. Main은 **650.84 kB/gzip 199.48 kB**이며 기존 500 kB warning은 그대로다. Browser suite 수는 추가하지 않고 기존 10개 date scenario의 assertion을 확장했다. Feature/page·Task 5·장비·보호 경로는 변경하지 않았으며 **독립 재검토 대기, Task 5 미착수**다. 향후 실제 페이지가 date 컴포넌트를 소비할 때에는 zero-cost migration gate를 그 사용 범위에 맞게 명시적으로 갱신한다.
+
 ### Task 5: Dropdown과 overlay/dialog 체계 통합
 
 **Owner:** `서비스 UI 개선`

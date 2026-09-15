@@ -6,12 +6,18 @@ export interface DateRangeValue { start: string; end: string }
 /** Domain boundaries accept canonical date-only/local minute strings, never timestamps. */
 export function parseIsoDate(value: string): CalendarDate {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new RangeError("Expected YYYY-MM-DD");
-  return parseDate(value);
+  const parsed = parseDate(value);
+  // CalendarDate supports Gregorian years 0001–9999. In particular, parseDate
+  // clamps year 0000 to 0001; the boundary must reject every such normalization.
+  if (parsed.toString() !== value) throw new RangeError("Expected a canonical date in years 0001–9999");
+  return parsed;
 }
 export function formatIsoDate(value: DateValue): string { return toCalendarDate(value).toString(); }
 export function parseLocalTime(value: string): Time {
   if (!/^\d{2}:\d{2}$/.test(value)) throw new RangeError("Expected HH:mm");
-  return parseTime(value);
+  const parsed = parseTime(value);
+  if (formatLocalTime(parsed) !== value) throw new RangeError("Expected a canonical local minute value");
+  return parsed;
 }
 export function formatLocalTime(value: TimeValue): string {
   return `${String(value.hour).padStart(2, "0")}:${String(value.minute).padStart(2, "0")}`;

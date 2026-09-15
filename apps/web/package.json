@@ -11,6 +11,7 @@
     "test": "vitest run",
     "ui:check": "node scripts/ui-policy.mjs",
     "test:ui-policy": "node --test scripts/ui-policy.test.mjs",
+    "test:date-bundle": "node --test scripts/date-bundle.mjs",
     "test:bundle-audit": "pnpm run build:shared && node scripts/audit-schedule-bundle.mjs",
     "e2e:ui-cascade": "playwright test --config=playwright.ui-cascade.config.ts --project=chromium",
     "e2e:auth:real": "E2E_REAL_BACKEND_LAB=1 playwright test e2e/auth-real.spec.ts --project=chromium",

@@ -7,7 +7,7 @@ import { axeViolations } from "../../../test/a11y";
 afterEach(cleanup);
 
 describe("timezone-free public boundaries", () => {
-  it.each(["2024-02-29", "2026-01-31", "2026-03-01", "2026-12-31"])("round trips %s without a timezone shift", (value) => {
+  it.each(["0001-01-01", "9999-12-31", "2024-02-29", "2026-01-31", "2026-03-01", "2026-12-31"])("round trips %s without a timezone shift", (value) => {
     expect(UI.parseIsoDate).toBeTypeOf("function");
     expect(UI.formatIsoDate(UI.parseIsoDate(value))).toBe(value);
   });
@@ -15,7 +15,7 @@ describe("timezone-free public boundaries", () => {
     expect(UI.parseLocalTime).toBeTypeOf("function");
     expect(UI.formatLocalTime(UI.parseLocalTime(value))).toBe(value);
   });
-  it.each(["", "2026-2-01", "2026-02-29", "2026-04-31", "2026-01-01T00:00:00Z"])("rejects malformed date %s", (value) => {
+  it.each(["", "0000-01-01", "0000-02-29", "2026-2-01", "2026-02-29", "2026-04-31", "2026-01-01T00:00:00Z"])("rejects malformed date %s", (value) => {
     expect(UI.parseIsoDate).toBeTypeOf("function");
     expect(() => UI.parseIsoDate(value)).toThrow(RangeError);
   });
@@ -140,7 +140,8 @@ it("preserves a reversed range as invalid while editing rather than sorting or c
 
 it("retains out-of-bounds local times and exposes their validation state", () => {
   const change = vi.fn();
-  render(<UI.TimePicker label="시간" value="23:59" maxValue="17:00" validationBehavior="aria" onChange={change} />);
+  render(<UI.TimePicker id="bounded-time" label="시간" value="23:59" maxValue="17:00" validationBehavior="aria" onChange={change} />);
+  expect(document.getElementById("bounded-time")).toHaveAttribute("data-invalid", "true");
   expect(screen.getAllByRole("spinbutton")[0]).toHaveAttribute("aria-invalid", "true");
   expect(screen.getAllByRole("spinbutton")[0]).toHaveTextContent("23");
   expect(change).not.toHaveBeenCalled();

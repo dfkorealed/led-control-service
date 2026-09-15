@@ -178,6 +178,30 @@ test("production UI cascade runs after browser installation, outside browserless
   assert.match(discovered.stdout, /ui-dates\.spec\.ts/);
 });
 
+test("date bundle gate runs serially after unit tests and cannot be skipped", async () => {
+  const workflow = await parseWorkflow("ci.yml");
+  function assertDateBundleGate(job) {
+    const unit = job.steps.findIndex(step => step.run === "pnpm test");
+    const bundle = job.steps.findIndex(step => step.run === "pnpm --filter @led-control/web test:date-bundle");
+    assert.ok(unit >= 0 && bundle > unit, "date bundle gate must run after ordinary unit tests");
+    assertCannotBeSkipped(job, "unit job");
+    assertCannotBeSkipped(job.steps[bundle], "date bundle gate");
+  }
+  assertDateBundleGate(workflow.jobs.unit);
+  const missing = structuredClone(workflow.jobs.unit);
+  missing.steps = missing.steps.filter(step => !step.run?.includes("test:date-bundle"));
+  assert.throws(() => assertDateBundleGate(missing), /must run after ordinary unit tests/);
+  for (const flag of ["if", "continue-on-error"]) {
+    const skipped = structuredClone(workflow.jobs.unit);
+    skipped.steps.find(step => step.run?.includes("test:date-bundle"))[flag] = true;
+    assert.throws(() => assertDateBundleGate(skipped), /must not declare/);
+  }
+  const webPackage = JSON.parse(await readFile(path.join(root, "apps/web/package.json"), "utf8"));
+  assert.equal(webPackage.scripts["test:date-bundle"], "node --test scripts/date-bundle.mjs");
+  const syntax = spawnSync(process.execPath, ["--check", path.join(root, "apps/web/scripts/date-bundle.mjs")], { encoding: "utf8" });
+  assert.equal(syntax.status, 0, syntax.stdout + syntax.stderr);
+});
+
 test("production audit cannot skip Docker, MQTT persistence, container, bundle, or dependency policy", async () => {
   const script = await readFile(path.join(root, "scripts/ci-production-audit.sh"), "utf8");
   for (const contract of [

@@ -31,6 +31,6 @@ function RegisteredSegment({ segment, firstSegment }: { segment: DateSegmentProp
   return <DateSegment segment={segment} ref={segment.type === firstType ? firstSegment : undefined}
       className={segment.type === "literal" ? "text-content-primary" : "inline-flex min-h-11 min-w-11 items-center justify-center rounded-control tabular-nums text-content-primary outline-none focus:bg-action-primary-soft focus:shadow-focus data-disabled:opacity-60"} />;
 }
-export const SegmentedInput = forwardRef<HTMLDivElement, Omit<DateInputProps, "children"> & { firstSegment?: Ref<HTMLDivElement> }>(function SegmentedInput({ firstSegment, ...props }, ref) {
+export const SegmentedInput = /* @__PURE__ */ forwardRef<HTMLDivElement, Omit<DateInputProps, "children"> & { firstSegment?: Ref<HTMLDivElement> }>(function SegmentedInput({ firstSegment, ...props }, ref) {
   return <DateInput {...props} ref={ref}>{(segment) => <RegisteredSegment segment={segment} firstSegment={firstSegment} />}</DateInput>;
 });
