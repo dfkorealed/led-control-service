@@ -35,7 +35,7 @@
 | C | `모니터링 페이지 기능 개선` (`01a088f3-9a15-7802-bd31-cfcfcba2f4d1`) | 7 | Task 1~5 커밋 통합 후 |
 | C | `제어 페이지 기능 개선` (`01a088db-9c18-7fc1-8ec4-9782efb8ad20`) | 8 | Task 1~5 커밋 통합 후 |
 | C | `설정 페이지 기능 개선` (`019f1d62-874a-7c13-b6f4-ab125bdb5714`) | 9, 이후 10 | Task 1~5, Task 9 순서 |
-| C | `Shell·인증·운영 UI 개선` (`01a0a55c-d098-71f3-83ab-b1d9384c26b2`) | 11 | Task 1~5 커밋 통합 후 |
+| C | `Shell·인증·운영 UI 개선` (`01a0a55c-d098-71f3-83ab-b1d9384c26b2`) | 11 | Task 1~5와 Task 9 커밋 통합 후 |
 | D | `서비스 UI 개선` + 총괄 | 12 | Task 6~11 통합 후 |
 
 동일 checkout을 사용하므로 단계 A와 페이지 migration을 동시에 실행하지 않는다. 단계 C의 페이지 작업은 소유 파일이 겹치지 않을 때만 병렬 실행한다. `styles.css`, `components/ui/index.ts`, `App.tsx`, `CustomerShell.tsx`는 표의 소유 세션 외에는 수정하지 않는다.
@@ -373,6 +373,22 @@ export interface FieldVisualProps {
   errorMessage?: ReactNode;
 }
 
+export interface TextFieldProps extends FieldVisualProps {
+  value?: string;
+  defaultValue?: string;
+  onChange?(value: string): void;
+  type?: "text" | "search" | "password" | "email" | "tel" | "url";
+  autoComplete?: string;
+  minLength?: number;
+  maxLength?: number;
+  inputMode?: "none" | "text" | "tel" | "url" | "email" | "numeric" | "decimal" | "search";
+  autoFocus?: boolean;
+  isDisabled?: boolean;
+  isReadOnly?: boolean;
+  isRequired?: boolean;
+  isInvalid?: boolean;
+}
+
 export interface SelectItem<T extends Key = Key> {
   id: T;
   label: string;
@@ -560,11 +576,15 @@ export interface ConfirmDialogProps {
   isPending?: boolean;
   onCancel(): void;
   onConfirm(): void;
+  initialFocusRef?: RefObject<HTMLElement>;
   returnFocusRef?: RefObject<HTMLElement>;
+  fallbackFocusRef?: RefObject<HTMLElement>;
+  returnFocusElement?: HTMLElement | null;
+  fallbackFocusElement?: HTMLElement | null;
 }
 ```
 
-legacy import 경로는 re-export adapter로 한 migration 단계 동안 유지하고, 모든 page migration이 끝난 Task 12에서 제거한다.
+`returnFocusRef`/`fallbackFocusRef`를 신규 호출의 기본 계약으로 사용한다. 기존 호출자가 가진 element 기반 `returnFocusElement`/`fallbackFocusElement`도 migration 기간에 보존하고 ref가 없을 때만 사용한다. legacy import 경로는 re-export adapter로 한 migration 단계 동안 유지하고, 모든 page migration이 끝난 Task 12에서 제거한다.
 
 - [ ] **Step 5: overlay tests·전체 UI primitive tests·policy를 통과시킨다**
 
@@ -818,6 +838,8 @@ git commit -m "refactor(web): migrate control forms to design system"
 - Modify: `apps/web/src/features/settings/SettingsShell.tsx`
 - Modify: `apps/web/src/features/settings/SettingsSubnavigation.tsx`
 - Modify: `apps/web/src/features/settings/SettingsView.tsx`
+- Modify: `apps/web/src/features/sites/SiteSwitcher.tsx`
+- Modify: `apps/web/src/features/sites/SiteSwitcher.test.tsx`
 - Modify: `apps/web/src/features/settings/security/AccountSecurityView.tsx`
 - Modify: `apps/web/src/features/settings/security/PasswordSettingsView.tsx`
 - Modify: `apps/web/src/features/settings/security/AccountSecurityView.test.tsx`
@@ -857,7 +879,7 @@ Expected: source assertion fails on `SettingsSubnavigation.tsx`.
 
 - [ ] **Step 3: shell, security, site operation과 user form을 전환한다**
 
-NavLink callback ref 또는 item ref map으로 활성 tab을 직접 보관한다. AccountSecurity, PasswordSettings, SiteOperations, SiteUser form/reset/delete dialog를 TextField/PasswordField/SelectBox/Checkbox/ModalDialog/ConfirmDialog로 전환한다.
+NavLink callback ref 또는 item ref map으로 활성 tab을 직접 보관한다. SiteSwitcher는 label 또는 `aria-label`을 가진 SelectBox로 바꾸고 SettingsShell 테스트의 native `combobox` 기대를 trigger `button`과 option keyboard 계약으로 갱신한다. AccountSecurity, PasswordSettings, SiteOperations, SiteUser form/reset/delete dialog를 TextField/PasswordField/SelectBox/Checkbox/ModalDialog/ConfirmDialog로 전환한다.
 
 - [ ] **Step 4: feature CSS를 제거하고 Tailwind로 옮긴다**
 
@@ -878,7 +900,7 @@ Expected: all commands exit 0.
 - [ ] **Step 6: 문서와 커밋을 만든다**
 
 ```bash
-git add apps/web/src/features/settings apps/web/e2e/settings-operations.spec.ts apps/web/e2e/site-user-management.spec.ts docs/menus/settings.md
+git add apps/web/src/features/settings apps/web/src/features/sites apps/web/e2e/settings-operations.spec.ts apps/web/e2e/site-user-management.spec.ts docs/menus/settings.md
 git commit -m "refactor(web): migrate settings to design system"
 ```
 
@@ -946,6 +968,8 @@ list search, tabs, properties, batch placement, asset panel, actions와 confirm 
 
 FloorEditorRoute의 dirty navigation은 pending destination을 state로 저장하고, 확인 시 저장된 action을 실행한다. browser unload의 native `beforeunload` prompt는 브라우저 제약으로 유지한다.
 
+`settings-floor-editor.spec.ts`에서 현장 선택기를 찾는 native `combobox` selector는 Task 9의 SelectBox trigger `button`과 option 선택 계약으로 갱신한다.
+
 - [ ] **Step 6: registration/floor tests와 E2E를 통과시킨다**
 
 Run:
@@ -974,8 +998,6 @@ git commit -m "refactor(web): migrate commissioning UI system"
 - Modify: `apps/web/src/AppRoot.tsx`
 - Modify: `apps/web/src/features/shells/CustomerShell.tsx`
 - Modify: `apps/web/src/features/shells/SettingsNavigationItem.tsx`
-- Modify: `apps/web/src/features/sites/SiteSwitcher.tsx`
-- Modify: `apps/web/src/features/sites/SiteSwitcher.test.tsx`
 - Modify: `apps/web/src/features/auth/AuthView.tsx`
 - Modify: `apps/web/src/features/auth/RequiredPasswordChangeView.tsx`
 - Modify: `apps/web/src/features/auth/AuthView.test.tsx`
@@ -1010,7 +1032,7 @@ it("keeps login credentials unchanged through shared fields", async () => {
   await user.type(screen.getByRole("textbox", { name: "아이디" }), "admin");
   await user.type(screen.getByLabelText("비밀번호"), "secret");
   await user.click(screen.getByRole("button", { name: "로그인" }));
-  expect(login).toHaveBeenCalledWith({ loginId: "admin", password: "secret", rememberLoginId: false });
+  expect(login).toHaveBeenCalledWith({ loginId: "admin", password: "secret", rememberMe: true });
 });
 
 it("uses an accessible confirmation dialog for dirty logout", async () => {
@@ -1022,13 +1044,13 @@ it("uses an accessible confirmation dialog for dirty logout", async () => {
 
 - [ ] **Step 2: 현재 raw auth input와 window.confirm으로 실패하는지 확인한다**
 
-Run: `pnpm --filter @led-control/web test -- src/App.test.tsx src/features/auth src/features/shells src/features/sites src/features/operator`
+Run: `pnpm --filter @led-control/web test -- src/App.test.tsx src/features/auth src/features/shells src/features/operator`
 
 Expected: alertdialog assertion fails against `window.confirm`.
 
 - [ ] **Step 3: App loading/recovery와 CustomerShell을 전환한다**
 
-App.tsx의 auth loading panel을 RouteLoadingState로 바꾸고 `styles.css` import는 유지한다. CustomerShell의 responsive layout, navigation, SiteSwitcher, site badge와 logout을 Tailwind token으로 전환한다. dirty logout은 boolean state와 ConfirmDialog로 처리하며 기존 command/editor guard를 유지한다.
+App.tsx의 auth loading panel을 RouteLoadingState로 바꾸고 `styles.css` import는 유지한다. CustomerShell의 responsive layout, navigation, site badge와 logout을 Tailwind token으로 전환하고 Task 9가 제공한 SiteSwitcher를 소비한다. dirty logout은 boolean state와 ConfirmDialog로 처리하며 기존 command/editor guard를 유지한다.
 
 - [ ] **Step 4: Auth와 required-password form을 전환한다**
 
@@ -1043,7 +1065,7 @@ SiteAdminFormDialog, ResetAdminPasswordDialog, DeleteSiteDialog를 공통 overla
 Run:
 
 ```bash
-pnpm --filter @led-control/web test -- src/App.test.tsx src/App.recovery.test.tsx src/features/auth src/features/shells src/features/sites src/features/operator
+pnpm --filter @led-control/web test -- src/App.test.tsx src/App.recovery.test.tsx src/features/auth src/features/shells src/features/operator
 pnpm --filter @led-control/web exec playwright test e2e/calm-operations-auth-operator.spec.ts e2e/calm-operations-shell.spec.ts e2e/app-shell-recovery.spec.ts --project=chromium
 pnpm --filter @led-control/web ui:check
 ```
@@ -1055,7 +1077,7 @@ Expected: all commands exit 0; login, MFA, password change, logout and operator 
 네 메뉴 문서에 공통 shell/auth 변경의 적용 범위, 자동 browser 증거와 실제 장비 검증이 아니라는 경계를 동일하게 기록한다.
 
 ```bash
-git add apps/web/src/App.tsx apps/web/src/AppRoot.tsx apps/web/src/features/shells apps/web/src/features/sites apps/web/src/features/auth apps/web/src/features/operator apps/web/e2e/calm-operations-auth-operator.spec.ts apps/web/e2e/calm-operations-shell.spec.ts apps/web/e2e/app-shell-recovery.spec.ts docs/menus/monitoring.md docs/menus/control.md docs/menus/statistics.md docs/menus/settings.md
+git add apps/web/src/App.tsx apps/web/src/AppRoot.tsx apps/web/src/features/shells apps/web/src/features/auth apps/web/src/features/operator apps/web/e2e/calm-operations-auth-operator.spec.ts apps/web/e2e/calm-operations-shell.spec.ts apps/web/e2e/app-shell-recovery.spec.ts docs/menus/monitoring.md docs/menus/control.md docs/menus/statistics.md docs/menus/settings.md
 git commit -m "refactor(web): migrate shell auth and operator UI"
 ```
 
