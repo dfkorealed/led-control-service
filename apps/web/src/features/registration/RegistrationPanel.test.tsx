@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   type RegistrationSession,
@@ -16,6 +16,7 @@ import {
 import { mockDashboard, mockRegistrationSession } from "../../test/fixtures";
 import {
   RegistrationPanel,
+  isPreExistingRegistrationNode,
   mergeRegistrationNodeProgress,
   registrationSteps,
   shouldPollRegistrationSession
@@ -66,7 +67,7 @@ describe("RegistrationPanel", () => {
 
     renderPanel();
 
-    expect(await screen.findByText(/1개 후보 발견/)).toBeInTheDocument();
+    expect(await screen.findByText("1개 등록 가능")).toBeInTheDocument();
     expect(screen.getByLabelText("등록 층")).toHaveValue(activeSession.floorId);
     expect(screen.getByLabelText("등록 게이트웨이")).toHaveValue(activeSession.gatewayId);
     await waitFor(() => expect(getSessionMock).toHaveBeenCalledWith(activeSession.id));
@@ -340,6 +341,214 @@ describe("RegistrationPanel", () => {
     expect(screen.getAllByText("등록 중")).toHaveLength(2);
   });
 
+  it("등록 가능 조명만 기본 후보와 전체 선택 및 등록 payload에 포함한다", async () => {
+    const [legacyAvailable, explicitAvailable, registeredInSite, registeredElsewhere] = mockRegistrationSession.discoveredNodes;
+    const session = completedSession([
+      legacyAvailable,
+      { ...explicitAvailable, registrationEligibility: "available" as const, existingRegistration: null },
+      {
+        ...registeredInSite,
+        registrationEligibility: "registered_in_site" as const,
+        existingRegistration: {
+          fixtureId: "fixture-existing",
+          fixtureName: "기존 복도등",
+          floorId: "floor-existing",
+          floorName: "지하 1층"
+        }
+      },
+      { ...registeredElsewhere, registrationEligibility: "registered_elsewhere" as const, existingRegistration: null }
+    ]);
+    activeSessionsMock.mockResolvedValue([session]);
+    getSessionMock.mockResolvedValue(session);
+    registerBatchMock.mockResolvedValue({
+      items: [legacyAvailable, explicitAvailable].map((node) => ({ nodeId: node.id, status: "accepted" as const }))
+    });
+
+    renderPanel();
+
+    expect(await screen.findByText("2개 등록 가능")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("checkbox", { name: "등록 가능 조명 전체 선택" }));
+    expect(screen.getByText("2개 선택")).toBeInTheDocument();
+    expect(screen.getByLabelText("조명 1 선택")).toBeChecked();
+    expect(screen.getByLabelText("조명 2 선택")).toBeChecked();
+    expect(screen.queryByLabelText("조명 3 선택")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "선택 조명 등록" }));
+
+    await waitFor(() => expect(registerBatchMock).toHaveBeenCalledWith(
+      session.id,
+      expect.objectContaining({
+        nodes: [{ nodeId: legacyAvailable.id }, { nodeId: explicitAvailable.id }]
+      })
+    ));
+  });
+
+  it("기존 등록 조명을 접힌 영역으로 분리하고 다른 현장 장치 식별자는 DOM에 렌더링하지 않는다", async () => {
+    const [available, registeredWithInfo, registeredWithoutInfo, registeredElsewhere] = mockRegistrationSession.discoveredNodes;
+    const foreignSerial = "FOREIGN-SERIAL-MUST-NOT-RENDER";
+    const foreignDeviceUuid = "foreign-device-uuid-must-not-render";
+    const session = completedSession([
+      { ...available, registrationEligibility: "available" as const, existingRegistration: null },
+      {
+        ...registeredWithInfo,
+        registrationEligibility: "registered_in_site" as const,
+        existingRegistration: {
+          fixtureId: "fixture-existing",
+          fixtureName: "기존 계단등",
+          floorId: "floor-existing",
+          floorName: "지상 2층"
+        }
+      },
+      {
+        ...registeredWithoutInfo,
+        registrationEligibility: "registered_in_site" as const,
+        existingRegistration: { fixtureId: null, fixtureName: null, floorId: null, floorName: null }
+      },
+      {
+        ...registeredElsewhere,
+        serialNumber: foreignSerial,
+        deviceUuid: foreignDeviceUuid,
+        registrationEligibility: "registered_elsewhere" as const,
+        existingRegistration: null
+      }
+    ]);
+    activeSessionsMock.mockResolvedValue([session]);
+    getSessionMock.mockResolvedValue(session);
+
+    renderPanel();
+
+    expect(await screen.findByText("1개 등록 가능")).toBeInTheDocument();
+    expect(screen.getByText("3개 제외")).toBeInTheDocument();
+    const summary = screen.getByText("기존 등록 조명 3개 제외됨");
+    const details = summary.closest("details");
+    expect(details).not.toHaveAttribute("open");
+    expect(within(details!).getByText("기존 계단등")).toBeInTheDocument();
+    expect(within(details!).getByText("지상 2층")).toBeInTheDocument();
+    expect(within(details!).getByText("조명 정보 없음")).toBeInTheDocument();
+    expect(within(details!).getByText("층 정보 없음")).toBeInTheDocument();
+    expect(within(details!).getByText("다른 현장 등록 1개")).toBeInTheDocument();
+    expect(within(details!).getByText("다른 현장에 등록된 장치입니다. 보안을 위해 상세 정보는 표시하지 않습니다.")).toBeInTheDocument();
+    expect(screen.queryByText(foreignSerial)).not.toBeInTheDocument();
+    expect(screen.queryByText(foreignDeviceUuid)).not.toBeInTheDocument();
+  });
+
+  it("제외된 기존 등록 조명만 검색되면 설정을 숨기고 다시 검색을 유지한다", async () => {
+    const [registeredInSite, registeredElsewhere] = mockRegistrationSession.discoveredNodes;
+    const session = completedSession([
+      {
+        ...registeredInSite,
+        registrationEligibility: "registered_in_site" as const,
+        existingRegistration: { fixtureId: null, fixtureName: null, floorId: null, floorName: null }
+      },
+      { ...registeredElsewhere, registrationEligibility: "registered_elsewhere" as const, existingRegistration: null }
+    ]);
+    activeSessionsMock.mockResolvedValue([session]);
+    getSessionMock.mockResolvedValue(session);
+
+    renderPanel();
+
+    expect(await screen.findByText("새로 등록할 수 있는 조명이 없습니다.")).toBeInTheDocument();
+    expect(screen.queryByRole("radiogroup", { name: "조명 설정 방식" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "선택 조명 등록" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "다시 검색" }));
+    await waitFor(() => expect(retryScanMock).toHaveBeenCalledWith(session.id));
+  });
+
+  it("선택 뒤 등록 상태로 바뀐 stale 노드를 선택 수와 payload에서 제거한다", async () => {
+    const [staleNode, availableNode] = mockRegistrationSession.discoveredNodes;
+    const initial = completedSession([
+      { ...staleNode, registrationEligibility: "available" as const, existingRegistration: null },
+      { ...availableNode, registrationEligibility: "available" as const, existingRegistration: null }
+    ]);
+    activeSessionsMock.mockResolvedValue([initial]);
+    getSessionMock.mockResolvedValue(initial);
+    registerBatchMock.mockResolvedValue({
+      items: [{ nodeId: availableNode.id, status: "accepted" }]
+    });
+    const queryClient = renderPanel();
+    fireEvent.click(await screen.findByLabelText("조명 1 선택"));
+
+    const reclassified = completedSession([
+      {
+        ...staleNode,
+        registrationEligibility: "registered_in_site" as const,
+        existingRegistration: { fixtureId: null, fixtureName: null, floorId: null, floorName: null }
+      },
+      { ...availableNode, registrationEligibility: "available" as const, existingRegistration: null }
+    ]);
+    await act(async () => {
+      queryClient.setQueryData(["registration-session", initial.id], reclassified);
+    });
+
+    expect(await screen.findByText("0개 선택")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "선택 조명 등록" })).toBeDisabled();
+    fireEvent.click(screen.getByLabelText("조명 1 선택"));
+    fireEvent.click(screen.getByRole("button", { name: "선택 조명 등록" }));
+    await waitFor(() => expect(registerBatchMock).toHaveBeenCalledWith(
+      initial.id,
+      expect.objectContaining({ nodes: [{ nodeId: availableNode.id }] })
+    ));
+  });
+
+  it("이 세션의 진행 및 완료와 복구 필요 노드는 eligibility가 바뀌어도 기본 진행 목록에 유지한다", async () => {
+    const statuses = ["provisioning", "provisioned", "reconcile_required"] as const;
+    const session = completedSession(statuses.map((status, index) => ({
+      ...mockRegistrationSession.discoveredNodes[index],
+      status,
+      registrationEligibility: "registered_in_site" as const,
+      existingRegistration: null
+    })));
+    activeSessionsMock.mockResolvedValue([session]);
+    getSessionMock.mockResolvedValue(session);
+
+    renderPanel();
+
+    await screen.findByText("0개 등록 가능");
+    statuses.forEach((_, index) => {
+      expect(screen.getByText(mockRegistrationSession.discoveredNodes[index].serialNumber)).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/기존 등록 조명 .* 제외됨/)).not.toBeInTheDocument();
+  });
+
+  it("다른 현장 판정으로 바뀐 진행 노드는 상태만 유지하고 식별 정보는 숨긴다", async () => {
+    const foreignSerial = "FOREIGN-PROGRESS-SERIAL";
+    const foreignDeviceUuid = "foreign-progress-device-uuid";
+    const session = completedSession([{
+      ...mockRegistrationSession.discoveredNodes[0],
+      serialNumber: foreignSerial,
+      deviceUuid: foreignDeviceUuid,
+      status: "reconcile_required" as const,
+      errorMessage: `private error for ${foreignDeviceUuid}`,
+      registrationEligibility: "registered_elsewhere" as const,
+      existingRegistration: null
+    }]);
+    activeSessionsMock.mockResolvedValue([session]);
+    getSessionMock.mockResolvedValue(session);
+
+    renderPanel();
+
+    expect(await screen.findByText("확인 필요")).toBeInTheDocument();
+    expect(screen.getByText("다른 현장에 등록된 장치입니다. 보안을 위해 상세 정보는 표시하지 않습니다.")).toBeInTheDocument();
+    expect(screen.queryByText(foreignSerial)).not.toBeInTheDocument();
+    expect(screen.queryByText(foreignDeviceUuid)).not.toBeInTheDocument();
+    expect(screen.queryByText(`private error for ${foreignDeviceUuid}`)).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["discovered", "registered_in_site", true],
+    ["discovered", "registered_elsewhere", true],
+    ["discovered", "available", false],
+    ["provisioning", "registered_in_site", false],
+    ["provisioned", "registered_in_site", false],
+    ["reconcile_required", "registered_elsewhere", false]
+  ] as const)("status=%s eligibility=%s의 사전 등록 제외 여부를 판정한다", (status, registrationEligibility, expected) => {
+    expect(isPreExistingRegistrationNode({
+      ...mockRegistrationSession.discoveredNodes[0],
+      status,
+      registrationEligibility,
+      existingRegistration: null
+    })).toBe(expected);
+  });
+
   it("개별 등록은 이름만 설정하고 초기 좌표 입력 없이 미배치로 요청한다", async () => {
     registerBatchMock.mockResolvedValue({ items: [] });
     await renderStartedPanel();
@@ -376,6 +585,26 @@ describe("RegistrationPanel", () => {
 
     expect(await screen.findByText("이미 등록이 진행 중입니다.")).toBeInTheDocument();
     expect(screen.getByLabelText("조명 1 선택")).toBeChecked();
+  });
+
+  it.each([
+    ["fixture already registered in this site", "이미 이 현장에 등록된 조명입니다."],
+    ["fixture already registered in another site", "이미 다른 현장에 등록된 장치입니다."]
+  ])("등록 검증 오류 %s를 사용자 문구로 표시한다", async (rawError, expectedMessage) => {
+    const node = mockRegistrationSession.discoveredNodes[0];
+    const session = completedSession([node]);
+    activeSessionsMock.mockResolvedValue([session]);
+    getSessionMock.mockResolvedValue(session);
+    registerBatchMock.mockResolvedValue({
+      items: [{ nodeId: node.id, status: "validation_failed", error: rawError }]
+    });
+    renderPanel();
+
+    fireEvent.click(await screen.findByLabelText("조명 1 선택"));
+    fireEvent.click(screen.getByRole("button", { name: "선택 조명 등록" }));
+
+    expect(await screen.findByText(expectedMessage)).toBeInTheDocument();
+    expect(screen.queryByText(rawError)).not.toBeInTheDocument();
   });
 
   it("검색 완료 후 후보가 없으면 다시 검색 동작을 안내한다", async () => {
@@ -710,7 +939,7 @@ describe("RegistrationPanel", () => {
 
 async function renderStartedPanel() {
   const queryClient = await renderStartedPanelWithoutWaiting();
-  await screen.findByText(/개 후보 발견/);
+  await screen.findByText(/개 등록 가능/);
   return queryClient;
 }
 

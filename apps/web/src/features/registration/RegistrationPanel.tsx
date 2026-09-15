@@ -305,11 +305,15 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
     && !activeSessionsQuery.isError
     && !hasActiveSession
     && !startMutation.isPending;
-  const selectedNodes = nodes.filter((node) => selectedNodeIds.includes(node.id));
+  const preExistingRegistrationNodes = nodes.filter(isPreExistingRegistrationNode);
+  const visibleNodes = nodes.filter((node) => !isPreExistingRegistrationNode(node));
+  const registeredInSiteNodes = preExistingRegistrationNodes.filter((node) => node.registrationEligibility === "registered_in_site");
+  const registeredElsewhereCount = preExistingRegistrationNodes.length - registeredInSiteNodes.length;
+  const selectedNodes = visibleNodes.filter((node) => selectedNodeIds.includes(node.id));
   const actionableNodes = selectedNodes.filter((node) => isRegisterableNode(node, sessionSnapshot));
-  const selectableNodes = nodes.filter((node) => isRegisterableNode(node, sessionSnapshot));
-  const individualItems = selectedNodes.map((node) => {
-    const index = nodes.findIndex((candidate) => candidate.id === node.id);
+  const selectableNodes = visibleNodes.filter((node) => isRegisterableNode(node, sessionSnapshot));
+  const individualItems = actionableNodes.map((node) => {
+    const index = visibleNodes.findIndex((candidate) => candidate.id === node.id);
     return {
       nodeId: node.id,
       label: `조명 ${index + 1}`,
@@ -482,7 +486,8 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
           <div className="session-meta">
             <span>등록 세션</span>
             <strong>{session.id.slice(0, 8)}</strong>
-            <small>{nodes.length}개 후보 발견</small>
+            <small>{selectableNodes.length}개 등록 가능</small>
+            {preExistingRegistrationNodes.length > 0 ? <small>{preExistingRegistrationNodes.length}개 제외</small> : null}
             {nodes.some((node) => node.status === "reconcile_required") ? (
               <Button
                 variant="secondary"
@@ -493,7 +498,7 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
                 상태 다시 확인
               </Button>
             ) : null}
-            {sessionSnapshot.scanStatus === "completed" && nodes.length > 0 && !hasUnresolvedNode ? (
+            {sessionSnapshot.scanStatus === "completed" && visibleNodes.length > 0 && !hasUnresolvedNode ? (
               <Button variant="secondary" disabled={retryMutation.isPending} isLoading={retryMutation.isPending} loadingLabel="다시 검색 중" onClick={() => retryMutation.mutate()}>
                 <Radar size={15} />
                 다시 검색
@@ -509,16 +514,18 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
               </Button>
             </div>
           ) : null}
-          {sessionSnapshot.scanStatus === "completed" && nodes.length === 0 ? (
+          {sessionSnapshot.scanStatus === "completed" && visibleNodes.length === 0 ? (
             <div className="node-row muted-node">
-              <span>검색된 미등록 조명이 없습니다.</span>
+              <span>{preExistingRegistrationNodes.length > 0
+                ? "새로 등록할 수 있는 조명이 없습니다."
+                : "검색된 미등록 조명이 없습니다."}</span>
               <Button variant="secondary" disabled={retryMutation.isPending} isLoading={retryMutation.isPending} loadingLabel="다시 검색 중" onClick={() => retryMutation.mutate()}>
                 <Radar size={15} />
                 다시 검색
               </Button>
             </div>
           ) : null}
-          {nodes.length > 0 ? (
+          {selectableNodes.length > 0 ? (
             <div className="registration-selection-toolbar">
               <label className="selection-checkbox">
                 <input
@@ -528,14 +535,15 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
                 />
                 등록 가능 조명 전체 선택
               </label>
-              <strong>{selectedNodeIds.length}개 선택</strong>
+              <strong>{actionableNodes.length}개 선택</strong>
             </div>
           ) : null}
           <div className="registration-node-list">
-            {nodes.length === 0 && sessionSnapshot.scanStatus !== "completed" && sessionSnapshot.scanStatus !== "failed" ? (
+            {visibleNodes.length === 0 && sessionSnapshot.scanStatus !== "completed" && sessionSnapshot.scanStatus !== "failed" ? (
               <div className="node-row muted-node">게이트웨이가 미등록 조명을 검색하는 중입니다.</div>
             ) : (
-              nodes.map((node, index) => {
+              visibleNodes.map((node, index) => {
+                const hidesIdentity = node.registrationEligibility === "registered_elsewhere";
                 const rowError = displayTransportMessage(nodeErrors[node.id]
                   ?? ((node.status === "failed" || node.status === "reconcile_required" || node.identifyState === "failed")
                     ? node.errorMessage
@@ -552,13 +560,19 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
                       />
                     </label>
                     <div className="node-identity">
-                      <strong>{node.serialNumber}</strong>
-                      <span>{node.deviceUuid}</span>
-                      <small>RSSI {node.rssi} dBm</small>
-                      {node.status === "discovered" && node.identifyState === "confirmed" ? (
-                        <small className="success-text">식별 완료</small>
-                      ) : null}
-                      {rowError ? <small className="danger-text">{rowError}</small> : null}
+                      {hidesIdentity ? (
+                        <span>다른 현장에 등록된 장치입니다. 보안을 위해 상세 정보는 표시하지 않습니다.</span>
+                      ) : (
+                        <>
+                          <strong>{node.serialNumber}</strong>
+                          <span>{node.deviceUuid}</span>
+                          <small>RSSI {node.rssi} dBm</small>
+                          {node.status === "discovered" && node.identifyState === "confirmed" ? (
+                            <small className="success-text">식별 완료</small>
+                          ) : null}
+                          {rowError ? <small className="danger-text">{rowError}</small> : null}
+                        </>
+                      )}
                     </div>
                     <StatusBadge className={`node-status ${node.status}`} tone={nodeStatusTone(node.status)} icon={nodeStatusIcon(node.status)}>
                       {statusLabels[node.status]}
@@ -607,7 +621,27 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
               })
             )}
           </div>
-          {nodes.length > 0 && sessionSnapshot.scanStatus !== "failed" ? (
+          {preExistingRegistrationNodes.length > 0 ? (
+            <details className="registered-node-details">
+              <summary>기존 등록 조명 {preExistingRegistrationNodes.length}개 제외됨</summary>
+              <div className="registered-node-list">
+                {registeredInSiteNodes.map((node) => (
+                  <div className="registered-node-row" key={node.id}>
+                    <strong>{node.existingRegistration?.fixtureName ?? "조명 정보 없음"}</strong>
+                    <span>{node.existingRegistration?.floorName ?? "층 정보 없음"}</span>
+                    <small>{node.serialNumber}</small>
+                  </div>
+                ))}
+                {registeredElsewhereCount > 0 ? (
+                  <div className="registered-elsewhere-notice">
+                    <strong>다른 현장 등록 {registeredElsewhereCount}개</strong>
+                    <span>다른 현장에 등록된 장치입니다. 보안을 위해 상세 정보는 표시하지 않습니다.</span>
+                  </div>
+                ) : null}
+              </div>
+            </details>
+          ) : null}
+          {visibleNodes.length > 0 && sessionSnapshot.scanStatus !== "failed" ? (
             <div className="registration-config">
               <div className="registration-mode-toggle" role="radiogroup" aria-label="조명 설정 방식">
                 <label className={mode === "batch" ? "active" : ""}>
@@ -686,8 +720,22 @@ function createIndividualDraft(): FixtureIndividualDraft {
   return { fixtureName: "", ratedWatt: "40.00", size: 20 };
 }
 
+function isAvailableRegistrationNode(node: DiscoveredRegistrationNode) {
+  return (node.registrationEligibility ?? "available") === "available";
+}
+
+export function isPreExistingRegistrationNode(node: DiscoveredRegistrationNode) {
+  if (isAvailableRegistrationNode(node)) return false;
+  return node.status !== "provisioning"
+    && node.status !== "provisioned"
+    && node.status !== "reconcile_required";
+}
+
 function isRegisterableNode(node: DiscoveredRegistrationNode, session: RegistrationSession | null) {
-  return session?.status === "active" && session.scanStatus === "completed" && node.status === "discovered";
+  return session?.status === "active"
+    && session.scanStatus === "completed"
+    && node.status === "discovered"
+    && isAvailableRegistrationNode(node);
 }
 
 export function shouldPollRegistrationSession(session: RegistrationSession | null | undefined, localNodes: DiscoveredRegistrationNode[]) {

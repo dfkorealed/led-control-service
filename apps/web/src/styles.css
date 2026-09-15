@@ -5155,6 +5155,49 @@ button.group-card {
   gap: 8px;
 }
 
+.registered-node-details {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fbfdff;
+}
+
+.registered-node-details summary {
+  display: list-item;
+  box-sizing: border-box;
+  min-height: 44px;
+  padding: 10px 12px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 24px;
+  cursor: pointer;
+}
+
+.registered-node-list {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid var(--border);
+  padding: 12px;
+}
+
+.registered-node-row,
+.registered-elsewhere-notice {
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #ffffff;
+  padding: 12px;
+}
+
+.registered-node-row span,
+.registered-node-row small,
+.registered-elsewhere-notice span {
+  color: var(--muted);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
 .registration-selection-toolbar {
   display: flex;
   align-items: center;

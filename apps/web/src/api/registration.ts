@@ -3,6 +3,15 @@ import { apiGet, apiPost } from "./client";
 
 export type { RegisterFixtureBatchInput } from "@led-control/shared";
 
+export type RegistrationEligibility = "available" | "registered_in_site" | "registered_elsewhere";
+
+export interface ExistingRegistration {
+  fixtureId: string | null;
+  fixtureName: string | null;
+  floorId: string | null;
+  floorName: string | null;
+}
+
 export interface DiscoveredRegistrationNode {
   id: string;
   sessionId: string;
@@ -24,6 +33,8 @@ export interface DiscoveredRegistrationNode {
   scanCorrelationId: string | null;
   scanAttempt: number | null;
   discoveredAt: string;
+  registrationEligibility?: RegistrationEligibility;
+  existingRegistration?: ExistingRegistration | null;
 }
 
 export interface RegisterFixtureBatchResult {
