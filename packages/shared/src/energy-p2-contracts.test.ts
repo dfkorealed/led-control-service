@@ -261,6 +261,26 @@ describe("energy P2 contracts", () => {
     }).totalCount).toBe(137);
   });
 
+  it("rejects unknown and out-of-bounds query fields", () => {
+    expect(energyReportListQuerySchema.safeParse({ limit: 20, unexpected: true }).success).toBe(false);
+    expect(energyReportListQuerySchema.safeParse({ limit: 20, query: "a".repeat(101) }).success).toBe(false);
+    expect(energyReportListQuerySchema.safeParse({ limit: 20, cursor: "" }).success).toBe(false);
+    expect(energyReportListQuerySchema.safeParse({ limit: 20, cursor: "c".repeat(1025) }).success).toBe(false);
+  });
+
+  it("rejects oversized and malformed report list response metadata", () => {
+    expect(energyReportListResponseSchema.safeParse({
+      reports: Array.from({ length: 101 }, (_, index) => reportJob(index)),
+      nextCursor: null,
+      totalCount: 101
+    }).success).toBe(false);
+    expect(energyReportListResponseSchema.safeParse({ reports: [], nextCursor: "", totalCount: 0 }).success).toBe(false);
+    expect(energyReportListResponseSchema.safeParse({ reports: [], nextCursor: "c".repeat(1025), totalCount: 0 }).success).toBe(false);
+    expect(energyReportListResponseSchema.safeParse({ reports: [], nextCursor: null, totalCount: -1 }).success).toBe(false);
+    expect(energyReportListResponseSchema.safeParse({ reports: [], nextCursor: null, totalCount: 1.5 }).success).toBe(false);
+    expect(energyReportListResponseSchema.safeParse({ reports: [], nextCursor: null, totalCount: 0, unexpected: true }).success).toBe(false);
+  });
+
   it("accepts status-safe report job, list, and five-minute download responses", () => {
     const job = energyReportJobSchema.parse({
       reportId,
