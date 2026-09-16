@@ -38,13 +38,13 @@ describe("ASCII DXF document parser", () => {
     expect(document.entities[6]).toMatchObject({ type: "mtext", text: "line two & more", position: { x: 3, y: 5, z: 0 }, rotation: 0, height: 0.75 });
     expect(document.entities[7]).toEqual({
       type: "insert", sourceEntityId: "17", layer: "LIGHTING", blockName: "LED_FIXTURE",
-      position: { x: 10, y: 20, z: 0 }, rotation: 45, scale: { x: 2, y: 3, z: 1 }
+      position: { x: 10, y: 20, z: 0 }, rotation: 45, scale: { x: 2, y: 3, z: 1 }, attributes: []
     });
     expect(document.bounds).toEqual({ minX: -2, minY: 0, maxX: 12.54951, maxY: 22.54951 });
   });
 
   it("fails closed for malformed, oversized, excessive and out-of-range input", () => {
-    expect(() => parseAsciiDxf("0\nSECTION\n2\nENTITIES\n0\nLINE\n10\nnope\n0\nENDSEC\n0\nEOF\n")).toThrow(/number/i);
+    expect(() => parseAsciiDxf("0\nSECTION\n2\nENTITIES\n0\nLINE\n10\nnope\n0\nENDSEC\n0\nEOF\n")).toThrow(/decimal|number/i);
     expect(() => parseAsciiDxf("0\nSECTION\n2\nENTITIES\n0\nLINE\n10\n1\n20\n1\n11\n2\n21\n2\n")).toThrow(/unterminated|EOF/i);
     expect(() => parseAsciiDxf(syntheticDxf(), { maxInputBytes: 16 })).toThrow(/input.*limit/i);
     expect(() => parseAsciiDxf(syntheticDxf(), { maxEntities: 2 })).toThrow(/entity.*limit/i);
@@ -69,5 +69,75 @@ describe("ASCII DXF document parser", () => {
     ].join("");
 
     expect(() => parseAsciiDxf(amplified, { maxCoordinateMagnitude: 10 })).toThrow(/coordinate.*limit/i);
+  });
+
+  it.each([" ", "0x10", "1_000", "Infinity", "NaN"])("rejects non-DXF decimal coordinate syntax %p", value => {
+    const malformed = [
+      pair(0, "SECTION"), pair(2, "ENTITIES"),
+      pair(0, "LINE"), pair(10, value), pair(20, 0), pair(11, 1), pair(21, 1),
+      pair(0, "ENDSEC"), pair(0, "EOF")
+    ].join("");
+    expect(() => parseAsciiDxf(malformed)).toThrow(/decimal|number/i);
+  });
+
+  it("rejects duplicate explicit handles across the entire document", () => {
+    const duplicated = [
+      pair(0, "SECTION"), pair(2, "ENTITIES"),
+      pair(0, "LINE"), pair(5, "DUP"), pair(10, 0), pair(20, 0), pair(11, 1), pair(21, 1),
+      pair(0, "CIRCLE"), pair(5, "DUP"), pair(10, 2), pair(20, 2), pair(40, 1),
+      pair(0, "ENDSEC"), pair(0, "EOF")
+    ].join("");
+    expect(() => parseAsciiDxf(duplicated)).toThrow(/duplicate.*handle/i);
+  });
+
+  it("treats DXF handle case variants as duplicates", () => {
+    const duplicated = [
+      pair(0, "SECTION"), pair(2, "ENTITIES"),
+      pair(0, "LINE"), pair(5, "aF"), pair(10, 0), pair(20, 0), pair(11, 1), pair(21, 1),
+      pair(0, "LINE"), pair(5, "AF"), pair(10, 2), pair(20, 2), pair(11, 3), pair(21, 3),
+      pair(0, "ENDSEC"), pair(0, "EOF")
+    ].join("");
+    expect(() => parseAsciiDxf(duplicated)).toThrow(/duplicate.*handle/i);
+  });
+
+  it("rejects a generated source ID that collides with an explicit handle", () => {
+    const collision = [
+      pair(0, "SECTION"), pair(2, "ENTITIES"),
+      pair(0, "LINE"), pair(10, 0), pair(20, 0), pair(11, 1), pair(21, 1),
+      pair(0, "LINE"), pair(5, "generated-1"), pair(10, 2), pair(20, 2), pair(11, 3), pair(21, 3),
+      pair(0, "ENDSEC"), pair(0, "EOF")
+    ].join("");
+    expect(() => parseAsciiDxf(collision)).toThrow(/duplicate.*(?:source|handle)|source.*collision/i);
+  });
+
+  it("preserves INSERT ATTRIB values in the normalized model", () => {
+    const attributed = [
+      pair(0, "SECTION"), pair(2, "BLOCKS"),
+      pair(0, "BLOCK"), pair(2, "DEVICE"), pair(0, "LINE"), pair(10, 0), pair(20, 0), pair(11, 1), pair(21, 0), pair(0, "ENDBLK"), pair(0, "ENDSEC"),
+      pair(0, "SECTION"), pair(2, "ENTITIES"),
+      pair(0, "INSERT"), pair(5, "I1"), pair(8, "LIGHTING"), pair(2, "DEVICE"), pair(10, 4), pair(20, 5), pair(66, 1),
+      pair(0, "ATTRIB"), pair(5, "A1"), pair(2, "TYPE"), pair(1, "LED PANEL"), pair(10, 4), pair(20, 5), pair(40, 0.5), pair(50, 30),
+      pair(0, "SEQEND"), pair(0, "ENDSEC"), pair(0, "EOF")
+    ].join("");
+
+    expect(parseAsciiDxf(attributed).entities[0]).toMatchObject({
+      type: "insert",
+      attributes: [{ sourceEntityId: "A1", tag: "TYPE", value: "LED PANEL", position: { x: 4, y: 5, z: 0 }, height: 0.5, rotation: 30 }]
+    });
+  });
+
+  it("preserves LWPOLYLINE bulge and includes its arc in document bounds", () => {
+    const curved = [
+      pair(0, "SECTION"), pair(2, "ENTITIES"),
+      pair(0, "LWPOLYLINE"), pair(5, "P1"), pair(10, 0), pair(20, 0), pair(42, 1), pair(10, 2), pair(20, 0),
+      pair(0, "ENDSEC"), pair(0, "EOF")
+    ].join("");
+
+    const document = parseAsciiDxf(curved);
+    expect(document.entities[0]).toMatchObject({
+      type: "lwpolyline",
+      vertices: [{ x: 0, y: 0, z: 0, bulge: 1 }, { x: 2, y: 0, z: 0, bulge: 0 }]
+    });
+    expect(document.bounds).toEqual({ minX: 0, minY: -1, maxX: 2, maxY: 0 });
   });
 });

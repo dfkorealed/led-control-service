@@ -1,6 +1,7 @@
 import type {
   CadBounds,
   CadPoint,
+  CadPolylineVertex,
   NormalizedCadDocument,
   NormalizedCadEntity
 } from "./cad-types";
@@ -22,9 +23,19 @@ export interface ExpandedCadEntity {
   insertLayer: string | null;
 }
 
+export interface ExpandedCadInsert {
+  entity: Extract<NormalizedCadEntity, { type: "insert" }>;
+  sourceEntityId: string;
+  layer: string;
+  blockName: string;
+  position: CadPoint;
+  rotation: number;
+  scale: { x: number; y: number; z: number };
+}
+
 const IDENTITY: CadMatrix = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
 
-function multiply(left: CadMatrix, right: CadMatrix): CadMatrix {
+export function multiplyCadMatrices(left: CadMatrix, right: CadMatrix): CadMatrix {
   return {
     a: left.a * right.a + left.c * right.b,
     b: left.b * right.a + left.d * right.b,
@@ -83,7 +94,7 @@ export function expandCadDocument(
       if (!block) throw new Error(`CAD INSERT references missing block: ${entity.blockName}`);
       if (stack.includes(block.name)) throw new Error(`Cyclic CAD block reference: ${block.name}`);
       if (stack.length >= maxDepth) throw new Error("CAD block depth limit exceeded");
-      const childMatrix = multiply(matrix, insertMatrix(entity, block.basePoint));
+      const childMatrix = multiplyCadMatrices(matrix, insertMatrix(entity, block.basePoint));
       visit(block.entities, childMatrix, `${prefix}${entity.sourceEntityId}:`, block.name, entity.layer, [...stack, block.name]);
     }
   };
@@ -92,16 +103,120 @@ export function expandCadDocument(
   return expanded;
 }
 
+export function expandCadInserts(
+  document: Pick<NormalizedCadDocument, "blocks" | "entities">,
+  options: { maxExpandedInserts: number; maxBlockDepth?: number }
+): ExpandedCadInsert[] {
+  const blocks = new Map(document.blocks.map(block => [block.name, block]));
+  if (blocks.size !== document.blocks.length) throw new Error("Duplicate CAD block name");
+  const expanded: ExpandedCadInsert[] = [];
+  const maxDepth = options.maxBlockDepth ?? 16;
+  const round = (value: number) => Math.round(value * 1_000_000) / 1_000_000;
+
+  const visit = (
+    entities: NormalizedCadEntity[], parentMatrix: CadMatrix, prefix: string,
+    inheritedLayer: string | null, stack: readonly string[]
+  ) => {
+    for (const entity of entities) {
+      if (entity.type !== "insert") continue;
+      const block = blocks.get(entity.blockName);
+      if (!block) throw new Error(`CAD INSERT references missing block: ${entity.blockName}`);
+      if (stack.includes(block.name)) throw new Error(`Cyclic CAD block reference: ${block.name}`);
+      if (stack.length >= maxDepth) throw new Error("CAD block depth limit exceeded");
+      const sourceEntityId = prefix ? `${prefix}/${entity.sourceEntityId}` : entity.sourceEntityId;
+      const layer = entity.layer === "0" ? inheritedLayer ?? "0" : entity.layer;
+      const matrix = multiplyCadMatrices(parentMatrix, insertMatrix(entity, block.basePoint));
+      const position = transformPoint(parentMatrix, entity.position);
+      expanded.push({
+        entity,
+        sourceEntityId,
+        layer,
+        blockName: entity.blockName,
+        position: { x: round(position.x), y: round(position.y), z: round(position.z) },
+        rotation: round(((Math.atan2(matrix.b, matrix.a) * 180 / Math.PI) % 360 + 360) % 360),
+        scale: { x: round(Math.hypot(matrix.a, matrix.b)), y: round(Math.hypot(matrix.c, matrix.d)), z: round(entity.scale.z) }
+      });
+      if (expanded.length > options.maxExpandedInserts) throw new Error("CAD expanded INSERT limit exceeded");
+      visit(block.entities, matrix, sourceEntityId, layer, [...stack, block.name]);
+    }
+  };
+
+  visit(document.entities, IDENTITY, "", null, []);
+  return expanded;
+}
+
 function normalizeAngle(value: number): number {
   return ((value % 360) + 360) % 360;
 }
 
-function angleIsOnArc(angle: number, start: number, end: number): boolean {
-  const normalizedAngle = normalizeAngle(angle);
-  const normalizedStart = normalizeAngle(start);
-  const sweep = (normalizeAngle(end) - normalizedStart + 360) % 360;
-  const offset = (normalizedAngle - normalizedStart + 360) % 360;
-  return offset <= sweep + 1e-10;
+function angleIsOnSweep(angle: number, start: number, sweep: number): boolean {
+  if (sweep >= 0) return (normalizeAngle(angle) - normalizeAngle(start) + 360) % 360 <= sweep + 1e-10;
+  return (normalizeAngle(start) - normalizeAngle(angle) + 360) % 360 <= -sweep + 1e-10;
+}
+
+export interface CadBulgeArc {
+  center: CadPoint;
+  radius: number;
+  startAngle: number;
+  sweepAngle: number;
+}
+
+export function cadBulgeArc(start: CadPoint, end: CadPoint, bulge: number): CadBulgeArc | null {
+  if (!Number.isFinite(bulge)) throw new Error("Non-finite CAD polyline bulge");
+  if (bulge === 0) return null;
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const chord = Math.hypot(dx, dy);
+  if (chord === 0) throw new Error("CAD bulge segment has coincident vertices");
+  const centerOffset = chord * (1 - bulge * bulge) / (4 * bulge);
+  const center = {
+    x: (start.x + end.x) / 2 - dy / chord * centerOffset,
+    y: (start.y + end.y) / 2 + dx / chord * centerOffset,
+    z: (start.z + end.z) / 2
+  };
+  return {
+    center,
+    radius: chord * (1 + bulge * bulge) / (4 * Math.abs(bulge)),
+    startAngle: Math.atan2(start.y - center.y, start.x - center.x) * 180 / Math.PI,
+    sweepAngle: 4 * Math.atan(bulge) * 180 / Math.PI
+  };
+}
+
+function includeArcBounds(
+  center: CadPoint, radius: number, startAngle: number, sweepAngle: number,
+  matrix: CadMatrix, include: (point: CadPoint) => void
+): void {
+  const candidateAngles = [
+    startAngle,
+    startAngle + sweepAngle,
+    Math.atan2(matrix.c, matrix.a) * 180 / Math.PI,
+    Math.atan2(matrix.c, matrix.a) * 180 / Math.PI + 180,
+    Math.atan2(matrix.d, matrix.b) * 180 / Math.PI,
+    Math.atan2(matrix.d, matrix.b) * 180 / Math.PI + 180
+  ];
+  for (const angle of candidateAngles) {
+    if (!angleIsOnSweep(angle, startAngle, sweepAngle)) continue;
+    const radians = angle * Math.PI / 180;
+    include(transformPoint(matrix, {
+      x: center.x + radius * Math.cos(radians),
+      y: center.y + radius * Math.sin(radians),
+      z: center.z
+    }));
+  }
+}
+
+function includePolylineBounds(
+  vertices: readonly CadPolylineVertex[], closed: boolean, matrix: CadMatrix,
+  include: (point: CadPoint) => void
+): void {
+  vertices.forEach(vertex => include(transformPoint(matrix, vertex)));
+  const segmentCount = closed ? vertices.length : Math.max(0, vertices.length - 1);
+  for (let index = 0; index < segmentCount; index++) {
+    const start = vertices[index];
+    const end = vertices[(index + 1) % vertices.length];
+    const arc = cadBulgeArc(start, end, start.bulge);
+    if (arc) includeArcBounds(arc.center, arc.radius, arc.startAngle, arc.sweepAngle, matrix, include);
+  }
 }
 
 export function computeCadBounds(expanded: readonly ExpandedCadEntity[]): CadBounds {
@@ -123,7 +238,7 @@ export function computeCadBounds(expanded: readonly ExpandedCadEntity[]): CadBou
       include(transformPoint(matrix, entity.start));
       include(transformPoint(matrix, entity.end));
     } else if ("vertices" in entity) {
-      entity.vertices.forEach(vertex => include(transformPoint(matrix, vertex)));
+      includePolylineBounds(entity.vertices, entity.closed, matrix, include);
     } else if (entity.type === "circle") {
       const center = transformPoint(matrix, entity.center);
       const extentX = entity.radius * Math.hypot(matrix.a, matrix.c);
@@ -131,23 +246,8 @@ export function computeCadBounds(expanded: readonly ExpandedCadEntity[]): CadBou
       include({ x: center.x - extentX, y: center.y - extentY, z: center.z });
       include({ x: center.x + extentX, y: center.y + extentY, z: center.z });
     } else if (entity.type === "arc") {
-      const candidateAngles = [
-        entity.startAngle,
-        entity.endAngle,
-        Math.atan2(matrix.c, matrix.a) * 180 / Math.PI,
-        Math.atan2(matrix.c, matrix.a) * 180 / Math.PI + 180,
-        Math.atan2(matrix.d, matrix.b) * 180 / Math.PI,
-        Math.atan2(matrix.d, matrix.b) * 180 / Math.PI + 180
-      ];
-      for (const angle of candidateAngles) {
-        if (!angleIsOnArc(angle, entity.startAngle, entity.endAngle)) continue;
-        const radians = angle * Math.PI / 180;
-        include(transformPoint(matrix, {
-          x: entity.center.x + entity.radius * Math.cos(radians),
-          y: entity.center.y + entity.radius * Math.sin(radians),
-          z: entity.center.z
-        }));
-      }
+      const sweep = (normalizeAngle(entity.endAngle) - normalizeAngle(entity.startAngle) + 360) % 360;
+      includeArcBounds(entity.center, entity.radius, entity.startAngle, sweep, matrix, include);
     } else {
       const radians = entity.rotation * Math.PI / 180;
       const width = Math.max(entity.height * 0.6, entity.text.length * entity.height * 0.6);

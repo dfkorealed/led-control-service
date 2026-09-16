@@ -1,13 +1,14 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { ArgvCadConverter } from "./cad-converter";
+import { ArgvCadConverter, assertSupportedCadConverterPlatform } from "./cad-converter";
 
 describe("argv CAD converter adapter", () => {
   let directory: string;
 
   beforeEach(async () => { directory = await mkdtemp(join(tmpdir(), "cad-converter-")); });
   afterEach(async () => { await rm(directory, { recursive: true, force: true }); });
+  const delay = (milliseconds: number) => new Promise(resolve => setTimeout(resolve, milliseconds));
 
   it("passes input and output as distinct argv entries without a shell", async () => {
     const script = join(directory, "copy.cjs");
@@ -51,5 +52,52 @@ describe("argv CAD converter adapter", () => {
     const converter = new ArgvCadConverter({ executable: process.execPath, argv: [script, "{input}", "{output}"], timeoutMs: 1000, maxOutputBytes: 32 });
 
     await expect(converter.convert({ inputPath, outputPath })).rejects.toThrow(/output.*limit/i);
+  });
+
+  it("kills the detached Unix process group so descendants cannot retain pipes or write later", async () => {
+    const markerPath = join(directory, "descendant-marker");
+    const script = join(directory, "descendant.cjs");
+    const inputPath = join(directory, "input.dwg");
+    const outputPath = join(directory, "output.dxf");
+    const descendant = `setTimeout(() => require('node:fs').writeFileSync(${JSON.stringify(markerPath)}, 'escaped'), 300)`;
+    await writeFile(script, `require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(descendant)}], { stdio: ['ignore', 'inherit', 'inherit'] }); setInterval(() => {}, 60000);`);
+    await writeFile(inputPath, "input");
+    const converter = new ArgvCadConverter({ executable: process.execPath, argv: [script, "{input}", "{output}"], timeoutMs: 50, maxOutputBytes: 1024 });
+    const startedAt = Date.now();
+
+    await expect(converter.convert({ inputPath, outputPath })).rejects.toThrow(/time.*limit/i);
+    expect(Date.now() - startedAt).toBeLessThan(250);
+    await delay(350);
+    await expect(access(markerPath)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("polls the output file during conversion, kills on overflow and removes the partial file", async () => {
+    const script = join(directory, "growing-output.cjs");
+    const inputPath = join(directory, "input.dwg");
+    const outputPath = join(directory, "output.dxf");
+    await writeFile(script, "require('node:fs').writeFileSync(process.argv[3], Buffer.alloc(4096)); setTimeout(() => {}, 500);");
+    await writeFile(inputPath, "input");
+    const converter = new ArgvCadConverter({ executable: process.execPath, argv: [script, "{input}", "{output}"], timeoutMs: 1000, maxOutputBytes: 32 });
+    const startedAt = Date.now();
+
+    await expect(converter.convert({ inputPath, outputPath })).rejects.toThrow(/output.*limit/i);
+    expect(Date.now() - startedAt).toBeLessThan(400);
+    await expect(access(outputPath)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("removes a partial output on nonzero converter exit", async () => {
+    const script = join(directory, "partial-failure.cjs");
+    const inputPath = join(directory, "input.dwg");
+    const outputPath = join(directory, "output.dxf");
+    await writeFile(script, "require('node:fs').writeFileSync(process.argv[3], 'partial'); process.exit(7);");
+    await writeFile(inputPath, "input");
+    const converter = new ArgvCadConverter({ executable: process.execPath, argv: [script, "{input}", "{output}"], timeoutMs: 1000, maxOutputBytes: 1024 });
+
+    await expect(converter.convert({ inputPath, outputPath })).rejects.toThrow(/code 7/i);
+    await expect(access(outputPath)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("fails closed on Windows because this adapter requires Unix process groups", () => {
+    expect(() => assertSupportedCadConverterPlatform("win32")).toThrow(/unsupported.*platform|unix/i);
   });
 });

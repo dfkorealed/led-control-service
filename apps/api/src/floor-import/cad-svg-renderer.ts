@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer";
-import { computeCadBounds, expandCadDocument, transformPoint, type CadMatrix, type ExpandedCadEntity } from "./cad-geometry";
-import type { CadBounds, CadPoint, NormalizedCadDocument } from "./cad-types";
+import { cadBulgeArc, computeCadBounds, expandCadDocument, multiplyCadMatrices, transformPoint, type CadMatrix, type ExpandedCadEntity } from "./cad-geometry";
+import type { CadPoint, NormalizedCadDocument } from "./cad-types";
 
 export interface CadSvgRendererLimits {
   maxRenderedEntities: number;
@@ -61,6 +61,33 @@ function pointsForArc(item: ExpandedCadEntity & { entity: Extract<ExpandedCadEnt
   });
 }
 
+function pointsForPolyline(
+  entity: Extract<ExpandedCadEntity["entity"], { type: "lwpolyline" | "polyline" }>,
+  matrix: CadMatrix
+): CadPoint[] {
+  const points = [transformPoint(matrix, entity.vertices[0])];
+  const segmentCount = entity.closed ? entity.vertices.length : entity.vertices.length - 1;
+  for (let index = 0; index < segmentCount; index++) {
+    const start = entity.vertices[index];
+    const end = entity.vertices[(index + 1) % entity.vertices.length];
+    const arc = cadBulgeArc(start, end, start.bulge);
+    if (!arc) {
+      points.push(transformPoint(matrix, end));
+      continue;
+    }
+    const segments = Math.max(2, Math.ceil(Math.abs(arc.sweepAngle) / 6));
+    for (let step = 1; step <= segments; step++) {
+      const angle = (arc.startAngle + arc.sweepAngle * step / segments) * Math.PI / 180;
+      points.push(transformPoint(matrix, {
+        x: arc.center.x + arc.radius * Math.cos(angle),
+        y: arc.center.y + arc.radius * Math.sin(angle),
+        z: arc.center.z
+      }));
+    }
+  }
+  return points;
+}
+
 export function renderCadDocumentSvg(document: NormalizedCadDocument, options: Partial<CadSvgRendererLimits> = {}): string {
   const limits = { ...DEFAULT_LIMITS, ...options };
   if (!Number.isInteger(limits.maxRenderedEntities) || limits.maxRenderedEntities < 1 ||
@@ -76,6 +103,7 @@ export function renderCadDocumentSvg(document: NormalizedCadDocument, options: P
     y: bounds.maxY - point.y + limits.padding,
     z: point.z
   });
+  const projection: CadMatrix = { a: 1, b: 0, c: 0, d: -1, e: -bounds.minX + limits.padding, f: bounds.maxY + limits.padding };
   const projectedPoints = (points: readonly CadPoint[]) => points.map(point => {
     const projected = project(point);
     return `${number(projected.x)},${number(projected.y)}`;
@@ -104,7 +132,7 @@ export function renderCadDocumentSvg(document: NormalizedCadDocument, options: P
       const end = project(transformPoint(item.matrix, entity.end));
       append(`<line ${attrs} x1="${number(start.x)}" y1="${number(start.y)}" x2="${number(end.x)}" y2="${number(end.y)}"/>`);
     } else if ("vertices" in entity) {
-      const points = entity.vertices.map(vertex => transformPoint(item.matrix, vertex));
+      const points = pointsForPolyline(entity, item.matrix);
       const tag = entity.closed ? "polygon" : "polyline";
       append(`<${tag} ${attrs} points="${projectedPoints(points)}"/>`);
     } else if (entity.type === "circle") {
@@ -112,11 +140,13 @@ export function renderCadDocumentSvg(document: NormalizedCadDocument, options: P
     } else if (entity.type === "arc") {
       append(`<polyline ${attrs} points="${projectedPoints(pointsForArc(item as ExpandedCadEntity & { entity: Extract<ExpandedCadEntity["entity"], { type: "arc" }> }))}"/>`);
     } else {
-      const position = project(transformPoint(item.matrix, entity.position));
-      const matrixRotation = Math.atan2(item.matrix.b, item.matrix.a) * 180 / Math.PI;
-      const rotation = -(entity.rotation + matrixRotation);
-      const scale = Math.max(Math.hypot(item.matrix.a, item.matrix.b), Math.hypot(item.matrix.c, item.matrix.d));
-      append(`<text ${attrs} x="${number(position.x)}" y="${number(position.y)}" font-size="${number(entity.height * scale)}" fill="#111827" stroke="none" transform="rotate(${number(rotation)} ${number(position.x)} ${number(position.y)})">${xml(entity.text)}</text>`);
+      const radians = entity.rotation * Math.PI / 180;
+      const textTransform: CadMatrix = {
+        a: Math.cos(radians), b: Math.sin(radians), c: Math.sin(radians), d: -Math.cos(radians),
+        e: entity.position.x, f: entity.position.y
+      };
+      const matrix = multiplyCadMatrices(projection, multiplyCadMatrices(item.matrix, textTransform));
+      append(`<text ${attrs} x="0" y="0" font-size="${number(entity.height)}" fill="#111827" stroke="none" transform="matrix(${number(matrix.a)} ${number(matrix.b)} ${number(matrix.c)} ${number(matrix.d)} ${number(matrix.e)} ${number(matrix.f)})">${xml(entity.text)}</text>`);
     }
   }
   append("</g></svg>");

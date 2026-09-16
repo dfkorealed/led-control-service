@@ -53,7 +53,7 @@
 
 최종 focused suite는 parser/renderer/converter/rule detector/disabled AI 5개 suite, 18개 테스트다. 1,000개 반복 INSERT 후보, malformed DXF, input/entity/output/coordinate/time/candidate/render 상한, 위험 argv, timeout, XML injection을 포함한다.
 
-## 검증 결과
+## 최초 구현 검증 결과
 
 - `pnpm --filter @led-control/api exec jest src/floor-import --runInBand`: 통과, 5 suites / 18 tests
 - CAD 파일 strict 단독 TypeScript compile: 통과
@@ -68,4 +68,53 @@
 - 실제 ODA/DWG 변환 binary 선택·배포와 worker 연결은 Task 19.3 이후 범위다. 이 task는 argv-array adapter 계약과 fail-close 실행 경계만 제공한다.
 - 실제 제공 DWG 품질·정확도 평가는 Task 19.5 범위다.
 - rule detector는 의도적으로 보수적이다. layer와 block 이름이 profile에 모두 맞고 동일 block이 반복될 때만 검출하므로 현장 profile이 부족하면 false negative가 발생한다.
-- 전체 API Jest green은 동시 report 작업의 오류가 해소된 뒤 다시 확인해야 한다.
+
+## Fix round 1 (2026-09-16)
+
+`task-19.2-review.md`의 P1 4건과 P2 4건을 모두 TDD로 보완했다.
+
+### Converter resource isolation
+
+- macOS/Unix production 전용 `ArgvCadConverter`로 경계를 명시했다. Windows와 process group을 제공하지 않는 platform은 constructor에서 fail-close한다.
+- converter를 `detached` Unix process group으로 실행하고 timeout, abort, process output 초과, output file 초과 시 negative PID에 `SIGKILL`을 보내 descendant 전체를 종료한다.
+- kill과 함께 stdout/stderr pipe를 destroy해 descendant가 상속한 pipe 때문에 `close`가 wall-clock 상한 뒤까지 지연되지 않게 했다.
+- 실행 중 output file을 20ms 간격으로 `lstat`해 size cap, symlink, non-regular file을 감지하면 즉시 process group을 종료한다.
+- timeout, nonzero exit, launch failure, process/file output 초과와 최종 검증 실패를 포함한 모든 실행 실패에서 partial output을 제거한다.
+- 실제 Node parent/descendant process와 inherited pipe를 사용한 회귀 테스트로 timeout 반환 시간과 지연 marker 미생성을 검증했다.
+
+### Strict DXF identity and numeric parsing
+
+- 좌표·scale·angle·bulge는 DXF decimal 문법을 full-match한 뒤 변환한다. empty, whitespace-only, hex, numeric separator, `Infinity`, `NaN`을 거부한다.
+- integer group은 별도 integer 문법과 safe-integer 검사를 사용한다.
+- group 5 handle은 문서 전체에서 대소문자를 무시해 중복 검사한다.
+- parser 생성 source ID와 명시 handle/source ID의 충돌도 fail-close한다.
+- INSERT 뒤의 ATTRIB/SEQEND를 구조적으로 소비하고 tag, value, position, rotation, height, source ID를 정규화한다. orphan ATTRIB/SEQEND는 거부한다.
+
+### Geometry and SVG correctness
+
+- polyline vertex에 group 42 bulge를 보존한다. signed bulge를 center/radius/start/sweep arc로 변환해 bounds extrema와 SVG sampled arc가 같은 geometry를 사용한다.
+- nested non-uniform INSERT 안의 TEXT/MTEXT는 `viewport projection × parent affine × text translation/rotation × glyph Y-flip` 전체를 SVG matrix로 적용한다.
+- text bounds와 SVG glyph가 같은 parent affine 계보를 사용하므로 non-uniform scale과 nested rotation에서 shear/축 scale을 잃지 않는다.
+
+### Detector evidence and nested INSERTs
+
+- `includes()`를 제거하고 Unicode NFKC token sequence 경계를 사용하는 matcher로 바꿨다. `LEDGER`, `SCHEDULED_NOTE` 같은 부분 문자열 false positive를 거부한다.
+- profile에 layer/block/ATTRIB/nearby-text positive matcher와 각 category deny matcher, nearby 거리, expanded INSERT 상한을 추가했다.
+- ATTRIB와 근접 TEXT positive evidence를 각각 `attribute_pattern`, `nearby_text_pattern`으로 결과에 기록하고 deny evidence가 있으면 후보를 제외한다.
+- detector 전용 INSERT expansion이 nested block을 world position/rotation/scale과 effective layer로 펼친다. source ID는 `ROOT/N1` 형식의 안정적인 insertion path를 사용한다.
+- 1,000개 후보 테스트도 expanded world traversal에서 유지된다.
+
+### Fix round 1 TDD/verification
+
+- 각 finding의 회귀 테스트를 먼저 추가해 4 converter, 6 parser, 2 renderer, 3 detector 실패를 확인한 뒤 구현했다.
+- 추가 identity review에서 handle case variant와 generated/explicit source collision 2건을 RED→GREEN으로 보강했다.
+- focused CAD: `5 suites / 37 tests` 통과
+- CAD strict standalone TypeScript compile: 통과
+- API typecheck: 통과
+- API build: 통과
+- API 전체 Jest: `152 suites passed / 43 environment-gated skipped`, `1,778 tests passed / 475 skipped / 실패 0`
+
+### 운영 주의
+
+- process-group isolation은 macOS/Unix production 기준이다. Windows는 지원하지 않고 fail-close한다.
+- 20ms output polling은 runaway file을 빠르게 종료하지만 filesystem quota 자체를 대체하지 않는다. 배포 worker의 임시 볼륨 quota는 Task 19.3 운영 구성에서도 유지해야 한다.

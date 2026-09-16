@@ -17,6 +17,20 @@ export interface CadBounds {
   maxY: number;
 }
 
+export interface CadPolylineVertex extends CadPoint {
+  /** DXF bulge: tan(included arc angle / 4) for the segment to the next vertex. */
+  bulge: number;
+}
+
+export interface NormalizedCadAttribute {
+  sourceEntityId: string;
+  tag: string;
+  value: string;
+  position: CadPoint;
+  rotation: number;
+  height: number;
+}
+
 interface NormalizedCadEntityBase {
   sourceEntityId: string;
   layer: string;
@@ -30,7 +44,7 @@ export interface NormalizedCadLine extends NormalizedCadEntityBase {
 
 export interface NormalizedCadPolyline extends NormalizedCadEntityBase {
   type: "lwpolyline" | "polyline";
-  vertices: CadPoint[];
+  vertices: CadPolylineVertex[];
   closed: boolean;
 }
 
@@ -62,6 +76,7 @@ export interface NormalizedCadInsert extends NormalizedCadEntityBase {
   position: CadPoint;
   rotation: number;
   scale: CadScale;
+  attributes: NormalizedCadAttribute[];
 }
 
 export type NormalizedCadEntity =

@@ -2,6 +2,8 @@ import { Buffer } from "node:buffer";
 import { computeCadBounds, expandCadDocument } from "./cad-geometry";
 import type {
   CadPoint,
+  CadPolylineVertex,
+  NormalizedCadAttribute,
   NormalizedCadBlock,
   NormalizedCadDocument,
   NormalizedCadEntity,
@@ -25,6 +27,8 @@ const DEFAULT_LIMITS: DxfParserLimits = {
   maxDurationMs: 5_000,
   now: () => performance.now()
 };
+const DXF_DECIMAL = /^[+-]?(?:(?:\d+(?:\.\d*)?)|(?:\.\d+))(?:[eE][+-]?\d+)?$/;
+const DXF_INTEGER = /^[+-]?\d+$/;
 
 interface DxfPair {
   code: number;
@@ -66,10 +70,19 @@ export function parseAsciiDxf(input: string | Buffer, options: Partial<DxfParser
     if (limits.now() - startedAt > limits.maxDurationMs) throw new Error("DXF parsing time limit exceeded");
   };
   const pairs = readPairs(source, checkTime);
+  const explicitHandles = new Set<string>();
+  for (const pair of pairs) {
+    if (pair.code !== 5) continue;
+    const handle = pair.value.trim().toLocaleUpperCase();
+    if (!handle || handle.length > 512) throw new Error(`Invalid DXF handle at line ${pair.line}`);
+    if (explicitHandles.has(handle)) throw new Error(`Duplicate DXF handle: ${handle}`);
+    explicitHandles.add(handle);
+  }
   let cursor = 0;
   let generatedId = 0;
   let rawEntityCount = 0;
   let sawEof = false;
+  const sourceEntityIds = new Set<string>();
   const blocks: NormalizedCadBlock[] = [];
   const entities: NormalizedCadEntity[] = [];
 
@@ -87,9 +100,22 @@ export function parseAsciiDxf(input: string | Buffer, options: Partial<DxfParser
       if (fallback !== undefined) return fallback;
       throw new Error(`Missing DXF ${label}`);
     }
-    const parsed = Number(pair.value.trim());
+    const text = pair.value.trim();
+    if (!DXF_DECIMAL.test(text)) throw new Error(`Invalid DXF decimal for ${label} at line ${pair.line}`);
+    const parsed = Number(text);
     if (!Number.isFinite(parsed)) throw new Error(`Invalid DXF number for ${label} at line ${pair.line}`);
     if (Math.abs(parsed) > limits.maxCoordinateMagnitude) throw new Error(`DXF coordinate limit exceeded for ${label}`);
+    return parsed;
+  };
+  const integer = (pair: DxfPair | undefined, label: string, fallback?: number) => {
+    if (!pair) {
+      if (fallback !== undefined) return fallback;
+      throw new Error(`Missing DXF ${label}`);
+    }
+    const text = pair.value.trim();
+    if (!DXF_INTEGER.test(text)) throw new Error(`Invalid DXF integer for ${label} at line ${pair.line}`);
+    const parsed = Number(text);
+    if (!Number.isSafeInteger(parsed)) throw new Error(`Invalid DXF integer for ${label} at line ${pair.line}`);
     return parsed;
   };
   const first = (body: readonly DxfPair[], code: number) => body.find(pair => pair.code === code);
@@ -98,10 +124,16 @@ export function parseAsciiDxf(input: string | Buffer, options: Partial<DxfParser
     y: number(first(body, yCode), `${label}.y`),
     z: number(first(body, zCode), `${label}.z`, 0)
   });
-  const idAndLayer = (body: readonly DxfPair[]) => ({
-    sourceEntityId: requireName(first(body, 5)?.value ?? `generated-${++generatedId}`, "entity id"),
-    layer: requireName(first(body, 8)?.value ?? "0", "layer")
-  });
+  const idAndLayer = (body: readonly DxfPair[]) => {
+    const explicit = first(body, 5)?.value;
+    const sourceEntityId = requireName(explicit ?? `generated-${++generatedId}`, "entity id");
+    const identityKey = sourceEntityId.toLocaleUpperCase();
+    if (sourceEntityIds.has(identityKey) || (explicit === undefined && explicitHandles.has(identityKey))) {
+      throw new Error(`Duplicate DXF source identity or handle collision: ${sourceEntityId}`);
+    }
+    sourceEntityIds.add(identityKey);
+    return { sourceEntityId, layer: requireName(first(body, 8)?.value ?? "0", "layer") };
+  };
   const positive = (value: number, label: string) => {
     if (value <= 0) throw new Error(`Invalid DXF ${label}`);
     return value;
@@ -118,7 +150,7 @@ export function parseAsciiDxf(input: string | Buffer, options: Partial<DxfParser
   };
 
   const parsePolyline = (header: DxfPair[], sourceType: "POLYLINE"): NormalizedCadPolyline => {
-    const vertices: CadPoint[] = [];
+    const vertices: CadPolylineVertex[] = [];
     let ended = false;
     while (cursor < pairs.length) {
       checkTime();
@@ -132,10 +164,10 @@ export function parseAsciiDxf(input: string | Buffer, options: Partial<DxfParser
       if (marker.value.trim().toUpperCase() !== "VERTEX") throw new Error("Unterminated DXF POLYLINE entity");
       registerEntity();
       const vertex = consumeBody();
-      vertices.push(point(vertex, 10, 20, 30, "vertex"));
+      vertices.push({ ...point(vertex, 10, 20, 30, "vertex"), bulge: number(first(vertex, 42), "vertex bulge", 0) });
     }
     if (!ended || vertices.length < 2) throw new Error("Unterminated or empty DXF POLYLINE entity");
-    return { type: sourceType.toLowerCase() as "polyline", ...idAndLayer(header), vertices, closed: (number(first(header, 70), "polyline flags", 0) & 1) === 1 };
+    return { type: sourceType.toLowerCase() as "polyline", ...idAndLayer(header), vertices, closed: (integer(first(header, 70), "polyline flags", 0) & 1) === 1 };
   };
 
   const parseEntity = (marker: DxfPair): NormalizedCadEntity | null => {
@@ -146,22 +178,29 @@ export function parseAsciiDxf(input: string | Buffer, options: Partial<DxfParser
     const common = idAndLayer(body);
     if (type === "LINE") return { type: "line", ...common, start: point(body, 10, 20, 30, "line start"), end: point(body, 11, 21, 31, "line end") };
     if (type === "LWPOLYLINE") {
-      const vertices: CadPoint[] = [];
-      let pending: { x: number; z: number } | null = null;
+      const vertices: CadPolylineVertex[] = [];
+      let pending: Partial<CadPolylineVertex> | null = null;
+      const finishVertex = () => {
+        if (!pending || pending.x === undefined || pending.y === undefined) throw new Error("Malformed DXF LWPOLYLINE vertex");
+        vertices.push({ x: pending.x, y: pending.y, z: pending.z ?? 0, bulge: pending.bulge ?? 0 });
+        pending = null;
+      };
       for (const pair of body) {
         if (pair.code === 10) {
-          if (pending) throw new Error("Malformed DXF LWPOLYLINE vertex");
-          pending = { x: number(pair, "vertex.x"), z: 0 };
+          if (pending) finishVertex();
+          pending = { x: number(pair, "vertex.x"), z: 0, bulge: 0 };
         } else if (pair.code === 20) {
-          if (!pending) throw new Error("Malformed DXF LWPOLYLINE vertex");
-          vertices.push({ x: pending.x, y: number(pair, "vertex.y"), z: pending.z });
-          pending = null;
+          if (!pending || pending.y !== undefined) throw new Error("Malformed DXF LWPOLYLINE vertex");
+          pending.y = number(pair, "vertex.y");
         } else if (pair.code === 30 && pending) {
           pending.z = number(pair, "vertex.z");
+        } else if (pair.code === 42 && pending) {
+          pending.bulge = number(pair, "vertex bulge");
         }
       }
-      if (pending || vertices.length < 2) throw new Error("Malformed DXF LWPOLYLINE vertices");
-      return { type: "lwpolyline", ...common, vertices, closed: (number(first(body, 70), "polyline flags", 0) & 1) === 1 };
+      if (pending) finishVertex();
+      if (vertices.length < 2) throw new Error("Malformed DXF LWPOLYLINE vertices");
+      return { type: "lwpolyline", ...common, vertices, closed: (integer(first(body, 70), "polyline flags", 0) & 1) === 1 };
     }
     if (type === "CIRCLE") return { type: "circle", ...common, center: point(body, 10, 20, 30, "circle center"), radius: positive(number(first(body, 40), "circle radius"), "circle radius") };
     if (type === "ARC") return {
@@ -189,7 +228,8 @@ export function parseAsciiDxf(input: string | Buffer, options: Partial<DxfParser
         x: positive(number(first(body, 41), "insert x scale", 1), "insert x scale"),
         y: positive(number(first(body, 42), "insert y scale", 1), "insert y scale"),
         z: positive(number(first(body, 43), "insert z scale", 1), "insert z scale")
-      }
+      },
+      attributes: []
     };
     return null;
   };
@@ -205,7 +245,28 @@ export function parseAsciiDxf(input: string | Buffer, options: Partial<DxfParser
         consumeBody();
         return parsed;
       }
+      if (type === "ATTRIB" || type === "SEQEND") throw new Error(`Orphan DXF ${type} entity`);
       const entity = parseEntity(marker);
+      if (entity?.type === "insert") {
+        while (pairs[cursor]?.code === 0 && pairs[cursor].value.trim().toUpperCase() === "ATTRIB") {
+          cursor++;
+          registerEntity();
+          const body = consumeBody();
+          const attribute: NormalizedCadAttribute = {
+            sourceEntityId: idAndLayer(body).sourceEntityId,
+            tag: requireName(first(body, 2)?.value, "attribute tag"),
+            value: first(body, 1)?.value ?? "",
+            position: point(body, 10, 20, 30, "attribute position"),
+            rotation: angle(number(first(body, 50), "attribute rotation", 0)),
+            height: positive(number(first(body, 40), "attribute height", 1), "attribute height")
+          };
+          entity.attributes.push(attribute);
+        }
+        if (pairs[cursor]?.code === 0 && pairs[cursor].value.trim().toUpperCase() === "SEQEND") {
+          cursor++;
+          consumeBody();
+        }
+      }
       if (entity) parsed.push(entity);
     }
     throw new Error(`Unterminated DXF ${terminator}`);
