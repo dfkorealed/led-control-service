@@ -3,12 +3,12 @@ import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { changePassword, type AuthUser } from "../../../api/auth";
 import { authMeQueryKey, principalKey, refreshPrincipalCache } from "../../../api/principal-cache";
-import { Button, Card, FeedbackState, PageHeader } from "../../../components/ui";
+import { Button, Card, FeedbackState, PageHeader, PasswordField } from "../../../components/ui";
 import { passwordChangeErrorMessage, validatePasswordChange } from "../../auth/password-form";
 
 export function PasswordSettingsView() {
   return (
-    <section className="settings-screen">
+    <section className="grid gap-5">
       <PageHeader
         title="비밀번호 변경"
         description="현재 비밀번호를 확인한 뒤 새 비밀번호를 적용합니다."
@@ -95,27 +95,18 @@ export function PasswordChangeCard() {
   }
 
   return (
-    <form className="password-settings-form" aria-label="비밀번호 변경" onSubmit={handleSubmit}>
-        <Card className="setup-section password-settings-card">
-          <div className="security-card-heading">
+    <form className="grid gap-4" aria-label="비밀번호 변경" onSubmit={handleSubmit}>
+        <Card className="grid gap-5 p-5">
+          <div className="flex items-start justify-between gap-4">
             <div>
-              <h2>비밀번호</h2>
-              <p>현재 비밀번호를 확인한 뒤 새 비밀번호로 변경합니다.</p>
+              <h2 className="m-0 text-card-title font-bold text-content-primary">비밀번호</h2>
+              <p className="mt-1 text-body text-content-secondary">현재 비밀번호를 확인한 뒤 새 비밀번호로 변경합니다.</p>
             </div>
           </div>
-          <div className="setup-form-grid">
-            <label>
-              현재 비밀번호
-              <input type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} />
-            </label>
-            <label>
-              새 비밀번호
-              <input type="password" autoComplete="new-password" minLength={8} maxLength={1024} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} />
-            </label>
-            <label>
-              새 비밀번호 확인
-              <input type="password" autoComplete="new-password" minLength={8} maxLength={1024} value={newPasswordConfirmation} onChange={(event) => setNewPasswordConfirmation(event.target.value)} />
-            </label>
+          <div className="grid gap-4 compact:grid-cols-3">
+            <PasswordField label="현재 비밀번호" autoComplete="current-password" value={currentPassword} onChange={setCurrentPassword} />
+            <PasswordField label="새 비밀번호" autoComplete="new-password" minLength={8} maxLength={1024} value={newPassword} onChange={setNewPassword} />
+            <PasswordField label="새 비밀번호 확인" autoComplete="new-password" minLength={8} maxLength={1024} value={newPasswordConfirmation} onChange={setNewPasswordConfirmation} />
           </div>
           {errorMessage ? (
             <FeedbackState tone="danger" icon={TriangleAlert} title="비밀번호를 변경하지 못했습니다." description={errorMessage} />
@@ -123,7 +114,7 @@ export function PasswordChangeCard() {
           {successMessage ? (
             <FeedbackState tone="success" icon={CircleCheck} title={successMessage} />
           ) : null}
-          <Button variant="primary" type="submit" isLoading={isPending} loadingLabel="변경 중">
+          <Button className="justify-self-start" variant="primary" type="submit" isLoading={isPending} loadingLabel="변경 중">
             비밀번호 변경
           </Button>
         </Card>

@@ -34,7 +34,7 @@ test("admin이 일반 유저의 전체 관리 여정을 완료하고 평문 비�
   await page.getByRole("button", { name: "김현수 수정" }).click();
   const editDialog = page.getByRole("dialog", { name: "김현수 사용자 수정" });
   await editDialog.getByLabel("이름").fill("김현수 수정");
-  await editDialog.getByRole("button", { name: "제어" }).click();
+  await editDialog.getByText("제어", { exact: true }).click();
   await editDialog.getByRole("button", { name: "변경사항 저장" }).click();
   await expect(page.getByText("김현수 수정")).toBeVisible();
   const editedRow = page.getByRole("row").filter({ hasText: "user_read" });
@@ -101,7 +101,7 @@ test("신규 일반 유저가 최초 로그인 비밀번호를 변경한 뒤 모
   await page.getByRole("button", { name: "비밀번호 변경" }).click();
 
   await expect(page).toHaveURL(/\/monitoring$/);
-  await expect(page.getByRole("combobox", { name: "맵 선택" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /맵 선택/ })).toBeVisible();
   expect(api.accounts[0]?.mustChangePassword).toBe(false);
   expect(containsAnySecret(api.responseBodies, [temporaryPassword, permanentPassword])).toBe(false);
   expect(await pageContainsAnySecret(page, [temporaryPassword, permanentPassword])).toBe(false);
@@ -185,10 +185,10 @@ test("read, control, admin의 메뉴와 직접 경로 및 수동 제어 API 권�
     await expect(control.page.getByRole("button", { name: "구역 현황" })).toBeVisible();
     expect(await manualCommandStatus(control.page)).toBe(201);
 
-    await control.page.getByRole("checkbox", { name: "B2-L01 선택" }).check();
+    await control.page.locator("label").filter({ hasText: "B2-L01 선택" }).click();
     await control.page.getByRole("button", { name: "30%", exact: true }).click();
     await control.page.getByRole("button", { name: "밝기 적용" }).click();
-    await expect(control.page.getByText("조명 적용 완료")).toBeVisible();
+    await expect(control.page.getByText(/조명 적용 완료 ·/)).toBeVisible();
     expect(control.api.commandRequests).toHaveLength(2);
   } finally {
     await control.page.close();

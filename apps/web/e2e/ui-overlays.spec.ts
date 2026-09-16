@@ -10,7 +10,6 @@ import {createRoot} from "react-dom/client";
 import {ModalDialog,ConfirmDialog,DropdownMenu,Popover,Button} from "/src/components/ui/index.ts";
 import {ConfirmDialog as LegacyConfirm,useDialogFocus} from "/src/components/ConfirmDialog.tsx";
 import "/src/styles.css";
-import "/src/features/settings/users/SiteUsersView.css";
 const el=React.createElement;
 window.overlayEvents=[]; window.overlayRoots={};
 const record=(...value)=>window.overlayEvents.push(value);
@@ -21,7 +20,7 @@ function App(){
  return el("main",{className:"flex flex-col gap-4"},
   el("h1",null,"오버레이 검증"),
   ...["default","operator","editor","custom"].map(kind=>el(Button,{key:kind,onClick:()=>setWidthDialog(kind)},"폭 "+kind)),
-  widthDialog&&el(widthDialog==="operator"?LegacyConfirm:widthDialog==="editor"?ConfirmDialog:ModalDialog,{title:"폭 검증",className:widthDialog==="custom"?"site-user-dialog-wide":undefined,confirmLabel:"확인",onConfirm:()=>setWidthDialog(null),onCancel:()=>setWidthDialog(null),onClose:()=>setWidthDialog(null)},"내용"),
+  widthDialog&&el(widthDialog==="operator"?LegacyConfirm:widthDialog==="editor"?ConfirmDialog:ModalDialog,{title:"폭 검증",className:widthDialog==="custom"?"w-[min(38.125rem,100%)]!":undefined,confirmLabel:"확인",onConfirm:()=>setWidthDialog(null),onCancel:()=>setWidthDialog(null),onClose:()=>setWidthDialog(null)},"내용"),
   !removed&&el(Button,{onClick:()=>setOpen(true)},"부모 열기"),el(Button,{ref:fallback},"안전한 복귀"),
   el(Button,{onClick:()=>{setPending(true);setChild(true);}},"대기 확인 열기"),
   el(Button,{onClick:()=>setLegacy(true)},"이전 확인 열기"),

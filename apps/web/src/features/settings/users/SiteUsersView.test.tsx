@@ -94,12 +94,15 @@ describe("SiteUsersView", () => {
     expect(screen.queryByText("김현수")).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("사용자 검색"), { target: { value: "" } });
-    fireEvent.change(screen.getByLabelText("권한 필터"), { target: { value: "control" } });
+    fireEvent.click(screen.getByRole("button", { name: /권한 필터/ }));
+    fireEvent.click(screen.getByRole("option", { name: "제어" }));
     expect(screen.getByText("김현수")).toBeVisible();
     expect(screen.queryByText("야간 당직")).not.toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("권한 필터"), { target: { value: "all" } });
-    fireEvent.change(screen.getByLabelText("상태 필터"), { target: { value: "disabled" } });
+    fireEvent.click(screen.getByRole("button", { name: /권한 필터/ }));
+    fireEvent.click(screen.getByRole("option", { name: "모든 권한" }));
+    fireEvent.click(screen.getByRole("button", { name: /상태 필터/ }));
+    fireEvent.click(screen.getByRole("option", { name: "비활성" }));
     expect(screen.getByText("야간 당직")).toBeVisible();
   });
 
@@ -113,7 +116,7 @@ describe("SiteUsersView", () => {
     expect(api.createSiteUser).not.toHaveBeenCalled();
 
     fillProfile(dialog, { name: "새 사용자", loginId: "new.user", password: "Temporary-123" });
-    fireEvent.click(within(dialog).getByRole("button", { name: "제어" }));
+    fireEvent.click(within(dialog).getByRole("radio", { name: "제어" }));
     fireEvent.click(within(dialog).getByRole("button", { name: "사용자 생성" }));
 
     await waitFor(() => expect(api.createSiteUser).toHaveBeenCalledWith("site-1", {
@@ -135,7 +138,7 @@ describe("SiteUsersView", () => {
     const dialog = screen.getByRole("dialog", { name: "김현수 사용자 수정" });
     expect(within(dialog).queryByLabelText(/비밀번호/)).not.toBeInTheDocument();
     fireEvent.change(within(dialog).getByLabelText("이름"), { target: { value: "김수정" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: "조회" }));
+    fireEvent.click(within(dialog).getByRole("radio", { name: "조회" }));
     fireEvent.click(within(dialog).getByRole("button", { name: "변경사항 저장" }));
 
     await waitFor(() => expect(api.updateSiteUser).toHaveBeenCalledWith("site-1", "user-1", {

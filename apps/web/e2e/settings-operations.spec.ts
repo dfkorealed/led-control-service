@@ -27,8 +27,8 @@ test("admin이 현장, 층, 조명, 구역 운영 흐름을 완료한다", async
   await expect(page.getByRole("button", { name: "B1 복구" })).toBeVisible();
 
   const fixtureForm = page.getByRole("form", { name: "B2-L01 조명 정보 수정" });
-  await fixtureForm.getByLabel("B2-L01 이름").fill("B2 출입구 조명");
-  await fixtureForm.getByLabel("B2-L01 정격전력").fill("42.5");
+  await fixtureForm.getByLabel("이름", { exact: true }).fill("B2 출입구 조명");
+  await fixtureForm.getByLabel("정격전력 (W)", { exact: true }).fill("42.5");
   await fixtureForm.getByRole("button", { name: "B2-L01 조명 정보 저장" }).click();
   await expect(page.getByRole("form", { name: "B2 출입구 조명 조명 정보 수정" })).toBeVisible();
   await page.getByRole("button", { name: "다음 200개 불러오기" }).click();
@@ -70,7 +70,7 @@ for (const viewport of [
     await expectNoHorizontalOverflow(page);
 
     if (viewport.width <= 760) {
-      await expectMinimumTouchTargetsAfterScrolling(page, ".site-operations-screen");
+      await expectMinimumTouchTargetsAfterScrolling(page, "section[aria-label='현장 관리']");
       await expectNoHorizontalOverflow(page);
     }
   });

@@ -14,7 +14,7 @@ import {
   type MfaEnrollment
 } from "../../../api/auth";
 import { authSessionsQueryKey, clearPrincipalCache, hasPrincipal, principalKey } from "../../../api/principal-cache";
-import { Button, Card, FeedbackState, PageHeader } from "../../../components/ui";
+import { Button, Card, ConfirmDialog, FeedbackState, PageHeader, PasswordField, StatusBadge, TextField } from "../../../components/ui";
 import { PasswordChangeCard } from "./PasswordSettingsView";
 
 type MfaQueryKey = readonly ["auth", "mfa", string];
@@ -26,9 +26,9 @@ export function AccountSecurityView({ user }: { user: AuthUser }) {
   const sessionsQueryKey = authSessionsQueryKey(principal);
 
   return (
-    <section className="settings-screen account-security-screen">
+    <section className="grid gap-5">
       <PageHeader title="계정 보안" description="비밀번호, 2단계 인증과 로그인된 기기를 관리합니다." />
-      <div key={principal} className="account-security-stack">
+      <div key={principal} className="grid gap-5">
         <PasswordChangeCard />
         {user.role === "admin" || user.role === "operator" ? (
           <MfaCard principal={principal} mfaQueryKey={mfaQueryKey} sessionsQueryKey={sessionsQueryKey} />
@@ -140,11 +140,11 @@ function MfaCard({
   }
 
   return (
-    <Card className="setup-section security-card" aria-labelledby="mfa-card-title">
-      <div className="security-card-heading">
+    <Card className="grid gap-5 p-5" aria-labelledby="mfa-card-title">
+      <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 id="mfa-card-title">2단계 인증</h2>
-          <p>인증 앱 코드로 operator와 admin 계정을 추가 보호합니다.</p>
+          <h2 id="mfa-card-title" className="m-0 text-card-title font-bold">2단계 인증</h2>
+          <p className="mt-1 text-content-secondary">인증 앱 코드로 operator와 admin 계정을 추가 보호합니다.</p>
         </div>
         <ShieldCheck size={22} aria-hidden="true" />
       </div>
@@ -158,7 +158,7 @@ function MfaCard({
         />
       ) : null}
       {data && !enrollment && recoveryCodes.length === 0 ? (
-        <div className="security-status-row">
+        <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <strong>{data.enabled ? "2단계 인증이 켜져 있습니다." : "2단계 인증이 꺼져 있습니다."}</strong>
             <p>{data.enabled ? "로그인할 때 인증 앱 또는 복구 코드가 필요합니다." : "계정 탈취 위험을 줄이려면 설정을 권장합니다."}</p>
@@ -171,21 +171,18 @@ function MfaCard({
         </div>
       ) : null}
       {enrollment ? (
-        <form className="security-enrollment" aria-label="2단계 인증 설정" onSubmit={confirmEnrollment}>
+        <form className="grid gap-4" aria-label="2단계 인증 설정" onSubmit={confirmEnrollment}>
           <p>인증 앱에서 아래 설정 키를 직접 입력한 뒤 생성된 6자리 코드를 확인하세요.</p>
-          <code className="security-secret" aria-label="인증 앱 설정 키">{enrollment.secret}</code>
-          <label>
-            인증 앱 코드
-            <input inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={(event) => setCode(event.target.value)} required />
-          </label>
-          <div className="security-actions">
+          <code className="break-all rounded-control bg-surface-inset p-3" aria-label="인증 앱 설정 키">{enrollment.secret}</code>
+          <TextField label="인증 앱 코드" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={setCode} isRequired />
+          <div className="flex flex-wrap gap-2">
             <Button type="submit" variant="primary" isLoading={pendingAction === "confirm"} loadingLabel="확인 중">설정 완료</Button>
             <Button type="button" variant="ghost" disabled={Boolean(pendingAction)} onClick={() => { setEnrollment(null); setCode(""); }}>취소</Button>
           </div>
         </form>
       ) : null}
       {recoveryCodes.length > 0 ? (
-        <div className="security-recovery" role="status" aria-live="polite">
+        <div className="grid gap-3 rounded-panel border border-status-warning-border bg-status-warning-background p-4" role="status" aria-live="polite">
           <strong>복구 코드는 지금 한 번만 표시됩니다.</strong>
           <p>인증 앱을 사용할 수 없을 때 각 코드를 한 번씩 사용할 수 있습니다.</p>
           <ul aria-label="복구 코드">{recoveryCodes.map((recoveryCode) => <li key={recoveryCode}><code>{recoveryCode}</code></li>)}</ul>
@@ -193,16 +190,10 @@ function MfaCard({
         </div>
       ) : null}
       {data?.enabled && showDisable ? (
-        <form className="security-disable-form" aria-label="2단계 인증 해제" onSubmit={submitDisable}>
-          <label>
-            MFA 해제용 현재 비밀번호
-            <input type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required />
-          </label>
-          <label>
-            {disableMode === "totp" ? "MFA 해제용 인증 앱 코드" : "MFA 해제용 복구 코드"}
-            <input type="text" inputMode={disableMode === "totp" ? "numeric" : "text"} autoComplete="one-time-code" value={disableValue} onChange={(event) => setDisableValue(event.target.value)} required />
-          </label>
-          <div className="security-actions">
+        <form className="grid gap-4" aria-label="2단계 인증 해제" onSubmit={submitDisable}>
+          <PasswordField label="MFA 해제용 현재 비밀번호" autoComplete="current-password" value={currentPassword} onChange={setCurrentPassword} isRequired />
+          <TextField label={disableMode === "totp" ? "MFA 해제용 인증 앱 코드" : "MFA 해제용 복구 코드"} inputMode={disableMode === "totp" ? "numeric" : "text"} autoComplete="one-time-code" value={disableValue} onChange={setDisableValue} isRequired />
+          <div className="flex flex-wrap gap-2">
             <Button type="submit" variant="danger" isLoading={pendingAction === "disable"} loadingLabel="해제 중">해제 확인</Button>
             <Button type="button" variant="ghost" disabled={Boolean(pendingAction)} onClick={() => { setDisableMode((mode) => mode === "totp" ? "recovery" : "totp"); setDisableValue(""); }}>
               {disableMode === "totp" ? "복구 코드 사용" : "인증 앱 코드 사용"}
@@ -223,6 +214,7 @@ function SessionsCard({ principal, sessionsQueryKey }: { principal: string; sess
     retry: false
   });
   const [pendingSessionId, setPendingSessionId] = useState<string | null>(null);
+  const [sessionToConfirm, setSessionToConfirm] = useState<AuthSession | null>(null);
   const [isRevokingOthers, setIsRevokingOthers] = useState(false);
   const [message, setMessage] = useState<{ tone: "success" | "danger"; text: string } | null>(null);
   const mounted = useRef(false);
@@ -238,7 +230,14 @@ function SessionsCard({ principal, sessionsQueryKey }: { principal: string; sess
 
   async function revokeSession(session: AuthSession) {
     if (pendingSessionId || isRevokingOthers) return;
-    if (session.current && !window.confirm("현재 세션을 종료하면 로그인 화면으로 이동합니다. 계속하시겠습니까?")) return;
+    if (session.current) {
+      setSessionToConfirm(session);
+      return;
+    }
+    await revokeSessionNow(session);
+  }
+
+  async function revokeSessionNow(session: AuthSession) {
     setPendingSessionId(session.id);
     setMessage(null);
     try {
@@ -284,11 +283,11 @@ function SessionsCard({ principal, sessionsQueryKey }: { principal: string; sess
   const otherSessionCount = sessions.filter((session) => !session.current).length;
 
   return (
-    <Card className="setup-section security-card" aria-labelledby="sessions-card-title">
-      <div className="security-card-heading">
+    <Card className="grid gap-5 p-5" aria-labelledby="sessions-card-title">
+      <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 id="sessions-card-title">활성 세션</h2>
-          <p>현재 로그인된 브라우저와 기기를 확인하고 필요 없는 세션을 종료합니다.</p>
+          <h2 id="sessions-card-title" className="m-0 text-card-title font-bold">활성 세션</h2>
+          <p className="mt-1 text-content-secondary">현재 로그인된 브라우저와 기기를 확인하고 필요 없는 세션을 종료합니다.</p>
         </div>
         <Laptop size={22} aria-hidden="true" />
       </div>
@@ -304,13 +303,13 @@ function SessionsCard({ principal, sessionsQueryKey }: { principal: string; sess
       {data && sessions.length === 0 ? <FeedbackState tone="neutral" icon={Laptop} title="표시할 활성 세션이 없습니다." /> : null}
       {sessions.length > 0 ? (
         <>
-          <ul className="security-session-list" aria-label="활성 세션">
+          <ul className="grid list-none gap-3 p-0" aria-label="활성 세션">
             {sessions.map((session) => (
-              <li key={session.id} className="security-session-item">
+              <li key={session.id} className="flex flex-wrap items-center justify-between gap-4 rounded-control border border-border-default p-4">
                 <div>
-                  <div className="security-session-title">
+                  <div className="flex flex-wrap items-center gap-2">
                     <strong>{session.userAgent || "알 수 없는 브라우저"}</strong>
-                    {session.current ? <span className="status-badge status-online">현재 세션</span> : null}
+                    {session.current ? <StatusBadge tone="success" icon={CircleCheck}>현재 세션</StatusBadge> : null}
                   </div>
                   <p>{session.ipAddress || "IP 정보 없음"} · {session.rememberMe ? "자동 로그인" : "일반 로그인"} · {session.mfaVerified ? "MFA 확인" : "비밀번호 확인"}</p>
                   <p>로그인 {formatDateTime(session.createdAt)} · 만료 {formatDateTime(session.expiresAt)}</p>
@@ -334,6 +333,22 @@ function SessionsCard({ principal, sessionsQueryKey }: { principal: string; sess
         </>
       ) : null}
       {message ? <FeedbackState tone={message.tone} icon={message.tone === "success" ? CircleCheck : CircleAlert} title={message.text} /> : null}
+      <ConfirmDialog
+        isOpen={sessionToConfirm !== null}
+        title="현재 세션 종료"
+        role="alertdialog"
+        confirmLabel="세션 종료"
+        tone="danger"
+        onCancel={() => setSessionToConfirm(null)}
+        onConfirm={() => {
+          if (!sessionToConfirm) return;
+          const session = sessionToConfirm;
+          setSessionToConfirm(null);
+          void revokeSessionNow(session);
+        }}
+      >
+        현재 세션을 종료하면 로그인 화면으로 이동합니다. 계속하시겠습니까?
+      </ConfirmDialog>
     </Card>
   );
 }

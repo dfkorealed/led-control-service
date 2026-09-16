@@ -1,8 +1,7 @@
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { BrowserRouter, MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SiteSummary } from "../../api/queries";
-import { dirtyEditorSentinelKey } from "../floor-editor/dirty-editor-history";
 import { SiteSwitcher } from "./SiteSwitcher";
 
 const sites = [
@@ -15,16 +14,14 @@ function LocationProbe() {
   return <output>{`${location.pathname}${location.search}${location.hash}`}</output>;
 }
 
-function RoutedSiteSwitcher() {
-  const location = useLocation();
-  const selectedSiteId = new URLSearchParams(location.search).get("siteId") ?? undefined;
-  return <><SiteSwitcher sites={sites} selectedSiteId={selectedSiteId} canSelectSite={() => window.confirm("discard?")} /><LocationProbe /></>;
+function selectSite(label: string) {
+  fireEvent.click(screen.getByRole("button", { name: /현장 선택/ }));
+  fireEvent.click(screen.getByRole("option", { name: label }));
 }
 
 describe("SiteSwitcher", () => {
   afterEach(() => {
     cleanup();
-    vi.restoreAllMocks();
     window.history.replaceState({}, "", "/");
   });
 
@@ -42,7 +39,7 @@ describe("SiteSwitcher", () => {
       </MemoryRouter>
     );
 
-    fireEvent.change(screen.getByLabelText("현장 선택"), { target: { value: "site-2" } });
+    selectSite("물류센터");
 
     expect(screen.getByText("/settings/floor-plans?siteId=site-2")).toBeInTheDocument();
   });
@@ -60,6 +57,7 @@ describe("SiteSwitcher", () => {
       </MemoryRouter>
     );
 
+    fireEvent.click(screen.getByRole("button", { name: /현장 선택/ }));
     const options = screen.getAllByRole("option").map((option) => option.textContent);
     expect(options).toEqual(["고객사 A · 본사", "고객사 B · 본사"]);
   });
@@ -73,13 +71,12 @@ describe("SiteSwitcher", () => {
             { id: "site-2", name: "물류센터" }
           ] satisfies SiteSummary[]}
           selectedSiteId="site-1"
-          canSelectSite={() => true}
         />
         <LocationProbe />
       </MemoryRouter>
     );
 
-    fireEvent.change(screen.getByLabelText("현장 선택"), { target: { value: "site-2" } });
+    selectSite("물류센터");
 
     expect(screen.getByText("/settings/floor-plans?siteId=site-2#map-preview")).toBeInTheDocument();
   });
@@ -98,32 +95,23 @@ describe("SiteSwitcher", () => {
       </MemoryRouter>
     );
 
-    fireEvent.change(screen.getByLabelText("현장 선택"), { target: { value: "site-2" } });
+    selectSite("물류센터");
 
     expect(screen.getByText("/settings/floor-plans?siteId=site-2")).toBeInTheDocument();
   });
 
-  it("replaces a dirty editor sentinel on an approved site switch", async () => {
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
-    window.history.replaceState({ idx: 0 }, "", "/settings?siteId=site-1");
-    window.history.pushState({ idx: 1 }, "", "/settings/floor-plans/floor-1/edit?siteId=site-1");
-    window.history.pushState({ idx: 2, [dirtyEditorSentinelKey]: "sentinel" }, "", window.location.href);
+  it("delegates a site selection when the shell owns navigation", () => {
+    const onSelectionChange = vi.fn();
     render(
-      <BrowserRouter>
-        <Routes>
-          <Route path="/settings" element={<h2>설정 개요</h2>} />
-          <Route path="/settings/floor-plans" element={<><h2>맵 관리</h2><RoutedSiteSwitcher /></>} />
-          <Route path="/settings/floor-plans/:floorId/edit" element={<><h2>맵 편집</h2><RoutedSiteSwitcher /></>} />
-        </Routes>
-      </BrowserRouter>
+      <MemoryRouter initialEntries={["/settings?siteId=site-1"]}>
+        <SiteSwitcher sites={sites} selectedSiteId="site-1" onSelectionChange={onSelectionChange} />
+        <LocationProbe />
+      </MemoryRouter>
     );
 
-    fireEvent.change(screen.getByRole("combobox", { name: "현장 선택" }), { target: { value: "site-2" } });
-    expect(await screen.findByRole("heading", { name: "맵 관리" })).toBeInTheDocument();
-    act(() => window.history.back());
-    expect(await screen.findByRole("heading", { name: "맵 편집" })).toBeInTheDocument();
-    act(() => window.history.back());
-    expect(await screen.findByRole("heading", { name: "설정 개요" })).toBeInTheDocument();
-    expect(confirm).toHaveBeenCalledOnce();
+    selectSite("고객사 B · 물류센터");
+
+    expect(onSelectionChange).toHaveBeenCalledWith("site-2");
+    expect(screen.getByText("/settings?siteId=site-1")).toBeInTheDocument();
   });
 });

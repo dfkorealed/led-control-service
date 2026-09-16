@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import type { FixtureGroupMetadata } from "@led-control/shared";
 import { Archive, CheckCircle2, CircleAlert, Clock3, Lightbulb, Network, Plus, RotateCcw, Save } from "lucide-react";
@@ -20,8 +20,7 @@ import {
   type SiteSettings,
   type SiteSettingsFloor
 } from "../../../api/site-settings";
-import { Button, Card, FeedbackState, ModalDialog, PageHeader, StatusBadge } from "../../../components/ui";
-import "./SiteOperationsView.css";
+import { Button, Card, FeedbackState, ModalDialog, PageHeader, SelectBox, StatusBadge, TextField } from "../../../components/ui";
 
 interface RetryableError {
   title: string;
@@ -105,7 +104,7 @@ export function SiteOperationsView({ siteId }: { siteId?: string }) {
   }
 
   return (
-    <section className="settings-screen site-operations-screen" aria-label="현장 관리">
+    <section className="grid min-w-0 content-start gap-6" aria-label="현장 관리">
       <PageHeader title="현장 관리" description="설치 후 운영에 필요한 현장, 층, 조명, 구역 정보를 관리합니다." />
 
       {settingsQuery.isPending && !settingsQuery.data
@@ -121,13 +120,13 @@ export function SiteOperationsView({ siteId }: { siteId?: string }) {
       {settingsQuery.data ? <>
         <SiteInformationForm siteId={siteId} site={settingsQuery.data.site} />
 
-        <section className="site-operations-section" aria-label="층 관리">
+        <section className="grid gap-4 border-t border-border-default pt-6" aria-label="층 관리">
           <PageHeader title="층 관리" headingLevel={3} description="층의 운영 표시 정보와 보관 상태를 관리합니다." />
           {floorActionError ? (
             <FeedbackState tone="danger" icon={CircleAlert} title={floorActionError.title} action={<Button type="button" onClick={floorActionError.retry}>{floorActionError.retryLabel}</Button>} />
           ) : null}
           <CreateFloorForm siteId={siteId} nextDisplayOrder={settingsQuery.data.floors.length} />
-          <div className="site-operations-list" aria-label="층 목록">
+          <div className="grid gap-3" aria-label="층 목록">
             {settingsQuery.data.floors.map((floor) => (
               <FloorRow
                 key={floor.id}
@@ -227,18 +226,18 @@ function SiteInformationForm({ siteId, site }: { siteId: string; site: SiteSetti
   }
 
   return (
-    <section className="site-operations-section" aria-label="현장 정보">
+    <section className="grid gap-4" aria-label="현장 정보">
       <PageHeader title="현장 정보" headingLevel={3} description="요금 계산과 현장 시간 기준에 사용하는 기본 정보입니다." />
       {notice ? <FeedbackState tone="success" icon={CheckCircle2} title={notice} /> : null}
       {actionError ? <FeedbackState tone="danger" icon={CircleAlert} title={actionError.title} action={<Button type="button" onClick={actionError.retry}>{actionError.retryLabel}</Button>} /> : null}
-      <Card className="site-operations-card">
-        <form aria-label="현장 정보" className="site-operations-form site-information-grid" onSubmit={submit}>
-          <Field label="현장명"><input required maxLength={120} value={name} onChange={(event) => setName(event.target.value)} /></Field>
-          <Field label="주소" className="site-address-field"><input required maxLength={500} value={address} onChange={(event) => setAddress(event.target.value)} /></Field>
-          <Field label="시간대"><input required maxLength={100} value={timeZone} onChange={(event) => setTimeZone(event.target.value)} /></Field>
-          <Field label="통화"><input readOnly value="KRW" /></Field>
-          <Field label="kWh 단가"><input required type="number" min="0" max="99999999.99" step="0.01" value={tariffKwhRate} onChange={(event) => setTariffKwhRate(event.target.value)} /></Field>
-          <div className="site-operations-form-actions">
+      <Card className="p-5">
+        <form aria-label="현장 정보" className="grid gap-4 compact:grid-cols-2" onSubmit={submit}>
+          <TextField label="현장명" isRequired maxLength={120} value={name} onChange={setName} />
+          <TextField label="주소" className="compact:col-span-2" isRequired maxLength={500} value={address} onChange={setAddress} />
+          <TextField label="시간대" isRequired maxLength={100} value={timeZone} onChange={setTimeZone} />
+          <TextField label="통화" isReadOnly value="KRW" />
+          <TextField label="kWh 단가" isRequired inputMode="decimal" pattern="[0-9]+([.][0-9]{0,2})?" value={tariffKwhRate} onChange={setTariffKwhRate} />
+          <div className="flex items-end compact:justify-end">
             <Button type="submit" variant="primary" isLoading={mutation.isPending} loadingLabel="저장 중"><Save size={16} aria-hidden="true" /> 현장 정보 저장</Button>
           </div>
         </form>
@@ -270,13 +269,13 @@ function CreateFloorForm({ siteId, nextDisplayOrder }: { siteId: string; nextDis
   });
 
   return (
-    <Card className="site-operations-card floor-create-card">
+    <Card className="grid gap-4 p-5">
       {actionError ? <FeedbackState tone="danger" icon={CircleAlert} title={actionError.title} action={<Button type="button" onClick={actionError.retry}>{actionError.retryLabel}</Button>} /> : null}
-      <form aria-label="층 추가" className="site-operations-form floor-form-grid" onSubmit={(event) => { event.preventDefault(); setActionError(null); mutation.mutate(); }}>
-        <Field label="새 층 이름"><input required maxLength={120} value={name} onChange={(event) => setName(event.target.value)} /></Field>
-        <Field label="새 층 레벨"><input required type="number" step="1" value={level} onChange={(event) => setLevel(event.target.value)} /></Field>
-        <Field label="새 층 표시 순서"><input required type="number" min="0" step="1" value={displayOrder} onChange={(event) => setDisplayOrder(event.target.value)} /></Field>
-        <div className="site-operations-form-actions">
+      <form aria-label="층 추가" className="grid gap-4 tablet:grid-cols-[2fr_1fr_1fr_auto] tablet:items-end" onSubmit={(event) => { event.preventDefault(); setActionError(null); mutation.mutate(); }}>
+        <TextField label="새 층 이름" isRequired maxLength={120} value={name} onChange={setName} />
+        <TextField label="새 층 레벨" isRequired inputMode="numeric" pattern="-?[0-9]+" value={level} onChange={setLevel} />
+        <TextField label="새 층 표시 순서" isRequired inputMode="numeric" pattern="[0-9]+" value={displayOrder} onChange={setDisplayOrder} />
+        <div className="flex items-end">
           <Button type="submit" variant="primary" isLoading={mutation.isPending} loadingLabel="추가 중"><Plus size={16} aria-hidden="true" /> 층 추가</Button>
         </div>
       </form>
@@ -324,19 +323,19 @@ function FloorRow({ siteId, floor, busy, onArchive, onRestore }: {
   }, [floor]);
 
   return (
-    <Card className="site-operations-card floor-row-card" data-status={floor.status}>
-      <div className="site-operations-row-heading">
+    <Card className="grid gap-4 p-5" data-status={floor.status}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <strong>{floor.name}</strong>
         <StatusBadge tone={floor.status === "active" ? "success" : "neutral"} icon={floor.status === "active" ? CheckCircle2 : Archive}>
           {floor.status === "active" ? "운영 중" : "보관됨"}
         </StatusBadge>
       </div>
       {actionError ? <FeedbackState tone="danger" icon={CircleAlert} title={actionError.title} action={<Button type="button" onClick={actionError.retry}>{actionError.retryLabel}</Button>} /> : null}
-      <form aria-label={`${floor.name} 층 정보 수정`} className="site-operations-form floor-form-grid" onSubmit={(event) => { event.preventDefault(); setActionError(null); mutation.mutate(); }}>
-        <Field label="이름"><input aria-label={`${floor.name} 이름`} required maxLength={120} disabled={floor.status === "archived"} value={name} onChange={(event) => setName(event.target.value)} /></Field>
-        <Field label="레벨"><input aria-label={`${floor.name} 레벨`} required type="number" step="1" disabled={floor.status === "archived"} value={level} onChange={(event) => setLevel(event.target.value)} /></Field>
-        <Field label="표시 순서"><input aria-label={`${floor.name} 표시 순서`} required type="number" min="0" step="1" disabled={floor.status === "archived"} value={displayOrder} onChange={(event) => setDisplayOrder(event.target.value)} /></Field>
-        <div className="site-operations-form-actions floor-row-actions">
+      <form aria-label={`${floor.name} 층 정보 수정`} className="grid gap-4 tablet:grid-cols-[2fr_1fr_1fr_auto] tablet:items-end" onSubmit={(event) => { event.preventDefault(); setActionError(null); mutation.mutate(); }}>
+        <TextField aria-label={`${floor.name} 이름`} label="이름" isRequired maxLength={120} isDisabled={floor.status === "archived"} value={name} onChange={setName} />
+        <TextField aria-label={`${floor.name} 레벨`} label="레벨" isRequired inputMode="numeric" pattern="-?[0-9]+" isDisabled={floor.status === "archived"} value={level} onChange={setLevel} />
+        <TextField aria-label={`${floor.name} 표시 순서`} label="표시 순서" isRequired inputMode="numeric" pattern="[0-9]+" isDisabled={floor.status === "archived"} value={displayOrder} onChange={setDisplayOrder} />
+        <div className="flex flex-wrap items-end gap-2">
           {floor.status === "active" ? <>
             <Button type="submit" isLoading={mutation.isPending} loadingLabel="저장 중" disabled={busy}><Save size={16} aria-hidden="true" /> {floor.name} 층 정보 저장</Button>
             <Button type="button" variant="danger" aria-label={`${floor.name} 보관`} disabled={archiveBlocked || busy || mutation.isPending} onClick={onArchive}><Archive size={16} aria-hidden="true" /> 보관</Button>
@@ -345,7 +344,7 @@ function FloorRow({ siteId, floor, busy, onArchive, onRestore }: {
           )}
         </div>
       </form>
-      <p className={archiveBlocked ? "site-operations-block-reason" : "site-operations-counts"}>
+      <p className={archiveBlocked ? "m-0 text-caption text-status-danger-foreground" : "m-0 text-caption text-content-secondary"}>
         {archiveBlocked
           ? `조명 ${floor.fixtureCount}개와 활성 구역 ${floor.activeGroupCount}개가 있어 보관할 수 없습니다.`
           : `조명 ${floor.fixtureCount}개 · 활성 구역 ${floor.activeGroupCount}개`}
@@ -373,17 +372,13 @@ function FixtureSection({ siteId, floors, selectedFloorId, onSelectedFloorIdChan
   );
 
   return (
-    <section className="site-operations-section" aria-label="조명 관리">
+    <section className="grid gap-4 border-t border-border-default pt-6" aria-label="조명 관리">
       <PageHeader
         title="조명 관리"
         headingLevel={3}
         description="이름과 정격전력만 수정합니다. 위치와 크기는 맵 관리에서 조정합니다."
         actions={floors.length > 0 ? (
-          <label className="site-operations-floor-select"><span>층 선택</span>
-            <select aria-label="조명 층 선택" value={selectedFloorId} onChange={(event) => onSelectedFloorIdChange(event.target.value)}>
-              {floors.map((floor) => <option key={floor.id} value={floor.id}>{floor.name}</option>)}
-            </select>
-          </label>
+          <SelectBox aria-label="조명 층 선택" label="층 선택" className="min-w-48" items={floors.map((floor) => ({ id: floor.id, label: floor.name }))} selectedKey={selectedFloorId || null} onSelectionChange={(floorId) => { if (floorId) onSelectedFloorIdChange(floorId); }} />
         ) : null}
       />
       {floors.length === 0 ? <FeedbackState tone="neutral" icon={Lightbulb} title="조명을 조회할 운영 중인 층이 없습니다." /> : null}
@@ -391,10 +386,10 @@ function FixtureSection({ siteId, floors, selectedFloorId, onSelectedFloorIdChan
       {fixturesQuery.error && fixtures.length === 0 ? <FeedbackState tone="danger" icon={CircleAlert} title="조명 목록을 불러오지 못했습니다." action={<Button type="button" onClick={() => void fixturesQuery.refetch()}>조명 목록 다시 시도</Button>} /> : null}
       {fixturesQuery.error && fixtures.length > 0 ? <FeedbackState tone="danger" icon={CircleAlert} title="다음 조명 목록을 불러오지 못했습니다. 기존 목록을 표시합니다." action={<Button type="button" onClick={() => void fixturesQuery.fetchNextPage()}>다음 목록 다시 시도</Button>} /> : null}
       {!fixturesQuery.isPending && !fixturesQuery.error && selectedFloorId && fixtures.length === 0 ? <FeedbackState tone="neutral" icon={Lightbulb} title="이 층에 등록된 조명이 없습니다." /> : null}
-      {fixtures.length > 0 ? <div className="site-operations-list fixture-list" aria-label="조명 목록">
+      {fixtures.length > 0 ? <div className="grid gap-3" aria-label="조명 목록">
         {fixtures.map((fixture) => <FixtureRow key={fixture.id} siteId={siteId} floorId={selectedFloorId} fixture={fixture} />)}
       </div> : null}
-      {fixturesQuery.hasNextPage ? <div className="site-operations-pagination">
+      {fixturesQuery.hasNextPage ? <div className="flex flex-wrap items-center justify-between gap-3">
         <span>{fixtures.length}개 불러옴</span>
         <Button type="button" isLoading={fixturesQuery.isFetchingNextPage} loadingLabel="불러오는 중" onClick={() => void fixturesQuery.fetchNextPage()}>다음 200개 불러오기</Button>
       </div> : null}
@@ -444,16 +439,16 @@ function FixtureRow({ siteId, floorId, fixture }: { siteId: string; floorId: str
   }, [fixture]);
 
   return (
-    <Card className="site-operations-card fixture-row-card">
-      <div className="site-operations-row-heading"><strong>{fixture.name}</strong></div>
-      {identities.length > 0 ? <dl className="fixture-identities">
-        {identities.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
+    <Card className="grid gap-4 p-5">
+      <div className="flex items-center justify-between gap-3"><strong>{fixture.name}</strong></div>
+      {identities.length > 0 ? <dl className="flex flex-wrap gap-4 text-caption text-content-secondary">
+        {identities.map(([label, value]) => <div className="flex gap-2" key={label}><dt>{label}</dt><dd className="m-0 font-bold text-content-primary">{value}</dd></div>)}
       </dl> : null}
       {actionError ? <FeedbackState tone="danger" icon={CircleAlert} title={actionError.title} action={<Button type="button" onClick={actionError.retry}>{actionError.retryLabel}</Button>} /> : null}
-      <form aria-label={`${fixture.name} 조명 정보 수정`} className="site-operations-form fixture-form-grid" onSubmit={(event) => { event.preventDefault(); setActionError(null); mutation.mutate(); }}>
-        <Field label="이름"><input aria-label={`${fixture.name} 이름`} required maxLength={120} value={name} onChange={(event) => setName(event.target.value)} /></Field>
-        <Field label="정격전력 (W)"><input aria-label={`${fixture.name} 정격전력`} required type="number" min="0.01" max="999999.99" step="0.01" value={ratedWatt} onChange={(event) => setRatedWatt(event.target.value)} /></Field>
-        <div className="site-operations-form-actions">
+      <form aria-label={`${fixture.name} 조명 정보 수정`} className="grid gap-4 tablet:grid-cols-[2fr_1fr_auto] tablet:items-end" onSubmit={(event) => { event.preventDefault(); setActionError(null); mutation.mutate(); }}>
+        <TextField aria-label={`${fixture.name} 이름`} label="이름" isRequired maxLength={120} value={name} onChange={setName} />
+        <TextField aria-label={`${fixture.name} 정격전력`} label="정격전력 (W)" isRequired inputMode="decimal" pattern="[0-9]+([.][0-9]{0,2})?" value={ratedWatt} onChange={setRatedWatt} />
+        <div className="flex items-end">
           <Button type="submit" isLoading={mutation.isPending} loadingLabel="저장 중"><Save size={16} aria-hidden="true" /> {fixture.name} 조명 정보 저장</Button>
         </div>
       </form>
@@ -485,22 +480,22 @@ function FixtureGroupSection({ siteId, floors }: { siteId: string; floors: SiteS
   });
 
   return (
-    <section className="site-operations-section" aria-label="구역 관리">
+    <section className="grid gap-4 border-t border-border-default pt-6" aria-label="구역 관리">
       <PageHeader title="구역 관리" headingLevel={3} description="구역 구성은 맵 관리에서, 실제 조명 제어는 제어 화면에서 수행합니다. 여기서는 목록을 확인하고 보관을 시작할 수 있습니다." />
       {actionError ? <FeedbackState tone="danger" icon={CircleAlert} title={actionError.title} action={<Button type="button" onClick={actionError.retry}>{actionError.retryLabel}</Button>} /> : null}
       {groupsQuery.isPending ? <FeedbackState tone="neutral" icon={Clock3} title="구역 목록을 불러오는 중입니다." /> : null}
       {groupsQuery.error && !groupsQuery.data ? <FeedbackState tone="danger" icon={CircleAlert} title="구역 목록을 불러오지 못했습니다." action={<Button type="button" onClick={() => void groupsQuery.refetch()}>구역 목록 다시 시도</Button>} /> : null}
       {groupsQuery.error && groupsQuery.data ? <FeedbackState tone="danger" icon={CircleAlert} title="최신 구역 목록을 불러오지 못했습니다. 기존 목록을 표시합니다." action={<Button type="button" onClick={() => void groupsQuery.refetch()}>구역 목록 다시 시도</Button>} /> : null}
       {groupsQuery.data?.length === 0 ? <FeedbackState tone="neutral" icon={Network} title="등록된 구역이 없습니다." /> : null}
-      {groupsQuery.data?.length ? <div className="site-operations-list group-list" aria-label="구역 목록">
+      {groupsQuery.data?.length ? <div className="grid gap-3" aria-label="구역 목록">
         {groupsQuery.data.map((group) => (
-          <Card className="site-operations-card group-row-card" key={group.id}>
-            <div className="site-operations-row-heading">
-              <div><strong>{group.name}</strong><span>{group.floorId ? floorNames.get(group.floorId) ?? "알 수 없는 층" : "층 미지정"}</span></div>
+          <Card className="grid gap-4 p-5" key={group.id}>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="grid gap-1"><strong>{group.name}</strong><span className="text-caption text-content-secondary">{group.floorId ? floorNames.get(group.floorId) ?? "알 수 없는 층" : "층 미지정"}</span></div>
               <StatusBadge tone={groupTone(group.lifecycleStatus)} icon={group.lifecycleStatus === "active" ? CheckCircle2 : Archive}>{groupStatusLabel(group.lifecycleStatus)}</StatusBadge>
             </div>
-            <div className="group-row-details"><span>조명 {group.fixtureCount}개</span><span>Mesh 상태 {meshStatusLabel(group.meshControlGroup?.status)}</span></div>
-            {group.lifecycleStatus === "active" ? <div className="site-operations-form-actions">
+            <div className="flex flex-wrap gap-4 text-caption text-content-secondary"><span>조명 {group.fixtureCount}개</span><span>Mesh 상태 {meshStatusLabel(group.meshControlGroup?.status)}</span></div>
+            {group.lifecycleStatus === "active" ? <div className="flex justify-end">
               <Button type="button" variant="danger" aria-label={`${group.name} 보관`} onClick={() => { setActionError(null); setGroupToArchive(group); }}><Archive size={16} aria-hidden="true" /> 보관</Button>
             </div> : null}
           </Card>
@@ -523,10 +518,6 @@ function FixtureGroupSection({ siteId, floors }: { siteId: string; floors: SiteS
       ) : null}
     </section>
   );
-}
-
-function Field({ label, className = "", children }: { label: string; className?: string; children: ReactNode }) {
-  return <label className={`site-operations-field ${className}`.trim()}><span>{label}</span>{children}</label>;
 }
 
 function invalidateSiteOperations(queryClient: QueryClient, siteId: string) {
