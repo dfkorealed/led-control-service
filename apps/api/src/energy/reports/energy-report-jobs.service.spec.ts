@@ -201,6 +201,31 @@ describe("EnergyReportJobsService", () => {
     } finally { client.destroy(); }
   });
 
+  it("keeps the same expired report eligible before and after cleanup for both the page and total count", async () => {
+    const { service, prisma, client } = setup();
+    const elapsedBeforeCleanup = job({ status: "completed", progressPercent: 100, startedAt: now, completedAt: now,
+      expiresAt: now, objectKey: `reports/${siteId}/${reportId}/attempt-1.xlsx` });
+    const storedAfterCleanup = { ...elapsedBeforeCleanup, status: "expired", objectDeletedAt: now };
+    prisma.energyReportJob.findMany.mockResolvedValueOnce([elapsedBeforeCleanup] as never).mockResolvedValueOnce([storedAfterCleanup] as never);
+    prisma.energyReportJob.count.mockResolvedValue(1);
+    try {
+      const beforeCleanup = await service.list(user, siteId, { status: "expired" }, now);
+      const afterCleanup = await service.list(user, siteId, { status: "expired" }, now);
+
+      expect(beforeCleanup).toMatchObject({ totalCount: 1, reports: [{ reportId, status: "expired" }] });
+      expect(afterCleanup).toMatchObject({ totalCount: 1, reports: [{ reportId, status: "expired" }] });
+      for (let call = 0; call < 2; call++) {
+        const pageWhere = (prisma.energyReportJob.findMany.mock.calls[call] as any)[0].where;
+        const countWhere = (prisma.energyReportJob.count.mock.calls[call] as any)[0].where;
+        expect(pageWhere).toEqual(countWhere);
+        expect(pageWhere.AND).toContainEqual({ OR: [
+          { status: "expired" },
+          { status: "completed", expiresAt: { lte: now } }
+        ] });
+      }
+    } finally { client.destroy(); }
+  });
+
   it.each([{}, { limit: "100" }])("returns no cursor for an empty final page %j", async query => {
     const { service, client } = setup();
     try { expect(await service.list(user, siteId, query, now)).toEqual({ reports: [], nextCursor: null, totalCount: 0 }); }

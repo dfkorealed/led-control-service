@@ -11,12 +11,15 @@ describe("report list filters", () => {
       query: "서울", status: null, format: null, scope: null, requestedFrom: null, requestedTo: null
     });
   });
-  it("selects available completed artifacts and derives expiry at the inclusive boundary", () => {
+  it("selects available completed artifacts and keeps elapsed and cleanup-tombstoned reports in the expired filter", () => {
     expect(where({ limit: 20, status: "completed" })).toMatchObject({ siteId, AND: expect.arrayContaining([
       { status: "completed", expiresAt: { gt: now }, objectDeletedAt: null }
     ]) });
     expect(where({ limit: 20, status: "expired" })).toMatchObject({ AND: expect.arrayContaining([
-      { status: "completed", expiresAt: { lte: now } }
+      { OR: [
+        { status: "expired" },
+        { status: "completed", expiresAt: { lte: now } }
+      ] }
     ]) });
   });
   it("combines stored state, file format and JSON scope predicates", () => {

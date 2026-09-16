@@ -17,7 +17,10 @@ export function buildReportListWhere(siteId: string, filters: NormalizedReportFi
   return { siteId, AND: [
     filters.query ? targetQueryPredicate(filters.query) : {},
     filters.status === "completed" ? { status: "completed", expiresAt: { gt: now }, objectDeletedAt: null }
-      : filters.status === "expired" ? { status: "completed", expiresAt: { lte: now } }
+      : filters.status === "expired" ? { OR: [
+        { status: "expired" },
+        { status: "completed", expiresAt: { lte: now } }
+      ] }
         : filters.status ? { status: filters.status } : {},
     filters.format ? { format: filters.format } : {},
     filters.scope ? { requestSnapshot: { path: ["scope"], equals: filters.scope } } : {},
