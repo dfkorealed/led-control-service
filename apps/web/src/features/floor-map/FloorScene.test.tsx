@@ -56,7 +56,12 @@ describe("FloorScene", () => {
     const fixture = screen.getByRole("button", { name: "B1-L001 정상 70%" });
     expect(fixture).toHaveAttribute("data-spatial-map-marker", "true");
     expect(fixture).toHaveAttribute("data-brightness-level", "8");
-    expect(fixture).toHaveClass("bg-fixture-brightness-8", "outline-fixture-selected");
+    expect(fixture).toHaveClass(
+      "bg-fixture-brightness-8",
+      "shadow-fixture-brightness-8",
+      "rounded-fixture-marker",
+      "outline-fixture-selected"
+    );
     expect(fixture).toHaveAttribute("aria-current", "true");
     expect(fixture).toHaveAttribute("title", "B1-L001 정상 70%");
     expect(fixture).toHaveTextContent("");
@@ -96,7 +101,7 @@ describe("FloorScene", () => {
 
     const marker = screen.getByRole("button", { name: `B1-${brightness} 정상 ${brightness}%` });
     expect(marker).toHaveAttribute("data-brightness-level", String(level));
-    expect(marker).toHaveClass(`bg-fixture-brightness-${level}`);
+    expect(marker).toHaveClass(`bg-fixture-brightness-${level}`, `shadow-fixture-brightness-${level}`);
   });
 
   it("keeps null-filled editor objects hit-testable across their interior", () => {

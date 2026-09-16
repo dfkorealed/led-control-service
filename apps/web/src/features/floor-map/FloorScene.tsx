@@ -11,16 +11,16 @@ const fixtureStatusLabels = {
 } as const;
 
 const fixtureBrightnessClasses = {
-  1: "bg-fixture-brightness-1 shadow-[0_0_0_0_color-mix(in_srgb,var(--color-fixture-on)_0%,transparent),inset_0_0_0_1px_color-mix(in_srgb,var(--color-content-inverse)_24%,transparent)]",
-  2: "bg-fixture-brightness-2 shadow-[0_0_2px_0.5px_color-mix(in_srgb,var(--color-fixture-on)_4%,transparent),inset_0_0_0_1px_color-mix(in_srgb,var(--color-content-inverse)_24%,transparent)]",
-  3: "bg-fixture-brightness-3 shadow-[0_0_3.5px_1px_color-mix(in_srgb,var(--color-fixture-on)_8%,transparent),inset_0_0_0_1px_color-mix(in_srgb,var(--color-content-inverse)_24%,transparent)]",
-  4: "bg-fixture-brightness-4 shadow-[0_0_5px_1.5px_color-mix(in_srgb,var(--color-fixture-on)_12%,transparent),inset_0_0_0_1px_color-mix(in_srgb,var(--color-content-inverse)_24%,transparent)]",
-  5: "bg-fixture-brightness-5 shadow-[0_0_6.5px_2px_color-mix(in_srgb,var(--color-fixture-on)_16%,transparent),inset_0_0_0_1px_color-mix(in_srgb,var(--color-content-inverse)_24%,transparent)]",
-  6: "bg-fixture-brightness-6 shadow-[0_0_8px_2.5px_color-mix(in_srgb,var(--color-fixture-on)_20%,transparent),inset_0_0_0_1px_color-mix(in_srgb,var(--color-content-inverse)_24%,transparent)]",
-  7: "bg-fixture-brightness-7 shadow-[0_0_9.5px_3px_color-mix(in_srgb,var(--color-fixture-on)_24%,transparent),inset_0_0_0_1px_color-mix(in_srgb,var(--color-content-inverse)_24%,transparent)]",
-  8: "bg-fixture-brightness-8 shadow-[0_0_11px_3.5px_color-mix(in_srgb,var(--color-fixture-on)_28%,transparent),inset_0_0_0_1px_color-mix(in_srgb,var(--color-content-inverse)_24%,transparent)]",
-  9: "bg-fixture-brightness-9 shadow-[0_0_12.5px_4.25px_color-mix(in_srgb,var(--color-fixture-on)_34%,transparent),inset_0_0_0_1px_color-mix(in_srgb,var(--color-content-inverse)_24%,transparent)]",
-  10: "bg-fixture-brightness-10 shadow-[0_0_14px_5px_color-mix(in_srgb,var(--color-fixture-on)_42%,transparent),inset_0_0_0_1px_color-mix(in_srgb,var(--color-content-inverse)_24%,transparent)]"
+  1: "bg-fixture-brightness-1 shadow-fixture-brightness-1",
+  2: "bg-fixture-brightness-2 shadow-fixture-brightness-2",
+  3: "bg-fixture-brightness-3 shadow-fixture-brightness-3",
+  4: "bg-fixture-brightness-4 shadow-fixture-brightness-4",
+  5: "bg-fixture-brightness-5 shadow-fixture-brightness-5",
+  6: "bg-fixture-brightness-6 shadow-fixture-brightness-6",
+  7: "bg-fixture-brightness-7 shadow-fixture-brightness-7",
+  8: "bg-fixture-brightness-8 shadow-fixture-brightness-8",
+  9: "bg-fixture-brightness-9 shadow-fixture-brightness-9",
+  10: "bg-fixture-brightness-10 shadow-fixture-brightness-10"
 } as const;
 
 export interface SceneFixture {
@@ -128,7 +128,7 @@ export function FloorScene({
             data-spatial-map-marker="true"
             data-brightness-level={brightnessLevel}
             className={cn(
-              "monitoring-fixture-marker absolute z-2 block size-5 min-h-5 -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-[3px] border border-fixture-offline p-0 transition-[background-color,box-shadow] duration-150 hover:z-4 hover:outline-3 hover:outline-offset-4 hover:outline-fixture-selected focus-visible:z-4 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-fixture-selected",
+              "monitoring-fixture-marker absolute z-2 block size-5 min-h-5 -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-fixture-marker border border-fixture-offline p-0 transition-[background-color,box-shadow] duration-150 hover:z-4 hover:outline-3 hover:outline-offset-4 hover:outline-fixture-selected focus-visible:z-4 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-fixture-selected",
               markerStateClass,
               fixture.id === selectedFixtureId && "z-3 outline-3 outline-offset-4 outline-fixture-selected"
             )}
