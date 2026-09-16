@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Clock3, Wand2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { createInitialSiteSetup, type InitialFloorInput } from "../../api/setup";
-import { Button, Card, FeedbackState, ProgressSteps, StatusBadge } from "../../components/ui";
+import { Button, Card, FeedbackState, NumberField, ProgressSteps, SelectBox, StatusBadge, TextField } from "../../components/ui";
 
 interface SetupWizardProps {
   siteId: string;
@@ -99,59 +99,29 @@ export function SetupWizard({ siteId, customerName, siteName, onComplete }: Setu
             <span>현장</span>
             <strong>{siteName}</strong>
           </div>
-          <label>
-            주소
-            <input value={address} onChange={(event) => setAddress(event.target.value)} placeholder="서울시 강남구" />
-          </label>
+          <TextField label="주소" value={address} onChange={setAddress} placeholder="서울시 강남구" />
           <Button variant="secondary" type="button" onClick={() => setAddress("미입력")}>
             주소 미입력
           </Button>
-          <label>
-            kWh 단가
-            <input
-              inputMode="decimal"
-              step="0.01"
-              type="text"
-              value={tariffKwhRate}
-              onChange={(event) => setTariffKwhRate(event.target.value)}
-            />
-          </label>
-          <label>
-            시간대
-            <select value={timeZone} onChange={(event) => setTimeZone(event.target.value)}>
-              <option value="Asia/Seoul">Asia/Seoul</option>
-              <option value="UTC">UTC</option>
-              <option value="Asia/Tokyo">Asia/Tokyo</option>
-            </select>
-          </label>
+          <TextField label="kWh 단가" inputMode="decimal" value={tariffKwhRate} onChange={setTariffKwhRate} />
+          <SelectBox
+            label="시간대"
+            items={[
+              { id: "Asia/Seoul", label: "Asia/Seoul" },
+              { id: "UTC", label: "UTC" },
+              { id: "Asia/Tokyo", label: "Asia/Tokyo" }
+            ]}
+            selectedKey={timeZone}
+            onSelectionChange={(key) => { if (key) setTimeZone(key); }}
+          />
         </div>
       </Card>
 
       <Card className="setup-section">
         <h4>층 생성</h4>
         <div className="setup-range-row">
-          <label>
-            지하 층수
-            <input
-              inputMode="numeric"
-              min="0"
-              max={MAX_FLOOR_COUNT}
-              type="text"
-              value={basementCount}
-              onChange={(event) => setBasementCount(event.target.value)}
-            />
-          </label>
-          <label>
-            지상 층수
-            <input
-              inputMode="numeric"
-              min="0"
-              max={MAX_FLOOR_COUNT}
-              type="text"
-              value={groundCount}
-              onChange={(event) => setGroundCount(event.target.value)}
-            />
-          </label>
+          <TextField label="지하 층수" inputMode="numeric" value={basementCount} onChange={setBasementCount} />
+          <TextField label="지상 층수" inputMode="numeric" value={groundCount} onChange={setGroundCount} />
           <Button
             variant="secondary"
             type="button"
@@ -173,34 +143,20 @@ export function SetupWizard({ siteId, customerName, siteName, onComplete }: Setu
           ) : (
             floors.map((floor, index) => (
               <div className="floor-edit-row" key={`${floor.level}-${index}`}>
-                <label>
-                  층 이름 {index + 1}
-                  <input
-                    value={floor.name}
-                    onChange={(event) =>
-                      setFloors((current) =>
-                        current.map((item, itemIndex) =>
-                          itemIndex === index ? { ...item, name: event.target.value } : item
-                        )
-                      )
-                    }
-                  />
-                </label>
-                <label>
-                  층 level {index + 1}
-                  <input
-                    inputMode="numeric"
-                    type="number"
-                    value={Number.isNaN(floor.level) ? "" : floor.level}
-                    onChange={(event) =>
-                      setFloors((current) =>
-                        current.map((item, itemIndex) =>
-                          itemIndex === index ? { ...item, level: Number(event.target.value) } : item
-                        )
-                      )
-                    }
-                  />
-                </label>
+                <TextField
+                  label={`층 이름 ${index + 1}`}
+                  value={floor.name}
+                  onChange={(value) => setFloors((current) => current.map((item, itemIndex) =>
+                    itemIndex === index ? { ...item, name: value } : item
+                  ))}
+                />
+                <NumberField
+                  label={`층 level ${index + 1}`}
+                  value={Number.isNaN(floor.level) ? null : floor.level}
+                  onChange={(value) => setFloors((current) => current.map((item, itemIndex) =>
+                    itemIndex === index ? { ...item, level: value ?? Number.NaN } : item
+                  ))}
+                />
               </div>
             ))
           )}

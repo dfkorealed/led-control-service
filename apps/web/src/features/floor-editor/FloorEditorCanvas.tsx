@@ -1,6 +1,7 @@
 import Konva from "konva";
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent } from "react";
 import { Circle, Image as KonvaImage, Label, Layer, Line, Rect, Shape, Stage, Tag, Text, Transformer } from "react-konva";
+import { themeColor } from "../../components/ui";
 import { FloorMapObjectNode, trianglePoints } from "../floor-map/FloorScene";
 import {
   alignRectToGuides,
@@ -15,8 +16,8 @@ import {
 } from "./geometry";
 import { useFloorEditorStore } from "./editor-store";
 import type { EditorFixture, EditorTool, FloorEditorState, FloorMapObjectDraft } from "./editor-types";
-import { EditorFixtureNode } from "./EditorFixtureNode";
-import { FIXTURE_DRAG_TYPE } from "./FixturePlacementList";
+import { EditorFixtureNode, type EditorFixturePalette } from "./EditorFixtureNode";
+import { FIXTURE_DRAG_TYPE, type FixturePlacementRowRegistry } from "./FixturePlacementList";
 import { FixturePlacementAction } from "./FixturePlacementAction";
 import { EditorMinimap } from "./EditorMinimap";
 import { canShowFixtureNames, selectedFixtureLabelLayout } from "./editor-labels";
@@ -25,7 +26,7 @@ const TOOL_DRAG_TYPE = "application/x-floor-editor-tool";
 const drawingTools = new Set<EditorTool>(["rectangle", "triangle", "line", "text"]);
 type Gesture = { kind: "pan" | "marquee" | "draw"; start: Point; screen: Point; pan: Point; additive: boolean; moved: boolean };
 
-export function FloorEditorCanvas({ readOnly = false }: { readOnly?: boolean }) {
+export function FloorEditorCanvas({ readOnly = false, rowRegistry }: { readOnly?: boolean; rowRegistry: FixturePlacementRowRegistry }) {
   const container = useRef<HTMLDivElement>(null);
   const stage = useRef<Konva.Stage>(null);
   const transformer = useRef<Konva.Transformer>(null);
@@ -61,6 +62,27 @@ export function FloorEditorCanvas({ readOnly = false }: { readOnly?: boolean }) 
   const floorPlan = state?.floor.floorPlan;
   const backgroundUrl = floorPlan?.sourceType !== "none" ? floorPlan?.renderedImageUrl ?? floorPlan?.imageUrl : "";
   const bounds = { width: floorPlan?.width ?? 1200, height: floorPlan?.height ?? 800 };
+  const editorColors = useMemo(() => ({
+    panel: themeColor("surface-panel"),
+    border: themeColor("fixture-editor-border"),
+    guide: themeColor("fixture-editor-guide"),
+    marquee: themeColor("fixture-editor-marquee"),
+    selected: themeColor("fixture-editor-selected"),
+    preview: themeColor("fixture-editor-preview"),
+    fixtureFill: themeColor("fixture-editor-fill"),
+    label: themeColor("fixture-editor-label"),
+    grid: themeColor("border-strong")
+  }), []);
+  const fixtureColors = useMemo<EditorFixturePalette>(() => ({
+    status: {
+      online: themeColor("fixture-editor-connected"),
+      offline: themeColor("fixture-editor-offline"),
+      fault: themeColor("fixture-editor-fault")
+    },
+    selected: themeColor("fixture-editor-selected"),
+    border: themeColor("content-inverse"),
+    label: themeColor("fixture-editor-label")
+  }), []);
 
   useEffect(() => {
     const element = container.current;
@@ -254,7 +276,7 @@ export function FloorEditorCanvas({ readOnly = false }: { readOnly?: boolean }) 
     : selectedObjectType === "line"
       ? ["middle-left", "middle-right"]
       : ["top-left", "top-center", "top-right", "middle-left", "middle-right", "bottom-left", "bottom-center", "bottom-right"];
-  return <div ref={container} className={`floor-editor-canvas konva-editor-canvas ${backgroundUrl ? "has-plan" : "grid-only"}${activeTool === "pan" ? " is-pan-ready" : ""}${isPanning ? " is-panning" : ""}`}
+  return <div ref={container} className={`relative h-full min-h-105 w-full overflow-hidden bg-surface-canvas ${backgroundUrl ? "has-plan" : "grid-only"} ${activeTool === "pan" ? isPanning ? "cursor-grabbing" : "cursor-grab" : ""}`}
     aria-label={`${state.floor.name} 편집 캔버스`} aria-disabled={readOnly} data-testid="floor-editor-canvas" data-floor-id={state.floor.id} data-zoom={zoom} data-pan-x={pan.x} data-pan-y={pan.y}
     data-snap={snap} data-grid-size={floorPlan?.gridSize ?? 10} data-active-guides=""
     onMouseDown={begin} onMouseMove={move} onMouseUp={finish} onMouseLeave={(e) => { if (gesture.current?.kind === "pan") finish(e); else { gesture.current = null; setCreation(null); setMarquee(null); setIsPanning(false); } }}
@@ -267,9 +289,9 @@ export function FloorEditorCanvas({ readOnly = false }: { readOnly?: boolean }) 
       useFloorEditorStore.setState({ zoom: next, pan: { x: point.x - world.x * next, y: point.y - world.y * next } });
     }}>
       <Layer {...transform} listening={false}>
-        <Rect width={bounds.width} height={bounds.height} fill="#ffffff" stroke="#cbd1d9" strokeWidth={1} />
+        <Rect width={bounds.width} height={bounds.height} fill={editorColors.panel} stroke={editorColors.border} strokeWidth={1} />
         {background && layers.background.visible && <KonvaImage image={background} width={bounds.width} height={bounds.height} />}
-        {snap ? <MapGrid width={bounds.width} height={bounds.height} gridSize={floorPlan?.gridSize ?? 10} zoom={zoom} /> : null}
+        {snap ? <MapGrid width={bounds.width} height={bounds.height} gridSize={floorPlan?.gridSize ?? 10} zoom={zoom} color={editorColors.grid} /> : null}
       </Layer>
       <Layer {...transform} visible={layers.objects.visible} listening={!readOnly && !layers.objects.locked && activeTool === "select"}>
         {state.objects.filter((o) => o.visible).sort((a, b) => a.zIndex - b.zIndex).map((object) => {
@@ -301,23 +323,23 @@ export function FloorEditorCanvas({ readOnly = false }: { readOnly?: boolean }) 
         })}
       </Layer>
       <Layer {...transform} visible={layers.fixtures.visible} listening={activeTool === "select"}>
-        {placedFixtures.map((fixture) => <EditorFixtureNode key={fixture.id} fixture={fixture} selected={selectedSet.has(fixture.id)} interactive={!readOnly && activeTool === "select" && !layers.fixtures.locked && !lockedSet.has(fixture.id)} showName={showBulkNames && !selectedSet.has(fixture.id)} register={register} onSelect={onSelect} onDragStart={onDragStart} onDragMove={onDragMove} onDragEnd={onDragEnd} onTransform={onTransform} />)}
+        {placedFixtures.map((fixture) => <EditorFixtureNode key={fixture.id} fixture={fixture} selected={selectedSet.has(fixture.id)} interactive={!readOnly && activeTool === "select" && !layers.fixtures.locked && !lockedSet.has(fixture.id)} showName={showBulkNames && !selectedSet.has(fixture.id)} colors={fixtureColors} register={register} onSelect={onSelect} onDragStart={onDragStart} onDragMove={onDragMove} onDragEnd={onDragEnd} onTransform={onTransform} />)}
       </Layer>
       <Layer {...transform}>
-        <Line ref={verticalGuide} name="alignment-guide-vertical" visible={false} listening={false} stroke="#db2777" strokeWidth={1 / zoom} dash={[6 / zoom, 4 / zoom]} />
-        <Line ref={horizontalGuide} name="alignment-guide-horizontal" visible={false} listening={false} stroke="#db2777" strokeWidth={1 / zoom} dash={[6 / zoom, 4 / zoom]} />
+        <Line ref={verticalGuide} name="alignment-guide-vertical" visible={false} listening={false} stroke={editorColors.guide} strokeWidth={1 / zoom} dash={[6 / zoom, 4 / zoom]} />
+        <Line ref={horizontalGuide} name="alignment-guide-horizontal" visible={false} listening={false} stroke={editorColors.guide} strokeWidth={1 / zoom} dash={[6 / zoom, 4 / zoom]} />
         {creation && <FloorMapObjectNode object={{ ...creation, id: "creation", zIndex: 999 }} interactive={false} preview />}
-        {marquee && <Rect {...marquee} fill="#2563eb20" stroke="#2563eb" strokeWidth={1 / zoom} listening={false} />}
-        {preview.map((p) => <Circle key={p.id} x={p.x} y={p.y} radius={10} fill="#e9b949" opacity={0.65} listening={false} />)}
-        {dropPreview && <Circle x={dropPreview.x} y={dropPreview.y} radius={10} stroke="#185ed0" fill="#dbeafe" listening={false} />}
+        {marquee && <Rect {...marquee} fill={editorColors.marquee} stroke={editorColors.selected} strokeWidth={1 / zoom} listening={false} />}
+        {preview.map((p) => <Circle key={p.id} x={p.x} y={p.y} radius={10} fill={editorColors.preview} opacity={0.65} listening={false} />)}
+        {dropPreview && <Circle x={dropPreview.x} y={dropPreview.y} radius={10} stroke={editorColors.selected} fill={editorColors.fixtureFill} listening={false} />}
         <Transformer ref={transformer} rotateEnabled={false} keepRatio={selection?.kind === "fixture"} flipEnabled={false} enabledAnchors={transformerAnchors} boundBoxFunc={(oldBox, box) => box.width < 4 || box.height < 4 ? oldBox : box} />
         {focusedFixture && focusedLabel && <Label name="selected-fixture-label" x={focusedLabel.x} y={focusedLabel.y} scaleX={focusedLabel.scaleX} scaleY={focusedLabel.scaleY} listening={false}>
-          <Tag fill="#ffffff" stroke="#cbd1d9" strokeWidth={1} cornerRadius={4} />
-          <Text name="selected-fixture-name" text={focusedFixture.name} width={focusedLabel.width} height={focusedLabel.height} padding={6} fontSize={12} fontStyle="bold" fill="#252d3a" ellipsis wrap="none" verticalAlign="middle" />
+          <Tag fill={editorColors.panel} stroke={editorColors.border} strokeWidth={1} cornerRadius={4} />
+          <Text name="selected-fixture-name" text={focusedFixture.name} width={focusedLabel.width} height={focusedLabel.height} padding={6} fontSize={12} fontStyle="bold" fill={editorColors.label} ellipsis wrap="none" verticalAlign="middle" />
         </Label>}
       </Layer>
     </Stage>
-    <FixturePlacementAction readOnly={readOnly} />
+    <FixturePlacementAction readOnly={readOnly} rowRegistry={rowRegistry} />
     <EditorMinimap />
   </div>;
 }
@@ -348,14 +370,14 @@ function collectGuideTargets(state: FloorEditorState | null, excludedFixtures: S
   ];
 }
 
-function MapGrid({ width, height, gridSize, zoom }: { width: number; height: number; gridSize: number; zoom: number }) {
+function MapGrid({ width, height, gridSize, zoom, color }: { width: number; height: number; gridSize: number; zoom: number; color: string }) {
   const lineCount = width / gridSize + height / gridSize;
   const displayStep = gridSize * Math.max(1, Math.ceil(lineCount / 2_000));
   return (
     <Shape
       name="map-grid"
       listening={false}
-      stroke="#cbd5e1"
+      stroke={color}
       strokeWidth={1 / zoom}
       opacity={0.65}
       sceneFunc={(context, shape) => {

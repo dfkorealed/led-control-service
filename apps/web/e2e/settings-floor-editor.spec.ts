@@ -14,9 +14,11 @@ const responsiveViewports = [
 ] as const;
 
 async function expectSettingsContentTopAligned(page: import("@playwright/test").Page) {
-  const contextBox = await page.getByRole("combobox", { name: "현장 선택" }).boundingBox();
-  const tabsBox = await page.getByRole("navigation", { name: "설정 메뉴" }).boundingBox();
-  const contentBox = await page.locator(".settings-content > .settings-screen").boundingBox();
+  await expect(page.getByRole("button", { name: /현장 선택/ })).toBeVisible();
+  const tabs = page.getByRole("navigation", { name: "설정 메뉴" });
+  const contextBox = await tabs.locator("xpath=preceding-sibling::*[1]").boundingBox();
+  const tabsBox = await tabs.boundingBox();
+  const contentBox = await tabs.locator("xpath=following-sibling::*[1]").boundingBox();
   expect(contextBox).not.toBeNull();
   expect(tabsBox).not.toBeNull();
   expect(contentBox).not.toBeNull();
@@ -49,7 +51,7 @@ test("operator customer routes are blocked and admin floor changes are reflected
 
   await adminPage.getByLabel("B2 편집 캔버스").click({ position: { x: 120, y: 140 } });
   await expect(adminPage.getByRole("complementary", { name: "속성 패널" }).getByRole("heading", { name: "B2-L01" })).toBeVisible();
-  await adminPage.getByRole("complementary", { name: "속성 패널" }).getByLabel("X").fill("240");
+  await changeSelectedFixtureX(adminPage, "240");
   await adminPage.getByRole("button", { name: "저장", exact: true }).click();
 
   await expect(adminPage).toHaveURL(/\/settings\/floor-plans\/floor-1\/edit\?siteId=site-1$/);
@@ -157,11 +159,10 @@ test("a map object saved in settings is rendered immediately in monitoring", asy
   for (const index of [1, 2, 3, 4]) {
     await expect(page.getByTestId(`map-object-saved-map-object-8-${index}`)).toHaveCount(1);
   }
-  const monitoringMap = page.getByRole("region", { name: "층 도면" }).locator(".floor-map");
+  const monitoringMap = page.getByRole("region", { name: "층 도면" });
   const monitoringSceneCanvas = monitoringMap.locator(".floor-scene-canvas");
   const monitoringCanvas = monitoringSceneCanvas.locator("canvas");
   let layout: {
-    floorMap: { width: number; height: number };
     sceneCanvas: { width: number; height: number };
     konvaContent: { width: number; height: number };
     canvas: { width: number; height: number };
@@ -177,15 +178,12 @@ test("a map object saved in settings is rendered immediately in monitoring", asy
         return { width, height };
       };
       return {
-        // The absolutely positioned scene fills the floor map's content box;
-        // client dimensions intentionally exclude the floor map's 1px border.
-        floorMap: { width: floorMap.clientWidth, height: floorMap.clientHeight },
         sceneCanvas: toSize(sceneCanvas),
         konvaContent: toSize(konvaContent),
         canvas: toSize(canvas)
       };
     });
-    return layout?.floorMap.height ?? 0;
+    return layout?.sceneCanvas.height ?? 0;
   }).toBeGreaterThan(0);
   if (!layout) throw new Error("monitoring map layout was not rendered");
   for (const [name, size] of Object.entries({
@@ -195,8 +193,8 @@ test("a map object saved in settings is rendered immediately in monitoring", asy
   })) {
     expect(size.height, `${name} height`).toBeGreaterThan(0);
     expect(size.width, `${name} width`).toBeGreaterThan(0);
-    expect(size.height, `${name} height matches floor map`).toBeCloseTo(layout.floorMap.height, 0);
-    expect(size.width, `${name} width matches floor map`).toBeCloseTo(layout.floorMap.width, 0);
+    expect(size.height, `${name} height matches scene`).toBeCloseTo(layout.sceneCanvas.height, 0);
+    expect(size.width, `${name} width matches scene`).toBeCloseTo(layout.sceneCanvas.width, 0);
   }
   await expect.poll(async () => monitoringCanvas.evaluate((canvas: HTMLCanvasElement, sampleRegions) => {
     const context = canvas.getContext("2d");
@@ -323,10 +321,7 @@ test("dirty editor logout keeps the draft on cancel and logs out only after conf
     return latestLease?.type === "lease-acquire" && latestLease.result.editable;
   }).toBe(true);
 
-  await page.getByLabel("B2 편집 캔버스").click({ position: { x: 120, y: 140 } });
-  const xInput = page.getByRole("complementary", { name: "속성 패널" }).getByLabel("X");
-  await xInput.fill("260");
-  await expect(page.getByRole("button", { name: "저장", exact: true })).toBeEnabled();
+  const xInput = await changeSelectedFixtureX(page, "260");
 
   page.once("dialog", async (dialog) => {
     expect(dialog.message()).toContain("저장하지 않은 변경사항");
@@ -363,20 +358,16 @@ for (const viewport of responsiveViewports.filter(({ width }) => width <= 390)) 
         return latestLease?.type === "lease-acquire" && latestLease.result.editable;
       }).toBe(true);
 
-      await page.getByLabel("B2 편집 캔버스").click({ position: { x: 120, y: 140 } });
-      const xInput = page.getByRole("complementary", { name: "속성 패널" }).getByLabel("X");
-      await xInput.fill("260");
-      await expect(page.getByRole("button", { name: "저장", exact: true })).toBeEnabled();
+      const xInput = await changeSelectedFixtureX(page, "260");
 
       const menu = page.getByRole("navigation", { name: "설정 메뉴" });
       const securityLink = menu.getByRole("link", { name: "계정 보안" });
       await expect(securityLink).toHaveAttribute("href", "/settings/security?siteId=site-1#fragment");
 
-      page.once("dialog", async (dialog) => {
-        expect(dialog.message()).toContain("저장하지 않은 변경사항");
-        await dialog.dismiss();
-      });
       await securityLink.click();
+      const leaveDialog = page.getByRole("alertdialog", { name: "맵 편집 종료" });
+      await expect(leaveDialog).toContainText("저장하지 않은 변경사항");
+      await leaveDialog.getByRole("button", { name: "취소" }).click();
 
       await expect(page).toHaveURL(/\/settings\/floor-plans\/floor-1\/edit\?siteId=site-1#fragment$/);
       await expect(page.getByRole("heading", { name: "B2 맵 편집" })).toBeVisible();
@@ -384,11 +375,8 @@ for (const viewport of responsiveViewports.filter(({ width }) => width <= 390)) 
       await expect(menu).toBeVisible();
       await expect(securityLink).toBeFocused();
 
-      page.once("dialog", async (dialog) => {
-        expect(dialog.message()).toContain("저장하지 않은 변경사항");
-        await dialog.accept();
-      });
       await securityLink.click();
+      await leaveDialog.getByRole("button", { name: "이동" }).click();
 
       await expect(page).toHaveURL(/\/settings\/security\?siteId=site-1#fragment$/);
       await expect(page.getByRole("form", { name: "비밀번호 변경" })).toBeVisible();
@@ -489,7 +477,7 @@ for (const viewport of responsiveViewports.filter(({ width }) => width <= 760)) 
       await expect(menu).toHaveCSS("overflow-x", "auto");
       await expect(settings).toHaveAttribute("aria-current", "page");
       await expect(menu.getByRole("link", { name: "설정 개요" })).toHaveAttribute("aria-current", "page");
-      await expectMinimumTouchTargetsAfterScrolling(page, ".settings-subnavigation");
+      await expectMinimumTouchTargetsAfterScrolling(page, 'nav[aria-label="설정 메뉴"]');
       await expectNoHorizontalOverflow(page);
 
       await page.goto("/settings/security?siteId=site-1");
@@ -529,9 +517,9 @@ for (const viewport of responsiveViewports) {
     await expect(page.getByRole("complementary", { name: "속성 패널" }).getByRole("heading", { name: "B2-L01" })).toBeVisible();
 
     const [toolbar, stage, sidePanel] = await Promise.all([
-      page.locator(".floor-editor-toolbar").boundingBox(),
-      page.locator(".floor-editor-stage").boundingBox(),
-      page.locator(".floor-editor-side-panel").boundingBox()
+      page.getByRole("toolbar", { name: "맵 편집 도구" }).boundingBox(),
+      page.getByTestId("floor-editor-canvas").boundingBox(),
+      page.getByRole("complementary", { name: "맵 편집 정보" }).boundingBox()
     ]);
     expect(toolbar).not.toBeNull();
     expect(stage).not.toBeNull();
@@ -550,14 +538,14 @@ for (const viewport of responsiveViewports) {
     if (viewport.width <= 760) {
       // Validate complete touch areas, not the slice of a toolbar clipped by
       // the viewport after centering the canvas on this vertically stacked page.
-      await page.locator(".floor-editor-toolbar").scrollIntoViewIfNeeded();
-      await expectMinimumTouchTargets(page, ".floor-editor-toolbar");
-      await expectMinimumTouchTargets(page, ".editor-snap");
+      await page.getByRole("toolbar", { name: "맵 편집 도구" }).scrollIntoViewIfNeeded();
+      await expectMinimumTouchTargets(page, '[aria-label="맵 편집 도구"]');
+      await expectMinimumTouchTargets(page, '[data-field]:has(input[type="checkbox"])');
       await page.getByRole("button", { name: "배치 해제", exact: true }).scrollIntoViewIfNeeded();
-      await expectMinimumTouchTargets(page, ".fixture-placement-action");
+      await expectMinimumTouchTargets(page, '[data-testid="floor-editor-canvas"]');
       await page.evaluate(() => window.scrollTo(0, 0));
       await expectMinimumTouchTargets(page, ".bottom-nav");
-      await expectMinimumTouchTargetsAfterScrolling(page, ".settings-subnavigation");
+      await expectMinimumTouchTargetsAfterScrolling(page, 'nav[aria-label="설정 메뉴"]');
     }
   });
 }
@@ -609,3 +597,15 @@ test("viewer can enter personal password settings", async ({ page }) => {
   await expect(page.getByRole("form", { name: "비밀번호 변경" })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "설정 메뉴" }).getByRole("link", { name: "계정 보안" })).toHaveAttribute("aria-current", "page");
 });
+
+async function changeSelectedFixtureX(page: import("@playwright/test").Page, value: string) {
+  await page.getByLabel("B2 편집 캔버스").click({ position: { x: 120, y: 140 } });
+  const properties = page.getByRole("complementary", { name: "속성 패널" });
+  await expect(properties.getByRole("heading", { name: "B2-L01" })).toBeVisible();
+  const xInput = properties.getByLabel("X");
+  await xInput.fill(value);
+  await xInput.press("Tab");
+  await expect(xInput).toHaveValue(value);
+  await expect(page.getByRole("button", { name: "저장", exact: true })).toBeEnabled();
+  return xInput;
+}

@@ -66,6 +66,14 @@ describe("FloorAssetUploadPanel", () => {
     await waitFor(() => expect(onUploaded).toHaveBeenCalledOnce());
   });
 
+  it("renders the browser-owned file input through the shared field shell", () => {
+    renderPanel();
+
+    const input = screen.getByLabelText("도면 파일");
+    expect(input).toHaveAttribute("type", "file");
+    expect(input.closest("[data-field]")).toBeInTheDocument();
+  });
+
   it.each([
     [new File(["map"], "parking.svg", { type: "image/svg+xml" }), "PNG, JPG, PDF"],
     [new File(["map"], "parking.png", { type: "application/pdf" }), "파일 형식과 확장자"],

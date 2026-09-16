@@ -19,6 +19,8 @@ describe("GatewayClaimPanel", () => {
     expect(screen.getByRole("region", { name: "Gateway 연결" })).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Viewer 설치 대기" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "게이트웨이 등록" })).toBeDisabled();
+    expect(screen.getByLabelText("제품 시리얼").closest("[data-field]")).toBeInTheDocument();
+    expect(screen.getByLabelText("일회성 등록 코드")).toHaveAttribute("type", "password");
     fireEvent.change(screen.getByLabelText("제품 시리얼"), { target: { value: " GW-001 " } });
     fireEvent.change(screen.getByLabelText("일회성 등록 코드"), { target: { value: " once-1234 " } });
     fireEvent.click(screen.getByRole("button", { name: "게이트웨이 등록" }));

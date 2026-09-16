@@ -3,7 +3,7 @@ import { LockKeyhole } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useDashboard, type SiteCapabilities } from "../../../api/queries";
-import { Button, FeedbackState } from "../../../components/ui";
+import { Button, ConfirmDialog, FeedbackState } from "../../../components/ui";
 import {
   acquireFloorEditorLease,
   getFloorEditorState,
@@ -34,12 +34,18 @@ interface FloorLeaseState {
   lease: FloorEditorLease;
 }
 
+interface PendingEditorLeave {
+  onConfirm: () => void;
+  onCancel?: () => void;
+}
+
 export function FloorEditorRoute({ capabilities }: FloorEditorRouteProps) {
   const { floorId } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [isDirty, setIsDirty] = useState(false);
+  const [pendingLeave, setPendingLeave] = useState<PendingEditorLeave | null>(null);
   const discardEditorChanges = useFloorEditorStore((store) => store.discardChanges);
   const selectedSiteId = new URLSearchParams(location.search).get("siteId");
   const dashboard = useDashboard(selectedSiteId ?? undefined);
@@ -70,12 +76,32 @@ export function FloorEditorRoute({ capabilities }: FloorEditorRouteProps) {
     navigate(to, { replace: hasDirtyEditorSentinel() });
   }, [navigate]);
 
-  useDirtyNavigationGuard(isDirty, confirmEditorLeave, navigateFromEditor);
+  const requestEditorLeave = useCallback((action: PendingEditorLeave) => {
+    if (!isDirty) {
+      action.onConfirm();
+      return;
+    }
+    setPendingLeave(action);
+  }, [isDirty]);
+
+  useDirtyNavigationGuard(isDirty, navigateFromEditor, requestEditorLeave);
 
   function leaveEditor() {
-    if (isDirty && !window.confirm(discardMessage)) return;
-    if (isDirty) confirmEditorLeave();
-    navigateFromEditor(listPath);
+    requestEditorLeave({ onConfirm: () => navigateFromEditor(listPath) });
+  }
+
+  function cancelPendingLeave() {
+    const action = pendingLeave;
+    setPendingLeave(null);
+    action?.onCancel?.();
+  }
+
+  function confirmPendingLeave() {
+    const action = pendingLeave;
+    if (!action) return;
+    setPendingLeave(null);
+    confirmEditorLeave();
+    action.onConfirm();
   }
 
   if (!canEdit) return <Navigate to={listPath} replace />;
@@ -109,9 +135,9 @@ export function FloorEditorRoute({ capabilities }: FloorEditorRouteProps) {
         floors={dashboard.data?.floors ?? [{ id: floorId!, name: editorQuery.data.floor.name }]}
         onFloorChange={(nextFloorId) => {
           if (nextFloorId === floorId || !dashboard.data?.floors.some((floor) => floor.id === nextFloorId)) return;
-          if (isDirty && !window.confirm(discardMessage)) return;
-          if (isDirty) confirmEditorLeave();
-          navigateFromEditor(`/settings/floor-plans/${encodeURIComponent(nextFloorId)}/edit${location.search}`);
+          requestEditorLeave({
+            onConfirm: () => navigateFromEditor(`/settings/floor-plans/${encodeURIComponent(nextFloorId)}/edit${location.search}`)
+          });
         }}
         onDirtyChange={setIsDirty}
         onCancel={leaveEditor}
@@ -120,6 +146,16 @@ export function FloorEditorRoute({ capabilities }: FloorEditorRouteProps) {
           setIsDirty(false);
         }}
       />
+      <ConfirmDialog
+        isOpen={pendingLeave !== null}
+        role="alertdialog"
+        title="맵 편집 종료"
+        confirmLabel="이동"
+        onCancel={cancelPendingLeave}
+        onConfirm={confirmPendingLeave}
+      >
+        {discardMessage}
+      </ConfirmDialog>
     </>
   );
 }
@@ -287,8 +323,8 @@ function useFloorEditorLease(canEdit: boolean, floorId: string | undefined) {
 
 function useDirtyNavigationGuard(
   isDirty: boolean,
-  onConfirmedLeave: () => void,
-  navigateFromEditor: (to: string) => void
+  navigateFromEditor: (to: string) => void,
+  requestEditorLeave: (action: PendingEditorLeave) => void
 ) {
   const restoringSentinel = useRef(false);
   const allowNextPopState = useRef(false);
@@ -337,15 +373,11 @@ function useDirtyNavigationGuard(
       if (!(anchor instanceof HTMLAnchorElement) || anchor.target === "_blank" || anchor.hasAttribute("download")) return;
       const destination = new URL(anchor.href, window.location.href);
       if (destination.origin !== window.location.origin) return;
-      if (window.confirm(discardMessage)) {
-        event.preventDefault();
-        event.stopPropagation();
-        onConfirmedLeave();
-        navigateFromEditor(`${destination.pathname}${destination.search}${destination.hash}`);
-        return;
-      }
       event.preventDefault();
       event.stopPropagation();
+      requestEditorLeave({
+        onConfirm: () => navigateFromEditor(`${destination.pathname}${destination.search}${destination.hash}`)
+      });
     };
     const handlePopState = (event: PopStateEvent) => {
       if (allowNextPopState.current) {
@@ -356,14 +388,16 @@ function useDirtyNavigationGuard(
         restoringSentinel.current = false;
         return;
       }
-      if (window.confirm(discardMessage)) {
-        onConfirmedLeave();
-        allowNextPopState.current = true;
-        window.history.back();
-      } else {
-        restoringSentinel.current = true;
-        window.history.forward();
-      }
+      requestEditorLeave({
+        onConfirm: () => {
+          allowNextPopState.current = true;
+          window.history.back();
+        },
+        onCancel: () => {
+          restoringSentinel.current = true;
+          window.history.forward();
+        }
+      });
     };
 
     window.addEventListener("beforeunload", handleBeforeUnload);
@@ -374,5 +408,5 @@ function useDirtyNavigationGuard(
       document.removeEventListener("click", handleLinkClick, true);
       window.removeEventListener("popstate", handlePopState);
     };
-  }, [isDirty, navigateFromEditor, onConfirmedLeave]);
+  }, [isDirty, navigateFromEditor, requestEditorLeave]);
 }

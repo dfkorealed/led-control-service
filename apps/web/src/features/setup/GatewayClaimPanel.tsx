@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Clock3 } from "lucide-react";
 import { useState } from "react";
 import { claimGateway } from "../../api/setup";
-import { Button, Card, FeedbackState, StatusBadge } from "../../components/ui";
+import { Button, Card, FeedbackState, PasswordField, StatusBadge, TextField } from "../../components/ui";
 
 interface GatewayClaimPanelProps {
   siteId: string;
@@ -32,18 +32,9 @@ export function GatewayClaimPanel({ siteId }: GatewayClaimPanelProps) {
         </StatusBadge>
       </div>
       <div className="setup-form-grid">
-        <label>
-          게이트웨이 이름
-          <input value={name} onChange={(event) => setName(event.target.value)} />
-        </label>
-        <label>
-          제품 시리얼
-          <input value={serialNumber} onChange={(event) => setSerialNumber(event.target.value)} autoComplete="off" />
-        </label>
-        <label>
-          일회성 등록 코드
-          <input value={claimCode} onChange={(event) => setClaimCode(event.target.value)} type="password" autoComplete="one-time-code" />
-        </label>
+        <TextField label="게이트웨이 이름" value={name} onChange={setName} />
+        <TextField label="제품 시리얼" value={serialNumber} onChange={setSerialNumber} autoComplete="off" />
+        <PasswordField label="일회성 등록 코드" value={claimCode} onChange={setClaimCode} autoComplete="one-time-code" />
       </div>
       {mutation.error ? <FeedbackState tone="danger" icon={CheckCircle2} title="게이트웨이 등록에 실패했습니다." description="제품 정보와 등록 코드를 확인하세요." /> : null}
       {mutation.isSuccess ? <FeedbackState tone="success" icon={CheckCircle2} title="게이트웨이가 현장에 등록되었습니다." /> : null}

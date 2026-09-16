@@ -169,12 +169,12 @@ for (const viewport of viewports) {
       await installSettingsApiRoutes(page, "admin", { fixtures: [], ids: fixtureIds(), activeRegistrationSessions: [discovered] });
       await page.goto(`/settings/registration?siteId=${ids.site}`);
       await expect(page.getByLabel("조명 1 선택")).toBeVisible();
-      await page.getByLabel("조명 1 선택").check();
+      await clickChoice(page, "checkbox", "조명 1 선택");
       await expectRegistrationStepStates(page, ["complete", "current", "pending", "pending"]);
       await expect(page.getByRole("button", { name: "선택 조명 등록" })).toBeEnabled();
       await expectCommissioningActionsReachable(page, ["선택 조명 등록"], viewport.width);
       await expectMobileRegionTargetsReachable(page, ".registration-config-form", viewport.width);
-      await page.getByRole("radio", { name: "개별 설정" }).check();
+      await clickChoice(page, "radio", "개별 설정");
       await page.getByLabel("조명 1 이름").fill("입구 조명");
       await expect(page.getByLabel("조명 1 이름")).toHaveValue("입구 조명");
       await expectNoHorizontalOverflow(page);
@@ -190,7 +190,7 @@ for (const viewport of viewports) {
       await expect(page.getByText("게이트웨이 장비 응답 확인 필요")).toBeVisible();
       await expect(page.getByText("Gateway ACK 확인 필요")).toHaveCount(0);
       await expectCommissioningActionsReachable(page, ["상태 다시 확인"], viewport.width);
-      await page.getByLabel("장비 상태를 확인했으며 현재 세션에서 제외").check();
+      await clickChoice(page, "checkbox", "장비가 등록되지 않았거나 초기화된 상태임을 확인");
       await expect(page.getByRole("button", { name: "현재 세션에서 제외" })).toBeEnabled();
       await expectNoHorizontalOverflow(page);
       await expectCommissioningActionsReachable(page, ["현재 세션에서 제외"], viewport.width);
@@ -258,7 +258,7 @@ test("registration separates available and existing devices and submits only the
   await expect(page.getByText(registeredElsewhereNode.deviceUuid)).toHaveCount(0);
   await expect(page.locator(".registered-node-details input[type='checkbox']")).toHaveCount(0);
 
-  await page.getByLabel("등록 가능 조명 전체 선택").check();
+  await clickChoice(page, "checkbox", "등록 가능 조명 전체 선택");
   await expect(availableSelection).toBeChecked();
   await expect(nodeSelectionControls).toHaveCount(1);
   await page.getByRole("button", { name: "선택 조명 등록" }).click();
@@ -361,8 +361,14 @@ async function startSearch(page: Page) {
 }
 
 async function selectRegistrationTargets(page: Page) {
-  await page.getByLabel("등록 층").selectOption(ids.floor);
-  await page.getByLabel("등록 게이트웨이").selectOption(ids.gateway);
+  await page.getByRole("button", { name: "등록 층" }).click();
+  await page.getByRole("option", { name: "B2" }).click();
+  await page.getByRole("button", { name: "등록 게이트웨이" }).click();
+  await page.getByRole("option", { name: "Gateway B2" }).click();
+}
+
+async function clickChoice(page: Page, role: "checkbox" | "radio", name: string) {
+  await page.getByRole(role, { name }).locator("xpath=ancestor::label[1]").click();
 }
 
 async function expectCommissioningActionsReachable(page: Page, actionNames: readonly string[], width: number) {

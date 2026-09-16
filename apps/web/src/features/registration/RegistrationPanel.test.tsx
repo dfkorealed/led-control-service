@@ -75,8 +75,8 @@ describe("RegistrationPanel", () => {
     renderPanel();
 
     expect(await screen.findByText("1개 등록 가능")).toBeInTheDocument();
-    expect(screen.getByLabelText("등록 층")).toHaveValue(activeSession.floorId);
-    expect(screen.getByLabelText("등록 게이트웨이")).toHaveValue(activeSession.gatewayId);
+    expect(screen.getByRole("button", { name: "등록 층" })).toHaveTextContent(mockDashboard.floors[0].name);
+    expect(screen.getByRole("button", { name: "등록 게이트웨이" })).toHaveTextContent(mockDashboard.gateways[0].name);
     await waitFor(() => expect(getSessionMock).toHaveBeenCalledWith(activeSession.id));
     expect(screen.getByRole("button", { name: "조명 검색 시작" })).toBeDisabled();
   });
@@ -313,7 +313,7 @@ describe("RegistrationPanel", () => {
     renderPanel();
     fireEvent.click(await screen.findByRole("button", { name: "등록 세션 취소" }));
 
-    await waitFor(() => expect(screen.getByLabelText("등록 층")).toHaveValue(next.floorId));
+    await waitFor(() => expect(screen.getByRole("button", { name: "등록 층" })).toHaveTextContent(mockDashboard.floors[1].name));
     expect(screen.getByText(next.id.slice(0, 8), { selector: ".session-meta strong" })).toBeInTheDocument();
   });
 
@@ -329,14 +329,30 @@ describe("RegistrationPanel", () => {
 
     fireEvent.click(screen.getByLabelText("조명 1 선택"));
     fireEvent.click(screen.getByLabelText("조명 2 선택"));
-    fireEvent.change(screen.getByLabelText("이름 접두어"), { target: { value: "B2-L" } });
+    const namePrefix = screen.getByLabelText("이름 접두어");
+    expect(namePrefix.closest("[data-field]")).toBeInTheDocument();
+    fireEvent.change(namePrefix, { target: { value: "주차-" } });
+    fireEvent.change(screen.getByLabelText("시작 번호"), { target: { value: "7" } });
+    fireEvent.blur(screen.getByLabelText("시작 번호"));
+    fireEvent.change(screen.getByLabelText("자릿수"), { target: { value: "" } });
+    expect(screen.getByLabelText("자릿수")).toHaveValue("");
+    fireEvent.change(screen.getByLabelText("자릿수"), { target: { value: "4" } });
+    fireEvent.change(screen.getByLabelText("정격 전력(W)"), { target: { value: "55.50" } });
+    fireEvent.change(screen.getByLabelText("조명 크기"), { target: { value: "24" } });
+    fireEvent.blur(screen.getByLabelText("조명 크기"));
     fireEvent.click(screen.getByRole("button", { name: "선택 조명 등록" }));
 
     await waitFor(() => expect(registerBatchMock).toHaveBeenCalledWith(
       mockRegistrationSession.id,
       expect.objectContaining({
         mode: "batch",
-        defaults: expect.objectContaining({ namePrefix: "B2-L", ratedWatt: "40.00", size: 20 }),
+        defaults: {
+          namePrefix: "주차-",
+          startNumber: 7,
+          digits: 4,
+          ratedWatt: "55.50",
+          size: 24
+        },
         nodes: [
           { nodeId: mockRegistrationSession.discoveredNodes[0].id },
           { nodeId: mockRegistrationSession.discoveredNodes[1].id }
@@ -711,6 +727,10 @@ describe("RegistrationPanel", () => {
     fireEvent.click(screen.getByLabelText("조명 1 선택"));
     fireEvent.click(screen.getByRole("radio", { name: "개별 설정" }));
     fireEvent.change(screen.getByLabelText("조명 1 이름"), { target: { value: "입구 조명" } });
+    fireEvent.change(screen.getByLabelText("자동 이름 자릿수"), { target: { value: "5" } });
+    fireEvent.change(screen.getByLabelText("조명 1 정격 전력"), { target: { value: "48.25" } });
+    fireEvent.change(screen.getByLabelText("조명 1 크기"), { target: { value: "32" } });
+    fireEvent.blur(screen.getByLabelText("조명 1 크기"));
     expect(screen.queryByLabelText("조명 1 X 좌표")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("조명 1 Y 좌표")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "선택 조명 등록" }));
@@ -720,8 +740,11 @@ describe("RegistrationPanel", () => {
       mockRegistrationSession.id,
       expect.objectContaining({
         mode: "individual",
+        defaults: expect.objectContaining({ digits: 5 }),
         nodes: [expect.objectContaining({
-          fixtureName: "입구 조명"
+          fixtureName: "입구 조명",
+          ratedWatt: "48.25",
+          size: 32
         })]
       })
     ));
@@ -922,8 +945,7 @@ describe("RegistrationPanel", () => {
       </QueryClientProvider>
     );
     await waitFor(() => expect(activeSessionsMock).toHaveBeenCalledWith(mockDashboard.site.id));
-    fireEvent.change(screen.getByLabelText("등록 층"), { target: { value: mockDashboard.floors[0].id } });
-    fireEvent.change(screen.getByLabelText("등록 게이트웨이"), { target: { value: mockDashboard.gateways[0].id } });
+    selectRegistrationTargets();
     fireEvent.click(screen.getByRole("button", { name: "조명 검색 시작" }));
     await waitFor(() => expect(getSessionMock).toHaveBeenCalledTimes(1));
 
@@ -1103,8 +1125,7 @@ async function renderStartedPanelWithoutWaiting() {
   await act(async () => {
     await activeSessionsMock.mock.results.at(-1)?.value;
   });
-  fireEvent.change(screen.getByLabelText("등록 층"), { target: { value: mockDashboard.floors[0].id } });
-  fireEvent.change(screen.getByLabelText("등록 게이트웨이"), { target: { value: mockDashboard.gateways[0].id } });
+  selectRegistrationTargets();
   fireEvent.click(screen.getByRole("button", { name: "조명 검색 시작" }));
   await act(async () => { await Promise.resolve(); });
   return queryClient;
@@ -1120,6 +1141,13 @@ function renderPanel() {
     </QueryClientProvider>
   );
   return queryClient;
+}
+
+function selectRegistrationTargets() {
+  fireEvent.click(screen.getByRole("button", { name: "등록 층" }));
+  fireEvent.click(screen.getByRole("option", { name: mockDashboard.floors[0].name }));
+  fireEvent.click(screen.getByRole("button", { name: "등록 게이트웨이" }));
+  fireEvent.click(screen.getByRole("option", { name: mockDashboard.gateways[0].name }));
 }
 
 function scanningSession() {

@@ -38,7 +38,7 @@ export function SettingsShell({ capabilities, selectedSiteId }: SettingsShellPro
   }, [discardEditorChanges, navigateToSite, pendingSiteId]);
 
   return (
-    <section className="grid min-w-0 gap-5">
+    <section className="grid min-w-0 content-start gap-5">
       <div className="flex items-center justify-end">
         <SiteSwitcher
           sites={sites}

@@ -7,6 +7,7 @@ import type { FloorEditorState } from "../../floor-editor/editor-types";
 import { dirtyEditorSentinelKey } from "../../floor-editor/dirty-editor-history";
 import { useFloorEditorStore } from "../../floor-editor/editor-store";
 import { SettingsNavigationItem } from "../../shells/SettingsNavigationItem";
+import { mockDashboard } from "../../../test/fixtures";
 import { FloorEditorRoute } from "./FloorEditorRoute";
 
 const manageCapabilities = { read: true, control: true, manage: true, commission: true } as const;
@@ -21,8 +22,10 @@ const { getFloorEditorState, acquireFloorEditorLease, releaseFloorEditorLease } 
 
 vi.mock("../../../api/floor-editor", () => floorEditorApi);
 vi.mock("../../floor-editor/FloorEditorView", () => ({
-  FloorEditorView: ({ initialState, onCancel, onSaved, onDirtyChange, readOnly = false }: {
+  FloorEditorView: ({ initialState, floors, onFloorChange, onCancel, onSaved, onDirtyChange, readOnly = false }: {
     initialState: FloorEditorState;
+    floors: Array<{ id: string; name: string }>;
+    onFloorChange: (floorId: string) => void;
     onCancel: () => void;
     onSaved: (state: FloorEditorState) => void;
     onDirtyChange: (dirty: boolean) => void;
@@ -34,6 +37,9 @@ vi.mock("../../floor-editor/FloorEditorView", () => ({
       <LocationProbe />
       <button onClick={() => onDirtyChange(true)}>수정</button>
       <button onClick={() => onDirtyChange(false)}>변경 되돌리기</button>
+      {floors.filter((floor) => floor.id !== initialState.floor.id).map((floor) => (
+        <button key={floor.id} onClick={() => onFloorChange(floor.id)}>{floor.name} 전환</button>
+      ))}
       <button onClick={onCancel}>취소</button>
       <button onClick={() => { onDirtyChange(false); onSaved(initialState); }}>저장</button>
     </section>
@@ -68,6 +74,14 @@ function renderRoute(
   capabilities = userRole === "admin" ? manageCapabilities : readCapabilities
 ) {
   const queryClient = new QueryClient();
+  queryClient.setQueryData(["dashboard", "site-2"], {
+    ...mockDashboard,
+    site: { ...mockDashboard.site, id: "site-2" },
+    floors: [
+      { ...mockDashboard.floors[0], id: "floor-b2", name: "B2" },
+      { ...mockDashboard.floors[1], id: "floor-b3", name: "B3" }
+    ]
+  });
   const result = render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[initialEntry]}>
@@ -513,19 +527,70 @@ describe("FloorEditorRoute", () => {
 
   it("blocks an internal route while dirty and allows it after confirmation", async () => {
     getFloorEditorState.mockResolvedValue(editorState);
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     renderRoute("admin");
     await screen.findByRole("heading", { name: "B2 맵 편집" });
     fireEvent.click(screen.getByRole("button", { name: "수정" }));
 
     fireEvent.click(screen.getByRole("link", { name: "설정 이동" }));
-    expect(screen.getByRole("heading", { name: "B2 맵 편집" })).toBeInTheDocument();
-    expect(confirm).toHaveBeenCalledOnce();
+    expect(screen.getByRole("alertdialog", { name: "맵 편집 종료" })).toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent("/settings/floor-plans/floor-b2/edit?siteId=site-2");
+    fireEvent.click(screen.getByRole("button", { name: "취소" }));
 
-    confirm.mockReturnValue(true);
     fireEvent.click(screen.getByRole("link", { name: "설정 이동" }));
+    fireEvent.click(screen.getByRole("button", { name: "이동" }));
     expect(await screen.findByRole("heading", { name: "설정 개요" })).toBeInTheDocument();
     expect(screen.getByTestId("location")).toHaveTextContent("/settings?siteId=site-2");
+  });
+
+  it("uses an accessible dialog instead of window.confirm for dirty internal navigation", async () => {
+    getFloorEditorState.mockResolvedValue(editorState);
+    const nativeConfirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    useFloorEditorStore.getState().initialize(editorState);
+    const dirtyDraft = {
+      ...editorState,
+      floor: { ...editorState.floor, name: "작성 중" }
+    };
+    useFloorEditorStore.setState({ state: dirtyDraft, isDirty: true });
+    renderRoute("admin");
+    await screen.findByRole("heading", { name: "B2 맵 편집" });
+    fireEvent.click(screen.getByRole("button", { name: "수정" }));
+
+    fireEvent.click(screen.getByRole("link", { name: "설정 이동" }));
+
+    const dialog = screen.getByRole("alertdialog", { name: "맵 편집 종료" });
+    expect(dialog).toHaveTextContent("저장하지 않은 변경사항이 있습니다. 이동하시겠습니까?");
+    expect(nativeConfirm).not.toHaveBeenCalled();
+    expect(screen.getByTestId("location")).toHaveTextContent("/settings/floor-plans/floor-b2/edit?siteId=site-2");
+
+    fireEvent.click(screen.getByRole("button", { name: "취소" }));
+    expect(screen.queryByRole("alertdialog", { name: "맵 편집 종료" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent("/settings/floor-plans/floor-b2/edit?siteId=site-2");
+    expect(useFloorEditorStore.getState()).toMatchObject({ state: dirtyDraft, isDirty: true });
+
+    fireEvent.click(screen.getByRole("link", { name: "설정 이동" }));
+    fireEvent.click(screen.getByRole("button", { name: "이동" }));
+
+    expect(await screen.findByRole("heading", { name: "설정 개요" })).toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent("/settings?siteId=site-2");
+    expect(useFloorEditorStore.getState()).toMatchObject({ state: editorState, initialState: editorState, isDirty: false });
+  });
+
+  it("keeps the current floor when a dirty floor change is cancelled and moves after confirmation", async () => {
+    getFloorEditorState.mockResolvedValue(editorState);
+    renderRoute("admin");
+    await screen.findByRole("heading", { name: "B2 맵 편집" });
+    fireEvent.click(screen.getByRole("button", { name: "수정" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "B3 전환" }));
+    expect(screen.getByRole("alertdialog", { name: "맵 편집 종료" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "취소" }));
+    expect(screen.getByTestId("location")).toHaveTextContent("/settings/floor-plans/floor-b2/edit?siteId=site-2");
+
+    fireEvent.click(screen.getByRole("button", { name: "B3 전환" }));
+    fireEvent.click(screen.getByRole("button", { name: "이동" }));
+
+    await waitFor(() => expect(getFloorEditorState).toHaveBeenCalledWith("floor-b3"));
+    expect(screen.getByTestId("location")).toHaveTextContent("/settings/floor-plans/floor-b3/edit?siteId=site-2");
   });
 
   it("guards the coarse settings link with the same dirty-draft confirmation", async () => {
@@ -540,7 +605,6 @@ describe("FloorEditorRoute", () => {
       dispatchEvent: vi.fn()
     })));
     getFloorEditorState.mockResolvedValue(editorState);
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     useFloorEditorStore.getState().initialize(editorState);
     const dirtyDraft = {
       ...editorState,
@@ -555,13 +619,13 @@ describe("FloorEditorRoute", () => {
     const settingsLink = screen.getByRole("link", { name: "설정" });
     fireEvent.click(settingsLink);
 
-    expect(confirm).toHaveBeenCalledOnce();
-    expect(screen.getByRole("heading", { name: "B2 맵 편집" })).toBeInTheDocument();
+    expect(screen.getByRole("alertdialog", { name: "맵 편집 종료" })).toBeInTheDocument();
     expect(screen.getByTestId("location")).toHaveTextContent("/settings/floor-plans/floor-b2/edit?siteId=site-2");
     expect(useFloorEditorStore.getState()).toMatchObject({ state: dirtyDraft, isDirty: true });
+    fireEvent.click(screen.getByRole("button", { name: "취소" }));
 
-    confirm.mockReturnValue(true);
     fireEvent.click(settingsLink);
+    fireEvent.click(screen.getByRole("button", { name: "이동" }));
 
     expect(await screen.findByRole("heading", { name: "설정 개요" })).toBeInTheDocument();
     expect(screen.getByTestId("location")).toHaveTextContent("/settings?siteId=site-2");
@@ -570,11 +634,13 @@ describe("FloorEditorRoute", () => {
 
   it("requires confirmation for dirty cancel but not after save", async () => {
     getFloorEditorState.mockResolvedValue(editorState);
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const nativeConfirm = vi.spyOn(window, "confirm");
     renderRoute("admin");
     await screen.findByRole("heading", { name: "B2 맵 편집" });
     fireEvent.click(screen.getByRole("button", { name: "수정" }));
 
+    fireEvent.click(screen.getByRole("button", { name: "취소" }));
+    expect(screen.getByRole("alertdialog", { name: "맵 편집 종료" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "취소" }));
     expect(screen.getByRole("heading", { name: "B2 맵 편집" })).toBeInTheDocument();
 
@@ -582,7 +648,7 @@ describe("FloorEditorRoute", () => {
     expect(await screen.findByRole("heading", { name: "B2 맵 편집" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "취소" }));
     expect(await screen.findByRole("heading", { name: "맵 관리" })).toBeInTheDocument();
-    expect(confirm).toHaveBeenCalledOnce();
+    expect(nativeConfirm).not.toHaveBeenCalled();
   });
 
   it("registers a beforeunload guard only while dirty", async () => {
@@ -604,7 +670,6 @@ describe("FloorEditorRoute", () => {
 
   it("keeps the same editor route and draft across repeated cancelled browser backs", async () => {
     getFloorEditorState.mockResolvedValue(editorState);
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     useFloorEditorStore.getState().initialize(editorState);
     useFloorEditorStore.setState({ state: { ...editorState, floor: { ...editorState.floor, name: "작성 중" } }, isDirty: true });
     renderBrowserRoute();
@@ -613,14 +678,16 @@ describe("FloorEditorRoute", () => {
     await waitFor(() => expect(window.history.state?.[dirtyEditorSentinelKey]).toBeTruthy());
 
     act(() => window.history.back());
-    await waitFor(() => expect(confirm).toHaveBeenCalledOnce());
+    await screen.findByRole("alertdialog", { name: "맵 편집 종료" });
+    fireEvent.click(screen.getByRole("button", { name: "취소" }));
     await waitFor(() => expect(window.history.state?.[dirtyEditorSentinelKey]).toBeTruthy());
     expect(screen.getByRole("heading", { name: "B2 맵 편집" })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/settings/floor-plans/floor-b2/edit");
     expect(useFloorEditorStore.getState().state?.floor.name).toBe("작성 중");
 
     act(() => window.history.back());
-    await waitFor(() => expect(confirm).toHaveBeenCalledTimes(2));
+    await screen.findByRole("alertdialog", { name: "맵 편집 종료" });
+    fireEvent.click(screen.getByRole("button", { name: "취소" }));
     await waitFor(() => expect(window.history.state?.[dirtyEditorSentinelKey]).toBeTruthy());
 
     expect(screen.getByRole("heading", { name: "B2 맵 편집" })).toBeInTheDocument();
@@ -630,7 +697,7 @@ describe("FloorEditorRoute", () => {
 
   it("discards the draft and performs the real back after browser approval", async () => {
     getFloorEditorState.mockResolvedValue(editorState);
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const nativeConfirm = vi.spyOn(window, "confirm");
     useFloorEditorStore.getState().initialize(editorState);
     useFloorEditorStore.setState({ state: { ...editorState, floor: { ...editorState.floor, name: "작성 중" } }, isDirty: true });
     renderBrowserRoute();
@@ -639,9 +706,11 @@ describe("FloorEditorRoute", () => {
     await waitFor(() => expect(window.history.state?.[dirtyEditorSentinelKey]).toBeTruthy());
 
     act(() => window.history.back());
+    await screen.findByRole("alertdialog", { name: "맵 편집 종료" });
+    fireEvent.click(screen.getByRole("button", { name: "이동" }));
 
     expect(await screen.findByRole("heading", { name: "설정 개요" })).toBeInTheDocument();
-    expect(confirm).toHaveBeenCalledOnce();
+    expect(nativeConfirm).not.toHaveBeenCalled();
     expect(useFloorEditorStore.getState()).toMatchObject({ state: editorState, initialState: editorState, isDirty: false });
   });
 
@@ -664,36 +733,38 @@ describe("FloorEditorRoute", () => {
 
   it("replaces the dirty sentinel after confirmed cancel", async () => {
     getFloorEditorState.mockResolvedValue(editorState);
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const nativeConfirm = vi.spyOn(window, "confirm");
     renderBrowserRoute();
     await screen.findByRole("heading", { name: "B2 맵 편집" });
     fireEvent.click(screen.getByRole("button", { name: "수정" }));
     await waitFor(() => expect(window.history.state?.[dirtyEditorSentinelKey]).toBeTruthy());
 
     fireEvent.click(screen.getByRole("button", { name: "취소" }));
+    fireEvent.click(screen.getByRole("button", { name: "이동" }));
     expect(await screen.findByRole("heading", { name: "맵 관리" })).toBeInTheDocument();
     act(() => window.history.back());
     expect(await screen.findByRole("heading", { name: "B2 맵 편집" })).toBeInTheDocument();
     act(() => window.history.back());
     expect(await screen.findByRole("heading", { name: "설정 개요" })).toBeInTheDocument();
-    expect(confirm).toHaveBeenCalledOnce();
+    expect(nativeConfirm).not.toHaveBeenCalled();
   });
 
   it("replaces the dirty sentinel after confirmed internal navigation", async () => {
     getFloorEditorState.mockResolvedValue(editorState);
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const nativeConfirm = vi.spyOn(window, "confirm");
     renderBrowserRoute();
     await screen.findByRole("heading", { name: "B2 맵 편집" });
     fireEvent.click(screen.getByRole("button", { name: "수정" }));
     await waitFor(() => expect(window.history.state?.[dirtyEditorSentinelKey]).toBeTruthy());
 
     fireEvent.click(screen.getByRole("link", { name: "보안 이동" }));
+    fireEvent.click(screen.getByRole("button", { name: "이동" }));
     expect(await screen.findByRole("heading", { name: "보안 설정" })).toBeInTheDocument();
     act(() => window.history.back());
     expect(await screen.findByRole("heading", { name: "B2 맵 편집" })).toBeInTheDocument();
     act(() => window.history.back());
     expect(await screen.findByRole("heading", { name: "설정 개요" })).toBeInTheDocument();
-    expect(confirm).toHaveBeenCalledOnce();
+    expect(nativeConfirm).not.toHaveBeenCalled();
   });
 
   it("consumes the dirty sentinel when the same editor becomes clean", async () => {

@@ -16,7 +16,18 @@ import {
   type RegisterFixtureBatchInput,
   type RegistrationSession
 } from "../../api/registration";
-import { Button, Card, FeedbackState, ProgressSteps, StatusBadge, type ProgressStep, type ProgressStepState } from "../../components/ui";
+import {
+  Button,
+  Card,
+  Checkbox,
+  FeedbackState,
+  ProgressSteps,
+  RadioGroup,
+  SelectBox,
+  StatusBadge,
+  type ProgressStep,
+  type ProgressStepState
+} from "../../components/ui";
 import { humanizeTransportMessage } from "../transport-copy";
 import { FixtureBatchForm, type FixtureBatchDefaults } from "./FixtureBatchForm";
 import {
@@ -54,7 +65,7 @@ type RegistrationMode = "batch" | "individual";
 const initialBatchDefaults: FixtureBatchDefaults = {
   namePrefix: "B2-L",
   startNumber: 1,
-  digits: 3,
+  digits: "3",
   ratedWatt: "40.00",
   size: 20
 };
@@ -62,7 +73,7 @@ const initialBatchDefaults: FixtureBatchDefaults = {
 const initialIndividualDefaults: FixtureIndividualDefaults = {
   namePrefix: "B2-L",
   startNumber: 1,
-  digits: 3
+  digits: "3"
 };
 
 export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLevel = 3 }: RegistrationPanelProps) {
@@ -408,7 +419,12 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
     if (mode === "batch") {
       registerMutation.mutate({
         mode: "batch",
-        defaults: batchDefaults,
+        defaults: {
+          ...batchDefaults,
+          startNumber: batchDefaults.startNumber ?? 0,
+          digits: Number(batchDefaults.digits),
+          size: batchDefaults.size ?? 0
+        },
         nodes: actionableNodes.map((node) => ({ nodeId: node.id }))
       });
       return;
@@ -420,10 +436,18 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
         nodeId: node.id,
         fixtureName: draft.fixtureName,
         ratedWatt: draft.ratedWatt,
-        size: draft.size
+        size: draft.size ?? 0
       };
     });
-    registerMutation.mutate({ mode: "individual", defaults: individualDefaults, nodes: registrationNodes });
+    registerMutation.mutate({
+      mode: "individual",
+      defaults: {
+        ...individualDefaults,
+        startNumber: individualDefaults.startNumber ?? 0,
+        digits: Number(individualDefaults.digits)
+      },
+      nodes: registrationNodes
+    });
   }
 
   return (
@@ -450,31 +474,32 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
         </div>
         <div className="registration-targets">
           {(activeSessionsQuery.data?.length ?? 0) > 1 ? (
-            <label>
-              진행 중인 세션
-              <select value={session?.id ?? ""} onChange={(event) => selectRestoredSession(event.target.value)}>
-                {activeSessionsQuery.data?.map((item) => (
-                  <option key={item.id} value={item.id}>{item.id.slice(0, 8)}</option>
-                ))}
-              </select>
-            </label>
+            <SelectBox
+              label="진행 중인 세션"
+              items={(activeSessionsQuery.data ?? []).map((item) => ({ id: item.id, label: item.id.slice(0, 8) }))}
+              selectedKey={session?.id ?? null}
+              onSelectionChange={(key) => { if (key) selectRestoredSession(key); }}
+            />
           ) : null}
-          <label>
-            등록 층
-            <select disabled={hasActiveSession} value={selectedFloorId} onChange={(event) => setSelectedFloorId(event.target.value)}>
-              <option value="">층 선택</option>
-              {dashboard?.floors.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-            </select>
-          </label>
-          <label>
-            등록 게이트웨이
-            <select disabled={hasActiveSession} value={selectedGatewayId} onChange={(event) => setSelectedGatewayId(event.target.value)}>
-              <option value="">게이트웨이 선택</option>
-              {dashboard?.gateways.map((item) => (
-                <option key={item.id} value={item.id}>{item.name}{item.connectionStatus === "online" ? "" : " (오프라인)"}</option>
-              ))}
-            </select>
-          </label>
+          <SelectBox
+            label="등록 층"
+            placeholder="층 선택"
+            items={(dashboard?.floors ?? []).map((item) => ({ id: item.id, label: item.name }))}
+            selectedKey={selectedFloorId || null}
+            isDisabled={hasActiveSession}
+            onSelectionChange={(key) => setSelectedFloorId(key ?? "")}
+          />
+          <SelectBox
+            label="등록 게이트웨이"
+            placeholder="게이트웨이 선택"
+            items={(dashboard?.gateways ?? []).map((item) => ({
+              id: item.id,
+              label: `${item.name}${item.connectionStatus === "online" ? "" : " (오프라인)"}`
+            }))}
+            selectedKey={selectedGatewayId || null}
+            isDisabled={hasActiveSession}
+            onSelectionChange={(key) => setSelectedGatewayId(key ?? "")}
+          />
         </div>
         <Button variant="primary" disabled={!canStart} isLoading={startMutation.isPending} loadingLabel="조명 검색 시작 중" onClick={() => startMutation.mutate()}>
           <Radar size={16} />
@@ -533,14 +558,12 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
           ) : null}
           {selectableNodes.length > 0 ? (
             <div className="registration-selection-toolbar">
-              <label className="selection-checkbox">
-                <input
-                  type="checkbox"
-                  checked={selectableNodes.length > 0 && selectableNodes.every((node) => selectedNodeIds.includes(node.id))}
-                  onChange={toggleAllNodes}
-                />
-                등록 가능 조명 전체 선택
-              </label>
+              <Checkbox
+                className="selection-checkbox"
+                label="등록 가능 조명 전체 선택"
+                isSelected={selectableNodes.length > 0 && selectableNodes.every((node) => selectedNodeIds.includes(node.id))}
+                onChange={toggleAllNodes}
+              />
               <strong>{actionableNodes.length}개 선택</strong>
             </div>
           ) : null}
@@ -558,15 +581,14 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
                 return (
                   <div className={`node-row${isAvailableRegistrationNode(node) && selectedNodeIds.includes(node.id) ? " selected" : ""}`} key={node.id}>
                     {hasKnownEligibility ? (
-                      <label className="node-selection">
-                        <input
-                          type="checkbox"
-                          aria-label={`조명 ${index + 1} 선택`}
-                          checked={selectedNodeIds.includes(node.id)}
-                          disabled={!isRegisterableNode(node, sessionSnapshot)}
-                          onChange={() => toggleNode(node.id)}
-                        />
-                      </label>
+                      <Checkbox
+                        className="node-selection"
+                        size="lg"
+                        aria-label={`조명 ${index + 1} 선택`}
+                        isSelected={selectedNodeIds.includes(node.id)}
+                        isDisabled={!isRegisterableNode(node, sessionSnapshot)}
+                        onChange={() => toggleNode(node.id)}
+                      />
                     ) : <span aria-hidden="true" />}
                     <div className="node-identity">
                       {hidesIdentity ? (
@@ -591,6 +613,7 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
                     {node.status === "discovered" || node.status === "identifying" ? (
                       <Button
                         variant="secondary"
+                        size="lg"
                         aria-label={`조명 ${index + 1} ${node.status === "identifying" ? "식별 중" : "식별"}`}
                         disabled={node.status === "identifying" || identifyMutation.isPending || sessionSnapshot.status !== "active"}
                         isLoading={identifyMutation.isPending && identifyMutation.variables === node.id}
@@ -603,17 +626,14 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
                     {node.status === "reconcile_required" ? (
                       <div className="reconcile-actions">
                         <small>장비의 실제 등록 상태를 확인하기 전에는 다시 등록하지 마세요.</small>
-                        <label>
-                          <input
-                            type="checkbox"
-                            aria-label="장비 상태를 확인했으며 현재 세션에서 제외"
-                            checked={reconcileConfirmations.includes(node.id)}
-                            onChange={(event) => setReconcileConfirmations((current) => event.target.checked
-                              ? [...current, node.id]
-                              : current.filter((id) => id !== node.id))}
-                          />
-                          장비가 등록되지 않았거나 초기화된 상태임을 확인
-                        </label>
+                        <Checkbox
+                          label="장비가 등록되지 않았거나 초기화된 상태임을 확인"
+                          aria-label="장비 상태를 확인했으며 현재 세션에서 제외"
+                          isSelected={reconcileConfirmations.includes(node.id)}
+                          onChange={(selected) => setReconcileConfirmations((current) => selected
+                            ? [...current, node.id]
+                            : current.filter((id) => id !== node.id))}
+                        />
                         <Button
                           variant="secondary"
                           disabled={
@@ -659,26 +679,17 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
           ) : null}
           {registrationFormNodes.length > 0 && sessionSnapshot.scanStatus !== "failed" ? (
             <div className="registration-config">
-              <div className="registration-mode-toggle" role="radiogroup" aria-label="조명 설정 방식">
-                <label className={mode === "batch" ? "active" : ""}>
-                  <input
-                    type="radio"
-                    name="registration-mode"
-                    checked={mode === "batch"}
-                    onChange={() => setMode("batch")}
-                  />
-                  일괄 설정
-                </label>
-                <label className={mode === "individual" ? "active" : ""}>
-                  <input
-                    type="radio"
-                    name="registration-mode"
-                    checked={mode === "individual"}
-                    onChange={() => setMode("individual")}
-                  />
-                  개별 설정
-                </label>
-              </div>
+              <RadioGroup
+                className="registration-mode-toggle"
+                aria-label="조명 설정 방식"
+                orientation="horizontal"
+                value={mode}
+                onChange={(value) => setMode(value as RegistrationMode)}
+                items={[
+                  { value: "batch", label: "일괄 설정" },
+                  { value: "individual", label: "개별 설정" }
+                ]}
+              />
               {mode === "batch" ? (
                 <FixtureBatchForm
                   values={batchDefaults}

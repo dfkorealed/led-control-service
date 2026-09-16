@@ -1,10 +1,10 @@
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { CircleCheck, Hand, Minus, MousePointer2, RotateCcw, Save, Square, Triangle, TriangleAlert, Type, Undo2, Redo2, ZoomIn, ZoomOut, Maximize, Focus } from "lucide-react";
-import { type DragEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type DragEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { AuthUser } from "../../api/auth";
 import { ApiError } from "../../api/client";
-import { Button, FeedbackState, PageHeader, SidePanel } from "../../components/ui";
+import { Button, Checkbox, ConfirmDialog, FeedbackState, Heading, IconButton, PageHeader, SelectBox, SidePanel, Text } from "../../components/ui";
 import {
   listFloorEditorRevisions,
   restoreFloorEditorRevision,
@@ -12,7 +12,7 @@ import {
   type FloorEditorRevision
 } from "../../api/floor-editor";
 import { EditorPropertiesPanel } from "./EditorPropertiesPanel";
-import { FixturePlacementList } from "./FixturePlacementList";
+import { createFixturePlacementRowRegistry, FixturePlacementList } from "./FixturePlacementList";
 import { EditorBatchPlacementPanel } from "./EditorBatchPlacementPanel";
 import { EditorLayersPanel } from "./EditorLayersPanel";
 import { FixtureIdentifyPanel } from "./FixtureIdentifyPanel";
@@ -73,6 +73,8 @@ export function FloorEditorView({
   const [restoringRevision, setRestoringRevision] = useState<number | null>(null);
   const [isUploadPending, setIsUploadPending] = useState(false);
   const [skippedFixtureCount, setSkippedFixtureCount] = useState(0);
+  const [confirmReload, setConfirmReload] = useState(false);
+  const rowRegistry = useMemo(createFixturePlacementRowRegistry, []);
   const mutationLock = useRef(false);
   const activeInstance = useRef(true);
   const activeScope = useRef({ floorId: initialState.floor.id, siteId: initialState.floor.siteId });
@@ -212,24 +214,24 @@ export function FloorEditorView({
   const isSaveOrRestoreBlocked = readOnly || isMutationPending || state?.floor.id !== floorId;
 
   return (
-    <section className="floor-editor-shell">
+    <section className="grid min-w-0 gap-3.5">
       <PageHeader
         title={`${initialState.floor.name} 맵 편집`}
         description={`리비전 ${baseline?.floor.mapRevision ?? initialState.floor.mapRevision}${isDirty ? " · 저장하지 않은 변경사항" : " · 저장됨"}`}
         actions={(
-          <div className="floor-editor-actions">
-            {floors && onFloorChange && <select aria-label="층 선택" value={floorId} disabled={isMutationPending} onChange={(e) => { if (!mutationLock.current) onFloorChange(e.target.value); }}>{floors.map((floor) => <option value={floor.id} key={floor.id}>{floor.name}</option>)}</select>}
-            <Button variant="ghost" aria-label="실행 취소" title="실행 취소" disabled={isSaveOrRestoreBlocked || !past.length} onClick={() => useFloorEditorStore.getState().undo()}><Undo2 size={18} /></Button>
-            <Button variant="ghost" aria-label="다시 실행" title="다시 실행" disabled={isSaveOrRestoreBlocked || !future.length} onClick={() => useFloorEditorStore.getState().redo()}><Redo2 size={18} /></Button>
-            <Button variant="ghost" className="floor-editor-icon-button" aria-label="축소" onClick={() => setZoom(zoom - 0.1)}>
+          <div className="flex flex-wrap items-center justify-end gap-2 max-compact:w-full max-compact:justify-start">
+            {floors && onFloorChange && <SelectBox label="층 선택" className="min-w-32" items={floors.map((floor) => ({ id: floor.id, label: floor.name }))} selectedKey={floorId} isDisabled={isMutationPending} onSelectionChange={(key) => { if (key && !mutationLock.current) onFloorChange(key); }} />}
+            <IconButton variant="ghost" className="max-compact:h-14 max-compact:min-h-14 max-compact:w-14 max-compact:min-w-14" aria-label="실행 취소" title="실행 취소" disabled={isSaveOrRestoreBlocked || !past.length} onClick={() => useFloorEditorStore.getState().undo()}><Undo2 size={18} /></IconButton>
+            <IconButton variant="ghost" className="max-compact:h-14 max-compact:min-h-14 max-compact:w-14 max-compact:min-w-14" aria-label="다시 실행" title="다시 실행" disabled={isSaveOrRestoreBlocked || !future.length} onClick={() => useFloorEditorStore.getState().redo()}><Redo2 size={18} /></IconButton>
+            <IconButton variant="ghost" className="max-compact:h-14 max-compact:min-h-14 max-compact:w-14 max-compact:min-w-14" aria-label="축소" onClick={() => setZoom(zoom - 0.1)}>
               <ZoomOut size={18} aria-hidden="true" />
-            </Button>
-            <Button variant="secondary" className="floor-editor-zoom-reset" aria-label="100%" title="100%" onClick={resetZoom}>{Math.round(zoom * 100)}%</Button>
-            <Button variant="ghost" className="floor-editor-icon-button" aria-label="확대" onClick={() => setZoom(zoom + 0.1)}>
+            </IconButton>
+            <Button variant="secondary" className="min-w-16" aria-label="100%" title="100%" onClick={resetZoom}>{Math.round(zoom * 100)}%</Button>
+            <IconButton variant="ghost" className="max-compact:h-14 max-compact:min-h-14 max-compact:w-14 max-compact:min-w-14" aria-label="확대" onClick={() => setZoom(zoom + 0.1)}>
               <ZoomIn size={18} aria-hidden="true" />
-            </Button>
-            <Button variant="ghost" aria-label="맵 맞춤" title="맵 맞춤" onClick={() => useFloorEditorStore.getState().fit()}><Maximize size={18} /></Button>
-            <Button variant="ghost" aria-label="선택 맞춤" title="선택 맞춤" onClick={() => useFloorEditorStore.getState().fit(true)}><Focus size={18} /></Button>
+            </IconButton>
+            <IconButton variant="ghost" className="max-compact:h-14 max-compact:min-h-14 max-compact:w-14 max-compact:min-w-14" aria-label="맵 맞춤" title="맵 맞춤" onClick={() => useFloorEditorStore.getState().fit()}><Maximize size={18} /></IconButton>
+            <IconButton variant="ghost" className="max-compact:h-14 max-compact:min-h-14 max-compact:w-14 max-compact:min-w-14" aria-label="선택 맞춤" title="선택 맞춤" onClick={() => useFloorEditorStore.getState().fit(true)}><Focus size={18} /></IconButton>
             <Button variant="secondary" onClick={onCancel}>
               <Undo2 size={16} aria-hidden="true" />
               취소
@@ -257,25 +259,28 @@ export function FloorEditorView({
           icon={TriangleAlert}
           title="최신 맵과 변경사항이 충돌했습니다."
           description="최신 버전을 다시 불러온 뒤 변경사항을 확인하세요."
-          action={<Button variant="secondary" onClick={() => { if (!isDirty || window.confirm("로컬 변경사항을 버리고 최신 버전을 불러올까요?")) { useFloorEditorStore.getState().discardChanges(); void onReload(); } }}>최신 버전 다시 불러오기</Button>}
+          action={<Button variant="secondary" onClick={() => {
+            if (!isDirty) { void onReload(); return; }
+            setConfirmReload(true);
+          }}>최신 버전 다시 불러오기</Button>}
         />
       ) : null}
-      {recovery && <FeedbackState icon={TriangleAlert} tone="warning" title="저장하지 않은 로컬 초안이 있습니다." action={<div className="floor-editor-actions"><Button disabled={isSaveOrRestoreBlocked} onClick={() => { if (readOnly || mutationLock.current || recovery.floor.id !== activeScope.current.floorId) return; useFloorEditorStore.getState().recoverDraft(recovery); setRecovery(null); }}>초안 복구</Button><Button disabled={isMutationPending} onClick={() => { if (userId) removeEditorDraft(userId, initialState); setRecovery(null); }}>초안 삭제</Button></div>} />}
+      {recovery && <FeedbackState icon={TriangleAlert} tone="warning" title="저장하지 않은 로컬 초안이 있습니다." action={<div className="flex flex-wrap justify-end gap-2"><Button disabled={isSaveOrRestoreBlocked} onClick={() => { if (readOnly || mutationLock.current || recovery.floor.id !== activeScope.current.floorId) return; useFloorEditorStore.getState().recoverDraft(recovery); setRecovery(null); }}>초안 복구</Button><Button disabled={isMutationPending} onClick={() => { if (userId) removeEditorDraft(userId, initialState); setRecovery(null); }}>초안 삭제</Button></div>} />}
       {draftError && <FeedbackState icon={TriangleAlert} tone="warning" title="이 브라우저에 초안을 보관하지 못했습니다. 서버에 저장하세요." />}
       {skippedFixtureCount > 0 ? (
         <FeedbackState tone="success" icon={CircleCheck} title={`현재 존재하지 않는 조명 ${skippedFixtureCount}개를 건너뛰었습니다.`} />
       ) : null}
 
-      <div className="floor-editor-layout ui-side-panel-layout">
-        <div className="floor-editor-left-panel"><FixturePlacementList readOnly={readOnly || isMutationPending} />
-        <aside className="floor-editor-toolbar" role="toolbar" aria-label="맵 편집 도구">
+      <div className="grid h-[max(620px,calc(100vh-230px))] min-h-155 grid-cols-12 gap-3 max-compact:h-auto max-compact:min-h-0 max-compact:grid-cols-1" data-testid="floor-editor-layout">
+        <div className="col-span-3 flex min-h-0 min-w-0 flex-col border-r border-border-default bg-surface-panel max-compact:col-span-full max-compact:border-r-0 tablet:col-span-2"><FixturePlacementList readOnly={readOnly || isMutationPending} rowRegistry={rowRegistry} />
+        <aside className="grid grid-cols-4 content-start gap-2 p-2 max-compact:grid-cols-3" role="toolbar" aria-label="맵 편집 도구">
           {tools.map((tool) => {
             const Icon = tool.icon;
             return (
               <Button
                 key={tool.key}
                 variant="ghost"
-                className={activeTool === tool.key ? "active" : ""}
+                className={`h-12 min-h-12 w-12 min-w-12 p-0 max-compact:h-14 max-compact:min-h-14 max-compact:w-14 max-compact:min-w-14 ${activeTool === tool.key ? "border-action-primary bg-action-primary-soft text-action-primary" : ""}`}
                 aria-label={tool.label}
                 title={tool.label}
                 disabled={(readOnly && tool.key !== "pan" && tool.key !== "select") || isMutationPending}
@@ -287,12 +292,12 @@ export function FloorEditorView({
               </Button>
             );
           })}
-        </aside><label className="editor-snap"><input type="checkbox" checked={snap} disabled={readOnly} onChange={(e) => useFloorEditorStore.getState().setSnap(e.target.checked)} />격자 스냅</label></div>
-        <main className="floor-editor-stage">
-          <FloorEditorCanvas readOnly={readOnly || isMutationPending} />
+        </aside><Checkbox className="m-2" label="격자 스냅" isSelected={snap} isDisabled={readOnly} onChange={(selected) => useFloorEditorStore.getState().setSnap(selected)} /></div>
+        <main className="col-span-6 grid min-w-0 overflow-hidden border border-border-default bg-surface-inset max-compact:col-span-full max-compact:h-120 tablet:col-span-7">
+          <FloorEditorCanvas readOnly={readOnly || isMutationPending} rowRegistry={rowRegistry} />
         </main>
-        <SidePanel className="floor-editor-side-panel" aria-label="맵 편집 정보">
-          <div className="segmented-control" role="tablist" aria-label="편집 패널">{[["properties", "속성"], ["placement", "배치"], ["layers", "레이어"]].map(([value, label]) => <button role="tab" key={value} aria-selected={panelTab === value} onClick={() => setPanelTab(value)}>{label}</button>)}</div>
+        <SidePanel className="col-span-3 grid min-w-0 content-start gap-3 overflow-y-auto p-0 max-compact:col-span-full" aria-label="맵 편집 정보">
+          <div className="grid grid-cols-3 gap-1 bg-surface-inset p-1" role="tablist" aria-label="편집 패널">{[["properties", "속성"], ["placement", "배치"], ["layers", "레이어"]].map(([value, label]) => <Button size="sm" variant={panelTab === value ? "primary" : "ghost"} role="tab" key={value} aria-selected={panelTab === value} onClick={() => setPanelTab(value)}>{label}</Button>)}</div>
           {panelTab === "properties" && <EditorPropertiesPanel readOnly={readOnly || isMutationPending} />}
           {panelTab === "placement" && <EditorBatchPlacementPanel readOnly={readOnly || isMutationPending} />}
           {panelTab === "layers" && <EditorLayersPanel readOnly={readOnly || isMutationPending} />}
@@ -329,6 +334,17 @@ export function FloorEditorView({
           />
         </SidePanel>
       </div>
+      {confirmReload ? <ConfirmDialog
+        title="로컬 변경사항을 버릴까요?"
+        confirmLabel="변경사항 버리기"
+        destructive
+        onCancel={() => setConfirmReload(false)}
+        onConfirm={() => {
+          useFloorEditorStore.getState().discardChanges();
+          setConfirmReload(false);
+          void onReload();
+        }}
+      ><Text>최신 버전을 불러오면 저장하지 않은 변경사항을 복구할 수 없습니다.</Text></ConfirmDialog> : null}
     </section>
   );
 }
@@ -361,40 +377,40 @@ function RevisionPanel({
   onRestore: (revision: number) => void;
 }) {
   return (
-    <section className="editor-revisions" aria-label="맵 버전">
-      <div>
-        <span className="eyebrow">버전</span>
-        <h3>변경 기록</h3>
+    <section className="grid gap-3 border-t border-border-subtle p-3" aria-label="맵 버전">
+      <div className="grid gap-1">
+        <Text variant="overline" tone="secondary">버전</Text>
+        <Heading as="h3" variant="card-title">변경 기록</Heading>
       </div>
-      {isLoading ? <p className="muted-text" role="status">버전 기록을 불러오는 중</p> : null}
+      {isLoading ? <Text variant="body-sm" tone="secondary" role="status">버전 기록을 불러오는 중</Text> : null}
       {isError ? (
-        <div role="alert">
-          <p className="danger-text">버전 기록을 불러오지 못했습니다.</p>
+        <div className="grid gap-2" role="alert">
+          <Text variant="body-sm" tone="danger">버전 기록을 불러오지 못했습니다.</Text>
           <Button variant="secondary" onClick={onRetry}>다시 시도</Button>
         </div>
       ) : null}
-      {!isLoading && !isError && revisions.length === 0 ? <p className="muted-text">저장된 버전이 없습니다.</p> : null}
+      {!isLoading && !isError && revisions.length === 0 ? <Text variant="body-sm" tone="secondary">저장된 버전이 없습니다.</Text> : null}
       {!isLoading && !isError && revisions.length > 0 ? (
-        <ol className="editor-revision-list">
+        <ol className="grid list-none gap-0 p-0" data-testid="editor-revision-list">
           {revisions.map((revision) => (
-            <li key={revision.revision}>
-              <div>
-                <strong>리비전 {revision.revision}</strong>
-                <span>{revision.actor.displayName}</span>
-                <time dateTime={revision.createdAt}>{formatRevisionTime(revision.createdAt)}</time>
-                <span>변경 {revisionChangeCount(revision.changeSummary)}건</span>
+            <li className="flex items-center justify-between gap-2.5 border-t border-border-default py-2.5 first:border-t-0 first:pt-0" key={revision.revision}>
+              <div className="grid min-w-0 gap-0.5">
+                <Text as="strong" variant="body-sm" weight="semibold">리비전 {revision.revision}</Text>
+                <Text as="span" variant="caption" tone="secondary">{revision.actor.displayName}</Text>
+                <Text as="time" variant="caption" tone="secondary" dateTime={revision.createdAt}>{formatRevisionTime(revision.createdAt)}</Text>
+                <Text as="span" variant="caption" tone="secondary">변경 {revisionChangeCount(revision.changeSummary)}건</Text>
               </div>
               {canRestore ? (
-                <Button
+                <IconButton
                   variant="ghost"
-                  className="editor-revision-restore"
+                  className="h-14 min-h-14 w-14 min-w-14"
                   aria-label={`리비전 ${revision.revision} 복구`}
                   title="이 버전 복구"
                   disabled={isDirty || isMutationPending}
                   onClick={() => onRestore(revision.revision)}
                 >
                   <RotateCcw size={16} aria-hidden="true" />
-                </Button>
+                </IconButton>
               ) : null}
             </li>
           ))}
