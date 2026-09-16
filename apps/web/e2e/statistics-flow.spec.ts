@@ -540,7 +540,8 @@ test("retries a summary failure and keeps cards during a series failure", async 
 });
 
 test("packs the statistics report from the top in a tall viewport", async ({ page }) => {
-  await page.setViewportSize({ width: 1440, height: 2400 });
+  const viewport = { width: 1440, height: 2400 };
+  await page.setViewportSize(viewport);
   await page.goto("/statistics");
   await expect(page.getByRole("heading", { name: "에너지 리포트" })).toBeVisible();
 
@@ -552,12 +553,15 @@ test("packs the statistics report from the top in a tall viewport", async ({ pag
   if (!shellRect || !headingRect || !reportRect) throw new Error("statistics report layout is incomplete");
   const layout = {
     headingOffset: headingRect.y - shellRect.y,
-    reportOffset: reportRect.y - (headingRect.y + headingRect.height)
+    remainingViewportSpace: viewport.height - (reportRect.y + reportRect.height)
   };
 
   expect(layout.headingOffset).toBeGreaterThan(0);
   expect(layout.headingOffset).toBeLessThan(100);
-  expect(layout.reportOffset).toBeGreaterThan(0);
+  expect(
+    layout.remainingViewportSpace,
+    "intrinsic statistics content should leave proportional space below it instead of stretching to the viewport bottom"
+  ).toBeGreaterThan(viewport.height * 0.1);
 });
 
 for (const viewport of [

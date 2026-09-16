@@ -45,24 +45,24 @@ const reviewedRuntimeExceptions = new Map([
     ["css-selector\0.floor-scene-canvas .konvajs-content", 1]
   ])],
   ["src/features/floor-editor/geometry.ts", new Map([
-    ["raw-color\0#2563eb", 1],
-    ["raw-color\0#dbeafe", 1],
-    ["literal-typography\0fontSize: 16", 1]
+    ["raw-color\0#2563eb\0variable:base/property:strokeColor", 1],
+    ["raw-color\0#dbeafe\0variable:base/property:fillColor", 1],
+    ["literal-typography\0fontSize: 16\0variable:base/property:fontSize", 1]
   ])],
   ["src/features/statistics/EnergyComparisonChart.tsx", new Map([
-    ["literal-spacing\0top: 12", 1],
-    ["literal-spacing\0right: 12", 1],
-    ["literal-spacing\0bottom: 8", 1]
+    ["literal-spacing\0top: 12\0jsx:ComposedChart/attribute:margin/property:top", 1],
+    ["literal-spacing\0right: 12\0jsx:ComposedChart/attribute:margin/property:right", 1],
+    ["literal-spacing\0bottom: 8\0jsx:ComposedChart/attribute:margin/property:bottom", 1]
   ])],
   ["src/features/statistics/StatisticsOverviewPage.tsx", new Map([
-    ["literal-spacing\0top: 12", 1],
-    ["literal-spacing\0right: 12", 1],
-    ["literal-spacing\0bottom: 8", 1]
+    ["literal-spacing\0top: 12\0jsx:LineChart/attribute:margin/property:top", 1],
+    ["literal-spacing\0right: 12\0jsx:LineChart/attribute:margin/property:right", 1],
+    ["literal-spacing\0bottom: 8\0jsx:LineChart/attribute:margin/property:bottom", 1]
   ])],
   ["src/features/statistics/analysis/EnergyRankingDetailPanel.tsx", new Map([
-    ["literal-spacing\0top: 8", 1],
-    ["literal-spacing\0right: 10", 1],
-    ["literal-spacing\0left: -18", 1]
+    ["literal-spacing\0top: 8\0jsx:LineChart/attribute:margin/property:top", 1],
+    ["literal-spacing\0right: 10\0jsx:LineChart/attribute:margin/property:right", 1],
+    ["literal-spacing\0left: -18\0jsx:LineChart/attribute:margin/property:left", 1]
   ])]
 ]);
 
@@ -70,6 +70,12 @@ const spacing = new Set(["0", "0.5", "1", "1.5", "2", "2.5", "3", "3.5", "4", "4
 const approvedCss = new Set(["src/styles.css", "src/styles/theme.css", "src/styles/base.css", "src/styles/exceptions.css"]);
 const entryImports = new Set(["tailwindcss", "./styles/theme.css", "./styles/base.css", "./styles/exceptions.css"]);
 const testPath = /(?:^|\/)(?:test|tests|__tests__|e2e)(?:\/|$)|\.(?:test|spec)\.[^.]+$/;
+const nativeFormElements = new Set(["input", "select", "textarea", "button"]);
+const reviewedUtilities = new Map([
+  ["pb-shell-navigation-safe", "padding-bottom: calc(var(--spacing) * 17 + env(safe-area-inset-bottom));"],
+  ["h-shell-navigation-safe", "height: calc(var(--spacing) * 17 + env(safe-area-inset-bottom));"],
+  ["pb-safe-area-bottom", "padding-bottom: env(safe-area-inset-bottom);"]
+]);
 const colorLiteral = /#[\da-f]{3,8}\b|\b(?:rgba?|hsla?|oklch|oklab|lch|lab|color)\([^;{}]*?\)/gi;
 const namedColors = new Set(("aliceblue antiquewhite aqua aquamarine azure beige bisque black blanchedalmond blue blueviolet brown burlywood cadetblue chartreuse chocolate coral cornflowerblue cornsilk crimson cyan darkblue darkcyan darkgoldenrod darkgray darkgreen darkgrey darkkhaki darkmagenta darkolivegreen darkorange darkorchid darkred darksalmon darkseagreen darkslateblue darkslategray darkslategrey darkturquoise darkviolet deeppink deepskyblue dimgray dimgrey dodgerblue firebrick floralwhite forestgreen fuchsia gainsboro ghostwhite gold goldenrod gray green greenyellow grey honeydew hotpink indianred indigo ivory khaki lavender lavenderblush lawngreen lemonchiffon lightblue lightcoral lightcyan lightgoldenrodyellow lightgray lightgreen lightgrey lightpink lightsalmon lightseagreen lightskyblue lightslategray lightslategrey lightsteelblue lightyellow lime limegreen linen magenta maroon mediumaquamarine mediumblue mediumorchid mediumpurple mediumseagreen mediumslateblue mediumspringgreen mediumturquoise mediumvioletred midnightblue mintcream mistyrose moccasin navajowhite navy oldlace olive olivedrab orange orangered orchid palegoldenrod palegreen paleturquoise palevioletred papayawhip peachpuff peru pink plum powderblue purple rebeccapurple red rosybrown royalblue saddlebrown salmon sandybrown seagreen seashell sienna silver skyblue slateblue slategray slategrey snow springgreen steelblue tan teal thistle tomato turquoise violet wheat white whitesmoke yellow yellowgreen").split(" "));
 
@@ -138,21 +144,90 @@ function maskComments(source, path) {
   return masked;
 }
 
+function staticString(node) {
+  while (ts.isParenthesizedExpression(node) || ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)
+    || ts.isNonNullExpression(node) || ts.isSatisfiesExpression(node)) node = node.expression;
+  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
+  if (ts.isTemplateExpression(node)) {
+    let value = node.head.text;
+    for (const span of node.templateSpans) {
+      const expression = staticString(span.expression);
+      if (expression === undefined) return undefined;
+      value += expression + span.literal.text;
+    }
+    return value;
+  }
+  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+    const left = staticString(node.left);
+    const right = staticString(node.right);
+    return left === undefined || right === undefined ? undefined : left + right;
+  }
+}
+
 function queryFingerprints(source, path) {
   // TypeScript is already the app's compiler dependency. Its existing parser
   // preserves nested/template selector arguments without a second parser package.
   const file = parseScript(source, path);
   const printer = ts.createPrinter({ removeComments: true });
-  const calls = new Map();
+  const calls = [];
   function visit(node) {
-    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
-      && /^(?:querySelector|querySelectorAll)$/.test(node.expression.name.text)) {
-      calls.set(node.expression.name.getStart(file), printer.printNode(ts.EmitHint.Expression, node, file));
+    if (ts.isCallExpression(node)) {
+      const method = ts.isPropertyAccessExpression(node.expression)
+        ? node.expression.name.text
+        : ts.isElementAccessExpression(node.expression) && node.expression.argumentExpression
+          ? staticString(node.expression.argumentExpression)
+          : undefined;
+      if (/^(?:querySelector|querySelectorAll)$/.test(method ?? "")) {
+        calls.push({ index: node.expression.getStart(file), match: printer.printNode(ts.EmitHint.Expression, node, file) });
+      }
     }
     ts.forEachChild(node, visit);
   }
   visit(file);
   return calls;
+}
+
+function moduleSpecifiers(source, path) {
+  const file = parseScript(source, path);
+  const specifiers = [];
+  function visit(node) {
+    let literal;
+    if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier) literal = node.moduleSpecifier;
+    else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) literal = node.arguments[0];
+    if (literal && (ts.isStringLiteral(literal) || ts.isNoSubstitutionTemplateLiteral(literal))) {
+      specifiers.push({ specifier: literal.text, index: literal.getStart(file) });
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(file);
+  return specifiers;
+}
+
+function exceptionAnchor(source, path, index) {
+  if (path.endsWith(".css")) return "";
+  const file = parseScript(source, path);
+  let property;
+  function visit(node) {
+    if (node.getStart(file) <= index && index < node.end) {
+      if (ts.isPropertyAssignment(node)) property = node;
+      ts.forEachChild(node, visit);
+    }
+  }
+  visit(file);
+  if (!property) return "";
+  const propertyName = property.name.getText(file).replace(/^['"]|['"]$/g, "");
+  const object = property.parent;
+  if (ts.isObjectLiteralExpression(object) && ts.isVariableDeclaration(object.parent)) {
+    return `variable:${object.parent.name.getText(file)}/property:${propertyName}`;
+  }
+  if (ts.isObjectLiteralExpression(object) && ts.isJsxExpression(object.parent) && ts.isJsxAttribute(object.parent.parent)) {
+    const attribute = object.parent.parent;
+    const opening = attribute.parent?.parent;
+    if (opening && (ts.isJsxOpeningElement(opening) || ts.isJsxSelfClosingElement(opening))) {
+      return `jsx:${opening.tagName.getText(file)}/attribute:${attribute.name.getText(file)}/property:${propertyName}`;
+    }
+  }
+  return "";
 }
 
 function scriptLiteralRanges(source, path) {
@@ -199,6 +274,16 @@ export function inspectUiSource(path, source) {
     for (const name of themeTokens) if (!declarations.has(name)) add("missing-theme-token", name);
   }
   const scan = (regex, callback) => { for (const match of text.matchAll(regex)) callback(match); };
+  if (!path.endsWith(".css")) {
+    for (const { specifier, index } of moduleSpecifiers(text, path)) {
+      if ((specifier.startsWith(".") || specifier.startsWith("/"))) {
+        const resource = specifier.split(/[?#]/, 1)[0];
+        const target = resolve("/", dirname(path), resource).slice(1).replaceAll("\\", "/");
+        if (testPath.test(target) || /\.(?:test|spec)$/.test(target)) add("test-import", specifier, index);
+      }
+      if (specifier === "tailwindcss" || specifier.startsWith("tailwindcss/")) add("css-import", specifier, index);
+    }
+  }
   // Responsive candidates in scripts live inside strings/template segments.
   // A CVA size map's sm:/md:/lg: keys (or TypeScript property signatures) are
   // syntax, not utilities. CSS @apply candidates still use the CSS source.
@@ -242,11 +327,13 @@ export function inspectUiSource(path, source) {
   // approved. Color opacity modifiers such as text-content-primary/70 differ.
   scan(/(?<![\w-])text-(?:display|page-title|section-title|card-title|body-lg|body-sm|body|label|caption|overline|metric)\/(?:\[[^\]\n]+\]|\([^\)\n]+\)|[^\s"'<>}]+)/g, m => add("unapproved-typography", m[0], m.index));
   scan(/(?<![\w-])(?:bg|text|border|ring|outline|fill|stroke|decoration|accent|caret|from|via|to)-(?:[a-z]+-\d{2,3}|black|white)(?![\w-])/g, m => add("unapproved-color", m[0], m.index));
-  let queries;
+  const queries = path.endsWith(".css") ? [] : queryFingerprints(text, path);
+  for (const query of queries) add("query-selector", query.match, query.index);
+  // Malformed snippets still fail closed even when the parser cannot construct a call.
   scan(/\b(?:querySelector|querySelectorAll)\s*(?:\?\.\s*)?(?:<[^;\n]+?>\s*)?\(/g, m => {
-    queries ??= queryFingerprints(text, path);
-    // A match in incomplete/invalid source must not inherit a short allowance.
-    add("query-selector", queries.get(m.index) ?? text.slice(m.index).split("\n")[0], m.index);
+    if (!queries.some(query => query.index <= m.index && m.index < query.index + query.match.length)) {
+      add("query-selector", text.slice(m.index).split("\n")[0], m.index);
+    }
   });
   scan(/(?:@import\s+(?:url\(\s*)?|\bimport\s*(?:\(\s*)?|\bfrom\s*)["']([^"']+)["']/g, m => {
     if (!m[1].split(/[?#]/, 1)[0].endsWith(".css") && !m[0].startsWith("@import")) return;
@@ -257,9 +344,91 @@ export function inspectUiSource(path, source) {
   scan(/@import\s+url\(\s*([^\s"')]+)\s*\)/g, m => {
     if (!(path === "src/styles.css" && entryImports.has(m[1]))) add("css-import", m[1], m.index);
   });
-  if (!path.startsWith("src/components/ui/")) {
-    scan(/<(?:input|select|textarea|button)\b[^>]*?\b(?:className|style)\s*=/g, m => add("raw-form-style", m[0].replace(/\s+/g, " "), m.index));
+  if (path === "src/styles.css") {
+    scan(/@import\s+(["'])([^"']+)\1([^;]*);/g, m => {
+      if (entryImports.has(m[2]) && m[3].trim()) add("css-import", m[2], m.index);
+    });
   }
+  if (!path.startsWith("src/components/ui/") && !path.endsWith(".css")) {
+    const file = parseScript(text, path);
+    const printer = ts.createPrinter({ removeComments: true });
+    const reactNamespaces = new Set(["React"]);
+    const reactCreateElements = new Set();
+    const sharedFormFields = new Set();
+    for (const statement of file.statements) {
+      if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
+      const clause = statement.importClause;
+      if (statement.moduleSpecifier.text === "react" && clause) {
+        if (clause.name) reactNamespaces.add(clause.name.text);
+        if (clause.namedBindings && ts.isNamespaceImport(clause.namedBindings)) reactNamespaces.add(clause.namedBindings.name.text);
+        if (clause.namedBindings && ts.isNamedImports(clause.namedBindings)) {
+          for (const element of clause.namedBindings.elements) {
+            if ((element.propertyName?.text ?? element.name.text) === "createElement") reactCreateElements.add(element.name.text);
+          }
+        }
+      }
+      if (clause?.namedBindings && ts.isNamedImports(clause.namedBindings) && statement.moduleSpecifier.text.startsWith(".")) {
+        const target = resolve("/", dirname(path), statement.moduleSpecifier.text).slice(1).replaceAll("\\", "/");
+        if (target === "src/components/ui" || target.startsWith("src/components/ui/")) {
+          for (const element of clause.namedBindings.elements) {
+            if ((element.propertyName?.text ?? element.name.text) === "FormField") sharedFormFields.add(element.name.text);
+          }
+        }
+      }
+    }
+    const propertyName = name => ts.isComputedPropertyName(name) ? staticString(name.expression)
+      : ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name) ? name.text : undefined;
+    function visitFormElements(node) {
+      if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) {
+        const tag = node.tagName.getText(file);
+        const directStyle = node.attributes.properties.some(attribute =>
+          ts.isJsxAttribute(attribute) && /^(?:className|style)$/.test(attribute.name.text)
+        );
+        const spreadStyle = node.attributes.properties.some(ts.isJsxSpreadAttribute);
+        let sharedFieldOwner = false;
+        for (let parent = node.parent; parent; parent = parent.parent) {
+          if (ts.isJsxElement(parent) && sharedFormFields.has(parent.openingElement.tagName.getText(file))) {
+            sharedFieldOwner = true;
+            break;
+          }
+        }
+        if (nativeFormElements.has(tag) && (directStyle || spreadStyle && !sharedFieldOwner)) {
+          add("raw-form-style", printer.printNode(ts.EmitHint.Unspecified, node, file).replace(/\s+/g, " "), node.getStart(file));
+        }
+      } else if (ts.isCallExpression(node)) {
+        const callee = node.expression;
+        const createElement = ts.isIdentifier(callee) && reactCreateElements.has(callee.text)
+          || ts.isPropertyAccessExpression(callee) && reactNamespaces.has(callee.expression.getText(file)) && callee.name.text === "createElement"
+          || ts.isElementAccessExpression(callee) && reactNamespaces.has(callee.expression.getText(file)) && staticString(callee.argumentExpression) === "createElement";
+        if (!createElement) {
+          ts.forEachChild(node, visitFormElements);
+          return;
+        }
+        const tag = node.arguments[0] && staticString(node.arguments[0]);
+        const props = node.arguments[1];
+        if (tag && nativeFormElements.has(tag) && props && props.kind !== ts.SyntaxKind.NullKeyword) {
+          const mayStyle = !ts.isObjectLiteralExpression(props) || props.properties.some(property =>
+            ts.isSpreadAssignment(property) || (ts.isPropertyAssignment(property) || ts.isShorthandPropertyAssignment(property))
+              && /^(?:className|style)$/.test(propertyName(property.name) ?? "")
+          );
+          if (mayStyle) add("raw-form-style", printer.printNode(ts.EmitHint.Expression, node, file), node.getStart(file));
+        }
+      }
+      ts.forEachChild(node, visitFormElements);
+    }
+    visitFormElements(file);
+  }
+  const approvedUtilityStarts = new Set();
+  const utilityCounts = new Map();
+  scan(/@utility\s+([^\s{]+)\s*\{([^{}]*)\}/g, m => {
+    const body = m[2].trim().replace(/\s+/g, " ");
+    const count = (utilityCounts.get(m[1]) ?? 0) + 1;
+    utilityCounts.set(m[1], count);
+    if (path === "src/styles/base.css" && reviewedUtilities.get(m[1]) === body && count === 1) approvedUtilityStarts.add(m.index);
+  });
+  scan(/@utility\s+[^\s{]+/g, m => {
+    if (!approvedUtilityStarts.has(m.index)) add("css-utility", m[0], m.index);
+  });
   scan(/(?<![\w-])((?:scroll-)?padding(?:-[\w]+|[A-Z]\w*)?|(?:scroll-)?margin(?:-[\w]+|[A-Z]\w*)?|gap|row-gap|column-gap|rowGap|columnGap|top|right|bottom|left|inset)\s*:\s*/g, m => {
     const value = styleValue(text, m.index + m[0].length);
     if (/(?:\d*\.)?\d+(?:px|rem)\b/.test(value) || /^\s*["']?-?(?!0(?:\s|["']|$))\d+(?:\.\d+)?\s*(?:["']|$)/.test(value)) {
@@ -343,7 +512,9 @@ export function inspectUiSource(path, source) {
   }
   const exceptionCounts = new Map();
   return violations.sort((a, b) => a.index - b.index).filter((violation) => {
-    const key = `${violation.rule}\0${violation.match}`;
+    const basicKey = `${violation.rule}\0${violation.match}`;
+    const anchor = exceptionAnchor(text, path, violation.index);
+    const key = anchor ? `${basicKey}\0${anchor}` : basicKey;
     const count = (exceptionCounts.get(key) ?? 0) + 1;
     exceptionCounts.set(key, count);
     return count > (reviewedRuntimeExceptions.get(path)?.get(key) ?? 0);
@@ -362,16 +533,64 @@ async function sourceFiles(directory) {
 
 export async function inspectWorkspace({ root = webRoot, baseline = {} } = {}) {
   if (Object.keys(baseline).length > 0) throw new Error("UI policy workspace inspection requires a zero-baseline");
-  let count = 0;
   const violations = [];
+  const sources = new Map();
   for (const file of await sourceFiles(resolve(root, "src"))) {
     const path = relative(root, file).replaceAll("\\", "/");
-    for (const violation of inspectUiSource(path, await readFile(file, "utf8"))) {
-      count++;
-      violations.push(violation);
+    const source = await readFile(file, "utf8");
+    sources.set(path, source);
+    violations.push(...inspectUiSource(path, source));
+  }
+
+  const stylesheet = sources.get("src/styles.css") ?? "";
+  const stylesheetText = maskComments(stylesheet, "src/styles.css");
+  const stylesheetImports = [...stylesheetText.matchAll(/@import\s+(["'])([^"']+)\1\s*;/g)].map(match => match[2]);
+  for (const required of entryImports) {
+    const count = stylesheetImports.filter(specifier => specifier === required).length;
+    if (count === 0) violations.push({ rule: "missing-css-import", path: "src/styles.css", match: required });
+    else if (count > 1) violations.push({ rule: "duplicate-css-import", path: "src/styles.css", match: required });
+  }
+
+  const entryOwners = [];
+  for (const [path, source] of sources) {
+    if (!path.endsWith(".css") && !testPath.test(path)) {
+      for (const { specifier } of moduleSpecifiers(source, path)) if (specifier === "./styles.css") entryOwners.push(path);
     }
   }
-  return { count, violations };
+  if (entryOwners.length === 0) violations.push({ rule: "missing-css-entry", path: "src/styles.css", match: "./styles.css" });
+  else if (entryOwners.length > 1) violations.push({ rule: "duplicate-css-entry", path: "src/styles.css", match: entryOwners.join(", ") });
+
+  try {
+    const html = await readFile(resolve(root, "index.html"), "utf8");
+    const attribute = (tag, name) => {
+      const match = tag.match(new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'=<>\u0060]+))`, "i"));
+      return match?.[1] ?? match?.[2] ?? match?.[3];
+    };
+    for (const link of html.matchAll(/<link\b[^>]*>/gi)) {
+      const rel = attribute(link[0], "rel");
+      const href = attribute(link[0], "href");
+      if (rel?.toLowerCase().split(/\s+/).includes("stylesheet") || href?.split(/[?#]/, 1)[0].endsWith(".css")) {
+        violations.push({ rule: "html-css-entry", path: "index.html", match: href ?? link[0] });
+      }
+    }
+    if (/<style\b/i.test(html)) violations.push({ rule: "html-css-entry", path: "index.html", match: "<style>" });
+    for (const script of html.matchAll(/<script\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/gi)) {
+      const target = script[1].replace(/^\//, "");
+      if (testPath.test(target)) violations.push({ rule: "test-import", path: "index.html", match: script[1] });
+    }
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+
+  try {
+    for (const file of await sourceFiles(resolve(root, "public"))) {
+      const path = relative(root, file).replaceAll("\\", "/");
+      if (path.endsWith(".css")) violations.push({ rule: "public-css", path, match: path });
+    }
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+  return { count: violations.length, violations };
 }
 
 async function check(root) {

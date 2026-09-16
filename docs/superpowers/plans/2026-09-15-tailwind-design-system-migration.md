@@ -812,7 +812,7 @@ git commit -m "refactor(web): migrate statistics to design system"
 **Interfaces:**
 - Consumes: SelectBox, Button/IconButton, FeedbackState, MetricCard, StatusBadge, Heading/Text and fixture tokens.
 
-- [ ] **Step 1: 상태와 선택 control 계약 테스트를 추가한다**
+- [x] **Step 1: 상태와 선택 control 계약 테스트를 추가한다**
 
 ```tsx
 it("uses labelled design-system selectors and non-color status text", () => {
@@ -829,15 +829,15 @@ Run: `pnpm --filter @led-control/web test -- src/features/monitoring src/feature
 
 Expected: design-system select role assertion fails.
 
-- [ ] **Step 3: toolbar, floor/fixture 선택과 상태 카드를 전환한다**
+- [x] **Step 3: toolbar, floor/fixture 선택과 상태 카드를 전환한다**
 
 floor/fixture native select를 SelectBox로 교체하고 기존 selected id state와 query key를 그대로 유지한다. refresh와 zoom actions는 Button/IconButton, 안내는 Text, 상태는 fixture token이 적용된 StatusBadge를 사용한다.
 
-- [ ] **Step 4: 지도 예외 경계를 적용한다**
+- [x] **Step 4: 지도 예외 경계를 적용한다**
 
 정적 shell, legend, toolbar와 panel은 Tailwind로 전환한다. `stageStyle`, `mapStyle`, pan/zoom 좌표와 runtime dimension만 inline style 또는 `exceptions.css`의 문서화된 custom property로 유지한다.
 
-- [ ] **Step 5: 1,000개 조명과 반응형 회귀를 검증한다**
+- [x] **Step 5: 1,000개 조명과 반응형 회귀를 검증한다**
 
 Run:
 
@@ -849,12 +849,14 @@ pnpm --filter @led-control/web ui:check
 
 Expected: all commands exit 0; map pan/zoom and selection remain functional.
 
-- [ ] **Step 6: 문서와 커밋을 만든다**
+- [x] **Step 6: 문서와 커밋을 만든다**
 
 ```bash
 git add apps/web/src/features/monitoring apps/web/src/features/floor-map apps/web/e2e/calm-operations-monitoring.spec.ts apps/web/e2e/monitoring-1000.spec.ts docs/menus/monitoring.md
 git commit -m "refactor(web): migrate monitoring to design system"
 ```
+
+**완료 증거:** `fbbf72e3`가 monitoring/floor-map 구현·unit·두 Chromium spec·`docs/menus/monitoring.md`를 함께 갱신했고, Task 12 fresh verification에서 monitoring-1000 포함 focused Chromium과 최종 전체 Chromium이 통과했다. Step 2의 당시 RED 실행 결과는 plan/ledger에 남아 있지 않아 증거 체크는 보류한다.
 
 ### Task 8: 제어와 automation migration
 
@@ -888,7 +890,7 @@ git commit -m "refactor(web): migrate monitoring to design system"
 **Interfaces:**
 - Consumes: all Task 1~5 form, date/time, Slider, overlay and typography exports.
 
-- [ ] **Step 1: 공통 control 사용과 값 보존 테스트를 추가한다**
+- [x] **Step 1: 공통 control 사용과 값 보존 테스트를 추가한다**
 
 ```tsx
 it("keeps schedule API strings while using design-system controls", async () => {
@@ -907,19 +909,19 @@ Run: `pnpm --filter @led-control/web test -- src/features/control`
 
 Expected: TimePicker/Slider interaction helper fails against native controls.
 
-- [ ] **Step 3: 수동 제어와 그룹 dialog를 전환한다**
+- [x] **Step 3: 수동 제어와 그룹 dialog를 전환한다**
 
 ControlTargetPicker의 select/checkbox/radio, ControlView의 brightness range/number와 FixtureGroupDialog의 fields를 공통 컴포넌트로 교체한다. brightness는 Slider와 NumberField가 하나의 number state를 공유하며 기존 0~100 validation을 유지한다.
 
-- [ ] **Step 4: schedule와 vehicle event form을 전환한다**
+- [x] **Step 4: schedule와 vehicle event form을 전환한다**
 
 ScheduleDialog의 time/date/number/select/checkbox, VehicleEventDialog와 AutomationQuickFields의 form controls를 교체한다. schedule/event에서 빈 값·범위 밖 값·소수점 중간 문자열을 검증해야 하는 숫자 입력은 TextField `inputMode="numeric" | "decimal"`을 사용하고, 수동 ControlView처럼 실제 number state인 brightness만 NumberField를 사용한다. DatePicker/TimePicker validation focus는 `FocusableFieldHandle`을 사용한다. 기존 `schedule-form.ts`, `vehicle-event-form.ts` validation과 API payload는 그대로 사용한다.
 
-- [ ] **Step 5: 자체 dialog와 focus hook을 제거한다**
+- [x] **Step 5: 자체 dialog와 focus hook을 제거한다**
 
 ScheduleDialog, VehicleEventDialog와 FixtureGroupDialog를 ModalDialog/ConfirmDialog로 구성하고 `useModalFocus.ts`를 삭제한다. caller의 opener ref를 `returnFocusRef`로 전달한다.
 
-- [ ] **Step 6: focused tests와 제어 E2E를 통과시킨다**
+- [x] **Step 6: focused tests와 제어 E2E를 통과시킨다**
 
 Run:
 
@@ -931,12 +933,14 @@ pnpm --filter @led-control/web ui:check
 
 Expected: all commands exit 0 and command/schedule payload assertions are unchanged.
 
-- [ ] **Step 7: 문서와 커밋을 만든다**
+- [x] **Step 7: 문서와 커밋을 만든다**
 
 ```bash
 git add apps/web/src/features/control apps/web/e2e/calm-operations-manual-control.spec.ts apps/web/e2e/calm-operations-automation.spec.ts apps/web/e2e/automation-control-flow.spec.ts docs/menus/control.md
 git commit -m "refactor(web): migrate control forms to design system"
 ```
+
+**완료 증거:** `fb1d1726`가 control/automation 구현·unit·세 Chromium spec·`docs/menus/control.md`를 함께 갱신하고 `useModalFocus.ts`를 삭제했다. Task 12 final Web/Chromium verification도 통과했다. Step 2의 당시 RED 실행 결과는 plan/ledger에 남아 있지 않아 증거 체크는 보류한다.
 
 ### Task 9: 일반 설정 migration
 
@@ -969,7 +973,7 @@ git commit -m "refactor(web): migrate control forms to design system"
 **Interfaces:**
 - Consumes: Task 1~5 form, typography and overlay exports.
 
-- [ ] **Step 1: ref 기반 subnavigation과 공통 form 테스트를 작성한다**
+- [x] **Step 1: ref 기반 subnavigation과 공통 form 테스트를 작성한다**
 
 ```tsx
 it("scrolls the active settings item through its registered ref", () => {
@@ -985,15 +989,15 @@ Run: `pnpm --filter @led-control/web test -- src/features/settings`
 
 Expected: source assertion fails on `SettingsSubnavigation.tsx`.
 
-- [ ] **Step 3: shell, security, site operation과 user form을 전환한다**
+- [x] **Step 3: shell, security, site operation과 user form을 전환한다**
 
 NavLink callback ref 또는 item ref map으로 활성 tab을 직접 보관한다. SiteSwitcher는 label 또는 `aria-label`을 가진 SelectBox로 바꾸고 SettingsShell 테스트의 native `combobox` 기대를 trigger `button`과 option keyboard 계약으로 갱신한다. dirty 상태에서 선택한 다음 현장 id를 SettingsShell state에 보관하고 ConfirmDialog 확인 뒤에만 draft 폐기와 navigate를 실행한다. AccountSecurity의 현재 세션 종료 `window.confirm`, PasswordSettings, SiteOperations, SiteUser form/reset/delete dialog도 TextField/PasswordField/SelectBox/Checkbox/ModalDialog/ConfirmDialog로 전환한다. 요금·정격전력처럼 문자열 중간 상태가 필요한 숫자 입력은 NumberField가 아니라 TextField `inputMode="decimal"`을 사용해 기존 validation과 payload 문자열을 보존한다.
 
-- [ ] **Step 4: feature CSS를 제거하고 Tailwind로 옮긴다**
+- [x] **Step 4: feature CSS를 제거하고 Tailwind로 옮긴다**
 
 `SiteOperationsView.css`, `SiteUsersView.css`의 정적 규칙을 component utility로 옮기고 파일 import를 삭제한다. 공통 토큰이 부족하면 UI 기반 담당에게 추가 요청하고 직접 theme를 수정하지 않는다.
 
-- [ ] **Step 5: focused tests와 settings E2E를 통과시킨다**
+- [x] **Step 5: focused tests와 settings E2E를 통과시킨다**
 
 Run:
 
@@ -1005,12 +1009,14 @@ pnpm --filter @led-control/web ui:check
 
 Expected: all commands exit 0.
 
-- [ ] **Step 6: 문서와 커밋을 만든다**
+- [x] **Step 6: 문서와 커밋을 만든다**
 
 ```bash
 git add apps/web/src/features/settings apps/web/src/features/sites apps/web/e2e/settings-operations.spec.ts apps/web/e2e/site-user-management.spec.ts docs/menus/settings.md
 git commit -m "refactor(web): migrate settings to design system"
 ```
+
+**완료 증거:** `7fcd360f`가 settings/sites 구현·unit·settings Chromium specs·`docs/menus/settings.md`를 함께 갱신하고 두 legacy feature CSS를 삭제했다. Task 12 final Web/Chromium verification도 통과했다. Step 2의 당시 RED 실행 결과는 plan/ledger에 남아 있지 않아 증거 체크는 보류한다.
 
 ### Task 10: 등록과 floor editor migration
 
@@ -1050,7 +1056,7 @@ git commit -m "refactor(web): migrate settings to design system"
 **Interfaces:**
 - Consumes: Task 1~5 form and overlay exports; Konva runtime geometry remains an approved exception.
 
-- [ ] **Step 1: 등록 값과 editor focus 회귀 테스트를 추가한다**
+- [x] **Step 1: 등록 값과 editor focus 회귀 테스트를 추가한다**
 
 ```tsx
 it("submits the same batch registration payload through shared fields", async () => {
@@ -1067,21 +1073,21 @@ Run: `pnpm --filter @led-control/web test -- src/features/registration src/featu
 
 Expected: new shared-control assertion fails.
 
-- [ ] **Step 3: 등록 form과 선택 UI를 전환한다**
+- [x] **Step 3: 등록 form과 선택 UI를 전환한다**
 
 RegistrationPanel, FixtureBatchForm, FixtureIndividualForm, GatewayClaimPanel과 SetupWizard의 select, checkbox, radio, text와 number controls를 공통 컴포넌트로 교체한다. 정격전력과 이름 자릿수처럼 문자열 중간 상태가 필요한 값은 TextField `inputMode="decimal" | "numeric"`을 사용한다. active session disable, registered-elsewhere, partial failure, gateway claim과 payload semantics를 유지한다. FloorAssetUploadPanel의 파일 입력은 FileField로 교체한다. 현재 route에서 노출하지 않는 RfPlanningPanel도 policy 위반이 남지 않게 공통 컴포넌트와 토큰으로 전환하되 새 route를 추가하지 않는다.
 
-- [ ] **Step 4: floor editor의 정적 UI만 Tailwind로 전환한다**
+- [x] **Step 4: floor editor의 정적 UI만 Tailwind로 전환한다**
 
 list search, tabs, properties, batch placement, asset panel, actions와 confirm dialog를 공통 UI로 교체한다. Konva canvas position/scale, virtual list translate, minimap geometry는 inline runtime style로 유지하고 이유를 코드 주석과 `exceptions.css` allowlist에 기록하도록 UI 기반 담당에게 요청한다. FloorEditorCanvas, EditorFixtureNode와 EditorMinimap의 정적 raw color는 `themeColor()` adapter로 교체하고 geometry 예외로 남기지 않는다. FixturePlacementAction과 FixturePlacementList는 callback ref registry를 공유해 production `document.querySelector`를 제거한다.
 
-- [ ] **Step 5: `window.confirm`을 공통 ConfirmDialog로 교체한다**
+- [x] **Step 5: `window.confirm`을 공통 ConfirmDialog로 교체한다**
 
 FloorEditorRoute의 dirty navigation은 pending destination을 state로 저장하고, 확인 시 저장된 action을 실행한다. browser unload의 native `beforeunload` prompt는 브라우저 제약으로 유지한다.
 
 `settings-floor-editor.spec.ts`에서 현장 선택기를 찾는 native `combobox` selector는 Task 9의 SelectBox trigger `button`과 option 선택 계약으로 갱신한다.
 
-- [ ] **Step 6: registration/floor tests와 E2E를 통과시킨다**
+- [x] **Step 6: registration/floor tests와 E2E를 통과시킨다**
 
 Run:
 
@@ -1093,12 +1099,14 @@ pnpm --filter @led-control/web ui:check
 
 Expected: all commands exit 0 and canvas pan/zoom/placement remains unchanged.
 
-- [ ] **Step 7: 문서와 커밋을 만든다**
+- [x] **Step 7: 문서와 커밋을 만든다**
 
 ```bash
 git add apps/web/src/features/registration apps/web/src/features/floor-editor apps/web/src/features/settings/floor-plans apps/web/src/features/setup apps/web/src/features/rf apps/web/e2e/calm-operations-commissioning.spec.ts apps/web/e2e/floor-editor-layout.spec.ts apps/web/e2e/settings-floor-editor.spec.ts docs/menus/settings.md docs/menus/monitoring.md
 git commit -m "refactor(web): migrate commissioning UI system"
 ```
+
+**완료 증거:** `489f153d`가 registration/floor-editor/setup/RF 구현·unit·세 Chromium spec과 monitoring/settings 문서를 함께 갱신했다. Task 12 fresh verification에서 floor placement focused Chromium과 최종 전체 Chromium이 통과했다. Step 2의 당시 RED 실행 결과는 plan/ledger에 남아 있지 않아 증거 체크는 보류한다.
 
 ### Task 11: shell, 인증과 운영자 화면 migration
 
@@ -1135,7 +1143,7 @@ git commit -m "refactor(web): migrate commissioning UI system"
 **Interfaces:**
 - Consumes: Task 1~5 TextField/PasswordField/Checkbox, Button/IconButton, Card, FeedbackState/RouteLoadingState, Modal/ConfirmDialog, typography and navigation primitives.
 
-- [ ] **Step 1: 인증 payload와 shell confirmation 회귀 테스트를 작성한다**
+- [x] **Step 1: 인증 payload와 shell confirmation 회귀 테스트를 작성한다**
 
 ```tsx
 it("keeps login credentials unchanged through shared fields", async () => {
@@ -1159,19 +1167,19 @@ Run: `pnpm --filter @led-control/web test -- src/App.test.tsx src/features/auth 
 
 Expected: alertdialog assertion fails against `window.confirm`.
 
-- [ ] **Step 3: App loading/recovery와 CustomerShell을 전환한다**
+- [x] **Step 3: App loading/recovery와 CustomerShell을 전환한다**
 
 App.tsx의 auth loading panel을 RouteLoadingState로 바꾸고 `styles.css` import는 유지한다. CustomerShell의 responsive layout, navigation, site badge와 logout을 Tailwind token으로 전환하고 Task 9가 제공한 SiteSwitcher를 소비한다. dirty logout은 boolean state와 ConfirmDialog로 처리하며 기존 command/editor guard를 유지한다.
 
-- [ ] **Step 4: Auth와 required-password form을 전환한다**
+- [x] **Step 4: Auth와 required-password form을 전환한다**
 
 AuthView의 loginId/password/MFA/remember fields와 RequiredPasswordChangeView의 password fields를 공통 컴포넌트로 교체한다. autoComplete, min/max length, initial focus, error announcement와 기존 auth API payload를 보존한다.
 
-- [ ] **Step 5: operator dialog와 form을 통합한다**
+- [x] **Step 5: operator dialog와 form을 통합한다**
 
 SiteAdminFormDialog, ResetAdminPasswordDialog, DeleteSiteDialog를 공통 overlay와 fields로 교체한다. 현재 operator dialog focus code와 `querySelector`를 제거한다. 현장 삭제 action label은 실제 범위가 드러나도록 기존 테스트 기대와 메뉴 문서를 확인해 일관되게 유지한다.
 
-- [ ] **Step 6: shell/auth/operator focused tests와 E2E를 통과시킨다**
+- [x] **Step 6: shell/auth/operator focused tests와 E2E를 통과시킨다**
 
 Run:
 
@@ -1183,7 +1191,7 @@ pnpm --filter @led-control/web ui:check
 
 Expected: all commands exit 0; login, MFA, password change, logout and operator CRUD payloads are unchanged.
 
-- [ ] **Step 7: 커밋한다**
+- [x] **Step 7: 커밋한다**
 
 네 메뉴 문서에 공통 shell/auth 변경의 적용 범위, 자동 browser 증거와 실제 장비 검증이 아니라는 경계를 동일하게 기록한다.
 
@@ -1191,6 +1199,8 @@ Expected: all commands exit 0; login, MFA, password change, logout and operator 
 git add apps/web/src/App.tsx apps/web/src/AppRoot.tsx apps/web/src/features/shells apps/web/src/features/auth apps/web/src/features/operator apps/web/e2e/calm-operations-auth-operator.spec.ts apps/web/e2e/calm-operations-shell.spec.ts apps/web/e2e/app-shell-recovery.spec.ts docs/menus/monitoring.md docs/menus/control.md docs/menus/statistics.md docs/menus/settings.md
 git commit -m "refactor(web): migrate shell auth and operator UI"
 ```
+
+**완료 증거:** `f2b9ba16`가 App/shell/auth/operator 구현·unit·세 Chromium spec과 네 메뉴 문서를 함께 갱신하고 legacy password CSS를 삭제했다. Task 12 final Web/Chromium verification도 통과했다. Step 2의 당시 RED 실행 결과는 plan/ledger에 남아 있지 않아 증거 체크는 보류한다.
 
 ### Task 12: legacy CSS 제거, zero-baseline과 전체 회귀 검증
 
@@ -1275,7 +1285,7 @@ git add apps/web/src/styles.css apps/web/src/styles apps/web/src/components apps
 git commit -m "refactor(web): complete Tailwind UI migration"
 ```
 
-**2026-09-16 fresh verification:** Web Vitest **83 files·1,224/1,224**, UI policy **46/46**, `ui:check` **0 existing·0 new/increased**, canonical CI workflow **41/41**, accessibility focused Chromium **31/31**, floor placement·monitoring-1000·monitoring-control focused Chromium **38/38**, final full Chromium serial **257 passed·5 existing environment-gated skipped·0 failed**. Web typecheck/build와 1440×900·1024×768·390×844·320×740 layout assertions도 통과했다. 병렬 전체 진단의 공유 build/Vite fixture 경합 중 monitoring-control-flow 1건은 focused, 2-spec 병행 재현, 최종 직렬 전체 실행에서 재현되지 않았고 skip·timeout을 추가하지 않았다. 실제 iOS/Android WebView·수동 in-app 시각 QA·운영 backend/object storage·사용자 DB·MQTT/Gateway/Raspberry Pi/BlueZ/ESP32-H2 HIL은 실행하지 않았다.
+**2026-09-16 fresh verification:** 루트 `pnpm test` exit 0, Web Vitest **83 files·1,224/1,224**, UI policy **51/51**, `ui:check` **0 existing·0 new/increased**, canonical CI workflow **41/41**, accessibility focused Chromium **31/31**, floor placement·monitoring-1000·monitoring-control focused Chromium **38/38**, final full Chromium serial **257 passed·5 existing environment-gated skipped·0 failed**. Web typecheck/build와 1440×900·1024×768·390×844·320×740 layout assertions도 통과했다. 후속 QA에서 production graph/CSS entry·`@utility`·computed query·native form·runtime exception 우회를 재현한 뒤 정책 테스트로 고정했고, real-backend E2E의 구식 native selector를 현재 SelectBox/ConfirmDialog 계약으로 전환했다. 병렬 전체 진단의 공유 build/Vite fixture 경합 중 monitoring-control-flow 1건은 focused, 2-spec 병행 재현, 최종 직렬 전체 실행에서 재현되지 않았고 skip·timeout을 추가하지 않았다. 실제 iOS/Android WebView·수동 in-app 시각 QA·운영 backend/object storage·사용자 DB·MQTT/Gateway/Raspberry Pi/BlueZ/ESP32-H2 HIL은 실행하지 않았다.
 
 ## 총괄 체크포인트
 

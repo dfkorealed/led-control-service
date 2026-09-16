@@ -68,13 +68,13 @@ pnpm --filter @led-control/web test
 pnpm --filter @led-control/web build
 ```
 
-정책은 production `src`의 CSS/JS/TS/JSX/TSX를 검사한다. 테스트 파일·test/e2e 디렉터리는 제외한다. Tailwind source에서도 scripts/e2e/test fixture를 제외하여 금지 예시 클래스가 배포 CSS로 생성되지 않게 한다. `theme.css`의 `@theme` 안 semantic color와 typed scale 선언만 literal을 허용하며, 해당 파일의 일반 CSS 규칙은 계속 검사한다. Fix Round 2부터 승인 Git theme의 이름→값 map과 비교하므로 spacing·typography·breakpoint·color·radius·shadow·namespace reset의 값 변경도 별도의 anchor 검토가 필요하다. 주석·공백·함수 구분자 주변 서식과 마지막 세미콜론 생략은 허용하지만 값의 의미를 자동 동치 변환하지 않는다.
+정책은 production `src`의 CSS/JS/TS/JSX/TSX를 검사하고, production module에서 test/e2e 경로를 import하는 우회를 거부한다. `index.html`의 style/stylesheet 진입점과 `public` CSS도 인벤토리하며, canonical `styles.css`의 필수 import는 각각 정확히 한 번만 존재해야 한다. 테스트 파일·test/e2e 디렉터리 내부의 금지 예시는 직접 부채로 집계하지 않지만 production graph에 연결되면 실패한다. Tailwind source에서도 scripts/e2e/test fixture를 제외하여 금지 예시 클래스가 배포 CSS로 생성되지 않게 한다. `theme.css`의 `@theme` 안 semantic color와 typed scale 선언만 literal을 허용하며, 해당 파일의 일반 CSS 규칙은 계속 검사한다. Fix Round 2부터 승인 Git theme의 이름→값 map과 비교하므로 spacing·typography·breakpoint·color·radius·shadow·namespace reset의 값 변경도 별도의 anchor 검토가 필요하다. 주석·공백·함수 구분자 주변 서식과 마지막 세미콜론 생략은 허용하지만 값의 의미를 자동 동치 변환하지 않는다.
 
 차단 항목은 arbitrary spacing/color/typography, 미승인 숫자 spacing과 기본 palette/typography utility, CSS·inline 정적 spacing/typography와 literal color, production `querySelector`/`querySelectorAll`(TypeScript generic 포함), 미승인 CSS 파일/import/selector, 공통 UI 밖의 신규 native form style이다. 검사기는 정적 문자열을 읽는 lexical guard이므로 동적 클래스 조합·전체 JS/CSS 의미 해석과 런타임 geometry의 타당성은 코드 검토로 보완한다.
 
 Task 12 baseline의 violation map은 비어 있으며 production 정책 부채는 **0건**이어야 한다. `inspectWorkspace`는 non-empty allowance를 거부하고 CLI도 빈 map만 허용한다. entry stylesheet import와 문서화된 runtime 예외는 baseline 부채가 아니라 정책 코드의 exact allowlist로 관리한다.
 
-2026-09-16 최종 검증에서 UI policy **46/46**, `ui:check` **기존 0·신규/증가 0**, Web Vitest **83 files·1,224/1,224**, 1440×900·1024×768·390×844·320×740 layout assertions를 포함한 전체 Chromium 직렬 **257 passed·5 environment-gated skipped·실패 0**을 확인했다. 실제 native WebView safe-area 실측과 수동 in-app 시각 QA는 별도 후속 검증이다.
+2026-09-16 최종 검증에서 UI policy **51/51**, `ui:check` **기존 0·신규/증가 0**, Web Vitest **83 files·1,224/1,224**, 1440×900·1024×768·390×844·320×740 layout assertions를 포함한 전체 Chromium 직렬 **257 passed·5 environment-gated skipped·실패 0**을 확인했다. 루트 `pnpm test`도 fail-closed UI 정책 체인을 포함한 상태로 통과했다. 실제 native WebView safe-area 실측과 수동 in-app 시각 QA는 별도 후속 검증이다.
 
 baseline의 `sourceRef`는 scanner에 고정된 승인 Git commit `24b5ea593e860575f7bf1007781146cf1101beb7`과 일치해야 한다. Git object가 없거나 sourceRef·빈 map이 변조되면 fail-closed한다. canonical root unit gate가 Web `test:ui-policy`와 `ui:check`를 일반 unit 뒤에 실행하고, CI unit checkout은 `fetch-depth: 0`으로 승인 object를 확보한다.
 

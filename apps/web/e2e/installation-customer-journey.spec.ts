@@ -157,7 +157,7 @@ test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 
   await expect(admin.getByText("등록 완료").first()).toBeVisible();
   await admin.getByRole("button", { name: "등록 세션 완료" }).click();
   await admin.getByRole("link", { name: "모니터링" }).click();
-  await expect(admin.getByRole("combobox", { name: "맵 선택", exact: true })).toBeVisible();
+  await expect(admin.getByRole("button", { name: "맵 선택", exact: true })).toBeVisible();
   await expect(admin.getByText("배치된 조명이 없습니다", { exact: true })).toBeVisible();
   await expect(admin.getByText("장비 Health")).toBeVisible();
   await lab.screenshot(admin, testInfo, "02-admin-monitoring");
@@ -248,7 +248,7 @@ test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 
   await admin.getByRole("button", { name: "로그인" }).click();
   await expect(admin.getByRole("heading", { name: "계정 보안" })).toBeVisible();
   await admin.getByRole("link", { name: "모니터링" }).click();
-  await expect(admin.getByRole("combobox", { name: "맵 선택", exact: true })).toBeVisible();
+  await expect(admin.getByRole("button", { name: "맵 선택", exact: true })).toBeVisible();
   await admin.getByRole("button", { name: "로그아웃" }).click();
 
   await lab.seedViewerAccount();
@@ -256,7 +256,7 @@ test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 
   lab.captureNetwork(viewer, "viewer");
   await viewer.goto(`/monitoring?siteId=${created.siteId}`);
   await login(viewer, lab.viewer.loginId, lab.viewer.password);
-  await expect(viewer.getByRole("combobox", { name: "맵 선택", exact: true })).toBeVisible();
+  await expect(viewer.getByRole("button", { name: "맵 선택", exact: true })).toBeVisible();
   await expect(viewer.getByRole("link", { name: "제어", exact: true })).toHaveCount(0);
   await viewer.getByRole("link", { name: "설정", exact: true }).click();
   const viewerSettingsNavigation = viewer.getByRole("navigation", { name: "설정 메뉴" });

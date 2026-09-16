@@ -41,11 +41,33 @@ test("rejects arbitrary radius and shadow utilities without a legacy debt allowa
   );
 });
 
-test("permits only the documented Konva and Recharts runtime values", () => {
-  assert.deepEqual(inspectUiSource("src/features/floor-editor/geometry.ts", 'strokeColor: "#2563eb", fillColor: "#dbeafe", fontSize: 16'), []);
-  assert.deepEqual(inspectUiSource("src/features/floor-editor/geometry.ts", 'strokeColor: "#2563eb", fillColor: "#dbeafe", fontSize: 16, fontSize: 16').map(v => v.rule), ["literal-typography"]);
-  assert.deepEqual(inspectUiSource("src/features/statistics/EnergyComparisonChart.tsx", 'margin={{ top: 12, right: 12, left: 0, bottom: 8 }}'), []);
-  assert.deepEqual(inspectUiSource("src/features/statistics/EnergyComparisonChart.tsx", 'margin={{ top: 13, right: 12, left: 0, bottom: 8 }}').map(v => v.match), ["top: 13"]);
+test("permits runtime exceptions only in their reviewed syntax context", () => {
+  const geometry = 'const base = { strokeColor: "#2563eb", fillColor: "#dbeafe", fontSize: 16 };';
+  assert.deepEqual(inspectUiSource("src/features/floor-editor/geometry.ts", geometry), []);
+  assert.deepEqual(
+    inspectUiSource("src/features/floor-editor/geometry.ts", `${geometry}\nconst unrelated = "#2563eb";`).map(v => v.match),
+    ["#2563eb"]
+  );
+  assert.deepEqual(
+    inspectUiSource("src/features/floor-editor/geometry.ts", 'const unrelated = { strokeColor: "#2563eb", fillColor: "#dbeafe", fontSize: 16 };').map(v => v.rule),
+    ["raw-color", "raw-color", "literal-typography"]
+  );
+  assert.deepEqual(
+    inspectUiSource("src/features/floor-editor/geometry.ts", 'const base = { nested: { strokeColor: "#2563eb", fillColor: "#dbeafe", fontSize: 16 } };').map(v => v.rule),
+    ["raw-color", "raw-color", "literal-typography"]
+  );
+
+  const chart = '<ComposedChart margin={{ top: 12, right: 12, left: 0, bottom: 8 }} />';
+  assert.deepEqual(inspectUiSource("src/features/statistics/EnergyComparisonChart.tsx", chart), []);
+  assert.deepEqual(
+    inspectUiSource("src/features/statistics/EnergyComparisonChart.tsx", `${chart}\nconst unrelated = { top: 12, right: 12, bottom: 8 };`).map(v => v.match),
+    ["top: 12", "right: 12", "bottom: 8"]
+  );
+  assert.deepEqual(inspectUiSource("src/features/statistics/EnergyComparisonChart.tsx", '<ComposedChart margin={{ top: 13, right: 12, left: 0, bottom: 8 }} />').map(v => v.match), ["top: 13"]);
+  assert.deepEqual(
+    inspectUiSource("src/features/statistics/EnergyComparisonChart.tsx", '<ComposedChart margin={{ nested: { top: 12, right: 12, bottom: 8 } }} />').map(v => v.rule),
+    Array(3).fill("literal-spacing")
+  );
 });
 
 test("layer wrappers preserve first-selector and raw-form fingerprints without hiding debt", () => {
@@ -234,6 +256,11 @@ test("allows exact entry imports and main entry only", () => {
   assert.ok(inspectUiSource("src/page.tsx", 'import("./page.css");').some(v => v.rule === "css-import"));
 });
 
+test("rejects rogue utilities and extensionless CSS package imports", () => {
+  assert.ok(inspectUiSource("src/styles.css", '@utility rogue { color: red; }').some(v => v.rule === "css-utility"));
+  assert.ok(inspectUiSource("src/main.tsx", 'import "tailwindcss";').some(v => v.rule === "css-import"));
+});
+
 test("does not mistake JavaScript variant object keys for responsive utility prefixes", () => {
   const source = 'const sm = "px-3"; const classes = {sm:sm, md:"px-4", lg: { padding: "12%" }}; type Sizes = {sm:string; md: string; lg?: string};';
   assert.deepEqual(inspectUiSource("src/components/ui/fields/field-types.ts", source), []);
@@ -261,6 +288,22 @@ test("blocks newly styled native fields outside the shared UI ownership boundary
   const source = '<input className="p-2" />';
   assert.ok(inspectUiSource("src/features/example.tsx", source).some(v => v.rule === "raw-form-style"));
   assert.deepEqual(inspectUiSource("src/components/ui/TextField.tsx", source), []);
+});
+
+test("blocks native form styling hidden behind JSX spreads and React.createElement", () => {
+  for (const source of [
+    '<input {...{ className: "p-2" }} />',
+    '<select {...props} />',
+    'React.createElement("textarea", { style: styles })',
+    'React.createElement("button", { ...props })',
+    'React.createElement(("input"), { "className": "p-2" })',
+    'import { createElement as h } from "react"; h("input", { className: "p-2" })',
+    '<FormField><input {...{ className: "p-2" }} /></FormField>'
+  ]) {
+    assert.ok(inspectUiSource("src/features/example.tsx", source).some(v => v.rule === "raw-form-style"), source);
+  }
+  assert.deepEqual(inspectUiSource("src/features/example.tsx", 'import { FormField } from "../components/ui"; <FormField><input {...attributes} /></FormField>'), []);
+  assert.deepEqual(inspectUiSource("src/components/ui/Field.tsx", '<input {...props} />'), []);
 });
 
 test("rejects unquoted CSS URL imports", () => {
@@ -301,6 +344,11 @@ test("M2 rejects optional DOM method calls including receiver and generic combin
   assert.equal(violations[1].match, 'ref.current?.querySelectorAll?.<HTMLElement>("input")');
 });
 
+test("rejects computed DOM query method calls", () => {
+  const source = 'element["querySelector"]("button"); element[`querySelectorAll`]("input"); element["query" + "Selector"]("a"); element[("querySelector")]("button"); element[`query${"Selector"}`]("button")';
+  assert.deepEqual(inspectUiSource("src/New.tsx", source).map(v => v.rule), Array(5).fill("query-selector"));
+});
+
 test("I4 fingerprints the receiver and complete selector call, independently of surrounding lines", () => {
   const path = "src/ConfirmDialog.tsx";
   const old = 'oldDialog.querySelectorAll<HTMLElement>("button")';
@@ -318,6 +366,8 @@ test("I4 CLI rejects every production DOM query with a zero baseline", async () 
     await mkdir(join(root, "src"));
     await mkdir(join(root, "src/components"));
     await mkdir(join(root, "scripts"));
+    await writeFile(join(root, "src/App.tsx"), 'import "./styles.css";');
+    await writeFile(join(root, "src/styles.css"), '@import "tailwindcss"; @import "./styles/theme.css"; @import "./styles/base.css"; @import "./styles/exceptions.css";');
     await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "24b5ea593e860575f7bf1007781146cf1101beb7", files: {} }));
     await writeFile(join(root, "src/components/ConfirmDialog.tsx"), 'dialogElement.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);');
     assert.equal(run().status, 1);
@@ -340,15 +390,80 @@ test("CLI inventories only production src and rejects any policy debt", async ()
     await mkdir(join(root, "src"));
     await mkdir(join(root, "scripts"));
     await writeFile(join(root, "src/App.tsx"), 'import "./styles.css";');
+    await writeFile(join(root, "src/styles.css"), '@import "tailwindcss"; @import "./styles/theme.css"; @import "./styles/base.css"; @import "./styles/exceptions.css";');
     await writeFile(join(root, "src/ignored.test.tsx"), '"p-[15px]"');
     await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "24b5ea593e860575f7bf1007781146cf1101beb7", files: {} }));
     assert.equal(run().status, 0);
     await writeFile(join(root, "src/App.tsx"), 'import "./new.css";');
     assert.equal(run().status, 1);
-    await writeFile(join(root, "src/App.tsx"), '"gap-3"');
+    await writeFile(join(root, "src/App.tsx"), 'import "./styles.css"; "gap-3"');
     assert.equal(run().status, 0);
     await writeFile(join(root, "src/new.tsx"), '"p-[15px]"');
     assert.equal(run().status, 1);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("workspace closes skipped-module, entry HTML and public CSS scan gaps", async () => {
+  const root = await mkdtemp(join(tmpdir(), "led-ui-graph-policy-"));
+  try {
+    await mkdir(join(root, "src"));
+    await mkdir(join(root, "public"));
+    await writeFile(join(root, "src/App.tsx"), 'import "./styles.css"; import "./hidden.test"; import "./hidden.spec?raw";');
+    await writeFile(join(root, "src/styles.css"), '@import "tailwindcss"; @import "./styles/theme.css"; @import "./styles/base.css"; @import "./styles/exceptions.css";');
+    await writeFile(join(root, "index.html"), '<link rel="stylesheet" href="/rogue.css"><link rel=stylesheet href=/theme><script type="module" src="/e2e/page.ts"></script>');
+    await writeFile(join(root, "public/rogue.css"), 'body {}');
+
+    const result = await inspectWorkspace({ root, baseline: {} });
+    assert.ok(result.violations.some(v => v.rule === "test-import" && v.match === "./hidden.test"));
+    assert.ok(result.violations.some(v => v.rule === "test-import" && v.match === "./hidden.spec?raw"));
+    assert.ok(result.violations.some(v => v.rule === "test-import" && v.match === "/e2e/page.ts"));
+    assert.ok(result.violations.some(v => v.rule === "html-css-entry" && v.match === "/rogue.css"));
+    assert.ok(result.violations.some(v => v.rule === "html-css-entry" && v.match === "/theme"));
+    assert.ok(result.violations.some(v => v.rule === "public-css" && v.path === "public/rogue.css"));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("workspace requires every canonical CSS import exactly once", async () => {
+  const root = await mkdtemp(join(tmpdir(), "led-ui-css-inventory-"));
+  const canonical = '@import "tailwindcss"; @import "./styles/theme.css"; @import "./styles/base.css"; @import "./styles/exceptions.css";';
+  try {
+    await mkdir(join(root, "src"));
+    await writeFile(join(root, "src/App.tsx"), 'import "./styles.css";');
+    await writeFile(join(root, "src/styles.css"), canonical);
+    assert.deepEqual((await inspectWorkspace({ root, baseline: {} })).violations, []);
+
+    await writeFile(join(root, "src/styles.css"), canonical.replace('@import "./styles/base.css";', ""));
+    assert.ok((await inspectWorkspace({ root, baseline: {} })).violations.some(v => v.rule === "missing-css-import" && v.match === "./styles/base.css"));
+
+    await writeFile(join(root, "src/styles.css"), `${canonical}\n@import "tailwindcss";`);
+    assert.ok((await inspectWorkspace({ root, baseline: {} })).violations.some(v => v.rule === "duplicate-css-import" && v.match === "tailwindcss"));
+
+    await writeFile(join(root, "src/styles.css"), `/* ${canonical} */`);
+    assert.ok((await inspectWorkspace({ root, baseline: {} })).violations.some(v => v.rule === "missing-css-import"));
+
+    await writeFile(join(root, "src/styles.css"), canonical.replace('@import "tailwindcss";', '@import "tailwindcss" print;'));
+    const modified = await inspectWorkspace({ root, baseline: {} });
+    assert.ok(modified.violations.some(v => v.rule === "missing-css-import" && v.match === "tailwindcss"));
+    assert.ok(modified.violations.some(v => v.rule === "css-import" && v.match === "tailwindcss"));
+
+    await writeFile(join(root, "src/styles.css"), canonical);
+    await writeFile(join(root, "src/App.tsx"), 'import "./styles.css"; import "./styles.css";');
+    assert.ok((await inspectWorkspace({ root, baseline: {} })).violations.some(v => v.rule === "duplicate-css-entry"));
+
+    await writeFile(join(root, "src/App.tsx"), 'import "./styles.css";');
+    await writeFile(join(root, "src/main.tsx"), 'import "./styles.css";');
+    assert.ok((await inspectWorkspace({ root, baseline: {} })).violations.some(v => v.rule === "duplicate-css-entry"));
+
+    await writeFile(join(root, "src/App.tsx"), "const clean = true;");
+    await writeFile(join(root, "src/main.tsx"), "const clean = true;");
+    assert.ok((await inspectWorkspace({ root, baseline: {} })).violations.some(v => v.rule === "missing-css-entry"));
+
+    await writeFile(join(root, "src/only.test.ts"), 'import "./styles.css";');
+    assert.ok((await inspectWorkspace({ root, baseline: {} })).violations.some(v => v.rule === "missing-css-entry"));
   } finally {
     await rm(root, { recursive: true, force: true });
   }

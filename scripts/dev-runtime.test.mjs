@@ -326,11 +326,14 @@ test("통합 로컬 개발 명령은 ACL prepare를 Docker 시작보다 먼저 �
   assert.match(developmentSource, /prepareDevelopmentRuntime\(root, sourceEnv\)/);
 });
 
-test("루트 전체 테스트는 shared 산출물 준비와 consumer lifetime을 workspace gate로 보호한다", () => {
+test("루트 전체 테스트는 workspace gate와 fail-closed UI 정책 검사를 모두 실행한다", () => {
   const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
   assert.equal(packageJson.scripts.test, "node scripts/workspace-gate.mjs test");
-  assert.match(packageJson.scripts["test:unit"], /&& pnpm -r test$/);
+  assert.match(
+    packageJson.scripts["test:unit"],
+    /&& pnpm -r test && pnpm --filter @led-control\/web test:ui-policy && pnpm --filter @led-control\/web ui:check$/
+  );
 });
 
 test("MinIO 초기화는 전체 버킷 생성 절차를 하나의 셸 스크립트 인자로 전달한다", () => {

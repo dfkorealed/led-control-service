@@ -4,7 +4,7 @@
 
 ## 구현 완료
 
-- 2026-09-16 Tailwind Task 12에서 공통 primitive와 수동·스케줄·이벤트 제어 화면의 legacy class/CSS adapter를 제거하고 의미 토큰·utility 및 `data-*` 테스트 계약으로 수렴했다. `Button`의 공개 `data-variant` 계약으로 제어 E2E가 시각 variant를 class 이름에 결합하지 않게 했고 정책 baseline은 빈 violation map을 사용한다. Fresh Web **1,224/1,224**, UI policy **46/46**, 전체 Chromium 직렬 **257 passed·5 환경 의존 skip·실패 0**을 통과했다. 자동 Chromium·mock API 기반 소프트웨어 증거이며 실제 iOS/Android WebView, MQTT/Gateway/Raspberry Pi/ESP32-H2 HIL은 실행하지 않았다.
+- 2026-09-16 Tailwind Task 12에서 공통 primitive와 수동·스케줄·이벤트 제어 화면의 legacy class/CSS adapter를 제거하고 의미 토큰·utility 및 `data-*` 테스트 계약으로 수렴했다. `Button`의 공개 `data-variant` 계약으로 제어 E2E가 시각 variant를 class 이름에 결합하지 않게 했고 정책 baseline은 빈 violation map을 사용한다. Fresh Web **1,224/1,224**, UI policy **51/51**, 전체 Chromium 직렬 **257 passed·5 환경 의존 skip·실패 0**을 통과했다. 자동 Chromium·mock API 기반 소프트웨어 증거이며 실제 iOS/Android WebView, MQTT/Gateway/Raspberry Pi/ESP32-H2 HIL은 실행하지 않았다.
 
 - 2026-09-16 공통 셸·인증 UI 이전에서 제어 진입 셸의 내비게이션, 현장 배지, 로딩·복구 상태와 로그아웃을 Tailwind 의미 토큰 및 공통 `Heading`/`Text`/`FeedbackState`/`ConfirmDialog`로 통합했다. 로그아웃 중에는 기존 active-command 차단을 유지하고, 저장하지 않은 맵 편집 내용의 폐기 승인이 끝나기 전에는 session을 종료하지 않는다. 관련 Vitest 157개와 320/390/1024/1440px Chromium 셸·인증·복구 시나리오 19개로 검증했으며, 이는 mock API 기반 browser 회귀로 실제 Gateway 명령·BLE Mesh·조명 실장비 HIL 완료를 뜻하지 않는다.
 - 수동·스케줄·이벤트 제어의 폼과 dialog를 공통 디자인 시스템으로 통일했다. 검색·선택·체크박스·밝기 입력·날짜·시간·확인 dialog는 공통 컴포넌트를 사용하고, 기존 API payload와 숫자 문자열 변환·검증 계약은 유지한다. 수동 제어는 PC 셸의 남은 높이 안에서 조명 목록·명령 이력·실행 body·결과 feedback 영역이 각각 내부 스크롤하며 선택 피드백이 추가돼도 대상·실행 UI가 겹치거나 밀리지 않는다. 공통 Modal의 focus trap·Escape·중첩 확인 dialog·호출 버튼 focus 복귀를 적용했고, Chromium에서 실제 사용자가 보는 체크박스 라벨을 클릭하는 경로까지 검증했다.
