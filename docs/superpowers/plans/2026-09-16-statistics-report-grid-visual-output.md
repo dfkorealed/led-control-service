@@ -35,7 +35,7 @@
 - Produces: `ENERGY_REPORT_PAGE_SIZES`, `energyReportListQuerySchema`, `EnergyReportListQuery`, 확장된 `energyReportListResponseSchema`
 - Consumes: 기존 `energyReportJobSchema`, `energyReportStatusSchema`, `energyReportFormatSchema`, `energyScopeSchema`, `calendarDateSchema`
 
-- [ ] **Step 1: 허용 page size, filter normalization, strict response의 실패 테스트를 작성한다.**
+- [x] **Step 1: 허용 page size, filter normalization, strict response의 실패 테스트를 작성한다.**
 
 ```ts
 it.each([10, 20, 50, 100])("accepts report page size %i", (limit) => {
@@ -64,13 +64,13 @@ it("accepts at most 100 reports with cursor and total", () => {
 });
 ```
 
-- [ ] **Step 2: focused shared test가 RED인지 확인한다.**
+- [x] **Step 2: focused shared test가 RED인지 확인한다.**
 
 Run: `pnpm --filter @led-control/shared test -- energy-p2-contracts.test.ts`
 
 Expected: 새 schema/export가 없어 FAIL.
 
-- [ ] **Step 3: strict query와 response schema를 구현한다.**
+- [x] **Step 3: strict query와 response schema를 구현한다.**
 
 ```ts
 export const ENERGY_REPORT_PAGE_SIZES = [10, 20, 50, 100] as const;
@@ -100,13 +100,13 @@ export const energyReportListResponseSchema = z.object({
 
 `validateRequestedRange`는 한쪽 날짜만 전달된 요청, 역순, 90일 초과를 거절한다. query parser 외부에서 임의 기본값을 만들지 말고 Web/API adapter가 기본 `limit=20`을 전달한다.
 
-- [ ] **Step 4: shared test를 GREEN으로 만든다.**
+- [x] **Step 4: shared test를 GREEN으로 만든다.**
 
 Run: `pnpm --filter @led-control/shared test -- energy-p2-contracts.test.ts`
 
 Expected: PASS.
 
-- [ ] **Step 5: Task 1을 커밋한다.**
+- [x] **Step 5: Task 1을 커밋한다.**
 
 ```bash
 git add packages/shared/src/energy-p2-contracts.ts packages/shared/src/energy-p2-contracts.test.ts
