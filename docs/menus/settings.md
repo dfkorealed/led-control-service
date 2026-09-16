@@ -74,7 +74,7 @@
 
 ## 구현 완료
 
-- 설정 개요, 현장 관리, 유저 관리, 계정 보안과 현장 선택기를 공통 React Aria/Tailwind 디자인 시스템으로 전환했다. 원시 `input/select`와 기능별 정적 CSS를 제거하고 `TextField`, `PasswordField`, `SelectBox`, `RadioGroup`, `Switch`, `ModalDialog`, `ConfirmDialog`를 사용한다. kWh 단가와 조명 정격전력은 입력 중 소수 문자열을 보존하는 `TextField inputMode="decimal"` 계약을 유지한다.
+- 설정 개요, 현장 관리, 유저 관리, 계정 보안과 현장 선택기를 공통 React Aria/Tailwind 디자인 시스템으로 전환했다. 원시 `input/select`와 기능별 정적 CSS를 제거하고 `TextField`, `PasswordField`, `SelectBox`, `RadioGroup`, `Switch`, `ModalDialog`, `ConfirmDialog`를 사용한다. kWh 단가와 조명 정격전력은 입력 중 소수 문자열을 보존하는 `TextField inputMode="decimal"` 계약을 유지하며, 제출 시 빈 값·소수 둘째 자리 형식·유한 숫자·기존 허용 범위(단가 0~99,999,999.99원, 정격전력 0.01~999,999.99W)를 검증한 뒤 API에 숫자로 전달한다.
 - 맵 편집 중 현장 전환은 브라우저 `window.confirm` 대신 앱 내부 확인 대화상자를 사용한다. 취소하면 URL과 편집 초안을 유지하고, 확인한 경우에만 초안을 폐기한 뒤 새 현장으로 이동한다. 현재 로그인 세션 종료도 같은 앱 내부 확인 흐름을 사용한다. 설정 상단 활성 탭 스크롤은 DOM `querySelector` 없이 경로별 ref registry로 처리한다.
 
 - 도면 이력은 층별 **최근 100개 또는 최근 365일 중 넓은 범위**를 보존하고, 범위 밖 이력은 분당 최대 1,000개씩 정리한다. 보존된 이력만 목록 조회·복구할 수 있다. 로그인 `Session`은 만료 또는 폐기 후 30일이 지난 행만 분당 최대 10,000개씩 정리하며 활성 세션은 보존한다.

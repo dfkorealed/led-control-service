@@ -169,6 +169,41 @@ describe("SiteOperationsView", () => {
     expect(currency).toHaveAttribute("readonly");
   });
 
+  it("rejects blank, malformed, and out-of-range tariff values before calling the API", async () => {
+    renderView();
+    const form = await screen.findByRole("form", { name: "현장 정보" });
+    const tariff = within(form).getByLabelText("kWh 단가");
+    const save = within(form).getByRole("button", { name: "현장 정보 저장" });
+
+    fireEvent.change(tariff, { target: { value: "" } });
+    fireEvent.click(save);
+    expect(await within(form).findByRole("alert")).toHaveTextContent("kWh 단가를 입력하세요.");
+
+    fireEvent.change(tariff, { target: { value: "1.234" } });
+    fireEvent.click(save);
+    expect(await within(form).findByRole("alert")).toHaveTextContent("소수점 둘째 자리까지");
+
+    fireEvent.change(tariff, { target: { value: "100000000" } });
+    fireEvent.click(save);
+    expect(await within(form).findByRole("alert")).toHaveTextContent("0 이상 99,999,999.99 이하");
+    expect(siteApi.updateSiteSettings).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["0", 0],
+    ["99999999.99", 99_999_999.99]
+  ])("submits the tariff boundary %s as a number", async (draft, expected) => {
+    renderView();
+    const form = await screen.findByRole("form", { name: "현장 정보" });
+
+    fireEvent.change(within(form).getByLabelText("kWh 단가"), { target: { value: draft } });
+    fireEvent.click(within(form).getByRole("button", { name: "현장 정보 저장" }));
+
+    await waitFor(() => expect(siteApi.updateSiteSettings).toHaveBeenCalledWith("site-1", expect.objectContaining({
+      tariffKwhRate: expected
+    })));
+  });
+
   it("submits site and floor changes and invalidates only the selected site", async () => {
     const queryClient = renderView();
     queryClient.setQueryData(["dashboard", "site-2"], { untouched: true });
@@ -259,6 +294,48 @@ describe("SiteOperationsView", () => {
     fireEvent.click(screen.getByRole("button", { name: "다음 200개 불러오기" }));
     expect(await screen.findByRole("form", { name: "B2-L02 조명 정보 수정" })).toBeVisible();
     expect(siteApi.getFloorFixtureSettings).toHaveBeenCalledWith("site-1", "floor-1", "fixture-1");
+  });
+
+  it("rejects blank, malformed, and out-of-range rated watt values before calling the API", async () => {
+    renderView();
+    const form = await screen.findByRole("form", { name: "B2-L01 조명 정보 수정" });
+    const ratedWatt = within(form).getByLabelText("B2-L01 정격전력");
+    const save = within(form).getByRole("button", { name: "B2-L01 조명 정보 저장" });
+
+    fireEvent.change(ratedWatt, { target: { value: "" } });
+    fireEvent.click(save);
+    expect(await within(form).findByRole("alert")).toHaveTextContent("정격전력을 입력하세요.");
+
+    fireEvent.change(ratedWatt, { target: { value: "1.001" } });
+    fireEvent.click(save);
+    expect(await within(form).findByRole("alert")).toHaveTextContent("소수점 둘째 자리까지");
+
+    fireEvent.change(ratedWatt, { target: { value: "0" } });
+    fireEvent.click(save);
+    expect(await within(form).findByRole("alert")).toHaveTextContent("0.01 이상 999,999.99 이하");
+
+    fireEvent.change(ratedWatt, { target: { value: "1000000" } });
+    fireEvent.click(save);
+    expect(await within(form).findByRole("alert")).toHaveTextContent("0.01 이상 999,999.99 이하");
+    expect(siteApi.updateFixtureMetadata).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["0.01", 0.01],
+    ["999999.99", 999_999.99]
+  ])("submits the rated watt boundary %s as a number", async (draft, expected) => {
+    renderView();
+    const form = await screen.findByRole("form", { name: "B2-L01 조명 정보 수정" });
+
+    fireEvent.change(within(form).getByLabelText("B2-L01 정격전력"), { target: { value: draft } });
+    fireEvent.click(within(form).getByRole("button", { name: "B2-L01 조명 정보 저장" }));
+
+    await waitFor(() => expect(siteApi.updateFixtureMetadata).toHaveBeenCalledWith(
+      "site-1",
+      "floor-1",
+      "fixture-1",
+      expect.objectContaining({ ratedWatt: expected })
+    ));
   });
 
   it("reloads fixture metadata instead of replaying a stale update", async () => {

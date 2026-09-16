@@ -28,6 +28,9 @@ interface RetryableError {
   retry: () => void;
 }
 
+const TARIFF_RATE_RANGE = { min: 0, max: 99_999_999.99 } as const;
+const RATED_WATT_RANGE = { min: 0.01, max: 999_999.99 } as const;
+
 export function SiteOperationsView({ siteId }: { siteId?: string }) {
   const queryClient = useQueryClient();
   const settingsQuery = useQuery({
@@ -182,6 +185,7 @@ function SiteInformationForm({ siteId, site }: { siteId: string; site: SiteSetti
   const [address, setAddress] = useState(site.address ?? "");
   const [timeZone, setTimeZone] = useState(site.timeZone);
   const [tariffKwhRate, setTariffKwhRate] = useState(site.tariffKwhRate?.toString() ?? "");
+  const [tariffKwhRateError, setTariffKwhRateError] = useState("");
   const [notice, setNotice] = useState("");
   const [actionError, setActionError] = useState<RetryableError | null>(null);
 
@@ -190,30 +194,31 @@ function SiteInformationForm({ siteId, site }: { siteId: string; site: SiteSetti
     setAddress(site.address ?? "");
     setTimeZone(site.timeZone);
     setTariffKwhRate(site.tariffKwhRate?.toString() ?? "");
+    setTariffKwhRateError("");
   }, [site]);
 
   const mutation = useMutation({
-    mutationFn: () => updateSiteSettings(siteId, {
+    mutationFn: (validatedTariffKwhRate: number) => updateSiteSettings(siteId, {
       expectedUpdatedAt: site.updatedAt,
       name: name.trim(),
       address: address.trim(),
       timeZone: timeZone.trim(),
       currency: "KRW",
-      tariffKwhRate: Number(tariffKwhRate)
+      tariffKwhRate: validatedTariffKwhRate
     }),
     onSuccess: async () => {
       setActionError(null);
       setNotice("현장 정보를 저장했습니다.");
       await invalidateSiteOperations(queryClient, siteId);
     },
-    onError: (error) => {
+    onError: (error, validatedTariffKwhRate) => {
       setNotice("");
       setActionError(isVersionConflict(error)
         ? staleSettingsError(queryClient, siteId, setActionError)
         : {
             title: "현장 정보를 저장하지 못했습니다. 입력값을 유지합니다.",
             retryLabel: "현장 정보 다시 저장",
-            retry: () => mutation.mutate()
+            retry: () => mutation.mutate(validatedTariffKwhRate)
           });
     }
   });
@@ -222,7 +227,18 @@ function SiteInformationForm({ siteId, site }: { siteId: string; site: SiteSetti
     event.preventDefault();
     setNotice("");
     setActionError(null);
-    mutation.mutate();
+    const validation = validateDecimalDraft(tariffKwhRate, {
+      requiredMessage: "kWh 단가를 입력하세요.",
+      formatMessage: "kWh 단가는 소수점 둘째 자리까지 숫자로 입력하세요.",
+      rangeMessage: "kWh 단가는 0 이상 99,999,999.99 이하로 입력하세요.",
+      ...TARIFF_RATE_RANGE
+    });
+    if (!validation.ok) {
+      setTariffKwhRateError(validation.error);
+      return;
+    }
+    setTariffKwhRateError("");
+    mutation.mutate(validation.value);
   }
 
   return (
@@ -236,7 +252,19 @@ function SiteInformationForm({ siteId, site }: { siteId: string; site: SiteSetti
           <TextField label="주소" className="compact:col-span-2" isRequired maxLength={500} value={address} onChange={setAddress} />
           <TextField label="시간대" isRequired maxLength={100} value={timeZone} onChange={setTimeZone} />
           <TextField label="통화" isReadOnly value="KRW" />
-          <TextField label="kWh 단가" isRequired inputMode="decimal" pattern="[0-9]+([.][0-9]{0,2})?" value={tariffKwhRate} onChange={setTariffKwhRate} />
+          <TextField
+            label="kWh 단가"
+            isRequired
+            inputMode="decimal"
+            validationBehavior="aria"
+            isInvalid={Boolean(tariffKwhRateError)}
+            errorMessage={tariffKwhRateError}
+            value={tariffKwhRate}
+            onChange={(value) => {
+              setTariffKwhRate(value);
+              if (tariffKwhRateError) setTariffKwhRateError("");
+            }}
+          />
           <div className="flex items-end compact:justify-end">
             <Button type="submit" variant="primary" isLoading={mutation.isPending} loadingLabel="저장 중"><Save size={16} aria-hidden="true" /> 현장 정보 저장</Button>
           </div>
@@ -401,18 +429,19 @@ function FixtureRow({ siteId, floorId, fixture }: { siteId: string; floorId: str
   const queryClient = useQueryClient();
   const [name, setName] = useState(fixture.name);
   const [ratedWatt, setRatedWatt] = useState(String(fixture.ratedWatt));
+  const [ratedWattError, setRatedWattError] = useState("");
   const [actionError, setActionError] = useState<RetryableError | null>(null);
   const mutation = useMutation({
-    mutationFn: () => updateFixtureMetadata(siteId, floorId, fixture.id, {
+    mutationFn: (validatedRatedWatt: number) => updateFixtureMetadata(siteId, floorId, fixture.id, {
       expectedUpdatedAt: fixture.updatedAt,
       name: name.trim(),
-      ratedWatt: Number(ratedWatt)
+      ratedWatt: validatedRatedWatt
     }),
     onSuccess: async () => {
       setActionError(null);
       await invalidateSiteOperations(queryClient, siteId);
     },
-    onError: (error) => setActionError(isVersionConflict(error)
+    onError: (error, validatedRatedWatt) => setActionError(isVersionConflict(error)
       ? {
           title: `${fixture.name} 조명 정보가 다른 작업에서 변경되었습니다.`,
           retryLabel: "최신 정보 불러오기",
@@ -424,7 +453,7 @@ function FixtureRow({ siteId, floorId, fixture }: { siteId: string; floorId: str
       : {
           title: `${fixture.name} 조명 정보를 저장하지 못했습니다. 입력값을 유지합니다.`,
           retryLabel: "조명 정보 다시 저장",
-          retry: () => mutation.mutate()
+          retry: () => mutation.mutate(validatedRatedWatt)
         })
   });
   const identities = [
@@ -436,7 +465,25 @@ function FixtureRow({ siteId, floorId, fixture }: { siteId: string; floorId: str
   useEffect(() => {
     setName(fixture.name);
     setRatedWatt(String(fixture.ratedWatt));
+    setRatedWattError("");
   }, [fixture]);
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    setActionError(null);
+    const validation = validateDecimalDraft(ratedWatt, {
+      requiredMessage: "정격전력을 입력하세요.",
+      formatMessage: "정격전력은 소수점 둘째 자리까지 숫자로 입력하세요.",
+      rangeMessage: "정격전력은 0.01 이상 999,999.99 이하로 입력하세요.",
+      ...RATED_WATT_RANGE
+    });
+    if (!validation.ok) {
+      setRatedWattError(validation.error);
+      return;
+    }
+    setRatedWattError("");
+    mutation.mutate(validation.value);
+  }
 
   return (
     <Card className="grid gap-4 p-5">
@@ -445,9 +492,22 @@ function FixtureRow({ siteId, floorId, fixture }: { siteId: string; floorId: str
         {identities.map(([label, value]) => <div className="flex gap-2" key={label}><dt>{label}</dt><dd className="m-0 font-bold text-content-primary">{value}</dd></div>)}
       </dl> : null}
       {actionError ? <FeedbackState tone="danger" icon={CircleAlert} title={actionError.title} action={<Button type="button" onClick={actionError.retry}>{actionError.retryLabel}</Button>} /> : null}
-      <form aria-label={`${fixture.name} 조명 정보 수정`} className="grid gap-4 tablet:grid-cols-[2fr_1fr_auto] tablet:items-end" onSubmit={(event) => { event.preventDefault(); setActionError(null); mutation.mutate(); }}>
+      <form aria-label={`${fixture.name} 조명 정보 수정`} className="grid gap-4 tablet:grid-cols-[2fr_1fr_auto] tablet:items-end" onSubmit={submit}>
         <TextField aria-label={`${fixture.name} 이름`} label="이름" isRequired maxLength={120} value={name} onChange={setName} />
-        <TextField aria-label={`${fixture.name} 정격전력`} label="정격전력 (W)" isRequired inputMode="decimal" pattern="[0-9]+([.][0-9]{0,2})?" value={ratedWatt} onChange={setRatedWatt} />
+        <TextField
+          aria-label={`${fixture.name} 정격전력`}
+          label="정격전력 (W)"
+          isRequired
+          inputMode="decimal"
+          validationBehavior="aria"
+          isInvalid={Boolean(ratedWattError)}
+          errorMessage={ratedWattError}
+          value={ratedWatt}
+          onChange={(value) => {
+            setRatedWatt(value);
+            if (ratedWattError) setRatedWattError("");
+          }}
+        />
         <div className="flex items-end">
           <Button type="submit" isLoading={mutation.isPending} loadingLabel="저장 중"><Save size={16} aria-hidden="true" /> {fixture.name} 조명 정보 저장</Button>
         </div>
@@ -568,4 +628,23 @@ function groupStatusLabel(status: FixtureGroupMetadata["lifecycleStatus"]) {
 function meshStatusLabel(status: "configuring" | "ready" | "failed" | "retiring" | "retired" | undefined) {
   if (!status) return "없음";
   return { configuring: "구성 중", ready: "준비됨", failed: "오류", retiring: "해제 중", retired: "해제됨" }[status];
+}
+
+function validateDecimalDraft(value: string, constraints: {
+  min: number;
+  max: number;
+  requiredMessage: string;
+  formatMessage: string;
+  rangeMessage: string;
+}): { ok: true; value: number } | { ok: false; error: string } {
+  const draft = value.trim();
+  if (!draft) return { ok: false, error: constraints.requiredMessage };
+  if (!/^\d+(?:\.\d{1,2})?$/.test(draft)) return { ok: false, error: constraints.formatMessage };
+
+  const parsed = Number(draft);
+  if (!Number.isFinite(parsed)) return { ok: false, error: constraints.formatMessage };
+  if (parsed < constraints.min || parsed > constraints.max) {
+    return { ok: false, error: constraints.rangeMessage };
+  }
+  return { ok: true, value: parsed };
 }
