@@ -1,5 +1,5 @@
 import Konva from "konva";
-import type { FloorImportCandidate } from "@led-control/shared";
+import type { FloorImportCandidate, FloorImportRenderedViewport } from "@led-control/shared";
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent } from "react";
 import { Circle, Image as KonvaImage, Label, Layer, Line, Rect, Shape, Stage, Tag, Text, Transformer } from "react-konva";
 import { themeColor } from "../../components/ui";
@@ -33,7 +33,10 @@ interface FloorEditorCanvasProps {
   rowRegistry: FixturePlacementRowRegistry;
   cadCandidates?: FloorImportCandidate[];
   cadBackgroundUrl?: string | null;
+  cadViewport?: FloorImportRenderedViewport | null;
   acceptedCadCandidateIds?: Set<string>;
+  focusedCadCandidateId?: string | null;
+  onFocusedCadCandidateChange?: (candidateId: string | null) => void;
   onToggleCadCandidate?: (candidateId: string) => void;
 }
 
@@ -42,7 +45,10 @@ export function FloorEditorCanvas({
   rowRegistry,
   cadCandidates = [],
   cadBackgroundUrl,
+  cadViewport,
   acceptedCadCandidateIds = new Set(),
+  focusedCadCandidateId,
+  onFocusedCadCandidateChange,
   onToggleCadCandidate
 }: FloorEditorCanvasProps) {
   const container = useRef<HTMLDivElement>(null);
@@ -80,7 +86,9 @@ export function FloorEditorCanvas({
   const floorPlan = state?.floor.floorPlan;
   const backgroundUrl = cadBackgroundUrl
     ?? (floorPlan?.sourceType !== "none" ? floorPlan?.renderedImageUrl ?? floorPlan?.imageUrl : "");
-  const bounds = { width: floorPlan?.width ?? 1200, height: floorPlan?.height ?? 800 };
+  const bounds = cadBackgroundUrl && cadViewport
+    ? cadViewport
+    : { width: floorPlan?.width ?? 1200, height: floorPlan?.height ?? 800 };
   const editorColors = useMemo(() => ({
     panel: themeColor("surface-panel"),
     border: themeColor("fixture-editor-border"),
@@ -287,6 +295,12 @@ export function FloorEditorCanvas({
     if (drawingTools.has(tool)) current.addObject(current.state.floor.id, createDefaultObject(tool, point));
   }
   const transform = { x: pan.x, y: pan.y, scaleX: zoom, scaleY: zoom };
+  const cadViewportBounds = {
+    x: -pan.x / zoom,
+    y: -pan.y / zoom,
+    width: viewport.width / zoom,
+    height: viewport.height / zoom
+  };
   const focusedFixture = layers.fixtures.visible && selection?.kind === "fixture" ? placedFixtures.find((fixture) => fixture.id === selection.id) : undefined;
   const focusedLabel = focusedFixture ? selectedFixtureLabelLayout(focusedFixture, pan, zoom, viewport) : undefined;
   const selectedObjectType = selection?.kind === "object" ? state.objects.find((object) => object.id === selection.id)?.type : undefined;
@@ -299,6 +313,7 @@ export function FloorEditorCanvas({
     aria-label={`${state.floor.name} 편집 캔버스`} aria-disabled={readOnly} data-testid="floor-editor-canvas" data-floor-id={state.floor.id} data-zoom={zoom} data-pan-x={pan.x} data-pan-y={pan.y}
     data-snap={snap} data-grid-size={floorPlan?.gridSize ?? 10} data-active-guides=""
     data-background-url={backgroundUrl} data-cad-candidate-count={cadCandidates.length}
+    data-map-width={bounds.width} data-map-height={bounds.height}
     onMouseDown={begin} onMouseMove={move} onMouseUp={finish} onMouseLeave={(e) => { if (gesture.current?.kind === "pan") finish(e); else { gesture.current = null; setCreation(null); setMarquee(null); setIsPanning(false); } }}
     onDragOver={dragOver} onDragLeave={() => setDropPreview(null)} onDrop={drop}>
     <Stage ref={stage} width={viewport.width} height={viewport.height} onWheel={(event) => {
@@ -318,7 +333,10 @@ export function FloorEditorCanvas({
         acceptedCandidateIds={acceptedCadCandidateIds}
         transform={transform}
         zoom={zoom}
+        viewportBounds={cadViewportBounds}
         disabled={!onToggleCadCandidate}
+        focusedCandidateId={focusedCadCandidateId}
+        onFocusedCandidateChange={onFocusedCadCandidateChange}
         onToggle={onToggleCadCandidate ?? (() => undefined)}
       />
       <Layer {...transform} visible={layers.objects.visible} listening={!readOnly && !layers.objects.locked && activeTool === "select"}>

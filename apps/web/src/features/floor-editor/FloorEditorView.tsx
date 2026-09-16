@@ -7,6 +7,7 @@ import { ApiError } from "../../api/client";
 import { Button, Checkbox, ConfirmDialog, FeedbackState, Heading, IconButton, PageHeader, SelectBox, SidePanel, Text } from "../../components/ui";
 import {
   listFloorEditorRevisions,
+  getFloorEditorState,
   restoreFloorEditorRevision,
   saveFloorEditorState,
   type FloorEditorRevision
@@ -75,6 +76,7 @@ export function FloorEditorView({
   const [isUploadPending, setIsUploadPending] = useState(false);
   const [isCadImportPending, setIsCadImportPending] = useState(false);
   const [cadImportReview, setCadImportReview] = useState<CadImportReviewState | null>(null);
+  const [focusedCadCandidateId, setFocusedCadCandidateId] = useState<string | null>(null);
   const [skippedFixtureCount, setSkippedFixtureCount] = useState(0);
   const [confirmReload, setConfirmReload] = useState(false);
   const rowRegistry = useMemo(createFixturePlacementRowRegistry, []);
@@ -217,15 +219,16 @@ export function FloorEditorView({
     setIsCadImportPending(busy);
   }, []);
 
-  const handleCadApplied = useCallback(async (_result: FloorImportApplyResult) => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["dashboard", siteId] }),
-      queryClient.invalidateQueries({ queryKey: ["floor-fixtures", siteId, floorId] }),
-      queryClient.invalidateQueries({ queryKey: ["floor-map", siteId, floorId] }),
-      queryClient.invalidateQueries({ queryKey: ["floor-editor-revisions", siteId, floorId] })
-    ]);
-    await onReload();
-  }, [floorId, onReload, queryClient, siteId]);
+  const handleCadApplied = useCallback(async (_result: FloorImportApplyResult | null) => {
+    const authoritative = await getFloorEditorState(floorId);
+    if (authoritative.floor.id !== floorId || authoritative.floor.siteId !== siteId) {
+      throw new Error("Editor response scope mismatch");
+    }
+    if (userId && baseline) removeEditorDraft(userId, baseline);
+    adoptBaseline(authoritative);
+    await invalidateEditorQueries(queryClient, authoritative);
+    await onSaved(authoritative);
+  }, [adoptBaseline, baseline, floorId, onSaved, queryClient, siteId, userId]);
 
   const toggleCadCandidate = useCallback((candidateId: string) => {
     setCadImportReview((current) => {
@@ -331,7 +334,10 @@ export function FloorEditorView({
             rowRegistry={rowRegistry}
             cadCandidates={cadImportReview?.candidates}
             cadBackgroundUrl={cadImportReview?.job.renderedAssetPath}
+            cadViewport={cadImportReview?.job.renderedViewport}
             acceptedCadCandidateIds={acceptedCadCandidateIds}
+            focusedCadCandidateId={focusedCadCandidateId}
+            onFocusedCadCandidateChange={setFocusedCadCandidateId}
             onToggleCadCandidate={cadImportReview && !readOnly ? toggleCadCandidate : undefined}
           />
         </main>
@@ -362,10 +368,17 @@ export function FloorEditorView({
             leaseToken={leaseToken}
             leaseFence={leaseFence}
             disabled={readOnly || saveStatus === "saving" || restoringRevision !== null || isUploadPending}
+            isDirty={isDirty}
             review={cadImportReview}
-            onReviewChange={setCadImportReview}
+            focusedCandidateId={focusedCadCandidateId}
+            onReviewChange={(next) => {
+              setCadImportReview(next);
+              if (!next) setFocusedCadCandidateId(null);
+            }}
+            onFocusedCandidateChange={setFocusedCadCandidateId}
             onBusyChange={handleCadBusyChange}
             onApplied={handleCadApplied}
+            onConflict={() => setSaveStatus("conflict")}
           />
           <FixtureIdentifyPanel floorId={floorId} readOnly={readOnly || isMutationPending} leaseToken={leaseToken} leaseFence={leaseFence} />
           <RevisionPanel

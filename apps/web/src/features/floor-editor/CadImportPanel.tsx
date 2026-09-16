@@ -1,15 +1,17 @@
-import { CircleCheck, FileCog, RotateCw, TriangleAlert, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { ChevronLeft, ChevronRight, CircleCheck, FileCog, RotateCw, TriangleAlert, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CadImportMimeType, CadImportSourceFormat } from "@led-control/shared";
 import {
   applyFloorImportJob,
   cancelFloorImportJob,
   createFloorImportJob,
+  getActiveFloorImportJob,
   getFloorImportJob,
   listFloorImportCandidates,
   uploadFloorAsset
 } from "../../api/floor-editor";
-import { Button, FeedbackState, FileField, Heading, Text } from "../../components/ui";
+import { ApiError } from "../../api/client";
+import { Button, Checkbox, FeedbackState, FileField, Heading, IconButton, Text } from "../../components/ui";
 import type {
   CadImportReviewState,
   FloorImportApplyResult,
@@ -48,10 +50,14 @@ interface CadImportPanelProps {
   leaseToken?: string;
   leaseFence?: number;
   disabled?: boolean;
+  isDirty?: boolean;
   review: CadImportReviewState | null;
+  focusedCandidateId?: string | null;
   onReviewChange: (review: CadImportReviewState | null) => void;
+  onFocusedCandidateChange?: (candidateId: string | null) => void;
   onBusyChange: (busy: boolean) => void;
-  onApplied: (result: FloorImportApplyResult) => void | Promise<void>;
+  onApplied: (result: FloorImportApplyResult | null) => void | Promise<void>;
+  onConflict?: () => void;
 }
 
 export function CadImportPanel({
@@ -60,19 +66,32 @@ export function CadImportPanel({
   leaseToken,
   leaseFence,
   disabled = false,
+  isDirty = false,
   review,
+  focusedCandidateId,
   onReviewChange,
+  onFocusedCandidateChange,
   onBusyChange,
-  onApplied
+  onApplied,
+  onConflict
 }: CadImportPanelProps) {
   const [file, setFile] = useState<File | null>(null);
   const [job, setJob] = useState<FloorImportJob | null>(null);
-  const [action, setAction] = useState<"idle" | "starting" | "applying" | "cancelling">("idle");
+  const [action, setAction] = useState<"idle" | "starting" | "applying" | "cancelling" | "checking">("idle");
   const [error, setError] = useState<string | null>(null);
+  const [reviewCursor, setReviewCursor] = useState(0);
   const loadedReviewJobId = useRef<string | null>(null);
   const requestLock = useRef(false);
   const busy = useRef(false);
   const activeJob = review?.job ?? job;
+  const focusedIndex = useMemo(() => {
+    if (!review?.candidates.length) return 0;
+    const index = focusedCandidateId
+      ? review.candidates.findIndex((candidate) => candidate.id === focusedCandidateId)
+      : -1;
+    return index >= 0 ? index : Math.min(reviewCursor, review.candidates.length - 1);
+  }, [focusedCandidateId, review?.candidates, reviewCursor]);
+  const focusedCandidate = review?.candidates[focusedIndex] ?? null;
 
   function setBusy(next: boolean) {
     if (busy.current === next) return;
@@ -87,6 +106,14 @@ export function CadImportPanel({
     loadedReviewJobId.current = null;
     onReviewChange(null);
     setBusy(false);
+    let active = true;
+    void getActiveFloorImportJob(floorId).then(({ job: durableJob }) => {
+      if (!active || !durableJob) return;
+      setJob(durableJob);
+    }).catch(() => {
+      if (active) setError("진행 중인 CAD 가져오기를 확인하지 못했습니다.");
+    });
+    return () => { active = false; };
   }, [floorId]);
 
   useEffect(() => {
@@ -118,6 +145,8 @@ export function CadImportPanel({
         candidates: response.candidates,
         acceptedCandidateIds: response.candidates.map((candidate) => candidate.id)
       });
+      setReviewCursor(0);
+      onFocusedCandidateChange?.(response.candidates[0]?.id ?? null);
     }).catch(() => {
       if (!active) return;
       loadedReviewJobId.current = null;
@@ -128,12 +157,12 @@ export function CadImportPanel({
 
   useEffect(() => {
     if (!activeJob) return;
-    if (POLLING_STATUSES.has(activeJob.status) || activeJob.status === "review_required") setBusy(true);
+    if (POLLING_STATUSES.has(activeJob.status) || activeJob.status === "review_required" || activeJob.status === "applying") setBusy(true);
     else setBusy(false);
   }, [activeJob?.status]);
 
   async function handleStart() {
-    if (!file || disabled || requestLock.current) return;
+    if (!file || disabled || isDirty || requestLock.current) return;
     const sourceFormat = extensionOf(file.name);
     if (!sourceFormat) return;
     requestLock.current = true;
@@ -141,12 +170,24 @@ export function CadImportPanel({
     setError(null);
     setBusy(true);
     try {
-      const source = await uploadFloorAsset(floorId, file);
+      const source = await uploadFloorAsset(floorId, normalizeCadFile(file, sourceFormat));
       if (source.status !== "ready") throw new Error("CAD source asset is not ready");
       const created = await createFloorImportJob(floorId, { sourceAssetId: source.id, sourceFormat });
       setJob(created);
       setFile(null);
-    } catch {
+    } catch (caught) {
+      if (caught instanceof ApiError && caught.status === 409) {
+        try {
+          const { job: durableJob } = await getActiveFloorImportJob(floorId);
+          if (durableJob) {
+            setJob(durableJob);
+            setFile(null);
+            return;
+          }
+        } catch {
+          // Fall through to a stable recovery message.
+        }
+      }
       setError("CAD 가져오기를 시작하지 못했습니다.");
       setBusy(false);
     } finally {
@@ -156,7 +197,7 @@ export function CadImportPanel({
   }
 
   async function handleApply() {
-    if (!review || disabled || requestLock.current || !leaseToken || !leaseFence) return;
+    if (!review || disabled || isDirty || requestLock.current || !leaseToken || !leaseFence) return;
     requestLock.current = true;
     setAction("applying");
     setError(null);
@@ -171,12 +212,59 @@ export function CadImportPanel({
       setJob(null);
       onReviewChange(null);
       setBusy(false);
-    } catch {
-      setError("CAD 도면을 맵에 적용하지 못했습니다. 최신 리비전과 편집 권한을 확인하세요.");
+    } catch (caught) {
+      if (caught instanceof ApiError && caught.status === 409) {
+        onConflict?.();
+        setError("최신 버전을 다시 불러온 뒤 CAD 적용을 다시 확인하세요.");
+      } else {
+        await reconcileJob(review.job.jobId, true);
+      }
     } finally {
       requestLock.current = false;
       setAction("idle");
     }
+  }
+
+  async function reconcileJob(jobId: string, unknownApplyResult = false) {
+    try {
+      const next = await getFloorImportJob(floorId, jobId);
+      setJob(next);
+      if (next.status === "completed") {
+        onReviewChange(null);
+        setBusy(false);
+        try {
+          await onApplied(null);
+          setJob(null);
+          setError(null);
+        } catch {
+          setError("CAD 적용은 완료되었지만 최신 맵을 불러오지 못했습니다. 다시 불러오세요.");
+        }
+        return;
+      }
+      if (next.status === "review_required") {
+        if (review?.job.jobId === next.jobId) onReviewChange({ ...review, job: next });
+        setError(unknownApplyResult ? "서버 적용이 완료되지 않았습니다. 후보 선택을 확인한 뒤 다시 시도하세요." : null);
+        return;
+      }
+      if (next.status === "applying") {
+        if (review?.job.jobId === next.jobId) onReviewChange({ ...review, job: next });
+        setError("적용 요청 결과를 확인하는 중입니다. 잠시 후 다시 확인하세요.");
+        return;
+      }
+      if (["failed", "cancelled"].includes(next.status)) onReviewChange(null);
+      setError(unknownApplyResult ? `적용 결과를 확인했습니다. ${statusText(next)}` : null);
+    } catch {
+      setError("적용 결과를 확인하지 못했습니다. 다시 확인한 뒤 재시도하세요.");
+    }
+  }
+
+  async function handleReconcile() {
+    if (!activeJob || requestLock.current) return;
+    requestLock.current = true;
+    setAction("checking");
+    await reconcileJob(activeJob.jobId);
+    requestLock.current = false;
+    setAction("idle");
   }
 
   async function handleCancel() {
@@ -195,6 +283,21 @@ export function CadImportPanel({
       requestLock.current = false;
       setAction("idle");
     }
+  }
+
+  function moveCandidate(delta: number) {
+    if (!review?.candidates.length) return;
+    const next = Math.max(0, Math.min(review.candidates.length - 1, focusedIndex + delta));
+    setReviewCursor(next);
+    onFocusedCandidateChange?.(review.candidates[next].id);
+  }
+
+  function toggleFocusedCandidate() {
+    if (!review || !focusedCandidate) return;
+    const accepted = new Set(review.acceptedCandidateIds);
+    if (accepted.has(focusedCandidate.id)) accepted.delete(focusedCandidate.id);
+    else accepted.add(focusedCandidate.id);
+    onReviewChange({ ...review, acceptedCandidateIds: [...accepted] });
   }
 
   const status = activeJob ? statusText(activeJob) : null;
@@ -222,7 +325,7 @@ export function CadImportPanel({
         {file ? <Text variant="body-sm" tone="secondary">{file.name}</Text> : null}
         <Button
           variant="secondary"
-          disabled={!file || disabled}
+          disabled={!file || disabled || isDirty}
           isLoading={action === "starting"}
           loadingLabel="가져오기 시작 중"
           onClick={() => void handleStart()}
@@ -232,6 +335,13 @@ export function CadImportPanel({
         </Button>
       </> : null}
 
+      {isDirty ? <FeedbackState
+        tone="warning"
+        icon={TriangleAlert}
+        title="저장하지 않은 맵 변경사항이 있습니다."
+        description="CAD 가져오기 또는 적용 전에 먼저 저장하거나 취소해 변경사항을 폐기하세요."
+      /> : null}
+
       {activeJob && activeJob.status !== "review_required" ? <div className="grid gap-2" role="status">
         <div className="flex items-center justify-between gap-2">
           <Text variant="body-sm" weight="semibold">{status}</Text>
@@ -240,7 +350,17 @@ export function CadImportPanel({
         <progress className="h-2 w-full" max={100} value={activeJob.progressPercent} aria-label="CAD 가져오기 진행률" />
       </div> : null}
 
-      {review ? <>
+      {activeJob && (activeJob.status === "applying" || (activeJob.status === "completed" && error)) ? <Button
+        variant="secondary"
+        isLoading={action === "checking"}
+        loadingLabel="적용 결과 확인 중"
+        onClick={() => void handleReconcile()}
+      >
+        <RotateCw size={16} aria-hidden="true" />
+        {activeJob.status === "applying" ? "적용 결과 확인" : "최신 맵 다시 불러오기"}
+      </Button> : null}
+
+      {review && review.job.status === "review_required" ? <>
         <FeedbackState
           tone="success"
           icon={CircleCheck}
@@ -261,9 +381,34 @@ export function CadImportPanel({
             onClick={() => onReviewChange({ ...review, acceptedCandidateIds: [] })}
           >선택 해제</Button>
         </div>
+        {focusedCandidate ? <div className="grid gap-2 border-t border-border-subtle pt-2" aria-label="개별 후보 검토">
+          <div className="flex items-center justify-between gap-2">
+            <IconButton
+              size="sm"
+              variant="ghost"
+              aria-label="이전 후보"
+              disabled={focusedIndex === 0}
+              onClick={() => moveCandidate(-1)}
+            ><ChevronLeft size={16} aria-hidden="true" /></IconButton>
+            <Text variant="caption" tone="secondary">{focusedIndex + 1} / {review.candidates.length.toLocaleString("ko-KR")}</Text>
+            <IconButton
+              size="sm"
+              variant="ghost"
+              aria-label="다음 후보"
+              disabled={focusedIndex >= review.candidates.length - 1}
+              onClick={() => moveCandidate(1)}
+            ><ChevronRight size={16} aria-hidden="true" /></IconButton>
+          </div>
+          <Checkbox
+            label={`후보 ${focusedIndex + 1}/${review.candidates.length.toLocaleString("ko-KR")} · ${focusedCandidate.layerName} · ${focusedCandidate.blockName ?? "블록 없음"} · 신뢰도 ${Math.round(focusedCandidate.confidence * 100)}%`}
+            isSelected={review.acceptedCandidateIds.includes(focusedCandidate.id)}
+            isDisabled={disabled || isDirty}
+            onChange={() => toggleFocusedCandidate()}
+          />
+        </div> : null}
         <Button
           variant="primary"
-          disabled={disabled || !leaseToken || !leaseFence}
+          disabled={disabled || isDirty || !leaseToken || !leaseFence}
           isLoading={action === "applying"}
           loadingLabel="맵에 적용 중"
           onClick={() => void handleApply()}
@@ -273,7 +418,7 @@ export function CadImportPanel({
         </Button>
       </> : null}
 
-      {activeJob ? <Button
+      {activeJob && ["queued", "processing", "review_required"].includes(activeJob.status) ? <Button
         variant="ghost"
         disabled={disabled || action !== "idle"}
         isLoading={action === "cancelling"}
@@ -306,10 +451,16 @@ function validateCadFile(file: File): string | null {
   if (file.size > MAX_CAD_BYTES) return "파일 크기는 50 MB 이하여야 합니다.";
   const extension = extensionOf(file.name);
   if (!extension) return "DWG, DXF 파일만 가져올 수 있습니다.";
-  if (!(CAD_MIME_TYPES[extension] as readonly string[]).includes(file.type)) {
+  if (file.type && !(CAD_MIME_TYPES[extension] as readonly string[]).includes(file.type)) {
     return "파일 형식과 확장자가 일치하지 않습니다.";
   }
   return null;
+}
+
+function normalizeCadFile(file: File, sourceFormat: CadImportSourceFormat) {
+  if (file.type) return file;
+  const type = sourceFormat === "dwg" ? "application/dwg" : "application/dxf";
+  return new File([file], file.name, { type, lastModified: file.lastModified });
 }
 
 function statusText(job: FloorImportJob) {

@@ -2,7 +2,8 @@ import type {
   CadImportMimeType,
   CadImportSourceFormat,
   FloorImportCandidate,
-  FloorImportJobStatus
+  FloorImportJobStatus,
+  FloorImportRenderedViewport
 } from "@led-control/shared";
 
 export type EditorTool = "select" | "pan" | "rectangle" | "triangle" | "line" | "text";
@@ -62,6 +63,7 @@ export interface FloorImportJob {
   failureCode: string | null;
   sourceAssetPath: string;
   renderedAssetPath: string | null;
+  renderedViewport: FloorImportRenderedViewport | null;
   startedAt: string | null;
   reviewRequiredAt: string | null;
   appliedAt: string | null;

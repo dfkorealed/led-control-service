@@ -83,6 +83,12 @@ export function createFloorImportJob(
   return apiPost<FloorImportJob>(`/floors/${encodeURIComponent(floorId)}/import-jobs`, payload);
 }
 
+export function getActiveFloorImportJob(floorId: string) {
+  return apiGet<{ job: FloorImportJob | null }>(
+    `/floors/${encodeURIComponent(floorId)}/import-jobs/active`
+  );
+}
+
 export function getFloorImportJob(floorId: string, jobId: string) {
   return apiGet<FloorImportJob>(floorImportJobPath(floorId, jobId));
 }

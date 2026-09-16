@@ -4,6 +4,7 @@ import {
   applyFloorImportJob,
   cancelFloorImportJob,
   createFloorImportJob,
+  getActiveFloorImportJob,
   getFloorImportJob,
   identifyFixture,
   listFloorImportCandidates,
@@ -86,6 +87,7 @@ describe("floor editor atomic API", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await createFloorImportJob("floor/1", { sourceAssetId: "asset-id", sourceFormat: "dxf" });
+    await getActiveFloorImportJob("floor/1");
     await getFloorImportJob("floor/1", "job/1");
     await listFloorImportCandidates("floor/1", "job/1");
     await applyFloorImportJob("floor/1", "job/1", {
@@ -101,9 +103,10 @@ describe("floor editor atomic API", () => {
       method: "POST",
       body: JSON.stringify({ sourceAssetId: "asset-id", sourceFormat: "dxf" })
     }));
-    expect(fetchMock).toHaveBeenNthCalledWith(2, base, expect.anything());
-    expect(fetchMock).toHaveBeenNthCalledWith(3, `${base}/candidates`, expect.anything());
-    expect(fetchMock).toHaveBeenNthCalledWith(4, `${base}/apply`, expect.objectContaining({
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/floors/floor%2F1/import-jobs/active", expect.anything());
+    expect(fetchMock).toHaveBeenNthCalledWith(3, base, expect.anything());
+    expect(fetchMock).toHaveBeenNthCalledWith(4, `${base}/candidates`, expect.anything());
+    expect(fetchMock).toHaveBeenNthCalledWith(5, `${base}/apply`, expect.objectContaining({
       method: "POST",
       body: JSON.stringify({
         expectedRevision: 4,
@@ -112,6 +115,6 @@ describe("floor editor atomic API", () => {
         candidateIds: ["candidate-1"]
       })
     }));
-    expect(fetchMock).toHaveBeenNthCalledWith(5, `${base}/cancel`, expect.objectContaining({ method: "POST" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(6, `${base}/cancel`, expect.objectContaining({ method: "POST" }));
   });
 });
