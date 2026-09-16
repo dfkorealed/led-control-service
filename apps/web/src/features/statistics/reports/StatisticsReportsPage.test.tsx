@@ -19,7 +19,7 @@ vi.mock("../../../api/energy", async (importOriginal) => ({
   createEnergyReport: (...args: unknown[]) => reportsApi.create(...args),
   downloadEnergyCsv: (...args: unknown[]) => reportsApi.csv(...args),
   downloadEnergyReport: (...args: unknown[]) => reportsApi.download(...args),
-  useEnergyReports: (siteId: string | undefined) => reportsApi.reports(siteId),
+  useEnergyReports: (siteId: string | undefined, query: unknown) => reportsApi.reports(siteId, query),
   useEnergyReportTargets: () => targetState
 }));
 
@@ -59,7 +59,12 @@ describe("StatisticsReportsPage", () => {
     reportsApi.reports.mockReset();
     reportsApi.create.mockResolvedValue(job("queued", 0));
     reportsApi.download.mockResolvedValue({ downloadUrl: "https://reports.example.test/signed.xlsx" });
-    reportsApi.reports.mockReturnValue({ data: { reports }, isLoading: false, isError: false, refetch: vi.fn() });
+    reportsApi.reports.mockReturnValue({
+      data: { reports, nextCursor: null, totalCount: reports.length },
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn()
+    });
     vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
   });
   afterEach(() => { cleanup(); vi.restoreAllMocks(); });
@@ -79,6 +84,140 @@ describe("StatisticsReportsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "보고서 만들기" }));
     expectDateSegments("기간 종료", ["2026", "9", "11"]);
     expectDateSegments("기간 시작", ["2026", "8", "13"]);
+  });
+
+  it("renders deterministic API pages and navigates forward and backward with a cursor stack", async () => {
+    reportsApi.reports.mockImplementation((_activeSiteId: string, query: { limit: number; cursor?: string } = { limit: 20 }) => {
+      const secondPage = query.cursor === "cursor-20";
+      return {
+        data: {
+          reports: pageJobs(secondPage ? 21 : 1, 20),
+          nextCursor: secondPage ? "cursor-40" : "cursor-20",
+          totalCount: 101
+        },
+        isLoading: false,
+        isError: false,
+        refetch: vi.fn()
+      };
+    });
+    renderPage();
+
+    expect(reportsApi.reports).toHaveBeenLastCalledWith(siteId, { limit: 20 });
+    expect(screen.getByText("1~20 / 101건")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "다음 페이지" }));
+
+    await waitFor(() => expect(reportsApi.reports).toHaveBeenLastCalledWith(siteId, {
+      limit: 20,
+      cursor: "cursor-20"
+    }));
+    expect(screen.getByText("21~40 / 101건")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "이전 페이지" })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "이전 페이지" }));
+    await waitFor(() => expect(reportsApi.reports).toHaveBeenLastCalledWith(siteId, { limit: 20 }));
+    expect(screen.getByText("1~20 / 101건")).toBeInTheDocument();
+  });
+
+  it("resets to the first page when the page size or a filter changes", async () => {
+    reportsApi.reports.mockImplementation((_activeSiteId: string, query: { limit: number; cursor?: string } = { limit: 20 }) => ({
+      data: {
+        reports: pageJobs(query.cursor ? 21 : 1, Math.min(query.limit, 20)),
+        nextCursor: query.cursor ? null : "cursor-20",
+        totalCount: 101
+      },
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn()
+    }));
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "다음 페이지" }));
+    await waitFor(() => expect(screen.getByText("21~40 / 101건")).toBeInTheDocument());
+
+    await chooseSelect("페이지당 항목 수", "100개");
+    await waitFor(() => expect(reportsApi.reports).toHaveBeenLastCalledWith(siteId, { limit: 100 }));
+    expect(screen.getByText("1~100 / 101건")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "다음 페이지" }));
+    await chooseSelect("상태", "완료");
+    await waitFor(() => expect(reportsApi.reports).toHaveBeenLastCalledWith(siteId, {
+      limit: 100,
+      status: "completed"
+    }));
+    expect(screen.getByText("1~100 / 101건")).toBeInTheDocument();
+  });
+
+  it("resets cursor history when the active site changes", async () => {
+    reportsApi.reports.mockImplementation((_activeSiteId: string, query: { limit: number; cursor?: string } = { limit: 20 }) => ({
+      data: { reports: pageJobs(query.cursor ? 21 : 1, 20), nextCursor: query.cursor ? null : "cursor-20", totalCount: 40 },
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn()
+    }));
+    const client = new QueryClient();
+    const view = render(pageTree(siteId, client));
+    fireEvent.click(screen.getByRole("button", { name: "다음 페이지" }));
+    await waitFor(() => expect(screen.getByText("21~40 / 40건")).toBeInTheDocument());
+
+    const nextSiteId = "30000000-0000-4000-8000-000000000099";
+    view.rerender(pageTree(nextSiteId, client));
+    await waitFor(() => expect(reportsApi.reports).toHaveBeenLastCalledWith(nextSiteId, { limit: 20 }));
+    expect(screen.getByText("1~20 / 40건")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "이전 페이지" })).toBeDisabled();
+  });
+
+  it("invalidates the report query prefix and returns to page one after report creation", async () => {
+    reportsApi.reports.mockImplementation((_activeSiteId: string, query: { limit: number; cursor?: string } = { limit: 20 }) => ({
+      data: { reports: pageJobs(query.cursor ? 21 : 1, 20), nextCursor: query.cursor ? null : "cursor-20", totalCount: 40 },
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn()
+    }));
+    const queryClient = new QueryClient();
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    renderPage({ queryClient });
+    fireEvent.click(screen.getByRole("button", { name: "다음 페이지" }));
+    await waitFor(() => expect(screen.getByText("21~40 / 40건")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "보고서 만들기" }));
+    fireEvent.click(screen.getByRole("button", { name: "보고서 요청" }));
+
+    await waitFor(() => expect(reportsApi.create).toHaveBeenCalledOnce());
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["energy-reports", siteId] }));
+    await waitFor(() => expect(reportsApi.reports).toHaveBeenLastCalledWith(siteId, { limit: 20 }));
+    expect(screen.getByText("1~20 / 40건")).toBeInTheDocument();
+  });
+
+  it("renders a semantic desktop table and a separate mobile list with headings and metadata", () => {
+    renderPage();
+
+    const table = screen.getByRole("table", { name: "보고서 생성 이력", hidden: true });
+    expect(table.closest("div.hidden")).toHaveClass("desktop:block");
+    expect(within(table).getAllByRole("columnheader", { hidden: true }).map((header) => header.textContent)).toEqual([
+      "대상", "기간", "형식", "상태", "요청 시각", "만료 시각", "작업"
+    ]);
+
+    const list = screen.getByRole("list", { name: "모바일 보고서 생성 이력" });
+    expect(list).toHaveClass("desktop:hidden");
+    expect(within(list).getAllByRole("heading")).toHaveLength(reports.length);
+    expect(within(list).getAllByRole("term").length).toBeGreaterThan(0);
+  });
+
+  it("discloses only the sanitized failure message and action with linked ARIA state", () => {
+    renderPage();
+    const list = screen.getByRole("list", { name: "모바일 보고서 생성 이력" });
+    const toggle = within(list).getByRole("button", { name: "대상 failed 실패 상세 보기" });
+    const panelId = toggle.getAttribute("aria-controls");
+
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(panelId).toBeTruthy();
+    expect(document.getElementById(panelId!)).toBeNull();
+    fireEvent.click(toggle);
+
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(document.getElementById(panelId!)).toHaveTextContent(
+      "보고서를 생성하지 못했습니다.잠시 후 다시 생성해 주세요."
+    );
+    expect(document.body).not.toHaveTextContent("REPORT_GENERATION_FAILED");
   });
 
   it("edits the report range through design-system date pickers", async () => {
@@ -206,34 +345,35 @@ describe("StatisticsReportsPage", () => {
 
   it("renders every report state and uses a fresh signed download only for completed reports", async () => {
     renderPage();
+    const list = screen.getByRole("list", { name: "모바일 보고서 생성 이력" });
 
-    expect(screen.getByText("대기 중")).toBeInTheDocument();
-    expect(screen.getByText("생성 중 36%")).toBeInTheDocument();
-    expect(screen.getByText("완료")).toBeInTheDocument();
-    expect(screen.getByText("생성 실패")).toBeInTheDocument();
-    expect(screen.getByText("만료됨")).toBeInTheDocument();
-    expect(screen.getByText("대상 completed")).toBeInTheDocument();
-    expect(screen.getAllByText("요청 시각")).toHaveLength(5);
-    expect(screen.getAllByText("파일 만료 시각")).toHaveLength(2);
-    expect(screen.getByRole("region", { name: "대상 failed 실패 안내" })).toHaveTextContent(
-      "보고서를 생성하지 못했습니다.잠시 후 다시 생성해 주세요."
-    );
+    expect(within(list).getByText("대기 중")).toBeInTheDocument();
+    expect(within(list).getByText("생성 중 36%")).toBeInTheDocument();
+    expect(within(list).getByText("완료")).toBeInTheDocument();
+    expect(within(list).getByText("생성 실패")).toBeInTheDocument();
+    expect(within(list).getByText("만료됨")).toBeInTheDocument();
+    expect(within(list).getByText("대상 completed")).toBeInTheDocument();
+    expect(within(list).getAllByText("요청 시각")).toHaveLength(5);
+    expect(within(list).getAllByText("파일 만료 시각")).toHaveLength(2);
+    expect(within(list).getByRole("button", { name: "대상 failed 실패 상세 보기" })).toHaveAttribute("aria-expanded", "false");
     expect(screen.getByText("보고서와 CSV 비용은 당시 적용 단가의 저장 비용입니다.")).toBeInTheDocument();
-    const requestedAt = screen.getAllByTitle("2026-09-10T00:00:00.000Z")[0];
+    const requestedAt = within(list).getAllByTitle("2026-09-10T00:00:00.000Z")[0];
     expect(requestedAt).toHaveAttribute("datetime", "2026-09-10T00:00:00.000Z");
-    fireEvent.click(screen.getByRole("button", { name: "대상 completed 보고서 다운로드" }));
+    fireEvent.click(within(list).getByRole("button", { name: "대상 completed 보고서 다운로드" }));
     await waitFor(() => expect(reportsApi.download).toHaveBeenCalledWith(siteId, reports[2].reportId));
-    expect(screen.getByRole("button", { name: "대상 failed 보고서 다시 생성" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "대상 expired 보고서 다시 생성" })).toBeInTheDocument();
+    expect(within(list).getByRole("button", { name: "대상 failed 보고서 다시 생성" })).toBeInTheDocument();
+    expect(within(list).getByRole("button", { name: "대상 expired 보고서 다시 생성" })).toBeInTheDocument();
   });
 
   it("keeps report metadata and actions in separate wrapping regions", () => {
     renderPage();
 
-    const completed = screen.getByRole("article", { name: "대상 completed 보고서" });
-    expect(within(completed).getByRole("group", { name: "보고서 메타데이터" })).toHaveTextContent(
-      "형식XLSX범위현장요청 시각"
-    );
+    const list = screen.getByRole("list", { name: "모바일 보고서 생성 이력" });
+    const completed = within(list).getByRole("listitem", { name: "대상 completed 보고서" });
+    const metadata = within(completed).getByRole("group", { name: "보고서 메타데이터" });
+    expect(metadata).toHaveTextContent("형식XLSX");
+    expect(metadata).toHaveTextContent("범위현장");
+    expect(metadata).toHaveTextContent("요청 시각");
     expect(within(completed).getByRole("group", { name: "보고서 작업" })).toContainElement(
       within(completed).getByRole("button", { name: "대상 completed 보고서 다운로드" })
     );
@@ -242,7 +382,7 @@ describe("StatisticsReportsPage", () => {
   it("keeps the report list available when a signed download request fails", async () => {
     reportsApi.download.mockRejectedValueOnce(new Error("download failed"));
     renderPage();
-    fireEvent.click(screen.getByRole("button", { name: "대상 completed 보고서 다운로드" }));
+    fireEvent.click(within(screen.getByRole("list", { name: "모바일 보고서 생성 이력" })).getByRole("button", { name: "대상 completed 보고서 다운로드" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("보고서 다운로드를 완료하지 못했습니다.");
     expect(screen.getByRole("region", { name: "요청한 보고서" })).toBeInTheDocument();
@@ -251,7 +391,7 @@ describe("StatisticsReportsPage", () => {
   it("keeps the report list available and reports a retry failure", async () => {
     reportsApi.create.mockRejectedValueOnce(new Error("retry failed"));
     renderPage();
-    fireEvent.click(screen.getByRole("button", { name: "대상 failed 보고서 다시 생성" }));
+    fireEvent.click(within(screen.getByRole("list", { name: "모바일 보고서 생성 이력" })).getByRole("button", { name: "대상 failed 보고서 다시 생성" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("보고서 다시 생성을 완료하지 못했습니다.");
     expect(screen.getByRole("region", { name: "요청한 보고서" })).toBeInTheDocument();
@@ -269,7 +409,7 @@ describe("StatisticsReportsPage", () => {
       fireEvent.click(screen.getByRole("button", { name: "보고서 만들기" }));
       fireEvent.click(screen.getByRole("button", { name: action === "create" ? "보고서 요청" : "CSV 내보내기" }));
     } else {
-      fireEvent.click(screen.getByRole("button", {
+      fireEvent.click(within(screen.getByRole("list", { name: "모바일 보고서 생성 이력" })).getByRole("button", {
         name: action === "download" ? "대상 completed 보고서 다운로드" : "대상 failed 보고서 다시 생성"
       }));
     }
@@ -282,12 +422,24 @@ describe("StatisticsReportsPage", () => {
   });
 });
 
-function renderPage() {
-  return render(
-    <QueryClientProvider client={new QueryClient()}>
-      <MemoryRouter initialEntries={["/statistics/reports"]}>
+function renderPage({
+  activeSiteId = siteId,
+  queryClient = new QueryClient(),
+  initialEntry = "/statistics/reports"
+}: {
+  activeSiteId?: string;
+  queryClient?: QueryClient;
+  initialEntry?: string;
+} = {}) {
+  return render(pageTree(activeSiteId, queryClient, initialEntry));
+}
+
+function pageTree(activeSiteId: string, queryClient: QueryClient, initialEntry = "/statistics/reports") {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={[initialEntry]}>
         <Routes>
-          <Route path="/statistics" element={<Outlet context={{ siteId }} />}>
+          <Route path="/statistics" element={<Outlet context={{ siteId: activeSiteId }} />}>
             <Route path="reports" element={<StatisticsReportsPage />} />
           </Route>
         </Routes>
@@ -329,4 +481,15 @@ function job(status: "queued" | "processing" | "completed" | "failed" | "expired
       action: "잠시 후 다시 생성해 주세요."
     } : null
   };
+}
+
+function pageJobs(start: number, count: number) {
+  return Array.from({ length: count }, (_, offset) => {
+    const item = start + offset;
+    return {
+      ...job("queued", 0),
+      reportId: `30000000-0000-4000-8000-${String(item).padStart(12, "0")}`,
+      target: { scope: "site" as const, identityId: siteId, label: `대상 ${item}` }
+    };
+  });
 }
