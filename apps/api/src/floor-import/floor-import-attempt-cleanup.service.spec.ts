@@ -39,7 +39,13 @@ describe("FloorImportAttemptCleanupService", () => {
     await expect(service.requestCleanup(attempt)).resolves.toBe("deleted");
     expect(storage.deleteObject).toHaveBeenCalledWith(attempt.objectKey);
     expect(prisma.floorImportAttemptCleanup.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { jobId: attempt.jobId, attemptCount: attempt.attemptCount, committedAt: null, leaseOwner: null }
+      where: {
+        jobId: attempt.jobId, attemptCount: attempt.attemptCount,
+        committedAt: null, cleanedAt: null, leaseOwner: null
+      }
+    }));
+    expect(prisma.floorImportAttemptCleanup.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ lastCleanedAt: expect.any(Date), nextAttemptAt: expect.any(Date) })
     }));
   });
 

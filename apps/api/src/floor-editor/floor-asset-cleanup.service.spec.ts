@@ -4,26 +4,26 @@ describe("FloorAssetCleanupService", () => {
   it("claims expired pending uploads before deleting the object and ledger row", async () => {
     const expiredAt = new Date("2026-09-12T00:00:05.000Z");
     const now = new Date("2026-09-12T00:00:10.000Z");
+    const candidate = { id: "asset-1", floorId: "floor-1", objectKey: "floors/floor-1/file.png", cleanupStartedAt: null };
+    const tx: any = {
+      $queryRaw: jest.fn().mockResolvedValue([candidate]),
+      floorAsset: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
+    };
     const prisma: any = {
       floorAsset: {
-        findMany: jest.fn()
-          .mockResolvedValueOnce([{ id: "asset-1", objectKey: "floors/floor-1/file.png" }]),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         deleteMany: jest.fn().mockResolvedValue({ count: 1 })
       },
-      $queryRaw: jest.fn().mockResolvedValue([])
+      $queryRaw: jest.fn().mockResolvedValueOnce([candidate]).mockResolvedValueOnce([]),
+      $transaction: jest.fn((callback: (client: typeof tx) => unknown) => callback(tx))
     };
     const storage: any = { deleteObject: jest.fn().mockResolvedValue(undefined) };
     const service = new FloorAssetCleanupService(prisma, storage);
 
     await expect(service.processPending(now)).resolves.toEqual({ processed: 1, deleted: 1 });
-    expect(prisma.floorAsset.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({
-        status: "pending",
-        OR: expect.arrayContaining([{ uploadExpiresAt: { lte: expiredAt } }])
-      }),
-      take: 25
-    }));
+    expect(prisma.$queryRaw.mock.calls[0][0].values).toContainEqual(expiredAt);
+    expect(prisma.$queryRaw.mock.calls[0][0].strings.join(" ")).toContain('FROM "FloorImportAttemptCleanup"');
+    expect(tx.$queryRaw.mock.calls[0][0].strings.join(" ")).toContain("FOR UPDATE OF floor, asset");
     expect(storage.deleteObject).toHaveBeenCalledWith("floors/floor-1/file.png");
     expect(prisma.floorAsset.deleteMany).toHaveBeenCalledWith({
       where: { id: "asset-1", status: "pending", cleanupStartedAt: now }
@@ -32,16 +32,18 @@ describe("FloorAssetCleanupService", () => {
 
   it("releases the cleanup claim when object deletion fails", async () => {
     const now = new Date("2026-09-12T00:00:10.000Z");
+    const candidate = { id: "asset-1", floorId: "floor-1", objectKey: "floors/floor-1/file.png", cleanupStartedAt: null };
+    const tx: any = {
+      $queryRaw: jest.fn().mockResolvedValue([candidate]),
+      floorAsset: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
+    };
     const prisma: any = {
       floorAsset: {
-        findMany: jest.fn()
-          .mockResolvedValueOnce([{ id: "asset-1", objectKey: "floors/floor-1/file.png" }]),
-        updateMany: jest.fn()
-          .mockResolvedValueOnce({ count: 1 })
-          .mockResolvedValueOnce({ count: 1 }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         deleteMany: jest.fn()
       },
-      $queryRaw: jest.fn().mockResolvedValue([])
+      $queryRaw: jest.fn().mockResolvedValueOnce([candidate]).mockResolvedValueOnce([]),
+      $transaction: jest.fn((callback: (client: typeof tx) => unknown) => callback(tx))
     };
     const storage: any = { deleteObject: jest.fn().mockRejectedValue(new Error("storage unavailable")) };
     const service = new FloorAssetCleanupService(prisma, storage);
@@ -57,23 +59,15 @@ describe("FloorAssetCleanupService", () => {
   it("recovers ledgers abandoned before their signed URL expiry was persisted", async () => {
     const now = new Date("2026-09-12T01:00:00.000Z");
     const prisma: any = {
-      floorAsset: {
-        findMany: jest.fn()
-          .mockResolvedValueOnce([])
-      },
-      $queryRaw: jest.fn().mockResolvedValue([])
+      floorAsset: {},
+      $queryRaw: jest.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([])
     };
     const service = new FloorAssetCleanupService(prisma, { deleteObject: jest.fn() } as any);
 
     await service.processPending(now);
 
-    expect(prisma.floorAsset.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({
-        OR: expect.arrayContaining([
-          { uploadExpiresAt: null, createdAt: { lte: new Date("2026-09-12T00:45:00.000Z") } }
-        ])
-      })
-    }));
+    expect(prisma.$queryRaw.mock.calls[0][0].values)
+      .toContainEqual(new Date("2026-09-12T00:45:00.000Z"));
   });
 
   it("claims and deletes unreferenced ready assets only after the 24 hour grace period", async () => {
@@ -92,12 +86,10 @@ describe("FloorAssetCleanupService", () => {
     };
     const prisma: any = {
       floorAsset: {
-        findMany: jest.fn()
-          .mockResolvedValueOnce([]),
         deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
         updateMany: jest.fn()
       },
-      $queryRaw: jest.fn().mockResolvedValue([candidate]),
+      $queryRaw: jest.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([candidate]),
       $transaction: jest.fn((callback: (client: typeof tx) => unknown) => callback(tx))
     };
     const storage: any = { deleteObject: jest.fn().mockResolvedValue(undefined) };
@@ -105,7 +97,7 @@ describe("FloorAssetCleanupService", () => {
 
     await expect(service.processPending(now)).resolves.toEqual({ processed: 1, deleted: 1 });
 
-    expect(prisma.$queryRaw.mock.calls[0][0].values).toContainEqual(graceAt);
+    expect(prisma.$queryRaw.mock.calls[1][0].values).toContainEqual(graceAt);
     expect(storage.deleteObject).toHaveBeenCalledWith(candidate.objectKey);
     expect(prisma.floorAsset.deleteMany).toHaveBeenCalledWith({
       where: { id: candidate.id, status: "ready", cleanupStartedAt: now }
@@ -127,11 +119,10 @@ describe("FloorAssetCleanupService", () => {
     };
     const prisma: any = {
       floorAsset: {
-        findMany: jest.fn().mockResolvedValueOnce([]),
         deleteMany: jest.fn(),
         updateMany: jest.fn()
       },
-      $queryRaw: jest.fn().mockResolvedValue([candidate]),
+      $queryRaw: jest.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([candidate]),
       $transaction: jest.fn((callback: (client: typeof tx) => unknown) => callback(tx))
     };
     const storage: any = { deleteObject: jest.fn().mockRejectedValue(new Error("storage unavailable")) };
@@ -158,12 +149,10 @@ describe("FloorAssetCleanupService", () => {
     };
     const prisma: any = {
       floorAsset: {
-        findMany: jest.fn()
-          .mockResolvedValueOnce([]),
         deleteMany: jest.fn(),
         updateMany: jest.fn()
       },
-      $queryRaw: jest.fn().mockResolvedValue([candidate]),
+      $queryRaw: jest.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([candidate]),
       $transaction: jest.fn((callback: (client: typeof tx) => unknown) => callback(tx))
     };
     const storage: any = { deleteObject: jest.fn() };
@@ -178,14 +167,17 @@ describe("FloorAssetCleanupService", () => {
 
   it("excludes source and rendered assets referenced by an import job before cleanup claim", async () => {
     const prisma: any = {
-      floorAsset: { findMany: jest.fn().mockResolvedValue([]) },
-      $queryRaw: jest.fn().mockResolvedValue([])
+      floorAsset: {},
+      $queryRaw: jest.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([])
     };
     const service = new FloorAssetCleanupService(prisma, { deleteObject: jest.fn() } as any);
     await service.processPending(new Date("2026-09-17T00:00:00.000Z"));
-    const sql = prisma.$queryRaw.mock.calls[0][0].strings.join(" ");
-    expect(sql).toContain('FROM "FloorImportJob"');
-    expect(sql).toContain('job."sourceAssetId" = asset."id"');
-    expect(sql).toContain('job."renderedAssetId" = asset."id"');
+    const pendingSql = prisma.$queryRaw.mock.calls[0][0].strings.join(" ");
+    expect(pendingSql).toContain('FROM "FloorImportAttemptCleanup"');
+    expect(pendingSql).toContain('attempt."assetId" = asset."id"');
+    const readySql = prisma.$queryRaw.mock.calls[1][0].strings.join(" ");
+    expect(readySql).toContain('FROM "FloorImportJob"');
+    expect(readySql).toContain('job."sourceAssetId" = asset."id"');
+    expect(readySql).toContain('job."renderedAssetId" = asset."id"');
   });
 });

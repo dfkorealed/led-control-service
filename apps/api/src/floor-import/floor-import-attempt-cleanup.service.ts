@@ -11,6 +11,7 @@ const SWEEP_INTERVAL_MS = 60_000;
 const TEMP_STALE_MS = 15 * 60_000;
 const RETRY_INTERVAL_MS = 60_000;
 const ATTEMPT_GRACE_MS = 5 * 60_000;
+const ORPHAN_QUIET_PERIOD_MS = 15 * 60_000;
 const BATCH_SIZE = 25;
 const TEMP_DIRECTORY_PATTERN = /^floor-import-[a-f0-9-]{36}-attempt-[1-3]-[A-Za-z0-9_-]+$/i;
 
@@ -68,7 +69,7 @@ export class FloorImportAttemptCleanupService implements OnModuleInit, OnModuleD
         assetId: randomUUID(), objectKey,
         nextAttemptAt: new Date(now.getTime() + ATTEMPT_GRACE_MS)
       } });
-      if (cleanup.floorId !== input.floorId || cleanup.objectKey !== objectKey || cleanup.committedAt) {
+      if (cleanup.floorId !== input.floorId || cleanup.objectKey !== objectKey || cleanup.committedAt || cleanup.cleanedAt) {
         throw new Error("CAD import attempt identity conflict");
       }
       const asset = await tx.floorAsset.findUnique({ where: { id: cleanup.assetId } });
@@ -104,7 +105,7 @@ export class FloorImportAttemptCleanupService implements OnModuleInit, OnModuleD
       const claimed = await this.prisma.floorImportAttemptCleanup.updateMany({
         where: {
           jobId: identity.jobId, attemptCount: identity.attemptCount,
-          committedAt: null, leaseOwner: null
+          committedAt: null, cleanedAt: null, leaseOwner: null
         },
         data: { nextAttemptAt: new Date(), leaseOwner: null, leaseExpiresAt: null }
       });
@@ -115,7 +116,18 @@ export class FloorImportAttemptCleanupService implements OnModuleInit, OnModuleD
     if (asset) return "deferred";
     try {
       await this.storage.deleteObject(identity.objectKey);
-      return "deleted";
+      const cleanedAt = new Date();
+      const recorded = await this.prisma.floorImportAttemptCleanup.updateMany({
+        where: {
+          jobId: identity.jobId, attemptCount: identity.attemptCount,
+          committedAt: null, cleanedAt: null, leaseOwner: null
+        },
+        data: {
+          lastCleanedAt: cleanedAt, nextAttemptAt: new Date(cleanedAt.getTime() + ORPHAN_QUIET_PERIOD_MS),
+          lastError: null
+        }
+      });
+      return recorded.count === 1 ? "deleted" : "deferred";
     } catch {
       return "deferred";
     }
@@ -158,7 +170,7 @@ export class FloorImportAttemptCleanupService implements OnModuleInit, OnModuleD
           SELECT cleanup."jobId", cleanup."attemptCount"
           FROM "FloorImportAttemptCleanup" AS cleanup
           LEFT JOIN "FloorImportJob" AS job ON job."id" = cleanup."jobId"
-          WHERE cleanup."committedAt" IS NULL
+          WHERE cleanup."committedAt" IS NULL AND cleanup."cleanedAt" IS NULL
             AND cleanup."nextAttemptAt" <= (${now}::timestamptz AT TIME ZONE 'UTC')
             AND (cleanup."leaseExpiresAt" IS NULL OR cleanup."leaseExpiresAt" <= (clock_timestamp() AT TIME ZONE 'UTC'))
             AND (job."id" IS NULL OR NOT (
@@ -195,7 +207,10 @@ export class FloorImportAttemptCleanupService implements OnModuleInit, OnModuleD
       });
       if (asset?.status === "ready" && asset.objectKey === cleanup.objectKey && linked) {
         await this.prisma.floorImportAttemptCleanup.updateMany({
-          where: { jobId: cleanup.jobId, attemptCount: cleanup.attemptCount, leaseOwner: owner },
+          where: {
+            jobId: cleanup.jobId, attemptCount: cleanup.attemptCount,
+            leaseOwner: owner, cleanedAt: null
+          },
           data: { committedAt: now, leaseOwner: null, leaseExpiresAt: null, lastError: null }
         });
         return;
@@ -219,6 +234,7 @@ export class FloorImportAttemptCleanupService implements OnModuleInit, OnModuleD
             AND "attemptCount" = ${cleanup.attemptCount}
             AND "leaseOwner" = ${owner}
             AND "committedAt" IS NULL
+            AND "cleanedAt" IS NULL
             AND "leaseExpiresAt" > (clock_timestamp() AT TIME ZONE 'UTC')
           FOR UPDATE
         `);
@@ -230,14 +246,16 @@ export class FloorImportAttemptCleanupService implements OnModuleInit, OnModuleD
         await tx.floorAsset.deleteMany({
           where: { id: cleanup.assetId, objectKey: cleanup.objectKey, status: "pending" }
         });
+        const terminalCleanup = cleanup.lastCleanedAt !== null;
         await tx.floorImportAttemptCleanup.updateMany({
           where: {
             jobId: cleanup.jobId, attemptCount: cleanup.attemptCount,
-            leaseOwner: owner, committedAt: null
+            leaseOwner: owner, committedAt: null, cleanedAt: null
           },
           data: {
-            leaseOwner: null, leaseExpiresAt: null, nextAttemptAt: new Date(now.getTime() + RETRY_INTERVAL_MS),
-            lastCleanedAt: now, lastError: null
+            leaseOwner: null, leaseExpiresAt: null,
+            nextAttemptAt: new Date(now.getTime() + (terminalCleanup ? 0 : ORPHAN_QUIET_PERIOD_MS)),
+            lastCleanedAt: now, cleanedAt: terminalCleanup ? now : null, lastError: null
           }
         });
       });
@@ -245,7 +263,7 @@ export class FloorImportAttemptCleanupService implements OnModuleInit, OnModuleD
       await this.prisma.floorImportAttemptCleanup.updateMany({
         where: {
           jobId: cleanup.jobId, attemptCount: cleanup.attemptCount,
-          leaseOwner: owner, committedAt: null
+          leaseOwner: owner, committedAt: null, cleanedAt: null
         },
         data: {
           leaseOwner: null, leaseExpiresAt: null, nextAttemptAt: new Date(now.getTime() + RETRY_INTERVAL_MS),

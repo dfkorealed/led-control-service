@@ -545,6 +545,7 @@ model FloorImportAttemptCleanup {
   leaseExpiresAt DateTime?
   nextAttemptAt  DateTime @default(dbgenerated("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC'::text)"))
   lastCleanedAt  DateTime?
+  cleanedAt      DateTime?
   lastError      String?
   committedAt    DateTime?
   createdAt      DateTime @default(dbgenerated("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC'::text)"))

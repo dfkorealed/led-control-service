@@ -52,6 +52,7 @@ describe("FloorImportWorkerService", () => {
       floorAsset: { findUniqueOrThrow: jest.fn().mockResolvedValue(source), findUnique: jest.fn().mockResolvedValue(null) },
       $transaction: jest.fn(async (run: (tx: any) => unknown) => {
         const tx: any = {
+          $queryRaw: jest.fn().mockResolvedValue([{ assetId: attempt.assetId }]),
           floorAsset: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
           floorImportAttemptCleanup: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
           floorImportCandidate: { upsert: jest.fn().mockResolvedValue({}) },
@@ -92,6 +93,7 @@ describe("FloorImportWorkerService", () => {
         { width: 12, height: 12 }, expect.any(AbortSignal)
       );
       const finalTx = finalTransactions.at(-1);
+      expect(finalTx.$queryRaw.mock.calls[0][0].strings.join(" ")).toContain("FOR UPDATE OF floor, asset, cleanup");
       expect(finalTx.floorImportCandidate.upsert).toHaveBeenCalledWith(expect.objectContaining({
         create: expect.objectContaining({
           detectionMethod: "rule_based", provider: null, model: null, inputDigest: null,
@@ -103,7 +105,9 @@ describe("FloorImportWorkerService", () => {
       const completionSql = finalTx.$executeRaw.mock.calls[0][0];
       expect(completionSql.strings.join(" ")).toContain("review_required");
       expect(finalTx.floorAsset.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-        where: { id: attempt.assetId, objectKey: attempt.objectKey, status: "pending" },
+        where: {
+          id: attempt.assetId, objectKey: attempt.objectKey, status: "pending", cleanupStartedAt: null
+        },
         data: expect.objectContaining({ status: "ready" })
       }));
       expect(finalTx.floorImportAttemptCleanup.updateMany).toHaveBeenCalledWith(expect.objectContaining({

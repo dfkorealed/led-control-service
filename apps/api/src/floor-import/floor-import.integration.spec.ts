@@ -2,8 +2,12 @@ import { ConflictException, type INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { PrismaClient } from "@prisma/client";
 import { createHash, randomUUID } from "node:crypto";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { AuditService } from "../audit/audit.service";
 import { AuthService } from "../auth/auth.service";
+import { FloorAssetCleanupService } from "../floor-editor/floor-asset-cleanup.service";
 import { hashEditorLeaseToken } from "../floor-editor/editor-lease-token";
 import { disposablePostgres } from "../../test/support/disposable-postgres";
 import { PrismaService } from "../prisma/prisma.service";
@@ -116,7 +120,75 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
     await finalWorker.onModuleDestroy();
   });
 
-  it("reaps a killed attempt after restart and keeps deleting a later PUT through its durable tombstone", async () => {
+  it("keeps an attempt object when pending asset cleanup races the worker ready promotion", async () => {
+    const root = await mkdtemp(join(tmpdir(), "floor-import-cleanup-race-"));
+    const source = await sourceAsset();
+    const job = await prisma.floorImportJob.create({ data: {
+      floorId, sourceAssetId: source.id, sourceFormat: "dxf"
+    } });
+    const dxf = "0\nSECTION\n2\nENTITIES\n0\nLINE\n5\n1\n8\n0\n10\n0\n20\n0\n11\n10\n21\n10\n0\nENDSEC\n0\nEOF\n";
+    const objects = new Set<string>();
+    let uploadedKey = "";
+    let signalPut!: () => void; let releasePut!: () => void;
+    let signalDelete!: () => void; let releaseDelete!: () => void;
+    const putStarted = new Promise<void>(resolve => { signalPut = resolve; });
+    const putGate = new Promise<void>(resolve => { releasePut = resolve; });
+    const deleteStarted = new Promise<void>(resolve => { signalDelete = resolve; });
+    const deleteGate = new Promise<void>(resolve => { releaseDelete = resolve; });
+    const raceStorage = {
+      downloadFloorAssetToFile: jest.fn(async (_key: string, path: string) => writeFile(path, dxf)),
+      putFloorRenderedObject: jest.fn(async (key: string) => {
+        uploadedKey = key; objects.add(key); signalPut(); await putGate;
+      }),
+      verifyFloorRenderedObject: jest.fn(async (key: string) => {
+        if (!objects.has(key)) throw new Error("attempt object disappeared before verification");
+      }),
+      deleteObject: jest.fn(async (key: string) => {
+        signalDelete(); await deleteGate; objects.delete(key);
+      })
+    };
+    const converter = { convert: jest.fn(async ({ inputPath, outputPath }: { inputPath: string; outputPath: string }) => {
+      await writeFile(outputPath, await readFile(inputPath));
+      return { outputPath, outputBytes: Buffer.byteLength(dxf) };
+    }) };
+    const detector = { detect: jest.fn().mockResolvedValue([]) };
+    const attemptCleanup = new FloorImportAttemptCleanupService(prisma as never, raceStorage as never, {
+      tempRoot: root, pollIntervalMs: 1000, enabled: false
+    });
+    const importWorker = new FloorImportWorkerService(
+      prisma as never, raceStorage as never, converter as never, detector as never, detector as never,
+      { tempRoot: root, pollIntervalMs: 1000, enabled: false }, attemptCleanup
+    );
+    const genericCleanup = new FloorAssetCleanupService(prisma as never, raceStorage as never);
+    const workerRun = importWorker.runOnce();
+    let cleanupRun: Promise<{ processed: number; deleted: number }> | undefined;
+    try {
+      await putStarted;
+      cleanupRun = genericCleanup.processPending(new Date(Date.now() + 10 * 60_000));
+      await Promise.race([
+        cleanupRun.then(() => undefined),
+        deleteStarted
+      ]);
+      releasePut();
+      await workerRun;
+      await expect(prisma.floorImportJob.findUniqueOrThrow({ where: { id: job.id } }))
+        .resolves.toMatchObject({ status: "review_required" });
+      releaseDelete();
+      await cleanupRun;
+
+      expect(objects.has(uploadedKey)).toBe(true);
+      await expect(prisma.floorAsset.findUniqueOrThrow({ where: { objectKey: uploadedKey } }))
+        .resolves.toMatchObject({ status: "ready", cleanupStartedAt: null });
+    } finally {
+      releasePut(); releaseDelete();
+      await Promise.allSettled([workerRun, cleanupRun ?? Promise.resolve()]);
+      await importWorker.onModuleDestroy();
+      await attemptCleanup.onModuleDestroy();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it("reaps a late PUT during a bounded quiet period and then terminally retires the orphan tombstone", async () => {
     const killedFloor = await prisma.floor.create({ data: { siteId, name: "Killed import floor", level: 99 } });
     const sourceId = randomUUID();
     const source = await prisma.floorAsset.create({ data: {
@@ -163,7 +235,20 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
 
     objects.add(attempt.objectKey); // A paused transport completes after the first cleanup pass.
     await restarted.sweepAttempts(new Date(firstSweepAt.getTime() + 60_000));
+    expect(objects).toContain(attempt.objectKey);
+    expect(attemptStorage.deleteObject).toHaveBeenCalledTimes(1);
+
+    const terminalSweepAt = new Date(firstSweepAt.getTime() + 15 * 60_000);
+    await restarted.sweepAttempts(terminalSweepAt);
     expect(objects).not.toContain(attempt.objectKey);
+    expect(attemptStorage.deleteObject).toHaveBeenCalledTimes(2);
+    const terminal = await prisma.floorImportAttemptCleanup.findUniqueOrThrow({
+      where: { jobId_attemptCount: { jobId: job.id, attemptCount: 1 } }
+    });
+    expect(terminal).toMatchObject({ committedAt: null, lastCleanedAt: terminalSweepAt, lastError: null });
+    expect((terminal as typeof terminal & { cleanedAt: Date | null }).cleanedAt).toEqual(terminalSweepAt);
+
+    await restarted.sweepAttempts(new Date(terminalSweepAt.getTime() + 60_000));
     expect(attemptStorage.deleteObject).toHaveBeenCalledTimes(2);
     await restarted.onModuleDestroy();
   });

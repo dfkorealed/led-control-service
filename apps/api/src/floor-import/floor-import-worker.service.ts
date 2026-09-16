@@ -233,10 +233,33 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
       await pulse(90, "persisting");
 
       phase = "persist";
+      const persistedAttempt = attempt;
       await this.prisma.$transaction(async tx => {
         const readyAt = new Date();
+        const lockedAttempt = await tx.$queryRaw<Array<{ assetId: string }>>(Prisma.sql`
+          SELECT asset."id" AS "assetId"
+          FROM "Floor" AS floor
+          JOIN "FloorAsset" AS asset ON asset."floorId" = floor."id"
+          JOIN "FloorImportAttemptCleanup" AS cleanup ON cleanup."assetId" = asset."id"
+          WHERE floor."id" = ${job.floorId}
+            AND asset."id" = ${persistedAttempt.assetId}
+            AND asset."objectKey" = ${persistedAttempt.objectKey}
+            AND asset."status" = 'pending'
+            AND asset."cleanupStartedAt" IS NULL
+            AND cleanup."jobId" = ${job.id}
+            AND cleanup."attemptCount" = ${job.attemptCount}
+            AND cleanup."objectKey" = ${persistedAttempt.objectKey}
+            AND cleanup."committedAt" IS NULL
+            AND cleanup."cleanedAt" IS NULL
+            AND cleanup."leaseOwner" IS NULL
+          FOR UPDATE OF floor, asset, cleanup
+        `);
+        if (!lockedAttempt[0]) throw new Error("CAD_IMPORT_ATTEMPT_IDENTITY_LOST");
         const ready = await tx.floorAsset.updateMany({
-          where: { id: attempt!.assetId, objectKey: attempt!.objectKey, status: "pending" },
+          where: {
+            id: persistedAttempt.assetId, objectKey: persistedAttempt.objectKey,
+            status: "pending", cleanupStartedAt: null
+          },
           data: { status: "ready", readyAt: readyAt, uploadExpiresAt: null }
         });
         if (ready.count !== 1) throw new Error("CAD_IMPORT_ATTEMPT_IDENTITY_LOST");
@@ -277,7 +300,7 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
         const reconciled = await tx.floorImportAttemptCleanup.updateMany({
           where: {
             jobId: job.id, attemptCount: job.attemptCount, assetId: attempt!.assetId,
-            objectKey: attempt!.objectKey, committedAt: null, leaseOwner: null
+            objectKey: attempt!.objectKey, committedAt: null, cleanedAt: null, leaseOwner: null
           },
           data: { committedAt: readyAt, lastError: null }
         });

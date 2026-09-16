@@ -41,25 +41,22 @@ export class FloorAssetCleanupService implements OnModuleInit, OnModuleDestroy {
     const abandonedSigningAt = new Date(now.getTime() - ABANDONED_SIGNING_TIMEOUT_MS);
     const retryableClaimAt = new Date(now.getTime() - CLAIM_RETRY_BACKOFF_MS);
     const readyOrphanAt = new Date(now.getTime() - READY_ORPHAN_GRACE_MS);
-    const expiredUploadWhere = {
-      OR: [
-        { uploadExpiresAt: { lte: uploadExpiredAt } },
-        { uploadExpiresAt: null, createdAt: { lte: abandonedSigningAt } }
-      ]
-    };
-    const availableClaimWhere = {
-      OR: [{ cleanupStartedAt: null }, { cleanupStartedAt: { lte: retryableClaimAt } }]
-    };
-    const assets = await this.prisma.floorAsset.findMany({
-      where: {
-        status: "pending",
-        ...expiredUploadWhere,
-        AND: [availableClaimWhere]
-      },
-      select: { id: true, objectKey: true },
-      orderBy: { createdAt: "asc" },
-      take: BATCH_SIZE
-    });
+    const assets = await this.prisma.$queryRaw<CleanupCandidate[]>(Prisma.sql`
+      SELECT asset."id", asset."floorId", asset."objectKey", asset."cleanupStartedAt"
+      FROM "FloorAsset" AS asset
+      WHERE asset."status" = 'pending'
+        AND (
+          asset."uploadExpiresAt" <= ${uploadExpiredAt}
+          OR (asset."uploadExpiresAt" IS NULL AND asset."createdAt" <= ${abandonedSigningAt})
+        )
+        AND (asset."cleanupStartedAt" IS NULL OR asset."cleanupStartedAt" <= ${retryableClaimAt})
+        AND NOT EXISTS (
+          SELECT 1 FROM "FloorImportAttemptCleanup" AS attempt
+          WHERE attempt."assetId" = asset."id"
+        )
+      ORDER BY asset."createdAt" ASC
+      LIMIT ${BATCH_SIZE}
+    `);
     // UUID-backed access paths can be reconstructed in SQL. Excluding known references
     // before LIMIT prevents old saved assets from starving later orphan candidates.
     const readyAssets = await this.prisma.$queryRaw<CleanupCandidate[]>(Prisma.sql`
@@ -98,27 +95,21 @@ export class FloorAssetCleanupService implements OnModuleInit, OnModuleDestroy {
 
     let deleted = 0;
     for (const asset of assets) {
-      const claimed = await this.prisma.floorAsset.updateMany({
-        where: {
-          id: asset.id,
-          status: "pending",
-          ...expiredUploadWhere,
-          AND: [availableClaimWhere]
-        },
-        data: { cleanupStartedAt: now }
-      });
-      if (claimed.count !== 1) continue;
+      const claimed = await this.claimPendingAsset(
+        asset.id, uploadExpiredAt, abandonedSigningAt, retryableClaimAt, now
+      );
+      if (!claimed) continue;
 
       try {
-        await this.storage.deleteObject(asset.objectKey);
+        await this.storage.deleteObject(claimed.objectKey);
         const removed = await this.prisma.floorAsset.deleteMany({
-          where: { id: asset.id, status: "pending", cleanupStartedAt: now }
+          where: { id: claimed.id, status: "pending", cleanupStartedAt: now }
         });
         deleted += removed.count;
       } catch {
         // Storage failure is recoverable. Releasing the claim lets the next poll retry it.
         await this.prisma.floorAsset.updateMany({
-          where: { id: asset.id, status: "pending", cleanupStartedAt: now },
+          where: { id: claimed.id, status: "pending", cleanupStartedAt: now },
           data: { cleanupStartedAt: null }
         });
       }
@@ -143,6 +134,51 @@ export class FloorAssetCleanupService implements OnModuleInit, OnModuleDestroy {
     }
 
     return { processed: assets.length + readyAssets.length, deleted };
+  }
+
+  private claimPendingAsset(
+    assetId: string,
+    uploadExpiredAt: Date,
+    abandonedSigningAt: Date,
+    retryableClaimAt: Date,
+    now: Date
+  ) {
+    return this.prisma.$transaction(async tx => {
+      const rows = await tx.$queryRaw<CleanupCandidate[]>(Prisma.sql`
+        SELECT asset."id", asset."floorId", asset."objectKey", asset."cleanupStartedAt"
+        FROM "FloorAsset" AS asset
+        JOIN "Floor" AS floor ON floor."id" = asset."floorId"
+        WHERE asset."id" = ${assetId}
+          AND asset."status" = 'pending'
+          AND (
+            asset."uploadExpiresAt" <= ${uploadExpiredAt}
+            OR (asset."uploadExpiresAt" IS NULL AND asset."createdAt" <= ${abandonedSigningAt})
+          )
+          AND (asset."cleanupStartedAt" IS NULL OR asset."cleanupStartedAt" <= ${retryableClaimAt})
+          AND NOT EXISTS (
+            SELECT 1 FROM "FloorImportAttemptCleanup" AS attempt
+            WHERE attempt."assetId" = asset."id"
+          )
+        FOR UPDATE OF floor, asset
+      `);
+      const locked = rows[0];
+      if (!locked) return null;
+      const claimed = await tx.floorAsset.updateMany({
+        where: {
+          id: locked.id,
+          status: "pending",
+          OR: [
+            { uploadExpiresAt: { lte: uploadExpiredAt } },
+            { uploadExpiresAt: null, createdAt: { lte: abandonedSigningAt } }
+          ],
+          AND: [{
+            OR: [{ cleanupStartedAt: null }, { cleanupStartedAt: { lte: retryableClaimAt } }]
+          }]
+        },
+        data: { cleanupStartedAt: now }
+      });
+      return claimed.count === 1 ? locked : null;
+    });
   }
 
   private claimReadyOrphan(assetId: string, readyOrphanAt: Date, retryableClaimAt: Date, now: Date) {

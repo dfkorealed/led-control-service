@@ -639,6 +639,33 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 - `20260912090000_floor_asset_private_ledger` migration은 기존 FloorPlan과 FloorMapRevision snapshot의 알려진 asset URL을 인증 경로로 치환하고, 변경된 snapshot의 안정 해시를 다시 계산한 뒤 `publicUrl` 컬럼을 제거한다. 알려진 asset과 대응하지 않는 비어 있지 않은 legacy URL이 하나라도 있으면 전체 migration을 원자적으로 중단한다.
 - CAD 원본 또는 렌더 자산을 `FloorImportJob`이 참조하는 동안 FK가 직접 자산 삭제를 막는다. deferred constraint trigger는 자산 갱신 시에도 같은 층, 역할, ready 상태와 허용 MIME을 다시 검증한다. 후속 cleanup worker는 이 관계를 후보 조회에서도 제외해야 한다.
 
+### FloorImportAttemptCleanup
+
+CAD worker가 rendered SVG를 PUT하기 전에 만드는 영속 attempt cleanup tombstone이다. worker process가 PUT 도중 종료되거나 storage 성공 뒤 DB commit 응답을 잃어도 deterministic object key를 재조정할 수 있게 한다.
+
+| 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
+| --- | --- | --- | --- | --- |
+| `jobId`, `attemptCount` | `String`, `Int` | 예 | 복합 PK, attempt `1~3` | job의 개별 worker attempt identity |
+| `floorId` | `String` | 예 | FK 없음 | floor cascade 뒤에도 object cleanup identity를 보존하는 scope |
+| `assetId` | `String` | 예 | Unique, FK 없음 | PUT 전에 생성한 pending rendered `FloorAsset.id` |
+| `objectKey` | `String` | 예 | Unique, key CHECK | `floors/{floorId}/{jobId}-attempt-{attemptCount}.svg` deterministic private key |
+| `leaseOwner`, `leaseExpiresAt` | `String?`, `DateTime?` | 아니오 | 둘 다 NULL 또는 둘 다 값 | cleanup sweeper의 30초 점유 fence |
+| `nextAttemptAt` | `DateTime` | 예 | UTC DB 기본값 | 다음 cleanup 또는 quiet-period final 확인 가능 시각 |
+| `lastCleanedAt` | `DateTime?` | 아니오 |  | 가장 최근 성공한 object DELETE 시각 |
+| `cleanedAt` | `DateTime?` | 아니오 | terminal CHECK | quiet period final DELETE까지 성공한 orphan terminal 시각 |
+| `lastError` | `String?` | 아니오 |  | 정제된 최근 cleanup 오류 코드 |
+| `committedAt` | `DateTime?` | 아니오 | `cleanedAt`과 상호 배타 | ready asset과 import job 연결 transaction이 성공한 시각 |
+| `createdAt`, `updatedAt` | `DateTime` | 예 | UTC DB 기본값, `@updatedAt` | 생성·최종 갱신 시각 |
+
+제약과 lifecycle:
+
+- `(jobId, attemptCount)` 복합 PK는 최대 3회 retry의 attempt identity를 고정한다. `assetId`와 `objectKey`는 각각 unique이며 key CHECK가 floor/job/attempt 조합과 실제 storage key의 일치를 강제한다.
+- 의도적으로 `Floor`, `FloorImportJob`, `FloorAsset` FK를 두지 않는다. floor/job cascade가 pending asset 원장을 제거한 뒤에도 tombstone이 남아, 종료된 worker의 늦은 PUT을 삭제할 수 있어야 한다.
+- cleanup claim은 `FOR UPDATE SKIP LOCKED`와 owner/expiry pair를 사용한다. 범용 `FloorAssetCleanupService`는 pending 후보 조회와 Floor→asset 잠금 claim 양쪽에서 이 tombstone의 `assetId`를 제외하며, CAD worker는 Floor→asset→attempt 순서로 잠그고 `cleanupStartedAt IS NULL`인 경우에만 pending asset을 ready로 승격한다.
+- orphan의 첫 성공 DELETE는 `lastCleanedAt`을 기록하고 15분 quiet period 뒤로 `nextAttemptAt`을 이동한다. 이 기간에는 재삭제하지 않으며, transport가 늦게 완료한 PUT은 quiet period 종료 시 final DELETE로 회수한다. final DELETE 성공 시 `cleanedAt`을 기록해 terminal 처리하고 이후 sweep 대상에서 영구 제외한다.
+- 정상 worker commit은 rendered asset ready 승격, job의 `review_required` 연결, tombstone `committedAt` 기록을 한 transaction에서 수행한다. `committedAt`과 `cleanedAt`은 동시에 존재할 수 없고, `cleanedAt` terminal은 `lastCleanedAt`이 있으며 cleanup lease가 해제된 상태만 허용한다.
+- `20260917130000_floor_import_attempt_cleanup` migration이 tombstone과 identity/lease/key 제약을 만들고, `20260917140000_floor_import_attempt_cleanup_terminal` migration이 기존 migration을 수정하지 않고 `cleanedAt`과 terminal CHECK를 추가한다.
+
 ### FloorImportJob
 
 DWG/DXF 원본을 비동기로 변환·검출·검토·적용하는 작업의 영속 원장이다. 큰 CAD 파싱은 API 요청 안에서 실행하지 않으며 만료된 worker lease는 다른 worker가 재개한다.
