@@ -1,8 +1,13 @@
 # 통계 메뉴 기능 현황
 
-기준일: 2026-09-16
+기준일: 2026-09-17
 
 ## 구현 완료
+
+- 보고서 이력은 최신 일부가 아니라 현장의 전체 보관 이력을 `(createdAt desc, id desc)` keyset cursor로 조회한다. 페이지 크기는 10·20·50·100, 기본값은 20이며 대상명·상태·형식·범위·현장 현지 요청일을 서버에서 단독 또는 조합 검색한다. `totalCount`와 현재 페이지는 같은 repeatable-read 조회에 묶고 cursor는 정규화된 filter fingerprint와 결합한다. Web은 이전 cursor stack, 현재 page와 선택 현장을 URL에 보존하므로 새로고침·뒤로 가기에서도 같은 위치를 복원하며, 검색 조건·페이지 크기·현장 변경·새 보고서 생성 시 첫 페이지로 돌아간다.
+- 보고서 이력 UI는 1024px 이상에서 실제 table semantics와 compact 행을, 1024px 미만에서 공통 view model 기반 `ul/li`·`dl` 카드를 사용한다. 활성 조건 chip을 개별 제거해 전체 초기화할 수 있고 0건, 목록 재시도, 실패 상세 disclosure, 처리 progress, 다운로드·재생성 동작을 분리한다. 101건 browser fixture에서 기본 20건, next/previous, 50/100건, `서울 + 완료 + PDF + 현장 + 요청일` 조합, URL 복원, 생성 후 첫 페이지를 검증했다. 1440×900·1024×768·390×844·320×740에서 문서 overflow 0, 44×44px 이상 target, keyboard focus 표시와 polite live announcement를 확인했다.
+- 보고서 document v2는 선택 기간의 저장된 실제 전력량·저장 비용·일별/비교/순위/히트맵 사실과, 생성 당시 현재 조명 정격 W·단가·기준 시각으로 고정한 설정 기준값을 source로 구분한다. 현재 단가를 과거 저장 비용에 소급하지 않으며 기준 초과도 음수 절감량을 숨기지 않는다. 기존 v1 stored document는 새 차트를 발명하지 않고 기존 scalar 결과를 계속 렌더링한다.
+- PDF와 XLSX는 같은 v2 immutable document에서 만든 동일한 8개 PNG를 사용한다. 일별 실제/24시간 기준, 기간 전력·비용 비교, 조명·층·그룹 순위, 에너지·밝기 7×24 히트맵을 두 형식에 같은 순서로 삽입하고 원본 표와 scalar manifest를 유지한다. 실제 renderer fixture는 PDF 7,498,543 bytes, XLSX 215,359 bytes와 1,727개 scalar를 생성했으며, 양 형식에서 재추출한 8개 visual id·SHA-256와 브라우저 다운로드 bytes가 서버 fixture와 동일함을 확인했다.
 
 - 2026-09-16 Tailwind Task 12에서 통계 개요·분석·보고서와 공통 MetricCard/dialog/navigation의 legacy class/CSS adapter를 제거하고 의미 토큰·utility 및 `data-*` 테스트 계약으로 수렴했다. Recharts chart margin은 정적 문서 간격이 아닌 runtime geometry exact allowlist로만 유지하며 정책 baseline은 빈 violation map을 사용한다. Fresh Web **1,224/1,224**, UI policy **53/53**, 전체 Chromium 직렬 **257 passed·5 환경 의존 skip·실패 0**, 별도 opt-in RealBackendLab 통계 연계 흐름 **3/3**을 통과했다. 실제 iOS/Android WebView와 실계량기·Gateway·조명 HIL은 실행하지 않았다.
 
@@ -38,13 +43,13 @@
 - 보고서 정리는 완료 파일의 7일 만료와 생성 후 90일 메타데이터 보관을 적용한다. 최종 `objectKey`와 무관하게 허용된 1·2·3회 키를 비공개 회수 원장에 예약하고, 60초마다 최대 50개를 `SKIP LOCKED`·30초 소유권 임대로 처리한다. S3 DELETE는 DB 잠금 밖에서 실행하며 짧은 후속 transaction이 소유자·임대를 재검사한다. 부분 실패나 정리 worker의 임대 상실 시 메타데이터·참조를 유지한다. 키만 저장하는 원장은 메타데이터 삭제/cascade/이전 정리 성공 뒤에도 영구 반복 회수하여 구버전 worker를 포함한 늦은 PUT을 제거한다. 삭제 barrier가 없는 활성 작업과 유효한 완료 파일은 대상이 아니다.
 - 현장 삭제는 모든 보고서 시도 키를 `SiteDeletionCleanup`과 독립 `EnergyReportObjectCleanup`에 먼저 보존하고 신규 생성·worker claim을 차단한다. 생성/claim은 Site 잠금 뒤 새로운 DB 조회로 barrier를 재확인한다. 처리 중 작업은 `409`로 보류하며 worker 복구·종료 후 재시도한다. 기존 barrier 아래 남은 processing도 임대 만료 후 종료 상태로 회수해 영구 대기를 막는다. DB 잠금을 해제한 뒤 파일을 삭제하고, 저장소 오류 시 `503`으로 현장·보고서 행을 보존한다. 파일 삭제 성공 뒤에만 현장을 cascade 삭제한다. 기존 도면·인증서 정리가 완료되어도 별도 보고서 원장은 반복 회수한다. cascade 전 중단된 단계는 운영자의 현장 삭제 재시도로 이어간다.
 - DB DELETE 트리거는 migration 완료 뒤 구버전 인스턴스가 runtime 원장 기록 없이 직접 삭제·90일 purge·Site cascade를 수행해도 고정된 3개 시도 키를 같은 transaction에 보존한다. 기존 reaper 임대는 유지하고 이후 늦게 올라온 파일도 비공개 반복 회수 대상에 남긴다.
-- Chromium 21개 통계 시나리오로 히트맵 168셀의 0/데이터 없음·roving keyboard 선택·밝기 전환, 분석 identity 대상 선택/완료 날짜 상한, 보고서 두 형식의 생성/진행/완료/다운로드와 실패·만료 재생성을 검증했다. 1440/1024/390/320px에서 문서 가로 넘침 부재와 조작 영역을 확인했다. 숨김 텍스트의 위치를 셀 안에 고정하고 둥근 지표·셀 버튼을 56px로 넓혀 실제로 닿는 44×44px 영역을 확보했다. 보고서 폼·닫기 버튼도 같은 터치 검사를 통과한다.
-- 브라우저 다운로드 fixture는 실제 서버 렌더러가 만든 XLSX/PDF 바이트를 제공하고, 두 파일에서 다시 추출한 순서 있는 manifest가 동일 문서의 모든 scalar와 일치함을 검증한다. 다운로드한 파일도 그 바이트와 동일하다. 보고서 출력에 예상·추정·coverage·known/unknown·forecast·baseline·탄소/배출 내용이 없음을 검사했다. UI 작업 상태와 파일 서버는 결정적인 fixture이고 실제 API/DB worker 통합·MinIO 검증과 구분한다.
+- Chromium 통계 시나리오는 히트맵 168셀의 0/데이터 없음·roving keyboard 선택·밝기 전환, 분석 identity 대상 선택/완료 날짜 상한, 보고서 검색·cursor page·두 형식의 생성/진행/완료/다운로드와 실패·만료 재생성을 검증한다. 1440/1024/390/320px에서 문서 가로 넘침 부재와 조작 영역을 확인했다. 숨김 텍스트의 위치를 셀 안에 고정하고 둥근 지표·셀 버튼을 56px로 넓혀 실제로 닿는 44×44px 영역을 확보했다. 보고서 폼·닫기 버튼도 같은 터치 검사를 통과한다.
+- 브라우저 다운로드 fixture는 실제 서버 v2 렌더러가 만든 XLSX/PDF 바이트를 제공하고, 두 파일에서 다시 추출한 순서 있는 scalar manifest와 8개 chart PNG digest가 동일한지 검증한다. 다운로드한 파일도 서버 fixture 바이트와 동일하다. `상태 기반 추정` 같은 이전 보고서 용어와 탄소·배출·최적화 내용을 포함하지 않으며 UI 작업 상태와 loopback 파일 서버는 결정적인 fixture이므로 실제 API/DB worker·Object Storage 통합 검증과 구분한다.
 - 활성 보고서의 정확한 3초 polling과 완료·실패·만료 뒤 중단은 가상 시간 회귀로 확인했다. CSV 클릭 예외에서도 임시 anchor와 blob URL을 `finally`에서 해제한다.
 - 보고서 생성 API는 고유 인덱스 충돌 직후 선행 작업이 종료되어 활성 조회에서 사라져도 최대 3회의 INSERT 시도로 새 작업을 생성한다. 계속 경합하면 재요청 가능한 `409`를 반환하며 원시 DB 오류를 노출하지 않는다. worker 종료 중 대기하던 DB claim이 반환되어도 새 스냅샷 조회나 heartbeat를 시작하지 않고, 이미 확보된 작업은 기존 임대 만료 후 복구할 수 있게 둔다.
 - P2 보고서 서버 렌더러는 고정된 `EnergyReportDocument`의 제목·메타데이터·섹션·원시값·표시값·행 순서·fingerprint를 같은 순회로 XLSX/PDF에 기록한다. XLSX 숫자 셀을 유지하고 PDF에는 저장소의 OFL Noto Sans KR 폰트를 포함한다. 파일을 다시 읽은 셀/페이지 글리프 manifest를 문서와 대조하며, 긴 한글 이름과 A4 페이지 분할을 검증한다. CRLF 원문을 두 형식에서 보존하고, PDF는 실제 페이지·텍스트 좌표·연속 조각 순서로 행을 검증하여 페이지나 행 교환을 감지한다.
 - `/statistics/reports`는 기간과 현장·조명·층·그룹 범위를 선택해 XLSX 또는 PDF의 동일한 표준 보고서를 요청한다. 비현장 범위의 대상 정보가 로딩 중이거나 비어 있으면 대상 상태를 알리고 보고서·CSV 요청을 막아 현장 ID를 다른 범위 identity로 대체하지 않는다. 목록은 대기·생성 중·완료·실패·만료 상태를 표시하며, 활성 작업만 3초마다 갱신한다. 완료 파일의 서명 URL은 다운로드 클릭 때만 받아 캐시에 보관하지 않고, 실패·만료 작업은 재생성 중복을 막고 실패 피드백을 제공한다. 같은 기간·범위는 CSV 내보내기에도 사용하며 응답 첨부 파일을 즉시 다운로드한다.
-- `POST /energy/sites/:siteId/reports`는 strict 공통 요청을 받아 `202` 작업을 반환하고 현장·요청자·동일 요청의 활성 작업을 중복 생성하지 않는다. 목록(최신 50개), 상세, 다운로드 API는 데이터 조회 전에 현장 read 권한을 검사하고 다른 현장의 보고서 ID는 `404`로 숨긴다. worker가 첫 시도에서 완료된 날짜의 문서를 저장하고 이후 재시도는 이 저장 문서만 렌더링한다. PostgreSQL `SKIP LOCKED`, 30초 임대·10초 갱신, 최대 3회 시도와 살아 있는 소유자/시도 번호 검증을 적용한다.
+- `POST /energy/sites/:siteId/reports`는 strict 공통 요청을 받아 `202` 작업을 반환하고 현장·요청자·동일 요청의 활성 작업을 중복 생성하지 않는다. 목록은 전체 보관 이력을 tenant-scoped keyset cursor와 서버 filter로 조회하며 상세·다운로드를 포함한 모든 API는 데이터 조회 전에 현장 read 권한을 검사하고 다른 현장의 보고서 ID는 `404`로 숨긴다. worker가 첫 시도에서 완료된 날짜의 문서를 저장하고 이후 재시도는 이 저장 문서만 렌더링한다. PostgreSQL `SKIP LOCKED`, 30초 임대·10초 갱신, 최대 3회 시도와 살아 있는 소유자/시도 번호 검증을 적용한다.
 - 보고서는 비공개 도면 자산과 분리된 비공개 버킷의 시도별 키에 업로드한다. 25 MB 상한과 HEAD 크기·MIME·SHA-256 검증 후 7일 만료 시각을 저장하며, 완료·미만료 파일만 안전한 파일명의 300초 서명 URL로 제공한다. 보고서 API와 파일은 no-store이고, `GET /energy/sites/:siteId/exports/csv`는 공통 문서의 메타데이터·표·표시값을 UTF-8 BOM, CSV 인용, 수식 접두어 방어를 적용해 행 단위 스트림으로 내보낸다.
 - 로컬 MinIO 초기화는 전체 셸 절차를 `sh -c`의 단일 인자로 전달해 익명 접근을 차단한 도면 자산용 `floor-assets`와 비공개 보고서용 `energy-reports` 버킷을 빠짐없이 만든다. 브라우저는 도면 원본에 직접 공개 접근하지 않고 권한을 검사하는 API endpoint에서 300초 signed GET을 발급받는다. Compose가 명령을 여러 인자로 분리해 초기화 컨테이너가 종료 코드 2로 실패하던 회귀를 실제 `docker compose config` 결과로 고정했다. 수정 후 초기화 컨테이너 종료 코드 0, 두 버킷 존재, 두 버킷의 private 정책을 확인했고, 이전과 동일한 현장 XLSX 요청을 새 작업으로 생성해 첫 시도 완료와 68,757바이트 파일 다운로드를 검증했다. 기존 실패 작업은 장애 이력으로 보존한다.
 - 사용량 분석은 선택한 조명·층·그룹 순위 항목을 scope로 하는 P2 시간대 히트맵을 제공한다. 현장 timezone을 받은 뒤에만 최근 완료 28일을 조회하며, 에너지/밝기 전환, 7×24 시간대 버튼, 실제 0과 수집 데이터 없음의 구분, 선택 상세·재시도·빈 상태를 제공한다. 시간대 버튼과 지표 전환은 최소 44px 조작 영역이며, 좁은 화면의 24열 표는 카드 내부에서만 가로 스크롤한다.
@@ -127,7 +132,7 @@
 - 보고서 파일의 7일 만료는 조회·다운로드에서 즉시 적용하며 물리 삭제는 60초 정리 주기와 backlog·저장소 상태에 따라 늦을 수 있다. 원장별 최대 3회 DELETE는 각 4초 제한이며 DB transaction 밖에서 수행한다. PUT 10초·HEAD 4초 제한은 네트워크 보호일 뿐 정지한 프로세스의 미래 PUT을 막는 증거로 쓰지 않는다. 회수 원장은 자동 삭제하지 않으므로 크기와 반복 DELETE 비용이 보고서 수에 따라 증가한다. 요청/문서 데이터는 원장에 포함하지 않는다. 매우 많은 보고서가 있는 현장의 삭제는 전체 시도 키 목록과 순차 저장소 삭제에 시간이 걸릴 수 있다.
 - `OBJECT_STORAGE_REPORT_BUCKET`은 비공개 도면 자산 버킷과 분리해야 하며 운영 저장소에서도 두 버킷 모두 익명 읽기를 허용하지 않아야 한다. 로컬 compose는 기본 `floor-assets`와 `energy-reports` 버킷에 익명 접근 금지를 적용한다. 보고서 스냅샷과 생성 파일은 서버 메모리에 존재하며 CSV 출력 문자열만 스트리밍한다. 작업 수락 전 Site 잠금 밖의 read-only 사전 조회로 실제 문서를 만들어 날짜·대상·출력 문자 지원 여부를 확인하고 폐기한다. 따라서 접수에도 집계 조회 비용이 추가되며 worker는 첫 시도에서 별도의 한 transaction으로 불변 스냅샷을 저장하고 재검사한다. 수락 이후 데이터 변경이나 저장소 오류로 생성이 실패할 수 있다.
 - 글꼴 지원은 Unicode 전체가 아니다. 최종 출력에 있는 NBSP(U+00A0), VS16(U+FE0F), ZWJ(U+200D), NFD 한글의 자동 조합 등 원문 왕복이 불가능한 문자/문자열은 `400 Unsupported report …`로 거절한다. NFC 한글과 지원되는 결합 악센트·emoji는 허용하며 무관한 이력 이름을 이유로 거절하지 않는다. 이미 저장된 보고서 문서는 불변 원본을 유지하며 새 비용/정밀 이력 규칙의 문서는 같은 기간으로 새로 요청한다.
-- 24시간·100% 기준선은 조회 시점의 현재 등록 조명과 정격 W를 사용한다. 조회 기간 중 등록·삭제·정격 변경이 있었다면 당시 조명 구성으로 소급 보정하지 않으므로 장기 비교의 절대값 해석에 주의해야 한다.
+- 24시간·100% 기준선은 보고서 생성 시점의 현재 등록 조명과 정격 W·현재 단가를 snapshot에 고정한다. 선택 기간 당시 조명 구성을 소급 복원한 값이 아니므로 장기 비교의 절대값 해석에 주의해야 하며, 저장된 실제 사용량·비용과 같은 출처로 오해하면 안 된다.
 - 직전·전년 동기간 비교는 현재 누적 이력의 구조를 그대로 사용하고 과거 조명 구성 변경을 복원하지 않는다. 현재 응답의 history quality는 `legacy_structure_unknown`이며, 이력 snapshot을 도입하기 전까지 구성 효과와 실제 운영 절감 효과를 분리할 수 없다.
 - P0/P1은 상태 이벤트와 정격 전력 기반의 소프트웨어 추정 기능이다. 실제 전력계·Raspberry Pi·ESP32-H2·BLE Mesh 상태 publication을 장기간 함께 사용한 절감률·순위 HIL은 이번 작업에서 실행하지 않았다.
 - 운영시간·낭비·목표/예산과 `/statistics/optimization`은 사용자 요청에 따라 이번 범위에서 제외했다.
@@ -201,8 +206,12 @@
 - `apps/web/src/features/statistics/analysis/StatisticsAnalysisPage.test.tsx`
 - `apps/web/src/features/statistics/reports/StatisticsReportsPage.tsx`
 - `apps/web/src/features/statistics/reports/StatisticsReportsPage.test.tsx`
+- `apps/web/src/features/statistics/reports/ReportHistoryFilters.tsx`
+- `apps/web/src/features/statistics/reports/ReportJobTable.tsx`
+- `apps/web/src/features/statistics/reports/ReportJobCards.tsx`
 - `apps/web/src/features/statistics/reports/ReportCreateDialog.tsx`
 - `apps/web/src/features/statistics/reports/ReportJobList.tsx`
+- `apps/web/src/components/ui/PaginationBar.tsx`
 - `apps/web/src/features/statistics/analysis/EnergyHeatmap.tsx`
 - `apps/web/src/features/statistics/analysis/EnergyHeatmap.test.tsx`
 - `apps/web/src/features/statistics/analysis/EnergyRankingList.tsx`

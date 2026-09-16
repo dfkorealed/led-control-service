@@ -679,7 +679,7 @@ git commit -m "feat(reports): embed charts in PDF and XLSX"
 - Consumes: Tasks 1–9 전체 기능
 - Produces: browser/file acceptance evidence와 최신 통계 기능 문서
 
-- [ ] **Step 1: 101건 검색·페이지네이션 E2E fixture와 시나리오를 작성한다.**
+- [x] **Step 1: 101건 검색·페이지네이션 E2E fixture와 시나리오를 작성한다.**
 
 시나리오:
 
@@ -692,25 +692,25 @@ git commit -m "feat(reports): embed charts in PDF and XLSX"
 7. 생성 후 first page reset
 8. 0건 empty state
 
-- [ ] **Step 2: responsive/accessibility assertions를 추가한다.**
+- [x] **Step 2: responsive/accessibility assertions를 추가한다.**
 
 1440×900·1024×768에서는 table, 390×844·320×740에서는 mobile list를 확인한다. document horizontal overflow 0, action/filter/pagination bounding box 44×44px 이상, focus visible, failure disclosure, live announcement를 확인한다.
 
-- [ ] **Step 3: 실제 renderer fixture를 PDF/XLSX 다운로드에 연결한다.**
+- [x] **Step 3: 실제 renderer fixture를 PDF/XLSX 다운로드에 연결한다.**
 
 fixture generator는 v2 document에서 PDF/XLSX bytes를 만들고 scalar manifest, visual ids, image hashes를 test metadata로 제공한다. 브라우저 download bytes와 server fixture bytes가 동일해야 한다.
 
-- [ ] **Step 4: 통계 메뉴 문서를 갱신한다.**
+- [x] **Step 4: 통계 메뉴 문서를 갱신한다.**
 
 `구현 완료`, `미구현`, `부족하거나 개선이 필요한 기능`, `관련 파일`, `갱신 규칙` 구조를 유지한다. 서버 검색 범위, cursor UX, PDF/XLSX 실제 차트, 실제값/생성 당시 기준값 구분, v1 호환, 검증 범위를 기록한다.
 
-- [ ] **Step 5: focused E2E를 실행한다.**
+- [x] **Step 5: focused E2E를 실행한다.**
 
 Run: `pnpm --filter @led-control/web exec playwright test e2e/statistics-flow.spec.ts --workers=1`
 
 Expected: 통계 E2E PASS, 환경 의존 skip만 기존 allowlist와 일치.
 
-- [ ] **Step 6: 전체 검증을 실행한다.**
+- [x] **Step 6: 전체 검증을 실행한다.**
 
 ```bash
 pnpm --filter @led-control/shared test
@@ -724,16 +724,42 @@ pnpm --filter @led-control/web exec playwright test e2e/statistics-flow.spec.ts 
 
 Expected: 모든 명령 exit 0. 실패가 있으면 기존 실패로 추정하지 말고 원인을 분리해 수정한 뒤 전체 명령을 다시 실행한다.
 
-- [ ] **Step 7: plan 체크리스트와 검증 수치를 갱신한다.**
+- [x] **Step 7: plan 체크리스트와 검증 수치를 갱신한다.**
 
 각 완료 Task의 checkbox를 `[x]`로 바꾸고 실제 test count, E2E viewport, 생성 파일 크기, visual hash 비교 결과를 계획 하단 실행 기록에 추가한다.
 
-- [ ] **Step 8: Task 10을 커밋한다.**
+- [x] **Step 8: Task 10을 커밋한다.**
 
 ```bash
 git add apps/web/e2e/statistics-flow.spec.ts apps/api/test/support/render-report-browser-fixtures.ts docs/menus/statistics.md docs/superpowers/plans/2026-09-16-statistics-report-grid-visual-output.md
 git commit -m "test: verify searchable visual energy reports"
 ```
+
+---
+
+## Execution Record (2026-09-17)
+
+- 보고서 이력 E2E fixture: 101건. 기본 20건, 다음/이전, 50·100건 전환, 대상명·상태·형식·사이트·요청일 조합, chip 개별 제거·전체 초기화, URL 새로고침 복원, 생성 후 첫 페이지 이동, 0건 상태를 검증했다.
+- 반응형·접근성 E2E: 1440×900 및 1024×768 table, 390×844 및 320×740 mobile list, document horizontal overflow 0, 44×44px 이상 조작 영역, keyboard focus, 실패 상세 disclosure, live announcement를 검증했다.
+- focused browser E2E: Chromium 26개 통과, skip 0개.
+- shared: 15 files, 242 tests 통과.
+- API: 152 suites, 1,793 tests 통과. 기존 환경 allowlist에 해당하는 43 suites, 475 tests는 skip.
+- Web unit/component: 88 files, 1,252 tests 통과.
+- UI policy: 53 tests 통과.
+- typecheck 및 production build: exit 0. build에는 기존 main chunk 경고가 남아 있으며 main bundle은 657.51 kB, gzip 201.34 kB다.
+- renderer scalar manifest: PDF/XLSX 공통 1,727개 scalar를 비교했다.
+- XLSX fixture: 215,359 bytes, SHA-256 `368cce8c279df9182566f79ec1278c9129529dc9d7bbaa28b0dc6aeb55ba7752`.
+- PDF fixture: 7,498,543 bytes, SHA-256 `7050c78dba6382fd5861889711238363aa6b4d68abe8f246fcafe066f3ab09a7`.
+- ordered visual digest:
+  - `daily-chart`: `7f12f795fe7713faaead92cf99bec5ff361384a68ec58412c027ccd8ab485534`
+  - `comparison-chart/energyKwh`: `8640939748300bc4853fd78c08013722bf64eb76a0140876c8df0152ca76509c`
+  - `comparison-chart/cost`: `d4b057a1c2f0c6c9f4429cdb222714b8a0c444852bb66d7eaec7c97625e8eee3`
+  - `fixture-ranking-chart`: `15fb1992fb18cf542ef4b899ca64ab87d841d424f05aa5b9f51172fd371a9aec`
+  - `floor-ranking-chart`: `9ff2ac9195974c1d37cfc4bcca5679c28e76dd0dbb7168a4d968b63e2cd9a3ad`
+  - `group-ranking-chart`: `ecb730b26aa855737b91565b08eba3d43c678bce6449318c5d3faa3fead003c4`
+  - `energy-heatmap-chart`: `50ab5751c3695cdd9b8a94bf1cbc8ef7517aee56c730bfddd1211c3c2f0b2a89`
+  - `brightness-heatmap-chart`: `92034951c488c33d6ca743f92fad9ccc288037c98dc25f00767d978486dc120e`
+- 검증 과정에서 query string을 포함하지 못한 E2E route matcher, 정의되지 않은 desktop breakpoint, URL 갱신 시 `siteId` 유실 문제를 확인해 수정했다.
 
 ---
 
