@@ -153,8 +153,8 @@ export function FloorScene({
             data-spatial-map-marker="true"
             data-brightness-level={brightnessLevel}
             className={cn(
-              "absolute z-2 block! size-5! min-h-5! -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-fixture-marker! border-0! bg-transparent! p-0! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] hover:z-4 focus-visible:z-4 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-fixture-selected",
-              coarsePointer && "max-compact:size-11! max-compact:min-h-11!",
+              "absolute z-2 block! -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-fixture-marker! border-0! bg-transparent! p-0! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] hover:z-4 focus-visible:z-4 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-fixture-selected",
+              coarsePointer ? "size-11! min-h-11!" : "size-5! min-h-5!",
               selected && "z-3"
             )}
             style={markerStyle}

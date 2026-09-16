@@ -70,7 +70,7 @@ describe("FloorScene", () => {
 
     expect(screen.getByRole("button", { name: /B1-L001.*선택됨/ })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: /B1-L002.*선택 불가/ })).toBeDisabled();
-    expect(screen.getByRole("button", { name: /B1-L001/ })).toHaveClass("max-compact:size-11!");
+    expect(screen.getByRole("button", { name: /B1-L001/ })).toHaveClass("size-11!", "min-h-11!");
   });
 
   it("renders compact selectable fixtures without visible marker copy", () => {
