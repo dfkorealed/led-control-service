@@ -1,10 +1,8 @@
 import { useMutation } from "@tanstack/react-query";
-import { CircleAlert, X } from "lucide-react";
+import { CircleAlert } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { AssignSiteAdminInput, CreateSiteAdminInput, SiteAdminSummary, UpdateSiteAdminInput } from "../../../api/operator-site-admins";
-import { useDialogFocus } from "../../../components/ConfirmDialog";
-import { Button } from "../../../components/ui/Button";
-import { FeedbackState } from "../../../components/ui/FeedbackState";
+import { Button, FeedbackState, ModalDialog, PasswordField, TextField } from "../../../components/ui";
 import { MIN_OPERATOR_PASSWORD_LENGTH, OPERATOR_PASSWORD_POLICY_MESSAGE, isPasswordPolicyError } from "./password-policy";
 
 type FormMode = "create" | "assign" | "edit";
@@ -44,7 +42,6 @@ export function SiteAdminFormDialog({
   onSuccess,
   onClose
 }: SiteAdminFormDialogProps) {
-  const dialogRef = useRef<HTMLElement>(null);
   const initialFocusRef = useRef<HTMLInputElement>(null);
   const loginIdRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
@@ -73,15 +70,6 @@ export function SiteAdminFormDialog({
     setGeneralError("");
     onClose();
   }
-
-  useDialogFocus({
-    open: true,
-    dialogRef,
-    returnFocusElement,
-    fallbackFocusElement,
-    onClose: close,
-    initialFocusRef
-  });
 
   const editMutation = useMutation({
     mutationFn: () => {
@@ -183,67 +171,66 @@ export function SiteAdminFormDialog({
     }
   }
 
+  const formId = `site-admin-form-${mode}`;
+
   return (
-    <div className="operator-dialog-backdrop" role="presentation" onMouseDown={(event) => {
-      if (event.currentTarget === event.target) close();
-    }}>
-      <section ref={dialogRef} className="operator-dialog" role="dialog" aria-modal="true" aria-labelledby="site-admin-form-dialog-title" tabIndex={-1}>
-        <header className="operator-dialog-header">
-          <h2 id="site-admin-form-dialog-title">{title}</h2>
-          <Button className="icon-button" type="button" aria-label={`${title} 닫기`} onClick={close} disabled={isPending}>
-            <X size={18} aria-hidden="true" />
-          </Button>
-        </header>
-        <form className="operator-form" onSubmit={(event) => {
+    <ModalDialog
+      isOpen
+      title={title}
+      className="max-w-lg"
+      closeLabel={`${title} 닫기`}
+      isPending={isPending}
+      initialFocusRef={initialFocusRef}
+      returnFocusElement={returnFocusElement}
+      fallbackFocusElement={fallbackFocusElement}
+      onClose={close}
+      actions={<>
+        <Button type="button" onClick={close} disabled={isPending}>취소</Button>
+        <Button form={formId} variant="primary" type="submit" disabled={!valid || isPending} isLoading={isPending} loadingLabel="처리 중">{submitLabel}</Button>
+      </>}
+    >
+        <form id={formId} className="operator-form grid gap-3.5" onSubmit={(event) => {
           event.preventDefault();
           if (!valid || isPending) return;
           if (mode === "edit") editMutation.mutate();
           else void submitPasswordFlow();
         }}>
           {mode === "create" ? (
-            <div className="operator-form-grid">
-              <label className="form-field"><span>고객사명</span><input ref={initialFocusRef} value={form.customerName} onChange={(event) => setForm({ ...form, customerName: event.target.value })} /></label>
-              <label className="form-field"><span>현장명</span><input value={form.siteName} onChange={(event) => setForm({ ...form, siteName: event.target.value })} /></label>
+            <div className="operator-form-grid grid grid-cols-2 gap-3 max-compact:grid-cols-1">
+              <TextField ref={initialFocusRef} label="고객사명" value={form.customerName} onChange={(value) => setForm({ ...form, customerName: value })} />
+              <TextField label="현장명" value={form.siteName} onChange={(value) => setForm({ ...form, siteName: value })} />
             </div>
           ) : null}
-          <label className="form-field">
-            <span>관리자 이름</span>
-            <input ref={mode === "create" ? undefined : initialFocusRef} value={form.adminName} onChange={(event) => setForm({ ...form, adminName: event.target.value })} />
-          </label>
-          <label className="form-field">
-            <span>로그인 아이디</span>
-            <input ref={loginIdRef} value={form.loginId} aria-invalid={Boolean(loginIdError)} aria-describedby={loginIdError ? "site-admin-login-id-error" : undefined} autoComplete="username" onChange={(event) => {
+          <TextField label="관리자 이름" ref={mode === "create" ? undefined : initialFocusRef} value={form.adminName} onChange={(value) => setForm({ ...form, adminName: value })} />
+          <TextField
+            label="로그인 아이디"
+            ref={loginIdRef}
+            value={form.loginId}
+            isInvalid={Boolean(loginIdError)}
+            errorMessage={loginIdError}
+            autoComplete="username"
+            onChange={(value) => {
               setLoginIdError("");
-              setForm({ ...form, loginId: event.target.value });
-            }} />
-            {loginIdError ? <span id="site-admin-login-id-error" className="field-error" role="alert">{loginIdError}</span> : null}
-          </label>
+              setForm({ ...form, loginId: value });
+            }}
+          />
           {needsPassword ? (
-            <label className="form-field">
-              <span>초기 비밀번호</span>
-              <input
-                ref={passwordRef}
-                type="password"
-                value={form.initialPassword}
-                aria-invalid={Boolean(passwordError)}
-                aria-describedby={passwordError ? "site-admin-password-error" : undefined}
-                autoComplete="new-password"
-                onChange={(event) => {
-                  setPasswordError("");
-                  setForm({ ...form, initialPassword: event.target.value });
-                }}
-              />
-              {passwordError ? <span id="site-admin-password-error" className="field-error" role="alert">{passwordError}</span> : null}
-            </label>
+            <PasswordField
+              ref={passwordRef}
+              label="초기 비밀번호"
+              value={form.initialPassword}
+              isInvalid={Boolean(passwordError)}
+              errorMessage={passwordError}
+              autoComplete="new-password"
+              onChange={(value) => {
+                setPasswordError("");
+                setForm({ ...form, initialPassword: value });
+              }}
+            />
           ) : null}
           {generalError ? <FeedbackState tone="danger" icon={CircleAlert} title={generalError} /> : null}
-          <footer className="operator-dialog-actions">
-            <Button type="button" onClick={close} disabled={isPending}>취소</Button>
-            <Button variant="primary" type="submit" disabled={!valid || isPending} isLoading={isPending} loadingLabel="처리 중">{submitLabel}</Button>
-          </footer>
         </form>
-      </section>
-    </div>
+    </ModalDialog>
   );
 }
 

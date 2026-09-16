@@ -61,6 +61,11 @@ describe("AuthView MFA login", () => {
 
     submitCredentials();
 
+    await waitFor(() => expect(loginMock).toHaveBeenCalledWith({
+      loginId: " admin_01 ",
+      password: "correct-password",
+      rememberMe: true
+    }));
     await waitFor(() => expect(onAuthenticated).toHaveBeenCalledWith({ user: admin }));
     expect(completeMfaLoginMock).not.toHaveBeenCalled();
   });

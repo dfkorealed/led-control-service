@@ -2,8 +2,7 @@ import { useMutation } from "@tanstack/react-query";
 import { CircleAlert } from "lucide-react";
 import { useRef, useState } from "react";
 import type { SiteAdminSummary } from "../../../api/operator-site-admins";
-import { ConfirmDialog } from "../../../components/ConfirmDialog";
-import { FeedbackState } from "../../../components/ui/FeedbackState";
+import { ConfirmDialog, FeedbackState, Text, TextField } from "../../../components/ui";
 
 interface DeleteSiteDialogProps {
   site: SiteAdminSummary;
@@ -39,7 +38,7 @@ export function DeleteSiteDialog({ site, returnFocusElement, fallbackFocusElemen
 
   return (
     <ConfirmDialog
-      open
+      isOpen
       title={`${site.siteName} 현장 전체 삭제`}
       description="현장, 관리자, 일반 사용자와 장비·자동화·통계 메타데이터가 영구 삭제됩니다. 외부 자산은 비동기로 정리되며, 삭제 후에는 복구할 수 없습니다."
       confirmLabel="현장 전체 삭제"
@@ -49,21 +48,22 @@ export function DeleteSiteDialog({ site, returnFocusElement, fallbackFocusElemen
       returnFocusElement={returnFocusElement}
       fallbackFocusElement={fallbackFocusElement}
       initialFocusRef={confirmationRef}
+      closeLabel={`${site.siteName} 현장 전체 삭제 닫기`}
       onConfirm={() => mutation.mutate()}
       onClose={close}
     >
-      <p className="muted-text">계속하려면 현장명 <strong>{site.siteName}</strong>을 정확히 입력하세요.</p>
-      <label className="form-field">
-        <span>삭제할 현장명</span>
-        <input
+      <div className="grid gap-3.5">
+        <Text tone="secondary">계속하려면 현장명 <strong>{site.siteName}</strong>을 정확히 입력하세요.</Text>
+        <TextField
           ref={confirmationRef}
+          label="삭제할 현장명"
           value={confirmationSiteName}
           autoComplete="off"
-          disabled={mutation.isPending}
-          onChange={(event) => setConfirmationSiteName(event.target.value)}
+          isDisabled={mutation.isPending}
+          onChange={setConfirmationSiteName}
         />
-      </label>
       {mutation.error ? <FeedbackState tone="danger" icon={CircleAlert} title="현장과 관리자 계정을 삭제하지 못했습니다. 연결 상태를 확인한 뒤 다시 시도하세요." /> : null}
+      </div>
     </ConfirmDialog>
   );
 }

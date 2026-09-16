@@ -22,6 +22,7 @@
 
 ## 구현 완료
 
+- 2026-09-16 공통 셸·인증 UI 이전에서 모니터링 진입 셸의 내비게이션, 현장 배지, 로딩·복구 상태와 로그아웃을 Tailwind 의미 토큰 및 공통 `Heading`/`Text`/`FeedbackState`/`ConfirmDialog`로 통합했다. 저장하지 않은 맵 편집 내용이 있으면 `window.confirm` 대신 접근 가능한 `alertdialog`에서 취소 시 원래 로그아웃 버튼으로 초점을 복원하고, 승인 후에만 draft와 session을 정리한다. 관련 Vitest 157개와 320/390/1024/1440px Chromium 셸·인증·복구 시나리오 19개로 검증했으며, 이는 mock API 기반 browser 회귀로 Raspberry Pi·Gateway·ESP32-H2·조명 실장비 HIL 완료를 뜻하지 않는다.
 - 설정이 소유하는 조명 검색·등록과 맵 편집 화면을 공통 React Aria/Tailwind UI로 이전하면서 기존 등록 상태·payload와 모니터링 캐시 동기화 계약을 유지했다. 이미 등록된 장비는 등록 가능 목록에서 분리하고 새 장비만 선택·제출하며, 저장한 네모·세모·선·텍스트와 조명 위치는 모니터링의 읽기 전용 `FloorScene`에 즉시 반영한다. Konva의 정적 렌더링 색상은 `themeColor` 의미 토큰을 사용하고 저장 좌표·viewport·배율만 runtime geometry 예외로 유지한다. 이 범위는 deterministic Vitest/Chromium 회귀이며 Raspberry Pi·ESP32-H2·LED 실장비 HIL 완료를 뜻하지 않는다.
 - 모니터링 화면을 공통 Tailwind 디자인 시스템으로 이전했다. 맵·조명 선택은 공통 `SelectBox`, 새로고침과 지도 배율 제어는 공통 `Button`/`IconButton`, 로딩·오류·빈 상태는 `FeedbackState`, 요약은 `MetricCard`, 상세 상태는 `StatusBadge`, 제목·본문은 `Heading`/`Text`를 사용한다. 저장 도형과 조명 위치는 기존 공통 `FloorScene` 렌더러를 유지하고, 조명 밝기와 빛 번짐은 `fixture-brightness-1..10`·`fixture-marker` 의미 토큰으로 표시한다. 지도 및 마커의 저장 좌표·측정 viewport·줌 배율처럼 실행 중 계산되는 값만 inline geometry 예외로 남긴다.
 

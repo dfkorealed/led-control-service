@@ -68,7 +68,7 @@ for (const viewport of viewports) {
       primary: "#256fa1",
       surface: "#f4f8fa",
       text: "#15324a",
-      focus: "0 0 0 3px rgba(37, 111, 161, 0.28)"
+      focus: "0 0 0 3px rgb(37 111 161 / 0.28)"
     });
     await expect(page.getByLabel("아이디")).toBeVisible();
     await expect(page.getByLabel("비밀번호")).toBeVisible();
@@ -121,14 +121,14 @@ for (const viewport of viewports) {
 }
 
 async function expectMobileDialogControls(dialog: ReturnType<Page["getByRole"]>) {
-  const close = dialog.locator(".operator-dialog-header .icon-button");
+  const close = dialog.locator(".ui-modal-close");
   await expect(close).toHaveCSS("min-height", "44px");
   const closeBox = await close.boundingBox();
   expect(closeBox).not.toBeNull();
   expect(closeBox!.width).toBeGreaterThanOrEqual(44);
   expect(closeBox!.height).toBeGreaterThanOrEqual(44);
 
-  const actions = dialog.locator(".operator-dialog-actions > button");
+  const actions = dialog.locator(".ui-modal-actions > button");
   for (const action of await actions.all()) {
     const box = await action.boundingBox();
     expect(box).not.toBeNull();

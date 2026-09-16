@@ -2,9 +2,16 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { ArrowLeft, CircleAlert, KeyRound, LockKeyhole } from "lucide-react";
 import { completeMfaLogin, login, type AuthUser, type MfaLoginChallenge } from "../../api/auth";
 import { KindaLogo } from "../../components/brand/KindaLogo";
-import { Button } from "../../components/ui/Button";
-import { Card } from "../../components/ui/Card";
-import { FeedbackState } from "../../components/ui/FeedbackState";
+import {
+  Button,
+  Card,
+  Checkbox,
+  FeedbackState,
+  Heading,
+  PasswordField,
+  Text,
+  TextField
+} from "../../components/ui";
 
 interface AuthViewProps {
   onAuthenticated: (auth: { user: AuthUser }) => Promise<void>;
@@ -83,34 +90,31 @@ export function AuthView({ onAuthenticated }: AuthViewProps) {
   }
 
   return (
-    <main className="auth-shell">
-      <section className="auth-brand-panel" aria-label="킨다 소개">
+    <main className="auth-shell mx-auto grid min-h-screen w-full max-w-6xl grid-cols-2 items-center gap-16 bg-surface-canvas p-6 max-compact:grid-cols-1 max-compact:content-center max-compact:gap-8 max-compact:px-4">
+      <section className="auth-brand-panel max-w-xl" aria-label="킨다 소개">
         <KindaLogo className="auth-brand" />
-        <h1>빛을 더 안정적으로,<br />현장을 더 선명하게.</h1>
-        <p>주차장 LED 조명의 상태, 제어, 에너지 사용량을 하나의 차분한 운영 화면에서 확인하세요.</p>
+        <Heading as="h1" variant="display">빛을 더 안정적으로,<br />현장을 더 선명하게.</Heading>
+        <Text className="mt-5 max-w-lg" variant="body-lg" tone="secondary">주차장 LED 조명의 상태, 제어, 에너지 사용량을 하나의 차분한 운영 화면에서 확인하세요.</Text>
       </section>
-      <Card className="auth-panel">
+      <Card className="auth-panel grid w-full max-w-lg gap-5 p-6 shadow-panel">
         {challenge ? (
           <>
-            <div className="auth-heading">
-              <span className="eyebrow">계정 보안</span>
-              <h2>2단계 인증</h2>
-              <p className="auth-helper">인증 앱의 6자리 코드 또는 저장한 복구 코드를 입력하세요.</p>
+            <div className="auth-heading grid gap-1.5">
+              <Text as="span" variant="overline" tone="secondary">계정 보안</Text>
+              <Heading>2단계 인증</Heading>
+              <Text className="auth-helper" variant="body-sm" tone="secondary">인증 앱의 6자리 코드 또는 저장한 복구 코드를 입력하세요.</Text>
             </div>
-            <form className="auth-form" onSubmit={submitMfa}>
-              <label>
-                {verificationMode === "totp" ? "인증 앱 코드" : "복구 코드"}
-                <input
-                  ref={verificationInputRef}
-                  type="text"
-                  inputMode={verificationMode === "totp" ? "numeric" : "text"}
-                  autoComplete="one-time-code"
-                  value={verificationValue}
-                  onChange={(event) => setVerificationValue(event.target.value)}
-                  maxLength={verificationMode === "totp" ? 6 : 128}
-                  required
-                />
-              </label>
+            <form className="auth-form grid gap-3.5" onSubmit={submitMfa}>
+              <TextField
+                ref={verificationInputRef}
+                label={verificationMode === "totp" ? "인증 앱 코드" : "복구 코드"}
+                inputMode={verificationMode === "totp" ? "numeric" : "text"}
+                autoComplete="one-time-code"
+                value={verificationValue}
+                onChange={setVerificationValue}
+                maxLength={verificationMode === "totp" ? 6 : 128}
+                isRequired
+              />
               <Button className="auth-submit" type="submit" variant="primary" isLoading={isPending} loadingLabel="인증 중">
                 <KeyRound size={18} aria-hidden="true" />
                 인증하고 로그인
@@ -130,48 +134,40 @@ export function AuthView({ onAuthenticated }: AuthViewProps) {
           </>
         ) : (
           <>
-            <div className="auth-heading">
-              <span className="eyebrow">계정 로그인</span>
-              <h2>킨다 로그인</h2>
+            <div className="auth-heading grid gap-1.5">
+              <Text as="span" variant="overline" tone="secondary">계정 로그인</Text>
+              <Heading>킨다 로그인</Heading>
             </div>
-            <form className="auth-form" onSubmit={submit}>
-          <label>
-            아이디
-            <input
-              type="text"
+            <form className="auth-form grid gap-3.5" onSubmit={submit}>
+            <TextField
+              label="아이디"
               value={loginId}
-              onChange={(event) => setLoginId(event.target.value)}
+              onChange={setLoginId}
               autoComplete="username"
-              required
+              isRequired
             />
-          </label>
-          <label>
-            비밀번호
-            <input
-              type="password"
+            <PasswordField
+              label="비밀번호"
               value={password}
-              onChange={(event) => setPassword(event.target.value)}
+              onChange={setPassword}
               autoComplete="current-password"
-              required
+              isRequired
             />
-          </label>
-          <label className="check-field">
-            <input
-              type="checkbox"
-              checked={rememberMe}
-              onChange={(event) => setRememberMe(event.target.checked)}
+            <Checkbox
+              className="check-field"
+              label="자동 로그인"
+              isSelected={rememberMe}
+              onChange={setRememberMe}
             />
-            자동 로그인
-          </label>
-          <Button className="auth-submit" type="submit" variant="primary" isLoading={isPending} loadingLabel="로그인 중">
-            <LockKeyhole size={18} aria-hidden="true" />
-            로그인
-          </Button>
+            <Button className="auth-submit mt-1" type="submit" variant="primary" isLoading={isPending} loadingLabel="로그인 중">
+              <LockKeyhole size={18} aria-hidden="true" />
+              로그인
+            </Button>
             </form>
           </>
         )}
 
-        {errorMessage ? <FeedbackState tone="danger" icon={CircleAlert} title={errorMessage} /> : null}
+        {errorMessage ? <FeedbackState className="mt-3.5" tone="danger" icon={CircleAlert} title={errorMessage} /> : null}
       </Card>
     </main>
   );

@@ -4,6 +4,7 @@
 
 ## 구현 완료
 
+- 2026-09-16 공통 셸·인증 UI 이전에서 제어 진입 셸의 내비게이션, 현장 배지, 로딩·복구 상태와 로그아웃을 Tailwind 의미 토큰 및 공통 `Heading`/`Text`/`FeedbackState`/`ConfirmDialog`로 통합했다. 로그아웃 중에는 기존 active-command 차단을 유지하고, 저장하지 않은 맵 편집 내용의 폐기 승인이 끝나기 전에는 session을 종료하지 않는다. 관련 Vitest 157개와 320/390/1024/1440px Chromium 셸·인증·복구 시나리오 19개로 검증했으며, 이는 mock API 기반 browser 회귀로 실제 Gateway 명령·BLE Mesh·조명 실장비 HIL 완료를 뜻하지 않는다.
 - 수동·스케줄·이벤트 제어의 폼과 dialog를 공통 디자인 시스템으로 통일했다. 검색·선택·체크박스·밝기 입력·날짜·시간·확인 dialog는 공통 컴포넌트를 사용하고, 기존 API payload와 숫자 문자열 변환·검증 계약은 유지한다. 수동 제어는 PC 셸의 남은 높이 안에서 조명 목록·명령 이력·실행 body·결과 feedback 영역이 각각 내부 스크롤하며 선택 피드백이 추가돼도 대상·실행 UI가 겹치거나 밀리지 않는다. 공통 Modal의 focus trap·Escape·중첩 확인 dialog·호출 버튼 focus 복귀를 적용했고, Chromium에서 실제 사용자가 보는 체크박스 라벨을 클릭하는 경로까지 검증했다.
 
 - 기존 published 수동 payload를 재처리할 때 `deliveryGeneration`, `deliveryGeneratedAt`, `deliveryWindowMs`, `expiresAt`을 보존하고 구 수동 종료·requester 필드만 영속적으로 제거한다. PUBACK 유실·재시작으로 배달 기한이 늘어나지 않는다. Gateway는 하드웨어 성공 시점의 활성 schedule occurrence·차량 activation 식별자를 terminal journal에 함께 저장해 UTC rollback 직후 crash에서도 현재 source 억제를 복구한다. 다음 occurrence·새 activation은 정확한 식별자 비교로 재개하며, 문맥이 없는 구 journal은 기존 UTC 기반 복구를 유지한다. 이 보완은 software 회귀 범위이며 실장비 HIL 증거는 아니다.

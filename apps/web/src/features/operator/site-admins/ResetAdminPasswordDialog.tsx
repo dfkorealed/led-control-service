@@ -1,8 +1,7 @@
 import { CircleAlert } from "lucide-react";
 import { useRef, useState } from "react";
 import type { SiteAdminSummary } from "../../../api/operator-site-admins";
-import { ConfirmDialog } from "../../../components/ConfirmDialog";
-import { FeedbackState } from "../../../components/ui/FeedbackState";
+import { ConfirmDialog, FeedbackState, PasswordField } from "../../../components/ui";
 import { MIN_OPERATOR_PASSWORD_LENGTH, OPERATOR_PASSWORD_POLICY_MESSAGE, isPasswordPolicyError } from "./password-policy";
 
 interface ResetAdminPasswordDialogProps {
@@ -83,7 +82,7 @@ export function ResetAdminPasswordDialog({ admin, returnFocusElement, fallbackFo
 
   return (
     <ConfirmDialog
-      open
+      isOpen
       title={`${admin.name} 비밀번호 재설정`}
       description="새 비밀번호를 설정하면 현재 로그인된 세션이 종료됩니다."
       confirmLabel="비밀번호 재설정"
@@ -92,15 +91,16 @@ export function ResetAdminPasswordDialog({ admin, returnFocusElement, fallbackFo
       returnFocusElement={returnFocusElement}
       fallbackFocusElement={fallbackFocusElement}
       initialFocusRef={passwordRef}
+      closeLabel={`${admin.name} 비밀번호 재설정 닫기`}
       onConfirm={confirm}
       onClose={clearAndClose}
     >
-      <div className="operator-form">
-        <label className="form-field"><span>새 비밀번호</span><input ref={passwordRef} type="password" value={newPassword} autoComplete="new-password" onChange={(event) => {
+      <div className="operator-form grid gap-3.5">
+        <PasswordField ref={passwordRef} label="새 비밀번호" value={newPassword} autoComplete="new-password" onChange={(value) => {
           setValidationError("");
-          setNewPassword(event.target.value);
-        }} /></label>
-        <label className="form-field"><span>비밀번호 확인</span><input type="password" value={confirmation} autoComplete="new-password" onChange={(event) => setConfirmation(event.target.value)} /></label>
+          setNewPassword(value);
+        }} />
+        <PasswordField label="비밀번호 확인" value={confirmation} autoComplete="new-password" onChange={setConfirmation} />
         {validationError ? <FeedbackState tone="danger" icon={CircleAlert} title={validationError} /> : null}
         {generalError ? <FeedbackState tone="danger" icon={CircleAlert} title={generalError} /> : null}
       </div>

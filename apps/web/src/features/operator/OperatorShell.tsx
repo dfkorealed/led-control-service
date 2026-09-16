@@ -8,6 +8,7 @@ import { KindaLogo } from "../../components/brand/KindaLogo";
 import { RouteLoadingState } from "../../components/ui/RouteLoadingState";
 import { FeedbackState } from "../../components/ui/FeedbackState";
 import { IconTooltipButton } from "../../components/ui/IconTooltipButton";
+import { Text } from "../../components/ui/Typography";
 import { UnderlineNavigation, UnderlineNavigationLabel } from "../../components/ui/UnderlineNavigation";
 
 const SiteAdminManagementView = lazy(() => import("./site-admins/SiteAdminManagementView").then((module) => ({ default: module.SiteAdminManagementView })));
@@ -34,11 +35,11 @@ export function OperatorShell({ user }: { user: AuthUser }) {
   }
 
   return (
-    <div className="operator-shell">
-      <header className="operator-header">
+    <div className="operator-shell min-h-screen bg-surface-canvas">
+      <header className="operator-header flex min-h-16 items-center justify-between gap-4 border-b border-border-default bg-surface-panel px-6 py-4 max-compact:flex-col max-compact:items-start max-compact:px-3.5">
         <KindaLogo className="operator-brand" context="서비스 운영" />
-        <div className="operator-header-actions">
-          <span className="operator-login-id">{user.loginId}</span>
+        <div className="operator-header-actions flex items-center gap-3 max-compact:w-full max-compact:justify-between">
+          <Text as="span" variant="body-sm" tone="secondary" weight="bold" className="operator-login-id">{user.loginId}</Text>
           <IconTooltipButton
             className="logout-button"
             icon={LogOut}
@@ -49,7 +50,7 @@ export function OperatorShell({ user }: { user: AuthUser }) {
           />
         </div>
       </header>
-      <main className="operator-content">
+      <main className="operator-content mx-auto grid w-full max-w-6xl content-start gap-5 px-6 py-10 max-compact:px-3.5 max-compact:py-6">
         {logoutError ? <FeedbackState tone="danger" icon={CircleAlert} title={logoutError} /> : null}
         <UnderlineNavigation className="operator-navigation" aria-label="운영자 메뉴">
           <NavLink

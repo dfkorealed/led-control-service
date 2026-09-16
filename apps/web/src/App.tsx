@@ -45,7 +45,7 @@ function AppRuntime(props: AppProps & { queryClient: QueryClient }) {
   if (query.isPaused) {
     content = <AppRecoveryState variant="service_unavailable" onRetry={() => { void query.refetch(); }} onRelogin={props.onRelogin} />;
   } else if (query.isLoading) {
-    content = <main className="auth-shell"><section className="auth-panel">인증 상태를 확인하는 중</section></main>;
+    content = <RouteLoadingState variant="page" aria-label="인증 상태를 확인하는 중" />;
   } else if (query.error && !isApiStatus(query.error, 401)) {
     content = <AppRecoveryState
       variant={isTransientApiError(query.error) ? "service_unavailable" : "forbidden"}

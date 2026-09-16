@@ -1270,7 +1270,6 @@ describe("App", () => {
   });
 
   it("confirms dirty editor logout before revoking the session", async () => {
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     window.history.replaceState({}, "", "/settings?siteId=site-2");
     window.history.pushState({}, "", "/settings/floor-plans/floor-b2/edit?siteId=site-2");
     window.history.pushState({ [dirtyEditorSentinelKey]: "dirty-editor" }, "", window.location.href);
@@ -1282,15 +1281,19 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "로그아웃" }));
+    const trigger = await screen.findByRole("button", { name: "로그아웃" });
+    fireEvent.click(trigger);
 
-    expect(confirm).toHaveBeenCalled();
+    const dialog = await screen.findByRole("alertdialog", { name: "로그아웃 확인" });
+    expect(within(dialog).getByText("저장하지 않은 변경사항이 있습니다. 로그아웃하시겠습니까?")).toBeVisible();
+    fireEvent.click(within(dialog).getByRole("button", { name: "취소" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog", { name: "로그아웃 확인" })).not.toBeInTheDocument());
+    expect(trigger).toHaveFocus();
     expect(apiPost).not.toHaveBeenCalledWith("/auth/logout", {});
     useFloorEditorStore.setState({ isDirty: false });
   });
 
   it("returns to the login view after a confirmed logout from a dirty editor", async () => {
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     window.history.replaceState({}, "", "/settings?siteId=site-2");
     window.history.pushState({}, "", "/settings/floor-plans/floor-b2/edit?siteId=site-2");
     window.history.pushState({ [dirtyEditorSentinelKey]: "dirty-editor" }, "", window.location.href);
@@ -1303,11 +1306,35 @@ describe("App", () => {
     );
 
     fireEvent.click(await screen.findByRole("button", { name: "로그아웃" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "로그아웃 확인" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "로그아웃" }));
 
-    expect(confirm).toHaveBeenCalled();
     expect(apiPost).toHaveBeenCalledWith("/auth/logout", {});
     expect(await screen.findByRole("heading", { name: "킨다 로그인" })).toBeInTheDocument();
     expect(useFloorEditorStore.getState().isDirty).toBe(false);
+  });
+
+  it("restores the logout trigger after a confirmed dirty logout request fails", async () => {
+    vi.mocked(apiPost).mockRejectedValueOnce(new Error("logout unavailable"));
+    window.history.replaceState({}, "", "/settings?siteId=site-2");
+    window.history.pushState({}, "", "/settings/floor-plans/floor-b2/edit?siteId=site-2");
+    window.history.pushState({ [dirtyEditorSentinelKey]: "dirty-editor" }, "", window.location.href);
+    useFloorEditorStore.setState({ isDirty: true });
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    );
+
+    const trigger = await screen.findByRole("button", { name: "로그아웃" });
+    fireEvent.click(trigger);
+    const dialog = await screen.findByRole("alertdialog", { name: "로그아웃 확인" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "로그아웃" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("로그아웃에 실패했습니다");
+    expect(trigger).toBeEnabled();
+    expect(trigger).toHaveFocus();
   });
 
   it("removes only the authenticated user's command recovery records on logout", async () => {
