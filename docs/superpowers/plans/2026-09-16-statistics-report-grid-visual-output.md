@@ -552,27 +552,27 @@ git commit -m "feat(reports): add immutable visual report document v2"
 - Produces: `buildReportVisuals(document): ReportVisual[]`, `renderReportVisual(visual): Promise<RenderedReportVisual>`
 - `RenderedReportVisual`: `{ id, png: Buffer, width, height, sha256, altText }`
 
-- [ ] **Step 1: line/bar/ranking/heatmap descriptor의 RED tests를 작성한다.**
+- [x] **Step 1: line/bar/ranking/heatmap descriptor의 RED tests를 작성한다.**
 
 테스트는 descriptor가 document table cell reference에서만 값을 가져오고 null daily cell을 0으로 연결하지 않으며 top 10 tie-break가 document 순서를 유지하는지 확인한다.
 
-- [ ] **Step 2: deterministic PNG와 접근성 metadata의 RED tests를 작성한다.**
+- [x] **Step 2: deterministic PNG와 접근성 metadata의 RED tests를 작성한다.**
 
 같은 document 두 번 렌더링의 PNG SHA-256이 같아야 하고, 7×24 heatmap은 168개 cell geometry를 가지며 no-data color가 0 value color와 달라야 한다. PNG metadata나 SVG에 wall-clock/random 값을 넣지 않는다.
 
-- [ ] **Step 3: RED를 확인한다.**
+- [x] **Step 3: RED를 확인한다.**
 
 Run: `pnpm --filter @led-control/api exec jest src/energy/reports/report-visual-model.spec.ts src/energy/reports/report-chart-image.renderer.spec.ts --runInBand`
 
 Expected: 모듈 부재로 FAIL.
 
-- [ ] **Step 4: `sharp` dependency와 Linux image contract를 추가한다.**
+- [x] **Step 4: `sharp` dependency와 Linux image contract를 추가한다.**
 
 Run: `pnpm --filter @led-control/api add sharp`
 
 Docker build stage와 runtime architecture에서 sharp를 require할 수 있도록 현재 pnpm deploy/prune 흐름을 유지한다. Container contract는 `require.resolve("sharp")`와 API runtime import smoke를 검증한다.
 
-- [ ] **Step 5: renderer-neutral visual model을 구현한다.**
+- [x] **Step 5: renderer-neutral visual model을 구현한다.**
 
 ```ts
 export type ReportVisual =
@@ -584,17 +584,17 @@ export type ReportVisual =
 
 Color는 semantic report palette 상수만 사용한다. Axis/legend/title과 no-data pattern을 descriptor에 포함한다.
 
-- [ ] **Step 6: SVG→PNG renderer를 구현한다.**
+- [x] **Step 6: SVG→PNG renderer를 구현한다.**
 
 SVG attribute/text를 escape하고 고정 width/height/viewBox/font family를 사용한다. sharp는 `.png({ compressionLevel: 9, adaptiveFiltering: false, palette: false })`처럼 결정적인 option으로 실행한다. PNG limit와 decoded dimensions를 재검증한다.
 
-- [ ] **Step 7: visual/image/container tests를 GREEN으로 만든다.**
+- [x] **Step 7: visual/image/container tests를 GREEN으로 만든다.**
 
 Run: `pnpm --filter @led-control/api exec jest src/energy/reports/report-visual-model.spec.ts src/energy/reports/report-chart-image.renderer.spec.ts --runInBand && node apps/api/container-contract.node.mjs`
 
 Expected: PASS.
 
-- [ ] **Step 8: Task 8을 커밋한다.**
+- [x] **Step 8: Task 8을 커밋한다.**
 
 ```bash
 git add apps/api/src/energy/reports/report-visual-model* apps/api/src/energy/reports/report-chart-image.renderer* apps/api/package.json pnpm-lock.yaml apps/api/Dockerfile apps/api/container-contract.node.mjs
