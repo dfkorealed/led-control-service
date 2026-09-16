@@ -4,11 +4,25 @@ import { createRef, useRef, useState } from "react";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ModalDialog } from "../ModalDialog";
-import { ConfirmDialog } from "../ConfirmDialog";
+import { ConfirmDialog, type ConfirmDialogProps } from "../ConfirmDialog";
 import { ConfirmDialog as LegacyConfirmDialog, useDialogFocus } from "../../ConfirmDialog";
 import * as UI from "../index";
 
 afterEach(cleanup);
+
+// Typecheck exercises the public contract; these fixtures are never mounted.
+function confirmationDismissalTypeContract() {
+  const base = { title: "확인", confirmLabel: "실행", onConfirm: () => {} };
+  const cancelOnly: ConfirmDialogProps = { ...base, onCancel: () => {} };
+  const closeOnly: ConfirmDialogProps = { ...base, onClose: () => {} };
+  const both: ConfirmDialogProps = { ...base, onCancel: () => {}, onClose: () => {} };
+  // @ts-expect-error A confirmation must provide at least one dismissal callback.
+  const neither: ConfirmDialogProps = base;
+  // @ts-expect-error The JSX entry point must preserve the same dismissal contract.
+  const missingCallback = <ConfirmDialog {...base} />;
+  return [cancelOnly, closeOnly, both, neither, missingCallback];
+}
+void confirmationDismissalTypeContract;
 
 // Real keyboard sequences are covered by Chromium. Unit clicks explicitly focus
 // their target, matching browser activation rather than relying on JSDOM layout.

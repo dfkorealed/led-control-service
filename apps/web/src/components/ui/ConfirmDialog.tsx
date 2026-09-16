@@ -3,18 +3,21 @@ import { Button } from "./Button";
 import type { ModalDialogProps } from "./ModalDialog";
 import { DialogBase, type DialogCompatibility } from "./overlays/DialogBase";
 
-export interface ConfirmDialogProps extends Omit<ModalDialogProps, "actions" | "onClose"> {
+interface ConfirmDialogBaseProps extends Omit<ModalDialogProps, "actions" | "onClose"> {
   confirmLabel: string;
   cancelLabel?: string;
   tone?: "primary" | "danger";
   disabled?: boolean;
   confirmDisabled?: boolean;
   destructive?: boolean;
-  /** onCancel takes precedence; onClose is a legacy alias. */
-  onCancel?: () => void;
-  onClose?: () => void;
   onConfirm: () => void;
 }
+
+/** At least one dismissal callback is required; onCancel wins when both exist. */
+export type ConfirmDialogProps = ConfirmDialogBaseProps & (
+  | { onCancel: () => void; onClose?: () => void }
+  | { onCancel?: never; onClose: () => void }
+);
 
 export const ConfirmDialog = /* @__PURE__ */ forwardRef<HTMLElement, ConfirmDialogProps>(function ConfirmDialog(props, ref) {
   return <Confirmation {...props} rootRef={ref} compatibility="editor" />;

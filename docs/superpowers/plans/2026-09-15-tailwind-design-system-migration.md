@@ -608,6 +608,8 @@ Production Chromium에서 popup의 기본 12px viewport inset과 310px calendar�
 
 ### Task 5: Dropdown과 overlay/dialog 체계 통합
 
+- [x] **Minor 후속(2026-09-16, 재검토 대기):** `ConfirmDialogProps`를 공통 props와 dismissal union의 교차 타입으로 보강하여 onCancel/onClose 최소 하나를 요구한다. 객체/JSX 누락의 compile-time RED **TS2578 2건** 후 typecheck GREEN, onCancel-only/onClose-only/both 허용과 기존 runtime 우선순위를 유지한다. Runtime·legacy adapter·caller는 무수정이다. Fresh focused **81/81**, full Web **1,192/1,192**, Chromium **37/37**, typecheck/build·diff·policy(신규 0), date→overlay 각 **1/1**, CI **40/40** 통과. Bundle은 Fix Round 1과 hash·크기·모듈 수가 동일하고 unused delta **0/0/0**이다. Task 6은 시작하지 않는다.
+
 **Fix Round 1 완료(2026-09-16, 독립 재검토 대기):**
 
 - [x] 실제 `SiteUsersView.css`를 포함한 production-browser RED로 operator/editor/custom 폭이 모두 512px인 회귀를 재현한다(기대 480/440/610px, 기본 512px 통과).
