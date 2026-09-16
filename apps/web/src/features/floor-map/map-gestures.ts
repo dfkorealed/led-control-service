@@ -10,6 +10,16 @@ export interface MapSelectionRect {
   bottom: number;
 }
 
+export interface MapSize {
+  width: number;
+  height: number;
+}
+
+export interface MapRect extends MapSize {
+  left: number;
+  top: number;
+}
+
 export type MapInteractionMode = "pan" | "select" | "area";
 
 export function pointerDistance(left: MapPoint, right: MapPoint) {
@@ -31,6 +41,30 @@ export function anchoredScrollPosition(input: {
   toZoom: number;
 }) {
   return ((input.scroll + input.anchor) / input.fromZoom) * input.toZoom - input.anchor;
+}
+
+export function mapPointFromSurface(input: {
+  client: MapPoint;
+  surface: MapRect;
+  mapSize: MapSize;
+}): MapPoint {
+  return {
+    x: (input.client.x - input.surface.left) * input.mapSize.width / input.surface.width,
+    y: (input.client.y - input.surface.top) * input.mapSize.height / input.surface.height
+  };
+}
+
+export function scrollAdjustmentForMapAnchor(input: {
+  mapPoint: MapPoint;
+  mapSize: MapSize;
+  surface: MapRect;
+  viewport: Pick<MapRect, "left" | "top">;
+  anchor: MapPoint;
+}): MapPoint {
+  return {
+    x: input.surface.left + input.mapPoint.x * input.surface.width / input.mapSize.width - input.viewport.left - input.anchor.x,
+    y: input.surface.top + input.mapPoint.y * input.surface.height / input.mapSize.height - input.viewport.top - input.anchor.y
+  };
 }
 
 export function normalizeSelectionRect(start: MapPoint, end: MapPoint): MapSelectionRect {

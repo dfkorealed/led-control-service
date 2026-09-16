@@ -14,9 +14,11 @@ import { Button, IconButton } from "../../components/ui";
 import {
   anchoredScrollPosition,
   clampMapZoom,
+  mapPointFromSurface,
   normalizeSelectionRect,
   pointerDistance,
   pointerMidpoint,
+  scrollAdjustmentForMapAnchor,
   type MapInteractionMode,
   type MapPoint,
   type MapSelectionRect
@@ -48,6 +50,7 @@ interface PinchGesture {
   startDistance: number;
   startZoom: number;
   anchor: MapPoint;
+  mapAnchor: MapPoint;
   startScroll: MapPoint;
 }
 
@@ -83,6 +86,8 @@ export function FloorMapViewport({
         Math.max(1, viewportSize.height - padding * 2) / snapshot.height
       )
     : 1;
+  const mapMetrics = useRef({ width: snapshot.width, height: snapshot.height, fitScale });
+  mapMetrics.current = { width: snapshot.width, height: snapshot.height, fitScale };
   const renderedWidth = snapshot.width * fitScale * zoom;
   const renderedHeight = snapshot.height * fitScale * zoom;
   // The saved canvas ratio and measured viewport dimensions are runtime geometry.
@@ -108,27 +113,16 @@ export function FloorMapViewport({
       x: (viewport?.clientWidth ?? 0) / 2,
       y: (viewport?.clientHeight ?? 0) / 2
     };
+    const viewportBounds = viewport?.getBoundingClientRect();
+    const mapAnchor = mapPointFromClient({
+      x: (viewportBounds?.left ?? 0) + viewportAnchor.x,
+      y: (viewportBounds?.top ?? 0) + viewportAnchor.y
+    });
     const startScroll = { x: viewport?.scrollLeft ?? 0, y: viewport?.scrollTop ?? 0 };
     zoomRef.current = toZoom;
     setZoom(toZoom);
     onZoomChangeRef.current?.(toZoom);
-    const applyAnchoredScroll = () => {
-      if (!viewport) return;
-      viewport.scrollLeft = anchoredScrollPosition({
-        scroll: startScroll.x,
-        anchor: viewportAnchor.x,
-        fromZoom,
-        toZoom
-      });
-      viewport.scrollTop = anchoredScrollPosition({
-        scroll: startScroll.y,
-        anchor: viewportAnchor.y,
-        fromZoom,
-        toZoom
-      });
-    };
-    if (typeof requestAnimationFrame === "undefined") applyAnchoredScroll();
-    else requestAnimationFrame(applyAnchoredScroll);
+    scheduleMapAnchor({ viewport, mapAnchor, anchor: viewportAnchor, startScroll, fromZoom, toZoom });
   }, []);
 
   useLayoutEffect(() => {
@@ -173,12 +167,68 @@ export function FloorMapViewport({
   }, [changeZoom]);
 
   function mapPoint(event: ReactPointerEvent<HTMLDivElement>): MapPoint {
+    return mapPointFromClient({ x: event.clientX, y: event.clientY });
+  }
+
+  function mapPointFromClient(client: MapPoint): MapPoint {
     const bounds = surfaceRef.current?.getBoundingClientRect();
-    const scale = fitScale * zoomRef.current;
+    const metrics = mapMetrics.current;
+    if (bounds && bounds.width > 0 && bounds.height > 0) {
+      return mapPointFromSurface({
+        client,
+        surface: bounds,
+        mapSize: { width: metrics.width, height: metrics.height }
+      });
+    }
+    const scale = metrics.fitScale * zoomRef.current;
     return {
-      x: (event.clientX - (bounds?.left ?? 0)) / scale,
-      y: (event.clientY - (bounds?.top ?? 0)) / scale
+      x: (client.x - (bounds?.left ?? 0)) / scale,
+      y: (client.y - (bounds?.top ?? 0)) / scale
     };
+  }
+
+  function scheduleMapAnchor(input: {
+    viewport: HTMLDivElement | null;
+    mapAnchor: MapPoint;
+    anchor: MapPoint;
+    startScroll: MapPoint;
+    fromZoom: number;
+    toZoom: number;
+  }) {
+    const applyAnchoredScroll = () => {
+      const viewport = input.viewport;
+      const surface = surfaceRef.current;
+      if (!viewport) return;
+      const surfaceBounds = surface?.getBoundingClientRect();
+      const viewportBounds = viewport.getBoundingClientRect();
+      if (surfaceBounds && surfaceBounds.width > 0 && surfaceBounds.height > 0) {
+        const metrics = mapMetrics.current;
+        const adjustment = scrollAdjustmentForMapAnchor({
+          mapPoint: input.mapAnchor,
+          mapSize: { width: metrics.width, height: metrics.height },
+          surface: surfaceBounds,
+          viewport: viewportBounds,
+          anchor: input.anchor
+        });
+        viewport.scrollLeft += adjustment.x;
+        viewport.scrollTop += adjustment.y;
+        return;
+      }
+      viewport.scrollLeft = anchoredScrollPosition({
+        scroll: input.startScroll.x,
+        anchor: input.anchor.x,
+        fromZoom: input.fromZoom,
+        toZoom: input.toZoom
+      });
+      viewport.scrollTop = anchoredScrollPosition({
+        scroll: input.startScroll.y,
+        anchor: input.anchor.y,
+        fromZoom: input.fromZoom,
+        toZoom: input.toZoom
+      });
+    };
+    if (typeof requestAnimationFrame === "undefined") applyAnchoredScroll();
+    else requestAnimationFrame(applyAnchoredScroll);
   }
 
   function startPinch(event: ReactPointerEvent<HTMLDivElement>) {
@@ -196,6 +246,7 @@ export function FloorMapViewport({
       startDistance,
       startZoom: zoomRef.current,
       anchor: { x: midpoint.x - viewportBounds.left, y: midpoint.y - viewportBounds.top },
+      mapAnchor: mapPointFromClient(midpoint),
       startScroll: {
         x: event.currentTarget.scrollLeft,
         y: event.currentTarget.scrollTop
@@ -241,22 +292,14 @@ export function FloorMapViewport({
       zoomRef.current = toZoom;
       setZoom(toZoom);
       onZoomChangeRef.current?.(toZoom);
-      const updateScroll = () => {
-        viewport.scrollLeft = anchoredScrollPosition({
-          scroll: activePinch.startScroll.x,
-          anchor: activePinch.anchor.x,
-          fromZoom: activePinch.startZoom,
-          toZoom
-        });
-        viewport.scrollTop = anchoredScrollPosition({
-          scroll: activePinch.startScroll.y,
-          anchor: activePinch.anchor.y,
-          fromZoom: activePinch.startZoom,
-          toZoom
-        });
-      };
-      if (typeof requestAnimationFrame === "undefined") updateScroll();
-      else requestAnimationFrame(updateScroll);
+      scheduleMapAnchor({
+        viewport,
+        mapAnchor: activePinch.mapAnchor,
+        anchor: activePinch.anchor,
+        startScroll: activePinch.startScroll,
+        fromZoom: activePinch.startZoom,
+        toZoom
+      });
       return;
     }
 
@@ -307,7 +350,7 @@ export function FloorMapViewport({
     <div className="relative h-full min-h-0 min-w-0 overflow-hidden bg-surface-inset">
       <div
         ref={viewportRef}
-        className="h-full min-h-0 w-full min-w-0 cursor-grab overflow-auto overscroll-contain bg-surface-inset focus-visible:outline-none focus-visible:shadow-focus active:cursor-grabbing"
+        className="h-full min-h-0 w-full min-w-0 touch-none cursor-grab overflow-auto overscroll-contain bg-surface-inset focus-visible:outline-none focus-visible:shadow-focus active:cursor-grabbing"
         data-testid={viewportTestId}
         role="region"
         aria-label={ariaLabel}

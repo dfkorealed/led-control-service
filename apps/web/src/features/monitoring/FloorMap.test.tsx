@@ -330,6 +330,7 @@ describe("FloorMap", () => {
     render(<FloorMap floor={navigationFloor} snapshot={mapSnapshot} selectedFixtureId={null} onSelectFixture={onSelectFixture} />);
 
     const viewport = screen.getByTestId("monitoring-map-viewport");
+    expect(viewport).toHaveClass("touch-none");
     dispatchPointer(viewport, "pointerdown", { pointerId: 1, button: 0, clientX: 100, clientY: 100 });
     dispatchPointer(viewport, "pointerdown", { pointerId: 2, button: 0, clientX: 200, clientY: 100 });
     dispatchPointer(viewport, "pointermove", { pointerId: 2, button: 0, clientX: 300, clientY: 100 });

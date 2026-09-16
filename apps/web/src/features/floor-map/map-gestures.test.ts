@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   anchoredScrollPosition,
   clampMapZoom,
+  mapPointFromSurface,
   normalizeSelectionRect,
   pointerDistance,
-  pointerMidpoint
+  pointerMidpoint,
+  scrollAdjustmentForMapAnchor
 } from "./map-gestures";
 
 describe("map gestures", () => {
@@ -21,6 +23,23 @@ describe("map gestures", () => {
   it("keeps the content below the pinch midpoint anchored", () => {
     expect(anchoredScrollPosition({ scroll: 40, anchor: 150, fromZoom: 1, toZoom: 2 }))
       .toBe(230);
+  });
+
+  it("corrects scroll from the fitted surface bounds after a centered zoom", () => {
+    const mapPoint = mapPointFromSurface({
+      client: { x: 300, y: 170 },
+      mapSize: { width: 600, height: 400 },
+      surface: { left: 100, top: 70, width: 600, height: 400 }
+    });
+
+    expect(mapPoint).toEqual({ x: 200, y: 100 });
+    expect(scrollAdjustmentForMapAnchor({
+      mapPoint,
+      mapSize: { width: 600, height: 400 },
+      surface: { left: 50, top: 20, width: 1200, height: 800 },
+      viewport: { left: 0, top: 0 },
+      anchor: { x: 300, y: 170 }
+    })).toEqual({ x: 150, y: 50 });
   });
 
   it("orders area selection bounds when dragging back toward the origin", () => {

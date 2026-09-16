@@ -41,8 +41,63 @@ describe("FloorMapViewport", () => {
 
   it("clamps wheel and button zoom to 0.1 through 4", () => {
     render(<ViewportHarness mode="pan" />);
+    const viewport = screen.getByRole("region", { name: "테스트 지도" });
+    const wheelEvent = new WheelEvent("wheel", {
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: true,
+      deltaY: -120,
+      clientX: 100,
+      clientY: 80
+    });
+
+    expect(fireEvent(viewport, wheelEvent)).toBe(false);
+    expect(wheelEvent.defaultPrevented).toBe(true);
+    expect(viewport).toHaveAttribute("data-zoom", "1.1");
+    const commandWheelEvent = new WheelEvent("wheel", {
+      bubbles: true,
+      cancelable: true,
+      metaKey: true,
+      deltaY: -120,
+      clientX: 100,
+      clientY: 80
+    });
+    expect(fireEvent(viewport, commandWheelEvent)).toBe(false);
+    expect(commandWheelEvent.defaultPrevented).toBe(true);
+    expect(viewport).toHaveAttribute("data-zoom", "1.2");
     repeatZoomIn(50);
     expect(screen.getByRole("region", { name: "테스트 지도" })).toHaveAttribute("data-zoom", "4");
+  });
+
+  it("restores the initial map point after a centered fitted surface changes size", () => {
+    const animationFrames: FrameRequestCallback[] = [];
+    const requestAnimationFrame = vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation((callback: FrameRequestCallback) => {
+      animationFrames.push(callback);
+      return animationFrames.length;
+    });
+    render(<ViewportHarness mode="pan" />);
+    const viewport = screen.getByRole("region", { name: "테스트 지도" });
+    const surface = document.querySelector<HTMLElement>("[data-floor-map-surface]")!;
+    vi.spyOn(viewport, "getBoundingClientRect").mockReturnValue(rect(0, 0, 800, 500));
+    vi.spyOn(surface, "getBoundingClientRect").mockImplementation(() => (
+      viewport.getAttribute("data-zoom") === "2"
+        ? rect(50, 20, 1200, 800)
+        : rect(100, 70, 600, 400)
+    ));
+
+    dispatchPointer(viewport, "pointerdown", { pointerId: 1, pointerType: "touch", clientX: 250, clientY: 170 });
+    dispatchPointer(viewport, "pointerdown", { pointerId: 2, pointerType: "touch", clientX: 350, clientY: 170 });
+    dispatchPointer(viewport, "pointermove", { pointerId: 2, pointerType: "touch", clientX: 450, clientY: 170 });
+    animationFrames.splice(0).forEach((callback) => callback(0));
+    requestAnimationFrame.mockRestore();
+
+    expect(viewport.scrollLeft).toBe(150);
+    expect(viewport.scrollTop).toBe(50);
+  });
+
+  it("disables native touch gestures on the scroll viewport", () => {
+    render(<ViewportHarness mode="pan" />);
+    expect(screen.getByRole("region", { name: "테스트 지도" })).toHaveClass("touch-none");
   });
 
   it("returns normalized map coordinates for area selection", () => {
@@ -134,4 +189,18 @@ function dispatchPointer(target: HTMLElement, type: string, init: Record<string,
     Object.entries(init).map(([key, value]) => [key, { configurable: true, value }])
   ));
   fireEvent(target, event);
+}
+
+function rect(left: number, top: number, width: number, height: number): DOMRect {
+  return {
+    left,
+    top,
+    width,
+    height,
+    right: left + width,
+    bottom: top + height,
+    x: left,
+    y: top,
+    toJSON: () => ({})
+  } as DOMRect;
 }
