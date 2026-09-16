@@ -2,11 +2,11 @@
 
 > 모든 설계와 완료 판정은 양산 기준을 사용한다. 코드·자동 테스트 완료와 Raspberry Pi/ESP32-H2 실기 검증 완료를 구분하며, 실기 증거가 없으면 양산 E2E 완료로 표시하지 않는다.
 
-기준일: 2026-09-16
+기준일: 2026-09-17
 
 ## 현재 우선순위
 
-- 2026-09-09 승인 맵 편집 개선은 소프트웨어 구현과 최종 회귀 검증을 완료했다. 층별 미배치 목록 드래그 배치, 단일 조명 우상단 `배치 해제`와 확인 팝업, Undo/Redo·검색·일괄 편집·등록 후 식별을 연결했다. 두 층 실제 API/DB 브라우저 E2E는 2026-09-10 통과했다. 2026-09-12에는 PDF/JPG/PNG 비공개 업로드·교체·연결 제거 UI를 추가했으며 CAD/AI 변환과 PDF 렌더 worker는 보류한다. 최신 범위와 Task 1~11은 [에디터 설계](../superpowers/specs/2026-07-06-floor-editor-design.md) 및 [실행 계획](../superpowers/plans/2026-07-06-floor-editor-implementation.md)의 2026-09-09 절을 따른다. 실장비 검증·배포는 사용자 요청으로 후속이다.
+- 2026-09-09 승인 맵 편집 개선은 소프트웨어 구현과 최종 회귀 검증을 완료했다. 층별 미배치 목록 드래그 배치, 단일 조명 우상단 `배치 해제`와 확인 팝업, Undo/Redo·검색·일괄 편집·등록 후 식별을 연결했다. 두 층 실제 API/DB 브라우저 E2E는 2026-09-10 통과했다. 2026-09-12에는 PDF/JPG/PNG 비공개 업로드·교체·연결 제거 UI를 추가했고, 2026-09-17에는 DWG/DXF 자동 맵 구성의 샘플 분석 도구와 검증 보고서를 추가했다. PDF 렌더 worker와 실제 BLE 장비 identity 자동 연결은 제공하지 않는다. 최신 범위는 [에디터 설계](../superpowers/specs/2026-07-06-floor-editor-design.md) 13장과 [실행 계획](../superpowers/plans/2026-07-06-floor-editor-implementation.md) Task 19를 따른다. 실장비 검증·배포는 사용자 요청으로 후속이다.
 - Scene 24~26 설정 개요·역할별 navigation·도면 목록/편집·계정 보안 UI 교정은 완료했다. 새로운 설정 도메인 기능은 아래 미구현 목록과 후속 범위를 유지한다.
 - 기존 맵 편집기는 계속 설정 메뉴가 소유하며, 저장한 배경, 도형, 텍스트, 색상과 조명 배치를 모니터링에서 읽기 전용으로 재사용한다.
 - 현장 일반 유저 관리, 본인 비밀번호 변경, operator/admin MFA, 모든 역할의 활성 세션 관리와 설치 후 현장·층·조명 메타데이터 운영 관리는 구현 완료했다. 구역은 기존 목록 조회와 안전한 보관 전환만 제공한다. 공통 감사 조회, 구역 생성·수정, 정책/알림, OTA, 외부 연동의 미구현 상태는 유지한다.
@@ -73,6 +73,9 @@
 - 설정과 에디터는 URL을 가지며 새로고침, 브라우저 뒤로 가기와 직접 진입을 지원한다.
 
 ## 구현 완료
+
+- 2026-09-17 Task 19.5에서 재현 가능한 로컬 DWG/DXF 분석 도구를 추가했다. DXF는 직접 읽고 DWG는 명시한 `/opt/homebrew/bin/dwgread`를 shell 없이 argv로 실행하며, 입력·변환 결과·프로세스 출력·JSON 출력·시간·entity 수 상한과 실패 시 임시 파일 정리를 적용한다. 샘플 SHA256 `01f25d539c20f93663c9183bbf70d83e578ae9990c2eb6dabb543bf39d71854d`를 LibreDWG `dwgread 0.14`로 두 번 분석한 JSON과 한글 요약은 byte 단위로 동일했다. model-space entity 31,037개, INSERT 9,365개, 고유 INSERT 좌표 9,358개, layer 107개, block 11,243개였고 규칙 후보는 0개였다. INSERT 좌표·block 이름 추출 coverage 100%와 지원 entity 기준 맵 기하 재현 예상 89.4771%는 각각 그 제한된 분모의 측정치다. ground truth가 없어 조명 검출 precision/recall/F1은 미확정이며 실제 BLE identity 매핑은 0%, 자동 `Fixture`/`MeshNode` 생성은 없다. 또한 변환 DXF 105,432,404 bytes는 현재 제품 worker의 고정 16 MiB 상한을 넘으므로 이 샘플의 제품 import 성공 증거가 아니다.
+- CAD 분석의 AI adapter는 `disabled`이고 I/O 호출은 0회다. `LightingSymbolDetector` 계약으로 향후 provider를 교체할 수 있지만 별도 보안·비용 승인 전에는 CAD나 고객 정보를 외부로 전송하지 않는다. 신규 자동 import는 DWG/DXF만 대상으로 하며 신규 PDF import는 제외하고 기존 PDF 읽기 호환은 유지한다.
 
 - 2026-09-16 Tailwind Task 12에서 설정 개요·현장·사용자·등록·맵·보안 화면과 공통 dialog/navigation의 legacy class/CSS adapter를 제거하고 의미 토큰·utility 및 `data-*` 테스트 계약으로 수렴했다. legacy `components/ConfirmDialog.tsx`는 production/test import 0을 확인한 뒤 삭제했으며 정책 baseline은 빈 violation map을 사용한다. Fresh Web **1,224/1,224**, UI policy **53/53**, 전체 Chromium 직렬 **257 passed·5 환경 의존 skip·실패 0**, 별도 opt-in RealBackendLab 설치 여정 **2/2**와 층 배치 **1/1**을 통과했다. 실제 iOS/Android WebView, 운영 Object Storage, 사용자 DB 적용과 Raspberry Pi/ESP32-H2 HIL은 실행하지 않았다.
 
@@ -380,7 +383,9 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 
 - 초대 링크 발급·전달 방식의 일반 유저 onboarding UI. admin이 직접 계정과 임시 비밀번호를 발급하는 현장 유저 CRUD는 구현 완료했다.
 - 구역 생성·수정과 구성원 관리 화면. 기존 구역 목록·보관 전환은 구현 완료했다.
-- PDF 첫 페이지를 별도 이미지로 만드는 격리 렌더 worker와 CAD/AI 변환 pipeline
+- PDF 첫 페이지를 별도 이미지로 만드는 격리 렌더 worker. 신규 PDF 자동 import는 지원하지 않으며 기존 PDF 읽기 호환만 유지한다.
+- 샘플별 조명 ground truth 라벨과 현장 profile. 현재 규칙 후보는 실제 샘플에서 0개이므로 `몰드바등`, `xx4`, 익명 dynamic block의 의미를 검토 없이 자동 등록하지 않는다.
+- 대형 DWG 변환 결과의 운영 상한 정책. 제공 샘플의 DXF는 105,432,404 bytes라 현재 worker 고정 상한 16 MiB를 초과한다. 메모리·CPU·SVG 출력·entity 상한을 함께 재검증하지 않은 채 크기만 올리지 않는다.
 - 다중 Gateway와 층 coverage
 - ESP32-H2 factory reset과 장비 교체 workflow
 - 시운전 보고서
@@ -429,7 +434,8 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - 로컬 MinIO에서 signed PUT, HEAD checksum, 익명 GET 거부와 300초 signed GET 통합 테스트를 통과했다. 브라우저가 접근할 public bucket base와 API 내부 endpoint는 별도 설정하고, 번들 MinIO CORS origin은 `WEB_PUBLIC_URL`에서 주입한다. 실제 운영 object storage 장애 주입은 후속이다.
 - PDF는 현재 비공개 원본으로만 연결하고 캔버스 배경으로 렌더링하지 않는다. 첫 페이지 렌더 worker와 다중 페이지 선택은 후속 작업이다.
 - 조명 다중 선택·일괄 이동, 도형 개별 삭제, Undo/Redo, 격자 스냅과 조명 키보드 미세 조정을 제공한다. 다중 도형 동시 편집과 전용 회전 도구는 후속 범위다.
-- CAD/DWG/DXF import와 AI 도면 해석 기반 editor object 자동 생성은 후속 MVP 범위다.
+- DWG/DXF import의 소프트웨어 경로와 샘플 분석은 구현했지만, 샘플 맞춤 규칙 profile과 사람이 판정한 ground truth가 없어 검출 precision/recall/F1은 미확정이다. `#01-1-1.지하주차장_전등` layer의 INSERT 2,075개가 있어도 block 이름이 현재 허용 token과 일치하지 않아 후보 0개였으므로 자동 등록 품질로 확대 해석하지 않는다.
+- AI는 I/O를 수행하지 않는 `disabled` adapter뿐이다. 향후 provider 교체 가능성은 유지하되 외부 전송 승인과 좌표 비생성 계약을 통과하기 전에는 활성화하지 않는다.
 
 ## 경쟁 서비스 참고 근거
 
@@ -445,6 +451,13 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
   - https://www.lutron.com/us/en/controls/systems/vive
 
 ## 관련 파일
+
+- `scripts/analyze-cad-import.mjs`
+- `scripts/analyze-cad-import.test.mjs`
+- `.superpowers/sdd/2026-07-06-floor-editor-implementation/task-19.5-implementation.md`
+- `apps/api/src/floor-import/dxf-document-parser.ts`
+- `apps/api/src/floor-import/rule-based-lighting-symbol-detector.ts`
+- `apps/api/src/floor-import/disabled-ai-lighting-symbol-detector.ts`
 
 - `apps/gateway/src/bootstrap-only.ts`, `apps/gateway/src/identity/ensure-mqtt-identity.ts`, `apps/gateway/compose.bootstrap.yml`
 - `apps/gateway/src/adapters/bio-usb-dongle-adapter.ts`
@@ -558,3 +571,4 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - 자동 테스트 완료, 코드 완료, Raspberry Pi 검증과 ESP32-H2 Hardware E2E를 별도 상태로 기록한다.
 - route-backed action을 추가하거나 제거할 때 role filtering, `siteId` query와 hash fragment 보존, dirty navigation guard 회귀를 함께 갱신한다.
 - 테스트 데이터 도구의 활성화 플래그, 설치 완료 assigned admin 노출 조건, marker 기반 생성·삭제 범위가 바뀌면 이 문서와 모니터링 문서를 함께 갱신한다. DB schema/migration 변경이 없는지도 명시한다.
+- CAD 분석 결과를 갱신할 때 원본 SHA256, analyzer/converter/DXF 버전, layer/block/entity/INSERT/고유 좌표/후보 통계와 동일 출력 재현성을 함께 기록한다. 좌표·심볼 추출 coverage, 지원 entity 기준 맵 기하 재현 예상, ground truth 기반 검출 지표, BLE identity 매핑을 서로 대체하지 않는다.

@@ -1,10 +1,12 @@
 # 메뉴 완성 작업 상태판
 
-기준일: 2026-09-16
+기준일: 2026-09-17
 
 ## 현재 마일스톤
 
 **층별 1,000개 조명 맵 편집 개선 완료(소프트웨어)**: 미배치 드래그 배치, 확인 후 배치 해제, 층별 초안/잠금/저장, Undo/Redo, 검색·일괄 편집·미니맵과 등록 후 식별을 구현했다. 웹 497개 단위, 편집기 Chromium 29개와 추가 성능 1개, 실제 설치 여정 2개 및 두 층 배치 여정 1개를 통과했다. 사용자 DB migration 적용과 실장비 배포/검증은 실행하지 않았다.
+
+**Task 19.5 샘플 DWG 분석 완료(개발 검증)**: SHA256 `01f25d539c20f93663c9183bbf70d83e578ae9990c2eb6dabb543bf39d71854d`인 제공 샘플을 LibreDWG `dwgread 0.14`와 analyzer `cad-import-analysis/1`로 두 번 실행해 JSON·한글 요약의 byte 동일성을 확인했다. model-space entity 31,037개, INSERT 9,365개, 고유 INSERT 좌표 9,358개, layer 107개, block 11,243개이며 현재 규칙 후보는 0개다. INSERT 좌표·block 이름 추출 coverage는 100%, 지원 entity 기준 맵 기하 재현 예상은 89.4771%지만 ground truth가 없어 검출 precision/recall/F1은 미확정이다. BLE identity 매핑은 0%이고 자동 등록은 없다. 변환 DXF 105,432,404 bytes는 현재 제품 worker 고정 상한 16 MiB를 초과해 이 샘플은 제품 import 성공 증거가 아니다. AI는 I/O 없는 `disabled` adapter이며 신규 PDF import는 제외하고 기존 PDF 읽기 호환만 유지한다. GPL LibreDWG는 이 로컬 샘플 분석에만 사용하고 제품 런타임·의존성에는 포함하지 않는다.
 
 **Calm Operations 고객 UI 전면 개선 완료(소프트웨어)**: 공통 Task 1, 로그인/operator Scene 01~03, setup/claim/registration Scene 04~09, monitoring Scene 10~12, manual control Scene 13~16, schedule/event Scene 17~21, statistics Scene 22~23, settings/floor/security Scene 24~26을 구현했다. 기존 API·DB·MQTT·firmware 계약은 변경하지 않았고, 1440/1024/390/320 자동 Chromium은 software UI 증거다. 수동 in-app Browser 시각 QA와 Raspberry Pi/BlueZ/ESP32-H2 HIL은 이번 실행에서 수행하지 않았으며 완료로 확대 기록하지 않는다.
 

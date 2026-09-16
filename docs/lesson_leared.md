@@ -750,3 +750,10 @@
 - **해결 및 예방책**: 목적별 publication lock 안에서 Vault의 read 방식 CRL rotate endpoint를 명시적으로 호출한 뒤 snapshot을 읽는다. 모든 후보 snapshot에서 해당 원장의 X.509 serial을 양수·최소 DER INTEGER 규칙으로 확인하고, 누락·음수·불필요한 선행 0이면 완료하지 않고 backoff한다. 원자 게시는 read-only로 구성한 trusted Root CRL과 기존 두 번째 block이 정확히 같고 bundle이 intermediate+Root 두 개뿐일 때만 수행한다.
 - **반복 방지 체크**: device와 MQTT 모두에 대해 GET/read rotate 계약, pre-revoke stale CRL, 대상 serial 누락·음수·non-minimal encoding, 게시 후 재시도, 동일 폐기의 멱등 rotate, trusted intermediate+Root 2-block 결과와 Root 누락·교체·추가를 회귀 테스트로 유지한다. CRL bytes 안정성이나 서로 다른 issuer라는 조건만으로 reconciliation을 완료하지 않는다.
 - **후속 교훈**: PKI orchestration script가 자식 signer를 실행해도 자식의 shell 변수는 부모로 역전파되지 않는다. 부모는 signer가 보장하는 고정 artifact 경로를 독립적으로 계산하고, 환경 파일에 쓰기 전에 해당 Root CRL이 존재·readable하며 정확히 한 PEM CRL이고 고정 Root certificate로 검증되는지 확인한다. CRL entry 검증도 첫 serial 일치에서 단락하지 않고 전체 entry를 먼저 canonicalize해야 뒤쪽의 음수·비최소 ASN.1 INTEGER가 숨지 않는다.
+
+## 2026-09-17 / 변환 파일의 선언 인코딩과 실제 bytes는 다를 수 있다
+
+- **발생했던 문제/실수**: LibreDWG가 만든 DXF의 `$DWGCODEPAGE`는 `ANSI_949`였지만 layer/block 문자열 bytes는 유효한 UTF-8이었다. 헤더만 신뢰해 EUC-KR로 디코딩하자 한글 이름이 mojibake가 되었고 조명 후보 규칙이 0개로 왜곡될 수 있었다.
+- **원인**: 원본 DWG의 코드페이지 메타데이터와 변환기가 직렬화한 출력 문자열 인코딩을 같은 사실로 취급했다.
+- **해결 및 예방책**: 파일 전체를 크기·시간 상한 안에서 streaming UTF-8 검증하고, 유효하면 실제 bytes를 우선한다. UTF-8이 아니면 그때만 지원하는 선언 코드페이지로 fallback하며 둘 다 아니면 fail-close한다. 변환기 버전과 코드페이지를 결과에 함께 기록한다.
+- **반복 방지 체크**: `ANSI_949` 헤더와 UTF-8 한글 layer를 함께 가진 LibreDWG 형태의 fixture가 이름과 후보 수를 보존하는지 테스트한다. 샘플 분석에서는 사람이 읽을 수 있는 주요 layer/block 이름과 출력 반복 hash를 함께 확인한다.
