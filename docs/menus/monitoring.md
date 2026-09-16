@@ -22,7 +22,7 @@
 
 ## 구현 완료
 
-- 2026-09-16 Tailwind Task 12에서 공통 primitive와 모니터링 화면의 legacy class/CSS adapter를 제거하고 의미 토큰·utility 및 `data-*` 테스트 계약으로 수렴했다. 정책 baseline은 빈 violation map을 사용하며 1440/1024/390/320px 가로 overflow 계약을 canonical 회귀에 포함한다. Fresh Web **1,224/1,224**, UI policy **52/52**, 전체 Chromium 직렬 **257 passed·5 환경 의존 skip·실패 0**을 통과했다. 자동 Chromium·mock API 기반 소프트웨어 증거이며 실제 iOS/Android WebView, 현장 도면, Raspberry Pi/BlueZ/ESP32-H2 HIL은 실행하지 않았다.
+- 2026-09-16 Tailwind Task 12에서 공통 primitive와 모니터링 화면의 legacy class/CSS adapter를 제거하고 의미 토큰·utility 및 `data-*` 테스트 계약으로 수렴했다. 정책 baseline은 빈 violation map을 사용하며 1440/1024/390/320px 가로 overflow 계약을 canonical 회귀에 포함한다. Fresh Web **1,224/1,224**, UI policy **53/53**, 전체 Chromium 직렬 **257 passed·5 환경 의존 skip·실패 0**을 통과했다. 자동 Chromium·mock API 기반 소프트웨어 증거이며 실제 iOS/Android WebView, 현장 도면, Raspberry Pi/BlueZ/ESP32-H2 HIL은 실행하지 않았다.
 
 - 2026-09-16 공통 셸·인증 UI 이전에서 모니터링 진입 셸의 내비게이션, 현장 배지, 로딩·복구 상태와 로그아웃을 Tailwind 의미 토큰 및 공통 `Heading`/`Text`/`FeedbackState`/`ConfirmDialog`로 통합했다. 저장하지 않은 맵 편집 내용이 있으면 `window.confirm` 대신 접근 가능한 `alertdialog`에서 취소 시 원래 로그아웃 버튼으로 초점을 복원하고, 승인 후에만 draft와 session을 정리한다. 관련 Vitest 157개와 320/390/1024/1440px Chromium 셸·인증·복구 시나리오 19개로 검증했으며, 이는 mock API 기반 browser 회귀로 Raspberry Pi·Gateway·ESP32-H2·조명 실장비 HIL 완료를 뜻하지 않는다.
 - 설정이 소유하는 조명 검색·등록과 맵 편집 화면을 공통 React Aria/Tailwind UI로 이전하면서 기존 등록 상태·payload와 모니터링 캐시 동기화 계약을 유지했다. 이미 등록된 장비는 등록 가능 목록에서 분리하고 새 장비만 선택·제출하며, 저장한 네모·세모·선·텍스트와 조명 위치는 모니터링의 읽기 전용 `FloorScene`에 즉시 반영한다. Konva의 정적 렌더링 색상은 `themeColor` 의미 토큰을 사용하고 저장 좌표·viewport·배율만 runtime geometry 예외로 유지한다. 이 범위는 deterministic Vitest/Chromium 회귀이며 Raspberry Pi·ESP32-H2·LED 실장비 HIL 완료를 뜻하지 않는다.

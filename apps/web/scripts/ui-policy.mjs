@@ -226,11 +226,21 @@ function exportedPackageTarget(exports, exportKey) {
   const keys = Object.keys(exports);
   if (!keys.some(key => key.startsWith("."))) return exportKey === "." ? exports : undefined;
   if (Object.hasOwn(exports, exportKey)) return exports[exportKey];
-  for (const key of keys) {
-    if (!key.includes("*")) continue;
-    const [prefix, suffix] = key.split("*");
-    if (exportKey.startsWith(prefix) && exportKey.endsWith(suffix)) return exports[key];
-  }
+  const patterns = keys.filter(key => {
+    const star = key.indexOf("*");
+    if (star < 0) return false;
+    const prefix = key.slice(0, star);
+    const suffix = key.slice(star + 1);
+    return exportKey.startsWith(prefix) && exportKey.endsWith(suffix);
+  });
+  // Match Node's exports pattern precedence: the longest base before `*`
+  // wins, then the longest complete pattern (the more specific suffix).
+  patterns.sort((left, right) => {
+    const leftBaseLength = left.indexOf("*") + 1;
+    const rightBaseLength = right.indexOf("*") + 1;
+    return rightBaseLength - leftBaseLength || right.length - left.length;
+  });
+  if (patterns.length) return exports[patterns[0]];
 }
 
 async function packageRequestExportsCss(root, specifier, manifestCache) {

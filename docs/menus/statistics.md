@@ -4,7 +4,7 @@
 
 ## 구현 완료
 
-- 2026-09-16 Tailwind Task 12에서 통계 개요·분석·보고서와 공통 MetricCard/dialog/navigation의 legacy class/CSS adapter를 제거하고 의미 토큰·utility 및 `data-*` 테스트 계약으로 수렴했다. Recharts chart margin은 정적 문서 간격이 아닌 runtime geometry exact allowlist로만 유지하며 정책 baseline은 빈 violation map을 사용한다. Fresh Web **1,224/1,224**, UI policy **52/52**, 전체 Chromium 직렬 **257 passed·5 환경 의존 skip·실패 0**, 별도 opt-in RealBackendLab 통계 연계 흐름 **3/3**을 통과했다. 실제 iOS/Android WebView와 실계량기·Gateway·조명 HIL은 실행하지 않았다.
+- 2026-09-16 Tailwind Task 12에서 통계 개요·분석·보고서와 공통 MetricCard/dialog/navigation의 legacy class/CSS adapter를 제거하고 의미 토큰·utility 및 `data-*` 테스트 계약으로 수렴했다. Recharts chart margin은 정적 문서 간격이 아닌 runtime geometry exact allowlist로만 유지하며 정책 baseline은 빈 violation map을 사용한다. Fresh Web **1,224/1,224**, UI policy **53/53**, 전체 Chromium 직렬 **257 passed·5 환경 의존 skip·실패 0**, 별도 opt-in RealBackendLab 통계 연계 흐름 **3/3**을 통과했다. 실제 iOS/Android WebView와 실계량기·Gateway·조명 HIL은 실행하지 않았다.
 
 - 2026-09-16 공통 셸·인증 UI 이전에서 통계 진입 셸의 내비게이션, 현장 배지, route loading·복구 상태와 로그아웃을 Tailwind 의미 토큰 및 공통 UI로 통합했다. 인증 로그인/MFA/필수 비밀번호 변경 입력도 공통 `TextField`/`PasswordField`/`Checkbox`로 전환하면서 기존 payload, 자동완성, 길이 제한, 최초·오류 focus와 알림 문구를 보존했다. 관련 Vitest 157개와 320/390/1024/1440px Chromium 셸·인증·복구 시나리오 19개로 검증했으며, 이는 mock API 기반 browser 회귀로 실계량기·Gateway·조명 실장비 HIL 완료를 뜻하지 않는다.
 - 통계 디자인 시스템 pilot을 개요·사용 분석·보고서 전체에 적용했다. 화면 구조와 간격은 Tailwind semantic utility로 통일하고 `PageHeader`, `Card`, `MetricCard`, `SidePanel`, `Heading`, `Text`, `Button`, `StatusBadge`, `FeedbackState`를 재사용한다. 분석·보고서의 native select/date input은 공통 `SelectBox`와 date-only `DatePicker`로 교체했으며 요청 payload와 현장 timezone 기준 날짜 계약은 유지한다.

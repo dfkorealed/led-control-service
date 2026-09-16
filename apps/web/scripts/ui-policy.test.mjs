@@ -499,6 +499,54 @@ test("workspace rejects extensionless bare imports only when package metadata ex
   }
 });
 
+test("workspace resolves overlapping package export patterns by Node specificity, not declaration order", async () => {
+  const root = await mkdtemp(join(tmpdir(), "led-ui-package-pattern-"));
+  const canonical = '@import "tailwindcss"; @import "./styles/theme.css"; @import "./styles/base.css"; @import "./styles/exceptions.css";';
+  try {
+    await mkdir(join(root, "src"));
+    await mkdir(join(root, "node_modules/@vendor/patterns"), { recursive: true });
+    await mkdir(join(root, "node_modules/@vendor/reversed"), { recursive: true });
+    await writeFile(join(root, "src/App.tsx"), [
+      'import "./styles.css";',
+      'import "@vendor/patterns/features/theme/tokens";',
+      'import "@vendor/patterns/features/runtime/client";',
+      'import "@vendor/patterns/icons/button.theme";',
+      'import "@vendor/reversed/features/theme/tokens";'
+    ].join(" "));
+    await writeFile(join(root, "src/styles.css"), canonical);
+    await writeFile(join(root, "node_modules/@vendor/patterns/package.json"), JSON.stringify({
+      name: "@vendor/patterns",
+      exports: {
+        "./features/*": "./runtime/*.js",
+        "./features/theme/*": "./theme/*.css",
+        "./features/runtime/*": "./runtime/*.js",
+        "./icons/*": "./runtime/*.js",
+        "./icons/*.theme": "./themes/*.css"
+      }
+    }));
+    await writeFile(join(root, "node_modules/@vendor/reversed/package.json"), JSON.stringify({
+      name: "@vendor/reversed",
+      exports: {
+        "./features/theme/*": "./theme/*.css",
+        "./features/*": "./runtime/*.js"
+      }
+    }));
+
+    const result = await inspectWorkspace({ root, baseline: {} });
+    assert.deepEqual(
+      result.violations.filter(v => v.rule === "css-import").map(v => v.match),
+      [
+        "@vendor/patterns/features/theme/tokens",
+        "@vendor/patterns/icons/button.theme",
+        "@vendor/reversed/features/theme/tokens"
+      ]
+    );
+    assert.ok(!result.violations.some(v => v.match === "@vendor/patterns/features/runtime/client"));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("baseline must preserve the approved Git anchor and an empty violation map", async () => {
   const root = await mkdtemp(join(tmpdir(), "led-ui-baseline-integrity-"));
   const run = () => spawnSync(process.execPath, [new URL("./ui-policy.mjs", import.meta.url).pathname, "--root", root], { encoding: "utf8" });
