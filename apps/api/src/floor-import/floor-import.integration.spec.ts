@@ -1,16 +1,24 @@
-import { ConflictException } from "@nestjs/common";
+import { ConflictException, type INestApplication } from "@nestjs/common";
+import { Test } from "@nestjs/testing";
 import { PrismaClient } from "@prisma/client";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { AuditService } from "../audit/audit.service";
+import { AuthService } from "../auth/auth.service";
 import { hashEditorLeaseToken } from "../floor-editor/editor-lease-token";
 import { disposablePostgres } from "../../test/support/disposable-postgres";
+import { PrismaService } from "../prisma/prisma.service";
+import { RedisProvider } from "../redis/redis.provider";
+import { ObjectStorageService } from "../storage/object-storage.service";
 import { FloorImportService } from "./floor-import.service";
-import { FloorImportWorkerService } from "./floor-import-worker.service";
+import { CAD_IMPORT_WORKER_OPTIONS, FloorImportWorkerService } from "./floor-import-worker.service";
+import { FloorImportAttemptCleanupService } from "./floor-import-attempt-cleanup.service";
+import { FloorImportModule } from "./floor-import.module";
 
 const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
 (enabled ? describe : describe.skip)("floor import PostgreSQL lifecycle", () => {
   let cluster: Awaited<ReturnType<typeof disposablePostgres>>;
   let prisma: PrismaClient;
+  let databaseUrl: string;
   const organizationId = randomUUID();
   const userId = randomUUID();
   const siteId = randomUUID();
@@ -27,7 +35,7 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
 
   beforeAll(async () => {
     cluster = await disposablePostgres();
-    const databaseUrl = cluster.database();
+    databaseUrl = cluster.database();
     const deployed = cluster.deploy(databaseUrl);
     if (deployed.status !== 0) throw new Error(deployed.stderr || deployed.stdout);
     prisma = new PrismaClient({ datasourceUrl: databaseUrl });
@@ -40,6 +48,7 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
   }, 90_000);
 
   beforeEach(async () => {
+    await prisma.floorImportAttemptCleanup.deleteMany();
     await prisma.floorImportJob.deleteMany({ where: { floorId } });
     await prisma.floorMapRevision.deleteMany({ where: { floorId } });
     await prisma.floorMapObject.deleteMany({ where: { floorId } });
@@ -107,6 +116,58 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
     await finalWorker.onModuleDestroy();
   });
 
+  it("reaps a killed attempt after restart and keeps deleting a later PUT through its durable tombstone", async () => {
+    const killedFloor = await prisma.floor.create({ data: { siteId, name: "Killed import floor", level: 99 } });
+    const sourceId = randomUUID();
+    const source = await prisma.floorAsset.create({ data: {
+      id: sourceId, floorId: killedFloor.id, kind: "original", status: "ready",
+      objectKey: `floors/${killedFloor.id}/${sourceId}.dxf`, mimeType: "application/dxf",
+      sizeBytes: 128n, sha256: "a".repeat(64), readyAt: new Date()
+    } });
+    const job = await prisma.floorImportJob.create({ data: {
+      floorId: killedFloor.id, sourceAssetId: source.id, sourceFormat: "dxf"
+    } });
+    const claimed = await worker().claimNext();
+    expect(claimed).toMatchObject({ id: job.id, attemptCount: 1, status: "processing" });
+    const objects = new Set<string>();
+    const attemptStorage = {
+      deleteObject: jest.fn(async (key: string) => { objects.delete(key); })
+    };
+    const beforeKill = new FloorImportAttemptCleanupService(prisma as never, attemptStorage as never, {
+      tempRoot: "/tmp", pollIntervalMs: 1000, enabled: false
+    });
+    const attempt = await beforeKill.armAttempt(
+      { jobId: job.id, floorId: killedFloor.id, attemptCount: 1 },
+      { sizeBytes: 256, sha256: "b".repeat(64) },
+      new Date("2026-09-17T00:00:00.000Z")
+    );
+    objects.add(attempt.objectKey); // Process dies after PUT and before the ready/link transaction.
+    await prisma.floor.delete({ where: { id: killedFloor.id } });
+    expect(await prisma.floorImportJob.findUnique({ where: { id: job.id } })).toBeNull();
+    expect(await prisma.floorAsset.findUnique({ where: { id: attempt.assetId } })).toBeNull();
+    await prisma.floorImportAttemptCleanup.update({
+      where: { jobId_attemptCount: { jobId: job.id, attemptCount: 1 } },
+      data: { nextAttemptAt: new Date(0) }
+    });
+
+    const restarted = new FloorImportAttemptCleanupService(prisma as never, attemptStorage as never, {
+      tempRoot: "/tmp", pollIntervalMs: 1000, enabled: false
+    });
+    const firstSweepAt = new Date("2026-09-17T01:00:00.000Z");
+    await restarted.sweepAttempts(firstSweepAt);
+    expect(objects).not.toContain(attempt.objectKey);
+    expect(await prisma.floorAsset.findUnique({ where: { id: attempt.assetId } })).toBeNull();
+    await expect(prisma.floorImportAttemptCleanup.findUniqueOrThrow({
+      where: { jobId_attemptCount: { jobId: job.id, attemptCount: 1 } }
+    })).resolves.toMatchObject({ committedAt: null, lastCleanedAt: firstSweepAt, lastError: null });
+
+    objects.add(attempt.objectKey); // A paused transport completes after the first cleanup pass.
+    await restarted.sweepAttempts(new Date(firstSweepAt.getTime() + 60_000));
+    expect(objects).not.toContain(attempt.objectKey);
+    expect(attemptStorage.deleteObject).toHaveBeenCalledTimes(2);
+    await restarted.onModuleDestroy();
+  });
+
   it("atomically applies the rendered background and reviews candidates without replacing fixtures or map objects", async () => {
     const source = await sourceAsset(); const renderedId = randomUUID(); const jobId = randomUUID();
     await prisma.floorAsset.create({ data: {
@@ -157,4 +218,98 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
     await expect(prisma.auditLog.findFirstOrThrow({ where: { targetId: jobId, action: "floor_import.applied" } }))
       .resolves.toMatchObject({ actorId: userId, outcome: "success" });
   });
+
+  it("enforces admin, viewer, tenant, session, and transaction-time permission boundaries over real HTTP", async () => {
+    const viewer = await prisma.user.create({ data: {
+      organizationId, loginId: `cad_viewer_${randomUUID()}`, name: "CAD Viewer", passwordHash: "unused", role: "viewer"
+    } });
+    await prisma.siteMembership.create({ data: { siteId, userId: viewer.id, accessLevel: "read" } });
+    const otherOrganization = await prisma.organization.create({ data: { name: "Other CAD tenant", type: "customer" } });
+    const otherAdmin = await prisma.user.create({ data: {
+      organizationId: otherOrganization.id, loginId: `other_cad_${randomUUID()}`, name: "Other Admin", passwordHash: "unused", role: "admin"
+    } });
+    await prisma.site.create({ data: { organizationId: otherOrganization.id, adminUserId: otherAdmin.id, name: "Other CAD site" } });
+    const replacement = await prisma.user.create({ data: {
+      organizationId, loginId: `replacement_${randomUUID()}`, name: "Replacement Admin", passwordHash: "unused", role: "admin"
+    } });
+    const source = await sourceAsset();
+    const module = await Test.createTestingModule({ imports: [FloorImportModule] })
+      .overrideProvider(PrismaService).useValue(prisma)
+      .overrideProvider(RedisProvider).useValue({ onModuleInit: () => undefined, onModuleDestroy: () => undefined })
+      .overrideProvider(ObjectStorageService).useValue(storage)
+      .overrideProvider(CAD_IMPORT_WORKER_OPTIONS).useValue({ tempRoot: "/tmp", pollIntervalMs: 1000, enabled: false })
+      .compile();
+    const app: INestApplication = module.createNestApplication({ logger: false });
+    await app.listen(0, "127.0.0.1");
+    const base = await app.getUrl();
+    const cookie = async (id: string) => {
+      const token = randomUUID();
+      await prisma.session.create({ data: {
+        userId: id, tokenHash: createHash("sha256").update(token).digest("hex"), expiresAt: new Date(Date.now() + 60_000)
+      } });
+      return `${AuthService.sessionCookieName}=${token}`;
+    };
+    const send = (method: string, path: string, session?: string, body?: unknown) => fetch(`${base}${path}`, {
+      method, headers: { "content-type": "application/json", ...(session ? { cookie: session } : {}) },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) })
+    });
+    const adminCookie = await cookie(userId); const viewerCookie = await cookie(viewer.id); const otherCookie = await cookie(otherAdmin.id);
+    try {
+      const collection = `/floors/${floorId}/import-jobs`;
+      expect((await send("POST", collection, undefined, { sourceAssetId: source.id, sourceFormat: "dxf" })).status).toBe(401);
+      const createdResponse = await send("POST", collection, adminCookie, { sourceAssetId: source.id, sourceFormat: "dxf" });
+      expect(createdResponse.status).toBe(201);
+      const created = await createdResponse.json() as { jobId: string };
+      expect((await send("GET", `${collection}/${created.jobId}`, viewerCookie)).status).toBe(200);
+      expect((await send("GET", `${collection}/${created.jobId}/candidates`, viewerCookie)).status).toBe(200);
+      const viewerSource = await sourceAsset();
+      expect((await send("POST", collection, viewerCookie, { sourceAssetId: viewerSource.id, sourceFormat: "dxf" })).status).toBe(403);
+      expect((await send("POST", `${collection}/${created.jobId}/cancel`, viewerCookie)).status).toBe(403);
+      expect((await send("GET", `${collection}/${created.jobId}`, otherCookie)).status).toBe(404);
+
+      const raceFloor = await prisma.floor.create({ data: { siteId, name: "CAD race floor", level: 2 } });
+      const raceSourceId = randomUUID();
+      await prisma.floorAsset.create({ data: {
+        id: raceSourceId, floorId: raceFloor.id, kind: "original", status: "ready",
+        objectKey: `floors/${raceFloor.id}/${raceSourceId}.dxf`, mimeType: "application/dxf",
+        sizeBytes: 128n, sha256: "c".repeat(64), readyAt: new Date()
+      } });
+      const revoker = new PrismaClient({ datasourceUrl: databaseUrl });
+      let release!: () => void; let locked!: () => void;
+      const releaseGate = new Promise<void>(resolve => { release = resolve; });
+      const siteLocked = new Promise<void>(resolve => { locked = resolve; });
+      const revoke = revoker.$transaction(async tx => {
+        await tx.$queryRaw`SELECT "id" FROM "Site" WHERE "id" = ${siteId} FOR UPDATE`;
+        locked();
+        await releaseGate;
+        await tx.site.update({ where: { id: siteId }, data: { adminUserId: replacement.id } });
+      }, { timeout: 10_000 });
+      await siteLocked;
+      const raced = send("POST", `/floors/${raceFloor.id}/import-jobs`, adminCookie, {
+        sourceAssetId: raceSourceId, sourceFormat: "dxf"
+      });
+      try {
+        await waitForSiteLockWait(prisma, 3000);
+      } finally { release(); }
+      await revoke;
+      expect((await raced).status).toBe(404);
+      expect(await prisma.floorImportJob.count({ where: { floorId: raceFloor.id } })).toBe(0);
+      await revoker.$disconnect();
+    } finally { await app.close(); }
+  }, 30_000);
 });
+
+async function waitForSiteLockWait(prisma: PrismaClient, timeoutMs: number) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const rows = await prisma.$queryRaw<Array<{ waiting: number }>>`
+      SELECT count(*)::integer AS waiting
+      FROM pg_stat_activity
+      WHERE datname = current_database() AND wait_event_type = 'Lock'
+        AND query LIKE '%FROM "Site"%' AND query LIKE '%FOR UPDATE%'
+    `;
+    if (rows[0]?.waiting > 0) return;
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  throw new Error("floor import request did not reach the Site authorization lock");
+}

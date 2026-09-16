@@ -43,6 +43,8 @@ interface LockedApplyRow {
   renderedAssetId: string | null;
   renderedMimeType: string | null;
   renderedObjectKey: string | null;
+  renderedSizeBytes: bigint | null;
+  renderedSha256: string | null;
 }
 
 interface LockedSourceAssetRow {
@@ -167,7 +169,9 @@ export class FloorImportService {
     const rendered = await this.prisma.floorImportJob.findFirst({
       where: { id: jobId, floorId, status: "review_required" },
       select: {
-        renderedAsset: { select: { objectKey: true, status: true, mimeType: true, cleanupStartedAt: true } }
+        renderedAsset: { select: {
+          id: true, objectKey: true, status: true, mimeType: true, sizeBytes: true, sha256: true, cleanupStartedAt: true
+        } }
       }
     });
     const renderedAsset = rendered?.renderedAsset;
@@ -175,8 +179,14 @@ export class FloorImportService {
         renderedAsset.mimeType !== "image/svg+xml" || renderedAsset.cleanupStartedAt) {
       throw new ConflictException("floor import job is not ready to apply");
     }
+    const renderedSizeBytes = Number(renderedAsset.sizeBytes);
+    if (!Number.isSafeInteger(renderedSizeBytes)) throw new ConflictException("rendered floor asset ledger is invalid");
     let viewport: { width: number; height: number };
-    try { viewport = await this.storage.readFloorRenderedMetadata(renderedAsset.objectKey); }
+    try {
+      viewport = await this.storage.readFloorRenderedMetadata(renderedAsset.objectKey, {
+        sizeBytes: renderedSizeBytes, sha256: renderedAsset.sha256, mimeType: "image/svg+xml"
+      });
+    }
     catch { throw new ServiceUnavailableException("rendered floor asset metadata is unavailable"); }
     try {
       return await this.prisma.$transaction(async tx => {
@@ -188,7 +198,9 @@ export class FloorImportService {
         if (locked.jobStatus !== "review_required" || !locked.renderedAssetId || locked.renderedMimeType !== "image/svg+xml") {
           throw new ConflictException("floor import job is not ready to apply");
         }
-        if (locked.renderedObjectKey !== renderedAsset.objectKey) {
+        if (locked.renderedAssetId !== renderedAsset.id || locked.renderedObjectKey !== renderedAsset.objectKey ||
+            locked.renderedMimeType !== renderedAsset.mimeType || locked.renderedSizeBytes !== renderedAsset.sizeBytes ||
+            locked.renderedSha256 !== renderedAsset.sha256) {
           throw new ConflictException("rendered floor asset changed concurrently");
         }
 
@@ -321,15 +333,16 @@ export class FloorImportService {
         floor."editorLeaseTokenHash", floor."editorLeaseExpiresAt", clock_timestamp() AS "dbNow",
         job."status"::text AS "jobStatus", job."sourceAssetId", job."renderedAssetId",
         rendered."mimeType" AS "renderedMimeType",
-        rendered."objectKey" AS "renderedObjectKey"
+        rendered."objectKey" AS "renderedObjectKey", rendered."sizeBytes" AS "renderedSizeBytes",
+        rendered."sha256" AS "renderedSha256"
       FROM "Floor" AS floor
       JOIN "FloorImportJob" AS job ON job."floorId" = floor."id" AND job."id" = ${jobId}
       JOIN "FloorAsset" AS source ON source."id" = job."sourceAssetId"
-      LEFT JOIN "FloorAsset" AS rendered ON rendered."id" = job."renderedAssetId"
+      JOIN "FloorAsset" AS rendered ON rendered."id" = job."renderedAssetId"
       WHERE floor."id" = ${floorId}
         AND source."status" = 'ready' AND source."cleanupStartedAt" IS NULL
-        AND (rendered."id" IS NULL OR (rendered."status" = 'ready' AND rendered."cleanupStartedAt" IS NULL))
-      FOR UPDATE OF floor, job
+        AND rendered."status" = 'ready' AND rendered."cleanupStartedAt" IS NULL
+      FOR UPDATE OF floor, job, source, rendered
     `);
     return rows[0] ?? null;
   }

@@ -533,6 +533,27 @@ model FloorImportCandidate {
   @@index([jobId, reviewStatus, id])
 }
 
+// No foreign keys: an attempt tombstone must survive a job/floor cascade so a
+// late object PUT from a killed worker remains recoverable.
+model FloorImportAttemptCleanup {
+  jobId          String
+  floorId        String
+  attemptCount   Int
+  assetId        String   @unique
+  objectKey      String   @unique
+  leaseOwner     String?
+  leaseExpiresAt DateTime?
+  nextAttemptAt  DateTime @default(dbgenerated("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC'::text)"))
+  lastCleanedAt  DateTime?
+  lastError      String?
+  committedAt    DateTime?
+  createdAt      DateTime @default(dbgenerated("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC'::text)"))
+  updatedAt      DateTime @updatedAt
+
+  @@id([jobId, attemptCount])
+  @@index([nextAttemptAt, leaseExpiresAt])
+}
+
 model FloorPlan {
   id               String              @id @default(uuid())
   floorId          String              @unique

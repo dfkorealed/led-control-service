@@ -173,7 +173,8 @@ describe("FloorImportService", () => {
           editorLeaseTokenHash: floor.editorLeaseTokenHash, editorLeaseExpiresAt: floor.editorLeaseExpiresAt,
           dbNow: new Date("2026-09-17T00:00:00.000Z"), jobStatus: "review_required",
           sourceAssetId, renderedAssetId, renderedMimeType: "image/svg+xml",
-          renderedObjectKey: `floors/${floorId}/${renderedAssetId}.svg`
+          renderedObjectKey: `floors/${floorId}/${renderedAssetId}.svg`, renderedSizeBytes: 256n,
+          renderedSha256: "b".repeat(64)
         }]),
       floorImportCandidate: {
         findMany: jest.fn().mockResolvedValue([{ id: acceptedId }, { id: rejectedId }]),
@@ -194,7 +195,8 @@ describe("FloorImportService", () => {
     const prisma: any = {
       floor: { findUnique: jest.fn().mockResolvedValue({ id: floorId, siteId: "site-1" }) },
       floorImportJob: { findFirst: jest.fn().mockResolvedValue({ renderedAsset: {
-        objectKey: `floors/${floorId}/${renderedAssetId}.svg`, status: "ready", mimeType: "image/svg+xml", cleanupStartedAt: null
+        id: renderedAssetId, objectKey: `floors/${floorId}/${renderedAssetId}.svg`, status: "ready",
+        mimeType: "image/svg+xml", sizeBytes: 256n, sha256: "b".repeat(64), cleanupStartedAt: null
       } }) },
       $transaction: jest.fn((run: (client: typeof tx) => unknown) => run(tx))
     };
@@ -211,6 +213,10 @@ describe("FloorImportService", () => {
     });
 
     expect(result).toMatchObject({ jobId, status: "completed", revision: 5, acceptedCandidateIds: [acceptedId] });
+    expect(storage.readFloorRenderedMetadata).toHaveBeenCalledWith(`floors/${floorId}/${renderedAssetId}.svg`, {
+      sizeBytes: 256, sha256: "b".repeat(64), mimeType: "image/svg+xml"
+    });
+    expect(tx.$queryRaw.mock.calls[0][0].strings.join(" ")).toContain("FOR UPDATE OF floor, job, source, rendered");
     expect(tx.floorPlan.upsert).toHaveBeenCalledWith(expect.objectContaining({
       where: { floorId },
       create: expect.objectContaining({ floorId, sourceType: "image", width: 640, height: 480 })
@@ -233,15 +239,17 @@ describe("FloorImportService", () => {
     ["stale lease", { editorLeaseFence: 9 }, "floor editor lease is no longer active"],
     ["stale revision", { mapRevision: 5 }, "floor editor revision conflict"]
   ])("rejects apply with %s", async (_label, floorOverride, message) => {
-    const floorId = randomUUID(); const jobId = randomUUID();
+    const floorId = randomUUID(); const jobId = randomUUID(); const renderedAssetId = randomUUID();
     const tx: any = { $queryRaw: jest.fn().mockResolvedValue([{ status: "active", mapRevision: 4, editorLeaseFence: 8,
       editorLeaseTokenHash: hashEditorLeaseToken("lease-token"), editorLeaseExpiresAt: new Date("2026-09-17T00:10:00.000Z"),
-      dbNow: new Date("2026-09-17T00:00:00.000Z"), jobStatus: "review_required", sourceAssetId: randomUUID(), renderedAssetId: randomUUID(),
-      renderedMimeType: "image/svg+xml", renderedObjectKey: "floors/f/render.svg", ...floorOverride }]) };
+      dbNow: new Date("2026-09-17T00:00:00.000Z"), jobStatus: "review_required", sourceAssetId: randomUUID(), renderedAssetId,
+      renderedMimeType: "image/svg+xml", renderedObjectKey: "floors/f/render.svg",
+      renderedSizeBytes: 256n, renderedSha256: "b".repeat(64), ...floorOverride }]) };
     const prisma: any = {
       floor: { findUnique: jest.fn().mockResolvedValue({ id: floorId, siteId: "site-1" }) },
       floorImportJob: { findFirst: jest.fn().mockResolvedValue({ renderedAsset: {
-        objectKey: "floors/f/render.svg", status: "ready", mimeType: "image/svg+xml", cleanupStartedAt: null
+        id: renderedAssetId, objectKey: "floors/f/render.svg", status: "ready", mimeType: "image/svg+xml",
+        sizeBytes: 256n, sha256: "b".repeat(64), cleanupStartedAt: null
       } }) },
       $transaction: jest.fn((run: (client: typeof tx) => unknown) => run(tx))
     };
@@ -254,6 +262,36 @@ describe("FloorImportService", () => {
     await expect(service.apply(user, floorId, jobId, {
       expectedRevision: 4, leaseToken: "lease-token", leaseFence: 8, candidateIds: []
     })).rejects.toThrow(message);
+  });
+
+  it("rejects apply when the rendered ledger identity changes after HEAD verification", async () => {
+    const floorId = randomUUID(); const jobId = randomUUID(); const renderedAssetId = randomUUID();
+    const prisma: any = {
+      floor: { findUnique: jest.fn().mockResolvedValue({ id: floorId, siteId: "site-1" }) },
+      floorImportJob: { findFirst: jest.fn().mockResolvedValue({ renderedAsset: {
+        id: renderedAssetId, objectKey: `floors/${floorId}/render.svg`, status: "ready", mimeType: "image/svg+xml",
+        sizeBytes: 256n, sha256: "b".repeat(64), cleanupStartedAt: null
+      } }) },
+      $transaction: jest.fn((run: (client: any) => unknown) => run({
+        $queryRaw: jest.fn().mockResolvedValue([{
+          status: "active", mapRevision: 4, editorLeaseFence: 8,
+          editorLeaseTokenHash: hashEditorLeaseToken("lease-token"), editorLeaseExpiresAt: new Date("2026-09-17T00:10:00.000Z"),
+          dbNow: new Date("2026-09-17T00:00:00.000Z"), jobStatus: "review_required", sourceAssetId: randomUUID(),
+          renderedAssetId, renderedMimeType: "image/svg+xml", renderedObjectKey: `floors/${floorId}/render.svg`,
+          renderedSizeBytes: 256n, renderedSha256: "c".repeat(64)
+        }])
+      }))
+    };
+    const service = new FloorImportService(
+      prisma,
+      { assert: jest.fn(), assertManageInTransaction: jest.fn().mockResolvedValue({ id: "site-1", organizationId: user.organizationId }) } as any,
+      { record: jest.fn() } as any,
+      { readFloorRenderedMetadata: jest.fn().mockResolvedValue({ width: 640, height: 480 }) } as any
+    );
+
+    await expect(service.apply(user, floorId, jobId, {
+      expectedRevision: 4, leaseToken: "lease-token", leaseFence: 8, candidateIds: []
+    })).rejects.toThrow("rendered floor asset changed concurrently");
   });
 
   it("does not disclose a floor or job outside the caller's readable site", async () => {

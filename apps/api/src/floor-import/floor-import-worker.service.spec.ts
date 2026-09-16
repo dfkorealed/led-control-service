@@ -40,6 +40,9 @@ describe("FloorImportWorkerService", () => {
     const candidate = { sourceEntityId: "insert-1", layerName: "LIGHT", blockName: "LED", position: { x: 2, y: 3, z: 0 },
       rotation: 30, confidence: 0.95, method: "rule", evidence: ["layer_pattern"] };
     const dxf = "0\nSECTION\n2\nENTITIES\n0\nLINE\n5\n1\n8\n0\n10\n0\n20\n0\n11\n10\n21\n10\n0\nENDSEC\n0\nEOF\n";
+    const attempt = { jobId: row.id, floorId: row.floorId, attemptCount: row.attemptCount,
+      assetId: randomUUID(), objectKey: `floors/${row.floorId}/${row.id}-attempt-${row.attemptCount}.svg` };
+    const storageOrder: string[] = [];
     const finalTransactions: any[] = [];
     const prisma: any = {
       $executeRaw: jest.fn().mockResolvedValue(1),
@@ -49,7 +52,8 @@ describe("FloorImportWorkerService", () => {
       floorAsset: { findUniqueOrThrow: jest.fn().mockResolvedValue(source), findUnique: jest.fn().mockResolvedValue(null) },
       $transaction: jest.fn(async (run: (tx: any) => unknown) => {
         const tx: any = {
-          floorAsset: { create: jest.fn().mockResolvedValue({ id: "rendered-asset" }) },
+          floorAsset: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+          floorImportAttemptCleanup: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
           floorImportCandidate: { upsert: jest.fn().mockResolvedValue({}) },
           $executeRaw: jest.fn().mockResolvedValue(1)
         };
@@ -58,7 +62,7 @@ describe("FloorImportWorkerService", () => {
     };
     const storage: any = {
       downloadFloorAssetToFile: jest.fn(async (_key: string, path: string) => writeFile(path, dxf)),
-      putFloorRenderedObject: jest.fn().mockResolvedValue(undefined),
+      putFloorRenderedObject: jest.fn().mockImplementation(async () => { storageOrder.push("put"); }),
       verifyFloorRenderedObject: jest.fn().mockResolvedValue(undefined),
       deleteObject: jest.fn().mockResolvedValue(undefined)
     };
@@ -68,7 +72,12 @@ describe("FloorImportWorkerService", () => {
     }) };
     const rules: any = { detect: jest.fn().mockResolvedValue([candidate]) };
     const disabledAi: any = { detect: jest.fn().mockResolvedValue([]) };
-    const worker = new FloorImportWorkerService(prisma, storage, converter, rules, disabledAi, { tempRoot: root, pollIntervalMs: 1000 });
+    const cleanup: any = {
+      armAttempt: jest.fn().mockImplementation(async () => { storageOrder.push("ledger"); return attempt; }),
+      requestCleanup: jest.fn()
+    };
+    const worker = new FloorImportWorkerService(prisma, storage, converter, rules, disabledAi,
+      { tempRoot: root, pollIntervalMs: 1000 }, cleanup);
     try {
       await expect(worker.runOnce()).resolves.toBe(true);
       expect(storage.downloadFloorAssetToFile).toHaveBeenCalledWith(source.objectKey, expect.any(String), expect.objectContaining({
@@ -77,8 +86,9 @@ describe("FloorImportWorkerService", () => {
       expect(converter.convert).toHaveBeenCalled();
       expect(rules.detect).toHaveBeenCalled();
       expect(disabledAi.detect).toHaveBeenCalled();
+      expect(storageOrder).toEqual(["ledger", "put"]);
       expect(storage.putFloorRenderedObject).toHaveBeenCalledWith(
-        expect.stringMatching(/^floors\/.+\.svg$/), expect.any(Buffer),
+        attempt.objectKey, expect.any(Buffer),
         { width: 12, height: 12 }, expect.any(AbortSignal)
       );
       const finalTx = finalTransactions.at(-1);
@@ -92,8 +102,15 @@ describe("FloorImportWorkerService", () => {
       expect(finalTx).not.toHaveProperty("meshNode");
       const completionSql = finalTx.$executeRaw.mock.calls[0][0];
       expect(completionSql.strings.join(" ")).toContain("review_required");
-      const renderedAssetId = finalTx.floorAsset.create.mock.calls[0][0].data.id;
-      expect(completionSql.values).toContain(renderedAssetId);
+      expect(finalTx.floorAsset.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: { id: attempt.assetId, objectKey: attempt.objectKey, status: "pending" },
+        data: expect.objectContaining({ status: "ready" })
+      }));
+      expect(finalTx.floorImportAttemptCleanup.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: expect.objectContaining({ jobId: row.id, attemptCount: row.attemptCount, committedAt: null }),
+        data: expect.objectContaining({ committedAt: expect.any(Date) })
+      }));
+      expect(completionSql.values).toContain(attempt.assetId);
       expect(await readdir(root)).toEqual([]);
     } finally {
       await worker.onModuleDestroy();
@@ -137,7 +154,7 @@ describe("FloorImportWorkerService", () => {
     expect(prisma.$executeRaw).toHaveBeenCalledTimes(1); // Exhausted sweep only; no retry/failure write after shutdown.
   });
 
-  it("removes an uploaded object interrupted by shutdown before its asset ledger commit", async () => {
+  it("defers an uploaded object interrupted by shutdown to its durable attempt ledger", async () => {
     const root = await mkdtemp(join(tmpdir(), "floor-import-shutdown-test-"));
     const row = claimedJob();
     const dxf = "0\nSECTION\n2\nENTITIES\n0\nLINE\n5\n1\n8\n0\n10\n0\n20\n0\n11\n10\n21\n10\n0\nENDSEC\n0\nEOF\n";
@@ -167,16 +184,22 @@ describe("FloorImportWorkerService", () => {
       return { outputPath, outputBytes: Buffer.byteLength(dxf) };
     }) };
     const detector: any = { detect: jest.fn().mockResolvedValue([]) };
+    const cleanup: any = {
+      armAttempt: jest.fn().mockResolvedValue({ jobId: row.id, floorId: row.floorId, attemptCount: row.attemptCount,
+        assetId: randomUUID(), objectKey: `floors/${row.floorId}/${row.id}-attempt-${row.attemptCount}.svg` }),
+      requestCleanup: jest.fn().mockResolvedValue("deferred")
+    };
     const worker = new FloorImportWorkerService(prisma, storage, converter, detector, detector, {
       tempRoot: root, pollIntervalMs: 1000
-    });
+    }, cleanup);
     try {
       const running = worker.runOnce();
       await uploading;
       const writesBeforeShutdown = prisma.$executeRaw.mock.calls.length;
       await worker.onModuleDestroy();
       await expect(running).resolves.toBe(true);
-      expect(storage.deleteObject).toHaveBeenCalledWith(expect.stringMatching(/^floors\/.+\.svg$/));
+      expect(cleanup.requestCleanup).toHaveBeenCalledWith(expect.objectContaining({ jobId: row.id, attemptCount: row.attemptCount }));
+      expect(storage.deleteObject).not.toHaveBeenCalled();
       expect(prisma.$executeRaw).toHaveBeenCalledTimes(writesBeforeShutdown); // Leave the in-flight lease for expiry recovery.
     } finally {
       await rm(root, { recursive: true, force: true });

@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from "@nestjs/common";
 import { Prisma, type FloorImportJob } from "@prisma/client";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, utimes } from "node:fs/promises";
 import { join } from "node:path";
 import { PrismaService } from "../prisma/prisma.service";
 import { ObjectStorageService } from "../storage/object-storage.service";
@@ -9,17 +9,19 @@ import { type CadConverter } from "./cad-converter";
 import { renderCadDocumentSvg } from "./cad-svg-renderer";
 import { parseAsciiDxf } from "./dxf-document-parser";
 import { type LightingSymbolDetector } from "./lighting-symbol-detector";
+import {
+  FloorImportAttemptCleanupService,
+  type FloorImportAttemptIdentity
+} from "./floor-import-attempt-cleanup.service";
+import {
+  CAD_IMPORT_AI_DETECTOR, CAD_IMPORT_CONVERTER, CAD_IMPORT_RULE_DETECTOR, CAD_IMPORT_WORKER_OPTIONS,
+  type FloorImportWorkerOptions
+} from "./floor-import.tokens";
 
-export const CAD_IMPORT_CONVERTER = Symbol("CAD_IMPORT_CONVERTER");
-export const CAD_IMPORT_RULE_DETECTOR = Symbol("CAD_IMPORT_RULE_DETECTOR");
-export const CAD_IMPORT_AI_DETECTOR = Symbol("CAD_IMPORT_AI_DETECTOR");
-export const CAD_IMPORT_WORKER_OPTIONS = Symbol("CAD_IMPORT_WORKER_OPTIONS");
-
-export interface FloorImportWorkerOptions {
-  tempRoot: string;
-  pollIntervalMs: number;
-  enabled?: boolean;
-}
+export {
+  CAD_IMPORT_AI_DETECTOR, CAD_IMPORT_CONVERTER, CAD_IMPORT_RULE_DETECTOR, CAD_IMPORT_WORKER_OPTIONS,
+  type FloorImportWorkerOptions
+} from "./floor-import.tokens";
 
 const MAX_ATTEMPTS = 3;
 const MAX_SOURCE_BYTES = 50 * 1024 * 1024;
@@ -46,7 +48,8 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
     @Inject(CAD_IMPORT_CONVERTER) private readonly converter: CadConverter,
     @Inject(CAD_IMPORT_RULE_DETECTOR) private readonly rules: LightingSymbolDetector,
     @Inject(CAD_IMPORT_AI_DETECTOR) private readonly ai: LightingSymbolDetector,
-    @Optional() @Inject(CAD_IMPORT_WORKER_OPTIONS) options?: FloorImportWorkerOptions
+    @Optional() @Inject(CAD_IMPORT_WORKER_OPTIONS) options?: FloorImportWorkerOptions,
+    @Optional() private readonly attemptCleanup?: FloorImportAttemptCleanupService
   ) {
     this.options = options ?? { tempRoot: "/tmp", pollIntervalMs: 1000, enabled: true };
   }
@@ -137,11 +140,12 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
     const abort = new AbortController();
     this.activeAbort = abort;
     let tempDirectory: string | undefined;
-    let uploadedKey: string | undefined;
+    let attempt: FloorImportAttemptIdentity | undefined;
     let phase: ImportPhase = "download";
     let leaseLost = false;
     let renewing = false;
     const pulse = async (progress: number, stage: string) => {
+      if (tempDirectory) await utimes(tempDirectory, new Date(), new Date()).catch(() => undefined);
       if (this.stopping || leaseLost || !(await this.renew(job, progress, stage))) {
         leaseLost = true;
         abort.abort();
@@ -151,6 +155,7 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
     this.heartbeat = setInterval(() => {
       if (renewing || leaseLost || this.stopping) return;
       renewing = true;
+      if (tempDirectory) void utimes(tempDirectory, new Date(), new Date()).catch(() => undefined);
       void this.renew(job).then(renewed => {
         if (!renewed) { leaseLost = true; abort.abort(); }
       }).catch(() => { leaseLost = true; abort.abort(); }).finally(() => { renewing = false; });
@@ -158,7 +163,7 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
     this.heartbeat.unref();
 
     try {
-      tempDirectory = await mkdtemp(join(this.options.tempRoot, "floor-import-"));
+      tempDirectory = await mkdtemp(join(this.options.tempRoot, `floor-import-${job.id}-attempt-${job.attemptCount}-`));
       const inputPath = join(tempDirectory, `source.${job.sourceFormat}`);
       const dxfPath = join(tempDirectory, "converted.dxf");
       const source = await this.prisma.floorAsset.findUniqueOrThrow({
@@ -214,26 +219,27 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
         return { ...candidate, projectedX: x, projectedY: y, projectedRotation: -candidate.rotation };
       });
       const renderedSha256 = createHash("sha256").update(rendered).digest("hex");
-      const renderedAssetId = randomUUID();
-      const objectKey = `floors/${job.floorId}/${renderedAssetId}.svg`;
-      uploadedKey = objectKey;
+      if (!this.attemptCleanup) throw new Error("CAD import cleanup ledger is unavailable");
+      attempt = await this.attemptCleanup.armAttempt(
+        { jobId: job.id, floorId: job.floorId, attemptCount: job.attemptCount },
+        { sizeBytes: rendered.length, sha256: renderedSha256 }
+      );
 
       phase = "storage";
-      await this.storage.putFloorRenderedObject(objectKey, rendered, viewport, abort.signal);
-      await this.storage.verifyFloorRenderedObject(objectKey, {
+      await this.storage.putFloorRenderedObject(attempt.objectKey, rendered, viewport, abort.signal);
+      await this.storage.verifyFloorRenderedObject(attempt.objectKey, {
         sizeBytes: rendered.length, sha256: renderedSha256, mimeType: "image/svg+xml", ...viewport
       }, abort.signal);
       await pulse(90, "persisting");
 
       phase = "persist";
       await this.prisma.$transaction(async tx => {
-        await tx.floorAsset.create({
-          data: {
-            id: renderedAssetId, floorId: job.floorId, kind: "rendered", status: "ready",
-            objectKey, mimeType: "image/svg+xml", sizeBytes: BigInt(rendered.length),
-            sha256: renderedSha256, readyAt: new Date()
-          }
+        const readyAt = new Date();
+        const ready = await tx.floorAsset.updateMany({
+          where: { id: attempt!.assetId, objectKey: attempt!.objectKey, status: "pending" },
+          data: { status: "ready", readyAt: readyAt, uploadExpiresAt: null }
         });
+        if (ready.count !== 1) throw new Error("CAD_IMPORT_ATTEMPT_IDENTITY_LOST");
         for (const candidate of projectedCandidates) {
           const method = candidate.method === "ai" ? "ai_assisted" as const : "rule_based" as const;
           await tx.floorImportCandidate.upsert({
@@ -260,7 +266,7 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
         }
         const changed = await tx.$executeRaw(Prisma.sql`
           UPDATE "FloorImportJob" SET "status" = 'review_required', "stage" = 'review_required',
-            "progressPercent" = 100, "renderedAssetId" = ${renderedAssetId},
+            "progressPercent" = 100, "renderedAssetId" = ${attempt!.assetId},
             "parserVersion" = ${PARSER_VERSION}, "detectorVersion" = ${DETECTOR_VERSION},
             "reviewRequiredAt" = (statement_timestamp() AT TIME ZONE 'UTC'),
             "leaseOwner" = NULL, "leaseExpiresAt" = NULL,
@@ -268,11 +274,18 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
           WHERE ${this.fence(job)}
         `);
         if (changed !== 1) throw new Error("CAD_IMPORT_LEASE_LOST");
+        const reconciled = await tx.floorImportAttemptCleanup.updateMany({
+          where: {
+            jobId: job.id, attemptCount: job.attemptCount, assetId: attempt!.assetId,
+            objectKey: attempt!.objectKey, committedAt: null, leaseOwner: null
+          },
+          data: { committedAt: readyAt, lastError: null }
+        });
+        if (reconciled.count !== 1) throw new Error("CAD_IMPORT_ATTEMPT_CLEANUP_LEASED");
       });
-      uploadedKey = undefined;
     } catch (error) {
       if (this.stopping) {
-        if (uploadedKey) await this.cleanupUncommittedObject(uploadedKey);
+        if (attempt && this.attemptCleanup) await this.attemptCleanup.requestCleanup(attempt);
         return;
       }
       const failureCode = phaseFailureCode(phase);
@@ -291,7 +304,7 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
           "updatedAt" = (clock_timestamp() AT TIME ZONE 'UTC')
         WHERE ${this.fence(job)}
       `);
-      if (uploadedKey) await this.cleanupUncommittedObject(uploadedKey);
+      if (attempt && this.attemptCleanup) await this.attemptCleanup.requestCleanup(attempt);
     } finally {
       if (this.heartbeat) clearInterval(this.heartbeat);
       this.heartbeat = undefined;
@@ -317,10 +330,6 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
       AND "leaseExpiresAt" > (clock_timestamp() AT TIME ZONE 'UTC')`;
   }
 
-  private async cleanupUncommittedObject(objectKey: string) {
-    const ledger = await this.prisma.floorAsset.findUnique({ where: { objectKey }, select: { id: true } }).catch(() => null);
-    if (!ledger) await this.storage.deleteObject(objectKey).catch(() => undefined);
-  }
 }
 
 type ImportPhase = "download" | "convert" | "parse" | "detect" | "render" | "storage" | "persist";

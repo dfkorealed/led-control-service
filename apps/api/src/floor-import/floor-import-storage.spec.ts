@@ -1,4 +1,4 @@
-import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
+import { GetObjectCommand, HeadObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -39,5 +39,25 @@ describe("floor import private object storage", () => {
       ContentType: "image/svg+xml", ContentLength: bytes.length, CacheControl: "private, no-store" });
     expect(command.input.Metadata).toEqual({ "cad-width": "1200", "cad-height": "800" });
     expect(command.input.ChecksumSHA256).toBe(createHash("sha256").update(bytes).digest("base64"));
+  });
+
+  it("reads rendered viewport metadata only when HEAD matches the locked asset ledger", async () => {
+    const sha256 = "b".repeat(64);
+    const client: any = { send: jest.fn().mockResolvedValue({
+      ContentLength: 321,
+      ContentType: "image/svg+xml",
+      ChecksumSHA256: Buffer.from(sha256, "hex").toString("base64"),
+      Metadata: { "cad-width": "640", "cad-height": "480" }
+    }) };
+    const storage = new ObjectStorageService(client, { bucket: "private-floors", publicBaseUrl: "https://example.test/private-floors" });
+
+    await expect(storage.readFloorRenderedMetadata("floors/floor-1/render.svg", {
+      sizeBytes: 321, sha256, mimeType: "image/svg+xml"
+    })).resolves.toEqual({ width: 640, height: 480 });
+    expect(client.send.mock.calls[0][0]).toBeInstanceOf(HeadObjectCommand);
+
+    await expect(storage.readFloorRenderedMetadata("floors/floor-1/render.svg", {
+      sizeBytes: 321, sha256: "c".repeat(64), mimeType: "image/svg+xml"
+    })).rejects.toThrow(/ledger/i);
   });
 });

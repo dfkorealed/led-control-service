@@ -256,16 +256,26 @@ export class ObjectStorageService {
     }
   }
 
-  async readFloorRenderedMetadata(objectKey: string, abortSignal?: AbortSignal) {
+  async readFloorRenderedMetadata(
+    objectKey: string,
+    expected: { sizeBytes: number; sha256: string; mimeType: "image/svg+xml" },
+    abortSignal?: AbortSignal
+  ) {
     this.assertFloorObjectKey(objectKey);
+    if (!Number.isSafeInteger(expected.sizeBytes) || expected.sizeBytes < 1 ||
+        !/^[a-f0-9]{64}$/.test(expected.sha256)) {
+      throw new Error("rendered floor asset ledger metadata is invalid");
+    }
     const head = await this.client.send(
       new HeadObjectCommand({ Bucket: this.options.bucket, Key: objectKey, ChecksumMode: "ENABLED" }),
       { abortSignal: boundedAbortSignal(abortSignal, 4_000) }
     );
     const width = Number(head.Metadata?.["cad-width"]);
     const height = Number(head.Metadata?.["cad-height"]);
-    if (head.ContentType !== "image/svg+xml" || !validViewportDimension(width) || !validViewportDimension(height)) {
-      throw new Error("rendered floor asset viewport metadata is invalid");
+    if (head.ContentLength !== expected.sizeBytes || head.ContentType !== expected.mimeType ||
+        head.ChecksumSHA256 !== Buffer.from(expected.sha256, "hex").toString("base64") ||
+        !validViewportDimension(width) || !validViewportDimension(height)) {
+      throw new Error("rendered floor asset HEAD does not match its ledger");
     }
     return { width, height };
   }

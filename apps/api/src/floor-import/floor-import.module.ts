@@ -8,6 +8,7 @@ import { PrismaModule } from "../prisma/prisma.module";
 import { StorageModule } from "../storage/storage.module";
 import { ArgvCadConverter, type CadConversionRequest, type CadConverter } from "./cad-converter";
 import { DisabledAiLightingSymbolDetector } from "./disabled-ai-lighting-symbol-detector";
+import { FloorImportAttemptCleanupService } from "./floor-import-attempt-cleanup.service";
 import { FloorImportController } from "./floor-import.controller";
 import { FloorImportService } from "./floor-import.service";
 import {
@@ -109,6 +110,7 @@ function positiveInteger(value: string | undefined, fallback: number, name: stri
   controllers: [FloorImportController],
   providers: [
     FloorImportService,
+    FloorImportAttemptCleanupService,
     FloorImportWorkerService,
     { provide: CAD_IMPORT_CONVERTER, useFactory: () => converterProvider(process.env) },
     {

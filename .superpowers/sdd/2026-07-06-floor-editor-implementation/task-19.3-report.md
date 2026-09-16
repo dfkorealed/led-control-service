@@ -88,3 +88,49 @@
 
 - 커밋 제목: `feat: add asynchronous CAD import workflow`
 - 위 Task 19.3 파일만 포함한다.
+
+## Fix Round 1 (2026-09-17)
+
+### Review P1/P2 수정
+
+- cleanup에서 `FloorAsset` 조회 오류와 조회 성공 후 `null`을 분리했다. 조회 오류와 ready asset은 object를 삭제하지 않으며, confirmed-null도 미임대 reconciliation tombstone을 확보한 경우에만 즉시 삭제한다.
+- PUT 전에 deterministic `jobId-attempt-N.svg` key, pending rendered `FloorAsset`, no-FK `FloorImportAttemptCleanup` tombstone을 한 transaction으로 영속화한다. tombstone은 floor/job cascade 뒤에도 남아 kill/restart 및 늦게 완료된 PUT을 반복 회수한다.
+- cleanup sweeper는 startup/60초 주기로 due tombstone을 `SKIP LOCKED` lease로 처리한다. object 삭제 뒤 asset row와 cleanup row를 다시 잠그고 유효한 cleanup owner를 확인한 경우에만 pending ledger를 정리한다.
+- worker temp directory는 job/attempt identity를 포함하고 heartbeat가 mtime을 갱신한다. startup/periodic sweeper는 15분 이상 지난 소유 형식의 temp directory만 제거하며 shutdown에서 진행 중 sweep을 drain한다.
+- apply 직전 private rendered object HEAD의 content-length, SHA-256 checksum, MIME, viewport metadata를 preflight ledger와 대조한다. apply transaction은 floor/job/source/rendered row를 함께 잠그고 asset id/key/MIME/size/checksum identity가 preflight와 동일한지 다시 확인한다.
+- `FloorImportModule` HTTP integration에서 실제 `SessionAuthGuard`, `AuthService`, `SiteAccessService`, PostgreSQL을 사용해 unauthenticated 401, admin create, viewer read-only, 다른 tenant 404, transaction lock 중 admin 권한 회수 후 mutation 404 및 미생성을 검증한다.
+
+### TDD RED -> GREEN
+
+1. storage/apply 테스트에서 HEAD ledger 인자 부재와 locked checksum 변경이 통과하는 상태를 RED로 확인한 뒤 size/checksum/MIME 및 transaction identity 검증을 추가했다.
+2. worker 테스트에서 PUT 전 attempt ledger 부재와 shutdown inline delete 경로를 RED로 확인한 뒤 durable reconciliation으로 전환했다.
+3. cleanup 단위 테스트에서 DB read error 삭제 위험, tombstone 미확보 삭제, cleanup lease 상실 뒤 pending asset 삭제를 각각 RED로 확인하고 owner-fenced cleanup으로 수정했다.
+4. disposable PostgreSQL kill/restart 테스트에서 floor cascade 후 tombstone claim이 SQL `NULL` 의미 때문에 누락되는 RED를 확인하고 deleted-job tombstone 회수 조건을 수정했다.
+5. 실제 HTTP 권한 테스트로 admin/viewer/tenant/session 경계와 precheck 이후 권한 회수 경쟁을 검증했다.
+
+### Fix Round 1 검증
+
+- Prisma schema validate/client generate: passed
+- focused + disposable PostgreSQL: 15 suites passed, 186 tests passed, Linux 전용 1 test skipped, 실패 0
+- 전체 API Jest: 157 suites passed, 1,840 tests passed, 44 suites/481 tests environment-gated skipped, 실패 0
+- module graph boot (`floor-import-module.spec.ts`): passed
+- `pnpm --filter @led-control/api typecheck`: passed
+- `pnpm --filter @led-control/api build`: passed
+
+### Fix Round 1 변경 파일
+
+- `apps/api/prisma/schema.prisma`
+- `apps/api/prisma/migrations/20260917130000_floor_import_attempt_cleanup/migration.sql`
+- `apps/api/src/floor-import/floor-import.tokens.ts`
+- `apps/api/src/floor-import/floor-import-attempt-cleanup.service.ts`
+- `apps/api/src/floor-import/floor-import-attempt-cleanup.service.spec.ts`
+- `apps/api/src/floor-import/floor-import-worker.service.ts`
+- `apps/api/src/floor-import/floor-import-worker.service.spec.ts`
+- `apps/api/src/floor-import/floor-import.service.ts`
+- `apps/api/src/floor-import/floor-import.service.spec.ts`
+- `apps/api/src/floor-import/floor-import-storage.spec.ts`
+- `apps/api/src/floor-import/floor-import.integration.spec.ts`
+- `apps/api/src/floor-import/floor-import.module.ts`
+- `apps/api/src/storage/object-storage.service.ts`
+
+공유 worktree의 orchestrator/spec/project-status 문서와 chart/research/output 산출물은 수정하거나 stage하지 않았다. 이번 fix commit은 위 Task 19.3 파일과 이 report만 포함한다.
