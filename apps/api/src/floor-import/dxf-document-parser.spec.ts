@@ -1,4 +1,6 @@
-import { parseAsciiDxf } from "./dxf-document-parser";
+import { createReadStream, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { parseAsciiDxf, parseAsciiDxfStream } from "./dxf-document-parser";
 
 const pair = (code: number, value: string | number) => `${code}\n${value}\n`;
 
@@ -23,6 +25,66 @@ function syntheticDxf(): string {
 }
 
 describe("ASCII DXF document parser", () => {
+  const corpus = (name: string) => join(process.cwd(), "../../scripts/fixtures/cad-import", name);
+
+  it("keeps only model-space entities by DXF groups 67 and 410 in buffered and streaming modes", async () => {
+    const path = corpus("valid-mixed-layout.dxf");
+    const buffered = parseAsciiDxf(readFileSync(path));
+    const streamed = await parseAsciiDxfStream(createReadStream(path));
+
+    for (const document of [buffered, streamed]) {
+      expect(document.entities.map(entity => entity.sourceEntityId)).toEqual(["M1", "IM"]);
+      expect(document.bounds).toEqual({ minX: 0, minY: 0, maxX: 10, maxY: 6 });
+    }
+  });
+
+  it.each([
+    "invalid-trailing-eof.dxf",
+    "invalid-missing-endsec.dxf",
+    "invalid-orphan-endblk.dxf",
+    "invalid-unterminated-block.dxf",
+    "invalid-orphan-attrib.dxf",
+    "invalid-orphan-seqend.dxf"
+  ])("shares the strict malformed corpus in buffered and streaming modes: %s", async name => {
+    const path = corpus(name);
+    expect(() => parseAsciiDxf(readFileSync(path))).toThrow(/malformed|unterminated|orphan|EOF|ATTRIB|SEQEND|ENDBLK/i);
+    await expect(parseAsciiDxfStream(createReadStream(path))).rejects.toThrow(/malformed|unterminated|orphan|EOF|ATTRIB|SEQEND|ENDBLK/i);
+  });
+
+  it("bounds streaming line bytes and entity body pairs before normalized materialization", async () => {
+    const oversizedLine = `0\nSECTION\n2\nENTITIES\n0\nTEXT\n1\n${"x".repeat(65)}\n10\n0\n20\n0\n40\n1\n0\nENDSEC\n0\nEOF\n`;
+    await expect(parseAsciiDxfStream([Buffer.from(oversizedLine)], { maxLineBytes: 64 }))
+      .rejects.toThrow(/line.*limit/i);
+
+    const body = [pair(0, "SECTION"), pair(2, "ENTITIES"), pair(0, "LINE"),
+      pair(10, 0), pair(20, 0), pair(11, 1), pair(21, 1), pair(30, 0),
+      pair(0, "ENDSEC"), pair(0, "EOF")].join("");
+    await expect(parseAsciiDxfStream([Buffer.from(body)], { maxEntityBodyPairs: 4 }))
+      .rejects.toThrow(/entity body.*limit/i);
+  });
+
+  it("streams an input larger than the former 16 MiB cap without whole-file materialization", async () => {
+    async function* largeDxf() {
+      yield Buffer.from("0\nSECTION\n2\nHEADER\n");
+      const value = "x".repeat(16 * 1024);
+      for (let index = 0; index < 1_100; index++) yield Buffer.from(`999\n${value}\n`);
+      yield Buffer.from("0\nENDSEC\n0\nEOF\n");
+    }
+    const document = await parseAsciiDxfStream(largeDxf(), {
+      maxInputBytes: 32 * 1024 * 1024,
+      maxLineBytes: 20 * 1024
+    });
+    expect(document.entities).toEqual([]);
+    expect(document.blocks).toEqual([]);
+  });
+
+  it("enforces the independent CPU budget", async () => {
+    let cpu = 0;
+    await expect(parseAsciiDxfStream([Buffer.from("0\nEOF\n")], {
+      maxCpuMs: 1,
+      cpuNow: () => cpu++
+    })).rejects.toThrow(/CPU.*limit/i);
+  });
   it("normalizes supported geometry, text, blocks and INSERT transforms", () => {
     const document = parseAsciiDxf(syntheticDxf());
 
@@ -69,6 +131,16 @@ describe("ASCII DXF document parser", () => {
     ].join("");
 
     expect(() => parseAsciiDxf(amplified, { maxCoordinateMagnitude: 10 })).toThrow(/coordinate.*limit/i);
+  });
+
+  it("keeps a separately bounded survey elevation without weakening XY limits", () => {
+    const elevated = [
+      pair(0, "SECTION"), pair(2, "ENTITIES"),
+      pair(0, "LINE"), pair(10, 0), pair(20, 0), pair(30, -21_808_821_412), pair(11, 1), pair(21, 1), pair(31, -21_808_821_412),
+      pair(0, "ENDSEC"), pair(0, "EOF")
+    ].join("");
+    expect(parseAsciiDxf(elevated).entities[0]).toMatchObject({ start: { z: -21_808_821_412 } });
+    expect(() => parseAsciiDxf(elevated, { maxZCoordinateMagnitude: 1_000 })).toThrow(/coordinate.*limit/i);
   });
 
   it.each([" ", "0x10", "1_000", "Infinity", "NaN"])("rejects non-DXF decimal coordinate syntax %p", value => {
@@ -175,5 +247,14 @@ describe("ASCII DXF document parser", () => {
       vertices: [{ x: 0, y: 0, z: 0, bulge: 1 }, { x: 2, y: 0, z: 0, bulge: 0 }]
     });
     expect(document.bounds).toEqual({ minX: 0, minY: -1, maxX: 2, maxY: 0 });
+  });
+
+  it("ignores a degenerate bulge on coincident vertices while preserving finite bounds", () => {
+    const degenerate = [
+      pair(0, "SECTION"), pair(2, "ENTITIES"),
+      pair(0, "LWPOLYLINE"), pair(10, 1), pair(20, 2), pair(42, 1), pair(10, 1), pair(20, 2),
+      pair(0, "ENDSEC"), pair(0, "EOF")
+    ].join("");
+    expect(parseAsciiDxf(degenerate).bounds).toEqual({ minX: 1, minY: 2, maxX: 1, maxY: 2 });
   });
 });

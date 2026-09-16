@@ -219,7 +219,9 @@ export function cadBulgeArc(start: CadPoint, end: CadPoint, bulge: number): CadB
   const dx = end.x - start.x;
   const dy = end.y - start.y;
   const chord = Math.hypot(dx, dy);
-  if (chord === 0) throw new Error("CAD bulge segment has coincident vertices");
+  // Exporters can preserve a bulge on a zero-length cleanup segment. It has no
+  // drawable arc, so treating it as a point keeps bounds finite and reproducible.
+  if (chord === 0) return null;
   const centerOffset = chord * (1 - bulge * bulge) / (4 * bulge);
   const center = {
     x: (start.x + end.x) / 2 - dy / chord * centerOffset,

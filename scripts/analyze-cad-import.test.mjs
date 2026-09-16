@@ -7,6 +7,7 @@ import test from "node:test";
 
 const root = path.resolve(import.meta.dirname, "..");
 const analyzer = path.join(root, "scripts/analyze-cad-import.mjs");
+const corpusRoot = path.join(root, "scripts/fixtures/cad-import");
 
 const SAMPLE_DXF = `999
 test fixture
@@ -174,7 +175,7 @@ test("DXF를 직접 분석해 layer/block별 entity와 INSERT, 고유 좌표, �
 
   assert.equal(first.stdout, second.stdout);
   assert.equal(first.stderr, second.stderr);
-  assert.equal(report.schemaVersion, 1);
+  assert.equal(report.schemaVersion, 2);
   assert.equal(report.source.format, "dxf");
   assert.equal(report.source.dxfVersion, "AC1027");
   assert.equal(report.statistics.modelSpaceEntityCount, 5);
@@ -198,7 +199,16 @@ test("DXF를 직접 분석해 layer/block별 entity와 INSERT, 고유 좌표, �
   assert.equal(report.candidates.uniqueCoordinateCount, 2);
   assert.deepEqual(report.candidates.byBlock, [{ name: "LED_FIXTURE", count: 2 }]);
   assert.deepEqual(report.candidates.byLayer, [{ name: "LIGHTING", count: 2 }]);
-  assert.equal(report.accuracy.coordinateAndSymbolExtraction.coverage, 1);
+  assert.equal(report.accuracy.directModelSpaceInsertNameAndFiniteOriginRate.rate, 1);
+  assert.deepEqual(report.accuracy.nestedInsertExpansion, {
+    expandedInsertOccurrenceCount: 3,
+    nestedInsertOccurrenceCount: 0,
+    uniqueWorldCoordinateCount: 3,
+    maximumExpansionDepth: 0,
+    unresolvedBlockReferenceCount: 0,
+    cyclicBlockReferenceCount: 0,
+    basis: "block INSERT를 world 좌표로 전개한 진단 통계이며 검출 정확도가 아님"
+  });
   assert.equal(report.accuracy.supportedEntityMapGeometry.expectedCoverage, 0.8);
   assert.equal(report.accuracy.detection.groundTruthProvided, false);
   assert.equal(report.accuracy.detection.precision, null);
@@ -209,6 +219,117 @@ test("DXF를 직접 분석해 layer/block별 entity와 INSERT, 고유 좌표, �
   assert.match(first.stderr, /후보 layer별: LIGHTING 2/);
   assert.match(first.stderr, /후보 block별: LED_FIXTURE 2/);
   assert.match(first.stderr, /실제 BLE 장비 identity 매핑: 0%/);
+});
+
+test("group 67/410으로 paper-space를 제외하고 기본 model-space만 집계한다", () => {
+  const report = parseSuccessfulResult(runAnalyzer([
+    "--input", path.join(corpusRoot, "valid-mixed-layout.dxf")
+  ]));
+
+  assert.equal(report.statistics.modelSpaceEntityCount, 2);
+  assert.equal(report.statistics.paperSpaceEntityCount, 2);
+  assert.equal(report.statistics.insertCount, 1);
+  assert.deepEqual(report.statistics.entityTypes, [
+    { type: "INSERT", count: 1 },
+    { type: "LINE", count: 1 }
+  ]);
+});
+
+test("nested INSERT를 world transform으로 전개하고 직접 INSERT 지표와 분리한다", (t) => {
+  const fixture = createFixture(t);
+  writeFileSync(fixture.dxfPath, `0
+SECTION
+2
+BLOCKS
+0
+BLOCK
+2
+몰드바등
+0
+ENDBLK
+0
+BLOCK
+2
+WRAPPER
+0
+INSERT
+2
+몰드바등
+8
+전등
+10
+1
+20
+0
+0
+ENDBLK
+0
+ENDSEC
+0
+SECTION
+2
+ENTITIES
+0
+INSERT
+2
+WRAPPER
+8
+0
+10
+10
+20
+20
+41
+2
+42
+2
+50
+90
+0
+ENDSEC
+0
+EOF
+`);
+  const report = parseSuccessfulResult(runAnalyzer(["--input", fixture.dxfPath]));
+  assert.equal(report.accuracy.directModelSpaceInsertNameAndFiniteOriginRate.directModelSpaceInsertCount, 1);
+  assert.deepEqual(report.accuracy.nestedInsertExpansion, {
+    expandedInsertOccurrenceCount: 2,
+    nestedInsertOccurrenceCount: 1,
+    uniqueWorldCoordinateCount: 2,
+    maximumExpansionDepth: 1,
+    unresolvedBlockReferenceCount: 0,
+    cyclicBlockReferenceCount: 0,
+    basis: "block INSERT를 world 좌표로 전개한 진단 통계이며 검출 정확도가 아님"
+  });
+});
+
+test("제품 parser와 공유하는 malformed corpus를 모두 fail-close한다", () => {
+  for (const name of [
+    "invalid-trailing-eof.dxf",
+    "invalid-missing-endsec.dxf",
+    "invalid-orphan-endblk.dxf",
+    "invalid-unterminated-block.dxf",
+    "invalid-orphan-attrib.dxf",
+    "invalid-orphan-seqend.dxf"
+  ]) {
+    const result = runAnalyzer(["--input", path.join(corpusRoot, name)]);
+    assert.notEqual(result.status, 0, name);
+    assert.equal(result.stdout, "", name);
+    assert.match(result.stderr, /malformed|unterminated|orphan|EOF|ATTRIB|SEQEND|ENDBLK/i, name);
+  }
+});
+
+test("DXF line과 entity body pair 상한을 materialization 전에 적용한다", (t) => {
+  const fixture = createFixture(t);
+  writeFileSync(fixture.dxfPath, `0\nSECTION\n2\nENTITIES\n0\nTEXT\n1\n${"x".repeat(65)}\n10\n0\n20\n0\n40\n1\n0\nENDSEC\n0\nEOF\n`);
+  const line = runAnalyzer(["--input", fixture.dxfPath, "--max-line-bytes", "64"]);
+  assert.notEqual(line.status, 0);
+  assert.match(line.stderr, /line.*limit/i);
+
+  writeFileSync(fixture.dxfPath, `0\nSECTION\n2\nENTITIES\n0\nLINE\n10\n0\n20\n0\n11\n1\n21\n1\n30\n0\n0\nENDSEC\n0\nEOF\n`);
+  const body = runAnalyzer(["--input", fixture.dxfPath, "--max-entity-body-pairs", "4"]);
+  assert.notEqual(body.status, 0);
+  assert.match(body.stderr, /entity body.*limit/i);
 });
 
 test("LibreDWG가 ANSI_949 헤더와 UTF-8 문자열을 함께 출력해도 한글 layer를 보존한다", (t) => {
@@ -247,22 +368,29 @@ test("ground truth TP/FP/FN으로 precision, recall, F1을 계산한다", (t) =>
   });
 });
 
-test("precision/recall의 분모가 0이면 null이고 정의된 0/0 F1은 0으로 출력한다", (t) => {
+test("F1은 count 공식으로 계산하고 모두 0일 때만 null이다", (t) => {
   const fixture = createFixture(t);
-  const emptyTruthPath = path.join(fixture.directory, "empty-ground-truth.json");
-  const missesPath = path.join(fixture.directory, "misses-ground-truth.json");
-  writeFileSync(emptyTruthPath, JSON.stringify({ truePositive: 0, falsePositive: 0, falseNegative: 0 }));
-  writeFileSync(missesPath, JSON.stringify({ truePositive: 0, falsePositive: 1, falseNegative: 1 }));
+  for (const [name, truth, expected] of [
+    ["empty", { truePositive: 0, falsePositive: 0, falseNegative: 0 }, { precision: null, recall: null, f1: null }],
+    ["fp-only", { truePositive: 0, falsePositive: 1, falseNegative: 0 }, { precision: 0, recall: null, f1: 0 }],
+    ["fn-only", { truePositive: 0, falsePositive: 0, falseNegative: 1 }, { precision: null, recall: 0, f1: 0 }],
+    ["mixed", { truePositive: 1, falsePositive: 1, falseNegative: 2 }, { precision: 0.5, recall: 0.333333, f1: 0.4 }]
+  ]) {
+    const truthPath = path.join(fixture.directory, `${name}.json`);
+    writeFileSync(truthPath, JSON.stringify(truth));
+    const result = parseSuccessfulResult(runAnalyzer(["--input", fixture.dxfPath, "--ground-truth", truthPath])).accuracy.detection;
+    assert.deepEqual({ precision: result.precision, recall: result.recall, f1: result.f1 }, expected);
+  }
+});
 
-  const empty = parseSuccessfulResult(runAnalyzer(["--input", fixture.dxfPath, "--ground-truth", emptyTruthPath]));
-  const misses = parseSuccessfulResult(runAnalyzer(["--input", fixture.dxfPath, "--ground-truth", missesPath]));
-
-  assert.equal(empty.accuracy.detection.precision, null);
-  assert.equal(empty.accuracy.detection.recall, null);
-  assert.equal(empty.accuracy.detection.f1, null);
-  assert.equal(misses.accuracy.detection.precision, 0);
-  assert.equal(misses.accuracy.detection.recall, 0);
-  assert.equal(misses.accuracy.detection.f1, 0);
+test("--help는 전체 I/O, 상한, ground truth, converter trust 계약을 출력하고 성공한다", () => {
+  const result = runAnalyzer(["--help"]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /--max-line-bytes/);
+  assert.match(result.stdout, /--max-entity-body-pairs/);
+  assert.match(result.stdout, /stdout is deterministic JSON/);
+  assert.match(result.stdout, /truePositive, falsePositive, and falseNegative/);
+  assert.match(result.stdout, /trusted local tooling/);
 });
 
 test("DWG converter를 shell 없이 고정 argv로 실행하고 임시 DXF를 항상 정리한다", (t) => {
