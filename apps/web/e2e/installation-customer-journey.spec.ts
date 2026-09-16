@@ -71,7 +71,8 @@ test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 
   await expect(admin.getByRole("heading", { name: "현장 기본 정보를 입력하세요" })).toBeVisible();
   await admin.getByLabel("주소").fill("서울시 Task 9 테스트구 9번지");
   await admin.getByLabel("kWh 단가").fill("160");
-  await admin.getByLabel("시간대").selectOption("Asia/Seoul");
+  await admin.getByRole("button", { name: "시간대" }).click();
+  await admin.getByRole("option", { name: "Asia/Seoul", exact: true }).click();
   await admin.getByLabel("지하 층수").fill("1");
   await admin.getByLabel("지상 층수").fill("0");
   await admin.getByRole("button", { name: "층 자동 생성" }).click();
@@ -138,14 +139,18 @@ test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 
   await expect(admin.getByRole("heading", { name: "조명 등록", exact: true })).toBeVisible();
 
   await admin.reload();
-  await admin.getByLabel("등록 층").selectOption(installation.floorId);
-  await admin.getByLabel("등록 게이트웨이").selectOption(lab.gateway.id);
+  await admin.getByRole("button", { name: "등록 층" }).click();
+  await admin.getByRole("option", { name: "B1", exact: true }).click();
+  await admin.getByRole("button", { name: "등록 게이트웨이" }).click();
+  await admin.getByRole("option", { name: "Task 9 Gateway", exact: true }).click();
   await admin.getByRole("button", { name: "조명 검색 시작" }).click();
   await expect(admin.getByText("검색된 미등록 조명이 없습니다.")).toBeVisible();
   await admin.getByRole("button", { name: "다시 검색" }).click();
   await expect(admin.getByText(lab.fixtures[0].serialNumber)).toBeVisible({ timeout: 20_000 });
   await expect(admin.getByText(lab.fixtures[1].serialNumber)).toBeVisible({ timeout: 20_000 });
-  await admin.getByLabel("등록 가능 조명 전체 선택").check();
+  const registrationSelectAll = admin.getByRole("checkbox", { name: "등록 가능 조명 전체 선택" });
+  await registrationSelectAll.locator("xpath=ancestor::label").click();
+  await expect(registrationSelectAll).toBeChecked();
   await admin.getByLabel("이름 접두어").fill("B1 조명-");
   await admin.getByLabel("정격 전력(W)").fill("40.00");
   await admin.getByRole("button", { name: "선택 조명 등록" }).click();
@@ -183,8 +188,10 @@ test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 
   await admin.getByRole("button", { name: "구역 관리" }).click();
   await admin.getByRole("button", { name: "새 구역" }).click();
   await admin.getByLabel("구역 이름").fill("Task 9 구역");
-  await admin.getByLabel("층", { exact: true }).selectOption(installation.floorId);
-  await admin.getByLabel("게이트웨이", { exact: true }).selectOption(lab.gateway.id);
+  await admin.getByRole("button", { name: "층", exact: true }).click();
+  await admin.getByRole("option", { name: "B1", exact: true }).click();
+  await admin.getByRole("button", { name: "게이트웨이", exact: true }).click();
+  await admin.getByRole("option", { name: "Task 9 Gateway", exact: true }).click();
   await admin.getByLabel(`${fixtureNames[0]} 포함`).check();
   await admin.getByLabel(`${fixtureNames[1]} 포함`).check();
   await admin.getByRole("button", { name: "구역 만들기" }).click();

@@ -5,7 +5,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ModalDialog } from "../ModalDialog";
 import { ConfirmDialog, type ConfirmDialogProps } from "../ConfirmDialog";
-import { ConfirmDialog as LegacyConfirmDialog, useDialogFocus } from "../../ConfirmDialog";
+import { useDialogFocus } from "./useDialogFocus";
 import * as UI from "../index";
 
 afterEach(cleanup);
@@ -36,7 +36,7 @@ describe("overlay migration contracts", () => {
   it("contains no production DOM enumeration in the three dialog entry points", () => {
     const directory = resolve("src/components/ui/overlays");
     const sources = readdirSync(directory).filter(path => /\.tsx?$/.test(path) && !path.includes(".test."));
-    for (const path of ["../ModalDialog.tsx", "../ConfirmDialog.tsx", "../../ConfirmDialog.tsx", ...sources]) {
+    for (const path of ["../ModalDialog.tsx", "../ConfirmDialog.tsx", ...sources]) {
       expect(readFileSync(resolve(directory, path), "utf8")).not.toMatch(/\.querySelector(?:All)?(?:<[^>]+>)?\(/);
     }
   });
@@ -61,6 +61,7 @@ describe("overlay migration contracts", () => {
     expect(container).not.toContainElement(dialog);
     expect(root.current).toBe(dialog);
     expect(dialog).toHaveAccessibleDescription("설명");
+    expect(dialog).toHaveAttribute("data-dialog-surface", "");
     expect(initial.current).toHaveFocus();
     expect(within(dialog).getByRole("button", { name: "안내 닫기" })).toBeVisible();
   });
@@ -109,7 +110,7 @@ describe("overlay migration contracts", () => {
     render(<ConfirmDialog title="확인" confirmLabel="실행" {...{ [alias]: true }} destructive onClose={onClose} onConfirm={onConfirm} />);
     const confirm = screen.getByRole("button", { name: "실행" });
     expect(confirm).toBeDisabled();
-    expect(confirm).toHaveClass("ui-button-danger");
+    expect(confirm).toHaveAttribute("data-variant", "danger");
     expect(screen.getByRole("dialog")).not.toHaveAttribute("confirmDisabled");
     await userEvent.click(screen.getByRole("button", { name: "취소" }));
     expect(onClose).toHaveBeenCalledTimes(1);
@@ -118,7 +119,7 @@ describe("overlay migration contracts", () => {
 
   it("locks every dismissal and confirmation route while pending", async () => {
     const close = vi.fn(); const confirm = vi.fn();
-    render(<LegacyConfirmDialog open title="대기" confirmLabel="실행" isPending onClose={close} onConfirm={confirm} />);
+    render(<ConfirmDialog open title="대기" closeLabel="대기 닫기" confirmLabel="실행" isPending onClose={close} onConfirm={confirm} />);
     const dialog = screen.getByRole("dialog");
     expect(screen.getByRole("button", { name: "대기 닫기" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "취소" })).toBeDisabled();

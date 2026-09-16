@@ -49,7 +49,8 @@ test("admin creates and executes schedule and vehicle event rules", async ({ bro
   await login(admin, lab.admin.loginId, lab.admin.password);
   await admin.getByLabel("주소").fill("서울시 Task 19 테스트구 19번지");
   await admin.getByLabel("kWh 단가").fill("160");
-  await admin.getByLabel("시간대").selectOption("Asia/Seoul");
+  await admin.getByRole("button", { name: "시간대" }).click();
+  await admin.getByRole("option", { name: "Asia/Seoul", exact: true }).click();
   await admin.getByLabel("지하 층수").fill("1");
   await admin.getByLabel("지상 층수").fill("0");
   await admin.getByRole("button", { name: "층 자동 생성" }).click();
@@ -58,7 +59,7 @@ test("admin creates and executes schedule and vehicle event rules", async ({ bro
   await admin.getByRole("navigation", { name: "설정 메뉴" }).getByRole("link", { name: "조명 등록", exact: true }).click();
   await expect(admin).toHaveURL((url) => url.pathname === "/settings/registration" && url.searchParams.get("siteId") === created.siteId);
 
-  const installation = await lab.readInstallation();
+  await lab.readInstallation();
   await lab.seedGatewayInventory();
   await admin.getByLabel("게이트웨이 이름").fill("Task 19 Gateway");
   await admin.getByLabel("제품 시리얼").fill(lab.gateway.serialNumber);
@@ -72,13 +73,15 @@ test("admin creates and executes schedule and vehicle event rules", async ({ bro
   await lab.attachGatewayPublisher();
 
   await admin.reload();
-  await admin.getByLabel("등록 층").selectOption(installation.floorId);
-  await admin.getByLabel("등록 게이트웨이").selectOption(lab.gateway.id);
+  await admin.getByRole("button", { name: "등록 층" }).click();
+  await admin.getByRole("option", { name: "B1", exact: true }).click();
+  await admin.getByRole("button", { name: "등록 게이트웨이" }).click();
+  await admin.getByRole("option", { name: "Task 19 Gateway", exact: true }).click();
   await admin.getByRole("button", { name: "조명 검색 시작" }).click();
   await expect(admin.getByText("검색된 미등록 조명이 없습니다.")).toBeVisible();
   await admin.getByRole("button", { name: "다시 검색" }).click();
   await expect(admin.getByText(lab.fixtures[0].serialNumber)).toBeVisible({ timeout: 20_000 });
-  await admin.getByLabel("등록 가능 조명 전체 선택").check();
+  await selectCheckbox(admin, "등록 가능 조명 전체 선택");
   await admin.getByLabel("이름 접두어").fill("Task 19 fixture-");
   await admin.getByLabel("정격 전력(W)").fill("40.00");
   await admin.getByRole("button", { name: "선택 조명 등록" }).click();

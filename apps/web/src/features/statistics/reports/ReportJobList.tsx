@@ -42,7 +42,7 @@ export function ReportJobList({
           </div>
         ) : null}
         {(job.status === "completed" || job.status === "failed" || job.status === "expired") ? (
-          <div className="col-start-2 row-span-3 row-start-1 flex self-center max-compact:col-start-1 max-compact:row-auto max-compact:w-full [&_.ui-button]:min-w-28 max-compact:[&_.ui-button]:w-full" role="group" aria-label="보고서 작업">
+          <div className="col-start-2 row-span-3 row-start-1 flex self-center max-compact:col-start-1 max-compact:row-auto max-compact:w-full [&_[data-variant]]:min-w-28 max-compact:[&_[data-variant]]:w-full" role="group" aria-label="보고서 작업">
             {job.status === "completed" ? <Button variant="primary" aria-label={`${jobLabel} 다운로드`} onClick={() => onDownload(job)}>다운로드</Button> : null}
             {(job.status === "failed" || job.status === "expired") ? <Button variant="secondary" aria-label={`${jobLabel} 다시 생성`} disabled={Boolean(retryingReportId)} isLoading={retryingReportId === job.reportId} loadingLabel="다시 생성 중" onClick={() => onRegenerate(job)}>다시 생성</Button> : null}
           </div>

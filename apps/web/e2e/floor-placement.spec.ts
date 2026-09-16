@@ -54,7 +54,7 @@ async function renderedLabels(page: Page) {
 }
 
 async function fixturePixel(page: Page, x: number, y: number) {
-  return page.getByTestId("floor-editor-canvas").locator(".konvajs-content canvas").nth(2).evaluate((element, point) => {
+  return page.getByTestId("floor-editor-canvas").locator("canvas").nth(2).evaluate((element, point) => {
     const canvas = element as HTMLCanvasElement;
     const ratio = canvas.width / canvas.getBoundingClientRect().width;
     return Array.from(canvas.getContext("2d")!.getImageData(Math.round(point.x * ratio), Math.round(point.y * ratio), 1, 1).data);
@@ -70,7 +70,7 @@ test("1000 already-placed fixtures become canvas-ready within 3s p95 across 20 w
       const konva = (window as unknown as { Konva?: { stages: Konva.Stage[] } }).Konva;
       const stage = konva?.stages.find((node) => container?.contains(node.container()));
       const layer = stage?.getLayers()[2];
-      const canvas = container?.querySelectorAll<HTMLCanvasElement>(".konvajs-content canvas")[2];
+      const canvas = container?.querySelectorAll<HTMLCanvasElement>("canvas")[2];
       if (container?.getAttribute("aria-disabled") === "false" && layer?.getChildren().length === 1000 && canvas && canvas.width > 0) {
         const ratio = canvas.width / canvas.getBoundingClientRect().width;
         const pixel = canvas.getContext("2d")!.getImageData(Math.round(20 * ratio), Math.round(20 * ratio), 1, 1).data;
@@ -123,7 +123,11 @@ for (const zoom of [0.5, 1, 2]) {
     await editorFixture(page);
     // This case measures unsnapped fractional transforms for both drops;
     // default grid snapping has its own editor-layout regression.
-    await page.getByLabel("격자 스냅").uncheck();
+    // React Aria owns a visually-hidden native input; activate its visible label
+    // so this remains a real user interaction rather than a hidden-input action.
+    const snap = page.getByRole("checkbox", { name: "격자 스냅" });
+    await snap.locator("xpath=ancestor::label[1]").click();
+    await expect(snap).not.toBeChecked();
     const canvas = page.getByTestId("floor-editor-canvas");
     for (let step = 0; step < Math.round(Math.abs(zoom - 1) * 10); step++) {
       await page.getByRole("button", { name: zoom < 1 ? "축소" : "확대", exact: true }).click();
@@ -208,7 +212,8 @@ test("real pointer list drop, cancel/unplace, undo, save and floor isolation", a
   await expect(page.getByRole("button", { name: "저장", exact: true })).toBeDisabled();
   await expect(page.getByRole("heading", { name: "B1 맵 편집" })).toBeVisible();
   expect(saves).toHaveLength(1);
-  await page.getByLabel("층 선택", { exact: true }).selectOption("floor-2");
+  await page.getByRole("button", { name: "층 선택" }).click();
+  await page.getByRole("option", { name: "B2", exact: true }).click();
   await expect(page.getByTestId("floor-editor-canvas")).toHaveAttribute("data-floor-id", "floor-2");
   expect((await currentState(page)).fixtures).toHaveLength(2);
   await expect(page.getByRole("button", { name: "실행 취소", exact: true })).toBeDisabled();
@@ -221,7 +226,7 @@ test("1000 fixtures virtualize, batch preview/apply, one undo, stable nodes and 
   const start = Date.now();
   await editorFixture(page, 1000);
   const readyMs = Date.now() - start;
-  expect(await page.locator(".editor-fixture-row").count()).toBeLessThan(20);
+  expect(await page.getByTestId("placement-list").getByRole("button").count()).toBeLessThan(20);
   await page.getByLabel("조명 검색").fill("1000");
   await expect(page.getByTestId("placement-fixture-f1-1000")).toBeVisible();
   await page.getByLabel("조명 검색").fill("");
@@ -290,7 +295,7 @@ test("1000 fixtures virtualize, batch preview/apply, one undo, stable nodes and 
   await testInfo.attach("performance", { path: metricsPath, contentType: "application/json" });
   await page.getByRole("button", { name: "100%", exact: true }).click();
   expect(await renderedLabels(page)).toEqual({ bulkCount: 0, focused: [] });
-  await page.locator(".floor-editor-side-panel").evaluate((element) => { element.scrollTop = 0; });
+  await page.getByRole("complementary", { name: "맵 편집 정보" }).evaluate((element) => { element.scrollTop = 0; });
   const screenshotPath = testInfo.outputPath("editor-1000.png");
   await page.screenshot({ path: screenshotPath, fullPage: true });
   await testInfo.attach("editor-1000", { path: screenshotPath, contentType: "image/png" });
@@ -314,7 +319,7 @@ test("1000 fixtures virtualize, batch preview/apply, one undo, stable nodes and 
     expect(labels.focused[0].fontSize).toBeCloseTo(12);
     expect(labels.focused[0].height).toBeGreaterThanOrEqual(28);
     await expectNoHorizontalOverflow(page);
-    await page.locator(".floor-editor-side-panel").evaluate((element) => { element.scrollTop = 0; });
+    await page.getByRole("complementary", { name: "맵 편집 정보" }).evaluate((element) => { element.scrollTop = 0; });
     const path = testInfo.outputPath(`editor-1000-selected-${viewport.width}.png`);
     await page.screenshot({ path, fullPage: true });
     await testInfo.attach(`editor-1000-selected-${viewport.width}`, { path, contentType: "image/png" });

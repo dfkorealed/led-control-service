@@ -17,7 +17,7 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     setupFiles: "./src/test/setup.ts",
-    // node:test 정책 검사는 test:ui-policy 명령에서 독립 실행한다.
-    exclude: ["**/node_modules/**", "**/dist/**", "e2e/**", "scripts/ui-policy.test.mjs"]
+    // scripts의 node:test 검사는 Vitest와 분리해 Node 명령으로 실행한다.
+    exclude: ["**/node_modules/**", "**/dist/**", "e2e/**", "scripts/**/*.test.mjs"]
   }
 });

@@ -1,14 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { readFileSync } from "node:fs";
 import { act, cleanup, createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../api/client";
 import { FloorEditorView } from "./FloorEditorView";
 import type { FloorAsset, FloorEditorState } from "./editor-types";
 import { useFloorEditorStore } from "./editor-store";
 import { saveEditorDraft } from "./editor-drafts";
 import { clearTenantCache } from "../../api/principal-cache";
-import { prepareLegacyStylesheetForJsdom } from "../../test/legacy-stylesheet";
 
 const floorEditorApi = vi.hoisted(() => ({
   listFloorEditorRevisions: vi.fn(),
@@ -18,9 +16,6 @@ const floorEditorApi = vi.hoisted(() => ({
 }));
 
 vi.mock("../../api/floor-editor", () => floorEditorApi);
-
-const styles = prepareLegacyStylesheetForJsdom(readFileSync("src/styles.css", "utf8"));
-let stylesheet: HTMLStyleElement;
 
 const editorState: FloorEditorState = {
   floor: {
@@ -159,14 +154,6 @@ describe("FloorEditorView", () => {
     expect(useFloorEditorStore.getState().isDirty).toBe(true);
     expect(onSaved).not.toHaveBeenCalled();
   });
-  beforeAll(() => {
-    stylesheet = document.createElement("style");
-    stylesheet.textContent = styles;
-    document.head.append(stylesheet);
-  });
-
-  afterAll(() => stylesheet.remove());
-
   beforeEach(() => {
     floorEditorApi.saveFloorEditorState.mockImplementation(async (_floorId, _payload) => ({
       ...structuredClone(editorState),

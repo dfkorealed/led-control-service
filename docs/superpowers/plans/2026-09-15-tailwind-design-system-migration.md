@@ -1194,7 +1194,7 @@ git commit -m "refactor(web): migrate shell auth and operator UI"
 
 ### Task 12: legacy CSS 제거, zero-baseline과 전체 회귀 검증
 
-- [ ] **정책 CI 연결:** `ui:check`와 `test:ui-policy`를 canonical Web/CI 검증에 연결한다. CI checkout에서 정책의 신뢰 Git commit object를 확보하고, 누락을 skip하지 않고 fail-closed하는지 확인한다.
+- [x] **정책 CI 연결:** `ui:check`와 `test:ui-policy`를 canonical Web/CI 검증에 연결한다. CI checkout에서 정책의 신뢰 Git commit object를 확보하고, 누락을 skip하지 않고 fail-closed하는지 확인한다.
 
 **Owner:** `서비스 UI 개선`이 CSS를 정리하고, 총괄이 최종 검증·통합한다.
 
@@ -1214,7 +1214,7 @@ git commit -m "refactor(web): migrate shell auth and operator UI"
 **Interfaces:**
 - Consumes: all page migration commits. Produces a zero-baseline policy and final public UI API.
 
-- [ ] **Step 1: zero-baseline을 요구하는 실패 검사를 작성한다**
+- [x] **Step 1: zero-baseline을 요구하는 실패 검사를 작성한다**
 
 ```js
 test("production UI has no legacy policy violations", async () => {
@@ -1223,21 +1223,21 @@ test("production UI has no legacy policy violations", async () => {
 });
 ```
 
-- [ ] **Step 2: 남은 legacy CSS 때문에 실패하는지 확인한다**
+- [x] **Step 2: 남은 legacy CSS 때문에 실패하는지 확인한다**
 
 Run: `node --test apps/web/scripts/ui-policy.test.mjs && pnpm --filter @led-control/web ui:check`
 
 Expected: FAIL and print exact remaining files/rules.
 
-- [ ] **Step 3: 사용하지 않는 global selector와 legacy adapter를 제거한다**
+- [x] **Step 3: 사용하지 않는 global selector와 legacy adapter를 제거한다**
 
 각 selector를 `rg`로 production 사용처가 0인지 확인한 뒤 `styles.css`에서 제거한다. 사용처가 남아 있으면 해당 소유 세션으로 돌려보내고 총괄/UI 기반 세션이 페이지 파일을 대신 수정하지 않는다. legacy `components/ConfirmDialog.tsx` import가 0이면 파일을 삭제한다.
 
-- [ ] **Step 4: 허용 예외만 남기고 baseline을 0으로 만든다**
+- [x] **Step 4: 허용 예외만 남기고 baseline을 0으로 만든다**
 
 Konva/Recharts runtime geometry와 keyframe 예외에는 이유 주석이 있어야 한다. `ui-policy-baseline.json`은 빈 violation map이어야 하며 production `querySelector`, arbitrary spacing/color, raw color와 raw spacing이 0이어야 한다.
 
-- [ ] **Step 5: unit, typecheck와 build를 실행한다**
+- [x] **Step 5: unit, typecheck와 build를 실행한다**
 
 Run:
 
@@ -1250,13 +1250,13 @@ pnpm --filter @led-control/web ui:check
 
 Expected: all commands exit 0 with zero failed tests.
 
-- [ ] **Step 6: 전체 browser 회귀를 실행한다**
+- [x] **Step 6: 전체 browser 회귀를 실행한다**
 
 Run: `pnpm --filter @led-control/web exec playwright test`
 
 Expected: all configured Playwright projects pass; no horizontal document overflow at the four target viewports.
 
-- [ ] **Step 7: 문서 일치와 diff를 검증한다**
+- [x] **Step 7: 문서 일치와 diff를 검증한다**
 
 Run:
 
@@ -1268,21 +1268,23 @@ git status --short
 
 Expected: all menu docs describe applied scope and remaining hardware/mock limits; diff check exits 0; only intended files are modified.
 
-- [ ] **Step 8: 최종 정리 커밋을 만든다**
+- [x] **Step 8: 최종 정리 커밋을 만든다**
 
 ```bash
 git add apps/web/src/styles.css apps/web/src/styles apps/web/src/components apps/web/scripts docs/ui-spacing.md docs/menus docs/superpowers/plans/2026-09-15-tailwind-design-system-migration.md
 git commit -m "refactor(web): complete Tailwind UI migration"
 ```
 
+**2026-09-16 fresh verification:** Web Vitest **83 files·1,224/1,224**, UI policy **46/46**, `ui:check` **0 existing·0 new/increased**, canonical CI workflow **41/41**, accessibility focused Chromium **31/31**, floor placement·monitoring-1000·monitoring-control focused Chromium **38/38**, final full Chromium serial **257 passed·5 existing environment-gated skipped·0 failed**. Web typecheck/build와 1440×900·1024×768·390×844·320×740 layout assertions도 통과했다. 병렬 전체 진단의 공유 build/Vite fixture 경합 중 monitoring-control-flow 1건은 focused, 2-spec 병행 재현, 최종 직렬 전체 실행에서 재현되지 않았고 skip·timeout을 추가하지 않았다. 실제 iOS/Android WebView·수동 in-app 시각 QA·운영 backend/object storage·사용자 DB·MQTT/Gateway/Raspberry Pi/BlueZ/ESP32-H2 HIL은 실행하지 않았다.
+
 ## 총괄 체크포인트
 
 - [x] 확정 설계 승인과 작업 세션별 구현 계획 작성을 완료한다.
-- [ ] Task 1~5의 각 커밋과 focused test 증거를 확인한다.
-- [ ] foundation HEAD를 Task 6~11 담당 세션에 전달한다.
-- [ ] Task 6 pilot 결과로 공통 API 변경이 필요하면 UI 기반 세션에서만 수정·검증한다.
-- [ ] Task 7, 8, 9를 소유 파일 기준으로 병렬 진행한다.
-- [ ] Task 9 통과 뒤 Task 10을 시작하고, Task 10 통과 뒤 Task 11을 시작한다.
-- [ ] 각 담당 세션의 결과는 보고만 믿지 않고 diff와 검증 명령을 총괄이 재실행한다.
-- [ ] Task 12에서 정책 baseline 0, 전체 Web test/typecheck/build/E2E를 확인한다.
-- [ ] 완료된 커밋을 `codex/mvp1-cloud-web`에 순서대로 통합하고 최종 결과를 사용자에게 보고한다.
+- [x] Task 1~5의 각 커밋과 focused test 증거를 확인한다.
+- [x] foundation HEAD를 Task 6~11 담당 세션에 전달한다.
+- [x] Task 6 pilot 결과로 공통 API 변경이 필요하면 UI 기반 세션에서만 수정·검증한다.
+- [x] Task 7, 8, 9를 소유 파일 기준으로 병렬 진행한다.
+- [x] Task 9 통과 뒤 Task 10을 시작하고, Task 10 통과 뒤 Task 11을 시작한다.
+- [x] 각 담당 세션의 결과는 보고만 믿지 않고 diff와 검증 명령을 총괄이 재실행한다.
+- [x] Task 12에서 정책 baseline 0, 전체 Web test/typecheck/build/E2E를 확인한다.
+- [x] 완료된 커밋을 `codex/mvp1-cloud-web`에 순서대로 통합하고 최종 결과를 사용자에게 보고한다.

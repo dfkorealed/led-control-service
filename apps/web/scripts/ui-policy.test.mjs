@@ -5,7 +5,19 @@ import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
-import { inspectUiSource } from "./ui-policy.mjs";
+import { inspectUiSource, inspectWorkspace } from "./ui-policy.mjs";
+
+test("production UI has no legacy policy violations", async () => {
+  const result = await inspectWorkspace({ baseline: {} });
+  assert.deepEqual(result.violations, []);
+});
+
+test("workspace inspection rejects non-empty debt allowances", async () => {
+  await assert.rejects(
+    inspectWorkspace({ baseline: { "src/New.tsx": { "raw-color": { count: 1, matches: { red: 1 } } } } }),
+    /zero-baseline/
+  );
+});
 
 test("rejects arbitrary spacing, raw colors and production querySelector", () => {
   const violations = inspectUiSource("sample.tsx", 'className="p-[13px] text-[#fff]"; node.querySelector("button")');
@@ -18,16 +30,22 @@ test("accepts all approved spacing steps, semantic colors and typography", () =>
   assert.deepEqual(inspectUiSource("sample.tsx", source), []);
 });
 
-test("rejects arbitrary radius and shadow utilities beyond the reviewed fixture marker debt", () => {
+test("rejects arbitrary radius and shadow utilities without a legacy debt allowance", () => {
   const arbitrary = 'className="rounded-[3px] shadow-[0_0_2px_red]"';
   assert.deepEqual(inspectUiSource("src/New.tsx", arbitrary).map(v => v.rule), ["arbitrary-theme-utility", "arbitrary-theme-utility"]);
 
   const fixtureShadow = "shadow-[0_0_0_0_color-mix(in_srgb,var(--color-fixture-on)_0%,transparent),inset_0_0_0_1px_color-mix(in_srgb,var(--color-content-inverse)_24%,transparent)]";
-  assert.deepEqual(inspectUiSource("src/features/floor-map/FloorScene.tsx", `"rounded-[3px] ${fixtureShadow}"`), []);
   assert.deepEqual(
-    inspectUiSource("src/features/floor-map/FloorScene.tsx", `"rounded-[3px] rounded-[3px] ${fixtureShadow} ${fixtureShadow}"`).map(v => v.rule),
+    inspectUiSource("src/features/floor-map/FloorScene.tsx", `"rounded-[3px] ${fixtureShadow}"`).map(v => v.rule),
     ["arbitrary-theme-utility", "arbitrary-theme-utility"]
   );
+});
+
+test("permits only the documented Konva and Recharts runtime values", () => {
+  assert.deepEqual(inspectUiSource("src/features/floor-editor/geometry.ts", 'strokeColor: "#2563eb", fillColor: "#dbeafe", fontSize: 16'), []);
+  assert.deepEqual(inspectUiSource("src/features/floor-editor/geometry.ts", 'strokeColor: "#2563eb", fillColor: "#dbeafe", fontSize: 16, fontSize: 16').map(v => v.rule), ["literal-typography"]);
+  assert.deepEqual(inspectUiSource("src/features/statistics/EnergyComparisonChart.tsx", 'margin={{ top: 12, right: 12, left: 0, bottom: 8 }}'), []);
+  assert.deepEqual(inspectUiSource("src/features/statistics/EnergyComparisonChart.tsx", 'margin={{ top: 13, right: 12, left: 0, bottom: 8 }}').map(v => v.match), ["top: 13"]);
 });
 
 test("layer wrappers preserve first-selector and raw-form fingerprints without hiding debt", () => {
@@ -293,28 +311,28 @@ test("I4 fingerprints the receiver and complete selector call, independently of 
   assert.equal(inspectUiSource(path, nested)[0].match, nested);
 });
 
-test("I4 CLI rejects same-file query receiver/selector replacement but permits unrelated edits", async () => {
+test("I4 CLI rejects every production DOM query with a zero baseline", async () => {
   const root = await mkdtemp(join(tmpdir(), "led-ui-query-policy-"));
   const run = () => spawnSync(process.execPath, [new URL("./ui-policy.mjs", import.meta.url).pathname, "--root", root], { encoding: "utf8" });
   try {
     await mkdir(join(root, "src"));
     await mkdir(join(root, "src/components"));
     await mkdir(join(root, "scripts"));
-    await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "24b5ea593e860575f7bf1007781146cf1101beb7", files: { "src/components/ConfirmDialog.tsx": { "query-selector": { count: 1, matches: { 'dialogElement.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)': 1 } } } } }));
+    await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "24b5ea593e860575f7bf1007781146cf1101beb7", files: {} }));
     await writeFile(join(root, "src/components/ConfirmDialog.tsx"), 'dialogElement.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);');
-    assert.equal(run().status, 0);
+    assert.equal(run().status, 1);
     await writeFile(join(root, "src/components/ConfirmDialog.tsx"), 'const unused = 1;\ndialogElement.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);');
-    assert.equal(run().status, 0);
+    assert.equal(run().status, 1);
     await writeFile(join(root, "src/components/ConfirmDialog.tsx"), 'document.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);');
     assert.equal(run().status, 1);
-    await writeFile(join(root, "src/components/ConfirmDialog.tsx"), 'dialogElement.querySelectorAll<HTMLElement>(OTHER_SELECTOR);');
-    assert.equal(run().status, 1);
+    await writeFile(join(root, "src/components/ConfirmDialog.tsx"), 'const clean = true;');
+    assert.equal(run().status, 0);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 });
 
-test("CLI inventories only production src and fails on new or increased debt", async () => {
+test("CLI inventories only production src and rejects any policy debt", async () => {
   const root = await mkdtemp(join(tmpdir(), "led-ui-policy-"));
   const cli = new URL("./ui-policy.mjs", import.meta.url);
   const run = () => spawnSync(process.execPath, [cli.pathname, "--root", root], { encoding: "utf8" });
@@ -323,22 +341,20 @@ test("CLI inventories only production src and fails on new or increased debt", a
     await mkdir(join(root, "scripts"));
     await writeFile(join(root, "src/App.tsx"), 'import "./styles.css";');
     await writeFile(join(root, "src/ignored.test.tsx"), '"p-[15px]"');
-    await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "24b5ea593e860575f7bf1007781146cf1101beb7", files: { "src/App.tsx": { "css-import": { count: 1, matches: { "./styles.css": 1 } } } } }));
+    await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "24b5ea593e860575f7bf1007781146cf1101beb7", files: {} }));
     assert.equal(run().status, 0);
-    await writeFile(join(root, "src/App.tsx"), 'import "./styles.css"; import "./styles.css";');
-    assert.equal(run().status, 1);
     await writeFile(join(root, "src/App.tsx"), 'import "./new.css";');
-    assert.equal(run().status, 1, "a different violation cannot consume removed debt");
+    assert.equal(run().status, 1);
     await writeFile(join(root, "src/App.tsx"), '"gap-3"');
     assert.equal(run().status, 0);
-    await writeFile(join(root, "src/new.tsx"), 'import "./styles.css";');
-    assert.equal(run().status, 1, "new files have no baseline allowance");
+    await writeFile(join(root, "src/new.tsx"), '"p-[15px]"');
+    assert.equal(run().status, 1);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 });
 
-test("baseline edits cannot replace the approved Git anchor or invent allowance", async () => {
+test("baseline must preserve the approved Git anchor and an empty violation map", async () => {
   const root = await mkdtemp(join(tmpdir(), "led-ui-baseline-integrity-"));
   const run = () => spawnSync(process.execPath, [new URL("./ui-policy.mjs", import.meta.url).pathname, "--root", root], { encoding: "utf8" });
   try {
@@ -346,12 +362,9 @@ test("baseline edits cannot replace the approved Git anchor or invent allowance"
     await mkdir(join(root, "scripts"));
     await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "0000000000000000000000000000000000000000", files: {} }));
     assert.equal(run().status, 1, "an edited sourceRef must fail even without current violations");
-    await writeFile(join(root, "src/App.tsx"), 'import "./new.css";');
-    await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "24b5ea593e860575f7bf1007781146cf1101beb7", files: { "src/App.tsx": { "css-import": { count: 1, matches: { "./new.css": 1 } } } } }));
-    assert.equal(run().status, 1, "same-change source and baseline edits cannot invent approved debt");
-    await writeFile(join(root, "src/App.tsx"), 'import "./styles.css"; import "./styles.css";');
+    await writeFile(join(root, "src/App.tsx"), 'const clean = true;');
     await writeFile(join(root, "scripts/ui-policy-baseline.json"), JSON.stringify({ version: 1, sourceRef: "24b5ea593e860575f7bf1007781146cf1101beb7", files: { "src/App.tsx": { "css-import": { count: 2, matches: { "./styles.css": 2 } } } } }));
-    assert.equal(run().status, 1, "existing approved debt may not increase through a baseline edit");
+    assert.equal(run().status, 1, "non-empty debt allowances must fail even with clean source");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -24,7 +24,7 @@ export function AutomationPresetGroup<T extends string>({
             key={option.value}
             variant="secondary"
             type="button"
-            className={selected ? "border-action-primary bg-action-primary-soft" : ""}
+            className={`min-h-12 ${selected ? "border-action-primary bg-action-primary-soft" : ""}`}
             aria-pressed={selected}
             disabled={disabled}
             onClick={() => onChange(option.value)}

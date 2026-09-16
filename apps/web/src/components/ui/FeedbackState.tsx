@@ -11,7 +11,7 @@ const feedbackText = {
 } satisfies Record<FeedbackTone, string>;
 
 export interface FeedbackStateProps extends HTMLAttributes<HTMLElement> { variant?: "default"; tone?: FeedbackTone; icon: LucideIcon; title: string; description?: string; action?: ReactNode; liveRole?: "status" | "alert"; livePoliteness?: "polite" | "assertive" }
-const feedback = cva("ui-feedback-state flex items-start gap-2.5 rounded-panel border p-3.5", {
+const feedback = cva("flex items-start gap-2.5 rounded-panel border p-3.5", {
   variants: {
     variant: { default: "" },
     tone: {

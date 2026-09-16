@@ -1,8 +1,21 @@
 import { expect, test } from "@playwright/test";
 import {
   expectMinimumTouchTargets,
-  expectMinimumTouchTargetsAfterScrolling
+  expectMinimumTouchTargetsAfterScrolling,
+  expectNoHorizontalOverflow,
+  targetLayoutViewports
 } from "./support/layout-assertions";
+
+for (const viewport of targetLayoutViewports) {
+  test(`horizontal overflow gate covers the ${viewport.width}px target viewport`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await page.setContent('<main style="width: 100%; max-width: 100%">정상 레이아웃</main>');
+    await expectNoHorizontalOverflow(page);
+
+    await page.setContent('<main style="width: calc(100vw + 8px)">넘치는 레이아웃</main>');
+    await expect(expectNoHorizontalOverflow(page)).rejects.toThrow();
+  });
+}
 
 test("touch target helper inspects every visible enabled interactive descendant", async ({ page }) => {
   await page.setContent(`
@@ -242,6 +255,19 @@ test("scrolling touch target helper tries every associated label for a native ch
     </main>
   `);
 
+  await expectMinimumTouchTargetsAfterScrolling(page, "#root");
+});
+
+test("touch target helpers measure a range input through its visible slider thumb", async ({ page }) => {
+  await page.setContent(`
+    <main id="root" style="height: 60px; overflow-y: auto">
+      <div data-slider-thumb style="position: relative; width: 52px; height: 52px; border-radius: 10px">
+        <input aria-label="밝기" type="range" style="position: absolute; width: 1px; height: 1px; clip: rect(0 0 0 0)">
+      </div>
+    </main>
+  `);
+
+  await expectMinimumTouchTargets(page, "#root");
   await expectMinimumTouchTargetsAfterScrolling(page, "#root");
 });
 

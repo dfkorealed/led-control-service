@@ -8,8 +8,8 @@ export interface UnderlineNavigationProps extends HTMLAttributes<HTMLElement> {
   trackClassName?: string;
 }
 
-const navigation = cva("ui-underline-navigation w-full min-w-0 max-w-full self-start overflow-x-auto border-b border-border-default", { variants: { variant: { default: "" } } });
-const navigationLabel = cva("ui-underline-navigation-label inline-flex items-center justify-center gap-2", { variants: { variant: { default: "" } } });
+const navigation = cva("w-full min-w-0 max-w-full self-start overflow-x-auto border-b border-border-default", { variants: { variant: { default: "" } } });
+const navigationLabel = cva("inline-flex items-center justify-center gap-2", { variants: { variant: { default: "" } } });
 
 export const UnderlineNavigation = forwardRef<HTMLElement, UnderlineNavigationProps>(function UnderlineNavigation({
   as = "nav",
@@ -22,7 +22,7 @@ export const UnderlineNavigation = forwardRef<HTMLElement, UnderlineNavigationPr
   return createElement(
     as,
     { ...props, ref, className: cn(navigation({ variant }), className) },
-    <div className={cn("ui-underline-navigation-track flex w-max min-w-full gap-2", trackClassName)}>{children}</div>
+    <div data-navigation-track className={cn("flex w-max min-w-full gap-2", trackClassName)}>{children}</div>
   );
 });
 
@@ -36,7 +36,7 @@ export const UnderlineNavigationLabel = forwardRef<HTMLSpanElement, UnderlineNav
 }, ref) {
   return (
     <span {...props} ref={ref} className={cn(navigationLabel({ variant }), className)}>
-      {icon ? <span className="ui-underline-navigation-icon inline-flex shrink-0" aria-hidden="true">{icon}</span> : null}
+      {icon ? <span className="inline-flex shrink-0" aria-hidden="true">{icon}</span> : null}
       <span>{children}</span>
     </span>
   );

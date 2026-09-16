@@ -13,7 +13,7 @@ export interface DatePickerProps extends DateFieldOptions {
   onChange(value: string | null): void;
 }
 export const datePopoverClass = "max-w-full rounded-popover border border-border-strong bg-surface-panel shadow-popover";
-export const calendarTriggerClass = "inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-control border border-border-strong bg-surface-panel p-0 text-content-primary outline-none data-focus-visible:shadow-focus data-disabled:opacity-60";
+export const calendarTriggerClass = "inline-flex min-h-13 min-w-13 shrink-0 items-center justify-center rounded-control border border-border-strong bg-surface-panel p-0 text-content-primary outline-none data-focus-visible:shadow-focus data-disabled:opacity-60";
 
 export const DatePicker = /* @__PURE__ */ forwardRef<FocusableFieldHandle, DatePickerProps>(function DatePicker(
   { value, onChange, minValue, maxValue, label, description, errorMessage, variant, size, className, id, ...props }, ref

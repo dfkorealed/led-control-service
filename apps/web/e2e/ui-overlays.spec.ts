@@ -8,7 +8,7 @@ const fixture = String.raw`
 import React,{useState,useRef} from "react";
 import {createRoot} from "react-dom/client";
 import {ModalDialog,ConfirmDialog,DropdownMenu,Popover,Button} from "/src/components/ui/index.ts";
-import {ConfirmDialog as LegacyConfirm,useDialogFocus} from "/src/components/ConfirmDialog.tsx";
+import {useDialogFocus} from "/src/components/ui/overlays/useDialogFocus.ts";
 import "/src/styles.css";
 const el=React.createElement;
 window.overlayEvents=[]; window.overlayRoots={};
@@ -19,8 +19,8 @@ function App(){
  const [widthDialog,setWidthDialog]=useState(null);
  return el("main",{className:"flex flex-col gap-4"},
   el("h1",null,"오버레이 검증"),
-  ...["default","operator","editor","custom"].map(kind=>el(Button,{key:kind,onClick:()=>setWidthDialog(kind)},"폭 "+kind)),
-  widthDialog&&el(widthDialog==="operator"?LegacyConfirm:widthDialog==="editor"?ConfirmDialog:ModalDialog,{title:"폭 검증",className:widthDialog==="custom"?"w-[min(38.125rem,100%)]!":undefined,confirmLabel:"확인",onConfirm:()=>setWidthDialog(null),onCancel:()=>setWidthDialog(null),onClose:()=>setWidthDialog(null)},"내용"),
+  ...["default","confirmation","custom"].map(kind=>el(Button,{key:kind,onClick:()=>setWidthDialog(kind)},"폭 "+kind)),
+  widthDialog&&el(widthDialog==="confirmation"?ConfirmDialog:ModalDialog,{title:"폭 검증",className:widthDialog==="custom"?"w-[min(38.125rem,100%)]!":undefined,confirmLabel:"확인",onConfirm:()=>setWidthDialog(null),onCancel:()=>setWidthDialog(null),onClose:()=>setWidthDialog(null)},"내용"),
   !removed&&el(Button,{onClick:()=>setOpen(true)},"부모 열기"),el(Button,{ref:fallback},"안전한 복귀"),
   el(Button,{onClick:()=>{setPending(true);setChild(true);}},"대기 확인 열기"),
   el(Button,{onClick:()=>setLegacy(true)},"이전 확인 열기"),
@@ -35,7 +35,7 @@ function App(){
    el(Button,{onClick:()=>{setRemoved(true);setOpen(false);}},"삭제 후 닫기"),
    child&&el(ConfirmDialog,{title:"자식",description:"자식 설명",confirmLabel:"확인",onCancel:()=>{record("child-close");setChild(false);},onConfirm:()=>{record("confirm");setChild(false);}})),
   !open&&child&&el(ConfirmDialog,{title:"대기",confirmLabel:"실행",isPending:pending,onCancel:()=>{record("pending-close");setChild(false);},onConfirm:()=>record("pending-confirm")}),
-  legacy&&el(LegacyConfirm,{open:true,title:"이전 확인",description:"기존 호출",confirmLabel:"삭제",destructive:true,onClose:()=>{record("legacy-close");setLegacy(false);},onConfirm:()=>{record("legacy-confirm");setLegacy(false);}})
+  legacy&&el(ConfirmDialog,{open:true,title:"이전 확인",description:"기존 호출",closeLabel:"이전 확인 닫기",confirmLabel:"삭제",destructive:true,onClose:()=>{record("legacy-close");setLegacy(false);},onConfirm:()=>{record("legacy-confirm");setLegacy(false);}})
  );
 }
 function LegacyForm({close}){
@@ -77,7 +77,7 @@ test.describe("production overlay contracts", () => {
   test.beforeEach(async ({ page }) => { await page.goto(url); await page.getByRole("button", { name: "부모 열기" }).waitFor(); });
 
   test("preserves default, compatibility and public CSS widths without narrow viewport overflow", async ({ page }) => {
-    for (const [kind, width] of [["default", 512], ["operator", 480], ["editor", 440], ["custom", 610]] as const) {
+    for (const [kind, width] of [["default", 512], ["confirmation", 440], ["custom", 610]] as const) {
       await page.setViewportSize({ width: 1280, height: 800 });
       await page.getByRole("button", { name: "폭 " + kind, exact: true }).click();
       const dialog = page.getByRole("dialog", { name: "폭 검증" });
@@ -134,7 +134,7 @@ test.describe("production overlay contracts", () => {
     expect(await page.evaluate(() => (window as any).overlayEvents)).toEqual([["child-close"], ["parent-close"]]);
   });
 
-  test("dismisses outside once, handles removed openers and preserves legacy adapter appearance", async ({ page }) => {
+  test("dismisses outside once, handles removed openers and preserves shared dialog appearance", async ({ page }) => {
     await page.getByRole("button", { name: "부모 열기" }).click();
     await page.getByTestId("modal-backdrop").click({ position: { x: 2, y: 2 } });
     await expect(page.getByRole("dialog")).toHaveCount(0);
@@ -144,11 +144,11 @@ test.describe("production overlay contracts", () => {
     await expect(page.getByRole("button", { name: "안전한 복귀" })).toBeFocused();
     await page.getByRole("button", { name: "이전 확인 열기" }).click();
     const dialog = page.getByRole("dialog", { name: "이전 확인" });
-    await expect(dialog).toHaveClass(/operator-dialog/);
+    await expect(dialog).toHaveAttribute("data-dialog-surface", "");
     await expect(dialog).toHaveCSS("padding", "24px");
     await expect(dialog).toHaveCSS("border-radius", "14px");
     await expect(dialog.getByRole("heading")).toHaveCSS("font-size", "20px");
-    await expect(dialog.locator(".operator-dialog-header .icon-button")).toHaveAccessibleName("이전 확인 닫기");
+    await expect(dialog.getByRole("button", { name: "이전 확인 닫기" })).toBeVisible();
     await dialog.getByRole("button", { name: "이전 확인 닫기" }).click();
     await expect(page.getByRole("button", { name: "이전 확인 열기" })).toBeFocused();
   });

@@ -188,6 +188,7 @@ export function ControlTargetPicker({
               return (
                 <div className={`grid min-h-11 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 border-b border-border-subtle pb-2 last:border-b-0 ${checked ? "bg-action-primary-soft" : "bg-surface-panel"}`} key={fixture.id}>
                   <Checkbox
+                    size="lg"
                     className="min-w-0 [&>label]:w-full [&>label]:min-w-0 [&>label]:justify-start [&>label]:rounded-none [&>label]:border-0 [&>label]:bg-transparent [&>label]:px-3 [&>label]:py-2 [&>label[data-selected]]:bg-transparent"
                     label={(
                       <span className="flex min-w-0 items-center gap-3">

@@ -4,10 +4,9 @@
 
 ## 목적과 적용 범위
 
-이 문서는 Web UI의 간격·색상·타이포그래피 토큰과 정책 검사 기준이다. `apps/web/src/styles/theme.css`의 CSS-first `@theme static`이 단일 토큰 원천이며 JavaScript Tailwind config는 만들지 않는다. 신규 화면과 수정하는 화면은 승인 utility를 적용하고 기존 화면은 메뉴별로 전환한다. 현재 Task 1 기반만 완료했으며 공통 컴포넌트와 페이지 전환은 후속 작업이다.
+이 문서는 Web UI의 간격·색상·타이포그래피 토큰과 정책 검사 기준이다. `apps/web/src/styles/theme.css`의 CSS-first `@theme static`이 단일 토큰 원천이며 JavaScript Tailwind config는 만들지 않는다. Task 12에서 공통 컴포넌트와 모니터링·제어·통계·설정 화면을 승인 utility로 전환하고 legacy selector를 제거했다.
 
-- 1차 적용: 통계 메뉴
-- 후속 적용: 모니터링, 제어, 설정 메뉴
+- 적용 범위: 공통 shell/auth/operator UI와 모니터링·제어·통계·설정 메뉴
 - 간격을 변경한 메뉴는 해당 `docs/menus/*.md`에 적용 범위와 검증 결과를 같이 기록한다.
 
 ## 간격 스케일
@@ -33,7 +32,7 @@
 | 48px | `p-12` | 큰 layout 여백 |
 | 64px | `p-16` | 최상위 빈 상태 |
 
-기존 `--space-1..6`은 각각 4/8/12/16/24/32px를 유지하는 `--spacing`의 compatibility alias다. 특히 기존 `--space-5`는 `p-6`, `--space-6`은 `p-8`에 대응한다. 숫자만 그대로 utility 이름으로 바꾸지 않는다. 음수 margin/위치 utility에도 같은 승인값을 적용한다.
+삭제된 legacy `--space-1..6`의 의미는 각각 4/8/12/16/24/32px였다. 전환 시 `--space-5`는 `p-6`, `--space-6`은 `p-8`에 대응시켰으며 숫자만 그대로 utility 이름으로 바꾸지 않았다. 음수 margin/위치 utility에도 같은 승인값을 적용한다.
 
 ## 배치 원칙
 
@@ -47,9 +46,9 @@
 ## 반응형과 예외
 
 - 신규 utility는 `p-6 max-compact:p-4`처럼 쓴다. `compact=47.5rem`(기본 16px 기준 760px), `tablet=64rem`이며 `max-compact`는 **760px 미만**이다. 기존 compatibility CSS의 `max-width: 760px`는 경계값을 포함하므로 페이지 전환 시 760px 경계도 확인한다. 섹션 간 24px 리듬은 유지한다.
-- 44px 최소 터치 영역, safe area, 차트 높이는 간격 토큰이 아닌 사용성 제약이므로 예외로 다룬다.
+- 44px 최소 터치 영역, safe area, 차트 높이는 간격 토큰이 아닌 사용성 제약이다. compact shell은 공통 `pb-shell-navigation-safe`, `h-shell-navigation-safe`, `pb-safe-area-bottom` utility로 iOS `safe-area-inset-bottom`을 반영하고 feature 코드에는 raw `env(...)`를 쓰지 않는다.
 - 텍스트 줄바꿈으로 카드 높이가 달라질 수 있으며, 정렬을 위해 내용을 잘라내거나 터치 영역을 줄이지 않는다.
-- `0`, percentage/viewport, runtime geometry 계산, border 1px과 최소 터치 영역 44px는 일반 spacing과 구분한다. `exceptions.css`는 비어 있으며 Konva/Recharts geometry, 복잡한 keyframe, 브라우저·라이브러리 selector만 승인 대상이다. 이유·대상·utility로 대체할 수 없는 근거를 주석으로 기록하고 정책 allowlist를 별도 검토한다. 정적 padding/margin/gap/color는 예외로 옮기지 않는다.
+- `0`, percentage/viewport, runtime geometry 계산, border 1px과 최소 터치 영역 44px는 일반 spacing과 구분한다. `exceptions.css`에는 React Konva가 생성하는 `.konvajs-content`/canvas 크기·위치 selector만 남긴다. Recharts chart margin과 Konva geometry 값은 JS runtime exact-count allowlist로 관리한다. 예외에는 이유·대상·utility로 대체할 수 없는 근거를 기록하며 정적 padding/margin/gap/color는 예외로 옮기지 않는다.
 
 ## 통계 메뉴 적용
 
@@ -73,15 +72,17 @@ pnpm --filter @led-control/web build
 
 차단 항목은 arbitrary spacing/color/typography, 미승인 숫자 spacing과 기본 palette/typography utility, CSS·inline 정적 spacing/typography와 literal color, production `querySelector`/`querySelectorAll`(TypeScript generic 포함), 미승인 CSS 파일/import/selector, 공통 UI 밖의 신규 native form style이다. 검사기는 정적 문자열을 읽는 lexical guard이므로 동적 클래스 조합·전체 JS/CSS 의미 해석과 런타임 geometry의 타당성은 코드 검토로 보완한다.
 
-baseline은 Task 1 최초 2,380건에서 Fix Round 1의 검사 정확도 보정 후 **35개 파일 2,344건**이다. 승인된 구현 커밋 `24b5ea593e860575f7bf1007781146cf1101beb7`의 production 소스로 다시 계산했다. border-side를 위치 간격으로 읽던 오탐 38건과 semantic 변수 이름의 색상 오탐 4건을 제거하고, 기존 정적 spacing 계산 3건과 typography 계산 3건을 새로 탐지했다. production 소스를 바꿔 줄인 수치는 아니다. 규칙별 잔량은 selector 1,129, literal spacing 492, raw color 357, literal typography 233, raw form style 116, DOM query 8, CSS import 5, CSS file 4다.
+Task 12 baseline의 violation map은 비어 있으며 production 정책 부채는 **0건**이어야 한다. `inspectWorkspace`는 non-empty allowance를 거부하고 CLI도 빈 map만 허용한다. entry stylesheet import와 문서화된 runtime 예외는 baseline 부채가 아니라 정책 코드의 exact allowlist로 관리한다.
 
-파일·규칙 총량과 정확한 match별 개수가 증가하면 exit 1이다. DOM query match는 receiver와 중첩/template selector 인자를 포함한 전체 호출로 정규화하므로 receiver/selector를 바꾼 신규 query로 allowance를 대체할 수 없다. 신규 파일 allowance는 0이다. baseline의 `sourceRef`는 scanner에 고정된 위 승인 Git commit과 일치해야 하고, 각 allowance는 해당 Git source를 현재 scanner로 재계산한 상한 이하여야 한다. sourceRef·baseline만 고쳐 새 위반을 승인할 수 없다. Git object가 없거나 allowance가 변조되면 fail-closed한다. 후속 migration은 감소한 allowance를 함께 줄이며 신뢰 commit 변경은 별도 정책 코드 검토 대상이다. Git 기반 검사이므로 CI checkout에는 승인 commit object가 필요하다.
+2026-09-16 최종 검증에서 UI policy **46/46**, `ui:check` **기존 0·신규/증가 0**, Web Vitest **83 files·1,224/1,224**, 1440×900·1024×768·390×844·320×740 layout assertions를 포함한 전체 Chromium 직렬 **257 passed·5 environment-gated skipped·실패 0**을 확인했다. 실제 native WebView safe-area 실측과 수동 in-app 시각 QA는 별도 후속 검증이다.
+
+baseline의 `sourceRef`는 scanner에 고정된 승인 Git commit `24b5ea593e860575f7bf1007781146cf1101beb7`과 일치해야 한다. Git object가 없거나 sourceRef·빈 map이 변조되면 fail-closed한다. canonical root unit gate가 Web `test:ui-policy`와 `ui:check`를 일반 unit 뒤에 실행하고, CI unit checkout은 `fetch-depth: 0`으로 승인 object를 확보한다.
 
 `p-px`와 정적 `calc`/`clamp` 간격, semantic typography의 `/7`·`/[17px]`·변수 line-height modifier, 계산식 안의 literal font-size를 거부한다. 측정/percentage/viewport를 사용하는 runtime position은 별도 예외이며 일반 padding/margin/gap에 임의 간격을 더하는 수단으로 쓰지 않는다. 허용 token 이름은 승인 commit의 canonical `theme.css`에서 읽는다. 신규 `--text-rogue`, `bg-surface-pannel` 같은 오타와 `max-[777px]:*` 같은 임의 breakpoint는 정책 오류다. CSS import의 query/hash suffix도 원본 resource ID 기준으로 검사한다.
 
-주석 처리는 기존 TypeScript parser의 실제 trivia 위치를 사용해 trailing/JSX comment를 제거하고 URL·문자열·template 내용을 보존한다. CSS는 문자열을 인식하는 comment scan을 사용한다. `test:ui-policy`에는 실제 Vite 메모리 빌드의 semantic/spacing/typography/`max-compact` 생성 및 test fixture 클래스 제외 검증이 포함된다. standalone 두 정책 command의 CI 연결은 Task 12 체크리스트에서 완료한다.
+주석 처리는 기존 TypeScript parser의 실제 trivia 위치를 사용해 trailing/JSX comment를 제거하고 URL·문자열·template 내용을 보존한다. CSS는 문자열을 인식하는 comment scan을 사용한다. `test:ui-policy`에는 실제 Vite 메모리 빌드의 semantic/spacing/typography/`max-compact` 생성 및 test fixture 클래스 제외 검증이 포함된다. standalone 두 정책 command는 canonical root/CI unit gate에 연결되어 있다.
 
-색상은 JSX template의 정적 구간, `backgroundImage`/`background-image`, `boxShadow`/`box-shadow`, `text-shadow`, `filter`/`drop-shadow` 및 SVG `stopColor`/`stop-color`의 literal도 검사한다. TypeScript AST로 template expression을 분리하므로 semantic `var(--color-...)`와 runtime palette/shadow 표현식은 named color로 오인하지 않는다. URL payload는 제외하되 그 뒤 쉼표·줄바꿈으로 연결된 gradient는 계속 검사한다. Fix Round 3 검증은 정책 32/32, Web 888/888, typecheck/build/ui:check 통과이며 baseline은 수정 없이 2,344건을 유지한다.
+색상은 JSX template의 정적 구간, `backgroundImage`/`background-image`, `boxShadow`/`box-shadow`, `text-shadow`, `filter`/`drop-shadow` 및 SVG `stopColor`/`stop-color`의 literal도 검사한다. TypeScript AST로 template expression을 분리하므로 semantic `var(--color-...)`와 runtime palette/shadow 표현식은 named color로 오인하지 않는다. URL payload는 제외하되 그 뒤 쉼표·줄바꿈으로 연결된 gradient는 계속 검사한다.
 
 Canonical theme는 단 하나의 `@theme static` block에 승인 anchor의 모든 token을 정확히 한 번씩 선언해야 한다. Token이나 block 삭제, 같은 값의 중복 선언, unknown/value 변경, `@theme inline` 같은 다른 형식과 추가 block은 fail-closed한다. 공백·주석·마지막 세미콜론 생략 허용은 유지한다.
 

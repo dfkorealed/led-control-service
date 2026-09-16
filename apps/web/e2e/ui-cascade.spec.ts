@@ -4,8 +4,8 @@ import { expect, test } from "@playwright/test";
 interface ControlStyle { minHeight: string; padding: string; fontSize: string; lineHeight: string; width: string; height: string }
 interface Observations {
   controls: Record<string, ControlStyle>;
-  sidebar: { width: string; padding: string };
-  tooltipAlignment: { right: string; transform: string };
+  desktopNavigation: { width: string; padding: string };
+  tooltipCenterOffset: number;
   keyboard: { key: string; x: number; y: number; width: number; height: number }[];
 }
 
@@ -31,9 +31,8 @@ const fixture = [
   'el(Button,{size:"lg",className:"px-3","data-testid":"override"},"override"),',
   'el(IconTooltipButton,{icon:LogOut,label:"기본 도움말","data-testid":"tooltip-default"}),',
   'el(IconTooltipButton,{icon:LogOut,label:"크기 도움말",className:"p-2 w-16 h-16 min-w-16 min-h-16","data-testid":"tooltip-override"}),',
-  'el("div",{className:"sidebar","data-testid":"legacy-sidebar"},"legacy"),',
-  'el("div",{className:"operator-row-actions"},el(Button,{"data-testid":"legacy-row-action"},"행 동작")),',
-  'el("div",{className:"topbar-actions"},el(IconTooltipButton,{icon:LogOut,label:"상단 도움말"})),',
+  'el("aside",{className:"w-24 px-2.5 py-4","data-testid":"desktop-navigation"},"navigation"),',
+  'el("div",{className:"flex items-center justify-end gap-2"},el(IconTooltipButton,{icon:LogOut,label:"상단 도움말"})),',
   'el(Button,{type:"button","data-testid":"keyboard",onPress:event=>window.uiPressCoordinates.push({x:event.x,y:event.y,key:event.key})},"키보드")));'
 ].join("\n");
 
@@ -70,19 +69,20 @@ try {
   await page.goto("http://127.0.0.1:"+server.address().port);
   await page.getByTestId("sm").waitFor();
   const observations={controls:{},keyboard:[]};
-  for(const id of ["sm","md","lg","override","tooltip-default","tooltip-override","legacy-row-action"]){
+  for(const id of ["sm","md","lg","override","tooltip-default","tooltip-override"]){
     observations.controls[id]=await page.getByTestId(id).evaluate(element=>{
       const style=getComputedStyle(element);
       return {minHeight:style.minHeight,padding:style.padding,fontSize:style.fontSize,lineHeight:style.lineHeight,width:style.width,height:style.height};
     });
   }
-  observations.sidebar=await page.getByTestId("legacy-sidebar").evaluate(element=>{
+  observations.desktopNavigation=await page.getByTestId("desktop-navigation").evaluate(element=>{
     const style=getComputedStyle(element);return {width:style.width,padding:style.padding};
   });
-  await page.getByRole("button",{name:"상단 도움말"}).focus();
-  observations.tooltipAlignment=await page.getByRole("tooltip").evaluate(element=>{
-    const style=getComputedStyle(element);return {right:style.right,transform:style.transform};
-  });
+  const topbarAction=page.getByRole("button",{name:"상단 도움말"});
+  await topbarAction.focus();
+  const actionBounds=await topbarAction.boundingBox();
+  const tooltipBounds=await page.getByRole("tooltip").boundingBox();
+  observations.tooltipCenterOffset=(tooltipBounds.x+tooltipBounds.width/2)-(actionBounds.x+actionBounds.width/2);
   const keyboard=page.getByTestId("keyboard");
   for(const key of ["Enter","Space"]){
     await keyboard.press(key);
@@ -120,11 +120,10 @@ test.describe("production primitive CSS cascade", () => {
     expect(observed.controls["tooltip-override"]).toMatchObject({ padding: "8px", width: "64px", height: "64px" });
   });
 
-  test("preserves the default tooltip touch area and unrelated legacy layout rules", () => {
+  test("preserves the default tooltip touch area and final shell utility layout", () => {
     expect(observed.controls["tooltip-default"]).toMatchObject({ width: "52px", height: "52px" });
-    expect(observed.sidebar).toEqual({ width: "92px", padding: "16px 10px 14px" });
-    expect(observed.controls["legacy-row-action"].minHeight).toBe("36px");
-    expect(observed.tooltipAlignment).toEqual({ right: "0px", transform: "none" });
+    expect(observed.desktopNavigation).toEqual({ width: "96px", padding: "16px 10px" });
+    expect(observed.tooltipCenterOffset).toBeCloseTo(0);
   });
 
   for (const key of ["Enter", "Space"]) test(`uses element-center coordinates for a real ${key} activation`, () => {

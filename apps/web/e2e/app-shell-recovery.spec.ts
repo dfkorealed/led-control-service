@@ -29,7 +29,7 @@ async function expectRecovery(page: Page, title: string) {
   await expect(page.getByRole("alert")).toBeVisible();
   await expect(page.locator("body")).not.toContainText(secret);
   await expectNoHorizontalOverflow(page);
-  await expectMinimumTouchTargets(page, ".app-recovery-actions");
+  await expectMinimumTouchTargets(page, "[data-recovery-actions]");
 }
 
 for (const width of [1440, 1024, 390, 320]) {

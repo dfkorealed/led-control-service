@@ -54,20 +54,19 @@ for (const viewport of viewports) {
     await expect(loginButton).toHaveCSS("background-color", "rgb(37, 111, 161)");
     await loginButton.hover();
     await expect(loginButton).toHaveCSS("background-color", "rgb(29, 92, 134)");
-    // 브라우저 computed style은 var() 별칭을 최종 색상으로 해석한다.
-    // 별칭 연결 자체는 KindaLogo 단위 테스트가 원본 CSS에서 검증한다.
+    // Tailwind theme의 canonical token이 로그인 표면의 최종 색상을 결정한다.
     expect(await page.evaluate(() => {
       const root = getComputedStyle(document.documentElement);
       return {
-        primary: root.getPropertyValue("--primary").trim(),
-        surface: root.getPropertyValue("--surface").trim(),
-        text: root.getPropertyValue("--text").trim(),
-        focus: root.getPropertyValue("--focus-ring").trim()
+        actionPrimary: root.getPropertyValue("--color-action-primary").trim(),
+        surfaceCanvas: root.getPropertyValue("--color-surface-canvas").trim(),
+        contentPrimary: root.getPropertyValue("--color-content-primary").trim(),
+        focus: root.getPropertyValue("--shadow-focus").trim()
       };
     })).toEqual({
-      primary: "#256fa1",
-      surface: "#f4f8fa",
-      text: "#15324a",
+      actionPrimary: "#256fa1",
+      surfaceCanvas: "#f4f8fa",
+      contentPrimary: "#15324a",
       focus: "0 0 0 3px rgb(37 111 161 / 0.28)"
     });
     await expect(page.getByLabel("아이디")).toBeVisible();
@@ -121,14 +120,14 @@ for (const viewport of viewports) {
 }
 
 async function expectMobileDialogControls(dialog: ReturnType<Page["getByRole"]>) {
-  const close = dialog.locator(".ui-modal-close");
-  await expect(close).toHaveCSS("min-height", "44px");
+  const close = dialog.locator("[data-dialog-close]");
+  await expect(close).toHaveCSS("min-height", "52px");
   const closeBox = await close.boundingBox();
   expect(closeBox).not.toBeNull();
   expect(closeBox!.width).toBeGreaterThanOrEqual(44);
   expect(closeBox!.height).toBeGreaterThanOrEqual(44);
 
-  const actions = dialog.locator(".ui-modal-actions > button");
+  const actions = dialog.locator("[data-dialog-actions] > button");
   for (const action of await actions.all()) {
     const box = await action.boundingBox();
     expect(box).not.toBeNull();

@@ -4,6 +4,8 @@
 
 ## 구현 완료
 
+- 2026-09-16 Tailwind Task 12에서 통계 개요·분석·보고서와 공통 MetricCard/dialog/navigation의 legacy class/CSS adapter를 제거하고 의미 토큰·utility 및 `data-*` 테스트 계약으로 수렴했다. Recharts chart margin은 정적 문서 간격이 아닌 runtime geometry exact allowlist로만 유지하며 정책 baseline은 빈 violation map을 사용한다. Fresh Web **1,224/1,224**, UI policy **46/46**, 전체 Chromium 직렬 **257 passed·5 환경 의존 skip·실패 0**을 통과했다. 자동 Chromium·mock API 기반 소프트웨어 증거이며 실제 iOS/Android WebView, 실계량기·Gateway·조명 HIL은 실행하지 않았다.
+
 - 2026-09-16 공통 셸·인증 UI 이전에서 통계 진입 셸의 내비게이션, 현장 배지, route loading·복구 상태와 로그아웃을 Tailwind 의미 토큰 및 공통 UI로 통합했다. 인증 로그인/MFA/필수 비밀번호 변경 입력도 공통 `TextField`/`PasswordField`/`Checkbox`로 전환하면서 기존 payload, 자동완성, 길이 제한, 최초·오류 focus와 알림 문구를 보존했다. 관련 Vitest 157개와 320/390/1024/1440px Chromium 셸·인증·복구 시나리오 19개로 검증했으며, 이는 mock API 기반 browser 회귀로 실계량기·Gateway·조명 실장비 HIL 완료를 뜻하지 않는다.
 - 통계 디자인 시스템 pilot을 개요·사용 분석·보고서 전체에 적용했다. 화면 구조와 간격은 Tailwind semantic utility로 통일하고 `PageHeader`, `Card`, `MetricCard`, `SidePanel`, `Heading`, `Text`, `Button`, `StatusBadge`, `FeedbackState`를 재사용한다. 분석·보고서의 native select/date input은 공통 `SelectBox`와 date-only `DatePicker`로 교체했으며 요청 payload와 현장 timezone 기준 날짜 계약은 유지한다.
 - Recharts의 사용량·기준·예상·순위 선과 격자는 `themeColor`를 통한 semantic chart token으로 전환했다. 히트맵은 semantic 단계 token을 사용하고 24열 표만 카드 내부에서 가로 스크롤한다. 168개 셀은 선택 셀 하나만 Tab 순서에 두고 ArrowLeft/Right를 같은 요일, ArrowUp/Down을 같은 시각에서 경계 clamp하며 Home/End로 현재 요일의 00/23시를 선택한다. 이동 시 focus·상세·`aria-pressed`를 함께 갱신하고 지표 전환 뒤 선택 위치를 유지한다. 스크린리더 전용 셀 문구의 위치 기준을 각 셀에 고정해 문서 폭을 늘리지 않으며, 보고서 날짜 세그먼트·달력·닫기 제어는 실제 연속 44×44px 이상 포인터 영역을 제공한다.

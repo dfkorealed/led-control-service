@@ -83,6 +83,23 @@ test("software CI is a strict frozen-install chain through production audit", as
   );
 });
 
+test("canonical unit gate runs UI policy fail-closed with its reviewed Git history", async () => {
+  const workflow = await parseWorkflow("ci.yml");
+  const unit = workflow.jobs.unit;
+  const checkout = unit.steps.find((step) => step.uses === "actions/checkout@v4");
+  assert.equal(checkout?.with?.["fetch-depth"], 0, "unit checkout must contain the reviewed UI policy source commit");
+
+  const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+  const command = packageJson.scripts["test:unit"];
+  const webTests = "pnpm --filter @led-control/web test:ui-policy";
+  const webCheck = "pnpm --filter @led-control/web ui:check";
+  assert.equal(command.match(new RegExp(escapeRegExp(webTests), "g"))?.length, 1);
+  assert.equal(command.match(new RegExp(escapeRegExp(webCheck), "g"))?.length, 1);
+  assert.ok(command.indexOf("pnpm -r test") < command.indexOf(webTests));
+  assert.ok(command.indexOf(webTests) < command.indexOf(webCheck));
+  assertCannotBeSkipped(findRunStep(unit, "pnpm test"), "canonical unit gate");
+});
+
 test("cold-checkout and protected-gate mutations are rejected", async () => {
   const workflow = await parseWorkflow("ci.yml");
   const coldCheckout = structuredClone(workflow.jobs.unit);

@@ -72,7 +72,7 @@ export function ReportCreateDialog({
 
   return (
     <ModalDialog
-      className="max-w-[var(--container-lg)] [&_.ui-modal-close]:h-14! [&_.ui-modal-close]:min-h-14! [&_.ui-modal-close]:w-14! [&_.ui-modal-close]:min-w-14!"
+      className="max-w-[var(--container-lg)] [&_[data-dialog-close]]:h-14! [&_[data-dialog-close]]:min-h-14! [&_[data-dialog-close]]:w-14! [&_[data-dialog-close]]:min-w-14!"
       title="에너지 사용량 보고서 만들기"
       description="XLSX와 PDF는 동일한 표준 보고서 내용을 파일 형식만 다르게 제공합니다."
       onClose={onClose}

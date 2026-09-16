@@ -36,13 +36,33 @@ for (const name of reviewedThemeTokenAdditions.keys()) {
 const themeValues = new Map([...approvedThemeValues, ...reviewedThemeTokenAdditions]);
 const themeTokens = new Set(themeValues.keys());
 
-// FloorScene is migrated by its owning page task. Until that lands, keep the
-// exact reviewed occurrences as a shrinking debt budget; any new or duplicated
-// arbitrary marker utility is still rejected by the policy.
-const reviewedArbitraryThemeDebt = new Map([
-  ["src/features/floor-map/FloorScene.tsx", new Map([
-    ["rounded-[3px]", 1],
-    ...fixtureBrightnessShadowValues.map(value => [`shadow-[${value.replaceAll(", ", ",").replaceAll(" ", "_")}]`, 1])
+// These values are runtime geometry/data consumed by Konva or Recharts, not
+// document spacing or palette CSS. exceptions.css records why each path cannot
+// be represented by static utilities. Exact counts keep the allowlist closed.
+const reviewedRuntimeExceptions = new Map([
+  ["src/styles/exceptions.css", new Map([
+    ["css-selector\0.floor-scene-canvas .konvajs-content, .floor-scene-canvas canvas", 1],
+    ["css-selector\0.floor-scene-canvas .konvajs-content", 1]
+  ])],
+  ["src/features/floor-editor/geometry.ts", new Map([
+    ["raw-color\0#2563eb", 1],
+    ["raw-color\0#dbeafe", 1],
+    ["literal-typography\0fontSize: 16", 1]
+  ])],
+  ["src/features/statistics/EnergyComparisonChart.tsx", new Map([
+    ["literal-spacing\0top: 12", 1],
+    ["literal-spacing\0right: 12", 1],
+    ["literal-spacing\0bottom: 8", 1]
+  ])],
+  ["src/features/statistics/StatisticsOverviewPage.tsx", new Map([
+    ["literal-spacing\0top: 12", 1],
+    ["literal-spacing\0right: 12", 1],
+    ["literal-spacing\0bottom: 8", 1]
+  ])],
+  ["src/features/statistics/analysis/EnergyRankingDetailPanel.tsx", new Map([
+    ["literal-spacing\0top: 8", 1],
+    ["literal-spacing\0right: 10", 1],
+    ["literal-spacing\0left: -18", 1]
   ])]
 ]);
 
@@ -201,8 +221,7 @@ export function inspectUiSource(path, source) {
   scan(/(?<![\w-])(?:rounded|shadow)-\[[^\]\n]+\]/g, m => {
     const count = (arbitraryThemeCounts.get(m[0]) ?? 0) + 1;
     arbitraryThemeCounts.set(m[0], count);
-    const allowance = reviewedArbitraryThemeDebt.get(path)?.get(m[0]) ?? 0;
-    if (count > allowance) add("arbitrary-theme-utility", m[0], m.index);
+    add("arbitrary-theme-utility", m[0], m.index);
   });
   const spacePrefix = "(?:p[trblxyse]?|m[trblxyse]?|gap(?:-[xy])?|space-[xy]|inset(?:-[xy])?|top|right|bottom|left|start|end|scroll-[pm][trblxyse]?)";
   scan(new RegExp(`(?<![\\w-])-?${spacePrefix}-(?:\\[[^\\]\\n]+\\]|\\([^\\)\\n]+\\))`, "g"), m => add("arbitrary-spacing", m[0], m.index));
@@ -231,7 +250,8 @@ export function inspectUiSource(path, source) {
   });
   scan(/(?:@import\s+(?:url\(\s*)?|\bimport\s*(?:\(\s*)?|\bfrom\s*)["']([^"']+)["']/g, m => {
     if (!m[1].split(/[?#]/, 1)[0].endsWith(".css") && !m[0].startsWith("@import")) return;
-    const allowed = path === "src/styles.css" && entryImports.has(m[1]) || path === "src/main.tsx" && m[1] === "./styles.css";
+    const allowed = path === "src/styles.css" && entryImports.has(m[1])
+      || (path === "src/main.tsx" || path === "src/App.tsx") && m[1] === "./styles.css";
     if (!allowed) add("css-import", m[1], m.index);
   });
   scan(/@import\s+url\(\s*([^\s"')]+)\s*\)/g, m => {
@@ -321,7 +341,13 @@ export function inspectUiSource(path, source) {
       if (/(?:^|[\s,>+~])(?:input|select|textarea|button)(?=[\s.#[:>+~,]|$)/.test(selector) && !baseAllowed) add("raw-form-style", selector, m.index);
     }
   }
-  return violations.sort((a, b) => a.index - b.index).map(({ index, ...violation }) => violation);
+  const exceptionCounts = new Map();
+  return violations.sort((a, b) => a.index - b.index).filter((violation) => {
+    const key = `${violation.rule}\0${violation.match}`;
+    const count = (exceptionCounts.get(key) ?? 0) + 1;
+    exceptionCounts.set(key, count);
+    return count > (reviewedRuntimeExceptions.get(path)?.get(key) ?? 0);
+  }).map(({ index, ...violation }) => violation);
 }
 
 async function sourceFiles(directory) {
@@ -334,43 +360,30 @@ async function sourceFiles(directory) {
   return files.sort();
 }
 
+export async function inspectWorkspace({ root = webRoot, baseline = {} } = {}) {
+  if (Object.keys(baseline).length > 0) throw new Error("UI policy workspace inspection requires a zero-baseline");
+  let count = 0;
+  const violations = [];
+  for (const file of await sourceFiles(resolve(root, "src"))) {
+    const path = relative(root, file).replaceAll("\\", "/");
+    for (const violation of inspectUiSource(path, await readFile(file, "utf8"))) {
+      count++;
+      violations.push(violation);
+    }
+  }
+  return { count, violations };
+}
+
 async function check(root) {
   const baseline = JSON.parse(await readFile(resolve(root, "scripts/ui-policy-baseline.json"), "utf8"));
   if (baseline.version !== 1 || !baseline.files) throw new Error("Unsupported UI policy baseline");
   const actualRef = execFileSync("git", ["rev-parse", "--verify", `${approvedSourceRef}^{commit}`], { cwd: webRoot, encoding: "utf8" }).trim();
   if (baseline.sourceRef !== approvedSourceRef || actualRef !== approvedSourceRef) throw new Error("UI baseline sourceRef is not the reviewed Git commit");
-  // Recompute the maximum permitted debt from immutable committed source.
-  // Editing sourceRef, rule totals, or match allowances in the same working tree
-  // cannot authorize new debt. Missing Git objects/source files fail closed.
-  for (const [path, rules] of Object.entries(baseline.files)) {
-    if (!path.startsWith("src/") || path.includes("\\") || path.split("/").some(part => !part || part === "." || part === "..")) throw new Error(`Invalid baseline path: ${path}`);
-    const committed = inspectUiSource(path, approvedSource(path));
-    for (const [rule, debt] of Object.entries(rules)) {
-      const allowances = Object.entries(debt.matches ?? {});
-      if (!Number.isInteger(debt.count) || debt.count < 0 || debt.count !== allowances.reduce((sum, [, count]) => sum + count, 0)) throw new Error(`Invalid baseline count: ${path}: ${rule}`);
-      for (const [match, count] of allowances) {
-        if (!Number.isInteger(count) || count <= 0 || count > committed.filter(v => v.rule === rule && v.match === match).length) throw new Error(`Baseline exceeds reviewed source: ${path}: ${rule}: ${match}`);
-      }
-    }
-  }
-  let count = 0;
-  const failures = [];
-  for (const file of await sourceFiles(resolve(root, "src"))) {
-    const path = relative(root, file).replaceAll("\\", "/");
-    const matches = new Map();
-    const rules = new Map();
-    for (const violation of inspectUiSource(path, await readFile(file, "utf8"))) {
-      count++;
-      const key = `${violation.rule}\0${violation.match}`;
-      matches.set(key, (matches.get(key) ?? 0) + 1);
-      rules.set(violation.rule, (rules.get(violation.rule) ?? 0) + 1);
-      const allowance = baseline.files[path]?.[violation.rule];
-      if (matches.get(key) > (allowance?.matches?.[violation.match] ?? 0) || rules.get(violation.rule) > (allowance?.count ?? 0)) failures.push(violation);
-    }
-  }
-  for (const v of failures) console.error(`${v.path}: ${v.rule}: ${v.match}`);
-  console.log(`UI policy: ${count} existing violations; ${failures.length} new/increased violations.`);
-  process.exitCode = failures.length ? 1 : 0;
+  if (Object.keys(baseline.files).length > 0) throw new Error("UI policy baseline violation map must be empty");
+  const result = await inspectWorkspace({ root, baseline: baseline.files });
+  for (const v of result.violations) console.error(`${v.path}: ${v.rule}: ${v.match}`);
+  console.log(`UI policy: ${result.count} existing violations; ${result.violations.length} new/increased violations.`);
+  process.exitCode = result.violations.length ? 1 : 0;
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

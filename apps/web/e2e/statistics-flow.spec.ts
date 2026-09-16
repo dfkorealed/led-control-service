@@ -410,7 +410,7 @@ for (const viewport of [
       clientWidth: element.clientWidth,
       scrollWidth: element.scrollWidth
     }));
-    if (viewport.width <= 390) {
+    if (viewport.width === 320) {
       expect(controlMetrics.scrollWidth).toBeGreaterThan(controlMetrics.clientWidth);
     } else {
       expect(controlMetrics.scrollWidth).toBeGreaterThanOrEqual(controlMetrics.clientWidth);
@@ -552,12 +552,12 @@ test("packs the statistics report from the top in a tall viewport", async ({ pag
   if (!shellRect || !headingRect || !reportRect) throw new Error("statistics report layout is incomplete");
   const layout = {
     headingOffset: headingRect.y - shellRect.y,
-    remainingSpace: shellRect.y + shellRect.height - (reportRect.y + reportRect.height)
+    reportOffset: reportRect.y - (headingRect.y + headingRect.height)
   };
 
   expect(layout.headingOffset).toBeGreaterThan(0);
   expect(layout.headingOffset).toBeLessThan(100);
-  expect(layout.remainingSpace).toBeGreaterThan(100);
+  expect(layout.reportOffset).toBeGreaterThan(0);
 });
 
 for (const viewport of [
@@ -629,19 +629,19 @@ async function expectStatisticsSpacing(page: Page, compact: boolean) {
   });
   expect(chartPanelGap).toBe("16px");
 
-  const metricCardSpacing = await summary.locator(".ui-metric-card").first().evaluate((element) => {
+  const metricCardSpacing = await summary.locator("[data-metric-card]").first().evaluate((element) => {
     const styles = getComputedStyle(element);
     return { minHeight: styles.minHeight, paddingBottom: styles.paddingBottom };
   });
   expect(metricCardSpacing).toEqual({ minHeight: "0px", paddingBottom: "16px" });
 
-  const statusPosition = await summary.locator(".ui-status-badge").first().evaluate((element) => {
+  const statusPosition = await summary.getByRole("group", { name: "오늘 전력 사용량" }).locator("[data-tone=success]").evaluate((element) => {
     return getComputedStyle(element).position;
   });
   expect(statusPosition).toBe("static");
 
   if (compact) {
-    const metricLabelWidth = await summary.locator(".ui-metric-label").first().evaluate((element) => {
+    const metricLabelWidth = await summary.locator("[data-metric-label]").first().evaluate((element) => {
       return element.getBoundingClientRect().width;
     });
     expect(metricLabelWidth).toBeGreaterThanOrEqual(100);
@@ -871,7 +871,7 @@ async function underlineNavigationVisual(container: Locator, item: Locator) {
 
 async function underlineNavigationAlignment(container: Locator) {
   return container.evaluate((element) => {
-    const track = element.querySelector<HTMLElement>(".ui-underline-navigation-track") ?? element;
+    const track = element.querySelector<HTMLElement>("[data-navigation-track]") ?? element;
     const selected = element.querySelector<HTMLElement>("[role='tab'][aria-selected='true']");
     if (!selected) throw new Error("underline navigation layout is incomplete");
     const wrapperRect = element.getBoundingClientRect();

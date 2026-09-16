@@ -1,5 +1,23 @@
 /* 허용 범위: Konva/Recharts 런타임 geometry, 측정 기반 custom property,
  * 복잡한 keyframe 및 브라우저·라이브러리 제약 selector.
  * 추가 시 이유·적용 대상·utility로 대체할 수 없는 근거를 기록하고 정책 승인을 받는다.
- * 정적 padding/margin/gap/color는 예외로 허용하지 않는다. 현재 예외 규칙 없음.
+ * 정적 padding/margin/gap/color는 예외로 허용하지 않는다.
+ *
+ * Runtime source allowlist (ui-policy exact-match):
+ * - floor-editor/geometry.ts: Konva가 저장·렌더링하는 도형 기본 색과 글자 크기.
+ * - statistics EnergyComparisonChart/StatisticsOverviewPage/EnergyRankingDetailPanel:
+ *   Recharts가 JS object로 요구하는 chart margin geometry.
  */
+
+/* react-konva가 생성하는 내부 canvas 크기·위치를 wrapper에 맞춘다.
+ * 내부 DOM은 라이브러리가 생성하므로 Tailwind utility를 직접 부여할 수 없다. */
+.floor-scene-canvas .konvajs-content,
+.floor-scene-canvas canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.floor-scene-canvas .konvajs-content {
+  position: absolute !important;
+  inset: 0;
+}

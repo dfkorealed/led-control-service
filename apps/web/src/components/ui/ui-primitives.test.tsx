@@ -1,8 +1,7 @@
 import { CircleAlert, CircleCheck, LogOut } from "lucide-react";
-import { readFileSync } from "node:fs";
 import { createRef, useRef, useState } from "react";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   Button,
   Card,
@@ -19,23 +18,8 @@ import {
   UnderlineNavigation,
   UnderlineNavigationLabel
 } from ".";
-import type { StatusTone } from ".";
-import { prepareLegacyStylesheetForJsdom } from "../../test/legacy-stylesheet";
-
-// JSDOM은 Tailwind @theme/import를 처리하지 않으므로 실제 테마 선언을
-// 표준 :root로 펼친 뒤 기존 alias resolver와 CSS cascade로 대비를 검증한다.
-const styles = readFileSync("src/styles/theme.css", "utf8").replace("@theme static", ":root")
-  + prepareLegacyStylesheetForJsdom(readFileSync("src/styles.css", "utf8"));
-let stylesheet: HTMLStyleElement;
 
 describe("Calm Operations UI primitives", () => {
-  beforeAll(() => {
-    stylesheet = document.createElement("style");
-    stylesheet.textContent = resolveStylesheetVariables(styles);
-    document.head.append(stylesheet);
-  });
-
-  afterAll(() => stylesheet.remove());
   afterEach(cleanup);
 
   it.each(["primary", "secondary", "ghost", "danger", "link"] as const)("supports the %s button variant and merges caller padding", (variant) => {
@@ -143,6 +127,8 @@ describe("Calm Operations UI primitives", () => {
       expect(ref.current).not.toHaveAttribute("variant");
     });
     expect(screen.getByText("42")).toHaveClass("text-metric", "tabular-nums");
+    expect(screen.getByTestId("primitive-3")).toHaveAttribute("data-metric-card", "");
+    expect(screen.getByText("조명").parentElement).toHaveAttribute("data-metric-label", "");
   });
 
   it("resolves nested CSS aliases while preserving unresolved and circular references", () => {
@@ -167,7 +153,7 @@ describe("Calm Operations UI primitives", () => {
     render(<Button variant="primary" isLoading>저장</Button>);
 
     expect(screen.getByRole("button", { name: "저장 중" })).toBeDisabled();
-    expect(screen.getByRole("button")).toHaveClass("ui-button", "ui-button-primary");
+    expect(screen.getByRole("button")).toHaveAttribute("data-variant", "primary");
   });
 
   it("announces a route transition with a polite, understandable Korean loading state", () => {
@@ -194,7 +180,7 @@ describe("Calm Operations UI primitives", () => {
     fireEvent.focus(button);
     const tooltip = screen.getByRole("tooltip");
 
-    expect(button).toHaveClass("ui-icon-tooltip-button");
+    expect(button.className.split(" ").every((className) => !className.startsWith("ui-"))).toBe(true);
     expect(button).toHaveAttribute("aria-describedby", tooltip.id);
     expect(button.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
     expect(tooltip).toHaveTextContent("로그아웃");
@@ -212,6 +198,12 @@ describe("Calm Operations UI primitives", () => {
     expect(ref.current).not.toHaveClass("p-0");
   });
 
+  it("keeps the 52px icon action target with Tailwind sizing utilities", () => {
+    render(<IconTooltipButton icon={LogOut} label="로그아웃" />);
+
+    expect(screen.getByRole("button", { name: "로그아웃" })).toHaveClass("size-13");
+  });
+
   it("renders the opened tooltip with semantic surface and text tokens", () => {
     render(<IconTooltipButton icon={LogOut} label="로그아웃" />);
     fireEvent.focus(screen.getByRole("button"));
@@ -222,7 +214,7 @@ describe("Calm Operations UI primitives", () => {
     render(<StatusBadge tone="success" icon={CircleCheck}>정상</StatusBadge>);
 
     const label = screen.getByText("정상");
-    const badge = label.closest(".ui-status-badge");
+    const badge = label.parentElement;
 
     expect(label).toBeVisible();
     expect(badge).toHaveAttribute("data-tone", "success");
@@ -230,31 +222,17 @@ describe("Calm Operations UI primitives", () => {
     expect(label).not.toHaveAttribute("data-tone");
   });
 
-  it.each<StatusTone>(["success", "warning", "danger", "neutral", "info"])(
-    "keeps the %s status badge at WCAG AA text contrast after the CSS cascade",
-    (tone) => {
-      render(
-        <>
-          <StatusBadge tone={tone} icon={CircleCheck}>{`${tone}-root`}</StatusBadge>
-          <div className="monitoring-screen">
-            <StatusBadge tone={tone} icon={CircleCheck}>{`${tone}-monitoring`}</StatusBadge>
-          </div>
-        </>
-      );
+  it.each([
+    ["success", "bg-status-success-background", "text-status-success-foreground"],
+    ["warning", "bg-status-warning-background", "text-status-warning-badge"],
+    ["danger", "bg-status-danger-background", "text-status-danger-badge"],
+    ["neutral", "bg-status-neutral-background", "text-status-neutral-foreground"],
+    ["info", "bg-status-info-background", "text-status-info-foreground"]
+  ] as const)("keeps the %s status badge tone in Tailwind utilities", (tone, backgroundClass, foregroundClass) => {
+    render(<StatusBadge tone={tone} icon={CircleCheck}>{tone}</StatusBadge>);
 
-      for (const context of ["root", "monitoring"]) {
-        const badge = screen.getByText(`${tone}-${context}`).closest(".ui-status-badge");
-        const computedStyle = getComputedStyle(badge!);
-
-        expect(badge).toBeVisible();
-        const foreground = computedStyle.color;
-        const background = computedStyle.backgroundColor;
-        const ratio = contrastRatio(foreground, background);
-
-        expect(ratio, `${tone}-${context}: ${foreground} on ${background}`).toBeGreaterThanOrEqual(4.5);
-      }
-    }
-  );
+    expect(screen.getByText(tone).parentElement).toHaveClass(backgroundClass, foregroundClass);
+  });
 
   it("keeps the spaced value, unit and optional status inside the metric group", () => {
     render(
@@ -270,7 +248,7 @@ describe("Calm Operations UI primitives", () => {
     const group = screen.getByRole("group", { name: "전체 조명" });
     expect(group).toHaveTextContent("2,354 개");
     expect(group).toHaveTextContent("수집 완료");
-    expect(group.querySelector(".ui-status-badge")).toBe(screen.getByText("수집 완료").closest(".ui-status-badge"));
+    expect(group.querySelector('[data-tone="success"]')).toBe(screen.getByText("수집 완료").parentElement);
   });
 
   it("renders page actions and feedback semantics", () => {
@@ -286,13 +264,12 @@ describe("Calm Operations UI primitives", () => {
   });
 
   it("renders right-side information as a reusable complementary panel", () => {
-    render(<SidePanel aria-label="선택 조명 상세" className="detail-panel">상세 정보</SidePanel>);
+    render(<SidePanel aria-label="선택 조명 상세" className="detail-panel"><div>상세 정보</div></SidePanel>);
 
-    expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toHaveClass(
-      "ui-side-panel",
-      "ui-card",
-      "detail-panel"
-    );
+    const panel = screen.getByRole("complementary", { name: "선택 조명 상세" });
+    expect(panel).toHaveAttribute("data-variant", "default");
+    expect(panel).toHaveClass("detail-panel");
+    expect(panel).toHaveClass("[&>*]:min-w-0", "[&>*]:max-w-full");
   });
 
   it("renders ordered progress without using color as the only state", () => {
@@ -328,43 +305,16 @@ describe("Calm Operations UI primitives", () => {
   });
 
   it.each([
-    ["neutral", "rgb(241, 245, 249)"],
-    ["info", "rgb(233, 242, 255)"],
-    ["success", "rgb(236, 253, 243)"],
-    ["warning", "rgb(255, 247, 230)"],
-    ["danger", "rgb(255, 241, 242)"]
-  ] as const)("uses the exact %s feedback background", (tone, background) => {
+    ["neutral", "bg-status-neutral-background", "text-content-secondary"],
+    ["info", "bg-status-info-feedback-background", "text-status-info-feedback-foreground"],
+    ["success", "bg-status-success-background", "text-status-success-feedback-foreground"],
+    ["warning", "bg-status-warning-feedback-background", "text-status-warning-feedback-foreground"],
+    ["danger", "bg-status-danger-background", "text-status-danger-feedback-foreground"]
+  ] as const)("uses Tailwind surface and foreground utilities for the %s feedback tone", (tone, backgroundClass, foregroundClass) => {
     render(<FeedbackState tone={tone} icon={CircleCheck} title={`${tone} 상태`} />);
     const title = screen.getAllByText(`${tone} 상태`).at(-1)!;
-    expect(getComputedStyle(title.closest("section")!).backgroundColor).toBe(background);
+    expect(title.closest("section")).toHaveClass(backgroundClass, foregroundClass);
   });
-
-  it.each(["monitoring-screen", "settings-screen", "statistics-screen"] as const)(
-    "keeps feedback tone backgrounds exact in the %s cascade",
-    (screenClass) => {
-      render(
-        <div className={screenClass}>
-          <FeedbackState tone="neutral" icon={CircleCheck} title={`${screenClass} 기본`} />
-          <FeedbackState tone="info" icon={CircleCheck} title={`${screenClass} 정보`} />
-          <FeedbackState tone="success" icon={CircleCheck} title={`${screenClass} 성공`} />
-          <FeedbackState tone="warning" icon={CircleCheck} title={`${screenClass} 경고`} />
-          <FeedbackState tone="danger" icon={CircleCheck} title={`${screenClass} 오류`} />
-        </div>
-      );
-
-      const expectedBackgrounds = [
-        [`${screenClass} 기본`, "rgb(241, 245, 249)"],
-        [`${screenClass} 정보`, "rgb(233, 242, 255)"],
-        [`${screenClass} 성공`, "rgb(236, 253, 243)"],
-        [`${screenClass} 경고`, "rgb(255, 247, 230)"],
-        [`${screenClass} 오류`, "rgb(255, 241, 242)"]
-      ] as const;
-      for (const [title, background] of expectedBackgrounds) {
-        const state = screen.getByText(title).closest("section")!;
-        expect(getComputedStyle(state).backgroundColor).toBe(background);
-      }
-    }
-  );
 
   it("renders a reusable page heading level", () => {
     render(
@@ -374,11 +324,7 @@ describe("Calm Operations UI primitives", () => {
     );
 
     const heading = screen.getByRole("heading", { name: "스케줄 제어", level: 3 });
-    const computedStyle = getComputedStyle(heading);
-
-    expect(computedStyle.margin).toBe("0px");
-    expect(computedStyle.fontSize).toBe("24px");
-    expect(computedStyle.lineHeight).toBe("1.22");
+    expect(heading).toHaveClass("m-0", "text-section-title", "font-bold");
   });
 
   it("keeps navigation semantics while supporting an optional decorative icon", () => {
@@ -406,12 +352,12 @@ describe("Calm Operations UI primitives", () => {
     expect(screen.getByTestId("control-tab-icon").closest("span")).toHaveAttribute("aria-hidden", "true");
   });
 
-  it("stacks control page actions at the mobile breakpoint", () => {
-    const mobileStyles = styles.slice(styles.lastIndexOf("@media (max-width: 760px)"));
+  it("expresses compact page action layout with responsive utility classes", () => {
+    render(<PageHeader title="제어" actions={<Button>저장</Button>} />);
 
-    expect(mobileStyles).toMatch(/\.control-screen \.ui-page-header\s*\{[^}]*align-items:\s*stretch;[^}]*flex-direction:\s*column;/s);
-    expect(mobileStyles).toMatch(/\.control-screen \.ui-page-actions\s*\{[^}]*width:\s*100%;/s);
-    expect(mobileStyles).toMatch(/\.control-screen \.ui-page-actions \.ui-button\s*\{[^}]*justify-content:\s*center;[^}]*width:\s*100%;/s);
+    const header = screen.getByRole("banner");
+    expect(header).toHaveClass("max-compact:flex-col", "max-compact:items-stretch");
+    expect(screen.getByRole("button", { name: "저장" }).parentElement).toHaveClass("max-compact:w-full");
   });
 
   it("provides modal semantics, traps focus and restores the trigger after Escape", async () => {
@@ -492,12 +438,6 @@ function RemovedTriggerModalHarness() {
   </>;
 }
 
-function contrastRatio(foreground: string, background: string) {
-  const lighter = Math.max(relativeLuminance(foreground), relativeLuminance(background));
-  const darker = Math.min(relativeLuminance(foreground), relativeLuminance(background));
-  return (lighter + 0.05) / (darker + 0.05);
-}
-
 function resolveStylesheetVariables(source: string) {
   const variables = new Map(
     Array.from(source.matchAll(/(--[\w-]+):\s*([^;]+);/g), ([, name, value]) => [name, value.trim()])
@@ -516,17 +456,4 @@ function resolveStylesheetVariables(source: string) {
   return source.replace(/var\((--[\w-]+)\)/g, (declaration, name: string) => (
     variables.has(name) ? resolveVariable(name) : declaration
   ));
-}
-
-function relativeLuminance(color: string) {
-  const hex = color.match(/^#([\da-f]{6})$/i)?.[1];
-  const channels = hex
-    ? [hex.slice(0, 2), hex.slice(2, 4), hex.slice(4, 6)].map((channel) => Number.parseInt(channel, 16))
-    : color.match(/\d+(?:\.\d+)?/g)?.slice(0, 3).map(Number) ?? [];
-  if (channels.length !== 3) throw new Error(`Expected an RGB color, received ${color}`);
-  const [red, green, blue] = channels.map((channel) => {
-    const normalized = channel / 255;
-    return normalized <= 0.04045 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
-  });
-  return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
 }

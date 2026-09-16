@@ -213,7 +213,7 @@ test.describe("production field browser contracts", () => {
       for (const value of [0, 50, 100]) {
         const input = page.getByRole("slider", { name: `geometry-${size}-${value}`, exact: true });
         const track = input.locator('xpath=ancestor::*[@data-field]').locator(".relative");
-        const thumb = input.locator('xpath=ancestor::div[contains(@class,"rounded-pill")]');
+        const thumb = input.locator('xpath=ancestor::div[@data-slider-thumb]');
         const bar = track.locator(':scope > [aria-hidden="true"]');
         const [trackBox, thumbBox, barBox] = await Promise.all([track.boundingBox(), thumb.boundingBox(), bar.boundingBox()]);
         expect(trackBox).not.toBeNull();
