@@ -1,32 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
-import type { DimmingTarget } from "@led-control/shared";
 import type { Dashboard, DashboardFixture } from "../../api/queries";
 import { Button, Card, Checkbox, SearchField, SelectBox, Text } from "../../components/ui";
 import { fixtureGroupReadiness, floorMeshReadiness } from "./control-readiness";
 import { humanizeDeviceResponseMessage } from "./control-copy";
+import {
+  MAX_FIXTURE_SELECTION,
+  type ControlMode,
+  type ControlSelection,
+  toggleFixtureSelection
+} from "./control-selection";
 
-const MAX_FIXTURE_SELECTION = 1000;
 const FIXTURE_LIST_BATCH_SIZE = 100;
 
-export type ControlMode = "fixtures" | "floor" | "group";
-
-export type ControlSelection =
-  | { mode: "fixtures"; fixtureIds: string[] }
-  | { mode: "floor"; floorId: string }
-  | { mode: "group"; groupId: string };
-
-export function controlSelectionToDimmingTarget(selection: ControlSelection): DimmingTarget | null {
-  if (selection.mode === "fixtures") {
-    if (selection.fixtureIds.length === 0) return null;
-    return selection.fixtureIds.length === 1
-      ? { type: "fixture", fixtureId: selection.fixtureIds[0] }
-      : { type: "fixtures", fixtureIds: selection.fixtureIds };
-  }
-  if (selection.mode === "floor") {
-    return selection.floorId ? { type: "floor", floorId: selection.floorId } : null;
-  }
-  return selection.groupId ? { type: "group", groupId: selection.groupId } : null;
-}
+export type { ControlMode, ControlSelection } from "./control-selection";
+export { controlSelectionToDimmingTarget } from "./control-selection";
 
 interface ControlTargetPickerProps {
   dashboard: Dashboard;
@@ -97,17 +84,9 @@ export function ControlTargetPicker({
 
   function toggleFixture(fixtureId: string) {
     if (selection.mode !== "fixtures") return;
-    if (selectedFixtureIds.has(fixtureId)) {
-      setSelectionLimitReached(false);
-      onChange({ mode: "fixtures", fixtureIds: selection.fixtureIds.filter((id) => id !== fixtureId) });
-      return;
-    }
-    if (selection.fixtureIds.length >= MAX_FIXTURE_SELECTION) {
-      setSelectionLimitReached(true);
-      return;
-    }
-    setSelectionLimitReached(false);
-    onChange({ mode: "fixtures", fixtureIds: [...selection.fixtureIds, fixtureId] });
+    const next = toggleFixtureSelection(selection.fixtureIds, fixtureId);
+    setSelectionLimitReached(next.limitReached);
+    onChange({ mode: "fixtures", fixtureIds: next.fixtureIds });
   }
 
   function selectVisibleFixtures() {
