@@ -1,11 +1,22 @@
-import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { disposablePostgres } from "../../test/support/disposable-postgres";
 
-const migration = readFileSync(join(
+const baselineMigrationName = "20260916190000_floor_cad_import";
+const forwardMigrationName = "20260916223000_floor_cad_import_invariants";
+const expectedBaselineChecksum = "a9b86b2a0206c348c3dfe6ae087e13e861819038cb343c634ed43d03a294598a";
+const baselineMigration = readFileSync(join(
   __dirname,
-  "../../prisma/migrations/20260916190000_floor_cad_import/migration.sql"
+  `../../prisma/migrations/${baselineMigrationName}/migration.sql`
 ), "utf8");
+const forwardMigrationPath = join(
+  __dirname,
+  `../../prisma/migrations/${forwardMigrationName}/migration.sql`
+);
+const forwardMigration = existsSync(forwardMigrationPath)
+  ? readFileSync(forwardMigrationPath, "utf8")
+  : "";
 
 jest.setTimeout(60_000);
 
@@ -27,7 +38,8 @@ describe("floor CAD import migration invariants on disposable PostgreSQL", () =>
         "status" "FloorAssetStatus" NOT NULL DEFAULT 'pending',
         "mimeType" TEXT NOT NULL
       );
-      ${migration}
+      ${baselineMigration}
+      ${forwardMigration}
       INSERT INTO "Floor" ("id") VALUES ('floor-a'), ('floor-b');
       INSERT INTO "FloorAsset" ("id", "floorId", "kind", "status", "mimeType") VALUES
         ('source-dwg-a', 'floor-a', 'original', 'ready', 'application/dwg'),
@@ -50,11 +62,52 @@ describe("floor CAD import migration invariants on disposable PostgreSQL", () =>
 
   afterAll(() => cluster?.stop());
 
-  it("clean-replays the complete migration chain through the CAD import ledger", () => {
+  it("keeps the published CAD import baseline byte-for-byte stable", () => {
+    expect(createHash("sha256").update(baselineMigration).digest("hex"))
+      .toBe(expectedBaselineChecksum);
+  });
+
+  it("staged-upgrades a baseline database without checksum drift", () => {
+    const stagedDatabaseUrl = cluster.database();
+    const baseline = cluster.deploy(stagedDatabaseUrl, baselineMigrationName);
+    expect(baseline.status).toBe(0);
+    expect(baseline.stderr).not.toContain("Error");
+
+    const checksumBeforeUpgrade = cluster.sql(stagedDatabaseUrl, `
+      SELECT checksum FROM "_prisma_migrations"
+      WHERE migration_name = '${baselineMigrationName}';
+    `);
+    expect(checksumBeforeUpgrade).toBe(expectedBaselineChecksum);
+
+    seedBaselineLedger(stagedDatabaseUrl, cluster);
+    const upgrade = cluster.deploy(stagedDatabaseUrl, forwardMigrationName);
+    expect(upgrade.status).toBe(0);
+    expect(upgrade.stderr).not.toContain("Error");
+    expect(cluster.sql(stagedDatabaseUrl, `
+      SELECT checksum FROM "_prisma_migrations"
+      WHERE migration_name = '${baselineMigrationName}';
+    `)).toBe(checksumBeforeUpgrade);
+    expect(cluster.sql(stagedDatabaseUrl, `
+      SELECT string_agg(migration_name, ',' ORDER BY migration_name)
+      FROM "_prisma_migrations"
+      WHERE migration_name IN ('${baselineMigrationName}', '${forwardMigrationName}');
+    `)).toBe(`${baselineMigrationName},${forwardMigrationName}`);
+    expect(cluster.sql(stagedDatabaseUrl, `
+      SELECT "provider" IS NULL AND "model" IS NULL AND "inputDigest" IS NULL
+      FROM "FloorImportCandidate" WHERE "id" = 'baseline-candidate';
+    `)).toBe("t");
+  });
+
+  it("clean-replays the complete migration chain through the forward fix", () => {
     const cleanDatabaseUrl = cluster.database();
-    const result = cluster.deploy(cleanDatabaseUrl, "20260916190000_floor_cad_import");
+    const result = cluster.deploy(cleanDatabaseUrl, forwardMigrationName);
     expect(result.status).toBe(0);
     expect(result.stderr).not.toContain("Error");
+    expect(cluster.sql(cleanDatabaseUrl, `
+      SELECT string_agg(migration_name, ',' ORDER BY migration_name)
+      FROM "_prisma_migrations"
+      WHERE migration_name IN ('${baselineMigrationName}', '${forwardMigrationName}');
+    `)).toBe(`${baselineMigrationName},${forwardMigrationName}`);
   });
 
   it("catalogs every migration-only check, deferred asset trigger, and partial index", () => {
@@ -239,4 +292,31 @@ function candidateInsert(
       ${provider}, ${model}, ${inputDigest}, CURRENT_TIMESTAMP
     );
   `;
+}
+
+function seedBaselineLedger(
+  databaseUrl: string,
+  cluster: Awaited<ReturnType<typeof disposablePostgres>>
+) {
+  cluster.sql(databaseUrl, `
+    INSERT INTO "Organization" ("id", "name", "type", "createdAt", "updatedAt")
+    VALUES ('baseline-org', 'Baseline Org', 'customer', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+    INSERT INTO "Site" ("id", "organizationId", "name", "createdAt", "updatedAt")
+    VALUES ('baseline-site', 'baseline-org', 'Baseline Site', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+    INSERT INTO "Floor" ("id", "siteId", "name", "level", "createdAt", "updatedAt")
+    VALUES ('baseline-floor', 'baseline-site', 'Baseline Floor', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+    INSERT INTO "FloorAsset" (
+      "id", "floorId", "kind", "status", "objectKey", "mimeType", "sizeBytes", "sha256", "readyAt", "updatedAt"
+    ) VALUES (
+      'baseline-source', 'baseline-floor', 'original', 'ready', 'baseline/source.dwg',
+      'application/dwg', 1, '${"c".repeat(64)}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+    );
+    INSERT INTO "FloorImportJob" ("id", "floorId", "sourceAssetId", "sourceFormat", "updatedAt")
+    VALUES ('baseline-job', 'baseline-floor', 'baseline-source', 'dwg', CURRENT_TIMESTAMP);
+    INSERT INTO "FloorImportCandidate" (
+      "id", "jobId", "sourceEntityId", "layerName", "x", "y", "confidence", "detectionMethod", "updatedAt"
+    ) VALUES (
+      'baseline-candidate', 'baseline-job', 'entity-1', 'LIGHT', 1, 2, 0.9, 'rule_based', CURRENT_TIMESTAMP
+    );
+  `);
 }
