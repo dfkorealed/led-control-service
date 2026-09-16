@@ -138,6 +138,40 @@ describe("EnergyReportDocumentBuilder", () => {
     expect(document).toMatchObject({ calculationBasis: { expectedSeconds: 864000, fixtureCount: 1 } });
   });
 
+  it.each(["site", "fixture", "group", "floor"] as const)("preserves attributable %s actuals and coverage when only baseline configuration is missing", scope => {
+    const data = kpiData(); data.fixtures = [data.fixtures[0]];
+    const fixture = data.fixtures[0];
+    Object.assign(fixture, { memberships: [{ id: "selected-group", from: fixture.from, to: null }] });
+    if (scope === "floor") Reflect.deleteProperty(fixture.dimensions[0], "ratedWatt");
+    else fixture.dimensions = [];
+    const identityId = { site: siteId, fixture: fixture.id, group: "selected-group", floor: "floor-a" }[scope];
+    const document = buildKpis(data, { ...kpiRequest, to: "2026-09-01", scope, identityId });
+    expect(summary(document)).toMatchObject({
+      "사용 전력량": { value: 0.6, source: "persisted_actual" }, "저장 비용": { value: 90, source: "persisted_actual" },
+      "24시간 기준 전력량": { value: null }, "절감 전력량": { value: null }, "절감률": { value: null },
+      "현재 단가 기준 비용": { value: null }, "예상 절감 비용": { value: null }, "데이터 수집률": { value: 90 }
+    });
+    expect(table(document, "daily")).toEqual([["2026-09-01", 0.6, 90, null]]);
+    expect(document).toMatchObject({ calculationBasis: {
+      expectedSeconds: 86400, knownSeconds: 77760, baselineReason: "dimension_history_missing", coverageReason: null
+    } });
+  });
+
+  it.each(["site", "fixture"] as const)("keeps %s tracking-start-day actuals but rejects comparisons against only the post-start interval", scope => {
+    const data = kpiData(); data.fixtures = [data.fixtures[0]];
+    const fixture = data.fixtures[0]; fixture.from = "2026-09-01T03:00:00Z"; fixture.dimensions[0].from = fixture.from;
+    const document = buildKpis(data, { ...kpiRequest, to: "2026-09-01", scope, identityId: scope === "site" ? siteId : fixture.id });
+    expect(summary(document)).toMatchObject({
+      "사용 전력량": { value: 0.6 }, "저장 비용": { value: 90 }, "24시간 기준 전력량": { value: null },
+      "절감 전력량": { value: null }, "절감률": { value: null }, "현재 단가 기준 비용": { value: null },
+      "예상 절감 비용": { value: null }, "데이터 수집률": { value: null }
+    });
+    expect(table(document, "daily")).toEqual([["2026-09-01", 0.6, 90, null]]);
+    expect(document).toMatchObject({ calculationBasis: {
+      expectedSeconds: null, knownSeconds: null, baselineReason: "dimension_history_missing", coverageReason: "dimension_history_missing"
+    } });
+  });
+
   it("validates only final document strings after scope, date and fact filtering", () => {
     const data = makeData();
     const retired = structuredClone(data.fixtures[0]);

@@ -150,7 +150,7 @@ function configurationDay(fixture: ReportFixtureSnapshot, request: EnergyReportR
   const boundaries = [...new Set([start, end, ...ranges.flatMap(range => [dateValue(range.from).getTime(), range.to === null ? end : dateValue(range.to).getTime()])])]
     .filter(time => time >= start && time <= end).sort((a, b) => a - b);
   const contains = (range: ReportEffectiveRange, time: number) => dateValue(range.from).getTime() <= time && (range.to === null || time < dateValue(range.to).getTime());
-  let seconds = 0, missing = false, energy = new Prisma.Decimal(0);
+  let seconds = 0, baselineMissing = false, scopeMissing = false, energy = new Prisma.Decimal(0);
   for (let index = 0; index < boundaries.length - 1; index++) {
     const from = boundaries[index], duration = (boundaries[index + 1] - from) / 1000;
     if (!contains(fixture, from) || (request.scope === "fixture" && fixture.id !== request.identityId)) continue;
@@ -159,54 +159,59 @@ function configurationDay(fixture: ReportFixtureSnapshot, request: EnergyReportR
     if (request.scope === "group" && !groups.some(group => group.id === request.identityId)) continue;
     if (request.scope === "floor" && dimensions.length === 1 && dimensions[0].floorId !== request.identityId) continue;
     if (dimensions.length !== 1) {
-      missing = true;
+      baselineMissing = true;
       // Site/fixture/group membership is still known when watt history is absent.
       // Floor membership itself cannot be inferred across a dimension gap.
       if (request.scope !== "floor") seconds += duration;
+      else scopeMissing = true;
       continue;
     }
     seconds += duration;
     const watts = dimensions[0].ratedWatt;
-    if (watts === undefined) missing = true;
+    if (watts === undefined) baselineMissing = true;
     else energy = energy.add(new Prisma.Decimal(watts).mul(duration).div(3_600_000));
   }
-  return { seconds, energy, missing, partial: seconds > 0 && seconds < (end - start) / 1000 };
+  return { seconds, energy, baselineMissing, scopeMissing, partial: seconds > 0 && seconds < (end - start) / 1000 };
 }
 function attributableDay(fixture: ReportFixtureSnapshot, request: EnergyReportRequest, interval: ReturnType<typeof dayInterval>) {
   if (request.scope === "site") return true;
   if (request.scope === "fixture") return fixture.id === request.identityId;
   const day = configurationDay(fixture, request, interval);
-  return day.seconds === (interval.to.getTime() - interval.from.getTime()) / 1000 && !day.missing;
+  return day.seconds === (interval.to.getTime() - interval.from.getTime()) / 1000 && !day.scopeMissing;
 }
 
 function enrichV2(sections: EnergyReportSection[], request: EnergyReportRequest, data: EnergyReportDataSnapshot,
   actual: Prisma.Decimal | null, persistedKnown: number): ReportCalculationBasis {
   const selectedFixtures = new Set<string>();
-  let expectedSeconds = 0, missing = false, expectedUnknown = false, attributionUnavailable = false;
+  let expectedSeconds = 0, baselineMissing = false, expectedUnknown = false, attributionUnavailable = false;
   const dailyBaselines = dates(request).map(date => {
     let energy = new Prisma.Decimal(0), dayMissing = false;
     for (const fixture of data.fixtures) {
       const interval = snapshotDayInterval(date, data);
       const day = configurationDay(fixture, request, interval);
-      // Migration preserves daily facts predating analytics lifecycle history.
-      // Such facts are actuals, but cannot establish that no fixtures existed.
+      // A migration-day daily fact can include both pre-tracking and post-tracking
+      // time. Preserve its actuals, but never compare it to a post-start-only
+      // baseline/denominator, even when knownSeconds fits that shorter interval.
       const legacyFact = (request.scope === "site" || (request.scope === "fixture" && fixture.id === request.identityId))
         && fixture.daily.some(row => row.localDate === date && row.durationSeconds > 0)
-        && dateValue(fixture.from).getTime() >= interval.to.getTime();
-      if (legacyFact) { day.missing = true; expectedUnknown = true; }
-      if (day.seconds > 0 || day.missing) selectedFixtures.add(fixture.id);
-      expectedSeconds += day.seconds; dayMissing ||= day.missing;
+        && dateValue(fixture.from).getTime() > interval.from.getTime();
+      if (legacyFact) { day.baselineMissing = true; expectedUnknown = true; }
+      if (day.seconds > 0 || day.baselineMissing) selectedFixtures.add(fixture.id);
+      expectedUnknown ||= day.scopeMissing;
+      expectedSeconds += day.seconds; dayMissing ||= day.baselineMissing;
       attributionUnavailable ||= (request.scope === "floor" || request.scope === "group") && day.partial;
       energy = energy.add(day.energy);
     }
-    missing ||= dayMissing;
+    baselineMissing ||= dayMissing;
     return dayMissing ? null : energy;
   });
-  const baseline = missing ? null : dailyBaselines.reduce<Prisma.Decimal>((total, value) => total.add(value!), new Prisma.Decimal(0));
+  const baseline = baselineMissing ? null : dailyBaselines.reduce<Prisma.Decimal>((total, value) => total.add(value!), new Prisma.Decimal(0));
   const savings = difference(baseline, actual);
   const over = savings !== null && savings.isNegative();
   const tariff = data.site.tariffKwhRate == null ? null : new Prisma.Decimal(data.site.tariffKwhRate);
-  const coverageReason = attributionUnavailable ? "scope_attribution_unavailable" : missing ? "dimension_history_missing" : null;
+  // Watt/name history gaps do not invalidate independently proven membership or
+  // persisted known time. Only scope/lifecycle uncertainty suppresses coverage.
+  const coverageReason = attributionUnavailable ? "scope_attribution_unavailable" : expectedUnknown ? "dimension_history_missing" : null;
   const knownSeconds = coverageReason ? null : Math.min(persistedKnown, expectedSeconds);
   const summary = sections[0];
   if (summary.kind !== "summary") throw new Error("Missing summary");
@@ -242,13 +247,13 @@ function enrichV2(sections: EnergyReportSection[], request: EnergyReportRequest,
         `생성 당시 현재 요금 단가: ${tariff === null ? "데이터 없음 (요금 단가 없음)" : `${tariff.toFixed(2)} 원/kWh`}. 저장 비용은 소급 변경하지 않습니다.`,
         "절감량 = 기준량 − 저장 사용량. 음수는 기준 초과이며 예상 비용은 같은 현재 단가로 환산합니다.",
         "수집률 = 귀속 가능한 일별 known seconds ÷ 기대 초 × 100 (최대 100%). 기준값과 수집률은 생성 당시 설정 기준입니다.",
-        ...(missing ? ["데이터 없음: 정격 또는 범위 이력 공백 (dimension_history_missing)."] : []),
+        ...(baselineMissing ? ["데이터 없음: 정격 또는 범위 이력 공백 (dimension_history_missing)."] : []),
         ...(attributionUnavailable ? ["데이터 없음: 하루 중 소속 변경으로 일별 수집 시간을 배분할 수 없음 (scope_attribution_unavailable)."] : []));
     }
   }
   return { capturedAt: data.capturedAt, actualSource: "persisted_actual", configurationSource: "captured_current_configuration",
-    tariffKwhRate: data.site.tariffKwhRate ?? null, expectedSeconds: expectedUnknown || (missing && request.scope === "floor") ? null : expectedSeconds,
-    knownSeconds, fixtureCount: selectedFixtures.size, baselineReason: missing ? "dimension_history_missing" : null, coverageReason };
+    tariffKwhRate: data.site.tariffKwhRate ?? null, expectedSeconds: expectedUnknown ? null : expectedSeconds,
+    knownSeconds, fixtureCount: selectedFixtures.size, baselineReason: baselineMissing ? "dimension_history_missing" : null, coverageReason };
 }
 
 function dayInterval(date: string, timeZone: string) {
