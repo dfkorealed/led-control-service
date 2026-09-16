@@ -126,6 +126,42 @@ describe("ASCII DXF document parser", () => {
     });
   });
 
+  it.each([
+    ["group 66 sequence without ATTRIB", [pair(0, "INSERT"), pair(2, "DEVICE"), pair(10, 0), pair(20, 0), pair(66, 1), pair(0, "SEQEND")]],
+    ["group 66 sequence without SEQEND", [pair(0, "INSERT"), pair(2, "DEVICE"), pair(10, 0), pair(20, 0), pair(66, 1), pair(0, "ATTRIB"), pair(2, "TYPE"), pair(1, "LED"), pair(10, 0), pair(20, 0)]],
+    ["ATTRIB without group 66", [pair(0, "INSERT"), pair(2, "DEVICE"), pair(10, 0), pair(20, 0), pair(0, "ATTRIB"), pair(2, "TYPE"), pair(1, "LED"), pair(10, 0), pair(20, 0), pair(0, "SEQEND")]],
+    ["invalid group 66 flag", [pair(0, "INSERT"), pair(2, "DEVICE"), pair(10, 0), pair(20, 0), pair(66, 2)]],
+    ["duplicate group 66 flag", [pair(0, "INSERT"), pair(2, "DEVICE"), pair(10, 0), pair(20, 0), pair(66, 0), pair(66, 1)]]
+  ])("rejects malformed INSERT attribute structure: %s", (_label, sequence) => {
+    const malformed = [
+      pair(0, "SECTION"), pair(2, "BLOCKS"), pair(0, "BLOCK"), pair(2, "DEVICE"),
+      pair(0, "LINE"), pair(10, 0), pair(20, 0), pair(11, 1), pair(21, 0), pair(0, "ENDBLK"), pair(0, "ENDSEC"),
+      pair(0, "SECTION"), pair(2, "ENTITIES"), ...sequence, pair(0, "ENDSEC"), pair(0, "EOF")
+    ].join("");
+    expect(() => parseAsciiDxf(malformed)).toThrow(/ATTRIB|SEQEND|group 66|attribute sequence/i);
+  });
+
+  it("accepts signed nonzero INSERT scale and preserves mirrored bounds", () => {
+    const mirrored = [
+      pair(0, "SECTION"), pair(2, "BLOCKS"), pair(0, "BLOCK"), pair(2, "DEVICE"),
+      pair(0, "LINE"), pair(10, 0), pair(20, 0), pair(11, 2), pair(21, 1), pair(0, "ENDBLK"), pair(0, "ENDSEC"),
+      pair(0, "SECTION"), pair(2, "ENTITIES"), pair(0, "INSERT"), pair(5, "M1"), pair(2, "DEVICE"),
+      pair(10, 10), pair(20, 20), pair(41, -2), pair(42, 3), pair(43, -1), pair(0, "ENDSEC"), pair(0, "EOF")
+    ].join("");
+
+    const document = parseAsciiDxf(mirrored);
+    expect(document.entities[0]).toMatchObject({ type: "insert", scale: { x: -2, y: 3, z: -1 } });
+    expect(document.bounds).toEqual({ minX: 6, minY: 20, maxX: 10, maxY: 23 });
+  });
+
+  it("rejects zero INSERT scale", () => {
+    const zeroScale = [
+      pair(0, "SECTION"), pair(2, "ENTITIES"), pair(0, "INSERT"), pair(2, "DEVICE"), pair(10, 0), pair(20, 0), pair(41, 0),
+      pair(0, "ENDSEC"), pair(0, "EOF")
+    ].join("");
+    expect(() => parseAsciiDxf(zeroScale)).toThrow(/insert x scale/i);
+  });
+
   it("preserves LWPOLYLINE bulge and includes its arc in document bounds", () => {
     const curved = [
       pair(0, "SECTION"), pair(2, "ENTITIES"),

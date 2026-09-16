@@ -1,3 +1,5 @@
+import { Buffer } from "node:buffer";
+import { layoutCadText } from "./cad-text-layout";
 import type {
   CadBounds,
   CadPoint,
@@ -34,6 +36,21 @@ export interface ExpandedCadInsert {
 }
 
 const IDENTITY: CadMatrix = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+const MAX_EXPANDED_SOURCE_ID_BYTES = 512;
+
+function expandedSourceId(path: readonly string[]): string {
+  const id = path.length === 1
+    ? path[0]
+    : path.map(segment => `${Buffer.byteLength(segment, "utf8")}:${segment}`).join("");
+  if (!id || Buffer.byteLength(id, "utf8") > MAX_EXPANDED_SOURCE_ID_BYTES) throw new Error("CAD expanded source identity limit exceeded");
+  return id;
+}
+
+function registerExpandedSourceId(ids: Set<string>, id: string): void {
+  const key = id.normalize("NFKC").toLocaleUpperCase();
+  if (ids.has(key)) throw new Error(`Duplicate CAD expanded source identity: ${id}`);
+  ids.add(key);
+}
 
 export function multiplyCadMatrices(left: CadMatrix, right: CadMatrix): CadMatrix {
   return {
@@ -73,20 +90,24 @@ function insertMatrix(entity: Extract<NormalizedCadEntity, { type: "insert" }>, 
 
 export function expandCadDocument(
   document: Pick<NormalizedCadDocument, "blocks" | "entities">,
-  options: { maxRenderedEntities: number; maxBlockDepth?: number }
+  options: { maxRenderedEntities: number; maxBlockDepth?: number; checkBudget?: () => void }
 ): ExpandedCadEntity[] {
   const blocks = new Map(document.blocks.map(block => [block.name, block]));
   if (blocks.size !== document.blocks.length) throw new Error("Duplicate CAD block name");
   const expanded: ExpandedCadEntity[] = [];
   const maxDepth = options.maxBlockDepth ?? 16;
+  const sourceIds = new Set<string>();
 
   const visit = (
-    entities: NormalizedCadEntity[], matrix: CadMatrix, prefix: string,
+    entities: NormalizedCadEntity[], matrix: CadMatrix, path: readonly string[],
     parentBlockName: string | null, insertLayer: string | null, stack: readonly string[]
   ) => {
     for (const entity of entities) {
+      options.checkBudget?.();
       if (entity.type !== "insert") {
-        expanded.push({ entity, matrix, sourceEntityId: `${prefix}${entity.sourceEntityId}`, blockName: parentBlockName, insertLayer });
+        const sourceEntityId = expandedSourceId([...path, entity.sourceEntityId]);
+        registerExpandedSourceId(sourceIds, sourceEntityId);
+        expanded.push({ entity, matrix, sourceEntityId, blockName: parentBlockName, insertLayer });
         if (expanded.length > options.maxRenderedEntities) throw new Error("CAD rendered entity limit exceeded");
         continue;
       }
@@ -95,38 +116,44 @@ export function expandCadDocument(
       if (stack.includes(block.name)) throw new Error(`Cyclic CAD block reference: ${block.name}`);
       if (stack.length >= maxDepth) throw new Error("CAD block depth limit exceeded");
       const childMatrix = multiplyCadMatrices(matrix, insertMatrix(entity, block.basePoint));
-      visit(block.entities, childMatrix, `${prefix}${entity.sourceEntityId}:`, block.name, entity.layer, [...stack, block.name]);
+      visit(block.entities, childMatrix, [...path, entity.sourceEntityId], block.name, entity.layer, [...stack, block.name]);
     }
   };
 
-  visit(document.entities, IDENTITY, "", null, null, []);
+  visit(document.entities, IDENTITY, [], null, null, []);
   return expanded;
 }
 
 export function expandCadInserts(
   document: Pick<NormalizedCadDocument, "blocks" | "entities">,
-  options: { maxExpandedInserts: number; maxBlockDepth?: number }
+  options: { maxExpandedInserts: number; maxBlockDepth?: number; checkBudget?: () => void }
 ): ExpandedCadInsert[] {
   const blocks = new Map(document.blocks.map(block => [block.name, block]));
   if (blocks.size !== document.blocks.length) throw new Error("Duplicate CAD block name");
   const expanded: ExpandedCadInsert[] = [];
   const maxDepth = options.maxBlockDepth ?? 16;
+  const sourceIds = new Set<string>();
   const round = (value: number) => Math.round(value * 1_000_000) / 1_000_000;
 
   const visit = (
-    entities: NormalizedCadEntity[], parentMatrix: CadMatrix, prefix: string,
-    inheritedLayer: string | null, stack: readonly string[]
+    entities: NormalizedCadEntity[], parentMatrix: CadMatrix, path: readonly string[],
+    inheritedLayer: string | null, parentZScale: number, stack: readonly string[]
   ) => {
     for (const entity of entities) {
+      options.checkBudget?.();
       if (entity.type !== "insert") continue;
       const block = blocks.get(entity.blockName);
       if (!block) throw new Error(`CAD INSERT references missing block: ${entity.blockName}`);
       if (stack.includes(block.name)) throw new Error(`Cyclic CAD block reference: ${block.name}`);
       if (stack.length >= maxDepth) throw new Error("CAD block depth limit exceeded");
-      const sourceEntityId = prefix ? `${prefix}/${entity.sourceEntityId}` : entity.sourceEntityId;
+      const entityPath = [...path, entity.sourceEntityId];
+      const sourceEntityId = expandedSourceId(entityPath);
+      registerExpandedSourceId(sourceIds, sourceEntityId);
       const layer = entity.layer === "0" ? inheritedLayer ?? "0" : entity.layer;
       const matrix = multiplyCadMatrices(parentMatrix, insertMatrix(entity, block.basePoint));
       const position = transformPoint(parentMatrix, entity.position);
+      const scaleX = Math.hypot(matrix.a, matrix.b);
+      const determinant = matrix.a * matrix.d - matrix.b * matrix.c;
       expanded.push({
         entity,
         sourceEntityId,
@@ -134,14 +161,14 @@ export function expandCadInserts(
         blockName: entity.blockName,
         position: { x: round(position.x), y: round(position.y), z: round(position.z) },
         rotation: round(((Math.atan2(matrix.b, matrix.a) * 180 / Math.PI) % 360 + 360) % 360),
-        scale: { x: round(Math.hypot(matrix.a, matrix.b)), y: round(Math.hypot(matrix.c, matrix.d)), z: round(entity.scale.z) }
+        scale: { x: round(scaleX), y: round(determinant / scaleX), z: round(parentZScale * entity.scale.z) }
       });
       if (expanded.length > options.maxExpandedInserts) throw new Error("CAD expanded INSERT limit exceeded");
-      visit(block.entities, matrix, sourceEntityId, layer, [...stack, block.name]);
+      visit(block.entities, matrix, entityPath, layer, parentZScale * entity.scale.z, [...stack, block.name]);
     }
   };
 
-  visit(document.entities, IDENTITY, "", null, []);
+  visit(document.entities, IDENTITY, [], null, 1, []);
   return expanded;
 }
 
@@ -219,7 +246,7 @@ function includePolylineBounds(
   }
 }
 
-export function computeCadBounds(expanded: readonly ExpandedCadEntity[]): CadBounds {
+export function computeCadBounds(expanded: readonly ExpandedCadEntity[], checkBudget?: () => void): CadBounds {
   let minX = Number.POSITIVE_INFINITY;
   let minY = Number.POSITIVE_INFINITY;
   let maxX = Number.NEGATIVE_INFINITY;
@@ -233,6 +260,7 @@ export function computeCadBounds(expanded: readonly ExpandedCadEntity[]): CadBou
   };
 
   for (const item of expanded) {
+    checkBudget?.();
     const { entity, matrix } = item;
     if (entity.type === "line") {
       include(transformPoint(matrix, entity.start));
@@ -250,9 +278,10 @@ export function computeCadBounds(expanded: readonly ExpandedCadEntity[]): CadBou
       includeArcBounds(entity.center, entity.radius, entity.startAngle, sweep, matrix, include);
     } else {
       const radians = entity.rotation * Math.PI / 180;
-      const width = Math.max(entity.height * 0.6, entity.text.length * entity.height * 0.6);
+      const textBounds = layoutCadText(entity.text, entity.height).bounds;
       const corners = [
-        { x: 0, y: 0 }, { x: width, y: 0 }, { x: 0, y: entity.height }, { x: width, y: entity.height }
+        { x: textBounds.minX, y: textBounds.minY }, { x: textBounds.maxX, y: textBounds.minY },
+        { x: textBounds.minX, y: textBounds.maxY }, { x: textBounds.maxX, y: textBounds.maxY }
       ];
       for (const corner of corners) {
         include(transformPoint(matrix, {

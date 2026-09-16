@@ -1,5 +1,6 @@
 import type { NormalizedCadDocument, NormalizedCadInsert } from "./cad-types";
 import { RuleBasedLightingSymbolDetector } from "./rule-based-lighting-symbol-detector";
+import { expandCadInserts } from "./cad-geometry";
 
 function candidate(index: number, layer = "LIGHTING", blockName = "LED_FIXTURE"): NormalizedCadInsert {
   return {
@@ -97,8 +98,72 @@ describe("rule-based lighting symbol detector", () => {
 
     const detected = await new RuleBasedLightingSymbolDetector().detect(nested);
     expect(detected).toMatchObject([
-      { sourceEntityId: "ROOT/N1", position: { x: 10, y: 22, z: 0 }, rotation: 100 },
-      { sourceEntityId: "ROOT/N2", position: { x: 10, y: 24, z: 0 }, rotation: 100 }
+      { sourceEntityId: "4:ROOT2:N1", position: { x: 10, y: 22, z: 0 }, rotation: 100 },
+      { sourceEntityId: "4:ROOT2:N2", position: { x: 10, y: 24, z: 0 }, rotation: 100 }
     ]);
+  });
+
+  it("uses collision-free length-prefixed nested source paths and validates final uniqueness", () => {
+    const nested: NormalizedCadDocument = {
+      version: 1, bounds: { minX: 0, minY: 0, maxX: 1, maxY: 1 },
+      blocks: [
+        { name: "A_BLOCK", basePoint: { x: 0, y: 0, z: 0 }, entities: [{ ...candidate(1), sourceEntityId: "B/C", blockName: "LEAF" }] },
+        { name: "AB_BLOCK", basePoint: { x: 0, y: 0, z: 0 }, entities: [{ ...candidate(2), sourceEntityId: "C", blockName: "LEAF" }] },
+        { name: "LEAF", basePoint: { x: 0, y: 0, z: 0 }, entities: [] }
+      ],
+      entities: [
+        { ...candidate(3), sourceEntityId: "A", blockName: "A_BLOCK" },
+        { ...candidate(4), sourceEntityId: "A/B", blockName: "AB_BLOCK" }
+      ]
+    };
+
+    const ids = expandCadInserts(nested, { maxExpandedInserts: 10 }).map(item => item.sourceEntityId);
+    expect(ids).toEqual(["A", "1:A3:B/C", "A/B", "3:A/B1:C"]);
+    expect(new Set(ids).size).toBe(ids.length);
+
+    const duplicate = structuredClone(nested);
+    duplicate.entities[1].sourceEntityId = "A";
+    expect(() => expandCadInserts(duplicate, { maxExpandedInserts: 10 })).toThrow(/duplicate.*expanded.*source/i);
+  });
+
+  it("preserves mirrored INSERT orientation in world rotation and signed scale", () => {
+    const mirrored = cad([candidate(1)]);
+    const insert = mirrored.entities[0];
+    if (insert.type !== "insert") throw new Error("Expected INSERT fixture");
+    insert.rotation = 0;
+    insert.scale = { x: -2, y: 3, z: -1 };
+
+    expect(expandCadInserts(mirrored, { maxExpandedInserts: 10 })[0]).toMatchObject({
+      rotation: 180,
+      scale: { x: 2, y: -3, z: -1 }
+    });
+  });
+
+  it("honors AbortSignal and a monotonic detector deadline", async () => {
+    const detector = new RuleBasedLightingSymbolDetector();
+    const controller = new AbortController();
+    controller.abort();
+    await expect(detector.detect(cad([candidate(1), candidate(2)]), { abortSignal: controller.signal })).rejects.toThrow(/aborted/i);
+
+    let tick = 0;
+    await expect(detector.detect(cad(Array.from({ length: 1000 }, (_, index) => candidate(index))), {
+      maxDurationMs: 10, now: () => tick++
+    })).rejects.toThrow(/time.*limit/i);
+  });
+
+  it("uses a bounded spatial index for 1,000 candidates and 1,000 pre-tokenized texts", async () => {
+    const inserts = Array.from({ length: 1000 }, (_, index) => ({ ...candidate(index), position: { x: index * 100, y: 0, z: 0 } }));
+    const texts = Array.from({ length: 1000 }, (_, index) => ({
+      type: "text" as const, sourceEntityId: `text-${index}`, layer: "NOTE", position: { x: index * 100 + 1, y: 0, z: 0 },
+      rotation: 0, height: 1, text: index === 999 ? "DO NOT IMPORT" : "LIGHT"
+    }));
+    let tick = 0;
+    const detected = await new RuleBasedLightingSymbolDetector().detect(cad([...inserts, ...texts]), {
+      maxDurationMs: 30_000, now: () => tick++
+    });
+
+    expect(detected).toHaveLength(999);
+    expect(detected.at(-1)?.sourceEntityId).toBe("insert-998");
+    expect(tick).toBeLessThan(30_000);
   });
 });

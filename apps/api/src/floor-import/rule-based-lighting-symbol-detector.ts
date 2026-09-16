@@ -1,6 +1,6 @@
 import { expandCadDocument, expandCadInserts, transformPoint } from "./cad-geometry";
 import type { NormalizedCadDocument } from "./cad-types";
-import type { DetectedLightingSymbol, LightingSymbolDetector } from "./lighting-symbol-detector";
+import type { DetectedLightingSymbol, LightingDetectionOptions, LightingSymbolDetector } from "./lighting-symbol-detector";
 
 export interface LightingDetectionProfile {
   layerNameTokens: readonly string[];
@@ -16,6 +16,7 @@ export interface LightingDetectionProfile {
   denyAttributeValueTokens: readonly string[];
   denyNearbyTextTokens: readonly string[];
   nearbyTextDistance: number;
+  maxDurationMs: number;
 }
 
 const DEFAULT_PROFILE: LightingDetectionProfile = {
@@ -31,7 +32,8 @@ const DEFAULT_PROFILE: LightingDetectionProfile = {
   denyBlockNameTokens: ["LEDGER", "SCHEDULE", "SCHEDULED NOTE", "NOTE", "DECOR", "TITLE BLOCK"],
   denyAttributeValueTokens: ["NOT LIGHT", "NON LIGHTING", "DECOR", "IGNORE"],
   denyNearbyTextTokens: ["NOT LIGHT", "NON LIGHTING", "DECOR", "DO NOT IMPORT", "IGNORE"],
-  nearbyTextDistance: 5
+  nearbyTextDistance: 5,
+  maxDurationMs: 5_000
 };
 
 function tokenize(value: string): string[] {
@@ -44,9 +46,53 @@ function normalizeMatchers(tokens: readonly string[], label: string, allowEmpty 
   return normalized;
 }
 
-function matches(value: string, matchers: readonly string[][]): boolean {
-  const tokens = tokenize(value);
+function matchesTokens(tokens: readonly string[], matchers: readonly string[][]): boolean {
   return matchers.some(matcher => tokens.some((_, index) => matcher.every((token, offset) => tokens[index + offset] === token)));
+}
+
+interface IndexedCadText {
+  position: { x: number; y: number };
+  tokens: string[];
+}
+
+class CadTextGrid {
+  private readonly cells = new Map<string, IndexedCadText[]>();
+  private readonly cellSize: number;
+
+  constructor(distance: number) {
+    this.cellSize = distance > 0 ? distance : 1;
+  }
+
+  private coordinate(value: number): number {
+    return Math.floor(value / this.cellSize);
+  }
+
+  private key(x: number, y: number): string {
+    return `${x},${y}`;
+  }
+
+  add(text: IndexedCadText): void {
+    const key = this.key(this.coordinate(text.position.x), this.coordinate(text.position.y));
+    const cell = this.cells.get(key);
+    if (cell) cell.push(text);
+    else this.cells.set(key, [text]);
+  }
+
+  nearby(position: { x: number; y: number }, distance: number, checkBudget: () => void): IndexedCadText[] {
+    const centerX = this.coordinate(position.x);
+    const centerY = this.coordinate(position.y);
+    const radius = distance === 0 ? 0 : Math.ceil(distance / this.cellSize);
+    const result: IndexedCadText[] = [];
+    for (let x = centerX - radius; x <= centerX + radius; x++) {
+      for (let y = centerY - radius; y <= centerY + radius; y++) {
+        checkBudget();
+        for (const text of this.cells.get(this.key(x, y)) ?? []) {
+          if (Math.hypot(text.position.x - position.x, text.position.y - position.y) <= distance) result.push(text);
+        }
+      }
+    }
+    return result;
+  }
 }
 
 export class RuleBasedLightingSymbolDetector implements LightingSymbolDetector {
@@ -67,6 +113,7 @@ export class RuleBasedLightingSymbolDetector implements LightingSymbolDetector {
     if (!Number.isInteger(this.profile.maxExpandedInserts) || this.profile.maxExpandedInserts < 1) throw new Error("Invalid expanded INSERT limit");
     if (!Number.isFinite(this.profile.confidence) || this.profile.confidence <= 0 || this.profile.confidence > 1) throw new Error("Invalid detector confidence");
     if (!Number.isFinite(this.profile.nearbyTextDistance) || this.profile.nearbyTextDistance < 0) throw new Error("Invalid nearby text distance");
+    if (!Number.isFinite(this.profile.maxDurationMs) || this.profile.maxDurationMs <= 0) throw new Error("Invalid detector time limit");
     this.layerTokens = normalizeMatchers(this.profile.layerNameTokens, "layer name");
     this.blockTokens = normalizeMatchers(this.profile.blockNameTokens, "block name");
     this.attributeTokens = normalizeMatchers(this.profile.attributeValueTokens, "attribute value", true);
@@ -77,28 +124,53 @@ export class RuleBasedLightingSymbolDetector implements LightingSymbolDetector {
     this.denyNearbyTextTokens = normalizeMatchers(this.profile.denyNearbyTextTokens, "denied nearby text", true);
   }
 
-  async detect(document: NormalizedCadDocument): Promise<DetectedLightingSymbol[]> {
-    const inserts = expandCadInserts(document, { maxExpandedInserts: this.profile.maxExpandedInserts });
-    const expandedEntities = expandCadDocument(document, { maxRenderedEntities: this.profile.maxExpandedInserts });
-    const texts = expandedEntities.flatMap(item => item.entity.type === "text" || item.entity.type === "mtext"
-      ? [{ text: item.entity.text, position: transformPoint(item.matrix, item.entity.position) }]
-      : []);
+  async detect(document: NormalizedCadDocument, options: LightingDetectionOptions = {}): Promise<DetectedLightingSymbol[]> {
+    const maxDurationMs = options.maxDurationMs ?? this.profile.maxDurationMs;
+    const now = options.now ?? (() => performance.now());
+    if (!Number.isFinite(maxDurationMs) || maxDurationMs <= 0) throw new Error("Invalid detector time limit");
+    const startedAt = now();
+    const checkBudget = () => {
+      if (options.abortSignal?.aborted) throw new Error("CAD lighting detection aborted");
+      if (now() - startedAt > maxDurationMs) throw new Error("CAD lighting detection time limit exceeded");
+    };
+    checkBudget();
+    const inserts = expandCadInserts(document, { maxExpandedInserts: this.profile.maxExpandedInserts, checkBudget });
+    const expandedEntities = expandCadDocument(document, { maxRenderedEntities: this.profile.maxExpandedInserts, checkBudget });
+    const textGrid = new CadTextGrid(this.profile.nearbyTextDistance);
+    for (const item of expandedEntities) {
+      checkBudget();
+      if (item.entity.type !== "text" && item.entity.type !== "mtext") continue;
+      textGrid.add({ tokens: tokenize(item.entity.text), position: transformPoint(item.matrix, item.entity.position) });
+    }
     const frequencies = new Map<string, number>();
     const blockKey = (value: string) => value.normalize("NFKC").toLocaleUpperCase();
-    inserts.forEach(insert => frequencies.set(blockKey(insert.blockName), (frequencies.get(blockKey(insert.blockName)) ?? 0) + 1));
+    const prepared = inserts.map(insert => {
+      checkBudget();
+      const key = blockKey(insert.blockName);
+      frequencies.set(key, (frequencies.get(key) ?? 0) + 1);
+      return {
+        insert,
+        blockKey: key,
+        layerTokens: tokenize(insert.layer),
+        blockTokens: tokenize(insert.blockName),
+        attributeTokens: insert.entity.attributes.flatMap(attribute => [tokenize(attribute.tag), tokenize(attribute.value)])
+      };
+    });
     const detected: DetectedLightingSymbol[] = [];
 
-    for (const insert of inserts) {
-      const nearbyTexts = texts.filter(text => Math.hypot(text.position.x - insert.position.x, text.position.y - insert.position.y) <= this.profile.nearbyTextDistance);
-      const attributeValues = insert.entity.attributes.flatMap(attribute => [attribute.tag, attribute.value]);
-      if (matches(insert.layer, this.denyLayerTokens) || matches(insert.blockName, this.denyBlockTokens) ||
-          attributeValues.some(value => matches(value, this.denyAttributeTokens)) || nearbyTexts.some(text => matches(text.text, this.denyNearbyTextTokens))) continue;
-      if (!matches(insert.layer, this.layerTokens)) continue;
-      if (!matches(insert.blockName, this.blockTokens)) continue;
-      if ((frequencies.get(blockKey(insert.blockName)) ?? 0) < this.profile.minimumBlockOccurrences) continue;
+    for (const item of prepared) {
+      checkBudget();
+      const { insert } = item;
+      const nearbyTexts = textGrid.nearby(insert.position, this.profile.nearbyTextDistance, checkBudget);
+      if (matchesTokens(item.layerTokens, this.denyLayerTokens) || matchesTokens(item.blockTokens, this.denyBlockTokens) ||
+          item.attributeTokens.some(tokens => matchesTokens(tokens, this.denyAttributeTokens)) ||
+          nearbyTexts.some(text => matchesTokens(text.tokens, this.denyNearbyTextTokens))) continue;
+      if (!matchesTokens(item.layerTokens, this.layerTokens)) continue;
+      if (!matchesTokens(item.blockTokens, this.blockTokens)) continue;
+      if ((frequencies.get(item.blockKey) ?? 0) < this.profile.minimumBlockOccurrences) continue;
       const evidence = ["layer_pattern", "block_pattern", "block_frequency"];
-      if (attributeValues.some(value => matches(value, this.attributeTokens))) evidence.push("attribute_pattern");
-      if (nearbyTexts.some(text => matches(text.text, this.nearbyTextTokens))) evidence.push("nearby_text_pattern");
+      if (item.attributeTokens.some(tokens => matchesTokens(tokens, this.attributeTokens))) evidence.push("attribute_pattern");
+      if (nearbyTexts.some(text => matchesTokens(text.tokens, this.nearbyTextTokens))) evidence.push("nearby_text_pattern");
       detected.push({
         sourceEntityId: insert.sourceEntityId,
         layerName: insert.layer,

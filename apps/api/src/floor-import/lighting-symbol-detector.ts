@@ -14,6 +14,12 @@ export interface DetectedLightingSymbol {
   inputDigest?: string;
 }
 
+export interface LightingDetectionOptions {
+  abortSignal?: AbortSignal;
+  maxDurationMs?: number;
+  now?: () => number;
+}
+
 export interface LightingSymbolDetector {
-  detect(document: NormalizedCadDocument): Promise<DetectedLightingSymbol[]>;
+  detect(document: NormalizedCadDocument, options?: LightingDetectionOptions): Promise<DetectedLightingSymbol[]>;
 }

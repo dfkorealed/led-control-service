@@ -1,5 +1,6 @@
 import { Buffer } from "node:buffer";
 import { cadBulgeArc, computeCadBounds, expandCadDocument, multiplyCadMatrices, transformPoint, type CadMatrix, type ExpandedCadEntity } from "./cad-geometry";
+import { layoutCadText, sanitizeCadText } from "./cad-text-layout";
 import type { CadPoint, NormalizedCadDocument } from "./cad-types";
 
 export interface CadSvgRendererLimits {
@@ -17,15 +18,7 @@ const DEFAULT_LIMITS: CadSvgRendererLimits = {
 };
 
 function xml(value: string): string {
-  const valid = Array.from(value, character => {
-    const codePoint = character.codePointAt(0)!;
-    return codePoint === 0x09 || codePoint === 0x0a || codePoint === 0x0d ||
-      (codePoint >= 0x20 && codePoint <= 0xd7ff) ||
-      (codePoint >= 0xe000 && codePoint <= 0xfffd) ||
-      (codePoint >= 0x10000 && codePoint <= 0x10ffff)
-      ? character
-      : "\uFFFD";
-  }).join("");
+  const valid = sanitizeCadText(value);
   return valid.replace(/[&<>"']/g, character => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;"
   })[character]!);
@@ -142,11 +135,13 @@ export function renderCadDocumentSvg(document: NormalizedCadDocument, options: P
     } else {
       const radians = entity.rotation * Math.PI / 180;
       const textTransform: CadMatrix = {
-        a: Math.cos(radians), b: Math.sin(radians), c: Math.sin(radians), d: -Math.cos(radians),
+        a: Math.cos(radians), b: Math.sin(radians), c: -Math.sin(radians), d: Math.cos(radians),
         e: entity.position.x, f: entity.position.y
       };
       const matrix = multiplyCadMatrices(projection, multiplyCadMatrices(item.matrix, textTransform));
-      append(`<text ${attrs} x="0" y="0" font-size="${number(entity.height)}" fill="#111827" stroke="none" transform="matrix(${number(matrix.a)} ${number(matrix.b)} ${number(matrix.c)} ${number(matrix.d)} ${number(matrix.e)} ${number(matrix.f)})">${xml(entity.text)}</text>`);
+      const layout = layoutCadText(entity.text, entity.height);
+      const paths = layout.glyphs.map(glyph => `<path d="${xml(glyph.path)}" transform="translate(${number(glyph.x)} ${number(glyph.y)}) scale(${number(glyph.scale)})"/>`).join("");
+      append(`<g ${attrs} data-cad-text="true" aria-label="${xml(layout.text)}" fill="#111827" stroke="none" transform="matrix(${number(matrix.a)} ${number(matrix.b)} ${number(matrix.c)} ${number(matrix.d)} ${number(matrix.e)} ${number(matrix.f)})">${paths}</g>`);
     }
   }
   append("</g></svg>");

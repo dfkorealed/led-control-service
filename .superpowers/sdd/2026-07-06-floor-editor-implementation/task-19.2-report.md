@@ -118,3 +118,47 @@
 
 - process-group isolation은 macOS/Unix production 기준이다. Windows는 지원하지 않고 fail-close한다.
 - 20ms output polling은 runaway file을 빠르게 종료하지만 filesystem quota 자체를 대체하지 않는다. 배포 worker의 임시 볼륨 quota는 Task 19.3 운영 구성에서도 유지해야 한다.
+
+## Fix round 2 (2026-09-17)
+
+`task-19.2-rereview.md`의 P1 2건과 P2 4건을 모두 TDD로 보완했다. 이 절의 실행 정책이 위 Fix round 1 운영 주의를 대체한다.
+
+### Linux hard output cap과 platform 정책
+
+- production 지원 대상을 Linux로 명시하고, absolute `limiterExecutable`과 `{maxOutputBytes}`를 정확히 한 번 포함하는 limiter argv가 없으면 constructor 단계에서 fail-close한다.
+- production launch는 `limiter argv + converter executable + converter argv` 배열로 구성하며 `shell: false`를 유지한다. `prlimit --fsize={maxOutputBytes} --` 같은 kernel `RLIMIT_FSIZE` wrapper를 설정할 수 있다.
+- limiter와 converter/descendant는 하나의 detached process group으로 실행되어 timeout, abort, stdout/stderr 상한 시 전체가 종료된다. `SIGXFSZ`, nonzero exit, 최종 file 검증 실패에서 partial output을 제거한다.
+- macOS는 `macos-development-polling`과 `acknowledgeNonProductionRisk: true`를 함께 지정한 개발 모드만 허용한다. 이 모드의 20ms polling은 production 보장이 아니다.
+- Linux에서 polling mode, macOS에서 Linux limiter mode, Windows 및 그 밖의 platform, limiter 미설정은 모두 fail-close한다.
+
+### Bounded rule detector
+
+- TEXT/MTEXT를 한 번만 NFKC/tokenize한 뒤 `nearbyTextDistance` 크기의 uniform grid cell에 넣고, INSERT마다 인접 cell만 radius query한다.
+- layer, block, ATTRIB도 INSERT당 한 번만 tokenize해 positive/deny matcher가 같은 token 배열을 재사용한다.
+- profile 기본 5초 monotonic deadline과 호출별 override, `AbortSignal`을 detector interface에 추가했다. INSERT expansion, text expansion/indexing, frequency 구축, grid query, candidate 순회마다 budget을 확인한다.
+- disabled AI 구현은 확장된 interface를 따르지만 계속 외부 I/O 없이 빈 배열만 반환한다.
+
+### Strict DXF와 안정적 world identity
+
+- INSERT group 66은 strict integer 0/1만 허용하며 중복 flag를 거부한다. 값 1은 하나 이상의 ATTRIB 뒤 필수 SEQEND를 요구하고, 값 0/생략 뒤 ATTRIB 또는 SEQEND는 orphan으로 거부한다.
+- INSERT x/y/z scale은 finite signed nonzero 값을 허용한다. 음수 scale의 reflection은 affine bounds/SVG에 그대로 적용하고 world detector 값은 회전과 signed determinant scale로 보존한다.
+- nested source path는 각 UTF-8 segment를 `byteLength:value`로 연결한다. 최종 ID의 512-byte 상한과 NFKC/case-insensitive uniqueness를 expansion 결과 전체에서 다시 검증한다.
+
+### Deterministic text bounds와 render
+
+- bundled `NotoSansKR-Regular.ttf`와 `NotoEmoji.ttf`를 fontkit으로 layout하고 glyph advance/bbox를 계산한다.
+- bounds와 SVG가 같은 glyph layout 결과를 사용하며 SVG에는 host font fallback이 없는 glyph path만 기록한다. 따라서 긴 `W`/한글, 회전, nested non-uniform affine에서도 viewport와 실제 pixel bounds가 일치한다.
+- 원문은 XML-sanitized `aria-label`로 유지하고, XML 금지 scalar는 bundled replacement glyph로 그린다. 외부 font/resource 참조는 만들지 않는다.
+
+### Fix round 2 TDD/verification
+
+- 먼저 limiter 미설정/Linux wrapper, strict group 66 sequence, negative/zero scale, nested path collision/final duplicate, detector abort/deadline/1,000 INSERT + 1,000 TEXT, text path pixel clipping 테스트로 RED를 확인했다.
+- focused CAD: `5 suites / 52 tests` 통과
+- API typecheck: 통과
+- API build: 통과
+- API 전체 Jest: `152 suites passed / 43 environment-gated skipped`, `1,793 tests passed / 475 skipped / 실패 0`
+
+### 남은 운영 concern
+
+- production 배포 설정은 Linux host에 실제 kernel limit를 적용하는 absolute limiter executable과 올바른 argv를 제공해야 한다. adapter는 argv 구조와 fail-close 정책을 강제하지만 지정된 executable 자체의 운영 신뢰성은 배포 이미지 검증 범위다.
+- macOS polling mode는 로컬 개발 전용이며 production으로 승격할 수 없다. Windows는 지원하지 않는다.

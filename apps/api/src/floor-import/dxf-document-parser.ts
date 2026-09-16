@@ -83,6 +83,7 @@ export function parseAsciiDxf(input: string | Buffer, options: Partial<DxfParser
   let rawEntityCount = 0;
   let sawEof = false;
   const sourceEntityIds = new Set<string>();
+  const insertAttributeSequences = new WeakMap<NormalizedCadEntity, boolean>();
   const blocks: NormalizedCadBlock[] = [];
   const entities: NormalizedCadEntity[] = [];
 
@@ -136,6 +137,10 @@ export function parseAsciiDxf(input: string | Buffer, options: Partial<DxfParser
   };
   const positive = (value: number, label: string) => {
     if (value <= 0) throw new Error(`Invalid DXF ${label}`);
+    return value;
+  };
+  const nonZero = (value: number, label: string) => {
+    if (value === 0) throw new Error(`Invalid DXF ${label}`);
     return value;
   };
   const angle = (value: number) => ((value % 360) + 360) % 360;
@@ -220,17 +225,24 @@ export function parseAsciiDxf(input: string | Buffer, options: Partial<DxfParser
         height: positive(number(first(body, 40), "text height", 1), "text height"), text
       };
     }
-    if (type === "INSERT") return {
-      type: "insert", ...common, blockName: requireName(first(body, 2)?.value, "block name"),
-      position: point(body, 10, 20, 30, "insert position"),
-      rotation: angle(number(first(body, 50), "insert rotation", 0)),
-      scale: {
-        x: positive(number(first(body, 41), "insert x scale", 1), "insert x scale"),
-        y: positive(number(first(body, 42), "insert y scale", 1), "insert y scale"),
-        z: positive(number(first(body, 43), "insert z scale", 1), "insert z scale")
-      },
-      attributes: []
-    };
+    if (type === "INSERT") {
+      if (body.filter(pair => pair.code === 66).length > 1) throw new Error("Duplicate DXF INSERT group 66 attribute sequence flag");
+      const sequenceFlag = integer(first(body, 66), "INSERT group 66", 0);
+      if (sequenceFlag !== 0 && sequenceFlag !== 1) throw new Error("Invalid DXF INSERT group 66 attribute sequence flag");
+      const entity: NormalizedCadEntity = {
+        type: "insert", ...common, blockName: requireName(first(body, 2)?.value, "block name"),
+        position: point(body, 10, 20, 30, "insert position"),
+        rotation: angle(number(first(body, 50), "insert rotation", 0)),
+        scale: {
+          x: nonZero(number(first(body, 41), "insert x scale", 1), "insert x scale"),
+          y: nonZero(number(first(body, 42), "insert y scale", 1), "insert y scale"),
+          z: nonZero(number(first(body, 43), "insert z scale", 1), "insert z scale")
+        },
+        attributes: []
+      };
+      insertAttributeSequences.set(entity, sequenceFlag === 1);
+      return entity;
+    }
     return null;
   };
 
@@ -248,7 +260,10 @@ export function parseAsciiDxf(input: string | Buffer, options: Partial<DxfParser
       if (type === "ATTRIB" || type === "SEQEND") throw new Error(`Orphan DXF ${type} entity`);
       const entity = parseEntity(marker);
       if (entity?.type === "insert") {
+        const expectsAttributes = insertAttributeSequences.get(entity) === true;
+        let attributeCount = 0;
         while (pairs[cursor]?.code === 0 && pairs[cursor].value.trim().toUpperCase() === "ATTRIB") {
+          if (!expectsAttributes) throw new Error("DXF ATTRIB requires INSERT group 66=1");
           cursor++;
           registerEntity();
           const body = consumeBody();
@@ -261,8 +276,13 @@ export function parseAsciiDxf(input: string | Buffer, options: Partial<DxfParser
             height: positive(number(first(body, 40), "attribute height", 1), "attribute height")
           };
           entity.attributes.push(attribute);
+          attributeCount++;
         }
-        if (pairs[cursor]?.code === 0 && pairs[cursor].value.trim().toUpperCase() === "SEQEND") {
+        const hasSequenceEnd = pairs[cursor]?.code === 0 && pairs[cursor].value.trim().toUpperCase() === "SEQEND";
+        if (expectsAttributes && attributeCount === 0) throw new Error("DXF INSERT group 66=1 requires at least one ATTRIB");
+        if (expectsAttributes && !hasSequenceEnd) throw new Error("DXF INSERT attribute sequence requires SEQEND");
+        if (!expectsAttributes && hasSequenceEnd) throw new Error("Orphan DXF SEQEND entity");
+        if (hasSequenceEnd) {
           cursor++;
           consumeBody();
         }
@@ -322,7 +342,7 @@ export function parseAsciiDxf(input: string | Buffer, options: Partial<DxfParser
   if (new Set(blocks.map(block => block.name)).size !== blocks.length) throw new Error("Duplicate DXF block name");
 
   const expanded = expandCadDocument({ blocks, entities }, { maxRenderedEntities: limits.maxEntities });
-  const rawBounds = computeCadBounds(expanded);
+  const rawBounds = computeCadBounds(expanded, checkTime);
   if (Object.values(rawBounds).some(value => Math.abs(value) > limits.maxCoordinateMagnitude)) {
     throw new Error("DXF transformed coordinate limit exceeded");
   }
