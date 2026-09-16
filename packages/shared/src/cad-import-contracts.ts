@@ -1,0 +1,96 @@
+import { z } from "zod";
+import {
+  EDITOR_MAX_EXPECTED_REVISION,
+  EDITOR_MAX_FIXTURE_UPDATES,
+  POSTGRES_INT_MAX
+} from "./schemas";
+
+export const CAD_IMPORT_MIME_TYPES = {
+  dwg: [
+    "application/acad",
+    "application/x-acad",
+    "application/autocad",
+    "application/dwg",
+    "application/x-dwg",
+    "application/vnd.autodesk.autocad.dwg",
+    "image/vnd.dwg",
+    "image/x-dwg"
+  ],
+  dxf: [
+    "application/dxf",
+    "application/x-dxf",
+    "application/vnd.autodesk.autocad.dxf",
+    "image/vnd.dxf",
+    "image/x-dxf"
+  ]
+} as const;
+
+export const cadImportSourceFormatSchema = z.enum(["dwg", "dxf"]);
+export const cadImportMimeTypeSchema = z.enum([
+  ...CAD_IMPORT_MIME_TYPES.dwg,
+  ...CAD_IMPORT_MIME_TYPES.dxf
+]);
+
+export const cadImportFileTypeSchema = z.discriminatedUnion("sourceFormat", [
+  z.object({
+    sourceFormat: z.literal("dwg"),
+    mimeType: z.enum(CAD_IMPORT_MIME_TYPES.dwg)
+  }).strict(),
+  z.object({
+    sourceFormat: z.literal("dxf"),
+    mimeType: z.enum(CAD_IMPORT_MIME_TYPES.dxf)
+  }).strict()
+]);
+
+export const floorImportJobStatusSchema = z.enum([
+  "queued",
+  "processing",
+  "review_required",
+  "applying",
+  "completed",
+  "failed",
+  "cancelled"
+]);
+
+export const floorImportDetectionMethodSchema = z.enum(["rule_based", "ai_assisted"]);
+export const floorImportCandidateReviewStatusSchema = z.enum(["pending", "accepted", "rejected"]);
+
+export const floorImportCandidateSchema = z.object({
+  id: z.string().uuid(),
+  sourceEntityId: z.string().trim().min(1).max(512),
+  layerName: z.string().trim().min(1).max(512),
+  blockName: z.string().trim().min(1).max(512).nullable(),
+  x: z.number().finite().nonnegative(),
+  y: z.number().finite().nonnegative(),
+  rotation: z.number().finite(),
+  confidence: z.number().finite().min(0).max(1),
+  detectionMethod: floorImportDetectionMethodSchema,
+  reviewStatus: floorImportCandidateReviewStatusSchema
+}).strict();
+
+export const floorImportCandidateListResponseSchema = z.object({
+  jobId: z.string().uuid(),
+  candidates: z.array(floorImportCandidateSchema).max(EDITOR_MAX_FIXTURE_UPDATES)
+}).strict();
+
+export const floorImportApplyInputSchema = z.object({
+  expectedRevision: z.number().int().nonnegative().max(EDITOR_MAX_EXPECTED_REVISION),
+  leaseToken: z.string().trim().min(1).max(256),
+  leaseFence: z.number().int().positive().max(POSTGRES_INT_MAX),
+  candidateIds: z.array(z.string().uuid()).max(EDITOR_MAX_FIXTURE_UPDATES)
+}).strict().superRefine((input, context) => {
+  if (new Set(input.candidateIds).size !== input.candidateIds.length) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["candidateIds"],
+      message: "candidateIds must not contain duplicates"
+    });
+  }
+});
+
+export type CadImportSourceFormat = z.infer<typeof cadImportSourceFormatSchema>;
+export type CadImportMimeType = z.infer<typeof cadImportMimeTypeSchema>;
+export type FloorImportJobStatus = z.infer<typeof floorImportJobStatusSchema>;
+export type FloorImportCandidate = z.infer<typeof floorImportCandidateSchema>;
+export type FloorImportCandidateListResponse = z.infer<typeof floorImportCandidateListResponseSchema>;
+export type FloorImportApplyInput = z.infer<typeof floorImportApplyInputSchema>;

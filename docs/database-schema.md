@@ -133,6 +133,7 @@ Organization
   └─ Site ─ admin -> User
       ├─ Floor
       │   ├─ FloorPlan
+      │   ├─ FloorAsset ─ FloorImportJob ─ FloorImportCandidate
       │   ├─ FloorMapObject
       │   └─ Fixture ─ MeshNode
       │       ├─ GroupFixture ─ FixtureGroup
@@ -282,6 +283,15 @@ SiteDeletionCleanup (삭제된 Site ID와 외부 정리 대상을 독립 보존)
 | `none` | 배경 없이 격자 캔버스만 사용 |
 | `image` | JPG 또는 PNG 이미지 원본 사용 |
 | `pdf` | PDF 원본 자산 연결. 격리 렌더 worker가 만든 ready 이미지가 있을 때만 배경 표시 |
+
+### CAD import enum
+
+| Enum | 값 | 용도 |
+| --- | --- | --- |
+| `FloorImportSourceFormat` | `dwg`, `dxf` | 자동 맵 구성에서 허용하는 CAD 원본 형식. PDF는 포함하지 않음 |
+| `FloorImportJobStatus` | `queued`, `processing`, `review_required`, `applying`, `completed`, `failed`, `cancelled` | 비동기 변환부터 관리자 검토·적용까지의 영속 작업 상태 |
+| `FloorImportDetectionMethod` | `rule_based`, `ai_assisted` | 조명 위치 후보를 만든 검출 경계. 초기 구현은 `rule_based`이며 AI provider는 비활성 |
+| `FloorImportCandidateReviewStatus` | `pending`, `accepted`, `rejected` | 후보별 관리자 검토 상태 |
 
 ### CertificatePurpose
 
@@ -494,6 +504,7 @@ worker는 API 시작 시와 30초 주기로 만료된 작업을 최대 10개씩 
 - `mapObjects`: `FloorMapObject[]`
 - `fixtures`: `Fixture[]`
 - `assets`: `FloorAsset[]`
+- `importJobs`: `FloorImportJob[]`
 - `provisioningSessions`: `ProvisioningSession[]`
 - `mapRevisions`: `FloorMapRevision[]`
 
@@ -626,6 +637,66 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 - 조회 API는 공개 URL을 반환하지 않는다. 현장 `read` 권한을 확인한 content endpoint가 private bucket에 대해 300초 signed GET을 발급하고 `302`로 연결한다.
 - 번들 MinIO는 `WEB_PUBLIC_URL`을 `MINIO_API_CORS_ALLOW_ORIGIN`으로 전달하며 미설정 시 `http://localhost:5173`을 사용한다. 버킷은 계속 anonymous `none`이고, 지원되지 않는 `mc cors set`이나 localhost 전용 XML에 의존하지 않는다.
 - `20260912090000_floor_asset_private_ledger` migration은 기존 FloorPlan과 FloorMapRevision snapshot의 알려진 asset URL을 인증 경로로 치환하고, 변경된 snapshot의 안정 해시를 다시 계산한 뒤 `publicUrl` 컬럼을 제거한다. 알려진 asset과 대응하지 않는 비어 있지 않은 legacy URL이 하나라도 있으면 전체 migration을 원자적으로 중단한다.
+- CAD 원본 또는 렌더 자산을 `FloorImportJob`이 참조하는 동안 FK가 직접 자산 삭제를 막는다. 후속 cleanup worker는 이 관계를 후보 조회에서도 제외해야 한다.
+
+### FloorImportJob
+
+DWG/DXF 원본을 비동기로 변환·검출·검토·적용하는 작업의 영속 원장이다. 큰 CAD 파싱은 API 요청 안에서 실행하지 않으며 만료된 worker lease는 다른 worker가 재개한다.
+
+| 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
+| --- | --- | --- | --- | --- |
+| `id` | `String` | 예 | PK, `uuid()` | import job ID |
+| `floorId` | `String` | 예 | FK -> `Floor.id`, cascade delete | 대상 층 |
+| `sourceAssetId` | `String` | 예 | Unique, FK -> `FloorAsset.id`, delete no action | private DWG/DXF 원본 자산 |
+| `renderedAssetId` | `String?` | 아니오 | Unique, FK -> `FloorAsset.id`, delete no action, 원본과 달라야 함 | 변환 결과 SVG/래스터 자산 |
+| `sourceFormat` | `FloorImportSourceFormat` | 예 |  | `dwg` 또는 `dxf` |
+| `status` | `FloorImportJobStatus` | 예 | `queued` | 영속 작업 상태 |
+| `stage` | `String` | 예 | `queued`, trim 길이 1~100 | 상태보다 세분화된 현재 처리 단계 |
+| `progressPercent` | `Int` | 예 | `0`, DB check `0~100` | 진행률 |
+| `attemptCount` | `Int` | 예 | `0`, DB check `>= 0` | worker lease 획득/재시도 횟수 |
+| `parserVersion` | `String?` | 아니오 |  | CAD parser/정규화 구현 버전 |
+| `detectorVersion` | `String?` | 아니오 |  | 조명 후보 detector 버전 |
+| `leaseOwner`, `leaseExpiresAt` | `String?`, `DateTime?` | 아니오 | 둘 다 NULL 또는 둘 다 값 | 다중 worker 점유와 만료 시각 |
+| `failureCode`, `failureMessage` | `String?` | 아니오 |  | 정제된 실패 코드와 내부 운영 메시지 |
+| `startedAt` | `DateTime?` | 아니오 |  | 첫 처리 시작 시각 |
+| `reviewRequiredAt` | `DateTime?` | 아니오 |  | 후보 검토 가능 상태 진입 시각 |
+| `appliedAt` | `DateTime?` | 아니오 |  | editor transaction 적용 시각 |
+| `completedAt` | `DateTime?` | 아니오 |  | 정상 종료 시각 |
+| `cancelledAt` | `DateTime?` | 아니오 |  | 취소 시각 |
+| `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
+| `updatedAt` | `DateTime` | 예 | `@updatedAt` | 최종 갱신 시각 |
+
+제약과 인덱스:
+
+- `floorId + createdAt`, `status + leaseExpiresAt + createdAt` index로 층별 이력과 lease 회수 대상을 조회한다.
+- partial unique index `FloorImportJob_floorId_active_key`는 `queued`, `processing`, `review_required`, `applying` 중인 job을 층마다 하나로 제한한다. 완료·실패·취소 원장은 이력으로 유지한다.
+- 원본과 렌더 자산 FK는 직접 삭제를 막지만 같은 층 자산인지와 `original`/`rendered` kind인지는 Task 19.3 API transaction이 Floor 잠금 뒤 검증한다.
+
+### FloorImportCandidate
+
+CAD parser 좌표에서 검출한 조명 위치 후보 원장이다. 후보는 BLE Mesh 장비 identity가 없으므로 `Fixture` 또는 `MeshNode`를 생성하거나 자동 연결하지 않는다.
+
+| 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
+| --- | --- | --- | --- | --- |
+| `id` | `String` | 예 | PK, `uuid()` | 후보 ID |
+| `jobId` | `String` | 예 | FK -> `FloorImportJob.id`, cascade delete | 소속 import job |
+| `sourceEntityId` | `String` | 예 | job 안에서 Unique, trim 길이 1~512 | 정규화 CAD source entity ID |
+| `layerName` | `String` | 예 | trim 길이 1~512 | CAD layer 이름 |
+| `blockName` | `String?` | 아니오 | 값이 있으면 trim 길이 1~512 | CAD block 이름 |
+| `x`, `y` | `Float` | 예 | 유한한 0 이상 값 | parser가 맵 좌표계로 정규화한 위치 |
+| `rotation` | `Float` | 예 | `0`, 유한값 | parser가 계산한 회전 각도 |
+| `confidence` | `Float` | 예 | DB check `0~1` | 검출 신뢰도 |
+| `detectionMethod` | `FloorImportDetectionMethod` | 예 |  | 규칙 또는 향후 AI 보조 검출 구분 |
+| `reviewStatus` | `FloorImportCandidateReviewStatus` | 예 | `pending` | 관리자 검토 상태 |
+| `reviewedAt` | `DateTime?` | 아니오 | pending이면 NULL, accepted/rejected이면 필수 | 검토 시각 |
+| `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
+| `updatedAt` | `DateTime` | 예 | `@updatedAt` | 최종 갱신 시각 |
+
+제약과 인덱스:
+
+- `(jobId, sourceEntityId)` unique로 worker 재시도 시 같은 CAD entity의 후보가 중복 생성되지 않게 한다.
+- `(jobId, reviewStatus, id)` index로 검토 목록과 1,000개 단위 후보 조회를 지원한다.
+- 좌표와 회전은 parser 결과만 저장한다. AI 보조 구현도 좌표를 생성하거나 변경할 수 없다.
 
 ### FloorMapObject
 

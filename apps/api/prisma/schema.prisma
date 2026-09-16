@@ -143,6 +143,32 @@ enum FloorAssetStatus {
   ready
 }
 
+enum FloorImportSourceFormat {
+  dwg
+  dxf
+}
+
+enum FloorImportJobStatus {
+  queued
+  processing
+  review_required
+  applying
+  completed
+  failed
+  cancelled
+}
+
+enum FloorImportDetectionMethod {
+  rule_based
+  ai_assisted
+}
+
+enum FloorImportCandidateReviewStatus {
+  pending
+  accepted
+  rejected
+}
+
 enum FloorStatus {
   active
   archived
@@ -328,6 +354,7 @@ model Floor {
   fixtureGroups         FixtureGroup[]
   mapObjects            FloorMapObject[]
   assets                FloorAsset[]
+  importJobs            FloorImportJob[]
   provisioningSessions  ProvisioningSession[]
   mapRevisions          FloorMapRevision[]
   createdAt             DateTime              @default(now())
@@ -423,23 +450,79 @@ model MonitoringIncident {
 }
 
 model FloorAsset {
-  id               String           @id @default(uuid())
-  floorId          String
-  kind             FloorAssetKind
-  status           FloorAssetStatus @default(pending)
-  objectKey        String           @unique
-  mimeType         String
-  sizeBytes        BigInt
-  sha256           String
-  uploadExpiresAt  DateTime?
-  cleanupStartedAt DateTime?
-  readyAt          DateTime?
-  floor            Floor            @relation(fields: [floorId], references: [id], onDelete: Cascade)
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
+  id                 String           @id @default(uuid())
+  floorId            String
+  kind               FloorAssetKind
+  status             FloorAssetStatus @default(pending)
+  objectKey          String           @unique
+  mimeType           String
+  sizeBytes          BigInt
+  sha256             String
+  uploadExpiresAt    DateTime?
+  cleanupStartedAt   DateTime?
+  readyAt            DateTime?
+  floor              Floor            @relation(fields: [floorId], references: [id], onDelete: Cascade)
+  sourceImportJobs   FloorImportJob[] @relation("FloorImportSourceAsset")
+  renderedImportJobs FloorImportJob[] @relation("FloorImportRenderedAsset")
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
 
   @@index([floorId, status, createdAt])
   @@index([status, uploadExpiresAt, cleanupStartedAt])
+}
+
+model FloorImportJob {
+  id               String                  @id @default(uuid())
+  floorId          String
+  sourceAssetId    String                  @unique
+  renderedAssetId  String?                 @unique
+  sourceFormat     FloorImportSourceFormat
+  status           FloorImportJobStatus    @default(queued)
+  stage            String                  @default("queued")
+  progressPercent  Int                     @default(0)
+  attemptCount     Int                     @default(0)
+  parserVersion    String?
+  detectorVersion  String?
+  leaseOwner       String?
+  leaseExpiresAt   DateTime?
+  failureCode      String?
+  failureMessage   String?
+  startedAt        DateTime?
+  reviewRequiredAt DateTime?
+  appliedAt        DateTime?
+  completedAt      DateTime?
+  cancelledAt      DateTime?
+  floor            Floor                   @relation(fields: [floorId], references: [id], onDelete: Cascade)
+  sourceAsset      FloorAsset              @relation("FloorImportSourceAsset", fields: [sourceAssetId], references: [id], onDelete: NoAction)
+  renderedAsset    FloorAsset?             @relation("FloorImportRenderedAsset", fields: [renderedAssetId], references: [id], onDelete: NoAction)
+  candidates       FloorImportCandidate[]
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+
+  // SQL additionally enforces one active import per floor with a partial unique index.
+  @@index([floorId, createdAt])
+  @@index([status, leaseExpiresAt, createdAt])
+}
+
+model FloorImportCandidate {
+  id              String                           @id @default(uuid())
+  jobId           String
+  sourceEntityId  String
+  layerName       String
+  blockName       String?
+  x               Float
+  y               Float
+  rotation        Float                            @default(0)
+  confidence      Float
+  detectionMethod FloorImportDetectionMethod
+  reviewStatus    FloorImportCandidateReviewStatus @default(pending)
+  reviewedAt      DateTime?
+  job             FloorImportJob                   @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  createdAt       DateTime                         @default(now())
+  updatedAt       DateTime                         @updatedAt
+
+  @@unique([jobId, sourceEntityId])
+  @@index([jobId, reviewStatus, id])
 }
 
 model FloorPlan {
