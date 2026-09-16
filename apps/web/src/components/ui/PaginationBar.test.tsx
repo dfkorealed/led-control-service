@@ -59,6 +59,43 @@ describe("PaginationBar", () => {
     expect(onPageSizeChange).toHaveBeenCalledWith(50);
   });
 
+  it("disables only previous on a non-empty first page", () => {
+    render(
+      <PaginationBar
+        page={1}
+        pageSize={20}
+        totalCount={137}
+        hasPrevious={false}
+        hasNext
+        onPrevious={vi.fn()}
+        onNext={vi.fn()}
+        onPageSizeChange={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "이전 페이지" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "다음 페이지" })).toBeEnabled();
+  });
+
+  it("shows the last partial range and disables only next", () => {
+    render(
+      <PaginationBar
+        page={7}
+        pageSize={20}
+        totalCount={137}
+        hasPrevious
+        hasNext={false}
+        onPrevious={vi.fn()}
+        onNext={vi.fn()}
+        onPageSizeChange={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText("121~137 / 137건")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "이전 페이지" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "다음 페이지" })).toBeDisabled();
+  });
+
   it("shows an empty total, disables both directions and keeps compact controls touch-sized", () => {
     render(
       <PaginationBar
@@ -75,7 +112,7 @@ describe("PaginationBar", () => {
     );
 
     const navigation = screen.getByRole("navigation", { name: "페이지 이동" });
-    expect(navigation).toHaveClass("report-pagination", "grid", "min-w-0");
+    expect(navigation).toHaveClass("report-pagination", "flex", "min-w-0", "flex-col", "tablet:flex-row");
     expect(screen.getByText("0건")).toBeInTheDocument();
     for (const name of ["이전 페이지", "다음 페이지"]) {
       expect(screen.getByRole("button", { name })).toBeDisabled();

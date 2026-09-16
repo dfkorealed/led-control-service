@@ -40,22 +40,22 @@ export function PaginationBar({
   const lastItem = isEmpty ? 0 : Math.min(Math.max(page, 1) * pageSize, totalCount);
 
   return (
-    <nav aria-label="페이지 이동" className={cn("grid min-w-0 gap-3 compact:grid-cols-[minmax(0,1fr)_auto] compact:items-end", className)}>
+    <nav aria-label="페이지 이동" className={cn("flex min-w-0 flex-col gap-3 tablet:flex-row tablet:items-end tablet:justify-between", className)}>
       <SelectBox
         label="페이지당 항목 수"
         size="sm"
-        className="w-full compact:max-w-40"
+        className="w-full tablet:max-w-40 tablet:flex-none"
         items={pageSizeOptions}
         selectedKey={pageSize}
         onSelectionChange={(value) => {
           if (value !== null) onPageSizeChange(value);
         }}
       />
-      <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2">
+      <div className="flex min-w-0 items-center gap-2 tablet:w-auto">
         <Button type="button" size="sm" className="min-w-11 shrink-0" aria-label="이전 페이지" disabled={isEmpty || !hasPrevious} onClick={onPrevious}>
           이전
         </Button>
-        <Text as="output" role="status" aria-live="polite" variant="caption" tone="secondary" className="min-w-0 text-center tabular-nums">
+        <Text as="output" role="status" aria-live="polite" variant="caption" tone="secondary" className="min-w-0 flex-1 whitespace-nowrap text-center tabular-nums">
           <span className="block">{Math.max(page, 1)}페이지</span>
           <span className="block">{isEmpty ? "0건" : `${firstItem}~${lastItem} / ${totalCount}건`}</span>
         </Text>
