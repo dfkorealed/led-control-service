@@ -175,4 +175,17 @@ describe("FloorAssetCleanupService", () => {
     expect(storage.deleteObject).not.toHaveBeenCalled();
     expect(prisma.floorAsset.deleteMany).not.toHaveBeenCalled();
   });
+
+  it("excludes source and rendered assets referenced by an import job before cleanup claim", async () => {
+    const prisma: any = {
+      floorAsset: { findMany: jest.fn().mockResolvedValue([]) },
+      $queryRaw: jest.fn().mockResolvedValue([])
+    };
+    const service = new FloorAssetCleanupService(prisma, { deleteObject: jest.fn() } as any);
+    await service.processPending(new Date("2026-09-17T00:00:00.000Z"));
+    const sql = prisma.$queryRaw.mock.calls[0][0].strings.join(" ");
+    expect(sql).toContain('FROM "FloorImportJob"');
+    expect(sql).toContain('job."sourceAssetId" = asset."id"');
+    expect(sql).toContain('job."renderedAssetId" = asset."id"');
+  });
 });

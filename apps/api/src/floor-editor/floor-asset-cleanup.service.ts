@@ -87,6 +87,11 @@ export class FloorAssetCleanupService implements OnModuleInit, OnModuleDestroy {
               revision."snapshot" #>> '{floorPlan,renderedImageUrl}'
             )
         )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM "FloorImportJob" AS job
+          WHERE job."sourceAssetId" = asset."id" OR job."renderedAssetId" = asset."id"
+        )
       ORDER BY asset."createdAt" ASC
       LIMIT ${BATCH_SIZE}
     `);
@@ -177,6 +182,10 @@ export class FloorAssetCleanupService implements OnModuleInit, OnModuleDestroy {
               OR revision."snapshot" #>> '{floorPlan,originalFileUrl}' = ${accessPath}
               OR revision."snapshot" #>> '{floorPlan,renderedImageUrl}' = ${accessPath}
             )
+          UNION ALL
+          SELECT 1
+          FROM "FloorImportJob" AS job
+          WHERE job."sourceAssetId" = ${locked.id} OR job."renderedAssetId" = ${locked.id}
         ) AS "referenced"
       `);
       if (referenceRows[0]?.referenced) {
