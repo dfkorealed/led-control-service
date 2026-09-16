@@ -757,3 +757,10 @@
 - **원인**: 원본 DWG의 코드페이지 메타데이터와 변환기가 직렬화한 출력 문자열 인코딩을 같은 사실로 취급했다.
 - **해결 및 예방책**: 파일 전체를 크기·시간 상한 안에서 streaming UTF-8 검증하고, 유효하면 실제 bytes를 우선한다. UTF-8이 아니면 그때만 지원하는 선언 코드페이지로 fallback하며 둘 다 아니면 fail-close한다. 변환기 버전과 코드페이지를 결과에 함께 기록한다.
 - **반복 방지 체크**: `ANSI_949` 헤더와 UTF-8 한글 layer를 함께 가진 LibreDWG 형태의 fixture가 이름과 후보 수를 보존하는지 테스트한다. 샘플 분석에서는 사람이 읽을 수 있는 주요 layer/block 이름과 출력 반복 hash를 함께 확인한다.
+
+## 2026-09-17 / 대형 CAD 상한은 연속 pipeline과 실제 도면으로 정한다
+
+- **발생했던 문제/실수**: 개발 analyzer가 샘플을 읽어도 제품 worker는 16 MiB DXF, 100,000 expanded entity, 1,000 후보와 8 MiB SVG 상한에서 연속으로 실패했다. 단순 상향 뒤에는 샘플 SVG가 264 MB까지 커지고 메모리도 급증했다.
+- **원인**: 입력 크기만 상한으로 보고 전체 문자열·line split·pair 배열·expanded entity 배열·SVG 조각과 Buffer가 동시에 존재하는 단계별 물질화를 측정하지 않았다. paper layout도 model-space에 섞여 분모와 출력이 부풀었다.
+- **해결 및 예방책**: group 67/410으로 model-space를 먼저 선별하고 chunk→line→pair→한 entity body만 보유하는 parser로 바꿨다. detector/renderer expansion도 iterator로 소비하고 제품 SVG는 검증된 bounds, metadata 생략, compact path를 사용해 샘플을 96,353,981 bytes로 낮췄다. line, pair, entity, block, coordinate, expansion/depth, candidate, SVG, temp disk, CPU와 wall 예산을 독립 상한으로 유지한다.
+- **반복 방지 체크**: 실제 샘플의 analyzer와 제품 convert→parse→detect→render를 모두 실행하고, 이전 상한보다 큰 정상 streaming fixture와 긴 line/entity body 적대 fixture를 함께 둔다. 숫자를 높이기 전에 어느 단계가 메모리와 출력을 물질화하는지 측정하며 배포 cgroup 검증 전에는 로컬 RSS를 양산 보장으로 기록하지 않는다.

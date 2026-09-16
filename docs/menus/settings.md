@@ -74,7 +74,9 @@
 
 ## 구현 완료
 
-- 2026-09-17 Task 19.5에서 재현 가능한 로컬 DWG/DXF 분석 도구를 추가했다. DXF는 직접 읽고 DWG는 명시한 `/opt/homebrew/bin/dwgread`를 shell 없이 argv로 실행하며, 입력·변환 결과·프로세스 출력·JSON 출력·시간·entity 수 상한과 실패 시 임시 파일 정리를 적용한다. 샘플 SHA256 `01f25d539c20f93663c9183bbf70d83e578ae9990c2eb6dabb543bf39d71854d`를 LibreDWG `dwgread 0.14`로 두 번 분석한 JSON과 한글 요약은 byte 단위로 동일했다. model-space entity 31,037개, INSERT 9,365개, 고유 INSERT 좌표 9,358개, layer 107개, block 11,243개였고 규칙 후보는 0개였다. INSERT 좌표·block 이름 추출 coverage 100%와 지원 entity 기준 맵 기하 재현 예상 89.4771%는 각각 그 제한된 분모의 측정치다. ground truth가 없어 조명 검출 precision/recall/F1은 미확정이며 실제 BLE identity 매핑은 0%, 자동 `Fixture`/`MeshNode` 생성은 없다. 또한 변환 DXF 105,432,404 bytes는 현재 제품 worker의 고정 16 MiB 상한을 넘으므로 이 샘플의 제품 import 성공 증거가 아니다.
+- 2026-09-17 Task 19.5 fix round 1에서 analyzer와 제품 parser가 DXF group 67/410으로 기본 model-space만 포함하도록 교정했다. 샘플 SHA256 `01f25d539c20f93663c9183bbf70d83e578ae9990c2eb6dabb543bf39d71854d`, LibreDWG `dwgread 0.14`, analyzer `cad-import-analysis/2` 기준 model/paper 비-structural entity는 26,887/4,150개이고 직접 model INSERT 8,954개, 고유 원점 8,947개, block 11,243개다. 지원 entity는 26,389개로 자기 분모의 맵 기하 재현 예상은 98.1478%다. 직접 INSERT 이름+유한 원점 비율은 100%지만 8,623개가 회전되고 6,853개가 비단위 scale이며 nested 전개는 총 23,734회라 transform 정확도나 조명 recall 100%를 뜻하지 않는다.
+- 현장 profile `site-drawing-lighting/2`의 exact block allowlist에 `몰드바등`을 두고 model-space, 전등 layer, 반복, deny evidence를 함께 적용해 review 후보 1,302개를 보존한다. profile digest는 `d1d50780d863c1d65bf11ea2c71ccf2f38d3a2ae605b8ea6c107fa1900031dc8`이며 job/result metadata에 기록한다. 후보 bulk 상한은 2,000개로 확장했지만 후보는 자동 등록이 아니며 `Fixture`/`MeshNode`를 만들지 않는다. ground truth가 없어 precision/recall/F1은 여전히 미확정이고 실제 BLE identity 매핑은 0%다.
+- 제품 worker는 105,432,404-byte 변환 DXF를 전체 `readFile`/문자열/pair 배열 없이 증분 처리한다. 샘플 제품 경로 실측은 지원 entity 26,389개, block 11,243개, 후보 1,302개, compact SVG 96,353,981 bytes, parse/detect/render 약 10.6/1.2/6.6초이며 성공했다. DXF 256 MiB, SVG 128 MiB, 후보 2,000개, temp disk 512 MiB와 line/pair/entity/block/expanded/depth/좌표/CPU·wall 상한을 유지한다. 이는 샘플 처리 성공 증거이지 사람이 판정한 검출 품질이나 배포 cgroup 부하 검증 완료를 뜻하지 않는다.
 - CAD 분석의 AI adapter는 `disabled`이고 I/O 호출은 0회다. `LightingSymbolDetector` 계약으로 향후 provider를 교체할 수 있지만 별도 보안·비용 승인 전에는 CAD나 고객 정보를 외부로 전송하지 않는다. 신규 자동 import는 DWG/DXF만 대상으로 하며 신규 PDF import는 제외하고 기존 PDF 읽기 호환은 유지한다.
 
 - 2026-09-16 Tailwind Task 12에서 설정 개요·현장·사용자·등록·맵·보안 화면과 공통 dialog/navigation의 legacy class/CSS adapter를 제거하고 의미 토큰·utility 및 `data-*` 테스트 계약으로 수렴했다. legacy `components/ConfirmDialog.tsx`는 production/test import 0을 확인한 뒤 삭제했으며 정책 baseline은 빈 violation map을 사용한다. Fresh Web **1,224/1,224**, UI policy **53/53**, 전체 Chromium 직렬 **257 passed·5 환경 의존 skip·실패 0**, 별도 opt-in RealBackendLab 설치 여정 **2/2**와 층 배치 **1/1**을 통과했다. 실제 iOS/Android WebView, 운영 Object Storage, 사용자 DB 적용과 Raspberry Pi/ESP32-H2 HIL은 실행하지 않았다.
@@ -384,8 +386,8 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - 초대 링크 발급·전달 방식의 일반 유저 onboarding UI. admin이 직접 계정과 임시 비밀번호를 발급하는 현장 유저 CRUD는 구현 완료했다.
 - 구역 생성·수정과 구성원 관리 화면. 기존 구역 목록·보관 전환은 구현 완료했다.
 - PDF 첫 페이지를 별도 이미지로 만드는 격리 렌더 worker. 신규 PDF 자동 import는 지원하지 않으며 기존 PDF 읽기 호환만 유지한다.
-- 샘플별 조명 ground truth 라벨과 현장 profile. 현재 규칙 후보는 실제 샘플에서 0개이므로 `몰드바등`, `xx4`, 익명 dynamic block의 의미를 검토 없이 자동 등록하지 않는다.
-- 대형 DWG 변환 결과의 운영 상한 정책. 제공 샘플의 DXF는 105,432,404 bytes라 현재 worker 고정 상한 16 MiB를 초과한다. 메모리·CPU·SVG 출력·entity 상한을 함께 재검증하지 않은 채 크기만 올리지 않는다.
+- 샘플별 사람이 판정한 조명 ground truth. `몰드바등` 후보 1,302개는 review pool일 뿐이며 `xx4`, 익명 dynamic block은 geometry·attribute·주변 문자 근거와 라벨 없이 자동 등록하지 않는다.
+- 배포 컨테이너 cgroup에서 샘플보다 큰 정상/적대 DWG의 메모리·CPU·temp disk 부하 검증. 로컬 제품 경로는 성공했지만 실측 RSS 값은 Jest와 converter 자식 과정을 포함하므로 운영 worker 단독 상한 증거로 사용하지 않는다.
 - 다중 Gateway와 층 coverage
 - ESP32-H2 factory reset과 장비 교체 workflow
 - 시운전 보고서
@@ -434,7 +436,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - 로컬 MinIO에서 signed PUT, HEAD checksum, 익명 GET 거부와 300초 signed GET 통합 테스트를 통과했다. 브라우저가 접근할 public bucket base와 API 내부 endpoint는 별도 설정하고, 번들 MinIO CORS origin은 `WEB_PUBLIC_URL`에서 주입한다. 실제 운영 object storage 장애 주입은 후속이다.
 - PDF는 현재 비공개 원본으로만 연결하고 캔버스 배경으로 렌더링하지 않는다. 첫 페이지 렌더 worker와 다중 페이지 선택은 후속 작업이다.
 - 조명 다중 선택·일괄 이동, 도형 개별 삭제, Undo/Redo, 격자 스냅과 조명 키보드 미세 조정을 제공한다. 다중 도형 동시 편집과 전용 회전 도구는 후속 범위다.
-- DWG/DXF import의 소프트웨어 경로와 샘플 분석은 구현했지만, 샘플 맞춤 규칙 profile과 사람이 판정한 ground truth가 없어 검출 precision/recall/F1은 미확정이다. `#01-1-1.지하주차장_전등` layer의 INSERT 2,075개가 있어도 block 이름이 현재 허용 token과 일치하지 않아 후보 0개였으므로 자동 등록 품질로 확대 해석하지 않는다.
+- DWG/DXF import의 소프트웨어 경로와 샘플 제품 pipeline은 구현했지만 사람이 판정한 ground truth가 없어 검출 precision/recall/F1은 미확정이다. 현장 profile의 `몰드바등` review 후보 1,302개를 자동 등록 품질로 확대 해석하지 않는다.
 - AI는 I/O를 수행하지 않는 `disabled` adapter뿐이다. 향후 provider 교체 가능성은 유지하되 외부 전송 승인과 좌표 비생성 계약을 통과하기 전에는 활성화하지 않는다.
 
 ## 경쟁 서비스 참고 근거
@@ -571,4 +573,4 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - 자동 테스트 완료, 코드 완료, Raspberry Pi 검증과 ESP32-H2 Hardware E2E를 별도 상태로 기록한다.
 - route-backed action을 추가하거나 제거할 때 role filtering, `siteId` query와 hash fragment 보존, dirty navigation guard 회귀를 함께 갱신한다.
 - 테스트 데이터 도구의 활성화 플래그, 설치 완료 assigned admin 노출 조건, marker 기반 생성·삭제 범위가 바뀌면 이 문서와 모니터링 문서를 함께 갱신한다. DB schema/migration 변경이 없는지도 명시한다.
-- CAD 분석 결과를 갱신할 때 원본 SHA256, analyzer/converter/DXF 버전, layer/block/entity/INSERT/고유 좌표/후보 통계와 동일 출력 재현성을 함께 기록한다. 좌표·심볼 추출 coverage, 지원 entity 기준 맵 기하 재현 예상, ground truth 기반 검출 지표, BLE identity 매핑을 서로 대체하지 않는다.
+- CAD 분석 결과를 갱신할 때 원본 SHA256, analyzer/converter/DXF/profile 버전과 digest, model/paper layer·block·entity·직접/nested INSERT·world 좌표·후보 통계, 제품 pipeline 자원 실측과 동일 출력 재현성을 함께 기록한다. 직접 INSERT 이름+유한 원점 비율, 지원 entity 기준 맵 기하 재현 예상, ground truth 기반 검출 지표, BLE identity 매핑을 서로 대체하지 않는다.
