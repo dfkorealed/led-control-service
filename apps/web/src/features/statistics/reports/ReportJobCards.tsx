@@ -13,7 +13,7 @@ export function ReportJobCards({
   renderFailure: (item: ReportJobRenderItem, surface: "table" | "card") => ReactNode;
 }) {
   return (
-    <ul aria-label="모바일 보고서 생성 이력" className="m-0 grid min-w-0 list-none gap-2 p-0 desktop:hidden">
+    <ul aria-label="모바일 보고서 생성 이력" className="m-0 grid min-w-0 list-none gap-2 p-0 tablet:hidden desktop:hidden">
       {items.map((item) => (
         <li key={item.view.id} aria-label={`${item.view.targetLabel} 보고서`}>
           <Card className="grid min-w-0 gap-3 p-3">

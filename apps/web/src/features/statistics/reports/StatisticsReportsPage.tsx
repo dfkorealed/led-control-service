@@ -199,6 +199,9 @@ function writeReportLocation(filters: ReportHistoryFilterState, pageState: Repor
   const params = serializeReportHistorySearchParams(pageState.currentCursor
     ? { ...withoutCursor(filters), cursor: pageState.currentCursor }
     : withoutCursor(filters));
+  // Report controls own their query params, but the shell still derives the
+  // selected tenant site from this shared parameter across navigation updates.
+  if (siteId) params.set("siteId", siteId);
   if (pageState.currentCursor) {
     params.set(reportPageParam, String(pageState.page));
     params.set(reportHistoryParam, JSON.stringify(pageState.previousCursors.map((cursor) => cursor ?? null)));

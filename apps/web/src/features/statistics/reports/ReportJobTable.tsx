@@ -15,7 +15,7 @@ export function ReportJobTable({
   renderFailure: (item: ReportJobRenderItem, surface: "table" | "card") => ReactNode;
 }) {
   return (
-    <div className="hidden min-w-0 desktop:block">
+    <div className="hidden min-w-0 tablet:block desktop:block">
       <DataTableShell caption="보고서 생성 이력" isBusy={isBusy}>
         <thead className="bg-surface-inset text-left text-content-secondary">
           <tr>
