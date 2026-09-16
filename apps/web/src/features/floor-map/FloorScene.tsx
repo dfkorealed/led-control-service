@@ -2,7 +2,7 @@ import Konva from "konva";
 import type { CSSProperties } from "react";
 import { Group, Line, Rect, Stage, Text, Layer } from "react-konva";
 import type { FloorMapSnapshot } from "@led-control/shared";
-import { cn, themeColor } from "../../components/ui";
+import { Button, cn, themeColor } from "../../components/ui";
 
 const fixtureStatusLabels = {
   online: "정상",
@@ -111,9 +111,9 @@ export function FloorScene({
           top: "clamp(1rem, var(--fixture-top), calc(100% - 1rem))"
         } satisfies FixtureMarkerStyle;
         const markerStateClass = awaitingState
-          ? "border-2 border-dotted border-fixture-inspection-border bg-fixture-inspection-background shadow-none"
+          ? "border-2! border-dotted! border-fixture-inspection-border! bg-fixture-inspection-background shadow-none"
           : fixture.status === "offline"
-            ? "border-2 border-dashed border-fixture-offline-border bg-fixture-offline-background shadow-none"
+            ? "border-2! border-dashed! border-fixture-offline-border! bg-fixture-offline-background shadow-none"
             : fixtureBrightnessClasses[brightnessLevel];
         const badgeClass = awaitingState
           ? "bg-fixture-inspection"
@@ -122,13 +122,15 @@ export function FloorScene({
             : fixture.status === "fault" ? "bg-fixture-fault" : "bg-fixture-connected";
 
         return (
-          <button
+          <Button
             key={fixture.id}
             type="button"
+            variant="ghost"
+            size="sm"
             data-spatial-map-marker="true"
             data-brightness-level={brightnessLevel}
             className={cn(
-              "monitoring-fixture-marker absolute z-2 block size-5 min-h-5 -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-fixture-marker border border-fixture-offline p-0 transition-[background-color,box-shadow] duration-150 hover:z-4 hover:outline-3 hover:outline-offset-4 hover:outline-fixture-selected focus-visible:z-4 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-fixture-selected",
+              "monitoring-fixture-marker absolute z-2 block! size-5! min-h-5! -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-fixture-marker! border! border-fixture-offline! p-0! transition-[background-color,box-shadow] duration-150 hover:z-4 hover:outline-3 hover:outline-offset-4 hover:outline-fixture-selected focus-visible:z-4 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-fixture-selected",
               markerStateClass,
               fixture.id === selectedFixtureId && "z-3 outline-3 outline-offset-4 outline-fixture-selected"
             )}
@@ -139,7 +141,7 @@ export function FloorScene({
             onClick={() => onSelectFixture?.(fixture.id)}
           >
             <span aria-hidden="true" className={cn("pointer-events-none absolute -top-1.5 -right-1.5 size-2 rounded-pill border-2 border-surface-panel shadow-panel", badgeClass)} />
-          </button>
+          </Button>
         );
       })}
     </div>

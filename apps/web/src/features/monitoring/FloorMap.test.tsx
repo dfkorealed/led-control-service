@@ -258,10 +258,10 @@ describe("FloorMap", () => {
     const faultMarker = screen.getByRole("button", { name: "B2-Fault 장애 0%" });
     expect(faultMarker.querySelector("span[aria-hidden='true']")).toHaveClass("bg-fixture-fault");
     const offlineMarker = screen.getByRole("button", { name: "B2-Offline 오프라인 0%" });
-    expect(offlineMarker).toHaveClass("bg-fixture-offline-background", "border-fixture-offline-border");
+    expect(offlineMarker).toHaveClass("bg-fixture-offline-background", "border-fixture-offline-border!");
     expect(offlineMarker.querySelector("span[aria-hidden='true']")).toHaveClass("bg-fixture-offline");
     const awaitingMarker = screen.getByRole("button", { name: "B2-Awaiting 상태 확인 대기 0%" });
-    expect(awaitingMarker).toHaveClass("bg-fixture-inspection-background", "border-fixture-inspection-border");
+    expect(awaitingMarker).toHaveClass("bg-fixture-inspection-background", "border-fixture-inspection-border!");
     expect(awaitingMarker.querySelector("span[aria-hidden='true']")).toHaveClass("bg-fixture-inspection");
   });
 

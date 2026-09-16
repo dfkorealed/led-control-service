@@ -54,12 +54,12 @@ describe("FloorScene", () => {
     expect(screen.getByTestId("map-object-rectangle-1")).toBeInTheDocument();
     expect(screen.queryByTestId("floor-transformer")).not.toBeInTheDocument();
     const fixture = screen.getByRole("button", { name: "B1-L001 정상 70%" });
+    expect(fixture).toHaveClass("size-5!", "min-h-5!", "rounded-fixture-marker!", "p-0!");
     expect(fixture).toHaveAttribute("data-spatial-map-marker", "true");
     expect(fixture).toHaveAttribute("data-brightness-level", "8");
     expect(fixture).toHaveClass(
       "bg-fixture-brightness-8",
       "shadow-fixture-brightness-8",
-      "rounded-fixture-marker",
       "outline-fixture-selected"
     );
     expect(fixture).toHaveAttribute("aria-current", "true");

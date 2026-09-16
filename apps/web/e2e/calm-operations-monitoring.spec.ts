@@ -324,6 +324,9 @@ test("조명 마커는 3px 네모와 고정 20px를 유지하고 online 밝기�
   await expect(levels[9]).toHaveCSS("width", "20px");
   await expect(levels[9]).toHaveCSS("height", "20px");
   await expect(levels[9]).toHaveCSS("border-radius", "3px");
+  await levels[9].press("Enter");
+  await expect(levels[9]).toHaveAttribute("aria-current", "true");
+  await expect(page.getByRole("heading", { name: "B2-밝기-단계-10" })).toBeVisible();
   await levels[9].blur();
 
   await page.locator('[data-spatial-map-marker="true"]').evaluateAll(async (markers) => {
