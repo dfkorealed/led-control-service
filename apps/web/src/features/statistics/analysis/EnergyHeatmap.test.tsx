@@ -21,8 +21,8 @@ describe("EnergyHeatmap", () => {
     fireEvent.keyDown(screen.getByRole("button", { name: /월요일 02시.*1.25 kWh/ }), { key: "Enter" });
 
     expect(onMetricChange).toHaveBeenCalledWith("brightness");
-    expect(screen.getByRole("button", { name: "에너지" })).toHaveClass("statistics-heatmap-metric-button");
-    expect(screen.getByRole("button", { name: "밝기" })).toHaveClass("statistics-heatmap-metric-button");
+    expect(screen.getByRole("button", { name: "에너지" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "밝기" })).toHaveAttribute("aria-pressed", "false");
     expect(screen.getByRole("status")).toHaveTextContent("월요일 02시");
     expect(screen.getByRole("status")).toHaveTextContent("1.25 kWh");
   });

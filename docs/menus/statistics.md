@@ -1,8 +1,12 @@
 # 통계 메뉴 기능 현황
 
-기준일: 2026-09-12
+기준일: 2026-09-16
 
 ## 구현 완료
+
+- 통계 디자인 시스템 pilot을 개요·사용 분석·보고서 전체에 적용했다. 화면 구조와 간격은 Tailwind semantic utility로 통일하고 `PageHeader`, `Card`, `MetricCard`, `SidePanel`, `Heading`, `Text`, `Button`, `StatusBadge`, `FeedbackState`를 재사용한다. 분석·보고서의 native select/date input은 공통 `SelectBox`와 date-only `DatePicker`로 교체했으며 요청 payload와 현장 timezone 기준 날짜 계약은 유지한다.
+- Recharts의 사용량·기준·예상·순위 선과 격자는 `themeColor`를 통한 semantic chart token으로 전환했다. 히트맵은 semantic 단계 token을 사용하고 24열 표만 카드 내부에서 가로 스크롤한다. 스크린리더 전용 셀 문구의 위치 기준을 각 셀에 고정해 문서 폭을 늘리지 않으며, 보고서 날짜 세그먼트·달력·닫기 제어는 실제 연속 44×44px 이상 포인터 영역을 제공한다.
+- 통계 pilot 회귀는 focused Web 50/50, 전체 Web 82 files·1,196/1,196, Chromium 21/21, typecheck/build, UI policy 신규 위반 0건과 diff 검사를 통과했다. Chromium은 1440×900, 1024×768, 390×844, 320×740에서 카드 배치, 내부 스크롤, 문서 overflow, 연속 44×44px hit area, 날짜 상한·select keyboard 계약과 보고서 XLSX/PDF 흐름을 확인한다. 날짜 번들 소비 gate는 2/2(DatePicker 유지·production date module 4개), overlay bundle gate는 1/1(unused delta 0/0/0) 통과했다.
 
 - 보고서 객체 정리는 HEAD의 존재 여부·크기를 측정하고 시도·실패·재시도, 관측·삭제·late PUT 객체 수와 바이트를 영구 원장에 기록한다. HEAD 404는 정상이며 lease를 잃은 회차는 지표를 저장하지 않는다. sweep 로그에 미등록 대상을 포함한 backlog, oldest due, 재시도·실패·late PUT 합계를 제공한다. UTC/서울 DB 세션에서 정확한 만료·재시도 경계와 고정 `prune(now)`, 51건 정리 수렴을 검증했다.
 
@@ -103,6 +107,9 @@
 - 운영 시간·비운영 시간 낭비 분석 및 월 목표/예산을 포함한 최적화 기능(P1에서 제외)
 
 ## 부족하거나 개선이 필요한 기능
+
+- 디자인 시스템 pilot의 시각 증거는 자동 Chromium 스크린샷과 계산 스타일 검사다. 실제 iOS/Android WebView, 브라우저별 날짜 입력 보조기기, 수동 in-app 시각 QA는 수행하지 않았다.
+- production build의 main chunk는 655.68 kB(gzip 200.97 kB)로 기존 500 kB 경고가 남는다. 통계 route는 별도 lazy chunk를 유지하며, 이 작업은 공통 chunk 전략을 변경하지 않았다.
 
 - legacy 보고서 작업은 요청 당시 이름이 없어 범위와 identity ID로 표시한다. 새 migration은 격리 PostgreSQL에서만 검증했으며 사용자/운영 DB에는 적용하지 않았다.
 

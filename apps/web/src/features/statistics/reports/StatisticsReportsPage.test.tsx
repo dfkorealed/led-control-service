@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Outlet, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../../api/client";
@@ -68,21 +68,70 @@ describe("StatisticsReportsPage", () => {
     dashboardState.data = { ...dashboard, floors: [{ ...dashboard.floors[0], fixtures: [] }] };
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: "보고서 만들기" }));
-    fireEvent.change(screen.getByLabelText("범위"), { target: { value: "fixture" } });
-    expect(screen.getByLabelText("대상")).toHaveValue(targets.targets[1].identityId);
+    await chooseSelect("범위", "조명");
+    expect(screen.getByRole("button", { name: "대상" })).toHaveTextContent("A-01 이력");
     fireEvent.click(screen.getByRole("button", { name: "보고서 요청" }));
     await waitFor(() => expect(reportsApi.create).toHaveBeenCalledWith(siteId, expect.objectContaining({ identityId: targets.targets[1].identityId })));
   });
 
-  it("defaults and bounds both date controls to the server's last completed site-local day", () => {
+  it("defaults both date controls to the server's last completed site-local day", () => {
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: "보고서 만들기" }));
-    expect(screen.getByLabelText("기간 종료")).toHaveValue("2026-09-11");
-    expect(screen.getByLabelText("기간 종료")).toHaveAttribute("max", "2026-09-11");
-    expect(screen.getByLabelText("기간 시작")).toHaveValue("2026-08-13");
-    fireEvent.change(screen.getByLabelText("기간 종료"), { target: { value: "2026-09-12" } });
+    expectDateSegments("기간 종료", ["2026", "9", "11"]);
+    expectDateSegments("기간 시작", ["2026", "8", "13"]);
+  });
+
+  it("edits the report range through design-system date pickers", async () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "보고서 만들기" }));
+
+    const dialog = screen.getByRole("dialog", { name: "에너지 사용량 보고서 만들기" });
+    expect(within(dialog).getByRole("button", { name: "보고서 요청" })).toBeEnabled();
+    const startDate = within(dialog).getByRole("group", { name: "기간 시작" });
+    fireEvent.click(within(startDate).getByRole("button"));
+
+    expect(await screen.findByRole("grid")).toBeInTheDocument();
+  });
+
+  it("uses design-system selectors without changing the report request payload", async () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "보고서 만들기" }));
+
+    const dialog = screen.getByRole("dialog", { name: "에너지 사용량 보고서 만들기" });
+    const scope = within(dialog).getByRole("button", { name: "범위" });
+    fireEvent.keyDown(scope, { key: "ArrowDown" });
+    fireEvent.keyDown(await screen.findByRole("option", { name: "조명" }), { key: "Enter" });
+    fireEvent.keyUp(document.activeElement!, { key: "Enter" });
+
+    const format = within(dialog).getByRole("button", { name: "파일 형식" });
+    fireEvent.keyDown(format, { key: "ArrowDown" });
+    fireEvent.keyDown(await screen.findByRole("option", { name: "PDF" }), { key: "Enter" });
+    fireEvent.keyUp(document.activeElement!, { key: "Enter" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "보고서 요청" }));
+
+    await waitFor(() => expect(reportsApi.create).toHaveBeenCalledWith(siteId, {
+      from: "2026-08-13",
+      to: "2026-09-11",
+      scope: "fixture",
+      identityId: targets.targets[1].identityId,
+      format: "pdf"
+    }));
+  });
+
+  it("disables report actions when a required date picker is cleared", () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "보고서 만들기" }));
+
+    const startDate = screen.getByRole("group", { name: "기간 시작" });
+    for (const segment of within(startDate).getAllByRole("spinbutton")) {
+      act(() => segment.focus());
+      for (let index = 0; index < 4; index++) fireEvent.keyDown(segment, { key: "Backspace", code: "Backspace" });
+    }
+
     expect(screen.getByRole("button", { name: "보고서 요청" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "CSV 내보내기" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "보고서 요청" }));
+    expect(reportsApi.create).not.toHaveBeenCalled();
   });
 
   it("creates one standard XLSX or PDF report from a period and identity without section choices", async () => {
@@ -90,16 +139,16 @@ describe("StatisticsReportsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "보고서 만들기" }));
 
     const dialog = screen.getByRole("dialog", { name: "에너지 사용량 보고서 만들기" });
-    expect(within(dialog).getByLabelText("기간 시작")).toBeInTheDocument();
-    expect(within(dialog).getByLabelText("기간 종료")).toBeInTheDocument();
-    expect(within(dialog).getByLabelText("범위")).toHaveValue("site");
-    expect(within(dialog).getByLabelText("대상")).toHaveValue(siteId);
-    expect(within(dialog).getByLabelText("파일 형식")).toHaveValue("xlsx");
+    expect(within(dialog).getByRole("group", { name: "기간 시작" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("group", { name: "기간 종료" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "범위" })).toHaveTextContent("현장");
+    expect(within(dialog).getByRole("button", { name: "대상" })).toHaveTextContent("서울 물류센터");
+    expect(within(dialog).getByRole("button", { name: "파일 형식" })).toHaveTextContent("XLSX");
     expect(dialog).toHaveTextContent("XLSX와 PDF는 동일한 표준 보고서 내용을 파일 형식만 다르게 제공합니다.");
     expect(within(dialog).queryByText(/섹션/)).not.toBeInTheDocument();
 
-    fireEvent.change(within(dialog).getByLabelText("범위"), { target: { value: "fixture" } });
-    fireEvent.change(within(dialog).getByLabelText("파일 형식"), { target: { value: "pdf" } });
+    await chooseSelect("범위", "조명", dialog);
+    await chooseSelect("파일 형식", "PDF", dialog);
     fireEvent.click(within(dialog).getByRole("button", { name: "보고서 요청" }));
 
     await waitFor(() => expect(reportsApi.create).toHaveBeenCalledWith(siteId, expect.objectContaining({
@@ -111,7 +160,7 @@ describe("StatisticsReportsPage", () => {
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: "보고서 만들기" }));
     const dialog = screen.getByRole("dialog", { name: "에너지 사용량 보고서 만들기" });
-    fireEvent.change(within(dialog).getByLabelText("범위"), { target: { value: "floor" } });
+    await chooseSelect("범위", "층", dialog);
     fireEvent.click(within(dialog).getByRole("button", { name: "CSV 내보내기" }));
 
     await waitFor(() => expect(reportsApi.csv).toHaveBeenCalledWith(siteId, expect.objectContaining({
@@ -119,25 +168,25 @@ describe("StatisticsReportsPage", () => {
     })));
   });
 
-  it("blocks fixture report actions while target data is loading instead of using the site identity", () => {
+  it("blocks fixture report actions while target data is loading instead of using the site identity", async () => {
     targetState.data = undefined;
     targetState.isLoading = true;
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: "보고서 만들기" }));
     const dialog = screen.getByRole("dialog", { name: "에너지 사용량 보고서 만들기" });
-    fireEvent.change(within(dialog).getByLabelText("범위"), { target: { value: "fixture" } });
+    await chooseSelect("범위", "조명", dialog);
 
     expect(within(dialog).getByRole("status")).toHaveTextContent("대상을 불러오는 중입니다.");
     expect(within(dialog).getByRole("button", { name: "CSV 내보내기" })).toBeDisabled();
     expect(within(dialog).getByRole("button", { name: "보고서 요청" })).toBeDisabled();
   });
 
-  it("blocks fixture report actions when the selected scope has no target", () => {
+  it("blocks fixture report actions when the selected scope has no target", async () => {
     targetState.data = { ...targets, targets: targets.targets.slice(0, 1) };
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: "보고서 만들기" }));
     const dialog = screen.getByRole("dialog", { name: "에너지 사용량 보고서 만들기" });
-    fireEvent.change(within(dialog).getByLabelText("범위"), { target: { value: "fixture" } });
+    await chooseSelect("범위", "조명", dialog);
 
     expect(within(dialog).getByRole("status")).toHaveTextContent("선택한 범위에 등록된 대상이 없습니다.");
     expect(within(dialog).getByRole("button", { name: "CSV 내보내기" })).toBeDisabled();
@@ -245,6 +294,18 @@ function renderPage() {
       </MemoryRouter>
     </QueryClientProvider>
   );
+}
+
+async function chooseSelect(label: string, option: string, container: HTMLElement = document.body) {
+  const trigger = within(container).getByRole("button", { name: label });
+  fireEvent.keyDown(trigger, { key: "ArrowDown" });
+  const choice = await screen.findByRole("option", { name: option });
+  fireEvent.keyDown(choice, { key: "Enter" });
+  fireEvent.keyUp(document.activeElement!, { key: "Enter" });
+}
+
+function expectDateSegments(label: string, expected: string[]) {
+  expect(within(screen.getByRole("group", { name: label })).getAllByRole("spinbutton").map((segment) => segment.textContent)).toEqual(expected);
 }
 
 function job(status: "queued" | "processing" | "completed" | "failed" | "expired", progressPercent: number) {

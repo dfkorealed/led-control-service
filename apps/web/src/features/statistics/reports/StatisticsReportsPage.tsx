@@ -3,7 +3,7 @@ import { FileText } from "lucide-react";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { createEnergyReport, downloadEnergyCsv, downloadEnergyReport, energyReportRequestErrorMessage, useEnergyReports, useEnergyReportTargets } from "../../../api/energy";
-import { Button, PageHeader } from "../../../components/ui";
+import { Button, PageHeader, Text } from "../../../components/ui";
 import { useOutletContext } from "react-router-dom";
 import type { StatisticsOutletContext } from "../StatisticsShell";
 import { ReportCreateDialog } from "./ReportCreateDialog";
@@ -55,14 +55,14 @@ export function StatisticsReportsPage() {
     }
   }
 
-  return <section className="statistics-screen statistics-reports-screen">
+  return <section className="grid min-w-0 gap-6" aria-label="에너지 보고서">
     <PageHeader title="보고서" description="현장 에너지 사용량을 기간과 범위에 맞춰 내보냅니다." status={undefined}
       actions={<Button variant="primary" onClick={() => setIsDialogOpen(true)}><FileText size={16} />보고서 만들기</Button>} />
-    <p className="statistics-cost-basis-note">보고서와 CSV 비용은 당시 적용 단가의 저장 비용입니다.</p>
+    <Text variant="body-sm" tone="muted">보고서와 CSV 비용은 당시 적용 단가의 저장 비용입니다.</Text>
     <ReportJobList reports={reports.data?.reports} isLoading={reports.isLoading || !siteId} isError={reports.isError}
       retryingReportId={retryingReportId} onRetry={() => void reports.refetch()} onRegenerate={(job) => void regenerate(job)} onDownload={(job) => void download(job)} />
-    {downloadError ? <p className="danger-text" role="alert">{downloadError}</p> : null}
-    {retryError ? <p className="danger-text" role="alert">{retryError}</p> : null}
+    {downloadError ? <Text tone="danger" role="alert">{downloadError}</Text> : null}
+    {retryError ? <Text tone="danger" role="alert">{retryError}</Text> : null}
     {isDialogOpen && siteId ? <ReportCreateDialog key={siteId} siteId={siteId} targetData={targets.data} onClose={() => setIsDialogOpen(false)}
       isTargetsLoading={targets.isLoading} isTargetsError={targets.isError} onCreate={create} onExportCsv={(request) => downloadEnergyCsv(siteId, request)} /> : null}
   </section>;

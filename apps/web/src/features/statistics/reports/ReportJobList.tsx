@@ -1,6 +1,6 @@
 import type { EnergyReportJob } from "@led-control/shared/energy-p2-contracts";
 import { CheckCircle2, CircleAlert, Clock3, FileWarning, LoaderCircle } from "lucide-react";
-import { Button, Card, FeedbackState, StatusBadge } from "../../../components/ui";
+import { Button, Card, FeedbackState, StatusBadge, Text } from "../../../components/ui";
 
 export function ReportJobList({
   reports,
@@ -23,26 +23,26 @@ export function ReportJobList({
   if (isError) return <FeedbackState tone="danger" icon={CircleAlert} title="보고서 목록을 불러오지 못했습니다." action={<Button variant="secondary" onClick={onRetry}>다시 시도</Button>} />;
   if (!reports?.length) return <FeedbackState icon={FileWarning} title="요청한 보고서가 없습니다." description="기간과 범위를 선택해 표준 에너지 사용량 보고서를 요청하세요." />;
 
-  return <section className="statistics-report-list" aria-label="요청한 보고서">
+  return <section className="grid min-w-0 gap-3" aria-label="요청한 보고서">
     {reports.map((job) => {
       const state = statusPresentation(job);
       const jobLabel = `${job.target.label} 보고서`;
-      return <Card key={job.reportId} className="statistics-report-job" role="article" aria-label={jobLabel}>
-        <div className="statistics-report-job-copy"><div><strong>{job.target.label}</strong><span>{scopeLabel(job.request.scope)} 보고서 · {job.request.from} ~ {job.request.to}</span></div><StatusBadge tone={state.tone} icon={state.icon}>{state.label}</StatusBadge></div>
-        <dl className="statistics-report-job-meta" role="group" aria-label="보고서 메타데이터">
-          <div><dt>형식</dt><dd>{job.request.format.toUpperCase()}</dd></div>
-          <div><dt>범위</dt><dd>{scopeLabel(job.request.scope)}</dd></div>
-          <div><dt>요청 시각</dt><dd><ReportTime timestamp={job.requestedAt} /></dd></div>
-          {job.expiresAt ? <div><dt>파일 만료 시각</dt><dd><ReportTime timestamp={job.expiresAt} /></dd></div> : null}
-          {job.status === "processing" ? <div><dt>진행률</dt><dd>{job.progressPercent}%</dd></div> : null}
+      return <Card key={job.reportId} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-3 p-4 max-compact:grid-cols-1" role="article" aria-label={jobLabel}>
+        <div className="flex min-w-0 items-start justify-between gap-3 max-compact:flex-wrap"><div className="grid min-w-0 gap-1"><Text as="strong" weight="bold" className="wrap-anywhere">{job.target.label}</Text><Text as="span" variant="body-sm" tone="secondary" className="tabular-nums">{scopeLabel(job.request.scope)} 보고서 · {job.request.from} ~ {job.request.to}</Text></div><StatusBadge tone={state.tone} icon={state.icon}>{state.label}</StatusBadge></div>
+        <dl className="col-start-1 flex flex-wrap gap-x-4 gap-y-2 text-caption text-content-muted" role="group" aria-label="보고서 메타데이터">
+          <div className="flex min-w-0 flex-wrap gap-1"><dt className="font-bold">형식</dt><dd className="m-0 wrap-anywhere text-content-primary tabular-nums">{job.request.format.toUpperCase()}</dd></div>
+          <div className="flex min-w-0 flex-wrap gap-1"><dt className="font-bold">범위</dt><dd className="m-0 wrap-anywhere text-content-primary">{scopeLabel(job.request.scope)}</dd></div>
+          <div className="flex min-w-0 flex-wrap gap-1"><dt className="font-bold">요청 시각</dt><dd className="m-0 wrap-anywhere text-content-primary tabular-nums"><ReportTime timestamp={job.requestedAt} /></dd></div>
+          {job.expiresAt ? <div className="flex min-w-0 flex-wrap gap-1"><dt className="font-bold">파일 만료 시각</dt><dd className="m-0 wrap-anywhere text-content-primary tabular-nums"><ReportTime timestamp={job.expiresAt} /></dd></div> : null}
+          {job.status === "processing" ? <div className="flex min-w-0 flex-wrap gap-1"><dt className="font-bold">진행률</dt><dd className="m-0 text-content-primary tabular-nums">{job.progressPercent}%</dd></div> : null}
         </dl>
         {job.status === "failed" && job.failure ? (
-          <div className="statistics-report-job-failure" role="region" aria-label={`${job.target.label} 실패 안내`}>
+          <div className="col-start-1 grid gap-1 rounded-control bg-status-danger-background p-3 text-body-sm text-status-danger-foreground wrap-anywhere" role="region" aria-label={`${job.target.label} 실패 안내`}>
             <strong>{job.failure.message}</strong><span>{job.failure.action}</span>
           </div>
         ) : null}
         {(job.status === "completed" || job.status === "failed" || job.status === "expired") ? (
-          <div className="statistics-report-job-actions" role="group" aria-label="보고서 작업">
+          <div className="col-start-2 row-span-3 row-start-1 flex self-center max-compact:col-start-1 max-compact:row-auto max-compact:w-full [&_.ui-button]:min-w-28 max-compact:[&_.ui-button]:w-full" role="group" aria-label="보고서 작업">
             {job.status === "completed" ? <Button variant="primary" aria-label={`${jobLabel} 다운로드`} onClick={() => onDownload(job)}>다운로드</Button> : null}
             {(job.status === "failed" || job.status === "expired") ? <Button variant="secondary" aria-label={`${jobLabel} 다시 생성`} disabled={Boolean(retryingReportId)} isLoading={retryingReportId === job.reportId} loadingLabel="다시 생성 중" onClick={() => onRegenerate(job)}>다시 생성</Button> : null}
           </div>
@@ -53,9 +53,9 @@ export function ReportJobList({
 }
 
 function ReportTime({ timestamp }: { timestamp: string }) {
-  return <time dateTime={timestamp} title={timestamp}>{new Intl.DateTimeFormat("ko-KR", {
+  return <Text as="time" variant="caption" dateTime={timestamp} title={timestamp}>{new Intl.DateTimeFormat("ko-KR", {
     dateStyle: "medium", timeStyle: "short"
-  }).format(new Date(timestamp))}</time>;
+  }).format(new Date(timestamp))}</Text>;
 }
 
 function statusPresentation(job: EnergyReportJob) {

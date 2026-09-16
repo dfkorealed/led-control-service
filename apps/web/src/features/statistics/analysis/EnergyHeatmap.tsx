@@ -1,7 +1,7 @@
 import type { EnergyHeatmapMetric, EnergyHeatmapResponse } from "@led-control/shared/energy-p2-contracts";
 import { Activity, Grid3X3, TriangleAlert } from "lucide-react";
 import { useState } from "react";
-import { Button, Card, FeedbackState } from "../../../components/ui";
+import { Button, Card, FeedbackState, Heading, Text } from "../../../components/ui";
 
 const weekdays = ["일요일", "월요일", "화요일", "수요일", "목요일", "금요일", "토요일"];
 
@@ -23,45 +23,51 @@ export function EnergyHeatmap({
   const [selectedIndex, setSelectedIndex] = useState(0);
 
   if (isLoading) {
-    return <Card className="statistics-heatmap"><FeedbackState icon={Activity} title="시간대별 사용량을 계산하는 중" /></Card>;
+    return <Card className="p-4"><FeedbackState icon={Activity} title="시간대별 사용량을 계산하는 중" /></Card>;
   }
   if (isError || !data) {
-    return <Card className="statistics-heatmap"><FeedbackState tone="danger" icon={TriangleAlert} title="시간대별 사용량을 불러오지 못했습니다."
+    return <Card className="p-4"><FeedbackState tone="danger" icon={TriangleAlert} title="시간대별 사용량을 불러오지 못했습니다."
       action={onRetry ? <Button variant="secondary" onClick={onRetry}>다시 시도</Button> : undefined} /></Card>;
   }
   if (data.cells.every((cell) => cell.value === null)) {
-    return <Card className="statistics-heatmap"><FeedbackState icon={Grid3X3} title="표시할 수집 데이터가 없습니다." /></Card>;
+    return <Card className="p-4"><FeedbackState icon={Grid3X3} title="표시할 수집 데이터가 없습니다." /></Card>;
   }
 
   const selected = data.cells[selectedIndex] ?? data.cells[0];
   const maximum = Math.max(...data.cells.flatMap((cell) => cell.value === null ? [] : [cell.value]), 0);
   return (
-    <Card className="statistics-heatmap">
-      <header className="statistics-heatmap-heading">
-        <div><span className="eyebrow">시간대 패턴</span><h3>선택 항목 시간대별 사용량</h3><p>{data.range.from} ~ {data.range.to} · {data.timeZone}</p></div>
-        <div className="segmented-control" aria-label="히트맵 지표">
-          <button type="button" aria-pressed={metric === "energy"} className={`statistics-heatmap-metric-button${metric === "energy" ? " active" : ""}`} onClick={() => onMetricChange("energy")}>에너지</button>
-          <button type="button" aria-pressed={metric === "brightness"} className={`statistics-heatmap-metric-button${metric === "brightness" ? " active" : ""}`} onClick={() => onMetricChange("brightness")}>밝기</button>
+    <Card className="grid min-w-0 max-w-full gap-4 overflow-hidden p-4 compact:p-6" aria-label="시간대별 사용량">
+      <header className="flex items-start justify-between gap-4 max-compact:flex-col max-compact:items-stretch">
+        <div className="grid gap-1"><Text variant="overline" tone="muted">시간대 패턴</Text><Heading as="h3" variant="card-title">선택 항목 시간대별 사용량</Heading><Text variant="body-sm" tone="secondary">{data.range.from} ~ {data.range.to} · {data.timeZone}</Text></div>
+        <div className="flex gap-2" aria-label="히트맵 지표">
+          <Button size="sm" variant={metric === "energy" ? "primary" : "secondary"} aria-pressed={metric === "energy"} className="h-14 min-h-14 min-w-14 max-compact:flex-1" onClick={() => onMetricChange("energy")}>에너지</Button>
+          <Button size="sm" variant={metric === "brightness" ? "primary" : "secondary"} aria-pressed={metric === "brightness"} className="h-14 min-h-14 min-w-14 max-compact:flex-1" onClick={() => onMetricChange("brightness")}>밝기</Button>
         </div>
       </header>
-      <div className="statistics-heatmap-legend" aria-label="히트맵 범례">
-        <span>낮음</span><span className="statistics-heatmap-legend-scale" aria-hidden="true"><i /><i /><i /><i /><i /></span><span>높음</span><span className="statistics-heatmap-missing">수집 데이터 없음</span>
+      <div className="flex flex-wrap items-center gap-2 text-caption font-bold text-content-muted" aria-label="히트맵 범례">
+        <span>낮음</span><span className="inline-grid grid-cols-5 gap-1" aria-hidden="true">
+          <i className="h-3 w-5 rounded-control bg-chart-heatmap-1" /><i className="h-3 w-5 rounded-control bg-chart-heatmap-2" />
+          <i className="h-3 w-5 rounded-control bg-chart-heatmap-3" /><i className="h-3 w-5 rounded-control bg-chart-heatmap-4" />
+          <i className="h-3 w-5 rounded-control bg-chart-heatmap-5" />
+        </span><span>높음</span><span className="ml-2 rounded-control border border-dashed border-border-default px-2 py-1">수집 데이터 없음</span>
       </div>
-      <div className="statistics-heatmap-scroll" tabIndex={0} aria-label="시간대별 사용량 표를 가로로 스크롤">
-        <div className="statistics-heatmap-grid" role="group" aria-label={`시간대별 ${metric === "energy" ? "에너지 사용량" : "밝기"}`}>
+      <div className="min-w-0 max-w-full overflow-x-auto rounded-panel border border-border-default outline-none focus-visible:shadow-focus" tabIndex={0} aria-label="시간대별 사용량 표를 가로로 스크롤">
+        <div className="grid w-max grid-cols-[repeat(24,3.5rem)] gap-1 p-2" role="group" aria-label={`시간대별 ${metric === "energy" ? "에너지 사용량" : "밝기"}`}>
           {data.cells.map((cell, index) => {
             const label = cellLabel(cell, metric);
-            return <button key={`${cell.weekday}-${cell.hour}`} type="button" aria-label={label}
-              aria-pressed={index === selectedIndex} data-level={levelFor(cell.value, maximum)} data-missing={cell.value === null ? true : undefined}
+            const level = levelFor(cell.value, maximum);
+            return <Button key={`${cell.weekday}-${cell.hour}`} type="button" variant="ghost" size="sm" aria-label={label}
+              className={`relative h-14 min-h-14 w-14 min-w-14 rounded-control p-0 ${heatmapLevelClass[level]} ${index === selectedIndex ? "outline-2 outline-offset-2 outline-chart-heatmap-5" : ""}`}
+              aria-pressed={index === selectedIndex} data-level={level} data-missing={cell.value === null ? true : undefined}
               onClick={() => setSelectedIndex(index)} onKeyDown={(event) => {
                 if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedIndex(index); }
               }}>
               <span className="sr-only">{label}</span>
-            </button>;
+            </Button>;
           })}
         </div>
       </div>
-      <p className="statistics-heatmap-detail" role="status">{selected ? cellLabel(selected, metric) : "선택한 시간대가 없습니다."}</p>
+      <Text variant="body-sm" weight="bold" role="status" className="tabular-nums">{selected ? cellLabel(selected, metric) : "선택한 시간대가 없습니다."}</Text>
     </Card>
   );
 }
@@ -80,3 +86,12 @@ function levelFor(value: number | null, maximum: number) {
   if (value === 0 || maximum === 0) return "0";
   return String(Math.min(4, Math.ceil((value / maximum) * 4)));
 }
+
+const heatmapLevelClass: Record<string, string> = {
+  missing: "border-dashed border-border-strong bg-chart-heatmap-empty",
+  "0": "border-chart-heatmap-1 bg-chart-heatmap-empty",
+  "1": "border-chart-heatmap-1 bg-chart-heatmap-1",
+  "2": "border-chart-heatmap-2 bg-chart-heatmap-2",
+  "3": "border-chart-heatmap-3 bg-chart-heatmap-3",
+  "4": "border-chart-heatmap-4 bg-chart-heatmap-4"
+};

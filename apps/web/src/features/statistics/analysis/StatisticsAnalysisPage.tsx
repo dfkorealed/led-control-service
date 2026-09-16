@@ -1,10 +1,11 @@
 import type { EnergyRankingDimension, EnergyRankingMetric, EnergyRankingSort } from "@led-control/shared/energy-analytics-contracts";
 import type { EnergyHeatmapMetric } from "@led-control/shared/energy-p2-contracts";
+import { getLocalTimeZone, today } from "@internationalized/date";
 import { Activity, ArrowDownAZ, ArrowUpAZ, BarChart3, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { useEnergyHeatmap, useEnergyRankings } from "../../../api/energy";
-import { Button, Card, FeedbackState, PageHeader, StatusBadge } from "../../../components/ui";
+import { Button, Card, DatePicker, FeedbackState, formatIsoDate, MetricCard, PageHeader, SelectBox, StatusBadge, Text } from "../../../components/ui";
 import type { StatisticsOutletContext } from "../StatisticsShell";
 import { EnergyRankingDetailPanel } from "./EnergyRankingDetailPanel";
 import { EnergyHeatmap } from "./EnergyHeatmap";
@@ -12,6 +13,12 @@ import { EnergyRankingList } from "./EnergyRankingList";
 
 const dimensions: Array<{ value: EnergyRankingDimension; label: string }> = [
   { value: "fixture", label: "조명" }, { value: "floor", label: "층" }, { value: "group", label: "그룹" }
+];
+const metricItems: Array<{ id: EnergyRankingMetric; label: string }> = [
+  { id: "usage", label: "사용량" },
+  { id: "cost", label: "저장 비용" },
+  { id: "contribution", label: "현장 기여도" },
+  { id: "per_fixture_average", label: "조명당 평균" }
 ];
 
 export function StatisticsAnalysisPage() {
@@ -43,11 +50,11 @@ export function StatisticsAnalysisPage() {
   }, [dimension, metric, from, to]);
 
   if (!siteId || query.isLoading) {
-    return <section className="statistics-screen"><FeedbackState icon={Activity} title="사용량 순위를 계산하는 중" /></section>;
+    return <section className="grid min-w-0 gap-6"><FeedbackState icon={Activity} title="사용량 순위를 계산하는 중" /></section>;
   }
   if (query.isError || !query.data) {
     return (
-      <section className="statistics-screen">
+      <section className="grid min-w-0 gap-6">
         <FeedbackState tone="danger" icon={TriangleAlert} title="사용량 분석을 불러오지 못했습니다."
           action={<Button variant="secondary" onClick={() => query.refetch()}>다시 시도</Button>} />
       </section>
@@ -55,36 +62,36 @@ export function StatisticsAnalysisPage() {
   }
 
   return (
-    <section className="statistics-screen statistics-analysis-screen">
+    <section className="grid min-w-0 gap-6" aria-label="사용량 분석 결과">
       <PageHeader
         title="사용량 분석"
         description="조명·층·그룹별 에너지 사용량을 비교하고 변화 원인을 확인합니다."
         status={<StatusBadge tone="info" icon={BarChart3}>상태 기반 추정</StatusBadge>}
       />
-      <Card className="statistics-analysis-filters" aria-label="사용량 분석 조건">
-        <div className="segmented-control" aria-label="분석 단위">
-          {dimensions.map((item) => <button key={item.value} type="button" aria-pressed={dimension === item.value}
-            className={dimension === item.value ? "active" : ""} onClick={() => setDimension(item.value)}>{item.label}</button>)}
+      <Card className="flex min-w-0 flex-wrap items-end gap-3 p-4 max-compact:items-stretch" aria-label="사용량 분석 조건">
+        <div className="flex flex-wrap gap-2 max-compact:w-full" aria-label="분석 단위">
+          {dimensions.map((item) => <Button key={item.value} size="sm" variant={dimension === item.value ? "primary" : "secondary"}
+            aria-pressed={dimension === item.value} className="max-compact:flex-1" onClick={() => setDimension(item.value)}>{item.label}</Button>)}
         </div>
-        <label>순위 기준<select value={metric} onChange={(event) => setMetric(event.target.value as EnergyRankingMetric)}>
-          <option value="usage">사용량</option><option value="cost">저장 비용</option>
-          <option value="contribution">현장 기여도</option><option value="per_fixture_average">조명당 평균</option>
-        </select></label>
-        <label>시작일<input type="date" value={from} max={to} onChange={(event) => setFrom(event.target.value)} /></label>
-        <label>종료일<input type="date" value={to} min={from} onChange={(event) => setTo(event.target.value)} /></label>
+        <SelectBox className="min-w-40 max-compact:w-full" label="순위 기준" items={metricItems} selectedKey={metric}
+          onSelectionChange={(value) => value && setMetric(value)} />
+        <DatePicker className="min-w-40 max-compact:w-full" label="시작일" value={from} maxValue={to}
+          onChange={(value) => value && setFrom(value)} />
+        <DatePicker className="min-w-40 max-compact:w-full" label="종료일" value={to} minValue={from}
+          onChange={(value) => value && setTo(value)} />
         <Button variant="secondary" onClick={() => setSort((value) => value === "desc" ? "asc" : "desc")}>
           {sort === "desc" ? <ArrowDownAZ size={16} /> : <ArrowUpAZ size={16} />}{sort === "desc" ? "높은 순" : "낮은 순"}
         </Button>
       </Card>
-      {query.data.overlappingMemberships ? <p className="statistics-coverage-notice">그룹 중복 소속 조명은 각 그룹에 포함됩니다. 그룹 합계는 현장 총계와 다를 수 있습니다.</p> : null}
-      {query.data.legacyExcludedBefore ? <p className="statistics-coverage-notice">{query.data.legacyExcludedBefore} 이전 구조 이력은 순위에서 제외하고 현장 총계에만 포함했습니다.</p> : null}
-      <div className="statistics-analysis-summary">
-        <div><span>현장 사용량</span><strong>{query.data.siteTotalKwh.toLocaleString("ko-KR")} kWh</strong></div>
-        <div><span>저장 비용</span><strong>{Math.round(query.data.siteTotalCost).toLocaleString("ko-KR")}원</strong></div>
-        <div><span>분석 대상</span><strong>{query.data.ranked.length}개</strong></div>
+      {query.data.overlappingMemberships ? <Text role="status" variant="body-sm" tone="warning" className="rounded-control border border-status-warning-border bg-status-warning-background p-3">그룹 중복 소속 조명은 각 그룹에 포함됩니다. 그룹 합계는 현장 총계와 다를 수 있습니다.</Text> : null}
+      {query.data.legacyExcludedBefore ? <Text role="status" variant="body-sm" tone="warning" className="rounded-control border border-status-warning-border bg-status-warning-background p-3">{query.data.legacyExcludedBefore} 이전 구조 이력은 순위에서 제외하고 현장 총계에만 포함했습니다.</Text> : null}
+      <div className="grid grid-cols-3 gap-3 max-compact:grid-cols-1">
+        <MetricCard label="현장 사용량" value={query.data.siteTotalKwh.toLocaleString("ko-KR")} unit="kWh" tone="primary" />
+        <MetricCard label="저장 비용" value={Math.round(query.data.siteTotalCost).toLocaleString("ko-KR")} unit="원" />
+        <MetricCard label="분석 대상" value={query.data.ranked.length} unit="개" />
       </div>
-      <p className="statistics-cost-basis-note">비용 합계와 순위는 당시 적용 단가의 저장 비용입니다.</p>
-      <div className="statistics-analysis-layout">
+      <Text variant="body-sm" tone="muted">비용 합계와 순위는 당시 적용 단가의 저장 비용입니다.</Text>
+      <div className="grid min-w-0 grid-cols-1 gap-4 tablet:grid-cols-2">
         <EnergyRankingList items={query.data.ranked} unranked={query.data.unranked} metric={metric}
           selectedId={selected?.identityId ?? null} onSelect={(item) => setSelectedId(item.identityId)} />
         <EnergyRankingDetailPanel item={selected} />
@@ -108,8 +115,6 @@ function completedSiteRange(timestamp: string, timeZone: string) {
 }
 
 function defaultRange() {
-  const to = new Date();
-  const from = new Date(to);
-  from.setDate(from.getDate() - 29);
-  return { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) };
+  const to = today(getLocalTimeZone());
+  return { from: formatIsoDate(to.subtract({ days: 29 })), to: formatIsoDate(to) };
 }

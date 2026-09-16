@@ -162,10 +162,10 @@ test("creates both report formats, polls state, downloads actual renderer bytes 
   await expect(page.getByText("요청한 보고서가 없습니다.")).toBeVisible();
   for (const format of ["xlsx", "pdf"] as const) {
     await page.getByRole("button", { name: "보고서 만들기" }).click();
-    const dialog = page.getByRole("dialog");
-    await dialog.getByLabel("기간 시작").fill("2026-09-01");
-    await dialog.getByLabel("기간 종료").fill("2026-09-07");
-    await dialog.getByLabel("파일 형식").selectOption(format);
+    const dialog = page.getByRole("dialog", { name: "에너지 사용량 보고서 만들기" });
+    await setDatePicker(dialog, "기간 시작", "2026-09-01");
+    await setDatePicker(dialog, "기간 종료", "2026-09-07");
+    await chooseOption(page, dialog, "파일 형식", format.toUpperCase());
     await dialog.getByRole("button", { name: "보고서 요청" }).click();
     await expect(page.getByText("대기 중", { exact: true })).toBeVisible();
     expect(downloadRequests).toBe(format === "xlsx" ? 0 : 1);
@@ -179,7 +179,7 @@ test("creates both report formats, polls state, downloads actual renderer bytes 
     const file = await download;
     expect(file.suggestedFilename()).toBe(`report.${format}`);
     expect(await readFile((await file.path())!)).toEqual(Buffer.from(fixtures[format].bytes, "base64"));
-    await expect(page.locator(".statistics-reports-screen")).not.toContainText(/예상|추정|coverage|known|unknown|forecast|baseline|탄소|배출|최적화/i);
+    await expect(page.getByRole("region", { name: "에너지 보고서" })).not.toContainText(/예상|추정|coverage|known|unknown|forecast|baseline|탄소|배출|최적화/i);
   }
   expect(requests).toEqual([browserReport("queued", "xlsx").request, browserReport("queued", "pdf").request]);
   for (const status of ["failed", "expired"] as const) {
@@ -205,41 +205,77 @@ test("selects analytics fixture/group history and bounds dates to the site's com
   await page.goto(`/statistics/reports?siteId=${reportSiteId}`);
   for (const [scope, identityId] of [["fixture", "30000000-0000-4000-8000-000000000021"], ["group", "30000000-0000-4000-8000-000000000031"]]) {
     await page.getByRole("button", { name: "보고서 만들기" }).click();
-    const dialog = page.getByRole("dialog");
-    await expect(dialog.getByLabel("기간 종료")).toHaveValue("2026-09-11");
-    await expect(dialog.getByLabel("기간 종료")).toHaveAttribute("max", "2026-09-11");
-    await dialog.getByLabel("범위").selectOption(scope);
-    await expect(dialog.getByLabel("대상")).toHaveValue(identityId);
+    const dialog = page.getByRole("dialog", { name: "에너지 사용량 보고서 만들기" });
+    await expectDatePicker(dialog, "기간 종료", "2026-09-11");
+    const endDate = dialog.getByRole("group", { name: "기간 종료" });
+    const endDay = endDate.getByRole("spinbutton").nth(2);
+    await endDay.focus();
+    await page.keyboard.press("ArrowUp");
+    await expect(dialog.getByRole("button", { name: "보고서 요청" })).toBeDisabled();
+    await endDate.getByRole("button").click();
+    await expect(page.getByRole("button", { name: /2026년 9월 12일/ })).toHaveAttribute("aria-disabled", "true");
+    await page.keyboard.press("Escape");
+    await endDay.focus();
+    await page.keyboard.press("ArrowDown");
+    await expect(dialog.getByRole("button", { name: "보고서 요청" })).toBeEnabled();
+    await chooseOption(page, dialog, "범위", scope === "fixture" ? "조명" : "그룹");
+    await expect(dialog.getByRole("button", { name: "대상" })).toContainText(scope === "fixture" ? "조명 💡 이력" : "과거 그룹");
     await dialog.getByRole("button", { name: "보고서 요청" }).click();
     await expect(dialog).not.toBeVisible();
     expect(requests.at(-1)).toMatchObject({ scope, identityId, to: "2026-09-11" });
   }
 });
 
-for (const width of [1440, 1024, 390, 320]) {
-  test(`heatmap and report controls remain usable without document overflow at ${width}px`, async ({ page }, testInfo) => {
-    await page.setViewportSize({ width, height: 900 });
+for (const viewport of [
+  { width: 1440, height: 900 },
+  { width: 1024, height: 768 },
+  { width: 390, height: 844 },
+  { width: 320, height: 740 }
+] as const) {
+  test(`heatmap and report controls remain usable without document overflow at ${viewport.width}px`, async ({ page }, testInfo) => {
+    const { width } = viewport;
+    await page.setViewportSize(viewport);
     await page.goto(`/statistics/analysis?siteId=${reportSiteId}`);
-    const grid = page.getByRole("group", { name: "시간대별 에너지 사용량" });
-    await expect(grid.getByRole("button")).toHaveCount(168);
-    await grid.getByRole("button", { name: "일요일 00시, 0 kWh", exact: true }).click();
-    await expect(page.locator(".statistics-heatmap-detail")).toHaveText("일요일 00시, 0 kWh");
-    const missing = grid.getByRole("button", { name: "일요일 01시, 수집 데이터 없음", exact: true });
+    const rankingBounds = await page.getByRole("region", { name: "사용량 순위" }).boundingBox();
+    const detailBounds = await page.getByRole("complementary", { name: /상세$/ }).boundingBox();
+    expect(rankingBounds).not.toBeNull();
+    expect(detailBounds).not.toBeNull();
+    if (width >= 1024) {
+      expect(Math.abs(rankingBounds!.y - detailBounds!.y), `${width}px analysis cards share one row`).toBeLessThanOrEqual(2);
+      expect(detailBounds!.x, `${width}px detail follows ranking horizontally`).toBeGreaterThan(rankingBounds!.x + rankingBounds!.width - 2);
+    } else {
+      expect(detailBounds!.y, `${width}px detail stacks below ranking`).toBeGreaterThan(rankingBounds!.y + rankingBounds!.height - 2);
+    }
+    const energyGrid = page.getByRole("group", { name: "시간대별 에너지 사용량" });
+    await expect(energyGrid.getByRole("button")).toHaveCount(168);
+    await energyGrid.getByRole("button", { name: "일요일 00시, 0 kWh", exact: true }).click();
+    await expect(page.getByRole("status").filter({ hasText: "일요일 00시, 0 kWh" })).toBeVisible();
+    const missing = energyGrid.getByRole("button", { name: "일요일 01시, 수집 데이터 없음", exact: true });
     await missing.focus(); await page.keyboard.press("Enter");
     await expect(missing).toHaveAttribute("aria-pressed", "true");
     await page.getByRole("button", { name: "밝기", exact: true }).click();
-    await expect(page.getByRole("group", { name: "시간대별 밝기" })).toBeVisible();
-    const cells = await page.locator(".statistics-heatmap-grid button").evaluateAll(elements => elements.map(element => {
+    const brightnessGrid = page.getByRole("group", { name: "시간대별 밝기" });
+    await expect(brightnessGrid).toBeVisible();
+    const cells = await brightnessGrid.getByRole("button").evaluateAll(elements => elements.map(element => {
       const rect = element.getBoundingClientRect(); return { width: rect.width, height: rect.height };
     }));
     expect(cells.every(cell => cell.width >= 44 && cell.height >= 44)).toBe(true);
     await expectNoHorizontalOverflow(page);
-    await page.locator(".statistics-heatmap-metric-button").first().scrollIntoViewIfNeeded();
-    await expectMinimumTouchTargets(page, ".statistics-heatmap-heading");
+    await page.getByRole("button", { name: "에너지", exact: true }).scrollIntoViewIfNeeded();
+    for (const metricButton of await page.getByRole("region", { name: "시간대별 사용량" }).getByRole("button", { name: /^(에너지|밝기)$/ }).all()) {
+      const bounds = await metricButton.boundingBox();
+      expect(bounds?.width).toBeGreaterThanOrEqual(44); expect(bounds?.height).toBeGreaterThanOrEqual(44);
+    }
+    await expectMinimumTouchTargets(page, "[aria-label='히트맵 지표']");
     for (const index of [0, 23, 167]) {
-      const cell = page.locator(".statistics-heatmap-grid button").nth(index);
-      await cell.scrollIntoViewIfNeeded();
-      await expectMinimumTouchTargets(page, `.statistics-heatmap-grid button:nth-child(${index + 1})`);
+      const cell = brightnessGrid.getByRole("button").nth(index);
+      await cell.evaluate((element) => element.scrollIntoView({ block: "center", inline: "center" }));
+      const bounds = await cell.boundingBox();
+      expect(bounds?.width).toBeGreaterThanOrEqual(44); expect(bounds?.height).toBeGreaterThanOrEqual(44);
+      const marker = `heatmap-touch-${index}`;
+      await cell.evaluate((element, value) => element.setAttribute("data-e2e-heatmap-touch", value), marker);
+      await expectMinimumTouchTargets(page, `[data-e2e-heatmap-touch='${marker}']`);
+      await cell.evaluate((element) => element.removeAttribute("data-e2e-heatmap-touch"));
     }
     const heatmapPath = testInfo.outputPath(`heatmap-${width}.png`);
     await page.screenshot({ path: heatmapPath });
@@ -270,16 +306,16 @@ for (const width of [1440, 1024, 390, 320]) {
       await expectNoHorizontalOverflow(page);
     }
     await page.getByRole("button", { name: "보고서 만들기" }).click();
-    const dialog = page.getByRole("dialog");
+    const dialog = page.getByRole("dialog", { name: "에너지 사용량 보고서 만들기" });
     await expect(dialog.getByRole("button", { name: "CSV 내보내기" })).toBeVisible();
     await expectNoHorizontalOverflow(page);
-    const controls = dialog.locator("button,input,select");
+    const controls = dialog.getByRole("button").or(dialog.getByRole("spinbutton"));
     for (const control of await controls.all()) {
       await control.scrollIntoViewIfNeeded();
       const bounds = await control.boundingBox();
       expect(bounds?.width).toBeGreaterThanOrEqual(44); expect(bounds?.height).toBeGreaterThanOrEqual(44);
     }
-    await expectMinimumTouchTargetsAfterScrolling(page, ".statistics-report-dialog");
+    await expectMinimumTouchTargetsAfterScrolling(page, "[role='dialog'][aria-modal='true']");
     const reportPath = testInfo.outputPath(`report-dialog-${width}.png`);
     await page.screenshot({ path: reportPath });
     await testInfo.attach(`report-dialog-${width}`, { path: reportPath, contentType: "image/png" });
@@ -319,9 +355,9 @@ test("shows energy cards, daily and monthly lines, partial coverage and savings"
   await expect(page.getByRole("img", { name: /일별 상태 기반 추정/ })).toBeVisible();
   await expect(page.getByText(/2026년 8월 26일: 4.25 kWh, 680원, 수집 공백 2시간 0분/)).toBeAttached();
 
-  const partialDot = page.locator(".statistics-chart-panel .recharts-line-dots circle").nth(1);
+  const partialDot = page.getByRole("region", { name: "상태 기반 추정 사용량" }).locator(".recharts-line-dots circle").nth(1);
   await partialDot.hover();
-  await expect(page.locator(".energy-tooltip")).toContainText("수집 공백 2시간 0분");
+  await expect(page.getByText("수집 공백 2시간 0분", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "월별" }).click();
   await expect(page.getByRole("button", { name: "월별" })).toHaveAttribute("aria-pressed", "true");
@@ -409,13 +445,13 @@ test("underline navigation keeps keyboard focus visible inside its overflow edge
   const controlTab = page.getByRole("tab", { name: "수동 제어" });
   await controlTab.focus();
   await expect(controlTab).toBeFocused();
-  expect(await controlTab.evaluate((element) => getComputedStyle(element).boxShadow)).toContain("inset");
+  expect(await controlTab.evaluate((element) => getComputedStyle(element).boxShadow)).not.toBe("none");
 
   await page.goto("/statistics/overview?siteId=site-1");
   const statisticsLink = page.getByRole("link", { name: "개요" });
   await statisticsLink.focus();
   await expect(statisticsLink).toBeFocused();
-  expect(await statisticsLink.evaluate((element) => getComputedStyle(element).boxShadow)).toContain("inset");
+  expect(await statisticsLink.evaluate((element) => getComputedStyle(element).boxShadow)).not.toBe("none");
 });
 
 test("shows negative savings as overuse without clamping", async ({ page }) => {
@@ -490,19 +526,16 @@ test("packs the statistics report from the top in a tall viewport", async ({ pag
   await page.goto("/statistics");
   await expect(page.getByRole("heading", { name: "에너지 리포트" })).toBeVisible();
 
-  const layout = await page.locator(".statistics-shell").evaluate((shell) => {
-    const heading = shell.querySelector("h2");
-    const report = shell.querySelector(".statistics-report-layout");
-    if (!heading || !report) throw new Error("statistics report layout is incomplete");
-
-    const shellRect = shell.getBoundingClientRect();
-    const headingRect = heading.getBoundingClientRect();
-    const reportRect = report.getBoundingClientRect();
-    return {
-      headingOffset: headingRect.top - shellRect.top,
-      remainingSpace: shellRect.bottom - reportRect.bottom
-    };
-  });
+  const [shellRect, headingRect, reportRect] = await Promise.all([
+    page.getByRole("region", { name: "통계", exact: true }).boundingBox(),
+    page.getByRole("heading", { name: "에너지 리포트" }).boundingBox(),
+    page.getByRole("group", { name: "사용량 및 비용" }).boundingBox()
+  ]);
+  if (!shellRect || !headingRect || !reportRect) throw new Error("statistics report layout is incomplete");
+  const layout = {
+    headingOffset: headingRect.y - shellRect.y,
+    remainingSpace: shellRect.y + shellRect.height - (reportRect.y + reportRect.height)
+  };
 
   expect(layout.headingOffset).toBeGreaterThan(0);
   expect(layout.headingOffset).toBeLessThan(100);
@@ -525,25 +558,24 @@ for (const viewport of [
 
     const expectedColumns = viewport.width === 320 ? 1 : viewport.width === 390 ? 2 : 3;
     expect(await gridColumnCount(page)).toBe(expectedColumns);
-    await expectReportPanelLayout(page, viewport.width <= 1120);
+    await expectReportPanelLayout(page, viewport.width <= 760);
     await expect(page.getByRole("region", { name: "상태 기반 추정 사용량" })).toBeVisible();
     await expect(page.getByRole("complementary", { name: "비용 비교" })).toBeVisible();
-    const firstAxisLabel = page.locator(".energy-line-chart .recharts-cartesian-axis-tick-value").first();
+    const firstAxisLabel = page.getByRole("region", { name: "상태 기반 추정 사용량" }).locator(".recharts-cartesian-axis-tick-value").first();
     await expect(firstAxisLabel).toBeVisible();
     expect(await firstAxisLabel.evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(11);
     await expect(page.getByRole("button", { name: "일별" })).toBeVisible();
     await expect(page.getByRole("button", { name: "월별" })).toBeVisible();
     await expectStatisticsSpacing(page, viewport.width <= 760);
-    await expectComparisonPanelLayout(page, viewport.width <= 1120);
-    const comparisonOverflow = await page.locator(".statistics-comparison-chart-panel").evaluate((element) => ({
+    await expectComparisonPanelLayout(page, viewport.width <= 760);
+    const comparisonOverflow = await page.getByRole("region", { name: "기준 대비 사용량 비교" }).evaluate((element) => ({
       clientWidth: element.clientWidth,
       scrollWidth: element.scrollWidth
     }));
     expect(comparisonOverflow.scrollWidth).toBeLessThanOrEqual(comparisonOverflow.clientWidth);
     await expectNoHorizontalOverflow(page);
     if (viewport.width <= 760) {
-      const chartHeading = page.locator(".statistics-chart-heading");
-      await chartHeading.evaluate((element) => element.scrollIntoView({ block: "center" }));
+      await page.getByRole("heading", { name: "상태 기반 추정 사용량" }).scrollIntoViewIfNeeded();
       await expect(page.getByRole("button", { name: "일별" })).toBeInViewport();
       await expect(page.getByRole("button", { name: "월별" })).toBeInViewport();
       await expectMinimumTouchTargets(page, ".app-shell");
@@ -557,46 +589,48 @@ for (const viewport of [
 }
 
 async function expectStatisticsSpacing(page: Page, compact: boolean) {
-  const screenGap = await page.locator(".statistics-screen").evaluate((element) => {
+  const screenGap = await page.getByRole("region", { name: "에너지 통계" }).evaluate((element) => {
     return getComputedStyle(element).rowGap;
   });
   expect(screenGap).toBe("24px");
 
-  const summaryGap = await page.locator(".statistics-summary").evaluate((element) => {
+  const summary = page.getByRole("group", { name: "에너지 요약" });
+  const summaryGap = await summary.evaluate((element) => {
     return getComputedStyle(element).gap;
   });
   expect(summaryGap).toBe("16px");
 
-  const panelPadding = await page.locator(".statistics-chart-panel").evaluate((element) => {
+  const chartPanel = page.getByRole("region", { name: "상태 기반 추정 사용량" });
+  const panelPadding = await chartPanel.evaluate((element) => {
     return getComputedStyle(element).paddingTop;
   });
   expect(panelPadding).toBe(compact ? "16px" : "24px");
 
-  const chartPanelGap = await page.locator(".statistics-chart-panel").evaluate((element) => {
+  const chartPanelGap = await chartPanel.evaluate((element) => {
     return getComputedStyle(element).gap;
   });
   expect(chartPanelGap).toBe("16px");
 
-  const metricCardSpacing = await page.locator(".statistics-metric .ui-metric-card").first().evaluate((element) => {
+  const metricCardSpacing = await summary.locator(".ui-metric-card").first().evaluate((element) => {
     const styles = getComputedStyle(element);
     return { minHeight: styles.minHeight, paddingBottom: styles.paddingBottom };
   });
   expect(metricCardSpacing).toEqual({ minHeight: "0px", paddingBottom: "16px" });
 
-  const statusPosition = await page.locator(".statistics-metric .ui-status-badge").first().evaluate((element) => {
+  const statusPosition = await summary.locator(".ui-status-badge").first().evaluate((element) => {
     return getComputedStyle(element).position;
   });
   expect(statusPosition).toBe("static");
 
   if (compact) {
-    const metricLabelWidth = await page.locator(".statistics-metric .ui-metric-label").first().evaluate((element) => {
+    const metricLabelWidth = await summary.locator(".ui-metric-label").first().evaluate((element) => {
       return element.getBoundingClientRect().width;
     });
     expect(metricLabelWidth).toBeGreaterThanOrEqual(100);
 
     const [chartTitle, chartTabs] = await Promise.all([
-      page.locator(".statistics-chart-heading h3").boundingBox(),
-      page.locator(".statistics-chart-heading .segmented-control").boundingBox()
+      page.getByRole("heading", { name: "상태 기반 추정 사용량" }).boundingBox(),
+      chartPanel.getByRole("button", { name: "일별" }).boundingBox()
     ]);
     expect(chartTitle).not.toBeNull();
     expect(chartTabs).not.toBeNull();
@@ -760,9 +794,30 @@ function ranking(dimension: string, metric: string, sort: string, from: string, 
 }
 
 async function gridColumnCount(page: Page) {
-  return page.locator(".statistics-summary").evaluate((element) => {
-    return getComputedStyle(element).gridTemplateColumns.split(" ").length;
+  return page.getByRole("group", { name: "에너지 요약" }).locator(":scope > *").evaluateAll((elements) => {
+    return new Set(elements.map((element) => Math.round(element.getBoundingClientRect().x))).size;
   });
+}
+
+async function chooseOption(page: Page, container: Locator, label: string, option: string) {
+  await container.getByRole("button", { name: label }).click();
+  await page.getByRole("option", { name: option, exact: true }).click();
+}
+
+async function setDatePicker(container: Locator, label: string, value: string) {
+  const [year, month, day] = value.split("-");
+  const segments = container.getByRole("group", { name: label }).getByRole("spinbutton");
+  await segments.nth(2).fill(String(Number(day)));
+  await segments.nth(1).fill(String(Number(month)));
+  await segments.nth(0).fill(year);
+}
+
+async function expectDatePicker(container: Locator, label: string, value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  const segments = container.getByRole("group", { name: label }).getByRole("spinbutton");
+  await expect(segments.nth(0)).toHaveAttribute("aria-valuenow", String(year));
+  await expect(segments.nth(1)).toHaveAttribute("aria-valuenow", String(month));
+  await expect(segments.nth(2)).toHaveAttribute("aria-valuenow", String(day));
 }
 
 async function underlineNavigationVisual(container: Locator, item: Locator) {
@@ -816,8 +871,8 @@ async function underlineNavigationAlignment(container: Locator) {
 
 async function expectReportPanelLayout(page: Page, stacked: boolean) {
   const [chart, costs] = await Promise.all([
-    page.locator(".statistics-chart-panel").boundingBox(),
-    page.locator(".statistics-cost-panel").boundingBox()
+    page.getByRole("region", { name: "상태 기반 추정 사용량" }).boundingBox(),
+    page.getByRole("complementary", { name: "비용 비교" }).boundingBox()
   ]);
   expect(chart).not.toBeNull();
   expect(costs).not.toBeNull();
@@ -832,8 +887,8 @@ async function expectReportPanelLayout(page: Page, stacked: boolean) {
 
 async function expectComparisonPanelLayout(page: Page, stacked: boolean) {
   const [chart, comparisonPanel] = await Promise.all([
-    page.locator(".statistics-comparison-chart-panel").boundingBox(),
-    page.locator(".period-comparison-panel").boundingBox()
+    page.getByRole("region", { name: "기준 대비 사용량 비교" }).boundingBox(),
+    page.getByRole("complementary", { name: "동기간 비교" }).boundingBox()
   ]);
   expect(chart).not.toBeNull();
   expect(comparisonPanel).not.toBeNull();

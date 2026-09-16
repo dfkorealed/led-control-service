@@ -716,12 +716,15 @@ Task 1~5 완료 후 총괄은 다섯 커밋, focused tests, Web typecheck와 bui
 - Modify: `apps/web/src/features/statistics/StatisticsShell.tsx`
 - Modify: `apps/web/src/features/statistics/StatisticsSubnavigation.tsx`
 - Modify: `apps/web/src/features/statistics/StatisticsOverviewPage.tsx`
+- Modify: `apps/web/src/features/statistics/EnergyComparisonChart.tsx`
+- Modify: `apps/web/src/features/statistics/PeriodComparisonPanel.tsx`
 - Modify: `apps/web/src/features/statistics/analysis/StatisticsAnalysisPage.tsx`
 - Modify: `apps/web/src/features/statistics/analysis/EnergyHeatmap.tsx`
 - Modify: `apps/web/src/features/statistics/analysis/EnergyRankingList.tsx`
 - Modify: `apps/web/src/features/statistics/analysis/EnergyRankingDetailPanel.tsx`
 - Modify: `apps/web/src/features/statistics/reports/ReportCreateDialog.tsx`
 - Modify: `apps/web/src/features/statistics/reports/ReportJobList.tsx`
+- Modify: `apps/web/src/features/statistics/reports/StatisticsReportsPage.tsx`
 - Modify: `apps/web/src/features/statistics/StatisticsShell.test.tsx`
 - Modify: `apps/web/src/features/statistics/StatisticsOverviewPage.test.tsx`
 - Modify: `apps/web/src/features/statistics/EnergyComparisonChart.test.tsx`
@@ -735,7 +738,7 @@ Task 1~5 완료 후 총괄은 다섯 커밋, focused tests, Web typecheck와 bui
 **Interfaces:**
 - Consumes: Task 1~5 exports. Produces no common UI API.
 
-- [ ] **Step 1: 날짜·select·typography migration 테스트를 작성한다**
+- [x] **Step 1: 날짜·select·typography migration 테스트를 작성한다**
 
 ```tsx
 it("edits the report range through design-system date pickers", async () => {
@@ -746,13 +749,13 @@ it("edits the report range through design-system date pickers", async () => {
 });
 ```
 
-- [ ] **Step 2: 현재 native date 입력으로 실패하는지 확인한다**
+- [x] **Step 2: 현재 native date 입력으로 실패하는지 확인한다**
 
 Run: `pnpm --filter @led-control/web test -- src/features/statistics`
 
 Expected: new Calendar grid assertion fails.
 
-- [ ] **Step 3: 분석·보고서 form을 공통 컴포넌트로 교체한다**
+- [x] **Step 3: 분석·보고서 form을 공통 컴포넌트로 교체한다**
 
 ```tsx
 <SelectBox label="순위 기준" items={metricItems} selectedKey={metric} onSelectionChange={(key) => setMetric(key as EnergyRankingMetric)} />
@@ -762,30 +765,34 @@ Expected: new Calendar grid assertion fails.
 
 보고서 scope, target, format도 SelectBox로 교체하되 기존 request object를 변경하지 않는다. `defaultRange`는 date adapter를 사용해 local/UTC 날짜 이동을 제거한다.
 
-- [ ] **Step 4: 페이지 layout·chart color·typography를 Tailwind token으로 전환한다**
+- [x] **Step 4: 페이지 layout·chart color·typography를 Tailwind token으로 전환한다**
 
 Heading/Text/MetricCard/Card와 semantic chart token을 사용한다. Recharts prop에는 `themeColor("chart-usage")`처럼 Task 2 adapter를 전달한다. feature CSS를 새로 만들지 않는다.
 
-- [ ] **Step 5: focused tests와 viewport E2E를 통과시킨다**
+- [x] **Step 5: focused tests와 viewport E2E를 통과시킨다**
 
 Run:
 
 ```bash
 pnpm --filter @led-control/web test -- src/features/statistics
 pnpm --filter @led-control/web exec playwright test e2e/statistics-flow.spec.ts --project=chromium
+pnpm --filter @led-control/web typecheck
+pnpm --filter @led-control/web build
 pnpm --filter @led-control/web ui:check
 ```
 
 Expected: all commands exit 0 at 1440×900, 1024×768, 390×844 and 320×740 assertions.
 
-- [ ] **Step 6: 문서와 커밋을 만든다**
+- [x] **Step 6: 문서와 커밋을 만든다**
 
 `docs/menus/statistics.md`에 공통 날짜 UI, chart token, 남은 제한과 검증 명령을 기록한다.
 
 ```bash
-git add apps/web/src/features/statistics apps/web/e2e/statistics-flow.spec.ts docs/menus/statistics.md
+git add apps/web/src/features/statistics apps/web/e2e/statistics-flow.spec.ts docs/menus/statistics.md docs/superpowers/plans/2026-09-15-tailwind-design-system-migration.md
 git commit -m "refactor(web): migrate statistics to design system"
 ```
+
+**Task 6 검증 결과(2026-09-16):** native date/select 역할의 실제 RED 3건과 보고서 날짜 clear·상한 회귀 RED, 분석 1440px 카드 배치 RED, 히트맵 문서 overflow·실제 hit-area RED를 확인한 뒤 공통 `DatePicker`/`SelectBox`, semantic chart token과 Tailwind layout으로 전환했다. Fresh focused **8 files·50/50**, 전체 Web **82 files·1,196/1,196**, Chromium **21/21**, typecheck/build, ui:check **기존 2,312/신규 0**, diff 검사를 통과했다. Chromium은 정확한 1440×900/1024×768/390×844/320×740에서 통계 개요·분석·보고서의 document overflow, 내부 24열 스크롤, 대표 첫/중간/마지막 셀과 지표·보고서 control의 연속 44×44px hit area, 날짜 상한과 동일 내용 XLSX/PDF 흐름을 확인했다. Date bundle 소비 mode는 **2/2**(production DatePicker 유지·date module 4개), overlay bundle은 **1/1**(unused delta **0/0/0**) 통과했다. Main build는 **655.68 kB/gzip 200.97 kB**로 기존 500 kB 경고가 남는다. 독립 재검토는 Critical/Important/Minor 0, Ready to merge 승인이다. 실제 WebView·수동 in-app 시각 QA·HIL은 미실행이다.
 
 ### Task 7: 모니터링 페이지 migration
 

@@ -1,7 +1,19 @@
 import type { EnergyReportFormat, EnergyReportRequest, EnergyReportTargetsResponse, EnergyScope } from "@led-control/shared/energy-p2-contracts";
 import { useState } from "react";
 import { energyReportRequestErrorMessage, type EnergyReportRequestAction } from "../../../api/energy";
-import { Button, ModalDialog } from "../../../components/ui";
+import { Button, DatePicker, formatIsoDate, ModalDialog, parseIsoDate, SelectBox, Text } from "../../../components/ui";
+
+const scopeItems: Array<{ id: EnergyScope; label: string }> = [
+  { id: "site", label: "현장" },
+  { id: "fixture", label: "조명" },
+  { id: "floor", label: "층" },
+  { id: "group", label: "그룹" }
+];
+const formatItems: Array<{ id: EnergyReportFormat; label: string }> = [
+  { id: "xlsx", label: "XLSX" },
+  { id: "pdf", label: "PDF" }
+];
+const reportDatePickerClass = "[&_[role=spinbutton]]:relative [&_[role=spinbutton]]:z-10 [&_[role=spinbutton]]:rounded-none! [&_button]:min-h-14 [&_button]:min-w-14";
 
 export function ReportCreateDialog({
   siteId,
@@ -20,11 +32,13 @@ export function ReportCreateDialog({
   onCreate: (request: EnergyReportRequest) => Promise<void>;
   onExportCsv: (request: Omit<EnergyReportRequest, "format">) => Promise<void>;
 }) {
-  const [selectedFrom, setFrom] = useState<string>();
-  const [selectedTo, setTo] = useState<string>();
+  const [selectedFrom, setFrom] = useState<string | null>();
+  const [selectedTo, setTo] = useState<string | null>();
   const completedDate = targetData?.lastCompletedDate ?? "";
-  const to = selectedTo ?? completedDate;
-  const from = selectedFrom ?? (completedDate ? new Date(Date.parse(`${completedDate}T00:00:00Z`) - 29 * 86_400_000).toISOString().slice(0, 10) : "");
+  const to = selectedTo === undefined ? completedDate : selectedTo ?? "";
+  const from = selectedFrom === undefined
+    ? (completedDate ? formatIsoDate(parseIsoDate(completedDate).subtract({ days: 29 })) : "")
+    : selectedFrom ?? "";
   const [scope, setScope] = useState<EnergyScope>("site");
   const [selectedIdentityId, setIdentityId] = useState<string | undefined>(siteId);
   const [format, setFormat] = useState<EnergyReportFormat>("xlsx");
@@ -58,27 +72,24 @@ export function ReportCreateDialog({
 
   return (
     <ModalDialog
-      className="statistics-report-dialog"
+      className="max-w-[var(--container-lg)] [&_.ui-modal-close]:h-14! [&_.ui-modal-close]:min-h-14! [&_.ui-modal-close]:w-14! [&_.ui-modal-close]:min-w-14!"
       title="에너지 사용량 보고서 만들기"
       description="XLSX와 PDF는 동일한 표준 보고서 내용을 파일 형식만 다르게 제공합니다."
       onClose={onClose}
       isPending={isPending}
       actions={<><Button variant="secondary" disabled={!canSubmit} onClick={() => void perform("csv", () => onExportCsv(({ from, to, scope, identityId })))} isLoading={isPending} loadingLabel="내보내는 중">CSV 내보내기</Button><Button variant="primary" disabled={!canSubmit} onClick={() => void perform("create", () => onCreate({ from, to, scope, identityId, format }))} isLoading={isPending} loadingLabel="요청 중">보고서 요청</Button></>}
     >
-      <div className="statistics-report-form">
-        <label>기간 시작<input aria-label="기간 시작" type="date" value={from} max={to && to < completedDate ? to : completedDate} onChange={(event) => setFrom(event.target.value)} /></label>
-        <label>기간 종료<input aria-label="기간 종료" type="date" value={to} min={from} max={completedDate} onChange={(event) => setTo(event.target.value)} /></label>
-        <label>범위<select aria-label="범위" value={scope} onChange={(event) => setReportScope(event.target.value as EnergyScope)}>
-          <option value="site">현장</option><option value="fixture">조명</option><option value="floor">층</option><option value="group">그룹</option>
-        </select></label>
-        <label>대상<select aria-label="대상" value={identityId} disabled={Boolean(targetMessage)} onChange={(event) => setIdentityId(event.target.value)}>
-          {targets.map((target) => <option key={target.identityId} value={target.identityId}>{target.label}</option>)}
-        </select></label>
-        <label>파일 형식<select aria-label="파일 형식" value={format} onChange={(event) => setFormat(event.target.value as EnergyReportFormat)}>
-          <option value="xlsx">XLSX</option><option value="pdf">PDF</option>
-        </select></label>
-        {targetMessage ? <p role="status">{targetMessage}</p> : null}
-        {error ? <p role="alert" className="danger-text">{error}</p> : null}
+      <div className="grid min-w-0 grid-cols-2 gap-3 max-compact:grid-cols-1">
+        <DatePicker className={reportDatePickerClass} label="기간 시작" value={from || null} maxValue={to && to < completedDate ? to : completedDate || undefined}
+          onChange={setFrom} />
+        <DatePicker className={reportDatePickerClass} label="기간 종료" value={to || null} minValue={from || undefined} maxValue={completedDate || undefined}
+          onChange={setTo} />
+        <SelectBox label="범위" items={scopeItems} selectedKey={scope} onSelectionChange={(value) => value && setReportScope(value)} />
+        <SelectBox label="대상" items={targets.map((target) => ({ id: target.identityId, label: target.label }))}
+          selectedKey={hasValidTarget ? identityId : null} isDisabled={Boolean(targetMessage)} onSelectionChange={(value) => value && setIdentityId(value)} />
+        <SelectBox label="파일 형식" items={formatItems} selectedKey={format} onSelectionChange={(value) => value && setFormat(value)} />
+        {targetMessage ? <Text role="status" variant="body-sm" tone="secondary" className="col-span-full">{targetMessage}</Text> : null}
+        {error ? <Text role="alert" variant="body-sm" tone="danger" className="col-span-full">{error}</Text> : null}
       </div>
     </ModalDialog>
   );
