@@ -486,11 +486,11 @@ git commit -m "feat(web): render searchable paginated report grid"
 - Produces: v1/v2 document union, `calculationBasis`, source-labelled KPI rows, `visualization` references
 - Consumes: dimension history ratedWatt, Site tariff, daily/hourly aggregates
 
-- [ ] **Step 1: v1 compatibility와 v2 strict contract의 RED tests를 작성한다.**
+- [x] **Step 1: v1 compatibility와 v2 strict contract의 RED tests를 작성한다.**
 
 v1 fixture는 기존 그대로 parse되어야 한다. v2는 calculation basis와 supported visualization을 요구하고 존재하지 않는 table/column/row reference, 중복 visualization id, unknown source를 거절해야 한다.
 
-- [ ] **Step 2: 선택 기간 KPI 수식의 RED tests를 작성한다.**
+- [x] **Step 2: 선택 기간 KPI 수식의 RED tests를 작성한다.**
 
 고정 fixture:
 
@@ -503,31 +503,31 @@ v1 fixture는 기존 그대로 parse되어야 한다. v2는 calculation basis와
 
 scope history가 하루 중 바뀌거나 ratedWatt history가 바뀐 경우 실제 유효 seconds로 나눠 계산한다. 단가 null, dimension gap, 실제값 null, baseline zero, 기준 초과를 각각 테스트한다.
 
-- [ ] **Step 3: RED를 확인한다.**
+- [x] **Step 3: RED를 확인한다.**
 
 Run: `pnpm --filter @led-control/shared test -- energy-p2-contracts.test.ts && pnpm --filter @led-control/api exec jest src/energy/reports/energy-report-snapshot.service.spec.ts src/energy/reports/energy-report-document.builder.spec.ts src/energy/reports/report-renderer.contract.spec.ts --runInBand`
 
 Expected: v2 contract/calculation 부재로 FAIL.
 
-- [ ] **Step 4: snapshot v2 input을 캡처한다.**
+- [x] **Step 4: snapshot v2 input을 캡처한다.**
 
 Site tariff, selected scope의 dimension history ratedWatt/effective interval, completed local-day expected seconds를 기존 snapshot transaction에 포함한다. DST 날짜는 고정 86,400초가 아니라 timezone day interval의 실제 UTC seconds를 사용한다. snapshot 이후 현재 DB를 renderer가 다시 조회하지 않는다.
 
-- [ ] **Step 5: document builder v2 KPI와 visualization references를 구현한다.**
+- [x] **Step 5: document builder v2 KPI와 visualization references를 구현한다.**
 
 요약은 actual energy/stored cost와 baseline/savings/current-tariff cost/data coverage를 source-labelled row로 만든다. Daily table에 baseline column을 추가하고 null actual을 0으로 바꾸지 않는다. Comparison/ranking/heatmap section에 spec의 visualization reference를 추가한다.
 
-- [ ] **Step 6: report traversal이 v1/v2 scalar order를 보존하도록 구현한다.**
+- [x] **Step 6: report traversal이 v1/v2 scalar order를 보존하도록 구현한다.**
 
 v1 `reportBlocks` 출력은 byte-for-byte fixture manifest 순서를 유지한다. v2 calculation basis와 visualization metadata는 fingerprint에 포함하지만 사용자 표시 scalar와 내부 renderer instruction을 구분해 manifest extract가 안정적으로 검증되게 한다.
 
-- [ ] **Step 7: Task 7 focused tests를 GREEN으로 만든다.**
+- [x] **Step 7: Task 7 focused tests를 GREEN으로 만든다.**
 
 Run: Task 7 Step 3과 동일.
 
 Expected: PASS.
 
-- [ ] **Step 8: Task 7을 커밋한다.**
+- [x] **Step 8: Task 7을 커밋한다.**
 
 ```bash
 git add packages/shared/src/energy-p2-contracts* apps/api/src/energy/reports/energy-report-snapshot.service* apps/api/src/energy/reports/energy-report-document.builder* apps/api/src/energy/reports/report-renderer*
