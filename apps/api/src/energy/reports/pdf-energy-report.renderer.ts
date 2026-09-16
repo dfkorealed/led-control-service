@@ -3,17 +3,19 @@ import { Injectable } from "@nestjs/common";
 import fontkit from "@pdf-lib/fontkit";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { PDFDocument, PDFHexString, PDFName, beginMarkedContent, endMarkedContent, rgb, type PDFFont } from "pdf-lib";
+import { PDFArray, PDFDocument, PDFHexString, PDFName, beginMarkedContent, endMarkedContent, rgb, type PDFFont } from "pdf-lib";
 import { reportBlocks, tokenText, tokenType, verifyManifest,
-  type EnergyReportRenderer, type RenderedEnergyReport } from "./report-renderer";
-import { extractPdfReportManifest } from "./pdf-report-manifest";
+  type EnergyReportRenderer, type RenderedEnergyReport, type ReportBlock } from "./report-renderer";
+import { extractPdfReportManifest, extractPdfReportVisuals, extractPdfVisualCaptions } from "./pdf-report-manifest";
 import { reportFontRuns } from "./report-text";
-import { REPORT_PDF_PAGE as PAGE, reportPdfLayout, wrapReportText } from "./report-pdf-layout";
+import { REPORT_PDF_PAGE as PAGE, reportPdfLayout, wrapReportText, prepareReportVisuals, visualManifest, verifyVisualManifest, reportPdfChartSize, reportPdfCaption, type ReportVisualManifest } from "./report-pdf-layout";
+import type { RenderedReportVisual } from "./report-chart-image.renderer";
 
 @Injectable()
 export class PdfEnergyReportRenderer implements EnergyReportRenderer {
-  async render(document: EnergyReportDocument): Promise<RenderedEnergyReport> {
+  async render(document: EnergyReportDocument, sources?: RenderedReportVisual[]): Promise<RenderedEnergyReport & { visuals: ReportVisualManifest }> {
     const blocks = reportBlocks(document);
+    const images = await prepareReportVisuals(document, sources);
     const pdf = await PDFDocument.create();
     pdf.registerFontkit(fontkit);
     const [regular, bold] = await Promise.all(["Regular", "Bold"].map(async weight => {
@@ -34,10 +36,39 @@ export class PdfEnergyReportRenderer implements EnergyReportRenderer {
     let y = PAGE.top;
     let previousSection = -1;
     let tokenIndex = 0;
+    let tableHeader: ReportBlock | undefined;
+    const visualMap = pdf.context.obj([]) as PDFArray;
+    if (images.length) pdf.catalog.set(PDFName.of("ReportVisuals"), visualMap);
+    const drawText = (text: string, x: number, y: number, size: number, isBold: boolean) => {
+      for (const run of fontRuns(text, [isBold ? bold : regular, emoji])) {
+        page.drawText(run.text, { x, y, size, font: run.font, color: rgb(0.09, 0.18, 0.26) });
+        x += run.font.widthOfTextAtSize(run.text, size);
+      }
+    };
+    const newPage = (repeatHeader = false) => {
+      page = pdf.addPage([PAGE.width, PAGE.height]); y = PAGE.top;
+      if (repeatHeader && tableHeader) {
+        const { groupWidth } = reportPdfLayout(tableHeader);
+        const lines = tableHeader.groups.map(group => {
+          const wrapped = group.flatMap(token => wrapReportText(tokenText(token.value), true, 9, groupWidth - 12));
+          // Legacy labels have no length cap and may span whole pages. Keep
+          // their original scalar text intact; only decorative repetitions are
+          // shortened so every continuation still has room for actual rows.
+          return wrapped.length > 12 ? [...wrapped.slice(0, 11), { text: "...", lineBreak: 0 }] : wrapped;
+        });
+        const height = Math.max(...lines.map(group => group.length)) * 14 + 9;
+        // Repeated labels are real text, but deliberately outside scalar token
+        // markers: the immutable source contains each header exactly once.
+        page.pushOperators(beginMarkedContent("ReportTableHeader"));
+        lines.forEach((group, index) => group.forEach((line, offset) => drawText(line.text, PAGE.margin + index * groupWidth + 4, y - offset * 14, 9, true)));
+        page.pushOperators(endMarkedContent());
+        y -= height;
+      }
+    };
     for (const block of blocks) {
       if (block.section !== previousSection) {
-        page = pdf.addPage([PAGE.width, PAGE.height]);
-        y = PAGE.top;
+        newPage();
+        tableHeader = undefined;
         previousSection = block.section;
       }
       const { isBold, size, lineHeight, groupWidth } = reportPdfLayout(block);
@@ -48,12 +79,12 @@ export class PdfEnergyReportRenderer implements EnergyReportRenderer {
       }));
       const lineCount = Math.max(...lines.map(group => group.length));
       if (lineCount * lineHeight <= PAGE.top - PAGE.bottom && y - lineCount * lineHeight < PAGE.bottom) {
-        page = pdf.addPage([PAGE.width, PAGE.height]); y = PAGE.top;
+        newPage(block.style === "row");
       }
       // Split oversized rows across pages as synchronized column slices. No text is clipped,
-      // and continuation pages never repeat labels or content from the immutable document.
+      // while repeated table headers stay outside the immutable scalar manifest.
       for (let offset = 0; offset < lineCount;) {
-        if (y - lineHeight < PAGE.bottom) { page = pdf.addPage([PAGE.width, PAGE.height]); y = PAGE.top; }
+        if (y - lineHeight < PAGE.bottom) newPage(block.style === "row");
         const count = Math.min(lineCount - offset, Math.floor((y - PAGE.bottom) / lineHeight));
         lines.forEach((group, groupIndex) => {
           const x = PAGE.margin + groupIndex * groupWidth;
@@ -75,11 +106,46 @@ export class PdfEnergyReportRenderer implements EnergyReportRenderer {
         offset += count;
       }
       y -= block.style === "title" ? 14 : 9;
+      if (block.style === "columns") tableHeader = block;
+      if (block.style === "title") {
+        for (const visual of images.filter(image => image.section === block.section)) {
+          const index = images.indexOf(visual);
+          const size = reportPdfChartSize(visual.width, visual.height);
+          const title = wrapReportText(reportPdfCaption(visual.title), true, 11, PAGE.width - PAGE.margin * 2 - 8);
+          const caption = wrapReportText(reportPdfCaption(visual.altText), false, 9, PAGE.width - PAGE.margin * 2 - 8);
+          const height = size.height + (title.length + caption.length) * 14 + 24;
+          if (height > PAGE.top - PAGE.bottom) throw new Error("Report chart caption exceeds page capacity");
+          if (y - height < PAGE.bottom) newPage();
+          for (const [kind, lines] of [["Title", title], ["Alt", caption]] as const) {
+            lines.forEach(line => {
+              page.pushOperators(beginMarkedContent(`V${index}${kind}H${line.lineBreak}`));
+              drawText(line.text, PAGE.margin + 4, y, kind === "Title" ? 11 : 9, kind === "Title");
+              page.pushOperators(endMarkedContent());
+              y -= 14;
+            });
+          }
+          y -= 8;
+          const image = await pdf.embedPng(visual.png);
+          // PDF images store decoded RGB/alpha, not the original PNG container.
+          // Retain an exact source stream and bind it to the displayed XObject;
+          // serialized verification checks both source digest and actual pixels.
+          const source = pdf.context.register(pdf.context.stream(visual.png, { Type: "EmbeddedFile", Subtype: "image/png" }));
+          visualMap.push(pdf.context.obj({ Id: PDFHexString.fromText(visual.id), Source: source, Image: image.ref }));
+          page.pushOperators(beginMarkedContent(`ReportVisual${index}`));
+          page.drawImage(image, { x: PAGE.margin, y: y - size.height, ...size });
+          page.pushOperators(endMarkedContent());
+          y -= size.height + 16;
+        }
+      }
     }
     const bytes = Buffer.from(await pdf.save());
     const manifest = await extractPdfReportManifest(bytes);
     verifyManifest(blocks, manifest);
-    return { bytes, manifest, contentType: "application/pdf", extension: "pdf" };
+    const visuals = await extractPdfReportVisuals(bytes);
+    verifyVisualManifest(visualManifest(images), visuals);
+    const captions = await extractPdfVisualCaptions(bytes);
+    if (JSON.stringify(captions) !== JSON.stringify(images.map(image => ({ title: reportPdfCaption(image.title), altText: reportPdfCaption(image.altText) })))) throw new Error("Invalid serialized report chart captions");
+    return { bytes, manifest, visuals, contentType: "application/pdf", extension: "pdf" };
   }
 }
 

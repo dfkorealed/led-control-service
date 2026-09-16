@@ -1,10 +1,66 @@
 import { PDFArray, PDFDict, PDFDocument, PDFName, PDFRawStream, decodePDFRawStream } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import { PdfEnergyReportRenderer } from "./pdf-energy-report.renderer";
-import { extractPdfReportManifest } from "./pdf-report-manifest";
-import { expectedManifest, forbiddenReportText, reportFixture } from "./report-renderer.test-support";
+import { extractPdfReportManifest, extractPdfReportVisuals, extractPdfVisualCaptions } from "./pdf-report-manifest";
+import { buildReportVisuals } from "./report-visual-model";
+import { expectedManifest, forbiddenReportText, reportFixture, visualReportFixture } from "./report-renderer.test-support";
 
 describe("PdfEnergyReportRenderer", () => {
+  it("continues legacy tables even when their original column labels span multiple pages", async () => {
+    const document = reportFixture();
+    document.metadata = [];
+    const table = document.sections[1];
+    if (table.kind !== "table") throw new Error("Expected table");
+    table.columns[0].label = "매우 긴 한글 열 이름 ".repeat(300);
+    document.sections = [table];
+    const output = await new PdfEnergyReportRenderer().render(document);
+    expect(output.manifest).toEqual(expectedManifest(document));
+  }, 60000);
+  it("draws eight charts inside page margins and repeats headers on continued tables", async () => {
+    const output = await new PdfEnergyReportRenderer().render(visualReportFixture());
+    const pdf = await PDFDocument.load(output.bytes);
+    let images = 0, repeatedHeaders = 0;
+    for (const page of pdf.getPages()) {
+      const streams = page.node.Contents() as PDFArray;
+      for (let index = 0; index < streams.size(); index++) {
+        const text = Buffer.from(decodePDFRawStream(streams.lookup(index, PDFRawStream)).decode()).toString();
+        repeatedHeaders += [...text.matchAll(/\/ReportTableHeader BMC/g)].length;
+        for (const match of text.matchAll(/1 0 0 1 ([\d.]+) ([\d.]+) cm\s+1 0 0 1 0 0 cm\s+([\d.]+) 0 0 ([\d.]+) 0 0 cm\s+1 0 0 1 0 0 cm\s+\/Image[^\s]* Do/g)) {
+          images++;
+          const [, x, y, w, h] = match.map(Number);
+          expect(w / h).toBeCloseTo(1000 / 560, 5);
+          expect(x).toBeGreaterThanOrEqual(36);
+          expect(y).toBeGreaterThanOrEqual(44);
+          expect(x + w).toBeLessThanOrEqual(559.28);
+          expect(y + h).toBeLessThanOrEqual(798);
+        }
+      }
+    }
+    expect(images).toBe(8);
+    expect(repeatedHeaders).toBeGreaterThan(0);
+    expect(await extractPdfVisualCaptions(output.bytes)).toEqual(buildReportVisuals(visualReportFixture()).map(visual => ({ title: visual.title, altText: visual.altText.replace(/–/g, "-") })));
+  }, 60000);
+  it("detects changed displayed image pixels and removed drawings even when source PNG streams remain intact", async () => {
+    const output = await new PdfEnergyReportRenderer().render(visualReportFixture());
+    const changed = await PDFDocument.load(output.bytes);
+    const first = changed.catalog.lookup(PDFName.of("ReportVisuals"), PDFArray).lookup(0, PDFDict);
+    const stream = first.lookup(PDFName.of("Image")) as PDFRawStream;
+    const pixels = decodePDFRawStream(stream).decode();
+    pixels[0] ^= 255;
+    const damaged = changed.context.flateStream(pixels);
+    for (const [key, value] of stream.dict.entries()) if (!["/Length", "/Filter"].includes(key.asString())) damaged.dict.set(key, value);
+    changed.context.assign(first.get(PDFName.of("Image")) as never, damaged);
+    await expect(extractPdfReportVisuals(await changed.save())).rejects.toThrow(/pixels differ/);
+    const missing = await PDFDocument.load(output.bytes);
+    for (const page of missing.getPages()) {
+      const streams = page.node.Contents() as PDFArray;
+      for (let index = 0; index < streams.size(); index++) {
+        const text = Buffer.from(decodePDFRawStream(streams.lookup(index, PDFRawStream)).decode()).toString();
+        streams.set(index, missing.context.register(missing.context.flateStream(text.replace(/\/ReportVisual0 BMC[\s\S]*?EMC/g, ""))));
+      }
+    }
+    await expect(extractPdfReportVisuals(await missing.save())).rejects.toThrow(/Missing/);
+  }, 60000);
   it("rejects serialized page and row permutations while accepting wrapped row continuations", async () => {
     const output = await new PdfEnergyReportRenderer().render(reportFixture());
     const reorderedPages = await PDFDocument.load(output.bytes);
@@ -18,12 +74,13 @@ describe("PdfEnergyReportRenderer", () => {
     const streams = rowPage.node.Contents() as PDFArray;
     // Move the first physical two-line table row below its successor, preserving token maps.
     const stream = Buffer.from(decodePDFRawStream(streams.lookup(0, PDFRawStream)).decode()).toString();
-    const positions = [...stream.matchAll(/1 0 0 1 ([\d.]+) ([\d.]+) Tm/g)].map(match => Number(match[2]));
+    const scalarText = [...stream.matchAll(/\/R\d+H[0-3]S\d+ BMC[\s\S]*?EMC/g)].map(match => match[0]).join("\n");
+    const positions = [...scalarText.matchAll(/1 0 0 1 ([\d.]+) ([\d.]+) Tm/g)].map(match => Number(match[2]));
     const levels = [...new Set(positions)].sort((a, b) => b - a);
-    const swapped = stream.replace(/1 0 0 1 ([\d.]+) ([\d.]+) Tm/g, (match, x: string, y: string) => {
+    const swapped = stream.replace(/\/R\d+H[0-3]S\d+ BMC[\s\S]*?EMC/g, segment => segment.replace(/1 0 0 1 ([\d.]+) ([\d.]+) Tm/g, (match, x: string, y: string) => {
       const index = levels.indexOf(Number(y));
       return index >= 0 && index < 4 ? `1 0 0 1 ${x} ${levels[(index + 2) % 4]} Tm` : match;
-    });
+    }));
     streams.set(0, reorderedRows.context.register(reorderedRows.context.flateStream(swapped)));
     await expect(extractPdfReportManifest(await reorderedRows.save())).rejects.toThrow(/order/i);
 
