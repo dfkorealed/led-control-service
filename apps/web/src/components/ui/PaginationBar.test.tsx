@@ -96,15 +96,16 @@ describe("PaginationBar", () => {
     expect(screen.getByRole("button", { name: "다음 페이지" })).toBeDisabled();
   });
 
-  it("shows an empty total, disables both directions and keeps compact controls touch-sized", () => {
+  it("keeps previous independently available when the current total is unavailable", () => {
+    const onPrevious = vi.fn();
     render(
       <PaginationBar
-        page={1}
+        page={2}
         pageSize={10}
         totalCount={0}
         hasPrevious
         hasNext
-        onPrevious={vi.fn()}
+        onPrevious={onPrevious}
         onNext={vi.fn()}
         onPageSizeChange={vi.fn()}
         className="report-pagination"
@@ -114,9 +115,10 @@ describe("PaginationBar", () => {
     const navigation = screen.getByRole("navigation", { name: "페이지 이동" });
     expect(navigation).toHaveClass("report-pagination", "flex", "min-w-0", "flex-col", "tablet:flex-row");
     expect(screen.getByText("0건")).toBeInTheDocument();
-    for (const name of ["이전 페이지", "다음 페이지"]) {
-      expect(screen.getByRole("button", { name })).toBeDisabled();
-      expect(screen.getByRole("button", { name })).toHaveClass("min-h-11", "min-w-11");
-    }
+    expect(screen.getByRole("button", { name: "이전 페이지" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "다음 페이지" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "이전 페이지" }));
+    expect(onPrevious).toHaveBeenCalledOnce();
+    for (const name of ["이전 페이지", "다음 페이지"]) expect(screen.getByRole("button", { name })).toHaveClass("min-h-11", "min-w-11");
   });
 });

@@ -4,8 +4,8 @@
 
 ## 구현 완료
 
-- 보고서 이력은 최신 일부가 아니라 현장의 전체 보관 이력을 `(createdAt desc, id desc)` keyset cursor로 조회한다. 페이지 크기는 10·20·50·100, 기본값은 20이며 대상명·상태·형식·범위·현장 현지 요청일을 서버에서 단독 또는 조합 검색한다. `totalCount`와 현재 페이지는 같은 repeatable-read 조회에 묶고 cursor는 정규화된 filter fingerprint와 결합한다. Web은 이전 cursor stack, 현재 page와 선택 현장을 URL에 보존하므로 새로고침·뒤로 가기에서도 같은 위치를 복원하며, 검색 조건·페이지 크기·현장 변경·새 보고서 생성 시 첫 페이지로 돌아간다.
-- 보고서 이력 UI는 1024px 이상에서 실제 table semantics와 compact 행을, 1024px 미만에서 공통 view model 기반 `ul/li`·`dl` 카드를 사용한다. 활성 조건 chip은 개별 제거할 수 있고 공통 `전체 초기화` 버튼은 페이지 크기만 유지한 채 검색·상태·형식·범위·요청일·cursor를 한 번에 지워 page 1·URL·form controls를 동기화한다. 0건, 목록 재시도, 실패 상세 disclosure, 처리 progress, 다운로드·재생성 동작을 분리한다. 101건 browser fixture에서 각 조건마다 하나만 어긋나는 near-match, 기본 20건, 서로 다른 행을 반환하는 next/previous cursor, 50/100건, `서울 + 완료 + PDF + 현장 + 요청일` 조합, URL 복원, 생성 후 첫 페이지를 검증했다. 1440×900·1024×768·390×844·320×740에서 문서 overflow 0, 보이는 날짜 segment·달력 trigger·action·disclosure·filter chip의 44×44px 이상 target, keyboard focus 표시와 polite live announcement를 확인했다.
+- 보고서 이력은 최신 일부가 아니라 현장의 전체 보관 이력을 `(createdAt desc, id desc)` keyset cursor로 조회한다. 페이지 크기는 10·20·50·100, 기본값은 20이며 대상명·상태·형식·범위·현장 현지 요청일을 서버에서 단독 또는 조합 검색한다. `totalCount`와 현재 페이지는 같은 repeatable-read 조회에 묶고 cursor는 정규화된 filter fingerprint와 결합한다. URL에는 정규화된 필터·페이지 크기와 shell `siteId`만 유지하고, 현재 cursor·이전 cursor stack·page는 site와 filter fingerprint를 포함한 namespaced browser history state에 저장한다. 새로고침·뒤로 가기·앞으로 가기는 유효하고 동일한 scope의 state만 복원하며 누락·불일치·legacy/broken state는 page 1로 정규화한다. 따라서 page 50·1000에서도 cursor가 URL에 누적되지 않는다. 검색 조건·페이지 크기·현장 변경·새 보고서 생성 시 첫 페이지로 돌아간다.
+- 보고서 이력 UI는 1024px 이상에서 실제 table semantics와 compact 행을, 1024px 미만에서 공통 view model 기반 `ul/li`·`dl` 카드를 사용한다. 활성 조건 chip은 개별 제거할 수 있고 공통 `전체 초기화` 버튼은 페이지 크기만 유지한 채 검색·상태·형식·범위·요청일·cursor를 한 번에 지워 page 1·URL·form controls를 동기화한다. 0건, 목록 재시도, 실패 상세 disclosure, 처리 progress, 다운로드·재생성 동작을 분리한다. 처리 상태는 table/mobile이 공통 status/progress 컴포넌트를 사용하고 목록 section·table scroll container·mobile list는 fetch 중 `aria-busy`를 제공한다. 다음 페이지 또는 background refetch가 실패하면 동일한 현장·필터 scope의 마지막 성공 rows와 범위를 유지하면서 정제된 inline 오류와 재시도를 표시하고, 다른 현장·필터의 행은 재사용하지 않는다. 101건 browser fixture에서 각 조건마다 하나만 어긋나는 near-match, 기본 20건, 서로 다른 행을 반환하는 next/previous cursor, 50/100건, `서울 + 완료 + PDF + 현장 + 요청일` 조합, history-state 새로고침·뒤로/앞으로 복원, bounded URL, 생성 후 첫 페이지를 검증했다. 1440×900·1024×768·390×844·320×740에서 문서 overflow 0, 보이는 날짜 segment·달력 trigger·action·disclosure·filter chip의 44×44px 이상 target, keyboard focus 표시와 polite live announcement를 확인했다.
 - 보고서 document v2는 선택 기간의 저장된 실제 전력량·저장 비용·일별/비교/순위/히트맵 사실과, 선택 기간에 유효했던 dimension/membership interval 및 당시 `ratedWatt`로 계산한 24시간 기준 전력량을 source로 구분한다. 기준 비용 환산 단가만 보고서 생성 시점의 current tariff snapshot으로 고정한다. 현재 단가를 과거 저장 비용에 소급하지 않으며 기준 초과도 음수 절감량을 숨기지 않는다. 기존 v1 stored document는 새 차트를 발명하지 않고 기존 scalar 결과를 계속 렌더링한다.
 - PDF와 XLSX는 같은 v2 immutable document에서 만든 동일한 8개 PNG를 사용한다. 일별 실제/24시간 기준, 기간 전력·비용 비교, 조명·층·그룹 순위, 에너지·밝기 7×24 히트맵을 두 형식에 같은 순서로 삽입하고 원본 표와 scalar manifest를 유지한다. 실제 renderer fixture의 한 실행에서는 PDF 7,498,543 bytes, XLSX 215,359 bytes와 1,727개 scalar를 생성했다. container timestamp 때문에 full-file 크기·SHA-256은 실행마다 달라질 수 있어 관찰값으로만 기록하며, 안정적인 acceptance는 양 형식의 scalar manifest와 같은 순서의 8개 visual id·image SHA-256 비교다. 브라우저 다운로드 bytes는 해당 실행에서 만든 서버 fixture와 동일해야 한다.
 
@@ -209,6 +209,7 @@
 - `apps/web/src/features/statistics/reports/ReportHistoryFilters.tsx`
 - `apps/web/src/features/statistics/reports/ReportJobTable.tsx`
 - `apps/web/src/features/statistics/reports/ReportJobCards.tsx`
+- `apps/web/src/features/statistics/reports/ReportJobStatus.tsx`
 - `apps/web/src/features/statistics/reports/ReportCreateDialog.tsx`
 - `apps/web/src/features/statistics/reports/ReportJobList.tsx`
 - `apps/web/src/components/ui/PaginationBar.tsx`

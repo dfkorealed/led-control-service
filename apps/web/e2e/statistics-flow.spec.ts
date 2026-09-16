@@ -201,6 +201,7 @@ test("creates both report formats, polls state, downloads actual renderer bytes 
     records = [browserReport("processing", format)];
     await page.clock.runFor(3000);
     await expect(reportHistory.getByText("생성 중 40%").first()).toBeVisible();
+    await expect(reportHistory.getByRole("progressbar", { name: /보고서 생성 진행률/ }).first()).toHaveAttribute("aria-valuenow", "40");
     records = [browserReport("completed", format)];
     await page.clock.runFor(3000);
     const download = page.waitForEvent("download");
@@ -237,10 +238,26 @@ test("searches and paginates 101 server records, restores filters, and returns t
   await pagination.getByRole("button", { name: "다음 페이지" }).click();
   await expect(pagination.getByRole("status")).toContainText("21~40 / 101건");
   await expect(page.getByRole("table", { name: "보고서 생성 이력" }).getByText("부산 보고서 021")).toBeVisible();
+  const pageTwoUrl = new URL(page.url());
+  expect(pageTwoUrl.href.length).toBeLessThan(200);
+  expect([...pageTwoUrl.searchParams.keys()].sort()).toEqual(["limit", "siteId"]);
+
+  fixture.expectNextListQuery({ limit: "20", cursor: "offset-20" });
+  await page.reload();
+  await expect(pagination.getByRole("status")).toContainText("21~40 / 101건");
+  await expect(page.getByRole("table", { name: "보고서 생성 이력" }).getByText("부산 보고서 021")).toBeVisible();
+
   fixture.expectNextListQuery({ limit: "20" });
   await pagination.getByRole("button", { name: "이전 페이지" }).click();
   await expect(pagination.getByRole("status")).toContainText("1~20 / 101건");
   await expect(page.getByRole("table", { name: "보고서 생성 이력" }).getByText("서울 본사")).toBeVisible();
+
+  fixture.expectNextListQuery({ limit: "20", cursor: "offset-20" });
+  await page.goBack();
+  await expect(pagination.getByRole("status")).toContainText("21~40 / 101건");
+  fixture.expectNextListQuery({ limit: "20" });
+  await page.goForward();
+  await expect(pagination.getByRole("status")).toContainText("1~20 / 101건");
 
   fixture.expectNextListQuery({ limit: "50" });
   await chooseOption(page, pagination, "페이지당 항목 수", "50개");

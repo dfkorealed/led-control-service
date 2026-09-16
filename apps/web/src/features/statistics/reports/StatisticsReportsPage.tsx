@@ -1,10 +1,10 @@
-import type { EnergyReportJob, EnergyReportRequest } from "@led-control/shared/energy-p2-contracts";
+import type { EnergyReportJob, EnergyReportListResponse, EnergyReportRequest } from "@led-control/shared/energy-p2-contracts";
 import { FileText } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { createEnergyReport, downloadEnergyCsv, downloadEnergyReport, energyReportRequestErrorMessage, useEnergyReports, useEnergyReportTargets } from "../../../api/energy";
 import { Button, PageHeader, PaginationBar, Text, type PaginationPageSize } from "../../../components/ui";
-import { useOutletContext, useSearchParams } from "react-router-dom";
+import { useLocation, useOutletContext, useSearchParams } from "react-router-dom";
 import type { StatisticsOutletContext } from "../StatisticsShell";
 import { ReportCreateDialog } from "./ReportCreateDialog";
 import { ReportHistoryFilters } from "./ReportHistoryFilters";
@@ -18,21 +18,27 @@ interface ReportCursorPageState {
 }
 
 const firstReportPage: ReportCursorPageState = { page: 1, currentCursor: undefined, previousCursors: [] };
-const reportPageParam = "reportPage";
-const reportHistoryParam = "reportHistory";
-const reportSiteParam = "reportSite";
+const reportHistoryStateKey = "statisticsReportHistory";
+const legacyReportLocationParams = ["cursor", "reportCursor", "reportPage", "reportHistory", "reportSite"] as const;
+
+interface RetainedReportPage {
+  scopeKey: string;
+  data: EnergyReportListResponse;
+  pageState: ReportCursorPageState;
+}
 
 export function StatisticsReportsPage() {
   const { siteId } = useOutletContext<StatisticsOutletContext>();
   const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
   const searchKey = searchParams.toString();
-  const initialLocation = useRef(readReportLocation(searchParams, siteId));
-  const [filters, setFilters] = useState<ReportHistoryFilterState>(initialLocation.current.filters);
-  const [pageState, setPageState] = useState<ReportCursorPageState>(initialLocation.current.pageState);
+  const reportLocation = useMemo(
+    () => readReportLocation(searchParams, location.state, siteId),
+    [location.state, searchKey, siteId]
+  );
+  const filters = reportLocation.filters;
+  const activePageState = reportLocation.pageState;
   const [isForwardPending, setIsForwardPending] = useState(false);
-  const pageSiteId = useRef(siteId);
-  const isSiteTransition = pageSiteId.current !== siteId;
-  const activePageState = isSiteTransition ? firstReportPage : pageState;
   const filtersRef = useRef(filters);
   filtersRef.current = filters;
   const query = activePageState.currentCursor ? { ...filters, cursor: activePageState.currentCursor } : filters;
@@ -43,55 +49,58 @@ export function StatisticsReportsPage() {
   const [downloadError, setDownloadError] = useState("");
   const [retryError, setRetryError] = useState("");
   const [retryingReportId, setRetryingReportId] = useState<string>();
+  const retainedPageRef = useRef<RetainedReportPage>();
   const siteIdRef = useRef(siteId);
   siteIdRef.current = siteId;
+  const scopeKey = reportScopeKey(siteId, filters);
 
   useEffect(() => {
-    const location = readReportLocation(new URLSearchParams(searchKey), siteId);
-    setFilters(location.filters);
-    setPageState(location.pageState);
-    if (location.needsNormalization) {
-      setSearchParams(writeReportLocation(location.filters, firstReportPage, siteId), { replace: true });
-    }
-  }, [searchKey, setSearchParams]);
+    if (!reportLocation.needsNormalization) return;
+    setSearchParams(writeReportLocation(reportLocation.filters, siteId), {
+      replace: true,
+      state: writeReportLocationState(location.state, siteId, reportLocation.filters, firstReportPage)
+    });
+  }, [location.key, reportLocation.needsNormalization, searchKey, setSearchParams, siteId]);
 
   useEffect(() => {
     if (!reports.isFetching && !reports.isPlaceholderData) setIsForwardPending(false);
-  }, [reports.isFetching, reports.isPlaceholderData, pageState.currentCursor]);
+  }, [reports.isFetching, reports.isPlaceholderData, activePageState.currentCursor]);
 
-  useEffect(() => {
-    if (pageSiteId.current === siteId) return;
-    pageSiteId.current = siteId;
-    resetToFirstPage(filtersRef.current);
-  }, [siteId]);
+  const currentPage = reports.data && !reports.isError && !reports.isPlaceholderData
+    ? { scopeKey, data: reports.data, pageState: activePageState }
+    : undefined;
+  if (currentPage) retainedPageRef.current = currentPage;
+  const retainedPageForScope = retainedPageRef.current?.scopeKey === scopeKey ? retainedPageRef.current : undefined;
+  const displayedPage = currentPage ?? retainedPageForScope;
+  const hasRefreshError = Boolean(reports.isError && retainedPageForScope);
 
-  function syncUrl(nextFilters: ReportHistoryFilterState, nextPageState: ReportCursorPageState, replace = false) {
-    setSearchParams(writeReportLocation(nextFilters, nextPageState, siteId), { replace });
+  function syncLocation(nextFilters: ReportHistoryFilterState, nextPageState: ReportCursorPageState, replace = false) {
+    setSearchParams(writeReportLocation(nextFilters, siteId), {
+      replace,
+      state: writeReportLocationState(location.state, siteId, nextFilters, nextPageState)
+    });
   }
 
   function resetToFirstPage(nextFilters: ReportHistoryFilterState) {
     const normalized = withoutCursor(nextFilters);
-    setFilters(normalized);
-    setPageState(firstReportPage);
     setIsForwardPending(false);
-    syncUrl(normalized, firstReportPage);
+    syncLocation(normalized, firstReportPage);
   }
 
   function nextPage() {
-    const nextCursor = reports.data?.nextCursor;
-    if (isSiteTransition || isForwardPending || reports.isFetching || reports.isPlaceholderData || !nextCursor) return;
+    const nextCursor = currentPage?.data.nextCursor;
+    if (isForwardPending || reports.isFetching || reports.isPlaceholderData || reports.isError || !nextCursor) return;
     const nextPageState: ReportCursorPageState = {
       page: activePageState.page + 1,
       currentCursor: nextCursor,
       previousCursors: [...activePageState.previousCursors, activePageState.currentCursor]
     };
     setIsForwardPending(true);
-    setPageState(nextPageState);
-    syncUrl(filters, nextPageState);
+    syncLocation(filters, nextPageState);
   }
 
   function previousPage() {
-    if (isSiteTransition || !activePageState.previousCursors.length) return;
+    if (!activePageState.previousCursors.length) return;
     const previousCursor = activePageState.previousCursors.at(-1);
     const previousPageState: ReportCursorPageState = {
       page: Math.max(1, activePageState.page - 1),
@@ -99,8 +108,7 @@ export function StatisticsReportsPage() {
       previousCursors: activePageState.previousCursors.slice(0, -1)
     };
     setIsForwardPending(false);
-    setPageState(previousPageState);
-    syncUrl(filters, previousPageState);
+    syncLocation(filters, previousPageState);
   }
 
   async function create(request: EnergyReportRequest) {
@@ -143,16 +151,18 @@ export function StatisticsReportsPage() {
     <PageHeader title="보고서" description="현장 에너지 사용량을 기간과 범위에 맞춰 내보냅니다." status={undefined}
       actions={<Button variant="primary" onClick={() => setIsDialogOpen(true)}><FileText size={16} />보고서 만들기</Button>} />
     <Text variant="body-sm" tone="muted">보고서와 CSV 비용은 당시 적용 단가의 저장 비용입니다.</Text>
-    <ReportHistoryFilters value={query} onChange={resetToFirstPage} />
-    <ReportJobList reports={reports.data?.reports} isLoading={reports.isLoading || !siteId} isError={reports.isError}
+    <ReportHistoryFilters value={filters} onChange={resetToFirstPage} />
+    <ReportJobList reports={displayedPage?.data.reports}
+      isLoading={(reports.isLoading || reports.isPlaceholderData || !siteId) && !displayedPage}
+      isError={Boolean(reports.isError && !displayedPage)} hasRefreshError={hasRefreshError}
       isBusy={reports.isFetching}
       retryingReportId={retryingReportId} onRetry={() => void reports.refetch()} onRegenerate={(job) => void regenerate(job)} onDownload={(job) => void download(job)} />
     <PaginationBar
-      page={activePageState.page}
+      page={displayedPage?.pageState.page ?? activePageState.page}
       pageSize={filters.limit}
-      totalCount={reports.data?.totalCount ?? 0}
-      hasPrevious={!isSiteTransition && activePageState.previousCursors.length > 0}
-      hasNext={!isSiteTransition && !isForwardPending && !reports.isFetching && !reports.isPlaceholderData && Boolean(reports.data?.nextCursor)}
+      totalCount={displayedPage?.data.totalCount ?? 0}
+      hasPrevious={activePageState.previousCursors.length > 0}
+      hasNext={!reports.isError && !isForwardPending && !reports.isFetching && !reports.isPlaceholderData && Boolean(currentPage?.data.nextCursor)}
       onPrevious={previousPage}
       onNext={nextPage}
       onPageSizeChange={(limit: PaginationPageSize) => resetToFirstPage({ ...filters, limit })}
@@ -169,57 +179,98 @@ function withoutCursor(value: ReportHistoryFilterState): ReportHistoryFilterStat
   return filters;
 }
 
-function readReportLocation(params: URLSearchParams, siteId: string | undefined): {
+function readReportLocation(params: URLSearchParams, state: unknown, siteId: string | undefined): {
   filters: ReportHistoryFilterState;
   pageState: ReportCursorPageState;
   needsNormalization: boolean;
 } {
-  const query = parseReportHistorySearchParams(params);
-  const filters = withoutCursor(query);
-  const page = Number(params.get(reportPageParam));
-  const previousCursors = readCursorHistory(params.get(reportHistoryParam));
-  const metadataSiteId = params.get(reportSiteParam);
-  const hasPageMetadata = params.has(reportPageParam) || params.has(reportHistoryParam) || params.has(reportSiteParam);
-  if (query.cursor && Number.isInteger(page) && page >= 2 && page <= 1_000
-    && previousCursors && previousCursors.length === page - 1 && metadataSiteId === siteId) {
-    return {
-      filters,
-      pageState: { page, currentCursor: query.cursor, previousCursors },
-      needsNormalization: false
-    };
-  }
+  const filterParams = new URLSearchParams(params);
+  const hasLegacyPageState = legacyReportLocationParams.some((key) => filterParams.has(key));
+  for (const key of legacyReportLocationParams) filterParams.delete(key);
+  const filters = withoutCursor(parseReportHistorySearchParams(filterParams));
+  const storedPageState = hasLegacyPageState ? null : readReportLocationState(state, siteId, filters);
   return {
     filters,
-    pageState: firstReportPage,
-    needsNormalization: Boolean(query.cursor) || hasPageMetadata
+    pageState: storedPageState ?? firstReportPage,
+    needsNormalization: hasLegacyPageState || storedPageState === null
   };
 }
 
-function writeReportLocation(filters: ReportHistoryFilterState, pageState: ReportCursorPageState, siteId: string | undefined) {
-  const params = serializeReportHistorySearchParams(pageState.currentCursor
-    ? { ...withoutCursor(filters), cursor: pageState.currentCursor }
-    : withoutCursor(filters));
+function writeReportLocation(filters: ReportHistoryFilterState, siteId: string | undefined) {
+  const params = serializeReportHistorySearchParams(withoutCursor(filters));
   // Report controls own their query params, but the shell still derives the
   // selected tenant site from this shared parameter across navigation updates.
   if (siteId) params.set("siteId", siteId);
-  if (pageState.currentCursor) {
-    params.set(reportPageParam, String(pageState.page));
-    params.set(reportHistoryParam, JSON.stringify(pageState.previousCursors.map((cursor) => cursor ?? null)));
-    if (siteId) params.set(reportSiteParam, siteId);
-  }
   return params;
 }
 
-function readCursorHistory(raw: string | null): Array<string | undefined> | null {
-  if (!raw) return null;
-  try {
-    const value: unknown = JSON.parse(raw);
-    if (!Array.isArray(value) || value.length > 999
-      || !value.every((cursor) => cursor === null || typeof cursor === "string" && cursor.length >= 1 && cursor.length <= 1_024)) {
-      return null;
+function writeReportLocationState(
+  state: unknown,
+  siteId: string | undefined,
+  filters: ReportHistoryFilterState,
+  pageState: ReportCursorPageState
+) {
+  const existing = isRecord(state) ? state : {};
+  return {
+    ...existing,
+    [reportHistoryStateKey]: {
+      version: 1,
+      siteId: siteId ?? null,
+      filterFingerprint: reportFilterFingerprint(filters),
+      page: pageState.page,
+      currentCursor: pageState.currentCursor ?? null,
+      previousCursors: pageState.previousCursors.map((cursor) => cursor ?? null)
     }
-    return value.map((cursor) => cursor === null ? undefined : cursor as string);
-  } catch {
-    return null;
+  };
+}
+
+function readReportLocationState(
+  state: unknown,
+  siteId: string | undefined,
+  filters: ReportHistoryFilterState
+): ReportCursorPageState | null {
+  if (!isRecord(state)) return null;
+  const candidate = state[reportHistoryStateKey];
+  if (!isRecord(candidate)
+    || candidate.version !== 1
+    || candidate.siteId !== (siteId ?? null)
+    || candidate.filterFingerprint !== reportFilterFingerprint(filters)
+    || !Number.isInteger(candidate.page)
+    || (candidate.page as number) < 1
+    || (candidate.page as number) > 1_000
+    || !Array.isArray(candidate.previousCursors)) return null;
+
+  const page = candidate.page as number;
+  const previousCursors = candidate.previousCursors;
+  if (previousCursors.length !== page - 1
+    || !previousCursors.every(validStoredCursor)) return null;
+  if (page === 1) {
+    return candidate.currentCursor === null ? firstReportPage : null;
   }
+  if (!validCursor(candidate.currentCursor)) return null;
+  return {
+    page,
+    currentCursor: candidate.currentCursor,
+    previousCursors: previousCursors.map((cursor) => cursor === null ? undefined : cursor)
+  };
+}
+
+function reportScopeKey(siteId: string | undefined, filters: ReportHistoryFilterState) {
+  return `${siteId ?? ""}|${reportFilterFingerprint(filters)}`;
+}
+
+function reportFilterFingerprint(filters: ReportHistoryFilterState) {
+  return serializeReportHistorySearchParams(withoutCursor(filters)).toString();
+}
+
+function validStoredCursor(value: unknown): value is string | null {
+  return value === null || validCursor(value);
+}
+
+function validCursor(value: unknown): value is string {
+  return typeof value === "string" && value.length >= 1 && value.length <= 1_024;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

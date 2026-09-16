@@ -52,7 +52,7 @@ export function PaginationBar({
         }}
       />
       <div className="flex min-w-0 items-center gap-2 tablet:w-auto">
-        <Button type="button" size="sm" className="min-w-11 shrink-0" aria-label="이전 페이지" disabled={isEmpty || !hasPrevious} onClick={onPrevious}>
+        <Button type="button" size="sm" className="min-w-11 shrink-0" aria-label="이전 페이지" disabled={!hasPrevious} onClick={onPrevious}>
           이전
         </Button>
         <Text as="output" role="status" aria-live="polite" variant="caption" tone="secondary" className="min-w-0 flex-1 whitespace-nowrap text-center tabular-nums">

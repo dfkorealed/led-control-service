@@ -4,7 +4,7 @@
 
 **Goal:** 보고서 이력을 검색 가능한 compact server-paginated grid로 바꾸고, 선택 기간 통계 개요와 같은 KPI·실제 차트를 PDF/XLSX에 생성한다.
 
-**Architecture:** 목록은 shared strict query contract와 `(siteId, createdAt, id)` keyset cursor를 사용하고 Web이 cursor stack과 URL filter state를 관리한다. 보고서는 기존 immutable document/manifest 경계를 v2 calculation basis와 visualization reference로 확장하고, 하나의 deterministic PNG chart renderer 결과를 PDF와 XLSX가 공유한다.
+**Architecture:** 목록은 shared strict query contract와 `(siteId, createdAt, id)` keyset cursor를 사용한다. Web은 URL에 정규화된 filter만 유지하고 cursor stack은 scope 검증이 가능한 namespaced browser history state로 관리한다. 보고서는 기존 immutable document/manifest 경계를 v2 calculation basis와 visualization reference로 확장하고, 하나의 deterministic PNG chart renderer 결과를 PDF와 XLSX가 공유한다.
 
 **Tech Stack:** TypeScript, Zod, NestJS, Prisma/PostgreSQL, React, TanStack Query, React Aria 기반 공통 form controls, Tailwind CSS, pdf-lib, ExcelJS, sharp, Vitest/Jest/Playwright.
 
@@ -451,7 +451,7 @@ type ReportJobViewModel = {
 
 Tailwind breakpoint로 desktop/table과 mobile/list 중 하나를 시각적으로 숨기되 hidden DOM이 focusable하지 않도록 `hidden`/responsive display를 사용한다. 같은 row action callback과 label을 공유한다.
 
-- [x] **Step 5: page에서 URL filter와 cursor stack을 결합한다.**
+- [x] **Step 5: page에서 URL filter와 cursor navigation state를 결합한다.**
 
 page state는 `{ page, currentCursor, previousCursors }`다. filter/site/pageSize 변경 시 모두 reset한다. 새 report 생성 성공 시 보고서 query prefix invalidate 후 first page로 이동한다. 기존 `.slice(0, 50)` cache mutation을 제거한다.
 
@@ -737,8 +737,68 @@ git commit -m "test: verify searchable visual energy reports"
 
 ---
 
+### Task 11: 실패 복구, bounded navigation state, processing 접근성
+
+**Files:**
+- Modify: `apps/web/src/features/statistics/reports/StatisticsReportsPage.tsx`
+- Modify: `apps/web/src/features/statistics/reports/StatisticsReportsPage.test.tsx`
+- Modify: `apps/web/src/features/statistics/reports/ReportJobList.tsx`
+- Modify: `apps/web/src/features/statistics/reports/ReportJobTable.tsx`
+- Modify: `apps/web/src/features/statistics/reports/ReportJobCards.tsx`
+- Create: `apps/web/src/features/statistics/reports/ReportJobStatus.tsx`
+- Modify: `apps/web/src/components/ui/PaginationBar.tsx`
+- Modify: `apps/web/src/components/ui/PaginationBar.test.tsx`
+- Modify: `apps/web/e2e/statistics-flow.spec.ts`
+- Modify: `docs/menus/statistics.md`
+
+**Interfaces:**
+- Consumes: normalized report filters, TanStack Query list state, React Router location state, existing report view model
+- Produces: scope-isolated retained page snapshot, bounded URL/history-state cursor navigation, shared status/progress rendering and busy semantics
+
+- [x] **Step 1: 실패와 history-state 계약의 RED tests를 작성한다.**
+
+next-page reject와 background refetch reject에서 마지막 성공 rows/range, Previous, 정제된 inline retry, raw-error 미노출을 검증한다. site/filter fingerprint가 다르면 retained rows를 재사용하지 않는다. legacy cursor URL은 page 1로 정리하고 valid/mismatched history state, Back/Forward, page 50·1000 URL 길이를 검증한다.
+
+- [x] **Step 2: pagination과 processing 접근성의 RED tests를 작성한다.**
+
+`totalCount=0`이어도 `hasPrevious`가 true면 Previous를 활성화한다. table/mobile의 동일 progressbar percentage와 공통 container/mobile list `aria-busy`를 검증한다.
+
+- [x] **Step 3: 동일 scope의 마지막 성공 page snapshot을 유지한다.**
+
+scope key는 site id와 cursor를 제외한 normalized filter fingerprint로 구성한다. 현재 scope의 성공 data·page state만 보존하고 error에서는 retained page를 렌더링한다. 다른 site/filter의 snapshot은 사용하지 않으며 inline feedback은 정제된 고정 문구와 현재 query `refetch`만 제공한다.
+
+- [x] **Step 4: cursor stack을 namespaced browser history state로 이동한다.**
+
+URL은 normalized filters·page size·shell `siteId`만 가진다. `{ version, siteId, filterFingerprint, page, currentCursor, previousCursors }`를 namespaced location state에 저장하고 origin이 일치하는 valid state만 복원한다. 누락·mismatch·legacy/broken 입력은 page 1 state로 replace-normalize한다.
+
+- [x] **Step 5: 공통 ReportJobStatus와 busy semantics를 구현한다.**
+
+table/mobile이 같은 status badge와 native progress semantics를 사용한다. 표시 중인 report list section, table scroll container, mobile list에 fetch 상태와 일치하는 `aria-busy`를 적용한다.
+
+- [x] **Step 6: 관련 문서와 실행 기록을 갱신한다.**
+
+통계 메뉴 문서의 cursor URL 표현을 session/history state로 수정하고 failure retention·progress semantics·검증 범위를 기록한다. Task 보고서에는 RED/GREEN과 최종 명령 결과를 기록한다.
+
+- [x] **Step 7: focused 및 전체 Web 검증을 실행한다.**
+
+```bash
+pnpm --filter @led-control/web exec vitest run src/components/ui/PaginationBar.test.tsx src/features/statistics/reports/StatisticsReportsPage.test.tsx
+pnpm --filter @led-control/web test:ui-policy
+pnpm --filter @led-control/web test
+pnpm typecheck
+pnpm build
+pnpm --filter @led-control/web exec playwright test e2e/statistics-flow.spec.ts --workers=1
+```
+
+- [x] **Step 8: Task 11을 별도 커밋한다.**
+
+관련 Web·통계 문서 파일만 pathspec으로 커밋하고 CAD/floor/project 문서 및 보호된 untracked 파일은 제외한다.
+
+---
+
 ## Execution Record (2026-09-17)
 
+- Task 11 RED 확인은 focused 44개 중 7개 실패에서 시작했다. GREEN에서는 focused 44/44, 전체 Web 88 files·1,262/1,262, UI policy 53/53, 통계 Chromium 26/26, root typecheck/build exit 0을 확인했다. 다음 페이지·background refetch 실패 시 동일 scope의 마지막 성공 rows/range와 Previous를 유지하고 정제된 inline retry를 제공한다. cursor stack은 namespaced browser history state로 이동해 새로고침·뒤로/앞으로를 복원하고 page 50·1000에서도 URL을 filter/page-size/site 범위로 제한한다. table/mobile 공통 processing progressbar와 목록 surface의 `aria-busy`도 회귀로 고정했다. build의 기존 main chunk 크기 경고는 계속 남는다.
 - 보고서 이력 E2E fixture: 101건. 기본 20건, 다음/이전, 50·100건 전환, 대상명·상태·형식·사이트·요청일 조합, chip 개별 제거·전체 초기화, URL 새로고침 복원, 생성 후 첫 페이지 이동, 0건 상태를 검증했다.
 - 반응형·접근성 E2E: 1440×900 및 1024×768 table, 390×844 및 320×740 mobile list, document horizontal overflow 0, 44×44px 이상 조작 영역, keyboard focus, 실패 상세 disclosure, live announcement를 검증했다.
 - focused browser E2E: Chromium 26개 통과, skip 0개.

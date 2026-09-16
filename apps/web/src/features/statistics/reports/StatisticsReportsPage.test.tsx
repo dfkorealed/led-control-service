@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { MemoryRouter, Outlet, Route, Routes, useNavigate } from "react-router-dom";
+import type { ComponentProps } from "react";
+import { MemoryRouter, Outlet, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../../api/client";
 import { StatisticsReportsPage } from "./StatisticsReportsPage";
@@ -156,7 +157,106 @@ describe("StatisticsReportsPage", () => {
     expect(screen.getByRole("button", { name: "이전 페이지" })).toBeEnabled();
   });
 
-  it("restores a serialized cursor page on reload", () => {
+  it("retains the last successful rows and range when a delayed next-page request rejects", async () => {
+    const retry = vi.fn();
+    let secondPageState: "pending" | "failed" = "pending";
+    reportsApi.reports.mockImplementation((_activeSiteId: string, query: { limit: number; cursor?: string } = { limit: 20 }) => {
+      if (!query.cursor) return reportQueryResult(pageJobs(1, 20), { nextCursor: "cursor-20", totalCount: 101 });
+      if (secondPageState === "pending") return {
+        data: { reports: pageJobs(1, 20), nextCursor: "cursor-20", totalCount: 101 },
+        isLoading: false,
+        isError: false,
+        isFetching: true,
+        isPlaceholderData: true,
+        refetch: retry
+      };
+      return {
+        data: undefined,
+        isLoading: false,
+        isError: true,
+        isFetching: false,
+        isPlaceholderData: false,
+        error: new Error("raw-next-page-secret"),
+        refetch: retry
+      };
+    });
+    const queryClient = new QueryClient();
+    const view = render(pageTree(siteId, queryClient));
+    await waitFor(() => expect(screen.getAllByText("대상 1")).toHaveLength(2));
+
+    fireEvent.click(screen.getByRole("button", { name: "다음 페이지" }));
+    await waitFor(() => expect(screen.getByRole("region", { name: "요청한 보고서" })).toHaveAttribute("aria-busy", "true"));
+    secondPageState = "failed";
+    view.rerender(pageTree(siteId, queryClient));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("보고서 목록을 새로 불러오지 못했습니다. 기존 결과를 표시합니다.");
+    expect(screen.getAllByText("대상 1")).toHaveLength(2);
+    expect(screen.getByText("1~20 / 101건")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "이전 페이지" })).toBeEnabled();
+    expect(document.body).not.toHaveTextContent("raw-next-page-secret");
+    fireEvent.click(within(screen.getByRole("alert")).getByRole("button", { name: "다시 시도" }));
+    expect(retry).toHaveBeenCalledOnce();
+  });
+
+  it("retains rows during a background refetch failure and exposes only sanitized recovery", async () => {
+    const retry = vi.fn();
+    let backgroundFailed = false;
+    reportsApi.reports.mockImplementation(() => backgroundFailed
+      ? {
+          data: undefined,
+          isLoading: false,
+          isError: true,
+          isFetching: false,
+          isPlaceholderData: false,
+          error: new Error("raw-background-secret"),
+          refetch: retry
+        }
+      : reportQueryResult(pageJobs(1, 20), { nextCursor: "cursor-20", totalCount: 101, refetch: retry }));
+    const queryClient = new QueryClient();
+    const view = render(pageTree(siteId, queryClient));
+    await waitFor(() => expect(screen.getAllByText("대상 1")).toHaveLength(2));
+
+    backgroundFailed = true;
+    view.rerender(pageTree(siteId, queryClient));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("보고서 목록을 새로 불러오지 못했습니다. 기존 결과를 표시합니다.");
+    expect(screen.getAllByText("대상 1")).toHaveLength(2);
+    expect(screen.getByText("1~20 / 101건")).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent("raw-background-secret");
+    fireEvent.click(within(screen.getByRole("alert")).getByRole("button", { name: "다시 시도" }));
+    expect(retry).toHaveBeenCalledOnce();
+  });
+
+  it.each(["site", "filter"] as const)("never reuses retained rows for a different %s scope", async (scope) => {
+    let activeScope: "initial" | "failed" = "initial";
+    reportsApi.reports.mockImplementation((_activeSiteId: string) => activeScope === "initial"
+      ? reportQueryResult(pageJobs(1, 20), { nextCursor: "cursor-20", totalCount: 101 })
+      : {
+          data: undefined,
+          isLoading: false,
+          isError: true,
+          isFetching: false,
+          isPlaceholderData: false,
+          error: new Error("raw-cross-scope-secret"),
+          refetch: vi.fn()
+        });
+    const queryClient = new QueryClient();
+    const view = render(pageTree(siteId, queryClient));
+    await waitFor(() => expect(screen.getAllByText("대상 1")).toHaveLength(2));
+
+    activeScope = "failed";
+    if (scope === "site") {
+      view.rerender(pageTree("30000000-0000-4000-8000-000000000099", queryClient));
+    } else {
+      await chooseSelect("상태", "완료");
+    }
+
+    expect(await screen.findByText("보고서 목록을 불러오지 못했습니다.")).toBeInTheDocument();
+    expect(screen.queryAllByText("대상 1")).toHaveLength(0);
+    expect(document.body).not.toHaveTextContent("raw-cross-scope-secret");
+  });
+
+  it("removes legacy cursor URL state and safely starts on page one", async () => {
     reportsApi.reports.mockImplementation((_activeSiteId: string, query: { limit: number; cursor?: string } = { limit: 20 }) => ({
       data: {
         reports: pageJobs(query.cursor === "cursor-20" ? 21 : 1, 20),
@@ -173,9 +273,57 @@ describe("StatisticsReportsPage", () => {
       initialEntry: `/statistics/reports?limit=20&cursor=cursor-20&reportPage=2&reportHistory=%5Bnull%5D&reportSite=${siteId}`
     });
 
-    expect(reportsApi.reports).toHaveBeenLastCalledWith(siteId, { limit: 20, cursor: "cursor-20" });
-    expect(screen.getByText("21~40 / 101건")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "이전 페이지" })).toBeEnabled();
+    await waitFor(() => expect(reportsApi.reports).toHaveBeenLastCalledWith(siteId, { limit: 20 }));
+    expect(screen.getByText("1~20 / 101건")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "이전 페이지" })).toBeDisabled();
+    expect(screen.getByTestId("location-search")).toHaveTextContent(`?limit=20&siteId=${siteId}`);
+    expect(screen.getByTestId("location-search")).not.toHaveTextContent(/cursor|reportPage|reportHistory|reportSite/);
+  });
+
+  it.each([50, 1_000])("restores page %i from matching history state without growing the URL", async (page) => {
+    const currentCursor = `cursor-${(page - 1) * 20}`;
+    reportsApi.reports.mockImplementation((_activeSiteId: string, query: { limit: number; cursor?: string } = { limit: 20 }) => ({
+      data: {
+        reports: pageJobs((page - 1) * 20 + 1, 20),
+        nextCursor: null,
+        totalCount: 20_000
+      },
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+      isPlaceholderData: false,
+      refetch: vi.fn()
+    }));
+    renderPage({
+      initialEntry: {
+        pathname: "/statistics/reports",
+        search: `?limit=20&siteId=${siteId}`,
+        state: reportLocationState(page, currentCursor)
+      }
+    });
+
+    await waitFor(() => expect(reportsApi.reports).toHaveBeenLastCalledWith(siteId, { limit: 20, cursor: currentCursor }));
+    expect(screen.getByText(`${page}페이지`)).toBeInTheDocument();
+    const search = screen.getByTestId("location-search").textContent ?? "";
+    expect(search.length).toBeLessThan(100);
+    expect(search).not.toMatch(/cursor|reportPage|reportHistory|reportSite/);
+  });
+
+  it.each([
+    ["site", "30000000-0000-4000-8000-000000000099", "limit=20"],
+    ["filter", siteId, "limit=20&status=completed"]
+  ])("rejects a history page whose %s origin does not match", async (_origin, stateSiteId, filterFingerprint) => {
+    renderPage({
+      initialEntry: {
+        pathname: "/statistics/reports",
+        search: `?limit=20&siteId=${siteId}`,
+        state: reportLocationState(2, "cursor-20", { stateSiteId, filterFingerprint })
+      }
+    });
+
+    await waitFor(() => expect(reportsApi.reports).toHaveBeenLastCalledWith(siteId, { limit: 20 }));
+    expect(screen.getByText("1페이지")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "이전 페이지" })).toBeDisabled();
   });
 
   it("synchronizes filters, cursor history and range across browser back and forward", async () => {
@@ -303,7 +451,7 @@ describe("StatisticsReportsPage", () => {
     await waitFor(() => expect(reportsApi.create).toHaveBeenCalledOnce());
     await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["energy-reports", siteId] }));
     await waitFor(() => expect(reportsApi.reports).toHaveBeenLastCalledWith(siteId, { limit: 20 }));
-    expect(screen.getByText("1~20 / 40건")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("1~20 / 40건")).toBeInTheDocument());
   });
 
   it("preserves the latest filters when regeneration resolves after a filter change", async () => {
@@ -357,6 +505,32 @@ describe("StatisticsReportsPage", () => {
     expect(list).toHaveClass("desktop:hidden");
     expect(within(list).getAllByRole("heading")).toHaveLength(reports.length);
     expect(within(list).getAllByRole("term").length).toBeGreaterThan(0);
+  });
+
+  it("shares processing progress semantics and current busy state across table and mobile surfaces", () => {
+    reportsApi.reports.mockReturnValue({
+      data: { reports, nextCursor: null, totalCount: reports.length },
+      isLoading: false,
+      isError: false,
+      isFetching: true,
+      isPlaceholderData: false,
+      refetch: vi.fn()
+    });
+    renderPage();
+
+    const history = screen.getByRole("region", { name: "요청한 보고서" });
+    const mobile = screen.getByRole("list", { name: "모바일 보고서 생성 이력" });
+    const table = screen.getByRole("table", { name: "보고서 생성 이력", hidden: true });
+    expect(history).toHaveAttribute("aria-busy", "true");
+    expect(mobile).toHaveAttribute("aria-busy", "true");
+    expect(table.parentElement).toHaveAttribute("aria-busy", "true");
+    const progress = screen.getAllByRole("progressbar", { name: "대상 processing 보고서 생성 진행률", hidden: true });
+    expect(progress).toHaveLength(2);
+    for (const indicator of progress) {
+      expect(indicator).toHaveAttribute("aria-valuenow", "36");
+      expect(indicator).toHaveAttribute("aria-valuemin", "0");
+      expect(indicator).toHaveAttribute("aria-valuemax", "100");
+    }
   });
 
   it("discloses only the sanitized failure message and action with linked ARIA state", () => {
@@ -586,12 +760,14 @@ function renderPage({
 }: {
   activeSiteId?: string;
   queryClient?: QueryClient;
-  initialEntry?: string;
+  initialEntry?: MemoryRouterInitialEntry;
 } = {}) {
   return render(pageTree(activeSiteId, queryClient, initialEntry));
 }
 
-function pageTree(activeSiteId: string, queryClient: QueryClient, initialEntry = "/statistics/reports") {
+type MemoryRouterInitialEntry = NonNullable<ComponentProps<typeof MemoryRouter>["initialEntries"]>[number];
+
+function pageTree(activeSiteId: string, queryClient: QueryClient, initialEntry: MemoryRouterInitialEntry = "/statistics/reports") {
   return (
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[initialEntry]}>
@@ -607,9 +783,11 @@ function pageTree(activeSiteId: string, queryClient: QueryClient, initialEntry =
 
 function HistoryControls() {
   const navigate = useNavigate();
+  const location = useLocation();
   return <div>
     <button type="button" aria-label="브라우저 뒤로" onClick={() => navigate(-1)} />
     <button type="button" aria-label="브라우저 앞으로" onClick={() => navigate(1)} />
+    <output data-testid="location-search">{location.search}</output>
   </div>;
 }
 
@@ -657,6 +835,40 @@ function pageJobs(start: number, count: number) {
       target: { scope: "site" as const, identityId: siteId, label: `대상 ${item}` }
     };
   });
+}
+
+function reportQueryResult(
+  items: ReturnType<typeof pageJobs>,
+  options: { nextCursor: string | null; totalCount: number; refetch?: ReturnType<typeof vi.fn> }
+) {
+  return {
+    data: { reports: items, nextCursor: options.nextCursor, totalCount: options.totalCount },
+    isLoading: false,
+    isError: false,
+    isFetching: false,
+    isPlaceholderData: false,
+    refetch: options.refetch ?? vi.fn()
+  };
+}
+
+function reportLocationState(
+  page: number,
+  currentCursor: string,
+  {
+    stateSiteId = siteId,
+    filterFingerprint = "limit=20"
+  }: { stateSiteId?: string; filterFingerprint?: string } = {}
+) {
+  return {
+    statisticsReportHistory: {
+      version: 1,
+      siteId: stateSiteId,
+      filterFingerprint,
+      page,
+      currentCursor,
+      previousCursors: Array.from({ length: page - 1 }, (_, index) => index === 0 ? null : `cursor-${index * 20}`)
+    }
+  };
 }
 
 function deferred<T>() {

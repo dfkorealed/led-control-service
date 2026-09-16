@@ -11,6 +11,7 @@ export function ReportJobList({
   isLoading,
   isError,
   isBusy = false,
+  hasRefreshError = false,
   retryingReportId,
   onRetry,
   onRegenerate,
@@ -20,17 +21,14 @@ export function ReportJobList({
   isLoading: boolean;
   isError: boolean;
   isBusy?: boolean;
+  hasRefreshError?: boolean;
   retryingReportId?: string;
   onRetry: () => void;
   onRegenerate: (job: EnergyReportJob) => void;
   onDownload: (job: EnergyReportJob) => void;
 }) {
   const [expandedFailures, setExpandedFailures] = useState<Record<string, boolean>>({});
-  if (isLoading) return <FeedbackState icon={LoaderCircle} title="보고서 목록을 불러오는 중" />;
-  if (isError) return <FeedbackState tone="danger" icon={CircleAlert} title="보고서 목록을 불러오지 못했습니다." action={<Button variant="secondary" onClick={onRetry}>다시 시도</Button>} />;
-  if (!reports?.length) return <FeedbackState icon={FileWarning} title="요청한 보고서가 없습니다." description="기간과 범위를 선택해 표준 에너지 사용량 보고서를 요청하세요." />;
-
-  const items: ReportJobRenderItem[] = reports.map((job) => ({ job, view: reportJobViewModel(job) }));
+  const items: ReportJobRenderItem[] = reports?.map((job) => ({ job, view: reportJobViewModel(job) })) ?? [];
   const renderAction = (item: ReportJobRenderItem) => {
     const jobLabel = `${item.view.targetLabel} 보고서`;
     if (item.view.action === "download") {
@@ -66,8 +64,19 @@ export function ReportJobList({
     </div>;
   };
 
-  return <section className="grid min-w-0 gap-3" aria-label="요청한 보고서">
-    <ReportJobTable items={items} isBusy={isBusy} renderAction={renderAction} renderFailure={renderFailure} />
-    <ReportJobCards items={items} renderAction={renderAction} renderFailure={renderFailure} />
+  return <section className="grid min-w-0 gap-3" aria-label="요청한 보고서" aria-busy={isBusy || undefined}>
+    {isLoading ? <FeedbackState icon={LoaderCircle} title="보고서 목록을 불러오는 중" /> : null}
+    {!isLoading && isError ? <FeedbackState tone="danger" icon={CircleAlert} title="보고서 목록을 불러오지 못했습니다." action={<Button variant="secondary" onClick={onRetry}>다시 시도</Button>} /> : null}
+    {hasRefreshError ? <FeedbackState
+      tone="danger"
+      icon={CircleAlert}
+      title="보고서 목록을 새로 불러오지 못했습니다. 기존 결과를 표시합니다."
+      action={<Button variant="secondary" onClick={onRetry}>다시 시도</Button>}
+    /> : null}
+    {!isLoading && !isError && !items.length ? <FeedbackState icon={FileWarning} title="요청한 보고서가 없습니다." description="기간과 범위를 선택해 표준 에너지 사용량 보고서를 요청하세요." /> : null}
+    {items.length ? <>
+      <ReportJobTable items={items} isBusy={isBusy} renderAction={renderAction} renderFailure={renderFailure} />
+      <ReportJobCards items={items} isBusy={isBusy} renderAction={renderAction} renderFailure={renderFailure} />
+    </> : null}
   </section>;
 }

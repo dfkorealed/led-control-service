@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
-import { DataTableShell, StatusBadge, Text } from "../../../components/ui";
+import { DataTableShell, Text } from "../../../components/ui";
 import type { ReportJobRenderItem } from "./report-job-view-model";
-import { reportStatusIcon } from "./ReportJobCards";
+import { ReportJobStatus } from "./ReportJobStatus";
 
 export function ReportJobTable({
   items,
@@ -32,7 +32,7 @@ export function ReportJobTable({
               <td className="px-3 py-2 align-top">{item.view.formatLabel}</td>
               <td className="px-3 py-2 align-top">
                 <div className="grid gap-2">
-                  <StatusBadge tone={item.view.status.tone} icon={reportStatusIcon(item.view.status.tone)}>{item.view.status.label}</StatusBadge>
+                  <ReportJobStatus item={item} />
                   {renderFailure(item, "table")}
                 </div>
               </td>
