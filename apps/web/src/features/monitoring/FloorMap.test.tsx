@@ -107,6 +107,8 @@ describe("FloorMap", () => {
     expect(screen.queryByText("70%")).not.toBeInTheDocument();
     const fixtureButton = screen.getByRole("button", { name: "B2-L01 정상 70%" });
     expect(fixtureButton).toBeInTheDocument();
+    expect(fixtureButton).toHaveAttribute("aria-current", "true");
+    expect(fixtureButton).not.toHaveAttribute("aria-pressed");
     expect(fixtureButton).toHaveTextContent("");
     expect(fixtureButton.querySelector("span[aria-hidden='true']")).toHaveClass("bg-fixture-connected");
     expect(fixtureButton.closest("[data-floor-scene]")).toHaveAttribute("data-map-objects-interactive", "false");
@@ -116,7 +118,7 @@ describe("FloorMap", () => {
       "--fixture-top": "15%"
     });
     expect(fixtureButton).toHaveAttribute("data-brightness-level", "8");
-    expect(fixtureButton).toHaveClass("bg-fixture-brightness-8");
+    expect(fixtureButton.querySelector("[data-spatial-map-marker-dot]")).toHaveClass("bg-fixture-brightness-8");
     expect(screen.getByAltText("B2 도면")).toHaveAttribute("src", "/demo.svg");
     expect(screen.getByAltText("B2 도면")).toHaveAttribute("draggable", "false");
     expect(screen.getByTestId("map-object-rectangle-1")).toBeInTheDocument();
@@ -258,10 +260,10 @@ describe("FloorMap", () => {
     const faultMarker = screen.getByRole("button", { name: "B2-Fault 장애 0%" });
     expect(faultMarker.querySelector("span[aria-hidden='true']")).toHaveClass("bg-fixture-fault");
     const offlineMarker = screen.getByRole("button", { name: "B2-Offline 오프라인 0%" });
-    expect(offlineMarker).toHaveClass("bg-fixture-offline-background", "border-fixture-offline-border!");
+    expect(offlineMarker.querySelector("[data-spatial-map-marker-dot]")).toHaveClass("bg-fixture-offline-background", "border-fixture-offline-border!");
     expect(offlineMarker.querySelector("span[aria-hidden='true']")).toHaveClass("bg-fixture-offline");
     const awaitingMarker = screen.getByRole("button", { name: "B2-Awaiting 상태 확인 대기 0%" });
-    expect(awaitingMarker).toHaveClass("bg-fixture-inspection-background", "border-fixture-inspection-border!");
+    expect(awaitingMarker.querySelector("[data-spatial-map-marker-dot]")).toHaveClass("bg-fixture-inspection-background", "border-fixture-inspection-border!");
     expect(awaitingMarker.querySelector("span[aria-hidden='true']")).toHaveClass("bg-fixture-inspection");
   });
 

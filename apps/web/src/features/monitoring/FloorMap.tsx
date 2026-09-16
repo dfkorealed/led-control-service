@@ -1,6 +1,6 @@
 import type { FloorMapSnapshot } from "@led-control/shared";
 import { CircleCheck, CircleX, Clock3, Hand, TriangleAlert } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Dashboard } from "../../api/queries";
 import { Text } from "../../components/ui";
 import { FloorScene } from "../floor-map/FloorScene";
@@ -16,6 +16,10 @@ interface FloorMapProps {
 
 export function FloorMap({ floor, snapshot, selectedFixtureId, onSelectFixture }: FloorMapProps) {
   const [zoom, setZoom] = useState(1);
+  const selectedFixtureIds = useMemo(
+    () => selectedFixtureId ? new Set([selectedFixtureId]) : new Set<string>(),
+    [selectedFixtureId]
+  );
   const sceneFixtures = floor.fixtures.map((fixture) => ({
     ...fixture,
     statusPresentation: presentFixtureStatus(fixture)
@@ -34,8 +38,9 @@ export function FloorMap({ floor, snapshot, selectedFixtureId, onSelectFixture }
           fixtures={sceneFixtures}
           interactive={false}
           floorName={floor.name}
-          selectedFixtureId={selectedFixtureId}
-          onSelectFixture={onSelectFixture}
+          selection={{ kind: "single", selectedFixtureIds }}
+          coarsePointer
+          onFixturePress={onSelectFixture}
         />
       </FloorMapViewport>
       <ul className="pointer-events-none absolute bottom-12 left-3 z-6 m-0 flex max-w-[calc(100%-1.5rem)] list-none flex-wrap justify-start gap-x-3 gap-y-1.5 rounded-control border border-border-default bg-surface-panel p-2 max-compact:bottom-16 max-compact:-translate-y-2.5" aria-label="조명 상태 범례">

@@ -54,13 +54,24 @@ export interface SceneMapObject {
   visible: boolean;
 }
 
-interface FloorSceneProps {
+export type FixtureSceneSelection =
+  | { kind: "none" }
+  | { kind: "single"; selectedFixtureIds: ReadonlySet<string> }
+  | {
+      kind: "multiple";
+      selectedFixtureIds: ReadonlySet<string>;
+      disabledFixtureIds: ReadonlySet<string>;
+      disabledReasons?: ReadonlyMap<string, string>;
+    };
+
+export interface FloorSceneProps {
   snapshot: FloorMapSnapshot;
   fixtures: SceneFixture[];
   interactive: boolean;
   floorName?: string;
-  selectedFixtureId?: string | null;
-  onSelectFixture?: (fixtureId: string) => void;
+  selection?: FixtureSceneSelection;
+  coarsePointer?: boolean;
+  onFixturePress?: (fixtureId: string) => void;
 }
 
 interface FixtureMarkerStyle extends CSSProperties {
@@ -68,13 +79,16 @@ interface FixtureMarkerStyle extends CSSProperties {
   "--fixture-top": string;
 }
 
+const noFixtureSceneSelection: FixtureSceneSelection = { kind: "none" };
+
 export function FloorScene({
   snapshot,
   fixtures,
   interactive,
   floorName,
-  selectedFixtureId,
-  onSelectFixture
+  selection = noFixtureSceneSelection,
+  coarsePointer = false,
+  onFixturePress
 }: FloorSceneProps) {
   const backgroundUrl = snapshot.floorPlan?.renderedImageUrl ?? snapshot.floorPlan?.imageUrl;
   const objects = snapshot.objects.filter((object) => object.visible);
@@ -120,6 +134,15 @@ export function FloorScene({
           : fixture.status === "offline"
             ? "bg-fixture-offline"
             : fixture.status === "fault" ? "bg-fixture-fault" : "bg-fixture-connected";
+        const selected = selection.kind !== "none" && selection.selectedFixtureIds.has(fixture.id);
+        const disabled = selection.kind === "multiple" && selection.disabledFixtureIds.has(fixture.id);
+        const disabledReason = selection.kind === "multiple" ? selection.disabledReasons?.get(fixture.id) : undefined;
+        const accessibleState = selection.kind === "multiple"
+          ? [
+              selected ? "선택됨" : null,
+              disabled ? `선택 불가${disabledReason ? `: ${disabledReason}` : ""}` : null
+            ].filter((value): value is string => value !== null).join(" ")
+          : "";
 
         return (
           <Button
@@ -130,17 +153,25 @@ export function FloorScene({
             data-spatial-map-marker="true"
             data-brightness-level={brightnessLevel}
             className={cn(
-              "absolute z-2 block! size-5! min-h-5! -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-fixture-marker! border! border-fixture-offline! p-0! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] hover:z-4 hover:outline-3 hover:outline-offset-4 hover:outline-fixture-selected focus-visible:z-4 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-fixture-selected",
-              markerStateClass,
-              fixture.id === selectedFixtureId && "z-3 outline-3 outline-offset-4 outline-fixture-selected"
+              "absolute z-2 block! size-5! min-h-5! -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-fixture-marker! border-0! bg-transparent! p-0! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] hover:z-4 focus-visible:z-4 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-fixture-selected",
+              coarsePointer && "max-compact:size-11! max-compact:min-h-11!",
+              selected && "z-3"
             )}
             style={markerStyle}
             title={`${fixture.name} ${statusLabel} ${fixture.brightness}%`}
-            aria-label={`${fixture.name} ${statusLabel} ${fixture.brightness}%`}
-            aria-current={fixture.id === selectedFixtureId ? "true" : undefined}
-            onClick={() => onSelectFixture?.(fixture.id)}
+            aria-label={`${fixture.name} ${statusLabel} ${fixture.brightness}%${accessibleState ? ` ${accessibleState}` : ""}`}
+            aria-current={selection.kind === "single" && selected ? "true" : undefined}
+            aria-pressed={selection.kind === "multiple" ? selected : undefined}
+            disabled={disabled}
+            data-selected={selected ? "true" : "false"}
+            data-disabled={disabled ? "true" : "false"}
+            data-disabled-reason={disabledReason}
+            onClick={() => onFixturePress?.(fixture.id)}
           >
-            <span aria-hidden="true" className={cn("pointer-events-none absolute -top-1.5 -right-1.5 size-2 rounded-pill border-2 border-surface-panel shadow-panel", badgeClass)} />
+            {/* The marker dot stays 20px; only its transparent button target expands for coarse pointers. */}
+            <span data-spatial-map-marker-dot="true" className={cn("pointer-events-none absolute left-1/2 top-1/2 block size-5 -translate-x-1/2 -translate-y-1/2 rounded-fixture-marker! border! border-fixture-offline! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms]", markerStateClass, selected && "outline-3 outline-offset-4 outline-fixture-selected")}>
+              <span aria-hidden="true" className={cn("pointer-events-none absolute -top-1.5 -right-1.5 size-2 rounded-pill border-2 border-surface-panel shadow-panel", badgeClass)} />
+            </span>
           </Button>
         );
       })}
