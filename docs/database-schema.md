@@ -41,6 +41,8 @@ Migration: `20260912_statistics_p2_reports`, 대상명 확장 `20260916_report_o
 
 `(siteId, requestedByActorId, requestHash) WHERE status IN ('queued', 'processing')` partial unique index는 같은 요청자의 실행 중 요청만 중복 방지한다. 완료·실패 후 재요청은 가능하다. 별도 상태/lease/생성 시각 index와 상태/만료/삭제 시각 index는 durable worker의 claim·회수·보관 정리에 사용한다. 최대 시도는 worker 상수 3과 DB check로 제한하며 변경 가능한 행별 설정은 두지 않는다.
 
+보고서 이력 목록은 `siteId`를 선두 조건으로 사용해 현장 tenant 범위 안에서만 조회하며, `(createdAt DESC, id DESC)` 순서로 keyset 페이지를 나눈다. 같은 `createdAt`을 가진 작업도 `id`를 tie-break로 사용해 순서를 안정적으로 유지한다. 이를 지원하는 additive index는 `(siteId, createdAt, id)`이며, 기존 index를 대체하거나 삭제하지 않는다. 페이지 조회의 cursor predicate(`createdAt`이 cursor보다 이전이거나, 시각이 같고 `id`가 cursor보다 작은 조건)는 해당 페이지에만 적용하고, `totalCount`의 filtered count는 `siteId`와 상태·형식·대상·요청일 필터만 사용해 cursor predicate를 제외한다.
+
 상태별 진행률·시각·lease·완료 object 필수 값은 SQL CHECK로 보호한다. 완료 문서는 데이터 스냅샷과 일치하는 fingerprint 필드를 함께 가져야 한다. SQL trigger는 요청·요청자 identity의 변경을 막고, 데이터·문서·fingerprint의 최초 저장 이후 변경/삭제를 막는다. 사용자 FK의 SetNull은 허용하며 요청자 스냅샷은 유지한다. 현장 삭제 시 행은 Cascade 삭제되므로 실제 현장 삭제 workflow에서 object 정리 대상을 삭제 전에 확보해야 한다.
 
 `20260916_report_operations_metadata`는 명시적 `BEGIN/COMMIT`, 10초 `lock_timeout`, 보고서 테이블 배타 잠금 안에서 nullable 대상명 열·빈 문자열 거부 CHECK와 기존 snapshot guard 함수를 함께 갱신한다. 기존 migration checksum은 변경하지 않는다. 대상명은 생성 transaction의 Site 삭제 barrier 확인 뒤 같은 현장에 속한 identity의 최신 저장 이름(층은 현재 이름 우선, 삭제된 층은 이력 이름)을 읽고 문자 지원을 검사해 INSERT한다. 사전 조회 이름을 재사용하지 않으며 과거 이름을 알 수 없는 legacy 행은 null로 둔다. worker가 나중에 실행되거나 운영 객체가 삭제되어도 목록과 새 공통 문서의 `대상` 메타데이터는 저장한 이름을 유지한다. 기존 문서/fingerprint는 다시 쓰지 않는다.

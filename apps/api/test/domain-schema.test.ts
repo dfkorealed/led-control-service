@@ -149,6 +149,13 @@ const prismaStorageFields = (schema: string): PrismaStorageField[] =>
   });
 
 describe("Prisma domain schema", () => {
+  it("supports tenant-scoped report history keyset ordering", () => {
+    const schema = readSchema();
+    const job = prismaModelBody(schema, "EnergyReportJob");
+
+    expect(job).toContain("@@index([siteId, createdAt, id]");
+  });
+
   it("persists report leases, immutable snapshots and actor-scoped active deduplication", () => {
     const schema = readSchema();
     const job = prismaModelBody(schema, "EnergyReportJob");

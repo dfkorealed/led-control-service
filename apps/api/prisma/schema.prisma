@@ -1433,6 +1433,7 @@ model EnergyReportJob {
   // The active actor/request unique index and write-once snapshot guard live in SQL.
   // A SQL DELETE trigger preserves private object keys for legacy DELETEs/cascades.
   @@index([siteId, createdAt])
+  @@index([siteId, createdAt, id])
   @@index([status, leaseExpiresAt, createdAt])
   @@index([status, expiresAt, objectDeletedAt])
   @@index([requestedByUserId])
