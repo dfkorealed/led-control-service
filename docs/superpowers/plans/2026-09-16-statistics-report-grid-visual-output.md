@@ -288,7 +288,7 @@ git commit -m "perf(db): index report history keyset queries"
 - Produces: `DataTableShell`, `PaginationBar`
 - Consumes: 기존 `Card`, `Button`, `SelectBox`, `Text`, `cn`
 
-- [ ] **Step 1: table semantics, busy state, page size와 navigation event의 RED tests를 작성한다.**
+- [x] **Step 1: table semantics, busy state, page size와 navigation event의 RED tests를 작성한다.**
 
 ```tsx
 render(<PaginationBar page={2} pageSize={20} totalCount={137} hasPrevious hasNext
@@ -300,13 +300,13 @@ expect(onNext).toHaveBeenCalledOnce();
 
 DataTableShell test는 caption, table, horizontal overflow container, `aria-busy`, className 전달을 확인한다.
 
-- [ ] **Step 2: component tests RED를 확인한다.**
+- [x] **Step 2: component tests RED를 확인한다.**
 
 Run: `pnpm --filter @led-control/web test -- DataTableShell.test.tsx PaginationBar.test.tsx`
 
 Expected: 모듈 부재로 FAIL.
 
-- [ ] **Step 3: Tailwind semantic utility만으로 공통 컴포넌트를 구현한다.**
+- [x] **Step 3: Tailwind semantic utility만으로 공통 컴포넌트를 구현한다.**
 
 ```tsx
 export function DataTableShell({ caption, isBusy, children, className }: Props) {
@@ -323,13 +323,13 @@ export function DataTableShell({ caption, isBusy, children, className }: Props) 
 
 PaginationBar는 공통 SelectBox options 10·20·50·100, 이전/다음 최소 44px, 현재 page와 range live text를 제공한다. `totalCount=0`은 `0건`, next/previous disabled를 표시한다.
 
-- [ ] **Step 4: component tests와 UI policy를 GREEN으로 만든다.**
+- [x] **Step 4: component tests와 UI policy를 GREEN으로 만든다.**
 
 Run: `pnpm --filter @led-control/web test -- DataTableShell.test.tsx PaginationBar.test.tsx && pnpm --filter @led-control/web test:ui-policy`
 
 Expected: PASS, 신규 policy violation 0.
 
-- [ ] **Step 5: Task 4를 커밋한다.**
+- [x] **Step 5: Task 4를 커밋한다.**
 
 ```bash
 git add apps/web/src/components/ui/DataTableShell* apps/web/src/components/ui/PaginationBar* apps/web/src/components/ui/index.ts
