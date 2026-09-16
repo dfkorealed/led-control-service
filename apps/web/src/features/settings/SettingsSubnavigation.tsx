@@ -34,9 +34,9 @@ export function SettingsSubnavigation({ capabilities }: { capabilities: SiteCapa
           end={section.path === "/settings"}
           key={section.path}
           to={{ pathname: section.path, search: location.search, hash: location.hash }}
-          className={({ isActive }) => isActive
-            ? "ui-underline-navigation-item active"
-            : "ui-underline-navigation-item"}
+          className={({ isActive }) => `inline-flex min-h-11 shrink-0 items-center border-b-2 px-3 text-body-sm font-bold no-underline outline-none focus-visible:shadow-focus ${isActive
+            ? "border-action-primary text-action-primary"
+            : "border-transparent text-content-secondary hover:border-border-strong hover:text-content-primary"}`}
         >
           <UnderlineNavigationLabel>{section.label}</UnderlineNavigationLabel>
         </NavLink>

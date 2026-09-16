@@ -5,6 +5,8 @@ import { Card, PageHeader, StatusBadge } from "../../components/ui";
 import { InstallationPending, SetupWizard } from "../setup/SetupWizard";
 import { TestDataToolsPanel } from "./TestDataToolsPanel";
 
+const settingsActionLinkClass = "mt-auto inline-flex min-h-11 items-center justify-center gap-2 justify-self-start rounded-control border border-border-default bg-action-secondary px-4 py-0 text-body font-bold text-action-primary no-underline outline-none focus-visible:shadow-focus";
+
 export function SettingsView({ userRole, siteId }: { userRole: "operator" | "admin" | "viewer"; siteId?: string }) {
   const { data } = useDashboard(siteId);
   const location = useLocation();
@@ -71,7 +73,7 @@ export function SettingsView({ userRole, siteId }: { userRole: "operator" | "adm
             </div>
           </div>
           <p className="m-0 text-body text-content-secondary">맵 설정 {registeredPlanCount}개</p>
-          <Link className="ui-button ui-button-secondary mt-auto justify-self-start" to={{ pathname: "/settings/floor-plans", search: location.search, hash: location.hash }}>
+          <Link className={settingsActionLinkClass} to={{ pathname: "/settings/floor-plans", search: location.search, hash: location.hash }}>
             맵 관리 열기
           </Link>
         </Card>
@@ -108,7 +110,7 @@ export function SettingsView({ userRole, siteId }: { userRole: "operator" | "adm
                 <strong className="block text-card-title text-content-primary">비밀번호 · MFA · 세션</strong>
               </div>
             </div>
-            <Link className="ui-button ui-button-secondary mt-auto justify-self-start" to={{ pathname: "/settings/security", search: location.search, hash: location.hash }}>
+            <Link className={settingsActionLinkClass} to={{ pathname: "/settings/security", search: location.search, hash: location.hash }}>
               계정 보안 열기
             </Link>
           </Card>
