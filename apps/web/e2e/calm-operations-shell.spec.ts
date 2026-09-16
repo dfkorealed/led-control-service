@@ -8,6 +8,7 @@ import { installSettingsApiRoutes } from "./support/settings-api";
 const responsiveViewports = [
   { width: 1440, height: 900 },
   { width: 1024, height: 768 },
+  { width: 760, height: 844 },
   { width: 390, height: 844 },
   { width: 320, height: 740 }
 ] as const;
@@ -23,7 +24,7 @@ for (const viewport of responsiveViewports) {
     const bottomNav = page.locator('[data-shell-navigation="compact"]');
     const topbar = page.locator("[data-shell-topbar]");
 
-    if (viewport.width > 760) {
+    if (viewport.width >= 760) {
       await expect(rail).toBeVisible();
       await expect(bottomNav).toHaveCount(0);
       await expect(rail).toHaveCSS("width", "96px");

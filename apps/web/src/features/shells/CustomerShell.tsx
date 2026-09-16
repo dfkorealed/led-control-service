@@ -38,6 +38,7 @@ const items = [
   { path: "/control", destination: "/control", label: "제어", icon: SlidersHorizontal },
   { path: "/statistics", destination: "/statistics/overview", label: "통계", icon: BarChart3 }
 ] as const;
+const compactNavigationQuery = "(max-width: 759px)";
 
 function PrimaryNavigation({ capabilities, search }: { capabilities: SiteCapabilities; search: string }) {
   const location = useLocation();
@@ -65,7 +66,7 @@ function PrimaryNavigation({ capabilities, search }: { capabilities: SiteCapabil
 
 export function CustomerShell({ user }: { user: AuthUser }) {
   const location = useLocation();
-  const [isCompactNavigation, setIsCompactNavigation] = useState(() => window.matchMedia("(max-width: 760px)").matches);
+  const [isCompactNavigation, setIsCompactNavigation] = useState(() => window.matchMedia(compactNavigationQuery).matches);
   const queryClient = useQueryClient();
   const isEditorDirty = useFloorEditorStore((store) => store.isDirty);
   const discardEditorChanges = useFloorEditorStore((store) => store.discardChanges);
@@ -87,7 +88,7 @@ export function CustomerShell({ user }: { user: AuthUser }) {
   }, [user.id]);
 
   useEffect(() => {
-    const media = window.matchMedia("(max-width: 760px)");
+    const media = window.matchMedia(compactNavigationQuery);
     const updateNavigation = (event: MediaQueryListEvent) => setIsCompactNavigation(event.matches);
     media.addEventListener("change", updateNavigation);
     return () => media.removeEventListener("change", updateNavigation);
