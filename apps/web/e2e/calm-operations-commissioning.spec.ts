@@ -86,7 +86,7 @@ for (const viewport of viewports) {
       await page.getByLabel("주소").fill("서울시 강남구");
       await expectNoHorizontalOverflow(page);
       await expectCommissioningActionsReachable(page, ["주소 미입력", "층 자동 생성"], viewport.width);
-      await expectMobileRegionTargetsReachable(page, ".setup-wizard", viewport.width);
+      await expectMobileRegionTargetsReachable(page, '[data-testid="site-setup-flow"]', viewport.width);
       await page.getByRole("button", { name: "층 자동 생성" }).click();
       await expectNoHorizontalOverflow(page);
       await expect(page.getByRole("button", { name: "초기 설정 완료" })).toBeEnabled();
@@ -111,7 +111,7 @@ for (const viewport of viewports) {
       await expect(page.getByRole("button", { name: "게이트웨이 등록" })).toBeEnabled();
       await expectNoHorizontalOverflow(page);
       await expectCommissioningActionsReachable(page, ["게이트웨이 등록"], viewport.width);
-      await expectMobileRegionTargetsReachable(page, ".gateway-claim-panel", viewport.width);
+      await expectMobileRegionTargetsReachable(page, '[data-testid="gateway-claim-form"]', viewport.width);
     });
 
     await withFixturePage(browser, baseURL, viewport, async (page) => {
@@ -173,13 +173,13 @@ for (const viewport of viewports) {
       await expectRegistrationStepStates(page, ["complete", "current", "pending", "pending"]);
       await expect(page.getByRole("button", { name: "선택 조명 등록" })).toBeEnabled();
       await expectCommissioningActionsReachable(page, ["선택 조명 등록"], viewport.width);
-      await expectMobileRegionTargetsReachable(page, ".registration-config-form", viewport.width);
+      await expectMobileRegionTargetsReachable(page, '[data-testid="fixture-config-form"]', viewport.width);
       await clickChoice(page, "radio", "개별 설정");
       await page.getByLabel("조명 1 이름").fill("입구 조명");
       await expect(page.getByLabel("조명 1 이름")).toHaveValue("입구 조명");
       await expectNoHorizontalOverflow(page);
       await expectCommissioningActionsReachable(page, ["선택 조명 등록"], viewport.width);
-      await expectMobileRegionTargetsReachable(page, ".registration-panel", viewport.width);
+      await expectMobileRegionTargetsReachable(page, '[data-testid="commissioning-registration"]', viewport.width);
     });
 
     await withFixturePage(browser, baseURL, viewport, async (page) => {
@@ -194,7 +194,7 @@ for (const viewport of viewports) {
       await expect(page.getByRole("button", { name: "현재 세션에서 제외" })).toBeEnabled();
       await expectNoHorizontalOverflow(page);
       await expectCommissioningActionsReachable(page, ["현재 세션에서 제외"], viewport.width);
-      await expectMobileRegionTargetsReachable(page, ".registration-panel", viewport.width);
+      await expectMobileRegionTargetsReachable(page, '[data-testid="commissioning-registration"]', viewport.width);
     });
   });
 }
@@ -256,7 +256,7 @@ test("registration separates available and existing devices and submits only the
   await expect(page.getByText(registeredInSiteNode.existingRegistration.floorName)).toBeVisible();
   await expect(page.getByText(registeredElsewhereNode.serialNumber)).toHaveCount(0);
   await expect(page.getByText(registeredElsewhereNode.deviceUuid)).toHaveCount(0);
-  await expect(page.locator(".registered-node-details input[type='checkbox']")).toHaveCount(0);
+  await expect(page.getByTestId("existing-fixture-details").locator("input[type='checkbox']")).toHaveCount(0);
 
   await clickChoice(page, "checkbox", "등록 가능 조명 전체 선택");
   await expect(availableSelection).toBeChecked();

@@ -281,7 +281,7 @@ export function FloorEditorCanvas({ readOnly = false, rowRegistry }: { readOnly?
     data-snap={snap} data-grid-size={floorPlan?.gridSize ?? 10} data-active-guides=""
     onMouseDown={begin} onMouseMove={move} onMouseUp={finish} onMouseLeave={(e) => { if (gesture.current?.kind === "pan") finish(e); else { gesture.current = null; setCreation(null); setMarquee(null); setIsPanning(false); } }}
     onDragOver={dragOver} onDragLeave={() => setDropPreview(null)} onDrop={drop}>
-    <Stage ref={stage} width={viewport.width} height={viewport.height} className="floor-editor-konva-stage" onWheel={(event) => {
+    <Stage ref={stage} width={viewport.width} height={viewport.height} onWheel={(event) => {
       event.evt.preventDefault(); const store = useFloorEditorStore.getState();
       const point = stage.current?.getPointerPosition(); if (!point) return;
       const world = screenToWorld(point, store.pan, store.zoom);

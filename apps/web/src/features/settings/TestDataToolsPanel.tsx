@@ -73,18 +73,18 @@ function TestDataToolsControls({ dashboard }: { dashboard: Dashboard }) {
   }
 
   return (
-    <Card className="settings-test-data-card" aria-label="테스트 데이터">
-      <div className="settings-card-heading">
+    <Card className="mt-4 grid gap-3 p-4" aria-label="테스트 데이터">
+      <div className="flex items-center gap-3">
         <TriangleAlert size={20} aria-hidden="true" />
-        <div>
-          <span>개발·검증 전용</span>
-          <strong>테스트 데이터</strong>
+        <div className="grid min-w-0 gap-1">
+          <span className="text-overline font-bold text-status-warning-foreground">개발·검증 전용</span>
+          <strong className="text-card-title text-content-primary">테스트 데이터</strong>
         </div>
       </div>
-      <p className="muted-text">현재 설치 현장에 테스트용 조명 데이터를 생성하거나 삭제합니다.</p>
+      <p className="m-0 text-body-sm text-content-secondary">현재 설치 현장에 테스트용 조명 데이터를 생성하거나 삭제합니다.</p>
       {message ? <FeedbackState tone="success" icon={CircleCheck} title={message} /> : null}
       {createErrorMessage ? <FeedbackState tone="danger" icon={TriangleAlert} title={createErrorMessage} /> : null}
-      <div className="settings-test-data-actions">
+      <div className="flex flex-wrap gap-2">
         <Button variant="secondary" disabled={isMutating} isLoading={createMutation.isPending} loadingLabel="테스트 데이터 생성 중" onClick={() => startOperation(() => createMutation.mutate())}>
           테스트 데이터 생성
         </Button>

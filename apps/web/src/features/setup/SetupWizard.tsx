@@ -70,34 +70,34 @@ export function SetupWizard({ siteId, customerName, siteName, onComplete }: Setu
   const canSubmit = !validationMessage && !setupMutation.isPending;
 
   return (
-    <section className="setup-wizard" aria-labelledby="setup-wizard-title">
-      <div className="panel-title-row">
-        <div>
-          <span className="eyebrow">초기 설치</span>
-          <h3 id="setup-wizard-title">현장 기본 정보를 입력하세요</h3>
+    <section className="grid min-w-0 gap-4 rounded-panel border border-border-default bg-surface-panel p-4.5 shadow-panel" data-testid="site-setup-flow" aria-labelledby="setup-wizard-title">
+      <div className="flex items-start justify-between gap-3">
+        <div className="grid min-w-0 gap-1">
+          <span className="text-overline font-bold text-content-secondary">초기 설치</span>
+          <h3 className="m-0 text-card-title text-content-primary" id="setup-wizard-title">현장 기본 정보를 입력하세요</h3>
         </div>
         <StatusBadge tone={successMessage ? "success" : "neutral"} icon={successMessage ? CheckCircle2 : Clock3}>
           {successMessage ? "저장됨" : "준비"}
         </StatusBadge>
       </div>
 
-      <ProgressSteps label="현장 설치 진행" steps={[
+      <ProgressSteps className="flex-wrap" label="현장 설치 진행" steps={[
         { id: "site", label: "현장 정보", state: "current" },
         { id: "gateway", label: "Gateway 연결", state: "pending" },
         { id: "fixtures", label: "조명 등록", state: "pending" },
         { id: "operate", label: "운영 시작", state: "pending" }
       ]} />
 
-      <Card className="setup-section">
-          <h4>현장 정보</h4>
-          <div className="setup-form-grid">
-          <div className="setting-card">
-            <span>고객사</span>
-            <strong>{customerName}</strong>
+      <Card className="grid gap-3 p-4">
+          <h4 className="m-0 text-card-title text-content-primary">현장 정보</h4>
+          <div className="grid grid-cols-1 gap-3 compact:grid-cols-2">
+          <div className="grid gap-1 rounded-control border border-border-default bg-surface-inset p-3">
+            <span className="text-caption text-content-secondary">고객사</span>
+            <strong className="break-words text-label text-content-primary">{customerName}</strong>
           </div>
-          <div className="setting-card">
-            <span>현장</span>
-            <strong>{siteName}</strong>
+          <div className="grid gap-1 rounded-control border border-border-default bg-surface-inset p-3">
+            <span className="text-caption text-content-secondary">현장</span>
+            <strong className="break-words text-label text-content-primary">{siteName}</strong>
           </div>
           <TextField label="주소" value={address} onChange={setAddress} placeholder="서울시 강남구" />
           <Button variant="secondary" type="button" onClick={() => setAddress("미입력")}>
@@ -117,9 +117,9 @@ export function SetupWizard({ siteId, customerName, siteName, onComplete }: Setu
         </div>
       </Card>
 
-      <Card className="setup-section">
-        <h4>층 생성</h4>
-        <div className="setup-range-row">
+      <Card className="grid gap-3 p-4">
+        <h4 className="m-0 text-card-title text-content-primary">층 생성</h4>
+        <div className="grid grid-cols-1 items-end gap-3 compact:grid-cols-2 tablet:grid-cols-3">
           <TextField label="지하 층수" inputMode="numeric" value={basementCount} onChange={setBasementCount} />
           <TextField label="지상 층수" inputMode="numeric" value={groundCount} onChange={setGroundCount} />
           <Button
@@ -137,12 +137,12 @@ export function SetupWizard({ siteId, customerName, siteName, onComplete }: Setu
           </Button>
         </div>
 
-        <div className="floor-edit-list" aria-label="생성된 층 목록">
+        <div className="grid gap-2.5" aria-label="생성된 층 목록">
           {floors.length === 0 ? (
-            <p className="muted-text">생성된 층이 없습니다.</p>
+            <p className="m-0 text-body-sm text-content-secondary">생성된 층이 없습니다.</p>
           ) : (
             floors.map((floor, index) => (
-              <div className="floor-edit-row" key={`${floor.level}-${index}`}>
+              <div className="grid grid-cols-1 gap-2.5 compact:grid-cols-2" key={`${floor.level}-${index}`}>
                 <TextField
                   label={`층 이름 ${index + 1}`}
                   value={floor.name}
@@ -164,7 +164,7 @@ export function SetupWizard({ siteId, customerName, siteName, onComplete }: Setu
       </Card>
 
       {validationMessage ? (
-        <p className="danger-text" role="alert">
+        <p className="m-0 text-body-sm font-bold text-status-danger-foreground" role="alert">
           {validationMessage}
         </p>
       ) : null}
@@ -173,7 +173,7 @@ export function SetupWizard({ siteId, customerName, siteName, onComplete }: Setu
         <FeedbackState tone="success" icon={CheckCircle2} title={successMessage} />
       ) : null}
 
-      <Button className="setup-submit" variant="primary" disabled={!canSubmit} isLoading={setupMutation.isPending} loadingLabel="초기 설정 저장 중" onClick={() => setupMutation.mutate()}>
+      <Button className="w-full justify-self-start compact:w-auto" variant="primary" disabled={!canSubmit} isLoading={setupMutation.isPending} loadingLabel="초기 설정 저장 중" onClick={() => setupMutation.mutate()}>
         <CheckCircle2 size={16} />
         초기 설정 완료
       </Button>
@@ -183,11 +183,11 @@ export function SetupWizard({ siteId, customerName, siteName, onComplete }: Setu
 
 export function InstallationPending() {
   return (
-    <section className="setup-wizard" aria-label="Viewer 설치 대기">
-      <div className="panel-title-row">
-        <div>
-          <span className="eyebrow">설치 준비</span>
-          <h3 id="installation-pending-title">설치 담당자가 현장을 준비 중입니다</h3>
+    <section className="grid min-w-0 gap-4 rounded-panel border border-border-default bg-surface-panel p-4.5 shadow-panel" data-testid="site-setup-flow" aria-label="Viewer 설치 대기">
+      <div className="flex items-start justify-between gap-3">
+        <div className="grid min-w-0 gap-1">
+          <span className="text-overline font-bold text-content-secondary">설치 준비</span>
+          <h3 className="m-0 text-card-title text-content-primary" id="installation-pending-title">설치 담당자가 현장을 준비 중입니다</h3>
         </div>
         <StatusBadge tone="neutral" icon={Clock3}>대기</StatusBadge>
       </div>

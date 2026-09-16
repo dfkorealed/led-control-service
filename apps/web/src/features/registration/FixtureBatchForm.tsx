@@ -27,8 +27,8 @@ export function FixtureBatchForm({
   onSubmit
 }: FixtureBatchFormProps) {
   return (
-    <form className="registration-config-form" onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>
-      <div className="registration-fields batch-fields">
+    <form className="grid gap-3.5" data-testid="fixture-config-form" onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>
+      <div className="grid grid-cols-1 gap-2.5 compact:grid-cols-2 tablet:grid-cols-3">
         <TextField label="이름 접두어" value={values.namePrefix} maxLength={100} onChange={(value) => onChange({ ...values, namePrefix: value })} />
         <NumberField label="시작 번호" value={values.startNumber} minValue={1} step={1} onChange={(value) => onChange({ ...values, startNumber: value })} />
         <TextField label="자릿수" inputMode="numeric" pattern="[1-9]" maxLength={1} value={values.digits} onChange={(value) => onChange({ ...values, digits: value })} />
@@ -51,7 +51,7 @@ export function RegistrationSubmitButton({
 }) {
   return (
     <Button
-      className="registration-submit"
+      className="w-full justify-self-start compact:w-auto"
       variant="primary"
       type="submit"
       aria-label="선택 조명 등록"
@@ -59,7 +59,7 @@ export function RegistrationSubmitButton({
       isLoading={pending}
       loadingLabel="선택 조명 등록 중"
     >
-      <>{pending ? <Loader2 size={16} /> : <CheckCircle2 size={16} />} 선택 조명 등록 <span>{selectedCount}</span></>
+      <>{pending ? <Loader2 size={16} /> : <CheckCircle2 size={16} />} 선택 조명 등록 <span className="min-w-6 rounded-pill bg-surface-panel/20 px-1.5 py-0.5 text-center">{selectedCount}</span></>
     </Button>
   );
 }

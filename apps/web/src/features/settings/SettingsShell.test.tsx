@@ -201,4 +201,28 @@ describe("SettingsShell", () => {
       expect(source, file).not.toMatch(/<(input|select|textarea)\b/);
     }
   });
+
+  it("keeps settings commissioning screens independent from legacy style hooks", () => {
+    const files = [
+      "src/features/registration/RegistrationPanel.tsx",
+      "src/features/registration/FixtureBatchForm.tsx",
+      "src/features/registration/FixtureIndividualForm.tsx",
+      "src/features/settings/registration/RegistrationSettingsView.tsx",
+      "src/features/settings/floor-plans/FloorPlanSettingsView.tsx",
+      "src/features/settings/TestDataToolsPanel.tsx",
+      "src/features/setup/SetupWizard.tsx",
+      "src/features/setup/GatewayClaimPanel.tsx",
+      "src/features/rf/RfPlanningPanel.tsx",
+      "src/features/floor-editor/FixtureIdentifyPanel.tsx",
+      "src/features/floor-editor/FloorEditorCanvas.tsx"
+    ];
+    const legacyHook = /\b(?:registration-(?:panel|summary|targets|session|selection-toolbar|node-list|eligibility-warning|config|mode-toggle|config-form|fields|submit)|node-(?:row|selection|identity|status)|selection-checkbox|reconcile-actions|registered-(?:node-details|node-list|node-row|elsewhere-notice)|settings-(?:screen|card-list|test-data-card|test-data-actions|card-heading)|floor-plan-(?:card|card-summary|edit-link)|setup-(?:wizard|section|form-grid|range-row|submit)|gateway-claim-panel|floor-edit-(?:list|row)|panel-title-row|eyebrow|compact-list|floor-editor-(?:actions|konva-stage)|editor-properties-panel|individual-fixture-(?:list|fields|error)|session-meta|muted-node|success-text|danger-text|setting-card)\b/;
+
+    for (const file of files) {
+      const source = readFileSync(file, "utf8");
+      const classNames = [...source.matchAll(/className=(?:["']([^"']*)["']|{["']([^"']*)["']}|{`([^`]*)`})/g)]
+        .flatMap((match) => match.slice(1).filter(Boolean));
+      expect(classNames.join(" "), file).not.toMatch(legacyHook);
+    }
+  });
 });

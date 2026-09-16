@@ -119,6 +119,17 @@ async function installBrowserContractFixture(page: Parameters<typeof installSett
   });
 }
 
+async function selectRegistrationTargets(page: Page) {
+  await page.getByRole("button", { name: "등록 층" }).click();
+  await page.getByRole("option", { name: "B2", exact: true }).click();
+  await page.getByRole("button", { name: "등록 게이트웨이" }).click();
+  await page.getByRole("option", { name: "Gateway B2", exact: true }).click();
+}
+
+async function clickChoice(page: Page, role: "checkbox" | "radio", name: string) {
+  await page.getByRole(role, { name }).locator("xpath=ancestor::label[1]").click();
+}
+
 test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하드웨어 E2E 아님)", () => {
   test("수동 새로고침으로 현황 API를 다시 조회하고 마지막 갱신을 표시한다", async ({ page }) => {
     await page.clock.install({ time: new Date("2026-07-12T09:00:00+09:00") });
@@ -192,8 +203,7 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
       registrationPollingSessions: [pending, scanning, completed]
     });
     await page.goto(`/settings/registration?siteId=${ids.site}`);
-    await page.getByLabel("등록 층").selectOption(ids.floor);
-    await page.getByLabel("등록 게이트웨이").selectOption(ids.gateway);
+    await selectRegistrationTargets(page);
     await page.getByRole("button", { name: "조명 검색 시작" }).click();
 
     await expect(page.getByText("검색된 미등록 조명이 없습니다.")).toBeVisible();
@@ -230,8 +240,8 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
     await page.goto(`/settings/registration?siteId=${ids.site}`);
 
     await expect(page.getByText(discoveredNode.serialNumber)).toBeVisible();
-    await expect(page.getByLabel("등록 층")).toHaveValue(ids.floor);
-    await expect(page.getByLabel("등록 게이트웨이")).toHaveValue(ids.gateway);
+    await expect(page.getByRole("button", { name: "등록 층" })).toContainText("B2");
+    await expect(page.getByRole("button", { name: "등록 게이트웨이" })).toContainText("Gateway B2");
     await expect(page.getByRole("button", { name: "조명 검색 시작" })).toBeDisabled();
   });
 
@@ -255,7 +265,7 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
     await expect(page.getByRole("radio", { name: "개별 설정" })).toBeVisible();
     await page.getByRole("radiogroup", { name: "조명 설정 방식" }).scrollIntoViewIfNeeded();
     await expect(page.getByRole("radiogroup", { name: "조명 설정 방식" })).toBeInViewport();
-    await expectMinimumTouchTargets(page, ".registration-mode-toggle");
+    await expectMinimumTouchTargets(page, '[role="radiogroup"][aria-label="조명 설정 방식"]');
   });
 
   test("390px pending setup and gateway claim expose enabled 44px actions", async ({ browser, baseURL }) => {
@@ -304,8 +314,7 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
         registrationRetrySession: registrationSession("scanning", null)
       });
       await page.goto(`/settings/registration?siteId=${ids.site}`);
-      await page.getByLabel("등록 층").selectOption(ids.floor);
-      await page.getByLabel("등록 게이트웨이").selectOption(ids.gateway);
+      await selectRegistrationTargets(page);
 
       const start = page.getByRole("button", { name: "조명 검색 시작" });
       await expect(start).toBeEnabled();
@@ -333,10 +342,9 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
         registrationSession: completed
       });
       await registrationPage.goto(`/settings/registration?siteId=${ids.site}`);
-      await registrationPage.getByLabel("등록 층").selectOption(ids.floor);
-      await registrationPage.getByLabel("등록 게이트웨이").selectOption(ids.gateway);
+      await selectRegistrationTargets(registrationPage);
       await registrationPage.getByRole("button", { name: "조명 검색 시작" }).click();
-      await registrationPage.getByLabel("조명 1 선택").check();
+      await clickChoice(registrationPage, "checkbox", "조명 1 선택");
       const submit = registrationPage.getByRole("button", { name: "선택 조명 등록" });
       await expect(submit).toBeEnabled();
       await expectMinimumTouchTargetSize(submit);
@@ -363,10 +371,9 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
         registrationSession: reconciliation
       });
       await reconciliationPage.goto(`/settings/registration?siteId=${ids.site}`);
-      await reconciliationPage.getByLabel("등록 층").selectOption(ids.floor);
-      await reconciliationPage.getByLabel("등록 게이트웨이").selectOption(ids.gateway);
+      await selectRegistrationTargets(reconciliationPage);
       await reconciliationPage.getByRole("button", { name: "조명 검색 시작" }).click();
-      await reconciliationPage.getByLabel("장비 상태를 확인했으며 현재 세션에서 제외").check();
+      await clickChoice(reconciliationPage, "checkbox", "장비가 등록되지 않았거나 초기화된 상태임을 확인");
       const exclude = reconciliationPage.getByRole("button", { name: "현재 세션에서 제외" });
       await expect(exclude).toBeEnabled();
       await expectMinimumTouchTargetSize(exclude);
@@ -383,8 +390,7 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
       registrationRetrySession: registrationSession("scanning", null)
     });
     await page.goto(`/settings/registration?siteId=${ids.site}`);
-    await page.getByLabel("등록 층").selectOption(ids.floor);
-    await page.getByLabel("등록 게이트웨이").selectOption(ids.gateway);
+    await selectRegistrationTargets(page);
     await page.getByRole("button", { name: "조명 검색 시작" }).click();
 
     await expect(page.getByText("Bluetooth 어댑터를 사용할 수 없습니다.")).toBeVisible();

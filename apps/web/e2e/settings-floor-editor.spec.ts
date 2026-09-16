@@ -236,7 +236,7 @@ test("viewer is redirected before editor state and lease requests while mutation
   await page.goto("/settings/floor-plans/floor-1/edit?siteId=site-1");
 
   await expect(page).toHaveURL(/\/settings\/floor-plans\?siteId=site-1$/);
-  const floorRow = page.locator(".floor-plan-card").filter({ hasText: "B2" });
+  const floorRow = page.getByTestId("floor-plan-item").filter({ hasText: "B2" });
   await expect(floorRow).toContainText("맵 설정됨");
   await expect(floorRow.getByRole("link", { name: "B2 맵 편집" })).toHaveCount(0);
   expect(api.requests.filter((path) => path.includes("/editor-state") || path.includes("/editor-lease"))).toEqual([]);
@@ -323,22 +323,19 @@ test("dirty editor logout keeps the draft on cancel and logs out only after conf
 
   const xInput = await changeSelectedFixtureX(page, "260");
 
-  page.once("dialog", async (dialog) => {
-    expect(dialog.message()).toContain("저장하지 않은 변경사항");
-    await dialog.dismiss();
-  });
-  await page.getByRole("button", { name: "로그아웃" }).click();
+  await page.getByLabel("로그아웃", { exact: true }).click();
+  let logoutDialog = page.getByRole("alertdialog", { name: "로그아웃 확인" });
+  await expect(logoutDialog).toContainText("저장하지 않은 변경사항");
+  await logoutDialog.getByRole("button", { name: "취소" }).click();
 
   await expect(page).toHaveURL(/\/settings\/floor-plans\/floor-1\/edit\?siteId=site-1$/);
   await expect(xInput).toHaveValue("260");
   expect(api.logoutRequests).toBe(0);
   await expect.poll(async () => page.evaluate(async () => (await fetch("/api/auth/me")).status)).toBe(200);
 
-  page.once("dialog", async (dialog) => {
-    expect(dialog.message()).toContain("저장하지 않은 변경사항");
-    await dialog.accept();
-  });
-  await page.getByRole("button", { name: "로그아웃" }).click();
+  await page.getByLabel("로그아웃", { exact: true }).click();
+  logoutDialog = page.getByRole("alertdialog", { name: "로그아웃 확인" });
+  await logoutDialog.getByRole("button", { name: "로그아웃" }).click();
 
   await expect(page.getByRole("heading", { name: "킨다 로그인" })).toBeVisible();
   expect(api.logoutRequests).toBe(1);
@@ -509,7 +506,7 @@ for (const viewport of responsiveViewports) {
       return latestLease?.type === "lease-acquire" && latestLease.result.editable;
     }).toBe(true);
     await expect(page.getByRole("button", { name: "리비전 7 복구" })).toBeVisible();
-    const editorCanvas = page.locator(".floor-editor-konva-stage canvas").first();
+    const editorCanvas = page.getByTestId("floor-editor-canvas").locator("canvas").first();
     await editorCanvas.evaluate((element) => element.scrollIntoView({ block: "center" }));
     const editorCanvasBox = await editorCanvas.boundingBox();
     expect(editorCanvasBox).not.toBeNull();
@@ -566,7 +563,7 @@ for (const viewport of responsiveViewports) {
     await expectSettingsContentTopAligned(page);
     await expectNoHorizontalOverflow(page);
     if (viewport.width <= 760) {
-      const registrationTargets = page.locator(".registration-targets");
+      const registrationTargets = page.getByTestId("registration-selectors");
       await registrationTargets.evaluate((element) => element.scrollIntoView({ block: "center" }));
       await expect(page.getByLabel("등록 층")).toBeInViewport();
       await expect(page.getByLabel("등록 게이트웨이")).toBeInViewport();

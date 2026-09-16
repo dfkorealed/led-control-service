@@ -204,7 +204,7 @@ describe("FloorEditorView", () => {
     expect(screen.getByLabelText("B2 편집 캔버스")).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "속성 패널" })).toBeInTheDocument();
     const sidePanel = screen.getByRole("complementary", { name: "맵 편집 정보" });
-    expect(sidePanel).toHaveClass("ui-side-panel", "grid", "col-span-3");
+    expect(sidePanel).toBeVisible();
     expect(sidePanel.parentElement).toHaveAttribute("data-testid", "floor-editor-layout");
     expect(screen.getByRole("heading", { name: "맵 설정" })).toBeInTheDocument();
     expect(screen.getByLabelText("맵 너비")).toHaveValue("1,200");

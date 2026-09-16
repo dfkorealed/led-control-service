@@ -102,12 +102,12 @@ export function FixtureIdentifyPanel({ floorId, readOnly, leaseToken, leaseFence
     if (!skip) await start(target.id);
   }
   if (!fixture && !session) return null;
-  return <section className="editor-properties-panel" aria-label="조명 위치 확인"><h3>조명 위치 확인</h3>
-    <strong>{fixture?.name ?? state?.fixtures.find((f) => f.id === session?.fixtureId)?.name}</strong>
-    {session && session.fixtureId !== fixture?.id && <p>진행 중인 식별 대상: {state?.fixtures.find((f) => f.id === session.fixtureId)?.name}</p>}
-    {message && <p role="status">{message}</p>}
-    {session && <p>{remaining > 0 ? `장비 자체 만료까지 최대 ${remaining}초` : "명령 유효 시간 종료 · 장비 자체 만료 시점 경과"}</p>}
-    <div className="floor-editor-actions">
+  return <section className="grid gap-3 rounded-panel border border-border-default bg-surface-panel p-3" aria-label="조명 위치 확인" data-fixture-identify-panel=""><h3 className="m-0 text-card-title text-content-primary">조명 위치 확인</h3>
+    <strong className="text-label text-content-primary">{fixture?.name ?? state?.fixtures.find((f) => f.id === session?.fixtureId)?.name}</strong>
+    {session && session.fixtureId !== fixture?.id && <p className="m-0 text-body-sm text-content-secondary">진행 중인 식별 대상: {state?.fixtures.find((f) => f.id === session.fixtureId)?.name}</p>}
+    {message && <p className="m-0 text-body-sm text-content-secondary" role="status">{message}</p>}
+    {session && <p className="m-0 text-body-sm text-content-secondary">{remaining > 0 ? `장비 자체 만료까지 최대 ${remaining}초` : "명령 유효 시간 종료 · 장비 자체 만료 시점 경과"}</p>}
+    <div className="flex flex-wrap gap-2">
       <Button disabled={readOnly || pending || !fixture || fixture.status !== "online" || !leaseToken} onClick={() => void run(() => start(fixture!.id))}><Lightbulb size={16} />{message ? "다시 확인" : "확인 시작"}</Button>
       <Button disabled={readOnly || pending || !session || remaining === 0} onClick={() => void run(async () => { await stopActive(); })}><Square size={16} />중지</Button>
       <Button disabled={readOnly || pending || !fixture || fixture.placementStatus === "unplaced"} onClick={() => useFloorEditorStore.getState().updateFixture(fixture!.id, { positionVerified: true })}><Check size={16} />위치 확인</Button>

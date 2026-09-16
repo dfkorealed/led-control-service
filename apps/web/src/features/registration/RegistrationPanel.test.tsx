@@ -181,7 +181,7 @@ describe("RegistrationPanel", () => {
     fireEvent.click(screen.getByLabelText("조명 1 선택"));
     fireEvent.click(screen.getByRole("radio", { name: "개별 설정" }));
     fireEvent.click(screen.getByRole("button", { name: "선택 조명 등록" }));
-    expect(await screen.findByText("게이트웨이 장비 응답 확인 필요", { selector: ".individual-error" })).toBeInTheDocument();
+    expect(await within(screen.getByTestId("fixture-config-form")).findByText("게이트웨이 장비 응답 확인 필요")).toBeInTheDocument();
     expect(screen.queryByText(rawMessage)).not.toBeInTheDocument();
   });
 
@@ -314,7 +314,7 @@ describe("RegistrationPanel", () => {
     fireEvent.click(await screen.findByRole("button", { name: "등록 세션 취소" }));
 
     await waitFor(() => expect(screen.getByRole("button", { name: "등록 층" })).toHaveTextContent(mockDashboard.floors[1].name));
-    expect(screen.getByText(next.id.slice(0, 8), { selector: ".session-meta strong" })).toBeInTheDocument();
+    expect(within(screen.getByLabelText("등록 세션 정보")).getByText(next.id.slice(0, 8))).toBeInTheDocument();
   });
 
   it("선택한 여러 조명을 일괄 설정 payload로 등록한다", async () => {

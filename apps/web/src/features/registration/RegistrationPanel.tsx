@@ -451,11 +451,14 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
   }
 
   return (
-    <section className={hasFixtures ? "registration-panel" : "registration-panel empty-site"}>
-      <div className="panel-title-row">
-        <div>
-          <span className="eyebrow">BLE Mesh Provisioning</span>
-          <Heading>조명 등록</Heading>
+    <section
+      className={`grid min-w-0 gap-3.5 rounded-panel border p-4.5 shadow-panel ${hasFixtures ? "border-border-default bg-surface-panel" : "border-action-primary bg-action-primary-soft"}`}
+      data-testid="commissioning-registration"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <span className="text-overline text-content-secondary">BLE Mesh Provisioning</span>
+          <Heading className="m-0 text-card-title text-content-primary">조명 등록</Heading>
         </div>
         {sessionSnapshot ? (
           <span role="status" aria-label="조명 검색 상태">
@@ -464,15 +467,15 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
         ) : <StatusBadge tone="neutral" icon={Clock3}>준비됨</StatusBadge>}
       </div>
 
-      <ProgressSteps label="조명 등록 진행" steps={steps} />
+      <ProgressSteps className="flex-wrap" label="조명 등록 진행" steps={steps} />
 
-      <Card className="registration-summary">
-        <div>
+      <Card className="grid gap-3 compact:grid-cols-2 tablet:grid-cols-3 tablet:items-end">
+        <div className="grid gap-1">
           <strong>{floor?.name ?? "등록 대상 선택"}</strong>
-          <span>{hasFixtures ? "추가 조명을 검색해 등록합니다." : "등록된 조명이 없어 먼저 검색을 시작합니다."}</span>
-          {!floor || !gateway ? <small>층과 게이트웨이를 선택해야 조명 검색을 시작할 수 있습니다.</small> : null}
+          <span className="text-body-sm text-content-secondary">{hasFixtures ? "추가 조명을 검색해 등록합니다." : "등록된 조명이 없어 먼저 검색을 시작합니다."}</span>
+          {!floor || !gateway ? <small className="text-caption text-content-secondary">층과 게이트웨이를 선택해야 조명 검색을 시작할 수 있습니다.</small> : null}
         </div>
-        <div className="registration-targets">
+        <div className="grid gap-2 compact:grid-cols-2" data-testid="registration-selectors">
           {(activeSessionsQuery.data?.length ?? 0) > 1 ? (
             <SelectBox
               label="진행 중인 세션"
@@ -501,7 +504,7 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
             onSelectionChange={(key) => setSelectedGatewayId(key ?? "")}
           />
         </div>
-        <Button variant="primary" disabled={!canStart} isLoading={startMutation.isPending} loadingLabel="조명 검색 시작 중" onClick={() => startMutation.mutate()}>
+        <Button className="justify-self-start tablet:justify-self-end" variant="primary" disabled={!canStart} isLoading={startMutation.isPending} loadingLabel="조명 검색 시작 중" onClick={() => startMutation.mutate()}>
           <Radar size={16} />
           조명 검색 시작
         </Button>
@@ -513,12 +516,12 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
       ) : null}
 
       {session && sessionSnapshot ? (
-        <Card className="registration-session">
-          <div className="session-meta">
-            <span>등록 세션</span>
+        <Card className="grid gap-3">
+          <div className="grid gap-1 rounded-control border border-border-default bg-surface-inset p-3" aria-label="등록 세션 정보">
+            <span className="text-body-sm text-content-secondary">등록 세션</span>
             <strong>{session.id.slice(0, 8)}</strong>
-            <small>{selectableNodes.length}개 등록 가능</small>
-            {excludedNodeCount > 0 ? <small>{excludedNodeCount}개 제외</small> : null}
+            <small className="text-caption text-content-secondary">{selectableNodes.length}개 등록 가능</small>
+            {excludedNodeCount > 0 ? <small className="text-caption text-content-secondary">{excludedNodeCount}개 제외</small> : null}
             {nodes.some((node) => node.status === "reconcile_required") ? (
               <Button
                 variant="secondary"
@@ -537,8 +540,8 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
             ) : null}
           </div>
           {sessionSnapshot.scanStatus === "failed" ? (
-            <div className="node-row muted-node" role="alert">
-              <span>{safeScanFailureMessage(sessionSnapshot.scanFailureMessage)}</span>
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-panel border border-border-default bg-surface-inset p-3 text-content-secondary" role="alert">
+              <span className="text-body-sm">{safeScanFailureMessage(sessionSnapshot.scanFailureMessage)}</span>
               <Button variant="secondary" disabled={retryMutation.isPending} isLoading={retryMutation.isPending} loadingLabel="다시 검색 중" onClick={() => retryMutation.mutate()}>
                 <Radar size={15} />
                 다시 검색
@@ -546,8 +549,8 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
             </div>
           ) : null}
           {sessionSnapshot.scanStatus === "completed" && visibleNodes.length === 0 ? (
-            <div className="node-row muted-node">
-              <span>{excludedNodeCount > 0
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-panel border border-border-default bg-surface-inset p-3 text-content-secondary">
+              <span className="text-body-sm">{excludedNodeCount > 0
                 ? "새로 등록할 수 있는 조명이 없습니다."
                 : "검색된 미등록 조명이 없습니다."}</span>
               <Button variant="secondary" disabled={retryMutation.isPending} isLoading={retryMutation.isPending} loadingLabel="다시 검색 중" onClick={() => retryMutation.mutate()}>
@@ -557,9 +560,8 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
             </div>
           ) : null}
           {selectableNodes.length > 0 ? (
-            <div className="registration-selection-toolbar">
+            <div className="flex min-h-11 flex-wrap items-center justify-between gap-3 max-compact:items-start max-compact:flex-col">
               <Checkbox
-                className="selection-checkbox"
                 label="등록 가능 조명 전체 선택"
                 isSelected={selectableNodes.length > 0 && selectableNodes.every((node) => selectedNodeIds.includes(node.id))}
                 onChange={toggleAllNodes}
@@ -567,9 +569,9 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
               <strong>{actionableNodes.length}개 선택</strong>
             </div>
           ) : null}
-          <div className="registration-node-list">
+          <div className="grid gap-2" data-testid="discovered-device-list">
             {visibleNodes.length === 0 && sessionSnapshot.scanStatus !== "completed" && sessionSnapshot.scanStatus !== "failed" ? (
-              <div className="node-row muted-node">게이트웨이가 미등록 조명을 검색하는 중입니다.</div>
+              <div className="rounded-panel border border-border-default bg-surface-inset p-3 text-body-sm text-content-secondary">게이트웨이가 미등록 조명을 검색하는 중입니다.</div>
             ) : (
               visibleNodes.map((node, index) => {
                 const hasKnownEligibility = hasKnownRegistrationEligibility(node);
@@ -579,10 +581,14 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
                     ? node.errorMessage
                     : null));
                 return (
-                  <div className={`node-row${isAvailableRegistrationNode(node) && selectedNodeIds.includes(node.id) ? " selected" : ""}`} key={node.id}>
+                  <div
+                    className={`flex min-h-16 flex-wrap items-center gap-2.5 rounded-panel border bg-surface-panel p-3 ${isAvailableRegistrationNode(node) && selectedNodeIds.includes(node.id) ? "border-action-primary bg-action-primary-soft" : "border-border-default"}`}
+                    data-testid="discovered-device"
+                    key={node.id}
+                  >
                     {hasKnownEligibility ? (
                       <Checkbox
-                        className="node-selection"
+                        className="min-w-11 justify-center"
                         size="lg"
                         aria-label={`조명 ${index + 1} 선택`}
                         isSelected={selectedNodeIds.includes(node.id)}
@@ -590,7 +596,7 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
                         onChange={() => toggleNode(node.id)}
                       />
                     ) : <span aria-hidden="true" />}
-                    <div className="node-identity">
+                    <div className="grid min-w-0 flex-1 gap-1 break-all text-body-sm text-content-secondary">
                       {hidesIdentity ? (
                         <span>{hasKnownEligibility
                           ? "다른 현장에 등록된 장치입니다. 보안을 위해 상세 정보는 표시하지 않습니다."
@@ -601,13 +607,13 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
                           <span>{node.deviceUuid}</span>
                           <small>RSSI {node.rssi} dBm</small>
                           {node.status === "discovered" && node.identifyState === "confirmed" ? (
-                            <small className="success-text">식별 완료</small>
+                            <small className="inline-flex items-center gap-1.5 text-body-sm font-bold text-status-success-foreground">식별 완료</small>
                           ) : null}
-                          {rowError ? <small className="danger-text">{rowError}</small> : null}
+                          {rowError ? <small className="text-body-sm font-bold text-status-danger-foreground">{rowError}</small> : null}
                         </>
                       )}
                     </div>
-                    <StatusBadge className={`node-status ${node.status}`} tone={nodeStatusTone(node.status)} icon={nodeStatusIcon(node.status)}>
+                    <StatusBadge tone={nodeStatusTone(node.status)} icon={nodeStatusIcon(node.status)}>
                       {statusLabels[node.status]}
                     </StatusBadge>
                     {node.status === "discovered" || node.status === "identifying" ? (
@@ -624,8 +630,8 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
                       </Button>
                     ) : null}
                     {node.status === "reconcile_required" ? (
-                      <div className="reconcile-actions">
-                        <small>장비의 실제 등록 상태를 확인하기 전에는 다시 등록하지 마세요.</small>
+                      <div className="grid w-full min-w-0 justify-items-start gap-1.5 compact:w-auto">
+                        <small className="text-caption text-content-secondary">장비의 실제 등록 상태를 확인하기 전에는 다시 등록하지 마세요.</small>
                         <Checkbox
                           label="장비가 등록되지 않았거나 초기화된 상태임을 확인"
                           aria-label="장비 상태를 확인했으며 현재 세션에서 제외"
@@ -653,34 +659,34 @@ export function RegistrationPanel({ dashboard, dashboardQuerySiteId, headingLeve
             )}
           </div>
           {preExistingRegistrationNodes.length > 0 ? (
-            <details className="registered-node-details">
-              <summary>기존 등록 조명 {preExistingRegistrationNodes.length}개 제외됨</summary>
-              <div className="registered-node-list">
+            <details className="rounded-control border border-border-default bg-surface-inset" data-testid="existing-fixture-details">
+              <summary className="min-h-11 cursor-pointer px-3 py-2.5 text-body-sm font-bold text-content-secondary">기존 등록 조명 {preExistingRegistrationNodes.length}개 제외됨</summary>
+              <div className="grid gap-2 border-t border-border-default p-3">
                 {registeredInSiteNodes.map((node) => (
-                  <div className="registered-node-row" key={node.id}>
+                  <div className="grid gap-1 rounded-control border border-border-default bg-surface-panel p-3" key={node.id}>
                     <strong>{node.existingRegistration?.fixtureName ?? "조명 정보 없음"}</strong>
-                    <span>{node.existingRegistration?.floorName ?? "층 정보 없음"}</span>
-                    <small>{node.serialNumber}</small>
+                    <span className="break-words text-body-sm text-content-secondary">{node.existingRegistration?.floorName ?? "층 정보 없음"}</span>
+                    <small className="break-words text-caption text-content-secondary">{node.serialNumber}</small>
                   </div>
                 ))}
                 {registeredElsewhereCount > 0 ? (
-                  <div className="registered-elsewhere-notice">
+                  <div className="grid gap-1 rounded-control border border-border-default bg-surface-panel p-3">
                     <strong>다른 현장 등록 {registeredElsewhereCount}개</strong>
-                    <span>다른 현장에 등록된 장치입니다. 보안을 위해 상세 정보는 표시하지 않습니다.</span>
+                    <span className="break-words text-body-sm text-content-secondary">다른 현장에 등록된 장치입니다. 보안을 위해 상세 정보는 표시하지 않습니다.</span>
                   </div>
                 ) : null}
               </div>
             </details>
           ) : null}
           {hiddenUnknownEligibilityNodes.length > 0 ? (
-            <p className="registration-eligibility-warning">
+            <p className="m-0 break-words rounded-control border border-status-warning-border bg-status-warning-background p-3 text-body-sm font-bold text-status-warning-foreground">
               등록 상태를 확인할 수 없는 장치 {hiddenUnknownEligibilityNodes.length}개를 제외했습니다.
             </p>
           ) : null}
           {registrationFormNodes.length > 0 && sessionSnapshot.scanStatus !== "failed" ? (
-            <div className="registration-config">
+            <div className="grid gap-3.5 border-t border-border-default pt-3.5">
               <RadioGroup
-                className="registration-mode-toggle"
+                className="w-full compact:w-auto"
                 aria-label="조명 설정 방식"
                 orientation="horizontal"
                 value={mode}
