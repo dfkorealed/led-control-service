@@ -52,6 +52,11 @@ export const floorImportJobStatusSchema = z.enum([
   "cancelled"
 ]);
 
+export const floorImportRenderedViewportSchema = z.object({
+  width: z.number().int().positive().max(POSTGRES_INT_MAX),
+  height: z.number().int().positive().max(POSTGRES_INT_MAX)
+}).strict();
+
 export const floorImportDetectionMethodSchema = z.enum(["rule_based", "ai_assisted"]);
 export const floorImportCandidateReviewStatusSchema = z.enum(["pending", "accepted", "rejected"]);
 
@@ -106,6 +111,7 @@ export const floorImportApplyInputSchema = z.object({
 export type CadImportSourceFormat = z.infer<typeof cadImportSourceFormatSchema>;
 export type CadImportMimeType = z.infer<typeof cadImportMimeTypeSchema>;
 export type FloorImportJobStatus = z.infer<typeof floorImportJobStatusSchema>;
+export type FloorImportRenderedViewport = z.infer<typeof floorImportRenderedViewportSchema>;
 export type FloorImportCandidate = z.infer<typeof floorImportCandidateSchema>;
 export type FloorImportCandidateListResponse = z.infer<typeof floorImportCandidateListResponseSchema>;
 export type FloorImportApplyInput = z.infer<typeof floorImportApplyInputSchema>;

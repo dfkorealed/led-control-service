@@ -10,6 +10,7 @@ import {
   cadImportFileTypeSchema,
   floorImportApplyInputSchema,
   floorImportCandidateListResponseSchema,
+  floorImportRenderedViewportSchema,
   type FloorImportApplyInput
 } from "@led-control/shared";
 import { Prisma } from "@prisma/client";
@@ -29,7 +30,8 @@ const createInputSchema = z.object({
   sourceFormat: z.enum(["dwg", "dxf"])
 }).strict();
 
-const activeStatuses = ["queued", "processing", "review_required"] as const;
+const activeStatuses = ["queued", "processing", "review_required", "applying"] as const;
+const cancellableStatuses = ["queued", "processing", "review_required"] as const;
 
 interface LockedApplyRow {
   status: string;
@@ -107,7 +109,7 @@ export class FloorImportService {
         });
         return job;
       });
-      return publicJob(created);
+      return this.publicJob(created);
     } catch (error) {
       if (isUniqueConflict(error)) throw new ConflictException("an active floor import already exists");
       throw error;
@@ -118,7 +120,17 @@ export class FloorImportService {
     await this.authorizeFloor(user, floorId, "read");
     const job = await this.prisma.floorImportJob.findFirst({ where: { id: jobId, floorId }, select: jobSelect });
     if (!job) throw new NotFoundException("floor import job not found");
-    return publicJob(job);
+    return this.publicJob(job);
+  }
+
+  async getActive(user: AuthenticatedUser, floorId: string) {
+    await this.authorizeFloor(user, floorId, "manage");
+    const job = await this.prisma.floorImportJob.findFirst({
+      where: { floorId, status: { in: [...activeStatuses] } },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      select: jobSelect
+    });
+    return { job: job ? await this.publicJob(job) : null };
   }
 
   async listCandidates(user: AuthenticatedUser, floorId: string, jobId: string) {
@@ -140,7 +152,7 @@ export class FloorImportService {
       const authorizedSite = await this.access.assertManageInTransaction(tx, user, floor.siteId);
       const now = new Date();
       const changed = await tx.floorImportJob.updateMany({
-        where: { id: jobId, floorId, status: { in: [...activeStatuses] } },
+        where: { id: jobId, floorId, status: { in: [...cancellableStatuses] } },
         data: {
           status: "cancelled", stage: "cancelled", leaseOwner: null, leaseExpiresAt: null,
           failureCode: null, failureMessage: null, cancelledAt: now
@@ -158,7 +170,7 @@ export class FloorImportService {
           outcome: "success", metadata: { floorId }, transaction: tx
         });
       }
-      return publicJob(job);
+      return this.publicJob(job);
     });
   }
 
@@ -322,6 +334,31 @@ export class FloorImportService {
     return floor;
   }
 
+  private async publicJob(job: Prisma.FloorImportJobGetPayload<{ select: typeof jobSelect }>) {
+    let renderedViewport: { width: number; height: number } | null = null;
+    if (["review_required", "applying", "completed"].includes(job.status)) {
+      if (!this.storage) throw new InternalServerErrorException("floor import storage is unavailable");
+      const rendered = job.renderedAsset;
+      if (!rendered || rendered.status !== "ready" || rendered.mimeType !== "image/svg+xml" || rendered.cleanupStartedAt) {
+        throw new ConflictException("rendered floor asset is not ready for review");
+      }
+      const sizeBytes = Number(rendered.sizeBytes);
+      if (!Number.isSafeInteger(sizeBytes)) throw new ConflictException("rendered floor asset ledger is invalid");
+      try {
+        renderedViewport = floorImportRenderedViewportSchema.parse(
+          await this.storage.readFloorRenderedMetadata(rendered.objectKey, {
+            sizeBytes,
+            sha256: rendered.sha256,
+            mimeType: "image/svg+xml"
+          })
+        );
+      } catch {
+        throw new ServiceUnavailableException("rendered floor asset metadata is unavailable");
+      }
+    }
+    return publicJob(job, renderedViewport);
+  }
+
   private parse<T>(schema: { parse(value: unknown): T }, value: unknown, message: string): T {
     try { return schema.parse(value); }
     catch { throw new BadRequestException(message); }
@@ -365,7 +402,10 @@ const jobSelect = {
   status: true, stage: true, progressPercent: true, attemptCount: true,
   parserVersion: true, detectorVersion: true, failureCode: true,
   startedAt: true, reviewRequiredAt: true, appliedAt: true, completedAt: true,
-  failedAt: true, cancelledAt: true, createdAt: true, updatedAt: true
+  failedAt: true, cancelledAt: true, createdAt: true, updatedAt: true,
+  renderedAsset: { select: {
+    id: true, objectKey: true, status: true, mimeType: true, sizeBytes: true, sha256: true, cleanupStartedAt: true
+  } }
 } satisfies Prisma.FloorImportJobSelect;
 
 const candidateSelect = {
@@ -374,7 +414,10 @@ const candidateSelect = {
   inputDigest: true, reviewStatus: true
 } satisfies Prisma.FloorImportCandidateSelect;
 
-function publicJob(job: Prisma.FloorImportJobGetPayload<{ select: typeof jobSelect }>) {
+function publicJob(
+  job: Prisma.FloorImportJobGetPayload<{ select: typeof jobSelect }>,
+  renderedViewport: { width: number; height: number } | null
+) {
   return {
     jobId: job.id,
     floorId: job.floorId,
@@ -390,6 +433,7 @@ function publicJob(job: Prisma.FloorImportJobGetPayload<{ select: typeof jobSele
     failureCode: job.failureCode,
     sourceAssetPath: assetAccessPath(job.floorId, job.sourceAssetId),
     renderedAssetPath: job.renderedAssetId ? assetAccessPath(job.floorId, job.renderedAssetId) : null,
+    renderedViewport,
     startedAt: iso(job.startedAt),
     reviewRequiredAt: iso(job.reviewRequiredAt),
     appliedAt: iso(job.appliedAt),

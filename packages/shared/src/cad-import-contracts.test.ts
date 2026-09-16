@@ -4,7 +4,8 @@ import {
   cadImportFileTypeSchema,
   floorImportApplyInputSchema,
   floorImportCandidateListResponseSchema,
-  floorImportJobStatusSchema
+  floorImportJobStatusSchema,
+  floorImportRenderedViewportSchema
 } from "./cad-import-contracts";
 
 const jobId = "00000000-0000-4000-8000-000000000001";
@@ -61,6 +62,14 @@ describe("CAD import contracts", () => {
       "cancelled"
     ]);
     expect(floorImportJobStatusSchema.safeParse("ready").success).toBe(false);
+  });
+
+  it("validates the rendered CAD viewport used by both preview and candidates", () => {
+    expect(floorImportRenderedViewportSchema.parse({ width: 640, height: 360 }))
+      .toEqual({ width: 640, height: 360 });
+    expect(floorImportRenderedViewportSchema.safeParse({ width: 0, height: 360 }).success).toBe(false);
+    expect(floorImportRenderedViewportSchema.safeParse({ width: 640, height: Number.POSITIVE_INFINITY }).success).toBe(false);
+    expect(floorImportRenderedViewportSchema.safeParse({ width: 640, height: 360, scale: 2 }).success).toBe(false);
   });
 
   it("validates a strict candidate list response", () => {

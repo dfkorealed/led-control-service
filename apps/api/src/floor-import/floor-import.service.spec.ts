@@ -138,6 +138,97 @@ describe("FloorImportService", () => {
     expect(access.assert).toHaveBeenCalledWith(user, "site-1", "read");
   });
 
+  it("requires manage access and returns the floor active job including an authenticated rendered viewport", async () => {
+    const floorId = randomUUID();
+    const renderedAssetId = randomUUID();
+    const active = job({
+      floorId,
+      renderedAssetId,
+      status: "applying",
+      renderedAsset: {
+        id: renderedAssetId,
+        objectKey: `floors/${floorId}/${renderedAssetId}.svg`,
+        status: "ready",
+        mimeType: "image/svg+xml",
+        sizeBytes: 256n,
+        sha256: "b".repeat(64),
+        cleanupStartedAt: null
+      }
+    });
+    const prisma: any = {
+      floor: { findUnique: jest.fn().mockResolvedValue({ id: floorId, siteId: "site-1" }) },
+      floorImportJob: { findFirst: jest.fn().mockResolvedValue(active) }
+    };
+    const access: any = { assert: jest.fn().mockResolvedValue({ id: "site-1" }) };
+    const storage = { readFloorRenderedMetadata: jest.fn().mockResolvedValue({ width: 640, height: 360 }) };
+    const service = new FloorImportService(prisma, access, { record: jest.fn() } as any, storage as any);
+
+    await expect(service.getActive(user, floorId)).resolves.toEqual({
+      job: expect.objectContaining({
+        jobId: active.id,
+        status: "applying",
+        renderedViewport: { width: 640, height: 360 }
+      })
+    });
+    expect(access.assert).toHaveBeenCalledWith(user, "site-1", "manage");
+    expect(prisma.floorImportJob.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: { floorId, status: { in: ["queued", "processing", "review_required", "applying"] } }
+    }));
+    expect(storage.readFloorRenderedMetadata).toHaveBeenCalledWith(
+      `floors/${floorId}/${renderedAssetId}.svg`,
+      { sizeBytes: 256, sha256: "b".repeat(64), mimeType: "image/svg+xml" }
+    );
+  });
+
+  it("returns an empty active-job envelope after tenant and role authorization", async () => {
+    const floorId = randomUUID();
+    const prisma: any = {
+      floor: { findUnique: jest.fn().mockResolvedValue({ id: floorId, siteId: "site-1" }) },
+      floorImportJob: { findFirst: jest.fn().mockResolvedValue(null) }
+    };
+    const access: any = { assert: jest.fn() };
+    const service = new FloorImportService(prisma, access, { record: jest.fn() } as any);
+
+    await expect(service.getActive(user, floorId)).resolves.toEqual({ job: null });
+    expect(access.assert).toHaveBeenCalledWith(user, "site-1", "manage");
+  });
+
+  it("returns the same validated viewport from the readable job endpoint", async () => {
+    const floorId = randomUUID();
+    const renderedAssetId = randomUUID();
+    const reviewJob = job({
+      floorId,
+      renderedAssetId,
+      status: "review_required",
+      renderedAsset: {
+        id: renderedAssetId,
+        objectKey: `floors/${floorId}/${renderedAssetId}.svg`,
+        status: "ready",
+        mimeType: "image/svg+xml",
+        sizeBytes: 512n,
+        sha256: "c".repeat(64),
+        cleanupStartedAt: null
+      }
+    });
+    const prisma: any = {
+      floor: { findUnique: jest.fn().mockResolvedValue({ id: floorId, siteId: "site-1" }) },
+      floorImportJob: { findFirst: jest.fn().mockResolvedValue(reviewJob) }
+    };
+    const access: any = { assert: jest.fn() };
+    const service = new FloorImportService(
+      prisma,
+      access,
+      { record: jest.fn() } as any,
+      { readFloorRenderedMetadata: jest.fn().mockResolvedValue({ width: 640, height: 360 }) } as any
+    );
+
+    await expect(service.get(user, floorId, reviewJob.id)).resolves.toMatchObject({
+      jobId: reviewJob.id,
+      renderedViewport: { width: 640, height: 360 }
+    });
+    expect(access.assert).toHaveBeenCalledWith(user, "site-1", "read");
+  });
+
   it("cancels an active job with a fenced state transition and leaves terminal jobs unchanged", async () => {
     const floorId = randomUUID(); const row = job({ floorId, status: "processing", leaseOwner: "worker", leaseExpiresAt: new Date() });
     const cancelled = job({ ...row, status: "cancelled", leaseOwner: null, leaseExpiresAt: null, cancelledAt: new Date() });

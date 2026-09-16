@@ -14,6 +14,11 @@ export class FloorImportController {
     return this.imports.create(user, floorId, body);
   }
 
+  @Get("active")
+  active(@Param("floorId") floorId: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.imports.getActive(user, floorId);
+  }
+
   @Get(":jobId")
   get(@Param("floorId") floorId: string, @Param("jobId") jobId: string, @CurrentUser() user: AuthenticatedUser) {
     return this.imports.get(user, floorId, jobId);
