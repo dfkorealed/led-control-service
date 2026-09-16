@@ -147,7 +147,7 @@ describe("FixtureGroupDialog", () => {
     fireEvent.click(deleteTrigger);
     expect(screen.getByRole("dialog", { name: "구역 삭제 확인" })).toBeInTheDocument();
 
-    fireEvent.keyDown(document, { key: "Escape" });
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
 
     expect(screen.queryByRole("dialog", { name: "구역 삭제 확인" })).not.toBeInTheDocument();
     expect(screen.getByRole("dialog", { name: "구역 관리" })).toBeInTheDocument();

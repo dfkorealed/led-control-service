@@ -5,7 +5,7 @@ import shared from "./playwright.config";
 // would add unrelated dependencies and could mask the production CSS cascade.
 export default defineConfig({
   ...shared,
-  testMatch: ["ui-cascade.spec.ts", "ui-fields.spec.ts", "ui-dates.spec.ts"],
+  testMatch: ["ui-cascade.spec.ts", "ui-fields.spec.ts", "ui-dates.spec.ts", "ui-overlays.spec.ts"],
   workers: 1,
   webServer: undefined
 });

@@ -41,6 +41,7 @@ jobs:
       - run: pnpm --filter @led-control/api prisma:generate
       - run: pnpm test
       - run: pnpm --filter @led-control/web test:date-bundle
+      - run: pnpm --filter @led-control/web test:overlay-bundle
 
   postgres-redis-integration:
     needs: unit

@@ -172,10 +172,11 @@ test("production UI cascade runs after browser installation, outside browserless
     env: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: path.join(root, ".missing-ui-cascade-browser") }
   });
   assert.equal(discovered.status, 0, discovered.stdout + discovered.stderr);
-  assert.match(discovered.stdout, /Total: 30 tests in 3 files/);
+  assert.match(discovered.stdout, /Total: 36 tests in 4 files/);
   assert.match(discovered.stdout, /ui-cascade\.spec\.ts/);
   assert.match(discovered.stdout, /ui-fields\.spec\.ts/);
   assert.match(discovered.stdout, /ui-dates\.spec\.ts/);
+  assert.match(discovered.stdout, /ui-overlays\.spec\.ts/);
 });
 
 test("date bundle gate runs serially after unit tests and cannot be skipped", async () => {
@@ -199,6 +200,31 @@ test("date bundle gate runs serially after unit tests and cannot be skipped", as
   const webPackage = JSON.parse(await readFile(path.join(root, "apps/web/package.json"), "utf8"));
   assert.equal(webPackage.scripts["test:date-bundle"], "node --test scripts/date-bundle.mjs");
   const syntax = spawnSync(process.execPath, ["--check", path.join(root, "apps/web/scripts/date-bundle.mjs")], { encoding: "utf8" });
+  assert.equal(syntax.status, 0, syntax.stdout + syntax.stderr);
+});
+
+test("overlay bundle gate runs serially after unit tests and cannot be skipped", async () => {
+  const workflow = await parseWorkflow("ci.yml");
+  function assertOverlayBundleGate(job) {
+    const unit = job.steps.findIndex(step => step.run === "pnpm test");
+    const date = job.steps.findIndex(step => step.run === "pnpm --filter @led-control/web test:date-bundle");
+    const bundle = job.steps.findIndex(step => step.run === "pnpm --filter @led-control/web test:overlay-bundle");
+    assert.ok(unit >= 0 && date > unit && bundle > date, "overlay bundle gate must run serially after unit and date gates");
+    assertCannotBeSkipped(job, "unit job");
+    assertCannotBeSkipped(job.steps[bundle], "overlay bundle gate");
+  }
+  assertOverlayBundleGate(workflow.jobs.unit);
+  const missing = structuredClone(workflow.jobs.unit);
+  missing.steps = missing.steps.filter(step => !step.run?.includes("test:overlay-bundle"));
+  assert.throws(() => assertOverlayBundleGate(missing), /must run serially/);
+  for (const flag of ["if", "continue-on-error"]) {
+    const skipped = structuredClone(workflow.jobs.unit);
+    skipped.steps.find(step => step.run?.includes("test:overlay-bundle"))[flag] = true;
+    assert.throws(() => assertOverlayBundleGate(skipped), /must not declare/);
+  }
+  const webPackage = JSON.parse(await readFile(path.join(root, "apps/web/package.json"), "utf8"));
+  assert.equal(webPackage.scripts["test:overlay-bundle"], "node --test scripts/overlay-bundle.mjs");
+  const syntax = spawnSync(process.execPath, ["--check", path.join(root, "apps/web/scripts/overlay-bundle.mjs")], { encoding: "utf8" });
   assert.equal(syntax.status, 0, syntax.stdout + syntax.stderr);
 });
 

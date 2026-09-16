@@ -608,6 +608,10 @@ Production Chromium에서 popup의 기본 12px viewport inset과 310px calendar�
 
 ### Task 5: Dropdown과 overlay/dialog 체계 통합
 
+**완료(2026-09-16, 소프트웨어·foundation QA 대기):** 승인된 기반 `bc98f256`에서 구현했다. 최초 querySelector/API RED는 9 failed/63 passed였다. 최종 focused **81/81**, full Web **82 files·1,192/1,192**, production Chromium **36/36**, typecheck/build·diff, ui:check **기존 2,322/신규 0**, CI **40/40**가 통과했다. 공통 Modal/Confirm은 정확한 Tab 순환·중첩 포커스·pending/close·별칭·return/fallback을 유지하며 production DOM enumeration/private API는 0이다. 임시 ref-only hook은 top-stack containment/Escape/return만 보장하고 Task 8/11에서 전환한다. 승인된 두 feature test의 document-target synthetic keyboard는 focused control 키 이벤트/containment 계약으로 갱신했다. 정확한 cycling은 새 공통 overlay의 기존 unit 및 production Chromium에서 보장한다. Feature production/Task 6/HIL은 변경·실행하지 않았다.
+
+직렬 date·overlay bundle gate는 각각 **1/1**이다. 양쪽 normal/control은 **652,914자/gzip 200,150바이트/514모듈**, SHA-256 `5c31f1e6905066e66ad1219f67338419f69de4dc443ccbd971a5e5153e6dd374`로 동일하다. 미사용 Dropdown/Popover delta는 **0/0/0**이고 PURE 제거 negative는 **667,454자/204,673바이트/526모듈**(delta **+14,540/+4,523/+12**)이다. 기존 date gate는 수정하지 않았으며 date negative는 **800,005자/246,112바이트/671모듈**이다. 실제 consumer DOM에서 Dropdown trigger·열린 Popover portal을, 기존 SSR에서 날짜 네 컴포넌트를 렌더링한다. 브라우저 의존 검사는 설치된 Chromium 경로에서 실행하고 일반 Vitest에는 production build를 넣지 않았다. Build main은 **652.91 kB/gzip 200.15 kB**, 기존 500 kB 경고는 유지한다.
+
 **Owner:** `서비스 UI 개선`
 
 **Files:**
@@ -624,7 +628,7 @@ Production Chromium에서 popup의 기본 12px viewport inset과 310px calendar�
 **Interfaces:**
 - Produces: one `ModalDialog`, one `ConfirmDialog`, `DropdownMenu<T>`, `Popover`; focus containment and return are owned by React Aria.
 
-- [ ] **Step 1: overlay focus와 querySelector 금지 테스트를 작성한다**
+- [x] **Step 1: overlay focus와 querySelector 금지 테스트를 작성한다**
 
 ```tsx
 it("returns focus to the trigger after Escape", async () => {
@@ -640,17 +644,17 @@ it("contains no production querySelector in overlay sources", () => {
 });
 ```
 
-- [ ] **Step 2: 기존 구현에서 금지 테스트가 실패하는지 확인한다**
+- [x] **Step 2: 기존 구현에서 금지 테스트가 실패하는지 확인한다**
 
 Run: `pnpm --filter @led-control/web test -- src/components/ui/overlays/overlays.test.tsx src/components/ui/ui-primitives.test.tsx`
 
 Expected: FAIL because existing ModalDialog and ConfirmDialog call `querySelector`.
 
-- [ ] **Step 3: React Aria overlay로 교체한다**
+- [x] **Step 3: React Aria overlay로 교체한다**
 
 `ModalOverlay`, `Modal`, `Dialog`, `Heading`, `Button`을 조합하고 기존 props인 `title`, `description`, `actions`, `onClose`, `isPending`, `initialFocusRef`, `returnFocusElement`, `fallbackFocusElement`, `role`, `className`을 유지한다. `isDismissable={!isPending}`, `isKeyboardDismissDisabled={isPending}`로 pending 보호를 보존한다.
 
-- [ ] **Step 4: 두 ConfirmDialog를 하나의 public API로 수렴한다**
+- [x] **Step 4: 두 ConfirmDialog를 하나의 public API로 수렴한다**
 
 ```ts
 export interface ConfirmDialogProps {
@@ -675,7 +679,7 @@ ModalDialog와 ConfirmDialog는 화면별 접근성 이름을 보존할 수 있�
 
 `returnFocusRef`/`fallbackFocusRef`를 신규 호출의 기본 계약으로 사용한다. 기존 호출자가 가진 element 기반 `returnFocusElement`/`fallbackFocusElement`도 migration 기간에 보존하고 ref가 없을 때만 사용한다. legacy import 경로는 re-export adapter로 한 migration 단계 동안 유지하고, 모든 page migration이 끝난 Task 12에서 제거한다.
 
-- [ ] **Step 5: overlay tests·전체 UI primitive tests·policy를 통과시킨다**
+- [x] **Step 5: overlay tests·전체 UI primitive tests·policy를 통과시킨다**
 
 Run:
 
@@ -687,7 +691,7 @@ pnpm --filter @led-control/web ui:check
 
 Expected: all commands exit 0 and production common components contain no `querySelector`.
 
-- [ ] **Step 6: foundation 완료 커밋을 만든다**
+- [x] **Step 6: foundation 완료 커밋을 만든다**
 
 ```bash
 git add apps/web/src/components/ConfirmDialog.tsx apps/web/src/components/ui
