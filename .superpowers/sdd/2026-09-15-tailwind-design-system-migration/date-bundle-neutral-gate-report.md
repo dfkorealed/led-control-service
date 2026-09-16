@@ -1,46 +1,56 @@
-# Date bundle neutral gate report
+# Date bundle neutral gate report — review round 1
 
-## Root cause and design
+## Findings addressed
 
-The old no-date control rebuilt the real application after deleting the date
-barrel exports in memory. Once `StatisticsAnalysisPage` started importing
-`DatePicker`, that deliberately invalid barrel failed the build with Rollup's
-`MISSING_EXPORT` error, making the migration-stage zero-cost check depend on
-application adoption.
+The first neutral gate forced `moduleSideEffects: false`, used a barrel-side
+live-reference negative control, and put application DatePicker retention
+behind an environment flag. Those choices could hide production tree-shaking
+behavior and made the clean-app proof depend on a Git-ref source overlay.
 
-The gate now compares a virtual consumer that imports and server-renders only
-`Button` from the real UI barrel. Its normal and no-date-control output must be
-identical in character count, gzip bytes, module count, SHA-256 digest, and
-date-module list. The no-date control is separately proven by requiring a
-virtual date consumer to fail when its exports are removed. An impure in-memory
-barrel mutation retains all four date controls and must increase every relevant
-bundle cost. Explicit virtual consumers render Calendar, DatePicker,
-DateRangePicker, and TimePicker. The production application is built separately
-and reports whether DatePicker is retained; the strict current-consumer run
-requires that retention, while the default gate supports a no-consumer app.
+The gate now uses Vite/Rollup's production-default tree-shaking policy for all
+normal, stub-control, and negative builds. The neutral virtual consumer imports
+and server-renders only `Button` from the real UI barrel. Its control keeps the
+barrel's export and import-discovery graph intact: each date implementation is
+loaded in memory with its original source body, while its public runtime export
+is renamed and replaced by a pure stub. The original implementation is then
+dead, so implementation cost is removed without changing Rollup's emission
+ordering. A separate stripped-barrel virtual date consumer must fail with
+`MISSING_EXPORT`, proving that the export-removal mutation remains effective.
+
+The negative control removes `/* @__PURE__ */` from the actual date `.tsx`
+modules under that same production-default policy. A read-only `pure-date`
+mutation leaves those annotations intact and is required to fail the negative
+control assertion. The stub-control fixture explicitly imports every runtime
+barrel date export and rejects output containing implementation signatures, so
+an implementation leak cannot satisfy the zero-cost comparison unnoticed.
+
+The production app build now observes TypeScript/TSX barrel imports through a
+Vite transform. When an app module imports `DatePicker`, the gate automatically
+requires the emitted application chunks to retain `DatePicker`; otherwise it
+emits an explicit `DatePicker not consumed` diagnostic. No environment flag or
+Git-ref source overlay remains. The explicit virtual Calendar, DatePicker,
+DateRangePicker, and TimePicker consumer still renders all four controls.
 
 ## Fresh metrics
 
 | Build | Characters | Gzip bytes | Modules | SHA-256 | Date modules |
 | --- | ---: | ---: | ---: | --- | ---: |
-| Neutral normal | 110036 | 35180 | 20 | `29dcc67c41f94309b562ebdc485a84770a3506b62795b4d8cb806ae47ea75ed4` | 0 |
-| Neutral no-date control | 110036 | 35180 | 20 | `29dcc67c41f94309b562ebdc485a84770a3506b62795b4d8cb806ae47ea75ed4` | 0 |
-| Impure negative control | 691860 | 214300 | 611 | `b2d7a5676ceacc3a5f76d9f266f629e01acc483d1628250d062173bc216454d9` | 6 |
-| Explicit date consumer | 499045 | 160280 | 357 | `cb0c2a7a353d61c3b2f84a1a34bd87187bd8c101f635f114579a3f0d5e82b2c1` | 6 |
+| Neutral normal | 542967 | 167833 | 451 | `886de36b3db5ed67baa4fe4c9b90c83ba022dd5a09a6872c89b2d4c9d8c973d9` | 0 |
+| Neutral pure-stub control | 542967 | 167833 | 451 | `886de36b3db5ed67baa4fe4c9b90c83ba022dd5a09a6872c89b2d4c9d8c973d9` | 0 |
+| PURE-removal negative control | 691781 | 214272 | 610 | `e18e4836be7f83faca2292cdfd04b6ad889ebc9c498ca8780623a8fa985cfcd7` | 6 |
+| Explicit date consumer | 691840 | 214303 | 610 | `92f844c18ef3bca2bac6f9ccfcae23886c1d24e3fa1da67fca2912a2478dc49a` | 6 |
 | Current production app | 1857225 | 568242 | 1299 | `2dea3eddbe961b3dc4f437e16f883a3a91d69e019e1d6aa944cb37777e6c7087` | 4 |
-| Base production app (`d2314a4a117c84cec5b0a3e9e86670e6a9d330aa`) | 1720770 | 523822 | 1148 | `003e6a4c474b4ed39be10cad3aad20f3333487280aad2d1105bf70d30e0e2fc4` | 0 |
 
 ## Verification
 
-- Initial RED reproduced: `pnpm --filter @led-control/web test:date-bundle`
-  failed because the old control removed the `DatePicker` export consumed by
-  `StatisticsAnalysisPage`.
-- Current Task6 consumer: `DATE_BUNDLE_REQUIRE_DATE_PICKER=1 pnpm --filter
-  @led-control/web test:date-bundle` passed; the production app retained
-  DatePicker.
-- No-consumer foundation state: `DATE_BUNDLE_APP_SOURCE_REF=d2314a4a117c84cec5b0a3e9e86670e6a9d330aa
-  pnpm --filter @led-control/web test:date-bundle` passed. The gate loaded all
-  web source TypeScript blobs from that Git ref in memory and found no
-  production DatePicker consumer.
+- TDD RED: an explicit stub-control consumer initially retained six real date
+  modules; the replacement-module test failed as expected.
+- The default date gate passed after the fix. It recorded exact normal/control
+  equality, exercised the stripped-barrel `MISSING_EXPORT` mutation, required
+  the PURE-preserving mutation to fail the negative assertion, retained all
+  date modules after actual PURE removal, and detected the current application
+  DatePicker consumer automatically.
 - `pnpm --filter @led-control/web test:overlay-bundle`, `pnpm typecheck`,
-  `pnpm build`, and `node --test scripts/ci-workflows.test.mjs` passed.
+  `pnpm build`, and `node --test scripts/ci-workflows.test.mjs` are rerun
+  before commit. A detached clean worktree at the committed head is then used
+  to prove the default no-consumer state independently.

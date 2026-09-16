@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 import test from "node:test";
@@ -17,7 +15,13 @@ const BARREL_ID = "/src/components/ui/index.ts";
 const DATE_COMPONENTS = ["Calendar", "DatePicker", "DateRangePicker", "TimePicker"];
 const NEUTRAL_MARKER = Symbol.for("date-bundle-neutral-markup");
 const DATE_MARKER = Symbol.for("date-bundle-markup");
-const APP_SOURCE_REF = process.env.DATE_BUNDLE_APP_SOURCE_REF;
+const DATE_STUBS = new Set([
+  "/date/Calendar.tsx",
+  "/date/DatePicker.tsx",
+  "/date/DateRangePicker.tsx",
+  "/date/TimePicker.tsx",
+  "/date/date-adapters.ts"
+]);
 
 const neutralConsumerSource = `
   import React from "react";
@@ -32,6 +36,10 @@ const dateConsumerSource = `
   import {Calendar,DatePicker,DateRangePicker,TimePicker} from "${BARREL_ID}";
   globalThis[Symbol.for("date-bundle-markup")] = [Calendar,DatePicker,DateRangePicker,TimePicker].map((Component,index) =>
     renderToString(React.createElement(Component,{label:"date-consumer-"+index,value:null,onChange:()=>{}})));
+`;
+const stubConsumerSource = `
+  import {Calendar,DatePicker,DateRangePicker,TimePicker,parseIsoDate,formatIsoDate,parseLocalTime,formatLocalTime} from "${BARREL_ID}";
+  globalThis[Symbol.for("date-bundle-stub-consumer")] = [Calendar,DatePicker,DateRangePicker,TimePicker,parseIsoDate,formatIsoDate,parseLocalTime,formatLocalTime];
 `;
 
 function entryOf(result) {
@@ -69,19 +77,44 @@ function removeDateExports(source) {
   return source.split("\n").filter(line => !line.includes('from "./date/')).join("\n");
 }
 
+function stubSourceFor(id) {
+  if (![...DATE_STUBS].some(suffix => id.endsWith(suffix))) return undefined;
+  const source = readFileSync(id, "utf8");
+  // Keep each original source body and import graph discoverable, but make its
+  // public runtime export a pure stub. This isolates implementation cost
+  // without changing Rollup's surrounding discovery and emission ordering.
+  if (id.endsWith("/date/Calendar.tsx")) {
+    return `${source.replace("export const Calendar =", "const dateBundleOriginalCalendar =")}\nexport const Calendar = () => null;`;
+  }
+  if (id.endsWith("/date/DatePicker.tsx")) {
+    return `${source.replace("export const DatePicker =", "const dateBundleOriginalDatePicker =")}\nexport const DatePicker = () => null;`;
+  }
+  if (id.endsWith("/date/DateRangePicker.tsx")) {
+    return `${source.replace("export const DateRangePicker =", "const dateBundleOriginalDateRangePicker =")}\nexport const DateRangePicker = () => null;`;
+  }
+  if (id.endsWith("/date/TimePicker.tsx")) {
+    return `${source.replace("export const TimePicker =", "const dateBundleOriginalTimePicker =")}\nexport const TimePicker = () => null;`;
+  }
+  let stub = source;
+  for (const name of ["parseIsoDate", "formatIsoDate", "parseLocalTime", "formatLocalTime", "parseBounds", "parseDateRange"]) {
+    stub = stub.replace(`export function ${name}`, `function dateBundleOriginal${name}`);
+  }
+  return `${stub}\nexport const parseIsoDate = value => value;\nexport const formatIsoDate = value => value;\nexport const parseLocalTime = value => value;\nexport const formatLocalTime = value => value;\nexport const parseBounds = () => ({});\nexport const parseDateRange = value => value;`;
+}
+
 function bundlePlugin(mode) {
   return {
     name: "date-bundle-control",
     enforce: "pre",
     load(id) {
-      if (!id.endsWith("/src/components/ui/index.ts")) return undefined;
-      const source = readFileSync(id, "utf8");
-      if (mode === "without-date") return removeDateExports(source);
-      if (mode === "impure-date") {
-        // This deliberate impure mutation makes date re-exports executable.
-        // It proves the neutral comparison detects a reachable date dependency.
-        return `${source}\nimport { Calendar as dateBundleCalendar } from "./date/Calendar";\nimport { DatePicker as dateBundleDatePicker } from "./date/DatePicker";\nimport { DateRangePicker as dateBundleDateRangePicker } from "./date/DateRangePicker";\nimport { TimePicker as dateBundleTimePicker } from "./date/TimePicker";\nglobalThis[Symbol.for("date-bundle-impure-control")] = [dateBundleCalendar, dateBundleDatePicker, dateBundleDateRangePicker, dateBundleTimePicker];\n`;
+      const stub = mode === "stub-date" ? stubSourceFor(id) : undefined;
+      if (stub) return stub;
+      if ((mode === "pure-date" || mode === "impure-date") && id.includes("/src/components/ui/date/") && id.endsWith(".tsx")) {
+        const source = readFileSync(id, "utf8");
+        return mode === "impure-date" ? source.replaceAll("/* @__PURE__ */", "") : source;
       }
+      if (!id.endsWith("/src/components/ui/index.ts")) return undefined;
+      if (mode === "without-date") return removeDateExports(readFileSync(id, "utf8"));
       return undefined;
     }
   };
@@ -91,7 +124,7 @@ async function virtualEntry(mode, source) {
   const virtual = "virtual:date-bundle-consumer";
   return entryOf(await build({
     logLevel: "silent",
-    build: { write: false, rollupOptions: { input: virtual, output: { inlineDynamicImports: true }, treeshake: { moduleSideEffects: mode === "impure-date" } } },
+    build: { write: false, rollupOptions: { input: virtual, output: { inlineDynamicImports: true } } },
     plugins: [{
       name: "date-bundle-virtual-consumer",
       enforce: "pre",
@@ -101,17 +134,23 @@ async function virtualEntry(mode, source) {
   }));
 }
 
-async function productionAppMetrics() {
-  const plugins = APP_SOURCE_REF ? [{
-    name: "date-bundle-git-source",
-    enforce: "pre",
-    load(id) {
-      const relativePath = path.relative(process.cwd(), id);
-      if (!relativePath.startsWith("src/") || !/\.(?:ts|tsx)$/.test(relativePath)) return undefined;
-      return execFileSync("git", ["show", `${APP_SOURCE_REF}:apps/web/${relativePath}`], { encoding: "utf8" });
+function datePickerConsumptionPlugin(consumers) {
+  return {
+    name: "date-bundle-date-picker-consumption",
+    transform(source, id) {
+      if (!id.includes("/src/") || !/\.(?:ts|tsx)$/.test(id)) return undefined;
+      for (const match of source.matchAll(/\bimport\s+(?:type\s+)?\{([^}]+)\}\s+from\s+["'][^"']*components\/ui(?:\/index)?["']/g)) {
+        if (match[1].split(",").some(specifier => specifier.trim().split(/\s+as\s+/)[0] === "DatePicker")) consumers.add(id);
+      }
+      return undefined;
     }
-  }] : undefined;
-  return buildMetrics(await build({ logLevel: "silent", build: { write: false }, plugins }));
+  };
+}
+
+async function productionAppMetrics() {
+  const datePickerConsumers = new Set();
+  const app = buildMetrics(await build({ logLevel: "silent", build: { write: false }, plugins: [datePickerConsumptionPlugin(datePickerConsumers)] }));
+  return { app, datePickerConsumers };
 }
 
 async function executeBundle(entry, marker) {
@@ -123,18 +162,25 @@ async function executeBundle(entry, marker) {
   }
 }
 
+function assertImpureNegativeControl(candidate, normal) {
+  assert.ok(candidate.dateModules.length >= DATE_COMPONENTS.length && candidate.gzip > normal.gzip && candidate.modules > normal.modules,
+    "Removing date PURE annotations must retain date modules and increase the neutral bundle");
+}
+
 test("date barrel costs nothing to a neutral public consumer and rejects removed date exports", { timeout: 90_000 }, async context => {
   const normalEntry = await virtualEntry("normal", neutralConsumerSource);
-  const controlEntry = await virtualEntry("without-date", neutralConsumerSource);
+  const controlEntry = await virtualEntry("stub-date", neutralConsumerSource);
   const normal = metrics(normalEntry);
   const control = metrics(controlEntry);
-  assert.deepEqual(normal, control, "Removing date exports must preserve the neutral entry exactly");
+  assert.deepEqual(normal, control, "Replacing date implementations with pure stubs must preserve the neutral entry exactly");
   assert.deepEqual(normal.dateModules, [], "The neutral Button consumer must not retain date modules");
   context.diagnostic(`Normal/control neutral entry: ${normal.characters} chars, gzip ${normal.gzip} bytes, ${normal.modules} modules, sha256 ${normal.digest}, date modules ${normal.dateModules.length}`);
 
+  const pure = metrics(await virtualEntry("pure-date", neutralConsumerSource));
+  assert.throws(() => assertImpureNegativeControl(pure, normal), /Removing date PURE annotations/,
+    "The negative-control assertion must fail when PURE annotations remain effective");
   const impure = metrics(await virtualEntry("impure-date", neutralConsumerSource));
-  assert.ok(impure.dateModules.length >= DATE_COMPONENTS.length && impure.gzip > normal.gzip && impure.modules > normal.modules,
-    "The impure negative control must retain date modules and increase the neutral bundle");
+  assertImpureNegativeControl(impure, normal);
   assert.throws(() => assert.deepEqual(impure, control), /AssertionError/);
   context.diagnostic(`Negative control: ${impure.characters} chars, gzip ${impure.gzip} bytes, ${impure.modules} modules, sha256 ${impure.digest}, date modules ${impure.dateModules.length}`);
 
@@ -150,6 +196,14 @@ test("date barrel costs nothing to a neutral public consumer and rejects removed
   );
 });
 
+test("stub control replaces every date implementation module", { timeout: 90_000 }, async () => {
+  const stub = await virtualEntry("stub-date", stubConsumerSource);
+  const retainedStubs = Object.entries(stub.modules).filter(([id]) => stubSourceFor(id));
+  assert.equal(retainedStubs.length, DATE_STUBS.size, "The stub control must replace every exported date implementation");
+  assert.doesNotMatch(stub.code, /Expected YYYY-MM-DD|max-w-full rounded-popover|minValue must not exceed/,
+    "The stub control output must not leak real date implementation code");
+});
+
 test("explicit date consumers and the production app retain DatePicker when consumed", { timeout: 90_000 }, async context => {
   const virtualEntryResult = await virtualEntry("normal", dateConsumerSource);
   const virtual = metrics(virtualEntryResult);
@@ -161,11 +215,10 @@ test("explicit date consumers and the production app retain DatePicker when cons
   for (const [index, html] of rendered.entries()) assert.ok(html.includes(`date-consumer-${index}`), `Consumer ${index} must render its public control`);
   context.diagnostic(`Explicit consumer: ${virtual.characters} chars, gzip ${virtual.gzip} bytes, ${virtual.modules} modules, sha256 ${virtual.digest}, date modules ${virtual.dateModules.length}`);
 
-  const app = await productionAppMetrics();
+  const { app, datePickerConsumers } = await productionAppMetrics();
   const retainsDatePicker = app.dateModules.some(id => id.endsWith("/components/ui/date/DatePicker.tsx"));
-  if (process.env.DATE_BUNDLE_REQUIRE_DATE_PICKER === "1") {
+  if (datePickerConsumers.size > 0) {
     assert.ok(retainsDatePicker, "The production app DatePicker consumer must build and retain DatePicker");
   }
-  const source = APP_SOURCE_REF ? `git ${APP_SOURCE_REF}` : "working tree";
-  context.diagnostic(`Production app (${source}): ${app.characters} chars, gzip ${app.gzip} bytes, ${app.modules} modules, sha256 ${app.digest}, date modules ${app.dateModules.length}; DatePicker ${retainsDatePicker ? "retained" : "not consumed"}`);
+  context.diagnostic(`Production app: ${app.characters} chars, gzip ${app.gzip} bytes, ${app.modules} modules, sha256 ${app.digest}, date modules ${app.dateModules.length}; DatePicker ${datePickerConsumers.size > 0 ? "consumed and retained" : "not consumed"}`);
 });
