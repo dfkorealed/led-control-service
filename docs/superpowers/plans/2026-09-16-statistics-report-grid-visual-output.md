@@ -235,19 +235,19 @@ git commit -m "feat(api): paginate and filter report history"
 - Produces: `EnergyReportJob(siteId, createdAt, id)` descending keyset lookup support
 - Consumes: Task 2의 order/predicate
 
-- [ ] **Step 1: exact index shape를 요구하는 schema test를 작성한다.**
+- [x] **Step 1: exact index shape를 요구하는 schema test를 작성한다.**
 
 ```ts
 expect(model("EnergyReportJob")).toContain("@@index([siteId, createdAt, id]");
 ```
 
-- [ ] **Step 2: schema test RED를 확인한다.**
+- [x] **Step 2: schema test RED를 확인한다.**
 
 Run: `pnpm --filter @led-control/api exec jest test/domain-schema.test.ts --runInBand`
 
 Expected: 새 index 부재로 FAIL.
 
-- [ ] **Step 3: Prisma model과 additive migration을 작성한다.**
+- [x] **Step 3: Prisma model과 additive migration을 작성한다.**
 
 ```sql
 CREATE INDEX "EnergyReportJob_siteId_createdAt_id_idx"
@@ -256,17 +256,17 @@ ON "EnergyReportJob"("siteId", "createdAt", "id");
 
 기존 index를 같은 migration에서 제거하지 않는다. production preflight와 query plan 증거가 생긴 뒤 별도 최적화로 다룬다.
 
-- [ ] **Step 4: database 문서에 index 목적과 cursor order를 기록한다.**
+- [x] **Step 4: database 문서에 index 목적과 cursor order를 기록한다.**
 
 `EnergyReportJob` 표와 index 설명에 site tenant 범위, createdAt/id tie-break, filter count는 별도 predicate임을 추가한다.
 
-- [ ] **Step 5: schema/migration 검증을 실행한다.**
+- [x] **Step 5: schema/migration 검증을 실행한다.**
 
 Run: `pnpm --filter @led-control/api exec prisma validate && pnpm --filter @led-control/api exec jest test/domain-schema.test.ts --runInBand`
 
 Expected: PASS.
 
-- [ ] **Step 6: Task 3을 커밋한다.**
+- [x] **Step 6: Task 3을 커밋한다.**
 
 ```bash
 git add apps/api/prisma/schema.prisma apps/api/prisma/migrations/20260916150000_report_history_keyset_index/migration.sql apps/api/test/domain-schema.test.ts docs/database-schema.md
