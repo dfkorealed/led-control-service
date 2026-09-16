@@ -455,13 +455,15 @@ describe("CadImportPanel", () => {
     expect(screen.getByText(/서버 적용이 완료되지 않았습니다/)).toBeInTheDocument();
   });
 
-  it("closes review after GET confirms completion even when authoritative map refresh fails", async () => {
+  it("keeps a map-refresh recovery action after completed and closes it only after refresh succeeds", async () => {
     const review: CadImportReviewState = {
       job: { ...queuedJob, status: "review_required", progressPercent: 100 },
       candidates: [candidate],
       acceptedCandidateIds: [candidate.id]
     };
-    const onApplied = vi.fn().mockRejectedValue(new TypeError("Failed to refresh editor state"));
+    const onApplied = vi.fn()
+      .mockRejectedValueOnce(new TypeError("Failed to refresh editor state"))
+      .mockResolvedValueOnce(undefined);
     floorEditorApi.applyFloorImportJob.mockRejectedValueOnce(new TypeError("Failed to fetch"));
     floorEditorApi.getFloorImportJob.mockResolvedValueOnce({ ...review.job, status: "completed" });
     const { onReviewChange } = renderPanel({ review, onApplied });
@@ -469,8 +471,22 @@ describe("CadImportPanel", () => {
     (onReviewChange as ReturnType<typeof vi.fn>).mockClear();
     fireEvent.click(screen.getByRole("button", { name: "선택한 후보와 배경 적용" }));
 
-    await waitFor(() => expect(onReviewChange).toHaveBeenCalledWith(null));
+    await waitFor(() => expect(onApplied).toHaveBeenCalledTimes(1));
     expect(screen.getByText(/적용은 완료되었지만 최신 맵을 불러오지 못했습니다/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "최신 맵 다시 불러오기" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("CAD 파일")).not.toBeInTheDocument();
+    expect(onReviewChange).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "최신 맵 다시 불러오기" }));
+
+    await waitFor(() => expect(onApplied).toHaveBeenCalledTimes(2));
+    expect(onApplied).toHaveBeenNthCalledWith(2, null);
+    expect(floorEditorApi.applyFloorImportJob).toHaveBeenCalledOnce();
+    expect(floorEditorApi.getFloorImportJob).toHaveBeenCalledOnce();
+    expect(onReviewChange).toHaveBeenCalledWith(null);
+    expect(screen.queryByRole("button", { name: "최신 맵 다시 불러오기" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/적용은 완료되었지만 최신 맵을 불러오지 못했습니다/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText("CAD 파일")).toBeInTheDocument();
   });
 });
 

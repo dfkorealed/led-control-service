@@ -81,6 +81,7 @@ export function CadImportPanel({
   const [error, setError] = useState<string | null>(null);
   const [reviewCursor, setReviewCursor] = useState(0);
   const [suppressedReviewJobId, setSuppressedReviewJobId] = useState<string | null>(null);
+  const [refreshRecoveryJob, setRefreshRecoveryJob] = useState<FloorImportJob | null>(null);
   const loadedReviewJobId = useRef<string | null>(null);
   const requestLock = useRef(false);
   const busy = useRef(false);
@@ -106,6 +107,7 @@ export function CadImportPanel({
     setJob(null);
     setError(null);
     setSuppressedReviewJobId(null);
+    setRefreshRecoveryJob(null);
     loadedReviewJobId.current = null;
     onReviewChange(null);
     setBusy(false);
@@ -248,12 +250,13 @@ export function CadImportPanel({
       const next = await getFloorImportJob(floorId, jobId);
       if (next.status === "completed") {
         setSuppressedReviewJobId(next.jobId);
+        setRefreshRecoveryJob(next);
         setJob(null);
-        onReviewChange(null);
         setBusy(false);
         try {
           await onApplied(null);
-          setJob(null);
+          onReviewChange(null);
+          setRefreshRecoveryJob(null);
           setError(null);
         } catch {
           setError("CAD 적용은 완료되었지만 최신 맵을 불러오지 못했습니다. 다시 불러오세요.");
@@ -291,13 +294,21 @@ export function CadImportPanel({
     }
   }
 
-  async function handleReconcile() {
-    if (!activeJob || requestLock.current) return;
+  async function handleRefreshRecovery() {
+    if (!refreshRecoveryJob || requestLock.current) return;
     requestLock.current = true;
     setAction("checking");
-    await reconcileJob(activeJob.jobId);
-    requestLock.current = false;
-    setAction("idle");
+    try {
+      await onApplied(null);
+      onReviewChange(null);
+      setRefreshRecoveryJob(null);
+      setError(null);
+    } catch {
+      setError("CAD 적용은 완료되었지만 최신 맵을 불러오지 못했습니다. 다시 불러오세요.");
+    } finally {
+      requestLock.current = false;
+      setAction("idle");
+    }
   }
 
   async function handleCancel() {
@@ -342,7 +353,7 @@ export function CadImportPanel({
         <Heading as="h3" variant="card-title">DWG/DXF 가져오기</Heading>
       </div>
 
-      {!activeJob ? <>
+      {!activeJob && !refreshRecoveryJob ? <>
         <FileField
           label="CAD 파일"
           description="DWG 또는 DXF · 최대 50 MB"
@@ -384,11 +395,11 @@ export function CadImportPanel({
         <progress className="h-2 w-full" max={100} value={activeJob.progressPercent} aria-label="CAD 가져오기 진행률" />
       </div> : null}
 
-      {activeJob && activeJob.status === "completed" && error ? <Button
+      {refreshRecoveryJob && error ? <Button
         variant="secondary"
         isLoading={action === "checking"}
-        loadingLabel="적용 결과 확인 중"
-        onClick={() => void handleReconcile()}
+        loadingLabel="최신 맵 불러오는 중"
+        onClick={() => void handleRefreshRecovery()}
       >
         <RotateCw size={16} aria-hidden="true" />
         최신 맵 다시 불러오기
