@@ -637,7 +637,7 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
       if (viewport.width <= 760) {
         // Keep the full shell in scope while scrolling long dashboard controls into reach.
         // Spatial markers are positioned visual affordances, not standalone touch controls.
-        await expectMinimumTouchTargetsAfterScrolling(page, ".app-shell", { excludeSpatialMapMarkers: true });
+        await expectMinimumTouchTargetsAfterScrolling(page, "[data-app-shell]", { excludeSpatialMapMarkers: true });
         const fixtureSelector = page.getByRole("combobox", { name: "상세 조명 선택" });
         await expect(fixtureSelector).toBeVisible();
         await expect(fixtureSelector.locator("option")).toHaveCount(fixtures.length);
@@ -721,7 +721,7 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
       await page.goto(`/control?siteId=${ids.site}&mode=schedule`);
       await expect(page.getByRole("heading", { name: "스케줄 제어" })).toBeVisible();
       await expect(page.getByText("등록된 스케줄이 없습니다.")).toBeVisible();
-      await expectMinimumTouchTargets(page, ".app-shell");
+      await expectMinimumTouchTargets(page, "[data-app-shell]");
       await page.getByRole("button", { name: "스케줄 추가" }).click();
       const scheduleDialog = page.getByRole("dialog", { name: "스케줄 추가" });
       await expect(scheduleDialog).toBeVisible();
@@ -737,7 +737,7 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
       await page.getByRole("tab", { name: "이벤트 제어" }).click();
       await expect(page.getByRole("heading", { name: "이벤트 제어" })).toBeVisible();
       await expect(page.getByText("등록된 이벤트 규칙이 없습니다.")).toBeVisible();
-      await expectMinimumTouchTargets(page, ".app-shell");
+      await expectMinimumTouchTargets(page, "[data-app-shell]");
       await page.getByRole("button", { name: "이벤트 추가" }).click();
       const eventDialog = page.getByRole("dialog", { name: "이벤트 추가" });
       await expect(eventDialog).toBeVisible();

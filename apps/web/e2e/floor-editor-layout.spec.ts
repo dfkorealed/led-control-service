@@ -63,11 +63,11 @@ for (const viewport of [
       await expectMinimumTouchTargets(page, '[aria-label="맵 편집 도구"]');
       await expectMinimumTouchTargets(page, '[data-field]:has(input[type="checkbox"])');
       await page.evaluate(() => window.scrollTo(0, 0));
-      await expectMinimumTouchTargets(page, ".bottom-nav");
+      await expectMinimumTouchTargets(page, '[data-shell-navigation="compact"]');
       await expectMinimumTouchTargetsAfterScrolling(page, '[aria-label="설정 메뉴"]');
     }
     await expectMinimumTouchTargetsAfterScrolling(page, '[data-testid="editor-revision-list"]');
-    if (viewport.width <= 760) await expectMinimumTouchTargetsAfterScrolling(page, ".app-shell");
+    if (viewport.width <= 760) await expectMinimumTouchTargetsAfterScrolling(page, "[data-app-shell]");
     const path = testInfo.outputPath(`editor-panels-${viewport.width}.png`);
     await page.screenshot({ path, fullPage: true });
     await testInfo.attach(`editor-panels-${viewport.width}`, { path, contentType: "image/png" });

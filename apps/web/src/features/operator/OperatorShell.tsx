@@ -35,13 +35,13 @@ export function OperatorShell({ user }: { user: AuthUser }) {
   }
 
   return (
-    <div className="operator-shell min-h-screen bg-surface-canvas">
-      <header className="operator-header flex min-h-16 items-center justify-between gap-4 border-b border-border-default bg-surface-panel px-6 py-4 max-compact:flex-col max-compact:items-start max-compact:px-3.5">
-        <KindaLogo className="operator-brand" context="서비스 운영" />
-        <div className="operator-header-actions flex items-center gap-3 max-compact:w-full max-compact:justify-between">
-          <Text as="span" variant="body-sm" tone="secondary" weight="bold" className="operator-login-id">{user.loginId}</Text>
+    <div className="min-h-screen bg-surface-canvas">
+      <header className="flex min-h-16 items-center justify-between gap-4 border-b border-border-default bg-surface-panel px-6 py-4 max-compact:flex-col max-compact:items-start max-compact:px-3.5">
+        <KindaLogo context="서비스 운영" />
+        <div className="flex items-center gap-3 max-compact:w-full max-compact:justify-between">
+          <Text as="span" variant="body-sm" tone="secondary" weight="bold">{user.loginId}</Text>
           <IconTooltipButton
-            className="logout-button"
+            className="size-13"
             icon={LogOut}
             label="로그아웃"
             loadingLabel="로그아웃 중"
@@ -50,9 +50,9 @@ export function OperatorShell({ user }: { user: AuthUser }) {
           />
         </div>
       </header>
-      <main className="operator-content mx-auto grid w-full max-w-6xl content-start gap-5 px-6 py-10 max-compact:px-3.5 max-compact:py-6">
+      <main className="mx-auto grid w-full max-w-6xl content-start gap-5 px-6 py-10 max-compact:px-3.5 max-compact:py-6">
         {logoutError ? <FeedbackState tone="danger" icon={CircleAlert} title={logoutError} /> : null}
-        <UnderlineNavigation className="operator-navigation" aria-label="운영자 메뉴">
+        <UnderlineNavigation aria-label="운영자 메뉴">
           <NavLink
             to={{ pathname: "/operator/site-admins", search: location.search, hash: location.hash }}
             className={({ isActive }) => isActive ? "ui-underline-navigation-item active" : "ui-underline-navigation-item"}

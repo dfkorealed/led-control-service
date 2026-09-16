@@ -49,6 +49,7 @@ function PrimaryNavigation({ capabilities, search }: { capabilities: SiteCapabil
           <NavLink
             aria-current={item.path === "/statistics" && location.pathname.startsWith("/statistics") ? "page" : undefined}
             className={({ isActive }) => primaryNavigationClass(isActive || (item.path === "/statistics" && location.pathname.startsWith("/statistics")))}
+            data-shell-navigation-item
             key={item.path}
             to={`${item.destination}${search}`}
           >
@@ -178,32 +179,32 @@ export function CustomerShell({ user }: { user: AuthUser }) {
   }
 
   return (
-    <div className={`app-shell min-h-screen bg-surface-canvas ${isCompactNavigation ? "pb-16" : "flex"}`}>
+    <div className={`min-h-screen bg-surface-canvas ${isCompactNavigation ? "pb-16" : "flex"}`} data-app-shell>
       {isCompactNavigation ? (
-        <nav className="bottom-nav nav-list fixed inset-x-0 bottom-0 z-20 grid grid-cols-4 gap-1 border-t border-border-default bg-surface-panel px-1.5 py-1" aria-label="모바일 주 메뉴">
+        <nav className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-4 gap-1 border-t border-border-default bg-surface-panel px-1.5 py-1" aria-label="모바일 주 메뉴" data-shell-navigation="compact">
           <PrimaryNavigation capabilities={capabilities} search={location.search} />
         </nav>
       ) : (
-        <aside className="sidebar sticky top-0 z-20 h-screen w-24 shrink-0 border-r border-border-default bg-surface-panel px-2.5 py-4">
+        <aside className="sticky top-0 z-20 h-screen w-24 shrink-0 border-r border-border-default bg-surface-panel px-2.5 py-4" data-shell-navigation="desktop">
           <KindaLogo context="관제 센터" compact />
-          <nav className="nav-list grid w-full gap-2" aria-label="주 메뉴">
+          <nav className="grid w-full gap-2" aria-label="주 메뉴">
             <PrimaryNavigation capabilities={capabilities} search={location.search} />
           </nav>
         </aside>
       )}
-      <main className="content flex min-w-0 flex-1 flex-col">
-        <header className="topbar flex min-h-16 min-w-0 items-center justify-between gap-4 border-b border-border-default bg-surface-panel px-7 max-compact:flex-col max-compact:items-start max-compact:px-3.5 max-compact:py-3">
+      <main className="flex min-w-0 flex-1 flex-col">
+        <header className="flex min-h-16 min-w-0 items-center justify-between gap-4 border-b border-border-default bg-surface-panel px-7 max-compact:flex-col max-compact:items-start max-compact:px-3.5 max-compact:py-3" data-shell-topbar>
           <div className="min-w-0">
             <Heading as="h1" variant="page-title" className="truncate">{titleForPath(location.pathname)}</Heading>
           </div>
-          <div className="topbar-actions flex flex-wrap items-center justify-end gap-2 max-compact:w-full max-compact:justify-start" aria-label="현장 정보">
-            <Text as="span" variant="body-sm" weight="bold" className="site-pill inline-flex min-h-10 max-w-full items-center gap-1.5 truncate rounded-pill border border-border-default bg-surface-panel px-3" data-testid="active-site-badge">
+          <div className="flex flex-wrap items-center justify-end gap-2 max-compact:w-full max-compact:justify-start" aria-label="현장 정보" data-shell-actions>
+            <Text as="span" variant="body-sm" weight="bold" className="inline-flex min-h-10 max-w-full items-center gap-1.5 truncate rounded-pill border border-border-default bg-surface-panel px-3" data-testid="active-site-badge">
               <MapPin size={16} aria-hidden="true" />
               {dashboard?.site.name || "현장 미등록"}
             </Text>
             <IconTooltipButton
               ref={logoutButtonRef}
-              className="logout-button"
+              className="size-13"
               icon={LogOut}
               label="로그아웃"
               loadingLabel="로그아웃 중"

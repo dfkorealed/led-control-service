@@ -490,7 +490,7 @@ for (const viewport of responsiveViewports.filter(({ width }) => width <= 760)) 
       await menu.getByRole("link", { name: "맵 관리" }).click();
       await expect(page).toHaveURL(/\/settings\/floor-plans\?siteId=site-1$/);
       await expect(page.getByRole("heading", { name: "맵 관리" })).toBeVisible();
-      await expectMinimumTouchTargetsAfterScrolling(page, ".app-shell");
+      await expectMinimumTouchTargetsAfterScrolling(page, "[data-app-shell]");
       await expectNoHorizontalOverflow(page);
     } finally {
       await page.close();
@@ -544,7 +544,7 @@ for (const viewport of responsiveViewports) {
       await page.getByRole("button", { name: "배치 해제", exact: true }).scrollIntoViewIfNeeded();
       await expectMinimumTouchTargets(page, '[data-testid="floor-editor-canvas"]');
       await page.evaluate(() => window.scrollTo(0, 0));
-      await expectMinimumTouchTargets(page, ".bottom-nav");
+      await expectMinimumTouchTargets(page, '[data-shell-navigation="compact"]');
       await expectMinimumTouchTargetsAfterScrolling(page, 'nav[aria-label="설정 메뉴"]');
     }
   });
@@ -570,7 +570,7 @@ for (const viewport of responsiveViewports) {
       await registrationTargets.evaluate((element) => element.scrollIntoView({ block: "center" }));
       await expect(page.getByLabel("등록 층")).toBeInViewport();
       await expect(page.getByLabel("등록 게이트웨이")).toBeInViewport();
-      await expectMinimumTouchTargetsAfterScrolling(page, ".app-shell");
+      await expectMinimumTouchTargetsAfterScrolling(page, "[data-app-shell]");
     }
 
     await page.goto("/settings/floor-plans?siteId=site-1");
@@ -585,7 +585,7 @@ for (const viewport of responsiveViewports) {
     await expect(page.getByLabel("새 비밀번호 확인")).toBeVisible();
     await expectSettingsContentTopAligned(page);
     await expectNoHorizontalOverflow(page);
-    if (viewport.width <= 760) await expectMinimumTouchTargetsAfterScrolling(page, ".app-shell");
+    if (viewport.width <= 760) await expectMinimumTouchTargetsAfterScrolling(page, "[data-app-shell]");
   });
 }
 

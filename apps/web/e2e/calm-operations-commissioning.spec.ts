@@ -99,7 +99,7 @@ for (const viewport of viewports) {
       await expect(page.getByRole("region", { name: "Viewer 설치 대기" })).toBeVisible();
       await expect(page.getByRole("heading", { name: "게이트웨이 등록" })).toHaveCount(0);
       await expectNoHorizontalOverflow(page);
-      await expectMobileRegionTargetsReachable(page, ".bottom-nav", viewport.width);
+      await expectMobileRegionTargetsReachable(page, '[data-shell-navigation="compact"]', viewport.width);
     });
 
     await withFixturePage(browser, baseURL, viewport, async (page) => {

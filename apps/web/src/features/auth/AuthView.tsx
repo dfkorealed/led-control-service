@@ -90,21 +90,21 @@ export function AuthView({ onAuthenticated }: AuthViewProps) {
   }
 
   return (
-    <main className="auth-shell mx-auto grid min-h-screen w-full max-w-6xl grid-cols-2 items-center gap-16 bg-surface-canvas p-6 max-compact:grid-cols-1 max-compact:content-center max-compact:gap-8 max-compact:px-4">
-      <section className="auth-brand-panel max-w-xl" aria-label="킨다 소개">
-        <KindaLogo className="auth-brand" />
+    <main className="mx-auto grid min-h-screen w-full max-w-6xl grid-cols-2 items-center gap-16 bg-surface-canvas p-6 max-compact:grid-cols-1 max-compact:content-center max-compact:gap-8 max-compact:px-4">
+      <section className="max-w-xl" aria-label="킨다 소개">
+        <KindaLogo className="mb-7" />
         <Heading as="h1" variant="display">빛을 더 안정적으로,<br />현장을 더 선명하게.</Heading>
         <Text className="mt-5 max-w-lg" variant="body-lg" tone="secondary">주차장 LED 조명의 상태, 제어, 에너지 사용량을 하나의 차분한 운영 화면에서 확인하세요.</Text>
       </section>
-      <Card className="auth-panel grid w-full max-w-lg gap-5 p-6 shadow-panel">
+      <Card className="grid w-full max-w-lg gap-5 p-6 shadow-panel">
         {challenge ? (
           <>
-            <div className="auth-heading grid gap-1.5">
+            <div className="grid gap-1.5">
               <Text as="span" variant="overline" tone="secondary">계정 보안</Text>
               <Heading>2단계 인증</Heading>
-              <Text className="auth-helper" variant="body-sm" tone="secondary">인증 앱의 6자리 코드 또는 저장한 복구 코드를 입력하세요.</Text>
+              <Text variant="body-sm" tone="secondary">인증 앱의 6자리 코드 또는 저장한 복구 코드를 입력하세요.</Text>
             </div>
-            <form className="auth-form grid gap-3.5" onSubmit={submitMfa}>
+            <form className="grid gap-3.5" onSubmit={submitMfa}>
               <TextField
                 ref={verificationInputRef}
                 label={verificationMode === "totp" ? "인증 앱 코드" : "복구 코드"}
@@ -115,7 +115,7 @@ export function AuthView({ onAuthenticated }: AuthViewProps) {
                 maxLength={verificationMode === "totp" ? 6 : 128}
                 isRequired
               />
-              <Button className="auth-submit" type="submit" variant="primary" isLoading={isPending} loadingLabel="인증 중">
+              <Button type="submit" variant="primary" isLoading={isPending} loadingLabel="인증 중" data-auth-submit>
                 <KeyRound size={18} aria-hidden="true" />
                 인증하고 로그인
               </Button>
@@ -134,11 +134,11 @@ export function AuthView({ onAuthenticated }: AuthViewProps) {
           </>
         ) : (
           <>
-            <div className="auth-heading grid gap-1.5">
+            <div className="grid gap-1.5">
               <Text as="span" variant="overline" tone="secondary">계정 로그인</Text>
               <Heading>킨다 로그인</Heading>
             </div>
-            <form className="auth-form grid gap-3.5" onSubmit={submit}>
+            <form className="grid gap-3.5" onSubmit={submit}>
             <TextField
               label="아이디"
               value={loginId}
@@ -154,12 +154,11 @@ export function AuthView({ onAuthenticated }: AuthViewProps) {
               isRequired
             />
             <Checkbox
-              className="check-field"
               label="자동 로그인"
               isSelected={rememberMe}
               onChange={setRememberMe}
             />
-            <Button className="auth-submit mt-1" type="submit" variant="primary" isLoading={isPending} loadingLabel="로그인 중">
+            <Button className="mt-1" type="submit" variant="primary" isLoading={isPending} loadingLabel="로그인 중" data-auth-submit>
               <LockKeyhole size={18} aria-hidden="true" />
               로그인
             </Button>

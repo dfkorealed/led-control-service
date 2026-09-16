@@ -58,8 +58,9 @@ export function SiteAdminManagementView() {
   }
 
   return (
-    <section className="operator-admin-management grid gap-4.5" aria-label="현장 관리자 계정">
+    <section className="grid gap-4.5" aria-label="현장 관리자 계정">
       <PageHeader
+        data-operator-admin-header
         title="현장 관리자 계정"
         headingLevel={1}
         description="서비스 운영 · 현장별 설치 상태와 관리자 계정을 관리합니다."
@@ -70,7 +71,7 @@ export function SiteAdminManagementView() {
 
       {notice ? <FeedbackState tone="success" icon={CircleCheck} title={notice} /> : null}
 
-      <div className="operator-summary-grid grid grid-cols-4 gap-3 max-tablet:grid-cols-2 max-compact:grid-cols-1">
+      <div className="grid grid-cols-4 gap-3 max-tablet:grid-cols-2 max-compact:grid-cols-1">
         {summaries.map(({ label, value, tone, icon }) => <MetricCard key={label} label={label} value={value} tone={tone} icon={icon} />)}
       </div>
 
@@ -79,8 +80,8 @@ export function SiteAdminManagementView() {
         <FeedbackState tone="danger" icon={CircleAlert} title="현장 관리자 목록을 불러오지 못했습니다." action={<Button type="button" onClick={() => void siteAdmins.refetch()}>다시 시도</Button>} />
       ) : null}
       {!siteAdmins.isLoading && !siteAdmins.error ? (
-        <Card className="operator-table-wrap overflow-x-auto" tabIndex={0} aria-label="현장 관리자 계정 표">
-          <table className="operator-admin-table w-full min-w-5xl border-collapse text-body-sm">
+        <Card className="overflow-x-auto" tabIndex={0} aria-label="현장 관리자 계정 표">
+          <table className="w-full min-w-5xl border-collapse text-body-sm">
             <thead>
               <tr>
                 {['고객사', '현장', '설치 상태', '관리자 이름', '로그인 아이디', '계정 상태', '최종 변경', '작업'].map((column) => <th className={tableHeaderClass} key={column} scope="col">{column}</th>)}
@@ -88,7 +89,7 @@ export function SiteAdminManagementView() {
             </thead>
             <tbody>
               {siteAdmins.data?.map((site) => <SiteAdminRow key={site.siteId} site={site} onOpen={openDialog} />)}
-              {siteAdmins.data?.length === 0 ? <tr><td colSpan={8} className={`${tableCellClass} operator-table-empty h-40 text-center text-content-secondary`}>관리할 현장이 없습니다.</td></tr> : null}
+              {siteAdmins.data?.length === 0 ? <tr><td colSpan={8} className={`${tableCellClass} h-40 text-center text-content-secondary`}>관리할 현장이 없습니다.</td></tr> : null}
             </tbody>
           </table>
         </Card>
@@ -116,7 +117,7 @@ function SiteAdminRow({ site, onOpen }: { site: SiteAdminSummary; onOpen: (dialo
       <td className={tableCellClass}>{admin ? formatUpdatedAt(admin.updatedAt) : "-"}</td>
       <td className={tableCellClass}>
         {admin ? (
-          <div className="operator-row-actions flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5">
             <Button size="sm" type="button" aria-label={`${admin.name} 수정`} onClick={(event) => onOpen({ type: "edit", admin }, event.currentTarget)}><Pencil size={15} aria-hidden="true" /> 수정</Button>
             <Button size="sm" type="button" aria-label={`${admin.name} 비밀번호 재설정`} onClick={(event) => onOpen({ type: "reset", admin }, event.currentTarget)}><KeyRound size={15} aria-hidden="true" /> 비밀번호 재설정</Button>
             <Button size="sm" variant="danger" type="button" aria-label={`${site.siteName} 현장 전체 삭제`} onClick={(event) => onOpen({ type: "delete", site }, event.currentTarget)}><Trash2 size={15} aria-hidden="true" /> 현장 전체 삭제</Button>

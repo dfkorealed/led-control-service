@@ -8,9 +8,9 @@ export interface SettingsNavigationItemProps {
 }
 
 export function primaryNavigationClass(isActive: boolean) {
-  const base = "nav-item flex min-h-16 w-full flex-col items-center justify-center gap-1 rounded-control border p-1 text-center text-overline font-bold no-underline";
+  const base = "flex min-h-16 w-full flex-col items-center justify-center gap-1 rounded-control border p-1 text-center text-overline font-bold no-underline max-compact:min-h-12";
   return isActive
-    ? `${base} active border-action-primary bg-action-primary-soft text-action-primary`
+    ? `${base} border-action-primary bg-action-primary-soft text-action-primary`
     : `${base} border-transparent bg-transparent text-content-muted hover:bg-action-primary-soft hover:text-action-primary`;
 }
 

@@ -596,7 +596,7 @@ for (const viewport of [
       await page.getByRole("heading", { name: "상태 기반 추정 사용량" }).scrollIntoViewIfNeeded();
       await expect(page.getByRole("button", { name: "일별" })).toBeInViewport();
       await expect(page.getByRole("button", { name: "월별" })).toBeInViewport();
-      await expectMinimumTouchTargets(page, ".app-shell");
+      await expectMinimumTouchTargets(page, "[data-app-shell]");
     }
 
     await page.getByRole("link", { name: "사용 분석" }).click();

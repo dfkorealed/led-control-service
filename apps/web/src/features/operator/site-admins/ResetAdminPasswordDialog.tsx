@@ -95,7 +95,7 @@ export function ResetAdminPasswordDialog({ admin, returnFocusElement, fallbackFo
       onConfirm={confirm}
       onClose={clearAndClose}
     >
-      <div className="operator-form grid gap-3.5">
+      <div className="grid gap-3.5">
         <PasswordField ref={passwordRef} label="새 비밀번호" value={newPassword} autoComplete="new-password" onChange={(value) => {
           setValidationError("");
           setNewPassword(value);

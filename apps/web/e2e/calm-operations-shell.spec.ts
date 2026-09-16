@@ -19,21 +19,21 @@ for (const viewport of responsiveViewports) {
     await page.goto("/monitoring?siteId=site-1");
     await expect(page.getByRole("button", { name: "맵 선택" })).toBeVisible();
 
-    const rail = page.locator(".sidebar");
-    const bottomNav = page.locator(".bottom-nav");
-    const topbar = page.locator(".topbar");
+    const rail = page.locator('[data-shell-navigation="desktop"]');
+    const bottomNav = page.locator('[data-shell-navigation="compact"]');
+    const topbar = page.locator("[data-shell-topbar]");
 
     if (viewport.width > 760) {
       await expect(rail).toBeVisible();
       await expect(bottomNav).toHaveCount(0);
-      await expect(rail).toHaveCSS("width", "92px");
-      await expect(topbar).toHaveCSS("min-height", "72px");
+      await expect(rail).toHaveCSS("width", "96px");
+      await expect(topbar).toHaveCSS("min-height", "64px");
       await expect(page.getByRole("img", { name: "킨다 관제 센터" })).toBeVisible();
 
       const [railBounds, logoMarkBounds, navigationItemBounds] = await Promise.all([
         rail.boundingBox(),
-        rail.locator(".kinda-logo-mark").boundingBox(),
-        rail.locator(".nav-item").first().boundingBox()
+        rail.locator("[data-kinda-logo-mark]").boundingBox(),
+        rail.locator("[data-shell-navigation-item]").first().boundingBox()
       ]);
       expect(railBounds, "데스크톱 사이드바의 실제 경계 상자").not.toBeNull();
       expect(logoMarkBounds, "데스크톱 로고 마크의 실제 경계 상자").not.toBeNull();
@@ -61,10 +61,10 @@ for (const viewport of responsiveViewports) {
     } else {
       await expect(rail).toHaveCount(0);
       await expect(bottomNav).toBeVisible();
-      await expect(bottomNav.locator(".nav-item")).toHaveCount(4);
+      await expect(bottomNav.getByRole("link")).toHaveCount(4);
       await expect(bottomNav).toHaveCSS("position", "fixed");
-      await expectMinimumTouchTargets(page, ".bottom-nav");
-      await expectMinimumTouchTargets(page, ".topbar-actions");
+      await expectMinimumTouchTargets(page, '[data-shell-navigation="compact"]');
+      await expectMinimumTouchTargets(page, "[data-shell-actions]");
 
       const logoutBounds = await page.getByRole("button", { name: "로그아웃", exact: true }).boundingBox();
       expect(logoutBounds, "로그아웃 버튼의 실제 경계 상자").not.toBeNull();
@@ -79,21 +79,18 @@ for (const viewport of responsiveViewports) {
       await page.keyboard.press("Escape");
       await expect(tooltip).toHaveCount(0);
 
-      const geometry = await page.locator(".app-shell").evaluate((shell, selector) => {
-        const navigation = document.querySelector(selector)?.getBoundingClientRect();
+      const navigationHeight = (await bottomNav.boundingBox())?.height ?? 0;
+      const paddingBottom = await page.locator("[data-app-shell]").evaluate((shell) => {
         const styles = getComputedStyle(shell);
-        return {
-          paddingBottom: Number.parseFloat(styles.paddingBottom),
-          navigationHeight: navigation?.height ?? 0
-        };
-      }, ".bottom-nav");
-      expect(geometry.paddingBottom).toBeGreaterThanOrEqual(geometry.navigationHeight);
+        return Number.parseFloat(styles.paddingBottom);
+      });
+      expect(paddingBottom).toBeGreaterThanOrEqual(navigationHeight);
     }
 
-    await expect(bottomNav.locator(".nav-item.active")).toHaveCount(viewport.width <= 760 ? 1 : 0);
+    await expect(page.getByRole("link", { name: "모니터링" })).toHaveAttribute("aria-current", "page");
     await expect(page.getByTestId("active-site-badge")).toHaveText("고객사 B2 현장");
     await expect(page.getByTestId("active-floor-badge")).toHaveCount(0);
-    await expect(page.locator(".topbar .status-pill")).toHaveCount(0);
+    await expect(topbar.getByText(/게이트웨이 (정상|오프라인|미등록)/)).toHaveCount(0);
     await expectNoHorizontalOverflow(page);
   });
 }
@@ -102,11 +99,12 @@ test("shell navigation updates when the viewport crosses the compact breakpoint"
   await page.setViewportSize({ width: 1024, height: 768 });
   await installSettingsApiRoutes(page, "admin");
   await page.goto("/monitoring?siteId=site-1");
-  await expect(page.locator(".sidebar")).toBeVisible();
+  await expect(page.locator('[data-shell-navigation="desktop"]')).toBeVisible();
 
   await page.setViewportSize({ width: 390, height: 844 });
 
-  await expect(page.locator(".sidebar")).toHaveCount(0);
-  await expect(page.locator(".bottom-nav")).toBeVisible();
-  await expect(page.locator(".bottom-nav .nav-item")).toHaveCount(4);
+  await expect(page.locator('[data-shell-navigation="desktop"]')).toHaveCount(0);
+  const compactNavigation = page.locator('[data-shell-navigation="compact"]');
+  await expect(compactNavigation).toBeVisible();
+  await expect(compactNavigation.getByRole("link")).toHaveCount(4);
 });

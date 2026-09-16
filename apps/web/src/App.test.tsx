@@ -676,7 +676,7 @@ describe("App", () => {
     );
 
     const siteBadge = await screen.findByTestId("active-site-badge");
-    const topbar = siteBadge.closest<HTMLElement>(".topbar");
+    const topbar = siteBadge.closest<HTMLElement>("header");
 
     expect(siteBadge).toHaveTextContent("Demo Underground Parking");
     expect(siteBadge).not.toHaveTextContent("B2 주차장");
@@ -938,7 +938,7 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    const topbar = (await screen.findByRole("heading", { name: "모니터링" })).closest<HTMLElement>(".topbar");
+    const topbar = (await screen.findByRole("heading", { name: "모니터링" })).closest<HTMLElement>("header");
     expect(topbar).not.toBeNull();
     expect(within(topbar!).queryByText("게이트웨이 미등록")).not.toBeInTheDocument();
 

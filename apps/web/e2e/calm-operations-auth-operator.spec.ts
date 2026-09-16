@@ -78,7 +78,7 @@ for (const viewport of viewports) {
     await expectNoHorizontalOverflow(page);
 
     if (viewport.width <= 760) {
-      await expectMinimumTouchTargets(page, ".auth-submit");
+      await expectMinimumTouchTargets(page, "[data-auth-submit]");
     }
 
     authenticated = true;
@@ -91,7 +91,7 @@ for (const viewport of viewports) {
     await expectNoHorizontalOverflow(page);
 
     if (viewport.width <= 760) {
-      await expectMinimumTouchTargets(page, ".operator-admin-management > .ui-page-header");
+      await expectMinimumTouchTargets(page, "[data-operator-admin-header]");
     }
 
     await page.getByRole("button", { name: "현장 및 관리자 생성" }).click();

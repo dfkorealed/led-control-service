@@ -189,14 +189,14 @@ export function SiteAdminFormDialog({
         <Button form={formId} variant="primary" type="submit" disabled={!valid || isPending} isLoading={isPending} loadingLabel="처리 중">{submitLabel}</Button>
       </>}
     >
-        <form id={formId} className="operator-form grid gap-3.5" onSubmit={(event) => {
+        <form id={formId} className="grid gap-3.5" onSubmit={(event) => {
           event.preventDefault();
           if (!valid || isPending) return;
           if (mode === "edit") editMutation.mutate();
           else void submitPasswordFlow();
         }}>
           {mode === "create" ? (
-            <div className="operator-form-grid grid grid-cols-2 gap-3 max-compact:grid-cols-1">
+            <div className="grid grid-cols-2 gap-3 max-compact:grid-cols-1">
               <TextField ref={initialFocusRef} label="고객사명" value={form.customerName} onChange={(value) => setForm({ ...form, customerName: value })} />
               <TextField label="현장명" value={form.siteName} onChange={(value) => setForm({ ...form, siteName: value })} />
             </div>
