@@ -1,8 +1,10 @@
 # 제어 메뉴 기능 현황
 
-기준일: 2026-09-15
+기준일: 2026-09-16
 
 ## 구현 완료
+
+- 수동·스케줄·이벤트 제어의 폼과 dialog를 공통 디자인 시스템으로 통일했다. 검색·선택·체크박스·밝기 입력·날짜·시간·확인 dialog는 공통 컴포넌트를 사용하고, 기존 API payload와 숫자 문자열 변환·검증 계약은 유지한다. 수동 제어는 PC 셸의 남은 높이 안에서 조명 목록과 명령 이력만 내부 스크롤하며 선택 피드백이 추가돼도 대상·실행 UI가 겹치거나 밀리지 않는다. 공통 Modal의 focus trap·Escape·중첩 확인 dialog·호출 버튼 focus 복귀를 적용했고, Chromium에서 실제 사용자가 보는 체크박스 라벨을 클릭하는 경로까지 검증했다.
 
 - 기존 published 수동 payload를 재처리할 때 `deliveryGeneration`, `deliveryGeneratedAt`, `deliveryWindowMs`, `expiresAt`을 보존하고 구 수동 종료·requester 필드만 영속적으로 제거한다. PUBACK 유실·재시작으로 배달 기한이 늘어나지 않는다. Gateway는 하드웨어 성공 시점의 활성 schedule occurrence·차량 activation 식별자를 terminal journal에 함께 저장해 UTC rollback 직후 crash에서도 현재 source 억제를 복구한다. 다음 occurrence·새 activation은 정확한 식별자 비교로 재개하며, 문맥이 없는 구 journal은 기존 UTC 기반 복구를 유지한다. 이 보완은 software 회귀 범위이며 실장비 HIL 증거는 아니다.
 
@@ -249,6 +251,8 @@
 
 ## 부족하거나 개선이 필요한 기능
 
+- 이번 제어 디자인 시스템 전환은 Chromium 자동 검증 범위다. Safari/Firefox, 실제 iOS·Android WebView의 segmented Date/Time 입력, safe-area와 OS별 focus ring은 수동 시각 QA가 추가로 필요하다. 제어 payload·API·Gateway 프로토콜은 변경하지 않았으며 실장비 HIL 완료 증거로 간주하지 않는다.
+
 - capability 원장은 생성 후 365일보다 오래되고 현재 node revision과 watermark가 모두 해당 revision보다 높은 superseded 기록만 자동 정리한다. 최신 capability 보고는 보존하며 전체 이벤트 정리는 sweep당 합산 최대 10,000개다. scope/hash가 없는 legacy 원장이나 현재 node·watermark 안전 조건을 증명할 수 없는 기록은 남긴다. watermark는 최신 identity를 보존하고 임의 과거 ID의 exact dedupe는 raw 원장이 남아 있는 기간에 의존한다. 같은 worker의 heartbeat 7일·fixture state 30일 정책과 세부 조건은 [DB 보존 문서](../database-schema.md#운영-데이터-보존과-복구-범위)를 따른다. 사용자/운영 DB migration 적용과 Raspberry Pi/ESP32-H2 replay HIL은 미실행이다.
 - 플랫폼 운영 배포 절차는 [API·Web runbook](../runbooks/production-api-web-deployment.md)을 따른다. 단일 호스트 Compose, 외부 Vault·공개 MQTT/Object Storage 연결, 장비 mTLS 공개 SAN, CRL 갱신 후 수동 broker SIGHUP, API 교체 후 nginx upstream 재해석·재시작이 운영 조건이다. Process-local 지표만 제공하며 외부 metrics/dashboard/alert/log shipping은 구성하지 않았다. 운영 배포·사용자 DB 적용·실장비 HIL과 native WebView·수동 시각 QA는 이번 자동 검증에 포함하지 않는다.
 
@@ -280,6 +284,19 @@
 - Task 20 Fix Round 4에서 temp directory는 fixed lock의 owner/coordination 상태가 아닌 publish 후보로 유지하되, cleanup은 원본 temp를 같은 parent의 unique quarantine path로 먼저 atomic rename해 소유권을 확보한 뒤 quarantine 내부만 정리한다. quarantine 내부가 empty directory이거나 exact regular `.owner.<token>` marker 하나만 가진 경우에만 삭제하고, publisher가 먼저 temp를 fixed lock으로 rename하면 cleaner는 원본 temp `ENOENT`로 중단한다. cleaner가 먼저 quarantine하면 publisher는 `ENOENT` 후 같은 token으로 새 temp를 만들어 retry한다. fixed lock directory 자체는 quarantine하지 않는다. temp/quarantine symlink·non-directory·marker symlink·multi-entry·외부 sentinel은 따라가거나 삭제하지 않고 fixed lock 획득을 막지 않는다. fixed lock은 계속 token/PID/`ps` process-start identity를 exact marker로 확인해 active owner wait, stale/PID reuse takeover, unknown identity fail-closed, exact release, successor ABA 보호와 same-output 직렬화를 유지한다. production `scripts/esp32-h2-build.sh`는 Bluetooth SIG 자사 Company ID와 signed manufacturing approval이 없는 현재 `unprovisioned` policy에서 의도적으로 fail-closed한다. 이는 HIL 실패나 HIL 완료 증거가 아니다.
 
 ## 관련 파일
+
+- `apps/web/src/features/control/ControlView.tsx`
+- `apps/web/src/features/control/ControlTargetPicker.tsx`
+- `apps/web/src/features/control/FixtureGroupDialog.tsx`
+- `apps/web/src/features/control/automation/ControlModeTabs.tsx`
+- `apps/web/src/features/control/automation/ScheduleControlPanel.tsx`
+- `apps/web/src/features/control/automation/ScheduleDialog.tsx`
+- `apps/web/src/features/control/automation/VehicleEventControlPanel.tsx`
+- `apps/web/src/features/control/automation/VehicleEventDialog.tsx`
+- `apps/web/src/features/control/automation/components/AutomationQuickFields.tsx`
+- `apps/web/e2e/calm-operations-manual-control.spec.ts`
+- `apps/web/e2e/calm-operations-automation.spec.ts`
+- `apps/web/e2e/automation-control-flow.spec.ts`
 
 - `apps/api/prisma/migrations/20260914090000_manual_control_baseline/migration.sql`
 - `docs/superpowers/plans/2026-09-14-manual-baseline-control.md`

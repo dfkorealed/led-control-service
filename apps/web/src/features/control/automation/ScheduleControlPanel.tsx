@@ -17,8 +17,7 @@ import {
 import type { AuthUser } from "../../../api/auth";
 import { authMeQueryKey } from "../../../api/principal-cache";
 import type { Dashboard } from "../../../api/queries";
-import { ConfirmDialog } from "../../../components/ConfirmDialog";
-import { Button, FeedbackState, PageHeader, StatusBadge } from "../../../components/ui";
+import { Button, ConfirmDialog, FeedbackState, PageHeader, StatusBadge, Text } from "../../../components/ui";
 import { ScheduleDialog } from "./ScheduleDialog";
 
 export function ScheduleControlPanel({
@@ -42,9 +41,9 @@ export function ScheduleControlPanel({
   const expiredPrincipalGeneration = useRef<number | null>(null);
   const [editingSchedule, setEditingSchedule] = useState<ScheduleResponse | null>(null);
   const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false);
-  const [dialogReturnFocus, setDialogReturnFocus] = useState<HTMLElement | null>(null);
+  const dialogReturnFocusRef = useRef<HTMLElement | null>(null);
   const [deleteCandidate, setDeleteCandidate] = useState<ScheduleResponse | null>(null);
-  const [deleteReturnFocus, setDeleteReturnFocus] = useState<HTMLElement | null>(null);
+  const deleteReturnFocusRef = useRef<HTMLElement | null>(null);
   const [message, setMessage] = useState("");
   const [mutationError, setMutationError] = useState("");
   const canManage = role === "admin";
@@ -129,7 +128,7 @@ export function ScheduleControlPanel({
 
   function beginAdd() {
     setEditingSchedule(null);
-    setDialogReturnFocus(addButtonRef.current);
+    dialogReturnFocusRef.current = addButtonRef.current;
     setMutationError("");
     setMessage("");
     setScheduleDialogOpen(true);
@@ -137,7 +136,7 @@ export function ScheduleControlPanel({
 
   function beginEdit(schedule: ScheduleResponse, opener: HTMLElement) {
     setEditingSchedule(schedule);
-    setDialogReturnFocus(opener);
+    dialogReturnFocusRef.current = opener;
     setMutationError("");
     setMessage("");
     setScheduleDialogOpen(true);
@@ -312,7 +311,7 @@ export function ScheduleControlPanel({
                           title="삭제"
                           disabled={isMutating}
                           onClick={(event) => {
-                            setDeleteReturnFocus(event.currentTarget);
+                            deleteReturnFocusRef.current = event.currentTarget;
                             setDeleteCandidate(schedule);
                             setMutationError("");
                             setMessage("");
@@ -345,9 +344,9 @@ export function ScheduleControlPanel({
           {schedulesQuery.isFetchingNextPage ? "불러오는 중" : "스케줄 더 보기"}
         </Button>
       ) : null}
-      {message ? <p className="success-text schedule-panel-message" role="status">{message}</p> : null}
+      {message ? <Text tone="success" role="status">{message}</Text> : null}
       {mutationError && !scheduleDialogOpen && !deleteCandidate
-        ? <p className="danger-text schedule-panel-message" role="alert">{mutationError}</p>
+        ? <Text tone="danger" role="alert">{mutationError}</Text>
         : null}
 
       {dashboard ? (
@@ -357,7 +356,7 @@ export function ScheduleControlPanel({
           dashboard={dashboard}
           isPending={saveMutation.isPending}
           serverError={scheduleDialogOpen ? mutationError : ""}
-          returnFocusElement={dialogReturnFocus}
+          returnFocusRef={dialogReturnFocusRef}
           onClose={() => {
             if (saveMutation.isPending) return;
             setScheduleDialogOpen(false);
@@ -369,20 +368,20 @@ export function ScheduleControlPanel({
       ) : null}
 
       <ConfirmDialog
-        open={Boolean(deleteCandidate)}
+        isOpen={Boolean(deleteCandidate)}
         title="스케줄 삭제"
         description={deleteCandidate ? `${deleteCandidate.name} 스케줄을 삭제하시겠습니까?` : undefined}
         confirmLabel="삭제"
-        destructive
+        tone="danger"
         isPending={removeMutation.isPending}
-        returnFocusElement={deleteReturnFocus}
-        fallbackFocusElement={addButtonRef.current}
-        onClose={() => {
+        returnFocusRef={deleteReturnFocusRef}
+        fallbackFocusRef={addButtonRef}
+        onCancel={() => {
           if (!removeMutation.isPending) setDeleteCandidate(null);
         }}
         onConfirm={remove}
       >
-        {deleteCandidate && mutationError ? <p className="danger-text" role="alert">{mutationError}</p> : null}
+        {deleteCandidate && mutationError ? <Text tone="danger" role="alert">{mutationError}</Text> : null}
       </ConfirmDialog>
     </div>
   );

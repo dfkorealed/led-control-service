@@ -414,6 +414,18 @@ describe("ControlView 대상 선택", () => {
     expect(screen.getByRole("slider", { name: "밝기" })).toHaveValue("60");
   });
 
+  it("keeps the shared brightness Slider and NumberField on one number state", () => {
+    renderControl();
+    const slider = screen.getByRole("slider", { name: "밝기" });
+    const number = screen.getByRole("textbox", { name: "밝기 수치" });
+
+    fireEvent.change(number, { target: { value: "42" } });
+    fireEvent.blur(number);
+    expect(slider).toHaveValue("42");
+    fireEvent.change(slider, { target: { value: "35" } });
+    expect(number).toHaveValue("35");
+  });
+
   it("keeps the chosen brightness for empty and multiple light selections", () => {
     renderControl();
     const brightnessSlider = screen.getByRole("slider", { name: "밝기" });
@@ -596,8 +608,8 @@ describe("ControlView 대상 선택", () => {
     renderControl();
 
     fireEvent.change(screen.getByRole("searchbox", { name: "조명 검색" }), { target: { value: "L001" } });
-    fireEvent.change(screen.getByLabelText("상태 필터"), { target: { value: "online" } });
-    fireEvent.change(screen.getByLabelText("층 필터"), { target: { value: dashboard.floors[1].id } });
+    selectOption("상태 필터", "온라인");
+    selectOption("층 필터", "B1");
 
     const list = screen.getByRole("group", { name: "조명 목록" });
     expect(within(list).getByText("B1-L001")).toBeInTheDocument();
@@ -766,8 +778,8 @@ describe("ControlView 대상 선택", () => {
   it("resets picker filters when the active site changes", () => {
     const { rerender } = renderControl();
     fireEvent.change(screen.getByRole("searchbox", { name: "조명 검색" }), { target: { value: "L001" } });
-    fireEvent.change(screen.getByLabelText("상태 필터"), { target: { value: "offline" } });
-    fireEvent.change(screen.getByLabelText("층 필터"), { target: { value: dashboard.floors[0].id } });
+    selectOption("상태 필터", "오프라인");
+    selectOption("층 필터", "B2");
 
     const nextDashboard: Dashboard = {
       ...dashboard,
@@ -777,8 +789,8 @@ describe("ControlView 대상 선택", () => {
     rerender(controlElement(nextDashboard.site.id));
 
     expect(screen.getByRole("searchbox", { name: "조명 검색" })).toHaveValue("");
-    expect(screen.getByLabelText("상태 필터")).toHaveValue("all");
-    expect(screen.getByLabelText("층 필터")).toHaveValue("all");
+    expect(screen.getByRole("button", { name: "상태 필터" })).toHaveTextContent("모든 상태");
+    expect(screen.getByRole("button", { name: "층 필터" })).toHaveTextContent("모든 층");
   });
 
   it("exposes target modes as pressed buttons instead of incomplete radio semantics", () => {
@@ -1197,6 +1209,11 @@ function renderControl(
   initialEntry = `/control?siteId=${siteId}`
 ) {
   return render(controlElement(siteId, role, userId, initialEntry));
+}
+
+function selectOption(label: string, option: string) {
+  fireEvent.click(screen.getByRole("button", { name: label }));
+  fireEvent.click(screen.getByRole("option", { name: option }));
 }
 
 function controlElement(

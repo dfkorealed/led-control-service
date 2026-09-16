@@ -1,10 +1,9 @@
 import type { AutomationRuleStatus } from "@led-control/shared";
-import { ArrowDown, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { ArrowDown } from "lucide-react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import type { CreateVehicleEventRuleInput, VehicleEventRuleResponse } from "../../../api/automation";
 import type { Dashboard } from "../../../api/queries";
-import { useDialogFocus } from "../../../components/ConfirmDialog";
-import { Button } from "../../../components/ui";
+import { Button, Checkbox, Heading, ModalDialog, Slider, Text, TextField } from "../../../components/ui";
 import { ControlTargetPicker } from "../ControlTargetPicker";
 import {
   fixtureIdsAvailability,
@@ -44,7 +43,7 @@ export function VehicleEventDialog({
   dashboard,
   isPending,
   serverError,
-  returnFocusElement,
+  returnFocusRef,
   onClose,
   onSubmit
 }: {
@@ -53,11 +52,10 @@ export function VehicleEventDialog({
   dashboard: Dashboard;
   isPending: boolean;
   serverError: string;
-  returnFocusElement?: HTMLElement | null;
+  returnFocusRef?: RefObject<HTMLElement | null>;
   onClose: () => void;
   onSubmit: (input: CreateVehicleEventRuleInput) => void;
 }) {
-  const dialogRef = useRef<HTMLElement>(null);
   const sourceFieldRef = useRef<HTMLFieldSetElement>(null);
   const targetFieldRef = useRef<HTMLFieldSetElement>(null);
   const sourceCardRef = useRef<HTMLDivElement>(null);
@@ -72,7 +70,6 @@ export function VehicleEventDialog({
   const [customHoldOpen, setCustomHoldOpen] = useState(false);
   const [pendingFocus, setPendingFocus] = useState<keyof VehicleEventFormErrors | null>(null);
   const title = rule ? "이벤트 수정" : "이벤트 추가";
-  const titleId = "vehicle-event-dialog-title";
 
   useEffect(() => {
     if (!open) return;
@@ -92,10 +89,6 @@ export function VehicleEventDialog({
     target.focus();
     setPendingFocus(null);
   }, [advancedOpen, customHoldOpen, pendingFocus, view]);
-
-  useDialogFocus({ open, dialogRef, returnFocusElement, onClose });
-
-  if (!open) return null;
 
   const sourceSummary = fixtureIdsSummary(values.sourceFixtureIds, dashboard, isVehicleEventSource);
   const targetSummary = fixtureIdsSummary(values.targetFixtureIds, dashboard);
@@ -181,27 +174,12 @@ export function VehicleEventDialog({
   ) : null;
 
   return (
-    <div className="schedule-dialog-backdrop" role="presentation" onMouseDown={(event) => {
-      if (event.currentTarget === event.target && !isPending) onClose();
-    }}>
-      <section ref={dialogRef} className="schedule-dialog automation-quick-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}>
-        <header className="schedule-dialog-header">
-          <div>
-            <span className="eyebrow">Gateway 차량 감지</span>
-            <div className="automation-dialog-title-row">
-              <h2 id={titleId}>{title}</h2>
-              <span className="automation-quick-badge">빠른 설정</span>
-            </div>
-          </div>
-          <button className="icon-button" type="button" aria-label={`${title} 닫기`} onClick={onClose} disabled={isPending}>
-            <X size={18} aria-hidden="true" />
-          </button>
-        </header>
+    <ModalDialog isOpen={open} title={title} description="빠른 설정 · Gateway 차량 감지" closeLabel={`${title} 닫기`} isPending={isPending} returnFocusRef={returnFocusRef} onClose={onClose} className="control-automation-dialog max-w-4xl">
 
         {pickerView ?? (
-          <form className="schedule-form automation-quick-form" onSubmit={submit} noValidate>
-            <section className="automation-quick-section automation-event-flow" aria-labelledby="event-flow-heading">
-              <h3 id="event-flow-heading">무엇을 감지해서 실행할까요?</h3>
+          <form className="grid gap-4" onSubmit={submit} noValidate>
+            <section className="grid gap-3 rounded-panel border border-border-default p-4" aria-labelledby="event-flow-heading">
+              <Heading as="h3" id="event-flow-heading" variant="card-title">무엇을 감지해서 실행할까요?</Heading>
               <AutomationSelectionCard
                 fieldRef={sourceCardRef}
                 label="감지 센서"
@@ -214,7 +192,7 @@ export function VehicleEventDialog({
                 kind="sensor"
                 onOpen={() => setView("source")}
               />
-              <ArrowDown className="automation-flow-arrow" size={20} aria-hidden="true" />
+              <ArrowDown className="justify-self-center text-content-secondary" size={20} aria-hidden="true" />
               <AutomationSelectionCard
                 fieldRef={targetCardRef}
                 label="실행할 조명"
@@ -228,7 +206,7 @@ export function VehicleEventDialog({
               />
             </section>
 
-            <fieldset className="automation-quick-section" disabled={isPending}>
+            <fieldset className="m-0 grid gap-3 rounded-panel border border-border-default p-4" disabled={isPending}>
               <legend>밝기</legend>
               <AutomationPresetGroup
                 label="밝기 프리셋"
@@ -237,18 +215,13 @@ export function VehicleEventDialog({
                 disabled={isPending || !values.dimmingEnabled}
                 onChange={(brightnessPercent) => change({ brightnessPercent })}
               />
-              <div className="automation-brightness-row">
-                <input type="range" min="0" max="100" aria-label="밝기 조절" disabled={!values.dimmingEnabled} value={values.dimmingEnabled ? values.brightnessPercent : "100"} onChange={(event) => change({ brightnessPercent: event.target.value })} />
-                <label className="form-field automation-brightness-number">
-                  <span>밝기</span>
-                  <input ref={brightnessInputRef} type="number" min="0" max="100" aria-label="밝기" disabled={!values.dimmingEnabled} {...errorAttributes(errors.brightnessPercent, vehicleEventErrorIds.brightness)} value={values.dimmingEnabled ? values.brightnessPercent : "100"} onChange={(event) => change({ brightnessPercent: event.target.value })} />
-                </label>
-                <span>%</span>
+              <div className="grid grid-cols-[minmax(0,1fr)_8rem] items-end gap-3 max-compact:grid-cols-1">
+                <Slider label="밝기 조절" minValue={0} maxValue={100} value={Number(values.dimmingEnabled ? values.brightnessPercent : "100") || 0} isDisabled={!values.dimmingEnabled} onChange={(value) => change({ brightnessPercent: String(value) })} />
+                <TextField ref={brightnessInputRef} label="밝기" inputMode="numeric" isDisabled={!values.dimmingEnabled} isInvalid={Boolean(errors.brightnessPercent)} errorMessage={errors.brightnessPercent} value={values.dimmingEnabled ? values.brightnessPercent : "100"} onChange={(value) => change({ brightnessPercent: value })} />
               </div>
-              <FieldError id={vehicleEventErrorIds.brightness} message={errors.brightnessPercent} />
             </fieldset>
 
-            <fieldset className="automation-quick-section" disabled={isPending}>
+            <fieldset className="m-0 grid gap-3 rounded-panel border border-border-default p-4" disabled={isPending}>
               <legend>유지 시간</legend>
               <AutomationPresetGroup
                 label="유지 시간 프리셋"
@@ -265,36 +238,24 @@ export function VehicleEventDialog({
                 }}
               />
               {customHoldOpen ? (
-                <label className="form-field schedule-compact-number automation-custom-hold">
-                  <span>유지 시간(초)</span>
-                  <input ref={holdSecondsInputRef} type="number" min="5" max="1800" aria-label="유지 시간" {...errorAttributes(errors.holdSeconds, vehicleEventErrorIds.holdSeconds)} value={values.holdSeconds} onChange={(event) => change({ holdSeconds: event.target.value })} />
-                  <FieldError id={vehicleEventErrorIds.holdSeconds} message={errors.holdSeconds} />
-                </label>
+                <TextField ref={holdSecondsInputRef} label="유지 시간" description="초 단위로 입력하세요." inputMode="numeric" isInvalid={Boolean(errors.holdSeconds)} errorMessage={errors.holdSeconds} value={values.holdSeconds} onChange={(value) => change({ holdSeconds: value })} />
               ) : null}
             </fieldset>
 
             <AutomationAdvancedSection label="고급 설정" open={advancedOpen} disabled={isPending} onOpenChange={setAdvancedOpen}>
-              <label className="form-field schedule-name-field">
-                <span>규칙 이름</span>
-                <input ref={nameInputRef} aria-label="규칙 이름" {...errorAttributes(errors.name, vehicleEventErrorIds.name)} value={values.name} onChange={(event) => change({ name: event.target.value })} />
-                <FieldError id={vehicleEventErrorIds.name} message={errors.name} />
-              </label>
-              <label className="schedule-dimming-toggle">
-                <input type="checkbox" aria-label="디밍 사용" checked={values.dimmingEnabled} onChange={(event) => change({ dimmingEnabled: event.target.checked })} />
-                <span>밝기 직접 지정 {values.dimmingEnabled ? "ON" : "OFF"}</span>
-              </label>
+              <TextField ref={nameInputRef} label="규칙 이름" isInvalid={Boolean(errors.name)} errorMessage={errors.name} value={values.name} onChange={(value) => change({ name: value })} />
+              <Checkbox label={`밝기 직접 지정 ${values.dimmingEnabled ? "ON" : "OFF"}`} aria-label="디밍 사용" isSelected={values.dimmingEnabled} onChange={(selected) => change({ dimmingEnabled: selected })} />
             </AutomationAdvancedSection>
 
             <AutomationSummaryBar>{vehicleEventSummary(values, dashboard)}</AutomationSummaryBar>
-            {serverError ? <p className="danger-text schedule-form-server-error" role="alert">{serverError}</p> : null}
-            <footer className="schedule-dialog-actions">
+            {serverError ? <Text tone="danger" role="alert">{serverError}</Text> : null}
+            <footer className="flex justify-end gap-2">
               <Button variant="secondary" type="button" onClick={onClose} disabled={isPending}>취소</Button>
               <Button className="primary-button" variant="primary" type="submit" isLoading={isPending} loadingLabel="저장 중">저장</Button>
             </footer>
           </form>
         )}
-      </section>
-    </div>
+    </ModalDialog>
   );
 
   function focusTarget(key: keyof VehicleEventFormErrors) {

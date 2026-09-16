@@ -4,7 +4,7 @@ import type { CreateDimmingCommandInput } from "@led-control/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import type { AuthUser } from "../../api/auth";
-import { Button, Card, PageHeader, ProgressSteps, SidePanel, StatusBadge, type ProgressStep, type ProgressStepState } from "../../components/ui";
+import { Button, Card, Heading, NumberField, PageHeader, ProgressSteps, SidePanel, Slider, StatusBadge, Text, type ProgressStep, type ProgressStepState } from "../../components/ui";
 import {
   canonicalizeDimmingCommandInput,
   createDimmingCommand,
@@ -367,13 +367,13 @@ export function ControlView({
   if (capabilities && mode === "event") {
     const eventSiteId = data?.site.id ?? siteId;
     return (
-      <section className="control-screen">
+      <section className="control-screen grid min-h-0 gap-4">
         {modeTabs}
         {eventSiteId ? (
-          <Suspense fallback={<p className="muted-text" role="status">이벤트 화면을 불러오는 중입니다.</p>}>
+          <Suspense fallback={<Text tone="muted" role="status">이벤트 화면을 불러오는 중입니다.</Text>}>
             <VehicleEventControlPanel key={`${userId}:${eventSiteId}`} siteId={eventSiteId} role={userRole} dashboard={data} scopeKey={`${userId}:${eventSiteId}`} />
           </Suspense>
-        ) : isLoading ? <p className="muted-text" role="status">현장 정보를 불러오는 중입니다.</p> : <p className="danger-text" role="alert">이벤트 현장을 확인하지 못했습니다.</p>}
+        ) : isLoading ? <Text tone="muted" role="status">현장 정보를 불러오는 중입니다.</Text> : <Text tone="danger" role="alert">이벤트 현장을 확인하지 못했습니다.</Text>}
       </section>
     );
   }
@@ -381,7 +381,7 @@ export function ControlView({
   if (capabilities && mode === "schedule") {
     const scheduleSiteId = data?.site.id ?? siteId;
     return (
-      <section className="control-screen">
+      <section className="control-screen grid min-h-0 gap-4">
         {modeTabs}
         {scheduleSiteId ? (
           <Suspense
@@ -391,7 +391,7 @@ export function ControlView({
                 role="tabpanel"
                 aria-labelledby="control-mode-schedule"
               >
-                <p className="muted-text" role="status">스케줄 화면을 불러오는 중입니다.</p>
+                <Text tone="muted" role="status">스케줄 화면을 불러오는 중입니다.</Text>
               </div>
             )}
           >
@@ -404,30 +404,30 @@ export function ControlView({
             />
           </Suspense>
         ) : isLoading ? (
-          <p className="muted-text" role="status">현장 정보를 불러오는 중입니다.</p>
+          <Text tone="muted" role="status">현장 정보를 불러오는 중입니다.</Text>
         ) : (
-          <p className="danger-text" role="alert">스케줄 현장을 확인하지 못했습니다.</p>
+          <Text tone="danger" role="alert">스케줄 현장을 확인하지 못했습니다.</Text>
         )}
       </section>
     );
   }
 
   if (isLoading && !data) {
-    return <section className="control-screen">{modeTabs}<p className="muted-text" role="status">제어 대상을 불러오는 중입니다.</p></section>;
+    return <section className="control-screen grid min-h-0 gap-4">{modeTabs}<Text tone="muted" role="status">제어 대상을 불러오는 중입니다.</Text></section>;
   }
 
   if (error && !data) {
-    return <section className="control-screen">{modeTabs}<p className="danger-text" role="alert">제어 대상을 불러오지 못했습니다.</p></section>;
+    return <section className="control-screen grid min-h-0 gap-4">{modeTabs}<Text tone="danger" role="alert">제어 대상을 불러오지 못했습니다.</Text></section>;
   }
 
   if (!data) {
-    return <section className="control-screen">{modeTabs}<p className="muted-text" role="status">제어 대상 데이터가 없습니다.</p></section>;
+    return <section className="control-screen grid min-h-0 gap-4">{modeTabs}<Text tone="muted" role="status">제어 대상 데이터가 없습니다.</Text></section>;
   }
 
   return (
-    <section className="control-screen">
+    <section className="control-screen grid min-h-0 gap-4">
       {modeTabs}
-      <div id="control-mode-panel-manual" role="tabpanel" aria-labelledby="control-mode-manual" className="control-manual-panel">
+      <div id="control-mode-panel-manual" role="tabpanel" aria-labelledby="control-mode-manual" className="control-manual-panel grid min-h-0 gap-4">
       <PageHeader
         title="조명 밝기 제어"
         headingLevel={3}
@@ -436,7 +436,6 @@ export function ControlView({
           <Button
             ref={groupDialogOpenerRef}
             variant="secondary"
-            className="control-group-button"
             type="button"
             onClick={() => setGroupDialogOpen(true)}
             disabled={commandSessionBlocked || isSubmitting || restorePending || commandInProgress}
@@ -447,15 +446,15 @@ export function ControlView({
       />
 
       {readOnly ? (
-        <p className="danger-text control-readonly-notice" role="alert">
+        <Text tone="danger" role="alert">
           조회 전용 계정입니다. 조명 제어는 제어 권한이 있는 계정만 사용할 수 있습니다.
-        </p>
+        </Text>
       ) : null}
 
-      <div className="control-layout ui-side-panel-layout">
-        <div className="control-target-column">
-        <Card className="control-target-card" aria-label="제어 대상 선택">
-          <fieldset className="control-picker-fieldset" aria-label="제어 대상 선택" disabled={controlsLocked}>
+      <div className="control-layout ui-side-panel-layout grid min-h-0 grid-cols-[minmax(0,1fr)_minmax(18rem,22rem)] gap-4 max-tablet:grid-cols-1">
+        <div className="control-target-column grid min-h-0 gap-4">
+        <Card className="control-target-card min-h-0 p-4" aria-label="제어 대상 선택">
+          <fieldset className="control-picker-fieldset m-0 min-h-0 border-0 p-0 disabled:opacity-60" aria-label="제어 대상 선택" disabled={controlsLocked}>
             <ControlTargetPicker
               key={data.site.id}
               dashboard={data}
@@ -477,36 +476,41 @@ export function ControlView({
           disabled={commandInProgress || isSubmitting || restorePending || commandSessionBlocked} />
         </div>
 
-        <SidePanel className="control-panel" aria-label="밝기 실행">
-          <div className="panel-title-row">
-            <div>
-              <span className="eyebrow">선택 대상</span>
-              <h3>{selected.name}</h3>
+        <SidePanel className="control-panel grid content-start gap-4 p-4" aria-label="밝기 실행">
+          <div className="panel-title-row flex min-h-14 items-start justify-between gap-3">
+            <div className="grid min-w-0 gap-1">
+              <Text as="span" variant="overline" tone="muted">선택 대상</Text>
+              <Heading as="h3" variant="card-title" className="truncate">{selected.name}</Heading>
             </div>
             <ManualControlBadge readOnly={readOnly} canSubmit={canSubmit} blocked={Boolean(blockMessage)} />
           </div>
 
-          <div className="control-panel-body">
-            <div className="control-target-summary" aria-live="polite">
-              <strong>{selected.fixtures.length}개 선택 · 제어 불가 {selected.blockedCount}개</strong>
-              <span>{deliveryLabel(selection, selected.fixtures.length)}</span>
+          <div className="control-panel-body grid min-h-0 gap-4 overflow-y-auto">
+            <div className="grid gap-1 rounded-control bg-surface-inset p-3" aria-live="polite">
+              <Text as="strong" weight="semibold">{selected.fixtures.length}개 선택 · 제어 불가 {selected.blockedCount}개</Text>
+              <Text as="span" variant="caption" tone="secondary">{deliveryLabel(selection, selected.fixtures.length)}</Text>
             </div>
 
-            <div className="dial-card">
-              <span>밝기</span>
-              <strong>{brightness}%</strong>
-              <input
-                aria-label="밝기"
-                type="range"
-                min="0"
-                max="100"
+            <div className="dial-card grid gap-3 rounded-panel border border-border-default bg-surface-panel p-4">
+              <div className="flex items-baseline justify-between gap-3">
+                <Text as="span" variant="label">밝기</Text>
+                <Text as="strong" variant="metric">{brightness}%</Text>
+              </div>
+              <Slider label="밝기" minValue={0} maxValue={100} step={1} value={brightness} isDisabled={controlsLocked} onChange={setBrightness} />
+              <NumberField
+                label="밝기 수치"
+                minValue={0}
+                maxValue={100}
+                step={1}
                 value={brightness}
-                disabled={controlsLocked}
-                onChange={(event) => setBrightness(Number(event.target.value))}
+                isDisabled={controlsLocked}
+                onChange={(value) => {
+                  if (value !== null && value >= 0 && value <= 100) setBrightness(value);
+                }}
               />
             </div>
 
-            <div className="preset-row">
+            <div className="preset-row grid grid-cols-4 gap-2">
               {[0, 30, 70, 100].map((value) => (
                 <Button key={value} variant="secondary" type="button" onClick={() => setBrightness(value)} disabled={controlsLocked}>
                   {value}%
@@ -518,8 +522,8 @@ export function ControlView({
               {commandSessionBlocked ? "로그아웃 중" : controlsLocked && !readOnly ? "밝기 적용 중" : "밝기 적용"}
             </Button>
           </div>
-          <div className="control-panel-feedback">
-            <div className="command-status-region" role="status" aria-label="명령 진행 상태" aria-live="polite">
+          <div className="control-panel-feedback min-h-0 overflow-y-auto grid gap-3">
+            <div className="command-status-region grid gap-3" role="status" aria-label="명령 진행 상태" aria-live="polite">
               {scopedActiveRequest && !scopedCommandId ? (
                 <Button
                   variant="secondary"
@@ -530,8 +534,8 @@ export function ControlView({
                   동일 요청 확인(새 제어 아님)
                 </Button>
               ) : null}
-              {message ? <p className={message.startsWith("명령을 전송") ? "success-text" : "danger-text"}>{message}</p> : null}
-              {verificationError ? <p className="danger-text" role="alert">{verificationError}</p> : null}
+              {message ? <Text tone={message.startsWith("명령을 전송") ? "success" : "danger"}>{message}</Text> : null}
+              {verificationError ? <Text tone="danger" role="alert">{verificationError}</Text> : null}
               {displayedStatus ? <>
                 <CommandProgress status={displayedStatus} />
                 <CommandOutcomeActions status={displayedStatus} onCheck={() => void checkActualState()} onRetry={() => void safelyReapply()}
@@ -540,20 +544,20 @@ export function ControlView({
                 <Button variant="secondary" type="button" disabled={commandInProgress || isSubmitting} onClick={() => setTerminalResult(null)}>명령 상세 닫기</Button>
               </> : null}
             </div>
-            {blockMessage ? <p className="danger-text" role="alert">{blockMessage}</p> : null}
+            {blockMessage ? <Text tone="danger" role="alert">{blockMessage}</Text> : null}
             {hasMismatchedCommandStatus && !missingCommand ? (
-              <div className="command-status-error" role="alert">
-                <p className="danger-text">
+              <div className="grid gap-2" role="alert">
+                <Text tone="danger">
                   명령 상태 응답의 식별자가 일치하지 않습니다. 안전을 위해 제어 잠금을 유지합니다.
-                </p>
+                </Text>
                 <Button variant="secondary" type="button" onClick={() => void commandQuery.refetch()} disabled={commandQuery.isFetching}>
                   {commandQuery.isFetching ? "명령 상태 조회 중" : "명령 상태 다시 조회"}
                 </Button>
               </div>
             ) : null}
             {commandQuery.error && scopedCommandId && !missingCommand && !matchingCommandIsTerminal && !hasMismatchedCommandStatus ? (
-              <div className="command-status-error" role="alert">
-                <p className="danger-text">명령 상태를 불러오지 못했습니다. 연결을 확인한 뒤 다시 조회하세요.</p>
+              <div className="grid gap-2" role="alert">
+                <Text tone="danger">명령 상태를 불러오지 못했습니다. 연결을 확인한 뒤 다시 조회하세요.</Text>
                 <Button variant="secondary" type="button" onClick={() => void commandQuery.refetch()} disabled={commandQuery.isFetching}>
                   {commandQuery.isFetching ? "명령 상태 조회 중" : "명령 상태 다시 조회"}
                 </Button>
@@ -660,15 +664,15 @@ function CommandProgress({ status }: { status: NonNullable<ReturnType<typeof use
   );
   const isFailure = status.stage === "partial_failed" || status.stage === "failed" || status.stage === "timed_out";
   return (
-    <div className="command-progress-card">
-      <span>최근 명령 상태</span>
-      <strong>{status.stage === "completed" ? "조명 적용 완료 · 기본 밝기로 저장됨" : commandStageLabel(status.stage)}</strong>
-      <small>{status.completedFixtureCount} / {status.totalFixtureCount} 처리</small>
+    <div className="command-progress-card grid gap-2 rounded-panel border border-border-default bg-surface-panel p-4">
+      <Text as="span" variant="overline" tone="muted">최근 명령 상태</Text>
+      <Text as="strong" weight="semibold">{status.stage === "completed" ? "조명 적용 완료 · 기본 밝기로 저장됨" : commandStageLabel(status.stage)}</Text>
+      <Text variant="caption">{status.completedFixtureCount} / {status.totalFixtureCount} 처리</Text>
       <ProgressSteps label="명령 진행" steps={commandSteps(status.stage)} />
       {failedResults.map((result) => (
-        <small className={isFailure ? "danger-text" : ""} key={`${result.dispatchId}:${result.fixtureId}`}>
+        <Text variant="caption" tone={isFailure ? "danger" : "primary"} key={`${result.dispatchId}:${result.fixtureId}`}>
           {result.fixtureName}: {humanizeDeviceResponseMessage(result.errorMessage ?? (result.status === "timed_out" ? "응답 시간 초과" : "적용 실패"))}
-        </small>
+        </Text>
       ))}
     </div>
   );

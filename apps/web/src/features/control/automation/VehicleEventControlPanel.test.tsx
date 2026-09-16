@@ -271,6 +271,17 @@ describe("VehicleEventControlPanel", () => {
     }));
   });
 
+  it("keeps event numeric validation inputs as shared string fields", async () => {
+    renderPanel("admin");
+    await screen.findByText("입구 차량 감지");
+    fireEvent.click(screen.getByRole("button", { name: "이벤트 추가" }));
+    const dialog = screen.getByRole("dialog", { name: "이벤트 추가" });
+
+    expect(within(dialog).getByRole("textbox", { name: "밝기" })).toHaveAttribute("inputmode", "numeric");
+    fireEvent.click(within(dialog).getByRole("button", { name: "직접 입력" }));
+    expect(within(dialog).getByRole("textbox", { name: "유지 시간" })).toHaveAttribute("inputmode", "numeric");
+  });
+
   it("submits the exact edit payload for custom hold and dimming-off normalization", async () => {
     renderPanel("admin");
     await screen.findByText("입구 차량 감지");

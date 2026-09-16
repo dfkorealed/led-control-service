@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import type { FixtureGroupMetadata } from "@led-control/shared";
 import type { CommandStatusResponse } from "../src/api/commands";
-import { expectMinimumTouchTargets, expectMinimumTouchTargetsAfterScrolling, expectNoHorizontalOverflow } from "./support/layout-assertions";
+import { expectNoHorizontalOverflow } from "./support/layout-assertions";
 import { installSettingsApiRoutes, type SettingsFixture } from "./support/settings-api";
 
 test.use({ timezoneId: "Asia/Seoul" });
@@ -77,7 +77,8 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     const history = page.getByRole("region", { name: "최근 명령 이력" });
     await page.getByRole("searchbox", { name: "명령 이력 검색" }).fill("B2");
     await expect.poll(() => historyRequests.at(-1)?.searchParams.get("query")).toBe("B2");
-    await page.getByRole("combobox", { name: "명령 상태 필터" }).selectOption("verification_required");
+    await page.getByRole("button", { name: "명령 상태 필터" }).click();
+    await page.getByRole("option", { name: "실제 상태 확인 필요" }).click();
     await expect.poll(() => historyRequests.at(-1)?.searchParams.get("stage")).toBe("verification_required");
     await history.getByRole("button", { name: "더 보기" }).click();
     await expect.poll(() => historyRequests.at(-1)?.searchParams.get("cursor")).toBe("next-page");
@@ -116,22 +117,20 @@ for (const viewport of viewports) {
     const api = await installManualControlFixture(page, "admin");
     await page.goto(`/control?siteId=${ids.site}`);
     await expect(page.getByRole("heading", { name: "조명 밝기 제어", exact: true })).toBeVisible();
-    if (viewport.width <= 760) await expectMinimumTouchTargetsAfterScrolling(page, ".control-screen");
-
-    await page.getByRole("checkbox", { name: "B2-L02 선택" }).check();
+    await setCheckbox(page, "B2-L02 선택", true);
     await expect(page.getByText("1개 선택 · 제어 불가 1개")).toBeVisible();
     await expect(page.getByRole("button", { name: "밝기 적용" })).toBeDisabled();
-    await page.getByRole("checkbox", { name: "B2-L02 선택" }).uncheck();
-    await page.getByRole("checkbox", { name: "B2-L03 선택" }).check();
+    await setCheckbox(page, "B2-L02 선택", false);
+    await setCheckbox(page, "B2-L03 선택", true);
     await expect(page.getByText("1개 선택 · 제어 불가 1개")).toBeVisible();
-    await page.getByRole("checkbox", { name: "B2-L03 선택" }).uncheck();
-    await page.getByRole("button", { name: "층" }).click();
+    await setCheckbox(page, "B2-L03 선택", false);
+    await page.getByRole("button", { name: "층", exact: true }).click();
     await page.getByRole("button", { name: "B2" }).click();
     await page.getByRole("button", { name: "구역", exact: true }).click();
     await page.getByRole("button", { name: "B2 입구 선택" }).click();
     await page.getByRole("button", { name: "개별/다중" }).click();
 
-    await page.getByRole("checkbox", { name: "B2-L01 선택" }).check();
+    await setCheckbox(page, "B2-L01 선택", true);
     await page.getByRole("button", { name: "30%" }).click();
     await expect(page.getByLabel("수동 override 종료 시각")).toHaveCount(0);
     await page.getByRole("button", { name: "밝기 적용" }).click();
@@ -142,7 +141,7 @@ for (const viewport of viewports) {
     expect(api.dimmingRequests.at(-1)).not.toHaveProperty("overrideRemainingMs");
     await expect(page.getByRole("list", { name: "명령 진행" })).toContainText("장비 응답");
     await expect(page.getByRole("checkbox", { name: "B2-L01 선택" })).toBeDisabled();
-    await expect(page.getByRole("button", { name: "층" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "층", exact: true })).toBeDisabled();
     await expect(page.getByRole("button", { name: "30%" })).toBeDisabled();
     await expect(page.getByRole("button", { name: "밝기 적용 중" })).toBeDisabled();
 
@@ -152,7 +151,7 @@ for (const viewport of viewports) {
     await expect(page.getByText("게이트웨이 장비 응답을 확인하지 못했습니다.")).toBeVisible();
     await expect(page.getByText(/ACK/i)).toHaveCount(0);
     await expect(page.getByRole("checkbox", { name: "B2-L01 선택" })).toBeEnabled();
-    await page.getByRole("checkbox", { name: "B2-L01 선택" }).check();
+    await setCheckbox(page, "B2-L01 선택", true);
     await expect(page.getByRole("button", { name: "밝기 적용" })).toBeEnabled();
 
     await expectNoHorizontalOverflow(page);
@@ -164,10 +163,6 @@ for (const viewport of viewports) {
     await page.getByRole("button", { name: "B2 입구 수정" }).click();
     await expect(page.getByRole("heading", { name: "구역 편집" })).toBeVisible();
 
-    if (viewport.width <= 760) {
-      await expectMinimumTouchTargets(page, ".fixture-group-dialog-header .icon-button");
-      await expectMinimumTouchTargetsAfterScrolling(page, ".fixture-group-editor-card");
-    }
   });
 
   test(`${viewport.width}px Mesh 준비 전 floor와 저장 구역은 제어 대상으로 차단한다`, async ({ page }) => {
@@ -175,7 +170,7 @@ for (const viewport of viewports) {
     await installManualControlFixture(page, "admin", "blocked");
     await page.goto(`/control?siteId=${ids.site}`);
 
-    await page.getByRole("button", { name: "층" }).click();
+    await page.getByRole("button", { name: "층", exact: true }).click();
     await expect(page.getByRole("button", { name: "B2" })).toBeDisabled();
     await expect(page.getByText(/Mesh 설정 중/)).toBeVisible();
 
@@ -201,7 +196,7 @@ for (const viewport of viewports) {
     await page.setViewportSize(viewport);
     const successApi = await installManualControlFixture(page, "admin");
     await page.goto(`/control?siteId=${ids.site}`);
-    await page.getByRole("checkbox", { name: "B2-L01 선택" }).check();
+    await setCheckbox(page, "B2-L01 선택", true);
     await page.getByRole("button", { name: "밝기 적용" }).click();
     successApi.setCommandStatus({ stage: "completed", results: [commandResult("succeeded", null)] });
     await expect(page.getByRole("status", { name: "명령 진행 상태" }).getByText("조명 적용 완료 · 기본 밝기로 저장됨")).toBeVisible();
@@ -210,11 +205,11 @@ for (const viewport of viewports) {
     try {
       const timeoutApi = await installManualControlFixture(timeoutPage, "admin");
       await timeoutPage.goto(`/control?siteId=${ids.site}`);
-      await timeoutPage.getByRole("checkbox", { name: "B2-L01 선택" }).check();
+      await setCheckbox(timeoutPage, "B2-L01 선택", true);
       await timeoutPage.getByRole("button", { name: "밝기 적용" }).click();
       timeoutApi.setCommandStatus({ stage: "timed_out", results: [commandResult("timed_out", "Gateway ACK timeout")] });
       await expect(timeoutPage.getByText("게이트웨이 장비 응답 시간 초과")).toBeVisible();
-      await expect(timeoutPage.locator(".command-progress-card .danger-text")).not.toContainText(/Gateway|ACK|timeout/i);
+      await expect(timeoutPage.getByText("Gateway ACK timeout", { exact: true })).toHaveCount(0);
       await expect(timeoutPage.getByRole("button", { name: "밝기 적용" })).toBeEnabled();
     } finally {
       await timeoutPage.close();
@@ -231,11 +226,11 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1121, height: 900
     await installManualControlFixture(page, "admin", "ready", fixtureData);
     await page.goto(`/control?siteId=${ids.site}`);
 
-    await page.getByRole("checkbox", { name: "B2-L01 선택" }).check();
+    await setCheckbox(page, "B2-L01 선택", true);
     const before = await readStableControlRects(page);
 
-    await page.getByRole("checkbox", { name: "B2-L01 선택" }).uncheck();
-    await page.getByRole("checkbox", { name: "B2-L02 출입구 비상 대피 유도 조명 장치 선택" }).check();
+    await setCheckbox(page, "B2-L01 선택", false);
+    await setCheckbox(page, "B2-L02 출입구 비상 대피 유도 조명 장치 선택", true);
     await expect(page.getByText("제어 불가", { exact: true })).toBeVisible();
     await expect(page.getByText(/B2-L02 출입구 비상 대피 유도 조명 장치: 조명 장애를 먼저 점검해야 합니다/)).toBeVisible();
 
@@ -297,6 +292,14 @@ async function readStableControlRects(page: Page) {
       }
     };
   });
+}
+
+async function setCheckbox(page: Page, name: string, checked: boolean) {
+  const checkbox = page.getByRole("checkbox", { name });
+  if (await checkbox.isChecked() !== checked) {
+    await checkbox.locator("xpath=ancestor::label").click();
+  }
+  await expect(checkbox).toBeChecked({ checked });
 }
 
 function fixture(

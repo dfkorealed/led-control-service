@@ -1,8 +1,7 @@
-import { Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { DimmingTarget } from "@led-control/shared";
 import type { Dashboard, DashboardFixture } from "../../api/queries";
-import { Button, Card } from "../../components/ui";
+import { Button, Card, Checkbox, SearchField, SelectBox, Text } from "../../components/ui";
 import { fixtureGroupReadiness, floorMeshReadiness } from "./control-readiness";
 import { humanizeDeviceResponseMessage } from "./control-copy";
 
@@ -39,6 +38,13 @@ interface ControlTargetPickerProps {
 }
 
 type StatusFilter = "all" | DashboardFixture["status"];
+
+const statusFilterItems: ReadonlyArray<{ id: StatusFilter; label: string }> = [
+  { id: "all", label: "모든 상태" },
+  { id: "online", label: "온라인" },
+  { id: "offline", label: "오프라인" },
+  { id: "fault", label: "장애" }
+];
 
 export function ControlTargetPicker({
   dashboard,
@@ -118,8 +124,8 @@ export function ControlTargetPicker({
   }
 
   return (
-    <div className="control-target-picker">
-      <div className="segmented-control control-target-modes" role="group" aria-label="제어 대상 유형">
+    <div className="control-target-picker grid min-h-0 gap-3">
+      <div className="grid grid-cols-3 gap-2 max-compact:grid-cols-1" role="group" aria-label="제어 대상 유형">
         {([
           ["fixtures", "개별/다중"],
           ["floor", "층"],
@@ -130,7 +136,7 @@ export function ControlTargetPicker({
             variant="ghost"
             type="button"
             aria-pressed={selection.mode === mode}
-            className={selection.mode === mode ? "active" : ""}
+            className={selection.mode === mode ? "border-action-primary bg-action-primary-soft" : ""}
             disabled={disabled}
             onClick={() => switchMode(mode)}
           >
@@ -141,37 +147,23 @@ export function ControlTargetPicker({
 
       {selection.mode === "fixtures" ? (
         <>
-          <div className="control-filter-bar">
-            <label className="control-search-field">
-              <span className="sr-only">조명 검색</span>
-              <Search size={16} aria-hidden="true" />
-              <input
-                type="search"
-                aria-label="조명 검색"
-                placeholder="조명 이름 검색"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-              />
-            </label>
-            <label className="select-field compact">
-              <span className="sr-only">상태 필터</span>
-              <select aria-label="상태 필터" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}>
-                <option value="all">모든 상태</option>
-                <option value="online">온라인</option>
-                <option value="offline">오프라인</option>
-                <option value="fault">장애</option>
-              </select>
-            </label>
-            <label className="select-field compact">
-              <span className="sr-only">층 필터</span>
-              <select aria-label="층 필터" value={floorFilter} onChange={(event) => setFloorFilter(event.target.value)}>
-                <option value="all">모든 층</option>
-                {dashboard.floors.map((floor) => <option key={floor.id} value={floor.id}>{floor.name}</option>)}
-              </select>
-            </label>
+          <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-end gap-2 max-compact:grid-cols-1">
+            <SearchField label={<span className="sr-only">조명 검색</span>} placeholder="조명 이름 검색" value={search} onChange={setSearch} />
+            <SelectBox
+              label={<span className="sr-only">상태 필터</span>}
+              items={statusFilterItems}
+              selectedKey={statusFilter}
+              onSelectionChange={(key) => setStatusFilter(key ?? "all")}
+            />
+            <SelectBox
+              label={<span className="sr-only">층 필터</span>}
+              items={[{ id: "all", label: "모든 층" }, ...dashboard.floors.map((floor) => ({ id: floor.id, label: floor.name }))]}
+              selectedKey={floorFilter}
+              onSelectionChange={(key) => setFloorFilter(key ?? "all")}
+            />
           </div>
-          <div className="control-selection-actions">
-            <span>{Math.min(visibleLimit, filteredFixtures.length)} / {filteredFixtures.length}개 표시</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <Text as="span" variant="caption">{Math.min(visibleLimit, filteredFixtures.length)} / {filteredFixtures.length}개 표시</Text>
             <Button variant="secondary" type="button" disabled={disabled || filteredFixtures.length === 0} onClick={selectVisibleFixtures}>검색 결과 전체 선택</Button>
             <Button
               variant="secondary"
@@ -185,36 +177,35 @@ export function ControlTargetPicker({
               선택 해제
             </Button>
           </div>
-          <p className={selectionLimitReached ? "control-selection-limit danger-text" : "control-selection-limit"} role={selectionLimitReached ? "alert" : undefined}>
+          <Text variant="caption" tone={selectionLimitReached ? "danger" : "secondary"} role={selectionLimitReached ? "alert" : undefined}>
             한 번에 최대 1,000개 조명까지 선택할 수 있습니다.
-          </p>
-          <div className="control-target-list" role="group" aria-label="조명 목록">
+          </Text>
+          <div className="control-target-list grid min-h-0 max-h-[min(36dvh,24rem)] overflow-y-auto rounded-panel border border-border-default" role="group" aria-label="조명 목록">
             {visibleFixtures.map(({ fixture, floor }) => {
               const checked = selectedFixtureIds.has(fixture.id);
               return (
-                <label className={`control-fixture-row${checked ? " selected" : ""}`} key={fixture.id}>
-                  <input
-                    type="checkbox"
-                    aria-label={`${fixture.name} 선택`}
-                    checked={checked}
-                    disabled={disabled}
+                <div className={`grid min-h-11 grid-cols-[auto_auto_minmax(0,1fr)_auto] items-center gap-3 border-b border-border-subtle px-3 py-2 last:border-b-0 ${checked ? "bg-action-primary-soft" : "bg-surface-panel"}`} key={fixture.id}>
+                  <Checkbox
+                    label={<span className="sr-only">{fixture.name} 선택</span>}
+                    isSelected={checked}
+                    isDisabled={disabled}
                     onChange={() => toggleFixture(fixture.id)}
                   />
-                  <span className={`device-state ${fixture.status === "fault" ? "danger" : fixture.status === "offline" ? "muted" : ""}`} />
-                  <span className="control-target-identity">
-                    <strong>{fixture.name}</strong>
-                    <small>{floor.name} · {fixtureStatusLabel(fixture.status)} · {fixtureHealthLabel(fixture)}</small>
+                  <span aria-hidden="true" className={`h-2.5 w-2.5 rounded-pill ${fixture.status === "fault" ? "bg-fixture-fault" : fixture.status === "offline" ? "bg-fixture-offline" : "bg-fixture-connected"}`} />
+                  <span className="grid min-w-0 gap-1">
+                    <Text as="strong" weight="semibold">{fixture.name}</Text>
+                    <Text as="small" variant="caption" tone="secondary">{floor.name} · {fixtureStatusLabel(fixture.status)} · {fixtureHealthLabel(fixture)}</Text>
                   </span>
-                  <span className="control-target-value">{fixture.brightness}%</span>
-                </label>
+                  <Text as="span" weight="semibold" className="tabular-nums">{fixture.brightness}%</Text>
+                </div>
               );
             })}
-            {filteredFixtures.length === 0 ? <p className="control-empty-state">조건에 맞는 조명이 없습니다.</p> : null}
+            {filteredFixtures.length === 0 ? <Text className="p-4 text-center" tone="secondary">조건에 맞는 조명이 없습니다.</Text> : null}
           </div>
           {visibleLimit < filteredFixtures.length ? (
             <Button
               variant="secondary"
-              className="control-load-more"
+              className="w-full"
               type="button"
               disabled={disabled}
               onClick={() => setVisibleLimit((current) => current + FIXTURE_LIST_BATCH_SIZE)}
@@ -226,7 +217,7 @@ export function ControlTargetPicker({
       ) : null}
 
       {selection.mode === "floor" ? (
-        <Card className="control-target-list control-target-button-list" role="group" aria-label="층 목록">
+        <Card className="grid overflow-hidden" role="group" aria-label="층 목록">
           {dashboard.floors.map((floor) => {
             const readiness = floorMeshReadiness(floor);
             return (
@@ -234,26 +225,26 @@ export function ControlTargetPicker({
                 variant="secondary"
                 type="button"
                 aria-label={floor.name}
-                className={selection.floorId === floor.id ? "control-target-button selected" : "control-target-button"}
+                className={`h-auto min-h-11 justify-between rounded-none border-x-0 border-t-0 px-4 py-3 text-left last:border-b-0 ${selection.floorId === floor.id ? "bg-action-primary-soft" : ""}`}
                 key={floor.id}
                 disabled={disabled || !readiness.ready}
                 onClick={() => onChange({ mode: "floor", floorId: floor.id })}
               >
-                <span>
-                  <strong>{floor.name}</strong>
-                  <small>층 전체 조명 · {readiness.label}</small>
-                  {readiness.error ? <small className="danger-text">{humanizeDeviceResponseMessage(readiness.error)}</small> : null}
+                <span className="grid gap-1">
+                  <Text as="strong" weight="semibold">{floor.name}</Text>
+                  <Text as="small" variant="caption" tone="secondary">층 전체 조명 · {readiness.label}</Text>
+                  {readiness.error ? <Text as="small" variant="caption" tone="danger">{humanizeDeviceResponseMessage(readiness.error)}</Text> : null}
                 </span>
                 <span>{floor.fixtures.length}개</span>
               </Button>
             );
           })}
-          {dashboard.floors.length === 0 ? <p className="control-empty-state">등록된 층이 없습니다.</p> : null}
+          {dashboard.floors.length === 0 ? <Text className="p-4 text-center" tone="secondary">등록된 층이 없습니다.</Text> : null}
         </Card>
       ) : null}
 
       {selection.mode === "group" ? (
-        <Card className="control-target-list control-target-button-list" role="group" aria-label="구역 목록">
+        <Card className="grid overflow-hidden" role="group" aria-label="구역 목록">
           {dashboard.groups.map((group) => {
             const readiness = fixtureGroupReadiness(group);
             return (
@@ -261,21 +252,21 @@ export function ControlTargetPicker({
                 variant="secondary"
                 type="button"
                 aria-label={`${group.name} 선택`}
-                className={selection.groupId === group.id ? "control-target-button selected" : "control-target-button"}
+                className={`h-auto min-h-11 justify-between rounded-none border-x-0 border-t-0 px-4 py-3 text-left last:border-b-0 ${selection.groupId === group.id ? "bg-action-primary-soft" : ""}`}
                 key={group.id}
                 disabled={disabled || !readiness.ready}
                 onClick={() => onChange({ mode: "group", groupId: group.id })}
               >
-                <span>
-                  <strong>{group.name}</strong>
-                  <small>저장된 구역 · {readiness.label}</small>
-                  {readiness.error ? <small className="danger-text">{humanizeDeviceResponseMessage(readiness.error)}</small> : null}
+                <span className="grid gap-1">
+                  <Text as="strong" weight="semibold">{group.name}</Text>
+                  <Text as="small" variant="caption" tone="secondary">저장된 구역 · {readiness.label}</Text>
+                  {readiness.error ? <Text as="small" variant="caption" tone="danger">{humanizeDeviceResponseMessage(readiness.error)}</Text> : null}
                 </span>
                 <span>{group.fixtureIds.length}개</span>
               </Button>
             );
           })}
-          {dashboard.groups.length === 0 ? <p className="control-empty-state">등록된 구역이 없습니다.</p> : null}
+          {dashboard.groups.length === 0 ? <Text className="p-4 text-center" tone="secondary">등록된 구역이 없습니다.</Text> : null}
         </Card>
       ) : null}
     </div>

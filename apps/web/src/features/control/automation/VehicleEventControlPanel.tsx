@@ -15,8 +15,7 @@ import {
 import type { AuthUser } from "../../../api/auth";
 import { authMeQueryKey } from "../../../api/principal-cache";
 import type { Dashboard } from "../../../api/queries";
-import { ConfirmDialog } from "../../../components/ConfirmDialog";
-import { Button, FeedbackState, PageHeader, StatusBadge } from "../../../components/ui";
+import { Button, ConfirmDialog, FeedbackState, PageHeader, StatusBadge, Text } from "../../../components/ui";
 import { VehicleEventDialog } from "./VehicleEventDialog";
 
 export function VehicleEventControlPanel({
@@ -37,9 +36,9 @@ export function VehicleEventControlPanel({
   const scopeGeneration = scope.current.generation;
   const [editingRule, setEditingRule] = useState<VehicleEventRuleResponse | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [dialogReturnFocus, setDialogReturnFocus] = useState<HTMLElement | null>(null);
+  const dialogReturnFocusRef = useRef<HTMLElement | null>(null);
   const [deleteCandidate, setDeleteCandidate] = useState<VehicleEventRuleResponse | null>(null);
-  const [deleteReturnFocus, setDeleteReturnFocus] = useState<HTMLElement | null>(null);
+  const deleteReturnFocusRef = useRef<HTMLElement | null>(null);
   const [message, setMessage] = useState("");
   const [mutationError, setMutationError] = useState("");
   const canManage = role === "admin";
@@ -119,7 +118,7 @@ export function VehicleEventControlPanel({
 
   function beginAdd() {
     setEditingRule(null);
-    setDialogReturnFocus(addButtonRef.current);
+    dialogReturnFocusRef.current = addButtonRef.current;
     setMutationError("");
     setMessage("");
     setDialogOpen(true);
@@ -127,7 +126,7 @@ export function VehicleEventControlPanel({
 
   function beginEdit(rule: VehicleEventRuleResponse, opener: HTMLElement) {
     setEditingRule(rule);
-    setDialogReturnFocus(opener);
+    dialogReturnFocusRef.current = opener;
     setMutationError("");
     setMessage("");
     setDialogOpen(true);
@@ -216,7 +215,7 @@ export function VehicleEventControlPanel({
                 {canManage ? <td><div className="schedule-row-actions">
                   <Button variant="ghost" type="button" aria-label={`${rule.name} ${rule.status === "enabled" ? "비활성화" : "활성화"}`} title={rule.status === "enabled" ? "비활성화" : "활성화"} disabled={isMutating} onClick={() => toggle(rule)}>{rule.status === "enabled" ? <PowerOff size={15} aria-hidden="true" /> : <Power size={15} aria-hidden="true" />}</Button>
                   <Button variant="ghost" type="button" aria-label={`${rule.name} 수정`} title="수정" disabled={isMutating} onClick={(event) => beginEdit(rule, event.currentTarget)}><Pencil size={15} aria-hidden="true" /></Button>
-                  <Button variant="danger" className="danger-action" type="button" aria-label={`${rule.name} 삭제`} title="삭제" disabled={isMutating} onClick={(event) => { setDeleteCandidate(rule); setDeleteReturnFocus(event.currentTarget); setMutationError(""); }}><Trash2 size={15} aria-hidden="true" /></Button>
+                  <Button variant="danger" type="button" aria-label={`${rule.name} 삭제`} title="삭제" disabled={isMutating} onClick={(event) => { setDeleteCandidate(rule); deleteReturnFocusRef.current = event.currentTarget; setMutationError(""); }}><Trash2 size={15} aria-hidden="true" /></Button>
                 </div></td> : null}
               </tr>)}
             </tbody>
@@ -224,11 +223,11 @@ export function VehicleEventControlPanel({
         </div> : <FeedbackState icon={CarFront} title="등록된 이벤트 규칙이 없습니다." description="감지 센서와 제어 조명을 연결해 차량 이벤트 대응을 시작할 수 있습니다." />
       ) : null}
       {rulesQuery.hasNextPage ? <Button variant="secondary" className="control-load-more" type="button" disabled={rulesQuery.isFetchingNextPage} onClick={() => void rulesQuery.fetchNextPage()}>{rulesQuery.isFetchingNextPage ? "불러오는 중" : "더 보기"}</Button> : null}
-      {message ? <p className="success-text schedule-panel-message" role="status">{message}</p> : null}
-      {mutationError && !dialogOpen && !deleteCandidate ? <p className="danger-text schedule-panel-message" role="alert">{mutationError}</p> : null}
-      {dashboard ? <VehicleEventDialog open={dialogOpen} rule={editingRule} dashboard={dashboard} isPending={saveMutation.isPending} serverError={mutationError} returnFocusElement={dialogReturnFocus} onClose={() => { if (!saveMutation.isPending) setDialogOpen(false); }} onSubmit={save} /> : null}
-      <ConfirmDialog open={Boolean(deleteCandidate)} title="이벤트 규칙 삭제" description={deleteCandidate ? `${deleteCandidate.name} 규칙을 삭제합니다.` : undefined} confirmLabel="삭제" destructive isPending={removeMutation.isPending} returnFocusElement={deleteReturnFocus} fallbackFocusElement={addButtonRef.current} onClose={() => { if (!removeMutation.isPending) setDeleteCandidate(null); }} onConfirm={remove}>
-        {mutationError ? <p className="danger-text" role="alert">{mutationError}</p> : null}
+      {message ? <Text tone="success" role="status">{message}</Text> : null}
+      {mutationError && !dialogOpen && !deleteCandidate ? <Text tone="danger" role="alert">{mutationError}</Text> : null}
+      {dashboard ? <VehicleEventDialog open={dialogOpen} rule={editingRule} dashboard={dashboard} isPending={saveMutation.isPending} serverError={mutationError} returnFocusRef={dialogReturnFocusRef} onClose={() => { if (!saveMutation.isPending) setDialogOpen(false); }} onSubmit={save} /> : null}
+      <ConfirmDialog isOpen={Boolean(deleteCandidate)} title="이벤트 규칙 삭제" description={deleteCandidate ? `${deleteCandidate.name} 규칙을 삭제합니다.` : undefined} confirmLabel="삭제" tone="danger" isPending={removeMutation.isPending} returnFocusRef={deleteReturnFocusRef} fallbackFocusRef={addButtonRef} onCancel={() => { if (!removeMutation.isPending) setDeleteCandidate(null); }} onConfirm={remove}>
+        {mutationError ? <Text tone="danger" role="alert">{mutationError}</Text> : null}
       </ConfirmDialog>
     </div>
   );

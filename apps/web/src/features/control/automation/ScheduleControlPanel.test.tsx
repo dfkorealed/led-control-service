@@ -149,6 +149,18 @@ describe("ScheduleControlPanel", () => {
     expect(within(dialog).getByRole("button", { name: "스케줄 만들기" })).toHaveClass("ui-button", "ui-button-primary");
   });
 
+  it("uses segmented date/time fields while keeping validation numbers as strings", async () => {
+    renderPanel("admin");
+    await screen.findByText("야간 운영");
+    fireEvent.click(screen.getByRole("button", { name: "스케줄 추가" }));
+    const dialog = screen.getByRole("dialog", { name: "스케줄 추가" });
+
+    expect(within(dialog).getByRole("group", { name: "시작 시각" })).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "세부 일정 설정" }));
+    expect(within(dialog).getByRole("group", { name: "적용 시작일" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("textbox", { name: "밝기" })).toHaveAttribute("inputmode", "numeric");
+  });
+
   it("offers a compact quick flow and renders the long target list only in its picker view", async () => {
     renderPanel("admin");
     await screen.findByText("야간 운영");
@@ -253,69 +265,45 @@ describe("ScheduleControlPanel", () => {
 
   it.each([
     {
-      description: "적용 시작일",
-      configure: (dialog: HTMLElement) => fireEvent.change(within(dialog).getByLabelText("적용 시작일"), { target: { value: "" } }),
-      controlLabel: "적용 시작일",
-      errorId: "schedule-active-from-date-error"
-    },
-    {
-      description: "적용 종료일",
-      configure: (dialog: HTMLElement) => fireEvent.change(within(dialog).getByLabelText("적용 종료일"), { target: { value: "" } }),
-      controlLabel: "적용 종료일",
-      errorId: "schedule-active-until-date-error"
-    },
-    {
-      description: "시작 시각",
-      configure: (dialog: HTMLElement) => fireEvent.change(within(dialog).getByLabelText("시작 시각"), { target: { value: "" } }),
-      controlLabel: "시작 시각",
-      errorId: "schedule-local-start-time-error"
-    },
-    {
-      description: "종료 시각",
-      configure: (dialog: HTMLElement) => fireEvent.change(within(dialog).getByLabelText("종료 시각"), { target: { value: "" } }),
-      controlLabel: "종료 시각",
-      errorId: "schedule-local-end-time-error"
-    },
-    {
       description: "매주 요일",
-      configure: (dialog: HTMLElement) => fireEvent.change(within(dialog).getByLabelText("반복"), { target: { value: "weekly" } }),
+      configure: (dialog: HTMLElement) => selectOption(dialog, "반복", "매주"),
       controlLabel: "월",
-      errorId: "schedule-weekly-days-error"
+      segmented: false
     },
     {
       description: "매월 날짜",
       configure: (dialog: HTMLElement) => {
-        fireEvent.change(within(dialog).getByLabelText("반복"), { target: { value: "monthly" } });
+        selectOption(dialog, "반복", "매월");
         fireEvent.change(within(dialog).getByLabelText("매월 날짜"), { target: { value: "" } });
       },
       controlLabel: "매월 날짜",
-      errorId: "schedule-monthly-day-error"
+      segmented: false
     },
     {
       description: "매년 월",
       configure: (dialog: HTMLElement) => {
-        fireEvent.change(within(dialog).getByLabelText("반복"), { target: { value: "yearly" } });
+        selectOption(dialog, "반복", "매년");
         fireEvent.change(within(dialog).getByLabelText("매년 월"), { target: { value: "" } });
       },
       controlLabel: "매년 월",
-      errorId: "schedule-yearly-month-error"
+      segmented: false
     },
     {
       description: "매년 날짜",
       configure: (dialog: HTMLElement) => {
-        fireEvent.change(within(dialog).getByLabelText("반복"), { target: { value: "yearly" } });
+        selectOption(dialog, "반복", "매년");
         fireEvent.change(within(dialog).getByLabelText("매년 날짜"), { target: { value: "" } });
       },
       controlLabel: "매년 날짜",
-      errorId: "schedule-yearly-day-error"
+      segmented: false
     },
     {
       description: "밝기",
       configure: (dialog: HTMLElement) => fireEvent.change(within(dialog).getByLabelText("밝기"), { target: { value: "101" } }),
       controlLabel: "밝기",
-      errorId: "schedule-brightness-error"
+      segmented: false
     }
-  ])("이름 뒤의 $description 검증 오류를 첫 invalid control에 연결하고 focus한다", async ({ configure, controlLabel, errorId }) => {
+  ])("이름 뒤의 $description 검증 오류를 첫 invalid control에 연결하고 focus한다", async ({ configure, controlLabel, segmented }) => {
     renderPanel("admin");
     await screen.findByText("야간 운영");
     fireEvent.click(screen.getByRole("button", { name: "스케줄 추가" }));
@@ -327,11 +315,11 @@ describe("ScheduleControlPanel", () => {
     configure(dialog);
     fireEvent.click(within(dialog).getByRole("button", { name: "스케줄 만들기" }));
 
-    const control = within(dialog).getByLabelText(controlLabel);
+    const field = segmented ? within(dialog).getByRole("group", { name: controlLabel }) : null;
+    const control = segmented ? within(field!).getAllByRole("spinbutton")[0] : within(dialog).getByLabelText(controlLabel);
     expect(control).toHaveFocus();
     expect(control).toHaveAttribute("aria-invalid", "true");
-    expect(control).toHaveAttribute("aria-errormessage", errorId);
-    expect(document.getElementById(errorId)).toBeInTheDocument();
+    expect(control).toHaveAccessibleDescription(expect.any(String));
   });
 
   it("디밍 ON 밝기 오류는 visible numeric input만 error ARIA를 갖는다", async () => {
@@ -349,8 +337,7 @@ describe("ScheduleControlPanel", () => {
     const brightnessInput = within(dialog).getByLabelText("밝기");
     expect(brightnessInput).toHaveFocus();
     expect(brightnessInput).toHaveAttribute("aria-invalid", "true");
-    expect(brightnessInput).toHaveAttribute("aria-errormessage", "schedule-brightness-error");
-    expect(brightnessInput).toHaveAttribute("aria-describedby", "schedule-brightness-error");
+    expect(brightnessInput).toHaveAccessibleDescription("밝기는 0~100 사이의 정수여야 합니다.");
     expect(within(dialog).getByLabelText("디밍 사용")).not.toHaveAttribute("aria-invalid");
     expect(within(dialog).getByLabelText("디밍 사용")).not.toHaveAttribute("aria-errormessage");
   });
@@ -399,7 +386,7 @@ describe("ScheduleControlPanel", () => {
     const addButton = screen.getByRole("button", { name: "스케줄 추가" });
     fireEvent.click(addButton);
     const createDialog = screen.getByRole("dialog", { name: "스케줄 추가" });
-    expect(within(createDialog).getByLabelText("시작 시각")).toHaveFocus();
+    await waitFor(() => expect(within(within(createDialog).getByRole("group", { name: "시작 시각" })).getAllByRole("spinbutton")[0]).toHaveFocus());
 
     openScheduleAdvanced(createDialog);
     fireEvent.change(within(createDialog).getByLabelText("스케줄 이름"), { target: { value: "새 스케줄" } });
@@ -537,10 +524,10 @@ describe("ScheduleControlPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "스케줄 추가" }));
 
     fireEvent.click(screen.getByRole("button", { name: "세부 일정 설정" }));
-    fireEvent.change(screen.getByLabelText("반복"), { target: { value: "monthly" } });
+    selectOption(screen.getByRole("dialog", { name: "스케줄 추가" }), "반복", "매월");
     expect(screen.getByText("29~31일이 없는 달에는 해당 실행을 건너뜁니다.")).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("반복"), { target: { value: "yearly" } });
+    selectOption(screen.getByRole("dialog", { name: "스케줄 추가" }), "반복", "매년");
     expect(screen.getByText("2월 29일은 윤년에만 실행하며 날짜가 없는 해에는 건너뜁니다.")).toBeInTheDocument();
   });
 
@@ -712,6 +699,11 @@ function panelElement(
 function openScheduleAdvanced(dialog: HTMLElement) {
   const toggle = within(dialog).getByRole("button", { name: "세부 일정 설정" });
   if (toggle.getAttribute("aria-expanded") !== "true") fireEvent.click(toggle);
+}
+
+function selectOption(dialog: HTMLElement, label: string, option: string) {
+  fireEvent.click(within(dialog).getByRole("button", { name: label }));
+  fireEvent.click(screen.getByRole("option", { name: option }));
 }
 
 function selectScheduleFixture(dialog: HTMLElement, fixtureLabel: string) {

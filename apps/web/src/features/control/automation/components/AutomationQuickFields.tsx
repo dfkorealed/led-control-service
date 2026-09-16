@@ -1,6 +1,6 @@
 import { ChevronDown, ChevronUp, Lightbulb, RadioTower } from "lucide-react";
 import type { ReactNode, Ref } from "react";
-import { Button } from "../../../../components/ui";
+import { Button, Heading, Text } from "../../../../components/ui";
 
 export function AutomationPresetGroup<T extends string>({
   label,
@@ -16,7 +16,7 @@ export function AutomationPresetGroup<T extends string>({
   onChange: (value: T) => void;
 }) {
   return (
-    <div className="automation-preset-group" role="group" aria-label={label}>
+    <div className="flex flex-wrap gap-2" role="group" aria-label={label}>
       {options.map((option) => {
         const selected = value === option.value;
         return (
@@ -24,7 +24,7 @@ export function AutomationPresetGroup<T extends string>({
             key={option.value}
             variant="secondary"
             type="button"
-            className={selected ? "automation-preset active" : "automation-preset"}
+            className={selected ? "border-action-primary bg-action-primary-soft" : ""}
             aria-pressed={selected}
             disabled={disabled}
             onClick={() => onChange(option.value)}
@@ -64,7 +64,7 @@ export function AutomationSelectionCard({
   return (
     <div
       ref={fieldRef}
-      className={`automation-selection-card${empty ? " empty" : ""}${error ? " invalid" : ""}`}
+      className={`grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-panel border p-3 ${error ? "border-status-danger-foreground" : "border-border-default"} ${empty ? "bg-surface-inset" : "bg-surface-panel"}`}
       role="group"
       aria-label={label}
       aria-invalid={Boolean(error)}
@@ -72,15 +72,15 @@ export function AutomationSelectionCard({
       aria-errormessage={error && errorId ? errorId : undefined}
       tabIndex={-1}
     >
-      <span className="automation-selection-icon"><Icon size={20} aria-hidden="true" /></span>
-      <span className="automation-selection-copy">
-        <strong>{title}</strong>
-        <small className="automation-selection-description">{description}</small>
+      <span className="flex h-10 w-10 items-center justify-center rounded-control bg-action-primary-soft text-action-primary"><Icon size={20} aria-hidden="true" /></span>
+      <span className="grid min-w-0 gap-1">
+        <Text as="strong" weight="semibold">{title}</Text>
+        <Text as="small" variant="caption" tone="secondary">{description}</Text>
       </span>
       <Button variant="secondary" type="button" disabled={disabled} aria-label={`${label} ${empty ? "선택" : "변경"}`} onClick={onOpen}>
         {empty ? "선택" : "변경"}
       </Button>
-      {error && errorId ? <span id={errorId} className="field-error automation-selection-error">{error}</span> : null}
+      {error && errorId ? <Text as="span" id={errorId} className="col-span-full" variant="caption" tone="danger">{error}</Text> : null}
     </div>
   );
 }
@@ -99,9 +99,10 @@ export function AutomationAdvancedSection({
   onOpenChange: (open: boolean) => void;
 }) {
   return (
-    <section className={`automation-advanced${open ? " open" : ""}`}>
-      <button
-        className="automation-advanced-toggle"
+    <section className="grid gap-3 rounded-panel border border-border-default bg-surface-panel p-3">
+      <Button
+        variant="ghost"
+        className="w-full justify-start"
         type="button"
         aria-expanded={open}
         disabled={disabled}
@@ -109,14 +110,14 @@ export function AutomationAdvancedSection({
       >
         {open ? <ChevronUp size={18} aria-hidden="true" /> : <ChevronDown size={18} aria-hidden="true" />}
         <span>{label}</span>
-      </button>
-      {open ? <div className="automation-advanced-content" role="region" aria-label={label}>{children}</div> : null}
+      </Button>
+      {open ? <div className="grid gap-4" role="region" aria-label={label}>{children}</div> : null}
     </section>
   );
 }
 
 export function AutomationSummaryBar({ children }: { children: ReactNode }) {
-  return <div className="automation-summary-bar" role="status" aria-live="polite">{children}</div>;
+  return <Text className="rounded-control bg-surface-inset p-3" role="status" aria-live="polite">{children}</Text>;
 }
 
 export function AutomationTargetPickerView({
@@ -133,11 +134,11 @@ export function AutomationTargetPickerView({
   onDone: () => void;
 }) {
   return (
-    <div className="automation-picker-view">
-      <div className="automation-picker-heading">
-        <div>
-          <h3>{title}</h3>
-          <p>{description}</p>
+    <div className="grid gap-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="grid gap-1">
+          <Heading as="h3" variant="card-title">{title}</Heading>
+          <Text tone="secondary">{description}</Text>
         </div>
         <Button variant="primary" type="button" disabled={disabled} onClick={onDone}>선택 완료</Button>
       </div>

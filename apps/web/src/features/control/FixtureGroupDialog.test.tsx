@@ -71,8 +71,8 @@ describe("FixtureGroupDialog", () => {
     await screen.findByText("B2 입구");
     fireEvent.click(screen.getByRole("button", { name: "새 구역" }));
     fireEvent.change(screen.getByLabelText("구역 이름"), { target: { value: "B2 출구" } });
-    fireEvent.change(screen.getByLabelText("층"), { target: { value: ids.floor } });
-    fireEvent.change(screen.getByLabelText("게이트웨이"), { target: { value: ids.gateway } });
+    await selectOption("층", "B2");
+    await selectOption("게이트웨이", "Gateway B2");
     fireEvent.click(screen.getByLabelText("B2-L001 포함"));
     fireEvent.click(screen.getByLabelText("B2-L002 포함"));
     fireEvent.click(screen.getByRole("button", { name: "구역 만들기" }));
@@ -84,6 +84,15 @@ describe("FixtureGroupDialog", () => {
       fixtureIds: [ids.firstFixture, ids.secondFixture]
     }));
     expect(await screen.findByText("Mesh 설정 중")).toBeInTheDocument();
+  });
+
+  it("uses shared SelectBox triggers for floor and gateway boundaries", async () => {
+    renderDialog(true);
+    await screen.findByText("B2 입구");
+    fireEvent.click(screen.getByRole("button", { name: "새 구역" }));
+
+    expect(screen.getByRole("button", { name: "층" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "게이트웨이" })).toBeInTheDocument();
   });
 
   it("updates membership, resyncs a failed group, and confirms deletion", async () => {
@@ -169,11 +178,11 @@ describe("FixtureGroupDialog", () => {
     await waitFor(() => expect(mocks.deleteFixtureGroup).toHaveBeenCalledWith(ids.site, ids.group));
 
     const focusedBeforeEscape = document.activeElement;
-    fireEvent.keyDown(document, { key: "Escape" });
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
 
     expect(screen.getByRole("dialog", { name: "구역 삭제 확인" })).toBeInTheDocument();
     expect(document.activeElement).toBe(focusedBeforeEscape);
-    expect(within(confirmation).getByRole("button", { name: "구역 삭제 확인 닫기" })).toBeDisabled();
+    expect(within(confirmation).queryByRole("button", { name: "구역 삭제 확인 닫기" })).not.toBeInTheDocument();
     expect(within(confirmation).getByRole("button", { name: "취소" })).toBeDisabled();
 
     pendingDelete.resolve({ id: ids.group, lifecycleStatus: "retiring" });
@@ -199,7 +208,7 @@ describe("FixtureGroupDialog", () => {
     fireEvent.click(opener);
 
     const closeButton = await screen.findByRole("button", { name: "구역 관리 닫기" });
-    await waitFor(() => expect(closeButton).toHaveFocus());
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "구역 관리" })).toContainElement(document.activeElement as HTMLElement));
     const dialog = screen.getByRole("dialog", { name: "구역 관리" });
     const focusableButtons = within(dialog).getAllByRole("button").filter((button) => !button.hasAttribute("disabled"));
     const lastButton = focusableButtons.at(-1)!;
@@ -212,9 +221,9 @@ describe("FixtureGroupDialog", () => {
     fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
     expect(lastButton).toHaveFocus();
 
-    fireEvent.keyDown(document, { key: "Escape" });
-    expect(screen.queryByRole("dialog", { name: "구역 관리" })).not.toBeInTheDocument();
-    expect(opener).toHaveFocus();
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "구역 관리" })).not.toBeInTheDocument());
+    await waitFor(() => expect(opener).toHaveFocus());
   });
 });
 
@@ -230,6 +239,11 @@ function renderDialog(canManage: boolean) {
       />
     </QueryClientProvider>
   );
+}
+
+async function selectOption(label: string, option: string) {
+  fireEvent.click(screen.getByRole("button", { name: label }));
+  fireEvent.click(await screen.findByRole("option", { name: option }));
 }
 
 function DialogHarness() {
