@@ -66,6 +66,11 @@ export function ControlTargetPicker({
     () => new Set(selection.mode === "fixtures" ? selection.fixtureIds : []),
     [selection]
   );
+  const selectedFixtureGatewayId = useMemo(() => {
+    if (selection.mode !== "fixtures" || selection.fixtureIds.length === 0) return null;
+    const firstFixtureId = selection.fixtureIds[0];
+    return fixturesWithFloor.find(({ fixture }) => fixture.id === firstFixtureId)?.fixture.gateway?.id ?? null;
+  }, [fixturesWithFloor, selection]);
   const visibleFixtures = useMemo(
     () => filteredFixtures.slice(0, visibleLimit),
     [filteredFixtures, visibleLimit]
@@ -84,6 +89,10 @@ export function ControlTargetPicker({
 
   function toggleFixture(fixtureId: string) {
     if (selection.mode !== "fixtures") return;
+    const fixture = fixturesWithFloor.find(({ fixture: item }) => item.id === fixtureId)?.fixture;
+    if (!selectedFixtureIds.has(fixtureId) && selectedFixtureGatewayId && fixture?.gateway?.id !== selectedFixtureGatewayId) {
+      return;
+    }
     const next = toggleFixtureSelection(selection.fixtureIds, fixtureId);
     setSelectionLimitReached(next.limitReached);
     onChange({ mode: "fixtures", fixtureIds: next.fixtureIds });
@@ -92,9 +101,12 @@ export function ControlTargetPicker({
   function selectVisibleFixtures() {
     if (selection.mode !== "fixtures") return;
     const fixtureIds = new Set(selection.fixtureIds);
+    const gatewayId = selectedFixtureGatewayId
+      ?? filteredFixtures.find(({ fixture }) => fixture.gateway?.id)?.fixture.gateway?.id
+      ?? null;
     const unselectedFilteredIds = filteredFixtures
-      .map(({ fixture }) => fixture.id)
-      .filter((fixtureId) => !fixtureIds.has(fixtureId));
+      .filter(({ fixture }) => !fixtureIds.has(fixture.id) && (!gatewayId || fixture.gateway?.id === gatewayId))
+      .map(({ fixture }) => fixture.id);
     const availableSlots = Math.max(0, MAX_FIXTURE_SELECTION - fixtureIds.size);
     unselectedFilteredIds.slice(0, availableSlots).forEach((fixtureId) => fixtureIds.add(fixtureId));
     setSelectionLimitReached(unselectedFilteredIds.length > availableSlots);
@@ -164,6 +176,9 @@ export function ControlTargetPicker({
           <div className={`grid min-h-0 max-h-72 flex-1 content-start overflow-y-auto overscroll-contain rounded-panel border border-border-default ${fillAvailableHeight ? "tablet:max-h-none" : ""}`} role="group" aria-label="조명 목록" data-control-target-list="">
             {visibleFixtures.map(({ fixture, floor }) => {
               const checked = selectedFixtureIds.has(fixture.id);
+              const lockedToOtherGateway = Boolean(
+                selectedFixtureGatewayId && !checked && fixture.gateway?.id !== selectedFixtureGatewayId
+              );
               return (
                 <div className={`grid min-h-11 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 border-b border-border-subtle pb-2 last:border-b-0 ${checked ? "bg-action-primary-soft" : "bg-surface-panel"}`} key={fixture.id}>
                   <Checkbox
@@ -177,7 +192,7 @@ export function ControlTargetPicker({
                       </span>
                     )}
                     isSelected={checked}
-                    isDisabled={disabled}
+                    isDisabled={disabled || lockedToOtherGateway}
                     onChange={() => toggleFixture(fixture.id)}
                   />
                   <Text as="small" variant="caption" tone="secondary" className="min-w-0 pl-16">{floor.name} · {fixtureStatusLabel(fixture.status)} · {fixtureHealthLabel(fixture)}</Text>

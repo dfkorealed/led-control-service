@@ -644,6 +644,31 @@ describe("ControlView 대상 선택", () => {
     expect(screen.getByRole("button", { name: "밝기 적용" })).toBeDisabled();
   });
 
+  it("locks direct fixture selection to the first selected gateway", () => {
+    const multiGatewayDashboard = twoGatewayFloorDashboard("ready");
+    mocks.useControlDashboard.mockReturnValue({ data: multiGatewayDashboard, isLoading: false, error: null });
+    renderControl("admin", multiGatewayDashboard.site.id);
+
+    fireEvent.click(screen.getByLabelText("B2-L001 선택"));
+
+    const otherGatewayFixture = screen.getByLabelText("B2-L002 선택");
+    expect(otherGatewayFixture).toBeDisabled();
+    expect(otherGatewayFixture).not.toBeChecked();
+    expect(screen.getByText("1개 선택 · 제어 불가 0개")).toBeInTheDocument();
+  });
+
+  it("keeps bulk fixture selection on the first selected gateway", () => {
+    const multiGatewayDashboard = twoGatewayFloorDashboard("ready");
+    mocks.useControlDashboard.mockReturnValue({ data: multiGatewayDashboard, isLoading: false, error: null });
+    renderControl("admin", multiGatewayDashboard.site.id);
+
+    fireEvent.click(screen.getByLabelText("B2-L001 선택"));
+    fireEvent.click(screen.getByRole("button", { name: "검색 결과 전체 선택" }));
+
+    expect(screen.getByLabelText("B2-L002 선택")).not.toBeChecked();
+    expect(screen.getByText("1개 선택 · 제어 불가 0개")).toBeInTheDocument();
+  });
+
   it("keeps every control disabled for viewer accounts", () => {
     mocks.useControlDashboard.mockReturnValue({
       data: { ...dashboard, capabilities: { read: true, control: false, manage: false, commission: false } },

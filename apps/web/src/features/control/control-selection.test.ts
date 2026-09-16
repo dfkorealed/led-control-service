@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
+import type { DimmingTarget } from "@led-control/shared";
 import { mockDashboard } from "../../test/fixtures";
 import {
   MAX_FIXTURE_SELECTION,
+  controlSelectionToDimmingTarget,
   resolveControlSelection,
-  toggleFixtureSelection
+  toggleFixtureSelection,
+  type ControlSelection
 } from "./control-selection";
 
 const fixtureA = mockDashboard.floors[0].fixtures[0].id;
@@ -61,6 +64,86 @@ describe("control selection", () => {
     expect(result.unavailableReason).toBe("선택한 조명을 찾을 수 없습니다.");
   });
 
+  it("reports a non-controllable fixture as blocked", () => {
+    const fixture = mockDashboard.floors[0].fixtures[5];
+
+    expect(resolveControlSelection(mockDashboard, {
+      mode: "fixtures",
+      fixtureIds: [fixture.id]
+    })).toMatchObject({
+      blockedFixtureIds: [fixture.id],
+      available: false,
+      unavailableReason: "선택한 조명 중 제어할 수 없는 대상이 있습니다."
+    });
+  });
+
+  it("reports a fixture without a gateway assignment as unavailable", () => {
+    const dashboard = {
+      ...mockDashboard,
+      floors: mockDashboard.floors.map((floor, floorIndex) => floorIndex === 0 ? {
+        ...floor,
+        fixtures: floor.fixtures.map((fixture, fixtureIndex) => fixtureIndex === 0
+          ? { ...fixture, gateway: null }
+          : fixture)
+      } : floor)
+    };
+
+    expect(resolveControlSelection(dashboard, {
+      mode: "fixtures",
+      fixtureIds: [fixtureA]
+    })).toMatchObject({
+      gatewayIds: [],
+      available: false,
+      unavailableReason: "선택한 조명에 연결된 게이트웨이가 없습니다."
+    });
+  });
+
+  it("reports a floor Mesh-readiness failure", () => {
+    const dashboard = withControllableFixtures({
+      ...mockDashboard,
+      floors: mockDashboard.floors.map((floor, floorIndex) => floorIndex === 0 ? {
+        ...floor,
+        meshControlGroups: [{ ...floor.meshControlGroups[0], status: "configuring" }]
+      } : floor)
+    });
+
+    expect(resolveControlSelection(dashboard, {
+      mode: "floor",
+      floorId: dashboard.floors[0].id
+    })).toMatchObject({
+      available: false,
+      unavailableReason: "Gateway 0/1 준비 · Mesh 설정 중"
+    });
+  });
+
+  it("reports a group Mesh-readiness failure", () => {
+    const dashboard = {
+      ...mockDashboard,
+      groups: mockDashboard.groups.map((group, groupIndex) => groupIndex === 0 ? {
+        ...group,
+        meshControlGroup: { status: "failed" as const, version: 2, error: "subscription rejected" }
+      } : group)
+    };
+
+    expect(resolveControlSelection(dashboard, {
+      mode: "group",
+      groupId: dashboard.groups[0].id
+    })).toMatchObject({
+      available: false,
+      unavailableReason: "subscription rejected"
+    });
+  });
+
+  it.each([
+    { selection: { mode: "fixtures", fixtureIds: [] }, target: null },
+    { selection: { mode: "fixtures", fixtureIds: [fixtureA] }, target: { type: "fixture", fixtureId: fixtureA } },
+    { selection: { mode: "fixtures", fixtureIds: [fixtureA, fixtureB] }, target: { type: "fixtures", fixtureIds: [fixtureA, fixtureB] } },
+    { selection: { mode: "floor", floorId: mockDashboard.floors[0].id }, target: { type: "floor", floorId: mockDashboard.floors[0].id } },
+    { selection: { mode: "group", groupId: mockDashboard.groups[0].id }, target: { type: "group", groupId: mockDashboard.groups[0].id } }
+  ] satisfies Array<{ selection: ControlSelection; target: DimmingTarget | null }>)("converts $selection to the unchanged dimming target", ({ selection, target }) => {
+    expect(controlSelectionToDimmingTarget(selection)).toEqual(target);
+  });
+
   it("does not add fixture 1001", () => {
     const current = Array.from({ length: MAX_FIXTURE_SELECTION }, (_, index) => `fixture-${index}`);
 
@@ -70,3 +153,17 @@ describe("control selection", () => {
     });
   });
 });
+
+function withControllableFixtures(dashboard: typeof mockDashboard) {
+  return {
+    ...dashboard,
+    floors: dashboard.floors.map((floor) => ({
+      ...floor,
+      fixtures: floor.fixtures.map((fixture) => ({
+        ...fixture,
+        controllable: true,
+        controlBlockReason: null
+      }))
+    }))
+  };
+}
