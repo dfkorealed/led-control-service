@@ -21,7 +21,8 @@ export type ReportBlock = {
   groups: ReportToken[][];
 };
 
-/** The single traversal owns ordering only. Values and labels are never recomputed. */
+/** The display traversal preserves v1 order. V2 calculationBasis, source tags,
+ * rowIds and visualization instructions are fingerprinted, not display scalars. */
 export function reportBlocks(input: EnergyReportDocument): ReportBlock[] {
   const document = energyReportDocumentSchema.parse(input);
   const blocks: ReportBlock[] = [];
@@ -36,7 +37,8 @@ export function reportBlocks(input: EnergyReportDocument): ReportBlock[] {
     add(index, "detail", [[token(`${path}.kind`, section.kind), ...("id" in section ? [token(`${path}.id`, section.id)] : [])]]);
     add(index, "title", [[token(`${path}.title`, section.title)]]);
     if (section.kind === "summary") {
-      section.rows.forEach((row, rowIndex) => add(index, "row", fields(`${path}.rows.${rowIndex}`, row).map(value => [value])));
+      section.rows.forEach(({ label, value, displayValue }, rowIndex) => add(index, "row",
+        fields(`${path}.rows.${rowIndex}`, { label, value, displayValue }).map(value => [value])));
     } else if (section.kind === "table") {
       add(index, "columns", section.columns.map((column, columnIndex) => fields(`${path}.columns.${columnIndex}`, column)));
       section.rows.forEach((row, rowIndex) => add(index, "row", row.map((cell, columnIndex) => fields(`${path}.rows.${rowIndex}.${columnIndex}`, cell))));

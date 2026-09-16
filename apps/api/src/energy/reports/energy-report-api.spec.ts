@@ -234,7 +234,16 @@ const selfOwned = process.env.ENERGY_REPORT_API_TEST === "1";
       const csv = await call(`exports/csv?${new URLSearchParams({ from: selected.from, to: selected.to, scope: selected.scope, identityId: selected.identityId })}`);
       expect(csv.status).toBe(200); expect(await csv.text()).toContain("150.00 원");
       const { documentSnapshot } = await app.get(EnergyReportSnapshotService).capture(randomUUID(), siteId, selected);
-      expect(documentSnapshot.sections[0]).toMatchObject({ rows: [{ value: 1 }, { value: 150 }] });
+      expect(documentSnapshot.schemaVersion).toBe(2);
+      expect(documentSnapshot.sections[0]).toMatchObject({ rows: [
+        { label: "사용 전력량", value: 1, source: "persisted_actual" }, { label: "저장 비용", value: 150, source: "persisted_actual" },
+        { label: "24시간 기준 전력량", value: 0.96, source: "captured_current_configuration" },
+        { label: "기준 초과 전력량", value: -0.04, source: "captured_current_configuration" },
+        { label: "기준 초과율", value: -4.17, source: "captured_current_configuration" },
+        { label: "현재 단가 기준 비용", value: null, source: "captured_current_configuration" },
+        { label: "예상 기준 초과 비용", value: null, source: "captured_current_configuration" },
+        { label: "데이터 수집률", value: 4.17, source: "captured_current_configuration" }
+      ] });
       const xlsx = await new ExcelEnergyReportRenderer().render(documentSnapshot);
       const pdf = await new PdfEnergyReportRenderer().render(documentSnapshot);
       expect(xlsx.manifest).toEqual(pdf.manifest);

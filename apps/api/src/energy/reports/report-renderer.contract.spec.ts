@@ -1,8 +1,21 @@
 import { ExcelEnergyReportRenderer } from "./excel-energy-report.renderer";
 import { PdfEnergyReportRenderer } from "./pdf-energy-report.renderer";
 import { expectedManifest, reportFixture } from "./report-renderer.test-support";
+import { reportBlocks } from "./report-renderer";
+import { EnergyReportDocumentBuilder, type EnergyReportDataSnapshot } from "./energy-report-document.builder";
 
 describe("identical report content contract", () => {
+  it("preserves v1 scalar bytes and excludes internal v2 instructions from both serialized manifests", async () => {
+    const legacy = reportFixture();
+    expect(JSON.stringify(reportBlocks(legacy).flatMap(block => block.groups.flat()))).toBe(JSON.stringify(expectedManifest(legacy)));
+    const siteId = "20000000-0000-4000-8000-000000000001";
+    const data: EnergyReportDataSnapshot = { schemaVersion: 2, capturedAt: "2026-09-11T00:00:00.000Z",
+      site: { id: siteId, name: "현장", timeZone: "UTC", tariffKwhRate: "160" }, comparisonRange: { from: "2026-09-09", to: "2026-09-09" }, fixtures: [] };
+    const document = new EnergyReportDocumentBuilder().build(legacy.reportId, { scope: "site", identityId: siteId, format: "pdf", from: "2026-09-10", to: "2026-09-10" }, data);
+    const expected = expectedManifest(document).filter(token => !token.path.startsWith("calculationBasis.") && !/\.(visualization|rowIds)\.|\.source$/.test(token.path));
+    expect(reportBlocks(document).flatMap(block => block.groups.flat())).toEqual(expected);
+    for (const Renderer of [ExcelEnergyReportRenderer, PdfEnergyReportRenderer]) expect((await new Renderer().render(document)).manifest).toEqual(expected);
+  }, 60000);
   it.each(["한글", "café e\u0301 a\u0301", "한글 💡 e\u0301 😀", "prefix " + "한글".normalize("NFD")])("round-trips supported complete text runs in both actual formats (%s)", async text => {
     const document = reportFixture();
     document.metadata = [{ label: "Unicode", value: text, displayValue: text }]; document.sections = [];

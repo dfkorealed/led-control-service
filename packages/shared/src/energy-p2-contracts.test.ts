@@ -80,6 +80,34 @@ const fingerprintInput: EnergyReportDocumentFingerprintInput = {
 };
 
 describe("energy P2 contracts", () => {
+  const v2 = () => ({
+    ...fingerprintInput, schemaVersion: 2,
+    calculationBasis: { capturedAt: "2026-09-11T00:00:00.000Z", actualSource: "persisted_actual", configurationSource: "captured_current_configuration",
+      tariffKwhRate: "160", expectedSeconds: 86400, knownSeconds: 43200, fixtureCount: 1, baselineReason: null, coverageReason: null },
+    sections: [
+      { kind: "summary", title: "요약", rows: [{ label: "전력량", value: 1, displayValue: "1 kWh", source: "persisted_actual" }] },
+      { kind: "table", id: "daily", title: "일별", columns: [{ id: "date", label: "날짜" }, { id: "energy", label: "전력" }, { id: "baseline", label: "기준" }],
+        rowIds: ["2026-09-01"], rows: [[{ value: "2026-09-01", displayValue: "2026-09-01" }, { value: null, displayValue: "없음" }, { value: 1, displayValue: "1" }]],
+        visualization: { id: "daily-chart", type: "daily_actual_vs_baseline", tableId: "daily", categoryColumnId: "date", valueColumnIds: ["energy", "baseline"], rowIds: ["2026-09-01"] } }
+    ]
+  });
+  it("accepts strict v2 while retaining the unmodified v1 fingerprint payload", () => {
+    expect(energyReportDocumentFingerprintInputSchema.parse(fingerprintInput)).toEqual(fingerprintInput);
+    expect(energyReportDocumentFingerprintInputSchema.safeParse(v2()).success).toBe(true);
+  });
+  it.each(["table", "column", "row", "duplicate", "source", "basis", "type", "numeric"])("rejects invalid v2 %s", kind => {
+    const document: any = v2();
+    const visual = document.sections[1].visualization;
+    if (kind === "table") visual.tableId = "missing";
+    if (kind === "column") visual.valueColumnIds[0] = "missing";
+    if (kind === "row") visual.rowIds[0] = "missing";
+    if (kind === "duplicate") document.sections.push({ ...document.sections[1], id: "other" });
+    if (kind === "source") document.sections[0].rows[0].source = "unknown";
+    if (kind === "basis") delete document.calculationBasis;
+    if (kind === "type") visual.type = "pie";
+    if (kind === "numeric") document.sections[1].rows[0][1].value = "1";
+    expect(energyReportDocumentFingerprintInputSchema.safeParse(document).success).toBe(false);
+  });
   it("validates report targets with analytics identities and an explicit completed local date", () => {
     const response = { siteId, timeZone: "Asia/Seoul", lastCompletedDate: "2026-09-11",
       targets: [{ scope: "site", identityId: siteId, label: "현장" }, { scope: "fixture", identityId: fixtureId, label: "조명 💡" }] };
