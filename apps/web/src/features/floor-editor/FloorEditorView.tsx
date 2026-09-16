@@ -265,7 +265,7 @@ export function FloorEditorView({
             <IconButton variant="ghost" className="max-compact:h-14 max-compact:min-h-14 max-compact:w-14 max-compact:min-w-14" aria-label="확대" onClick={() => setZoom(zoom + 0.1)}>
               <ZoomIn size={18} aria-hidden="true" />
             </IconButton>
-            <IconButton variant="ghost" className="max-compact:h-14 max-compact:min-h-14 max-compact:w-14 max-compact:min-w-14" aria-label="맵 맞춤" title="맵 맞춤" onClick={() => useFloorEditorStore.getState().fit()}><Maximize size={18} /></IconButton>
+            <IconButton variant="ghost" className="max-compact:h-14 max-compact:min-h-14 max-compact:w-14 max-compact:min-w-14" aria-label="맵 맞춤" title="맵 맞춤" onClick={() => useFloorEditorStore.getState().fit(false, cadImportReview?.job.renderedViewport ?? undefined)}><Maximize size={18} /></IconButton>
             <IconButton variant="ghost" className="max-compact:h-14 max-compact:min-h-14 max-compact:w-14 max-compact:min-w-14" aria-label="선택 맞춤" title="선택 맞춤" onClick={() => useFloorEditorStore.getState().fit(true)}><Focus size={18} /></IconButton>
             <Button variant="secondary" onClick={onCancel}>
               <Undo2 size={16} aria-hidden="true" />

@@ -1,6 +1,6 @@
 import type { FloorImportCandidate } from "@led-control/shared";
 import Konva from "konva";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Label, Layer, Shape, Tag, Text } from "react-konva";
 import { themeColor } from "../../components/ui";
 
@@ -29,7 +29,16 @@ export interface CadCandidateSpatialIndex {
 }
 
 const SPATIAL_CELL_SIZE = 64;
-const MAX_POINTER_CANDIDATE_CHECKS = 64;
+
+export function screenPointToCadWorld(
+  point: { x: number; y: number },
+  transform: { x: number; y: number; scaleX: number; scaleY: number }
+) {
+  return {
+    x: (point.x - transform.x) / transform.scaleX,
+    y: (point.y - transform.y) / transform.scaleY
+  };
+}
 
 export function buildCadCandidateSpatialIndex(
   candidates: FloorImportCandidate[],
@@ -60,7 +69,7 @@ export function findCadCandidateAtPoint(
   radius: number
 ) {
   const result: { candidate: FloorImportCandidate | null } = { candidate: null };
-  let nearestDistance = radius;
+  let nearestDistanceSquared = radius * radius;
   let inspectedCount = 0;
   visitBuckets(index, {
     x: point.x - radius,
@@ -69,15 +78,15 @@ export function findCadCandidateAtPoint(
     height: radius * 2
   }, (bucket) => {
     for (const item of bucket) {
-      if (inspectedCount >= MAX_POINTER_CANDIDATE_CHECKS) return false;
       inspectedCount += 1;
-      const distance = Math.hypot(item.x - point.x, item.y - point.y);
-      if (distance <= nearestDistance) {
+      const deltaX = item.x - point.x;
+      const deltaY = item.y - point.y;
+      const distanceSquared = deltaX * deltaX + deltaY * deltaY;
+      if (distanceSquared <= nearestDistanceSquared) {
         result.candidate = item;
-        nearestDistance = distance;
+        nearestDistanceSquared = distanceSquared;
       }
     }
-    return inspectedCount < MAX_POINTER_CANDIDATE_CHECKS;
   });
   return { candidate: result.candidate, inspectedCount };
 }
@@ -94,6 +103,8 @@ export function CadCandidateLayer({
   onToggle
 }: CadCandidateLayerProps) {
   const shape = useRef<Konva.Shape>(null);
+  const pointerFrame = useRef<number | null>(null);
+  const latestPointer = useRef<{ x: number; y: number } | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const focusedId = focusedCandidateId ?? hoveredId;
   const spatialIndex = useMemo(() => buildCadCandidateSpatialIndex(candidates), [candidates]);
@@ -119,15 +130,28 @@ export function CadCandidateLayer({
   }), []);
   const radius = 7 / zoom;
 
-  function candidateAtPointer(): FloorImportCandidate | null {
-    const point = shape.current?.getRelativePointerPosition();
+  useEffect(() => () => {
+    if (pointerFrame.current !== null) window.cancelAnimationFrame(pointerFrame.current);
+  }, []);
+
+  function candidateAtPointer(point = shape.current?.getStage()?.getPointerPosition()): FloorImportCandidate | null {
     if (!point) return null;
-    return findCadCandidateAtPoint(spatialIndex, point, 12 / zoom).candidate;
+    const worldPoint = screenPointToCadWorld(point, transform);
+    return findCadCandidateAtPoint(spatialIndex, worldPoint, 12 / zoom).candidate;
   }
 
   function focus(candidateId: string | null) {
     setHoveredId((current) => current === candidateId ? current : candidateId);
     onFocusedCandidateChange?.(candidateId);
+  }
+
+  function schedulePointerFocus() {
+    latestPointer.current = shape.current?.getStage()?.getPointerPosition() ?? null;
+    if (pointerFrame.current !== null) return;
+    pointerFrame.current = window.requestAnimationFrame(() => {
+      pointerFrame.current = null;
+      focus(candidateAtPointer(latestPointer.current)?.id ?? null);
+    });
   }
 
   if (candidates.length === 0) return null;
@@ -162,8 +186,13 @@ export function CadCandidateLayer({
           }
           context.fillShape(node);
         }}
-        onMouseMove={() => focus(candidateAtPointer()?.id ?? null)}
-        onMouseLeave={() => focus(null)}
+        onMouseMove={schedulePointerFocus}
+        onMouseLeave={() => {
+          if (pointerFrame.current !== null) window.cancelAnimationFrame(pointerFrame.current);
+          pointerFrame.current = null;
+          latestPointer.current = null;
+          focus(null);
+        }}
         onClick={() => {
           const candidate = candidateAtPointer();
           if (!candidate) return;

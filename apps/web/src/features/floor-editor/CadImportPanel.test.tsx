@@ -292,18 +292,16 @@ describe("CadImportPanel", () => {
     expect(onReviewChange).toHaveBeenLastCalledWith(null);
   });
 
-  it("hydrates applying without polling and offers explicit reconciliation", async () => {
-    vi.useFakeTimers();
+  it("does not hydrate applying as a recoverable active UI state", async () => {
     floorEditorApi.getActiveFloorImportJob.mockResolvedValueOnce({
       job: { ...queuedJob, status: "applying", stage: "applying", renderedViewport: { width: 640, height: 360 } }
     });
     renderPanel();
     await flushPromises();
 
-    expect(screen.getByText("CAD 도면을 적용하는 중")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "적용 결과 확인" })).toBeInTheDocument();
-    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
-    expect(floorEditorApi.getFloorImportJob).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("CAD 파일")).toBeInTheDocument();
+    expect(screen.queryByText("CAD 도면을 적용하는 중")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "적용 결과 확인" })).not.toBeInTheDocument();
   });
 
   it("stops polling after a terminal job status", async () => {
@@ -325,6 +323,8 @@ describe("CadImportPanel", () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
 
     expect(floorEditorApi.getFloorImportJob).toHaveBeenCalledOnce();
+    expect(screen.getByLabelText("CAD 파일")).toBeInTheDocument();
+    expect(screen.getByText(/CAD 가져오기에 실패했습니다/)).toBeInTheDocument();
   });
 
   it("applies only reviewed candidate ids with the editor lease and revision", async () => {
@@ -369,7 +369,7 @@ describe("CadImportPanel", () => {
     expect(screen.getByRole("button", { name: "선택한 후보와 배경 적용" })).toBeDisabled();
   });
 
-  it("routes apply 409 to the editor conflict flow", async () => {
+  it("reconciles apply 409 before routing a still-reviewable job to the editor conflict flow", async () => {
     const onConflict = vi.fn();
     const review: CadImportReviewState = {
       job: { ...queuedJob, status: "review_required", progressPercent: 100 },
@@ -377,11 +377,48 @@ describe("CadImportPanel", () => {
       acceptedCandidateIds: [candidate.id]
     };
     floorEditorApi.applyFloorImportJob.mockRejectedValueOnce(new ApiError("conflict", 409, null));
+    floorEditorApi.getFloorImportJob.mockResolvedValueOnce(review.job);
     renderPanel({ review, onConflict });
     fireEvent.click(screen.getByRole("button", { name: "선택한 후보와 배경 적용" }));
 
     await waitFor(() => expect(onConflict).toHaveBeenCalledOnce());
+    expect(floorEditorApi.getFloorImportJob).toHaveBeenCalledWith("floor-1", queuedJob.jobId);
     expect(screen.getByText(/최신 버전을 다시 불러온 뒤/)).toBeInTheDocument();
+  });
+
+  it("converges to completed after apply 409 without reopening the stale review", async () => {
+    const review: CadImportReviewState = {
+      job: { ...queuedJob, status: "review_required", progressPercent: 100 },
+      candidates: [candidate],
+      acceptedCandidateIds: [candidate.id]
+    };
+    const onConflict = vi.fn();
+    floorEditorApi.applyFloorImportJob.mockRejectedValueOnce(new ApiError("conflict", 409, null));
+    floorEditorApi.getFloorImportJob.mockResolvedValueOnce({ ...review.job, status: "completed" });
+    const { onApplied, onReviewChange } = renderPanel({ review, onConflict });
+
+    fireEvent.click(screen.getByRole("button", { name: "선택한 후보와 배경 적용" }));
+
+    await waitFor(() => expect(onApplied).toHaveBeenCalledWith(null));
+    expect(onReviewChange).toHaveBeenCalledWith(null);
+    expect(onConflict).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("CAD 파일")).toBeInTheDocument();
+  });
+
+  it.each(["failed", "cancelled"] as const)("clears a %s reconciliation so a new import can start", async (status) => {
+    const review: CadImportReviewState = {
+      job: { ...queuedJob, status: "review_required", progressPercent: 100 },
+      candidates: [candidate],
+      acceptedCandidateIds: [candidate.id]
+    };
+    floorEditorApi.applyFloorImportJob.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    floorEditorApi.getFloorImportJob.mockResolvedValueOnce({ ...review.job, status, stage: status });
+    const { onReviewChange } = renderPanel({ review });
+
+    fireEvent.click(screen.getByRole("button", { name: "선택한 후보와 배경 적용" }));
+
+    await waitFor(() => expect(onReviewChange).toHaveBeenCalledWith(null));
+    expect(screen.getByLabelText("CAD 파일")).toBeInTheDocument();
   });
 
   it("reconciles an unknown apply result with GET before deciding it completed", async () => {

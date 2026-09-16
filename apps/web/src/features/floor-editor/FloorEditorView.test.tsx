@@ -689,6 +689,10 @@ describe("FloorEditorView", () => {
     expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("data-map-height", "360");
     expect(useFloorEditorStore.getState().state?.fixtures).toHaveLength(1);
 
+    act(() => useFloorEditorStore.getState().setViewport({ width: 800, height: 600 }));
+    fireEvent.click(screen.getByRole("button", { name: "맵 맞춤" }));
+    expect(useFloorEditorStore.getState().zoom).toBeCloseTo(1.175);
+
     fireEvent.click(screen.getByRole("button", { name: "선택한 후보와 배경 적용" }));
 
     await waitFor(() => expect(floorEditorApi.applyFloorImportJob).toHaveBeenCalledWith("floor-b2", jobId, {
@@ -744,6 +748,31 @@ describe("FloorEditorView", () => {
       inputDigest: null, reviewStatus: "pending"
     }] });
     floorEditorApi.applyFloorImportJob.mockRejectedValueOnce(new ApiError("conflict", 409, null));
+    floorEditorApi.getFloorImportJob.mockResolvedValueOnce({
+      jobId,
+      floorId: "floor-b2",
+      sourceAssetId: "source-cad",
+      renderedAssetId: "rendered-cad",
+      sourceFormat: "dxf",
+      status: "review_required",
+      stage: "review_required",
+      progressPercent: 100,
+      attemptCount: 1,
+      parserVersion: "parser-1",
+      detectorVersion: "detector-1",
+      failureCode: null,
+      sourceAssetPath: "/source",
+      renderedAssetPath: "/rendered",
+      renderedViewport: { width: 640, height: 360 },
+      startedAt: null,
+      reviewRequiredAt: null,
+      appliedAt: null,
+      completedAt: null,
+      failedAt: null,
+      cancelledAt: null,
+      createdAt: "2026-09-17T00:00:00.000Z",
+      updatedAt: "2026-09-17T00:00:01.000Z"
+    });
     renderEditor();
 
     await screen.findByText("조명 위치 후보 1개를 찾았습니다.");

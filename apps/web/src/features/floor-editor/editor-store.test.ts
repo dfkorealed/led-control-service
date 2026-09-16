@@ -28,6 +28,25 @@ describe("floor editor store baseline", () => {
     expect(useFloorEditorStore.getState().snap).toBe(true);
   });
 
+  it("fits an explicit CAD preview viewport instead of the stored floor-plan ratio", () => {
+    useFloorEditorStore.getState().initialize({
+      ...initialState,
+      floor: {
+        ...initialState.floor,
+        floorPlan: {
+          sourceType: "image", imageUrl: "/old.svg", originalFileUrl: "/old.svg",
+          renderedImageUrl: "/old.svg", width: 1200, height: 800, gridSize: 10, version: 1
+        }
+      }
+    });
+    useFloorEditorStore.getState().setViewport({ width: 800, height: 600 });
+
+    useFloorEditorStore.getState().fit(false, { width: 640, height: 360 });
+
+    expect(useFloorEditorStore.getState().zoom).toBeCloseTo(1.175);
+    expect(useFloorEditorStore.getState().pan).toEqual({ x: 24, y: 88.5 });
+  });
+
   it("becomes dirty only when an editable value actually changes", () => {
     useFloorEditorStore.getState().setSnap(false);
     useFloorEditorStore.getState().updateFixture("fixture-1", { x: 10 });

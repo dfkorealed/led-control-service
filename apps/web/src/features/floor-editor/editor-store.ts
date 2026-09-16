@@ -45,7 +45,7 @@ interface EditorStore {
   setZoom: (zoom: number) => void;
   setPan: (pan: Point) => void;
   setViewport: (viewport: { width: number; height: number }) => void;
-  fit: (selected?: boolean) => void;
+  fit: (selected?: boolean, bounds?: { width: number; height: number }) => void;
   resetZoom: () => void;
   selectFixture: (fixtureId: string, additive?: boolean) => void;
   selectFixtures: (ids: string[], additive?: boolean) => void;
@@ -132,7 +132,7 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
     setPan: (pan) => set({ pan }),
     setViewport: (viewport) => set({ viewport }),
     resetZoom: () => set({ zoom: 1, pan: { x: 0, y: 0 } }),
-    fit: (selected = false) => {
+    fit: (selected = false, bounds) => {
       const { state, selectedFixtureIds, viewport } = get();
       if (!state) return;
       const ids = new Set(selectedFixtureIds);
@@ -140,8 +140,8 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
       if (selected && !fixtures.length) return;
       const x = fixtures.length ? Math.min(...fixtures.map((f) => f.x)) - 40 : 0;
       const y = fixtures.length ? Math.min(...fixtures.map((f) => f.y)) - 40 : 0;
-      const width = fixtures.length ? Math.max(...fixtures.map((f) => f.x)) - x + 40 : state.floor.floorPlan?.width ?? 1200;
-      const height = fixtures.length ? Math.max(...fixtures.map((f) => f.y)) - y + 40 : state.floor.floorPlan?.height ?? 800;
+      const width = fixtures.length ? Math.max(...fixtures.map((f) => f.x)) - x + 40 : bounds?.width ?? state.floor.floorPlan?.width ?? 1200;
+      const height = fixtures.length ? Math.max(...fixtures.map((f) => f.y)) - y + 40 : bounds?.height ?? state.floor.floorPlan?.height ?? 800;
       const zoom = Math.min(2, Math.max(0.1, Math.min((viewport.width - 48) / width, (viewport.height - 48) / height)));
       set({ zoom, pan: { x: (viewport.width - width * zoom) / 2 - x * zoom, y: (viewport.height - height * zoom) / 2 - y * zoom } });
     },

@@ -80,18 +80,20 @@ export function CadImportPanel({
   const [action, setAction] = useState<"idle" | "starting" | "applying" | "cancelling" | "checking">("idle");
   const [error, setError] = useState<string | null>(null);
   const [reviewCursor, setReviewCursor] = useState(0);
+  const [suppressedReviewJobId, setSuppressedReviewJobId] = useState<string | null>(null);
   const loadedReviewJobId = useRef<string | null>(null);
   const requestLock = useRef(false);
   const busy = useRef(false);
-  const activeJob = review?.job ?? job;
+  const activeReview = review?.job.jobId === suppressedReviewJobId ? null : review;
+  const activeJob = activeReview?.job ?? job;
   const focusedIndex = useMemo(() => {
-    if (!review?.candidates.length) return 0;
+    if (!activeReview?.candidates.length) return 0;
     const index = focusedCandidateId
-      ? review.candidates.findIndex((candidate) => candidate.id === focusedCandidateId)
+      ? activeReview.candidates.findIndex((candidate) => candidate.id === focusedCandidateId)
       : -1;
-    return index >= 0 ? index : Math.min(reviewCursor, review.candidates.length - 1);
-  }, [focusedCandidateId, review?.candidates, reviewCursor]);
-  const focusedCandidate = review?.candidates[focusedIndex] ?? null;
+    return index >= 0 ? index : Math.min(reviewCursor, activeReview.candidates.length - 1);
+  }, [focusedCandidateId, activeReview?.candidates, reviewCursor]);
+  const focusedCandidate = activeReview?.candidates[focusedIndex] ?? null;
 
   function setBusy(next: boolean) {
     if (busy.current === next) return;
@@ -103,12 +105,17 @@ export function CadImportPanel({
     setFile(null);
     setJob(null);
     setError(null);
+    setSuppressedReviewJobId(null);
     loadedReviewJobId.current = null;
     onReviewChange(null);
     setBusy(false);
     let active = true;
     void getActiveFloorImportJob(floorId).then(({ job: durableJob }) => {
       if (!active || !durableJob) return;
+      if (durableJob.status === "applying") {
+        setError("이전 CAD 적용 상태를 서버에서 정리하고 있습니다. 잠시 후 다시 시도하세요.");
+        return;
+      }
       setJob(durableJob);
     }).catch(() => {
       if (active) setError("진행 중인 CAD 가져오기를 확인하지 못했습니다.");
@@ -122,7 +129,16 @@ export function CadImportPanel({
     const timer = window.setTimeout(async () => {
       try {
         const next = await getFloorImportJob(floorId, activeJob.jobId);
-        if (active) setJob(next);
+        if (!active) return;
+        if (["failed", "cancelled"].includes(next.status)) {
+          setSuppressedReviewJobId(next.jobId);
+          setJob(null);
+          onReviewChange(null);
+          setBusy(false);
+          setError(statusText(next));
+        } else {
+          setJob(next);
+        }
       } catch {
         if (active) setError("가져오기 진행 상태를 확인하지 못했습니다.");
       }
@@ -145,6 +161,7 @@ export function CadImportPanel({
         candidates: response.candidates,
         acceptedCandidateIds: response.candidates.map((candidate) => candidate.id)
       });
+      setSuppressedReviewJobId(null);
       setReviewCursor(0);
       onFocusedCandidateChange?.(response.candidates[0]?.id ?? null);
     }).catch(() => {
@@ -157,7 +174,7 @@ export function CadImportPanel({
 
   useEffect(() => {
     if (!activeJob) return;
-    if (POLLING_STATUSES.has(activeJob.status) || activeJob.status === "review_required" || activeJob.status === "applying") setBusy(true);
+    if (POLLING_STATUSES.has(activeJob.status) || activeJob.status === "review_required") setBusy(true);
     else setBusy(false);
   }, [activeJob?.status]);
 
@@ -197,27 +214,28 @@ export function CadImportPanel({
   }
 
   async function handleApply() {
-    if (!review || disabled || isDirty || requestLock.current || !leaseToken || !leaseFence) return;
+    if (!activeReview || disabled || isDirty || requestLock.current || !leaseToken || !leaseFence) return;
     requestLock.current = true;
     setAction("applying");
     setError(null);
     try {
-      const result = await applyFloorImportJob(floorId, review.job.jobId, {
+      const result = await applyFloorImportJob(floorId, activeReview.job.jobId, {
         expectedRevision,
         leaseToken,
         leaseFence,
-        candidateIds: review.acceptedCandidateIds
+        candidateIds: activeReview.acceptedCandidateIds
       });
       await onApplied(result);
+      setSuppressedReviewJobId(activeReview.job.jobId);
       setJob(null);
       onReviewChange(null);
       setBusy(false);
     } catch (caught) {
-      if (caught instanceof ApiError && caught.status === 409) {
+      const isConflict = caught instanceof ApiError && caught.status === 409;
+      const reconciledStatus = await reconcileJob(activeReview.job.jobId, true);
+      if (isConflict && reconciledStatus === "review_required") {
         onConflict?.();
         setError("최신 버전을 다시 불러온 뒤 CAD 적용을 다시 확인하세요.");
-      } else {
-        await reconcileJob(review.job.jobId, true);
       }
     } finally {
       requestLock.current = false;
@@ -225,11 +243,12 @@ export function CadImportPanel({
     }
   }
 
-  async function reconcileJob(jobId: string, unknownApplyResult = false) {
+  async function reconcileJob(jobId: string, unknownApplyResult = false): Promise<FloorImportJob["status"] | null> {
     try {
       const next = await getFloorImportJob(floorId, jobId);
-      setJob(next);
       if (next.status === "completed") {
+        setSuppressedReviewJobId(next.jobId);
+        setJob(null);
         onReviewChange(null);
         setBusy(false);
         try {
@@ -239,22 +258,36 @@ export function CadImportPanel({
         } catch {
           setError("CAD 적용은 완료되었지만 최신 맵을 불러오지 못했습니다. 다시 불러오세요.");
         }
-        return;
+        return next.status;
       }
       if (next.status === "review_required") {
+        setJob(next);
         if (review?.job.jobId === next.jobId) onReviewChange({ ...review, job: next });
         setError(unknownApplyResult ? "서버 적용이 완료되지 않았습니다. 후보 선택을 확인한 뒤 다시 시도하세요." : null);
-        return;
+        return next.status;
       }
       if (next.status === "applying") {
-        if (review?.job.jobId === next.jobId) onReviewChange({ ...review, job: next });
-        setError("적용 요청 결과를 확인하는 중입니다. 잠시 후 다시 확인하세요.");
-        return;
+        setSuppressedReviewJobId(next.jobId);
+        setJob(null);
+        onReviewChange(null);
+        setBusy(false);
+        setError("이전 CAD 적용 상태를 서버에서 정리하고 있습니다. 잠시 후 다시 시도하세요.");
+        return next.status;
       }
-      if (["failed", "cancelled"].includes(next.status)) onReviewChange(null);
+      if (["failed", "cancelled"].includes(next.status)) {
+        setSuppressedReviewJobId(next.jobId);
+        setJob(null);
+        onReviewChange(null);
+        setBusy(false);
+        setError(statusText(next));
+        return next.status;
+      }
+      setJob(next);
       setError(unknownApplyResult ? `적용 결과를 확인했습니다. ${statusText(next)}` : null);
+      return next.status;
     } catch {
       setError("적용 결과를 확인하지 못했습니다. 다시 확인한 뒤 재시도하세요.");
+      return null;
     }
   }
 
@@ -274,6 +307,7 @@ export function CadImportPanel({
     setError(null);
     try {
       await cancelFloorImportJob(floorId, activeJob.jobId);
+      setSuppressedReviewJobId(activeJob.jobId);
       setJob(null);
       onReviewChange(null);
       setBusy(false);
@@ -286,18 +320,18 @@ export function CadImportPanel({
   }
 
   function moveCandidate(delta: number) {
-    if (!review?.candidates.length) return;
-    const next = Math.max(0, Math.min(review.candidates.length - 1, focusedIndex + delta));
+    if (!activeReview?.candidates.length) return;
+    const next = Math.max(0, Math.min(activeReview.candidates.length - 1, focusedIndex + delta));
     setReviewCursor(next);
-    onFocusedCandidateChange?.(review.candidates[next].id);
+    onFocusedCandidateChange?.(activeReview.candidates[next].id);
   }
 
   function toggleFocusedCandidate() {
-    if (!review || !focusedCandidate) return;
-    const accepted = new Set(review.acceptedCandidateIds);
+    if (!activeReview || !focusedCandidate) return;
+    const accepted = new Set(activeReview.acceptedCandidateIds);
     if (accepted.has(focusedCandidate.id)) accepted.delete(focusedCandidate.id);
     else accepted.add(focusedCandidate.id);
-    onReviewChange({ ...review, acceptedCandidateIds: [...accepted] });
+    onReviewChange({ ...activeReview, acceptedCandidateIds: [...accepted] });
   }
 
   const status = activeJob ? statusText(activeJob) : null;
@@ -350,35 +384,35 @@ export function CadImportPanel({
         <progress className="h-2 w-full" max={100} value={activeJob.progressPercent} aria-label="CAD 가져오기 진행률" />
       </div> : null}
 
-      {activeJob && (activeJob.status === "applying" || (activeJob.status === "completed" && error)) ? <Button
+      {activeJob && activeJob.status === "completed" && error ? <Button
         variant="secondary"
         isLoading={action === "checking"}
         loadingLabel="적용 결과 확인 중"
         onClick={() => void handleReconcile()}
       >
         <RotateCw size={16} aria-hidden="true" />
-        {activeJob.status === "applying" ? "적용 결과 확인" : "최신 맵 다시 불러오기"}
+        최신 맵 다시 불러오기
       </Button> : null}
 
-      {review && review.job.status === "review_required" ? <>
+      {activeReview && activeReview.job.status === "review_required" ? <>
         <FeedbackState
           tone="success"
           icon={CircleCheck}
-          title={`조명 위치 후보 ${review.candidates.length.toLocaleString("ko-KR")}개를 찾았습니다.`}
-          description={`적용 후보 ${review.acceptedCandidateIds.length.toLocaleString("ko-KR")}개 · 후보는 실제 조명으로 자동 등록되지 않습니다.`}
+          title={`조명 위치 후보 ${activeReview.candidates.length.toLocaleString("ko-KR")}개를 찾았습니다.`}
+          description={`적용 후보 ${activeReview.acceptedCandidateIds.length.toLocaleString("ko-KR")}개 · 후보는 실제 조명으로 자동 등록되지 않습니다.`}
         />
         <div className="grid grid-cols-2 gap-2">
           <Button
             size="sm"
             variant="ghost"
-            disabled={disabled || review.acceptedCandidateIds.length === review.candidates.length}
-            onClick={() => onReviewChange({ ...review, acceptedCandidateIds: review.candidates.map((candidate) => candidate.id) })}
+            disabled={disabled || activeReview.acceptedCandidateIds.length === activeReview.candidates.length}
+            onClick={() => onReviewChange({ ...activeReview, acceptedCandidateIds: activeReview.candidates.map((candidate) => candidate.id) })}
           >전체 선택</Button>
           <Button
             size="sm"
             variant="ghost"
-            disabled={disabled || review.acceptedCandidateIds.length === 0}
-            onClick={() => onReviewChange({ ...review, acceptedCandidateIds: [] })}
+            disabled={disabled || activeReview.acceptedCandidateIds.length === 0}
+            onClick={() => onReviewChange({ ...activeReview, acceptedCandidateIds: [] })}
           >선택 해제</Button>
         </div>
         {focusedCandidate ? <div className="grid gap-2 border-t border-border-subtle pt-2" aria-label="개별 후보 검토">
@@ -390,18 +424,18 @@ export function CadImportPanel({
               disabled={focusedIndex === 0}
               onClick={() => moveCandidate(-1)}
             ><ChevronLeft size={16} aria-hidden="true" /></IconButton>
-            <Text variant="caption" tone="secondary">{focusedIndex + 1} / {review.candidates.length.toLocaleString("ko-KR")}</Text>
+            <Text variant="caption" tone="secondary">{focusedIndex + 1} / {activeReview.candidates.length.toLocaleString("ko-KR")}</Text>
             <IconButton
               size="sm"
               variant="ghost"
               aria-label="다음 후보"
-              disabled={focusedIndex >= review.candidates.length - 1}
+              disabled={focusedIndex >= activeReview.candidates.length - 1}
               onClick={() => moveCandidate(1)}
             ><ChevronRight size={16} aria-hidden="true" /></IconButton>
           </div>
           <Checkbox
-            label={`후보 ${focusedIndex + 1}/${review.candidates.length.toLocaleString("ko-KR")} · ${focusedCandidate.layerName} · ${focusedCandidate.blockName ?? "블록 없음"} · 신뢰도 ${Math.round(focusedCandidate.confidence * 100)}%`}
-            isSelected={review.acceptedCandidateIds.includes(focusedCandidate.id)}
+            label={`후보 ${focusedIndex + 1}/${activeReview.candidates.length.toLocaleString("ko-KR")} · ${focusedCandidate.layerName} · ${focusedCandidate.blockName ?? "블록 없음"} · 신뢰도 ${Math.round(focusedCandidate.confidence * 100)}%`}
+            isSelected={activeReview.acceptedCandidateIds.includes(focusedCandidate.id)}
             isDisabled={disabled || isDirty}
             onChange={() => toggleFocusedCandidate()}
           />
