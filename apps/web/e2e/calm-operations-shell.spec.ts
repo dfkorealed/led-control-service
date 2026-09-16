@@ -16,6 +16,11 @@ const responsiveViewports = [
 for (const viewport of responsiveViewports) {
   test(`calm operations shell keeps its rail and navigation contract at ${viewport.width}px`, async ({ page }) => {
     await page.setViewportSize(viewport);
+    const safeAreaBottom = viewport.width === 390 ? 20 : 0;
+    if (safeAreaBottom > 0) {
+      const session = await page.context().newCDPSession(page);
+      await session.send("Emulation.setSafeAreaInsetsOverride", { insets: { bottom: safeAreaBottom } });
+    }
     await installSettingsApiRoutes(page, "admin");
     await page.goto("/monitoring?siteId=site-1");
     await expect(page.getByRole("button", { name: "맵 선택" })).toBeVisible();
@@ -64,6 +69,8 @@ for (const viewport of responsiveViewports) {
       await expect(bottomNav).toBeVisible();
       await expect(bottomNav.getByRole("link")).toHaveCount(4);
       await expect(bottomNav).toHaveCSS("position", "fixed");
+      await expect(bottomNav).toHaveCSS("height", `${68 + safeAreaBottom}px`);
+      await expect(bottomNav).toHaveCSS("padding-bottom", `${safeAreaBottom}px`);
       await expectMinimumTouchTargets(page, '[data-shell-navigation="compact"]');
       await expectMinimumTouchTargets(page, "[data-shell-actions]");
 
@@ -85,7 +92,8 @@ for (const viewport of responsiveViewports) {
         const styles = getComputedStyle(shell);
         return Number.parseFloat(styles.paddingBottom);
       });
-      expect(paddingBottom).toBeGreaterThanOrEqual(navigationHeight);
+      expect(paddingBottom).toBe(68 + safeAreaBottom);
+      expect(navigationHeight).toBe(68 + safeAreaBottom);
     }
 
     await expect(page.getByRole("link", { name: "모니터링" })).toHaveAttribute("aria-current", "page");

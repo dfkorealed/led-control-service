@@ -180,9 +180,9 @@ export function CustomerShell({ user }: { user: AuthUser }) {
   }
 
   return (
-    <div className={`min-h-screen bg-surface-canvas ${isCompactNavigation ? "pb-16" : "flex"}`} data-app-shell>
+    <div className={`min-h-screen bg-surface-canvas ${isCompactNavigation ? "pb-shell-navigation-safe" : "flex"}`} data-app-shell>
       {isCompactNavigation ? (
-        <nav className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-4 gap-1 border-t border-border-default bg-surface-panel px-1.5 py-1" aria-label="모바일 주 메뉴" data-shell-navigation="compact">
+        <nav className="fixed inset-x-0 bottom-0 z-20 grid h-shell-navigation-safe grid-cols-4 gap-1 border-t border-border-default bg-surface-panel px-1.5 pt-1 pb-safe-area-bottom" aria-label="모바일 주 메뉴" data-shell-navigation="compact">
           <PrimaryNavigation capabilities={capabilities} search={location.search} />
         </nav>
       ) : (
