@@ -311,15 +311,21 @@ function FixtureGroupForm({
         {fixtures.map((fixture) => {
           const checked = selectedFixtureIds.has(fixture.id);
           return (
-            <div key={fixture.id} className={`grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b border-border-subtle px-3 py-2 last:border-b-0 ${checked ? "bg-action-primary-soft" : ""}`}>
+            <div key={fixture.id} className={`grid min-h-11 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 border-b border-border-subtle pb-2 last:border-b-0 ${checked ? "bg-action-primary-soft" : ""}`}>
               <Checkbox
-                label={<span className="sr-only">{fixture.name} 포함</span>}
+                className="min-w-0 [&>label]:w-full [&>label]:min-w-0 [&>label]:justify-start [&>label]:rounded-none [&>label]:border-0 [&>label]:bg-transparent [&>label]:px-3 [&>label]:py-2 [&>label[data-selected]]:bg-transparent"
+                label={(
+                  <span className="flex min-w-0 items-center">
+                    <Text as="strong" weight="semibold">{fixture.name}</Text>
+                    <span className="sr-only"> 포함</span>
+                  </span>
+                )}
                 isSelected={checked}
                 isDisabled={!fixture.controllable && !checked}
                 onChange={() => toggleFixture(fixture)}
               />
-              <span className="grid gap-1"><Text as="strong" weight="semibold">{fixture.name}</Text><Text as="small" variant="caption" tone="secondary">{fixture.controllable ? "제어 가능" : "제어 불가"}</Text></span>
-              <Text as="span" weight="semibold">{fixture.brightness}%</Text>
+              <Text as="small" variant="caption" tone="secondary" className="min-w-0 pl-12">{fixture.controllable ? "제어 가능" : "제어 불가"}</Text>
+              <Text as="span" weight="semibold" className="col-start-2 row-span-2 row-start-1 pr-3">{fixture.brightness}%</Text>
             </div>
           );
         })}

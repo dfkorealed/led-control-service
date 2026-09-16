@@ -184,19 +184,22 @@ export function ControlTargetPicker({
             {visibleFixtures.map(({ fixture, floor }) => {
               const checked = selectedFixtureIds.has(fixture.id);
               return (
-                <div className={`grid min-h-11 grid-cols-[auto_auto_minmax(0,1fr)_auto] items-center gap-3 border-b border-border-subtle px-3 py-2 last:border-b-0 ${checked ? "bg-action-primary-soft" : "bg-surface-panel"}`} key={fixture.id}>
+                <div className={`grid min-h-11 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 border-b border-border-subtle pb-2 last:border-b-0 ${checked ? "bg-action-primary-soft" : "bg-surface-panel"}`} key={fixture.id}>
                   <Checkbox
-                    label={<span className="sr-only">{fixture.name} 선택</span>}
+                    className="min-w-0 [&>label]:w-full [&>label]:min-w-0 [&>label]:justify-start [&>label]:rounded-none [&>label]:border-0 [&>label]:bg-transparent [&>label]:px-3 [&>label]:py-2 [&>label[data-selected]]:bg-transparent"
+                    label={(
+                      <span className="flex min-w-0 items-center gap-3">
+                        <span aria-hidden="true" className={`h-2.5 w-2.5 shrink-0 rounded-pill ${fixture.status === "fault" ? "bg-fixture-fault" : fixture.status === "offline" ? "bg-fixture-offline" : "bg-fixture-connected"}`} />
+                        <Text as="strong" weight="semibold">{fixture.name}</Text>
+                        <span className="sr-only"> 선택</span>
+                      </span>
+                    )}
                     isSelected={checked}
                     isDisabled={disabled}
                     onChange={() => toggleFixture(fixture.id)}
                   />
-                  <span aria-hidden="true" className={`h-2.5 w-2.5 rounded-pill ${fixture.status === "fault" ? "bg-fixture-fault" : fixture.status === "offline" ? "bg-fixture-offline" : "bg-fixture-connected"}`} />
-                  <span className="grid min-w-0 gap-1">
-                    <Text as="strong" weight="semibold">{fixture.name}</Text>
-                    <Text as="small" variant="caption" tone="secondary">{floor.name} · {fixtureStatusLabel(fixture.status)} · {fixtureHealthLabel(fixture)}</Text>
-                  </span>
-                  <Text as="span" weight="semibold" className="tabular-nums">{fixture.brightness}%</Text>
+                  <Text as="small" variant="caption" tone="secondary" className="min-w-0 pl-16">{floor.name} · {fixtureStatusLabel(fixture.status)} · {fixtureHealthLabel(fixture)}</Text>
+                  <Text as="span" weight="semibold" className="col-start-2 row-span-2 row-start-1 pr-3 tabular-nums">{fixture.brightness}%</Text>
                 </div>
               );
             })}

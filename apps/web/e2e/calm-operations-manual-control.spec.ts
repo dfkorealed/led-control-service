@@ -120,7 +120,9 @@ for (const viewport of viewports) {
     await setCheckbox(page, "B2-L02 선택", true);
     await expect(page.getByText("1개 선택 · 제어 불가 1개")).toBeVisible();
     await expect(page.getByRole("button", { name: "밝기 적용" })).toBeDisabled();
-    await setCheckbox(page, "B2-L02 선택", false);
+    const faultFixtureCheckbox = page.getByRole("checkbox", { name: "B2-L02 선택" });
+    await faultFixtureCheckbox.press("Space");
+    await expect(faultFixtureCheckbox).not.toBeChecked();
     await setCheckbox(page, "B2-L03 선택", true);
     await expect(page.getByText("1개 선택 · 제어 불가 1개")).toBeVisible();
     await setCheckbox(page, "B2-L03 선택", false);
@@ -162,6 +164,19 @@ for (const viewport of viewports) {
     await expect(dialog.getByText("준비됨")).toBeVisible();
     await page.getByRole("button", { name: "B2 입구 수정" }).click();
     await expect(page.getByRole("heading", { name: "구역 편집" })).toBeVisible();
+    const editDialog = page.getByRole("dialog", { name: "구역 수정" });
+    await editDialog.getByRole("button", { name: "목록으로" }).click();
+    const groupDialog = page.getByRole("dialog", { name: "구역 관리" });
+    await groupDialog.getByRole("button", { name: "새 구역" }).click();
+    const createDialog = page.getByRole("dialog", { name: "구역 생성" });
+    await selectBox(page, createDialog, "층", "B2");
+    await selectBox(page, createDialog, "게이트웨이", "Gateway B2");
+    const groupFixtureList = createDialog.getByRole("group", { name: "구역 조명 목록" });
+    const groupFixture = groupFixtureList.getByRole("checkbox").first();
+    await expect(groupFixture).toHaveAccessibleName("B2-L01 포함");
+    await expect(groupFixture).not.toBeChecked();
+    await groupFixtureList.getByText("B2-L01", { exact: true }).click();
+    await expect(groupFixture).toBeChecked();
 
   });
 
@@ -297,9 +312,15 @@ async function readStableControlRects(page: Page) {
 async function setCheckbox(page: Page, name: string, checked: boolean) {
   const checkbox = page.getByRole("checkbox", { name });
   if (await checkbox.isChecked() !== checked) {
-    await checkbox.locator("xpath=ancestor::label").click();
+    const visibleName = name.replace(/ 선택$/, "");
+    await checkbox.locator("xpath=ancestor::label").getByText(visibleName, { exact: true }).click();
   }
   await expect(checkbox).toBeChecked({ checked });
+}
+
+async function selectBox(page: Page, root: ReturnType<Page["getByRole"]>, label: string, option: string) {
+  await root.getByRole("button", { name: label }).click();
+  await page.getByRole("option", { name: option }).click();
 }
 
 function fixture(

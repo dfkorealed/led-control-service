@@ -162,6 +162,19 @@ describe("ControlView 대상 선택", () => {
     expect(screen.getByRole("button", { name: "구역 관리" })).toHaveClass("ui-button", "ui-button-secondary");
   });
 
+  it("keeps the visible fixture name inside the checkbox label", () => {
+    renderControl();
+
+    const fixtureName = screen.getByText("B2-L001");
+    const checkbox = screen.getByRole("checkbox", { name: "B2-L001 선택" });
+    const fixtureLabel = fixtureName.closest("label");
+    expect(fixtureLabel).not.toBeNull();
+    expect(fixtureLabel).toContainElement(checkbox);
+    fireEvent.click(checkbox);
+
+    expect(checkbox).toBeChecked();
+  });
+
   it("checks unknown without creating Set and locks controls until the verification finishes", async () => {
     sessionStorage.setItem(activeCommandStorageKey(USER_A, dashboard.site.id), JSON.stringify({ commandId: commandIds.default }));
     const unknown = { ...createCommandStatus(commandIds.default, "verification_required"), outcome: "unknown", verificationAttemptCount: 0 };

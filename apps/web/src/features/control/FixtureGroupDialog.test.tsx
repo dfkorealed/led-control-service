@@ -95,6 +95,24 @@ describe("FixtureGroupDialog", () => {
     expect(screen.getByRole("button", { name: "게이트웨이" })).toBeInTheDocument();
   });
 
+  it("keeps the visible fixture name inside the membership checkbox label", async () => {
+    renderDialog(true);
+    await screen.findByText("B2 입구");
+    fireEvent.click(screen.getByRole("button", { name: "새 구역" }));
+    await selectOption("층", "B2");
+    await selectOption("게이트웨이", "Gateway B2");
+
+    const fixtureList = screen.getByRole("group", { name: "구역 조명 목록" });
+    const fixtureName = within(fixtureList).getByText("B2-L001");
+    const checkbox = within(fixtureList).getByRole("checkbox", { name: "B2-L001 포함" });
+    const fixtureLabel = fixtureName.closest("label");
+    expect(fixtureLabel).not.toBeNull();
+    expect(fixtureLabel).toContainElement(checkbox);
+    fireEvent.click(checkbox);
+
+    expect(checkbox).toBeChecked();
+  });
+
   it("updates membership, resyncs a failed group, and confirms deletion", async () => {
     renderDialog(true);
     await screen.findByText("구독 설정 응답 시간 초과");
