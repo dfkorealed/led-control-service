@@ -2,11 +2,25 @@ import Konva from "konva";
 import type { CSSProperties } from "react";
 import { Group, Line, Rect, Stage, Text, Layer } from "react-konva";
 import type { FloorMapSnapshot } from "@led-control/shared";
+import { cn, themeColor } from "../../components/ui";
 
 const fixtureStatusLabels = {
   online: "정상",
   offline: "오프라인",
   fault: "장애"
+} as const;
+
+const fixtureBrightnessClasses = {
+  1: "bg-fixture-brightness-1 shadow-[0_0_0_0_color-mix(in_srgb,var(--color-fixture-on)_0%,transparent),inset_0_0_0_1px_color-mix(in_srgb,var(--color-content-inverse)_24%,transparent)]",
+  2: "bg-fixture-brightness-2 shadow-[0_0_2px_0.5px_color-mix(in_srgb,var(--color-fixture-on)_4%,transparent),inset_0_0_0_1px_color-mix(in_srgb,var(--color-content-inverse)_24%,transparent)]",
+  3: "bg-fixture-brightness-3 shadow-[0_0_3.5px_1px_color-mix(in_srgb,var(--color-fixture-on)_8%,transparent),inset_0_0_0_1px_color-mix(in_srgb,var(--color-content-inverse)_24%,transparent)]",
+  4: "bg-fixture-brightness-4 shadow-[0_0_5px_1.5px_color-mix(in_srgb,var(--color-fixture-on)_12%,transparent),inset_0_0_0_1px_color-mix(in_srgb,var(--color-content-inverse)_24%,transparent)]",
+  5: "bg-fixture-brightness-5 shadow-[0_0_6.5px_2px_color-mix(in_srgb,var(--color-fixture-on)_16%,transparent),inset_0_0_0_1px_color-mix(in_srgb,var(--color-content-inverse)_24%,transparent)]",
+  6: "bg-fixture-brightness-6 shadow-[0_0_8px_2.5px_color-mix(in_srgb,var(--color-fixture-on)_20%,transparent),inset_0_0_0_1px_color-mix(in_srgb,var(--color-content-inverse)_24%,transparent)]",
+  7: "bg-fixture-brightness-7 shadow-[0_0_9.5px_3px_color-mix(in_srgb,var(--color-fixture-on)_24%,transparent),inset_0_0_0_1px_color-mix(in_srgb,var(--color-content-inverse)_24%,transparent)]",
+  8: "bg-fixture-brightness-8 shadow-[0_0_11px_3.5px_color-mix(in_srgb,var(--color-fixture-on)_28%,transparent),inset_0_0_0_1px_color-mix(in_srgb,var(--color-content-inverse)_24%,transparent)]",
+  9: "bg-fixture-brightness-9 shadow-[0_0_12.5px_4.25px_color-mix(in_srgb,var(--color-fixture-on)_34%,transparent),inset_0_0_0_1px_color-mix(in_srgb,var(--color-content-inverse)_24%,transparent)]",
+  10: "bg-fixture-brightness-10 shadow-[0_0_14px_5px_color-mix(in_srgb,var(--color-fixture-on)_42%,transparent),inset_0_0_0_1px_color-mix(in_srgb,var(--color-content-inverse)_24%,transparent)]"
 } as const;
 
 export interface SceneFixture {
@@ -49,6 +63,11 @@ interface FloorSceneProps {
   onSelectFixture?: (fixtureId: string) => void;
 }
 
+interface FixtureMarkerStyle extends CSSProperties {
+  "--fixture-left": string;
+  "--fixture-top": string;
+}
+
 export function FloorScene({
   snapshot,
   fixtures,
@@ -61,9 +80,10 @@ export function FloorScene({
   const objects = snapshot.objects.filter((object) => object.visible);
 
   return (
-    <div className="floor-scene" data-map-objects-interactive={interactive ? "true" : "false"}>
-      {backgroundUrl ? <img className="floor-map-image" src={backgroundUrl} alt={`${floorName ?? "층"} 도면`} draggable={false} /> : null}
-      <div className="floor-scene-canvas" aria-hidden="true">
+    <div className="relative h-full w-full" data-floor-scene="" data-map-objects-interactive={interactive ? "true" : "false"}>
+      {backgroundUrl ? <img className="pointer-events-none absolute inset-0 z-0 h-full w-full object-contain" src={backgroundUrl} alt={`${floorName ?? "층"} 도면`} draggable={false} /> : null}
+      {/* Konva owns generated child canvas dimensions; the stable hook is the documented library geometry exception. */}
+      <div className="floor-scene-canvas pointer-events-none absolute inset-0 z-1 h-full w-full overflow-hidden" aria-hidden="true">
         <Stage width={snapshot.width} height={snapshot.height} listening={interactive}>
           <Layer listening={interactive}>
             {objects.map((object) => (
@@ -83,10 +103,23 @@ export function FloorScene({
         const awaitingState = fixture.statusPresentation?.state === "provisioning_waiting_state" || fixture.statusReason === "provisioning_waiting_state";
         const statusLabel = fixture.statusPresentation?.label ?? (awaitingState ? "상태 확인 대기" : fixtureStatusLabels[fixture.status]);
         const brightnessLevel = fixtureBrightnessLevel(fixture.brightness);
+        // Marker position is stored in map coordinates and must scale with the live snapshot.
         const markerStyle = {
           "--fixture-left": `${(fixture.x / snapshot.width) * 100}%`,
-          "--fixture-top": `${(fixture.y / snapshot.height) * 100}%`
-        } as CSSProperties;
+          "--fixture-top": `${(fixture.y / snapshot.height) * 100}%`,
+          left: "clamp(1rem, var(--fixture-left), calc(100% - 1rem))",
+          top: "clamp(1rem, var(--fixture-top), calc(100% - 1rem))"
+        } satisfies FixtureMarkerStyle;
+        const markerStateClass = awaitingState
+          ? "border-2 border-dotted border-fixture-inspection-border bg-fixture-inspection-background shadow-none"
+          : fixture.status === "offline"
+            ? "border-2 border-dashed border-fixture-offline-border bg-fixture-offline-background shadow-none"
+            : fixtureBrightnessClasses[brightnessLevel];
+        const badgeClass = awaitingState
+          ? "bg-fixture-inspection"
+          : fixture.status === "offline"
+            ? "bg-fixture-offline"
+            : fixture.status === "fault" ? "bg-fixture-fault" : "bg-fixture-connected";
 
         return (
           <button
@@ -94,23 +127,29 @@ export function FloorScene({
             type="button"
             data-spatial-map-marker="true"
             data-brightness-level={brightnessLevel}
-            className={`fixture-dot ${fixture.status} brightness-level-${brightnessLevel}${awaitingState ? " awaiting-state" : ""}${fixture.id === selectedFixtureId ? " active" : ""}`}
+            className={cn(
+              "monitoring-fixture-marker absolute z-2 block size-5 min-h-5 -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-[3px] border border-fixture-offline p-0 transition-[background-color,box-shadow] duration-150 hover:z-4 hover:outline-3 hover:outline-offset-4 hover:outline-fixture-selected focus-visible:z-4 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-fixture-selected",
+              markerStateClass,
+              fixture.id === selectedFixtureId && "z-3 outline-3 outline-offset-4 outline-fixture-selected"
+            )}
             style={markerStyle}
             title={`${fixture.name} ${statusLabel} ${fixture.brightness}%`}
             aria-label={`${fixture.name} ${statusLabel} ${fixture.brightness}%`}
             aria-current={fixture.id === selectedFixtureId ? "true" : undefined}
             onClick={() => onSelectFixture?.(fixture.id)}
-          />
+          >
+            <span aria-hidden="true" className={cn("pointer-events-none absolute -top-1.5 -right-1.5 size-2 rounded-pill border-2 border-surface-panel shadow-panel", badgeClass)} />
+          </button>
         );
       })}
     </div>
   );
 }
 
-function fixtureBrightnessLevel(brightness: number) {
+function fixtureBrightnessLevel(brightness: number): keyof typeof fixtureBrightnessClasses {
   const finiteBrightness = Number.isFinite(brightness) ? brightness : 0;
   const clampedBrightness = Math.min(100, Math.max(0, finiteBrightness));
-  return Math.min(10, Math.floor(clampedBrightness / 10) + 1);
+  return Math.min(10, Math.floor(clampedBrightness / 10) + 1) as keyof typeof fixtureBrightnessClasses;
 }
 
 export function FloorMapObjectNode({
@@ -162,6 +201,9 @@ export function FloorMapObjectNode({
     rotation: object.rotation,
     opacity: preview ? 0.6 : 1
   };
+  const selectedStroke = selected ? themeColor("fixture-editor-selected") || object.strokeColor : object.strokeColor;
+  // Konva needs a transparent fill to keep the complete object interior hit-testable in the editor.
+  const hitTestableFill = object.fillColor ?? "transparent";
 
   if (object.type === "line") {
     return <Line {...common} points={[0, 0, object.width, 0]} stroke={object.strokeColor} strokeWidth={Math.max(object.strokeWidth, 6)} hitStrokeWidth={18} lineCap="round" />;
@@ -169,19 +211,19 @@ export function FloorMapObjectNode({
 
   if (object.type === "triangle") {
     const points = (object.points ?? trianglePoints(object.width, object.height)).flatMap((point) => [point.x, point.y]);
-    return <Line {...common} points={points} closed fill={object.fillColor ?? "transparent"} stroke={selected ? "#2563eb" : object.strokeColor} strokeWidth={object.strokeWidth} />;
+    return <Line {...common} points={points} closed fill={hitTestableFill} stroke={selectedStroke} strokeWidth={object.strokeWidth} />;
   }
 
   if (object.type === "text") {
     return (
       <Group {...common}>
-        <Rect width={object.width} height={object.height} fill={object.fillColor ?? "transparent"} stroke={selected ? "#2563eb" : object.strokeColor} strokeWidth={object.strokeWidth} />
+        <Rect width={object.width} height={object.height} fill={hitTestableFill} stroke={selectedStroke} strokeWidth={object.strokeWidth} />
         <Text x={8} y={8} width={Math.max(object.width - 16, 1)} height={Math.max(object.height - 16, 1)} text={object.text || "텍스트"} fontSize={object.fontSize ?? 16} fill={object.strokeColor} />
       </Group>
     );
   }
 
-  return <Rect {...common} width={object.width} height={object.height} fill={object.fillColor ?? "transparent"} stroke={selected ? "#2563eb" : object.strokeColor} strokeWidth={object.strokeWidth} />;
+  return <Rect {...common} width={object.width} height={object.height} fill={hitTestableFill} stroke={selectedStroke} strokeWidth={object.strokeWidth} />;
 }
 
 export function trianglePoints(width: number, height: number) {

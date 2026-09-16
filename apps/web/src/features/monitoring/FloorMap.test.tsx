@@ -107,15 +107,16 @@ describe("FloorMap", () => {
     expect(screen.queryByText("70%")).not.toBeInTheDocument();
     const fixtureButton = screen.getByRole("button", { name: "B2-L01 정상 70%" });
     expect(fixtureButton).toBeInTheDocument();
-    expect(fixtureButton).toBeEmptyDOMElement();
-    expect(fixtureButton.closest(".floor-scene")).toHaveAttribute("data-map-objects-interactive", "false");
-    expect(fixtureButton.closest(".floor-scene")).not.toHaveAttribute("data-interactive");
+    expect(fixtureButton).toHaveTextContent("");
+    expect(fixtureButton.querySelector("span[aria-hidden='true']")).toHaveClass("bg-fixture-connected");
+    expect(fixtureButton.closest("[data-floor-scene]")).toHaveAttribute("data-map-objects-interactive", "false");
+    expect(fixtureButton.closest("[data-floor-scene]")).not.toHaveAttribute("data-interactive");
     expect(fixtureButton).toHaveStyle({
       "--fixture-left": "8.333333333333332%",
       "--fixture-top": "15%"
     });
     expect(fixtureButton).toHaveAttribute("data-brightness-level", "8");
-    expect(fixtureButton).toHaveClass("brightness-level-8");
+    expect(fixtureButton).toHaveClass("bg-fixture-brightness-8");
     expect(screen.getByAltText("B2 도면")).toHaveAttribute("src", "/demo.svg");
     expect(screen.getByAltText("B2 도면")).toHaveAttribute("draggable", "false");
     expect(screen.getByTestId("map-object-rectangle-1")).toBeInTheDocument();
@@ -254,9 +255,14 @@ describe("FloorMap", () => {
       expect(item?.querySelector("svg")).not.toBeNull();
     }
 
-    expect(screen.getByRole("button", { name: "B2-Fault 장애 0%" })).toHaveClass("fault");
-    expect(screen.getByRole("button", { name: "B2-Offline 오프라인 0%" })).toHaveClass("offline");
-    expect(screen.getByRole("button", { name: "B2-Awaiting 상태 확인 대기 0%" })).toHaveClass("offline", "awaiting-state");
+    const faultMarker = screen.getByRole("button", { name: "B2-Fault 장애 0%" });
+    expect(faultMarker.querySelector("span[aria-hidden='true']")).toHaveClass("bg-fixture-fault");
+    const offlineMarker = screen.getByRole("button", { name: "B2-Offline 오프라인 0%" });
+    expect(offlineMarker).toHaveClass("bg-fixture-offline-background", "border-fixture-offline-border");
+    expect(offlineMarker.querySelector("span[aria-hidden='true']")).toHaveClass("bg-fixture-offline");
+    const awaitingMarker = screen.getByRole("button", { name: "B2-Awaiting 상태 확인 대기 0%" });
+    expect(awaitingMarker).toHaveClass("bg-fixture-inspection-background", "border-fixture-inspection-border");
+    expect(awaitingMarker.querySelector("span[aria-hidden='true']")).toHaveClass("bg-fixture-inspection");
   });
 
   it("changes the fitted map zoom with controls and resets it to 100%", () => {

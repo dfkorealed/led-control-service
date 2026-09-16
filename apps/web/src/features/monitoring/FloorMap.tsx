@@ -2,6 +2,7 @@ import type { FloorMapSnapshot } from "@led-control/shared";
 import { CircleCheck, CircleX, Clock3, Hand, Maximize, Minus, Plus, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { Dashboard } from "../../api/queries";
+import { Button, IconButton, Text } from "../../components/ui";
 import { FloorScene } from "../floor-map/FloorScene";
 import { presentFixtureStatus } from "./fixture-status-presentation";
 
@@ -27,6 +28,7 @@ export function FloorMap({ floor, snapshot, selectedFixtureId, onSelectFixture }
     : 1;
   const renderedWidth = snapshot.width * fitScale * zoom;
   const renderedHeight = snapshot.height * fitScale * zoom;
+  // The saved canvas ratio and measured viewport dimensions are runtime geometry.
   const mapStyle = {
     aspectRatio: `${snapshot.width} / ${snapshot.height}`,
     "--floor-map-aspect-ratio": snapshot.width / snapshot.height,
@@ -125,10 +127,10 @@ export function FloorMap({ floor, snapshot, selectedFixtureId, onSelectFixture }
   }
 
   return (
-    <div className="monitoring-map-shell" role="region" aria-label="층 도면" data-zoom={zoom}>
+    <div className="relative h-[clamp(26.25rem,58vh,45rem)] w-full min-w-0 overflow-hidden rounded-panel border border-border-default bg-surface-inset tablet:h-full tablet:min-h-0" role="region" aria-label="층 도면" data-monitoring-map-shell="" data-zoom={zoom}>
       <div
         ref={viewportRef}
-        className="monitoring-map-viewport"
+        className="h-full min-h-0 w-full min-w-0 cursor-grab overflow-auto bg-surface-inset focus-visible:outline-none focus-visible:shadow-focus active:cursor-grabbing"
         data-testid="monitoring-map-viewport"
         tabIndex={0}
         onPointerDown={handlePointerDown}
@@ -137,8 +139,8 @@ export function FloorMap({ floor, snapshot, selectedFixtureId, onSelectFixture }
         onPointerCancel={finishPointerDrag}
         aria-label="상하좌우로 이동하고 확대 축소할 수 있는 지도"
       >
-        <div className="monitoring-map-stage" style={stageStyle}>
-          <div className="floor-map monitoring-map-card" style={mapStyle}>
+        <div className="grid min-h-full min-w-full place-items-center p-6" style={stageStyle}>
+          <div className="relative h-auto w-full overflow-hidden rounded-panel border border-border-default bg-surface-panel shadow-none" style={mapStyle}>
             <FloorScene
               snapshot={snapshot}
               fixtures={sceneFixtures}
@@ -150,18 +152,18 @@ export function FloorMap({ floor, snapshot, selectedFixtureId, onSelectFixture }
           </div>
         </div>
       </div>
-      <ul className="floor-map-legend" aria-label="조명 상태 범례">
-        <li><CircleCheck size={14} aria-hidden="true" /><span>정상</span></li>
-        <li><TriangleAlert size={14} aria-hidden="true" /><span>장애</span></li>
-        <li><CircleX size={14} aria-hidden="true" /><span>오프라인</span></li>
-        <li><Clock3 size={14} aria-hidden="true" /><span>상태 확인 대기</span></li>
+      <ul className="monitoring-map-legend pointer-events-none absolute bottom-12 left-3 z-6 m-0 flex max-w-[calc(100%-1.5rem)] list-none flex-wrap justify-start gap-x-3 gap-y-1.5 rounded-control border border-border-default bg-surface-panel p-2 max-compact:bottom-16 max-compact:-translate-y-2.5" aria-label="조명 상태 범례">
+        <li className="inline-flex items-center gap-1 whitespace-nowrap text-fixture-connected"><CircleCheck size={14} aria-hidden="true" /><Text as="span" variant="overline" className="text-fixture-connected">정상</Text></li>
+        <li className="inline-flex items-center gap-1 whitespace-nowrap text-fixture-fault"><TriangleAlert size={14} aria-hidden="true" /><Text as="span" variant="overline" className="text-fixture-fault">장애</Text></li>
+        <li className="inline-flex items-center gap-1 whitespace-nowrap text-fixture-offline"><CircleX size={14} aria-hidden="true" /><Text as="span" variant="overline" className="text-fixture-offline">오프라인</Text></li>
+        <li className="inline-flex items-center gap-1 whitespace-nowrap text-fixture-inspection"><Clock3 size={14} aria-hidden="true" /><Text as="span" variant="overline" className="text-fixture-inspection">상태 확인 대기</Text></li>
       </ul>
-      <span className="monitoring-map-pan-hint"><Hand size={14} aria-hidden="true" />드래그 또는 스크롤로 이동</span>
-      <div className="monitoring-map-zoom-controls" role="group" aria-label="지도 확대 축소">
-        <button type="button" aria-label="지도 축소" disabled={zoom <= 0.1} onClick={() => changeZoom(zoom - 0.1)}><Minus size={16} aria-hidden="true" /></button>
-        <button type="button" aria-label={`지도 배율 ${Math.round(zoom * 100)}%`} onClick={() => changeZoom(1)}>{Math.round(zoom * 100)}%</button>
-        <button type="button" aria-label="지도 확대" disabled={zoom >= 4} onClick={() => changeZoom(zoom + 0.1)}><Plus size={16} aria-hidden="true" /></button>
-        <button type="button" aria-label="지도 화면 맞춤" onClick={() => changeZoom(1)}><Maximize size={16} aria-hidden="true" /></button>
+      <Text as="span" variant="overline" tone="inverse" className="pointer-events-none absolute bottom-3 left-3 z-6 inline-flex items-center gap-1.5 rounded-control bg-surface-inverse px-2.5 py-1.5 max-compact:hidden" data-monitoring-map-pan-hint=""><Hand size={14} aria-hidden="true" />드래그 또는 스크롤로 이동</Text>
+      <div className="absolute right-3 bottom-3 z-6 flex items-center gap-1 rounded-control border border-border-default bg-surface-panel p-1 shadow-popover max-compact:right-2 max-compact:bottom-2" role="group" aria-label="지도 확대 축소" data-monitoring-map-zoom-controls="">
+        <IconButton type="button" variant="ghost" size="sm" className="max-compact:size-13" aria-label="지도 축소" disabled={zoom <= 0.1} onClick={() => changeZoom(zoom - 0.1)}><Minus size={16} aria-hidden="true" /></IconButton>
+        <Button type="button" variant="ghost" size="sm" className="min-w-14 px-2 max-compact:min-h-13" aria-label={`지도 배율 ${Math.round(zoom * 100)}%`} onClick={() => changeZoom(1)}>{Math.round(zoom * 100)}%</Button>
+        <IconButton type="button" variant="ghost" size="sm" className="max-compact:size-13" aria-label="지도 확대" disabled={zoom >= 4} onClick={() => changeZoom(zoom + 0.1)}><Plus size={16} aria-hidden="true" /></IconButton>
+        <IconButton type="button" variant="ghost" size="sm" className="max-compact:size-13" aria-label="지도 화면 맞춤" onClick={() => changeZoom(1)}><Maximize size={16} aria-hidden="true" /></IconButton>
       </div>
     </div>
   );

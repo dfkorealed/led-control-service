@@ -1,6 +1,6 @@
 # 모니터링 메뉴 기능 현황
 
-기준일: 2026-09-13
+기준일: 2026-09-16
 
 ## 확정 구현 범위
 
@@ -21,6 +21,8 @@
 - 자동 HIL 판정. 실제 하드웨어 검증은 수동으로 수행한다.
 
 ## 구현 완료
+
+- 모니터링 화면을 공통 Tailwind 디자인 시스템으로 이전했다. 맵·조명 선택은 공통 `SelectBox`, 새로고침과 지도 배율 제어는 공통 `Button`/`IconButton`, 로딩·오류·빈 상태는 `FeedbackState`, 요약은 `MetricCard`, 상세 상태는 `StatusBadge`, 제목·본문은 `Heading`/`Text`를 사용한다. 저장 도형과 조명 위치는 기존 공통 `FloorScene` 렌더러를 유지하고, 조명 밝기는 `fixture-brightness-1..10` 의미 토큰으로 표시한다. 지도 및 마커의 저장 좌표·측정 viewport·줌 배율처럼 실행 중 계산되는 값만 inline geometry 예외로 남긴다.
 
 - BIO direct-USB Gateway의 상태 판정은 transport 연결, protocol 준비, durable mapping 유효성, MQTT 연결, heartbeat freshness가 모두 참일 때만 healthy다. 외부 health 응답에는 adapter 종류와 boolean 상태만 포함하고 USB 경로·descriptor·장치 UUID·raw protocol payload·인증정보는 노출하지 않는다. BIO sensor cloud source는 지원하지 않으므로 빈 목록을 반환하고 configure/send는 명시적으로 실패한다. 전용 배포는 exact-one USB 장치와 숫자 GID를 host/container 양쪽에서 재검증하며 BIO 프로세스에 D-Bus/HCI/BlueZ를 제공하지 않는다.
 
@@ -162,6 +164,8 @@
 - 모니터링 화면 내 빠른 밝기 제어
 
 ## 부족하거나 개선이 필요한 기능
+
+- 공통 디자인 시스템 이전은 deterministic Vitest와 Chromium route fixture를 기준으로 검증한다. 실제 현장 도면의 수동 시각 QA와 Raspberry Pi/ESP32-H2/LED 연결 HIL 결과는 포함하지 않는다.
 
 - 자동으로 저장되는 인시던트 이력과 현장별 판정 기준을 사용자 화면에서 관리하는 UI는 제공하지 않는다. 필요해질 경우 일반 사용자 모니터링과 분리된 내부 운영자 화면으로 별도 설계해야 한다.
 - 원장 정리 worker는 생성 후 7일보다 오래된 heartbeat와 30일보다 오래된 fixture state를 최신 Gateway/Fixture snapshot·watermark 및 fixture energy cursor가 해당 기록을 포괄할 때만 삭제한다. superseded capability는 365일 정책이며 전체 이벤트는 sweep당 합산 최대 10,000개다. cutoff와 같은 시각, scope/hash가 없는 legacy 원장, 삭제된 fixture·누락된 cursor 등 안전 조건을 증명할 수 없는 기록은 보존한다. watermark는 stream별 최신 identity만 유지하므로 임의 과거 ID의 exact dedupe는 raw 원장이 남아 있는 기간에 의존한다. 세부 조건은 [DB 보존 문서](../database-schema.md#운영-데이터-보존과-복구-범위)를 따르며 사용자/운영 DB migration 적용과 실장비 replay HIL은 아직 실행하지 않았다.

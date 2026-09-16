@@ -100,6 +100,14 @@ describe("MonitoringView refresh", () => {
     expect(screen.getByText(/마지막 갱신:/)).toBeInTheDocument();
   });
 
+  it("uses labelled design-system selectors and non-color status text", () => {
+    render(<MonitoringView siteId="site-1" />);
+
+    expect(screen.getByRole("button", { name: "맵 선택" })).toBeVisible();
+    expect(screen.getByText("점검 필요")).toBeVisible();
+    expect(screen.getByRole("group", { name: "오프라인" })).toBeVisible();
+  });
+
   it("shows only fixture details without exposing incident operations", () => {
     render(<MonitoringView siteId="site-1" userRole="admin" />);
 
@@ -110,16 +118,16 @@ describe("MonitoringView refresh", () => {
     expect(within(detailPanel).queryByRole("button", { name: "판정 기준" })).not.toBeInTheDocument();
   });
 
-  it("preserves selection and map during dashboard background failure", () => {
+  it("preserves selection and map during dashboard background failure", async () => {
     queryMocks.useFloorFixtures.mockReturnValue({ ...queryMocks.useFloorFixtures(), data: { pages: [{ items: [fixture, { ...fixture, id: "fixture-2", name: "B1-L002" }], nextCursor: null, generatedAt: new Date().toISOString() }] } });
     const view = render(<MonitoringView siteId="site-1" userRole="admin" />);
-    fireEvent.change(screen.getByRole("combobox", { name: "상세 조명 선택" }), { target: { value: "fixture-2" } });
+    await chooseSelect("상세 조명 선택", "B1-L002 · 장애");
     fireEvent.click(screen.getByRole("button", { name: "지도 확대" }));
     queryMocks.useDashboard.mockReturnValue({ data: dashboard, isLoading: false, error: new Error("offline"), refetch: refetchDashboard });
     view.rerender(<MonitoringView siteId="site-1" userRole="admin" />);
     expect(screen.getByRole("region", { name: "선택 조명 정보" })).toBeVisible();
-    expect(screen.getByRole("combobox", { name: "맵 선택" })).toHaveValue("floor-1");
-    expect(screen.getByRole("combobox", { name: "상세 조명 선택" })).toHaveValue("fixture-2");
+    expect(screen.getByRole("button", { name: "맵 선택" })).toHaveTextContent("B1");
+    expect(screen.getByRole("button", { name: "상세 조명 선택" })).toHaveTextContent("B1-L002 · 장애");
     expect(screen.getByRole("region", { name: "층 도면" })).toHaveAttribute("data-zoom", "1.1");
   });
 
@@ -154,7 +162,7 @@ describe("MonitoringView refresh", () => {
     render(<MonitoringView siteId="site-1" />);
 
     expect(screen.queryByRole("heading", { name: "운영 현황" })).not.toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: "맵 선택" })).toHaveValue("floor-1");
+    expect(screen.getByRole("button", { name: "맵 선택" })).toHaveTextContent("B1");
     expect(screen.getByRole("group", { name: "전체 조명" })).toHaveTextContent("3");
     expect(screen.getByRole("group", { name: "정상" })).toHaveTextContent("1");
     expect(screen.getByRole("group", { name: "점검 필요" })).toHaveTextContent("1");
@@ -228,15 +236,15 @@ describe("MonitoringView refresh", () => {
 
     render(<MonitoringView siteId="site-1" />);
 
-    const selector = await screen.findByRole("combobox", { name: "상세 조명 선택" });
-    expect(selector).toHaveValue("fixture-2");
+    const selector = await screen.findByRole("button", { name: "상세 조명 선택" });
+    expect(selector).toHaveTextContent("B1-L002 · 장애");
     expect(within(screen.getByRole("complementary", { name: "선택 조명 상세" })).getByRole("heading", { name: "B1-L002" })).toBeVisible();
 
-    fireEvent.change(selector, { target: { value: "fixture-1" } });
+    await chooseSelect("상세 조명 선택", "B1-L001 · 장애");
     expect(within(screen.getByRole("complementary", { name: "선택 조명 상세" })).getByRole("heading", { name: "B1-L001" })).toBeVisible();
 
     fireEvent.click(screen.getByRole("button", { name: "B1-L002 장애 42%" }));
-    expect(selector).toHaveValue("fixture-2");
+    expect(selector).toHaveTextContent("B1-L002 · 장애");
   });
 
   it("locks the refresh action until both requests settle", async () => {
@@ -557,7 +565,7 @@ describe("MonitoringView refresh", () => {
     expect(screen.queryByRole("region", { name: "층 도면" })).not.toBeInTheDocument();
   });
 
-  it("층 전환 중에는 이전 층 KPI나 빈 fixture 지도를 표시하지 않는다", () => {
+  it("층 전환 중에는 이전 층 KPI나 빈 fixture 지도를 표시하지 않는다", async () => {
     const twoFloorDashboard = {
       ...dashboard,
       floors: [
@@ -606,7 +614,7 @@ describe("MonitoringView refresh", () => {
     render(<MonitoringView siteId="site-1" />);
 
     expect(screen.getByRole("group", { name: "전체 조명" })).toHaveTextContent("1");
-    fireEvent.change(screen.getByRole("combobox", { name: "맵 선택" }), { target: { value: "floor-2" } });
+    await chooseSelect("맵 선택", "B2");
 
     expect(screen.getByRole("status")).toHaveTextContent("B2 조명 상태를 불러오는 중");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
@@ -680,10 +688,10 @@ describe("MonitoringView refresh", () => {
 
     expect(screen.queryByRole("heading", { name: "운영 현황" })).not.toBeInTheDocument();
     expect(screen.queryByText(/10분마다 자동 갱신/)).not.toBeInTheDocument();
-    const mapSelector = screen.getByRole("combobox", { name: "맵 선택" });
-    expect(mapSelector).toHaveValue("floor-1");
-    expect(mapSelector.parentElement).toHaveClass("monitoring-floor-selector");
-    expect(mapSelector.parentElement).toHaveTextContent("맵 선택");
+    const mapSelector = screen.getByRole("button", { name: "맵 선택" });
+    expect(mapSelector).toHaveTextContent("B1");
+    expect(mapSelector.closest("[data-field]")).toHaveClass("monitoring-map-selector");
+    expect(mapSelector.closest("[data-field]")).toHaveTextContent("맵 선택");
     const refreshButton = screen.getByRole("button", { name: "새로고침" });
     expect(refreshButton.parentElement?.lastElementChild).toBe(refreshButton);
   });
@@ -754,7 +762,7 @@ describe("MonitoringView refresh", () => {
     await waitFor(() => expect(screen.queryByText("저장된 지도를 유지하고 있습니다. 지도 갱신에 실패했습니다.")).not.toBeInTheDocument());
     expect(screen.queryByText("일부 현황 데이터를 새로고침하지 못했습니다.")).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "층 도면" })).toHaveAttribute("data-zoom", "1.1");
-    expect(screen.getByRole("combobox", { name: "상세 조명 선택" })).toHaveValue("fixture-1");
+    expect(screen.getByRole("button", { name: "상세 조명 선택" })).toHaveTextContent("B1-L001 · 장애");
   });
 
   it("지도 자동 복구는 함께 실패한 dashboard의 toolbar 오류를 지우지 않는다", async () => {
@@ -828,9 +836,9 @@ describe("MonitoringView refresh", () => {
     fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
     expect(await screen.findByText("저장된 지도를 유지하고 있습니다. 지도 갱신에 실패했습니다.")).toBeInTheDocument();
 
-    fireEvent.change(screen.getByRole("combobox", { name: "맵 선택" }), { target: { value: "floor-2" } });
+    await chooseSelect("맵 선택", "B2");
 
-    expect(await screen.findByRole("combobox", { name: "맵 선택" })).toHaveValue("floor-2");
+    expect(await screen.findByRole("button", { name: "맵 선택" })).toHaveTextContent("B2");
     expect(screen.queryByText("저장된 지도를 유지하고 있습니다. 지도 갱신에 실패했습니다.")).not.toBeInTheDocument();
   });
 });
@@ -852,4 +860,11 @@ function deferred<T>() {
     reject = rejectPromise;
   });
   return { promise, resolve, reject };
+}
+
+async function chooseSelect(label: string, option: string) {
+  const trigger = screen.getByRole("button", { name: label });
+  fireEvent.click(trigger);
+  fireEvent.click(await screen.findByRole("option", { name: option }));
+  return trigger;
 }

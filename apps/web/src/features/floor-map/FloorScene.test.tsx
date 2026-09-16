@@ -1,7 +1,9 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import type { FloorMapSnapshot } from "@led-control/shared";
+import type Konva from "konva";
+import { Layer, Stage } from "react-konva";
 import { describe, expect, it, vi } from "vitest";
-import { FloorScene } from "./FloorScene";
+import { FloorMapObjectNode, FloorScene } from "./FloorScene";
 
 const snapshot: FloorMapSnapshot = {
   floorId: "00000000-0000-4000-8000-000000000003",
@@ -54,10 +56,11 @@ describe("FloorScene", () => {
     const fixture = screen.getByRole("button", { name: "B1-L001 정상 70%" });
     expect(fixture).toHaveAttribute("data-spatial-map-marker", "true");
     expect(fixture).toHaveAttribute("data-brightness-level", "8");
-    expect(fixture).toHaveClass("brightness-level-8");
+    expect(fixture).toHaveClass("bg-fixture-brightness-8", "outline-fixture-selected");
     expect(fixture).toHaveAttribute("aria-current", "true");
     expect(fixture).toHaveAttribute("title", "B1-L001 정상 70%");
-    expect(fixture).toBeEmptyDOMElement();
+    expect(fixture).toHaveTextContent("");
+    expect(fixture.querySelector("span[aria-hidden='true']")).toHaveClass("bg-fixture-connected");
     expect(screen.queryByText("B1-L001")).not.toBeInTheDocument();
     expect(screen.queryByText("70%")).not.toBeInTheDocument();
     fireEvent.click(fixture);
@@ -93,6 +96,24 @@ describe("FloorScene", () => {
 
     const marker = screen.getByRole("button", { name: `B1-${brightness} 정상 ${brightness}%` });
     expect(marker).toHaveAttribute("data-brightness-level", String(level));
-    expect(marker).toHaveClass(`brightness-level-${level}`);
+    expect(marker).toHaveClass(`bg-fixture-brightness-${level}`);
+  });
+
+  it("keeps null-filled editor objects hit-testable across their interior", () => {
+    const nodeRef: { current: Konva.Node | null } = { current: null };
+    render(
+      <Stage width={300} height={200}>
+        <Layer>
+          <FloorMapObjectNode
+            object={{ ...snapshot.objects[0], fillColor: null }}
+            interactive
+            setNodeRef={(value) => { nodeRef.current = value; }}
+          />
+        </Layer>
+      </Stage>
+    );
+
+    expect(nodeRef.current?.getAttr("fill")).toBe("transparent");
+    expect(nodeRef.current?.listening()).toBe(true);
   });
 });
