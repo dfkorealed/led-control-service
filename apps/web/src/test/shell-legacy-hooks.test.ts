@@ -45,7 +45,8 @@ const sourceHooks: Record<string, readonly string[]> = {
     "topbar",
     "topbar-actions",
     "site-pill",
-    "logout-button"
+    "logout-button",
+    "settings-screen"
   ],
   "features/shells/SettingsNavigationItem.tsx": ["nav-item"]
 };

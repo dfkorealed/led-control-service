@@ -136,14 +136,14 @@ export function CustomerShell({ user }: { user: AuthUser }) {
   if (isAdmin && !installationStatus) {
     if (isDashboardLoading) {
       return (
-        <section className="settings-screen grid min-h-screen place-items-center bg-surface-canvas p-6" aria-live="polite">
+        <section className="grid min-h-screen place-items-center bg-surface-canvas p-6" aria-live="polite">
           <FeedbackState tone="info" icon={LoaderCircle} title="설치 상태를 확인하는 중입니다." />
         </section>
       );
     }
 
     return (
-      <section className="settings-screen grid min-h-screen place-items-center bg-surface-canvas p-6" aria-live="polite">
+      <section className="grid min-h-screen place-items-center bg-surface-canvas p-6" aria-live="polite">
         <FeedbackState tone="danger" icon={CircleAlert} title="설치 상태를 확인하지 못했습니다. 네트워크 상태를 확인한 뒤 다시 시도하세요." action={
           <Button type="button" onClick={() => void refetchDashboard()}>다시 시도</Button>
         } />
@@ -156,14 +156,14 @@ export function CustomerShell({ user }: { user: AuthUser }) {
   if (!capabilities) {
     if (isDashboardLoading) {
       return (
-        <section className="settings-screen grid min-h-screen place-items-center bg-surface-canvas p-6" aria-live="polite">
+        <section className="grid min-h-screen place-items-center bg-surface-canvas p-6" aria-live="polite">
           <FeedbackState tone="info" icon={LoaderCircle} title="현장 권한을 확인하는 중입니다." />
         </section>
       );
     }
 
     return (
-      <section className="settings-screen grid min-h-screen place-items-center bg-surface-canvas p-6" aria-live="polite">
+      <section className="grid min-h-screen place-items-center bg-surface-canvas p-6" aria-live="polite">
         <FeedbackState tone="danger" icon={CircleAlert} title="현장 권한을 확인하지 못했습니다. 네트워크 상태를 확인한 뒤 다시 시도하세요." action={
           <Button type="button" onClick={() => void refetchDashboard()}>다시 시도</Button>
         } />
