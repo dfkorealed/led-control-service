@@ -65,6 +65,33 @@ describe("ReportHistoryFilters", () => {
       requestedTo: "2026-09-15"
     });
   });
+
+  it("keeps an over-90-day date draft editable without committing it, then clears the error for a valid range", () => {
+    const onChange = vi.fn();
+    render(<ReportHistoryFilters
+      value={{
+        limit: 20,
+        cursor: "older-page",
+        requestedFrom: "2026-01-01",
+        requestedTo: "2026-02-01"
+      }}
+      onChange={onChange}
+    />);
+
+    const endYear = screen.getAllByRole("spinbutton")[3];
+    expect(() => fireEvent.keyDown(endYear, { key: "ArrowUp" })).not.toThrow();
+    expect(endYear).toHaveTextContent("2027");
+    expect(screen.getByRole("alert")).toHaveTextContent("요청 기간은 최대 90일까지 선택할 수 있습니다.");
+    expect(onChange).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(endYear, { key: "ArrowDown" });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(onChange).toHaveBeenLastCalledWith({
+      limit: 20,
+      requestedFrom: "2026-01-01",
+      requestedTo: "2026-02-01"
+    });
+  });
 });
 
 function FilterHarness({ initial }: { initial: ReportHistoryFilterState }) {

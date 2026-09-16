@@ -37,12 +37,18 @@ const scopeItems: ReadonlyArray<{ id: EnergyScope | ""; label: string }> = [
 
 export function ReportHistoryFilters({ value, onChange, className }: ReportHistoryFiltersProps) {
   const [searchInput, setSearchInput] = useState(value.query ?? "");
+  const [dateDraft, setDateDraft] = useState<DateRangeValue | null>(() => reportDateRange(value));
+  const [dateError, setDateError] = useState<string | null>(null);
   const valueRef = useRef(value);
   const onChangeRef = useRef(onChange);
   valueRef.current = value;
   onChangeRef.current = onChange;
 
   useEffect(() => setSearchInput(value.query ?? ""), [value.query]);
+  useEffect(() => {
+    setDateDraft(reportDateRange(value));
+    setDateError(null);
+  }, [value.requestedFrom, value.requestedTo]);
   useEffect(() => {
     const query = searchInput.trim();
     if (query === (value.query ?? "")) return;
@@ -52,9 +58,7 @@ export function ReportHistoryFilters({ value, onChange, className }: ReportHisto
     return () => window.clearTimeout(timer);
   }, [searchInput, value.query]);
 
-  const dateRange: DateRangeValue | null = value.requestedFrom && value.requestedTo
-    ? { start: value.requestedFrom, end: value.requestedTo }
-    : null;
+  const dateRange = reportDateRange(value);
   const chips = [
     ...(value.query ? [{ key: "query", label: `검색: ${value.query}`, remove: () => {
       setSearchInput("");
@@ -107,10 +111,29 @@ export function ReportHistoryFilters({ value, onChange, className }: ReportHisto
         />
         <DateRangePicker
           label="요청 기간"
-          value={dateRange}
-          onChange={(range) => onChange(range
-            ? updateFilterState(value, { requestedFrom: range.start, requestedTo: range.end })
-            : removeFilters(value, "requestedFrom", "requestedTo"))}
+          value={dateDraft}
+          validationBehavior="aria"
+          isInvalid={dateError !== null}
+          errorMessage={dateError}
+          onChange={(range) => {
+            // Keep an invalid range editable locally; only validated dates belong in URL/query state.
+            setDateDraft(range);
+            if (!range) {
+              setDateError(null);
+              onChange(removeFilters(value, "requestedFrom", "requestedTo"));
+              return;
+            }
+            const result = safeUpdateFilterState(value, {
+              requestedFrom: range.start,
+              requestedTo: range.end
+            });
+            if (!result.success) {
+              setDateError(reportDateError(result.error.issues.map((issue) => issue.message)));
+              return;
+            }
+            setDateError(null);
+            onChange(result.data);
+          }}
           className="min-w-0 tablet:col-span-2"
         />
       </div>
@@ -150,10 +173,35 @@ function updateFilterState(
   return energyReportListQuerySchema.parse(candidate);
 }
 
+function safeUpdateFilterState(
+  value: ReportHistoryFilterState,
+  changes: Partial<ReportHistoryFilterState>
+) {
+  const candidate: Record<string, unknown> = { ...value, ...changes };
+  delete candidate.cursor;
+  return energyReportListQuerySchema.safeParse(candidate);
+}
+
 function removeFilters(value: ReportHistoryFilterState, ...keys: OptionalFilterKey[]) {
   return updateFilterState(value, {}, keys);
 }
 
 function itemLabel<T extends string>(items: ReadonlyArray<{ id: T; label: string }>, id: T) {
   return items.find((item) => item.id === id)?.label ?? id;
+}
+
+function reportDateRange(value: ReportHistoryFilterState): DateRangeValue | null {
+  return value.requestedFrom && value.requestedTo
+    ? { start: value.requestedFrom, end: value.requestedTo }
+    : null;
+}
+
+function reportDateError(messages: string[]) {
+  if (messages.includes("requested range must not exceed 90 days")) {
+    return "요청 기간은 최대 90일까지 선택할 수 있습니다.";
+  }
+  if (messages.includes("requestedTo must not end before requestedFrom")) {
+    return "종료일은 시작일보다 빠를 수 없습니다.";
+  }
+  return "요청 기간을 확인해 주세요.";
 }
