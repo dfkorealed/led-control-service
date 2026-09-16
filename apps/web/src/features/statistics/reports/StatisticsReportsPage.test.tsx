@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { MemoryRouter, Outlet, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Outlet, Route, Routes, useNavigate } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../../api/client";
 import { StatisticsReportsPage } from "./StatisticsReportsPage";
@@ -118,6 +118,94 @@ describe("StatisticsReportsPage", () => {
     expect(screen.getByText("1~20 / 101건")).toBeInTheDocument();
   });
 
+  it("blocks repeated forward navigation while the next cursor page is unresolved", async () => {
+    let pageTwoResolved = false;
+    reportsApi.reports.mockImplementation((_activeSiteId: string, query: { limit: number; cursor?: string } = { limit: 20 }) => {
+      if (query.cursor === "cursor-20" && !pageTwoResolved) {
+        return {
+          data: { reports: pageJobs(1, 20), nextCursor: "cursor-20", totalCount: 101 },
+          isLoading: false,
+          isError: false,
+          isFetching: true,
+          isPlaceholderData: true,
+          refetch: vi.fn()
+        };
+      }
+      const secondPage = query.cursor === "cursor-20";
+      return {
+        data: { reports: pageJobs(secondPage ? 21 : 1, 20), nextCursor: secondPage ? "cursor-40" : "cursor-20", totalCount: 101 },
+        isLoading: false,
+        isError: false,
+        isFetching: false,
+        isPlaceholderData: false,
+        refetch: vi.fn()
+      };
+    });
+    const queryClient = new QueryClient();
+    const view = render(pageTree(siteId, queryClient));
+
+    fireEvent.click(screen.getByRole("button", { name: "다음 페이지" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "다음 페이지" })).toBeDisabled());
+    fireEvent.click(screen.getByRole("button", { name: "다음 페이지" }));
+    expect(reportsApi.reports).not.toHaveBeenCalledWith(siteId, { limit: 20, cursor: "cursor-40" });
+
+    pageTwoResolved = true;
+    view.rerender(pageTree(siteId, queryClient));
+    await waitFor(() => expect(screen.getByText("21~40 / 101건")).toBeInTheDocument());
+    expect(screen.getByText("2페이지")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "이전 페이지" })).toBeEnabled();
+  });
+
+  it("restores a serialized cursor page on reload", () => {
+    reportsApi.reports.mockImplementation((_activeSiteId: string, query: { limit: number; cursor?: string } = { limit: 20 }) => ({
+      data: {
+        reports: pageJobs(query.cursor === "cursor-20" ? 21 : 1, 20),
+        nextCursor: query.cursor === "cursor-20" ? "cursor-40" : "cursor-20",
+        totalCount: 101
+      },
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+      isPlaceholderData: false,
+      refetch: vi.fn()
+    }));
+    renderPage({
+      initialEntry: "/statistics/reports?limit=20&cursor=cursor-20&reportPage=2&reportHistory=%5Bnull%5D"
+    });
+
+    expect(reportsApi.reports).toHaveBeenLastCalledWith(siteId, { limit: 20, cursor: "cursor-20" });
+    expect(screen.getByText("21~40 / 101건")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "이전 페이지" })).toBeEnabled();
+  });
+
+  it("synchronizes filters, cursor history and range across browser back and forward", async () => {
+    reportsApi.reports.mockImplementation((_activeSiteId: string, query: { limit: number; cursor?: string } = { limit: 20 }) => ({
+      data: {
+        reports: pageJobs(query.cursor === "cursor-20" ? 21 : 1, 20),
+        nextCursor: query.cursor === "cursor-20" ? "cursor-40" : "cursor-20",
+        totalCount: 101
+      },
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+      isPlaceholderData: false,
+      refetch: vi.fn()
+    }));
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "다음 페이지" }));
+    await waitFor(() => expect(screen.getByText("21~40 / 101건")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "브라우저 뒤로" }));
+    await waitFor(() => expect(reportsApi.reports).toHaveBeenLastCalledWith(siteId, { limit: 20 }));
+    expect(screen.getByText("1~20 / 101건")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "이전 페이지" })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "브라우저 앞으로" }));
+    await waitFor(() => expect(reportsApi.reports).toHaveBeenLastCalledWith(siteId, { limit: 20, cursor: "cursor-20" }));
+    expect(screen.getByText("21~40 / 101건")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "이전 페이지" })).toBeEnabled();
+  });
+
   it("resets to the first page when the page size or a filter changes", async () => {
     reportsApi.reports.mockImplementation((_activeSiteId: string, query: { limit: number; cursor?: string } = { limit: 20 }) => ({
       data: {
@@ -185,6 +273,44 @@ describe("StatisticsReportsPage", () => {
     await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["energy-reports", siteId] }));
     await waitFor(() => expect(reportsApi.reports).toHaveBeenLastCalledWith(siteId, { limit: 20 }));
     expect(screen.getByText("1~20 / 40건")).toBeInTheDocument();
+  });
+
+  it("preserves the latest filters when regeneration resolves after a filter change", async () => {
+    const pending = deferred<ReturnType<typeof job>>();
+    reportsApi.create.mockReturnValueOnce(pending.promise);
+    const queryClient = new QueryClient();
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    renderPage({ queryClient });
+
+    const list = screen.getByRole("list", { name: "모바일 보고서 생성 이력" });
+    fireEvent.click(within(list).getByRole("button", { name: "대상 failed 보고서 다시 생성" }));
+    await waitFor(() => expect(reportsApi.create).toHaveBeenCalledOnce());
+    await chooseSelect("상태", "완료");
+    await waitFor(() => expect(reportsApi.reports).toHaveBeenLastCalledWith(siteId, { limit: 20, status: "completed" }));
+
+    pending.resolve(job("queued", 0));
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["energy-reports", siteId] }));
+    expect(reportsApi.reports).toHaveBeenLastCalledWith(siteId, { limit: 20, status: "completed" });
+  });
+
+  it("invalidates the request site without resetting the new site when report creation resolves late", async () => {
+    const pending = deferred<ReturnType<typeof job>>();
+    reportsApi.create.mockReturnValueOnce(pending.promise);
+    const queryClient = new QueryClient();
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const view = render(pageTree(siteId, queryClient));
+
+    fireEvent.click(screen.getByRole("button", { name: "보고서 만들기" }));
+    fireEvent.click(screen.getByRole("button", { name: "보고서 요청" }));
+    await waitFor(() => expect(reportsApi.create).toHaveBeenCalledOnce());
+
+    const nextSiteId = "30000000-0000-4000-8000-000000000099";
+    view.rerender(pageTree(nextSiteId, queryClient));
+    await waitFor(() => expect(reportsApi.reports).toHaveBeenLastCalledWith(nextSiteId, { limit: 20 }));
+    pending.resolve(job("queued", 0));
+
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["energy-reports", siteId] }));
+    expect(reportsApi.reports).toHaveBeenLastCalledWith(nextSiteId, { limit: 20 });
   });
 
   it("renders a semantic desktop table and a separate mobile list with headings and metadata", () => {
@@ -439,13 +565,21 @@ function pageTree(activeSiteId: string, queryClient: QueryClient, initialEntry =
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[initialEntry]}>
         <Routes>
-          <Route path="/statistics" element={<Outlet context={{ siteId: activeSiteId }} />}>
+          <Route path="/statistics" element={<><HistoryControls /><Outlet context={{ siteId: activeSiteId }} /></>}>
             <Route path="reports" element={<StatisticsReportsPage />} />
           </Route>
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>
   );
+}
+
+function HistoryControls() {
+  const navigate = useNavigate();
+  return <div>
+    <button type="button" aria-label="브라우저 뒤로" onClick={() => navigate(-1)} />
+    <button type="button" aria-label="브라우저 앞으로" onClick={() => navigate(1)} />
+  </div>;
 }
 
 async function chooseSelect(label: string, option: string, container: HTMLElement = document.body) {
@@ -492,4 +626,10 @@ function pageJobs(start: number, count: number) {
       target: { scope: "site" as const, identityId: siteId, label: `대상 ${item}` }
     };
   });
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((complete) => { resolve = complete; });
+  return { promise, resolve };
 }

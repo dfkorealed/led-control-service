@@ -17,16 +17,18 @@ interface ReportCursorPageState {
   previousCursors: Array<string | undefined>;
 }
 
+const firstReportPage: ReportCursorPageState = { page: 1, currentCursor: undefined, previousCursors: [] };
+const reportPageParam = "reportPage";
+const reportHistoryParam = "reportHistory";
+
 export function StatisticsReportsPage() {
   const { siteId } = useOutletContext<StatisticsOutletContext>();
   const [searchParams, setSearchParams] = useSearchParams();
-  const initialQuery = useRef(parseReportHistorySearchParams(searchParams));
-  const [filters, setFilters] = useState<ReportHistoryFilterState>(() => withoutCursor(initialQuery.current));
-  const [pageState, setPageState] = useState<ReportCursorPageState>({
-    page: 1,
-    currentCursor: initialQuery.current.cursor,
-    previousCursors: []
-  });
+  const searchKey = searchParams.toString();
+  const initialLocation = useRef(readReportLocation(searchParams));
+  const [filters, setFilters] = useState<ReportHistoryFilterState>(initialLocation.current.filters);
+  const [pageState, setPageState] = useState<ReportCursorPageState>(initialLocation.current.pageState);
+  const [isForwardPending, setIsForwardPending] = useState(false);
   const filtersRef = useRef(filters);
   filtersRef.current = filters;
   const query = pageState.currentCursor ? { ...filters, cursor: pageState.currentCursor } : filters;
@@ -38,6 +40,21 @@ export function StatisticsReportsPage() {
   const [retryError, setRetryError] = useState("");
   const [retryingReportId, setRetryingReportId] = useState<string>();
   const previousSiteId = useRef(siteId);
+  const siteIdRef = useRef(siteId);
+  siteIdRef.current = siteId;
+
+  useEffect(() => {
+    const location = readReportLocation(new URLSearchParams(searchKey));
+    setFilters(location.filters);
+    setPageState(location.pageState);
+    if (location.needsNormalization) {
+      setSearchParams(writeReportLocation(location.filters, firstReportPage), { replace: true });
+    }
+  }, [searchKey, setSearchParams]);
+
+  useEffect(() => {
+    if (!reports.isFetching && !reports.isPlaceholderData) setIsForwardPending(false);
+  }, [reports.isFetching, reports.isPlaceholderData, pageState.currentCursor]);
 
   useEffect(() => {
     if (previousSiteId.current === siteId) return;
@@ -45,44 +62,51 @@ export function StatisticsReportsPage() {
     resetToFirstPage(filtersRef.current);
   }, [siteId]);
 
-  function syncUrl(nextFilters: ReportHistoryFilterState, cursor?: string) {
-    setSearchParams(serializeReportHistorySearchParams(cursor ? { ...nextFilters, cursor } : nextFilters));
+  function syncUrl(nextFilters: ReportHistoryFilterState, nextPageState: ReportCursorPageState, replace = false) {
+    setSearchParams(writeReportLocation(nextFilters, nextPageState), { replace });
   }
 
   function resetToFirstPage(nextFilters: ReportHistoryFilterState) {
     const normalized = withoutCursor(nextFilters);
     setFilters(normalized);
-    setPageState({ page: 1, currentCursor: undefined, previousCursors: [] });
-    syncUrl(normalized);
+    setPageState(firstReportPage);
+    setIsForwardPending(false);
+    syncUrl(normalized, firstReportPage);
   }
 
   function nextPage() {
     const nextCursor = reports.data?.nextCursor;
-    if (!nextCursor) return;
-    setPageState((current) => ({
-      page: current.page + 1,
+    if (isForwardPending || reports.isFetching || reports.isPlaceholderData || !nextCursor) return;
+    const nextPageState: ReportCursorPageState = {
+      page: pageState.page + 1,
       currentCursor: nextCursor,
-      previousCursors: [...current.previousCursors, current.currentCursor]
-    }));
-    syncUrl(filters, nextCursor);
+      previousCursors: [...pageState.previousCursors, pageState.currentCursor]
+    };
+    setIsForwardPending(true);
+    setPageState(nextPageState);
+    syncUrl(filters, nextPageState);
   }
 
   function previousPage() {
     if (!pageState.previousCursors.length) return;
     const previousCursor = pageState.previousCursors.at(-1);
-    setPageState((current) => ({
-      page: Math.max(1, current.page - 1),
+    const previousPageState: ReportCursorPageState = {
+      page: Math.max(1, pageState.page - 1),
       currentCursor: previousCursor,
-      previousCursors: current.previousCursors.slice(0, -1)
-    }));
-    syncUrl(filters, previousCursor);
+      previousCursors: pageState.previousCursors.slice(0, -1)
+    };
+    setIsForwardPending(false);
+    setPageState(previousPageState);
+    syncUrl(filters, previousPageState);
   }
 
   async function create(request: EnergyReportRequest) {
     if (!siteId) return;
-    await createEnergyReport(siteId, request);
-    resetToFirstPage(filters);
-    await queryClient.invalidateQueries({ queryKey: ["energy-reports", siteId] });
+    const requestSiteId = siteId;
+    await createEnergyReport(requestSiteId, request);
+    const invalidation = queryClient.invalidateQueries({ queryKey: ["energy-reports", requestSiteId] });
+    if (siteIdRef.current === requestSiteId) resetToFirstPage(filtersRef.current);
+    await invalidation;
   }
   async function download(job: EnergyReportJob) {
     if (!siteId) return;
@@ -125,7 +149,7 @@ export function StatisticsReportsPage() {
       pageSize={filters.limit}
       totalCount={reports.data?.totalCount ?? 0}
       hasPrevious={pageState.previousCursors.length > 0}
-      hasNext={Boolean(reports.data?.nextCursor)}
+      hasNext={!isForwardPending && !reports.isFetching && !reports.isPlaceholderData && Boolean(reports.data?.nextCursor)}
       onPrevious={previousPage}
       onNext={nextPage}
       onPageSizeChange={(limit: PaginationPageSize) => resetToFirstPage({ ...filters, limit })}
@@ -140,4 +164,54 @@ export function StatisticsReportsPage() {
 function withoutCursor(value: ReportHistoryFilterState): ReportHistoryFilterState {
   const { cursor: _cursor, ...filters } = value;
   return filters;
+}
+
+function readReportLocation(params: URLSearchParams): {
+  filters: ReportHistoryFilterState;
+  pageState: ReportCursorPageState;
+  needsNormalization: boolean;
+} {
+  const query = parseReportHistorySearchParams(params);
+  const filters = withoutCursor(query);
+  const page = Number(params.get(reportPageParam));
+  const previousCursors = readCursorHistory(params.get(reportHistoryParam));
+  const hasPageMetadata = params.has(reportPageParam) || params.has(reportHistoryParam);
+  if (query.cursor && Number.isInteger(page) && page >= 2 && page <= 1_000
+    && previousCursors && previousCursors.length === page - 1) {
+    return {
+      filters,
+      pageState: { page, currentCursor: query.cursor, previousCursors },
+      needsNormalization: false
+    };
+  }
+  return {
+    filters,
+    pageState: firstReportPage,
+    needsNormalization: Boolean(query.cursor) || hasPageMetadata
+  };
+}
+
+function writeReportLocation(filters: ReportHistoryFilterState, pageState: ReportCursorPageState) {
+  const params = serializeReportHistorySearchParams(pageState.currentCursor
+    ? { ...withoutCursor(filters), cursor: pageState.currentCursor }
+    : withoutCursor(filters));
+  if (pageState.currentCursor) {
+    params.set(reportPageParam, String(pageState.page));
+    params.set(reportHistoryParam, JSON.stringify(pageState.previousCursors.map((cursor) => cursor ?? null)));
+  }
+  return params;
+}
+
+function readCursorHistory(raw: string | null): Array<string | undefined> | null {
+  if (!raw) return null;
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (!Array.isArray(value) || value.length > 999
+      || !value.every((cursor) => cursor === null || typeof cursor === "string" && cursor.length >= 1 && cursor.length <= 1_024)) {
+      return null;
+    }
+    return value.map((cursor) => cursor === null ? undefined : cursor as string);
+  } catch {
+    return null;
+  }
 }
