@@ -368,7 +368,11 @@ describe("StatisticsReportsPage", () => {
     ["second null sentinel", 3, "cursor-40", [null, null]],
     ["duplicate prior cursor", 4, "cursor-60", [null, "cursor-20", "cursor-20"]],
     ["current cursor duplicated in history", 3, "cursor-20", [null, "cursor-20"]],
-    ["missing prior cursor", 3, "cursor-40", [null]]
+    ["missing prior cursor", 3, "cursor-40", [null]],
+    ["sparse cursor hole", 3, "cursor-40", sparseCursorStack(2, [[0, null]])],
+    ["explicit undefined cursor", 3, "cursor-40", [null, undefined]],
+    ["inherited cursor index", 3, "cursor-40", inheritedCursorStack()],
+    ["sparse duplicate edge", 5, "cursor-60", sparseCursorStack(4, [[0, null], [1, "cursor-20"], [3, "cursor-20"]])]
   ])("normalizes a corrupt history state with %s", async (_case, page, currentCursor, previousCursors) => {
     renderPage({
       initialEntry: {
@@ -974,6 +978,20 @@ function reportLocationState(
       previousCursors: Array.from({ length: page - 1 }, (_, index) => index === 0 ? null : `cursor-${index * 20}`)
     }
   };
+}
+
+function sparseCursorStack(length: number, entries: Array<[number, unknown]>) {
+  const stack = new Array<unknown>(length);
+  for (const [index, value] of entries) stack[index] = value;
+  return stack;
+}
+
+function inheritedCursorStack() {
+  const stack = sparseCursorStack(2, [[0, null]]);
+  const prototype = Object.create(Array.prototype);
+  Object.defineProperty(prototype, "1", { configurable: true, enumerable: true, value: "cursor-20" });
+  Object.setPrototypeOf(stack, prototype);
+  return stack;
 }
 
 function deferred<T>() {

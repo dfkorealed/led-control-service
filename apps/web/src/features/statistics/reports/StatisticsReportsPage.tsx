@@ -252,6 +252,7 @@ function readReportLocationState(
 
   const page = candidate.page as number;
   const previousCursors = candidate.previousCursors;
+  if (!hasDenseOwnElements(previousCursors)) return null;
   if (page === 1) {
     return candidate.currentCursor === null && previousCursors.length === 0 ? firstReportPage : null;
   }
@@ -279,6 +280,13 @@ function reportFilterFingerprint(filters: ReportHistoryFilterState) {
 
 function validCursor(value: unknown): value is string {
   return typeof value === "string" && value.length >= 1 && value.length <= 1_024;
+}
+
+function hasDenseOwnElements(values: unknown[]) {
+  for (let index = 0; index < values.length; index += 1) {
+    if (!Object.prototype.hasOwnProperty.call(values, index)) return false;
+  }
+  return true;
 }
 
 function validNextPageCursor(value: unknown, pageState: ReportCursorPageState): value is string {
