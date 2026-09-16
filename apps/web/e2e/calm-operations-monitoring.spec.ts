@@ -708,7 +708,7 @@ test("지도 갱신 3회 실패 뒤 새 revision 자동 poll 성공이 경고를
   expect(requestsAfterFailure).toBe(requestsBeforeFailure + 3);
 
   api.advanceMapRevision();
-  await page.clock.fastForward(10 * 60 * 1_000 + 100);
+  await page.clock.fastForward(30_000);
 
   await expect.poll(() => api.mapSnapshotRequests).toBeGreaterThan(requestsAfterFailure);
   await expect(page.getByText("저장된 지도를 유지하고 있습니다. 지도 갱신에 실패했습니다.")).toHaveCount(0);

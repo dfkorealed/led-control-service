@@ -2,7 +2,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderHook, waitFor } from "@testing-library/react";
 import type { PropsWithChildren } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { useDashboard, useFloorFixtures, useFloorMapSnapshot } from "./queries";
+import {
+  MAP_SNAPSHOT_ERROR_RETRY_INTERVAL_MS,
+  MONITORING_REFRESH_INTERVAL_MS,
+  useDashboard,
+  useFloorFixtures,
+  useFloorMapSnapshot
+} from "./queries";
 
 const { apiGet } = vi.hoisted(() => ({ apiGet: vi.fn() }));
 
@@ -49,7 +55,7 @@ describe("useFloorFixtures", () => {
 });
 
 describe("useFloorMapSnapshot", () => {
-  it("loads the selected floor map with the monitoring refresh policy", async () => {
+  it("uses the normal refresh interval until a map failure needs faster recovery", async () => {
     apiGet.mockResolvedValue({
       floorId: "floor-1",
       revision: 3,
@@ -66,7 +72,12 @@ describe("useFloorMapSnapshot", () => {
     const options = client.getQueryCache().find({ queryKey: ["floor-map", "site-2", "floor-1"] })?.options as
       | { refetchInterval?: unknown; staleTime?: unknown; refetchOnWindowFocus?: unknown }
       | undefined;
-    expect(options).toMatchObject({ refetchInterval: 600_000, staleTime: 600_000, refetchOnWindowFocus: true, retry: 2 });
+    const refetchInterval = options?.refetchInterval as ((query: { state: { error: Error | null } }) => number) | undefined;
+
+    expect(refetchInterval).toBeTypeOf("function");
+    expect(refetchInterval?.({ state: { error: null } })).toBe(MONITORING_REFRESH_INTERVAL_MS);
+    expect(refetchInterval?.({ state: { error: new Error("map unavailable") } })).toBe(MAP_SNAPSHOT_ERROR_RETRY_INTERVAL_MS);
+    expect(options).toMatchObject({ staleTime: 600_000, refetchOnWindowFocus: true, retry: 2 });
   });
 });
 

@@ -316,6 +316,14 @@ vi.mock("./api/client", async (importOriginal) => ({
   apiRequest: vi.fn(() => Promise.resolve({}))
 }));
 
+async function chooseSelect(label: string, option: string) {
+  const trigger = screen.getByRole("button", { name: label });
+  fireEvent.keyDown(trigger, { key: "ArrowDown" });
+  const choice = await screen.findByRole("option", { name: option });
+  fireEvent.keyDown(choice, { key: "Enter" });
+  fireEvent.keyUp(document.activeElement!, { key: "Enter" });
+}
+
 describe("App", () => {
   afterEach(() => {
     authState.user = {
@@ -835,7 +843,7 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findByRole("combobox", { name: "맵 선택" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "맵 선택" })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "전체 조명" })).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toBeInTheDocument();
     expect(screen.getAllByText("관제 센터").length).toBeGreaterThan(0);
@@ -992,9 +1000,8 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    fireEvent.change(await screen.findByRole("combobox", { name: "맵 선택" }), {
-      target: { value: mockDashboard.floors[1].id }
-    });
+    await screen.findByRole("button", { name: "맵 선택" });
+    await chooseSelect("맵 선택", "B1");
     expect(await screen.findByRole("button", { name: "B1-L01 정상 50%" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "B1-L02 정상 55%" }));
@@ -1011,7 +1018,7 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findByRole("combobox", { name: "맵 선택" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "맵 선택" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "맵 편집" })).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "층 도면" })).toBeInTheDocument();
   });
@@ -1047,9 +1054,8 @@ describe("App", () => {
     );
 
     expect(screen.queryByRole("heading", { name: "점검 큐" })).not.toBeInTheDocument();
-    fireEvent.change(await screen.findByRole("combobox", { name: "상세 조명 선택" }), {
-      target: { value: "fixture-real-offline" }
-    });
+    await screen.findByRole("button", { name: "상세 조명 선택" });
+    await chooseSelect("상세 조명 선택", "B2-L-OFFLINE · 오프라인");
 
     expect(await screen.findByRole("heading", { name: "B2-L-OFFLINE" })).toBeInTheDocument();
   });
@@ -1072,7 +1078,7 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findByRole("combobox", { name: "맵 선택" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "맵 선택" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "층 도면" })).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "맵 편집" })).not.toBeInTheDocument();
