@@ -7,6 +7,8 @@ import { EnergyReportJobsService } from "./energy-report-jobs.service";
 import { canonicalJson } from "./energy-report-document.builder";
 import { ObjectStorageService } from "../../storage/object-storage.service";
 import { SiteAccessService } from "../../access/site-access.service";
+import { decodeReportCursor, encodeReportCursor } from "./report-list-cursor";
+import { normalizeReportFilters } from "./report-list-filters";
 
 const siteId = "20000000-0000-4000-8000-000000000001";
 const reportId = "10000000-0000-4000-8000-000000000001";
@@ -24,7 +26,7 @@ function setup() {
     site: { findUniqueOrThrow: jest.fn().mockResolvedValue({ id: siteId, name: "Report site", timeZone: "UTC" }) },
     energyFixtureIdentity: { findMany: jest.fn().mockResolvedValue([]) },
     siteDeletionCleanup: { findUnique: jest.fn().mockResolvedValue(null) }, energyReportJob: {
-    findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]),
+    findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0),
     create: jest.fn(async ({ data }) => job({ ...data, createdAt: now }))
   } };
   prisma.$transaction.mockImplementation(async (fn: any) => fn(prisma));
@@ -61,7 +63,8 @@ describe("EnergyReportJobsService", () => {
         requestedAt: now.toISOString(), failureCode: "REPORT_GENERATION_FAILED",
         failure: { code: "generation_failed", message: expect.any(String), action: expect.any(String) } });
       expect(JSON.stringify(result)).not.toContain("private-token");
-      expect(prisma.site.findUniqueOrThrow).not.toHaveBeenCalled();
+      if (method === "detail") expect(prisma.site.findUniqueOrThrow).not.toHaveBeenCalled();
+      else expect(prisma.site.findUniqueOrThrow).toHaveBeenCalledWith({ where: { id: siteId }, select: { timeZone: true } });
     } finally { client.destroy(); }
   });
 
@@ -162,17 +165,65 @@ describe("EnergyReportJobsService", () => {
     } finally { client.destroy(); }
   });
 
-  it("lists at most 50 newest site jobs without loading snapshots and projects expired status", async () => {
+  it("defaults to 20 newest site jobs without loading snapshots and projects expired status", async () => {
     const { service, prisma, client } = setup();
     prisma.energyReportJob.findMany.mockResolvedValue([job({ status: "completed", progressPercent: 100, startedAt: now, completedAt: now, expiresAt: new Date("2026-09-11T00:00:00Z") })] as never);
-    const result = await service.list(user, siteId, new Date("2026-09-11T00:00:00Z"));
+    const result = await service.list(user, siteId, {}, new Date("2026-09-11T00:00:00Z"));
     expect(result.reports[0].status).toBe("expired");
-    expect(prisma.energyReportJob.findMany).toHaveBeenCalledWith({ where: { siteId }, take: 50,
+    expect(prisma.energyReportJob.findMany).toHaveBeenCalledWith({ where: expect.objectContaining({ siteId }), take: 21,
       orderBy: [{ createdAt: "desc" }, { id: "desc" }], select: expect.any(Object) });
     const select = (prisma.energyReportJob.findMany.mock.calls[0] as any)[0].select;
     expect(select.documentSnapshot).toBeUndefined();
     expect(select.dataSnapshot).toBeUndefined();
     client.destroy();
+  });
+
+  it("returns a bounded page and cursor while counting the whole filter in repeatable-read", async () => {
+    const { service, prisma, client } = setup();
+    const rows = Array.from({ length: 11 }, (_, index) => job({ id: `10000000-0000-4000-8000-${String(99 - index).padStart(12, "0")}` }));
+    prisma.energyReportJob.findMany.mockResolvedValue(rows as never);
+    prisma.energyReportJob.count.mockResolvedValue(83);
+    const filters = normalizeReportFilters({ limit: 10, query: "서울" });
+    const cursor = encodeReportCursor({ createdAt: now, id: reportId }, filters);
+    try {
+      const result = await service.list(user, siteId, { limit: "10", query: "서울", cursor }, now);
+      expect(result.reports).toHaveLength(10);
+      expect(result.totalCount).toBe(83);
+      expect(decodeReportCursor(result.nextCursor!, filters)).toEqual({ createdAt: now, id: rows[9].id });
+      expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: "RepeatableRead" });
+      const pageArgs = (prisma.energyReportJob.findMany.mock.calls[0] as any)[0];
+      const countArgs = (prisma.energyReportJob.count.mock.calls[0] as any)[0];
+      expect(pageArgs.take).toBe(11);
+      expect(pageArgs.orderBy).toEqual([{ createdAt: "desc" }, { id: "desc" }]);
+      expect(pageArgs.where.AND.at(-1)).toEqual({ OR: [{ createdAt: { lt: now } }, { createdAt: now, id: { lt: reportId } }] });
+      expect(countArgs.where.AND).toEqual(pageArgs.where.AND.slice(0, -1));
+      expect(pageArgs.select.documentSnapshot).toBeUndefined();
+    } finally { client.destroy(); }
+  });
+
+  it.each([{}, { limit: "100" }])("returns no cursor for an empty final page %j", async query => {
+    const { service, client } = setup();
+    try { expect(await service.list(user, siteId, query, now)).toEqual({ reports: [], nextCursor: null, totalCount: 0 }); }
+    finally { client.destroy(); }
+  });
+
+  it.each([{ limit: 30 }, { extra: "secret" }, { cursor: "private-token" }, { requestedFrom: "2026-09-01" },
+    { limit: [10, 20] }, { query: " " }])("sanitizes invalid list inputs before database access %j", async query => {
+    const { service, prisma, client } = setup();
+    try {
+      await expect(service.list(user, siteId, query, now)).rejects.toMatchObject({
+        response: { statusCode: 400, message: "invalid energy report list query" }
+      });
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    } finally { client.destroy(); }
+  });
+
+  it("does not turn database failures into public query errors", async () => {
+    const { service, prisma, client } = setup();
+    prisma.energyReportJob.findMany.mockRejectedValue(new Error("database private-token"));
+    try { await expect(service.list(user, siteId, {}, now)).rejects.toMatchObject({
+      response: { statusCode: 500, message: "could not list energy reports" }
+    }); } finally { client.destroy(); }
   });
 
   it.each(["detail", "download"] as const)("returns tenant-safe 404 for %s with the report lookup constrained by site", async method => {

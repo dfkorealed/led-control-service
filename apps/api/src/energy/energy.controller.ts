@@ -36,8 +36,8 @@ export class EnergyController {
 
   @Get("sites/:siteId/reports")
   @Header("Cache-Control", "no-store")
-  listReports(@CurrentUser() user: AuthenticatedUser, @Param("siteId") siteId: string) {
-    return this.reportService().list(user, siteId);
+  listReports(@CurrentUser() user: AuthenticatedUser, @Param("siteId") siteId: string, @Query() rawQuery: unknown) {
+    return this.reportService().list(user, siteId, rawQuery);
   }
 
   @Get("sites/:siteId/reports/:reportId")

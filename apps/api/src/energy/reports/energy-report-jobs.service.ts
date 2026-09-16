@@ -1,5 +1,5 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
-import { energyReportRequestSchema, energyReportJobSchema, energyReportListResponseSchema, energyReportDownloadResponseSchema } from "@led-control/shared";
+import { BadRequestException, ConflictException, Injectable, InternalServerErrorException, NotFoundException } from "@nestjs/common";
+import { energyReportRequestSchema, energyReportJobSchema, energyReportListQuerySchema, energyReportListResponseSchema, energyReportDownloadResponseSchema } from "@led-control/shared";
 import { Prisma } from "@prisma/client";
 import { createHash, randomUUID } from "node:crypto";
 import { PrismaService } from "../../prisma/prisma.service";
@@ -8,6 +8,8 @@ import type { AuthenticatedUser } from "../../auth/auth.types";
 import { ObjectStorageService } from "../../storage/object-storage.service";
 import { canonicalJson, EnergyReportDocumentBuilder } from "./energy-report-document.builder";
 import { EnergyReportSnapshotService } from "./energy-report-snapshot.service";
+import { decodeReportCursor, encodeReportCursor } from "./report-list-cursor";
+import { buildReportListWhere, normalizeReportFilters, type ReportCursorPosition } from "./report-list-filters";
 
 // Public reads intentionally omit the potentially large document/data snapshots and actor data.
 const jobSelect = {
@@ -66,11 +68,44 @@ export class EnergyReportJobsService {
     throw new ConflictException("report request changed concurrently; retry");
   }
 
-  async list(user: AuthenticatedUser, siteId: string, now = new Date()) {
+  async list(user: AuthenticatedUser, siteId: string, rawQuery: unknown = {}, now = new Date()) {
     await this.access.assert(user, siteId, "read");
-    const reports = await this.prisma.energyReportJob.findMany({ where: { siteId }, take: 50,
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }], select: jobSelect });
-    return energyReportListResponseSchema.parse({ reports: reports.map(report => publicJob(report, now)) });
+    const invalidQuery = () => new BadRequestException("invalid energy report list query");
+    if (!rawQuery || typeof rawQuery !== "object" || Array.isArray(rawQuery)) throw invalidQuery();
+    const input = rawQuery as Record<string, unknown>;
+    // HTTP duplicate parameters are arrays. Reject them before numeric coercion
+    // could accidentally accept a singleton array as a valid page size.
+    if (input.limit !== undefined && typeof input.limit !== "string" && typeof input.limit !== "number") throw invalidQuery();
+    const parsed = energyReportListQuerySchema.safeParse({ ...input, limit: input.limit ?? 20 });
+    if (!parsed.success) throw invalidQuery();
+    const query = parsed.data;
+    const filters = normalizeReportFilters(query);
+    let cursor: ReportCursorPosition | undefined;
+    try { cursor = query.cursor ? decodeReportCursor(query.cursor, filters) : undefined; }
+    catch { throw invalidQuery(); }
+
+    try {
+      const site = await this.prisma.site.findUniqueOrThrow({ where: { id: siteId }, select: { timeZone: true } });
+      let filterWhere: Prisma.EnergyReportJobWhereInput;
+      let pageWhere: Prisma.EnergyReportJobWhereInput;
+      try {
+        filterWhere = buildReportListWhere(siteId, filters, site.timeZone, now);
+        pageWhere = buildReportListWhere(siteId, filters, site.timeZone, now, cursor);
+      } catch { throw invalidQuery(); }
+      const [totalCount, rows] = await this.prisma.$transaction(async tx => {
+        const totalCount = await tx.energyReportJob.count({ where: filterWhere });
+        const rows = await tx.energyReportJob.findMany({ where: pageWhere, take: query.limit + 1,
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }], select: jobSelect });
+        return [totalCount, rows] as const;
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+      const reports = rows.slice(0, query.limit);
+      return energyReportListResponseSchema.parse({ reports: reports.map(report => publicJob(report, now)), totalCount,
+        nextCursor: rows.length > query.limit ? encodeReportCursor(reports[reports.length - 1], filters) : null });
+    } catch (error) {
+      if (error instanceof BadRequestException) throw error;
+      // Database and corrupt stored-data diagnostics are not user query errors.
+      throw new InternalServerErrorException("could not list energy reports");
+    }
   }
 
   async detail(user: AuthenticatedUser, siteId: string, reportId: string, now = new Date()) {
