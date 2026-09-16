@@ -131,7 +131,7 @@ git commit -m "feat(shared): define report history query contract"
 - Consumes: `EnergyReportListQuery`
 - Produces: `encodeReportCursor`, `decodeReportCursor`, `normalizeReportFilters`, `buildReportListWhere`, paginated `EnergyReportJobsService.list(user, siteId, rawQuery, now)`
 
-- [ ] **Step 1: cursor round-trip, filter fingerprint mismatch, malformed input의 RED test를 작성한다.**
+- [x] **Step 1: cursor round-trip, filter fingerprint mismatch, malformed input의 RED test를 작성한다.**
 
 ```ts
 const filters = normalizeReportFilters({ limit: 20, query: "서울", status: "completed" });
@@ -143,17 +143,17 @@ expect(() => decodeReportCursor(cursor, normalizeReportFilters({ limit: 20, quer
 expect(() => decodeReportCursor("not-base64", filters)).toThrow();
 ```
 
-- [ ] **Step 2: filter predicate의 상태·형식·scope·대상명·현장 timezone 날짜 경계를 테스트한다.**
+- [x] **Step 2: filter predicate의 상태·형식·scope·대상명·현장 timezone 날짜 경계를 테스트한다.**
 
 `status=completed`는 `status=completed AND expiresAt > now AND objectDeletedAt IS NULL`, `status=expired`는 `status=completed AND expiresAt <= now`를 생성해야 한다. `requestedFrom`은 현지 00:00 inclusive, `requestedTo`는 다음 현지 날짜 00:00 exclusive UTC instant가 되어야 한다.
 
-- [ ] **Step 3: cursor/filter focused tests가 RED인지 확인한다.**
+- [x] **Step 3: cursor/filter focused tests가 RED인지 확인한다.**
 
 Run: `pnpm --filter @led-control/api exec jest src/energy/reports/report-list-cursor.spec.ts src/energy/reports/report-list-filters.spec.ts --runInBand`
 
 Expected: 모듈이 없어 FAIL.
 
-- [ ] **Step 4: canonical filter fingerprint와 cursor를 구현한다.**
+- [x] **Step 4: canonical filter fingerprint와 cursor를 구현한다.**
 
 ```ts
 type CursorPayload = { version: 1; createdAt: string; id: string; filterFingerprint: string };
@@ -171,7 +171,7 @@ export function encodeReportCursor(position: { createdAt: Date; id: string }, fi
 
 decode는 1024자 제한, canonical base64url 재인코딩 동일성, strict key set, version, ISO instant, UUID, 64자 hex fingerprint를 검증한다. Error 원문을 controller 밖으로 내보내지 않는다.
 
-- [ ] **Step 5: Prisma where builder를 구현한다.**
+- [x] **Step 5: Prisma where builder를 구현한다.**
 
 ```ts
 return {
@@ -192,7 +192,7 @@ return {
 
 `targetLabelSnapshot` null legacy fallback는 public label 규칙과 동일한 scope/identity 문자열에 대해 별도 OR predicate를 만든다. Raw SQL이 필요하면 parameterized `Prisma.sql`만 사용하고 문자열 보간을 금지한다.
 
-- [ ] **Step 6: controller와 service를 paginated query로 교체한다.**
+- [x] **Step 6: controller와 service를 paginated query로 교체한다.**
 
 Controller는 `@Query() rawQuery`를 service에 전달하고 service가 shared schema로 strict parse해 400으로 정제한다. Service는 권한과 Site timezone 조회 후 repeatable-read transaction에서 filtered count와 `take: limit + 1` rows를 조회한다. cursor row를 count predicate에는 넣지 않는다.
 
@@ -208,13 +208,13 @@ const [totalCount, rows] = await this.prisma.$transaction(async tx => [
 ], { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
 ```
 
-- [ ] **Step 7: service/API tests를 GREEN으로 만든다.**
+- [x] **Step 7: service/API tests를 GREEN으로 만든다.**
 
 Run: `pnpm --filter @led-control/api exec jest src/energy/reports/report-list-cursor.spec.ts src/energy/reports/report-list-filters.spec.ts src/energy/reports/energy-report-jobs.service.spec.ts src/energy/reports/energy-report-api.spec.ts --runInBand`
 
 Expected: PASS, raw parse/database 오류 미노출.
 
-- [ ] **Step 8: Task 2를 커밋한다.**
+- [x] **Step 8: Task 2를 커밋한다.**
 
 ```bash
 git add apps/api/src/energy/energy.controller.ts apps/api/src/energy/reports/report-list-* apps/api/src/energy/reports/energy-report-jobs.service.ts apps/api/src/energy/reports/energy-report-jobs.service.spec.ts apps/api/src/energy/reports/energy-report-api.spec.ts
