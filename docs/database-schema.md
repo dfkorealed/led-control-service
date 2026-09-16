@@ -637,7 +637,7 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 - 조회 API는 공개 URL을 반환하지 않는다. 현장 `read` 권한을 확인한 content endpoint가 private bucket에 대해 300초 signed GET을 발급하고 `302`로 연결한다.
 - 번들 MinIO는 `WEB_PUBLIC_URL`을 `MINIO_API_CORS_ALLOW_ORIGIN`으로 전달하며 미설정 시 `http://localhost:5173`을 사용한다. 버킷은 계속 anonymous `none`이고, 지원되지 않는 `mc cors set`이나 localhost 전용 XML에 의존하지 않는다.
 - `20260912090000_floor_asset_private_ledger` migration은 기존 FloorPlan과 FloorMapRevision snapshot의 알려진 asset URL을 인증 경로로 치환하고, 변경된 snapshot의 안정 해시를 다시 계산한 뒤 `publicUrl` 컬럼을 제거한다. 알려진 asset과 대응하지 않는 비어 있지 않은 legacy URL이 하나라도 있으면 전체 migration을 원자적으로 중단한다.
-- CAD 원본 또는 렌더 자산을 `FloorImportJob`이 참조하는 동안 FK가 직접 자산 삭제를 막는다. 후속 cleanup worker는 이 관계를 후보 조회에서도 제외해야 한다.
+- CAD 원본 또는 렌더 자산을 `FloorImportJob`이 참조하는 동안 FK가 직접 자산 삭제를 막는다. deferred constraint trigger는 자산 갱신 시에도 같은 층, 역할, ready 상태와 허용 MIME을 다시 검증한다. 후속 cleanup worker는 이 관계를 후보 조회에서도 제외해야 한다.
 
 ### FloorImportJob
 
@@ -647,7 +647,7 @@ DWG/DXF 원본을 비동기로 변환·검출·검토·적용하는 작업의 �
 | --- | --- | --- | --- | --- |
 | `id` | `String` | 예 | PK, `uuid()` | import job ID |
 | `floorId` | `String` | 예 | FK -> `Floor.id`, cascade delete | 대상 층 |
-| `sourceAssetId` | `String` | 예 | Unique, FK -> `FloorAsset.id`, delete no action | private DWG/DXF 원본 자산 |
+| `sourceAssetId` | `String` | 예 | FK -> `FloorAsset.id`, delete no action, indexed | private DWG/DXF 원본 자산. 완료 후 같은 원본으로 새 분석 job 생성 가능 |
 | `renderedAssetId` | `String?` | 아니오 | Unique, FK -> `FloorAsset.id`, delete no action, 원본과 달라야 함 | 변환 결과 SVG/래스터 자산 |
 | `sourceFormat` | `FloorImportSourceFormat` | 예 |  | `dwg` 또는 `dxf` |
 | `status` | `FloorImportJobStatus` | 예 | `queued` | 영속 작업 상태 |
@@ -662,6 +662,7 @@ DWG/DXF 원본을 비동기로 변환·검출·검토·적용하는 작업의 �
 | `reviewRequiredAt` | `DateTime?` | 아니오 |  | 후보 검토 가능 상태 진입 시각 |
 | `appliedAt` | `DateTime?` | 아니오 |  | editor transaction 적용 시각 |
 | `completedAt` | `DateTime?` | 아니오 |  | 정상 종료 시각 |
+| `failedAt` | `DateTime?` | 아니오 | failed 상태에서 필수 | 실패 확정 시각 |
 | `cancelledAt` | `DateTime?` | 아니오 |  | 취소 시각 |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
 | `updatedAt` | `DateTime` | 예 | `@updatedAt` | 최종 갱신 시각 |
@@ -669,8 +670,11 @@ DWG/DXF 원본을 비동기로 변환·검출·검토·적용하는 작업의 �
 제약과 인덱스:
 
 - `floorId + createdAt`, `status + leaseExpiresAt + createdAt` index로 층별 이력과 lease 회수 대상을 조회한다.
+- `sourceAssetId`는 일반 index다. 완료·실패·취소 이후 동일 원본 재분석을 허용하며 동시 workflow는 층별 active partial unique가 막는다.
 - partial unique index `FloorImportJob_floorId_active_key`는 `queued`, `processing`, `review_required`, `applying` 중인 job을 층마다 하나로 제한한다. 완료·실패·취소 원장은 이력으로 유지한다.
-- 원본과 렌더 자산 FK는 직접 삭제를 막지만 같은 층 자산인지와 `original`/`rendered` kind인지는 Task 19.3 API transaction이 Floor 잠금 뒤 검증한다.
+- deferred constraint trigger `FloorImportJob_asset_invariant`, `FloorAsset_import_job_invariant`는 transaction 최종 상태에서 원본/렌더 자산이 job과 같은 층이고 ready인지, source는 `original`과 source format별 DWG/DXF MIME인지, render는 `rendered`와 허용 이미지 MIME인지 양쪽 mutation 경로에서 강제한다.
+- migration-only `FloorImportJob_lifecycle_check`는 queued/processing/review_required/applying/completed/failed/cancelled별 progress, lease, 오류, 렌더 자산과 필수 timestamp 조합을 강제한다. 특히 terminal 상태는 lease가 없고 각각 `completedAt`, `failedAt`, `cancelledAt`이 필요하다.
+- 위 trigger, lifecycle/check 제약과 active partial unique는 Prisma datamodel로 표현되지 않는다. `floor-cad-import-migration.integration.spec.ts`가 실제 PostgreSQL catalog와 잘못된 INSERT/UPDATE 거부를 검증하므로 migration을 Prisma diff로 재생성해 대체하면 안 된다.
 
 ### FloorImportCandidate
 
@@ -687,6 +691,9 @@ CAD parser 좌표에서 검출한 조명 위치 후보 원장이다. 후보는 B
 | `rotation` | `Float` | 예 | `0`, 유한값 | parser가 계산한 회전 각도 |
 | `confidence` | `Float` | 예 | DB check `0~1` | 검출 신뢰도 |
 | `detectionMethod` | `FloorImportDetectionMethod` | 예 |  | 규칙 또는 향후 AI 보조 검출 구분 |
+| `provider` | `String?` | 아니오 | rule_based는 NULL, ai_assisted는 trim 길이 1~200 필수 | AI provider 식별자 |
+| `model` | `String?` | 아니오 | rule_based는 NULL, ai_assisted는 trim 길이 1~200 필수 | AI model 식별자 |
+| `inputDigest` | `String?` | 아니오 | rule_based는 NULL, ai_assisted는 64자리 lowercase SHA-256 필수 | AI 분류 입력 digest |
 | `reviewStatus` | `FloorImportCandidateReviewStatus` | 예 | `pending` | 관리자 검토 상태 |
 | `reviewedAt` | `DateTime?` | 아니오 | pending이면 NULL, accepted/rejected이면 필수 | 검토 시각 |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
@@ -697,6 +704,7 @@ CAD parser 좌표에서 검출한 조명 위치 후보 원장이다. 후보는 B
 - `(jobId, sourceEntityId)` unique로 worker 재시도 시 같은 CAD entity의 후보가 중복 생성되지 않게 한다.
 - `(jobId, reviewStatus, id)` index로 검토 목록과 1,000개 단위 후보 조회를 지원한다.
 - 좌표와 회전은 parser 결과만 저장한다. AI 보조 구현도 좌표를 생성하거나 변경할 수 없다.
+- migration-only `FloorImportCandidate_ai_metadata_check`는 rule-based 후보의 AI 메타데이터를 모두 NULL로, AI-assisted 후보는 provider/model/inputDigest를 모두 필수로 강제한다. geometry/confidence/review CHECK도 Prisma datamodel 외 SQL 불변식이며 migration regression test가 실제 DB 동작을 고정한다.
 
 ### FloorMapObject
 

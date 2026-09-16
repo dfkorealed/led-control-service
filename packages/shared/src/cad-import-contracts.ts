@@ -65,8 +65,23 @@ export const floorImportCandidateSchema = z.object({
   rotation: z.number().finite(),
   confidence: z.number().finite().min(0).max(1),
   detectionMethod: floorImportDetectionMethodSchema,
+  provider: z.string().trim().min(1).max(200).nullable(),
+  model: z.string().trim().min(1).max(200).nullable(),
+  inputDigest: z.string().regex(/^[a-f0-9]{64}$/).nullable(),
   reviewStatus: floorImportCandidateReviewStatusSchema
-}).strict();
+}).strict().superRefine((candidate, context) => {
+  const metadata = [candidate.provider, candidate.model, candidate.inputDigest];
+  const valid = candidate.detectionMethod === "rule_based"
+    ? metadata.every((value) => value === null)
+    : metadata.every((value) => value !== null);
+  if (!valid) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["provider"],
+      message: "AI-assisted candidates require complete reproducibility metadata; rule-based candidates forbid it"
+    });
+  }
+});
 
 export const floorImportCandidateListResponseSchema = z.object({
   jobId: z.string().uuid(),

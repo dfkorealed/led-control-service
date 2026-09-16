@@ -474,7 +474,7 @@ model FloorAsset {
 model FloorImportJob {
   id               String                  @id @default(uuid())
   floorId          String
-  sourceAssetId    String                  @unique
+  sourceAssetId    String
   renderedAssetId  String?                 @unique
   sourceFormat     FloorImportSourceFormat
   status           FloorImportJobStatus    @default(queued)
@@ -491,6 +491,7 @@ model FloorImportJob {
   reviewRequiredAt DateTime?
   appliedAt        DateTime?
   completedAt      DateTime?
+  failedAt         DateTime?
   cancelledAt      DateTime?
   floor            Floor                   @relation(fields: [floorId], references: [id], onDelete: Cascade)
   sourceAsset      FloorAsset              @relation("FloorImportSourceAsset", fields: [sourceAssetId], references: [id], onDelete: NoAction)
@@ -499,8 +500,10 @@ model FloorImportJob {
   createdAt        DateTime                @default(now())
   updatedAt        DateTime                @updatedAt
 
-  // SQL additionally enforces one active import per floor with a partial unique index.
+  // Migration-only SQL enforces asset role/floor/ready/MIME invariants, lifecycle
+  // state checks, and one active import per floor. Prisma cannot represent these.
   @@index([floorId, createdAt])
+  @@index([sourceAssetId])
   @@index([status, leaseExpiresAt, createdAt])
 }
 
@@ -515,12 +518,17 @@ model FloorImportCandidate {
   rotation        Float                            @default(0)
   confidence      Float
   detectionMethod FloorImportDetectionMethod
+  provider        String?
+  model           String?
+  inputDigest     String?
   reviewStatus    FloorImportCandidateReviewStatus @default(pending)
   reviewedAt      DateTime?
   job             FloorImportJob                   @relation(fields: [jobId], references: [id], onDelete: Cascade)
   createdAt       DateTime                         @default(now())
   updatedAt       DateTime                         @updatedAt
 
+  // Migration-only SQL enforces finite geometry, review timestamps, confidence,
+  // and all-null/all-present AI reproducibility metadata. Prisma cannot express it.
   @@unique([jobId, sourceEntityId])
   @@index([jobId, reviewStatus, id])
 }

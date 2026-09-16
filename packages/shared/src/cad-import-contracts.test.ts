@@ -22,6 +22,9 @@ const candidateResponse = {
     rotation: 90,
     confidence: 0.92,
     detectionMethod: "rule_based" as const,
+    provider: null,
+    model: null,
+    inputDigest: null,
     reviewStatus: "pending" as const
   }]
 };
@@ -74,6 +77,32 @@ describe("CAD import contracts", () => {
     expect(floorImportCandidateListResponseSchema.safeParse({
       ...candidateResponse,
       candidates: [{ ...candidateResponse.candidates[0], fixtureId: candidateId }]
+    }).success).toBe(false);
+  });
+
+  it("requires reproducibility metadata only for AI-assisted candidates", () => {
+    const ruleBased = candidateResponse.candidates[0];
+    const aiAssisted = {
+      ...ruleBased,
+      detectionMethod: "ai_assisted" as const,
+      provider: "openai",
+      model: "cad-symbol-classifier-v1",
+      inputDigest: "a".repeat(64)
+    };
+
+    expect(floorImportCandidateListResponseSchema.parse({ jobId, candidates: [ruleBased, aiAssisted] }).candidates)
+      .toEqual([ruleBased, aiAssisted]);
+    expect(floorImportCandidateListResponseSchema.safeParse({
+      jobId,
+      candidates: [{ ...aiAssisted, inputDigest: null }]
+    }).success).toBe(false);
+    expect(floorImportCandidateListResponseSchema.safeParse({
+      jobId,
+      candidates: [{ ...aiAssisted, inputDigest: "not-a-sha256" }]
+    }).success).toBe(false);
+    expect(floorImportCandidateListResponseSchema.safeParse({
+      jobId,
+      candidates: [{ ...ruleBased, provider: "rules" }]
     }).success).toBe(false);
   });
 
