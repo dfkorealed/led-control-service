@@ -65,9 +65,22 @@ function scaleFor(values: Array<number | null>) {
   // Normalize first so finite extreme inputs do not overflow max - min.
   const magnitude = Math.max(Math.abs(min), Math.abs(max));
   const ratio = (value: number) => (value / magnitude - min / magnitude) / (max / magnitude - min / magnitude);
-  return { min, max, ratio, ticks: Array.from({ length: 5 }, (_, index) => min * (1 - index / 4) + max * index / 4) };
+  return { min, max, ratio, ticks: Array.from({ length: 5 }, (_, index) => min * (1 - index / 4) + max * (index / 4)) };
 }
-const tickLabel = (value: number) => value === 0 ? "0" : Math.abs(value) >= 100000 || Math.abs(value) < 0.001 ? value.toExponential(2) : String(Number(value.toFixed(3)));
+function tickLabels(ticks: number[]): string[] {
+  const magnitude = Math.max(...ticks.map(Math.abs));
+  const interval = Math.abs(ticks.at(-1)! / 4 - ticks[0] / 4);
+  const decimals = Math.min(100, Math.max(0, 11 - Math.floor(Math.log10(interval || magnitude))));
+  // Use one notation for the whole axis. Keep ordinary report quantities in
+  // decimal notation; normalize floating-point noise to 12 significant digits.
+  const scientific = magnitude >= 1e6 || magnitude < 1e-6;
+  return ticks.map(value => {
+    if (value === 0) return "0";
+    const rounded = Number(value.toPrecision(12));
+    if (scientific) return rounded.toExponential();
+    return rounded.toFixed(decimals).replace(/(?:\.0+|(\.\d*?[1-9])0+)$/, "$1");
+  });
+}
 
 function cartesian(visual: Extract<ReportVisual, { kind: "line" | "bar" }>): string {
   const categories = visual.kind === "line" ? visual.x : visual.categories;
@@ -75,10 +88,22 @@ function cartesian(visual: Extract<ReportVisual, { kind: "line" | "bar" }>): str
   const y = (value: number) => plot.top + plot.height * (1 - scale.ratio(value));
   const x = (index: number) => plot.left + (index + 0.5) * plot.width / Math.max(1, categories.length);
   const pieces: string[] = [];
-  scale.ticks.forEach(tick => { pieces.push(line(plot.left, y(tick), plot.left + plot.width, y(tick), palette.grid), text(tickLabel(tick), plot.left - 10, y(tick) + 5, 13, 85, "end")); });
+  const labels = tickLabels(scale.ticks);
+  scale.ticks.forEach((tick, index) => { pieces.push(line(plot.left, y(tick), plot.left + plot.width, y(tick), palette.grid), text(labels[index], plot.left - 10, y(tick) + 5, 13, 85, "end")); });
   pieces.push(line(plot.left, y(0), plot.left + plot.width, y(0), palette.text));
   const stride = Math.max(1, Math.ceil(categories.length / 8));
-  categories.forEach((label, index) => { if (index % stride === 0 || index === categories.length - 1) pieces.push(text(label, x(index), 486, 13, 94, "middle")); });
+  const labelWidth = 94, minimumGap = 12;
+  let previousLabelX = -Infinity;
+  categories.forEach((label, index) => {
+    const last = index === categories.length - 1;
+    if (!last && index % stride !== 0) return;
+    // Reserve the final label's full fitted width before selecting earlier
+    // labels. Appending the last date unconditionally overlaps a nearby tick.
+    if (!last && x(categories.length - 1) - x(index) < labelWidth + minimumGap) return;
+    if (x(index) - previousLabelX < labelWidth + minimumGap) return;
+    pieces.push(text(label, x(index), 486, 13, labelWidth, "middle"));
+    previousLabelX = x(index);
+  });
   // Baseline bars render behind actual lines, regardless of descriptor order.
   const barCount = Math.max(1, visual.series.filter(series => series.style === "bar").length);
   let barIndex = 0;
@@ -111,8 +136,9 @@ function ranking(visual: Extract<ReportVisual, { kind: "horizontal-bar" }>): str
   if (!visual.rows.length) return text(visual.noData.label, 500, 280, 20, 400, "middle");
   if (visual.rows.length > 10) throw new Error("Ranking exceeds ten rows");
   const scale = scaleFor(visual.rows.map(row => row.value));
+  const labels = tickLabels(scale.ticks);
   const x = (value: number) => 290 + scale.ratio(value) * 510;
-  return scale.ticks.map(tick => line(x(tick), 125, x(tick), 465, palette.grid) + text(tickLabel(tick), x(tick), 488, 12, 85, "middle")).join("") +
+  return scale.ticks.map((tick, index) => line(x(tick), 125, x(tick), 465, palette.grid) + text(labels[index], x(tick), 488, 12, 85, "middle")).join("") +
     visual.rows.map((row, index) => {
       const y = 136 + index * 32;
       return text(row.label, 274, y + 17, 14, 240, "end") +

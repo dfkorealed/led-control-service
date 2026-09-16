@@ -8,6 +8,52 @@ const line = (): ReportVisual => ({ ...common, kind: "line", x: ["1", "2", "3"],
 const heat = (): ReportVisual => ({ ...common, kind: "heatmap", metric: "energy", cells: Array.from({ length: 168 }, (_, i) => ({ weekday: Math.floor(i / 24), hour: i % 24, value: i === 0 ? null : i === 1 ? 0 : 1, displayValue: i === 0 ? "데이터 없음" : String(i === 1 ? 0 : 1) })) });
 
 describe("deterministic report chart image renderer", () => {
+  it("keeps every rendered monthly date label separated, including the final date", async () => {
+    const visual = line();
+    if (visual.kind !== "line") throw new Error("Expected line");
+    visual.x = Array.from({ length: 30 }, (_, index) => `2026-09-${String(index + 1).padStart(2, "0")}`);
+    visual.series[0].values = Array.from({ length: 30 }, () => 1);
+    visual.series[0].displayValues = Array.from({ length: 30 }, () => "1");
+    const svg = renderReportVisualSvg(visual);
+    const labels = [...svg.matchAll(/<g aria-label="(2026-09-\d{2})"[^>]*>[\s\S]*?<\/g>/g)];
+    expect(labels.length).toBeGreaterThanOrEqual(5);
+    expect(labels[0][1]).toBe("2026-09-01");
+    expect(labels.at(-1)![1]).toBe("2026-09-30");
+    let previousRight = -Infinity;
+    for (const [group] of labels) {
+      // Measure emitted glyph pixels independently, not the layout helper's
+      // claimed width. This catches overlap caused by selection or transforms.
+      const { data, info } = await sharp(Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="560">${group}</svg>`)).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+      let left = info.width, right = -1;
+      for (let index = 3; index < data.length; index += 4) {
+        if (data[index] === 0) continue;
+        const x = ((index - 3) / 4) % info.width;
+        left = Math.min(left, x); right = Math.max(right, x);
+      }
+      expect(right).toBeGreaterThan(left);
+      expect(left - previousRight).toBeGreaterThanOrEqual(8);
+      previousRight = right;
+    }
+  });
+
+  it("labels all five small energy ticks distinctly and accurately", () => {
+    const visual = line();
+    if (visual.kind !== "line") throw new Error("Expected line");
+    visual.x = ["a", "b", "c"];
+    visual.series[0].values = [0.002, null, 0];
+    const labels = [...renderReportVisualSvg(visual).matchAll(/<g aria-label="([-\d.e+]+)"/g)].map(match => match[1]);
+    expect(labels).toEqual(["0", "0.0005", "0.001", "0.0015", "0.002"]);
+    expect(new Set(labels).size).toBe(5);
+  });
+
+  it("renders finite extreme signed values without overflowing tick geometry", async () => {
+    const visual = line();
+    if (visual.kind !== "line") throw new Error("Expected line");
+    visual.series[0].values = [-Number.MAX_VALUE, 0, Number.MAX_VALUE];
+    expect(renderReportVisualSvg(visual)).not.toMatch(/NaN|Infinity/);
+    expect((await renderReportVisual(visual)).png.length).toBeGreaterThan(100);
+  });
+
   it("renders a document-built heatmap including its generated axis punctuation", async () => {
     const visual = buildReportVisuals({ schemaVersion: 2, reportId: "10000000-0000-4000-8000-000000000001", title: "보고서", metadata: [], contentFingerprint: "a".repeat(64),
       calculationBasis: { capturedAt: "2026-09-01T00:00:00Z", actualSource: "persisted_actual", configurationSource: "captured_current_configuration", tariffKwhRate: null, expectedSeconds: null, knownSeconds: null, fixtureCount: 0, baselineReason: null, coverageReason: null },
