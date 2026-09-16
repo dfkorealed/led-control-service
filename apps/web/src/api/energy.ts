@@ -16,15 +16,17 @@ import {
   energyHeatmapResponseSchema,
   energyReportDownloadResponseSchema,
   energyReportJobSchema,
+  energyReportListQuerySchema,
   energyReportListResponseSchema,
   energyReportRequestSchema,
   energyReportTargetsResponseSchema,
   type EnergyHeatmapMetric,
   type EnergyReportJob,
+  type EnergyReportListQuery,
   type EnergyReportRequest,
   type EnergyScope
 } from "@led-control/shared/energy-p2-contracts";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { ApiError, apiGet, apiPost } from "./client";
 
 const API_BASE_URL = "/api";
@@ -132,18 +134,29 @@ export function useEnergyHeatmap(query: EnergyHeatmapQuery) {
   });
 }
 
-export function useEnergyReports(siteId?: string) {
+export function useEnergyReports(siteId: string | undefined, query: EnergyReportListQuery = { limit: 20 }) {
+  const normalized = energyReportListQuerySchema.parse(query);
   return useQuery({
-    queryKey: ["energy-reports", siteId],
+    queryKey: ["energy-reports", siteId, normalized],
     queryFn: async () => energyReportListResponseSchema.parse(await apiGet<unknown>(
-      `/energy/sites/${encodeURIComponent(siteId!)}/reports`
+      `/energy/sites/${encodeURIComponent(siteId!)}/reports?${reportListSearchParams(normalized).toString()}`
     )),
     enabled: Boolean(siteId),
+    placeholderData: keepPreviousData,
     retry: 1,
     refetchInterval: (query) => query.state.data?.reports.some(isActiveReport)
       ? REPORT_POLL_INTERVAL_MS
       : false
   });
+}
+
+function reportListSearchParams(query: EnergyReportListQuery) {
+  const params = new URLSearchParams({ limit: String(query.limit) });
+  for (const key of ["cursor", "query", "status", "format", "scope", "requestedFrom", "requestedTo"] as const) {
+    const value = query[key];
+    if (value !== undefined) params.set(key, value);
+  }
+  return params;
 }
 
 export function useEnergyReportTargets(siteId?: string) {
