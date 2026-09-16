@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer";
-import { cadBulgeArc, computeCadBounds, expandCadDocument, multiplyCadMatrices, transformPoint, type CadMatrix, type ExpandedCadEntity } from "./cad-geometry";
+import { cadBulgeArc, computeCadBounds, expandCadDocument, iterateCadDocumentExpansion, multiplyCadMatrices, transformPoint, type CadMatrix, type ExpandedCadEntity } from "./cad-geometry";
 import { forEachCadTextGlyph, sanitizeCadText } from "./cad-text-layout";
 import type { CadPoint, NormalizedCadDocument } from "./cad-types";
 
@@ -8,13 +8,30 @@ export interface CadSvgRendererLimits {
   maxOutputBytes: number;
   maxBlockDepth: number;
   padding: number;
+  trustDocumentBounds: boolean;
+  includeEntityMetadata: boolean;
+  compactPaths: boolean;
+  maxDurationMs: number;
+  maxCpuMs: number;
+  now: () => number;
+  cpuNow: () => number;
 }
 
 const DEFAULT_LIMITS: CadSvgRendererLimits = {
   maxRenderedEntities: 100_000,
   maxOutputBytes: 8 * 1024 * 1024,
   maxBlockDepth: 16,
-  padding: 1
+  padding: 1,
+  trustDocumentBounds: false,
+  includeEntityMetadata: true
+  ,compactPaths: false,
+  maxDurationMs: 30_000,
+  maxCpuMs: 30_000,
+  now: () => performance.now(),
+  cpuNow: () => {
+    const usage = process.cpuUsage();
+    return (usage.user + usage.system) / 1_000;
+  }
 };
 const MIN_SERIALIZED_GLYPH_BYTES = 16;
 
@@ -99,14 +116,22 @@ export function renderCadDocumentSvg(document: NormalizedCadDocument, options: P
   if (!Number.isInteger(limits.maxRenderedEntities) || limits.maxRenderedEntities < 1 ||
       !Number.isInteger(limits.maxOutputBytes) || limits.maxOutputBytes < 1 ||
       !Number.isInteger(limits.maxBlockDepth) || limits.maxBlockDepth < 1 ||
-      !Number.isFinite(limits.padding) || limits.padding < 0) throw new Error("Invalid CAD SVG renderer limits");
-  const expanded = expandCadDocument(document, limits);
+      !Number.isFinite(limits.padding) || limits.padding < 0 ||
+      !Number.isFinite(limits.maxDurationMs) || limits.maxDurationMs <= 0 ||
+      !Number.isFinite(limits.maxCpuMs) || limits.maxCpuMs <= 0) throw new Error("Invalid CAD SVG renderer limits");
+  const wallStarted = limits.now();
+  const cpuStarted = limits.cpuNow();
+  const checkBudget = () => {
+    if (limits.now() - wallStarted > limits.maxDurationMs) throw new Error("CAD SVG wall time limit exceeded");
+    if (limits.cpuNow() - cpuStarted > limits.maxCpuMs) throw new Error("CAD SVG CPU time limit exceeded");
+  };
+  const expanded = limits.trustDocumentBounds ? null : expandCadDocument(document, limits);
   const maxTextGlyphs = Math.max(1, Math.floor(limits.maxOutputBytes / MIN_SERIALIZED_GLYPH_BYTES));
   let measuredTextGlyphs = 0;
-  const bounds = computeCadBounds(expanded, undefined, () => {
+  const bounds = expanded ? computeCadBounds(expanded, undefined, () => {
     measuredTextGlyphs++;
     if (measuredTextGlyphs > maxTextGlyphs) throw new Error("CAD SVG output limit exceeded while measuring text glyphs");
-  });
+  }) : document.bounds;
   const width = Math.max(1, bounds.maxX - bounds.minX + limits.padding * 2);
   const height = Math.max(1, bounds.maxY - bounds.minY + limits.padding * 2);
   const project = (point: CadPoint) => ({
@@ -115,6 +140,22 @@ export function renderCadDocumentSvg(document: NormalizedCadDocument, options: P
     z: point.z
   });
   const projection: CadMatrix = { a: 1, b: 0, c: 0, d: -1, e: -bounds.minX + limits.padding, f: bounds.maxY + limits.padding };
+  const matrixAttribute = (matrix: CadMatrix) => `matrix(${number(matrix.a)} ${number(matrix.b)} ${number(matrix.c)} ${number(matrix.d)} ${number(matrix.e)} ${number(matrix.f)})`;
+  const compactPolylinePath = (entity: Extract<ExpandedCadEntity["entity"], { type: "lwpolyline" | "polyline" }>) => {
+    const first = entity.vertices[0];
+    const commands = [`M${number(first.x)} ${number(first.y)}`];
+    const segmentCount = entity.closed ? entity.vertices.length : entity.vertices.length - 1;
+    for (let index = 0; index < segmentCount; index++) {
+      checkBudget();
+      const start = entity.vertices[index];
+      const end = entity.vertices[(index + 1) % entity.vertices.length];
+      const arc = cadBulgeArc(start, end, start.bulge);
+      if (!arc) commands.push(`L${number(end.x)} ${number(end.y)}`);
+      else commands.push(`A${number(arc.radius)} ${number(arc.radius)} 0 ${Math.abs(arc.sweepAngle) > 180 ? 1 : 0} ${arc.sweepAngle < 0 ? 1 : 0} ${number(end.x)} ${number(end.y)}`);
+    }
+    if (entity.closed) commands.push("Z");
+    return commands.join(" ");
+  };
   const projectedPoints = (points: readonly CadPoint[]) => points.map(point => {
     const projected = project(point);
     return `${number(projected.x)},${number(projected.y)}`;
@@ -133,6 +174,7 @@ export function renderCadDocumentSvg(document: NormalizedCadDocument, options: P
     pieces.push(piece);
   };
   const attributes = (item: ExpandedCadEntity) => {
+    if (!limits.includeEntityMetadata) return "";
     const block = item.blockName === null ? "" : ` data-block-name="${xml(item.blockName)}"`;
     const insertLayer = item.insertLayer === null ? "" : ` data-insert-layer="${xml(item.insertLayer)}"`;
     return `data-source-entity-id="${xml(item.sourceEntityId)}" data-layer="${xml(item.entity.layer)}"${insertLayer}${block}`;
@@ -141,19 +183,40 @@ export function renderCadDocumentSvg(document: NormalizedCadDocument, options: P
   append(`<svg xmlns="http://www.w3.org/2000/svg" width="${number(width)}" height="${number(height)}" viewBox="0 0 ${number(width)} ${number(height)}" role="img" aria-label="CAD floor plan">`);
   append(`<rect x="0" y="0" width="${number(width)}" height="${number(height)}" fill="#ffffff"/>`);
   append('<g fill="none" stroke="#1f2937" stroke-width="0.2" vector-effect="non-scaling-stroke">');
-  for (const item of expanded) {
+  const renderItems = expanded ?? iterateCadDocumentExpansion(document, {
+    maxRenderedEntities: limits.maxRenderedEntities,
+    maxBlockDepth: limits.maxBlockDepth
+  });
+  for (const work of renderItems) {
+    checkBudget();
+    if (!work) continue;
+    const item = work;
     const entity = item.entity;
     const attrs = attributes(item);
     if (entity.type === "line") {
       const start = project(transformPoint(item.matrix, entity.start));
       const end = project(transformPoint(item.matrix, entity.end));
       append(`<line ${attrs} x1="${number(start.x)}" y1="${number(start.y)}" x2="${number(end.x)}" y2="${number(end.y)}"/>`);
+    } else if ("vertices" in entity && limits.compactPaths) {
+      const matrix = multiplyCadMatrices(projection, item.matrix);
+      append(`<path ${attrs} d="${compactPolylinePath(entity)}" transform="${matrixAttribute(matrix)}"/>`);
     } else if ("vertices" in entity) {
       const points = pointsForPolyline(entity, item.matrix);
       const tag = entity.closed ? "polygon" : "polyline";
       append(`<${tag} ${attrs} points="${projectedPoints(points)}"/>`);
+    } else if (entity.type === "circle" && limits.compactPaths) {
+      const matrix = multiplyCadMatrices(projection, item.matrix);
+      append(`<circle ${attrs} cx="${number(entity.center.x)}" cy="${number(entity.center.y)}" r="${number(entity.radius)}" transform="${matrixAttribute(matrix)}"/>`);
     } else if (entity.type === "circle") {
       append(`<polygon ${attrs} points="${projectedPoints(pointsForCircle(entity.center, entity.radius, item.matrix))}"/>`);
+    } else if (entity.type === "arc" && limits.compactPaths) {
+      const startRadians = entity.startAngle * Math.PI / 180;
+      const endRadians = entity.endAngle * Math.PI / 180;
+      const start = { x: entity.center.x + entity.radius * Math.cos(startRadians), y: entity.center.y + entity.radius * Math.sin(startRadians) };
+      const end = { x: entity.center.x + entity.radius * Math.cos(endRadians), y: entity.center.y + entity.radius * Math.sin(endRadians) };
+      const sweep = arcSweep(entity.startAngle, entity.endAngle);
+      const matrix = multiplyCadMatrices(projection, item.matrix);
+      append(`<path ${attrs} d="M${number(start.x)} ${number(start.y)} A${number(entity.radius)} ${number(entity.radius)} 0 ${sweep > 180 ? 1 : 0} 0 ${number(end.x)} ${number(end.y)}" transform="${matrixAttribute(matrix)}"/>`);
     } else if (entity.type === "arc") {
       append(`<polyline ${attrs} points="${projectedPoints(pointsForArc(item as ExpandedCadEntity & { entity: Extract<ExpandedCadEntity["entity"], { type: "arc" }> }))}"/>`);
     } else {
@@ -165,10 +228,11 @@ export function renderCadDocumentSvg(document: NormalizedCadDocument, options: P
       const matrix = multiplyCadMatrices(projection, multiplyCadMatrices(item.matrix, textTransform));
       const text = sanitizeCadText(entity.text);
       const openingPrefix = `<g ${attrs} data-cad-text="true" aria-label="`;
-      const openingSuffix = `" fill="#111827" stroke="none" transform="matrix(${number(matrix.a)} ${number(matrix.b)} ${number(matrix.c)} ${number(matrix.d)} ${number(matrix.e)} ${number(matrix.f)})">`;
+      const openingSuffix = `" fill="#111827" stroke="none" transform="${matrixAttribute(matrix)}">`;
       ensureOutputCapacity(Buffer.byteLength(openingPrefix, "utf8") + xmlByteLength(text) + Buffer.byteLength(openingSuffix, "utf8"));
       append(`${openingPrefix}${xmlSanitized(text)}${openingSuffix}`);
       forEachCadTextGlyph(entity.text, entity.height, { maxGlyphs: maxTextGlyphs }, glyph => {
+        checkBudget();
         if (!Number.isFinite(glyph.bounds.minX) || !Number.isFinite(glyph.bounds.minY) ||
             !Number.isFinite(glyph.bounds.maxX) || !Number.isFinite(glyph.bounds.maxY)) return;
         const transform = ` transform="translate(${number(glyph.x)} ${number(glyph.y)}) scale(${number(glyph.scale)})"/>`;
@@ -182,5 +246,6 @@ export function renderCadDocumentSvg(document: NormalizedCadDocument, options: P
     }
   }
   append("</g></svg>");
+  checkBudget();
   return pieces.join("");
 }

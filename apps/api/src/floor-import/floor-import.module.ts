@@ -74,7 +74,7 @@ export function createCadImportConverter(
     executable,
     argv,
     timeoutMs: positiveInteger(env.CAD_IMPORT_CONVERTER_TIMEOUT_MS, 60_000, "CAD_IMPORT_CONVERTER_TIMEOUT_MS"),
-    maxOutputBytes: positiveInteger(env.CAD_IMPORT_MAX_DXF_BYTES, 16 * 1024 * 1024, "CAD_IMPORT_MAX_DXF_BYTES"),
+    maxOutputBytes: positiveInteger(env.CAD_IMPORT_MAX_DXF_BYTES, 256 * 1024 * 1024, "CAD_IMPORT_MAX_DXF_BYTES"),
     execution: { mode: "linux-resource-limited" }
   });
 }
@@ -115,7 +115,7 @@ function positiveInteger(value: string | undefined, fallback: number, name: stri
     { provide: CAD_IMPORT_CONVERTER, useFactory: () => converterProvider(process.env) },
     {
       provide: CAD_IMPORT_RULE_DETECTOR,
-      useFactory: () => new RuleBasedLightingSymbolDetector({ maxCandidates: 1000 })
+      useFactory: () => new RuleBasedLightingSymbolDetector({ maxCandidates: 2_000 })
     },
     { provide: CAD_IMPORT_AI_DETECTOR, useFactory: () => new DisabledAiLightingSymbolDetector() },
     { provide: CAD_IMPORT_WORKER_OPTIONS, useFactory: () => workerOptions(process.env) }

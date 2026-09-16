@@ -8,6 +8,7 @@ import {
 } from "@nestjs/common";
 import {
   cadImportFileTypeSchema,
+  CAD_IMPORT_MAX_CANDIDATES,
   floorImportApplyInputSchema,
   floorImportCandidateListResponseSchema,
   floorImportRenderedViewportSchema,
@@ -159,7 +160,7 @@ export class FloorImportService {
     const candidates = await this.prisma.floorImportCandidate.findMany({
       where: { jobId },
       orderBy: [{ confidence: "desc" }, { id: "asc" }],
-      take: 1000,
+      take: CAD_IMPORT_MAX_CANDIDATES,
       select: candidateSelect
     });
     return floorImportCandidateListResponseSchema.parse({ jobId, candidates });

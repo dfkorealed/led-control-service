@@ -135,6 +135,7 @@ describe("FloorImportService", () => {
     expect(result).toEqual({ jobId, candidates: [expect.objectContaining({ id: candidateId, sourceEntityId: "insert-1" })] });
     expect(result.candidates[0]).not.toHaveProperty("fixtureId");
     expect(result.candidates[0]).not.toHaveProperty("meshNodeId");
+    expect(prisma.floorImportCandidate.findMany).toHaveBeenCalledWith(expect.objectContaining({ take: 2_000 }));
     expect(access.assert).toHaveBeenCalledWith(user, "site-1", "read");
   });
 

@@ -1,14 +1,16 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from "@nestjs/common";
 import { Prisma, type FloorImportJob } from "@prisma/client";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdtemp, readFile, rm, stat, utimes } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { mkdtemp, rm, stat, utimes } from "node:fs/promises";
 import { join } from "node:path";
 import { PrismaService } from "../prisma/prisma.service";
 import { ObjectStorageService } from "../storage/object-storage.service";
 import { type CadConverter } from "./cad-converter";
 import { renderCadDocumentSvg } from "./cad-svg-renderer";
-import { parseAsciiDxf } from "./dxf-document-parser";
+import { parseAsciiDxfStream } from "./dxf-document-parser";
 import { type LightingSymbolDetector } from "./lighting-symbol-detector";
+import { DEFAULT_LIGHTING_PROFILE_DIGEST, DEFAULT_LIGHTING_PROFILE_VERSION } from "./rule-based-lighting-symbol-detector";
 import {
   FloorImportAttemptCleanupService,
   type FloorImportAttemptIdentity
@@ -25,11 +27,12 @@ export {
 
 const MAX_ATTEMPTS = 3;
 const MAX_SOURCE_BYTES = 50 * 1024 * 1024;
-const MAX_DXF_BYTES = 16 * 1024 * 1024;
-const MAX_SVG_BYTES = 8 * 1024 * 1024;
-const MAX_CANDIDATES = 1000;
-const PARSER_VERSION = "ascii-dxf-v1";
-const DETECTOR_VERSION = "rule-v1+ai-disabled-v1";
+const MAX_DXF_BYTES = 256 * 1024 * 1024;
+const MAX_SVG_BYTES = 128 * 1024 * 1024;
+const MAX_TEMP_DISK_BYTES = 512 * 1024 * 1024;
+const MAX_CANDIDATES = 2_000;
+const PARSER_VERSION = "ascii-dxf-stream-v2";
+const DETECTOR_VERSION = `${DEFAULT_LIGHTING_PROFILE_VERSION}:${DEFAULT_LIGHTING_PROFILE_DIGEST}+ai-disabled-v1`;
 
 @Injectable()
 export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
@@ -188,7 +191,7 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
       await pulse(35, "parsing");
 
       phase = "parse";
-      const document = parseAsciiDxf(await readFile(dxfPath), { maxInputBytes: MAX_DXF_BYTES });
+      const document = await parseAsciiDxfStream(createReadStream(dxfPath), { maxInputBytes: MAX_DXF_BYTES });
       await pulse(55, "detecting");
 
       phase = "detect";
@@ -202,8 +205,14 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
       await pulse(70, "rendering");
 
       phase = "render";
-      const rendered = Buffer.from(renderCadDocumentSvg(document, { maxOutputBytes: MAX_SVG_BYTES }), "utf8");
+      const rendered = Buffer.from(renderCadDocumentSvg(document, {
+        maxOutputBytes: MAX_SVG_BYTES, maxRenderedEntities: 1_000_000, maxBlockDepth: 32,
+        trustDocumentBounds: true, includeEntityMetadata: false, compactPaths: true
+      }), "utf8");
       if (rendered.length < 1 || rendered.length > MAX_SVG_BYTES) throw new Error("CAD SVG output limit exceeded");
+      if (Number(source.sizeBytes) + converted.size + rendered.length > MAX_TEMP_DISK_BYTES) {
+        throw new Error("CAD import temporary disk limit exceeded");
+      }
       const nativeWidth = Math.max(1, document.bounds.maxX - document.bounds.minX + 2);
       const nativeHeight = Math.max(1, document.bounds.maxY - document.bounds.minY + 2);
       const viewport = { width: Math.ceil(nativeWidth), height: Math.ceil(nativeHeight) };

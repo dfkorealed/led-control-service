@@ -1,9 +1,7 @@
 import { z } from "zod";
-import {
-  EDITOR_MAX_EXPECTED_REVISION,
-  EDITOR_MAX_FIXTURE_UPDATES,
-  POSTGRES_INT_MAX
-} from "./schemas";
+import { EDITOR_MAX_EXPECTED_REVISION, POSTGRES_INT_MAX } from "./schemas";
+
+export const CAD_IMPORT_MAX_CANDIDATES = 2_000;
 
 export const CAD_IMPORT_MIME_TYPES = {
   dwg: [
@@ -90,14 +88,14 @@ export const floorImportCandidateSchema = z.object({
 
 export const floorImportCandidateListResponseSchema = z.object({
   jobId: z.string().uuid(),
-  candidates: z.array(floorImportCandidateSchema).max(EDITOR_MAX_FIXTURE_UPDATES)
+  candidates: z.array(floorImportCandidateSchema).max(CAD_IMPORT_MAX_CANDIDATES)
 }).strict();
 
 export const floorImportApplyInputSchema = z.object({
   expectedRevision: z.number().int().nonnegative().max(EDITOR_MAX_EXPECTED_REVISION),
   leaseToken: z.string().trim().min(1).max(256),
   leaseFence: z.number().int().positive().max(POSTGRES_INT_MAX),
-  candidateIds: z.array(z.string().uuid()).max(EDITOR_MAX_FIXTURE_UPDATES)
+  candidateIds: z.array(z.string().uuid()).max(CAD_IMPORT_MAX_CANDIDATES)
 }).strict().superRefine((input, context) => {
   if (new Set(input.candidateIds).size !== input.candidateIds.length) {
     context.addIssue({

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  CAD_IMPORT_MAX_CANDIDATES,
   CAD_IMPORT_MIME_TYPES,
   cadImportFileTypeSchema,
   floorImportApplyInputSchema,
@@ -31,6 +32,26 @@ const candidateResponse = {
 };
 
 describe("CAD import contracts", () => {
+  it("preserves the bounded 2,000 candidate review/apply contract", () => {
+    expect(CAD_IMPORT_MAX_CANDIDATES).toBe(2_000);
+    const candidates = Array.from({ length: 1_308 }, (_, index) => ({
+      ...candidateResponse.candidates[0],
+      id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+      sourceEntityId: `entity-${index}`
+    }));
+    expect(floorImportCandidateListResponseSchema.safeParse({ jobId, candidates }).success).toBe(true);
+    expect(floorImportApplyInputSchema.safeParse({
+      expectedRevision: 3, leaseToken: "lease-token", leaseFence: 7,
+      candidateIds: candidates.map(candidate => candidate.id)
+    }).success).toBe(true);
+    const excessive = [...candidates, ...Array.from({ length: 693 }, (_, offset) => ({
+      ...candidateResponse.candidates[0],
+      id: `00000000-0000-4000-8001-${String(offset).padStart(12, "0")}`,
+      sourceEntityId: `extra-${offset}`
+    }))];
+    expect(floorImportCandidateListResponseSchema.safeParse({ jobId, candidates: excessive }).success).toBe(false);
+  });
+
   it("accepts only known DWG/DXF MIME types paired with their source format", () => {
     for (const mimeType of CAD_IMPORT_MIME_TYPES.dwg) {
       expect(cadImportFileTypeSchema.parse({ sourceFormat: "dwg", mimeType })).toEqual({
@@ -130,7 +151,7 @@ describe("CAD import contracts", () => {
     expect(floorImportApplyInputSchema.safeParse({ ...input, fixtureIds: [] }).success).toBe(false);
     expect(floorImportApplyInputSchema.safeParse({
       ...input,
-      candidateIds: Array.from({ length: 1_001 }, (_, index) =>
+      candidateIds: Array.from({ length: 2_001 }, (_, index) =>
         `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`)
     }).success).toBe(false);
   });

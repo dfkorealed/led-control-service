@@ -53,6 +53,15 @@ describe("CAD SVG renderer", () => {
     expect(() => renderCadDocumentSvg(document, { maxOutputBytes: 64 })).toThrow(/output.*limit/i);
   });
 
+  it("enforces independent SVG wall and CPU budgets", () => {
+    let wall = 0;
+    expect(() => renderCadDocumentSvg(document, { maxDurationMs: 1, now: () => wall++ }))
+      .toThrow(/wall time.*limit/i);
+    let cpu = 0;
+    expect(() => renderCadDocumentSvg(document, { maxCpuMs: 1, cpuNow: () => cpu++ }))
+      .toThrow(/CPU time.*limit/i);
+  });
+
   it("renders LWPOLYLINE bulges as sampled arcs instead of straight chords", () => {
     const curved: NormalizedCadDocument = {
       version: 1, bounds: { minX: 0, minY: -1, maxX: 2, maxY: 0 }, blocks: [],

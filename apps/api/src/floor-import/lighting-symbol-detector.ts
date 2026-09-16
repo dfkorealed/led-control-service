@@ -12,6 +12,8 @@ export interface DetectedLightingSymbol {
   provider?: string;
   model?: string;
   inputDigest?: string;
+  profileVersion?: string;
+  profileDigest?: string;
 }
 
 export interface LightingDetectionOptions {

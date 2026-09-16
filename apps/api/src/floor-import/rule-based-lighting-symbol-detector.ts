@@ -1,14 +1,18 @@
+import { createHash } from "node:crypto";
 import { iterateCadDocumentExpansion, iterateCadInsertExpansion, transformPoint } from "./cad-geometry";
 import type { NormalizedCadDocument } from "./cad-types";
 import type { DetectedLightingSymbol, LightingDetectionOptions, LightingSymbolDetector } from "./lighting-symbol-detector";
 
 export interface LightingDetectionProfile {
+  profileVersion: string;
+  exactBlockAllowlist: readonly string[];
   layerNameTokens: readonly string[];
   blockNameTokens: readonly string[];
   minimumBlockOccurrences: number;
   confidence: number;
   maxCandidates: number;
   maxExpandedInserts: number;
+  maxExpandedEntities: number;
   attributeValueTokens: readonly string[];
   nearbyTextTokens: readonly string[];
   denyLayerNameTokens: readonly string[];
@@ -21,12 +25,15 @@ export interface LightingDetectionProfile {
 }
 
 const DEFAULT_PROFILE: LightingDetectionProfile = {
+  profileVersion: "site-drawing-lighting/2",
+  exactBlockAllowlist: ["몰드바등"],
   layerNameTokens: ["조명", "전등", "LIGHT", "LIGHTING", "LAMP", "LED"],
   blockNameTokens: ["조명", "전등", "LIGHT", "LAMP", "LED", "FIXTURE", "LUMINAIRE"],
   minimumBlockOccurrences: 2,
   confidence: 0.95,
-  maxCandidates: 10_000,
+  maxCandidates: 2_000,
   maxExpandedInserts: 100_000,
+  maxExpandedEntities: 1_000_000,
   attributeValueTokens: ["조명", "전등", "LIGHT", "LIGHTING", "LAMP", "LED", "FIXTURE", "LUMINAIRE"],
   nearbyTextTokens: ["조명", "전등", "LIGHT", "LIGHTING", "LAMP", "LED", "FIXTURE", "LUMINAIRE"],
   denyLayerNameTokens: ["LEDGER", "SCHEDULE", "NOTE", "DECOR", "TITLE BLOCK"],
@@ -37,6 +44,26 @@ const DEFAULT_PROFILE: LightingDetectionProfile = {
   maxDurationMs: 5_000,
   cooperativeYieldInterval: 256
 };
+
+function profileDigest(profile: LightingDetectionProfile, exactBlockAllowlist: readonly string[]): string {
+  return createHash("sha256").update(JSON.stringify({
+    profileVersion: profile.profileVersion,
+    exactBlockAllowlist: [...exactBlockAllowlist].sort(),
+    layerNameTokens: profile.layerNameTokens,
+    blockNameTokens: profile.blockNameTokens,
+    minimumBlockOccurrences: profile.minimumBlockOccurrences,
+    denyLayerNameTokens: profile.denyLayerNameTokens,
+    denyBlockNameTokens: profile.denyBlockNameTokens,
+    denyAttributeValueTokens: profile.denyAttributeValueTokens,
+    denyNearbyTextTokens: profile.denyNearbyTextTokens
+  })).digest("hex");
+}
+
+export const DEFAULT_LIGHTING_PROFILE_VERSION = DEFAULT_PROFILE.profileVersion;
+export const DEFAULT_LIGHTING_PROFILE_DIGEST = profileDigest(
+  DEFAULT_PROFILE,
+  DEFAULT_PROFILE.exactBlockAllowlist.map(value => value.normalize("NFKC").toLocaleUpperCase())
+);
 
 const MAX_COOPERATIVE_YIELD_INTERVAL = 1024;
 const TOKEN_CHARACTER = /^[\p{L}\p{N}]$/u;
@@ -176,12 +203,17 @@ export class RuleBasedLightingSymbolDetector implements LightingSymbolDetector {
   private readonly denyBlockTokens: string[][];
   private readonly denyAttributeTokens: string[][];
   private readonly denyNearbyTextTokens: string[][];
+  private readonly exactBlockAllowlist: Set<string>;
+  readonly profileVersion: string;
+  readonly profileDigest: string;
 
   constructor(profile: Partial<LightingDetectionProfile> = {}) {
     this.profile = { ...DEFAULT_PROFILE, ...profile };
+    if (!this.profile.profileVersion.trim() || this.profile.profileVersion.length > 128) throw new Error("Invalid detector profile version");
     if (!Number.isInteger(this.profile.minimumBlockOccurrences) || this.profile.minimumBlockOccurrences < 1) throw new Error("Invalid minimum block occurrence count");
     if (!Number.isInteger(this.profile.maxCandidates) || this.profile.maxCandidates < 1) throw new Error("Invalid candidate limit");
     if (!Number.isInteger(this.profile.maxExpandedInserts) || this.profile.maxExpandedInserts < 1) throw new Error("Invalid expanded INSERT limit");
+    if (!Number.isInteger(this.profile.maxExpandedEntities) || this.profile.maxExpandedEntities < 1) throw new Error("Invalid expanded entity limit");
     if (!Number.isFinite(this.profile.confidence) || this.profile.confidence <= 0 || this.profile.confidence > 1) throw new Error("Invalid detector confidence");
     if (!Number.isFinite(this.profile.nearbyTextDistance) || this.profile.nearbyTextDistance < 0) throw new Error("Invalid nearby text distance");
     if (!Number.isFinite(this.profile.maxDurationMs) || this.profile.maxDurationMs <= 0) throw new Error("Invalid detector time limit");
@@ -195,6 +227,12 @@ export class RuleBasedLightingSymbolDetector implements LightingSymbolDetector {
     this.denyBlockTokens = normalizeMatchers(this.profile.denyBlockNameTokens, "denied block name", true);
     this.denyAttributeTokens = normalizeMatchers(this.profile.denyAttributeValueTokens, "denied attribute value", true);
     this.denyNearbyTextTokens = normalizeMatchers(this.profile.denyNearbyTextTokens, "denied nearby text", true);
+    this.exactBlockAllowlist = new Set(this.profile.exactBlockAllowlist.map(value => value.normalize("NFKC").toLocaleUpperCase()));
+    if (this.exactBlockAllowlist.size !== this.profile.exactBlockAllowlist.length || [...this.exactBlockAllowlist].some(value => !value || value.length > 512)) {
+      throw new Error("Invalid exact block allowlist");
+    }
+    this.profileVersion = this.profile.profileVersion;
+    this.profileDigest = profileDigest(this.profile, [...this.exactBlockAllowlist]);
   }
 
   async detect(document: NormalizedCadDocument, options: LightingDetectionOptions = {}): Promise<DetectedLightingSymbol[]> {
@@ -221,15 +259,9 @@ export class RuleBasedLightingSymbolDetector implements LightingSymbolDetector {
       const pause = afterWork();
       if (pause) await pause;
     }
-    const expandedEntities = [];
-    for (const item of iterateCadDocumentExpansion(document, { maxRenderedEntities: this.profile.maxExpandedInserts, checkBudget })) {
-      if (item) expandedEntities.push(item);
-      const pause = afterWork();
-      if (pause) await pause;
-    }
     const textGrid = new CadTextGrid(this.profile.nearbyTextDistance);
-    for (const item of expandedEntities) {
-      if (item.entity.type === "text" || item.entity.type === "mtext") {
+    for (const item of iterateCadDocumentExpansion(document, { maxRenderedEntities: this.profile.maxExpandedEntities, checkBudget })) {
+      if (item && (item.entity.type === "text" || item.entity.type === "mtext")) {
         textGrid.add({
           tokens: await tokenizeCooperatively(item.entity.text, afterWork),
           position: transformPoint(item.matrix, item.entity.position)
@@ -280,7 +312,8 @@ export class RuleBasedLightingSymbolDetector implements LightingSymbolDetector {
         checkBudget();
         continue;
       }
-      if (!await matchesTokens(item.blockTokens, this.blockTokens, afterWork)) {
+      const exactBlockMatch = this.exactBlockAllowlist.has(item.blockKey);
+      if (!exactBlockMatch && !await matchesTokens(item.blockTokens, this.blockTokens, afterWork)) {
         checkBudget();
         continue;
       }
@@ -288,7 +321,7 @@ export class RuleBasedLightingSymbolDetector implements LightingSymbolDetector {
         checkBudget();
         continue;
       }
-      const evidence = ["layer_pattern", "block_pattern", "block_frequency"];
+      const evidence = ["layer_pattern", exactBlockMatch ? "exact_block_allowlist" : "block_pattern", "block_frequency"];
       if (await someTokensMatch(item.attributeTokens, this.attributeTokens, afterWork)) evidence.push("attribute_pattern");
       if (await someTokensMatch(nearbyTokenGroups, this.nearbyTextTokens, afterWork)) evidence.push("nearby_text_pattern");
       detected.push({
@@ -299,7 +332,9 @@ export class RuleBasedLightingSymbolDetector implements LightingSymbolDetector {
         rotation: insert.rotation,
         confidence: this.profile.confidence,
         method: "rule",
-        evidence
+        evidence,
+        profileVersion: this.profileVersion,
+        profileDigest: this.profileDigest
       });
       if (detected.length > this.profile.maxCandidates) throw new Error("CAD lighting candidate limit exceeded");
       checkBudget();

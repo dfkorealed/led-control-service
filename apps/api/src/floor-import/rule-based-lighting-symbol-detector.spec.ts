@@ -18,6 +18,23 @@ function cad(entities: NormalizedCadDocument["entities"]): NormalizedCadDocument
 }
 
 describe("rule-based lighting symbol detector", () => {
+  it("uses the drawing profile exact allowlist and preserves 1,308 review candidates with metadata", async () => {
+    const detector = new RuleBasedLightingSymbolDetector({ maxDurationMs: 30_000 });
+    const entities = Array.from({ length: 1_308 }, (_, index) => candidate(index, "전등-간선", "몰드바등"));
+    entities.push(candidate(2_000, "전등-간선", "몰드바등",));
+    entities.at(-1)!.layer = "SCHEDULE";
+
+    const detected = await detector.detect(cad(entities));
+
+    expect(detected).toHaveLength(1_308);
+    expect(detected[0]).toMatchObject({
+      blockName: "몰드바등",
+      evidence: ["layer_pattern", "exact_block_allowlist", "block_frequency"],
+      profileVersion: "site-drawing-lighting/2"
+    });
+    expect(detected[0].profileDigest).toMatch(/^[a-f0-9]{64}$/);
+  });
+
   it("detects 1,000 repeated INSERTs only when layer and block evidence intersect", async () => {
     const entities = Array.from({ length: 1000 }, (_, index) => candidate(index));
     entities.push(candidate(1001, "DECOR", "LED_FIXTURE"));
