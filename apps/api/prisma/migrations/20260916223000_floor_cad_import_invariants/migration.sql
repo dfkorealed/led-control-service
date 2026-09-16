@@ -1,4 +1,5 @@
 BEGIN;
+SET LOCAL lock_timeout = '10s';
 
 -- FloorAsset is the referenced parent and existing upload/cleanup writers mutate
 -- it before any import-job linkage. Keep this parent-first order for future

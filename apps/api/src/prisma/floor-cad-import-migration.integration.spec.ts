@@ -120,6 +120,56 @@ describe("floor CAD import migration invariants on disposable PostgreSQL", () =>
     `)).toBe(`${baselineMigrationName},${forwardMigrationName}`);
   });
 
+  it("fails within the lock timeout without partially applying schema behind a long writer", async () => {
+    const raceDatabaseUrl = cluster.database();
+    expect(cluster.deploy(raceDatabaseUrl, baselineMigrationName).status).toBe(0);
+    seedBaselineLedger(raceDatabaseUrl, cluster);
+
+    const writer = startPsql(raceDatabaseUrl, "cad_asset_long_writer", `
+      BEGIN;
+      UPDATE "FloorAsset" SET "updatedAt" = CURRENT_TIMESTAMP WHERE "id" = 'baseline-source';
+      SELECT pg_sleep(20);
+      ROLLBACK;
+    `);
+    await waitForTableLock(cluster, raceDatabaseUrl, "cad_asset_long_writer", "FloorAsset", "RowExclusiveLock");
+
+    const startedAt = Date.now();
+    const migration = cluster.deploy(raceDatabaseUrl, forwardMigrationName);
+    const elapsedMs = Date.now() - startedAt;
+    const writerWasStillActive = cluster.sql(raceDatabaseUrl, `
+      SELECT count(*) FROM pg_stat_activity
+      WHERE application_name = 'cad_asset_long_writer';
+    `);
+    cluster.sql(raceDatabaseUrl, `
+      SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+      WHERE application_name = 'cad_asset_long_writer' AND pid <> pg_backend_pid();
+    `);
+    await writer.completed;
+
+    expect(migration.status).not.toBe(0);
+    expect(elapsedMs).toBeLessThan(15_000);
+    expect(writerWasStillActive).toBe("1");
+    expect(cluster.sql(raceDatabaseUrl, `
+      SELECT count(*) FROM "_prisma_migrations"
+      WHERE migration_name = '${forwardMigrationName}' AND finished_at IS NOT NULL;
+    `)).toBe("0");
+    expect(cluster.sql(raceDatabaseUrl, `
+      SELECT
+        ((SELECT count(*) FROM information_schema.columns
+          WHERE table_schema = 'public' AND (
+            (table_name = 'FloorImportJob' AND column_name = 'failedAt') OR
+            (table_name = 'FloorImportCandidate' AND column_name IN ('provider', 'model', 'inputDigest'))
+          )) = 0)::text || ':' ||
+        (to_regprocedure('floor_import_job_assets_are_valid(text)') IS NULL)::text || ':' ||
+        ((SELECT count(*) FROM pg_indexes
+          WHERE schemaname = 'public' AND tablename = 'FloorImportJob'
+            AND indexname = 'FloorImportJob_sourceAssetId_key') = 1)::text || ':' ||
+        ((SELECT count(*) FROM pg_indexes
+          WHERE schemaname = 'public' AND tablename = 'FloorImportJob'
+            AND indexname = 'FloorImportJob_sourceAssetId_idx') = 0)::text;
+    `)).toBe("true:true:true:true");
+  });
+
   it("fails migration after an earlier FloorAsset writer commits an invalid row", async () => {
     const raceDatabaseUrl = cluster.database();
     expect(cluster.deploy(raceDatabaseUrl, baselineMigrationName).status).toBe(0);
