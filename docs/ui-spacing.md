@@ -74,7 +74,7 @@ pnpm --filter @led-control/web build
 
 Task 12 baseline의 violation map은 비어 있으며 production 정책 부채는 **0건**이어야 한다. `inspectWorkspace`는 non-empty allowance를 거부하고 CLI도 빈 map만 허용한다. entry stylesheet import와 문서화된 runtime 예외는 baseline 부채가 아니라 정책 코드의 exact allowlist로 관리한다.
 
-2026-09-16 최종 검증에서 UI policy **51/51**, `ui:check` **기존 0·신규/증가 0**, Web Vitest **83 files·1,224/1,224**, 1440×900·1024×768·390×844·320×740 layout assertions를 포함한 전체 Chromium 직렬 **257 passed·5 environment-gated skipped·실패 0**을 확인했다. 루트 `pnpm test`도 fail-closed UI 정책 체인을 포함한 상태로 통과했다. 실제 native WebView safe-area 실측과 수동 in-app 시각 QA는 별도 후속 검증이다.
+2026-09-16 최종 검증에서 UI policy **52/52**, `ui:check` **기존 0·신규/증가 0**, Web Vitest **83 files·1,224/1,224**, 1440×900·1024×768·390×844·320×740 layout assertions를 포함한 전체 Chromium 직렬 **257 passed·5 environment-gated skipped·실패 0**을 확인했다. 별도 opt-in RealBackendLab도 설치 여정 **2/2**와 층 배치·제어·통계 **1/1**을 통과했다. 루트 `pnpm test`도 fail-closed UI 정책 체인을 포함한 상태로 통과했다. 실제 native WebView safe-area 실측과 수동 in-app 시각 QA는 별도 후속 검증이다.
 
 baseline의 `sourceRef`는 scanner에 고정된 승인 Git commit `24b5ea593e860575f7bf1007781146cf1101beb7`과 일치해야 한다. Git object가 없거나 sourceRef·빈 map이 변조되면 fail-closed한다. canonical root unit gate가 Web `test:ui-policy`와 `ui:check`를 일반 unit 뒤에 실행하고, CI unit checkout은 `fetch-depth: 0`으로 승인 object를 확보한다.
 

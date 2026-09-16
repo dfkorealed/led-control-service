@@ -223,7 +223,9 @@ test("software E2E: floor placement, unplace confirmation/undo, persistence and 
     expect(dashboard.floors.flatMap((floor) => floor.fixtures).map((fixture) => fixture.id).sort()).toEqual([fixtureA.id, fixtureB.id].sort());
     expect(dashboard.floors.flatMap((floor) => floor.fixtures).every((fixture) => fixture.controllable)).toBe(true);
 
-    await page.getByRole("checkbox", { name: `${fixtureA.name} 선택`, exact: true }).check();
+    const fixtureCheckbox = page.getByRole("checkbox", { name: `${fixtureA.name} 선택`, exact: true });
+    await fixtureCheckbox.locator("xpath=ancestor::label").click();
+    await expect(fixtureCheckbox).toBeChecked();
     await page.getByRole("button", { name: "70%", exact: true }).click();
     const expectedCommandCount = lab.dimmingCommandCount() + 1;
     const commandResponsePromise = page.waitForResponse((response) => (
@@ -236,7 +238,7 @@ test("software E2E: floor placement, unplace confirmation/undo, persistence and 
       siteId, brightness: 70, target: { type: "fixture", fixtureId: fixtureA.id }
     });
     await lab.waitForDimmingCommandCount(expectedCommandCount);
-    await expect(page.getByText("조명 적용 완료", { exact: true })).toBeVisible();
+    await expect(page.getByRole("status", { name: "명령 진행 상태" }).getByText("조명 적용 완료 · 기본 밝기로 저장됨", { exact: true })).toBeVisible();
     await expect.poll(async () => {
       const current = await getJson<Dashboard>(page, `/sites/${siteId}/dashboard?includeFixtures=true`);
       return current.floors.flatMap((floor) => floor.fixtures).find((fixture) => fixture.id === fixtureA.id)?.brightness;

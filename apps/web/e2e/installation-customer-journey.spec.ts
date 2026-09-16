@@ -166,13 +166,17 @@ test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 
   await expect(admin.getByRole("heading", { name: "조명 밝기 제어" })).toBeVisible();
   let expectedDimmingCount = lab.dimmingCommandCount();
 
-  await admin.getByRole("checkbox", { name: `${fixtureNames[0]} 선택` }).check();
+  const firstFixtureCheckbox = admin.getByRole("checkbox", { name: `${fixtureNames[0]} 선택` });
+  await firstFixtureCheckbox.locator("xpath=ancestor::label").click();
+  await expect(firstFixtureCheckbox).toBeChecked();
   await admin.getByRole("button", { name: "30%", exact: true }).click();
   await admin.getByRole("button", { name: "밝기 적용" }).click();
   await lab.waitForDimmingCommandCount(++expectedDimmingCount);
   await expect(admin.getByRole("status", { name: "명령 진행 상태" }).getByText("조명 적용 완료")).toBeVisible();
 
-  await admin.getByRole("checkbox", { name: `${fixtureNames[1]} 선택` }).check();
+  const secondFixtureCheckbox = admin.getByRole("checkbox", { name: `${fixtureNames[1]} 선택` });
+  await secondFixtureCheckbox.locator("xpath=ancestor::label").click();
+  await expect(secondFixtureCheckbox).toBeChecked();
   await admin.getByRole("button", { name: "70%", exact: true }).click();
   await admin.getByRole("button", { name: "밝기 적용" }).click();
   await lab.waitForDimmingCommandCount(++expectedDimmingCount);
@@ -187,13 +191,18 @@ test("operator가 발급한 admin이 설치부터 운영하고 viewer는 읽기 
 
   await admin.getByRole("button", { name: "구역 관리" }).click();
   await admin.getByRole("button", { name: "새 구역" }).click();
+  const groupDialog = admin.getByRole("dialog", { name: "구역 생성", exact: true });
   await admin.getByLabel("구역 이름").fill("Task 9 구역");
-  await admin.getByRole("button", { name: "층", exact: true }).click();
+  await groupDialog.getByRole("button", { name: "층", exact: true }).click();
   await admin.getByRole("option", { name: "B1", exact: true }).click();
   await admin.getByRole("button", { name: "게이트웨이", exact: true }).click();
   await admin.getByRole("option", { name: "Task 9 Gateway", exact: true }).click();
-  await admin.getByLabel(`${fixtureNames[0]} 포함`).check();
-  await admin.getByLabel(`${fixtureNames[1]} 포함`).check();
+  const firstGroupFixtureCheckbox = admin.getByLabel(`${fixtureNames[0]} 포함`);
+  const secondGroupFixtureCheckbox = admin.getByLabel(`${fixtureNames[1]} 포함`);
+  await firstGroupFixtureCheckbox.locator("xpath=ancestor::label").click();
+  await secondGroupFixtureCheckbox.locator("xpath=ancestor::label").click();
+  await expect(firstGroupFixtureCheckbox).toBeChecked();
+  await expect(secondGroupFixtureCheckbox).toBeChecked();
   await admin.getByRole("button", { name: "구역 만들기" }).click();
   await expect(admin.getByText("제어 준비 완료")).toBeVisible({ timeout: 20_000 });
   await admin.getByRole("button", { name: "구역 관리 닫기" }).click();

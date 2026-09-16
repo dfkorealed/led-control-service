@@ -469,6 +469,36 @@ test("workspace requires every canonical CSS import exactly once", async () => {
   }
 });
 
+test("workspace rejects extensionless bare imports only when package metadata exposes CSS", async () => {
+  const root = await mkdtemp(join(tmpdir(), "led-ui-package-css-"));
+  const canonical = '@import "tailwindcss"; @import "./styles/theme.css"; @import "./styles/base.css"; @import "./styles/exceptions.css";';
+  try {
+    await mkdir(join(root, "src"));
+    await mkdir(join(root, "node_modules/@vendor/theme"), { recursive: true });
+    await mkdir(join(root, "node_modules/@vendor/runtime"), { recursive: true });
+    await writeFile(join(root, "src/App.tsx"), 'import "./styles.css"; import "@vendor/theme"; import "@vendor/theme/tokens"; import "@vendor/runtime";');
+    await writeFile(join(root, "src/styles.css"), canonical);
+    await writeFile(join(root, "node_modules/@vendor/theme/package.json"), JSON.stringify({
+      name: "@vendor/theme",
+      style: "./index.css",
+      exports: { ".": { style: "./index.css", import: "./index.js" }, "./tokens": "./tokens.css" }
+    }));
+    await writeFile(join(root, "node_modules/@vendor/runtime/package.json"), JSON.stringify({
+      name: "@vendor/runtime",
+      exports: { ".": { import: "./index.js", types: "./index.d.ts" } }
+    }));
+
+    const result = await inspectWorkspace({ root, baseline: {} });
+    assert.deepEqual(
+      result.violations.filter(v => v.rule === "css-import").map(v => v.match),
+      ["@vendor/theme", "@vendor/theme/tokens"]
+    );
+    assert.ok(!result.violations.some(v => v.match === "@vendor/runtime"));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("baseline must preserve the approved Git anchor and an empty violation map", async () => {
   const root = await mkdtemp(join(tmpdir(), "led-ui-baseline-integrity-"));
   const run = () => spawnSync(process.execPath, [new URL("./ui-policy.mjs", import.meta.url).pathname, "--root", root], { encoding: "utf8" });

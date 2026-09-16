@@ -203,6 +203,61 @@ function moduleSpecifiers(source, path) {
   return specifiers;
 }
 
+function barePackageRequest(specifier) {
+  const resource = specifier.split(/[?#]/, 1)[0];
+  if (!resource || resource.startsWith(".") || resource.startsWith("/") || resource.startsWith("#") || resource.startsWith("node:")) return null;
+  const segments = resource.split("/");
+  const scoped = resource.startsWith("@");
+  if (scoped && segments.length < 2) return null;
+  const packageName = scoped ? segments.slice(0, 2).join("/") : segments[0];
+  const remainder = segments.slice(scoped ? 2 : 1).join("/");
+  return { packageName, exportKey: remainder ? `./${remainder}` : "." };
+}
+
+function cssExportTarget(target) {
+  if (typeof target === "string") return target.split(/[?#]/, 1)[0].endsWith(".css");
+  if (Array.isArray(target)) return target.some(cssExportTarget);
+  return target !== null && typeof target === "object" && Object.values(target).some(cssExportTarget);
+}
+
+function exportedPackageTarget(exports, exportKey) {
+  if (exportKey === "." && (typeof exports === "string" || Array.isArray(exports))) return exports;
+  if (!exports || typeof exports !== "object") return undefined;
+  const keys = Object.keys(exports);
+  if (!keys.some(key => key.startsWith("."))) return exportKey === "." ? exports : undefined;
+  if (Object.hasOwn(exports, exportKey)) return exports[exportKey];
+  for (const key of keys) {
+    if (!key.includes("*")) continue;
+    const [prefix, suffix] = key.split("*");
+    if (exportKey.startsWith(prefix) && exportKey.endsWith(suffix)) return exports[key];
+  }
+}
+
+async function packageRequestExportsCss(root, specifier, manifestCache) {
+  const request = barePackageRequest(specifier);
+  if (!request) return false;
+  let manifest = manifestCache.get(request.packageName);
+  if (manifest === undefined) {
+    let directory = resolve(root);
+    manifest = null;
+    while (true) {
+      try {
+        manifest = JSON.parse(await readFile(resolve(directory, "node_modules", request.packageName, "package.json"), "utf8"));
+        break;
+      } catch (error) {
+        if (error?.code !== "ENOENT") throw error;
+      }
+      const parent = dirname(directory);
+      if (parent === directory) break;
+      directory = parent;
+    }
+    manifestCache.set(request.packageName, manifest);
+  }
+  if (!manifest) return false;
+  if (request.exportKey === "." && [manifest.style, manifest.main, manifest.module].some(cssExportTarget)) return true;
+  return cssExportTarget(exportedPackageTarget(manifest.exports, request.exportKey));
+}
+
 function exceptionAnchor(source, path, index) {
   if (path.endsWith(".css")) return "";
   const file = parseScript(source, path);
@@ -540,6 +595,17 @@ export async function inspectWorkspace({ root = webRoot, baseline = {} } = {}) {
     const source = await readFile(file, "utf8");
     sources.set(path, source);
     violations.push(...inspectUiSource(path, source));
+  }
+
+  const manifestCache = new Map();
+  for (const [path, source] of sources) {
+    if (path.endsWith(".css") || testPath.test(path)) continue;
+    for (const { specifier } of moduleSpecifiers(source, path)) {
+      if (await packageRequestExportsCss(root, specifier, manifestCache)
+        && !violations.some(violation => violation.path === path && violation.rule === "css-import" && violation.match === specifier)) {
+        violations.push({ rule: "css-import", path, match: specifier });
+      }
+    }
   }
 
   const stylesheet = sources.get("src/styles.css") ?? "";
