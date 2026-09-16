@@ -13,6 +13,9 @@ import { UnderlineNavigation, UnderlineNavigationLabel } from "../../components/
 
 const SiteAdminManagementView = lazy(() => import("./site-admins/SiteAdminManagementView").then((module) => ({ default: module.SiteAdminManagementView })));
 const AccountSecurityView = lazy(() => import("../settings/security/AccountSecurityView").then((module) => ({ default: module.AccountSecurityView })));
+const operatorNavigationItemClass = (isActive: boolean) => `inline-flex min-h-11 shrink-0 items-center border-b-2 px-3 text-body-sm font-bold whitespace-nowrap no-underline outline-none focus-visible:shadow-focus ${isActive
+  ? "border-action-primary text-action-primary"
+  : "border-transparent text-content-secondary hover:border-border-strong hover:text-content-primary"}`;
 
 export function OperatorShell({ user }: { user: AuthUser }) {
   const location = useLocation();
@@ -55,13 +58,13 @@ export function OperatorShell({ user }: { user: AuthUser }) {
         <UnderlineNavigation aria-label="운영자 메뉴">
           <NavLink
             to={{ pathname: "/operator/site-admins", search: location.search, hash: location.hash }}
-            className={({ isActive }) => isActive ? "ui-underline-navigation-item active" : "ui-underline-navigation-item"}
+            className={({ isActive }) => operatorNavigationItemClass(isActive)}
           >
             <UnderlineNavigationLabel>현장 관리자</UnderlineNavigationLabel>
           </NavLink>
           <NavLink
             to={{ pathname: "/operator/security", search: location.search, hash: location.hash }}
-            className={({ isActive }) => isActive ? "ui-underline-navigation-item active" : "ui-underline-navigation-item"}
+            className={({ isActive }) => operatorNavigationItemClass(isActive)}
           >
             <UnderlineNavigationLabel>계정 보안</UnderlineNavigationLabel>
           </NavLink>

@@ -23,7 +23,8 @@ const sourceHooks: Record<string, readonly string[]> = {
     "operator-login-id",
     "operator-content",
     "operator-navigation",
-    "logout-button"
+    "logout-button",
+    "ui-underline-navigation-item"
   ],
   "features/operator/site-admins/ResetAdminPasswordDialog.tsx": ["operator-form"],
   "features/operator/site-admins/SiteAdminFormDialog.tsx": ["operator-form", "operator-form-grid"],
