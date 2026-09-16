@@ -38,7 +38,7 @@ for (const viewport of viewports) {
     await expect(page.getByText("적용 대기")).toBeVisible();
     await expect(page.getByText("적용 실패")).toBeVisible();
     await expect(page.getByText("모두 성공 · 성공 1개").first()).toBeVisible();
-    await expectReachableColumns(page, ".automation-table-wrap");
+    await expectReachableColumns(page, "[data-automation-table-wrap]");
     await expectNoHorizontalOverflow(page);
 
     await page.getByRole("button", { name: "적용 스케줄 삭제" }).click();
@@ -72,7 +72,7 @@ for (const viewport of viewports) {
     await expect(page.getByRole("table", { name: "차량 이벤트 목록" })).toBeVisible();
     await expect(page.getByText("최근 감지 없음").first()).toBeVisible();
     await expect(page.getByText("비활성")).toBeVisible();
-    await expectReachableColumns(page, ".automation-table-wrap");
+    await expectReachableColumns(page, "[data-automation-table-wrap]");
     await expectNoHorizontalOverflow(page);
 
     await page.getByRole("button", { name: "이벤트 추가" }).click();

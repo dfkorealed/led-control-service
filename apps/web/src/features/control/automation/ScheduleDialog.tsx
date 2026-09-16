@@ -156,7 +156,7 @@ export function ScheduleDialog({
       isPending={isPending}
       returnFocusRef={returnFocusRef}
       onClose={onClose}
-      className="control-automation-dialog max-w-4xl"
+      className="max-w-4xl"
     >
 
         {view === "target" ? (
@@ -320,7 +320,7 @@ export function ScheduleDialog({
             {serverError ? <Text tone="danger" role="alert">{serverError}</Text> : null}
             <footer className="flex justify-end gap-2">
               <Button variant="secondary" type="button" onClick={onClose} disabled={isPending}>취소</Button>
-              <Button className="primary-button" variant="primary" type="submit" isLoading={isPending} loadingLabel="저장 중">
+              <Button variant="primary" type="submit" isLoading={isPending} loadingLabel="저장 중">
                 {schedule ? "변경 저장" : "스케줄 만들기"}
               </Button>
             </footer>

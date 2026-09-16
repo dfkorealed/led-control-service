@@ -656,10 +656,10 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
 
       await page.goto(`/control?siteId=${ids.site}`);
       await expect(page.getByRole("heading", { name: "조명 밝기 제어", exact: true })).toBeVisible();
-      await expectResponsivePanelLayout(page, ".control-target-card", ".control-panel", viewport.width <= 1120);
+      await expectResponsivePanelLayout(page, "[data-control-target-card]", "[data-control-panel]", viewport.width <= 1120);
       await expectNoHorizontalOverflow(page);
       if (viewport.width <= 760) {
-        await expectMinimumTouchTargetsAfterScrolling(page, ".control-screen");
+        await expectMinimumTouchTargetsAfterScrolling(page, "[data-control-screen]");
       }
     });
   }
@@ -682,7 +682,7 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
       await expect(page.getByRole("group", { name: "조명 목록" })).toBeVisible();
 
       const scrollMetrics = await page.evaluate(() => {
-        const fixtureList = document.querySelector<HTMLElement>(".control-target-list");
+        const fixtureList = document.querySelector<HTMLElement>("[data-control-target-list]");
         if (!fixtureList) throw new Error("control target list not found");
         return {
           documentClientHeight: document.documentElement.clientHeight,

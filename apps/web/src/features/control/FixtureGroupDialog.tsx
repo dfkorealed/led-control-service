@@ -133,7 +133,7 @@ export function FixtureGroupDialog({ open, siteId, dashboard, canManage, returnF
       isPending={isMutating}
       returnFocusRef={returnFocusRef}
       onClose={closeDialog}
-      className="fixture-group-dialog max-w-4xl"
+      className="grid max-w-3xl gap-4"
     >
 
         {form ? (
@@ -280,7 +280,7 @@ function FixtureGroupForm({
   const gatewayItems = [{ id: "", label: "게이트웨이 선택" }, ...gateways.map((gateway) => ({ id: gateway.id, label: gateway.name }))];
 
   return (
-    <Card className="fixture-group-editor-card p-4">
+    <Card className="grid gap-2.5 p-4" data-fixture-group-editor-card="">
     <form className="grid gap-4" onSubmit={(event) => {
       event.preventDefault();
       if (!valid) return;
@@ -334,7 +334,7 @@ function FixtureGroupForm({
       </div>
       <div className="flex justify-end gap-2">
         <Button variant="secondary" type="button" onClick={onCancel} disabled={isSaving}>취소</Button>
-        <Button className="primary-button" variant="primary" type="submit" disabled={!valid} isLoading={isSaving} loadingLabel="저장 중">
+        <Button variant="primary" type="submit" disabled={!valid} isLoading={isSaving} loadingLabel="저장 중">
           {form.groupId ? "변경 저장" : "구역 만들기"}
         </Button>
       </div>

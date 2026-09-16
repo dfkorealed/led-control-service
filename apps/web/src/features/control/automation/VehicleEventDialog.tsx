@@ -140,9 +140,10 @@ export function VehicleEventDialog({
     >
       <fieldset
         ref={view === "source" ? sourceFieldRef : targetFieldRef}
-        className="automation-picker-fieldset"
+        className="m-0 min-h-0 border-0 p-0 disabled:opacity-60"
         disabled={isPending}
         tabIndex={-1}
+        data-automation-picker-fieldset=""
         {...errorAttributes(
           view === "source" ? errors.sourceFixtureIds : errors.targetFixtureIds,
           view === "source" ? vehicleEventErrorIds.source : vehicleEventErrorIds.target
@@ -174,7 +175,7 @@ export function VehicleEventDialog({
   ) : null;
 
   return (
-    <ModalDialog isOpen={open} title={title} description="빠른 설정 · Gateway 차량 감지" closeLabel={`${title} 닫기`} isPending={isPending} returnFocusRef={returnFocusRef} onClose={onClose} className="control-automation-dialog max-w-4xl">
+    <ModalDialog isOpen={open} title={title} description="빠른 설정 · Gateway 차량 감지" closeLabel={`${title} 닫기`} isPending={isPending} returnFocusRef={returnFocusRef} onClose={onClose} className="max-w-4xl">
 
         {pickerView ?? (
           <form className="grid gap-4" onSubmit={submit} noValidate>
@@ -251,7 +252,7 @@ export function VehicleEventDialog({
             {serverError ? <Text tone="danger" role="alert">{serverError}</Text> : null}
             <footer className="flex justify-end gap-2">
               <Button variant="secondary" type="button" onClick={onClose} disabled={isPending}>취소</Button>
-              <Button className="primary-button" variant="primary" type="submit" isLoading={isPending} loadingLabel="저장 중">저장</Button>
+              <Button variant="primary" type="submit" isLoading={isPending} loadingLabel="저장 중">저장</Button>
             </footer>
           </form>
         )}

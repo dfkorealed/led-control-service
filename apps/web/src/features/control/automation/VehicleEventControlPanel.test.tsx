@@ -71,7 +71,7 @@ describe("VehicleEventControlPanel", () => {
     renderPanel("admin");
 
     expect(await screen.findByRole("heading", { name: "이벤트 제어", level: 3 })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "이벤트 추가" })).toHaveClass("ui-button", "ui-button-primary");
+    expect(screen.getByRole("button", { name: "이벤트 추가" })).toHaveAttribute("data-variant", "primary");
   });
 
   it("uses shared dialog action buttons", async () => {
@@ -80,8 +80,8 @@ describe("VehicleEventControlPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "이벤트 추가" }));
     const dialog = screen.getByRole("dialog", { name: "이벤트 추가" });
 
-    expect(within(dialog).getByRole("button", { name: "취소" })).toHaveClass("ui-button", "ui-button-secondary");
-    expect(within(dialog).getByRole("button", { name: "저장" })).toHaveClass("ui-button", "ui-button-primary");
+    expect(within(dialog).getByRole("button", { name: "취소" })).toHaveAttribute("data-variant", "secondary");
+    expect(within(dialog).getByRole("button", { name: "저장" })).toHaveAttribute("data-variant", "primary");
   });
 
   it("uses compact source and target cards and keeps capability filtering inside picker views", async () => {
@@ -127,14 +127,15 @@ describe("VehicleEventControlPanel", () => {
 
     renderPanel("viewer");
 
-    expect((await screen.findByText("적용 대기")).closest(".ui-status-badge")).toHaveAttribute("data-tone", "warning");
-    expect(screen.getByText("적용됨").closest(".ui-status-badge")).toHaveAttribute("data-tone", "success");
-    expect(screen.getByText("적용 실패").closest(".ui-status-badge")).toHaveAttribute("data-tone", "danger");
+    expect((await screen.findByText("적용 대기")).closest("[data-tone]")).toHaveAttribute("data-tone", "warning");
+    expect(screen.getByText("적용됨").closest("[data-tone]")).toHaveAttribute("data-tone", "success");
+    expect(screen.getByText("적용 실패").closest("[data-tone]")).toHaveAttribute("data-tone", "danger");
   });
 
   it("차량 이벤트 목록은 polling 실패에도 기존 행과 retry를 유지한다", async () => {
     const { queryClient } = renderPanel("admin");
-    expect(await screen.findByRole("table", { name: "차량 이벤트 목록" })).toBeInTheDocument();
+    const table = await screen.findByRole("table", { name: "차량 이벤트 목록" });
+    expect(table.closest("[data-automation-table-wrap]")).not.toBeNull();
 
     mocks.listVehicleEventRules.mockRejectedValueOnce(new Error("poll failed"));
     await act(async () => {
@@ -142,7 +143,7 @@ describe("VehicleEventControlPanel", () => {
     });
 
     const warning = await screen.findByRole("alert");
-    expect(warning).toHaveClass("ui-feedback-state");
+    expect(warning).toHaveAttribute("data-tone", "warning");
     expect(warning).toHaveTextContent("Gateway 적용 상태를 새로고침하지 못했습니다. 표시된 상태가 최신이 아닐 수 있습니다.");
     expect(screen.getByText("입구 차량 감지")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "상태 다시 조회" })).toBeInTheDocument();

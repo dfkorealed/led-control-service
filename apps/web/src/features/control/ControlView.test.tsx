@@ -156,10 +156,13 @@ describe("ControlView 대상 선택", () => {
     expect(screen.getByRole("heading", { name: "조명 밝기 제어", level: 3 })).toBeInTheDocument();
     expect(screen.getByRole("tablist", { name: "제어 방식" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "수동 제어" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tabpanel", { name: "수동 제어" })).toHaveAttribute("data-control-manual-panel");
     expect(screen.getByRole("group", { name: "제어 대상 선택" })).toBeInTheDocument();
-    expect(screen.getByRole("complementary", { name: "밝기 실행" })).toHaveTextContent("밝기");
-    expect(screen.getByRole("status", { name: "명령 진행 상태" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "구역 관리" })).toHaveClass("ui-button", "ui-button-secondary");
+    expect(screen.getByRole("group", { name: "조명 목록" })).toHaveAttribute("data-control-target-list");
+    expect(screen.getByRole("region", { name: "최근 명령 이력" })).toHaveAttribute("data-command-history-panel");
+    expect(screen.getByRole("complementary", { name: "밝기 실행" })).toHaveAttribute("data-control-panel");
+    expect(screen.getByRole("status", { name: "명령 진행 상태" })).toHaveAttribute("data-command-status-region");
+    expect(screen.getByRole("button", { name: "구역 관리" })).toHaveAttribute("data-variant", "secondary");
   });
 
   it("keeps the visible fixture name inside the checkbox label", () => {
@@ -396,13 +399,13 @@ describe("ControlView 대상 선택", () => {
   it("수동 제어는 공통 Card와 Button으로 preset 및 대상 action을 렌더링한다", () => {
     renderControl();
 
-    expect(screen.getByRole("complementary", { name: "밝기 실행" })).toHaveClass("ui-card");
-    expect(screen.getByRole("button", { name: "30%" })).toHaveClass("ui-button");
-    expect(screen.getByRole("button", { name: "검색 결과 전체 선택" })).toHaveClass("ui-button");
-    expect(screen.getByRole("button", { name: "층" })).toHaveClass("ui-button");
+    expect(screen.getByRole("complementary", { name: "밝기 실행" })).toHaveAttribute("data-variant", "default");
+    expect(screen.getByRole("button", { name: "30%" })).toHaveAttribute("data-variant", "secondary");
+    expect(screen.getByRole("button", { name: "검색 결과 전체 선택" })).toHaveAttribute("data-variant", "secondary");
+    expect(screen.getByRole("button", { name: "층" })).toHaveAttribute("data-variant", "ghost");
 
     fireEvent.click(screen.getByRole("button", { name: "층" }));
-    expect(screen.getByRole("button", { name: "B2" })).toHaveClass("ui-button");
+    expect(screen.getByRole("button", { name: "B2" })).toHaveAttribute("data-variant", "secondary");
   });
 
   it("sends one selected light as a fixture target", async () => {

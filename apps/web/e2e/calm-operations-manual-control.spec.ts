@@ -100,7 +100,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await expectNoHorizontalOverflow(page);
     if (viewport.width > 1120) {
       const dimensions = await page.evaluate(() => {
-        const list = document.querySelector<HTMLElement>(".command-history-list")!;
+        const list = document.querySelector<HTMLElement>("[data-command-history-list]")!;
         return { overflow: getComputedStyle(list).overflowY, listHeight: list.clientHeight, contentHeight: list.scrollHeight, documentHeight: document.documentElement.scrollHeight, viewportHeight: window.innerHeight };
       });
       expect(dimensions.overflow).toBe("auto");
@@ -273,14 +273,14 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1121, height: 900
 
 async function readStableControlRects(page: Page) {
   return page.evaluate(() => {
-    const panel = document.querySelector<HTMLElement>(".control-panel");
-    const badge = panel?.querySelector<HTMLElement>(".ui-status-badge");
-    const body = panel?.querySelector<HTMLElement>(".control-panel-body");
-    const feedback = panel?.querySelector<HTMLElement>("[role='alert']") ?? panel?.querySelector<HTMLElement>(".command-status-region");
+    const panel = document.querySelector<HTMLElement>("[data-control-panel]");
+    const badge = panel?.querySelector<HTMLElement>("[data-tone]");
+    const body = panel?.querySelector<HTMLElement>("[data-control-panel-body]");
+    const feedback = panel?.querySelector<HTMLElement>("[role='alert']") ?? panel?.querySelector<HTMLElement>("[data-command-status-region]");
     const selectors = {
-      dial: ".dial-card",
-      presets: ".preset-row",
-      submit: ".control-panel-body > .ui-button-primary"
+      dial: "[data-control-brightness-card]",
+      presets: "[data-control-presets]",
+      submit: "[data-control-panel-body] > [data-variant='primary']"
     } as const;
     if (!panel || !badge || !body || !feedback) throw new Error("manual control layout is incomplete");
 

@@ -136,7 +136,7 @@ describe("ScheduleControlPanel", () => {
     renderPanel("admin");
 
     expect(await screen.findByRole("heading", { name: "스케줄 제어", level: 3 })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "스케줄 추가" })).toHaveClass("ui-button", "ui-button-primary");
+    expect(screen.getByRole("button", { name: "스케줄 추가" })).toHaveAttribute("data-variant", "primary");
   });
 
   it("uses shared dialog action buttons", async () => {
@@ -145,8 +145,8 @@ describe("ScheduleControlPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "스케줄 추가" }));
     const dialog = screen.getByRole("dialog", { name: "스케줄 추가" });
 
-    expect(within(dialog).getByRole("button", { name: "취소" })).toHaveClass("ui-button", "ui-button-secondary");
-    expect(within(dialog).getByRole("button", { name: "스케줄 만들기" })).toHaveClass("ui-button", "ui-button-primary");
+    expect(within(dialog).getByRole("button", { name: "취소" })).toHaveAttribute("data-variant", "secondary");
+    expect(within(dialog).getByRole("button", { name: "스케줄 만들기" })).toHaveAttribute("data-variant", "primary");
   });
 
   it("uses segmented date/time fields while keeping validation numbers as strings", async () => {
@@ -219,9 +219,9 @@ describe("ScheduleControlPanel", () => {
 
     renderPanel("viewer");
 
-    expect((await screen.findAllByText("적용 대기"))[0].closest(".ui-status-badge")).toHaveAttribute("data-tone", "warning");
-    expect(screen.getByText("적용됨").closest(".ui-status-badge")).toHaveAttribute("data-tone", "success");
-    expect(screen.getAllByText("적용 실패").find((element) => element.closest(".ui-status-badge"))?.closest(".ui-status-badge"))
+    expect((await screen.findAllByText("적용 대기"))[0].closest("[data-tone]")).toHaveAttribute("data-tone", "warning");
+    expect(screen.getByText("적용됨").closest("[data-tone]")).toHaveAttribute("data-tone", "success");
+    expect(screen.getAllByText("적용 실패").find((element) => element.closest("[data-tone]"))?.closest("[data-tone]"))
       .toHaveAttribute("data-tone", "danger");
     expect(screen.getByText(/모두 성공 · 성공 2개/)).toBeInTheDocument();
     expect(screen.getByText(/일부 실패 · 성공 1개 · 실패 1개 · 시간 초과 1개/)).toBeInTheDocument();
@@ -241,10 +241,11 @@ describe("ScheduleControlPanel", () => {
     ]));
     renderPanel("viewer");
 
-    expect(await screen.findByRole("table", { name: "스케줄 목록" })).toBeInTheDocument();
-    expect(screen.getByText("적용됨").closest(".ui-status-badge")).toHaveAttribute("data-tone", "success");
-    expect(screen.getByText("적용 대기").closest(".ui-status-badge")).toHaveAttribute("data-tone", "warning");
-    expect(screen.getByText("적용 실패").closest(".ui-status-badge")).toHaveAttribute("data-tone", "danger");
+    const table = await screen.findByRole("table", { name: "스케줄 목록" });
+    expect(table.closest("[data-automation-table-wrap]")).not.toBeNull();
+    expect(screen.getByText("적용됨").closest("[data-tone]")).toHaveAttribute("data-tone", "success");
+    expect(screen.getByText("적용 대기").closest("[data-tone]")).toHaveAttribute("data-tone", "warning");
+    expect(screen.getByText("적용 실패").closest("[data-tone]")).toHaveAttribute("data-tone", "danger");
   });
 
   it("스케줄 dialog는 빠른 설정을 먼저 보여주고 세부 입력은 요청할 때 펼친다", async () => {

@@ -34,7 +34,7 @@ export function CommandHistoryPanel({ userId, siteId, onSelect, disabled = false
   const items = history.data?.pages.flatMap((page) => page.items) ?? [];
 
   return (
-    <Card className="command-history-panel grid min-h-0 gap-4 p-4" aria-label="최근 명령 이력">
+    <Card className="flex h-80 max-h-80 min-h-0 min-w-0 flex-col gap-3 overflow-hidden p-4 tablet:h-48 tablet:max-h-48" aria-label="최근 명령 이력" data-command-history-panel="">
       <Heading as="h3" variant="card-title">최근 명령 이력</Heading>
       <div className="grid grid-cols-2 gap-3 max-compact:grid-cols-1">
         <SearchField label="명령 이력 검색" placeholder="명령 ID 또는 조명 이름" maxLength={100} value={search} onChange={setSearch} />
@@ -45,7 +45,7 @@ export function CommandHistoryPanel({ userId, siteId, onSelect, disabled = false
           onSelectionChange={(key) => setStage((key ?? "") as CommandStage | "")}
         />
       </div>
-      <div className="command-history-list grid min-h-0 gap-2 overflow-y-auto" aria-label="명령 이력 목록">
+      <div className="grid min-h-0 flex-1 content-start gap-2 overflow-y-auto overscroll-contain" aria-label="명령 이력 목록" data-command-history-list="">
         {history.isPending ? <Text role="status">명령 이력을 불러오는 중입니다.</Text> : null}
         {!history.isPending && !history.error && items.length === 0 ? <Text>명령 이력이 없습니다.</Text> : null}
         {items.map((item) => <Button key={item.id} variant="secondary" type="button" className="grid h-auto min-h-11 w-full grid-cols-[minmax(0,1fr)_auto] justify-items-start gap-1 px-3 py-2 text-left" disabled={disabled} aria-pressed={selectedCommandId === item.id} onClick={() => onSelect(item.id)}>

@@ -34,6 +34,7 @@ interface ControlTargetPickerProps {
   disabled: boolean;
   allowedModes?: readonly ControlMode[];
   fixtureFilter?: (fixture: DashboardFixture) => boolean;
+  fillAvailableHeight?: boolean;
   onChange: (selection: ControlSelection) => void;
 }
 
@@ -52,6 +53,7 @@ export function ControlTargetPicker({
   disabled,
   allowedModes = ["fixtures", "floor", "group"],
   fixtureFilter,
+  fillAvailableHeight = false,
   onChange
 }: ControlTargetPickerProps) {
   const [search, setSearch] = useState("");
@@ -124,7 +126,7 @@ export function ControlTargetPicker({
   }
 
   return (
-    <div className="control-target-picker grid min-h-0 gap-3">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3" data-control-target-picker="">
       <div className="grid grid-cols-3 gap-2 max-compact:grid-cols-1" role="group" aria-label="제어 대상 유형">
         {([
           ["fixtures", "개별/다중"],
@@ -180,7 +182,7 @@ export function ControlTargetPicker({
           <Text variant="caption" tone={selectionLimitReached ? "danger" : "secondary"} role={selectionLimitReached ? "alert" : undefined}>
             한 번에 최대 1,000개 조명까지 선택할 수 있습니다.
           </Text>
-          <div className="control-target-list grid min-h-0 max-h-[min(36dvh,24rem)] overflow-y-auto rounded-panel border border-border-default" role="group" aria-label="조명 목록">
+          <div className={`grid min-h-0 max-h-72 flex-1 content-start overflow-y-auto overscroll-contain rounded-panel border border-border-default ${fillAvailableHeight ? "tablet:max-h-none" : ""}`} role="group" aria-label="조명 목록" data-control-target-list="">
             {visibleFixtures.map(({ fixture, floor }) => {
               const checked = selectedFixtureIds.has(fixture.id);
               return (

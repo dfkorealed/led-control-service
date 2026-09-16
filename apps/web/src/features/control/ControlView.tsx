@@ -52,6 +52,7 @@ const VehicleEventControlPanel = lazy(async () => {
 });
 
 const emptySelection: ControlSelection = { mode: "fixtures", fixtureIds: [] };
+const controlScreenClassName = "grid min-h-0 min-w-0 content-start gap-4 tablet:fixed tablet:top-16 tablet:right-6 tablet:bottom-6 tablet:left-16 tablet:mt-6 tablet:ml-16 tablet:flex tablet:flex-col tablet:overflow-hidden";
 
 export function ControlView({
   siteId,
@@ -367,7 +368,7 @@ export function ControlView({
   if (capabilities && mode === "event") {
     const eventSiteId = data?.site.id ?? siteId;
     return (
-      <section className="control-screen grid min-h-0 gap-4">
+      <section className={controlScreenClassName} data-control-screen="">
         {modeTabs}
         {eventSiteId ? (
           <Suspense fallback={<Text tone="muted" role="status">이벤트 화면을 불러오는 중입니다.</Text>}>
@@ -381,7 +382,7 @@ export function ControlView({
   if (capabilities && mode === "schedule") {
     const scheduleSiteId = data?.site.id ?? siteId;
     return (
-      <section className="control-screen grid min-h-0 gap-4">
+      <section className={controlScreenClassName} data-control-screen="">
         {modeTabs}
         {scheduleSiteId ? (
           <Suspense
@@ -413,21 +414,21 @@ export function ControlView({
   }
 
   if (isLoading && !data) {
-    return <section className="control-screen grid min-h-0 gap-4">{modeTabs}<Text tone="muted" role="status">제어 대상을 불러오는 중입니다.</Text></section>;
+    return <section className={controlScreenClassName} data-control-screen="">{modeTabs}<Text tone="muted" role="status">제어 대상을 불러오는 중입니다.</Text></section>;
   }
 
   if (error && !data) {
-    return <section className="control-screen grid min-h-0 gap-4">{modeTabs}<Text tone="danger" role="alert">제어 대상을 불러오지 못했습니다.</Text></section>;
+    return <section className={controlScreenClassName} data-control-screen="">{modeTabs}<Text tone="danger" role="alert">제어 대상을 불러오지 못했습니다.</Text></section>;
   }
 
   if (!data) {
-    return <section className="control-screen grid min-h-0 gap-4">{modeTabs}<Text tone="muted" role="status">제어 대상 데이터가 없습니다.</Text></section>;
+    return <section className={controlScreenClassName} data-control-screen="">{modeTabs}<Text tone="muted" role="status">제어 대상 데이터가 없습니다.</Text></section>;
   }
 
   return (
-    <section className="control-screen grid min-h-0 gap-4">
+    <section className={controlScreenClassName} data-control-screen="">
       {modeTabs}
-      <div id="control-mode-panel-manual" role="tabpanel" aria-labelledby="control-mode-manual" className="control-manual-panel grid min-h-0 gap-4">
+      <div id="control-mode-panel-manual" role="tabpanel" aria-labelledby="control-mode-manual" className="grid min-h-0 min-w-0 gap-4 tablet:flex tablet:flex-1 tablet:flex-col" data-control-manual-panel="">
       <PageHeader
         title="조명 밝기 제어"
         headingLevel={3}
@@ -451,15 +452,16 @@ export function ControlView({
         </Text>
       ) : null}
 
-      <div className="control-layout ui-side-panel-layout grid min-h-0 grid-cols-[minmax(0,1fr)_minmax(18rem,22rem)] gap-4 max-tablet:grid-cols-1">
-        <div className="control-target-column grid min-h-0 gap-4">
-        <Card className="control-target-card min-h-0 p-4" aria-label="제어 대상 선택">
-          <fieldset className="control-picker-fieldset m-0 min-h-0 border-0 p-0 disabled:opacity-60" aria-label="제어 대상 선택" disabled={controlsLocked}>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-wrap items-stretch gap-4 overflow-y-auto overscroll-contain tablet:flex-nowrap tablet:overflow-hidden" data-control-layout="">
+        <div className="flex min-h-0 min-w-144 flex-1 flex-col gap-4 max-compact:min-w-0 max-compact:basis-full tablet:min-w-0" data-control-target-column="">
+        <Card className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-4" aria-label="제어 대상 선택" data-control-target-card="">
+          <fieldset className="m-0 flex min-h-0 flex-1 flex-col border-0 p-0 disabled:opacity-60" aria-label="제어 대상 선택" disabled={controlsLocked} data-control-picker-fieldset="">
             <ControlTargetPicker
               key={data.site.id}
               dashboard={data}
               selection={selection}
               disabled={controlsLocked}
+              fillAvailableHeight
               onChange={(nextSelection) => {
                 setSelection(nextSelection);
                 if (nextSelection.mode === "fixtures" && nextSelection.fixtureIds.length === 1) {
@@ -476,8 +478,8 @@ export function ControlView({
           disabled={commandInProgress || isSubmitting || restorePending || commandSessionBlocked} />
         </div>
 
-        <SidePanel className="control-panel grid content-start gap-4 p-4" aria-label="밝기 실행">
-          <div className="panel-title-row flex min-h-14 items-start justify-between gap-3">
+        <SidePanel className="flex min-h-0 w-full max-w-88 flex-none flex-col gap-4 overflow-hidden p-4 max-compact:max-w-none" aria-label="밝기 실행" data-control-panel="">
+          <div className="flex min-h-14 flex-none items-start justify-between gap-3">
             <div className="grid min-w-0 gap-1">
               <Text as="span" variant="overline" tone="muted">선택 대상</Text>
               <Heading as="h3" variant="card-title" className="truncate">{selected.name}</Heading>
@@ -485,13 +487,13 @@ export function ControlView({
             <ManualControlBadge readOnly={readOnly} canSubmit={canSubmit} blocked={Boolean(blockMessage)} />
           </div>
 
-          <div className="control-panel-body grid min-h-0 gap-4 overflow-y-auto">
+          <div className="grid min-h-0 flex-1 content-start gap-4 overflow-y-auto overscroll-contain" data-control-panel-body="">
             <div className="grid gap-1 rounded-control bg-surface-inset p-3" aria-live="polite">
               <Text as="strong" weight="semibold">{selected.fixtures.length}개 선택 · 제어 불가 {selected.blockedCount}개</Text>
               <Text as="span" variant="caption" tone="secondary">{deliveryLabel(selection, selected.fixtures.length)}</Text>
             </div>
 
-            <div className="dial-card grid gap-3 rounded-panel border border-border-default bg-surface-panel p-4">
+            <div className="grid gap-3 rounded-panel border border-border-default bg-surface-panel p-4" data-control-brightness-card="">
               <div className="flex items-baseline justify-between gap-3">
                 <Text as="span" variant="label">밝기</Text>
                 <Text as="strong" variant="metric">{brightness}%</Text>
@@ -510,7 +512,7 @@ export function ControlView({
               />
             </div>
 
-            <div className="preset-row grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-4 gap-2" data-control-presets="">
               {[0, 30, 70, 100].map((value) => (
                 <Button key={value} variant="secondary" type="button" onClick={() => setBrightness(value)} disabled={controlsLocked}>
                   {value}%
@@ -522,8 +524,8 @@ export function ControlView({
               {commandSessionBlocked ? "로그아웃 중" : controlsLocked && !readOnly ? "밝기 적용 중" : "밝기 적용"}
             </Button>
           </div>
-          <div className="control-panel-feedback min-h-0 overflow-y-auto grid gap-3">
-            <div className="command-status-region grid gap-3" role="status" aria-label="명령 진행 상태" aria-live="polite">
+          <div className="grid min-h-0 max-h-28 flex-none content-start gap-3 overflow-y-auto overscroll-contain" data-control-panel-feedback="">
+            <div className="grid min-h-px gap-3 empty:min-h-0" role="status" aria-label="명령 진행 상태" aria-live="polite" data-command-status-region="">
               {scopedActiveRequest && !scopedCommandId ? (
                 <Button
                   variant="secondary"
@@ -664,7 +666,7 @@ function CommandProgress({ status }: { status: NonNullable<ReturnType<typeof use
   );
   const isFailure = status.stage === "partial_failed" || status.stage === "failed" || status.stage === "timed_out";
   return (
-    <div className="command-progress-card grid gap-2 rounded-panel border border-border-default bg-surface-panel p-4">
+    <div className="grid gap-2 rounded-panel border border-border-default bg-surface-panel p-4" data-command-progress-card="">
       <Text as="span" variant="overline" tone="muted">최근 명령 상태</Text>
       <Text as="strong" weight="semibold">{status.stage === "completed" ? "조명 적용 완료 · 기본 밝기로 저장됨" : commandStageLabel(status.stage)}</Text>
       <Text variant="caption">{status.completedFixtureCount} / {status.totalFixtureCount} 처리</Text>
