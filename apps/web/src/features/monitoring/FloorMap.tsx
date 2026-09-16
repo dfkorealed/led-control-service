@@ -152,7 +152,7 @@ export function FloorMap({ floor, snapshot, selectedFixtureId, onSelectFixture }
           </div>
         </div>
       </div>
-      <ul className="monitoring-map-legend pointer-events-none absolute bottom-12 left-3 z-6 m-0 flex max-w-[calc(100%-1.5rem)] list-none flex-wrap justify-start gap-x-3 gap-y-1.5 rounded-control border border-border-default bg-surface-panel p-2 max-compact:bottom-16 max-compact:-translate-y-2.5" aria-label="조명 상태 범례">
+      <ul className="pointer-events-none absolute bottom-12 left-3 z-6 m-0 flex max-w-[calc(100%-1.5rem)] list-none flex-wrap justify-start gap-x-3 gap-y-1.5 rounded-control border border-border-default bg-surface-panel p-2 max-compact:bottom-16 max-compact:-translate-y-2.5" aria-label="조명 상태 범례">
         <li className="inline-flex items-center gap-1 whitespace-nowrap text-fixture-connected"><CircleCheck size={14} aria-hidden="true" /><Text as="span" variant="overline" className="text-fixture-connected">정상</Text></li>
         <li className="inline-flex items-center gap-1 whitespace-nowrap text-fixture-fault"><TriangleAlert size={14} aria-hidden="true" /><Text as="span" variant="overline" className="text-fixture-fault">장애</Text></li>
         <li className="inline-flex items-center gap-1 whitespace-nowrap text-fixture-offline"><CircleX size={14} aria-hidden="true" /><Text as="span" variant="overline" className="text-fixture-offline">오프라인</Text></li>

@@ -183,7 +183,7 @@ describe("MonitoringView refresh", () => {
     expect(within(selectedFixtureDetail).queryByRole("heading", { name: "점검 큐" })).not.toBeInTheDocument();
     expect(within(screen.getByRole("complementary", { name: "선택 조명 상세" })).getByText(
       /정상|장애|오프라인|상태 확인 대기/,
-      { selector: ".ui-status-badge > span" }
+      { selector: "[data-tone] > span" }
     )).toBeVisible();
   });
 
@@ -690,8 +690,10 @@ describe("MonitoringView refresh", () => {
     expect(screen.queryByText(/10분마다 자동 갱신/)).not.toBeInTheDocument();
     const mapSelector = screen.getByRole("button", { name: "맵 선택" });
     expect(mapSelector).toHaveTextContent("B1");
-    expect(mapSelector.closest("[data-field]")).toHaveClass("monitoring-map-selector");
-    expect(mapSelector.closest("[data-field]")).toHaveTextContent("맵 선택");
+    const mapSelectorField = mapSelector.closest("[data-field]");
+    expect(mapSelectorField).toBeInTheDocument();
+    const mapSelectorLabel = within(mapSelectorField as HTMLElement).getByText("맵 선택", { selector: "label" });
+    expect(mapSelector).toHaveAttribute("aria-labelledby", mapSelectorLabel.id);
     const refreshButton = screen.getByRole("button", { name: "새로고침" });
     expect(refreshButton.parentElement?.lastElementChild).toBe(refreshButton);
   });

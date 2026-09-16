@@ -133,8 +133,8 @@ for (const viewport of viewports) {
     await expect(page.getByRole("region", { name: "빠른 상태" })).toHaveCount(0);
     await expect(page.getByRole("region", { name: "층 도면" })).toBeVisible();
     await expect(page.locator(".floor-map-label")).toHaveCount(0);
-    const mapSelectorLabel = page.locator(".monitoring-map-selector");
-    const selectorLayout = await mapSelectorLabel.evaluate((label) => {
+    const mapSelectorField = page.locator("[data-field]").filter({ has: mapSelector });
+    const selectorLayout = await mapSelectorField.evaluate((label) => {
       const labelText = label.querySelector("label")?.getBoundingClientRect();
       const select = label.querySelector("button")?.getBoundingClientRect();
       return {
@@ -156,11 +156,11 @@ for (const viewport of viewports) {
     await expectNoHorizontalOverflow(page);
 
     const mapOverlayLayout = await page.locator("[data-monitoring-map-shell]").evaluate((shell) => {
-      const legend = shell.querySelector(".monitoring-map-legend")?.getBoundingClientRect();
+      const legend = shell.querySelector('[aria-label="조명 상태 범례"]')?.getBoundingClientRect();
       const panHintElement = shell.querySelector<HTMLElement>("[data-monitoring-map-pan-hint]");
       const panHint = panHintElement?.getBoundingClientRect();
       const zoomControls = shell.querySelector("[data-monitoring-map-zoom-controls]")?.getBoundingClientRect();
-      const legendElement = shell.querySelector<HTMLElement>(".monitoring-map-legend");
+      const legendElement = shell.querySelector<HTMLElement>('[aria-label="조명 상태 범례"]');
       if (!legend || !legendElement || !panHint || !panHintElement || !zoomControls) {
         throw new Error("지도 범례 또는 이동·확대 안내를 찾을 수 없습니다.");
       }
@@ -659,7 +659,7 @@ test("네 monitoring 장애 원인은 selector·marker·badge·상세 설명에�
       const marker = page.getByRole("button", { name: markerName, exact: true });
       await expect(marker).toHaveAttribute("aria-label", markerName);
       await expect(marker).toHaveAttribute("aria-current", "true");
-      await expect(detail.locator(".ui-status-badge")).toContainText(statusCase.label);
+      await expect(detail.locator("[data-tone] > span", { hasText: statusCase.label })).toBeVisible();
       await expect(detail.getByText(statusCase.description, { exact: true })).toBeVisible();
       await expect(detail.getByText(statusCase.recommendedAction, { exact: true })).toBeVisible();
     });

@@ -167,7 +167,7 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardError, refreshDa
           selectedKey={floor?.id ?? null}
           isDisabled={data.floors.length === 0}
           onSelectionChange={(floorId) => floorId !== null && handleSelectFloor(floorId)}
-          className="monitoring-map-selector grid w-full max-w-56 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 max-compact:max-w-none"
+          className="grid w-full max-w-56 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 max-compact:max-w-none"
         />
         <div className="ml-auto flex flex-wrap items-center justify-end gap-2 text-content-secondary max-compact:ml-0 max-compact:w-full">
           <Text as="small" variant="caption" tone="secondary" className="whitespace-nowrap">{formatSnapshotUpdatedAt(snapshotFreshness)}</Text>

@@ -130,7 +130,7 @@ export function FloorScene({
             data-spatial-map-marker="true"
             data-brightness-level={brightnessLevel}
             className={cn(
-              "monitoring-fixture-marker absolute z-2 block! size-5! min-h-5! -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-fixture-marker! border! border-fixture-offline! p-0! transition-[background-color,box-shadow] duration-150 hover:z-4 hover:outline-3 hover:outline-offset-4 hover:outline-fixture-selected focus-visible:z-4 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-fixture-selected",
+              "absolute z-2 block! size-5! min-h-5! -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-fixture-marker! border! border-fixture-offline! p-0! transition-[background-color,box-shadow] duration-150 hover:z-4 hover:outline-3 hover:outline-offset-4 hover:outline-fixture-selected focus-visible:z-4 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-fixture-selected",
               markerStateClass,
               fixture.id === selectedFixtureId && "z-3 outline-3 outline-offset-4 outline-fixture-selected"
             )}
