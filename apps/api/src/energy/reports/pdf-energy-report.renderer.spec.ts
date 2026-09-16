@@ -1,11 +1,77 @@
-import { PDFArray, PDFDict, PDFDocument, PDFName, PDFRawStream, decodePDFRawStream } from "pdf-lib";
+import { PDFArray, PDFDict, PDFDocument, PDFName, PDFRawStream, decodePDFRawStream, type PDFPage } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import { PdfEnergyReportRenderer } from "./pdf-energy-report.renderer";
 import { extractPdfReportManifest, extractPdfReportVisuals, extractPdfVisualCaptions } from "./pdf-report-manifest";
 import { buildReportVisuals } from "./report-visual-model";
 import { expectedManifest, forbiddenReportText, reportFixture, visualReportFixture } from "./report-renderer.test-support";
 
+function addOpaqueMask(pdf: PDFDocument, image: PDFRawStream) {
+  const mask = pdf.context.flateStream(Buffer.alloc(1000 * 560, 255), {
+    Type: "XObject", Subtype: "Image", Width: 1000, Height: 560, BitsPerComponent: 8, ColorSpace: "DeviceGray"
+  });
+  image.dict.set(PDFName.of("SMask"), pdf.context.register(mask));
+  return mask;
+}
+
+/** Independent visible-glyph decoder for physical continuation heading checks. */
+function decodeTextRuns(pdf: PDFDocument, page: PDFPage, text: string) {
+  const fonts = page.node.Resources()!.lookup(PDFName.of("Font"), PDFDict);
+  return [...text.matchAll(/BT([\s\S]*?)ET/g)].map(segment => {
+    const [, name] = /\/([^\s/]+) [\d.]+ Tf/.exec(segment[1])!;
+    const font = pdf.context.lookup(fonts.get(PDFName.of(name))!, PDFDict);
+    const cmap = Buffer.from(decodePDFRawStream(font.lookup(PDFName.of("ToUnicode")) as PDFRawStream).decode()).toString();
+    const characters = new Map<string, string>();
+    for (const block of cmap.matchAll(/beginbfchar([\s\S]*?)endbfchar/g)) {
+      for (const pair of block[1].matchAll(/<([0-9a-f]+)>\s*<([0-9a-f]+)>/gi)) characters.set(pair[1].toUpperCase().padStart(4, "0"), Buffer.from(pair[2], "hex").swap16().toString("utf16le"));
+    }
+    const [, glyphs] = /<([0-9a-f]*)> Tj/i.exec(segment[1])!;
+    const [, x, y] = /1 0 0 1 ([\d.]+) ([\d.]+) Tm/.exec(segment[1])!;
+    return { text: (glyphs.match(/.{4}/g) ?? []).map(glyph => {
+      const character = characters.get(glyph.toUpperCase());
+      if (character === undefined) throw new Error("Unmapped test glyph");
+      return character;
+    }).join(""), x: Number(x), y: Number(y) };
+  });
+}
+
 describe("PdfEnergyReportRenderer", () => {
+  describe("serialized image dictionary interpretation", () => {
+    let output: Awaited<ReturnType<PdfEnergyReportRenderer["render"]>>;
+    beforeAll(async () => {
+      const document = visualReportFixture();
+      document.sections = [document.sections[1]];
+      output = await new PdfEnergyReportRenderer().render(document);
+    }, 60000);
+
+    it.each([
+      ["main", "Decode", [1, 0, 1, 0, 1, 0]],
+      ["main", "BitsPerComponent", 16], ["main", "ColorSpace", "DeviceCMYK"],
+      ["main", "Width", 560], ["main", "Height", 1000],
+      ["main", "ImageMask", true], ["main", "Mask", [0, 255, 0, 255, 0, 255]],
+      ["main", "DecodeParms", { Predictor: 2, Columns: 1000, Colors: 3 }],
+      ["main", "Interpolate", true],
+      ["mask", "Decode", [1, 0]], ["mask", "BitsPerComponent", 16],
+      ["mask", "ColorSpace", "DeviceRGB"], ["mask", "Width", 560],
+      ["mask", "Height", 1000], ["mask", "Matte", [0, 0, 0]],
+      ["mask", "ImageMask", true], ["mask", "SMask", "None"]
+    ])("rejects dictionary-only %s /%s tampering", async (target, key, value) => {
+      const pdf = await PDFDocument.load(output.bytes);
+      const entry = pdf.catalog.lookup(PDFName.of("ReportVisuals"), PDFArray).lookup(0, PDFDict);
+      const image = entry.lookup(PDFName.of("Image")) as PDFRawStream;
+      const dictionary = target === "main" ? image.dict : addOpaqueMask(pdf, image).dict;
+      dictionary.set(PDFName.of(key as string), pdf.context.obj(value as never));
+      await expect(extractPdfReportVisuals(await pdf.save())).rejects.toThrow(/report (chart|image)/i);
+    });
+
+    it("accepts explicit identity decode arrays and a valid opaque grayscale mask", async () => {
+      const pdf = await PDFDocument.load(output.bytes);
+      const entry = pdf.catalog.lookup(PDFName.of("ReportVisuals"), PDFArray).lookup(0, PDFDict);
+      const image = entry.lookup(PDFName.of("Image")) as PDFRawStream;
+      image.dict.set(PDFName.of("Decode"), pdf.context.obj([0, 1, 0, 1, 0, 1]));
+      addOpaqueMask(pdf, image).dict.set(PDFName.of("Decode"), pdf.context.obj([0, 1]));
+      expect(await extractPdfReportVisuals(await pdf.save())).toEqual(output.visuals);
+    });
+  });
   it("continues legacy tables even when their original column labels span multiple pages", async () => {
     const document = reportFixture();
     document.metadata = [];
@@ -17,13 +83,18 @@ describe("PdfEnergyReportRenderer", () => {
     expect(output.manifest).toEqual(expectedManifest(document));
   }, 60000);
   it("draws eight charts inside page margins and repeats headers on continued tables", async () => {
-    const output = await new PdfEnergyReportRenderer().render(visualReportFixture());
+    const document = visualReportFixture();
+    const output = await new PdfEnergyReportRenderer().render(document);
     const pdf = await PDFDocument.load(output.bytes);
     let images = 0, repeatedHeaders = 0;
-    for (const page of pdf.getPages()) {
+    const tablePages = new Set<number>();
+    const continuationPages: number[] = [];
+    for (const [pageIndex, page] of pdf.getPages().entries()) {
       const streams = page.node.Contents() as PDFArray;
+      let pageText = "";
       for (let index = 0; index < streams.size(); index++) {
         const text = Buffer.from(decodePDFRawStream(streams.lookup(index, PDFRawStream)).decode()).toString();
+        pageText += text;
         repeatedHeaders += [...text.matchAll(/\/ReportTableHeader BMC/g)].length;
         for (const match of text.matchAll(/1 0 0 1 ([\d.]+) ([\d.]+) cm\s+1 0 0 1 0 0 cm\s+([\d.]+) 0 0 ([\d.]+) 0 0 cm\s+1 0 0 1 0 0 cm\s+\/Image[^\s]* Do/g)) {
           images++;
@@ -35,9 +106,34 @@ describe("PdfEnergyReportRenderer", () => {
           expect(y + h).toBeLessThanOrEqual(798);
         }
       }
+      const rows = [...pageText.matchAll(/\/R(\d+)H[0-3]S\d+ BMC([\s\S]*?)EMC/g)].flatMap(match => {
+        const path = /^sections\.(\d+)\.rows\./.exec(output.manifest[Number(match[1])].path);
+        return path && document.sections[Number(path[1])].kind === "table" ? [{ section: Number(path[1]), text: match[2] }] : [];
+      });
+      for (const sectionIndex of new Set(rows.map(row => row.section))) {
+        if (tablePages.has(sectionIndex)) {
+          continuationPages.push(pageIndex + 1);
+          const section = document.sections[sectionIndex];
+          if (section.kind !== "table") throw new Error("Expected table");
+          const headers = [...pageText.matchAll(/\/ReportTableHeader BMC([\s\S]*?)EMC/g)];
+          expect(headers).toHaveLength(1);
+          const decoded = decodeTextRuns(pdf, page, headers[0][1]);
+          expect(decoded.map(run => run.text)).toEqual(section.columns.flatMap(column => [column.id, column.label]));
+          expect(decoded.map(run => run.y)).toEqual(section.columns.flatMap(() => [798, 784]));
+          section.columns.forEach((_, column) => {
+            const x = 40 + column * 523.28 / section.columns.length;
+            expect(decoded[column * 2].x).toBeCloseTo(x, 4);
+            expect(decoded[column * 2 + 1].x).toBeCloseTo(x, 4);
+          });
+          const rowTop = Math.max(...rows.filter(row => row.section === sectionIndex).flatMap(row => decodeTextRuns(pdf, page, row.text).map(run => run.y)));
+          expect(rowTop).toBeLessThan(Math.min(...decoded.map(run => run.y)));
+        }
+        tablePages.add(sectionIndex);
+      }
     }
     expect(images).toBe(8);
     expect(repeatedHeaders).toBeGreaterThan(0);
+    expect(continuationPages).toEqual([4, 8]);
     expect(await extractPdfVisualCaptions(output.bytes)).toEqual(buildReportVisuals(visualReportFixture()).map(visual => ({ title: visual.title, altText: visual.altText.replace(/–/g, "-") })));
   }, 60000);
   it("detects changed displayed image pixels and removed drawings even when source PNG streams remain intact", async () => {

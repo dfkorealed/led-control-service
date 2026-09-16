@@ -27,6 +27,27 @@ describe("ExcelEnergyReportRenderer", () => {
         expect(reservedPixels).toBeGreaterThanOrEqual(height);
       }
     }
+    const comparison = workbook.worksheets.find(sheet => sheet.getImages().length === 2)!;
+    expect(comparison).toBeDefined();
+    const rectangles = comparison.getImages().map(image => {
+      const { tl } = image.range;
+      const { width, height } = (image.range as unknown as ExcelJS.ImagePosition).ext!;
+      // Both charts use the same left column; physical row heights and EMU
+      // offsets, not anchor row indexes alone, determine overlap after reload.
+      expect(tl.nativeCol).toBe(0);
+      let top = tl.nativeRowOff / 9525;
+      for (let row = 1; row <= tl.nativeRow; row++) top += (comparison.getRow(row).height ?? 15) * 96 / 72;
+      return { imageId: Number(image.imageId), left: tl.nativeColOff / 9525, top, width, height };
+    });
+    const manifest = workbook.getWorksheet("_report_visuals")!;
+    const chartIds = new Map<number, string>();
+    manifest.eachRow((row, index) => { if (index > 1) chartIds.set(Number(row.getCell(6).value), String(row.getCell(1).value)); });
+    expect(rectangles.map(rect => chartIds.get(rect.imageId))).toEqual(["comparison-chart/energyKwh", "comparison-chart/cost"]);
+    expect(rectangles[0].top).toBeLessThan(rectangles[1].top);
+    for (let first = 0; first < rectangles.length; first++) for (let second = first + 1; second < rectangles.length; second++) {
+      const a = rectangles[first], b = rectangles[second];
+      expect(a.left + a.width <= b.left || b.left + b.width <= a.left || a.top + a.height <= b.top || b.top + b.height <= a.top).toBe(true);
+    }
   }, 60000);
   it("detects changed archive PNG bytes with an untouched hidden digest manifest", async () => {
     const output = await new ExcelEnergyReportRenderer().render(visualReportFixture());

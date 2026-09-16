@@ -67,6 +67,31 @@ export async function extractPdfReportManifest(bytes: Uint8Array): Promise<Repor
 
 function decodeStream(stream: PDFRawStream): string { return Buffer.from(decodePDFRawStream(stream).decode()).toString(); }
 
+/** Pixel bytes only prove appearance under a known image interpretation. Accept
+ * exactly the pdf-lib PNG profile, plus explicit identity Decode arrays. Reject
+ * other entries (Mask, Matte, ImageMask, DecodeParms, Interpolate, nested SMask,
+ * etc.) instead of silently ignoring color, transparency or sampling changes. */
+function verifyImageDictionary(image: PDFRawStream, width: number, height: number, mask = false): void {
+  const allowed = new Set(["/Type", "/Subtype", "/Width", "/Height", "/BitsPerComponent", "/ColorSpace", "/Filter", "/Length", "/Decode", ...(mask ? [] : ["/SMask"])]);
+  const value = (key: string) => image.dict.lookup(PDFName.of(key));
+  const number = (key: string) => { const entry = value(key); return entry instanceof PDFNumber ? entry.asNumber() : NaN; };
+  if (image.dict.keys().some(key => !allowed.has(key.asString())) ||
+    value("Type")?.toString() !== "/XObject" || value("Subtype")?.toString() !== "/Image" ||
+    value("ColorSpace")?.toString() !== (mask ? "/DeviceGray" : "/DeviceRGB") ||
+    value("Filter")?.toString() !== "/FlateDecode" || number("BitsPerComponent") !== 8 ||
+    number("Width") !== width || number("Height") !== height || number("Length") !== image.getContents().length) {
+    throw new Error("Unsupported report chart image dictionary");
+  }
+  if (image.dict.has(PDFName.of("Decode"))) {
+    const decode = value("Decode");
+    if (!(decode instanceof PDFArray) || decode.size() !== (mask ? 2 : 6)) throw new Error("Unsupported report chart image Decode");
+    for (let index = 0; index < decode.size(); index++) {
+      const entry = decode.lookup(index);
+      if (!(entry instanceof PDFNumber) || entry.asNumber() !== index % 2) throw new Error("Unsupported report chart image Decode");
+    }
+  }
+}
+
 /** Verify the PNG container and the displayed PDF image separately: embedPng
  * necessarily decodes the container into RGB plus an optional grayscale mask. */
 export async function extractPdfReportVisuals(bytes: Uint8Array): Promise<ReportVisualManifest> {
@@ -103,12 +128,13 @@ export async function extractPdfReportVisuals(bytes: Uint8Array): Promise<Report
     const decoded = await sharp(png).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
     const image = entry.lookup(PDFName.of("Image"));
     if (!(image instanceof PDFRawStream)) throw new Error("Missing report image stream");
-    const width = image.dict.lookup(PDFName.of("Width"), PDFNumber).asNumber();
-    const height = image.dict.lookup(PDFName.of("Height"), PDFNumber).asNumber();
-    if (width !== decoded.info.width || height !== decoded.info.height || decoded.info.channels !== 4 || image.dict.lookup(PDFName.of("BitsPerComponent"), PDFNumber).asNumber() !== 8 || image.dict.lookup(PDFName.of("ColorSpace"), PDFName).asString() !== "/DeviceRGB") throw new Error("Invalid report chart image dimensions");
+    const { width, height, channels } = decoded.info;
+    if (channels !== 4) throw new Error("Invalid report chart image dimensions");
+    verifyImageDictionary(image, width, height);
     const rgb = decodePDFRawStream(image).decode();
     const mask = image.dict.lookup(PDFName.of("SMask"));
     if (mask && !(mask instanceof PDFRawStream)) throw new Error("Invalid report image alpha mask");
+    if (mask) verifyImageDictionary(mask, width, height, true);
     const alpha = mask ? decodePDFRawStream(mask).decode() : undefined;
     if (rgb.length !== width * height * 3 || (alpha && alpha.length !== width * height)) throw new Error("Invalid report chart pixels");
     for (let pixel = 0; pixel < width * height; pixel++) {
