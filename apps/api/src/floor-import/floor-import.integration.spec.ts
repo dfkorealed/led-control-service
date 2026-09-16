@@ -1,4 +1,4 @@
-import { ConflictException, type INestApplication } from "@nestjs/common";
+import { ConflictException, NotFoundException, type INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { PrismaClient } from "@prisma/client";
 import { createHash, randomUUID } from "node:crypto";
@@ -6,6 +6,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AuditService } from "../audit/audit.service";
+import { SiteAccessService } from "../access/site-access.service";
 import { AuthService } from "../auth/auth.service";
 import { FloorAssetCleanupService } from "../floor-editor/floor-asset-cleanup.service";
 import { hashEditorLeaseToken } from "../floor-editor/editor-lease-token";
@@ -65,6 +66,7 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
       editorLeaseHolderId: null, editorLeaseHolderName: null,
       editorLeaseAcquiredAt: null, editorLeaseExpiresAt: null
     } });
+    await prisma.site.update({ where: { id: siteId }, data: { adminUserId: userId } });
   });
 
   afterAll(async () => {
@@ -77,6 +79,15 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
     return prisma.floorAsset.create({ data: {
       id, floorId, kind: "original", status: "ready", objectKey: `floors/${floorId}/${id}.dxf`,
       mimeType, sizeBytes: 128n, sha256: "a".repeat(64), readyAt: new Date()
+    } });
+  }
+
+  async function renderedAsset() {
+    const id = randomUUID();
+    return prisma.floorAsset.create({ data: {
+      id, floorId, kind: "rendered", status: "ready",
+      objectKey: `floors/${floorId}/${id}.svg`, mimeType: "image/svg+xml",
+      sizeBytes: 256n, sha256: "b".repeat(64), readyAt: new Date()
     } });
   }
 
@@ -101,6 +112,105 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
     await expect(imports.create(user, floorId, { sourceAssetId: second.id, sourceFormat: "dxf" }))
       .resolves.toMatchObject({ status: "queued", sourceAssetId: second.id });
   });
+
+  it("reauthorizes active lookup after a concurrent PostgreSQL admin revocation", async () => {
+    const source = await sourceAsset();
+    await prisma.floorImportJob.create({ data: { floorId, sourceAssetId: source.id, sourceFormat: "dxf" } });
+    const replacement = await prisma.user.create({ data: {
+      organizationId, loginId: `active_replacement_${randomUUID()}`, name: "Replacement Admin",
+      passwordHash: "unused", role: "admin"
+    } });
+    const revoker = new PrismaClient({ datasourceUrl: databaseUrl });
+    const imports = new FloorImportService(
+      prisma as never,
+      new SiteAccessService(prisma as never),
+      new AuditService(prisma as never),
+      storage as never
+    );
+    let release!: () => void; let locked!: () => void;
+    const releaseGate = new Promise<void>(resolve => { release = resolve; });
+    const siteLocked = new Promise<void>(resolve => { locked = resolve; });
+    const revoking = revoker.$transaction(async tx => {
+      await tx.$queryRaw`SELECT "id" FROM "Site" WHERE "id" = ${siteId} FOR UPDATE`;
+      await tx.site.update({ where: { id: siteId }, data: { adminUserId: replacement.id } });
+      locked();
+      await releaseGate;
+    }, { timeout: 10_000 });
+    await siteLocked;
+
+    const reading = imports.getActive(user, floorId);
+    try {
+      await waitForSiteLockWait(prisma, 3000);
+    } finally {
+      release();
+    }
+    await revoking;
+
+    await expect(reading).rejects.toBeInstanceOf(NotFoundException);
+    await revoker.$disconnect();
+  }, 15_000);
+
+  it("keeps applying transaction-local and recovers only DB-clock rows older than two minutes", async () => {
+    const source = await sourceAsset();
+    const rendered = await renderedAsset();
+    const review = await prisma.floorImportJob.create({ data: {
+      floorId, sourceAssetId: source.id, renderedAssetId: rendered.id, sourceFormat: "dxf",
+      status: "review_required", stage: "review_required", progressPercent: 100,
+      attemptCount: 1, startedAt: new Date(), reviewRequiredAt: new Date()
+    } });
+    const transactionClient = new PrismaClient({ datasourceUrl: databaseUrl });
+    let release!: () => void; let applying!: () => void;
+    const releaseGate = new Promise<void>(resolve => { release = resolve; });
+    const applyingWritten = new Promise<void>(resolve => { applying = resolve; });
+    const applyingTransaction = transactionClient.$transaction(async tx => {
+      await tx.floorImportJob.update({
+        where: { id: review.id }, data: { status: "applying", stage: "applying" }
+      });
+      applying();
+      await releaseGate;
+      const now = new Date();
+      await tx.floorImportJob.update({
+        where: { id: review.id }, data: {
+          status: "completed", stage: "completed", appliedAt: now, completedAt: now
+        }
+      });
+    }, { timeout: 10_000 });
+    await applyingWritten;
+
+    await expect(service().getActive(user, floorId)).resolves.toMatchObject({
+      job: { jobId: review.id, status: "review_required" }
+    });
+    release();
+    await applyingTransaction;
+    await expect(service().getActive(user, floorId)).resolves.toEqual({ job: null });
+
+    const staleSource = await sourceAsset();
+    const staleRendered = await renderedAsset();
+    const stale = await prisma.floorImportJob.create({ data: {
+      floorId, sourceAssetId: staleSource.id, renderedAssetId: staleRendered.id, sourceFormat: "dxf",
+      status: "applying", stage: "applying", progressPercent: 100, attemptCount: 1,
+      startedAt: new Date(Date.now() - 180_000), reviewRequiredAt: new Date(Date.now() - 180_000)
+    } });
+    await prisma.$executeRaw`UPDATE "FloorImportJob" SET "updatedAt" = clock_timestamp() - INTERVAL '121 seconds' WHERE "id" = ${stale.id}`;
+    await expect(service().getActive(user, floorId)).resolves.toEqual({ job: null });
+    await expect(prisma.floorImportJob.findUniqueOrThrow({ where: { id: stale.id } })).resolves.toMatchObject({
+      status: "failed", stage: "failed", failureCode: "CAD_IMPORT_STALE_APPLYING", failedAt: expect.any(Date)
+    });
+
+    const freshSource = await sourceAsset();
+    const freshRendered = await renderedAsset();
+    const fresh = await prisma.floorImportJob.create({ data: {
+      floorId, sourceAssetId: freshSource.id, renderedAssetId: freshRendered.id, sourceFormat: "dxf",
+      status: "applying", stage: "applying", progressPercent: 100, attemptCount: 1,
+      startedAt: new Date(), reviewRequiredAt: new Date()
+    } });
+    await prisma.$executeRaw`UPDATE "FloorImportJob" SET "updatedAt" = clock_timestamp() WHERE "id" = ${fresh.id}`;
+    await expect(service().getActive(user, floorId)).resolves.toEqual({ job: null });
+    await expect(prisma.floorImportJob.findUniqueOrThrow({ where: { id: fresh.id } })).resolves.toMatchObject({
+      status: "applying", failureCode: null, failedAt: null
+    });
+    await transactionClient.$disconnect();
+  }, 15_000);
 
   it("recovers expired leases and retires an expired third attempt without a fourth claim", async () => {
     const source = await sourceAsset();

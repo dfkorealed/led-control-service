@@ -30,7 +30,7 @@ const createInputSchema = z.object({
   sourceFormat: z.enum(["dwg", "dxf"])
 }).strict();
 
-const activeStatuses = ["queued", "processing", "review_required", "applying"] as const;
+const activeStatuses = ["queued", "processing", "review_required"] as const;
 const cancellableStatuses = ["queued", "processing", "review_required"] as const;
 
 interface LockedApplyRow {
@@ -124,12 +124,31 @@ export class FloorImportService {
   }
 
   async getActive(user: AuthenticatedUser, floorId: string) {
-    await this.authorizeFloor(user, floorId, "manage");
-    const job = await this.prisma.floorImportJob.findFirst({
-      where: { floorId, status: { in: [...activeStatuses] } },
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      select: jobSelect
-    });
+    const job = await this.prisma.$transaction(async tx => {
+      const floor = await tx.floor.findUnique({ where: { id: floorId }, select: { id: true, siteId: true } });
+      if (!floor) throw new NotFoundException("floor not found");
+      await this.access.assertManageInTransaction(tx, user, floor.siteId);
+
+      // A valid apply changes applying -> completed in one transaction, so a committed
+      // applying row is abnormal. The DB clock and a threshold well beyond the 15s
+      // apply timeout avoid reclaiming a transaction that is still finishing.
+      await tx.$executeRaw(Prisma.sql`
+        UPDATE "FloorImportJob"
+        SET "status" = 'failed', "stage" = 'failed',
+          "failureCode" = 'CAD_IMPORT_STALE_APPLYING',
+          "failureMessage" = 'stale applying job recovered after 2 minutes',
+          "failedAt" = clock_timestamp(), "leaseOwner" = NULL,
+          "leaseExpiresAt" = NULL, "updatedAt" = clock_timestamp()
+        WHERE "floorId" = ${floorId}
+          AND "status" = 'applying'
+          AND "updatedAt" <= clock_timestamp() - INTERVAL '2 minutes'
+      `);
+      return tx.floorImportJob.findFirst({
+        where: { floorId, status: { in: [...activeStatuses] } },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        select: jobSelect
+      });
+    }, { ...EDITOR_TRANSACTION_OPTIONS, isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
     return { job: job ? await this.publicJob(job) : null };
   }
 

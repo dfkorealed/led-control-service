@@ -138,13 +138,13 @@ describe("FloorImportService", () => {
     expect(access.assert).toHaveBeenCalledWith(user, "site-1", "read");
   });
 
-  it("requires manage access and returns the floor active job including an authenticated rendered viewport", async () => {
+  it("reauthorizes manage access and reads only durable active states in one transaction", async () => {
     const floorId = randomUUID();
     const renderedAssetId = randomUUID();
     const active = job({
       floorId,
       renderedAssetId,
-      status: "applying",
+      status: "review_required",
       renderedAsset: {
         id: renderedAssetId,
         objectKey: `floors/${floorId}/${renderedAssetId}.svg`,
@@ -155,25 +155,28 @@ describe("FloorImportService", () => {
         cleanupStartedAt: null
       }
     });
-    const prisma: any = {
+    const tx: any = {
       floor: { findUnique: jest.fn().mockResolvedValue({ id: floorId, siteId: "site-1" }) },
+      $executeRaw: jest.fn().mockResolvedValue(0),
       floorImportJob: { findFirst: jest.fn().mockResolvedValue(active) }
     };
-    const access: any = { assert: jest.fn().mockResolvedValue({ id: "site-1" }) };
+    const prisma: any = { $transaction: jest.fn((run: (client: typeof tx) => unknown) => run(tx)) };
+    const access: any = { assertManageInTransaction: jest.fn().mockResolvedValue({ id: "site-1" }) };
     const storage = { readFloorRenderedMetadata: jest.fn().mockResolvedValue({ width: 640, height: 360 }) };
     const service = new FloorImportService(prisma, access, { record: jest.fn() } as any, storage as any);
 
     await expect(service.getActive(user, floorId)).resolves.toEqual({
       job: expect.objectContaining({
         jobId: active.id,
-        status: "applying",
+        status: "review_required",
         renderedViewport: { width: 640, height: 360 }
       })
     });
-    expect(access.assert).toHaveBeenCalledWith(user, "site-1", "manage");
-    expect(prisma.floorImportJob.findFirst).toHaveBeenCalledWith(expect.objectContaining({
-      where: { floorId, status: { in: ["queued", "processing", "review_required", "applying"] } }
+    expect(access.assertManageInTransaction).toHaveBeenCalledWith(tx, user, "site-1");
+    expect(tx.floorImportJob.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: { floorId, status: { in: ["queued", "processing", "review_required"] } }
     }));
+    expect(tx.$executeRaw.mock.calls[0][0].strings.join(" ")).toContain("INTERVAL '2 minutes'");
     expect(storage.readFloorRenderedMetadata).toHaveBeenCalledWith(
       `floors/${floorId}/${renderedAssetId}.svg`,
       { sizeBytes: 256, sha256: "b".repeat(64), mimeType: "image/svg+xml" }
@@ -182,15 +185,37 @@ describe("FloorImportService", () => {
 
   it("returns an empty active-job envelope after tenant and role authorization", async () => {
     const floorId = randomUUID();
-    const prisma: any = {
+    const tx: any = {
       floor: { findUnique: jest.fn().mockResolvedValue({ id: floorId, siteId: "site-1" }) },
+      $executeRaw: jest.fn().mockResolvedValue(0),
       floorImportJob: { findFirst: jest.fn().mockResolvedValue(null) }
     };
-    const access: any = { assert: jest.fn() };
+    const prisma: any = { $transaction: jest.fn((run: (client: typeof tx) => unknown) => run(tx)) };
+    const access: any = { assertManageInTransaction: jest.fn() };
     const service = new FloorImportService(prisma, access, { record: jest.fn() } as any);
 
     await expect(service.getActive(user, floorId)).resolves.toEqual({ job: null });
-    expect(access.assert).toHaveBeenCalledWith(user, "site-1", "manage");
+    expect(access.assertManageInTransaction).toHaveBeenCalledWith(tx, user, "site-1");
+  });
+
+  it("does not query applying as a recoverable active state after bounded reconciliation", async () => {
+    const floorId = randomUUID();
+    const tx: any = {
+      floor: { findUnique: jest.fn().mockResolvedValue({ id: floorId, siteId: "site-1" }) },
+      $executeRaw: jest.fn().mockResolvedValue(1),
+      floorImportJob: { findFirst: jest.fn().mockResolvedValue(null) }
+    };
+    const service = new FloorImportService(
+      { $transaction: jest.fn((run: (client: typeof tx) => unknown) => run(tx)) } as any,
+      { assertManageInTransaction: jest.fn() } as any,
+      { record: jest.fn() } as any
+    );
+
+    await expect(service.getActive(user, floorId)).resolves.toEqual({ job: null });
+    const staleSql = tx.$executeRaw.mock.calls[0][0].strings.join(" ");
+    expect(staleSql).toContain('"status" = \'applying\'');
+    expect(staleSql).toContain('clock_timestamp() - INTERVAL \'2 minutes\'');
+    expect(staleSql).toContain('"status" = \'failed\'');
   });
 
   it("returns the same validated viewport from the readable job endpoint", async () => {
