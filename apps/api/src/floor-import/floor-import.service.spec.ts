@@ -21,6 +21,14 @@ function job(overrides: Record<string, unknown> = {}) {
 }
 
 describe("FloorImportService", () => {
+  it("requires an explicit registered detector profile on every import request", async () => {
+    const service = new FloorImportService({} as any, {} as any, {} as any);
+    await expect(service.create(user, randomUUID(), { sourceAssetId: randomUUID(), sourceFormat: "dxf" }))
+      .rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.create(user, randomUUID(), {
+      sourceAssetId: randomUUID(), sourceFormat: "dxf", detectorProfileId: "unknown-profile"
+    })).rejects.toBeInstanceOf(BadRequestException);
+  });
   it("requires manage access and creates a queued job only for a same-floor ready original with matching format", async () => {
     const floorId = randomUUID(); const sourceAssetId = randomUUID(); const created = job({ floorId, sourceAssetId });
     const tx: any = {
@@ -44,7 +52,7 @@ describe("FloorImportService", () => {
     };
     const service = new FloorImportService(prisma, access, { record: jest.fn() } as any);
 
-    await expect(service.create(user, floorId, { sourceAssetId, sourceFormat: "dxf" })).resolves.toMatchObject({
+    await expect(service.create(user, floorId, { sourceAssetId, sourceFormat: "dxf", detectorProfileId: "generic-lighting-v1" })).resolves.toMatchObject({
       jobId: created.id, floorId, sourceAssetId, status: "queued", progressPercent: 0
     });
     expect(access.assert).toHaveBeenCalledWith(user, "site-1", "manage");
@@ -70,7 +78,7 @@ describe("FloorImportService", () => {
       { assert: jest.fn(), assertManageInTransaction: jest.fn().mockResolvedValue({ id: "site-1", organizationId: user.organizationId }) } as any,
       { record: jest.fn() } as any
     );
-    await expect(service.create(user, floorId, { sourceAssetId, sourceFormat: "dxf" }))
+    await expect(service.create(user, floorId, { sourceAssetId, sourceFormat: "dxf", detectorProfileId: "generic-lighting-v1" }))
       .rejects.toThrow("source asset must be a ready original");
     expect(tx.floorImportJob.create).not.toHaveBeenCalled();
   });
@@ -95,7 +103,7 @@ describe("FloorImportService", () => {
     };
     const access: any = { assert: jest.fn(), assertManageInTransaction: jest.fn() };
     const service = new FloorImportService(prisma, access, { record: jest.fn() } as any);
-    await expect(service.create(user, floorId, { sourceAssetId, sourceFormat: input.sourceFormat })).rejects.toBeInstanceOf(errorType);
+    await expect(service.create(user, floorId, { sourceAssetId, sourceFormat: input.sourceFormat, detectorProfileId: "generic-lighting-v1" })).rejects.toBeInstanceOf(errorType);
   });
 
   it("maps the database active-job unique conflict to a stable conflict response", async () => {
@@ -115,7 +123,7 @@ describe("FloorImportService", () => {
     };
     const access: any = { assert: jest.fn(), assertManageInTransaction: jest.fn().mockResolvedValue({ id: "site-1", organizationId: user.organizationId }) };
     const service = new FloorImportService(prisma, access, { record: jest.fn() } as any);
-    await expect(service.create(user, floorId, { sourceAssetId, sourceFormat: "dxf" })).rejects.toThrow("an active floor import already exists");
+    await expect(service.create(user, floorId, { sourceAssetId, sourceFormat: "dxf", detectorProfileId: "generic-lighting-v1" })).rejects.toThrow("an active floor import already exists");
   });
 
   it("uses read access and returns a candidate-only read model without fixture identity", async () => {

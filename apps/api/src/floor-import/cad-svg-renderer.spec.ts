@@ -1,6 +1,10 @@
 import type { NormalizedCadDocument } from "./cad-types";
-import { renderCadDocumentSvg } from "./cad-svg-renderer";
+import { renderCadDocumentSvg, renderCadDocumentSvgFile } from "./cad-svg-renderer";
 import sharp from "sharp";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { gunzipSync } from "node:zlib";
 
 const document: NormalizedCadDocument = {
   version: 1,
@@ -17,6 +21,45 @@ const document: NormalizedCadDocument = {
 };
 
 describe("CAD SVG renderer", () => {
+  it("streams repeated blocks and escaped Hangul text into a storage-sized hierarchical SVG", async () => {
+    const repeated: NormalizedCadDocument = {
+      version: 1, bounds: { minX: 0, minY: 0, maxX: 4_000, maxY: 10 },
+      blocks: [{
+        name: "몰드바등<&>", basePoint: { x: 1, y: 1, z: 0 },
+        entities: [
+          { type: "circle", sourceEntityId: "lamp", layer: "조명", center: { x: 1, y: 1, z: 0 }, radius: 1 },
+          { type: "text", sourceEntityId: "label", layer: "문자", position: { x: 0, y: 0, z: 0 }, rotation: 0, height: 1, text: "한글<&>" }
+        ]
+      }],
+      entities: Array.from({ length: 2_000 }, (_, index) => ({
+        type: "insert" as const, sourceEntityId: `i-${index}`, layer: "LIGHT", blockName: "몰드바등<&>",
+        position: { x: index * 2, y: 2, z: 0 }, rotation: 0, scale: { x: 1, y: 1, z: 1 }, attributes: []
+      }))
+    };
+    const root = await mkdtemp(join(tmpdir(), "cad-svg-stream-"));
+    const outputPath = join(root, "floor.svg");
+    const repeatedPath = join(root, "floor-repeat.svg");
+    try {
+      const result = await renderCadDocumentSvgFile(repeated, outputPath);
+      const repeatedResult = await renderCadDocumentSvgFile(repeated, repeatedPath);
+      const svg = gunzipSync(await readFile(outputPath)).toString("utf8");
+      expect(result.sizeBytes).toBeLessThan(8 * 1024 * 1024);
+      expect(svg.match(/<symbol\b/g)).toHaveLength(1);
+      expect(svg.match(/<use\b/g)).toHaveLength(2_000);
+      expect(svg).toContain("<text");
+      expect(svg).toContain("한글&lt;&amp;&gt;");
+      expect(svg).not.toMatch(/(?:href|src)=["'](?:https?:|data:)|<image|<foreignObject|@import/i);
+      const raster = sharp(Buffer.from(svg)).ensureAlpha();
+      const metadata = await raster.metadata();
+      const stats = await raster.stats();
+      expect(metadata.width).toBeGreaterThan(3_900);
+      expect(stats.channels[3]?.max).toBe(255);
+      expect(repeatedResult).toEqual(result);
+      expect(await readFile(repeatedPath)).toEqual(await readFile(outputPath));
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
   it("renders one self-contained SVG with a normalized viewport and expanded blocks", () => {
     const svg = renderCadDocumentSvg(document);
 

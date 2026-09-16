@@ -153,7 +153,8 @@ services:
     networks: [backend]
     image: ${API_IMAGE:?Set immutable API_IMAGE}
     user: "1000:1000"
-    mem_limit: 1g
+    # CAD parser retains at most 192 MiB of normalized model data and one job runs per process.
+    mem_limit: 768m
     tmpfs: [/tmp]
     depends_on:
       crl-init: {condition: service_completed_successfully}
@@ -163,6 +164,7 @@ services:
       object-storage-init: {condition: service_completed_successfully}
     environment:
       NODE_ENV: production
+      NODE_OPTIONS: --max-old-space-size=512
       API_PORT: "4000"
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL}
       REDIS_URL: ${REDIS_URL:?Set REDIS_URL}

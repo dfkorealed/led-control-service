@@ -23,5 +23,8 @@ export interface LightingDetectionOptions {
 }
 
 export interface LightingSymbolDetector {
+  readonly profileId?: string;
+  readonly profileVersion?: string;
+  readonly profileDigest?: string;
   detect(document: NormalizedCadDocument, options?: LightingDetectionOptions): Promise<DetectedLightingSymbol[]>;
 }

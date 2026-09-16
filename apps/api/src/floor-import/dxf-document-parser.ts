@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer";
-import { computeCadBounds, expandCadDocument } from "./cad-geometry";
+import { computeCadBounds, iterateCadDocumentExpansion } from "./cad-geometry";
 import type { CadPoint, CadPolylineVertex, NormalizedCadAttribute, NormalizedCadBlock, NormalizedCadDocument, NormalizedCadEntity, NormalizedCadPolyline } from "./cad-types";
 
 export interface DxfParserLimits {
@@ -14,6 +14,7 @@ export interface DxfParserLimits {
   maxExpandedEntities: number;
   maxBlockDepth: number;
   maxNormalizedOutputBytes: number;
+  maxRetainedModelBytes: number;
   maxDurationMs: number;
   maxCpuMs: number;
   now: () => number;
@@ -32,6 +33,7 @@ export const DEFAULT_DXF_PARSER_LIMITS: Readonly<DxfParserLimits> = Object.freez
   maxExpandedEntities: 1_000_000,
   maxBlockDepth: 32,
   maxNormalizedOutputBytes: 128 * 1024 * 1024,
+  maxRetainedModelBytes: 192 * 1024 * 1024,
   maxDurationMs: 60_000,
   maxCpuMs: 45_000,
   now: () => performance.now(),
@@ -51,7 +53,7 @@ function resolveLimits(options: Partial<DxfParserLimits>): DxfParserLimits {
   const limits = { ...DEFAULT_DXF_PARSER_LIMITS, ...options };
   for (const key of [
     "maxInputBytes", "maxLineBytes", "maxEntityBodyPairs", "maxEntities", "maxBlocks", "maxCoordinates",
-    "maxCoordinateMagnitude", "maxZCoordinateMagnitude", "maxExpandedEntities", "maxBlockDepth", "maxNormalizedOutputBytes", "maxDurationMs", "maxCpuMs"
+    "maxCoordinateMagnitude", "maxZCoordinateMagnitude", "maxExpandedEntities", "maxBlockDepth", "maxNormalizedOutputBytes", "maxRetainedModelBytes", "maxDurationMs", "maxCpuMs"
   ] as const) {
     if (!Number.isFinite(limits[key]) || limits[key] <= 0) throw new Error(`Invalid DXF ${key}`);
   }
@@ -133,6 +135,7 @@ class DxfDocumentBuilder {
   private rawEntityCount = 0;
   private coordinateCount = 0;
   private normalizedBytes = 64;
+  private retainedModelBytes = 64;
   private readonly sourceEntityIds = new Set<string>();
   private readonly blocks: NormalizedCadBlock[] = [];
   private readonly entities: NormalizedCadEntity[] = [];
@@ -187,7 +190,7 @@ class DxfDocumentBuilder {
       if (!this.currentBlock) throw new Error("Orphan DXF ENDBLK entity");
       if (this.polyline || this.attributeInsert) throw new Error("Unterminated DXF entity before ENDBLK");
       this.blocks.push(this.currentBlock);
-      this.normalizedBytes += this.sizeOf({ name: this.currentBlock.name, basePoint: this.currentBlock.basePoint });
+      this.addOutputBytes({ name: this.currentBlock.name, basePoint: this.currentBlock.basePoint });
       this.currentBlock = null;
       return;
     }
@@ -214,11 +217,10 @@ class DxfDocumentBuilder {
     if (this.awaitingSectionName || this.section || this.currentBlock) throw new Error("Unterminated DXF SECTION or BLOCK");
     if (this.polyline || this.attributeInsert) throw new Error("Unterminated DXF entity sequence");
     if (new Set(this.blocks.map(block => block.name)).size !== this.blocks.length) throw new Error("Duplicate DXF block name");
-    const expanded = expandCadDocument(
+    const rawBounds = computeCadBounds(iterateCadDocumentExpansion(
       { blocks: this.blocks, entities: this.entities },
       { maxRenderedEntities: this.limits.maxExpandedEntities, maxBlockDepth: this.limits.maxBlockDepth, checkBudget: this.checkBudget }
-    );
-    const rawBounds = computeCadBounds(expanded, this.checkBudget);
+    ), this.checkBudget);
     if (Object.values(rawBounds).some(value => Math.abs(value) > this.limits.maxCoordinateMagnitude)) {
       throw new Error("DXF transformed coordinate limit exceeded");
     }
@@ -320,6 +322,7 @@ class DxfDocumentBuilder {
   }
 
   private parseEntity(type: string, body: readonly DxfPair[]): NormalizedCadEntity | null {
+    if (!["LINE", "LWPOLYLINE", "CIRCLE", "ARC", "TEXT", "MTEXT", "INSERT"].includes(type)) return null;
     const common = this.idAndLayer(body);
     if (type === "LINE") return { type: "line", ...common, start: this.point(body, 10, 20, 30, "line start"), end: this.point(body, 11, 21, 31, "line end") };
     if (type === "LWPOLYLINE") {
@@ -390,6 +393,8 @@ class DxfDocumentBuilder {
     const key = sourceEntityId.toLocaleUpperCase();
     if (this.sourceEntityIds.has(key)) throw new Error(`Duplicate DXF source identity or handle collision: ${sourceEntityId}`);
     this.sourceEntityIds.add(key);
+    this.retainedModelBytes += 48 + Buffer.byteLength(key, "utf8") * 2;
+    if (this.retainedModelBytes > this.limits.maxRetainedModelBytes) throw new Error("DXF retained model memory limit exceeded");
     return { sourceEntityId, layer: this.requireName(this.first(body, 8)?.value ?? "0", "layer") };
   }
 
@@ -428,8 +433,13 @@ class DxfDocumentBuilder {
   private sizeOf(value: unknown): number { return Buffer.byteLength(JSON.stringify(value), "utf8") + 2; }
 
   private addOutputBytes(value: unknown): void {
-    this.normalizedBytes += this.sizeOf(value);
+    const serializedBytes = this.sizeOf(value);
+    this.normalizedBytes += serializedBytes;
     if (this.normalizedBytes > this.limits.maxNormalizedOutputBytes) throw new Error("DXF normalized output limit exceeded");
+    // This deterministic accounting includes UTF-16/string duplication and a
+    // conservative object/array allocation allowance for each retained value.
+    this.retainedModelBytes += serializedBytes * 2 + 96;
+    if (this.retainedModelBytes > this.limits.maxRetainedModelBytes) throw new Error("DXF retained model memory limit exceeded");
   }
 }
 

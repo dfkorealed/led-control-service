@@ -112,6 +112,7 @@ describe("ASCII DXF document parser", () => {
     expect(() => parseAsciiDxf(syntheticDxf(), { maxEntities: 2 })).toThrow(/entity.*limit/i);
     expect(() => parseAsciiDxf(syntheticDxf(), { maxCoordinateMagnitude: 9 })).toThrow(/coordinate.*limit/i);
     expect(() => parseAsciiDxf(syntheticDxf(), { maxNormalizedOutputBytes: 32 })).toThrow(/output.*limit/i);
+    expect(() => parseAsciiDxf(syntheticDxf(), { maxRetainedModelBytes: 128 })).toThrow(/retained model memory.*limit/i);
   });
 
   it("enforces the parsing time budget with an injectable monotonic clock", () => {

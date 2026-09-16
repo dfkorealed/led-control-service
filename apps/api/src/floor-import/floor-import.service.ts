@@ -8,6 +8,7 @@ import {
 } from "@nestjs/common";
 import {
   cadImportFileTypeSchema,
+  cadImportDetectorProfileIdSchema,
   CAD_IMPORT_MAX_CANDIDATES,
   floorImportApplyInputSchema,
   floorImportCandidateListResponseSchema,
@@ -28,7 +29,8 @@ import { ObjectStorageService } from "../storage/object-storage.service";
 
 const createInputSchema = z.object({
   sourceAssetId: z.string().uuid(),
-  sourceFormat: z.enum(["dwg", "dxf"])
+  sourceFormat: z.enum(["dwg", "dxf"]),
+  detectorProfileId: cadImportDetectorProfileIdSchema
 }).strict();
 
 const activeStatuses = ["queued", "processing", "review_required"] as const;
@@ -94,7 +96,7 @@ export class FloorImportService {
           throw new BadRequestException("source asset MIME type does not match the CAD format");
         }
         const job = await tx.floorImportJob.create({
-          data: { floorId, sourceAssetId: source.id, sourceFormat: input.sourceFormat },
+          data: { floorId, sourceAssetId: source.id, sourceFormat: input.sourceFormat, detectorProfileId: input.detectorProfileId },
           select: jobSelect
         });
         await this.audit.record({
@@ -105,7 +107,7 @@ export class FloorImportService {
           targetType: "floor_import_job",
           targetId: job.id,
           outcome: "success",
-          metadata: { floorId, sourceAssetId: source.id, sourceFormat: input.sourceFormat },
+          metadata: { floorId, sourceAssetId: source.id, sourceFormat: input.sourceFormat, detectorProfileId: input.detectorProfileId },
           transaction: tx
         });
         return job;
@@ -420,7 +422,8 @@ export class FloorImportService {
 const jobSelect = {
   id: true, floorId: true, sourceAssetId: true, renderedAssetId: true, sourceFormat: true,
   status: true, stage: true, progressPercent: true, attemptCount: true,
-  parserVersion: true, detectorVersion: true, failureCode: true,
+  parserVersion: true, detectorVersion: true, detectorProfileId: true,
+  detectorProfileVersion: true, detectorProfileDigest: true, failureCode: true,
   startedAt: true, reviewRequiredAt: true, appliedAt: true, completedAt: true,
   failedAt: true, cancelledAt: true, createdAt: true, updatedAt: true,
   renderedAsset: { select: {
@@ -431,7 +434,7 @@ const jobSelect = {
 const candidateSelect = {
   id: true, sourceEntityId: true, layerName: true, blockName: true, x: true, y: true,
   rotation: true, confidence: true, detectionMethod: true, provider: true, model: true,
-  inputDigest: true, reviewStatus: true
+  inputDigest: true, profileVersion: true, profileDigest: true, reviewStatus: true
 } satisfies Prisma.FloorImportCandidateSelect;
 
 function publicJob(
@@ -450,6 +453,9 @@ function publicJob(
     attemptCount: job.attemptCount,
     parserVersion: job.parserVersion,
     detectorVersion: job.detectorVersion,
+    detectorProfileId: job.detectorProfileId,
+    detectorProfileVersion: job.detectorProfileVersion,
+    detectorProfileDigest: job.detectorProfileDigest,
     failureCode: job.failureCode,
     sourceAssetPath: assetAccessPath(job.floorId, job.sourceAssetId),
     renderedAssetPath: job.renderedAssetId ? assetAccessPath(job.floorId, job.renderedAssetId) : null,

@@ -65,6 +65,8 @@ const candidate = {
   provider: null,
   model: null,
   inputDigest: null,
+  profileVersion: "test/1",
+  profileDigest: "b".repeat(64),
   reviewStatus: "pending" as const
 };
 
@@ -126,7 +128,8 @@ describe("CadImportPanel", () => {
 
     await waitFor(() => expect(floorEditorApi.createFloorImportJob).toHaveBeenCalledWith("floor-1", {
       sourceAssetId: asset.id,
-      sourceFormat: name.endsWith("dwg") ? "dwg" : "dxf"
+      sourceFormat: name.endsWith("dwg") ? "dwg" : "dxf",
+      detectorProfileId: "generic-lighting-v1"
     }));
   });
 
@@ -218,7 +221,7 @@ describe("CadImportPanel", () => {
       renderedAssetPath: "/api/floors/floor-1/assets/rendered-1/content",
       renderedViewport: { width: 640, height: 360 }
     };
-    const manyCandidates = Array.from({ length: 1_000 }, (_, index) => ({
+    const manyCandidates = Array.from({ length: 2_000 }, (_, index) => ({
       ...candidate,
       id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
       sourceEntityId: `insert-${index}`
@@ -236,11 +239,11 @@ describe("CadImportPanel", () => {
     first.unmount();
     renderPanel({ review: hydrated });
 
-    expect(screen.getByText("조명 위치 후보 1,000개를 찾았습니다.")).toBeInTheDocument();
-    expect(screen.getAllByRole("checkbox", { name: /후보 1\/1,000/ })).toHaveLength(1);
+    expect(screen.getByText("조명 위치 후보 2,000개를 찾았습니다.")).toBeInTheDocument();
+    expect(screen.getAllByRole("checkbox", { name: /후보 1\/2,000/ })).toHaveLength(1);
     expect(screen.getAllByRole("checkbox")).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "다음 후보" }));
-    expect(screen.getByRole("checkbox", { name: /후보 2\/1,000/ })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /후보 2\/2,000/ })).toBeInTheDocument();
   });
 
   it("recovers the durable queued job after create returns 409", async () => {
@@ -328,16 +331,22 @@ describe("CadImportPanel", () => {
   });
 
   it("applies only reviewed candidate ids with the editor lease and revision", async () => {
+    const acceptedCandidates = Array.from({ length: 2_000 }, (_, index) => ({
+      ...candidate,
+      id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+      sourceEntityId: `insert-${index}`
+    }));
+    const acceptedIds = acceptedCandidates.map(item => item.id);
     const review: CadImportReviewState = {
       job: { ...queuedJob, status: "review_required", progressPercent: 100 },
-      candidates: [candidate],
-      acceptedCandidateIds: [candidate.id]
+      candidates: acceptedCandidates,
+      acceptedCandidateIds: acceptedIds
     };
     floorEditorApi.applyFloorImportJob.mockResolvedValueOnce({
       jobId: queuedJob.jobId,
       status: "completed",
       revision: 8,
-      acceptedCandidateIds: [candidate.id],
+      acceptedCandidateIds: acceptedIds,
       renderedAssetId: "rendered-1",
       floorPlan: {}
     });
@@ -348,7 +357,7 @@ describe("CadImportPanel", () => {
     await waitFor(() => expect(floorEditorApi.applyFloorImportJob).toHaveBeenCalledWith(
       "floor-1",
       queuedJob.jobId,
-      { expectedRevision: 7, leaseToken: "lease-token", leaseFence: 9, candidateIds: [candidate.id] }
+      { expectedRevision: 7, leaseToken: "lease-token", leaseFence: 9, candidateIds: acceptedIds }
     ));
     expect(onApplied).toHaveBeenCalledWith(expect.objectContaining({ revision: 8 }));
   });

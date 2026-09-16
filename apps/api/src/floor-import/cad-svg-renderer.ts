@@ -1,4 +1,10 @@
 import { Buffer } from "node:buffer";
+import { createHash } from "node:crypto";
+import { createReadStream, createWriteStream } from "node:fs";
+import { open, unlink } from "node:fs/promises";
+import { Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import { createGzip } from "node:zlib";
 import { cadBulgeArc, computeCadBounds, expandCadDocument, iterateCadDocumentExpansion, multiplyCadMatrices, transformPoint, type CadMatrix, type ExpandedCadEntity } from "./cad-geometry";
 import { forEachCadTextGlyph, sanitizeCadText } from "./cad-text-layout";
 import type { CadPoint, NormalizedCadDocument } from "./cad-types";
@@ -34,6 +40,8 @@ const DEFAULT_LIMITS: CadSvgRendererLimits = {
   }
 };
 const MIN_SERIALIZED_GLYPH_BYTES = 16;
+export const CAD_RENDERED_SVG_MAX_BYTES = 8 * 1024 * 1024;
+const CAD_RENDERED_SVG_RAW_MAX_BYTES = 128 * 1024 * 1024;
 
 function xmlSanitized(value: string): string {
   return value.replace(/[&<>"']/g, character => ({
@@ -248,4 +256,159 @@ export function renderCadDocumentSvg(document: NormalizedCadDocument, options: P
   append("</g></svg>");
   checkBudget();
   return pieces.join("");
+}
+
+export interface CadSvgFileResult {
+  sizeBytes: number;
+  rawSizeBytes: number;
+  sha256: string;
+  viewport: { width: number; height: number };
+  renderedOccurrences: number;
+  contentEncoding: "gzip";
+}
+
+/**
+ * Writes a compact SVG whose block geometry is defined once and referenced by
+ * INSERT occurrences. This is the production renderer: it never retains the
+ * complete SVG string or an expanded entity array in memory.
+ */
+export async function renderCadDocumentSvgFile(
+  document: NormalizedCadDocument,
+  outputPath: string,
+  options: Partial<Pick<CadSvgRendererLimits, "maxOutputBytes" | "maxRenderedEntities" | "maxBlockDepth" | "maxDurationMs" | "maxCpuMs" | "now" | "cpuNow">> & { abortSignal?: AbortSignal } = {}
+): Promise<CadSvgFileResult> {
+  const limits = { ...DEFAULT_LIMITS, ...options, maxOutputBytes: options.maxOutputBytes ?? CAD_RENDERED_SVG_MAX_BYTES };
+  const startedAt = limits.now();
+  const cpuStarted = limits.cpuNow();
+  const checkBudget = () => {
+    if (options.abortSignal?.aborted) throw new Error("CAD SVG rendering aborted");
+    if (limits.now() - startedAt > limits.maxDurationMs) throw new Error("CAD SVG wall time limit exceeded");
+    if (limits.cpuNow() - cpuStarted > limits.maxCpuMs) throw new Error("CAD SVG CPU time limit exceeded");
+  };
+  if (!Number.isSafeInteger(limits.maxOutputBytes) || limits.maxOutputBytes < 1 || limits.maxOutputBytes > CAD_RENDERED_SVG_MAX_BYTES ||
+      !Number.isSafeInteger(limits.maxRenderedEntities) || limits.maxRenderedEntities < 1 ||
+      !Number.isSafeInteger(limits.maxBlockDepth) || limits.maxBlockDepth < 1) throw new Error("Invalid CAD SVG file renderer limits");
+
+  const blockByName = new Map(document.blocks.map((block, index) => [block.name, { block, id: `cad-block-${index}` }]));
+  if (blockByName.size !== document.blocks.length) throw new Error("Duplicate CAD block name");
+  let renderedOccurrences = 0;
+  const countEntities = (entities: NormalizedCadDocument["entities"], stack: readonly string[]): number => {
+    let count = 0;
+    for (const entity of entities) {
+      checkBudget();
+      if (entity.type !== "insert") count++;
+      else {
+        const target = blockByName.get(entity.blockName);
+        if (!target) throw new Error(`CAD INSERT references missing block: ${entity.blockName}`);
+        if (stack.includes(entity.blockName)) throw new Error(`Cyclic CAD block reference: ${entity.blockName}`);
+        if (stack.length >= limits.maxBlockDepth) throw new Error("CAD block depth limit exceeded");
+        count += countEntities(target.block.entities, [...stack, entity.blockName]);
+      }
+      if (renderedOccurrences + count > limits.maxRenderedEntities) throw new Error("CAD rendered entity limit exceeded");
+    }
+    return count;
+  };
+  renderedOccurrences = countEntities(document.entities, []);
+  const reachableBlocks = new Set<string>();
+  const markReachable = (entities: NormalizedCadDocument["entities"]) => {
+    for (const entity of entities) {
+      if (entity.type !== "insert" || reachableBlocks.has(entity.blockName)) continue;
+      const target = blockByName.get(entity.blockName);
+      if (!target) throw new Error(`CAD INSERT references missing block: ${entity.blockName}`);
+      reachableBlocks.add(entity.blockName);
+      markReachable(target.block.entities);
+    }
+  };
+  markReachable(document.entities);
+
+  const width = Math.ceil(Math.max(1, document.bounds.maxX - document.bounds.minX + 2));
+  const height = Math.ceil(Math.max(1, document.bounds.maxY - document.bounds.minY + 2));
+  const rawPath = `${outputPath}.raw`;
+  const file = await open(rawPath, "wx", 0o600);
+  let rawSizeBytes = 0;
+  const write = async (piece: string) => {
+    checkBudget();
+    const bytes = Buffer.from(piece, "utf8");
+    if (rawSizeBytes + bytes.length > CAD_RENDERED_SVG_RAW_MAX_BYTES) throw new Error("CAD SVG raw output limit exceeded");
+    await file.write(bytes);
+    rawSizeBytes += bytes.length;
+  };
+  const matrix = (entity: Extract<NormalizedCadDocument["entities"][number], { type: "insert" }>, base: CadPoint) => {
+    const radians = entity.rotation * Math.PI / 180;
+    const a = Math.cos(radians) * entity.scale.x;
+    const b = Math.sin(radians) * entity.scale.x;
+    const c = -Math.sin(radians) * entity.scale.y;
+    const d = Math.cos(radians) * entity.scale.y;
+    return `matrix(${number(a)} ${number(b)} ${number(c)} ${number(d)} ${number(entity.position.x - a * base.x - c * base.y)} ${number(entity.position.y - b * base.x - d * base.y)})`;
+  };
+  const pathForPolyline = (entity: Extract<NormalizedCadDocument["entities"][number], { type: "lwpolyline" | "polyline" }>) => {
+    const first = entity.vertices[0];
+    const commands = [`M${number(first.x)} ${number(first.y)}`];
+    const count = entity.closed ? entity.vertices.length : entity.vertices.length - 1;
+    for (let index = 0; index < count; index++) {
+      const start = entity.vertices[index];
+      const end = entity.vertices[(index + 1) % entity.vertices.length];
+      const arc = cadBulgeArc(start, end, start.bulge);
+      commands.push(arc
+        ? `A${number(arc.radius)} ${number(arc.radius)} 0 ${Math.abs(arc.sweepAngle) > 180 ? 1 : 0} ${arc.sweepAngle < 0 ? 1 : 0} ${number(end.x)} ${number(end.y)}`
+        : `L${number(end.x)} ${number(end.y)}`);
+    }
+    if (entity.closed) commands.push("Z");
+    return commands.join(" ");
+  };
+  const renderEntities = async (entities: NormalizedCadDocument["entities"]) => {
+    for (const entity of entities) {
+      checkBudget();
+      if (entity.type === "insert") {
+        const target = blockByName.get(entity.blockName);
+        if (!target) throw new Error(`CAD INSERT references missing block: ${entity.blockName}`);
+        await write(`<use href="#${target.id}" transform="${matrix(entity, target.block.basePoint)}"/>`);
+      } else if (entity.type === "line") {
+        await write(`<path d="M${number(entity.start.x)} ${number(entity.start.y)}L${number(entity.end.x)} ${number(entity.end.y)}"/>`);
+      } else if ("vertices" in entity) {
+        await write(`<path d="${pathForPolyline(entity)}"/>`);
+      } else if (entity.type === "circle") {
+        await write(`<circle cx="${number(entity.center.x)}" cy="${number(entity.center.y)}" r="${number(entity.radius)}"/>`);
+      } else if (entity.type === "arc") {
+        const start = entity.startAngle * Math.PI / 180;
+        const end = entity.endAngle * Math.PI / 180;
+        const sweep = arcSweep(entity.startAngle, entity.endAngle);
+        await write(`<path d="M${number(entity.center.x + entity.radius * Math.cos(start))} ${number(entity.center.y + entity.radius * Math.sin(start))}A${number(entity.radius)} ${number(entity.radius)} 0 ${sweep > 180 ? 1 : 0} 1 ${number(entity.center.x + entity.radius * Math.cos(end))} ${number(entity.center.y + entity.radius * Math.sin(end))}"/>`);
+      } else {
+        const text = xml(entity.text);
+        await write(`<text x="0" y="0" font-size="${number(entity.height)}" font-family="Arial, Noto Sans KR, sans-serif" fill="#111827" stroke="none" transform="translate(${number(entity.position.x)} ${number(entity.position.y)}) rotate(${number(entity.rotation)}) scale(1 -1)">${text}</text>`);
+      }
+    }
+  };
+
+  try {
+    await write(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="CAD floor plan"><rect width="100%" height="100%" fill="#fff"/><defs>`);
+    for (const [name, { block, id }] of blockByName) {
+      if (!reachableBlocks.has(name)) continue;
+      await write(`<symbol id="${id}" overflow="visible"><g fill="none" stroke="#1f2937" stroke-width="0.2" vector-effect="non-scaling-stroke">`);
+      await renderEntities(block.entities);
+      await write("</g></symbol>");
+    }
+    await write(`</defs><g fill="none" stroke="#1f2937" stroke-width="0.2" vector-effect="non-scaling-stroke" transform="matrix(1 0 0 -1 ${number(-document.bounds.minX + 1)} ${number(document.bounds.maxY + 1)})">`);
+    await renderEntities(document.entities);
+    await write("</g></svg>");
+    await file.sync();
+    await file.close();
+    const hash = createHash("sha256");
+    let sizeBytes = 0;
+    const meter = new Transform({ transform(chunk: Buffer, _encoding, callback) {
+      sizeBytes += chunk.length;
+      if (sizeBytes > limits.maxOutputBytes) return callback(new Error("CAD SVG compressed output limit exceeded"));
+      hash.update(chunk);
+      callback(null, chunk);
+    } });
+    await pipeline(createReadStream(rawPath), createGzip({ level: 9 }), meter, createWriteStream(outputPath, { flags: "wx", mode: 0o600 }));
+    await unlink(rawPath);
+    return { sizeBytes, rawSizeBytes, sha256: hash.digest("hex"), viewport: { width, height }, renderedOccurrences, contentEncoding: "gzip" };
+  } catch (error) {
+    await file.close().catch(() => undefined);
+    await unlink(rawPath).catch(() => undefined);
+    await unlink(outputPath).catch(() => undefined);
+    throw error;
+  }
 }

@@ -19,7 +19,8 @@ import { basename, extname, isAbsolute, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
 const ANALYZER_VERSION = "cad-import-analysis/2";
-const CANDIDATE_RULE_VERSION = "site-drawing-lighting/2";
+const CANDIDATE_PROFILE_ID = "site-drawing-20260803-v1";
+const CANDIDATE_RULE_VERSION = "site-drawing-20260803/1";
 const HARD_LIMITS = Object.freeze({
   inputBytes: 128 * 1024 * 1024,
   convertedBytes: 256 * 1024 * 1024,
@@ -27,9 +28,13 @@ const HARD_LIMITS = Object.freeze({
   jsonOutputBytes: 8 * 1024 * 1024,
   converterTimeoutMs: 30_000,
   parseTimeoutMs: 30_000,
+  parseCpuMs: 30_000,
   entityRecords: 1_000_000,
   lineBytes: 1024 * 1024,
-  entityBodyPairs: 250_000
+  entityBodyPairs: 250_000,
+  expandedInsertOccurrences: 1_000_000,
+  uniqueWorldCoordinates: 1_000_000,
+  expansionDepth: 32
 });
 const SUPPORTED_MAP_ENTITY_TYPES = new Set([
   "LINE",
@@ -51,18 +56,40 @@ const CANDIDATE_RULES = Object.freeze({
   blockNameTokens: ["조명", "전등", "LIGHT", "LAMP", "LED", "FIXTURE", "LUMINAIRE"],
   denyLayerNameTokens: ["LEDGER", "SCHEDULE", "NOTE", "DECOR", "TITLE BLOCK"],
   denyBlockNameTokens: ["LEDGER", "SCHEDULE", "SCHEDULED NOTE", "NOTE", "DECOR", "TITLE BLOCK"],
-  minimumBlockOccurrences: 2
-});
-const CANDIDATE_PROFILE_DIGEST = createHash("sha256").update(JSON.stringify({
-  profileVersion: CANDIDATE_RULE_VERSION,
-  exactBlockAllowlist: CANDIDATE_RULES.exactBlockAllowlist,
-  layerNameTokens: CANDIDATE_RULES.layerNameTokens,
-  blockNameTokens: CANDIDATE_RULES.blockNameTokens,
-  minimumBlockOccurrences: CANDIDATE_RULES.minimumBlockOccurrences,
-  denyLayerNameTokens: CANDIDATE_RULES.denyLayerNameTokens,
-  denyBlockNameTokens: CANDIDATE_RULES.denyBlockNameTokens,
+  minimumBlockOccurrences: 2,
+  confidence: 0.95,
+  maxCandidates: 2_000,
+  maxExpandedInserts: 100_000,
+  maxExpandedEntities: 1_000_000,
+  attributeValueTokens: ["조명", "전등", "LIGHT", "LIGHTING", "LAMP", "LED", "FIXTURE", "LUMINAIRE"],
+  nearbyTextTokens: ["조명", "전등", "LIGHT", "LIGHTING", "LAMP", "LED", "FIXTURE", "LUMINAIRE"],
   denyAttributeValueTokens: ["NOT LIGHT", "NON LIGHTING", "DECOR", "IGNORE"],
-  denyNearbyTextTokens: ["NOT LIGHT", "NON LIGHTING", "DECOR", "DO NOT IMPORT", "IGNORE"]
+  denyNearbyTextTokens: ["NOT LIGHT", "NON LIGHTING", "DECOR", "DO NOT IMPORT", "IGNORE"],
+  nearbyTextDistance: 5,
+  maxDurationMs: 30_000,
+  cooperativeYieldInterval: 256
+});
+const canonicalTokens = (values) => values.map((value) => value.normalize("NFKC").toUpperCase().trim()).sort();
+const CANDIDATE_PROFILE_DIGEST = createHash("sha256").update(JSON.stringify({
+  profileId: CANDIDATE_PROFILE_ID,
+  profileVersion: CANDIDATE_RULE_VERSION,
+  exactBlockAllowlist: canonicalTokens(CANDIDATE_RULES.exactBlockAllowlist),
+  layerNameTokens: canonicalTokens(CANDIDATE_RULES.layerNameTokens),
+  blockNameTokens: canonicalTokens(CANDIDATE_RULES.blockNameTokens),
+  minimumBlockOccurrences: CANDIDATE_RULES.minimumBlockOccurrences,
+  confidence: CANDIDATE_RULES.confidence,
+  maxCandidates: CANDIDATE_RULES.maxCandidates,
+  maxExpandedInserts: CANDIDATE_RULES.maxExpandedInserts,
+  maxExpandedEntities: CANDIDATE_RULES.maxExpandedEntities,
+  attributeValueTokens: canonicalTokens(CANDIDATE_RULES.attributeValueTokens),
+  nearbyTextTokens: canonicalTokens(CANDIDATE_RULES.nearbyTextTokens),
+  denyLayerNameTokens: canonicalTokens(CANDIDATE_RULES.denyLayerNameTokens),
+  denyBlockNameTokens: canonicalTokens(CANDIDATE_RULES.denyBlockNameTokens),
+  denyAttributeValueTokens: canonicalTokens(CANDIDATE_RULES.denyAttributeValueTokens),
+  denyNearbyTextTokens: canonicalTokens(CANDIDATE_RULES.denyNearbyTextTokens),
+  nearbyTextDistance: CANDIDATE_RULES.nearbyTextDistance,
+  maxDurationMs: CANDIDATE_RULES.maxDurationMs,
+  cooperativeYieldInterval: CANDIDATE_RULES.cooperativeYieldInterval
 })).digest("hex");
 
 function parseArguments(argv) {
@@ -79,8 +106,11 @@ function parseArguments(argv) {
     "--max-json-output-bytes",
     "--converter-timeout-ms",
     "--parse-timeout-ms",
+    "--parse-cpu-ms",
     "--max-line-bytes",
-    "--max-entity-body-pairs"
+    "--max-entity-body-pairs",
+    "--max-expanded-inserts",
+    "--max-world-coordinates"
   ]);
   for (let index = 0; index < argv.length; index += 2) {
     const name = argv[index];
@@ -105,9 +135,13 @@ function parseArguments(argv) {
       jsonOutputBytes: boundedInteger(values.get("--max-json-output-bytes"), HARD_LIMITS.jsonOutputBytes, "JSON output byte limit"),
       converterTimeoutMs: boundedInteger(values.get("--converter-timeout-ms"), HARD_LIMITS.converterTimeoutMs, "converter time limit"),
       parseTimeoutMs: boundedInteger(values.get("--parse-timeout-ms"), HARD_LIMITS.parseTimeoutMs, "parse time limit"),
+      parseCpuMs: boundedInteger(values.get("--parse-cpu-ms"), HARD_LIMITS.parseCpuMs, "parse CPU limit"),
       entityRecords: HARD_LIMITS.entityRecords,
       lineBytes: boundedInteger(values.get("--max-line-bytes"), HARD_LIMITS.lineBytes, "line byte limit"),
-      entityBodyPairs: boundedInteger(values.get("--max-entity-body-pairs"), HARD_LIMITS.entityBodyPairs, "entity body pair limit")
+      entityBodyPairs: boundedInteger(values.get("--max-entity-body-pairs"), HARD_LIMITS.entityBodyPairs, "entity body pair limit"),
+      expandedInsertOccurrences: boundedInteger(values.get("--max-expanded-inserts"), HARD_LIMITS.expandedInsertOccurrences, "expanded INSERT limit"),
+      uniqueWorldCoordinates: boundedInteger(values.get("--max-world-coordinates"), HARD_LIMITS.uniqueWorldCoordinates, "world coordinate limit"),
+      expansionDepth: HARD_LIMITS.expansionDepth
     }
   };
 }
@@ -375,6 +409,7 @@ function coordinateKey(position) {
 
 async function analyzeDxf(path, limits) {
   const startedAt = performance.now();
+  const startedCpu = process.cpuUsage();
   const { decoder, textEncoding } = await detectDxfEncoding(path, limits, startedAt);
   let section = null;
   let awaitingSectionName = false;
@@ -393,6 +428,7 @@ async function analyzeDxf(path, limits) {
   const modelEntities = [];
   const blockDefinitionCounts = new Map();
   const blockDefinitionInserts = new Map();
+  const blockBasePoints = new Map();
 
   const finalizeEntity = () => {
     if (!currentEntity) return;
@@ -401,6 +437,11 @@ async function analyzeDxf(path, limits) {
     if (entity.type === "BLOCK") {
       currentBlock = firstPairValue(entity.pairs, 2) ?? firstPairValue(entity.pairs, 3) ?? "<unnamed>";
       if (!blockDefinitionCounts.has(currentBlock)) blockDefinitionCounts.set(currentBlock, 0);
+      blockBasePoints.set(currentBlock, {
+        x: finiteNumber(firstPairValue(entity.pairs, 10) ?? "0") ?? 0,
+        y: finiteNumber(firstPairValue(entity.pairs, 20) ?? "0") ?? 0,
+        z: finiteNumber(firstPairValue(entity.pairs, 30) ?? "0") ?? 0
+      });
       return;
     }
     rawEntityRecordCount++;
@@ -528,12 +569,12 @@ async function analyzeDxf(path, limits) {
   }
 
   return buildStatistics(
-    modelEntities, blockDefinitionCounts, blockDefinitionInserts,
+    modelEntities, blockDefinitionCounts, blockDefinitionInserts, blockBasePoints, limits, startedAt, startedCpu,
     rawEntityRecordCount, paperSpaceEntityCount, dxfVersion, codePage, textEncoding
   );
 }
 
-function expandInsertStatistics(modelEntities, blockDefinitionCounts, blockDefinitionInserts) {
+function expandInsertStatistics(modelEntities, blockDefinitionCounts, blockDefinitionInserts, blockBasePoints, limits, startedAt, startedCpu) {
   let expandedInsertOccurrenceCount = 0;
   let nestedInsertOccurrenceCount = 0;
   let unresolvedBlockReferenceCount = 0;
@@ -548,19 +589,37 @@ function expandInsertStatistics(modelEntities, blockDefinitionCounts, blockDefin
     e: left.a * right.e + left.c * right.f + left.e,
     f: left.b * right.e + left.d * right.f + left.f
   });
+  const checkBudget = () => {
+    if (performance.now() - startedAt > limits.parseTimeoutMs) throw new Error("DXF expansion wall time limit exceeded");
+    const cpu = process.cpuUsage(startedCpu);
+    if ((cpu.user + cpu.system) / 1000 > limits.parseCpuMs) throw new Error("DXF expansion CPU time limit exceeded");
+  };
   const matrixFor = (insert) => {
     const radians = (insert.rotation ?? 0) * Math.PI / 180;
     const x = insert.scale?.x ?? 1;
     const y = insert.scale?.y ?? 1;
-    return { a: Math.cos(radians) * x, b: Math.sin(radians) * x, c: -Math.sin(radians) * y, d: Math.cos(radians) * y, e: insert.position.x, f: insert.position.y };
+    const a = Math.cos(radians) * x;
+    const b = Math.sin(radians) * x;
+    const c = -Math.sin(radians) * y;
+    const d = Math.cos(radians) * y;
+    const base = blockBasePoints.get(insert.blockName) ?? { x: 0, y: 0 };
+    return { a, b, c, d, e: insert.position.x - a * base.x - c * base.y, f: insert.position.y - b * base.x - d * base.y };
   };
   const visit = (insert, parent, stack, depth) => {
+    checkBudget();
     if (!insert.blockName || !insert.position || Object.values(insert.position).some((value) => value === null)) return;
     const world = multiply(parent, matrixFor(insert));
+    const occurrence = {
+      x: parent.a * insert.position.x + parent.c * insert.position.y + parent.e,
+      y: parent.b * insert.position.x + parent.d * insert.position.y + parent.f,
+      z: insert.position.z
+    };
     expandedInsertOccurrenceCount++;
+    if (expandedInsertOccurrenceCount > limits.expandedInsertOccurrences) throw new Error("DXF expanded INSERT limit exceeded");
     if (depth > 0) nestedInsertOccurrenceCount++;
     maximumExpansionDepth = Math.max(maximumExpansionDepth, depth);
-    worldCoordinates.add(coordinateKey({ x: world.e, y: world.f, z: insert.position.z }));
+    worldCoordinates.add(coordinateKey(occurrence));
+    if (worldCoordinates.size > limits.uniqueWorldCoordinates) throw new Error("DXF world coordinate limit exceeded");
     if (!blockDefinitionCounts.has(insert.blockName)) {
       unresolvedBlockReferenceCount++;
       return;
@@ -570,7 +629,7 @@ function expandInsertStatistics(modelEntities, blockDefinitionCounts, blockDefin
       cyclicBlockReferenceCount++;
       return;
     }
-    if (depth >= 32) return;
+    if (depth >= limits.expansionDepth) throw new Error("DXF block expansion depth limit exceeded");
     for (const child of children) visit(child, world, [...stack, insert.blockName], depth + 1);
   };
   const identity = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
@@ -579,13 +638,14 @@ function expandInsertStatistics(modelEntities, blockDefinitionCounts, blockDefin
     expandedInsertOccurrenceCount,
     nestedInsertOccurrenceCount,
     uniqueWorldCoordinateCount: worldCoordinates.size,
+    worldCoordinateSample: [...worldCoordinates].sort(stableNameCompare).slice(0, 10),
     maximumExpansionDepth,
     unresolvedBlockReferenceCount,
     cyclicBlockReferenceCount
   };
 }
 
-function buildStatistics(modelEntities, blockDefinitionCounts, blockDefinitionInserts, rawEntityRecordCount, paperSpaceEntityCount, dxfVersion, codePage, textEncoding) {
+function buildStatistics(modelEntities, blockDefinitionCounts, blockDefinitionInserts, blockBasePoints, limits, startedAt, startedCpu, rawEntityRecordCount, paperSpaceEntityCount, dxfVersion, codePage, textEncoding) {
   const entityTypes = new Map();
   const layers = new Map();
   const blockInsertCounts = new Map();
@@ -660,6 +720,7 @@ function buildStatistics(modelEntities, blockDefinitionCounts, blockDefinitionIn
     },
     candidates: {
       ruleVersion: CANDIDATE_RULE_VERSION,
+      profileId: CANDIDATE_PROFILE_ID,
       profileVersion: CANDIDATE_RULE_VERSION,
       profileDigest: CANDIDATE_PROFILE_DIGEST,
       rules: CANDIDATE_RULES,
@@ -672,7 +733,7 @@ function buildStatistics(modelEntities, blockDefinitionCounts, blockDefinitionIn
       extractedInsertCount,
       nonZeroRotationInsertCount,
       nonUnitScaleInsertCount,
-      expansion: expandInsertStatistics(modelEntities, blockDefinitionCounts, blockDefinitionInserts),
+      expansion: expandInsertStatistics(modelEntities, blockDefinitionCounts, blockDefinitionInserts, blockBasePoints, limits, startedAt, startedCpu),
       supportedEntityCount
     }
   };
@@ -826,14 +887,20 @@ Input and converter:
   --ground-truth <json>                Optional TP/FP/FN count JSON
 
 Bounds (values may only lower the built-in hard maximum):
-  --max-input-bytes <n>                Original input bytes
-  --max-converted-bytes <n>            Converted DXF and temporary disk bytes
-  --max-process-output-bytes <n>        Converter stdout+stderr bytes
-  --max-json-output-bytes <n>           Analyzer JSON bytes
-  --max-line-bytes <n>                  Single decoded DXF line bytes
-  --max-entity-body-pairs <n>           Pairs retained for one entity
-  --converter-timeout-ms <n>            Converter wall time
-  --parse-timeout-ms <n>                DXF parse wall time
+  --max-input-bytes <n>                Original input bytes (default/hard 134217728)
+  --max-converted-bytes <n>            Converted DXF/temp bytes (default/hard 268435456)
+  --max-process-output-bytes <n>        Converter stdout+stderr (default/hard 1048576)
+  --max-json-output-bytes <n>           Analyzer JSON (default/hard 8388608)
+  --max-line-bytes <n>                  Decoded DXF line (default/hard 1048576)
+  --max-entity-body-pairs <n>           One entity body (default/hard 250000 pairs)
+  --max-expanded-inserts <n>            Expanded INSERTs (default/hard 1000000)
+  --max-world-coordinates <n>           Unique world origins (default/hard 1000000)
+  --converter-timeout-ms <n>            Converter wall (default/hard 30000 ms)
+  --parse-timeout-ms <n>                Parse+expansion wall (default/hard 30000 ms)
+  --parse-cpu-ms <n>                    Parse+expansion CPU (default/hard 30000 ms)
+
+Fixed parser/expansion caps:
+  entity records 1000000; expansion depth 32; input/output temporary files are cleaned up.
 
 Output:
   stdout is deterministic JSON; stderr is a Korean summary. Ground truth must contain only

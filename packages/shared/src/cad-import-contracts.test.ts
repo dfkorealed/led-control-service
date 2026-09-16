@@ -11,6 +11,10 @@ import {
 
 const jobId = "00000000-0000-4000-8000-000000000001";
 const candidateId = "00000000-0000-4000-8000-000000000002";
+const legacyProfileMetadata = {
+  profileVersion: "legacy-unknown",
+  profileDigest: "0".repeat(64)
+};
 
 const candidateResponse = {
   jobId,
@@ -94,7 +98,10 @@ describe("CAD import contracts", () => {
   });
 
   it("validates a strict candidate list response", () => {
-    expect(floorImportCandidateListResponseSchema.parse(candidateResponse)).toEqual(candidateResponse);
+    expect(floorImportCandidateListResponseSchema.parse(candidateResponse)).toEqual({
+      ...candidateResponse,
+      candidates: candidateResponse.candidates.map(candidate => ({ ...candidate, ...legacyProfileMetadata }))
+    });
     expect(floorImportCandidateListResponseSchema.safeParse({ ...candidateResponse, total: 1 }).success).toBe(false);
     expect(floorImportCandidateListResponseSchema.safeParse({
       ...candidateResponse,
@@ -121,7 +128,10 @@ describe("CAD import contracts", () => {
     };
 
     expect(floorImportCandidateListResponseSchema.parse({ jobId, candidates: [ruleBased, aiAssisted] }).candidates)
-      .toEqual([ruleBased, aiAssisted]);
+      .toEqual([
+        { ...ruleBased, ...legacyProfileMetadata },
+        { ...aiAssisted, ...legacyProfileMetadata }
+      ]);
     expect(floorImportCandidateListResponseSchema.safeParse({
       jobId,
       candidates: [{ ...aiAssisted, inputDigest: null }]

@@ -9,6 +9,7 @@ function claimedJob(overrides: Record<string, unknown> = {}) {
     id: randomUUID(), floorId: randomUUID(), sourceAssetId: randomUUID(), renderedAssetId: null,
     sourceFormat: "dxf", status: "processing", stage: "downloading", progressPercent: 1,
     attemptCount: 1, parserVersion: null, detectorVersion: null, leaseOwner: "owner",
+    detectorProfileId: "generic-lighting-v1", detectorProfileVersion: null, detectorProfileDigest: null,
     leaseExpiresAt: new Date(Date.now() + 30_000), failureCode: null, failureMessage: null,
     startedAt: new Date(), reviewRequiredAt: null, appliedAt: null, completedAt: null,
     failedAt: null, cancelledAt: null, createdAt: new Date(), updatedAt: new Date(), ...overrides
@@ -37,8 +38,10 @@ describe("FloorImportWorkerService", () => {
     const root = await mkdtemp(join(tmpdir(), "floor-import-test-"));
     const row = claimedJob();
     const source = { objectKey: `floors/${row.floorId}/source.dxf`, sizeBytes: BigInt(1024), sha256: "a".repeat(64), mimeType: "application/dxf" };
-    const candidate = { sourceEntityId: "insert-1", layerName: "LIGHT", blockName: "LED", position: { x: 2, y: 3, z: 0 },
-      rotation: 30, confidence: 0.95, method: "rule", evidence: ["layer_pattern"] };
+    const candidates = Array.from({ length: 2_000 }, (_, index) => ({
+      sourceEntityId: `insert-${index}`, layerName: "LIGHT", blockName: "LED", position: { x: 2, y: 3, z: 0 },
+      rotation: 30, confidence: 0.95, method: "rule", evidence: ["layer_pattern"]
+    }));
     const dxf = "0\nSECTION\n2\nENTITIES\n0\nLINE\n5\n1\n8\n0\n10\n0\n20\n0\n11\n10\n21\n10\n0\nENDSEC\n0\nEOF\n";
     const attempt = { jobId: row.id, floorId: row.floorId, attemptCount: row.attemptCount,
       assetId: randomUUID(), objectKey: `floors/${row.floorId}/${row.id}-attempt-${row.attemptCount}.svg` };
@@ -55,7 +58,7 @@ describe("FloorImportWorkerService", () => {
           $queryRaw: jest.fn().mockResolvedValue([{ assetId: attempt.assetId }]),
           floorAsset: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
           floorImportAttemptCleanup: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
-          floorImportCandidate: { upsert: jest.fn().mockResolvedValue({}) },
+          floorImportCandidate: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }), createMany: jest.fn().mockResolvedValue({ count: 1 }) },
           $executeRaw: jest.fn().mockResolvedValue(1)
         };
         const result = await run(tx); finalTransactions.push(tx); return result;
@@ -63,7 +66,7 @@ describe("FloorImportWorkerService", () => {
     };
     const storage: any = {
       downloadFloorAssetToFile: jest.fn(async (_key: string, path: string) => writeFile(path, dxf)),
-      putFloorRenderedObject: jest.fn().mockImplementation(async () => { storageOrder.push("put"); }),
+      putFloorRenderedObjectFile: jest.fn().mockImplementation(async () => { storageOrder.push("put"); }),
       verifyFloorRenderedObject: jest.fn().mockResolvedValue(undefined),
       deleteObject: jest.fn().mockResolvedValue(undefined)
     };
@@ -71,13 +74,17 @@ describe("FloorImportWorkerService", () => {
       await writeFile(outputPath, await readFile(inputPath));
       return { outputPath, outputBytes: Buffer.byteLength(dxf) };
     }) };
-    const rules: any = { detect: jest.fn().mockResolvedValue([candidate]) };
+    const rules: any = {
+      profileId: "generic-lighting-v1", profileVersion: "test/1", profileDigest: "b".repeat(64),
+      detect: jest.fn().mockResolvedValue(candidates)
+    };
+    const registry: any = { get: jest.fn().mockReturnValue(rules) };
     const disabledAi: any = { detect: jest.fn().mockResolvedValue([]) };
     const cleanup: any = {
       armAttempt: jest.fn().mockImplementation(async () => { storageOrder.push("ledger"); return attempt; }),
       requestCleanup: jest.fn()
     };
-    const worker = new FloorImportWorkerService(prisma, storage, converter, rules, disabledAi,
+    const worker = new FloorImportWorkerService(prisma, storage, converter, registry, disabledAi,
       { tempRoot: root, pollIntervalMs: 1000 }, cleanup);
     try {
       await expect(worker.runOnce()).resolves.toBe(true);
@@ -88,18 +95,20 @@ describe("FloorImportWorkerService", () => {
       expect(rules.detect).toHaveBeenCalled();
       expect(disabledAi.detect).toHaveBeenCalled();
       expect(storageOrder).toEqual(["ledger", "put"]);
-      expect(storage.putFloorRenderedObject).toHaveBeenCalledWith(
-        attempt.objectKey, expect.any(Buffer),
+      expect(storage.putFloorRenderedObjectFile).toHaveBeenCalledWith(
+        attempt.objectKey, expect.stringMatching(/rendered\.svg$/), expect.objectContaining({ sizeBytes: expect.any(Number), sha256: expect.stringMatching(/^[a-f0-9]{64}$/) }),
         { width: 12, height: 12 }, expect.any(AbortSignal)
       );
       const finalTx = finalTransactions.at(-1);
       expect(finalTx.$queryRaw.mock.calls[0][0].strings.join(" ")).toContain("FOR UPDATE OF floor, asset, cleanup");
-      expect(finalTx.floorImportCandidate.upsert).toHaveBeenCalledWith(expect.objectContaining({
-        create: expect.objectContaining({
+      expect(finalTx.floorImportCandidate.createMany).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.arrayContaining([expect.objectContaining({
           detectionMethod: "rule_based", provider: null, model: null, inputDigest: null,
-          x: 3, y: 8, rotation: -30
-        })
+          x: 3, y: 8, rotation: -30, profileVersion: "test/1", profileDigest: "b".repeat(64)
+        })])
       }));
+      expect(finalTx.floorImportCandidate.createMany).toHaveBeenCalledTimes(8);
+      expect(finalTx.floorImportCandidate.createMany.mock.calls.every(([input]: any[]) => input.data.length <= 250)).toBe(true);
       expect(finalTx).not.toHaveProperty("fixture");
       expect(finalTx).not.toHaveProperty("meshNode");
       const completionSql = finalTx.$executeRaw.mock.calls[0][0];
@@ -177,7 +186,7 @@ describe("FloorImportWorkerService", () => {
     };
     const storage: any = {
       downloadFloorAssetToFile: jest.fn(async (_key: string, path: string) => writeFile(path, dxf)),
-      putFloorRenderedObject: jest.fn(async (_key: string, _bytes: Buffer, _viewport: unknown, signal: AbortSignal) => {
+      putFloorRenderedObjectFile: jest.fn(async (_key: string, _path: string, _rendered: unknown, _viewport: unknown, signal: AbortSignal) => {
         uploadEntered();
         await new Promise<void>((_, reject) => signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true }));
       }),
@@ -187,13 +196,17 @@ describe("FloorImportWorkerService", () => {
       await writeFile(outputPath, await readFile(inputPath));
       return { outputPath, outputBytes: Buffer.byteLength(dxf) };
     }) };
-    const detector: any = { detect: jest.fn().mockResolvedValue([]) };
+    const detector: any = {
+      profileId: "generic-lighting-v1", profileVersion: "test/1", profileDigest: "b".repeat(64),
+      detect: jest.fn().mockResolvedValue([])
+    };
+    const registry: any = { get: jest.fn().mockReturnValue(detector) };
     const cleanup: any = {
       armAttempt: jest.fn().mockResolvedValue({ jobId: row.id, floorId: row.floorId, attemptCount: row.attemptCount,
         assetId: randomUUID(), objectKey: `floors/${row.floorId}/${row.id}-attempt-${row.attemptCount}.svg` }),
       requestCleanup: jest.fn().mockResolvedValue("deferred")
     };
-    const worker = new FloorImportWorkerService(prisma, storage, converter, detector, detector, {
+    const worker = new FloorImportWorkerService(prisma, storage, converter, registry, detector, {
       tempRoot: root, pollIntervalMs: 1000
     }, cleanup);
     try {

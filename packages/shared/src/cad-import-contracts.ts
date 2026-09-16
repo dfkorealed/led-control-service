@@ -2,6 +2,9 @@ import { z } from "zod";
 import { EDITOR_MAX_EXPECTED_REVISION, POSTGRES_INT_MAX } from "./schemas";
 
 export const CAD_IMPORT_MAX_CANDIDATES = 2_000;
+export const CAD_IMPORT_DETECTOR_PROFILE_IDS = ["generic-lighting-v1", "site-drawing-20260803-v1"] as const;
+export const cadImportDetectorProfileIdSchema = z.enum(CAD_IMPORT_DETECTOR_PROFILE_IDS);
+export type CadImportDetectorProfileId = z.infer<typeof cadImportDetectorProfileIdSchema>;
 
 export const CAD_IMPORT_MIME_TYPES = {
   dwg: [
@@ -71,6 +74,8 @@ export const floorImportCandidateSchema = z.object({
   provider: z.string().trim().min(1).max(200).nullable(),
   model: z.string().trim().min(1).max(200).nullable(),
   inputDigest: z.string().regex(/^[a-f0-9]{64}$/).nullable(),
+  profileVersion: z.string().trim().min(1).max(128).default("legacy-unknown"),
+  profileDigest: z.string().regex(/^[a-f0-9]{64}$/).default("0".repeat(64)),
   reviewStatus: floorImportCandidateReviewStatusSchema
 }).strict().superRefine((candidate, context) => {
   const metadata = [candidate.provider, candidate.model, candidate.inputDigest];

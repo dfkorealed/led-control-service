@@ -1,5 +1,5 @@
 import type { NormalizedCadDocument, NormalizedCadInsert } from "./cad-types";
-import { RuleBasedLightingSymbolDetector } from "./rule-based-lighting-symbol-detector";
+import { RuleBasedLightingSymbolDetector, SITE_DRAWING_20260803_PROFILE } from "./rule-based-lighting-symbol-detector";
 import { expandCadInserts } from "./cad-geometry";
 
 function candidate(index: number, layer = "LIGHTING", blockName = "LED_FIXTURE"): NormalizedCadInsert {
@@ -19,7 +19,7 @@ function cad(entities: NormalizedCadDocument["entities"]): NormalizedCadDocument
 
 describe("rule-based lighting symbol detector", () => {
   it("uses the drawing profile exact allowlist and preserves 1,308 review candidates with metadata", async () => {
-    const detector = new RuleBasedLightingSymbolDetector({ maxDurationMs: 30_000 });
+    const detector = new RuleBasedLightingSymbolDetector(SITE_DRAWING_20260803_PROFILE);
     const entities = Array.from({ length: 1_308 }, (_, index) => candidate(index, "전등-간선", "몰드바등"));
     entities.push(candidate(2_000, "전등-간선", "몰드바등",));
     entities.at(-1)!.layer = "SCHEDULE";
@@ -30,9 +30,27 @@ describe("rule-based lighting symbol detector", () => {
     expect(detected[0]).toMatchObject({
       blockName: "몰드바등",
       evidence: ["layer_pattern", "exact_block_allowlist", "block_frequency"],
-      profileVersion: "site-drawing-lighting/2"
+      profileVersion: "site-drawing-20260803/1"
     });
     expect(detected[0].profileDigest).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it("keeps drawing-specific exact names out of the global profile", async () => {
+    const entities = [candidate(1, "전기", "몰드바등"), candidate(2, "전기", "몰드바등")];
+    await expect(new RuleBasedLightingSymbolDetector().detect(cad(entities))).resolves.toEqual([]);
+    await expect(new RuleBasedLightingSymbolDetector(SITE_DRAWING_20260803_PROFILE).detect(cad(entities)))
+      .resolves.toHaveLength(2);
+  });
+
+  it.each([
+    { confidence: 0.94 }, { maxCandidates: 1_999 }, { maxExpandedInserts: 99_999 },
+    { maxExpandedEntities: 999_999 }, { attributeValueTokens: ["CUSTOM"] },
+    { nearbyTextTokens: ["CUSTOM"] }, { nearbyTextDistance: 6 }, { maxDurationMs: 4_999 },
+    { cooperativeYieldInterval: 128 }
+  ])("changes the canonical digest when behavioral field %# changes", override => {
+    const baseline = new RuleBasedLightingSymbolDetector();
+    const changed = new RuleBasedLightingSymbolDetector(override);
+    expect(changed.profileDigest).not.toBe(baseline.profileDigest);
   });
 
   it("detects 1,000 repeated INSERTs only when layer and block evidence intersect", async () => {

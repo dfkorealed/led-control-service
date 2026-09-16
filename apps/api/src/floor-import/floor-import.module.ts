@@ -8,6 +8,7 @@ import { PrismaModule } from "../prisma/prisma.module";
 import { StorageModule } from "../storage/storage.module";
 import { ArgvCadConverter, type CadConversionRequest, type CadConverter } from "./cad-converter";
 import { DisabledAiLightingSymbolDetector } from "./disabled-ai-lighting-symbol-detector";
+import { FixedLightingDetectorRegistry } from "./lighting-detector-registry";
 import { FloorImportAttemptCleanupService } from "./floor-import-attempt-cleanup.service";
 import { FloorImportController } from "./floor-import.controller";
 import { FloorImportService } from "./floor-import.service";
@@ -19,7 +20,6 @@ import {
   FloorImportWorkerService,
   type FloorImportWorkerOptions
 } from "./floor-import-worker.service";
-import { RuleBasedLightingSymbolDetector } from "./rule-based-lighting-symbol-detector";
 
 interface LocalCopyDependencies {
   copyFile: typeof copyFile;
@@ -115,7 +115,7 @@ function positiveInteger(value: string | undefined, fallback: number, name: stri
     { provide: CAD_IMPORT_CONVERTER, useFactory: () => converterProvider(process.env) },
     {
       provide: CAD_IMPORT_RULE_DETECTOR,
-      useFactory: () => new RuleBasedLightingSymbolDetector({ maxCandidates: 2_000 })
+      useFactory: () => new FixedLightingDetectorRegistry()
     },
     { provide: CAD_IMPORT_AI_DETECTOR, useFactory: () => new DisabledAiLightingSymbolDetector() },
     { provide: CAD_IMPORT_WORKER_OPTIONS, useFactory: () => workerOptions(process.env) }

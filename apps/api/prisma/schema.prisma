@@ -483,6 +483,9 @@ model FloorImportJob {
   attemptCount     Int                     @default(0)
   parserVersion    String?
   detectorVersion  String?
+  detectorProfileId      String @default("generic-lighting-v1")
+  detectorProfileVersion String?
+  detectorProfileDigest  String?
   leaseOwner       String?
   leaseExpiresAt   DateTime?
   failureCode      String?
@@ -521,6 +524,8 @@ model FloorImportCandidate {
   provider        String?
   model           String?
   inputDigest     String?
+  profileVersion  String @default("legacy-unknown")
+  profileDigest   String @default("0000000000000000000000000000000000000000000000000000000000000000")
   reviewStatus    FloorImportCandidateReviewStatus @default(pending)
   reviewedAt      DateTime?
   job             FloorImportJob                   @relation(fields: [jobId], references: [id], onDelete: Cascade)

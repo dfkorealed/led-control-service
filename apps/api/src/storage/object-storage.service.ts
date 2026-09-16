@@ -2,7 +2,8 @@ import { BadRequestException, Inject, Injectable, Optional, ServiceUnavailableEx
 import { DeleteObjectCommand, GetObjectCommand, HeadBucketCommand, HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { createHash, randomUUID } from "node:crypto";
-import { open, unlink } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { open, stat, unlink } from "node:fs/promises";
 
 export const OBJECT_STORAGE_CLIENT = Symbol("OBJECT_STORAGE_CLIENT");
 export const OBJECT_STORAGE_PRESIGN_CLIENT = Symbol("OBJECT_STORAGE_PRESIGN_CLIENT");
@@ -239,9 +240,36 @@ export class ObjectStorageService {
     }), { abortSignal: boundedAbortSignal(abortSignal, 10_000) });
   }
 
+  async putFloorRenderedObjectFile(
+    objectKey: string,
+    inputPath: string,
+    expected: { sizeBytes: number; sha256: string },
+    viewport: { width: number; height: number },
+    abortSignal?: AbortSignal
+  ) {
+    this.assertFloorObjectKey(objectKey);
+    const file = await stat(inputPath);
+    if (!objectKey.endsWith(".svg") || !file.isFile() || file.size !== expected.sizeBytes ||
+        file.size < 1 || file.size > 8 * 1024 * 1024 || !/^[a-f0-9]{64}$/.test(expected.sha256) ||
+        !validViewportDimension(viewport.width) || !validViewportDimension(viewport.height)) {
+      throw new BadRequestException("invalid rendered floor SVG");
+    }
+    return this.client.send(new PutObjectCommand({
+      Bucket: this.options.bucket,
+      Key: objectKey,
+      Body: createReadStream(inputPath),
+      ContentType: "image/svg+xml",
+      ContentEncoding: "gzip",
+      ContentLength: file.size,
+      ChecksumSHA256: Buffer.from(expected.sha256, "hex").toString("base64"),
+      CacheControl: "private, no-store",
+      Metadata: { "cad-width": String(viewport.width), "cad-height": String(viewport.height) }
+    }), { abortSignal: boundedAbortSignal(abortSignal, 10_000) });
+  }
+
   async verifyFloorRenderedObject(
     objectKey: string,
-    expected: { sizeBytes: number; sha256: string; mimeType: "image/svg+xml"; width: number; height: number },
+    expected: { sizeBytes: number; sha256: string; mimeType: "image/svg+xml"; width: number; height: number; contentEncoding?: "gzip" },
     abortSignal?: AbortSignal
   ) {
     this.assertFloorObjectKey(objectKey);
@@ -250,6 +278,7 @@ export class ObjectStorageService {
       { abortSignal: boundedAbortSignal(abortSignal, 4_000) }
     );
     if (head.ContentLength !== expected.sizeBytes || head.ContentType !== expected.mimeType ||
+        (expected.contentEncoding !== undefined && head.ContentEncoding !== expected.contentEncoding) ||
         head.ChecksumSHA256 !== Buffer.from(expected.sha256, "hex").toString("base64") ||
         head.Metadata?.["cad-width"] !== String(expected.width) || head.Metadata?.["cad-height"] !== String(expected.height)) {
       throw new Error("rendered floor asset storage verification failed");

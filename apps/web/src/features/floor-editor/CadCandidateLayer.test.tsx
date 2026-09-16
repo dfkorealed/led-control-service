@@ -11,7 +11,7 @@ import {
   screenPointToCadWorld
 } from "./CadCandidateLayer";
 
-const candidates = Array.from({ length: 1_000 }, (_, index) => ({
+const candidates = Array.from({ length: 2_000 }, (_, index) => ({
   id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
   sourceEntityId: `insert-${index}`,
   layerName: "LIGHT",
@@ -24,6 +24,8 @@ const candidates = Array.from({ length: 1_000 }, (_, index) => ({
   provider: null,
   model: null,
   inputDigest: null,
+  profileVersion: "test/1",
+  profileDigest: "b".repeat(64),
   reviewStatus: "pending" as const
 }));
 
@@ -34,7 +36,7 @@ describe("CadCandidateLayer", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders 1,000 candidates through one Konva Shape in one Layer", () => {
+  it("renders 2,000 candidates through one Konva Shape in one Layer", () => {
     const stageRef = createRef<Konva.Stage>();
 
     render(
@@ -67,7 +69,7 @@ describe("CadCandidateLayer", () => {
     expect(lookup.inspectedCount).toBeLessThan(candidates.length);
   });
 
-  it("keeps exact nearest-hit correctness when all 1,000 candidates occupy one dense cell", () => {
+  it("keeps exact nearest-hit correctness when all 2,000 candidates occupy one dense cell", () => {
     const dense = candidates.map((candidate, index) => ({ ...candidate, x: index / 1_000, y: index / 1_000 }));
     const target = dense[999];
     const startedAt = performance.now();
@@ -75,7 +77,7 @@ describe("CadCandidateLayer", () => {
     const elapsedMs = performance.now() - startedAt;
 
     expect(lookup.candidate?.id).toBe(target.id);
-    expect(lookup.inspectedCount).toBe(1_000);
+    expect(lookup.inspectedCount).toBe(2_000);
     expect(elapsedMs).toBeLessThan(100);
   });
 

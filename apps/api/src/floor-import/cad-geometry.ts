@@ -274,7 +274,7 @@ function includePolylineBounds(
 }
 
 export function computeCadBounds(
-  expanded: readonly ExpandedCadEntity[],
+  expanded: Iterable<ExpandedCadEntity | null>,
   checkBudget?: () => void,
   consumeTextGlyph?: () => void
 ): CadBounds {
@@ -292,6 +292,7 @@ export function computeCadBounds(
 
   for (const item of expanded) {
     checkBudget?.();
+    if (!item) continue;
     const { entity, matrix } = item;
     if (entity.type === "line") {
       include(transformPoint(matrix, entity.start));

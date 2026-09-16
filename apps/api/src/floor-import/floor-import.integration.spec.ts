@@ -105,11 +105,11 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
   it("enforces one active job per floor and releases the key after cancellation", async () => {
     const first = await sourceAsset(); const second = await sourceAsset();
     const imports = service();
-    const created = await imports.create(user, floorId, { sourceAssetId: first.id, sourceFormat: "dxf" });
-    await expect(imports.create(user, floorId, { sourceAssetId: second.id, sourceFormat: "dxf" }))
+    const created = await imports.create(user, floorId, { sourceAssetId: first.id, sourceFormat: "dxf", detectorProfileId: "generic-lighting-v1" });
+    await expect(imports.create(user, floorId, { sourceAssetId: second.id, sourceFormat: "dxf", detectorProfileId: "generic-lighting-v1" }))
       .rejects.toBeInstanceOf(ConflictException);
     await expect(imports.cancel(user, floorId, created.jobId)).resolves.toMatchObject({ status: "cancelled" });
-    await expect(imports.create(user, floorId, { sourceAssetId: second.id, sourceFormat: "dxf" }))
+    await expect(imports.create(user, floorId, { sourceAssetId: second.id, sourceFormat: "dxf", detectorProfileId: "generic-lighting-v1" }))
       .resolves.toMatchObject({ status: "queued", sourceAssetId: second.id });
   });
 
@@ -374,11 +374,15 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
       status: "review_required", stage: "review_required", progressPercent: 100, attemptCount: 1,
       startedAt: new Date(), reviewRequiredAt: new Date(), parserVersion: "ascii-dxf-v1", detectorVersion: "rule-v1"
     } });
-    const acceptedId = randomUUID(); const rejectedId = randomUUID();
-    await prisma.floorImportCandidate.createMany({ data: [
-      { id: acceptedId, jobId, sourceEntityId: "insert-1", layerName: "LIGHT", blockName: "LED", x: 10, y: 20, rotation: 0, confidence: 0.95, detectionMethod: "rule_based" },
-      { id: rejectedId, jobId, sourceEntityId: "insert-2", layerName: "LIGHT", blockName: "LED", x: 30, y: 40, rotation: 0, confidence: 0.90, detectionMethod: "rule_based" }
-    ] });
+    const candidateIds = Array.from({ length: 2_000 }, () => randomUUID());
+    const acceptedId = candidateIds[0]; const rejectedId = candidateIds.at(-1)!;
+    await prisma.floorImportCandidate.createMany({ data: candidateIds.map((id, index) => ({
+      id, jobId, sourceEntityId: `insert-${index}`, layerName: "LIGHT", blockName: "LED",
+      x: 10 + index, y: 20 + index, rotation: 0, confidence: 0.95, detectionMethod: "rule_based" as const,
+      profileVersion: "test/1", profileDigest: "b".repeat(64)
+    })) });
+    await expect(service().listCandidates(user, floorId, jobId)).resolves.toMatchObject({ candidates: expect.any(Array) });
+    expect((await service().listCandidates(user, floorId, jobId)).candidates).toHaveLength(2_000);
     const fixtureId = randomUUID(); const objectId = randomUUID();
     await prisma.fixture.create({ data: { id: fixtureId, floorId, siteId, name: "Existing fixture", ratedWatt: 40, x: 11, y: 22 } });
     await prisma.floorMapObject.create({ data: {
@@ -390,9 +394,12 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
       editorLeaseAcquiredAt: new Date(), editorLeaseExpiresAt: new Date(Date.now() + 60_000)
     } });
 
-    await expect(service().apply(user, floorId, jobId, {
-      expectedRevision: 4, leaseToken: "lease-token", leaseFence: 8, candidateIds: [acceptedId]
-    })).resolves.toMatchObject({ status: "completed", revision: 5, acceptedCandidateIds: [acceptedId] });
+    const applied = await service().apply(user, floorId, jobId, {
+      expectedRevision: 4, leaseToken: "lease-token", leaseFence: 8, candidateIds: candidateIds.slice(0, 1_302)
+    });
+    expect(applied).toMatchObject({ status: "completed", revision: 5 });
+    expect(applied.acceptedCandidateIds).toHaveLength(1_302);
+    expect(new Set(applied.acceptedCandidateIds)).toEqual(new Set(candidateIds.slice(0, 1_302)));
 
     await expect(prisma.floorImportJob.findUniqueOrThrow({ where: { id: jobId } })).resolves.toMatchObject({
       status: "completed", appliedAt: expect.any(Date), completedAt: expect.any(Date)
@@ -451,14 +458,14 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
     const adminCookie = await cookie(userId); const viewerCookie = await cookie(viewer.id); const otherCookie = await cookie(otherAdmin.id);
     try {
       const collection = `/floors/${floorId}/import-jobs`;
-      expect((await send("POST", collection, undefined, { sourceAssetId: source.id, sourceFormat: "dxf" })).status).toBe(401);
-      const createdResponse = await send("POST", collection, adminCookie, { sourceAssetId: source.id, sourceFormat: "dxf" });
+      expect((await send("POST", collection, undefined, { sourceAssetId: source.id, sourceFormat: "dxf", detectorProfileId: "generic-lighting-v1" })).status).toBe(401);
+      const createdResponse = await send("POST", collection, adminCookie, { sourceAssetId: source.id, sourceFormat: "dxf", detectorProfileId: "generic-lighting-v1" });
       expect(createdResponse.status).toBe(201);
       const created = await createdResponse.json() as { jobId: string };
       expect((await send("GET", `${collection}/${created.jobId}`, viewerCookie)).status).toBe(200);
       expect((await send("GET", `${collection}/${created.jobId}/candidates`, viewerCookie)).status).toBe(200);
       const viewerSource = await sourceAsset();
-      expect((await send("POST", collection, viewerCookie, { sourceAssetId: viewerSource.id, sourceFormat: "dxf" })).status).toBe(403);
+      expect((await send("POST", collection, viewerCookie, { sourceAssetId: viewerSource.id, sourceFormat: "dxf", detectorProfileId: "generic-lighting-v1" })).status).toBe(403);
       expect((await send("POST", `${collection}/${created.jobId}/cancel`, viewerCookie)).status).toBe(403);
       expect((await send("GET", `${collection}/${created.jobId}`, otherCookie)).status).toBe(404);
 
@@ -481,7 +488,7 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
       }, { timeout: 10_000 });
       await siteLocked;
       const raced = send("POST", `/floors/${raceFloor.id}/import-jobs`, adminCookie, {
-        sourceAssetId: raceSourceId, sourceFormat: "dxf"
+        sourceAssetId: raceSourceId, sourceFormat: "dxf", detectorProfileId: "generic-lighting-v1"
       });
       try {
         await waitForSiteLockWait(prisma, 3000);

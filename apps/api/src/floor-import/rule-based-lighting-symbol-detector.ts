@@ -4,6 +4,7 @@ import type { NormalizedCadDocument } from "./cad-types";
 import type { DetectedLightingSymbol, LightingDetectionOptions, LightingSymbolDetector } from "./lighting-symbol-detector";
 
 export interface LightingDetectionProfile {
+  profileId: string;
   profileVersion: string;
   exactBlockAllowlist: readonly string[];
   layerNameTokens: readonly string[];
@@ -24,9 +25,10 @@ export interface LightingDetectionProfile {
   cooperativeYieldInterval: number;
 }
 
-const DEFAULT_PROFILE: LightingDetectionProfile = {
-  profileVersion: "site-drawing-lighting/2",
-  exactBlockAllowlist: ["몰드바등"],
+export const GENERIC_LIGHTING_PROFILE: LightingDetectionProfile = {
+  profileId: "generic-lighting-v1",
+  profileVersion: "generic-lighting/1",
+  exactBlockAllowlist: [],
   layerNameTokens: ["조명", "전등", "LIGHT", "LIGHTING", "LAMP", "LED"],
   blockNameTokens: ["조명", "전등", "LIGHT", "LAMP", "LED", "FIXTURE", "LUMINAIRE"],
   minimumBlockOccurrences: 2,
@@ -45,24 +47,43 @@ const DEFAULT_PROFILE: LightingDetectionProfile = {
   cooperativeYieldInterval: 256
 };
 
+export const SITE_DRAWING_20260803_PROFILE: LightingDetectionProfile = {
+  ...GENERIC_LIGHTING_PROFILE,
+  profileId: "site-drawing-20260803-v1",
+  profileVersion: "site-drawing-20260803/1",
+  exactBlockAllowlist: ["몰드바등"],
+  maxDurationMs: 30_000
+};
+
 function profileDigest(profile: LightingDetectionProfile, exactBlockAllowlist: readonly string[]): string {
+  const canonical = (values: readonly string[]) => values.map(value => value.normalize("NFKC").toUpperCase().trim()).sort();
   return createHash("sha256").update(JSON.stringify({
+    profileId: profile.profileId,
     profileVersion: profile.profileVersion,
     exactBlockAllowlist: [...exactBlockAllowlist].sort(),
-    layerNameTokens: profile.layerNameTokens,
-    blockNameTokens: profile.blockNameTokens,
+    layerNameTokens: canonical(profile.layerNameTokens),
+    blockNameTokens: canonical(profile.blockNameTokens),
     minimumBlockOccurrences: profile.minimumBlockOccurrences,
-    denyLayerNameTokens: profile.denyLayerNameTokens,
-    denyBlockNameTokens: profile.denyBlockNameTokens,
-    denyAttributeValueTokens: profile.denyAttributeValueTokens,
-    denyNearbyTextTokens: profile.denyNearbyTextTokens
+    confidence: profile.confidence,
+    maxCandidates: profile.maxCandidates,
+    maxExpandedInserts: profile.maxExpandedInserts,
+    maxExpandedEntities: profile.maxExpandedEntities,
+    attributeValueTokens: canonical(profile.attributeValueTokens),
+    nearbyTextTokens: canonical(profile.nearbyTextTokens),
+    denyLayerNameTokens: canonical(profile.denyLayerNameTokens),
+    denyBlockNameTokens: canonical(profile.denyBlockNameTokens),
+    denyAttributeValueTokens: canonical(profile.denyAttributeValueTokens),
+    denyNearbyTextTokens: canonical(profile.denyNearbyTextTokens),
+    nearbyTextDistance: profile.nearbyTextDistance,
+    maxDurationMs: profile.maxDurationMs,
+    cooperativeYieldInterval: profile.cooperativeYieldInterval
   })).digest("hex");
 }
 
-export const DEFAULT_LIGHTING_PROFILE_VERSION = DEFAULT_PROFILE.profileVersion;
+export const DEFAULT_LIGHTING_PROFILE_VERSION = GENERIC_LIGHTING_PROFILE.profileVersion;
 export const DEFAULT_LIGHTING_PROFILE_DIGEST = profileDigest(
-  DEFAULT_PROFILE,
-  DEFAULT_PROFILE.exactBlockAllowlist.map(value => value.normalize("NFKC").toLocaleUpperCase())
+  GENERIC_LIGHTING_PROFILE,
+  GENERIC_LIGHTING_PROFILE.exactBlockAllowlist.map(value => value.normalize("NFKC").toUpperCase())
 );
 
 const MAX_COOPERATIVE_YIELD_INTERVAL = 1024;
@@ -71,11 +92,11 @@ const TOKEN_CHARACTER = /^[\p{L}\p{N}]$/u;
 type AfterPrimitiveWork = () => Promise<void> | undefined;
 
 function tokenize(value: string): string[] {
-  return value.normalize("NFKC").toLocaleUpperCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  return value.normalize("NFKC").toUpperCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
 }
 
 async function tokenizeCooperatively(value: string, afterWork: AfterPrimitiveWork): Promise<string[]> {
-  const normalized = value.normalize("NFKC").toLocaleUpperCase();
+  const normalized = value.normalize("NFKC").toUpperCase();
   const tokens: string[] = [];
   let token = "";
   for (const character of normalized) {
@@ -92,7 +113,7 @@ async function tokenizeCooperatively(value: string, afterWork: AfterPrimitiveWor
 }
 
 async function normalizeCooperatively(value: string, afterWork: AfterPrimitiveWork): Promise<string> {
-  const normalized = value.normalize("NFKC").toLocaleUpperCase();
+  const normalized = value.normalize("NFKC").toUpperCase();
   for (const _character of normalized) {
     const pause = afterWork();
     if (pause) await pause;
@@ -206,9 +227,11 @@ export class RuleBasedLightingSymbolDetector implements LightingSymbolDetector {
   private readonly exactBlockAllowlist: Set<string>;
   readonly profileVersion: string;
   readonly profileDigest: string;
+  readonly profileId: string;
 
   constructor(profile: Partial<LightingDetectionProfile> = {}) {
-    this.profile = { ...DEFAULT_PROFILE, ...profile };
+    this.profile = { ...GENERIC_LIGHTING_PROFILE, ...profile };
+    if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(this.profile.profileId)) throw new Error("Invalid detector profile id");
     if (!this.profile.profileVersion.trim() || this.profile.profileVersion.length > 128) throw new Error("Invalid detector profile version");
     if (!Number.isInteger(this.profile.minimumBlockOccurrences) || this.profile.minimumBlockOccurrences < 1) throw new Error("Invalid minimum block occurrence count");
     if (!Number.isInteger(this.profile.maxCandidates) || this.profile.maxCandidates < 1) throw new Error("Invalid candidate limit");
@@ -227,11 +250,12 @@ export class RuleBasedLightingSymbolDetector implements LightingSymbolDetector {
     this.denyBlockTokens = normalizeMatchers(this.profile.denyBlockNameTokens, "denied block name", true);
     this.denyAttributeTokens = normalizeMatchers(this.profile.denyAttributeValueTokens, "denied attribute value", true);
     this.denyNearbyTextTokens = normalizeMatchers(this.profile.denyNearbyTextTokens, "denied nearby text", true);
-    this.exactBlockAllowlist = new Set(this.profile.exactBlockAllowlist.map(value => value.normalize("NFKC").toLocaleUpperCase()));
+    this.exactBlockAllowlist = new Set(this.profile.exactBlockAllowlist.map(value => value.normalize("NFKC").toUpperCase()));
     if (this.exactBlockAllowlist.size !== this.profile.exactBlockAllowlist.length || [...this.exactBlockAllowlist].some(value => !value || value.length > 512)) {
       throw new Error("Invalid exact block allowlist");
     }
     this.profileVersion = this.profile.profileVersion;
+    this.profileId = this.profile.profileId;
     this.profileDigest = profileDigest(this.profile, [...this.exactBlockAllowlist]);
   }
 
@@ -308,11 +332,12 @@ export class RuleBasedLightingSymbolDetector implements LightingSymbolDetector {
         checkBudget();
         continue;
       }
-      if (!await matchesTokens(item.layerTokens, this.layerTokens, afterWork)) {
+      const exactBlockMatch = this.exactBlockAllowlist.has(item.blockKey);
+      const layerMatch = await matchesTokens(item.layerTokens, this.layerTokens, afterWork);
+      if (!exactBlockMatch && !layerMatch) {
         checkBudget();
         continue;
       }
-      const exactBlockMatch = this.exactBlockAllowlist.has(item.blockKey);
       if (!exactBlockMatch && !await matchesTokens(item.blockTokens, this.blockTokens, afterWork)) {
         checkBudget();
         continue;
@@ -321,7 +346,11 @@ export class RuleBasedLightingSymbolDetector implements LightingSymbolDetector {
         checkBudget();
         continue;
       }
-      const evidence = ["layer_pattern", exactBlockMatch ? "exact_block_allowlist" : "block_pattern", "block_frequency"];
+      const evidence = [
+        ...(layerMatch ? ["layer_pattern"] : []),
+        exactBlockMatch ? "exact_block_allowlist" : "block_pattern",
+        "block_frequency"
+      ];
       if (await someTokensMatch(item.attributeTokens, this.attributeTokens, afterWork)) evidence.push("attribute_pattern");
       if (await someTokensMatch(nearbyTokenGroups, this.nearbyTextTokens, afterWork)) evidence.push("nearby_text_pattern");
       detected.push({

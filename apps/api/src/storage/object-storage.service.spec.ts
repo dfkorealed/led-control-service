@@ -3,9 +3,34 @@ import { OBJECT_STORAGE_CLIENT, ObjectStorageService } from "./object-storage.se
 import { StorageModule } from "./storage.module";
 import { Test } from "@nestjs/testing";
 import { createHash } from "node:crypto";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { gzipSync } from "node:zlib";
 import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 
 describe("ObjectStorageService", () => {
+  it("streams a rendered SVG below 8 MiB and verifies PUT/HEAD metadata", async () => {
+    const root = await mkdtemp(join(tmpdir(), "rendered-storage-"));
+    const path = join(root, "floor.svg");
+    const bytes = gzipSync(Buffer.from("<svg xmlns=\"http://www.w3.org/2000/svg\"><text>한글</text></svg>"));
+    const sha256 = createHash("sha256").update(bytes).digest("hex");
+    let put: PutObjectCommand | undefined;
+    const client = { send: jest.fn(async (command: PutObjectCommand | HeadObjectCommand) => {
+      if (command instanceof PutObjectCommand) { put = command; for await (const _ of command.input.Body as AsyncIterable<Uint8Array>) { /* consume */ } return {}; }
+      return { ContentLength: put?.input.ContentLength, ContentType: put?.input.ContentType, ContentEncoding: put?.input.ContentEncoding,
+        ChecksumSHA256: put?.input.ChecksumSHA256, Metadata: put?.input.Metadata };
+    }) };
+    const storage = new ObjectStorageService(client as never, { bucket: "floor-assets", publicBaseUrl: "" });
+    try {
+      await writeFile(path, bytes);
+      await storage.putFloorRenderedObjectFile("floors/floor-1/rendered.svg", path, { sizeBytes: bytes.length, sha256 }, { width: 10, height: 20 });
+      await expect(storage.verifyFloorRenderedObject("floors/floor-1/rendered.svg", {
+        sizeBytes: bytes.length, sha256, mimeType: "image/svg+xml", contentEncoding: "gzip", width: 10, height: 20
+      })).resolves.toBeUndefined();
+      expect(put?.input.Body).not.toBeInstanceOf(Buffer);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
   const recorded = "reports/11111111-1111-1111-1111-111111111111/22222222-2222-2222-2222-222222222222/attempt-1.pdf";
   it("deletes only distinct recorded report keys and validates the entire batch before I/O", async () => {
     const send = jest.fn().mockResolvedValue({});

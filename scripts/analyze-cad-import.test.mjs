@@ -204,6 +204,7 @@ test("DXF를 직접 분석해 layer/block별 entity와 INSERT, 고유 좌표, �
     expandedInsertOccurrenceCount: 3,
     nestedInsertOccurrenceCount: 0,
     uniqueWorldCoordinateCount: 3,
+    worldCoordinateSample: ["10,20,0", "30,40,0", "50,60,0"],
     maximumExpansionDepth: 0,
     unresolvedBlockReferenceCount: 0,
     cyclicBlockReferenceCount: 0,
@@ -251,6 +252,10 @@ ENDBLK
 BLOCK
 2
 WRAPPER
+10
+5
+20
+5
 0
 INSERT
 2
@@ -258,9 +263,9 @@ INSERT
 8
 전등
 10
-1
+6
 20
-0
+5
 0
 ENDBLK
 0
@@ -296,11 +301,20 @@ EOF
     expandedInsertOccurrenceCount: 2,
     nestedInsertOccurrenceCount: 1,
     uniqueWorldCoordinateCount: 2,
+    worldCoordinateSample: ["10,20,0", "10,22,0"],
     maximumExpansionDepth: 1,
     unresolvedBlockReferenceCount: 0,
     cyclicBlockReferenceCount: 0,
     basis: "block INSERT를 world 좌표로 전개한 진단 통계이며 검출 정확도가 아님"
   });
+});
+
+test("nested expansion branching bomb를 occurrence cap에서 fail-close한다", (t) => {
+  const fixture = createFixture(t);
+  writeFileSync(fixture.dxfPath, `0\nSECTION\n2\nBLOCKS\n0\nBLOCK\n2\nLEAF\n0\nENDBLK\n0\nBLOCK\n2\nBOMB\n0\nINSERT\n2\nLEAF\n10\n0\n20\n0\n0\nINSERT\n2\nLEAF\n10\n1\n20\n0\n0\nENDBLK\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nINSERT\n2\nBOMB\n10\n0\n20\n0\n0\nINSERT\n2\nBOMB\n10\n10\n20\n0\n0\nENDSEC\n0\nEOF\n`);
+  const result = runAnalyzer(["--input", fixture.dxfPath, "--max-expanded-inserts", "3"]);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /expanded INSERT limit/i);
 });
 
 test("제품 parser와 공유하는 malformed corpus를 모두 fail-close한다", () => {

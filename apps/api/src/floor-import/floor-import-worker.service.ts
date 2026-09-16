@@ -1,16 +1,17 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from "@nestjs/common";
 import { Prisma, type FloorImportJob } from "@prisma/client";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { mkdtemp, rm, stat, utimes } from "node:fs/promises";
 import { join } from "node:path";
 import { PrismaService } from "../prisma/prisma.service";
 import { ObjectStorageService } from "../storage/object-storage.service";
 import { type CadConverter } from "./cad-converter";
-import { renderCadDocumentSvg } from "./cad-svg-renderer";
+import { CAD_RENDERED_SVG_MAX_BYTES, renderCadDocumentSvgFile } from "./cad-svg-renderer";
 import { parseAsciiDxfStream } from "./dxf-document-parser";
 import { type LightingSymbolDetector } from "./lighting-symbol-detector";
-import { DEFAULT_LIGHTING_PROFILE_DIGEST, DEFAULT_LIGHTING_PROFILE_VERSION } from "./rule-based-lighting-symbol-detector";
+import type { LightingDetectorRegistry } from "./lighting-detector-registry";
+import type { CadImportDetectorProfileId } from "@led-control/shared";
 import {
   FloorImportAttemptCleanupService,
   type FloorImportAttemptIdentity
@@ -28,11 +29,12 @@ export {
 const MAX_ATTEMPTS = 3;
 const MAX_SOURCE_BYTES = 50 * 1024 * 1024;
 const MAX_DXF_BYTES = 256 * 1024 * 1024;
-const MAX_SVG_BYTES = 128 * 1024 * 1024;
+const MAX_SVG_BYTES = CAD_RENDERED_SVG_MAX_BYTES;
 const MAX_TEMP_DISK_BYTES = 512 * 1024 * 1024;
 const MAX_CANDIDATES = 2_000;
 const PARSER_VERSION = "ascii-dxf-stream-v2";
-const DETECTOR_VERSION = `${DEFAULT_LIGHTING_PROFILE_VERSION}:${DEFAULT_LIGHTING_PROFILE_DIGEST}+ai-disabled-v1`;
+const CANDIDATE_WRITE_CHUNK = 250;
+export const CAD_IMPORT_MAX_CONCURRENT_JOBS = 1;
 
 @Injectable()
 export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
@@ -49,7 +51,7 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
     private readonly prisma: PrismaService,
     private readonly storage: ObjectStorageService,
     @Inject(CAD_IMPORT_CONVERTER) private readonly converter: CadConverter,
-    @Inject(CAD_IMPORT_RULE_DETECTOR) private readonly rules: LightingSymbolDetector,
+    @Inject(CAD_IMPORT_RULE_DETECTOR) private readonly ruleRegistry: LightingDetectorRegistry,
     @Inject(CAD_IMPORT_AI_DETECTOR) private readonly ai: LightingSymbolDetector,
     @Optional() @Inject(CAD_IMPORT_WORKER_OPTIONS) options?: FloorImportWorkerOptions,
     @Optional() private readonly attemptCleanup?: FloorImportAttemptCleanupService
@@ -125,6 +127,7 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
   }
 
   async runOnce(): Promise<boolean> {
+    // One retained CAD model per process is the production memory/concurrency contract.
     if (this.activeRun || this.stopping) return false;
     const run = this.executeOnce();
     this.activeRun = run;
@@ -169,6 +172,7 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
       tempDirectory = await mkdtemp(join(this.options.tempRoot, `floor-import-${job.id}-attempt-${job.attemptCount}-`));
       const inputPath = join(tempDirectory, `source.${job.sourceFormat}`);
       const dxfPath = join(tempDirectory, "converted.dxf");
+      const renderedPath = join(tempDirectory, "rendered.svg");
       const source = await this.prisma.floorAsset.findUniqueOrThrow({
         where: { id: job.sourceAssetId },
         select: { objectKey: true, sizeBytes: true, sha256: true, mimeType: true }
@@ -195,7 +199,11 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
       await pulse(55, "detecting");
 
       phase = "detect";
-      const ruleCandidates = await this.rules.detect(document, { abortSignal: abort.signal });
+      const rules = this.ruleRegistry.get(job.detectorProfileId as CadImportDetectorProfileId);
+      if (!rules.profileVersion || !rules.profileDigest || rules.profileId !== job.detectorProfileId) {
+        throw new Error("CAD detector profile metadata mismatch");
+      }
+      const ruleCandidates = await rules.detect(document, { abortSignal: abort.signal });
       const aiCandidates = await this.ai.detect(document, { abortSignal: abort.signal });
       const candidates = [...ruleCandidates, ...aiCandidates];
       if (candidates.length > MAX_CANDIDATES) throw new Error("CAD lighting candidate limit exceeded");
@@ -205,12 +213,11 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
       await pulse(70, "rendering");
 
       phase = "render";
-      const rendered = Buffer.from(renderCadDocumentSvg(document, {
+      const rendered = await renderCadDocumentSvgFile(document, renderedPath, {
         maxOutputBytes: MAX_SVG_BYTES, maxRenderedEntities: 1_000_000, maxBlockDepth: 32,
-        trustDocumentBounds: true, includeEntityMetadata: false, compactPaths: true
-      }), "utf8");
-      if (rendered.length < 1 || rendered.length > MAX_SVG_BYTES) throw new Error("CAD SVG output limit exceeded");
-      if (Number(source.sizeBytes) + converted.size + rendered.length > MAX_TEMP_DISK_BYTES) {
+        abortSignal: abort.signal
+      });
+      if (Number(source.sizeBytes) + converted.size + rendered.sizeBytes > MAX_TEMP_DISK_BYTES) {
         throw new Error("CAD import temporary disk limit exceeded");
       }
       const nativeWidth = Math.max(1, document.bounds.maxX - document.bounds.minX + 2);
@@ -227,17 +234,16 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
         }
         return { ...candidate, projectedX: x, projectedY: y, projectedRotation: -candidate.rotation };
       });
-      const renderedSha256 = createHash("sha256").update(rendered).digest("hex");
       if (!this.attemptCleanup) throw new Error("CAD import cleanup ledger is unavailable");
       attempt = await this.attemptCleanup.armAttempt(
         { jobId: job.id, floorId: job.floorId, attemptCount: job.attemptCount },
-        { sizeBytes: rendered.length, sha256: renderedSha256 }
+        { sizeBytes: rendered.sizeBytes, sha256: rendered.sha256 }
       );
 
       phase = "storage";
-      await this.storage.putFloorRenderedObject(attempt.objectKey, rendered, viewport, abort.signal);
+      await this.storage.putFloorRenderedObjectFile(attempt.objectKey, renderedPath, rendered, viewport, abort.signal);
       await this.storage.verifyFloorRenderedObject(attempt.objectKey, {
-        sizeBytes: rendered.length, sha256: renderedSha256, mimeType: "image/svg+xml", ...viewport
+        sizeBytes: rendered.sizeBytes, sha256: rendered.sha256, mimeType: "image/svg+xml", contentEncoding: rendered.contentEncoding, ...viewport
       }, abort.signal);
       await pulse(90, "persisting");
 
@@ -272,34 +278,30 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
           data: { status: "ready", readyAt: readyAt, uploadExpiresAt: null }
         });
         if (ready.count !== 1) throw new Error("CAD_IMPORT_ATTEMPT_IDENTITY_LOST");
-        for (const candidate of projectedCandidates) {
+        await tx.floorImportCandidate.deleteMany({ where: { jobId: job.id } });
+        const candidateRows = projectedCandidates.map(candidate => {
           const method = candidate.method === "ai" ? "ai_assisted" as const : "rule_based" as const;
-          await tx.floorImportCandidate.upsert({
-            where: { jobId_sourceEntityId: { jobId: job.id, sourceEntityId: candidate.sourceEntityId } },
-            create: {
+          return {
               jobId: job.id, sourceEntityId: candidate.sourceEntityId,
               layerName: candidate.layerName, blockName: candidate.blockName,
               x: candidate.projectedX, y: candidate.projectedY, rotation: candidate.projectedRotation,
               confidence: candidate.confidence, detectionMethod: method,
               provider: method === "ai_assisted" ? candidate.provider ?? null : null,
               model: method === "ai_assisted" ? candidate.model ?? null : null,
-              inputDigest: method === "ai_assisted" ? candidate.inputDigest ?? null : null
-            },
-            update: {
-              layerName: candidate.layerName, blockName: candidate.blockName,
-              x: candidate.projectedX, y: candidate.projectedY, rotation: candidate.projectedRotation,
-              confidence: candidate.confidence, detectionMethod: method,
-              provider: method === "ai_assisted" ? candidate.provider ?? null : null,
-              model: method === "ai_assisted" ? candidate.model ?? null : null,
               inputDigest: method === "ai_assisted" ? candidate.inputDigest ?? null : null,
-              reviewStatus: "pending", reviewedAt: null
-            }
-          });
+              profileVersion: rules.profileVersion!, profileDigest: rules.profileDigest!
+          };
+        });
+        for (let offset = 0; offset < candidateRows.length; offset += CANDIDATE_WRITE_CHUNK) {
+          await tx.floorImportCandidate.createMany({ data: candidateRows.slice(offset, offset + CANDIDATE_WRITE_CHUNK) });
         }
         const changed = await tx.$executeRaw(Prisma.sql`
           UPDATE "FloorImportJob" SET "status" = 'review_required', "stage" = 'review_required',
             "progressPercent" = 100, "renderedAssetId" = ${attempt!.assetId},
-            "parserVersion" = ${PARSER_VERSION}, "detectorVersion" = ${DETECTOR_VERSION},
+            "parserVersion" = ${PARSER_VERSION},
+            "detectorVersion" = ${`${rules.profileVersion}:${rules.profileDigest}+ai-disabled-v1`},
+            "detectorProfileVersion" = ${rules.profileVersion},
+            "detectorProfileDigest" = ${rules.profileDigest},
             "reviewRequiredAt" = (statement_timestamp() AT TIME ZONE 'UTC'),
             "leaseOwner" = NULL, "leaseExpiresAt" = NULL,
             "updatedAt" = (statement_timestamp() AT TIME ZONE 'UTC')
@@ -314,7 +316,7 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
           data: { committedAt: readyAt, lastError: null }
         });
         if (reconciled.count !== 1) throw new Error("CAD_IMPORT_ATTEMPT_CLEANUP_LEASED");
-      });
+      }, { maxWait: 5_000, timeout: 30_000 });
     } catch (error) {
       if (this.stopping) {
         if (attempt && this.attemptCleanup) await this.attemptCleanup.requestCleanup(attempt);
