@@ -1,5 +1,7 @@
 # Task 19.5 Fix Round 1 구현 보고서
 
+> **Fix round 2로 대체됨:** 이 문서의 96,353,981-byte SVG, 128 MiB 제품 SVG 상한, 기본 profile `site-drawing-lighting/2`, 순차 후보 저장과 메모리 성공 표현은 재검토에서 폐기되었다. 현재 증거는 [Task 19.5 Fix Round 2](task-19.5-fix-round-2.md)를 따른다.
+
 기준일: 2026-09-17
 
 이 보고서는 `task-19.5-review.md`의 P1 3건과 P2 4건을 교정하며 이전 `task-19.5-implementation.md`의 model/paper 혼합 수치와 제품 pipeline 실패 상태를 대체한다.

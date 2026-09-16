@@ -683,6 +683,9 @@ DWG/DXF 원본을 비동기로 변환·검출·검토·적용하는 작업의 �
 | `attemptCount` | `Int` | 예 | `0`, DB check `>= 0` | worker lease 획득/재시도 횟수 |
 | `parserVersion` | `String?` | 아니오 |  | CAD parser/정규화 구현 버전 |
 | `detectorVersion` | `String?` | 아니오 |  | 조명 후보 detector 버전 |
+| `detectorProfileId` | `String` | 예 | `generic-lighting-v1` | 요청 시 고정한 detector profile registry ID |
+| `detectorProfileVersion` | `String?` | 아니오 | digest와 함께 NULL 또는 값 | 실제 주입 detector profile 버전 |
+| `detectorProfileDigest` | `String?` | 아니오 | 64자리 lowercase SHA-256 | 후보 행동 필드 전체의 canonical digest |
 | `leaseOwner`, `leaseExpiresAt` | `String?`, `DateTime?` | 아니오 | 둘 다 NULL 또는 둘 다 값 | 다중 worker 점유와 만료 시각 |
 | `failureCode`, `failureMessage` | `String?` | 아니오 |  | 정제된 실패 코드와 내부 운영 메시지 |
 | `startedAt` | `DateTime?` | 아니오 |  | 첫 처리 시작 시각 |
@@ -721,6 +724,8 @@ CAD parser 좌표에서 검출한 조명 위치 후보 원장이다. 후보는 B
 | `provider` | `String?` | 아니오 | rule_based는 NULL, ai_assisted는 trim 길이 1~200 필수 | AI provider 식별자 |
 | `model` | `String?` | 아니오 | rule_based는 NULL, ai_assisted는 trim 길이 1~200 필수 | AI model 식별자 |
 | `inputDigest` | `String?` | 아니오 | rule_based는 NULL, ai_assisted는 64자리 lowercase SHA-256 필수 | AI 분류 입력 digest |
+| `profileVersion` | `String` | 예 | 기존 행은 `legacy-unknown` | 후보를 만든 실제 detector profile 버전 |
+| `profileDigest` | `String` | 예 | 64자리 lowercase SHA-256 | 후보를 만든 detector canonical digest |
 | `reviewStatus` | `FloorImportCandidateReviewStatus` | 예 | `pending` | 관리자 검토 상태 |
 | `reviewedAt` | `DateTime?` | 아니오 | pending이면 NULL, accepted/rejected이면 필수 | 검토 시각 |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
@@ -729,9 +734,9 @@ CAD parser 좌표에서 검출한 조명 위치 후보 원장이다. 후보는 B
 제약과 인덱스:
 
 - `(jobId, sourceEntityId)` unique로 worker 재시도 시 같은 CAD entity의 후보가 중복 생성되지 않게 한다.
-- `(jobId, reviewStatus, id)` index로 검토 목록과 1,000개 단위 후보 조회를 지원한다.
+- `(jobId, reviewStatus, id)` index와 2,000개 bounded bulk 계약으로 검토 목록을 지원한다. worker는 250건 chunk `createMany` transaction을 사용한다.
 - 좌표와 회전은 parser 결과만 저장한다. AI 보조 구현도 좌표를 생성하거나 변경할 수 없다.
-- migration-only `FloorImportCandidate_ai_metadata_check`는 rule-based 후보의 AI 메타데이터를 모두 NULL로, AI-assisted 후보는 provider/model/inputDigest를 모두 필수로 강제한다. geometry/confidence/review CHECK도 Prisma datamodel 외 SQL 불변식이며 migration regression test가 실제 DB 동작을 고정한다.
+- migration-only `FloorImportCandidate_ai_metadata_check`는 rule-based 후보의 AI 메타데이터를 모두 NULL로, AI-assisted 후보는 provider/model/inputDigest를 모두 필수로 강제한다. profile digest, geometry/confidence/review CHECK도 Prisma datamodel 외 SQL 불변식이며 migration regression test가 실제 DB 동작을 고정한다.
 
 ### FloorMapObject
 

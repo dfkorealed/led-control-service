@@ -1,6 +1,6 @@
 # Task 19.5 샘플 DWG 분석 및 문서 구현 보고서
 
-> **교정됨:** 이 문서의 최초 분석 수치는 group 67/410 paper-space를 포함한 pre-fix 기록이다. 현재 정본 수치와 제품 pipeline 결과는 [Task 19.5 Fix Round 1](task-19.5-fix-round-1.md)을 따른다. 현재 model/paper entity는 26,887/4,150, 직접 model INSERT는 8,954, 지원 entity는 26,389(98.1478%), review 후보는 1,302개이며 제품 pipeline도 샘플을 상한 안에서 처리한다.
+> **교정됨:** 이 문서의 최초 분석 수치는 group 67/410 paper-space를 포함한 pre-fix 기록이다. 현재 정본 수치와 제품 pipeline 결과는 [Task 19.5 Fix Round 2](task-19.5-fix-round-2.md)를 따른다. 제품 detector 후보는 1,308개, 저장 SVG는 gzip 3,783,909 bytes, standalone peak RSS는 510,902,272 bytes다.
 
 기준일: 2026-09-17
 

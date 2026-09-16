@@ -764,3 +764,17 @@
 - **원인**: 입력 크기만 상한으로 보고 전체 문자열·line split·pair 배열·expanded entity 배열·SVG 조각과 Buffer가 동시에 존재하는 단계별 물질화를 측정하지 않았다. paper layout도 model-space에 섞여 분모와 출력이 부풀었다.
 - **해결 및 예방책**: group 67/410으로 model-space를 먼저 선별하고 chunk→line→pair→한 entity body만 보유하는 parser로 바꿨다. detector/renderer expansion도 iterator로 소비하고 제품 SVG는 검증된 bounds, metadata 생략, compact path를 사용해 샘플을 96,353,981 bytes로 낮췄다. line, pair, entity, block, coordinate, expansion/depth, candidate, SVG, temp disk, CPU와 wall 예산을 독립 상한으로 유지한다.
 - **반복 방지 체크**: 실제 샘플의 analyzer와 제품 convert→parse→detect→render를 모두 실행하고, 이전 상한보다 큰 정상 streaming fixture와 긴 line/entity body 적대 fixture를 함께 둔다. 숫자를 높이기 전에 어느 단계가 메모리와 출력을 물질화하는지 측정하며 배포 cgroup 검증 전에는 로컬 RSS를 양산 보장으로 기록하지 않는다.
+
+## 2026-09-17 / 반복 블록 SVG는 구조 보존과 전송 인코딩을 함께 설계한다
+
+- **발생했던 문제/실수**: expanded geometry를 compact path로 바꿔도 샘플 SVG가 96 MiB여서 실제 Object Storage 8 MiB 제한을 통과하지 못했고, 문자열 조각·join·Buffer가 겹쳐 peak RSS도 약 1 GiB였다.
+- **원인**: CAD의 block/INSERT 반복 구조를 SVG에서 평탄화했고, 텍스트를 glyph path로 펼쳤으며, renderer 성공과 실제 저장 성공을 분리해서 검증했다.
+- **해결 및 예방책**: 도달 가능한 block만 `symbol`로 한 번 기록하고 INSERT는 `use`로 참조한다. 한글은 외부 resource 없는 escaped `<text>`로 유지하고 raw SVG와 gzip 출력을 파일 stream으로 쓴다. Object Storage는 gzip stream의 8 MiB, checksum, viewport, content encoding을 PUT/HEAD로 검증한다. parser bounds도 expanded 배열 없이 iterator로 계산한다.
+- **반복 방지 체크**: 반복 block 2,000개와 한글 synthetic fixture를 상시 CI에 두고, 제공 DWG HIL은 product converter/parser/detector/renderer/storage 클래스를 그대로 사용한다. standalone max RSS, raw/stored SVG 크기, cgroup/heap/동시 job 계약을 함께 기록한다.
+
+## 2026-09-17 / 검출 profile 재현성은 이름이 아니라 행동 전체 digest다
+
+- **발생했던 문제/실수**: 현장 전용 block allowlist가 기본 detector에 섞였고 confidence, 후보/전개 상한, token, 거리, yield 같은 행동 필드가 digest에서 빠졌다. worker도 주입 detector가 아닌 기본 상수 metadata를 저장했다.
+- **원인**: profile을 설정 묶음이 아닌 버전 라벨로 취급하고 요청/job/candidate 경계를 연결하지 않았다.
+- **해결 및 예방책**: 기본 profile과 현장 profile을 registry ID로 분리하고 import 요청에서 ID를 고정한다. 정규화·정렬한 모든 행동 필드를 canonical SHA-256에 포함하며 worker는 실제 registry detector의 version/digest를 job과 모든 후보에 저장한다.
+- **반복 방지 체크**: 행동 필드 하나만 다른 profile이 같은 digest를 만들지 않는 반례, 현장명 기본 profile 미검출, job/profile 불일치 fail-close, 2,000건 bulk persistence와 review/apply를 실제 PostgreSQL과 Web에서 검증한다.
