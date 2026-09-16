@@ -620,7 +620,7 @@ git commit -m "feat(reports): render deterministic report charts"
 - Consumes: Task 8 `RenderedReportVisual[]`
 - Produces: PDF/XLSX files with identical source chart PNG SHA-256 and existing scalar manifest
 
-- [ ] **Step 1: PDF/XLSX가 expected visual ids와 hashes를 포함해야 하는 RED contract test를 작성한다.**
+- [x] **Step 1: PDF/XLSX가 expected visual ids와 hashes를 포함해야 하는 RED contract test를 작성한다.**
 
 ```ts
 expect(pdf.visuals).toEqual(xlsx.visuals);
@@ -630,35 +630,35 @@ expect(pdf.visuals.map(value => value.id)).toEqual([
 ]);
 ```
 
-- [ ] **Step 2: page/sheet layout bounds의 RED tests를 작성한다.**
+- [x] **Step 2: page/sheet layout bounds의 RED tests를 작성한다.**
 
 PDF chart rectangle이 page margin을 넘지 않고 다음 표 header가 새 페이지에서 반복되는지, XLSX image anchor가 대응 sheet의 표를 가리지 않는지 확인한다.
 
-- [ ] **Step 3: RED를 확인한다.**
+- [x] **Step 3: RED를 확인한다.**
 
 Run: `pnpm --filter @led-control/api exec jest src/energy/reports/pdf-energy-report.renderer.spec.ts src/energy/reports/excel-energy-report.renderer.spec.ts src/energy/reports/report-renderer.contract.spec.ts --runInBand`
 
 Expected: visual contract 부재로 FAIL.
 
-- [ ] **Step 4: PDF에 chart image와 section caption을 삽입한다.**
+- [x] **Step 4: PDF에 chart image와 section caption을 삽입한다.**
 
 각 visualization section에서 source PNG를 `embedPng`하고 aspect ratio를 유지한다. 페이지 여백 내에 들어가지 않으면 새 페이지를 만든다. 차트 title/alt summary는 PDF의 실제 텍스트로도 출력해 image만으로 의미를 전달하지 않는다.
 
-- [ ] **Step 5: XLSX에 같은 PNG와 원본 표를 삽입한다.**
+- [x] **Step 5: XLSX에 같은 PNG와 원본 표를 삽입한다.**
 
 각 sheet 상단에 KPI/차트를, 이후에 원본 표를 둔다. ExcelJS addImage에 Task 8 PNG bytes를 그대로 전달하고 arbitrary 재인코딩을 하지 않는다. hidden manifest sheet에는 visual id/hash/dimensions를 포함한다.
 
-- [ ] **Step 6: serialized file extractor를 확장한다.**
+- [x] **Step 6: serialized file extractor를 확장한다.**
 
 PDF embedded image stream과 XLSX media part의 digest를 추출해 source digest와 비교한다. Scalar manifest 기존 비교를 제거하지 않는다.
 
-- [ ] **Step 7: renderers와 contract tests를 GREEN으로 만든다.**
+- [x] **Step 7: renderers와 contract tests를 GREEN으로 만든다.**
 
 Run: Task 9 Step 3과 동일.
 
 Expected: PASS, PDF/XLSX scalar와 visual hash 동일.
 
-- [ ] **Step 8: Task 9를 커밋한다.**
+- [x] **Step 8: Task 9를 커밋한다.**
 
 ```bash
 git add apps/api/src/energy/reports/pdf-* apps/api/src/energy/reports/excel-* apps/api/src/energy/reports/report-pdf-layout.ts apps/api/src/energy/reports/report-renderer.test-support.ts apps/api/src/energy/reports/report-renderer.contract.spec.ts
