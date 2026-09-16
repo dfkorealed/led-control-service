@@ -280,7 +280,7 @@ async function readStableControlRects(page: Page) {
     const selectors = {
       dial: "[data-control-brightness-card]",
       presets: "[data-control-presets]",
-      submit: "[data-control-panel-body] > [data-variant='primary']"
+      submit: "[data-control-submit]"
     } as const;
     if (!panel || !badge || !body || !feedback) throw new Error("manual control layout is incomplete");
 

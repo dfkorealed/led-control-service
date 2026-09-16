@@ -664,7 +664,7 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
     });
   }
 
-  for (const viewport of [{ width: 1440, height: 900 }, { width: 1121, height: 900 }]) {
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 1280, height: 720 }, { width: 1121, height: 900 }]) {
     test(`${viewport.width}px 수동 제어는 문서 스크롤 없이 조명 목록만 스크롤한다`, async ({ page }) => {
       await page.setViewportSize(viewport);
       const denseFixtures = Array.from({ length: 80 }, (_, index): SettingsFixture => ({
@@ -693,8 +693,12 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
         };
       });
       expect(scrollMetrics.documentScrollHeight).toBeLessThanOrEqual(scrollMetrics.documentClientHeight + 1);
+      expect(scrollMetrics.listClientHeight).toBeGreaterThanOrEqual(44);
       expect(scrollMetrics.listScrollHeight).toBeGreaterThan(scrollMetrics.listClientHeight);
       expect(scrollMetrics.listOverflowY).toBe("auto");
+      const firstFixture = page.getByRole("checkbox", { name: "B2-L001 선택" });
+      await page.getByText("B2-L001", { exact: true }).click();
+      await expect(firstFixture).toBeChecked();
     });
   }
 

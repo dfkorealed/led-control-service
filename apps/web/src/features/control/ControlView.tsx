@@ -520,7 +520,7 @@ export function ControlView({
               ))}
             </div>
 
-            <Button variant="primary" type="button" onClick={submitCommand} disabled={!canSubmit}>
+            <Button variant="primary" type="button" onClick={submitCommand} disabled={!canSubmit} data-control-submit="">
               {commandSessionBlocked ? "로그아웃 중" : controlsLocked && !readOnly ? "밝기 적용 중" : "밝기 적용"}
             </Button>
           </div>

@@ -34,7 +34,7 @@ export function CommandHistoryPanel({ userId, siteId, onSelect, disabled = false
   const items = history.data?.pages.flatMap((page) => page.items) ?? [];
 
   return (
-    <Card className="flex h-80 max-h-80 min-h-0 min-w-0 flex-col gap-3 overflow-hidden p-4 tablet:h-48 tablet:max-h-48" aria-label="최근 명령 이력" data-command-history-panel="">
+    <Card className="flex h-80 max-h-80 min-h-0 min-w-0 flex-col gap-3 overflow-hidden p-4 tablet:h-40 tablet:max-h-40" aria-label="최근 명령 이력" data-command-history-panel="">
       <Heading as="h3" variant="card-title">최근 명령 이력</Heading>
       <div className="grid grid-cols-2 gap-3 max-compact:grid-cols-1">
         <SearchField label="명령 이력 검색" placeholder="명령 ID 또는 조명 이름" maxLength={100} value={search} onChange={setSearch} />

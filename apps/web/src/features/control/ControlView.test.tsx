@@ -162,7 +162,6 @@ describe("ControlView 대상 선택", () => {
     expect(screen.getByRole("region", { name: "최근 명령 이력" })).toHaveAttribute("data-command-history-panel");
     expect(screen.getByRole("complementary", { name: "밝기 실행" })).toHaveAttribute("data-control-panel");
     expect(screen.getByRole("status", { name: "명령 진행 상태" })).toHaveAttribute("data-command-status-region");
-    expect(screen.getByRole("button", { name: "구역 관리" })).toHaveAttribute("data-variant", "secondary");
   });
 
   it("keeps the visible fixture name inside the checkbox label", () => {
@@ -396,16 +395,17 @@ describe("ControlView 대상 선택", () => {
     expect(screen.queryByText(/ACK/i)).not.toBeInTheDocument();
   });
 
-  it("수동 제어는 공통 Card와 Button으로 preset 및 대상 action을 렌더링한다", () => {
+  it("밝기 preset과 대상 유형 action을 수동 제어 상태에 반영한다", () => {
     renderControl();
 
-    expect(screen.getByRole("complementary", { name: "밝기 실행" })).toHaveAttribute("data-variant", "default");
-    expect(screen.getByRole("button", { name: "30%" })).toHaveAttribute("data-variant", "secondary");
-    expect(screen.getByRole("button", { name: "검색 결과 전체 선택" })).toHaveAttribute("data-variant", "secondary");
-    expect(screen.getByRole("button", { name: "층" })).toHaveAttribute("data-variant", "ghost");
+    fireEvent.click(screen.getByRole("button", { name: "30%" }));
+    expect(screen.getByRole("slider", { name: "밝기" })).toHaveValue("30");
 
     fireEvent.click(screen.getByRole("button", { name: "층" }));
-    expect(screen.getByRole("button", { name: "B2" })).toHaveAttribute("data-variant", "secondary");
+    fireEvent.click(screen.getByRole("button", { name: "B2" }));
+    const executionPanel = screen.getByRole("complementary", { name: "밝기 실행" });
+    expect(within(executionPanel).getByRole("heading", { name: "B2" })).toBeInTheDocument();
+    expect(within(executionPanel).getByText("3개 선택 · 제어 불가 1개")).toBeInTheDocument();
   });
 
   it("sends one selected light as a fixture target", async () => {

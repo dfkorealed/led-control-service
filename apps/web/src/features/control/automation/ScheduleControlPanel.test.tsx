@@ -132,21 +132,22 @@ describe("ScheduleControlPanel", () => {
     expect(screen.getByRole("dialog", { name: "스케줄 추가" })).toBeInTheDocument();
   });
 
-  it("uses a level-three panel heading and shared add button", async () => {
+  it("opens schedule creation from the level-three panel heading", async () => {
     renderPanel("admin");
 
     expect(await screen.findByRole("heading", { name: "스케줄 제어", level: 3 })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "스케줄 추가" })).toHaveAttribute("data-variant", "primary");
+    fireEvent.click(screen.getByRole("button", { name: "스케줄 추가" }));
+    expect(screen.getByRole("dialog", { name: "스케줄 추가" })).toBeInTheDocument();
   });
 
-  it("uses shared dialog action buttons", async () => {
+  it("closes schedule creation with its cancel action", async () => {
     renderPanel("admin");
     await screen.findByText("야간 운영");
     fireEvent.click(screen.getByRole("button", { name: "스케줄 추가" }));
     const dialog = screen.getByRole("dialog", { name: "스케줄 추가" });
 
-    expect(within(dialog).getByRole("button", { name: "취소" })).toHaveAttribute("data-variant", "secondary");
-    expect(within(dialog).getByRole("button", { name: "스케줄 만들기" })).toHaveAttribute("data-variant", "primary");
+    fireEvent.click(within(dialog).getByRole("button", { name: "취소" }));
+    expect(screen.queryByRole("dialog", { name: "스케줄 추가" })).not.toBeInTheDocument();
   });
 
   it("uses segmented date/time fields while keeping validation numbers as strings", async () => {
