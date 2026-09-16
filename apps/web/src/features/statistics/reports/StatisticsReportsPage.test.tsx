@@ -170,7 +170,7 @@ describe("StatisticsReportsPage", () => {
       refetch: vi.fn()
     }));
     renderPage({
-      initialEntry: "/statistics/reports?limit=20&cursor=cursor-20&reportPage=2&reportHistory=%5Bnull%5D"
+      initialEntry: `/statistics/reports?limit=20&cursor=cursor-20&reportPage=2&reportHistory=%5Bnull%5D&reportSite=${siteId}`
     });
 
     expect(reportsApi.reports).toHaveBeenLastCalledWith(siteId, { limit: 20, cursor: "cursor-20" });
@@ -249,6 +249,37 @@ describe("StatisticsReportsPage", () => {
     const nextSiteId = "30000000-0000-4000-8000-000000000099";
     view.rerender(pageTree(nextSiteId, client));
     await waitFor(() => expect(reportsApi.reports).toHaveBeenLastCalledWith(nextSiteId, { limit: 20 }));
+    expect(screen.getByText("1~20 / 40건")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "이전 페이지" })).toBeDisabled();
+  });
+
+  it("never restores another site's cursor when browser Back follows a site change", async () => {
+    reportsApi.reports.mockImplementation((_activeSiteId: string, query: { limit: number; cursor?: string } = { limit: 20 }) => ({
+      data: {
+        reports: pageJobs(query.cursor === "cursor-20" ? 21 : 1, 20),
+        nextCursor: query.cursor === "cursor-20" ? null : "cursor-20",
+        totalCount: 40
+      },
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+      isPlaceholderData: false,
+      refetch: vi.fn()
+    }));
+    const queryClient = new QueryClient();
+    const view = render(pageTree(siteId, queryClient));
+    fireEvent.click(screen.getByRole("button", { name: "다음 페이지" }));
+    await waitFor(() => expect(screen.getByText("21~40 / 40건")).toBeInTheDocument());
+
+    const nextSiteId = "30000000-0000-4000-8000-000000000099";
+    view.rerender(pageTree(nextSiteId, queryClient));
+    await waitFor(() => expect(reportsApi.reports).toHaveBeenLastCalledWith(nextSiteId, { limit: 20 }));
+    const callsBeforeBack = reportsApi.reports.mock.calls.length;
+
+    fireEvent.click(screen.getByRole("button", { name: "브라우저 뒤로" }));
+    await waitFor(() => expect(reportsApi.reports.mock.calls.length).toBeGreaterThan(callsBeforeBack));
+    expect(reportsApi.reports).toHaveBeenLastCalledWith(nextSiteId, { limit: 20 });
+    expect(reportsApi.reports).not.toHaveBeenCalledWith(nextSiteId, { limit: 20, cursor: "cursor-20" });
     expect(screen.getByText("1~20 / 40건")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "이전 페이지" })).toBeDisabled();
   });
