@@ -743,13 +743,14 @@ git commit -m "test: verify searchable visual energy reports"
 - 반응형·접근성 E2E: 1440×900 및 1024×768 table, 390×844 및 320×740 mobile list, document horizontal overflow 0, 44×44px 이상 조작 영역, keyboard focus, 실패 상세 disclosure, live announcement를 검증했다.
 - focused browser E2E: Chromium 26개 통과, skip 0개.
 - shared: 15 files, 242 tests 통과.
-- API: 152 suites, 1,793 tests 통과. 기존 환경 allowlist에 해당하는 43 suites, 475 tests는 skip.
-- Web unit/component: 88 files, 1,252 tests 통과.
+- API: 152 suites, 1,802 tests 통과. 기존 환경 allowlist에 해당하는 43 suites, 476 tests는 skip.
+- Web unit/component: 88 files, 1,253 tests 통과.
 - UI policy: 53 tests 통과.
 - typecheck 및 production build: exit 0. build에는 기존 main chunk 경고가 남아 있으며 main bundle은 657.51 kB, gzip 201.34 kB다.
 - renderer scalar manifest: PDF/XLSX 공통 1,727개 scalar를 비교했다.
-- XLSX fixture: 215,359 bytes, SHA-256 `368cce8c279df9182566f79ec1278c9129529dc9d7bbaa28b0dc6aeb55ba7752`.
-- PDF fixture: 7,498,543 bytes, SHA-256 `7050c78dba6382fd5861889711238363aa6b4d68abe8f246fcafe066f3ab09a7`.
+- XLSX fixture의 해당 실행 관찰값: 215,359 bytes, SHA-256 `368cce8c279df9182566f79ec1278c9129529dc9d7bbaa28b0dc6aeb55ba7752`.
+- PDF fixture의 해당 실행 관찰값: 7,498,543 bytes, SHA-256 `7050c78dba6382fd5861889711238363aa6b4d68abe8f246fcafe066f3ab09a7`.
+- full-file 크기와 SHA-256은 container timestamp 때문에 실행마다 달라질 수 있으므로 안정적인 acceptance로 사용하지 않는다. 안정적인 계약은 PDF/XLSX의 동일한 1,727개 scalar manifest와 아래 순서의 8개 visual image SHA-256이며, 브라우저 다운로드 bytes는 같은 실행의 server fixture bytes와 일치해야 한다.
 - ordered visual digest:
   - `daily-chart`: `7f12f795fe7713faaead92cf99bec5ff361384a68ec58412c027ccd8ab485534`
   - `comparison-chart/energyKwh`: `8640939748300bc4853fd78c08013722bf64eb76a0140876c8df0152ca76509c`

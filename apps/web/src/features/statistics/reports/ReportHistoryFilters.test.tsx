@@ -66,6 +66,33 @@ describe("ReportHistoryFilters", () => {
     });
   });
 
+  it("clears every active condition and cursor with one action while preserving the page size", () => {
+    vi.useFakeTimers();
+    render(<FilterHarness initial={{
+      limit: 50,
+      cursor: "older-page",
+      query: "서울",
+      status: "completed",
+      format: "pdf",
+      scope: "site",
+      requestedFrom: "2026-09-08",
+      requestedTo: "2026-09-10"
+    }} />);
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "보고서 검색" }), { target: { value: "뒤늦은 검색" } });
+    fireEvent.click(screen.getByRole("button", { name: "전체 초기화" }));
+
+    expect(screen.getByRole("searchbox", { name: "보고서 검색" })).toHaveValue("");
+    expect(screen.getByRole("button", { name: "상태" })).toHaveTextContent("전체 상태");
+    expect(screen.getByRole("button", { name: "파일 형식" })).toHaveTextContent("전체 형식");
+    expect(screen.getByRole("button", { name: "범위" })).toHaveTextContent("전체 범위");
+    expect(screen.queryByLabelText("활성 조건")).not.toBeInTheDocument();
+    expect(readState()).toEqual({ limit: 50 });
+
+    act(() => vi.advanceTimersByTime(300));
+    expect(readState()).toEqual({ limit: 50 });
+  });
+
   it("keeps an over-90-day date draft editable without committing it, then clears the error for a valid range", () => {
     const onChange = vi.fn();
     render(<ReportHistoryFilters

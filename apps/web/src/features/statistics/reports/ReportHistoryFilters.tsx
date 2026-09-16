@@ -154,6 +154,20 @@ export function ReportHistoryFilters({ value, onChange, className }: ReportHisto
               <span aria-hidden="true">×</span>
             </Button>
           ))}
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            className="min-h-11 w-full compact:ml-auto compact:w-auto"
+            onClick={() => {
+              setSearchInput("");
+              setDateDraft(null);
+              setDateError(null);
+              onChange(energyReportListQuerySchema.parse({ limit: value.limit }));
+            }}
+          >
+            전체 초기화
+          </Button>
         </div>
       ) : null}
     </section>

@@ -226,32 +226,66 @@ test("creates both report formats, polls state, downloads actual renderer bytes 
 test("searches and paginates 101 server records, restores filters, and returns to page one after creation", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   const fixture = await installReportHistoryFixture(page);
+  fixture.expectNextListQuery({ limit: "20" });
   await page.goto(`/statistics/reports?siteId=${reportSiteId}`);
 
   const pagination = page.getByRole("navigation", { name: "페이지 이동" });
   await expect(pagination.getByRole("status")).toContainText("1~20 / 101건");
   await expect(page.getByRole("table", { name: "보고서 생성 이력" }).locator("tbody tr")).toHaveCount(20);
 
+  fixture.expectNextListQuery({ limit: "20", cursor: "offset-20" });
   await pagination.getByRole("button", { name: "다음 페이지" }).click();
   await expect(pagination.getByRole("status")).toContainText("21~40 / 101건");
+  await expect(page.getByRole("table", { name: "보고서 생성 이력" }).getByText("부산 보고서 021")).toBeVisible();
+  fixture.expectNextListQuery({ limit: "20" });
   await pagination.getByRole("button", { name: "이전 페이지" }).click();
   await expect(pagination.getByRole("status")).toContainText("1~20 / 101건");
+  await expect(page.getByRole("table", { name: "보고서 생성 이력" }).getByText("서울 본사")).toBeVisible();
 
+  fixture.expectNextListQuery({ limit: "50" });
   await chooseOption(page, pagination, "페이지당 항목 수", "50개");
   await expect(pagination.getByRole("status")).toContainText("1~50 / 101건");
+  fixture.expectNextListQuery({ limit: "100" });
   await chooseOption(page, pagination, "페이지당 항목 수", "100개");
   await expect(pagination.getByRole("status")).toContainText("1~100 / 101건");
 
   const filters = page.getByRole("search", { name: "보고서 이력 필터" });
+  fixture.expectNextListQuery({ limit: "100", query: "서울" });
   await filters.getByRole("searchbox", { name: "보고서 검색" }).fill(" 서울 ");
+  await expect(pagination.getByRole("status")).toContainText("1~8 / 8건");
+  fixture.expectNextListQuery({ limit: "100", query: "서울", status: "completed" });
   await chooseOption(page, filters, "상태", "완료");
+  await expect(pagination.getByRole("status")).toContainText("1~7 / 7건");
+  fixture.expectNextListQuery({ limit: "100", query: "서울", status: "completed", format: "pdf" });
   await chooseOption(page, filters, "파일 형식", "PDF");
+  await expect(pagination.getByRole("status")).toContainText("1~6 / 6건");
+  fixture.expectNextListQuery({ limit: "100", query: "서울", status: "completed", format: "pdf", scope: "site" });
   await chooseOption(page, filters, "범위", "현장");
+  await expect(pagination.getByRole("status")).toContainText("1~5 / 5건");
+  fixture.expectNextListQuery({
+    limit: "100",
+    query: "서울",
+    status: "completed",
+    format: "pdf",
+    scope: "site",
+    requestedFrom: "2026-09-08",
+    requestedTo: "2026-09-10"
+  });
   await setDateRangePicker(filters, "요청 기간", "2026-09-08", "2026-09-10");
   await expect(pagination.getByRole("status")).toContainText("1~3 / 3건");
   await expect(page.getByRole("table", { name: "보고서 생성 이력" }).getByText("서울 본사")).toBeVisible();
+  await expect(page.getByRole("table", { name: "보고서 생성 이력" })).not.toContainText(/조건 불일치/);
   await expect(page).toHaveURL(/query=%EC%84%9C%EC%9A%B8/);
 
+  fixture.expectNextListQuery({
+    limit: "100",
+    query: "서울",
+    status: "completed",
+    format: "pdf",
+    scope: "site",
+    requestedFrom: "2026-09-08",
+    requestedTo: "2026-09-10"
+  });
   await page.reload();
   await expect(filters.getByRole("searchbox", { name: "보고서 검색" })).toHaveValue("서울");
   await expect(filters.getByRole("button", { name: "상태", exact: true })).toContainText("완료");
@@ -259,23 +293,61 @@ test("searches and paginates 101 server records, restores filters, and returns t
   await expect(filters.getByRole("button", { name: "범위", exact: true })).toContainText("현장");
   await expect(pagination.getByRole("status")).toContainText("1~3 / 3건");
 
+  fixture.expectNextListQuery({
+    limit: "100",
+    status: "completed",
+    format: "pdf",
+    scope: "site",
+    requestedFrom: "2026-09-08",
+    requestedTo: "2026-09-10"
+  });
   await filters.getByRole("button", { name: "검색: 서울 조건 제거" }).click();
   await expect(filters.getByRole("searchbox", { name: "보고서 검색" })).toHaveValue("");
-  await removeAllReportFilterChips(filters);
+  await expect(pagination.getByRole("status")).toContainText("1~4 / 4건");
+  await expect(page.getByRole("table", { name: "보고서 생성 이력" }).getByText("부산 검색 조건 불일치")).toBeVisible();
+
+  fixture.expectNextListQuery({
+    limit: "100",
+    query: "서울",
+    status: "completed",
+    format: "pdf",
+    scope: "site",
+    requestedFrom: "2026-09-08",
+    requestedTo: "2026-09-10"
+  });
+  await filters.getByRole("searchbox", { name: "보고서 검색" }).fill("서울");
+  await expect(pagination.getByRole("status")).toContainText("1~3 / 3건");
+
+  fixture.expectNextListQuery({ limit: "100" });
+  await filters.getByRole("button", { name: "전체 초기화" }).click();
   await expect(pagination.getByRole("status")).toContainText("1~100 / 101건");
   await expect(filters.getByLabel("활성 조건")).toHaveCount(0);
+  await expect(filters.getByRole("searchbox", { name: "보고서 검색" })).toHaveValue("");
+  await expect(filters.getByRole("button", { name: "상태", exact: true })).toContainText("전체 상태");
+  await expect(filters.getByRole("button", { name: "파일 형식", exact: true })).toContainText("전체 형식");
+  await expect(filters.getByRole("button", { name: "범위", exact: true })).toContainText("전체 범위");
+  for (const segment of await filters.getByRole("group", { name: "요청 기간" }).getByRole("spinbutton").all()) {
+    await expect(segment).not.toHaveAttribute("aria-valuenow");
+  }
+  expect(new URL(page.url()).searchParams.get("limit")).toBe("100");
+  expect([...new URL(page.url()).searchParams.keys()].sort()).toEqual(["limit", "siteId"]);
 
+  fixture.expectNextListQuery({ limit: "100", cursor: "offset-100" });
   await pagination.getByRole("button", { name: "다음 페이지" }).click();
   await expect(pagination.getByRole("status")).toContainText("101~101 / 101건");
+  await expect(page.getByRole("table", { name: "보고서 생성 이력" }).getByText("부산 보고서 101")).toBeVisible();
+  fixture.expectNextListQuery({ limit: "100" });
   await page.getByRole("button", { name: "보고서 만들기" }).click();
   await page.getByRole("dialog", { name: "에너지 사용량 보고서 만들기" }).getByRole("button", { name: "보고서 요청" }).click();
   await expect(pagination.getByRole("status")).toContainText("1~100 / 102건");
   await expect(page.getByRole("region", { name: "요청한 보고서" }).getByText("대기 중", { exact: true }).first()).toBeVisible();
   expect(fixture.createdRequests).toHaveLength(1);
 
+  fixture.expectNextListQuery({ limit: "100", query: "존재하지 않는 대상" });
   await filters.getByRole("searchbox", { name: "보고서 검색" }).fill("존재하지 않는 대상");
   await expect(page.getByText("요청한 보고서가 없습니다.")).toBeVisible();
   await expect(pagination.getByRole("status")).toContainText("0건");
+  fixture.expectAllListQueriesObserved();
 });
 
 for (const viewport of [
@@ -287,7 +359,7 @@ for (const viewport of [
   test(`report history uses the accessible responsive surface at ${viewport.width}x${viewport.height}`, async ({ page }) => {
     await page.setViewportSize(viewport);
     await installReportHistoryFixture(page);
-    await page.goto(`/statistics/reports?siteId=${reportSiteId}`);
+    await page.goto(`/statistics/reports?siteId=${reportSiteId}&query=%EC%84%9C%EC%9A%B8&requestedFrom=2026-09-07&requestedTo=2026-09-11`);
 
     if (viewport.width >= 1024) {
       await expect(page.getByRole("table", { name: "보고서 생성 이력" })).toBeVisible();
@@ -300,34 +372,45 @@ for (const viewport of [
     await expectNoHorizontalOverflow(page);
     const filters = page.getByRole("search", { name: "보고서 이력 필터" });
     const pagination = page.getByRole("navigation", { name: "페이지 이동" });
+    const dateRange = filters.getByRole("group", { name: "요청 기간" });
+    const visibleHistory = viewport.width >= 1024
+      ? page.getByRole("table", { name: "보고서 생성 이력" })
+      : page.getByRole("list", { name: "모바일 보고서 생성 이력" });
     const touchTargets = [
       filters.getByRole("searchbox", { name: "보고서 검색" }),
       filters.getByRole("button", { name: "상태" }),
       filters.getByRole("button", { name: "파일 형식" }),
       filters.getByRole("button", { name: "범위" }),
-      filters.getByRole("group", { name: "요청 기간" }),
       pagination.getByRole("button", { name: "페이지당 항목 수" }),
-      pagination.getByRole("button", { name: "이전 페이지" }),
-      pagination.getByRole("button", { name: "다음 페이지" }),
-      page.getByRole("button", { name: /보고서 (다운로드|다시 생성)$/ }).first()
+      visibleHistory.getByRole("button", { name: /보고서 다운로드$/ }).first(),
+      visibleHistory.getByRole("button", { name: /보고서 다시 생성$/ }).first(),
+      visibleHistory.getByRole("button", { name: /실패 상세 보기$/ }).first(),
+      filters.getByRole("button", { name: "전체 초기화" }),
+      ...await dateRange.getByRole("spinbutton").all(),
+      dateRange.getByRole("button"),
+      ...await filters.getByRole("button", { name: /조건 제거$/ }).all()
     ];
     for (const target of touchTargets) {
-      await target.scrollIntoViewIfNeeded();
-      const bounds = await target.boundingBox();
-      expect(bounds, `${viewport.width}px target exists`).not.toBeNull();
-      expect(bounds!.width, `${viewport.width}px target width`).toBeGreaterThanOrEqual(44);
-      expect(bounds!.height, `${viewport.width}px target height`).toBeGreaterThanOrEqual(44);
+      await expectLocatorTouchTarget(target, `${viewport.width}px visible interactive target`);
     }
 
-    const next = pagination.getByRole("button", { name: "다음 페이지" });
-    await next.focus();
-    await expect(next).toBeFocused();
-    expect(await next.evaluate((element) => getComputedStyle(element).boxShadow)).not.toBe("none");
+    const reset = filters.getByRole("button", { name: "전체 초기화" });
+    await reset.focus();
+    await expect(reset).toBeFocused();
+    expect(await reset.evaluate((element) => getComputedStyle(element).boxShadow)).not.toBe("none");
 
-    await page.getByRole("button", { name: "부산 실패 현장 실패 상세 보기" }).click();
-    await expect(page.getByRole("region", { name: "부산 실패 현장 실패 안내" })).toContainText("보고서를 생성하지 못했습니다.");
+    await visibleHistory.getByRole("button", { name: "서울 상태 조건 불일치 실패 상세 보기" }).click();
+    await expect(page.getByRole("region", { name: "서울 상태 조건 불일치 실패 안내" })).toContainText("보고서를 생성하지 못했습니다.");
+    await reset.click();
+    await expect(pagination.getByRole("status")).toContainText("1~20 / 101건");
+    const next = pagination.getByRole("button", { name: "다음 페이지" });
+    await expectLocatorTouchTarget(next, `${viewport.width}px enabled next-page target`);
     await next.click();
     await expect(pagination.getByRole("status")).toContainText("21~40 / 101건");
+    await expectLocatorTouchTarget(
+      pagination.getByRole("button", { name: "이전 페이지" }),
+      `${viewport.width}px enabled previous-page target`
+    );
     await expectNoHorizontalOverflow(page);
   });
 }
@@ -804,6 +887,8 @@ async function installReportHistoryFixture(page: Page) {
   let records = reportHistoryRecords();
   energyReportListResponseSchema.parse({ reports: records.slice(0, 20), nextCursor: "offset-20", totalCount: records.length });
   const createdRequests: EnergyReportJob["request"][] = [];
+  let expectedListQuery: URLSearchParams | undefined;
+  let lastObservedListQuery: string | undefined;
   await page.route("**/energy/sites/*/reports*", async (route) => {
     if (route.request().method() === "POST") {
       const request = route.request().postDataJSON() as EnergyReportJob["request"];
@@ -822,6 +907,19 @@ async function installReportHistoryFixture(page: Page) {
     }
 
     const url = new URL(route.request().url());
+    const actualListQuery = url.searchParams.toString();
+    if (expectedListQuery) {
+      const expectedQueryString = expectedListQuery.toString();
+      if (actualListQuery === expectedQueryString) {
+        expectedListQuery = undefined;
+      } else if (actualListQuery !== lastObservedListQuery) {
+        expect(
+          [...url.searchParams.entries()],
+          `normalized report query for ${url.pathname}`
+        ).toEqual([...expectedListQuery.entries()]);
+      }
+    }
+    lastObservedListQuery = actualListQuery;
     const query = (url.searchParams.get("query") ?? "").trim().toLocaleLowerCase("ko-KR");
     const status = url.searchParams.get("status");
     const format = url.searchParams.get("format");
@@ -848,7 +946,16 @@ async function installReportHistoryFixture(page: Page) {
     });
     await route.fulfill({ json: response });
   });
-  return { createdRequests };
+  return {
+    createdRequests,
+    expectNextListQuery(query: Record<string, string>) {
+      expect(expectedListQuery, "previous expected report query was observed").toBeUndefined();
+      expectedListQuery = new URLSearchParams(query);
+    },
+    expectAllListQueriesObserved() {
+      expect(expectedListQuery, "all expected report queries were observed").toBeUndefined();
+    }
+  };
 }
 
 function reportHistoryRecords(): EnergyReportJob[] {
@@ -864,13 +971,28 @@ function reportHistoryRecords(): EnergyReportJob[] {
     }
     if (index === 3) {
       return historyReport(index, {
-        status: "failed",
-        format: "xlsx",
+        status: "completed",
+        format: "pdf",
         scope: "site",
-        label: "부산 실패 현장",
-        requestedAt: "2026-09-07T09:00:00.000Z"
+        label: "부산 검색 조건 불일치",
+        requestedAt: "2026-09-10T09:00:00.000Z"
       });
     }
+    if (index === 4) return historyReport(index, {
+      status: "failed", format: "pdf", scope: "site", label: "서울 상태 조건 불일치", requestedAt: "2026-09-10T09:00:00.000Z"
+    });
+    if (index === 5) return historyReport(index, {
+      status: "completed", format: "xlsx", scope: "site", label: "서울 형식 조건 불일치", requestedAt: "2026-09-10T09:00:00.000Z"
+    });
+    if (index === 6) return historyReport(index, {
+      status: "completed", format: "pdf", scope: "floor", label: "서울 범위 조건 불일치", requestedAt: "2026-09-10T09:00:00.000Z"
+    });
+    if (index === 7) return historyReport(index, {
+      status: "completed", format: "pdf", scope: "site", label: "서울 시작일 조건 불일치", requestedAt: "2026-09-07T09:00:00.000Z"
+    });
+    if (index === 8) return historyReport(index, {
+      status: "completed", format: "pdf", scope: "site", label: "서울 종료일 조건 불일치", requestedAt: "2026-09-11T09:00:00.000Z"
+    });
     const formats = ["xlsx", "pdf"] as const;
     const scopes = ["site", "floor", "group", "fixture"] as const;
     return historyReport(index, {
@@ -1079,6 +1201,15 @@ async function chooseOption(page: Page, container: Locator, label: string, optio
   await page.getByRole("option", { name: option, exact: true }).click();
 }
 
+async function expectLocatorTouchTarget(target: Locator, label: string) {
+  await target.scrollIntoViewIfNeeded();
+  await expect(target, `${label} is enabled`).toBeEnabled();
+  const bounds = await target.boundingBox();
+  expect(bounds, `${label} exists`).not.toBeNull();
+  expect(bounds!.width, `${label} width`).toBeGreaterThanOrEqual(44);
+  expect(bounds!.height, `${label} height`).toBeGreaterThanOrEqual(44);
+}
+
 async function setDatePicker(container: Locator, label: string, value: string) {
   const [year, month, day] = value.split("-");
   const segments = container.getByRole("group", { name: label }).getByRole("spinbutton");
@@ -1095,11 +1226,6 @@ async function setDateRangePicker(container: Locator, label: string, start: stri
     await segments.nth(offset + 1).fill(String(Number(month)));
     await segments.nth(offset).fill(year);
   }
-}
-
-async function removeAllReportFilterChips(filters: Locator) {
-  const chips = filters.getByRole("button", { name: /조건 제거$/ });
-  while (await chips.count()) await chips.first().click();
 }
 
 async function expectDatePicker(container: Locator, label: string, value: string) {
