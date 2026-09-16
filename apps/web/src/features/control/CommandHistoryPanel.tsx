@@ -34,12 +34,13 @@ export function CommandHistoryPanel({ userId, siteId, onSelect, disabled = false
   const items = history.data?.pages.flatMap((page) => page.items) ?? [];
 
   return (
-    <Card className="flex h-80 max-h-80 min-h-0 min-w-0 flex-col gap-3 overflow-hidden p-4 tablet:h-40 tablet:max-h-40" aria-label="최근 명령 이력" data-command-history-panel="">
-      <Heading as="h3" variant="card-title">최근 명령 이력</Heading>
-      <div className="grid grid-cols-2 gap-3 max-compact:grid-cols-1">
-        <SearchField label="명령 이력 검색" placeholder="명령 ID 또는 조명 이름" maxLength={100} value={search} onChange={setSearch} />
+    <Card className="flex h-80 max-h-80 min-h-0 min-w-0 flex-col gap-3 overflow-hidden p-4 tablet:h-40 tablet:max-h-40 tablet:gap-1" aria-label="최근 명령 이력" data-command-history-panel="">
+      <Heading as="h3" variant="card-title" className="tablet:text-label">최근 명령 이력</Heading>
+      <div className="grid grid-cols-2 gap-3 max-compact:grid-cols-1 tablet:gap-2">
+        <SearchField className="tablet:gap-0" label={<span className="tablet:sr-only">명령 이력 검색</span>} placeholder="명령 ID 또는 조명 이름" maxLength={100} value={search} onChange={setSearch} />
         <SelectBox
-          label="명령 상태 필터"
+          className="tablet:gap-0"
+          label={<span className="tablet:sr-only">명령 상태 필터</span>}
           items={commandStageItems}
           selectedKey={stage}
           onSelectionChange={(key) => setStage((key ?? "") as CommandStage | "")}

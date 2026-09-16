@@ -75,6 +75,17 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     });
     await page.goto(`/control?siteId=${ids.site}`);
     const history = page.getByRole("region", { name: "최근 명령 이력" });
+    if (viewport.width > 1120) {
+      for (const historyViewport of [{ width: 1440, height: 900 }, { width: 1280, height: 720 }, { width: 1121, height: 900 }]) {
+        await page.setViewportSize(historyViewport);
+        const historyListHeight = await history.locator("[data-command-history-list]").evaluate((list) => list.clientHeight);
+        expect(historyListHeight).toBeGreaterThanOrEqual(44);
+        await history.getByRole("button", { name: new RegExp(commandId) }).click();
+        await expect(page.getByRole("button", { name: "명령 상세 닫기" })).toBeVisible();
+        await page.getByRole("button", { name: "명령 상세 닫기" }).click();
+      }
+      await page.setViewportSize(viewport);
+    }
     await page.getByRole("searchbox", { name: "명령 이력 검색" }).fill("B2");
     await expect.poll(() => historyRequests.at(-1)?.searchParams.get("query")).toBe("B2");
     await page.getByRole("button", { name: "명령 상태 필터" }).click();
