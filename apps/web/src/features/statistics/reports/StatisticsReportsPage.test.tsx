@@ -280,7 +280,7 @@ describe("StatisticsReportsPage", () => {
     expect(screen.getByTestId("location-search")).not.toHaveTextContent(/cursor|reportPage|reportHistory|reportSite/);
   });
 
-  it.each([50, 1_000])("restores page %i from matching history state without growing the URL", async (page) => {
+  it.each([50, 1_000, 1_001])("restores page %i from matching history state without growing the URL", async (page) => {
     const currentCursor = `cursor-${(page - 1) * 20}`;
     reportsApi.reports.mockImplementation((_activeSiteId: string, query: { limit: number; cursor?: string } = { limit: 20 }) => ({
       data: {
@@ -307,6 +307,111 @@ describe("StatisticsReportsPage", () => {
     const search = screen.getByTestId("location-search").textContent ?? "";
     expect(search.length).toBeLessThan(100);
     expect(search).not.toMatch(/cursor|reportPage|reportHistory|reportSite/);
+  });
+
+  it("moves from page 1000 to 1001 without growing the URL and restores both entries", async () => {
+    reportsApi.reports.mockImplementation((_activeSiteId: string, query: { limit: number; cursor?: string } = { limit: 20 }) => ({
+      data: {
+        reports: pageJobs(query.cursor === "cursor-20000" ? 20_001 : 19_981, 20),
+        nextCursor: query.cursor === "cursor-20000" ? null : "cursor-20000",
+        totalCount: 25_000
+      },
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+      isPlaceholderData: false,
+      refetch: vi.fn()
+    }));
+    renderPage({
+      initialEntry: {
+        pathname: "/statistics/reports",
+        search: `?limit=20&siteId=${siteId}`,
+        state: reportLocationState(1_000, "cursor-19980")
+      }
+    });
+    const initialSearch = screen.getByTestId("location-search").textContent;
+
+    fireEvent.click(screen.getByRole("button", { name: "다음 페이지" }));
+    await waitFor(() => expect(reportsApi.reports).toHaveBeenLastCalledWith(siteId, { limit: 20, cursor: "cursor-20000" }));
+    expect(screen.getByText("1001페이지")).toBeInTheDocument();
+    expect(screen.getByTestId("location-search")).toHaveTextContent(initialSearch ?? "");
+
+    fireEvent.click(screen.getByRole("button", { name: "브라우저 뒤로" }));
+    await waitFor(() => expect(reportsApi.reports).toHaveBeenLastCalledWith(siteId, { limit: 20, cursor: "cursor-19980" }));
+    expect(screen.getByText("1000페이지")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "브라우저 앞으로" }));
+    await waitFor(() => expect(reportsApi.reports).toHaveBeenLastCalledWith(siteId, { limit: 20, cursor: "cursor-20000" }));
+    expect(screen.getByText("1001페이지")).toBeInTheDocument();
+  });
+
+  it("restores a valid deep cursor stack and Previous selects the exact prior cursor", async () => {
+    reportsApi.reports.mockImplementation((_activeSiteId: string, query: { limit: number; cursor?: string } = { limit: 20 }) => reportQueryResult(
+      pageJobs(query.cursor === "cursor-40" ? 41 : 61, 20),
+      { nextCursor: null, totalCount: 100 }
+    ));
+    renderPage({
+      initialEntry: {
+        pathname: "/statistics/reports",
+        search: `?limit=20&siteId=${siteId}`,
+        state: reportLocationState(4, "cursor-60")
+      }
+    });
+
+    await waitFor(() => expect(reportsApi.reports).toHaveBeenLastCalledWith(siteId, { limit: 20, cursor: "cursor-60" }));
+    fireEvent.click(screen.getByRole("button", { name: "이전 페이지" }));
+    await waitFor(() => expect(reportsApi.reports).toHaveBeenLastCalledWith(siteId, { limit: 20, cursor: "cursor-40" }));
+    expect(screen.getByText("3페이지")).toBeInTheDocument();
+  });
+
+  it.each([
+    ["second null sentinel", 3, "cursor-40", [null, null]],
+    ["duplicate prior cursor", 4, "cursor-60", [null, "cursor-20", "cursor-20"]],
+    ["current cursor duplicated in history", 3, "cursor-20", [null, "cursor-20"]],
+    ["missing prior cursor", 3, "cursor-40", [null]]
+  ])("normalizes a corrupt history state with %s", async (_case, page, currentCursor, previousCursors) => {
+    renderPage({
+      initialEntry: {
+        pathname: "/statistics/reports",
+        search: `?limit=20&siteId=${siteId}`,
+        state: {
+          statisticsReportHistory: {
+            version: 1,
+            siteId,
+            filterFingerprint: "limit=20",
+            page,
+            currentCursor,
+            previousCursors
+          }
+        }
+      }
+    });
+
+    await waitFor(() => expect(reportsApi.reports).toHaveBeenLastCalledWith(siteId, { limit: 20 }));
+    expect(screen.getByText("1페이지")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "이전 페이지" })).toBeDisabled();
+  });
+
+  it("normalizes an unsafe page integer", async () => {
+    renderPage({
+      initialEntry: {
+        pathname: "/statistics/reports",
+        search: `?limit=20&siteId=${siteId}`,
+        state: {
+          statisticsReportHistory: {
+            version: 1,
+            siteId,
+            filterFingerprint: "limit=20",
+            page: Number.MAX_SAFE_INTEGER + 1,
+            currentCursor: "cursor-unsafe",
+            previousCursors: []
+          }
+        }
+      }
+    });
+
+    await waitFor(() => expect(reportsApi.reports).toHaveBeenLastCalledWith(siteId, { limit: 20 }));
+    expect(screen.getByText("1페이지")).toBeInTheDocument();
   });
 
   it.each([

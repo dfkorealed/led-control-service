@@ -89,9 +89,15 @@ export function StatisticsReportsPage() {
 
   function nextPage() {
     const nextCursor = currentPage?.data.nextCursor;
-    if (isForwardPending || reports.isFetching || reports.isPlaceholderData || reports.isError || !nextCursor) return;
+    const nextPageNumber = activePageState.page + 1;
+    if (isForwardPending
+      || reports.isFetching
+      || reports.isPlaceholderData
+      || reports.isError
+      || !validNextPageCursor(nextCursor, activePageState)
+      || !Number.isSafeInteger(nextPageNumber)) return;
     const nextPageState: ReportCursorPageState = {
-      page: activePageState.page + 1,
+      page: nextPageNumber,
       currentCursor: nextCursor,
       previousCursors: [...activePageState.previousCursors, activePageState.currentCursor]
     };
@@ -162,7 +168,12 @@ export function StatisticsReportsPage() {
       pageSize={filters.limit}
       totalCount={displayedPage?.data.totalCount ?? 0}
       hasPrevious={activePageState.previousCursors.length > 0}
-      hasNext={!reports.isError && !isForwardPending && !reports.isFetching && !reports.isPlaceholderData && Boolean(currentPage?.data.nextCursor)}
+      hasNext={!reports.isError
+        && !isForwardPending
+        && !reports.isFetching
+        && !reports.isPlaceholderData
+        && Number.isSafeInteger(activePageState.page + 1)
+        && validNextPageCursor(currentPage?.data.nextCursor, activePageState)}
       onPrevious={previousPage}
       onNext={nextPage}
       onPageSizeChange={(limit: PaginationPageSize) => resetToFirstPage({ ...filters, limit })}
@@ -235,23 +246,26 @@ function readReportLocationState(
     || candidate.version !== 1
     || candidate.siteId !== (siteId ?? null)
     || candidate.filterFingerprint !== reportFilterFingerprint(filters)
-    || !Number.isInteger(candidate.page)
+    || !Number.isSafeInteger(candidate.page)
     || (candidate.page as number) < 1
-    || (candidate.page as number) > 1_000
     || !Array.isArray(candidate.previousCursors)) return null;
 
   const page = candidate.page as number;
   const previousCursors = candidate.previousCursors;
-  if (previousCursors.length !== page - 1
-    || !previousCursors.every(validStoredCursor)) return null;
   if (page === 1) {
-    return candidate.currentCursor === null ? firstReportPage : null;
+    return candidate.currentCursor === null && previousCursors.length === 0 ? firstReportPage : null;
   }
-  if (!validCursor(candidate.currentCursor)) return null;
+  if (!validCursor(candidate.currentCursor)
+    || previousCursors.length !== page - 1
+    || previousCursors[0] !== null) return null;
+  const opaquePreviousCursors = previousCursors.slice(1);
+  if (!opaquePreviousCursors.every(validCursor)) return null;
+  const uniqueCursors = new Set([...opaquePreviousCursors, candidate.currentCursor]);
+  if (uniqueCursors.size !== opaquePreviousCursors.length + 1) return null;
   return {
     page,
     currentCursor: candidate.currentCursor,
-    previousCursors: previousCursors.map((cursor) => cursor === null ? undefined : cursor)
+    previousCursors: [undefined, ...(opaquePreviousCursors as string[])]
   };
 }
 
@@ -263,12 +277,14 @@ function reportFilterFingerprint(filters: ReportHistoryFilterState) {
   return serializeReportHistorySearchParams(withoutCursor(filters)).toString();
 }
 
-function validStoredCursor(value: unknown): value is string | null {
-  return value === null || validCursor(value);
-}
-
 function validCursor(value: unknown): value is string {
   return typeof value === "string" && value.length >= 1 && value.length <= 1_024;
+}
+
+function validNextPageCursor(value: unknown, pageState: ReportCursorPageState): value is string {
+  return validCursor(value)
+    && value !== pageState.currentCursor
+    && !pageState.previousCursors.includes(value);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

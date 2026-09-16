@@ -757,7 +757,7 @@ git commit -m "test: verify searchable visual energy reports"
 
 - [x] **Step 1: 실패와 history-state 계약의 RED tests를 작성한다.**
 
-next-page reject와 background refetch reject에서 마지막 성공 rows/range, Previous, 정제된 inline retry, raw-error 미노출을 검증한다. site/filter fingerprint가 다르면 retained rows를 재사용하지 않는다. legacy cursor URL은 page 1로 정리하고 valid/mismatched history state, Back/Forward, page 50·1000 URL 길이를 검증한다.
+next-page reject와 background refetch reject에서 마지막 성공 rows/range, Previous, 정제된 inline retry, raw-error 미노출을 검증한다. site/filter fingerprint가 다르면 retained rows를 재사용하지 않는다. legacy cursor URL은 page 1로 정리하고 valid/mismatched history state, Back/Forward, page 50·1000·1001 URL 길이와 deep cursor-stack invariant를 검증한다.
 
 - [x] **Step 2: pagination과 processing 접근성의 RED tests를 작성한다.**
 
@@ -799,6 +799,7 @@ pnpm --filter @led-control/web exec playwright test e2e/statistics-flow.spec.ts 
 ## Execution Record (2026-09-17)
 
 - Task 11 RED 확인은 focused 44개 중 7개 실패에서 시작했다. GREEN에서는 focused 44/44, 전체 Web 88 files·1,262/1,262, UI policy 53/53, 통계 Chromium 26/26, root typecheck/build exit 0을 확인했다. 다음 페이지·background refetch 실패 시 동일 scope의 마지막 성공 rows/range와 Previous를 유지하고 정제된 inline retry를 제공한다. cursor stack은 namespaced browser history state로 이동해 새로고침·뒤로/앞으로를 복원하고 page 50·1000에서도 URL을 filter/page-size/site 범위로 제한한다. table/mobile 공통 processing progressbar와 목록 surface의 `aria-busy`도 회귀로 고정했다. build의 기존 main chunk 크기 경고는 계속 남는다.
+- Task 11 fix round 2는 focused 47개 중 5개가 실패하는 RED에서 시작했다. page 1000의 next cursor가 page 1 정규화로 튀는 상한과 page 3 이상 stack의 두 번째 null·중복 cursor 허용을 재현했다. 임의 1000페이지 상한을 제거하고 safe integer, 길이, 첫 sentinel 위치, bounded cursor, 전체 cursor 유일성을 검증한다. page 1000→1001의 bounded URL·Back/Forward 복원과 valid deep stack Previous의 정확한 직전 cursor를 추가했다. GREEN에서는 focused 52/52, 전체 Web 88 files·1,270/1,270, UI policy 53/53, 통계 Chromium 26/26, root typecheck/build exit 0을 확인했다.
 - 보고서 이력 E2E fixture: 101건. 기본 20건, 다음/이전, 50·100건 전환, 대상명·상태·형식·사이트·요청일 조합, chip 개별 제거·전체 초기화, URL 새로고침 복원, 생성 후 첫 페이지 이동, 0건 상태를 검증했다.
 - 반응형·접근성 E2E: 1440×900 및 1024×768 table, 390×844 및 320×740 mobile list, document horizontal overflow 0, 44×44px 이상 조작 영역, keyboard focus, 실패 상세 disclosure, live announcement를 검증했다.
 - focused browser E2E: Chromium 26개 통과, skip 0개.
