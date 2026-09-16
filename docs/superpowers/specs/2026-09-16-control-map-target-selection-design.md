@@ -116,7 +116,9 @@ marker의 visible dot은 기존 크기를 유지할 수 있지만 pointer hit ta
 - 영역 모드: 한 손가락 drag로 rectangle selection, pinch zoom 유지
 - 선택 제외: 별도 mode 또는 선택 marker 재탭으로 제거
 
-long press나 hover를 필수 동작으로 사용하지 않는다. 처음 영역 모드를 사용할 때 짧은 inline 도움말을 제공하되 다시 보지 않아도 모든 action label이 이해 가능해야 한다.
+두 손가락 pinch 확대·축소는 이동·선택·영역 모드 모두에서 항상 우선한다. 두 pointer 사이 거리 비율로 zoom을 계산하고 두 pointer의 중점을 anchor로 사용해 사용자가 보고 있던 위치가 손가락 아래에 유지되게 한다. pinch가 시작되면 진행 중인 pan 또는 영역 선택을 취소하고, 한 손가락이 떨어진 뒤 남은 pointer가 갑자기 pan으로 이어지지 않도록 gesture 기준점을 초기화한다. 기존 zoom 하한·상한과 화면 맞춤 동작은 유지한다.
+
+long press나 hover를 필수 동작으로 사용하지 않는다. 처음 영역 모드를 사용할 때 “두 손가락으로 확대·축소”를 포함한 짧은 inline 도움말을 제공하되 다시 보지 않아도 모든 action label이 이해 가능해야 한다.
 
 ### 5.3 모바일 사용성 규칙
 
@@ -276,6 +278,7 @@ DB schema 변경은 없다. 구현 중 API 또는 schema 변경이 실제로 필
 - map 직접 선택 → 새 구역 저장 → configuring → ready 표시
 - 미배치 조명 목록 fallback
 - orientation/resize 뒤 selection 보존과 map fit
+- 이동·선택·영역 모드에서 두 pointer pinch의 중점 기준 zoom, zoom 한계와 pinch 종료 후 pan jump 방지
 
 실제 BLE Mesh 전송, native WebView safe-area와 실제 touch gesture는 browser automation 결과만으로 완료 처리하지 않는다. Web software 검증 후 실제 모바일 기기와 gateway 환경의 수동/HIL 확인을 별도 기록한다.
 
@@ -296,7 +299,7 @@ DB schema 변경은 없다. 구현 중 API 또는 schema 변경이 실제로 필
 
 1. 수동·스케줄·이벤트와 구역 관리가 같은 맵 선택 primitive를 사용한다.
 2. PC에서 맵이 기본 선택 수단이고 페이지 문서 스크롤이 생기지 않는다.
-3. 모바일에서 tap, 명시적 gesture mode, bottom sheet와 목록 fallback으로 모든 선택과 실행이 가능하다.
+3. 모바일에서 tap, 명시적 gesture mode, 모든 mode의 두 손가락 pinch zoom, bottom sheet와 목록 fallback으로 모든 선택과 실행이 가능하다.
 4. 320px와 390px에서 horizontal overflow, clipping과 action/navigation overlap이 없다.
 5. 스케줄·이벤트의 구역 선택은 현재 fixture snapshot 저장 의미를 정확히 안내한다.
 6. 선택 가능 여부와 server fail-closed 검증이 일치한다.
