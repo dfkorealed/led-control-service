@@ -167,10 +167,10 @@ describe("rule-based lighting symbol detector", () => {
     expect(tick).toBeLessThan(30_000);
   });
 
-  it("observes an AbortSignal fired while adversarial detection is running", async () => {
+  it("observes an AbortSignal fired while running at the maximum cooperative yield interval", async () => {
     const controller = new AbortController();
     const detector = new RuleBasedLightingSymbolDetector({
-      maxCandidates: 20_000, maxExpandedInserts: 20_000, cooperativeYieldInterval: 64
+      maxCandidates: 20_000, maxExpandedInserts: 20_000, cooperativeYieldInterval: 1024
     });
     const detection = detector.detect(cad(Array.from({ length: 10_000 }, (_, index) => candidate(index))), {
       abortSignal: controller.signal
@@ -179,6 +179,10 @@ describe("rule-based lighting symbol detector", () => {
 
     await expect(detection).rejects.toThrow(/aborted/i);
     expect(controller.signal.aborted).toBe(true);
+  });
+
+  it.each([0, 1.5, 1025])("rejects unsafe cooperative yield interval %p", cooperativeYieldInterval => {
+    expect(() => new RuleBasedLightingSymbolDetector({ cooperativeYieldInterval })).toThrow(/cooperative yield interval/i);
   });
 
   it("rechecks the monotonic deadline immediately after a cooperative yield", async () => {

@@ -38,6 +38,8 @@ const DEFAULT_PROFILE: LightingDetectionProfile = {
   cooperativeYieldInterval: 256
 };
 
+const MAX_COOPERATIVE_YIELD_INTERVAL = 1024;
+
 function tokenize(value: string): string[] {
   return value.normalize("NFKC").toLocaleUpperCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
 }
@@ -113,7 +115,8 @@ export class RuleBasedLightingSymbolDetector implements LightingSymbolDetector {
     if (!Number.isFinite(this.profile.confidence) || this.profile.confidence <= 0 || this.profile.confidence > 1) throw new Error("Invalid detector confidence");
     if (!Number.isFinite(this.profile.nearbyTextDistance) || this.profile.nearbyTextDistance < 0) throw new Error("Invalid nearby text distance");
     if (!Number.isFinite(this.profile.maxDurationMs) || this.profile.maxDurationMs <= 0) throw new Error("Invalid detector time limit");
-    if (!Number.isInteger(this.profile.cooperativeYieldInterval) || this.profile.cooperativeYieldInterval < 1) throw new Error("Invalid detector cooperative yield interval");
+    if (!Number.isInteger(this.profile.cooperativeYieldInterval) || this.profile.cooperativeYieldInterval < 1 ||
+        this.profile.cooperativeYieldInterval > MAX_COOPERATIVE_YIELD_INTERVAL) throw new Error("Invalid detector cooperative yield interval");
     this.layerTokens = normalizeMatchers(this.profile.layerNameTokens, "layer name");
     this.blockTokens = normalizeMatchers(this.profile.blockNameTokens, "block name");
     this.attributeTokens = normalizeMatchers(this.profile.attributeValueTokens, "attribute value", true);
