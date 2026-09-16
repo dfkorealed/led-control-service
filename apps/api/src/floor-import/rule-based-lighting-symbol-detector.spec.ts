@@ -166,4 +166,31 @@ describe("rule-based lighting symbol detector", () => {
     expect(detected.at(-1)?.sourceEntityId).toBe("insert-998");
     expect(tick).toBeLessThan(30_000);
   });
+
+  it("observes an AbortSignal fired while adversarial detection is running", async () => {
+    const controller = new AbortController();
+    const detector = new RuleBasedLightingSymbolDetector({
+      maxCandidates: 20_000, maxExpandedInserts: 20_000, cooperativeYieldInterval: 64
+    });
+    const detection = detector.detect(cad(Array.from({ length: 10_000 }, (_, index) => candidate(index))), {
+      abortSignal: controller.signal
+    });
+    setTimeout(() => controller.abort(), 0);
+
+    await expect(detection).rejects.toThrow(/aborted/i);
+    expect(controller.signal.aborted).toBe(true);
+  });
+
+  it("rechecks the monotonic deadline immediately after a cooperative yield", async () => {
+    let now = 0;
+    const detector = new RuleBasedLightingSymbolDetector({
+      maxCandidates: 2_000, maxExpandedInserts: 2_000, cooperativeYieldInterval: 1
+    });
+    const detection = detector.detect(cad(Array.from({ length: 1_000 }, (_, index) => candidate(index))), {
+      maxDurationMs: 1, now: () => now
+    });
+    setTimeout(() => { now = 2; }, 0);
+
+    await expect(detection).rejects.toThrow(/time.*limit/i);
+  });
 });

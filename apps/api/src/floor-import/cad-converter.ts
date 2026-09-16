@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { lstatSync } from "node:fs";
+import { lstatSync, realpathSync } from "node:fs";
 import { lstat, stat, unlink } from "node:fs/promises";
 import { basename, isAbsolute, resolve } from "node:path";
 
@@ -29,8 +29,6 @@ export interface ArgvCadConverterOptions {
 export type CadConverterExecutionPolicy =
   | {
     mode: "linux-resource-limited";
-    limiterExecutable: string;
-    limiterArgv: readonly string[];
   }
   | {
     mode: "macos-development-polling";
@@ -43,10 +41,35 @@ export interface CadConverterLaunch {
   pollOutput: boolean;
 }
 
+export interface CadLimiterExecutableIdentity {
+  realPath: string;
+  regularFile: boolean;
+  symbolicLink: boolean;
+  uid: number;
+  mode: number;
+}
+
+export interface CadLimiterExecutableInspector {
+  inspect(path: string): CadLimiterExecutableIdentity;
+}
+
 const SHELL_EXECUTABLES = new Set(["sh", "bash", "zsh", "dash", "fish", "cmd", "cmd.exe", "powershell", "powershell.exe", "pwsh", "pwsh.exe"]);
 const UNSAFE_ARGV = /[;|&`<>\r\n]|\$\(/;
 const SUPPORTED_UNIX_PLATFORMS = new Set<NodeJS.Platform>(["darwin", "linux"]);
 const OUTPUT_POLL_INTERVAL_MS = 20;
+const GNU_PRLIMIT_PATH = "/usr/bin/prlimit";
+const DEFAULT_LIMITER_INSPECTOR: CadLimiterExecutableInspector = {
+  inspect(path) {
+    const identity = lstatSync(path);
+    return {
+      realPath: realpathSync.native(path),
+      regularFile: identity.isFile(),
+      symbolicLink: identity.isSymbolicLink(),
+      uid: identity.uid,
+      mode: identity.mode
+    };
+  }
+};
 
 export function assertSupportedCadConverterPlatform(platform: NodeJS.Platform): void {
   if (!SUPPORTED_UNIX_PLATFORMS.has(platform)) throw new Error(`Unsupported CAD converter platform: ${platform}; Unix process groups are required`);
@@ -58,11 +81,28 @@ function validateExecutable(executable: string, label: string): void {
   }
 }
 
-function validateConfiguration(options: ArgvCadConverterOptions, platform: NodeJS.Platform): void {
+function attestGnuPrlimit(inspector: CadLimiterExecutableInspector): void {
+  let identity: CadLimiterExecutableIdentity;
+  try {
+    identity = inspector.inspect(GNU_PRLIMIT_PATH);
+  } catch (error) {
+    throw new Error(`GNU prlimit identity attestation failed: ${(error as Error).message}`);
+  }
+  if (identity.realPath !== GNU_PRLIMIT_PATH || !identity.regularFile || identity.symbolicLink || identity.uid !== 0 ||
+      (identity.mode & 0o022) !== 0 || (identity.mode & 0o111) === 0) {
+    throw new Error("GNU prlimit identity attestation rejected the trusted executable");
+  }
+}
+
+function validateConfiguration(
+  options: ArgvCadConverterOptions,
+  platform: NodeJS.Platform,
+  limiterInspector: CadLimiterExecutableInspector
+): void {
   assertSupportedCadConverterPlatform(platform);
   validateExecutable(options.executable, "CAD converter");
-  if (!Number.isInteger(options.timeoutMs) || options.timeoutMs < 1) throw new Error("Invalid CAD converter time limit");
-  if (!Number.isInteger(options.maxOutputBytes) || options.maxOutputBytes < 1) throw new Error("Invalid CAD converter output limit");
+  if (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs < 1) throw new Error("Invalid CAD converter time limit");
+  if (!Number.isSafeInteger(options.maxOutputBytes) || options.maxOutputBytes < 1) throw new Error("Invalid CAD converter output limit");
   if (!options.argv.length || options.argv.some(argument => !argument || argument.includes("\0") || UNSAFE_ARGV.test(argument))) {
     throw new Error("Unsafe CAD converter argv configuration");
   }
@@ -73,14 +113,7 @@ function validateConfiguration(options: ArgvCadConverterOptions, platform: NodeJ
   if (!options.execution) throw new Error("CAD converter execution policy with a hard resource limiter is required");
   if (platform === "linux") {
     if (options.execution.mode !== "linux-resource-limited") throw new Error("Production Linux CAD conversion requires a hard resource limiter");
-    validateExecutable(options.execution.limiterExecutable, "CAD resource limiter");
-    if (!options.execution.limiterArgv.length || options.execution.limiterArgv.some(argument => !argument || argument.includes("\0") || UNSAFE_ARGV.test(argument))) {
-      throw new Error("Unsafe CAD resource limiter argv configuration");
-    }
-    const limiterTemplate = options.execution.limiterArgv.join("\0");
-    if ((limiterTemplate.match(/\{maxOutputBytes\}/g) ?? []).length !== 1) {
-      throw new Error("CAD resource limiter argv must contain one output byte placeholder");
-    }
+    attestGnuPrlimit(limiterInspector);
   } else if (options.execution.mode !== "macos-development-polling" || options.execution.acknowledgeNonProductionRisk !== true) {
     throw new Error("macOS CAD conversion only supports explicitly acknowledged non-production output polling");
   }
@@ -89,17 +122,14 @@ function validateConfiguration(options: ArgvCadConverterOptions, platform: NodeJ
 export function buildCadConverterLaunch(
   options: ArgvCadConverterOptions,
   converterArgv: readonly string[],
-  platform: NodeJS.Platform = process.platform
+  platform: NodeJS.Platform = process.platform,
+  limiterInspector: CadLimiterExecutableInspector = DEFAULT_LIMITER_INSPECTOR
 ): CadConverterLaunch {
-  validateConfiguration(options, platform);
+  validateConfiguration(options, platform, limiterInspector);
   if (options.execution?.mode === "linux-resource-limited") {
     return {
-      executable: options.execution.limiterExecutable,
-      argv: [
-        ...options.execution.limiterArgv.map(argument => argument.replace("{maxOutputBytes}", String(options.maxOutputBytes))),
-        options.executable,
-        ...converterArgv
-      ],
+      executable: GNU_PRLIMIT_PATH,
+      argv: [`--fsize=${options.maxOutputBytes}:${options.maxOutputBytes}`, "--", options.executable, ...converterArgv],
       pollOutput: false
     };
   }
@@ -108,15 +138,15 @@ export function buildCadConverterLaunch(
 
 export class ArgvCadConverter implements CadConverter {
   private readonly options: ArgvCadConverterOptions;
+  private readonly limiterInspector: CadLimiterExecutableInspector;
 
-  constructor(options: ArgvCadConverterOptions) {
-    validateConfiguration(options, process.platform);
+  constructor(options: ArgvCadConverterOptions, dependencies: { limiterInspector?: CadLimiterExecutableInspector } = {}) {
+    this.limiterInspector = dependencies.limiterInspector ?? DEFAULT_LIMITER_INSPECTOR;
+    validateConfiguration(options, process.platform, this.limiterInspector);
     this.options = {
       ...options,
       argv: [...options.argv],
-      execution: options.execution?.mode === "linux-resource-limited"
-        ? { ...options.execution, limiterArgv: [...options.execution.limiterArgv] }
-        : options.execution
+      execution: options.execution ? { ...options.execution } : undefined
     };
   }
 
@@ -134,7 +164,7 @@ export class ArgvCadConverter implements CadConverter {
     const argv = this.options.argv.map(argument => argument
       .replace("{input}", request.inputPath)
       .replace("{output}", request.outputPath));
-    const launch = buildCadConverterLaunch(this.options, argv);
+    const launch = buildCadConverterLaunch(this.options, argv, process.platform, this.limiterInspector);
 
     try {
       await new Promise<void>((resolvePromise, rejectPromise) => {
@@ -182,7 +212,7 @@ export class ArgvCadConverter implements CadConverter {
           if (outputPoller) clearInterval(outputPoller);
           request.abortSignal?.removeEventListener("abort", onAbort);
           if (settledError) rejectPromise(settledError);
-          else if (signal === "SIGXFSZ") rejectPromise(new Error("CAD converter output limit exceeded"));
+          else if (signal === "SIGXFSZ" || /EFBIG|file too large/i.test(stderr)) rejectPromise(new Error("CAD converter output limit exceeded"));
           else if (code !== 0) rejectPromise(new Error(`CAD converter exited with code ${code}${stderr ? `: ${stderr.trim()}` : ""}`));
           else resolvePromise();
         });

@@ -162,3 +162,42 @@
 
 - production 배포 설정은 Linux host에 실제 kernel limit를 적용하는 absolute limiter executable과 올바른 argv를 제공해야 한다. adapter는 argv 구조와 fail-close 정책을 강제하지만 지정된 executable 자체의 운영 신뢰성은 배포 이미지 검증 범위다.
 - macOS polling mode는 로컬 개발 전용이며 production으로 승격할 수 없다. Windows는 지원하지 않는다.
+
+## Fix round 3 (2026-09-17)
+
+`task-19.2-rereview-2.md`의 신규 P1 1건과 P2 2건을 TDD로 보완했다. 이 절의 Linux limiter 정책이 Fix round 2의 caller-configured limiter 설명과 concern을 대체한다.
+
+### Incremental SVG text budget
+
+- bounds 전용 glyph traversal은 SVG path를 생성하지 않는다. fontkit layout도 최대 128문자 chunk로 제한해 긴 text 전체 glyph 배열을 한 번에 보관하지 않는다.
+- renderer는 `maxOutputBytes`에서 허용 가능한 전체 text glyph 작업 수를 도출하고 bounds 단계부터 누적 차감한다. 20,000자 한글과 1 KiB output cap 조합은 수십 glyph 안에서 즉시 fail-close한다.
+- text accessibility label은 XML escape 후 필요한 byte를 먼저 계산하고, 남은 budget 안에 들어올 때만 문자열을 만든다.
+- 각 glyph는 trusted font path command를 순회해 정확한 SVG path byte 길이를 먼저 계산한다. 남은 output budget을 확인한 뒤 한 glyph path만 생성하고, 직후 완성된 path element의 실제 UTF-8 byte를 차감한다. 전체 path 배열이나 joined path 문자열은 만들지 않는다.
+- 60,000-byte text adversarial 회귀에서 이전 약 108 MiB RSS 증가 경로를 제거하고 64 MiB 미만 delta로 제한됨을 검증한다.
+
+### Repository-owned GNU prlimit adapter
+
+- Linux production policy에서 caller가 limiter executable이나 argv를 제공하는 필드를 제거했다. adapter가 canonical `/usr/bin/prlimit`와 `--fsize=<bytes>:<bytes> -- <converter> ...` argv를 직접 구성한다.
+- startup attestation은 `/usr/bin/prlimit`의 real path 일치, non-symlink regular file, uid 0, group/world non-writable mode, executable bit를 확인한다. 하나라도 다르면 converter를 시작하지 않는다.
+- 실제 filesystem inspector가 기본이며 unit test에는 identity inspector를 주입할 수 있다. caller가 `/usr/bin/env` 같은 pass-through command를 extra field로 넣어도 launch 의미는 바뀌지 않는다.
+- Linux 환경에서는 실제 1 MiB 초과 write가 `RLIMIT_FSIZE`에 의해 중단되고 partial output이 제거되는 integration test가 활성화된다. Darwin에서는 platform-gated skip된다.
+
+### Cooperative detector cancellation
+
+- CAD expansion을 entity 방문 event iterator로 분리해 빈 block INSERT도 작업량에 포함한다.
+- detector는 profile의 `cooperativeYieldInterval` 기본 256회마다 `setImmediate`로 event loop에 제어권을 반환한다.
+- INSERT/text expansion, spatial index, frequency/token 준비, nearby query, candidate 판정이 동일한 bounded work counter를 사용한다.
+- yield 직후 `AbortSignal`과 monotonic deadline을 재검사한다. 실행 중 `setTimeout(...abort...)` 및 yield 중 deadline 경과 adversarial 테스트가 각각 abort/time-limit rejection을 검증한다.
+
+### Fix round 3 TDD/verification
+
+- 큰 text/tiny output cap RSS, caller limiter override와 six invalid identities, 실행 중 abort와 yield 중 deadline 테스트를 먼저 추가해 RED를 확인했다.
+- focused CAD: `5 suites / 61 tests` 통과, Linux 전용 hard-cap integration 1건은 Darwin에서 environment-gated skip
+- API typecheck: 통과
+- API build: 통과
+- API 전체 Jest: `152 suites passed / 43 environment-gated skipped`, `1,802 tests passed / 476 skipped / 실패 0`
+
+### 현재 운영 concern
+
+- production은 GNU `prlimit`가 canonical `/usr/bin/prlimit` regular root-owned executable로 설치된 Linux image만 지원한다. 이 identity가 다른 distribution은 의도적으로 fail-close하며 image contract를 맞춰야 한다.
+- macOS polling은 개발 전용이고 Windows는 unsupported fail-close다.

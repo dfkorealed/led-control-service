@@ -109,4 +109,19 @@ describe("CAD SVG renderer", () => {
     expect(Math.min(...darkPixels.map(pixel => pixel.y))).toBeGreaterThan(0);
     expect(Math.max(...darkPixels.map(pixel => pixel.y))).toBeLessThan(info.height - 1);
   });
+
+  it("fails a maximum-size text against a tiny output budget before materializing all glyph paths", () => {
+    const oversizedText: NormalizedCadDocument = {
+      version: 1, bounds: { minX: 0, minY: 0, maxX: 1, maxY: 1 }, blocks: [],
+      entities: [{
+        type: "text", sourceEntityId: "large-text", layer: "NOTE", position: { x: 0, y: 0, z: 0 },
+        rotation: 0, height: 1, text: "한".repeat(20_000)
+      }]
+    };
+    const rssBefore = process.memoryUsage().rss;
+
+    expect(() => renderCadDocumentSvg(oversizedText, { maxOutputBytes: 1024 })).toThrow(/output.*limit/i);
+
+    expect(process.memoryUsage().rss - rssBefore).toBeLessThan(64 * 1024 * 1024);
+  });
 });

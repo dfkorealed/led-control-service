@@ -1,4 +1,4 @@
-import { expandCadDocument, expandCadInserts, transformPoint } from "./cad-geometry";
+import { iterateCadDocumentExpansion, iterateCadInsertExpansion, transformPoint } from "./cad-geometry";
 import type { NormalizedCadDocument } from "./cad-types";
 import type { DetectedLightingSymbol, LightingDetectionOptions, LightingSymbolDetector } from "./lighting-symbol-detector";
 
@@ -17,6 +17,7 @@ export interface LightingDetectionProfile {
   denyNearbyTextTokens: readonly string[];
   nearbyTextDistance: number;
   maxDurationMs: number;
+  cooperativeYieldInterval: number;
 }
 
 const DEFAULT_PROFILE: LightingDetectionProfile = {
@@ -33,7 +34,8 @@ const DEFAULT_PROFILE: LightingDetectionProfile = {
   denyAttributeValueTokens: ["NOT LIGHT", "NON LIGHTING", "DECOR", "IGNORE"],
   denyNearbyTextTokens: ["NOT LIGHT", "NON LIGHTING", "DECOR", "DO NOT IMPORT", "IGNORE"],
   nearbyTextDistance: 5,
-  maxDurationMs: 5_000
+  maxDurationMs: 5_000,
+  cooperativeYieldInterval: 256
 };
 
 function tokenize(value: string): string[] {
@@ -78,20 +80,17 @@ class CadTextGrid {
     else this.cells.set(key, [text]);
   }
 
-  nearby(position: { x: number; y: number }, distance: number, checkBudget: () => void): IndexedCadText[] {
+  *nearby(position: { x: number; y: number }, distance: number): Generator<IndexedCadText> {
     const centerX = this.coordinate(position.x);
     const centerY = this.coordinate(position.y);
     const radius = distance === 0 ? 0 : Math.ceil(distance / this.cellSize);
-    const result: IndexedCadText[] = [];
     for (let x = centerX - radius; x <= centerX + radius; x++) {
       for (let y = centerY - radius; y <= centerY + radius; y++) {
-        checkBudget();
         for (const text of this.cells.get(this.key(x, y)) ?? []) {
-          if (Math.hypot(text.position.x - position.x, text.position.y - position.y) <= distance) result.push(text);
+          if (Math.hypot(text.position.x - position.x, text.position.y - position.y) <= distance) yield text;
         }
       }
     }
-    return result;
   }
 }
 
@@ -114,6 +113,7 @@ export class RuleBasedLightingSymbolDetector implements LightingSymbolDetector {
     if (!Number.isFinite(this.profile.confidence) || this.profile.confidence <= 0 || this.profile.confidence > 1) throw new Error("Invalid detector confidence");
     if (!Number.isFinite(this.profile.nearbyTextDistance) || this.profile.nearbyTextDistance < 0) throw new Error("Invalid nearby text distance");
     if (!Number.isFinite(this.profile.maxDurationMs) || this.profile.maxDurationMs <= 0) throw new Error("Invalid detector time limit");
+    if (!Number.isInteger(this.profile.cooperativeYieldInterval) || this.profile.cooperativeYieldInterval < 1) throw new Error("Invalid detector cooperative yield interval");
     this.layerTokens = normalizeMatchers(this.profile.layerNameTokens, "layer name");
     this.blockTokens = normalizeMatchers(this.profile.blockNameTokens, "block name");
     this.attributeTokens = normalizeMatchers(this.profile.attributeValueTokens, "attribute value", true);
@@ -133,35 +133,69 @@ export class RuleBasedLightingSymbolDetector implements LightingSymbolDetector {
       if (options.abortSignal?.aborted) throw new Error("CAD lighting detection aborted");
       if (now() - startedAt > maxDurationMs) throw new Error("CAD lighting detection time limit exceeded");
     };
+    let workSinceYield = 0;
+    const afterWork = (): Promise<void> | undefined => {
+      checkBudget();
+      workSinceYield++;
+      if (workSinceYield < this.profile.cooperativeYieldInterval) return undefined;
+      workSinceYield = 0;
+      return new Promise<void>(resolve => setImmediate(resolve)).then(checkBudget);
+    };
     checkBudget();
-    const inserts = expandCadInserts(document, { maxExpandedInserts: this.profile.maxExpandedInserts, checkBudget });
-    const expandedEntities = expandCadDocument(document, { maxRenderedEntities: this.profile.maxExpandedInserts, checkBudget });
+    const inserts = [];
+    for (const item of iterateCadInsertExpansion(document, { maxExpandedInserts: this.profile.maxExpandedInserts, checkBudget })) {
+      if (item) inserts.push(item);
+      const pause = afterWork();
+      if (pause) await pause;
+    }
+    const expandedEntities = [];
+    for (const item of iterateCadDocumentExpansion(document, { maxRenderedEntities: this.profile.maxExpandedInserts, checkBudget })) {
+      if (item) expandedEntities.push(item);
+      const pause = afterWork();
+      if (pause) await pause;
+    }
     const textGrid = new CadTextGrid(this.profile.nearbyTextDistance);
     for (const item of expandedEntities) {
-      checkBudget();
-      if (item.entity.type !== "text" && item.entity.type !== "mtext") continue;
-      textGrid.add({ tokens: tokenize(item.entity.text), position: transformPoint(item.matrix, item.entity.position) });
+      if (item.entity.type === "text" || item.entity.type === "mtext") {
+        textGrid.add({ tokens: tokenize(item.entity.text), position: transformPoint(item.matrix, item.entity.position) });
+      }
+      const pause = afterWork();
+      if (pause) await pause;
     }
     const frequencies = new Map<string, number>();
     const blockKey = (value: string) => value.normalize("NFKC").toLocaleUpperCase();
-    const prepared = inserts.map(insert => {
-      checkBudget();
+    const prepared = [];
+    for (const insert of inserts) {
       const key = blockKey(insert.blockName);
       frequencies.set(key, (frequencies.get(key) ?? 0) + 1);
-      return {
+      const attributeTokens: string[][] = [];
+      for (const attribute of insert.entity.attributes) {
+        attributeTokens.push(tokenize(attribute.tag), tokenize(attribute.value));
+        const pause = afterWork();
+        if (pause) await pause;
+      }
+      prepared.push({
         insert,
         blockKey: key,
         layerTokens: tokenize(insert.layer),
         blockTokens: tokenize(insert.blockName),
-        attributeTokens: insert.entity.attributes.flatMap(attribute => [tokenize(attribute.tag), tokenize(attribute.value)])
-      };
-    });
+        attributeTokens
+      });
+      const pause = afterWork();
+      if (pause) await pause;
+    }
     const detected: DetectedLightingSymbol[] = [];
 
     for (const item of prepared) {
-      checkBudget();
+      const candidatePause = afterWork();
+      if (candidatePause) await candidatePause;
       const { insert } = item;
-      const nearbyTexts = textGrid.nearby(insert.position, this.profile.nearbyTextDistance, checkBudget);
+      const nearbyTexts: IndexedCadText[] = [];
+      for (const text of textGrid.nearby(insert.position, this.profile.nearbyTextDistance)) {
+        nearbyTexts.push(text);
+        const pause = afterWork();
+        if (pause) await pause;
+      }
       if (matchesTokens(item.layerTokens, this.denyLayerTokens) || matchesTokens(item.blockTokens, this.denyBlockTokens) ||
           item.attributeTokens.some(tokens => matchesTokens(tokens, this.denyAttributeTokens)) ||
           nearbyTexts.some(text => matchesTokens(text.tokens, this.denyNearbyTextTokens))) continue;

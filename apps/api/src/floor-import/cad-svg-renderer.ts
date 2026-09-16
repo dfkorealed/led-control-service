@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer";
 import { cadBulgeArc, computeCadBounds, expandCadDocument, multiplyCadMatrices, transformPoint, type CadMatrix, type ExpandedCadEntity } from "./cad-geometry";
-import { layoutCadText, sanitizeCadText } from "./cad-text-layout";
+import { forEachCadTextGlyph, sanitizeCadText } from "./cad-text-layout";
 import type { CadPoint, NormalizedCadDocument } from "./cad-types";
 
 export interface CadSvgRendererLimits {
@@ -16,12 +16,25 @@ const DEFAULT_LIMITS: CadSvgRendererLimits = {
   maxBlockDepth: 16,
   padding: 1
 };
+const MIN_SERIALIZED_GLYPH_BYTES = 16;
 
-function xml(value: string): string {
-  const valid = sanitizeCadText(value);
-  return valid.replace(/[&<>"']/g, character => ({
+function xmlSanitized(value: string): string {
+  return value.replace(/[&<>"']/g, character => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;"
   })[character]!);
+}
+
+function xml(value: string): string {
+  return xmlSanitized(sanitizeCadText(value));
+}
+
+function xmlByteLength(value: string): number {
+  let bytes = 0;
+  for (const character of value) {
+    const escaped = ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" } as Record<string, string>)[character] ?? character;
+    bytes += Buffer.byteLength(escaped, "utf8");
+  }
+  return bytes;
 }
 
 function number(value: number): string {
@@ -88,7 +101,12 @@ export function renderCadDocumentSvg(document: NormalizedCadDocument, options: P
       !Number.isInteger(limits.maxBlockDepth) || limits.maxBlockDepth < 1 ||
       !Number.isFinite(limits.padding) || limits.padding < 0) throw new Error("Invalid CAD SVG renderer limits");
   const expanded = expandCadDocument(document, limits);
-  const bounds = computeCadBounds(expanded);
+  const maxTextGlyphs = Math.max(1, Math.floor(limits.maxOutputBytes / MIN_SERIALIZED_GLYPH_BYTES));
+  let measuredTextGlyphs = 0;
+  const bounds = computeCadBounds(expanded, undefined, () => {
+    measuredTextGlyphs++;
+    if (measuredTextGlyphs > maxTextGlyphs) throw new Error("CAD SVG output limit exceeded while measuring text glyphs");
+  });
   const width = Math.max(1, bounds.maxX - bounds.minX + limits.padding * 2);
   const height = Math.max(1, bounds.maxY - bounds.minY + limits.padding * 2);
   const project = (point: CadPoint) => ({
@@ -103,9 +121,15 @@ export function renderCadDocumentSvg(document: NormalizedCadDocument, options: P
   }).join(" ");
   const pieces: string[] = [];
   let outputBytes = 0;
+  const ensureOutputCapacity = (bytes: number) => {
+    if (!Number.isSafeInteger(bytes) || bytes < 0 || outputBytes + bytes > limits.maxOutputBytes) {
+      throw new Error("CAD SVG output limit exceeded");
+    }
+  };
   const append = (piece: string) => {
-    outputBytes += Buffer.byteLength(piece, "utf8");
-    if (outputBytes > limits.maxOutputBytes) throw new Error("CAD SVG output limit exceeded");
+    const bytes = Buffer.byteLength(piece, "utf8");
+    ensureOutputCapacity(bytes);
+    outputBytes += bytes;
     pieces.push(piece);
   };
   const attributes = (item: ExpandedCadEntity) => {
@@ -139,9 +163,22 @@ export function renderCadDocumentSvg(document: NormalizedCadDocument, options: P
         e: entity.position.x, f: entity.position.y
       };
       const matrix = multiplyCadMatrices(projection, multiplyCadMatrices(item.matrix, textTransform));
-      const layout = layoutCadText(entity.text, entity.height);
-      const paths = layout.glyphs.map(glyph => `<path d="${xml(glyph.path)}" transform="translate(${number(glyph.x)} ${number(glyph.y)}) scale(${number(glyph.scale)})"/>`).join("");
-      append(`<g ${attrs} data-cad-text="true" aria-label="${xml(layout.text)}" fill="#111827" stroke="none" transform="matrix(${number(matrix.a)} ${number(matrix.b)} ${number(matrix.c)} ${number(matrix.d)} ${number(matrix.e)} ${number(matrix.f)})">${paths}</g>`);
+      const text = sanitizeCadText(entity.text);
+      const openingPrefix = `<g ${attrs} data-cad-text="true" aria-label="`;
+      const openingSuffix = `" fill="#111827" stroke="none" transform="matrix(${number(matrix.a)} ${number(matrix.b)} ${number(matrix.c)} ${number(matrix.d)} ${number(matrix.e)} ${number(matrix.f)})">`;
+      ensureOutputCapacity(Buffer.byteLength(openingPrefix, "utf8") + xmlByteLength(text) + Buffer.byteLength(openingSuffix, "utf8"));
+      append(`${openingPrefix}${xmlSanitized(text)}${openingSuffix}`);
+      forEachCadTextGlyph(entity.text, entity.height, { maxGlyphs: maxTextGlyphs }, glyph => {
+        if (!Number.isFinite(glyph.bounds.minX) || !Number.isFinite(glyph.bounds.minY) ||
+            !Number.isFinite(glyph.bounds.maxX) || !Number.isFinite(glyph.bounds.maxY)) return;
+        const transform = ` transform="translate(${number(glyph.x)} ${number(glyph.y)}) scale(${number(glyph.scale)})"/>`;
+        const wrapperBytes = Buffer.byteLength(`<path d=""${transform}`, "utf8");
+        // Inspect trusted path commands first, then charge the exact serialized tag.
+        ensureOutputCapacity(wrapperBytes + glyph.pathByteLength());
+        const path = glyph.createPath();
+        append(`<path d="${path}"${transform}`);
+      });
+      append("</g>");
     }
   }
   append("</g></svg>");

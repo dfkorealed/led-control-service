@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer";
-import { layoutCadText } from "./cad-text-layout";
+import { measureCadText } from "./cad-text-layout";
 import type {
   CadBounds,
   CadPoint,
@@ -34,6 +34,8 @@ export interface ExpandedCadInsert {
   rotation: number;
   scale: { x: number; y: number; z: number };
 }
+
+export type CadExpansionWork<T> = T | null;
 
 const IDENTITY: CadMatrix = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
 const MAX_EXPANDED_SOURCE_ID_BYTES = 512;
@@ -88,60 +90,73 @@ function insertMatrix(entity: Extract<NormalizedCadEntity, { type: "insert" }>, 
   return scaledRotation;
 }
 
-export function expandCadDocument(
+export function* iterateCadDocumentExpansion(
   document: Pick<NormalizedCadDocument, "blocks" | "entities">,
   options: { maxRenderedEntities: number; maxBlockDepth?: number; checkBudget?: () => void }
-): ExpandedCadEntity[] {
+): Generator<CadExpansionWork<ExpandedCadEntity>> {
   const blocks = new Map(document.blocks.map(block => [block.name, block]));
   if (blocks.size !== document.blocks.length) throw new Error("Duplicate CAD block name");
-  const expanded: ExpandedCadEntity[] = [];
+  let expandedCount = 0;
   const maxDepth = options.maxBlockDepth ?? 16;
   const sourceIds = new Set<string>();
 
-  const visit = (
+  function* visit(
     entities: NormalizedCadEntity[], matrix: CadMatrix, path: readonly string[],
     parentBlockName: string | null, insertLayer: string | null, stack: readonly string[]
-  ) => {
+  ): Generator<CadExpansionWork<ExpandedCadEntity>> {
     for (const entity of entities) {
       options.checkBudget?.();
       if (entity.type !== "insert") {
         const sourceEntityId = expandedSourceId([...path, entity.sourceEntityId]);
         registerExpandedSourceId(sourceIds, sourceEntityId);
-        expanded.push({ entity, matrix, sourceEntityId, blockName: parentBlockName, insertLayer });
-        if (expanded.length > options.maxRenderedEntities) throw new Error("CAD rendered entity limit exceeded");
+        expandedCount++;
+        if (expandedCount > options.maxRenderedEntities) throw new Error("CAD rendered entity limit exceeded");
+        yield { entity, matrix, sourceEntityId, blockName: parentBlockName, insertLayer };
         continue;
       }
+      yield null;
       const block = blocks.get(entity.blockName);
       if (!block) throw new Error(`CAD INSERT references missing block: ${entity.blockName}`);
       if (stack.includes(block.name)) throw new Error(`Cyclic CAD block reference: ${block.name}`);
       if (stack.length >= maxDepth) throw new Error("CAD block depth limit exceeded");
       const childMatrix = multiplyCadMatrices(matrix, insertMatrix(entity, block.basePoint));
-      visit(block.entities, childMatrix, [...path, entity.sourceEntityId], block.name, entity.layer, [...stack, block.name]);
+      yield* visit(block.entities, childMatrix, [...path, entity.sourceEntityId], block.name, entity.layer, [...stack, block.name]);
     }
-  };
+  }
 
-  visit(document.entities, IDENTITY, [], null, null, []);
+  yield* visit(document.entities, IDENTITY, [], null, null, []);
+}
+
+export function expandCadDocument(
+  document: Pick<NormalizedCadDocument, "blocks" | "entities">,
+  options: { maxRenderedEntities: number; maxBlockDepth?: number; checkBudget?: () => void }
+): ExpandedCadEntity[] {
+  const expanded: ExpandedCadEntity[] = [];
+  for (const item of iterateCadDocumentExpansion(document, options)) if (item) expanded.push(item);
   return expanded;
 }
 
-export function expandCadInserts(
+export function* iterateCadInsertExpansion(
   document: Pick<NormalizedCadDocument, "blocks" | "entities">,
   options: { maxExpandedInserts: number; maxBlockDepth?: number; checkBudget?: () => void }
-): ExpandedCadInsert[] {
+): Generator<CadExpansionWork<ExpandedCadInsert>> {
   const blocks = new Map(document.blocks.map(block => [block.name, block]));
   if (blocks.size !== document.blocks.length) throw new Error("Duplicate CAD block name");
-  const expanded: ExpandedCadInsert[] = [];
+  let expandedCount = 0;
   const maxDepth = options.maxBlockDepth ?? 16;
   const sourceIds = new Set<string>();
   const round = (value: number) => Math.round(value * 1_000_000) / 1_000_000;
 
-  const visit = (
+  function* visit(
     entities: NormalizedCadEntity[], parentMatrix: CadMatrix, path: readonly string[],
     inheritedLayer: string | null, parentZScale: number, stack: readonly string[]
-  ) => {
+  ): Generator<CadExpansionWork<ExpandedCadInsert>> {
     for (const entity of entities) {
       options.checkBudget?.();
-      if (entity.type !== "insert") continue;
+      if (entity.type !== "insert") {
+        yield null;
+        continue;
+      }
       const block = blocks.get(entity.blockName);
       if (!block) throw new Error(`CAD INSERT references missing block: ${entity.blockName}`);
       if (stack.includes(block.name)) throw new Error(`Cyclic CAD block reference: ${block.name}`);
@@ -154,7 +169,7 @@ export function expandCadInserts(
       const position = transformPoint(parentMatrix, entity.position);
       const scaleX = Math.hypot(matrix.a, matrix.b);
       const determinant = matrix.a * matrix.d - matrix.b * matrix.c;
-      expanded.push({
+      const expanded: ExpandedCadInsert = {
         entity,
         sourceEntityId,
         layer,
@@ -162,13 +177,23 @@ export function expandCadInserts(
         position: { x: round(position.x), y: round(position.y), z: round(position.z) },
         rotation: round(((Math.atan2(matrix.b, matrix.a) * 180 / Math.PI) % 360 + 360) % 360),
         scale: { x: round(scaleX), y: round(determinant / scaleX), z: round(parentZScale * entity.scale.z) }
-      });
-      if (expanded.length > options.maxExpandedInserts) throw new Error("CAD expanded INSERT limit exceeded");
-      visit(block.entities, matrix, entityPath, layer, parentZScale * entity.scale.z, [...stack, block.name]);
+      };
+      expandedCount++;
+      if (expandedCount > options.maxExpandedInserts) throw new Error("CAD expanded INSERT limit exceeded");
+      yield expanded;
+      yield* visit(block.entities, matrix, entityPath, layer, parentZScale * entity.scale.z, [...stack, block.name]);
     }
-  };
+  }
 
-  visit(document.entities, IDENTITY, [], null, 1, []);
+  yield* visit(document.entities, IDENTITY, [], null, 1, []);
+}
+
+export function expandCadInserts(
+  document: Pick<NormalizedCadDocument, "blocks" | "entities">,
+  options: { maxExpandedInserts: number; maxBlockDepth?: number; checkBudget?: () => void }
+): ExpandedCadInsert[] {
+  const expanded: ExpandedCadInsert[] = [];
+  for (const item of iterateCadInsertExpansion(document, options)) if (item) expanded.push(item);
   return expanded;
 }
 
@@ -246,7 +271,11 @@ function includePolylineBounds(
   }
 }
 
-export function computeCadBounds(expanded: readonly ExpandedCadEntity[], checkBudget?: () => void): CadBounds {
+export function computeCadBounds(
+  expanded: readonly ExpandedCadEntity[],
+  checkBudget?: () => void,
+  consumeTextGlyph?: () => void
+): CadBounds {
   let minX = Number.POSITIVE_INFINITY;
   let minY = Number.POSITIVE_INFINITY;
   let maxX = Number.NEGATIVE_INFINITY;
@@ -278,7 +307,7 @@ export function computeCadBounds(expanded: readonly ExpandedCadEntity[], checkBu
       includeArcBounds(entity.center, entity.radius, entity.startAngle, sweep, matrix, include);
     } else {
       const radians = entity.rotation * Math.PI / 180;
-      const textBounds = layoutCadText(entity.text, entity.height).bounds;
+      const textBounds = measureCadText(entity.text, entity.height, { consumeGlyph: consumeTextGlyph }).bounds;
       const corners = [
         { x: textBounds.minX, y: textBounds.minY }, { x: textBounds.maxX, y: textBounds.minY },
         { x: textBounds.minX, y: textBounds.maxY }, { x: textBounds.maxX, y: textBounds.maxY }

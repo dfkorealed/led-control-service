@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import fontkit from "@pdf-lib/fontkit";
@@ -7,20 +8,55 @@ interface CadFontData {
   features: Record<string, boolean>;
 }
 
-export interface CadTextGlyphPath {
-  path: string;
+export interface CadTextGlyph {
   x: number;
   y: number;
   scale: number;
+  bounds: { minX: number; minY: number; maxX: number; maxY: number };
+  pathByteLength: () => number;
+  createPath: () => string;
 }
 
-export interface CadTextLayout {
-  text: string;
-  glyphs: CadTextGlyphPath[];
-  bounds: { minX: number; minY: number; maxX: number; maxY: number };
+export interface CadTextWalkOptions {
+  maxGlyphs?: number;
+  consumeGlyph?: () => void;
 }
 
 let fonts: CadFontData[] | undefined;
+const LAYOUT_CHUNK_CHARACTERS = 128;
+const DEFAULT_MAX_GLYPHS = 100_000;
+const SVG_PATH_COMMANDS: Record<string, string> = {
+  moveTo: "M",
+  lineTo: "L",
+  quadraticCurveTo: "Q",
+  bezierCurveTo: "C",
+  closePath: "Z"
+};
+
+interface FontPathCommand {
+  command: string;
+  args: number[];
+}
+
+interface InspectableFontPath {
+  commands: FontPathCommand[];
+  bbox: { minX: number; minY: number; maxX: number; maxY: number };
+  toSVG(): string;
+}
+
+function svgPathByteLength(path: InspectableFontPath): number {
+  let bytes = 0;
+  for (const command of path.commands) {
+    if (!SVG_PATH_COMMANDS[command.command]) throw new Error("Unsupported bundled CAD glyph path command");
+    bytes++;
+    command.args.forEach((argument, index) => {
+      if (!Number.isFinite(argument)) throw new Error("Non-finite bundled CAD glyph path");
+      if (index > 0) bytes++;
+      bytes += Buffer.byteLength(String(Math.round(argument * 100) / 100), "utf8");
+    });
+  }
+  return bytes;
+}
 
 export function sanitizeCadText(value: string): string {
   return Array.from(value, character => {
@@ -42,12 +78,53 @@ function loadFonts(): CadFontData[] {
   return fonts;
 }
 
-/** Uses bundled glyph outlines for both layout bounds and SVG drawing. */
-export function layoutCadText(value: string, height: number): CadTextLayout {
+/** Layout is chunked and paths stay lazy so bounds never materialize SVG data. */
+export function forEachCadTextGlyph(
+  value: string,
+  height: number,
+  options: CadTextWalkOptions,
+  visit: (glyph: CadTextGlyph) => void
+): string {
   if (!Number.isFinite(height) || height <= 0) throw new Error("Invalid CAD text height");
+  const maxGlyphs = options.maxGlyphs ?? DEFAULT_MAX_GLYPHS;
+  if (!Number.isInteger(maxGlyphs) || maxGlyphs < 1) throw new Error("Invalid CAD text glyph limit");
   const text = sanitizeCadText(value);
   const availableFonts = loadFonts();
-  const runs: Array<{ fontIndex: number; text: string }> = [];
+  let penX = 0;
+  let penY = 0;
+  let glyphCount = 0;
+  let runFontIndex = -1;
+  let runCharacters: string[] = [];
+
+  const flush = () => {
+    if (!runCharacters.length) return;
+    const { font, features } = availableFonts[runFontIndex];
+    const scale = height / font.unitsPerEm;
+    const layout = font.layout(runCharacters.join(""), features);
+    for (let index = 0; index < layout.glyphs.length; index++) {
+      glyphCount++;
+      if (glyphCount > maxGlyphs) throw new Error("CAD text glyph limit exceeded");
+      options.consumeGlyph?.();
+      const glyph = layout.glyphs[index];
+      const position = layout.positions[index];
+      const x = penX + position.xOffset * scale;
+      const y = penY + position.yOffset * scale;
+      const path = glyph.path as unknown as InspectableFontPath;
+      const bounds = path.bbox;
+      visit({
+        x,
+        y,
+        scale,
+        bounds,
+        pathByteLength: () => svgPathByteLength(path),
+        createPath: () => path.toSVG()
+      });
+      penX += position.xAdvance * scale;
+      penY += position.yAdvance * scale;
+    }
+    runCharacters = [];
+  };
+
   for (const character of text) {
     let drawableCharacter = character;
     let fontIndex = availableFonts.findIndex(data => data.font.hasGlyphForCodePoint(character.codePointAt(0)!));
@@ -58,43 +135,34 @@ export function layoutCadText(value: string, height: number): CadTextLayout {
       fontIndex = availableFonts.findIndex(data => data.font.hasGlyphForCodePoint(drawableCharacter.codePointAt(0)!));
       if (fontIndex < 0) throw new Error("Bundled CAD replacement glyph is unavailable");
     }
-    const previous = runs.at(-1);
-    if (previous?.fontIndex === fontIndex) previous.text += drawableCharacter;
-    else runs.push({ fontIndex, text: drawableCharacter });
+    if (runFontIndex !== fontIndex || runCharacters.length >= LAYOUT_CHUNK_CHARACTERS) {
+      flush();
+      runFontIndex = fontIndex;
+    }
+    runCharacters.push(drawableCharacter);
   }
+  flush();
+  return text;
+}
 
-  const glyphs: CadTextGlyphPath[] = [];
-  let penX = 0;
-  let penY = 0;
+export function measureCadText(value: string, height: number, options: CadTextWalkOptions = {}): {
+  text: string;
+  bounds: { minX: number; minY: number; maxX: number; maxY: number };
+} {
   let minX = Number.POSITIVE_INFINITY;
   let minY = Number.POSITIVE_INFINITY;
   let maxX = Number.NEGATIVE_INFINITY;
   let maxY = Number.NEGATIVE_INFINITY;
-  for (const run of runs) {
-    const { font, features } = availableFonts[run.fontIndex];
-    const scale = height / font.unitsPerEm;
-    const layout = font.layout(run.text, features);
-    layout.glyphs.forEach((glyph, index) => {
-      const position = layout.positions[index];
-      const x = penX + position.xOffset * scale;
-      const y = penY + position.yOffset * scale;
-      const path = glyph.path.toSVG();
-      const bounds = glyph.bbox;
-      if (path && Number.isFinite(bounds.minX) && Number.isFinite(bounds.minY) && Number.isFinite(bounds.maxX) && Number.isFinite(bounds.maxY)) {
-        glyphs.push({ path, x, y, scale });
-        minX = Math.min(minX, x + bounds.minX * scale);
-        minY = Math.min(minY, y + bounds.minY * scale);
-        maxX = Math.max(maxX, x + bounds.maxX * scale);
-        maxY = Math.max(maxY, y + bounds.maxY * scale);
-      }
-      penX += position.xAdvance * scale;
-      penY += position.yAdvance * scale;
-    });
-  }
-
+  const text = forEachCadTextGlyph(value, height, options, glyph => {
+    const { bounds } = glyph;
+    if (!Number.isFinite(bounds.minX) || !Number.isFinite(bounds.minY) || !Number.isFinite(bounds.maxX) || !Number.isFinite(bounds.maxY)) return;
+    minX = Math.min(minX, glyph.x + bounds.minX * glyph.scale);
+    minY = Math.min(minY, glyph.y + bounds.minY * glyph.scale);
+    maxX = Math.max(maxX, glyph.x + bounds.maxX * glyph.scale);
+    maxY = Math.max(maxY, glyph.y + bounds.maxY * glyph.scale);
+  });
   return {
     text,
-    glyphs,
     bounds: minX === Number.POSITIVE_INFINITY
       ? { minX: 0, minY: 0, maxX: 0, maxY: 0 }
       : { minX, minY, maxX, maxY }
