@@ -6,6 +6,7 @@ import {
   energyReportDocumentSchema,
   energyReportDownloadResponseSchema,
   energyReportJobSchema,
+  energyReportListQuerySchema,
   energyReportListResponseSchema,
   energyReportRequestSchema,
   energyReportTargetsResponseSchema,
@@ -29,6 +30,19 @@ const validReportRequest = {
   identityId: fixtureId,
   format: "xlsx" as const
 };
+
+const reportJob = (index: number) => ({
+  reportId: `00000000-0000-4000-8000-${String(index + 10).padStart(12, "0")}`,
+  siteId,
+  request: validReportRequest,
+  status: "completed" as const,
+  progressPercent: 100,
+  createdAt: "2026-09-11T00:00:00.000Z",
+  startedAt: "2026-09-11T00:00:01.000Z",
+  completedAt: "2026-09-11T00:00:05.000Z",
+  expiresAt: "2026-09-18T00:00:05.000Z",
+  failureCode: null
+});
 
 const fingerprintInput: EnergyReportDocumentFingerprintInput = {
   schemaVersion: 1,
@@ -202,6 +216,51 @@ describe("energy P2 contracts", () => {
     }
   });
 
+  it.each([10, 20, 50, 100])("accepts report page size %i", (limit) => {
+    expect(energyReportListQuerySchema.parse({ limit })).toEqual({ limit });
+  });
+
+  it.each([0, 1, 19, 21, 101])("rejects report page size %i", (limit) => {
+    expect(() => energyReportListQuerySchema.parse({ limit })).toThrow();
+  });
+
+  it("normalizes report filters", () => {
+    expect(energyReportListQuerySchema.parse({
+      limit: 20,
+      query: "  서울 물류센터  ",
+      status: "completed",
+      format: "pdf",
+      scope: "site",
+      requestedFrom: "2026-09-01",
+      requestedTo: "2026-09-16"
+    })).toEqual({
+      limit: 20,
+      query: "서울 물류센터",
+      status: "completed",
+      format: "pdf",
+      scope: "site",
+      requestedFrom: "2026-09-01",
+      requestedTo: "2026-09-16"
+    });
+  });
+
+  it("rejects incomplete, inverted, and over-90-day report date ranges", () => {
+    for (const invalid of [
+      { limit: 20, requestedFrom: "2026-09-01" },
+      { limit: 20, requestedTo: "2026-09-16" },
+      { limit: 20, requestedFrom: "2026-09-16", requestedTo: "2026-09-01" },
+      { limit: 20, requestedFrom: "2026-06-01", requestedTo: "2026-09-01" }
+    ]) expect(energyReportListQuerySchema.safeParse(invalid).success).toBe(false);
+  });
+
+  it("accepts at most 100 reports with cursor and total", () => {
+    expect(energyReportListResponseSchema.parse({
+      reports: Array.from({ length: 100 }, (_, index) => reportJob(index)),
+      nextCursor: "opaque",
+      totalCount: 137
+    }).totalCount).toBe(137);
+  });
+
   it("accepts status-safe report job, list, and five-minute download responses", () => {
     const job = energyReportJobSchema.parse({
       reportId,
@@ -216,7 +275,7 @@ describe("energy P2 contracts", () => {
       failureCode: null
     });
 
-    expect(energyReportListResponseSchema.parse({ reports: [job] }).reports).toHaveLength(1);
+    expect(energyReportListResponseSchema.parse({ reports: [job], nextCursor: null, totalCount: 1 }).reports).toHaveLength(1);
     expect(energyReportDownloadResponseSchema.parse({
       reportId,
       format: "xlsx",

@@ -194,8 +194,66 @@ export const energyReportJobSchema = z.object({
   ...(job.failureCode === null ? { failureCode: null, failure: null } : publicReportFailure(job.failureCode))
 }));
 
+export const ENERGY_REPORT_PAGE_SIZES = [10, 20, 50, 100] as const;
+export type EnergyReportPageSize = typeof ENERGY_REPORT_PAGE_SIZES[number];
+
+const reportPageSizeSchema = z.coerce.number().refine(
+  (value): value is EnergyReportPageSize => ENERGY_REPORT_PAGE_SIZES.includes(value as EnergyReportPageSize),
+  "invalid report page size"
+);
+
+function validateRequestedRange(
+  query: { requestedFrom?: string; requestedTo?: string },
+  context: z.RefinementCtx
+) {
+  const { requestedFrom, requestedTo } = query;
+  if ((requestedFrom === undefined) !== (requestedTo === undefined)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: [requestedFrom === undefined ? "requestedFrom" : "requestedTo"],
+      message: "requestedFrom and requestedTo must be provided together"
+    });
+    return;
+  }
+
+  if (requestedFrom !== undefined && requestedTo !== undefined) {
+    const from = Date.parse(`${requestedFrom}T00:00:00.000Z`);
+    const to = Date.parse(`${requestedTo}T00:00:00.000Z`);
+    if (from > to) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["requestedTo"],
+        message: "requestedTo must not end before requestedFrom"
+      });
+      return;
+    }
+
+    const inclusiveDays = Math.floor((to - from) / 86_400_000) + 1;
+    if (inclusiveDays > 90) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["requestedTo"],
+        message: "requested range must not exceed 90 days"
+      });
+    }
+  }
+}
+
+export const energyReportListQuerySchema = z.object({
+  limit: reportPageSizeSchema,
+  cursor: z.string().min(1).max(1024).optional(),
+  query: z.string().trim().min(1).max(100).optional(),
+  status: energyReportStatusSchema.optional(),
+  format: energyReportFormatSchema.optional(),
+  scope: energyScopeSchema.optional(),
+  requestedFrom: calendarDateSchema.optional(),
+  requestedTo: calendarDateSchema.optional()
+}).strict().superRefine(validateRequestedRange);
+
 export const energyReportListResponseSchema = z.object({
-  reports: z.array(energyReportJobSchema).max(50)
+  reports: z.array(energyReportJobSchema).max(100),
+  nextCursor: z.string().min(1).max(1024).nullable(),
+  totalCount: z.number().int().nonnegative()
 }).strict();
 
 export const energyReportDownloadResponseSchema = z.object({
@@ -316,6 +374,7 @@ export type EnergyHeatmapResponse = z.infer<typeof energyHeatmapResponseSchema>;
 export type EnergyHeatmapCell = z.infer<typeof heatmapCellSchema>;
 export type EnergyReportFormat = z.infer<typeof energyReportFormatSchema>;
 export type EnergyReportStatus = z.infer<typeof energyReportStatusSchema>;
+export type EnergyReportListQuery = z.infer<typeof energyReportListQuerySchema>;
 export type EnergyReportRequest = z.infer<typeof energyReportRequestSchema>;
 export type EnergyReportTargetsResponse = z.infer<typeof energyReportTargetsResponseSchema>;
 export type EnergyReportJob = z.infer<typeof energyReportJobSchema>;
