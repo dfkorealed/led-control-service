@@ -608,6 +608,12 @@ Production Chromium에서 popup의 기본 12px viewport inset과 310px calendar�
 
 ### Task 5: Dropdown과 overlay/dialog 체계 통합
 
+**Fix Round 1 완료(2026-09-16, 독립 재검토 대기):**
+
+- [x] 실제 `SiteUsersView.css`를 포함한 production-browser RED로 operator/editor/custom 폭이 모두 512px인 회귀를 재현한다(기대 480/440/610px, 기본 512px 통과).
+- [x] 바깥 Modal을 layout-neutral `display: contents`로 유지하고 공개 Dialog root에 non-important token 기본 폭을 두어 기존 className의 width 소유권을 복원한다. 새 size API와 feature production 변경 없이 기본512/operator480/editor440/custom610, 중앙 정렬·인접 backdrop dismissal·모든 변형의 320px containment를 검증한다.
+- [x] Fresh focused **81/81**, full Web **82 files·1,192/1,192**, Chromium **37/37**, CI **40/40**, typecheck/build·diff, ui:check **기존 2,322/신규 0** 통과. Date→overlay 직렬 gate 각 **1/1**, normal/control **652,914자/gzip 200,150바이트/514모듈**, SHA-256 `d4b9f6dc7c89a50b67636f9ad70d92510847b136ca2f7c9967a770eac664c5f2`, unused delta **0/0/0**이다. Overlay negative **667,454/204,672/526**(delta **+14,540/+4,522/+12**), date negative **800,005/246,112/671**, main **652.91 kB/gzip 200.15 kB**다. 아래는 최초 Task 5 커밋의 이력이며 Task 6은 시작하지 않는다.
+
 **완료(2026-09-16, 소프트웨어·foundation QA 대기):** 승인된 기반 `bc98f256`에서 구현했다. 최초 querySelector/API RED는 9 failed/63 passed였다. 최종 focused **81/81**, full Web **82 files·1,192/1,192**, production Chromium **36/36**, typecheck/build·diff, ui:check **기존 2,322/신규 0**, CI **40/40**가 통과했다. 공통 Modal/Confirm은 정확한 Tab 순환·중첩 포커스·pending/close·별칭·return/fallback을 유지하며 production DOM enumeration/private API는 0이다. 임시 ref-only hook은 top-stack containment/Escape/return만 보장하고 Task 8/11에서 전환한다. 승인된 두 feature test의 document-target synthetic keyboard는 focused control 키 이벤트/containment 계약으로 갱신했다. 정확한 cycling은 새 공통 overlay의 기존 unit 및 production Chromium에서 보장한다. Feature production/Task 6/HIL은 변경·실행하지 않았다.
 
 직렬 date·overlay bundle gate는 각각 **1/1**이다. 양쪽 normal/control은 **652,914자/gzip 200,150바이트/514모듈**, SHA-256 `5c31f1e6905066e66ad1219f67338419f69de4dc443ccbd971a5e5153e6dd374`로 동일하다. 미사용 Dropdown/Popover delta는 **0/0/0**이고 PURE 제거 negative는 **667,454자/204,673바이트/526모듈**(delta **+14,540/+4,523/+12**)이다. 기존 date gate는 수정하지 않았으며 date negative는 **800,005자/246,112바이트/671모듈**이다. 실제 consumer DOM에서 Dropdown trigger·열린 Popover portal을, 기존 SSR에서 날짜 네 컴포넌트를 렌더링한다. 브라우저 의존 검사는 설치된 Chromium 경로에서 실행하고 일반 Vitest에는 production build를 넣지 않았다. Build main은 **652.91 kB/gzip 200.15 kB**, 기존 500 kB 경고는 유지한다.

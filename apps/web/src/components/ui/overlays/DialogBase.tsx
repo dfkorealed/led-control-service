@@ -34,7 +34,9 @@ export const DialogBase = /* @__PURE__ */ forwardRef<HTMLElement, DialogBaseProp
       domProps.onMouseDown?.(event);
       if (event.target === event.currentTarget) requestClose();
     }} />}>
-    <Modal className="w-full max-w-lg outline-none">
+    {/* The public Dialog root owns width. A layout-neutral wrapper avoids
+        clamping caller CSS and leaves the surrounding backdrop dismissable. */}
+    <Modal className="contents outline-none">
       <DialogContent {...props} isPending={isPending} onClose={requestClose} rootRef={ref} />
     </Modal>
   </ModalOverlay>;
@@ -75,7 +77,7 @@ function DialogContent({ title, description, children, actions, onClose, isPendi
   }, []);
   return <Dialog ref={mergeRefs(dialog, rootRef)} role={role} aria-describedby={description ? descriptionId : undefined}
     render={(domProps) => <section {...domProps} aria-modal="true" />}
-    className={cn("ui-modal-dialog w-full! max-h-[calc(100dvh-48px)] overflow-y-auto rounded-panel! border! border-border-default! bg-surface-panel! p-4.5! text-body text-content-primary shadow-popover! outline-none compact:p-6!", compatibility === "operator" && "operator-dialog", compatibility === "editor" && "editor-confirm-dialog", className)}>
+    className={cn("ui-modal-dialog w-[min(var(--container-lg),100%)] max-h-[calc(100dvh-48px)] overflow-y-auto rounded-panel! border! border-border-default! bg-surface-panel! p-4.5! text-body text-content-primary shadow-popover! outline-none compact:p-6!", compatibility === "operator" && "operator-dialog", compatibility === "editor" && "editor-confirm-dialog", className)}>
     <header className={cn("ui-modal-header mb-4.5! flex! items-start! justify-between! gap-4!", compatibility === "operator" && "operator-dialog-header")}>
       <div className="min-w-0">
         <Heading slot="title" className="m-0! text-card-title! font-bold text-content-primary!">{title}</Heading>

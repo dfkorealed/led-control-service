@@ -10,14 +10,18 @@ import {createRoot} from "react-dom/client";
 import {ModalDialog,ConfirmDialog,DropdownMenu,Popover,Button} from "/src/components/ui/index.ts";
 import {ConfirmDialog as LegacyConfirm,useDialogFocus} from "/src/components/ConfirmDialog.tsx";
 import "/src/styles.css";
+import "/src/features/settings/users/SiteUsersView.css";
 const el=React.createElement;
 window.overlayEvents=[]; window.overlayRoots={};
 const record=(...value)=>window.overlayEvents.push(value);
 function App(){
  const [open,setOpen]=useState(false),[child,setChild]=useState(false),[pending,setPending]=useState(false),[legacy,setLegacy]=useState(false),[panel,setPanel]=useState(false),[removed,setRemoved]=useState(false),[bridge,setBridge]=useState(false);
  const initial=useRef(null),fallback=useRef(null),anchor=useRef(null);
+ const [widthDialog,setWidthDialog]=useState(null);
  return el("main",{className:"flex flex-col gap-4"},
   el("h1",null,"오버레이 검증"),
+  ...["default","operator","editor","custom"].map(kind=>el(Button,{key:kind,onClick:()=>setWidthDialog(kind)},"폭 "+kind)),
+  widthDialog&&el(widthDialog==="operator"?LegacyConfirm:widthDialog==="editor"?ConfirmDialog:ModalDialog,{title:"폭 검증",className:widthDialog==="custom"?"site-user-dialog-wide":undefined,confirmLabel:"확인",onConfirm:()=>setWidthDialog(null),onCancel:()=>setWidthDialog(null),onClose:()=>setWidthDialog(null)},"내용"),
   !removed&&el(Button,{onClick:()=>setOpen(true)},"부모 열기"),el(Button,{ref:fallback},"안전한 복귀"),
   el(Button,{onClick:()=>{setPending(true);setChild(true);}},"대기 확인 열기"),
   el(Button,{onClick:()=>setLegacy(true)},"이전 확인 열기"),
@@ -72,6 +76,27 @@ test.describe("production overlay contracts", () => {
   });
   test.afterAll(async () => { if (server) await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); });
   test.beforeEach(async ({ page }) => { await page.goto(url); await page.getByRole("button", { name: "부모 열기" }).waitFor(); });
+
+  test("preserves default, compatibility and public CSS widths without narrow viewport overflow", async ({ page }) => {
+    for (const [kind, width] of [["default", 512], ["operator", 480], ["editor", 440], ["custom", 610]] as const) {
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await page.getByRole("button", { name: "폭 " + kind, exact: true }).click();
+      const dialog = page.getByRole("dialog", { name: "폭 검증" });
+      expect.soft((await dialog.boundingBox())!.width, kind + " desktop width").toBe(width);
+      await page.setViewportSize({ width: 320, height: 740 });
+      const bounds = (await dialog.boundingBox())!;
+      expect.soft(bounds.x, kind + " left containment").toBeGreaterThanOrEqual(0);
+      expect.soft(bounds.x + bounds.width, kind + " right containment").toBeLessThanOrEqual(320);
+      expect.soft(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await page.setViewportSize({ width: 1280, height: 800 });
+      const desktop = (await dialog.boundingBox())!;
+      expect.soft(desktop.x + desktop.width / 2, kind + " centered layout").toBe(640);
+      // Beside the visible surface must remain backdrop, not an invisible
+      // full-width wrapper that swallows outside dismissal.
+      await page.mouse.click(desktop.x - 8, desktop.y + desktop.height / 2);
+      await expect(dialog).toHaveCount(0);
+    }
+  });
 
   test("portals, contains focus and restores nested child then parent focus", async ({ page }) => {
     const opener = page.getByRole("button", { name: "부모 열기" });
