@@ -1,6 +1,6 @@
 import type { EnergyHeatmapMetric, EnergyHeatmapResponse } from "@led-control/shared/energy-p2-contracts";
 import { Activity, Grid3X3, TriangleAlert } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Button, Card, FeedbackState, Heading, Text } from "../../../components/ui";
 
 const weekdays = ["일요일", "월요일", "화요일", "수요일", "목요일", "금요일", "토요일"];
@@ -21,6 +21,7 @@ export function EnergyHeatmap({
   onRetry?: () => void;
 }) {
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const cellRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   if (isLoading) {
     return <Card className="p-4"><FeedbackState icon={Activity} title="시간대별 사용량을 계산하는 중" /></Card>;
@@ -57,10 +58,21 @@ export function EnergyHeatmap({
             const label = cellLabel(cell, metric);
             const level = levelFor(cell.value, maximum);
             return <Button key={`${cell.weekday}-${cell.hour}`} type="button" variant="ghost" size="sm" aria-label={label}
+              ref={(element) => { cellRefs.current[index] = element; }}
               className={`relative h-14 min-h-14 w-14 min-w-14 rounded-control p-0 ${heatmapLevelClass[level]} ${index === selectedIndex ? "outline-2 outline-offset-2 outline-chart-heatmap-5" : ""}`}
-              aria-pressed={index === selectedIndex} data-level={level} data-missing={cell.value === null ? true : undefined}
+              aria-pressed={index === selectedIndex} tabIndex={index === selectedIndex ? 0 : -1}
+              data-level={level} data-missing={cell.value === null ? true : undefined}
               onClick={() => setSelectedIndex(index)} onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedIndex(index); }
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  setSelectedIndex(index);
+                  return;
+                }
+                const nextIndex = keyboardCellIndex(index, event.key, data.cells.length);
+                if (nextIndex === null) return;
+                event.preventDefault();
+                setSelectedIndex(nextIndex);
+                cellRefs.current[nextIndex]?.focus();
               }}>
               <span className="sr-only">{label}</span>
             </Button>;
@@ -70,6 +82,20 @@ export function EnergyHeatmap({
       <Text variant="body-sm" weight="bold" role="status" className="tabular-nums">{selected ? cellLabel(selected, metric) : "선택한 시간대가 없습니다."}</Text>
     </Card>
   );
+}
+
+function keyboardCellIndex(index: number, key: string, cellCount: number) {
+  const rowStart = Math.floor(index / 24) * 24;
+  const rowEnd = Math.min(rowStart + 23, cellCount - 1);
+  switch (key) {
+    case "ArrowLeft": return Math.max(rowStart, index - 1);
+    case "ArrowRight": return Math.min(rowEnd, index + 1);
+    case "ArrowUp": return index >= 24 ? index - 24 : index;
+    case "ArrowDown": return index + 24 < cellCount ? index + 24 : index;
+    case "Home": return rowStart;
+    case "End": return rowEnd;
+    default: return null;
+  }
 }
 
 function cellLabel(cell: EnergyHeatmapResponse["cells"][number], metric: EnergyHeatmapMetric) {

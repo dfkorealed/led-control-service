@@ -248,6 +248,24 @@ for (const viewport of [
     }
     const energyGrid = page.getByRole("group", { name: "시간대별 에너지 사용량" });
     await expect(energyGrid.getByRole("button")).toHaveCount(168);
+    const sunday00 = energyGrid.getByRole("button", { name: "일요일 00시, 0 kWh", exact: true });
+    await sunday00.focus();
+    await page.keyboard.press("ArrowRight");
+    const sunday01 = energyGrid.getByRole("button", { name: "일요일 01시, 수집 데이터 없음", exact: true });
+    await expect(sunday01).toBeFocused();
+    await expect(sunday01).toHaveAttribute("aria-pressed", "true");
+    await page.keyboard.press("End");
+    const sunday23 = energyGrid.getByRole("button", { name: "일요일 23시, 0.5 kWh", exact: true });
+    await expect(sunday23).toBeFocused();
+    await page.keyboard.press("ArrowDown");
+    const monday23 = energyGrid.getByRole("button", { name: "월요일 23시, 0.5 kWh", exact: true });
+    await expect(monday23).toBeFocused();
+    await page.keyboard.press("Home");
+    const monday00 = energyGrid.getByRole("button", { name: "월요일 00시, 0.5 kWh", exact: true });
+    await expect(monday00).toBeFocused();
+    await page.keyboard.press("ArrowLeft");
+    await expect(monday00).toBeFocused();
+    await expect(page.getByRole("status").filter({ hasText: "월요일 00시, 0.5 kWh" })).toBeVisible();
     await energyGrid.getByRole("button", { name: "일요일 00시, 0 kWh", exact: true }).click();
     await expect(page.getByRole("status").filter({ hasText: "일요일 00시, 0 kWh" })).toBeVisible();
     const missing = energyGrid.getByRole("button", { name: "일요일 01시, 수집 데이터 없음", exact: true });
