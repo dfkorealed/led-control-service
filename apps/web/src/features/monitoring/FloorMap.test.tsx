@@ -324,6 +324,21 @@ describe("FloorMap", () => {
     expect(viewport.scrollLeft).toBe(70);
     expect(viewport.scrollTop).toBe(55);
   });
+
+  it("keeps monitoring markers selectable while allowing a two-touch pinch", () => {
+    const onSelectFixture = vi.fn();
+    render(<FloorMap floor={navigationFloor} snapshot={mapSnapshot} selectedFixtureId={null} onSelectFixture={onSelectFixture} />);
+
+    const viewport = screen.getByTestId("monitoring-map-viewport");
+    dispatchPointer(viewport, "pointerdown", { pointerId: 1, button: 0, clientX: 100, clientY: 100 });
+    dispatchPointer(viewport, "pointerdown", { pointerId: 2, button: 0, clientX: 200, clientY: 100 });
+    dispatchPointer(viewport, "pointermove", { pointerId: 2, button: 0, clientX: 300, clientY: 100 });
+    dispatchPointer(viewport, "pointerup", { pointerId: 2, button: 0, clientX: 300, clientY: 100 });
+
+    expect(screen.getByRole("region", { name: "층 도면" })).toHaveAttribute("data-zoom", "2");
+    fireEvent.click(screen.getByRole("button", { name: "B1-L001 정상 70%" }));
+    expect(onSelectFixture).not.toHaveBeenCalled();
+  });
 });
 
 function dispatchPointer(target: HTMLElement, type: string, init: Record<string, number>) {
