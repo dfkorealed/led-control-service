@@ -418,21 +418,21 @@ git commit -m "feat(web): add report history search filters"
 - Consumes: Tasks 4–5 primitives/query/filter state
 - Produces: desktop table, mobile cards, cursor stack, failure disclosure
 
-- [ ] **Step 1: page size, next/previous, filter reset, generated report first-page reset의 RED tests를 추가한다.**
+- [x] **Step 1: page size, next/previous, filter reset, generated report first-page reset의 RED tests를 추가한다.**
 
 테스트는 101개 fixture를 모두 DOM에 그리지 말고 API pages를 결정적으로 mock한다. `limit=20 → nextCursor`, 다음 page의 21~40 범위, previous cursor stack 복귀, `limit=100` 변경 시 cursor 제거, filter 변경 시 first page를 검증한다.
 
-- [ ] **Step 2: table/mobile semantics와 failure disclosure RED tests를 추가한다.**
+- [x] **Step 2: table/mobile semantics와 failure disclosure RED tests를 추가한다.**
 
 Desktop container는 `table`과 column headings를, mobile container는 `list`, heading, `dl`을 가져야 한다. Failure toggle은 `aria-expanded`, `aria-controls`, 정제된 message/action만 노출해야 한다.
 
-- [ ] **Step 3: RED를 확인한다.**
+- [x] **Step 3: RED를 확인한다.**
 
 Run: `pnpm --filter @led-control/web test -- report-job-view-model.test.ts StatisticsReportsPage.test.tsx`
 
 Expected: 기존 Card list 때문에 새 semantics/navigation assertion FAIL.
 
-- [ ] **Step 4: view model과 responsive renderers를 구현한다.**
+- [x] **Step 4: view model과 responsive renderers를 구현한다.**
 
 ```ts
 type ReportJobViewModel = {
@@ -451,17 +451,17 @@ type ReportJobViewModel = {
 
 Tailwind breakpoint로 desktop/table과 mobile/list 중 하나를 시각적으로 숨기되 hidden DOM이 focusable하지 않도록 `hidden`/responsive display를 사용한다. 같은 row action callback과 label을 공유한다.
 
-- [ ] **Step 5: page에서 URL filter와 cursor stack을 결합한다.**
+- [x] **Step 5: page에서 URL filter와 cursor stack을 결합한다.**
 
 page state는 `{ page, currentCursor, previousCursors }`다. filter/site/pageSize 변경 시 모두 reset한다. 새 report 생성 성공 시 보고서 query prefix invalidate 후 first page로 이동한다. 기존 `.slice(0, 50)` cache mutation을 제거한다.
 
-- [ ] **Step 6: focused Web tests를 GREEN으로 만든다.**
+- [x] **Step 6: focused Web tests를 GREEN으로 만든다.**
 
 Run: `pnpm --filter @led-control/web test -- report-job-view-model.test.ts StatisticsReportsPage.test.tsx`
 
 Expected: PASS.
 
-- [ ] **Step 7: Task 6을 커밋한다.**
+- [x] **Step 7: Task 6을 커밋한다.**
 
 ```bash
 git add apps/web/src/features/statistics/reports/ReportJob* apps/web/src/features/statistics/reports/report-job-view-model* apps/web/src/features/statistics/reports/StatisticsReportsPage*
