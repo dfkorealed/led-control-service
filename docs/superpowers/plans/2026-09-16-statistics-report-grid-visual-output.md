@@ -352,7 +352,7 @@ git commit -m "feat(web): add data table and pagination primitives"
 - Produces: `ReportHistoryFilterState`, `parseReportHistorySearchParams`, `serializeReportHistorySearchParams`, `useEnergyReports(siteId, query)`, `ReportHistoryFilters`
 - Consumes: Task 1 query schema, 공통 `TextField`, `SelectBox`, `DateRangePicker`, `Button`
 
-- [ ] **Step 1: URL normalization과 API query key/URL의 RED tests를 작성한다.**
+- [x] **Step 1: URL normalization과 API query key/URL의 RED tests를 작성한다.**
 
 ```ts
 expect(parseReportHistorySearchParams(new URLSearchParams(
@@ -362,13 +362,13 @@ expect(parseReportHistorySearchParams(new URLSearchParams(
 
 Hook test는 모든 filter가 URLSearchParams로 encode되고 query key에 normalized query 전체가 포함되며 현재 reports 중 active 상태가 있을 때만 3초 interval을 반환하는지 확인한다.
 
-- [ ] **Step 2: RED를 확인한다.**
+- [x] **Step 2: RED를 확인한다.**
 
 Run: `pnpm --filter @led-control/web test -- energy.test.tsx report-history-filters.test.ts ReportHistoryFilters.test.tsx`
 
 Expected: 새 interface/component 부재로 FAIL.
 
-- [ ] **Step 3: pure URL adapter와 query hook을 구현한다.**
+- [x] **Step 3: pure URL adapter와 query hook을 구현한다.**
 
 ```ts
 export function useEnergyReports(siteId: string | undefined, query: EnergyReportListQuery) {
@@ -384,17 +384,17 @@ export function useEnergyReports(siteId: string | undefined, query: EnergyReport
 }
 ```
 
-- [ ] **Step 4: filter UI를 구현한다.**
+- [x] **Step 4: filter UI를 구현한다.**
 
 검색 TextField는 입력 상태와 committed debounced query를 분리한다. 300ms timer cleanup으로 stale update를 막는다. DateRangePicker는 Site timezone 날짜 문자열을 그대로 유지하고 API가 timezone instant로 변환한다. 활성 조건 chip의 제거 버튼은 해당 form control과 URL state를 함께 갱신한다.
 
-- [ ] **Step 5: focused Web tests를 GREEN으로 만든다.**
+- [x] **Step 5: focused Web tests를 GREEN으로 만든다.**
 
 Run: `pnpm --filter @led-control/web test -- energy.test.tsx report-history-filters.test.ts ReportHistoryFilters.test.tsx`
 
 Expected: PASS.
 
-- [ ] **Step 6: Task 5를 커밋한다.**
+- [x] **Step 6: Task 5를 커밋한다.**
 
 ```bash
 git add apps/web/src/api/energy.ts apps/web/src/api/energy.test.tsx apps/web/src/features/statistics/reports/report-history-filters* apps/web/src/features/statistics/reports/ReportHistoryFilters*
