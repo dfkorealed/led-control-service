@@ -132,10 +132,21 @@
   --radius-control: 0.625rem;
   --radius-panel: 0.875rem;
   --radius-popover: 0.875rem;
+  --radius-fixture-marker: 3px;
   --radius-pill: 9999px;
   --shadow-panel: 0 8px 24px rgb(30 64 175 / 0.06);
   --shadow-popover: 0 18px 40px rgb(15 23 42 / 0.18);
   --shadow-focus: 0 0 0 3px rgb(37 111 161 / 0.28);
+  --shadow-fixture-brightness-1: 0 0 0 0 color-mix(in srgb, var(--color-fixture-on) 0%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--color-content-inverse) 24%, transparent);
+  --shadow-fixture-brightness-2: 0 0 2px 0.5px color-mix(in srgb, var(--color-fixture-on) 4%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--color-content-inverse) 24%, transparent);
+  --shadow-fixture-brightness-3: 0 0 3.5px 1px color-mix(in srgb, var(--color-fixture-on) 8%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--color-content-inverse) 24%, transparent);
+  --shadow-fixture-brightness-4: 0 0 5px 1.5px color-mix(in srgb, var(--color-fixture-on) 12%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--color-content-inverse) 24%, transparent);
+  --shadow-fixture-brightness-5: 0 0 6.5px 2px color-mix(in srgb, var(--color-fixture-on) 16%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--color-content-inverse) 24%, transparent);
+  --shadow-fixture-brightness-6: 0 0 8px 2.5px color-mix(in srgb, var(--color-fixture-on) 20%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--color-content-inverse) 24%, transparent);
+  --shadow-fixture-brightness-7: 0 0 9.5px 3px color-mix(in srgb, var(--color-fixture-on) 24%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--color-content-inverse) 24%, transparent);
+  --shadow-fixture-brightness-8: 0 0 11px 3.5px color-mix(in srgb, var(--color-fixture-on) 28%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--color-content-inverse) 24%, transparent);
+  --shadow-fixture-brightness-9: 0 0 12.5px 4.25px color-mix(in srgb, var(--color-fixture-on) 34%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--color-content-inverse) 24%, transparent);
+  --shadow-fixture-brightness-10: 0 0 14px 5px color-mix(in srgb, var(--color-fixture-on) 42%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--color-content-inverse) 24%, transparent);
   --breakpoint-compact: 47.5rem;
   --breakpoint-tablet: 64rem;
 }

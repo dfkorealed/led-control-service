@@ -18,6 +18,18 @@ test("accepts all approved spacing steps, semantic colors and typography", () =>
   assert.deepEqual(inspectUiSource("sample.tsx", source), []);
 });
 
+test("rejects arbitrary radius and shadow utilities beyond the reviewed fixture marker debt", () => {
+  const arbitrary = 'className="rounded-[3px] shadow-[0_0_2px_red]"';
+  assert.deepEqual(inspectUiSource("src/New.tsx", arbitrary).map(v => v.rule), ["arbitrary-theme-utility", "arbitrary-theme-utility"]);
+
+  const fixtureShadow = "shadow-[0_0_0_0_color-mix(in_srgb,var(--color-fixture-on)_0%,transparent),inset_0_0_0_1px_color-mix(in_srgb,var(--color-content-inverse)_24%,transparent)]";
+  assert.deepEqual(inspectUiSource("src/features/floor-map/FloorScene.tsx", `"rounded-[3px] ${fixtureShadow}"`), []);
+  assert.deepEqual(
+    inspectUiSource("src/features/floor-map/FloorScene.tsx", `"rounded-[3px] rounded-[3px] ${fixtureShadow} ${fixtureShadow}"`).map(v => v.rule),
+    ["arbitrary-theme-utility", "arbitrary-theme-utility"]
+  );
+});
+
 test("layer wrappers preserve first-selector and raw-form fingerprints without hiding debt", () => {
   const css = '.first { padding: 13px; color: red; } button.custom { margin: 4px; }';
   const expected = inspectUiSource("src/styles.css", css);
@@ -146,6 +158,17 @@ test("theme permits only token declarations, not arbitrary rules or new CSS impo
   assert.ok(inspectUiSource(path, 'body { color: #fff; padding: 13px; }').some(v => v.rule === "raw-color"));
   assert.ok(inspectUiSource(path, '@import "./rogue.css";').some(v => v.rule === "css-import"));
   assert.ok(inspectUiSource("src/other/theme.css", '@theme { --color-test: #fff; }').some(v => v.rule === "raw-color"));
+});
+
+test("anchors the fixture marker radius and every brightness shadow token", async () => {
+  const path = "src/styles/theme.css";
+  const theme = await readFile(new URL("../src/styles/theme.css", import.meta.url), "utf8");
+  const names = ["--radius-fixture-marker", ...Array.from({ length: 10 }, (_, index) => `--shadow-fixture-brightness-${index + 1}`)];
+  for (const name of names) assert.match(theme, new RegExp(`${name}: [^;]+;`), name);
+  for (const name of names) {
+    const changed = theme.replace(new RegExp(`${name}: [^;]+;`), `${name}: 0 0 1px red;`);
+    assert.ok(inspectUiSource(path, changed).some(v => v.rule === "unapproved-theme-value"), name);
+  }
 });
 
 test("I6 rejects changed anchored theme values across every token family", async () => {
