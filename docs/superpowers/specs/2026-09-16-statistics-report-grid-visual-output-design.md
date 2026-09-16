@@ -10,9 +10,10 @@
 
 1. 보고서 생성 현황을 compact responsive data grid로 표시한다.
 2. 전체 보관 이력을 서버 페이지네이션으로 조회한다.
-3. 선택 기간의 저장된 실제값과 생성 당시 설정 기준값을 명확히 구분한다.
-4. PDF와 XLSX가 동일한 immutable document와 동일한 차트 이미지를 사용한다.
-5. 기존 tenant 권한, 보고서 fingerprint, scalar manifest, 재시도·만료·정리 계약을 유지한다.
+3. 전체 보관 이력을 대상명과 상태·형식·범위·요청일 조건으로 검색한다.
+4. 선택 기간의 저장된 실제값과 생성 당시 설정 기준값을 명확히 구분한다.
+5. PDF와 XLSX가 동일한 immutable document와 동일한 차트 이미지를 사용한다.
+6. 기존 tenant 권한, 보고서 fingerprint, scalar manifest, 재시도·만료·정리 계약을 유지한다.
 
 ## 범위
 
@@ -20,6 +21,7 @@
 
 - 보고서 이력 API의 keyset cursor 페이지네이션
 - 페이지 크기 10·20·50·100, 기본값 20
+- 대상명 검색과 상태·형식·범위·요청일 서버 필터
 - compact 데스크톱 data grid와 모바일 카드 표현
 - 선택 기간 핵심 KPI, 일별 추이, 기준 비교, 동기간 비교, 순위, 히트맵
 - PDF/XLSX 공통 chart visual model과 이미지 렌더링
@@ -29,7 +31,7 @@
 
 제외 범위:
 
-- 목록 검색·정렬·상태 필터
+- 사용자 지정 정렬과 저장된 검색 조건
 - 탄소 배출, 목표·예산, 자동 최적화 제안
 - 실시간 게이트웨이 연결 상태를 보고서에 포함하는 기능
 - 보고서 생성 이후 값이 바뀌는 live dashboard
@@ -40,10 +42,10 @@
 
 선택: `createdAt desc, id desc`를 기준으로 하는 서버 keyset cursor 페이지네이션.
 
-- 요청: `GET /energy/sites/:siteId/reports?limit=20&cursor=<opaque>`
+- 요청: `GET /energy/sites/:siteId/reports?limit=20&cursor=<opaque>&query=<text>&status=<status>&format=<format>&scope=<scope>&requestedFrom=<date>&requestedTo=<date>`
 - `limit`은 10·20·50·100만 허용한다.
 - 응답: `{ reports, nextCursor, totalCount }`
-- cursor는 version, createdAt, id만 포함하는 길이 제한 base64url 값이다.
+- cursor는 version, createdAt, id, normalized filter fingerprint를 포함하는 길이 제한 base64url 값이다.
 - API는 `limit + 1`건을 조회해 `nextCursor`를 판단한다.
 - `totalCount`와 페이지 행은 같은 repeatable-read transaction에서 조회한다.
 - 이전 페이지 이동은 Web 세션의 cursor stack으로 제공한다.
@@ -81,7 +83,18 @@ PDF만 vector chart를 그리고 XLSX는 표만 제공하는 대안은 두 형�
 
 정상 행은 52~56px, 헤더는 44px를 기준으로 한다. 실패 사유는 모든 행의 높이를 키우지 않고 상태 셀의 disclosure로 열어 colspan 상세 행에 정제된 message와 action을 표시한다. Processing 상태는 텍스트와 접근 가능한 progress를 함께 제공한다.
 
-상단 toolbar는 `총 N건 · A–B 표시`와 공통 `SelectBox` 기반 페이지 크기 선택을 제공한다. 하단 `PaginationBar`는 이전·현재 페이지·다음을 제공한다. 이동 중 기존 행을 유지하고 grid에 `aria-busy`를 적용하며 완료 시 표시 범위를 polite live region으로 알린다.
+상단 filter bar는 공통 `TextField`, `SelectBox`, `DateRangePicker`, `Button`으로 구성한다.
+
+- 검색어: 접수 당시 보존된 대상명 `targetLabelSnapshot`의 대소문자 무시 부분 일치, trim 후 1~100자
+- 상태: 전체·대기·생성 중·완료·실패·만료
+- 형식: 전체·PDF·XLSX
+- 범위: 전체·현장·층·그룹·조명
+- 요청일: 현장 timezone 기준 시작일·종료일 inclusive, 최대 90일
+- 초기화: 모든 검색 조건을 제거하고 첫 페이지로 이동
+
+검색어는 300ms debounce 후 서버 query에 반영한다. select와 요청일은 값이 확정되면 즉시 반영한다. 검색·필터가 하나라도 바뀌면 cursor stack을 비우고 첫 페이지로 돌아간다. URL search params에 normalized filter와 page size를 보존해 새로고침과 뒤로 가기에서 같은 결과를 복원한다. cursor 자체는 URL에 노출하지 않고 session state로만 관리한다.
+
+filter bar 아래에는 `총 N건 · A–B 표시`와 공통 `SelectBox` 기반 페이지 크기 선택을 제공한다. 활성 검색 조건은 label이 있는 removable chip으로 표시하되 chip만으로 의미를 전달하지 않고 form control 값과 동기화한다. 결과가 없으면 `검색 조건에 맞는 보고서가 없습니다`와 `검색 조건 초기화`를 제공한다. 하단 `PaginationBar`는 이전·현재 페이지·다음을 제공한다. 이동 중 기존 행을 유지하고 grid에 `aria-busy`를 적용하며 완료 시 표시 범위를 polite live region으로 알린다.
 
 새 보고서를 생성하면 cursor stack을 비우고 첫 페이지로 이동한 뒤 보고서 query prefix를 invalidate한다. 현재 보이는 페이지에 queued 또는 processing 보고서가 있을 때만 3초 polling을 유지한다.
 
@@ -154,6 +167,12 @@ shared package에 strict query·response schema를 둔다.
 type EnergyReportListQuery = {
   limit: 10 | 20 | 50 | 100;
   cursor?: string;
+  query?: string;
+  status?: "queued" | "processing" | "completed" | "failed" | "expired";
+  format?: "pdf" | "xlsx";
+  scope?: "site" | "floor" | "group" | "fixture";
+  requestedFrom?: string;
+  requestedTo?: string;
 };
 
 type EnergyReportListResponse = {
@@ -163,7 +182,9 @@ type EnergyReportListResponse = {
 };
 ```
 
-cursor 내부 payload는 `{ version: 1, createdAt: string, id: UUID }`다. API path의 siteId와 현재 사용자 권한이 범위를 결정하므로 cursor에 tenant 정보를 신뢰하지 않는다. 잘못된 limit, cursor 길이, base64url, JSON, timestamp, UUID는 400으로 정제한다.
+cursor 내부 payload는 `{ version: 1, createdAt: string, id: UUID, filterFingerprint: string }`다. filter fingerprint는 trim·case-fold·기본값 제거·날짜 정규화를 마친 검색 조건의 canonical JSON SHA-256이다. 다른 검색 조건에서 발급된 cursor를 재사용하면 400을 반환한다. API path의 siteId와 현재 사용자 권한이 범위를 결정하므로 cursor에 tenant 정보를 신뢰하지 않는다. 잘못된 limit, 검색어 길이, enum, 날짜 범위, cursor 길이, base64url, JSON, timestamp, UUID는 400으로 정제한다.
+
+`expired`는 저장된 DB status가 아니라 현재 시각과 `expiresAt`으로 계산되는 공개 상태다. `status=expired`는 DB의 completed 행 중 `expiresAt <= now`인 행을 조회하고, `status=completed`는 `expiresAt > now`이며 파일이 유효한 completed 행만 조회한다. 요청일 경계는 Site timezone의 현지 날짜 시작·다음 날 시작을 UTC instant로 변환해 `createdAt`에 적용한다. `scope`는 strict-parsed `requestSnapshot.scope`에 적용하고 `format`은 indexed column을 사용한다. 대상명 검색은 `targetLabelSnapshot`에 case-insensitive contains를 적용하며 null legacy row는 현재 공개 fallback label과 일치할 때만 포함한다.
 
 DB에는 `EnergyReportJob(siteId, createdAt, id)` 복합 index를 추가한다. schema 변경과 함께 `docs/database-schema.md`를 갱신한다.
 
@@ -201,6 +222,7 @@ visualization은 기존 document cell을 reference하며 독립된 수치 사본
 ## 오류 처리
 
 - 페이지네이션 입력 오류는 원시 parser 오류 없이 400을 반환한다.
+- 검색 조건 오류와 cursor/filter 불일치는 400으로 정제한다.
 - 페이지 이동 실패 시 현재 행을 유지하고 목록 상단에 재시도 가능한 오류를 표시한다.
 - cursor 결과가 보관 정리와 겹쳐 빈 페이지가 되면 첫 페이지로 자동 이동하지 않고 이전 버튼을 제공해 사용자의 위치를 보존한다.
 - chart reference가 없는 cell을 가리키거나 값 type이 맞지 않으면 snapshot invalid로 실패한다.
@@ -214,6 +236,7 @@ visualization은 기존 document cell을 reference하며 독립된 수치 사본
 
 - `DataTableShell`: caption, table overflow, header surface, loading semantics
 - `PaginationBar`: 이전·현재 page·다음, 표시 범위, live announcement
+- `ReportHistoryFilters`: 검색어, 상태·형식·범위, 요청일, 활성 조건 chip과 초기화
 
 보고서 feature:
 
@@ -224,6 +247,7 @@ visualization은 기존 document cell을 reference하며 독립된 수치 사본
 API/report:
 
 - `report-list-cursor`: cursor encode/decode와 validation
+- `report-list-filters`: 검색 조건 normalize, filter fingerprint, Prisma predicate
 - `report-visual-model`: document reference를 renderer-neutral chart descriptor로 변환
 - `report-chart-image.renderer`: deterministic SVG·PNG 출력
 - 기존 PDF/XLSX renderer: layout과 동일 image 삽입
@@ -235,6 +259,10 @@ API/report:
 ### Shared/API
 
 - limit 10·20·50·100과 기본 20만 허용
+- 검색어 trim/case-fold/길이, enum, 요청일 timezone·90일 경계 검증
+- 대상명·상태·형식·scope·요청일 단독 및 조합 검색
+- completed와 expired의 현재 시각 경계 분리
+- filter fingerprint가 다른 cursor 거절
 - malformed·oversized cursor 400
 - 동일 createdAt의 id tie-break, 페이지 중복·누락 없음
 - `limit + 1`, nextCursor, 마지막 페이지, totalCount 검증
@@ -245,6 +273,10 @@ API/report:
 ### Web
 
 - 페이지 크기 변경 시 첫 페이지와 cursor stack reset
+- 검색어 300ms debounce와 stale request 결과 비노출
+- 상태·형식·범위·요청일 조합, URL search params 복원, 전체 초기화
+- 검색 조건 변경 시 cursor stack과 page를 첫 페이지로 reset
+- 검색 결과 0건 empty state와 조건 초기화
 - next fetch와 previous stack 복귀
 - site 변경과 새 보고서 생성 시 첫 페이지 reset
 - 현재 페이지의 active job만 3초 polling
@@ -266,7 +298,7 @@ API/report:
 - 한글 font와 추출 text round-trip
 - 25MB 제한, worker retry, fingerprint, 만료·cleanup 유지
 
-완료 조건은 101건 이상의 보고서 fixture로 페이지 크기 10·20·50·100과 next/previous를 실제 브라우저에서 확인하고, 같은 fixture에서 생성한 PDF와 XLSX가 동일 scalar manifest·chart image hash를 통과하며 실제 파일을 열었을 때 차트와 원본 표가 모두 보이는 것이다.
+완료 조건은 101건 이상의 보고서 fixture로 대상명·상태·형식·범위·요청일 조합 검색, 페이지 크기 10·20·50·100과 next/previous를 실제 브라우저에서 확인하고, 같은 fixture에서 생성한 PDF와 XLSX가 동일 scalar manifest·chart image hash를 통과하며 실제 파일을 열었을 때 차트와 원본 표가 모두 보이는 것이다.
 
 ## 문서 갱신
 
