@@ -10,6 +10,10 @@ const allModes = [
   { value: "event", label: "이벤트 제어", icon: CarFront }
 ] as const;
 
+const controlModeTabClassName = (isActive: boolean) => `min-w-28 shrink-0 rounded-none border-x-0 border-t-0 border-b-2 bg-transparent px-3 text-body-sm whitespace-nowrap ${isActive
+  ? "border-action-primary text-action-primary"
+  : "border-transparent text-content-secondary hover:border-border-strong hover:text-content-primary"}`;
+
 export function ControlModeTabs({
   mode,
   onChange,
@@ -52,7 +56,7 @@ export function ControlModeTabs({
             aria-selected={mode === item.value}
             aria-controls={`control-mode-panel-${item.value}`}
             tabIndex={mode === item.value ? 0 : -1}
-            className={mode === item.value ? "ui-underline-navigation-item active" : "ui-underline-navigation-item"}
+            className={controlModeTabClassName(mode === item.value)}
             onClick={() => onChange(item.value)}
             onKeyDown={(event) => selectFromKeyboard(event, index)}
           >
