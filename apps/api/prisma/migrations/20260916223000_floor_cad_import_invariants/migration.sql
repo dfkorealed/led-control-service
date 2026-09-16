@@ -1,3 +1,11 @@
+BEGIN;
+
+-- FloorAsset is the referenced parent and existing upload/cleanup writers mutate
+-- it before any import-job linkage. Keep this parent-first order for future
+-- multi-table writers. SHARE ROW EXCLUSIVE blocks mutations but permits reads;
+-- both locks remain held through final validation and trigger installation.
+LOCK TABLE "FloorAsset", "FloorImportJob" IN SHARE ROW EXCLUSIVE MODE;
+
 ALTER TABLE "FloorImportJob" ADD COLUMN "failedAt" TIMESTAMP(3);
 
 ALTER TABLE "FloorImportCandidate"
@@ -148,3 +156,5 @@ CREATE CONSTRAINT TRIGGER "FloorAsset_import_job_invariant"
 AFTER UPDATE ON "FloorAsset"
 DEFERRABLE INITIALLY DEFERRED
 FOR EACH ROW EXECUTE FUNCTION "enforce_floor_import_job_asset_invariants"();
+
+COMMIT;

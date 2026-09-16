@@ -1,5 +1,15 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import {
+  cpSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  writeFileSync
+} from "node:fs";
 import { join } from "node:path";
 import { disposablePostgres } from "../../test/support/disposable-postgres";
 
@@ -108,6 +118,65 @@ describe("floor CAD import migration invariants on disposable PostgreSQL", () =>
       FROM "_prisma_migrations"
       WHERE migration_name IN ('${baselineMigrationName}', '${forwardMigrationName}');
     `)).toBe(`${baselineMigrationName},${forwardMigrationName}`);
+  });
+
+  it("fails migration after an earlier FloorAsset writer commits an invalid row", async () => {
+    const raceDatabaseUrl = cluster.database();
+    expect(cluster.deploy(raceDatabaseUrl, baselineMigrationName).status).toBe(0);
+    seedBaselineLedger(raceDatabaseUrl, cluster);
+
+    const writer = startPsql(raceDatabaseUrl, "cad_asset_writer_first", `
+      BEGIN;
+      UPDATE "FloorAsset" SET "status" = 'pending' WHERE "id" = 'baseline-source';
+      SELECT pg_sleep(2);
+      COMMIT;
+    `);
+    await waitForTableLock(cluster, raceDatabaseUrl, "cad_asset_writer_first", "FloorAsset", "RowExclusiveLock");
+
+    const migration = cluster.deploy(raceDatabaseUrl, forwardMigrationName);
+    const writerResult = await writer.completed;
+    expect(writerResult.status).toBe(0);
+    expect(migration.status).not.toBe(0);
+    expect(cluster.sql(raceDatabaseUrl, `
+      SELECT count(*) FROM "_prisma_migrations"
+      WHERE migration_name = '${forwardMigrationName}' AND finished_at IS NOT NULL;
+    `)).toBe("0");
+    expect(cluster.sql(raceDatabaseUrl, `
+      SELECT (to_regprocedure('floor_import_job_assets_are_valid(text)') IS NULL)::text || ':' || "status"::text
+      FROM "FloorAsset" WHERE "id" = 'baseline-source';
+    `)).toBe("true:pending");
+  });
+
+  it("blocks a later FloorAsset writer until the installed trigger rejects it", async () => {
+    const raceDatabaseUrl = cluster.database();
+    expect(cluster.deploy(raceDatabaseUrl, baselineMigrationName).status).toBe(0);
+    seedBaselineLedger(raceDatabaseUrl, cluster);
+
+    const migration = startDelayedDeploy(raceDatabaseUrl);
+    await waitForSleep(cluster, raceDatabaseUrl, "cad_import_migration_first");
+    expect(cluster.sql(raceDatabaseUrl, `
+      SELECT string_agg(relation.relname, ',' ORDER BY relation.relname)
+      FROM pg_locks AS lock
+      JOIN pg_class AS relation ON relation.oid = lock.relation
+      JOIN pg_stat_activity AS activity ON activity.pid = lock.pid
+      WHERE activity.application_name = 'cad_import_migration_first'
+        AND relation.relname IN ('FloorAsset', 'FloorImportJob')
+        AND lock.mode = 'ShareRowExclusiveLock' AND lock.granted;
+    `)).toBe("FloorAsset,FloorImportJob");
+    const writer = startPsql(raceDatabaseUrl, "cad_asset_writer_second", `
+      SET statement_timeout = '10s';
+      UPDATE "FloorAsset" SET "status" = 'pending' WHERE "id" = 'baseline-source';
+    `);
+    await waitForBlockedWriter(cluster, raceDatabaseUrl, "cad_asset_writer_second");
+
+    const [migrationResult, writerResult] = await Promise.all([migration.completed, writer.completed]);
+    expect(migrationResult.status).toBe(0);
+    expect(writerResult.status).not.toBe(0);
+    expect(writerResult.stderr).toContain("floor import job asset invariant violated");
+    expect(cluster.sql(raceDatabaseUrl, `
+      SELECT "status"::text || ':' || "floor_import_job_assets_are_valid"('baseline-job')
+      FROM "FloorAsset" WHERE "id" = 'baseline-source';
+    `)).toBe("ready:true");
   });
 
   it("catalogs every migration-only check, deferred asset trigger, and partial index", () => {
@@ -319,4 +388,113 @@ function seedBaselineLedger(
       'baseline-candidate', 'baseline-job', 'entity-1', 'LIGHT', 1, 2, 0.9, 'rule_based', CURRENT_TIMESTAMP
     );
   `);
+}
+
+function startPsql(databaseUrl: string, applicationName: string, sql: string) {
+  const url = withApplicationName(databaseUrl, applicationName);
+  const child = spawn("psql", ["-X", "-qAt", "-v", "ON_ERROR_STOP=1", url, "-c", sql], {
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  return processResult(child);
+}
+
+function startDelayedDeploy(databaseUrl: string) {
+  const copy = mkdtempSync(join(realpathSync("/tmp"), "floor-cad-migration-race-"));
+  cpSync(join(__dirname, "../../prisma"), copy, { recursive: true });
+  for (const name of readdirSync(join(copy, "migrations"))) {
+    if (/^\d/.test(name) && name > forwardMigrationName) {
+      rmSync(join(copy, "migrations", name), { recursive: true });
+    }
+  }
+  const migrationPath = join(copy, "migrations", forwardMigrationName, "migration.sql");
+  const original = readFileSync(migrationPath, "utf8");
+  writeFileSync(migrationPath, original.replace(
+    'ALTER TABLE "FloorImportJob" ADD COLUMN "failedAt" TIMESTAMP(3);',
+    'SELECT pg_sleep(2);\n\nALTER TABLE "FloorImportJob" ADD COLUMN "failedAt" TIMESTAMP(3);'
+  ));
+  const url = withApplicationName(databaseUrl, "cad_import_migration_first");
+  const child = spawn(process.execPath, [
+    require.resolve("prisma/build/index.js"),
+    "migrate",
+    "deploy",
+    "--schema",
+    join(copy, "schema.prisma")
+  ], {
+    env: { ...process.env, DATABASE_URL: url },
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  return processResult(child, () => rmSync(copy, { recursive: true, force: true }));
+}
+
+function processResult(
+  child: ReturnType<typeof spawn>,
+  cleanup: () => void = () => undefined
+) {
+  let stdout = "";
+  let stderr = "";
+  child.stdout?.on("data", chunk => { stdout += chunk.toString(); });
+  child.stderr?.on("data", chunk => { stderr += chunk.toString(); });
+  return {
+    completed: new Promise<{ status: number | null; stdout: string; stderr: string }>((resolve, reject) => {
+      child.once("error", reject);
+      child.once("close", status => {
+        cleanup();
+        resolve({ status, stdout, stderr });
+      });
+    })
+  };
+}
+
+async function waitForTableLock(
+  cluster: Awaited<ReturnType<typeof disposablePostgres>>,
+  databaseUrl: string,
+  applicationName: string,
+  tableName: string,
+  mode: string
+) {
+  await waitForDatabaseState(() => cluster.sql(databaseUrl, `
+    SELECT count(*)
+    FROM pg_locks AS lock
+    JOIN pg_class AS relation ON relation.oid = lock.relation
+    JOIN pg_stat_activity AS activity ON activity.pid = lock.pid
+    WHERE activity.application_name = '${applicationName}'
+      AND relation.relname = '${tableName}' AND lock.mode = '${mode}' AND lock.granted;
+  `) === "1", `${applicationName} did not acquire ${mode} on ${tableName}`);
+}
+
+async function waitForSleep(
+  cluster: Awaited<ReturnType<typeof disposablePostgres>>,
+  databaseUrl: string,
+  applicationName: string
+) {
+  await waitForDatabaseState(() => cluster.sql(databaseUrl, `
+    SELECT count(*) FROM pg_stat_activity
+    WHERE application_name = '${applicationName}' AND wait_event = 'PgSleep';
+  `) === "1", `${applicationName} did not reach the migration barrier`);
+}
+
+async function waitForBlockedWriter(
+  cluster: Awaited<ReturnType<typeof disposablePostgres>>,
+  databaseUrl: string,
+  applicationName: string
+) {
+  await waitForDatabaseState(() => cluster.sql(databaseUrl, `
+    SELECT count(*) FROM pg_stat_activity
+    WHERE application_name = '${applicationName}' AND wait_event_type = 'Lock';
+  `) === "1", `${applicationName} was not blocked by the migration lock`);
+}
+
+async function waitForDatabaseState(predicate: () => boolean, errorMessage: string) {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  throw new Error(errorMessage);
+}
+
+function withApplicationName(databaseUrl: string, applicationName: string) {
+  const url = new URL(databaseUrl);
+  url.searchParams.set("application_name", applicationName);
+  return url.toString();
 }
