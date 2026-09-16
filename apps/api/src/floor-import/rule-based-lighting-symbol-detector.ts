@@ -39,9 +39,38 @@ const DEFAULT_PROFILE: LightingDetectionProfile = {
 };
 
 const MAX_COOPERATIVE_YIELD_INTERVAL = 1024;
+const TOKEN_CHARACTER = /^[\p{L}\p{N}]$/u;
+
+type AfterPrimitiveWork = () => Promise<void> | undefined;
 
 function tokenize(value: string): string[] {
   return value.normalize("NFKC").toLocaleUpperCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+}
+
+async function tokenizeCooperatively(value: string, afterWork: AfterPrimitiveWork): Promise<string[]> {
+  const normalized = value.normalize("NFKC").toLocaleUpperCase();
+  const tokens: string[] = [];
+  let token = "";
+  for (const character of normalized) {
+    if (TOKEN_CHARACTER.test(character)) token += character;
+    else if (token) {
+      tokens.push(token);
+      token = "";
+    }
+    const pause = afterWork();
+    if (pause) await pause;
+  }
+  if (token) tokens.push(token);
+  return tokens;
+}
+
+async function normalizeCooperatively(value: string, afterWork: AfterPrimitiveWork): Promise<string> {
+  const normalized = value.normalize("NFKC").toLocaleUpperCase();
+  for (const _character of normalized) {
+    const pause = afterWork();
+    if (pause) await pause;
+  }
+  return normalized;
 }
 
 function normalizeMatchers(tokens: readonly string[], label: string, allowEmpty = false): string[][] {
@@ -50,8 +79,39 @@ function normalizeMatchers(tokens: readonly string[], label: string, allowEmpty 
   return normalized;
 }
 
-function matchesTokens(tokens: readonly string[], matchers: readonly string[][]): boolean {
-  return matchers.some(matcher => tokens.some((_, index) => matcher.every((token, offset) => tokens[index + offset] === token)));
+async function matchesTokens(
+  tokens: readonly string[], matchers: readonly string[][], afterWork: AfterPrimitiveWork
+): Promise<boolean> {
+  for (const matcher of matchers) {
+    const lastStart = tokens.length - matcher.length;
+    let pause = afterWork();
+    if (pause) await pause;
+    for (let index = 0; index <= lastStart; index++) {
+      let matches = true;
+      for (let offset = 0; offset < matcher.length; offset++) {
+        const equal = tokens[index + offset] === matcher[offset];
+        pause = afterWork();
+        if (pause) await pause;
+        if (!equal) {
+          matches = false;
+          break;
+        }
+      }
+      if (matches) return true;
+    }
+  }
+  return false;
+}
+
+async function someTokensMatch(
+  tokenGroups: readonly string[][], matchers: readonly string[][], afterWork: AfterPrimitiveWork
+): Promise<boolean> {
+  for (const tokens of tokenGroups) {
+    if (await matchesTokens(tokens, matchers, afterWork)) return true;
+    const pause = afterWork();
+    if (pause) await pause;
+  }
+  return false;
 }
 
 interface IndexedCadText {
@@ -82,17 +142,27 @@ class CadTextGrid {
     else this.cells.set(key, [text]);
   }
 
-  *nearby(position: { x: number; y: number }, distance: number): Generator<IndexedCadText> {
+  async nearby(
+    position: { x: number; y: number }, distance: number, afterWork: AfterPrimitiveWork
+  ): Promise<string[][]> {
+    const nearbyTokenGroups: string[][] = [];
     const centerX = this.coordinate(position.x);
     const centerY = this.coordinate(position.y);
     const radius = distance === 0 ? 0 : Math.ceil(distance / this.cellSize);
     for (let x = centerX - radius; x <= centerX + radius; x++) {
       for (let y = centerY - radius; y <= centerY + radius; y++) {
-        for (const text of this.cells.get(this.key(x, y)) ?? []) {
-          if (Math.hypot(text.position.x - position.x, text.position.y - position.y) <= distance) yield text;
+        const texts = this.cells.get(this.key(x, y)) ?? [];
+        let pause = afterWork();
+        if (pause) await pause;
+        for (const text of texts) {
+          const isNearby = Math.hypot(text.position.x - position.x, text.position.y - position.y) <= distance;
+          pause = afterWork();
+          if (pause) await pause;
+          if (isNearby) nearbyTokenGroups.push(text.tokens);
         }
       }
     }
+    return nearbyTokenGroups;
   }
 }
 
@@ -160,28 +230,33 @@ export class RuleBasedLightingSymbolDetector implements LightingSymbolDetector {
     const textGrid = new CadTextGrid(this.profile.nearbyTextDistance);
     for (const item of expandedEntities) {
       if (item.entity.type === "text" || item.entity.type === "mtext") {
-        textGrid.add({ tokens: tokenize(item.entity.text), position: transformPoint(item.matrix, item.entity.position) });
+        textGrid.add({
+          tokens: await tokenizeCooperatively(item.entity.text, afterWork),
+          position: transformPoint(item.matrix, item.entity.position)
+        });
       }
       const pause = afterWork();
       if (pause) await pause;
     }
     const frequencies = new Map<string, number>();
-    const blockKey = (value: string) => value.normalize("NFKC").toLocaleUpperCase();
     const prepared = [];
     for (const insert of inserts) {
-      const key = blockKey(insert.blockName);
+      const key = await normalizeCooperatively(insert.blockName, afterWork);
       frequencies.set(key, (frequencies.get(key) ?? 0) + 1);
       const attributeTokens: string[][] = [];
       for (const attribute of insert.entity.attributes) {
-        attributeTokens.push(tokenize(attribute.tag), tokenize(attribute.value));
+        attributeTokens.push(
+          await tokenizeCooperatively(attribute.tag, afterWork),
+          await tokenizeCooperatively(attribute.value, afterWork)
+        );
         const pause = afterWork();
         if (pause) await pause;
       }
       prepared.push({
         insert,
         blockKey: key,
-        layerTokens: tokenize(insert.layer),
-        blockTokens: tokenize(insert.blockName),
+        layerTokens: await tokenizeCooperatively(insert.layer, afterWork),
+        blockTokens: await tokenizeCooperatively(insert.blockName, afterWork),
         attributeTokens
       });
       const pause = afterWork();
@@ -193,21 +268,29 @@ export class RuleBasedLightingSymbolDetector implements LightingSymbolDetector {
       const candidatePause = afterWork();
       if (candidatePause) await candidatePause;
       const { insert } = item;
-      const nearbyTexts: IndexedCadText[] = [];
-      for (const text of textGrid.nearby(insert.position, this.profile.nearbyTextDistance)) {
-        nearbyTexts.push(text);
-        const pause = afterWork();
-        if (pause) await pause;
+      const nearbyTokenGroups = await textGrid.nearby(insert.position, this.profile.nearbyTextDistance, afterWork);
+      if (await matchesTokens(item.layerTokens, this.denyLayerTokens, afterWork) ||
+          await matchesTokens(item.blockTokens, this.denyBlockTokens, afterWork) ||
+          await someTokensMatch(item.attributeTokens, this.denyAttributeTokens, afterWork) ||
+          await someTokensMatch(nearbyTokenGroups, this.denyNearbyTextTokens, afterWork)) {
+        checkBudget();
+        continue;
       }
-      if (matchesTokens(item.layerTokens, this.denyLayerTokens) || matchesTokens(item.blockTokens, this.denyBlockTokens) ||
-          item.attributeTokens.some(tokens => matchesTokens(tokens, this.denyAttributeTokens)) ||
-          nearbyTexts.some(text => matchesTokens(text.tokens, this.denyNearbyTextTokens))) continue;
-      if (!matchesTokens(item.layerTokens, this.layerTokens)) continue;
-      if (!matchesTokens(item.blockTokens, this.blockTokens)) continue;
-      if ((frequencies.get(item.blockKey) ?? 0) < this.profile.minimumBlockOccurrences) continue;
+      if (!await matchesTokens(item.layerTokens, this.layerTokens, afterWork)) {
+        checkBudget();
+        continue;
+      }
+      if (!await matchesTokens(item.blockTokens, this.blockTokens, afterWork)) {
+        checkBudget();
+        continue;
+      }
+      if ((frequencies.get(item.blockKey) ?? 0) < this.profile.minimumBlockOccurrences) {
+        checkBudget();
+        continue;
+      }
       const evidence = ["layer_pattern", "block_pattern", "block_frequency"];
-      if (item.attributeTokens.some(tokens => matchesTokens(tokens, this.attributeTokens))) evidence.push("attribute_pattern");
-      if (nearbyTexts.some(text => matchesTokens(text.tokens, this.nearbyTextTokens))) evidence.push("nearby_text_pattern");
+      if (await someTokensMatch(item.attributeTokens, this.attributeTokens, afterWork)) evidence.push("attribute_pattern");
+      if (await someTokensMatch(nearbyTokenGroups, this.nearbyTextTokens, afterWork)) evidence.push("nearby_text_pattern");
       detected.push({
         sourceEntityId: insert.sourceEntityId,
         layerName: insert.layer,
@@ -219,7 +302,9 @@ export class RuleBasedLightingSymbolDetector implements LightingSymbolDetector {
         evidence
       });
       if (detected.length > this.profile.maxCandidates) throw new Error("CAD lighting candidate limit exceeded");
+      checkBudget();
     }
+    checkBudget();
     return detected;
   }
 }

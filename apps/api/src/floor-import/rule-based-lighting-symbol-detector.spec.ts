@@ -159,12 +159,12 @@ describe("rule-based lighting symbol detector", () => {
     }));
     let tick = 0;
     const detected = await new RuleBasedLightingSymbolDetector().detect(cad([...inserts, ...texts]), {
-      maxDurationMs: 30_000, now: () => tick++
+      maxDurationMs: 300_000, now: () => tick++
     });
 
     expect(detected).toHaveLength(999);
     expect(detected.at(-1)?.sourceEntityId).toBe("insert-998");
-    expect(tick).toBeLessThan(30_000);
+    expect(tick).toBeLessThan(300_000);
   });
 
   it("observes an AbortSignal fired while running at the maximum cooperative yield interval", async () => {
@@ -179,6 +179,49 @@ describe("rule-based lighting symbol detector", () => {
 
     await expect(detection).rejects.toThrow(/aborted/i);
     expect(controller.signal.aborted).toBe(true);
+  });
+
+  it("rejects an in-flight abort while tokenizing parser-limit dense nearby text", async () => {
+    const controller = new AbortController();
+    const denseText = "A".repeat(64 * 1024);
+    const texts = Array.from({ length: 49 }, (_, index) => ({
+      type: "text" as const, sourceEntityId: `dense-${index}`, layer: "NOTE",
+      position: { x: 0, y: 0, z: 0 }, rotation: 0, height: 1, text: denseText
+    }));
+    const detection = new RuleBasedLightingSymbolDetector({ cooperativeYieldInterval: 1024 }).detect(cad([
+      candidate(0), candidate(1), ...texts
+    ]), { abortSignal: controller.signal });
+    setTimeout(() => controller.abort(), 0);
+
+    await expect(detection).rejects.toThrow(/aborted/i);
+    expect(controller.signal.aborted).toBe(true);
+  });
+
+  it("rejects an expired deadline during dense nearby-text matcher comparisons", async () => {
+    const repeatedTokens = "A ".repeat(5_000);
+    // The first 10,000 primitive checks tokenize the text; expiry starts in the adversarial matcher scan.
+    const deadlineAfterTokenizationChecks = 11_000;
+    let checks = 0;
+    const detector = new RuleBasedLightingSymbolDetector({
+      minimumBlockOccurrences: 1,
+      nearbyTextTokens: ["A B"],
+      denyLayerNameTokens: [],
+      denyBlockNameTokens: [],
+      denyAttributeValueTokens: [],
+      denyNearbyTextTokens: []
+    });
+    const document = cad([
+      candidate(0),
+      {
+        type: "text", sourceEntityId: "adversarial", layer: "NOTE",
+        position: { x: 0, y: 0, z: 0 }, rotation: 0, height: 1, text: repeatedTokens
+      }
+    ]);
+
+    await expect(detector.detect(document, {
+      maxDurationMs: 1,
+      now: () => checks++ < deadlineAfterTokenizationChecks ? 0 : 2
+    })).rejects.toThrow(/time.*limit/i);
   });
 
   it.each([0, 1.5, 1025])("rejects unsafe cooperative yield interval %p", cooperativeYieldInterval => {
