@@ -9,6 +9,11 @@ import { saveEditorDraft } from "./editor-drafts";
 import { clearTenantCache } from "../../api/principal-cache";
 
 const floorEditorApi = vi.hoisted(() => ({
+  applyFloorImportJob: vi.fn(),
+  cancelFloorImportJob: vi.fn(),
+  createFloorImportJob: vi.fn(),
+  getFloorImportJob: vi.fn(),
+  listFloorImportCandidates: vi.fn(),
   listFloorEditorRevisions: vi.fn(),
   restoreFloorEditorRevision: vi.fn(),
   saveFloorEditorState: vi.fn(),
@@ -576,33 +581,118 @@ describe("FloorEditorView", () => {
     expect(useFloorEditorStore.getState().isDirty).toBe(true);
   });
 
-  it("links a ready PDF original while preserving the current rendered canvas background", async () => {
+  it("previews CAD review results without registering fixtures and applies with the editor authority", async () => {
+    const jobId = "00000000-0000-4000-8000-000000000020";
+    const candidateId = "00000000-0000-4000-8000-000000000030";
+    const renderedAssetPath = "/api/floors/floor-b2/assets/rendered-cad/content";
     floorEditorApi.uploadFloorAsset.mockResolvedValueOnce({
-      id: "asset-pdf",
+      id: "00000000-0000-4000-8000-000000000010",
       kind: "original",
       status: "ready",
-      mimeType: "application/pdf",
+      mimeType: "application/dxf",
       sizeBytes: 3,
-      sha256: "b".repeat(64),
-      accessPath: "/api/floors/floor-b2/assets/asset-pdf/content"
+      sha256: "a".repeat(64),
+      accessPath: "/api/floors/floor-b2/assets/source-cad/content"
     });
-    renderEditor();
-    fireEvent.change(screen.getByLabelText("도면 파일"), {
-      target: { files: [new File(["pdf"], "parking.pdf", { type: "application/pdf" })] }
+    floorEditorApi.createFloorImportJob.mockResolvedValueOnce({
+      jobId,
+      floorId: "floor-b2",
+      sourceAssetId: "00000000-0000-4000-8000-000000000010",
+      renderedAssetId: "rendered-cad",
+      sourceFormat: "dxf",
+      status: "review_required",
+      stage: "review_required",
+      progressPercent: 100,
+      attemptCount: 1,
+      parserVersion: "parser-1",
+      detectorVersion: "detector-1",
+      failureCode: null,
+      sourceAssetPath: "/api/floors/floor-b2/assets/source-cad/content",
+      renderedAssetPath,
+      startedAt: "2026-09-17T00:00:00.000Z",
+      reviewRequiredAt: "2026-09-17T00:00:01.000Z",
+      appliedAt: null,
+      completedAt: null,
+      failedAt: null,
+      cancelledAt: null,
+      createdAt: "2026-09-17T00:00:00.000Z",
+      updatedAt: "2026-09-17T00:00:01.000Z"
     });
-    fireEvent.click(screen.getByRole("button", { name: "도면 업로드" }));
+    floorEditorApi.listFloorImportCandidates.mockResolvedValueOnce({
+      jobId,
+      candidates: [{
+        id: candidateId,
+        sourceEntityId: "insert-1",
+        layerName: "LIGHT",
+        blockName: "LED",
+        x: 100,
+        y: 120,
+        rotation: 0,
+        confidence: 0.95,
+        detectionMethod: "rule_based",
+        provider: null,
+        model: null,
+        inputDigest: null,
+        reviewStatus: "pending"
+      }]
+    });
+    floorEditorApi.applyFloorImportJob.mockResolvedValueOnce({
+      jobId,
+      status: "completed",
+      revision: 8,
+      acceptedCandidateIds: [candidateId],
+      renderedAssetId: "rendered-cad",
+      floorPlan: {
+        sourceType: "image",
+        imageUrl: renderedAssetPath,
+        originalFileUrl: "/api/floors/floor-b2/assets/source-cad/content",
+        renderedImageUrl: renderedAssetPath,
+        width: 1200,
+        height: 800,
+        gridSize: 10
+      }
+    });
+    const onReload = vi.fn();
+    renderEditor(editorState, { onReload });
 
-    const linked = await screen.findByText("PDF 원본이 연결되었습니다.");
-    expect(linked.closest("[role=status]")).toHaveAttribute("data-tone", "success");
-    expect(useFloorEditorStore.getState().state?.floor.floorPlan).toMatchObject({
-      sourceType: "pdf",
-      imageUrl: "/demo/floor-b2.svg",
-      originalFileUrl: "/api/floors/floor-b2/assets/asset-pdf/content",
-      renderedImageUrl: "/demo/floor-b2.svg",
-      version: 2
+    fireEvent.change(screen.getByLabelText("CAD 파일"), {
+      target: { files: [new File(["dxf"], "parking.dxf", { type: "application/dxf" })] }
     });
+    fireEvent.click(screen.getByRole("button", { name: "CAD 가져오기" }));
+
+    await screen.findByText("조명 위치 후보 1개를 찾았습니다.");
+    expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("data-background-url", renderedAssetPath);
+    expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("data-cad-candidate-count", "1");
+    expect(useFloorEditorStore.getState().state?.fixtures).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "선택한 후보와 배경 적용" }));
+
+    await waitFor(() => expect(floorEditorApi.applyFloorImportJob).toHaveBeenCalledWith("floor-b2", jobId, {
+      expectedRevision: 7,
+      leaseToken: "lease-token",
+      leaseFence: 7,
+      candidateIds: [candidateId]
+    }));
+    await waitFor(() => expect(onReload).toHaveBeenCalledOnce());
+    expect(floorEditorApi.saveFloorEditorState).not.toHaveBeenCalled();
+  });
+
+  it("keeps an existing PDF floor plan visible while removing PDF from new upload choices", () => {
+    renderEditor({
+      ...editorState,
+      floor: {
+        ...editorState.floor,
+        floorPlan: {
+          ...editorState.floor.floorPlan!,
+          sourceType: "pdf",
+          originalFileUrl: "/api/floors/floor-b2/assets/original.pdf"
+        }
+      }
+    });
+
     expect(screen.getByLabelText("B2 편집 캔버스")).toHaveClass("has-plan");
-    expect(useFloorEditorStore.getState().isDirty).toBe(true);
+    expect(screen.getByLabelText("도면 파일")).not.toHaveAttribute("accept", expect.stringContaining("pdf"));
+    expect(useFloorEditorStore.getState().state?.floor.floorPlan?.sourceType).toBe("pdf");
   });
 
   it("locks save restore and floor switching while an upload is pending", async () => {

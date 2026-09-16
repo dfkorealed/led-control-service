@@ -1,3 +1,10 @@
+import type {
+  CadImportMimeType,
+  CadImportSourceFormat,
+  FloorImportCandidate,
+  FloorImportJobStatus
+} from "@led-control/shared";
+
 export type EditorTool = "select" | "pan" | "rectangle" | "triangle" | "line" | "text";
 
 export type MapObjectType = "rectangle" | "triangle" | "line" | "text";
@@ -31,13 +38,53 @@ export interface FloorAsset {
   id: string;
   kind: "original" | "rendered";
   status: "pending" | "ready";
-  mimeType: "image/png" | "image/jpeg" | "application/pdf";
+  mimeType: "image/png" | "image/jpeg" | "application/pdf" | "image/svg+xml" | CadImportMimeType;
   sizeBytes: number;
   sha256: string;
   accessPath: string;
   readyAt?: string;
   createdAt?: string;
   updatedAt?: string;
+}
+
+export interface FloorImportJob {
+  jobId: string;
+  floorId: string;
+  sourceAssetId: string;
+  renderedAssetId: string | null;
+  sourceFormat: CadImportSourceFormat;
+  status: FloorImportJobStatus;
+  stage: string;
+  progressPercent: number;
+  attemptCount: number;
+  parserVersion: string | null;
+  detectorVersion: string | null;
+  failureCode: string | null;
+  sourceAssetPath: string;
+  renderedAssetPath: string | null;
+  startedAt: string | null;
+  reviewRequiredAt: string | null;
+  appliedAt: string | null;
+  completedAt: string | null;
+  failedAt: string | null;
+  cancelledAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FloorImportApplyResult {
+  jobId: string;
+  status: "completed";
+  revision: number;
+  acceptedCandidateIds: string[];
+  renderedAssetId: string;
+  floorPlan: Omit<FloorPlanDraft, "id" | "version">;
+}
+
+export interface CadImportReviewState {
+  job: FloorImportJob;
+  candidates: FloorImportCandidate[];
+  acceptedCandidateIds: string[];
 }
 
 export interface EditorFixture {

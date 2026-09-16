@@ -1,7 +1,18 @@
-import type { RestoreFloorEditorRevisionInput, SaveEditorStateInput } from "@led-control/shared";
+import type {
+  CadImportSourceFormat,
+  FloorImportApplyInput,
+  FloorImportCandidateListResponse,
+  RestoreFloorEditorRevisionInput,
+  SaveEditorStateInput
+} from "@led-control/shared";
 import type { FixtureIdentifyRequest, FixtureIdentifyResponse } from "@led-control/shared";
 import { ApiError, apiGet, apiPost, apiPut, apiRequest } from "./client";
-import type { FloorAsset, FloorEditorState } from "../features/floor-editor/editor-types";
+import type {
+  FloorAsset,
+  FloorEditorState,
+  FloorImportApplyResult,
+  FloorImportJob
+} from "../features/floor-editor/editor-types";
 
 export function getFloorEditorState(floorId: string) {
   return apiGet<FloorEditorState>(`/floors/${encodeURIComponent(floorId)}/editor-state`);
@@ -63,6 +74,33 @@ export function restoreFloorEditorRevision(floorId: string, revision: number, pa
     `/floors/${encodeURIComponent(floorId)}/editor-revisions/${revision}/restore`,
     payload
   );
+}
+
+export function createFloorImportJob(
+  floorId: string,
+  payload: { sourceAssetId: string; sourceFormat: CadImportSourceFormat }
+) {
+  return apiPost<FloorImportJob>(`/floors/${encodeURIComponent(floorId)}/import-jobs`, payload);
+}
+
+export function getFloorImportJob(floorId: string, jobId: string) {
+  return apiGet<FloorImportJob>(floorImportJobPath(floorId, jobId));
+}
+
+export function listFloorImportCandidates(floorId: string, jobId: string) {
+  return apiGet<FloorImportCandidateListResponse>(`${floorImportJobPath(floorId, jobId)}/candidates`);
+}
+
+export function applyFloorImportJob(floorId: string, jobId: string, payload: FloorImportApplyInput) {
+  return apiPost<FloorImportApplyResult>(`${floorImportJobPath(floorId, jobId)}/apply`, payload);
+}
+
+export function cancelFloorImportJob(floorId: string, jobId: string) {
+  return apiPost<FloorImportJob>(`${floorImportJobPath(floorId, jobId)}/cancel`, {});
+}
+
+function floorImportJobPath(floorId: string, jobId: string) {
+  return `/floors/${encodeURIComponent(floorId)}/import-jobs/${encodeURIComponent(jobId)}`;
 }
 
 interface FloorAssetUploadIntent {

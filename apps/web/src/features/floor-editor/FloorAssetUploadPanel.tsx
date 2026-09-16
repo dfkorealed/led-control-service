@@ -8,8 +8,7 @@ const MAX_ASSET_BYTES = 50 * 1024 * 1024;
 const MIME_BY_EXTENSION = {
   png: "image/png",
   jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  pdf: "application/pdf"
+  jpeg: "image/jpeg"
 } as const;
 
 export interface FloorAssetUploadPanelProps {
@@ -44,9 +43,7 @@ export function FloorAssetUploadPanel({
     try {
       const asset = await uploadFloorAsset(floorId, file);
       if (asset.status !== "ready") throw new Error("Floor asset did not become ready");
-      const nextFloorPlan = file.type === "application/pdf"
-        ? pdfFloorPlan(asset, floorPlan)
-        : imageFloorPlan(asset, floorPlan);
+      const nextFloorPlan = imageFloorPlan(asset, floorPlan);
       onUploaded(asset, nextFloorPlan);
       setUploadedAsset(asset);
       setFile(null);
@@ -67,8 +64,8 @@ export function FloorAssetUploadPanel({
       </div>
       <FileField
         label="도면 파일"
-        description="PNG, JPG 또는 PDF · 최대 50 MB"
-        accept=".png,.jpg,.jpeg,.pdf,image/png,image/jpeg,application/pdf"
+        description="PNG 또는 JPG · 최대 50 MB"
+        accept=".png,.jpg,.jpeg,image/png,image/jpeg"
         isDisabled={disabled || uploading}
         isInvalid={Boolean(error)}
         onChange={(files) => {
@@ -85,9 +82,7 @@ export function FloorAssetUploadPanel({
         <FeedbackState
           tone="success"
           icon={CircleCheck}
-          title={uploadedAsset.mimeType === "application/pdf"
-            ? "PDF 원본이 연결되었습니다."
-            : "도면 배경이 편집 초안에 적용되었습니다."}
+          title="도면 배경이 편집 초안에 적용되었습니다."
         />
       ) : null}
       <div className="flex flex-wrap gap-2">
@@ -121,7 +116,7 @@ function validateAssetFile(file: File): string | null {
   if (file.size > MAX_ASSET_BYTES) return "파일 크기는 50 MB 이하여야 합니다.";
   const extension = file.name.toLowerCase().match(/\.([^.]+)$/)?.[1];
   if (!extension || !Object.hasOwn(MIME_BY_EXTENSION, extension)) {
-    return "PNG, JPG, PDF 파일만 업로드할 수 있습니다.";
+    return "PNG, JPG 파일만 업로드할 수 있습니다.";
   }
   if (MIME_BY_EXTENSION[extension as keyof typeof MIME_BY_EXTENSION] !== file.type) {
     return "파일 형식과 확장자가 일치하지 않습니다.";
@@ -135,20 +130,6 @@ function imageFloorPlan(asset: FloorAsset, current: FloorPlanDraft | null): Floo
     imageUrl: asset.accessPath,
     originalFileUrl: asset.accessPath,
     renderedImageUrl: asset.accessPath,
-    width: current?.width ?? 1200,
-    height: current?.height ?? 800,
-    gridSize: current?.gridSize ?? 10,
-    version: (current?.version ?? 0) + 1
-  };
-}
-
-function pdfFloorPlan(asset: FloorAsset, current: FloorPlanDraft | null): FloorPlanDraft {
-  const renderedImageUrl = current?.renderedImageUrl || (current?.sourceType === "image" ? current.imageUrl : null);
-  return {
-    sourceType: "pdf",
-    imageUrl: renderedImageUrl ?? "",
-    originalFileUrl: asset.accessPath,
-    renderedImageUrl,
     width: current?.width ?? 1200,
     height: current?.height ?? 800,
     gridSize: current?.gridSize ?? 10,

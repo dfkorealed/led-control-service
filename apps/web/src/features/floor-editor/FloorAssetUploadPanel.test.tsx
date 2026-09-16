@@ -1,9 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { saveEditorStateSchema } from "@led-control/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FloorAssetUploadPanel } from "./FloorAssetUploadPanel";
-import { buildEditorChanges } from "./editor-diff";
-import type { FloorAsset, FloorEditorState } from "./editor-types";
+import type { FloorAsset } from "./editor-types";
 
 const floorEditorApi = vi.hoisted(() => ({
   uploadFloorAsset: vi.fn()
@@ -54,8 +52,7 @@ describe("FloorAssetUploadPanel", () => {
   it.each([
     ["parking.png", "image/png"],
     ["parking.jpg", "image/jpeg"],
-    ["parking.jpeg", "image/jpeg"],
-    ["parking.pdf", "application/pdf"]
+    ["parking.jpeg", "image/jpeg"]
   ])("accepts %s with its matching MIME type", async (name, mimeType) => {
     floorEditorApi.uploadFloorAsset.mockResolvedValueOnce({ ...readyAsset, mimeType });
     const { onUploaded } = renderPanel();
@@ -75,7 +72,8 @@ describe("FloorAssetUploadPanel", () => {
   });
 
   it.each([
-    [new File(["map"], "parking.svg", { type: "image/svg+xml" }), "PNG, JPG, PDF"],
+    [new File(["map"], "parking.svg", { type: "image/svg+xml" }), "PNG, JPG"],
+    [new File(["map"], "parking.pdf", { type: "application/pdf" }), "PNG, JPG"],
     [new File(["map"], "parking.png", { type: "application/pdf" }), "파일 형식과 확장자"],
     [new File([], "parking.png", { type: "image/png" }), "빈 파일"],
     [new File([new Uint8Array(50 * 1024 * 1024 + 1)], "parking.png", { type: "image/png" }), "50 MB"]
@@ -122,46 +120,29 @@ describe("FloorAssetUploadPanel", () => {
     expect(floorEditorApi.uploadFloorAsset).toHaveBeenCalledTimes(2);
   });
 
-  it("keeps a ready PDF original in the editable floor plan without inventing a rendered image", async () => {
-    const pdfAsset = { ...readyAsset, mimeType: "application/pdf" as const };
-    floorEditorApi.uploadFloorAsset.mockResolvedValueOnce(pdfAsset);
-    const { onUploaded } = renderPanel();
-    selectFile(new File(["pdf"], "parking.pdf", { type: "application/pdf" }));
-
-    fireEvent.click(screen.getByRole("button", { name: "도면 업로드" }));
-
-    await waitFor(() => expect(onUploaded).toHaveBeenCalledWith(pdfAsset, {
-      sourceType: "pdf",
-      imageUrl: "",
-      originalFileUrl: pdfAsset.accessPath,
-      renderedImageUrl: null,
+  it("keeps existing PDF floor-plan data readable without offering PDF for a new upload", () => {
+    const pdfFloorPlan = {
+      sourceType: "pdf" as const,
+      imageUrl: "/rendered.png",
+      originalFileUrl: "/original.pdf",
+      renderedImageUrl: "/rendered.png",
       width: 1200,
       height: 800,
       gridSize: 10,
-      version: 1
-    }));
-
-    const initial: FloorEditorState = {
-      floor: { id: "floor-1", siteId: "site-1", name: "B1", level: -1, mapRevision: 7, floorPlan: null },
-      fixtures: [],
-      objects: []
+      version: 2
     };
-    const uploadedDraft = onUploaded.mock.calls[0][1];
-    const changes = buildEditorChanges(initial, {
-      ...initial,
-      floor: { ...initial.floor, floorPlan: uploadedDraft }
-    });
+    render(
+      <FloorAssetUploadPanel
+        floorId="floor-1"
+        floorPlan={pdfFloorPlan}
+        onUploadingChange={vi.fn()}
+        onUploaded={vi.fn()}
+        onRemoved={vi.fn()}
+      />
+    );
 
-    expect(changes.floorPlan).toEqual({
-      sourceType: "pdf",
-      imageUrl: "",
-      originalFileUrl: pdfAsset.accessPath,
-      renderedImageUrl: null,
-      width: 1200,
-      height: 800,
-      gridSize: 10
-    });
-    expect(() => saveEditorStateSchema.parse({ ...changes, leaseToken: "lease-token", leaseFence: 1 })).not.toThrow();
+    expect(screen.getByLabelText("도면 파일")).not.toHaveAttribute("accept", expect.stringContaining("pdf"));
+    expect(screen.getByRole("button", { name: "현재 도면 연결 제거" })).toBeInTheDocument();
   });
 
   it("turns the current floor plan into a map-only draft when the link is removed", () => {

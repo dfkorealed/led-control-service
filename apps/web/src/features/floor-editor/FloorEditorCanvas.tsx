@@ -1,4 +1,5 @@
 import Konva from "konva";
+import type { FloorImportCandidate } from "@led-control/shared";
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent } from "react";
 import { Circle, Image as KonvaImage, Label, Layer, Line, Rect, Shape, Stage, Tag, Text, Transformer } from "react-konva";
 import { themeColor } from "../../components/ui";
@@ -21,12 +22,29 @@ import { FIXTURE_DRAG_TYPE, type FixturePlacementRowRegistry } from "./FixturePl
 import { FixturePlacementAction } from "./FixturePlacementAction";
 import { EditorMinimap } from "./EditorMinimap";
 import { canShowFixtureNames, selectedFixtureLabelLayout } from "./editor-labels";
+import { CadCandidateLayer } from "./CadCandidateLayer";
 
 const TOOL_DRAG_TYPE = "application/x-floor-editor-tool";
 const drawingTools = new Set<EditorTool>(["rectangle", "triangle", "line", "text"]);
 type Gesture = { kind: "pan" | "marquee" | "draw"; start: Point; screen: Point; pan: Point; additive: boolean; moved: boolean };
 
-export function FloorEditorCanvas({ readOnly = false, rowRegistry }: { readOnly?: boolean; rowRegistry: FixturePlacementRowRegistry }) {
+interface FloorEditorCanvasProps {
+  readOnly?: boolean;
+  rowRegistry: FixturePlacementRowRegistry;
+  cadCandidates?: FloorImportCandidate[];
+  cadBackgroundUrl?: string | null;
+  acceptedCadCandidateIds?: Set<string>;
+  onToggleCadCandidate?: (candidateId: string) => void;
+}
+
+export function FloorEditorCanvas({
+  readOnly = false,
+  rowRegistry,
+  cadCandidates = [],
+  cadBackgroundUrl,
+  acceptedCadCandidateIds = new Set(),
+  onToggleCadCandidate
+}: FloorEditorCanvasProps) {
   const container = useRef<HTMLDivElement>(null);
   const stage = useRef<Konva.Stage>(null);
   const transformer = useRef<Konva.Transformer>(null);
@@ -60,7 +78,8 @@ export function FloorEditorCanvas({ readOnly = false, rowRegistry }: { readOnly?
   const [dropPreview, setDropPreview] = useState<Point | null>(null);
   const [isPanning, setIsPanning] = useState(false);
   const floorPlan = state?.floor.floorPlan;
-  const backgroundUrl = floorPlan?.sourceType !== "none" ? floorPlan?.renderedImageUrl ?? floorPlan?.imageUrl : "";
+  const backgroundUrl = cadBackgroundUrl
+    ?? (floorPlan?.sourceType !== "none" ? floorPlan?.renderedImageUrl ?? floorPlan?.imageUrl : "");
   const bounds = { width: floorPlan?.width ?? 1200, height: floorPlan?.height ?? 800 };
   const editorColors = useMemo(() => ({
     panel: themeColor("surface-panel"),
@@ -279,6 +298,7 @@ export function FloorEditorCanvas({ readOnly = false, rowRegistry }: { readOnly?
   return <div ref={container} className={`relative h-full min-h-105 w-full overflow-hidden bg-surface-canvas ${backgroundUrl ? "has-plan" : "grid-only"} ${activeTool === "pan" ? isPanning ? "cursor-grabbing" : "cursor-grab" : ""}`}
     aria-label={`${state.floor.name} 편집 캔버스`} aria-disabled={readOnly} data-testid="floor-editor-canvas" data-floor-id={state.floor.id} data-zoom={zoom} data-pan-x={pan.x} data-pan-y={pan.y}
     data-snap={snap} data-grid-size={floorPlan?.gridSize ?? 10} data-active-guides=""
+    data-background-url={backgroundUrl} data-cad-candidate-count={cadCandidates.length}
     onMouseDown={begin} onMouseMove={move} onMouseUp={finish} onMouseLeave={(e) => { if (gesture.current?.kind === "pan") finish(e); else { gesture.current = null; setCreation(null); setMarquee(null); setIsPanning(false); } }}
     onDragOver={dragOver} onDragLeave={() => setDropPreview(null)} onDrop={drop}>
     <Stage ref={stage} width={viewport.width} height={viewport.height} onWheel={(event) => {
@@ -293,6 +313,14 @@ export function FloorEditorCanvas({ readOnly = false, rowRegistry }: { readOnly?
         {background && layers.background.visible && <KonvaImage image={background} width={bounds.width} height={bounds.height} />}
         {snap ? <MapGrid width={bounds.width} height={bounds.height} gridSize={floorPlan?.gridSize ?? 10} zoom={zoom} color={editorColors.grid} /> : null}
       </Layer>
+      <CadCandidateLayer
+        candidates={cadCandidates}
+        acceptedCandidateIds={acceptedCadCandidateIds}
+        transform={transform}
+        zoom={zoom}
+        disabled={!onToggleCadCandidate}
+        onToggle={onToggleCadCandidate ?? (() => undefined)}
+      />
       <Layer {...transform} visible={layers.objects.visible} listening={!readOnly && !layers.objects.locked && activeTool === "select"}>
         {state.objects.filter((o) => o.visible).sort((a, b) => a.zIndex - b.zIndex).map((object) => {
           let ref = objectRefCallbacks.current.get(object.id);

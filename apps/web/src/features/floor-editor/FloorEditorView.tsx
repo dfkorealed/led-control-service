@@ -1,6 +1,6 @@
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { CircleCheck, Hand, Minus, MousePointer2, RotateCcw, Save, Square, Triangle, TriangleAlert, Type, Undo2, Redo2, ZoomIn, ZoomOut, Maximize, Focus } from "lucide-react";
-import { type DragEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type DragEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { AuthUser } from "../../api/auth";
 import { ApiError } from "../../api/client";
@@ -17,13 +17,14 @@ import { EditorBatchPlacementPanel } from "./EditorBatchPlacementPanel";
 import { EditorLayersPanel } from "./EditorLayersPanel";
 import { FixtureIdentifyPanel } from "./FixtureIdentifyPanel";
 import { FloorAssetUploadPanel } from "./FloorAssetUploadPanel";
+import { CadImportPanel } from "./CadImportPanel";
 import { loadEditorDraft, removeEditorDraft, saveEditorDraft, editorDraftGeneration } from "./editor-drafts";
 import { authMeQueryKey } from "../../api/principal-cache";
 import { FloorEditorCanvas } from "./FloorEditorCanvas";
 import { buildEditorChanges } from "./editor-diff";
 import { synchronizeMonitoringCaches } from "./editor-monitoring-cache";
 import { useFloorEditorStore } from "./editor-store";
-import type { EditorTool, FloorEditorState } from "./editor-types";
+import type { CadImportReviewState, EditorTool, FloorEditorState, FloorImportApplyResult } from "./editor-types";
 
 interface FloorEditorViewProps {
   initialState: FloorEditorState;
@@ -72,6 +73,8 @@ export function FloorEditorView({
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "error" | "conflict">("idle");
   const [restoringRevision, setRestoringRevision] = useState<number | null>(null);
   const [isUploadPending, setIsUploadPending] = useState(false);
+  const [isCadImportPending, setIsCadImportPending] = useState(false);
+  const [cadImportReview, setCadImportReview] = useState<CadImportReviewState | null>(null);
   const [skippedFixtureCount, setSkippedFixtureCount] = useState(0);
   const [confirmReload, setConfirmReload] = useState(false);
   const rowRegistry = useMemo(createFixturePlacementRowRegistry, []);
@@ -209,8 +212,37 @@ export function FloorEditorView({
     setIsUploadPending(uploading);
   }
 
+  const handleCadBusyChange = useCallback((busy: boolean) => {
+    mutationLock.current = busy;
+    setIsCadImportPending(busy);
+  }, []);
+
+  const handleCadApplied = useCallback(async (_result: FloorImportApplyResult) => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["dashboard", siteId] }),
+      queryClient.invalidateQueries({ queryKey: ["floor-fixtures", siteId, floorId] }),
+      queryClient.invalidateQueries({ queryKey: ["floor-map", siteId, floorId] }),
+      queryClient.invalidateQueries({ queryKey: ["floor-editor-revisions", siteId, floorId] })
+    ]);
+    await onReload();
+  }, [floorId, onReload, queryClient, siteId]);
+
+  const toggleCadCandidate = useCallback((candidateId: string) => {
+    setCadImportReview((current) => {
+      if (!current) return current;
+      const accepted = new Set(current.acceptedCandidateIds);
+      if (accepted.has(candidateId)) accepted.delete(candidateId);
+      else accepted.add(candidateId);
+      return { ...current, acceptedCandidateIds: [...accepted] };
+    });
+  }, []);
+
   const revisions = revisionsQuery.data?.pages.flatMap((page) => page.items) ?? [];
-  const isMutationPending = saveStatus === "saving" || restoringRevision !== null || isUploadPending;
+  const acceptedCadCandidateIds = useMemo(
+    () => new Set(cadImportReview?.acceptedCandidateIds ?? []),
+    [cadImportReview?.acceptedCandidateIds]
+  );
+  const isMutationPending = saveStatus === "saving" || restoringRevision !== null || isUploadPending || isCadImportPending;
   const isSaveOrRestoreBlocked = readOnly || isMutationPending || state?.floor.id !== floorId;
 
   return (
@@ -294,7 +326,14 @@ export function FloorEditorView({
           })}
         </aside><Checkbox className="m-2" label="격자 스냅" isSelected={snap} isDisabled={readOnly} onChange={(selected) => useFloorEditorStore.getState().setSnap(selected)} /></div>
         <main className="col-span-6 grid min-w-0 overflow-hidden border border-border-default bg-surface-inset max-compact:col-span-full max-compact:h-120 tablet:col-span-7">
-          <FloorEditorCanvas readOnly={readOnly || isMutationPending} rowRegistry={rowRegistry} />
+          <FloorEditorCanvas
+            readOnly={readOnly || isMutationPending}
+            rowRegistry={rowRegistry}
+            cadCandidates={cadImportReview?.candidates}
+            cadBackgroundUrl={cadImportReview?.job.renderedAssetPath}
+            acceptedCadCandidateIds={acceptedCadCandidateIds}
+            onToggleCadCandidate={cadImportReview && !readOnly ? toggleCadCandidate : undefined}
+          />
         </main>
         <SidePanel className="col-span-3 grid min-w-0 content-start gap-3 overflow-y-auto p-0 max-compact:col-span-full" aria-label="맵 편집 정보">
           <div className="grid grid-cols-3 gap-1 bg-surface-inset p-1" role="tablist" aria-label="편집 패널">{[["properties", "속성"], ["placement", "배치"], ["layers", "레이어"]].map(([value, label]) => <Button size="sm" variant={panelTab === value ? "primary" : "ghost"} role="tab" key={value} aria-selected={panelTab === value} onClick={() => setPanelTab(value)}>{label}</Button>)}</div>
@@ -316,6 +355,17 @@ export function FloorEditorView({
                 useFloorEditorStore.getState().updateFloorPlan(floorPlan);
               }
             }}
+          />
+          <CadImportPanel
+            floorId={floorId}
+            expectedRevision={baseline?.floor.mapRevision ?? initialState.floor.mapRevision}
+            leaseToken={leaseToken}
+            leaseFence={leaseFence}
+            disabled={readOnly || saveStatus === "saving" || restoringRevision !== null || isUploadPending}
+            review={cadImportReview}
+            onReviewChange={setCadImportReview}
+            onBusyChange={handleCadBusyChange}
+            onApplied={handleCadApplied}
           />
           <FixtureIdentifyPanel floorId={floorId} readOnly={readOnly || isMutationPending} leaseToken={leaseToken} leaseFence={leaseFence} />
           <RevisionPanel
