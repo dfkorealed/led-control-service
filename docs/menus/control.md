@@ -4,6 +4,8 @@
 
 ## 구현 완료
 
+- 2026-09-17 저장 구역 생성·수정의 조명 멤버십 편집을 지도 우선 `FixtureGroupMapEditor`로 교체했다. 첫 조명 선택은 같은 floor·Gateway 경계를 잠그며, 모두 제거해도 기존 구역의 경계는 자동으로 이동하지 않고 명시적인 경계 선택으로만 바뀐다. 지도 marker와 보조 목록 drawer는 같은 `SpatialTargetSelector` 상태를 공유하므로 미배치 조명도 목록에서 선택할 수 있다. 저장은 기존 생성/수정 mutation에 1~100개 unique fixture의 전체 교체 set만 전달하며, 편집 중 추가·제거 예정 멤버를 텍스트로 표시한다. 저장 전에는 `저장 후 Mesh 설정 중`을 안내하고 저장 응답의 `configuring` 상태는 `Mesh 설정 중`으로 표시한다. 경계 polygon은 저장하거나 렌더링하지 않는다. 카드·삭제 확인·재동기화·viewer 읽기 전용·cache/focus 계약은 유지했고, 모바일 44px marker/action, 16px field 및 내부 overflow는 공통 selector 정책을 따른다. 이는 Vitest UI 회귀 증거이며 실제 Mesh/조명 HIL 완료를 뜻하지 않는다.
+
 - 2026-09-17 차량 감지 이벤트 추가·수정은 감지 센서와 실행 조명을 각각 지도 우선 `SpatialTargetSelector` 단계에서 선택한다. 감지 센서는 capability가 검증된 fixture 직접 선택만 허용하고, 지원하지 않는 센서는 지도에 `선택 불가`로 보인다. 새 이벤트에서는 적격 감지 센서의 단일 Gateway가 정해지기 전 실행 조명 선택 action을 비활성화하고 이유를 안내한다. 실행 조명은 감지 센서의 단일 Gateway로 제한한 개별·층·저장 구역 선택을 제공하며, 층·구역은 완료 시 정렬된 fixture ID 스냅샷으로 기존 이벤트 payload에 저장한다. 이후 멤버십 변경은 저장된 이벤트를 바꾸지 않고 API 재편집은 직접 fixture 스냅샷으로 시작한다. 감지 Gateway를 바꾸면 호환되지 않는 실행 대상은 비워 저장을 차단한다. 기존 validation/server error focus, 권한·pending lock, 밝기/디밍/유지 시간과 `VehicleEventRuleSnapshotV1` 계약은 유지한다. 지도 view와 목록 drawer는 compact bounded overflow, 44px action/marker, 16px field 정책을 따른다. Vitest 지도 선택·form·presenter·panel 41개는 Web UI 회귀 증거이며 실제 Mesh/조명 HIL은 아니다.
 
 - 2026-09-17 스케줄 추가·수정의 전용 대상 선택 view를 지도 우선 `SpatialTargetSelector`로 교체했다. 개별 marker·목록 drawer·층 전체·저장 구역은 공통 단일 gateway/Mesh readiness 정책을 그대로 따르며, 층·구역을 고르면 그 시점의 fixture ID를 스케줄 payload에 스냅샷으로 저장한다. 따라서 뒤의 그룹 멤버십 변경은 기존 스케줄을 바꾸지 않고, API에서 다시 불러온 스케줄은 직접 fixture 스냅샷으로 표시한다. 대상 검증 focus, schedule overlap·고급 반복·현장 시간대, 권한/submit lock과 API schema는 유지한다. compact 대상 view와 보조 목록 drawer는 bounded full-screen content, 44px action과 16px field 계약을 따른다. 관련 Vitest schedule/contract 55개를 통과했으며 이는 브라우저 회귀 증거로 실제 Mesh/조명 HIL은 아니다.
@@ -295,8 +297,11 @@
 ## 관련 파일
 
 - `apps/web/src/features/control/ControlView.tsx`
-- `apps/web/src/features/control/ControlTargetPicker.tsx`
 - `apps/web/src/features/control/FixtureGroupDialog.tsx`
+- `apps/web/src/features/control/FixtureGroupDialog.test.tsx`
+- `apps/web/src/features/control/target-selection/FixtureGroupMapEditor.tsx`
+- `apps/web/src/features/control/target-selection/FixtureGroupMapEditor.test.tsx`
+- `apps/web/src/features/control/target-selection/SpatialTargetSelector.tsx`
 - `apps/web/src/features/control/automation/ControlModeTabs.tsx`
 - `apps/web/src/features/control/automation/ScheduleControlPanel.tsx`
 - `apps/web/src/features/control/automation/ScheduleDialog.tsx`

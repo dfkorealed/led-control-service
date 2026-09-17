@@ -1,5 +1,5 @@
 import type { Dashboard, DashboardFixture } from "../../../api/queries";
-import type { ControlSelection } from "../ControlTargetPicker";
+import type { ControlSelection } from "../control-selection";
 import type { ScheduleFormValues } from "./schedule-form";
 import type { VehicleEventFormValues } from "./vehicle-event-form";
 

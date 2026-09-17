@@ -1,3 +1,4 @@
+import type { FloorMapSnapshot } from "@led-control/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -13,10 +14,15 @@ const mocks = vi.hoisted(() => ({
   deleteFixtureGroup: vi.fn(),
   resyncFixtureGroup: vi.fn()
 }));
+const floorMapQuery = vi.hoisted(() => vi.fn());
 
 vi.mock("../../api/fixture-groups", () => ({
   fixtureGroupQueryKey: (siteId: string) => ["fixture-groups", siteId],
   ...mocks
+}));
+vi.mock("../../api/queries", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../api/queries")>()),
+  useFloorMapSnapshot: floorMapQuery
 }));
 
 const ids = {
@@ -39,10 +45,12 @@ const failedGroup: FixtureGroupMetadata = {
 };
 
 const dashboard = createDashboard();
+const snapshot: FloorMapSnapshot = { floorId: ids.floor, revision: 1, width: 600, height: 400, floorPlan: null, objects: [] };
 
 describe("FixtureGroupDialog", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    floorMapQuery.mockReturnValue({ data: snapshot, error: null, isLoading: false, isFetching: false });
     mocks.listFixtureGroups.mockResolvedValue([failedGroup]);
     mocks.createFixtureGroup.mockResolvedValue({
       ...failedGroup,
@@ -65,16 +73,14 @@ describe("FixtureGroupDialog", () => {
 
   afterEach(cleanup);
 
-  it("creates a saved zone only from fixtures in the selected floor and gateway", async () => {
+  it("submits full replacement membership from the map editor", async () => {
     renderDialog(true);
 
     await screen.findByText("B2 입구");
     fireEvent.click(screen.getByRole("button", { name: "새 구역" }));
     fireEvent.change(screen.getByLabelText("구역 이름"), { target: { value: "B2 출구" } });
-    await selectOption("층", "B2");
-    await selectOption("게이트웨이", "Gateway B2");
-    fireEvent.click(screen.getByLabelText("B2-L001 포함"));
-    fireEvent.click(screen.getByLabelText("B2-L002 포함"));
+    fireEvent.click(await screen.findByRole("button", { name: /B2-L001/ }));
+    fireEvent.click(screen.getByRole("button", { name: /B2-L002/ }));
     fireEvent.click(screen.getByRole("button", { name: "구역 만들기" }));
 
     await waitFor(() => expect(mocks.createFixtureGroup).toHaveBeenCalledWith(ids.site, {
@@ -86,7 +92,7 @@ describe("FixtureGroupDialog", () => {
     expect(await screen.findByText("Mesh 설정 중")).toBeInTheDocument();
   });
 
-  it("uses shared SelectBox triggers for floor and gateway boundaries", async () => {
+  it("shows explicit floor and gateway boundary controls beside the map", async () => {
     renderDialog(true);
     await screen.findByText("B2 입구");
     fireEvent.click(screen.getByRole("button", { name: "새 구역" }));
@@ -95,22 +101,13 @@ describe("FixtureGroupDialog", () => {
     expect(screen.getByRole("button", { name: "게이트웨이" })).toBeInTheDocument();
   });
 
-  it("keeps the visible fixture name inside the membership checkbox label", async () => {
+  it("uses the shared spatial selector instead of a group-owned checkbox list", async () => {
     renderDialog(true);
     await screen.findByText("B2 입구");
     fireEvent.click(screen.getByRole("button", { name: "새 구역" }));
-    await selectOption("층", "B2");
-    await selectOption("게이트웨이", "Gateway B2");
-
-    const fixtureList = screen.getByRole("group", { name: "구역 조명 목록" });
-    const fixtureName = within(fixtureList).getByText("B2-L001");
-    const checkbox = within(fixtureList).getByRole("checkbox", { name: "B2-L001 포함" });
-    const fixtureLabel = fixtureName.closest("label");
-    expect(fixtureLabel).not.toBeNull();
-    expect(fixtureLabel).toContainElement(checkbox);
-    fireEvent.click(checkbox);
-
-    expect(checkbox).toBeChecked();
+    expect(screen.getByRole("region", { name: "공간 대상 선택" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /B2-L001/ })).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "구역 조명 목록" })).not.toBeInTheDocument();
   });
 
   it("updates membership, resyncs a failed group, and confirms deletion", async () => {
@@ -122,9 +119,9 @@ describe("FixtureGroupDialog", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "B2 입구 수정" }));
     expect(screen.getByLabelText("구역 이름")).toHaveValue("B2 입구");
-    expect(screen.getByLabelText("B2-L001 포함")).toBeChecked();
+    expect(screen.getByRole("button", { name: /B2-L001/ })).toHaveAttribute("aria-pressed", "true");
     fireEvent.change(screen.getByLabelText("구역 이름"), { target: { value: "B2 입구 수정" } });
-    fireEvent.click(screen.getByLabelText("B2-L002 포함"));
+    fireEvent.click(screen.getByRole("button", { name: /B2-L002/ }));
     fireEvent.click(screen.getByRole("button", { name: "변경 저장" }));
 
     await waitFor(() => expect(mocks.updateFixtureGroup).toHaveBeenCalledWith(ids.site, ids.group, {
@@ -161,7 +158,7 @@ describe("FixtureGroupDialog", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "B2 입구 수정" }));
     expect(screen.getByRole("heading", { name: "구역 편집" })).toBeInTheDocument();
-    expect(screen.getByRole("group", { name: "구역 조명 목록" })).toBeInTheDocument();
+    expect(screen.getByTestId("fixture-group-map-editor")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "취소" }));
     expect(screen.queryByRole("heading", { name: "구역 편집" })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "현재 저장 구역" })).toBeInTheDocument();
