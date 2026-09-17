@@ -457,6 +457,10 @@ export function ControlView({
             dashboard={data}
             selection={selection}
             disabled={controlsLocked}
+            compactSummary={<DimmingExecutionControls compact brightness={brightness} controlsLocked={controlsLocked} canSubmit={canSubmit}
+              applyLabel={manualApplyLabel(commandSessionBlocked, controlsLocked, readOnly, selectedFixtures.length)}
+              selectedFixtureCount={selectedFixtures.length} blockedFixtureCount={resolvedSelection?.blockedFixtureIds.length ?? 0} delivery={deliveryLabel(selection, selectedFixtures.length)}
+              onBrightnessChange={setBrightness} onSubmit={submitCommand} />}
             onChange={(nextSelection) => {
               setSelection(nextSelection);
               const nextResolved = resolveControlSelection(data, nextSelection);
@@ -469,7 +473,7 @@ export function ControlView({
           />
         </Card>
 
-        <SidePanel className="flex min-h-0 w-full flex-col gap-4 overflow-hidden p-4" aria-label="밝기 실행" data-control-panel="" data-control-compact-summary-sheet="">
+        <SidePanel className="hidden min-h-0 w-full flex-col gap-4 overflow-hidden p-4 compact:flex" aria-label="밝기 실행" data-control-panel="">
           <div className="flex min-h-14 flex-none items-start justify-between gap-3">
             <div className="grid min-w-0 gap-1">
               <Text as="span" variant="overline" tone="muted">선택 대상</Text>
@@ -478,43 +482,10 @@ export function ControlView({
             <ManualControlBadge readOnly={readOnly} canSubmit={canSubmit} blocked={Boolean(blockMessage)} />
           </div>
 
-          <div className="grid min-h-0 flex-1 content-start gap-4 overflow-y-auto overscroll-contain" data-control-panel-body="">
-            <div className="grid gap-1 rounded-control bg-surface-inset p-3" aria-live="polite">
-              <Text as="strong" weight="semibold">{selectedFixtures.length}개 선택 · 제어 불가 {resolvedSelection?.blockedFixtureIds.length ?? 0}개</Text>
-              <Text as="span" variant="caption" tone="secondary">{deliveryLabel(selection, selectedFixtures.length)}</Text>
-            </div>
-
-            <div className="grid gap-3 rounded-panel border border-border-default bg-surface-panel p-4" data-control-brightness-card="">
-              <div className="flex items-baseline justify-between gap-3">
-                <Text as="span" variant="label">밝기</Text>
-                <Text as="strong" variant="metric">{brightness}%</Text>
-              </div>
-              <Slider label="밝기" minValue={0} maxValue={100} step={1} value={brightness} isDisabled={controlsLocked} onChange={setBrightness} />
-              <NumberField
-                label="밝기 수치"
-                minValue={0}
-                maxValue={100}
-                step={1}
-                value={brightness}
-                isDisabled={controlsLocked}
-                onChange={(value) => {
-                  if (value !== null && value >= 0 && value <= 100) setBrightness(value);
-                }}
-              />
-            </div>
-
-            <div className="grid grid-cols-4 gap-2" data-control-presets="">
-              {[0, 30, 70, 100].map((value) => (
-                <Button key={value} variant="secondary" type="button" onClick={() => setBrightness(value)} disabled={controlsLocked}>
-                  {value}%
-                </Button>
-              ))}
-            </div>
-
-            <Button variant="primary" type="button" onClick={submitCommand} disabled={!canSubmit} data-control-submit="">
-              {commandSessionBlocked ? "로그아웃 중" : controlsLocked && !readOnly ? "밝기 적용 중" : selectedFixtures.length ? `${selectedFixtures.length}개 조명에 밝기 적용` : "밝기 적용"}
-            </Button>
-          </div>
+          <DimmingExecutionControls brightness={brightness} controlsLocked={controlsLocked} canSubmit={canSubmit}
+            applyLabel={manualApplyLabel(commandSessionBlocked, controlsLocked, readOnly, selectedFixtures.length)}
+            selectedFixtureCount={selectedFixtures.length} blockedFixtureCount={resolvedSelection?.blockedFixtureIds.length ?? 0} delivery={deliveryLabel(selection, selectedFixtures.length)}
+            onBrightnessChange={setBrightness} onSubmit={submitCommand} />
           <div className="grid min-h-0 max-h-28 flex-none content-start gap-3 overflow-y-auto overscroll-contain" data-control-panel-feedback="">
             <div className="grid min-h-px gap-3 empty:min-h-0" role="status" aria-label="명령 진행 상태" aria-live="polite" data-command-status-region="">
               {scopedActiveRequest && !scopedCommandId ? (
@@ -574,6 +545,60 @@ export function ControlView({
       </div>
     </section>
   );
+}
+
+function DimmingExecutionControls({ compact = false, brightness, controlsLocked, canSubmit, applyLabel, selectedFixtureCount, blockedFixtureCount, delivery, onBrightnessChange, onSubmit }: {
+  compact?: boolean;
+  brightness: number;
+  controlsLocked: boolean;
+  canSubmit: boolean;
+  applyLabel: string;
+  selectedFixtureCount: number;
+  blockedFixtureCount: number;
+  delivery: string;
+  onBrightnessChange: (value: number) => void;
+  onSubmit: () => void;
+}) {
+  return <div className="grid min-h-0 flex-1 content-start gap-4 overflow-y-auto overscroll-contain" data-control-panel-body="">
+    {!compact ? <div className="grid gap-1 rounded-control bg-surface-inset p-3" aria-live="polite">
+      <Text as="strong" weight="semibold">{selectedFixtureCount}개 선택 · 제어 불가 {blockedFixtureCount}개</Text>
+      <Text as="span" variant="caption" tone="secondary">{delivery}</Text>
+    </div> : null}
+    <div className="grid gap-3 rounded-panel border border-border-default bg-surface-panel p-4" data-control-brightness-card="">
+      <div className="flex items-baseline justify-between gap-3">
+        <Text as="span" variant="label">밝기</Text>
+        <Text as="strong" variant="metric">{brightness}%</Text>
+      </div>
+      <Slider label="밝기" minValue={0} maxValue={100} step={1} value={brightness} isDisabled={controlsLocked} onChange={onBrightnessChange} />
+      <NumberField
+        label="밝기 수치"
+        minValue={0}
+        maxValue={100}
+        step={1}
+        value={brightness}
+        isDisabled={controlsLocked}
+        onChange={(value) => {
+          if (value !== null && value >= 0 && value <= 100) onBrightnessChange(value);
+        }}
+      />
+    </div>
+    <div className="grid grid-cols-4 gap-2" data-control-presets="">
+      {[0, 30, 70, 100].map((value) => (
+        <Button key={value} variant="secondary" type="button" onClick={() => onBrightnessChange(value)} disabled={controlsLocked}>
+          {value}%
+        </Button>
+      ))}
+    </div>
+    <Button variant="primary" type="button" onClick={onSubmit} disabled={!canSubmit} data-control-submit="">
+      {applyLabel}
+    </Button>
+  </div>;
+}
+
+function manualApplyLabel(commandSessionBlocked: boolean, controlsLocked: boolean, readOnly: boolean, selectedFixtureCount: number) {
+  if (commandSessionBlocked) return "로그아웃 중";
+  if (controlsLocked && !readOnly) return "밝기 적용 중";
+  return selectedFixtureCount ? `${selectedFixtureCount}개 조명에 밝기 적용` : "밝기 적용";
 }
 
 function ManualControlBadge({ readOnly, canSubmit, blocked }: { readOnly: boolean; canSubmit: boolean; blocked: boolean }) {

@@ -193,6 +193,23 @@ describe("ControlView 대상 선택", () => {
     expect(screen.getByRole("complementary", { name: "밝기 실행" })).toBeInTheDocument();
   });
 
+  it("composes compact brightness and apply controls inside the expanded target summary before history", () => {
+    renderControl();
+
+    const summary = screen.getByRole("complementary", { name: "선택 대상 요약" });
+    fireEvent.click(within(summary).getByRole("button", { name: "선택 대상 펼치기" }));
+    const compactExecution = within(summary).getByTestId("compact-summary-execution");
+    const historyDisclosure = screen.getByRole("button", { name: "명령 이력 열기" });
+
+    expect(compactExecution).toContainElement(within(compactExecution).getByRole("slider", { name: "밝기" }));
+    expect(compactExecution).toContainElement(within(compactExecution).getByRole("button", { name: "밝기 적용" }));
+    expect(compactExecution.compareDocumentPosition(historyDisclosure) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole("complementary", { name: "밝기 실행" })).toHaveClass("hidden", "compact:flex");
+
+    fireEvent.click(within(summary).getByRole("button", { name: "선택 대상 접기" }));
+    expect(within(summary).queryByTestId("compact-summary-execution")).not.toBeInTheDocument();
+  });
+
   it("places the compact apply sheet before the collapsible history disclosure", () => {
     renderControl();
 
@@ -450,7 +467,11 @@ describe("ControlView 대상 선택", () => {
     const ackDashboard: Dashboard = {
       ...dashboard,
       floors: dashboard.floors.map((floor, index) => index === 0
-        ? { ...floor, meshControlGroups: [{ ...floor.meshControlGroups[0], status: "failed", error: "Gateway ACK를 확인하지 못했습니다." }] }
+        ? {
+            ...floor,
+            meshControlGroups: [{ ...floor.meshControlGroups[0], status: "failed", error: "Gateway ACK를 확인하지 못했습니다." }],
+            fixtures: floor.fixtures.map((fixture) => ({ ...fixture, controllable: true, controlBlockReason: null }))
+          }
         : floor),
       groups: dashboard.groups.map((group, index) => index === 0
         ? { ...group, meshControlGroup: { ...group.meshControlGroup!, status: "failed", error: "Gateway ACK를 확인하지 못했습니다." } }
@@ -460,10 +481,15 @@ describe("ControlView 대상 선택", () => {
 
     renderControl();
     chooseTargetMode("층 전체");
-    expect(screen.getByRole("button", { name: "B2" })).toBeDisabled();
+    const floor = screen.getByRole("button", { name: "B2" });
+    expect(floor).toBeDisabled();
+    expect(floor).toHaveAccessibleDescription("게이트웨이 장비 응답을 확인하지 못했습니다.");
 
     chooseTargetMode("저장된 구역");
-    expect(screen.getByRole("button", { name: /B2 입구 구역/ })).toBeDisabled();
+    const group = screen.getByRole("button", { name: /B2 입구 구역/ });
+    expect(group).toBeDisabled();
+    expect(group).toHaveAccessibleDescription("게이트웨이 장비 응답을 확인하지 못했습니다.");
+    expect(screen.queryByText(/ACK/i)).not.toBeInTheDocument();
   });
 
   it("밝기 preset과 대상 유형 action을 수동 제어 상태에 반영한다", () => {
@@ -781,6 +807,10 @@ describe("ControlView 대상 선택", () => {
     renderControl();
 
     expect(fixtureMarker("B2-L001")).toBeDisabled();
+    openFixtureList();
+    const fixture = screen.getByRole("checkbox", { name: "B2-L001 선택" });
+    expect(fixture).toHaveAccessibleDescription("조명 장애를 먼저 점검해야 합니다. 장애 코드 4");
+    expect(screen.getByText("조명 장애를 먼저 점검해야 합니다. 장애 코드 4")).toBeVisible();
   });
 
   it("keeps fixture-level command failures visible while polling status", () => {

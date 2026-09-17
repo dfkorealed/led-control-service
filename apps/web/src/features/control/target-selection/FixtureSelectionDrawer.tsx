@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Dashboard, DashboardFixture } from "../../../api/queries";
 import { Button, Checkbox, ModalDialog, SearchField, SelectBox, Text } from "../../../components/ui";
+import { humanizeDeviceResponseMessage } from "../control-copy";
 
 const BATCH_SIZE = 100;
 type StatusFilter = "all" | DashboardFixture["status"];
@@ -46,10 +47,11 @@ export function FixtureSelectionDrawer({ open, dashboard, selectedFixtureIds, di
     <div className="min-h-0 overflow-y-auto overscroll-contain rounded-panel border border-border-default" role="group" aria-label="조명 목록" data-fixture-selection-list="">
       {filtered.slice(0, limit).map(({ fixture, floor }) => {
         const selected = selectedFixtureIds.has(fixture.id);
-        const unavailable = !selected && (disabled || disabledFixtureIds.has(fixture.id));
+        const unavailable = disabled || (!selected && disabledFixtureIds.has(fixture.id));
+        const detail = fixtureHealthAndBlockDetail(fixture);
         return <div key={fixture.id} className="grid min-h-11 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-b border-border-subtle px-3 py-2 last:border-b-0">
           <Checkbox size="lg" label={<span className="min-w-0"><strong>{fixture.name}</strong><span className="sr-only"> 선택</span></span>}
-            isSelected={selected} isDisabled={unavailable} onChange={() => onToggleFixture(fixture.id)} />
+            description={detail} isSelected={selected} isDisabled={unavailable} onChange={() => onToggleFixture(fixture.id)} />
           <Text as="span" variant="caption" tone="secondary">{fixture.placementStatus === "unplaced" ? "미배치" : floor.name}</Text>
         </div>;
       })}
@@ -58,4 +60,19 @@ export function FixtureSelectionDrawer({ open, dashboard, selectedFixtureIds, di
     </div>
     </div>
   </ModalDialog>;
+}
+
+function fixtureHealthAndBlockDetail(fixture: DashboardFixture) {
+  const block = fixture.controlBlockReason
+    ? humanizeDeviceResponseMessage(controlBlockDetail(fixture.controlBlockReason))
+    : null;
+  const health = fixture.health?.faultCodes.length ? `장애 코드 ${fixture.health.faultCodes.join(", ")}` : null;
+  return [block, health].filter((detail): detail is string => Boolean(detail)).join(" ") || undefined;
+}
+
+function controlBlockDetail(reason: NonNullable<DashboardFixture["controlBlockReason"]>) {
+  if (reason === "fixture_unmapped") return "게이트웨이에 매핑되지 않았습니다.";
+  if (reason === "gateway_offline") return "게이트웨이가 오프라인입니다.";
+  if (reason === "fixture_fault") return "조명 장애를 먼저 점검해야 합니다.";
+  return "조명이 오프라인입니다.";
 }

@@ -90,3 +90,44 @@ git diff --check
 ## Remaining concerns
 
 None. The first full-web attempt exposed an unrelated `OperatorShell` loading wait that passed in isolation; a fresh complete rerun passed 94/94 files and 1,360/1,360 tests.
+
+## Fix Round 1 — review remediation
+
+### Scope
+
+- Added the optional consumer-owned `compactSummary` slot to `SpatialTargetSelector`; `SelectionSummaryPanel` places it only in the expanded compact summary surface.
+- Kept the desktop `SidePanel`, but moved its reusable brightness/preset/apply controls into a shared consumer component so no execution surface is visible twice at one breakpoint.
+- Added visible and accessible unavailable explanations beside disabled floor/group choices and fixture drawer rows, preserving transport copy normalization for ACK wording.
+- Made drawer-wide `disabled` unconditional so an already-selected fixture cannot stay actionable during permission or command locks.
+
+### RED
+
+```sh
+pnpm --filter @led-control/web test -- src/features/control/ControlView.test.tsx src/features/control/target-selection/SpatialTargetSelector.test.tsx
+```
+
+Failed as expected: 4 tests failed. The compact summary had no consumer execution slot, disabled floor/group candidates had no accessible Mesh explanation, fixture Health/block detail was absent from the drawer checkbox description, and a selected drawer checkbox remained enabled after a global disabled transition.
+
+### GREEN
+
+After the minimal implementation, the same focused selector/ControlView command passed 91/91 tests. The first Mesh assertion then exposed a fixture-offline test fixture masking the intended Mesh failure; the fixture was corrected to be controllable for that readiness-specific scenario, and the focused run passed.
+
+```sh
+pnpm --filter @led-control/web test -- src/features/control/ControlView.test.tsx src/features/control/target-selection/SpatialTargetSelector.test.tsx src/features/control/CommandHistoryPanel.test.tsx src/features/control/CommandOutcomeActions.test.tsx
+```
+
+Passed: 4 files, 104/104 tests.
+
+### Verification
+
+- `pnpm --filter @led-control/web test:ui-policy`: 53/53 passed.
+- `pnpm --filter @led-control/web ui:check`: 0 existing and 0 new/increased violations.
+- `pnpm --filter @led-control/web typecheck`: passed.
+- `pnpm --filter @led-control/web test`: 94 files, 1,362/1,362 tests passed.
+- `git diff --check`: passed.
+
+### Fix round self-review
+
+- Compact brightness/apply controls are descendants of the expanded `선택 대상 요약`; the focused test proves containment, expansion/collapse, and order before the history disclosure. The desktop side panel is `hidden compact:flex`, while the slot belongs to the compact-only summary surface.
+- Candidate reasons use the existing device-response mapper, so raw ACK copy remains absent. Fixture drawer descriptions include the block reason and Health fault codes and are visible through the shared `Checkbox` field description.
+- The selector retains the existing per-fixture deselection exception, but `FixtureSelectionDrawer` now prioritizes the global disabled state for every checkbox.

@@ -137,6 +137,17 @@ describe("SpatialTargetSelector", () => {
     expect(screen.getByRole("button", { name: /B2-L002/ })).toBeDisabled();
   });
 
+  it("disables an already selected drawer fixture when a global lock begins", () => {
+    const selected = { mode: "fixtures" as const, fixtureIds: [fixtureA] };
+    const view = render(<SpatialTargetSelector siteId="site-a" dashboard={dashboard} selection={selected} disabled={false} onChange={onChange} />);
+    fireEvent.click(screen.getByRole("button", { name: "조명 목록 열기" }));
+    expect(screen.getByRole("checkbox", { name: "B2-L001 선택" })).toBeEnabled();
+
+    view.rerender(<SpatialTargetSelector siteId="site-a" dashboard={dashboard} selection={selected} disabled onChange={onChange} />);
+
+    expect(screen.getByRole("checkbox", { name: "B2-L001 선택" })).toBeDisabled();
+  });
+
   it("locks an area selection to its first eligible fixture gateway", () => {
     renderSelector({ interactionMode: "area" });
     const viewport = screen.getByRole("region", { name: "B2 도면" });

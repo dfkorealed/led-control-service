@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { Dashboard, DashboardFixture } from "../../../api/queries";
 import { useFloorMapSnapshot } from "../../../api/queries";
 import { Button, ConfirmDialog, Text } from "../../../components/ui";
 import { FloorScene } from "../../floor-map/FloorScene";
 import { FloorMapViewport, type MapInteractionMode, type MapSelectionRect } from "../../floor-map/FloorMapViewport";
 import { resolveControlSelection, toggleFixtureSelection, type ControlMode, type ControlSelection } from "../control-selection";
+import { humanizeDeviceResponseMessage } from "../control-copy";
 import { FixtureSelectionDrawer } from "./FixtureSelectionDrawer";
 import { SelectionSummaryPanel } from "./SelectionSummaryPanel";
 import { TargetSelectionToolbar } from "./TargetSelectionToolbar";
@@ -19,6 +20,7 @@ export interface SpatialTargetSelectorProps {
   requiredGatewayId?: string | null;
   interactionMode?: MapInteractionMode;
   onInteractionModeChange?: (mode: MapInteractionMode) => void;
+  compactSummary?: ReactNode;
   onChange: (selection: ControlSelection) => void;
 }
 
@@ -26,7 +28,7 @@ const defaultModes: readonly ControlMode[] = ["fixtures", "floor", "group"];
 
 export function SpatialTargetSelector({
   siteId, dashboard, selection, disabled, allowedModes = defaultModes, fixtureFilter, requiredGatewayId = null,
-  interactionMode: controlledInteractionMode, onInteractionModeChange, onChange
+  interactionMode: controlledInteractionMode, onInteractionModeChange, compactSummary, onChange
 }: SpatialTargetSelectorProps) {
   const selectionFloorId = floorForSelection(dashboard, selection);
   const validSelectionFloorId = dashboard.floors.some((floor) => floor.id === selectionFloorId) ? selectionFloorId : null;
@@ -112,7 +114,7 @@ export function SpatialTargetSelector({
         {mapQuery.data && mapQuery.error ? <Text className="absolute top-3 left-3 z-6 rounded-control border border-border-default bg-surface-panel px-2 py-1" role="alert" tone="danger">도면을 최신 상태로 갱신하지 못했습니다.</Text> : null}
         {group ? <Text className="pointer-events-none absolute top-3 right-3 z-6 rounded-control border border-border-default bg-surface-panel px-2 py-1" variant="caption">{group.name}</Text> : null}
       </div>
-      <div className="min-h-0 overflow-y-auto overscroll-contain"><SelectionSummaryPanel resolved={resolved} />
+      <div className="min-h-0 overflow-y-auto overscroll-contain"><SelectionSummaryPanel resolved={resolved} compactSummary={compactSummary} />
         {selection.mode === "floor" ? <SelectionChoices kind="floor" dashboard={dashboard} selection={selection} disabled={disabled} fixtureFilter={fixtureFilter} requiredGatewayId={requiredGatewayId} onChange={onChange} /> : null}
         {selection.mode === "group" ? <SelectionChoices kind="group" dashboard={dashboard} selection={selection} disabled={disabled} fixtureFilter={fixtureFilter} requiredGatewayId={requiredGatewayId} onChange={onChange} /> : null}
       </div>
@@ -132,10 +134,14 @@ function SelectionChoices({ kind, dashboard, selection, disabled, fixtureFilter,
   return <div className="mt-3 grid gap-2" role="group" aria-label={kind === "floor" ? "층 목록" : "저장된 구역 목록"}>
     {items.map((item) => {
       const candidate = kind === "floor" ? { mode: "floor" as const, floorId: item.id } : { mode: "group" as const, groupId: item.id };
-      const eligible = selectionWithConstraints(resolveControlSelection(dashboard, candidate), fixtureFilter, requiredGatewayId).available;
-      return <Button key={item.id} type="button" variant="secondary" className="justify-between" disabled={disabled || !eligible}
+      const candidateResolved = selectionWithConstraints(resolveControlSelection(dashboard, candidate), fixtureFilter, requiredGatewayId);
+      const eligible = candidateResolved.available;
+      const reason = eligible ? null : humanizeDeviceResponseMessage(candidateResolved.unavailableReason ?? "현재 제어할 수 없는 대상입니다.");
+      const reasonId = `target-selection-reason-${kind}-${item.id}`;
+      return <div key={item.id} className="grid gap-1"><Button type="button" variant="secondary" className="justify-between" disabled={disabled || !eligible}
+      aria-describedby={reason ? reasonId : undefined}
       aria-current={(kind === "floor" ? selection.mode === "floor" && selection.floorId === item.id : selection.mode === "group" && selection.groupId === item.id) ? "true" : undefined}
-      onClick={() => onChange(candidate)}>{item.name}</Button>;
+      onClick={() => onChange(candidate)}>{item.name}</Button>{reason ? <Text id={reasonId} variant="caption" tone="danger">{reason}</Text> : null}</div>;
     })}
   </div>;
 }
@@ -161,6 +167,7 @@ function isFixtureEligible(fixture: DashboardFixture, filter: SpatialTargetSelec
 }
 
 function selectionWithConstraints(resolved: ReturnType<typeof resolveControlSelection>, fixtureFilter: SpatialTargetSelectorProps["fixtureFilter"], requiredGatewayId: string | null) {
+  if (!resolved.available) return resolved;
   const compatible = resolved.available && resolved.fixtures.every((fixture) => (!fixtureFilter || fixtureFilter(fixture))
     && (!requiredGatewayId || fixture.gateway?.id === requiredGatewayId));
   return compatible ? resolved : { ...resolved, available: false, unavailableReason: "선택 조건과 일치하지 않는 대상이 있습니다." };
