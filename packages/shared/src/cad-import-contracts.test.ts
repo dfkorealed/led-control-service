@@ -9,9 +9,11 @@ import {
   floorImportJobStatusSchema,
   floorImportRenderedViewportSchema
 } from "./cad-import-contracts";
+import { floorEditorSnapshotSchema, floorLightSlotSchema } from "./schemas";
 
 const jobId = "00000000-0000-4000-8000-000000000001";
 const candidateId = "00000000-0000-4000-8000-000000000002";
+const slotId = "00000000-0000-4000-8000-000000000003";
 const legacyProfileMetadata = {
   profileVersion: "legacy-unknown",
   profileDigest: "0".repeat(64)
@@ -37,6 +39,26 @@ const candidateResponse = {
 };
 
 describe("CAD import contracts", () => {
+  it("validates persistent light slots in editor snapshots", () => {
+    const slot = {
+      id: slotId,
+      x: 120,
+      y: 240,
+      rotation: 0,
+      assignedFixtureId: null
+    };
+
+    expect(floorLightSlotSchema.parse(slot)).toMatchObject({ assignedFixtureId: null });
+    expect(floorEditorSnapshotSchema.parse({
+      version: 2,
+      floorPlan: null,
+      fixtures: [],
+      objects: [],
+      lightSlots: [slot]
+    })).toMatchObject({ lightSlots: [slot] });
+    expect(() => floorLightSlotSchema.parse({ ...slot, x: Number.POSITIVE_INFINITY })).toThrow();
+  });
+
   it("preserves the bounded 2,000 candidate review/apply contract", () => {
     expect(CAD_IMPORT_MAX_CANDIDATES).toBe(2_000);
     const candidates = Array.from({ length: 1_308 }, (_, index) => ({
@@ -47,6 +69,7 @@ describe("CAD import contracts", () => {
     expect(floorImportCandidateListResponseSchema.safeParse({ jobId, candidates }).success).toBe(true);
     expect(floorImportApplyInputSchema.safeParse({
       expectedRevision: 3, leaseToken: "lease-token", leaseFence: 7,
+      confirmMapReset: true,
       candidateIds: candidates.map(candidate => candidate.id)
     }).success).toBe(true);
     const excessive = [...candidates, ...Array.from({ length: 693 }, (_, offset) => ({
@@ -152,10 +175,18 @@ describe("CAD import contracts", () => {
       expectedRevision: 3,
       leaseToken: "lease-token",
       leaseFence: 7,
+      confirmMapReset: true,
       candidateIds: [candidateId]
     };
 
     expect(floorImportApplyInputSchema.parse(input)).toEqual(input);
+    expect(() => floorImportApplyInputSchema.parse({
+      expectedRevision: 4,
+      leaseToken: "lease",
+      leaseFence: 2,
+      candidateIds: [candidateId]
+    })).toThrow();
+    expect(() => floorImportApplyInputSchema.parse({ ...input, confirmMapReset: false })).toThrow();
     expect(floorImportApplyInputSchema.safeParse({ ...input, expectedRevision: -1 }).success).toBe(false);
     expect(floorImportApplyInputSchema.safeParse({ ...input, leaseFence: 0 }).success).toBe(false);
     expect(floorImportApplyInputSchema.safeParse({ ...input, candidateIds: [...input.candidateIds, candidateId] }).success).toBe(false);

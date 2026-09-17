@@ -9,7 +9,7 @@
 현재 DB는 다음 업무 영역으로 나뉜다.
 
 - 조직/사용자/인증: `Organization`(`OrganizationType`), `User`, `SiteMembership`, `Invitation`, `Session`
-- 현장/공간/도면: `Site`, `Floor`(`mapRevision`), `FloorPlan`, `FloorMapObject`, `FloorMapRevision`
+- 현장/공간/도면: `Site`, `Floor`(`mapRevision`), `FloorPlan`, `FloorMapObject`, `FloorLightSlot`, `FloorMapRevision`
 - 조명/그룹/게이트웨이/메시 노드: `Fixture`, `FixtureGroup`, `GroupFixture`, `Gateway`, `GatewayInventory`, `MeshNode`, `MeshControlGroup`, `MeshControlGroupMember`, `MeshControlGroupExpectedOperation`, `MeshControlGroupAppliedMember`
 - 게이트웨이 PKI: `GatewayEnrollment`, `GatewayCertificate`, `CertificateRevocationReconciliation`
 - 제어/모니터링: `Command`, `CommandDispatch`, `CommandFixtureResult`, `MqttOutbox`, `ProcessedGatewayEvent`, `GatewayEventWatermark`, `MonitoringIncident`, `EnergyUsage`
@@ -134,6 +134,7 @@ Organization
       ├─ Floor
       │   ├─ FloorPlan
       │   ├─ FloorAsset ─ FloorImportJob ─ FloorImportCandidate
+      │   ├─ FloorLightSlot ─ 선택적 할당 -> Fixture
       │   ├─ FloorMapObject
       │   └─ Fixture ─ MeshNode
       │       ├─ GroupFixture ─ FixtureGroup
@@ -505,6 +506,7 @@ worker는 API 시작 시와 30초 주기로 만료된 작업을 최대 10개씩 
 - `fixtures`: `Fixture[]`
 - `assets`: `FloorAsset[]`
 - `importJobs`: `FloorImportJob[]`
+- `lightSlots`: `FloorLightSlot[]`
 - `provisioningSessions`: `ProvisioningSession[]`
 - `mapRevisions`: `FloorMapRevision[]`
 
@@ -542,6 +544,7 @@ worker는 API 시작 시와 30초 주기로 만료된 작업을 최대 10개씩 
 층 도면의 전체 편집 스냅숏과 복구 이력을 보관한다. `Floor` 삭제 시 함께 삭제되며, 기록한 사용자는 삭제할 수 없다.
 
 - 2026-09-09부터 신규 snapshot은 `version: 2`와 fixture별 `placementStatus`, `positionVerifiedAt`을 포함한다. 버전 필드가 없는 V1은 조회/복구 시 `placed/null`로 정규화한다. 기존 snapshot JSON과 SHA-256을 덮어쓰지 않는다.
+- 2026-09-18 공유 V2 snapshot 계약은 현재 맵의 `lightSlots` 배열을 수용한다. 이 변경 전 V2 revision에는 필드가 없을 수 있으므로 누락을 계속 읽을 수 있으며, 후속 원자적 적용 작업에서 신규 저장 경로가 배열을 명시적으로 기록한다.
 - 저장/복구는 Serializable transaction에서 현장 admin 재인가, 층 lease/fence 및 revision 검증, fixture/object 갱신, 새 snapshot/hash와 audit를 함께 commit한다. 위치 확인은 서버 DB 시각으로 기록하고, 복구는 저장된 확인 시각을 복원한다.
 - 좌표/속성은 bound JSONB 입력을 사용하는 1,000행 단위 SQL 갱신, object 생성은 `createMany`로 처리한다. 실제 정격 W가 바뀐 fixture만 기존 에너지 checkpoint를 닫는다. 좌표/배치/확인만 변경하거나 같은 W를 다시 보내면 에너지 정산 경계를 만들지 않는다.
 - 에디터 PUT JSON 한도는 1 MiB, fixture 변경 1,000개, object 변경 합계 2,000개다. 다른 JSON 경로는 100 KiB를 유지한다. 초과 body는 JSON 413, transaction 충돌은 409, transaction 만료는 `floor_editor_transaction_timeout` 503이다. Transaction 대기 예산은 5초, 실행 예산은 15초이며 일반 저장/복구 성능 목표는 3초다.
@@ -756,6 +759,31 @@ CAD parser 좌표에서 검출한 조명 위치 후보 원장이다. 후보는 B
 - 좌표와 회전은 parser 결과만 저장한다. AI 보조 구현도 좌표를 생성하거나 변경할 수 없다.
 - migration-only `FloorImportCandidate_ai_metadata_check`는 rule-based 후보의 AI 메타데이터를 모두 NULL로, AI-assisted 후보는 provider/model/inputDigest를 모두 필수로 강제한다. profile digest, geometry/confidence/review CHECK도 Prisma datamodel 외 SQL 불변식이며 migration regression test가 실제 DB 동작을 고정한다.
 
+### FloorLightSlot
+
+승인된 CAD 조명 후보를 현재 맵에서 사용할 영속 배치 슬롯으로 분리한다. `FloorImportCandidate`는 분석·검토 이력으로 유지하고, 실제 조명 연결 상태는 이 테이블만 변경한다.
+
+| 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
+| --- | --- | --- | --- | --- |
+| `id` | `String` | 예 | PK, `uuid()` | 슬롯 ID |
+| `floorId` | `String` | 예 | FK -> `Floor.id`, cascade delete | 현재 맵의 층 ID |
+| `sourceImportJobId` | `String` | 예 | FK -> `FloorImportJob.id`, cascade delete | 슬롯을 만든 CAD import job |
+| `sourceCandidateId` | `String` | 예 | Unique, FK -> `FloorImportCandidate.id`, cascade delete | 원본 승인 후보. 후보 하나당 슬롯 하나 |
+| `assignedFixtureId` | `String?` | 아니오 | Unique, FK -> `Fixture.id`, delete set null | 슬롯에 연결한 실제 조명. 한 조명은 슬롯 하나에만 연결 가능 |
+| `x`, `y` | `Float` | 예 | 유한값 CHECK | 맵 좌표계의 슬롯 위치 |
+| `rotation` | `Float` | 예 | `0`, 유한값 CHECK | 후보에서 보존한 회전 각도 |
+| `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
+| `updatedAt` | `DateTime` | 예 | `@updatedAt` | 최종 갱신 시각 |
+
+제약과 인덱스:
+
+- `(floorId, id)` index로 층별 슬롯을 안정적인 ID 순서로 조회한다.
+- `sourceCandidateId` unique는 후보 중복 적용을 막고, nullable `assignedFixtureId` unique는 실제 조명의 중복 슬롯 할당을 막는다.
+- `FloorLightSlot_geometry_check`는 PostgreSQL이 저장할 수 있는 `NaN`, 양·음의 `Infinity`를 x/y/rotation에서 거부한다.
+- deferred constraint trigger는 슬롯의 `floorId`, source job의 층, source candidate의 job이 같은지 검증한다. 할당 조명이 있으면 해당 `Fixture.floorId`도 슬롯 층과 같아야 한다.
+- 슬롯뿐 아니라 `FloorImportJob.floorId`, `FloorImportCandidate.jobId`, `Fixture.floorId` 변경 경로에도 trigger를 설치해 부모 변경으로 불일치가 생기는 경우 transaction 전체를 거부한다. 이 교차 테이블 제약은 Prisma datamodel로 표현되지 않는다.
+- 현재 Task는 모델과 공유 계약을 추가한다. 슬롯 생성·교체, fixture 할당, revision 복구는 후속 원자적 apply/editor 작업에서 연결한다.
+
 ### FloorMapObject
 
 층별 도면 에디터에서 사용자가 추가하는 도형과 텍스트 객체를 저장한다. 조명 위치는 기존 `Fixture.x`, `Fixture.y`를 계속 사용하고, 사각형/텍스트 같은 비조명 편집 객체만 이 테이블로 분리한다.
@@ -848,6 +876,7 @@ CAD parser 좌표에서 검출한 조명 위치 후보 원장이다. 후보는 B
 
 - `floor`: `Floor`
 - `meshNode`: `MeshNode?`
+- `lightSlot`: `FloorLightSlot?`
 - `groupFixtures`: `GroupFixture[]`
 - `energyUsages`: `EnergyUsage[]`
 - `energyDailyAggregates`: `FixtureEnergyDailyAggregate[]`
@@ -1879,6 +1908,7 @@ node별 `provision-device` command의 durable transactional outbox다. 등록 AP
 | --- | --- | --- |
 | `User` | Unique `email` | 이메일 중복 가입 방지 |
 | `FloorPlan` | Unique `floorId` | 한 층에 하나의 현재 도면 |
+| `FloorLightSlot` | Unique `sourceCandidateId`, nullable Unique `assignedFixtureId`, finite geometry CHECK와 deferred scope trigger | 후보별 슬롯·조명별 할당 중복을 막고 job/candidate/fixture의 층 일치를 강제 |
 | `FloorMapObject` | Index `floorId`, `zIndex` | 한 층 안에서 편집 객체 렌더링 순서 조회 최적화 |
 | `Fixture` | Unique `meshNodeId`, Unique `id + siteId + gatewayId`, composite Floor/MeshNode owner FK와 projection trigger | 하나의 메시 노드는 하나의 조명에만 연결하고 자동화가 참조할 Site/Gateway owner를 구조적으로 투영 |
 | `Gateway` | Unique `serialNumber` | 게이트웨이 시리얼 중복 방지 |

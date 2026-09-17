@@ -104,6 +104,15 @@ export const legacyFloorPlanPatchSchema = z.object({
 export const fixturePlacementStatusSchema = z.enum(["unplaced", "placed"]);
 export type FixturePlacementStatus = z.infer<typeof fixturePlacementStatusSchema>;
 
+export const floorLightSlotSchema = z.object({
+  id: z.string().uuid(),
+  x: finiteNumberSchema,
+  y: finiteNumberSchema,
+  rotation: finiteNumberSchema,
+  assignedFixtureId: z.string().uuid().nullable()
+}).strict();
+export type FloorLightSlotDto = z.infer<typeof floorLightSlotSchema>;
+
 export const fixtureLayoutUpdateSchema = z.object({
   id: editorIdSchema,
   name: z.string().trim().min(1).max(EDITOR_MAX_NAME_LENGTH).optional(),
@@ -361,6 +370,8 @@ export const floorEditorSnapshotV1Schema = z.object({
 
 export const floorEditorSnapshotV2Schema = floorEditorSnapshotV1Schema.extend({
   version: z.literal(FLOOR_EDITOR_SNAPSHOT_VERSION),
+  // Existing V2 revisions predate CAD slots; new snapshots include this array.
+  lightSlots: z.array(floorLightSlotSchema).max(2_000).optional(),
   fixtures: z.array(floorEditorSnapshotV1Schema.shape.fixtures.element.extend({
     placementStatus: fixturePlacementStatusSchema,
     positionVerifiedAt: z.string().datetime().nullable()

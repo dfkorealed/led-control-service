@@ -355,6 +355,7 @@ model Floor {
   mapObjects            FloorMapObject[]
   assets                FloorAsset[]
   importJobs            FloorImportJob[]
+  lightSlots            FloorLightSlot[]
   provisioningSessions  ProvisioningSession[]
   mapRevisions          FloorMapRevision[]
   createdAt             DateTime              @default(now())
@@ -501,6 +502,7 @@ model FloorImportJob {
   sourceAsset      FloorAsset              @relation("FloorImportSourceAsset", fields: [sourceAssetId], references: [id], onDelete: NoAction)
   renderedAsset    FloorAsset?             @relation("FloorImportRenderedAsset", fields: [renderedAssetId], references: [id], onDelete: NoAction)
   candidates       FloorImportCandidate[]
+  lightSlots       FloorLightSlot[]
   createdAt        DateTime                @default(now())
   updatedAt        DateTime                @updatedAt
 
@@ -530,6 +532,7 @@ model FloorImportCandidate {
   reviewStatus    FloorImportCandidateReviewStatus @default(pending)
   reviewedAt      DateTime?
   job             FloorImportJob                   @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  lightSlot       FloorLightSlot?
   createdAt       DateTime                         @default(now())
   updatedAt       DateTime                         @updatedAt
 
@@ -577,6 +580,25 @@ model FloorPlan {
   updatedAt        DateTime            @updatedAt
 }
 
+model FloorLightSlot {
+  id                String               @id @default(uuid())
+  floorId           String
+  sourceImportJobId String
+  sourceCandidateId String               @unique
+  assignedFixtureId String?              @unique
+  x                 Float
+  y                 Float
+  rotation          Float                @default(0)
+  floor             Floor                @relation(fields: [floorId], references: [id], onDelete: Cascade)
+  sourceImportJob   FloorImportJob       @relation(fields: [sourceImportJobId], references: [id], onDelete: Cascade)
+  sourceCandidate   FloorImportCandidate @relation(fields: [sourceCandidateId], references: [id], onDelete: Cascade)
+  assignedFixture   Fixture?             @relation(fields: [assignedFixtureId], references: [id], onDelete: SetNull)
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+
+  @@index([floorId, id])
+}
+
 model Fixture {
   placementStatus            FixturePlacementStatus             @default(unplaced)
   positionVerifiedAt         DateTime?
@@ -620,6 +642,7 @@ model Fixture {
   energyDailyAggregates      FixtureEnergyDailyAggregate[]
   energyIdentity             EnergyFixtureIdentity?
   monitoringIncidents        MonitoringIncident[]
+  lightSlot                  FloorLightSlot?
   energyStateCursor          FixtureEnergyStateCursor?
   processedStateEvents       ProcessedGatewayEvent[]
   commandResults             CommandFixtureResult[]

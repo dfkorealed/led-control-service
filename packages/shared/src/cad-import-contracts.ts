@@ -119,6 +119,7 @@ export const floorImportApplyInputSchema = z.object({
   expectedRevision: z.number().int().nonnegative().max(EDITOR_MAX_EXPECTED_REVISION),
   leaseToken: z.string().trim().min(1).max(256),
   leaseFence: z.number().int().positive().max(POSTGRES_INT_MAX),
+  confirmMapReset: z.literal(true),
   candidateIds: z.array(z.string().uuid()).max(CAD_IMPORT_MAX_CANDIDATES)
 }).strict().superRefine((input, context) => {
   if (new Set(input.candidateIds).size !== input.candidateIds.length) {
