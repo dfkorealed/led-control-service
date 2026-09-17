@@ -345,7 +345,6 @@ export class ObjectStorageService {
 const extensions: Record<string, string> = {
   "image/jpeg": "jpg",
   "image/png": "png",
-  "application/pdf": "pdf",
   "application/acad": "dwg",
   "application/x-acad": "dwg",
   "application/autocad": "dwg",

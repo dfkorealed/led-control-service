@@ -79,12 +79,32 @@ describe("ObjectStorageService", () => {
     presign: jest.fn().mockResolvedValue("https://upload.example/signed")
   });
 
-  it.each(["image/jpeg", "image/png", "application/pdf"])("accepts supported MIME %s", async (mimeType) => {
+  it.each([
+    "image/jpeg",
+    "image/png",
+    "application/dwg",
+    "application/dxf"
+  ])("accepts supported floor asset upload MIME %s", async (mimeType) => {
     await expect(
       service.createUploadDescriptor({ floorId: "floor-1", mimeType, sizeBytes: 1024, sha256: "a".repeat(64) })
     ).resolves.toMatchObject({ uploadUrl: "https://upload.example/signed", objectKey: expect.stringContaining("floors/floor-1/") });
     await expect(service.createUploadDescriptor({ floorId: "floor-1", mimeType, sizeBytes: 1024, sha256: "a".repeat(64) }))
       .resolves.not.toHaveProperty("publicUrl");
+  });
+
+  it("rejects PDF for every new floor asset upload path", async () => {
+    const input = {
+      floorId: "floor-1", mimeType: "application/pdf", sizeBytes: 1024, sha256: "a".repeat(64)
+    };
+
+    expect(() => service.prepareFloorAssetUpload(input)).toThrow(BadRequestException);
+    await expect(service.createUploadDescriptor(input)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.createFloorAssetUploadUrl({
+      objectKey: "floors/floor-1/legacy.pdf",
+      mimeType: input.mimeType,
+      sizeBytes: input.sizeBytes,
+      sha256: input.sha256
+    })).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it("rejects unsupported MIME, oversized files, and invalid checksums", async () => {
@@ -159,7 +179,7 @@ describe("ObjectStorageService", () => {
     }
   });
 
-  it("creates a 300-second signed GET for a private floor asset", async () => {
+  it("creates a 300-second signed GET for an existing PDF floor asset", async () => {
     const presignGet = jest.fn().mockResolvedValue("https://download.example/signed");
     const privateService = new ObjectStorageService({ send: jest.fn() } as never, {
       bucket: "floor-assets",
@@ -167,12 +187,12 @@ describe("ObjectStorageService", () => {
       presignGet
     });
 
-    await expect(privateService.createFloorAssetDownloadUrl("floors/floor-1/file.png"))
+    await expect(privateService.createFloorAssetDownloadUrl("floors/floor-1/legacy.pdf"))
       .resolves.toBe("https://download.example/signed");
     expect(presignGet).toHaveBeenCalledWith(expect.anything(), expect.any(GetObjectCommand), 300);
     expect((presignGet.mock.calls[0][1] as GetObjectCommand).input).toEqual({
       Bucket: "floor-assets",
-      Key: "floors/floor-1/file.png",
+      Key: "floors/floor-1/legacy.pdf",
       ResponseCacheControl: "private, no-store"
     });
   });

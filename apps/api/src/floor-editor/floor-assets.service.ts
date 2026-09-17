@@ -44,6 +44,8 @@ export class FloorAssetsService {
     if (!floor) throw new NotFoundException("floor not found");
     await this.siteAccess.assert(user, floor.siteId, "manage");
     if (input.kind !== "original" && input.kind !== "rendered") throw new BadRequestException("invalid floor asset kind");
+    // Legacy PDF rows remain readable, but new PDF upload intents are no longer issued.
+    if (input.mimeType === "application/pdf") throw new BadRequestException("unsupported floor asset MIME type");
 
     const prepared = this.storage.prepareFloorAssetUpload({
       floorId,

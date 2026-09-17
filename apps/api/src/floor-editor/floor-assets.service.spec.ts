@@ -99,6 +99,38 @@ describe("FloorAssetsService", () => {
     expect((siteAccess as any).assert).toHaveBeenNthCalledWith(2, viewer, "site-1", "manage");
   });
 
+  it("rejects a new PDF upload intent before creating or signing an asset", async () => {
+    const prisma: any = {
+      floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },
+      floorAsset: {
+        create: jest.fn().mockResolvedValue({ id: "asset-1", status: "pending" }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 })
+      },
+      $queryRaw: jest.fn().mockResolvedValue([{ floorStatus: "active" }])
+    };
+    prisma.$transaction = jest.fn(async (operation: (tx: typeof prisma) => unknown) => operation(prisma));
+    const storage: any = {
+      prepareFloorAssetUpload: jest.fn().mockReturnValue({
+        objectKey: "floors/floor-1/file.pdf", expiresInSeconds: 300
+      }),
+      createFloorAssetUploadUrl: jest.fn().mockResolvedValue("https://signed.example")
+    };
+    const siteAccess: any = {
+      assert: jest.fn().mockResolvedValue({ id: "site-1" }),
+      assertManageInTransaction: jest.fn().mockResolvedValue({ id: "site-1" })
+    };
+
+    await expect(new FloorAssetsService(prisma, storage, siteAccess).createUploadIntent(admin, "floor-1", {
+      kind: "original", mimeType: "application/pdf", sizeBytes: 1024, sha256: "a".repeat(64)
+    })).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(siteAccess.assert).toHaveBeenCalledWith(admin, "site-1", "manage");
+    expect(storage.prepareFloorAssetUpload).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(prisma.floorAsset.create).not.toHaveBeenCalled();
+    expect(storage.createFloorAssetUploadUrl).not.toHaveBeenCalled();
+  });
+
   it("uses read access when listing ready floor assets", async () => {
     const prisma: any = {
       floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },
@@ -142,6 +174,34 @@ describe("FloorAssetsService", () => {
       where: { id: "asset-1", floorId: "floor-1", status: "ready" },
       select: { id: true, kind: true, objectKey: true, mimeType: true, contentEncoding: true, sizeBytes: true, sha256: true }
     });
+  });
+
+  it("keeps existing ready PDF assets listable and downloadable", async () => {
+    const asset = {
+      id: "asset-pdf", kind: "original", status: "ready", objectKey: "floors/floor-1/legacy.pdf",
+      mimeType: "application/pdf", contentEncoding: null, sizeBytes: 1024n, sha256: "a".repeat(64)
+    };
+    const prisma: any = {
+      floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },
+      floorAsset: {
+        findMany: jest.fn().mockResolvedValue([asset]),
+        findFirst: jest.fn().mockResolvedValue(asset)
+      }
+    };
+    const storage: any = {
+      createFloorAssetDownloadUrl: jest.fn().mockResolvedValue("https://download.example/legacy-pdf")
+    };
+    const siteAccess: any = { assert: jest.fn().mockResolvedValue({ id: "site-1" }) };
+    const service = new FloorAssetsService(prisma, storage, siteAccess);
+
+    await expect(service.listAssets(viewer, "floor-1")).resolves.toEqual([expect.objectContaining({
+      id: "asset-pdf",
+      mimeType: "application/pdf",
+      accessPath: "/api/floors/floor-1/assets/asset-pdf/content"
+    })]);
+    await expect(service.getContentRedirect(viewer, "floor-1", "asset-pdf"))
+      .resolves.toEqual({ url: "https://download.example/legacy-pdf" });
+    expect(storage.createFloorAssetDownloadUrl).toHaveBeenCalledWith("floors/floor-1/legacy.pdf");
   });
 
   it("reconciles an unknown rendered SVG before signing content", async () => {
