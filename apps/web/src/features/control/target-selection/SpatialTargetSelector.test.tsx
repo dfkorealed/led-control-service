@@ -160,6 +160,19 @@ describe("SpatialTargetSelector", () => {
     expect(completion.closest("[data-dialog-actions]")).toBeTruthy();
   });
 
+  it("keeps incremental rendering reachable inside the bounded drawer list", () => {
+    renderSelector({ dashboard: dashboardWithMoreThanOneBatch });
+    fireEvent.click(screen.getByRole("button", { name: "조명 목록 열기" }));
+    const list = screen.getByRole("group", { name: "조명 목록" });
+    const more = screen.getByRole("button", { name: "더 보기" });
+    const completion = screen.getByRole("button", { name: "선택 완료" });
+    expect(list).toContainElement(more);
+    expect(list).not.toContainElement(completion);
+    expect(completion.closest("[data-dialog-actions]")).toBeTruthy();
+    fireEvent.click(more);
+    expect(screen.getByRole("checkbox", { name: "대량-L101 선택" })).toBeInTheDocument();
+  });
+
   it("uses the approved 16px field size in the compact drawer", () => {
     renderSelector();
     fireEvent.click(screen.getByRole("button", { name: "조명 목록 열기" }));
@@ -211,6 +224,11 @@ const dashboardWithSecondFloor: Dashboard = {
     id: "group-b", name: "B1 구역", floorId: "floor-b1", gatewayId: "gateway-b", lifecycleStatus: "active", fixtureCount: 1,
     meshControlGroup: { status: "ready", version: 1, error: null }, fixtureIds: ["fixture-b1"]
   }]
+};
+
+const dashboardWithMoreThanOneBatch: Dashboard = {
+  ...dashboard,
+  floors: [{ ...dashboard.floors[0], fixtures: Array.from({ length: 101 }, (_, index) => fixture(`fixture-large-${index + 1}`, `대량-L${index + 1}`, index + 1, 100)) }]
 };
 
 function dispatchPointer(target: HTMLElement, type: string, properties: Record<string, unknown>) {

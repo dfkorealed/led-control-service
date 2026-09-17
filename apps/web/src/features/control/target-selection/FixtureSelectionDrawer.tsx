@@ -54,8 +54,8 @@ export function FixtureSelectionDrawer({ open, dashboard, selectedFixtureIds, di
         </div>;
       })}
       {filtered.length === 0 ? <Text className="p-4 text-center" tone="secondary">조건에 맞는 조명이 없습니다.</Text> : null}
+      {limit < filtered.length ? <div className="p-3"><Button type="button" variant="secondary" className="w-full" disabled={disabled} onClick={() => setLimit((value) => value + BATCH_SIZE)}>더 보기</Button></div> : null}
     </div>
     </div>
-    {limit < filtered.length ? <Button type="button" variant="secondary" disabled={disabled} onClick={() => setLimit((value) => value + BATCH_SIZE)}>더 보기</Button> : null}
   </ModalDialog>;
 }
