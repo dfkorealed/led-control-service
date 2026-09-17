@@ -770,6 +770,7 @@ CAD parser 좌표에서 검출한 조명 위치 후보 원장이다. 후보는 B
 | `sourceImportJobId` | `String` | 예 | FK -> `FloorImportJob.id`, cascade delete | 슬롯을 만든 CAD import job |
 | `sourceCandidateId` | `String` | 예 | Unique, FK -> `FloorImportCandidate.id`, cascade delete | 원본 승인 후보. 후보 하나당 슬롯 하나 |
 | `assignedFixtureId` | `String?` | 아니오 | Unique, FK -> `Fixture.id`, delete set null | 슬롯에 연결한 실제 조명. 한 조명은 슬롯 하나에만 연결 가능 |
+| `capacityOrdinal` | `Int` | 예 | DB 관리, `1..2000`, `(floorId, capacityOrdinal)` Unique | 층별 슬롯 용량을 구조적으로 제한하는 ordinal. Prisma 호출자는 생략한다. |
 | `x`, `y` | `Float` | 예 | 유한값 CHECK | 맵 좌표계의 슬롯 위치 |
 | `rotation` | `Float` | 예 | `0`, 유한값 CHECK | 후보에서 보존한 회전 각도 |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
@@ -779,7 +780,8 @@ CAD parser 좌표에서 검출한 조명 위치 후보 원장이다. 후보는 B
 
 - `(floorId, id)` index로 층별 슬롯을 안정적인 ID 순서로 조회한다.
 - `sourceCandidateId` unique는 후보 중복 적용을 막고, nullable `assignedFixtureId` unique는 실제 조명의 중복 슬롯 할당을 막는다.
-- 한 층의 슬롯은 최대 2,000개다. deferred capacity trigger는 transaction 최종 상태에서 층별 advisory transaction lock을 먼저 획득한 뒤 개수를 검사하므로 동시 INSERT와 층 이동도 합계를 초과할 수 없다. 층 이동은 이전·새 층을 정렬해 잠그며, DELETE는 개수를 줄이므로 검사하지 않아 기존 슬롯 삭제 후 최대 2,000개를 다시 만드는 원자적 맵 교체를 허용한다.
+- 한 층의 슬롯은 최대 2,000개다. BEFORE trigger가 호출자 입력과 관계없이 비어 있는 `capacityOrdinal`을 배정하며, `1..2000` CHECK와 `(floorId, capacityOrdinal)` Unique가 REPEATABLE READ의 오래된 snapshot에서도 상한을 구조적으로 보장한다. 층별 advisory transaction lock은 동시 writer 충돌을 줄이는 보조 수단이다.
+- 같은 층의 `capacityOrdinal` 직접 변경은 DB가 기존 값으로 되돌린다. `floorId` 변경과 `Floor.id` cascade update는 새 층의 빈 ordinal을 다시 배정하고, 자리가 없으면 transaction을 거부한다. DELETE 후 최대 2,000개 INSERT는 같은 transaction에서 ordinal을 재사용하므로 원자적 맵 교체가 가능하다.
 - `FloorLightSlot_geometry_check`는 PostgreSQL이 저장할 수 있는 `NaN`, 양·음의 `Infinity`를 x/y/rotation에서 거부한다.
 - deferred constraint trigger는 슬롯의 `floorId`, source job의 층, source candidate의 job이 같은지 검증한다. 할당 조명이 있으면 해당 `Fixture.floorId`도 슬롯 층과 같아야 한다.
 - 슬롯뿐 아니라 `FloorImportJob.floorId`, `FloorImportCandidate.jobId`, `Fixture.floorId` 변경 경로에도 trigger를 설치해 부모 변경으로 불일치가 생기는 경우 transaction 전체를 거부한다. 이 교차 테이블 제약은 Prisma datamodel로 표현되지 않는다.
@@ -1909,7 +1911,7 @@ node별 `provision-device` command의 durable transactional outbox다. 등록 AP
 | --- | --- | --- |
 | `User` | Unique `email` | 이메일 중복 가입 방지 |
 | `FloorPlan` | Unique `floorId` | 한 층에 하나의 현재 도면 |
-| `FloorLightSlot` | 층별 최대 2,000개, Unique `sourceCandidateId`, nullable Unique `assignedFixtureId`, finite geometry CHECK와 deferred trigger | 동시 쓰기에서도 슬롯 상한과 후보별 슬롯·조명별 할당 중복을 막고 job/candidate/fixture의 층 일치를 강제 |
+| `FloorLightSlot` | `(floorId, capacityOrdinal)` Unique와 ordinal 범위 CHECK, Unique `sourceCandidateId`, nullable Unique `assignedFixtureId`, finite geometry CHECK와 deferred scope trigger | REPEATABLE READ 동시 쓰기에서도 층별 2,000개 상한과 후보별 슬롯·조명별 할당 중복을 막고 job/candidate/fixture의 층 일치를 강제 |
 | `FloorMapObject` | Index `floorId`, `zIndex` | 한 층 안에서 편집 객체 렌더링 순서 조회 최적화 |
 | `Fixture` | Unique `meshNodeId`, Unique `id + siteId + gatewayId`, composite Floor/MeshNode owner FK와 projection trigger | 하나의 메시 노드는 하나의 조명에만 연결하고 자동화가 참조할 Site/Gateway owner를 구조적으로 투영 |
 | `Gateway` | Unique `serialNumber` | 게이트웨이 시리얼 중복 방지 |

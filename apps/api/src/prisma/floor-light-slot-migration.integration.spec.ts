@@ -56,6 +56,51 @@ describe("floor light slot migration invariants on disposable PostgreSQL", () =>
     insertSlots(cluster, databaseUrl, 1, 2_000);
 
     expect(slotCount(cluster, databaseUrl, "floor-a")).toBe("2000");
+    expect(cluster.sql(databaseUrl, `
+      SELECT min("capacityOrdinal") || ':' || max("capacityOrdinal") || ':' || count(DISTINCT "capacityOrdinal")
+      FROM "FloorLightSlot" WHERE "floorId" = 'floor-a';
+    `)).toBe("1:2000:2000");
+  });
+
+  it("enforces ordinal range and uniqueness even when assignment triggers are disabled", () => {
+    seedCandidates(cluster, databaseUrl, 2);
+
+    expect(() => cluster.sql(databaseUrl, `
+      SET session_replication_role = replica;
+      INSERT INTO "FloorLightSlot" (
+        "id", "floorId", "sourceImportJobId", "sourceCandidateId", "capacityOrdinal",
+        "x", "y", "rotation", "updatedAt"
+      ) VALUES ('slot-range', 'floor-a', 'job-a', 'candidate-1', 0, 1, 1, 0, CURRENT_TIMESTAMP);
+    `)).toThrow("FloorLightSlot_capacityOrdinal_check");
+    expect(() => cluster.sql(databaseUrl, `
+      SET session_replication_role = replica;
+      INSERT INTO "FloorLightSlot" (
+        "id", "floorId", "sourceImportJobId", "sourceCandidateId", "capacityOrdinal",
+        "x", "y", "rotation", "updatedAt"
+      ) VALUES
+        ('slot-unique-a', 'floor-a', 'job-a', 'candidate-1', 1, 1, 1, 0, CURRENT_TIMESTAMP),
+        ('slot-unique-b', 'floor-a', 'job-a', 'candidate-2', 1, 2, 2, 0, CURRENT_TIMESTAMP);
+    `)).toThrow("FloorLightSlot_floorId_capacityOrdinal_key");
+  });
+
+  it("owns ordinal assignment when callers provide or update the field", () => {
+    seedCandidates(cluster, databaseUrl, 1);
+    cluster.sql(databaseUrl, `
+      INSERT INTO "FloorLightSlot" (
+        "id", "floorId", "sourceImportJobId", "sourceCandidateId", "capacityOrdinal",
+        "x", "y", "rotation", "updatedAt"
+      ) VALUES ('slot-managed', 'floor-a', 'job-a', 'candidate-1', 2000, 1, 1, 0, CURRENT_TIMESTAMP);
+    `);
+    expect(cluster.sql(databaseUrl, `
+      SELECT "capacityOrdinal" FROM "FloorLightSlot" WHERE "id" = 'slot-managed';
+    `)).toBe("1");
+
+    cluster.sql(databaseUrl, `
+      UPDATE "FloorLightSlot" SET "capacityOrdinal" = 2000 WHERE "id" = 'slot-managed';
+    `);
+    expect(cluster.sql(databaseUrl, `
+      SELECT "capacityOrdinal" FROM "FloorLightSlot" WHERE "id" = 'slot-managed';
+    `)).toBe("1");
   });
 
   it("rejects a 2,001st slot on one floor", () => {
@@ -93,6 +138,10 @@ describe("floor light slot migration invariants on disposable PostgreSQL", () =>
     expect(cluster.sql(databaseUrl, `
       SELECT count(*) FROM "FloorLightSlot" WHERE "id" LIKE 'replacement-slot-%';
     `)).toBe("2000");
+    expect(cluster.sql(databaseUrl, `
+      SELECT min("capacityOrdinal") || ':' || max("capacityOrdinal") || ':' || count(DISTINCT "capacityOrdinal")
+      FROM "FloorLightSlot" WHERE "floorId" = 'floor-a';
+    `)).toBe("1:2000:2000");
   });
 
   it("rejects moving a slot onto a floor that already has 2,000 slots", () => {
@@ -136,19 +185,25 @@ describe("floor light slot migration invariants on disposable PostgreSQL", () =>
     insertSlots(cluster, databaseUrl, 1, 1_999);
 
     const first = startPsql(databaseUrl, "floor_slot_writer_first", `
-      BEGIN;
+      BEGIN ISOLATION LEVEL REPEATABLE READ;
       ${slotInsertSql(2_000)}
-      SELECT pg_sleep(2);
+      SELECT pg_sleep(3);
       COMMIT;
     `);
-    await waitForSleep(cluster, databaseUrl, "floor_slot_writer_first");
-    const second = startPsql(databaseUrl, "floor_slot_writer_second", slotInsertSql(2_001));
+    await waitForCapacityLockAndSleep(cluster, databaseUrl, "floor_slot_writer_first");
+    const second = startPsql(databaseUrl, "floor_slot_writer_second", `
+      BEGIN ISOLATION LEVEL REPEATABLE READ;
+      ${slotInsertSql(2_001)}
+      COMMIT;
+    `);
+    await waitForAdvisoryLockWait(cluster, databaseUrl, "floor_slot_writer_second");
 
-    const results = await Promise.all([first.completed, second.completed]);
-    expect(results.filter(result => result.status === 0)).toHaveLength(1);
-    expect(results.filter(result => result.status !== 0)).toHaveLength(1);
-    expect(results.map(result => result.stderr).join("\n")).toContain("floor light slot capacity exceeded");
+    const [firstResult, secondResult] = await Promise.all([first.completed, second.completed]);
+    expect(firstResult.status).toBe(0);
+    expect(secondResult.status).not.toBe(0);
+    expect(secondResult.stderr).toMatch(/duplicate key|could not serialize|capacity exceeded/i);
     expect(slotCount(cluster, databaseUrl, "floor-a")).toBe("2000");
+    expect(Number(slotCount(cluster, databaseUrl, "floor-a"))).toBeLessThanOrEqual(2_000);
   });
 
   it("rejects candidate, job, and floor scope mismatches", () => {
@@ -232,17 +287,50 @@ describe("floor light slot migration invariants on disposable PostgreSQL", () =>
     `)).toBe("t");
   });
 
+  it("cascades a Floor id update through slots, jobs, and fixtures", () => {
+    seedAssignedSlot(cluster, databaseUrl);
+
+    cluster.sql(databaseUrl, `UPDATE "Floor" SET "id" = 'floor-a-renamed' WHERE "id" = 'floor-a';`);
+
+    expect(cluster.sql(databaseUrl, `
+      SELECT
+        slot."floorId" || ':' || job."floorId" || ':' || fixture."floorId" || ':' || slot."capacityOrdinal"
+      FROM "FloorLightSlot" AS slot
+      JOIN "FloorImportJob" AS job ON job."id" = slot."sourceImportJobId"
+      JOIN "Fixture" AS fixture ON fixture."id" = slot."assignedFixtureId"
+      WHERE slot."id" = 'slot-a';
+    `)).toBe("floor-a-renamed:floor-a-renamed:floor-a-renamed:1");
+  });
+
+  it("cascades Floor deletion without leaving slots or dependent rows", () => {
+    seedAssignedSlot(cluster, databaseUrl);
+
+    cluster.sql(databaseUrl, `DELETE FROM "Floor" WHERE "id" = 'floor-a';`);
+
+    expect(cluster.sql(databaseUrl, `
+      SELECT
+        (SELECT count(*) FROM "FloorLightSlot") || ':' ||
+        (SELECT count(*) FROM "FloorImportCandidate") || ':' ||
+        (SELECT count(*) FROM "FloorImportJob") || ':' ||
+        (SELECT count(*) FROM "Fixture");
+    `)).toBe("0:0:1:1");
+  });
+
   it("clean-deploys the full migration chain in timestamp order", () => {
     const cleanDatabaseUrl = cluster.database();
     const result = cluster.deploy(cleanDatabaseUrl, migrationName);
 
     expect(result.status).toBe(0);
     expect(result.stderr).not.toContain("Error");
-    expect(cluster.sql(cleanDatabaseUrl, `
-      SELECT string_agg(migration_name, ',' ORDER BY migration_name)
+    const applicationOrder = cluster.sql(cleanDatabaseUrl, `
+      SELECT migration_name
       FROM "_prisma_migrations"
-      WHERE migration_name IN ('${previousMigrationName}', '${migrationName}', '${laterMigrationName}');
-    `)).toBe(`${previousMigrationName},${migrationName}`);
+      WHERE finished_at IS NOT NULL
+      ORDER BY started_at, id;
+    `).split("\n");
+    expect(applicationOrder.at(-1)).toBe(migrationName);
+    expect(applicationOrder.indexOf(previousMigrationName)).toBeLessThan(applicationOrder.indexOf(migrationName));
+    expect(applicationOrder).not.toContain(laterMigrationName);
   });
 });
 
@@ -352,19 +440,43 @@ function startPsql(databaseUrl: string, applicationName: string, sql: string) {
   };
 }
 
-async function waitForSleep(
+async function waitForCapacityLockAndSleep(
   cluster: Awaited<ReturnType<typeof disposablePostgres>>,
   databaseUrl: string,
   applicationName: string
 ) {
   const deadline = Date.now() + 5_000;
   while (Date.now() < deadline) {
-    const sleeping = cluster.sql(databaseUrl, `
-      SELECT count(*) FROM pg_stat_activity
-      WHERE application_name = '${applicationName}' AND wait_event = 'PgSleep';
+    const state = cluster.sql(databaseUrl, `
+      SELECT count(*)
+      FROM pg_stat_activity AS activity
+      JOIN pg_locks AS lock ON lock.pid = activity.pid
+      WHERE activity.application_name = '${applicationName}'
+        AND activity.wait_event = 'PgSleep'
+        AND lock.locktype = 'advisory'
+        AND lock.granted;
     `);
-    if (sleeping === "1") return;
+    if (state === "1") return;
     await new Promise(resolve => setTimeout(resolve, 20));
   }
-  throw new Error(`${applicationName} did not reach the concurrency barrier`);
+  throw new Error(`${applicationName} did not hold the capacity lock at the concurrency barrier`);
+}
+
+async function waitForAdvisoryLockWait(
+  cluster: Awaited<ReturnType<typeof disposablePostgres>>,
+  databaseUrl: string,
+  applicationName: string
+) {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const waiting = cluster.sql(databaseUrl, `
+      SELECT count(*) FROM pg_stat_activity
+      WHERE application_name = '${applicationName}'
+        AND wait_event_type = 'Lock'
+        AND wait_event = 'advisory';
+    `);
+    if (waiting === "1") return;
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  throw new Error(`${applicationName} did not wait for the floor capacity lock`);
 }

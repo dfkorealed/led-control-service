@@ -586,6 +586,7 @@ model FloorLightSlot {
   sourceImportJobId String
   sourceCandidateId String               @unique
   assignedFixtureId String?              @unique
+  capacityOrdinal   Int                  @default(dbgenerated("0"))
   x                 Float
   y                 Float
   rotation          Float                @default(0)
@@ -596,6 +597,7 @@ model FloorLightSlot {
   createdAt         DateTime              @default(now())
   updatedAt         DateTime              @updatedAt
 
+  @@unique([floorId, capacityOrdinal])
   @@index([floorId, id])
 }
 
