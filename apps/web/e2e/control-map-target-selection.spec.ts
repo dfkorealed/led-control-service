@@ -103,27 +103,34 @@ for (const viewport of [{ width: 390, height: 660 }, { width: 320, height: 740 }
   });
 }
 
-test("clearing a 100-member group keeps the desktop selector usable while changes scroll separately", async ({ page }) => {
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await installControlMapRoutes(page, { fixtureCount: 100, groupMemberCount: 100 });
-  await page.goto(`/control?siteId=${ids.site}`);
-  await page.getByRole("button", { name: "구역 관리" }).click();
-  await page.getByRole("button", { name: "B2 입구 수정" }).click();
+for (const viewport of [{ width: 1440, height: 900 }, { width: 1366, height: 768 }] as const) {
+  test(`clearing a 100-member group at ${viewport.width}x${viewport.height} keeps the selector usable while changes scroll separately`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await installControlMapRoutes(page, { fixtureCount: 100, groupMemberCount: 100 });
+    await page.goto(`/control?siteId=${ids.site}`);
+    await page.getByRole("button", { name: "구역 관리" }).click();
+    await page.getByRole("button", { name: "B2 입구 수정" }).click();
 
-  const dialog = page.getByRole("dialog", { name: "구역 수정" });
-  const editor = dialog.getByTestId("fixture-group-map-editor");
-  const content = editor.locator("[data-target-selection-content]");
-  await expect.poll(async () => content.evaluate((element) => element.clientHeight)).toBeGreaterThanOrEqual(240);
-  await editor.getByRole("button", { name: "선택 비우기" }).click();
+    const dialog = page.getByRole("dialog", { name: "구역 수정" });
+    const editor = dialog.getByTestId("fixture-group-map-editor");
+    const content = editor.locator("[data-target-selection-content]");
+    await expect.poll(async () => content.evaluate((element) => element.clientHeight)).toBeGreaterThanOrEqual(240);
+    await editor.getByRole("button", { name: "선택 비우기" }).click();
 
-  const changes = editor.locator('[aria-label="구역 구성 변경"]');
-  await expect(changes.getByText(/^제거 예정:/)).toHaveCount(100);
-  await expect(changes).toHaveCSS("overflow-y", "auto");
-  expect(await changes.evaluate((element) => element.scrollHeight)).toBeGreaterThan(await changes.evaluate((element) => element.clientHeight));
-  await expect.poll(async () => content.evaluate((element) => element.clientHeight)).toBeGreaterThanOrEqual(240);
-  await marker(editor, "B2-L100").click();
-  await expect(marker(editor, "B2-L100")).toHaveAttribute("aria-pressed", "true");
-});
+    const changes = editor.locator('[aria-label="구역 구성 변경"]');
+    await expect(changes.getByText(/^제거 예정:/)).toHaveCount(100);
+    await expect(changes).toHaveCSS("overflow-y", "auto");
+    expect(await changes.evaluate((element) => element.scrollHeight)).toBeGreaterThan(await changes.evaluate((element) => element.clientHeight));
+    expect(await editor.evaluate((element) => element.scrollHeight - element.clientHeight)).toBeLessThanOrEqual(1);
+    await changes.scrollIntoViewIfNeeded();
+    await expectReachableInside(changes, editor);
+    await expectInternalWheelScroll(page, changes);
+    await expectReachableInside(changes.getByText("제거 예정: B2-L100", { exact: true }), changes);
+    await expect.poll(async () => content.evaluate((element) => element.clientHeight)).toBeGreaterThanOrEqual(240);
+    await marker(editor, "B2-L055").click();
+    await expect(marker(editor, "B2-L055")).toHaveAttribute("aria-pressed", "true");
+  });
+}
 
 test("final review: boundary markers keep their whole coarse hit target inside the map", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
