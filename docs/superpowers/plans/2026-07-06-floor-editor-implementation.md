@@ -12,7 +12,7 @@
 
 ## 2026-09-18 CAD 맵 교체·슬롯 배치 활성 계획
 
-상태: 설계 승인 완료, 구현 대기. 이 절이 현재 활성 체크리스트이며 아래 `2026-09-09 대량 배치 실행 계획`은 완료된 과거 이력이다.
+상태: 구현 진행 중. Task 1 슬롯 DB 모델과 공유 계약까지 완료했다. 이 절이 현재 활성 체크리스트이며 아래 `2026-09-09 대량 배치 실행 계획`은 완료된 과거 이력이다.
 
 ### 전역 제약
 
@@ -41,7 +41,7 @@
 - 변경: `floorImportApplyInputSchema`에 `confirmMapReset: z.literal(true)`.
 - 변경: editor snapshot에 `lightSlots: FloorLightSlotDto[]`.
 
-- [ ] **Step 1: 실패하는 공유 계약 테스트 작성**
+- [x] **Step 1: 실패하는 공유 계약 테스트 작성**
 
 ```ts
 expect(() => floorImportApplyInputSchema.parse({
@@ -60,13 +60,13 @@ expect(floorLightSlotSchema.parse({
 })).toMatchObject({ assignedFixtureId: null });
 ```
 
-- [ ] **Step 2: 공유 테스트가 실패하는지 확인**
+- [x] **Step 2: 공유 테스트가 실패하는지 확인**
 
 Run: `pnpm --filter @led-control/shared test -- cad-import-contracts.test.ts schemas.test.ts`
 
 Expected: `confirmMapReset`와 `floorLightSlotSchema`가 없어 실패.
 
-- [ ] **Step 3: Prisma 모델·제약·공유 타입 구현**
+- [x] **Step 3: Prisma 모델·제약·공유 타입 구현**
 
 ```prisma
 model FloorLightSlot {
@@ -90,13 +90,13 @@ model FloorLightSlot {
 
 `Floor`, `FloorImportJob`, `FloorImportCandidate`, `Fixture`에는 각각 반대 relation field를 추가한다. Migration SQL에는 finite x/y/rotation, candidate/job/floor 일치, assigned fixture/floor 일치 검증 trigger를 포함한다.
 
-- [ ] **Step 4: schema generate와 계약 테스트 실행**
+- [x] **Step 4: schema generate와 계약 테스트 실행**
 
 Run: `pnpm --filter @led-control/api prisma:generate && pnpm --filter @led-control/shared test -- cad-import-contracts.test.ts schemas.test.ts && pnpm --filter @led-control/shared typecheck`
 
 Expected: 모두 통과.
 
-- [ ] **Step 5: DB 문서 갱신 후 커밋**
+- [x] **Step 5: DB 문서 갱신 후 커밋**
 
 ```bash
 git add apps/api/prisma/schema.prisma apps/api/prisma/migrations/20260918090000_floor_light_slots_map_reset packages/shared/src/schemas.ts packages/shared/src/cad-import-contracts.ts packages/shared/src/cad-import-contracts.test.ts docs/database-schema.md
