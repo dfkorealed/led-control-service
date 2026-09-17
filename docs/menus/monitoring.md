@@ -22,6 +22,8 @@
 
 ## 구현 완료
 
+- 2026-09-17 모니터링은 공통 `FloorMapViewport`를 사용하고, 기존 읽기 전용 `FloorScene`에 명시적인 `single` selection adapter를 전달한다. 따라서 marker와 `상세 조명 선택`의 단일 선택·상세 패널 동기화 의미는 바뀌지 않았다. viewport는 wheel 확대, pointer pan과 모든 interaction mode의 두 손가락 pinch를 제공한다. pointer capture로 지도 밖 이동도 추적하지만 marker button은 단일 pointer gesture를 시작하지 않아 native marker click을 보존한다. marker는 시각 20px dot과 별도 44px coarse hit target을 유지한다.
+
 - 2026-09-17 지도 viewport의 fit·pan·Ctrl/Cmd+wheel 배율·zoom control을 재사용 가능한 `FloorMapViewport`로 분리했다. 모니터링은 기존 읽기 전용 `FloorScene`, marker 단일 선택, 범례와 안내를 어댑터로 유지한다. 모바일의 pan/select/area 상호작용은 모두 두 touch pointer의 중점에 고정한 pinch zoom을 제공하며, pinch는 진행 중인 pan/영역 선택을 취소하고 남은 touch가 갑자기 이동하지 않도록 one-pointer gesture로 이어지지 않는다. 확대 지도 overflow는 viewport 내부에만 두고 0.1~4 배율과 층 변경 시 100% 화면 맞춤을 유지한다. `FloorMapViewport`·gesture·모니터링 집중 Vitest 21개와 인접 모니터링/scene 61개, web typecheck를 통과했다. 이는 jsdom의 포인터 회귀 검증이며 실제 모바일 WebView gesture 및 현장 도면 시각 QA는 후속 확인이 필요하다.
 
 - 2026-09-16 Tailwind Task 12에서 공통 primitive와 모니터링 화면의 legacy class/CSS adapter를 제거하고 의미 토큰·utility 및 `data-*` 테스트 계약으로 수렴했다. 정책 baseline은 빈 violation map을 사용하며 1440/1024/390/320px 가로 overflow 계약을 canonical 회귀에 포함한다. Fresh Web **1,224/1,224**, UI policy **53/53**, 전체 Chromium 직렬 **257 passed·5 환경 의존 skip·실패 0**을 통과했다. 자동 Chromium·mock API 기반 소프트웨어 증거이며 실제 iOS/Android WebView, 현장 도면, Raspberry Pi/BlueZ/ESP32-H2 HIL은 실행하지 않았다.
@@ -170,6 +172,8 @@
 - 모니터링 화면 내 빠른 밝기 제어
 
 ## 부족하거나 개선이 필요한 기능
+
+- 모바일 두 손가락 확대·축소, marker hit 및 pointer-capture 경로는 Web PointerEvent와 synthetic Chromium으로 검증했다. 실제 iOS/Android WebView의 safe area, gesture arbitration, native click 전달과 장시간 현장 사용성은 실기기 확인이 필요하며, 이는 BLE/Mesh·firmware·물리 조명 HIL 검증이 아니다.
 
 - 공통 디자인 시스템 이전은 deterministic Vitest와 Chromium route fixture를 기준으로 검증한다. 실제 현장 도면의 수동 시각 QA와 Raspberry Pi/ESP32-H2/LED 연결 HIL 결과는 포함하지 않는다.
 

@@ -4,6 +4,8 @@
 
 ## 구현 완료
 
+- 2026-09-17 제어 대상 선택은 수동 명령, 스케줄, 차량 감지 이벤트, 저장 구역 관리에서 공통 `SpatialTargetSelector`/`FixtureGroupMapEditor`의 지도 우선 흐름으로 통합했다. 지도에 배치되지 않았거나 도면을 읽을 수 없는 조명은 보조 목록 drawer로 선택할 수 있다. 지도는 이동·개별 선택·영역 선택 모든 모드에서 두 손가락 pinch를 우선 처리하고, wheel 확대·내부 pan/scroll은 viewport 안에 한정한다. marker는 시각 dot과 독립된 44px coarse hit target을 쓰며, pointer capture는 지도 밖 drag를 유지하되 marker button의 native click은 단일 선택으로 그대로 전달한다. 수동 개별 선택은 첫 조명의 단일 Gateway 및 최대 1,000개를, 저장 구역 멤버십은 단일 floor/Gateway·1~100개를 강제한다. compact 화면은 선택 요약을 펼쳐 밝기·실행·진행/복구를 한 흐름에서 제공하고, drawer·지도 detail·실행/이력은 모두 bounded internal scroll을 사용한다. compact 수치 입력은 16px, preset/action은 44px 이상(현재 preset 52px)이다.
+
 - 2026-09-17 지도 제어 브라우저 검증에서 compact 밝기 수치 입력을 16px로, 프리셋 버튼을 높이 52px로 보완했다. 둥근 모서리를 제외해도 44×44px 터치 영역을 확보한다. 조명 목록 drawer는 PC에서도 높이를 제한하고 목록 자체를 스크롤하며, 내부 native checkbox 입력의 위치 기준을 목록으로 고정해 마지막 행 선택 시 overlay가 화면 밖으로 밀리지 않게 했다. 1024px의 100→121개 목록 확장·마지막 행 선택, 1440/1024px의 실제 지도·이력·구역 내부 휠 스크롤, 390/320px의 펼친 실행 영역·drawer 터치 영역과 입력 글꼴을 Chromium으로 검증한다. 이는 브라우저 회귀 범위이며 실제 WebView 터치·하드웨어 HIL 검증은 아니다.
 
 - 2026-09-17 저장 구역 생성·수정의 조명 멤버십 편집을 지도 우선 `FixtureGroupMapEditor`로 교체했다. 첫 조명 선택은 같은 floor·Gateway 경계를 잠그며, 모두 제거해도 기존 구역의 경계는 자동으로 이동하지 않고 명시적인 경계 선택으로만 바뀐다. 지도 marker와 보조 목록 drawer는 같은 `SpatialTargetSelector` 상태를 공유하므로 미배치 조명도 목록에서 선택할 수 있다. 저장은 기존 생성/수정 mutation에 1~100개 unique fixture의 전체 교체 set만 전달하며, 편집 중 추가·제거 예정 멤버를 텍스트로 표시한다. 저장 전에는 `저장 후 Mesh 설정 중`을 안내하고 저장 응답의 `configuring` 상태는 `Mesh 설정 중`으로 표시한다. 경계 polygon은 저장하거나 렌더링하지 않는다. 카드·삭제 확인·재동기화·viewer 읽기 전용·cache/focus 계약은 유지했고, 모바일 44px marker/action, 16px field 및 내부 overflow는 공통 selector 정책을 따른다. 이는 Vitest UI 회귀 증거이며 실제 Mesh/조명 HIL 완료를 뜻하지 않는다.
@@ -264,6 +266,10 @@
 
 ## 부족하거나 개선이 필요한 기능
 
+- 모바일 두 손가락 확대·축소는 Web PointerEvent와 synthetic Chromium으로 검증했다. 실제 iOS/Android WebView의 safe area, gesture arbitration과 장시간 현장 사용성은 실기기 확인이 필요하다.
+- 저장 구역은 fixture membership만 보존하며 polygon 경계는 저장하지 않는다. 맵의 영역 rectangle은 선택 도구이고 저장 데이터가 아니다.
+- 스케줄·이벤트의 구역 선택은 저장 시점 fixture snapshot이다. 구역 멤버 변경은 기존 규칙에 자동 반영되지 않는다.
+
 - 이번 제어 디자인 시스템 전환은 Chromium 자동 검증 범위다. Safari/Firefox, 실제 iOS·Android WebView의 segmented Date/Time 입력, safe-area와 OS별 focus ring은 수동 시각 QA가 추가로 필요하다. 제어 payload·API·Gateway 프로토콜은 변경하지 않았으며 실장비 HIL 완료 증거로 간주하지 않는다.
 
 - capability 원장은 생성 후 365일보다 오래되고 현재 node revision과 watermark가 모두 해당 revision보다 높은 superseded 기록만 자동 정리한다. 최신 capability 보고는 보존하며 전체 이벤트 정리는 sweep당 합산 최대 10,000개다. scope/hash가 없는 legacy 원장이나 현재 node·watermark 안전 조건을 증명할 수 없는 기록은 남긴다. watermark는 최신 identity를 보존하고 임의 과거 ID의 exact dedupe는 raw 원장이 남아 있는 기간에 의존한다. 같은 worker의 heartbeat 7일·fixture state 30일 정책과 세부 조건은 [DB 보존 문서](../database-schema.md#운영-데이터-보존과-복구-범위)를 따른다. 사용자/운영 DB migration 적용과 Raspberry Pi/ESP32-H2 replay HIL은 미실행이다.
@@ -304,6 +310,8 @@
 - `apps/web/src/features/control/target-selection/FixtureGroupMapEditor.tsx`
 - `apps/web/src/features/control/target-selection/FixtureGroupMapEditor.test.tsx`
 - `apps/web/src/features/control/target-selection/SpatialTargetSelector.tsx`
+- `apps/web/src/features/floor-map/FloorMapViewport.tsx`
+- `apps/web/src/features/floor-map/FloorScene.tsx`
 - `apps/web/src/features/control/automation/ControlModeTabs.tsx`
 - `apps/web/src/features/control/automation/ScheduleControlPanel.tsx`
 - `apps/web/src/features/control/automation/ScheduleDialog.tsx`
@@ -313,6 +321,7 @@
 - `apps/web/e2e/calm-operations-manual-control.spec.ts`
 - `apps/web/e2e/calm-operations-automation.spec.ts`
 - `apps/web/e2e/automation-control-flow.spec.ts`
+- `apps/web/e2e/control-map-target-selection.spec.ts`
 
 - `apps/api/prisma/migrations/20260914090000_manual_control_baseline/migration.sql`
 - `docs/superpowers/plans/2026-09-14-manual-baseline-control.md`
