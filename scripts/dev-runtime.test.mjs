@@ -12,7 +12,8 @@ import {
   renderMosquittoAcl,
   renderDockerMosquittoConfig,
   renderMosquittoConfig,
-  startMosquittoCrlReload
+  startMosquittoCrlReload,
+  validateLabNetworkConfiguration
 } from "./dev-runtime.mjs";
 import {
   publishNativeBrokerIdentity,
@@ -66,6 +67,51 @@ test("개발 환경은 명시한 LAN MQTT URL과 mTLS 경로를 보존한다", (
   assert.equal(env.MQTT_CLIENT_KEY_PATH, "/vault/current/api-mqtt-client.key");
   assert.equal(env.MQTT_API_INSTANCE_ID, "development");
   assert.equal(env.DEV_GATEWAY_ID, "11111111-1111-4111-8111-111111111111");
+});
+
+test("Lab 개발 시작은 현재 host에 없는 stale service IP를 거부한다", async () => {
+  await assert.rejects(
+    () => validateLabNetworkConfiguration({
+      PKI_ENV: "lab",
+      LAB_API_IP: "172.30.1.2",
+      LAB_MQTT_IP: "172.30.1.2",
+      VITE_API_PROXY_TARGET: "https://172.30.1.2:4000",
+      MQTT_URL: "mqtts://172.30.1.2:8883"
+    }, {
+      localAddresses: ["127.0.0.1", "172.30.1.13"],
+      resolveHostname: async () => []
+    }),
+    /LAB_API_IP 172\.30\.1\.2.*current host/i
+  );
+});
+
+test("Lab 개발 시작은 service IP와 다른 Vite proxy target을 거부한다", async () => {
+  await assert.rejects(
+    () => validateLabNetworkConfiguration({
+      PKI_ENV: "lab",
+      LAB_API_IP: "172.30.1.13",
+      LAB_MQTT_IP: "172.30.1.13",
+      VITE_API_PROXY_TARGET: "https://172.30.1.2:4000",
+      MQTT_URL: "mqtts://172.30.1.13:8883"
+    }, {
+      localAddresses: ["127.0.0.1", "172.30.1.13"],
+      resolveHostname: async (hostname) => [hostname]
+    }),
+    /VITE_API_PROXY_TARGET.*172\.30\.1\.13/i
+  );
+});
+
+test("Lab 개발 시작은 current service IP와 일치하는 IP endpoints를 허용한다", async () => {
+  await assert.doesNotReject(() => validateLabNetworkConfiguration({
+    PKI_ENV: "lab",
+    LAB_API_IP: "172.30.1.13",
+    LAB_MQTT_IP: "172.30.1.13",
+    VITE_API_PROXY_TARGET: "https://172.30.1.13:4000",
+    MQTT_URL: "mqtts://172.30.1.13:8883"
+  }, {
+    localAddresses: ["127.0.0.1", "172.30.1.13"],
+    resolveHostname: async (hostname) => [hostname]
+  }));
 });
 
 test("개발 환경은 미설정 mTLS 값에만 기존 로컬 PKI 기본값을 사용한다", () => {

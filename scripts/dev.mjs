@@ -1,6 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
+import { lookup } from "node:dns/promises";
 import { createConnection } from "node:net";
 import { connect as connectTls } from "node:tls";
+import { networkInterfaces } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
@@ -14,7 +16,8 @@ import {
   parseEnvFile,
   resolveDevAppFilters,
   resolveMosquittoTlsPaths,
-  startMosquittoCrlReload
+  startMosquittoCrlReload,
+  validateLabNetworkConfiguration
 } from "./dev-runtime.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -30,6 +33,13 @@ const sourceEnv = { ...fileEnv, ...process.env };
 if (sourceEnv.AUTOMATION_E2E_SIMULATOR === "1") {
   fail("AUTOMATION_E2E_SIMULATOR는 private child IPC를 제공하는 Chromium RealBackendLab에서만 실행할 수 있습니다.");
 }
+await validateLabNetworkConfiguration(sourceEnv, {
+  localAddresses: Object.values(networkInterfaces())
+    .flatMap((entries) => entries ?? [])
+    .map((entry) => entry.address),
+  resolveHostname: async (hostname) => (await lookup(hostname, { all: true, verbatim: true }))
+    .map((entry) => entry.address)
+});
 const { env, gatewayIds, aclPath, nativeConfigPath, dockerConfigPath, dockerCertDirectory } =
   prepareDevelopmentRuntime(root, sourceEnv);
 const nativeIdentityPath = join(root, ".local", "mosquitto.host.pid.json");

@@ -12,6 +12,7 @@ import {
   watch as watchFile,
   writeFileSync
 } from "node:fs";
+import { isIP } from "node:net";
 import { basename, dirname, join } from "node:path";
 
 const MAX_DEV_GATEWAY_IDS = 64;
@@ -54,6 +55,69 @@ export function resolveDevEnvironment(root, source) {
     DEV_GATEWAY_ID: legacyGatewayId ?? "",
     DEV_GATEWAY_IDS: gatewayIds.join(",")
   };
+}
+
+export async function validateLabNetworkConfiguration(source, { localAddresses, resolveHostname }) {
+  if (source.PKI_ENV?.trim() !== "lab") return;
+
+  const apiIp = requiredLabIp(source.LAB_API_IP, "LAB_API_IP");
+  const mqttIp = requiredLabIp(source.LAB_MQTT_IP, "LAB_MQTT_IP");
+  const currentAddresses = new Set(localAddresses);
+  for (const [name, address] of [["LAB_API_IP", apiIp], ["LAB_MQTT_IP", mqttIp]]) {
+    if (!currentAddresses.has(address)) {
+      throw new Error(`${name} ${address} is not assigned to the current host. Regenerate the Lab PKI/env for the current LAN address before pnpm dev.`);
+    }
+  }
+
+  await requireEndpointAddress(
+    source.VITE_API_PROXY_TARGET,
+    "VITE_API_PROXY_TARGET",
+    "https:",
+    apiIp,
+    "LAB_API_IP",
+    resolveHostname
+  );
+  await requireEndpointAddress(source.MQTT_URL, "MQTT_URL", "mqtts:", mqttIp, "LAB_MQTT_IP", resolveHostname);
+  if (source.MQTT_PUBLIC_URL?.trim()) {
+    await requireEndpointAddress(
+      source.MQTT_PUBLIC_URL,
+      "MQTT_PUBLIC_URL",
+      "mqtts:",
+      mqttIp,
+      "LAB_MQTT_IP",
+      resolveHostname
+    );
+  }
+}
+
+function requiredLabIp(value, name) {
+  const address = value?.trim();
+  if (!address || isIP(address) === 0) throw new Error(`${name} must be a valid IP address in Lab mode.`);
+  return address;
+}
+
+async function requireEndpointAddress(value, name, protocol, expectedIp, expectedName, resolveHostname) {
+  let url;
+  try {
+    url = new URL(value?.trim() ?? "");
+  } catch {
+    throw new Error(`${name} must be a valid ${protocol}// URL in Lab mode.`);
+  }
+  if (url.protocol !== protocol) throw new Error(`${name} must use ${protocol}// in Lab mode.`);
+
+  let addresses;
+  if (isIP(url.hostname) !== 0) {
+    addresses = [url.hostname];
+  } else {
+    try {
+      addresses = await resolveHostname(url.hostname);
+    } catch {
+      throw new Error(`${name} hostname ${url.hostname} could not be resolved in Lab mode.`);
+    }
+  }
+  if (!addresses.includes(expectedIp)) {
+    throw new Error(`${name} must resolve to ${expectedName} ${expectedIp} in Lab mode.`);
+  }
 }
 
 export function resolveMosquittoTlsPaths(root, source = {}) {
