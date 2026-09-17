@@ -6,6 +6,7 @@ import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createGzip } from "node:zlib";
 import { cadBulgeArc, computeCadBounds, expandCadDocument, iterateCadDocumentExpansion, multiplyCadMatrices, transformPoint, type CadMatrix, type ExpandedCadEntity } from "./cad-geometry";
+import { CAD_RENDERED_SVG_MAX_BYTES, CAD_RENDERED_SVG_RAW_MAX_BYTES } from "./cad-resource-limits";
 import { forEachCadTextGlyph, sanitizeCadText } from "./cad-text-layout";
 import type { CadPoint, NormalizedCadDocument } from "./cad-types";
 import { cadViewportSvgTransform, createCadViewport } from "./cad-viewport";
@@ -41,8 +42,7 @@ const DEFAULT_LIMITS: CadSvgRendererLimits = {
   }
 };
 const MIN_SERIALIZED_GLYPH_BYTES = 16;
-export const CAD_RENDERED_SVG_MAX_BYTES = 8 * 1024 * 1024;
-const CAD_RENDERED_SVG_RAW_MAX_BYTES = 128 * 1024 * 1024;
+export { CAD_RENDERED_SVG_MAX_BYTES, CAD_RENDERED_SVG_RAW_MAX_BYTES } from "./cad-resource-limits";
 
 function xmlSanitized(value: string): string {
   return value.replace(/[&<>"']/g, character => ({

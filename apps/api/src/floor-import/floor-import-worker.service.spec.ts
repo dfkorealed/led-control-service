@@ -1,8 +1,14 @@
 import { randomUUID } from "node:crypto";
+import * as fsPromises from "node:fs/promises";
 import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FloorImportWorkerService } from "./floor-import-worker.service";
+
+jest.mock("node:fs/promises", () => ({
+  ...jest.requireActual("node:fs/promises"),
+  statfs: jest.fn(jest.requireActual("node:fs/promises").statfs)
+}));
 
 function claimedJob(overrides: Record<string, unknown> = {}) {
   return {
@@ -147,6 +153,49 @@ describe("FloorImportWorkerService", () => {
       expect(completionSql.values).toContain(attempt.assetId);
       expect(await readdir(root)).toEqual([]);
     } finally {
+      await worker.onModuleDestroy();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects insufficient temporary space before starting the isolated CAD core", async () => {
+    const root = await mkdtemp(join(tmpdir(), "floor-import-budget-test-"));
+    const row = claimedJob({ attemptCount: 3 });
+    const source = {
+      objectKey: `floors/${row.floorId}/source.dxf`, sizeBytes: 1n, sha256: "a".repeat(64),
+      mimeType: "application/dxf", floor: { siteId: randomUUID() }
+    };
+    const prisma: any = {
+      $executeRaw: jest.fn().mockResolvedValue(1),
+      $queryRaw: jest.fn().mockResolvedValueOnce([{ id: row.id }]).mockResolvedValueOnce([row]),
+      floorAsset: { findUniqueOrThrow: jest.fn().mockResolvedValue(source) }
+    };
+    const storage: any = {
+      downloadFloorAssetToFile: jest.fn(async (_key: string, path: string) => writeFile(path, "s"))
+    };
+    const converter: any = {
+      convert: jest.fn(async ({ outputPath }: any) => {
+        await writeFile(outputPath, "d");
+        return { outputPath, outputBytes: 1 };
+      })
+    };
+    const core: any = { execute: jest.fn().mockRejectedValue(new Error("core must not start")) };
+    const statfs = jest.mocked(fsPromises.statfs);
+    statfs.mockResolvedValue({
+      bsize: 1n, blocks: 536_870_912n, bavail: 209_715_199n
+    } as any);
+    const worker = new FloorImportWorkerService(
+      prisma, storage, converter, genericRegistry(), core,
+      { tempRoot: root, pollIntervalMs: 1000 }
+    );
+
+    try {
+      await expect(worker.runOnce()).resolves.toBe(true);
+      expect(core.execute).not.toHaveBeenCalled();
+      expect(prisma.$executeRaw.mock.calls.at(-1)[0].values).toContain("CAD_IMPORT_RENDER_FAILED");
+    } finally {
+      statfs.mockReset();
+      statfs.mockImplementation(jest.requireActual("node:fs/promises").statfs);
       await worker.onModuleDestroy();
       await rm(root, { recursive: true, force: true });
     }

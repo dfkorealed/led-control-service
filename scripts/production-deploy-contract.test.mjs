@@ -48,7 +48,7 @@ test("standalone config renders all services and migration → API → Web gates
   assert.match(s["api-migrate"].command.join(" "), /node .*prisma.* migrate deploy/);
   assert.equal(s.api.environment.NODE_ENV, "production");
   assert.equal(s.api.environment.PKI_PROVIDER, "vault");
-  assert.equal(s.api.mem_limit, "1342177280");
+  assert.equal(s.api.mem_limit, "1476395008");
   assert.equal(s.api.environment.NODE_OPTIONS, "--max-old-space-size=256");
   assert.equal(s.api.environment.CAD_CORE_MAX_OLD_SPACE_MB, "384");
   assert.equal(s.api.environment.CAD_IMPORT_MAX_CONCURRENT_JOBS, "1");
@@ -57,8 +57,9 @@ test("standalone config renders all services and migration → API → Web gates
   assert.equal(s.api.environment.CAD_IMPORT_CONVERTER_EXECUTABLE, undefined);
   assert.equal(s.api.environment.CAD_IMPORT_CONVERTER_ARGV_JSON, undefined);
   assert.equal(s.api.environment.CAD_IMPORT_TEMP_ROOT, "/tmp/cad-import");
+  assert.equal(s.api.environment.CAD_IMPORT_TEMP_VOLUME_BYTES, "536870912");
   const cadTemp=s.api.tmpfs.find(mount=>mount.startsWith("/tmp/cad-import:"));
-  for(const option of ["uid=1000","gid=2000","mode=0700","size=402653184"]) assert.ok(cadTemp.split(/[:,]/).includes(option));
+  for(const option of ["uid=1000","gid=2000","mode=0700","size=536870912"]) assert.ok(cadTemp.split(/[:,]/).includes(option));
   assert.equal(s.api.volumes.find(mount => mount.target === "/opt/cad-converter"), undefined);
   assert.equal(s["cad-converter"].network_mode, "none");
   assert.equal(s["cad-converter"].user, "2000:2000");
@@ -213,6 +214,8 @@ test("production smoke traverses the real CAD Nest worker path and adversarial c
     "OUTPUT_BOMB",
     "TIMEOUT",
     "malformed",
+    "statfsSync",
+    "536870912",
     "api-parent-survived"
   ]) assert.match(smoke, new RegExp(contract.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"));
 });
@@ -244,6 +247,8 @@ test("deployment preflight rejects mutable app images and every unsafe rendered 
     c=>{c.services['cad-converter'].user=c.services.api.user},
     c=>{c.services['cad-converter'].mem_limit='805306368'},
     c=>{c.services.api.tmpfs=c.services.api.tmpfs.filter(mount=>!mount.startsWith('/tmp/cad-import:'))},
+    c=>{c.services.api.tmpfs=c.services.api.tmpfs.map(mount=>mount.replace('size=536870912','size=402653184'))},
+    c=>{c.services.api.environment.CAD_IMPORT_TEMP_VOLUME_BYTES='402653184'},
     c=>{c.services['cad-converter'].volumes=c.services['cad-converter'].volumes.filter(m=>m.target!=='/opt/cad-converter')},
     c=>{c.services['cad-converter'].volumes.find(m=>m.target==='/opt/cad-converter').read_only=false},
     c=>{c.services.api.environment.VAULT_ADDR='http://vault:8200'},

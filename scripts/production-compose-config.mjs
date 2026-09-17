@@ -60,7 +60,7 @@ export function validateProductionConfig(config, {smokeProject}={}) {
     requireRule(writers.join(',')==='api,crl-init','only API and initializer may write dynamic CRLs');
   }
   requireRule(s.api.environment.NODE_ENV==='production' && s.api.environment.PKI_PROVIDER==='vault','production TLS and Vault');
-  requireRule(String(s.api.mem_limit)==='1342177280' && s.api.environment.NODE_OPTIONS==='--max-old-space-size=256' && s.api.environment.CAD_CORE_MAX_OLD_SPACE_MB==='384' && s.api.environment.CAD_IMPORT_MAX_CONCURRENT_JOBS==='1' && s.api.environment.CAD_CGROUP_REQUIRED==='1','bounded CAD API/core resources');
+  requireRule(String(s.api.mem_limit)==='1476395008' && s.api.environment.NODE_OPTIONS==='--max-old-space-size=256' && s.api.environment.CAD_CORE_MAX_OLD_SPACE_MB==='384' && s.api.environment.CAD_IMPORT_MAX_CONCURRENT_JOBS==='1' && s.api.environment.CAD_CGROUP_REQUIRED==='1','bounded CAD API/core resources');
   const converter=s['cad-converter'];
   requireRule(String(converter.mem_limit)==='1073741824' && converter.environment.NODE_OPTIONS==='--max-old-space-size=64' && String(converter.pids_limit)==='64','bounded CAD sidecar resources');
   requireRule(converter.network_mode==='none' && !converter.networks && converter.user==='2000:2000' && s.api.user==='1000:2000' && !converter.pid && !s.api.pid,'isolated CAD sidecar process and network namespaces');
@@ -73,7 +73,7 @@ export function validateProductionConfig(config, {smokeProject}={}) {
   const converterMount=(converter.volumes??[]).find(m=>m.target==='/opt/cad-converter');
   const cadTempMount=(s.api.tmpfs??[]).find(m=>m.split(':')[0]==='/tmp/cad-import');
   const cadTempOptions=new Set(cadTempMount?.split(':').slice(1).join(':').split(',')??[]);
-  requireRule(cadTempOptions.has('uid=1000') && cadTempOptions.has('gid=2000') && cadTempOptions.has('mode=0700') && cadTempOptions.has('size=402653184'),'bounded writable CAD temporary storage');
+  requireRule(s.api.environment.CAD_IMPORT_TEMP_VOLUME_BYTES==='536870912' && cadTempOptions.has('uid=1000') && cadTempOptions.has('gid=2000') && cadTempOptions.has('mode=0700') && cadTempOptions.has('size=536870912'),'bounded writable CAD temporary storage');
   requireRule(converterMount?.type==='bind' && path.isAbsolute(converterMount.source) && converterMount.read_only===true && converterMount.bind?.create_host_path===false,'approved CAD converter read-only bundle');
   requireRule(!(s.api.volumes??[]).some(m=>m.target==='/opt/cad-converter'),'converter bundle absent from API');
   const apiSpool=(s.api.volumes??[]).find(m=>m.target==='/run/cad-converter-spool');

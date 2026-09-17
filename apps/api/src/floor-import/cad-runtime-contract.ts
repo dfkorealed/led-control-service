@@ -1,8 +1,9 @@
 import { readFileSync } from "node:fs";
+import { CAD_IMPORT_TEMP_VOLUME_BYTES } from "./cad-resource-limits";
 
 export const CAD_API_MAX_OLD_SPACE_MB = 256;
 export const CAD_CORE_MAX_OLD_SPACE_MB = 384;
-export const CAD_CGROUP_MEMORY_BYTES = 1280 * 1024 * 1024;
+export const CAD_CGROUP_MEMORY_BYTES = 1408 * 1024 * 1024;
 export const CAD_IMPORT_CONCURRENCY = 1;
 
 type ReadTextFile = (path: string) => string;
@@ -15,7 +16,8 @@ export function assertCadProductionRuntime(
   if (env.NODE_ENV !== "production") return;
   if (env.NODE_OPTIONS !== `--max-old-space-size=${CAD_API_MAX_OLD_SPACE_MB}` ||
       env.CAD_CORE_MAX_OLD_SPACE_MB !== String(CAD_CORE_MAX_OLD_SPACE_MB) ||
-      env.CAD_IMPORT_MAX_CONCURRENT_JOBS !== String(CAD_IMPORT_CONCURRENCY)) {
+      env.CAD_IMPORT_MAX_CONCURRENT_JOBS !== String(CAD_IMPORT_CONCURRENCY) ||
+      env.CAD_IMPORT_TEMP_VOLUME_BYTES !== String(CAD_IMPORT_TEMP_VOLUME_BYTES)) {
     throw new Error("CAD production runtime limits do not match the approved contract");
   }
   if (platform !== "linux") {

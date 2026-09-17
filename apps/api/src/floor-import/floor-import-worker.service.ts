@@ -1,12 +1,17 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from "@nestjs/common";
 import { Prisma, type FloorImportJob } from "@prisma/client";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm, stat, utimes } from "node:fs/promises";
+import { mkdtemp, rm, stat, statfs, utimes } from "node:fs/promises";
 import { join } from "node:path";
 import { PrismaService } from "../prisma/prisma.service";
 import { ObjectStorageService } from "../storage/object-storage.service";
 import { type CadConverter } from "./cad-converter";
 import { type CadCoreExecutor } from "./cad-core-executor";
+import {
+  assertCadImportTempBudget,
+  CAD_IMPORT_MAX_DXF_BYTES,
+  CAD_IMPORT_MAX_SOURCE_BYTES
+} from "./cad-resource-limits";
 import type { LightingDetectorRegistry } from "./lighting-detector-registry";
 import {
   FloorImportAttemptCleanupService,
@@ -23,9 +28,6 @@ export {
 } from "./floor-import.tokens";
 
 const MAX_ATTEMPTS = 3;
-const MAX_SOURCE_BYTES = 50 * 1024 * 1024;
-const MAX_DXF_BYTES = 256 * 1024 * 1024;
-const MAX_TEMP_DISK_BYTES = 512 * 1024 * 1024;
 const PARSER_VERSION = "ascii-dxf-stream-v2";
 const CANDIDATE_WRITE_CHUNK = 250;
 export const CAD_IMPORT_MAX_CONCURRENT_JOBS = 1;
@@ -187,7 +189,7 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
       }
       const profileId = resolvedProfileId;
       await this.storage.downloadFloorAssetToFile(source.objectKey, inputPath, {
-        maxBytes: MAX_SOURCE_BYTES,
+        maxBytes: CAD_IMPORT_MAX_SOURCE_BYTES,
         expectedBytes: Number(source.sizeBytes),
         expectedMimeType: source.mimeType,
         expectedSha256: source.sha256,
@@ -198,11 +200,18 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
       phase = "convert";
       await this.converter.convert({ inputPath, outputPath: dxfPath, abortSignal: abort.signal });
       const converted = await stat(dxfPath);
-      if (!converted.isFile() || converted.size < 1 || converted.size > MAX_DXF_BYTES) {
+      if (!converted.isFile() || converted.size < 1 || converted.size > CAD_IMPORT_MAX_DXF_BYTES) {
         throw new Error("CAD converted DXF size limit exceeded");
       }
       await pulse(35, "parsing");
 
+      phase = "render";
+      // The production temp root is dedicated to this single-concurrency worker,
+      // so this preflight exclusively reserves the raw, gzip, and filesystem budget.
+      assertCadImportTempBudget(
+        await statfs(tempDirectory, { bigint: true }),
+        Number(source.sizeBytes) + converted.size
+      );
       phase = "parse";
       const core = await this.core.execute({
         dxfPath, renderedPath, profileId, abortSignal: abort.signal
@@ -214,9 +223,6 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
       await pulse(70, "rendering");
 
       phase = "render";
-      if (Number(source.sizeBytes) + converted.size + rendered.sizeBytes > MAX_TEMP_DISK_BYTES) {
-        throw new Error("CAD import temporary disk limit exceeded");
-      }
       const viewport = rendered.viewport;
       if (!this.attemptCleanup) throw new Error("CAD import cleanup ledger is unavailable");
       attempt = await this.attemptCleanup.armAttempt(

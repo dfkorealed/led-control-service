@@ -186,8 +186,8 @@ services:
     user: "1000:2000"
     # API parent, parser child, source/output copies and native overhead are
     # bounded independently from the converter sidecar cgroup.
-    mem_limit: 1280m
-    tmpfs: [/tmp, "/tmp/cad-import:uid=1000,gid=2000,mode=0700,size=402653184"]
+    mem_limit: 1408m
+    tmpfs: [/tmp, "/tmp/cad-import:uid=1000,gid=2000,mode=0700,size=536870912"]
     depends_on:
       crl-init: {condition: service_completed_successfully}
       api-migrate: {condition: service_completed_successfully}
@@ -200,6 +200,7 @@ services:
       NODE_OPTIONS: --max-old-space-size=256
       CAD_CORE_MAX_OLD_SPACE_MB: "384"
       CAD_IMPORT_MAX_CONCURRENT_JOBS: "1"
+      CAD_IMPORT_TEMP_VOLUME_BYTES: "536870912"
       CAD_CGROUP_REQUIRED: "1"
       CAD_IMPORT_CONVERTER_MODE: sidecar
       CAD_IMPORT_CONVERTER_SHA256: ${CAD_IMPORT_CONVERTER_SHA256:?Set approved CAD_IMPORT_CONVERTER_SHA256}

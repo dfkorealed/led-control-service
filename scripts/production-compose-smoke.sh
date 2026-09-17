@@ -188,9 +188,12 @@ try {
   assert.equal(migrationState.ExitCode,0);
   assert.ok(Date.parse(migrationState.FinishedAt)<=Date.parse(apiContainer.State.StartedAt));
   assert.equal(apiContainer.HostConfig.ReadonlyRootfs,true);
-  assert.equal(apiContainer.HostConfig.Memory,1342177280);
+  assert.equal(apiContainer.HostConfig.Memory,1476395008);
   const cadCgroupMemory=compose('exec','-T','api','sh','-ec','cat /sys/fs/cgroup/memory.max 2>/dev/null || cat /sys/fs/cgroup/memory/memory.limit_in_bytes').trim();
-  assert.equal(cadCgroupMemory,'1342177280');
+  assert.equal(cadCgroupMemory,'1476395008');
+  const cadTempCapacity=compose('exec','-T','api','node','-e',"const {statfsSync}=require('node:fs');const s=statfsSync('/tmp/cad-import',{bigint:true});process.stdout.write(String(s.bsize*s.blocks))").trim();
+  assert.equal(cadTempCapacity,'536870912');
+  assert.ok(apiContainer.Config.Env.includes('CAD_IMPORT_TEMP_VOLUME_BYTES=536870912'));
   const sidecarId=compose('ps','-q','cad-converter').trim();
   const sidecarContainer=JSON.parse(run('docker',['inspect',sidecarId]))[0];
   assert.equal(sidecarContainer.HostConfig.Memory,1073741824);
