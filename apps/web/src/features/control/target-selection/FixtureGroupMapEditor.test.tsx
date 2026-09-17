@@ -86,6 +86,24 @@ describe("FixtureGroupMapEditor", () => {
     expect(screen.getByRole("button", { name: /B2-L001/ })).toBeDisabled();
     expect(screen.getByRole("button", { name: "조명 목록 열기" })).toBeDisabled();
   });
+
+  it("rejects an over-capacity area selection without removing existing members", () => {
+    const existingFixtureIds = Array.from({ length: 100 }, (_, index) => `z-existing-${String(index).padStart(3, "0")}`);
+    renderEditor({
+      dashboard: dashboardAtCapacity(existingFixtureIds),
+      value: value({ fixtureIds: existingFixtureIds, floorId: ids.floorB2, gatewayId: ids.gatewayB2 })
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "영역 선택" }));
+    const viewport = screen.getByRole("region", { name: "B2 도면" });
+    dispatchPointer(viewport, "pointerdown", { pointerId: 1, button: 0, clientX: 50, clientY: 50 });
+    dispatchPointer(viewport, "pointermove", { pointerId: 1, clientX: 150, clientY: 150 });
+    dispatchPointer(viewport, "pointerup", { pointerId: 1, clientX: 150, clientY: 150 });
+
+    expect(screen.getByRole("alert")).toHaveTextContent("구역에는 최대 100개 조명만 포함할 수 있습니다.");
+    expect(screen.getByText("100 / 100개")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Z-100/ })).toHaveAttribute("aria-pressed", "true");
+  });
 });
 
 function renderEditor(overrides: Partial<ComponentProps<typeof FixtureGroupMapEditor>> = {}) {
@@ -131,6 +149,24 @@ const dashboard: Dashboard = {
     { id: ids.gatewayB1, name: "GW-B1", serialNumber: "B1", firmwareVersion: "1", lastHeartbeatAt: null, connectionStatus: "online" }
   ]
 };
+
+function dashboardAtCapacity(existingFixtureIds: string[]): Dashboard {
+  const existingFixtures = existingFixtureIds.map((id, index) => fixture(id, `Z-${String(index + 1).padStart(3, "0")}`, ids.gatewayB2, "GW-B2", 500, 300));
+  return {
+    ...dashboard,
+    summary: { ...dashboard.summary, totalFixtures: existingFixtures.length + 1, onlineFixtures: existingFixtures.length + 1 },
+    floors: [{
+      ...dashboard.floors[0],
+      fixtures: [fixture("a-new", "A-NEW", ids.gatewayB2, "GW-B2", 100, 100), ...existingFixtures]
+    }]
+  };
+}
+
+function dispatchPointer(target: Element, type: string, init: Record<string, unknown>) {
+  const event = new Event(type, { bubbles: true, cancelable: true });
+  Object.assign(event, init);
+  fireEvent(target, event);
+}
 
 function fixture(id: string, name: string, gatewayId: string, gatewayName: string, x: number, y: number, placementStatus: "placed" | "unplaced" = "placed"): Dashboard["floors"][number]["fixtures"][number] {
   return { id, name, x, y, placementStatus, ratedWatt: 40, brightness: 70, status: "online", health: { faultCodes: [], observedAt: "2026-09-17T00:00:00.000Z" }, rssi: -55, hopCount: 1, commandSuccessRate: 1, lastSeenAt: "2026-09-17T00:00:00.000Z", gateway: { id: gatewayId, name: gatewayName, connectionStatus: "online" }, controllable: true, controlBlockReason: null };

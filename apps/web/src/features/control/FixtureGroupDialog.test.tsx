@@ -110,6 +110,69 @@ describe("FixtureGroupDialog", () => {
     expect(screen.queryByRole("group", { name: "구역 조명 목록" })).not.toBeInTheDocument();
   });
 
+  it("rejects an empty map membership before mutation", async () => {
+    renderDialog(true);
+    await screen.findByText("B2 입구");
+    fireEvent.click(screen.getByRole("button", { name: "새 구역" }));
+    fireEvent.change(screen.getByLabelText("구역 이름"), { target: { value: "빈 구역" } });
+    await selectOption("층", "B2");
+    await selectOption("게이트웨이", "Gateway B2");
+    fireEvent.click(screen.getByRole("button", { name: "구역 만들기" }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent("조명을 한 개 이상 선택하세요.");
+    expect(mocks.createFixtureGroup).not.toHaveBeenCalled();
+  });
+
+  it("rejects an externally supplied membership of 101 fixtures before mutation", async () => {
+    renderDialog(true, dashboardWithMembership(Array.from({ length: 101 }, (_, index) => `fixture-${index + 1}`)));
+    await screen.findByText("B2 입구");
+    fireEvent.click(screen.getByRole("button", { name: "B2 입구 수정" }));
+    fireEvent.click(screen.getByRole("button", { name: "변경 저장" }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent("구역에는 최대 100개 조명만 포함할 수 있습니다.");
+    expect(mocks.updateFixtureGroup).not.toHaveBeenCalled();
+  });
+
+  it("rejects duplicate fixture ids before emitting a replacement payload", async () => {
+    renderDialog(true, dashboardWithMembership([ids.firstFixture, ids.firstFixture]));
+    await screen.findByText("B2 입구");
+    fireEvent.click(screen.getByRole("button", { name: "B2 입구 수정" }));
+    fireEvent.click(screen.getByRole("button", { name: "변경 저장" }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent("같은 조명을 중복해 선택할 수 없습니다.");
+    expect(mocks.updateFixtureGroup).not.toHaveBeenCalled();
+  });
+
+  it("locks every group editor action until a pending save resolves", async () => {
+    const pendingSave = deferred<FixtureGroupMetadata>();
+    mocks.createFixtureGroup.mockReturnValue(pendingSave.promise);
+    renderDialog(true);
+    await screen.findByText("B2 입구");
+    fireEvent.click(screen.getByRole("button", { name: "새 구역" }));
+    fireEvent.change(screen.getByLabelText("구역 이름"), { target: { value: "B2 출구" } });
+    fireEvent.click(screen.getByRole("button", { name: /B2-L001/ }));
+    fireEvent.click(screen.getByRole("button", { name: "구역 만들기" }));
+
+    await waitFor(() => expect(mocks.createFixtureGroup).toHaveBeenCalled());
+    expect(screen.getByLabelText("구역 이름")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "층" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "게이트웨이" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /B2-L001/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "조명 목록 열기" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "목록으로" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "취소" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "저장 중" })).toBeDisabled();
+
+    pendingSave.resolve({
+      ...failedGroup,
+      id: "00000000-0000-4000-8000-000000000107",
+      name: "B2 출구",
+      fixtureCount: 1,
+      meshControlGroup: { status: "configuring", version: 1, error: null }
+    });
+    expect(await screen.findByText("Mesh 설정 중")).toBeInTheDocument();
+  });
+
   it("updates membership, resyncs a failed group, and confirms deletion", async () => {
     renderDialog(true);
     await screen.findByText("구독 설정 응답 시간 초과");
@@ -243,13 +306,13 @@ describe("FixtureGroupDialog", () => {
   });
 });
 
-function renderDialog(canManage: boolean) {
+function renderDialog(canManage: boolean, viewDashboard = dashboard) {
   return render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <FixtureGroupDialog
         open
         siteId={ids.site}
-        dashboard={dashboard}
+        dashboard={viewDashboard}
         canManage={canManage}
         onClose={vi.fn()}
       />
@@ -340,5 +403,21 @@ function createDashboard(): Dashboard {
       lastHeartbeatAt: "2026-08-26T00:00:00.000Z",
       connectionStatus: "online"
     }]
+  };
+}
+
+function dashboardWithMembership(fixtureIds: string[]): Dashboard {
+  const fixtures = [...new Set(fixtureIds)].map((id, index) => ({
+    ...dashboard.floors[0].fixtures[0],
+    id,
+    name: `B2-L${String(index + 1).padStart(3, "0")}`,
+    x: (index % 10) * 50,
+    y: Math.floor(index / 10) * 30
+  }));
+  return {
+    ...dashboard,
+    summary: { ...dashboard.summary, totalFixtures: fixtures.length, onlineFixtures: fixtures.length },
+    floors: [{ ...dashboard.floors[0], fixtures }],
+    groups: [{ ...failedGroup, fixtureCount: fixtureIds.length, fixtureIds }]
   };
 }

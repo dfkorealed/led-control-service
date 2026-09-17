@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import type { Dashboard, DashboardFixture } from "../../../api/queries";
 import { Card, SelectBox, Text } from "../../../components/ui";
 import { SpatialTargetSelector } from "./SpatialTargetSelector";
@@ -31,6 +31,7 @@ export function fixtureGroupMembershipError(fixtureIds: readonly string[]) {
 
 export function FixtureGroupMapEditor({ siteId, dashboard, value, disabled, onChange }: FixtureGroupMapEditorProps) {
   const original = useRef({ groupId: value.groupId, fixtureIds: [...new Set(value.fixtureIds)].sort() });
+  const [membershipError, setMembershipError] = useState<string | null>(null);
   if (original.current.groupId !== value.groupId) original.current = { groupId: value.groupId, fixtureIds: [...new Set(value.fixtureIds)].sort() };
 
   const fixtureIndex = new Map(dashboard.floors.flatMap((floor) => floor.fixtures.map((fixture) => [fixture.id, { fixture, floorId: floor.id }] as const)));
@@ -48,13 +49,18 @@ export function FixtureGroupMapEditor({ siteId, dashboard, value, disabled, onCh
   function isWithinBoundary(fixture: DashboardFixture) {
     const owner = fixtureIndex.get(fixture.id);
     if (!owner) return false;
-    return (selected.has(fixture.id) || selected.size < MAX_FIXTURE_GROUP_MEMBERS)
-      && (!value.floorId || owner.floorId === value.floorId)
+    return (!value.floorId || owner.floorId === value.floorId)
       && (!value.gatewayId || fixture.gateway?.id === value.gatewayId);
   }
 
   function changeFixtures(nextFixtureIds: string[]) {
-    const uniqueIds = [...new Set(nextFixtureIds)].slice(0, MAX_FIXTURE_GROUP_MEMBERS).sort();
+    const uniqueIds = [...new Set(nextFixtureIds)].sort();
+    if (uniqueIds.length > MAX_FIXTURE_GROUP_MEMBERS) {
+      // Reject atomically: the selector sorts its full union, so truncating it could evict an existing member.
+      setMembershipError("구역에는 최대 100개 조명만 포함할 수 있습니다.");
+      return;
+    }
+    setMembershipError(null);
     const firstAddedId = uniqueIds.find((fixtureId) => !selected.has(fixtureId));
     const firstAdded = firstAddedId ? fixtureIndex.get(firstAddedId) : undefined;
     // A cleared edit keeps its explicit boundary. Only a newly chosen first member establishes an empty boundary.
@@ -75,15 +81,16 @@ export function FixtureGroupMapEditor({ siteId, dashboard, value, disabled, onCh
     <div className="grid grid-cols-2 gap-3 max-compact:grid-cols-1">
       <SelectBox label="층" items={[{ id: "", label: "층 선택" }, ...dashboard.floors.map((floor) => ({ id: floor.id, label: floor.name }))]}
         selectedKey={value.floorId} isDisabled={disabled || boundaryLocked}
-        onSelectionChange={(floorId) => onChange({ ...value, floorId: floorId ?? "", gatewayId: "", fixtureIds: [] })} />
+        onSelectionChange={(floorId) => { setMembershipError(null); onChange({ ...value, floorId: floorId ?? "", gatewayId: "", fixtureIds: [] }); }} />
       <SelectBox label="게이트웨이" items={gatewayItems(dashboard, value.floorId)} selectedKey={value.gatewayId}
         isDisabled={disabled || boundaryLocked || !value.floorId}
-        onSelectionChange={(gatewayId) => onChange({ ...value, gatewayId: gatewayId ?? "", fixtureIds: [] })} />
+        onSelectionChange={(gatewayId) => { setMembershipError(null); onChange({ ...value, gatewayId: gatewayId ?? "", fixtureIds: [] }); }} />
     </div>
     <SpatialTargetSelector siteId={siteId} dashboard={dashboard} selection={{ mode: "fixtures", fixtureIds: selectedFixtureIds }} disabled={disabled}
       allowedModes={["fixtures"]} modeLabels={{ fixtures: "개별 조명" }} fixtureFilter={isWithinBoundary} onChange={(selection) => {
         if (selection.mode === "fixtures") changeFixtures(selection.fixtureIds);
       }} />
+    {membershipError ? <Text role="alert" tone="danger">{membershipError}</Text> : null}
     {value.groupId && (added.length > 0 || removed.length > 0) ? <div className="grid gap-1" aria-label="구역 구성 변경">
       {added.map((fixtureId) => <Text key={`added-${fixtureId}`} variant="caption" tone="success">추가 예정: {fixtureIndex.get(fixtureId)?.fixture.name ?? fixtureId}</Text>)}
       {removed.map((fixtureId) => <Text key={`removed-${fixtureId}`} variant="caption" tone="danger">제거 예정: {fixtureIndex.get(fixtureId)?.fixture.name ?? fixtureId}</Text>)}
