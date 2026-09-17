@@ -5,7 +5,7 @@ import type { CreateScheduleInput, ScheduleResponse } from "../../../api/automat
 import type { Dashboard } from "../../../api/queries";
 import { Button, Checkbox, DatePicker, Heading, ModalDialog, SelectBox, Slider, Text, TextField, TimePicker, type FocusableFieldHandle } from "../../../components/ui";
 import { resolveControlSelection, type ControlSelection } from "../control-selection";
-import { SpatialTargetSelector } from "../target-selection/SpatialTargetSelector";
+import { SpatialTargetSelector, spatialTargetDialogClassName } from "../target-selection/SpatialTargetSelector";
 import {
   applySchedulePreset,
   fixtureIdsAvailability,
@@ -86,6 +86,7 @@ export function ScheduleDialog({
   const dimmingToggleRef = useRef<HTMLInputElement>(null);
   const brightnessInputRef = useRef<HTMLInputElement>(null);
   const targetCardRef = useRef<HTMLDivElement>(null);
+  const targetTriggerRef = useRef<HTMLButtonElement>(null);
   const targetSectionRef = useRef<HTMLFieldSetElement>(null);
   const [values, setValues] = useState<ScheduleFormValues>(() => createEmptyScheduleForm(timeZone));
   const [targetSource, setTargetSource] = useState<ControlSelection>(() => ({ mode: "fixtures", fixtureIds: [] }));
@@ -148,6 +149,10 @@ export function ScheduleDialog({
   function submit(event: React.FormEvent) {
     event.preventDefault();
     const nextErrors = validateScheduleForm(values);
+    const currentTarget = resolveControlSelection(dashboard, values.target);
+    if (!currentTarget.available) {
+      nextErrors.target = currentTarget.unavailableReason ?? "현재 제어할 수 없는 대상입니다.";
+    }
     if (
       values.target.mode === "fixtures"
       && fixtureIdsAvailability(values.target.fixtureIds, dashboard).invalidFixtureIds.length > 0
@@ -179,7 +184,7 @@ export function ScheduleDialog({
       returnFocusRef={returnFocusRef}
       onClose={onClose}
       className={view === "target"
-        ? "max-w-4xl max-compact:grid! max-compact:h-full! max-compact:max-h-full! max-compact:w-full! max-compact:grid-rows-[auto_minmax(0,1fr)] max-compact:overflow-hidden!"
+        ? spatialTargetDialogClassName
         : "max-w-4xl"}
       bodyClassName={view === "target" ? "grid min-h-0 overflow-hidden" : undefined}
     >
@@ -195,12 +200,12 @@ export function ScheduleDialog({
             onDone={() => {
               setView("main");
               setPendingFocus(null);
-              queueMicrotask(() => targetCardRef.current?.focus());
+              queueMicrotask(() => targetTriggerRef.current?.focus());
             }}
           >
             <fieldset
               ref={targetSectionRef}
-              className="m-0 grid min-h-0 gap-3 overflow-y-auto overscroll-contain border-0 p-0"
+              className="m-0 flex min-h-0 flex-col gap-3 overflow-hidden border-0 p-0"
               disabled={isPending}
               tabIndex={-1}
               {...errorAttributes(errors.target, scheduleErrorIds.target)}
@@ -262,6 +267,7 @@ export function ScheduleDialog({
               <Heading as="h3" id="schedule-target-heading" variant="card-title">어느 조명을 켤까요?</Heading>
               <AutomationSelectionCard
                 fieldRef={targetCardRef}
+                triggerRef={targetTriggerRef}
                 label="제어 대상"
                 title={targetSummary.title}
                 description={targetSummary.description}
@@ -419,7 +425,7 @@ const scheduleErrorIds = {
 } as const;
 
 function FieldError({ id, message }: { id: string; message?: string }) {
-  return message ? <span id={id} className="field-error">{message}</span> : null;
+  return message ? <span id={id} className="field-error" role="alert">{message}</span> : null;
 }
 
 function errorAttributes(error: string | undefined, id: string) {

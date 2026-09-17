@@ -121,8 +121,9 @@ export function FloorScene({
         const markerStyle = {
           "--fixture-left": `${(fixture.x / snapshot.width) * 100}%`,
           "--fixture-top": `${(fixture.y / snapshot.height) * 100}%`,
-          left: "clamp(1rem, var(--fixture-left), calc(100% - 1rem))",
-          top: "clamp(1rem, var(--fixture-top), calc(100% - 1rem))"
+          // The center must leave room for the entire 48px coarse hit target, including at saved map edges.
+          left: coarsePointer ? "clamp(1.5rem, var(--fixture-left), calc(100% - 1.5rem))" : "clamp(1rem, var(--fixture-left), calc(100% - 1rem))",
+          top: coarsePointer ? "clamp(1.5rem, var(--fixture-top), calc(100% - 1.5rem))" : "clamp(1rem, var(--fixture-top), calc(100% - 1rem))"
         } satisfies FixtureMarkerStyle;
         const markerStateClass = awaitingState
           ? "border-2! border-dotted! border-fixture-inspection-border! bg-fixture-inspection-background shadow-none"

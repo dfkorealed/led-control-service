@@ -78,6 +78,35 @@ describe("ScheduleDialog spatial targets", () => {
 
   afterEach(cleanup);
 
+  it("returns from an empty picker without discarding the form draft and restores its trigger focus", async () => {
+    renderScheduleDialog();
+    fireEvent.click(screen.getByRole("button", { name: "30%" }));
+    openTargetView();
+    expect(screen.getByRole("button", { name: "선택 완료" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "설정으로 돌아가기" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "제어 대상 선택" })).toHaveFocus());
+    expect(screen.getByRole("button", { name: "30%" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it.each(["gateway", "uncontrollable"])("revalidates a direct snapshot at save after a %s refresh", (change) => {
+    const onSubmit = vi.fn();
+    const view = renderScheduleDialog({ onSubmit });
+    openTargetView();
+    fireEvent.click(screen.getByRole("button", { name: /B2-L001 정상/ }));
+    fireEvent.click(screen.getByRole("button", { name: /B2-L002 정상/ }));
+    fireEvent.click(screen.getByRole("button", { name: "2개 조명 선택 완료" }));
+    const nextDashboard = structuredClone(dashboard);
+    const changed = nextDashboard.floors[0].fixtures[1];
+    if (change === "gateway") changed.gateway!.id = "gateway-b";
+    else { changed.controllable = false; changed.controlBlockReason = "fixture_offline"; }
+    view.rerender(scheduleDialogElement({ dashboard: nextDashboard, onSubmit }));
+    fireEvent.click(screen.getByRole("button", { name: "스케줄 만들기" }));
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByRole("group", { name: "제어 대상 선택" })).toHaveFocus();
+    expect(screen.getByRole("button", { name: "2개 조명 선택 완료" })).toBeDisabled();
+    expect(screen.getByRole("alert")).toHaveTextContent(change === "gateway" ? "같은 게이트웨이" : "제어할 수 없는");
+  });
+
   it("selects a saved group on the map and explains snapshot storage", async () => {
     renderScheduleDialog();
     openTargetView();
@@ -96,7 +125,7 @@ describe("ScheduleDialog spatial targets", () => {
     fireEvent.click(screen.getByRole("button", { name: "층 전체" }));
     fireEvent.click(screen.getByRole("button", { name: "B2" }));
     expect(screen.getByRole("button", { name: /선택 완료/ })).toBeDisabled();
-    expect(screen.getByRole("alert")).toHaveTextContent("같은 게이트웨이");
+    expect(screen.getByRole("complementary", { name: "선택 대상 요약" })).toHaveTextContent("같은 게이트웨이");
   });
 
   it("blocks completion and submit when an authored floor loses Mesh readiness", () => {

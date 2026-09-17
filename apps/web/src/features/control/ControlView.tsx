@@ -1,5 +1,5 @@
 import { CircleCheck, Clock3, Eye, Layers3, TriangleAlert } from "lucide-react";
-import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type { CreateDimmingCommandInput } from "@led-control/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -73,6 +73,14 @@ export function ControlView({
     ? requestedMode
     : "manual";
   const queryClient = useQueryClient();
+  const manualScreenRef = useRef<HTMLElement>(null);
+  const [compactViewportHeight, setCompactViewportHeight] = useState<number>();
+  const updateCompactSheetHeight = useCallback((height: number) => {
+    // The sheet includes the shared navigation safe area. Measuring both edges keeps
+    // scrolling and focus above it without assuming the shell header or field height.
+    const top = manualScreenRef.current?.getBoundingClientRect().top ?? 0;
+    setCompactViewportHeight(Math.max(0, window.innerHeight - top - height));
+  }, []);
   const [selection, setSelection] = useState<ControlSelection>(emptySelection);
   const [brightness, setBrightness] = useState(70);
   const [message, setMessage] = useState("");
@@ -423,7 +431,8 @@ export function ControlView({
   }
 
   return (
-    <section className={controlScreenClassName} data-control-screen="">
+    <section ref={manualScreenRef} className={`${controlScreenClassName} max-compact:max-h-(--control-compact-height) max-compact:overflow-y-auto max-compact:overscroll-contain`}
+      style={{ "--control-compact-height": compactViewportHeight === undefined ? undefined : `${compactViewportHeight}px` } as CSSProperties} data-control-screen="">
       {modeTabs}
       <div id="control-mode-panel-manual" role="tabpanel" aria-labelledby="control-mode-manual" className="grid min-h-0 min-w-0 gap-4 tablet:flex tablet:flex-1 tablet:flex-col" data-control-manual-panel="">
       <PageHeader
@@ -457,7 +466,19 @@ export function ControlView({
             dashboard={data}
             selection={selection}
             disabled={controlsLocked}
-            compactSummary={<><DimmingExecutionControls compact brightness={brightness} controlsLocked={controlsLocked} canSubmit={canSubmit}
+            onCompactSheetHeightChange={updateCompactSheetHeight}
+            compactSummary={<>
+              <ManualControlBadge readOnly={readOnly} canSubmit={canSubmit} blocked={Boolean(blockMessage)} />
+              <div className="flex items-end justify-between gap-3">
+                <NumberField className="min-w-0 flex-1" label="밝기 수치" size="lg" minValue={0} maxValue={100} step={1} value={brightness} isDisabled={controlsLocked}
+                  onChange={(value) => { if (value !== null && value >= 0 && value <= 100) setBrightness(value); }} />
+                <Button variant="primary" className="min-h-13 shrink-0" type="button" onClick={submitCommand} disabled={!canSubmit} data-control-submit=""
+                  aria-label={manualApplyLabel(commandSessionBlocked, controlsLocked, readOnly, selectedFixtures.length)}>
+                  {controlsLocked && !readOnly ? "적용 중" : "밝기 적용"}
+                </Button>
+              </div>
+            </>}
+            compactDetails={<><DimmingExecutionControls compact brightness={brightness} controlsLocked={controlsLocked} canSubmit={canSubmit}
               applyLabel={manualApplyLabel(commandSessionBlocked, controlsLocked, readOnly, selectedFixtures.length)}
               selectedFixtureCount={selectedFixtures.length} blockedFixtureCount={resolvedSelection?.blockedFixtureIds.length ?? 0} delivery={deliveryLabel(selection, selectedFixtures.length)}
               onBrightnessChange={setBrightness} onSubmit={submitCommand} />
@@ -533,7 +554,7 @@ function DimmingExecutionControls({ compact = false, brightness, controlsLocked,
   onSubmit: () => void;
 }) {
   return <div className="grid min-h-0 flex-1 content-start gap-4 overflow-y-auto overscroll-contain" data-control-panel-body="">
-    {!compact ? <div className="grid gap-1 rounded-control bg-surface-inset p-3" aria-live="polite">
+    {!compact ? <div className="grid gap-1 rounded-control bg-surface-inset p-3">
       <Text as="strong" weight="semibold">{selectedFixtureCount}개 선택 · 제어 불가 {blockedFixtureCount}개</Text>
       <Text as="span" variant="caption" tone="secondary">{delivery}</Text>
     </div> : null}
@@ -543,7 +564,7 @@ function DimmingExecutionControls({ compact = false, brightness, controlsLocked,
         <Text as="strong" variant="metric">{brightness}%</Text>
       </div>
       <Slider label="밝기" minValue={0} maxValue={100} step={1} value={brightness} isDisabled={controlsLocked} onChange={onBrightnessChange} />
-      <NumberField
+      {!compact ? <NumberField
         label="밝기 수치"
         size={compact ? "lg" : "md"}
         minValue={0}
@@ -554,7 +575,7 @@ function DimmingExecutionControls({ compact = false, brightness, controlsLocked,
         onChange={(value) => {
           if (value !== null && value >= 0 && value <= 100) onBrightnessChange(value);
         }}
-      />
+      /> : null}
     </div>
     <div className="grid grid-cols-4 gap-2" data-control-presets="">
       {[0, 30, 70, 100].map((value) => (
@@ -563,9 +584,9 @@ function DimmingExecutionControls({ compact = false, brightness, controlsLocked,
         </Button>
       ))}
     </div>
-    <Button variant="primary" type="button" onClick={onSubmit} disabled={!canSubmit} data-control-submit="">
+    {!compact ? <Button variant="primary" type="button" onClick={onSubmit} disabled={!canSubmit} data-control-submit="">
       {applyLabel}
-    </Button>
+    </Button> : null}
   </div>;
 }
 

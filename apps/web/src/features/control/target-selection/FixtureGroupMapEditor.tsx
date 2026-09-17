@@ -72,8 +72,8 @@ export function FixtureGroupMapEditor({ siteId, dashboard, value, disabled, onCh
     });
   }
 
-  return <Card className="grid min-h-0 gap-3 overflow-hidden p-4" data-fixture-group-map-editor="" data-testid="fixture-group-map-editor">
-    <div className="grid gap-1">
+  return <Card className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-4 max-compact:shrink-0" data-fixture-group-map-editor="" data-testid="fixture-group-map-editor">
+    <div className="flex flex-wrap items-center justify-between gap-2">
       <Text as="strong" weight="semibold">지도에서 조명 선택</Text>
       <Text variant="caption" tone="secondary">{floorName} · {gatewayName} 경계</Text>
       <Text variant="caption" tone="secondary">{selectedFixtureIds.length} / 100개</Text>
@@ -87,7 +87,7 @@ export function FixtureGroupMapEditor({ siteId, dashboard, value, disabled, onCh
         onSelectionChange={(gatewayId) => { setMembershipError(null); onChange({ ...value, gatewayId: gatewayId ?? "", fixtureIds: [] }); }} />
     </div>
     <SpatialTargetSelector siteId={siteId} dashboard={dashboard} selection={{ mode: "fixtures", fixtureIds: selectedFixtureIds }} disabled={disabled}
-      allowedModes={["fixtures"]} modeLabels={{ fixtures: "개별 조명" }} fixtureFilter={isWithinBoundary} onChange={(selection) => {
+      preferredFloorId={value.floorId} allowedModes={["fixtures"]} modeLabels={{ fixtures: "개별 조명" }} fixtureFilter={isWithinBoundary} fixtureFilterReason="구역과 같은 층·게이트웨이의 조명만 선택할 수 있습니다." onChange={(selection) => {
         if (selection.mode === "fixtures") changeFixtures(selection.fixtureIds);
       }} />
     {membershipError ? <Text role="alert" tone="danger">{membershipError}</Text> : null}

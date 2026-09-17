@@ -56,6 +56,42 @@ describe("SpatialTargetSelector", () => {
 
   afterEach(cleanup);
 
+  it("clears unresolved IDs after dashboard removal and can select a replacement without closing", () => {
+    const view = renderSelector({ selection: { mode: "fixtures", fixtureIds: [fixtureA] }, allowedModes: ["fixtures"] });
+    const refreshed = { ...dashboard, floors: [{ ...dashboard.floors[0], fixtures: dashboard.floors[0].fixtures.slice(1) }] };
+    view.rerender(<SelectorHarness dashboard={refreshed} allowedModes={["fixtures"]} />);
+    expect(screen.getByText("선택한 조명을 찾을 수 없습니다.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "선택 비우기" }));
+    expect(screen.getByText("0개 선택")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /B2-L002 정상/ }));
+    expect(onChange).toHaveBeenLastCalledWith({ mode: "fixtures", fixtureIds: [fixtureB] });
+  });
+
+  it("shows aggregate members as read-only in the drawer", () => {
+    renderSelector({ selection: { mode: "group", groupId } });
+    fireEvent.click(screen.getByRole("button", { name: "조명 목록 열기" }));
+    expect(screen.getByRole("checkbox", { name: "B2-L001 선택" })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: "B2-L003 선택" })).toBeDisabled();
+    expect(screen.getByRole("dialog", { name: "조명 목록" })).toHaveAccessibleDescription(/구성원을 변경하려면 직접 선택/);
+  });
+
+  it("shares gateway and eligibility reasons between markers and the fallback list", () => {
+    renderSelector({ selection: { mode: "fixtures", fixtureIds: [fixtureA] }, fixtureFilter: (item) => item.id !== fixtureB });
+    expect(screen.getByRole("button", { name: /B2-L003.*선택 불가/ })).toHaveAccessibleName(/같은 게이트웨이/);
+    expect(screen.getByRole("button", { name: /B2-L002.*선택 불가/ })).toHaveAccessibleName(/선택 조건/);
+    fireEvent.click(screen.getByRole("button", { name: "조명 목록 열기" }));
+    expect(screen.getByRole("checkbox", { name: "B2-L003 선택" })).toHaveAccessibleDescription(/같은 게이트웨이/);
+    expect(screen.getByRole("checkbox", { name: "B2-L002 선택" })).toHaveAccessibleDescription(/선택 조건/);
+  });
+
+  it("announces the current count once and does not announce static unavailable choices as alerts", () => {
+    renderSelector({ selection: { mode: "group", groupId: "" }, requiredGatewayId: "gateway-b" });
+    expect(screen.queryAllByRole("alert")).toHaveLength(0);
+    const liveCounts = document.querySelectorAll('[aria-live="polite"]');
+    expect(liveCounts).toHaveLength(1);
+    expect(liveCounts[0]).toHaveTextContent("0개 선택");
+  });
+
   it("keeps map, list, and summary on one selection state", () => {
     renderSelector({ selection: { mode: "fixtures", fixtureIds: [] } });
     fireEvent.click(screen.getByRole("button", { name: /B2-L001/ }));
@@ -198,12 +234,18 @@ describe("SpatialTargetSelector", () => {
   });
 
   it("provides explicit compact summary expansion controls", () => {
-    renderSelector();
-    expect(screen.getByTestId("summary-normal-content")).toHaveClass("hidden", "compact:block");
+    renderSelector({ compactDetails: <div>선택 상세</div> });
+    expect(screen.getByText("0개 선택")).toHaveAttribute("aria-live", "polite");
     expect(screen.getByTestId("summary-compact-control")).toHaveClass("compact:hidden");
     const expand = screen.getByRole("button", { name: "선택 대상 펼치기" });
     fireEvent.click(expand);
     expect(screen.getByRole("button", { name: "선택 대상 접기" })).toBeInTheDocument();
+    expect(screen.getByText("선택 상세")).toBeInTheDocument();
+  });
+
+  it("does not offer an empty compact disclosure when there are no extra details", () => {
+    renderSelector();
+    expect(screen.queryByRole("button", { name: "선택 대상 펼치기" })).not.toBeInTheDocument();
   });
 });
 

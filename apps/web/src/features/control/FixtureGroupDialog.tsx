@@ -14,6 +14,7 @@ import type { Dashboard } from "../../api/queries";
 import { Button, ConfirmDialog, Heading, ModalDialog, StatusBadge, Text, TextField } from "../../components/ui";
 import { humanizeDeviceResponseMessage } from "./control-copy";
 import { FixtureGroupMapEditor, fixtureGroupMembershipError, type FixtureGroupEditorValue } from "./target-selection/FixtureGroupMapEditor";
+import { spatialTargetDialogClassName } from "./target-selection/SpatialTargetSelector";
 
 interface FixtureGroupDialogProps {
   open: boolean;
@@ -128,7 +129,8 @@ export function FixtureGroupDialog({ open, siteId, dashboard, canManage, returnF
       isPending={isMutating}
       returnFocusRef={returnFocusRef}
       onClose={closeDialog}
-      className="grid max-w-3xl gap-4"
+      className={form ? spatialTargetDialogClassName : "grid max-w-3xl gap-4"}
+      bodyClassName={form ? "flex min-h-0 flex-col overflow-hidden" : undefined}
     >
 
         {form ? (
@@ -255,7 +257,7 @@ function FixtureGroupForm({
   const [validationError, setValidationError] = useState<string | null>(null);
 
   return (
-    <form className="grid gap-4" onSubmit={(event) => {
+    <form className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain" onSubmit={(event) => {
       event.preventDefault();
       const membershipError = fixtureGroupMembershipError(form.fixtureIds);
       const error = !form.name.trim()
@@ -275,24 +277,22 @@ function FixtureGroupForm({
         fixtureIds: [...form.fixtureIds].sort()
       });
     }}>
-      <Button variant="ghost" className="justify-self-start" type="button" onClick={onCancel} disabled={isSaving}>
+      <div className="flex shrink-0 items-end gap-3 max-compact:flex-col max-compact:items-stretch">
+      <Button variant="ghost" type="button" onClick={onCancel} disabled={isSaving}>
         <ArrowLeft size={16} aria-hidden="true" /> 목록으로
       </Button>
-      <div className="grid gap-1">
-        <Text as="span" variant="overline" tone="muted">선택 구역</Text>
-        <Heading as="h4" variant="card-title">구역 편집</Heading>
-      </div>
-      <TextField label="구역 이름" value={form.name} maxLength={200} isDisabled={isSaving} onChange={(value) => {
+      <TextField className="flex-1" size="lg" label="구역 이름" value={form.name} maxLength={200} isDisabled={isSaving} onChange={(value) => {
         setValidationError(null);
         onChange({ ...form, name: value });
       }} />
+      </div>
       <FixtureGroupMapEditor siteId={siteId} dashboard={dashboard} value={form} disabled={isSaving} onChange={(next) => {
         setValidationError(null);
         onChange(next);
       }} />
       <Text variant="caption" tone="secondary">저장 후 Mesh 설정 중</Text>
       {validationError ? <Text role="alert" tone="danger">{validationError}</Text> : null}
-      <div className="flex justify-end gap-2">
+      <div className="flex shrink-0 justify-end gap-2">
         <Button variant="secondary" type="button" onClick={onCancel} disabled={isSaving}>취소</Button>
         <Button variant="primary" type="submit" disabled={isSaving} isLoading={isSaving} loadingLabel="저장 중">
           {form.groupId ? "변경 저장" : "구역 만들기"}

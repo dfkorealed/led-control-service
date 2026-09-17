@@ -181,8 +181,8 @@ for (const viewport of viewports) {
     await expect(dialog.getByRole("heading", { name: "현재 저장 구역" })).toBeVisible();
     await expect(dialog.getByText("준비됨")).toBeVisible();
     await page.getByRole("button", { name: "B2 입구 수정" }).click();
-    await expect(page.getByRole("heading", { name: "구역 편집" })).toBeVisible();
     const editDialog = page.getByRole("dialog", { name: "구역 수정" });
+    await expect(editDialog.getByTestId("fixture-group-map-editor")).toBeVisible();
     await editDialog.getByRole("button", { name: "목록으로" }).click();
     const groupDialog = page.getByRole("dialog", { name: "구역 관리" });
     await groupDialog.getByRole("button", { name: "새 구역" }).click();
@@ -210,13 +210,15 @@ for (const viewport of viewports) {
     await page.getByRole("button", { name: "층 전체" }).click();
     const floors = page.getByRole("group", { name: "층 목록" });
     await expect(floors.getByRole("button", { name: "B2", exact: true })).toBeDisabled();
-    await expect(floors.getByRole("alert")).toHaveText("게이트웨이 0/1 준비 · Mesh 설정 중");
+    await expect(floors.getByRole("button", { name: "B2", exact: true })).toHaveAccessibleDescription("게이트웨이 0/1 준비 · Mesh 설정 중");
+    await expect(floors.getByRole("alert")).toHaveCount(0);
     await expect(execution.getByRole("button", { name: /밝기 적용/ })).toBeDisabled();
     await page.getByRole("button", { name: "저장된 구역" }).click();
     await page.getByRole("alertdialog", { name: "선택 방식 변경" }).getByRole("button", { name: "변경", exact: true }).click();
     const groups = page.getByRole("group", { name: "저장된 구역 목록" });
     await expect(groups.getByRole("button", { name: "B2 입구" })).toBeDisabled();
-    await expect(groups.getByRole("alert")).toHaveText("게이트웨이 장비 응답을 확인하지 못했습니다.");
+    await expect(groups.getByRole("button", { name: "B2 입구" })).toHaveAccessibleDescription("게이트웨이 장비 응답을 확인하지 못했습니다.");
+    await expect(groups.getByRole("alert")).toHaveCount(0);
     await expect(page.getByText(/ACK/i)).toHaveCount(0);
     await expect(execution.getByRole("button", { name: "밝기 적용" })).toBeDisabled();
     expect(api.dimmingRequests).toHaveLength(0);

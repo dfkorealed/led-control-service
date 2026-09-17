@@ -19,25 +19,31 @@ export interface SpatialTargetSelectorProps {
   disabled: boolean;
   allowedModes?: readonly ControlMode[];
   fixtureFilter?: (fixture: DashboardFixture) => boolean;
+  fixtureFilterReason?: string;
+  /** A new boundary resets the displayed floor; users may still inspect other floors. */
+  preferredFloorId?: string;
   requiredGatewayId?: string | null;
   modeLabels?: Partial<Record<ControlMode, string>>;
   modeSelectionSemantics?: "current" | "pressed";
   interactionMode?: MapInteractionMode;
   onInteractionModeChange?: (mode: MapInteractionMode) => void;
   compactSummary?: ReactNode;
+  compactDetails?: ReactNode;
+  onCompactSheetHeightChange?: (height: number) => void;
   onChange: (selection: ControlSelection) => void;
 }
 
 const defaultModes: readonly ControlMode[] = ["fixtures", "floor", "group"];
+export const spatialTargetDialogClassName = "grid! h-full! w-full! max-w-6xl grid-rows-[auto_minmax(0,1fr)] overflow-hidden! max-compact:max-h-full!";
 
 export function SpatialTargetSelector({
-  siteId, dashboard, selection, displaySelection, disabled, allowedModes = defaultModes, fixtureFilter, requiredGatewayId = null, modeLabels, modeSelectionSemantics,
-  interactionMode: controlledInteractionMode, onInteractionModeChange, compactSummary, onChange
+  siteId, dashboard, selection, displaySelection, disabled, allowedModes = defaultModes, fixtureFilter, fixtureFilterReason, preferredFloorId, requiredGatewayId = null, modeLabels, modeSelectionSemantics,
+  interactionMode: controlledInteractionMode, onInteractionModeChange, compactSummary, compactDetails, onCompactSheetHeightChange, onChange
 }: SpatialTargetSelectorProps) {
   const resolvedSelection = displaySelection ?? selection;
   const selectionFloorId = floorForSelection(dashboard, selection);
   const validSelectionFloorId = dashboard.floors.some((floor) => floor.id === selectionFloorId) ? selectionFloorId : null;
-  const [activeFloorId, setActiveFloorId] = useState(() => validSelectionFloorId ?? dashboard.floors[0]?.id ?? "");
+  const [activeFloorId, setActiveFloorId] = useState(() => preferredFloorId || validSelectionFloorId || dashboard.floors[0]?.id || "");
   const [listOpen, setListOpen] = useState(false);
   const [requestedMode, setRequestedMode] = useState<ControlMode | null>(null);
   const [localInteractionMode, setLocalInteractionMode] = useState<MapInteractionMode>("select");
@@ -50,9 +56,16 @@ export function SpatialTargetSelector({
     if (selection.mode !== "fixtures" || selection.fixtureIds.length === 0) return null;
     return fixtureById(dashboard, selection.fixtureIds[0])?.gateway?.id ?? null;
   }, [dashboard, selection]);
-  const disabledFixtureIds = useMemo(() => new Set(dashboard.floors.flatMap((floor) => floor.fixtures)
-    .filter((fixture) => disabled || !isFixtureEligible(fixture, fixtureFilter, requiredGatewayId, directGatewayId, selection.mode === "fixtures" && selectedFixtureIds.has(fixture.id)))
-    .map((fixture) => fixture.id)), [dashboard.floors, directGatewayId, disabled, fixtureFilter, requiredGatewayId, selectedFixtureIds, selection.mode]);
+  const disabledReasons = useMemo(() => new Map(dashboard.floors.flatMap((floor) => floor.fixtures).flatMap((fixture) => {
+    const reason = disabled ? "현재 선택을 변경할 수 없습니다."
+      : selection.mode !== "fixtures" ? "구성원을 변경하려면 직접 선택으로 전환하세요."
+      : selectedFixtureIds.has(fixture.id) ? null
+      : fixtureEligibilityReason(fixture, fixtureFilter, requiredGatewayId, directGatewayId, fixtureFilterReason);
+    return reason ? [[fixture.id, reason] as const] : [];
+  })), [dashboard.floors, directGatewayId, disabled, fixtureFilter, fixtureFilterReason, requiredGatewayId, selectedFixtureIds, selection.mode]);
+  const disabledFixtureIds = useMemo(() => new Set(disabledReasons.keys()), [disabledReasons]);
+
+  useEffect(() => { if (preferredFloorId) setActiveFloorId(preferredFloorId); }, [preferredFloorId]);
 
   useEffect(() => {
     const activeFloorStillExists = dashboard.floors.some((floor) => floor.id === activeFloorId);
@@ -85,7 +98,7 @@ export function SpatialTargetSelector({
     if (disabled || selection.mode !== "fixtures") return;
     const fixture = fixtureById(dashboard, fixtureId);
     const selected = selectedFixtureIds.has(fixtureId);
-    if (!fixture || !isFixtureEligible(fixture, fixtureFilter, requiredGatewayId, directGatewayId, selected)) return;
+    if (!selected && (!fixture || !isFixtureEligible(fixture, fixtureFilter, requiredGatewayId, directGatewayId, false))) return;
     const next = toggleFixtureSelection(selection.fixtureIds, fixtureId);
     onChange({ mode: "fixtures", fixtureIds: next.fixtureIds });
   }
@@ -104,28 +117,29 @@ export function SpatialTargetSelector({
     onChange({ mode: "fixtures", fixtureIds: [...next].sort() });
   }
 
-  const sceneSelection = useMemo(() => ({ kind: "multiple" as const, selectedFixtureIds, disabledFixtureIds }), [disabledFixtureIds, selectedFixtureIds]);
+  const sceneSelection = useMemo(() => ({ kind: "multiple" as const, selectedFixtureIds, disabledFixtureIds, disabledReasons }), [disabledFixtureIds, disabledReasons, selectedFixtureIds]);
   const group = selection.mode === "group" ? dashboard.groups.find((item) => item.id === selection.groupId) : undefined;
 
-  return <section className="grid min-h-0 min-w-0 gap-3 overflow-hidden" aria-label="공간 대상 선택" data-spatial-target-selector="">
+  return <section className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-hidden" aria-label="공간 대상 선택" data-spatial-target-selector="">
     <TargetSelectionToolbar allowedModes={allowedModes} selection={selection} activeFloorId={activeFloor?.id ?? ""} floors={dashboard.floors} modeLabels={modeLabels}
       modeSelectionSemantics={modeSelectionSemantics}
       interactionMode={interactionMode} disabled={disabled} onModeChange={requestModeChange} onFloorChange={setActiveFloorId}
-      onInteractionModeChange={setInteractionMode} onOpenList={() => setListOpen(true)} />
-    <div className="grid min-h-0 min-w-0 gap-3 tablet:grid-cols-[minmax(0,1fr)_minmax(16rem,1fr)]">
-      <div className="relative min-h-64 min-w-0 overflow-hidden rounded-panel border border-border-default bg-surface-inset tablet:min-h-0">
+      onInteractionModeChange={setInteractionMode} onOpenList={() => setListOpen(true)}
+      onClear={selection.mode === "fixtures" && selection.fixtureIds.length > 0 ? () => onChange({ mode: "fixtures", fixtureIds: [] }) : undefined} />
+    <div className="grid min-h-0 min-w-0 flex-1 gap-3 overflow-y-auto overscroll-contain tablet:grid-cols-[minmax(0,1fr)_16rem] tablet:overflow-hidden">
+      <div className="relative h-64 min-h-64 min-w-0 overflow-hidden rounded-panel border border-border-default bg-surface-inset tablet:h-full tablet:min-h-0">
         {mapQuery.data && activeFloor ? <FloorMapViewport snapshot={mapQuery.data} ariaLabel={`${activeFloor.name} 도면`} mode={interactionMode} onAreaSelect={selectArea} viewportTestId="target-selection-map-viewport">
           <FloorScene snapshot={mapQuery.data} fixtures={activeFloor.fixtures} interactive={false} floorName={activeFloor.name} selection={sceneSelection} coarsePointer onFixturePress={toggleFixture} />
         </FloorMapViewport> : <div className="grid h-full place-items-center p-4"><Text tone="secondary">등록된 도면이 없어 목록으로 선택합니다.</Text></div>}
         {mapQuery.data && mapQuery.error ? <Text className="absolute top-3 left-3 z-6 rounded-control border border-border-default bg-surface-panel px-2 py-1" role="alert" tone="danger">도면을 최신 상태로 갱신하지 못했습니다.</Text> : null}
         {group ? <Text className="pointer-events-none absolute top-3 right-3 z-6 rounded-control border border-border-default bg-surface-panel px-2 py-1" variant="caption">{group.name}</Text> : null}
       </div>
-      <div className="min-h-0 overflow-y-auto overscroll-contain" data-target-selection-detail-panel=""><SelectionSummaryPanel resolved={resolved} compactSummary={compactSummary} />
+      <div className="min-h-0 overflow-y-auto overscroll-contain" data-target-selection-detail-panel=""><SelectionSummaryPanel resolved={resolved} compactSummary={compactSummary} compactDetails={compactDetails} onCompactSheetHeightChange={onCompactSheetHeightChange} />
         {selection.mode === "floor" ? <SelectionChoices kind="floor" dashboard={dashboard} selection={selection} disabled={disabled} fixtureFilter={fixtureFilter} requiredGatewayId={requiredGatewayId} onChange={onChange} /> : null}
         {selection.mode === "group" ? <SelectionChoices kind="group" dashboard={dashboard} selection={selection} disabled={disabled} fixtureFilter={fixtureFilter} requiredGatewayId={requiredGatewayId} onChange={onChange} /> : null}
       </div>
     </div>
-    <FixtureSelectionDrawer open={listOpen} dashboard={dashboard} selectedFixtureIds={selectedFixtureIds} disabledFixtureIds={disabledFixtureIds} disabled={disabled}
+    <FixtureSelectionDrawer open={listOpen} dashboard={dashboard} selectedFixtureIds={selectedFixtureIds} disabledFixtureIds={disabledFixtureIds} disabledReasons={disabledReasons} readOnly={selection.mode !== "fixtures"} disabled={disabled}
       onClose={() => setListOpen(false)} onToggleFixture={toggleFixture} />
     {requestedMode ? <ConfirmDialog isOpen title="선택 방식 변경" description="현재 선택을 버리고 다른 방식으로 변경할까요?" role="alertdialog"
       confirmLabel="변경" onCancel={() => setRequestedMode(null)} onConfirm={() => changeMode(requestedMode)}>{null}</ConfirmDialog> : null}
@@ -147,7 +161,7 @@ function SelectionChoices({ kind, dashboard, selection, disabled, fixtureFilter,
       return <div key={item.id} className="grid gap-1"><Button type="button" variant="secondary" className="justify-between" disabled={disabled || !eligible}
       aria-describedby={reason ? reasonId : undefined}
       aria-current={(kind === "floor" ? selection.mode === "floor" && selection.floorId === item.id : selection.mode === "group" && selection.groupId === item.id) ? "true" : undefined}
-      onClick={() => onChange(candidate)}>{item.name}</Button>{reason ? <Text id={reasonId} role="alert" variant="caption" tone="danger">{reason}</Text> : null}</div>;
+      onClick={() => onChange(candidate)}>{item.name}</Button>{reason ? <Text id={reasonId} variant="caption" tone="danger">{reason}</Text> : null}</div>;
     })}
   </div>;
 }
@@ -168,8 +182,19 @@ function hasSelection(selection: ControlSelection) {
 
 function isFixtureEligible(fixture: DashboardFixture, filter: SpatialTargetSelectorProps["fixtureFilter"], requiredGatewayId: string | null, directGatewayId: string | null, selected: boolean) {
   if (selected) return true;
-  return fixture.controllable && Boolean(fixture.gateway?.id) && (!filter || filter(fixture))
-    && (!requiredGatewayId || fixture.gateway?.id === requiredGatewayId) && (!directGatewayId || fixture.gateway?.id === directGatewayId);
+  return fixtureEligibilityReason(fixture, filter, requiredGatewayId, directGatewayId) === null;
+}
+
+function fixtureEligibilityReason(fixture: DashboardFixture, filter: SpatialTargetSelectorProps["fixtureFilter"], requiredGatewayId: string | null, directGatewayId: string | null, filterReason = "선택 조건과 일치하지 않는 조명입니다.") {
+  if (!fixture.gateway?.id || fixture.controlBlockReason === "fixture_unmapped") return "게이트웨이에 매핑되지 않았습니다.";
+  if (!fixture.controllable) {
+    if (fixture.controlBlockReason === "gateway_offline") return "게이트웨이가 오프라인입니다.";
+    if (fixture.controlBlockReason === "fixture_fault") return "조명 장애를 먼저 점검해야 합니다.";
+    return "조명이 오프라인이거나 현재 제어할 수 없습니다.";
+  }
+  if (filter && !filter(fixture)) return filterReason;
+  if ((requiredGatewayId && fixture.gateway.id !== requiredGatewayId) || (directGatewayId && fixture.gateway.id !== directGatewayId)) return "선택한 대상과 같은 게이트웨이의 조명만 선택할 수 있습니다.";
+  return null;
 }
 
 function selectionWithConstraints(resolved: ReturnType<typeof resolveControlSelection>, fixtureFilter: SpatialTargetSelectorProps["fixtureFilter"], requiredGatewayId: string | null) {

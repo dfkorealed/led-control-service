@@ -41,6 +41,19 @@ describe("FixtureGroupMapEditor", () => {
 
   afterEach(cleanup);
 
+  it("opens an existing group on its own floor", () => {
+    renderEditor({ value: value({ groupId: "group-b1", floorId: ids.floorB1, gatewayId: ids.gatewayB1, fixtureIds: [ids.fixtureB1] }) });
+    expect(screen.getByRole("region", { name: "B1 도면" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /B1-L001/ })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("moves the displayed map when the empty group boundary changes", () => {
+    renderEditor();
+    fireEvent.click(screen.getByRole("button", { name: "층" }));
+    fireEvent.click(screen.getByRole("option", { name: "B1" }));
+    expect(screen.getByRole("region", { name: "B1 도면" })).toBeInTheDocument();
+  });
+
   it("locks the floor and gateway after the first fixture", () => {
     renderEditor();
 

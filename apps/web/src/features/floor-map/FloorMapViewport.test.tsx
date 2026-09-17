@@ -91,7 +91,8 @@ describe("FloorMapViewport", () => {
     animationFrames.splice(0).forEach((callback) => callback(0));
     requestAnimationFrame.mockRestore();
 
-    expect(viewport.scrollLeft).toBe(150);
+    // The original map point now sits under the moving midpoint (350, 170).
+    expect(viewport.scrollLeft).toBe(100);
     expect(viewport.scrollTop).toBe(50);
   });
 

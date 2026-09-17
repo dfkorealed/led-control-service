@@ -5,7 +5,7 @@ import type { CreateVehicleEventRuleInput, VehicleEventRuleResponse } from "../.
 import type { Dashboard } from "../../../api/queries";
 import { Button, Checkbox, Heading, ModalDialog, Slider, Text, TextField } from "../../../components/ui";
 import { resolveControlSelection, type ControlSelection } from "../control-selection";
-import { SpatialTargetSelector } from "../target-selection/SpatialTargetSelector";
+import { SpatialTargetSelector, spatialTargetDialogClassName } from "../target-selection/SpatialTargetSelector";
 import {
   fixtureIdsAvailability,
   fixtureIdsSummary,
@@ -62,6 +62,8 @@ export function VehicleEventDialog({
   const sourceFieldRef = useRef<HTMLFieldSetElement>(null);
   const targetFieldRef = useRef<HTMLFieldSetElement>(null);
   const sourceCardRef = useRef<HTMLDivElement>(null);
+  const sourceTriggerRef = useRef<HTMLButtonElement>(null);
+  const targetTriggerRef = useRef<HTMLButtonElement>(null);
   const targetCardRef = useRef<HTMLDivElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
   const brightnessInputRef = useRef<HTMLInputElement>(null);
@@ -191,12 +193,12 @@ export function VehicleEventDialog({
         const completedView = view;
         setView("main");
         setPendingFocus(null);
-        queueMicrotask(() => (completedView === "source" ? sourceCardRef.current : targetCardRef.current)?.focus());
+        queueMicrotask(() => (completedView === "source" ? sourceTriggerRef.current : targetTriggerRef.current)?.focus());
       }}
     >
       <fieldset
         ref={view === "source" ? sourceFieldRef : targetFieldRef}
-        className="m-0 grid min-h-0 gap-3 overflow-y-auto overscroll-contain border-0 p-0 disabled:opacity-60"
+        className="m-0 flex min-h-0 flex-col gap-3 overflow-hidden border-0 p-0 disabled:opacity-60"
         disabled={isPending}
         tabIndex={-1}
         data-automation-picker-fieldset=""
@@ -214,6 +216,7 @@ export function VehicleEventDialog({
           displaySelection={view === "target" ? { mode: "fixtures", fixtureIds: values.targetFixtureIds } : undefined}
           allowedModes={view === "source" ? ["fixtures"] : undefined}
           fixtureFilter={view === "source" ? isVehicleEventSource : undefined}
+          fixtureFilterReason="차량 감지 기능이 확인된 센서만 선택할 수 있습니다."
           requiredGatewayId={view === "target" ? sourceGatewayId : null}
           disabled={isPending}
           modeLabels={{ fixtures: "직접 선택" }}
@@ -230,7 +233,7 @@ export function VehicleEventDialog({
 
   return (
     <ModalDialog isOpen={open} title={title} description="빠른 설정 · Gateway 차량 감지" closeLabel={`${title} 닫기`} isPending={isPending} returnFocusRef={returnFocusRef} onClose={onClose}
-      className={pickerView ? "max-w-4xl max-compact:grid! max-compact:h-full! max-compact:max-h-full! max-compact:w-full! max-compact:grid-rows-[auto_minmax(0,1fr)] max-compact:overflow-hidden!" : "max-w-4xl"}
+      className={pickerView ? spatialTargetDialogClassName : "max-w-4xl"}
       bodyClassName={pickerView ? "grid min-h-0 overflow-hidden" : undefined}
     >
 
@@ -240,6 +243,7 @@ export function VehicleEventDialog({
               <Heading as="h3" id="event-flow-heading" variant="card-title">무엇을 감지해서 실행할까요?</Heading>
               <AutomationSelectionCard
                 fieldRef={sourceCardRef}
+                triggerRef={sourceTriggerRef}
                 label="감지 센서"
                 title={sourceSummary.count > 0 ? sourceSummary.title : "감지 센서를 선택해 주세요."}
                 description={sourceSummary.count > 0 ? sourceSummary.description : "차량 감지 기능이 확인된 센서만 표시됩니다."}
@@ -253,6 +257,7 @@ export function VehicleEventDialog({
               <ArrowDown className="justify-self-center text-content-secondary" size={20} aria-hidden="true" />
               <AutomationSelectionCard
                 fieldRef={targetCardRef}
+                triggerRef={targetTriggerRef}
                 label="실행할 조명"
                 title={targetSummary.count > 0 ? targetSummary.title : "실행할 조명을 선택해 주세요."}
                 description={sourceReadyForTarget

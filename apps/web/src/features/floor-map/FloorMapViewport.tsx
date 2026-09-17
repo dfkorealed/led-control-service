@@ -49,7 +49,6 @@ interface AreaGesture {
 interface PinchGesture {
   startDistance: number;
   startZoom: number;
-  anchor: MapPoint;
   mapAnchor: MapPoint;
   startScroll: MapPoint;
 }
@@ -241,11 +240,9 @@ export function FloorMapViewport({
     area.current = null;
     setSelection(null);
     const midpoint = pointerMidpoint(left, right);
-    const viewportBounds = event.currentTarget.getBoundingClientRect();
     pinch.current = {
       startDistance,
       startZoom: zoomRef.current,
-      anchor: { x: midpoint.x - viewportBounds.left, y: midpoint.y - viewportBounds.top },
       mapAnchor: mapPointFromClient(midpoint),
       startScroll: {
         x: event.currentTarget.scrollLeft,
@@ -290,13 +287,16 @@ export function FloorMapViewport({
       const [left, right] = activePointers.current.values();
       const toZoom = clampMapZoom(activePinch.startZoom * pointerDistance(left, right) / activePinch.startDistance);
       const viewport = event.currentTarget;
+      const midpoint = pointerMidpoint(left, right);
+      const bounds = viewport.getBoundingClientRect();
       zoomRef.current = toZoom;
       setZoom(toZoom);
       onZoomChangeRef.current?.(toZoom);
       scheduleMapAnchor({
         viewport,
         mapAnchor: activePinch.mapAnchor,
-        anchor: activePinch.anchor,
+        // Keep the original map-space point while following both zoom and finger translation.
+        anchor: { x: midpoint.x - bounds.left, y: midpoint.y - bounds.top },
         startScroll: activePinch.startScroll,
         fromZoom: activePinch.startZoom,
         toZoom

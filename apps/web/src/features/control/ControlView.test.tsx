@@ -193,12 +193,21 @@ describe("ControlView 대상 선택", () => {
     expect(screen.getByRole("complementary", { name: "밝기 실행" })).toBeInTheDocument();
   });
 
-  it("composes compact brightness and apply controls inside the expanded target summary before history", () => {
+  it("announces the selection count once across the map and execution panel", () => {
+    renderControl();
+    selectFixture("B2-L001");
+    const countAnnouncements = [...document.querySelectorAll('[aria-live="polite"]')].filter((element) => element.textContent?.includes("1개 선택"));
+    expect(countAnnouncements).toHaveLength(1);
+  });
+
+  it("keeps compact brightness and apply visible while expansion only reveals details", () => {
     renderControl();
 
     const summary = screen.getByRole("complementary", { name: "선택 대상 요약" });
-    fireEvent.click(within(summary).getByRole("button", { name: "선택 대상 펼치기" }));
     const compactExecution = within(summary).getByTestId("compact-summary-execution");
+    expect(within(compactExecution).getByRole("button", { name: "밝기 적용" })).toBeInTheDocument();
+    expect(within(compactExecution).getByRole("textbox", { name: "밝기 수치" })).toBeInTheDocument();
+    fireEvent.click(within(summary).getByRole("button", { name: "선택 대상 펼치기" }));
     const historyDisclosure = screen.getByRole("button", { name: "명령 이력 열기" });
 
     expect(compactExecution).toContainElement(within(compactExecution).getByRole("slider", { name: "밝기" }));
@@ -207,7 +216,8 @@ describe("ControlView 대상 선택", () => {
     expect(screen.getByRole("complementary", { name: "밝기 실행" })).toHaveClass("hidden", "compact:flex");
 
     fireEvent.click(within(summary).getByRole("button", { name: "선택 대상 접기" }));
-    expect(within(summary).queryByTestId("compact-summary-execution")).not.toBeInTheDocument();
+    expect(within(compactExecution).queryByRole("slider", { name: "밝기" })).not.toBeInTheDocument();
+    expect(within(compactExecution).getByRole("button", { name: "밝기 적용" })).toBeInTheDocument();
   });
 
   it("keeps submitted command progress and outcome actions inside the expanded compact summary", async () => {
@@ -274,7 +284,7 @@ describe("ControlView 대상 선택", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: /B2-L001/ }));
     fireEvent.click(screen.getByRole("button", { name: "70%" }));
-    fireEvent.click(screen.getByRole("button", { name: "1개 조명에 밝기 적용" }));
+    fireEvent.click(within(screen.getByRole("complementary", { name: "밝기 실행" })).getByRole("button", { name: "1개 조명에 밝기 적용" }));
 
     await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith(
       "/commands/dimming",
@@ -577,7 +587,7 @@ describe("ControlView 대상 선택", () => {
   it("keeps the shared brightness Slider and NumberField on one number state", () => {
     renderControl();
     const slider = screen.getByRole("slider", { name: "밝기" });
-    const number = screen.getByRole("textbox", { name: "밝기 수치" });
+    const number = within(screen.getByRole("complementary", { name: "밝기 실행" })).getByRole("textbox", { name: "밝기 수치" });
 
     fireEvent.change(number, { target: { value: "42" } });
     fireEvent.blur(number);

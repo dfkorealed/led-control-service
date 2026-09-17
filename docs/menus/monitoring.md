@@ -22,6 +22,8 @@
 
 ## 구현 완료
 
+- 2026-09-17 공통 `FloorMapViewport`의 pinch는 시작 시 지도 좌표를 현재 두 손가락 중점에 맞춰 확대와 평행 이동을 함께 반영한다. 실제 지도 bounds와 눌림 상태를 사용하는 synthetic Chromium 회귀는 pan/select/area 모두에서 비대칭 pinch, 두 손가락 이동과 한 손가락 해제 후 jump 방지를 확인한다. `FloorScene` coarse marker는 48px hit target의 반지름만큼 가장자리 중심을 보정해 도면 경계에서 터치 영역이 잘리지 않도록 했다. 모니터링의 단일 선택 및 20px 시각 dot 계약은 유지하며 실제 iOS/Android WebView와 Gateway/조명 HIL은 별도 검증이다.
+
 - 2026-09-17 모니터링은 공통 `FloorMapViewport`를 사용하고, 기존 읽기 전용 `FloorScene`에 명시적인 `single` selection adapter를 전달한다. 따라서 marker와 `상세 조명 선택`의 단일 선택·상세 패널 동기화 의미는 바뀌지 않았다. viewport는 wheel 확대, pointer pan과 모든 interaction mode의 두 손가락 pinch를 제공한다. pointer capture로 지도 밖 이동도 추적하지만 marker button은 단일 pointer gesture를 시작하지 않아 native marker click을 보존한다. marker는 시각 20px dot과 별도 44px coarse hit target을 유지한다.
 
 - 2026-09-17 지도 viewport의 fit·pan·Ctrl/Cmd+wheel 배율·zoom control을 재사용 가능한 `FloorMapViewport`로 분리했다. 모니터링은 기존 읽기 전용 `FloorScene`, marker 단일 선택, 범례와 안내를 어댑터로 유지한다. 모바일의 pan/select/area 상호작용은 모두 두 touch pointer의 중점에 고정한 pinch zoom을 제공하며, pinch는 진행 중인 pan/영역 선택을 취소하고 남은 touch가 갑자기 이동하지 않도록 one-pointer gesture로 이어지지 않는다. 확대 지도 overflow는 viewport 내부에만 두고 0.1~4 배율과 층 변경 시 100% 화면 맞춤을 유지한다. `FloorMapViewport`·gesture·모니터링 집중 Vitest 21개와 인접 모니터링/scene 61개, web typecheck를 통과했다. 이는 jsdom의 포인터 회귀 검증이며 실제 모바일 WebView gesture 및 현장 도면 시각 QA는 후속 확인이 필요하다.

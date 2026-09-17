@@ -1,5 +1,5 @@
 import type { FloorMapSnapshot } from "@led-control/shared";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CreateVehicleEventRuleInput, VehicleEventRuleResponse } from "../../../api/automation";
 import type { Dashboard } from "../../../api/queries";
@@ -59,6 +59,32 @@ describe("VehicleEventDialog spatial source and targets", () => {
   });
 
   afterEach(cleanup);
+
+  it("returns from an empty source picker to the preserved form and trigger", async () => {
+    renderVehicleEventDialog();
+    fireEvent.click(screen.getByRole("button", { name: "50%" }));
+    openSourceView();
+    expect(screen.getByRole("button", { name: "선택 완료" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "설정으로 돌아가기" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "감지 센서 선택" })).toHaveFocus());
+    expect(screen.getByRole("button", { name: "50%" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("recovers a deleted source after dashboard refresh without closing the editor", () => {
+    const rule = existingRule();
+    const onClose = vi.fn();
+    const view = renderVehicleEventDialog({ rule, onClose });
+    openSourceView();
+    const refreshed = { ...dashboard, floors: [{ ...dashboard.floors[0], fixtures: dashboard.floors[0].fixtures.filter((item) => item.id !== sourceFixtureId) }] };
+    view.rerender(<VehicleEventDialog open rule={rule} dashboard={refreshed} isPending={false} serverError="" onClose={onClose} onSubmit={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "1개 조명 선택 완료" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "선택 비우기" }));
+    fireEvent.click(screen.getByRole("button", { name: /Gateway B 감지 조명/ }));
+    fireEvent.click(screen.getByRole("button", { name: "1개 조명 선택 완료" }));
+    expect(screen.getByRole("group", { name: "감지 센서" })).toHaveTextContent("Gateway B 감지 조명");
+    expect(screen.getByRole("button", { name: "실행할 조명 선택" })).toBeEnabled();
+    expect(onClose).not.toHaveBeenCalled();
+  });
 
   it("keeps event sources fixture-only and resolves a target group to fixture ids", () => {
     const onSubmit = vi.fn<(input: CreateVehicleEventRuleInput) => void>();
@@ -129,7 +155,7 @@ describe("VehicleEventDialog spatial source and targets", () => {
     renderVehicleEventDialog({ rule: existingRule({ sourceFixtureIds: [sourceFixtureId], targetFixtureIds: [targetFixtureA, targetFixtureB] }) });
 
     openSourceView();
-    expect(screen.getByRole("button", { name: "직접 선택" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByRole("button", { name: "저장된 구역" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Gateway A 감지 조명.*선택됨/ })).toHaveAttribute("aria-pressed", "true");
     fireEvent.click(screen.getByRole("button", { name: "1개 조명 선택 완료" }));
 

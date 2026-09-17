@@ -220,10 +220,10 @@ describe("FixtureGroupDialog", () => {
     expect(screen.getByText("Mesh 구성 v2 · 주소 정보 없음")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "B2 입구 수정" }));
-    expect(screen.getByRole("heading", { name: "구역 편집" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "구역 수정" })).toBeInTheDocument();
     expect(screen.getByTestId("fixture-group-map-editor")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "취소" }));
-    expect(screen.queryByRole("heading", { name: "구역 편집" })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("fixture-group-map-editor")).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "현재 저장 구역" })).toBeInTheDocument();
   });
 
