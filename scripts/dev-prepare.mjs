@@ -28,15 +28,18 @@ import {
 export function prepareDevelopmentRuntime(root, sourceEnv, { run = defaultRun } = {}) {
   const env = resolveDevEnvironment(root, sourceEnv);
   const gatewayIds = env.DEV_GATEWAY_IDS ? env.DEV_GATEWAY_IDS.split(",") : [];
-  ensureDevelopmentPki(root, env, gatewayIds, usesExternalMqttPki(sourceEnv), run);
-
   const localDirectory = join(root, ".local");
   const mqttRuntimeDirectory = join(localDirectory, "mosquitto-runtime");
   const aclPath = join(mqttRuntimeDirectory, "mosquitto.acl");
   const nativeConfigPath = join(localDirectory, "mosquitto.host.conf");
   const dockerConfigPath = join(localDirectory, "mosquitto.docker.conf");
-  const dockerCertDirectory = resolve(root, env.MQTT_TLS_CERT_DIR?.trim() || join(".local", "pki"));
   ensurePrivateLocalDirectory(root, localDirectory);
+  ensureDevelopmentPki(root, env, gatewayIds, usesExternalMqttPki(sourceEnv), run);
+  const configuredDockerCertDirectory = resolve(
+    root,
+    env.MQTT_TLS_CERT_DIR?.trim() || env.PKI_LAB_CURRENT_DIR?.trim() || join(".local", "pki")
+  );
+  const dockerCertDirectory = realpathSync(configuredDockerCertDirectory);
   ensureMosquittoRuntimeDirectory(mqttRuntimeDirectory);
   // Claims update product state only. Both supported dev launch paths call this
   // before broker startup so the file-backed ACL is never a stale wildcard or
@@ -69,6 +72,9 @@ function ensurePrivateLocalDirectory(root, directory) {
   if (typeof process.getuid === "function" && status.uid !== process.getuid()) {
     throw new Error(".local must be owned by the invoking user");
   }
+  if ((status.mode & 0o777) !== 0o700) {
+    throw new Error(".local must have mode 0700");
+  }
 }
 
 function publishPrivateConfig(root, destination, content) {
@@ -89,6 +95,10 @@ function publishPrivateConfig(root, destination, content) {
     if (typeof process.getuid === "function" && status.uid !== process.getuid()) {
       throw new Error("Mosquitto config destination must be owned by the invoking user");
     }
+    if ((status.mode & 0o777) !== 0o600) {
+      throw new Error("Mosquitto config destination must have mode 0600");
+    }
+    if (readFileSync(destination, "utf8") === content) return;
   } catch (error) {
     if (error?.code !== "ENOENT") throw error;
   }
@@ -147,6 +157,7 @@ function ensureDevelopmentPki(root, env, gatewayIds, externalPki, run) {
     if (missing.length) throw new Error(`명시한 Vault TLS bundle 파일을 찾지 못했습니다: ${missing.join(", ")}`);
     return;
   }
+  ensurePrivateDevelopmentPkiDirectory(root, pki);
   if (!existsSync(join(pki, "ca.crt")) || !existsSync(join(pki, "api.crt")) || !existsSync(join(pki, "broker.crt"))) {
     runChecked(run, root, join(root, "scripts", "dev-pki", "create-ca.sh"), [], env);
   }
@@ -155,6 +166,33 @@ function ensureDevelopmentPki(root, env, gatewayIds, externalPki, run) {
     if (!existsSync(join(pki, `${certificateName}.crt`)) || !existsSync(join(pki, `${certificateName}.key`))) {
       runChecked(run, root, join(root, "scripts", "dev-pki", "issue-gateway-cert.sh"), [gatewayId], env);
     }
+  }
+}
+
+function ensurePrivateDevelopmentPkiDirectory(root, directory) {
+  let created = false;
+  try {
+    mkdirSync(directory, { mode: 0o700 });
+    created = true;
+  } catch (error) {
+    if (error?.code !== "EEXIST") throw error;
+  }
+  if (created) chmodSync(directory, 0o700);
+  let status;
+  try {
+    status = lstatSync(directory);
+  } catch {
+    throw new Error("Development PKI directory must be a regular directory, not a symlink");
+  }
+  const expected = join(realpathSync(join(root, ".local")), "pki");
+  if (!status.isDirectory() || status.isSymbolicLink() || realpathSync(directory) !== expected) {
+    throw new Error("Development PKI directory must be a regular directory, not a symlink");
+  }
+  if (typeof process.getuid === "function" && status.uid !== process.getuid()) {
+    throw new Error("Development PKI directory must be owned by the invoking user");
+  }
+  if ((status.mode & 0o777) !== 0o700) {
+    throw new Error("Development PKI directory must have mode 0700");
   }
 }
 
