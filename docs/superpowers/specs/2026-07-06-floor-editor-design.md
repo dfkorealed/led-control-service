@@ -2,6 +2,110 @@
 
 작성일: 2026-07-06
 
+## 2026-09-18 CAD 맵 교체와 조명 배치 슬롯 설계
+
+상태: 사용자 설계 승인 완료. 이 절은 CAD 가져오기, 도면 배경, 조명 위치 후보와 실제 조명 배치에 관한 최신 기준이다. 아래의 과거 MVP 기록과 충돌하면 이 절을 우선한다.
+
+### 목표와 제품 경계
+
+- 신규 맵 배경 입력은 DWG/DXF만 허용한다. PNG/JPG 신규 업로드 UI와 API 허용은 제거한다. 이미 저장된 이미지 자산은 과거 맵·revision 조회가 깨지지 않도록 읽기 호환만 유지한다. PDF 신규 업로드 금지와 기존 자산 읽기 호환 정책은 유지한다.
+- CAD 전체를 수만 개의 편집 객체로 변환하지 않는다. CAD는 좌표가 정규화된 SVG 배경으로 저장하고, 운영자가 직접 추가한 네모·세모·선·텍스트와 실제 조명만 Konva 편집 객체로 유지한다.
+- CAD 조명 심볼에는 BLE 장비 identity가 없으므로 심볼을 실제 `Fixture`로 자동 연결하지 않는다. 검토에서 승인한 심볼은 영속적인 `조명 배치 슬롯`이 되며, 사용자가 등록된 실제 조명을 슬롯에 연결한다.
+- 제공 샘플 `2단지지하주차장전등설비합본평면도20260803.dwg` 분석 결과는 model-space entity 26,887개, 현재 지원 기하 26,389개(예상 범위 98.1478%), 규칙 기반 조명 후보 1,302개다. 후보 검출 수는 실제 정답률이나 BLE identity 매핑 정확도를 의미하지 않는다.
+
+### CAD 분석과 맵 영역 결정
+
+1. 서버는 업로드, DWG 변환, DXF 분석, 도면 영역 결정, SVG 렌더링, 조명 후보 검출, 저장 순서로 처리한다.
+2. 맵 영역은 단순 최솟값/최댓값으로 결정하지 않는다. 모델 공간의 drawable 밀도와 연결된 주요 기하를 기준으로 주 도면 영역을 구하고, 주 영역에서 비정상적으로 멀리 떨어진 고립 요소는 viewport 계산에서 제외한다.
+3. 제외된 요소 개수와 전체 대비 비율을 검토 화면에 표시한다. 원본 파일은 변경하지 않고 보존하므로 이후 분석 규칙을 개선해 다시 가져올 수 있다.
+4. SVG와 조명 후보 좌표에는 같은 affine transform을 적용한다. 맵은 원본 종횡비를 유지하면서 제품 viewport 상한 안으로 정규화하고, 검토 화면과 적용 후 첫 진입에서 전체 맵을 한 번 자동 맞춤한다.
+5. 확대·축소 후 사용자가 바꾼 viewport는 polling, 후보 선택, 저장이나 background image load로 다시 덮어쓰지 않는다.
+
+### CAD 요소 지원
+
+- 기존 지원 요소인 LINE, LWPOLYLINE, POLYLINE, CIRCLE, ARC, TEXT, MTEXT, INSERT와 block transform을 유지한다.
+- 샘플에서 누락되는 WIPEOUT 397개는 경계 polygon과 배경색 마스크로, SPLINE 84개는 knot/control point 기반 표본 polyline으로 렌더링한다.
+- DIMENSION 6개는 참조하는 anonymous dimension block을 우선 렌더링하고, block이 없으면 치수선과 문자 fallback을 사용한다. POINT 2개는 화면 배율에 종속되지 않는 작은 점 기호로 표시한다.
+- HATCH 9개는 복잡한 pattern fill 전체를 재현하지 않고 boundary loop를 보존해 단색 또는 경계선으로 표시한다. 이 제한을 가져오기 결과에 명시하며, 맵 구조와 조명 배치 좌표를 잃지 않는 것을 우선한다.
+- 지원하지 못한 엔티티 종류와 개수를 job 결과에 기록한다. 조용히 누락하지 않고 검토 화면에서 경고한다.
+
+### 진행률과 새로고침 복구
+
+- 서버 job의 진행 단계는 `대기 0%`, `업로드 확인 1~15%`, `DWG 변환 15~35%`, `DXF 분석 35~60%`, `영역·후보 분석 60~75%`, `SVG 렌더링 75~90%`, `저장 90~99%`, `검토 준비 완료 100%`로 정의한다.
+- 긴 변환·분석 단계는 내부 처리량을 기준으로 단조 증가하는 진행률을 갱신한다. 실제 처리량을 알 수 없는 구간은 단계 시작값을 유지하고 완료되기 전에 임의로 100%를 표시하지 않는다.
+- Web polling은 job `updatedAt` 변경 여부에 의존하지 않고 terminal 상태까지 고정 간격으로 이어간다. 일시적인 조회 실패는 진행 UI를 버리지 않고 명시적 재시도 상태로 전환한다.
+- `review_required`가 되더라도 진행 바를 즉시 제거하지 않는다. `100% 분석 완료`를 표시한 상태에서 후보를 불러오고, 후보 조회가 끝난 뒤 검토 화면으로 전환한다.
+- 새로고침하면 active job, rendered asset, viewport, 후보 선택 상태를 서버에서 다시 읽는다. 적용이 완료된 job은 `FloorPlan`과 현재 배치 슬롯을 기준으로 복원하며 과거 local state에 의존하지 않는다.
+- SVG load 실패는 빈 화면으로 숨기지 않고 도면 로드 실패 상태와 재시도 버튼을 표시한다.
+
+### 적용 전 확인과 원자적 맵 교체
+
+`선택한 후보와 배경 적용`을 누르면 실제 변경 전에 다음 내용을 포함한 확인 dialog를 표시한다.
+
+```text
+새 CAD 도면으로 맵을 교체합니다.
+기존 도형은 모두 삭제되고 배치된 조명은 모두 미배치 상태로 변경됩니다.
+이 작업을 진행하시겠습니까?
+```
+
+- dialog에는 삭제할 수동 요소 수, 미배치로 전환할 실제 조명 수, 생성할 배치 슬롯 수를 함께 표시한다.
+- 취소하면 job 검토 상태, 기존 맵과 조명 위치를 그대로 유지한다.
+- 확인하면 editor lease와 expected revision을 다시 검증한 뒤 하나의 DB transaction에서 다음 변경을 처리한다.
+  1. 기존 `FloorMapObject`를 모두 삭제한다.
+  2. 해당 층의 모든 `Fixture`를 `placementStatus=unplaced`, `positionVerifiedAt=null`, `x=0`, `y=0`으로 바꾼다. 장비 등록, Mesh 주소, 그룹, 제어·전력 이력은 유지한다.
+  3. 이전 현재 맵의 조명 배치 슬롯을 모두 삭제한다.
+  4. 새 `FloorPlan`과 승인 후보 기반 배치 슬롯을 저장한다.
+  5. 맵 revision snapshot, 변경 수 요약과 감사 로그를 기록한다.
+  6. import job을 completed로 전환한다.
+- 어느 단계든 실패하면 transaction 전체를 rollback한다. 배경만 바뀌거나 조명만 미배치되는 부분 적용은 허용하지 않는다.
+
+### 영속 조명 배치 슬롯
+
+완료된 import 후보를 운영 중인 맵의 정규 상태로 직접 사용하지 않고 다음 모델로 분리한다.
+
+```text
+FloorLightSlot
+- id
+- floorId
+- sourceImportJobId
+- sourceCandidateId
+- x
+- y
+- rotation
+- assignedFixtureId: String? (현재 맵 안에서 unique)
+- createdAt
+- updatedAt
+```
+
+- `FloorImportCandidate`는 분석·검토·감사 기록이며 수정하지 않는다. `FloorLightSlot`은 현재 맵의 실제 배치 작업 상태다.
+- 미할당 슬롯은 캔버스에 빈 조명 위치로 표시한다. 할당 슬롯은 실제 조명 marker가 대신 표시되며 중복 할당할 수 없다.
+- 왼쪽 미배치 목록의 조명을 슬롯으로 drag하면 슬롯이 강조되고 drop 시 슬롯의 정확한 x/y/rotation으로 배치한다. 슬롯 밖 자유 배치는 기존 수동 배치 기능으로 계속 허용하되 슬롯과 연결되지 않은 상태를 명확히 표시한다.
+- 배치된 조명을 미배치로 바꾸면 fixture와 슬롯 연결을 같은 저장 transaction에서 해제한다. 실제 장비 등록과 제어 가능 상태는 유지한다.
+- 식별 점멸로 실제 조명을 확인한 뒤 선택된 슬롯에 연결할 수 있다. 식별 ACK 자체가 위치 연결을 자동 완료하지 않으며 사용자의 명시적 확정을 요구한다.
+
+### 조회와 렌더링
+
+- 편집기 editor-state는 floor plan, 수동 요소, 실제 fixture와 함께 현재 맵의 슬롯 및 assignment를 반환한다.
+- 모니터링은 저장된 CAD SVG, 수동 요소와 배치된 실제 조명을 읽기 전용으로 표시한다. 미할당 슬롯은 설정 편집기에서만 보이고 모니터링에는 표시하지 않는다.
+- 1,000개 실제 조명과 최대 2,000개 슬롯을 기준으로 viewport culling, Konva layer 분리와 stable node identity를 유지한다. CAD 기하는 단일 SVG image node로 렌더링한다.
+- SVG 응답의 MIME, gzip encoding, 크기, SHA-256과 floor 소유권을 조회 때 검증한다. 브라우저 image decode 실패도 관찰 가능한 오류로 처리한다.
+
+### API와 계약 변경
+
+- CAD apply 요청은 기존 lease/revision/candidate IDs에 `confirmMapReset: true`를 필수로 추가한다. 누락 또는 false면 서버가 적용을 거부한다.
+- apply 응답은 삭제한 객체 수, 미배치 전환 fixture 수, 생성한 슬롯 수를 반환한다.
+- editor-state와 atomic editor save 계약에 슬롯 조회 및 `fixtureId ↔ slotId` assignment 변경을 추가한다.
+- PNG/JPG는 신규 floor asset upload intent와 직접 upload 양쪽에서 거부한다. CAD source와 rendered SVG 전용 MIME allowlist를 분리한다.
+- DB schema 변경 시 `docs/database-schema.md`를 같은 작업에서 갱신한다.
+
+### 검증 기준
+
+- 단위 테스트: 진행 단계 단조 증가, polling terminal 전환, 100% 완료 표시, viewport outlier 제외, 신규 CAD entity parse/render, slot assignment와 중복 방지.
+- API 통합 테스트: apply 확인값, lease/revision conflict, 전체 초기화와 slot 생성의 단일 transaction, 강제 실패 rollback, 새로고침 조회, 이미지 신규 업로드 거부.
+- 실제 샘플 테스트: 제공 DWG의 주요 도면이 전체 맞춤에서 식별 가능하고 조명 후보 1,302개의 transform이 SVG 심볼 위치와 일치하는지 검증한다.
+- 브라우저 테스트: 가져오기 진행률 변화, 완료 전환, 경고 dialog, 적용 후 새로고침, 미배치 목록, 슬롯 drag/drop, 배치 해제, 모니터링 반영을 실제 사용자 흐름으로 검증한다.
+- 성능 테스트: 한 층 1,000개 fixture와 2,000개 슬롯에서 편집 진입, pan/zoom, drag와 save가 기존 제품 예산을 넘지 않아야 한다.
+
 ## 2026-09-09 최종 구현 범위
 
 상태: 2026-09-10 소프트웨어 구현·단위/실DB/브라우저 검증 완료. 실제 장비 배포·검증은 사용자 요청으로 보류. 아래 내용은 최신 사용자 요청을 반영하며, 하단의 기존 MVP 기록과 충돌하면 이 절을 우선한다. 실행 체크리스트는 `../plans/2026-07-06-floor-editor-implementation.md`의 `2026-09-09 대량 배치 실행 계획`이다. 검증 범위와 보류 항목은 실행 체크리스트에 기록한다.
