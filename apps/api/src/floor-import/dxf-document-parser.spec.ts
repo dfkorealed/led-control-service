@@ -302,6 +302,21 @@ describe("ASCII DXF document parser", () => {
     expect(document.bounds.maxX).toBe(5);
   });
 
+  it("keeps model geometry on a layer whose flag 2 only means frozen in new viewports", () => {
+    const dxf = [
+      "0","SECTION","2","TABLES","0","TABLE","2","LAYER",
+      "0","LAYER","2","NEW_VIEWPORT_FROZEN","70","2","62","7",
+      "0","ENDTAB","0","ENDSEC",
+      "0","SECTION","2","ENTITIES",
+      "0","LINE","5","FLAG2-LINE","8","NEW_VIEWPORT_FROZEN","10","0","20","0","11","8","21","0",
+      "0","ENDSEC","0","EOF"
+    ].join("\n") + "\n";
+
+    const document = parseAsciiDxf(dxf);
+    expect(document.entities.map(entity => entity.sourceEntityId)).toEqual(["FLAG2-LINE"]);
+    expect(document.bounds.maxX).toBe(8);
+  });
+
   it("charges the current entity body against retained memory before normalization", async () => {
     async function* denseUnsupportedEntity() {
       yield "0\nSECTION\n2\nENTITIES\n0\nWIPEOUT\n";

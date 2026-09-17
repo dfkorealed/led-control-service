@@ -284,7 +284,9 @@ class DxfDocumentBuilder {
           this.declaredLayers.add(key);
           const flags = this.integer(this.first(record.body, 70), "layer flags", 0);
           const color = this.integer(this.first(record.body, 62), "layer color", 7);
-          if (color < 0 || (flags & 3) !== 0) this.hiddenLayers.add(key);
+          // LAYER bit 1 is globally frozen; bit 2 only defaults the layer to
+          // frozen in newly created viewports and remains visible in model space.
+          if (color < 0 || (flags & 1) !== 0) this.hiddenLayers.add(key);
         }
         return;
       }
