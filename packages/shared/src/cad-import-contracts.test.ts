@@ -4,6 +4,7 @@ import {
   CAD_IMPORT_MIME_TYPES,
   cadImportFileTypeSchema,
   floorImportApplyInputSchema,
+  floorImportAppliedOverlayResponseSchema,
   floorImportCandidateListResponseSchema,
   floorImportJobStatusSchema,
   floorImportRenderedViewportSchema
@@ -163,6 +164,38 @@ describe("CAD import contracts", () => {
       ...input,
       candidateIds: Array.from({ length: 2_001 }, (_, index) =>
         `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`)
+    }).success).toBe(false);
+  });
+
+  it("validates a nullable applied overlay containing accepted candidates only", () => {
+    const response = {
+      overlay: {
+        floorId: "00000000-0000-4000-8000-000000000010",
+        jobId,
+        revision: 7,
+        renderedAssetId: "00000000-0000-4000-8000-000000000011",
+        renderedAssetPath: "/api/floors/00000000-0000-4000-8000-000000000010/assets/00000000-0000-4000-8000-000000000011/content",
+        renderedViewport: { width: 640, height: 360 },
+        appliedAt: "2026-09-17T00:00:00.000Z",
+        candidates: [{ ...candidateResponse.candidates[0], reviewStatus: "accepted" as const }]
+      }
+    };
+
+    expect(floorImportAppliedOverlayResponseSchema.parse(response)).toEqual({
+      overlay: {
+        ...response.overlay,
+        candidates: response.overlay.candidates.map(candidate => ({ ...candidate, ...legacyProfileMetadata }))
+      }
+    });
+    expect(floorImportAppliedOverlayResponseSchema.parse({ overlay: null })).toEqual({ overlay: null });
+    expect(floorImportAppliedOverlayResponseSchema.safeParse({
+      overlay: {
+        ...response.overlay,
+        candidates: [{ ...candidateResponse.candidates[0], reviewStatus: "pending" }]
+      }
+    }).success).toBe(false);
+    expect(floorImportAppliedOverlayResponseSchema.safeParse({
+      overlay: { ...response.overlay, fixtureIds: [candidateId] }
     }).success).toBe(false);
   });
 });

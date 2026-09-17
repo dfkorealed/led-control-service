@@ -19,6 +19,11 @@ export class FloorImportController {
     return this.imports.getActive(user, floorId);
   }
 
+  @Get("applied-overlay")
+  appliedOverlay(@Param("floorId") floorId: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.imports.getAppliedOverlay(user, floorId);
+  }
+
   @Get(":jobId")
   get(@Param("floorId") floorId: string, @Param("jobId") jobId: string, @CurrentUser() user: AuthenticatedUser) {
     return this.imports.get(user, floorId, jobId);

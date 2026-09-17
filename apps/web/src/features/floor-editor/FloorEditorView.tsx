@@ -1,4 +1,4 @@
-import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CircleCheck, Hand, Minus, MousePointer2, RotateCcw, Save, Square, Triangle, TriangleAlert, Type, Undo2, Redo2, ZoomIn, ZoomOut, Maximize, Focus } from "lucide-react";
 import { type DragEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
@@ -7,6 +7,7 @@ import { ApiError } from "../../api/client";
 import { Button, Checkbox, ConfirmDialog, FeedbackState, Heading, IconButton, PageHeader, SelectBox, SidePanel, Text } from "../../components/ui";
 import {
   listFloorEditorRevisions,
+  getAppliedFloorImportOverlay,
   getFloorEditorState,
   restoreFloorEditorRevision,
   saveFloorEditorState,
@@ -93,6 +94,13 @@ export function FloorEditorView({
     queryFn: ({ pageParam }) => listFloorEditorRevisions(floorId, pageParam === undefined ? {} : { cursor: pageParam }),
     initialPageParam: undefined as number | undefined,
     getNextPageParam: (page) => page.nextCursor ?? undefined
+  });
+  const overlayRevision = state?.floor.id === floorId && state.floor.siteId === siteId
+    ? state.floor.mapRevision
+    : initialState.floor.mapRevision;
+  const appliedOverlayQuery = useQuery({
+    queryKey: ["floor-import-applied-overlay", siteId, floorId, overlayRevision],
+    queryFn: () => getAppliedFloorImportOverlay(floorId)
   });
 
   useLayoutEffect(() => {
@@ -241,10 +249,19 @@ export function FloorEditorView({
   }, []);
 
   const revisions = revisionsQuery.data?.pages.flatMap((page) => page.items) ?? [];
-  const acceptedCadCandidateIds = useMemo(
-    () => new Set(cadImportReview?.acceptedCandidateIds ?? []),
-    [cadImportReview?.acceptedCandidateIds]
-  );
+  const appliedOverlay = appliedOverlayQuery.data?.overlay;
+  const currentAppliedOverlay = appliedOverlay && state
+    && appliedOverlay.floorId === floorId
+    && appliedOverlay.revision === state.floor.mapRevision
+    && appliedOverlay.renderedAssetPath === state.floor.floorPlan?.imageUrl
+    ? appliedOverlay
+    : null;
+  const visibleCadCandidates = cadImportReview?.candidates ?? currentAppliedOverlay?.candidates ?? [];
+  const visibleCadViewport = cadImportReview?.job.renderedViewport ?? currentAppliedOverlay?.renderedViewport;
+  const visibleCadBackgroundUrl = cadImportReview?.job.renderedAssetPath ?? currentAppliedOverlay?.renderedAssetPath;
+  const acceptedCadCandidateIds = useMemo(() => new Set(
+    cadImportReview?.acceptedCandidateIds ?? currentAppliedOverlay?.candidates.map(candidate => candidate.id) ?? []
+  ), [cadImportReview?.acceptedCandidateIds, currentAppliedOverlay?.candidates]);
   const isMutationPending = saveStatus === "saving" || restoringRevision !== null || isUploadPending || isCadImportPending;
   const isSaveOrRestoreBlocked = readOnly || isMutationPending || state?.floor.id !== floorId;
 
@@ -265,7 +282,7 @@ export function FloorEditorView({
             <IconButton variant="ghost" className="max-compact:h-14 max-compact:min-h-14 max-compact:w-14 max-compact:min-w-14" aria-label="확대" onClick={() => setZoom(zoom + 0.1)}>
               <ZoomIn size={18} aria-hidden="true" />
             </IconButton>
-            <IconButton variant="ghost" className="max-compact:h-14 max-compact:min-h-14 max-compact:w-14 max-compact:min-w-14" aria-label="맵 맞춤" title="맵 맞춤" onClick={() => useFloorEditorStore.getState().fit(false, cadImportReview?.job.renderedViewport ?? undefined)}><Maximize size={18} /></IconButton>
+            <IconButton variant="ghost" className="max-compact:h-14 max-compact:min-h-14 max-compact:w-14 max-compact:min-w-14" aria-label="맵 맞춤" title="맵 맞춤" onClick={() => useFloorEditorStore.getState().fit(false, visibleCadViewport ?? undefined)}><Maximize size={18} /></IconButton>
             <IconButton variant="ghost" className="max-compact:h-14 max-compact:min-h-14 max-compact:w-14 max-compact:min-w-14" aria-label="선택 맞춤" title="선택 맞춤" onClick={() => useFloorEditorStore.getState().fit(true)}><Focus size={18} /></IconButton>
             <Button variant="secondary" onClick={onCancel}>
               <Undo2 size={16} aria-hidden="true" />
@@ -332,9 +349,9 @@ export function FloorEditorView({
           <FloorEditorCanvas
             readOnly={readOnly || isMutationPending}
             rowRegistry={rowRegistry}
-            cadCandidates={cadImportReview?.candidates}
-            cadBackgroundUrl={cadImportReview?.job.renderedAssetPath}
-            cadViewport={cadImportReview?.job.renderedViewport}
+            cadCandidates={visibleCadCandidates}
+            cadBackgroundUrl={visibleCadBackgroundUrl}
+            cadViewport={visibleCadViewport}
             acceptedCadCandidateIds={acceptedCadCandidateIds}
             focusedCadCandidateId={focusedCadCandidateId}
             onFocusedCadCandidateChange={setFocusedCadCandidateId}

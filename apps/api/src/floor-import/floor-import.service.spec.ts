@@ -176,6 +176,91 @@ describe("FloorImportService", () => {
     expect(access.assert).toHaveBeenCalledWith(user, "site-1", "read");
   });
 
+  it("returns the accepted candidates from the completed import backing the current floor background", async () => {
+    const floorId = randomUUID();
+    const jobId = randomUUID();
+    const renderedAssetId = randomUUID();
+    const candidateId = randomUUID();
+    const renderedAssetPath = `/api/floors/${floorId}/assets/${renderedAssetId}/content`;
+    const tx: any = {
+      floor: { findUnique: jest.fn().mockResolvedValue({
+        id: floorId,
+        siteId: "site-1",
+        mapRevision: 9,
+        floorPlan: {
+          imageUrl: renderedAssetPath,
+          renderedImageUrl: renderedAssetPath,
+          width: 640,
+          height: 360
+        }
+      }) },
+      floorImportJob: { findFirst: jest.fn().mockResolvedValue({
+        id: jobId,
+        renderedAssetId,
+        appliedAt: new Date("2026-09-17T00:00:00.000Z"),
+        candidates: [{
+          id: candidateId, sourceEntityId: "insert-1", layerName: "LIGHT", blockName: "LED",
+          x: 10, y: 20, rotation: 90, confidence: 0.95, detectionMethod: "rule_based",
+          provider: null, model: null, inputDigest: null, profileVersion: "rules-v1",
+          profileDigest: "a".repeat(64), reviewStatus: "accepted"
+        }]
+      }) }
+    };
+    const prisma: any = { $transaction: jest.fn((run: (client: typeof tx) => unknown) => run(tx)) };
+    const access: any = { assertReadInTransaction: jest.fn() };
+    const service = new FloorImportService(prisma, access, { record: jest.fn() } as any);
+
+    await expect(service.getAppliedOverlay(user, floorId)).resolves.toEqual({
+      overlay: {
+        floorId,
+        jobId,
+        revision: 9,
+        renderedAssetId,
+        renderedAssetPath,
+        renderedViewport: { width: 640, height: 360 },
+        appliedAt: "2026-09-17T00:00:00.000Z",
+        candidates: [expect.objectContaining({ id: candidateId, reviewStatus: "accepted" })]
+      }
+    });
+    expect(access.assertReadInTransaction).toHaveBeenCalledWith(tx, user, "site-1");
+    expect(tx.floorImportJob.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        floorId,
+        renderedAssetId,
+        status: "completed",
+        appliedAt: { not: null },
+        completedAt: { not: null }
+      })
+    }));
+    expect(tx.floorImportJob.findFirst.mock.calls[0][0].where).not.toHaveProperty("status.in");
+  });
+
+  it("returns no applied overlay when the current background is not a completed CAD render", async () => {
+    const floorId = randomUUID();
+    const tx: any = {
+      floor: { findUnique: jest.fn().mockResolvedValue({
+        id: floorId,
+        siteId: "site-1",
+        mapRevision: 9,
+        floorPlan: {
+          imageUrl: "/api/floors/another-floor/assets/not-current/content",
+          renderedImageUrl: "/api/floors/another-floor/assets/not-current/content",
+          width: 640,
+          height: 360
+        }
+      }) },
+      floorImportJob: { findFirst: jest.fn() }
+    };
+    const service = new FloorImportService(
+      { $transaction: jest.fn((run: (client: typeof tx) => unknown) => run(tx)) } as any,
+      { assertReadInTransaction: jest.fn() } as any,
+      { record: jest.fn() } as any
+    );
+
+    await expect(service.getAppliedOverlay(user, floorId)).resolves.toEqual({ overlay: null });
+    expect(tx.floorImportJob.findFirst).not.toHaveBeenCalled();
+  });
+
   it("reauthorizes manage access and reads only durable active states in one transaction", async () => {
     const floorId = randomUUID();
     const renderedAssetId = randomUUID();

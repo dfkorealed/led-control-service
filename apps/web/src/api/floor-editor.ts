@@ -1,6 +1,7 @@
 import type {
   CadImportSourceFormat,
   FloorImportApplyInput,
+  FloorImportAppliedOverlayResponse,
   FloorImportCandidateListResponse,
   RestoreFloorEditorRevisionInput,
   SaveEditorStateInput
@@ -86,6 +87,12 @@ export function createFloorImportJob(
 export function getActiveFloorImportJob(floorId: string) {
   return apiGet<{ job: FloorImportJob | null }>(
     `/floors/${encodeURIComponent(floorId)}/import-jobs/active`
+  );
+}
+
+export function getAppliedFloorImportOverlay(floorId: string) {
+  return apiGet<FloorImportAppliedOverlayResponse>(
+    `/floors/${encodeURIComponent(floorId)}/import-jobs/applied-overlay`
   );
 }
 

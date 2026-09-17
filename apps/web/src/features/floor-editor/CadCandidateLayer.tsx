@@ -13,7 +13,7 @@ interface CadCandidateLayerProps {
   disabled?: boolean;
   focusedCandidateId?: string | null;
   onFocusedCandidateChange?: (candidateId: string | null) => void;
-  onToggle: (candidateId: string) => void;
+  onToggle?: (candidateId: string) => void;
 }
 
 export interface CadCandidateBounds {
@@ -129,6 +129,7 @@ export function CadCandidateLayer({
     text: themeColor("fixture-editor-label")
   }), []);
   const radius = 7 / zoom;
+  const listening = Boolean(onFocusedCandidateChange || onToggle);
 
   useEffect(() => () => {
     if (pointerFrame.current !== null) window.cancelAnimationFrame(pointerFrame.current);
@@ -156,11 +157,11 @@ export function CadCandidateLayer({
 
   if (candidates.length === 0) return null;
   return (
-    <Layer {...transform} name="cad-candidate-layer" listening={!disabled}>
+    <Layer {...transform} name="cad-candidate-layer" listening={!disabled && listening}>
       <Shape
         ref={shape}
         name="cad-candidate-batch"
-        listening={!disabled}
+        listening={!disabled && listening}
         sceneFunc={(context) => {
           context.setAttr("lineWidth", 2 / zoom);
           for (const candidate of visibleCandidates) {
@@ -197,13 +198,13 @@ export function CadCandidateLayer({
           const candidate = candidateAtPointer();
           if (!candidate) return;
           focus(candidate.id);
-          onToggle(candidate.id);
+          onToggle?.(candidate.id);
         }}
         onTap={() => {
           const candidate = candidateAtPointer();
           if (!candidate) return;
           focus(candidate.id);
-          onToggle(candidate.id);
+          onToggle?.(candidate.id);
         }}
       />
       {focused ? <Label

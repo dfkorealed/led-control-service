@@ -88,7 +88,7 @@ describe("CadCandidateLayer", () => {
     )).toEqual({ x: 100, y: 100 });
   });
 
-  it("coalesces rapid pointer moves into one animation-frame lookup", () => {
+  it("keeps read-only applied candidates hoverable without a toggle handler", () => {
     let frame: FrameRequestCallback | null = null;
     vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
       frame = callback;
@@ -105,7 +105,6 @@ describe("CadCandidateLayer", () => {
           zoom={1}
           viewportBounds={{ x: 0, y: 0, width: 1200, height: 800 }}
           onFocusedCandidateChange={onFocusedCandidateChange}
-          onToggle={() => undefined}
         />
       </Stage>
     );

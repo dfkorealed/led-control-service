@@ -35,6 +35,7 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
   };
   const access = {
     assert: jest.fn().mockResolvedValue({ id: siteId, organizationId }),
+    assertReadInTransaction: jest.fn().mockResolvedValue({ id: siteId, organizationId }),
     assertManageInTransaction: jest.fn().mockResolvedValue({ id: siteId, organizationId })
   };
   const storage = { readFloorRenderedMetadata: jest.fn().mockResolvedValue({ width: 640, height: 480 }) };
@@ -522,6 +523,41 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
       .resolves.toMatchObject({ changedBy: userId });
     await expect(prisma.auditLog.findFirstOrThrow({ where: { targetId: jobId, action: "floor_import.applied" } }))
       .resolves.toMatchObject({ actorId: userId, outcome: "success" });
+
+    const overlay = await service().getAppliedOverlay(user, floorId);
+    expect(overlay).toMatchObject({
+      overlay: {
+        floorId,
+        jobId,
+        revision: 5,
+        renderedAssetId: renderedId,
+        renderedViewport: { width: 640, height: 480 },
+        candidates: expect.any(Array)
+      }
+    });
+    expect(overlay.overlay?.candidates).toHaveLength(1_302);
+    expect(overlay.overlay?.candidates.every(candidate => candidate.reviewStatus === "accepted")).toBe(true);
+    expect(overlay.overlay?.candidates[0]).not.toHaveProperty("fixtureId");
+    expect(overlay.overlay?.candidates[0]).not.toHaveProperty("meshNodeId");
+
+    const replacementSource = await sourceAsset();
+    const replacementRendered = await renderedAsset();
+    await prisma.floorImportJob.create({ data: {
+      floorId,
+      sourceAssetId: replacementSource.id,
+      renderedAssetId: replacementRendered.id,
+      sourceFormat: "dxf",
+      status: "review_required",
+      stage: "review_required",
+      progressPercent: 100,
+      attemptCount: 1,
+      startedAt: new Date(),
+      reviewRequiredAt: new Date(),
+      ...terminalProfile
+    } });
+    await expect(service().getAppliedOverlay(user, floorId)).resolves.toMatchObject({
+      overlay: { jobId, renderedAssetId: renderedId, revision: 5 }
+    });
   });
 
   it("allows an existing rendered SVG to retain an identity ledger", async () => {
@@ -578,6 +614,11 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
       expect(createdResponse.status).toBe(201);
       const created = await createdResponse.json() as { jobId: string; detectorProfileId: string };
       expect(created.detectorProfileId).toBe("site-drawing-20260803-v1");
+      expect((await send("GET", `${collection}/applied-overlay`)).status).toBe(401);
+      const viewerOverlay = await send("GET", `${collection}/applied-overlay`, viewerCookie);
+      expect(viewerOverlay.status).toBe(200);
+      expect(await viewerOverlay.json()).toEqual({ overlay: null });
+      expect((await send("GET", `${collection}/applied-overlay`, otherCookie)).status).toBe(404);
       expect((await send("GET", `${collection}/${created.jobId}`, viewerCookie)).status).toBe(200);
       expect((await send("GET", `${collection}/${created.jobId}/candidates`, viewerCookie)).status).toBe(200);
       const viewerSource = await sourceAsset();

@@ -10,6 +10,7 @@ import {
   cadImportFileTypeSchema,
   CAD_IMPORT_MAX_CANDIDATES,
   floorImportApplyInputSchema,
+  floorImportAppliedOverlayResponseSchema,
   floorImportCandidateListResponseSchema,
   floorImportRenderedViewportSchema,
   type FloorImportApplyInput
@@ -158,6 +159,63 @@ export class FloorImportService {
       });
     }, { ...EDITOR_TRANSACTION_OPTIONS, isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
     return { job: job ? await this.publicJob(job) : null };
+  }
+
+  async getAppliedOverlay(user: AuthenticatedUser, floorId: string) {
+    return this.prisma.$transaction(async tx => {
+      const floor = await tx.floor.findUnique({
+        where: { id: floorId },
+        select: {
+          id: true,
+          siteId: true,
+          mapRevision: true,
+          floorPlan: {
+            select: { imageUrl: true, renderedImageUrl: true, width: true, height: true }
+          }
+        }
+      });
+      if (!floor) throw new NotFoundException("floor not found");
+      await this.access.assertReadInTransaction(tx, user, floor.siteId);
+
+      const renderedAssetId = currentRenderedAssetId(floorId, floor.floorPlan);
+      if (!renderedAssetId) return { overlay: null };
+      const applied = await tx.floorImportJob.findFirst({
+        where: {
+          floorId,
+          renderedAssetId,
+          status: "completed",
+          appliedAt: { not: null },
+          completedAt: { not: null },
+          renderedAsset: { is: { status: "ready", cleanupStartedAt: null } }
+        },
+        orderBy: [{ appliedAt: "desc" }, { id: "desc" }],
+        select: {
+          id: true,
+          renderedAssetId: true,
+          appliedAt: true,
+          candidates: {
+            where: { reviewStatus: "accepted" },
+            orderBy: [{ confidence: "desc" }, { id: "asc" }],
+            take: CAD_IMPORT_MAX_CANDIDATES,
+            select: candidateSelect
+          }
+        }
+      });
+      if (!applied?.renderedAssetId || !applied.appliedAt) return { overlay: null };
+
+      return floorImportAppliedOverlayResponseSchema.parse({
+        overlay: {
+          floorId,
+          jobId: applied.id,
+          revision: floor.mapRevision,
+          renderedAssetId: applied.renderedAssetId,
+          renderedAssetPath: assetAccessPath(floorId, applied.renderedAssetId),
+          renderedViewport: { width: floor.floorPlan!.width, height: floor.floorPlan!.height },
+          appliedAt: applied.appliedAt.toISOString(),
+          candidates: applied.candidates
+        }
+      });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
   }
 
   async listCandidates(user: AuthenticatedUser, floorId: string, jobId: string) {
@@ -519,4 +577,25 @@ function isUniqueConflict(error: unknown) {
 
 function isSupportedRenderedEncoding(value: string | null): value is "gzip" | "unknown" | null {
   return value === null || value === "gzip" || value === "unknown";
+}
+
+function currentRenderedAssetId(
+  floorId: string,
+  floorPlan: { imageUrl: string; renderedImageUrl: string | null } | null
+) {
+  const path = floorPlan?.renderedImageUrl;
+  if (!path || floorPlan.imageUrl !== path) return null;
+  try {
+    const url = new URL(path, "https://floor-assets.invalid");
+    if (url.origin !== "https://floor-assets.invalid" || url.search || url.hash) return null;
+    const segments = url.pathname.split("/");
+    if (segments.length !== 7 || segments[1] !== "api" || segments[2] !== "floors" ||
+        segments[4] !== "assets" || segments[6] !== "content") return null;
+    const pathFloorId = decodeURIComponent(segments[3]);
+    const assetId = decodeURIComponent(segments[5]);
+    if (pathFloorId !== floorId || !z.string().uuid().safeParse(assetId).success) return null;
+    return assetAccessPath(floorId, assetId) === path ? assetId : null;
+  } catch {
+    return null;
+  }
 }

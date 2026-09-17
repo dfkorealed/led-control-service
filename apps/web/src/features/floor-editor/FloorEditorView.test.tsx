@@ -13,6 +13,7 @@ const floorEditorApi = vi.hoisted(() => ({
   cancelFloorImportJob: vi.fn(),
   createFloorImportJob: vi.fn(),
   getActiveFloorImportJob: vi.fn(),
+  getAppliedFloorImportOverlay: vi.fn(),
   getFloorEditorState: vi.fn(),
   getFloorImportJob: vi.fn(),
   listFloorImportCandidates: vi.fn(),
@@ -163,6 +164,7 @@ describe("FloorEditorView", () => {
   });
   beforeEach(() => {
     floorEditorApi.getActiveFloorImportJob.mockResolvedValue({ job: null });
+    floorEditorApi.getAppliedFloorImportOverlay.mockResolvedValue({ overlay: null });
     floorEditorApi.saveFloorEditorState.mockImplementation(async (_floorId, _payload) => ({
       ...structuredClone(editorState),
       floor: { ...structuredClone(editorState.floor), mapRevision: 8 }
@@ -656,6 +658,36 @@ describe("FloorEditorView", () => {
         gridSize: 10
       }
     });
+    floorEditorApi.getAppliedFloorImportOverlay
+      .mockResolvedValueOnce({ overlay: null })
+      .mockResolvedValueOnce({
+        overlay: {
+          floorId: "floor-b2",
+          jobId,
+          revision: 8,
+          renderedAssetId: "rendered-cad",
+          renderedAssetPath,
+          renderedViewport: { width: 640, height: 360 },
+          appliedAt: "2026-09-17T00:00:02.000Z",
+          candidates: [{
+            id: candidateId,
+            sourceEntityId: "insert-1",
+            layerName: "LIGHT",
+            blockName: "LED",
+            x: 100,
+            y: 120,
+            rotation: 0,
+            confidence: 0.95,
+            detectionMethod: "rule_based",
+            provider: null,
+            model: null,
+            inputDigest: null,
+            profileVersion: "rules-v1",
+            profileDigest: "a".repeat(64),
+            reviewStatus: "accepted"
+          }]
+        }
+      });
     const authoritative = {
       ...structuredClone(editorState),
       floor: {
@@ -710,6 +742,129 @@ describe("FloorEditorView", () => {
     expect(onSaved).toHaveBeenCalledWith(authoritative);
     expect(onReload).not.toHaveBeenCalled();
     expect(floorEditorApi.saveFloorEditorState).not.toHaveBeenCalled();
+    expect(floorEditorApi.getAppliedFloorImportOverlay).toHaveBeenCalledTimes(2);
+    expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("data-cad-candidate-count", "1");
+  });
+
+  it("reloads applied CAD candidates as a read-only reference while fixture placement and identify stay enabled", async () => {
+    const candidateId = "00000000-0000-4000-8000-000000000030";
+    const renderedAssetId = "00000000-0000-4000-8000-000000000040";
+    const renderedAssetPath = `/api/floors/floor-b2/assets/${renderedAssetId}/content`;
+    const state = {
+      ...structuredClone(editorState),
+      floor: {
+        ...structuredClone(editorState.floor),
+        floorPlan: {
+          ...structuredClone(editorState.floor.floorPlan!),
+          imageUrl: renderedAssetPath,
+          renderedImageUrl: renderedAssetPath,
+          width: 640,
+          height: 360
+        }
+      }
+    };
+    floorEditorApi.getAppliedFloorImportOverlay.mockResolvedValueOnce({
+      overlay: {
+        floorId: "floor-b2",
+        jobId: "00000000-0000-4000-8000-000000000020",
+        revision: 7,
+        renderedAssetId,
+        renderedAssetPath,
+        renderedViewport: { width: 640, height: 360 },
+        appliedAt: "2026-09-17T00:00:00.000Z",
+        candidates: [{
+          id: candidateId,
+          sourceEntityId: "insert-1",
+          layerName: "LIGHT",
+          blockName: "LED",
+          x: 100,
+          y: 120,
+          rotation: 0,
+          confidence: 0.95,
+          detectionMethod: "rule_based",
+          provider: null,
+          model: null,
+          inputDigest: null,
+          profileVersion: "rules-v1",
+          profileDigest: "a".repeat(64),
+          reviewStatus: "accepted"
+        }]
+      }
+    });
+
+    renderEditor(state);
+
+    await waitFor(() => expect(screen.getByLabelText("B2 편집 캔버스"))
+      .toHaveAttribute("data-cad-candidate-count", "1"));
+    expect(floorEditorApi.getAppliedFloorImportOverlay).toHaveBeenCalledWith("floor-b2");
+    expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("data-background-url", renderedAssetPath);
+    expect(screen.getByRole("button", { name: "선택" })).toBeEnabled();
+
+    act(() => useFloorEditorStore.getState().selectFixture("fixture-1"));
+    expect(screen.getByRole("button", { name: "확인 시작" })).toBeEnabled();
+    expect(useFloorEditorStore.getState().state?.fixtures).toHaveLength(1);
+  });
+
+  it("refreshes the applied overlay revision after saving registered fixture placement", async () => {
+    const candidateId = "00000000-0000-4000-8000-000000000030";
+    const renderedAssetId = "00000000-0000-4000-8000-000000000040";
+    const renderedAssetPath = `/api/floors/floor-b2/assets/${renderedAssetId}/content`;
+    const state = {
+      ...structuredClone(editorState),
+      floor: {
+        ...structuredClone(editorState.floor),
+        floorPlan: {
+          ...structuredClone(editorState.floor.floorPlan!),
+          imageUrl: renderedAssetPath,
+          renderedImageUrl: renderedAssetPath
+        }
+      }
+    };
+    const response = (revision: number) => ({
+      overlay: {
+        floorId: "floor-b2",
+        jobId: "00000000-0000-4000-8000-000000000020",
+        revision,
+        renderedAssetId,
+        renderedAssetPath,
+        renderedViewport: { width: 1200, height: 800 },
+        appliedAt: "2026-09-17T00:00:00.000Z",
+        candidates: [{
+          id: candidateId,
+          sourceEntityId: "insert-1",
+          layerName: "LIGHT",
+          blockName: "LED",
+          x: 100,
+          y: 120,
+          rotation: 0,
+          confidence: 0.95,
+          detectionMethod: "rule_based",
+          provider: null,
+          model: null,
+          inputDigest: null,
+          profileVersion: "rules-v1",
+          profileDigest: "a".repeat(64),
+          reviewStatus: "accepted"
+        }]
+      }
+    });
+    floorEditorApi.getAppliedFloorImportOverlay
+      .mockResolvedValueOnce(response(7))
+      .mockResolvedValueOnce(response(8));
+    floorEditorApi.saveFloorEditorState.mockResolvedValueOnce({
+      ...structuredClone(state),
+      floor: { ...structuredClone(state.floor), mapRevision: 8 },
+      fixtures: [{ ...structuredClone(state.fixtures[0]), x: 240 }]
+    });
+    renderEditor(state);
+    await waitFor(() => expect(screen.getByLabelText("B2 편집 캔버스"))
+      .toHaveAttribute("data-cad-candidate-count", "1"));
+
+    act(() => useFloorEditorStore.getState().updateFixture("fixture-1", { x: 240 }));
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+
+    await waitFor(() => expect(floorEditorApi.getAppliedFloorImportOverlay).toHaveBeenCalledTimes(2));
+    expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("data-cad-candidate-count", "1");
   });
 
   it("connects a CAD apply conflict to the editor reload conflict UX", async () => {

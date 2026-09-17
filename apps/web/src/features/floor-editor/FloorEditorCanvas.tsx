@@ -334,10 +334,10 @@ export function FloorEditorCanvas({
         transform={transform}
         zoom={zoom}
         viewportBounds={cadViewportBounds}
-        disabled={!onToggleCadCandidate}
+        disabled={!onFocusedCadCandidateChange && !onToggleCadCandidate}
         focusedCandidateId={focusedCadCandidateId}
         onFocusedCandidateChange={onFocusedCadCandidateChange}
-        onToggle={onToggleCadCandidate ?? (() => undefined)}
+        onToggle={onToggleCadCandidate}
       />
       <Layer {...transform} visible={layers.objects.visible} listening={!readOnly && !layers.objects.locked && activeTool === "select"}>
         {state.objects.filter((o) => o.visible).sort((a, b) => a.zIndex - b.zIndex).map((object) => {

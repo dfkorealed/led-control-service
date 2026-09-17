@@ -92,6 +92,29 @@ export const floorImportCandidateListResponseSchema = z.object({
   candidates: z.array(floorImportCandidateSchema).max(CAD_IMPORT_MAX_CANDIDATES)
 }).strict();
 
+export const floorImportAppliedOverlayResponseSchema = z.object({
+  overlay: z.object({
+    floorId: z.string().uuid(),
+    jobId: z.string().uuid(),
+    revision: z.number().int().nonnegative().max(EDITOR_MAX_EXPECTED_REVISION),
+    renderedAssetId: z.string().uuid(),
+    renderedAssetPath: z.string().trim().startsWith("/").max(2_048),
+    renderedViewport: floorImportRenderedViewportSchema,
+    appliedAt: z.string().datetime({ offset: true }),
+    candidates: z.array(floorImportCandidateSchema).max(CAD_IMPORT_MAX_CANDIDATES)
+  }).strict().superRefine((overlay, context) => {
+    overlay.candidates.forEach((candidate, index) => {
+      if (candidate.reviewStatus !== "accepted") {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["candidates", index, "reviewStatus"],
+          message: "applied overlays may expose accepted candidates only"
+        });
+      }
+    });
+  }).nullable()
+}).strict();
+
 export const floorImportApplyInputSchema = z.object({
   expectedRevision: z.number().int().nonnegative().max(EDITOR_MAX_EXPECTED_REVISION),
   leaseToken: z.string().trim().min(1).max(256),
@@ -113,4 +136,6 @@ export type FloorImportJobStatus = z.infer<typeof floorImportJobStatusSchema>;
 export type FloorImportRenderedViewport = z.infer<typeof floorImportRenderedViewportSchema>;
 export type FloorImportCandidate = z.infer<typeof floorImportCandidateSchema>;
 export type FloorImportCandidateListResponse = z.infer<typeof floorImportCandidateListResponseSchema>;
+export type FloorImportAppliedOverlayResponse = z.infer<typeof floorImportAppliedOverlayResponseSchema>;
+export type FloorImportAppliedOverlay = NonNullable<FloorImportAppliedOverlayResponse["overlay"]>;
 export type FloorImportApplyInput = z.infer<typeof floorImportApplyInputSchema>;
