@@ -6,7 +6,9 @@ import { AuditModule } from "../audit/audit.module";
 import { AuthModule } from "../auth/auth.module";
 import { PrismaModule } from "../prisma/prisma.module";
 import { StorageModule } from "../storage/storage.module";
-import { ArgvCadConverter, type CadConversionRequest, type CadConverter } from "./cad-converter";
+import { type CadConversionRequest, type CadConverter } from "./cad-converter";
+import { SpoolCadConverter } from "./cad-converter-spool";
+import { CadSidecarReadinessService } from "./cad-sidecar-readiness.service";
 import { ChildProcessCadCoreExecutor } from "./cad-core-executor";
 import { assertCadProductionRuntime } from "./cad-runtime-contract";
 import { FixedLightingDetectorRegistry } from "./lighting-detector-registry";
@@ -61,22 +63,17 @@ export function createCadImportConverter(
     if (env.NODE_ENV === "production") throw new Error("local CAD adapter is forbidden in production");
     return new LocalDxfCopyCadConverter(dependencies);
   }
-  if (mode !== "linux") throw new Error("unsupported CAD_IMPORT_CONVERTER_MODE");
+  if (mode !== "sidecar") throw new Error("unsupported CAD_IMPORT_CONVERTER_MODE");
   if (platform !== "linux") throw new Error("production CAD converter requires Linux");
-  const executable = env.CAD_IMPORT_CONVERTER_EXECUTABLE?.trim();
-  if (!executable) throw new Error("CAD_IMPORT_CONVERTER_EXECUTABLE is required");
-  let argv: unknown;
-  try { argv = JSON.parse(env.CAD_IMPORT_CONVERTER_ARGV_JSON ?? ""); }
-  catch { throw new Error("CAD_IMPORT_CONVERTER_ARGV_JSON must be a JSON string array"); }
-  if (!Array.isArray(argv) || argv.some(value => typeof value !== "string")) {
-    throw new Error("CAD_IMPORT_CONVERTER_ARGV_JSON must be a JSON string array");
-  }
-  return new ArgvCadConverter({
-    executable,
-    argv,
-    timeoutMs: positiveInteger(env.CAD_IMPORT_CONVERTER_TIMEOUT_MS, 60_000, "CAD_IMPORT_CONVERTER_TIMEOUT_MS"),
-    maxOutputBytes: positiveInteger(env.CAD_IMPORT_MAX_DXF_BYTES, 256 * 1024 * 1024, "CAD_IMPORT_MAX_DXF_BYTES"),
-    execution: { mode: "linux-resource-limited" }
+  const spoolRoot = env.CAD_IMPORT_CONVERTER_SPOOL_ROOT?.trim();
+  const approvedDigest = env.CAD_IMPORT_CONVERTER_SHA256?.trim();
+  if (!spoolRoot) throw new Error("CAD_IMPORT_CONVERTER_SPOOL_ROOT is required");
+  if (!approvedDigest) throw new Error("CAD_IMPORT_CONVERTER_SHA256 is required");
+  return new SpoolCadConverter({
+    spoolRoot,
+    approvedDigest,
+    timeoutMs: positiveInteger(env.CAD_IMPORT_CONVERTER_CLIENT_TIMEOUT_MS, 65_000, "CAD_IMPORT_CONVERTER_CLIENT_TIMEOUT_MS"),
+    maxOutputBytes: positiveInteger(env.CAD_IMPORT_MAX_DXF_BYTES, 256 * 1024 * 1024, "CAD_IMPORT_MAX_DXF_BYTES")
   });
 }
 
@@ -114,6 +111,7 @@ function positiveInteger(value: string | undefined, fallback: number, name: stri
     FloorImportService,
     FloorImportAttemptCleanupService,
     FloorImportWorkerService,
+    CadSidecarReadinessService,
     { provide: CAD_IMPORT_CONVERTER, useFactory: () => converterProvider(process.env) },
     {
       provide: CAD_IMPORT_RULE_DETECTOR,
@@ -121,6 +119,7 @@ function positiveInteger(value: string | undefined, fallback: number, name: stri
     },
     { provide: CAD_IMPORT_CORE_EXECUTOR, useFactory: () => new ChildProcessCadCoreExecutor() },
     { provide: CAD_IMPORT_WORKER_OPTIONS, useFactory: () => workerOptions(process.env) }
-  ]
+  ],
+  exports: [CadSidecarReadinessService]
 })
 export class FloorImportModule {}

@@ -9,8 +9,17 @@ import { CAD_IMPORT_WORKER_OPTIONS, FloorImportWorkerService } from "./floor-imp
 
 describe("CAD import converter module configuration", () => {
   it("fails closed when production Linux converter configuration is absent", () => {
-    expect(() => createCadImportConverter({ NODE_ENV: "production", CAD_IMPORT_CONVERTER_MODE: "linux" }, "linux"))
-      .toThrow(/executable/i);
+    expect(() => createCadImportConverter({ NODE_ENV: "production", CAD_IMPORT_CONVERTER_MODE: "sidecar" }, "linux"))
+      .toThrow(/spool|digest/i);
+  });
+
+  it("creates the production adapter from spool and digest only, without executable or argv", () => {
+    expect(() => createCadImportConverter({
+      NODE_ENV: "production",
+      CAD_IMPORT_CONVERTER_MODE: "sidecar",
+      CAD_IMPORT_CONVERTER_SPOOL_ROOT: "/run/cad-converter-spool",
+      CAD_IMPORT_CONVERTER_SHA256: "a".repeat(64)
+    }, "linux")).not.toThrow();
   });
 
   it("rejects the local adapter in production and requires an explicit local mode elsewhere", async () => {

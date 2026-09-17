@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 
 export const CAD_API_MAX_OLD_SPACE_MB = 256;
 export const CAD_CORE_MAX_OLD_SPACE_MB = 384;
-export const CAD_CGROUP_MEMORY_BYTES = 768 * 1024 * 1024;
+export const CAD_CGROUP_MEMORY_BYTES = 1280 * 1024 * 1024;
 export const CAD_IMPORT_CONCURRENCY = 1;
 
 type ReadTextFile = (path: string) => string;

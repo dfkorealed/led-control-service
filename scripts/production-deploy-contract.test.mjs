@@ -1,17 +1,17 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { randomBytes } from "node:crypto";
-import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { validateProductionConfig } from "./production-compose-config.mjs";
+import { attestConverterBundleHost, validateProductionConfig } from "./production-compose-config.mjs";
 import * as productionConfig from "./production-compose-config.mjs";
 
 const root = path.resolve(import.meta.dirname, "..");
 const source = readFileSync(path.join(root, "docker-compose.production.yml"), "utf8");
 const runbook = readFileSync(path.join(root, "docs/runbooks/production-api-web-deployment.md"), "utf8");
-const required = ["API_IMAGE", "WEB_IMAGE", "POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB", "DATABASE_URL", "REDIS_PASSWORD", "REDIS_URL", "MQTT_URL", "MQTT_PUBLIC_URL", "MQTT_API_INSTANCE_ID", "MQTT_TLS_CERT_DIR", "API_TLS_CERT_DIR", "WEB_TLS_CERT_DIR", "VAULT_ADDR", "VAULT_TOKEN_FILE", "VAULT_CA_CERT_PATH", "VAULT_PKI_DEVICE_MOUNT", "VAULT_PKI_DEVICE_ROLE", "VAULT_PKI_MQTT_MOUNT", "VAULT_PKI_MQTT_ROLE", "OBJECT_STORAGE_ACCESS_KEY", "OBJECT_STORAGE_SECRET_KEY", "OBJECT_STORAGE_BUCKET", "OBJECT_STORAGE_REPORT_BUCKET", "OBJECT_STORAGE_ENDPOINT", "OBJECT_STORAGE_PUBLIC_URL", "OBJECT_STORAGE_REGION", "WEB_PUBLIC_URL", "WEB_HTTPS_ORIGIN", "WEB_HTTP_PORT", "WEB_HTTPS_PORT", "CAD_IMPORT_CONVERTER_BUNDLE_PATH", "CAD_IMPORT_CONVERTER_ARGV_JSON"];
+const required = ["API_IMAGE", "WEB_IMAGE", "POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB", "DATABASE_URL", "REDIS_PASSWORD", "REDIS_URL", "MQTT_URL", "MQTT_PUBLIC_URL", "MQTT_API_INSTANCE_ID", "MQTT_TLS_CERT_DIR", "API_TLS_CERT_DIR", "WEB_TLS_CERT_DIR", "VAULT_ADDR", "VAULT_TOKEN_FILE", "VAULT_CA_CERT_PATH", "VAULT_PKI_DEVICE_MOUNT", "VAULT_PKI_DEVICE_ROLE", "VAULT_PKI_MQTT_MOUNT", "VAULT_PKI_MQTT_ROLE", "OBJECT_STORAGE_ACCESS_KEY", "OBJECT_STORAGE_SECRET_KEY", "OBJECT_STORAGE_BUCKET", "OBJECT_STORAGE_REPORT_BUCKET", "OBJECT_STORAGE_ENDPOINT", "OBJECT_STORAGE_PUBLIC_URL", "OBJECT_STORAGE_REGION", "WEB_PUBLIC_URL", "WEB_HTTPS_ORIGIN", "WEB_HTTP_PORT", "WEB_HTTPS_PORT", "CAD_IMPORT_CONVERTER_BUNDLE_PATH", "CAD_IMPORT_CONVERTER_ARGV_JSON", "CAD_IMPORT_CONVERTER_SHA256"];
 required.push("PRODUCTION_COMPOSE_PROJECT", "DEVICE_API_HTTPS_PORT");
 // Config output is never logged; fixtures cannot inherit shell credentials or .env.
 function render(omit, project = "led-production-contract") {
@@ -22,6 +22,10 @@ function render(omit, project = "led-production-contract") {
   Object.assign(env, {VAULT_ADDR:'https://vault.invalid',WEB_PUBLIC_URL:'https://web.invalid',WEB_HTTPS_ORIGIN:'https://web.invalid',MQTT_URL:'mqtts://mqtt-tls:8883'});
   env.CAD_IMPORT_CONVERTER_ARGV_JSON = '["--input","{input}","--output","{output}"]';
   for (const key of required.filter(key => /_DIR$|_FILE$|_PATH$/.test(key))) env[key] = dir;
+  mkdirSync(path.join(dir, "bin"));
+  writeFileSync(path.join(dir, "bin/converter"), "approved-converter");
+  chmodSync(path.join(dir, "bin/converter"), 0o555);
+  env.CAD_IMPORT_CONVERTER_SHA256 = createHash("sha256").update("approved-converter").digest("hex");
   if (omit) delete env[omit];
   const envPath = path.join(dir, "fixture.env");
   writeFileSync(envPath, Object.entries(env).map(([k, v]) => `${k}=${v}`).join("\n"), { mode: 0o600 });
@@ -37,27 +41,33 @@ test("standalone config renders all services and migration → API → Web gates
   const result = render();
   assert.equal(result.status, 0, "standalone config must render without development Compose");
   const s = result.config.services;
-  assert.deepEqual(Object.keys(s).sort(), ["api", "api-migrate", "crl-init", "mqtt-tls", "object-storage", "object-storage-init", "postgres", "redis", "web"]);
+  assert.deepEqual(Object.keys(s).sort(), ["api", "api-migrate", "cad-converter", "crl-init", "mqtt-tls", "object-storage", "object-storage-init", "postgres", "redis", "web"]);
   assert.equal(s.api.image, s["api-migrate"].image);
   assert.equal(s.api.depends_on["api-migrate"].condition, "service_completed_successfully");
   assert.equal(s.web.depends_on.api.condition, "service_healthy");
   assert.match(s["api-migrate"].command.join(" "), /node .*prisma.* migrate deploy/);
   assert.equal(s.api.environment.NODE_ENV, "production");
   assert.equal(s.api.environment.PKI_PROVIDER, "vault");
-  assert.equal(s.api.mem_limit, "805306368");
+  assert.equal(s.api.mem_limit, "1342177280");
   assert.equal(s.api.environment.NODE_OPTIONS, "--max-old-space-size=256");
   assert.equal(s.api.environment.CAD_CORE_MAX_OLD_SPACE_MB, "384");
   assert.equal(s.api.environment.CAD_IMPORT_MAX_CONCURRENT_JOBS, "1");
   assert.equal(s.api.environment.CAD_CGROUP_REQUIRED, "1");
-  assert.equal(s.api.environment.CAD_IMPORT_CONVERTER_MODE, "linux");
-  assert.equal(s.api.environment.CAD_IMPORT_CONVERTER_EXECUTABLE, "/opt/cad-converter/bin/converter");
-  assert.equal(s.api.environment.CAD_IMPORT_CONVERTER_ARGV_JSON, '["--input","{input}","--output","{output}"]');
+  assert.equal(s.api.environment.CAD_IMPORT_CONVERTER_MODE, "sidecar");
+  assert.equal(s.api.environment.CAD_IMPORT_CONVERTER_EXECUTABLE, undefined);
+  assert.equal(s.api.environment.CAD_IMPORT_CONVERTER_ARGV_JSON, undefined);
   assert.equal(s.api.environment.CAD_IMPORT_TEMP_ROOT, "/tmp/cad-import");
   const cadTemp=s.api.tmpfs.find(mount=>mount.startsWith("/tmp/cad-import:"));
-  for(const option of ["uid=1000","gid=1000","mode=0700","size=536870912"]) assert.ok(cadTemp.split(/[:,]/).includes(option));
-  assert.deepEqual(s.api.volumes.find(mount => mount.target === "/opt/cad-converter"), {
+  for(const option of ["uid=1000","gid=2000","mode=0700","size=402653184"]) assert.ok(cadTemp.split(/[:,]/).includes(option));
+  assert.equal(s.api.volumes.find(mount => mount.target === "/opt/cad-converter"), undefined);
+  assert.equal(s["cad-converter"].network_mode, "none");
+  assert.equal(s["cad-converter"].user, "2000:2000");
+  assert.equal(s["cad-converter"].mem_limit, "1073741824");
+  assert.equal(s["cad-converter"].environment.NODE_OPTIONS, "--max-old-space-size=64");
+  assert.equal(s["cad-converter"].environment.CAD_IMPORT_CONVERTER_ARGV_JSON, '["--input","{input}","--output","{output}"]');
+  assert.deepEqual(s["cad-converter"].volumes.find(mount => mount.target === "/opt/cad-converter"), {
     type: "bind",
-    source: path.resolve(s.api.volumes.find(mount => mount.target === "/opt/cad-converter").source),
+    source: path.resolve(s["cad-converter"].volumes.find(mount => mount.target === "/opt/cad-converter").source),
     target: "/opt/cad-converter",
     read_only: true,
     bind: { create_host_path: false }
@@ -96,7 +106,7 @@ test("rendered services confine ports to Web and harden filesystem, privileges a
       assert.doesNotMatch(service.healthcheck.test.join(" "), /\|\| true|exit 0|CMD true/);
     }
   }
-  for (const name of ["api", "api-migrate", "web"]) assert.match(config.services[name].user, /^(?:1000|101)(?::\d+)?$/);
+  for (const name of ["api", "api-migrate", "cad-converter", "web"]) assert.match(config.services[name].user, /^(?:1000|2000|101)(?::\d+)?$/);
   assert.match(config.services.api.healthcheck.test.join(" "), /health\/ready/);
   assert.match(config.services.web.healthcheck.test.join(" "), /api\/health\/ready/);
   assert.match(config.services.web.healthcheck.test.join(" "), /WEB_HTTPS_ORIGIN/, 'health must verify the public certificate hostname, not require a private web SAN');
@@ -193,13 +203,17 @@ test("production smoke traverses the real CAD Nest worker path and adversarial c
   for (const contract of [
     "CAD_IMPORT_CONVERTER_BUNDLE_PATH",
     "CAD_IMPORT_CONVERTER_ARGV_JSON",
+    "CAD_IMPORT_CONVERTER_SHA256",
+    "cad-converter",
     "/import-jobs",
     "/candidates",
     "/content",
     "content-encoding",
     "MEMORY_BOMB",
+    "OUTPUT_BOMB",
+    "TIMEOUT",
     "malformed",
-    "cad-parent-survived"
+    "api-parent-survived"
   ]) assert.match(smoke, new RegExp(contract.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"));
 });
 
@@ -223,12 +237,33 @@ test("deployment preflight rejects mutable app images and every unsafe rendered 
     c=>{c.services.web.user='0'},
     c=>{c.services.api.environment.NODE_ENV='development'},
     c=>{c.services.api.environment.CAD_IMPORT_CONVERTER_EXECUTABLE='/tmp/converter'},
-    c=>{c.services.api.environment.CAD_IMPORT_CONVERTER_ARGV_JSON='not-json'},
-    c=>{c.services.api.environment.CAD_IMPORT_CONVERTER_ARGV_JSON='["{input}"]'},
+    c=>{c.services['cad-converter'].environment.CAD_IMPORT_CONVERTER_ARGV_JSON='not-json'},
+    c=>{c.services['cad-converter'].environment.CAD_IMPORT_CONVERTER_ARGV_JSON='["{input}"]'},
+    c=>{c.services['cad-converter'].environment.DATABASE_URL='postgresql://secret'},
+    c=>{c.services['cad-converter'].network_mode=undefined},
+    c=>{c.services['cad-converter'].user=c.services.api.user},
+    c=>{c.services['cad-converter'].mem_limit='805306368'},
     c=>{c.services.api.tmpfs=c.services.api.tmpfs.filter(mount=>!mount.startsWith('/tmp/cad-import:'))},
-    c=>{c.services.api.volumes=c.services.api.volumes.filter(m=>m.target!=='/opt/cad-converter')},
-    c=>{c.services.api.volumes.find(m=>m.target==='/opt/cad-converter').read_only=false},
+    c=>{c.services['cad-converter'].volumes=c.services['cad-converter'].volumes.filter(m=>m.target!=='/opt/cad-converter')},
+    c=>{c.services['cad-converter'].volumes.find(m=>m.target==='/opt/cad-converter').read_only=false},
     c=>{c.services.api.environment.VAULT_ADDR='http://vault:8200'},
   ];
   for(const mutate of mutations){const bad=structuredClone(config);mutate(bad);assert.throws(()=>validateProductionConfig(bad));}
+});
+
+test("host converter attestation rejects missing, writable and digest-mismatched executables", () => {
+  const dir=mkdtempSync(path.join(tmpdir(),"cad-host-attestation-"));
+  try {
+    mkdirSync(path.join(dir,"bin"));
+    const executable=path.join(dir,"bin/converter");
+    writeFileSync(executable,"approved"); chmodSync(executable,0o555);
+    const digest=createHash("sha256").update("approved").digest("hex");
+    assert.equal(attestConverterBundleHost(dir,digest).digest,digest);
+    chmodSync(executable,0o775);
+    assert.throws(()=>attestConverterBundleHost(dir,digest),/owner and mode|rejected/i);
+    chmodSync(executable,0o755); writeFileSync(executable,"replacement"); chmodSync(executable,0o555);
+    assert.throws(()=>attestConverterBundleHost(dir,digest),/digest|rejected/i);
+    rmSync(executable);
+    assert.throws(()=>attestConverterBundleHost(dir,digest),/attestation|rejected/i);
+  } finally { rmSync(dir,{recursive:true,force:true}); }
 });

@@ -4,12 +4,13 @@ import { ReadinessService } from "./readiness.service";
 describe("ReadinessService", () => {
   const fixedNow = new Date("2026-09-12T00:00:00.000Z");
 
-  function harness(overrides: Partial<Record<"postgres" | "redis" | "mqtt" | "objectStorage", () => Promise<void>>> = {}) {
+  function harness(overrides: Partial<Record<"postgres" | "redis" | "mqtt" | "objectStorage" | "cadConverter", () => Promise<void>>> = {}) {
     const probes = {
       postgres: jest.fn(overrides.postgres ?? (async () => undefined)),
       redis: jest.fn(overrides.redis ?? (async () => undefined)),
       mqtt: jest.fn(overrides.mqtt ?? (async () => undefined)),
-      objectStorage: jest.fn(overrides.objectStorage ?? (async () => undefined))
+      objectStorage: jest.fn(overrides.objectStorage ?? (async () => undefined)),
+      cadConverter: jest.fn(overrides.cadConverter ?? (async () => undefined))
     };
     const metrics = new ObservabilityMetrics();
     const service = new ReadinessService(
@@ -17,6 +18,7 @@ describe("ReadinessService", () => {
       { probeReadiness: probes.redis } as never,
       { probeReadiness: probes.mqtt } as never,
       { probeReadiness: probes.objectStorage } as never,
+      { probeReadiness: probes.cadConverter } as never,
       metrics,
       () => fixedNow,
       25
@@ -29,7 +31,7 @@ describe("ReadinessService", () => {
 
     await expect(service.check()).resolves.toEqual({
       status: "ready",
-      checks: { postgres: "up", redis: "up", mqtt: "up", objectStorage: "up" },
+      checks: { postgres: "up", redis: "up", mqtt: "up", objectStorage: "up", cadConverter: "up" },
       timestamp: "2026-09-12T00:00:00.000Z"
     });
     Object.values(probes).forEach(probe => expect(probe).toHaveBeenCalledTimes(1));
@@ -44,7 +46,7 @@ describe("ReadinessService", () => {
 
     expect(result).toEqual({
       status: "not_ready",
-      checks: { postgres: "up", redis: "down", mqtt: "up", objectStorage: "up" },
+      checks: { postgres: "up", redis: "down", mqtt: "up", objectStorage: "up", cadConverter: "up" },
       timestamp: "2026-09-12T00:00:00.000Z"
     });
     expect(JSON.stringify(result)).not.toMatch(/admin|secret|private-host|timed out|stack/i);
@@ -108,7 +110,7 @@ describe("ReadinessService", () => {
 
     expect(result).toEqual({
       status: "not_ready",
-      checks: { postgres: "down", redis: "down", mqtt: "down", objectStorage: "down" },
+      checks: { postgres: "down", redis: "down", mqtt: "down", objectStorage: "down", cadConverter: "down" },
       timestamp: "2026-09-12T00:00:00.000Z"
     });
     Object.values(probes).forEach(probe => expect(probe).not.toHaveBeenCalled());

@@ -97,9 +97,16 @@ fi
 if grep -q '^MEMORY_BOMB$' "$1"; then
   exec node -e 'const held=[]; for (;;) held.push(Buffer.alloc(16*1024*1024, 1))'
 fi
+if grep -q '^OUTPUT_BOMB$' "$1"; then
+  exec dd if=/dev/zero of="$2" bs=1048576 count=300
+fi
+if grep -q '^TIMEOUT$' "$1"; then
+  exec sleep 120
+fi
 cp "$1" "$2"
 `);
 chmodSync(path.join(dir,'cad-converter/bin/converter'),0o555);
+const converterDigest=createHash('sha256').update(readFileSync(path.join(dir,'cad-converter/bin/converter'))).digest('hex');
 const password=secret(), redisPassword=secret();
 const env={PRODUCTION_COMPOSE_PROJECT:project,API_IMAGE:`${project}-api:sha-${id}`,WEB_IMAGE:`${project}-web:sha-${id}`,
  POSTGRES_USER:'smoke',POSTGRES_PASSWORD:password,POSTGRES_DB:'smoke',DATABASE_URL:`postgresql://smoke:${password}@postgres:5432/smoke`,
@@ -108,7 +115,7 @@ const env={PRODUCTION_COMPOSE_PROJECT:project,API_IMAGE:`${project}-api:sha-${id
  VAULT_ADDR:'https://vault-smoke:8200',VAULT_TOKEN_FILE:path.join(dir,'vault/token'),VAULT_CA_CERT_PATH:path.join(dir,'vault/ca.crt'),
  VAULT_PKI_DEVICE_MOUNT:'device',VAULT_PKI_DEVICE_ROLE:'gateway',VAULT_PKI_MQTT_MOUNT:'mqtt',VAULT_PKI_MQTT_ROLE:'gateway',
  OBJECT_STORAGE_ACCESS_KEY:secret(),OBJECT_STORAGE_SECRET_KEY:secret(),OBJECT_STORAGE_BUCKET:'floor-assets',OBJECT_STORAGE_REPORT_BUCKET:'energy-reports',OBJECT_STORAGE_ENDPOINT:'http://object-storage:9000',OBJECT_STORAGE_PUBLIC_URL:'http://object-storage:9000/floor-assets',OBJECT_STORAGE_REGION:'us-east-1',
- CAD_IMPORT_CONVERTER_BUNDLE_PATH:path.join(dir,'cad-converter'),CAD_IMPORT_CONVERTER_ARGV_JSON:'["{input}","{output}"]',
+ CAD_IMPORT_CONVERTER_BUNDLE_PATH:path.join(dir,'cad-converter'),CAD_IMPORT_CONVERTER_ARGV_JSON:'["{input}","{output}"]',CAD_IMPORT_CONVERTER_SHA256:converterDigest,
  WEB_PUBLIC_URL:'https://localhost',WEB_HTTPS_ORIGIN:'https://localhost',WEB_HTTP_PORT:'127.0.0.1::8080',WEB_HTTPS_PORT:'127.0.0.1::8443'};
 // Production uses fixed target ports in its short syntax; zero asks Docker for
 // private loopback ephemeral host ports, avoiding every existing stack's ports.
@@ -116,16 +123,20 @@ env.WEB_HTTP_PORT='127.0.0.1:0'; env.WEB_HTTPS_PORT='127.0.0.1:0'; env.DEVICE_AP
 write('smoke.env',Object.entries(env).map(([k,v])=>`${k}=${v}`).join('\n'));
 // Docker internal networks do not publish host ports. Keep dependencies/Vault
 // internal; only Web joins the ordinary edge bridge for loopback TLS assertions.
-write('override.json',JSON.stringify({services:{'vault-smoke':{image:'node:22.20.0-alpine3.22',user:'1000:1000',read_only:true,cap_drop:['ALL'],security_opt:['no-new-privileges:true'],networks:['backend'],volumes:[`${dir}/vault:/fixture:ro`],command:['node','/fixture/server.cjs']},api:{depends_on:{'vault-smoke':{condition:'service_started'}}}},networks:{backend:{internal:true}}}));
+write('override.json',JSON.stringify({services:{'vault-smoke':{image:'node:22.20.0-alpine3.22',user:'1000:1000',read_only:true,cap_drop:['ALL'],security_opt:['no-new-privileges:true'],networks:['backend'],volumes:[`${dir}/vault:/fixture:ro`],command:['node','/fixture/server.cjs']},api:{depends_on:{'vault-smoke':{condition:'service_started'}},environment:{CAD_IMPORT_CONVERTER_CLIENT_TIMEOUT_MS:'3000'}},'cad-converter':{environment:{CAD_IMPORT_CONVERTER_TIMEOUT_MS:'1000'}}},networks:{backend:{internal:true}}}));
 const cleanEnv={...process.env}; for(const key of Object.keys(env)) delete cleanEnv[key];
 const composeArgs=['compose','-p',project,'--env-file',path.join(dir,'smoke.env'),'-f',path.join(root,'docker-compose.production.yml'),'-f',path.join(dir,'override.json')];
-const {validateProductionConfig,productionComposeArguments}=await import(path.join(root,'scripts/production-compose-config.mjs'));
+const {attestConverterBundleHost,validateProductionConfig,productionComposeArguments}=await import(path.join(root,'scripts/production-compose-config.mjs'));
 assert.deepEqual(composeArgs.slice(0,-2),productionComposeArguments(project,path.join(dir,'smoke.env')));
 const production=JSON.parse(run('docker',composeArgs.slice(0,-2).concat(['config','--format','json']),{env:cleanEnv}));
 validateProductionConfig(production,{smokeProject:project});
+assert.equal(attestConverterBundleHost(env.CAD_IMPORT_CONVERTER_BUNDLE_PATH,env.CAD_IMPORT_CONVERTER_SHA256).digest,converterDigest);
 assert.equal(production.name,project);
 for(const volume of Object.values(production.volumes)) assert.ok(volume.name.startsWith(`${project}_`));
-write('rendered.json',run('docker',[...composeArgs,'config','--format','json'],{env:cleanEnv}));
+const rendered=JSON.parse(run('docker',[...composeArgs,'config','--format','json'],{env:cleanEnv}));
+assert.equal(String(rendered.services.api.environment.CAD_IMPORT_CONVERTER_CLIENT_TIMEOUT_MS),'3000');
+assert.equal(String(rendered.services['cad-converter'].environment.CAD_IMPORT_CONVERTER_TIMEOUT_MS),'1000');
+write('rendered.json',JSON.stringify(rendered));
 const compose=(...args)=>run('docker',['compose','-p',project,'-f',path.join(dir,'rendered.json'),...args]);
 async function stream(file,args,filename) {
   const chunks=[];
@@ -177,15 +188,24 @@ try {
   assert.equal(migrationState.ExitCode,0);
   assert.ok(Date.parse(migrationState.FinishedAt)<=Date.parse(apiContainer.State.StartedAt));
   assert.equal(apiContainer.HostConfig.ReadonlyRootfs,true);
-  assert.equal(apiContainer.HostConfig.Memory,805306368);
+  assert.equal(apiContainer.HostConfig.Memory,1342177280);
   const cadCgroupMemory=compose('exec','-T','api','sh','-ec','cat /sys/fs/cgroup/memory.max 2>/dev/null || cat /sys/fs/cgroup/memory/memory.limit_in_bytes').trim();
-  assert.equal(cadCgroupMemory,'805306368');
-  compose('exec','-T','api','sh','-ec','test ! -L /usr/bin/prlimit && test -f /usr/bin/prlimit && test -x /usr/bin/prlimit && test "$(readlink -f /usr/bin/prlimit)" = /usr/bin/prlimit && test "$(stat -c %u:%a /usr/bin/prlimit)" = 0:755');
+  assert.equal(cadCgroupMemory,'1342177280');
+  const sidecarId=compose('ps','-q','cad-converter').trim();
+  const sidecarContainer=JSON.parse(run('docker',['inspect',sidecarId]))[0];
+  assert.equal(sidecarContainer.HostConfig.Memory,1073741824);
+  assert.equal(sidecarContainer.HostConfig.NetworkMode,'none');
+  assert.notEqual(sidecarContainer.Config.User,apiContainer.Config.User);
+  assert.deepEqual(Object.keys(Object.fromEntries(sidecarContainer.Config.Env.map(value=>value.split('=',1).concat(value.slice(value.indexOf('=')+1))))).filter(key=>/DATABASE|REDIS|MQTT|VAULT|OBJECT_STORAGE|TLS|SECRET/.test(key)),[]);
+  const sidecarCgroupMemory=compose('exec','-T','cad-converter','sh','-ec','cat /sys/fs/cgroup/memory.max 2>/dev/null || cat /sys/fs/cgroup/memory/memory.limit_in_bytes').trim();
+  assert.equal(sidecarCgroupMemory,'1073741824');
+  compose('exec','-T','cad-converter','sh','-ec','test ! -e /run/vault && test ! -e /run/api-tls && test ! -e /run/mqtt-tls && test ! -L /usr/bin/prlimit && test -f /usr/bin/prlimit && test -x /usr/bin/prlimit && test "$(readlink -f /usr/bin/prlimit)" = /usr/bin/prlimit && test "$(stat -c %u:%a /usr/bin/prlimit)" = 0:755');
+  compose('exec','-T','api','sh','-ec','test ! -e /opt/cad-converter');
   assert.deepEqual(apiContainer.Config.Entrypoint,['/sbin/tini','--']);
   const live=await request(`${origin}/api/health/live`,{headers:{'X-Request-Id':'smoke-correlation','X-Forwarded-For':'untrusted'}});
   assert.equal(live.status,200); assert.equal(live.headers['x-request-id'],'smoke-correlation');
   const ready=JSON.parse((await request(`${origin}/api/health/ready`)).body);
-  assert.deepEqual(ready.checks,{postgres:'up',redis:'up',mqtt:'up',objectStorage:'up'});
+  assert.deepEqual(ready.checks,{postgres:'up',redis:'up',mqtt:'up',objectStorage:'up',cadConverter:'up'});
   const shell=await request(`${origin}/index.html`); assert.equal(shell.status,200); assert.match(shell.body,/<html/); assert.match(shell.headers['cache-control'],/no-cache/);
   const asset=shell.body.match(/(?:src|href)="(\/assets\/[^" ]+\.js)"/)[1];
   const assetResponse=await request(`${origin}${asset}`); assert.equal(assetResponse.status,200); assert.match(assetResponse.headers['cache-control'],/immutable/);
@@ -211,7 +231,7 @@ try {
   await assert.rejects(request(deviceUrl,{...manufacturingOptions,...clientIdentity,servername:'wrong.invalid'},invalidBody));
   assert.equal((await request(`${origin}/api/health/ready`)).status,200);
   log('VERIFY TLS-passthrough no-client=401 valid-client=400 invalid-serial=true server-identity=verified inventory/enrollment=0 browser-proxy=200');
-  log(`VERIFY migrations=${migrations}/${expected} same-api-image=true cgroup=${cadCgroupMemory} prlimit=root:755:canonical live=200 ready=200 TLS=1.2,1.3 proxy=200 request-id=preserved cache/security=pass HTTP=308`);
+  log(`VERIFY migrations=${migrations}/${expected} same-api-image=true api-cgroup=${cadCgroupMemory} sidecar-cgroup=${sidecarCgroupMemory} sidecar-network=none uid-separated=true secret-mounts=absent prlimit=root:755:canonical live=200 ready=200 TLS=1.2,1.3 proxy=200 request-id=preserved cache/security=pass HTTP=308`);
   const digest=content=>createHash('sha256').update(content).digest('hex');
   const sqlLiteral=value=>`'${String(value).replaceAll("'", "''")}'`;
   const sessionToken=secret();
@@ -261,6 +281,7 @@ try {
   };
   const normalDxf=`0\nSECTION\n2\nBLOCKS\n0\nBLOCK\n2\nLED_FIXTURE\n10\n0\n20\n0\n0\nCIRCLE\n5\nB1\n8\nSYMBOL\n10\n0\n20\n0\n40\n1\n0\nENDBLK\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nLINE\n5\nW1\n8\nWALL\n10\n0\n20\n0\n11\n20\n21\n20\n0\nINSERT\n5\nI1\n8\nLIGHTING\n2\nLED_FIXTURE\n10\n10\n20\n10\n0\nINSERT\n5\nI2\n8\nLIGHTING\n2\nLED_FIXTURE\n10\n15\n20\n10\n0\nENDSEC\n0\nEOF\n`;
   const memoryBefore=compose('exec','-T','api','sh','-ec','cat /sys/fs/cgroup/memory.current 2>/dev/null || cat /sys/fs/cgroup/memory/memory.usage_in_bytes').trim();
+  const sidecarMemoryBefore=compose('exec','-T','cad-converter','sh','-ec','cat /sys/fs/cgroup/memory.current 2>/dev/null || cat /sys/fs/cgroup/memory/memory.usage_in_bytes').trim();
   const normal=await createJob(normalDxf);
   const review=await waitForJob(normal.jobId,['review_required','failed']);
   assert.equal(review.status,'review_required',JSON.stringify(review));
@@ -283,10 +304,19 @@ try {
   assert.equal((await request(`${origin}/api/health/live`)).status,200);
   const memoryBomb=await createJob('MEMORY_BOMB\n');
   assert.equal((await waitForJob(memoryBomb.jobId,['failed'],45000)).failureCode,'CAD_IMPORT_CONVERSION_FAILED');
+  const outputBomb=await createJob('OUTPUT_BOMB\n');
+  assert.equal((await waitForJob(outputBomb.jobId,['failed'],45000)).failureCode,'CAD_IMPORT_CONVERSION_FAILED');
+  const timeoutBomb=await createJob('TIMEOUT\n');
+  assert.equal((await waitForJob(timeoutBomb.jobId,['failed'],45000)).failureCode,'CAD_IMPORT_CONVERSION_FAILED');
   assert.equal((await request(`${origin}/api/health/live`)).status,200);
+  assert.equal((await request(`${origin}/api/health/ready`)).status,200);
   assert.equal(compose('ps','-q','api').trim(),apiId);
+  assert.equal(compose('ps','-q','cad-converter').trim(),sidecarId);
+  const retried=await createJob(normalDxf);
+  assert.equal((await waitForJob(retried.jobId,['review_required','failed'],45000)).status,'review_required');
   const memoryAfter=compose('exec','-T','api','sh','-ec','cat /sys/fs/cgroup/memory.current 2>/dev/null || cat /sys/fs/cgroup/memory/memory.usage_in_bytes').trim();
-  log(`VERIFY CAD production-path=Nest-provider+worker+converter+core+PG+MinIO HTTP=create/status/candidates/content/apply candidate-auto-register=false content-encoding=gzip memory=${memoryBefore}->${memoryAfter}/${cadCgroupMemory} malformed=failed MEMORY_BOMB=bounded cad-parent-survived=true`);
+  const sidecarMemoryAfter=compose('exec','-T','cad-converter','sh','-ec','cat /sys/fs/cgroup/memory.current 2>/dev/null || cat /sys/fs/cgroup/memory/memory.usage_in_bytes').trim();
+  log(`VERIFY CAD production-path=Nest-provider+worker+sidecar+converter+core+PG+MinIO HTTP=create/status/candidates/content/apply candidate-auto-register=false content-encoding=gzip api-memory=${memoryBefore}->${memoryAfter}/${cadCgroupMemory} sidecar-memory=${sidecarMemoryBefore}->${sidecarMemoryAfter}/${sidecarCgroupMemory} malformed=failed MEMORY_BOMB=bounded OUTPUT_BOMB=bounded TIMEOUT=bounded api-parent-survived=true sidecar-ready=true reprocessing=review_required`);
   const originalDevice=readFileSync(path.join(dir,'api-tls/device.crl'));
   const originalMqtt=readFileSync(path.join(dir,'mqtt-tls/mqtt-client.crl'));
   openssl('ca','-gencrl','-config','ca.cnf','-out','next.crl');
@@ -328,7 +358,7 @@ try {
   await wait(async()=>{try{return (await request(`${origin}/api/health/ready`)).status===200}catch{return false}},'dependency recovery');
   log('VERIFY redis-stop ready=503 live=200 web-healthcheck=nonzero redis-start ready=200');
 } catch(error) {
-  let diagnostic=compose('logs','--no-color','api-migrate','api','web');
+  let diagnostic=compose('logs','--no-color','api-migrate','cad-converter','api','web');
   write('containers.log',diagnostic);
   for(const value of [token,password,redisPassword,env.OBJECT_STORAGE_ACCESS_KEY,env.OBJECT_STORAGE_SECRET_KEY]) diagnostic=diagnostic.replaceAll(value,'[REDACTED]');
   log(diagnostic.slice(-5000));

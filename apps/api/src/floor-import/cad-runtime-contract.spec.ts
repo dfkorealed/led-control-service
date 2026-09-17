@@ -9,17 +9,17 @@ describe("CAD production runtime contract", () => {
   } as NodeJS.ProcessEnv;
 
   it("requires the exact API heap, child heap, concurrency and Linux cgroup memory limit", () => {
-    expect(() => assertCadProductionRuntime(env, "linux", () => "805306368\n")).not.toThrow();
+    expect(() => assertCadProductionRuntime(env, "linux", () => "1342177280\n")).not.toThrow();
     for (const [name, value] of [
       ["NODE_OPTIONS", "--max-old-space-size=512"],
       ["CAD_CORE_MAX_OLD_SPACE_MB", "512"],
       ["CAD_IMPORT_MAX_CONCURRENT_JOBS", "2"]
     ] as const) {
-      expect(() => assertCadProductionRuntime({ ...env, [name]: value }, "linux", () => "805306368\n"))
+      expect(() => assertCadProductionRuntime({ ...env, [name]: value }, "linux", () => "1342177280\n"))
         .toThrow(/CAD production runtime/i);
     }
     expect(() => assertCadProductionRuntime(env, "linux", () => "max\n")).toThrow(/cgroup/i);
-    expect(() => assertCadProductionRuntime(env, "linux", () => "1073741824\n")).toThrow(/cgroup/i);
+    expect(() => assertCadProductionRuntime(env, "linux", () => "805306368\n")).toThrow(/cgroup/i);
   });
 
   it("fails closed when a required Linux CI cgroup gate is requested on macOS", () => {

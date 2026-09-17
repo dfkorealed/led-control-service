@@ -3,6 +3,7 @@ import { MqttModule } from "../mqtt/mqtt.module";
 import { PrismaModule } from "../prisma/prisma.module";
 import { RedisModule } from "../redis/redis.module";
 import { StorageModule } from "../storage/storage.module";
+import { FloorImportModule } from "../floor-import/floor-import.module";
 import { HealthController } from "./health.controller";
 import { ObservabilityMetrics } from "./observability-metrics.service";
 import {
@@ -15,7 +16,7 @@ import { OBSERVABILITY_HTTP_LOGGER, RequestContext, RequestContextMiddleware } f
 import { STRUCTURED_LOG_WRITER, StructuredLoggerService } from "./structured-logger.service";
 
 @Module({
-  imports: [PrismaModule, RedisModule, MqttModule, StorageModule],
+  imports: [PrismaModule, RedisModule, MqttModule, StorageModule, FloorImportModule],
   controllers: [HealthController],
   providers: [
     ObservabilityMetrics,

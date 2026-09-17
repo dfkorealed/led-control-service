@@ -6,7 +6,7 @@ describe("ObservabilityMetrics", () => {
     metrics.recordHttp(204, 4);
     metrics.recordHttp(404, 8);
     metrics.recordHttp(503, 12);
-    metrics.recordReadiness({ postgres: "up", redis: "down", mqtt: "up", objectStorage: "down" });
+    metrics.recordReadiness({ postgres: "up", redis: "down", mqtt: "up", objectStorage: "down", cadConverter: "up" });
 
     expect(metrics.snapshot()).toEqual({
       http: {
@@ -18,7 +18,7 @@ describe("ObservabilityMetrics", () => {
       },
       readiness: {
         status: "not_ready",
-        dependencyFailuresTotal: { postgres: 0, redis: 1, mqtt: 0, objectStorage: 1 }
+        dependencyFailuresTotal: { postgres: 0, redis: 1, mqtt: 0, objectStorage: 1, cadConverter: 0 }
       }
     });
   });

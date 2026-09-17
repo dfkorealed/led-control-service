@@ -45,7 +45,7 @@ describe("ObservabilityModule", () => {
     expect(destroyOrder).toEqual(expect.arrayContaining(["readiness", "postgres", "redis", "mqtt", "objectStorage"]));
     await expect(readiness.check()).resolves.toMatchObject({
       status: "not_ready",
-      checks: { postgres: "down", redis: "down", mqtt: "down", objectStorage: "down" }
+      checks: { postgres: "down", redis: "down", mqtt: "down", objectStorage: "down", cadConverter: "down" }
     });
   });
 });
