@@ -196,7 +196,12 @@ for (const mode of ["pan", "select", "area"] as const) {
     await expect.poll(async () => Number(await viewport.getAttribute("data-zoom"))).toBeGreaterThan(1);
     await expect(page.getByTestId("map-area-selection")).toHaveCount(0);
 
-    const afterPinch = await viewport.evaluate((element) => ({ left: element.scrollLeft, top: element.scrollTop }));
+    // Zoom commits before its scheduled frame applies the map-anchor scroll.
+    // Observe that rendered pinch result before testing the remaining pointer;
+    // otherwise the legitimate anchor adjustment is misread as a post-lift pan.
+    const afterPinch = await viewport.evaluate((element) => new Promise<{ left: number; top: number }>((resolve) => {
+      requestAnimationFrame(() => resolve({ left: element.scrollLeft, top: element.scrollTop }));
+    }));
     await dispatchTouchPointer(page, viewport, "pointerup", { pointerId: 12, pointerType: "touch", button: 0, clientX: 260, clientY: 180 });
     await dispatchTouchPointer(page, viewport, "pointermove", { pointerId: 11, pointerType: "touch", button: 0, clientX: 110, clientY: 180 });
     await expect.poll(() => viewport.evaluate((element) => ({ left: element.scrollLeft, top: element.scrollTop }))).toEqual(afterPinch);

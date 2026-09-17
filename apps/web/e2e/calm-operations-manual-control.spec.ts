@@ -75,7 +75,13 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     });
     await page.goto(`/control?siteId=${ids.site}`);
     const history = page.getByRole("region", { name: "최근 명령 이력" });
-    if (viewport.width <= 1120) await history.getByRole("button", { name: "명령 이력 열기" }).click();
+    if (viewport.width <= 1120) {
+      const openHistory = history.getByRole("button", { name: "명령 이력 열기" });
+      await expect(openHistory).toHaveAttribute("aria-expanded", "false");
+      await openHistory.click();
+      await expect(history.getByRole("button", { name: "명령 이력 접기" })).toHaveAttribute("aria-expanded", "true");
+      await expect(history.getByRole("searchbox", { name: "명령 이력 검색" })).toBeVisible();
+    }
     if (viewport.width > 1120) {
       for (const historyViewport of [{ width: 1440, height: 900 }, { width: 1280, height: 720 }, { width: 1121, height: 900 }]) {
         await page.setViewportSize(historyViewport);
@@ -95,8 +101,10 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await history.getByRole("button", { name: "더 보기" }).click();
     await expect.poll(() => historyRequests.at(-1)?.searchParams.get("cursor")).toBe("next-page");
     await history.getByRole("button", { name: new RegExp(commandId) }).click();
-    await expect(page.getByRole("button", { name: "안전하게 다시 적용" })).toHaveCount(0);
-    await page.getByRole("button", { name: "명령 상세 닫기" }).click();
+    const execution = await openManualExecution(page);
+    await expect(execution.getByRole("button", { name: "안전하게 다시 적용" })).toHaveCount(0);
+    await execution.getByRole("button", { name: "명령 상세 닫기" }).click();
+    await expect(execution.getByRole("button", { name: "명령 상세 닫기" })).toHaveCount(0);
     await history.getByRole("button", { name: new RegExp(commandId) }).click();
     await page.getByRole("button", { name: "실제 상태 확인", exact: true }).click();
     await page.getByRole("button", { name: "동일 상태 확인 요청 조회" }).click();
@@ -129,7 +137,7 @@ for (const viewport of viewports) {
     const api = await installManualControlFixture(page, "admin");
     await page.goto(`/control?siteId=${ids.site}`);
     await expect(page.getByRole("heading", { name: "조명 밝기 제어", exact: true })).toBeVisible();
-    if (viewport.width <= 1120) await page.getByRole("button", { name: "선택 대상 펼치기" }).click();
+    const execution = await openManualExecution(page);
     await page.getByRole("button", { name: "조명 목록 열기" }).click();
     const fixtureDrawer = page.getByRole("dialog", { name: "조명 목록" });
     const faultFixtureCheckbox = fixtureDrawer.getByRole("checkbox", { name: "B2-L02 선택" });
@@ -147,16 +155,17 @@ for (const viewport of viewports) {
     });
     expect(api.dimmingRequests.at(-1)).not.toHaveProperty("overrideUntil");
     expect(api.dimmingRequests.at(-1)).not.toHaveProperty("overrideRemainingMs");
-    await expect(page.getByRole("list", { name: "명령 진행" })).toContainText("장비 응답");
+    await expect(execution.getByRole("list", { name: "명령 진행" })).toContainText("장비 응답");
     await expect(page.getByRole("button", { name: "조명 목록 열기" })).toBeDisabled();
     await expect(page.getByRole("button", { name: "층 전체" })).toBeDisabled();
     await expect(page.getByRole("button", { name: "30%" })).toBeDisabled();
     await expect(page.getByRole("button", { name: "밝기 적용 중" })).toBeDisabled();
 
     await page.reload();
-    await expect(page.getByRole("list", { name: "명령 진행" })).toBeVisible();
+    const restoredExecution = await openManualExecution(page);
+    await expect(restoredExecution.getByRole("list", { name: "명령 진행" })).toBeVisible();
     api.setCommandStatus({ stage: "partial_failed", results: [commandResult("failed", "게이트웨이 ACK를 확인하지 못했습니다.")] });
-    await expect(page.getByText("게이트웨이 장비 응답을 확인하지 못했습니다.")).toBeVisible();
+    await expect(restoredExecution.getByText("게이트웨이 장비 응답을 확인하지 못했습니다.")).toBeVisible();
     await expect(page.getByText(/ACK/i)).toHaveCount(0);
     await page.getByRole("button", { name: "조명 목록 열기" }).click();
     const restoredFixtureDrawer = page.getByRole("dialog", { name: "조명 목록" });
@@ -194,10 +203,11 @@ for (const viewport of viewports) {
     await page.setViewportSize(viewport);
     await installManualControlFixture(page, "admin", "blocked");
     await page.goto(`/control?siteId=${ids.site}`);
+    const execution = await openManualExecution(page);
 
     await page.getByRole("button", { name: "층 전체" }).click();
     await page.getByRole("button", { name: "저장된 구역" }).click();
-    await expect(page.getByRole("button", { name: "밝기 적용" })).toBeDisabled();
+    await expect(execution.getByRole("button", { name: "밝기 적용" })).toBeDisabled();
   });
 
   test(`${viewport.width}px read-only viewer는 수동 제어 route에 접근할 수 없다`, async ({ page }) => {
@@ -216,19 +226,21 @@ for (const viewport of viewports) {
     await page.setViewportSize(viewport);
     const successApi = await installManualControlFixture(page, "admin");
     await page.goto(`/control?siteId=${ids.site}`);
+    const execution = await openManualExecution(page);
     await setCheckbox(page, "B2-L01 선택", true);
     await page.getByRole("button", { name: "밝기 적용" }).click();
     successApi.setCommandStatus({ stage: "completed", results: [commandResult("succeeded", null)] });
-    await expect(page.getByRole("status", { name: "명령 진행 상태" }).getByText("조명 적용 완료 · 기본 밝기로 저장됨")).toBeVisible();
+    await expect(execution.getByRole("status", { name: "명령 진행 상태" }).getByText("조명 적용 완료 · 기본 밝기로 저장됨")).toBeVisible();
 
     const timeoutPage = await page.context().newPage({ viewport });
     try {
       const timeoutApi = await installManualControlFixture(timeoutPage, "admin");
       await timeoutPage.goto(`/control?siteId=${ids.site}`);
+      const timeoutExecution = await openManualExecution(timeoutPage);
       await setCheckbox(timeoutPage, "B2-L01 선택", true);
       await timeoutPage.getByRole("button", { name: "밝기 적용" }).click();
       timeoutApi.setCommandStatus({ stage: "timed_out", results: [commandResult("timed_out", "Gateway ACK timeout")] });
-      await expect(timeoutPage.getByText("게이트웨이 장비 응답 시간 초과")).toBeVisible();
+      await expect(timeoutExecution.getByText("게이트웨이 장비 응답 시간 초과")).toBeVisible();
       await expect(timeoutPage.getByText("Gateway ACK timeout", { exact: true })).toHaveCount(0);
       await expect(timeoutPage.getByRole("button", { name: "밝기 적용" })).toBeEnabled();
     } finally {
@@ -241,9 +253,9 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1121, height: 900
   test(`${viewport.width}px PC 수동 제어 카드는 선택 피드백이 추가되어도 핵심 UI를 고정한다`, async ({ page }) => {
     await page.setViewportSize(viewport);
     const fixtureData = fixtures.map((item) => item.id === ids.faultFixture
-      ? { ...item, name: "B2-L02 출입구 비상 대피 유도 조명 장치" }
+      ? { ...item, name: "B2-L02 출입구 비상 대피 유도 조명 장치", status: "online" as const, health: { faultCodes: [], observedAt: "2026-09-02T00:00:00.000Z" }, controllable: true, controlBlockReason: null }
       : item);
-    await installManualControlFixture(page, "admin", "ready", fixtureData);
+    const api = await installManualControlFixture(page, "admin", "ready", fixtureData);
     await page.goto(`/control?siteId=${ids.site}`);
 
     await setCheckbox(page, "B2-L01 선택", true);
@@ -251,8 +263,15 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1121, height: 900
 
     await setCheckbox(page, "B2-L01 선택", false);
     await setCheckbox(page, "B2-L02 출입구 비상 대피 유도 조명 장치 선택", true);
-    await expect(page.getByText("제어 불가", { exact: true })).toBeVisible();
-    await expect(page.getByText(/B2-L02 출입구 비상 대피 유도 조명 장치: 조명 장애를 먼저 점검해야 합니다/)).toBeVisible();
+    // Map-first selection rejects an already faulty fixture. Select it while
+    // healthy, then let normal dashboard polling report the real-world fault.
+    fixtureData[1] = { ...fixtures[1], name: fixtureData[1].name };
+    const execution = await openManualExecution(page);
+    await expect(execution.getByText("제어 불가", { exact: true })).toBeVisible();
+    await expect(execution.getByRole("alert")).toHaveText("선택한 조명 중 제어할 수 없는 대상이 있습니다.");
+    await expect(execution.getByRole("heading", { name: "B2-L02 출입구 비상 대피 유도 조명 장치" })).toBeVisible();
+    await expect(execution.getByRole("button", { name: "1개 조명에 밝기 적용" })).toBeDisabled();
+    expect(api.dimmingRequests).toHaveLength(0);
 
     const after = await readStableControlRects(page);
     for (const key of Object.keys(before.controls) as Array<keyof typeof before.controls>) {
@@ -274,6 +293,25 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1121, height: 900
     expect(after.document.scrollHeight).toBeLessThanOrEqual(after.document.clientHeight + 1);
     await expectNoHorizontalOverflow(page);
   });
+}
+
+async function openManualExecution(page: Page) {
+  if (page.viewportSize()!.width > 1120) return page.getByRole("complementary", { name: "밝기 실행" });
+
+  // Compact execution and command feedback are mounted only while this public
+  // disclosure is expanded; a full reload intentionally resets it to closed.
+  const summary = page.getByRole("complementary", { name: "선택 대상 요약" });
+  const expand = summary.getByRole("button", { name: "선택 대상 펼치기" });
+  await expect(expand).toHaveAttribute("aria-expanded", "false");
+  await expect(summary.getByRole("slider", { name: "밝기" })).toHaveCount(0);
+  await expand.click();
+  await expect(summary.getByRole("button", { name: "선택 대상 접기" })).toHaveAttribute("aria-expanded", "true");
+  await expect(summary.getByRole("slider", { name: "밝기" })).toBeVisible();
+  await expect(summary.getByRole("button", { name: /밝기 적용/ })).toBeVisible();
+  // The live region is empty before a command exists; each workflow below
+  // asserts visibility of its actual progress or terminal content.
+  await expect(summary.getByRole("status", { name: "명령 진행 상태" })).toHaveCount(1);
+  return summary;
 }
 
 async function readStableControlRects(page: Page) {
