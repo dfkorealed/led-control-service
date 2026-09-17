@@ -49,7 +49,7 @@ API는 migration과 runtime에 같은 image를 사용한다. 로컬 image ID와 
 
 ## 3. 필수 환경·PKI 경로 확인 — 읽기 전용
 
-필수 입력 36개는 다음과 같다. 내부 URL의 PostgreSQL·Redis credential은 각각 서비스 설정과 일치하고 URL 인코딩해야 한다. 브라우저 origin 두 값은 동일한 승인 HTTPS origin을 사용한다. 도면·보고서 bucket은 모두 `anonymous none`으로 초기화하고 서로 다른 이름을 사용한다. 도면 업로드용 presigned PUT의 CORS origin은 `WEB_PUBLIC_URL` 하나로 제한하며, 조회는 인증된 API content endpoint가 발급하는 300초 signed GET만 사용한다.
+필수 입력 37개는 다음과 같다. 내부 URL의 PostgreSQL·Redis credential은 각각 서비스 설정과 일치하고 URL 인코딩해야 한다. 브라우저 origin 두 값은 동일한 승인 HTTPS origin을 사용한다. 도면·보고서 bucket은 모두 `anonymous none`으로 초기화하고 서로 다른 이름을 사용한다. 도면 업로드용 presigned PUT의 CORS origin은 `WEB_PUBLIC_URL` 하나로 제한하며, 조회는 인증된 API content endpoint가 발급하는 300초 signed GET만 사용한다.
 
 | 구분 | 필수 env key |
 | --- | --- |
@@ -58,7 +58,7 @@ API는 migration과 runtime에 같은 image를 사용한다. 로컬 image ID와 
 | MQTT | `MQTT_URL`, `MQTT_PUBLIC_URL`, `MQTT_API_INSTANCE_ID`, `MQTT_TLS_CERT_DIR` |
 | Vault | `VAULT_ADDR`, `VAULT_TOKEN_FILE`, `VAULT_CA_CERT_PATH`, `VAULT_PKI_DEVICE_MOUNT`, `VAULT_PKI_DEVICE_ROLE`, `VAULT_PKI_MQTT_MOUNT`, `VAULT_PKI_MQTT_ROLE` |
 | Object Storage | `OBJECT_STORAGE_ENDPOINT`, `OBJECT_STORAGE_PUBLIC_URL`, `OBJECT_STORAGE_ACCESS_KEY`, `OBJECT_STORAGE_SECRET_KEY`, `OBJECT_STORAGE_BUCKET`, `OBJECT_STORAGE_REPORT_BUCKET`, `OBJECT_STORAGE_REGION` |
-| CAD converter | `CAD_IMPORT_CONVERTER_BUNDLE_PATH`, `CAD_IMPORT_CONVERTER_ARGV_JSON` |
+| CAD converter | `CAD_IMPORT_CONVERTER_BUNDLE_PATH`, `CAD_IMPORT_CONVERTER_ARGV_JSON`, `CAD_IMPORT_CONVERTER_SHA256` |
 | API·Web TLS·port | `API_TLS_CERT_DIR`, `WEB_TLS_CERT_DIR`, `WEB_PUBLIC_URL`, `WEB_HTTPS_ORIGIN`, `WEB_HTTP_PORT`, `WEB_HTTPS_PORT`, `DEVICE_API_HTTPS_PORT` |
 
 `PRODUCTION_COMPOSE_PROJECT`는 `led-production-` prefix, 소문자 영숫자와 단일 하이픈, 최대 63자다. checkout 기본 project와 `led-production-default/dev/development`는 거부한다. 신규 배포는 해당 이름의 기존 자원 부재를 확인하고, 업데이트는 정확한 기존 운영 project와 백업 대상 volume을 승인 기록에 대조한다. 모든 named volume은 project prefix를 가져야 하며 external/shared volume은 금지한다.
@@ -71,7 +71,9 @@ API는 migration과 runtime에 같은 image를 사용한다. 로컬 image ID와 
 | `VAULT_TOKEN_FILE`, `VAULT_CA_CERT_PATH` | readable regular token·CA 파일; `/run/vault/token`, `/run/vault/ca.crt` RO |
 | `CAD_IMPORT_CONVERTER_BUNDLE_PATH` | 운영 승인된 절대 directory; `/opt/cad-converter` RO, 실행 파일은 `/opt/cad-converter/bin/converter` |
 
-CAD converter bundle은 운영자가 별도로 승인·배포하며 API image에 복사하지 않는다. GPL LibreDWG는 production image/bundle 계약에 포함하지 않는다. Bundle은 read-only에서도 실행 가능한 self-contained binary 또는 승인된 shared-library/RPATH 구성을 가져야 한다. `CAD_IMPORT_CONVERTER_ARGV_JSON`은 shell 문자열이 아닌 JSON string array이며 `{input}`, `{output}`을 각각 정확히 한 번 포함한다. Preflight는 절대 host path, RO bind, 고정 container executable, API heap 256 MiB, core heap 384 MiB, cgroup 768 MiB, 동시 job 1과 UID 1000용 `/tmp/cad-import` 512 MiB tmpfs를 검사한다. Runtime image의 `/usr/bin/prlimit`는 root-owned canonical util-linux 파일이어야 한다.
+CAD converter bundle은 운영자가 별도로 승인·배포하며 API image에 복사하지 않는다. GPL LibreDWG는 production image/bundle 계약에 포함하지 않는다. Bundle은 read-only에서도 실행 가능한 self-contained binary 또는 승인된 shared-library/RPATH 구성을 가져야 한다. `CAD_IMPORT_CONVERTER_ARGV_JSON`은 shell 문자열이 아닌 JSON string array이며 `{input}`, `{output}`을 각각 정확히 한 번 포함한다. `CAD_IMPORT_CONVERTER_SHA256`은 `/opt/cad-converter/bin/converter`의 승인 SHA-256이다. Host preflight는 bundle/bin/file의 symlink 금지, 동일 owner, group/world 쓰기 금지, owner execute와 digest를 확인하고 sidecar가 mounted file을 startup·job마다 다시 검증한다.
+
+Production converter는 API와 별도 UID 2000, read-only rootfs, `network_mode: none`, 1024 MiB cgroup, heap 64 MiB, pids 64, `/tmp` 64 MiB인 sidecar다. API는 UID 1000, 1280 MiB cgroup, heap 256 MiB, core heap 384 MiB, CAD concurrency 1, `/tmp/cad-import` 384 MiB다. 두 container는 UID 1000:GID 2000 소유의 384 MiB tmpfs spool만 공유한다. API에는 converter bundle/argv가 없고 sidecar에는 DB/S3/Vault/MQTT/TLS env·mount가 없다. Sidecar 내부 `/usr/bin/prlimit`가 AS 512 MiB, CPU 60초, nofile 64, nproc 32, fsize와 process-group timeout을 적용한다.
 
 실제 경로의 파일 존재·소유권·container UID별 읽기 권한을 제한된 운영 세션에서 확인한다. API/migration UID 1000, Web UID 101, Mosquitto UID 1883이다. Private key를 누구나 읽을 수 있게 바꾸지 않는다. API 인증서는 내부 `api`와 실제 장비 endpoint hostname을 SAN에 포함하고 MQTT 서버 인증서는 내부 `mqtt-tls` 및 승인된 공개 진입 hostname 계약과 맞아야 한다. Web 인증서는 public browser hostname을 검증하고 `web-ca.crt`가 그 chain을 신뢰해야 한다.
 
@@ -105,7 +107,7 @@ SELECT status, count(*) FROM "FloorImportJob"
 WHERE status IN ('processing', 'applying') GROUP BY status;
 ```
 
-위 조회 결과가 한 행이라도 있으면 배포를 시작하지 않는다. `20260917145000_cad_profile_upgrade_preflight`와 `20260917160000_cad_upgrade_safety`도 table lock 뒤 같은 상태를 발견하면 fail-close하며, 10초 안에 lock을 얻지 못해도 schema를 부분 적용하지 않는다.
+위 조회 결과가 한 행이라도 있으면 배포를 시작하지 않는다. `20260917144000_cad_profile_upgrade_gate`가 singleton/trigger를 먼저 설치해 구 worker의 queued→processing claim도 DB에서 거부한다. `20260917145000_cad_profile_upgrade_preflight`와 `20260917160000_cad_upgrade_safety`는 table lock 뒤 active 상태를 발견하면 fail-close하며, `20260917170000_cad_profile_upgrade_release`만 전체 profile/content migration 완료를 확인하고 gate를 연다. 10초 안에 lock을 얻지 못하면 transaction이 rollback되며 부분 schema를 정상으로 간주하지 않는다.
 
 ```bash
 production_compose stop web api
@@ -217,7 +219,7 @@ Metrics는 process-local이며 재시작 시 초기화된다. 여러 instance �
 
 ## 검증 증거와 남은 승인
 
-Task 19.5 fix round 4의 상시 synthetic production smoke는 고유 project `led-production-smoke-9e88ead9a2560afbcdb2066d683b9d0f`에서 빈 DB migration 81/81, API image의 canonical `/usr/bin/prlimit`, 768 MiB cgroup, 외부 read-only converter bundle, 실제 Nest worker/core, PostgreSQL/MinIO와 HTTP create/status/candidates/content/apply를 통과했다. 정상 gzip signed GET 뒤 malformed와 converter memory bomb를 처리해 같은 API container와 live 200이 유지됐고, 종료 시 container/volume/network/owned image가 모두 0임을 확인했다. 이 synthetic 결과는 승인된 실제 converter와 제공 DWG의 opt-in sample HIL, 운영 DB backup/migration/restore 또는 실장비 HIL을 대신하지 않는다.
+Task 19.5 fix round 5의 상시 synthetic production smoke는 고유 project `led-production-smoke-6af670a676e4adf16078984a2938d70d`에서 빈 DB migration 84/84, API/sidecar 별도 cgroup `1342177280`/`1073741824`, UID/process/network 분리와 secret env·mount 부재를 확인했다. 실제 Nest worker/core, PostgreSQL/MinIO와 HTTP create/status/candidates/content/apply를 통과했고 정상 gzip signed GET 뒤 malformed, output bomb, memory bomb, timeout을 처리해 API와 sidecar readiness가 유지되며 정상 재처리가 `review_required`로 복귀했다. 종료 시 container/volume/network/owned image가 모두 0이었다. 이 synthetic 결과는 승인된 실제 converter와 제공 DWG의 opt-in sample HIL, 운영 DB backup/migration/restore 또는 실장비 HIL을 대신하지 않는다.
 
 실도면 sample HIL은 승인된 로컬/격리 환경에서만 다음 입력을 명시한다. Converter argv는 제품 bundle의 CLI 계약에 맞춰 바꾸며, production host에서는 같은 승인 bundle의 executable을 사용한다.
 

@@ -806,3 +806,24 @@
 - **원인**: queued 작업과 이미 실행 중인 작업, 신규 산출물과 legacy 객체를 같은 backfill 규칙으로 취급했다.
 - **해결 및 예방책**: processing/applying이 있으면 table lock 뒤 migration을 fail-close하고 queued만 lease 시 source SHA로 resolve한다. terminal은 non-null identity를 유지하며 legacy 결과는 sentinel로 표시한다. 기존 identity와 migration 이후 gzip은 생성 시점 경계로 분리한다.
 - **반복 방지 체크**: clean/staged replay, old-worker lock race, 10초 lock timeout, terminal constraint, 실제 PG+MinIO identity/gzip read/apply/signed GET을 유지한다. 배포 runbook은 API 정지 전에 active job drain을 요구한다.
+
+## 2026-09-17 / 객체 metadata는 생성 시각이 아니라 저장소 관측으로 확정한다
+
+- **발생했던 문제/실수**: migration 전후 `createdAt`으로 SVG가 identity인지 gzip인지 추정하면 늦은 commit, clock 차이, 재처리 이력에서 실제 Object Storage metadata와 다른 확정값을 만들 수 있었다.
+- **원인**: DB 시간이 객체 representation의 provenance를 증명한다고 간주했고, 애매함을 영속 상태로 표현하지 않았다.
+- **해결 및 예방책**: provenance로 확정할 수 없는 linked SVG를 `unknown`으로 저장한다. Review/apply/content 전에 HEAD로 encoding, size, checksum, viewport를 검증하고 기존 ledger 전체를 조건으로 identity/gzip compare-and-set한다. 오류·불일치·경쟁 결과 차이는 fail-close하며 신규 worker gzip은 처음부터 확정한다.
+- **반복 방지 체크**: clean/identity/pre-profile gzip/post-profile gzip, missing/mismatch HEAD와 두 concurrent reconcile을 실제 PG+MinIO staged history로 실행한다. 이미 공개된 migration checksum은 수정하지 않는다.
+
+## 2026-09-17 / 비신뢰 converter 격리는 process 제한과 container 경계를 함께 요구한다
+
+- **발생했던 문제/실수**: converter child에 env allowlist와 `prlimit`를 적용해도 API와 같은 PID namespace, UID, secret mount, cgroup을 공유하면 memory bomb가 API 예산을 소모하고 `/proc` 또는 mount를 통해 자격 증명 경계를 넓힐 수 있었다.
+- **원인**: child process sandbox를 credential 격리와 독립 장애 도메인으로 과대평가했다.
+- **해결 및 예방책**: converter를 network-none, 별도 UID/PID namespace, read-only rootfs와 1024 MiB memory cgroup인 sidecar로 분리한다. API에는 converter bundle/argv를, sidecar에는 DB/S3/Vault/MQTT/TLS env·mount를 주지 않고 bounded tmpfs spool만 공유한다. Host preflight와 mounted sidecar가 승인 digest와 regular/executable/owner-mode를 이중 검증한다.
+- **반복 방지 체크**: production Compose/image에서 cgroup/UID/network/mount/env를 관측하고 정상 작업 뒤 output/memory/timeout bomb를 실행한다. API와 sidecar readiness, container identity, 후속 정상 재처리가 모두 유지돼야 한다.
+
+## 2026-09-17 / 배포 fence는 애플리케이션 drain만으로 완결되지 않는다
+
+- **발생했던 문제/실수**: 새 migration이 active job을 검사해도, 14500 적용 직후 살아 있는 구 worker가 queued job을 processing으로 claim할 수 있었다. Lock timeout rollback 뒤 Prisma 실패 이력을 처리하지 않은 단순 deploy 재시도도 P3009로 막혔다.
+- **원인**: 배포 순서와 worker 버전 협조에 의존했고 claim 자체를 DB에서 차단하지 않았다. SQL transaction rollback과 Prisma migration history 복구를 같은 것으로 보았다.
+- **해결 및 예방책**: 의미 변경 전에 singleton gate와 BEFORE trigger를 설치해 모든 버전의 queued→processing을 거부하고, 마지막 migration만 선행 이력을 확인해 gate를 연다. 완전 rollback을 확인한 담당자만 실패 migration을 `migrate resolve --rolled-back`한 뒤 재시도한다.
+- **반복 방지 체크**: 14500→old claim→15000 race, lock timeout/rollback/resolve/retry, clean deploy, 이미 15000이 적용된 migration history를 실제 PostgreSQL에서 검증한다.
