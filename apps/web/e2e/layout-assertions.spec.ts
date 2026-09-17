@@ -50,6 +50,16 @@ test("touch target helper can exclude compact spatial markers while retaining th
   await expectMinimumTouchTargets(page, "#root", { excludeSpatialMapMarkers: true });
 });
 
+test("touch target helper measures spatial markers unless an explicit exclusion is requested", async ({ page }) => {
+  await page.setContent(`
+    <main id="root">
+      <button data-spatial-map-marker="true" style="width: 24px; height: 24px">지도 마커</button>
+    </main>
+  `);
+
+  await expect(expectMinimumTouchTargets(page, "#root")).rejects.toThrow(/지도 마커/);
+});
+
 test("transparent radio uses its 44px implicit label as the effective hit target", async ({ page }) => {
   await page.setContent(`
     <main id="root">

@@ -75,6 +75,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     });
     await page.goto(`/control?siteId=${ids.site}`);
     const history = page.getByRole("region", { name: "최근 명령 이력" });
+    if (viewport.width <= 1120) await history.getByRole("button", { name: "명령 이력 열기" }).click();
     if (viewport.width > 1120) {
       for (const historyViewport of [{ width: 1440, height: 900 }, { width: 1280, height: 720 }, { width: 1121, height: 900 }]) {
         await page.setViewportSize(historyViewport);
@@ -105,7 +106,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     expect(api.dimmingRequests).toHaveLength(0);
     verified = true;
     await expect(page.getByRole("button", { name: "안전하게 다시 적용" })).toBeEnabled();
-    await page.getByRole("button", { name: "100%" }).click();
+    await page.getByRole("button", { name: "100%", exact: true }).click();
     await page.getByRole("button", { name: "안전하게 다시 적용" }).click();
     await expect.poll(() => api.dimmingRequests.at(-1)).toMatchObject({ brightness: 30, target: { type: "fixtures", fixtureIds: [ids.fixture] } });
     await expectNoHorizontalOverflow(page);
@@ -128,21 +129,15 @@ for (const viewport of viewports) {
     const api = await installManualControlFixture(page, "admin");
     await page.goto(`/control?siteId=${ids.site}`);
     await expect(page.getByRole("heading", { name: "조명 밝기 제어", exact: true })).toBeVisible();
-    await setCheckbox(page, "B2-L02 선택", true);
-    await expect(page.getByText("1개 선택 · 제어 불가 1개")).toBeVisible();
-    await expect(page.getByRole("button", { name: "밝기 적용" })).toBeDisabled();
-    const faultFixtureCheckbox = page.getByRole("checkbox", { name: "B2-L02 선택" });
-    await faultFixtureCheckbox.press("Space");
+    await page.getByRole("button", { name: "조명 목록 열기" }).click();
+    const fixtureDrawer = page.getByRole("dialog", { name: "조명 목록" });
+    const faultFixtureCheckbox = fixtureDrawer.getByRole("checkbox", { name: "B2-L02 선택" });
+    await expect(faultFixtureCheckbox).toBeDisabled();
     await expect(faultFixtureCheckbox).not.toBeChecked();
-    await setCheckbox(page, "B2-L03 선택", true);
-    await expect(page.getByText("1개 선택 · 제어 불가 1개")).toBeVisible();
-    await setCheckbox(page, "B2-L03 선택", false);
-    await page.getByRole("button", { name: "층", exact: true }).click();
-    await page.getByRole("button", { name: "B2" }).click();
-    await page.getByRole("button", { name: "구역", exact: true }).click();
-    await page.getByRole("button", { name: "B2 입구 선택" }).click();
-    await page.getByRole("button", { name: "개별/다중" }).click();
-
+    await expect(fixtureDrawer.getByRole("checkbox", { name: "B2-L03 선택" })).toBeDisabled();
+    await fixtureDrawer.getByRole("button", { name: "선택 완료", exact: true }).click();
+    await expect(page.getByText("0개 선택 · 제어 불가 0개")).toBeVisible();
+    await expect(page.getByRole("button", { name: "밝기 적용" })).toBeDisabled();
     await setCheckbox(page, "B2-L01 선택", true);
     await page.getByRole("button", { name: "30%" }).click();
     await expect(page.getByLabel("수동 override 종료 시각")).toHaveCount(0);
@@ -153,8 +148,8 @@ for (const viewport of viewports) {
     expect(api.dimmingRequests.at(-1)).not.toHaveProperty("overrideUntil");
     expect(api.dimmingRequests.at(-1)).not.toHaveProperty("overrideRemainingMs");
     await expect(page.getByRole("list", { name: "명령 진행" })).toContainText("장비 응답");
-    await expect(page.getByRole("checkbox", { name: "B2-L01 선택" })).toBeDisabled();
-    await expect(page.getByRole("button", { name: "층", exact: true })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "조명 목록 열기" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "층 전체" })).toBeDisabled();
     await expect(page.getByRole("button", { name: "30%" })).toBeDisabled();
     await expect(page.getByRole("button", { name: "밝기 적용 중" })).toBeDisabled();
 
@@ -163,8 +158,11 @@ for (const viewport of viewports) {
     api.setCommandStatus({ stage: "partial_failed", results: [commandResult("failed", "게이트웨이 ACK를 확인하지 못했습니다.")] });
     await expect(page.getByText("게이트웨이 장비 응답을 확인하지 못했습니다.")).toBeVisible();
     await expect(page.getByText(/ACK/i)).toHaveCount(0);
-    await expect(page.getByRole("checkbox", { name: "B2-L01 선택" })).toBeEnabled();
+    await page.getByRole("button", { name: "조명 목록 열기" }).click();
+    const restoredFixtureDrawer = page.getByRole("dialog", { name: "조명 목록" });
+    await expect(restoredFixtureDrawer.getByRole("checkbox", { name: "B2-L01 선택" })).toBeEnabled();
     await setCheckbox(page, "B2-L01 선택", true);
+    await restoredFixtureDrawer.getByRole("button", { name: "선택 완료", exact: true }).click();
     await expect(page.getByRole("button", { name: "밝기 적용" })).toBeEnabled();
 
     await expectNoHorizontalOverflow(page);
@@ -182,12 +180,13 @@ for (const viewport of viewports) {
     const createDialog = page.getByRole("dialog", { name: "구역 생성" });
     await selectBox(page, createDialog, "층", "B2");
     await selectBox(page, createDialog, "게이트웨이", "Gateway B2");
-    const groupFixtureList = createDialog.getByRole("group", { name: "구역 조명 목록" });
-    const groupFixture = groupFixtureList.getByRole("checkbox").first();
-    await expect(groupFixture).toHaveAccessibleName("B2-L01 포함");
+    await createDialog.getByRole("button", { name: "조명 목록 열기" }).click();
+    const groupFixtureDrawer = page.getByRole("dialog", { name: "조명 목록" });
+    const groupFixture = groupFixtureDrawer.getByRole("checkbox", { name: "B2-L01 선택" });
     await expect(groupFixture).not.toBeChecked();
-    await groupFixtureList.getByText("B2-L01", { exact: true }).click();
+    await groupFixture.locator("xpath=ancestor::label").getByText("B2-L01", { exact: true }).click();
     await expect(groupFixture).toBeChecked();
+    await groupFixtureDrawer.getByRole("button", { name: "선택 완료", exact: true }).click();
 
   });
 
@@ -196,12 +195,7 @@ for (const viewport of viewports) {
     await installManualControlFixture(page, "admin", "blocked");
     await page.goto(`/control?siteId=${ids.site}`);
 
-    await page.getByRole("button", { name: "층", exact: true }).click();
-    await expect(page.getByRole("button", { name: "B2" })).toBeDisabled();
     await expect(page.getByText(/Mesh 설정 중/)).toBeVisible();
-
-    await page.getByRole("button", { name: "구역", exact: true }).click();
-    await expect(page.getByRole("button", { name: "B2 입구 선택" })).toBeDisabled();
     await expect(page.getByText("게이트웨이 장비 응답을 확인하지 못했습니다.")).toBeVisible();
     await expect(page.getByText(/ACK/i)).toHaveCount(0);
     await expect(page.getByRole("button", { name: "밝기 적용" })).toBeDisabled();
@@ -209,12 +203,13 @@ for (const viewport of viewports) {
 
   test(`${viewport.width}px read-only viewer는 수동 제어 route에 접근할 수 없다`, async ({ page }) => {
     await page.setViewportSize(viewport);
-    await installManualControlFixture(page, "viewer");
+    const api = await installManualControlFixture(page, "viewer");
     await page.goto(`/control?siteId=${ids.site}`);
 
     await expect(page).toHaveURL(new RegExp(`/monitoring\\?siteId=${ids.site}$`));
     await expect(page.getByRole("heading", { name: "조명 밝기 제어", exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "밝기 적용" })).toHaveCount(0);
+    expect(api.dimmingRequests).toHaveLength(0);
     await expectNoHorizontalOverflow(page);
   });
 
@@ -321,12 +316,17 @@ async function readStableControlRects(page: Page) {
 }
 
 async function setCheckbox(page: Page, name: string, checked: boolean) {
-  const checkbox = page.getByRole("checkbox", { name });
+  const initialCheckbox = page.getByRole("checkbox", { name });
+  const needsDrawer = await initialCheckbox.count() === 0;
+  if (needsDrawer) await page.getByRole("button", { name: "조명 목록 열기" }).click();
+  const drawer = page.getByRole("dialog", { name: "조명 목록" });
+  const checkbox = needsDrawer ? drawer.getByRole("checkbox", { name }) : initialCheckbox;
   if (await checkbox.isChecked() !== checked) {
     const visibleName = name.replace(/ 선택$/, "");
     await checkbox.locator("xpath=ancestor::label").getByText(visibleName, { exact: true }).click();
   }
   await expect(checkbox).toBeChecked({ checked });
+  if (needsDrawer) await drawer.getByRole("button", { name: "선택 완료", exact: true }).click();
 }
 
 async function selectBox(page: Page, root: ReturnType<Page["getByRole"]>, label: string, option: string) {

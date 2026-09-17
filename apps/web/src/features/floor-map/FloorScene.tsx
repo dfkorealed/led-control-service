@@ -154,7 +154,8 @@ export function FloorScene({
             data-brightness-level={brightnessLevel}
             className={cn(
               "absolute z-2 block! -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-fixture-marker! border-0! bg-transparent! p-0! transition-[background-color,box-shadow] duration-150 motion-reduce:duration-[0.01ms] hover:z-4 focus-visible:z-4 focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-fixture-selected",
-              coarsePointer ? "size-11! min-h-11!" : "size-5! min-h-5!",
+              // Leave a pixel-rounding buffer beyond the 44px coarse-pointer minimum so every edge remains reachable in browser layout.
+              coarsePointer ? "size-12! min-h-12!" : "size-5! min-h-5!",
               selected && "z-3"
             )}
             style={markerStyle}

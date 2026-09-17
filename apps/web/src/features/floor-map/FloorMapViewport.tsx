@@ -257,15 +257,16 @@ export function FloorMapViewport({
   function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     if (event.button > 0) return;
     activePointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
-    event.currentTarget.setPointerCapture?.(event.pointerId);
 
     if (activePointers.current.size >= 2) {
+      capturePointer(event);
       startPinch(event);
       return;
     }
 
     // Marker buttons keep their click interaction; single-pointer gestures begin on empty map space.
     if ((event.target as Element).closest("button")) return;
+    capturePointer(event);
     if (mode === "pan") {
       pan.current = {
         pointerId: event.pointerId,
@@ -334,7 +335,24 @@ export function FloorMapViewport({
       // A remaining touch remains tracked only for its eventual release; it must not inherit a pan origin.
       for (const [pointerId, point] of activePointers.current) activePointers.current.set(pointerId, { ...point });
     }
-    event.currentTarget.releasePointerCapture?.(event.pointerId);
+    releasePointer(event);
+  }
+
+  function capturePointer(event: ReactPointerEvent<HTMLDivElement>) {
+    try {
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+    } catch {
+      // Browser-dispatched synthetic PointerEvents are not registered as active pointers.
+      // Keep gesture state functional for browser regression coverage; native touches still capture.
+    }
+  }
+
+  function releasePointer(event: ReactPointerEvent<HTMLDivElement>) {
+    try {
+      event.currentTarget.releasePointerCapture?.(event.pointerId);
+    } catch {
+      // Matches the synthetic capture fallback above; an uncaptured pointer has nothing to release.
+    }
   }
 
   function handleClickCapture(event: React.MouseEvent<HTMLDivElement>) {

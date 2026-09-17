@@ -120,7 +120,7 @@ export function SpatialTargetSelector({
         {mapQuery.data && mapQuery.error ? <Text className="absolute top-3 left-3 z-6 rounded-control border border-border-default bg-surface-panel px-2 py-1" role="alert" tone="danger">도면을 최신 상태로 갱신하지 못했습니다.</Text> : null}
         {group ? <Text className="pointer-events-none absolute top-3 right-3 z-6 rounded-control border border-border-default bg-surface-panel px-2 py-1" variant="caption">{group.name}</Text> : null}
       </div>
-      <div className="min-h-0 overflow-y-auto overscroll-contain"><SelectionSummaryPanel resolved={resolved} compactSummary={compactSummary} />
+      <div className="min-h-0 overflow-y-auto overscroll-contain" data-target-selection-detail-panel=""><SelectionSummaryPanel resolved={resolved} compactSummary={compactSummary} />
         {selection.mode === "floor" ? <SelectionChoices kind="floor" dashboard={dashboard} selection={selection} disabled={disabled} fixtureFilter={fixtureFilter} requiredGatewayId={requiredGatewayId} onChange={onChange} /> : null}
         {selection.mode === "group" ? <SelectionChoices kind="group" dashboard={dashboard} selection={selection} disabled={disabled} fixtureFilter={fixtureFilter} requiredGatewayId={requiredGatewayId} onChange={onChange} /> : null}
       </div>

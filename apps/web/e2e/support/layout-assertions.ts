@@ -24,6 +24,11 @@ const interactiveTargetSelector = [
   "[tabindex]:not([tabindex='-1'])"
 ].join(",");
 
+type TouchTargetOptions = {
+  /** Spatial markers are measured by default; exclude them only in specs that explicitly opt out. */
+  excludeSpatialMapMarkers?: boolean;
+};
+
 export async function expectNoHorizontalOverflow(page: Page) {
   const metrics = await page.evaluate(() => ({
     clientWidth: document.documentElement.clientWidth,
@@ -36,7 +41,7 @@ export async function expectNoHorizontalOverflow(page: Page) {
 export async function expectMinimumTouchTargetsAfterScrolling(
   page: Page,
   rootSelector: string,
-  { excludeSpatialMapMarkers = false }: { excludeSpatialMapMarkers?: boolean } = {}
+  { excludeSpatialMapMarkers = false }: TouchTargetOptions = {}
 ) {
   const targets = page.locator(rootSelector).locator(interactiveTargetSelector);
   const targetCount = await targets.count();
@@ -132,7 +137,7 @@ export async function expectMinimumTouchTargetsAfterScrolling(
 export async function expectMinimumTouchTargets(
   page: Page,
   rootSelector: string,
-  { excludeSpatialMapMarkers = false }: { excludeSpatialMapMarkers?: boolean } = {}
+  { excludeSpatialMapMarkers = false }: TouchTargetOptions = {}
 ) {
   const targets = await page.locator(rootSelector).evaluateAll((roots, args) => {
     interface VisibleRect {

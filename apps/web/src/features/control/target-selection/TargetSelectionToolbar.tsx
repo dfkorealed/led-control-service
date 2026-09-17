@@ -37,7 +37,7 @@ export function TargetSelectionToolbar({
         selectedKey={activeFloorId} isDisabled={disabled || floors.length === 0} onSelectionChange={(floorId) => floorId && onFloorChange(floorId)} />
       <Button type="button" variant="secondary" disabled={disabled} onClick={onOpenList}>조명 목록 열기</Button>
       {onInteractionModeChange ? <div className="flex gap-1" role="group" aria-label="지도 조작">
-        {(["pan", "select", "area"] as const).map((mode) => <Button key={mode} type="button" variant="ghost" className="min-w-11 px-2"
+        {(["pan", "select", "area"] as const).map((mode) => <Button key={mode} type="button" variant="ghost" className="min-w-11 px-2 max-compact:min-w-14 max-compact:min-h-14"
           aria-label={mode === "pan" ? "지도 이동" : mode === "select" ? "조명 선택" : "영역 선택"} aria-current={interactionMode === mode ? "true" : undefined}
           disabled={disabled} onClick={() => onInteractionModeChange(mode)}>{mode === "pan" ? "이동" : mode === "select" ? "선택" : "영역"}</Button>)}
       </div> : null}

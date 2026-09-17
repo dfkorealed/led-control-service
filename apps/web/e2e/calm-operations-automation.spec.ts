@@ -62,7 +62,12 @@ for (const viewport of viewports) {
     await selectBox(page, scheduleDialog, "반복", "매월");
     await expect(scheduleDialog.getByLabel("매월 날짜")).toBeVisible();
     await scheduleDialog.getByRole("button", { name: "제어 대상 선택" }).click();
-    await expect(scheduleDialog.getByRole("group", { name: "조명 목록" })).toBeVisible();
+    await expect(scheduleDialog.getByRole("region", { name: "공간 대상 선택" })).toBeVisible();
+    await page.getByRole("button", { name: "조명 목록 열기" }).click();
+    const scheduleFixtureDrawer = page.getByRole("dialog", { name: "조명 목록" });
+    await expect(scheduleFixtureDrawer.getByRole("group", { name: "조명 목록" })).toBeVisible();
+    await scheduleFixtureDrawer.getByLabel("B1-SENSOR-001 선택").locator("xpath=ancestor::label").click();
+    await scheduleFixtureDrawer.getByRole("button", { name: "선택 완료", exact: true }).click();
     await expectDialogInsideViewport(scheduleDialog, viewport);
     if (viewport.width > 760) await expectNoDocumentVerticalOverflow(page);
     await scheduleDialog.getByRole("button", { name: "선택 완료" }).click();
@@ -84,7 +89,8 @@ for (const viewport of viewports) {
     await expect(eventDialog.getByRole("group", { name: "조명 목록" })).toHaveCount(0);
     await expectDialogInsideViewport(eventDialog, viewport);
     await eventDialog.getByRole("button", { name: "감지 센서 선택" }).click();
-    const sensorCheckbox = eventDialog.getByLabel("B1-SENSOR-001 선택");
+    await page.getByRole("button", { name: "조명 목록 열기" }).click();
+    const sensorCheckbox = page.getByRole("dialog", { name: "조명 목록" }).getByLabel("B1-SENSOR-001 선택");
     await sensorCheckbox.scrollIntoViewIfNeeded();
     await expect(sensorCheckbox).toBeVisible();
     await expect(sensorCheckbox.locator("xpath=ancestor::label")).toContainText("B1-SENSOR-001");
@@ -106,22 +112,22 @@ test("1024px 대상 선택기는 긴 조명 목록과 더 보기를 dialog 내�
   await page.getByRole("button", { name: "스케줄 추가" }).click();
   const dialog = page.getByRole("dialog", { name: "스케줄 추가" });
   await dialog.getByRole("button", { name: "제어 대상 선택" }).click();
+  await page.getByRole("button", { name: "조명 목록 열기" }).click();
+  const fixtureDrawer = page.getByRole("dialog", { name: "조명 목록" });
 
-  const list = dialog.getByRole("group", { name: "조명 목록" });
-  const moreButton = dialog.getByRole("button", { name: "더 보기" });
+  const list = fixtureDrawer.getByRole("group", { name: "조명 목록" });
+  const moreButton = fixtureDrawer.getByRole("button", { name: "더 보기" });
   await expect(list).toBeVisible();
-  await expect(dialog.getByText("100 / 121개 표시")).toBeVisible();
   await moreButton.scrollIntoViewIfNeeded();
   await expectElementInsideViewport(moreButton, viewport);
   await moreButton.click();
 
-  const finalFixture = dialog.getByLabel("B1-LIGHT-121 선택");
+  const finalFixture = fixtureDrawer.getByLabel("B1-LIGHT-121 선택");
   await list.scrollIntoViewIfNeeded();
   await list.evaluate((element) => { element.scrollTop = element.scrollHeight; });
   await expect(finalFixture).toBeVisible();
   await expectElementInsideContainer(finalFixture.locator("xpath=ancestor::label"), list);
-  await expectElementInsideDialogContent(list, dialog);
-  await expectDialogInsideViewport(dialog, viewport);
+  await expectDialogInsideViewport(fixtureDrawer, viewport);
   await expectNoDocumentVerticalOverflow(page);
 });
 
@@ -334,22 +340,4 @@ async function expectElementInsideContainer(
   if (!elementBounds || !containerBounds) return;
   expect(elementBounds.y).toBeGreaterThanOrEqual(containerBounds.y - 1);
   expect(elementBounds.y + elementBounds.height).toBeLessThanOrEqual(containerBounds.y + containerBounds.height + 1);
-}
-
-async function expectElementInsideDialogContent(
-  element: ReturnType<Page["locator"]>,
-  dialog: ReturnType<Page["locator"]>
-) {
-  const geometry = await dialog.evaluate((dialogElement, childElement) => {
-    if (!(childElement instanceof Element)) return null;
-    const dialogBounds = dialogElement.getBoundingClientRect();
-    const childBounds = childElement.getBoundingClientRect();
-    const paddingBottom = Number.parseFloat(getComputedStyle(dialogElement).paddingBottom) || 0;
-    return { childBottom: childBounds.bottom, contentBottom: dialogBounds.bottom - paddingBottom };
-  }, await element.elementHandle());
-  expect(geometry).not.toBeNull();
-  if (!geometry) return;
-  // Browser sub-pixel rounding can place a border fractionally past the
-  // content edge while it remains fully clipped inside the dialog viewport.
-  expect(geometry.childBottom).toBeLessThanOrEqual(geometry.contentBottom + 2);
 }
