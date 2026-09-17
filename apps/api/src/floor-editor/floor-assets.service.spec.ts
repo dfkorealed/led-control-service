@@ -144,7 +144,7 @@ describe("FloorAssetsService", () => {
     });
   });
 
-  it("refuses a rendered SVG download when the gzip ledger or object HEAD metadata is missing", async () => {
+  it("signs legacy identity and gzip rendered SVGs only after exact object HEAD verification", async () => {
     const asset: {
       kind: string; objectKey: string; mimeType: string; contentEncoding: string | null; sizeBytes: bigint; sha256: string;
     } = {
@@ -156,18 +156,21 @@ describe("FloorAssetsService", () => {
       floorAsset: { findFirst: jest.fn().mockResolvedValue(asset) }
     };
     const storage: any = {
-      readFloorRenderedMetadata: jest.fn(),
-      createFloorAssetDownloadUrl: jest.fn()
+      readFloorRenderedMetadata: jest.fn().mockResolvedValue({ width: 10, height: 20 }),
+      createFloorAssetDownloadUrl: jest.fn().mockResolvedValue("https://download.example/signed")
     };
     const siteAccess = { assert: jest.fn().mockResolvedValue({ id: "site-1" }) };
     const service = new FloorAssetsService(prisma, storage, siteAccess as unknown as SiteAccessService);
 
     await expect(service.getContentRedirect(viewer, "floor-1", "asset-1"))
-      .rejects.toBeInstanceOf(ServiceUnavailableException);
-    expect(storage.readFloorRenderedMetadata).not.toHaveBeenCalled();
-    expect(storage.createFloorAssetDownloadUrl).not.toHaveBeenCalled();
+      .resolves.toEqual({ url: "https://download.example/signed" });
+    expect(storage.readFloorRenderedMetadata).toHaveBeenCalledWith(asset.objectKey, {
+      sizeBytes: 321, sha256: asset.sha256, mimeType: "image/svg+xml", contentEncoding: null
+    });
+    expect(storage.createFloorAssetDownloadUrl).toHaveBeenCalledWith(asset.objectKey);
 
     asset.contentEncoding = "gzip";
+    storage.createFloorAssetDownloadUrl.mockClear();
     storage.readFloorRenderedMetadata.mockRejectedValue(new Error("encoding replaced"));
     await expect(service.getContentRedirect(viewer, "floor-1", "asset-1"))
       .rejects.toBeInstanceOf(ServiceUnavailableException);

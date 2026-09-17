@@ -38,6 +38,11 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
     assertManageInTransaction: jest.fn().mockResolvedValue({ id: siteId, organizationId })
   };
   const storage = { readFloorRenderedMetadata: jest.fn().mockResolvedValue({ width: 640, height: 480 }) };
+  const terminalProfile = {
+    detectorProfileId: "generic-lighting-v1" as const,
+    detectorProfileVersion: "legacy-unknown",
+    detectorProfileDigest: "0".repeat(64)
+  };
 
   beforeAll(async () => {
     cluster = await disposablePostgres();
@@ -158,7 +163,7 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
     const review = await prisma.floorImportJob.create({ data: {
       floorId, sourceAssetId: source.id, renderedAssetId: rendered.id, sourceFormat: "dxf",
       status: "review_required", stage: "review_required", progressPercent: 100,
-      attemptCount: 1, startedAt: new Date(), reviewRequiredAt: new Date()
+      attemptCount: 1, startedAt: new Date(), reviewRequiredAt: new Date(), ...terminalProfile
     } });
     const transactionClient = new PrismaClient({ datasourceUrl: databaseUrl });
     let release!: () => void; let applying!: () => void;
@@ -191,7 +196,7 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
     const stale = await prisma.floorImportJob.create({ data: {
       floorId, sourceAssetId: staleSource.id, renderedAssetId: staleRendered.id, sourceFormat: "dxf",
       status: "applying", stage: "applying", progressPercent: 100, attemptCount: 1,
-      startedAt: new Date(Date.now() - 180_000), reviewRequiredAt: new Date(Date.now() - 180_000)
+      startedAt: new Date(Date.now() - 180_000), reviewRequiredAt: new Date(Date.now() - 180_000), ...terminalProfile
     } });
     await prisma.$executeRaw`UPDATE "FloorImportJob" SET "updatedAt" = clock_timestamp() - INTERVAL '121 seconds' WHERE "id" = ${stale.id}`;
     await expect(service().getActive(user, floorId)).resolves.toEqual({ job: null });
@@ -204,7 +209,7 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
     const fresh = await prisma.floorImportJob.create({ data: {
       floorId, sourceAssetId: freshSource.id, renderedAssetId: freshRendered.id, sourceFormat: "dxf",
       status: "applying", stage: "applying", progressPercent: 100, attemptCount: 1,
-      startedAt: new Date(), reviewRequiredAt: new Date()
+      startedAt: new Date(), reviewRequiredAt: new Date(), ...terminalProfile
     } });
     await prisma.$executeRaw`UPDATE "FloorImportJob" SET "updatedAt" = clock_timestamp() WHERE "id" = ${fresh.id}`;
     await expect(service().getActive(user, floorId)).resolves.toEqual({ job: null });
@@ -463,12 +468,13 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
     const source = await sourceAsset(); const renderedId = randomUUID(); const jobId = randomUUID();
     await prisma.floorAsset.create({ data: {
       id: renderedId, floorId, kind: "rendered", status: "ready", objectKey: `floors/${floorId}/${renderedId}.svg`,
-      mimeType: "image/svg+xml", contentEncoding: "gzip", sizeBytes: 256n, sha256: "b".repeat(64), readyAt: new Date()
+      mimeType: "image/svg+xml", contentEncoding: null, sizeBytes: 256n, sha256: "b".repeat(64), readyAt: new Date()
     } });
     await prisma.floorImportJob.create({ data: {
       id: jobId, floorId, sourceAssetId: source.id, renderedAssetId: renderedId, sourceFormat: "dxf",
       status: "review_required", stage: "review_required", progressPercent: 100, attemptCount: 1,
-      startedAt: new Date(), reviewRequiredAt: new Date(), parserVersion: "ascii-dxf-v1", detectorVersion: "rule-v1"
+      startedAt: new Date(), reviewRequiredAt: new Date(), parserVersion: "ascii-dxf-v1", detectorVersion: "rule-v1",
+      ...terminalProfile
     } });
     const candidateIds = Array.from({ length: 2_000 }, () => randomUUID());
     const acceptedId = candidateIds[0]; const rejectedId = candidateIds.at(-1)!;
@@ -494,6 +500,7 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
       expectedRevision: 4, leaseToken: "lease-token", leaseFence: 8, candidateIds: candidateIds.slice(0, 1_302)
     });
     expect(applied).toMatchObject({ status: "completed", revision: 5 });
+    expect(storage.readFloorRenderedMetadata).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ contentEncoding: null }));
     expect(applied.acceptedCandidateIds).toHaveLength(1_302);
     expect(new Set(applied.acceptedCandidateIds)).toEqual(new Set(candidateIds.slice(0, 1_302)));
 
@@ -517,16 +524,16 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
       .resolves.toMatchObject({ actorId: userId, outcome: "success" });
   });
 
-  it("rejects gzip ledger removal from a rendered SVG linked to an import job", async () => {
+  it("allows an existing rendered SVG to retain an identity ledger", async () => {
     const source = await sourceAsset(); const rendered = await renderedAsset();
     await prisma.floorImportJob.create({ data: {
       floorId, sourceAssetId: source.id, renderedAssetId: rendered.id, sourceFormat: "dxf",
       status: "review_required", stage: "review_required", progressPercent: 100, attemptCount: 1,
-      startedAt: new Date(), reviewRequiredAt: new Date()
+      startedAt: new Date(), reviewRequiredAt: new Date(), ...terminalProfile
     } });
     await expect(prisma.floorAsset.update({
       where: { id: rendered.id }, data: { contentEncoding: null }
-    })).rejects.toThrow(/asset invariant/i);
+    })).resolves.toMatchObject({ contentEncoding: null });
   });
 
   it("enforces admin, viewer, tenant, session, and transaction-time permission boundaries over real HTTP", async () => {

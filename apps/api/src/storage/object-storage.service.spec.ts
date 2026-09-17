@@ -31,6 +31,32 @@ describe("ObjectStorageService", () => {
       expect(put?.input.Body).not.toBeInstanceOf(Buffer);
     } finally { await rm(root, { recursive: true, force: true }); }
   });
+
+  it("accepts a legacy identity SVG only when object HEAD has no content encoding", async () => {
+    const send = jest.fn().mockResolvedValue({
+      ContentLength: 123,
+      ContentType: "image/svg+xml",
+      ContentEncoding: undefined,
+      ChecksumSHA256: Buffer.from("a".repeat(64), "hex").toString("base64"),
+      Metadata: { "cad-width": "37", "cad-height": "23" }
+    });
+    const storage = new ObjectStorageService({ send } as never, { bucket: "floor-assets", publicBaseUrl: "" });
+
+    await expect(storage.readFloorRenderedMetadata("floors/floor-1/legacy.svg", {
+      sizeBytes: 123, sha256: "a".repeat(64), mimeType: "image/svg+xml", contentEncoding: null
+    })).resolves.toEqual({ width: 37, height: 23 });
+
+    send.mockResolvedValueOnce({
+      ContentLength: 123,
+      ContentType: "image/svg+xml",
+      ContentEncoding: "gzip",
+      ChecksumSHA256: Buffer.from("a".repeat(64), "hex").toString("base64"),
+      Metadata: { "cad-width": "37", "cad-height": "23" }
+    });
+    await expect(storage.readFloorRenderedMetadata("floors/floor-1/legacy.svg", {
+      sizeBytes: 123, sha256: "a".repeat(64), mimeType: "image/svg+xml", contentEncoding: null
+    })).rejects.toThrow(/HEAD.*ledger/i);
+  });
   const recorded = "reports/11111111-1111-1111-1111-111111111111/22222222-2222-2222-2222-222222222222/attempt-1.pdf";
   it("deletes only distinct recorded report keys and validates the entire batch before I/O", async () => {
     const send = jest.fn().mockResolvedValue({});

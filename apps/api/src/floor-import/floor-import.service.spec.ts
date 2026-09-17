@@ -257,7 +257,7 @@ describe("FloorImportService", () => {
     expect(staleSql).toContain('"status" = \'failed\'');
   });
 
-  it("returns the same validated viewport from the readable job endpoint", async () => {
+  it("returns the same validated viewport for a legacy identity-encoded review job", async () => {
     const floorId = randomUUID();
     const renderedAssetId = randomUUID();
     const reviewJob = job({
@@ -269,7 +269,7 @@ describe("FloorImportService", () => {
         objectKey: `floors/${floorId}/${renderedAssetId}.svg`,
         status: "ready",
         mimeType: "image/svg+xml",
-        contentEncoding: "gzip",
+        contentEncoding: null,
         sizeBytes: 512n,
         sha256: "c".repeat(64),
         cleanupStartedAt: null
@@ -280,11 +280,12 @@ describe("FloorImportService", () => {
       floorImportJob: { findFirst: jest.fn().mockResolvedValue(reviewJob) }
     };
     const access: any = { assert: jest.fn() };
+    const storage = { readFloorRenderedMetadata: jest.fn().mockResolvedValue({ width: 640, height: 360 }) };
     const service = new FloorImportService(
       prisma,
       access,
       { record: jest.fn() } as any,
-      { readFloorRenderedMetadata: jest.fn().mockResolvedValue({ width: 640, height: 360 }) } as any
+      storage as any
     );
 
     await expect(service.get(user, floorId, reviewJob.id)).resolves.toMatchObject({
@@ -292,6 +293,10 @@ describe("FloorImportService", () => {
       renderedViewport: { width: 640, height: 360 }
     });
     expect(access.assert).toHaveBeenCalledWith(user, "site-1", "read");
+    expect(storage.readFloorRenderedMetadata).toHaveBeenCalledWith(
+      `floors/${floorId}/${renderedAssetId}.svg`,
+      { sizeBytes: 512, sha256: "c".repeat(64), mimeType: "image/svg+xml", contentEncoding: null }
+    );
   });
 
   it("cancels an active job with a fenced state transition and leaves terminal jobs unchanged", async () => {

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { DeleteObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -87,6 +87,39 @@ runIntegration("ObjectStorageService integration", () => {
       await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key })).catch(() => undefined);
       client.destroy();
       await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves a legacy identity SVG through HEAD and signed GET without a gzip header", async () => {
+    const endpoint = process.env.OBJECT_STORAGE_ENDPOINT ?? "http://localhost:9000";
+    const bucket = process.env.OBJECT_STORAGE_BUCKET ?? "floor-assets";
+    const client = new S3Client({
+      region: process.env.OBJECT_STORAGE_REGION ?? "us-east-1", endpoint, forcePathStyle: true,
+      credentials: {
+        accessKeyId: process.env.OBJECT_STORAGE_ACCESS_KEY ?? "led-floor-assets",
+        secretAccessKey: process.env.OBJECT_STORAGE_SECRET_KEY ?? "change-this-local-secret"
+      }
+    });
+    const service = new ObjectStorageService(client, { bucket, publicBaseUrl: `${endpoint}/${bucket}` });
+    const key = `floors/${randomUUID()}/legacy.svg`;
+    const bytes = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="41" height="29"><text y="18">legacy</text></svg>');
+    const sha256 = createHash("sha256").update(bytes).digest("hex");
+    try {
+      await client.send(new PutObjectCommand({
+        Bucket: bucket, Key: key, Body: bytes, ContentType: "image/svg+xml", ContentLength: bytes.length,
+        ChecksumSHA256: Buffer.from(sha256, "hex").toString("base64"),
+        CacheControl: "private, no-store", Metadata: { "cad-width": "41", "cad-height": "29" }
+      }));
+      await expect(service.readFloorRenderedMetadata(key, {
+        sizeBytes: bytes.length, sha256, mimeType: "image/svg+xml", contentEncoding: null
+      })).resolves.toEqual({ width: 41, height: 29 });
+      const response = await fetch(await service.createFloorAssetDownloadUrl(key));
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-encoding")).toBeNull();
+      expect(Buffer.from(await response.arrayBuffer())).toEqual(bytes);
+    } finally {
+      await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key })).catch(() => undefined);
+      client.destroy();
     }
   });
 });

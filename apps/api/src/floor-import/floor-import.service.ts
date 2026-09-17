@@ -214,7 +214,9 @@ export class FloorImportService {
     });
     const renderedAsset = rendered?.renderedAsset;
     if (!renderedAsset || renderedAsset.status !== "ready" ||
-        renderedAsset.mimeType !== "image/svg+xml" || renderedAsset.contentEncoding !== "gzip" || renderedAsset.cleanupStartedAt) {
+        renderedAsset.mimeType !== "image/svg+xml" ||
+        (renderedAsset.contentEncoding !== null && renderedAsset.contentEncoding !== "gzip") ||
+        renderedAsset.cleanupStartedAt) {
       throw new ConflictException("floor import job is not ready to apply");
     }
     const renderedSizeBytes = Number(renderedAsset.sizeBytes);
@@ -222,7 +224,8 @@ export class FloorImportService {
     let viewport: { width: number; height: number };
     try {
       viewport = await this.storage.readFloorRenderedMetadata(renderedAsset.objectKey, {
-        sizeBytes: renderedSizeBytes, sha256: renderedAsset.sha256, mimeType: "image/svg+xml", contentEncoding: "gzip"
+        sizeBytes: renderedSizeBytes, sha256: renderedAsset.sha256,
+        mimeType: "image/svg+xml", contentEncoding: renderedAsset.contentEncoding
       });
     }
     catch { throw new ServiceUnavailableException("rendered floor asset metadata is unavailable"); }
@@ -367,7 +370,7 @@ export class FloorImportService {
       if (!this.storage) throw new InternalServerErrorException("floor import storage is unavailable");
       const rendered = job.renderedAsset;
       if (!rendered || rendered.status !== "ready" || rendered.mimeType !== "image/svg+xml" ||
-          rendered.contentEncoding !== "gzip" || rendered.cleanupStartedAt) {
+          (rendered.contentEncoding !== null && rendered.contentEncoding !== "gzip") || rendered.cleanupStartedAt) {
         throw new ConflictException("rendered floor asset is not ready for review");
       }
       const sizeBytes = Number(rendered.sizeBytes);
@@ -378,7 +381,7 @@ export class FloorImportService {
             sizeBytes,
             sha256: rendered.sha256,
             mimeType: "image/svg+xml",
-            contentEncoding: "gzip"
+            contentEncoding: rendered.contentEncoding
           })
         );
       } catch {
