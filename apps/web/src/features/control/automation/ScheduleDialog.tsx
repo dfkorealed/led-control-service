@@ -4,13 +4,15 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import type { CreateScheduleInput, ScheduleResponse } from "../../../api/automation";
 import type { Dashboard } from "../../../api/queries";
 import { Button, Checkbox, DatePicker, Heading, ModalDialog, SelectBox, Slider, Text, TextField, TimePicker, type FocusableFieldHandle } from "../../../components/ui";
-import { ControlTargetPicker } from "../ControlTargetPicker";
+import { resolveControlSelection, type ControlSelection } from "../control-selection";
+import { SpatialTargetSelector, spatialTargetDialogClassName } from "../target-selection/SpatialTargetSelector";
 import {
   applySchedulePreset,
-  controlSelectionSummary,
   fixtureIdsAvailability,
   schedulePreset,
   scheduleSummary,
+  scheduleTargetSnapshotSummary,
+  scheduleTargetStorageCopy,
   type SchedulePreset
 } from "./automation-presenters";
 import {
@@ -84,8 +86,10 @@ export function ScheduleDialog({
   const dimmingToggleRef = useRef<HTMLInputElement>(null);
   const brightnessInputRef = useRef<HTMLInputElement>(null);
   const targetCardRef = useRef<HTMLDivElement>(null);
+  const targetTriggerRef = useRef<HTMLButtonElement>(null);
   const targetSectionRef = useRef<HTMLFieldSetElement>(null);
   const [values, setValues] = useState<ScheduleFormValues>(() => createEmptyScheduleForm(timeZone));
+  const [targetSource, setTargetSource] = useState<ControlSelection>(() => ({ mode: "fixtures", fixtureIds: [] }));
   const [errors, setErrors] = useState<ScheduleFormErrors>({});
   const [view, setView] = useState<"main" | "target">("main");
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -98,6 +102,8 @@ export function ScheduleDialog({
       ? scheduleToFormValues(schedule, timeZone)
       : createEmptyScheduleForm(timeZone);
     setValues(nextValues);
+    // API responses only contain fixture IDs, so reopened schedules are direct snapshots.
+    setTargetSource(nextValues.target);
     setErrors({});
     setView("main");
     setAdvancedOpen(Boolean(schedule && schedulePreset(nextValues) === "custom"));
@@ -118,7 +124,13 @@ export function ScheduleDialog({
     setPendingFocus(null);
   }, [advancedOpen, pendingFocus, view]);
 
-  const targetSummary = controlSelectionSummary(values.target, dashboard);
+  const targetResolution = resolveControlSelection(dashboard, values.target);
+  const sourceResolution = resolveControlSelection(dashboard, targetSource);
+  // Direct fixture selections are already fully represented by `values.target`.
+  // Only authored group/floor snapshots need their live source readiness retained.
+  const sourceUnavailable = targetSource.mode !== "fixtures" && !sourceResolution.available;
+  const targetFixtureIds = values.target.mode === "fixtures" ? values.target.fixtureIds : [];
+  const targetSummary = scheduleTargetSnapshotSummary(targetSource, targetFixtureIds, dashboard);
   const selectedPreset = schedulePreset(values);
 
   function change(patch: Partial<ScheduleFormValues>) {
@@ -126,14 +138,29 @@ export function ScheduleDialog({
     setErrors({});
   }
 
+  function changeTarget(source: ControlSelection) {
+    const resolved = resolveControlSelection(dashboard, source);
+    // Floor/group membership is resolved now. The schedule payload remains an immutable fixture snapshot.
+    const target: ControlSelection = { mode: "fixtures", fixtureIds: resolved.fixtureIds };
+    setTargetSource(source);
+    change({ target });
+  }
+
   function submit(event: React.FormEvent) {
     event.preventDefault();
     const nextErrors = validateScheduleForm(values);
+    const currentTarget = resolveControlSelection(dashboard, values.target);
+    if (!currentTarget.available) {
+      nextErrors.target = currentTarget.unavailableReason ?? "현재 제어할 수 없는 대상입니다.";
+    }
     if (
       values.target.mode === "fixtures"
       && fixtureIdsAvailability(values.target.fixtureIds, dashboard).invalidFixtureIds.length > 0
     ) {
       nextErrors.target = "현재 현장에서 확인되지 않는 조명이 포함되어 있습니다. 대상을 다시 선택해 주세요.";
+    }
+    if (sourceUnavailable) {
+      nextErrors.target = sourceResolution.unavailableReason ?? "현재 제어할 수 없는 대상입니다.";
     }
     setErrors(nextErrors);
     const firstError = firstScheduleError(nextErrors);
@@ -156,7 +183,10 @@ export function ScheduleDialog({
       isPending={isPending}
       returnFocusRef={returnFocusRef}
       onClose={onClose}
-      className="max-w-4xl"
+      className={view === "target"
+        ? spatialTargetDialogClassName
+        : "max-w-4xl"}
+      bodyClassName={view === "target" ? "grid min-h-0 overflow-hidden" : undefined}
     >
 
         {view === "target" ? (
@@ -164,25 +194,33 @@ export function ScheduleDialog({
             title="제어 대상 선택"
             description="개별 조명, 층 전체 또는 저장된 구역을 선택하세요."
             disabled={isPending}
+            doneLabel={targetResolution.fixtureIds.length > 0 ? `${targetResolution.fixtureIds.length}개 조명 선택 완료` : "선택 완료"}
+            doneDisabled={!targetResolution.available || sourceUnavailable}
+            className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-4"
             onDone={() => {
               setView("main");
               setPendingFocus(null);
-              queueMicrotask(() => targetCardRef.current?.focus());
+              queueMicrotask(() => targetTriggerRef.current?.focus());
             }}
           >
             <fieldset
               ref={targetSectionRef}
-              className="m-0 border-0 p-0"
+              className="m-0 flex min-h-0 flex-col gap-3 overflow-hidden border-0 p-0"
               disabled={isPending}
               tabIndex={-1}
               {...errorAttributes(errors.target, scheduleErrorIds.target)}
             >
               <legend className="sr-only">제어 대상 선택</legend>
-              <ControlTargetPicker
+              <Text variant="caption" tone="secondary">{scheduleTargetStorageCopy(targetSource, targetFixtureIds)}</Text>
+              <SpatialTargetSelector
+                siteId={dashboard.site.id}
                 dashboard={dashboard}
-                selection={values.target}
+                selection={targetSource}
+                displaySelection={values.target}
                 disabled={isPending}
-                onChange={(target) => change({ target })}
+                modeLabels={{ fixtures: "직접 선택" }}
+                modeSelectionSemantics="pressed"
+                onChange={changeTarget}
               />
               <FieldError id={scheduleErrorIds.target} message={errors.target} />
             </fieldset>
@@ -229,6 +267,7 @@ export function ScheduleDialog({
               <Heading as="h3" id="schedule-target-heading" variant="card-title">어느 조명을 켤까요?</Heading>
               <AutomationSelectionCard
                 fieldRef={targetCardRef}
+                triggerRef={targetTriggerRef}
                 label="제어 대상"
                 title={targetSummary.title}
                 description={targetSummary.description}
@@ -386,7 +425,7 @@ const scheduleErrorIds = {
 } as const;
 
 function FieldError({ id, message }: { id: string; message?: string }) {
-  return message ? <span id={id} className="field-error">{message}</span> : null;
+  return message ? <span id={id} className="field-error" role="alert">{message}</span> : null;
 }
 
 function errorAttributes(error: string | undefined, id: string) {

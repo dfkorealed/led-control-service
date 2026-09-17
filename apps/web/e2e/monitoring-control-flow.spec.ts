@@ -126,8 +126,16 @@ async function selectRegistrationTargets(page: Page) {
   await page.getByRole("option", { name: "Gateway B2", exact: true }).click();
 }
 
-async function clickChoice(page: Page, role: "checkbox" | "radio", name: string) {
+async function clickChoice(page: Page | Locator, role: "checkbox" | "radio", name: string) {
   await page.getByRole(role, { name }).locator("xpath=ancestor::label[1]").click();
+}
+
+async function selectControlFixturesFromDrawer(page: Page, fixtureNames: string[]) {
+  await page.getByRole("button", { name: "조명 목록 열기" }).click();
+  const drawer = page.getByRole("dialog", { name: "조명 목록" });
+  await expect(drawer).toBeVisible();
+  for (const fixtureName of fixtureNames) await clickChoice(drawer, "checkbox", `${fixtureName} 선택`);
+  await drawer.getByRole("button", { name: "선택 완료" }).click();
 }
 
 test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하드웨어 E2E 아님)", () => {
@@ -401,14 +409,14 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
     const api = await installBrowserContractFixture(page);
     await page.goto(`/control?siteId=${ids.site}`);
 
-    await expect(page.getByText("B2 · 온라인 · Health 정상", { exact: true }).first()).toBeVisible();
-    await clickChoice(page, "checkbox", "B2-L001 선택");
+    await expect(page.getByRole("button", { name: "B2-L001 정상 70%" })).toBeVisible();
+    await selectControlFixturesFromDrawer(page, ["B2-L001"]);
     const createResponsePromise = page.waitForResponse((response) => response.url().endsWith("/api/commands/dimming"));
     await page.getByRole("button", { name: "밝기 적용" }).click();
     const createResponse = await createResponsePromise;
 
     await expect(page.getByRole("button", { name: "밝기 적용 중" })).toBeDisabled();
-    await expect(page.getByRole("checkbox", { name: "B2-L001 선택" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "B2-L001 정상 70%" })).toBeDisabled();
     await expect(page.getByRole("slider", { name: "밝기" })).toBeDisabled();
     await expect.poll(() => api.dimmingRequests).toEqual([expect.objectContaining({
       siteId: ids.site,
@@ -437,8 +445,7 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
   test("다중 조명 부분 실패에서 성공과 timeout 결과를 장비별로 표시한다", async ({ page }) => {
     const api = await installBrowserContractFixture(page);
     await page.goto(`/control?siteId=${ids.site}`);
-    await clickChoice(page, "checkbox", "B2-L001 선택");
-    await clickChoice(page, "checkbox", "B2-L002 선택");
+    await selectControlFixturesFromDrawer(page, ["B2-L001", "B2-L002"]);
     const createResponsePromise = page.waitForResponse((response) => response.url().endsWith("/api/commands/dimming"));
     await page.getByRole("button", { name: "밝기 적용" }).click();
     const createResponse = await createResponsePromise;
@@ -480,7 +487,7 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
   test("브라우저 새로고침 후 진행 중 명령을 복구하고 terminal 결과까지 추적한다", async ({ page }) => {
     const api = await installBrowserContractFixture(page);
     await page.goto(`/control?siteId=${ids.site}`);
-    await clickChoice(page, "checkbox", "B2-L001 선택");
+    await selectControlFixturesFromDrawer(page, ["B2-L001"]);
     await page.getByRole("button", { name: "밝기 적용" }).click();
     await expect(page.getByRole("button", { name: "밝기 적용 중" })).toBeDisabled();
     await expect.poll(() => api.dimmingRequests.length).toBe(1);
@@ -505,7 +512,7 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
 
     await expect(page.getByRole("status", { name: "명령 진행 상태" }).getByText("조명 적용 완료")).toBeVisible({ timeout: 5_000 });
     await expect(page.getByRole("button", { name: "밝기 적용" })).toBeDisabled();
-    await clickChoice(page, "checkbox", "B2-L001 선택");
+    await selectControlFixturesFromDrawer(page, ["B2-L001"]);
     await expect(page.getByRole("button", { name: "밝기 적용" })).toBeEnabled();
   });
 
@@ -536,8 +543,11 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
     await page.getByRole("option", { name: "B2", exact: true }).click();
     await createDialog.getByRole("button", { name: "게이트웨이", exact: true }).click();
     await page.getByRole("option", { name: "Gateway B2", exact: true }).click();
-    await clickChoice(page, "checkbox", "B2-L001 포함");
-    await clickChoice(page, "checkbox", "B2-L002 포함");
+    await createDialog.getByRole("button", { name: "조명 목록 열기" }).click();
+    const groupDrawer = page.getByRole("dialog", { name: "조명 목록" });
+    await clickChoice(groupDrawer, "checkbox", "B2-L001 선택");
+    await clickChoice(groupDrawer, "checkbox", "B2-L002 선택");
+    await groupDrawer.getByRole("button", { name: "선택 완료" }).click();
     await page.getByRole("button", { name: "구역 만들기" }).click();
 
     await expect.poll(() => groupApi.createRequests).toEqual([{
@@ -620,16 +630,15 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
     const controlApi = await installReadyMeshControlRoutes(page);
     await page.goto(`/control?siteId=${ids.site}`);
 
-    await page.getByRole("button", { name: "층", exact: true }).click();
-    await expect(page.getByText(/Gateway 1\/1 준비 완료/)).toBeVisible();
-    await page.getByRole("button", { name: "B2" }).click();
+    await page.getByRole("button", { name: "층 전체", exact: true }).click();
+    await page.getByRole("button", { name: "B2", exact: true }).click();
     await page.getByRole("button", { name: "밝기 적용" }).click();
     await expect(page.getByRole("status", { name: "명령 진행 상태" }).getByText("조명 적용 완료")).toBeVisible();
     await expect.poll(() => controlApi.dimmingRequests[0]?.target).toEqual({ type: "floor", floorId: ids.floor });
 
-    await page.getByRole("button", { name: "구역", exact: true }).click();
-    await expect(page.getByText(/저장된 구역 · 제어 준비 완료/)).toBeVisible();
-    await page.getByRole("button", { name: "B2 입구 선택" }).click();
+    await page.getByRole("button", { name: "저장된 구역", exact: true }).click();
+    await page.getByRole("alertdialog", { name: "선택 방식 변경" }).getByRole("button", { name: "변경" }).click();
+    await page.getByRole("button", { name: "B2 입구" }).click();
     await page.getByRole("button", { name: "밝기 적용" }).click();
     await expect.poll(() => controlApi.dimmingRequests[1]?.target).toEqual({ type: "group", groupId: ids.group });
     await expect(page.getByRole("status", { name: "명령 진행 상태" }).getByText("조명 적용 완료")).toBeVisible();
@@ -662,10 +671,15 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
 
       await page.goto(`/control?siteId=${ids.site}`);
       await expect(page.getByRole("heading", { name: "조명 밝기 제어", exact: true })).toBeVisible();
-      await expectResponsivePanelLayout(page, "[data-control-target-card]", "[data-control-panel]", viewport.width < 768);
+      await expectResponsivePanelLayout(
+        page,
+        viewport.width < 768 ? '[data-testid="target-selection-map-viewport"]' : "[data-control-target-card]",
+        viewport.width < 768 ? "[data-target-selection-detail-panel]" : "[data-control-panel]",
+        viewport.width < 768
+      );
       await expectNoHorizontalOverflow(page);
       if (viewport.width <= 760) {
-        await expectMinimumTouchTargetsAfterScrolling(page, "[data-control-screen]");
+        await expectMinimumTouchTargetsAfterScrolling(page, "[data-control-screen]", { excludeSpatialMapMarkers: true });
       }
     });
   }
@@ -685,10 +699,12 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
         ids: { siteId: ids.site, floorId: ids.floor, gatewayId: ids.gateway }
       });
       await page.goto(`/control?siteId=${ids.site}&mode=manual`);
-      await expect(page.getByRole("group", { name: "조명 목록" })).toBeVisible();
+      await page.getByRole("button", { name: "조명 목록 열기" }).click();
+      const drawer = page.getByRole("dialog", { name: "조명 목록" });
+      await expect(drawer).toBeVisible();
 
       const scrollMetrics = await page.evaluate(() => {
-        const fixtureList = document.querySelector<HTMLElement>("[data-control-target-list]");
+        const fixtureList = document.querySelector<HTMLElement>("[data-fixture-selection-list]");
         if (!fixtureList) throw new Error("control target list not found");
         return {
           documentClientHeight: document.documentElement.clientHeight,
@@ -702,8 +718,8 @@ test.describe("모니터링-제어 브라우저 route fixture 계약 (실제 하
       expect(scrollMetrics.listClientHeight).toBeGreaterThanOrEqual(44);
       expect(scrollMetrics.listScrollHeight).toBeGreaterThan(scrollMetrics.listClientHeight);
       expect(scrollMetrics.listOverflowY).toBe("auto");
-      const firstFixture = page.getByRole("checkbox", { name: "B2-L001 선택" });
-      await page.getByText("B2-L001", { exact: true }).click();
+      const firstFixture = drawer.getByRole("checkbox", { name: "B2-L001 선택" });
+      await firstFixture.locator("xpath=ancestor::label[1]").click();
       await expect(firstFixture).toBeChecked();
     });
   }

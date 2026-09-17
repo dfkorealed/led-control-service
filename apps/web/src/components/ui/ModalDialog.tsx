@@ -19,6 +19,7 @@ export interface ModalDialogProps {
   role?: "dialog" | "alertdialog";
   closeLabel?: string;
   className?: string;
+  bodyClassName?: string;
 }
 
 export const ModalDialog = /* @__PURE__ */ forwardRef<HTMLElement, ModalDialogProps>(function ModalDialog(props, ref) {

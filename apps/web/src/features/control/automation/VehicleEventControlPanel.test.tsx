@@ -1,3 +1,4 @@
+import type { FloorMapSnapshot } from "@led-control/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -6,6 +7,13 @@ import { authMeQueryKey } from "../../../api/principal-cache";
 import { vehicleEventRuleQueryKey, type VehicleEventRuleResponse } from "../../../api/automation";
 import type { Dashboard } from "../../../api/queries";
 import { VehicleEventControlPanel } from "./VehicleEventControlPanel";
+
+const floorMapQuery = vi.hoisted(() => vi.fn());
+
+vi.mock("../../../api/queries", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../api/queries")>()),
+  useFloorMapSnapshot: floorMapQuery
+}));
 
 const mocks = vi.hoisted(() => ({
   createVehicleEventRule: vi.fn(),
@@ -22,6 +30,7 @@ vi.mock("../../../api/automation", async (importOriginal) => ({
 const siteId = "00000000-0000-4000-8000-000000000001";
 const sensorFixtureId = "00000000-0000-4000-8000-000000000003";
 const targetFixtureId = "00000000-0000-4000-8000-000000000004";
+const floorMapSnapshot: FloorMapSnapshot = { floorId: "00000000-0000-4000-8000-000000000005", revision: 1, width: 600, height: 400, floorPlan: null, objects: [] };
 const dashboard: Dashboard = {
   generatedAt: "2026-09-12T00:00:00.000Z",
   monitoringPolicy: { gatewayOfflineAfterSeconds: 90, fixtureStaleAfterSeconds: 180 },
@@ -46,6 +55,7 @@ const dashboard: Dashboard = {
 describe("VehicleEventControlPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    floorMapQuery.mockReturnValue({ data: floorMapSnapshot, error: null, isLoading: false, isFetching: false });
     mocks.listVehicleEventRules.mockResolvedValue({ items: [rule()], total: 1, nextCursor: null });
     mocks.createVehicleEventRule.mockResolvedValue(rule());
     mocks.updateVehicleEventRule.mockResolvedValue(rule());
@@ -96,10 +106,10 @@ describe("VehicleEventControlPanel", () => {
     expect(within(dialog).queryByRole("group", { name: "조명 목록" })).not.toBeInTheDocument();
 
     fireEvent.click(within(dialog).getByRole("button", { name: "감지 센서 선택" }));
-    expect(within(dialog).getByLabelText("B1-SENSOR-001 선택")).toBeVisible();
-    expect(within(dialog).queryByLabelText("B1-L001 선택")).not.toBeInTheDocument();
-    fireEvent.click(within(dialog).getByLabelText("B1-SENSOR-001 선택"));
-    fireEvent.click(within(dialog).getByRole("button", { name: "선택 완료" }));
+    expect(within(dialog).getByRole("button", { name: /B1-SENSOR-001/ })).toBeVisible();
+    expect(within(dialog).getByRole("button", { name: /B1-L001.*선택 불가/ })).toBeDisabled();
+    fireEvent.click(within(dialog).getByRole("button", { name: /B1-SENSOR-001/ }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "1개 조명 선택 완료" }));
 
     expect(within(dialog).getByRole("group", { name: "감지 센서" })).toHaveTextContent("B1-SENSOR-001");
     expect(within(dialog).getByRole("status")).toHaveTextContent("B1-SENSOR-001 감지");
@@ -162,8 +172,8 @@ describe("VehicleEventControlPanel", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "저장" }));
 
     expect(screen.getByText("감지 센서를 한 개 이상 선택하세요.")).toBeInTheDocument();
-    fireEvent.click(within(dialog).getByLabelText("B1-SENSOR-001 선택"));
-    fireEvent.click(within(dialog).getByRole("button", { name: "선택 완료" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: /B1-SENSOR-001/ }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "1개 조명 선택 완료" }));
     fireEvent.click(within(dialog).getByRole("button", { name: "저장" }));
     expect(screen.getByText("제어 조명을 한 개 이상 선택하세요.")).toBeInTheDocument();
     expect(mocks.createVehicleEventRule).not.toHaveBeenCalled();
@@ -176,9 +186,9 @@ describe("VehicleEventControlPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "감지 센서 선택" }));
     const dialog = screen.getByRole("dialog", { name: "이벤트 추가" });
-    expect(within(dialog).getByLabelText("B1-SENSOR-001 선택")).toBeInTheDocument();
-    expect(within(dialog).queryByLabelText("B1-L001 선택")).not.toBeInTheDocument();
-    expect(within(dialog).queryByLabelText("B1-L002 선택")).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: /B1-SENSOR-001/ })).toBeEnabled();
+    expect(within(dialog).getByRole("button", { name: /B1-L001.*선택 불가/ })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: /B1-L002.*선택 불가/ })).toBeDisabled();
   });
 
   it("fails closed for missing and invalid capability verification timestamps", async () => {
@@ -198,8 +208,8 @@ describe("VehicleEventControlPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "감지 센서 선택" }));
     const dialog = screen.getByRole("dialog", { name: "이벤트 추가" });
-    expect(within(dialog).queryByLabelText("B1-SENSOR-001 선택")).not.toBeInTheDocument();
-    expect(within(dialog).queryByLabelText("B1-SENSOR-INVALID 선택")).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: /B1-SENSOR-001.*선택 불가/ })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: /B1-SENSOR-INVALID.*선택 불가/ })).toBeDisabled();
   });
 
   it("shows unresolved ids and rejects an event edit with a removed target fixture", async () => {
@@ -243,7 +253,7 @@ describe("VehicleEventControlPanel", () => {
 
     expect(within(dialog).getByText("현재 현장에서 확인되지 않거나 차량 감지 기능이 해제된 센서가 포함되어 있습니다. 다시 선택해 주세요.")).toBeVisible();
     expect(within(dialog).getByRole("group", { name: "감지 센서 선택" })).toHaveFocus();
-    expect(within(dialog).queryByLabelText("B1-SENSOR-001 선택")).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: /B1-SENSOR-001.*선택됨/ })).toHaveAttribute("aria-pressed", "true");
     expect(mocks.updateVehicleEventRule).not.toHaveBeenCalled();
   });
 
@@ -254,11 +264,11 @@ describe("VehicleEventControlPanel", () => {
     const dialog = screen.getByRole("dialog", { name: "이벤트 추가" });
 
     fireEvent.click(within(dialog).getByRole("button", { name: "감지 센서 선택" }));
-    fireEvent.click(within(dialog).getByLabelText("B1-SENSOR-001 선택"));
-    fireEvent.click(within(dialog).getByRole("button", { name: "선택 완료" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: /B1-SENSOR-001/ }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "1개 조명 선택 완료" }));
     fireEvent.click(within(dialog).getByRole("button", { name: "실행할 조명 선택" }));
-    fireEvent.click(within(dialog).getByLabelText("B1-L001 선택"));
-    fireEvent.click(within(dialog).getByRole("button", { name: "선택 완료" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: /B1-L001/ }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "1개 조명 선택 완료" }));
     fireEvent.click(within(dialog).getByRole("button", { name: "80%" }));
     fireEvent.click(within(dialog).getByRole("button", { name: "5분" }));
     fireEvent.click(within(dialog).getByRole("button", { name: "저장" }));
@@ -431,11 +441,11 @@ async function submitValidCreate() {
   fireEvent.click(screen.getByRole("button", { name: "이벤트 추가" }));
   const dialog = screen.getByRole("dialog", { name: "이벤트 추가" });
   fireEvent.click(within(dialog).getByRole("button", { name: "감지 센서 선택" }));
-  fireEvent.click(within(dialog).getByLabelText("B1-SENSOR-001 선택"));
-  fireEvent.click(within(dialog).getByRole("button", { name: "선택 완료" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: /B1-SENSOR-001/ }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "1개 조명 선택 완료" }));
   fireEvent.click(within(dialog).getByRole("button", { name: "실행할 조명 선택" }));
-  fireEvent.click(within(dialog).getByLabelText("B1-L001 선택"));
-  fireEvent.click(within(dialog).getByRole("button", { name: "선택 완료" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: /B1-L001/ }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "1개 조명 선택 완료" }));
   fireEvent.click(within(dialog).getByRole("button", { name: "저장" }));
   await waitFor(() => expect(mocks.createVehicleEventRule).toHaveBeenCalledTimes(1));
 }

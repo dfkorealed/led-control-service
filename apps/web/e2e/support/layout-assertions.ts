@@ -24,6 +24,11 @@ const interactiveTargetSelector = [
   "[tabindex]:not([tabindex='-1'])"
 ].join(",");
 
+type TouchTargetOptions = {
+  /** Spatial markers are measured by default; exclude them only in specs that explicitly opt out. */
+  excludeSpatialMapMarkers?: boolean;
+};
+
 export async function expectNoHorizontalOverflow(page: Page) {
   const metrics = await page.evaluate(() => ({
     clientWidth: document.documentElement.clientWidth,
@@ -36,7 +41,7 @@ export async function expectNoHorizontalOverflow(page: Page) {
 export async function expectMinimumTouchTargetsAfterScrolling(
   page: Page,
   rootSelector: string,
-  { excludeSpatialMapMarkers = false }: { excludeSpatialMapMarkers?: boolean } = {}
+  { excludeSpatialMapMarkers = false }: TouchTargetOptions = {}
 ) {
   const targets = page.locator(rootSelector).locator(interactiveTargetSelector);
   const targetCount = await targets.count();
@@ -132,7 +137,7 @@ export async function expectMinimumTouchTargetsAfterScrolling(
 export async function expectMinimumTouchTargets(
   page: Page,
   rootSelector: string,
-  { excludeSpatialMapMarkers = false }: { excludeSpatialMapMarkers?: boolean } = {}
+  { excludeSpatialMapMarkers = false }: TouchTargetOptions = {}
 ) {
   const targets = await page.locator(rootSelector).evaluateAll((roots, args) => {
     interface VisibleRect {
@@ -216,13 +221,13 @@ export async function expectMinimumTouchTargets(
       );
       if (!visibleRect) return null;
 
-      const isFixed = getComputedStyle(element).position === "fixed";
-      const hasFixedContainingBlock = isFixed
-        && [...generateAncestors(element)].some(establishesFixedContainingBlock);
-      for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
-        // A viewport-fixed box escapes ancestor overflow unless an ancestor establishes
-        // the fixed containing block (for example via transform/filter/perspective).
-        if (isFixed && !hasFixedContainingBlock) continue;
+      const ancestors = [...generateAncestors(element)];
+      // Descendants of a viewport-fixed overlay escape document clipping too.
+      // Retain clipping inside the overlay and all transformed containing blocks.
+      const viewportFixedRoot = [element, ...ancestors].find((candidate) => getComputedStyle(candidate).position === "fixed"
+        && ![...generateAncestors(candidate)].some(establishesFixedContainingBlock));
+      const clippingAncestors = viewportFixedRoot ? ancestors.slice(0, ancestors.indexOf(viewportFixedRoot) + 1) : ancestors;
+      for (const ancestor of clippingAncestors) {
         const style = getComputedStyle(ancestor);
         const clipsX = ["auto", "hidden", "clip", "scroll"].includes(style.overflowX);
         const clipsY = ["auto", "hidden", "clip", "scroll"].includes(style.overflowY);

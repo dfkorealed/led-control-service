@@ -1,8 +1,8 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { FloorMapSnapshot } from "@led-control/shared";
 import type Konva from "konva";
 import { Layer, Stage } from "react-konva";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { FloorMapObjectNode, FloorScene } from "./FloorScene";
 
 const snapshot: FloorMapSnapshot = {
@@ -32,8 +32,49 @@ const snapshot: FloorMapSnapshot = {
 };
 
 describe("FloorScene", () => {
+  afterEach(() => cleanup());
+
+  it("renders multi-selected and disabled markers with 44px coarse hit targets", () => {
+    const onFixturePress = vi.fn();
+    const fixtureA = {
+      id: "fixture-a",
+      name: "B1-L001",
+      x: 100,
+      y: 120,
+      brightness: 70,
+      status: "online" as const
+    };
+    const fixtureB = {
+      id: "fixture-b",
+      name: "B1-L002",
+      x: 200,
+      y: 240,
+      brightness: 20,
+      status: "online" as const
+    };
+
+    render(
+      <FloorScene
+        snapshot={snapshot}
+        fixtures={[fixtureA, fixtureB]}
+        interactive={false}
+        selection={{
+          kind: "multiple",
+          selectedFixtureIds: new Set([fixtureA.id]),
+          disabledFixtureIds: new Set([fixtureB.id])
+        }}
+        coarsePointer
+        onFixturePress={onFixturePress}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: /B1-L001.*선택됨/ })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: /B1-L002.*선택 불가/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /B1-L001/ })).toHaveClass("size-12!", "min-h-12!");
+  });
+
   it("renders compact selectable fixtures without visible marker copy", () => {
-    const onSelectFixture = vi.fn();
+    const onFixturePress = vi.fn();
     render(
       <FloorScene
         snapshot={snapshot}
@@ -46,8 +87,8 @@ describe("FloorScene", () => {
           status: "online"
         }]}
         interactive={false}
-        selectedFixtureId="fixture-1"
-        onSelectFixture={onSelectFixture}
+        selection={{ kind: "single", selectedFixtureIds: new Set(["fixture-1"]) }}
+        onFixturePress={onFixturePress}
       />
     );
 
@@ -57,19 +98,20 @@ describe("FloorScene", () => {
     expect(fixture).toHaveClass("size-5!", "min-h-5!", "rounded-fixture-marker!", "p-0!");
     expect(fixture).toHaveAttribute("data-spatial-map-marker", "true");
     expect(fixture).toHaveAttribute("data-brightness-level", "8");
-    expect(fixture).toHaveClass(
+    expect(fixture.querySelector("[data-spatial-map-marker-dot]")).toHaveClass(
       "bg-fixture-brightness-8",
       "shadow-fixture-brightness-8",
       "outline-fixture-selected"
     );
     expect(fixture).toHaveAttribute("aria-current", "true");
+    expect(fixture).not.toHaveAttribute("aria-pressed");
     expect(fixture).toHaveAttribute("title", "B1-L001 정상 70%");
     expect(fixture).toHaveTextContent("");
     expect(fixture.querySelector("span[aria-hidden='true']")).toHaveClass("bg-fixture-connected");
     expect(screen.queryByText("B1-L001")).not.toBeInTheDocument();
     expect(screen.queryByText("70%")).not.toBeInTheDocument();
     fireEvent.click(fixture);
-    expect(onSelectFixture).toHaveBeenCalledWith("fixture-1");
+    expect(onFixturePress).toHaveBeenCalledWith("fixture-1");
   });
 
   it.each([
@@ -101,7 +143,7 @@ describe("FloorScene", () => {
 
     const marker = screen.getByRole("button", { name: `B1-${brightness} 정상 ${brightness}%` });
     expect(marker).toHaveAttribute("data-brightness-level", String(level));
-    expect(marker).toHaveClass(`bg-fixture-brightness-${level}`, `shadow-fixture-brightness-${level}`);
+    expect(marker.querySelector("[data-spatial-map-marker-dot]")).toHaveClass(`bg-fixture-brightness-${level}`, `shadow-fixture-brightness-${level}`);
   });
 
   it("keeps null-filled editor objects hit-testable across their interior", () => {

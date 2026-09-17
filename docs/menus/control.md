@@ -1,8 +1,25 @@
 # 제어 메뉴 기능 현황
 
-기준일: 2026-09-16
+기준일: 2026-09-17
 
 ## 구현 완료
+
+- 2026-09-17 최종 지도 선택 보완: 스케줄·이벤트의 지도 단계와 구역 편집은 명시적인 반응형 너비와 제한된 높이를 공유하며, 데스크톱 지도 행이 남은 높이를 사용한다. 스케줄·이벤트는 빈 선택·잘못된 선택에서도 `설정으로 돌아가기`로 초안을 보존하고 원래 선택 버튼에 포커스를 돌려준다. 대시보드 갱신으로 없어진 직접 선택은 `선택 비우기`로 복구할 수 있다. 스케줄은 최종 저장에서도 최신 직접 fixture 스냅샷의 제어 가능 여부·단일 Gateway를 재검증하고 대상 필드로 오류/포커스를 돌린다. 기존 구역 편집과 빈 구역의 경계 변경은 해당 층 도면으로 이동하며 구역 이름 입력은 16px이다.
+- 저장 구역 편집기는 390×660·320×740 compact 화면에서도 지도 선택 영역을 최소 높이로 유지하고 dialog 내부 폼이 스크롤을 소유한다. 기존 100개 구성원을 모두 제거하는 경우 추가·제거 예정 목록은 별도 제한 높이 영역에서 스크롤하므로 지도·toolbar를 0px로 축소하거나 가리지 않는다. compact 신규 구역의 실제 marker 선택과 데스크톱 100개 변경 목록·재선택을 Chromium 회귀로 검증한다.
+- compact 수동 제어는 접힌 상태에서도 선택 수·상태·16px 밝기 수치 입력·적용 버튼을 하단 내비게이션 위에 유지한다. 펼친 밝기 프리셋·슬라이더·진행/복구 상세만 제한된 높이 안에서 스크롤한다. 본문은 실제 시트 높이와 셸 위치를 반영한 별도 스크롤 영역을 사용해 지도·목록 버튼이 고정 시트 아래에 가려지지 않게 한다. 선택 수는 한 곳의 polite live region으로 알리고, 선택 불가 후보의 정적 사유에는 alert를 쓰지 않는다. 층·구역의 구성원 목록은 읽기 전용으로 표시하며 직접 선택 전환 방법을 안내한다. Gateway·감지 capability·구역 경계 제한은 지도와 목록에서 같은 정책 사유를 제공한다.
+- 공통 pinch는 시작 시 지도 좌표를 현재 두 손가락 중점 아래에 유지하므로 비대칭 확대와 두 손가락 이동을 함께 지원한다. 48px coarse marker의 중심은 도면 가장자리에서 반지름만큼 안쪽으로 제한해 실제 44px 이상 터치 영역을 보존한다. 이 보완은 실제 viewport 좌표·pointer buttons를 사용하는 Chromium 및 단위 회귀 범위이며 native WebView·물리 조명 HIL 증거가 아니다.
+
+- 2026-09-17 제어 대상 선택은 수동 명령, 스케줄, 차량 감지 이벤트, 저장 구역 관리에서 공통 `SpatialTargetSelector`/`FixtureGroupMapEditor`의 지도 우선 흐름으로 통합했다. 지도에 배치되지 않았거나 도면을 읽을 수 없는 조명은 보조 목록 drawer로 선택할 수 있다. 지도는 이동·개별 선택·영역 선택 모든 모드에서 두 손가락 pinch를 우선 처리하고, wheel 확대·내부 pan/scroll은 viewport 안에 한정한다. marker는 시각 dot과 독립된 44px coarse hit target을 쓰며, pointer capture는 지도 밖 drag를 유지하되 marker button의 native click은 단일 선택으로 그대로 전달한다. 수동 개별 선택은 첫 조명의 단일 Gateway 및 최대 1,000개를, 저장 구역 멤버십은 단일 floor/Gateway·1~100개를 강제한다. compact 화면은 선택 요약을 펼쳐 밝기·실행·진행/복구를 한 흐름에서 제공하고, drawer·지도 detail·실행/이력은 모두 bounded internal scroll을 사용한다. compact 수치 입력은 16px, preset/action은 44px 이상(현재 preset 52px)이다.
+
+- 2026-09-17 지도 제어 브라우저 검증에서 compact 밝기 수치 입력을 16px로, 프리셋 버튼을 높이 52px로 보완했다. 둥근 모서리를 제외해도 44×44px 터치 영역을 확보한다. 조명 목록 drawer는 PC에서도 높이를 제한하고 목록 자체를 스크롤하며, 내부 native checkbox 입력의 위치 기준을 목록으로 고정해 마지막 행 선택 시 overlay가 화면 밖으로 밀리지 않게 했다. 1024px의 100→121개 목록 확장·마지막 행 선택, 1440/1024px의 실제 지도·이력·구역 내부 휠 스크롤, 390/320px의 펼친 실행 영역·drawer 터치 영역과 입력 글꼴을 Chromium으로 검증한다. 이는 브라우저 회귀 범위이며 실제 WebView 터치·하드웨어 HIL 검증은 아니다.
+
+- 2026-09-17 저장 구역 생성·수정의 조명 멤버십 편집을 지도 우선 `FixtureGroupMapEditor`로 교체했다. 첫 조명 선택은 같은 floor·Gateway 경계를 잠그며, 모두 제거해도 기존 구역의 경계는 자동으로 이동하지 않고 명시적인 경계 선택으로만 바뀐다. 지도 marker와 보조 목록 drawer는 같은 `SpatialTargetSelector` 상태를 공유하므로 미배치 조명도 목록에서 선택할 수 있다. 저장은 기존 생성/수정 mutation에 1~100개 unique fixture의 전체 교체 set만 전달하며, 편집 중 추가·제거 예정 멤버를 텍스트로 표시한다. 저장 전에는 `저장 후 Mesh 설정 중`을 안내하고 저장 응답의 `configuring` 상태는 `Mesh 설정 중`으로 표시한다. 경계 polygon은 저장하거나 렌더링하지 않는다. 카드·삭제 확인·재동기화·viewer 읽기 전용·cache/focus 계약은 유지했고, 모바일 44px marker/action, 16px field 및 내부 overflow는 공통 selector 정책을 따른다. 이는 Vitest UI 회귀 증거이며 실제 Mesh/조명 HIL 완료를 뜻하지 않는다.
+
+- 2026-09-17 차량 감지 이벤트 추가·수정은 감지 센서와 실행 조명을 각각 지도 우선 `SpatialTargetSelector` 단계에서 선택한다. 감지 센서는 capability가 검증된 fixture 직접 선택만 허용하고, 지원하지 않는 센서는 지도에 `선택 불가`로 보인다. 새 이벤트에서는 적격 감지 센서의 단일 Gateway가 정해지기 전 실행 조명 선택 action을 비활성화하고 이유를 안내한다. 실행 조명은 감지 센서의 단일 Gateway로 제한한 개별·층·저장 구역 선택을 제공하며, 층·구역은 완료 시 정렬된 fixture ID 스냅샷으로 기존 이벤트 payload에 저장한다. 이후 멤버십 변경은 저장된 이벤트를 바꾸지 않고 API 재편집은 직접 fixture 스냅샷으로 시작한다. 감지 Gateway를 바꾸면 호환되지 않는 실행 대상은 비워 저장을 차단한다. 기존 validation/server error focus, 권한·pending lock, 밝기/디밍/유지 시간과 `VehicleEventRuleSnapshotV1` 계약은 유지한다. 지도 view와 목록 drawer는 compact bounded overflow, 44px action/marker, 16px field 정책을 따른다. Vitest 지도 선택·form·presenter·panel 41개는 Web UI 회귀 증거이며 실제 Mesh/조명 HIL은 아니다.
+
+- 2026-09-17 스케줄 추가·수정의 전용 대상 선택 view를 지도 우선 `SpatialTargetSelector`로 교체했다. 개별 marker·목록 drawer·층 전체·저장 구역은 공통 단일 gateway/Mesh readiness 정책을 그대로 따르며, 층·구역을 고르면 그 시점의 fixture ID를 스케줄 payload에 스냅샷으로 저장한다. 따라서 뒤의 그룹 멤버십 변경은 기존 스케줄을 바꾸지 않고, API에서 다시 불러온 스케줄은 직접 fixture 스냅샷으로 표시한다. 대상 검증 focus, schedule overlap·고급 반복·현장 시간대, 권한/submit lock과 API schema는 유지한다. compact 대상 view와 보조 목록 drawer는 bounded full-screen content, 44px action과 16px field 계약을 따른다. 관련 Vitest schedule/contract 55개를 통과했으며 이는 브라우저 회귀 증거로 실제 Mesh/조명 HIL은 아니다.
+
+- 2026-09-17 수동 제어는 지도 우선 `SpatialTargetSelector`로 개별·다중·층·저장 구역을 선택하고, 목록은 보조 drawer로 연다. 선택은 최대 1,000개 및 첫 개별 조명의 단일 gateway 조건을 유지하며, 실행 payload·명령 잠금·재시도·상태 확인 계약은 변경하지 않았다. PC는 지도/실행/이력 영역을 각각 bounded overflow로 유지하고, compact 화면에서는 대상 요약을 펼쳐 consumer-owned 밝기·적용 실행·명령 진행·후속 조치·동일 요청 재시도·상태 다시 조회 UI를 확인한 뒤 접힌 명령 이력으로 이동한다. 불가한 층·구역과 drawer 조명은 Mesh/Health 차단 사유를 보이며 viewer와 명령 잠금 상태에서는 marker·목록·밝기 입력을 모두 비활성화한다.
 
 - 2026-09-16 Tailwind Task 12에서 공통 primitive와 수동·스케줄·이벤트 제어 화면의 legacy class/CSS adapter를 제거하고 의미 토큰·utility 및 `data-*` 테스트 계약으로 수렴했다. `Button`의 공개 `data-variant` 계약으로 제어 E2E가 시각 variant를 class 이름에 결합하지 않게 했고 정책 baseline은 빈 violation map을 사용한다. Fresh Web **1,224/1,224**, UI policy **53/53**, 전체 Chromium 직렬 **257 passed·5 환경 의존 skip·실패 0**, 별도 opt-in RealBackendLab 설치·제어 흐름 **3/3**을 통과했다. 실제 iOS/Android WebView와 MQTT/Gateway/Raspberry Pi/ESP32-H2 HIL은 실행하지 않았다.
 
@@ -242,6 +259,8 @@
 
 ## 미구현
 
+- 수동 제어의 현재 선택을 그대로 넘기는 `이 선택을 구역으로 저장` 단축 동작은 미구현이다. 현재는 `구역 관리 → 새 구역`에서 지도·목록으로 멤버를 선택해야 한다. 후속 구현에서는 다층/100개 초과 선택 처리, 생성 권한·명령 잠금, 열린 dialog의 초안 초기화와 focus 복귀, 저장 후 기존 수동 선택 보존을 함께 검증해야 하므로 최종 오류 수정 범위에서는 보류했다.
+
 - 인체 감지, 외부 이벤트, 장면과 복합 조건 rule builder
 - 수동 제어 이력 패널 외 독립 명령 이력 페이지
 - 자동 Set retry, rollback, cancel
@@ -253,6 +272,10 @@
 - 실제 마이크로웨이브 센서의 전기 출력과 LED converter를 함께 연결한 전압·타이밍 HIL. 2026-09-04 시험은 ESP32-H2 GPIO4의 내부 pull만 전환해 firmware·BLE Mesh·Gateway·API·Web 전체 논리 경로를 검증했으며 센서/컨버터 전기 적합성 증거는 아니다.
 
 ## 부족하거나 개선이 필요한 기능
+
+- 모바일 두 손가락 확대·축소는 Web PointerEvent와 synthetic Chromium으로 검증했다. 실제 iOS/Android WebView의 safe area, gesture arbitration과 장시간 현장 사용성은 실기기 확인이 필요하다.
+- 저장 구역은 fixture membership만 보존하며 polygon 경계는 저장하지 않는다. 맵의 영역 rectangle은 선택 도구이고 저장 데이터가 아니다.
+- 스케줄·이벤트의 구역 선택은 저장 시점 fixture snapshot이다. 구역 멤버 변경은 기존 규칙에 자동 반영되지 않는다.
 
 - 이번 제어 디자인 시스템 전환은 Chromium 자동 검증 범위다. Safari/Firefox, 실제 iOS·Android WebView의 segmented Date/Time 입력, safe-area와 OS별 focus ring은 수동 시각 QA가 추가로 필요하다. 제어 payload·API·Gateway 프로토콜은 변경하지 않았으며 실장비 HIL 완료 증거로 간주하지 않는다.
 
@@ -289,8 +312,13 @@
 ## 관련 파일
 
 - `apps/web/src/features/control/ControlView.tsx`
-- `apps/web/src/features/control/ControlTargetPicker.tsx`
 - `apps/web/src/features/control/FixtureGroupDialog.tsx`
+- `apps/web/src/features/control/FixtureGroupDialog.test.tsx`
+- `apps/web/src/features/control/target-selection/FixtureGroupMapEditor.tsx`
+- `apps/web/src/features/control/target-selection/FixtureGroupMapEditor.test.tsx`
+- `apps/web/src/features/control/target-selection/SpatialTargetSelector.tsx`
+- `apps/web/src/features/floor-map/FloorMapViewport.tsx`
+- `apps/web/src/features/floor-map/FloorScene.tsx`
 - `apps/web/src/features/control/automation/ControlModeTabs.tsx`
 - `apps/web/src/features/control/automation/ScheduleControlPanel.tsx`
 - `apps/web/src/features/control/automation/ScheduleDialog.tsx`
@@ -300,6 +328,7 @@
 - `apps/web/e2e/calm-operations-manual-control.spec.ts`
 - `apps/web/e2e/calm-operations-automation.spec.ts`
 - `apps/web/e2e/automation-control-flow.spec.ts`
+- `apps/web/e2e/control-map-target-selection.spec.ts`
 
 - `apps/api/prisma/migrations/20260914090000_manual_control_baseline/migration.sql`
 - `docs/superpowers/plans/2026-09-14-manual-baseline-control.md`

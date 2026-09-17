@@ -47,6 +47,7 @@ export function AutomationSelectionCard({
   error,
   errorId,
   fieldRef,
+  triggerRef,
   onOpen
 }: {
   label: string;
@@ -58,6 +59,7 @@ export function AutomationSelectionCard({
   error?: string;
   errorId?: string;
   fieldRef?: Ref<HTMLDivElement>;
+  triggerRef?: Ref<HTMLButtonElement>;
   onOpen: () => void;
 }) {
   const Icon = kind === "sensor" ? RadioTower : Lightbulb;
@@ -77,7 +79,7 @@ export function AutomationSelectionCard({
         <Text as="strong" weight="semibold">{title}</Text>
         <Text as="small" variant="caption" tone="secondary">{description}</Text>
       </span>
-      <Button variant="secondary" type="button" disabled={disabled} aria-label={`${label} ${empty ? "선택" : "변경"}`} onClick={onOpen}>
+      <Button ref={triggerRef} variant="secondary" type="button" disabled={disabled} aria-label={`${label} ${empty ? "선택" : "변경"}`} onClick={onOpen}>
         {empty ? "선택" : "변경"}
       </Button>
       {error && errorId ? <Text as="span" id={errorId} className="col-span-full" variant="caption" tone="danger">{error}</Text> : null}
@@ -124,23 +126,32 @@ export function AutomationTargetPickerView({
   title,
   description,
   disabled,
+  doneLabel = "선택 완료",
+  doneDisabled = false,
+  className,
   children,
   onDone
 }: {
   title: string;
   description: string;
   disabled: boolean;
+  doneLabel?: string;
+  doneDisabled?: boolean;
+  className?: string;
   children: ReactNode;
   onDone: () => void;
 }) {
   return (
-    <div className="grid gap-4">
-      <div className="flex items-start justify-between gap-3">
+    <div className={className ?? "grid gap-4"}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="grid gap-1">
           <Heading as="h3" variant="card-title">{title}</Heading>
           <Text tone="secondary">{description}</Text>
         </div>
-        <Button variant="primary" type="button" disabled={disabled} onClick={onDone}>선택 완료</Button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" type="button" disabled={disabled} onClick={onDone}>설정으로 돌아가기</Button>
+          <Button variant="primary" type="button" disabled={disabled || doneDisabled} onClick={onDone}>{doneLabel}</Button>
+        </div>
       </div>
       {children}
     </div>

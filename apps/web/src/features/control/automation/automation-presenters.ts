@@ -1,5 +1,5 @@
 import type { Dashboard, DashboardFixture } from "../../../api/queries";
-import type { ControlSelection } from "../ControlTargetPicker";
+import type { ControlSelection } from "../control-selection";
 import type { ScheduleFormValues } from "./schedule-form";
 import type { VehicleEventFormValues } from "./vehicle-event-form";
 
@@ -57,6 +57,69 @@ export function controlSelectionSummary(
   }
 
   return fixtureIdsSummary(selection.fixtureIds, dashboard);
+}
+
+/**
+ * Schedules persist fixture IDs, even when the editor chose a floor or saved group.
+ * Keep the editor's source label while presenting the immutable fixture snapshot.
+ */
+export function scheduleTargetSnapshotSummary(
+  source: ControlSelection,
+  fixtureIds: readonly string[],
+  dashboard: Dashboard
+): AutomationSelectionSummary {
+  const snapshot = fixtureIdsSummary(fixtureIds, dashboard);
+  if (source.mode === "floor") {
+    const floor = dashboard.floors.find((candidate) => candidate.id === source.floorId);
+    return floor
+      ? { title: floor.name, description: `층 전체 · ${snapshot.count}개 조명 스냅샷`, count: snapshot.count }
+      : snapshot;
+  }
+  if (source.mode === "group") {
+    const group = dashboard.groups.find((candidate) => candidate.id === source.groupId);
+    return group
+      ? { title: group.name, description: `저장된 구역 · ${snapshot.count}개 조명 스냅샷`, count: snapshot.count }
+      : snapshot;
+  }
+  return snapshot;
+}
+
+export function scheduleTargetStorageCopy(source: ControlSelection, fixtureIds: readonly string[]) {
+  const count = new Set(fixtureIds).size;
+  if (source.mode === "fixtures") return `현재 저장된 조명 ${count}개`;
+  return `현재 ${count}개 조명이 스케줄 대상으로 저장됩니다.`;
+}
+
+/**
+ * Vehicle-event targets store fixture IDs. Keep a recently authored floor/group
+ * label visible without letting later membership changes alter that snapshot.
+ */
+export function vehicleEventTargetSnapshotSummary(
+  source: ControlSelection,
+  fixtureIds: readonly string[],
+  dashboard: Dashboard
+): AutomationSelectionSummary {
+  const snapshot = fixtureIdsSummary(fixtureIds, dashboard);
+  if (source.mode === "floor") {
+    const floor = dashboard.floors.find((candidate) => candidate.id === source.floorId);
+    return floor
+      ? { title: floor.name, description: `층 전체 · ${snapshot.count}개 조명 스냅샷`, count: snapshot.count }
+      : snapshot;
+  }
+  if (source.mode === "group") {
+    const group = dashboard.groups.find((candidate) => candidate.id === source.groupId);
+    return group
+      ? { title: group.name, description: `저장된 구역 · ${snapshot.count}개 조명 스냅샷`, count: snapshot.count }
+      : snapshot;
+  }
+  return snapshot;
+}
+
+export function vehicleEventTargetStorageCopy(source: ControlSelection, fixtureIds: readonly string[]) {
+  const count = new Set(fixtureIds).size;
+  return source.mode === "fixtures"
+    ? `현재 저장된 조명 ${count}개`
+    : `현재 ${count}개 조명이 이벤트 제어 대상으로 저장됩니다.`;
 }
 
 export function scheduleSummary(values: ScheduleFormValues, dashboard: Dashboard) {

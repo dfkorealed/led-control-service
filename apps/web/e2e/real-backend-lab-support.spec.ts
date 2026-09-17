@@ -4,14 +4,39 @@ import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, rm } from "node:fs/promises";
 import { createServer } from "node:net";
+import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import type { MqttClient } from "mqtt";
+import { createApiHttpsOptions } from "../../api/src/api-tls-options";
 import * as labSupport from "./support/real-backend-lab";
 
 const { connectMqttForLab, RealBackendLab, selectDfkScanCandidates } = labSupport;
 const ROOT = resolve(dirname(new URL(import.meta.url).pathname), "../../..");
 
 test.describe.configure({ mode: "serial" });
+
+for (const source of ["parent process", "dotenv"] as const) {
+  test(`HTTP lab API는 ${source}의 TLS 설정을 사용하지 않는다`, () => {
+    const lab = new RealBackendLab();
+    const internal = lab as unknown as { apiEnv: () => NodeJS.ProcessEnv };
+    const externalTls = {
+      API_TLS_CERT_PATH: "/external-api/server.crt",
+      API_TLS_KEY_PATH: "/external-api/server.key",
+      API_DEVICE_CLIENT_CA_PATH: "/external-api/device-ca.crt",
+      API_MANUFACTURING_CLIENT_CA_PATH: "/external-api/manufacturing-ca.crt",
+      API_DEVICE_CRL_PATH: "/external-api/device.crl",
+      API_MANUFACTURING_CRL_PATH: "/external-api/manufacturing.crl"
+    };
+    const env = { ...(source === "parent process" ? externalTls : {}), ...internal.apiEnv() };
+    // API bootstrap loads dotenv after spawn; deleting inherited keys would let
+    // a parent checkout's .env enable HTTPS again. Exercise that real merge.
+    const { populate } = createRequire(join(ROOT, "apps/api/package.json"))("dotenv");
+    if (source === "dotenv") populate(env, externalTls);
+
+    expect(() => createApiHttpsOptions(env)).not.toThrow();
+    expect(createApiHttpsOptions(env)).toEqual({});
+  });
+}
 
 test("scan simulator는 shared DFK identity parser로 타사 UUID를 제외한다", () => {
   const candidates = [

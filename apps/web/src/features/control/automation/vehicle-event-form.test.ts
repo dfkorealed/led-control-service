@@ -3,6 +3,7 @@ import {
   createEmptyVehicleEventForm,
   validateVehicleEventForm,
   vehicleEventFormToInput,
+  vehicleEventRuleToFormValues,
   type VehicleEventFormValues
 } from "./vehicle-event-form";
 
@@ -58,6 +59,19 @@ describe("vehicle event form", () => {
     expect(vehicleEventFormToInput(values, "enabled").action).toEqual({
       dimmingEnabled: false,
       brightnessPercent: 100
+    });
+  });
+
+  it("reloads persisted event fixture-id snapshots without adding selection-mode fields", () => {
+    const values = vehicleEventRuleToFormValues({
+      ...vehicleEventFormToInput(validForm(), "enabled"),
+      sourceFixtureIds: [sourceFixtureId],
+      targetFixtureIds: [targetFixtureId, "00000000-0000-4000-8000-000000000002"]
+    });
+
+    expect(values).toMatchObject({
+      sourceFixtureIds: [sourceFixtureId],
+      targetFixtureIds: [targetFixtureId, "00000000-0000-4000-8000-000000000002"]
     });
   });
 });

@@ -185,10 +185,12 @@ test("read, control, admin의 메뉴와 직접 경로 및 수동 제어 API 권�
     await expect(control.page.getByRole("button", { name: "구역 현황" })).toBeVisible();
     expect(await manualCommandStatus(control.page)).toBe(201);
 
-    const fixtureCheckbox = control.page.getByRole("checkbox", { name: "B2-L01 선택" });
-    await fixtureCheckbox.focus();
-    await fixtureCheckbox.press("Space");
+    await control.page.getByRole("button", { name: "조명 목록 열기" }).click();
+    const fixtureDrawer = control.page.getByRole("dialog", { name: "조명 목록" });
+    const fixtureCheckbox = fixtureDrawer.getByRole("checkbox", { name: "B2-L01 선택" });
+    await fixtureCheckbox.locator("xpath=ancestor::label[1]").click();
     await expect(fixtureCheckbox).toBeChecked();
+    await fixtureDrawer.getByRole("button", { name: "선택 완료" }).click();
     await control.page.getByRole("button", { name: "30%", exact: true }).click();
     await control.page.getByRole("button", { name: "밝기 적용" }).click();
     await expect(

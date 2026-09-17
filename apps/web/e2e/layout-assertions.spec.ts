@@ -50,6 +50,16 @@ test("touch target helper can exclude compact spatial markers while retaining th
   await expectMinimumTouchTargets(page, "#root", { excludeSpatialMapMarkers: true });
 });
 
+test("touch target helper measures spatial markers unless an explicit exclusion is requested", async ({ page }) => {
+  await page.setContent(`
+    <main id="root">
+      <button data-spatial-map-marker="true" style="width: 24px; height: 24px">지도 마커</button>
+    </main>
+  `);
+
+  await expect(expectMinimumTouchTargets(page, "#root")).rejects.toThrow(/지도 마커/);
+});
+
 test("transparent radio uses its 44px implicit label as the effective hit target", async ({ page }) => {
   await page.setContent(`
     <main id="root">
@@ -232,6 +242,17 @@ test("a transformed overflow ancestor clips its fixed descendant", async ({ page
   `);
 
   await expect(expectMinimumTouchTargets(page, "#root")).rejects.toThrow(/interactive target/i);
+});
+
+test("a control inside a viewport-fixed overlay escapes scrolled document clipping", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.setContent(`<!doctype html><style>html { overflow: hidden; } body { height: 1600px; margin: 0; }</style>
+    <div id="root" style="position: fixed; inset: 0; overflow: hidden">
+      <button style="position: absolute; bottom: 24px; left: 24px; width: 80px; height: 48px">완료</button>
+    </div>`);
+  await page.evaluate(() => window.scrollTo(0, 75));
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(75);
+  await expectMinimumTouchTargets(page, "#root");
 });
 
 test("scrolling touch target helper inspects an undersized target below the viewport", async ({ page }) => {
