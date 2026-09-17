@@ -90,6 +90,18 @@ FloorLightSlot
 - 1,000개 실제 조명과 최대 2,000개 슬롯을 기준으로 viewport culling, Konva layer 분리와 stable node identity를 유지한다. CAD 기하는 단일 SVG image node로 렌더링한다.
 - SVG 응답의 MIME, gzip encoding, 크기, SHA-256과 floor 소유권을 조회 때 검증한다. 브라우저 image decode 실패도 관찰 가능한 오류로 처리한다.
 
+### 렌더링 최적화 계약
+
+- CAD SVG는 URL·asset revision별로 한 번만 decode하고 재사용한다. polling, 후보 선택, fixture 이동은 배경 `HTMLImageElement`를 다시 만들지 않는다. URL이 바뀔 때 이전 load handler를 해제하며 실패 상태도 cache key별로 분리한다.
+- Background, grid, CAD slot, map object, fixture, selection/transformer를 서로 다른 Konva Layer로 분리한다. 배경과 grid는 `listening=false`, 정적인 레이어는 필요할 때만 `batchDraw`하고 fixture drag가 배경·전체 슬롯을 다시 그리지 않게 한다.
+- fixture와 slot은 현재 viewport에 여백을 더한 사각형 안의 항목만 노드로 만든다. 배열 전체 필터는 pan/zoom 한 프레임마다 반복하지 않고 memoized spatial index 또는 bucket index로 조회한다.
+- 배율별 LOD를 적용한다. 저배율에서는 fixture 이름, slot 부가 정보, 세부 stroke를 숨기고 marker만 유지하며, 선택·검색·식별 대상은 배율과 무관하게 표시한다.
+- 왼쪽 fixture 목록과 후보 검토 목록은 가상화하거나 고정 window를 사용한다. 1,000~2,000개 항목을 동시에 DOM에 생성하지 않는다.
+- pointer move와 pan/zoom의 React/Zustand 갱신은 animation frame당 최대 한 번으로 제한한다. 임시 drag 좌표는 Konva node에 반영하고 사용자 동작 완료 시 store에 한 번 커밋한다.
+- 캔버스 크기·zoom·pan·선택 변경으로 무관한 노드의 React key나 callback identity가 바뀌지 않게 한다. 후보/slot/fixture ID를 stable key로 사용한다.
+- SVG는 gzip 상태로 전송하고 브라우저에 중복된 base64/data URL 사본을 만들지 않는다. 원본 CAD와 렌더 SVG는 React state나 query cache에 byte buffer로 보관하지 않는다.
+- 성능 합격 기준은 Chromium 1440x900, 1,000 fixtures, 2,000 slots, 2,000 map objects에서 warm 편집 준비 p95 3초 이내, pan/zoom 중 프레임 p95 33ms 이하, 단일 drag commit p95 100ms 이하, 저장 요청 p95 3초 이내다. 측정 환경과 cold/warm 조건을 결과에 기록한다.
+
 ### API와 계약 변경
 
 - CAD apply 요청은 기존 lease/revision/candidate IDs에 `confirmMapReset: true`를 필수로 추가한다. 누락 또는 false면 서버가 적용을 거부한다.
