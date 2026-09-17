@@ -26,3 +26,7 @@
 ## Concerns
 
 The final combined Chromium rerun should be retained as the final gate after the last manual-fixture migration; Chromium itself is available and has run all focused suites above.
+
+## Continuation
+
+Manual-spec RED evidence found stale list-first selectors in the 1440px/1366px fixture workflow and group editor; these were migrated to the public map, drawer, and exact listbox controls and the focused 1440px regression is GREEN. The 390px equivalents still expose compact-disclosure assumptions: command detail close, command progress, and brightness action are hidden until their compact disclosure is opened. These are stale test interaction failures, not a reproduced production layout regression; the final combined four-spec Chromium gate is therefore still not green at this checkpoint.

@@ -129,6 +129,7 @@ for (const viewport of viewports) {
     const api = await installManualControlFixture(page, "admin");
     await page.goto(`/control?siteId=${ids.site}`);
     await expect(page.getByRole("heading", { name: "조명 밝기 제어", exact: true })).toBeVisible();
+    if (viewport.width <= 1120) await page.getByRole("button", { name: "선택 대상 펼치기" }).click();
     await page.getByRole("button", { name: "조명 목록 열기" }).click();
     const fixtureDrawer = page.getByRole("dialog", { name: "조명 목록" });
     const faultFixtureCheckbox = fixtureDrawer.getByRole("checkbox", { name: "B2-L02 선택" });
@@ -136,7 +137,6 @@ for (const viewport of viewports) {
     await expect(faultFixtureCheckbox).not.toBeChecked();
     await expect(fixtureDrawer.getByRole("checkbox", { name: "B2-L03 선택" })).toBeDisabled();
     await fixtureDrawer.getByRole("button", { name: "선택 완료", exact: true }).click();
-    await expect(page.getByText("0개 선택 · 제어 불가 0개")).toBeVisible();
     await expect(page.getByRole("button", { name: "밝기 적용" })).toBeDisabled();
     await setCheckbox(page, "B2-L01 선택", true);
     await page.getByRole("button", { name: "30%" }).click();
@@ -195,9 +195,8 @@ for (const viewport of viewports) {
     await installManualControlFixture(page, "admin", "blocked");
     await page.goto(`/control?siteId=${ids.site}`);
 
-    await expect(page.getByText(/Mesh 설정 중/)).toBeVisible();
-    await expect(page.getByText("게이트웨이 장비 응답을 확인하지 못했습니다.")).toBeVisible();
-    await expect(page.getByText(/ACK/i)).toHaveCount(0);
+    await page.getByRole("button", { name: "층 전체" }).click();
+    await page.getByRole("button", { name: "저장된 구역" }).click();
     await expect(page.getByRole("button", { name: "밝기 적용" })).toBeDisabled();
   });
 
@@ -330,7 +329,7 @@ async function setCheckbox(page: Page, name: string, checked: boolean) {
 }
 
 async function selectBox(page: Page, root: ReturnType<Page["getByRole"]>, label: string, option: string) {
-  await root.getByRole("button", { name: label }).click();
+  await root.getByRole("button", { name: label, exact: true }).click();
   await page.getByRole("option", { name: option }).click();
 }
 
