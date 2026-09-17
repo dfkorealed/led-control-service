@@ -790,5 +790,19 @@
 
 - **발생했던 문제/실수**: 최초 PUT/HEAD는 `Content-Encoding: gzip`을 확인했지만 이후 review/apply/signed GET 경로는 크기·checksum·MIME만 비교했다. 같은 bytes에서 encoding metadata만 유실되면 브라우저가 gzip bytes를 SVG로 해석하지 못한다.
 - **원인**: object body identity와 HTTP representation metadata를 별개로 보고 DB ledger에 encoding을 기록하지 않았다.
-- **해결 및 예방책**: `FloorAsset.contentEncoding` 원장을 추가하고 CAD SVG는 gzip을 필수로 한다. DB deferred trigger, Object Storage HEAD, job 조회, apply, content redirect가 모두 ledger와 실제 HEAD를 비교한 뒤에만 signed GET을 발급한다.
-- **반복 방지 체크**: metadata 유실/교체 unit test, 실제 MinIO PUT/HEAD/signed GET, 실제 Chrome의 한글 SVG natural size/decode를 유지한다.
+- **해결 및 예방책**: `FloorAsset.contentEncoding` 원장을 추가하되, 신규 CAD SVG는 gzip이고 migration 이전 비압축 SVG는 `NULL` identity로 보존한다. DB deferred trigger, Object Storage HEAD, job 조회, apply, content redirect가 모두 ledger와 실제 HEAD를 비교한 뒤에만 signed GET을 발급한다.
+- **반복 방지 체크**: 기존 migration checksum은 수정하지 않는다. 직전 migration까지 적용한 DB에 identity row를 넣는 staged replay와 신규 gzip row, 실제 MinIO PUT/HEAD/signed GET을 한 테스트에서 검증한다.
+
+## 2026-09-17 / production worker는 이미지 존재가 아니라 기동 가능한 전체 graph로 검증한다
+
+- **발생했던 문제/실수**: 개발/HIL converter는 있었지만 production Compose에 executable env와 mount가 없었고, read-only API image의 `/tmp/cad-import`도 생성되지 않아 실제 worker가 모든 job을 source failure로 끝냈다.
+- **원인**: Dockerfile build, Compose render, Nest provider, writable temp root와 worker HTTP 흐름을 각각 검사하고 하나의 production 경로로 연결하지 않았다.
+- **해결 및 예방책**: GPL converter는 이미지에서 제외하고 승인된 host bundle을 `/opt/cad-converter:ro`로 필수 주입한다. util-linux의 canonical root-owned `/usr/bin/prlimit`, UID 1000 전용 512 MiB tmpfs, 정확한 heap/cgroup/concurrency를 preflight에서 강제한다. synthetic smoke가 HTTP create/status/candidates/content/apply와 PG/MinIO를 통과해야 한다.
+- **반복 방지 체크**: converter 환경은 PATH/locale/TMPDIR allowlist만 전달하고 AS/CPU/nofile/nproc/fsize와 process-group kill/reap을 검사한다. 같은 768 MiB cgroup에서 정상 sample 뒤 malformed와 memory bomb를 실행하고 API container ID와 live 200이 유지되는지 확인한다.
+
+## 2026-09-17 / 의미 변경 migration은 활성 worker를 추측으로 backfill하지 않는다
+
+- **발생했던 문제/실수**: profile migration이 processing job 의미를 바꿀 수 있었고, 모든 기존 SVG를 gzip으로 일괄 표기해 실제 identity 객체와 ledger가 어긋났다.
+- **원인**: queued 작업과 이미 실행 중인 작업, 신규 산출물과 legacy 객체를 같은 backfill 규칙으로 취급했다.
+- **해결 및 예방책**: processing/applying이 있으면 table lock 뒤 migration을 fail-close하고 queued만 lease 시 source SHA로 resolve한다. terminal은 non-null identity를 유지하며 legacy 결과는 sentinel로 표시한다. 기존 identity와 migration 이후 gzip은 생성 시점 경계로 분리한다.
+- **반복 방지 체크**: clean/staged replay, old-worker lock race, 10초 lock timeout, terminal constraint, 실제 PG+MinIO identity/gzip read/apply/signed GET을 유지한다. 배포 runbook은 API 정지 전에 active job drain을 요구한다.

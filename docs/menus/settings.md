@@ -75,11 +75,13 @@
 ## 구현 완료
 
 - 2026-09-17 Task 19.5 fix round 3에서 analyzer와 제품 parser의 model-space(group 67/410), BLOCK base point, nested world transform을 다시 검증했다. 샘플 SHA256 `01f25d539c20f93663c9183bbf70d83e578ae9990c2eb6dabb543bf39d71854d`, `dwgread 0.14`, analyzer `cad-import-analysis/2` 기준 model/paper 비-structural entity는 26,887/4,150개, 직접 model INSERT는 8,954개, 고유 원점 8,947개, block은 11,243개다. 지원 entity 예상 coverage 98.1478%와 직접 INSERT 이름+유한 원점 비율 100%는 제한된 구문 추출률이며 시각·검출 정확도 100%가 아니다.
-- Web과 요청자는 detector profile을 선택하지 않는다. 서버 registry가 ready source asset SHA-256을 검증해 제공 샘플만 `site-drawing-20260803-v1`에 연결하고 그 외 입력은 `generic-lighting-v1`로 닫는다. queued/processing 기존 job은 migration에서 profile을 `NULL`로 staging한 뒤 lease를 획득한 worker가 source digest로 한 번만 해석한다. 샘플 profile version/digest는 `site-drawing-20260803/1`/`d6dbdda9bd28a4eca8e54db48f0ff88129001bc72409f92f3f2196b4cc7de962`이며 analyzer 1,302개, 제품 1,308개 review 후보를 얻었다. ground truth가 없어 precision/recall/F1은 미확정이다.
-- 제품 parser는 off/frozen layer와 entity group 60을 후보·bounds·렌더에서 제외하고 renderer와 후보가 같은 translation/y-flip을 사용한다. 제공 샘플에서 visible model entity 26,387개와 block 11,243개를 보유했다. model-space WIPEOUT 397개와 SPLINE 84개는 여전히 미지원이므로 가림/곡선까지 포함한 시각 정답률을 주장하지 않는다.
+- Web과 요청자는 detector profile을 선택하지 않는다. 서버 registry가 ready source asset SHA-256을 검증해 제공 샘플만 `site-drawing-20260803-v1`에 연결하고 그 외 입력은 `generic-lighting-v1`로 닫는다. 기존 queued job은 migration에서 profile을 `NULL`로 staging한 뒤 lease를 획득한 worker가 source digest로 한 번만 해석하며, processing/applying이 있으면 migration이 fail-close한다. 샘플 profile version/digest는 `site-drawing-20260803/1`/`d6dbdda9bd28a4eca8e54db48f0ff88129001bc72409f92f3f2196b4cc7de962`이며 analyzer 1,302개, 제품 1,308개 review 후보를 얻었다. ground truth가 없어 precision/recall/F1은 미확정이다.
+- 제품 parser는 LAYER flag bit 1, 음수 color와 entity group 60만 현재 model visibility에서 제외한다. bit 2는 새 viewport 기본 frozen 의미이므로 전역 hidden으로 취급하지 않는다. renderer와 후보는 같은 translation/y-flip을 사용한다. 제공 샘플에서 visible model entity 26,387개와 block 11,243개를 보유했다. model-space WIPEOUT 397개와 SPLINE 84개는 여전히 미지원이므로 가림/곡선까지 포함한 시각 정답률을 주장하지 않는다.
 - 105,432,404-byte DXF의 parse/detect/render는 API process가 아닌 `--max-old-space-size=384` child에서 실행한다. macOS standalone child peak RSS는 489,635,840 bytes, parent peak는 53,346,304 bytes였다. Linux 768 MiB cgroup에서 API module-loaded parent baseline/peak 139,603,968/142,684,160 bytes와 child peak 376,909,824 bytes로 샘플이 통과했고 malformed child 실패 뒤 parent 생존도 확인했다. production은 API heap 256 MiB, child heap 384 MiB, CAD 동시 job 1, cgroup 768 MiB를 정확히 검사한다.
-- 샘플 SVG는 raw 17,046,497 bytes, deterministic gzip 3,731,451 bytes/SHA-256 `bc71ccb314e7a687144a54dba8d74f23f20ab5364fcb47fa0fbd99f204cb2185`다. 실제 MinIO PUT/HEAD/signed GET과 Chrome에서 8 MiB, checksum, viewport, `Content-Encoding: gzip`, 한글 SVG decode를 검증했다. gzip은 rendered asset ledger와 review/read/apply/redirect HEAD 전 구간에서 필수다.
+- 샘플 SVG는 raw 17,046,497 bytes, deterministic gzip 3,731,451 bytes/SHA-256 `bc71ccb314e7a687144a54dba8d74f23f20ab5364fcb47fa0fbd99f204cb2185`다. 신규 worker 출력은 gzip ledger가 필수지만 migration 이전 비압축 SVG는 `contentEncoding = NULL` identity로 유지한다. 실제 PostgreSQL+MinIO staged migration에서 legacy identity와 신규 gzip의 HEAD/review/apply/signed GET을 함께 검증했다.
 - 후보는 250건 단위 transaction으로 최대 2,000건을 보존한다. 실제 PostgreSQL에서 4번째 chunk 강제 실패 시 앞선 750건이 rollback되고 retry 2,000건 저장 및 실패 attempt cleanup이 수렴했으며 2,000건 list/1,302건 apply와 Web 2,000건 review도 통과했다. 후보는 자동 등록이 아니며 `Fixture`/`MeshNode`를 만들지 않고 실제 BLE identity 매핑은 0%다. AI adapter는 I/O 0회의 `disabled`이고 provider 교체 경계만 있다. 신규 PDF import는 제외하며 기존 PDF 읽기 호환은 유지한다. GPL LibreDWG는 개발 분석/HIL 전용이고 제품 의존성에 포함하지 않는다.
+- Task 19.5 fix round 4는 production API image에 root-owned canonical `/usr/bin/prlimit`만 추가하고 GPL LibreDWG나 converter는 포함하지 않는다. 운영자가 승인한 self-contained converter bundle을 절대 host path에서 `/opt/cad-converter:ro`로 주입해야 Compose가 render되며, API heap 256 MiB, core heap 384 MiB, cgroup 768 MiB, 동시 job 1과 512 MiB 전용 temp tmpfs를 preflight가 고정한다. converter는 API credential을 상속하지 않고 PATH/locale/TMPDIR만 받으며 address-space 512 MiB, CPU 60초, nofile 64, nproc 32, output fsize와 process-group timeout을 적용한다.
+- 상시 synthetic production smoke는 실제 production image/Nest provider/worker/external read-only converter/child core/PostgreSQL/MinIO를 HTTP create/status/candidates/content/apply 한 경로로 통과했다. 81/81 migration, gzip signed GET, 후보 비자동등록, malformed와 converter memory bomb 뒤 같은 API parent 생존, exact cleanup을 확인했다. 승인 샘플 HIL은 `CAD_SAMPLE_DWG_PATH`, 외부 `CAD_SAMPLE_CONVERTER_PATH`와 `CAD_SAMPLE_CONVERTER_ARGV_JSON`을 명시하는 opt-in이며 이번 round에서는 재실행하지 않았다.
 
 - 2026-09-16 Tailwind Task 12에서 설정 개요·현장·사용자·등록·맵·보안 화면과 공통 dialog/navigation의 legacy class/CSS adapter를 제거하고 의미 토큰·utility 및 `data-*` 테스트 계약으로 수렴했다. legacy `components/ConfirmDialog.tsx`는 production/test import 0을 확인한 뒤 삭제했으며 정책 baseline은 빈 violation map을 사용한다. Fresh Web **1,224/1,224**, UI policy **53/53**, 전체 Chromium 직렬 **257 passed·5 환경 의존 skip·실패 0**, 별도 opt-in RealBackendLab 설치 여정 **2/2**와 층 배치 **1/1**을 통과했다. 실제 iOS/Android WebView, 운영 Object Storage, 사용자 DB 적용과 Raspberry Pi/ESP32-H2 HIL은 실행하지 않았다.
 
@@ -389,7 +391,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - 구역 생성·수정과 구성원 관리 화면. 기존 구역 목록·보관 전환은 구현 완료했다.
 - PDF 첫 페이지를 별도 이미지로 만드는 격리 렌더 worker. 신규 PDF 자동 import는 지원하지 않으며 기존 PDF 읽기 호환만 유지한다.
 - 샘플별 사람이 판정한 조명 ground truth. `몰드바등` 후보 1,302개는 review pool일 뿐이며 `xx4`, 익명 dynamic block은 geometry·attribute·주변 문자 근거와 라벨 없이 자동 등록하지 않는다.
-- 배포 컨테이너 cgroup에서 샘플보다 큰 정상/적대 DWG의 메모리·CPU·temp disk 부하 검증. 로컬 제품 경로는 성공했지만 실측 RSS 값은 Jest와 converter 자식 과정을 포함하므로 운영 worker 단독 상한 증거로 사용하지 않는다.
+- 승인된 실제 DWG converter/sample을 production image의 read-only 외부 bundle mount로 주입한 운영 호스트 HIL. 상시 synthetic smoke는 실제 768 MiB cgroup의 parent+converter+core와 memory bomb/malformed 생존을 검증하지만, 현장 샘플의 최신 승인 binary HIL을 대신하지 않는다.
 - 다중 Gateway와 층 coverage
 - ESP32-H2 factory reset과 장비 교체 workflow
 - 시운전 보고서
@@ -462,6 +464,13 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - `apps/api/src/floor-import/dxf-document-parser.ts`
 - `apps/api/src/floor-import/rule-based-lighting-symbol-detector.ts`
 - `apps/api/src/floor-import/disabled-ai-lighting-symbol-detector.ts`
+- `apps/api/src/floor-import/cad-converter.ts`
+- `apps/api/src/floor-import/floor-import-worker.service.ts`
+- `apps/api/prisma/migrations/20260917145000_cad_profile_upgrade_preflight/migration.sql`
+- `apps/api/prisma/migrations/20260917160000_cad_upgrade_safety/migration.sql`
+- `docker-compose.production.yml`
+- `scripts/production-compose-smoke.sh`
+- `docs/runbooks/production-api-web-deployment.md`
 
 - `apps/gateway/src/bootstrap-only.ts`, `apps/gateway/src/identity/ensure-mqtt-identity.ts`, `apps/gateway/compose.bootstrap.yml`
 - `apps/gateway/src/adapters/bio-usb-dongle-adapter.ts`

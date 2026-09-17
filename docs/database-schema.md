@@ -622,7 +622,7 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 | `status` | `FloorAssetStatus` | 예 | `pending` | 업로드 검증 전/후 상태 |
 | `objectKey` | `String` | 예 | Unique | bucket 내부 object key |
 | `mimeType` | `String` | 예 |  | 서명된 Content-Type |
-| `contentEncoding` | `String?` | 아니오 | `NULL` 또는 `gzip` | CAD rendered SVG의 전송 인코딩 원장 |
+| `contentEncoding` | `String?` | 아니오 | `NULL` 또는 `gzip` | legacy identity 또는 신규 gzip CAD SVG의 전송 인코딩 원장 |
 | `sizeBytes` | `BigInt` | 예 |  | 서명된 byte 크기 |
 | `sha256` | `String` | 예 |  | 64자리 hex SHA-256 |
 | `uploadExpiresAt` | `DateTime?` | 아니오 |  | pending PUT URL 만료 시각 |
@@ -639,7 +639,7 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 - 번들 MinIO는 `WEB_PUBLIC_URL`을 `MINIO_API_CORS_ALLOW_ORIGIN`으로 전달하며 미설정 시 `http://localhost:5173`을 사용한다. 버킷은 계속 anonymous `none`이고, 지원되지 않는 `mc cors set`이나 localhost 전용 XML에 의존하지 않는다.
 - `20260912090000_floor_asset_private_ledger` migration은 기존 FloorPlan과 FloorMapRevision snapshot의 알려진 asset URL을 인증 경로로 치환하고, 변경된 snapshot의 안정 해시를 다시 계산한 뒤 `publicUrl` 컬럼을 제거한다. 알려진 asset과 대응하지 않는 비어 있지 않은 legacy URL이 하나라도 있으면 전체 migration을 원자적으로 중단한다.
 - CAD 원본 또는 렌더 자산을 `FloorImportJob`이 참조하는 동안 FK가 직접 자산 삭제를 막는다. deferred constraint trigger는 자산 갱신 시에도 같은 층, 역할, ready 상태와 허용 MIME을 다시 검증한다. 후속 cleanup worker는 이 관계를 후보 조회에서도 제외해야 한다.
-- CAD rendered SVG는 `contentEncoding = gzip`이 필수다. worker PUT/HEAD, review/read/apply와 content redirect가 원장과 S3 HEAD의 encoding, 크기, checksum을 다시 확인한다. deferred asset trigger도 연결된 SVG에서 encoding 제거를 거부한다. PNG/JPEG/WebP 렌더 자산은 encoding이 `NULL`이어야 한다.
+- 신규 CAD worker의 rendered SVG는 `contentEncoding = gzip`을 기록한다. migration 이전 비압축 SVG는 `NULL`을 identity ledger로 유지하며, review/read/apply와 content redirect는 DB ledger와 S3 HEAD의 encoding, 크기, checksum을 정확히 비교한다. deferred asset trigger는 SVG에 `NULL | gzip`만, PNG/JPEG/WebP에는 `NULL`만 허용한다. `20260917160000_cad_upgrade_safety`는 기존 `20260917150000_cad_profile_binding` checksum을 바꾸지 않고 legacy 오표기를 교정한다.
 
 ### FloorImportAttemptCleanup
 
@@ -703,10 +703,11 @@ DWG/DXF 원본을 비동기로 변환·검출·검토·적용하는 작업의 �
 
 - `floorId + createdAt`, `status + leaseExpiresAt + createdAt` index로 층별 이력과 lease 회수 대상을 조회한다.
 - `sourceAssetId`는 일반 index다. 완료·실패·취소 이후 동일 원본 재분석을 허용하며 동시 workflow는 층별 active partial unique가 막는다.
-- client/Web은 profile ID를 보내지 않는다. create transaction이 잠근 ready source asset SHA-256으로 server registry binding을 결정한다. migration 시점의 queued/processing job은 ID/version/digest를 `NULL`로 staging하고 worker lease 안에서 같은 binding을 해석하므로 기존 실행의 detector 의미를 임의로 backfill하지 않는다.
+- client/Web은 profile ID를 보내지 않는다. create transaction이 잠근 ready source asset SHA-256으로 server registry binding을 결정한다. migration 시점의 queued job만 ID/version/digest를 `NULL`로 staging하고 worker lease 안에서 같은 binding을 해석한다. processing/applying job이 있으면 `20260917145000_cad_profile_upgrade_preflight`와 `20260917160000_cad_upgrade_safety`가 10초 lock/fence 안에서 fail-close한다.
 - partial unique index `FloorImportJob_floorId_active_key`는 `queued`, `processing`, `review_required`, `applying` 중인 job을 층마다 하나로 제한한다. 완료·실패·취소 원장은 이력으로 유지한다.
 - deferred constraint trigger `FloorImportJob_asset_invariant`, `FloorAsset_import_job_invariant`는 transaction 최종 상태에서 원본/렌더 자산이 job과 같은 층이고 ready인지, source는 `original`과 source format별 DWG/DXF MIME인지, render는 `rendered`와 허용 이미지 MIME인지 양쪽 mutation 경로에서 강제한다.
 - migration-only `FloorImportJob_lifecycle_check`는 queued/processing/review_required/applying/completed/failed/cancelled별 progress, lease, 오류, 렌더 자산과 필수 timestamp 조합을 강제한다. 특히 terminal 상태는 lease가 없고 각각 `completedAt`, `failedAt`, `cancelledAt`이 필요하다.
+- `FloorImportJob_detector_profile_state_check`는 `review_required`, `applying`, `completed`에서 profile ID/version/digest를 모두 요구한다. migration 이전 terminal 결과는 현재 profile로 위장하지 않고 `legacy-unknown`과 zero digest sentinel로 보존한다.
 - 위 trigger, lifecycle/check 제약과 active partial unique는 Prisma datamodel로 표현되지 않는다. `floor-cad-import-migration.integration.spec.ts`가 실제 PostgreSQL catalog와 잘못된 INSERT/UPDATE 거부를 검증하므로 migration을 Prisma diff로 재생성해 대체하면 안 된다.
 
 ### FloorImportCandidate
