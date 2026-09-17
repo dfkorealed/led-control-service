@@ -545,6 +545,7 @@ function DimmingExecutionControls({ compact = false, brightness, controlsLocked,
       <Slider label="밝기" minValue={0} maxValue={100} step={1} value={brightness} isDisabled={controlsLocked} onChange={onBrightnessChange} />
       <NumberField
         label="밝기 수치"
+        size={compact ? "lg" : "md"}
         minValue={0}
         maxValue={100}
         step={1}
@@ -557,7 +558,7 @@ function DimmingExecutionControls({ compact = false, brightness, controlsLocked,
     </div>
     <div className="grid grid-cols-4 gap-2" data-control-presets="">
       {[0, 30, 70, 100].map((value) => (
-        <Button key={value} variant="secondary" type="button" onClick={() => onBrightnessChange(value)} disabled={controlsLocked}>
+        <Button key={value} variant="secondary" type="button" className={compact ? "min-h-13" : undefined} onClick={() => onBrightnessChange(value)} disabled={controlsLocked}>
           {value}%
         </Button>
       ))}

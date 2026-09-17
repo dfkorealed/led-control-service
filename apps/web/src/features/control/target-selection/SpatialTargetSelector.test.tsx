@@ -170,7 +170,7 @@ describe("SpatialTargetSelector", () => {
     const body = dialog.querySelector<HTMLElement>("[data-dialog-body]")!;
     const list = screen.getByRole("group", { name: "조명 목록" });
     const completion = screen.getByRole("button", { name: "선택 완료" });
-    expect(dialog).toHaveClass("max-compact:h-full!", "max-compact:overflow-hidden!");
+    expect(dialog).toHaveClass("max-compact:h-full!", "overflow-hidden!");
     expect(body).toHaveClass("min-h-0", "overflow-hidden");
     expect(list).toHaveAttribute("data-fixture-selection-list", "");
     expect(list).toHaveClass("min-h-0", "overflow-y-auto", "overscroll-contain");

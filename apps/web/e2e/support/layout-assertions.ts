@@ -221,13 +221,13 @@ export async function expectMinimumTouchTargets(
       );
       if (!visibleRect) return null;
 
-      const isFixed = getComputedStyle(element).position === "fixed";
-      const hasFixedContainingBlock = isFixed
-        && [...generateAncestors(element)].some(establishesFixedContainingBlock);
-      for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
-        // A viewport-fixed box escapes ancestor overflow unless an ancestor establishes
-        // the fixed containing block (for example via transform/filter/perspective).
-        if (isFixed && !hasFixedContainingBlock) continue;
+      const ancestors = [...generateAncestors(element)];
+      // Descendants of a viewport-fixed overlay escape document clipping too.
+      // Retain clipping inside the overlay and all transformed containing blocks.
+      const viewportFixedRoot = [element, ...ancestors].find((candidate) => getComputedStyle(candidate).position === "fixed"
+        && ![...generateAncestors(candidate)].some(establishesFixedContainingBlock));
+      const clippingAncestors = viewportFixedRoot ? ancestors.slice(0, ancestors.indexOf(viewportFixedRoot) + 1) : ancestors;
+      for (const ancestor of clippingAncestors) {
         const style = getComputedStyle(ancestor);
         const clipsX = ["auto", "hidden", "clip", "scroll"].includes(style.overflowX);
         const clipsY = ["auto", "hidden", "clip", "scroll"].includes(style.overflowY);

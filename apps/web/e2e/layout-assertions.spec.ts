@@ -244,6 +244,17 @@ test("a transformed overflow ancestor clips its fixed descendant", async ({ page
   await expect(expectMinimumTouchTargets(page, "#root")).rejects.toThrow(/interactive target/i);
 });
 
+test("a control inside a viewport-fixed overlay escapes scrolled document clipping", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.setContent(`<!doctype html><style>html { overflow: hidden; } body { height: 1600px; margin: 0; }</style>
+    <div id="root" style="position: fixed; inset: 0; overflow: hidden">
+      <button style="position: absolute; bottom: 24px; left: 24px; width: 80px; height: 48px">완료</button>
+    </div>`);
+  await page.evaluate(() => window.scrollTo(0, 75));
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(75);
+  await expectMinimumTouchTargets(page, "#root");
+});
+
 test("scrolling touch target helper inspects an undersized target below the viewport", async ({ page }) => {
   await page.setContent(`
     <main id="root" style="height: 60px; overflow-y: auto">

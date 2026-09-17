@@ -124,30 +124,34 @@ test("viewer control redirect issues no mutating request", async ({ page }) => {
 for (const viewport of [{ width: 1440, height: 900 }, { width: 1024, height: 768 }] as const) {
   test(`desktop control at ${viewport.width}x${viewport.height} keeps page fixed while map, history, and detail scroll internally`, async ({ page }) => {
     await page.setViewportSize(viewport);
-    await installControlMapRoutes(page, { fixtureCount: 80 });
+    await installControlMapRoutes(page, { fixtureCount: 80, groupCount: 40, historyCount: 24 });
     await page.goto(`/control?siteId=${ids.site}`);
     await expect(page.getByRole("heading", { name: "조명 밝기 제어", exact: true })).toBeVisible();
 
-    const dimensions = (selector: string) => page.locator(selector).evaluate((element: HTMLElement) => ({
-      clientHeight: element.clientHeight,
-      scrollHeight: element.scrollHeight,
-      overflowY: getComputedStyle(element).overflowY
-    }));
-    const [documentMetrics, map, history, detail] = await Promise.all([
-      page.evaluate(() => ({ clientHeight: document.documentElement.clientHeight, scrollHeight: document.documentElement.scrollHeight })),
-      page.getByRole("region", { name: "B2 도면" }).evaluate((element: HTMLElement) => ({
-        clientHeight: element.clientHeight,
-        scrollHeight: element.scrollHeight,
-        overflowY: getComputedStyle(element).overflowY
-      })),
-      dimensions("[data-command-history-list]"),
-      dimensions("[data-target-selection-detail-panel]")
-    ]);
-    const metrics = { document: documentMetrics, map, history, detail };
-    expect(metrics.document.scrollHeight).toBeLessThanOrEqual(metrics.document.clientHeight + 1);
-    expect(metrics.map.overflowY).toMatch(/auto|scroll/);
-    expect(metrics.history.overflowY).toBe("auto");
-    expect(metrics.detail.overflowY).toBe("auto");
+    await page.getByRole("button", { name: "저장된 구역" }).click();
+    const history = page.getByRole("region", { name: "최근 명령 이력" });
+    // Use real zoom controls and populated route data to create overflow in
+    // each pane; CSS overflow declarations alone cannot prove scrollability.
+    for (let index = 0; index < 20; index += 1) await page.getByRole("button", { name: "지도 확대", exact: true }).click();
+    const map = page.getByRole("region", { name: "B2 도면" });
+    await expect.poll(async () => Number(await map.getAttribute("data-zoom"))).toBeGreaterThan(2);
+    await expectInternalWheelScroll(page, map);
+    const detail = page.locator("[data-target-selection-detail-panel]");
+    await expect(detail).toHaveCSS("overflow-y", "auto");
+    await expectInternalWheelScroll(page, detail);
+    const finalGroup = detail.getByRole("button", { name: "B2 구역 040", exact: true });
+    await expectReachableInside(finalGroup, detail);
+    await finalGroup.click();
+    await expect(finalGroup).toHaveAttribute("aria-current", "true");
+    const historyList = history.locator("[data-command-history-list]");
+    await expect(historyList).toHaveCSS("overflow-y", "auto");
+    await expectInternalWheelScroll(page, historyList);
+    const finalCommand = historyList.getByRole("button", { name: /99999999-9999-4999-8999-000000005023/ });
+    await expectReachableInside(finalCommand, historyList);
+    await finalCommand.click();
+    await expect(finalCommand).toHaveAttribute("aria-pressed", "true");
+    const documentMetrics = await page.evaluate(() => ({ clientHeight: document.documentElement.clientHeight, scrollHeight: document.documentElement.scrollHeight }));
+    expect(documentMetrics.scrollHeight).toBe(documentMetrics.clientHeight);
   });
 }
 
@@ -168,7 +172,19 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 740 }
     expect(moveControlOwnsCenter).toBe(true);
     await expectMinimumTouchTargetsAfterScrolling(page, "[data-control-screen]");
 
+    await marker(page, "B2-L001").click();
     await page.getByRole("button", { name: "선택 대상 펼치기" }).click();
+    await expect(page.getByRole("button", { name: "선택 대상 접기" })).toHaveAttribute("aria-expanded", "true");
+    await expectMinimumTouchTargetsAfterScrolling(page, "[data-control-screen]");
+    await expectEditableFontSizes(page.getByRole("complementary", { name: "선택 대상 요약" }));
+    await page.getByRole("button", { name: "조명 목록 열기" }).click();
+    const drawer = page.getByRole("dialog", { name: "조명 목록" });
+    await expect(drawer.getByRole("searchbox", { name: "조명 검색" })).toBeVisible();
+    await expectMinimumTouchTargetsAfterScrolling(page, "[data-dialog-surface]");
+    await expectEditableFontSizes(drawer);
+    await expectNoHorizontalOverflow(page);
+    await drawer.getByRole("button", { name: "선택 완료", exact: true }).click();
+    await expectNoHorizontalOverflow(page);
     const action = page.getByRole("button", { name: /밝기 적용/ });
     const navigation = page.locator('[data-shell-navigation="compact"]');
     await action.scrollIntoViewIfNeeded();
@@ -208,6 +224,45 @@ for (const mode of ["pan", "select", "area"] as const) {
   });
 }
 
+async function expectInternalWheelScroll(page: Page, pane: ReturnType<Page["locator"]>) {
+  const metrics = await pane.evaluate((element) => ({ width: element.clientWidth, height: element.clientHeight, content: element.scrollHeight, top: element.scrollTop, overflow: getComputedStyle(element).overflowY }));
+  expect(metrics.width).toBeGreaterThan(0);
+  expect(metrics.height).toBeGreaterThan(0);
+  expect(metrics.content).toBeGreaterThan(metrics.height);
+  expect(metrics.overflow).toMatch(/auto|scroll/);
+  await pane.hover();
+  await page.mouse.wheel(0, 10000);
+  await expect.poll(() => pane.evaluate((element) => element.scrollTop)).toBeGreaterThan(metrics.top);
+  await expect.poll(() => pane.evaluate((element) => element.scrollTop + element.clientHeight)).toBe(metrics.content);
+}
+
+async function expectReachableInside(target: ReturnType<Page["locator"]>, pane: ReturnType<Page["locator"]>) {
+  await expect(target).toBeVisible();
+  const outer = await pane.boundingBox();
+  const inner = await target.boundingBox();
+  expect(outer).not.toBeNull();
+  expect(inner).not.toBeNull();
+  const visibleTop = Math.max(inner!.y, outer!.y);
+  const visibleBottom = Math.min(inner!.y + inner!.height, outer!.y + outer!.height);
+  expect(visibleBottom).toBeGreaterThan(visibleTop);
+  expect(inner!.y + inner!.height / 2).toBeGreaterThanOrEqual(visibleTop);
+  expect(inner!.y + inner!.height / 2).toBeLessThanOrEqual(visibleBottom);
+  expect(await target.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
+    return Boolean(hit && (hit === element || element.contains(hit)));
+  })).toBe(true);
+}
+
+async function expectEditableFontSizes(root: ReturnType<Page["locator"]>) {
+  const fields = root.getByRole("textbox").or(root.getByRole("searchbox")).or(root.getByRole("spinbutton")).or(root.getByRole("combobox")).filter({ visible: true });
+  expect(await fields.count()).toBeGreaterThan(0);
+  for (const field of await fields.all()) {
+    await field.scrollIntoViewIfNeeded();
+    expect(await field.evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(16);
+  }
+}
+
 type FixtureOptions = Partial<Pick<SettingsFixture, "vehicleSensorCapabilityStatus" | "vehicleSensorCapabilityVerifiedAt">>;
 
 function fixture(id: string, name: string, x: number, y: number, options: FixtureOptions = {}): SettingsFixture {
@@ -245,6 +300,8 @@ async function installControlMapRoutes(page: Page, options: {
   mapStatus?: number;
   role?: SettingsRole;
   fixtureCount?: number;
+  groupCount?: number;
+  historyCount?: number;
 } = {}) {
   const fixtureData = options.fixtureCount
     ? Array.from({ length: options.fixtureCount }, (_, index) => fixture(
@@ -260,6 +317,15 @@ async function installControlMapRoutes(page: Page, options: {
   });
   const groups = [{ id: ids.group, name: "B2 입구", floorId: ids.floor, gatewayId: ids.gateway, lifecycleStatus: "active", fixtureCount: 2,
     meshControlGroup: { status: "ready", version: 1, error: null }, fixtureIds: [ids.fixture, ids.fixtureTwo] }];
+  if (options.groupCount) groups.splice(0, groups.length, ...Array.from({ length: options.groupCount }, (_, index) => ({
+    ...groups[0], id: `99999999-9999-4999-8999-${String(4000 + index).padStart(12, "0")}`, name: `B2 구역 ${String(index + 1).padStart(3, "0")}`,
+    fixtureCount: 1, fixtureIds: [fixtureData[index % fixtureData.length].id]
+  })));
+  const history = Array.from({ length: options.historyCount ?? 0 }, (_, index) => ({
+    id: `99999999-9999-4999-8999-${String(5000 + index).padStart(12, "0")}`, siteId: ids.site, stage: "completed", outcome: "applied",
+    brightness: 70, totalFixtureCount: 1, completedFixtureCount: 1, dispatchCount: 1, createdAt: "2026-09-01T00:00:00.000Z", errorMessage: null,
+    targetFixtureIds: [fixtureData[0].id], dispatches: []
+  }));
   const state = { scheduleRequests: [] as Record<string, unknown>[], eventRequests: [] as Record<string, unknown>[], postRequests: [] as string[] };
 
   await page.route("**/api/**", async (route) => {
@@ -267,6 +333,9 @@ async function installControlMapRoutes(page: Page, options: {
     const url = new URL(request.url());
     const path = url.pathname;
     if (request.method() === "POST") state.postRequests.push(path);
+    if (path === "/api/commands" && options.historyCount) return route.fulfill({ json: { items: history, nextCursor: null } });
+    const historicalCommand = history.find((command) => path === `/api/commands/${command.id}`);
+    if (historicalCommand) return route.fulfill({ json: historicalCommand });
     if (path === `/api/sites/${ids.site}/dashboard`) {
       return route.fulfill({ json: dashboardResponse(fixtureData, groups, options.role ?? "admin") });
     }

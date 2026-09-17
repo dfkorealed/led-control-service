@@ -201,13 +201,25 @@ for (const viewport of viewports) {
 
   test(`${viewport.width}px Mesh 준비 전 floor와 저장 구역은 제어 대상으로 차단한다`, async ({ page }) => {
     await page.setViewportSize(viewport);
-    await installManualControlFixture(page, "admin", "blocked");
+    // Keep fixture health eligible so these choices are blocked by Mesh
+    // readiness itself, rather than an unrelated faulty/offline fixture.
+    const api = await installManualControlFixture(page, "admin", "blocked", [fixtures[0]]);
     await page.goto(`/control?siteId=${ids.site}`);
     const execution = await openManualExecution(page);
 
     await page.getByRole("button", { name: "층 전체" }).click();
+    const floors = page.getByRole("group", { name: "층 목록" });
+    await expect(floors.getByRole("button", { name: "B2", exact: true })).toBeDisabled();
+    await expect(floors.getByRole("alert")).toHaveText("게이트웨이 0/1 준비 · Mesh 설정 중");
+    await expect(execution.getByRole("button", { name: /밝기 적용/ })).toBeDisabled();
     await page.getByRole("button", { name: "저장된 구역" }).click();
+    await page.getByRole("alertdialog", { name: "선택 방식 변경" }).getByRole("button", { name: "변경", exact: true }).click();
+    const groups = page.getByRole("group", { name: "저장된 구역 목록" });
+    await expect(groups.getByRole("button", { name: "B2 입구" })).toBeDisabled();
+    await expect(groups.getByRole("alert")).toHaveText("게이트웨이 장비 응답을 확인하지 못했습니다.");
+    await expect(page.getByText(/ACK/i)).toHaveCount(0);
     await expect(execution.getByRole("button", { name: "밝기 적용" })).toBeDisabled();
+    expect(api.dimmingRequests).toHaveLength(0);
   });
 
   test(`${viewport.width}px read-only viewer는 수동 제어 route에 접근할 수 없다`, async ({ page }) => {

@@ -4,6 +4,8 @@
 
 ## 구현 완료
 
+- 2026-09-17 지도 제어 브라우저 검증에서 compact 밝기 수치 입력을 16px로, 프리셋 버튼을 높이 52px로 보완했다. 둥근 모서리를 제외해도 44×44px 터치 영역을 확보한다. 조명 목록 drawer는 PC에서도 높이를 제한하고 목록 자체를 스크롤하며, 내부 native checkbox 입력의 위치 기준을 목록으로 고정해 마지막 행 선택 시 overlay가 화면 밖으로 밀리지 않게 했다. 1024px의 100→121개 목록 확장·마지막 행 선택, 1440/1024px의 실제 지도·이력·구역 내부 휠 스크롤, 390/320px의 펼친 실행 영역·drawer 터치 영역과 입력 글꼴을 Chromium으로 검증한다. 이는 브라우저 회귀 범위이며 실제 WebView 터치·하드웨어 HIL 검증은 아니다.
+
 - 2026-09-17 저장 구역 생성·수정의 조명 멤버십 편집을 지도 우선 `FixtureGroupMapEditor`로 교체했다. 첫 조명 선택은 같은 floor·Gateway 경계를 잠그며, 모두 제거해도 기존 구역의 경계는 자동으로 이동하지 않고 명시적인 경계 선택으로만 바뀐다. 지도 marker와 보조 목록 drawer는 같은 `SpatialTargetSelector` 상태를 공유하므로 미배치 조명도 목록에서 선택할 수 있다. 저장은 기존 생성/수정 mutation에 1~100개 unique fixture의 전체 교체 set만 전달하며, 편집 중 추가·제거 예정 멤버를 텍스트로 표시한다. 저장 전에는 `저장 후 Mesh 설정 중`을 안내하고 저장 응답의 `configuring` 상태는 `Mesh 설정 중`으로 표시한다. 경계 polygon은 저장하거나 렌더링하지 않는다. 카드·삭제 확인·재동기화·viewer 읽기 전용·cache/focus 계약은 유지했고, 모바일 44px marker/action, 16px field 및 내부 overflow는 공통 selector 정책을 따른다. 이는 Vitest UI 회귀 증거이며 실제 Mesh/조명 HIL 완료를 뜻하지 않는다.
 
 - 2026-09-17 차량 감지 이벤트 추가·수정은 감지 센서와 실행 조명을 각각 지도 우선 `SpatialTargetSelector` 단계에서 선택한다. 감지 센서는 capability가 검증된 fixture 직접 선택만 허용하고, 지원하지 않는 센서는 지도에 `선택 불가`로 보인다. 새 이벤트에서는 적격 감지 센서의 단일 Gateway가 정해지기 전 실행 조명 선택 action을 비활성화하고 이유를 안내한다. 실행 조명은 감지 센서의 단일 Gateway로 제한한 개별·층·저장 구역 선택을 제공하며, 층·구역은 완료 시 정렬된 fixture ID 스냅샷으로 기존 이벤트 payload에 저장한다. 이후 멤버십 변경은 저장된 이벤트를 바꾸지 않고 API 재편집은 직접 fixture 스냅샷으로 시작한다. 감지 Gateway를 바꾸면 호환되지 않는 실행 대상은 비워 저장을 차단한다. 기존 validation/server error focus, 권한·pending lock, 밝기/디밍/유지 시간과 `VehicleEventRuleSnapshotV1` 계약은 유지한다. 지도 view와 목록 drawer는 compact bounded overflow, 44px action/marker, 16px field 정책을 따른다. Vitest 지도 선택·form·presenter·panel 41개는 Web UI 회귀 증거이며 실제 Mesh/조명 HIL은 아니다.

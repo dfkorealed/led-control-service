@@ -116,17 +116,31 @@ test("1024px 대상 선택기는 긴 조명 목록과 더 보기를 dialog 내�
   const fixtureDrawer = page.getByRole("dialog", { name: "조명 목록" });
 
   const list = fixtureDrawer.getByRole("group", { name: "조명 목록" });
+  const drawerContent = fixtureDrawer.locator("[data-dialog-body]");
   const moreButton = fixtureDrawer.getByRole("button", { name: "더 보기" });
   await expect(list).toBeVisible();
+  await expect(list.getByRole("checkbox")).toHaveCount(100);
+  await expectElementInsideContainer(list, drawerContent);
+  const initialList = await list.evaluate((element) => ({ clientHeight: element.clientHeight, scrollHeight: element.scrollHeight }));
+  expect(initialList.clientHeight).toBeGreaterThan(0);
+  expect(initialList.scrollHeight).toBeGreaterThan(initialList.clientHeight);
   await moreButton.scrollIntoViewIfNeeded();
   await expectElementInsideViewport(moreButton, viewport);
   await moreButton.click();
+  await expect(list.getByRole("checkbox")).toHaveCount(fixtures.length);
+  await expect(list.getByRole("checkbox", { name: "B1-LIGHT-001 선택" })).toHaveCount(1);
+  await expect(list.getByRole("checkbox", { name: "B1-LIGHT-100 선택" })).toHaveCount(1);
 
   const finalFixture = fixtureDrawer.getByLabel("B1-LIGHT-121 선택");
-  await list.scrollIntoViewIfNeeded();
-  await list.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+  await finalFixture.locator("xpath=ancestor::label").scrollIntoViewIfNeeded();
+  await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
   await expect(finalFixture).toBeVisible();
+  await expectElementInsideContainer(list, drawerContent);
   await expectElementInsideContainer(finalFixture.locator("xpath=ancestor::label"), list);
+  await expectElementInsideContainer(finalFixture.locator("xpath=ancestor::label"), drawerContent);
+  await expectElementInsideViewport(finalFixture.locator("xpath=ancestor::label"), viewport);
+  await finalFixture.locator("xpath=ancestor::label").click();
+  await expect(finalFixture).toBeChecked();
   await expectDialogInsideViewport(fixtureDrawer, viewport);
   await expectNoDocumentVerticalOverflow(page);
 });
@@ -338,6 +352,8 @@ async function expectElementInsideContainer(
   expect(elementBounds).not.toBeNull();
   expect(containerBounds).not.toBeNull();
   if (!elementBounds || !containerBounds) return;
+  expect(elementBounds.x).toBeGreaterThanOrEqual(containerBounds.x);
+  expect(elementBounds.x + elementBounds.width).toBeLessThanOrEqual(containerBounds.x + containerBounds.width);
   expect(elementBounds.y).toBeGreaterThanOrEqual(containerBounds.y - 1);
   expect(elementBounds.y + elementBounds.height).toBeLessThanOrEqual(containerBounds.y + containerBounds.height + 1);
 }

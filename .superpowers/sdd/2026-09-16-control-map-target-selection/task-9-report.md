@@ -70,3 +70,48 @@ The combined result contains manual **21/21**, automation **6/6**, and target-se
 ### Concerns
 
 No remaining recovery blocker. These are deterministic Chromium route-fixture results; synthetic PointerEvents do not establish native WebView touch or hardware/HIL behavior. Initial invocations found a leftover previous Playwright process occupying port 15174; that same-worktree run was interrupted and all recorded final commands owned their own normal Vite server lifecycle.
+
+## Fix Round 1
+
+Addressed all four Important review findings on 2026-09-17.
+
+### Evidence improvements
+
+1. Desktop 1440×900 and 1024×768 now render 80 fixtures, 40 saved groups and 24 command-history records. Public zoom controls create map overflow; real mouse-wheel input must move each map/history/detail pane to its end. Every pane must have positive dimensions and content taller than its viewport. The final group and command must have a reachable center inside their pane, pass `elementFromPoint`, accept a normal click, and expose selected state. Document `scrollHeight === clientHeight` is exact. Existing overflow-style checks remain supplementary assertions.
+2. Mobile 390×844 and 320×740 now select a marker, open compact execution, repeat the touch sweep including the enabled apply action, open the list drawer and sweep its mounted controls, and measure all visible accessible editable fields at **>=16px**. Marker checks, action-above-navigation and no-horizontal-overflow checks remain.
+3. Mesh-blocked fixtures now contain only a healthy eligible light, so health cannot mask the readiness policy. The test asserts the actual floor choice disabled with the configuring explanation, confirms the public mode-change dialog, asserts the saved-group choice disabled with its humanized failure explanation, rejects raw ACK text and verifies no command request.
+4. The long automation drawer asserts the first batch has exactly 100 checkboxes and the expanded batch 121, retains identifiable first/boundary/final rows, checks list containment within drawer content, and checks the final row inside the list, drawer content and viewport. A normal final-row click must select the checkbox while the dialog stays in the viewport.
+
+### RED evidence and fixes
+
+- Important 1 mutation: temporarily cancelling ordinary wheel events while retaining `overflow:auto` caused the 1440px desktop case to fail on unchanged scrollTop **254→254**. Restored the original wheel handler afterward.
+- Important 3 mutation: temporarily removing `!eligible` from the choice disabled condition caused the 1440px Mesh case to fail because the floor button was enabled. Restored the original readiness guard afterward. Both mutations were run together with `--grep 'desktop control at 1440|1440px Mesh 준비'`; **2/2 failed at the intended behavioral assertions**.
+- Important 2 caught real production defects before fixes: compact numeric input computed **14px**, and the 320px rounded preset had a 52×44 box without a fully reachable 44×44 interior. Compact numeric input now uses the existing `lg` field variant (16px), and compact presets have 52px height.
+- Important 4 caught real production defects before fixes: the desktop drawer list grew to **6768px** with no internal scroll range. Bounding the drawer with header/content/footer grid rows makes the list scroll. Clicking the last native checkbox then revealed that its absolute input escaped the scroll container and moved the backdrop to **y=-7474**; establishing the list as its positioning container keeps the dialog at **y=24** after selection. Two existing unit assertions were updated from compact-only overflow utility to the equivalent all-viewport utility.
+- The mobile drawer sweep also exposed a test-helper bug: a descendant of a viewport-fixed overlay was clipped against the scrolled root document, despite its real hit target being visible. A standards-mode regression with a 75px-scrolled document failed before the helper fix and passes after it. The helper now stops external ancestor clipping at a viewport-fixed root, preserving clipping inside the overlay and transformed containing blocks; all existing negative overlay/clipping tests still pass.
+- Production changes are limited to `ControlView` compact field/preset sizing and `FixtureSelectionDrawer` layout/position containment. `docs/menus/control.md` documents them. Schedule fixture-snapshot payload behavior remains unchanged; the contradictory group-payload example was not applied.
+
+### Final commands and results
+
+```bash
+pnpm --filter @led-control/web exec playwright test e2e/control-map-target-selection.spec.ts e2e/layout-assertions.spec.ts e2e/calm-operations-manual-control.spec.ts e2e/calm-operations-automation.spec.ts --project=chromium --workers=1
+# 70 passed (1.3m), no failures or skips
+# target-selection + layout 43/43; manual 21/21; automation 6/6
+
+pnpm --filter @led-control/web test src/features/control/ControlView.test.tsx src/features/control/target-selection/SpatialTargetSelector.test.tsx
+# 2 files, 94/94 passed
+
+pnpm --filter @led-control/web test
+# 97 files, 1393/1393 passed (20.32s)
+
+pnpm --filter @led-control/web typecheck
+# passed
+
+pnpm --filter @led-control/web ui:check
+# passed: 0 existing, 0 new/increased violations
+
+git diff --check
+# passed
+```
+
+No remaining Important item from this review round. Browser fixtures, synthetic gestures and jsdom units do not establish native WebView or hardware/HIL behavior. The separately ledgered Minor suggestions remain outside this round.

@@ -33,7 +33,7 @@ export function FixtureSelectionDrawer({ open, dashboard, selectedFixtureIds, di
   useEffect(() => { if (open) queueMicrotask(() => searchRef.current?.focus()); }, [open]);
 
   return <ModalDialog isOpen={open} title="조명 목록" description="목록에서 조명을 선택합니다." closeLabel="조명 목록 닫기" onClose={onClose}
-    className="max-compact:grid! max-compact:h-full! max-compact:max-h-full! max-compact:w-full! max-compact:grid-rows-[auto_minmax(0,1fr)_auto] max-compact:overflow-hidden!"
+    className="grid! h-[min(48rem,calc(100dvh-48px))]! grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden! max-compact:h-full! max-compact:max-h-full! max-compact:w-full!"
     bodyClassName="grid min-h-0 overflow-hidden"
     actions={<div className="pb-safe-area-bottom"><Button type="button" variant="primary" onClick={onClose}>선택 완료</Button></div>}>
     <div className="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-3">
@@ -44,7 +44,9 @@ export function FixtureSelectionDrawer({ open, dashboard, selectedFixtureIds, di
       <SelectBox label={<span className="sr-only">층 필터</span>} items={[{ id: "all", label: "모든 층" }, ...dashboard.floors.map((floor) => ({ id: floor.id, label: floor.name }))]}
         selectedKey={floorId} onSelectionChange={(value) => setFloorId(value ?? "all")} />
     </div>
-    <div className="min-h-0 overflow-y-auto overscroll-contain rounded-panel border border-border-default" role="group" aria-label="조명 목록" data-fixture-selection-list="">
+    {/* Anchor React Aria's absolute native inputs inside this scrollport so
+        focusing a late row cannot scroll the modal backdrop off screen. */}
+    <div className="relative min-h-0 overflow-y-auto overscroll-contain rounded-panel border border-border-default" role="group" aria-label="조명 목록" data-fixture-selection-list="">
       {filtered.slice(0, limit).map(({ fixture, floor }) => {
         const selected = selectedFixtureIds.has(fixture.id);
         const unavailable = disabled || (!selected && disabledFixtureIds.has(fixture.id));
