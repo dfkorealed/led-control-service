@@ -2,17 +2,530 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**목표:** 설정의 층별 에디터에서 1,000개 조명 검색·드래그 배치·확인 후 배치 해제·일괄 편집·실물 위치 확인을 제공한다. 파일 도면 활용은 보류한다.
+**목표:** DWG/DXF를 최적화된 층별 맵으로 가져오고, 기존 맵을 안전하게 초기화한 뒤 최대 2,000개 CAD 조명 슬롯에 1,000개 실제 조명을 배치한다.
 
-**구조:** 기존 Konva 에디터와 atomic save/lease/revision을 확장하고 배치 상태를 장비 등록 상태에서 분리한다. 읽기 전용 지도만 미배치 마커를 제외하며 제어·통계에는 전체 등록 조명을 유지한다. 식별 점멸은 독립된 등록 후 장비 명령으로 연결한다.
+**구조:** CAD는 단일 gzip SVG 배경으로 유지하고 승인된 조명 후보만 `FloorLightSlot` 정규 상태로 분리한다. CAD 적용은 editor lease/revision으로 보호된 단일 DB transaction에서 기존 수동 객체 삭제, fixture 미배치 전환, 슬롯 교체와 revision 기록을 수행한다. Web은 레이어 분리, viewport culling, LOD와 목록 가상화로 렌더 비용을 제한한다.
 
 **기술:** React, TypeScript, React Query, Zustand, Konva, NestJS, Prisma, PostgreSQL, MQTT, BlueZ, ESP-IDF, Jest, Vitest, Playwright.
 
-**설계:** [층별 도면 에디터 설계](../specs/2026-07-06-floor-editor-design.md)의 `2026-09-09 최종 구현 범위`.
+**설계:** [층별 도면 에디터 설계](../specs/2026-07-06-floor-editor-design.md)의 `2026-09-18 CAD 맵 교체와 조명 배치 슬롯 설계`.
+
+## 2026-09-18 CAD 맵 교체·슬롯 배치 활성 계획
+
+상태: 설계 승인 완료, 구현 대기. 이 절이 현재 활성 체크리스트이며 아래 `2026-09-09 대량 배치 실행 계획`은 완료된 과거 이력이다.
+
+### 전역 제약
+
+- 신규 맵 파일은 DWG/DXF만 허용하고 PNG/JPG/PDF 신규 업로드를 거부한다. 기존 이미지/PDF 자산의 인증 조회와 revision 복구 호환은 유지한다.
+- CAD apply는 `confirmMapReset: true`, editor lease token/fence와 expected revision이 모두 유효해야 한다.
+- apply transaction은 기존 `FloorMapObject` 전체 삭제, 모든 fixture의 unplaced/x=0/y=0/미확인 전환, 기존 slot 삭제, 새 plan/slot 저장, revision/audit/job 완료를 원자적으로 처리한다.
+- 실제 fixture 등록, Mesh 주소, 그룹, 제어·자동화·전력 이력은 CAD apply로 삭제하거나 변경하지 않는다.
+- 상한은 한 층 fixture 1,000개, CAD 후보/slot 2,000개, map object 2,000개다.
+- 렌더 성능 기준은 Chromium 1440x900 warm 편집 준비 p95 3초 이하, pan/zoom frame p95 33ms 이하, drag commit p95 100ms 이하, 저장 p95 3초 이하다.
+- 각 Task는 회귀 테스트 실패 확인, 최소 구현, 범위 테스트, `docs/menus/settings.md` 및 필요한 스키마 문서 갱신, 독립 커밋 순서로 끝낸다.
+- 기존 사용자 변경과 BIO 관련 미커밋 파일은 수정·stage·revert하지 않는다.
+- `docs/menus/settings.md`와 `docs/menus/monitoring.md`에는 기존 BIO 변경이 있으므로 커밋 때 파일 전체를 `git add`하지 않는다. CAD 작업에서 추가한 hunk만 diff로 확인해 선택적으로 stage한다.
+
+### Task 1: 슬롯 DB 모델과 공유 계약
+
+**파일:**
+- 수정: `apps/api/prisma/schema.prisma`
+- 생성: `apps/api/prisma/migrations/20260918090000_floor_light_slots_map_reset/migration.sql`
+- 수정: `packages/shared/src/schemas.ts`
+- 수정: `packages/shared/src/cad-import-contracts.ts`
+- 수정: `packages/shared/src/cad-import-contracts.test.ts`
+- 수정: `docs/database-schema.md`
+
+**인터페이스:**
+- 생성: `FloorLightSlot` Prisma 모델과 `floorLightSlotSchema`.
+- 변경: `floorImportApplyInputSchema`에 `confirmMapReset: z.literal(true)`.
+- 변경: editor snapshot에 `lightSlots: FloorLightSlotDto[]`.
+
+- [ ] **Step 1: 실패하는 공유 계약 테스트 작성**
+
+```ts
+expect(() => floorImportApplyInputSchema.parse({
+  expectedRevision: 4,
+  leaseToken: "lease",
+  leaseFence: 2,
+  candidateIds: [candidateId]
+})).toThrow();
+
+expect(floorLightSlotSchema.parse({
+  id: slotId,
+  x: 120,
+  y: 240,
+  rotation: 0,
+  assignedFixtureId: null
+})).toMatchObject({ assignedFixtureId: null });
+```
+
+- [ ] **Step 2: 공유 테스트가 실패하는지 확인**
+
+Run: `pnpm --filter @led-control/shared test -- cad-import-contracts.test.ts schemas.test.ts`
+
+Expected: `confirmMapReset`와 `floorLightSlotSchema`가 없어 실패.
+
+- [ ] **Step 3: Prisma 모델·제약·공유 타입 구현**
+
+```prisma
+model FloorLightSlot {
+  id                String  @id @default(uuid())
+  floorId           String
+  sourceImportJobId String
+  sourceCandidateId String  @unique
+  assignedFixtureId String? @unique
+  x                 Float
+  y                 Float
+  rotation          Float   @default(0)
+  floor             Floor   @relation(fields: [floorId], references: [id], onDelete: Cascade)
+  sourceImportJob   FloorImportJob @relation(fields: [sourceImportJobId], references: [id], onDelete: Cascade)
+  sourceCandidate   FloorImportCandidate @relation(fields: [sourceCandidateId], references: [id], onDelete: Cascade)
+  assignedFixture   Fixture? @relation(fields: [assignedFixtureId], references: [id], onDelete: SetNull)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  @@index([floorId, id])
+}
+```
+
+`Floor`, `FloorImportJob`, `FloorImportCandidate`, `Fixture`에는 각각 반대 relation field를 추가한다. Migration SQL에는 finite x/y/rotation, candidate/job/floor 일치, assigned fixture/floor 일치 검증 trigger를 포함한다.
+
+- [ ] **Step 4: schema generate와 계약 테스트 실행**
+
+Run: `pnpm --filter @led-control/api prisma:generate && pnpm --filter @led-control/shared test -- cad-import-contracts.test.ts schemas.test.ts && pnpm --filter @led-control/shared typecheck`
+
+Expected: 모두 통과.
+
+- [ ] **Step 5: DB 문서 갱신 후 커밋**
+
+```bash
+git add apps/api/prisma/schema.prisma apps/api/prisma/migrations/20260918090000_floor_light_slots_map_reset packages/shared/src/schemas.ts packages/shared/src/cad-import-contracts.ts packages/shared/src/cad-import-contracts.test.ts docs/database-schema.md
+git commit -m "feat(editor): add persistent cad light slots"
+```
+
+### Task 2: 이미지 신규 업로드 제거와 CAD 자산 경계
+
+**파일:**
+- 수정: `apps/api/src/floor-editor/floor-assets.service.ts`
+- 수정: `apps/api/src/floor-editor/floor-assets.service.spec.ts`
+- 수정: `apps/api/src/floor-editor/floor-assets.integration.spec.ts`
+- 수정: `apps/web/src/features/floor-editor/FloorEditorView.tsx`
+- 삭제: `apps/web/src/features/floor-editor/FloorAssetUploadPanel.tsx`
+- 삭제: `apps/web/src/features/floor-editor/FloorAssetUploadPanel.test.tsx`
+- 수정: `apps/web/src/features/floor-editor/FloorEditorView.test.tsx`
+
+**인터페이스:**
+- `createUploadIntent`는 `kind=original`일 때 공유 `cadImportMimeTypeSchema`만 허용한다.
+- 기존 ready image/pdf/rendered SVG content 조회는 변경하지 않는다.
+
+- [ ] **Step 1: PNG/JPG 업로드 거부 API 테스트와 UI 부재 테스트 작성**
+
+```ts
+await expect(service.createUploadIntent(user, floorId, {
+  kind: "original",
+  mimeType: "image/png",
+  sizeBytes: 1024,
+  sha256: "a".repeat(64)
+})).rejects.toThrow("unsupported floor asset MIME type");
+```
+
+```tsx
+expect(screen.queryByRole("region", { name: "도면 자산" })).not.toBeInTheDocument();
+expect(screen.getByRole("region", { name: "CAD 가져오기" })).toBeInTheDocument();
+```
+
+- [ ] **Step 2: API/Web 대상 테스트 실패 확인**
+
+Run: `pnpm --filter @led-control/api test -- floor-assets.service.spec.ts --runInBand && pnpm --filter @led-control/web test -- FloorEditorView.test.tsx`
+
+Expected: PNG upload가 허용되고 이미지 panel이 남아 실패.
+
+- [ ] **Step 3: 업로드 allowlist와 이미지 panel 제거 구현**
+
+`FloorEditorView`의 `FloorAssetUploadPanel` import, upload busy state와 callback을 제거한다. `FloorAssetsService`는 CAD source MIME만 client upload intent로 허용하고 internal rendered SVG 저장 경로는 기존 worker 전용 API로 유지한다.
+
+- [ ] **Step 4: 조회 호환과 신규 거부 테스트 실행**
+
+Run: `pnpm --filter @led-control/api test -- floor-assets.service.spec.ts floor-assets.integration.spec.ts --runInBand && pnpm --filter @led-control/web test -- FloorEditorView.test.tsx`
+
+Expected: 신규 이미지 거부, 기존 이미지 조회 테스트 통과.
+
+- [ ] **Step 5: 설정 문서 갱신 후 커밋**
+
+```bash
+git add apps/api/src/floor-editor apps/web/src/features/floor-editor
+# docs/menus/settings.md는 이번 Task의 CAD hunk만 선택적으로 stage한다.
+git commit -m "refactor(editor): remove image floor uploads"
+```
+
+### Task 3: CAD 진행률과 완료 상태 복구
+
+**파일:**
+- 수정: `apps/api/src/floor-import/floor-import-worker.service.ts`
+- 수정: `apps/api/src/floor-import/floor-import-worker.service.spec.ts`
+- 수정: `packages/shared/src/cad-import-contracts.ts`
+- 수정: `apps/web/src/features/floor-editor/CadImportPanel.tsx`
+- 수정: `apps/web/src/features/floor-editor/CadImportPanel.test.tsx`
+
+**인터페이스:**
+- 생성: `cadImportStageSchema`와 `cadImportStageLabel(stage)`.
+- Web polling은 terminal 상태 전까지 1초 간격이며 `updatedAt`을 effect dependency로 사용하지 않는다.
+
+- [ ] **Step 1: 진행률 단조 증가와 100% 완료 표시 회귀 작성**
+
+```ts
+expect(progressUpdates.map(({ progressPercent }) => progressPercent)).toEqual([15, 35, 70, 90, 100]);
+```
+
+```tsx
+expect(screen.getByRole("progressbar", { name: "CAD 가져오기 진행률" })).toHaveValue(100);
+expect(screen.getByText("분석 완료 · 조명 위치 후보를 불러오는 중")).toBeInTheDocument();
+```
+
+- [ ] **Step 2: 테스트 실패 확인**
+
+Run: `pnpm --filter @led-control/api test -- floor-import-worker.service.spec.ts --runInBand && pnpm --filter @led-control/web test -- CadImportPanel.test.tsx`
+
+Expected: review 상태에서 progress UI가 사라져 실패.
+
+- [ ] **Step 3: 고정 polling loop와 완료 전환 구현**
+
+`CadImportPanel`은 `jobId/status/error`만으로 timer를 관리하고, candidate fetch 동안 `reviewLoadingJobId`를 유지한다. 실패한 polling은 기존 job/progress를 보존한 채 `다시 확인`으로 재개한다.
+
+- [ ] **Step 4: polling cleanup·새로고침 복구 테스트 실행**
+
+Run: `pnpm --filter @led-control/web test -- CadImportPanel.test.tsx && pnpm --filter @led-control/api test -- floor-import-worker.service.spec.ts --runInBand`
+
+Expected: queued → processing → 100% loading → review 전환과 unmount cleanup 통과.
+
+- [ ] **Step 5: 문서 갱신과 커밋**
+
+```bash
+git add packages/shared/src/cad-import-contracts.ts apps/api/src/floor-import/floor-import-worker.service* apps/web/src/features/floor-editor/CadImportPanel*
+# docs/menus/settings.md는 이번 Task의 CAD hunk만 선택적으로 stage한다.
+git commit -m "fix(cad): keep import progress visible through review"
+```
+
+### Task 4: 주 도면 영역과 CAD 엔티티 보강
+
+**파일:**
+- 수정: `apps/api/src/floor-import/cad-types.ts`
+- 수정: `apps/api/src/floor-import/dxf-document-parser.ts`
+- 수정: `apps/api/src/floor-import/dxf-document-parser.spec.ts`
+- 수정: `apps/api/src/floor-import/cad-geometry.ts`
+- 수정: `apps/api/src/floor-import/cad-svg-renderer.ts`
+- 수정: `apps/api/src/floor-import/cad-svg-renderer.spec.ts`
+- 수정: `apps/api/src/floor-import/cad-viewport.ts`
+- 수정: `apps/api/src/floor-import/cad-viewport.spec.ts`
+- 수정: `apps/api/src/floor-import/cad-runtime-contract.ts`
+
+**인터페이스:**
+- 생성: `selectPrimaryCadBounds(document): { bounds; excludedEntityCount; totalEntityCount }`.
+- `NormalizedCadEntity`에 `spline | wipeout | hatch | dimension | point`을 추가한다.
+- 렌더 결과 metadata에 `unsupportedEntityCounts`와 `excludedEntityCount`를 포함한다.
+
+- [ ] **Step 1: 고립 outlier와 신규 엔티티 fixture 테스트 작성**
+
+```ts
+expect(selectPrimaryCadBounds(documentWithRemoteOutlier)).toMatchObject({
+  bounds: { minX: 0, minY: 0, maxX: 1200, maxY: 800 },
+  excludedEntityCount: 1
+});
+```
+
+DXF fixture는 SPLINE control point/knot, WIPEOUT polygon, HATCH boundary, DIMENSION block reference, POINT를 각각 최소 한 개 포함한다.
+
+- [ ] **Step 2: parser/viewport/renderer 테스트 실패 확인**
+
+Run: `pnpm --filter @led-control/api test -- dxf-document-parser.spec.ts cad-viewport.spec.ts cad-svg-renderer.spec.ts --runInBand`
+
+Expected: 신규 entity가 누락되고 remote outlier가 viewport에 포함되어 실패.
+
+- [ ] **Step 3: deterministic primary bounds와 엔티티 렌더 구현**
+
+주 도면 선택은 spatial bucket의 drawable 길이/면적/개수 점수로 가장 큰 연결 cluster를 택하고, 후보 좌표와 같은 transform을 사용한다. SPLINE은 bounded De Boor sampling, WIPEOUT/HATCH는 polygon path, DIMENSION은 anonymous block 우선, POINT는 fixed marker path로 렌더한다. 입력별 entity/coordinate/sample 상한을 기존 runtime contract에 추가한다.
+
+- [ ] **Step 4: 실제 샘플 분석과 renderer 회귀 실행**
+
+Run: `node scripts/analyze-cad-import.mjs --input "/Users/kim-jh/Downloads/2단지지하주차장전등설비합본평면도20260803.dwg" --converter /opt/homebrew/bin/dwgread`
+
+Expected: 후보 1,302개 유지, supported geometry 통계 상승, 주요 도면 viewport가 한 화면에서 식별 가능.
+
+- [ ] **Step 5: API 테스트와 커밋**
+
+```bash
+pnpm --filter @led-control/api test -- dxf-document-parser.spec.ts cad-viewport.spec.ts cad-svg-renderer.spec.ts cad-runtime-contract.spec.ts --runInBand
+git add apps/api/src/floor-import
+# docs/menus/settings.md는 이번 Task의 CAD hunk만 선택적으로 stage한다.
+git commit -m "feat(cad): render primary drawing geometry"
+```
+
+### Task 5: 원자적 맵 초기화와 슬롯 생성
+
+**파일:**
+- 수정: `apps/api/src/floor-import/floor-import.service.ts`
+- 수정: `apps/api/src/floor-import/floor-import.service.spec.ts`
+- 수정: `apps/api/src/floor-import/floor-import.integration.spec.ts`
+- 수정: `apps/api/src/floor-editor/floor-editor-snapshot.ts`
+- 수정: `apps/api/src/floor-editor/floor-editor.service.ts`
+- 수정: `apps/api/src/floor-editor/floor-editor.integration.spec.ts`
+
+**인터페이스:**
+- `applyJob(...): FloorImportApplyResult`에 `deletedObjectCount`, `unplacedFixtureCount`, `createdSlotCount`.
+- editor state/snapshot은 `lightSlots`를 포함한다.
+
+- [ ] **Step 1: 전체 초기화와 강제 rollback 통합 테스트 작성**
+
+```ts
+expect(result).toMatchObject({
+  deletedObjectCount: 2,
+  unplacedFixtureCount: 4,
+  createdSlotCount: 2
+});
+expect(await prisma.fixture.findMany({ where: { floorId } })).toEqual(
+  expect.arrayContaining([expect.objectContaining({ placementStatus: "unplaced", x: 0, y: 0 })])
+);
+```
+
+slot create trigger를 강제 실패시킨 뒤 plan, objects, fixtures, slots, revision, job status가 모두 적용 전 상태인지 검사한다.
+
+- [ ] **Step 2: 서비스/통합 테스트 실패 확인**
+
+Run: `pnpm --filter @led-control/api test -- floor-import.service.spec.ts floor-import.integration.spec.ts --runInBand`
+
+Expected: 기존 구현이 objects/fixtures를 유지하고 slot을 만들지 않아 실패.
+
+- [ ] **Step 3: 단일 transaction apply 구현**
+
+`confirmMapReset`을 authority/asset 검증 뒤 확인하고 `deleteMany(mapObjects)`, fixture bulk reset, old slot delete, accepted candidate 기반 `createMany(slots)`, plan/revision/audit/job 완료를 같은 transaction에 둔다. change summary에 네 개 count를 기록한다.
+
+- [ ] **Step 4: apply, snapshot, rollback 검증**
+
+Run: `pnpm --filter @led-control/api test -- floor-import.service.spec.ts floor-import.integration.spec.ts floor-editor.integration.spec.ts --runInBand`
+
+Expected: 정상 적용과 모든 강제 실패 rollback 통과.
+
+- [ ] **Step 5: DB/설정 문서 갱신과 커밋**
+
+```bash
+git add apps/api/src/floor-import apps/api/src/floor-editor docs/database-schema.md
+# docs/menus/settings.md는 이번 Task의 CAD hunk만 선택적으로 stage한다.
+git commit -m "feat(cad): replace maps atomically on import"
+```
+
+### Task 6: 적용 경고 dialog와 슬롯 배치 UX
+
+**파일:**
+- 수정: `apps/web/src/features/floor-editor/editor-types.ts`
+- 수정: `apps/web/src/features/floor-editor/editor-store.ts`
+- 수정: `apps/web/src/features/floor-editor/editor-store.test.ts`
+- 생성: `apps/web/src/features/floor-editor/CadPlacementSlotLayer.tsx`
+- 생성: `apps/web/src/features/floor-editor/CadPlacementSlotLayer.test.tsx`
+- 수정: `apps/web/src/features/floor-editor/FloorEditorCanvas.tsx`
+- 수정: `apps/web/src/features/floor-editor/FixturePlacementList.tsx`
+- 수정: `apps/web/src/features/floor-editor/CadImportPanel.tsx`
+- 수정: `apps/web/src/features/floor-editor/FloorEditorView.tsx`
+- 수정: `apps/web/src/features/floor-editor/FloorEditorView.test.tsx`
+
+**인터페이스:**
+- 생성: `assignFixtureToSlot(fixtureId, slotId)`와 `unassignFixture(fixtureId)` store command.
+- `CadImportPanel`은 apply 전 reset summary dialog를 열고 확인 시에만 `confirmMapReset: true`를 전송한다.
+
+- [ ] **Step 1: dialog 취소/확인과 slot assignment 실패 테스트 작성**
+
+```tsx
+fireEvent.click(screen.getByRole("button", { name: "선택한 후보와 배경 적용" }));
+expect(screen.getByRole("dialog", { name: "새 CAD 도면으로 맵을 교체할까요?" })).toHaveTextContent("조명 4개가 미배치 상태로 변경");
+fireEvent.click(screen.getByRole("button", { name: "취소" }));
+expect(floorEditorApi.applyFloorImportJob).not.toHaveBeenCalled();
+```
+
+```ts
+store.assignFixtureToSlot(fixtureId, slotId);
+expect(store.state.fixtures[0]).toMatchObject({ placementStatus: "placed", x: slot.x, y: slot.y });
+expect(store.state.lightSlots[0].assignedFixtureId).toBe(fixtureId);
+```
+
+- [ ] **Step 2: Web 테스트 실패 확인**
+
+Run: `pnpm --filter @led-control/web test -- editor-store.test.ts CadImportPanel.test.tsx FloorEditorView.test.tsx`
+
+Expected: reset dialog와 slot store command가 없어 실패.
+
+- [ ] **Step 3: slot layer, drag highlight, exact snap과 unassign 구현**
+
+미할당 slot만 hollow marker로 표시하고 drag pointer가 slot hit radius 안에 들어오면 강조한다. drop은 slot 좌표/rotation을 정확히 사용한다. 이미 할당된 slot이나 다른 fixture가 사용 중인 slot은 거부한다. slot 밖 drop은 기존 자유 배치를 유지한다.
+
+- [ ] **Step 4: 단위·컴포넌트 테스트 실행**
+
+Run: `pnpm --filter @led-control/web test -- editor-store.test.ts CadPlacementSlotLayer.test.tsx CadImportPanel.test.tsx FloorEditorView.test.tsx`
+
+Expected: dialog focus/Escape/취소/확인, slot 중복 차단, 배치 해제 재개방 통과.
+
+- [ ] **Step 5: 설정 문서 갱신과 커밋**
+
+```bash
+git add apps/web/src/features/floor-editor apps/web/src/api/floor-editor.ts
+# docs/menus/settings.md는 이번 Task의 CAD hunk만 선택적으로 stage한다.
+git commit -m "feat(editor): place fixtures onto cad slots"
+```
+
+### Task 7: 렌더링 최적화와 배경 오류 상태
+
+**파일:**
+- 생성: `apps/web/src/features/floor-editor/editor-spatial-index.ts`
+- 생성: `apps/web/src/features/floor-editor/editor-spatial-index.test.ts`
+- 생성: `apps/web/src/features/floor-editor/use-floor-plan-image.ts`
+- 생성: `apps/web/src/features/floor-editor/use-floor-plan-image.test.tsx`
+- 수정: `apps/web/src/features/floor-editor/FloorEditorCanvas.tsx`
+- 수정: `apps/web/src/features/floor-editor/EditorFixtureNode.tsx`
+- 수정: `apps/web/src/features/floor-editor/CadPlacementSlotLayer.tsx`
+- 수정: `apps/web/src/features/floor-editor/FixturePlacementList.tsx`
+- 수정: `apps/web/src/features/floor-editor/FloorEditorView.tsx`
+- 수정: `apps/web/e2e/floor-placement.spec.ts`
+
+**인터페이스:**
+- 생성: `buildEditorSpatialIndex(items, cellSize)`와 `queryEditorSpatialIndex(index, bounds, margin)`.
+- 생성: `useFloorPlanImage(url): { image; status: "idle" | "loading" | "ready" | "error"; retry }`.
+
+- [ ] **Step 1: culling, image reuse와 decode error 회귀 작성**
+
+```ts
+const visible = queryEditorSpatialIndex(index, { x: 0, y: 0, width: 500, height: 300 }, 80);
+expect(visible.map(item => item.id)).toEqual(["inside", "margin"]);
+```
+
+```tsx
+rerender(<Harness url="/same.svg" selection="fixture-2" />);
+expect(imageConstructor).toHaveBeenCalledTimes(1);
+fireEvent.error(createdImage);
+expect(screen.getByText("CAD 도면을 표시하지 못했습니다.")).toBeInTheDocument();
+```
+
+- [ ] **Step 2: 최적화 회귀 실패 확인**
+
+Run: `pnpm --filter @led-control/web test -- editor-spatial-index.test.ts use-floor-plan-image.test.tsx FloorEditorView.test.tsx`
+
+Expected: spatial index/hook이 없어 실패.
+
+- [ ] **Step 3: layer 분리, viewport culling, LOD와 rAF commit 구현**
+
+CAD background/grid는 non-listening static layer로 유지한다. fixture/slot은 spatial query 결과만 렌더하고 zoom 임계값 아래에서 label/stroke detail을 숨긴다. pointer move는 requestAnimationFrame으로 합치고 drag end에만 Zustand draft를 갱신한다. fixture 목록은 기존 window 계산을 1,000개 기준으로 고정한다.
+
+- [ ] **Step 4: 1,000 fixture/2,000 slot 브라우저 성능 테스트 실행**
+
+Run: `pnpm --filter @led-control/web exec playwright test e2e/floor-placement.spec.ts --project=chromium --workers=1`
+
+Expected: warm 준비 p95 ≤ 3,000ms, frame p95 ≤ 33ms, drag commit p95 ≤ 100ms이고 background image 생성 횟수가 URL당 1회.
+
+- [ ] **Step 5: 설정 문서에 측정 환경과 결과 기록 후 커밋**
+
+```bash
+git add apps/web/src/features/floor-editor apps/web/e2e/floor-placement.spec.ts
+# docs/menus/settings.md는 이번 Task의 CAD hunk만 선택적으로 stage한다.
+git commit -m "perf(editor): cull cad slots and reuse map images"
+```
+
+### Task 8: 모니터링 조회와 revision 복구 연동
+
+**파일:**
+- 수정: `apps/api/src/floor-map/floor-map.service.ts`
+- 수정: `apps/api/src/floor-map/floor-map.service.spec.ts`
+- 수정: `apps/web/src/features/floor-map/FloorScene.tsx`
+- 수정: `apps/web/src/features/floor-map/FloorScene.test.tsx`
+- 수정: `apps/api/src/floor-editor/floor-editor.service.ts`
+- 수정: `apps/api/src/floor-editor/floor-editor.integration.spec.ts`
+- 수정: `docs/menus/monitoring.md`
+- 수정: `docs/menus/settings.md`
+
+**인터페이스:**
+- 모니터링 DTO는 slot을 노출하지 않고 배치된 fixture와 CAD plan만 반환한다.
+- revision restore는 plan, objects, fixture placement와 slot assignment를 함께 복구한다.
+
+- [ ] **Step 1: 모니터링 slot 비노출과 revision 왕복 테스트 작성**
+
+```ts
+expect(monitoringMap).not.toHaveProperty("lightSlots");
+expect(monitoringMap.fixtures).toEqual([expect.objectContaining({ id: assignedFixtureId })]);
+```
+
+restore 전후 `FloorLightSlot.assignedFixtureId`와 fixture placement/좌표가 snapshot과 일치하는지 실DB로 검사한다.
+
+- [ ] **Step 2: API/Web 테스트 실패 확인**
+
+Run: `pnpm --filter @led-control/api test -- floor-map.service.spec.ts floor-editor.integration.spec.ts --runInBand && pnpm --filter @led-control/web test -- FloorScene.test.tsx`
+
+Expected: slot snapshot/복구가 없어 실패.
+
+- [ ] **Step 3: 읽기 전용 map과 restore 구현**
+
+모니터링은 CAD SVG를 단일 background로 그리고 assigned fixture만 기존 marker로 표시한다. restore transaction은 현재 slot을 snapshot slot로 교체하고 assignment와 fixture 상태를 함께 복원한다.
+
+- [ ] **Step 4: 회귀 실행과 문서 갱신**
+
+Run: `pnpm --filter @led-control/api test -- floor-map.service.spec.ts floor-editor.integration.spec.ts --runInBand && pnpm --filter @led-control/web test -- FloorScene.test.tsx`
+
+Expected: 적용·새로고침·revision 복구 후 모니터링 배경/조명 일치.
+
+- [ ] **Step 5: 커밋**
+
+```bash
+git add apps/api/src/floor-map apps/api/src/floor-editor apps/web/src/features/floor-map
+# 두 메뉴 문서는 이번 Task의 CAD hunk만 선택적으로 stage한다.
+git commit -m "feat(monitoring): restore cad maps with fixture assignments"
+```
+
+### Task 9: 실제 샘플과 전체 사용자 여정 검증
+
+**파일:**
+- 수정: `apps/api/src/floor-import/cad-sample-pipeline.integration.spec.ts`
+- 수정: `apps/web/e2e/floor-placement-real.spec.ts`
+- 수정: `apps/web/e2e/floor-placement.spec.ts`
+- 수정: `scripts/analyze-cad-import.mjs`
+- 수정: `scripts/analyze-cad-import.test.mjs`
+- 수정: `docs/menus/settings.md`
+- 수정: `docs/menus/monitoring.md`
+
+**인터페이스:**
+- 샘플 분석 결과는 viewport/excluded/unsupported counts와 후보 transform 일치율을 출력한다.
+
+- [ ] **Step 1: 샘플 기대값과 브라우저 여정 테스트 작성**
+
+브라우저 시나리오는 기존 맵/도형/배치 조명 준비 → DWG 업로드 → 진행률 변화 → 100% → reset dialog 취소 → 재확인 → apply → 새로고침 → 모두 미배치/slot 표시 → 두 fixture slot 배치 → 저장 → 모니터링 반영 순서다.
+
+- [ ] **Step 2: 실제 sample pipeline 실행**
+
+Run: `CAD_SAMPLE_DWG_PATH="/Users/kim-jh/Downloads/2단지지하주차장전등설비합본평면도20260803.dwg" CAD_SAMPLE_CONVERTER_PATH=/opt/homebrew/bin/dwgread pnpm --filter @led-control/api test -- cad-sample-pipeline.integration.spec.ts --runInBand`
+
+Expected: job 100%, SVG decode 성공, 후보 1,302개, 주요 도면 bbox가 viewport 안에서 식별 가능.
+
+- [ ] **Step 3: Web 단위·브라우저·실백엔드 여정 실행**
+
+Run: `pnpm --filter @led-control/web test && pnpm --filter @led-control/web exec playwright test e2e/floor-placement.spec.ts --project=chromium --workers=1`
+
+실백엔드 lab가 준비된 경우: `E2E_REAL_BACKEND_LAB=1 pnpm --filter @led-control/web exec playwright test e2e/floor-placement-real.spec.ts --project=chromium --workers=1`.
+
+- [ ] **Step 4: 전체 타입·빌드·diff 검증**
+
+Run: `pnpm --filter @led-control/shared typecheck && pnpm --filter @led-control/api typecheck && pnpm --filter @led-control/web typecheck && pnpm --filter @led-control/api build && pnpm --filter @led-control/web build && git diff --check`
+
+Expected: 모두 exit 0.
+
+- [ ] **Step 5: 최종 현황 문서와 계획 체크리스트 갱신 후 커밋**
+
+```bash
+git add apps/api/src/floor-import apps/web/e2e scripts/analyze-cad-import.mjs scripts/analyze-cad-import.test.mjs docs/superpowers/plans/2026-07-06-floor-editor-implementation.md
+# 두 메뉴 문서는 이번 Task의 CAD hunk만 선택적으로 stage한다.
+git commit -m "test(cad): verify map replacement user journey"
+```
+
+### 실행 순서
+
+Task 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 순서다. Task 4의 parser/renderer와 Task 3의 진행률 Web 작업은 Task 1 이후 병렬 검토할 수 있지만 동일 CAD job 계약 변경은 Task 3을 먼저 통합한다. 각 Task 완료 직후 해당 범위 테스트와 커밋을 끝내고 다음 Task로 넘어간다.
 
 ## 2026-09-09 대량 배치 실행 계획
 
-상태: 2026-09-10 Task 1~10 및 Task 11 소프트웨어 검증 완료. 실제 장비 배포/검증만 사용자 요청으로 보류했다. 이 절이 활성 체크리스트이며 하단 작업/진행 로그는 기존 구현 이력이다. 사용자 DB에는 migration을 적용하지 않았으며 격리 DB와 브라우저로 검증했다.
+상태: 2026-09-10 Task 1~10 및 Task 11 소프트웨어 검증 완료. 실제 장비 배포/검증만 사용자 요청으로 보류했다. 이 절은 완료된 과거 체크리스트이며 하단 작업/진행 로그도 기존 구현 이력이다. 사용자 DB에는 migration을 적용하지 않았으며 격리 DB와 브라우저로 검증했다.
 
 진행 기록:
 - backend: Task 1/10 및 Task 2 서버 배치 분리 완료. Shared 172, API 800, 격리 DB/HTTP 18 테스트와 typecheck/build 및 독립 코드 검토를 통과했다. 등록 웹의 좌표 입력 제거와 전체 브라우저 연동도 완료했다.
