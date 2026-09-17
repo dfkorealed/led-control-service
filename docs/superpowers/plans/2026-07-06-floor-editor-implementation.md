@@ -981,3 +981,115 @@ Check:
 - MVP separation: 다중 이동과 자동 배치는 MVP 2, AI 도면 해석과 CAD 연동은 MVP 3으로 분리했다.
 - Type consistency: `FloorMapObject`, `FloorEditorState`, `UpdateFixtureRequest` 이름을 설계 문서와 구현 계획에서 일치시켰다.
 - Documentation: 메뉴 문서와 DB 문서 갱신 작업을 별도 Task로 포함했다.
+
+## 19. DWG/DXF 자동 맵 구성 실행 계획 (2026-09-16)
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** DWG/DXF 원본을 비동기로 분석해 단일 맵 배경과 검토 가능한 조명 위치 후보를 만들되 실제 조명 등록은 수행하지 않는다.
+
+**Architecture:** 기존 private `FloorAsset` 업로드 원장과 PostgreSQL lease worker 패턴을 재사용한다. CAD 변환기와 조명 분류기를 인터페이스로 격리하고 규칙 기반 분류기를 기본으로 사용하며 AI provider는 비활성 구현만 연결한다.
+
+**Tech Stack:** NestJS, Prisma/PostgreSQL, S3/MinIO, React Query, React/Konva, TypeScript
+
+**Spec:** `docs/superpowers/specs/2026-07-06-floor-editor-design.md` 13장
+
+### Global Constraints
+
+- 신규 자동 가져오기는 DWG/DXF만 지원하고 PDF는 제외한다.
+- 조명 위치 후보는 `Fixture` 또는 `MeshNode`를 생성하지 않는다.
+- 좌표는 CAD parser 결과만 사용하며 AI가 좌표를 생성하지 않는다.
+- AI provider 기본값은 `disabled`다.
+- 기존 이미지 맵, 수동 도형, 실제 조명 좌표를 가져오기가 임의 덮어쓰지 않는다.
+- DB 변경은 `docs/database-schema.md`, 설정 변경은 `docs/menus/settings.md`와 같은 작업에서 갱신한다.
+
+### Task 19.1: CAD 계약과 영속 작업 원장
+
+**Files:**
+- Modify: `apps/api/prisma/schema.prisma`
+- Create: `apps/api/prisma/migrations/20260916190000_floor_cad_import/migration.sql`
+- Create: `packages/shared/src/cad-import-contracts.ts`
+- Modify: `packages/shared/src/index.ts`
+- Test: `packages/shared/src/cad-import-contracts.test.ts`
+- Modify: `docs/database-schema.md`
+
+- [x] **RED:** DWG/DXF MIME, job 상태, 후보 응답과 apply 입력의 strict schema 테스트를 작성하고 실패를 확인한다.
+- [x] **GREEN:** `FloorImportJob`, `FloorImportCandidate`, source format/status enum과 strict shared schema를 추가한다.
+- [x] **VERIFY:** Shared test/typecheck, Prisma validate/generate와 PostgreSQL staged upgrade/clean replay/동시 writer를 실행한다.
+- [x] **COMMIT:** 계약·migration·DB 문서를 `299aa56b`, `85b75a01`, `1c803b08`, `87858bf5`, `5f4f27ac`으로 커밋하고 4차 재검토 PASS를 받았다.
+
+### Task 19.2: 변환·검출 코어와 AI 비활성 경계
+
+**Files:**
+- Create: `apps/api/src/floor-import/cad-types.ts`
+- Create: `apps/api/src/floor-import/cad-converter.ts`
+- Create: `apps/api/src/floor-import/dxf-document-parser.ts`
+- Create: `apps/api/src/floor-import/cad-svg-renderer.ts`
+- Create: `apps/api/src/floor-import/lighting-symbol-detector.ts`
+- Create: `apps/api/src/floor-import/rule-based-lighting-symbol-detector.ts`
+- Create: `apps/api/src/floor-import/disabled-ai-lighting-symbol-detector.ts`
+- Test: corresponding `*.spec.ts`
+
+- [x] **RED:** 합성 DXF의 경계·선·문자·INSERT, 조명 layer/block 검출, 비활성 AI의 외부 호출 없음, 위험 argv 거부 테스트를 작성하고 실패를 확인한다.
+- [x] **GREEN:** 정규화 문서, SVG renderer, 규칙 detector와 configurable converter adapter를 구현한다.
+- [x] **VERIFY:** 1,000개 후보, malformed/oversize, process tree, Linux resource limiter, dense detector abort를 포함한 66개 테스트를 실행한다.
+- [x] **COMMIT:** `4e791537`, `e7534995`, `dfbaeac1`, `ecb501d2`, `89e9262e`, `c303fb60`으로 커밋하고 5차 재검토 PASS를 받았다.
+
+### Task 19.3: 비동기 import API와 worker
+
+**Files:**
+- Create: `apps/api/src/floor-import/floor-import.module.ts`
+- Create: `apps/api/src/floor-import/floor-import.controller.ts`
+- Create: `apps/api/src/floor-import/floor-import.service.ts`
+- Create: `apps/api/src/floor-import/floor-import-worker.service.ts`
+- Modify: `apps/api/src/app.module.ts`
+- Modify: `apps/api/src/storage/object-storage.service.ts`
+- Modify: `apps/api/src/floor-editor/floor-assets.service.ts`
+- Modify: `apps/api/src/floor-editor/floor-asset-cleanup.service.ts`
+- Test: `apps/api/src/floor-import/*.spec.ts`
+
+- [x] **RED:** 권한, 층당 활성 job 1개, lease 재개, source checksum, 실패 격리, 후보만 생성, apply의 lease/revision 충돌 테스트를 작성하고 실패를 확인한다.
+- [x] **GREEN:** create/get/list/cancel/apply API와 PostgreSQL lease worker를 구현한다.
+- [x] **GREEN:** 원본 stream read와 렌더 SVG private write를 추가하고 처리 중 자산을 cleanup에서 보호한다.
+- [x] **VERIFY:** API focused test/typecheck와 module graph 부팅을 실행한다.
+- [x] **COMMIT:** API/worker와 cleanup fence를 `1f55e92c`, `84bd5404`, `bdd6151d`, `7c264890`으로 커밋하고 3차 재검토 PASS를 받았다.
+
+### Task 19.4: 맵 편집기 가져오기 UI와 후보 layer
+
+**Files:**
+- Create: `apps/web/src/features/floor-editor/CadImportPanel.tsx`
+- Create: `apps/web/src/features/floor-editor/CadCandidateLayer.tsx`
+- Modify: `apps/web/src/api/floor-editor.ts`
+- Modify: `apps/web/src/features/floor-editor/editor-types.ts`
+- Modify: `apps/web/src/features/floor-editor/FloorEditorCanvas.tsx`
+- Modify: `apps/web/src/features/floor-editor/FloorEditorView.tsx`
+- Modify: `apps/web/src/features/floor-editor/FloorAssetUploadPanel.tsx`
+- Test: corresponding `*.test.tsx`
+
+- [x] **RED:** DWG/DXF 전용 업로드, 진행 polling, review 결과, 적용, PDF 신규 업로드 부재와 1,000개 후보 batch 표시 테스트를 작성하고 실패를 확인한다.
+- [x] **GREEN:** 가져오기 패널과 후보 batch layer를 구현한다.
+- [x] **GREEN:** 기존 PDF 읽기 호환은 유지하고 신규 파일 선택에서는 PDF를 제거한다.
+- [x] **VERIFY:** Web floor-editor 154개 테스트, typecheck/build, UI policy를 실행한다.
+- [x] **COMMIT:** `38977cf0`, `867d3ba1`, `e84e3dad`, `5dc54075`, `85e6f328`, `e8813e0b`로 커밋하고 3차 재검토 Ready를 받았다.
+
+### Task 19.5: 샘플 DWG 분석, 문서와 최종 검증
+
+**Files:**
+- Create: `scripts/analyze-cad-import.mjs`
+- Test: `scripts/analyze-cad-import.test.mjs`
+- Modify: `docs/menus/settings.md`
+- Modify: `docs/project-status.md`
+- Modify: `docs/lesson_leared.md` when a repeatable failure is found
+
+- [x] **RED:** layer/block별 후보 개수, precision/recall 입력, F1 출력 계약과 converter/worker/storage 실패 경계 회귀를 작성하고 실패를 확인했다.
+- [x] **GREEN:** 재현 가능한 로컬 분석 스크립트, 한국어 결과 요약, 비동기 제품 경로와 AI disabled 확장점을 구현했다.
+- [x] **VERIFY:** 제공 DWG를 analyzer와 실제 worker/PostgreSQL/MinIO/API 경로로 실행해 기하 지원율, 후보 수와 오검출 한계를 기록했다.
+- [x] **VERIFY:** Shared/API/Web focused 및 전체 회귀, Prisma validate/generate, typecheck/build, UI policy, production contract/smoke와 `git diff --check`를 실행했다.
+- [x] **COMMIT:** `c401c974`~`230a1db6`, `e249e0c4`, `285585fc`, `d7470d15`, `743b3ca1`, `d929ffc7`, `7cf8b12d`, `557e9fdc`, `84e1c7ec`으로 기능을 분리 커밋하고 최종 whole-feature review에서 Spec/Quality Ready 판정을 받았다.
+
+### 19.6 Pre-flight self-review
+
+- Spec coverage: DWG/DXF, PDF 제외, 비등록 후보, AI 비활성 확장점, 정확도 평가가 Task 19.1~19.5에 모두 연결된다.
+- Type consistency: `FloorImportJob`, `FloorImportCandidate`, `LightingSymbolDetector`, `NormalizedCadDocument` 명칭을 전 Task에서 동일하게 사용한다.
+- Safety: shell 문자열 실행, 자동 Fixture 생성, 기존 맵 덮어쓰기를 금지한다.
+- Placeholder scan: 구현을 외부 미정 작업으로 남기는 항목 없이 초기 규칙 detector와 disabled AI 구현을 포함한다.

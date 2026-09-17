@@ -412,3 +412,82 @@ MVP 1에서는 생성, 수정, 삭제를 모두 제공한다. 사용자가 삭�
 - 도면 배경은 선택 사항이다.
 - 배경이 없어도 도형, 텍스트, LED 조명으로 층 구성을 표현할 수 있어야 한다.
 - AI 도면 해석은 MVP 3 범위로 둔다.
+
+## 13. DWG/DXF 자동 맵 구성 확장 (2026-09-16)
+
+### 13.1 범위
+
+- 신규 자동 가져오기는 `DWG`, `DXF`만 지원한다. PDF 자동 해석은 지원하지 않는다.
+- JPG/PNG 수동 배경 등록과 기존 PDF 읽기 호환은 유지하되 신규 PDF 업로드는 제공하지 않는다.
+- CAD 선·폴리라인·원·호·문자 등은 하나의 렌더 배경으로 변환해 표시한다. 수만 개 CAD entity를 `FloorMapObject`로 만들지 않는다.
+- CAD의 조명 심볼은 `조명 위치 후보`로 저장하고 맵 편집기에 표시한다.
+- 후보는 실제 BLE Mesh 조명이 아니므로 `Fixture`, `MeshNode`를 생성하거나 자동 등록·자동 바인딩하지 않는다.
+- 등록된 실제 조명과 후보의 연결 및 식별은 기존 조명 배치/식별 흐름에서 사용자가 수행한다.
+
+### 13.2 처리 흐름
+
+```text
+관리자 DWG/DXF 업로드
+→ private object storage 원본 보관
+→ PostgreSQL job/lease worker가 변환기 실행
+→ 정규화된 CAD 문서 생성
+→ 규칙 기반 조명 심볼 분류
+→ 단일 SVG 배경과 위치 후보 생성
+→ 관리자 검토
+→ editor lease·map revision을 확인하고 맵에 적용
+```
+
+API 요청 프로세스에서 큰 CAD를 직접 파싱하지 않는다. 작업 상태는 `queued → processing → review_required → applying → completed` 또는 `failed/cancelled`로 영속화하고, worker 재시작 후에도 lease 만료 작업을 재개한다.
+
+### 13.3 변환기 경계
+
+- 제품 코드는 특정 CAD SDK에 결합하지 않는 `CadConverter` 인터페이스를 사용한다.
+- 양산 기본 어댑터는 상용 배포·DWG 호환성이 명확한 ODA 계열 변환기를 사용한다.
+- 개발 환경에서는 명시적으로 설정한 CLI 어댑터를 사용할 수 있다. 실행 파일 경로와 argv를 분리하고 shell 문자열을 실행하지 않는다.
+- LibreDWG는 샘플 분석과 개발 검증에만 사용한다. GPL 배포 검토 없이 양산 이미지에 포함하지 않는다.
+- 변환 시간, 출력 크기, entity 수, 좌표 범위에 상한을 두고 초과하면 fail-close한다.
+- 양산 변환기는 API와 자격 증명·UID·PID namespace·network·memory cgroup을 분리한 sidecar에서 실행한다. 공유 spool readiness는 digest와 instance별 만료 heartbeat를 함께 검증하며, 취소 시 terminal 응답 또는 제한 시간까지 directory 소유권을 sidecar에 유지한다.
+- 양산 API 임시 공간은 source 50 MiB, DXF 256 MiB, raw SVG 128 MiB, gzip SVG 8 MiB와 filesystem overhead 64 MiB를 동시에 수용하는 512 MiB로 고정하고, worker는 렌더 전에 200 MiB 가용 공간을 예약한다.
+
+### 13.4 조명 후보 검출
+
+규칙 기반 검출은 다음 증거를 함께 사용한다.
+
+1. 레이어 이름: `조명`, `전등`, `LIGHT`, `LAMP`, `LED` 등의 현장 프로필 패턴
+2. 블록 이름과 INSERT 반복 빈도
+3. 블록 속성 및 주변 문자
+4. 동일 블록의 반복 배치와 비정상 단일 장식 심볼 제외
+
+좌표와 회전은 항상 CAD parser 결과를 사용한다. AI가 좌표를 생성하게 하지 않는다.
+
+### 13.5 AI 확장점
+
+초기 배포의 AI provider는 `disabled`다. `LightingSymbolDetector` 계약은 규칙 기반과 AI 보조 구현이 같은 입력·출력을 사용하게 분리한다.
+
+```ts
+interface LightingSymbolDetector {
+  detect(document: NormalizedCadDocument): Promise<DetectedLightingSymbol[]>;
+}
+```
+
+향후 AI 구현은 규칙으로 판정하지 못한 레이어·블록의 의미만 분류하며, 원본 CAD 전체와 고객 정보의 외부 전송은 별도 보안·비용 승인을 통과한 뒤 활성화한다. AI 결과에도 provider, model, confidence, 입력 digest를 기록해 재현 가능하게 한다.
+
+### 13.6 데이터 및 적용 정책
+
+- `FloorImportJob`: 원본/렌더 자산, 상태, 단계, 진행률, parser·detector 버전, lease, 오류를 저장한다.
+- `FloorImportCandidate`: source entity, layer/block, 정규화 좌표, 회전, 신뢰도, 검출 방법과 검토 상태를 저장한다.
+- 한 층에는 동시에 하나의 활성 import job만 허용한다.
+- 적용은 기존 편집기 lease와 예상 revision을 필수로 받고, 렌더 배경 연결·후보 적용·revision·audit을 한 transaction에서 처리한다.
+- 적용한 accepted 후보는 현재 렌더 배경과 map revision에 결속된 읽기 전용 오버레이로 재조회한다. 새로고침 뒤에도 실제 등록 조명의 배치·식별 기준점으로 사용할 수 있지만 `Fixture`, `MeshNode`, `FloorMapObject`로 자동 승격하지 않는다.
+- 가져오기 재실행은 기존 실제 조명 좌표와 수동 도형을 임의로 삭제하거나 덮어쓰지 않는다.
+
+### 13.7 1,000개 표시 성능
+
+- CAD 배경은 SVG/래스터 한 장으로 표시한다.
+- 후보는 기본 이름 label 없이 하나의 Konva batch layer로 렌더링한다.
+- 선택/hover된 후보만 상세 정보를 표시한다.
+- 확대 수준과 viewport 기준으로 hit testing과 label을 제한한다.
+
+### 13.8 정확도 판정 기준
+
+정확도는 `재현된 유효 조명 위치 / 도면의 실제 유효 조명 심볼` recall과 `유효 조명 후보 / 전체 검출 후보` precision을 별도로 측정한다. 최종 보고값은 두 값의 조화 평균(F1)과 맵 기하 재현율로 제시하며, BLE 장비 identity 연결 정확도로 확대 해석하지 않는다.

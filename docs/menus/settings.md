@@ -6,7 +6,7 @@
 
 ## 현재 우선순위
 
-- 2026-09-09 승인 맵 편집 개선은 소프트웨어 구현과 최종 회귀 검증을 완료했다. 층별 미배치 목록 드래그 배치, 단일 조명 우상단 `배치 해제`와 확인 팝업, Undo/Redo·검색·일괄 편집·등록 후 식별을 연결했다. 두 층 실제 API/DB 브라우저 E2E는 2026-09-10 통과했다. 2026-09-12에는 PDF/JPG/PNG 비공개 업로드·교체·연결 제거 UI를 추가했고, 2026-09-17에는 DWG/DXF 자동 맵 구성의 샘플 분석 도구와 검증 보고서를 추가했다. PDF 렌더 worker와 실제 BLE 장비 identity 자동 연결은 제공하지 않는다. 최신 범위는 [에디터 설계](../superpowers/specs/2026-07-06-floor-editor-design.md) 13장과 [실행 계획](../superpowers/plans/2026-07-06-floor-editor-implementation.md) Task 19를 따른다. 실장비 검증·배포는 사용자 요청으로 후속이다.
+- 2026-09-09 승인 맵 편집 개선은 소프트웨어 구현과 최종 회귀 검증을 완료했다. 층별 미배치 목록 드래그 배치, 단일 조명 우상단 `배치 해제`와 확인 팝업, Undo/Redo·검색·일괄 편집·등록 후 식별을 연결했다. 두 층 실제 API/DB 브라우저 E2E는 2026-09-10 통과했다. 2026-09-12의 비공개 배경 자산 흐름은 현재 JPG/PNG 신규 업로드와 기존 PDF 읽기 호환만 유지한다. 2026-09-17에는 DWG/DXF 자동 맵 구성의 샘플 분석 도구와 검증 보고서를 추가했다. PDF 신규 업로드·렌더 worker와 실제 BLE 장비 identity 자동 연결은 제공하지 않는다. 최신 범위는 [에디터 설계](../superpowers/specs/2026-07-06-floor-editor-design.md) 13장과 [실행 계획](../superpowers/plans/2026-07-06-floor-editor-implementation.md) Task 19를 따른다. 실장비 검증·배포는 사용자 요청으로 후속이다.
 - Scene 24~26 설정 개요·역할별 navigation·도면 목록/편집·계정 보안 UI 교정은 완료했다. 새로운 설정 도메인 기능은 아래 미구현 목록과 후속 범위를 유지한다.
 - 기존 맵 편집기는 계속 설정 메뉴가 소유하며, 저장한 배경, 도형, 텍스트, 색상과 조명 배치를 모니터링에서 읽기 전용으로 재사용한다.
 - 현장 일반 유저 관리, 본인 비밀번호 변경, operator/admin MFA, 모든 역할의 활성 세션 관리와 설치 후 현장·층·조명 메타데이터 운영 관리는 구현 완료했다. 구역은 기존 목록 조회와 안전한 보관 전환만 제공한다. 공통 감사 조회, 구역 생성·수정, 정책/알림, OTA, 외부 연동의 미구현 상태는 유지한다.
@@ -79,11 +79,12 @@
 - 제품 parser는 LAYER flag bit 1, 음수 color와 entity group 60만 현재 model visibility에서 제외한다. bit 2는 새 viewport 기본 frozen 의미이므로 전역 hidden으로 취급하지 않는다. renderer와 후보는 같은 translation/y-flip을 사용한다. 제공 샘플에서 visible model entity 26,387개와 block 11,243개를 보유했다. model-space WIPEOUT 397개와 SPLINE 84개는 여전히 미지원이므로 가림/곡선까지 포함한 시각 정답률을 주장하지 않는다.
 - 105,432,404-byte DXF의 parse/detect/render는 API process가 아닌 `--max-old-space-size=384` child에서 실행한다. macOS standalone child peak RSS는 489,635,840 bytes, parent peak는 53,346,304 bytes였다. Linux 768 MiB cgroup에서 API module-loaded parent baseline/peak 139,603,968/142,684,160 bytes와 child peak 376,909,824 bytes로 샘플이 통과했고 malformed child 실패 뒤 parent 생존도 확인했다. production은 API heap 256 MiB, child heap 384 MiB, CAD 동시 job 1, cgroup 768 MiB를 정확히 검사한다.
 - 샘플 SVG는 raw 17,046,497 bytes, deterministic gzip 3,731,451 bytes/SHA-256 `bc71ccb314e7a687144a54dba8d74f23f20ab5364fcb47fa0fbd99f204cb2185`다. 신규 worker 출력은 gzip ledger가 필수지만 migration 이전 비압축 SVG는 `contentEncoding = NULL` identity로 유지한다. 실제 PostgreSQL+MinIO staged migration에서 legacy identity와 신규 gzip의 HEAD/review/apply/signed GET을 함께 검증했다.
-- 후보는 250건 단위 transaction으로 최대 2,000건을 보존한다. 실제 PostgreSQL에서 4번째 chunk 강제 실패 시 앞선 750건이 rollback되고 retry 2,000건 저장 및 실패 attempt cleanup이 수렴했으며 2,000건 list/1,302건 apply와 Web 2,000건 review도 통과했다. 후보는 자동 등록이 아니며 `Fixture`/`MeshNode`를 만들지 않고 실제 BLE identity 매핑은 0%다. AI adapter는 I/O 0회의 `disabled`이고 provider 교체 경계만 있다. 신규 PDF import는 제외하며 기존 PDF 읽기 호환은 유지한다. GPL LibreDWG는 개발 분석/HIL 전용이고 제품 의존성에 포함하지 않는다.
+- 후보는 250건 단위 transaction으로 최대 2,000건을 보존한다. 실제 PostgreSQL에서 4번째 chunk 강제 실패 시 앞선 750건이 rollback되고 retry 2,000건 저장 및 실패 attempt cleanup이 수렴했으며 2,000건 list/1,302건 apply와 Web 2,000건 review도 통과했다. 적용된 accepted 후보는 현재 배경 자산·map revision에 결속된 읽기 전용 오버레이로 재조회되어 새로고침 뒤에도 수동 조명 배치·식별 기준점으로 남는다. 후보는 자동 등록이 아니며 `Fixture`/`MeshNode`/`FloorMapObject`를 만들지 않고 실제 BLE identity 매핑은 0%다. AI adapter는 I/O 0회의 `disabled`이고 provider 교체 경계만 있다. 신규 PDF upload/import는 제외하며 기존 PDF 읽기 호환은 유지한다. GPL LibreDWG는 개발 분석/HIL 전용이고 제품 의존성에 포함하지 않는다.
 - Task 19.5 fix round 4는 production API image에 root-owned canonical `/usr/bin/prlimit`만 추가하고 GPL LibreDWG나 converter는 포함하지 않는다. 운영자가 승인한 self-contained converter bundle을 절대 host path에서 `/opt/cad-converter:ro`로 주입해야 Compose가 render되며, API heap 256 MiB, core heap 384 MiB, cgroup 768 MiB, 동시 job 1과 512 MiB 전용 temp tmpfs를 preflight가 고정한다. converter는 API credential을 상속하지 않고 PATH/locale/TMPDIR만 받으며 address-space 512 MiB, CPU 60초, nofile 64, nproc 32, output fsize와 process-group timeout을 적용한다.
 - 상시 synthetic production smoke는 실제 production image/Nest provider/worker/external read-only converter/child core/PostgreSQL/MinIO를 HTTP create/status/candidates/content/apply 한 경로로 통과했다. 81/81 migration, gzip signed GET, 후보 비자동등록, malformed와 converter memory bomb 뒤 같은 API parent 생존, exact cleanup을 확인했다. 승인 샘플 HIL은 `CAD_SAMPLE_DWG_PATH`, 외부 `CAD_SAMPLE_CONVERTER_PATH`와 `CAD_SAMPLE_CONVERTER_ARGV_JSON`을 명시하는 opt-in이며 이번 round에서는 재실행하지 않았다.
-- Task 19.5 fix round 5는 converter를 API에서 분리된 UID 2000, network-none, read-only sidecar와 별도 1024 MiB cgroup으로 옮겼다. API는 bundle/argv/실행 권한 없이 384 MiB bounded spool만 공유하며 DB/S3/Vault/MQTT/TLS secret은 sidecar에 전달하지 않는다. Host와 mounted sidecar가 필수 승인 SHA-256과 executable owner/mode를 각각 검증하고 readiness/import를 fail-close한다. API/core cgroup은 1280 MiB, heap은 256/384 MiB, sidecar heap은 64 MiB다. Production smoke는 84/84 migration과 HTTP 전 경로, output/memory/timeout bomb 뒤 양쪽 생존·readiness·정상 재처리를 통과했다.
+- Task 19.5 fix round 5와 최종 보정은 converter를 API에서 분리된 UID 2000, network-none, read-only sidecar와 별도 1024 MiB cgroup으로 옮겼다. API는 bundle/argv/실행 권한 없이 512 MiB bounded spool만 공유하며 DB/S3/Vault/MQTT/TLS secret은 sidecar에 전달하지 않는다. Host와 mounted sidecar가 필수 승인 SHA-256과 executable owner/mode를 각각 검증한다. Sidecar readiness는 instance별 2초 만료 heartbeat이고 startup attestation 전에 이전 marker를 제거하므로 crash·OOM·digest mismatch 뒤 stale ready를 수용하지 않는다. 취소·변환 중 readiness 상실은 terminal 응답을 제한 시간 동안 기다리고, 이미 사라진 job directory는 sidecar 전체가 아닌 해당 job 정리로 수렴한다. Source 50 MiB, DXF 256 MiB, raw SVG 128 MiB, gzip SVG 8 MiB와 filesystem overhead 64 MiB를 공통 계약으로 두고 렌더 전 200 MiB를 예약한다. API/core cgroup은 1408 MiB, heap은 256/384 MiB, sidecar heap은 64 MiB다. Production smoke는 84/84 migration과 HTTP 전 경로, output/memory/timeout bomb 뒤 양쪽 생존·readiness·정상 재처리를 통과했다.
 - Migration 이전 linked SVG는 생성 시각으로 identity/gzip을 추정하지 않는다. 후속 migration이 provenance가 불명확한 값을 `unknown`으로 만들고 review/apply/content가 MinIO HEAD의 encoding/size/checksum/viewport를 확인한 뒤 조건부 원자 reconciliation한다. 신규 worker gzip은 확정값으로 유지한다. `20260917144000` singleton gate/DB trigger는 최종 release 전 구 worker claim도 거부한다. 실제 PG+MinIO 13/13이 clean, identity, pre/post-15000 gzip, HEAD 오류/불일치/동시성, lock rollback+retry와 기존 15000 적용 이력을 검증했다.
+- 최종 제공 DWG 제품 경로 재실행은 source 17,887,748 bytes/SHA-256 `01f25d...1854d`, 후보 1,308개, gzip SVG 3,732,251 bytes, profile `site-drawing-20260803/1`을 기록하고 PostgreSQL·MinIO 저장, API 조회와 signed GET을 통과했다. 최종 독립 whole-feature review는 P1/P2 없음, Spec/Quality Ready로 판정했다.
 
 - 2026-09-16 Tailwind Task 12에서 설정 개요·현장·사용자·등록·맵·보안 화면과 공통 dialog/navigation의 legacy class/CSS adapter를 제거하고 의미 토큰·utility 및 `data-*` 테스트 계약으로 수렴했다. legacy `components/ConfirmDialog.tsx`는 production/test import 0을 확인한 뒤 삭제했으며 정책 baseline은 빈 violation map을 사용한다. Fresh Web **1,224/1,224**, UI policy **53/53**, 전체 Chromium 직렬 **257 passed·5 환경 의존 skip·실패 0**, 별도 opt-in RealBackendLab 설치 여정 **2/2**와 층 배치 **1/1**을 통과했다. 실제 iOS/Android WebView, 운영 Object Storage, 사용자 DB 적용과 Raspberry Pi/ESP32-H2 HIL은 실행하지 않았다.
 
@@ -187,10 +188,10 @@
 - 조명 등록 화면의 검색 node 개별/전체 선택, 일괄·개별 설정 전환과 선택 조명 등록은 설치 완료 assigned admin의 commissioning UI로 노출된다. viewer와 operator에는 mutation UI를 노출하지 않는다. Task 9 software E2E는 production API와 test-support MQTT publisher 경로를 검증했고 shared `parseDfkDeviceUuid`로 invalid/타사 UUID 1개가 scan-found에서 제외됨을 확인했다. 실제 BlueZ/RF Gateway scan과 Raspberry Pi/ESP32-H2 HIL은 미실행이다.
 - 검색 결과는 서버가 `deviceUuid` 기준으로 미등록, 같은 현장 등록, 다른 현장 등록 상태를 분류한다. 미등록 장치만 기본 후보와 전체 선택·등록 payload에 포함하고, 이미 등록된 장치는 접힌 `기존 등록 조명` 영역으로 분리한다. 같은 현장 장치는 조명명·층 정보를 표시하지만 다른 현장 장치는 수량과 일반 안내만 표시해 타 현장 식별 정보를 노출하지 않는다. 구버전 또는 알 수 없는 분류값은 등록 대상에서 fail-closed로 제외하되 진행 중이거나 복구가 필요한 node는 식별 정보를 숨긴 복구 행으로 유지한다.
 - 등록 API는 화면 필터를 신뢰하지 않고 provisioning 예약 직전에 동일 `deviceUuid`의 기존 `MeshNode`를 다시 확인한다. batch 등록과 provisioning terminal 완료가 같은 PostgreSQL advisory lock을 사용해 동시 요청도 하나만 성공하며, 같은 현장과 다른 현장 중복은 각각 안정된 오류로 거부한다. 이번 변경에는 DB schema/migration이 없고 실제 Raspberry Pi/ESP32-H2 재검색 HIL은 후속 검증이다.
-- Konva 에디터의 사각형·삼각형·선·텍스트, 색상, 이동, 크기 변경, 조명 정보·위치 편집과 확대·축소를 유지한다. PNG/JPG/PDF를 선택해 비공개 자산으로 업로드하고 ready 완료 뒤 편집 초안에 연결한다. 연결 제거는 맵 전용 초안으로 바꾸며 저장 전 운영 도면과 object storage 원본을 삭제하지 않는다.
+- Konva 에디터의 사각형·삼각형·선·텍스트, 색상, 이동, 크기 변경, 조명 정보·위치 편집과 확대·축소를 유지한다. PNG/JPG를 비공개 자산으로 업로드하고 ready 완료 뒤 편집 초안에 연결한다. 기존 PDF 자산은 읽기 호환만 제공한다. 연결 제거는 맵 전용 초안으로 바꾸며 저장 전 운영 도면과 object storage 원본을 삭제하지 않는다.
 - 맵 편집기 toolbar와 revision 복구 icon action은 desktop과 760px 이하 layout에서 표시·동작을 검증한다. 760px 이하에서는 선택 fixture의 조명명·정격 전력·X/Y·크기 property input과 revision 복구를 포함해 위 helper 정의에 해당하는 control의 실제 usable intersection이 최소 44×44px를 유지한다. 360px 이하 toolbar는 3열로 wrap해 마지막 action이 가로 clip에 걸리지 않게 한다.
 - 설정 에디터와 모니터링 읽기 전용 지도는 `FloorMapObjectNode`의 사각형·삼각형·선·텍스트 geometry를 공유한다. Transformer, drag와 변경 callback은 설정 에디터에서만 활성화한다.
-- PDF/JPG/PNG 원본을 S3 호환 저장소에 저장하고 ready 자산의 인증 접근 경로만 도면에 연결한다. PDF는 렌더 자산이 없으면 원본만 연결하고 기존 렌더 배경을 보존한다.
+- JPG/PNG 원본을 S3 호환 저장소에 저장하고 ready 자산의 인증 접근 경로만 도면에 연결한다. 기존 PDF ledger row는 인증 조회·다운로드 호환을 유지하지만 신규 upload intent는 API에서 거부한다.
 - `owner`를 제거하고 `operator/admin/viewer` 3단계 역할과 서비스 운영사/고객사 Organization 유형을 Prisma schema에 적용했다. legacy migration은 현장 유무로 서비스 운영사를 추론하지 않으며 기존 Organization을 모두 customer로, legacy owner/operator와 invitation을 admin으로 유지한다.
 - 기존 viewer가 고객사 현장 조회 권한을 유지하도록 `SiteMembership`을 비파괴 migration에서 backfill한다.
 - invitation signup은 viewer 초대 전용 호환 API다. `{ token, loginId, email, name, password }`에서 `Invitation.email`은 연락 이메일과만 비교하고 정규화한 `loginId`를 별도 로그인 식별자로 저장한다. 공개 signup UI는 Task 6에서 제거했으며 API 호환만 유지한다. operator/admin invitation signup은 거부하며 viewer는 자기 고객사 Organization에 속한 유효한 `Invitation.siteId`의 membership을 transaction으로 생성한다.
@@ -266,8 +267,8 @@
 - lease와 별도로 revision 불일치 시 `409 Conflict`를 반환하고 강제 덮어쓰기를 허용하지 않는다. save/restore는 lease fence와 `mapRevision`을 모두 통과해야 한다.
 - 변경사항이 있으면 화면 이탈을 확인하고 네트워크 오류 시 클라이언트 편집 상태를 유지한다.
 - 도면 저장소는 비공개로 전환하고 만료 시간이 짧은 서명 URL로 업로드·조회한다.
-- 확장자에 의존하지 않고 선언한 MIME, 크기와 SHA-256 checksum을 upload intent와 S3 HEAD에서 검증한다. 이미지 재인코딩과 PDF 격리 렌더 worker는 후속 범위다.
-- 원본 PDF는 인증된 조회 경로로 연결하되 캔버스 배경으로 사용하지 않는다. 향후 격리 worker가 만든 ready 이미지만 배경에 연결한다.
+- 확장자에 의존하지 않고 선언한 MIME, 크기와 SHA-256 checksum을 upload intent와 S3 HEAD에서 검증한다. 신규 수동 배경은 JPG/PNG만 허용하고 PDF는 API와 storage signing 경계에서 거부한다. 이미지 재인코딩은 후속 범위다.
+- 기존 원본 PDF는 인증된 조회·다운로드 호환만 유지하고 캔버스 배경이나 신규 업로드 대상으로 사용하지 않는다.
 
 ### 현장과 층
 
@@ -391,7 +392,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 
 - 초대 링크 발급·전달 방식의 일반 유저 onboarding UI. admin이 직접 계정과 임시 비밀번호를 발급하는 현장 유저 CRUD는 구현 완료했다.
 - 구역 생성·수정과 구성원 관리 화면. 기존 구역 목록·보관 전환은 구현 완료했다.
-- PDF 첫 페이지를 별도 이미지로 만드는 격리 렌더 worker. 신규 PDF 자동 import는 지원하지 않으며 기존 PDF 읽기 호환만 유지한다.
+- 기존 PDF 첫 페이지 렌더·다중 페이지 선택은 보류한다. 신규 PDF upload/import는 지원하지 않으며 기존 PDF 읽기 호환만 유지한다.
 - 샘플별 사람이 판정한 조명 ground truth. `몰드바등` 후보 1,302개는 review pool일 뿐이며 `xx4`, 익명 dynamic block은 geometry·attribute·주변 문자 근거와 라벨 없이 자동 등록하지 않는다.
 - 승인된 실제 DWG converter/sample을 production image의 read-only 외부 bundle mount로 주입한 운영 호스트 HIL. 상시 synthetic smoke는 실제 768 MiB cgroup의 parent+converter+core와 memory bomb/malformed 생존을 검증하지만, 현장 샘플의 최신 승인 binary HIL을 대신하지 않는다.
 - 다중 Gateway와 층 coverage
@@ -433,14 +434,14 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - 설정 상단 탭은 공통 밑줄형 navigation의 44px 포커스·가로 스크롤 계약을 사용한다. 실제 모바일 WebView safe-area와 네이티브 navigation 통합 검증은 후속 작업이다.
 - dirty 내부 이동 guard는 링크, 현장 전환과 same-URL sentinel 기반 브라우저 history 이동을 확인한다. Task 10 이후 추가되는 programmatic navigation 경로도 같은 discard/guard 계약에 연결해야 한다.
 - Gateway claim과 registration API 및 웹 UI는 assigned admin commissioning으로 전환됐고 Task 9 software E2E를 통과했다. inventory disable은 제조 보안 경계로 active service-provider operator 전용을 유지한다. 실제 장비 검증은 미실행이다.
-- 도면 asset의 private 조회, DB-first 업로드 원장, 만료 pending 회수, 24시간 지난 미참조 ready 자산 회수와 PDF/JPG/PNG 선택·업로드·교체·연결 제거 UI는 구현했다. 현재 맵과 모든 과거 revision의 자산은 보존하고 맵 저장과 cleanup 경합도 Floor 잠금으로 직렬화한다. ready 삭제 실패는 2분 backoff로 뒤 후보를 먼저 진행한다. PDF 첫 페이지를 이미지로 만드는 격리 렌더 worker와 실제 운영 object storage 장애 주입 검증은 후속 Task다.
+- 도면 asset의 private 조회, DB-first 업로드 원장, 만료 pending 회수, 24시간 지난 미참조 ready 자산 회수와 JPG/PNG 선택·업로드·교체·연결 제거 UI는 구현했다. 기존 PDF ledger row는 private 조회·다운로드만 유지한다. 현재 맵과 모든 과거 revision의 자산은 보존하고 맵 저장과 cleanup 경합도 Floor 잠금으로 직렬화한다. ready 삭제 실패는 2분 backoff로 뒤 후보를 먼저 진행한다. 실제 운영 object storage 장애 주입 검증은 후속 Task다.
 - PKI 폐기 대기·재시도 원장의 전용 운영 UI는 아직 없다. CA 서명 응답 뒤 원장을 commit하기 전 process crash 또는 원장 저장과 즉시 폐기가 모두 실패하는 이중 장애는 CA 측 발급 감사/재조회 없이는 완전히 회수할 수 없다. CRL의 15분은 네트워크·인증 토큰/파일 I/O·DB 작업을 합친 transaction 예산이지 개별 filesystem 호출의 엄격한 상한이 아니며, 누적 예산 초과나 DB session 유실 뒤 이미 시작한 publish가 계속될 수 있어 실제 Vault/CRL 운영 검증이 필요하다.
 - 다중 Gateway coverage와 층별 radio 품질 진단은 아직 제공하지 않으므로, 사용자가 선택한 Gateway가 해당 층을 실제로 커버하는지는 설치 검증 절차로 확인해야 한다.
 - 실제 ESP32-H2 검색·provisioning·model bind, RF 품질과 전체 OTA는 실기 검증 증거가 아직 부족하다.
 - 저장 구역 생성·수정 UI/API는 제어 메뉴에서 제공한다. 전체 suite에서 opt-in DB URL 부재로 skip된 PostgreSQL 구역 생성 rollback 통합 회귀는 로컬 개발 PostgreSQL URL을 명시한 별도 실행에서 1/1 통과했다. Raspberry Pi/BlueZ/ESP32-H2를 연결한 zone 제어 Gate는 `not_executed`이며 자동 단위·브라우저 fixture나 DB rollback 회귀를 실장비 완료 증거로 간주하지 않는다.
 - 등록 패널의 물리 provisioning 상태는 1.5초 polling으로 반영하고, 검색·등록·상태 확인의 display-only 진행 단계를 제공한다. `reconcile_required` 장비의 실제 현장 복구 판단과 자동 질의는 아직 제공하지 않는다.
 - 로컬 MinIO에서 signed PUT, HEAD checksum, 익명 GET 거부와 300초 signed GET 통합 테스트를 통과했다. 브라우저가 접근할 public bucket base와 API 내부 endpoint는 별도 설정하고, 번들 MinIO CORS origin은 `WEB_PUBLIC_URL`에서 주입한다. 실제 운영 object storage 장애 주입은 후속이다.
-- PDF는 현재 비공개 원본으로만 연결하고 캔버스 배경으로 렌더링하지 않는다. 첫 페이지 렌더 worker와 다중 페이지 선택은 후속 작업이다.
+- 기존 PDF는 비공개 원본의 읽기 호환만 유지하고 신규 연결·업로드 및 캔버스 렌더는 제공하지 않는다.
 - 조명 다중 선택·일괄 이동, 도형 개별 삭제, Undo/Redo, 격자 스냅과 조명 키보드 미세 조정을 제공한다. 다중 도형 동시 편집과 전용 회전 도구는 후속 범위다.
 - DWG/DXF import의 소프트웨어 경로와 샘플 제품 pipeline은 구현했지만 사람이 판정한 ground truth가 없어 검출 precision/recall/F1은 미확정이다. 현장 profile의 `몰드바등` review 후보 1,302개를 자동 등록 품질로 확대 해석하지 않는다.
 - AI는 I/O를 수행하지 않는 `disabled` adapter뿐이다. 향후 provider 교체 가능성은 유지하되 외부 전송 승인과 좌표 비생성 계약을 통과하기 전에는 활성화하지 않는다.

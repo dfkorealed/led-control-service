@@ -821,6 +821,13 @@
 - **해결 및 예방책**: converter를 network-none, 별도 UID/PID namespace, read-only rootfs와 1024 MiB memory cgroup인 sidecar로 분리한다. API에는 converter bundle/argv를, sidecar에는 DB/S3/Vault/MQTT/TLS env·mount를 주지 않고 bounded tmpfs spool만 공유한다. Host preflight와 mounted sidecar가 승인 digest와 regular/executable/owner-mode를 이중 검증한다.
 - **반복 방지 체크**: production Compose/image에서 cgroup/UID/network/mount/env를 관측하고 정상 작업 뒤 output/memory/timeout bomb를 실행한다. API와 sidecar readiness, container identity, 후속 정상 재처리가 모두 유지돼야 한다.
 
+## 2026-09-17 / 파일 기반 readiness는 생존 lease여야 한다
+
+- **발생했던 문제/실수**: converter sidecar가 startup digest mismatch나 비정상 종료로 사라져도 이전 `.ready.json`이 spool에 남아 API가 정상으로 판정했다. API가 취소 marker 직후 job directory를 지우면 sidecar의 terminal 응답 쓰기가 `ENOENT`로 실패해 서비스 loop까지 종료될 수 있었다.
+- **원인**: readiness 파일을 process 생존과 무관한 영구 플래그로 사용했고, API와 sidecar가 job directory 정리 소유권을 명시적으로 인계하지 않았다.
+- **해결 및 예방책**: readiness를 instance ID와 짧은 TTL을 가진 heartbeat로 만들고 startup attestation 전에 이전 marker를 제거한다. API와 healthcheck는 digest뿐 아니라 heartbeat freshness를 검사한다. 취소자는 제한된 시간 동안 terminal 응답을 기다리고, sidecar는 이미 사라진 directory를 job-local cleanup으로 처리한다.
+- **반복 방지 체크**: stale heartbeat, startup digest mismatch 뒤 marker 제거, API abort acknowledgment, processing 중 directory 삭제와 후속 정상 job을 회귀로 유지한다. 영구 marker 존재만으로 process나 dependency가 살아 있다고 판정하지 않는다.
+
 ## 2026-09-17 / 배포 fence는 애플리케이션 drain만으로 완결되지 않는다
 
 - **발생했던 문제/실수**: 새 migration이 active job을 검사해도, 14500 적용 직후 살아 있는 구 worker가 queued job을 processing으로 claim할 수 있었다. Lock timeout rollback 뒤 Prisma 실패 이력을 처리하지 않은 단순 deploy 재시도도 P3009로 막혔다.
