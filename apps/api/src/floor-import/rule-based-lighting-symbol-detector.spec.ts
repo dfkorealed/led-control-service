@@ -1,5 +1,9 @@
 import type { NormalizedCadDocument, NormalizedCadInsert } from "./cad-types";
-import { RuleBasedLightingSymbolDetector, SITE_DRAWING_20260803_PROFILE } from "./rule-based-lighting-symbol-detector";
+import {
+  GENERIC_LIGHTING_PROFILE,
+  RuleBasedLightingSymbolDetector,
+  SITE_DRAWING_20260803_PROFILE
+} from "./rule-based-lighting-symbol-detector";
 import { expandCadInserts } from "./cad-geometry";
 
 function candidate(index: number, layer = "LIGHTING", blockName = "LED_FIXTURE"): NormalizedCadInsert {
@@ -40,6 +44,20 @@ describe("rule-based lighting symbol detector", () => {
     await expect(new RuleBasedLightingSymbolDetector().detect(cad(entities))).resolves.toEqual([]);
     await expect(new RuleBasedLightingSymbolDetector(SITE_DRAWING_20260803_PROFILE).detect(cad(entities)))
       .resolves.toHaveLength(2);
+  });
+
+  it("detects the explicit LED direct-light block name without accepting unrelated symbols", async () => {
+    const entities = [
+      candidate(1, "LINE", "LED직부등"),
+      candidate(2, "LINE", "LED직부등"),
+      candidate(3, "SYMBOL", "fdgfhhfh")
+    ];
+
+    await expect(new RuleBasedLightingSymbolDetector(GENERIC_LIGHTING_PROFILE).detect(cad(entities)))
+      .resolves.toEqual([
+        expect.objectContaining({ sourceEntityId: "insert-1", blockName: "LED직부등" }),
+        expect.objectContaining({ sourceEntityId: "insert-2", blockName: "LED직부등" })
+      ]);
   });
 
   it.each([

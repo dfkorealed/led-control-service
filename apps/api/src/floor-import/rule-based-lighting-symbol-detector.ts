@@ -28,7 +28,7 @@ export interface LightingDetectionProfile {
 export const GENERIC_LIGHTING_PROFILE: LightingDetectionProfile = {
   profileId: "generic-lighting-v1",
   profileVersion: "generic-lighting/1",
-  exactBlockAllowlist: [],
+  exactBlockAllowlist: ["LED직부등"],
   layerNameTokens: ["조명", "전등", "LIGHT", "LIGHTING", "LAMP", "LED"],
   blockNameTokens: ["조명", "전등", "LIGHT", "LAMP", "LED", "FIXTURE", "LUMINAIRE"],
   minimumBlockOccurrences: 2,
