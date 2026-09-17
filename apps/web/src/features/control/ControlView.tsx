@@ -457,10 +457,18 @@ export function ControlView({
             dashboard={data}
             selection={selection}
             disabled={controlsLocked}
-            compactSummary={<DimmingExecutionControls compact brightness={brightness} controlsLocked={controlsLocked} canSubmit={canSubmit}
+            compactSummary={<><DimmingExecutionControls compact brightness={brightness} controlsLocked={controlsLocked} canSubmit={canSubmit}
               applyLabel={manualApplyLabel(commandSessionBlocked, controlsLocked, readOnly, selectedFixtures.length)}
               selectedFixtureCount={selectedFixtures.length} blockedFixtureCount={resolvedSelection?.blockedFixtureIds.length ?? 0} delivery={deliveryLabel(selection, selectedFixtures.length)}
-              onBrightnessChange={setBrightness} onSubmit={submitCommand} />}
+              onBrightnessChange={setBrightness} onSubmit={submitCommand} />
+              <ManualControlFeedback compact scopedActiveRequest={scopedActiveRequest} scopedCommandId={scopedCommandId}
+                isSubmitting={isSubmitting} commandSessionBlocked={commandSessionBlocked} message={message} verificationError={verificationError}
+                displayedStatus={displayedStatus} onRetryPending={() => void sendCommand(scopedActiveRequest!, userId)} onCheck={() => void checkActualState()}
+                onReapply={() => void safelyReapply()} readOnly={readOnly} restorePending={restorePending} verificationRequest={verificationRequest}
+                commandInProgress={commandInProgress} onCloseDetail={() => setTerminalResult(null)} blockMessage={blockMessage}
+                hasMismatchedCommandStatus={hasMismatchedCommandStatus} missingCommand={missingCommand} matchingCommandIsTerminal={matchingCommandIsTerminal} commandError={commandQuery.error}
+                isCommandFetching={commandQuery.isFetching} onRefreshStatus={() => void commandQuery.refetch()} />
+            </>}
             onChange={(nextSelection) => {
               setSelection(nextSelection);
               const nextResolved = resolveControlSelection(data, nextSelection);
@@ -486,48 +494,13 @@ export function ControlView({
             applyLabel={manualApplyLabel(commandSessionBlocked, controlsLocked, readOnly, selectedFixtures.length)}
             selectedFixtureCount={selectedFixtures.length} blockedFixtureCount={resolvedSelection?.blockedFixtureIds.length ?? 0} delivery={deliveryLabel(selection, selectedFixtures.length)}
             onBrightnessChange={setBrightness} onSubmit={submitCommand} />
-          <div className="grid min-h-0 max-h-28 flex-none content-start gap-3 overflow-y-auto overscroll-contain" data-control-panel-feedback="">
-            <div className="grid min-h-px gap-3 empty:min-h-0" role="status" aria-label="명령 진행 상태" aria-live="polite" data-command-status-region="">
-              {scopedActiveRequest && !scopedCommandId ? (
-                <Button
-                  variant="secondary"
-                  type="button"
-                  onClick={() => void sendCommand(scopedActiveRequest, userId)}
-                  disabled={isSubmitting || commandSessionBlocked}
-                >
-                  동일 요청 확인(새 제어 아님)
-                </Button>
-              ) : null}
-              {message ? <Text tone={message.startsWith("명령을 전송") ? "success" : "danger"}>{message}</Text> : null}
-              {verificationError ? <Text tone="danger" role="alert">{verificationError}</Text> : null}
-              {displayedStatus ? <>
-                <CommandProgress status={displayedStatus} />
-                <CommandOutcomeActions status={displayedStatus} onCheck={() => void checkActualState()} onRetry={() => void safelyReapply()}
-                  checkResponseLost={verificationRequest?.responseLost}
-                  disabled={readOnly || commandSessionBlocked || isSubmitting || restorePending || Boolean(verificationRequest?.dispatchIds)} />
-                <Button variant="secondary" type="button" disabled={commandInProgress || isSubmitting} onClick={() => setTerminalResult(null)}>명령 상세 닫기</Button>
-              </> : null}
-            </div>
-            {blockMessage ? <Text tone="danger" role="alert">{blockMessage}</Text> : null}
-            {hasMismatchedCommandStatus && !missingCommand ? (
-              <div className="grid gap-2" role="alert">
-                <Text tone="danger">
-                  명령 상태 응답의 식별자가 일치하지 않습니다. 안전을 위해 제어 잠금을 유지합니다.
-                </Text>
-                <Button variant="secondary" type="button" onClick={() => void commandQuery.refetch()} disabled={commandQuery.isFetching}>
-                  {commandQuery.isFetching ? "명령 상태 조회 중" : "명령 상태 다시 조회"}
-                </Button>
-              </div>
-            ) : null}
-            {commandQuery.error && scopedCommandId && !missingCommand && !matchingCommandIsTerminal && !hasMismatchedCommandStatus ? (
-              <div className="grid gap-2" role="alert">
-                <Text tone="danger">명령 상태를 불러오지 못했습니다. 연결을 확인한 뒤 다시 조회하세요.</Text>
-                <Button variant="secondary" type="button" onClick={() => void commandQuery.refetch()} disabled={commandQuery.isFetching}>
-                  {commandQuery.isFetching ? "명령 상태 조회 중" : "명령 상태 다시 조회"}
-                </Button>
-              </div>
-            ) : null}
-          </div>
+          <ManualControlFeedback scopedActiveRequest={scopedActiveRequest} scopedCommandId={scopedCommandId}
+            isSubmitting={isSubmitting} commandSessionBlocked={commandSessionBlocked} message={message} verificationError={verificationError}
+            displayedStatus={displayedStatus} onRetryPending={() => void sendCommand(scopedActiveRequest!, userId)} onCheck={() => void checkActualState()}
+            onReapply={() => void safelyReapply()} readOnly={readOnly} restorePending={restorePending} verificationRequest={verificationRequest}
+            commandInProgress={commandInProgress} onCloseDetail={() => setTerminalResult(null)} blockMessage={blockMessage}
+            hasMismatchedCommandStatus={hasMismatchedCommandStatus} missingCommand={missingCommand} matchingCommandIsTerminal={matchingCommandIsTerminal} commandError={commandQuery.error}
+            isCommandFetching={commandQuery.isFetching} onRefreshStatus={() => void commandQuery.refetch()} />
         </SidePanel>
         <CommandHistoryPanel key={`${userId}:${data.site.id}`} userId={userId} siteId={data.site.id}
           onSelect={openHistoricalCommand} selectedCommandId={displayedStatus?.id}
@@ -599,6 +572,64 @@ function manualApplyLabel(commandSessionBlocked: boolean, controlsLocked: boolea
   if (commandSessionBlocked) return "로그아웃 중";
   if (controlsLocked && !readOnly) return "밝기 적용 중";
   return selectedFixtureCount ? `${selectedFixtureCount}개 조명에 밝기 적용` : "밝기 적용";
+}
+
+function ManualControlFeedback({ compact = false, scopedActiveRequest, scopedCommandId, isSubmitting, commandSessionBlocked, message, verificationError,
+  displayedStatus, onRetryPending, onCheck, onReapply, readOnly, restorePending, verificationRequest, commandInProgress, onCloseDetail, blockMessage,
+  hasMismatchedCommandStatus, missingCommand, matchingCommandIsTerminal, commandError, isCommandFetching, onRefreshStatus }: {
+  compact?: boolean;
+  scopedActiveRequest: CreateDimmingCommandInput | null;
+  scopedCommandId: string | null;
+  isSubmitting: boolean;
+  commandSessionBlocked: boolean;
+  message: string;
+  verificationError: string;
+  displayedStatus: CommandStatusResponse | null;
+  onRetryPending: () => void;
+  onCheck: () => void;
+  onReapply: () => void;
+  readOnly: boolean;
+  restorePending: boolean;
+  verificationRequest: { dispatchIds?: string[]; responseLost?: boolean } | null;
+  commandInProgress: boolean;
+  onCloseDetail: () => void;
+  blockMessage: string | null;
+  hasMismatchedCommandStatus: boolean;
+  missingCommand: boolean;
+  matchingCommandIsTerminal: boolean;
+  commandError: unknown;
+  isCommandFetching: boolean;
+  onRefreshStatus: () => void;
+}) {
+  return <div className={compact ? "grid gap-3" : "grid min-h-0 max-h-28 flex-none content-start gap-3 overflow-y-auto overscroll-contain"} data-control-panel-feedback="">
+    <div className="grid min-h-px gap-3 empty:min-h-0" role="status" aria-label="명령 진행 상태" aria-live="polite" data-command-status-region="">
+      {scopedActiveRequest && !scopedCommandId ? <Button variant="secondary" type="button" onClick={onRetryPending} disabled={isSubmitting || commandSessionBlocked}>
+        동일 요청 확인(새 제어 아님)
+      </Button> : null}
+      {message ? <Text tone={message.startsWith("명령을 전송") ? "success" : "danger"}>{message}</Text> : null}
+      {verificationError ? <Text tone="danger" role="alert">{verificationError}</Text> : null}
+      {displayedStatus ? <>
+        <CommandProgress status={displayedStatus} />
+        <CommandOutcomeActions status={displayedStatus} onCheck={onCheck} onRetry={onReapply}
+          checkResponseLost={verificationRequest?.responseLost}
+          disabled={readOnly || commandSessionBlocked || isSubmitting || restorePending || Boolean(verificationRequest?.dispatchIds)} />
+        <Button variant="secondary" type="button" disabled={commandInProgress || isSubmitting} onClick={onCloseDetail}>명령 상세 닫기</Button>
+      </> : null}
+    </div>
+    {blockMessage ? <Text tone="danger" role="alert">{blockMessage}</Text> : null}
+    {hasMismatchedCommandStatus && !missingCommand ? <div className="grid gap-2" role="alert">
+      <Text tone="danger">명령 상태 응답의 식별자가 일치하지 않습니다. 안전을 위해 제어 잠금을 유지합니다.</Text>
+      <Button variant="secondary" type="button" onClick={onRefreshStatus} disabled={isCommandFetching}>
+        {isCommandFetching ? "명령 상태 조회 중" : "명령 상태 다시 조회"}
+      </Button>
+    </div> : null}
+    {commandError && scopedCommandId && !missingCommand && !matchingCommandIsTerminal && !hasMismatchedCommandStatus ? <div className="grid gap-2" role="alert">
+      <Text tone="danger">명령 상태를 불러오지 못했습니다. 연결을 확인한 뒤 다시 조회하세요.</Text>
+      <Button variant="secondary" type="button" onClick={onRefreshStatus} disabled={isCommandFetching}>
+        {isCommandFetching ? "명령 상태 조회 중" : "명령 상태 다시 조회"}
+      </Button>
+    </div> : null}
+  </div>;
 }
 
 function ManualControlBadge({ readOnly, canSubmit, blocked }: { readOnly: boolean; canSubmit: boolean; blocked: boolean }) {

@@ -131,3 +131,49 @@ Passed: 4 files, 104/104 tests.
 - Compact brightness/apply controls are descendants of the expanded `선택 대상 요약`; the focused test proves containment, expansion/collapse, and order before the history disclosure. The desktop side panel is `hidden compact:flex`, while the slot belongs to the compact-only summary surface.
 - Candidate reasons use the existing device-response mapper, so raw ACK copy remains absent. Fixture drawer descriptions include the block reason and Health fault codes and are visible through the shared `Checkbox` field description.
 - The selector retains the existing per-fixture deselection exception, but `FixtureSelectionDrawer` now prioritizes the global disabled state for every checkbox.
+
+## Fix Round 2 — compact command recovery remediation
+
+### Scope
+
+- Extracted the existing command progress, terminal-outcome, retry, actual-state check, command-status refresh, and error feedback branches into `ManualControlFeedback`.
+- Rendered that same body in the expanded compact selector summary and the desktop `SidePanel`; command state, request IDs, timers, polling, and transport callbacks remain owned by `ControlView`.
+- Updated the manual-control menu documentation to make compact command recovery controls explicit.
+
+### RED
+
+Before implementation, the new compact recovery tests were run with:
+
+```sh
+pnpm --filter @led-control/web test -- src/features/control/ControlView.test.tsx -t 'compact summary'
+```
+
+Failed as expected: 3 tests failed (73 skipped). After command submission, the expanded compact summary had no local `명령 진행 상태`, no `동일 요청 확인(새 제어 아님)` retry action for a lost response, and no `명령 상태 다시 조회` action for the mismatched-status branch.
+
+### GREEN
+
+After rendering the shared feedback body in the compact slot, the same focused command passed: 3 passed, 73 skipped.
+
+```sh
+pnpm --filter @led-control/web test -- src/features/control/ControlView.test.tsx src/features/control/CommandHistoryPanel.test.tsx src/features/control/CommandOutcomeActions.test.tsx src/features/control/target-selection/SpatialTargetSelector.test.tsx
+```
+
+Passed: 4 files, 107/107 tests. The compact regressions submit a command and assert that the expanded summary contains progress/outcome feedback plus the existing retry and status-refresh recovery controls.
+
+### Verification
+
+- `pnpm --filter @led-control/web test:ui-policy`: 53/53 passed.
+- `pnpm --filter @led-control/web ui:check`: 0 existing and 0 new/increased violations.
+- `pnpm --filter @led-control/web typecheck`: passed.
+- `pnpm --filter @led-control/web test`: 94 files, 1,365/1,365 tests passed.
+- `git diff --check`: passed after the report/documentation update.
+
+### Fix round self-review
+
+- The compact summary contains one shared execution/recovery body only when expanded. The desktop `SidePanel` remains `hidden compact:flex`; therefore a breakpoint cannot expose duplicate execution/recovery controls.
+- `ManualControlFeedback` receives the pre-existing state and callbacks rather than duplicating submission, retry, polling, or command-session state. The retry callback remains reachable only for a pending request with no command ID.
+- Compact feedback is inside the selector summary's existing scroll-owning expanded region, while the desktop feedback retains its bounded panel overflow.
+
+### Remaining concerns
+
+None.

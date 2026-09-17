@@ -210,6 +210,54 @@ describe("ControlView 대상 선택", () => {
     expect(within(summary).queryByTestId("compact-summary-execution")).not.toBeInTheDocument();
   });
 
+  it("keeps submitted command progress and outcome actions inside the expanded compact summary", async () => {
+    const verificationRequired = createCommandStatus(commandIds.default, "verification_required");
+    mocks.useCommandStatus.mockReturnValue({ data: undefined, error: null, isFetching: false, refetch: vi.fn() });
+    const { rerender } = renderControl();
+    selectFixture("B2-L001");
+    const compactExecution = expandCompactExecution();
+    fireEvent.click(within(compactExecution).getByRole("button", { name: "1개 조명에 밝기 적용" }));
+
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith("/commands/dimming", expect.anything(), expect.anything()));
+    mocks.useCommandStatus.mockReturnValue({ data: verificationRequired, error: null, isFetching: false, refetch: vi.fn() });
+    rerender(controlElement(dashboard.site.id));
+
+    const outcomeSurface = expandCompactExecution();
+    expect(within(outcomeSurface).getByRole("status", { name: "명령 진행 상태" })).toBeInTheDocument();
+    expect(within(outcomeSurface).getAllByText("실제 상태 확인 필요").length).toBeGreaterThan(0);
+    expect(within(outcomeSurface).getByRole("button", { name: "실제 상태 확인" })).toBeEnabled();
+  });
+
+  it("keeps lost-command retry inside the expanded compact summary", async () => {
+    mocks.apiPost.mockRejectedValueOnce(new Error("response lost")).mockResolvedValueOnce({ id: commandIds.retry, dispatchCount: 1 });
+    renderControl();
+    selectFixture("B2-L001");
+    const compactExecution = expandCompactExecution();
+    fireEvent.click(within(compactExecution).getByRole("button", { name: "1개 조명에 밝기 적용" }));
+
+    const retry = await within(compactExecution).findByRole("button", { name: "동일 요청 확인(새 제어 아님)" });
+    expect(retry).toBeEnabled();
+    fireEvent.click(retry);
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledTimes(2));
+  });
+
+  it("keeps command status refresh inside the expanded compact summary", () => {
+    const refetch = vi.fn();
+    sessionStorage.setItem(activeCommandStorageKey(USER_A, dashboard.site.id), JSON.stringify({ commandId: commandIds.expected }));
+    mocks.useCommandStatus.mockReturnValue({
+      data: createCommandStatus(commandIds.different, "completed"),
+      error: null,
+      isFetching: false,
+      refetch
+    });
+    renderControl();
+
+    const compactExecution = expandCompactExecution();
+    const refresh = within(compactExecution).getByRole("button", { name: "명령 상태 다시 조회" });
+    fireEvent.click(refresh);
+    expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
   it("places the compact apply sheet before the collapsible history disclosure", () => {
     renderControl();
 
@@ -1335,6 +1383,13 @@ function selectFixture(name: string) {
 function openFixtureList() {
   fireEvent.click(screen.getByRole("button", { name: "조명 목록 열기" }));
   return screen.getByRole("dialog", { name: "조명 목록" });
+}
+
+function expandCompactExecution() {
+  const summary = screen.getByRole("complementary", { name: "선택 대상 요약" });
+  const expand = within(summary).queryByRole("button", { name: "선택 대상 펼치기" });
+  if (expand) fireEvent.click(expand);
+  return within(summary).getByTestId("compact-summary-execution");
 }
 
 function chooseTargetMode(name: "층 전체" | "저장된 구역") {
