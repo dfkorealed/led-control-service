@@ -1,6 +1,20 @@
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { randomBytes } from "node:crypto";
+import {
+  chmodSync,
+  closeSync,
+  existsSync,
+  fsyncSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  writeFileSync
+} from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   parseEnvFile,
@@ -21,17 +35,87 @@ export function prepareDevelopmentRuntime(root, sourceEnv, { run = defaultRun } 
   const aclPath = join(mqttRuntimeDirectory, "mosquitto.acl");
   const nativeConfigPath = join(localDirectory, "mosquitto.host.conf");
   const dockerConfigPath = join(localDirectory, "mosquitto.docker.conf");
-  mkdirSync(localDirectory, { recursive: true });
+  const dockerCertDirectory = resolve(root, env.MQTT_TLS_CERT_DIR?.trim() || join(".local", "pki"));
+  ensurePrivateLocalDirectory(root, localDirectory);
   ensureMosquittoRuntimeDirectory(mqttRuntimeDirectory);
   // Claims update product state only. Both supported dev launch paths call this
   // before broker startup so the file-backed ACL is never a stale wildcard or
   // a previous Gateway allowlist, including when the new list is empty.
   publishMosquittoAcl(aclPath, gatewayIds);
-  writeFileSync(nativeConfigPath, renderMosquittoConfig(root, env), { mode: 0o600 });
-  writeFileSync(dockerConfigPath, renderDockerMosquittoConfig(env), { mode: 0o600 });
-  chmodSync(nativeConfigPath, 0o600);
-  chmodSync(dockerConfigPath, 0o600);
-  return { env, gatewayIds, aclPath, nativeConfigPath, dockerConfigPath };
+  publishPrivateConfig(root, nativeConfigPath, renderMosquittoConfig(root, env));
+  publishPrivateConfig(root, dockerConfigPath, renderDockerMosquittoConfig(env));
+  return { env, gatewayIds, aclPath, nativeConfigPath, dockerConfigPath, dockerCertDirectory };
+}
+
+function ensurePrivateLocalDirectory(root, directory) {
+  let created = false;
+  try {
+    mkdirSync(directory, { mode: 0o700 });
+    created = true;
+  } catch (error) {
+    if (error?.code !== "EEXIST") throw error;
+  }
+  if (created) chmodSync(directory, 0o700);
+  let status;
+  try {
+    status = lstatSync(directory);
+  } catch {
+    throw new Error(".local must be a regular directory, not a symlink");
+  }
+  const expected = join(realpathSync(root), ".local");
+  if (!status.isDirectory() || status.isSymbolicLink() || realpathSync(directory) !== expected) {
+    throw new Error(".local must be a regular directory, not a symlink");
+  }
+  if (typeof process.getuid === "function" && status.uid !== process.getuid()) {
+    throw new Error(".local must be owned by the invoking user");
+  }
+}
+
+function publishPrivateConfig(root, destination, content) {
+  const localDirectory = join(root, ".local");
+  ensurePrivateLocalDirectory(root, localDirectory);
+  const pathWithinLocal = relative(localDirectory, destination);
+  if (!pathWithinLocal || isAbsolute(pathWithinLocal) || pathWithinLocal.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`)) {
+    throw new Error("Mosquitto config destination must remain inside .local");
+  }
+  if (dirname(destination) !== localDirectory) {
+    throw new Error("Mosquitto config destination parent must be the validated .local directory");
+  }
+  try {
+    const status = lstatSync(destination);
+    if (!status.isFile() || status.isSymbolicLink()) {
+      throw new Error("Mosquitto config destination must be a regular file, not a symlink");
+    }
+    if (typeof process.getuid === "function" && status.uid !== process.getuid()) {
+      throw new Error("Mosquitto config destination must be owned by the invoking user");
+    }
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+
+  const temporaryPath = join(
+    localDirectory,
+    `.${basename(destination)}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`
+  );
+  let descriptor;
+  let directoryDescriptor;
+  try {
+    descriptor = openSync(temporaryPath, "wx", 0o600);
+    writeFileSync(descriptor, content, "utf8");
+    chmodSync(temporaryPath, 0o600);
+    fsyncSync(descriptor);
+    closeSync(descriptor);
+    descriptor = undefined;
+    renameSync(temporaryPath, destination);
+    directoryDescriptor = openSync(localDirectory, "r");
+    fsyncSync(directoryDescriptor);
+    closeSync(directoryDescriptor);
+    directoryDescriptor = undefined;
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor);
+    if (directoryDescriptor !== undefined) closeSync(directoryDescriptor);
+    rmSync(temporaryPath, { force: true });
+  }
 }
 
 function ensureMosquittoRuntimeDirectory(directory) {

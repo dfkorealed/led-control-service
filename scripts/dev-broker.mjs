@@ -7,6 +7,7 @@ import {
   fsyncSync,
   openSync,
   readFileSync,
+  realpathSync,
   renameSync,
   rmSync,
   statSync,
@@ -16,6 +17,8 @@ import { basename, dirname, join, resolve } from "node:path";
 
 const CONTAINER_ACL_DIRECTORY = "/mosquitto/runtime";
 const CONTAINER_ACL_PATH = `${CONTAINER_ACL_DIRECTORY}/mosquitto.acl`;
+const CONTAINER_CONFIG_PATH = "/mosquitto/config/mosquitto.conf";
+const CONTAINER_CERT_DIRECTORY = "/mosquitto/certs";
 
 export function publishNativeBrokerIdentity(destination, identity) {
   if (!Number.isSafeInteger(identity.pid) || identity.pid <= 0) {
@@ -36,12 +39,16 @@ export function removeNativeBrokerIdentity(destination, expectedPid) {
 export function reloadExistingDevelopmentBroker({
   root,
   aclPath,
+  dockerConfigPath,
+  dockerCertDirectory,
   nativeIdentityPath = join(root, ".local", "mosquitto.host.pid.json"),
   port = 8883,
   run = runCommand,
   signalProcess = process.kill
 }) {
-  const owner = identifyDevelopmentBroker({ root, aclPath, nativeIdentityPath, port, run });
+  const owner = identifyDevelopmentBroker({
+    root, aclPath, dockerConfigPath, dockerCertDirectory, nativeIdentityPath, port, run
+  });
 
   if (owner.kind === "docker") {
     requireSuccess(
@@ -61,20 +68,22 @@ export function reloadExistingDevelopmentBroker({
 
   // Re-resolve the listener after SIGHUP. A successful signal alone does not
   // prove the expected broker survived or that the port was not taken over.
-  const verified = identifyDevelopmentBroker({ root, aclPath, nativeIdentityPath, port, run });
+  const verified = identifyDevelopmentBroker({
+    root, aclPath, dockerConfigPath, dockerCertDirectory, nativeIdentityPath, port, run
+  });
   if (verified.kind !== owner.kind || (owner.kind === "docker" ? verified.id !== owner.id : verified.pid !== owner.pid)) {
     throw new Error("development Mosquitto ownership changed while reloading ACL");
   }
   return owner;
 }
 
-function identifyDevelopmentBroker({ root, aclPath, nativeIdentityPath, port, run }) {
+function identifyDevelopmentBroker({ root, aclPath, dockerConfigPath, dockerCertDirectory, nativeIdentityPath, port, run }) {
   const containerIds = successfulOutput(run("docker", ["compose", "ps", "-q", "mqtt-tls"], { cwd: root }))
     .split(/\s+/)
     .filter(Boolean);
   if (containerIds.length > 1) throw new Error("multiple Docker mqtt-tls containers matched this repository");
   if (containerIds.length === 1) {
-    assertRepoDockerBroker(containerIds[0], root, aclPath, port, run);
+    assertRepoDockerBroker(containerIds[0], root, aclPath, dockerConfigPath, dockerCertDirectory, port, run);
     return { kind: "docker", id: containerIds[0] };
   }
 
@@ -112,7 +121,7 @@ function identifyDevelopmentBroker({ root, aclPath, nativeIdentityPath, port, ru
   return { kind: "native", pid: listenerPid };
 }
 
-function assertRepoDockerBroker(containerId, root, aclPath, port, run) {
+function assertRepoDockerBroker(containerId, root, aclPath, dockerConfigPath, dockerCertDirectory, port, run) {
   const result = requireSuccess(
     run("docker", ["inspect", containerId], { cwd: root }),
     "failed to inspect the repository Docker mqtt-tls broker"
@@ -125,18 +134,42 @@ function assertRepoDockerBroker(containerId, root, aclPath, port, run) {
   }
   const labels = container?.Config?.Labels ?? {};
   const portBindings = container?.NetworkSettings?.Ports?.[`${port}/tcp`] ?? [];
-  const aclMount = container?.Mounts?.filter((mount) => mount.Destination === CONTAINER_ACL_DIRECTORY) ?? [];
   if (
     !container?.State?.Running ||
     labels["com.docker.compose.service"] !== "mqtt-tls" ||
     resolve(labels["com.docker.compose.project.working_dir"] ?? "") !== resolve(root) ||
     !portBindings.some((binding) => binding.HostPort === String(port)) ||
-    aclMount.length !== 1 ||
-    resolve(aclMount[0].Source ?? "") !== resolve(dirname(aclPath)) ||
-    aclMount[0].RW !== false
+    !hasExactReadOnlyBind(container?.Mounts, CONTAINER_ACL_DIRECTORY, dirname(aclPath)) ||
+    !hasExactReadOnlyBind(container?.Mounts, CONTAINER_CONFIG_PATH, dockerConfigPath) ||
+    !hasExactReadOnlyBind(container?.Mounts, CONTAINER_CERT_DIRECTORY, dockerCertDirectory)
   ) {
     throw new Error(`an unmanaged process owns port ${port}`);
   }
+}
+
+function hasExactReadOnlyBind(mounts, destination, source) {
+  if (typeof source !== "string" || !source.trim()) return false;
+  const matches = mounts?.filter((mount) => mount.Destination === destination) ?? [];
+  const mountedSource = resolve(matches[0]?.Source ?? "");
+  return matches.length === 1 &&
+    matches[0].Type === "bind" &&
+    expectedDockerHostSources(source).has(mountedSource) &&
+    matches[0].RW === false;
+}
+
+function expectedDockerHostSources(source) {
+  const expected = new Set([resolve(source)]);
+  try {
+    expected.add(realpathSync(source));
+  } catch {
+    return expected;
+  }
+  for (const candidate of [...expected]) {
+    // Docker Desktop exposes macOS bind sources through its /host_mnt VM
+    // projection, while Linux reports the host path directly.
+    if (candidate.startsWith("/")) expected.add(`/host_mnt${candidate}`);
+  }
+  return expected;
 }
 
 function readNativeIdentity(path) {

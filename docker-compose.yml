@@ -29,9 +29,24 @@ services:
     ports:
       - "8883:8883"
     volumes:
-      - ${MOSQUITTO_TLS_CONFIG_PATH:-./.local/mosquitto.docker.conf}:/mosquitto/config/mosquitto.conf:ro
-      - ./.local/mosquitto-runtime:/mosquitto/runtime:ro
-      - ${MQTT_TLS_CERT_DIR:-./.local/pki}:/mosquitto/certs:ro
+      - type: bind
+        source: ./.local/mosquitto.docker.conf
+        target: /mosquitto/config/mosquitto.conf
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./.local/mosquitto-runtime
+        target: /mosquitto/runtime
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${MQTT_TLS_CERT_DIR:-./.local/pki}
+        target: /mosquitto/certs
+        read_only: true
+        bind:
+          create_host_path: false
       - mosquitto-data:/mosquitto/data
 
   object-storage:

@@ -97,7 +97,7 @@ API는 periodic token을 만료 시간의 절반마다 `renew-self`한다. 갱�
 
 ## 4. DB, Redis, API, Web과 MQTT 실행
 
-Lab bundle을 사용할 때 Compose의 개발용 `mqtt-tls`는 실행하지 않는다. PostgreSQL, Redis와 파일 저장소만 올린다.
+Lab bundle은 native Mosquitto와 Docker Mosquitto 두 개발 경로를 모두 지원한다. 한 번에 한 경로만 선택한다. native 경로는 Docker broker를 중지하고 의존 서비스만 올린 뒤 `pnpm dev`가 host Mosquitto를 시작하게 한다.
 
 ```bash
 docker compose stop mqtt-tls 2>/dev/null || true
@@ -132,6 +132,15 @@ set -a
 . .local/lab-pki/lab.env
 set +a
 pnpm dev
+```
+
+Docker Mosquitto까지 통합 실행하려면 같은 Lab 환경을 export한 shell에서 다음 명령을 대신 사용한다. `dev:prepare`가 `.local/mosquitto.docker.conf`와 exact ACL을 먼저 게시하고 Compose가 Lab certificate directory를 read-only bind한다.
+
+```bash
+set -a
+. .local/lab-pki/lab.env
+set +a
+pnpm dev:local
 ```
 
 정상 상태는 API `4000`, Web `5173`, MQTT TLS `8883`이 열리고 API가 Vault token file을 읽어 시작하는 것이다. 다른 터미널에서 확인한다.
@@ -214,7 +223,7 @@ export DEV_GATEWAY_IDS='<기존 gatewayId>,<새 claim 응답의 gatewayId>'
 pnpm dev:local
 ```
 
-단일 장비만 쓰는 기존 환경은 `DEV_GATEWAY_ID`도 지원한다. 두 변수를 동시에 설정할 때 legacy ID가 `DEV_GATEWAY_IDS`에 없으면 잘못된 ACL 축소를 막기 위해 시작이 실패한다. `lab.env`의 `MQTT_TLS_CERT_DIR`은 `dev:prepare`가 Lab service bundle을 Docker broker에 mount하도록 지정한다. `pnpm dev:local`은 ACL과 `.local/mosquitto.docker.conf`를 원자적으로 먼저 만든 뒤 Docker를 시작하며, Docker도 정적 pattern 예제가 아니라 생성된 broker 설정과 전용 `.local/mosquitto-runtime` 디렉터리의 exact ACL만 read-only mount한다. 단일 ACL 파일 bind는 atomic rename 뒤 이전 inode를 계속 볼 수 있어 사용하지 않는다. ACL은 secret이 아닌 authorization metadata라 전용 부모는 `0755`, 파일은 UID 1883이 읽을 수 있는 `0644`이고, private key와 token 권한은 변경하지 않는다. 이미 8883이 열려 있으면 저장소 소유 Docker service 또는 exact PID/config marker가 일치하는 native Mosquitto만 `SIGHUP`하고 다시 검증한다. 알 수 없는 listener는 종료하거나 재사용하지 않고 fail closed 한다. 목록은 정확한 Gateway UUID만 허용하며 wildcard MQTT principal을 만들지 않는다. 이 Lab/dev 계약은 운영 broker의 인증 정책을 변경하지 않는다.
+단일 장비만 쓰는 기존 환경은 `DEV_GATEWAY_ID`도 지원한다. 두 변수를 동시에 설정할 때 legacy ID가 `DEV_GATEWAY_IDS`에 없으면 잘못된 ACL 축소를 막기 위해 시작이 실패한다. `lab.env`의 `MQTT_TLS_CERT_DIR`은 Lab service bundle을 Docker broker에 mount하도록 지정한다. `pnpm dev:local`은 ACL과 host/Docker broker config를 same-directory atomic rename으로 먼저 게시한 뒤 Docker를 시작한다. Docker는 생성된 config, 전용 `.local/mosquitto-runtime`의 exact ACL, 선택된 certificate directory만 `create_host_path: false`인 read-only bind로 사용한다. ACL은 directory bind이므로 inode 교체를 관측하지만 config는 exact file bind다. PKI 종류나 broker config 내용이 바뀐 실행 중 container는 `pnpm dev:prepare && docker compose up -d --force-recreate mqtt-tls`로 controlled recreate한 뒤 `pnpm dev`를 실행한다. ACL은 secret이 아닌 authorization metadata라 전용 부모는 `0755`, 파일은 UID 1883이 읽을 수 있는 `0644`이고, config는 `0600`이며 private key와 token 권한은 변경하지 않는다. 이미 8883이 열려 있으면 저장소 소유 Docker service의 config/ACL/certificate mount 전체 또는 exact PID/config marker가 일치하는 native Mosquitto만 `SIGHUP`하고 다시 검증한다. 알 수 없는 listener는 종료하거나 재사용하지 않고 fail closed 한다. 목록은 정확한 Gateway UUID만 허용하며 wildcard MQTT principal을 만들지 않는다. 이 Lab/dev 계약은 운영 broker의 인증 정책을 변경하지 않는다.
 
 ## 8. Pi 설정, bootstrap과 MQTT 연결
 
@@ -397,7 +406,7 @@ Vault를 reset한 뒤 기존 `.local/lab-pki`와 Pi 인증서를 섞으면 issue
 | `api.led.lan`을 찾지 못함 | Mac/Pi `/etc/hosts`, 현재 LAN IP | 두 호스트의 DNS 매핑을 같은 IP로 수정 |
 | API 인증서 hostname 오류 | `openssl x509 -in ... -text`의 SAN | 현재 `LAB_HOST_IP`로 Lab PKI 재생성 여부 판단 |
 | 장소 이동 뒤 API/Gateway MQTT가 동시에 offline | 실행 중 API의 `MQTT_URL`, Pi의 `getent hosts`, 인증서 SAN이 이전 IP를 가리킴 | 현재 LAN IP로 `lab:pki:bootstrap`을 재실행하고 새 `lab.env`를 source한 뒤 Pi DNS 매핑·bootstrap endpoint를 갱신하고 API/Web/Docker broker와 Gateway container를 graceful restart한다. Mac `/etc/hosts`를 갱신할 수 없으면 인증서 IP SAN과 명시적 IP endpoint를 사용한다. DB ID·claim·장비 인증서는 유지한다. |
-| `pnpm dev`가 8883 handshake 실패 | 기존 개발용 mqtt container가 8883 점유 | `docker compose stop mqtt-tls`, Lab env를 source 후 재실행 |
+| `pnpm dev`가 8883 handshake 실패 | 기존 broker가 다른 PKI/config inode를 사용하거나 8883을 점유 | native 경로는 `docker compose stop mqtt-tls` 후 Lab env를 source하고 재실행한다. Docker 경로는 `pnpm dev:prepare && docker compose up -d --force-recreate mqtt-tls` 후 `pnpm dev`를 실행한다. |
 | 제조 endpoint가 401/TLS 실패 | station key 권한, CA/CRL, API 재시작 | `600` 권한과 `lab.env` 적용 여부 확인 |
 | claim 후 Pi가 `unclaimed` 반복 | serial 불일치 또는 claim 미완료 | label, 웹 입력, Pi `GATEWAY_SERIAL`을 비교 |
 | Gateway가 `owned_bluetooth_company_id_required`로 종료 | 자사 Bluetooth SIG Company Identifier 누락 또는 금지값 | 자사 할당값을 Gateway와 ESP32-H2에 동일하게 배포한 뒤 재시작 |
