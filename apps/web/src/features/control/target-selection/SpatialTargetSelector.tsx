@@ -44,8 +44,8 @@ export function SpatialTargetSelector({
     return fixtureById(dashboard, selection.fixtureIds[0])?.gateway?.id ?? null;
   }, [dashboard, selection]);
   const disabledFixtureIds = useMemo(() => new Set(dashboard.floors.flatMap((floor) => floor.fixtures)
-    .filter((fixture) => !isFixtureEligible(fixture, fixtureFilter, requiredGatewayId, directGatewayId, selection.mode === "fixtures" && selectedFixtureIds.has(fixture.id)))
-    .map((fixture) => fixture.id)), [dashboard.floors, directGatewayId, fixtureFilter, requiredGatewayId, selectedFixtureIds, selection.mode]);
+    .filter((fixture) => disabled || !isFixtureEligible(fixture, fixtureFilter, requiredGatewayId, directGatewayId, selection.mode === "fixtures" && selectedFixtureIds.has(fixture.id)))
+    .map((fixture) => fixture.id)), [dashboard.floors, directGatewayId, disabled, fixtureFilter, requiredGatewayId, selectedFixtureIds, selection.mode]);
 
   useEffect(() => {
     const activeFloorStillExists = dashboard.floors.some((floor) => floor.id === activeFloorId);

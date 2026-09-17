@@ -130,6 +130,13 @@ describe("SpatialTargetSelector", () => {
     expect(screen.getByRole("checkbox", { name: "B2-L003 선택" })).toBeDisabled();
   });
 
+  it("disables map markers when the selector is globally disabled", () => {
+    renderSelector({ disabled: true });
+
+    expect(screen.getByRole("button", { name: /B2-L001/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /B2-L002/ })).toBeDisabled();
+  });
+
   it("locks an area selection to its first eligible fixture gateway", () => {
     renderSelector({ interactionMode: "area" });
     const viewport = screen.getByRole("region", { name: "B2 도면" });

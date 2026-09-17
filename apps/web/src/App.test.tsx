@@ -324,6 +324,24 @@ async function chooseSelect(label: string, option: string) {
   fireEvent.keyUp(document.activeElement!, { key: "Enter" });
 }
 
+async function selectMapFixture(name: string) {
+  const targetMap = await screen.findByRole("region", { name: "제어 대상 지도" });
+  fireEvent.click(await within(targetMap).findByRole("button", { name: new RegExp(`^${name} `) }));
+}
+
+async function selectSavedGroup(name: string) {
+  fireEvent.click(await screen.findByRole("button", { name: "저장된 구역" }));
+  const confirm = screen.queryByRole("button", { name: "변경" });
+  if (confirm) fireEvent.click(confirm);
+  fireEvent.click(await screen.findByRole("button", { name }));
+}
+
+function manualApplyAction() {
+  const action = document.querySelector<HTMLButtonElement>("[data-control-submit]");
+  if (!action) throw new Error("Manual dimming apply action is not rendered.");
+  return action;
+}
+
 describe("App", () => {
   afterEach(() => {
     authState.user = {
@@ -891,10 +909,10 @@ describe("App", () => {
     );
 
     fireEvent.click(await screen.findByRole("link", { name: "제어" }));
-    fireEvent.click(await screen.findByRole("checkbox", { name: "B2-L01 선택" }));
 
-    expect(await screen.findByText("B2-L01: 게이트웨이가 오프라인입니다.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "밝기 적용" })).toBeDisabled();
+    const targetMap = await screen.findByRole("region", { name: "제어 대상 지도" });
+    expect(within(targetMap).getByRole("button", { name: /^B2-L01 / })).toBeDisabled();
+    expect(manualApplyAction()).toBeDisabled();
   });
 
   it("blocks a zone when one of its fixtures is uncontrollable", async () => {
@@ -917,13 +935,11 @@ describe("App", () => {
     );
 
     fireEvent.click(await screen.findByRole("link", { name: "제어" }));
-    const zoneModeButton = await screen.findByRole("button", { name: "구역" });
-    fireEvent.click(zoneModeButton);
-    expect(zoneModeButton).toHaveAttribute("aria-pressed", "true");
-    fireEvent.click(screen.getByRole("button", { name: "B2 Entrance Zone 선택" }));
+    fireEvent.click(await screen.findByRole("button", { name: "저장된 구역" }));
+    const blockedGroup = await screen.findByRole("button", { name: "B2 Entrance Zone" });
 
-    expect(await screen.findByText("B2-L02: 조명이 오프라인입니다.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "밝기 적용" })).toBeDisabled();
+    expect(blockedGroup).toBeDisabled();
+    expect(manualApplyAction()).toBeDisabled();
   });
 
   it("keeps gateway absence details in settings while omitting them from the shell header", async () => {
@@ -1173,12 +1189,9 @@ describe("App", () => {
     );
 
     fireEvent.click(await screen.findByRole("link", { name: "제어" }));
-    const zoneModeButton = await screen.findByRole("button", { name: "구역" });
-    fireEvent.click(zoneModeButton);
-    expect(zoneModeButton).toHaveAttribute("aria-pressed", "true");
-    fireEvent.click(screen.getByRole("button", { name: "B2 Entrance Zone 선택" }));
+    await selectSavedGroup("B2 Entrance Zone");
     fireEvent.click(screen.getByRole("button", { name: "30%" }));
-    fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
+    fireEvent.click(manualApplyAction());
 
     await waitFor(() =>
       expect(apiPost).toHaveBeenCalledWith("/commands/dimming", expect.objectContaining({
@@ -1223,9 +1236,9 @@ describe("App", () => {
     );
 
     fireEvent.click(await screen.findByRole("link", { name: "제어" }));
-    fireEvent.click(await screen.findByRole("checkbox", { name: "B2-L01 선택" }));
-    fireEvent.click(screen.getByRole("checkbox", { name: "B2-L02 선택" }));
-    const applyButton = screen.getByRole("button", { name: "밝기 적용" });
+    await selectMapFixture("B2-L01");
+    await selectMapFixture("B2-L02");
+    const applyButton = manualApplyAction();
     await waitFor(() => expect(applyButton).toBeEnabled());
     fireEvent.click(applyButton);
 
@@ -1388,8 +1401,8 @@ describe("App", () => {
       );
 
       fireEvent.click(await screen.findByRole("link", { name: "제어" }));
-      fireEvent.click(await screen.findByRole("checkbox", { name: "B2-L01 선택" }));
-      fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
+      await selectMapFixture("B2-L01");
+      fireEvent.click(manualApplyAction());
       await waitFor(() => expect(apiPost).toHaveBeenCalledWith(
         "/commands/dimming",
         expect.anything(),
@@ -1439,8 +1452,8 @@ describe("App", () => {
     );
 
     fireEvent.click(await screen.findByRole("link", { name: "제어" }));
-    fireEvent.click(await screen.findByRole("checkbox", { name: "B2-L01 선택" }));
-    fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
+    await selectMapFixture("B2-L01");
+    fireEvent.click(manualApplyAction());
     await waitFor(() => expect(apiPost).toHaveBeenCalledWith(
       "/commands/dimming",
       expect.anything(),
@@ -1478,8 +1491,8 @@ describe("App", () => {
     );
 
     fireEvent.click(await screen.findByRole("link", { name: "제어" }));
-    fireEvent.click(await screen.findByRole("checkbox", { name: "B2-L01 선택" }));
-    fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
+    await selectMapFixture("B2-L01");
+    fireEvent.click(manualApplyAction());
     await waitFor(() => expect(apiPost).toHaveBeenCalledWith(
       "/commands/dimming",
       expect.anything(),
@@ -1539,8 +1552,8 @@ describe("App", () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(<QueryClientProvider client={client}><App /></QueryClientProvider>);
     fireEvent.click(await screen.findByRole("link", { name: "제어" }));
-    fireEvent.click(await screen.findByRole("checkbox", { name: "B2-L01 선택" }));
-    fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
+    await selectMapFixture("B2-L01");
+    fireEvent.click(manualApplyAction());
     fireEvent.click(await screen.findByRole("button", { name: "실제 상태 확인" }));
     fireEvent.click(screen.getByRole("button", { name: "로그아웃" }));
     expect(checkSignal?.aborted).toBe(true);

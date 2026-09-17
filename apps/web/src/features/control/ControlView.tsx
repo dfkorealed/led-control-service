@@ -15,7 +15,7 @@ import {
   type CommandStage,
   type CommandStatusResponse
 } from "../../api/commands";
-import { useControlDashboard, type DashboardFixture } from "../../api/queries";
+import { useControlDashboard } from "../../api/queries";
 import {
   clearActiveCommandId,
   clearActiveCommandRequest,
@@ -24,15 +24,10 @@ import {
   saveActiveCommandId,
   saveActiveCommandRequest
 } from "./active-command-store";
-import {
-  ControlTargetPicker,
-  controlSelectionToDimmingTarget,
-  type ControlSelection
-} from "./ControlTargetPicker";
+import { controlSelectionToDimmingTarget, resolveControlSelection, type ControlSelection } from "./control-selection";
 import { humanizeDeviceResponseMessage } from "./control-copy";
 import { FixtureGroupDialog } from "./FixtureGroupDialog";
 import { ControlModeTabs, type ControlPageMode } from "./automation/ControlModeTabs";
-import { floorMeshReadiness } from "./control-readiness";
 import { CommandHistoryPanel, COMMAND_STAGE_LABELS } from "./CommandHistoryPanel";
 import { CommandOutcomeActions } from "./CommandOutcomeActions";
 import {
@@ -40,6 +35,7 @@ import {
   ownsActiveCommandSession,
   registerActiveCommandRequest
 } from "./active-command-session";
+import { SpatialTargetSelector } from "./target-selection/SpatialTargetSelector";
 
 const ScheduleControlPanel = lazy(async () => {
   const module = await import("./automation/ScheduleControlPanel");
@@ -120,14 +116,15 @@ export function ControlView({
     scopedCommandId && commandQuery.data && commandQuery.data.id !== scopedCommandId
   );
   const missingCommand = isMissingCommandError(commandQuery.error);
-  const fixtures = useMemo(() => data?.floors.flatMap((floor) => floor.fixtures) ?? [], [data]);
-  const selected = useMemo(() => resolveSelection(data, fixtures, selection), [data, fixtures, selection]);
-  const blockedFixture = selected.fixtures.find((fixture) => !fixture.controllable);
-  const blockMessage = blockedFixture
-    ? formatControlBlockReason(blockedFixture.controlBlockReason, blockedFixture.name)
-    : null;
+  const resolvedSelection = useMemo(
+    () => data ? resolveControlSelection(data, selection) : null,
+    [data, selection]
+  );
+  const selectedFixtures = resolvedSelection?.fixtures ?? [];
+  const selectedName = selectionName(data, selection, selectedFixtures.length);
+  const blockMessage = resolvedSelection?.unavailableReason ?? null;
   const readOnly = !canControl;
-  const target = selected.isValid ? controlSelectionToDimmingTarget(selection) : null;
+  const target = resolvedSelection?.available ? controlSelectionToDimmingTarget(selection) : null;
   const commandInProgress = Boolean(
     scopedActiveRequest && !scopedCommandId
     || scopedCommandId && !matchingCommandIsTerminal
@@ -137,7 +134,7 @@ export function ControlView({
     activeSiteId && (activeSiteId !== commandSiteId || userId !== commandUserId)
   );
   const controlsLocked = readOnly || commandSessionBlocked || isSubmitting || restorePending || commandInProgress;
-  const canSubmit = Boolean(data && target && selected.fixtures.length > 0 && !blockMessage && !controlsLocked);
+  const canSubmit = Boolean(data && target && resolvedSelection?.fixtureIds.length && !blockMessage && !controlsLocked);
 
   useEffect(() => {
     if (!capabilities) return;
@@ -452,45 +449,39 @@ export function ControlView({
         </Text>
       ) : null}
 
-      <div className="flex min-h-0 min-w-0 flex-1 flex-wrap items-stretch gap-4 overflow-y-auto overscroll-contain tablet:flex-nowrap tablet:overflow-hidden" data-control-layout="">
-        <div className="flex min-h-0 min-w-144 flex-1 flex-col gap-4 max-compact:min-w-0 max-compact:basis-full tablet:min-w-0" data-control-target-column="">
-        <Card className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-4" aria-label="제어 대상 선택" data-control-target-card="">
-          <fieldset className="m-0 flex min-h-0 flex-1 flex-col border-0 p-0 disabled:opacity-60" aria-label="제어 대상 선택" disabled={controlsLocked} data-control-picker-fieldset="">
-            <ControlTargetPicker
-              key={data.site.id}
-              dashboard={data}
-              selection={selection}
-              disabled={controlsLocked}
-              fillAvailableHeight
-              onChange={(nextSelection) => {
-                setSelection(nextSelection);
-                if (nextSelection.mode === "fixtures" && nextSelection.fixtureIds.length === 1) {
-                  const fixture = fixtures.find((item) => item.id === nextSelection.fixtureIds[0]);
-                  if (fixture) setBrightness(fixture.brightness);
-                }
-                setMessage("");
-              }}
-            />
-          </fieldset>
+      <div className="grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-4 overflow-y-auto overscroll-contain tablet:grid-cols-[minmax(0,1fr)_22rem] tablet:grid-rows-[minmax(0,1fr)_10rem] tablet:overflow-hidden" data-control-layout="">
+        <Card className="flex min-h-0 min-w-0 flex-col overflow-hidden p-4" aria-label="제어 대상 지도" data-control-target-card="">
+          <SpatialTargetSelector
+            key={data.site.id}
+            siteId={data.site.id}
+            dashboard={data}
+            selection={selection}
+            disabled={controlsLocked}
+            onChange={(nextSelection) => {
+              setSelection(nextSelection);
+              const nextResolved = resolveControlSelection(data, nextSelection);
+              if (nextSelection.mode === "fixtures" && nextResolved.fixtureIds.length === 1) {
+                const [fixture] = nextResolved.fixtures;
+                if (fixture) setBrightness(fixture.brightness);
+              }
+              setMessage("");
+            }}
+          />
         </Card>
-        <CommandHistoryPanel key={`${userId}:${data.site.id}`} userId={userId} siteId={data.site.id}
-          onSelect={openHistoricalCommand} selectedCommandId={displayedStatus?.id}
-          disabled={commandInProgress || isSubmitting || restorePending || commandSessionBlocked} />
-        </div>
 
-        <SidePanel className="flex min-h-0 w-full max-w-88 flex-none flex-col gap-4 overflow-hidden p-4 max-compact:max-w-none" aria-label="밝기 실행" data-control-panel="">
+        <SidePanel className="flex min-h-0 w-full flex-col gap-4 overflow-hidden p-4" aria-label="밝기 실행" data-control-panel="" data-control-compact-summary-sheet="">
           <div className="flex min-h-14 flex-none items-start justify-between gap-3">
             <div className="grid min-w-0 gap-1">
               <Text as="span" variant="overline" tone="muted">선택 대상</Text>
-              <Heading as="h3" variant="card-title" className="truncate">{selected.name}</Heading>
+              <Heading as="h3" variant="card-title" className="truncate">{selectedName}</Heading>
             </div>
             <ManualControlBadge readOnly={readOnly} canSubmit={canSubmit} blocked={Boolean(blockMessage)} />
           </div>
 
           <div className="grid min-h-0 flex-1 content-start gap-4 overflow-y-auto overscroll-contain" data-control-panel-body="">
             <div className="grid gap-1 rounded-control bg-surface-inset p-3" aria-live="polite">
-              <Text as="strong" weight="semibold">{selected.fixtures.length}개 선택 · 제어 불가 {selected.blockedCount}개</Text>
-              <Text as="span" variant="caption" tone="secondary">{deliveryLabel(selection, selected.fixtures.length)}</Text>
+              <Text as="strong" weight="semibold">{selectedFixtures.length}개 선택 · 제어 불가 {resolvedSelection?.blockedFixtureIds.length ?? 0}개</Text>
+              <Text as="span" variant="caption" tone="secondary">{deliveryLabel(selection, selectedFixtures.length)}</Text>
             </div>
 
             <div className="grid gap-3 rounded-panel border border-border-default bg-surface-panel p-4" data-control-brightness-card="">
@@ -521,7 +512,7 @@ export function ControlView({
             </div>
 
             <Button variant="primary" type="button" onClick={submitCommand} disabled={!canSubmit} data-control-submit="">
-              {commandSessionBlocked ? "로그아웃 중" : controlsLocked && !readOnly ? "밝기 적용 중" : "밝기 적용"}
+              {commandSessionBlocked ? "로그아웃 중" : controlsLocked && !readOnly ? "밝기 적용 중" : selectedFixtures.length ? `${selectedFixtures.length}개 조명에 밝기 적용` : "밝기 적용"}
             </Button>
           </div>
           <div className="grid min-h-0 max-h-28 flex-none content-start gap-3 overflow-y-auto overscroll-contain" data-control-panel-feedback="">
@@ -567,6 +558,10 @@ export function ControlView({
             ) : null}
           </div>
         </SidePanel>
+        <CommandHistoryPanel key={`${userId}:${data.site.id}`} userId={userId} siteId={data.site.id}
+          onSelect={openHistoricalCommand} selectedCommandId={displayedStatus?.id}
+          disabled={commandInProgress || isSubmitting || restorePending || commandSessionBlocked}
+          compactDisclosure className="tablet:col-span-full" />
       </div>
       <FixtureGroupDialog
         open={groupDialogOpen}
@@ -588,61 +583,17 @@ function ManualControlBadge({ readOnly, canSubmit, blocked }: { readOnly: boolea
   return <StatusBadge tone="neutral" icon={Clock3}>대상 없음</StatusBadge>;
 }
 
-function resolveSelection(
+function selectionName(
   data: ReturnType<typeof useControlDashboard>["data"],
-  fixtures: DashboardFixture[],
-  selection: ControlSelection
+  selection: ControlSelection,
+  fixtureCount: number
 ) {
-  if (!data) return { name: "대상 선택", fixtures: [], blockedCount: 0, isValid: false };
-
-  if (selection.mode === "fixtures") {
-    const byId = new Map(fixtures.map((fixture) => [fixture.id, fixture]));
-    const selectedFixtures = selection.fixtureIds.flatMap((id) => {
-      const fixture = byId.get(id);
-      return fixture ? [fixture] : [];
-    });
-    return selectionResult(
-      selectedFixtures.length === 1 ? selectedFixtures[0].name : selectedFixtures.length > 1 ? `${selectedFixtures.length}개 조명` : "대상 선택",
-      selectedFixtures,
-      selection.fixtureIds.length > 0 && selectedFixtures.length === selection.fixtureIds.length
-    );
-  }
-
-  if (selection.mode === "floor") {
-    const floor = data.floors.find((item) => item.id === selection.floorId);
-    return selectionResult(
-      floor?.name ?? "층 선택",
-      floor?.fixtures ?? [],
-      Boolean(floor && floorMeshReadiness(floor).ready)
-    );
-  }
-
-  const group = data.groups.find((item) => item.id === selection.groupId);
-  const fixtureById = new Map(fixtures.map((fixture) => [fixture.id, fixture]));
-  const groupFixtures = group?.fixtureIds.flatMap((id) => {
-    const fixture = fixtureById.get(id);
-    return fixture ? [fixture] : [];
-  }) ?? [];
-  return selectionResult(
-    group?.name ?? "구역 선택",
-    groupFixtures,
-    Boolean(
-      group &&
-      group.lifecycleStatus === "active" &&
-      group.meshControlGroup?.status === "ready" &&
-      group.fixtureIds.length > 0 &&
-      groupFixtures.length === group.fixtureIds.length
-    )
-  );
-}
-
-function selectionResult(name: string, fixtures: DashboardFixture[], isValid: boolean) {
-  return {
-    name,
-    fixtures,
-    blockedCount: fixtures.filter((fixture) => !fixture.controllable).length,
-    isValid
-  };
+  if (!data) return "대상 선택";
+  if (selection.mode === "fixtures") return fixtureCount === 1
+    ? data.floors.flatMap((floor) => floor.fixtures).find((fixture) => fixture.id === selection.fixtureIds[0])?.name ?? "대상 선택"
+    : fixtureCount > 1 ? `${fixtureCount}개 조명` : "대상 선택";
+  if (selection.mode === "floor") return data.floors.find((floor) => floor.id === selection.floorId)?.name ?? "층 선택";
+  return data.groups.find((group) => group.id === selection.groupId)?.name ?? "구역 선택";
 }
 
 function deliveryLabel(selection: ControlSelection, fixtureCount: number) {
@@ -709,22 +660,6 @@ function terminalStepState(stage: CommandStage): ProgressStepState {
 
 function commandStageLabel(stage: CommandStage) {
   return COMMAND_STAGE_LABELS[stage];
-}
-
-function formatControlBlockReason(
-  reason: "fixture_unmapped" | "gateway_offline" | "fixture_fault" | "fixture_offline" | null,
-  fixtureName: string
-) {
-  const detail = reason === "fixture_unmapped"
-    ? "게이트웨이에 매핑되지 않았습니다."
-    : reason === "gateway_offline"
-      ? "게이트웨이가 오프라인입니다."
-      : reason === "fixture_fault"
-        ? "조명 장애를 먼저 점검해야 합니다."
-        : reason === "fixture_offline"
-          ? "조명이 오프라인입니다."
-          : "현재 제어할 수 없습니다.";
-  return `${fixtureName}: ${detail}`;
 }
 
 function isMissingCommandError(error: unknown): error is { status: number } {

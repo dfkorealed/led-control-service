@@ -4,6 +4,8 @@
 
 ## 구현 완료
 
+- 2026-09-17 수동 제어는 지도 우선 `SpatialTargetSelector`로 개별·다중·층·저장 구역을 선택하고, 목록은 보조 drawer로 연다. 선택은 최대 1,000개 및 첫 개별 조명의 단일 gateway 조건을 유지하며, 실행 payload·명령 잠금·재시도·상태 확인 계약은 변경하지 않았다. PC는 지도/실행/이력 영역을 각각 bounded overflow로 유지하고, compact 화면에서는 실행 영역 뒤에 접힌 명령 이력을 제공한다. viewer와 명령 잠금 상태에서는 지도 marker·목록·밝기 입력을 모두 비활성화한다.
+
 - 2026-09-16 Tailwind Task 12에서 공통 primitive와 수동·스케줄·이벤트 제어 화면의 legacy class/CSS adapter를 제거하고 의미 토큰·utility 및 `data-*` 테스트 계약으로 수렴했다. `Button`의 공개 `data-variant` 계약으로 제어 E2E가 시각 variant를 class 이름에 결합하지 않게 했고 정책 baseline은 빈 violation map을 사용한다. Fresh Web **1,224/1,224**, UI policy **53/53**, 전체 Chromium 직렬 **257 passed·5 환경 의존 skip·실패 0**, 별도 opt-in RealBackendLab 설치·제어 흐름 **3/3**을 통과했다. 실제 iOS/Android WebView와 MQTT/Gateway/Raspberry Pi/ESP32-H2 HIL은 실행하지 않았다.
 
 - 2026-09-16 공통 셸·인증 UI 이전에서 제어 진입 셸의 내비게이션, 현장 배지, 로딩·복구 상태와 로그아웃을 Tailwind 의미 토큰 및 공통 `Heading`/`Text`/`FeedbackState`/`ConfirmDialog`로 통합했다. 로그아웃 중에는 기존 active-command 차단을 유지하고, 저장하지 않은 맵 편집 내용의 폐기 승인이 끝나기 전에는 session을 종료하지 않는다. 관련 Vitest 157개와 320/390/1024/1440px Chromium 셸·인증·복구 시나리오 19개로 검증했으며, 이는 mock API 기반 browser 회귀로 실제 Gateway 명령·BLE Mesh·조명 실장비 HIL 완료를 뜻하지 않는다.
