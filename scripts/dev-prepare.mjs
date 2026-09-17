@@ -158,13 +158,14 @@ function ensureDevelopmentPki(root, env, gatewayIds, externalPki, run) {
     return;
   }
   ensurePrivateDevelopmentPkiDirectory(root, pki);
+  const childEnv = { ...env, PKI_DIR: realpathSync(pki) };
   if (!existsSync(join(pki, "ca.crt")) || !existsSync(join(pki, "api.crt")) || !existsSync(join(pki, "broker.crt"))) {
-    runChecked(run, root, join(root, "scripts", "dev-pki", "create-ca.sh"), [], env);
+    runChecked(run, root, join(root, "scripts", "dev-pki", "create-ca.sh"), [], childEnv);
   }
   for (const gatewayId of gatewayIds) {
     const certificateName = `gateway-${gatewayId}`;
     if (!existsSync(join(pki, `${certificateName}.crt`)) || !existsSync(join(pki, `${certificateName}.key`))) {
-      runChecked(run, root, join(root, "scripts", "dev-pki", "issue-gateway-cert.sh"), [gatewayId], env);
+      runChecked(run, root, join(root, "scripts", "dev-pki", "issue-gateway-cert.sh"), [gatewayId], childEnv);
     }
   }
 }

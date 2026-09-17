@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
@@ -377,6 +377,79 @@ test("prepare는 default PKI directory를 0700으로 안전하게 만든 뒤에�
       pkiMode: 0o700,
       pkiRealpath: realpathSync(join(directory, ".local", "pki"))
     });
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("default PKI child scripts는 inherited PKI_DIR 대신 검증된 .local/pki만 쓴다", () => {
+  const gatewayId = "11111111-1111-4111-8111-111111111111";
+  const fixtures = [
+    { expectedScript: "create-ca.sh", source: {} },
+    {
+      expectedScript: "issue-gateway-cert.sh",
+      source: { DEV_GATEWAY_ID: gatewayId },
+      seed(pki) {
+        for (const filename of ["ca.crt", "api.crt", "broker.crt"]) writeFileSync(join(pki, filename), "fixture");
+      }
+    }
+  ];
+
+  for (const fixture of fixtures) {
+    const directory = mkdtempSync(join(tmpdir(), `led-control-pki-env-${fixture.expectedScript}-`));
+    const local = join(directory, ".local");
+    const pki = join(local, "pki");
+    const outside = join(directory, "outside-pki");
+    const calls = [];
+    try {
+      if (fixture.seed) {
+        mkdirSync(local, { mode: 0o700 });
+        chmodSync(local, 0o700);
+        mkdirSync(pki, { mode: 0o700 });
+        chmodSync(pki, 0o700);
+        fixture.seed(pki);
+      }
+      assert.throws(
+        () => prepareDevelopmentRuntime(directory, { ...fixture.source, PKI_DIR: outside }, {
+          run: (command, args, options) => {
+            calls.push({ command, args, pkiDirectory: options.env.PKI_DIR });
+            mkdirSync(options.env.PKI_DIR, { recursive: true });
+            writeFileSync(join(options.env.PKI_DIR, "child-write-marker"), "fixture");
+            return failed("fixture stops child after simulated write");
+          }
+        }),
+        /실행에 실패했습니다/
+      );
+      assert.equal(calls.length, 1);
+      assert.equal(calls[0].command.endsWith(`/scripts/dev-pki/${fixture.expectedScript}`), true);
+      assert.equal(calls[0].pkiDirectory, realpathSync(pki));
+      assert.equal(readFileSync(join(pki, "child-write-marker"), "utf8"), "fixture");
+      assert.equal(existsSync(outside), false);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  }
+});
+
+test("Lab external PKI는 inherited PKI_DIR과 무관하게 child script 없이 기존 bundle을 사용한다", () => {
+  const directory = mkdtempSync(join(tmpdir(), "led-control-pki-env-lab-"));
+  const bundle = join(directory, "bundle");
+  const outside = join(directory, "outside-pki");
+  const calls = [];
+  mkdirSync(bundle);
+  for (const filename of [
+    "mqtt-ca.crt", "api-mqtt-client.crt", "api-mqtt-client.key",
+    "mqtt-server.crt", "mqtt-server.key", "mqtt-client.crl"
+  ]) writeFileSync(join(bundle, filename), "lab");
+  try {
+    const prepared = prepareDevelopmentRuntime(directory, {
+      PKI_LAB_CURRENT_DIR: bundle,
+      MQTT_TLS_CERT_DIR: bundle,
+      PKI_DIR: outside
+    }, { run: (...args) => { calls.push(args); return ok(); } });
+    assert.equal(prepared.dockerCertDirectory, realpathSync(bundle));
+    assert.deepEqual(calls, []);
+    assert.equal(existsSync(outside), false);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
