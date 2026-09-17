@@ -111,7 +111,7 @@ test("admin creates and executes schedule and vehicle event rules", async ({ bro
   await expectFixtureBrightness(admin, created.siteId, targetName, "80%");
 
   await admin.goto(`/control?siteId=${created.siteId}&mode=manual`);
-  await selectCheckbox(admin, `${targetName} 선택`);
+  await selectFixtureFromList(admin, admin, targetName);
   await admin.getByRole("slider", { name: "밝기" }).fill("60");
   await admin.getByRole("button", { name: "밝기 적용" }).click();
   await expect(admin.getByText("조명 적용 완료 · 기본 밝기로 저장됨", { exact: true })).toBeVisible();
@@ -240,8 +240,8 @@ async function createSchedule(page: Page, input: { brightness: number; target: s
   await fillSegmentedField(dialog, "종료 시각", siteTime(new Date(now.getTime() + 3_600_000)));
   await dialog.getByLabel("밝기", { exact: true }).fill(String(input.brightness));
   await dialog.getByRole("button", { name: "제어 대상 선택" }).click();
-  await selectCheckbox(dialog, `${input.target} 선택`);
-  await dialog.getByRole("button", { name: "선택 완료" }).click();
+  await selectFixtureFromList(page, dialog, input.target);
+  await dialog.getByRole("button", { name: "1개 조명 선택 완료", exact: true }).click();
   await dialog.getByRole("button", { name: "스케줄 만들기" }).click();
   await expect(dialog).toBeHidden();
 }
@@ -253,11 +253,11 @@ async function createVehicleEvent(
   await page.getByRole("button", { name: "이벤트 추가" }).click();
   const dialog = page.getByRole("dialog", { name: "이벤트 추가" });
   await dialog.getByRole("button", { name: "감지 센서 선택" }).click();
-  await selectCheckbox(dialog, `${input.source} 선택`);
-  await dialog.getByRole("button", { name: "선택 완료" }).click();
+  await selectFixtureFromList(page, dialog, input.source);
+  await dialog.getByRole("button", { name: "1개 조명 선택 완료", exact: true }).click();
   await dialog.getByRole("button", { name: "실행할 조명 선택" }).click();
-  await selectCheckbox(dialog, `${input.target} 선택`);
-  await dialog.getByRole("button", { name: "선택 완료" }).click();
+  await selectFixtureFromList(page, dialog, input.target);
+  await dialog.getByRole("button", { name: "1개 조명 선택 완료", exact: true }).click();
   await dialog.getByRole("button", { name: "고급 설정" }).click();
   await dialog.getByLabel("규칙 이름").fill("Task 19 차량 이벤트");
   await dialog.getByLabel("밝기", { exact: true }).fill(String(input.brightness));
@@ -285,6 +285,14 @@ async function selectCheckbox(scope: Page | Locator, name: string) {
   await expect(checkbox).toBeChecked();
 }
 
+async function selectFixtureFromList(page: Page, scope: Page | Locator, fixtureName: string) {
+  await scope.getByRole("button", { name: "조명 목록 열기" }).click();
+  const drawer = page.getByRole("dialog", { name: "조명 목록", exact: true });
+  await selectCheckbox(drawer, `${fixtureName} 선택`);
+  await drawer.getByRole("button", { name: "선택 완료", exact: true }).click();
+  await expect(drawer).toBeHidden();
+}
+
 function syncRow(page: Page, name: string): Locator {
   return page.getByRole("row").filter({ hasText: name });
 }
@@ -296,9 +304,10 @@ async function expectFixtureBrightness(
   brightness: string,
 ) {
   await page.goto(`/control?siteId=${siteId}&mode=manual`);
-  const fixtureCheckbox = page.getByRole("checkbox", { name: `${fixtureName} 선택` });
-  await expect(fixtureCheckbox).toBeVisible();
-  await expect(fixtureCheckbox.locator("xpath=ancestor::div[contains(@class,'grid')][1]")).toContainText(brightness);
+  await selectFixtureFromList(page, page, fixtureName);
+  // Selecting one fixture initializes the control from its observed dashboard
+  // brightness; the map-first drawer no longer renders the old brightness row.
+  await expect(page.getByRole("slider", { name: "밝기" })).toHaveValue(brightness.replace("%", ""));
 }
 
 function siteDate(date: Date) {
