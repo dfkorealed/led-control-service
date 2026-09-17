@@ -6,7 +6,8 @@ import { AuditModule } from "../audit/audit.module";
 import { AuthModule } from "../auth/auth.module";
 import { PrismaModule } from "../prisma/prisma.module";
 import { StorageModule } from "../storage/storage.module";
-import { type CadConversionRequest, type CadConverter } from "./cad-converter";
+import { ArgvCadConverter, type CadConversionRequest, type CadConverter } from "./cad-converter";
+import { CAD_IMPORT_MAX_DXF_BYTES } from "./cad-resource-limits";
 import { SpoolCadConverter } from "./cad-converter-spool";
 import { CadSidecarReadinessService } from "./cad-sidecar-readiness.service";
 import { ChildProcessCadCoreExecutor } from "./cad-core-executor";
@@ -63,6 +64,20 @@ export function createCadImportConverter(
     if (env.NODE_ENV === "production") throw new Error("local CAD adapter is forbidden in production");
     return new LocalDxfCopyCadConverter(dependencies);
   }
+  if (mode === "development-argv") {
+    if (env.NODE_ENV === "production") throw new Error("development CAD adapter is forbidden in production");
+    const executable = env.CAD_IMPORT_CONVERTER_EXECUTABLE?.trim();
+    if (!executable) throw new Error("CAD_IMPORT_CONVERTER_EXECUTABLE is required");
+    return new ArgvCadConverter({
+      executable,
+      argv: parseConverterArgv(env.CAD_IMPORT_CONVERTER_ARGV_JSON),
+      timeoutMs: positiveInteger(env.CAD_IMPORT_CONVERTER_TIMEOUT_MS, 60_000, "CAD_IMPORT_CONVERTER_TIMEOUT_MS"),
+      maxOutputBytes: positiveInteger(env.CAD_IMPORT_MAX_DXF_BYTES, CAD_IMPORT_MAX_DXF_BYTES, "CAD_IMPORT_MAX_DXF_BYTES"),
+      execution: platform === "linux"
+        ? { mode: "linux-resource-limited" }
+        : { mode: "macos-development-polling", acknowledgeNonProductionRisk: true }
+    });
+  }
   if (mode !== "sidecar") throw new Error("unsupported CAD_IMPORT_CONVERTER_MODE");
   if (platform !== "linux") throw new Error("production CAD converter requires Linux");
   const spoolRoot = env.CAD_IMPORT_CONVERTER_SPOOL_ROOT?.trim();
@@ -75,6 +90,17 @@ export function createCadImportConverter(
     timeoutMs: positiveInteger(env.CAD_IMPORT_CONVERTER_CLIENT_TIMEOUT_MS, 65_000, "CAD_IMPORT_CONVERTER_CLIENT_TIMEOUT_MS"),
     maxOutputBytes: positiveInteger(env.CAD_IMPORT_MAX_DXF_BYTES, 256 * 1024 * 1024, "CAD_IMPORT_MAX_DXF_BYTES")
   });
+}
+
+function parseConverterArgv(raw: string | undefined): string[] {
+  if (!raw) throw new Error("CAD_IMPORT_CONVERTER_ARGV_JSON is required");
+  let parsed: unknown;
+  try { parsed = JSON.parse(raw); }
+  catch { throw new Error("CAD_IMPORT_CONVERTER_ARGV_JSON must be valid JSON"); }
+  if (!Array.isArray(parsed) || !parsed.length || parsed.some(value => typeof value !== "string")) {
+    throw new Error("CAD_IMPORT_CONVERTER_ARGV_JSON must be a non-empty string array");
+  }
+  return parsed as string[];
 }
 
 function converterProvider(env: NodeJS.ProcessEnv) {

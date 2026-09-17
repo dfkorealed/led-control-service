@@ -33,7 +33,7 @@ export const DEFAULT_DXF_PARSER_LIMITS: Readonly<DxfParserLimits> = Object.freez
   maxExpandedEntities: 1_000_000,
   maxBlockDepth: 32,
   maxNormalizedOutputBytes: 128 * 1024 * 1024,
-  maxRetainedModelBytes: 192 * 1024 * 1024,
+  maxRetainedModelBytes: 208 * 1024 * 1024,
   maxDurationMs: 60_000,
   maxCpuMs: 45_000,
   now: () => performance.now(),
@@ -82,7 +82,10 @@ function* readBufferedPairs(source: string, limits: DxfParserLimits, checkBudget
 }
 
 async function* readStreamingPairs(
-  input: AsyncIterable<Buffer | string> | Iterable<Buffer | string>, limits: DxfParserLimits, checkBudget: () => void
+  input: AsyncIterable<Buffer | string> | Iterable<Buffer | string>,
+  limits: DxfParserLimits,
+  checkBudget: () => void,
+  ignoreRemaining: () => boolean = () => false
 ): AsyncGenerator<DxfPair> {
   const decoder = new TextDecoder("utf-8", { fatal: true });
   let pending = "";
@@ -106,18 +109,29 @@ async function* readStreamingPairs(
     if (bytesRead > limits.maxInputBytes) throw new Error("DXF input limit exceeded");
     const decoded = decoder.decode(chunk, { stream: true });
     if (decoded.includes("\0")) throw new Error("Malformed DXF input contains NUL");
+    if (ignoreRemaining()) {
+      pending = "";
+      codeLine = null;
+      continue;
+    }
     pending += decoded;
     let newline = pending.indexOf("\n");
     while (newline >= 0) {
       const pair = emit(pending.slice(0, newline));
       pending = pending.slice(newline + 1);
       if (pair) yield pair;
+      if (ignoreRemaining()) {
+        pending = "";
+        codeLine = null;
+        break;
+      }
       newline = pending.indexOf("\n");
     }
     if (Buffer.byteLength(pending, "utf8") > limits.maxLineBytes + 1) throw new Error("DXF line byte limit exceeded");
   }
   pending += decoder.decode();
   if (pending.includes("\0")) throw new Error("Malformed DXF input contains NUL");
+  if (ignoreRemaining()) return;
   if (pending.length > 0) { const pair = emit(pending); if (pair) yield pair; }
   if (codeLine) throw new Error("Malformed DXF pair at EOF");
 }
@@ -131,6 +145,8 @@ class DxfDocumentBuilder {
   private attributeInsert: Extract<NormalizedCadEntity, { type: "insert" }> | null = null;
   private attributeCount = 0;
   private sawEof = false;
+  private modelComplete = false;
+  private opaqueTail = false;
   private generatedId = 0;
   private rawEntityCount = 0;
   private coordinateCount = 0;
@@ -155,6 +171,7 @@ class DxfDocumentBuilder {
         if (pair.code !== 2) throw new Error("Malformed DXF SECTION header");
         this.section = pair.value.trim().toUpperCase();
         if (!this.section) throw new Error("Malformed DXF SECTION name");
+        if (this.modelComplete && this.section === "OBJECTS") this.opaqueTail = true;
         this.awaitingSectionName = false;
       } else if (this.record) {
         this.currentBodyBytes += 32 + Buffer.byteLength(pair.value, "utf8") * 2;
@@ -207,6 +224,7 @@ class DxfDocumentBuilder {
       if (this.currentBlock) throw new Error("Unterminated DXF BLOCK entity");
       if (this.polyline) throw new Error("Unterminated DXF POLYLINE entity sequence");
       if (this.attributeInsert) throw new Error("DXF INSERT attribute sequence requires SEQEND");
+      this.modelComplete = this.section === "ENTITIES";
       this.section = null;
       return;
     }
@@ -237,12 +255,23 @@ class DxfDocumentBuilder {
 
   finish(): NormalizedCadDocument {
     this.finishRecord();
-    if (!this.sawEof) throw new Error("DXF EOF marker is missing");
-    if (this.awaitingSectionName || this.section || this.currentBlock) throw new Error("Unterminated DXF SECTION or BLOCK");
+    if (!this.sawEof && !this.opaqueTail) throw new Error("DXF EOF marker is missing");
+    if (this.awaitingSectionName || (!this.opaqueTail && this.section) || this.currentBlock) {
+      throw new Error("Unterminated DXF SECTION or BLOCK");
+    }
     if (this.polyline || this.attributeInsert) throw new Error("Unterminated DXF entity sequence");
     if (new Set(this.blocks.map(block => block.name)).size !== this.blocks.length) throw new Error("Duplicate DXF block name");
+    const blockNames = new Set(this.blocks.map(block => block.name));
+    const retainDrawableReferences = (entities: NormalizedCadEntity[]) => entities.filter(
+      entity => entity.type !== "insert" || blockNames.has(entity.blockName)
+    );
+    // LibreDWG can emit INSERT records for unsupported custom objects without
+    // serializing their block definition. They have no drawable geometry, so
+    // retain the rest of the map while excluding only those orphan references.
+    const blocks = this.blocks.map(block => ({ ...block, entities: retainDrawableReferences(block.entities) }));
+    const entities = retainDrawableReferences(this.entities);
     const rawBounds = computeCadBounds(iterateCadDocumentExpansion(
-      { blocks: this.blocks, entities: this.entities },
+      { blocks, entities },
       { maxRenderedEntities: this.limits.maxExpandedEntities, maxBlockDepth: this.limits.maxBlockDepth, checkBudget: this.checkBudget }
     ), this.checkBudget);
     if (Object.values(rawBounds).some(value => Math.abs(value) > this.limits.maxCoordinateMagnitude)) {
@@ -252,8 +281,8 @@ class DxfDocumentBuilder {
     const document: NormalizedCadDocument = {
       version: 1,
       bounds: { minX: round(rawBounds.minX), minY: round(rawBounds.minY), maxX: round(rawBounds.maxX), maxY: round(rawBounds.maxY) },
-      blocks: this.blocks,
-      entities: this.entities
+      blocks,
+      entities
     };
     if (this.normalizedBytes + this.sizeOf(document.bounds) > this.limits.maxNormalizedOutputBytes) {
       throw new Error("DXF normalized output limit exceeded");
@@ -261,6 +290,8 @@ class DxfDocumentBuilder {
     this.checkBudget();
     return document;
   }
+
+  isOpaqueTail(): boolean { return this.opaqueTail; }
 
   private beginRecord(type: string): void {
     this.rawEntityCount++;
@@ -522,7 +553,10 @@ export function parseAsciiDxf(input: string | Buffer, options: Partial<DxfParser
   if (source.includes("\0")) throw new Error("Malformed DXF input contains NUL");
   const checkBudget = createBudgetCheck(limits);
   const builder = new DxfDocumentBuilder(limits, checkBudget);
-  for (const pair of readBufferedPairs(source, limits, checkBudget)) builder.accept(pair);
+  for (const pair of readBufferedPairs(source, limits, checkBudget)) {
+    builder.accept(pair);
+    if (builder.isOpaqueTail()) break;
+  }
   return builder.finish();
 }
 
@@ -532,6 +566,8 @@ export async function parseAsciiDxfStream(
   const limits = resolveLimits(options);
   const checkBudget = createBudgetCheck(limits);
   const builder = new DxfDocumentBuilder(limits, checkBudget);
-  for await (const pair of readStreamingPairs(input, limits, checkBudget)) builder.accept(pair);
+  for await (const pair of readStreamingPairs(input, limits, checkBudget, () => builder.isOpaqueTail())) {
+    builder.accept(pair);
+  }
   return builder.finish();
 }

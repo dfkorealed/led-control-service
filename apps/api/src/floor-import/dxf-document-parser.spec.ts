@@ -1,6 +1,6 @@
 import { createReadStream, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { parseAsciiDxf, parseAsciiDxfStream } from "./dxf-document-parser";
+import { DEFAULT_DXF_PARSER_LIMITS, parseAsciiDxf, parseAsciiDxfStream } from "./dxf-document-parser";
 import { createCadViewport, projectCadPointToViewport } from "./cad-viewport";
 
 const pair = (code: number, value: string | number) => `${code}\n${value}\n`;
@@ -27,6 +27,40 @@ function syntheticDxf(): string {
 
 describe("ASCII DXF document parser", () => {
   const corpus = (name: string) => join(process.cwd(), "../../scripts/fixtures/cad-import", name);
+
+  it("stops structural parsing after the model ENTITIES section and ignores malformed optional OBJECTS metadata", async () => {
+    const converted = [
+      pair(0, "SECTION"), pair(2, "ENTITIES"),
+      pair(0, "LINE"), pair(5, "MODEL-1"), pair(10, 0), pair(20, 0), pair(11, 4), pair(21, 2),
+      pair(0, "ENDSEC"),
+      pair(0, "SECTION"), pair(2, "OBJECTS"),
+      "55537\n0\n"
+    ].join("");
+
+    expect(parseAsciiDxf(converted).entities.map(entity => entity.sourceEntityId)).toEqual(["MODEL-1"]);
+    await expect(parseAsciiDxfStream([Buffer.from(converted)]))
+      .resolves.toMatchObject({ entities: [expect.objectContaining({ sourceEntityId: "MODEL-1" })] });
+  });
+
+  it("retains the approved 208 MiB model accounting ceiling inside the isolated child heap", () => {
+    expect(DEFAULT_DXF_PARSER_LIMITS.maxRetainedModelBytes).toBe(208 * 1024 * 1024);
+  });
+
+  it("drops only orphan INSERT references emitted without a block definition", () => {
+    const converted = [
+      pair(0, "SECTION"), pair(2, "BLOCKS"),
+      pair(0, "BLOCK"), pair(2, "VALID"), pair(0, "LINE"), pair(5, "B1"),
+      pair(10, 0), pair(20, 0), pair(11, 1), pair(21, 1), pair(0, "ENDBLK"), pair(0, "ENDSEC"),
+      pair(0, "SECTION"), pair(2, "ENTITIES"),
+      pair(0, "INSERT"), pair(5, "ORPHAN"), pair(2, "MISSING"), pair(10, 10), pair(20, 10),
+      pair(0, "INSERT"), pair(5, "VALID-INSERT"), pair(2, "VALID"), pair(10, 2), pair(20, 3),
+      pair(0, "ENDSEC"), pair(0, "EOF")
+    ].join("");
+
+    const document = parseAsciiDxf(converted);
+    expect(document.entities).toEqual([expect.objectContaining({ sourceEntityId: "VALID-INSERT", blockName: "VALID" })]);
+    expect(document.bounds).toEqual({ minX: 2, minY: 3, maxX: 3, maxY: 4 });
+  });
 
   it("keeps only model-space entities by DXF groups 67 and 410 in buffered and streaming modes", async () => {
     const path = corpus("valid-mixed-layout.dxf");

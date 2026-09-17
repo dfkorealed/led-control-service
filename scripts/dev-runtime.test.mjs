@@ -18,7 +18,7 @@ import {
   publishNativeBrokerIdentity,
   reloadExistingDevelopmentBroker
 } from "./dev-broker.mjs";
-import { prepareDevelopmentRuntime } from "./dev-prepare.mjs";
+import { prepareDevelopmentRuntime, resolveDevelopmentCadEnvironment } from "./dev-prepare.mjs";
 
 test("루트 env 파일의 주석, 따옴표, 빈 값을 안전하게 읽는다", () => {
   assert.deepEqual(parseEnvFile('# comment\nAPI_PORT=4000\nDATABASE_URL="postgres://local/db"\nEMPTY=\n'), {
@@ -26,6 +26,26 @@ test("루트 env 파일의 주석, 따옴표, 빈 값을 안전하게 읽는다"
     DATABASE_URL: "postgres://local/db",
     EMPTY: ""
   });
+});
+
+test("개발 CAD 설정은 설치된 dwgread를 자동 감지해 DWG worker를 활성화한다", () => {
+  const env = resolveDevelopmentCadEnvironment({}, {
+    findExecutable: (name) => name === "dwgread" ? "/opt/homebrew/bin/dwgread" : undefined
+  });
+
+  assert.equal(env.CAD_IMPORT_CONVERTER_MODE, "development-argv");
+  assert.equal(env.CAD_IMPORT_CONVERTER_EXECUTABLE, "/opt/homebrew/bin/dwgread");
+  assert.equal(env.CAD_IMPORT_CONVERTER_ARGV_JSON, '["-O","DXF","-o","{output}","{input}"]');
+});
+
+test("개발 CAD 설정은 명시적인 converter 설정을 자동 감지 값으로 덮어쓰지 않는다", () => {
+  const env = resolveDevelopmentCadEnvironment({
+    CAD_IMPORT_CONVERTER_MODE: "local-dxf-copy",
+    CAD_IMPORT_CONVERTER_EXECUTABLE: "/custom/converter"
+  }, { findExecutable: () => "/opt/homebrew/bin/dwgread" });
+
+  assert.equal(env.CAD_IMPORT_CONVERTER_MODE, "local-dxf-copy");
+  assert.equal(env.CAD_IMPORT_CONVERTER_EXECUTABLE, "/custom/converter");
 });
 
 test("개발 환경은 명시한 LAN MQTT URL과 mTLS 경로를 보존한다", () => {

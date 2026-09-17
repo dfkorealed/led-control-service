@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { hashEditorLeaseToken } from "../floor-editor/editor-lease-token";
 import { FloorImportService } from "./floor-import.service";
@@ -22,6 +22,23 @@ function job(overrides: Record<string, unknown> = {}) {
 }
 
 describe("FloorImportService", () => {
+  it("does not create a permanently queued job when the CAD worker is disabled", async () => {
+    const prisma: any = { $transaction: jest.fn() };
+    const service = new FloorImportService(
+      prisma,
+      {} as any,
+      {} as any,
+      undefined,
+      undefined,
+      { tempRoot: "/tmp", pollIntervalMs: 1000, enabled: false }
+    );
+
+    await expect(service.create(user, randomUUID(), {
+      sourceAssetId: randomUUID(), sourceFormat: "dwg"
+    })).rejects.toBeInstanceOf(ServiceUnavailableException);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
   it("rejects client-selected detector profiles", async () => {
     const service = new FloorImportService({} as any, {} as any, {} as any);
     await expect(service.create(user, randomUUID(), {

@@ -834,3 +834,16 @@
 - **원인**: 배포 순서와 worker 버전 협조에 의존했고 claim 자체를 DB에서 차단하지 않았다. SQL transaction rollback과 Prisma migration history 복구를 같은 것으로 보았다.
 - **해결 및 예방책**: 의미 변경 전에 singleton gate와 BEFORE trigger를 설치해 모든 버전의 queued→processing을 거부하고, 마지막 migration만 선행 이력을 확인해 gate를 연다. 완전 rollback을 확인한 담당자만 실패 migration을 `migrate resolve --rolled-back`한 뒤 재시도한다.
 - **반복 방지 체크**: 14500→old claim→15000 race, lock timeout/rollback/resolve/retry, clean deploy, 이미 15000이 적용된 migration history를 실제 PostgreSQL에서 검증한다.
+## 2026-09-17 / 비동기 작업 생성 가능 여부와 worker 실행 가능 여부를 분리하지 않는다
+
+- **발생했던 문제/실수**: 개발 환경에서 DWG 업로드와 import job 생성은 성공했지만 converter mode가 없어서 worker가 비활성화됐고, 작업이 `queued / 0% / attemptCount 0`으로 계속 남았다.
+- **원인**: API 기동 가능 여부만 확인하고 import 생성 시점에 worker availability를 검증하지 않았으며, 로컬에 설치된 `dwgread`를 개발 런타임에 연결하지 않았다.
+- **해결 및 예방책**: `pnpm dev` 준비 단계가 `dwgread`를 자동 감지해 개발 전용 argv adapter를 설정한다. worker가 비활성화된 경우에는 작업 생성 전에 `503`으로 거절한다. production sidecar 계약과 개발 adapter를 명시적으로 분리한다.
+- **반복 방지 체크**: 비동기 job 기능은 “provider 미설정 + create 요청” 테스트에서 DB 작업이 생기지 않는지, 개발 준비 테스트에서 설치된 provider가 worker 환경으로 전달되는지 함께 검증한다.
+
+## 2026-09-17 / CAD 변환기의 비도면 메타데이터 결함으로 전체 맵을 폐기하지 않는다
+
+- **발생했던 문제/실수**: 실제 DWG의 `BLOCKS`와 `ENTITIES`는 정상이었지만 LibreDWG가 후행 `OBJECTS`에 잘못된 group code와 정의 없는 커스텀 치수 블록 INSERT를 출력해 파싱 전체가 실패했다.
+- **원인**: 맵에 필요한 모델 구간과 렌더링 불가능한 후행 메타데이터를 같은 엄격도로 처리했고, 외부 변환기가 정의를 생략한 INSERT 하나를 전체 도면 손상으로 판단했다.
+- **해결 및 예방책**: 모델 구간은 기존 strict 검증을 유지한다. 모델 종료 뒤 `OBJECTS`만 bounded opaque tail로 처리하고, 정의가 없어 실제 형상도 없는 orphan INSERT만 정규 모델에서 제외한다. 입력 전체의 byte·NUL·wall/CPU 제한과 EOF 뒤 데이터 거부는 유지한다.
+- **반복 방지 체크**: malformed `OBJECTS` 허용, malformed `ENTITIES` 거부, EOF 뒤 데이터 거부, orphan INSERT만 제외하는 buffered/streaming 회귀 테스트를 함께 유지한다.

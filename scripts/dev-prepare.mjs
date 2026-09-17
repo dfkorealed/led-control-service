@@ -1,8 +1,10 @@
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import {
+  accessSync,
   chmodSync,
   closeSync,
+  constants,
   existsSync,
   fsyncSync,
   lstatSync,
@@ -25,8 +27,12 @@ import {
   resolveMosquittoTlsPaths
 } from "./dev-runtime.mjs";
 
-export function prepareDevelopmentRuntime(root, sourceEnv, { run = defaultRun } = {}) {
-  const env = resolveDevEnvironment(root, sourceEnv);
+export function prepareDevelopmentRuntime(
+  root,
+  sourceEnv,
+  { run = defaultRun, findExecutable = defaultFindExecutable } = {}
+) {
+  const env = resolveDevelopmentCadEnvironment(resolveDevEnvironment(root, sourceEnv), { findExecutable });
   const gatewayIds = env.DEV_GATEWAY_IDS ? env.DEV_GATEWAY_IDS.split(",") : [];
   const localDirectory = join(root, ".local");
   const mqttRuntimeDirectory = join(localDirectory, "mosquitto-runtime");
@@ -48,6 +54,18 @@ export function prepareDevelopmentRuntime(root, sourceEnv, { run = defaultRun } 
   publishPrivateConfig(root, nativeConfigPath, renderMosquittoConfig(root, env));
   publishPrivateConfig(root, dockerConfigPath, renderDockerMosquittoConfig(env));
   return { env, gatewayIds, aclPath, nativeConfigPath, dockerConfigPath, dockerCertDirectory };
+}
+
+export function resolveDevelopmentCadEnvironment(source, { findExecutable = defaultFindExecutable } = {}) {
+  if (source.CAD_IMPORT_CONVERTER_MODE?.trim()) return { ...source };
+  const executable = findExecutable("dwgread");
+  if (!executable) return { ...source };
+  return {
+    ...source,
+    CAD_IMPORT_CONVERTER_MODE: "development-argv",
+    CAD_IMPORT_CONVERTER_EXECUTABLE: executable,
+    CAD_IMPORT_CONVERTER_ARGV_JSON: '["-O","DXF","-o","{output}","{input}"]'
+  };
 }
 
 function ensurePrivateLocalDirectory(root, directory) {
@@ -217,6 +235,24 @@ function runChecked(run, root, command, args, env) {
 
 function defaultRun(command, args, options) {
   return spawnSync(command, args, options);
+}
+
+function defaultFindExecutable(name) {
+  const candidates = [
+    ...String(process.env.PATH ?? "").split(":").filter(Boolean).map(directory => join(directory, name)),
+    `/opt/homebrew/bin/${name}`,
+    `/usr/local/bin/${name}`,
+    `/usr/bin/${name}`
+  ];
+  for (const candidate of [...new Set(candidates)]) {
+    try {
+      accessSync(candidate, constants.X_OK);
+      return realpathSync(candidate);
+    } catch {
+      // Optional local dependency; the API rejects import creation when unavailable.
+    }
+  }
+  return undefined;
 }
 
 function loadSourceEnvironment(root) {

@@ -1,9 +1,11 @@
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   InternalServerErrorException,
   NotFoundException,
+  Optional,
   ServiceUnavailableException
 } from "@nestjs/common";
 import {
@@ -27,6 +29,7 @@ import { assertActiveFloorStatus } from "../floor-editor/floor-lifecycle";
 import { PrismaService } from "../prisma/prisma.service";
 import { ObjectStorageService } from "../storage/object-storage.service";
 import { FloorRenderedAssetReconciler } from "../storage/floor-rendered-asset-reconciler";
+import { CAD_IMPORT_WORKER_OPTIONS, type FloorImportWorkerOptions } from "./floor-import.tokens";
 import { FixedLightingDetectorRegistry } from "./lighting-detector-registry";
 
 const createInputSchema = z.object({
@@ -73,11 +76,15 @@ export class FloorImportService {
     private readonly access: SiteAccessService,
     private readonly audit: AuditService,
     private readonly storage?: ObjectStorageService,
-    private readonly renderedReconciler?: FloorRenderedAssetReconciler
+    private readonly renderedReconciler?: FloorRenderedAssetReconciler,
+    @Optional() @Inject(CAD_IMPORT_WORKER_OPTIONS) private readonly workerOptions?: FloorImportWorkerOptions
   ) {}
 
   async create(user: AuthenticatedUser, floorId: string, rawInput: unknown) {
     const input = this.parse(createInputSchema, rawInput, "invalid floor import request");
+    if (this.workerOptions?.enabled === false) {
+      throw new ServiceUnavailableException("CAD import worker is unavailable; install dwgread or configure the converter");
+    }
     const floor = await this.authorizeFloor(user, floorId, "manage");
     try {
       const created = await this.prisma.$transaction(async tx => {

@@ -30,6 +30,21 @@ describe("CAD import converter module configuration", () => {
     expect(local).toBeDefined();
   });
 
+  it("creates an explicitly non-production argv adapter for local DWG conversion", () => {
+    expect(() => createCadImportConverter({
+      NODE_ENV: "development",
+      CAD_IMPORT_CONVERTER_MODE: "development-argv",
+      CAD_IMPORT_CONVERTER_EXECUTABLE: process.execPath,
+      CAD_IMPORT_CONVERTER_ARGV_JSON: '["converter.cjs","{input}","{output}"]'
+    }, process.platform)).not.toThrow();
+    expect(() => createCadImportConverter({
+      NODE_ENV: "production",
+      CAD_IMPORT_CONVERTER_MODE: "development-argv",
+      CAD_IMPORT_CONVERTER_EXECUTABLE: process.execPath,
+      CAD_IMPORT_CONVERTER_ARGV_JSON: '["converter.cjs","{input}","{output}"]'
+    }, process.platform)).toThrow(/development.*production|production.*development/i);
+  });
+
   it("boots and closes the Nest module graph with the worker explicitly disabled", async () => {
     const moduleRef = await Test.createTestingModule({ imports: [FloorImportModule] })
       .overrideProvider(PrismaService).useValue({})
