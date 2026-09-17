@@ -39,6 +39,54 @@ ON "FloorLightSlot"("assignedFixtureId");
 CREATE INDEX "FloorLightSlot_floorId_id_idx"
 ON "FloorLightSlot"("floorId", "id");
 
+-- Serialize capacity checks by floor at transaction end. Updates lock the old
+-- and new floor in deterministic order; deletes need no check because they only
+-- reduce the count. This permits delete-then-insert map replacement transactions.
+CREATE FUNCTION "enforce_floor_light_slot_capacity"() RETURNS trigger
+LANGUAGE plpgsql AS $$
+DECLARE
+  affected_floor_ids TEXT[];
+  checked_floor_id TEXT;
+  slot_count BIGINT;
+BEGIN
+  IF TG_OP = 'UPDATE' THEN
+    affected_floor_ids := ARRAY[OLD."floorId", NEW."floorId"];
+  ELSE
+    affected_floor_ids := ARRAY[NEW."floorId"];
+  END IF;
+
+  FOR checked_floor_id IN
+    SELECT DISTINCT affected."floorId"
+    FROM unnest(affected_floor_ids) AS affected("floorId")
+    WHERE affected."floorId" IS NOT NULL
+    ORDER BY affected."floorId"
+  LOOP
+    PERFORM pg_advisory_xact_lock(
+      hashtextextended('FloorLightSlot.capacity:' || checked_floor_id, 0)
+    );
+  END LOOP;
+
+  FOR checked_floor_id IN
+    SELECT DISTINCT affected."floorId"
+    FROM unnest(affected_floor_ids) AS affected("floorId")
+    WHERE affected."floorId" IS NOT NULL
+    ORDER BY affected."floorId"
+  LOOP
+    SELECT count(*) INTO slot_count
+    FROM "FloorLightSlot"
+    WHERE "floorId" = checked_floor_id;
+
+    IF slot_count > 2000 THEN
+      RAISE EXCEPTION 'floor light slot capacity exceeded: floor=%, count=%, maximum=2000',
+        checked_floor_id, slot_count
+        USING ERRCODE = '23514', CONSTRAINT = 'FloorLightSlot_floor_capacity';
+    END IF;
+  END LOOP;
+
+  RETURN NEW;
+END;
+$$;
+
 -- Prisma cannot express that a slot, its source job/candidate, and its optional
 -- fixture all belong to one floor. Validate the final state from every mutable side.
 CREATE FUNCTION "floor_light_slot_is_valid"(slot_id TEXT) RETURNS BOOLEAN
@@ -107,6 +155,16 @@ CREATE CONSTRAINT TRIGGER "FloorLightSlot_scope_invariant"
 AFTER INSERT OR UPDATE ON "FloorLightSlot"
 DEFERRABLE INITIALLY DEFERRED
 FOR EACH ROW EXECUTE FUNCTION "enforce_floor_light_slot_invariants"();
+
+CREATE CONSTRAINT TRIGGER "FloorLightSlot_capacity_insert"
+AFTER INSERT ON "FloorLightSlot"
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW EXECUTE FUNCTION "enforce_floor_light_slot_capacity"();
+
+CREATE CONSTRAINT TRIGGER "FloorLightSlot_capacity_floor_update"
+AFTER UPDATE OF "floorId" ON "FloorLightSlot"
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW EXECUTE FUNCTION "enforce_floor_light_slot_capacity"();
 
 CREATE CONSTRAINT TRIGGER "FloorImportJob_light_slot_invariant"
 AFTER UPDATE OF "floorId" ON "FloorImportJob"

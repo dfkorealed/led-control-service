@@ -779,6 +779,7 @@ CAD parser 좌표에서 검출한 조명 위치 후보 원장이다. 후보는 B
 
 - `(floorId, id)` index로 층별 슬롯을 안정적인 ID 순서로 조회한다.
 - `sourceCandidateId` unique는 후보 중복 적용을 막고, nullable `assignedFixtureId` unique는 실제 조명의 중복 슬롯 할당을 막는다.
+- 한 층의 슬롯은 최대 2,000개다. deferred capacity trigger는 transaction 최종 상태에서 층별 advisory transaction lock을 먼저 획득한 뒤 개수를 검사하므로 동시 INSERT와 층 이동도 합계를 초과할 수 없다. 층 이동은 이전·새 층을 정렬해 잠그며, DELETE는 개수를 줄이므로 검사하지 않아 기존 슬롯 삭제 후 최대 2,000개를 다시 만드는 원자적 맵 교체를 허용한다.
 - `FloorLightSlot_geometry_check`는 PostgreSQL이 저장할 수 있는 `NaN`, 양·음의 `Infinity`를 x/y/rotation에서 거부한다.
 - deferred constraint trigger는 슬롯의 `floorId`, source job의 층, source candidate의 job이 같은지 검증한다. 할당 조명이 있으면 해당 `Fixture.floorId`도 슬롯 층과 같아야 한다.
 - 슬롯뿐 아니라 `FloorImportJob.floorId`, `FloorImportCandidate.jobId`, `Fixture.floorId` 변경 경로에도 trigger를 설치해 부모 변경으로 불일치가 생기는 경우 transaction 전체를 거부한다. 이 교차 테이블 제약은 Prisma datamodel로 표현되지 않는다.
@@ -1908,7 +1909,7 @@ node별 `provision-device` command의 durable transactional outbox다. 등록 AP
 | --- | --- | --- |
 | `User` | Unique `email` | 이메일 중복 가입 방지 |
 | `FloorPlan` | Unique `floorId` | 한 층에 하나의 현재 도면 |
-| `FloorLightSlot` | Unique `sourceCandidateId`, nullable Unique `assignedFixtureId`, finite geometry CHECK와 deferred scope trigger | 후보별 슬롯·조명별 할당 중복을 막고 job/candidate/fixture의 층 일치를 강제 |
+| `FloorLightSlot` | 층별 최대 2,000개, Unique `sourceCandidateId`, nullable Unique `assignedFixtureId`, finite geometry CHECK와 deferred trigger | 동시 쓰기에서도 슬롯 상한과 후보별 슬롯·조명별 할당 중복을 막고 job/candidate/fixture의 층 일치를 강제 |
 | `FloorMapObject` | Index `floorId`, `zIndex` | 한 층 안에서 편집 객체 렌더링 순서 조회 최적화 |
 | `Fixture` | Unique `meshNodeId`, Unique `id + siteId + gatewayId`, composite Floor/MeshNode owner FK와 projection trigger | 하나의 메시 노드는 하나의 조명에만 연결하고 자동화가 참조할 Site/Gateway owner를 구조적으로 투영 |
 | `Gateway` | Unique `serialNumber` | 게이트웨이 시리얼 중복 방지 |
