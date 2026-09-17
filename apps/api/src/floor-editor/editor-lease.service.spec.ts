@@ -97,6 +97,41 @@ describe("EditorLeaseService", () => {
     expect(redis.set).toHaveBeenCalled();
   });
 
+  it("retries a serializable acquire conflict caused by a concurrent pagehide release", async () => {
+    const { service, prisma } = await createService({
+      floorState: {
+        id: floorId,
+        siteId,
+        status: "active",
+        editorLeaseFence: 4,
+        editorLeaseTokenHash: null,
+        editorLeaseHolderId: null,
+        editorLeaseHolderName: null,
+        editorLeaseAcquiredAt: null,
+        editorLeaseExpiresAt: null
+      }
+    });
+    prisma.$transaction.mockRejectedValueOnce({ code: "P2034" });
+
+    await expect(service.acquire(floorId, adminA)).resolves.toMatchObject({
+      editable: true,
+      fence: 5
+    });
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries a serializable heartbeat renewal conflict", async () => {
+    const { service, prisma } = await createService();
+    prisma.$transaction.mockRejectedValueOnce({ code: "P2034" });
+
+    await expect(service.acquire(floorId, adminA, "holder-token")).resolves.toMatchObject({
+      editable: true,
+      token: "holder-token",
+      fence: 4
+    });
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+  });
+
   it("returns the active holder as read-only and rejects a different user's normal release", async () => {
     const { service, redis } = await createService();
 

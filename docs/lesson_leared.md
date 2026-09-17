@@ -847,3 +847,17 @@
 - **원인**: 맵에 필요한 모델 구간과 렌더링 불가능한 후행 메타데이터를 같은 엄격도로 처리했고, 외부 변환기가 정의를 생략한 INSERT 하나를 전체 도면 손상으로 판단했다.
 - **해결 및 예방책**: 모델 구간은 기존 strict 검증을 유지한다. 모델 종료 뒤 `OBJECTS`만 bounded opaque tail로 처리하고, 정의가 없어 실제 형상도 없는 orphan INSERT만 정규 모델에서 제외한다. 입력 전체의 byte·NUL·wall/CPU 제한과 EOF 뒤 데이터 거부는 유지한다.
 - **반복 방지 체크**: malformed `OBJECTS` 허용, malformed `ENTITIES` 거부, EOF 뒤 데이터 거부, orphan INSERT만 제외하는 buffered/streaming 회귀 테스트를 함께 유지한다.
+
+## 2026-09-17 / pagehide 반납과 새 문서 획득은 같은 lease의 동시 mutation이다
+
+- **발생했던 문제/실수**: 맵 편집 화면 새로고침에서 이전 문서의 keepalive `DELETE`와 새 문서의 `POST`가 겹칠 때 editor lease 획득이 간헐적으로 500을 반환했다.
+- **원인**: lease 획득·갱신에 Serializable transaction 반복문은 있었지만 PostgreSQL 직렬화 충돌을 잡아 다음 시도로 넘기지 않아 첫 `P2034`가 그대로 HTTP 500으로 전파됐다.
+- **해결 및 예방책**: 획득·heartbeat 갱신은 `P2034`, `40001`, `40P01`만 전체 transaction 단위로 다시 실행한다. 비즈니스 예외는 재시도하지 않으며 제한 횟수 이후 PostgreSQL 정본을 읽어 읽기 전용으로 수렴한다.
+- **반복 방지 체크**: 단위 테스트에서 첫 transaction 충돌 뒤 재실행을 검증하고, 실제 API에서는 유효 token 반납과 무-token 획득을 동시에 반복해 5xx가 없는지 확인한다. 비동기 작업의 화면 진행률이 멈춰 보이면 worker process뿐 아니라 DB 상태와 조회 API 응답을 함께 대조한다.
+
+## 2026-09-17 / 비동기 복구 effect는 callback 재생성을 작업 취소로 해석하지 않는다
+
+- **발생했던 문제/실수**: CAD 작업은 DB와 조회 API에서 `review_required / 100%`였고 후보 API도 성공했지만, 화면에는 후보 검토 UI가 나타나지 않고 취소만 남았다.
+- **원인**: 후보 요청 effect가 부모의 inline callback identity를 dependency로 사용했다. busy 상태 변경으로 부모가 다시 렌더링되면 기존 요청은 결과 반영을 취소했지만 `loadedReviewJobId`는 남아 후속 effect도 같은 job을 다시 읽지 않았다.
+- **해결 및 예방책**: 최신 callback은 ref로 참조하고 후보 요청의 생명주기는 floor/job/status로만 결정한다. 콜백 교체는 진행 중인 서버 조회를 취소하거나 완료 표식을 변경하지 않는다.
+- **반복 방지 체크**: 후보 요청을 지연한 상태에서 부모 callback을 교체한 뒤 최신 callback으로 review가 복구되는 회귀 테스트를 유지한다. 실제 브라우저 새로고침에서는 terminal job UI, API 상태 코드, console error를 함께 확인한다.

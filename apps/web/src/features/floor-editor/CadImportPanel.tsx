@@ -85,6 +85,10 @@ export function CadImportPanel({
   const loadedReviewJobId = useRef<string | null>(null);
   const requestLock = useRef(false);
   const busy = useRef(false);
+  const reviewChange = useRef(onReviewChange);
+  const focusedCandidateChange = useRef(onFocusedCandidateChange);
+  reviewChange.current = onReviewChange;
+  focusedCandidateChange.current = onFocusedCandidateChange;
   const activeReview = review?.job.jobId === suppressedReviewJobId ? null : review;
   const activeJob = activeReview?.job ?? job;
   const focusedIndex = useMemo(() => {
@@ -109,7 +113,7 @@ export function CadImportPanel({
     setSuppressedReviewJobId(null);
     setRefreshRecoveryJob(null);
     loadedReviewJobId.current = null;
-    onReviewChange(null);
+    reviewChange.current(null);
     setBusy(false);
     let active = true;
     void getActiveFloorImportJob(floorId).then(({ job: durableJob }) => {
@@ -158,21 +162,21 @@ export function CadImportPanel({
     let active = true;
     void listFloorImportCandidates(floorId, activeJob.jobId).then((response) => {
       if (!active) return;
-      onReviewChange({
+      reviewChange.current({
         job: activeJob,
         candidates: response.candidates,
         acceptedCandidateIds: response.candidates.map((candidate) => candidate.id)
       });
       setSuppressedReviewJobId(null);
       setReviewCursor(0);
-      onFocusedCandidateChange?.(response.candidates[0]?.id ?? null);
+      focusedCandidateChange.current?.(response.candidates[0]?.id ?? null);
     }).catch(() => {
       if (!active) return;
       loadedReviewJobId.current = null;
       setError("조명 위치 후보를 불러오지 못했습니다.");
     });
     return () => { active = false; };
-  }, [activeJob?.jobId, activeJob?.status, floorId, onReviewChange]);
+  }, [activeJob?.jobId, activeJob?.status, floorId, review?.job.jobId]);
 
   useEffect(() => {
     if (!activeJob) return;

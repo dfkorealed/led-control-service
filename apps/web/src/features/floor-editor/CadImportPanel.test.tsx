@@ -245,6 +245,60 @@ describe("CadImportPanel", () => {
     expect(screen.getByRole("checkbox", { name: /후보 2\/2,000/ })).toBeInTheDocument();
   });
 
+  it("finishes review hydration when the parent callback changes during the candidate request", async () => {
+    const reviewJob = {
+      ...queuedJob,
+      status: "review_required" as const,
+      progressPercent: 100,
+      renderedAssetId: "rendered-1",
+      renderedAssetPath: "/api/floors/floor-1/assets/rendered-1/content",
+      renderedViewport: { width: 640, height: 360 }
+    };
+    let resolveCandidates!: (value: { jobId: string; candidates: typeof candidate[] }) => void;
+    const candidatesRequest = new Promise<{ jobId: string; candidates: typeof candidate[] }>((resolve) => {
+      resolveCandidates = resolve;
+    });
+    floorEditorApi.getActiveFloorImportJob.mockResolvedValue({ job: reviewJob });
+    floorEditorApi.listFloorImportCandidates.mockReturnValue(candidatesRequest);
+    const firstReviewChange = vi.fn();
+    const latestReviewChange = vi.fn();
+    const onBusyChange = vi.fn();
+    const onApplied = vi.fn();
+    const view = render(
+      <CadImportPanel
+        floorId="floor-1"
+        expectedRevision={7}
+        leaseToken="lease-token"
+        leaseFence={9}
+        review={null}
+        onReviewChange={firstReviewChange}
+        onBusyChange={onBusyChange}
+        onApplied={onApplied}
+      />
+    );
+    await waitFor(() => expect(floorEditorApi.listFloorImportCandidates).toHaveBeenCalledOnce());
+
+    view.rerender(
+      <CadImportPanel
+        floorId="floor-1"
+        expectedRevision={7}
+        leaseToken="lease-token"
+        leaseFence={9}
+        review={null}
+        onReviewChange={latestReviewChange}
+        onBusyChange={onBusyChange}
+        onApplied={onApplied}
+      />
+    );
+    resolveCandidates({ jobId: reviewJob.jobId, candidates: [candidate] });
+
+    await waitFor(() => expect(latestReviewChange).toHaveBeenCalledWith({
+      job: reviewJob,
+      candidates: [candidate],
+      acceptedCandidateIds: [candidate.id]
+    }));
+  });
+
   it("recovers the durable queued job after create returns 409", async () => {
     floorEditorApi.uploadFloorAsset.mockResolvedValueOnce(asset);
     floorEditorApi.createFloorImportJob.mockRejectedValueOnce(new ApiError("conflict", 409, null));
