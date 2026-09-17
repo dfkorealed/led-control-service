@@ -4,6 +4,8 @@
 
 ## 구현 완료
 
+- 2026-09-17 스케줄 추가·수정의 전용 대상 선택 view를 지도 우선 `SpatialTargetSelector`로 교체했다. 개별 marker·목록 drawer·층 전체·저장 구역은 공통 단일 gateway/Mesh readiness 정책을 그대로 따르며, 층·구역을 고르면 그 시점의 fixture ID를 스케줄 payload에 스냅샷으로 저장한다. 따라서 뒤의 그룹 멤버십 변경은 기존 스케줄을 바꾸지 않고, API에서 다시 불러온 스케줄은 직접 fixture 스냅샷으로 표시한다. 대상 검증 focus, schedule overlap·고급 반복·현장 시간대, 권한/submit lock과 API schema는 유지한다. compact 대상 view와 보조 목록 drawer는 bounded full-screen content, 44px action과 16px field 계약을 따른다. 관련 Vitest schedule/contract 55개를 통과했으며 이는 브라우저 회귀 증거로 실제 Mesh/조명 HIL은 아니다.
+
 - 2026-09-17 수동 제어는 지도 우선 `SpatialTargetSelector`로 개별·다중·층·저장 구역을 선택하고, 목록은 보조 drawer로 연다. 선택은 최대 1,000개 및 첫 개별 조명의 단일 gateway 조건을 유지하며, 실행 payload·명령 잠금·재시도·상태 확인 계약은 변경하지 않았다. PC는 지도/실행/이력 영역을 각각 bounded overflow로 유지하고, compact 화면에서는 대상 요약을 펼쳐 consumer-owned 밝기·적용 실행·명령 진행·후속 조치·동일 요청 재시도·상태 다시 조회 UI를 확인한 뒤 접힌 명령 이력으로 이동한다. 불가한 층·구역과 drawer 조명은 Mesh/Health 차단 사유를 보이며 viewer와 명령 잠금 상태에서는 marker·목록·밝기 입력을 모두 비활성화한다.
 
 - 2026-09-16 Tailwind Task 12에서 공통 primitive와 수동·스케줄·이벤트 제어 화면의 legacy class/CSS adapter를 제거하고 의미 토큰·utility 및 `data-*` 테스트 계약으로 수렴했다. `Button`의 공개 `data-variant` 계약으로 제어 E2E가 시각 variant를 class 이름에 결합하지 않게 했고 정책 baseline은 빈 violation map을 사용한다. Fresh Web **1,224/1,224**, UI policy **53/53**, 전체 Chromium 직렬 **257 passed·5 환경 의존 skip·실패 0**, 별도 opt-in RealBackendLab 설치·제어 흐름 **3/3**을 통과했다. 실제 iOS/Android WebView와 MQTT/Gateway/Raspberry Pi/ESP32-H2 HIL은 실행하지 않았다.

@@ -124,23 +124,29 @@ export function AutomationTargetPickerView({
   title,
   description,
   disabled,
+  doneLabel = "선택 완료",
+  doneDisabled = false,
+  className,
   children,
   onDone
 }: {
   title: string;
   description: string;
   disabled: boolean;
+  doneLabel?: string;
+  doneDisabled?: boolean;
+  className?: string;
   children: ReactNode;
   onDone: () => void;
 }) {
   return (
-    <div className="grid gap-4">
+    <div className={className ?? "grid gap-4"}>
       <div className="flex items-start justify-between gap-3">
         <div className="grid gap-1">
           <Heading as="h3" variant="card-title">{title}</Heading>
           <Text tone="secondary">{description}</Text>
         </div>
-        <Button variant="primary" type="button" disabled={disabled} onClick={onDone}>선택 완료</Button>
+        <Button variant="primary" type="button" disabled={disabled || doneDisabled} onClick={onDone}>{doneLabel}</Button>
       </div>
       {children}
     </div>

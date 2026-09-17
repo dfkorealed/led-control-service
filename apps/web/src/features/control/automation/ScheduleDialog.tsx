@@ -4,13 +4,15 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import type { CreateScheduleInput, ScheduleResponse } from "../../../api/automation";
 import type { Dashboard } from "../../../api/queries";
 import { Button, Checkbox, DatePicker, Heading, ModalDialog, SelectBox, Slider, Text, TextField, TimePicker, type FocusableFieldHandle } from "../../../components/ui";
-import { ControlTargetPicker } from "../ControlTargetPicker";
+import { resolveControlSelection, type ControlSelection } from "../control-selection";
+import { SpatialTargetSelector } from "../target-selection/SpatialTargetSelector";
 import {
   applySchedulePreset,
-  controlSelectionSummary,
   fixtureIdsAvailability,
   schedulePreset,
   scheduleSummary,
+  scheduleTargetSnapshotSummary,
+  scheduleTargetStorageCopy,
   type SchedulePreset
 } from "./automation-presenters";
 import {
@@ -86,6 +88,7 @@ export function ScheduleDialog({
   const targetCardRef = useRef<HTMLDivElement>(null);
   const targetSectionRef = useRef<HTMLFieldSetElement>(null);
   const [values, setValues] = useState<ScheduleFormValues>(() => createEmptyScheduleForm(timeZone));
+  const [targetSource, setTargetSource] = useState<ControlSelection>(() => ({ mode: "fixtures", fixtureIds: [] }));
   const [errors, setErrors] = useState<ScheduleFormErrors>({});
   const [view, setView] = useState<"main" | "target">("main");
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -98,6 +101,8 @@ export function ScheduleDialog({
       ? scheduleToFormValues(schedule, timeZone)
       : createEmptyScheduleForm(timeZone);
     setValues(nextValues);
+    // API responses only contain fixture IDs, so reopened schedules are direct snapshots.
+    setTargetSource(nextValues.target);
     setErrors({});
     setView("main");
     setAdvancedOpen(Boolean(schedule && schedulePreset(nextValues) === "custom"));
@@ -118,12 +123,22 @@ export function ScheduleDialog({
     setPendingFocus(null);
   }, [advancedOpen, pendingFocus, view]);
 
-  const targetSummary = controlSelectionSummary(values.target, dashboard);
+  const targetResolution = resolveControlSelection(dashboard, values.target);
+  const targetFixtureIds = values.target.mode === "fixtures" ? values.target.fixtureIds : [];
+  const targetSummary = scheduleTargetSnapshotSummary(targetSource, targetFixtureIds, dashboard);
   const selectedPreset = schedulePreset(values);
 
   function change(patch: Partial<ScheduleFormValues>) {
     setValues((current) => ({ ...current, ...patch }));
     setErrors({});
+  }
+
+  function changeTarget(source: ControlSelection) {
+    const resolved = resolveControlSelection(dashboard, source);
+    // Floor/group membership is resolved now. The schedule payload remains an immutable fixture snapshot.
+    const target: ControlSelection = { mode: "fixtures", fixtureIds: resolved.fixtureIds };
+    setTargetSource(source);
+    change({ target });
   }
 
   function submit(event: React.FormEvent) {
@@ -156,7 +171,10 @@ export function ScheduleDialog({
       isPending={isPending}
       returnFocusRef={returnFocusRef}
       onClose={onClose}
-      className="max-w-4xl"
+      className={view === "target"
+        ? "max-w-4xl max-compact:grid! max-compact:h-full! max-compact:max-h-full! max-compact:w-full! max-compact:grid-rows-[auto_minmax(0,1fr)] max-compact:overflow-hidden!"
+        : "max-w-4xl"}
+      bodyClassName={view === "target" ? "grid min-h-0 overflow-hidden" : undefined}
     >
 
         {view === "target" ? (
@@ -164,6 +182,9 @@ export function ScheduleDialog({
             title="제어 대상 선택"
             description="개별 조명, 층 전체 또는 저장된 구역을 선택하세요."
             disabled={isPending}
+            doneLabel={targetResolution.fixtureIds.length > 0 ? `${targetResolution.fixtureIds.length}개 조명 선택 완료` : "선택 완료"}
+            doneDisabled={!targetResolution.available}
+            className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-4"
             onDone={() => {
               setView("main");
               setPendingFocus(null);
@@ -172,17 +193,21 @@ export function ScheduleDialog({
           >
             <fieldset
               ref={targetSectionRef}
-              className="m-0 border-0 p-0"
+              className="m-0 grid min-h-0 gap-3 overflow-y-auto overscroll-contain border-0 p-0"
               disabled={isPending}
               tabIndex={-1}
               {...errorAttributes(errors.target, scheduleErrorIds.target)}
             >
               <legend className="sr-only">제어 대상 선택</legend>
-              <ControlTargetPicker
+              <Text variant="caption" tone="secondary">{scheduleTargetStorageCopy(targetSource, targetFixtureIds)}</Text>
+              <SpatialTargetSelector
+                siteId={dashboard.site.id}
                 dashboard={dashboard}
-                selection={values.target}
+                selection={targetSource}
                 disabled={isPending}
-                onChange={(target) => change({ target })}
+                modeLabels={{ fixtures: "직접 선택" }}
+                modeSelectionSemantics="pressed"
+                onChange={changeTarget}
               />
               <FieldError id={scheduleErrorIds.target} message={errors.target} />
             </fieldset>

@@ -162,7 +162,7 @@ describe("ScheduleControlPanel", () => {
     expect(within(dialog).getByRole("textbox", { name: "밝기" })).toHaveAttribute("inputmode", "numeric");
   });
 
-  it("offers a compact quick flow and renders the long target list only in its picker view", async () => {
+  it("offers a compact quick flow and renders the spatial selector only in its target view", async () => {
     renderPanel("admin");
     await screen.findByText("야간 운영");
     fireEvent.click(screen.getByRole("button", { name: "스케줄 추가" }));
@@ -171,15 +171,17 @@ describe("ScheduleControlPanel", () => {
     expect(within(dialog).getByRole("group", { name: "언제 켤까요?" })).toBeVisible();
     expect(within(dialog).getByRole("button", { name: "매일" })).toHaveAttribute("aria-pressed", "true");
     expect(within(dialog).queryByLabelText("스케줄 이름")).not.toBeInTheDocument();
-    expect(within(dialog).queryByRole("group", { name: "조명 목록" })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("region", { name: "공간 대상 선택" })).not.toBeInTheDocument();
 
     fireEvent.click(within(dialog).getByRole("button", { name: "평일" }));
     expect(within(dialog).getByRole("status")).toHaveTextContent("평일 18:00–23:00");
 
     fireEvent.click(within(dialog).getByRole("button", { name: "제어 대상 선택" }));
-    expect(within(dialog).getByRole("group", { name: "조명 목록" })).toBeVisible();
-    fireEvent.click(within(dialog).getByLabelText("B1-L001 선택"));
-    fireEvent.click(within(dialog).getByRole("button", { name: "선택 완료" }));
+    expect(within(dialog).getByRole("region", { name: "공간 대상 선택" })).toBeVisible();
+    fireEvent.click(within(dialog).getByRole("button", { name: "조명 목록 열기" }));
+    fireEvent.click(screen.getByLabelText("B1-L001 선택"));
+    fireEvent.click(screen.getByRole("button", { name: "선택 완료" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "1개 조명 선택 완료" }));
 
     expect(within(dialog).getByRole("group", { name: "제어 대상" })).toHaveTextContent("B1-L001");
     expect(within(dialog).getByRole("status")).toHaveTextContent("B1-L001");
@@ -710,8 +712,10 @@ function selectOption(dialog: HTMLElement, label: string, option: string) {
 
 function selectScheduleFixture(dialog: HTMLElement, fixtureLabel: string) {
   fireEvent.click(within(dialog).getByRole("button", { name: /제어 대상 (선택|변경)/ }));
-  fireEvent.click(within(dialog).getByLabelText(fixtureLabel));
-  fireEvent.click(within(dialog).getByRole("button", { name: "선택 완료" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "조명 목록 열기" }));
+  fireEvent.click(screen.getByLabelText(fixtureLabel));
+  fireEvent.click(screen.getByRole("button", { name: "선택 완료" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: /개 조명 선택 완료/ }));
 }
 
 function page(items: ScheduleResponse[]): ScheduleListResponse {

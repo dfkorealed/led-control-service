@@ -9,6 +9,8 @@ interface TargetSelectionToolbarProps {
   activeFloorId: string;
   floors: Dashboard["floors"];
   interactionMode: MapInteractionMode;
+  modeLabels?: Partial<Record<ControlMode, string>>;
+  modeSelectionSemantics?: "current" | "pressed";
   disabled?: boolean;
   onModeChange: (mode: ControlMode) => void;
   onFloorChange: (floorId: string) => void;
@@ -16,16 +18,19 @@ interface TargetSelectionToolbarProps {
   onOpenList: () => void;
 }
 
-const modeLabels: Record<ControlMode, string> = { fixtures: "개별 조명", floor: "층 전체", group: "저장된 구역" };
+const defaultModeLabels: Record<ControlMode, string> = { fixtures: "개별 조명", floor: "층 전체", group: "저장된 구역" };
 
 export function TargetSelectionToolbar({
-  allowedModes, selection, activeFloorId, floors, interactionMode, disabled = false,
+  allowedModes, selection, activeFloorId, floors, interactionMode, modeLabels, modeSelectionSemantics = "current", disabled = false,
   onModeChange, onFloorChange, onInteractionModeChange, onOpenList
 }: TargetSelectionToolbarProps) {
   return <div className="grid min-w-0 gap-3" data-target-selection-toolbar="">
     <div className="flex flex-wrap gap-2" role="group" aria-label="대상 선택 방식">
-      {allowedModes.map((mode) => <Button key={mode} type="button" variant="ghost" aria-current={selection.mode === mode ? "true" : undefined}
-        disabled={disabled} onClick={() => onModeChange(mode)}>{modeLabels[mode]}</Button>)}
+      {allowedModes.map((mode) => <Button key={mode} type="button" variant="ghost"
+        {...(modeSelectionSemantics === "pressed"
+          ? { "aria-pressed": selection.mode === mode }
+          : { "aria-current": selection.mode === mode ? "true" : undefined })}
+        disabled={disabled} onClick={() => onModeChange(mode)}>{modeLabels?.[mode] ?? defaultModeLabels[mode]}</Button>)}
     </div>
     <div className="grid min-w-0 gap-2 compact:grid-cols-[minmax(0,1fr)_auto_auto]">
       <SelectBox label={<span className="sr-only">표시 층</span>} items={floors.map((floor) => ({ id: floor.id, label: floor.name }))}

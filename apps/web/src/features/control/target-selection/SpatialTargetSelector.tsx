@@ -18,6 +18,8 @@ export interface SpatialTargetSelectorProps {
   allowedModes?: readonly ControlMode[];
   fixtureFilter?: (fixture: DashboardFixture) => boolean;
   requiredGatewayId?: string | null;
+  modeLabels?: Partial<Record<ControlMode, string>>;
+  modeSelectionSemantics?: "current" | "pressed";
   interactionMode?: MapInteractionMode;
   onInteractionModeChange?: (mode: MapInteractionMode) => void;
   compactSummary?: ReactNode;
@@ -27,7 +29,7 @@ export interface SpatialTargetSelectorProps {
 const defaultModes: readonly ControlMode[] = ["fixtures", "floor", "group"];
 
 export function SpatialTargetSelector({
-  siteId, dashboard, selection, disabled, allowedModes = defaultModes, fixtureFilter, requiredGatewayId = null,
+  siteId, dashboard, selection, disabled, allowedModes = defaultModes, fixtureFilter, requiredGatewayId = null, modeLabels, modeSelectionSemantics,
   interactionMode: controlledInteractionMode, onInteractionModeChange, compactSummary, onChange
 }: SpatialTargetSelectorProps) {
   const selectionFloorId = floorForSelection(dashboard, selection);
@@ -103,7 +105,8 @@ export function SpatialTargetSelector({
   const group = selection.mode === "group" ? dashboard.groups.find((item) => item.id === selection.groupId) : undefined;
 
   return <section className="grid min-h-0 min-w-0 gap-3 overflow-hidden" aria-label="공간 대상 선택" data-spatial-target-selector="">
-    <TargetSelectionToolbar allowedModes={allowedModes} selection={selection} activeFloorId={activeFloor?.id ?? ""} floors={dashboard.floors}
+    <TargetSelectionToolbar allowedModes={allowedModes} selection={selection} activeFloorId={activeFloor?.id ?? ""} floors={dashboard.floors} modeLabels={modeLabels}
+      modeSelectionSemantics={modeSelectionSemantics}
       interactionMode={interactionMode} disabled={disabled} onModeChange={requestModeChange} onFloorChange={setActiveFloorId}
       onInteractionModeChange={setInteractionMode} onOpenList={() => setListOpen(true)} />
     <div className="grid min-h-0 min-w-0 gap-3 tablet:grid-cols-[minmax(0,1fr)_minmax(16rem,1fr)]">
@@ -141,7 +144,7 @@ function SelectionChoices({ kind, dashboard, selection, disabled, fixtureFilter,
       return <div key={item.id} className="grid gap-1"><Button type="button" variant="secondary" className="justify-between" disabled={disabled || !eligible}
       aria-describedby={reason ? reasonId : undefined}
       aria-current={(kind === "floor" ? selection.mode === "floor" && selection.floorId === item.id : selection.mode === "group" && selection.groupId === item.id) ? "true" : undefined}
-      onClick={() => onChange(candidate)}>{item.name}</Button>{reason ? <Text id={reasonId} variant="caption" tone="danger">{reason}</Text> : null}</div>;
+      onClick={() => onChange(candidate)}>{item.name}</Button>{reason ? <Text id={reasonId} role="alert" variant="caption" tone="danger">{reason}</Text> : null}</div>;
     })}
   </div>;
 }
