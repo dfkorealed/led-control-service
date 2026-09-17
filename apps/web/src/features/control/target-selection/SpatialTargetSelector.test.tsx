@@ -104,6 +104,26 @@ describe("SpatialTargetSelector", () => {
     expect(screen.getByText("3개 선택")).toBeInTheDocument();
   });
 
+  it("does not oscillate when a selected floor disappears from the dashboard", () => {
+    const selectedMissingFloor = { mode: "floor" as const, floorId: "removed-floor" };
+    render(<SpatialTargetSelector siteId="site-a" dashboard={dashboard} selection={selectedMissingFloor} disabled={false} onChange={onChange} />);
+    expect(screen.getByRole("region", { name: "B2 도면" })).toBeInTheDocument();
+    expect(floorMapQuery).toHaveBeenLastCalledWith("floor-b2", "site-a");
+  });
+
+  it("disables aggregate choices that violate gateway or fixture constraints", () => {
+    const constrained = dashboardWithSecondFloor;
+    const fixtureFilter = (item: Dashboard["floors"][number]["fixtures"][number]) => item.id !== fixtureB;
+    const groupView = renderSelector({ dashboard: constrained, selection: { mode: "group", groupId: "" }, requiredGatewayId: "gateway-a", fixtureFilter });
+    expect(screen.getByRole("button", { name: "B2 입구 구역" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "B1 구역" })).toBeDisabled();
+    groupView.unmount();
+
+    renderSelector({ dashboard: constrained, selection: { mode: "floor", floorId: "" }, requiredGatewayId: "gateway-a", fixtureFilter });
+    expect(screen.getByRole("button", { name: "B2" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "B1" })).toBeDisabled();
+  });
+
   it("locks direct selection to the first selected fixture gateway", () => {
     renderSelector({ selection: { mode: "fixtures", fixtureIds: [fixtureA] } });
     fireEvent.click(screen.getByRole("button", { name: "조명 목록 열기" }));
@@ -125,8 +145,31 @@ describe("SpatialTargetSelector", () => {
     expect(screen.getByRole("searchbox", { name: "조명 검색" })).toHaveFocus();
   });
 
+  it("keeps drawer scrolling bounded while completion stays in the dialog footer", () => {
+    renderSelector();
+    fireEvent.click(screen.getByRole("button", { name: "조명 목록 열기" }));
+    const dialog = screen.getByRole("dialog", { name: "조명 목록" });
+    const body = dialog.querySelector<HTMLElement>("[data-dialog-body]")!;
+    const list = screen.getByRole("group", { name: "조명 목록" });
+    const completion = screen.getByRole("button", { name: "선택 완료" });
+    expect(dialog).toHaveClass("max-compact:h-full!", "max-compact:overflow-hidden!");
+    expect(body).toHaveClass("min-h-0", "overflow-hidden");
+    expect(list).toHaveAttribute("data-fixture-selection-list", "");
+    expect(list).toHaveClass("min-h-0", "overflow-y-auto", "overscroll-contain");
+    expect(body).not.toContainElement(completion);
+    expect(completion.closest("[data-dialog-actions]")).toBeTruthy();
+  });
+
+  it("uses the approved 16px field size in the compact drawer", () => {
+    renderSelector();
+    fireEvent.click(screen.getByRole("button", { name: "조명 목록 열기" }));
+    expect(screen.getByRole("searchbox", { name: "조명 검색" })).toHaveClass("text-body-lg");
+  });
+
   it("provides explicit compact summary expansion controls", () => {
     renderSelector();
+    expect(screen.getByTestId("summary-normal-content")).toHaveClass("hidden", "compact:block");
+    expect(screen.getByTestId("summary-compact-control")).toHaveClass("compact:hidden");
     const expand = screen.getByRole("button", { name: "선택 대상 펼치기" });
     fireEvent.click(expand);
     expect(screen.getByRole("button", { name: "선택 대상 접기" })).toBeInTheDocument();
@@ -155,6 +198,19 @@ function fixture(id: string, name: string, x: number, y: number, gatewayId = "ga
 const dashboardWithUnplacedFixture: Dashboard = {
   ...dashboard,
   floors: [{ ...dashboard.floors[0], fixtures: [{ ...dashboard.floors[0].fixtures[0], placementStatus: "unplaced", x: 0, y: 0 }] }]
+};
+
+const dashboardWithSecondFloor: Dashboard = {
+  ...dashboard,
+  floors: [...dashboard.floors, {
+    id: "floor-b1", name: "B1", level: -1, floorPlan: null,
+    meshControlGroups: [{ gatewayId: "gateway-b", status: "ready", version: 1, error: null }],
+    fixtures: [fixture("fixture-b1", "B1-L001", 100, 100, "gateway-b")]
+  }],
+  groups: [...dashboard.groups, {
+    id: "group-b", name: "B1 구역", floorId: "floor-b1", gatewayId: "gateway-b", lifecycleStatus: "active", fixtureCount: 1,
+    meshControlGroup: { status: "ready", version: 1, error: null }, fixtureIds: ["fixture-b1"]
+  }]
 };
 
 function dispatchPointer(target: HTMLElement, type: string, properties: Record<string, unknown>) {

@@ -40,7 +40,7 @@ export const DialogBase = /* @__PURE__ */ forwardRef<HTMLElement, DialogBaseProp
 });
 
 function DialogContent({ title, description, children, actions, onClose, isPending, initialFocusRef,
-  returnFocusRef, fallbackFocusRef, returnFocusElement, fallbackFocusElement, role = "dialog", closeLabel = "닫기", className, rootRef
+  returnFocusRef, fallbackFocusRef, returnFocusElement, fallbackFocusElement, role = "dialog", closeLabel = "닫기", className, bodyClassName, rootRef
 }: Omit<DialogBaseProps, "isOpen" | "open"> & { rootRef: Ref<HTMLElement> }) {
   const descriptionId = useId();
   const dialog = useRef<HTMLElement>(null);
@@ -83,7 +83,7 @@ function DialogContent({ title, description, children, actions, onClose, isPendi
       <Button type="button" variant="ghost" className="size-13! min-h-13! min-w-13! shrink-0 p-0!" data-dialog-close=""
         aria-label={closeLabel} title={closeLabel} disabled={isPending} onClick={onClose}><X size={20} aria-hidden="true" /></Button>
     </header>
-    <div ref={body} className="min-w-0 break-words" data-dialog-body="">{children}</div>
+    <div ref={body} className={cn("min-w-0 break-words", bodyClassName)} data-dialog-body="">{children}</div>
     {actions ? <footer className="mt-5! flex! flex-wrap! justify-end! gap-2!" data-dialog-actions="">{actions}</footer> : null}
   </Dialog>;
 }

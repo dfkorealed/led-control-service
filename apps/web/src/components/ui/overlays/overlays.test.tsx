@@ -66,6 +66,13 @@ describe("overlay migration contracts", () => {
     expect(within(dialog).getByRole("button", { name: "안내 닫기" })).toBeVisible();
   });
 
+  it("forwards a caller body layout class without changing the dialog surface contract", () => {
+    render(<ModalDialog title="본문 레이아웃" bodyClassName="min-h-0 overflow-hidden" onClose={() => {}}>내용</ModalDialog>);
+    const dialog = screen.getByRole("dialog", { name: "본문 레이아웃" });
+    expect(dialog).toHaveAttribute("data-dialog-surface", "");
+    expect(dialog.querySelector("[data-dialog-body]")).toHaveClass("min-h-0", "overflow-hidden");
+  });
+
   it("defaults confirmation focus to safe cancel and prefers onCancel over the legacy callback", async () => {
     const onCancel = vi.fn(); const onClose = vi.fn(); const onConfirm = vi.fn();
     render(<ConfirmDialog title="확인" description="되돌릴 수 없음" confirmLabel="실행" onCancel={onCancel} onClose={onClose} onConfirm={onConfirm} />);

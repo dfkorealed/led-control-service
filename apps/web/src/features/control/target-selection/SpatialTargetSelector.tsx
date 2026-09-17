@@ -29,14 +29,15 @@ export function SpatialTargetSelector({
   interactionMode: controlledInteractionMode, onInteractionModeChange, onChange
 }: SpatialTargetSelectorProps) {
   const selectionFloorId = floorForSelection(dashboard, selection);
-  const [activeFloorId, setActiveFloorId] = useState(() => selectionFloorId ?? dashboard.floors[0]?.id ?? "");
+  const validSelectionFloorId = dashboard.floors.some((floor) => floor.id === selectionFloorId) ? selectionFloorId : null;
+  const [activeFloorId, setActiveFloorId] = useState(() => validSelectionFloorId ?? dashboard.floors[0]?.id ?? "");
   const [listOpen, setListOpen] = useState(false);
   const [requestedMode, setRequestedMode] = useState<ControlMode | null>(null);
   const [localInteractionMode, setLocalInteractionMode] = useState<MapInteractionMode>("select");
   const interactionMode = controlledInteractionMode ?? localInteractionMode;
   const activeFloor = dashboard.floors.find((floor) => floor.id === activeFloorId) ?? dashboard.floors[0];
   const mapQuery = useFloorMapSnapshot(activeFloor?.id, siteId);
-  const resolved = useMemo(() => resolveControlSelection(dashboard, selection), [dashboard, selection]);
+  const resolved = useMemo(() => selectionWithConstraints(resolveControlSelection(dashboard, selection), fixtureFilter, requiredGatewayId), [dashboard, fixtureFilter, requiredGatewayId, selection]);
   const selectedFixtureIds = useMemo(() => new Set(resolved.fixtureIds), [resolved.fixtureIds]);
   const directGatewayId = useMemo(() => {
     if (selection.mode !== "fixtures" || selection.fixtureIds.length === 0) return null;
@@ -46,11 +47,11 @@ export function SpatialTargetSelector({
     .filter((fixture) => !isFixtureEligible(fixture, fixtureFilter, requiredGatewayId, directGatewayId, selection.mode === "fixtures" && selectedFixtureIds.has(fixture.id)))
     .map((fixture) => fixture.id)), [dashboard.floors, directGatewayId, fixtureFilter, requiredGatewayId, selectedFixtureIds, selection.mode]);
 
-  useEffect(() => { if (selectionFloorId && selectionFloorId !== activeFloorId) setActiveFloorId(selectionFloorId); }, [activeFloorId, selectionFloorId]);
   useEffect(() => {
-    if (!activeFloor || activeFloor.id === activeFloorId) return;
-    setActiveFloorId(activeFloor.id);
-  }, [activeFloor, activeFloorId]);
+    const activeFloorStillExists = dashboard.floors.some((floor) => floor.id === activeFloorId);
+    const reconciledFloorId = validSelectionFloorId ?? (activeFloorStillExists ? activeFloorId : dashboard.floors[0]?.id ?? "");
+    if (reconciledFloorId !== activeFloorId) setActiveFloorId(reconciledFloorId);
+  }, [activeFloorId, dashboard.floors, validSelectionFloorId]);
   useEffect(() => {
     if (!mapQuery.data && !mapQuery.isLoading && mapQuery.error) setListOpen(true);
   }, [mapQuery.data, mapQuery.error, mapQuery.isLoading]);
@@ -112,8 +113,8 @@ export function SpatialTargetSelector({
         {group ? <Text className="pointer-events-none absolute top-3 right-3 z-6 rounded-control border border-border-default bg-surface-panel px-2 py-1" variant="caption">{group.name}</Text> : null}
       </div>
       <div className="min-h-0 overflow-y-auto overscroll-contain"><SelectionSummaryPanel resolved={resolved} />
-        {selection.mode === "floor" ? <SelectionChoices kind="floor" dashboard={dashboard} selection={selection} disabled={disabled} onChange={onChange} /> : null}
-        {selection.mode === "group" ? <SelectionChoices kind="group" dashboard={dashboard} selection={selection} disabled={disabled} onChange={onChange} /> : null}
+        {selection.mode === "floor" ? <SelectionChoices kind="floor" dashboard={dashboard} selection={selection} disabled={disabled} fixtureFilter={fixtureFilter} requiredGatewayId={requiredGatewayId} onChange={onChange} /> : null}
+        {selection.mode === "group" ? <SelectionChoices kind="group" dashboard={dashboard} selection={selection} disabled={disabled} fixtureFilter={fixtureFilter} requiredGatewayId={requiredGatewayId} onChange={onChange} /> : null}
       </div>
     </div>
     <FixtureSelectionDrawer open={listOpen} dashboard={dashboard} selectedFixtureIds={selectedFixtureIds} disabledFixtureIds={disabledFixtureIds} disabled={disabled}
@@ -123,12 +124,19 @@ export function SpatialTargetSelector({
   </section>;
 }
 
-function SelectionChoices({ kind, dashboard, selection, disabled, onChange }: { kind: "floor" | "group"; dashboard: Dashboard; selection: ControlSelection; disabled: boolean; onChange: (selection: ControlSelection) => void }) {
+function SelectionChoices({ kind, dashboard, selection, disabled, fixtureFilter, requiredGatewayId, onChange }: {
+  kind: "floor" | "group"; dashboard: Dashboard; selection: ControlSelection; disabled: boolean;
+  fixtureFilter: SpatialTargetSelectorProps["fixtureFilter"]; requiredGatewayId: string | null; onChange: (selection: ControlSelection) => void;
+}) {
   const items = kind === "floor" ? dashboard.floors : dashboard.groups;
   return <div className="mt-3 grid gap-2" role="group" aria-label={kind === "floor" ? "층 목록" : "저장된 구역 목록"}>
-    {items.map((item) => <Button key={item.id} type="button" variant="secondary" className="justify-between" disabled={disabled}
+    {items.map((item) => {
+      const candidate = kind === "floor" ? { mode: "floor" as const, floorId: item.id } : { mode: "group" as const, groupId: item.id };
+      const eligible = selectionWithConstraints(resolveControlSelection(dashboard, candidate), fixtureFilter, requiredGatewayId).available;
+      return <Button key={item.id} type="button" variant="secondary" className="justify-between" disabled={disabled || !eligible}
       aria-current={(kind === "floor" ? selection.mode === "floor" && selection.floorId === item.id : selection.mode === "group" && selection.groupId === item.id) ? "true" : undefined}
-      onClick={() => onChange(kind === "floor" ? { mode: "floor", floorId: item.id } : { mode: "group", groupId: item.id })}>{item.name}</Button>)}
+      onClick={() => onChange(candidate)}>{item.name}</Button>;
+    })}
   </div>;
 }
 
@@ -150,4 +158,10 @@ function isFixtureEligible(fixture: DashboardFixture, filter: SpatialTargetSelec
   if (selected) return true;
   return fixture.controllable && Boolean(fixture.gateway?.id) && (!filter || filter(fixture))
     && (!requiredGatewayId || fixture.gateway?.id === requiredGatewayId) && (!directGatewayId || fixture.gateway?.id === directGatewayId);
+}
+
+function selectionWithConstraints(resolved: ReturnType<typeof resolveControlSelection>, fixtureFilter: SpatialTargetSelectorProps["fixtureFilter"], requiredGatewayId: string | null) {
+  const compatible = resolved.available && resolved.fixtures.every((fixture) => (!fixtureFilter || fixtureFilter(fixture))
+    && (!requiredGatewayId || fixture.gateway?.id === requiredGatewayId));
+  return compatible ? resolved : { ...resolved, available: false, unavailableReason: "선택 조건과 일치하지 않는 대상이 있습니다." };
 }
