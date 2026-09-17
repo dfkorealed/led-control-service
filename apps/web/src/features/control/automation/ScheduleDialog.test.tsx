@@ -14,6 +14,7 @@ vi.mock("../../../api/queries", async (importOriginal) => ({
 
 const fixtureA = "00000000-0000-4000-8000-000000000003";
 const fixtureB = "00000000-0000-4000-8000-000000000005";
+const fixtureC = "00000000-0000-4000-8000-000000000009";
 const fixtureOtherGateway = "00000000-0000-4000-8000-000000000007";
 const floorId = "00000000-0000-4000-8000-000000000004";
 const groupId = "00000000-0000-4000-8000-000000000006";
@@ -52,6 +53,21 @@ const multiGatewayDashboard: Dashboard = {
   }]
 };
 
+const unreadyFloorDashboard: Dashboard = {
+  ...dashboard,
+  floors: [{
+    ...dashboard.floors[0],
+    meshControlGroups: [{ gatewayId: "gateway-a", status: "configuring", version: 2, error: null }]
+  }]
+};
+
+const changedGroupDashboard: Dashboard = {
+  ...dashboard,
+  summary: { ...dashboard.summary, totalFixtures: 3, onlineFixtures: 3 },
+  floors: [{ ...dashboard.floors[0], fixtures: [...dashboard.floors[0].fixtures, fixture(fixtureC, "B2-L003", 300)] }],
+  groups: [{ ...dashboard.groups[0], fixtureCount: 2, fixtureIds: [fixtureA, fixtureC] }]
+};
+
 const persistedSchedule = schedule({ fixtureIds: [fixtureA, fixtureB], targets: [{ fixtureId: fixtureA }, { fixtureId: fixtureB }], targetCount: 2 });
 
 describe("ScheduleDialog spatial targets", () => {
@@ -81,6 +97,48 @@ describe("ScheduleDialog spatial targets", () => {
     fireEvent.click(screen.getByRole("button", { name: "B2" }));
     expect(screen.getByRole("button", { name: /선택 완료/ })).toBeDisabled();
     expect(screen.getByRole("alert")).toHaveTextContent("같은 게이트웨이");
+  });
+
+  it("blocks completion and submit when an authored floor loses Mesh readiness", () => {
+    const onSubmit = vi.fn<(input: CreateScheduleInput) => void>();
+    const view = renderScheduleDialog({ onSubmit });
+    openTargetView();
+    fireEvent.click(screen.getByRole("button", { name: "층 전체" }));
+    fireEvent.click(screen.getByRole("button", { name: "B2" }));
+    fireEvent.click(screen.getByRole("button", { name: "2개 조명 선택 완료" }));
+
+    view.rerender(scheduleDialogElement({ dashboard: unreadyFloorDashboard, onSubmit }));
+    fireEvent.click(screen.getByRole("button", { name: "스케줄 만들기" }));
+
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "2개 조명 선택 완료" })).toBeDisabled();
+    expect(screen.getByRole("alert")).toHaveTextContent("Mesh 설정 중");
+  });
+
+  it("keeps group snapshot fixtures displayed and submitted after live membership changes", async () => {
+    const onSubmit = vi.fn<(input: CreateScheduleInput) => void>();
+    const view = renderScheduleDialog({ onSubmit });
+    openTargetView();
+    fireEvent.click(screen.getByRole("button", { name: "저장된 구역" }));
+    fireEvent.click(screen.getByRole("button", { name: "B2 입구 구역" }));
+    fireEvent.click(screen.getByRole("button", { name: "2개 조명 선택 완료" }));
+
+    view.rerender(scheduleDialogElement({ dashboard: changedGroupDashboard, onSubmit }));
+    openTargetView();
+    expect(screen.getByRole("button", { name: /B2-L001 정상 70%/ })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: /B2-L002 정상 70%/ })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: /B2-L003 정상 70%/ })).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(screen.getByRole("button", { name: "조명 목록 열기" }));
+    expect(screen.getByRole("checkbox", { name: "B2-L001 선택" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "B2-L002 선택" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "B2-L003 선택" })).not.toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "선택 완료" }));
+    fireEvent.click(screen.getByRole("button", { name: "2개 조명 선택 완료" }));
+    fireEvent.click(screen.getByRole("button", { name: "스케줄 만들기" }));
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
+      target: { type: "fixtures", fixtureIds: [fixtureA, fixtureB] }
+    })));
   });
 
   it("loads an existing persisted fixture snapshot as direct selection", () => {
@@ -126,7 +184,11 @@ describe("ScheduleDialog spatial targets", () => {
 });
 
 function renderScheduleDialog(overrides: Partial<React.ComponentProps<typeof ScheduleDialog>> = {}) {
-  return render(<ScheduleDialog
+  return render(scheduleDialogElement(overrides));
+}
+
+function scheduleDialogElement(overrides: Partial<React.ComponentProps<typeof ScheduleDialog>> = {}) {
+  return <ScheduleDialog
     open
     schedule={null}
     dashboard={dashboard}
@@ -135,7 +197,7 @@ function renderScheduleDialog(overrides: Partial<React.ComponentProps<typeof Sch
     onClose={vi.fn()}
     onSubmit={vi.fn()}
     {...overrides}
-  />);
+  />;
 }
 
 function openTargetView() {

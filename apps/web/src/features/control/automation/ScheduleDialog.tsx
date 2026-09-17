@@ -124,6 +124,10 @@ export function ScheduleDialog({
   }, [advancedOpen, pendingFocus, view]);
 
   const targetResolution = resolveControlSelection(dashboard, values.target);
+  const sourceResolution = resolveControlSelection(dashboard, targetSource);
+  // Direct fixture selections are already fully represented by `values.target`.
+  // Only authored group/floor snapshots need their live source readiness retained.
+  const sourceUnavailable = targetSource.mode !== "fixtures" && !sourceResolution.available;
   const targetFixtureIds = values.target.mode === "fixtures" ? values.target.fixtureIds : [];
   const targetSummary = scheduleTargetSnapshotSummary(targetSource, targetFixtureIds, dashboard);
   const selectedPreset = schedulePreset(values);
@@ -149,6 +153,9 @@ export function ScheduleDialog({
       && fixtureIdsAvailability(values.target.fixtureIds, dashboard).invalidFixtureIds.length > 0
     ) {
       nextErrors.target = "현재 현장에서 확인되지 않는 조명이 포함되어 있습니다. 대상을 다시 선택해 주세요.";
+    }
+    if (sourceUnavailable) {
+      nextErrors.target = sourceResolution.unavailableReason ?? "현재 제어할 수 없는 대상입니다.";
     }
     setErrors(nextErrors);
     const firstError = firstScheduleError(nextErrors);
@@ -183,7 +190,7 @@ export function ScheduleDialog({
             description="개별 조명, 층 전체 또는 저장된 구역을 선택하세요."
             disabled={isPending}
             doneLabel={targetResolution.fixtureIds.length > 0 ? `${targetResolution.fixtureIds.length}개 조명 선택 완료` : "선택 완료"}
-            doneDisabled={!targetResolution.available}
+            doneDisabled={!targetResolution.available || sourceUnavailable}
             className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-4"
             onDone={() => {
               setView("main");
@@ -204,6 +211,7 @@ export function ScheduleDialog({
                 siteId={dashboard.site.id}
                 dashboard={dashboard}
                 selection={targetSource}
+                displaySelection={values.target}
                 disabled={isPending}
                 modeLabels={{ fixtures: "직접 선택" }}
                 modeSelectionSemantics="pressed"

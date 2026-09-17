@@ -14,6 +14,8 @@ export interface SpatialTargetSelectorProps {
   siteId: string;
   dashboard: Dashboard;
   selection: ControlSelection;
+  /** Renders an immutable selection while retaining `selection` as authoring metadata. */
+  displaySelection?: ControlSelection;
   disabled: boolean;
   allowedModes?: readonly ControlMode[];
   fixtureFilter?: (fixture: DashboardFixture) => boolean;
@@ -29,9 +31,10 @@ export interface SpatialTargetSelectorProps {
 const defaultModes: readonly ControlMode[] = ["fixtures", "floor", "group"];
 
 export function SpatialTargetSelector({
-  siteId, dashboard, selection, disabled, allowedModes = defaultModes, fixtureFilter, requiredGatewayId = null, modeLabels, modeSelectionSemantics,
+  siteId, dashboard, selection, displaySelection, disabled, allowedModes = defaultModes, fixtureFilter, requiredGatewayId = null, modeLabels, modeSelectionSemantics,
   interactionMode: controlledInteractionMode, onInteractionModeChange, compactSummary, onChange
 }: SpatialTargetSelectorProps) {
+  const resolvedSelection = displaySelection ?? selection;
   const selectionFloorId = floorForSelection(dashboard, selection);
   const validSelectionFloorId = dashboard.floors.some((floor) => floor.id === selectionFloorId) ? selectionFloorId : null;
   const [activeFloorId, setActiveFloorId] = useState(() => validSelectionFloorId ?? dashboard.floors[0]?.id ?? "");
@@ -41,7 +44,7 @@ export function SpatialTargetSelector({
   const interactionMode = controlledInteractionMode ?? localInteractionMode;
   const activeFloor = dashboard.floors.find((floor) => floor.id === activeFloorId) ?? dashboard.floors[0];
   const mapQuery = useFloorMapSnapshot(activeFloor?.id, siteId);
-  const resolved = useMemo(() => selectionWithConstraints(resolveControlSelection(dashboard, selection), fixtureFilter, requiredGatewayId), [dashboard, fixtureFilter, requiredGatewayId, selection]);
+  const resolved = useMemo(() => selectionWithConstraints(resolveControlSelection(dashboard, resolvedSelection), fixtureFilter, requiredGatewayId), [dashboard, fixtureFilter, requiredGatewayId, resolvedSelection]);
   const selectedFixtureIds = useMemo(() => new Set(resolved.fixtureIds), [resolved.fixtureIds]);
   const directGatewayId = useMemo(() => {
     if (selection.mode !== "fixtures" || selection.fixtureIds.length === 0) return null;
