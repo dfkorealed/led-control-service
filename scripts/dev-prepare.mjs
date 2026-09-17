@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import {
   parseEnvFile,
   publishMosquittoAcl,
+  renderDockerMosquittoConfig,
   renderMosquittoConfig,
   resolveDevEnvironment,
   resolveMosquittoTlsPaths
@@ -19,6 +20,7 @@ export function prepareDevelopmentRuntime(root, sourceEnv, { run = defaultRun } 
   const mqttRuntimeDirectory = join(localDirectory, "mosquitto-runtime");
   const aclPath = join(mqttRuntimeDirectory, "mosquitto.acl");
   const nativeConfigPath = join(localDirectory, "mosquitto.host.conf");
+  const dockerConfigPath = join(localDirectory, "mosquitto.docker.conf");
   mkdirSync(localDirectory, { recursive: true });
   ensureMosquittoRuntimeDirectory(mqttRuntimeDirectory);
   // Claims update product state only. Both supported dev launch paths call this
@@ -26,8 +28,10 @@ export function prepareDevelopmentRuntime(root, sourceEnv, { run = defaultRun } 
   // a previous Gateway allowlist, including when the new list is empty.
   publishMosquittoAcl(aclPath, gatewayIds);
   writeFileSync(nativeConfigPath, renderMosquittoConfig(root, env), { mode: 0o600 });
+  writeFileSync(dockerConfigPath, renderDockerMosquittoConfig(env), { mode: 0o600 });
   chmodSync(nativeConfigPath, 0o600);
-  return { env, gatewayIds, aclPath, nativeConfigPath };
+  chmodSync(dockerConfigPath, 0o600);
+  return { env, gatewayIds, aclPath, nativeConfigPath, dockerConfigPath };
 }
 
 function ensureMosquittoRuntimeDirectory(directory) {

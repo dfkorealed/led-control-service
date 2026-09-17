@@ -253,6 +253,24 @@ test("prepare-only 실행은 연속 두 번에도 ACL을 원자 재게시하고 
     assert.notEqual(statSync(prepared.aclPath).ino, firstInode);
     assert.match(readFileSync(join(directory, ".local", "mosquitto-runtime", "mosquitto.acl"), "utf8"), /^user api-service$/m);
     assert.match(readFileSync(join(directory, ".local", "mosquitto.host.conf"), "utf8"), /acl_file .*\.local\/mosquitto-runtime\/mosquitto\.acl/);
+    assert.equal(
+      readFileSync(join(directory, ".local", "mosquitto.docker.conf"), "utf8"),
+      [
+        "listener 8883",
+        "allow_anonymous false",
+        "cafile /mosquitto/certs/mqtt-ca.crt",
+        "certfile /mosquitto/certs/mqtt-server.crt",
+        "keyfile /mosquitto/certs/mqtt-server.key",
+        "crlfile /mosquitto/certs/mqtt-client.crl",
+        "require_certificate true",
+        "use_identity_as_username true",
+        "tls_version tlsv1.2",
+        "acl_file /mosquitto/runtime/mosquitto.acl",
+        "persistence false",
+        "log_dest stdout",
+        ""
+      ].join("\n")
+    );
     assert.equal(statSync(join(directory, ".local", "mosquitto-runtime")).mode & 0o777, 0o755);
     if (typeof process.getuid === "function") {
       assert.equal(statSync(join(directory, ".local", "mosquitto-runtime")).uid, process.getuid());
@@ -415,9 +433,12 @@ test("production Mosquitto 설정은 mTLS, CRL, TLS 1.2와 최소권한 ACL을 �
 test("Compose 개발 broker는 생성된 exact ACL과 certificate directory만 read-only로 mount한다", () => {
   const mqtt = renderCompose().services["mqtt-tls"];
   const aclMount = mqtt.volumes.find((volume) => volume.target === "/mosquitto/runtime");
+  const configMount = mqtt.volumes.find((volume) => volume.target === "/mosquitto/config/mosquitto.conf");
 
   assert.equal(aclMount.source, new URL("../.local/mosquitto-runtime", import.meta.url).pathname);
   assert.equal(aclMount.read_only, true);
+  assert.equal(configMount.source, new URL("../.local/mosquitto.docker.conf", import.meta.url).pathname);
+  assert.equal(configMount.read_only, true);
   assert.doesNotMatch(aclMount.source, /infra\/mosquitto\.acl\.example$/);
   assert.ok(mqtt.volumes.some((volume) => volume.target === "/mosquitto/certs" && volume.read_only));
 });

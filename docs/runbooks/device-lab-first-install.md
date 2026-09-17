@@ -211,10 +211,10 @@ set -a
 . .local/lab-pki/lab.env
 set +a
 export DEV_GATEWAY_IDS='<기존 gatewayId>,<새 claim 응답의 gatewayId>'
-pnpm dev
+pnpm dev:local
 ```
 
-단일 장비만 쓰는 기존 환경은 `DEV_GATEWAY_ID`도 지원한다. 두 변수를 동시에 설정할 때 legacy ID가 `DEV_GATEWAY_IDS`에 없으면 잘못된 ACL 축소를 막기 위해 시작이 실패한다. `pnpm dev:local`은 ACL을 원자적으로 먼저 만든 뒤 Docker를 시작하며, Docker도 정적 pattern 예제가 아니라 전용 `.local/mosquitto-runtime` 디렉터리의 exact ACL만 read-only mount한다. 단일 파일 bind는 atomic rename 뒤 이전 inode를 계속 볼 수 있어 사용하지 않는다. ACL은 secret이 아닌 authorization metadata라 전용 부모는 `0755`, 파일은 UID 1883이 읽을 수 있는 `0644`이고, private key와 token 권한은 변경하지 않는다. 이미 8883이 열려 있으면 저장소 소유 Docker service 또는 exact PID/config marker가 일치하는 native Mosquitto만 `SIGHUP`하고 다시 검증한다. 알 수 없는 listener는 종료하거나 재사용하지 않고 fail closed 한다. 목록은 정확한 Gateway UUID만 허용하며 wildcard MQTT principal을 만들지 않는다. 이 Lab/dev 계약은 운영 broker의 인증 정책을 변경하지 않는다.
+단일 장비만 쓰는 기존 환경은 `DEV_GATEWAY_ID`도 지원한다. 두 변수를 동시에 설정할 때 legacy ID가 `DEV_GATEWAY_IDS`에 없으면 잘못된 ACL 축소를 막기 위해 시작이 실패한다. `lab.env`의 `MQTT_TLS_CERT_DIR`은 `dev:prepare`가 Lab service bundle을 Docker broker에 mount하도록 지정한다. `pnpm dev:local`은 ACL과 `.local/mosquitto.docker.conf`를 원자적으로 먼저 만든 뒤 Docker를 시작하며, Docker도 정적 pattern 예제가 아니라 생성된 broker 설정과 전용 `.local/mosquitto-runtime` 디렉터리의 exact ACL만 read-only mount한다. 단일 ACL 파일 bind는 atomic rename 뒤 이전 inode를 계속 볼 수 있어 사용하지 않는다. ACL은 secret이 아닌 authorization metadata라 전용 부모는 `0755`, 파일은 UID 1883이 읽을 수 있는 `0644`이고, private key와 token 권한은 변경하지 않는다. 이미 8883이 열려 있으면 저장소 소유 Docker service 또는 exact PID/config marker가 일치하는 native Mosquitto만 `SIGHUP`하고 다시 검증한다. 알 수 없는 listener는 종료하거나 재사용하지 않고 fail closed 한다. 목록은 정확한 Gateway UUID만 허용하며 wildcard MQTT principal을 만들지 않는다. 이 Lab/dev 계약은 운영 broker의 인증 정책을 변경하지 않는다.
 
 ## 8. Pi 설정, bootstrap과 MQTT 연결
 
@@ -396,7 +396,7 @@ Vault를 reset한 뒤 기존 `.local/lab-pki`와 Pi 인증서를 섞으면 issue
 | Vault container가 `Created`에서 멈춤 | `docker info`, Docker Desktop 로그 | Docker Desktop 엔진 재시작 후 Vault smoke test |
 | `api.led.lan`을 찾지 못함 | Mac/Pi `/etc/hosts`, 현재 LAN IP | 두 호스트의 DNS 매핑을 같은 IP로 수정 |
 | API 인증서 hostname 오류 | `openssl x509 -in ... -text`의 SAN | 현재 `LAB_HOST_IP`로 Lab PKI 재생성 여부 판단 |
-| 장소 이동 뒤 API/Gateway MQTT가 동시에 offline | 실행 중 API의 `MQTT_URL`, Pi의 `getent hosts`, 인증서 SAN이 이전 IP를 가리킴 | 현재 LAN IP로 `lab:pki:bootstrap`을 재실행하고 새 `lab.env`를 source한 뒤 Pi DNS 매핑과 두 process를 재시작한다. DB ID·claim·장비 인증서는 유지한다. |
+| 장소 이동 뒤 API/Gateway MQTT가 동시에 offline | 실행 중 API의 `MQTT_URL`, Pi의 `getent hosts`, 인증서 SAN이 이전 IP를 가리킴 | 현재 LAN IP로 `lab:pki:bootstrap`을 재실행하고 새 `lab.env`를 source한 뒤 Pi DNS 매핑·bootstrap endpoint를 갱신하고 API/Web/Docker broker와 Gateway container를 graceful restart한다. Mac `/etc/hosts`를 갱신할 수 없으면 인증서 IP SAN과 명시적 IP endpoint를 사용한다. DB ID·claim·장비 인증서는 유지한다. |
 | `pnpm dev`가 8883 handshake 실패 | 기존 개발용 mqtt container가 8883 점유 | `docker compose stop mqtt-tls`, Lab env를 source 후 재실행 |
 | 제조 endpoint가 401/TLS 실패 | station key 권한, CA/CRL, API 재시작 | `600` 권한과 `lab.env` 적용 여부 확인 |
 | claim 후 Pi가 `unclaimed` 반복 | serial 불일치 또는 claim 미완료 | label, 웹 입력, Pi `GATEWAY_SERIAL`을 비교 |

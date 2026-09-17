@@ -70,6 +70,24 @@ export function resolveMosquittoTlsPaths(root, source = {}) {
 
 export function renderMosquittoConfig(root, source = {}) {
   const tls = resolveMosquittoTlsPaths(root, source);
+  return renderMosquittoConfigPaths({
+    ...tls,
+    acl: join(root, ".local", "mosquitto-runtime", "mosquitto.acl")
+  });
+}
+
+export function renderDockerMosquittoConfig(source = {}) {
+  const usesLabBundle = Boolean(resolveVaultBundleDirectory(source));
+  return renderMosquittoConfigPaths({
+    ca: `/mosquitto/certs/${usesLabBundle ? "mqtt-ca.crt" : "ca.crt"}`,
+    cert: `/mosquitto/certs/${usesLabBundle ? "mqtt-server.crt" : "broker.crt"}`,
+    key: `/mosquitto/certs/${usesLabBundle ? "mqtt-server.key" : "broker.key"}`,
+    crl: `/mosquitto/certs/${usesLabBundle ? "mqtt-client.crl" : "ca.crl"}`,
+    acl: "/mosquitto/runtime/mosquitto.acl"
+  });
+}
+
+function renderMosquittoConfigPaths(tls) {
   return [
     "listener 8883",
     "allow_anonymous false",
@@ -80,7 +98,7 @@ export function renderMosquittoConfig(root, source = {}) {
     "require_certificate true",
     "use_identity_as_username true",
     "tls_version tlsv1.2",
-    `acl_file ${join(root, ".local", "mosquitto-runtime", "mosquitto.acl")}`,
+    `acl_file ${tls.acl}`,
     "persistence false",
     "log_dest stdout",
     ""

@@ -29,7 +29,7 @@ services:
     ports:
       - "8883:8883"
     volumes:
-      - ${MOSQUITTO_TLS_CONFIG_PATH:-./infra/mosquitto.dev-tls.conf}:/mosquitto/config/mosquitto.conf:ro
+      - ${MOSQUITTO_TLS_CONFIG_PATH:-./.local/mosquitto.docker.conf}:/mosquitto/config/mosquitto.conf:ro
       - ./.local/mosquitto-runtime:/mosquitto/runtime:ro
       - ${MQTT_TLS_CERT_DIR:-./.local/pki}:/mosquitto/certs:ro
       - mosquitto-data:/mosquitto/data

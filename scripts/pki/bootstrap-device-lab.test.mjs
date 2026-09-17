@@ -175,6 +175,7 @@ test("Vault bootstrap 순서와 제한 token, CRL, 절대 경로 lab.env를 생�
     assert.equal(readFileSync(configuredTokenPath, "utf8").trim(), "policy-token-1");
     assert.match(env, /VAULT_PKI_DEVICE_MOUNT="gateway-device-pki"/);
     assert.match(env, /MQTT_URL="mqtts:\/\/mqtt\.led\.lan:8883"/);
+    assert.match(env, /MQTT_TLS_CERT_DIR="[^"]+\/services\/current"/);
     assert.match(env, /VITE_API_PROXY_TARGET="https:\/\/api\.led\.lan:4000"/);
     assert.match(env, /NODE_EXTRA_CA_CERTS="[^"]+\/services\/current\/api-ca\.crt"/);
     const configuredRootCrlPath = /^PKI_ROOT_CRL_PATH="([^"]+)"$/m.exec(env)?.[1];
