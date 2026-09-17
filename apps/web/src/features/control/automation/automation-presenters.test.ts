@@ -9,6 +9,8 @@ import {
   scheduleSummary,
   scheduleTargetSnapshotSummary,
   scheduleTargetStorageCopy,
+  vehicleEventTargetSnapshotSummary,
+  vehicleEventTargetStorageCopy,
   vehicleEventSummary
 } from "./automation-presenters";
 
@@ -131,6 +133,16 @@ describe("automation quick setup presenters", () => {
       .toBe("현재 1개 조명이 스케줄 대상으로 저장됩니다.");
     expect(scheduleTargetStorageCopy({ mode: "fixtures", fixtureIds: ["light-1"] }, ["light-1"]))
       .toBe("현재 저장된 조명 1개");
+  });
+
+  it("keeps an event target group label while presenting its stored fixture snapshot", () => {
+    expect(vehicleEventTargetSnapshotSummary({ mode: "group", groupId: "group-1" }, ["light-1"], dashboard)).toEqual({
+      title: "입구 구역",
+      description: "저장된 구역 · 1개 조명 스냅샷",
+      count: 1
+    });
+    expect(vehicleEventTargetStorageCopy({ mode: "group", groupId: "group-1" }, ["light-1"]))
+      .toBe("현재 1개 조명이 이벤트 제어 대상으로 저장됩니다.");
   });
 
   it("builds schedule and event summaries from literal selections", () => {

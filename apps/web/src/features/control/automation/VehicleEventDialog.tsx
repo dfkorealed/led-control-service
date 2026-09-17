@@ -4,11 +4,14 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import type { CreateVehicleEventRuleInput, VehicleEventRuleResponse } from "../../../api/automation";
 import type { Dashboard } from "../../../api/queries";
 import { Button, Checkbox, Heading, ModalDialog, Slider, Text, TextField } from "../../../components/ui";
-import { ControlTargetPicker } from "../ControlTargetPicker";
+import { resolveControlSelection, type ControlSelection } from "../control-selection";
+import { SpatialTargetSelector } from "../target-selection/SpatialTargetSelector";
 import {
   fixtureIdsAvailability,
   fixtureIdsSummary,
   isVehicleEventSource,
+  vehicleEventTargetSnapshotSummary,
+  vehicleEventTargetStorageCopy,
   vehicleEventSummary
 } from "./automation-presenters";
 import {
@@ -64,6 +67,8 @@ export function VehicleEventDialog({
   const brightnessInputRef = useRef<HTMLInputElement>(null);
   const holdSecondsInputRef = useRef<HTMLInputElement>(null);
   const [values, setValues] = useState<VehicleEventFormValues>(createEmptyVehicleEventForm);
+  const [sourceSelection, setSourceSelection] = useState<ControlSelection>(() => ({ mode: "fixtures", fixtureIds: [] }));
+  const [targetSelection, setTargetSelection] = useState<ControlSelection>(() => ({ mode: "fixtures", fixtureIds: [] }));
   const [errors, setErrors] = useState<VehicleEventFormErrors>({});
   const [view, setView] = useState<EventDialogView>("main");
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -75,6 +80,9 @@ export function VehicleEventDialog({
     if (!open) return;
     const nextValues = rule ? vehicleEventRuleToFormValues(rule) : createEmptyVehicleEventForm();
     setValues(nextValues);
+    // Event APIs persist IDs only, so reopening always starts with direct snapshot selections.
+    setSourceSelection({ mode: "fixtures", fixtureIds: nextValues.sourceFixtureIds });
+    setTargetSelection({ mode: "fixtures", fixtureIds: nextValues.targetFixtureIds });
     setErrors({});
     setView("main");
     setAdvancedOpen(false);
@@ -90,13 +98,41 @@ export function VehicleEventDialog({
     setPendingFocus(null);
   }, [advancedOpen, customHoldOpen, pendingFocus, view]);
 
+  const sourceResolution = resolveControlSelection(dashboard, sourceSelection);
+  const sourceGatewayId = sourceResolution.gatewayIds.length === 1 ? sourceResolution.gatewayIds[0] : null;
+  const targetResolution = resolveControlSelection(dashboard, { mode: "fixtures", fixtureIds: values.targetFixtureIds });
+  const targetSourceResolution = resolveControlSelection(dashboard, targetSelection);
   const sourceSummary = fixtureIdsSummary(values.sourceFixtureIds, dashboard, isVehicleEventSource);
-  const targetSummary = fixtureIdsSummary(values.targetFixtureIds, dashboard);
+  const targetSummary = vehicleEventTargetSnapshotSummary(targetSelection, values.targetFixtureIds, dashboard);
   const selectedHoldPreset = customHoldOpen ? "custom" : values.holdSeconds;
 
   function change(patch: Partial<VehicleEventFormValues>) {
     setValues((current) => ({ ...current, ...patch }));
     setErrors({});
+  }
+
+  function changeSource(source: ControlSelection) {
+    const resolved = resolveControlSelection(dashboard, source);
+    const requiredGatewayId = resolved.gatewayIds.length === 1 ? resolved.gatewayIds[0] : null;
+    const currentTarget = resolveControlSelection(dashboard, { mode: "fixtures", fixtureIds: values.targetFixtureIds });
+    const targetMatchesSource = requiredGatewayId !== null
+      && currentTarget.available
+      && currentTarget.gatewayIds[0] === requiredGatewayId;
+    setSourceSelection(source);
+    if (values.targetFixtureIds.length > 0 && requiredGatewayId !== null && !targetMatchesSource) {
+      // A new source gateway cannot reuse targets from the prior gateway.
+      setTargetSelection({ mode: "fixtures", fixtureIds: [] });
+      change({ sourceFixtureIds: resolved.fixtureIds, targetFixtureIds: [] });
+      return;
+    }
+    change({ sourceFixtureIds: resolved.fixtureIds });
+  }
+
+  function changeTarget(source: ControlSelection) {
+    const resolved = resolveControlSelection(dashboard, source);
+    // Groups and floors are authoring shortcuts; their IDs are resolved immediately into a durable fixture snapshot.
+    setTargetSelection(source);
+    change({ targetFixtureIds: resolved.fixtureIds });
   }
 
   function submit(event: React.FormEvent) {
@@ -105,8 +141,18 @@ export function VehicleEventDialog({
     if (fixtureIdsAvailability(values.sourceFixtureIds, dashboard, isVehicleEventSource).invalidFixtureIds.length > 0) {
       nextErrors.sourceFixtureIds = "현재 현장에서 확인되지 않거나 차량 감지 기능이 해제된 센서가 포함되어 있습니다. 다시 선택해 주세요.";
     }
-    if (fixtureIdsAvailability(values.targetFixtureIds, dashboard).invalidFixtureIds.length > 0) {
+    const targetAvailability = fixtureIdsAvailability(values.targetFixtureIds, dashboard);
+    if (targetAvailability.invalidFixtureIds.length > 0) {
       nextErrors.targetFixtureIds = "현재 현장에서 확인되지 않는 제어 조명이 포함되어 있습니다. 다시 선택해 주세요.";
+    }
+    if (values.sourceFixtureIds.length > 0 && !sourceResolution.available) {
+      nextErrors.sourceFixtureIds = sourceResolution.unavailableReason ?? "현재 사용할 수 없는 감지 센서입니다.";
+    }
+    if (values.targetFixtureIds.length > 0 && targetSelection.mode !== "fixtures" && !targetSourceResolution.available) {
+      nextErrors.targetFixtureIds = targetSourceResolution.unavailableReason ?? "현재 제어할 수 없는 대상입니다.";
+    }
+    if (targetAvailability.invalidFixtureIds.length === 0 && values.targetFixtureIds.length > 0 && (!targetResolution.available || !sourceGatewayId || targetResolution.gatewayIds[0] !== sourceGatewayId)) {
+      nextErrors.targetFixtureIds = "감지 센서와 같은 게이트웨이에 연결된 조명을 선택해 주세요.";
     }
     setErrors(nextErrors);
     const firstError = firstVehicleEventError(nextErrors);
@@ -131,6 +177,11 @@ export function VehicleEventDialog({
         ? "차량 감지 기능이 확인된 센서만 표시됩니다."
         : "차량 감지 시 함께 제어할 조명을 선택하세요."}
       disabled={isPending}
+      doneLabel={view === "source"
+        ? (sourceResolution.fixtureIds.length > 0 ? `${sourceResolution.fixtureIds.length}개 조명 선택 완료` : "선택 완료")
+        : (targetResolution.fixtureIds.length > 0 ? `${targetResolution.fixtureIds.length}개 조명 선택 완료` : "선택 완료")}
+      doneDisabled={view === "source" ? !sourceResolution.available : !targetResolution.available || !sourceGatewayId || targetResolution.gatewayIds[0] !== sourceGatewayId || (targetSelection.mode !== "fixtures" && !targetSourceResolution.available)}
+      className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-4"
       onDone={() => {
         const completedView = view;
         setView("main");
@@ -140,7 +191,7 @@ export function VehicleEventDialog({
     >
       <fieldset
         ref={view === "source" ? sourceFieldRef : targetFieldRef}
-        className="m-0 min-h-0 border-0 p-0 disabled:opacity-60"
+        className="m-0 grid min-h-0 gap-3 overflow-y-auto overscroll-contain border-0 p-0 disabled:opacity-60"
         disabled={isPending}
         tabIndex={-1}
         data-automation-picker-fieldset=""
@@ -150,21 +201,19 @@ export function VehicleEventDialog({
         )}
       >
         <legend className="sr-only">{view === "source" ? "감지 센서 선택" : "실행할 조명 선택"}</legend>
-        <ControlTargetPicker
+        {view === "target" ? <Text variant="caption" tone="secondary">{vehicleEventTargetStorageCopy(targetSelection, values.targetFixtureIds)}</Text> : null}
+        <SpatialTargetSelector
+          siteId={dashboard.site.id}
           dashboard={dashboard}
-          selection={{
-            mode: "fixtures",
-            fixtureIds: view === "source" ? values.sourceFixtureIds : values.targetFixtureIds
-          }}
-          allowedModes={["fixtures"]}
+          selection={view === "source" ? sourceSelection : targetSelection}
+          displaySelection={view === "target" ? { mode: "fixtures", fixtureIds: values.targetFixtureIds } : undefined}
+          allowedModes={view === "source" ? ["fixtures"] : undefined}
           fixtureFilter={view === "source" ? isVehicleEventSource : undefined}
+          requiredGatewayId={view === "target" ? sourceGatewayId : null}
           disabled={isPending}
-          onChange={(selection) => {
-            if (selection.mode !== "fixtures") return;
-            change(view === "source"
-              ? { sourceFixtureIds: selection.fixtureIds }
-              : { targetFixtureIds: selection.fixtureIds });
-          }}
+          modeLabels={{ fixtures: "직접 선택" }}
+          modeSelectionSemantics="pressed"
+          onChange={view === "source" ? changeSource : changeTarget}
         />
         <FieldError
           id={view === "source" ? vehicleEventErrorIds.source : vehicleEventErrorIds.target}
@@ -175,7 +224,10 @@ export function VehicleEventDialog({
   ) : null;
 
   return (
-    <ModalDialog isOpen={open} title={title} description="빠른 설정 · Gateway 차량 감지" closeLabel={`${title} 닫기`} isPending={isPending} returnFocusRef={returnFocusRef} onClose={onClose} className="max-w-4xl">
+    <ModalDialog isOpen={open} title={title} description="빠른 설정 · Gateway 차량 감지" closeLabel={`${title} 닫기`} isPending={isPending} returnFocusRef={returnFocusRef} onClose={onClose}
+      className={pickerView ? "max-w-4xl max-compact:grid! max-compact:h-full! max-compact:max-h-full! max-compact:w-full! max-compact:grid-rows-[auto_minmax(0,1fr)] max-compact:overflow-hidden!" : "max-w-4xl"}
+      bodyClassName={pickerView ? "grid min-h-0 overflow-hidden" : undefined}
+    >
 
         {pickerView ?? (
           <form className="grid gap-4" onSubmit={submit} noValidate>
