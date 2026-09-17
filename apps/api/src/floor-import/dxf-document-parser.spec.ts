@@ -1,6 +1,7 @@
 import { createReadStream, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseAsciiDxf, parseAsciiDxfStream } from "./dxf-document-parser";
+import { createCadViewport, projectCadPointToViewport } from "./cad-viewport";
 
 const pair = (code: number, value: string | number) => `${code}\n${value}\n`;
 
@@ -199,6 +200,19 @@ describe("ASCII DXF document parser", () => {
     });
   });
 
+  it("excludes an entity-invisible ATTRIB from detector evidence", () => {
+    const attributed = [
+      pair(0, "SECTION"), pair(2, "BLOCKS"),
+      pair(0, "BLOCK"), pair(2, "DEVICE"), pair(0, "LINE"), pair(10, 0), pair(20, 0), pair(11, 1), pair(21, 0), pair(0, "ENDBLK"), pair(0, "ENDSEC"),
+      pair(0, "SECTION"), pair(2, "ENTITIES"),
+      pair(0, "INSERT"), pair(5, "I1"), pair(8, "EQUIPMENT"), pair(2, "DEVICE"), pair(10, 4), pair(20, 5), pair(66, 1),
+      pair(0, "ATTRIB"), pair(5, "A1"), pair(60, 1), pair(2, "TYPE"), pair(1, "LED PANEL"), pair(10, 4), pair(20, 5),
+      pair(0, "SEQEND"), pair(0, "ENDSEC"), pair(0, "EOF")
+    ].join("");
+
+    expect(parseAsciiDxf(attributed).entities[0]).toMatchObject({ type: "insert", attributes: [] });
+  });
+
   it.each([
     ["group 66 sequence without ATTRIB", [pair(0, "INSERT"), pair(2, "DEVICE"), pair(10, 0), pair(20, 0), pair(66, 1), pair(0, "SEQEND")]],
     ["group 66 sequence without SEQEND", [pair(0, "INSERT"), pair(2, "DEVICE"), pair(10, 0), pair(20, 0), pair(66, 1), pair(0, "ATTRIB"), pair(2, "TYPE"), pair(1, "LED"), pair(10, 0), pair(20, 0)]],
@@ -257,5 +271,52 @@ describe("ASCII DXF document parser", () => {
       pair(0, "ENDSEC"), pair(0, "EOF")
     ].join("");
     expect(parseAsciiDxf(degenerate).bounds).toEqual({ minX: 1, minY: 2, maxX: 1, maxY: 2 });
+  });
+
+  it("excludes off, frozen and entity-invisible geometry before bounds, rendering and detection", () => {
+    const dxf = [
+      "0","SECTION","2","TABLES","0","TABLE","2","LAYER",
+      "0","LAYER","2","VISIBLE","70","0","62","7",
+      "0","LAYER","2","OFF","70","0","62","-7",
+      "0","LAYER","2","FROZEN","70","1","62","7",
+      "0","ENDTAB","0","TABLE","2","STYLE","0","STYLE","2","STANDARD","0","ENDTAB","0","ENDSEC",
+      "0","SECTION","2","BLOCKS",
+      "0","BLOCK","2","LAMP","10","0","20","0",
+      "0","LINE","5","B1","8","VISIBLE","10","0","20","0","11","1","21","0",
+      "0","LINE","5","B2","8","OFF","10","0","20","0","11","100","21","0",
+      "0","ENDBLK","0","ENDSEC",
+      "0","SECTION","2","ENTITIES",
+      "0","LINE","5","1","8","VISIBLE","10","0","20","0","11","2","21","0",
+      "0","LINE","5","2","8","OFF","10","0","20","0","11","200","21","0",
+      "0","LINE","5","3","8","FROZEN","10","0","20","0","11","300","21","0",
+      "0","LINE","5","4","8","VISIBLE","60","1","10","0","20","0","11","400","21","0",
+      "0","INSERT","5","5","8","VISIBLE","2","LAMP","10","4","20","0",
+      "0","WIPEOUT","5","6","8","VISIBLE","10","0","20","0",
+      "0","SPLINE","5","7","8","VISIBLE","10","0","20","0",
+      "0","ENDSEC","0","EOF"
+    ].join("\n") + "\n";
+
+    const document = parseAsciiDxf(dxf);
+    expect(document.entities.map(entity => entity.sourceEntityId)).toEqual(["1", "5"]);
+    expect(document.blocks[0].entities.map(entity => entity.sourceEntityId)).toEqual(["B1"]);
+    expect(document.bounds.maxX).toBe(5);
+  });
+
+  it("charges the current entity body against retained memory before normalization", async () => {
+    async function* denseUnsupportedEntity() {
+      yield "0\nSECTION\n2\nENTITIES\n0\nWIPEOUT\n";
+      for (let index = 0; index < 2_000; index++) yield `1000\n${"x".repeat(40)}\n`;
+      yield "0\nENDSEC\n0\nEOF\n";
+    }
+    await expect(parseAsciiDxfStream(denseUnsupportedEntity(), {
+      maxRetainedModelBytes: 8 * 1024, maxEntityBodyPairs: 3_000
+    })).rejects.toThrow(/retained model memory.*limit/i);
+  });
+
+  it("uses the renderer translation without ceil-based candidate rescaling", () => {
+    const bounds = { minX: 0, minY: 0, maxX: 0.1, maxY: 0.1 };
+    expect(createCadViewport(bounds)).toEqual({ width: 3, height: 3 });
+    expect(projectCadPointToViewport({ x: 0.05, y: 0.05, z: 0 }, bounds))
+      .toEqual({ x: 1.05, y: 1.05 });
   });
 });

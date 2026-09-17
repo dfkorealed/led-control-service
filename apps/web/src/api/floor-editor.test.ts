@@ -86,7 +86,7 @@ describe("floor editor atomic API", () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ status: "queued" }) });
     vi.stubGlobal("fetch", fetchMock);
 
-    await createFloorImportJob("floor/1", { sourceAssetId: "asset-id", sourceFormat: "dxf", detectorProfileId: "generic-lighting-v1" });
+    await createFloorImportJob("floor/1", { sourceAssetId: "asset-id", sourceFormat: "dxf" });
     await getActiveFloorImportJob("floor/1");
     await getFloorImportJob("floor/1", "job/1");
     await listFloorImportCandidates("floor/1", "job/1");
@@ -101,7 +101,7 @@ describe("floor editor atomic API", () => {
     const base = "/api/floors/floor%2F1/import-jobs/job%2F1";
     expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/floors/floor%2F1/import-jobs", expect.objectContaining({
       method: "POST",
-      body: JSON.stringify({ sourceAssetId: "asset-id", sourceFormat: "dxf", detectorProfileId: "generic-lighting-v1" })
+      body: JSON.stringify({ sourceAssetId: "asset-id", sourceFormat: "dxf" })
     }));
     expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/floors/floor%2F1/import-jobs/active", expect.anything());
     expect(fetchMock).toHaveBeenNthCalledWith(3, base, expect.anything());

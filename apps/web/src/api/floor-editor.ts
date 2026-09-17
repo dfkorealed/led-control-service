@@ -1,6 +1,5 @@
 import type {
   CadImportSourceFormat,
-  CadImportDetectorProfileId,
   FloorImportApplyInput,
   FloorImportCandidateListResponse,
   RestoreFloorEditorRevisionInput,
@@ -79,7 +78,7 @@ export function restoreFloorEditorRevision(floorId: string, revision: number, pa
 
 export function createFloorImportJob(
   floorId: string,
-  payload: { sourceAssetId: string; sourceFormat: CadImportSourceFormat; detectorProfileId: CadImportDetectorProfileId }
+  payload: { sourceAssetId: string; sourceFormat: CadImportSourceFormat }
 ) {
   return apiPost<FloorImportJob>(`/floors/${encodeURIComponent(floorId)}/import-jobs`, payload);
 }

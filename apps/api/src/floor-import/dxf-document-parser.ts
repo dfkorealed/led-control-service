@@ -136,6 +136,11 @@ class DxfDocumentBuilder {
   private coordinateCount = 0;
   private normalizedBytes = 64;
   private retainedModelBytes = 64;
+  private currentBodyBytes = 0;
+  private inTable = false;
+  private inLayerTable = false;
+  private readonly hiddenLayers = new Set<string>();
+  private readonly declaredLayers = new Set<string>();
   private readonly sourceEntityIds = new Set<string>();
   private readonly blocks: NormalizedCadBlock[] = [];
   private readonly entities: NormalizedCadEntity[] = [];
@@ -152,6 +157,8 @@ class DxfDocumentBuilder {
         if (!this.section) throw new Error("Malformed DXF SECTION name");
         this.awaitingSectionName = false;
       } else if (this.record) {
+        this.currentBodyBytes += 32 + Buffer.byteLength(pair.value, "utf8") * 2;
+        this.assertRetainedBudget();
         this.record.body.push(pair);
         if (this.record.body.length > this.limits.maxEntityBodyPairs) throw new Error("DXF entity body pair limit exceeded");
       }
@@ -165,6 +172,23 @@ class DxfDocumentBuilder {
       if (marker === "SECTION") this.awaitingSectionName = true;
       else if (marker === "EOF") this.sawEof = true;
       else throw new Error(`Malformed DXF top-level marker: ${marker}`);
+      return;
+    }
+    if (this.section === "TABLES") {
+      if (marker === "ENDSEC") {
+        if (this.inTable) throw new Error("Unterminated DXF table");
+        this.section = null;
+      } else if (marker === "TABLE" || (marker === "LAYER" && this.inLayerTable)) {
+        this.beginRecord(marker);
+      } else if (marker === "ENDTAB") {
+        if (!this.inTable) throw new Error("Orphan DXF ENDTAB marker");
+        this.inTable = false;
+        this.inLayerTable = false;
+      } else if (marker === "SECTION" || marker === "EOF") {
+        throw new Error("Unterminated DXF TABLES section");
+      } else {
+        this.beginRecord(marker);
+      }
       return;
     }
     if (this.section !== "BLOCKS" && this.section !== "ENTITIES") {
@@ -248,53 +272,74 @@ class DxfDocumentBuilder {
     const record = this.record;
     if (!record) return;
     this.record = null;
-    if (record.type === "BLOCK") {
-      if (this.currentBlock) throw new Error("Malformed nested DXF BLOCK");
-      if (this.blocks.length >= this.limits.maxBlocks) throw new Error("DXF block limit exceeded");
-      this.currentBlock = {
-        name: this.requireName(this.first(record.body, 2)?.value ?? this.first(record.body, 3)?.value, "block name"),
-        basePoint: {
-          x: this.number(this.first(record.body, 10), "block base.x", 0),
-          y: this.number(this.first(record.body, 20), "block base.y", 0),
-          z: this.number(this.first(record.body, 30), "block base.z", 0, this.limits.maxZCoordinateMagnitude)
-        },
-        entities: []
-      };
-      return;
-    }
-    if (record.type === "VERTEX") {
-      if (!this.polyline) throw new Error("Orphan DXF VERTEX entity");
-      this.polyline.vertices.push({ ...this.point(record.body, 10, 20, 30, "vertex"), bulge: this.number(this.first(record.body, 42), "vertex bulge", 0) });
-      return;
-    }
-    if (record.type === "ATTRIB") {
-      if (!this.attributeInsert) throw new Error("Orphan DXF ATTRIB entity");
-      const attribute: NormalizedCadAttribute = {
-        sourceEntityId: this.idAndLayer(record.body).sourceEntityId,
-        tag: this.requireName(this.first(record.body, 2)?.value, "attribute tag"),
-        value: this.first(record.body, 1)?.value ?? "",
-        position: this.point(record.body, 10, 20, 30, "attribute position"),
-        rotation: this.angle(this.number(this.first(record.body, 50), "attribute rotation", 0)),
-        height: this.positive(this.number(this.first(record.body, 40), "attribute height", 1), "attribute height")
-      };
-      this.attributeInsert.attributes.push(attribute);
-      this.attributeCount++;
-      this.addOutputBytes(attribute);
-      return;
-    }
-    if (record.type === "POLYLINE") {
-      this.polyline = { header: record.body, vertices: [] };
-      return;
-    }
-    const entity = this.parseEntity(record.type, record.body);
-    if (!entity) return;
-    this.appendEntity(entity, record.section === "ENTITIES" && !this.isModelSpace(record.body));
-    if (entity.type === "insert") {
-      const flags = record.body.filter(pair => pair.code === 66);
-      if (flags.length > 1) throw new Error("Duplicate DXF INSERT group 66 attribute sequence flag");
-      const sequence = this.integer(flags[0], "INSERT group 66", 0);
-      if (sequence !== 0 && sequence !== 1) throw new Error("Invalid DXF INSERT group 66 attribute sequence flag");
-      if (sequence === 1) { this.attributeInsert = entity; this.attributeCount = 0; }
+    try {
+      if (record.section === "TABLES") {
+        if (record.type === "TABLE") {
+          this.inTable = true;
+          this.inLayerTable = this.requireName(this.first(record.body, 2)?.value, "table name").toUpperCase() === "LAYER";
+        } else if (record.type === "LAYER" && this.inLayerTable) {
+          const name = this.requireName(this.first(record.body, 2)?.value, "layer name");
+          const key = name.normalize("NFKC").toUpperCase();
+          if (this.declaredLayers.has(key)) throw new Error(`Duplicate DXF layer: ${name}`);
+          this.declaredLayers.add(key);
+          const flags = this.integer(this.first(record.body, 70), "layer flags", 0);
+          const color = this.integer(this.first(record.body, 62), "layer color", 7);
+          if (color < 0 || (flags & 3) !== 0) this.hiddenLayers.add(key);
+        }
+        return;
+      }
+      if (record.type === "BLOCK") {
+        if (this.currentBlock) throw new Error("Malformed nested DXF BLOCK");
+        if (this.blocks.length >= this.limits.maxBlocks) throw new Error("DXF block limit exceeded");
+        this.currentBlock = {
+          name: this.requireName(this.first(record.body, 2)?.value ?? this.first(record.body, 3)?.value, "block name"),
+          basePoint: {
+            x: this.number(this.first(record.body, 10), "block base.x", 0),
+            y: this.number(this.first(record.body, 20), "block base.y", 0),
+            z: this.number(this.first(record.body, 30), "block base.z", 0, this.limits.maxZCoordinateMagnitude)
+          },
+          entities: []
+        };
+        return;
+      }
+      if (record.type === "VERTEX") {
+        if (!this.polyline) throw new Error("Orphan DXF VERTEX entity");
+        this.polyline.vertices.push({ ...this.point(record.body, 10, 20, 30, "vertex"), bulge: this.number(this.first(record.body, 42), "vertex bulge", 0) });
+        return;
+      }
+      if (record.type === "ATTRIB") {
+        if (!this.attributeInsert) throw new Error("Orphan DXF ATTRIB entity");
+        this.attributeCount++;
+        if (!this.isEntityVisible(record.body)) return;
+        const attribute: NormalizedCadAttribute = {
+          sourceEntityId: this.idAndLayer(record.body).sourceEntityId,
+          tag: this.requireName(this.first(record.body, 2)?.value, "attribute tag"),
+          value: this.first(record.body, 1)?.value ?? "",
+          position: this.point(record.body, 10, 20, 30, "attribute position"),
+          rotation: this.angle(this.number(this.first(record.body, 50), "attribute rotation", 0)),
+          height: this.positive(this.number(this.first(record.body, 40), "attribute height", 1), "attribute height")
+        };
+        this.attributeInsert.attributes.push(attribute);
+        this.addOutputBytes(attribute);
+        return;
+      }
+      if (record.type === "POLYLINE") {
+        this.polyline = { header: record.body, vertices: [] };
+        return;
+      }
+      const visible = this.isEntityVisible(record.body);
+      const entity = visible || record.type === "INSERT" ? this.parseEntity(record.type, record.body) : null;
+      if (!entity) return;
+      if (visible) this.appendEntity(entity, record.section === "ENTITIES" && !this.isModelSpace(record.body));
+      if (entity.type === "insert") {
+        const flags = record.body.filter(pair => pair.code === 66);
+        if (flags.length > 1) throw new Error("Duplicate DXF INSERT group 66 attribute sequence flag");
+        const sequence = this.integer(flags[0], "INSERT group 66", 0);
+        if (sequence !== 0 && sequence !== 1) throw new Error("Invalid DXF INSERT group 66 attribute sequence flag");
+        if (sequence === 1) { this.attributeInsert = entity; this.attributeCount = 0; }
+      }
+    } finally {
+      this.currentBodyBytes = 0;
     }
   }
 
@@ -306,7 +351,9 @@ class DxfDocumentBuilder {
       type: "polyline", ...this.idAndLayer(active.header), vertices: active.vertices,
       closed: (this.integer(this.first(active.header, 70), "polyline flags", 0) & 1) === 1
     };
-    this.appendEntity(entity, this.section === "ENTITIES" && !this.isModelSpace(active.header));
+    if (this.isEntityVisible(active.header)) {
+      this.appendEntity(entity, this.section === "ENTITIES" && !this.isModelSpace(active.header));
+    }
   }
 
   private finishAttributes(): void {
@@ -380,6 +427,13 @@ class DxfDocumentBuilder {
     return !layout || layout === "MODEL";
   }
 
+  private isEntityVisible(body: readonly DxfPair[]): boolean {
+    const visibility = this.first(body, 60);
+    if (visibility && this.integer(visibility, "entity visibility") !== 0) return false;
+    const layer = (this.first(body, 8)?.value ?? "0").trim().normalize("NFKC").toUpperCase();
+    return !this.hiddenLayers.has(layer);
+  }
+
   private first(body: readonly DxfPair[], code: number): DxfPair | undefined { return body.find(pair => pair.code === code); }
 
   private requireName(value: string | undefined, label: string): string {
@@ -394,7 +448,7 @@ class DxfDocumentBuilder {
     if (this.sourceEntityIds.has(key)) throw new Error(`Duplicate DXF source identity or handle collision: ${sourceEntityId}`);
     this.sourceEntityIds.add(key);
     this.retainedModelBytes += 48 + Buffer.byteLength(key, "utf8") * 2;
-    if (this.retainedModelBytes > this.limits.maxRetainedModelBytes) throw new Error("DXF retained model memory limit exceeded");
+    this.assertRetainedBudget();
     return { sourceEntityId, layer: this.requireName(this.first(body, 8)?.value ?? "0", "layer") };
   }
 
@@ -439,7 +493,13 @@ class DxfDocumentBuilder {
     // This deterministic accounting includes UTF-16/string duplication and a
     // conservative object/array allocation allowance for each retained value.
     this.retainedModelBytes += serializedBytes * 2 + 96;
-    if (this.retainedModelBytes > this.limits.maxRetainedModelBytes) throw new Error("DXF retained model memory limit exceeded");
+    this.assertRetainedBudget();
+  }
+
+  private assertRetainedBudget(): void {
+    if (this.retainedModelBytes + this.currentBodyBytes > this.limits.maxRetainedModelBytes) {
+      throw new Error("DXF retained model memory limit exceeded");
+    }
   }
 }
 

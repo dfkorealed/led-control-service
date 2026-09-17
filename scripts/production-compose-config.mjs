@@ -48,6 +48,7 @@ export function validateProductionConfig(config, {smokeProject}={}) {
     requireRule(writers.join(',')==='api,crl-init','only API and initializer may write dynamic CRLs');
   }
   requireRule(s.api.environment.NODE_ENV==='production' && s.api.environment.PKI_PROVIDER==='vault','production TLS and Vault');
+  requireRule(String(s.api.mem_limit)==='805306368' && s.api.environment.NODE_OPTIONS==='--max-old-space-size=256' && s.api.environment.CAD_CORE_MAX_OLD_SPACE_MB==='384' && s.api.environment.CAD_IMPORT_MAX_CONCURRENT_JOBS==='1' && s.api.environment.CAD_CGROUP_REQUIRED==='1','bounded CAD process resources');
   for(const key of ['VAULT_ADDR','WEB_PUBLIC_URL']) requireRule(/^https:\/\//.test(s.api.environment[key]??''), `${key} HTTPS scheme`);
   requireRule(/^mqtts:\/\//.test(s.api.environment.MQTT_URL??''),'MQTT_URL mTLS scheme');
   requireRule(/^https:\/\//.test(s.web.environment.WEB_HTTPS_ORIGIN??''),'WEB_HTTPS_ORIGIN HTTPS scheme');

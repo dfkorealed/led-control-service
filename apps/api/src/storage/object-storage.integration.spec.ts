@@ -1,5 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
 import { DeleteObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { gzipSync } from "node:zlib";
 import { ObjectStorageService } from "./object-storage.service";
 
 const runIntegration = process.env.RUN_OBJECT_STORAGE_INTEGRATION === "true" ? describe : describe.skip;
@@ -48,6 +52,41 @@ runIntegration("ObjectStorageService integration", () => {
       expect(Buffer.from(await signedDownload.arrayBuffer())).toEqual(body);
     } finally {
       await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: descriptor.objectKey }));
+    }
+  });
+
+  it("preserves mandatory gzip metadata through rendered PUT, HEAD and signed GET", async () => {
+    const endpoint = process.env.OBJECT_STORAGE_ENDPOINT ?? "http://localhost:9000";
+    const bucket = process.env.OBJECT_STORAGE_BUCKET ?? "floor-assets";
+    const client = new S3Client({
+      region: process.env.OBJECT_STORAGE_REGION ?? "us-east-1", endpoint, forcePathStyle: true,
+      credentials: {
+        accessKeyId: process.env.OBJECT_STORAGE_ACCESS_KEY ?? "led-floor-assets",
+        secretAccessKey: process.env.OBJECT_STORAGE_SECRET_KEY ?? "change-this-local-secret"
+      }
+    });
+    const service = new ObjectStorageService(client, { bucket, publicBaseUrl: `${endpoint}/${bucket}` });
+    const root = await mkdtemp(join(tmpdir(), "cad-gzip-minio-"));
+    const path = join(root, "rendered.svg");
+    const key = `floors/${randomUUID()}/rendered.svg`;
+    const source = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="37" height="23"><text y="16">한글</text></svg>');
+    const bytes = gzipSync(source, { level: 9 });
+    const sha256 = createHash("sha256").update(bytes).digest("hex");
+    try {
+      await writeFile(path, bytes);
+      await service.putFloorRenderedObjectFile(key, path, { sizeBytes: bytes.length, sha256 }, { width: 37, height: 23 });
+      await expect(service.readFloorRenderedMetadata(key, {
+        sizeBytes: bytes.length, sha256, mimeType: "image/svg+xml", contentEncoding: "gzip"
+      })).resolves.toEqual({ width: 37, height: 23 });
+      const signed = await service.createFloorAssetDownloadUrl(key);
+      const response = await fetch(signed);
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-encoding")).toBe("gzip");
+      expect(Buffer.from(await response.arrayBuffer())).toEqual(source);
+    } finally {
+      await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key })).catch(() => undefined);
+      client.destroy();
+      await rm(root, { recursive: true, force: true });
     }
   });
 });

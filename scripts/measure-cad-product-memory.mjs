@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 import { createRequire } from "node:module";
-import { createReadStream } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -13,9 +12,7 @@ if (!sampleArg || !converterArg) {
 } else {
   const require = createRequire(import.meta.url);
   const { ArgvCadConverter } = require("../apps/api/dist/src/floor-import/cad-converter.js");
-  const { parseAsciiDxfStream } = require("../apps/api/dist/src/floor-import/dxf-document-parser.js");
-  const { renderCadDocumentSvgFile } = require("../apps/api/dist/src/floor-import/cad-svg-renderer.js");
-  const { RuleBasedLightingSymbolDetector, SITE_DRAWING_20260803_PROFILE } = require("../apps/api/dist/src/floor-import/rule-based-lighting-symbol-detector.js");
+  const { ChildProcessCadCoreExecutor } = require("../apps/api/dist/src/floor-import/cad-core-executor.js");
   const root = await mkdtemp(join(tmpdir(), "cad-memory-hil-"));
   try {
     const dxfPath = join(root, "sample.dxf");
@@ -26,17 +23,20 @@ if (!sampleArg || !converterArg) {
       execution: { mode: "macos-development-polling", acknowledgeNonProductionRisk: true }
     });
     await converter.convert({ inputPath: resolve(sampleArg), outputPath: dxfPath });
-    const document = await parseAsciiDxfStream(createReadStream(dxfPath));
-    const detector = new RuleBasedLightingSymbolDetector(SITE_DRAWING_20260803_PROFILE);
-    const candidates = await detector.detect(document);
-    const rendered = await renderCadDocumentSvgFile(document, svgPath, { maxRenderedEntities: 1_000_000, maxBlockDepth: 32 });
+    const result = await new ChildProcessCadCoreExecutor().execute({
+      dxfPath, renderedPath: svgPath, profileId: "site-drawing-20260803-v1"
+    });
     process.stdout.write(`${JSON.stringify({
-      maxRssBytes: process.resourceUsage().maxRSS * 1024,
-      candidates: candidates.length,
-      rawSvgBytes: rendered.rawSizeBytes,
-      storedSvgBytes: rendered.sizeBytes,
-      profileVersion: detector.profileVersion,
-      profileDigest: detector.profileDigest
+      parentMaxRssBytes: process.resourceUsage().maxRSS * 1024,
+      childMaxRssBytes: result.observedMaxRssBytes,
+      candidates: result.candidates.length,
+      modelEntityCount: result.modelEntityCount,
+      blockCount: result.blockCount,
+      rawSvgBytes: result.rendered.rawSizeBytes,
+      storedSvgBytes: result.rendered.sizeBytes,
+      storedSvgSha256: result.rendered.sha256,
+      profileVersion: result.profileVersion,
+      profileDigest: result.profileDigest
     })}\n`);
   } finally {
     await rm(root, { recursive: true, force: true });

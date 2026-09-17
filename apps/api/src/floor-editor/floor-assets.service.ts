@@ -15,6 +15,7 @@ interface LockedFloorAssetRow {
   status: string;
   objectKey: string;
   mimeType: string;
+  contentEncoding: string | null;
   sizeBytes: bigint;
   sha256: string;
   uploadExpiresAt: Date | null;
@@ -192,10 +193,18 @@ export class FloorAssetsService {
     await this.siteAccess.assert(user, floor.siteId, "read");
     const asset = await this.prisma.floorAsset.findFirst({
       where: { id: assetId, floorId, status: "ready" },
-      select: { objectKey: true }
+      select: { kind: true, objectKey: true, mimeType: true, contentEncoding: true, sizeBytes: true, sha256: true }
     });
     if (!asset) throw new NotFoundException("floor asset not found");
     try {
+      if (asset.kind === "rendered" && asset.mimeType === "image/svg+xml") {
+        if (asset.contentEncoding !== "gzip") throw new Error("rendered floor asset gzip ledger is missing");
+        const sizeBytes = Number(asset.sizeBytes);
+        if (!Number.isSafeInteger(sizeBytes)) throw new Error("rendered floor asset size ledger is invalid");
+        await this.storage.readFloorRenderedMetadata(asset.objectKey, {
+          sizeBytes, sha256: asset.sha256, mimeType: "image/svg+xml", contentEncoding: "gzip"
+        });
+      }
       return { url: await this.storage.createFloorAssetDownloadUrl(asset.objectKey) };
     } catch {
       throw new ServiceUnavailableException("floor asset download signing is temporarily unavailable");

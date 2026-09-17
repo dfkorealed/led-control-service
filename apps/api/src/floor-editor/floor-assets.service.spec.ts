@@ -123,7 +123,10 @@ describe("FloorAssetsService", () => {
     const prisma: any = {
       floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },
       floorAsset: {
-        findFirst: jest.fn().mockResolvedValue({ objectKey: "floors/floor-1/file.png" })
+        findFirst: jest.fn().mockResolvedValue({
+          kind: "original", objectKey: "floors/floor-1/file.png", mimeType: "image/png",
+          contentEncoding: null, sizeBytes: 10n, sha256: "a".repeat(64)
+        })
       }
     };
     const storage: any = {
@@ -137,15 +140,51 @@ describe("FloorAssetsService", () => {
     expect(siteAccess.assert).toHaveBeenCalledWith(viewer, "site-1", "read");
     expect(prisma.floorAsset.findFirst).toHaveBeenCalledWith({
       where: { id: "asset-1", floorId: "floor-1", status: "ready" },
-      select: { objectKey: true }
+      select: { kind: true, objectKey: true, mimeType: true, contentEncoding: true, sizeBytes: true, sha256: true }
     });
+  });
+
+  it("refuses a rendered SVG download when the gzip ledger or object HEAD metadata is missing", async () => {
+    const asset: {
+      kind: string; objectKey: string; mimeType: string; contentEncoding: string | null; sizeBytes: bigint; sha256: string;
+    } = {
+      kind: "rendered", objectKey: "floors/floor-1/render.svg", mimeType: "image/svg+xml",
+      contentEncoding: null, sizeBytes: 321n, sha256: "b".repeat(64)
+    };
+    const prisma: any = {
+      floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },
+      floorAsset: { findFirst: jest.fn().mockResolvedValue(asset) }
+    };
+    const storage: any = {
+      readFloorRenderedMetadata: jest.fn(),
+      createFloorAssetDownloadUrl: jest.fn()
+    };
+    const siteAccess = { assert: jest.fn().mockResolvedValue({ id: "site-1" }) };
+    const service = new FloorAssetsService(prisma, storage, siteAccess as unknown as SiteAccessService);
+
+    await expect(service.getContentRedirect(viewer, "floor-1", "asset-1"))
+      .rejects.toBeInstanceOf(ServiceUnavailableException);
+    expect(storage.readFloorRenderedMetadata).not.toHaveBeenCalled();
+    expect(storage.createFloorAssetDownloadUrl).not.toHaveBeenCalled();
+
+    asset.contentEncoding = "gzip";
+    storage.readFloorRenderedMetadata.mockRejectedValue(new Error("encoding replaced"));
+    await expect(service.getContentRedirect(viewer, "floor-1", "asset-1"))
+      .rejects.toBeInstanceOf(ServiceUnavailableException);
+    expect(storage.readFloorRenderedMetadata).toHaveBeenCalledWith(asset.objectKey, {
+      sizeBytes: 321, sha256: asset.sha256, mimeType: "image/svg+xml", contentEncoding: "gzip"
+    });
+    expect(storage.createFloorAssetDownloadUrl).not.toHaveBeenCalled();
   });
 
   it("returns 503 without a public fallback when content signing fails", async () => {
     const prisma: any = {
       floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },
       floorAsset: {
-        findFirst: jest.fn().mockResolvedValue({ objectKey: "floors/floor-1/file.png" })
+        findFirst: jest.fn().mockResolvedValue({
+          kind: "original", objectKey: "floors/floor-1/file.png", mimeType: "image/png",
+          contentEncoding: null, sizeBytes: 10n, sha256: "a".repeat(64)
+        })
       }
     };
     const storage: any = {

@@ -128,8 +128,7 @@ describe("CadImportPanel", () => {
 
     await waitFor(() => expect(floorEditorApi.createFloorImportJob).toHaveBeenCalledWith("floor-1", {
       sourceAssetId: asset.id,
-      sourceFormat: name.endsWith("dwg") ? "dwg" : "dxf",
-      detectorProfileId: "generic-lighting-v1"
+      sourceFormat: name.endsWith("dwg") ? "dwg" : "dxf"
     }));
   });
 

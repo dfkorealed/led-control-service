@@ -1,37 +1,31 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from "@nestjs/common";
 import { Prisma, type FloorImportJob } from "@prisma/client";
 import { randomUUID } from "node:crypto";
-import { createReadStream } from "node:fs";
 import { mkdtemp, rm, stat, utimes } from "node:fs/promises";
 import { join } from "node:path";
 import { PrismaService } from "../prisma/prisma.service";
 import { ObjectStorageService } from "../storage/object-storage.service";
 import { type CadConverter } from "./cad-converter";
-import { CAD_RENDERED_SVG_MAX_BYTES, renderCadDocumentSvgFile } from "./cad-svg-renderer";
-import { parseAsciiDxfStream } from "./dxf-document-parser";
-import { type LightingSymbolDetector } from "./lighting-symbol-detector";
+import { type CadCoreExecutor } from "./cad-core-executor";
 import type { LightingDetectorRegistry } from "./lighting-detector-registry";
-import type { CadImportDetectorProfileId } from "@led-control/shared";
 import {
   FloorImportAttemptCleanupService,
   type FloorImportAttemptIdentity
 } from "./floor-import-attempt-cleanup.service";
 import {
-  CAD_IMPORT_AI_DETECTOR, CAD_IMPORT_CONVERTER, CAD_IMPORT_RULE_DETECTOR, CAD_IMPORT_WORKER_OPTIONS,
+  CAD_IMPORT_CONVERTER, CAD_IMPORT_CORE_EXECUTOR, CAD_IMPORT_RULE_DETECTOR, CAD_IMPORT_WORKER_OPTIONS,
   type FloorImportWorkerOptions
 } from "./floor-import.tokens";
 
 export {
-  CAD_IMPORT_AI_DETECTOR, CAD_IMPORT_CONVERTER, CAD_IMPORT_RULE_DETECTOR, CAD_IMPORT_WORKER_OPTIONS,
+  CAD_IMPORT_CONVERTER, CAD_IMPORT_CORE_EXECUTOR, CAD_IMPORT_RULE_DETECTOR, CAD_IMPORT_WORKER_OPTIONS,
   type FloorImportWorkerOptions
 } from "./floor-import.tokens";
 
 const MAX_ATTEMPTS = 3;
 const MAX_SOURCE_BYTES = 50 * 1024 * 1024;
 const MAX_DXF_BYTES = 256 * 1024 * 1024;
-const MAX_SVG_BYTES = CAD_RENDERED_SVG_MAX_BYTES;
 const MAX_TEMP_DISK_BYTES = 512 * 1024 * 1024;
-const MAX_CANDIDATES = 2_000;
 const PARSER_VERSION = "ascii-dxf-stream-v2";
 const CANDIDATE_WRITE_CHUNK = 250;
 export const CAD_IMPORT_MAX_CONCURRENT_JOBS = 1;
@@ -52,7 +46,7 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
     private readonly storage: ObjectStorageService,
     @Inject(CAD_IMPORT_CONVERTER) private readonly converter: CadConverter,
     @Inject(CAD_IMPORT_RULE_DETECTOR) private readonly ruleRegistry: LightingDetectorRegistry,
-    @Inject(CAD_IMPORT_AI_DETECTOR) private readonly ai: LightingSymbolDetector,
+    @Inject(CAD_IMPORT_CORE_EXECUTOR) private readonly core: CadCoreExecutor,
     @Optional() @Inject(CAD_IMPORT_WORKER_OPTIONS) options?: FloorImportWorkerOptions,
     @Optional() private readonly attemptCleanup?: FloorImportAttemptCleanupService
   ) {
@@ -175,8 +169,23 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
       const renderedPath = join(tempDirectory, "rendered.svg");
       const source = await this.prisma.floorAsset.findUniqueOrThrow({
         where: { id: job.sourceAssetId },
-        select: { objectKey: true, sizeBytes: true, sha256: true, mimeType: true }
+        select: { objectKey: true, sizeBytes: true, sha256: true, mimeType: true, floor: { select: { siteId: true } } }
       });
+      const resolvedProfileId = this.ruleRegistry.resolve({ sourceSha256: source.sha256, siteId: source.floor.siteId });
+      if (job.detectorProfileId === null) {
+        const changed = await this.prisma.$executeRaw(Prisma.sql`
+          UPDATE "FloorImportJob" SET "detectorProfileId" = ${resolvedProfileId},
+            "updatedAt" = (statement_timestamp() AT TIME ZONE 'UTC')
+          WHERE ${this.fence(job)} AND "detectorProfileId" IS NULL
+        `);
+        if (changed !== 1) throw new Error("CAD_IMPORT_PROFILE_RESOLUTION_LOST");
+        job.detectorProfileId = resolvedProfileId;
+      } else {
+        this.ruleRegistry.assertBinding({
+          profileId: job.detectorProfileId, sourceSha256: source.sha256, siteId: source.floor.siteId
+        });
+      }
+      const profileId = resolvedProfileId;
       await this.storage.downloadFloorAssetToFile(source.objectKey, inputPath, {
         maxBytes: MAX_SOURCE_BYTES,
         expectedBytes: Number(source.sizeBytes),
@@ -195,45 +204,20 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
       await pulse(35, "parsing");
 
       phase = "parse";
-      const document = await parseAsciiDxfStream(createReadStream(dxfPath), { maxInputBytes: MAX_DXF_BYTES });
-      await pulse(55, "detecting");
-
-      phase = "detect";
-      const rules = this.ruleRegistry.get(job.detectorProfileId as CadImportDetectorProfileId);
-      if (!rules.profileVersion || !rules.profileDigest || rules.profileId !== job.detectorProfileId) {
-        throw new Error("CAD detector profile metadata mismatch");
-      }
-      const ruleCandidates = await rules.detect(document, { abortSignal: abort.signal });
-      const aiCandidates = await this.ai.detect(document, { abortSignal: abort.signal });
-      const candidates = [...ruleCandidates, ...aiCandidates];
-      if (candidates.length > MAX_CANDIDATES) throw new Error("CAD lighting candidate limit exceeded");
-      if (new Set(candidates.map(candidate => candidate.sourceEntityId.normalize("NFKC").toLocaleUpperCase())).size !== candidates.length) {
-        throw new Error("CAD lighting candidate identity collision");
-      }
+      const core = await this.core.execute({
+        dxfPath, renderedPath, profileId, abortSignal: abort.signal
+      });
+      const rules = this.ruleRegistry.get(profileId);
+      if (core.profileId !== profileId || core.profileVersion !== rules.profileVersion ||
+          core.profileDigest !== rules.profileDigest) throw new Error("CAD detector profile metadata mismatch");
+      const { candidates, rendered } = core;
       await pulse(70, "rendering");
 
       phase = "render";
-      const rendered = await renderCadDocumentSvgFile(document, renderedPath, {
-        maxOutputBytes: MAX_SVG_BYTES, maxRenderedEntities: 1_000_000, maxBlockDepth: 32,
-        abortSignal: abort.signal
-      });
       if (Number(source.sizeBytes) + converted.size + rendered.sizeBytes > MAX_TEMP_DISK_BYTES) {
         throw new Error("CAD import temporary disk limit exceeded");
       }
-      const nativeWidth = Math.max(1, document.bounds.maxX - document.bounds.minX + 2);
-      const nativeHeight = Math.max(1, document.bounds.maxY - document.bounds.minY + 2);
-      const viewport = { width: Math.ceil(nativeWidth), height: Math.ceil(nativeHeight) };
-      const projectedCandidates = candidates.map(candidate => {
-        const x = (candidate.position.x - document.bounds.minX + 1) * viewport.width / nativeWidth;
-        const y = (document.bounds.maxY - candidate.position.y + 1) * viewport.height / nativeHeight;
-        if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0 || x > viewport.width || y > viewport.height) {
-          throw new Error("CAD lighting candidate falls outside the rendered viewport");
-        }
-        if (candidate.method === "ai" && (!candidate.provider || !candidate.model || !candidate.inputDigest)) {
-          throw new Error("AI-assisted CAD candidate is missing reproducibility metadata");
-        }
-        return { ...candidate, projectedX: x, projectedY: y, projectedRotation: -candidate.rotation };
-      });
+      const viewport = rendered.viewport;
       if (!this.attemptCleanup) throw new Error("CAD import cleanup ledger is unavailable");
       attempt = await this.attemptCleanup.armAttempt(
         { jobId: job.id, floorId: job.floorId, attemptCount: job.attemptCount },
@@ -279,17 +263,17 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
         });
         if (ready.count !== 1) throw new Error("CAD_IMPORT_ATTEMPT_IDENTITY_LOST");
         await tx.floorImportCandidate.deleteMany({ where: { jobId: job.id } });
-        const candidateRows = projectedCandidates.map(candidate => {
+        const candidateRows = candidates.map(candidate => {
           const method = candidate.method === "ai" ? "ai_assisted" as const : "rule_based" as const;
           return {
               jobId: job.id, sourceEntityId: candidate.sourceEntityId,
               layerName: candidate.layerName, blockName: candidate.blockName,
-              x: candidate.projectedX, y: candidate.projectedY, rotation: candidate.projectedRotation,
+              x: candidate.x, y: candidate.y, rotation: candidate.rotation,
               confidence: candidate.confidence, detectionMethod: method,
               provider: method === "ai_assisted" ? candidate.provider ?? null : null,
               model: method === "ai_assisted" ? candidate.model ?? null : null,
               inputDigest: method === "ai_assisted" ? candidate.inputDigest ?? null : null,
-              profileVersion: rules.profileVersion!, profileDigest: rules.profileDigest!
+              profileVersion: core.profileVersion, profileDigest: core.profileDigest
           };
         });
         for (let offset = 0; offset < candidateRows.length; offset += CANDIDATE_WRITE_CHUNK) {
@@ -299,9 +283,9 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
           UPDATE "FloorImportJob" SET "status" = 'review_required', "stage" = 'review_required',
             "progressPercent" = 100, "renderedAssetId" = ${attempt!.assetId},
             "parserVersion" = ${PARSER_VERSION},
-            "detectorVersion" = ${`${rules.profileVersion}:${rules.profileDigest}+ai-disabled-v1`},
-            "detectorProfileVersion" = ${rules.profileVersion},
-            "detectorProfileDigest" = ${rules.profileDigest},
+            "detectorVersion" = ${`${core.profileVersion}:${core.profileDigest}+ai-disabled-v1`},
+            "detectorProfileVersion" = ${core.profileVersion},
+            "detectorProfileDigest" = ${core.profileDigest},
             "reviewRequiredAt" = (statement_timestamp() AT TIME ZONE 'UTC'),
             "leaseOwner" = NULL, "leaseExpiresAt" = NULL,
             "updatedAt" = (statement_timestamp() AT TIME ZONE 'UTC')

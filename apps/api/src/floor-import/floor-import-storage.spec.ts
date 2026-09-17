@@ -46,18 +46,28 @@ describe("floor import private object storage", () => {
     const client: any = { send: jest.fn().mockResolvedValue({
       ContentLength: 321,
       ContentType: "image/svg+xml",
+      ContentEncoding: "gzip",
       ChecksumSHA256: Buffer.from(sha256, "hex").toString("base64"),
       Metadata: { "cad-width": "640", "cad-height": "480" }
     }) };
     const storage = new ObjectStorageService(client, { bucket: "private-floors", publicBaseUrl: "https://example.test/private-floors" });
 
     await expect(storage.readFloorRenderedMetadata("floors/floor-1/render.svg", {
-      sizeBytes: 321, sha256, mimeType: "image/svg+xml"
+      sizeBytes: 321, sha256, mimeType: "image/svg+xml", contentEncoding: "gzip"
     })).resolves.toEqual({ width: 640, height: 480 });
     expect(client.send.mock.calls[0][0]).toBeInstanceOf(HeadObjectCommand);
 
     await expect(storage.readFloorRenderedMetadata("floors/floor-1/render.svg", {
-      sizeBytes: 321, sha256: "c".repeat(64), mimeType: "image/svg+xml"
+      sizeBytes: 321, sha256: "c".repeat(64), mimeType: "image/svg+xml", contentEncoding: "gzip"
+    })).rejects.toThrow(/ledger/i);
+
+    client.send.mockResolvedValueOnce({
+      ContentLength: 321, ContentType: "image/svg+xml",
+      ChecksumSHA256: Buffer.from(sha256, "hex").toString("base64"),
+      Metadata: { "cad-width": "640", "cad-height": "480" }
+    });
+    await expect(storage.readFloorRenderedMetadata("floors/floor-1/render.svg", {
+      sizeBytes: 321, sha256, mimeType: "image/svg+xml", contentEncoding: "gzip"
     })).rejects.toThrow(/ledger/i);
   });
 });

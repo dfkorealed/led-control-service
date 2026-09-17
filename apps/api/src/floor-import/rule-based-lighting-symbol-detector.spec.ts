@@ -43,9 +43,12 @@ describe("rule-based lighting symbol detector", () => {
   });
 
   it.each([
-    { confidence: 0.94 }, { maxCandidates: 1_999 }, { maxExpandedInserts: 99_999 },
+    { exactBlockAllowlist: ["CUSTOM"] }, { layerNameTokens: ["CUSTOM"] }, { blockNameTokens: ["CUSTOM"] },
+    { minimumBlockOccurrences: 3 }, { confidence: 0.94 }, { maxCandidates: 1_999 }, { maxExpandedInserts: 99_999 },
     { maxExpandedEntities: 999_999 }, { attributeValueTokens: ["CUSTOM"] },
-    { nearbyTextTokens: ["CUSTOM"] }, { nearbyTextDistance: 6 }, { maxDurationMs: 4_999 },
+    { nearbyTextTokens: ["CUSTOM"] }, { denyLayerNameTokens: ["CUSTOM"] }, { denyBlockNameTokens: ["CUSTOM"] },
+    { denyAttributeValueTokens: ["CUSTOM"] }, { denyNearbyTextTokens: ["CUSTOM"] },
+    { nearbyTextDistance: 6 }, { maxDurationMs: 4_999 },
     { cooperativeYieldInterval: 128 }
   ])("changes the canonical digest when behavioral field %# changes", override => {
     const baseline = new RuleBasedLightingSymbolDetector();

@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, NotFoundExc
 import { randomUUID } from "node:crypto";
 import { hashEditorLeaseToken } from "../floor-editor/editor-lease-token";
 import { FloorImportService } from "./floor-import.service";
+import { PROVIDED_SAMPLE_DWG_SHA256 } from "./lighting-detector-registry";
 
 const user = {
   id: randomUUID(), organizationId: randomUUID(), organizationType: "customer" as const,
@@ -21,12 +22,10 @@ function job(overrides: Record<string, unknown> = {}) {
 }
 
 describe("FloorImportService", () => {
-  it("requires an explicit registered detector profile on every import request", async () => {
+  it("rejects client-selected detector profiles", async () => {
     const service = new FloorImportService({} as any, {} as any, {} as any);
-    await expect(service.create(user, randomUUID(), { sourceAssetId: randomUUID(), sourceFormat: "dxf" }))
-      .rejects.toBeInstanceOf(BadRequestException);
     await expect(service.create(user, randomUUID(), {
-      sourceAssetId: randomUUID(), sourceFormat: "dxf", detectorProfileId: "unknown-profile"
+      sourceAssetId: randomUUID(), sourceFormat: "dxf", detectorProfileId: "site-drawing-20260803-v1"
     })).rejects.toBeInstanceOf(BadRequestException);
   });
   it("requires manage access and creates a queued job only for a same-floor ready original with matching format", async () => {
@@ -35,7 +34,7 @@ describe("FloorImportService", () => {
       floor: { findUnique: jest.fn().mockResolvedValue({ id: floorId, siteId: "site-1", status: "active" }) },
       $queryRaw: jest.fn().mockResolvedValue([{
         id: sourceAssetId, floorId, floorStatus: "active", kind: "original", status: "ready",
-        mimeType: "application/dxf", cleanupStartedAt: null
+        mimeType: "application/dxf", sha256: "a".repeat(64), cleanupStartedAt: null
       }]),
       floorAsset: { findFirst: jest.fn().mockResolvedValue({
         id: sourceAssetId, floorId, kind: "original", status: "ready", mimeType: "application/dxf", cleanupStartedAt: null
@@ -52,12 +51,42 @@ describe("FloorImportService", () => {
     };
     const service = new FloorImportService(prisma, access, { record: jest.fn() } as any);
 
-    await expect(service.create(user, floorId, { sourceAssetId, sourceFormat: "dxf", detectorProfileId: "generic-lighting-v1" })).resolves.toMatchObject({
+    await expect(service.create(user, floorId, { sourceAssetId, sourceFormat: "dxf" })).resolves.toMatchObject({
       jobId: created.id, floorId, sourceAssetId, status: "queued", progressPercent: 0
     });
+    expect(tx.floorImportJob.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ detectorProfileId: "generic-lighting-v1" })
+    }));
     expect(access.assert).toHaveBeenCalledWith(user, "site-1", "manage");
     expect(access.assertManageInTransaction).toHaveBeenCalledWith(tx, user, "site-1");
     expect(tx.$queryRaw.mock.calls[0][0].strings.join(" ")).toContain("FOR UPDATE OF floor, asset");
+  });
+
+  it("auto-resolves the approved sample source digest without accepting a Web profile choice", async () => {
+    const floorId = randomUUID(); const sourceAssetId = randomUUID();
+    const created = job({ floorId, sourceAssetId, detectorProfileId: "site-drawing-20260803-v1" });
+    const tx: any = {
+      $queryRaw: jest.fn().mockResolvedValue([{
+        id: sourceAssetId, floorId, floorStatus: "active", kind: "original", status: "ready",
+        mimeType: "application/dwg", sha256: PROVIDED_SAMPLE_DWG_SHA256, cleanupStartedAt: null
+      }]),
+      floorImportJob: { create: jest.fn().mockResolvedValue(created) }
+    };
+    const prisma: any = {
+      floor: { findUnique: jest.fn().mockResolvedValue({ id: floorId, siteId: "site-1" }) },
+      $transaction: jest.fn((run: (client: typeof tx) => unknown) => run(tx))
+    };
+    const access: any = {
+      assert: jest.fn(),
+      assertManageInTransaction: jest.fn().mockResolvedValue({ id: "site-1", organizationId: user.organizationId })
+    };
+    const service = new FloorImportService(prisma, access, { record: jest.fn() } as any);
+
+    await expect(service.create(user, floorId, { sourceAssetId, sourceFormat: "dwg" }))
+      .resolves.toMatchObject({ detectorProfileId: "site-drawing-20260803-v1" });
+    expect(tx.floorImportJob.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ detectorProfileId: "site-drawing-20260803-v1" })
+    }));
   });
 
   it("rejects a source asset that cleanup claimed before the create transaction acquired its locks", async () => {
@@ -78,7 +107,7 @@ describe("FloorImportService", () => {
       { assert: jest.fn(), assertManageInTransaction: jest.fn().mockResolvedValue({ id: "site-1", organizationId: user.organizationId }) } as any,
       { record: jest.fn() } as any
     );
-    await expect(service.create(user, floorId, { sourceAssetId, sourceFormat: "dxf", detectorProfileId: "generic-lighting-v1" }))
+    await expect(service.create(user, floorId, { sourceAssetId, sourceFormat: "dxf" }))
       .rejects.toThrow("source asset must be a ready original");
     expect(tx.floorImportJob.create).not.toHaveBeenCalled();
   });
@@ -103,7 +132,7 @@ describe("FloorImportService", () => {
     };
     const access: any = { assert: jest.fn(), assertManageInTransaction: jest.fn() };
     const service = new FloorImportService(prisma, access, { record: jest.fn() } as any);
-    await expect(service.create(user, floorId, { sourceAssetId, sourceFormat: input.sourceFormat, detectorProfileId: "generic-lighting-v1" })).rejects.toBeInstanceOf(errorType);
+    await expect(service.create(user, floorId, { sourceAssetId, sourceFormat: input.sourceFormat })).rejects.toBeInstanceOf(errorType);
   });
 
   it("maps the database active-job unique conflict to a stable conflict response", async () => {
@@ -111,7 +140,7 @@ describe("FloorImportService", () => {
     const tx: any = {
       $queryRaw: jest.fn().mockResolvedValue([{
         id: sourceAssetId, floorId, floorStatus: "active", kind: "original", status: "ready",
-        mimeType: "application/dxf", cleanupStartedAt: null
+        mimeType: "application/dxf", sha256: "a".repeat(64), cleanupStartedAt: null
       }]),
       floor: { findUnique: jest.fn().mockResolvedValue({ status: "active" }) },
       floorAsset: { findFirst: jest.fn().mockResolvedValue({ id: sourceAssetId, floorId, kind: "original", status: "ready", mimeType: "application/dxf", cleanupStartedAt: null }) },
@@ -123,7 +152,7 @@ describe("FloorImportService", () => {
     };
     const access: any = { assert: jest.fn(), assertManageInTransaction: jest.fn().mockResolvedValue({ id: "site-1", organizationId: user.organizationId }) };
     const service = new FloorImportService(prisma, access, { record: jest.fn() } as any);
-    await expect(service.create(user, floorId, { sourceAssetId, sourceFormat: "dxf", detectorProfileId: "generic-lighting-v1" })).rejects.toThrow("an active floor import already exists");
+    await expect(service.create(user, floorId, { sourceAssetId, sourceFormat: "dxf" })).rejects.toThrow("an active floor import already exists");
   });
 
   it("uses read access and returns a candidate-only read model without fixture identity", async () => {
@@ -159,6 +188,7 @@ describe("FloorImportService", () => {
         objectKey: `floors/${floorId}/${renderedAssetId}.svg`,
         status: "ready",
         mimeType: "image/svg+xml",
+        contentEncoding: "gzip",
         sizeBytes: 256n,
         sha256: "b".repeat(64),
         cleanupStartedAt: null
@@ -188,7 +218,7 @@ describe("FloorImportService", () => {
     expect(tx.$executeRaw.mock.calls[0][0].strings.join(" ")).toContain("INTERVAL '2 minutes'");
     expect(storage.readFloorRenderedMetadata).toHaveBeenCalledWith(
       `floors/${floorId}/${renderedAssetId}.svg`,
-      { sizeBytes: 256, sha256: "b".repeat(64), mimeType: "image/svg+xml" }
+      { sizeBytes: 256, sha256: "b".repeat(64), mimeType: "image/svg+xml", contentEncoding: "gzip" }
     );
   });
 
@@ -239,6 +269,7 @@ describe("FloorImportService", () => {
         objectKey: `floors/${floorId}/${renderedAssetId}.svg`,
         status: "ready",
         mimeType: "image/svg+xml",
+        contentEncoding: "gzip",
         sizeBytes: 512n,
         sha256: "c".repeat(64),
         cleanupStartedAt: null
@@ -297,7 +328,7 @@ describe("FloorImportService", () => {
           status: floor.status, mapRevision: floor.mapRevision, editorLeaseFence: floor.editorLeaseFence,
           editorLeaseTokenHash: floor.editorLeaseTokenHash, editorLeaseExpiresAt: floor.editorLeaseExpiresAt,
           dbNow: new Date("2026-09-17T00:00:00.000Z"), jobStatus: "review_required",
-          sourceAssetId, renderedAssetId, renderedMimeType: "image/svg+xml",
+          sourceAssetId, renderedAssetId, renderedMimeType: "image/svg+xml", renderedContentEncoding: "gzip",
           renderedObjectKey: `floors/${floorId}/${renderedAssetId}.svg`, renderedSizeBytes: 256n,
           renderedSha256: "b".repeat(64)
         }]),
@@ -321,7 +352,7 @@ describe("FloorImportService", () => {
       floor: { findUnique: jest.fn().mockResolvedValue({ id: floorId, siteId: "site-1" }) },
       floorImportJob: { findFirst: jest.fn().mockResolvedValue({ renderedAsset: {
         id: renderedAssetId, objectKey: `floors/${floorId}/${renderedAssetId}.svg`, status: "ready",
-        mimeType: "image/svg+xml", sizeBytes: 256n, sha256: "b".repeat(64), cleanupStartedAt: null
+        mimeType: "image/svg+xml", contentEncoding: "gzip", sizeBytes: 256n, sha256: "b".repeat(64), cleanupStartedAt: null
       } }) },
       $transaction: jest.fn((run: (client: typeof tx) => unknown) => run(tx))
     };
@@ -339,7 +370,7 @@ describe("FloorImportService", () => {
 
     expect(result).toMatchObject({ jobId, status: "completed", revision: 5, acceptedCandidateIds: [acceptedId] });
     expect(storage.readFloorRenderedMetadata).toHaveBeenCalledWith(`floors/${floorId}/${renderedAssetId}.svg`, {
-      sizeBytes: 256, sha256: "b".repeat(64), mimeType: "image/svg+xml"
+      sizeBytes: 256, sha256: "b".repeat(64), mimeType: "image/svg+xml", contentEncoding: "gzip"
     });
     expect(tx.$queryRaw.mock.calls[0][0].strings.join(" ")).toContain("FOR UPDATE OF floor, job, source, rendered");
     expect(tx.floorPlan.upsert).toHaveBeenCalledWith(expect.objectContaining({
@@ -368,12 +399,12 @@ describe("FloorImportService", () => {
     const tx: any = { $queryRaw: jest.fn().mockResolvedValue([{ status: "active", mapRevision: 4, editorLeaseFence: 8,
       editorLeaseTokenHash: hashEditorLeaseToken("lease-token"), editorLeaseExpiresAt: new Date("2026-09-17T00:10:00.000Z"),
       dbNow: new Date("2026-09-17T00:00:00.000Z"), jobStatus: "review_required", sourceAssetId: randomUUID(), renderedAssetId,
-      renderedMimeType: "image/svg+xml", renderedObjectKey: "floors/f/render.svg",
+      renderedMimeType: "image/svg+xml", renderedContentEncoding: "gzip", renderedObjectKey: "floors/f/render.svg",
       renderedSizeBytes: 256n, renderedSha256: "b".repeat(64), ...floorOverride }]) };
     const prisma: any = {
       floor: { findUnique: jest.fn().mockResolvedValue({ id: floorId, siteId: "site-1" }) },
       floorImportJob: { findFirst: jest.fn().mockResolvedValue({ renderedAsset: {
-        id: renderedAssetId, objectKey: "floors/f/render.svg", status: "ready", mimeType: "image/svg+xml",
+        id: renderedAssetId, objectKey: "floors/f/render.svg", status: "ready", mimeType: "image/svg+xml", contentEncoding: "gzip",
         sizeBytes: 256n, sha256: "b".repeat(64), cleanupStartedAt: null
       } }) },
       $transaction: jest.fn((run: (client: typeof tx) => unknown) => run(tx))
@@ -394,7 +425,7 @@ describe("FloorImportService", () => {
     const prisma: any = {
       floor: { findUnique: jest.fn().mockResolvedValue({ id: floorId, siteId: "site-1" }) },
       floorImportJob: { findFirst: jest.fn().mockResolvedValue({ renderedAsset: {
-        id: renderedAssetId, objectKey: `floors/${floorId}/render.svg`, status: "ready", mimeType: "image/svg+xml",
+        id: renderedAssetId, objectKey: `floors/${floorId}/render.svg`, status: "ready", mimeType: "image/svg+xml", contentEncoding: "gzip",
         sizeBytes: 256n, sha256: "b".repeat(64), cleanupStartedAt: null
       } }) },
       $transaction: jest.fn((run: (client: any) => unknown) => run({
@@ -402,7 +433,7 @@ describe("FloorImportService", () => {
           status: "active", mapRevision: 4, editorLeaseFence: 8,
           editorLeaseTokenHash: hashEditorLeaseToken("lease-token"), editorLeaseExpiresAt: new Date("2026-09-17T00:10:00.000Z"),
           dbNow: new Date("2026-09-17T00:00:00.000Z"), jobStatus: "review_required", sourceAssetId: randomUUID(),
-          renderedAssetId, renderedMimeType: "image/svg+xml", renderedObjectKey: `floors/${floorId}/render.svg`,
+          renderedAssetId, renderedMimeType: "image/svg+xml", renderedContentEncoding: "gzip", renderedObjectKey: `floors/${floorId}/render.svg`,
           renderedSizeBytes: 256n, renderedSha256: "c".repeat(64)
         }])
       }))

@@ -287,7 +287,7 @@ export class ObjectStorageService {
 
   async readFloorRenderedMetadata(
     objectKey: string,
-    expected: { sizeBytes: number; sha256: string; mimeType: "image/svg+xml" },
+    expected: { sizeBytes: number; sha256: string; mimeType: "image/svg+xml"; contentEncoding: "gzip" },
     abortSignal?: AbortSignal
   ) {
     this.assertFloorObjectKey(objectKey);
@@ -302,6 +302,7 @@ export class ObjectStorageService {
     const width = Number(head.Metadata?.["cad-width"]);
     const height = Number(head.Metadata?.["cad-height"]);
     if (head.ContentLength !== expected.sizeBytes || head.ContentType !== expected.mimeType ||
+        head.ContentEncoding !== expected.contentEncoding ||
         head.ChecksumSHA256 !== Buffer.from(expected.sha256, "hex").toString("base64") ||
         !validViewportDimension(width) || !validViewportDimension(height)) {
       throw new Error("rendered floor asset HEAD does not match its ledger");

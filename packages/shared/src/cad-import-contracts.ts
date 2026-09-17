@@ -2,10 +2,6 @@ import { z } from "zod";
 import { EDITOR_MAX_EXPECTED_REVISION, POSTGRES_INT_MAX } from "./schemas";
 
 export const CAD_IMPORT_MAX_CANDIDATES = 2_000;
-export const CAD_IMPORT_DETECTOR_PROFILE_IDS = ["generic-lighting-v1", "site-drawing-20260803-v1"] as const;
-export const cadImportDetectorProfileIdSchema = z.enum(CAD_IMPORT_DETECTOR_PROFILE_IDS);
-export type CadImportDetectorProfileId = z.infer<typeof cadImportDetectorProfileIdSchema>;
-
 export const CAD_IMPORT_MIME_TYPES = {
   dwg: [
     "application/acad",

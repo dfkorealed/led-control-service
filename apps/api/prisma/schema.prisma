@@ -456,6 +456,7 @@ model FloorAsset {
   status             FloorAssetStatus @default(pending)
   objectKey          String           @unique
   mimeType           String
+  contentEncoding    String?
   sizeBytes          BigInt
   sha256             String
   uploadExpiresAt    DateTime?
@@ -483,7 +484,7 @@ model FloorImportJob {
   attemptCount     Int                     @default(0)
   parserVersion    String?
   detectorVersion  String?
-  detectorProfileId      String @default("generic-lighting-v1")
+  detectorProfileId      String?
   detectorProfileVersion String?
   detectorProfileDigest  String?
   leaseOwner       String?

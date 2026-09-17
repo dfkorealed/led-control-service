@@ -192,7 +192,7 @@ export function CadImportPanel({
       const source = await uploadFloorAsset(floorId, normalizeCadFile(file, sourceFormat));
       if (source.status !== "ready") throw new Error("CAD source asset is not ready");
       const created = await createFloorImportJob(floorId, {
-        sourceAssetId: source.id, sourceFormat, detectorProfileId: "generic-lighting-v1"
+        sourceAssetId: source.id, sourceFormat
       });
       setJob(created);
       setFile(null);

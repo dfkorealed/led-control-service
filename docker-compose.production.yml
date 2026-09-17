@@ -164,7 +164,10 @@ services:
       object-storage-init: {condition: service_completed_successfully}
     environment:
       NODE_ENV: production
-      NODE_OPTIONS: --max-old-space-size=512
+      NODE_OPTIONS: --max-old-space-size=256
+      CAD_CORE_MAX_OLD_SPACE_MB: "384"
+      CAD_IMPORT_MAX_CONCURRENT_JOBS: "1"
+      CAD_CGROUP_REQUIRED: "1"
       API_PORT: "4000"
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL}
       REDIS_URL: ${REDIS_URL:?Set REDIS_URL}

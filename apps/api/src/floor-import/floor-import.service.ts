@@ -8,7 +8,6 @@ import {
 } from "@nestjs/common";
 import {
   cadImportFileTypeSchema,
-  cadImportDetectorProfileIdSchema,
   CAD_IMPORT_MAX_CANDIDATES,
   floorImportApplyInputSchema,
   floorImportCandidateListResponseSchema,
@@ -26,11 +25,11 @@ import { hashEditorLeaseToken } from "../floor-editor/editor-lease-token";
 import { assertActiveFloorStatus } from "../floor-editor/floor-lifecycle";
 import { PrismaService } from "../prisma/prisma.service";
 import { ObjectStorageService } from "../storage/object-storage.service";
+import { FixedLightingDetectorRegistry } from "./lighting-detector-registry";
 
 const createInputSchema = z.object({
   sourceAssetId: z.string().uuid(),
-  sourceFormat: z.enum(["dwg", "dxf"]),
-  detectorProfileId: cadImportDetectorProfileIdSchema
+  sourceFormat: z.enum(["dwg", "dxf"])
 }).strict();
 
 const activeStatuses = ["queued", "processing", "review_required"] as const;
@@ -47,6 +46,7 @@ interface LockedApplyRow {
   sourceAssetId: string;
   renderedAssetId: string | null;
   renderedMimeType: string | null;
+  renderedContentEncoding: string | null;
   renderedObjectKey: string | null;
   renderedSizeBytes: bigint | null;
   renderedSha256: string | null;
@@ -59,11 +59,13 @@ interface LockedSourceAssetRow {
   kind: string;
   status: string;
   mimeType: string;
+  sha256: string;
   cleanupStartedAt: Date | null;
 }
 
 @Injectable()
 export class FloorImportService {
+  private readonly detectorRegistry = new FixedLightingDetectorRegistry();
   constructor(
     private readonly prisma: PrismaService,
     private readonly access: SiteAccessService,
@@ -80,7 +82,7 @@ export class FloorImportService {
         const lockedSources = await tx.$queryRaw<LockedSourceAssetRow[]>(Prisma.sql`
           SELECT asset."id", asset."floorId", floor."status"::text AS "floorStatus",
             asset."kind"::text AS "kind", asset."status"::text AS "status",
-            asset."mimeType", asset."cleanupStartedAt"
+            asset."mimeType", asset."sha256", asset."cleanupStartedAt"
           FROM "Floor" AS floor
           JOIN "FloorAsset" AS asset ON asset."floorId" = floor."id"
           WHERE floor."id" = ${floorId} AND asset."id" = ${input.sourceAssetId}
@@ -95,8 +97,9 @@ export class FloorImportService {
         if (!cadImportFileTypeSchema.safeParse({ sourceFormat: input.sourceFormat, mimeType: source.mimeType }).success) {
           throw new BadRequestException("source asset MIME type does not match the CAD format");
         }
+        const detectorProfileId = this.detectorRegistry.resolve({ sourceSha256: source.sha256, siteId: authorizedSite.id });
         const job = await tx.floorImportJob.create({
-          data: { floorId, sourceAssetId: source.id, sourceFormat: input.sourceFormat, detectorProfileId: input.detectorProfileId },
+          data: { floorId, sourceAssetId: source.id, sourceFormat: input.sourceFormat, detectorProfileId },
           select: jobSelect
         });
         await this.audit.record({
@@ -107,7 +110,7 @@ export class FloorImportService {
           targetType: "floor_import_job",
           targetId: job.id,
           outcome: "success",
-          metadata: { floorId, sourceAssetId: source.id, sourceFormat: input.sourceFormat, detectorProfileId: input.detectorProfileId },
+          metadata: { floorId, sourceAssetId: source.id, sourceFormat: input.sourceFormat, detectorProfileId },
           transaction: tx
         });
         return job;
@@ -204,13 +207,14 @@ export class FloorImportService {
       where: { id: jobId, floorId, status: "review_required" },
       select: {
         renderedAsset: { select: {
-          id: true, objectKey: true, status: true, mimeType: true, sizeBytes: true, sha256: true, cleanupStartedAt: true
+          id: true, objectKey: true, status: true, mimeType: true, contentEncoding: true,
+          sizeBytes: true, sha256: true, cleanupStartedAt: true
         } }
       }
     });
     const renderedAsset = rendered?.renderedAsset;
     if (!renderedAsset || renderedAsset.status !== "ready" ||
-        renderedAsset.mimeType !== "image/svg+xml" || renderedAsset.cleanupStartedAt) {
+        renderedAsset.mimeType !== "image/svg+xml" || renderedAsset.contentEncoding !== "gzip" || renderedAsset.cleanupStartedAt) {
       throw new ConflictException("floor import job is not ready to apply");
     }
     const renderedSizeBytes = Number(renderedAsset.sizeBytes);
@@ -218,7 +222,7 @@ export class FloorImportService {
     let viewport: { width: number; height: number };
     try {
       viewport = await this.storage.readFloorRenderedMetadata(renderedAsset.objectKey, {
-        sizeBytes: renderedSizeBytes, sha256: renderedAsset.sha256, mimeType: "image/svg+xml"
+        sizeBytes: renderedSizeBytes, sha256: renderedAsset.sha256, mimeType: "image/svg+xml", contentEncoding: "gzip"
       });
     }
     catch { throw new ServiceUnavailableException("rendered floor asset metadata is unavailable"); }
@@ -233,7 +237,8 @@ export class FloorImportService {
           throw new ConflictException("floor import job is not ready to apply");
         }
         if (locked.renderedAssetId !== renderedAsset.id || locked.renderedObjectKey !== renderedAsset.objectKey ||
-            locked.renderedMimeType !== renderedAsset.mimeType || locked.renderedSizeBytes !== renderedAsset.sizeBytes ||
+            locked.renderedMimeType !== renderedAsset.mimeType || locked.renderedContentEncoding !== renderedAsset.contentEncoding ||
+            locked.renderedSizeBytes !== renderedAsset.sizeBytes ||
             locked.renderedSha256 !== renderedAsset.sha256) {
           throw new ConflictException("rendered floor asset changed concurrently");
         }
@@ -361,7 +366,8 @@ export class FloorImportService {
     if (["review_required", "applying", "completed"].includes(job.status)) {
       if (!this.storage) throw new InternalServerErrorException("floor import storage is unavailable");
       const rendered = job.renderedAsset;
-      if (!rendered || rendered.status !== "ready" || rendered.mimeType !== "image/svg+xml" || rendered.cleanupStartedAt) {
+      if (!rendered || rendered.status !== "ready" || rendered.mimeType !== "image/svg+xml" ||
+          rendered.contentEncoding !== "gzip" || rendered.cleanupStartedAt) {
         throw new ConflictException("rendered floor asset is not ready for review");
       }
       const sizeBytes = Number(rendered.sizeBytes);
@@ -371,7 +377,8 @@ export class FloorImportService {
           await this.storage.readFloorRenderedMetadata(rendered.objectKey, {
             sizeBytes,
             sha256: rendered.sha256,
-            mimeType: "image/svg+xml"
+            mimeType: "image/svg+xml",
+            contentEncoding: "gzip"
           })
         );
       } catch {
@@ -392,6 +399,7 @@ export class FloorImportService {
         floor."editorLeaseTokenHash", floor."editorLeaseExpiresAt", clock_timestamp() AS "dbNow",
         job."status"::text AS "jobStatus", job."sourceAssetId", job."renderedAssetId",
         rendered."mimeType" AS "renderedMimeType",
+        rendered."contentEncoding" AS "renderedContentEncoding",
         rendered."objectKey" AS "renderedObjectKey", rendered."sizeBytes" AS "renderedSizeBytes",
         rendered."sha256" AS "renderedSha256"
       FROM "Floor" AS floor
@@ -427,7 +435,8 @@ const jobSelect = {
   startedAt: true, reviewRequiredAt: true, appliedAt: true, completedAt: true,
   failedAt: true, cancelledAt: true, createdAt: true, updatedAt: true,
   renderedAsset: { select: {
-    id: true, objectKey: true, status: true, mimeType: true, sizeBytes: true, sha256: true, cleanupStartedAt: true
+    id: true, objectKey: true, status: true, mimeType: true, contentEncoding: true,
+    sizeBytes: true, sha256: true, cleanupStartedAt: true
   } }
 } satisfies Prisma.FloorImportJobSelect;
 

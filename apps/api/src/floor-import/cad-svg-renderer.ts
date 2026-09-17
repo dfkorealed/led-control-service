@@ -8,6 +8,7 @@ import { createGzip } from "node:zlib";
 import { cadBulgeArc, computeCadBounds, expandCadDocument, iterateCadDocumentExpansion, multiplyCadMatrices, transformPoint, type CadMatrix, type ExpandedCadEntity } from "./cad-geometry";
 import { forEachCadTextGlyph, sanitizeCadText } from "./cad-text-layout";
 import type { CadPoint, NormalizedCadDocument } from "./cad-types";
+import { cadViewportSvgTransform, createCadViewport } from "./cad-viewport";
 
 export interface CadSvgRendererLimits {
   maxRenderedEntities: number;
@@ -321,8 +322,7 @@ export async function renderCadDocumentSvgFile(
   };
   markReachable(document.entities);
 
-  const width = Math.ceil(Math.max(1, document.bounds.maxX - document.bounds.minX + 2));
-  const height = Math.ceil(Math.max(1, document.bounds.maxY - document.bounds.minY + 2));
+  const { width, height } = createCadViewport(document.bounds);
   const rawPath = `${outputPath}.raw`;
   const file = await open(rawPath, "wx", 0o600);
   let rawSizeBytes = 0;
@@ -389,7 +389,7 @@ export async function renderCadDocumentSvgFile(
       await renderEntities(block.entities);
       await write("</g></symbol>");
     }
-    await write(`</defs><g fill="none" stroke="#1f2937" stroke-width="0.2" vector-effect="non-scaling-stroke" transform="matrix(1 0 0 -1 ${number(-document.bounds.minX + 1)} ${number(document.bounds.maxY + 1)})">`);
+    await write(`</defs><g fill="none" stroke="#1f2937" stroke-width="0.2" vector-effect="non-scaling-stroke" transform="${cadViewportSvgTransform(document.bounds)}">`);
     await renderEntities(document.entities);
     await write("</g></svg>");
     await file.sync();

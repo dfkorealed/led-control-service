@@ -7,14 +7,15 @@ import { AuthModule } from "../auth/auth.module";
 import { PrismaModule } from "../prisma/prisma.module";
 import { StorageModule } from "../storage/storage.module";
 import { ArgvCadConverter, type CadConversionRequest, type CadConverter } from "./cad-converter";
-import { DisabledAiLightingSymbolDetector } from "./disabled-ai-lighting-symbol-detector";
+import { ChildProcessCadCoreExecutor } from "./cad-core-executor";
+import { assertCadProductionRuntime } from "./cad-runtime-contract";
 import { FixedLightingDetectorRegistry } from "./lighting-detector-registry";
 import { FloorImportAttemptCleanupService } from "./floor-import-attempt-cleanup.service";
 import { FloorImportController } from "./floor-import.controller";
 import { FloorImportService } from "./floor-import.service";
 import {
-  CAD_IMPORT_AI_DETECTOR,
   CAD_IMPORT_CONVERTER,
+  CAD_IMPORT_CORE_EXECUTOR,
   CAD_IMPORT_RULE_DETECTOR,
   CAD_IMPORT_WORKER_OPTIONS,
   FloorImportWorkerService,
@@ -91,6 +92,7 @@ function workerOptions(env: NodeJS.ProcessEnv): FloorImportWorkerOptions {
   if (env.NODE_ENV === "production" && enabled && !env.CAD_IMPORT_TEMP_ROOT?.trim()) {
     throw new Error("CAD_IMPORT_TEMP_ROOT is required when the production CAD worker is enabled");
   }
+  if (enabled) assertCadProductionRuntime(env);
   return {
     tempRoot,
     pollIntervalMs: positiveInteger(env.CAD_IMPORT_POLL_INTERVAL_MS, 1000, "CAD_IMPORT_POLL_INTERVAL_MS"),
@@ -117,7 +119,7 @@ function positiveInteger(value: string | undefined, fallback: number, name: stri
       provide: CAD_IMPORT_RULE_DETECTOR,
       useFactory: () => new FixedLightingDetectorRegistry()
     },
-    { provide: CAD_IMPORT_AI_DETECTOR, useFactory: () => new DisabledAiLightingSymbolDetector() },
+    { provide: CAD_IMPORT_CORE_EXECUTOR, useFactory: () => new ChildProcessCadCoreExecutor() },
     { provide: CAD_IMPORT_WORKER_OPTIONS, useFactory: () => workerOptions(process.env) }
   ]
 })

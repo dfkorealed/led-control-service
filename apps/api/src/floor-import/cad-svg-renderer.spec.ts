@@ -5,6 +5,8 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { gunzipSync } from "node:zlib";
+import { parseAsciiDxf } from "./dxf-document-parser";
+import { projectCadPointToViewport } from "./cad-viewport";
 
 const document: NormalizedCadDocument = {
   version: 1,
@@ -175,5 +177,36 @@ describe("CAD SVG renderer", () => {
     expect(() => renderCadDocumentSvg(oversizedText, { maxOutputBytes: 1024 })).toThrow(/output.*limit/i);
 
     expect(process.memoryUsage().rss - rssBefore).toBeLessThan(64 * 1024 * 1024);
+  });
+
+  it("keeps the small-span pixel transform aligned while omitting hidden and unsupported DXF entities", async () => {
+    const dxf = [
+      "0","SECTION","2","TABLES","0","TABLE","2","LAYER",
+      "0","LAYER","2","VISIBLE","70","0","62","7",
+      "0","LAYER","2","OFF","70","0","62","-7","0","ENDTAB","0","ENDSEC",
+      "0","SECTION","2","ENTITIES",
+      "0","LINE","5","VISIBLE-LINE","8","VISIBLE","10","0","20","0","11","0.9","21","0.9",
+      "0","LINE","5","HIDDEN-LAYER","8","OFF","10","0","20","0","11","100","21","100",
+      "0","LINE","5","HIDDEN-ENTITY","8","VISIBLE","60","1","10","0","20","0","11","100","21","100",
+      "0","WIPEOUT","5","UNSUPPORTED-WIPEOUT","8","VISIBLE","10","0","20","0",
+      "0","SPLINE","5","UNSUPPORTED-SPLINE","8","VISIBLE","10","0","20","0",
+      "0","ENDSEC","0","EOF"
+    ].join("\n") + "\n";
+    const parsed = parseAsciiDxf(dxf);
+    const root = await mkdtemp(join(tmpdir(), "cad-pixel-oracle-"));
+    try {
+      const path = join(root, "small.svg");
+      await renderCadDocumentSvgFile(parsed, path);
+      const svg = gunzipSync(await readFile(path)).toString("utf8");
+      expect(parsed.bounds).toEqual({ minX: 0, minY: 0, maxX: 0.9, maxY: 0.9 });
+      expect(parsed.entities.map(entity => entity.sourceEntityId)).toEqual(["VISIBLE-LINE"]);
+      expect(svg).toContain('<path d="M0 0L0.9 0.9"/>');
+      expect(projectCadPointToViewport({ x: 0.45, y: 0.45, z: 0 }, parsed.bounds)).toEqual({ x: 1.45, y: 1.45 });
+      const { data, info } = await sharp(Buffer.from(svg)).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+      expect({ width: info.width, height: info.height }).toEqual({ width: 3, height: 3 });
+      expect([...data].some((value, index) => index % info.channels < 3 && value < 245)).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

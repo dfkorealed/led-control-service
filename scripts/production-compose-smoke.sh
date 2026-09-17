@@ -160,6 +160,9 @@ try {
   assert.equal(migrationState.ExitCode,0);
   assert.ok(Date.parse(migrationState.FinishedAt)<=Date.parse(apiContainer.State.StartedAt));
   assert.equal(apiContainer.HostConfig.ReadonlyRootfs,true);
+  assert.equal(apiContainer.HostConfig.Memory,805306368);
+  const cadCgroupMemory=compose('exec','-T','api','sh','-ec','cat /sys/fs/cgroup/memory.max 2>/dev/null || cat /sys/fs/cgroup/memory/memory.limit_in_bytes').trim();
+  assert.equal(cadCgroupMemory,'805306368');
   assert.deepEqual(apiContainer.Config.Entrypoint,['/sbin/tini','--']);
   const live=await request(`${origin}/api/health/live`,{headers:{'X-Request-Id':'smoke-correlation','X-Forwarded-For':'untrusted'}});
   assert.equal(live.status,200); assert.equal(live.headers['x-request-id'],'smoke-correlation');
@@ -190,7 +193,7 @@ try {
   await assert.rejects(request(deviceUrl,{...manufacturingOptions,...clientIdentity,servername:'wrong.invalid'},invalidBody));
   assert.equal((await request(`${origin}/api/health/ready`)).status,200);
   log('VERIFY TLS-passthrough no-client=401 valid-client=400 invalid-serial=true server-identity=verified inventory/enrollment=0 browser-proxy=200');
-  log(`VERIFY migrations=${migrations}/${expected} same-api-image=true live=200 ready=200 TLS=1.2,1.3 proxy=200 request-id=preserved cache/security=pass HTTP=308`);
+  log(`VERIFY migrations=${migrations}/${expected} same-api-image=true cgroup=${cadCgroupMemory} live=200 ready=200 TLS=1.2,1.3 proxy=200 request-id=preserved cache/security=pass HTTP=308`);
   const digest=content=>createHash('sha256').update(content).digest('hex');
   const originalDevice=readFileSync(path.join(dir,'api-tls/device.crl'));
   const originalMqtt=readFileSync(path.join(dir,'mqtt-tls/mqtt-client.crl'));

@@ -76,11 +76,13 @@ export class FloorImportAttemptCleanupService implements OnModuleInit, OnModuleD
       if (!asset) {
         await tx.floorAsset.create({ data: {
           id: cleanup.assetId, floorId: input.floorId, kind: "rendered", status: "pending",
-          objectKey, mimeType: "image/svg+xml", sizeBytes: BigInt(rendered.sizeBytes), sha256: rendered.sha256,
+          objectKey, mimeType: "image/svg+xml", contentEncoding: "gzip",
+          sizeBytes: BigInt(rendered.sizeBytes), sha256: rendered.sha256,
           uploadExpiresAt: new Date(now.getTime() + ATTEMPT_GRACE_MS)
         } });
       } else if (asset.floorId !== input.floorId || asset.objectKey !== objectKey || asset.status !== "pending" ||
-          asset.mimeType !== "image/svg+xml" || asset.sizeBytes !== BigInt(rendered.sizeBytes) || asset.sha256 !== rendered.sha256) {
+          asset.mimeType !== "image/svg+xml" || asset.contentEncoding !== "gzip" ||
+          asset.sizeBytes !== BigInt(rendered.sizeBytes) || asset.sha256 !== rendered.sha256) {
         throw new Error("CAD import attempt asset identity conflict");
       }
       return cleanupIdentity(cleanup);
