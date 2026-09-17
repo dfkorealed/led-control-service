@@ -1,5 +1,12 @@
 # Map-First Control Target Selection Implementation Plan
 
+## Execution status (2026-09-17)
+
+- [x] Tasks 1–10 implemented and reviewed task-by-task.
+- [x] Final whole-branch review completed; findings 1–13 received one test-first fix wave in `38b8b72e`.
+- [x] One scoped re-review completed; original findings 1–13 are resolved and the manual-selection-to-group shortcut is documented as deferred.
+- [ ] Integration blocked: the scoped re-review found that the group editor can collapse its selector to 0px on compact screens and after clearing a 100-member group. Preserve a usable selector minimum, scroll the oversized change list, and add both browser regressions before merge.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace list-first target picking in manual, schedule, vehicle-event, and fixture-group control flows with one responsive map-first selector that supports direct selection, saved groups, floor targets, mobile two-finger pinch zoom, and accessible list fallback.
