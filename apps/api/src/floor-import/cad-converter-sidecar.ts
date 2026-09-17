@@ -1,7 +1,8 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { lstat, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { ArgvCadConverter, type CadConverter } from "./cad-converter";
+import { probeCadConverterSpoolReadiness, SIDECAR_HEARTBEAT_TTL_MS } from "./cad-converter-spool";
 
 const READY_FILE = ".ready.json";
 
@@ -26,23 +27,23 @@ export async function processCadSidecarJob(
   dependencies: { approvedDigest: string; executable: string; converter: CadConverter }
 ) {
   await attestCadConverterExecutable(dependencies.executable, dependencies.approvedDigest);
-  const request = JSON.parse(await readFile(join(jobDirectory, "request.json"), "utf8")) as Record<string, unknown>;
-  if (request.version !== 1 || request.input !== "input" || request.output !== "output") {
-    throw new Error("invalid CAD sidecar job request");
-  }
   const abort = new AbortController();
   const cancelPoller = setInterval(() => {
     void lstat(join(jobDirectory, "cancel")).then(() => abort.abort(), () => undefined);
   }, 20);
   try {
+    const request = JSON.parse(await readFile(join(jobDirectory, "request.json"), "utf8")) as Record<string, unknown>;
+    if (request.version !== 1 || request.input !== "input" || request.output !== "output") {
+      throw new Error("invalid CAD sidecar job request");
+    }
     const result = await dependencies.converter.convert({
       inputPath: join(jobDirectory, "input"),
       outputPath: join(jobDirectory, "output"),
       abortSignal: abort.signal
     });
-    await writeResponse(jobDirectory, { version: 1, ok: true, outputBytes: result.outputBytes });
+    await writeResponseIfPresent(jobDirectory, { version: 1, ok: true, outputBytes: result.outputBytes });
   } catch (error) {
-    await writeResponse(jobDirectory, { version: 1, ok: false, error: boundedError(error) });
+    await writeResponseIfPresent(jobDirectory, { version: 1, ok: false, error: boundedError(error) });
   } finally {
     clearInterval(cancelPoller);
   }
@@ -62,29 +63,48 @@ export async function runCadConverterSidecar(env: NodeJS.ProcessEnv = process.en
   const maxOutputBytes = positiveInteger(env.CAD_IMPORT_MAX_DXF_BYTES, 256 * 1024 * 1024, "CAD_IMPORT_MAX_DXF_BYTES");
   const spool = await lstat(spoolRoot);
   if (!spool.isDirectory() || spool.isSymbolicLink()) throw new Error("CAD converter spool must be a regular directory");
+  const readyPath = join(spoolRoot, READY_FILE);
+  await unlink(readyPath).catch(error => {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  });
   await attestCadConverterExecutable(executable, approvedDigest);
   const converter = new ArgvCadConverter({
     executable, argv: argv as string[], timeoutMs, maxOutputBytes, execution: { mode: "linux-resource-limited" }
   });
-  const readyPath = join(spoolRoot, READY_FILE);
-  await writeResponseFile(readyPath, { version: 1, digest: approvedDigest });
-  const removeReady = () => { void unlink(readyPath).catch(() => undefined); };
-  process.once("SIGTERM", removeReady);
-  process.once("SIGINT", removeReady);
+  const instanceId = randomUUID();
+  let heartbeatFailure: Error | null = null;
+  let heartbeatWrite = Promise.resolve();
+  const publishHeartbeat = () => {
+    heartbeatWrite = heartbeatWrite
+      .then(() => writeResponseFile(readyPath, {
+        version: 2,
+        digest: approvedDigest,
+        instanceId,
+        heartbeatAt: Date.now()
+      }))
+      .catch(error => { heartbeatFailure = error as Error; });
+  };
+  publishHeartbeat();
+  await heartbeatWrite;
+  const heartbeatTimer = setInterval(publishHeartbeat, Math.floor(SIDECAR_HEARTBEAT_TTL_MS / 4));
 
-  for (;;) {
-    await attestCadConverterExecutable(executable, approvedDigest).catch(async error => {
-      await unlink(readyPath).catch(() => undefined);
-      throw error;
-    });
-    const names = (await readdir(spoolRoot)).filter(name => name.startsWith("job-")).sort();
-    for (const name of names) {
-      const jobDirectory = join(spoolRoot, name);
-      if (await exists(join(jobDirectory, "request.json")) && !await exists(join(jobDirectory, "response.json"))) {
-        await processCadSidecarJob(jobDirectory, { approvedDigest, executable, converter });
+  try {
+    for (;;) {
+      if (heartbeatFailure) throw heartbeatFailure;
+      await attestCadConverterExecutable(executable, approvedDigest);
+      const names = (await readdir(spoolRoot)).filter(name => name.startsWith("job-")).sort();
+      for (const name of names) {
+        const jobDirectory = join(spoolRoot, name);
+        if (await exists(join(jobDirectory, "request.json")) && !await exists(join(jobDirectory, "response.json"))) {
+          await processCadSidecarJob(jobDirectory, { approvedDigest, executable, converter });
+        }
       }
+      await new Promise(resolve => setTimeout(resolve, 50));
     }
-    await new Promise(resolve => setTimeout(resolve, 50));
+  } finally {
+    clearInterval(heartbeatTimer);
+    await heartbeatWrite;
+    await removeReadyIfOwned(readyPath, instanceId);
   }
 }
 
@@ -93,18 +113,34 @@ export async function probeCadConverterSidecar(env: NodeJS.ProcessEnv = process.
   const executable = requiredAbsolute(env.CAD_IMPORT_CONVERTER_EXECUTABLE, "CAD_IMPORT_CONVERTER_EXECUTABLE");
   const digest = env.CAD_IMPORT_CONVERTER_SHA256 ?? "";
   await attestCadConverterExecutable(executable, digest);
-  const ready = JSON.parse(await readFile(join(spoolRoot, READY_FILE), "utf8")) as Record<string, unknown>;
-  if (ready.version !== 1 || ready.digest !== digest) throw new Error("CAD converter sidecar readiness mismatch");
+  await probeCadConverterSpoolReadiness(spoolRoot, digest);
 }
 
 async function writeResponse(jobDirectory: string, value: unknown) {
   return writeResponseFile(join(jobDirectory, "response.json"), value);
 }
 
+async function writeResponseIfPresent(jobDirectory: string, value: unknown) {
+  try {
+    await writeResponse(jobDirectory, value);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+}
+
 async function writeResponseFile(path: string, value: unknown) {
   const temporary = join(dirname(path), `.${basename(path)}.${process.pid}.tmp`);
   await writeFile(temporary, JSON.stringify(value), { mode: 0o640 });
   await rename(temporary, path);
+}
+
+async function removeReadyIfOwned(path: string, instanceId: string) {
+  try {
+    const ready = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+    if (ready.instanceId === instanceId) await unlink(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
 }
 
 async function exists(path: string) {

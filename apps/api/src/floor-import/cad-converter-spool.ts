@@ -5,6 +5,8 @@ import type { CadConversionRequest, CadConversionResult, CadConverter } from "./
 
 const READY_FILE = ".ready.json";
 const POLL_INTERVAL_MS = 20;
+const CANCELLATION_ACK_TIMEOUT_MS = 1_000;
+export const SIDECAR_HEARTBEAT_TTL_MS = 2_000;
 
 interface SpoolCadConverterOptions {
   spoolRoot: string;
@@ -42,7 +44,7 @@ export class SpoolCadConverter implements CadConverter {
       const deadline = Date.now() + this.options.timeoutMs;
       while (Date.now() < deadline) {
         if (request.abortSignal?.aborted) {
-          await writeFile(cancel, "cancelled", { flag: "wx" }).catch(() => undefined);
+          await signalCancellationAndWait(cancel, response);
           throw new Error("CAD conversion aborted");
         }
         const result = await readJsonIfRegular(response);
@@ -63,7 +65,7 @@ export class SpoolCadConverter implements CadConverter {
         await this.assertReady();
         await delay(POLL_INTERVAL_MS);
       }
-      await writeFile(cancel, "timeout", { flag: "wx" }).catch(() => undefined);
+      await signalCancellationAndWait(cancel, response, "timeout");
       throw new Error("CAD conversion sidecar time limit exceeded");
     } finally {
       await rm(jobDirectory, { recursive: true, force: true });
@@ -81,9 +83,25 @@ export class SpoolCadConverter implements CadConverter {
   }
 }
 
+async function signalCancellationAndWait(cancelPath: string, responsePath: string, reason = "cancelled") {
+  await writeFile(cancelPath, reason, { flag: "wx" }).catch(error => {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== "EEXIST" && code !== "ENOENT") throw error;
+  });
+  const deadline = Date.now() + CANCELLATION_ACK_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if (await readJsonIfRegular(responsePath)) return;
+    await delay(POLL_INTERVAL_MS);
+  }
+}
+
 export async function probeCadConverterSpoolReadiness(spoolRoot: string, approvedDigest: string) {
   const ready = await readJsonIfRegular(join(spoolRoot, READY_FILE)).catch(() => null);
-  if (!ready || ready.version !== 1 || ready.digest !== approvedDigest) {
+  const heartbeatAt = ready?.heartbeatAt;
+  const heartbeatAge = typeof heartbeatAt === "number" ? Date.now() - heartbeatAt : Number.POSITIVE_INFINITY;
+  if (!ready || ready.version !== 2 || ready.digest !== approvedDigest ||
+      typeof ready.instanceId !== "string" || ready.instanceId.length < 1 || ready.instanceId.length > 128 ||
+      !Number.isSafeInteger(heartbeatAt) || heartbeatAge < -1_000 || heartbeatAge > SIDECAR_HEARTBEAT_TTL_MS) {
     throw new Error("CAD converter sidecar is not ready or its approved digest does not match");
   }
 }
