@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { lstatSync, realpathSync } from "node:fs";
 import { lstat, stat, unlink } from "node:fs/promises";
-import { basename, isAbsolute, resolve } from "node:path";
+import { basename, dirname, isAbsolute, resolve } from "node:path";
 
 export interface CadConversionRequest {
   inputPath: string;
@@ -58,6 +58,11 @@ const UNSAFE_ARGV = /[;|&`<>\r\n]|\$\(/;
 const SUPPORTED_UNIX_PLATFORMS = new Set<NodeJS.Platform>(["darwin", "linux"]);
 const OUTPUT_POLL_INTERVAL_MS = 20;
 const GNU_PRLIMIT_PATH = "/usr/bin/prlimit";
+const CONVERTER_ADDRESS_SPACE_BYTES = 512 * 1024 * 1024;
+const CONVERTER_CPU_SECONDS = 60;
+const CONVERTER_OPEN_FILES = 64;
+const CONVERTER_PROCESSES = 32;
+const CONVERTER_PATH = "/opt/cad-converter/bin:/usr/local/bin:/usr/bin:/bin";
 const DEFAULT_LIMITER_INSPECTOR: CadLimiterExecutableInspector = {
   inspect(path) {
     const identity = lstatSync(path);
@@ -129,7 +134,14 @@ export function buildCadConverterLaunch(
   if (options.execution?.mode === "linux-resource-limited") {
     return {
       executable: GNU_PRLIMIT_PATH,
-      argv: [`--fsize=${options.maxOutputBytes}:${options.maxOutputBytes}`, "--", options.executable, ...converterArgv],
+      argv: [
+        `--as=${CONVERTER_ADDRESS_SPACE_BYTES}:${CONVERTER_ADDRESS_SPACE_BYTES}`,
+        `--cpu=${CONVERTER_CPU_SECONDS}:${CONVERTER_CPU_SECONDS}`,
+        `--nofile=${CONVERTER_OPEN_FILES}:${CONVERTER_OPEN_FILES}`,
+        `--nproc=${CONVERTER_PROCESSES}:${CONVERTER_PROCESSES}`,
+        `--fsize=${options.maxOutputBytes}:${options.maxOutputBytes}`,
+        "--", options.executable, ...converterArgv
+      ],
       pollOutput: false
     };
   }
@@ -170,7 +182,17 @@ export class ArgvCadConverter implements CadConverter {
       await new Promise<void>((resolvePromise, rejectPromise) => {
         // Linux production starts the converter under a kernel resource limiter.
         // detached also makes the wrapper and every descendant one killable group.
-        const child = spawn(launch.executable, launch.argv, { detached: true, shell: false, stdio: ["ignore", "pipe", "pipe"] });
+        const child = spawn(launch.executable, launch.argv, {
+          detached: true,
+          shell: false,
+          stdio: ["ignore", "pipe", "pipe"],
+          env: {
+            PATH: CONVERTER_PATH,
+            LANG: "C.UTF-8",
+            LC_ALL: "C.UTF-8",
+            TMPDIR: dirname(request.outputPath)
+          }
+        });
         let settledError: Error | null = null;
         let processOutputBytes = 0;
         let stderr = "";

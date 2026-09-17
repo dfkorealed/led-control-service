@@ -36,6 +36,34 @@ describe("argv CAD converter adapter", () => {
     await expect(readFile(outputPath, "utf8")).resolves.toBe("DXF-CONTENT");
   });
 
+  it("passes only the converter runtime allowlist and never API credentials", async () => {
+    const script = join(directory, "env.cjs");
+    const inputPath = join(directory, "input.dwg");
+    const outputPath = join(directory, "output.dxf");
+    await writeFile(script, "require('node:fs').writeFileSync(process.argv[3], JSON.stringify(process.env));");
+    await writeFile(inputPath, "input");
+    process.env.DATABASE_URL = "postgresql://credential";
+    process.env.OBJECT_STORAGE_SECRET_KEY = "storage-credential";
+    process.env.VAULT_TOKEN = "vault-credential";
+    try {
+      const converter = new ArgvCadConverter({
+        executable: process.execPath, argv: [script, "{input}", "{output}"], timeoutMs: 1000, maxOutputBytes: 4096,
+        execution: runtimeExecution
+      });
+      await converter.convert({ inputPath, outputPath });
+      const childEnv = JSON.parse(await readFile(outputPath, "utf8")) as Record<string, string>;
+      expect(childEnv).toEqual(expect.objectContaining({ LANG: "C.UTF-8", LC_ALL: "C.UTF-8", TMPDIR: directory }));
+      expect(childEnv.PATH).toMatch(/\/usr\/bin/);
+      expect(childEnv).not.toHaveProperty("DATABASE_URL");
+      expect(childEnv).not.toHaveProperty("OBJECT_STORAGE_SECRET_KEY");
+      expect(childEnv).not.toHaveProperty("VAULT_TOKEN");
+    } finally {
+      delete process.env.DATABASE_URL;
+      delete process.env.OBJECT_STORAGE_SECRET_KEY;
+      delete process.env.VAULT_TOKEN;
+    }
+  });
+
   it.each([
     { executable: "/bin/sh", argv: ["-c", "cp {input} {output}"] },
     { executable: process.execPath, argv: ["tool.cjs;rm", "{input}", "{output}"] },
@@ -145,7 +173,10 @@ describe("argv CAD converter adapter", () => {
 
     expect(launch).toEqual({
       executable: "/usr/bin/prlimit",
-      argv: ["--fsize=4096:4096", "--", "/opt/cad/bin/converter", "--input", "/tmp/in.dwg", "--output", "/tmp/out.dxf"],
+      argv: [
+        "--as=536870912:536870912", "--cpu=60:60", "--nofile=64:64", "--nproc=32:32", "--fsize=4096:4096",
+        "--", "/opt/cad/bin/converter", "--input", "/tmp/in.dwg", "--output", "/tmp/out.dxf"
+      ],
       pollOutput: false
     });
   });
@@ -157,7 +188,7 @@ describe("argv CAD converter adapter", () => {
     } as never, ["/tmp/in.dwg", "/tmp/out.dxf"], "linux", trustedPrlimit);
 
     expect(launch.executable).toBe("/usr/bin/prlimit");
-    expect(launch.argv.slice(0, 2)).toEqual(["--fsize=32:32", "--"]);
+    expect(launch.argv).toEqual(expect.arrayContaining(["--as=536870912:536870912", "--cpu=60:60", "--nofile=64:64", "--nproc=32:32", "--fsize=32:32"]));
   });
 
   it.each([

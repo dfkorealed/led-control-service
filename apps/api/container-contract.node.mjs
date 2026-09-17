@@ -57,3 +57,12 @@ test("API runtime is non-root and signal-safe with compiled entrypoint and local
   assert.match(file, /COPY --from=build .*migration/);
   assert.doesNotMatch(file, /pnpm install|nest start|tsx|ts-node/);
 });
+
+test("API runtime includes an attested canonical GNU prlimit without a bundled CAD converter", () => {
+  const file = readFileSync(filename, "utf8");
+  const runtime = file.split(/FROM .* AS runtime/)[1];
+  assert.match(runtime, /apk add --no-cache[^\n]*util-linux/);
+  assert.match(runtime, /realpath \/usr\/bin\/prlimit/);
+  assert.match(runtime, /stat[^\n]*\/usr\/bin\/prlimit/);
+  assert.doesNotMatch(file, /libredwg|dwgread|dwg2dxf/i);
+});

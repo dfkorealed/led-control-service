@@ -16,7 +16,8 @@ import { FixedLightingDetectorRegistry, PROVIDED_SAMPLE_DWG_SHA256 } from "./lig
 
 const sample = process.env.CAD_SAMPLE_DWG_PATH;
 const converterPath = process.env.CAD_SAMPLE_CONVERTER_PATH;
-const enabled = Boolean(sample && converterPath && process.env.RUN_OBJECT_STORAGE_INTEGRATION === "true");
+const converterArgvJson = process.env.CAD_SAMPLE_CONVERTER_ARGV_JSON;
+const enabled = Boolean(sample && converterPath && converterArgvJson && process.env.RUN_OBJECT_STORAGE_INTEGRATION === "true");
 
 (enabled ? describe : describe.skip)("provided CAD sample worker/storage/DB/API pipeline", () => {
   jest.setTimeout(240_000);
@@ -72,10 +73,17 @@ const enabled = Boolean(sample && converterPath && process.env.RUN_OBJECT_STORAG
       const created = await imports.create(user, floorId, { sourceAssetId, sourceFormat: "dwg" });
       expect(created.detectorProfileId).toBe("site-drawing-20260803-v1");
 
+      const converterArgv = JSON.parse(converterArgvJson!) as unknown;
+      if (!Array.isArray(converterArgv) || converterArgv.some(argument => typeof argument !== "string")) {
+        throw new Error("CAD_SAMPLE_CONVERTER_ARGV_JSON must be a JSON string array");
+      }
+      const execution = process.platform === "linux"
+        ? { mode: "linux-resource-limited" as const }
+        : { mode: "macos-development-polling" as const, acknowledgeNonProductionRisk: true as const };
       const converter = new ArgvCadConverter({
-        executable: converterPath!, argv: ["-O", "DXF", "-o", "{output}", "{input}"], timeoutMs: 60_000,
+        executable: converterPath!, argv: converterArgv as string[], timeoutMs: 60_000,
         maxOutputBytes: 256 * 1024 * 1024,
-        execution: { mode: "macos-development-polling", acknowledgeNonProductionRisk: true }
+        execution
       });
       const registry = new FixedLightingDetectorRegistry();
       const core = new ChildProcessCadCoreExecutor({

@@ -155,7 +155,7 @@ services:
     user: "1000:1000"
     # CAD parser retains at most 192 MiB of normalized model data and one job runs per process.
     mem_limit: 768m
-    tmpfs: [/tmp]
+    tmpfs: [/tmp, "/tmp/cad-import:uid=1000,gid=1000,mode=0700,size=536870912"]
     depends_on:
       crl-init: {condition: service_completed_successfully}
       api-migrate: {condition: service_completed_successfully}
@@ -168,6 +168,10 @@ services:
       CAD_CORE_MAX_OLD_SPACE_MB: "384"
       CAD_IMPORT_MAX_CONCURRENT_JOBS: "1"
       CAD_CGROUP_REQUIRED: "1"
+      CAD_IMPORT_CONVERTER_MODE: linux
+      CAD_IMPORT_CONVERTER_EXECUTABLE: /opt/cad-converter/bin/converter
+      CAD_IMPORT_CONVERTER_ARGV_JSON: ${CAD_IMPORT_CONVERTER_ARGV_JSON:?Set approved CAD_IMPORT_CONVERTER_ARGV_JSON}
+      CAD_IMPORT_TEMP_ROOT: /tmp/cad-import
       API_PORT: "4000"
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL}
       REDIS_URL: ${REDIS_URL:?Set REDIS_URL}
@@ -212,6 +216,12 @@ services:
       - mqtt-crl:/run/mqtt-crl
       - ${VAULT_TOKEN_FILE:?Set VAULT_TOKEN_FILE}:/run/vault/token:ro
       - ${VAULT_CA_CERT_PATH:?Set VAULT_CA_CERT_PATH}:/run/vault/ca.crt:ro
+      - type: bind
+        source: ${CAD_IMPORT_CONVERTER_BUNDLE_PATH:?Set approved CAD_IMPORT_CONVERTER_BUNDLE_PATH}
+        target: /opt/cad-converter
+        read_only: true
+        bind:
+          create_host_path: false
     healthcheck:
       <<: *health
       test: [CMD, node, -e, "require('https').get('https://api:4000/health/ready',{ca:require('fs').readFileSync('/run/api-tls/api-ca.crt')},r=>{r.resume();process.exitCode=r.statusCode===200?0:1}).on('error',()=>process.exit(1)).setTimeout(2000,function(){this.destroy()})"]

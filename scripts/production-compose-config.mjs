@@ -5,6 +5,15 @@ import { pathToFileURL } from 'node:url';
 const requireRule = (condition, rule) => { if (!condition) throw new Error(`Production configuration rejected: ${rule}`); };
 const repositoryRoot = path.resolve(import.meta.dirname, '..');
 
+function validConverterArgv(value) {
+  try {
+    const argv=JSON.parse(value);
+    if(!Array.isArray(argv) || argv.length===0 || argv.some(argument=>typeof argument!=='string' || !argument || /[;|&`<>\r\n]|\$\(/.test(argument))) return false;
+    const template=argv.join('\0');
+    return (template.match(/\{input\}/g)??[]).length===1 && (template.match(/\{output\}/g)??[]).length===1;
+  } catch { return false; }
+}
+
 function validateProductionProject(project) {
   const defaultProject = path.basename(repositoryRoot).toLowerCase().replace(/[^a-z0-9_-]/g, '');
   requireRule(typeof project === 'string' && /^led-production-[a-z0-9]+(?:-[a-z0-9]+)*$/.test(project) && project.length <= 63 && project !== defaultProject && !['led-production-default', 'led-production-dev', 'led-production-development'].includes(project), 'production project identifier');
@@ -49,6 +58,12 @@ export function validateProductionConfig(config, {smokeProject}={}) {
   }
   requireRule(s.api.environment.NODE_ENV==='production' && s.api.environment.PKI_PROVIDER==='vault','production TLS and Vault');
   requireRule(String(s.api.mem_limit)==='805306368' && s.api.environment.NODE_OPTIONS==='--max-old-space-size=256' && s.api.environment.CAD_CORE_MAX_OLD_SPACE_MB==='384' && s.api.environment.CAD_IMPORT_MAX_CONCURRENT_JOBS==='1' && s.api.environment.CAD_CGROUP_REQUIRED==='1','bounded CAD process resources');
+  const converterMount=(s.api.volumes??[]).find(m=>m.target==='/opt/cad-converter');
+  requireRule(s.api.environment.CAD_IMPORT_CONVERTER_MODE==='linux' && s.api.environment.CAD_IMPORT_CONVERTER_EXECUTABLE==='/opt/cad-converter/bin/converter' && validConverterArgv(s.api.environment.CAD_IMPORT_CONVERTER_ARGV_JSON) && s.api.environment.CAD_IMPORT_TEMP_ROOT==='/tmp/cad-import','approved CAD converter environment');
+  const cadTempMount=(s.api.tmpfs??[]).find(m=>m.split(':')[0]==='/tmp/cad-import');
+  const cadTempOptions=new Set(cadTempMount?.split(':').slice(1).join(':').split(',')??[]);
+  requireRule(cadTempOptions.has('uid=1000') && cadTempOptions.has('gid=1000') && cadTempOptions.has('mode=0700') && cadTempOptions.has('size=536870912'),'bounded writable CAD temporary storage');
+  requireRule(converterMount?.type==='bind' && path.isAbsolute(converterMount.source) && converterMount.read_only===true && converterMount.bind?.create_host_path===false,'approved CAD converter read-only bundle');
   for(const key of ['VAULT_ADDR','WEB_PUBLIC_URL']) requireRule(/^https:\/\//.test(s.api.environment[key]??''), `${key} HTTPS scheme`);
   requireRule(/^mqtts:\/\//.test(s.api.environment.MQTT_URL??''),'MQTT_URL mTLS scheme');
   requireRule(/^https:\/\//.test(s.web.environment.WEB_HTTPS_ORIGIN??''),'WEB_HTTPS_ORIGIN HTTPS scheme');

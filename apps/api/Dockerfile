@@ -55,7 +55,12 @@ fs.cpSync(path.resolve(client, '../.prisma'), path.resolve(runtimeClient, '../.p
 NODE
 
 FROM node:22.20.0-alpine3.22 AS runtime
-RUN apk add --no-cache tini openssl
+RUN apk add --no-cache tini openssl util-linux \
+  && test "$(realpath /usr/bin/prlimit)" = /usr/bin/prlimit \
+  && test ! -L /usr/bin/prlimit \
+  && test "$(stat -c '%u:%F' /usr/bin/prlimit)" = "0:regular file" \
+  && test -x /usr/bin/prlimit \
+  && test "$(stat -c '%a' /usr/bin/prlimit)" = "755"
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=build --chown=node:node /runtime/node_modules ./node_modules

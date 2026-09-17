@@ -43,7 +43,7 @@ trap 'exit 143' TERM
 node --input-type=module - "$smoke_root" "$smoke_dir" "$smoke_project" "$smoke_id" <<'NODE'
 import assert from 'node:assert/strict';
 import {execFileSync, spawn} from 'node:child_process';
-import {randomBytes,createHash} from 'node:crypto';
+import {randomBytes,createHash,randomUUID} from 'node:crypto';
 import {writeFileSync, readFileSync, mkdirSync, copyFileSync, chmodSync, readdirSync} from 'node:fs';
 import https from 'node:https';
 import http from 'node:http';
@@ -55,7 +55,7 @@ const run = (file, args, options={}) => execFileSync(file, args, {cwd:root, enco
 const openssl = (...args) => run('openssl', args, {cwd:dir});
 const secret = () => randomBytes(32).toString('hex');
 // All PKI is disposable. No production CA, token, endpoint or database is read.
-for (const name of ['api-tls','mqtt-tls','web-tls','vault']) mkdirSync(path.join(dir,name), {mode:0o755});
+for (const name of ['api-tls','mqtt-tls','web-tls','vault','cad-converter','cad-converter/bin']) mkdirSync(path.join(dir,name), {mode:0o755});
 openssl('req','-x509','-newkey','rsa:2048','-nodes','-days','2','-subj','/CN=Disposable smoke CA','-keyout','ca.key','-out','ca.crt');
 write('index',''); write('serial','1000\n'); write('crlnumber','1000\n');
 write('ca.cnf', `[ca]\ndefault_ca=CA\n[CA]\ndatabase=${dir}/index\nserial=${dir}/serial\ncrlnumber=${dir}/crlnumber\nprivate_key=${dir}/ca.key\ncertificate=${dir}/ca.crt\ndefault_md=sha256\ndefault_crl_days=2\n`);
@@ -86,6 +86,20 @@ const token=secret(); write('vault/token',token); chmodSync(path.join(dir,'vault
 // deliberately long disposable lease avoids implementing issuance/renewal APIs.
 write('vault/server.cjs', `const fs=require('fs');require('https').createServer({cert:fs.readFileSync('/fixture/server.crt'),key:fs.readFileSync('/fixture/server.key')},(q,r)=>{if(q.method!=='GET'||q.url!=='/v1/auth/token/lookup-self'||q.headers['x-vault-token']!==fs.readFileSync('/fixture/token','utf8')){r.writeHead(403);r.end();return;}r.setHeader('Content-Type','application/json');r.end(JSON.stringify({data:{renewable:true,ttl:3600,policies:['gateway-pki']}}));}).listen(8200);`);
 chmodSync(path.join(dir,'vault/server.cjs'),0o444);
+// This disposable external bundle exercises the production mount contract. It
+// is not copied into the image and fails if the converter inherits API secrets.
+write('cad-converter/bin/converter', `#!/bin/sh
+set -eu
+if env | grep -Eq '^(DATABASE_URL|REDIS_URL|MQTT_URL|VAULT_ADDR|OBJECT_STORAGE_ACCESS_KEY|OBJECT_STORAGE_SECRET_KEY)='; then
+  echo 'credential leaked to converter' >&2
+  exit 90
+fi
+if grep -q '^MEMORY_BOMB$' "$1"; then
+  exec node -e 'const held=[]; for (;;) held.push(Buffer.alloc(16*1024*1024, 1))'
+fi
+cp "$1" "$2"
+`);
+chmodSync(path.join(dir,'cad-converter/bin/converter'),0o555);
 const password=secret(), redisPassword=secret();
 const env={PRODUCTION_COMPOSE_PROJECT:project,API_IMAGE:`${project}-api:sha-${id}`,WEB_IMAGE:`${project}-web:sha-${id}`,
  POSTGRES_USER:'smoke',POSTGRES_PASSWORD:password,POSTGRES_DB:'smoke',DATABASE_URL:`postgresql://smoke:${password}@postgres:5432/smoke`,
@@ -93,7 +107,8 @@ const env={PRODUCTION_COMPOSE_PROJECT:project,API_IMAGE:`${project}-api:sha-${id
  MQTT_TLS_CERT_DIR:path.join(dir,'mqtt-tls'),API_TLS_CERT_DIR:path.join(dir,'api-tls'),WEB_TLS_CERT_DIR:path.join(dir,'web-tls'),
  VAULT_ADDR:'https://vault-smoke:8200',VAULT_TOKEN_FILE:path.join(dir,'vault/token'),VAULT_CA_CERT_PATH:path.join(dir,'vault/ca.crt'),
  VAULT_PKI_DEVICE_MOUNT:'device',VAULT_PKI_DEVICE_ROLE:'gateway',VAULT_PKI_MQTT_MOUNT:'mqtt',VAULT_PKI_MQTT_ROLE:'gateway',
- OBJECT_STORAGE_ACCESS_KEY:secret(),OBJECT_STORAGE_SECRET_KEY:secret(),OBJECT_STORAGE_BUCKET:'floor-assets',OBJECT_STORAGE_REPORT_BUCKET:'energy-reports',OBJECT_STORAGE_ENDPOINT:'http://object-storage:9000',OBJECT_STORAGE_PUBLIC_URL:'https://web:8443/floor-assets',OBJECT_STORAGE_REGION:'us-east-1',
+ OBJECT_STORAGE_ACCESS_KEY:secret(),OBJECT_STORAGE_SECRET_KEY:secret(),OBJECT_STORAGE_BUCKET:'floor-assets',OBJECT_STORAGE_REPORT_BUCKET:'energy-reports',OBJECT_STORAGE_ENDPOINT:'http://object-storage:9000',OBJECT_STORAGE_PUBLIC_URL:'http://object-storage:9000/floor-assets',OBJECT_STORAGE_REGION:'us-east-1',
+ CAD_IMPORT_CONVERTER_BUNDLE_PATH:path.join(dir,'cad-converter'),CAD_IMPORT_CONVERTER_ARGV_JSON:'["{input}","{output}"]',
  WEB_PUBLIC_URL:'https://localhost',WEB_HTTPS_ORIGIN:'https://localhost',WEB_HTTP_PORT:'127.0.0.1::8080',WEB_HTTPS_PORT:'127.0.0.1::8443'};
 // Production uses fixed target ports in its short syntax; zero asks Docker for
 // private loopback ephemeral host ports, avoiding every existing stack's ports.
@@ -139,7 +154,9 @@ try {
   // The first query proves no previous schema/data is being reused.
   compose('up','-d','postgres');
   const wait=async(check,label,ms=90000)=>{const deadline=Date.now()+ms;while(Date.now()<deadline){if(await check())return;await new Promise(r=>setTimeout(r,500));}throw new Error(`${label} deadline exceeded`);};
-  await wait(()=>{try{return compose('exec','-T','postgres','pg_isready','-U','smoke','-d','smoke').includes('accepting connections')}catch{return false}},'postgres');
+  // pg_isready also observes the disposable init server. Require the final
+  // entrypoint exec (postgres as PID 1) before issuing the blank-database query.
+  await wait(()=>{try{return compose('exec','-T','postgres','sh','-ec','test "$(cat /proc/1/comm)" = postgres && pg_isready -U smoke -d smoke').includes('accepting connections')}catch{return false}},'postgres');
   const sql=q=>compose('exec','-T','postgres','psql','-U','smoke','-d','smoke','-Atc',q).trim();
   assert.equal(sql("SELECT count(*) FROM information_schema.tables WHERE table_schema='public'"),'0');
   log('DATABASE initial-public-tables=0');
@@ -163,6 +180,7 @@ try {
   assert.equal(apiContainer.HostConfig.Memory,805306368);
   const cadCgroupMemory=compose('exec','-T','api','sh','-ec','cat /sys/fs/cgroup/memory.max 2>/dev/null || cat /sys/fs/cgroup/memory/memory.limit_in_bytes').trim();
   assert.equal(cadCgroupMemory,'805306368');
+  compose('exec','-T','api','sh','-ec','test ! -L /usr/bin/prlimit && test -f /usr/bin/prlimit && test -x /usr/bin/prlimit && test "$(readlink -f /usr/bin/prlimit)" = /usr/bin/prlimit && test "$(stat -c %u:%a /usr/bin/prlimit)" = 0:755');
   assert.deepEqual(apiContainer.Config.Entrypoint,['/sbin/tini','--']);
   const live=await request(`${origin}/api/health/live`,{headers:{'X-Request-Id':'smoke-correlation','X-Forwarded-For':'untrusted'}});
   assert.equal(live.status,200); assert.equal(live.headers['x-request-id'],'smoke-correlation');
@@ -193,8 +211,82 @@ try {
   await assert.rejects(request(deviceUrl,{...manufacturingOptions,...clientIdentity,servername:'wrong.invalid'},invalidBody));
   assert.equal((await request(`${origin}/api/health/ready`)).status,200);
   log('VERIFY TLS-passthrough no-client=401 valid-client=400 invalid-serial=true server-identity=verified inventory/enrollment=0 browser-proxy=200');
-  log(`VERIFY migrations=${migrations}/${expected} same-api-image=true cgroup=${cadCgroupMemory} live=200 ready=200 TLS=1.2,1.3 proxy=200 request-id=preserved cache/security=pass HTTP=308`);
+  log(`VERIFY migrations=${migrations}/${expected} same-api-image=true cgroup=${cadCgroupMemory} prlimit=root:755:canonical live=200 ready=200 TLS=1.2,1.3 proxy=200 request-id=preserved cache/security=pass HTTP=308`);
   const digest=content=>createHash('sha256').update(content).digest('hex');
+  const sqlLiteral=value=>`'${String(value).replaceAll("'", "''")}'`;
+  const sessionToken=secret();
+  const seeded={organizationId:randomUUID(),userId:randomUUID(),siteId:randomUUID(),floorId:randomUUID(),sessionId:randomUUID()};
+  sql(`INSERT INTO "Organization" ("id","name","type","createdAt","updatedAt") VALUES (${sqlLiteral(seeded.organizationId)},'CAD smoke','customer',now(),now());
+    INSERT INTO "User" ("id","organizationId","loginId","name","passwordHash","role","status","mustChangePassword","createdAt","updatedAt")
+      VALUES (${sqlLiteral(seeded.userId)},${sqlLiteral(seeded.organizationId)},${sqlLiteral(`cad-smoke-${id}`)},'CAD Smoke Admin','unused','admin','active',false,now(),now());
+    INSERT INTO "Site" ("id","organizationId","adminUserId","name","timeZone","createdAt","updatedAt")
+      VALUES (${sqlLiteral(seeded.siteId)},${sqlLiteral(seeded.organizationId)},${sqlLiteral(seeded.userId)},'CAD Smoke Site','Asia/Seoul',now(),now());
+    INSERT INTO "Floor" ("id","siteId","name","level","createdAt","updatedAt")
+      VALUES (${sqlLiteral(seeded.floorId)},${sqlLiteral(seeded.siteId)},'CAD Smoke Floor',1,now(),now());
+    INSERT INTO "Session" ("id","userId","familyId","tokenHash","expiresAt","createdAt","updatedAt")
+      VALUES (${sqlLiteral(seeded.sessionId)},${sqlLiteral(seeded.userId)},${sqlLiteral(randomUUID())},${sqlLiteral(digest(sessionToken))},now()+interval '1 hour',now(),now());`);
+  const authHeaders={'Content-Type':'application/json','Cookie':`led_session=${sessionToken}`};
+  const jsonRequest=async(method,url,body)=>{
+    const response=await request(url,{method,headers:authHeaders},body===undefined?undefined:JSON.stringify(body));
+    let parsed; try { parsed=response.body?JSON.parse(response.body):undefined; } catch { parsed=response.body; }
+    return {...response,json:parsed};
+  };
+  const composeInput=(input,...args)=>run('docker',['compose','-p',project,'-f',path.join(dir,'rendered.json'),...args],{input,stdio:['pipe','pipe','pipe']});
+  const putSource=content=>{
+    const bytes=Buffer.from(content); const assetId=randomUUID(); const objectKey=`floors/${seeded.floorId}/${assetId}.dxf`; const sha256=digest(bytes);
+    composeInput(bytes,'exec','-T','api','node','-e',`const fs=require('fs');const crypto=require('crypto');const {S3Client,PutObjectCommand}=require('@aws-sdk/client-s3');const body=fs.readFileSync(0);const client=new S3Client({endpoint:process.env.OBJECT_STORAGE_ENDPOINT,region:process.env.OBJECT_STORAGE_REGION,forcePathStyle:true,credentials:{accessKeyId:process.env.OBJECT_STORAGE_ACCESS_KEY,secretAccessKey:process.env.OBJECT_STORAGE_SECRET_KEY}});client.send(new PutObjectCommand({Bucket:process.env.OBJECT_STORAGE_BUCKET,Key:process.argv[1],Body:body,ContentType:'application/dxf',ContentLength:body.length,ChecksumSHA256:crypto.createHash('sha256').update(body).digest('base64')})).catch(error=>{console.error(error);process.exit(1)});`,objectKey);
+    sql(`INSERT INTO "FloorAsset" ("id","floorId","kind","status","objectKey","mimeType","sizeBytes","sha256","readyAt","createdAt","updatedAt")
+      VALUES (${sqlLiteral(assetId)},${sqlLiteral(seeded.floorId)},'original','ready',${sqlLiteral(objectKey)},'application/dxf',${bytes.length},${sqlLiteral(sha256)},now(),now(),now());`);
+    return {assetId,objectKey,sha256};
+  };
+  const createJob=async content=>{
+    const source=putSource(content);
+    const response=await jsonRequest('POST',`${origin}/api/floors/${seeded.floorId}/import-jobs`,{sourceAssetId:source.assetId,sourceFormat:'dxf'});
+    assert.equal(response.status,201,JSON.stringify(response.json));
+    return {...source,jobId:response.json.jobId};
+  };
+  const waitForJob=async(jobId,statuses,timeoutMs=30000)=>{
+    let latest;
+    await wait(async()=>{
+      const response=await jsonRequest('GET',`${origin}/api/floors/${seeded.floorId}/import-jobs/${jobId}`);
+      assert.equal(response.status,200,JSON.stringify(response.json)); latest=response.json;
+      return statuses.includes(latest.status);
+    },`CAD job ${jobId} ${statuses.join('/')}`,timeoutMs);
+    return latest;
+  };
+  const fetchSignedContent=async assetId=>{
+    const redirect=await jsonRequest('GET',`${origin}/api/floors/${seeded.floorId}/assets/${assetId}/content`);
+    assert.equal(redirect.status,302,JSON.stringify(redirect.json)); assert.ok(redirect.headers.location);
+    return JSON.parse(compose('exec','-T','api','node','-e',`fetch(process.argv[1]).then(async response=>{const body=Buffer.from(await response.arrayBuffer());console.log(JSON.stringify({status:response.status,encoding:response.headers.get('content-encoding'),contentType:response.headers.get('content-type'),bytes:body.length}))}).catch(error=>{console.error(error);process.exit(1)})`,redirect.headers.location));
+  };
+  const normalDxf=`0\nSECTION\n2\nBLOCKS\n0\nBLOCK\n2\nLED_FIXTURE\n10\n0\n20\n0\n0\nCIRCLE\n5\nB1\n8\nSYMBOL\n10\n0\n20\n0\n40\n1\n0\nENDBLK\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nLINE\n5\nW1\n8\nWALL\n10\n0\n20\n0\n11\n20\n21\n20\n0\nINSERT\n5\nI1\n8\nLIGHTING\n2\nLED_FIXTURE\n10\n10\n20\n10\n0\nINSERT\n5\nI2\n8\nLIGHTING\n2\nLED_FIXTURE\n10\n15\n20\n10\n0\nENDSEC\n0\nEOF\n`;
+  const memoryBefore=compose('exec','-T','api','sh','-ec','cat /sys/fs/cgroup/memory.current 2>/dev/null || cat /sys/fs/cgroup/memory/memory.usage_in_bytes').trim();
+  const normal=await createJob(normalDxf);
+  const review=await waitForJob(normal.jobId,['review_required','failed']);
+  assert.equal(review.status,'review_required',JSON.stringify(review));
+  assert.equal(review.detectorProfileId,'generic-lighting-v1'); assert.equal(review.sourceAssetId,normal.assetId);
+  const candidates=await jsonRequest('GET',`${origin}/api/floors/${seeded.floorId}/import-jobs/${normal.jobId}/candidates`);
+  assert.equal(candidates.status,200,JSON.stringify(candidates.json)); assert.ok(candidates.json.candidates.length>=1);
+  assert.equal(sql('SELECT count(*) FROM "Fixture"'),'0');
+  const content=await fetchSignedContent(review.renderedAssetId);
+  assert.equal(content.status,200); assert.equal(content.encoding,'gzip'); assert.match(content.contentType,/image\/svg\+xml/); assert.ok(content.bytes>0);
+  const lease=await jsonRequest('POST',`${origin}/api/floors/${seeded.floorId}/editor-lease`,{});
+  assert.equal(lease.status,201,JSON.stringify(lease.json)); assert.equal(lease.json.editable,true);
+  const applied=await jsonRequest('POST',`${origin}/api/floors/${seeded.floorId}/import-jobs/${normal.jobId}/apply`,{
+    expectedRevision:0,leaseToken:lease.json.token,leaseFence:lease.json.fence,candidateIds:candidates.json.candidates.map(candidate=>candidate.id)
+  });
+  assert.equal(applied.status,200,JSON.stringify(applied.json)); assert.equal(applied.json.status,'completed'); assert.equal(applied.json.revision,1);
+  assert.equal(sql('SELECT count(*) FROM "Fixture"'),'0'); assert.equal(sql('SELECT count(*) FROM "MeshNode"'),'0');
+  const appliedContent=await fetchSignedContent(review.renderedAssetId); assert.equal(appliedContent.encoding,'gzip');
+  const malformed=await createJob('0\nSECTION\n2\nENTITIES\n0\nLINE\n10\nbad\n0\nENDSEC\n0\nEOF\n');
+  assert.equal((await waitForJob(malformed.jobId,['failed'],45000)).failureCode,'CAD_IMPORT_PARSE_FAILED');
+  assert.equal((await request(`${origin}/api/health/live`)).status,200);
+  const memoryBomb=await createJob('MEMORY_BOMB\n');
+  assert.equal((await waitForJob(memoryBomb.jobId,['failed'],45000)).failureCode,'CAD_IMPORT_CONVERSION_FAILED');
+  assert.equal((await request(`${origin}/api/health/live`)).status,200);
+  assert.equal(compose('ps','-q','api').trim(),apiId);
+  const memoryAfter=compose('exec','-T','api','sh','-ec','cat /sys/fs/cgroup/memory.current 2>/dev/null || cat /sys/fs/cgroup/memory/memory.usage_in_bytes').trim();
+  log(`VERIFY CAD production-path=Nest-provider+worker+converter+core+PG+MinIO HTTP=create/status/candidates/content/apply candidate-auto-register=false content-encoding=gzip memory=${memoryBefore}->${memoryAfter}/${cadCgroupMemory} malformed=failed MEMORY_BOMB=bounded cad-parent-survived=true`);
   const originalDevice=readFileSync(path.join(dir,'api-tls/device.crl'));
   const originalMqtt=readFileSync(path.join(dir,'mqtt-tls/mqtt-client.crl'));
   openssl('ca','-gencrl','-config','ca.cnf','-out','next.crl');
