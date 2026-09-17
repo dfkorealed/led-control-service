@@ -37,18 +37,21 @@ export class SpoolCadConverter implements CadConverter {
     const output = join(jobDirectory, "output");
     const response = join(jobDirectory, "response.json");
     const cancel = join(jobDirectory, "cancel");
+    let requestPublished = false;
+    let terminalResponseObserved = false;
     try {
       await copyFile(request.inputPath, input);
       await chmod(input, 0o640);
       await this.writeJsonAtomically(join(jobDirectory, "request.json"), { version: 1, input: "input", output: "output" });
+      requestPublished = true;
       const deadline = Date.now() + this.options.timeoutMs;
       while (Date.now() < deadline) {
         if (request.abortSignal?.aborted) {
-          await signalCancellationAndWait(cancel, response);
           throw new Error("CAD conversion aborted");
         }
         const result = await readJsonIfRegular(response);
         if (result) {
+          terminalResponseObserved = true;
           if (result.version !== 1 || typeof result.ok !== "boolean") throw new Error("invalid CAD converter sidecar response");
           if (!result.ok) throw new Error(`CAD converter sidecar failed: ${safeError(result.error)}`);
           const identity = await lstat(output);
@@ -65,8 +68,12 @@ export class SpoolCadConverter implements CadConverter {
         await this.assertReady();
         await delay(POLL_INTERVAL_MS);
       }
-      await signalCancellationAndWait(cancel, response, "timeout");
       throw new Error("CAD conversion sidecar time limit exceeded");
+    } catch (error) {
+      if (requestPublished && !terminalResponseObserved) {
+        await signalCancellationAndWait(cancel, response, error instanceof Error && /time limit/i.test(error.message) ? "timeout" : "cancelled");
+      }
+      throw error;
     } finally {
       await rm(jobDirectory, { recursive: true, force: true });
     }

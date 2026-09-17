@@ -141,6 +141,32 @@ describe("credential-free CAD converter spool boundary", () => {
     await expect(serving).resolves.toBeUndefined();
   });
 
+  it("hands off cancellation when readiness fails after the sidecar has claimed a job", async () => {
+    const inputPath = join(directory, "source.dwg");
+    const outputPath = join(directory, "converted.dxf");
+    const readyPath = join(spoolRoot, ".ready.json");
+    await writeFile(inputPath, "source");
+    await writeFile(readyPath, JSON.stringify({
+      version: 2,
+      digest,
+      instanceId: "active-sidecar",
+      heartbeatAt: Date.now()
+    }));
+    const converter = new SpoolCadConverter({ spoolRoot, approvedDigest: digest, timeoutMs: 1000, maxOutputBytes: 1024 });
+    const serving = serveOne(spoolRoot, async jobDirectory => {
+      await rm(readyPath);
+      await waitForFile(join(jobDirectory, "cancel"));
+      await writeFile(join(jobDirectory, "response.json"), JSON.stringify({
+        version: 1,
+        ok: false,
+        error: "sidecar readiness lost"
+      }));
+    });
+
+    await expect(converter.convert({ inputPath, outputPath })).rejects.toThrow(/sidecar.*ready/i);
+    await expect(serving).resolves.toBeUndefined();
+  });
+
   it("treats a cancelled job directory disappearing as job-local cleanup", async () => {
     const jobDirectory = join(spoolRoot, "job-cancelled");
     await mkdir(jobDirectory);

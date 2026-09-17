@@ -124,7 +124,17 @@ async function writeResponseIfPresent(jobDirectory: string, value: unknown) {
   try {
     await writeResponse(jobDirectory, value);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    if (!await directoryIsMissing(jobDirectory)) throw error;
+  }
+}
+
+async function directoryIsMissing(path: string) {
+  try {
+    await lstat(path);
+    return false;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return true;
+    throw error;
   }
 }
 
