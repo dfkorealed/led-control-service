@@ -4,6 +4,7 @@ import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import { ObjectStorageService } from "../storage/object-storage.service";
+import { FloorRenderedAssetReconciler } from "../storage/floor-rendered-asset-reconciler";
 import { assertActiveFloorStatus } from "./floor-lifecycle";
 
 interface LockedFloorAssetRow {
@@ -30,7 +31,8 @@ export class FloorAssetsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: ObjectStorageService,
-    private readonly siteAccess: SiteAccessService
+    private readonly siteAccess: SiteAccessService,
+    private readonly renderedReconciler?: FloorRenderedAssetReconciler
   ) {}
 
   async createUploadIntent(
@@ -193,19 +195,23 @@ export class FloorAssetsService {
     await this.siteAccess.assert(user, floor.siteId, "read");
     const asset = await this.prisma.floorAsset.findFirst({
       where: { id: assetId, floorId, status: "ready" },
-      select: { kind: true, objectKey: true, mimeType: true, contentEncoding: true, sizeBytes: true, sha256: true }
+      select: { id: true, kind: true, objectKey: true, mimeType: true, contentEncoding: true, sizeBytes: true, sha256: true }
     });
     if (!asset) throw new NotFoundException("floor asset not found");
     try {
       if (asset.kind === "rendered" && asset.mimeType === "image/svg+xml") {
-        if (asset.contentEncoding !== null && asset.contentEncoding !== "gzip") {
+        if (asset.contentEncoding === "unknown") {
+          if (!this.renderedReconciler) throw new Error("rendered floor asset reconciler is unavailable");
+          await this.renderedReconciler.reconcile(asset);
+        } else if (!isKnownRenderedEncoding(asset.contentEncoding)) {
           throw new Error("rendered floor asset encoding ledger is invalid");
+        } else {
+          const sizeBytes = Number(asset.sizeBytes);
+          if (!Number.isSafeInteger(sizeBytes)) throw new Error("rendered floor asset size ledger is invalid");
+          await this.storage.readFloorRenderedMetadata(asset.objectKey, {
+            sizeBytes, sha256: asset.sha256, mimeType: "image/svg+xml", contentEncoding: asset.contentEncoding
+          });
         }
-        const sizeBytes = Number(asset.sizeBytes);
-        if (!Number.isSafeInteger(sizeBytes)) throw new Error("rendered floor asset size ledger is invalid");
-        await this.storage.readFloorRenderedMetadata(asset.objectKey, {
-          sizeBytes, sha256: asset.sha256, mimeType: "image/svg+xml", contentEncoding: asset.contentEncoding
-        });
       }
       return { url: await this.storage.createFloorAssetDownloadUrl(asset.objectKey) };
     } catch {
@@ -282,4 +288,8 @@ function floorAssetHeadException(error: unknown) {
     return new NotFoundException("uploaded floor asset object not found");
   }
   return new ServiceUnavailableException("floor asset storage is temporarily unavailable");
+}
+
+function isKnownRenderedEncoding(value: string | null): value is "gzip" | null {
+  return value === null || value === "gzip";
 }

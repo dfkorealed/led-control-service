@@ -290,6 +290,18 @@ export class ObjectStorageService {
     expected: { sizeBytes: number; sha256: string; mimeType: "image/svg+xml"; contentEncoding: "gzip" | null },
     abortSignal?: AbortSignal
   ) {
+    const inspected = await this.inspectFloorRenderedMetadata(objectKey, expected, abortSignal);
+    if (inspected.contentEncoding !== expected.contentEncoding) {
+      throw new Error("rendered floor asset HEAD does not match its ledger");
+    }
+    return { width: inspected.width, height: inspected.height };
+  }
+
+  async inspectFloorRenderedMetadata(
+    objectKey: string,
+    expected: { sizeBytes: number; sha256: string; mimeType: "image/svg+xml" },
+    abortSignal?: AbortSignal
+  ) {
     this.assertFloorObjectKey(objectKey);
     if (!Number.isSafeInteger(expected.sizeBytes) || expected.sizeBytes < 1 ||
         !/^[a-f0-9]{64}$/.test(expected.sha256)) {
@@ -301,13 +313,14 @@ export class ObjectStorageService {
     );
     const width = Number(head.Metadata?.["cad-width"]);
     const height = Number(head.Metadata?.["cad-height"]);
+    const contentEncoding = head.ContentEncoding ?? null;
     if (head.ContentLength !== expected.sizeBytes || head.ContentType !== expected.mimeType ||
-        (head.ContentEncoding ?? null) !== expected.contentEncoding ||
+        (contentEncoding !== null && contentEncoding !== "gzip") ||
         head.ChecksumSHA256 !== Buffer.from(expected.sha256, "hex").toString("base64") ||
         !validViewportDimension(width) || !validViewportDimension(height)) {
       throw new Error("rendered floor asset HEAD does not match its ledger");
     }
-    return { width, height };
+    return { width, height, contentEncoding } as { width: number; height: number; contentEncoding: "gzip" | null };
   }
 
   private validateUpload(input: { mimeType: string; sizeBytes: number; sha256: string }) {

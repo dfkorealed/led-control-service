@@ -140,8 +140,28 @@ describe("FloorAssetsService", () => {
     expect(siteAccess.assert).toHaveBeenCalledWith(viewer, "site-1", "read");
     expect(prisma.floorAsset.findFirst).toHaveBeenCalledWith({
       where: { id: "asset-1", floorId: "floor-1", status: "ready" },
-      select: { kind: true, objectKey: true, mimeType: true, contentEncoding: true, sizeBytes: true, sha256: true }
+      select: { id: true, kind: true, objectKey: true, mimeType: true, contentEncoding: true, sizeBytes: true, sha256: true }
     });
+  });
+
+  it("reconciles an unknown rendered SVG before signing content", async () => {
+    const asset = {
+      id: "asset-1", kind: "rendered", objectKey: "floors/floor-1/render.svg", mimeType: "image/svg+xml",
+      contentEncoding: "unknown", sizeBytes: 321n, sha256: "b".repeat(64)
+    };
+    const prisma: any = {
+      floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },
+      floorAsset: { findFirst: jest.fn().mockResolvedValue(asset) }
+    };
+    const storage: any = { createFloorAssetDownloadUrl: jest.fn().mockResolvedValue("https://download.example/signed") };
+    const reconciler: any = { reconcile: jest.fn().mockResolvedValue({ width: 10, height: 20, contentEncoding: "gzip" }) };
+    const service = new FloorAssetsService(
+      prisma, storage, { assert: jest.fn() } as any, reconciler
+    );
+
+    await expect(service.getContentRedirect(viewer, "floor-1", asset.id))
+      .resolves.toEqual({ url: "https://download.example/signed" });
+    expect(reconciler.reconcile).toHaveBeenCalledWith(asset);
   });
 
   it("signs legacy identity and gzip rendered SVGs only after exact object HEAD verification", async () => {

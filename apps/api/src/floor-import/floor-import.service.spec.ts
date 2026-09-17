@@ -299,6 +299,32 @@ describe("FloorImportService", () => {
     );
   });
 
+  it("reconciles an unknown rendered SVG before returning review data", async () => {
+    const floorId = randomUUID();
+    const renderedAssetId = randomUUID();
+    const renderedAsset = {
+      id: renderedAssetId, objectKey: `floors/${floorId}/${renderedAssetId}.svg`, status: "ready",
+      mimeType: "image/svg+xml", contentEncoding: "unknown", sizeBytes: 512n,
+      sha256: "d".repeat(64), cleanupStartedAt: null
+    };
+    const reviewJob = job({ floorId, renderedAssetId, status: "review_required", renderedAsset });
+    const prisma: any = {
+      floor: { findUnique: jest.fn().mockResolvedValue({ id: floorId, siteId: "site-1" }) },
+      floorImportJob: { findFirst: jest.fn().mockResolvedValue(reviewJob) }
+    };
+    const reconciler: any = {
+      reconcile: jest.fn().mockResolvedValue({ width: 800, height: 600, contentEncoding: "gzip" })
+    };
+    const service = new FloorImportService(
+      prisma, { assert: jest.fn() } as any, { record: jest.fn() } as any, {} as any, reconciler
+    );
+
+    await expect(service.get(user, floorId, reviewJob.id)).resolves.toMatchObject({
+      jobId: reviewJob.id, renderedViewport: { width: 800, height: 600 }
+    });
+    expect(reconciler.reconcile).toHaveBeenCalledWith(expect.objectContaining({ id: renderedAssetId, contentEncoding: "unknown" }));
+  });
+
   it("cancels an active job with a fenced state transition and leaves terminal jobs unchanged", async () => {
     const floorId = randomUUID(); const row = job({ floorId, status: "processing", leaseOwner: "worker", leaseExpiresAt: new Date() });
     const cancelled = job({ ...row, status: "cancelled", leaseOwner: null, leaseExpiresAt: null, cancelledAt: new Date() });

@@ -25,6 +25,7 @@ import { hashEditorLeaseToken } from "../floor-editor/editor-lease-token";
 import { assertActiveFloorStatus } from "../floor-editor/floor-lifecycle";
 import { PrismaService } from "../prisma/prisma.service";
 import { ObjectStorageService } from "../storage/object-storage.service";
+import { FloorRenderedAssetReconciler } from "../storage/floor-rendered-asset-reconciler";
 import { FixedLightingDetectorRegistry } from "./lighting-detector-registry";
 
 const createInputSchema = z.object({
@@ -70,7 +71,8 @@ export class FloorImportService {
     private readonly prisma: PrismaService,
     private readonly access: SiteAccessService,
     private readonly audit: AuditService,
-    private readonly storage?: ObjectStorageService
+    private readonly storage?: ObjectStorageService,
+    private readonly renderedReconciler?: FloorRenderedAssetReconciler
   ) {}
 
   async create(user: AuthenticatedUser, floorId: string, rawInput: unknown) {
@@ -215,7 +217,7 @@ export class FloorImportService {
     const renderedAsset = rendered?.renderedAsset;
     if (!renderedAsset || renderedAsset.status !== "ready" ||
         renderedAsset.mimeType !== "image/svg+xml" ||
-        (renderedAsset.contentEncoding !== null && renderedAsset.contentEncoding !== "gzip") ||
+        !isSupportedRenderedEncoding(renderedAsset.contentEncoding) ||
         renderedAsset.cleanupStartedAt) {
       throw new ConflictException("floor import job is not ready to apply");
     }
@@ -223,10 +225,18 @@ export class FloorImportService {
     if (!Number.isSafeInteger(renderedSizeBytes)) throw new ConflictException("rendered floor asset ledger is invalid");
     let viewport: { width: number; height: number };
     try {
-      viewport = await this.storage.readFloorRenderedMetadata(renderedAsset.objectKey, {
-        sizeBytes: renderedSizeBytes, sha256: renderedAsset.sha256,
-        mimeType: "image/svg+xml", contentEncoding: renderedAsset.contentEncoding
-      });
+      if (renderedAsset.contentEncoding === "unknown") {
+        if (!this.renderedReconciler) throw new Error("rendered floor asset reconciler is unavailable");
+        const reconciled = await this.renderedReconciler.reconcile({ ...renderedAsset });
+        renderedAsset.contentEncoding = reconciled.contentEncoding;
+        viewport = { width: reconciled.width, height: reconciled.height };
+      } else {
+        const knownEncoding = renderedAsset.contentEncoding === "gzip" ? "gzip" : null;
+        viewport = await this.storage.readFloorRenderedMetadata(renderedAsset.objectKey, {
+          sizeBytes: renderedSizeBytes, sha256: renderedAsset.sha256,
+          mimeType: "image/svg+xml", contentEncoding: knownEncoding
+        });
+      }
     }
     catch { throw new ServiceUnavailableException("rendered floor asset metadata is unavailable"); }
     try {
@@ -370,20 +380,30 @@ export class FloorImportService {
       if (!this.storage) throw new InternalServerErrorException("floor import storage is unavailable");
       const rendered = job.renderedAsset;
       if (!rendered || rendered.status !== "ready" || rendered.mimeType !== "image/svg+xml" ||
-          (rendered.contentEncoding !== null && rendered.contentEncoding !== "gzip") || rendered.cleanupStartedAt) {
+          !isSupportedRenderedEncoding(rendered.contentEncoding) || rendered.cleanupStartedAt) {
         throw new ConflictException("rendered floor asset is not ready for review");
       }
       const sizeBytes = Number(rendered.sizeBytes);
       if (!Number.isSafeInteger(sizeBytes)) throw new ConflictException("rendered floor asset ledger is invalid");
       try {
-        renderedViewport = floorImportRenderedViewportSchema.parse(
-          await this.storage.readFloorRenderedMetadata(rendered.objectKey, {
-            sizeBytes,
-            sha256: rendered.sha256,
-            mimeType: "image/svg+xml",
-            contentEncoding: rendered.contentEncoding
-          })
-        );
+        if (rendered.contentEncoding === "unknown") {
+          if (!this.renderedReconciler) throw new Error("rendered floor asset reconciler is unavailable");
+          const reconciled = await this.renderedReconciler.reconcile({ ...rendered });
+          rendered.contentEncoding = reconciled.contentEncoding;
+          renderedViewport = floorImportRenderedViewportSchema.parse({
+            width: reconciled.width, height: reconciled.height
+          });
+        } else {
+          const knownEncoding = rendered.contentEncoding === "gzip" ? "gzip" : null;
+          renderedViewport = floorImportRenderedViewportSchema.parse(
+            await this.storage.readFloorRenderedMetadata(rendered.objectKey, {
+              sizeBytes,
+              sha256: rendered.sha256,
+              mimeType: "image/svg+xml",
+              contentEncoding: knownEncoding
+            })
+          );
+        }
       } catch {
         throw new ServiceUnavailableException("rendered floor asset metadata is unavailable");
       }
@@ -495,4 +515,8 @@ function isPrismaCode(error: unknown, code: string) {
 
 function isUniqueConflict(error: unknown) {
   return isPrismaCode(error, "P2002");
+}
+
+function isSupportedRenderedEncoding(value: string | null): value is "gzip" | "unknown" | null {
+  return value === null || value === "gzip" || value === "unknown";
 }
