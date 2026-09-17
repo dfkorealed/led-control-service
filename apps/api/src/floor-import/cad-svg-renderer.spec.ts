@@ -54,7 +54,8 @@ describe("CAD SVG renderer", () => {
       const raster = sharp(Buffer.from(svg)).ensureAlpha();
       const metadata = await raster.metadata();
       const stats = await raster.stats();
-      expect(metadata.width).toBeGreaterThan(3_900);
+      expect(metadata.width).toBe(2_400);
+      expect(metadata.height).toBe(800);
       expect(stats.channels[3]?.max).toBe(255);
       expect(repeatedResult).toEqual(result);
       expect(await readFile(repeatedPath)).toEqual(await readFile(outputPath));
@@ -201,9 +202,9 @@ describe("CAD SVG renderer", () => {
       expect(parsed.bounds).toEqual({ minX: 0, minY: 0, maxX: 0.9, maxY: 0.9 });
       expect(parsed.entities.map(entity => entity.sourceEntityId)).toEqual(["VISIBLE-LINE"]);
       expect(svg).toContain('<path d="M0 0L0.9 0.9"/>');
-      expect(projectCadPointToViewport({ x: 0.45, y: 0.45, z: 0 }, parsed.bounds)).toEqual({ x: 1.45, y: 1.45 });
+      expect(projectCadPointToViewport({ x: 0.45, y: 0.45, z: 0 }, parsed.bounds)).toEqual({ x: 724, y: 724 });
       const { data, info } = await sharp(Buffer.from(svg)).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-      expect({ width: info.width, height: info.height }).toEqual({ width: 3, height: 3 });
+      expect({ width: info.width, height: info.height }).toEqual({ width: 1_448, height: 1_448 });
       expect([...data].some((value, index) => index % info.channels < 3 && value < 245)).toBe(true);
     } finally {
       await rm(root, { recursive: true, force: true });

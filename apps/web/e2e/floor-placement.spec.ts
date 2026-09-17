@@ -5,10 +5,16 @@ import type Konva from "konva";
 import type { FloorEditorState } from "../src/features/floor-editor/editor-types";
 import { expectNoHorizontalOverflow } from "./support/layout-assertions";
 
-async function editorFixture(page: Page, count = 24, alreadyPlaced = false) {
+async function editorFixture(page: Page, count = 24, alreadyPlaced = false, cadViewport?: { width: number; height: number }) {
   page.on("pageerror", (error) => console.error("Editor browser error", error.message));
   const states: Record<string, FloorEditorState> = Object.fromEntries([1, 2].map((floor) => [`floor-${floor}`, {
-    floor: { id: `floor-${floor}`, siteId: "site-1", name: `B${floor}`, level: -floor, mapRevision: 1, floorPlan: null }, objects: [],
+    floor: {
+      id: `floor-${floor}`, siteId: "site-1", name: `B${floor}`, level: -floor, mapRevision: 1,
+      floorPlan: cadViewport && floor === 1 ? {
+        sourceType: "image", imageUrl: "/api/floors/floor-1/assets/cad/content", originalFileUrl: "/api/floors/floor-1/assets/source/content",
+        renderedImageUrl: "/api/floors/floor-1/assets/cad/content", ...cadViewport, gridSize: 10, version: 1
+      } : null
+    }, objects: [],
     fixtures: Array.from({ length: floor === 1 ? count : 2 }, (_, i) => ({ id: `f${floor}-${i + 1}`, name: `B${floor}-L${String(i + 1).padStart(4, "0")}`, x: alreadyPlaced ? 20 + i % 40 * 25 : 0, y: alreadyPlaced ? 20 + Math.floor(i / 40) * 25 : 0, size: 20, ratedWatt: 40, brightness: 70, status: "online", placementStatus: alreadyPlaced ? "placed" : "unplaced", positionVerifiedAt: null }))
   }]));
   const saves: unknown[] = [];
@@ -19,6 +25,17 @@ async function editorFixture(page: Page, count = 24, alreadyPlaced = false) {
     if (path === "/sites") return route.fulfill({ json: [{ id: "site-1", name: "검증 현장" }] });
     if (path === "/sites/site-1/dashboard") return route.fulfill({ json: { capabilities: { read: true, control: true, manage: true, commission: true }, site: { id: "site-1", name: "검증 현장", customerName: "고객사", installationStatus: "installed", address: null, tariffKwhRate: 160, timeZone: "Asia/Seoul" }, summary: { totalFixtures: count + 2, onlineFixtures: count + 2, faultFixtures: 0, averageBrightness: 70 }, floors: Object.values(states).map((s) => ({ ...s.floor, fixtures: [], meshControlGroups: [] })), groups: [], gateways: [] } });
     const floorId = path.match(/\/floors\/(floor-\d)/)?.[1];
+    if (floorId === "floor-1" && path.endsWith("/import-jobs/applied-overlay")) return route.fulfill({ json: cadViewport ? {
+      overlay: {
+        floorId, jobId: "00000000-0000-4000-8000-000000000020", revision: 1,
+        renderedAssetId: "00000000-0000-4000-8000-000000000040", renderedAssetPath: "/api/floors/floor-1/assets/cad/content",
+        renderedViewport: cadViewport, appliedAt: "2026-09-17T00:00:00.000Z", candidates: []
+      }
+    } : { overlay: null } });
+    if (path === "/floors/floor-1/assets/cad/content") return route.fulfill({
+      contentType: "image/svg+xml",
+      body: `<svg xmlns="http://www.w3.org/2000/svg" width="${cadViewport?.width ?? 1}" height="${cadViewport?.height ?? 1}"><rect width="100%" height="100%" fill="#fff"/><path d="M40 400H2360" stroke="#111827"/></svg>`
+    });
     if (floorId && path.endsWith("/editor-lease")) return route.fulfill({ json: { editable: true, token: `lease-${floorId}`, fence: 1 } });
     if (floorId && path.endsWith("/editor-revisions")) return route.fulfill({ json: { items: [], nextCursor: null } });
     if (floorId && path.endsWith("/editor-state")) {
@@ -38,6 +55,25 @@ async function editorFixture(page: Page, count = 24, alreadyPlaced = false) {
   await expect(page.getByTestId("floor-editor-canvas")).toHaveAttribute("aria-disabled", "false");
   return { states, saves };
 }
+
+test("a normalized CAD map fits once and preserves subsequent user zoom", async ({ page }) => {
+  await page.setViewportSize({ width: 1_440, height: 900 });
+  await editorFixture(page, 24, false, { width: 2_400, height: 800 });
+  const canvas = page.getByTestId("floor-editor-canvas");
+  await expect(canvas).toHaveAttribute("data-map-width", "2400");
+  await expect(canvas).toHaveAttribute("data-map-height", "800");
+
+  const box = (await canvas.boundingBox())!;
+  const expectedZoom = Math.max(0.1, Math.min(2, (box.width - 48) / 2_400, (box.height - 48) / 800));
+  await expect.poll(async () => Number(await canvas.getAttribute("data-zoom"))).toBeCloseTo(expectedZoom, 3);
+
+  await canvas.hover();
+  await page.mouse.wheel(0, -100);
+  const userZoom = Number(await canvas.getAttribute("data-zoom"));
+  expect(userZoom).toBeGreaterThan(expectedZoom);
+  await page.waitForTimeout(200);
+  expect(Number(await canvas.getAttribute("data-zoom"))).toBeCloseTo(userZoom, 6);
+});
 async function currentState(page: Page) {
   return page.evaluate(async () => { const path = "/src/features/floor-editor/editor-store.ts"; return (await import(path)).useFloorEditorStore.getState().state as FloorEditorState; });
 }

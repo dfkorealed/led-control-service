@@ -362,10 +362,10 @@ describe("ASCII DXF document parser", () => {
     })).rejects.toThrow(/retained model memory.*limit/i);
   });
 
-  it("uses the renderer translation without ceil-based candidate rescaling", () => {
+  it("normalizes small CAD coordinates without separating candidates from the rendered map", () => {
     const bounds = { minX: 0, minY: 0, maxX: 0.1, maxY: 0.1 };
-    expect(createCadViewport(bounds)).toEqual({ width: 3, height: 3 });
+    expect(createCadViewport(bounds)).toEqual({ width: 800, height: 800 });
     expect(projectCadPointToViewport({ x: 0.05, y: 0.05, z: 0 }, bounds))
-      .toEqual({ x: 1.05, y: 1.05 });
+      .toEqual({ x: 400, y: 400 });
   });
 });

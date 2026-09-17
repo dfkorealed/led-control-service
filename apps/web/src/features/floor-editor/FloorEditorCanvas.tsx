@@ -62,6 +62,7 @@ export function FloorEditorCanvas({
   const guideTargets = useRef<MapRect[]>([]);
   const verticalGuide = useRef<Konva.Line>(null);
   const horizontalGuide = useRef<Konva.Line>(null);
+  const lastAutoFitKey = useRef<string | null>(null);
   const disabled = useRef(readOnly); disabled.current = readOnly;
   const state = useFloorEditorStore((s) => s.state);
   const activeTool = useFloorEditorStore((s) => s.activeTool);
@@ -89,6 +90,17 @@ export function FloorEditorCanvas({
   const bounds = cadBackgroundUrl && cadViewport
     ? cadViewport
     : { width: floorPlan?.width ?? 1200, height: floorPlan?.height ?? 800 };
+
+  useEffect(() => {
+    if (!cadBackgroundUrl || !cadViewport) {
+      lastAutoFitKey.current = null;
+      return;
+    }
+    const key = `${cadBackgroundUrl}:${cadViewport.width}x${cadViewport.height}`;
+    if (lastAutoFitKey.current === key) return;
+    lastAutoFitKey.current = key;
+    useFloorEditorStore.getState().fit(false, cadViewport);
+  }, [cadBackgroundUrl, cadViewport?.height, cadViewport?.width]);
   const editorColors = useMemo(() => ({
     panel: themeColor("surface-panel"),
     border: themeColor("fixture-editor-border"),

@@ -1087,7 +1087,14 @@ Check:
 - [x] **VERIFY:** Shared/API/Web focused 및 전체 회귀, Prisma validate/generate, typecheck/build, UI policy, production contract/smoke와 `git diff --check`를 실행했다.
 - [x] **COMMIT:** `c401c974`~`230a1db6`, `e249e0c4`, `285585fc`, `d7470d15`, `743b3ca1`, `d929ffc7`, `7cf8b12d`, `557e9fdc`, `84e1c7ec`으로 기능을 분리 커밋하고 최종 whole-feature review에서 Spec/Quality Ready 판정을 받았다.
 
-### 19.6 Pre-flight self-review
+### Task 19.6: CAD 좌표 정규화와 자동 전체 맞춤
+
+- [x] **RED:** 수천만 단위 CAD가 맵 상한을 초과하고 검토 배경이 나타나도 자동 맞춤이 실행되지 않는 회귀 테스트를 작성해 실패를 확인했다.
+- [x] **GREEN:** 원본 종횡비를 보존한 `2400 × 1600` 상한·800px 최소 변·40px 여백 좌표계를 SVG와 후보에 공통 적용했다.
+- [x] **GREEN:** 검토 또는 적용된 CAD overlay가 처음 나타날 때 전체 맵을 한 번 맞추고 이후 사용자 줌을 보존한다.
+- [x] **VERIFY:** Floor import 171개, Web 전체 1,309개, Chromium 맵 편집 7개와 실제 DWG 두 종류의 worker/storage/API 경로를 검증했다. `킨다_도면등록_테스트.dwg`는 원본 `15,020,849 × 164,134`에서 `2,400 × 800`로 정규화되고 후보 2개를 유지했다.
+
+### 19.7 Pre-flight self-review
 
 - Spec coverage: DWG/DXF, PDF 제외, 비등록 후보, AI 비활성 확장점, 정확도 평가가 Task 19.1~19.5에 모두 연결된다.
 - Type consistency: `FloorImportJob`, `FloorImportCandidate`, `LightingSymbolDetector`, `NormalizedCadDocument` 명칭을 전 Task에서 동일하게 사용한다.

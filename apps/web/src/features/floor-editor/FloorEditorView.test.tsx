@@ -721,6 +721,10 @@ describe("FloorEditorView", () => {
     expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("data-map-height", "360");
     expect(useFloorEditorStore.getState().state?.fixtures).toHaveLength(1);
 
+    expect(useFloorEditorStore.getState().zoom).toBeCloseTo(1.175);
+    act(() => useFloorEditorStore.getState().setZoom(0.75));
+    await waitFor(() => expect(useFloorEditorStore.getState().zoom).toBe(0.75));
+
     act(() => useFloorEditorStore.getState().setViewport({ width: 800, height: 600 }));
     fireEvent.click(screen.getByRole("button", { name: "맵 맞춤" }));
     expect(useFloorEditorStore.getState().zoom).toBeCloseTo(1.175);
