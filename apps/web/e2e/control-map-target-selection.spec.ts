@@ -83,6 +83,48 @@ test("final review: compact group name uses 16px text", async ({ page }) => {
   expect(await page.getByRole("textbox", { name: "구역 이름" }).evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(16);
 });
 
+for (const viewport of [{ width: 390, height: 660 }, { width: 320, height: 740 }] as const) {
+  test(`group creation at ${viewport.width}x${viewport.height} keeps a usable map and selectable marker`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await installControlMapRoutes(page);
+    await page.goto(`/control?siteId=${ids.site}`);
+    await page.getByRole("button", { name: "구역 관리" }).click();
+    await page.getByRole("button", { name: "새 구역" }).click();
+
+    const dialog = page.getByRole("dialog", { name: "구역 생성" });
+    const editor = dialog.getByTestId("fixture-group-map-editor");
+    const content = editor.locator("[data-target-selection-content]");
+    await expect(content).toBeVisible();
+    await expect.poll(async () => content.evaluate((element) => element.clientHeight)).toBeGreaterThanOrEqual(224);
+
+    const target = marker(editor, "B2-L001");
+    await target.click();
+    await expect(target).toHaveAttribute("aria-pressed", "true");
+  });
+}
+
+test("clearing a 100-member group keeps the desktop selector usable while changes scroll separately", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await installControlMapRoutes(page, { fixtureCount: 100, groupMemberCount: 100 });
+  await page.goto(`/control?siteId=${ids.site}`);
+  await page.getByRole("button", { name: "구역 관리" }).click();
+  await page.getByRole("button", { name: "B2 입구 수정" }).click();
+
+  const dialog = page.getByRole("dialog", { name: "구역 수정" });
+  const editor = dialog.getByTestId("fixture-group-map-editor");
+  const content = editor.locator("[data-target-selection-content]");
+  await expect.poll(async () => content.evaluate((element) => element.clientHeight)).toBeGreaterThanOrEqual(240);
+  await editor.getByRole("button", { name: "선택 비우기" }).click();
+
+  const changes = editor.locator('[aria-label="구역 구성 변경"]');
+  await expect(changes.getByText(/^제거 예정:/)).toHaveCount(100);
+  await expect(changes).toHaveCSS("overflow-y", "auto");
+  expect(await changes.evaluate((element) => element.scrollHeight)).toBeGreaterThan(await changes.evaluate((element) => element.clientHeight));
+  await expect.poll(async () => content.evaluate((element) => element.clientHeight)).toBeGreaterThanOrEqual(240);
+  await marker(editor, "B2-L100").click();
+  await expect(marker(editor, "B2-L100")).toHaveAttribute("aria-pressed", "true");
+});
+
 test("final review: boundary markers keep their whole coarse hit target inside the map", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await installControlMapRoutes(page, { boundaryFixtures: true });
@@ -394,6 +436,7 @@ async function installControlMapRoutes(page: Page, options: {
   role?: SettingsRole;
   fixtureCount?: number;
   groupCount?: number;
+  groupMemberCount?: number;
   historyCount?: number;
   boundaryFixtures?: boolean;
 } = {}) {
@@ -409,8 +452,11 @@ async function installControlMapRoutes(page: Page, options: {
     fixtures: fixtureData,
     ids: { siteId: ids.site, floorId: ids.floor, gatewayId: ids.gateway }
   });
-  const groups = [{ id: ids.group, name: "B2 입구", floorId: ids.floor, gatewayId: ids.gateway, lifecycleStatus: "active", fixtureCount: 2,
-    meshControlGroup: { status: "ready", version: 1, error: null }, fixtureIds: [ids.fixtureTwo, ids.fixture] }];
+  const groupFixtureIds = options.groupMemberCount
+    ? fixtureData.slice(0, options.groupMemberCount).map((item) => item.id)
+    : [ids.fixtureTwo, ids.fixture];
+  const groups = [{ id: ids.group, name: "B2 입구", floorId: ids.floor, gatewayId: ids.gateway, lifecycleStatus: "active", fixtureCount: groupFixtureIds.length,
+    meshControlGroup: { status: "ready", version: 1, error: null }, fixtureIds: groupFixtureIds }];
   if (options.groupCount) groups.splice(0, groups.length, ...Array.from({ length: options.groupCount }, (_, index) => ({
     ...groups[0], id: `99999999-9999-4999-8999-${String(4000 + index).padStart(12, "0")}`, name: `B2 구역 ${String(index + 1).padStart(3, "0")}`,
     fixtureCount: 1, fixtureIds: [fixtureData[index % fixtureData.length].id]

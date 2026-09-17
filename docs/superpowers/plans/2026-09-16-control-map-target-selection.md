@@ -5,7 +5,7 @@
 - [x] Tasks 1–10 implemented and reviewed task-by-task.
 - [x] Final whole-branch review completed; findings 1–13 received one test-first fix wave in `38b8b72e`.
 - [x] One scoped re-review completed; original findings 1–13 are resolved and the manual-selection-to-group shortcut is documented as deferred.
-- [ ] Integration blocked: the scoped re-review found that the group editor can collapse its selector to 0px on compact screens and after clearing a 100-member group. Preserve a usable selector minimum, scroll the oversized change list, and add both browser regressions before merge.
+- [x] Follow-up fix: the group editor preserves a usable selector on 390×660 and 320×740 screens, while a separately bounded change list keeps 100-member edits from collapsing the desktop map. Browser regressions cover marker selection in both cases.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

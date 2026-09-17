@@ -126,7 +126,7 @@ export function SpatialTargetSelector({
       interactionMode={interactionMode} disabled={disabled} onModeChange={requestModeChange} onFloorChange={setActiveFloorId}
       onInteractionModeChange={setInteractionMode} onOpenList={() => setListOpen(true)}
       onClear={selection.mode === "fixtures" && selection.fixtureIds.length > 0 ? () => onChange({ mode: "fixtures", fixtureIds: [] }) : undefined} />
-    <div className="grid min-h-0 min-w-0 flex-1 gap-3 overflow-y-auto overscroll-contain tablet:grid-cols-[minmax(0,1fr)_16rem] tablet:overflow-hidden">
+    <div className="grid min-h-0 min-w-0 flex-1 gap-3 overflow-y-auto overscroll-contain tablet:grid-cols-[minmax(0,1fr)_16rem] tablet:overflow-hidden" data-target-selection-content="">
       <div className="relative h-64 min-h-64 min-w-0 overflow-hidden rounded-panel border border-border-default bg-surface-inset tablet:h-full tablet:min-h-0">
         {mapQuery.data && activeFloor ? <FloorMapViewport snapshot={mapQuery.data} ariaLabel={`${activeFloor.name} 도면`} mode={interactionMode} onAreaSelect={selectArea} viewportTestId="target-selection-map-viewport">
           <FloorScene snapshot={mapQuery.data} fixtures={activeFloor.fixtures} interactive={false} floorName={activeFloor.name} selection={sceneSelection} coarsePointer onFixturePress={toggleFixture} />

@@ -72,7 +72,7 @@ export function FixtureGroupMapEditor({ siteId, dashboard, value, disabled, onCh
     });
   }
 
-  return <Card className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-4 max-compact:shrink-0" data-fixture-group-map-editor="" data-testid="fixture-group-map-editor">
+  return <Card className="flex min-h-0 flex-1 flex-col gap-3 p-4 max-compact:shrink-0 tablet:overflow-hidden" data-fixture-group-map-editor="" data-testid="fixture-group-map-editor">
     <div className="flex flex-wrap items-center justify-between gap-2">
       <Text as="strong" weight="semibold">지도에서 조명 선택</Text>
       <Text variant="caption" tone="secondary">{floorName} · {gatewayName} 경계</Text>
@@ -86,12 +86,14 @@ export function FixtureGroupMapEditor({ siteId, dashboard, value, disabled, onCh
         isDisabled={disabled || boundaryLocked || !value.floorId}
         onSelectionChange={(gatewayId) => { setMembershipError(null); onChange({ ...value, gatewayId: gatewayId ?? "", fixtureIds: [] }); }} />
     </div>
-    <SpatialTargetSelector siteId={siteId} dashboard={dashboard} selection={{ mode: "fixtures", fixtureIds: selectedFixtureIds }} disabled={disabled}
-      preferredFloorId={value.floorId} allowedModes={["fixtures"]} modeLabels={{ fixtures: "개별 조명" }} fixtureFilter={isWithinBoundary} fixtureFilterReason="구역과 같은 층·게이트웨이의 조명만 선택할 수 있습니다." onChange={(selection) => {
-        if (selection.mode === "fixtures") changeFixtures(selection.fixtureIds);
-      }} />
+    <div className="flex min-h-112 flex-1 flex-col tablet:min-h-96">
+      <SpatialTargetSelector siteId={siteId} dashboard={dashboard} selection={{ mode: "fixtures", fixtureIds: selectedFixtureIds }} disabled={disabled}
+        preferredFloorId={value.floorId} allowedModes={["fixtures"]} modeLabels={{ fixtures: "개별 조명" }} fixtureFilter={isWithinBoundary} fixtureFilterReason="구역과 같은 층·게이트웨이의 조명만 선택할 수 있습니다." onChange={(selection) => {
+          if (selection.mode === "fixtures") changeFixtures(selection.fixtureIds);
+        }} />
+    </div>
     {membershipError ? <Text role="alert" tone="danger">{membershipError}</Text> : null}
-    {value.groupId && (added.length > 0 || removed.length > 0) ? <div className="grid gap-1" aria-label="구역 구성 변경">
+    {value.groupId && (added.length > 0 || removed.length > 0) ? <div className="grid max-h-32 shrink-0 gap-1 overflow-y-auto overscroll-contain" aria-label="구역 구성 변경" role="region" tabIndex={0}>
       {added.map((fixtureId) => <Text key={`added-${fixtureId}`} variant="caption" tone="success">추가 예정: {fixtureIndex.get(fixtureId)?.fixture.name ?? fixtureId}</Text>)}
       {removed.map((fixtureId) => <Text key={`removed-${fixtureId}`} variant="caption" tone="danger">제거 예정: {fixtureIndex.get(fixtureId)?.fixture.name ?? fixtureId}</Text>)}
     </div> : null}
