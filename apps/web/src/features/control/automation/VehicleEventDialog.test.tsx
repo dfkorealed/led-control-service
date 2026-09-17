@@ -81,6 +81,21 @@ describe("VehicleEventDialog spatial source and targets", () => {
     }));
   });
 
+  it("requires an eligible source before target selection can open", () => {
+    renderVehicleEventDialog();
+
+    const targetAction = screen.getByRole("button", { name: "실행할 조명 선택" });
+
+    expect(targetAction).toBeDisabled();
+    expect(screen.getByRole("group", { name: "실행할 조명" })).toHaveTextContent(
+      "감지 센서를 먼저 선택하면 같은 게이트웨이의 실행 조명을 고를 수 있습니다.",
+    );
+
+    fireEvent.click(targetAction);
+
+    expect(screen.queryByRole("heading", { name: "실행할 조명 선택" })).not.toBeInTheDocument();
+  });
+
   it("disables target fixtures outside the selected source gateway", () => {
     renderVehicleEventDialog({ rule: existingRule({ sourceFixtureIds: [sourceFixtureId] }) });
 

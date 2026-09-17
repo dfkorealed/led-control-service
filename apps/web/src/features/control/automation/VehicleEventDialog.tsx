@@ -100,6 +100,11 @@ export function VehicleEventDialog({
 
   const sourceResolution = resolveControlSelection(dashboard, sourceSelection);
   const sourceGatewayId = sourceResolution.gatewayIds.length === 1 ? sourceResolution.gatewayIds[0] : null;
+  const sourceAvailability = fixtureIdsAvailability(values.sourceFixtureIds, dashboard, isVehicleEventSource);
+  const sourceReadyForTarget = sourceAvailability.resolvedCount > 0
+    && sourceAvailability.invalidFixtureIds.length === 0
+    && sourceResolution.available
+    && sourceGatewayId !== null;
   const targetResolution = resolveControlSelection(dashboard, { mode: "fixtures", fixtureIds: values.targetFixtureIds });
   const targetSourceResolution = resolveControlSelection(dashboard, targetSelection);
   const sourceSummary = fixtureIdsSummary(values.sourceFixtureIds, dashboard, isVehicleEventSource);
@@ -138,7 +143,7 @@ export function VehicleEventDialog({
   function submit(event: React.FormEvent) {
     event.preventDefault();
     const nextErrors = validateVehicleEventForm(values);
-    if (fixtureIdsAvailability(values.sourceFixtureIds, dashboard, isVehicleEventSource).invalidFixtureIds.length > 0) {
+    if (sourceAvailability.invalidFixtureIds.length > 0) {
       nextErrors.sourceFixtureIds = "현재 현장에서 확인되지 않거나 차량 감지 기능이 해제된 센서가 포함되어 있습니다. 다시 선택해 주세요.";
     }
     const targetAvailability = fixtureIdsAvailability(values.targetFixtureIds, dashboard);
@@ -250,9 +255,11 @@ export function VehicleEventDialog({
                 fieldRef={targetCardRef}
                 label="실행할 조명"
                 title={targetSummary.count > 0 ? targetSummary.title : "실행할 조명을 선택해 주세요."}
-                description={targetSummary.count > 0 ? targetSummary.description : "감지 시 함께 제어할 조명을 선택하세요."}
+                description={sourceReadyForTarget
+                  ? (targetSummary.count > 0 ? targetSummary.description : "감지 시 함께 제어할 조명을 선택하세요.")
+                  : "감지 센서를 먼저 선택하면 같은 게이트웨이의 실행 조명을 고를 수 있습니다."}
                 empty={targetSummary.count === 0}
-                disabled={isPending}
+                disabled={isPending || !sourceReadyForTarget}
                 error={errors.targetFixtureIds}
                 errorId={vehicleEventErrorIds.target}
                 onOpen={() => setView("target")}
