@@ -776,5 +776,19 @@
 
 - **발생했던 문제/실수**: 현장 전용 block allowlist가 기본 detector에 섞였고 confidence, 후보/전개 상한, token, 거리, yield 같은 행동 필드가 digest에서 빠졌다. worker도 주입 detector가 아닌 기본 상수 metadata를 저장했다.
 - **원인**: profile을 설정 묶음이 아닌 버전 라벨로 취급하고 요청/job/candidate 경계를 연결하지 않았다.
-- **해결 및 예방책**: 기본 profile과 현장 profile을 registry ID로 분리하고 import 요청에서 ID를 고정한다. 정규화·정렬한 모든 행동 필드를 canonical SHA-256에 포함하며 worker는 실제 registry detector의 version/digest를 job과 모든 후보에 저장한다.
+- **해결 및 예방책**: 기본 profile과 drawing profile을 registry ID로 분리하되 client 요청에는 선택권을 주지 않는다. 서버가 검증된 source asset SHA-256과 승인 registry binding으로 ID를 정하고, 정규화·정렬한 모든 행동 필드를 canonical SHA-256에 포함하며 worker는 실제 registry detector의 version/digest를 job과 모든 후보에 저장한다.
 - **반복 방지 체크**: 행동 필드 하나만 다른 profile이 같은 digest를 만들지 않는 반례, 현장명 기본 profile 미검출, job/profile 불일치 fail-close, 2,000건 bulk persistence와 review/apply를 실제 PostgreSQL과 Web에서 검증한다.
+
+## 2026-09-17 / 대형 parser의 OOM은 예외가 아니라 process 경계로 격리한다
+
+- **발생했던 문제/실수**: retained-model 추정치와 API cgroup만 두면 V8 OOM이 job 실패가 아니라 API process 전체 종료로 번질 수 있었고, standalone parser RSS는 Nest/Prisma 등 API baseline을 포함하지 않았다.
+- **원인**: 논리적 byte budget, V8 heap, cgroup RSS를 같은 상한으로 취급하고 무거운 core를 API process 안에서 실행했다.
+- **해결 및 예방책**: parse/detect/render를 자격 증명을 상속하지 않는 child process로 옮기고 child heap 384 MiB·wall 60초·IPC manifest 2,000건/8 MiB를 고정했다. API heap 256 MiB, CAD 동시성 1, Linux cgroup 768 MiB를 시작 시 검사하며 child OOM/timeout은 parent rejection과 job retry/failure로 수렴한다.
+- **반복 방지 체크**: child OOM과 stall에서 parent 생존을 상시 테스트하고, production image를 실제 768 MiB cgroup에서 API module baseline과 정상 샘플로 실행한다. malformed 입력도 같은 cgroup에서 child 실패 후 parent 생존을 확인한다. macOS 수치는 배포 보장으로 확대하지 않는다.
+
+## 2026-09-17 / 압축 encoding도 rendered asset identity의 일부다
+
+- **발생했던 문제/실수**: 최초 PUT/HEAD는 `Content-Encoding: gzip`을 확인했지만 이후 review/apply/signed GET 경로는 크기·checksum·MIME만 비교했다. 같은 bytes에서 encoding metadata만 유실되면 브라우저가 gzip bytes를 SVG로 해석하지 못한다.
+- **원인**: object body identity와 HTTP representation metadata를 별개로 보고 DB ledger에 encoding을 기록하지 않았다.
+- **해결 및 예방책**: `FloorAsset.contentEncoding` 원장을 추가하고 CAD SVG는 gzip을 필수로 한다. DB deferred trigger, Object Storage HEAD, job 조회, apply, content redirect가 모두 ledger와 실제 HEAD를 비교한 뒤에만 signed GET을 발급한다.
+- **반복 방지 체크**: metadata 유실/교체 unit test, 실제 MinIO PUT/HEAD/signed GET, 실제 Chrome의 한글 SVG natural size/decode를 유지한다.
