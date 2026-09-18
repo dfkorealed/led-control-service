@@ -60,23 +60,18 @@ it("replays unacknowledged v1 results during migration because handoff did not p
   await journal.accept(command); await journal.complete(command, terminal());
   await journal.markEventHandedOff(command.batchId, terminal().events[0].eventId);
   await journal.markHandedOff(command.batchId);
-  const legacy = JSON.parse(await readFile(file, "utf8"));
-  legacy.version = 1;
-  delete legacy.records[0].handedOffEventIds;
-  delete legacy.records[0].acknowledgedEventIds;
+  const legacy = { version: 1, scope, sequence: 1, records: [{ command, terminal: terminal(), handedOff: true, acknowledged: false }] };
   await writeFile(file, JSON.stringify(legacy));
   const recovered = new MonitoringRefreshJournal(file, scope, { now });
   expect((await recovered.pending())[0]).toMatchObject({ handedOff: false, handedOffEventIds: [], acknowledgedEventIds: [] });
   expect(await recovered.acknowledge({ ...scope, refreshId: command.refreshId, batchId: command.batchId })).toBe(false);
-  expect(JSON.parse(await readFile(file, "utf8")).version).toBe(2);
+  expect(JSON.parse(await readFile(file, "utf8")).version).toBe(3);
 });
 
 it("fails closed on null persisted per-event handoff progress", async () => {
   const file = await path();
   await new MonitoringRefreshJournal(file, scope, { now }).accept(command);
-  const corrupt = JSON.parse(await readFile(file, "utf8"));
-  corrupt.version = 1;
-  corrupt.records[0].handedOffEventIds = null;
+  const corrupt = { version: 1, scope, sequence: 1, records: [{ command, handedOff: false, acknowledged: false, handedOffEventIds: null }] };
   await writeFile(file, JSON.stringify(corrupt));
   await expect(new MonitoringRefreshJournal(file, scope, { now }).initialize()).rejects.toThrow("handoff progress");
 });
@@ -85,8 +80,8 @@ it("rejects corrupt v2 result ACK progress before any replay", async () => {
   const file = await path();
   const journal = new MonitoringRefreshJournal(file, scope, { now });
   await journal.accept(command); await journal.complete(command, terminal());
-  const corrupt = JSON.parse(await readFile(file, "utf8"));
-  corrupt.records[0].acknowledgedEventIds = [command.refreshId];
+  const corrupt = { version: 2, scope, sequence: 1, records: [{ command, terminal: terminal(), handedOff: false, acknowledged: false,
+    handedOffEventIds: [], acknowledgedEventIds: [command.refreshId] }] };
   await writeFile(file, JSON.stringify(corrupt));
   await expect(new MonitoringRefreshJournal(file, scope, { now }).initialize()).rejects.toThrow("acknowledgement progress");
 });
@@ -106,6 +101,29 @@ it("retains the durable receipt when terminal growth exceeds the restart file-si
   const bounded = new MonitoringRefreshJournal(file, scope, { now, maxBytes });
   await expect(bounded.complete(command, terminal())).rejects.toThrow("capacity");
   expect((await new MonitoringRefreshJournal(file, scope, { now, maxBytes }).accept(command)).kind).toBe("recovered");
+});
+
+it("never grows a terminal file during any of 64 handoffs, result ACKs or the completion ACK", async () => {
+  const file = await path();
+  const ids = Array.from({ length: 64 }, () => randomUUID());
+  const batch = { ...command, targetFixtureIds: ids };
+  const completed = { ...terminal().completed, targetFixtureIds: ids, sequence: 65 };
+  const events = ids.map((fixtureId, index) => ({ ...terminal().events[0], fixtureId, eventId: randomUUID(), sequence: index + 1 }));
+  const journal = new MonitoringRefreshJournal(file, scope, { now });
+  await journal.accept(batch); await journal.complete(batch, { events, completed });
+  let previousBytes = Buffer.byteLength(await readFile(file, "utf8"));
+  const bounded = new MonitoringRefreshJournal(file, scope, { now, maxBytes: previousBytes });
+  for (const event of events) {
+    await bounded.markEventHandedOff(batch.batchId, event.eventId);
+    let bytes = Buffer.byteLength(await readFile(file, "utf8"));
+    expect(bytes).toBeLessThanOrEqual(previousBytes); previousBytes = bytes;
+    await bounded.acknowledgeEvent({ eventId: event.eventId, fixtureId: event.fixtureId, sequence: event.sequence, status: "ingested", ingestedAt: now().toISOString() });
+    bytes = Buffer.byteLength(await readFile(file, "utf8"));
+    expect(bytes).toBeLessThanOrEqual(previousBytes); previousBytes = bytes;
+  }
+  await bounded.markHandedOff(batch.batchId);
+  expect(await bounded.acknowledge({ ...scope, refreshId: batch.refreshId, batchId: batch.batchId })).toBe(true);
+  expect(Buffer.byteLength(await readFile(file, "utf8"))).toBeLessThanOrEqual(previousBytes);
 });
 
 it("accepts reordered new sequences after restart, but never altered sequence reuse", async () => {
@@ -184,12 +202,63 @@ it("prunes expired ACKed v1 records within the byte limit before migrating their
   await journal.markEventHandedOff(command.batchId, terminal().events[0].eventId);
   await journal.markHandedOff(command.batchId); await journal.acknowledgeEvent(resultAck());
   await journal.acknowledge({ ...scope, refreshId: command.refreshId, batchId: command.batchId });
-  const legacy = JSON.parse(await readFile(file, "utf8")); legacy.version = 1;
-  delete legacy.records[0].acknowledgedEventIds;
+  const legacy = { version: 1, scope, sequence: 1, records: [{ command, terminal: terminal(), handedOff: true, acknowledged: true }] };
   const content = `${JSON.stringify(legacy, null, 2)}\n`;
   await writeFile(file, content);
   const restarted = new MonitoringRefreshJournal(file, scope, { now: () => new Date(command.expiresAt), maxBytes: Buffer.byteLength(content) });
   await restarted.initialize();
   expect(await restarted.pending()).toEqual([]);
-  expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject({ version: 2, records: [] });
+  expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject({ version: 3, records: [] });
 });
+
+it.each([1, 2])("migrates a saturated v%s 64-target terminal without growth and preserves unfinished result ACKs", async (version) => {
+  const file = await path();
+  await new MonitoringRefreshJournal(file, scope, { now }).initialize();
+  const ids = Array.from({ length: 64 }, () => randomUUID());
+  const batch = { ...command, targetFixtureIds: ids };
+  const events = ids.map((fixtureId, index) => ({ ...terminal().events[0], fixtureId, eventId: randomUUID(), sequence: index + 1 }));
+  const legacy = { version, scope, sequence: 1, records: [{ command: batch, terminal: { events, completed: {
+    ...terminal().completed, targetFixtureIds: ids, sequence: 65 } }, handedOff: true, acknowledged: false,
+    ...(version === 2 ? { handedOffEventIds: events.map((event) => event.eventId), acknowledgedEventIds: [events[0].eventId] } : {}) }] };
+  const content = `${JSON.stringify(legacy, null, 2)}\n`;
+  await writeFile(file, content);
+  const journal = new MonitoringRefreshJournal(file, scope, { now, maxBytes: Buffer.byteLength(content) });
+  await journal.initialize();
+  expect(Buffer.byteLength(await readFile(file, "utf8"))).toBeLessThanOrEqual(Buffer.byteLength(content));
+  const [pending] = await journal.pending();
+  expect(pending.acknowledgedEventIds).toEqual(version === 2 ? [events[0].eventId] : []);
+  expect(pending.handedOff).toBe(version === 2);
+  await expect(journal.acknowledge({ ...scope, refreshId: batch.refreshId, batchId: batch.batchId })).resolves.toBe(false);
+});
+
+it.each(["2", "f", "00", "!", null])("rejects corrupt v3 delivery progress %s", async (ack) => {
+  const file = await path();
+  await new MonitoringRefreshJournal(file, scope, { now }).accept(command);
+  const corrupt = JSON.parse(await readFile(file, "utf8")); corrupt.records[0].ack = ack;
+  await writeFile(file, JSON.stringify(corrupt));
+  await expect(new MonitoringRefreshJournal(file, scope, { now }).initialize()).rejects.toThrow("acknowledgement progress");
+});
+
+it("allows result/completion ACKs at the 10,000-record limit and recovers capacity after expiry", async () => {
+  const file = await path();
+  await new MonitoringRefreshJournal(file, scope, { now }).initialize();
+  const records = Array.from({ length: 10_000 }, (_, index) => index === 0
+    ? { command, terminal: terminal(), ack: "1" }
+    : { command: { ...command, sequence: index + 1, batchId: randomUUID(), idempotencyKey: randomUUID() },
+      terminal: { events: [], failure: "transport_unavailable" }, ack: "0" });
+  const content = `${JSON.stringify({ version: 3, scope, sequence: 10_000, records }, null, 2)}\n`;
+  await writeFile(file, content);
+  let clock = now();
+  const journal = new MonitoringRefreshJournal(file, scope, { now: () => clock, maxBytes: Buffer.byteLength(content) });
+  const next = { ...command, sequence: 10_001, batchId: randomUUID(), idempotencyKey: randomUUID() };
+  await expect(journal.accept(next)).rejects.toThrow("capacity");
+  expect(await journal.acknowledgeEvent(resultAck())).toBe(true);
+  expect(await journal.acknowledge({ ...scope, refreshId: command.refreshId, batchId: command.batchId })).toBe(true);
+  expect(Buffer.byteLength(await readFile(file, "utf8"))).toBeLessThanOrEqual(Buffer.byteLength(content));
+  clock = new Date(command.expiresAt);
+  await journal.initialize();
+  await expect(journal.accept({ ...next, requestedAt: clock.toISOString(), expiresAt: new Date(clock.getTime() + 30_000).toISOString() }))
+    .resolves.toMatchObject({ kind: "accepted" });
+  console.info(JSON.stringify({ capacityRecords: 10_000, initialBytes: Buffer.byteLength(content),
+    recoveredBytes: Buffer.byteLength(await readFile(file, "utf8")) }));
+}, 30_000);

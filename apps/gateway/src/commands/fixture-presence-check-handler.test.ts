@@ -10,6 +10,7 @@ import { BioUsbError } from "../bio/bio-usb-error";
 import { EventEmitter } from "node:events";
 import { BioDongleClient } from "../bio/bio-dongle-client";
 import { encodeCrcFrame } from "../bio/bio-frame-codec";
+import * as meshStoreFile from "../mesh/mesh-store-file";
 
 const scope = { siteId: "11111111-1111-4111-8111-111111111111", gatewayId: "22222222-2222-4222-8222-222222222222" };
 const firstId = "66666666-6666-4666-8666-666666666666";
@@ -22,7 +23,7 @@ const presence = { fixtureId: firstId, controlMode: "sensor" as const, rawHighBr
   rssi: -55, hopCount: null, observedAt: now().toISOString() };
 const directories: string[] = [];
 const publishers: MonitoringRefreshEventPublisher[] = [];
-afterEach(async () => { publishers.splice(0).forEach((publisher) => publisher.disconnect()); vi.useRealTimers();
+afterEach(async () => { publishers.splice(0).forEach((publisher) => publisher.disconnect()); vi.useRealTimers(); vi.restoreAllMocks();
   await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 async function fixture() {
   const directory = await mkdtemp(join(tmpdir(), "refresh-handler-")); directories.push(directory);
@@ -49,13 +50,47 @@ it("does not remove a result from the outbox when durable ACK progress cannot be
   await handleFixturePresenceCheck(adapter, f.journal, command, f.publisher, f.options);
   await f.publisher.stopAndDrain();
   const before = await f.outbox.pending();
-  const maxBytes = Buffer.byteLength(await readFile(join(f.directory, "journal.json"), "utf8")) + 1;
-  const boundedJournal = new MonitoringRefreshJournal(join(f.directory, "journal.json"), scope, { now, maxBytes });
+  const boundedJournal = new MonitoringRefreshJournal(join(f.directory, "journal.json"), scope, { now });
+  await boundedJournal.initialize();
   const boundedPublisher = new MonitoringRefreshEventPublisher(boundedJournal, f.outbox);
   publishers.push(boundedPublisher);
-  await expect(boundedPublisher.acknowledgeState(stateAck(before[0].payload), new StateEventOutboxPublisher(f.outbox))).rejects.toThrow("capacity");
+  // Inject at the actual filesystem commit boundary; capacity must never prevent ACK progress.
+  vi.spyOn(meshStoreFile, "writeJsonAtomic").mockRejectedValueOnce(new Error("ENOSPC"));
+  await expect(boundedPublisher.acknowledgeState(stateAck(before[0].payload), new StateEventOutboxPublisher(f.outbox))).rejects.toThrow("ENOSPC");
   expect(await f.outbox.pending()).toEqual(before);
   expect((await new MonitoringRefreshJournal(join(f.directory, "journal.json"), scope, { now }).pending())[0].acknowledgedEventIds).toEqual([]);
+});
+
+it("acknowledges at the exact journal byte limit through partial ACK, restart, completion and expiry", async () => {
+  const f = await fixture();
+  const adapter = { probeFixturePresence: vi.fn(async (ids: string[]) => ids.map((fixtureId) => ({ fixtureId, outcome: "not_found" as const }))) };
+  await handleFixturePresenceCheck(adapter, f.journal, command, f.publisher, f.options);
+  await f.publisher.stopAndDrain();
+  const path = join(f.directory, "journal.json");
+  const maxBytes = Buffer.byteLength(await readFile(path, "utf8"));
+  let clock = now();
+  const journal = new MonitoringRefreshJournal(path, scope, { now: () => clock, maxBytes });
+  const publisher = new MonitoringRefreshEventPublisher(journal, f.outbox); publishers.push(publisher);
+  const completed: unknown[] = [];
+  await publisher.connect(async (_topic, event) => { completed.push(event); });
+  const events = (await f.outbox.pending()).map((row) => row.payload);
+  await expect(publisher.acknowledgeState(stateAck(events[0]), new StateEventOutboxPublisher(f.outbox))).resolves.toBe(true);
+  expect(Buffer.byteLength(await readFile(path, "utf8"))).toBeLessThanOrEqual(maxBytes);
+  expect(completed).toEqual([]); expect(await f.outbox.pending()).toHaveLength(1);
+  await publisher.stopAndDrain();
+  const restarted = new MonitoringRefreshJournal(path, scope, { now: () => clock, maxBytes });
+  const outbox = new StateEventOutbox(join(f.directory, "outbox.json"), scope);
+  const resumed = new MonitoringRefreshEventPublisher(restarted, outbox); publishers.push(resumed);
+  await resumed.connect(async (_topic, event) => { completed.push(event); });
+  await resumed.acknowledgeState(stateAck(events[1]), new StateEventOutboxPublisher(outbox));
+  expect(await outbox.pending()).toEqual([]); expect(completed).toHaveLength(1);
+  await resumed.acknowledge({ ...scope, refreshId: command.refreshId, batchId: command.batchId });
+  expect(Buffer.byteLength(await readFile(path, "utf8"))).toBeLessThanOrEqual(maxBytes);
+  clock = new Date(command.expiresAt);
+  await restarted.initialize();
+  expect(JSON.parse(await readFile(path, "utf8")).records).toEqual([]);
+  await expect(restarted.accept({ ...command, sequence: 2, batchId: firstId, idempotencyKey: secondId,
+    requestedAt: clock.toISOString(), expiresAt: new Date(clock.getTime() + 30_000).toISOString() })).resolves.toMatchObject({ kind: "accepted" });
 });
 
 it("recovers the crash window after durable result ACK but before outbox deletion without reprobe", async () => {

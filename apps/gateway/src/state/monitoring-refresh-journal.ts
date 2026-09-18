@@ -13,15 +13,64 @@ export interface MonitoringRefreshTerminal {
   completed?: FixturePresenceCheckCompletedV1;
   failure?: "transport_unavailable" | "interrupted" | "expired" | "invalid_probe_results";
 }
+
+function emptyProgress(command: FixturePresenceCheckCommandV1) { return "0".repeat(Math.ceil(command.targetFixtureIds.length / 2)); }
+function stage(row: StoredRecord, index: number) {
+  return row.ack === "!" ? 3 : Number((BigInt(`0x${row.ack}`) >> BigInt(index * 2)) & 3n);
+}
+function advance(row: StoredRecord, index: number, next: 1 | 3) {
+  return (BigInt(`0x${row.ack}`) | (BigInt(next) << BigInt(index * 2))).toString(16).padStart(row.ack.length, "0");
+}
+function handedOff(row: StoredRecord) { return Boolean(row.terminal?.completed) && row.terminal!.events.every((_, index) => stage(row, index) >= 1); }
+function resultsAcknowledged(row: StoredRecord) { return row.terminal!.events.every((_, index) => stage(row, index) === 3); }
+function validateProgress(row: StoredRecord) {
+  if (Object.keys(row).some((key) => !["command", "terminal", "ack"].includes(key)) ||
+    typeof row.ack !== "string" || (row.ack === "!" ? !row.terminal?.completed :
+      row.ack.length !== emptyProgress(row.command).length || !/^[0-9a-f]+$/.test(row.ack) ||
+      BigInt(`0x${row.ack}`) >= (1n << BigInt(row.command.targetFixtureIds.length * 2)) ||
+      row.command.targetFixtureIds.some((_, index) => stage(row, index) === 2) ||
+      (!row.terminal?.completed && row.ack !== emptyProgress(row.command)))) {
+    throw new Error("invalid monitoring refresh acknowledgement progress");
+  }
+}
+function migrateLegacyRecord(row: LegacyRecord, version: 1 | 2): StoredRecord {
+  if (typeof row.handedOff !== "boolean" || typeof row.acknowledged !== "boolean" ||
+    (row.acknowledged && !row.handedOff) || (row.handedOff && !row.terminal?.completed)) throw new Error("invalid monitoring refresh journal");
+  const events = row.terminal?.events ?? [];
+  const handed = row.handedOffEventIds === undefined && version === 1
+    ? row.handedOff ? events.map((event) => event.eventId) : [] : row.handedOffEventIds;
+  if (!Array.isArray(handed) || new Set(handed).size !== handed.length ||
+    handed.some((id) => !events.some((event) => event.eventId === id)) || (row.handedOff && handed.length !== events.length)) {
+    throw new Error("invalid monitoring refresh handoff progress");
+  }
+  const acknowledged = version === 1 ? row.acknowledged ? events.map((event) => event.eventId) : [] : row.acknowledgedEventIds;
+  if (!Array.isArray(acknowledged) || new Set(acknowledged).size !== acknowledged.length ||
+    acknowledged.some((id) => !events.some((event) => event.eventId === id)) || (row.acknowledged && acknowledged.length !== events.length)) {
+    throw new Error("invalid monitoring refresh acknowledgement progress");
+  }
+  let result: StoredRecord = { command: row.command, ...(row.terminal ? { terminal: row.terminal } : {}), ack: emptyProgress(row.command) };
+  for (const [index, event] of events.entries()) {
+    // v1 only proved handoff, so replay exact IDs until the API acknowledges them again.
+    if (acknowledged.includes(event.eventId)) result = { ...result, ack: advance(result, index, 3) };
+    else if (version === 2 && handed.includes(event.eventId)) result = { ...result, ack: advance(result, index, 1) };
+  }
+  if (row.acknowledged) result.ack = "!";
+  return result;
+}
 interface StoredRecord {
   command: FixturePresenceCheckCommandV1;
   terminal?: MonitoringRefreshTerminal;
-  handedOffEventIds: string[];
-  acknowledgedEventIds: string[];
+  /** Two bits per event: 00 pending, 01 durable handoff, 11 result ACK. "!" means completion ACK. */
+  ack: string;
+}
+interface StoredJournal { version: 3; scope: StateEventOutboxScope; sequence: number; records: StoredRecord[] }
+interface LegacyRecord extends Omit<StoredRecord, "ack"> {
+  handedOffEventIds?: string[];
+  acknowledgedEventIds?: string[];
   handedOff: boolean;
   acknowledged: boolean;
 }
-interface StoredJournal { version: 1 | 2; scope: StateEventOutboxScope; sequence: number; records: StoredRecord[] }
+interface LegacyJournal extends Omit<StoredJournal, "version" | "records"> { version: 1 | 2; records: LegacyRecord[] }
 
 /** Keep receipts through command expiry and all application handshakes; expired commands cannot reacquire hardware ownership. */
 export class MonitoringRefreshJournal {
@@ -54,7 +103,7 @@ export class MonitoringRefreshJournal {
           terminal: existing.terminal ? structuredClone(existing.terminal) : undefined };
       }
       if (state.records.length >= 10_000) throw new Error("monitoring refresh journal capacity");
-      await this.commit({ ...state, sequence: Math.max(state.sequence, command.sequence), records: [...state.records, { command, handedOffEventIds: [], acknowledgedEventIds: [], handedOff: false, acknowledged: false }] });
+      await this.commit({ ...state, sequence: Math.max(state.sequence, command.sequence), records: [...state.records, { command, ack: emptyProgress(command) }] });
       this.active.add(command.batchId);
       return { kind: "accepted" as const, terminal: undefined };
     });
@@ -78,7 +127,12 @@ export class MonitoringRefreshJournal {
     });
   }
 
-  pending() { return this.exclusive(async () => structuredClone((await this.prune(await this.load())).records.filter((row) => row.terminal?.completed && !row.acknowledged))); }
+  pending() { return this.exclusive(async () => structuredClone((await this.prune(await this.load())).records
+    .filter((row) => row.terminal?.completed && row.ack !== "!").map((row) => ({
+      command: row.command, terminal: row.terminal, handedOff: handedOff(row), acknowledged: false,
+      handedOffEventIds: row.terminal!.events.filter((_, index) => stage(row, index) >= 1).map((event) => event.eventId),
+      acknowledgedEventIds: row.terminal!.events.filter((_, index) => stage(row, index) === 3).map((event) => event.eventId)
+    })))); }
 
   acknowledgeEvent(value: unknown) {
     return this.exclusive(async () => {
@@ -86,11 +140,13 @@ export class MonitoringRefreshJournal {
       const state = await this.load();
       const row = state.records.find((record) => record.terminal?.events.some((event) =>
         event.eventId === ack.eventId && event.fixtureId === ack.fixtureId && event.sequence === ack.sequence));
-      if (!row || row.acknowledgedEventIds.includes(ack.eventId)) return false;
+      if (!row || row.ack === "!") return false;
+      const index = row.terminal!.events.findIndex((event) => event.eventId === ack.eventId);
+      if (stage(row, index) === 3) return false;
       // Persist before removing the fixture outbox entry. A crash between these writes can only
       // replay the same event; it can never forget an ACK and strand a batch behind its completion.
       await this.commit({ ...state, records: state.records.map((record) => record === row
-        ? { ...record, acknowledgedEventIds: [...record.acknowledgedEventIds, ack.eventId] } : record) });
+        ? { ...record, ack: advance(row, index, 3) } : record) });
       return true;
     });
   }
@@ -102,8 +158,9 @@ export class MonitoringRefreshJournal {
       if (!row?.terminal?.completed || !row.terminal.events.some((event) => event.eventId === eventId)) {
         throw new Error("monitoring refresh terminal event missing");
       }
-      if (!row.handedOffEventIds.includes(eventId)) await this.commit({ ...state, records: state.records.map((record) => record === row
-        ? { ...record, handedOffEventIds: [...record.handedOffEventIds, eventId] } : record) });
+      const index = row.terminal.events.findIndex((event) => event.eventId === eventId);
+      if (stage(row, index) === 0) await this.commit({ ...state, records: state.records.map((record) => record === row
+        ? { ...record, ack: advance(row, index, 1) } : record) });
     });
   }
 
@@ -112,8 +169,7 @@ export class MonitoringRefreshJournal {
       const state = await this.load();
       const row = state.records.find((record) => record.command.batchId === batchId);
       if (!row?.terminal?.completed) throw new Error("monitoring refresh terminal missing");
-      if (row.handedOffEventIds.length !== row.terminal.events.length) throw new Error("monitoring refresh event handoff incomplete");
-      if (!row.handedOff) await this.commit({ ...state, records: state.records.map((record) => record === row ? { ...record, handedOff: true } : record) });
+      if (!handedOff(row)) throw new Error("monitoring refresh event handoff incomplete");
     });
   }
 
@@ -123,8 +179,8 @@ export class MonitoringRefreshJournal {
       this.assertScope(ack);
       const state = await this.load();
       const row = state.records.find((record) => record.command.batchId === ack.batchId && record.command.refreshId === ack.refreshId);
-      if (!row?.terminal?.completed || !row.handedOff || row.acknowledged || row.acknowledgedEventIds.length !== row.terminal.events.length) return false;
-      await this.commit({ ...state, records: state.records.map((record) => record === row ? { ...record, acknowledged: true } : record) });
+      if (!row?.terminal?.completed || row.ack === "!" || !resultsAcknowledged(row)) return false;
+      await this.commit({ ...state, records: state.records.map((record) => record === row ? { ...record, ack: "!" } : record) });
       return true;
     });
   }
@@ -180,11 +236,11 @@ export class MonitoringRefreshJournal {
     await this.assertPermissions(dirname(this.path), 0o700);
     const manifestPath = `${this.path}.manifest.json`;
     const manifest = await readJsonFile(manifestPath);
-    const raw = await readJsonFile(this.path, { maxBytes: this.maxBytes }) as StoredJournal | null;
+    const raw = await readJsonFile(this.path, { maxBytes: this.maxBytes }) as StoredJournal | LegacyJournal | null;
     if (!manifest && !raw) {
       // Manifest goes first: a crash in initialization fails closed instead of silently resetting dedup history.
       await writeJsonAtomic(manifestPath, { version: 1, scope: this.scope });
-      await this.commit({ version: 2, scope: this.scope, sequence: -1, records: [] });
+      await this.commit({ version: 3, scope: this.scope, sequence: -1, records: [] });
       return this.state!;
     }
     if (!manifest || !raw) throw new Error("monitoring refresh journal missing");
@@ -192,47 +248,30 @@ export class MonitoringRefreshJournal {
     await this.assertPermissions(this.path, 0o600);
     if (JSON.stringify(manifest) !== JSON.stringify({ version: 1, scope: this.scope })) throw new Error("monitoring refresh manifest mismatch");
     this.assertScope(raw.scope);
-    if (![1, 2].includes(raw.version) || !Number.isSafeInteger(raw.sequence) || !Array.isArray(raw.records) || raw.records.length > 10_000) throw new Error("invalid monitoring refresh journal");
+    if (![1, 2, 3].includes(raw.version) || !Number.isSafeInteger(raw.sequence) || !Array.isArray(raw.records) || raw.records.length > 10_000) throw new Error("invalid monitoring refresh journal");
     const batches = new Set<string>(); const keys = new Set<string>(); const sequences = new Set<number>();
+    const records: StoredRecord[] = [];
     for (const row of raw.records) {
       row.command = fixturePresenceCheckCommandV1Schema.parse(row.command);
       this.assertScope(row.command);
       if (batches.has(row.command.batchId) || keys.has(row.command.idempotencyKey) || sequences.has(row.command.sequence) ||
-        row.command.sequence > raw.sequence || typeof row.handedOff !== "boolean" || typeof row.acknowledged !== "boolean" ||
-        (row.acknowledged && !row.handedOff) || (row.handedOff && !row.terminal?.completed)) throw new Error("invalid monitoring refresh journal");
+        row.command.sequence > raw.sequence) throw new Error("invalid monitoring refresh journal");
       batches.add(row.command.batchId); keys.add(row.command.idempotencyKey); sequences.add(row.command.sequence);
       if (row.terminal) row.terminal = this.parseTerminal(row.terminal, row.command);
-      // Existing v1 journals recorded only whole-batch handoff. Their completed handoffs remain
-      // authoritative; incomplete legacy handoffs retry the same IDs under outbox/API deduplication.
-      if (row.handedOffEventIds === undefined) {
-        row.handedOffEventIds = row.handedOff ? row.terminal!.events.map((event) => event.eventId) : [];
-      }
-      if (!Array.isArray(row.handedOffEventIds) || new Set(row.handedOffEventIds).size !== row.handedOffEventIds.length ||
-        row.handedOffEventIds.some((id) => !row.terminal?.events.some((event) => event.eventId === id)) ||
-        (row.handedOff && row.handedOffEventIds.length !== row.terminal!.events.length)) {
-        throw new Error("invalid monitoring refresh handoff progress");
-      }
-      if (raw.version === 1) {
-        // v1 did not persist result ACKs. Only a completion ACK proves all results committed.
-        // Otherwise replay all exact IDs, including events already removed from the old outbox.
-        row.acknowledgedEventIds = row.acknowledged ? row.terminal!.events.map((event) => event.eventId) : [];
-        if (!row.acknowledged) { row.handedOffEventIds = []; row.handedOff = false; }
-      }
-      if (!Array.isArray(row.acknowledgedEventIds) || new Set(row.acknowledgedEventIds).size !== row.acknowledgedEventIds.length ||
-        row.acknowledgedEventIds.some((id) => !row.terminal?.events.some((event) => event.eventId === id)) ||
-        (row.acknowledged && row.acknowledgedEventIds.length !== row.terminal!.events.length)) {
-        throw new Error("invalid monitoring refresh acknowledgement progress");
-      }
+      const parsed = raw.version === 3 ? row as StoredRecord : migrateLegacyRecord(row as LegacyRecord, raw.version);
+      validateProgress(parsed);
+      records.push(parsed);
     }
-    if (raw.version === 1) {
-      const migrated: StoredJournal = { ...raw, version: 2 };
-      // A full v1 file may not have space for new per-result ACK metadata. Expired safe records
-      // can be pruned in the same atomic upgrade, before enforcing the persisted byte bound.
+    const migrated: StoredJournal = { ...raw, version: 3, records };
+    if (raw.version !== 3) {
+      // v3 reserves fixed-width delivery bits at receipt time. Every later handoff/result ACK
+      // replaces characters without growth; completion ACK shrinks to one byte. Legacy migration
+      // removes its arrays/flags, including for saturated, unexpired and unacknowledged journals.
       if (await this.prune(migrated) === migrated) await this.commit(migrated);
       return this.state!;
     }
-    this.state = raw;
-    return raw;
+    this.state = migrated;
+    return migrated;
   }
 
   private async assertPermissions(path: string, mode: number) {
@@ -242,7 +281,7 @@ export class MonitoringRefreshJournal {
   private async prune(state: StoredJournal): Promise<StoredJournal> {
     const now = this.now().getTime();
     const records = state.records.filter((row) => Date.parse(row.command.expiresAt) > now ||
-      (!row.acknowledged && !row.terminal?.failure));
+      (row.ack !== "!" && !row.terminal?.failure));
     if (records.length === state.records.length) return state;
     const compacted = { ...state, records };
     // Atomic replacement preserves either the complete pre-prune or post-prune history on crash.
