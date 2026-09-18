@@ -3,7 +3,8 @@ import { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 
 const DAY_MS = 86_400_000;
-type DeletedCounts = { gatewayEvents: number; sessions: number; floorMapRevisions: number };
+const SWEEP_DELETE_BUDGET = 21_000;
+type DeletedCounts = { gatewayEvents: number; sessions: number; floorMapRevisions: number; monitoringRefreshes: number };
 
 @Injectable()
 export class DataRetentionService implements OnModuleInit, OnModuleDestroy {
@@ -36,7 +37,7 @@ export class DataRetentionService implements OnModuleInit, OnModuleDestroy {
 
   private async sweep(now: Date): Promise<DeletedCounts> {
     const started = Date.now();
-    const deleted: DeletedCounts = { gatewayEvents: 0, sessions: 0, floorMapRevisions: 0 };
+    const deleted: DeletedCounts = { gatewayEvents: 0, sessions: 0, floorMapRevisions: 0, monitoringRefreshes: 0 };
     let stage: keyof DeletedCounts = "gatewayEvents";
     // Prisma binds JS Date as timestamptz; these schema columns store naive UTC.
     // An implicit comparison would shift the cutoff by the DB session timezone.
@@ -142,6 +143,26 @@ export class DataRetentionService implements OnModuleInit, OnModuleDestroy {
         )
         DELETE FROM "FloorMapRevision" revision USING candidates WHERE revision."id" = candidates."id"
       `);
+
+      stage = "monitoringRefreshes";
+      // Preserve the existing 10,000 + 10,000 + 1,000 parent-row sweep budget.
+      // Cascaded batch, fixture-result, request-alias and outbox rows are owned
+      // by the terminal aggregate; no live Fixture/Gateway row is deleted/locked.
+      const remaining = Math.min(1000, SWEEP_DELETE_BUDGET - deleted.gatewayEvents - deleted.sessions - deleted.floorMapRevisions);
+      if (remaining > 0) {
+        deleted.monitoringRefreshes = await this.prisma.$executeRaw(Prisma.sql`
+          WITH candidates AS (
+            SELECT "id" FROM "MonitoringRefresh"
+            WHERE "status" IN ('completed', 'partial', 'failed', 'expired')
+              AND "completedAt" < ${cutoff(7)}
+            ORDER BY "completedAt", "id" LIMIT ${remaining} FOR UPDATE SKIP LOCKED
+          )
+          DELETE FROM "MonitoringRefresh" refresh USING candidates
+          WHERE refresh."id" = candidates."id"
+            AND refresh."status" IN ('completed', 'partial', 'failed', 'expired')
+            AND refresh."completedAt" < ${cutoff(7)}
+        `);
+      }
       this.logger.log({ event: "data_retention_sweep", status: "completed", asOf: now.toISOString(),
         durationMs: Date.now() - started, deleted });
       return deleted;

@@ -252,6 +252,7 @@ export function renderMosquittoAcl(gatewayIds) {
       `user ${gatewayId}`,
       `topic read sites/+/gateways/${gatewayId}/commands/#`,
       `topic read sites/+/gateways/${gatewayId}/acks/state-ingested`,
+      `topic read sites/+/gateways/${gatewayId}/acks/fixture-presence-check-completed`,
       `topic read sites/+/gateways/${gatewayId}/acks/provisioning/scan-terminal-ingested`,
       `topic read sites/+/gateways/${gatewayId}/acks/provisioning/device-terminal-ingested`,
       `topic read sites/+/gateways/${gatewayId}/acks/automation/config-applied-ingested`,

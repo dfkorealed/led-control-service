@@ -206,6 +206,61 @@ const policies = [
     `);
   }
 
+  async function refresh(status: "pending" | "completed" | "partial" | "failed" | "expired", completedAt: Date | null) {
+    const terminal = status !== "pending";
+    const row = await db.monitoringRefresh.create({ data: {
+      siteId: ids.site, floorId: ids.floor, requestedById: ids.user, clientRequestId: randomUUID(),
+      status, totalFixtures: 1, onlineFixtures: terminal ? 1 : 0,
+      createdAt: old, deadlineAt: new Date(old.getTime() + 30_000), completedAt
+    } });
+    const batch = await db.monitoringRefreshBatch.create({ data: {
+      refreshId: row.id, siteId: ids.site, gatewayId: ids.gateway, sequence: ++sequence,
+      idempotencyKey: randomUUID(), targetFixtureIds: [ids.fixture],
+      status: terminal ? "completed" : "pending", publishedAt: completedAt, completedAt
+    } });
+    await db.monitoringRefreshFixture.create({ data: {
+      refreshId: row.id, siteId: ids.site, fixtureId: ids.fixture, batchId: batch.id,
+      status: terminal ? "online" : "pending", observedAt: completedAt
+    } });
+    await db.monitoringRefreshRequest.create({ data: {
+      refreshId: row.id, siteId: ids.site, floorId: ids.floor, requestedById: ids.user, clientRequestId: row.clientRequestId
+    } });
+    await db.mqttOutbox.create({ data: {
+      monitoringRefreshBatchId: batch.id, topic: "retention/test", payload: {}, publishedAt: completedAt
+    } });
+    return row;
+  }
+
+  it("deletes only terminal refreshes strictly older than seven days and cascades their exact relations", async () => {
+    const cutoff = new Date(now.getTime() - 7 * day);
+    const expired = await Promise.all((["completed", "partial", "failed", "expired"] as const)
+      .map(status => refresh(status, new Date(cutoff.getTime() - 1))));
+    const boundary = await refresh("completed", cutoff);
+    const recent = await refresh("completed", now);
+    const pending = await refresh("pending", null);
+    expect(await service.prune(now)).toMatchObject({ monitoringRefreshes: 4 });
+    const retained = [boundary.id, recent.id, pending.id].sort();
+    expect((await db.monitoringRefresh.findMany()).map(row => row.id).sort()).toEqual(retained);
+    for (const model of [db.monitoringRefreshBatch, db.monitoringRefreshFixture, db.monitoringRefreshRequest]) {
+      expect(await (model.count as () => Promise<number>)()).toBe(3);
+    }
+    expect(await db.mqttOutbox.count()).toBe(3);
+    expect(await db.fixture.count()).toBe(1);
+    expect(await db.gateway.count()).toBe(1);
+    expect(await db.monitoringRefreshBatch.count({ where: { refreshId: { in: expired.map(row => row.id) } } })).toBe(0);
+  });
+
+  it("bounds an otherwise empty sweep to 1,000 terminal refresh parents", async () => {
+    await db.monitoringRefresh.createMany({ data: Array.from({ length: 1001 }, () => ({
+      id: randomUUID(), siteId: ids.site, floorId: ids.floor, requestedById: ids.user,
+      clientRequestId: randomUUID(), status: "completed" as const, totalFixtures: 0,
+      completedAt: old, deadlineAt: old, createdAt: old
+    })) });
+    expect(await service.prune(now)).toMatchObject({ monitoringRefreshes: 1000 });
+    expect(await db.monitoringRefresh.count()).toBe(1);
+    expect(await service.prune(now)).toMatchObject({ monitoringRefreshes: 1 });
+  });
+
   it("keeps the latest 100 revisions per floor or the last 365 days, whichever is wider", async () => {
     await revisions(ids.floor, 105);
     await db.floorMapRevision.updateMany({ where: { floorId: ids.floor, revision: 2 }, data: { createdAt: new Date(now.getTime() - 365 * day) } });
@@ -226,17 +281,19 @@ const policies = [
       FROM generate_series(1, 10001) value
     `);
     await db.$executeRaw(Prisma.sql`
-      INSERT INTO "Session" ("id", "userId", "tokenHash", "expiresAt", "updatedAt")
-      SELECT 'bounded-session-' || lpad(value::text, 5, '0'), ${ids.user}, 'token-' || value, ${old}, ${old}
+      INSERT INTO "Session" ("id", "userId", "familyId", "tokenHash", "expiresAt", "updatedAt")
+      SELECT 'bounded-session-' || lpad(value::text, 5, '0'), ${ids.user}, 'bounded-family-' || value, 'token-' || value, ${old}, ${old}
       FROM generate_series(1, 10001) value
     `);
     await revisions(ids.floor, 1101);
-    expect(await service.prune(now)).toEqual({ gatewayEvents: 10000, sessions: 10000, floorMapRevisions: 1000 });
+    const retainedRefresh = await refresh("completed", old);
+    expect(await service.prune(now)).toEqual({ gatewayEvents: 10000, sessions: 10000, floorMapRevisions: 1000, monitoringRefreshes: 0 });
+    expect(await db.monitoringRefresh.findUnique({ where: { id: retainedRefresh.id } })).not.toBeNull();
     expect((await db.processedGatewayEvent.findMany()).map(row => row.eventId)).toEqual(["bounded-event-10001"]);
     expect((await db.session.findMany()).map(row => row.id)).toEqual(["bounded-session-10001"]);
     expect((await db.floorMapRevision.findMany({ orderBy: { revision: "asc" }, take: 1 }))[0].revision).toBe(1001);
-    expect(await service.prune(now)).toEqual({ gatewayEvents: 1, sessions: 1, floorMapRevisions: 1 });
-    expect(await service.prune(now)).toEqual({ gatewayEvents: 0, sessions: 0, floorMapRevisions: 0 });
+    expect(await service.prune(now)).toEqual({ gatewayEvents: 1, sessions: 1, floorMapRevisions: 1, monitoringRefreshes: 1 });
+    expect(await service.prune(now)).toEqual({ gatewayEvents: 0, sessions: 0, floorMapRevisions: 0, monitoringRefreshes: 0 });
   });
 
   it("skips rows locked by another connection and converges on the next sweep", async () => {
@@ -244,6 +301,8 @@ const policies = [
     await event("gateway_heartbeat");
     await db.session.createMany({ data: ["locked", "free"].map(id => ({ id, userId: ids.user, tokenHash: id, expiresAt: old })) });
     await revisions(ids.floor, 102);
+    const lockedRefresh = await refresh("completed", old);
+    await refresh("completed", old);
     let release!: () => void;
     let acquired!: () => void;
     const gate = new Promise<void>(resolve => { release = resolve; });
@@ -252,17 +311,19 @@ const policies = [
       await tx.$queryRaw`SELECT "eventId" FROM "ProcessedGatewayEvent" WHERE "eventId" = ${locked.eventId} FOR UPDATE`;
       await tx.$queryRaw`SELECT "id" FROM "Session" WHERE "id" = 'locked' FOR UPDATE`;
       await tx.$queryRaw`SELECT "id" FROM "FloorMapRevision" WHERE "floorId" = ${ids.floor} AND "revision" = 1 FOR UPDATE`;
+      await tx.$queryRaw`SELECT "id" FROM "MonitoringRefresh" WHERE "id" = ${lockedRefresh.id} FOR UPDATE`;
       acquired();
       await gate;
     }, { timeout: 10_000 });
     try {
       await Promise.race([ready, lock.then(() => { throw new Error("lock transaction ended before acquiring rows"); })]);
-      expect(await service.prune(now)).toEqual({ gatewayEvents: 1, sessions: 1, floorMapRevisions: 1 });
+      expect(await service.prune(now)).toEqual({ gatewayEvents: 1, sessions: 1, floorMapRevisions: 1, monitoringRefreshes: 1 });
+      expect(await db.monitoringRefresh.findUnique({ where: { id: lockedRefresh.id } })).not.toBeNull();
       expect(await db.processedGatewayEvent.findUnique({ where: { eventId: locked.eventId } })).not.toBeNull();
       expect(await db.session.findUnique({ where: { id: "locked" } })).not.toBeNull();
       expect(await db.floorMapRevision.count()).toBe(101);
     } finally { release(); await lock; }
-    expect(await service.prune(now)).toEqual({ gatewayEvents: 1, sessions: 1, floorMapRevisions: 1 });
+    expect(await service.prune(now)).toEqual({ gatewayEvents: 1, sessions: 1, floorMapRevisions: 1, monitoringRefreshes: 1 });
     expect(await db.floorMapRevision.count()).toBe(100);
   }, 15_000);
 
@@ -323,10 +384,10 @@ const policies = [
       await draining;
       const atDrain = [...order];
       release();
-      expect(await sweep).toEqual({ gatewayEvents: 1, sessions: 1, floorMapRevisions: 1 });
+      expect(await sweep).toEqual({ gatewayEvents: 1, sessions: 1, floorMapRevisions: 1, monitoringRefreshes: 0 });
       await closing;
       expect({ atDrain, completed: order, connections: await connectionCount() }).toEqual({
-        atDrain: ["query-1"], completed: ["query-1", "query-2", "query-3", "disconnect"], connections: baselineConnections
+        atDrain: ["query-1"], completed: ["query-1", "query-2", "query-3", "query-4", "disconnect"], connections: baselineConnections
       });
       expect(await db.session.count()).toBe(0);
       expect(await db.floorMapRevision.count()).toBe(100);

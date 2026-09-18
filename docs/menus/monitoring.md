@@ -1,6 +1,6 @@
 # 모니터링 메뉴 기능 현황
 
-기준일: 2026-09-16
+기준일: 2026-09-18
 
 ## 확정 구현 범위
 
@@ -116,8 +116,11 @@
 - provisioning 완료 MQTT event는 밝기, online/fault, lastSeenAt을 추정하지 않는다. 첫 실제 `fixture-state` event가 들어올 때만 이 snapshot을 확정한다.
 - MQTT `gateway-heartbeat` 이벤트도 같은 5분 미래 경계를 통과한 경우에만 gateway online/offline 상태 판단에 반영한다. `lastHeartbeatAt`은 서버 수신 시각, `lastHeartbeatOccurredAt`은 장비 발생 시각이다.
 - dashboard metadata와 선택 층 fixture snapshot은 React Query로 10분마다 polling한다. 브라우저 focus만으로 다시 조회하지 않는다.
-- 모니터링 상단 우측 끝의 `새로고침` 버튼은 dashboard metadata와 현재 층 fixture 전체 페이지를 함께 다시 조회한다. 실행 중에는 중복 요청을 막고, 버튼 왼쪽에 완료 시각과 전체/부분 실패를 표시하며 기존 성공 데이터는 유지한다.
-- 모니터링 새로고침은 클라우드 DB snapshot 조회이며 전체 조명에 BLE Mesh Get을 일괄 전송하지 않는다.
+- 모니터링 상단 우측 끝의 `새로고침`은 선택한 활성 맵의 등록 조명을 실제 Gateway 읽기 경로로 확인한다. read 권한 사용자(admin/viewer)가 `POST /sites/:siteId/floors/:floorId/monitoring-refreshes`에 UUID `clientRequestId`만 보내며, 서버가 대상과 Gateway를 snapshot한다. 최대 1,000개·Gateway batch 64개, 동일 요청/active 층 요청 재사용, 완료 후 30초 cooldown과 30초 deadline을 적용한다. 등록 조명 0개는 HTTP 데이터만 다시 조회한다.
+- 처리 중 버튼은 `장치 상태 확인 중`으로 바뀌고 비활성화된다. GET 상태를 500ms 간격으로 조회하고 terminal/오류 뒤 dashboard·선택 층 fixture 전체 페이지·map을 다시 읽는다. 첫 pass 실패만 250ms 뒤 한 번 재조회하며 두 번의 검증된 `not_found/read_timeout/read_failed`만 즉시 오프라인으로 반영한다. Gateway/MQTT 전체 실패와 deadline 미확인 결과는 개별 offline으로 만들지 않는다. 자동 10분 조회·기본 20분 stale 안전망은 유지한다.
+- 수동 확인은 BIO brightness GET→mode GET 또는 BlueZ 읽기 경로만 사용하고 기존 transport queue로 직렬화한다. 밝기·전원·sensor mode·주소·group membership·에너지 checkpoint를 변경하지 않는다. BIO sensor의 설정 밝기를 실제 출력으로 추정하지 않는다. 성공 presence와 두 번 실패 terminal, batch 완료는 durable journal/outbox와 application ACK로 수렴한다.
+- 완료 application ACK의 `acks/fixture-presence-check-completed` 읽기는 운영 ACL과 개발 allowlist 모두 인증서 CN에 결속된 자기 Gateway에만 허용한다. Gateway가 이 ACK를 발행하거나 다른 Gateway의 ACK를 읽을 권한은 없다. 기존 ACL의 site `+` 구조는 유지되며 site와 Gateway의 실제 소속·topic/payload identity는 API가 검증한다. 따라서 같은 Gateway ID의 site 구분까지 broker ACL 단독으로 보장한다고 해석하지 않는다.
+- 완료 시 별도 성공 toast 없이 KPI·마커·상세를 함께 갱신한다. partial은 `일부 조명의 상태를 확인하지 못했습니다.`, failed/expired/timeout은 `장치 상태를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.`를 표시한다. 확인된 상태와 기존 성공 데이터를 보존하며 source별 조회 오류는 독립적으로 관리한다. 맵·현장 변경과 unmount는 polling을 취소하고 늦은 응답이 새 화면을 덮지 못하게 한다.
 - 기본 dashboard는 fixture 본문을 제외한 현장/층/gateway metadata와 DB aggregate summary만 반환한다. 제어 화면만 `includeFixtures=true`를 명시한다.
 - 모니터링 fixture snapshot은 `GET /sites/:siteId/floors/:floorId/fixtures`에서 현장 read 권한을 검증한 뒤 최대 200개씩 ID cursor로 조회하며, 선택 층의 다음 페이지를 연속 병합한다. 존재하지 않는 층과 접근할 수 없는 층은 같은 `floor not found` 404 응답으로 처리한다.
 - `Fixture(floorId, id)` 복합 인덱스로 OFFSET 없이 대규모 fixture를 순회한다.
@@ -175,6 +178,10 @@
 
 ## 부족하거나 개선이 필요한 기능
 
+- 수동 장치 확인의 물리 BIO USB 동글·조명 2대 연결 증거가 없어 이번 작업의 HIL은 미수행이다. 후속 현장 절차는 두 대 online → 한 대 실제 전원 차단 → 새로고침 → `정상 1 / 오프라인 1` → 전원 복구 → 새로고침 → `정상 2 / 오프라인 0`이며 Gateway 버전/API revision·가린 장비 identity·시각·결과를 기록해야 한다. 자동 unit/Chromium route fixture와 lab 발행 terminal은 실제 two-pass RF/USB 검증을 증명하지 않는다.
+- 실제 API/PostgreSQL/Redis/MQTT transport 회귀는 `E2E_REAL_BACKEND_LAB=1 pnpm --filter @led-control/web exec playwright test e2e/real-backend-lab-support.spec.ts --project=chromium`으로 opt-in한다. PostgreSQL 도구·Redis·Mosquitto·OpenSSL과 API/Web build가 필요하며 미설정 시 해당 transport 시나리오는 명시적으로 skip한다. 환경이 준비돼 실행한 실패는 skip 또는 HIL 성공으로 바꾸지 않는다.
+- 2026-09-18 Task 7 검증: retention 단위 6개·disposable PostgreSQL 42개, 기존 조회 fixture 보정 33개, monitoring Chromium 32개, lab 지원 16개(transport opt-in 1개 제외), 실제 Docker Mosquitto persistence/운영·개발 ACL 3개가 통과했다. 정식 lint/typecheck/build와 opt-in lab 기동은 기존 CAD `confirmMapReset` 누락에 막히며 root test는 기존 CI cgroup 기대값 불일치로 실패한다. 이를 우회하지 않는 정식 명령은 실패 상태로 남긴다. 별도 일회성 진단에서 Web 타입 검사만 Vite build로 대체한 lab transport 1개는 실제 API POST/GET·MQTT application ACK·`정상 1 / 오프라인 1`·동일 결과 재전송 멱등성·새 presence의 `정상 2 / 오프라인 0` 복구를 통과했다. 진단 우회 코드는 제거했고, 이 결과를 정식 build 통과나 물리 장비 HIL로 확대하지 않는다.
+
 - 모바일 두 손가락 확대·축소, marker hit 및 pointer-capture 경로는 Web PointerEvent와 synthetic Chromium으로 검증했다. 실제 iOS/Android WebView의 safe area, gesture arbitration, native click 전달과 장시간 현장 사용성은 실기기 확인이 필요하며, 이는 BLE/Mesh·firmware·물리 조명 HIL 검증이 아니다.
 
 - 공통 디자인 시스템 이전은 deterministic Vitest와 Chromium route fixture를 기준으로 검증한다. 실제 현장 도면의 수동 시각 QA와 Raspberry Pi/ESP32-H2/LED 연결 HIL 결과는 포함하지 않는다.
@@ -208,6 +215,15 @@
 - scan lifecycle 자동 테스트는 mock MQTT와 scanner adapter를 사용한다. 실제 host Mosquitto mTLS negative ACL integration에서 Gateway CN certificate의 `acks/state-ingested`, `acks/provisioning/scan-terminal-ingested` publish 거부를 확인했다. Docker 전용 broker persistence 재시작 test는 현재 로컬 Docker daemon 부재로 skip됐다. 실제 Raspberry Pi BlueZ adapter의 scan timeout, broker/Pi/API 재시작을 가로지르는 terminal application ACK 재전달, ESP32-H2 자사 UUID 필터와 terminal event 전달은 HIL에서 별도로 확인해야 한다.
 
 ## 관련 파일
+
+- `apps/api/src/monitoring-refresh/`
+- `apps/api/src/retention/data-retention.service.ts`
+- `apps/api/prisma/migrations/20260918100000_monitoring_manual_refresh/migration.sql`
+- `apps/gateway/src/commands/fixture-presence-check-handler.ts`
+- `apps/gateway/src/state/monitoring-refresh-journal.ts`
+- `apps/web/src/api/monitoring-refresh.ts`
+- `apps/web/e2e/real-backend-lab-support.spec.ts`
+- `apps/gateway/docker/mqtt-persistence.integration.mjs`
 
 - `apps/web/src/features/monitoring/MonitoringView.tsx`
 - `apps/web/src/features/monitoring/MonitoringView.test.tsx`

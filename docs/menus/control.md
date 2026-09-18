@@ -1,8 +1,11 @@
 # 제어 메뉴 기능 현황
 
-기준일: 2026-09-17
+기준일: 2026-09-18
 
 ## 구현 완료
+
+- 2026-09-18 모니터링의 수동 읽기 전용 확인에서 fresh Gateway의 두 번 연속 검증된 조명 실패가 수신되면 `Fixture.lastUnreachableAt`과 운영 `offline/fixture_stale`을 저장해 기본 20분 stale 대기 없이 제어를 차단한다. Gateway/MQTT 자체 실패는 개별 조명의 unreachable 증거로 쓰지 않는다. 확인 작업은 밝기 제어 Command/이력을 만들거나 밝기·전원·BIO mode를 바꾸지 않는다.
+- 수동 unreachable보다 더 최신의 수락 presence/state가 도착하면 `lastUnreachableAt`을 해제하고 freshness 차단을 복구한다. 늦은 이전 실패는 더 최신 성공 관측을 덮지 않는다. 생존 presence만으로 실제 Health fault·`command_failed`·등록 대기를 지우지 않으며 BIO sensor 설정 밝기를 실제 출력으로 추정하지 않는다.
 
 - 2026-09-17 최종 지도 선택 보완: 스케줄·이벤트의 지도 단계와 구역 편집은 명시적인 반응형 너비와 제한된 높이를 공유하며, 데스크톱 지도 행이 남은 높이를 사용한다. 스케줄·이벤트는 빈 선택·잘못된 선택에서도 `설정으로 돌아가기`로 초안을 보존하고 원래 선택 버튼에 포커스를 돌려준다. 대시보드 갱신으로 없어진 직접 선택은 `선택 비우기`로 복구할 수 있다. 스케줄은 최종 저장에서도 최신 직접 fixture 스냅샷의 제어 가능 여부·단일 Gateway를 재검증하고 대상 필드로 오류/포커스를 돌린다. 기존 구역 편집과 빈 구역의 경계 변경은 해당 층 도면으로 이동하며 구역 이름 입력은 16px이다.
 - 저장 구역 편집기는 390×660·320×740 compact 화면에서도 지도 선택 영역을 최소 높이로 유지하고 dialog 내부 폼이 스크롤을 소유한다. 기존 100개 구성원을 모두 제거하는 경우 추가·제거 예정 목록은 별도 제한 높이 영역에서 스크롤하므로 지도·toolbar를 0px로 축소하거나 가리지 않는다. compact 신규 구역의 실제 marker 선택과 데스크톱 100개 변경 목록·재선택을 Chromium 회귀로 검증한다.
@@ -273,6 +276,8 @@
 
 ## 부족하거나 개선이 필요한 기능
 
+- 수동 확인에 따른 즉시 제어 차단·새 presence/state 복구는 소프트웨어 검증 범위다. 물리 USB 동글과 조명 2대의 전원 차단/복구 HIL은 이번 작업에서 미수행이며, 실제 장비에서 모니터링 숫자·마커와 제어 가능 여부가 함께 바뀌는지 확인해야 한다.
+
 - 모바일 두 손가락 확대·축소는 Web PointerEvent와 synthetic Chromium으로 검증했다. 실제 iOS/Android WebView의 safe area, gesture arbitration과 장시간 현장 사용성은 실기기 확인이 필요하다.
 - 저장 구역은 fixture membership만 보존하며 polygon 경계는 저장하지 않는다. 맵의 영역 rectangle은 선택 도구이고 저장 데이터가 아니다.
 - 스케줄·이벤트의 구역 선택은 저장 시점 fixture snapshot이다. 구역 멤버 변경은 기존 규칙에 자동 반영되지 않는다.
@@ -310,6 +315,13 @@
 - Task 20 Fix Round 4에서 temp directory는 fixed lock의 owner/coordination 상태가 아닌 publish 후보로 유지하되, cleanup은 원본 temp를 같은 parent의 unique quarantine path로 먼저 atomic rename해 소유권을 확보한 뒤 quarantine 내부만 정리한다. quarantine 내부가 empty directory이거나 exact regular `.owner.<token>` marker 하나만 가진 경우에만 삭제하고, publisher가 먼저 temp를 fixed lock으로 rename하면 cleaner는 원본 temp `ENOENT`로 중단한다. cleaner가 먼저 quarantine하면 publisher는 `ENOENT` 후 같은 token으로 새 temp를 만들어 retry한다. fixed lock directory 자체는 quarantine하지 않는다. temp/quarantine symlink·non-directory·marker symlink·multi-entry·외부 sentinel은 따라가거나 삭제하지 않고 fixed lock 획득을 막지 않는다. fixed lock은 계속 token/PID/`ps` process-start identity를 exact marker로 확인해 active owner wait, stale/PID reuse takeover, unknown identity fail-closed, exact release, successor ABA 보호와 same-output 직렬화를 유지한다. production `scripts/esp32-h2-build.sh`는 Bluetooth SIG 자사 Company ID와 signed manufacturing approval이 없는 현재 `unprovisioned` policy에서 의도적으로 fail-closed한다. 이는 HIL 실패나 HIL 완료 증거가 아니다.
 
 ## 관련 파일
+
+- `apps/api/src/monitoring-refresh/monitoring-refresh-ingestion.service.ts`
+- `apps/api/src/fixtures/fixture-presence-ingestion.service.ts`
+- `apps/api/src/energy/fixture-state-ingestion.service.ts`
+- `apps/api/src/monitoring-incidents/monitoring-conditions.ts`
+- `infra/mosquitto.acl.example`
+- `scripts/dev-runtime.mjs`
 
 - `apps/web/src/features/control/ControlView.tsx`
 - `apps/web/src/features/control/FixtureGroupDialog.tsx`

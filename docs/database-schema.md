@@ -2,6 +2,8 @@
 
 작성일: 2026-09-12
 
+수동 모니터링 확인 갱신일: 2026-09-18
+
 이 문서는 현재 구현된 PostgreSQL/Prisma 데이터베이스 구조를 정리한다. 기준 파일은 `apps/api/prisma/schema.prisma`이며, 실제 DB 반영은 `apps/api/prisma/migrations`의 migration으로 관리한다.
 
 ## 1. 전체 구조
@@ -455,6 +457,23 @@ Reconciler도 Site → Gateway → Fixture → Incident 순서로 잠그며 현�
 
 수집 commit과 incident 반영 사이에는 다음 sweep까지 지연이 있다. 각 Site 내부 고정 운영 상태 변경·reconcile은 원자적이며, 다른 Site는 별도 transaction이다. transaction 획득 대기 2초/실행 5초로 제한하고 실패 현장만 rollback한 뒤 다음 현장을 처리한다. 첫 sweep 이전 과거 장애는 backfill하지 않는다.
 
+### MonitoringRefresh / MonitoringRefreshBatch / MonitoringRefreshFixture
+
+`20260918100000_monitoring_manual_refresh`는 읽기 전용 장치 확인 전용 aggregate와 `Fixture.lastUnreachableAt`, 요청 alias, outbox 관계를 추가한다. 밝기 제어 `Command`나 제어 이력에 가짜 밝기 값을 기록하지 않는다. 실제 사용자 DB 적용과 실장비 검증은 별도다.
+
+| 모델 | 주요 열과 제약 | 관계와 용도 |
+| --- | --- | --- |
+| `MonitoringRefresh` | UUID `id`, `siteId`, `floorId`, nullable `requestedById`, `clientRequestId`, `status`(`pending/completed/partial/failed/expired`), `totalFixtures/onlineFixtures/offlineFixtures/unverifiedFixtures`, `deadlineAt/completedAt/createdAt/updatedAt`; counter는 음수 금지·합계≤전체, pending은 완료 시각 NULL, terminal은 non-NULL | site/floor cascade, 요청자 삭제 시 SET NULL. `(siteId, requestedById, clientRequestId)` unique, `(id, siteId)`, `(id, siteId, floorId)` unique와 `(siteId, floorId, status)`, `createdAt` index |
+| `MonitoringRefreshBatch` | UUID `id`, `refreshId/siteId/gatewayId`, `sequence`, unique `idempotencyKey`, JSON array `targetFixtureIds`, `status`(`pending/published/completed/failed/expired`), `errorCode/publishedAt/completedAt/createdAt/updatedAt` | refresh/site 및 gateway/site 복합 FK cascade. `(gatewayId, sequence)`, `(id, refreshId)` unique; `(refreshId, status)` index. published/completed는 발행 시각, terminal은 완료 시각 필수 |
+| `MonitoringRefreshFixture` | 복합 PK `(refreshId, fixtureId)`, `siteId`, `batchId`, `status`(`pending/online/offline/unverified`), `errorCode/observedAt/createdAt/updatedAt`; pending은 관측/오류 NULL, terminal은 관측 시각 필수 | refresh/site, batch/refresh, fixture/site 복합 FK cascade; `(batchId, status)`, `fixtureId` index. 다른 요청·현장 child 연결 차단 |
+| `MonitoringRefreshRequest` | PK `(siteId, requestedById, clientRequestId)`, `floorId/refreshId/createdAt` | active 요청 재사용자도 각각 영속 alias를 저장한다. refresh/site/floor 복합 FK와 site/floor/user FK cascade, refresh index 및 requester/site/floor/createdAt index. 같은 client ID의 다른 층 재사용은 409 |
+
+`MqttOutbox.monitoringRefreshBatchId`는 nullable unique FK이고 batch 삭제 시 cascade한다. row-shape CHECK는 monitoring 행에 이 FK·topic·payload만 허용하고 command/config/application-ACK identity와 혼용하지 않는다. Broker PUBACK만으로 command outbox를 삭제하지 않는다. 모든 child 결과를 확인한 batch terminal transaction 또는 expiry/failure 수렴에서 outbox를 제거하며, 남아 있는 terminal aggregate 소유 outbox는 retention cascade에 포함한다.
+
+API는 `Site → Gateway → Fixture → MonitoringRefresh → batch/child` 순서로 잠금을 획득한다. 요청 생성은 Site 인가 뒤 Floor를 잠가 active 요청 중복 생성을 직렬화한다. ingestion은 더 최신 성공 관측을 늦은 unreachable보다 우선하며 child 결과를 멱등 저장한다. batch 완료/expiry가 child를 다시 집계해 parent counter를 확정하므로 duplicate로 수가 늘지 않는다. retention은 terminal parent만 정렬 잠금하고 기존 Site/Gateway/Fixture를 잠그거나 변경하지 않는다.
+
+요청 최대 1,000개·batch 최대 64개, 30초 deadline과 완료 후 사용자/site/floor별 30초 cooldown은 서비스 검증이다. DB JSON CHECK는 배열 형태만 강제한다. terminal aggregate는 `completedAt`으로부터 7일을 초과한 뒤 아래 retention worker가 정리하며, 정확히 7일 경계와 pending은 보존한다. alias도 같이 삭제되므로 해당 보존 기간 밖의 HTTP 요청 멱등성을 보장하지 않는다.
+
 ### SiteDeletionCleanup
 
 현장 DB 삭제와 S3/MinIO·PKI 같은 외부 시스템 정리를 분리하는 durable 작업 원장이다. 삭제된 `Site`와 FK를 맺지 않아 Site cascade 후에도 남는다.
@@ -857,6 +876,7 @@ CAD parser 좌표에서 검출한 조명 위치 후보 원장이다. 후보는 B
 | `hopCount` | `Int?` | 아니오 |  | 최근 BLE Mesh hop 수 |
 | `commandSuccessRate` | `Float?` | 아니오 |  | 최근 명령 성공률 |
 | `lastSeenAt` | `DateTime?` | 아니오 |  | API가 마지막 수락 fixture-state 또는 fixture-presence를 받은 서버 수신 시각; freshness 기준 |
+| `lastUnreachableAt` | `DateTime?` | 아니오 | `NULL` | 유효한 수동 확인에서 두 번 실패한 terminal을 받은 API 시각. lastSeenAt보다 최신이면 즉시 offline/fixture_stale; 더 최신 수락 presence/state에서 해제. reported 상태·밝기·전원·에너지 checkpoint는 실패로 변경하지 않음 |
 | `lastStateEventId` | `String?` | 아니오 | Unique | 마지막 적용 MQTT v2 이벤트 ID |
 | `lastStateSequence` | `BigInt?` | 아니오 |  | 마지막 적용 gateway sequence |
 | `lastStateOccurredAt` | `DateTime?` | 아니오 |  | 검증된 장치 상태 발생 시각; energy 순서·cursor/checkpoint 기준 |
@@ -1594,6 +1614,9 @@ null은 원래 payload 동등성의 증거가 아니며 첫 인증 replay가 과
 | `vehicle_sensor_capability` | 생성 후 365일 | 현재 node revision과 watermark가 모두 원장보다 엄격히 큼; 최신 보고는 보존 |
 | `Session` | 만료 또는 폐기 후 30일 | 활성 session 보존; 최대 10,000행 |
 | `FloorMapRevision` | floor별 최신 100개 또는 최근 365일 중 넓은 범위 | revision 번호 내림차순으로 최신 100개 보호; 나머지 최대 1,000행 |
+| `MonitoringRefresh` | terminal 완료 후 7일 초과 | `completed/partial/failed/expired`와 `completedAt < cutoff`를 후보 선택·삭제에서 재검사; pending 제외. 앞 세 단계 삭제 수를 뺀 기존 총 21,000 부모 행 budget의 잔여와 1,000 중 작은 값 |
+
+refresh 삭제는 batch·fixture 결과·요청 alias·연결 outbox를 FK cascade로 정리한다. 위 budget과 로그의 `monitoringRefreshes`는 직접 삭제한 부모 행 수이며 cascade 하위 행 수를 의미하지 않는다. budget 소진 시 다음 sweep으로 미루며, 7일은 최소 보존 기간이지 물리 삭제 완료 기한이 아니다.
 
 이벤트 네 유형은 합산 최대 10,000행이다. 모든 이벤트 후보는 완전한 scope/hash와 최신 watermark가 필요하며 같은 sequence이면 ID/hash/발생 시각도 일치해야 한다. 알 수 없는 유형, legacy 불완전 원장, 삭제된 fixture·cursor 누락처럼 안전 조건을 충족하지 못하는 행은 무기한 남을 수 있다. 배치 상한은 인스턴스의 sweep당 값이며 여러 인스턴스는 서로 잠근 행을 건너뛴다. `data_retention_sweep`는 기준 시각·소요 시간·대상별 삭제 수와 성공/실패를 기록하고 실패 시 `failedStage`와 앞 단계에서 이미 완료된 삭제 수를 남긴다.
 

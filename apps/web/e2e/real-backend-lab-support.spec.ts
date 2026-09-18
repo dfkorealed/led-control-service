@@ -1,4 +1,9 @@
 import { expect, test } from "@playwright/test";
+import {
+  fixturePresenceCheckCommandV1Schema, fixturePresenceCheckCompletedV1Schema,
+  fixturePresenceV2Schema, fixtureUnreachableV1Schema, mqttTopicsV2
+} from "@led-control/shared";
+import { randomUUID } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
@@ -14,6 +19,122 @@ const { connectMqttForLab, RealBackendLab, selectDfkScanCandidates } = labSuppor
 const ROOT = resolve(dirname(new URL(import.meta.url).pathname), "../../..");
 
 test.describe.configure({ mode: "serial" });
+
+test("software transport: manual refresh converges, deduplicates and recovers through real API/MQTT", async ({ playwright }, testInfo) => {
+  test.skip(process.env.E2E_REAL_BACKEND_LAB !== "1",
+    "Opt-in requires disposable PostgreSQL/Redis/Mosquitto/OpenSSL and API/Web builds; synthetic Gateway terminal is not physical HIL.");
+  test.setTimeout(240_000);
+  const ports = await allocateUnusedLabPorts();
+  const lab = new RealBackendLab({ ports });
+  // Keep fixture setup and synthetic Gateway emission in test code. The API,
+  // broker, persistence, application ACKs and HTTP projections are production paths.
+  const internal = lab as unknown as {
+    sql: (statement: string) => Promise<void>;
+    publish: (topic: string, payload: unknown) => Promise<void>;
+    nextSequence: () => number;
+    mqtt: MqttClient;
+    mqttEvidence: Array<{ topic: string; payload: unknown }>;
+    stateIngestedEventIds: Set<string>;
+  };
+  const ids = { organization: randomUUID(), site: randomUUID(), floor: randomUUID(), gateway: randomUUID(),
+    fixtures: [randomUUID(), randomUUID()], nodes: [randomUUID(), randomUUID()] };
+  const api = await playwright.request.newContext({ baseURL: `http://127.0.0.1:${ports.web}/api/` });
+  try {
+    await lab.start();
+    await internal.sql(`
+      INSERT INTO "Organization" (id,name,"updatedAt") VALUES ('${ids.organization}','Refresh transport lab',now());
+      INSERT INTO "Site" (id,"organizationId",name,"tariffKwhRate","updatedAt")
+        VALUES ('${ids.site}','${ids.organization}','Refresh lab',120,now());
+      INSERT INTO "Floor" (id,"siteId",name,level,"updatedAt") VALUES ('${ids.floor}','${ids.site}','B1',-1,now());
+      INSERT INTO "Gateway" (id,"siteId",name,"serialNumber","firmwareVersion","updatedAt")
+        VALUES ('${ids.gateway}','${ids.site}','Synthetic Gateway','${lab.gateway.serialNumber}','test',now());
+    `);
+    await lab.readInstallation();
+    await lab.seedViewerAccount();
+    await lab.seedGatewayInventory();
+    await internal.sql(`UPDATE "GatewayInventory" SET "claimedGatewayId"='${ids.gateway}', "claimedAt"=now()
+      WHERE "serialNumber"='${lab.gateway.serialNumber}'`);
+    // Prisma stores naive UTC timestamps; local PostgreSQL sessions may be KST.
+    // A session-local now() would seed future presence and correctly beat the failure.
+    for (let index = 0; index < 2; index += 1) {
+      await internal.sql(`
+        INSERT INTO "MeshNode" (id,"gatewayId","meshAddress","firmwareVersion","updatedAt")
+          VALUES ('${ids.nodes[index]}','${ids.gateway}','0x010${index}','test',now());
+        INSERT INTO "Fixture" (id,"floorId","meshNodeId",name,"ratedWatt",x,y,status,"reportedStatus","statusReason","reportedStatusReason","lastSeenAt","updatedAt")
+          VALUES ('${ids.fixtures[index]}','${ids.floor}','${ids.nodes[index]}','L${index}',40,0,0,'online','online','reported','reported',(now() AT TIME ZONE 'UTC') - interval '1 second',now());
+      `);
+    }
+    await lab.attachGatewayPublisher();
+    const completionTopic = mqttTopicsV2.fixturePresenceCheckCompletedAck(ids.site, ids.gateway);
+    await internal.mqtt.subscribeAsync(completionTopic, { qos: 1 });
+    const login = await api.post("auth/login", { data: { loginId: lab.viewer.loginId, password: lab.viewer.password } });
+    expect(login.ok()).toBe(true);
+    const fixtureUrl = `sites/${ids.site}/floors/${ids.floor}/fixtures`;
+    const counts = async () => {
+      const response = await api.get(fixtureUrl);
+      expect(response.ok()).toBe(true);
+      const page = await response.json();
+      return page.items.reduce((value: { online: number; offline: number }, fixture: { status: string }) => {
+        if (fixture.status === "online") value.online += 1;
+        if (fixture.status === "offline") value.offline += 1;
+        return value;
+      }, { online: 0, offline: 0 });
+    };
+    await expect.poll(counts).toEqual({ online: 2, offline: 0 });
+    const createUrl = `sites/${ids.site}/floors/${ids.floor}/monitoring-refreshes`;
+    const clientRequestId = randomUUID();
+    const started = await api.post(createUrl, { data: { clientRequestId } });
+    expect(started.ok()).toBe(true);
+    const refresh = await started.json();
+    const duplicate = await api.post(createUrl, { data: { clientRequestId } });
+    expect(duplicate.ok()).toBe(true);
+    expect((await duplicate.json()).id).toBe(refresh.id);
+    const commandTopic = mqttTopicsV2.fixturePresenceCheck(ids.site, ids.gateway);
+    await expect.poll(() => internal.mqttEvidence.some(entry => entry.topic === commandTopic)).toBe(true);
+    const command = fixturePresenceCheckCommandV1Schema.parse(internal.mqttEvidence.find(entry => entry.topic === commandTopic)!.payload);
+    expect(command.refreshId).toBe(refresh.id);
+    expect([...command.targetFixtureIds].sort()).toEqual([...ids.fixtures].sort());
+    const identity = () => ({ siteId: ids.site, gatewayId: ids.gateway, eventId: randomUUID(),
+      sequence: internal.nextSequence(), occurredAt: new Date().toISOString() });
+    const refreshIdentity = { refreshId: refresh.id, batchId: command.batchId };
+    const presence = fixturePresenceV2Schema.parse({ ...identity(), ...refreshIdentity,
+      fixtureId: ids.fixtures[0], controlMode: "sensor", rawHighBrightness: 100, configuredBrightness: 60, rssi: null, hopCount: null });
+    // This canonical terminal simulates the Gateway's two failed probe passes;
+    // it verifies transport/ingestion, not actual RF reads or the retry algorithm.
+    const unreachable = fixtureUnreachableV1Schema.parse({ ...identity(), ...refreshIdentity,
+      fixtureId: ids.fixtures[1], reason: "not_found" });
+    const presenceTopic = mqttTopicsV2.fixturePresence(ids.site, ids.gateway);
+    const unreachableTopic = mqttTopicsV2.fixtureUnreachable(ids.site, ids.gateway);
+    await internal.publish(presenceTopic, presence);
+    await internal.publish(unreachableTopic, unreachable);
+    await expect.poll(() => [presence.eventId, unreachable.eventId].every(id => internal.stateIngestedEventIds.has(id))).toBe(true);
+    const completed = fixturePresenceCheckCompletedV1Schema.parse({ ...identity(), ...refreshIdentity, targetFixtureIds: command.targetFixtureIds });
+    await internal.publish(mqttTopicsV2.fixturePresenceCheckCompleted(ids.site, ids.gateway), completed);
+    const status = async () => {
+      const response = await api.get(`sites/${ids.site}/monitoring-refreshes/${refresh.id}`);
+      expect(response.ok()).toBe(true);
+      return response.json();
+    };
+    await expect.poll(status).toMatchObject({ status: "completed", totalFixtures: 2, onlineFixtures: 1, offlineFixtures: 1, unverifiedFixtures: 0 });
+    await expect.poll(counts).toEqual({ online: 1, offline: 1 });
+    const beforeReplay = await status();
+    const acknowledgements = () => internal.mqttEvidence.filter(entry => entry.topic === completionTopic).length;
+    await expect.poll(acknowledgements).toBeGreaterThan(0);
+    const beforeAck = acknowledgements();
+    await internal.publish(presenceTopic, presence);
+    await internal.publish(unreachableTopic, unreachable);
+    await internal.publish(mqttTopicsV2.fixturePresenceCheckCompleted(ids.site, ids.gateway), completed);
+    await expect.poll(acknowledgements).toBeGreaterThan(beforeAck);
+    expect(await status()).toEqual(beforeReplay);
+    await internal.publish(presenceTopic, fixturePresenceV2Schema.parse({ ...identity(), fixtureId: ids.fixtures[1],
+      controlMode: "sensor", rawHighBrightness: 100, configuredBrightness: 60, rssi: null, hopCount: null }));
+    await expect.poll(counts).toEqual({ online: 2, offline: 0 });
+    expect(lab.dimmingCommandCount()).toBe(0);
+  } finally {
+    await api.dispose();
+    try { await lab.writeEvidence(testInfo); } finally { await lab.stop(); }
+  }
+});
 
 for (const source of ["parent process", "dotenv"] as const) {
   test(`HTTP lab API는 ${source}의 TLS 설정을 사용하지 않는다`, () => {

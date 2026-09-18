@@ -5,6 +5,7 @@ topic readwrite sites/#
 # Gateway client certificate CN must equal Gateway.id.
 pattern read sites/+/gateways/%u/commands/#
 pattern read sites/+/gateways/%u/acks/state-ingested
+pattern read sites/+/gateways/%u/acks/fixture-presence-check-completed
 pattern read sites/+/gateways/%u/acks/provisioning/scan-terminal-ingested
 pattern read sites/+/gateways/%u/acks/provisioning/device-terminal-ingested
 pattern read sites/+/gateways/%u/acks/automation/config-applied-ingested

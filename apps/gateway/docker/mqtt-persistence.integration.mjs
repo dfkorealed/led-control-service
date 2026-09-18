@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
 import mqtt from "mqtt";
 import test from "node:test";
+import { renderMosquittoAcl } from "../../../scripts/dev-runtime.mjs";
 
 const execFile = promisify(execFileCallback);
 const dockerImage = "eclipse-mosquitto:2";
@@ -83,7 +84,12 @@ test("Mosquitto restores an offline gateway QoS 1 command after broker restart",
   }
 });
 
-test("Mosquitto enforces directional automation convergence ACLs for a Gateway certificate", async (t) => {
+for (const aclSource of ["production", "development"]) {
+  test(`Mosquitto enforces directional monitoring/automation ACLs for a Gateway certificate (${aclSource})`,
+    (t) => verifyGatewayAcl(t, aclSource));
+}
+
+async function verifyGatewayAcl(t, aclSource) {
   const useDocker = await dockerAvailable();
   if (!useDocker && !(await hostMosquittoAvailable())) {
     if (dockerRequired) assert.fail("Docker daemon is required when MQTT_INTEGRATION_REQUIRED=1");
@@ -113,7 +119,9 @@ test("Mosquitto enforces directional automation convergence ACLs for a Gateway c
     const aclPath = join(configDirectory, "mosquitto.acl");
     await writeFile(
       aclPath,
-      await readFile(new URL("../../../infra/mosquitto.acl.example", import.meta.url)),
+      aclSource === "production"
+        ? await readFile(new URL("../../../infra/mosquitto.acl.example", import.meta.url))
+        : renderMosquittoAcl([gatewayId]),
       { mode: 0o644 }
     );
     const configPath = join(configDirectory, "mosquitto.conf");
@@ -151,6 +159,21 @@ test("Mosquitto enforces directional automation convergence ACLs for a Gateway c
     const automationAckTopic = `${base}/automation/execution-ingested`;
     const configAppliedReceiptTopic = `${base}/automation/config-applied-ingested`;
     const capabilityAckTopic = `${base}/automation/vehicle-sensor-capability-ingested`;
+    const refreshAckTopic = `${base}/fixture-presence-check-completed`;
+    await subscribe(gateway, refreshAckTopic);
+    const receivedRefreshAck = waitForMessage(gateway, refreshAckTopic);
+    await publish(api, refreshAckTopic, JSON.stringify({ status: "completed" }));
+    assert.equal(await receivedRefreshAck, JSON.stringify({ status: "completed" }));
+    await assert.rejects(publish(gateway, refreshAckTopic, "{}"), /not authorized/i);
+    // Certificate CN scopes the Gateway ID; the pre-existing site wildcard is
+    // unchanged. API topic/payload validation enforces the site relationship.
+    for (const siteId of ["site-1", "site-2"]) {
+      const otherRefreshAckTopic = `sites/${siteId}/gateways/00000000-0000-4000-8000-000000000099/acks/fixture-presence-check-completed`;
+      await subscribe(gateway, otherRefreshAckTopic);
+      const rejectedDelivery = assert.rejects(waitForMessage(gateway, otherRefreshAckTopic), /was not delivered/);
+      await publish(api, otherRefreshAckTopic, "{}");
+      await rejectedDelivery;
+    }
     const currentConfigRequestTopic = `sites/site-1/gateways/${gatewayId}/events/automation/current-config-request`;
     const capabilityReportTopic = `sites/site-1/gateways/${gatewayId}/events/automation/vehicle-sensor-capability`;
     await assert.doesNotReject(publish(gateway, `${base}/acceptance`, "{}"));
@@ -197,7 +220,7 @@ test("Mosquitto enforces directional automation convergence ACLs for a Gateway c
     await rm(directory, { recursive: true, force: true });
     if (useDocker) await assertBrokerResourcesRemoved(ownedResources);
   }
-});
+}
 
 function brokerConfig() {
   return [

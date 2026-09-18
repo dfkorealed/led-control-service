@@ -5,6 +5,26 @@ describe("operational retention lifecycle", () => {
   const environment = process.env.NODE_ENV;
   afterEach(() => { process.env.NODE_ENV = environment; jest.restoreAllMocks(); jest.useRealTimers(); });
 
+  it.each([
+    { counts: [0, 0, 0], remaining: 1000 },
+    { counts: [10000, 10000, 995], remaining: 5 },
+    { counts: [10000, 10000, 1000], remaining: 0 }
+  ])("limits monitoring refresh cleanup to the existing sweep budget: $remaining", async ({ counts, remaining }) => {
+    const execute = jest.fn();
+    for (const count of counts) execute.mockResolvedValueOnce(count);
+    execute.mockResolvedValue(remaining);
+    jest.spyOn(Logger.prototype, "log").mockImplementation(() => {});
+    const result = await new DataRetentionService({ $executeRaw: execute } as never)
+      .prune(new Date("2026-09-15T08:00:00.000Z"));
+    expect(result).toMatchObject({ monitoringRefreshes: remaining });
+    expect(execute).toHaveBeenCalledTimes(remaining === 0 ? 3 : 4);
+    if (remaining > 0) {
+      const query = execute.mock.calls[3][0];
+      expect(query.values).toContainEqual(new Date("2026-09-08T08:00:00.000Z"));
+      expect(query.values).toContain(remaining);
+    }
+  });
+
   it("uses an unreferenced timer, skips overlapping ticks and stops on destruction", async () => {
     jest.useFakeTimers();
     process.env.NODE_ENV = "production";
@@ -24,13 +44,13 @@ describe("operational retention lifecycle", () => {
     release();
     await jest.advanceTimersByTimeAsync(0);
     expect(log).toHaveBeenCalledWith(expect.objectContaining({
-      event: "data_retention_sweep", status: "completed", deleted: { gatewayEvents: 2, sessions: 0, floorMapRevisions: 0 }
+      event: "data_retention_sweep", status: "completed", deleted: { gatewayEvents: 2, sessions: 0, floorMapRevisions: 0, monitoringRefreshes: 0 }
     }));
     await jest.advanceTimersByTimeAsync(60_000);
-    expect(db.$executeRaw).toHaveBeenCalledTimes(6);
+    expect(db.$executeRaw).toHaveBeenCalledTimes(8);
     await service.onModuleDestroy();
     await jest.advanceTimersByTimeAsync(60_000);
-    expect(db.$executeRaw).toHaveBeenCalledTimes(6);
+    expect(db.$executeRaw).toHaveBeenCalledTimes(8);
   });
 
   it("logs partial counts without raw errors and retries after a failed tick", async () => {
@@ -44,11 +64,11 @@ describe("operational retention lifecycle", () => {
     await jest.advanceTimersByTimeAsync(60_000);
     expect(warn).toHaveBeenCalledWith(expect.objectContaining({
       event: "data_retention_sweep", status: "failed", failedStage: "sessions",
-      deleted: { gatewayEvents: 3, sessions: 0, floorMapRevisions: 0 }
+      deleted: { gatewayEvents: 3, sessions: 0, floorMapRevisions: 0, monitoringRefreshes: 0 }
     }));
     expect(JSON.stringify(warn.mock.calls)).not.toContain("sensitive database error");
     await jest.advanceTimersByTimeAsync(60_000);
-    expect(db.$executeRaw).toHaveBeenCalledTimes(5);
+    expect(db.$executeRaw).toHaveBeenCalledTimes(6);
     await service.onModuleDestroy();
   });
 

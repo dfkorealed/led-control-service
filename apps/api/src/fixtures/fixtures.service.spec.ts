@@ -33,6 +33,7 @@ describe("FixturesService", () => {
             hopCount: 1,
             commandSuccessRate: 0.99,
             lastSeenAt: new Date("2026-07-12T00:00:00.000Z"),
+            lastUnreachableAt: null,
             bioControlMode: "sensor",
             bioConfiguredBrightness: null,
             bioRawHighBrightness: 127,
@@ -150,7 +151,7 @@ describe("FixturesService", () => {
           site: { findUnique: jest.fn().mockResolvedValue({ gatewayOfflineAfterSeconds: 120, fixtureStaleAfterSeconds: 240 }) },
           fixture: { findMany: jest.fn().mockResolvedValue([{
             id: "fixture-1", status: "online", healthFaultCodes: [], healthLastSeenAt: now,
-            reportedStatus: "online", reportedStatusReason: "reported", lastSeenAt: now,
+            reportedStatus: "online", reportedStatusReason: "reported", lastSeenAt: now, lastUnreachableAt: null,
             meshNode: { gateway: { id: "g", lastHeartbeatAt: new Date(now.getTime() - age) } }
           }]) }
         };
