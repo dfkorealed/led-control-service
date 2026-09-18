@@ -62,7 +62,9 @@ function mergeFixture<T extends FixtureSnapshot>(fixture: T, saved: EditorFixtur
 function toFloorMapSnapshot(state: FloorEditorState, previous: FloorMapSnapshot | undefined): FloorMapSnapshot {
   const plan = state.floor.floorPlan;
   const sourceType = plan?.sourceType ?? previous?.floorPlan?.sourceType ?? "image";
-  const fixturesById = new Map(state.fixtures.map((fixture) => [fixture.id, fixture]));
+  const slotsByFixtureId = new Map(state.lightSlots.flatMap((slot) =>
+    slot.assignedFixtureId ? [[slot.assignedFixtureId, slot] as const] : []
+  ));
   return {
     floorId: state.floor.id,
     revision: state.floor.mapRevision,
@@ -117,15 +119,14 @@ function toFloorMapSnapshot(state: FloorEditorState, previous: FloorMapSnapshot 
       if (object.type === "text") return { ...common, type: object.type, points: null };
       return { ...common, type: "rectangle", points: null };
     }),
-    fixtures: state.lightSlots.flatMap((slot) => {
-      if (!slot.assignedFixtureId) return [];
-      const fixture = fixturesById.get(slot.assignedFixtureId);
-      if (!fixture || fixture.placementStatus === "unplaced") return [];
+    fixtures: state.fixtures.flatMap((fixture) => {
+      if (fixture.placementStatus === "unplaced") return [];
+      const slot = slotsByFixtureId.get(fixture.id);
       return [{
         id: fixture.id,
         name: fixture.name,
-        x: slot.x,
-        y: slot.y,
+        x: slot?.x ?? fixture.x,
+        y: slot?.y ?? fixture.y,
         size: fixture.size ?? 20
       }];
     })

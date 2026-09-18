@@ -97,7 +97,8 @@ export function FloorScene({
       return fixtures.filter((fixture) => fixture.placementStatus !== "unplaced");
     }
     const runtimeById = new Map(fixtures.map((fixture) => [fixture.id, fixture]));
-    return snapshot.fixtures.map((layout) => {
+    const snapshotFixtureIds = new Set(snapshot.fixtures.map((fixture) => fixture.id));
+    const snapshotFixtures = snapshot.fixtures.flatMap((layout) => {
       const runtime: SceneFixture = runtimeById.get(layout.id) ?? {
         id: layout.id,
         name: layout.name,
@@ -107,8 +108,13 @@ export function FloorScene({
         status: "offline" as const,
         placementStatus: "placed" as const
       };
-      return { ...runtime, x: layout.x, y: layout.y };
+      if (runtime.placementStatus === "unplaced") return [];
+      return [{ ...runtime, x: layout.x, y: layout.y }];
     });
+    const runtimeOnlyFixtures = fixtures.filter((fixture) =>
+      !snapshotFixtureIds.has(fixture.id) && fixture.placementStatus !== "unplaced"
+    );
+    return [...snapshotFixtures, ...runtimeOnlyFixtures];
   }, [fixtures, snapshot.fixtures]);
 
   return (

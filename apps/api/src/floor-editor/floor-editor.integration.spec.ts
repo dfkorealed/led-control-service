@@ -10,13 +10,14 @@ import { FloorEditorController } from "./floor-editor.controller";
 import { EditorLeaseService } from "./editor-lease.service";
 import { SessionAuthGuard } from "../auth/session-auth.guard";
 import { configureApiBodyParser } from "../api-body-parser";
-import { EDITOR_MAX_BODY_BYTES } from "@led-control/shared";
+import { EDITOR_MAX_BODY_BYTES, parseFloorEditorSnapshot } from "@led-control/shared";
 import { TargetSnapshotService } from "../automation/target-snapshot.service";
 import { FixturesService } from "../fixtures/fixtures.service";
 import { EnergyService } from "../energy/energy.service";
 import { EnergyAnalyticsQueryService } from "../energy/energy-analytics-query.service";
 import { createHash, randomUUID } from "node:crypto";
 import { FloorAssetCleanupService } from "./floor-asset-cleanup.service";
+import { hashFloorEditorSnapshot } from "./floor-editor-snapshot";
 
 const databaseUrl = process.env.FLOOR_EDITOR_TEST_DATABASE_URL;
 const describeWithDatabase = databaseUrl ? describe : describe.skip;
@@ -1023,6 +1024,213 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
       await prisma.floorAsset.deleteMany({ where: { id: { in: [historicalAssetId, currentAssetId] } } });
     }
   });
+
+  it("recovers an exact source mapping for a source-less V2 snapshot after current slots were replaced", async () => {
+    const scenario = await createLegacySlotRestoreScenario();
+    try {
+      const restoreLease = await activateLease("legacy-slot-restore", 2);
+      const restored = await scenario.service.restoreEditorRevision(operator, ids.floorId, 1, {
+        expectedRevision: 1,
+        leaseToken: restoreLease.token,
+        leaseFence: restoreLease.fence
+      });
+
+      expect(restored.lightSlots).toEqual([expect.objectContaining({
+        id: scenario.historicalSlotId,
+        assignedFixtureId: ids.fixtureId,
+        ...scenario.historicalCoordinates
+      })]);
+      await expect(prisma.floorLightSlot.findUniqueOrThrow({
+        where: { id: scenario.historicalSlotId },
+        select: { sourceImportJobId: true, sourceCandidateId: true, assignedFixtureId: true }
+      })).resolves.toEqual({
+        sourceImportJobId: scenario.historicalJobId,
+        sourceCandidateId: scenario.historicalCandidateId,
+        assignedFixtureId: ids.fixtureId
+      });
+      const restoredRevision = await prisma.floorMapRevision.findUniqueOrThrow({
+        where: { floorId_revision: { floorId: ids.floorId, revision: 2 } }
+      });
+      const restoredSnapshot = parseFloorEditorSnapshot(restoredRevision.snapshot);
+      expect("lightSlots" in restoredSnapshot).toBe(true);
+      if (!("lightSlots" in restoredSnapshot)) throw new Error("restored snapshot did not retain light slots");
+      expect(restoredSnapshot.lightSlots).toEqual([expect.objectContaining({
+        id: scenario.historicalSlotId,
+        sourceImportJobId: scenario.historicalJobId,
+        sourceCandidateId: scenario.historicalCandidateId
+      })]);
+      expect(restoredRevision.snapshotSha256).toBe(hashFloorEditorSnapshot(restoredSnapshot));
+    } finally {
+      await scenario.cleanup();
+    }
+  });
+
+  it.each(["ambiguous", "missing"] as const)(
+    "rolls back a source-less V2 restore when the exact candidate mapping is %s",
+    async (mappingState) => {
+      const scenario = await createLegacySlotRestoreScenario(mappingState);
+      try {
+        const restoreLease = await activateLease(`legacy-slot-${mappingState}`, 2);
+        await expect(scenario.service.restoreEditorRevision(operator, ids.floorId, 1, {
+          expectedRevision: 1,
+          leaseToken: restoreLease.token,
+          leaseFence: restoreLease.fence
+        })).rejects.toThrow(`historical light slot source mapping is ${mappingState}`);
+
+        await expect(prisma.floor.findUniqueOrThrow({
+          where: { id: ids.floorId }, select: { mapRevision: true }
+        })).resolves.toEqual({ mapRevision: 1 });
+        await expect(prisma.floorLightSlot.findMany({
+          where: { floorId: ids.floorId }, select: { id: true, sourceCandidateId: true }
+        })).resolves.toEqual([{ id: scenario.currentSlotId, sourceCandidateId: scenario.currentCandidateId }]);
+        await expect(prisma.fixture.findUniqueOrThrow({
+          where: { id: ids.fixtureId }, select: { x: true, y: true, placementStatus: true }
+        })).resolves.toEqual({ x: 0, y: 0, placementStatus: "unplaced" });
+        await expect(prisma.floorMapRevision.count({ where: { floorId: ids.floorId } })).resolves.toBe(1);
+        await expect(prisma.auditLog.count({ where: { siteId: ids.siteId } })).resolves.toBe(1);
+      } finally {
+        await scenario.cleanup();
+      }
+    }
+  );
+
+  async function createLegacySlotRestoreScenario(mappingState: "exact" | "ambiguous" | "missing" = "exact") {
+    await activateLease();
+    const historicalAssetId = randomUUID();
+    const currentAssetId = randomUUID();
+    const historicalJobId = randomUUID();
+    const currentJobId = randomUUID();
+    const historicalCandidateId = randomUUID();
+    const duplicateCandidateId = randomUUID();
+    const currentCandidateId = randomUUID();
+    const historicalCoordinates = { x: 131.25, y: 242.5, rotation: 15 };
+    const sourcePath = `/api/floors/${ids.floorId}/assets/${historicalAssetId}/content`;
+
+    await prisma.floorAsset.createMany({ data: [
+      {
+        id: historicalAssetId, floorId: ids.floorId, kind: "original", status: "ready",
+        objectKey: `integration/${historicalAssetId}.dxf`, mimeType: "application/dxf",
+        sizeBytes: 128n, sha256: "4".repeat(64), readyAt: new Date()
+      },
+      {
+        id: currentAssetId, floorId: ids.floorId, kind: "original", status: "ready",
+        objectKey: `integration/${currentAssetId}.dxf`, mimeType: "application/dxf",
+        sizeBytes: 128n, sha256: "5".repeat(64), readyAt: new Date()
+      }
+    ] });
+    await prisma.floorImportJob.createMany({ data: [
+      {
+        id: historicalJobId, floorId: ids.floorId, sourceAssetId: historicalAssetId, sourceFormat: "dxf",
+        status: "failed", stage: "failed", failureCode: "TEST_FIXTURE",
+        failureMessage: "legacy restore historical source", failedAt: new Date()
+      },
+      {
+        id: currentJobId, floorId: ids.floorId, sourceAssetId: currentAssetId, sourceFormat: "dxf",
+        status: "failed", stage: "failed", failureCode: "TEST_FIXTURE",
+        failureMessage: "legacy restore current source", failedAt: new Date()
+      }
+    ] });
+    await prisma.floorImportCandidate.createMany({ data: [
+      {
+        id: historicalCandidateId, jobId: historicalJobId, sourceEntityId: "legacy-source",
+        layerName: "LIGHT", blockName: "LED", ...historicalCoordinates, confidence: 0.95,
+        detectionMethod: "rule_based", profileVersion: "test/1", profileDigest: "6".repeat(64),
+        reviewStatus: "accepted", reviewedAt: new Date()
+      },
+      ...(mappingState === "ambiguous" ? [{
+        id: duplicateCandidateId, jobId: historicalJobId, sourceEntityId: "legacy-source-duplicate",
+        layerName: "LIGHT", blockName: "LED", ...historicalCoordinates, confidence: 0.95,
+        detectionMethod: "rule_based" as const, profileVersion: "test/1", profileDigest: "7".repeat(64),
+        reviewStatus: "accepted" as const, reviewedAt: new Date()
+      }] : []),
+      {
+        id: currentCandidateId, jobId: currentJobId, sourceEntityId: "current-source",
+        layerName: "LIGHT", blockName: "LED", x: 700, y: 600, rotation: 0, confidence: 0.95,
+        detectionMethod: "rule_based", profileVersion: "test/1", profileDigest: "8".repeat(64),
+        reviewStatus: "accepted", reviewedAt: new Date()
+      }
+    ] });
+    const historicalSlot = await prisma.floorLightSlot.create({ data: {
+      floorId: ids.floorId,
+      sourceImportJobId: historicalJobId,
+      sourceCandidateId: historicalCandidateId,
+      assignedFixtureId: ids.fixtureId,
+      ...historicalCoordinates
+    } });
+    await prisma.fixture.update({
+      where: { id: ids.fixtureId },
+      data: { x: historicalCoordinates.x, y: historicalCoordinates.y, placementStatus: "placed" }
+    });
+    await prisma.floorPlan.create({ data: {
+      floorId: ids.floorId,
+      sourceType: "image",
+      imageUrl: readyAssetPath,
+      originalFileUrl: sourcePath,
+      renderedImageUrl: null,
+      width: 1200,
+      height: 800,
+      gridSize: 10
+    } });
+    const service = new FloorEditorService(prisma, siteAccess, new AuditService(prisma));
+    await service.saveEditorState(operator, ids.floorId, {
+      expectedRevision: 0,
+      leaseToken: lease.token,
+      leaseFence: lease.fence,
+      fixtureUpdates: [],
+      slotAssignments: [],
+      objectCreates: [],
+      objectUpdates: [],
+      objectDeletes: []
+    });
+    const sourceRevision = await prisma.floorMapRevision.findUniqueOrThrow({
+      where: { floorId_revision: { floorId: ids.floorId, revision: 1 } }
+    });
+    const sourceSnapshot = structuredClone(sourceRevision.snapshot) as Record<string, unknown>;
+    sourceSnapshot.lightSlots = (sourceSnapshot.lightSlots as Array<Record<string, unknown>>).map((slot) => {
+      const { sourceImportJobId: _jobId, sourceCandidateId: _candidateId, ...legacySlot } = slot;
+      return legacySlot;
+    });
+    const legacySnapshot = parseFloorEditorSnapshot(sourceSnapshot);
+    await prisma.floorMapRevision.update({
+      where: { id: sourceRevision.id },
+      data: { snapshot: sourceSnapshot as never, snapshotSha256: hashFloorEditorSnapshot(legacySnapshot) }
+    });
+
+    await prisma.floorLightSlot.deleteMany({ where: { floorId: ids.floorId } });
+    if (mappingState === "missing") {
+      await prisma.floorImportCandidate.delete({ where: { id: historicalCandidateId } });
+    }
+    const currentSlot = await prisma.floorLightSlot.create({ data: {
+      floorId: ids.floorId,
+      sourceImportJobId: currentJobId,
+      sourceCandidateId: currentCandidateId,
+      x: 700,
+      y: 600,
+      rotation: 0
+    } });
+    await prisma.fixture.update({
+      where: { id: ids.fixtureId },
+      data: { x: 0, y: 0, placementStatus: "unplaced", positionVerifiedAt: null }
+    });
+
+    return {
+      service,
+      historicalAssetId,
+      currentAssetId,
+      historicalJobId,
+      currentJobId,
+      historicalCandidateId,
+      currentCandidateId,
+      historicalSlotId: historicalSlot.id,
+      currentSlotId: currentSlot.id,
+      historicalCoordinates,
+      cleanup: async () => {
+        await prisma.floorImportJob.deleteMany({ where: { id: { in: [historicalJobId, currentJobId] } } });
+        await prisma.floorPlan.deleteMany({ where: { floorId: ids.floorId } });
+        await prisma.floorAsset.deleteMany({ where: { id: { in: [historicalAssetId, currentAssetId] } } });
+      }
+    };
+  }
 
   it("preserves an old ready asset when editor save wins the cleanup race", async () => {
     await activateLease();

@@ -55,32 +55,22 @@ describe("FloorMapService", () => {
             height: 900
           },
           mapObjects: [mapObject],
-          lightSlots: [
+          fixtures: [
             {
-              id: slotId,
-              x: 320,
-              y: 240,
-              assignedFixtureId: fixtureId,
-              assignedFixture: {
-                id: fixtureId,
-                name: "B1-L001",
-                x: 320,
-                y: 240,
-                size: 20,
-                placementStatus: "placed"
-              }
+              id: fixtureId,
+              name: "B1-L001",
+              x: 999,
+              y: 998,
+              size: 20,
+              lightSlot: { id: slotId, x: 320, y: 240 }
             },
             {
               id: "00000000-0000-4000-8000-000000000006",
-              x: 500,
-              y: 500,
-              assignedFixtureId: "00000000-0000-4000-8000-000000000007",
-              assignedFixture: {
-                id: "00000000-0000-4000-8000-000000000007",
-                name: "B1-L002",
-                size: 20,
-                placementStatus: "unplaced"
-              }
+              name: "B1-L002",
+              x: 640,
+              y: 420,
+              size: 24,
+              lightSlot: null
             }
           ]
         })
@@ -123,7 +113,10 @@ describe("FloorMapService", () => {
         locked: false,
         visible: true
       }],
-      fixtures: [{ id: fixtureId, name: "B1-L001", x: 320, y: 240, size: 20 }]
+      fixtures: [
+        { id: fixtureId, name: "B1-L001", x: 320, y: 240, size: 20 },
+        { id: "00000000-0000-4000-8000-000000000006", name: "B1-L002", x: 640, y: 420, size: 24 }
+      ]
     });
     expect(snapshot).not.toHaveProperty("lightSlots");
     expect(siteAccess.assert).toHaveBeenCalledWith(user, siteId, "read");
@@ -135,15 +128,16 @@ describe("FloorMapService", () => {
           where: { visible: true },
           orderBy: [{ zIndex: "asc" }, { createdAt: "asc" }]
         },
-        lightSlots: {
-          where: { assignedFixtureId: { not: null } },
+        fixtures: {
+          where: { placementStatus: "placed" },
           orderBy: { id: "asc" },
           select: {
+            id: true,
+            name: true,
             x: true,
             y: true,
-            assignedFixture: {
-              select: { id: true, name: true, size: true, placementStatus: true }
-            }
+            size: true,
+            lightSlot: { select: { id: true, x: true, y: true } }
           }
         }
       }
@@ -159,7 +153,7 @@ describe("FloorMapService", () => {
           mapRevision: 0,
           floorPlan: null,
           mapObjects: [],
-          lightSlots: []
+          fixtures: []
         })
       }
     };
@@ -187,7 +181,7 @@ describe("FloorMapService", () => {
             mapRevision: 0,
             floorPlan: null,
             mapObjects: [],
-            lightSlots: []
+            fixtures: []
           })
         }
       } as never,

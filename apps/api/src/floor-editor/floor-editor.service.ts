@@ -915,24 +915,19 @@ export class FloorEditorService {
     const lightSlots = "lightSlots" in snapshot ? snapshot.lightSlots : undefined;
     if (lightSlots === undefined) return;
 
-    const incompleteIds = lightSlots
-      .filter((slot) => !slot.sourceImportJobId || !slot.sourceCandidateId)
-      .map((slot) => slot.id);
-    const currentSources = incompleteIds.length === 0
+    const legacySlots = lightSlots.filter((slot) => !slot.sourceImportJobId || !slot.sourceCandidateId);
+    const recoveredSources = legacySlots.length === 0
       ? new Map<string, { sourceImportJobId: string; sourceCandidateId: string }>()
-      : new Map((await tx.floorLightSlot.findMany({
-          where: { floorId, id: { in: incompleteIds } },
-          select: { id: true, sourceImportJobId: true, sourceCandidateId: true }
-        })).map((slot) => [slot.id, slot]));
+      : await this.recoverLegacySlotSources(tx, floorId, snapshot, lightSlots, legacySlots);
 
     const slots = lightSlots.map((slot) => {
       const source = slot.sourceImportJobId && slot.sourceCandidateId
         ? slot
-        : currentSources.get(slot.id);
+        : recoveredSources.get(slot.id);
       const sourceImportJobId = source?.sourceImportJobId;
       const sourceCandidateId = source?.sourceCandidateId;
       if (!sourceImportJobId || !sourceCandidateId) {
-        throw new BadRequestException("historical light slot source is unavailable");
+        throw new BadRequestException("historical light slot source mapping is missing");
       }
       return {
         id: slot.id,
@@ -980,6 +975,70 @@ export class FloorEditorService {
         data: { updatedAt: changedAt }
       });
     }
+  }
+
+  private async recoverLegacySlotSources(
+    tx: Prisma.TransactionClient,
+    floorId: string,
+    snapshot: FloorEditorSnapshot,
+    allSlots: Array<{
+      id: string;
+      sourceImportJobId?: string;
+      sourceCandidateId?: string;
+      x: number;
+      y: number;
+      rotation: number;
+    }>,
+    legacySlots: Array<{ id: string; x: number; y: number; rotation: number }>
+  ) {
+    const plan = snapshot.floorPlan;
+    const sourceUrl = plan?.originalFileUrl ?? plan?.renderedImageUrl ?? plan?.imageUrl;
+    if (!sourceUrl) throw new BadRequestException("historical light slot source mapping is missing");
+
+    let assetReference: { assetId: string };
+    try {
+      const parsed = this.floorAssetAccessPath(sourceUrl, "historical floor plan source");
+      if (parsed.floorId !== floorId) throw new Error("source belongs to another floor");
+      assetReference = parsed;
+    } catch {
+      throw new BadRequestException("historical light slot source mapping is missing");
+    }
+
+    const jobAssetFilter = plan?.originalFileUrl
+      ? { sourceAssetId: assetReference.assetId }
+      : { renderedAssetId: assetReference.assetId };
+    const candidates = await tx.floorImportCandidate.findMany({
+      where: {
+        reviewStatus: "accepted",
+        job: { floorId, ...jobAssetFilter }
+      },
+      select: { id: true, jobId: true, x: true, y: true, rotation: true },
+      orderBy: { id: "asc" }
+    });
+    const usedCandidateIds = new Set(allSlots.flatMap((slot) =>
+      slot.sourceCandidateId ? [slot.sourceCandidateId] : []
+    ));
+    const recovered = new Map<string, { sourceImportJobId: string; sourceCandidateId: string }>();
+
+    for (const slot of legacySlots) {
+      const matches = candidates.filter((candidate) =>
+        candidate.x === slot.x && candidate.y === slot.y && candidate.rotation === slot.rotation
+      );
+      if (matches.length === 0) {
+        throw new BadRequestException("historical light slot source mapping is missing");
+      }
+      if (matches.length !== 1 || usedCandidateIds.has(matches[0].id)) {
+        throw new BadRequestException("historical light slot source mapping is ambiguous");
+      }
+      const candidate = matches[0];
+      usedCandidateIds.add(candidate.id);
+      recovered.set(slot.id, {
+        sourceImportJobId: candidate.jobId,
+        sourceCandidateId: candidate.id
+      });
+    }
+
+    return recovered;
   }
 
   private throwMappedTransactionError(error: unknown) {

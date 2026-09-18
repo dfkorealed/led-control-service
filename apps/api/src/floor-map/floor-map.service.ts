@@ -23,15 +23,16 @@ export class FloorMapService {
           where: { visible: true },
           orderBy: [{ zIndex: "asc" }, { createdAt: "asc" }]
         },
-        lightSlots: {
-          where: { assignedFixtureId: { not: null } },
+        fixtures: {
+          where: { placementStatus: "placed" },
           orderBy: { id: "asc" },
           select: {
+            id: true,
+            name: true,
             x: true,
             y: true,
-            assignedFixture: {
-              select: { id: true, name: true, size: true, placementStatus: true }
-            }
+            size: true,
+            lightSlot: { select: { id: true, x: true, y: true } }
           }
         }
       }
@@ -79,16 +80,15 @@ export class FloorMapService {
         locked: object.locked,
         visible: object.visible
       })),
-      fixtures: floor.lightSlots.flatMap((slot) => {
-        const fixture = slot.assignedFixture;
-        if (!fixture || fixture.placementStatus !== "placed") return [];
-        return [{
+      fixtures: floor.fixtures.map((fixture) => {
+        const layout = fixture.lightSlot ?? fixture;
+        return {
           id: fixture.id,
           name: fixture.name,
-          x: slot.x,
-          y: slot.y,
+          x: layout.x,
+          y: layout.y,
           size: fixture.size
-        }];
+        };
       })
     });
   }

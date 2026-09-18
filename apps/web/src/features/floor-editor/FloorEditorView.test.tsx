@@ -1295,6 +1295,21 @@ describe("FloorEditorView", () => {
         size: 36,
         ratedWatt: 45,
         placementStatus: "placed"
+      }, {
+        ...structuredClone(editorState.fixtures[0]),
+        id: "fixture-free",
+        name: "B2-L02 자유 배치",
+        x: 640,
+        y: 420,
+        size: 24,
+        placementStatus: "placed"
+      }, {
+        ...structuredClone(editorState.fixtures[0]),
+        id: "fixture-unplaced",
+        name: "B2-L03 미배치",
+        x: 0,
+        y: 0,
+        placementStatus: "unplaced"
       }],
       lightSlots: [{
         ...structuredClone(editorState.lightSlots[0]),
@@ -1347,7 +1362,10 @@ describe("FloorEditorView", () => {
       width: 1600,
       height: 900,
       objects: [{ text: "변경된 출입구", x: 420, strokeColor: "#2563eb" }],
-      fixtures: [{ id: "fixture-1", name: "B2-L01 변경", x: 240, y: 260, size: 36 }]
+      fixtures: [
+        { id: "fixture-1", name: "B2-L01 변경", x: 240, y: 260, size: 36 },
+        { id: "fixture-free", name: "B2-L02 자유 배치", x: 640, y: 420, size: 24 }
+      ]
     });
     expect(queryClient.getQueryData(["floor-fixtures", "site-2", "floor-b2"])).toMatchObject({
       pages: [{ items: [{ name: "B2-L01 변경", x: 240, y: 260, size: 36, ratedWatt: 45 }] }]
