@@ -12,7 +12,7 @@
 
 ## 2026-09-18 CAD 맵 교체·슬롯 배치 활성 계획
 
-상태: 구현 진행 중. Task 4 주 도면 영역과 CAD 엔티티 보강까지 완료했다. 이 절이 현재 활성 체크리스트이며 아래 `2026-09-09 대량 배치 실행 계획`은 완료된 과거 이력이다.
+상태: 구현 진행 중. Task 5 원자적 맵 초기화와 슬롯 생성까지 완료했다. 이 절이 현재 활성 체크리스트이며 아래 `2026-09-09 대량 배치 실행 계획`은 완료된 과거 이력이다.
 
 ### 전역 제약
 
@@ -274,7 +274,7 @@ git commit -m "feat(cad): render primary drawing geometry"
 - `applyJob(...): FloorImportApplyResult`에 `deletedObjectCount`, `unplacedFixtureCount`, `createdSlotCount`.
 - editor state/snapshot은 `lightSlots`를 포함한다.
 
-- [ ] **Step 1: 전체 초기화와 강제 rollback 통합 테스트 작성**
+- [x] **Step 1: 전체 초기화와 강제 rollback 통합 테스트 작성**
 
 ```ts
 expect(result).toMatchObject({
@@ -289,23 +289,23 @@ expect(await prisma.fixture.findMany({ where: { floorId } })).toEqual(
 
 slot create trigger를 강제 실패시킨 뒤 plan, objects, fixtures, slots, revision, job status가 모두 적용 전 상태인지 검사한다.
 
-- [ ] **Step 2: 서비스/통합 테스트 실패 확인**
+- [x] **Step 2: 서비스/통합 테스트 실패 확인**
 
 Run: `pnpm --filter @led-control/api test -- floor-import.service.spec.ts floor-import.integration.spec.ts --runInBand`
 
 Expected: 기존 구현이 objects/fixtures를 유지하고 slot을 만들지 않아 실패.
 
-- [ ] **Step 3: 단일 transaction apply 구현**
+- [x] **Step 3: 단일 transaction apply 구현**
 
 `confirmMapReset`을 authority/asset 검증 뒤 확인하고 `deleteMany(mapObjects)`, fixture bulk reset, old slot delete, accepted candidate 기반 `createMany(slots)`, plan/revision/audit/job 완료를 같은 transaction에 둔다. change summary에 네 개 count를 기록한다.
 
-- [ ] **Step 4: apply, snapshot, rollback 검증**
+- [x] **Step 4: apply, snapshot, rollback 검증**
 
 Run: `pnpm --filter @led-control/api test -- floor-import.service.spec.ts floor-import.integration.spec.ts floor-editor.integration.spec.ts --runInBand`
 
 Expected: 정상 적용과 모든 강제 실패 rollback 통과.
 
-- [ ] **Step 5: DB/설정 문서 갱신과 커밋**
+- [x] **Step 5: DB/설정 문서 갱신과 커밋**
 
 ```bash
 git add apps/api/src/floor-import apps/api/src/floor-editor docs/database-schema.md
