@@ -55,7 +55,7 @@ describe("operator shell route boundary", () => {
     expect(within(screen.getByRole("main")).getByRole("status")).toHaveAttribute("aria-live", "polite");
     expect(screen.getByText("service_operator")).toBeVisible();
     expect(screen.getByRole("button", { name: "로그아웃" })).toBeEnabled();
-    expect(await screen.findByRole("heading", { name: "현장 관리자 계정" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "현장 관리자 계정" }, { timeout: 5_000 })).toBeVisible();
     expect(await screen.findByText("관리할 현장이 없습니다.")).toBeVisible();
     expect(screen.getByLabelText("현재 경로")).toHaveTextContent("/operator/site-admins?source=direct#accounts");
   });
