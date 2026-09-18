@@ -12,7 +12,7 @@
 
 ## 2026-09-18 CAD 맵 교체·슬롯 배치 활성 계획
 
-상태: 구현 진행 중. Task 1 슬롯 DB 모델과 공유 계약까지 완료했다. 이 절이 현재 활성 체크리스트이며 아래 `2026-09-09 대량 배치 실행 계획`은 완료된 과거 이력이다.
+상태: 구현 진행 중. Task 2 이미지 신규 업로드 제거와 CAD 자산 경계까지 완료했다. 이 절이 현재 활성 체크리스트이며 아래 `2026-09-09 대량 배치 실행 계획`은 완료된 과거 이력이다.
 
 ### 전역 제약
 
@@ -118,7 +118,7 @@ git commit -m "feat(editor): add persistent cad light slots"
 - `createUploadIntent`는 `kind=original`일 때 공유 `cadImportMimeTypeSchema`만 허용한다.
 - 기존 ready image/pdf/rendered SVG content 조회는 변경하지 않는다.
 
-- [ ] **Step 1: PNG/JPG 업로드 거부 API 테스트와 UI 부재 테스트 작성**
+- [x] **Step 1: PNG/JPG 업로드 거부 API 테스트와 UI 부재 테스트 작성**
 
 ```ts
 await expect(service.createUploadIntent(user, floorId, {
@@ -134,23 +134,23 @@ expect(screen.queryByRole("region", { name: "도면 자산" })).not.toBeInTheDoc
 expect(screen.getByRole("region", { name: "CAD 가져오기" })).toBeInTheDocument();
 ```
 
-- [ ] **Step 2: API/Web 대상 테스트 실패 확인**
+- [x] **Step 2: API/Web 대상 테스트 실패 확인**
 
 Run: `pnpm --filter @led-control/api test -- floor-assets.service.spec.ts --runInBand && pnpm --filter @led-control/web test -- FloorEditorView.test.tsx`
 
 Expected: PNG upload가 허용되고 이미지 panel이 남아 실패.
 
-- [ ] **Step 3: 업로드 allowlist와 이미지 panel 제거 구현**
+- [x] **Step 3: 업로드 allowlist와 이미지 panel 제거 구현**
 
 `FloorEditorView`의 `FloorAssetUploadPanel` import, upload busy state와 callback을 제거한다. `FloorAssetsService`는 CAD source MIME만 client upload intent로 허용하고 internal rendered SVG 저장 경로는 기존 worker 전용 API로 유지한다.
 
-- [ ] **Step 4: 조회 호환과 신규 거부 테스트 실행**
+- [x] **Step 4: 조회 호환과 신규 거부 테스트 실행**
 
 Run: `pnpm --filter @led-control/api test -- floor-assets.service.spec.ts floor-assets.integration.spec.ts --runInBand && pnpm --filter @led-control/web test -- FloorEditorView.test.tsx`
 
 Expected: 신규 이미지 거부, 기존 이미지 조회 테스트 통과.
 
-- [ ] **Step 5: 설정 문서 갱신 후 커밋**
+- [x] **Step 5: 설정 문서 갱신 후 커밋**
 
 ```bash
 git add apps/api/src/floor-editor apps/web/src/features/floor-editor
