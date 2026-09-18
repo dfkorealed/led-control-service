@@ -115,6 +115,7 @@ export function mapObjectWorldAabb(object: {
   y: number;
   width: number;
   height: number;
+  points?: ReadonlyArray<{ x: number; y: number }> | null;
   rotation: number;
   strokeWidth: number;
   type: string;
@@ -122,12 +123,15 @@ export function mapObjectWorldAabb(object: {
   const radians = object.rotation * Math.PI / 180;
   const cosine = normalizedTrig(Math.cos(radians));
   const sine = normalizedTrig(Math.sin(radians));
-  const points = [
-    { x: 0, y: 0 },
-    { x: object.width, y: 0 },
-    { x: object.width, y: object.height },
-    { x: 0, y: object.height }
-  ].map((point) => ({
+  const localPoints = object.type === "triangle" && object.points?.length
+    ? object.points
+    : [
+        { x: 0, y: 0 },
+        { x: object.width, y: 0 },
+        { x: object.width, y: object.height },
+        { x: 0, y: object.height }
+      ];
+  const points = localPoints.map((point) => ({
     x: object.x + point.x * cosine - point.y * sine,
     y: object.y + point.x * sine + point.y * cosine
   }));

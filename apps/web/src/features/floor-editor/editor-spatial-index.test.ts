@@ -74,4 +74,17 @@ describe("editor spatial index", () => {
       type: "line"
     })).toEqual({ x: 959, y: 47, width: 26, height: 6 });
   });
+
+  it("uses custom triangle points outside width and height for the rotated world AABB", () => {
+    expect(mapObjectWorldAabb({
+      x: 1_000,
+      y: 200,
+      width: 40,
+      height: 40,
+      points: [{ x: -300, y: 0 }, { x: 40, y: -100 }, { x: 200, y: 300 }],
+      rotation: 90,
+      strokeWidth: 20,
+      type: "triangle"
+    })).toEqual({ x: 690, y: -110, width: 420, height: 520 });
+  });
 });

@@ -202,6 +202,8 @@ describe("FloorEditorView", () => {
     large.objects = [
       { ...large.objects[0], id: "rotated-visible", type: "rectangle", x: 1_000, y: 200, width: 40, height: 300, rotation: 90, strokeWidth: 20 },
       { ...large.objects[0], id: "stroke-visible", type: "line", x: 962, y: 50, width: 20, height: 0, rotation: 0, strokeWidth: 2 },
+      { ...large.objects[0], id: "triangle-points-visible", type: "triangle", x: 1_200, y: 200, width: 40, height: 40, rotation: 90, strokeWidth: 2,
+        points: [{ x: -100, y: 300 }, { x: 40, y: -100 }, { x: 0, y: 0 }] },
       { ...large.objects[0], id: "far", x: 2_000, y: 2_000 }
     ];
     renderEditor(large);
@@ -209,6 +211,7 @@ describe("FloorEditorView", () => {
 
     expect(stage.find(".map-object-rotated-visible")).toHaveLength(1);
     expect(stage.find(".map-object-stroke-visible")).toHaveLength(1);
+    expect(stage.find(".map-object-triangle-points-visible")).toHaveLength(1);
     expect(stage.find(".map-object-far")).toHaveLength(0);
   });
 

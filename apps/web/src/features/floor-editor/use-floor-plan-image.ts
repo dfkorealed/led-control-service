@@ -6,14 +6,18 @@ type CacheEntry = Snapshot & {
   key: string;
   url: string;
   attempt: number;
+  lastUsed: number;
+  evicted: boolean;
   listeners: Set<() => void>;
 };
 
 const idleSnapshot: Snapshot = { image: null, status: "idle" };
 const imageCache = new Map<string, CacheEntry>();
+const MAX_CACHED_FLOOR_PLAN_IMAGES = 8;
+let useSequence = 0;
 
-export function useFloorPlanImage(url: string, revision: string | number): Snapshot & { retry: () => void } {
-  const key = url ? `${revision}\u0000${url}` : "";
+export function useFloorPlanImage(url: string, assetIdentity: string | number = url): Snapshot & { retry: () => void } {
+  const key = url ? `${assetIdentity}\u0000${url}` : "";
   const entry = url ? entryFor(key, url) : null;
   const [published, setPublished] = useState<{ key: string; snapshot: Snapshot }>(() => ({
     key,
@@ -29,7 +33,10 @@ export function useFloorPlanImage(url: string, revision: string | number): Snaps
     const publish = () => setPublished({ key, snapshot: snapshotOf(entry) });
     publish();
     entry.listeners.add(publish);
-    return () => { entry.listeners.delete(publish); };
+    return () => {
+      entry.listeners.delete(publish);
+      evictUnusedEntries();
+    };
   }, [key, url]);
 
   const retry = useCallback(() => {
@@ -44,15 +51,28 @@ export function useFloorPlanImage(url: string, revision: string | number): Snaps
 
 function entryFor(key: string, url: string): CacheEntry {
   const existing = imageCache.get(key);
-  if (existing) return existing;
-  const entry: CacheEntry = { key, url, image: null, status: "idle", attempt: 0, listeners: new Set() };
+  if (existing) {
+    existing.lastUsed = ++useSequence;
+    return existing;
+  }
+  const entry: CacheEntry = {
+    key,
+    url,
+    image: null,
+    status: "idle",
+    attempt: 0,
+    lastUsed: ++useSequence,
+    evicted: false,
+    listeners: new Set()
+  };
   imageCache.set(key, entry);
   load(entry);
+  evictUnusedEntries(key);
   return entry;
 }
 
 function load(entry: CacheEntry) {
-  if (entry.status === "loading" || entry.status === "ready") return;
+  if (entry.evicted || entry.status === "loading" || entry.status === "ready") return;
   const attempt = ++entry.attempt;
   entry.image = null;
   entry.status = "loading";
@@ -70,10 +90,11 @@ function load(entry: CacheEntry) {
 }
 
 function settle(entry: CacheEntry, attempt: number, image: HTMLImageElement | null, status: "ready" | "error") {
-  if (entry.attempt !== attempt) return;
+  if (entry.evicted || imageCache.get(entry.key) !== entry || entry.attempt !== attempt) return;
   entry.image = image;
   entry.status = status;
   notify(entry);
+  evictUnusedEntries(entry.listeners.size ? entry.key : undefined);
 }
 
 function notify(entry: CacheEntry) {
@@ -82,4 +103,19 @@ function notify(entry: CacheEntry) {
 
 function snapshotOf(entry: CacheEntry): Snapshot {
   return { image: entry.image, status: entry.status };
+}
+
+function evictUnusedEntries(protectedKey?: string) {
+  if (imageCache.size <= MAX_CACHED_FLOOR_PLAN_IMAGES) return;
+  const candidates = [...imageCache.values()]
+    .filter((entry) => entry.key !== protectedKey && entry.status !== "loading" && entry.listeners.size === 0)
+    .sort((left, right) => left.lastUsed - right.lastUsed);
+  for (const entry of candidates) {
+    if (imageCache.size <= MAX_CACHED_FLOOR_PLAN_IMAGES) break;
+    if (imageCache.get(entry.key) !== entry) continue;
+    imageCache.delete(entry.key);
+    entry.evicted = true;
+    entry.attempt += 1;
+    entry.image = null;
+  }
 }

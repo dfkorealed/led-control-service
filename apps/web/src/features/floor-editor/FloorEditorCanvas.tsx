@@ -100,7 +100,7 @@ export function FloorEditorCanvas({
   const floorPlan = state?.floor.floorPlan;
   const backgroundUrl = cadBackgroundUrl
     ?? (floorPlan?.sourceType !== "none" ? floorPlan?.renderedImageUrl ?? floorPlan?.imageUrl : "");
-  const { image: background, status: backgroundStatus, retry: retryBackground } = useFloorPlanImage(backgroundUrl ?? "", state?.floor.mapRevision ?? 0);
+  const { image: background, status: backgroundStatus, retry: retryBackground } = useFloorPlanImage(backgroundUrl ?? "");
   const bounds = cadBackgroundUrl && cadViewport
     ? cadViewport
     : { width: floorPlan?.width ?? 1200, height: floorPlan?.height ?? 800 };
