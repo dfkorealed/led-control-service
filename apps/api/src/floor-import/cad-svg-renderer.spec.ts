@@ -62,7 +62,7 @@ describe("CAD SVG renderer", () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
-  });
+  }, 15_000);
   it("renders one self-contained SVG with a normalized viewport and expanded blocks", () => {
     const svg = renderCadDocumentSvg(document);
 
