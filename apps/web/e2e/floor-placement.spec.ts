@@ -195,6 +195,117 @@ test("1000 fixtures, 2000 slots and 2000 objects become canvas-ready within 3s p
   expect(p95ReadyMs).toBeLessThanOrEqual(3000);
 });
 
+test("1000 fixtures, 2000 slots and 2000 objects keep list-to-slot drag/drop within p95 bounds", async ({ page }, testInfo) => {
+  test.setTimeout(60_000);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const { saves } = await editorFixture(page, 1_000, false, { width: 1_200, height: 800 }, 2_000, 2_000);
+  const canvas = page.getByTestId("floor-editor-canvas");
+  const source = page.getByTestId("placement-fixture-f1-1");
+  const canvasBox = (await canvas.boundingBox())!;
+  const expectedZoom = Math.max(0.1, Math.min(2, (canvasBox.width - 48) / 1_200, (canvasBox.height - 48) / 800));
+  await expect.poll(async () => Number(await canvas.getAttribute("data-zoom"))).toBeCloseTo(expectedZoom, 3);
+  await canvas.evaluate((element) => {
+    Object.defineProperty(window, "__floorSlotDropTimes", { value: [] as number[], configurable: true });
+    element.addEventListener("drop", () => {
+      const metrics = window as unknown as {
+        __floorSlotDropTimes: number[];
+        __floorSlotFrameMeasurement?: { request: number };
+      };
+      metrics.__floorSlotDropTimes.push(performance.now());
+      if (metrics.__floorSlotFrameMeasurement) {
+        cancelAnimationFrame(metrics.__floorSlotFrameMeasurement.request);
+      }
+    }, { capture: true });
+  });
+
+  const frameSamplesMs: number[] = [];
+  const commitSamplesMs: number[] = [];
+  for (let iteration = 0; iteration < 20; iteration++) {
+    const targetPosition = await page.evaluate(() => {
+      const konva = (window as unknown as { Konva: { stages: Konva.Stage[] } }).Konva;
+      const stage = konva.stages.find((node) => node.container().closest('[data-testid="floor-editor-canvas"]'))!;
+      return stage.findOne<Konva.Group>(".cad-placement-slot")!.getAbsolutePosition();
+    });
+    await page.evaluate(() => {
+      const samples: number[] = [];
+      const measurement = { samples, previous: performance.now(), request: 0 };
+      const tick = (now: number) => {
+        samples.push(now - measurement.previous);
+        measurement.previous = now;
+        measurement.request = requestAnimationFrame(tick);
+      };
+      measurement.request = requestAnimationFrame(tick);
+      Object.defineProperty(window, "__floorSlotFrameMeasurement", { value: measurement, configurable: true });
+    });
+    await source.dragTo(canvas, { targetPosition });
+    const result = await page.evaluate(async () => {
+      const { useFloorEditorStore } = await import("/src/features/floor-editor/editor-store.ts");
+      const droppedAt = (window as unknown as { __floorSlotDropTimes: number[] }).__floorSlotDropTimes.at(-1)!;
+      const deadline = droppedAt + 500;
+      while (performance.now() < deadline) {
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        const state = useFloorEditorStore.getState().state!;
+        const fixture = state.fixtures.find((item) => item.id === "f1-1")!;
+        const slot = state.lightSlots.find((item) => item.id === "slot-1")!;
+        const konva = (window as unknown as { Konva: { stages: Konva.Stage[] } }).Konva;
+        const stage = konva.stages.find((node) => node.container().closest('[data-testid="floor-editor-canvas"]'))!;
+        const node = stage.findOne<Konva.Group>(".fixture-f1-1");
+        if (fixture.placementStatus === "placed" && slot.assignedFixtureId === "f1-1"
+          && node && Math.abs(node.x() - slot.x) < 0.01 && Math.abs(node.y() - slot.y) < 0.01) {
+          const frameMeasurement = (window as unknown as {
+            __floorSlotFrameMeasurement: { samples: number[] };
+          }).__floorSlotFrameMeasurement;
+          return { commitMs: performance.now() - droppedAt, frameSamplesMs: frameMeasurement.samples.slice(1) };
+        }
+      }
+      throw new Error("list-to-slot drop did not reach a painted committed state within 500ms");
+    });
+    commitSamplesMs.push(result.commitMs);
+    frameSamplesMs.push(...result.frameSamplesMs);
+    if (iteration < 19) {
+      await page.evaluate(async () => {
+        const { useFloorEditorStore } = await import("/src/features/floor-editor/editor-store.ts");
+        useFloorEditorStore.getState().unassignFixture("f1-1");
+      });
+      await expect(source).toBeVisible();
+    }
+  }
+
+  await page.getByRole("button", { name: "저장", exact: true }).click();
+  await expect.poll(() => saves.length).toBe(1);
+  expect(saves[0]).toMatchObject({
+    slotAssignments: [{ slotId: "slot-1", assignedFixtureId: "f1-1" }]
+  });
+  const sortedFrames = [...frameSamplesMs].sort((a, b) => a - b);
+  const sortedCommits = [...commitSamplesMs].sort((a, b) => a - b);
+  const p95FrameMs = sortedFrames[Math.ceil(sortedFrames.length * 0.95) - 1];
+  const p95CommitMs = sortedCommits[Math.ceil(sortedCommits.length * 0.95) - 1];
+  const metricsPath = testInfo.outputPath("list-to-slot-performance.json");
+  await writeFile(metricsPath, JSON.stringify({
+    fixtureCount: 1_000,
+    slotCount: 2_000,
+    objectCount: 2_000,
+    sampleCount: commitSamplesMs.length,
+    p95FrameMs,
+    p95CommitMs,
+    percentileMethod: "nearest rank: ceil(N * 0.95) - 1",
+    timing: "drag frames stop at capture-phase drop; commit runs from drop to matching slot assignment and mounted Konva fixture",
+    frameSamplesMs,
+    commitSamplesMs,
+    assignmentPayload: (saves[0] as { slotAssignments: unknown }).slotAssignments,
+    viewport: "1440x900",
+    browser: "Chromium",
+    platform: process.platform,
+    arch: process.arch
+  }, null, 2));
+  await testInfo.attach("list-to-slot-performance", { path: metricsPath, contentType: "application/json" });
+
+  expect(frameSamplesMs.length).toBeGreaterThanOrEqual(20);
+  expect(commitSamplesMs).toHaveLength(20);
+  expect(p95FrameMs).toBeLessThanOrEqual(33);
+  expect(p95CommitMs).toBeLessThanOrEqual(100);
+});
+
 for (const zoom of [0.5, 1, 2]) {
   test(`pointer drop uses pan and ${zoom}x zoom, Escape restores the rendered transform`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 1440, height: 900 });

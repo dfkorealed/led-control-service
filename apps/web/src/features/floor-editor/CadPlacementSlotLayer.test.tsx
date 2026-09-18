@@ -4,6 +4,7 @@ import { createRef } from "react";
 import { Layer, Stage } from "react-konva";
 import { describe, expect, it } from "vitest";
 import {
+  buildAvailableCadSlotIndex,
   CAD_SLOT_HIT_RADIUS,
   CadPlacementSlotLayer,
   findAvailableCadSlotAtPoint
@@ -13,6 +14,7 @@ const slots = [
   { id: "slot-free", x: 123.5, y: 247.25, rotation: 37, assignedFixtureId: null },
   { id: "slot-used", x: 140, y: 250, rotation: 90, assignedFixtureId: "fixture-1" }
 ];
+const slotIndex = buildAvailableCadSlotIndex(slots);
 
 describe("CadPlacementSlotLayer", () => {
   it("renders only unassigned slots as hollow markers with their CAD rotation", () => {
@@ -20,7 +22,7 @@ describe("CadPlacementSlotLayer", () => {
 
     render(<Stage ref={stageRef} width={640} height={480}><Layer>
       <CadPlacementSlotLayer
-        slots={slots}
+        slotIndex={slotIndex}
         zoom={1}
         viewportBounds={{ x: 0, y: 0, width: 640, height: 480 }}
       />
@@ -38,7 +40,7 @@ describe("CadPlacementSlotLayer", () => {
 
     render(<Stage ref={stageRef} width={640} height={480}><Layer>
       <CadPlacementSlotLayer
-        slots={slots}
+        slotIndex={slotIndex}
         zoom={2}
         viewportBounds={{ x: 0, y: 0, width: 640, height: 480 }}
         highlightedSlotId="slot-free"
@@ -51,9 +53,9 @@ describe("CadPlacementSlotLayer", () => {
   });
 
   it("finds the nearest free slot inside the hit radius and ignores assigned slots", () => {
-    expect(findAvailableCadSlotAtPoint(slots, { x: 125, y: 248 }, CAD_SLOT_HIT_RADIUS)?.id).toBe("slot-free");
-    expect(findAvailableCadSlotAtPoint(slots, { x: 140, y: 250 }, 2)).toBeNull();
-    expect(findAvailableCadSlotAtPoint(slots, { x: 500, y: 500 }, CAD_SLOT_HIT_RADIUS)).toBeNull();
+    expect(findAvailableCadSlotAtPoint(slotIndex, { x: 125, y: 248 }, CAD_SLOT_HIT_RADIUS)?.id).toBe("slot-free");
+    expect(findAvailableCadSlotAtPoint(slotIndex, { x: 140, y: 250 }, 2)).toBeNull();
+    expect(findAvailableCadSlotAtPoint(slotIndex, { x: 500, y: 500 }, CAD_SLOT_HIT_RADIUS)).toBeNull();
   });
 
   it("culls offscreen slots but keeps a highlighted drag target mounted", () => {
@@ -62,14 +64,15 @@ describe("CadPlacementSlotLayer", () => {
       { id: "near", x: 20, y: 20, rotation: 0, assignedFixtureId: null },
       { id: "far", x: 2_000, y: 2_000, rotation: 0, assignedFixtureId: null }
     ];
+    const spreadIndex = buildAvailableCadSlotIndex(spread);
 
     const view = render(<Stage ref={stageRef} width={640} height={480}><Layer>
-      <CadPlacementSlotLayer slots={spread} zoom={1} viewportBounds={{ x: 0, y: 0, width: 640, height: 480 }} />
+      <CadPlacementSlotLayer slotIndex={spreadIndex} zoom={1} viewportBounds={{ x: 0, y: 0, width: 640, height: 480 }} />
     </Layer></Stage>);
     expect(stageRef.current?.find(".cad-placement-slot")).toHaveLength(1);
 
     view.rerender(<Stage ref={stageRef} width={640} height={480}><Layer>
-      <CadPlacementSlotLayer slots={spread} zoom={1} viewportBounds={{ x: 0, y: 0, width: 640, height: 480 }} highlightedSlotId="far" />
+      <CadPlacementSlotLayer slotIndex={spreadIndex} zoom={1} viewportBounds={{ x: 0, y: 0, width: 640, height: 480 }} highlightedSlotId="far" />
     </Layer></Stage>);
     expect(stageRef.current?.find(".cad-placement-slot")).toHaveLength(2);
   });

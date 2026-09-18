@@ -7,6 +7,7 @@ import type { FloorEditorState, FloorImportApplyResult } from "./editor-types";
 import { useFloorEditorStore } from "./editor-store";
 import { saveEditorDraft } from "./editor-drafts";
 import { clearTenantCache } from "../../api/principal-cache";
+import * as spatialIndex from "./editor-spatial-index";
 
 const floorEditorApi = vi.hoisted(() => ({
   applyFloorImportJob: vi.fn(),
@@ -167,6 +168,44 @@ describe("FloorEditorView", () => {
     expect(far.findOne<import("konva").default.Circle>("Circle")?.strokeWidth()).toBe(3);
     expect(stage.findOne<import("konva").default.Group>(".fixture-fixture-near")
       ?.findOne<import("konva").default.Circle>("Circle")?.strokeWidth()).toBe(1);
+  });
+
+  it("reuses fixture, object, and available-slot indexes while pan and zoom only requery them", () => {
+    const large = structuredClone(editorState);
+    large.floor.floorPlan = { ...large.floor.floorPlan!, width: 5_000, height: 5_000 };
+    large.fixtures = Array.from({ length: 1_000 }, (_, index) => ({
+      ...large.fixtures[0],
+      id: `fixture-${index + 1}`,
+      x: 20 + index % 40 * 25,
+      y: 20 + Math.floor(index / 40) * 25
+    }));
+    large.objects = Array.from({ length: 2_000 }, (_, index) => ({
+      ...large.objects[0],
+      id: `object-${index + 1}`,
+      x: 20 + index % 50 * 30,
+      y: 20 + Math.floor(index / 50) * 30,
+      zIndex: index
+    }));
+    large.lightSlots = Array.from({ length: 2_000 }, (_, index) => ({
+      id: `slot-${index + 1}`,
+      x: 20 + index % 50 * 30,
+      y: 20 + Math.floor(index / 50) * 30,
+      rotation: 0,
+      assignedFixtureId: null
+    }));
+    const buildIndex = vi.spyOn(spatialIndex, "buildEditorSpatialIndex");
+
+    renderEditor(large);
+    const buildsAfterCollectionsLoad = buildIndex.mock.calls.length;
+    expect(buildsAfterCollectionsLoad).toBeGreaterThanOrEqual(3);
+
+    act(() => {
+      const store = useFloorEditorStore.getState();
+      store.setPan({ x: -600, y: -300 });
+      store.setZoom(2);
+    });
+
+    expect(buildIndex.mock.calls.length).toBe(buildsAfterCollectionsLoad);
   });
 
   it("mounts newly visible nodes during a live pan before pointer up", () => {

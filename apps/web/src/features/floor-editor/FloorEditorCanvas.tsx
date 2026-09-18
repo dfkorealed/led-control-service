@@ -16,14 +16,19 @@ import {
   type Point
 } from "./geometry";
 import { useFloorEditorStore } from "./editor-store";
-import type { EditorFixture, EditorTool, FloorEditorState, FloorMapObjectDraft } from "./editor-types";
+import type { EditorFixture, EditorTool, FloorEditorState, FloorMapObject, FloorMapObjectDraft } from "./editor-types";
 import { EditorFixtureNode, type EditorFixturePalette } from "./EditorFixtureNode";
 import { FIXTURE_DRAG_TYPE, type FixturePlacementRowRegistry } from "./FixturePlacementList";
 import { FixturePlacementAction } from "./FixturePlacementAction";
 import { EditorMinimap } from "./EditorMinimap";
 import { canShowFixtureNames, selectedFixtureLabelLayout } from "./editor-labels";
 import { CadCandidateLayer } from "./CadCandidateLayer";
-import { CAD_SLOT_HIT_RADIUS, CadPlacementSlotLayer, findAvailableCadSlotAtPoint } from "./CadPlacementSlotLayer";
+import {
+  buildAvailableCadSlotIndex,
+  CAD_SLOT_HIT_RADIUS,
+  CadPlacementSlotLayer,
+  findAvailableCadSlotAtPoint
+} from "./CadPlacementSlotLayer";
 import { useFloorPlanImage } from "./use-floor-plan-image";
 import { buildEditorSpatialIndex, mapObjectWorldAabb, queryEditorSpatialIndex } from "./editor-spatial-index";
 
@@ -89,8 +94,24 @@ export function FloorEditorCanvas({
   const snap = useFloorEditorStore((s) => s.snap);
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const lockedSet = useMemo(() => new Set(lockedIds), [lockedIds]);
-  const placedFixtures = useMemo(() => state?.fixtures.filter((fixture) => fixture.placementStatus !== "unplaced") ?? [], [state?.fixtures]);
-  const showBulkNames = useMemo(() => canShowFixtureNames(placedFixtures, zoom), [placedFixtures, zoom]);
+  const placedFixtureCollection = useMemo(() => {
+    const items = state?.fixtures.filter((fixture) => fixture.placementStatus !== "unplaced") ?? [];
+    const byId = new Map(items.map((fixture) => [fixture.id, fixture]));
+    const orderById = new Map(items.map((fixture, order) => [fixture.id, order]));
+    const spatialIndex = buildEditorSpatialIndex(items.map((fixture) => {
+      const size = fixture.size ?? 20;
+      return { id: fixture.id, x: fixture.x - size / 2, y: fixture.y - size / 2, width: size, height: size };
+    }), 128);
+    return { items, byId, orderById, spatialIndex };
+  }, [state?.fixtures]);
+  const objectCollection = useMemo(() => {
+    const items = (state?.objects.filter((object) => object.visible) ?? []).sort((a, b) => a.zIndex - b.zIndex);
+    const byId = new Map(items.map((object) => [object.id, object]));
+    const spatialIndex = buildEditorSpatialIndex(items.map((object) => ({ id: object.id, ...mapObjectWorldAabb(object) })), 128);
+    return { byId, spatialIndex };
+  }, [state?.objects]);
+  const availableSlotIndex = useMemo(() => buildAvailableCadSlotIndex(state?.lightSlots ?? []), [state?.lightSlots]);
+  const placedFixtures = placedFixtureCollection.items;
   const [creation, setCreation] = useState<FloorMapObjectDraft | null>(null);
   const [marquee, setMarquee] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const [dropPreview, setDropPreview] = useState<Point | null>(null);
@@ -111,22 +132,25 @@ export function FloorEditorCanvas({
     width: viewport.width / zoom,
     height: viewport.height / zoom
   };
-  const fixtureSpatialIndex = useMemo(() => buildEditorSpatialIndex(placedFixtures.map((fixture) => {
-    const size = fixture.size ?? 20;
-    return { id: fixture.id, x: fixture.x - size / 2, y: fixture.y - size / 2, width: size, height: size, fixture };
-  }), 128), [placedFixtures]);
   const visibleFixtures = useMemo(() => {
-    const visibleIds = new Set(queryEditorSpatialIndex(fixtureSpatialIndex, viewportBounds, 160 / zoom).map((item) => item.id));
-    selectedIds.forEach((id) => visibleIds.add(id));
-    return placedFixtures.filter((fixture) => visibleIds.has(fixture.id));
-  }, [fixtureSpatialIndex, placedFixtures, selectedIds, viewportBounds.height, viewportBounds.width, viewportBounds.x, viewportBounds.y, zoom]);
+    const visibleIds = new Set(queryEditorSpatialIndex(placedFixtureCollection.spatialIndex, viewportBounds, 160 / zoom).map((item) => item.id));
+    selectedIds.forEach((id) => {
+      if (placedFixtureCollection.byId.has(id)) visibleIds.add(id);
+    });
+    return [...visibleIds]
+      .map((id) => placedFixtureCollection.byId.get(id))
+      .filter((fixture): fixture is EditorFixture => fixture !== undefined)
+      .sort((a, b) => placedFixtureCollection.orderById.get(a.id)! - placedFixtureCollection.orderById.get(b.id)!);
+  }, [placedFixtureCollection, selectedIds, viewportBounds.height, viewportBounds.width, viewportBounds.x, viewportBounds.y, zoom]);
   const visibleObjects = useMemo(() => {
-    const objects = state?.objects.filter((object) => object.visible) ?? [];
-    const index = buildEditorSpatialIndex(objects.map((object) => ({ id: object.id, ...mapObjectWorldAabb(object), object })), 128);
-    const visibleIds = new Set(queryEditorSpatialIndex(index, viewportBounds, 160 / zoom).map((item) => item.id));
-    if (selection?.kind === "object") visibleIds.add(selection.id);
-    return objects.filter((object) => visibleIds.has(object.id)).sort((a, b) => a.zIndex - b.zIndex);
-  }, [selection, state?.objects, viewportBounds.height, viewportBounds.width, viewportBounds.x, viewportBounds.y, zoom]);
+    const visibleIds = new Set(queryEditorSpatialIndex(objectCollection.spatialIndex, viewportBounds, 160 / zoom).map((item) => item.id));
+    if (selection?.kind === "object" && objectCollection.byId.has(selection.id)) visibleIds.add(selection.id);
+    return [...visibleIds]
+      .map((id) => objectCollection.byId.get(id))
+      .filter((object): object is FloorMapObject => object !== undefined)
+      .sort((a, b) => a.zIndex - b.zIndex);
+  }, [objectCollection, selection, viewportBounds.height, viewportBounds.width, viewportBounds.x, viewportBounds.y, zoom]);
+  const showBulkNames = useMemo(() => canShowFixtureNames(visibleFixtures, zoom), [visibleFixtures, zoom]);
 
   useEffect(() => {
     if (!cadBackgroundUrl || !cadViewport) {
@@ -419,10 +443,11 @@ export function FloorEditorCanvas({
     if (event.dataTransfer.types.includes(FIXTURE_DRAG_TYPE) && !layers.fixtures.locked) {
       event.preventDefault();
       event.dataTransfer.dropEffect = "move";
-      const point = worldPoint(event);
-      const current = useFloorEditorStore.getState();
-      const slot = findAvailableCadSlotAtPoint(current.state?.lightSlots ?? [], point, CAD_SLOT_HIT_RADIUS / current.zoom);
+      const pointer = { clientX: event.clientX, clientY: event.clientY };
       schedulePointerMove(() => {
+        const current = useFloorEditorStore.getState();
+        const point = worldPoint(pointer);
+        const slot = findAvailableCadSlotAtPoint(availableSlotIndex, point, CAD_SLOT_HIT_RADIUS / current.zoom);
         setHighlightedSlotId(slot?.id ?? null);
         setDropPreview(slot ? { x: slot.x, y: slot.y } : point);
       });
@@ -441,7 +466,7 @@ export function FloorEditorCanvas({
     if (id) {
       const fixture = current.state.fixtures.find((f) => f.id === id);
       if (!fixture || fixture.placementStatus !== "unplaced" || current.layers.fixtures.locked || current.lockedFixtureIds.includes(id)) return;
-      const slot = findAvailableCadSlotAtPoint(current.state.lightSlots, point, CAD_SLOT_HIT_RADIUS / current.zoom);
+      const slot = findAvailableCadSlotAtPoint(availableSlotIndex, point, CAD_SLOT_HIT_RADIUS / current.zoom);
       if (slot) {
         current.assignFixtureToSlot(id, slot.id);
         current.selectFixture(id);
@@ -453,9 +478,9 @@ export function FloorEditorCanvas({
     if (drawingTools.has(tool)) current.addObject(current.state.floor.id, createDefaultObject(tool, point));
   }
   const transform = { x: renderedPan.x, y: renderedPan.y, scaleX: zoom, scaleY: zoom };
-  const focusedFixture = layers.fixtures.visible && selection?.kind === "fixture" ? placedFixtures.find((fixture) => fixture.id === selection.id) : undefined;
+  const focusedFixture = layers.fixtures.visible && selection?.kind === "fixture" ? placedFixtureCollection.byId.get(selection.id) : undefined;
   const focusedLabel = focusedFixture ? selectedFixtureLabelLayout(focusedFixture, pan, zoom, viewport) : undefined;
-  const selectedObjectType = selection?.kind === "object" ? state.objects.find((object) => object.id === selection.id)?.type : undefined;
+  const selectedObjectType = selection?.kind === "object" ? objectCollection.byId.get(selection.id)?.type : undefined;
   const transformerAnchors = selection?.kind === "fixture"
     ? ["top-left", "top-right", "bottom-left", "bottom-right"]
     : selectedObjectType === "line"
@@ -481,7 +506,7 @@ export function FloorEditorCanvas({
         {background && layers.background.visible && <KonvaImage image={background} width={bounds.width} height={bounds.height} />}
         {snap ? <MapGrid width={bounds.width} height={bounds.height} gridSize={floorPlan?.gridSize ?? 10} zoom={zoom} color={editorColors.grid} /> : null}
         {!onToggleCadCandidate ? <CadPlacementSlotLayer
-          slots={state.lightSlots}
+          slotIndex={availableSlotIndex}
           zoom={zoom}
           viewportBounds={viewportBounds}
           highlightedSlotId={highlightedSlotId}

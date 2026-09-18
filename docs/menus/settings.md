@@ -406,7 +406,6 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - 초대 링크 발급·전달 방식의 일반 유저 onboarding UI. admin이 직접 계정과 임시 비밀번호를 발급하는 현장 유저 CRUD는 구현 완료했다.
 - 구역 생성·수정과 구성원 관리 화면. 기존 구역 목록·보관 전환은 구현 완료했다.
 - 기존 PDF 첫 페이지 렌더·다중 페이지 선택은 보류한다. 신규 PDF upload/import는 지원하지 않으며 기존 PDF 읽기 호환만 유지한다.
-- CAD accepted 후보를 영속 슬롯으로 생성·조회하는 백엔드는 완료했지만, 실제 조명을 슬롯에 연결·해제하는 저장 계약과 캔버스 drag/drop UI는 후속 작업이다.
 - 샘플별 사람이 판정한 조명 ground truth. `몰드바등` 후보 1,302개는 review pool일 뿐이며 `xx4`, 익명 dynamic block은 geometry·attribute·주변 문자 근거와 라벨 없이 자동 등록하지 않는다.
 - 승인된 실제 DWG converter/sample을 production image의 read-only 외부 bundle mount로 주입한 운영 호스트 HIL. 상시 synthetic smoke는 실제 768 MiB cgroup의 parent+converter+core와 memory bomb/malformed 생존을 검증하지만, 현장 샘플의 최신 승인 binary HIL을 대신하지 않는다.
 - 다중 Gateway와 층 coverage
