@@ -260,11 +260,11 @@ test("production audit cannot skip Docker, MQTT persistence, container, bundle, 
   ]) assert.match(script, new RegExp(escapeRegExp(contract)));
 });
 
-test("production smoke fails closed unless the live API cgroup is exactly 768 MiB", async () => {
+test("production smoke fails closed unless the live API and CAD cgroups are exactly 1408 MiB", async () => {
   const script = await readFile(path.join(root, "scripts/production-compose-smoke.sh"), "utf8");
-  assert.match(script, /apiContainer\.HostConfig\.Memory\s*,\s*805306368/);
+  assert.match(script, /apiContainer\.HostConfig\.Memory\s*,\s*1476395008/);
   assert.match(script, /cat ['"]?\/sys\/fs\/cgroup\/memory\.max/);
-  assert.match(script, /assert\.equal\([^\n]*cgroup[^\n]*['"]805306368['"]/i);
+  assert.match(script, /assert\.equal\([^\n]*cgroup[^\n]*['"]1476395008['"]/i);
 });
 
 test("production audit protects one canonical Gateway release artifact and restore drill gate", async () => {
