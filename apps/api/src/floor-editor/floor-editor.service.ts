@@ -650,6 +650,7 @@ export class FloorEditorService {
 
     await this.applyFixturePatches(tx, floorId, input.fixtureUpdates, changedAt, false);
     await this.applySlotAssignments(tx, floorId, input.slotAssignments, changedAt);
+    await this.assertFinalSlotAssignments(tx, floorId, input.slotAssignments);
 
     if (input.objectDeletes.length > 0) {
       await tx.floorMapObject.deleteMany({ where: { floorId, id: { in: input.objectDeletes } } });
@@ -684,10 +685,25 @@ export class FloorEditorService {
         WHERE slot."id" = patch."slotId" AND slot."floorId" = ${floorId}
       `);
     }
+  }
 
+  private async assertFinalSlotAssignments(
+    tx: Prisma.TransactionClient,
+    floorId: string,
+    assignments: PreparedSaveEditorState["slotAssignments"]
+  ) {
     const finalAssignments = await tx.floorLightSlot.findMany({
       where: { floorId, assignedFixtureId: { not: null } },
-      select: { id: true, assignedFixtureId: true }
+      select: {
+        id: true,
+        floorId: true,
+        assignedFixtureId: true,
+        x: true,
+        y: true,
+        assignedFixture: {
+          select: { id: true, floorId: true, placementStatus: true, x: true, y: true }
+        }
+      }
     });
     const finalFixtureIds = finalAssignments
       .map((assignment) => assignment.assignedFixtureId)
@@ -698,6 +714,18 @@ export class FloorEditorService {
     const finalBySlot = new Map(finalAssignments.map((assignment) => [assignment.id, assignment.assignedFixtureId]));
     if (assignments.some((assignment) => (finalBySlot.get(assignment.slotId) ?? null) !== assignment.assignedFixtureId)) {
       throw new BadRequestException("final slot assignments do not match the save request");
+    }
+    for (const slot of finalAssignments) {
+      const fixture = slot.assignedFixture;
+      if (!fixture || fixture.id !== slot.assignedFixtureId || fixture.floorId !== floorId) {
+        throw new BadRequestException("final slot assignments must reference fixtures on the requested floor");
+      }
+      if (fixture.placementStatus !== "placed") {
+        throw new BadRequestException("assigned fixtures must be placed");
+      }
+      if (fixture.x !== slot.x || fixture.y !== slot.y) {
+        throw new BadRequestException("assigned fixture coordinates must exactly match their slots");
+      }
     }
   }
 

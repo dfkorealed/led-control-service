@@ -414,7 +414,20 @@ describe("FloorEditorService atomic revisions", () => {
       findMany: jest.fn().mockImplementation(({ where }: any) => {
         if (where.id?.in) return Promise.resolve([{ id: slotId }, { id: secondSlotId }]);
         if (where.assignedFixtureId?.in) return Promise.resolve([]);
-        return Promise.resolve([{ id: slotId, assignedFixtureId: fixtureId }]);
+        return Promise.resolve([{
+          id: slotId,
+          floorId,
+          assignedFixtureId: fixtureId,
+          x: 130,
+          y: 250,
+          assignedFixture: {
+            id: fixtureId,
+            floorId,
+            placementStatus: "placed",
+            x: 130,
+            y: 250
+          }
+        }]);
       }),
       updateMany: jest.fn().mockResolvedValue({ count: 2 })
     };
@@ -443,8 +456,58 @@ describe("FloorEditorService atomic revisions", () => {
       .toBeLessThan(tx.$executeRaw.mock.invocationCallOrder[0]);
     expect(floorLightSlot.findMany).toHaveBeenLastCalledWith({
       where: { floorId, assignedFixtureId: { not: null } },
-      select: { id: true, assignedFixtureId: true }
+      select: {
+        id: true,
+        floorId: true,
+        assignedFixtureId: true,
+        x: true,
+        y: true,
+        assignedFixture: {
+          select: { id: true, floorId: true, placementStatus: true, x: true, y: true }
+        }
+      }
     });
+  });
+
+  it.each([
+    ["unplaced", { placementStatus: "unplaced", x: 120, y: 240 }],
+    ["x mismatch", { placementStatus: "placed", x: 121, y: 240 }],
+    ["y mismatch", { placementStatus: "placed", x: 120, y: 241 }]
+  ])("rejects an assignment-only save when the final fixture is %s", async (_label, fixtureState) => {
+    const floorLightSlot = {
+      findMany: jest.fn().mockImplementation(({ where }: any) => {
+        if (where.id?.in) return Promise.resolve([{ id: slotId }]);
+        if (where.assignedFixtureId?.in) return Promise.resolve([]);
+        return Promise.resolve([{
+          id: slotId,
+          floorId,
+          assignedFixtureId: fixtureId,
+          x: 120,
+          y: 240,
+          assignedFixture: { id: fixtureId, floorId, ...fixtureState }
+        }]);
+      }),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 })
+    };
+    const tx = createTransactionClient({ floorLightSlot });
+    const { service } = await createAtomicService({ tx });
+
+    await expect(service.saveEditorState(user, floorId, {
+      expectedRevision: 3,
+      leaseToken,
+      leaseFence,
+      fixtureUpdates: [],
+      slotAssignments: [{ slotId, assignedFixtureId: fixtureId }],
+      objectCreates: [],
+      objectUpdates: [],
+      objectDeletes: []
+    })).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(floorLightSlot.updateMany).toHaveBeenCalled();
+    expect(tx.$executeRaw).toHaveBeenCalled();
+    expect(tx.floor.findUnique).not.toHaveBeenCalled();
+    expect(tx.floorMapRevision.create).not.toHaveBeenCalled();
+    expect(tx.auditLog.create).not.toHaveBeenCalled();
   });
 
   it.each([
