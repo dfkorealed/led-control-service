@@ -90,7 +90,20 @@ it("retains the durable receipt when terminal growth exceeds the restart file-si
   expect((await new MonitoringRefreshJournal(file, scope, { now, maxBytes }).accept(command)).kind).toBe("recovered");
 });
 
-it("fails closed on altered replay, idempotency reuse, scope, expiry and nonincreasing sequence", async () => {
+it("accepts reordered new sequences after restart, but never altered sequence reuse", async () => {
+  const file = await path();
+  const later = { ...command, sequence: 2, batchId: "88888888-8888-4888-8888-888888888888", idempotencyKey: "99999999-9999-4999-8999-999999999999" };
+  await new MonitoringRefreshJournal(file, scope, { now }).accept(later);
+  const recovered = new MonitoringRefreshJournal(file, scope, { now });
+  expect((await recovered.accept(command)).kind).toBe("accepted");
+  expect((await recovered.accept(command)).kind).toBe("running");
+  await expect(recovered.accept({ ...later, sequence: 1 })).rejects.toThrow("conflict");
+  await expect(recovered.accept({ ...command, targetFixtureIds: [scope.siteId] })).rejects.toThrow("conflict");
+  const expired = new MonitoringRefreshJournal(file, scope, { now: () => new Date(command.expiresAt) });
+  await expect(expired.accept(command)).rejects.toThrow("expired");
+});
+
+it("fails closed on altered replay, idempotency reuse, scope, expiry and reused sequence", async () => {
   const journal = new MonitoringRefreshJournal(await path(), scope, { now });
   await journal.accept(command);
   for (const altered of [

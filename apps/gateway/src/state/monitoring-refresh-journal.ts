@@ -44,15 +44,16 @@ export class MonitoringRefreshJournal {
       this.assertScope(command);
       if (Date.parse(command.expiresAt) <= this.now().getTime()) throw new Error("monitoring refresh expired");
       const state = await this.load();
-      const existing = state.records.find((row) => row.command.batchId === command.batchId || row.command.idempotencyKey === command.idempotencyKey);
+      // API publisher retries can reorder batches. Retain each sequence's exact command identity,
+      // rather than rejecting an unseen lower sequence using the diagnostic high-water mark.
+      const existing = state.records.find((row) => row.command.batchId === command.batchId || row.command.idempotencyKey === command.idempotencyKey || row.command.sequence === command.sequence);
       if (existing) {
         if (JSON.stringify(existing.command) !== JSON.stringify(command)) throw new Error("monitoring refresh identity conflict");
         return { kind: existing.terminal ? "terminal" as const : this.active.has(command.batchId) ? "running" as const : "recovered" as const,
           terminal: existing.terminal ? structuredClone(existing.terminal) : undefined };
       }
-      if (command.sequence <= state.sequence) throw new Error("monitoring refresh sequence conflict");
       if (state.records.length >= 10_000) throw new Error("monitoring refresh journal capacity");
-      await this.commit({ ...state, sequence: command.sequence, records: [...state.records, { command, handedOffEventIds: [], handedOff: false, acknowledged: false }] });
+      await this.commit({ ...state, sequence: Math.max(state.sequence, command.sequence), records: [...state.records, { command, handedOffEventIds: [], handedOff: false, acknowledged: false }] });
       this.active.add(command.batchId);
       return { kind: "accepted" as const, terminal: undefined };
     });
