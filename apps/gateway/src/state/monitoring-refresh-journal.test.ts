@@ -1,6 +1,7 @@
 import { mkdtemp, rm, readFile, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import { afterEach, expect, it } from "vitest";
 import { MonitoringRefreshJournal } from "./monitoring-refresh-journal";
 
@@ -127,4 +128,40 @@ it("marks an interrupted receipt recovered and rejects loss of an initialized jo
   expect((await new MonitoringRefreshJournal(file, scope, { now }).accept(command)).kind).toBe("recovered");
   await unlink(file);
   await expect(new MonitoringRefreshJournal(file, scope, { now }).initialize()).rejects.toThrow();
+});
+
+it("reclaims expired ACKed terminals across sustained usage under the byte bound", async () => {
+  const file = await path();
+  let clock = now();
+  const options = { now: () => clock, maxBytes: 8_000 };
+  for (let n = 0; n < 24; n++) {
+    const journal = new MonitoringRefreshJournal(file, scope, options);
+    const next = { ...command, batchId: randomUUID(), idempotencyKey: randomUUID(), sequence: n + 1,
+      requestedAt: clock.toISOString(), expiresAt: new Date(clock.getTime() + 1000).toISOString() };
+    await journal.accept(next);
+    const done = terminal(); done.events[0].batchId = next.batchId; done.completed.batchId = next.batchId;
+    await journal.complete(next, done);
+    await journal.markEventHandedOff(next.batchId, done.events[0].eventId);
+    await journal.markHandedOff(next.batchId);
+    await journal.acknowledgeEvent(resultAck());
+    await journal.acknowledge({ ...scope, refreshId: next.refreshId, batchId: next.batchId });
+    expect((await new MonitoringRefreshJournal(file, scope, options).accept(next)).terminal).toEqual(done);
+    clock = new Date(clock.getTime() + 1000);
+  }
+  const restarted = new MonitoringRefreshJournal(file, scope, options);
+  await restarted.initialize();
+  expect(JSON.parse(await readFile(file, "utf8")).records).toEqual([]);
+  await expect(restarted.accept({ ...command, expiresAt: clock.toISOString() })).rejects.toThrow("expired");
+});
+
+it("retains expired unacknowledged results but prunes expired terminal failures", async () => {
+  const file = await path();
+  const journal = new MonitoringRefreshJournal(file, scope, { now });
+  await journal.accept(command); await journal.complete(command, terminal());
+  const failed = { ...command, batchId: randomUUID(), idempotencyKey: randomUUID(), sequence: 2 };
+  await journal.accept(failed); await journal.complete(failed, { events: [], failure: "transport_unavailable" });
+  const restarted = new MonitoringRefreshJournal(file, scope, { now: () => new Date(command.expiresAt) });
+  await restarted.initialize();
+  expect(await restarted.pending()).toHaveLength(1);
+  expect(JSON.parse(await readFile(file, "utf8")).records.map((row: any) => row.command.batchId)).toEqual([command.batchId]);
 });

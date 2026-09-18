@@ -23,7 +23,7 @@ interface StoredRecord {
 }
 interface StoredJournal { version: 1 | 2; scope: StateEventOutboxScope; sequence: number; records: StoredRecord[] }
 
-/** Durable receipts are retained after ACK: an old batch must never acquire hardware ownership again. */
+/** Keep receipts through command expiry and all application handshakes; expired commands cannot reacquire hardware ownership. */
 export class MonitoringRefreshJournal {
   private state?: StoredJournal;
   private queue: Promise<unknown> = Promise.resolve();
@@ -37,14 +37,14 @@ export class MonitoringRefreshJournal {
     if (!Number.isSafeInteger(this.maxBytes) || this.maxBytes < 1) throw new Error("invalid monitoring refresh capacity");
   }
 
-  initialize() { return this.exclusive(async () => { await this.load(); }); }
+  initialize() { return this.exclusive(async () => { await this.prune(await this.load()); }); }
 
   accept(value: unknown) {
     return this.exclusive(async () => {
       const command = fixturePresenceCheckCommandV1Schema.parse(value);
       this.assertScope(command);
       if (Date.parse(command.expiresAt) <= this.now().getTime()) throw new Error("monitoring refresh expired");
-      const state = await this.load();
+      const state = await this.prune(await this.load());
       // API publisher retries can reorder batches. Retain each sequence's exact command identity,
       // rather than rejecting an unseen lower sequence using the diagnostic high-water mark.
       const existing = state.records.find((row) => row.command.batchId === command.batchId || row.command.idempotencyKey === command.idempotencyKey || row.command.sequence === command.sequence);
@@ -78,7 +78,7 @@ export class MonitoringRefreshJournal {
     });
   }
 
-  pending() { return this.exclusive(async () => structuredClone((await this.load()).records.filter((row) => row.terminal?.completed && !row.acknowledged))); }
+  pending() { return this.exclusive(async () => structuredClone((await this.prune(await this.load())).records.filter((row) => row.terminal?.completed && !row.acknowledged))); }
 
   acknowledgeEvent(value: unknown) {
     return this.exclusive(async () => {
@@ -135,6 +135,7 @@ export class MonitoringRefreshJournal {
       const records = state.records.map((row) => !row.terminal && !this.active.has(row.command.batchId)
         ? { ...row, terminal: { events: [], failure: "interrupted" as const } } : row);
       if (records.some((row, index) => row !== state.records[index])) await this.commit({ ...state, records });
+      await this.prune(this.state!);
     });
   }
 
@@ -231,6 +232,17 @@ export class MonitoringRefreshJournal {
   private async assertPermissions(path: string, mode: number) {
     const file = await stat(path);
     if ((file.mode & 0o777) !== mode || (process.geteuid && file.uid !== process.geteuid())) throw new Error("monitoring refresh unsafe permissions");
+  }
+  private async prune(state: StoredJournal): Promise<StoredJournal> {
+    const now = this.now().getTime();
+    const records = state.records.filter((row) => Date.parse(row.command.expiresAt) > now ||
+      (!row.acknowledged && !row.terminal?.failure));
+    if (records.length === state.records.length) return state;
+    const compacted = { ...state, records };
+    // Atomic replacement preserves either the complete pre-prune or post-prune history on crash.
+    // Unacknowledged completions survive indefinitely and can drain through the API retired ACK.
+    await this.commit(compacted);
+    return compacted;
   }
   private async commit(state: StoredJournal) {
     // Match writeJsonAtomic's formatted bytes, so every committed file remains readable after restart.
