@@ -243,10 +243,18 @@ describe("MonitoringRefreshOutboxService", () => {
   it("waits for an in-flight publication during stopAndDrain and does not start the next row", async () => {
     const { promise, resolve } = deferred<void>();
     const { service, mqtt } = harness();
+    const secondBatchId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+    const secondRecord = record({ id: "outbox-2", monitoringRefreshBatchId: secondBatchId,
+      payload: { ...payload, batchId: secondBatchId },
+      batch: { ...record().batch, id: secondBatchId } });
+    expect(secondRecord).toMatchObject({
+      monitoringRefreshBatchId: secondBatchId,
+      batch: { id: secondBatchId },
+      payload: { batchId: secondBatchId }
+    });
     jest.spyOn(service, "claimBatch").mockResolvedValue([
       record(),
-      record({ id: "outbox-2", monitoringRefreshBatchId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
-        batch: { ...record().batch, id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee" } })
+      secondRecord
     ] as never);
     mqtt.publishTopic.mockReturnValueOnce(promise);
 

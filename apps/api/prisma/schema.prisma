@@ -522,7 +522,7 @@ model MonitoringRefreshRequest {
 
   @@id([siteId, requestedById, clientRequestId])
   @@index([refreshId])
-  @@index([requestedById, siteId, floorId, createdAt])
+  @@index([requestedById, siteId, floorId, createdAt], map: "MonitoringRefreshRequest_requester_floor_createdAt_idx")
 }
 
 model MonitoringRefreshBatch {

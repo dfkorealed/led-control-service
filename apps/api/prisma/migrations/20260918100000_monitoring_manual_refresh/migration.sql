@@ -80,7 +80,7 @@ CREATE TABLE "MonitoringRefreshRequest" (
 
 CREATE INDEX "MonitoringRefreshRequest_refreshId_idx"
 ON "MonitoringRefreshRequest"("refreshId");
-CREATE INDEX "MonitoringRefreshRequest_requestedById_siteId_floorId_createdAt_idx"
+CREATE INDEX "MonitoringRefreshRequest_requester_floor_createdAt_idx"
 ON "MonitoringRefreshRequest"("requestedById", "siteId", "floorId", "createdAt");
 
 CREATE TABLE "MonitoringRefreshBatch" (

@@ -5,6 +5,23 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const databaseUrl = process.env.MONITORING_INCIDENTS_TEST_DATABASE_URL;
+const requestScopeIndexName = "MonitoringRefreshRequest_requester_floor_createdAt_idx";
+
+describe("monitoring refresh migration artifacts", () => {
+  it("keeps the request cooldown index name stable and below PostgreSQL's identifier limit", () => {
+    const apiRoot = join(__dirname, "../..");
+    const schemaPath = join(apiRoot, "prisma/schema.prisma");
+    const migration = readFileSync(join(apiRoot,
+      "prisma/migrations/20260918100000_monitoring_manual_refresh/migration.sql"), "utf8");
+    const diff = spawnSync("pnpm", ["exec", "prisma", "migrate", "diff", "--from-empty",
+      `--to-schema-datamodel=${schemaPath}`, "--script"], { cwd: apiRoot, encoding: "utf8" });
+
+    expect(diff.status).toBe(0);
+    expect(diff.stdout).toContain(`CREATE INDEX "${requestScopeIndexName}"`);
+    expect(migration).toContain(`CREATE INDEX "${requestScopeIndexName}"`);
+    expect(Buffer.byteLength(requestScopeIndexName, "utf8")).toBeLessThanOrEqual(63);
+  });
+});
 
 (databaseUrl ? describe : describe.skip)("monitoring policy/incident migration", () => {
   let prisma: PrismaClient;
@@ -106,7 +123,7 @@ const databaseUrl = process.env.MONITORING_INCIDENTS_TEST_DATABASE_URL;
           'MonitoringRefreshFixture_batchId_status_idx',
           'MonitoringRefreshFixture_fixtureId_idx',
           'MonitoringRefreshRequest_refreshId_idx',
-          'MonitoringRefreshRequest_requestedById_siteId_floorId_createdAt_idx',
+          'MonitoringRefreshRequest_requester_floor_createdAt_idx',
           'MqttOutbox_monitoringRefreshBatchId_key'
         ) ORDER BY indexname
       `,
@@ -177,7 +194,7 @@ const databaseUrl = process.env.MONITORING_INCIDENTS_TEST_DATABASE_URL;
       "MonitoringRefreshFixture_batchId_status_idx",
       "MonitoringRefreshFixture_fixtureId_idx",
       "MonitoringRefreshRequest_refreshId_idx",
-      "MonitoringRefreshRequest_requestedById_siteId_floorId_createdAt_idx",
+      "MonitoringRefreshRequest_requester_floor_createdAt_idx",
       "MqttOutbox_monitoringRefreshBatchId_key"
     ].sort());
     expect(fixtureColumn).toEqual([{ is_nullable: "YES" }]);
