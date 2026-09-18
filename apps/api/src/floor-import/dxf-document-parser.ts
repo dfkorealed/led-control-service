@@ -1,6 +1,13 @@
 import { Buffer } from "node:buffer";
 import { computeCadBounds, iterateCadDocumentExpansion } from "./cad-geometry";
+import {
+  CAD_MAX_PARSED_COORDINATES,
+  CAD_MAX_PARSED_ENTITIES,
+  CAD_MAX_SPLINE_CONTROL_POINTS,
+  CAD_MAX_SPLINE_KNOTS
+} from "./cad-runtime-contract";
 import type { CadPoint, CadPolylineVertex, NormalizedCadAttribute, NormalizedCadBlock, NormalizedCadDocument, NormalizedCadEntity, NormalizedCadPolyline } from "./cad-types";
+import { selectPrimaryCadBounds } from "./cad-viewport";
 
 export interface DxfParserLimits {
   maxInputBytes: number;
@@ -9,6 +16,8 @@ export interface DxfParserLimits {
   maxEntities: number;
   maxBlocks: number;
   maxCoordinates: number;
+  maxSplineControlPoints: number;
+  maxSplineKnots: number;
   maxCoordinateMagnitude: number;
   maxZCoordinateMagnitude: number;
   maxExpandedEntities: number;
@@ -25,9 +34,11 @@ export const DEFAULT_DXF_PARSER_LIMITS: Readonly<DxfParserLimits> = Object.freez
   maxInputBytes: 256 * 1024 * 1024,
   maxLineBytes: 1024 * 1024,
   maxEntityBodyPairs: 250_000,
-  maxEntities: 1_000_000,
+  maxEntities: CAD_MAX_PARSED_ENTITIES,
   maxBlocks: 100_000,
-  maxCoordinates: 5_000_000,
+  maxCoordinates: CAD_MAX_PARSED_COORDINATES,
+  maxSplineControlPoints: CAD_MAX_SPLINE_CONTROL_POINTS,
+  maxSplineKnots: CAD_MAX_SPLINE_KNOTS,
   maxCoordinateMagnitude: 1_000_000_000,
   maxZCoordinateMagnitude: 100_000_000_000,
   maxExpandedEntities: 1_000_000,
@@ -52,7 +63,7 @@ const DXF_INTEGER = /^[+-]?\d+$/;
 function resolveLimits(options: Partial<DxfParserLimits>): DxfParserLimits {
   const limits = { ...DEFAULT_DXF_PARSER_LIMITS, ...options };
   for (const key of [
-    "maxInputBytes", "maxLineBytes", "maxEntityBodyPairs", "maxEntities", "maxBlocks", "maxCoordinates",
+    "maxInputBytes", "maxLineBytes", "maxEntityBodyPairs", "maxEntities", "maxBlocks", "maxCoordinates", "maxSplineControlPoints", "maxSplineKnots",
     "maxCoordinateMagnitude", "maxZCoordinateMagnitude", "maxExpandedEntities", "maxBlockDepth", "maxNormalizedOutputBytes", "maxRetainedModelBytes", "maxDurationMs", "maxCpuMs"
   ] as const) {
     if (!Number.isFinite(limits[key]) || limits[key] <= 0) throw new Error(`Invalid DXF ${key}`);
@@ -158,6 +169,7 @@ class DxfDocumentBuilder {
   private readonly hiddenLayers = new Set<string>();
   private readonly declaredLayers = new Set<string>();
   private readonly sourceEntityIds = new Set<string>();
+  private readonly unsupportedEntityCounts = new Map<string, number>();
   private readonly blocks: NormalizedCadBlock[] = [];
   private readonly entities: NormalizedCadEntity[] = [];
 
@@ -282,8 +294,12 @@ class DxfDocumentBuilder {
       version: 1,
       bounds: { minX: round(rawBounds.minX), minY: round(rawBounds.minY), maxX: round(rawBounds.maxX), maxY: round(rawBounds.maxY) },
       blocks,
-      entities
+      entities,
+      unsupportedEntityCounts: Object.fromEntries([...this.unsupportedEntityCounts].sort(([left], [right]) => left.localeCompare(right)))
     };
+    document.bounds = Object.fromEntries(
+      Object.entries(selectPrimaryCadBounds(document).bounds).map(([key, value]) => [key, round(value)])
+    ) as unknown as NormalizedCadDocument["bounds"];
     if (this.normalizedBytes + this.sizeOf(document.bounds) > this.limits.maxNormalizedOutputBytes) {
       throw new Error("DXF normalized output limit exceeded");
     }
@@ -362,7 +378,12 @@ class DxfDocumentBuilder {
       }
       const visible = this.isEntityVisible(record.body);
       const entity = visible || record.type === "INSERT" ? this.parseEntity(record.type, record.body) : null;
-      if (!entity) return;
+      if (!entity) {
+        if (visible && (record.section === "BLOCKS" || this.isModelSpace(record.body))) {
+          this.unsupportedEntityCounts.set(record.type, (this.unsupportedEntityCounts.get(record.type) ?? 0) + 1);
+        }
+        return;
+      }
       if (visible) this.appendEntity(entity, record.section === "ENTITIES" && !this.isModelSpace(record.body));
       if (entity.type === "insert") {
         const flags = record.body.filter(pair => pair.code === 66);
@@ -402,7 +423,7 @@ class DxfDocumentBuilder {
   }
 
   private parseEntity(type: string, body: readonly DxfPair[]): NormalizedCadEntity | null {
-    if (!["LINE", "LWPOLYLINE", "CIRCLE", "ARC", "TEXT", "MTEXT", "INSERT"].includes(type)) return null;
+    if (!["LINE", "LWPOLYLINE", "CIRCLE", "ARC", "TEXT", "MTEXT", "INSERT", "SPLINE", "WIPEOUT", "HATCH", "DIMENSION", "POINT"].includes(type)) return null;
     const common = this.idAndLayer(body);
     if (type === "LINE") return { type: "line", ...common, start: this.point(body, 10, 20, 30, "line start"), end: this.point(body, 11, 21, 31, "line end") };
     if (type === "LWPOLYLINE") {
@@ -450,6 +471,90 @@ class DxfDocumentBuilder {
         z: this.nonZero(this.number(this.first(body, 43), "insert z scale", 1), "insert z scale")
       }, attributes: []
     };
+    if (type === "SPLINE") {
+      if (!this.first(body, 71) || !this.first(body, 40) || !this.first(body, 10)) return null;
+      const degree = this.integer(this.first(body, 71), "spline degree");
+      if (degree < 1 || degree > 32) throw new Error("Invalid DXF spline degree");
+      const knots = body.filter(pair => pair.code === 40).map(pair => this.number(pair, "spline knot"));
+      const controlPoints = this.repeatedPoints(body, 10, 20, 30, "spline control point");
+      const weights = body.filter(pair => pair.code === 41).map(pair => this.positive(this.number(pair, "spline weight"), "spline weight"));
+      if (controlPoints.length > this.limits.maxSplineControlPoints) throw new Error("DXF spline control point limit exceeded");
+      if (knots.length > this.limits.maxSplineKnots) throw new Error("DXF spline knot limit exceeded");
+      const declaredKnots = this.integer(this.first(body, 72), "spline knot count", knots.length);
+      const declaredControls = this.integer(this.first(body, 73), "spline control point count", controlPoints.length);
+      if (declaredKnots !== knots.length || declaredControls !== controlPoints.length ||
+          controlPoints.length < degree + 1 || knots.length !== controlPoints.length + degree + 1 ||
+          (weights.length !== 0 && weights.length !== controlPoints.length)) {
+        throw new Error("Malformed DXF SPLINE definition");
+      }
+      for (let index = 1; index < knots.length; index++) {
+        if (knots[index] < knots[index - 1]) throw new Error("Malformed DXF SPLINE knot order");
+      }
+      return {
+        type: "spline", ...common, degree, knots, weights, controlPoints,
+        closed: (this.integer(this.first(body, 70), "spline flags", 0) & 1) === 1
+      };
+    }
+    if (type === "WIPEOUT") {
+      const clip = this.repeatedPoints(body, 14, 24, 34, "wipeout boundary");
+      if (clip.length < 3) return null;
+      const base = this.optionalPoint(body, 10, 20, 30, { x: 0, y: 0, z: 0 }, "wipeout base");
+      const u = this.optionalPoint(body, 11, 21, 31, { x: 1, y: 0, z: 0 }, "wipeout u vector");
+      const v = this.optionalPoint(body, 12, 22, 32, { x: 0, y: 1, z: 0 }, "wipeout v vector");
+      return {
+        type: "wipeout", ...common,
+        vertices: clip.map(point => ({
+          x: base.x + point.x * u.x + point.y * v.x,
+          y: base.y + point.x * u.y + point.y * v.y,
+          z: base.z + point.z
+        }))
+      };
+    }
+    if (type === "HATCH") {
+      const loops: Array<{ vertices: CadPolylineVertex[]; closed: boolean }> = [];
+      let active: { vertices: CadPolylineVertex[]; closed: boolean; pending: Partial<CadPolylineVertex> | null } | null = null;
+      const finishVertex = () => {
+        if (!active?.pending) return;
+        if (active.pending.x === undefined || active.pending.y === undefined) throw new Error("Malformed DXF HATCH boundary vertex");
+        active.vertices.push({ x: active.pending.x, y: active.pending.y, z: active.pending.z ?? 0, bulge: active.pending.bulge ?? 0 });
+        active.pending = null;
+      };
+      const finishLoop = () => {
+        if (!active) return;
+        finishVertex();
+        if (active.vertices.length < 2) throw new Error("Malformed DXF HATCH boundary loop");
+        loops.push({ vertices: active.vertices, closed: active.closed });
+        active = null;
+      };
+      for (const pair of body) {
+        if (pair.code === 92) { finishLoop(); active = { vertices: [], closed: true, pending: null }; }
+        else if (active && pair.code === 73) active.closed = this.integer(pair, "hatch boundary closed", 1) !== 0;
+        else if (active && pair.code === 10) { finishVertex(); active.pending = { x: this.number(pair, "hatch boundary.x"), z: 0, bulge: 0 }; }
+        else if (active && pair.code === 20) {
+          if (!active.pending || active.pending.y !== undefined) throw new Error("Malformed DXF HATCH boundary vertex");
+          active.pending.y = this.number(pair, "hatch boundary.y");
+        } else if (active && pair.code === 30 && active.pending) active.pending.z = this.number(pair, "hatch boundary.z", 0, this.limits.maxZCoordinateMagnitude);
+        else if (active && pair.code === 42 && active.pending) active.pending.bulge = this.number(pair, "hatch boundary bulge");
+      }
+      finishLoop();
+      if (loops.length === 0) throw new Error("Malformed DXF HATCH boundary");
+      return { type: "hatch", ...common, loops };
+    }
+    if (type === "DIMENSION") {
+      const definitionPoint = this.point(body, 10, 20, 30, "dimension definition point");
+      const rawBlockName = this.first(body, 2)?.value.trim();
+      return {
+        type: "dimension", ...common,
+        blockName: rawBlockName ? this.requireName(rawBlockName, "dimension block name") : null,
+        definitionPoint,
+        textPosition: this.optionalPoint(body, 11, 21, 31, definitionPoint, "dimension text position"),
+        extensionStart: this.optionalPoint(body, 13, 23, 33, definitionPoint, "dimension extension start"),
+        extensionEnd: this.optionalPoint(body, 14, 24, 34, definitionPoint, "dimension extension end"),
+        rotation: this.angle(this.number(this.first(body, 53), "dimension text rotation", 0)),
+        text: this.first(body, 1)?.value ?? ""
+      };
+    }
+    if (type === "POINT") return { type: "point", ...common, position: this.point(body, 10, 20, 30, "point position") };
     return null;
   }
 
@@ -512,6 +617,39 @@ class DxfDocumentBuilder {
       y: this.number(this.first(body, y), `${label}.y`),
       z: this.number(this.first(body, z), `${label}.z`, 0, this.limits.maxZCoordinateMagnitude)
     };
+  }
+
+  private optionalPoint(
+    body: readonly DxfPair[], x: number, y: number, z: number, fallback: CadPoint, label: string
+  ): CadPoint {
+    const xPair = this.first(body, x);
+    const yPair = this.first(body, y);
+    if (!xPair && !yPair) return { ...fallback };
+    if (!xPair || !yPair) throw new Error(`Malformed DXF ${label}`);
+    return {
+      x: this.number(xPair, `${label}.x`),
+      y: this.number(yPair, `${label}.y`),
+      z: this.number(this.first(body, z), `${label}.z`, 0, this.limits.maxZCoordinateMagnitude)
+    };
+  }
+
+  private repeatedPoints(body: readonly DxfPair[], x: number, y: number, z: number, label: string): CadPoint[] {
+    const points: CadPoint[] = [];
+    let pending: Partial<CadPoint> | null = null;
+    const finish = () => {
+      if (!pending || pending.x === undefined || pending.y === undefined) throw new Error(`Malformed DXF ${label}`);
+      points.push({ x: pending.x, y: pending.y, z: pending.z ?? 0 });
+      pending = null;
+    };
+    for (const pair of body) {
+      if (pair.code === x) { if (pending) finish(); pending = { x: this.number(pair, `${label}.x`), z: 0 }; }
+      else if (pair.code === y && pending) {
+        if (pending.y !== undefined) throw new Error(`Malformed DXF ${label}`);
+        pending.y = this.number(pair, `${label}.y`);
+      } else if (pair.code === z && pending) pending.z = this.number(pair, `${label}.z`, 0, this.limits.maxZCoordinateMagnitude);
+    }
+    if (pending) finish();
+    return points;
   }
 
   private positive(value: number, label: string): number { if (value <= 0) throw new Error(`Invalid DXF ${label}`); return value; }

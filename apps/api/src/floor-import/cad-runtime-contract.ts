@@ -5,6 +5,12 @@ export const CAD_API_MAX_OLD_SPACE_MB = 256;
 export const CAD_CORE_MAX_OLD_SPACE_MB = 384;
 export const CAD_CGROUP_MEMORY_BYTES = 1408 * 1024 * 1024;
 export const CAD_IMPORT_CONCURRENCY = 1;
+export const CAD_MAX_PARSED_ENTITIES = 1_000_000;
+export const CAD_MAX_PARSED_COORDINATES = 5_000_000;
+export const CAD_MAX_SPLINE_CONTROL_POINTS = 100_000;
+export const CAD_MAX_SPLINE_KNOTS = 100_064;
+export const CAD_MAX_SPLINE_SAMPLES_PER_ENTITY = 4_096;
+export const CAD_MAX_SPLINE_SAMPLES_PER_DOCUMENT = 1_000_000;
 
 type ReadTextFile = (path: string) => string;
 

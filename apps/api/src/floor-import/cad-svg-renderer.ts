@@ -5,16 +5,18 @@ import { open, unlink } from "node:fs/promises";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createGzip } from "node:zlib";
-import { cadBulgeArc, computeCadBounds, expandCadDocument, iterateCadDocumentExpansion, multiplyCadMatrices, transformPoint, type CadMatrix, type ExpandedCadEntity } from "./cad-geometry";
+import { cadBulgeArc, expandCadDocument, iterateCadDocumentExpansion, multiplyCadMatrices, sampleCadSpline, transformPoint, type CadMatrix, type ExpandedCadEntity } from "./cad-geometry";
 import { CAD_RENDERED_SVG_MAX_BYTES, CAD_RENDERED_SVG_RAW_MAX_BYTES } from "./cad-resource-limits";
+import { CAD_MAX_SPLINE_SAMPLES_PER_DOCUMENT } from "./cad-runtime-contract";
 import { forEachCadTextGlyph, sanitizeCadText } from "./cad-text-layout";
 import type { CadPoint, NormalizedCadDocument } from "./cad-types";
-import { cadViewportSvgTransform, createCadViewport } from "./cad-viewport";
+import { cadViewportScale, cadViewportSvgTransform, createCadViewport, selectPrimaryCadBounds } from "./cad-viewport";
 
 export interface CadSvgRendererLimits {
   maxRenderedEntities: number;
   maxOutputBytes: number;
   maxBlockDepth: number;
+  maxSplineSamples: number;
   padding: number;
   trustDocumentBounds: boolean;
   includeEntityMetadata: boolean;
@@ -29,10 +31,11 @@ const DEFAULT_LIMITS: CadSvgRendererLimits = {
   maxRenderedEntities: 100_000,
   maxOutputBytes: 8 * 1024 * 1024,
   maxBlockDepth: 16,
+  maxSplineSamples: CAD_MAX_SPLINE_SAMPLES_PER_DOCUMENT,
   padding: 1,
   trustDocumentBounds: false,
-  includeEntityMetadata: true
-  ,compactPaths: false,
+  includeEntityMetadata: true,
+  compactPaths: false,
   maxDurationMs: 30_000,
   maxCpuMs: 30_000,
   now: () => performance.now(),
@@ -125,6 +128,7 @@ export function renderCadDocumentSvg(document: NormalizedCadDocument, options: P
   if (!Number.isInteger(limits.maxRenderedEntities) || limits.maxRenderedEntities < 1 ||
       !Number.isInteger(limits.maxOutputBytes) || limits.maxOutputBytes < 1 ||
       !Number.isInteger(limits.maxBlockDepth) || limits.maxBlockDepth < 1 ||
+      !Number.isInteger(limits.maxSplineSamples) || limits.maxSplineSamples < 1 ||
       !Number.isFinite(limits.padding) || limits.padding < 0 ||
       !Number.isFinite(limits.maxDurationMs) || limits.maxDurationMs <= 0 ||
       !Number.isFinite(limits.maxCpuMs) || limits.maxCpuMs <= 0) throw new Error("Invalid CAD SVG renderer limits");
@@ -136,11 +140,7 @@ export function renderCadDocumentSvg(document: NormalizedCadDocument, options: P
   };
   const expanded = limits.trustDocumentBounds ? null : expandCadDocument(document, limits);
   const maxTextGlyphs = Math.max(1, Math.floor(limits.maxOutputBytes / MIN_SERIALIZED_GLYPH_BYTES));
-  let measuredTextGlyphs = 0;
-  const bounds = expanded ? computeCadBounds(expanded, undefined, () => {
-    measuredTextGlyphs++;
-    if (measuredTextGlyphs > maxTextGlyphs) throw new Error("CAD SVG output limit exceeded while measuring text glyphs");
-  }) : document.bounds;
+  const bounds = limits.trustDocumentBounds ? document.bounds : selectPrimaryCadBounds(document).bounds;
   const width = Math.max(1, bounds.maxX - bounds.minX + limits.padding * 2);
   const height = Math.max(1, bounds.maxY - bounds.minY + limits.padding * 2);
   const project = (point: CadPoint) => ({
@@ -188,6 +188,12 @@ export function renderCadDocumentSvg(document: NormalizedCadDocument, options: P
     const insertLayer = item.insertLayer === null ? "" : ` data-insert-layer="${xml(item.insertLayer)}"`;
     return `data-source-entity-id="${xml(item.sourceEntityId)}" data-layer="${xml(item.entity.layer)}"${insertLayer}${block}`;
   };
+  let splineSamples = 0;
+  const splinePoints = (entity: Extract<ExpandedCadEntity["entity"], { type: "spline" }>, matrix: CadMatrix) => {
+    const points = sampleCadSpline(entity, limits.maxSplineSamples - splineSamples);
+    splineSamples += points.length;
+    return points.map(point => transformPoint(matrix, point));
+  };
 
   append(`<svg xmlns="http://www.w3.org/2000/svg" width="${number(width)}" height="${number(height)}" viewBox="0 0 ${number(width)} ${number(height)}" role="img" aria-label="CAD floor plan">`);
   append(`<rect x="0" y="0" width="${number(width)}" height="${number(height)}" fill="#ffffff"/>`);
@@ -206,13 +212,22 @@ export function renderCadDocumentSvg(document: NormalizedCadDocument, options: P
       const start = project(transformPoint(item.matrix, entity.start));
       const end = project(transformPoint(item.matrix, entity.end));
       append(`<line ${attrs} x1="${number(start.x)}" y1="${number(start.y)}" x2="${number(end.x)}" y2="${number(end.y)}"/>`);
-    } else if ("vertices" in entity && limits.compactPaths) {
+    } else if ((entity.type === "lwpolyline" || entity.type === "polyline") && limits.compactPaths) {
       const matrix = multiplyCadMatrices(projection, item.matrix);
       append(`<path ${attrs} d="${compactPolylinePath(entity)}" transform="${matrixAttribute(matrix)}"/>`);
-    } else if ("vertices" in entity) {
+    } else if (entity.type === "lwpolyline" || entity.type === "polyline") {
       const points = pointsForPolyline(entity, item.matrix);
       const tag = entity.closed ? "polygon" : "polyline";
       append(`<${tag} ${attrs} points="${projectedPoints(points)}"/>`);
+    } else if (entity.type === "spline") {
+      append(`<polyline ${attrs} data-cad-entity="spline" points="${projectedPoints(splinePoints(entity, item.matrix))}"${entity.closed ? ' data-closed="true"' : ""}/>`);
+    } else if (entity.type === "wipeout") {
+      append(`<polygon ${attrs} data-cad-entity="wipeout" points="${projectedPoints(entity.vertices.map(point => transformPoint(item.matrix, point)))}" fill="#fff" stroke="none"/>`);
+    } else if (entity.type === "hatch") {
+      for (const loop of entity.loops) {
+        const points = pointsForPolyline({ type: "polyline", sourceEntityId: entity.sourceEntityId, layer: entity.layer, ...loop }, item.matrix);
+        append(`<polygon ${attrs} data-cad-entity="hatch" points="${projectedPoints(points)}" fill="#e5e7eb" fill-rule="evenodd"/>`);
+      }
     } else if (entity.type === "circle" && limits.compactPaths) {
       const matrix = multiplyCadMatrices(projection, item.matrix);
       append(`<circle ${attrs} cx="${number(entity.center.x)}" cy="${number(entity.center.y)}" r="${number(entity.radius)}" transform="${matrixAttribute(matrix)}"/>`);
@@ -228,7 +243,14 @@ export function renderCadDocumentSvg(document: NormalizedCadDocument, options: P
       append(`<path ${attrs} d="M${number(start.x)} ${number(start.y)} A${number(entity.radius)} ${number(entity.radius)} 0 ${sweep > 180 ? 1 : 0} 0 ${number(end.x)} ${number(end.y)}" transform="${matrixAttribute(matrix)}"/>`);
     } else if (entity.type === "arc") {
       append(`<polyline ${attrs} points="${projectedPoints(pointsForArc(item as ExpandedCadEntity & { entity: Extract<ExpandedCadEntity["entity"], { type: "arc" }> }))}"/>`);
-    } else {
+    } else if (entity.type === "dimension") {
+      const points = [entity.extensionStart, entity.definitionPoint, entity.extensionEnd]
+        .map(point => transformPoint(item.matrix, point));
+      append(`<polyline ${attrs} data-cad-entity="dimension" points="${projectedPoints(points)}"/>`);
+    } else if (entity.type === "point") {
+      const point = project(transformPoint(item.matrix, entity.position));
+      append(`<path ${attrs} data-cad-entity="point" d="M${number(point.x - 3)} ${number(point.y)}h6M${number(point.x)} ${number(point.y - 3)}v6"/>`);
+    } else if (entity.type === "text" || entity.type === "mtext") {
       const radians = entity.rotation * Math.PI / 180;
       const textTransform: CadMatrix = {
         a: Math.cos(radians), b: Math.sin(radians), c: -Math.sin(radians), d: Math.cos(radians),
@@ -252,6 +274,8 @@ export function renderCadDocumentSvg(document: NormalizedCadDocument, options: P
         append(`<path d="${path}"${transform}`);
       });
       append("</g>");
+    } else {
+      throw new Error(`Unsupported normalized CAD SVG entity: ${entity.type}`);
     }
   }
   append("</g></svg>");
@@ -265,6 +289,8 @@ export interface CadSvgFileResult {
   sha256: string;
   viewport: { width: number; height: number };
   renderedOccurrences: number;
+  unsupportedEntityCounts?: Readonly<Record<string, number>>;
+  excludedEntityCount?: number;
   contentEncoding: "gzip";
 }
 
@@ -276,7 +302,7 @@ export interface CadSvgFileResult {
 export async function renderCadDocumentSvgFile(
   document: NormalizedCadDocument,
   outputPath: string,
-  options: Partial<Pick<CadSvgRendererLimits, "maxOutputBytes" | "maxRenderedEntities" | "maxBlockDepth" | "maxDurationMs" | "maxCpuMs" | "now" | "cpuNow">> & { abortSignal?: AbortSignal } = {}
+  options: Partial<Pick<CadSvgRendererLimits, "maxOutputBytes" | "maxRenderedEntities" | "maxBlockDepth" | "maxSplineSamples" | "maxDurationMs" | "maxCpuMs" | "now" | "cpuNow">> & { abortSignal?: AbortSignal } = {}
 ): Promise<CadSvgFileResult> {
   const limits = { ...DEFAULT_LIMITS, ...options, maxOutputBytes: options.maxOutputBytes ?? CAD_RENDERED_SVG_MAX_BYTES };
   const startedAt = limits.now();
@@ -288,8 +314,10 @@ export async function renderCadDocumentSvgFile(
   };
   if (!Number.isSafeInteger(limits.maxOutputBytes) || limits.maxOutputBytes < 1 || limits.maxOutputBytes > CAD_RENDERED_SVG_MAX_BYTES ||
       !Number.isSafeInteger(limits.maxRenderedEntities) || limits.maxRenderedEntities < 1 ||
-      !Number.isSafeInteger(limits.maxBlockDepth) || limits.maxBlockDepth < 1) throw new Error("Invalid CAD SVG file renderer limits");
+      !Number.isSafeInteger(limits.maxBlockDepth) || limits.maxBlockDepth < 1 ||
+      !Number.isSafeInteger(limits.maxSplineSamples) || limits.maxSplineSamples < 1) throw new Error("Invalid CAD SVG file renderer limits");
 
+  const primarySelection = selectPrimaryCadBounds(document);
   const blockByName = new Map(document.blocks.map((block, index) => [block.name, { block, id: `cad-block-${index}` }]));
   if (blockByName.size !== document.blocks.length) throw new Error("Duplicate CAD block name");
   let renderedOccurrences = 0;
@@ -297,13 +325,18 @@ export async function renderCadDocumentSvgFile(
     let count = 0;
     for (const entity of entities) {
       checkBudget();
-      if (entity.type !== "insert") count++;
+      const reference = entity.type === "insert" ? entity.blockName : entity.type === "dimension" ? entity.blockName : null;
+      if (!reference) count++;
       else {
-        const target = blockByName.get(entity.blockName);
-        if (!target) throw new Error(`CAD INSERT references missing block: ${entity.blockName}`);
-        if (stack.includes(entity.blockName)) throw new Error(`Cyclic CAD block reference: ${entity.blockName}`);
+        const target = blockByName.get(reference);
+        if (entity.type === "dimension" && !target) {
+          count++;
+          continue;
+        }
+        if (!target) throw new Error(`CAD INSERT references missing block: ${reference}`);
+        if (stack.includes(reference)) throw new Error(`Cyclic CAD block reference: ${reference}`);
         if (stack.length >= limits.maxBlockDepth) throw new Error("CAD block depth limit exceeded");
-        count += countEntities(target.block.entities, [...stack, entity.blockName]);
+        count += countEntities(target.block.entities, [...stack, reference]);
       }
       if (renderedOccurrences + count > limits.maxRenderedEntities) throw new Error("CAD rendered entity limit exceeded");
     }
@@ -313,16 +346,21 @@ export async function renderCadDocumentSvgFile(
   const reachableBlocks = new Set<string>();
   const markReachable = (entities: NormalizedCadDocument["entities"]) => {
     for (const entity of entities) {
-      if (entity.type !== "insert" || reachableBlocks.has(entity.blockName)) continue;
-      const target = blockByName.get(entity.blockName);
-      if (!target) throw new Error(`CAD INSERT references missing block: ${entity.blockName}`);
-      reachableBlocks.add(entity.blockName);
+      const reference = entity.type === "insert" ? entity.blockName : entity.type === "dimension" ? entity.blockName : null;
+      if (!reference || reachableBlocks.has(reference)) continue;
+      const target = blockByName.get(reference);
+      if (!target) {
+        if (entity.type === "dimension") continue;
+        throw new Error(`CAD INSERT references missing block: ${reference}`);
+      }
+      reachableBlocks.add(reference);
       markReachable(target.block.entities);
     }
   };
   markReachable(document.entities);
 
-  const { width, height } = createCadViewport(document.bounds);
+  const { width, height } = createCadViewport(primarySelection.bounds);
+  const pointMarkerRadius = 3 / cadViewportScale(primarySelection.bounds);
   const rawPath = `${outputPath}.raw`;
   const file = await open(rawPath, "wx", 0o600);
   let rawSizeBytes = 0;
@@ -341,20 +379,26 @@ export async function renderCadDocumentSvgFile(
     const d = Math.cos(radians) * entity.scale.y;
     return `matrix(${number(a)} ${number(b)} ${number(c)} ${number(d)} ${number(entity.position.x - a * base.x - c * base.y)} ${number(entity.position.y - b * base.x - d * base.y)})`;
   };
-  const pathForPolyline = (entity: Extract<NormalizedCadDocument["entities"][number], { type: "lwpolyline" | "polyline" }>) => {
-    const first = entity.vertices[0];
+  const pathForVertices = (vertices: readonly (CadPoint & { bulge?: number })[], closed: boolean) => {
+    const first = vertices[0];
     const commands = [`M${number(first.x)} ${number(first.y)}`];
-    const count = entity.closed ? entity.vertices.length : entity.vertices.length - 1;
+    const count = closed ? vertices.length : vertices.length - 1;
     for (let index = 0; index < count; index++) {
-      const start = entity.vertices[index];
-      const end = entity.vertices[(index + 1) % entity.vertices.length];
-      const arc = cadBulgeArc(start, end, start.bulge);
+      const start = vertices[index];
+      const end = vertices[(index + 1) % vertices.length];
+      const arc = cadBulgeArc(start, end, start.bulge ?? 0);
       commands.push(arc
         ? `A${number(arc.radius)} ${number(arc.radius)} 0 ${Math.abs(arc.sweepAngle) > 180 ? 1 : 0} ${arc.sweepAngle < 0 ? 1 : 0} ${number(end.x)} ${number(end.y)}`
         : `L${number(end.x)} ${number(end.y)}`);
     }
-    if (entity.closed) commands.push("Z");
+    if (closed) commands.push("Z");
     return commands.join(" ");
+  };
+  let splineSamples = 0;
+  const pathForSpline = (entity: Extract<NormalizedCadDocument["entities"][number], { type: "spline" }>) => {
+    const points = sampleCadSpline(entity, limits.maxSplineSamples - splineSamples);
+    splineSamples += points.length;
+    return pathForVertices(points, entity.closed);
   };
   const renderEntities = async (entities: NormalizedCadDocument["entities"]) => {
     for (const entity of entities) {
@@ -365,8 +409,16 @@ export async function renderCadDocumentSvgFile(
         await write(`<use href="#${target.id}" transform="${matrix(entity, target.block.basePoint)}"/>`);
       } else if (entity.type === "line") {
         await write(`<path d="M${number(entity.start.x)} ${number(entity.start.y)}L${number(entity.end.x)} ${number(entity.end.y)}"/>`);
-      } else if ("vertices" in entity) {
-        await write(`<path d="${pathForPolyline(entity)}"/>`);
+      } else if (entity.type === "lwpolyline" || entity.type === "polyline") {
+        await write(`<path d="${pathForVertices(entity.vertices, entity.closed)}"/>`);
+      } else if (entity.type === "spline") {
+        await write(`<path data-cad-entity="spline" d="${pathForSpline(entity)}"/>`);
+      } else if (entity.type === "wipeout") {
+        await write(`<path data-cad-entity="wipeout" d="${pathForVertices(entity.vertices, true)}" fill="#fff" stroke="none"/>`);
+      } else if (entity.type === "hatch") {
+        for (const loop of entity.loops) {
+          await write(`<path data-cad-entity="hatch" d="${pathForVertices(loop.vertices, loop.closed)}" fill="#e5e7eb" fill-rule="evenodd"/>`);
+        }
       } else if (entity.type === "circle") {
         await write(`<circle cx="${number(entity.center.x)}" cy="${number(entity.center.y)}" r="${number(entity.radius)}"/>`);
       } else if (entity.type === "arc") {
@@ -374,9 +426,17 @@ export async function renderCadDocumentSvgFile(
         const end = entity.endAngle * Math.PI / 180;
         const sweep = arcSweep(entity.startAngle, entity.endAngle);
         await write(`<path d="M${number(entity.center.x + entity.radius * Math.cos(start))} ${number(entity.center.y + entity.radius * Math.sin(start))}A${number(entity.radius)} ${number(entity.radius)} 0 ${sweep > 180 ? 1 : 0} 1 ${number(entity.center.x + entity.radius * Math.cos(end))} ${number(entity.center.y + entity.radius * Math.sin(end))}"/>`);
-      } else {
+      } else if (entity.type === "dimension") {
+        const target = entity.blockName ? blockByName.get(entity.blockName) : undefined;
+        if (target) await write(`<use data-cad-entity="dimension" href="#${target.id}"/>`);
+        else await write(`<path data-cad-entity="dimension" d="M${number(entity.extensionStart.x)} ${number(entity.extensionStart.y)}L${number(entity.definitionPoint.x)} ${number(entity.definitionPoint.y)}L${number(entity.extensionEnd.x)} ${number(entity.extensionEnd.y)}"/>`);
+      } else if (entity.type === "point") {
+        await write(`<path data-cad-entity="point" d="M${number(entity.position.x - pointMarkerRadius)} ${number(entity.position.y)}h${number(pointMarkerRadius * 2)}M${number(entity.position.x)} ${number(entity.position.y - pointMarkerRadius)}v${number(pointMarkerRadius * 2)}"/>`);
+      } else if (entity.type === "text" || entity.type === "mtext") {
         const text = xml(entity.text);
         await write(`<text x="0" y="0" font-size="${number(entity.height)}" font-family="Arial, Noto Sans KR, sans-serif" fill="#111827" stroke="none" transform="translate(${number(entity.position.x)} ${number(entity.position.y)}) rotate(${number(entity.rotation)}) scale(1 -1)">${text}</text>`);
+      } else {
+        throw new Error(`Unsupported normalized CAD SVG entity: ${entity.type}`);
       }
     }
   };
@@ -389,7 +449,7 @@ export async function renderCadDocumentSvgFile(
       await renderEntities(block.entities);
       await write("</g></symbol>");
     }
-    await write(`</defs><g fill="none" stroke="#1f2937" stroke-width="0.2" vector-effect="non-scaling-stroke" transform="${cadViewportSvgTransform(document.bounds)}">`);
+    await write(`</defs><g fill="none" stroke="#1f2937" stroke-width="0.2" vector-effect="non-scaling-stroke" transform="${cadViewportSvgTransform(primarySelection.bounds)}">`);
     await renderEntities(document.entities);
     await write("</g></svg>");
     await file.sync();
@@ -404,7 +464,12 @@ export async function renderCadDocumentSvgFile(
     } });
     await pipeline(createReadStream(rawPath), createGzip({ level: 9 }), meter, createWriteStream(outputPath, { flags: "wx", mode: 0o600 }));
     await unlink(rawPath);
-    return { sizeBytes, rawSizeBytes, sha256: hash.digest("hex"), viewport: { width, height }, renderedOccurrences, contentEncoding: "gzip" };
+    return {
+      sizeBytes, rawSizeBytes, sha256: hash.digest("hex"), viewport: { width, height }, renderedOccurrences,
+      unsupportedEntityCounts: Object.fromEntries(Object.entries(document.unsupportedEntityCounts ?? {}).sort(([left], [right]) => left.localeCompare(right))),
+      excludedEntityCount: primarySelection.excludedEntityCount,
+      contentEncoding: "gzip"
+    };
   } catch (error) {
     await file.close().catch(() => undefined);
     await unlink(rawPath).catch(() => undefined);

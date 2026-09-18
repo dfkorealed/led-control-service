@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import { CAD_MAX_SPLINE_SAMPLES_PER_ENTITY } from "./cad-runtime-contract";
 import { measureCadText } from "./cad-text-layout";
 import type {
   CadBounds,
@@ -236,6 +237,65 @@ export function cadBulgeArc(start: CadPoint, end: CadPoint, bulge: number): CadB
   };
 }
 
+export function sampleCadSpline(
+  entity: Extract<NormalizedCadEntity, { type: "spline" }>,
+  maxSamples = CAD_MAX_SPLINE_SAMPLES_PER_ENTITY
+): CadPoint[] {
+  const { controlPoints, degree, knots } = entity;
+  const spans: Array<{ start: number; end: number }> = [];
+  for (let index = degree; index < controlPoints.length; index++) {
+    if (knots[index + 1] > knots[index]) spans.push({ start: knots[index], end: knots[index + 1] });
+  }
+  const sampleCount = spans.length * 8 + 1;
+  if (!Number.isSafeInteger(maxSamples) || maxSamples < sampleCount) throw new Error("CAD spline sample limit exceeded");
+
+  const evaluate = (parameter: number): CadPoint => {
+    const lastControl = controlPoints.length - 1;
+    let span = lastControl;
+    if (parameter < knots[lastControl + 1]) {
+      let low = degree;
+      let high = lastControl + 1;
+      while (high - low > 1) {
+        const middle = Math.floor((low + high) / 2);
+        if (parameter < knots[middle]) high = middle;
+        else low = middle;
+      }
+      span = low;
+    }
+    const weighted = Array.from({ length: degree + 1 }, (_, offset) => {
+      const index = span - degree + offset;
+      const weight = entity.weights[index] ?? 1;
+      const point = controlPoints[index];
+      return { x: point.x * weight, y: point.y * weight, z: point.z * weight, weight };
+    });
+    for (let level = 1; level <= degree; level++) {
+      for (let offset = degree; offset >= level; offset--) {
+        const index = span - degree + offset;
+        const denominator = knots[index + degree - level + 1] - knots[index];
+        const alpha = denominator === 0 ? 0 : (parameter - knots[index]) / denominator;
+        const left = weighted[offset - 1];
+        const right = weighted[offset];
+        weighted[offset] = {
+          x: (1 - alpha) * left.x + alpha * right.x,
+          y: (1 - alpha) * left.y + alpha * right.y,
+          z: (1 - alpha) * left.z + alpha * right.z,
+          weight: (1 - alpha) * left.weight + alpha * right.weight
+        };
+      }
+    }
+    const result = weighted[degree];
+    if (!Number.isFinite(result.weight) || result.weight === 0) throw new Error("Invalid CAD spline weight");
+    return { x: result.x / result.weight, y: result.y / result.weight, z: result.z / result.weight };
+  };
+
+  const points: CadPoint[] = [];
+  for (const span of spans) {
+    for (let step = 0; step < 8; step++) points.push(evaluate(span.start + (span.end - span.start) * step / 8));
+  }
+  if (spans.length > 0) points.push(evaluate(spans.at(-1)!.end));
+  return points;
+}
+
 function includeArcBounds(
   center: CadPoint, radius: number, startAngle: number, sweepAngle: number,
   matrix: CadMatrix, include: (point: CadPoint) => void
@@ -297,8 +357,14 @@ export function computeCadBounds(
     if (entity.type === "line") {
       include(transformPoint(matrix, entity.start));
       include(transformPoint(matrix, entity.end));
-    } else if ("vertices" in entity) {
+    } else if (entity.type === "lwpolyline" || entity.type === "polyline") {
       includePolylineBounds(entity.vertices, entity.closed, matrix, include);
+    } else if (entity.type === "spline") {
+      sampleCadSpline(entity).forEach(point => include(transformPoint(matrix, point)));
+    } else if (entity.type === "wipeout") {
+      entity.vertices.forEach(point => include(transformPoint(matrix, point)));
+    } else if (entity.type === "hatch") {
+      entity.loops.forEach(loop => includePolylineBounds(loop.vertices, loop.closed, matrix, include));
     } else if (entity.type === "circle") {
       const center = transformPoint(matrix, entity.center);
       const extentX = entity.radius * Math.hypot(matrix.a, matrix.c);
@@ -308,7 +374,7 @@ export function computeCadBounds(
     } else if (entity.type === "arc") {
       const sweep = (normalizeAngle(entity.endAngle) - normalizeAngle(entity.startAngle) + 360) % 360;
       includeArcBounds(entity.center, entity.radius, entity.startAngle, sweep, matrix, include);
-    } else {
+    } else if (entity.type === "text" || entity.type === "mtext") {
       const radians = entity.rotation * Math.PI / 180;
       const textBounds = measureCadText(entity.text, entity.height, { consumeGlyph: consumeTextGlyph }).bounds;
       const corners = [
@@ -322,6 +388,13 @@ export function computeCadBounds(
           z: entity.position.z
         }));
       }
+    } else if (entity.type === "dimension") {
+      [entity.definitionPoint, entity.textPosition, entity.extensionStart, entity.extensionEnd]
+        .forEach(point => include(transformPoint(matrix, point)));
+    } else if (entity.type === "point") {
+      include(transformPoint(matrix, entity.position));
+    } else {
+      throw new Error(`Unsupported normalized CAD geometry: ${entity.type}`);
     }
   }
 

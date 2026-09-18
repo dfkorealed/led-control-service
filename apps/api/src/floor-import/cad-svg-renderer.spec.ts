@@ -210,4 +210,59 @@ describe("CAD SVG renderer", () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it("renders bounded extended entities and reports unsupported and excluded metadata", async () => {
+    const extended: NormalizedCadDocument = {
+      version: 1,
+      bounds: { minX: 0, minY: 0, maxX: 1_000_000, maxY: 1_000_000 },
+      unsupportedEntityCounts: { ELLIPSE: 2 },
+      blocks: [{
+        name: "*D1", basePoint: { x: 0, y: 0, z: 0 },
+        entities: [{ type: "line", sourceEntityId: "dimension-line", layer: "0", start: { x: 0, y: 0, z: 0 }, end: { x: 10, y: 0, z: 0 } }]
+      }],
+      entities: [
+        { type: "spline", sourceEntityId: "spline", layer: "CURVE", degree: 2, closed: false, knots: [0, 0, 0, 1, 1, 1], weights: [], controlPoints: [{ x: 0, y: 0, z: 0 }, { x: 5, y: 10, z: 0 }, { x: 10, y: 0, z: 0 }] },
+        { type: "wipeout", sourceEntityId: "wipeout", layer: "MASK", vertices: [{ x: 20, y: 20, z: 0 }, { x: 30, y: 20, z: 0 }, { x: 30, y: 30, z: 0 }, { x: 20, y: 30, z: 0 }] },
+        { type: "hatch", sourceEntityId: "hatch", layer: "FILL", loops: [{ closed: true, vertices: [{ x: 40, y: 40, z: 0, bulge: 0 }, { x: 50, y: 40, z: 0, bulge: 0 }, { x: 50, y: 50, z: 0, bulge: 0 }] }] },
+        { type: "dimension", sourceEntityId: "dimension", layer: "DIM", blockName: "*D1", definitionPoint: { x: 60, y: 60, z: 0 }, textPosition: { x: 65, y: 62, z: 0 }, extensionStart: { x: 60, y: 60, z: 0 }, extensionEnd: { x: 70, y: 60, z: 0 }, rotation: 0, text: "100" },
+        { type: "point", sourceEntityId: "point", layer: "MARK", position: { x: 80, y: 80, z: 0 } },
+        { type: "point", sourceEntityId: "remote", layer: "MARK", position: { x: 1_000_000, y: 1_000_000, z: 0 } }
+      ]
+    };
+
+    const inlineSvg = renderCadDocumentSvg(extended, { maxSplineSamples: 32 });
+    expect(inlineSvg).toContain('data-source-entity-id="spline"');
+    expect(inlineSvg).toContain('data-source-entity-id="wipeout"');
+    expect(inlineSvg).toContain('data-source-entity-id="hatch"');
+    expect(inlineSvg).toContain('data-source-entity-id="dimension"');
+    expect(inlineSvg).toContain('data-source-entity-id="point"');
+
+    const root = await mkdtemp(join(tmpdir(), "cad-extended-"));
+    try {
+      const path = join(root, "extended.svg.gz");
+      const result = await renderCadDocumentSvgFile(extended, path, { maxSplineSamples: 32 });
+      const svg = gunzipSync(await readFile(path)).toString("utf8");
+      expect(svg).toContain('data-cad-entity="spline"');
+      expect(svg).toContain('data-cad-entity="wipeout"');
+      expect(svg).toContain('data-cad-entity="hatch"');
+      expect(svg).toContain('data-cad-entity="dimension"');
+      expect(svg).toContain('data-cad-entity="point"');
+      expect(result).toMatchObject({ unsupportedEntityCounts: { ELLIPSE: 2 }, excludedEntityCount: 1 });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("bounds total SPLINE sampling work", () => {
+    const splineOnly: NormalizedCadDocument = {
+      version: 1, bounds: { minX: 0, minY: 0, maxX: 10, maxY: 10 }, blocks: [],
+      entities: [{
+        type: "spline", sourceEntityId: "spline", layer: "0", degree: 2, closed: false,
+        knots: [0, 0, 0, 1, 1, 1], weights: [],
+        controlPoints: [{ x: 0, y: 0, z: 0 }, { x: 5, y: 10, z: 0 }, { x: 10, y: 0, z: 0 }]
+      }]
+    };
+
+    expect(() => renderCadDocumentSvg(splineOnly, { maxSplineSamples: 2 })).toThrow(/spline sample.*limit/i);
+  });
 });

@@ -140,6 +140,54 @@ describe("ASCII DXF document parser", () => {
     expect(document.bounds).toEqual({ minX: -2, minY: 0, maxX: 12.54951, maxY: 22.54951 });
   });
 
+  it("normalizes bounded SPLINE, WIPEOUT, HATCH, DIMENSION and POINT geometry", () => {
+    const extended = [
+      pair(0, "SECTION"), pair(2, "BLOCKS"),
+      pair(0, "BLOCK"), pair(2, "*D1"), pair(10, 0), pair(20, 0),
+      pair(0, "LINE"), pair(5, "DB1"), pair(10, 0), pair(20, 0), pair(11, 10), pair(21, 0),
+      pair(0, "ENDBLK"), pair(0, "ENDSEC"),
+      pair(0, "SECTION"), pair(2, "ENTITIES"),
+      pair(0, "SPLINE"), pair(5, "S1"), pair(8, "CURVE"), pair(70, 0), pair(71, 2), pair(72, 6), pair(73, 3),
+      pair(40, 0), pair(40, 0), pair(40, 0), pair(40, 1), pair(40, 1), pair(40, 1),
+      pair(10, 0), pair(20, 0), pair(10, 5), pair(20, 10), pair(10, 10), pair(20, 0),
+      pair(0, "WIPEOUT"), pair(5, "W1"), pair(8, "MASK"), pair(91, 4),
+      pair(14, 20), pair(24, 20), pair(14, 30), pair(24, 20), pair(14, 30), pair(24, 30), pair(14, 20), pair(24, 30),
+      pair(0, "HATCH"), pair(5, "H1"), pair(8, "FILL"), pair(91, 1), pair(92, 2), pair(93, 4), pair(73, 1),
+      pair(10, 40), pair(20, 40), pair(10, 50), pair(20, 40), pair(10, 50), pair(20, 50), pair(10, 40), pair(20, 50),
+      pair(0, "DIMENSION"), pair(5, "D1"), pair(8, "DIM"), pair(2, "*D1"), pair(1, "100"),
+      pair(10, 60), pair(20, 60), pair(11, 65), pair(21, 62), pair(13, 60), pair(23, 60), pair(14, 70), pair(24, 60),
+      pair(0, "POINT"), pair(5, "P1"), pair(8, "MARK"), pair(10, 80), pair(20, 80),
+      pair(0, "ENDSEC"), pair(0, "EOF")
+    ].join("");
+
+    const parsed = parseAsciiDxf(extended);
+
+    expect(parsed.entities.map(entity => entity.type)).toEqual(["spline", "wipeout", "hatch", "dimension", "point"]);
+    expect(parsed.entities[0]).toMatchObject({
+      type: "spline", degree: 2, knots: [0, 0, 0, 1, 1, 1],
+      controlPoints: [{ x: 0, y: 0, z: 0 }, { x: 5, y: 10, z: 0 }, { x: 10, y: 0, z: 0 }]
+    });
+    expect(parsed.entities[1]).toMatchObject({ type: "wipeout", vertices: expect.arrayContaining([{ x: 20, y: 20, z: 0 }]) });
+    expect(parsed.entities[2]).toMatchObject({ type: "hatch", loops: [expect.objectContaining({ closed: true })] });
+    expect(parsed.entities[3]).toMatchObject({ type: "dimension", blockName: "*D1", text: "100" });
+    expect(parsed.entities[4]).toMatchObject({ type: "point", position: { x: 80, y: 80, z: 0 } });
+    expect(parsed.unsupportedEntityCounts).toEqual({});
+
+    expect(() => parseAsciiDxf(extended, { maxSplineControlPoints: 2 })).toThrow(/spline control point.*limit/i);
+    expect(() => parseAsciiDxf(extended, { maxSplineKnots: 5 })).toThrow(/spline knot.*limit/i);
+  });
+
+  it("reports visible unsupported model entities without counting paper-space records", () => {
+    const dxf = [
+      pair(0, "SECTION"), pair(2, "ENTITIES"),
+      pair(0, "ELLIPSE"), pair(5, "E1"), pair(10, 0), pair(20, 0),
+      pair(0, "HELIX"), pair(5, "H1"), pair(67, 1), pair(10, 0), pair(20, 0),
+      pair(0, "ENDSEC"), pair(0, "EOF")
+    ].join("");
+
+    expect(parseAsciiDxf(dxf).unsupportedEntityCounts).toEqual({ ELLIPSE: 1 });
+  });
+
   it("fails closed for malformed, oversized, excessive and out-of-range input", () => {
     expect(() => parseAsciiDxf("0\nSECTION\n2\nENTITIES\n0\nLINE\n10\nnope\n0\nENDSEC\n0\nEOF\n")).toThrow(/decimal|number/i);
     expect(() => parseAsciiDxf("0\nSECTION\n2\nENTITIES\n0\nLINE\n10\n1\n20\n1\n11\n2\n21\n2\n")).toThrow(/unterminated|EOF/i);
