@@ -135,6 +135,17 @@ describe("MonitoringRefreshOutboxService", () => {
     }));
   });
 
+  it("locks the refresh before persisting publication so completion cannot invert Outbox and Batch locks", async () => {
+    const { service, prisma } = harness();
+    await service.publishClaimed(record() as never);
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(prisma.$queryRaw.mock.calls[0][0].sql).toMatch(/FROM "MonitoringRefresh"[\s\S]*FOR UPDATE/);
+    // The first outbox write claims delivery before MQTT; only the post-PUBACK
+    // transaction writes both Outbox and Batch and needs the shared parent lock.
+    expect(prisma.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(prisma.mqttOutbox.updateMany.mock.invocationCallOrder[1]);
+    expect(prisma.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(prisma.monitoringRefreshBatch.updateMany.mock.invocationCallOrder[0]);
+  });
+
   it("retries with bounded backoff and stores only a sanitized failure code", async () => {
     const { service, prisma, mqtt } = harness();
     mqtt.publishTopic.mockRejectedValue(new Error("broker-password-secret"));

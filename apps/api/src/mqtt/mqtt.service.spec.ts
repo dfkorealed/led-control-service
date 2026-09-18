@@ -6,6 +6,43 @@ import { createMqttConnectionOptions, MqttService } from "./mqtt.service";
 jest.mock("node:fs", () => ({ readFileSync: jest.fn(() => Buffer.from("test-certificate")) }));
 
 describe("MqttService", () => {
+  it.each(["unreachable", "completion"])("commits %s before PUBACK and publishes the correctly owned application ACK afterward", async (kind) => {
+    const siteId = "11111111-1111-4111-8111-111111111111", gatewayId = "22222222-2222-4222-8222-222222222222";
+    const ack = kind === "unreachable"
+      ? { eventId: "33333333-3333-4333-8333-333333333333", fixtureId: "44444444-4444-4444-8444-444444444444", sequence: 1, status: "ingested" }
+      : { siteId, gatewayId, refreshId: "55555555-5555-4555-8555-555555555555", batchId: "66666666-6666-4666-8666-666666666666" };
+    const order: string[] = [];
+    let commit!: () => void;
+    const operation = jest.fn(() => new Promise((resolve) => { commit = () => { order.push("commit"); resolve(kind === "unreachable" ? ack : { ack }); }; }));
+    const service = new MqttService({} as never, createMeshGroupsMock() as never);
+    (service as any).monitoringRefreshIngestion = { ingestUnreachable: operation, completeBatch: operation };
+    const client: any = new EventEmitter(); client.subscribe = jest.fn(); client.stream = { destroy: jest.fn() };
+    client.publish = jest.fn((_topic, _payload, _options, callback) => { order.push("publish"); callback(); });
+    (service as any).client = client; service.onModuleInit();
+    const topic = `sites/${siteId}/gateways/${gatewayId}/${kind === "unreachable" ? "state/fixture-unreachable" : "events/fixture-presence-check-completed"}`;
+    const payload = Buffer.from("{}"), packet = { qos: 1, topic, payload };
+    const done = jest.fn(() => { order.push("puback"); client.emit("message", topic, payload, packet); });
+    (service as any).createCustomHandleAcks()(topic, payload, packet, done);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(operation).toHaveBeenCalledTimes(1); expect(done).not.toHaveBeenCalled();
+    commit(); await new Promise((resolve) => setImmediate(resolve));
+    expect(order).toEqual(["commit", "puback", "publish"]);
+    expect(client.publish.mock.calls[0][0]).toBe(`sites/${siteId}/gateways/${gatewayId}/acks/${kind === "unreachable" ? "state-ingested" : "fixture-presence-check-completed"}`);
+  });
+
+  it("closes without PUBACK or completion ACK when child results are missing or identity conflicts", async () => {
+    const service = new MqttService({} as never, createMeshGroupsMock() as never);
+    (service as any).monitoringRefreshIngestion = { completeBatch: jest.fn().mockRejectedValue(new Error("results pending")) };
+    const client: any = new EventEmitter(); client.subscribe = jest.fn(); client.stream = { destroy: jest.fn() }; client.publish = jest.fn();
+    (service as any).client = client; service.onModuleInit();
+    const topic = "sites/11111111-1111-4111-8111-111111111111/gateways/22222222-2222-4222-8222-222222222222/events/fixture-presence-check-completed";
+    const done = jest.fn(); const log = jest.spyOn(Logger.prototype, "error").mockImplementation();
+    try {
+      (service as any).createCustomHandleAcks()(topic, Buffer.from("{}"), { qos: 1 }, done);
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(client.stream.destroy).toHaveBeenCalledTimes(1); expect(done).not.toHaveBeenCalled(); expect(client.publish).not.toHaveBeenCalled();
+    } finally { log.mockRestore(); }
+  });
   const resyncRequest = {
     siteId: "22222222-2222-4222-8222-222222222222",
     gatewayId: "55555555-5555-4555-8555-555555555555",
@@ -552,6 +589,8 @@ describe("MqttService", () => {
       expect.arrayContaining(["sites/+/gateways/+/state/fixture-presence"]),
       { qos: 1 }
     );
+    expect(subscribe).toHaveBeenCalledWith(expect.arrayContaining(["sites/+/gateways/+/state/fixture-unreachable"]), { qos: 1 });
+    expect(subscribe).toHaveBeenCalledWith(expect.arrayContaining(["sites/+/gateways/+/events/fixture-presence-check-completed"]), { qos: 1 });
   });
 
   it("routes only the exact scoped V2 provisioning device terminal channel to durable ingest", async () => {

@@ -71,7 +71,12 @@ export class FixtureFreshnessService implements OnModuleInit, OnModuleDestroy {
             // A recovered gateway can leave an already-offline fixture stale.
             // Require an online gateway instead of excluding offline fixtures.
             meshNode: { gateway: { lastHeartbeatAt: { gte: gatewayCutoff } } },
-            AND: [observedFixture, { OR: [{ lastSeenAt: { lt: fixtureCutoff } }, { lastSeenAt: null }] }]
+            AND: [observedFixture, { OR: [
+              { lastSeenAt: { lt: fixtureCutoff } }, { lastSeenAt: null },
+              // Compare the two receipt clocks, not a wall-clock cutoff: manual
+              // verification remains offline until a later accepted observation.
+              { lastUnreachableAt: { gt: tx.fixture.fields.lastSeenAt } }
+            ] }]
           },
           data: { status: "offline", statusReason: "fixture_stale" }
         });

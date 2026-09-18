@@ -197,6 +197,12 @@ export class MonitoringRefreshOutboxService implements OnModuleInit, OnModuleDes
       });
       const publishedAt = this.clock();
       await this.prisma.$transaction(async (tx) => {
+        // Completion owns Refresh → Batch and deletes Outbox. Serialize this
+        // Outbox → Batch write under the same parent lock to avoid an inverse
+        // wait when the Gateway result arrives before PUBACK persistence.
+        await tx.$queryRaw(Prisma.sql`
+          SELECT "id" FROM "MonitoringRefresh" WHERE "id" = ${record.batch.refreshId} FOR UPDATE
+        `);
         const published = await tx.mqttOutbox.updateMany({
           where: {
             id: record.id,

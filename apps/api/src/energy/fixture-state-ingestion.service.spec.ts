@@ -15,6 +15,24 @@ const scope = {
 };
 
 describe("FixtureStateIngestionService", () => {
+  it("resolves correlated state online and clears unreachable without bypassing energy ingestion", async () => {
+    const prisma = fixturePrisma();
+    const refreshId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", batchId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    const query = prisma.$queryRaw.getMockImplementation();
+    prisma.$queryRaw.mockImplementation(async (q: any) => {
+      if (q.sql.includes('FROM "Gateway"')) return [{ id: scope.gatewayId }];
+      if (q.sql.includes('FROM "MonitoringRefresh"')) return [{ id: refreshId, siteId: scope.siteId, floorId: prisma.__row.floorId, status: "pending", deadlineAt: new Date("2026-08-26T00:00:30Z") }];
+      if (q.sql.includes('FROM "MonitoringRefreshBatch"')) return [{ id: batchId, refreshId, siteId: scope.siteId, gatewayId: scope.gatewayId, status: "published", targetFixtureIds: [scope.fixtureId] }];
+      if (q.sql.includes('FROM "MonitoringRefreshFixture"')) return [{ refreshId, batchId, siteId: scope.siteId, fixtureId: scope.fixtureId, status: "pending" }];
+      return query(q);
+    });
+    prisma.monitoringRefreshFixture = { update: jest.fn() };
+    const receivedAt = new Date("2026-08-26T00:00:12Z");
+    await new FixtureStateIngestionService(prisma).ingest(scope.gatewayId, { ...fixtureEvent(9), refreshId, batchId }, receivedAt);
+    expect(prisma.fixture.update.mock.calls[0][0].data).toMatchObject({ lastUnreachableAt: null, brightness: 70, powerOn: true });
+    expect(prisma.monitoringRefreshFixture.update).toHaveBeenCalledWith({ where: { refreshId_fixtureId: { refreshId, fixtureId: scope.fixtureId } }, data: { status: "online", errorCode: null, observedAt: receivedAt } });
+    expect(prisma.fixtureEnergyStateCursor.upsert).toHaveBeenCalledTimes(1);
+  });
   it("recognizes the latest exact replay after raw ledger deletion without reapplying energy", async () => {
     const prisma = fixturePrisma({ watermark: fixtureWatermark(), lastStateSequence: 9n });
     const service = new FixtureStateIngestionService(prisma as never);

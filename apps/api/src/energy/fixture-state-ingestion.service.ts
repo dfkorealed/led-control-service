@@ -13,6 +13,7 @@ import { gatewayEventIsTooFarInFuture, gatewayEventMaxFutureSkewMs } from "../mq
 import { reconcileLegacyGatewayEventReplay } from "../mqtt/legacy-gateway-event-replay";
 import { PrismaService } from "../prisma/prisma.service";
 import { compareAndAdvanceGatewayEvent } from "../retention/gateway-event-watermark";
+import { lockRefreshObservation, resolveRefreshObservation } from "../monitoring-refresh/monitoring-refresh-ingestion.service";
 import {
   aggregateFixtureStateTransition,
   closeFixtureEnergyCheckpoint,
@@ -25,6 +26,9 @@ type IngestionStatus = ApplicationStateIngestedAckV2["status"];
 
 interface LockedFixtureRow {
   id: string;
+  floorId: string;
+  lastUnreachableAt: Date | null;
+  lastSeenAt: Date | null;
   energyFixtureId: string;
   siteId: string;
   gatewayId: string;
@@ -118,9 +122,16 @@ export class FixtureStateIngestionService {
       FOR KEY SHARE
     `);
     if (!site) throw new Error("fixture state scope rejected");
+    if (state.refreshId) {
+      const [gateway] = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT "id" FROM "Gateway" WHERE "id" = ${gatewayId} AND "siteId" = ${state.siteId} FOR KEY SHARE
+      `);
+      if (!gateway) throw new Error("fixture state scope rejected");
+    }
     const [fixture] = await tx.$queryRaw<LockedFixtureRow[]>(Prisma.sql`
       SELECT
         f."id",
+        f."floorId", f."lastUnreachableAt", f."lastSeenAt",
         energy_fixture."id" AS "energyFixtureId",
         fl."siteId" AS "siteId",
         mn."gatewayId" AS "gatewayId",
@@ -146,6 +157,9 @@ export class FixtureStateIngestionService {
       FOR UPDATE OF f
     `);
     if (!fixture) throw new Error("fixture state scope rejected");
+    const refreshContext = state.refreshId && state.batchId
+      ? await lockRefreshObservation(tx, { ...state, refreshId: state.refreshId, batchId: state.batchId }, fixture.floorId)
+      : null;
 
     // A concurrent exact replay can read an empty ledger before waiting on this fixture lock.
     // Re-read after the lock is acquired so the first transaction's committed terminal result wins.
@@ -252,13 +266,19 @@ export class FixtureStateIngestionService {
         ...(health ? { healthFaultCodes: health.faultCodes, healthLastSeenAt: health.observedAt } : {}),
         rssi: state.rssi,
         hopCount: state.hopCount,
-        lastSeenAt: receivedAt,
+        lastSeenAt: fixture.lastSeenAt && fixture.lastSeenAt > receivedAt ? fixture.lastSeenAt : receivedAt,
+        ...(!fixture.lastUnreachableAt || receivedAt > fixture.lastUnreachableAt
+          ? { lastUnreachableAt: null }
+          : { status: "offline", statusReason: "fixture_stale" }),
         firstStateOccurredAt: transition.nextSnapshot.firstStateOccurredAt,
         lastStateEventId: state.eventId,
         lastStateSequence: BigInt(state.sequence),
         lastStateOccurredAt: occurredAt
       }
     });
+    if (!fixture.lastUnreachableAt || receivedAt > fixture.lastUnreachableAt) {
+      await resolveRefreshObservation(tx, refreshContext, receivedAt);
+    }
     return resultFrom(state, "ingested");
   }
 }

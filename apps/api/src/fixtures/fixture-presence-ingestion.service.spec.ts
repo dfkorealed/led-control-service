@@ -10,6 +10,22 @@ const scope = {
 };
 
 describe("FixturePresenceIngestionService", () => {
+  it("resolves correlated presence online and clears an older unreachable in the same transaction", async () => {
+    const prisma = presencePrisma();
+    const refreshId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", batchId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    const query = prisma.$queryRaw.getMockImplementation();
+    prisma.$queryRaw.mockImplementation(async (q: any) => {
+      if (q.sql.includes('FROM "MonitoringRefresh"')) return [{ id: refreshId, siteId: scope.siteId, floorId: "floor", status: "pending", deadlineAt: new Date("2026-09-14T00:00:30Z") }];
+      if (q.sql.includes('FROM "MonitoringRefreshBatch"')) return [{ id: batchId, refreshId, siteId: scope.siteId, gatewayId: scope.gatewayId, status: "published", targetFixtureIds: [scope.fixtureId] }];
+      if (q.sql.includes('FROM "MonitoringRefreshFixture"')) return [{ refreshId, batchId, siteId: scope.siteId, fixtureId: scope.fixtureId, status: "pending" }];
+      return query(q);
+    });
+    prisma.monitoringRefreshFixture = { update: jest.fn() };
+    const receivedAt = new Date("2026-09-14T00:00:12Z");
+    await new FixturePresenceIngestionService(prisma).ingest(scope.gatewayId, { ...presence(), refreshId, batchId }, receivedAt);
+    expect(prisma.fixture.update.mock.calls[0][0].data).toMatchObject({ lastUnreachableAt: null, lastSeenAt: receivedAt });
+    expect(prisma.monitoringRefreshFixture.update).toHaveBeenCalledWith({ where: { refreshId_fixtureId: { refreshId, fixtureId: scope.fixtureId } }, data: { status: "online", errorCode: null, observedAt: receivedAt } });
+  });
   it("locks Site, Gateway, then Fixture and stores only presence/freshness state", async () => {
     const prisma = presencePrisma();
     const receivedAt = new Date("2026-09-14T00:00:12.000Z");
@@ -25,6 +41,7 @@ describe("FixturePresenceIngestionService", () => {
       where: { id: scope.fixtureId },
       data: {
         lastSeenAt: receivedAt,
+        lastUnreachableAt: null,
         rssi: -41,
         hopCount: null,
         bioControlMode: "sensor",
@@ -207,6 +224,7 @@ function presencePrisma(options: {
 } = {}) {
   const row = {
     id: scope.fixtureId, siteId: scope.siteId, gatewayId: scope.gatewayId,
+    floorId: "floor", lastUnreachableAt: new Date("2026-09-14T00:00:01Z"),
     lastPresenceOccurredAt: options.lastPresenceOccurredAt ?? null,
     statusReason: options.statusReason ?? "fixture_stale",
     reportedStatus: options.reportedStatus ?? "online",

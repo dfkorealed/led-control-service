@@ -45,6 +45,7 @@ import { canonicalPayloadHash } from "../automation/automation-payload-hash";
 import { reconcileLegacyGatewayEventReplay } from "./legacy-gateway-event-replay";
 import { FixtureStateIngestionService } from "../energy/fixture-state-ingestion.service";
 import { FixturePresenceIngestionService } from "../fixtures/fixture-presence-ingestion.service";
+import { MonitoringRefreshIngestionService } from "../monitoring-refresh/monitoring-refresh-ingestion.service";
 import { EnergyDimensionHistoryService } from "../energy/energy-dimension-history.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { compareAndAdvanceGatewayEvent } from "../retention/gateway-event-watermark";
@@ -58,7 +59,7 @@ const MQTT_FORCE_CLOSE_TIMEOUT_MS = 1_000;
 const MQTT_GATEWAY_INBOUND_QUEUE_CAPACITY = 256;
 
 function isDurableFixtureObservationTopic(topic: string) {
-  return topic.endsWith("/state/fixtures") || topic.endsWith("/state/fixture-presence");
+  return topic.endsWith("/state/fixtures") || topic.endsWith("/state/fixture-presence") || topic.endsWith("/state/fixture-unreachable");
 }
 
 interface LockedCommandDispatch {
@@ -130,6 +131,7 @@ export class MqttService implements OnModuleInit {
   private closing = false;
   private readonly fixtureStateIngestion: Pick<FixtureStateIngestionService, "ingest">;
   private readonly fixturePresenceIngestion: Pick<FixturePresenceIngestionService, "ingest">;
+  private readonly monitoringRefreshIngestion: Pick<MonitoringRefreshIngestionService, "ingestUnreachable" | "completeBatch">;
   private readonly provisioningDeviceTerminal: Pick<ProvisioningDeviceTerminalService, "ingest" | "completeLegacy">;
 
   constructor(
@@ -140,10 +142,12 @@ export class MqttService implements OnModuleInit {
     @Optional() private readonly energyDimensions?: EnergyDimensionHistoryService,
     @Optional() private readonly automationSnapshot: AutomationSnapshotService = new AutomationSnapshotService(new AutomationClock()),
     @Optional() provisioningDeviceTerminal?: ProvisioningDeviceTerminalService,
-    fixturePresenceIngestion?: FixturePresenceIngestionService
+    fixturePresenceIngestion?: FixturePresenceIngestionService,
+    @Optional() monitoringRefreshIngestion?: MonitoringRefreshIngestionService
   ) {
     this.fixtureStateIngestion = fixtureStateIngestion ?? new FixtureStateIngestionService(prisma);
     this.fixturePresenceIngestion = fixturePresenceIngestion ?? new FixturePresenceIngestionService(prisma);
+    this.monitoringRefreshIngestion = monitoringRefreshIngestion ?? new MonitoringRefreshIngestionService(prisma);
     this.provisioningDeviceTerminal = provisioningDeviceTerminal
       ?? new ProvisioningDeviceTerminalService(prisma, meshControlGroups, energyDimensions);
   }
@@ -155,6 +159,7 @@ export class MqttService implements OnModuleInit {
         [
           "sites/+/gateways/+/events/provisioning/scan-found",
           "sites/+/gateways/+/events/identify-result",
+          "sites/+/gateways/+/events/fixture-presence-check-completed",
           "sites/+/gateways/+/events/provisioning/scan-completed",
           "sites/+/gateways/+/events/provisioning/scan-failed",
           "sites/+/gateways/+/events/provisioning/device-terminal",
@@ -169,6 +174,7 @@ export class MqttService implements OnModuleInit {
       client.subscribe([
         "sites/+/gateways/+/state/fixtures",
         "sites/+/gateways/+/state/fixture-presence",
+        "sites/+/gateways/+/state/fixture-unreachable",
         "sites/+/gateways/+/state/heartbeat"
       ], { qos: 1 });
       client.subscribe([
@@ -498,6 +504,12 @@ export class MqttService implements OnModuleInit {
   }
 
   private async handleMessageBeforeAck(topic: string, payload: Buffer, receivedAt: Date): Promise<(() => Promise<void>) | undefined> {
+    if (topic.endsWith("/events/fixture-presence-check-completed")) {
+      const { ack } = await this.monitoringRefreshIngestion.completeBatch(topic, JSON.parse(payload.toString()), receivedAt);
+      // Start QoS 1 application ACK only after PUBACK releases MQTT.js' parser.
+      return () => this.publishTopic(mqttTopicsV2.fixturePresenceCheckCompletedAck(ack.siteId, ack.gatewayId), ack,
+        { timeoutMs: MQTT_BACKGROUND_PUBLISH_TIMEOUT_MS });
+    }
     if (!topic.endsWith("/events/mesh-group/resync-request")) {
       await this.handleMessage(topic, payload, receivedAt);
       return;
@@ -648,10 +660,14 @@ export class MqttService implements OnModuleInit {
     return { scope, acknowledgement };
   }
 
-  private ingestFixtureObservationPacket(topic: string, payload: Buffer, receivedAt: Date) {
+  private async ingestFixtureObservationPacket(topic: string, payload: Buffer, receivedAt: Date) {
     const scope = parseGatewayTopic(topic);
     if (scope?.channel === "state/fixtures") return this.ingestFixtureStatePacket(topic, payload, receivedAt);
     if (scope?.channel === "state/fixture-presence") return this.ingestFixturePresencePacket(topic, payload, receivedAt);
+    if (scope?.channel === "state/fixture-unreachable") {
+      const result = await this.monitoringRefreshIngestion.ingestUnreachable(topic, JSON.parse(payload.toString()), receivedAt);
+      return { scope, acknowledgement: applicationStateIngestedAckV2Schema.parse({ ...result, ingestedAt: new Date().toISOString() }) };
+    }
     throw new Error("fixture observation topic scope rejected");
   }
 
@@ -669,6 +685,11 @@ export class MqttService implements OnModuleInit {
 
   async handleMessage(topic: string, payload: Buffer, receivedAt = new Date()) {
     const frozenReceivedAt = new Date(receivedAt.getTime());
+    if (topic.endsWith("/events/fixture-presence-check-completed")) {
+      const publish = await this.handleMessageBeforeAck(topic, payload, frozenReceivedAt);
+      await publish?.();
+      return;
+    }
     if (topic.endsWith("/events/identify-result")) {
       const result = fixtureIdentifyResultSchema.parse(JSON.parse(payload.toString()));
       if (topic !== fixtureIdentifyTopics.result(result.siteId, result.gatewayId)) throw new Error("identify_scope_mismatch");

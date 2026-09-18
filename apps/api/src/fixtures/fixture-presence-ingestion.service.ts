@@ -9,11 +9,15 @@ import { canonicalPayloadHash } from "../automation/automation-payload-hash";
 import { gatewayEventIsTooFarInFuture, gatewayEventMaxFutureSkewMs } from "../mqtt/gateway-event-time";
 import { PrismaService } from "../prisma/prisma.service";
 import { compareAndAdvanceGatewayEvent } from "../retention/gateway-event-watermark";
+import { lockRefreshObservation, resolveRefreshObservation } from "../monitoring-refresh/monitoring-refresh-ingestion.service";
 
 type IngestionStatus = ApplicationStateIngestedAckV2["status"];
 
 interface LockedFixtureRow {
   id: string;
+  floorId: string;
+  lastUnreachableAt: Date | null;
+  lastSeenAt: Date | null;
   lastPresenceOccurredAt: Date | null;
   statusReason: string | null;
   reportedStatus: "online" | "offline" | "fault";
@@ -96,7 +100,7 @@ export class FixturePresenceIngestionService {
     if (!gateway) throw new Error("fixture presence scope rejected");
 
     const [fixture] = await tx.$queryRaw<LockedFixtureRow[]>(Prisma.sql`
-      SELECT f."id", f."lastPresenceOccurredAt", f."statusReason",
+      SELECT f."id", f."floorId", f."lastUnreachableAt", f."lastSeenAt", f."lastPresenceOccurredAt", f."statusReason",
         f."reportedStatus", f."reportedStatusReason"
       FROM "Fixture" f
       INNER JOIN "Floor" fl ON fl."id" = f."floorId"
@@ -107,6 +111,9 @@ export class FixturePresenceIngestionService {
       FOR UPDATE OF f
     `);
     if (!fixture) throw new Error("fixture presence scope rejected");
+    const refreshContext = presence.refreshId && presence.batchId
+      ? await lockRefreshObservation(tx, { ...presence, refreshId: presence.refreshId, batchId: presence.batchId }, fixture.floorId)
+      : null;
 
     // 같은 eventId를 동시에 받으면 후발 transaction은 Fixture 잠금 뒤에 선행
     // transaction의 원장을 다시 읽는다. 그러면 unique-index 예외를 정상 ACK 경로로
@@ -161,7 +168,8 @@ export class FixturePresenceIngestionService {
     await tx.fixture.update({
       where: { id: fixture.id },
       data: {
-        lastSeenAt: receivedAt,
+        lastSeenAt: fixture.lastSeenAt && fixture.lastSeenAt > receivedAt ? fixture.lastSeenAt : receivedAt,
+        ...(!fixture.lastUnreachableAt || receivedAt > fixture.lastUnreachableAt ? { lastUnreachableAt: null } : {}),
         rssi: presence.rssi,
         hopCount: presence.hopCount,
         bioControlMode: presence.controlMode,
@@ -170,11 +178,15 @@ export class FixturePresenceIngestionService {
         lastPresenceEventId: presence.eventId,
         lastPresenceSequence: BigInt(presence.sequence),
         lastPresenceOccurredAt: occurredAt,
-        ...(fixture.statusReason === "fixture_stale" || fixture.statusReason === "gateway_offline"
+        ...((!fixture.lastUnreachableAt || receivedAt > fixture.lastUnreachableAt) &&
+          (fixture.statusReason === "fixture_stale" || fixture.statusReason === "gateway_offline")
           ? restoreReportedOperationalState(fixture)
           : {})
       }
     });
+    if (!fixture.lastUnreachableAt || receivedAt > fixture.lastUnreachableAt) {
+      await resolveRefreshObservation(tx, refreshContext, receivedAt);
+    }
     return resultFrom(presence, "ingested");
   }
 }

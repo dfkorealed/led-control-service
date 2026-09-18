@@ -10,7 +10,7 @@ describe("FixtureFreshnessService", () => {
     const tx = {
       $queryRaw: jest.fn().mockResolvedValue([{ id: "locked" }]),
       site: { findUnique: jest.fn(({ where }) => Promise.resolve(sites.find((site) => site.id === where.id))) },
-      fixture: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
+      fixture: { fields: { lastSeenAt: { name: "lastSeenAt" } }, updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
     };
     const prisma = { ...tx, site: { findMany: jest.fn().mockResolvedValue(sites) },
       $transaction: jest.fn((work) => work(tx)) };
@@ -47,6 +47,14 @@ describe("FixtureFreshnessService", () => {
     const cutoff = fixtureStaleUpdate.where.AND[1].OR[0].lastSeenAt.lt as Date;
     expect(cutoff).toEqual(new Date(now.getTime() - 1_200_000));
     expect(new Date(now.getTime() - age).getTime() < cutoff.getTime()).toBe(stale);
+  });
+
+  it("persists a verified manual failure even before the twenty-minute cutoff", async () => {
+    const { service, tx } = setup();
+    await service.markStaleFixtures(now);
+    expect(tx.fixture.updateMany.mock.calls[1][0].where.AND[1].OR).toContainEqual({
+      lastUnreachableAt: { gt: tx.fixture.fields.lastSeenAt }
+    });
   });
 
   it("bounds each transaction, continues after first-Site failure, and retries it next tick without logging tenant data", async () => {
