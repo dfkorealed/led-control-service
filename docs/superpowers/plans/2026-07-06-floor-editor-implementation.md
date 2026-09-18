@@ -442,7 +442,7 @@ git commit -m "perf(editor): cull cad slots and reuse map images"
 - 모니터링 DTO는 slot을 노출하지 않고 배치된 fixture와 CAD plan만 반환한다.
 - revision restore는 plan, objects, fixture placement와 slot assignment를 함께 복구한다.
 
-- [ ] **Step 1: 모니터링 slot 비노출과 revision 왕복 테스트 작성**
+- [x] **Step 1: 모니터링 slot 비노출과 revision 왕복 테스트 작성**
 
 ```ts
 expect(monitoringMap).not.toHaveProperty("lightSlots");
@@ -451,23 +451,23 @@ expect(monitoringMap.fixtures).toEqual([expect.objectContaining({ id: assignedFi
 
 restore 전후 `FloorLightSlot.assignedFixtureId`와 fixture placement/좌표가 snapshot과 일치하는지 실DB로 검사한다.
 
-- [ ] **Step 2: API/Web 테스트 실패 확인**
+- [x] **Step 2: API/Web 테스트 실패 확인**
 
 Run: `pnpm --filter @led-control/api test -- floor-map.service.spec.ts floor-editor.integration.spec.ts --runInBand && pnpm --filter @led-control/web test -- FloorScene.test.tsx`
 
 Expected: slot snapshot/복구가 없어 실패.
 
-- [ ] **Step 3: 읽기 전용 map과 restore 구현**
+- [x] **Step 3: 읽기 전용 map과 restore 구현**
 
 모니터링은 CAD SVG를 단일 background로 그리고 assigned fixture만 기존 marker로 표시한다. restore transaction은 현재 slot을 snapshot slot로 교체하고 assignment와 fixture 상태를 함께 복원한다.
 
-- [ ] **Step 4: 회귀 실행과 문서 갱신**
+- [x] **Step 4: 회귀 실행과 문서 갱신**
 
 Run: `pnpm --filter @led-control/api test -- floor-map.service.spec.ts floor-editor.integration.spec.ts --runInBand && pnpm --filter @led-control/web test -- FloorScene.test.tsx`
 
 Expected: 적용·새로고침·revision 복구 후 모니터링 배경/조명 일치.
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```bash
 git add apps/api/src/floor-map apps/api/src/floor-editor apps/web/src/features/floor-map
