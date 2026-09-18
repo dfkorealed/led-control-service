@@ -1,8 +1,14 @@
 import { EventEmitter } from "node:events";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { BluezMeshAdapter } from "./bluez-mesh-adapter";
 import { BluezTransportError } from "./bluez-transport";
 import { handleGatewayDimmingCommand } from "../commands/gateway-command-handler";
+import { handleFixturePresenceCheck, MonitoringRefreshEventPublisher } from "../commands/fixture-presence-check-handler";
+import { MonitoringRefreshJournal } from "../state/monitoring-refresh-journal";
+import { StateEventOutbox } from "../state/state-event-outbox";
 import {
   TEST_BLUETOOTH_COMPANY_ID,
   TEST_BLUETOOTH_COMPANY_ID_LE
@@ -79,14 +85,41 @@ describe("BluezMeshAdapter", () => {
     ]);
   });
 
-  it("sanitizes a wrapped per-read timeout while keeping bus disconnect a batch failure", async () => {
+  it("classifies a wrapped Node1.Send timeout and bus disconnect as transport failure", async () => {
     const f = fixture();
     f.transport.call.mockRejectedValue(new BluezTransportError("private transport detail", "org.bluez.mesh", "/private", "Node1", "Send", {
       cause: Object.assign(new Error("private timeout detail"), { code: "TIMEOUT" })
     }));
-    await expect(f.adapter.probeFixturePresence(["fixture-1"])).resolves.toEqual([{ fixtureId: "fixture-1", outcome: "read_timeout" }]);
+    await expect(f.adapter.probeFixturePresence(["fixture-1"])).rejects.toThrow("fixture probe transport unavailable");
     f.transport.call.mockRejectedValue(Object.assign(new Error("private bus detail"), { code: "DISCONNECTED" }));
     await expect(f.adapter.probeFixturePresence(["fixture-1"])).rejects.toThrow("fixture probe transport unavailable");
+  });
+
+  it.each(["TIMEOUT", "ETIMEDOUT"])("never emits unreachable or completion for Node1.Send %s through the real handler", async (code) => {
+    const f = fixture();
+    const directory = await mkdtemp(join(tmpdir(), "bluez-refresh-"));
+    const scope = { siteId: "11111111-1111-4111-8111-111111111111", gatewayId: "22222222-2222-4222-8222-222222222222" };
+    const fixtureId = "66666666-6666-4666-8666-666666666666";
+    const now = () => new Date("2026-09-15T00:00:01.000Z");
+    const command = { ...scope, refreshId: "33333333-3333-4333-8333-333333333333", batchId: "44444444-4444-4444-8444-444444444444",
+      idempotencyKey: "55555555-5555-4555-8555-555555555555", sequence: 1, targetFixtureIds: [fixtureId],
+      requestedAt: "2026-09-15T00:00:00.000Z", expiresAt: "2026-09-15T00:01:00.000Z" };
+    f.addresses.findByFixtureId.mockResolvedValue({ fixtureId, primaryUnicast: 0x0100, status: "confirmed" });
+    f.transport.call.mockRejectedValue(new BluezTransportError("private bus", "org.bluez.mesh", "/private", "Node1", "Send", {
+      cause: Object.assign(new Error("private timeout"), { code })
+    }));
+    const journal = new MonitoringRefreshJournal(join(directory, "journal.json"), scope, { now });
+    const outbox = new StateEventOutbox(join(directory, "outbox.json"), scope);
+    const publisher = new MonitoringRefreshEventPublisher(journal, outbox);
+    const published: unknown[] = [];
+    let sequence = 1;
+    try {
+      await publisher.connect(async (_topic, event) => { published.push(event); });
+      await handleFixturePresenceCheck(f.adapter, journal, command, publisher, { now, retryDelayMs: 1, nextSequence: async () => sequence++ });
+      expect(await outbox.pending()).toEqual([]);
+      expect(published).toEqual([]);
+      expect((await journal.accept(command)).terminal).toEqual({ events: [], failure: "transport_unavailable" });
+    } finally { await publisher.stopAndDrain(); await rm(directory, { recursive: true, force: true }); }
   });
 
   it("serializes a monitoring probe with an existing resync for the same fixture", async () => {

@@ -634,11 +634,8 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
       observation.cancel();
       if (strictTransport) {
         signal?.throwIfAborted();
-        // Failed bus/session operations do not prove a fixture unreachable. Only an observation
-        // deadline (or an explicitly classified per-read timeout) is safe for two-pass retry.
-        const cause = error instanceof BluezTransportError ? error.cause : error;
-        const code = cause && typeof cause === "object" ? (cause as { code?: string }).code : undefined;
-        if (code === "TIMEOUT" || code === "ETIMEDOUT") return { fixtureId: mapping.fixtureId, status: "timed_out" };
+        // Node1.Send has not confirmed transport acceptance, even for TIMEOUT/ETIMEDOUT.
+        // Only the observation deadline after successful Send can prove a missing device reply.
         throw new Error("fixture probe transport unavailable");
       }
       return { fixtureId: mapping.fixtureId, status: "failed" };
