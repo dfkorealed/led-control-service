@@ -9,7 +9,8 @@ DROP CONSTRAINT "FloorImportJob_lifecycle_check";
 ALTER TABLE "FloorImportJob"
 ADD CONSTRAINT "FloorImportJob_lifecycle_check" CHECK (
   (
-    "status" = 'queued' AND "progressPercent" BETWEEN 0 AND 90 AND
+    "status" = 'queued' AND "progressPercent" BETWEEN 0 AND 99 AND
+    ("progressPercent" = 0 OR "attemptCount" >= 1) AND
     "leaseOwner" IS NULL AND "leaseExpiresAt" IS NULL AND "renderedAssetId" IS NULL AND
     "failureCode" IS NULL AND "failureMessage" IS NULL AND
     "startedAt" IS NULL AND "reviewRequiredAt" IS NULL AND "appliedAt" IS NULL AND

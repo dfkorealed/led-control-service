@@ -404,6 +404,65 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
     }
   }, 60_000);
 
+  it("enforces queued retry lifecycle by rejecting retained progress without an attempt", async () => {
+    const source = await sourceAsset();
+    const job = await prisma.floorImportJob.create({ data: {
+      floorId, sourceAssetId: source.id, sourceFormat: "dxf"
+    } });
+
+    expect(() => cluster.sql(databaseUrl, `
+      UPDATE "FloorImportJob"
+      SET "progressPercent" = 1, "updatedAt" = CURRENT_TIMESTAMP
+      WHERE "id" = '${job.id}';
+    `)).toThrow(/FloorImportJob_lifecycle_check/);
+  });
+
+  it("enforces queued retry lifecycle by preserving 99 percent through failure and reclaim", async () => {
+    const source = await sourceAsset();
+    const job = await prisma.floorImportJob.create({ data: {
+      floorId, sourceAssetId: source.id, sourceFormat: "dxf", detectorProfileId: "generic-lighting-v1"
+    } });
+    const storageAtNinetyNine = {
+      downloadFloorAssetToFile: jest.fn(async () => {
+        await prisma.floorImportJob.update({
+          where: { id: job.id },
+          data: { progressPercent: 99 }
+        });
+        throw new Error("forced retry at 99 percent");
+      })
+    };
+    const firstAttempt = new FloorImportWorkerService(
+      prisma as never,
+      storageAtNinetyNine as never,
+      {} as never,
+      new FixedLightingDetectorRegistry(),
+      {} as never,
+      { tempRoot: "/tmp", pollIntervalMs: 1000, enabled: false }
+    );
+
+    try {
+      await expect(firstAttempt.runOnce()).resolves.toBe(true);
+      await expect(prisma.floorImportJob.findUniqueOrThrow({ where: { id: job.id } }))
+        .resolves.toMatchObject({
+          status: "queued", stage: "queued", progressPercent: 99, attemptCount: 1,
+          leaseOwner: null, leaseExpiresAt: null, startedAt: null,
+          failureCode: null, failureMessage: null
+        });
+    } finally {
+      await firstAttempt.onModuleDestroy();
+    }
+
+    const retry = worker();
+    try {
+      await expect(retry.claimNext()).resolves.toMatchObject({
+        id: job.id, status: "processing", progressPercent: 99, attemptCount: 2,
+        leaseOwner: expect.any(String), leaseExpiresAt: expect.any(Date)
+      });
+    } finally {
+      await retry.onModuleDestroy();
+    }
+  });
+
   it("reaps a late PUT during a bounded quiet period and then terminally retires the orphan tombstone", async () => {
     const killedFloor = await prisma.floor.create({ data: { siteId, name: "Killed import floor", level: 99 } });
     const sourceId = randomUUID();
@@ -502,7 +561,8 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
     } });
 
     const applied = await service().apply(user, floorId, jobId, {
-      expectedRevision: 4, leaseToken: "lease-token", leaseFence: 8, candidateIds: candidateIds.slice(0, 1_302)
+      expectedRevision: 4, leaseToken: "lease-token", leaseFence: 8,
+      candidateIds: candidateIds.slice(0, 1_302), confirmMapReset: true
     });
     expect(applied).toMatchObject({ status: "completed", revision: 5 });
     expect(storage.readFloorRenderedMetadata).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ contentEncoding: null }));

@@ -684,7 +684,7 @@ DWG/DXF 원본을 비동기로 변환·검출·검토·적용하는 작업의 �
 | `sourceFormat` | `FloorImportSourceFormat` | 예 |  | `dwg` 또는 `dxf` |
 | `status` | `FloorImportJobStatus` | 예 | `queued` | 영속 작업 상태 |
 | `stage` | `String` | 예 | `queued`, trim 길이 1~100 | 상태보다 세분화된 현재 처리 단계 |
-| `progressPercent` | `Int` | 예 | `0`, DB check `0~100` | 진행률. lifecycle check는 queued `0~90`, processing `1~99`, review/applying/completed `100`, failed/cancelled `0~100`을 허용 |
+| `progressPercent` | `Int` | 예 | `0`, DB check `0~100` | 진행률. lifecycle check는 queued `0~99`, processing `1~99`, review/applying/completed `100`, failed/cancelled `0~100`을 허용 |
 | `attemptCount` | `Int` | 예 | `0`, DB check `>= 0` | worker lease 획득/재시도 횟수 |
 | `parserVersion` | `String?` | 아니오 |  | CAD parser/정규화 구현 버전 |
 | `detectorVersion` | `String?` | 아니오 |  | 조명 후보 detector 버전 |
@@ -709,7 +709,7 @@ DWG/DXF 원본을 비동기로 변환·검출·검토·적용하는 작업의 �
 - client/Web은 profile ID를 보내지 않는다. create transaction이 잠근 ready source asset SHA-256으로 server registry binding을 결정한다. migration 시점의 queued job만 ID/version/digest를 `NULL`로 staging하고 worker lease 안에서 같은 binding을 해석한다. `20260917144000_cad_profile_upgrade_gate`는 singleton gate와 DB trigger를 먼저 설치해 구 worker를 포함한 queued→processing 전환을 거부한다. `20260917145000`/`16000`이 profile/content 제약을 적용하고 `20260917170000_cad_profile_upgrade_release`가 필요한 migration 완료 이력을 확인한 뒤에만 gate를 연다.
 - partial unique index `FloorImportJob_floorId_active_key`는 `queued`, `processing`, `review_required`, `applying` 중인 job을 층마다 하나로 제한한다. 완료·실패·취소 원장은 이력으로 유지한다.
 - deferred constraint trigger `FloorImportJob_asset_invariant`, `FloorAsset_import_job_invariant`는 transaction 최종 상태에서 원본/렌더 자산이 job과 같은 층이고 ready인지, source는 `original`과 source format별 DWG/DXF MIME인지, render는 `rendered`와 허용 이미지 MIME인지 양쪽 mutation 경로에서 강제한다.
-- migration-only `FloorImportJob_lifecycle_check`는 queued/processing/review_required/applying/completed/failed/cancelled별 progress, lease, 오류, 렌더 자산과 필수 timestamp 조합을 강제한다. `20260918130000_floor_import_retry_progress`부터 최초 및 재시도 queued는 `0~90`의 보존 진행률과 해제된 lease를 허용하고, processing은 `1~99`, review_required/applying/completed는 정확히 `100`, failed/cancelled는 `0~100`을 허용한다. terminal 상태는 lease가 없고 각각 `completedAt`, `failedAt`, `cancelledAt`이 필요하다.
+- migration-only `FloorImportJob_lifecycle_check`는 queued/processing/review_required/applying/completed/failed/cancelled별 progress, lease, 오류, 렌더 자산과 필수 timestamp 조합을 강제한다. `20260918130000_floor_import_retry_progress`부터 최초 및 재시도 queued는 `0~99`의 보존 진행률과 해제된 lease를 허용한다. queued 진행률이 `1~99`이면 claim 이력을 나타내는 `attemptCount >= 1`이 필요하지만, 과거 데이터 호환을 위해 진행률 `0`인 queued row의 attemptCount는 추가로 제한하지 않는다. processing은 `1~99`, review_required/applying/completed는 정확히 `100`, failed/cancelled는 `0~100`을 허용한다. terminal 상태는 lease가 없고 각각 `completedAt`, `failedAt`, `cancelledAt`이 필요하다.
 - `FloorImportJob_detector_profile_state_check`는 `review_required`, `applying`, `completed`에서 profile ID/version/digest를 모두 요구한다. migration 이전 terminal 결과는 현재 profile로 위장하지 않고 `legacy-unknown`과 zero digest sentinel로 보존한다.
 - 위 trigger, lifecycle/check 제약과 active partial unique는 Prisma datamodel로 표현되지 않는다. `floor-cad-import-migration.integration.spec.ts`가 실제 PostgreSQL catalog와 잘못된 INSERT/UPDATE 거부를 검증하므로 migration을 Prisma diff로 재생성해 대체하면 안 된다.
 
