@@ -5,7 +5,7 @@ import type {
   ProvisioningScanStartPayload
 } from "@led-control/shared";
 import { BioUsbDongleAdapter } from "./bio-usb-dongle-adapter";
-import { BioUsbError } from "../bio/bio-usb-error";
+import { BioDeviceReadTimeoutError, BioUsbError } from "../bio/bio-usb-error";
 import { EventEmitter } from "node:events";
 import { BioDongleClient } from "../bio/bio-dongle-client";
 import { encodeCrcFrame } from "../bio/bio-frame-codec";
@@ -626,12 +626,37 @@ describe("BioUsbDongleAdapter", () => {
 
     it("sanitizes fixture timeouts but rejects transport-wide scan failure", async () => {
       const f = readyForOnePresence();
-      f.client.readBrightness.mockRejectedValue(new BioUsbError("TIMEOUT", "private packet"));
+      f.client.readBrightness.mockRejectedValue(new BioDeviceReadTimeoutError());
       await expect(f.adapter.probeFixturePresence([provisioningCommand.nodeId])).resolves.toEqual([
         { fixtureId: provisioningCommand.nodeId, outcome: "read_timeout" }
       ]);
       f.client.scan.mockRejectedValue(new BioUsbError("DISCONNECTED", "private USB path"));
       await expect(f.adapter.probeFixturePresence([provisioningCommand.nodeId])).rejects.toThrow();
+    });
+
+    it.each([
+      new BioUsbError("MALFORMED_FRAME", "private checksum"),
+      new BioUsbError("LATE_RESPONSE", "private packet"),
+      new BioUsbError("READINESS", "private readiness"),
+      new BioUsbError("TIMEOUT", "BIO response timed out"),
+      new BioUsbError("TIMEOUT", "BIO transport recovery timed out"),
+      new AggregateError([new BioUsbError("TIMEOUT", "device timeout"), new BioUsbError("CLOSE_FAILED", "close")]),
+      new AggregateError([new BioDeviceReadTimeoutError(), new BioUsbError("CLOSE_FAILED", "close")]),
+      new Error("wrapper", { cause: new AggregateError([new BioUsbError("MALFORMED_FRAME", "bad frame")]) })
+    ])("fails the batch for recursive transport error %s rather than returning fixture failure", async (error) => {
+      const f = readyForOnePresence();
+      f.client.readBrightness.mockRejectedValue(error);
+      const listener = vi.fn(); f.adapter.onFixturePresence(listener);
+      await expect(f.adapter.probeFixturePresence([provisioningCommand.nodeId])).rejects.toThrow("fixture probe transport unavailable");
+      expect(f.client.readDeviceInfo).not.toHaveBeenCalled();
+      expect(listener).not.toHaveBeenCalled();
+    });
+
+    it.each(["readBrightness", "readDeviceInfo"] as const)("fails closed before scan when optional %s capability is missing", async (method) => {
+      const f = readyForOnePresence();
+      Object.assign(f.client, { [method]: undefined });
+      await expect(f.adapter.probeFixturePresence([provisioningCommand.nodeId])).rejects.toThrow("fixture probe transport unavailable");
+      expect(f.client.scan).not.toHaveBeenCalled();
     });
 
     it("rejects mismatched identity before GET and aborts without device-offline results", async () => {

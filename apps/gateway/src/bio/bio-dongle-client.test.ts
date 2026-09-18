@@ -1091,9 +1091,20 @@ describe("BIO evidence-gated dongle client", () => {
     await vi.advanceTimersByTimeAsync(100);
     await flush();
 
-    await expect(reading).rejects.toMatchObject({ code: "TIMEOUT" });
+    await expect(reading).rejects.toMatchObject({ code: "TIMEOUT", name: "BioDeviceReadTimeoutError" });
     expect(device.isOpen).toBe(false);
     expect(commandBodies(device)).toEqual(["4e13"]);
+    await h.client.close();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("does not label a missing USB acknowledgement as a device read timeout", async () => {
+    const h = generationHarness(75, { observationTimeoutMs: 1000 }); await ready(h);
+    const reading = h.client.readBrightness(verifiedTarget);
+    void reading.catch(() => undefined);
+    await flush();
+    await vi.advanceTimersByTimeAsync(300);
+    await expect(reading).rejects.toMatchObject({ code: "TIMEOUT", name: "BioUsbError" });
     await h.client.close();
     expect(vi.getTimerCount()).toBe(0);
   });

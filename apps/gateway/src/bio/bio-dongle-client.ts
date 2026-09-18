@@ -12,7 +12,7 @@ import {
   type BioResponse
 } from "./bio-command-codec";
 import { formatBioDeviceUuid, parseBioDeviceUuid } from "./bio-device-identity";
-import { BioUsbError } from "./bio-usb-error";
+import { BioDeviceReadTimeoutError, BioUsbError } from "./bio-usb-error";
 
 export type BioClientEvent = Exclude<BioResponse, { kind: "probe" | "outer-ack" }> | { kind: "invalid-notification" };
 export type BioDongleClientOptions = Pick<BioTransportOptions, "timeoutMs" | "retirementTimeoutMs"> & {
@@ -584,7 +584,7 @@ export class BioDongleClient {
         cleanup();
         reject(operationStopped(control)
           ? abortError()
-          : new BioUsbError("TIMEOUT", "BIO matching device read-back timed out"));
+          : new BioDeviceReadTimeoutError());
       }, Math.min(this.observationTimeoutMs, remaining));
       if (operationStopped(control)) cancelForControl();
     });

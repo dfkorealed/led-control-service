@@ -20,3 +20,11 @@ export class BioUsbError extends Error {
     this.name = "BioUsbError";
   }
 }
+
+/** Missing matched lamp report; USB ACK/recovery timeouts keep the base BioUsbError type. */
+export class BioDeviceReadTimeoutError extends BioUsbError {
+  constructor() {
+    super("TIMEOUT", "BIO matching device read-back timed out");
+    this.name = "BioDeviceReadTimeoutError";
+  }
+}

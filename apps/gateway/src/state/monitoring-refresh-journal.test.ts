@@ -1,4 +1,4 @@
-import { mkdtemp, rm, readFile, unlink } from "node:fs/promises";
+import { mkdtemp, rm, readFile, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
@@ -26,12 +26,51 @@ it("durably replays an exact terminal after restart and retains dedup identity a
   expect((await recovered.accept(command)).terminal).toEqual(terminal());
   expect(await recovered.pending()).toHaveLength(1);
   expect(await recovered.acknowledge({ ...scope, refreshId: command.refreshId, batchId: command.batchId })).toBe(false);
+  await recovered.markEventHandedOff(command.batchId, terminal().events[0].eventId);
   await recovered.markHandedOff(command.batchId);
   expect(await recovered.acknowledge({ ...scope, refreshId: command.refreshId, batchId: command.batchId })).toBe(true);
   const final = new MonitoringRefreshJournal(file, scope, { now });
   expect(await final.pending()).toEqual([]);
   expect((await final.accept(command)).terminal).toEqual(terminal());
   expect(JSON.parse(await readFile(file, "utf8")).records).toHaveLength(1);
+});
+
+it("requires durable event-by-event progress before batch handoff and restores it after restart", async () => {
+  const file = await path();
+  const journal = new MonitoringRefreshJournal(file, scope, { now });
+  await journal.accept(command);
+  await journal.complete(command, terminal());
+  await expect(journal.markHandedOff(command.batchId)).rejects.toThrow();
+  await expect(journal.markEventHandedOff(command.batchId, command.refreshId)).rejects.toThrow();
+  await journal.markEventHandedOff(command.batchId, terminal().events[0].eventId);
+  const recovered = new MonitoringRefreshJournal(file, scope, { now });
+  expect((await recovered.pending())[0].handedOffEventIds).toEqual([terminal().events[0].eventId]);
+  await recovered.markEventHandedOff(command.batchId, terminal().events[0].eventId);
+  await recovered.markHandedOff(command.batchId);
+  expect((await recovered.pending())[0].handedOff).toBe(true);
+});
+
+it("adopts existing v1 whole-batch handoff without replaying its acknowledged fixture events", async () => {
+  const file = await path();
+  const journal = new MonitoringRefreshJournal(file, scope, { now });
+  await journal.accept(command); await journal.complete(command, terminal());
+  await journal.markEventHandedOff(command.batchId, terminal().events[0].eventId);
+  await journal.markHandedOff(command.batchId);
+  const legacy = JSON.parse(await readFile(file, "utf8"));
+  delete legacy.records[0].handedOffEventIds;
+  await writeFile(file, JSON.stringify(legacy));
+  const recovered = new MonitoringRefreshJournal(file, scope, { now });
+  expect((await recovered.pending())[0]).toMatchObject({ handedOff: true, handedOffEventIds: [terminal().events[0].eventId] });
+  expect(await recovered.acknowledge({ ...scope, refreshId: command.refreshId, batchId: command.batchId })).toBe(true);
+});
+
+it("fails closed on null persisted per-event handoff progress", async () => {
+  const file = await path();
+  await new MonitoringRefreshJournal(file, scope, { now }).accept(command);
+  const corrupt = JSON.parse(await readFile(file, "utf8"));
+  corrupt.records[0].handedOffEventIds = null;
+  await writeFile(file, JSON.stringify(corrupt));
+  await expect(new MonitoringRefreshJournal(file, scope, { now }).initialize()).rejects.toThrow("handoff progress");
 });
 
 it("refuses completion without exactly one correlated terminal event per target", async () => {

@@ -50,11 +50,20 @@ export class MonitoringRefreshEventPublisher {
         for (const row of await this.journal.pending()) {
           const terminal = row.terminal!;
           if (!row.handedOff) {
-            // A crash midway through handoff repeats identical event IDs; the outbox and API dedup them.
-            // Completion cannot race ahead of a failed enqueue. Once handed off, state ACKs own delivery.
-            for (const event of terminal.events) await this.outbox.enqueue(event);
+            // Persist each successful enqueue before advancing. ACKed events must not be re-enqueued
+            // after capacity frees up or a restart, otherwise a one-slot outbox cannot make progress.
+            for (const event of terminal.events) {
+              if (row.handedOffEventIds.includes(event.eventId)) continue;
+              await this.outbox.enqueue(event);
+              try {
+                await this.journal.markEventHandedOff(row.command.batchId, event.eventId);
+              } finally {
+                // Even a subsequent enqueue/progress-write failure must let durable events reach
+                // the API and release capacity via the existing fixture-scoped application ACK.
+                this.options.wakeStateOutbox?.();
+              }
+            }
             await this.journal.markHandedOff(row.command.batchId);
-            this.options.wakeStateOutbox?.();
           }
           if (publish && !signal.aborted) {
             await abortablePublish(publish(mqttTopicsV2.fixturePresenceCheckCompleted(row.command.siteId, row.command.gatewayId), terminal.completed!),

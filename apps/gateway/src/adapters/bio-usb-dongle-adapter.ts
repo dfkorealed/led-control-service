@@ -30,7 +30,7 @@ import type {
   BioDeviceMappingInput,
   BioDeviceMappingStore
 } from "../bio/bio-device-mapping-store";
-import { BioUsbError } from "../bio/bio-usb-error";
+import { BioDeviceReadTimeoutError, BioUsbError } from "../bio/bio-usb-error";
 import { SerialTaskQueue } from "../runtime/serial-task-queue";
 
 const BIO_DEVICE_UUID = /^bio:[0-9a-f]{12}$/;
@@ -342,6 +342,8 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
       throw new Error("invalid fixture probe targets");
     }
     signal?.throwIfAborted();
+    // Unsupported GET capability is a gateway limitation, not evidence that any fixture is absent.
+    this.requireReadOnlyClient();
     const requested = new Set(fixtureIds);
     const mappings = (await this.mappings.listConfirmed()).filter((row) => requested.has(row.fixtureId));
     const results: BleMeshFixtureProbeResult[] = [];
@@ -420,13 +422,12 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
         probeResults?.push({ fixtureId: mapping.fixtureId, outcome: "online", presence });
         report.observed += 1;
       } catch (error) {
-        if (probeResults && (signal?.aborted || (error instanceof BioUsbError &&
-          ["DISCONNECTED", "STOPPED", "NOT_READY", "USB_IDENTITY", "CLOSE_FAILED"].includes(error.code)))) {
+        const probeFailure = probeResults ? fixtureProbeFailure(error) : undefined;
+        if (probeResults && (signal?.aborted || !probeFailure)) {
           throw new Error("fixture probe transport unavailable");
         }
         if (signal?.aborted) break;
-        probeResults?.push({ fixtureId: mapping.fixtureId, outcome: isBioTimeout(error) ? "read_timeout"
-          : error instanceof BioUsbError && error.code === "BIO_DEVICE_NOT_FOUND" ? "not_found" : "read_failed" });
+        if (probeResults && probeFailure) probeResults.push({ fixtureId: mapping.fixtureId, outcome: probeFailure });
         if (isBioTimeout(error)) report.timedOut += 1;
         else report.failed += 1;
         // resync report는 동일 실패가 여러 fixture에서 반복돼도 code별 횟수만 남긴다.
@@ -452,7 +453,7 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
 
   private requireReadOnlyClient(): Required<Pick<BioDongleClient, "readBrightness" | "readDeviceInfo">> {
     if (!this.client.readBrightness || !this.client.readDeviceInfo) {
-      throw new BioUsbError("BIO_DEVICE_NOT_FOUND", "BIO client does not support read-only fixture observation");
+      throw new BioUsbError("NOT_READY", "fixture probe transport unavailable");
     }
     // `BioDongleClient`의 두 메서드는 내부 scan cache와 operation queue를 `this`로 읽는다.
     // 메서드 참조만 새 object에 복사하면 JavaScript receiver가 그 임시 object로 바뀌어
@@ -624,6 +625,26 @@ function assertExactReadbackIdentity(
 
 function isBioTimeout(error: unknown) {
   return bioFailureCodes(error).includes("TIMEOUT");
+}
+
+function fixtureProbeFailure(error: unknown, ancestors = new Set<unknown>()): Exclude<BleMeshFixtureProbeResult["outcome"], "online"> | undefined {
+  if (!error || typeof error !== "object" || ancestors.has(error)) return undefined;
+  const visited = new Set(ancestors).add(error);
+  const nested = error instanceof AggregateError ? [...error.errors] : [];
+  if (error instanceof Error && error.cause !== undefined) nested.push(error.cause);
+  const nestedFailures = nested.map((cause) => fixtureProbeFailure(cause, visited));
+  // Any transport/unknown branch wins, including retirement failure wrapped with an otherwise
+  // valid device timeout. Generic TIMEOUT must never stand in for an accepted device GET.
+  if (nestedFailures.some((failure) => failure === undefined)) return undefined;
+  if (error instanceof BioDeviceReadTimeoutError) return "read_timeout";
+  if (error instanceof BioUsbError) {
+    if (error.code === "BIO_DEVICE_NOT_FOUND") return "not_found";
+    if (error.code === "BIO_BRIGHTNESS_STATE_MISMATCH" || error.code === "BIO_CONTROL_MODE_STATE_MISMATCH") return "read_failed";
+    return undefined;
+  }
+  if (!nestedFailures.length) return undefined;
+  return nestedFailures.includes("read_timeout") ? "read_timeout"
+    : nestedFailures.every((failure) => failure === "not_found") ? "not_found" : "read_failed";
 }
 
 function lightingObservationFromPresence(presence: BleMeshFixturePresence): BleMeshLightingObservation | undefined {

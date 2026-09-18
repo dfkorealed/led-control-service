@@ -4,7 +4,9 @@ import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { handleFixturePresenceCheck, MonitoringRefreshEventPublisher } from "./fixture-presence-check-handler";
 import { MonitoringRefreshJournal } from "../state/monitoring-refresh-journal";
-import { StateEventOutbox } from "../state/state-event-outbox";
+import { StateEventOutbox, StateEventOutboxPublisher, type GatewayStateEvent } from "../state/state-event-outbox";
+import { BioUsbDongleAdapter } from "../adapters/bio-usb-dongle-adapter";
+import { BioUsbError } from "../bio/bio-usb-error";
 
 const scope = { siteId: "11111111-1111-4111-8111-111111111111", gatewayId: "22222222-2222-4222-8222-222222222222" };
 const firstId = "66666666-6666-4666-8666-666666666666";
@@ -113,6 +115,59 @@ it("cannot emit completion while durable fixture outbox has no capacity and resu
   await recovered.connect(async (_topic, event) => { completed.push(event); });
   expect(completed).toHaveLength(1);
   expect(await new StateEventOutbox(join(f.directory, "bounded.json"), scope).pending()).toHaveLength(2);
+});
+
+it.each(["malformed", "aggregate-close", "unsupported"])("BIO %s stays a batch failure through the real handler and outbox", async (failure) => {
+  const f = await fixture();
+  const client = { scan: vi.fn(async () => [{ deviceUuid: "bio:a1b2c3d4e5f6", nativeUuid: "a1b2c3d4e5f6", logicalAddress: 257,
+    networkId: 0, firmwareVersion: "1", rssi: -41 }]), startIdentify: vi.fn(), stopIdentify: vi.fn(), restoreSensorMode: vi.fn(),
+    assignAddressOnce: vi.fn(), reconcileAddress: vi.fn(), setOutput: vi.fn(), readDeviceInfo: vi.fn(),
+    readBrightness: failure === "unsupported" ? undefined : vi.fn(async () => {
+      throw failure === "aggregate-close" ? new AggregateError([new BioUsbError("TIMEOUT", "ack"), new BioUsbError("CLOSE_FAILED", "close")])
+        : new BioUsbError("MALFORMED_FRAME", "private frame");
+    }) };
+  const mappings = { listConfirmed: vi.fn(async () => [{ fixtureId: firstId, deviceUuid: "bio:a1b2c3d4e5f6", nativeUuid: "a1b2c3d4e5f6", logicalAddress: 257 }] as any),
+    findByDeviceUuidIncludingReserved: vi.fn(), reserve: vi.fn(), confirm: vi.fn(), findByFixtureId: vi.fn(), findByLogicalAddress: vi.fn() };
+  await handleFixturePresenceCheck(new BioUsbDongleAdapter(client, mappings), f.journal, command, f.publisher, f.options);
+  expect(await f.outbox.pending()).toEqual([]);
+  expect(f.completed).toEqual([]);
+  expect((await f.journal.accept(command)).terminal).toEqual({ events: [], failure: "transport_unavailable" });
+  expect(client.scan).toHaveBeenCalledTimes(failure === "unsupported" ? 0 : 1);
+});
+
+it.each([false, true])("publishes partial handoff and continues after ACK with capacity one (restart=%s)", async (restart) => {
+  const f = await fixture(); f.publisher.disconnect();
+  const path = join(f.directory, "bounded-progress.json");
+  const bounded = new StateEventOutbox(path, scope, { maxRecords: 1 });
+  const statePublisher = new StateEventOutboxPublisher(bounded, { retryInitialDelayMs: 10, retryMaxDelayMs: 10 });
+  const observed: GatewayStateEvent[] = [];
+  await statePublisher.connect(async (_topic, event) => { observed.push(event); });
+  const completed: unknown[] = [];
+  const publisher = new MonitoringRefreshEventPublisher(f.journal, bounded, { retryMs: 60_000, wakeStateOutbox: () => statePublisher.wake() });
+  publishers.push(publisher);
+  try {
+    await publisher.connect(async (_topic, event) => { completed.push(event); });
+    const adapter = { probeFixturePresence: vi.fn(async (ids: string[]) => ids.map((fixtureId) => ({ fixtureId, outcome: "not_found" as const }))) };
+    await handleFixturePresenceCheck(adapter, f.journal, command, publisher, f.options);
+    await vi.waitFor(() => expect(observed.some((event) => event.fixtureId === firstId)).toBe(true));
+    expect(completed).toEqual([]);
+    const first = observed[0];
+    await statePublisher.acknowledge({ eventId: first.eventId, fixtureId: first.fixtureId, sequence: first.sequence,
+      status: "ingested", ingestedAt: now().toISOString() });
+    if (restart) { await publisher.stopAndDrain(); statePublisher.disconnect(); }
+    const recoveredJournal = restart ? new MonitoringRefreshJournal(join(f.directory, "journal.json"), scope, { now }) : f.journal;
+    const recoveredOutbox = restart ? new StateEventOutbox(path, scope, { maxRecords: 1 }) : bounded;
+    const recovered = restart ? new MonitoringRefreshEventPublisher(recoveredJournal, recoveredOutbox, { retryMs: 60_000 }) : publisher;
+    if (restart) {
+      publishers.push(recovered);
+      await recovered.connect(async (_topic, event) => { completed.push(event); });
+    } else await recovered.wake();
+    expect((await recoveredOutbox.pending()).map((row) => row.payload.fixtureId)).toEqual([secondId]);
+    expect(completed).toHaveLength(1);
+    expect(await recovered.acknowledge({ ...scope, refreshId: command.refreshId, batchId: command.batchId })).toBe(true);
+    expect(await recoveredJournal.pending()).toEqual([]);
+    expect(adapter.probeFixturePresence).toHaveBeenCalledTimes(2);
+  } finally { statePublisher.disconnect(); await publisher.stopAndDrain(); }
 });
 
 it("shutdown stops waiting for a hung probe without producing unreachable", async () => {

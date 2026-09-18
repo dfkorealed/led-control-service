@@ -16,6 +16,7 @@ export interface MonitoringRefreshTerminal {
 interface StoredRecord {
   command: FixturePresenceCheckCommandV1;
   terminal?: MonitoringRefreshTerminal;
+  handedOffEventIds: string[];
   handedOff: boolean;
   acknowledged: boolean;
 }
@@ -51,7 +52,7 @@ export class MonitoringRefreshJournal {
       }
       if (command.sequence <= state.sequence) throw new Error("monitoring refresh sequence conflict");
       if (state.records.length >= 10_000) throw new Error("monitoring refresh journal capacity");
-      await this.commit({ ...state, sequence: command.sequence, records: [...state.records, { command, handedOff: false, acknowledged: false }] });
+      await this.commit({ ...state, sequence: command.sequence, records: [...state.records, { command, handedOffEventIds: [], handedOff: false, acknowledged: false }] });
       this.active.add(command.batchId);
       return { kind: "accepted" as const, terminal: undefined };
     });
@@ -77,11 +78,24 @@ export class MonitoringRefreshJournal {
 
   pending() { return this.exclusive(async () => structuredClone((await this.load()).records.filter((row) => row.terminal?.completed && !row.acknowledged))); }
 
+  markEventHandedOff(batchId: string, eventId: string) {
+    return this.exclusive(async () => {
+      const state = await this.load();
+      const row = state.records.find((record) => record.command.batchId === batchId);
+      if (!row?.terminal?.completed || !row.terminal.events.some((event) => event.eventId === eventId)) {
+        throw new Error("monitoring refresh terminal event missing");
+      }
+      if (!row.handedOffEventIds.includes(eventId)) await this.commit({ ...state, records: state.records.map((record) => record === row
+        ? { ...record, handedOffEventIds: [...record.handedOffEventIds, eventId] } : record) });
+    });
+  }
+
   markHandedOff(batchId: string) {
     return this.exclusive(async () => {
       const state = await this.load();
       const row = state.records.find((record) => record.command.batchId === batchId);
       if (!row?.terminal?.completed) throw new Error("monitoring refresh terminal missing");
+      if (row.handedOffEventIds.length !== row.terminal.events.length) throw new Error("monitoring refresh event handoff incomplete");
       if (!row.handedOff) await this.commit({ ...state, records: state.records.map((record) => record === row ? { ...record, handedOff: true } : record) });
     });
   }
@@ -170,6 +184,16 @@ export class MonitoringRefreshJournal {
         (row.acknowledged && !row.handedOff) || (row.handedOff && !row.terminal?.completed)) throw new Error("invalid monitoring refresh journal");
       batches.add(row.command.batchId); keys.add(row.command.idempotencyKey); sequences.add(row.command.sequence);
       if (row.terminal) row.terminal = this.parseTerminal(row.terminal, row.command);
+      // Existing v1 journals recorded only whole-batch handoff. Their completed handoffs remain
+      // authoritative; incomplete legacy handoffs retry the same IDs under outbox/API deduplication.
+      if (row.handedOffEventIds === undefined) {
+        row.handedOffEventIds = row.handedOff ? row.terminal!.events.map((event) => event.eventId) : [];
+      }
+      if (!Array.isArray(row.handedOffEventIds) || new Set(row.handedOffEventIds).size !== row.handedOffEventIds.length ||
+        row.handedOffEventIds.some((id) => !row.terminal?.events.some((event) => event.eventId === id)) ||
+        (row.handedOff && row.handedOffEventIds.length !== row.terminal!.events.length)) {
+        throw new Error("invalid monitoring refresh handoff progress");
+      }
     }
     this.state = raw;
     return raw;
