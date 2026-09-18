@@ -141,6 +141,76 @@ describe("MonitoringView refresh", () => {
     expect(refreshApi.waitForMonitoringRefresh).not.toHaveBeenCalled();
   });
 
+  it.each(["loading", "error"])("continues the same refresh into one hardware job after an unknown fixture source recovers from %s", async (initialState) => {
+    const query = queryMocks.useFloorFixtures();
+    query.data = undefined;
+    query.error = initialState === "error" ? new Error("fixture unavailable") : null;
+    const fixtureRequest = deferred<{ data: unknown }>();
+    refetchFixtures.mockReturnValueOnce(fixtureRequest.promise);
+    render(<MonitoringView siteId="site-1" />);
+    fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
+    expect(screen.getByRole("button", { name: "장치 상태 확인 중" })).toBeDisabled();
+    expect(refreshApi.waitForMonitoringRefresh).not.toHaveBeenCalled();
+    await act(async () => {
+      query.data = { pages: [{ items: [fixture], nextCursor: null, generatedAt: new Date().toISOString() }] };
+      query.error = null;
+      fixtureRequest.resolve({ data: query.data });
+    });
+    await waitFor(() => expect(screen.getByRole("button", { name: "새로고침" })).toBeEnabled());
+    expect(refreshApi.waitForMonitoringRefresh).toHaveBeenCalledTimes(1);
+    expect(refreshApi.waitForMonitoringRefresh).toHaveBeenCalledWith(expect.objectContaining({ floorId: "floor-1" }));
+    expect(refetchFixtures).toHaveBeenCalledTimes(2);
+    expect(refetchDashboard).toHaveBeenCalledTimes(1);
+    expect(refetchMap).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps unknown fixture errors as source errors without claiming the floor is empty", async () => {
+    const query = queryMocks.useFloorFixtures();
+    query.data = undefined;
+    query.error = new Error("private fixture request failed");
+    refetchFixtures.mockRejectedValueOnce(query.error);
+    render(<MonitoringView siteId="site-1" />);
+    fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "새로고침" })).toBeEnabled());
+    expect(refreshApi.waitForMonitoringRefresh).not.toHaveBeenCalled();
+    expect(refetchFixtures).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("일부 현황 데이터를 새로고침하지 못했습니다.")).toBeVisible();
+    expect(screen.queryByText("장치 상태를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.")).not.toBeInTheDocument();
+    expect(screen.queryByText(/private fixture/)).not.toBeInTheDocument();
+    expect(refetchDashboard).toHaveBeenCalledTimes(1);
+    expect(refetchMap).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips hardware only after the initially unknown fixture source confirms an empty floor", async () => {
+    const query = queryMocks.useFloorFixtures();
+    query.data = undefined;
+    refetchFixtures.mockResolvedValueOnce({ data: { pages: [{ items: [], nextCursor: null, generatedAt: new Date().toISOString() }] } });
+    render(<MonitoringView siteId="site-1" />);
+    fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "새로고침" })).toBeEnabled());
+    expect(refreshApi.waitForMonitoringRefresh).not.toHaveBeenCalled();
+    expect(refetchFixtures).toHaveBeenCalledTimes(1);
+    expect(refetchDashboard).toHaveBeenCalledTimes(1);
+    expect(refetchMap).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["floor", "site", "unmount"])("does not start hardware from a late initial fixture response after %s changes", async (change) => {
+    queryMocks.useFloorFixtures().data = undefined;
+    const fixtureRequest = deferred<{ data: unknown }>();
+    refetchFixtures.mockReturnValueOnce(fixtureRequest.promise);
+    queryMocks.useDashboard.mockReturnValue({ ...queryMocks.useDashboard(), data: { ...dashboard, floors: [...dashboard.floors, { ...dashboard.floors[0], id: "floor-2", name: "B2" }] } });
+    const view = render(<MonitoringView siteId="site-1" />);
+    fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
+    if (change === "floor") await chooseSelect("맵 선택", "B2");
+    if (change === "site") view.rerender(<MonitoringView siteId="site-2" />);
+    if (change === "unmount") view.unmount();
+    await act(async () => fixtureRequest.resolve({ data: { pages: [{ items: [fixture], nextCursor: null, generatedAt: new Date().toISOString() }] } }));
+    expect(refreshApi.waitForMonitoringRefresh).not.toHaveBeenCalled();
+    expect(refetchDashboard).not.toHaveBeenCalled();
+    expect(refetchMap).not.toHaveBeenCalled();
+    if (change !== "unmount") expect(screen.getByRole("button", { name: "새로고침" })).toBeEnabled();
+  });
+
   it.each([
     ["partial", "일부 조명의 상태를 확인하지 못했습니다."],
     ["failed", "장치 상태를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요."],

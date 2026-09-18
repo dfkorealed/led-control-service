@@ -109,7 +109,7 @@ export interface SettingsApiFixtureState {
   registrationSessionRequests: number;
   registrationScanRetryRequests: number;
   registrationBatchRequests: RegisterFixtureBatchInput[];
-  updateFixture: (fixtureId: string, update: Pick<SettingsFixture, "status" | "brightness">) => void;
+  updateFixture: (fixtureId: string, update: Pick<SettingsFixture, "status" | "brightness" | "statusReason">) => void;
   setCommandStatus: (input: { stage: FixtureCommandStage; results: FixtureCommandResult[] }) => void;
 }
 

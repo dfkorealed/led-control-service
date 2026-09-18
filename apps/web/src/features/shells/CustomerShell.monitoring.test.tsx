@@ -47,6 +47,35 @@ function mount() {
 }
 
 describe("customer shell monitoring details", () => {
+  it.each(["loading", "error"])("sends exactly one hardware POST after the initial fixture GET recovers from %s", async (initialState) => {
+    const normalFetch = fetchMock.getMockImplementation()!;
+    let blocked = true;
+    let release!: () => void;
+    const initialResponse = new Promise<void>((resolve) => { release = resolve; });
+    fetchMock.mockImplementation(async (path: string) => {
+      if (blocked && path === "/api/sites/site-1/floors/floor-1/fixtures?limit=200") {
+        if (initialState === "error") return Response.json({ message: "private upstream error" }, { status: 503 });
+        await initialResponse;
+      }
+      return normalFetch(path);
+    });
+    mount();
+    const refresh = await screen.findByRole("button", { name: "새로고침" });
+    if (initialState === "error") {
+      await waitFor(() => expect(client.getQueryState(["floor-fixtures", "site-1", "floor-1"])?.status).toBe("error"));
+      blocked = false;
+    }
+    fireEvent.click(refresh);
+    expect(screen.getByRole("button", { name: "장치 상태 확인 중" })).toBeDisabled();
+    blocked = false;
+    release();
+    await waitFor(() => expect(screen.getByRole("group", { name: "오프라인" })).toHaveTextContent("1"));
+    expect(fetchMock.mock.calls.filter(([path]) => path === "/api/sites/site-1/floors/floor-1/monitoring-refreshes")).toHaveLength(1);
+    expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("상태 수신 지연");
+    expect(screen.getByRole("button", { name: "새로고침" })).toBeEnabled();
+    expect(screen.queryByText(/private upstream/)).not.toBeInTheDocument();
+  });
+
   it("lets a read-only member refresh physical status and updates the selected detail through real queries", async () => {
     canManage = false;
     mount();

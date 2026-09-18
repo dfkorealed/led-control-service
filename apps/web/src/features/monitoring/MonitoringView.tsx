@@ -157,11 +157,11 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardError, refreshDa
     setSelectedFixtureId(nextFloor?.fixtures.find((fixture) => fixture.status === "fault")?.id ?? nextFloor?.fixtures[0]?.id ?? null);
   }
 
-  async function refetchMonitoringSources(signal: AbortSignal) {
+  async function refetchMonitoringSources(signal: AbortSignal, initialFixtureRequest?: Promise<unknown>) {
     const refreshedFloorId = floor?.id ?? null;
     const results = await Promise.allSettled([
       refreshDashboard(),
-      floor ? fixtureQuery.refetch({ throwOnError: true }) : Promise.resolve(),
+      initialFixtureRequest ?? (floor ? fixtureQuery.refetch({ throwOnError: true }) : Promise.resolve()),
       floor ? mapQuery.refetch({ throwOnError: true }) : Promise.resolve()
     ]);
     // Query caches may complete after navigation; only the current refresh owns UI feedback.
@@ -181,8 +181,24 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardError, refreshDa
     refreshAbortRef.current = controller;
     setIsManualRefreshing(true);
     setHardwareRefreshFailure(null);
+    let initialFixtureRequest: Promise<unknown> | undefined;
     try {
-      const terminal = floor && fixtures.length > 0 ? await waitForMonitoringRefresh({
+      let hasFixtures = fixtures.length > 0;
+      if (floor && !hasFixtureData) {
+        // Missing data is not an empty floor. Resolve the initial source before deciding
+        // whether this click needs a hardware job, and retain source failures as such.
+        const request = fixtureQuery.refetch({ throwOnError: true }).then((result) => {
+          if (!result.data) throw new Error("Fixture data unavailable");
+          return result.data;
+        });
+        initialFixtureRequest = request;
+        const fixtureData = await request;
+        controller.signal.throwIfAborted();
+        hasFixtures = fixtureData.pages.some((page) => page.items.length > 0);
+      }
+      // Once hardware runs, all three sources must be fetched again after its result.
+      if (hasFixtures) initialFixtureRequest = undefined;
+      const terminal = floor && hasFixtures ? await waitForMonitoringRefresh({
         siteId: siteId ?? data.site.id,
         floorId: floor.id,
         clientRequestId: crypto.randomUUID(),
@@ -190,13 +206,13 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardError, refreshDa
       }) : null;
       if (!controller.signal.aborted) setHardwareRefreshFailure(copyForTerminal(terminal));
     } catch (error) {
-      if (!controller.signal.aborted) {
+      if (!controller.signal.aborted && !initialFixtureRequest) {
         setHardwareRefreshFailure(error instanceof DOMException && error.name === "TimeoutError"
           ? "장치 응답 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요."
           : "장치 상태를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.");
       }
     } finally {
-      if (!controller.signal.aborted) await refetchMonitoringSources(controller.signal);
+      if (!controller.signal.aborted) await refetchMonitoringSources(controller.signal, initialFixtureRequest);
       if (refreshAbortRef.current === controller) refreshAbortRef.current = null;
       if (!controller.signal.aborted) setIsManualRefreshing(false);
     }

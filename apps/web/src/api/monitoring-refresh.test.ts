@@ -74,7 +74,7 @@ describe("monitoring refresh client", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("bounds pending polling and stalled network requests to 30 seconds", async () => {
+  it("bounds a stalled POST to 30 seconds", async () => {
     fetchMock.mockImplementation((_path, init) => new Promise((_resolve, reject) => {
       init.signal.addEventListener("abort", () => reject(init.signal.reason), { once: true });
     }));
@@ -83,5 +83,40 @@ describe("monitoring refresh client", () => {
     await vi.advanceTimersByTimeAsync(30_000);
     await rejection;
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each([
+    [29_999, "completed"],
+    [31_000, "partial"],
+    [31_000, "expired"]
+  ])("allows a terminal result after %dms of server processing (%s), separately from POST latency", async (terminalAfter, status) => {
+    const createdAt = Date.now() + 4_000;
+    fetchMock.mockImplementationOnce(() => new Promise((resolve) => setTimeout(() => resolve(respond(started)), 4_000)));
+    fetchMock.mockImplementation(() => Promise.resolve(respond(Date.now() - createdAt >= terminalAfter
+      ? { ...completed, status }
+      : { ...completed, status: "pending", completedAt: null })));
+    const outcome = waitForMonitoringRefresh(input).then((value) => ({ value }), (error: unknown) => ({ error }));
+    await vi.advanceTimersByTimeAsync(4_000 + Math.ceil(terminalAfter / 500) * 500);
+    await expect(outcome).resolves.toEqual({ value: { ...completed, status } });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each(["pending", "stalled GET"])("bounds %s to 35 seconds after POST succeeds", async (mode) => {
+    fetchMock.mockResolvedValueOnce(respond(started));
+    fetchMock.mockImplementation((_path, init) => mode === "pending"
+      ? Promise.resolve(respond({ ...completed, status: "pending", completedAt: null }))
+      : new Promise((_resolve, reject) => { init.signal.addEventListener("abort", () => reject(init.signal.reason), { once: true }); }));
+    let settled = false;
+    const outcome = waitForMonitoringRefresh(input).then(() => { settled = true; }, (error: unknown) => { settled = true; return error; });
+    await vi.advanceTimersByTimeAsync(34_999);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(outcome).resolves.toMatchObject({ name: "TimeoutError" });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each([undefined, null, "2026-09-15T08:00:05.000Z"])("accepts optional completedAt %s and normalizes absent timestamps to null", async (completedAt) => {
+    fetchMock.mockResolvedValue(respond({ ...completed, completedAt }));
+    await expect(getMonitoringRefresh("site-1", "refresh-1")).resolves.toEqual({ ...completed, completedAt: completedAt ?? null });
   });
 });

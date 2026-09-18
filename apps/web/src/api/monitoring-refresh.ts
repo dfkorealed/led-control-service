@@ -56,7 +56,10 @@ export async function getMonitoringRefresh(siteId: string, refreshId: string, si
   signal?.throwIfAborted();
   const data = record(response);
   const started = parseStarted(data);
-  if (started.id !== refreshId || !(data.completedAt === null || (typeof data.completedAt === "string" && Number.isFinite(Date.parse(data.completedAt))))) {
+  // The current API sends null while pending; older/minimal projections may omit
+  // this optional metadata. Neither case should discard otherwise valid results.
+  const completedAt = data.completedAt ?? null;
+  if (started.id !== refreshId || !(completedAt === null || (typeof completedAt === "string" && Number.isFinite(Date.parse(completedAt))))) {
     throw new Error("Invalid monitoring refresh result");
   }
   return {
@@ -64,7 +67,7 @@ export async function getMonitoringRefresh(siteId: string, refreshId: string, si
     onlineFixtures: counter(data.onlineFixtures),
     offlineFixtures: counter(data.offlineFixtures),
     unverifiedFixtures: counter(data.unverifiedFixtures),
-    completedAt: data.completedAt as string | null
+    completedAt: completedAt as string | null
   };
 }
 
@@ -82,10 +85,14 @@ export async function waitForMonitoringRefresh(input: WaitForMonitoringRefreshIn
   const controller = new AbortController();
   const abort = () => controller.abort(input.signal?.reason);
   input.signal?.addEventListener("abort", abort, { once: true });
-  // Bound both polling and a stalled fetch even if the server never returns its terminal aggregate.
-  const timeout = setTimeout(() => controller.abort(new DOMException("Monitoring refresh timed out", "TimeoutError")), 30_000);
+  const timedOut = () => controller.abort(new DOMException("Monitoring refresh timed out", "TimeoutError"));
+  // The POST has its own network bound. Its latency must not consume the server's
+  // 30-second job deadline; the 1-second expiry sweep and response need margin too.
+  let timeout = setTimeout(timedOut, 30_000);
   try {
     const started = await startMonitoringRefresh(input.siteId, input.floorId, input.clientRequestId, controller.signal);
+    clearTimeout(timeout);
+    timeout = setTimeout(timedOut, 35_000);
     let status = started.status;
     while (true) {
       if (status === "pending") await abortableDelay(input.pollMs ?? 500, controller.signal);

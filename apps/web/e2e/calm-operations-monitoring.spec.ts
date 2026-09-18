@@ -132,6 +132,7 @@ for (const viewport of viewports) {
       let finish!: () => void;
       const terminal = new Promise<void>((resolve) => { finish = resolve; });
       let posts = 0;
+      let polls = 0;
       await page.route(`**/api/sites/${ids.site}/floors/${ids.floor}/monitoring-refreshes`, async (route) => {
         posts += 1;
         expect(route.request().method()).toBe("POST");
@@ -139,8 +140,12 @@ for (const viewport of viewports) {
         await route.fulfill({ json: { id: "refresh-1", status: "pending", totalFixtures: 2, terminalStatusUrl: "https://untrusted.invalid" } });
       });
       await page.route(`**/api/sites/${ids.site}/monitoring-refreshes/refresh-1`, async (route) => {
+        polls += 1;
+        if (polls === 1) {
+          return route.fulfill({ json: { id: "refresh-1", status: "pending", totalFixtures: 2, onlineFixtures: 0, offlineFixtures: 0, unverifiedFixtures: 0, completedAt: null } });
+        }
         await terminal;
-        api.updateFixture(rows[1].id, { status: "offline", brightness: 70 });
+        api.updateFixture(rows[1].id, { status: "offline", statusReason: "fixture_stale", brightness: 70 });
         await route.fulfill({ json: { id: "refresh-1", status, totalFixtures: 2, onlineFixtures: status === "partial" ? 0 : 1, offlineFixtures: 1, unverifiedFixtures: status === "partial" ? 1 : 0, completedAt: new Date().toISOString(), error: "secret raw transport failure" } });
       });
       await page.goto(`/monitoring?siteId=${ids.site}`);
@@ -156,9 +161,11 @@ for (const viewport of viewports) {
       await expect(page.getByRole("group", { name: "전체 조명" })).toContainText("2");
       await expect(page.getByRole("group", { name: "정상" })).toContainText("1");
       await expect(page.getByRole("group", { name: "오프라인" })).toContainText("1");
-      await expect(page.getByRole("button", { name: "B2-L002 오프라인 70%" })).toHaveAttribute("aria-current", "true");
+      expect(polls).toBeGreaterThanOrEqual(2);
+      await expect(page.getByRole("button", { name: "B2-L002 상태 수신 지연 70%" })).toHaveAttribute("aria-current", "true");
       await expect(page.getByRole("complementary", { name: "선택 조명 상세" })).toContainText("B2-L002");
-      await expect(page.getByRole("complementary", { name: "선택 조명 상세" })).toContainText("오프라인");
+      await expect(page.getByRole("complementary", { name: "선택 조명 상세" })).toContainText("상태 수신 지연");
+      await expect(page.getByRole("complementary", { name: "선택 조명 상세" })).toContainText("조명 통신 상태 확인");
       await expect(page.getByRole("button", { name: "지도 배율 110%" })).toBeVisible();
       expect(posts).toBe(1);
       expect(api.dashboardRequests).toBeGreaterThan(before.dashboard);
