@@ -166,7 +166,7 @@ Gateway는 site/gateway scope, UUID, sequence, idempotency와 expiry를 검증�
 두 번 연속 실패한 fixture는 새 topic으로 발행한다.
 
 ```text
-sites/{siteId}/gateways/{gatewayId}/state/fixture-unreachable
+sites/{siteId}/gateways/{gatewayId}/events/fixture-unreachable
 ```
 
 payload는 ordered event identity, `refreshId`, `batchId`, `fixtureId`와 정제된 `reason`을 갖는다. `reason`은 `not_found | read_timeout | read_failed`만 허용한다. API는 요청·batch·fixture scope와 아직 유효한 deadline을 확인한 뒤 `MonitoringRefreshFixture=offline`, `Fixture.lastUnreachableAt=receivedAt`, operational `status=offline/statusReason=fixture_stale`을 같은 transaction에 저장한다.
@@ -179,7 +179,11 @@ fixture success/unreachable event는 기존 Gateway state outbox의 exact event 
 sites/{siteId}/gateways/{gatewayId}/events/fixture-presence-check-completed
 ```
 
-Gateway는 모든 fixture terminal event를 durable outbox에 넣은 뒤 batch-completed event를 발행한다. API는 fixture 결과가 모두 수신된 경우에만 batch를 completed로 바꾼다. batch-completed가 먼저 도착하면 ACK하지 않아 broker redelivery로 수렴한다. deadline까지 빠진 결과는 `unverified`로 종료하며 offline으로 만들지 않는다.
+Gateway는 모든 fixture terminal event를 durable outbox에 넣고, 각각의 API application ACK를 저널에 영속화한 뒤 batch-completed event를 발행한다. API는 fixture 결과가 모두 수신된 경우에만 batch를 completed로 바꾼다. 유효한 batch-completed가 먼저 도착하면 MQTT PUBACK만 반환해 뒤따르는 결과를 받을 수 있게 하고 완료 application ACK는 보류한다. Gateway 완료 재전송으로 수렴하며 identity/scope 충돌은 계속 거부한다. deadline까지 빠진 결과는 `unverified`로 종료하며 offline으로 만들지 않는다.
+
+Gateway v2 저널은 결과 ACK를 outbox 삭제보다 먼저 저장한다. v1 미ACK 완료의 handoff 기록은 API 처리 증거가 아니므로 같은 event identity로 재전송해 복구한다. 서로 다른 새 batch의 sequence 역전은 허용하되 만료/중복검사 기간 안의 동일 sequence·batch·idempotency key 변조는 거부한다. 완료 ACK를 받은 기록과 결과 없는 terminal failure는 command 만료 뒤 atomic 삭제하며, 미ACK 완료는 10,000건·32 MiB 상한 안에서 보존한다.
+
+API retention 뒤 요청과 batch가 둘 다 없다는 DB 조회가 성공한 경우에는 correlated state/presence/unreachable을 무변경 폐기하고 `state-ingested: duplicate`, completion은 전용 ACK를 반환한다. strict schema, canonical topic, 현재 site/Gateway scope를 먼저 검증하며 기존 행 하나라도 남은 불일치 또는 DB 오류는 거부한다. 이 ACK는 과거 요청 유효성의 증명이 아니며 Fixture·tenant·energy·event/watermark를 변경하지 않는다. 별도 tombstone은 만들지 않는다.
 
 ## Gateway 동작
 
@@ -187,6 +191,7 @@ Gateway는 모든 fixture terminal event를 durable outbox에 넣은 뒤 batch-c
 - BIO는 한 pass에서 scan 한 번 후 fixture별 brightness GET → mode GET을 직렬 실행한다.
 - 첫 pass에서 실패한 fixture만 250ms 뒤 두 번째 pass로 보낸다. 성공 fixture는 다시 조회하지 않는다.
 - BlueZ는 OnOff/Lightness 관측 성공을 reachable로 사용하고 기존 Health 결과를 보존한다.
+- BlueZ Node1.Send의 TIMEOUT/ETIMEDOUT을 포함한 전송 오류는 batch 실패다. 성공한 Send 뒤 observation 응답 대기 시간 초과만 fixture `read_timeout`이다.
 - manual check는 기존 USB/BlueZ operation queue를 통과하므로 제어·등록 요청과 transport access가 겹치지 않는다. 진행 중 제어를 취소하거나 우회하지 않는다.
 - manual check는 읽기 opcode만 사용하며 brightness, control mode, address, group membership을 변경하지 않는다.
 - Gateway 전체 전송 실패, process shutdown, command expiry는 fixture별 unreachable이 아니라 batch 실패다.
@@ -209,7 +214,7 @@ Gateway는 모든 fixture terminal event를 durable outbox에 넣은 뒤 batch-c
 - POST 성공 후 terminal URL을 500ms 간격으로 조회하되 30초 server deadline을 넘기지 않는다.
 - terminal 또는 HTTP 오류 뒤에는 dashboard, floor fixtures, floor map을 다시 조회해 Gateway/freshness 상태도 최신화한다.
 - `completed`는 별도 성공 toast 없이 화면 숫자와 marker를 갱신한다.
-- `partial`은 `일부 조명의 상태를 확인하지 못했습니다.`를, `failed/expired`는 `장치 상태를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.`를 표시한다.
+- `partial`은 `일부 조명의 상태를 확인하지 못했습니다.`, `failed`는 `장치 상태를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.`, `expired/timeout`은 `장치 응답 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.`를 표시한다.
 - component unmount, 맵 변경, site 변경 시 이전 polling을 abort하고 늦은 응답이 현재 화면의 loading/error를 바꾸지 못하게 한다.
 - background query 실패와 hardware refresh 실패는 기존 source별 오류 보존 규칙을 유지한다.
 

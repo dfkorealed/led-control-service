@@ -474,6 +474,8 @@ API는 `Site → Gateway → Fixture → MonitoringRefresh → batch/child` 순�
 
 요청 최대 1,000개·batch 최대 64개, 30초 deadline과 완료 후 사용자/site/floor별 30초 cooldown은 서비스 검증이다. DB JSON CHECK는 배열 형태만 강제한다. terminal aggregate는 `completedAt`으로부터 7일을 초과한 뒤 아래 retention worker가 정리하며, 정확히 7일 경계와 pending은 보존한다. alias도 같이 삭제되므로 해당 보존 기간 밖의 HTTP 요청 멱등성을 보장하지 않는다.
 
+보존기간을 넘긴 Gateway 결과는 strict schema 및 canonical topic/인증 Gateway scope 검증 후, transaction에서 `refreshId`와 `batchId`가 **둘 다 없음**을 확인할 때만 폐기 ACK를 받는다. 기존 행이 하나라도 남으면 site/gateway/refresh/snapshot 일치 검증을 유지하며, DB 오류는 absence로 간주하지 않는다. 폐기 경로는 Fixture·energy·refresh·event 원장·watermark를 쓰지 않으며 `state-ingested`의 `duplicate` 또는 batch 완료 전용 ACK로 outbox만 비울 수 있게 한다. 임의의 없는 UUID도 이 무변경 폐기 경로에 들어갈 수 있으므로 ACK를 과거 유효 요청의 증명으로 쓰면 안 된다. 추가 DB tombstone/schema/migration은 없다. Gateway는 만료 전 sequence별 전체 command identity와 terminal을 보존하고, 만료 후 모든 결과 및 완료 ACK가 안전하게 기록된 항목을 atomic 정리한다. ACK되지 않은 결과는 API 보존기간과 무관하게 재전송한다.
+
 ### SiteDeletionCleanup
 
 현장 DB 삭제와 S3/MinIO·PKI 같은 외부 시스템 정리를 분리하는 durable 작업 원장이다. 삭제된 `Site`와 FK를 맺지 않아 Site cascade 후에도 남는다.
