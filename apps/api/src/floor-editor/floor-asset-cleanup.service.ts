@@ -89,6 +89,29 @@ export class FloorAssetCleanupService implements OnModuleInit, OnModuleDestroy {
           FROM "FloorImportJob" AS job
           WHERE job."sourceAssetId" = asset."id" OR job."renderedAssetId" = asset."id"
         )
+        AND NOT EXISTS (
+          SELECT 1 FROM "FloorImportRegion" AS region
+          WHERE region."previewAssetId" = asset."id"
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM "FloorCadScene" AS scene
+          WHERE scene."manifestAssetId" = asset."id"
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM "FloorCadTile" AS tile
+          WHERE tile."assetId" = asset."id"
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM "FloorImportJob" AS draft
+          JOIN "FloorImportRegion" AS selected
+            ON selected."jobId" = draft."id" AND selected."selectedAt" IS NOT NULL
+          WHERE draft."floorId" = asset."floorId"
+            AND draft."status" IN ('queued', 'processing', 'review_required', 'applying')
+            AND asset."kind" IN ('cad_manifest', 'cad_tile')
+            AND asset."objectKey" LIKE
+              'floors/' || asset."floorId" || '/' || draft."id" || '-%'
+        )
       ORDER BY asset."createdAt" ASC
       LIMIT ${BATCH_SIZE}
     `);
@@ -222,6 +245,29 @@ export class FloorAssetCleanupService implements OnModuleInit, OnModuleDestroy {
           SELECT 1
           FROM "FloorImportJob" AS job
           WHERE job."sourceAssetId" = ${locked.id} OR job."renderedAssetId" = ${locked.id}
+          UNION ALL
+          SELECT 1
+          FROM "FloorImportRegion" AS region
+          WHERE region."previewAssetId" = ${locked.id}
+          UNION ALL
+          SELECT 1
+          FROM "FloorCadScene" AS scene
+          WHERE scene."manifestAssetId" = ${locked.id}
+          UNION ALL
+          SELECT 1
+          FROM "FloorCadTile" AS tile
+          WHERE tile."assetId" = ${locked.id}
+          UNION ALL
+          SELECT 1
+          FROM "FloorImportJob" AS draft
+          JOIN "FloorImportRegion" AS selected
+            ON selected."jobId" = draft."id" AND selected."selectedAt" IS NOT NULL
+          JOIN "FloorAsset" AS draft_asset ON draft_asset."id" = ${locked.id}
+          WHERE draft."floorId" = ${locked.floorId}
+            AND draft."status" IN ('queued', 'processing', 'review_required', 'applying')
+            AND draft_asset."kind" IN ('cad_manifest', 'cad_tile')
+            AND draft_asset."objectKey" LIKE
+              'floors/' || draft_asset."floorId" || '/' || draft."id" || '-%'
         ) AS "referenced"
       `);
       if (referenceRows[0]?.referenced) {

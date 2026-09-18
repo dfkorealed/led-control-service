@@ -29,6 +29,12 @@ export interface CadDetectedRegion {
 export interface CadRegionDetectionResult {
   regions: CadDetectedRegion[];
   excludedPrimitiveCount: number;
+  candidateRegionAssignments: CadCandidateRegionAssignment[];
+}
+
+export interface CadCandidateRegionAssignment {
+  sourceEntityId: string;
+  regionId: string;
 }
 
 export interface CadRegionDetectionOptions {
@@ -156,7 +162,7 @@ export function detectCadRegions(
       singletonPointNoise: item.entity.type === "point"
     });
   }
-  if (records.length === 0) return { regions: [], excludedPrimitiveCount: 0 };
+  if (records.length === 0) return { regions: [], excludedPrimitiveCount: 0, candidateRegionAssignments: [] };
 
   const positiveExtents = records
     .map(record => Math.hypot(
@@ -346,6 +352,7 @@ export function detectCadRegions(
   const regions = detected.map(item => item.region);
 
   const lightCandidates = options.lightCandidates ?? [];
+  const candidateRegionAssignments: CadCandidateRegionAssignment[] = [];
   if (lightCandidates.length > maxExpandedEntities) throw new CadRegionDetectionError();
   if (lightCandidates.length > 0) {
     const regionsByAssociation = new Map<string, number[]>();
@@ -369,9 +376,13 @@ export function detectCadRegions(
           : spatialIndex.query(candidate.position);
       if (matches.length !== 1) throw new CadRegionDetectionError();
       regions[matches[0]].lightCandidateCount++;
+      candidateRegionAssignments.push({
+        sourceEntityId: candidate.sourceEntityId,
+        regionId: regions[matches[0]].regionId
+      });
     }
   }
-  return { regions, excludedPrimitiveCount };
+  return { regions, excludedPrimitiveCount, candidateRegionAssignments };
 }
 
 function includeBounds(target: CadBounds, item: CadBounds): void {

@@ -191,7 +191,7 @@ export const floorImportApplyResultSchema = z.object({
   createdSlotCount: nonnegativePostgresIntSchema.max(CAD_IMPORT_MAX_CANDIDATES),
   floorPlan: z.object({
     imageUrl: z.string().trim().startsWith("/").max(EDITOR_MAX_URL_LENGTH),
-    sourceType: z.literal("image"),
+    sourceType: z.enum(["image", "cad"]),
     originalFileUrl: z.string().trim().startsWith("/").max(EDITOR_MAX_URL_LENGTH),
     renderedImageUrl: z.string().trim().startsWith("/").max(EDITOR_MAX_URL_LENGTH),
     width: z.number().int().positive().max(POSTGRES_INT_MAX),

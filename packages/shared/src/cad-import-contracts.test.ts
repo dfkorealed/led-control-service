@@ -259,6 +259,10 @@ describe("CAD import contracts", () => {
       expect(floorImportApplyResultSchema.safeParse(incomplete).success).toBe(false);
     }
     expect(floorImportApplyResultSchema.safeParse({ ...result, unexpectedCount: 1 }).success).toBe(false);
+    expect(floorImportApplyResultSchema.safeParse({
+      ...result,
+      floorPlan: { ...result.floorPlan, sourceType: "cad" }
+    }).success).toBe(true);
   });
 
   it("accepts full-floor output counts through the PostgreSQL Int boundary", () => {

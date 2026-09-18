@@ -398,7 +398,7 @@ describe("detectCadRegions", () => {
   });
 
   it("assigns a candidate by insert occurrence when its base point is outside the expanded geometry", () => {
-    const { regions } = detectCadRegions(document([
+    const detected = detectCadRegions(document([
       ...rectangle("main", 0, 0, 1_000, 600),
       {
         type: "insert",
@@ -418,8 +418,12 @@ describe("detectCadRegions", () => {
       lightCandidates: [{ sourceEntityId: "light-insert", position: point(100_000, 100_000) }]
     });
 
-    expect(regions.map(region => region.lightCandidateCount)).toEqual([0, 1]);
-    expect(regions[1].bounds).toEqual({ minX: 99_000, minY: 99_000, maxX: 99_100, maxY: 99_100 });
+    expect(detected.regions.map(region => region.lightCandidateCount)).toEqual([0, 1]);
+    expect(detected.regions[1].bounds).toEqual({ minX: 99_000, minY: 99_000, maxX: 99_100, maxY: 99_100 });
+    expect((detected as any).candidateRegionAssignments).toEqual([{
+      sourceEntityId: "light-insert",
+      regionId: detected.regions[1].regionId
+    }]);
   });
 
   it("uses occurrence identity for overlapping bounds and rejects an ambiguous spatial fallback", () => {
@@ -461,12 +465,16 @@ describe("detectCadRegions", () => {
       }
     ]);
 
-    const { regions } = detectCadRegions(drawing, {
+    const detected = detectCadRegions(drawing, {
       lightCandidates: [{ sourceEntityId: "outer-insert", position: point(5_000, 5_000) }]
     });
 
-    expect(regions).toHaveLength(2);
-    expect(regions.map(region => region.lightCandidateCount)).toEqual([1, 0]);
+    expect(detected.regions).toHaveLength(2);
+    expect(detected.regions.map(region => region.lightCandidateCount)).toEqual([1, 0]);
+    expect(detected.candidateRegionAssignments).toEqual([{
+      sourceEntityId: "outer-insert",
+      regionId: detected.regions[0].regionId
+    }]);
     expect(() => detectCadRegions(drawing, {
       lightCandidates: [{ sourceEntityId: "unknown-candidate", position: point(5_000, 5_000) }]
     })).toThrow(/exactly one detected region/i);

@@ -1,8 +1,8 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from "@nestjs/common";
 import { Prisma, type FloorImportJob } from "@prisma/client";
-import type { CadImportStage } from "@led-control/shared";
-import { randomUUID } from "node:crypto";
-import { mkdtemp, rm, stat, statfs, utimes } from "node:fs/promises";
+import { cadSceneManifestSchema, type CadImportStage, type CadSceneManifest } from "@led-control/shared";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdtemp, readFile, rm, stat, statfs, utimes } from "node:fs/promises";
 import { join } from "node:path";
 import { PrismaService } from "../prisma/prisma.service";
 import { ObjectStorageService } from "../storage/object-storage.service";
@@ -22,6 +22,12 @@ import {
   CAD_IMPORT_CONVERTER, CAD_IMPORT_CORE_EXECUTOR, CAD_IMPORT_RULE_DETECTOR, CAD_IMPORT_WORKER_OPTIONS,
   type FloorImportWorkerOptions
 } from "./floor-import.tokens";
+import { cadRegionPreviewPersistenceIdentity, cadScenePersistenceIdentity } from "./cad-scene-persistence";
+import {
+  candidateRegionDigestsEqual,
+  computeCandidateRegionDigests,
+  type CadCandidateRegionDigestMap
+} from "./cad-candidate-region-digest";
 
 export {
   CAD_IMPORT_CONVERTER, CAD_IMPORT_CORE_EXECUTOR, CAD_IMPORT_RULE_DETECTOR, CAD_IMPORT_WORKER_OPTIONS,
@@ -214,61 +220,261 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
         Number(source.sizeBytes) + converted.size
       );
       phase = "parse";
+      const persistedRegions = await this.prisma.floorImportRegion.findMany({
+        where: { jobId: job.id },
+        orderBy: [{ regionId: "asc" }, { id: "asc" }],
+        select: { regionId: true, candidateIdentityDigest: true, selectedAt: true }
+      });
+      const selectedRegions = persistedRegions.filter(region => region.selectedAt !== null);
+      if (selectedRegions.length > 1) throw new Error("CAD import has multiple selected regions");
+      const selectedRegion = selectedRegions[0];
+      let expectedCandidateRegionDigests: CadCandidateRegionDigestMap | undefined;
+      if (selectedRegion) {
+        if (persistedRegions.some(region => region.candidateIdentityDigest === null)) {
+          throw new Error("CAD_IMPORT_REGION_DIGEST_MISSING_REIMPORT_REQUIRED");
+        }
+        expectedCandidateRegionDigests = Object.fromEntries(
+          persistedRegions.map(region => [region.regionId, region.candidateIdentityDigest!])
+        );
+      }
       const core = await this.core.execute({
-        dxfPath, renderedPath, profileId, abortSignal: abort.signal
+        dxfPath,
+        renderedPath,
+        artifactDirectory: tempDirectory,
+        jobId: job.id,
+        selectedRegionId: selectedRegion?.regionId ?? null,
+        ...(expectedCandidateRegionDigests ? { expectedCandidateRegionDigests } : {}),
+        profileId,
+        abortSignal: abort.signal
       });
       const rules = this.ruleRegistry.get(profileId);
       if (core.profileId !== profileId || core.profileVersion !== rules.profileVersion ||
           core.profileDigest !== rules.profileDigest) throw new Error("CAD detector profile metadata mismatch");
-      const { candidates, rendered } = core;
+      const regions = core.regions;
+      if (!Array.isArray(regions) || regions.length < 1 || regions.length > 100) {
+        throw new Error("CAD import region count is outside the API contract");
+      }
+      if (!Array.isArray(core.candidateRegionAssignments)) {
+        throw new Error("CAD core candidate region assignments are unavailable");
+      }
+      const candidateRegionDigests = computeCandidateRegionDigests(
+        regions.map(region => region.regionId),
+        core.candidateRegionAssignments,
+        core.candidates.map(candidate => candidate.sourceEntityId)
+      );
+      if (expectedCandidateRegionDigests &&
+          !candidateRegionDigestsEqual(candidateRegionDigests, expectedCandidateRegionDigests)) {
+        throw new Error("CAD core candidate region assignments changed after selection");
+      }
+      const selectedRegionId = selectedRegion?.regionId ?? (regions.length === 1 ? regions[0].regionId : null);
+      if (selectedRegionId && !regions.some(region => region.regionId === selectedRegionId)) {
+        throw new Error("selected CAD import region no longer exists");
+      }
+      if (Boolean(core.scene) !== Boolean(selectedRegionId)) {
+        throw new Error("CAD core scene selection artifact mismatch");
+      }
+      const previewArtifacts = core.regionPreviews ?? [];
+      if (!selectedRegion && (previewArtifacts.length !== regions.length ||
+          new Set(previewArtifacts.map(preview => preview.regionId)).size !== regions.length ||
+          regions.some(region => !previewArtifacts.some(preview => preview.regionId === region.regionId)))) {
+        throw new Error("CAD core region preview artifact mismatch");
+      }
+      const candidates = core.selectedCandidates ?? core.candidates;
+      const rendered = core.rendered;
       await pulse(70, "rendering");
 
       phase = "render";
       const viewport = rendered.viewport;
-      if (!this.attemptCleanup) throw new Error("CAD import cleanup ledger is unavailable");
-      attempt = await this.attemptCleanup.armAttempt(
-        { jobId: job.id, floorId: job.floorId, attemptCount: job.attemptCount },
-        { sizeBytes: rendered.sizeBytes, sha256: rendered.sha256 }
-      );
+      let manifest: CadSceneManifest | null = null;
+      if (core.scene) {
+        const identity = cadScenePersistenceIdentity(job.id, selectedRegionId!);
+        if (core.scene.sceneId !== identity.sceneId || core.scene.manifestAssetId !== identity.manifestAssetId ||
+            core.scene.manifestFilename !== `${identity.manifestAssetId}.json`) {
+          throw new Error("CAD core scene identity mismatch");
+        }
+        const manifestPayload = await readFile(safeArtifactPath(tempDirectory, core.scene.manifestFilename, ".json"));
+        if (manifestPayload.byteLength !== core.scene.manifestByteSize ||
+            sha256(manifestPayload) !== core.scene.manifestSha256) {
+          throw new Error("CAD core manifest artifact integrity mismatch");
+        }
+        const parsed = JSON.parse(manifestPayload.toString("utf8")) as Record<string, unknown>;
+        manifest = cadSceneManifestSchema.parse({
+          ...parsed,
+          byteSize: core.scene.manifestByteSize,
+          sha256: core.scene.manifestSha256
+        });
+        if (manifest.sceneId !== identity.sceneId || manifest.regionId !== selectedRegionId ||
+            manifest.manifestAssetId !== identity.manifestAssetId ||
+            manifest.width !== core.scene.width || manifest.height !== core.scene.height ||
+            !sameNumericRecord(manifest.sourceBounds, core.scene.sourceBounds) ||
+            !sameNumericRecord(manifest.transform, core.scene.transform) ||
+            manifest.tiles.some(tile => tile.assetId !== identity.tileAssetId(tile))) {
+          throw new Error("CAD core manifest identity mismatch");
+        }
+        if (!this.attemptCleanup) throw new Error("CAD import cleanup ledger is unavailable");
+        attempt = await this.attemptCleanup.armAttempt(
+          { jobId: job.id, floorId: job.floorId, attemptCount: job.attemptCount },
+          { sizeBytes: rendered.sizeBytes, sha256: rendered.sha256 }
+        );
+      }
+
+      const cadAssets = [
+        ...previewArtifacts.map(preview => {
+          const region = regions.find(candidate => candidate.regionId === preview.regionId)!;
+          const identity = cadRegionPreviewPersistenceIdentity(job.id, region.regionId);
+          if (preview.assetId !== identity.assetId || preview.filename !== `${identity.assetId}.svg`) {
+            throw new Error("CAD region preview identity mismatch");
+          }
+          return {
+            id: preview.assetId,
+            kind: "cad_region_preview" as const,
+            objectKey: identity.objectKey(job.floorId),
+            mimeType: "image/svg+xml",
+            contentEncoding: "gzip" as const,
+            sizeBytes: preview.sizeBytes,
+            sha256: preview.sha256,
+            inputPath: safeArtifactPath(tempDirectory!, preview.filename, ".svg"),
+            metadata: regionPreviewMetadata(region, preview.viewport)
+          };
+        }),
+        ...(manifest ? [{
+          id: manifest.manifestAssetId,
+          kind: "cad_manifest" as const,
+          objectKey: cadScenePersistenceIdentity(job.id, manifest.regionId).manifestObjectKey(job.floorId),
+          mimeType: "application/json",
+          contentEncoding: undefined,
+          sizeBytes: manifest.byteSize,
+          sha256: manifest.sha256,
+          inputPath: safeArtifactPath(tempDirectory!, `${manifest.manifestAssetId}.json`, ".json"),
+          metadata: undefined
+        }, ...manifest.tiles.map(tile => ({
+          id: tile.assetId,
+          kind: "cad_tile" as const,
+          objectKey: cadScenePersistenceIdentity(job.id, manifest!.regionId).tileObjectKey(job.floorId, tile),
+          mimeType: "application/vnd.led-control.cad-tile",
+          contentEncoding: undefined,
+          sizeBytes: tile.byteSize,
+          sha256: tile.sha256,
+          inputPath: safeArtifactPath(tempDirectory!, `${tile.assetId}.bin`, ".bin"),
+          metadata: boundsMetadata(tile.bounds)
+        }))] : [])
+      ];
+      const expiresAt = new Date(Date.now() + 15 * 60_000);
+      await this.prisma.floorAsset.createMany({
+        data: cadAssets.map(asset => ({
+          id: asset.id,
+          floorId: job.floorId,
+          kind: asset.kind,
+          status: "pending" as const,
+          objectKey: asset.objectKey,
+          mimeType: asset.mimeType,
+          contentEncoding: asset.contentEncoding,
+          sizeBytes: BigInt(asset.sizeBytes),
+          sha256: asset.sha256,
+          uploadExpiresAt: expiresAt
+        })),
+        skipDuplicates: true
+      });
+      const stagedAssets = await this.prisma.floorAsset.findMany({
+        where: { id: { in: cadAssets.map(asset => asset.id) } },
+        select: {
+          id: true, floorId: true, kind: true, status: true, objectKey: true, mimeType: true,
+          contentEncoding: true, sizeBytes: true, sha256: true, cleanupStartedAt: true
+        }
+      });
+      if (stagedAssets.length !== cadAssets.length || cadAssets.some(expected => {
+        const actual = stagedAssets.find(asset => asset.id === expected.id);
+        return !actual || actual.floorId !== job.floorId || actual.kind !== expected.kind || actual.status !== "pending" ||
+          actual.objectKey !== expected.objectKey || actual.mimeType !== expected.mimeType ||
+          actual.contentEncoding !== (expected.contentEncoding ?? null) || actual.sizeBytes !== BigInt(expected.sizeBytes) ||
+          actual.sha256 !== expected.sha256 || actual.cleanupStartedAt !== null;
+      })) throw new Error("CAD scene pending asset identity conflict");
 
       phase = "storage";
-      await this.storage.putFloorRenderedObjectFile(attempt.objectKey, renderedPath, rendered, viewport, abort.signal);
-      await this.storage.verifyFloorRenderedObject(attempt.objectKey, {
-        sizeBytes: rendered.sizeBytes, sha256: rendered.sha256, mimeType: "image/svg+xml", contentEncoding: rendered.contentEncoding, ...viewport
-      }, abort.signal);
+      if (attempt) {
+        await this.storage.putFloorRenderedObjectFile(attempt.objectKey, renderedPath, rendered, viewport, abort.signal);
+        await this.storage.verifyFloorRenderedObject(attempt.objectKey, {
+          sizeBytes: rendered.sizeBytes, sha256: rendered.sha256,
+          mimeType: "image/svg+xml", contentEncoding: rendered.contentEncoding, ...viewport
+        }, abort.signal);
+      }
+      for (const asset of cadAssets) {
+        const expected = {
+          sizeBytes: asset.sizeBytes,
+          sha256: asset.sha256,
+          contentType: asset.mimeType,
+          ...(asset.contentEncoding ? { contentEncoding: asset.contentEncoding } : {}),
+          ...(asset.metadata ? { metadata: asset.metadata } : {})
+        };
+        await this.storage.putCadSceneObjectFile(asset.objectKey, asset.inputPath, expected, abort.signal);
+        await this.storage.verifyCadSceneObject(asset.objectKey, expected, abort.signal);
+      }
       await pulse(90, "persisting");
 
       phase = "persist";
-      const persistedAttempt = attempt;
       await this.prisma.$transaction(async tx => {
         const readyAt = new Date();
-        const lockedAttempt = await tx.$queryRaw<Array<{ assetId: string }>>(Prisma.sql`
-          SELECT asset."id" AS "assetId"
-          FROM "Floor" AS floor
-          JOIN "FloorAsset" AS asset ON asset."floorId" = floor."id"
-          JOIN "FloorImportAttemptCleanup" AS cleanup ON cleanup."assetId" = asset."id"
-          WHERE floor."id" = ${job.floorId}
-            AND asset."id" = ${persistedAttempt.assetId}
-            AND asset."objectKey" = ${persistedAttempt.objectKey}
-            AND asset."status" = 'pending'
-            AND asset."cleanupStartedAt" IS NULL
-            AND cleanup."jobId" = ${job.id}
-            AND cleanup."attemptCount" = ${job.attemptCount}
-            AND cleanup."objectKey" = ${persistedAttempt.objectKey}
-            AND cleanup."committedAt" IS NULL
-            AND cleanup."cleanedAt" IS NULL
-            AND cleanup."leaseOwner" IS NULL
-          FOR UPDATE OF floor, asset, cleanup
-        `);
-        if (!lockedAttempt[0]) throw new Error("CAD_IMPORT_ATTEMPT_IDENTITY_LOST");
-        const ready = await tx.floorAsset.updateMany({
-          where: {
-            id: persistedAttempt.assetId, objectKey: persistedAttempt.objectKey,
-            status: "pending", cleanupStartedAt: null
-          },
-          data: { status: "ready", readyAt: readyAt, uploadExpiresAt: null }
-        });
-        if (ready.count !== 1) throw new Error("CAD_IMPORT_ATTEMPT_IDENTITY_LOST");
+        if (attempt) {
+          const lockedAttempt = await tx.$queryRaw<Array<{ assetId: string }>>(Prisma.sql`
+            SELECT asset."id" AS "assetId"
+            FROM "Floor" AS floor
+            JOIN "FloorAsset" AS asset ON asset."floorId" = floor."id"
+            JOIN "FloorImportAttemptCleanup" AS cleanup ON cleanup."assetId" = asset."id"
+            WHERE floor."id" = ${job.floorId}
+              AND asset."id" = ${attempt.assetId} AND asset."objectKey" = ${attempt.objectKey}
+              AND asset."status" = 'pending' AND asset."cleanupStartedAt" IS NULL
+              AND cleanup."jobId" = ${job.id} AND cleanup."attemptCount" = ${job.attemptCount}
+              AND cleanup."objectKey" = ${attempt.objectKey} AND cleanup."committedAt" IS NULL
+              AND cleanup."cleanedAt" IS NULL AND cleanup."leaseOwner" IS NULL
+            FOR UPDATE OF floor, asset, cleanup
+          `);
+          if (!lockedAttempt[0]) throw new Error("CAD_IMPORT_ATTEMPT_IDENTITY_LOST");
+          const ready = await tx.floorAsset.updateMany({
+            where: { id: attempt.assetId, objectKey: attempt.objectKey, status: "pending", cleanupStartedAt: null },
+            data: { status: "ready", readyAt, uploadExpiresAt: null }
+          });
+          if (ready.count !== 1) throw new Error("CAD_IMPORT_ATTEMPT_IDENTITY_LOST");
+        } else {
+          const locked = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+            SELECT job."id"
+            FROM "Floor" AS floor
+            JOIN "FloorImportJob" AS job ON job."floorId" = floor."id"
+            WHERE floor."id" = ${job.floorId}
+              AND job."id" = ${job.id} AND job."status" = 'processing'
+              AND job."leaseOwner" = ${this.owner} AND job."attemptCount" = ${job.attemptCount}
+              AND job."leaseExpiresAt" > (clock_timestamp() AT TIME ZONE 'UTC')
+            FOR UPDATE OF floor, job
+          `);
+          if (!locked[0]) throw new Error("CAD_IMPORT_LEASE_LOST");
+        }
+        if (cadAssets.length > 0) {
+          const promoted = await tx.floorAsset.updateMany({
+            where: { id: { in: cadAssets.map(asset => asset.id) }, status: "pending", cleanupStartedAt: null },
+            data: { status: "ready", readyAt, uploadExpiresAt: null }
+          });
+          if (promoted.count !== cadAssets.length) throw new Error("CAD scene asset promotion conflict");
+        }
+        const existingRegions = await tx.floorImportRegion.findMany({ where: { jobId: job.id } });
+        if (existingRegions.length === 0) {
+          await tx.floorImportRegion.createMany({ data: regions.map(region => ({
+            jobId: job.id,
+            regionId: region.regionId,
+            minX: region.bounds.minX,
+            minY: region.bounds.minY,
+            maxX: region.bounds.maxX,
+            maxY: region.bounds.maxY,
+            primitiveCount: region.primitiveCount,
+            candidateIdentityDigest: candidateRegionDigests[region.regionId],
+            previewAssetId: cadRegionPreviewPersistenceIdentity(job.id, region.regionId).assetId,
+            selectedAt: regions.length === 1 ? readyAt : null
+          })) });
+        } else if (existingRegions.length !== regions.length || regions.some(region => {
+          const stored = existingRegions.find(candidate => candidate.regionId === region.regionId);
+          return !stored || stored.minX !== region.bounds.minX || stored.minY !== region.bounds.minY ||
+            stored.maxX !== region.bounds.maxX || stored.maxY !== region.bounds.maxY ||
+            stored.primitiveCount !== region.primitiveCount ||
+            stored.candidateIdentityDigest !== candidateRegionDigests[region.regionId];
+        })) throw new Error("CAD import region changed between selection and scene build");
         await tx.floorImportCandidate.deleteMany({ where: { jobId: job.id } });
         const candidateRows = candidates.map(candidate => {
           const method = candidate.method === "ai" ? "ai_assisted" as const : "rule_based" as const;
@@ -286,27 +492,37 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
         for (let offset = 0; offset < candidateRows.length; offset += CANDIDATE_WRITE_CHUNK) {
           await tx.floorImportCandidate.createMany({ data: candidateRows.slice(offset, offset + CANDIDATE_WRITE_CHUNK) });
         }
-        const changed = await tx.$executeRaw(Prisma.sql`
+        const changed = attempt ? await tx.$executeRaw(Prisma.sql`
           UPDATE "FloorImportJob" SET "status" = 'review_required', "stage" = 'review_required',
-            "progressPercent" = 100, "renderedAssetId" = ${attempt!.assetId},
+            "progressPercent" = 100, "renderedAssetId" = ${attempt.assetId}, "parserVersion" = ${PARSER_VERSION},
+            "detectorVersion" = ${`${core.profileVersion}:${core.profileDigest}+ai-disabled-v1`},
+            "detectorProfileVersion" = ${core.profileVersion}, "detectorProfileDigest" = ${core.profileDigest},
+            "reviewRequiredAt" = (statement_timestamp() AT TIME ZONE 'UTC'),
+            "leaseOwner" = NULL, "leaseExpiresAt" = NULL,
+            "updatedAt" = (statement_timestamp() AT TIME ZONE 'UTC')
+          WHERE ${this.fence(job)}
+        `) : await tx.$executeRaw(Prisma.sql`
+          UPDATE "FloorImportJob" SET "status" = 'region_selection_required',
+            "stage" = 'region_selection_required', "progressPercent" = GREATEST("progressPercent", 70),
             "parserVersion" = ${PARSER_VERSION},
             "detectorVersion" = ${`${core.profileVersion}:${core.profileDigest}+ai-disabled-v1`},
-            "detectorProfileVersion" = ${core.profileVersion},
-            "detectorProfileDigest" = ${core.profileDigest},
+            "detectorProfileVersion" = ${core.profileVersion}, "detectorProfileDigest" = ${core.profileDigest},
             "reviewRequiredAt" = (statement_timestamp() AT TIME ZONE 'UTC'),
             "leaseOwner" = NULL, "leaseExpiresAt" = NULL,
             "updatedAt" = (statement_timestamp() AT TIME ZONE 'UTC')
           WHERE ${this.fence(job)}
         `);
         if (changed !== 1) throw new Error("CAD_IMPORT_LEASE_LOST");
-        const reconciled = await tx.floorImportAttemptCleanup.updateMany({
-          where: {
-            jobId: job.id, attemptCount: job.attemptCount, assetId: attempt!.assetId,
-            objectKey: attempt!.objectKey, committedAt: null, cleanedAt: null, leaseOwner: null
-          },
-          data: { committedAt: readyAt, lastError: null }
-        });
-        if (reconciled.count !== 1) throw new Error("CAD_IMPORT_ATTEMPT_CLEANUP_LEASED");
+        if (attempt) {
+          const reconciled = await tx.floorImportAttemptCleanup.updateMany({
+            where: {
+              jobId: job.id, attemptCount: job.attemptCount, assetId: attempt.assetId,
+              objectKey: attempt.objectKey, committedAt: null, cleanedAt: null, leaseOwner: null
+            },
+            data: { committedAt: readyAt, lastError: null }
+          });
+          if (reconciled.count !== 1) throw new Error("CAD_IMPORT_ATTEMPT_CLEANUP_LEASED");
+        }
       }, { maxWait: 5_000, timeout: 30_000 });
     } catch (error) {
       if (this.stopping) {
@@ -369,4 +585,54 @@ function phaseFailureCode(phase: ImportPhase) {
     persist: "CAD_IMPORT_PERSIST_FAILED"
   };
   return codes[phase];
+}
+
+function sha256(value: Uint8Array): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function safeArtifactPath(directory: string, filename: string, extension: ".json" | ".bin" | ".svg") {
+  const uuid = "[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}";
+  if (!new RegExp(`^${uuid}\\${extension}$`, "i").test(filename)) {
+    throw new Error("invalid CAD core artifact filename");
+  }
+  return join(directory, filename);
+}
+
+function boundsMetadata(bounds: { minX: number; minY: number; maxX: number; maxY: number }) {
+  return {
+    "cad-min-x": String(bounds.minX),
+    "cad-min-y": String(bounds.minY),
+    "cad-max-x": String(bounds.maxX),
+    "cad-max-y": String(bounds.maxY)
+  };
+}
+
+function sameNumericRecord(
+  left: Record<string, number>,
+  right: Record<string, number>
+): boolean {
+  const keys = Object.keys(left);
+  return keys.length === Object.keys(right).length && keys.every(key => left[key] === right[key]);
+}
+
+function regionPreviewMetadata(
+  region: {
+    regionId: string;
+    bounds: { minX: number; minY: number; maxX: number; maxY: number };
+    textCount: number;
+    lightCandidateCount: number;
+    area: number;
+  },
+  viewport: { width: number; height: number }
+) {
+  return {
+    ...boundsMetadata(region.bounds),
+    "cad-region-id": region.regionId,
+    "cad-width": String(viewport.width),
+    "cad-height": String(viewport.height),
+    "cad-text-count": String(region.textCount),
+    "cad-light-count": String(region.lightCandidateCount),
+    "cad-area": String(region.area)
+  };
 }

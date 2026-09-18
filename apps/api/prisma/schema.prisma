@@ -525,21 +525,22 @@ model FloorImportJob {
 }
 
 model FloorImportRegion {
-  id             String         @id @default(uuid())
-  jobId          String
-  regionId       String
-  minX           Float
-  minY           Float
-  maxX           Float
-  maxY           Float
-  primitiveCount Int
-  previewAssetId String?        @unique
-  selectedAt     DateTime?
-  job            FloorImportJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  previewAsset   FloorAsset?    @relation("FloorImportRegionPreviewAsset", fields: [previewAssetId], references: [id], onDelete: NoAction)
-  cadScene       FloorCadScene? @relation("FloorCadSceneSourceRegion")
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  id                      String         @id @default(uuid())
+  jobId                   String
+  regionId                String
+  minX                    Float
+  minY                    Float
+  maxX                    Float
+  maxY                    Float
+  primitiveCount          Int
+  candidateIdentityDigest String?
+  previewAssetId          String?        @unique
+  selectedAt              DateTime?
+  job                     FloorImportJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  previewAsset            FloorAsset?    @relation("FloorImportRegionPreviewAsset", fields: [previewAssetId], references: [id], onDelete: NoAction)
+  cadScene                FloorCadScene? @relation("FloorCadSceneSourceRegion")
+  createdAt               DateTime       @default(now())
+  updatedAt               DateTime       @updatedAt
 
   // SQL adds a partial unique index so at most one region per job is selected.
   @@unique([jobId, regionId])

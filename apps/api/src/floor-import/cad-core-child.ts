@@ -1,4 +1,6 @@
 import { createReadStream } from "node:fs";
+import { writeFile } from "node:fs/promises";
+import { isAbsolute, join } from "node:path";
 import { CAD_RENDERED_SVG_MAX_BYTES, renderCadDocumentSvgFile } from "./cad-svg-renderer";
 import { parseAsciiDxfStream } from "./dxf-document-parser";
 import { DisabledAiLightingSymbolDetector } from "./disabled-ai-lighting-symbol-detector";
@@ -6,6 +8,8 @@ import { createCadViewport, measureCadCandidateSvgTransformMatch, projectCadPoin
 import { FixedLightingDetectorRegistry, type CadImportDetectorProfileId } from "./lighting-detector-registry";
 import { encodeCadCoreResponse, type CadCoreRequest, type CadCoreResult } from "./cad-core-executor";
 import { detectCadRegions } from "./cad-region-detector";
+import { buildCadScene } from "./cad-scene-builder";
+import { cadRegionPreviewPersistenceIdentity, cadScenePersistenceIdentity } from "./cad-scene-persistence";
 
 const MAX_CANDIDATES = 2_000;
 let accepted = false;
@@ -48,6 +52,14 @@ async function execute(request: Omit<CadCoreRequest, "abortSignal">): Promise<Ca
       position: candidate.position
     }))
   });
+  const selectedRegion = request.selectedRegionId
+    ? regionDetection.regions.find(region => region.regionId === request.selectedRegionId)
+    : regionDetection.regions.length === 1 ? regionDetection.regions[0] : undefined;
+  if (request.selectedRegionId && !selectedRegion) throw new Error("Selected CAD region no longer exists");
+  if ((request.artifactDirectory === undefined) !== (request.jobId === undefined) ||
+      request.artifactDirectory && (!isAbsolute(request.artifactDirectory) || !/^[a-f0-9-]{36}$/i.test(request.jobId!))) {
+    throw new Error("Invalid CAD artifact request");
+  }
   const viewport = createCadViewport(document.bounds);
   const projected = candidates.map(candidate => {
     const point = projectCadPointToViewport(candidate.position, document.bounds);
@@ -67,14 +79,84 @@ async function execute(request: Omit<CadCoreRequest, "abortSignal">): Promise<Ca
       method: candidate.method,
       ...(candidate.provider ? { provider: candidate.provider } : {}),
       ...(candidate.model ? { model: candidate.model } : {}),
-      ...(candidate.inputDigest ? { inputDigest: candidate.inputDigest } : {})
+      ...(candidate.inputDigest ? { inputDigest: candidate.inputDigest } : {}),
+      sourcePosition: { x: candidate.position.x, y: candidate.position.y }
     };
   });
-  const rendered = await renderCadDocumentSvgFile(document, request.renderedPath, {
+  const renderedDocument = selectedRegion ? documentWithBounds(document, selectedRegion.bounds) : document;
+  const rendered = await renderCadDocumentSvgFile(renderedDocument, request.renderedPath, {
     maxOutputBytes: CAD_RENDERED_SVG_MAX_BYTES,
     maxRenderedEntities: 1_000_000,
     maxBlockDepth: 32
   });
+  const regionPreviews = [];
+  if (request.artifactDirectory && request.jobId && !request.selectedRegionId) {
+    for (const region of regionDetection.regions) {
+      const identity = cadRegionPreviewPersistenceIdentity(request.jobId, region.regionId);
+      const filename = `${identity.assetId}.svg`;
+      const preview = await renderCadDocumentSvgFile(
+        documentWithBounds(document, region.bounds),
+        join(request.artifactDirectory, filename),
+        {
+          maxOutputBytes: CAD_RENDERED_SVG_MAX_BYTES,
+          maxRenderedEntities: 1_000_000,
+          maxBlockDepth: 32
+        }
+      );
+      regionPreviews.push({
+        regionId: region.regionId,
+        assetId: identity.assetId,
+        filename,
+        sizeBytes: preview.sizeBytes,
+        sha256: preview.sha256,
+        viewport: preview.viewport
+      });
+    }
+  }
+  let scene = null;
+  let selectedCandidates = undefined;
+  if (selectedRegion && request.artifactDirectory && request.jobId) {
+    const identity = cadScenePersistenceIdentity(request.jobId, selectedRegion.regionId);
+    const built = buildCadScene(document, selectedRegion, {
+      sceneId: identity.sceneId,
+      manifestAssetId: identity.manifestAssetId,
+      tileAssetId: identity.tileAssetId
+    });
+    const manifestFilename = `${identity.manifestAssetId}.json`;
+    await writeFile(join(request.artifactDirectory, manifestFilename), built.manifestPayload, { flag: "wx", mode: 0o600 });
+    for (const tile of built.tiles) {
+      await writeFile(join(request.artifactDirectory, `${tile.descriptor.assetId}.bin`), tile.payload, { flag: "wx", mode: 0o600 });
+    }
+    scene = {
+      sceneId: identity.sceneId,
+      manifestAssetId: identity.manifestAssetId,
+      manifestFilename,
+      manifestByteSize: built.manifest.byteSize,
+      manifestSha256: built.manifest.sha256,
+      width: built.manifest.width,
+      height: built.manifest.height,
+      sourceBounds: { ...built.manifest.sourceBounds },
+      transform: { ...built.manifest.transform }
+    };
+    const selectedCandidateIds = new Set(regionDetection.candidateRegionAssignments
+      .filter(assignment => assignment.regionId === selectedRegion.regionId)
+      .map(assignment => normalizeCandidateIdentity(assignment.sourceEntityId)));
+    selectedCandidates = candidates
+      .filter(candidate => selectedCandidateIds.has(normalizeCandidateIdentity(candidate.sourceEntityId)))
+      .map(candidate => ({
+        sourceEntityId: candidate.sourceEntityId,
+        layerName: candidate.layerName,
+        blockName: candidate.blockName,
+        x: candidate.position.x * built.manifest.transform.scaleX + built.manifest.transform.translateX,
+        y: candidate.position.y * built.manifest.transform.scaleY + built.manifest.transform.translateY,
+        rotation: -candidate.rotation,
+        confidence: candidate.confidence,
+        method: candidate.method,
+        ...(candidate.provider ? { provider: candidate.provider } : {}),
+        ...(candidate.model ? { model: candidate.model } : {}),
+        ...(candidate.inputDigest ? { inputDigest: candidate.inputDigest } : {})
+      }));
+  }
   const usage = process.resourceUsage();
   return {
     profileId: request.profileId,
@@ -83,6 +165,8 @@ async function execute(request: Omit<CadCoreRequest, "abortSignal">): Promise<Ca
     modelEntityCount: document.entities.length,
     blockCount: document.blocks.length,
     candidates: projected,
+    selectedCandidates,
+    candidateRegionAssignments: regionDetection.candidateRegionAssignments,
     excludedRegionPrimitiveCount: regionDetection.excludedPrimitiveCount,
     regions: regionDetection.regions,
     candidateTransformMatch: measureCadCandidateSvgTransformMatch(
@@ -91,6 +175,26 @@ async function execute(request: Omit<CadCoreRequest, "abortSignal">): Promise<Ca
       0.01
     ),
     rendered,
+    regionPreviews,
+    scene,
     observedMaxRssBytes: usage.maxRSS * 1024
   };
+}
+
+function documentWithBounds(
+  document: Awaited<ReturnType<typeof parseAsciiDxfStream>>,
+  bounds: { minX: number; minY: number; maxX: number; maxY: number }
+) {
+  return {
+    ...document,
+    bounds: { ...bounds },
+    primaryBoundsSelection: {
+      excludedEntityCount: 0,
+      totalEntityCount: document.entities.length
+    }
+  };
+}
+
+function normalizeCandidateIdentity(value: string) {
+  return value.normalize("NFKC").toUpperCase();
 }

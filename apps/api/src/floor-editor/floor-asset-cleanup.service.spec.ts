@@ -179,5 +179,11 @@ describe("FloorAssetCleanupService", () => {
     expect(readySql).toContain('FROM "FloorImportJob"');
     expect(readySql).toContain('job."sourceAssetId" = asset."id"');
     expect(readySql).toContain('job."renderedAssetId" = asset."id"');
+    expect(readySql).toContain('FROM "FloorImportRegion"');
+    expect(readySql).toContain('region."previewAssetId" = asset."id"');
+    expect(readySql).toContain('FROM "FloorCadScene"');
+    expect(readySql).toContain('scene."manifestAssetId" = asset."id"');
+    expect(readySql).toContain('FROM "FloorCadTile"');
+    expect(readySql).toContain('tile."assetId" = asset."id"');
   });
 });

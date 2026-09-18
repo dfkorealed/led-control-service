@@ -1,10 +1,26 @@
 import { fork } from "node:child_process";
 import { Buffer } from "node:buffer";
 import { join } from "node:path";
+import {
+  CAD_MAP_EXTREME_MIN_SHORT_SIDE,
+  CAD_MAP_MAX_LONG_SIDE,
+  type CadBounds,
+  type CadSceneTransform
+} from "@led-control/shared";
 import type { CadImportDetectorProfileId } from "./lighting-detector-registry";
 import type { CadSvgFileResult } from "./cad-svg-renderer";
 import type { CadCandidateSvgTransformMatch } from "./cad-viewport";
-import { CAD_MAX_DETECTED_REGIONS, type CadDetectedRegion } from "./cad-region-detector";
+import {
+  CAD_MAX_DETECTED_REGIONS,
+  type CadCandidateRegionAssignment,
+  type CadDetectedRegion
+} from "./cad-region-detector";
+import {
+  candidateRegionDigestsEqual,
+  computeCandidateRegionDigests,
+  normalizeCadCandidateIdentity,
+  type CadCandidateRegionDigestMap
+} from "./cad-candidate-region-digest";
 import { CAD_RENDERED_SVG_RAW_MAX_BYTES } from "./cad-resource-limits";
 import {
   CAD_CGROUP_MEMORY_BYTES,
@@ -25,6 +41,10 @@ export interface CadCoreRequest {
   dxfPath: string;
   renderedPath: string;
   profileId: CadImportDetectorProfileId;
+  artifactDirectory?: string;
+  jobId?: string;
+  selectedRegionId?: string | null;
+  expectedCandidateRegionDigests?: CadCandidateRegionDigestMap;
   abortSignal?: AbortSignal;
 }
 
@@ -40,6 +60,7 @@ export interface CadCoreCandidate {
   provider?: string;
   model?: string;
   inputDigest?: string;
+  sourcePosition?: { x: number; y: number };
 }
 
 export interface CadCoreResult {
@@ -49,11 +70,36 @@ export interface CadCoreResult {
   modelEntityCount: number;
   blockCount: number;
   candidates: CadCoreCandidate[];
+  selectedCandidates?: CadCoreCandidate[];
+  candidateRegionAssignments?: CadCandidateRegionAssignment[];
   excludedRegionPrimitiveCount: number;
   regions: CadDetectedRegion[];
   candidateTransformMatch: CadCandidateSvgTransformMatch;
   rendered: CadSvgFileResult;
+  regionPreviews?: CadCoreRegionPreviewArtifact[];
+  scene?: CadCoreSceneArtifact | null;
   observedMaxRssBytes?: number;
+}
+
+export interface CadCoreRegionPreviewArtifact {
+  regionId: string;
+  assetId: string;
+  filename: string;
+  sizeBytes: number;
+  sha256: string;
+  viewport: { width: number; height: number };
+}
+
+export interface CadCoreSceneArtifact {
+  sceneId: string;
+  manifestAssetId: string;
+  manifestFilename: string;
+  manifestByteSize: number;
+  manifestSha256: string;
+  width: number;
+  height: number;
+  sourceBounds: CadBounds;
+  transform: CadSceneTransform;
 }
 
 export interface CadCoreExecutor {
@@ -158,6 +204,7 @@ export class ChildProcessCadCoreExecutor implements CadCoreExecutor {
         } else {
           try {
             assertCoreManifest(message.result, request.profileId);
+            assertCoreArtifactContract(message.result, request);
             validResult = message.result;
             finishSuccessWhenComplete();
           } catch {
@@ -172,7 +219,10 @@ export class ChildProcessCadCoreExecutor implements CadCoreExecutor {
       child.send({
         dxfPath: request.dxfPath,
         renderedPath: request.renderedPath,
-        profileId: request.profileId
+        profileId: request.profileId,
+        ...(request.artifactDirectory ? { artifactDirectory: request.artifactDirectory } : {}),
+        ...(request.jobId ? { jobId: request.jobId } : {}),
+        ...(request.selectedRegionId !== undefined ? { selectedRegionId: request.selectedRegionId } : {})
       }, error => { if (error) finish(new Error("CAD core child process IPC failed")); });
     });
   }
@@ -194,30 +244,8 @@ export function assertCoreManifest(result: CadCoreResult, requestedProfileId: Ca
       !/^[a-f0-9]{64}$/.test(result.profileDigest) || !Number.isSafeInteger(result.modelEntityCount) ||
       result.modelEntityCount < 0 || result.modelEntityCount > CAD_MAX_PARSED_ENTITIES ||
       !Number.isSafeInteger(result.blockCount) || result.blockCount < 0 || result.blockCount > 100_000 ||
-      !Array.isArray(result.candidates) ||
-      result.candidates.length > MAX_CANDIDATES) throw new Error("invalid core manifest");
-  const identities = new Set<string>();
-  for (const candidate of result.candidates) {
-    if (!candidate || typeof candidate.sourceEntityId !== "string" || utf8Length(candidate.sourceEntityId) < 1 ||
-        utf8Length(candidate.sourceEntityId) > 512 || typeof candidate.layerName !== "string" ||
-        utf8Length(candidate.layerName) < 1 || utf8Length(candidate.layerName) > 512 || typeof candidate.blockName !== "string" ||
-        utf8Length(candidate.blockName) > 512 || !Number.isFinite(candidate.x) || candidate.x < 0 ||
-        !Number.isFinite(candidate.y) || candidate.y < 0 || !Number.isFinite(candidate.rotation) ||
-        !Number.isFinite(candidate.confidence) || candidate.confidence < 0 || candidate.confidence > 1 ||
-        (candidate.method !== "rule" && candidate.method !== "ai")) throw new Error("invalid core manifest");
-    const identity = candidate.sourceEntityId.normalize("NFKC").toUpperCase();
-    if (identities.has(identity)) throw new Error("invalid core manifest");
-    identities.add(identity);
-    if (candidate.method === "ai" && (!candidate.provider || !candidate.model || !candidate.inputDigest)) {
-      throw new Error("invalid core manifest");
-    }
-    if (candidate.method === "rule" && (candidate.provider || candidate.model || candidate.inputDigest)) {
-      throw new Error("invalid core manifest");
-    }
-    if (candidate.provider && utf8Length(candidate.provider) > 128 ||
-        candidate.model && utf8Length(candidate.model) > 128) throw new Error("invalid core manifest");
-    if (candidate.inputDigest && !/^[a-f0-9]{64}$/.test(candidate.inputDigest)) throw new Error("invalid core manifest");
-  }
+      !Array.isArray(result.candidates)) throw new Error("invalid core manifest");
+  assertCandidateList(result.candidates);
   if (!Number.isSafeInteger(result.excludedRegionPrimitiveCount) || result.excludedRegionPrimitiveCount < 0 ||
       result.excludedRegionPrimitiveCount > CAD_MAX_PARSED_ENTITIES ||
       !Array.isArray(result.regions) || result.regions.length > CAD_MAX_DETECTED_REGIONS) {
@@ -297,6 +325,202 @@ export function assertCoreManifest(result: CadCoreResult, requestedProfileId: Ca
   if (result.observedMaxRssBytes !== undefined &&
       (!Number.isSafeInteger(result.observedMaxRssBytes) || result.observedMaxRssBytes < 1 ||
        result.observedMaxRssBytes > CAD_CGROUP_MEMORY_BYTES)) throw new Error("invalid core manifest");
+}
+
+function assertCoreArtifactContract(result: CadCoreResult, request: CadCoreRequest): void {
+  if (!request.artifactDirectory && !request.jobId) return;
+  if (!request.artifactDirectory || !request.jobId || !Array.isArray(result.regionPreviews)) {
+    throw new Error("invalid core artifact manifest");
+  }
+  if (request.selectedRegionId && !request.expectedCandidateRegionDigests) {
+    throw new Error("invalid core artifact manifest");
+  }
+  const selectedRegionId = request.selectedRegionId ?? (result.regions.length === 1 ? result.regions[0]?.regionId : null);
+  if (request.selectedRegionId && !result.regions.some(region => region.regionId === request.selectedRegionId)) {
+    throw new Error("invalid core artifact manifest");
+  }
+  const expectedPreviewCount = request.selectedRegionId ? 0 : result.regions.length;
+  if (result.regionPreviews.length !== expectedPreviewCount ||
+      new Set(result.regionPreviews.map(preview => preview.regionId)).size !== result.regionPreviews.length) {
+    throw new Error("invalid core artifact manifest");
+  }
+  for (const preview of result.regionPreviews) {
+    if (!result.regions.some(region => region.regionId === preview.regionId) ||
+        !uuid(preview.assetId) || preview.filename !== `${preview.assetId}.svg` ||
+        !Number.isSafeInteger(preview.sizeBytes) || preview.sizeBytes < 1 ||
+        !/^[a-f0-9]{64}$/.test(preview.sha256) ||
+        !Number.isSafeInteger(preview.viewport.width) || preview.viewport.width < 1 || preview.viewport.width > 2_400 ||
+        !Number.isSafeInteger(preview.viewport.height) || preview.viewport.height < 1 || preview.viewport.height > 1_600) {
+      throw new Error("invalid core artifact manifest");
+    }
+  }
+  if (selectedRegionId === null) {
+    if (result.scene !== null || result.selectedCandidates !== undefined) {
+      throw new Error("invalid core artifact manifest");
+    }
+    return;
+  }
+  const selectedRegion = result.regions.find(region => region.regionId === selectedRegionId);
+  const sourceBounds = result.scene?.sourceBounds;
+  const transform = result.scene?.transform;
+  if (!result.scene || !uuid(result.scene.sceneId) || !uuid(result.scene.manifestAssetId) ||
+      result.scene.manifestFilename !== `${result.scene.manifestAssetId}.json` ||
+      !Number.isSafeInteger(result.scene.manifestByteSize) || result.scene.manifestByteSize < 1 ||
+      !/^[a-f0-9]{64}$/.test(result.scene.manifestSha256) ||
+      !Number.isSafeInteger(result.scene.width) || result.scene.width < CAD_MAP_EXTREME_MIN_SHORT_SIDE ||
+      result.scene.width > CAD_MAP_MAX_LONG_SIDE ||
+      !Number.isSafeInteger(result.scene.height) || result.scene.height < CAD_MAP_EXTREME_MIN_SHORT_SIDE ||
+      result.scene.height > CAD_MAP_MAX_LONG_SIDE || !Array.isArray(result.selectedCandidates) ||
+      !selectedRegion || !sameBounds(sourceBounds, selectedRegion.bounds) || !validSceneTransform(transform) ||
+      result.selectedCandidates.length !== selectedRegion.lightCandidateCount) {
+    throw new Error("invalid core artifact manifest");
+  }
+  const selectedByIdentity = assertCandidateList(
+    result.selectedCandidates,
+    result.scene.width,
+    result.scene.height
+  );
+  const detectedByIdentity = new Map(
+    result.candidates.map(candidate => [candidateIdentity(candidate), candidate] as const)
+  );
+  const assignments = result.candidateRegionAssignments;
+  if (!Array.isArray(assignments) || assignments.length !== result.candidates.length ||
+      assignments.length > MAX_CANDIDATES) {
+    throw new Error("invalid core artifact manifest");
+  }
+  const assignmentByIdentity = new Map<string, string>();
+  const assignmentCounts = new Map<string, number>();
+  const validRegionIds = new Set(result.regions.map(region => region.regionId));
+  for (const assignment of assignments) {
+    if (!assignment || typeof assignment.sourceEntityId !== "string" ||
+        utf8Length(assignment.sourceEntityId) < 1 || utf8Length(assignment.sourceEntityId) > 512 ||
+        typeof assignment.regionId !== "string" || !validRegionIds.has(assignment.regionId)) {
+      throw new Error("invalid core artifact manifest");
+    }
+    const identity = normalizeCandidateIdentity(assignment.sourceEntityId);
+    if (!detectedByIdentity.has(identity) || assignmentByIdentity.has(identity)) {
+      throw new Error("invalid core artifact manifest");
+    }
+    assignmentByIdentity.set(identity, assignment.regionId);
+    assignmentCounts.set(assignment.regionId, (assignmentCounts.get(assignment.regionId) ?? 0) + 1);
+  }
+  if (result.regions.some(region => (assignmentCounts.get(region.regionId) ?? 0) !== region.lightCandidateCount)) {
+    throw new Error("invalid core artifact manifest");
+  }
+  if (request.expectedCandidateRegionDigests) {
+    const actualDigests = computeCandidateRegionDigests(
+      result.regions.map(region => region.regionId),
+      assignments
+    );
+    if (!candidateRegionDigestsEqual(actualDigests, request.expectedCandidateRegionDigests)) {
+      throw new Error("invalid core artifact manifest");
+    }
+  }
+  const expectedSelectedIdentities = new Set<string>();
+  for (const detected of result.candidates) {
+    const source = detected.sourcePosition;
+    if (!source || !Number.isFinite(source.x) || !Number.isFinite(source.y)) {
+      throw new Error("invalid core artifact manifest");
+    }
+    const identity = candidateIdentity(detected);
+    const assignedRegionId = assignmentByIdentity.get(identity);
+    if (!assignedRegionId) throw new Error("invalid core artifact manifest");
+    if (assignedRegionId === selectedRegionId) {
+      expectedSelectedIdentities.add(candidateIdentity(detected));
+    }
+  }
+  if (expectedSelectedIdentities.size !== selectedRegion.lightCandidateCount ||
+      selectedByIdentity.size !== expectedSelectedIdentities.size) {
+    throw new Error("invalid core artifact manifest");
+  }
+  for (const [identity, selected] of selectedByIdentity) {
+    const detected = detectedByIdentity.get(identity);
+    if (!detected || !expectedSelectedIdentities.has(identity) ||
+        !sameCandidateDetection(selected, detected) ||
+        !matchesSceneTransform(selected, detected.sourcePosition!, transform!)) {
+      throw new Error("invalid core artifact manifest");
+    }
+  }
+}
+
+function assertCandidateList(
+  candidates: CadCoreCandidate[],
+  maxX?: number,
+  maxY?: number
+): Map<string, CadCoreCandidate> {
+  if (candidates.length > MAX_CANDIDATES) throw new Error("invalid core manifest");
+  const identities = new Map<string, CadCoreCandidate>();
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate.sourceEntityId !== "string" || utf8Length(candidate.sourceEntityId) < 1 ||
+        utf8Length(candidate.sourceEntityId) > 512 || typeof candidate.layerName !== "string" ||
+        utf8Length(candidate.layerName) < 1 || utf8Length(candidate.layerName) > 512 || typeof candidate.blockName !== "string" ||
+        utf8Length(candidate.blockName) > 512 || !Number.isFinite(candidate.x) || candidate.x < 0 ||
+        (maxX !== undefined && candidate.x > maxX) || !Number.isFinite(candidate.y) || candidate.y < 0 ||
+        (maxY !== undefined && candidate.y > maxY) || !Number.isFinite(candidate.rotation) ||
+        !Number.isFinite(candidate.confidence) || candidate.confidence < 0 || candidate.confidence > 1 ||
+        (candidate.method !== "rule" && candidate.method !== "ai")) throw new Error("invalid core manifest");
+    const identity = candidateIdentity(candidate);
+    if (identities.has(identity)) throw new Error("invalid core manifest");
+    identities.set(identity, candidate);
+    if (candidate.method === "ai" && (!candidate.provider || !candidate.model || !candidate.inputDigest)) {
+      throw new Error("invalid core manifest");
+    }
+    if (candidate.method === "rule" && (candidate.provider || candidate.model || candidate.inputDigest)) {
+      throw new Error("invalid core manifest");
+    }
+    if (candidate.provider && utf8Length(candidate.provider) > 128 ||
+        candidate.model && utf8Length(candidate.model) > 128) throw new Error("invalid core manifest");
+    if (candidate.inputDigest && !/^[a-f0-9]{64}$/.test(candidate.inputDigest)) throw new Error("invalid core manifest");
+  }
+  return identities;
+}
+
+function candidateIdentity(candidate: CadCoreCandidate): string {
+  return normalizeCandidateIdentity(candidate.sourceEntityId);
+}
+
+function normalizeCandidateIdentity(value: string): string {
+  return normalizeCadCandidateIdentity(value);
+}
+
+function sameCandidateDetection(selected: CadCoreCandidate, detected: CadCoreCandidate): boolean {
+  return selected.layerName === detected.layerName &&
+    selected.blockName === detected.blockName &&
+    selected.confidence === detected.confidence &&
+    selected.rotation === detected.rotation &&
+    selected.method === detected.method &&
+    selected.provider === detected.provider &&
+    selected.model === detected.model &&
+    selected.inputDigest === detected.inputDigest;
+}
+
+function sameBounds(actual: CadBounds | undefined, expected: CadBounds): boolean {
+  return Boolean(actual) && actual!.minX === expected.minX && actual!.minY === expected.minY &&
+    actual!.maxX === expected.maxX && actual!.maxY === expected.maxY;
+}
+
+function validSceneTransform(value: CadSceneTransform | undefined): boolean {
+  return Boolean(value) && Number.isFinite(value!.scaleX) && value!.scaleX > 0 &&
+    Number.isFinite(value!.scaleY) && value!.scaleY !== 0 &&
+    Number.isFinite(value!.translateX) && Number.isFinite(value!.translateY);
+}
+
+function matchesSceneTransform(
+  selected: CadCoreCandidate,
+  source: { x: number; y: number },
+  transform: CadSceneTransform
+): boolean {
+  const expectedX = source.x * transform.scaleX + transform.translateX;
+  const expectedY = source.y * transform.scaleY + transform.translateY;
+  return nearlyEqual(selected.x, expectedX) && nearlyEqual(selected.y, expectedY);
+}
+
+function nearlyEqual(actual: number, expected: number): boolean {
+  return Math.abs(actual - expected) <= 1e-9 * Math.max(1, Math.abs(expected));
+}
+
+function uuid(value: string): boolean {
+  return /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(value);
 }
 
 function utf8Length(value: string): number {

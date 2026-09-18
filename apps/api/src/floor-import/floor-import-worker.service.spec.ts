@@ -1,8 +1,10 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import * as fsPromises from "node:fs/promises";
 import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { buildCadScene } from "./cad-scene-builder";
+import { cadRegionPreviewPersistenceIdentity, cadScenePersistenceIdentity } from "./cad-scene-persistence";
 import { FloorImportWorkerService } from "./floor-import-worker.service";
 
 jest.mock("node:fs/promises", () => ({
@@ -30,6 +32,69 @@ function genericRegistry() {
       profileId: "generic-lighting-v1", profileVersion: "test/1", profileDigest: "b".repeat(64)
     })
   } as any;
+}
+
+async function writeNativeArtifacts(
+  jobId: string,
+  artifactDirectory: string,
+  lightCandidateCount: number
+) {
+  const region = {
+    regionId: "region-0123456789abcdef01234567",
+    bounds: { minX: 0, minY: 0, maxX: 10, maxY: 10 },
+    primitiveCount: Math.max(1, lightCandidateCount),
+    textCount: 0,
+    lightCandidateCount,
+    area: 100
+  };
+  const identity = cadScenePersistenceIdentity(jobId, region.regionId);
+  const previewIdentity = cadRegionPreviewPersistenceIdentity(jobId, region.regionId);
+  const built = buildCadScene({
+    version: 1,
+    bounds: region.bounds,
+    blocks: [],
+    entities: [{
+      type: "line",
+      sourceEntityId: "unit-line",
+      layer: "WALL",
+      start: { x: 0, y: 0, z: 0 },
+      end: { x: 10, y: 10, z: 0 }
+    }]
+  }, region, {
+    sceneId: identity.sceneId,
+    manifestAssetId: identity.manifestAssetId,
+    tileAssetId: identity.tileAssetId
+  });
+  const preview = Buffer.from("preview");
+  const previewFilename = `${previewIdentity.assetId}.svg`;
+  const manifestFilename = `${identity.manifestAssetId}.json`;
+  await writeFile(join(artifactDirectory, previewFilename), preview);
+  await writeFile(join(artifactDirectory, manifestFilename), built.manifestPayload);
+  for (const tile of built.tiles) {
+    await writeFile(join(artifactDirectory, `${tile.descriptor.assetId}.bin`), tile.payload);
+  }
+  return {
+    region,
+    regionPreviews: [{
+      regionId: region.regionId,
+      assetId: previewIdentity.assetId,
+      filename: previewFilename,
+      sizeBytes: preview.byteLength,
+      sha256: createHash("sha256").update(preview).digest("hex"),
+      viewport: { width: 1_200, height: 1_200 }
+    }],
+    scene: {
+      sceneId: identity.sceneId,
+      manifestAssetId: identity.manifestAssetId,
+      manifestFilename,
+      manifestByteSize: built.manifest.byteSize,
+      manifestSha256: built.manifest.sha256,
+      width: built.manifest.width,
+      height: built.manifest.height,
+      sourceBounds: { ...built.manifest.sourceBounds },
+      transform: { ...built.manifest.transform }
+    }
+  };
 }
 
 describe("FloorImportWorkerService", () => {
@@ -66,17 +131,32 @@ describe("FloorImportWorkerService", () => {
       assetId: randomUUID(), objectKey: `floors/${row.floorId}/${row.id}-attempt-${row.attemptCount}.svg` };
     const storageOrder: string[] = [];
     const finalTransactions: any[] = [];
+    let stagedAssets: any[] = [];
     const prisma: any = {
       $executeRaw: jest.fn().mockResolvedValue(1),
       $queryRaw: jest.fn()
         .mockResolvedValueOnce([{ id: row.id }])
         .mockResolvedValueOnce([row]),
-      floorAsset: { findUniqueOrThrow: jest.fn().mockResolvedValue(source), findUnique: jest.fn().mockResolvedValue(null) },
+      floorImportRegion: { findMany: jest.fn().mockResolvedValue([]) },
+      floorAsset: {
+        findUniqueOrThrow: jest.fn().mockResolvedValue(source),
+        findUnique: jest.fn().mockResolvedValue(null),
+        createMany: jest.fn(async ({ data }: any) => { stagedAssets = data; return { count: data.length }; }),
+        findMany: jest.fn(async () => stagedAssets.map(asset => ({
+          ...asset,
+          contentEncoding: asset.contentEncoding ?? null,
+          cleanupStartedAt: null
+        })))
+      },
       $transaction: jest.fn(async (run: (tx: any) => unknown) => {
         const tx: any = {
           $queryRaw: jest.fn().mockResolvedValue([{ assetId: attempt.assetId }]),
-          floorAsset: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+          floorAsset: { updateMany: jest.fn(async ({ where }: any) => ({ count: where.id?.in?.length ?? 1 })) },
           floorImportAttemptCleanup: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+          floorImportRegion: {
+            findMany: jest.fn().mockResolvedValue([]),
+            createMany: jest.fn().mockResolvedValue({ count: 1 })
+          },
           floorImportCandidate: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }), createMany: jest.fn().mockResolvedValue({ count: 1 }) },
           $executeRaw: jest.fn().mockResolvedValue(1)
         };
@@ -87,6 +167,8 @@ describe("FloorImportWorkerService", () => {
       downloadFloorAssetToFile: jest.fn(async (_key: string, path: string) => writeFile(path, dxf)),
       putFloorRenderedObjectFile: jest.fn().mockImplementation(async () => { storageOrder.push("put"); }),
       verifyFloorRenderedObject: jest.fn().mockResolvedValue(undefined),
+      putCadSceneObjectFile: jest.fn().mockResolvedValue(undefined),
+      verifyCadSceneObject: jest.fn().mockResolvedValue(undefined),
       deleteObject: jest.fn().mockResolvedValue(undefined)
     };
     const converter: any = { convert: jest.fn(async ({ inputPath, outputPath }: any) => {
@@ -97,11 +179,22 @@ describe("FloorImportWorkerService", () => {
     const registry: any = {
       get: jest.fn().mockReturnValue(rules), resolve: jest.fn().mockReturnValue("generic-lighting-v1"), assertBinding: jest.fn()
     };
-    const core: any = { execute: jest.fn(async ({ renderedPath }: any) => {
+    const core: any = { execute: jest.fn(async ({ renderedPath, artifactDirectory }: any) => {
       await writeFile(renderedPath, "gzip-svg");
+      const artifacts = await writeNativeArtifacts(row.id, artifactDirectory, candidates.length);
       return {
         profileId: "generic-lighting-v1", profileVersion: "test/1", profileDigest: "b".repeat(64),
-        modelEntityCount: 1, blockCount: 0, candidates,
+        modelEntityCount: 1, blockCount: 0, candidates, selectedCandidates: candidates,
+        candidateRegionAssignments: candidates.map(candidate => ({
+          sourceEntityId: candidate.sourceEntityId,
+          regionId: artifacts.region.regionId
+        })),
+        excludedRegionPrimitiveCount: 0, regions: [artifacts.region],
+        regionPreviews: artifacts.regionPreviews, scene: artifacts.scene,
+        candidateTransformMatch: {
+          candidateCount: candidates.length, matchedCount: candidates.length,
+          matchRate: 1, tolerancePx: 0.01, maxDeltaPx: 0
+        },
         rendered: { sizeBytes: 8, rawSizeBytes: 64, sha256: "c".repeat(64), viewport: { width: 12, height: 12 },
           renderedOccurrences: 1, contentEncoding: "gzip" }
       };
@@ -140,6 +233,11 @@ describe("FloorImportWorkerService", () => {
       expect(finalTx.floorImportCandidate.createMany.mock.calls.every(([input]: any[]) => input.data.length <= 250)).toBe(true);
       expect(finalTx).not.toHaveProperty("fixture");
       expect(finalTx).not.toHaveProperty("meshNode");
+      expect(finalTx.floorImportRegion.createMany).toHaveBeenCalledWith({
+        data: [expect.objectContaining({
+          candidateIdentityDigest: expect.stringMatching(/^[a-f0-9]{64}$/)
+        })]
+      });
       const completionSql = finalTx.$executeRaw.mock.calls[0][0];
       expect(completionSql.strings.join(" ")).toContain("review_required");
       expect(completionSql.strings.join(" ")).toContain('"progressPercent" = 100');
@@ -260,12 +358,15 @@ describe("FloorImportWorkerService", () => {
     const prisma: any = {
       $executeRaw: jest.fn().mockResolvedValue(1),
       $queryRaw: jest.fn().mockResolvedValueOnce([{ id: row.id }]).mockResolvedValueOnce([row]),
+      floorImportRegion: { findMany: jest.fn().mockResolvedValue([]) },
       floorAsset: {
         findUniqueOrThrow: jest.fn().mockResolvedValue({
           objectKey: `floors/${row.floorId}/source.dxf`, sizeBytes: BigInt(Buffer.byteLength(dxf)),
           sha256: "a".repeat(64), mimeType: "application/dxf", floor: { siteId: randomUUID() }
         }),
-        findUnique: jest.fn().mockResolvedValue(null)
+        findUnique: jest.fn().mockResolvedValue(null),
+        createMany: jest.fn().mockResolvedValue({ count: 0 }),
+        findMany: jest.fn().mockResolvedValue([])
       }
     };
     const storage: any = {
@@ -274,6 +375,8 @@ describe("FloorImportWorkerService", () => {
         uploadEntered();
         await new Promise<void>((_, reject) => signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true }));
       }),
+      putCadSceneObjectFile: jest.fn(),
+      verifyCadSceneObject: jest.fn(),
       deleteObject: jest.fn().mockResolvedValue(undefined)
     };
     const converter: any = { convert: jest.fn(async ({ inputPath, outputPath }: any) => {
@@ -284,11 +387,28 @@ describe("FloorImportWorkerService", () => {
     const registry: any = {
       get: jest.fn().mockReturnValue(detector), resolve: jest.fn().mockReturnValue("generic-lighting-v1"), assertBinding: jest.fn()
     };
-    const core: any = { execute: jest.fn(async ({ renderedPath }: any) => {
+    let stagedAssets: any[] = [];
+    prisma.floorAsset.createMany.mockImplementation(async ({ data }: any) => {
+      stagedAssets = data;
+      return { count: data.length };
+    });
+    prisma.floorAsset.findMany.mockImplementation(async () => stagedAssets.map(asset => ({
+      ...asset,
+      contentEncoding: asset.contentEncoding ?? null,
+      cleanupStartedAt: null
+    })));
+    const core: any = { execute: jest.fn(async ({ renderedPath, artifactDirectory }: any) => {
       await writeFile(renderedPath, "gzip-svg");
+      const artifacts = await writeNativeArtifacts(row.id, artifactDirectory, 0);
       return {
         profileId: "generic-lighting-v1", profileVersion: "test/1", profileDigest: "b".repeat(64),
-        modelEntityCount: 1, blockCount: 0, candidates: [],
+        modelEntityCount: 1, blockCount: 0, candidates: [], selectedCandidates: [],
+        candidateRegionAssignments: [],
+        excludedRegionPrimitiveCount: 0, regions: [artifacts.region],
+        regionPreviews: artifacts.regionPreviews, scene: artifacts.scene,
+        candidateTransformMatch: {
+          candidateCount: 0, matchedCount: 0, matchRate: null, tolerancePx: 0.01, maxDeltaPx: 0
+        },
         rendered: { sizeBytes: 8, rawSizeBytes: 64, sha256: "c".repeat(64), viewport: { width: 12, height: 12 },
           renderedOccurrences: 1, contentEncoding: "gzip" }
       };

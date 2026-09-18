@@ -1,6 +1,6 @@
 # 데이터베이스 테이블 구조
 
-작성일: 2026-09-18
+작성일: 2026-09-19
 
 이 문서는 현재 구현된 PostgreSQL/Prisma 데이터베이스 구조를 정리한다. 기준 파일은 `apps/api/prisma/schema.prisma`이며, 실제 DB 반영은 `apps/api/prisma/migrations`의 migration으로 관리한다.
 
@@ -729,7 +729,7 @@ DWG/DXF 원본을 비동기로 변환·검출·검토·적용하는 작업의 �
 
 ### FloorImportRegion
 
-CAD model space에서 탐지한 선택 후보 영역을 import job 아래에 영속화한다. `regionId`는 같은 입력과 region 알고리즘 버전에서 재시도해도 유지되는 안정 ID이며, 실제 preview 이미지는 object storage에 둔다.
+CAD model space에서 탐지한 선택 후보 영역을 import job 아래에 영속화한다. `regionId`는 같은 입력과 region 알고리즘 버전에서 재시도해도 유지되는 안정 ID이며, 실제 preview 이미지는 object storage에 둔다. 최초 탐지의 region별 normalized candidate identity 집합은 정렬 후 canonical JSON을 SHA-256으로 해시해 보존하고, 선택 후 scene build 재실행의 detector assignment를 parent process에서 대조한다.
 
 | 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
 | --- | --- | --- | --- | --- |
@@ -738,11 +738,12 @@ CAD model space에서 탐지한 선택 후보 영역을 import job 아래에 영
 | `regionId` | `String` | 예 | `(jobId, regionId)` Unique, trim 길이 1~512 | job 안의 안정 region ID |
 | `minX`, `minY`, `maxX`, `maxY` | `Float` | 예 | 유한값, max > min | 원본 CAD 좌표계 bounds |
 | `primitiveCount` | `Int` | 예 | `1~500000` | 확장 후 region primitive 수 |
+| `candidateIdentityDigest` | `String?` | 아니오 | lowercase SHA-256 64 hex | 최초 탐지에서 해당 region에 배정된 normalized candidate identity 정렬 집합의 canonical digest. migration 이전 행만 `NULL`이며 selection-required job은 재가져오기 전 선택을 fail-close한다. |
 | `previewAssetId` | `String?` | 아니오 | Unique, FK -> `FloorAsset.id`, delete no action | 같은 층의 ready `cad_region_preview` 자산 |
 | `selectedAt` | `DateTime?` | 아니오 | job별 non-null partial Unique | 현재 job에서 선택한 region 시각 |
 | `createdAt`, `updatedAt` | `DateTime` | 예 | `now()`, `@updatedAt` | 생성·갱신 시각 |
 
-`FloorImportJob` 삭제는 region을 cascade 삭제하지만 preview asset은 남긴다. `FloorImportRegion_jobId_selected_key` partial unique index가 job마다 선택 region을 최대 하나로 제한한다. Region 쓰기는 preview asset 행을 `FOR UPDATE`로 먼저 잠그고, deferred constraint trigger는 preview가 source job과 같은 층의 ready `cad_region_preview`인지 region/asset/job 변경 양쪽에서 검증한다.
+`FloorImportJob` 삭제는 region을 cascade 삭제하지만 preview asset은 남긴다. `FloorImportRegion_jobId_selected_key` partial unique index가 job마다 선택 region을 최대 하나로 제한한다. Region 쓰기는 preview asset 행을 `FOR UPDATE`로 먼저 잠그고, deferred constraint trigger는 preview가 source job과 같은 층의 ready `cad_region_preview`인지 region/asset/job 변경 양쪽에서 검증한다. `20260919130000_add_floor_import_region_candidate_digest` migration은 기존 행을 백필하지 않고 nullable로 유지한다. worker가 새 최초 탐지 결과를 저장할 때 모든 region digest를 함께 기록하며, 단일 region 자동선택도 scene/candidate persistence transaction 안에서 같은 digest를 저장한다. 다중 region 선택 API는 하나라도 digest가 없으면 `re-import required`로 거부한다.
 
 ### FloorCadScene
 

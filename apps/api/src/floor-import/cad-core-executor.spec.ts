@@ -1,4 +1,5 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -175,6 +176,218 @@ describe("ChildProcessCadCoreExecutor", () => {
     }
   });
 
+  it.each([
+    ["more than 2,000 selected candidates", (manifest: ReturnType<typeof validArtifactManifest>) => {
+      manifest.selectedCandidates = Array.from({ length: 2_001 }, () => ({ ...manifest.selectedCandidates[0] }));
+    }],
+    ["a selected candidate outside the detected candidate subset", (manifest: ReturnType<typeof validArtifactManifest>) => {
+      manifest.selectedCandidates[0].sourceEntityId = "foreign-entity";
+    }],
+    ["a selected candidate outside the selected scene coordinates", (manifest: ReturnType<typeof validArtifactManifest>) => {
+      manifest.selectedCandidates[0].x = manifest.scene.width + 1;
+    }],
+    ["a candidate belonging to another detected region", (manifest: ReturnType<typeof validArtifactManifest>) => {
+      const otherCandidate = {
+        sourceEntityId: "other-region-light",
+        layerName: "LIGHT",
+        blockName: "LED",
+        x: 0.75,
+        y: 0.75,
+        rotation: 30,
+        confidence: 0.9,
+        method: "rule" as const,
+        sourcePosition: { x: 2_500, y: 450 }
+      };
+      manifest.candidates.push(otherCandidate);
+      manifest.regions.push({
+        regionId: "region-fedcba987654321001234567",
+        bounds: { minX: 2_000, minY: 0, maxX: 3_000, maxY: 900 },
+        primitiveCount: 4,
+        textCount: 0,
+        lightCandidateCount: 1,
+        area: 900_000
+      });
+      manifest.modelEntityCount = 8;
+      manifest.rendered.renderedOccurrences = 8;
+      manifest.candidateTransformMatch = {
+        candidateCount: 2,
+        matchedCount: 2,
+        matchRate: 1,
+        tolerancePx: 0.01,
+        maxDeltaPx: 0
+      };
+      manifest.candidateRegionAssignments.push({
+        sourceEntityId: otherCandidate.sourceEntityId,
+        regionId: manifest.regions[1].regionId
+      });
+      manifest.selectedCandidates[0] = { ...otherCandidate, x: 100, y: 100 };
+    }],
+    ["an in-bounds transformed selected candidate coordinate", (manifest: ReturnType<typeof validArtifactManifest>) => {
+      manifest.selectedCandidates[0].x += 1;
+      manifest.selectedCandidates[0].y -= 1;
+    }],
+    ["a transformed selected candidate rotation", (manifest: ReturnType<typeof validArtifactManifest>) => {
+      manifest.selectedCandidates[0].rotation += 15;
+    }],
+    ["an invalid selected candidate field", (manifest: ReturnType<typeof validArtifactManifest>) => {
+      manifest.selectedCandidates[0].confidence = 2;
+    }]
+  ])("rejects a malformed artifact child response containing %s", async (_caseName, mutate) => {
+    const root = await mkdtemp(join(tmpdir(), "cad-core-selected-candidates-"));
+    const child = join(root, "malformed-artifact.cjs");
+    const manifest = validArtifactManifest();
+    mutate(manifest);
+    const response = JSON.stringify({ ok: true, result: manifest });
+    await writeFile(child, `process.on("message", () => {
+      process.stdout.write(${JSON.stringify(response)}, () => process.exit(0));
+    });`);
+    try {
+      const executor = new ChildProcessCadCoreExecutor({ entryPath: child, maxOldSpaceMb: 32, timeoutMs: 5_000 });
+      await expect(executor.execute({
+        dxfPath: "unused",
+        renderedPath: "unused",
+        artifactDirectory: root,
+        jobId: "33333333-3333-4333-8333-333333333333",
+        selectedRegionId: manifest.regions[0].regionId,
+        expectedCandidateRegionDigests: Object.fromEntries(manifest.regions.map((region: { regionId: string }) => [
+          region.regionId,
+          candidateIdentityDigest(manifest.candidateRegionAssignments
+            .filter((assignment: { regionId: string }) => assignment.regionId === region.regionId)
+            .map((assignment: { sourceEntityId: string }) => assignment.sourceEntityId))
+        ])),
+        profileId: "generic-lighting-v1"
+      })).rejects.toThrow(/bounded manifest/i);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("accepts an occurrence-assigned candidate whose INSERT point is outside the selected region bounds", async () => {
+    const root = await mkdtemp(join(tmpdir(), "cad-core-occurrence-assignment-"));
+    const child = join(root, "occurrence-assignment.cjs");
+    const manifest = validArtifactManifest();
+    manifest.candidates[0].sourcePosition = { x: 1_700, y: 900 };
+    manifest.selectedCandidates[0].x = 425;
+    manifest.selectedCandidates[0].y = 256;
+    const response = JSON.stringify({ ok: true, result: manifest });
+    await writeFile(child, `process.on("message", () => {
+      process.stdout.write(${JSON.stringify(response)}, () => process.exit(0));
+    });`);
+    try {
+      const executor = new ChildProcessCadCoreExecutor({ entryPath: child, maxOldSpaceMb: 32, timeoutMs: 5_000 });
+      await expect(executor.execute({
+        dxfPath: "unused",
+        renderedPath: "unused",
+        artifactDirectory: root,
+        jobId: "33333333-3333-4333-8333-333333333333",
+        selectedRegionId: manifest.regions[0].regionId,
+        expectedCandidateRegionDigests: {
+          [manifest.regions[0].regionId]: candidateIdentityDigest([manifest.candidates[0].sourceEntityId])
+        },
+        profileId: "generic-lighting-v1"
+      })).resolves.toMatchObject({
+        selectedCandidates: [expect.objectContaining({ sourceEntityId: "selected-light", x: 425, y: 256 })]
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a selected-region execution without a parent canonical digest map", async () => {
+    const root = await mkdtemp(join(tmpdir(), "cad-core-missing-canonical-map-"));
+    const child = join(root, "missing-canonical-map.cjs");
+    const manifest = validArtifactManifest();
+    const response = JSON.stringify({ ok: true, result: manifest });
+    await writeFile(child, `process.on("message", () => {
+      process.stdout.write(${JSON.stringify(response)}, () => process.exit(0));
+    });`);
+    try {
+      const executor = new ChildProcessCadCoreExecutor({ entryPath: child, maxOldSpaceMb: 32, timeoutMs: 5_000 });
+      await expect(executor.execute({
+        dxfPath: "unused",
+        renderedPath: "unused",
+        artifactDirectory: root,
+        jobId: "33333333-3333-4333-8333-333333333333",
+        selectedRegionId: manifest.regions[0].regionId,
+        profileId: "generic-lighting-v1"
+      })).rejects.toThrow(/bounded manifest/i);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a coherent reassignment that disagrees with the parent canonical digest map", async () => {
+    const root = await mkdtemp(join(tmpdir(), "cad-core-canonical-assignment-"));
+    const child = join(root, "coherent-reassignment.cjs");
+    const manifest = validArtifactManifest();
+    const selectedRegionId = manifest.regions[0].regionId;
+    const otherRegionId = "region-fedcba987654321001234567";
+    const otherCandidate = {
+      sourceEntityId: "other-region-light",
+      layerName: "LIGHT",
+      blockName: "LED",
+      x: 0.75,
+      y: 0.75,
+      rotation: 30,
+      confidence: 0.9,
+      method: "rule" as const,
+      sourcePosition: { x: 2_500, y: 450 }
+    };
+    manifest.candidates.push(otherCandidate);
+    manifest.regions.push({
+      regionId: otherRegionId,
+      bounds: { minX: 2_000, minY: 0, maxX: 3_000, maxY: 900 },
+      primitiveCount: 4,
+      textCount: 0,
+      lightCandidateCount: 1,
+      area: 900_000
+    });
+    manifest.modelEntityCount = 8;
+    manifest.rendered.renderedOccurrences = 8;
+    manifest.candidateTransformMatch = {
+      candidateCount: 2,
+      matchedCount: 2,
+      matchRate: 1,
+      tolerancePx: 0.01,
+      maxDeltaPx: 0
+    };
+    manifest.candidateRegionAssignments.push({
+      sourceEntityId: otherCandidate.sourceEntityId,
+      regionId: otherRegionId
+    });
+    const expectedCandidateRegionDigests = {
+      [selectedRegionId]: candidateIdentityDigest([manifest.candidates[0].sourceEntityId]),
+      [otherRegionId]: candidateIdentityDigest([otherCandidate.sourceEntityId])
+    };
+
+    manifest.candidateRegionAssignments[0].regionId = otherRegionId;
+    manifest.regions[0].lightCandidateCount = 0;
+    manifest.regions[1].lightCandidateCount = 2;
+    manifest.selectedCandidates = [];
+    const response = JSON.stringify({ ok: true, result: manifest });
+    await writeFile(child, `process.on("message", request => {
+      const payload = Object.prototype.hasOwnProperty.call(request, "expectedCandidateRegionDigests")
+        ? JSON.stringify({ ok: false, code: "TRUSTED_DIGEST_MAP_LEAKED_TO_CHILD" })
+        : ${JSON.stringify(response)};
+      process.stdout.write(payload, () => process.exit(0));
+    });`);
+
+    try {
+      const executor = new ChildProcessCadCoreExecutor({ entryPath: child, maxOldSpaceMb: 32, timeoutMs: 5_000 });
+      await expect(executor.execute({
+        dxfPath: "unused",
+        renderedPath: "unused",
+        artifactDirectory: root,
+        jobId: "33333333-3333-4333-8333-333333333333",
+        selectedRegionId,
+        expectedCandidateRegionDigests,
+        profileId: "generic-lighting-v1"
+      })).rejects.toThrow(/bounded manifest/i);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("rejects duplicate or inconsistent region manifests", () => {
     const duplicate = validManifest();
     duplicate.regions = [duplicate.regions[0], duplicate.regions[0]];
@@ -278,4 +491,54 @@ function validManifest() {
       contentEncoding: "gzip" as const
     }
   };
+}
+
+function validArtifactManifest() {
+  const manifest: any = validManifest();
+  const candidate = {
+    sourceEntityId: "selected-light",
+    layerName: "LIGHT",
+    blockName: "LED",
+    x: 0.5,
+    y: 0.5,
+    rotation: 0,
+    confidence: 0.95,
+    method: "rule" as const,
+    sourcePosition: { x: 512, y: 900 }
+  };
+  manifest.modelEntityCount = 4;
+  manifest.candidates = [candidate];
+  manifest.regions[0].lightCandidateCount = 1;
+  manifest.candidateTransformMatch = {
+    candidateCount: 1,
+    matchedCount: 1,
+    matchRate: 1,
+    tolerancePx: 0.01,
+    maxDeltaPx: 0
+  };
+  return {
+    ...manifest,
+    selectedCandidates: [{ ...candidate, x: 128, y: 256 }],
+    candidateRegionAssignments: [{
+      sourceEntityId: candidate.sourceEntityId,
+      regionId: manifest.regions[0].regionId
+    }],
+    regionPreviews: [],
+    scene: {
+      sceneId: "11111111-1111-4111-8111-111111111111",
+      manifestAssetId: "22222222-2222-4222-8222-222222222222",
+      manifestFilename: "22222222-2222-4222-8222-222222222222.json",
+      manifestByteSize: 512,
+      manifestSha256: "d".repeat(64),
+      width: 512,
+      height: 512,
+      sourceBounds: { ...manifest.regions[0].bounds },
+      transform: { scaleX: 0.25, scaleY: -0.25, translateX: 0, translateY: 481 }
+    }
+  };
+}
+
+function candidateIdentityDigest(sourceEntityIds: string[]): string {
+  const identities = sourceEntityIds.map(value => value.normalize("NFKC").toUpperCase()).sort();
+  return createHash("sha256").update(JSON.stringify(identities), "utf8").digest("hex");
 }

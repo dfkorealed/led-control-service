@@ -4,6 +4,12 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { open, stat, unlink } from "node:fs/promises";
+import {
+  CAD_SCENE_MAX_MANIFEST_BYTES,
+  cadSceneManifestSchema,
+  type CadBounds,
+  type CadSceneManifest
+} from "@led-control/shared";
 
 export const OBJECT_STORAGE_CLIENT = Symbol("OBJECT_STORAGE_CLIENT");
 export const OBJECT_STORAGE_PRESIGN_CLIENT = Symbol("OBJECT_STORAGE_PRESIGN_CLIENT");
@@ -321,6 +327,160 @@ export class ObjectStorageService {
       throw new Error("rendered floor asset HEAD does not match its ledger");
     }
     return { width, height, contentEncoding } as { width: number; height: number; contentEncoding: "gzip" | null };
+  }
+
+  async readCadRegionPreviewMetadata(
+    objectKey: string,
+    expected: {
+      sizeBytes: number;
+      sha256: string;
+      regionId: string;
+      bounds: { minX: number; minY: number; maxX: number; maxY: number };
+    },
+    abortSignal?: AbortSignal
+  ) {
+    this.assertFloorObjectKey(objectKey);
+    if (!Number.isSafeInteger(expected.sizeBytes) || expected.sizeBytes < 1 ||
+        !/^[a-f0-9]{64}$/.test(expected.sha256)) {
+      throw new Error("CAD region preview ledger metadata is invalid");
+    }
+    const head = await this.client.send(
+      new HeadObjectCommand({ Bucket: this.options.bucket, Key: objectKey, ChecksumMode: "ENABLED" }),
+      { abortSignal: boundedAbortSignal(abortSignal, 4_000) }
+    );
+    const metadata = head.Metadata ?? {};
+    const width = Number(metadata["cad-width"]);
+    const height = Number(metadata["cad-height"]);
+    const textCount = Number(metadata["cad-text-count"]);
+    const lightCandidateCount = Number(metadata["cad-light-count"]);
+    const area = Number(metadata["cad-area"]);
+    const bounds = expected.bounds;
+    if (head.ContentLength !== expected.sizeBytes || head.ContentType !== "image/svg+xml" ||
+        head.ContentEncoding !== "gzip" ||
+        head.ChecksumSHA256 !== Buffer.from(expected.sha256, "hex").toString("base64") ||
+        metadata["cad-region-id"] !== expected.regionId ||
+        metadata["cad-min-x"] !== String(bounds.minX) || metadata["cad-min-y"] !== String(bounds.minY) ||
+        metadata["cad-max-x"] !== String(bounds.maxX) || metadata["cad-max-y"] !== String(bounds.maxY) ||
+        !validViewportDimension(width) || !validViewportDimension(height) ||
+        !Number.isSafeInteger(textCount) || textCount < 0 ||
+        !Number.isSafeInteger(lightCandidateCount) || lightCandidateCount < 0 ||
+        !Number.isFinite(area) || area <= 0 || area !== (bounds.maxX - bounds.minX) * (bounds.maxY - bounds.minY)) {
+      throw new Error("CAD region preview HEAD does not match its ledger");
+    }
+    return { width, height, textCount, lightCandidateCount, area };
+  }
+
+  async readCadSceneManifest(
+    objectKey: string,
+    expected: { sizeBytes: number; sha256: string },
+    abortSignal?: AbortSignal
+  ): Promise<CadSceneManifest> {
+    this.assertFloorObjectKey(objectKey);
+    if (!Number.isSafeInteger(expected.sizeBytes) || expected.sizeBytes < 1 ||
+        expected.sizeBytes > CAD_SCENE_MAX_MANIFEST_BYTES || !/^[a-f0-9]{64}$/.test(expected.sha256)) {
+      throw new Error("CAD scene manifest ledger metadata is invalid");
+    }
+    const result = await this.client.send(
+      new GetObjectCommand({ Bucket: this.options.bucket, Key: objectKey, ChecksumMode: "ENABLED" }),
+      { abortSignal: boundedAbortSignal(abortSignal, 10_000) }
+    );
+    if (!result.Body || result.ContentLength !== expected.sizeBytes || result.ContentType !== "application/json" ||
+        result.ContentEncoding !== undefined ||
+        result.ChecksumSHA256 !== Buffer.from(expected.sha256, "hex").toString("base64")) {
+      throw new Error("CAD scene manifest object does not match its ledger");
+    }
+    const chunks: Buffer[] = [];
+    const hash = createHash("sha256");
+    let sizeBytes = 0;
+    for await (const value of result.Body as AsyncIterable<Uint8Array | string>) {
+      const chunk = typeof value === "string" ? Buffer.from(value) : Buffer.from(value);
+      sizeBytes += chunk.length;
+      if (sizeBytes > expected.sizeBytes || sizeBytes > CAD_SCENE_MAX_MANIFEST_BYTES) {
+        throw new Error("CAD scene manifest byte limit exceeded");
+      }
+      hash.update(chunk);
+      chunks.push(chunk);
+    }
+    if (sizeBytes !== expected.sizeBytes || hash.digest("hex") !== expected.sha256) {
+      throw new Error("CAD scene manifest bytes do not match its ledger");
+    }
+    let parsed: unknown;
+    try { parsed = JSON.parse(Buffer.concat(chunks, sizeBytes).toString("utf8")); }
+    catch { throw new Error("CAD scene manifest JSON is invalid"); }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("CAD scene manifest JSON is invalid");
+    }
+    return cadSceneManifestSchema.parse({ ...parsed, byteSize: expected.sizeBytes, sha256: expected.sha256 });
+  }
+
+  async putCadSceneObjectFile(
+    objectKey: string,
+    inputPath: string,
+    expected: {
+      sizeBytes: number;
+      sha256: string;
+      contentType: string;
+      contentEncoding?: "gzip";
+      metadata?: Record<string, string>;
+    },
+    abortSignal?: AbortSignal
+  ): Promise<void> {
+    this.assertFloorObjectKey(objectKey);
+    const file = await stat(inputPath);
+    if (!file.isFile() || file.size !== expected.sizeBytes || file.size < 1 ||
+        !/^[a-f0-9]{64}$/.test(expected.sha256)) {
+      throw new Error("CAD scene file does not match its ledger");
+    }
+    const hash = createHash("sha256");
+    for await (const chunk of createReadStream(inputPath)) hash.update(chunk);
+    if (hash.digest("hex") !== expected.sha256) throw new Error("CAD scene file checksum does not match its ledger");
+    await this.client.send(new PutObjectCommand({
+      Bucket: this.options.bucket,
+      Key: objectKey,
+      Body: createReadStream(inputPath),
+      ContentType: expected.contentType,
+      ...(expected.contentEncoding ? { ContentEncoding: expected.contentEncoding } : {}),
+      ContentLength: expected.sizeBytes,
+      ChecksumSHA256: Buffer.from(expected.sha256, "hex").toString("base64"),
+      CacheControl: "private, no-store",
+      ...(expected.metadata ? { Metadata: expected.metadata } : {})
+    }), { abortSignal: boundedAbortSignal(abortSignal, 10_000) });
+  }
+
+  async verifyCadSceneObject(
+    objectKey: string,
+    expected: {
+      sizeBytes: number;
+      sha256: string;
+      contentType: string;
+      contentEncoding?: "gzip";
+      bounds?: CadBounds;
+      metadata?: Record<string, string>;
+    },
+    abortSignal?: AbortSignal
+  ): Promise<void> {
+    this.assertFloorObjectKey(objectKey);
+    if (!Number.isSafeInteger(expected.sizeBytes) || expected.sizeBytes < 1 ||
+        !/^[a-f0-9]{64}$/.test(expected.sha256)) throw new Error("CAD scene object ledger metadata is invalid");
+    const head = await this.client.send(
+      new HeadObjectCommand({ Bucket: this.options.bucket, Key: objectKey, ChecksumMode: "ENABLED" }),
+      { abortSignal: boundedAbortSignal(abortSignal, 4_000) }
+    );
+    const metadata = head.Metadata ?? {};
+    if (head.ContentLength !== expected.sizeBytes || head.ContentType !== expected.contentType ||
+        head.ContentEncoding !== expected.contentEncoding ||
+        head.ChecksumSHA256 !== Buffer.from(expected.sha256, "hex").toString("base64")) {
+      throw new Error("CAD scene object HEAD does not match its ledger");
+    }
+    if (expected.bounds && (
+      metadata["cad-min-x"] !== String(expected.bounds.minX) ||
+      metadata["cad-min-y"] !== String(expected.bounds.minY) ||
+      metadata["cad-max-x"] !== String(expected.bounds.maxX) ||
+      metadata["cad-max-y"] !== String(expected.bounds.maxY)
+    )) throw new Error("CAD scene tile bounds do not match its ledger");
+    if (expected.metadata && Object.entries(expected.metadata).some(([key, value]) => metadata[key] !== value)) {
+      throw new Error("CAD scene object metadata does not match its ledger");
+    }
   }
 
   private validateUpload(input: { mimeType: string; sizeBytes: number; sha256: string }) {
