@@ -868,7 +868,7 @@ Run when its documented disposable services are available: `pnpm --filter @led-c
 
 Expected: all non-opt-in checks exit 0; opt-in integration reports its explicit skip reason or passes.
 
-Result on 2026-09-18: the feature-focused API/Gateway/Web/Chromium/PostgreSQL/Mosquitto suites pass. The canonical root matrix remains non-green because the base branch already has the documented CAD `confirmMapReset` compile/test failures and the CI cgroup expectation mismatch; these are not counted as feature successes.
+Result on 2026-09-18: the feature-focused API/Gateway/Web/Chromium/PostgreSQL/Mosquitto suites pass. After integrating the latest target branch and correcting its stale CAD spool, large SVG timeout, UI route timeout, development preflight ordering, and production cgroup test expectations, the canonical `pnpm test`, `pnpm lint`, `pnpm typecheck`, and `pnpm build` matrix also passes. Physical two-fixture HIL remains intentionally pending for the user to run.
 
 - [ ] **Step 7: Run physical two-fixture HIL when equipment is attached**
 
