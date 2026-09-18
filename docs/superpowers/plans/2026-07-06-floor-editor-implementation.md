@@ -12,7 +12,7 @@
 
 ## 2026-09-18 CAD 맵 교체·슬롯 배치 활성 계획
 
-상태: 구현 진행 중. Task 5 원자적 맵 초기화와 슬롯 생성까지 완료했다. 이 절이 현재 활성 체크리스트이며 아래 `2026-09-09 대량 배치 실행 계획`은 완료된 과거 이력이다.
+상태: 구현 진행 중. Task 6 적용 경고 dialog와 슬롯 배치 UX까지 완료했다. 이 절이 현재 활성 체크리스트이며 아래 `2026-09-09 대량 배치 실행 계획`은 완료된 과거 이력이다.
 
 ### 전역 제약
 
@@ -331,7 +331,7 @@ git commit -m "feat(cad): replace maps atomically on import"
 - 생성: `assignFixtureToSlot(fixtureId, slotId)`와 `unassignFixture(fixtureId)` store command.
 - `CadImportPanel`은 apply 전 reset summary dialog를 열고 확인 시에만 `confirmMapReset: true`를 전송한다.
 
-- [ ] **Step 1: dialog 취소/확인과 slot assignment 실패 테스트 작성**
+- [x] **Step 1: dialog 취소/확인과 slot assignment 실패 테스트 작성**
 
 ```tsx
 fireEvent.click(screen.getByRole("button", { name: "선택한 후보와 배경 적용" }));
@@ -346,23 +346,23 @@ expect(store.state.fixtures[0]).toMatchObject({ placementStatus: "placed", x: sl
 expect(store.state.lightSlots[0].assignedFixtureId).toBe(fixtureId);
 ```
 
-- [ ] **Step 2: Web 테스트 실패 확인**
+- [x] **Step 2: Web 테스트 실패 확인**
 
 Run: `pnpm --filter @led-control/web test -- editor-store.test.ts CadImportPanel.test.tsx FloorEditorView.test.tsx`
 
 Expected: reset dialog와 slot store command가 없어 실패.
 
-- [ ] **Step 3: slot layer, drag highlight, exact snap과 unassign 구현**
+- [x] **Step 3: slot layer, drag highlight, exact snap과 unassign 구현**
 
 미할당 slot만 hollow marker로 표시하고 drag pointer가 slot hit radius 안에 들어오면 강조한다. drop은 slot 좌표/rotation을 정확히 사용한다. 이미 할당된 slot이나 다른 fixture가 사용 중인 slot은 거부한다. slot 밖 drop은 기존 자유 배치를 유지한다.
 
-- [ ] **Step 4: 단위·컴포넌트 테스트 실행**
+- [x] **Step 4: 단위·컴포넌트 테스트 실행**
 
 Run: `pnpm --filter @led-control/web test -- editor-store.test.ts CadPlacementSlotLayer.test.tsx CadImportPanel.test.tsx FloorEditorView.test.tsx`
 
 Expected: dialog focus/Escape/취소/확인, slot 중복 차단, 배치 해제 재개방 통과.
 
-- [ ] **Step 5: 설정 문서 갱신과 커밋**
+- [x] **Step 5: 설정 문서 갱신과 커밋**
 
 ```bash
 git add apps/web/src/features/floor-editor apps/web/src/api/floor-editor.ts
