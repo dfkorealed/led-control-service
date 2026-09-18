@@ -388,7 +388,7 @@ git commit -m "feat(editor): place fixtures onto cad slots"
 - 생성: `buildEditorSpatialIndex(items, cellSize)`와 `queryEditorSpatialIndex(index, bounds, margin)`.
 - 생성: `useFloorPlanImage(url): { image; status: "idle" | "loading" | "ready" | "error"; retry }`.
 
-- [ ] **Step 1: culling, image reuse와 decode error 회귀 작성**
+- [x] **Step 1: culling, image reuse와 decode error 회귀 작성**
 
 ```ts
 const visible = queryEditorSpatialIndex(index, { x: 0, y: 0, width: 500, height: 300 }, 80);
@@ -402,23 +402,23 @@ fireEvent.error(createdImage);
 expect(screen.getByText("CAD 도면을 표시하지 못했습니다.")).toBeInTheDocument();
 ```
 
-- [ ] **Step 2: 최적화 회귀 실패 확인**
+- [x] **Step 2: 최적화 회귀 실패 확인**
 
 Run: `pnpm --filter @led-control/web test -- editor-spatial-index.test.ts use-floor-plan-image.test.tsx FloorEditorView.test.tsx`
 
 Expected: spatial index/hook이 없어 실패.
 
-- [ ] **Step 3: layer 분리, viewport culling, LOD와 rAF commit 구현**
+- [x] **Step 3: layer 분리, viewport culling, LOD와 rAF commit 구현**
 
 CAD background/grid는 non-listening static layer로 유지한다. fixture/slot은 spatial query 결과만 렌더하고 zoom 임계값 아래에서 label/stroke detail을 숨긴다. pointer move는 requestAnimationFrame으로 합치고 drag end에만 Zustand draft를 갱신한다. fixture 목록은 기존 window 계산을 1,000개 기준으로 고정한다.
 
-- [ ] **Step 4: 1,000 fixture/2,000 slot 브라우저 성능 테스트 실행**
+- [x] **Step 4: 1,000 fixture/2,000 slot 브라우저 성능 테스트 실행**
 
 Run: `pnpm --filter @led-control/web exec playwright test e2e/floor-placement.spec.ts --project=chromium --workers=1`
 
 Expected: warm 준비 p95 ≤ 3,000ms, frame p95 ≤ 33ms, drag commit p95 ≤ 100ms이고 background image 생성 횟수가 URL당 1회.
 
-- [ ] **Step 5: 설정 문서에 측정 환경과 결과 기록 후 커밋**
+- [x] **Step 5: 설정 문서에 측정 환경과 결과 기록 후 커밋**
 
 ```bash
 git add apps/web/src/features/floor-editor apps/web/e2e/floor-placement.spec.ts
