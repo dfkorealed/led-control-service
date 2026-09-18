@@ -4,6 +4,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import {
   parseEnvFile,
   publishMosquittoAcl,
@@ -20,6 +21,20 @@ import {
   reloadExistingDevelopmentBroker
 } from "./dev-broker.mjs";
 import { prepareDevelopmentRuntime, resolveDevelopmentCadEnvironment } from "./dev-prepare.mjs";
+
+const currentLabEnvironment = {
+  PKI_ENV: "lab",
+  LAB_API_IP: "172.30.1.13",
+  LAB_MQTT_IP: "172.30.1.13",
+  VITE_API_PROXY_TARGET: "https://172.30.1.13:4000",
+  MQTT_URL: "mqtts://172.30.1.13:8883",
+  MQTT_PUBLIC_URL: "mqtts://172.30.1.13:8883"
+};
+
+const currentLabNetwork = {
+  localAddresses: ["127.0.0.1", "172.30.1.13"],
+  resolveHostname: async (hostname) => [hostname]
+};
 
 test("루트 env 파일의 주석, 따옴표, 빈 값을 안전하게 읽는다", () => {
   assert.deepEqual(parseEnvFile('# comment\nAPI_PORT=4000\nDATABASE_URL="postgres://local/db"\nEMPTY=\n'), {
@@ -76,7 +91,8 @@ test("Lab 개발 시작은 현재 host에 없는 stale service IP를 거부한�
       LAB_API_IP: "172.30.1.2",
       LAB_MQTT_IP: "172.30.1.2",
       VITE_API_PROXY_TARGET: "https://172.30.1.2:4000",
-      MQTT_URL: "mqtts://172.30.1.2:8883"
+      MQTT_URL: "mqtts://172.30.1.2:8883",
+      MQTT_PUBLIC_URL: "mqtts://172.30.1.2:8883"
     }, {
       localAddresses: ["127.0.0.1", "172.30.1.13"],
       resolveHostname: async () => []
@@ -92,7 +108,8 @@ test("Lab 개발 시작은 service IP와 다른 Vite proxy target을 거부한�
       LAB_API_IP: "172.30.1.13",
       LAB_MQTT_IP: "172.30.1.13",
       VITE_API_PROXY_TARGET: "https://172.30.1.2:4000",
-      MQTT_URL: "mqtts://172.30.1.13:8883"
+      MQTT_URL: "mqtts://172.30.1.13:8883",
+      MQTT_PUBLIC_URL: "mqtts://172.30.1.13:8883"
     }, {
       localAddresses: ["127.0.0.1", "172.30.1.13"],
       resolveHostname: async (hostname) => [hostname]
@@ -102,16 +119,187 @@ test("Lab 개발 시작은 service IP와 다른 Vite proxy target을 거부한�
 });
 
 test("Lab 개발 시작은 current service IP와 일치하는 IP endpoints를 허용한다", async () => {
-  await assert.doesNotReject(() => validateLabNetworkConfiguration({
-    PKI_ENV: "lab",
-    LAB_API_IP: "172.30.1.13",
-    LAB_MQTT_IP: "172.30.1.13",
-    VITE_API_PROXY_TARGET: "https://172.30.1.13:4000",
-    MQTT_URL: "mqtts://172.30.1.13:8883"
-  }, {
-    localAddresses: ["127.0.0.1", "172.30.1.13"],
-    resolveHostname: async (hostname) => [hostname]
+  await assert.doesNotReject(() => validateLabNetworkConfiguration(currentLabEnvironment, currentLabNetwork));
+});
+
+test("Lab 개발 시작은 Vite proxy의 wrong 또는 missing non-default API port를 거부한다", async () => {
+  for (const target of ["https://172.30.1.13:4001", "https://172.30.1.13"]) {
+    await assert.rejects(
+      () => validateLabNetworkConfiguration({
+        ...currentLabEnvironment,
+        VITE_API_PROXY_TARGET: target
+      }, currentLabNetwork),
+      /VITE_API_PROXY_TARGET.*port.*4000/i
+    );
+  }
+});
+
+test("Lab 개발 시작은 API_PORT와 다른 Vite proxy port를 거부한다", async () => {
+  await assert.rejects(
+    () => validateLabNetworkConfiguration({
+      ...currentLabEnvironment,
+      API_PORT: "4400"
+    }, currentLabNetwork),
+    /VITE_API_PROXY_TARGET.*port.*4400/i
+  );
+});
+
+test("Lab 개발 시작은 MQTT endpoints의 wrong 또는 missing 8883 port를 거부한다", async () => {
+  for (const [name, value] of [
+    ["MQTT_URL", "mqtts://172.30.1.13:8884"],
+    ["MQTT_URL", "mqtts://172.30.1.13"],
+    ["MQTT_PUBLIC_URL", "mqtts://172.30.1.13:8884"],
+    ["MQTT_PUBLIC_URL", "mqtts://172.30.1.13"]
+  ]) {
+    await assert.rejects(
+      () => validateLabNetworkConfiguration({
+        ...currentLabEnvironment,
+        [name]: value
+      }, currentLabNetwork),
+      new RegExp(`${name}.*port.*8883`, "i")
+    );
+  }
+});
+
+test("Lab 개발 시작은 missing 또는 blank MQTT_PUBLIC_URL을 거부한다", async () => {
+  const { MQTT_PUBLIC_URL: _omitted, ...missingPublicUrl } = currentLabEnvironment;
+  for (const environment of [missingPublicUrl, { ...currentLabEnvironment, MQTT_PUBLIC_URL: "  " }]) {
+    await assert.rejects(
+      () => validateLabNetworkConfiguration(environment, currentLabNetwork),
+      /MQTT_PUBLIC_URL.*required/i
+    );
+  }
+});
+
+test("Lab 개발 시작은 API 설정이 정상이어도 stale MQTT_URL을 독립적으로 거부한다", async () => {
+  await assert.rejects(
+    () => validateLabNetworkConfiguration({
+      ...currentLabEnvironment,
+      MQTT_URL: "mqtts://172.30.1.2:8883"
+    }, currentLabNetwork),
+    /MQTT_URL.*LAB_MQTT_IP 172\.30\.1\.13/i
+  );
+});
+
+test("Lab 개발 시작은 API 설정이 정상이어도 stale MQTT_PUBLIC_URL을 독립적으로 거부한다", async () => {
+  await assert.rejects(
+    () => validateLabNetworkConfiguration({
+      ...currentLabEnvironment,
+      MQTT_PUBLIC_URL: "mqtts://172.30.1.2:8883"
+    }, currentLabNetwork),
+    /MQTT_PUBLIC_URL.*LAB_MQTT_IP 172\.30\.1\.13/i
+  );
+});
+
+test("Lab 개발 시작은 expected IP와 stale IP가 함께 반환되는 mixed DNS를 거부한다", async () => {
+  await assert.rejects(
+    () => validateLabNetworkConfiguration({
+      ...currentLabEnvironment,
+      VITE_API_PROXY_TARGET: "https://api.led.lan:4000"
+    }, {
+      ...currentLabNetwork,
+      resolveHostname: async () => ["172.30.1.13", "172.30.1.2", "172.30.1.13"]
+    }),
+    /VITE_API_PROXY_TARGET.*only.*172\.30\.1\.13/i
+  );
+});
+
+test("Lab 개발 시작은 issuer가 지원하지 않는 IPv6 service IP를 거부한다", async () => {
+  await assert.rejects(
+    () => validateLabNetworkConfiguration({
+      ...currentLabEnvironment,
+      LAB_API_IP: "::1",
+      VITE_API_PROXY_TARGET: "https://api.led.lan:4000"
+    }, {
+      localAddresses: ["127.0.0.1", "172.30.1.13", "::1"],
+      resolveHostname: async () => ["::1"]
+    }),
+    /LAB_API_IP.*IPv4/i
+  );
+});
+
+test("standalone Lab network preflight는 env를 검증하되 filesystem을 변경하지 않는다", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "led-control-network-preflight-"));
+  const sentinelPath = join(directory, "sentinel.txt");
+  writeFileSync(join(directory, ".env"), Object.entries(currentLabEnvironment)
+    .map(([name, value]) => `${name}=${value}`)
+    .join("\n"));
+  writeFileSync(sentinelPath, "unchanged\n");
+  const beforeEntries = readdirSync(directory).sort();
+
+  try {
+    const { runDevelopmentNetworkPreflight } = await import("./dev-network-preflight.mjs");
+    const sourceEnvironment = await runDevelopmentNetworkPreflight({
+      root: directory,
+      processEnvironment: {},
+      listNetworkInterfaces: () => ({
+        en0: [{ address: "172.30.1.13", family: "IPv4", internal: false }]
+      }),
+      resolveHostname: async (hostname) => [hostname]
+    });
+
+    assert.equal(sourceEnvironment.VITE_API_PROXY_TARGET, currentLabEnvironment.VITE_API_PROXY_TARGET);
+    assert.equal(readFileSync(sentinelPath, "utf8"), "unchanged\n");
+    assert.deepEqual(readdirSync(directory).sort(), beforeEntries);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("root dev scripts는 build, dev:prepare, docker보다 먼저 read-only network preflight를 실행한다", () => {
+  const directory = mkdtempSync(join(tmpdir(), "led-control-preflight-order-"));
+  const fakeBin = join(directory, "bin");
+  const sentinelPath = join(directory, "mutation-sentinel");
+  const fakePnpm = join(fakeBin, "pnpm");
+  const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
+  const packageRunner = spawnSync("/bin/sh", ["-c", "command -v npm"], { encoding: "utf8" }).stdout.trim();
+  const repositoryPackage = JSON.parse(readFileSync(join(repositoryRoot, "package.json"), "utf8"));
+  mkdirSync(fakeBin);
+  writeFileSync(join(directory, "package.json"), JSON.stringify({
+    name: "dev-preflight-order-fixture",
+    private: true,
+    scripts: repositoryPackage.scripts
   }));
+  writeFileSync(fakePnpm, [
+    "#!/bin/sh",
+    'if [ "$1" = "dev:network-preflight" ]; then',
+    '  exec "$NODE_BINARY" "$REPOSITORY_ROOT/scripts/dev-network-preflight.mjs"',
+    "fi",
+    ': > "$MUTATION_SENTINEL"',
+    "exit 42",
+    ""
+  ].join("\n"));
+  chmodSync(fakePnpm, 0o755);
+
+  try {
+    assert.notEqual(packageRunner, "", "npm must be available for package script ordering tests");
+    for (const scriptName of ["dev", "dev:local"]) {
+      rmSync(sentinelPath, { force: true });
+      const result = spawnSync(packageRunner, ["run", scriptName], {
+        cwd: directory,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
+          NODE_BINARY: process.execPath,
+          REPOSITORY_ROOT: repositoryRoot,
+          MUTATION_SENTINEL: sentinelPath,
+          PKI_ENV: "lab",
+          LAB_API_IP: "198.51.100.7",
+          LAB_MQTT_IP: "198.51.100.7",
+          VITE_API_PROXY_TARGET: "https://198.51.100.7:4000",
+          MQTT_URL: "mqtts://198.51.100.7:8883",
+          MQTT_PUBLIC_URL: "mqtts://198.51.100.7:8883"
+        }
+      });
+
+      assert.notEqual(result.status, 0, `${scriptName} should stop on a stale Lab address`);
+      assert.match(`${result.stdout}\n${result.stderr}`, /LAB_API_IP 198\.51\.100\.7.*current host/i);
+      assert.equal(existsSync(sentinelPath), false, `${scriptName} ran a mutating command before preflight`);
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("개발 환경은 미설정 mTLS 값에만 기존 로컬 PKI 기본값을 사용한다", () => {
@@ -696,11 +884,11 @@ test("기본 pnpm dev는 실제 장비 시험을 위해 mock gateway를 실행�
   assert.deepEqual(resolveDevAppFilters([]), ["@led-control/api", "@led-control/web"]);
 });
 
-test("통합 로컬 개발 명령은 ACL prepare를 Docker 시작보다 먼저 완료한다", () => {
+test("통합 로컬 개발 명령은 network preflight와 ACL prepare를 Docker 시작보다 먼저 완료한다", () => {
   const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
   const developmentSource = readFileSync(new URL("./dev.mjs", import.meta.url), "utf8");
 
-  assert.equal(packageJson.scripts["dev:local"], "pnpm dev:prepare && pnpm docker:up && pnpm dev");
+  assert.equal(packageJson.scripts["dev:local"], "pnpm dev:network-preflight && pnpm dev:prepare && pnpm docker:up && pnpm dev");
   assert.equal(packageJson.scripts["dev:prepare"], "node scripts/dev-prepare.mjs");
   assert.match(packageJson.scripts.dev, /node scripts\/dev\.mjs/);
   assert.match(developmentSource, /prepareDevelopmentRuntime\(root, sourceEnv\)/);

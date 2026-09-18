@@ -62,6 +62,8 @@ export async function validateLabNetworkConfiguration(source, { localAddresses, 
 
   const apiIp = requiredLabIp(source.LAB_API_IP, "LAB_API_IP");
   const mqttIp = requiredLabIp(source.LAB_MQTT_IP, "LAB_MQTT_IP");
+  const apiPort = requiredPort(source.API_PORT?.trim() || "4000", "API_PORT");
+  if (!source.MQTT_PUBLIC_URL?.trim()) throw new Error("MQTT_PUBLIC_URL is required in Lab mode.");
   const currentAddresses = new Set(localAddresses);
   for (const [name, address] of [["LAB_API_IP", apiIp], ["LAB_MQTT_IP", mqttIp]]) {
     if (!currentAddresses.has(address)) {
@@ -75,28 +77,36 @@ export async function validateLabNetworkConfiguration(source, { localAddresses, 
     "https:",
     apiIp,
     "LAB_API_IP",
+    apiPort,
     resolveHostname
   );
-  await requireEndpointAddress(source.MQTT_URL, "MQTT_URL", "mqtts:", mqttIp, "LAB_MQTT_IP", resolveHostname);
-  if (source.MQTT_PUBLIC_URL?.trim()) {
-    await requireEndpointAddress(
-      source.MQTT_PUBLIC_URL,
-      "MQTT_PUBLIC_URL",
-      "mqtts:",
-      mqttIp,
-      "LAB_MQTT_IP",
-      resolveHostname
-    );
-  }
+  await requireEndpointAddress(source.MQTT_URL, "MQTT_URL", "mqtts:", mqttIp, "LAB_MQTT_IP", 8883, resolveHostname);
+  await requireEndpointAddress(
+    source.MQTT_PUBLIC_URL,
+    "MQTT_PUBLIC_URL",
+    "mqtts:",
+    mqttIp,
+    "LAB_MQTT_IP",
+    8883,
+    resolveHostname
+  );
 }
 
 function requiredLabIp(value, name) {
   const address = value?.trim();
-  if (!address || isIP(address) === 0) throw new Error(`${name} must be a valid IP address in Lab mode.`);
+  if (!address || isIP(address) !== 4) throw new Error(`${name} must be a valid IPv4 address in Lab mode.`);
   return address;
 }
 
-async function requireEndpointAddress(value, name, protocol, expectedIp, expectedName, resolveHostname) {
+function requiredPort(value, name) {
+  const port = Number(value);
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new Error(`${name} must be a valid TCP port in Lab mode.`);
+  }
+  return port;
+}
+
+async function requireEndpointAddress(value, name, protocol, expectedIp, expectedName, expectedPort, resolveHostname) {
   let url;
   try {
     url = new URL(value?.trim() ?? "");
@@ -104,10 +114,17 @@ async function requireEndpointAddress(value, name, protocol, expectedIp, expecte
     throw new Error(`${name} must be a valid ${protocol}// URL in Lab mode.`);
   }
   if (url.protocol !== protocol) throw new Error(`${name} must use ${protocol}// in Lab mode.`);
+  const defaultPort = url.protocol === "https:" ? 443 : url.protocol === "http:" ? 80 : undefined;
+  const actualPort = url.port ? Number(url.port) : defaultPort;
+  if (actualPort !== expectedPort) {
+    throw new Error(`${name} port must equal ${expectedPort} in Lab mode.`);
+  }
 
   let addresses;
-  if (isIP(url.hostname) !== 0) {
+  if (isIP(url.hostname) === 4) {
     addresses = [url.hostname];
+  } else if (isIP(url.hostname.replace(/^\[|\]$/g, "")) !== 0) {
+    throw new Error(`${name} must use an IPv4 address or DNS name in Lab mode.`);
   } else {
     try {
       addresses = await resolveHostname(url.hostname);
@@ -115,8 +132,9 @@ async function requireEndpointAddress(value, name, protocol, expectedIp, expecte
       throw new Error(`${name} hostname ${url.hostname} could not be resolved in Lab mode.`);
     }
   }
-  if (!addresses.includes(expectedIp)) {
-    throw new Error(`${name} must resolve to ${expectedName} ${expectedIp} in Lab mode.`);
+  const uniqueAddresses = [...new Set(addresses.map((address) => address.trim()))];
+  if (uniqueAddresses.length === 0 || uniqueAddresses.some((address) => isIP(address) !== 4 || address !== expectedIp)) {
+    throw new Error(`${name} must resolve only to ${expectedName} ${expectedIp} in Lab mode.`);
   }
 }
 

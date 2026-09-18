@@ -127,6 +127,8 @@ pnpm --filter @led-control/api auth:bootstrap-operator
 
 생성된 환경을 현재 shell에 export한 뒤 개발 서버를 실행한다.
 
+이 저장소의 로컬 `pnpm dev`는 API와 MQTT broker를 같은 개발 Mac에서 소유하는 co-located Lab 계약이다. 따라서 Lab mode에서는 `LAB_API_IP`와 `LAB_MQTT_IP`가 모두 현재 Mac에 할당된 IPv4여야 하고, `VITE_API_PROXY_TARGET`은 `API_PORT`(미설정 시 `4000`), `MQTT_URL`과 필수 `MQTT_PUBLIC_URL`은 명시적인 `8883` 포트를 사용해야 한다. DNS 이름을 쓰면 모든 IPv4 A record가 해당 Lab IP 하나와 일치해야 하며 stale/current 혼합 응답도 실패한다. `pnpm dev:network-preflight`는 파일을 쓰지 않고 이 계약을 검사하며, `pnpm dev`는 build 전에, `pnpm dev:local`은 `dev:prepare`와 Docker 실행 전에 이를 호출한다. `scripts/dev.mjs`도 실제 service mutation 직전에 다시 검사한다. 이 제약은 로컬 Lab launcher에만 적용되며 외부 broker를 사용하는 production 또는 split-host PKI 배포 계약은 변경하지 않는다.
+
 ```bash
 set -a
 . .local/lab-pki/lab.env
