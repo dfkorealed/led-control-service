@@ -12,7 +12,7 @@
 
 ## 2026-09-18 CAD 맵 교체·슬롯 배치 활성 계획
 
-상태: 구현 진행 중. Task 2 이미지 신규 업로드 제거와 CAD 자산 경계까지 완료했다. 이 절이 현재 활성 체크리스트이며 아래 `2026-09-09 대량 배치 실행 계획`은 완료된 과거 이력이다.
+상태: 구현 진행 중. Task 3 CAD 진행률과 완료 상태 복구까지 완료했다. 이 절이 현재 활성 체크리스트이며 아래 `2026-09-09 대량 배치 실행 계획`은 완료된 과거 이력이다.
 
 ### 전역 제약
 
@@ -171,7 +171,7 @@ git commit -m "refactor(editor): remove image floor uploads"
 - 생성: `cadImportStageSchema`와 `cadImportStageLabel(stage)`.
 - Web polling은 terminal 상태 전까지 1초 간격이며 `updatedAt`을 effect dependency로 사용하지 않는다.
 
-- [ ] **Step 1: 진행률 단조 증가와 100% 완료 표시 회귀 작성**
+- [x] **Step 1: 진행률 단조 증가와 100% 완료 표시 회귀 작성**
 
 ```ts
 expect(progressUpdates.map(({ progressPercent }) => progressPercent)).toEqual([15, 35, 70, 90, 100]);
@@ -182,23 +182,23 @@ expect(screen.getByRole("progressbar", { name: "CAD 가져오기 진행률" })).
 expect(screen.getByText("분석 완료 · 조명 위치 후보를 불러오는 중")).toBeInTheDocument();
 ```
 
-- [ ] **Step 2: 테스트 실패 확인**
+- [x] **Step 2: 테스트 실패 확인**
 
 Run: `pnpm --filter @led-control/api test -- floor-import-worker.service.spec.ts --runInBand && pnpm --filter @led-control/web test -- CadImportPanel.test.tsx`
 
 Expected: review 상태에서 progress UI가 사라져 실패.
 
-- [ ] **Step 3: 고정 polling loop와 완료 전환 구현**
+- [x] **Step 3: 고정 polling loop와 완료 전환 구현**
 
 `CadImportPanel`은 `jobId/status/error`만으로 timer를 관리하고, candidate fetch 동안 `reviewLoadingJobId`를 유지한다. 실패한 polling은 기존 job/progress를 보존한 채 `다시 확인`으로 재개한다.
 
-- [ ] **Step 4: polling cleanup·새로고침 복구 테스트 실행**
+- [x] **Step 4: polling cleanup·새로고침 복구 테스트 실행**
 
 Run: `pnpm --filter @led-control/web test -- CadImportPanel.test.tsx && pnpm --filter @led-control/api test -- floor-import-worker.service.spec.ts --runInBand`
 
 Expected: queued → processing → 100% loading → review 전환과 unmount cleanup 통과.
 
-- [ ] **Step 5: 문서 갱신과 커밋**
+- [x] **Step 5: 문서 갱신과 커밋**
 
 ```bash
 git add packages/shared/src/cad-import-contracts.ts apps/api/src/floor-import/floor-import-worker.service* apps/web/src/features/floor-editor/CadImportPanel*
