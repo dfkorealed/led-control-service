@@ -106,6 +106,109 @@ function renderEditor(state: FloorEditorState = editorState, props?: Partial<Par
 }
 
 describe("FloorEditorView", () => {
+  it("shows a retryable CAD background error without recreating the image on selection changes", async () => {
+    const images: Array<{ onload: null | (() => void); onerror: null | (() => void); src: string; decode: ReturnType<typeof vi.fn> }> = [];
+    class FailingImage {
+      onload: null | (() => void) = null;
+      onerror: null | (() => void) = null;
+      src = "";
+      decode = vi.fn(async () => undefined);
+      constructor() { images.push(this); }
+    }
+    vi.stubGlobal("Image", FailingImage);
+    renderEditor();
+
+    act(() => useFloorEditorStore.getState().selectFixture("fixture-1"));
+    expect(images).toHaveLength(1);
+    act(() => images[0].onerror?.());
+    expect(screen.getByText("CAD 도면을 표시하지 못했습니다.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "도면 다시 시도" }));
+    expect(images).toHaveLength(2);
+    await act(async () => images[1].onload?.());
+    await waitFor(() => expect(screen.queryByText("CAD 도면을 표시하지 못했습니다.")).not.toBeInTheDocument());
+  });
+
+  it("culls offscreen canvas nodes, keeps selected fixtures mounted, and reduces low-zoom detail", () => {
+    const large = structuredClone(editorState);
+    large.floor.floorPlan = { ...large.floor.floorPlan!, width: 5_000, height: 5_000 };
+    large.fixtures = [
+      { ...large.fixtures[0], id: "fixture-near", x: 100, y: 100 },
+      { ...large.fixtures[0], id: "fixture-far", x: 4_000, y: 4_000 }
+    ];
+    large.objects = [
+      { ...large.objects[0], id: "object-near", x: 200, y: 200 },
+      { ...large.objects[0], id: "object-far", x: 4_000, y: 4_000 }
+    ];
+    large.lightSlots = [
+      { id: "slot-near", x: 300, y: 300, rotation: 0, assignedFixtureId: null },
+      { id: "slot-far", x: 4_000, y: 4_000, rotation: 0, assignedFixtureId: null }
+    ];
+    renderEditor(large);
+    const stage = (window as unknown as { Konva: { stages: import("konva").default.Stage[] } }).Konva.stages.at(-1)!;
+
+    expect(stage.find(".fixture-fixture-near")).toHaveLength(1);
+    expect(stage.find(".fixture-fixture-far")).toHaveLength(0);
+    expect(stage.find(".map-object-object-near")).toHaveLength(1);
+    expect(stage.find(".map-object-object-far")).toHaveLength(0);
+    expect(stage.find(".cad-placement-slot")).toHaveLength(1);
+
+    act(() => {
+      useFloorEditorStore.getState().selectFixture("fixture-far");
+      useFloorEditorStore.getState().setZoom(0.2);
+    });
+    const far = stage.findOne<import("konva").default.Group>(".fixture-fixture-far")!;
+    expect(far).toBeDefined();
+    expect(far.findOne<import("konva").default.Circle>("Circle")?.strokeWidth()).toBe(3);
+    expect(stage.findOne<import("konva").default.Group>(".fixture-fixture-near")
+      ?.findOne<import("konva").default.Circle>("Circle")?.strokeWidth()).toBe(1);
+  });
+
+  it("coalesces drawing pointer moves into one animation frame", () => {
+    let frame: FrameRequestCallback | null = null;
+    const requestFrame = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      frame = callback;
+      return 1;
+    });
+    renderEditor({ ...editorState, objects: [] });
+    fireEvent.click(screen.getByRole("button", { name: "사각형" }));
+    const canvas = screen.getByLabelText("B2 편집 캔버스");
+
+    fireEvent.mouseDown(canvas, { clientX: 100, clientY: 100 });
+    fireEvent.mouseMove(canvas, { clientX: 160, clientY: 160 });
+    fireEvent.mouseMove(canvas, { clientX: 200, clientY: 180 });
+    fireEvent.mouseMove(canvas, { clientX: 240, clientY: 200 });
+
+    expect(requestFrame).toHaveBeenCalledOnce();
+    expect(useFloorEditorStore.getState().state?.objects).toHaveLength(0);
+    act(() => frame?.(16));
+    fireEvent.mouseUp(canvas, { clientX: 240, clientY: 200 });
+    expect(useFloorEditorStore.getState().state?.objects).toHaveLength(1);
+  });
+
+  it("keeps virtualized search, selection, and End-key focus working for 1,000 fixtures", async () => {
+    const large = structuredClone(editorState);
+    large.fixtures = Array.from({ length: 1_000 }, (_, index) => ({
+      ...large.fixtures[0],
+      id: `fixture-${index + 1}`,
+      name: `L-${String(index + 1).padStart(4, "0")}`,
+      placementStatus: "unplaced" as const
+    }));
+    renderEditor(large);
+    const list = screen.getByTestId("placement-list");
+    expect(within(list).getAllByRole("button").length).toBeLessThan(20);
+
+    const first = screen.getByTestId("placement-fixture-fixture-1");
+    first.focus();
+    fireEvent.keyDown(first, { key: "End" });
+    await waitFor(() => expect(screen.getByTestId("placement-fixture-fixture-1000")).toHaveFocus());
+
+    fireEvent.change(screen.getByLabelText("조명 검색"), { target: { value: "0999" } });
+    const searched = await screen.findByTestId("placement-fixture-fixture-999");
+    fireEvent.click(searched);
+    expect(useFloorEditorStore.getState().selectedFixtureIds).toEqual(["fixture-999"]);
+  });
+
   it("preserves viewport and selection when a save cache response is structurally shared", async () => {
     const saved = { ...structuredClone(editorState), floor: { ...editorState.floor, mapRevision: 8 }, fixtures: [{ ...editorState.fixtures[0], x: 240 }] };
     floorEditorApi.saveFloorEditorState.mockResolvedValueOnce(saved);
@@ -181,6 +284,7 @@ describe("FloorEditorView", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
     localStorage.clear();
     useFloorEditorStore.setState({ initialState: null, state: null, isDirty: false, activeTool: "select", zoom: 1, pan: { x: 0, y: 0 }, selection: null });

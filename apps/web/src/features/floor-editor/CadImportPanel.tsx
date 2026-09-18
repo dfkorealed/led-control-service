@@ -1,7 +1,7 @@
 import { ChevronLeft, ChevronRight, CircleCheck, FileCog, RotateCw, TriangleAlert, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CadImportMimeType, CadImportSourceFormat } from "@led-control/shared";
-import { cadImportStageLabel } from "../../../../../packages/shared/src/cad-import-contracts";
+import { cadImportStageLabel } from "@led-control/shared/cad-import-contracts";
 import {
   applyFloorImportJob,
   cancelFloorImportJob,
@@ -22,8 +22,7 @@ import type {
 
 const MAX_CAD_BYTES = 50 * 1024 * 1024;
 const POLL_INTERVAL_MS = 1_000;
-// Keep these values aligned with cadImportFileTypeSchema. The shared package's
-// root CommonJS entry is type-safe in Vite but cannot expose new runtime names.
+// Keep these values aligned with cadImportFileTypeSchema.
 const CAD_MIME_TYPES = {
   dwg: [
     "application/acad",
