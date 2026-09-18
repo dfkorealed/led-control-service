@@ -782,6 +782,7 @@ CAD parser 좌표에서 검출한 조명 위치 후보 원장이다. 후보는 B
 - `sourceCandidateId` unique는 후보 중복 적용을 막고, nullable `assignedFixtureId` unique는 실제 조명의 중복 슬롯 할당을 막는다.
 - 한 층의 슬롯은 최대 2,000개다. BEFORE trigger가 호출자 입력과 관계없이 비어 있는 `capacityOrdinal`을 배정하며, `1..2000` CHECK와 `(floorId, capacityOrdinal)` Unique가 REPEATABLE READ의 오래된 snapshot에서도 상한을 구조적으로 보장한다. 층별 advisory transaction lock은 동시 writer 충돌을 줄이는 보조 수단이다.
 - 같은 층의 `capacityOrdinal` 직접 변경은 DB가 기존 값으로 되돌린다. `floorId` 변경과 `Floor.id` cascade update는 새 층의 빈 ordinal을 다시 배정하고, 자리가 없으면 transaction을 거부한다. DELETE 후 최대 2,000개 INSERT는 같은 transaction에서 ordinal을 재사용하므로 원자적 맵 교체가 가능하다.
+- `20260918190000_floor_light_slot_capacity_reconciliation`은 이미 적용된 이전 migration의 초기·중간 schema에도 `capacityOrdinal`, 범위 CHECK, 층별 Unique와 최종 BEFORE trigger를 데이터 보존 방식으로 추가한다. 기존 행은 층별 `createdAt, id` 순서로 ordinal을 backfill하고 deferred scope trigger를 즉시 검증한 뒤 DDL을 계속한다. 기존 슬롯이 층당 2,000개를 넘으면 전체 transaction을 rollback하며 임의 행을 삭제하지 않는다.
 - `FloorLightSlot_geometry_check`는 PostgreSQL이 저장할 수 있는 `NaN`, 양·음의 `Infinity`를 x/y/rotation에서 거부한다.
 - deferred constraint trigger는 슬롯의 `floorId`, source job의 층, source candidate의 job이 같은지 검증한다. 할당 조명이 있으면 해당 `Fixture.floorId`도 슬롯 층과 같아야 한다.
 - 슬롯뿐 아니라 `FloorImportJob.floorId`, `FloorImportCandidate.jobId`, `Fixture.floorId` 변경 경로에도 trigger를 설치해 부모 변경으로 불일치가 생기는 경우 transaction 전체를 거부한다. 이 교차 테이블 제약은 Prisma datamodel로 표현되지 않는다.

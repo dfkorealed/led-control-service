@@ -614,6 +614,7 @@ function editorState(
   return {
     floor: { ...runtimeFloor, mapRevision },
     fixtures,
+    lightSlots: [],
     objects: objects.map((object) => ({ ...object, floorId: runtimeFloor.id, text: object.text ?? "" }))
   };
 }

@@ -868,3 +868,10 @@
 - **원인**: 테스트 double이 서버 결과를 친절하게 보정했고, fork 대상 build artifact의 출처를 실행 절차에 결속하지 않았다.
 - **해결 및 예방책**: mutation mock은 받은 assignment ID를 그대로 state에 적용하고 payload literal과 reload 영속성을 함께 검사한다. snapshot 검증은 runtime을 의도적으로 stale하게 만들어 정본 우선순위를 증명한다. 실샘플 실행기는 ignored API dist를 삭제하고 공식 `workspace:prepare`와 API `prisma:generate`를 실행한 뒤 현재 checkout의 API를 build해 테스트한다.
 - **반복 방지 체크**: mock이 좌표·이름으로 ID 관계를 추론하지 않는지, 저장 후 reload에서도 요청 값이 유지되는지, 일부 sample 환경변수가 skip 대신 실패하는지 확인한다. child 결과처럼 parent 역직렬화 전에 제어해야 하는 데이터는 bounded byte transport를 사용한다.
+
+## 2026-09-18 / 적용된 migration 파일은 수정하지 않고 후속 migration으로 수렴시킨다
+
+- **발생했던 문제/실수**: `FloorLightSlot` 생성 migration을 로컬 DB에 적용한 뒤 같은 파일에 `capacityOrdinal`과 새 trigger를 추가했다. migration 이력은 적용 완료였지만 실제 테이블에는 새 컬럼이 없어 맵 편집 `editor-state` 조회가 Prisma `P2022`와 HTTP 500으로 실패했다.
+- **원인**: clean database에서 최신 migration chain만 검증했고, 이전 checksum으로 이미 적용된 database의 staged upgrade 경로를 검증하지 않았다.
+- **해결 및 예방책**: 초기 schema, 중간 capacity trigger schema, 최신 structural ordinal schema를 모두 수용하는 별도 정합성 migration을 추가했다. legacy 행은 보존·backfill하고 2,000개 초과 또는 scope 불일치는 fail-close하며, 보류 중인 deferred trigger를 `SET CONSTRAINTS ALL IMMEDIATE`로 확정한 뒤 DDL을 수행한다.
+- **반복 방지 체크**: 한번 공유·적용된 migration SQL은 절대 수정하지 않는다. DB 계약을 강화할 때 clean deploy뿐 아니라 직전 배포 schema에 실제 데이터를 넣은 staged replay를 추가하고, `prisma migrate status` 외에 Prisma가 새 컬럼을 직접 조회하는 smoke test도 실행한다.

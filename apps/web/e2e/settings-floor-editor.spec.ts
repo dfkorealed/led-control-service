@@ -72,6 +72,7 @@ test("operator customer routes are blocked and admin floor changes are reflected
       leaseToken: acquireBeforeSave.result.token,
       leaseFence: acquireBeforeSave.result.fence,
       fixtureUpdates: [{ id: "fixture-1", x: 240 }],
+      slotAssignments: [],
       objectCreates: [],
       objectUpdates: [],
       objectDeletes: []
