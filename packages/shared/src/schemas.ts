@@ -1,7 +1,8 @@
 import { z } from "zod";
+import { cadSceneDescriptorSchema } from "./cad-scene-contracts";
+import { POSTGRES_INT_MAX, POSTGRES_INT_MIN } from "./postgres-contracts";
 
-export const POSTGRES_INT_MIN = -2_147_483_648;
-export const POSTGRES_INT_MAX = 2_147_483_647;
+export { POSTGRES_INT_MAX, POSTGRES_INT_MIN } from "./postgres-contracts";
 export const EDITOR_MAX_EXPECTED_REVISION = POSTGRES_INT_MAX - 1;
 export const EDITOR_MAX_FIXTURE_UPDATES = 1_000;
 export const EDITOR_MAX_MAP_OBJECT_MUTATIONS = 2_000;
@@ -242,28 +243,34 @@ const floorMapReadPlanFields = {
 
 // The read model keeps nullable legacy asset variants, while atomic editor
 // writes continue to require a complete source-specific floor plan payload.
-export const floorMapPlanSnapshotSchema = z.discriminatedUnion("sourceType", [
-  z.object({
-    sourceType: z.literal("none"),
-    imageUrl: z.literal(""),
-    originalFileUrl: z.null(),
-    renderedImageUrl: z.null(),
-    width: positiveInt4Schema,
-    height: positiveInt4Schema,
-    gridSize: editorGridSizeSchema
-  }).strict(),
-  z.object({ sourceType: z.literal("image"), ...floorMapReadPlanFields }).strict(),
-  z.object({
-    sourceType: z.literal("pdf"),
-    ...floorMapReadPlanFields,
-    imageUrl: z.union([editorUrlSchema, z.literal("")])
-  }).strict(),
-  z.object({
-    sourceType: z.literal("cad"),
-    ...floorMapReadPlanFields,
-    imageUrl: z.literal("")
-  }).strict()
-]);
+export const floorMapPlanSnapshotSchema = z.object({
+  sourceType: z.enum(["none", "image", "pdf", "cad"]),
+  ...floorMapReadPlanFields,
+  imageUrl: z.union([editorUrlSchema, z.literal("")])
+}).strict().superRefine((plan, context) => {
+  if (plan.sourceType === "none" && (
+    plan.imageUrl !== "" || plan.originalFileUrl !== null || plan.renderedImageUrl !== null
+  )) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "empty floor plans cannot reference assets"
+    });
+  }
+  if (plan.sourceType === "image" && plan.imageUrl === "") {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["imageUrl"],
+      message: "image floor plans require an image URL"
+    });
+  }
+  if (plan.sourceType === "cad" && plan.imageUrl !== "") {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["imageUrl"],
+      message: "CAD floor plans are rendered from their scene descriptor"
+    });
+  }
+});
 
 export const floorMapSnapshotSchema = z.object({
   floorId: z.string().uuid(),
@@ -271,6 +278,7 @@ export const floorMapSnapshotSchema = z.object({
   width: positiveInt4Schema,
   height: positiveInt4Schema,
   floorPlan: floorMapPlanSnapshotSchema.nullable(),
+  cadScene: cadSceneDescriptorSchema.nullable().optional(),
   objects: z.array(floorMapObjectStateSchema),
   fixtures: z.array(z.object({
     id: z.string().uuid(),
@@ -279,7 +287,33 @@ export const floorMapSnapshotSchema = z.object({
     y: finiteNumberSchema,
     size: finiteNumberSchema.positive()
   }).strict()).optional()
-}).strict();
+}).strict().superRefine((snapshot, context) => {
+  const isCadPlan = snapshot.floorPlan?.sourceType === "cad";
+  if (isCadPlan && !snapshot.cadScene) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["cadScene"],
+      message: "CAD floor map snapshots require a scene descriptor"
+    });
+  }
+  if (!isCadPlan && snapshot.cadScene) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["cadScene"],
+      message: "a scene descriptor is only valid for CAD floor plans"
+    });
+  }
+  if (isCadPlan && snapshot.cadScene && (
+    snapshot.cadScene.width !== snapshot.width || snapshot.cadScene.height !== snapshot.height ||
+    snapshot.floorPlan!.width !== snapshot.width || snapshot.floorPlan!.height !== snapshot.height
+  )) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["cadScene"],
+      message: "CAD scene dimensions must match the floor map"
+    });
+  }
+});
 
 export const floorMapObjectPatchSchema = z.object({
   type: floorMapObjectFields.type.optional(),

@@ -1,0 +1,2 @@
+export const POSTGRES_INT_MIN = -2_147_483_648;
+export const POSTGRES_INT_MAX = 2_147_483_647;

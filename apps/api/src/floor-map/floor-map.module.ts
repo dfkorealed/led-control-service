@@ -1,13 +1,16 @@
 import { Module } from "@nestjs/common";
 import { AccessModule } from "../access/access.module";
+import { AuditModule } from "../audit/audit.module";
 import { AuthModule } from "../auth/auth.module";
 import { PrismaModule } from "../prisma/prisma.module";
+import { StorageModule } from "../storage/storage.module";
+import { CadSceneEvidenceService } from "./cad-scene-evidence.service";
 import { FloorMapController } from "./floor-map.controller";
 import { FloorMapService } from "./floor-map.service";
 
 @Module({
-  imports: [PrismaModule, AuthModule, AccessModule],
+  imports: [PrismaModule, AuthModule, AccessModule, AuditModule, StorageModule],
   controllers: [FloorMapController],
-  providers: [FloorMapService]
+  providers: [FloorMapService, CadSceneEvidenceService]
 })
 export class FloorMapModule {}

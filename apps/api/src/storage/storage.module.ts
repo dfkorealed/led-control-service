@@ -58,7 +58,12 @@ interface ObjectStorageConnectionOptions {
     ObjectStorageService,
     FloorRenderedAssetReconciler
   ],
-  exports: [ObjectStorageService, FloorRenderedAssetReconciler]
+  exports: [
+    ObjectStorageService,
+    FloorRenderedAssetReconciler,
+    OBJECT_STORAGE_CLIENT,
+    OBJECT_STORAGE_OPTIONS
+  ]
 })
 export class StorageModule {}
 

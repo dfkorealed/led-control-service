@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException, 
 import {
   FloorEditorSnapshot,
   SaveEditorStateInput,
+  buildCadSceneDescriptor,
   editorRevisionListQuerySchema,
   floorMapObjectGeometrySchema,
   parseFloorEditorSnapshot,
@@ -138,6 +139,7 @@ export class FloorEditorService {
       where: { id: floorId },
       include: {
         floorPlan: true,
+        cadScene: true,
         fixtures: { orderBy: { name: "asc" }, include: { meshNode: { select: { meshAddress: true, serialNumber: true } } } },
         mapObjects: { orderBy: [{ zIndex: "asc" }, { createdAt: "asc" }] },
         lightSlots: { orderBy: { id: "asc" } }
@@ -326,6 +328,7 @@ export class FloorEditorService {
     fixtures: any[];
     mapObjects: any[];
     lightSlots?: any[];
+    cadScene?: any;
   }) {
     return {
       floor: {
@@ -346,6 +349,9 @@ export class FloorEditorService {
               gridSize: floor.floorPlan.gridSize ?? 10,
               version: floor.floorPlan.version
             }
+          : null,
+        cadScene: floor.floorPlan?.sourceType === "cad" && floor.cadScene
+          ? buildCadSceneDescriptor(floor.siteId, floor.id, floor.cadScene)
           : null
       },
       fixtures: floor.fixtures.map((fixture) => ({

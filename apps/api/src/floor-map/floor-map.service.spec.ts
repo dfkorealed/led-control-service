@@ -95,6 +95,7 @@ describe("FloorMapService", () => {
         height: 900,
         gridSize: 10
       },
+      cadScene: null,
       objects: [{
         id: "object-1",
         type: "rectangle",
@@ -124,6 +125,7 @@ describe("FloorMapService", () => {
       where: { id: floorId, siteId },
       include: {
         floorPlan: true,
+        cadScene: true,
         mapObjects: {
           where: { visible: true },
           orderBy: [{ zIndex: "asc" }, { createdAt: "asc" }]
@@ -168,6 +170,9 @@ describe("FloorMapService", () => {
   });
 
   it("reads a persisted CAD floor plan through the map snapshot contract", async () => {
+    const sourceImportJobId = "00000000-0000-4000-8000-000000000007";
+    const manifestAssetId = "00000000-0000-4000-8000-000000000008";
+    const sceneId = "00000000-0000-4000-8000-000000000009";
     const prisma: any = {
       floor: {
         findFirst: jest.fn().mockResolvedValue({
@@ -182,6 +187,17 @@ describe("FloorMapService", () => {
             width: 16_384,
             height: 8_192,
             gridSize: 80
+          },
+          cadScene: {
+            id: sceneId,
+            version: 2,
+            sourceImportJobId,
+            width: 16_384,
+            height: 8_192,
+            tileSize: 512,
+            primitiveCount: 30_000,
+            tileCount: 64,
+            manifestAssetId
           },
           mapObjects: [],
           fixtures: []
@@ -198,6 +214,20 @@ describe("FloorMapService", () => {
         width: 16_384,
         height: 8_192,
         gridSize: 80
+      },
+      cadScene: {
+        id: sceneId,
+        version: 2,
+        sourceImportJobId,
+        width: 16_384,
+        height: 8_192,
+        tileSize: 512,
+        primitiveCount: 30_000,
+        tileCount: 64,
+        manifestAssetId,
+        manifestContentPath: `/floors/${floorId}/import-jobs/${sourceImportJobId}/scene/manifest/content`,
+        tileContentPathTemplate: `/floors/${floorId}/import-jobs/${sourceImportJobId}/scene/tiles/{lod}/{tileX}/{tileY}/{part}/content`,
+        statePath: `/sites/${siteId}/floors/${floorId}/cad-scene`
       }
     });
   });

@@ -29,7 +29,7 @@ export interface FloorEditorState {
 export interface FloorPlanDraft {
   id?: string;
   imageUrl: string;
-  sourceType?: "none" | "image" | "pdf";
+  sourceType?: "none" | "image" | "pdf" | "cad";
   originalFileUrl?: string | null;
   renderedImageUrl?: string | null;
   width: number;

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { POSTGRES_INT_MAX } from "./schemas";
+import { POSTGRES_INT_MAX } from "./postgres-contracts";
 
 export const CAD_SCENE_VERSION = 1;
 export const CAD_SCENE_TILE_SIZE = 512;
@@ -11,6 +11,12 @@ export const CAD_SCENE_MAX_TILE_BYTE_SIZE = 16 * 1_024 * 1_024;
 export const CAD_SCENE_MAX_TOTAL_TILE_BYTES = 512 * 1_024 * 1_024;
 export const CAD_SCENE_MAX_PARTS_PER_TILE = 128;
 export const CAD_SCENE_MAX_MANIFEST_BYTES = 8 * 1_024 * 1_024;
+export const CAD_SCENE_MAX_OVERRIDE_MUTATIONS = 100;
+export const CAD_SCENE_MAX_LAYER_MUTATIONS = 100;
+export const CAD_SCENE_MAX_EVIDENCE_TILES = 16;
+export const CAD_SCENE_MAX_EVIDENCE_BYTES = 32 * 1_024 * 1_024;
+export const CAD_SCENE_MAX_PERSISTED_OVERRIDES = 10_000;
+export const CAD_SCENE_MAX_PERSISTED_LAYER_STATES = 2_000;
 export const CAD_REGION_PREVIEW_MAX_WIDTH = 2_400;
 export const CAD_REGION_PREVIEW_MAX_HEIGHT = 1_600;
 export const CAD_REGION_PREVIEW_MAX_BYTE_SIZE = 8 * 1_024 * 1_024;
@@ -18,6 +24,14 @@ export const CAD_MAP_DEFAULT_LONG_SIDE = 16_384;
 export const CAD_MAP_MAX_LONG_SIDE = 32_768;
 export const CAD_MAP_MIN_SHORT_SIDE = 1_024;
 export const CAD_MAP_EXTREME_MIN_SHORT_SIDE = 512;
+// Edit transforms are persisted and evaluated by every renderer. Keep them
+// proportional to the largest supported logical map so one request cannot
+// create unbounded matrices, bounds, or GPU stroke geometry.
+export const CAD_ELEMENT_MAX_TRANSLATION = CAD_MAP_MAX_LONG_SIDE;
+export const CAD_ELEMENT_MIN_SCALE = 0.01;
+export const CAD_ELEMENT_MAX_SCALE = 100;
+export const CAD_ELEMENT_MAX_ABS_ROTATION = 360;
+export const CAD_ELEMENT_MAX_STROKE_WIDTH = CAD_SCENE_TILE_SIZE;
 
 export const CAD_SCENE_MAX_TILE_PART_COUNT = CAD_SCENE_MAX_TILES_PER_AXIS
   * CAD_SCENE_MAX_TILES_PER_AXIS
@@ -472,12 +486,26 @@ export const cadRegionSchema = z.object({
   }
 });
 
+const cadElementTranslationSchema = finiteNumberSchema
+  .min(-CAD_ELEMENT_MAX_TRANSLATION)
+  .max(CAD_ELEMENT_MAX_TRANSLATION);
+const cadElementScaleSchema = finiteNumberSchema
+  .min(CAD_ELEMENT_MIN_SCALE)
+  .max(CAD_ELEMENT_MAX_SCALE);
+const cadElementRotationSchema = finiteNumberSchema
+  .min(-CAD_ELEMENT_MAX_ABS_ROTATION)
+  .max(CAD_ELEMENT_MAX_ABS_ROTATION)
+  .transform((value) => {
+    const normalized = ((value + 180) % 360 + 360) % 360 - 180;
+    return Object.is(normalized, -0) ? 0 : normalized;
+  });
+
 export const cadElementTransformSchema = z.object({
-  translateX: finiteNumberSchema,
-  translateY: finiteNumberSchema,
-  scaleX: finiteNumberSchema.positive(),
-  scaleY: finiteNumberSchema.positive(),
-  rotation: finiteNumberSchema
+  translateX: cadElementTranslationSchema,
+  translateY: cadElementTranslationSchema,
+  scaleX: cadElementScaleSchema,
+  scaleY: cadElementScaleSchema,
+  rotation: cadElementRotationSchema
 }).strict();
 
 const cadElementOverrideValueShape = {
@@ -485,7 +513,7 @@ const cadElementOverrideValueShape = {
   transform: cadElementTransformSchema.nullable(),
   strokeColor: colorSchema.nullable(),
   fillColor: colorSchema.nullable(),
-  strokeWidth: finiteNumberSchema.nonnegative().nullable(),
+  strokeWidth: finiteNumberSchema.min(0).max(CAD_ELEMENT_MAX_STROKE_WIDTH).nullable(),
   text: z.string().max(65_536).nullable()
 };
 
@@ -494,7 +522,7 @@ export const cadElementOverrideSchema = z.object({
   ...cadElementOverrideValueShape
 }).strict();
 
-export const cadElementOverridePatchSchema = z.object({
+const cadElementOverridePatchObjectSchema = z.object({
   elementId: z.string().trim().min(1).max(512),
   hidden: cadElementOverrideValueShape.hidden.optional(),
   transform: cadElementOverrideValueShape.transform.optional(),
@@ -502,7 +530,12 @@ export const cadElementOverridePatchSchema = z.object({
   fillColor: cadElementOverrideValueShape.fillColor.optional(),
   strokeWidth: cadElementOverrideValueShape.strokeWidth.optional(),
   text: cadElementOverrideValueShape.text.optional()
-}).strict().superRefine((override, context) => {
+}).strict();
+
+function requireCadOverrideChange(
+  override: z.infer<typeof cadElementOverridePatchObjectSchema>,
+  context: z.RefinementCtx
+) {
   const hasChange = Object.keys(cadElementOverrideValueShape)
     .some((field) => override[field as keyof typeof cadElementOverrideValueShape] !== undefined);
   if (!hasChange) {
@@ -511,13 +544,158 @@ export const cadElementOverridePatchSchema = z.object({
       message: "an override patch must contain at least one change"
     });
   }
-});
+}
+
+export const cadElementOverridePatchSchema = cadElementOverridePatchObjectSchema
+  .superRefine(requireCadOverrideChange);
 
 export const cadLayerStateSchema = z.object({
   layerName: z.string().trim().min(1).max(512),
   visible: z.boolean(),
   locked: z.boolean()
 }).strict();
+
+export const cadSceneElementLocatorSchema = z.object({
+  tileX: z.number().int().min(0).max(CAD_SCENE_MAX_TILES_PER_AXIS - 1),
+  tileY: z.number().int().min(0).max(CAD_SCENE_MAX_TILES_PER_AXIS - 1),
+  lod: z.union([z.literal(0), z.literal(1), z.literal(2)]),
+  part: z.number().int().min(0).max(CAD_SCENE_MAX_PARTS_PER_TILE - 1)
+}).strict();
+
+const cadElementIdSchema = z.string().regex(/^cad-element-[a-f0-9]{32}$/);
+const cadSceneOverrideMutationSchema = z.discriminatedUnion("operation", [
+  z.object({
+    operation: z.literal("upsert"),
+    locator: cadSceneElementLocatorSchema,
+    value: cadElementOverridePatchObjectSchema.extend({ elementId: cadElementIdSchema })
+      .superRefine(requireCadOverrideChange)
+  }).strict(),
+  z.object({
+    operation: z.literal("delete"),
+    locator: cadSceneElementLocatorSchema,
+    elementId: cadElementIdSchema
+  }).strict()
+]);
+
+export const cadSceneLayerMutationSchema = cadLayerStateSchema.extend({
+  locator: cadSceneElementLocatorSchema
+}).strict();
+
+export const cadSceneEditInputSchema = z.object({
+  expectedRevision: z.number().int().nonnegative().max(POSTGRES_INT_MAX - 1),
+  leaseToken: z.string().trim().min(1).max(256),
+  leaseFence: z.number().int().positive().max(POSTGRES_INT_MAX),
+  overrideMutations: z.array(cadSceneOverrideMutationSchema)
+    .max(CAD_SCENE_MAX_OVERRIDE_MUTATIONS).default([]),
+  layerMutations: z.array(cadSceneLayerMutationSchema)
+    .max(CAD_SCENE_MAX_LAYER_MUTATIONS).default([])
+}).strict().superRefine((value, context) => {
+  if (value.overrideMutations.length === 0 && value.layerMutations.length === 0) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "CAD scene edit must contain at least one mutation" });
+  }
+
+  const overrideIds = new Set<string>();
+  value.overrideMutations.forEach((mutation, index) => {
+    const elementId = mutation.operation === "upsert" ? mutation.value.elementId : mutation.elementId;
+    if (overrideIds.has(elementId)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["overrideMutations", index],
+        message: "CAD element IDs must be unique within an edit batch"
+      });
+    }
+    overrideIds.add(elementId);
+  });
+
+  const layerNames = new Set<string>();
+  value.layerMutations.forEach((mutation, index) => {
+    if (layerNames.has(mutation.layerName)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["layerMutations", index, "layerName"],
+        message: "CAD layer names must be unique within an edit batch"
+      });
+    }
+    layerNames.add(mutation.layerName);
+  });
+
+  const evidenceTiles = new Set([
+    ...value.overrideMutations.map(({ locator }) => cadSceneLocatorKey(locator)),
+    ...value.layerMutations.map(({ locator }) => cadSceneLocatorKey(locator))
+  ]);
+  if (evidenceTiles.size > CAD_SCENE_MAX_EVIDENCE_TILES) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["overrideMutations"],
+      message: `CAD edit evidence must not span more than ${CAD_SCENE_MAX_EVIDENCE_TILES} tiles`
+    });
+  }
+});
+
+const apiContentPathSchema = z.string().min(1).max(2_048).refine(
+  value => value.startsWith("/") && !value.includes("?") && !value.includes("#"),
+  "content path must be an absolute API path without a query or fragment"
+);
+
+export const cadSceneDescriptorSchema = z.object({
+  id: z.string().uuid(),
+  version: z.number().int().positive().max(POSTGRES_INT_MAX),
+  sourceImportJobId: z.string().uuid(),
+  width: z.number().int().min(CAD_MAP_EXTREME_MIN_SHORT_SIDE).max(CAD_MAP_MAX_LONG_SIDE),
+  height: z.number().int().min(CAD_MAP_EXTREME_MIN_SHORT_SIDE).max(CAD_MAP_MAX_LONG_SIDE),
+  tileSize: z.literal(CAD_SCENE_TILE_SIZE),
+  primitiveCount: nonnegativeIntegerSchema.max(CAD_SCENE_MAX_SELECTED_PRIMITIVES),
+  tileCount: nonnegativeIntegerSchema.max(CAD_SCENE_MAX_TILE_PART_COUNT),
+  manifestAssetId: z.string().uuid(),
+  manifestContentPath: apiContentPathSchema,
+  tileContentPathTemplate: apiContentPathSchema.refine(value =>
+    ["{lod}", "{tileX}", "{tileY}", "{part}"].every(token => value.split(token).length === 2),
+  "tile content path must contain each coordinate placeholder exactly once"),
+  statePath: apiContentPathSchema
+}).strict();
+
+export const cadSceneStateSchema = z.object({
+  revision: nonnegativeIntegerSchema,
+  scene: cadSceneDescriptorSchema,
+  overrides: z.array(cadElementOverrideSchema).max(CAD_SCENE_MAX_PERSISTED_OVERRIDES),
+  layers: z.array(cadLayerStateSchema).max(CAD_SCENE_MAX_PERSISTED_LAYER_STATES)
+}).strict();
+
+export function buildCadSceneDescriptor(
+  siteId: string,
+  floorId: string,
+  scene: {
+    id: string;
+    version: number;
+    sourceImportJobId: string;
+    width: number;
+    height: number;
+    tileSize: number;
+    primitiveCount: number;
+    tileCount: number;
+    manifestAssetId: string;
+  }
+): CadSceneDescriptor {
+  const importBase = `/floors/${floorId}/import-jobs/${scene.sourceImportJobId}/scene`;
+  return cadSceneDescriptorSchema.parse({
+    id: scene.id,
+    version: scene.version,
+    sourceImportJobId: scene.sourceImportJobId,
+    width: scene.width,
+    height: scene.height,
+    tileSize: scene.tileSize,
+    primitiveCount: scene.primitiveCount,
+    tileCount: scene.tileCount,
+    manifestAssetId: scene.manifestAssetId,
+    manifestContentPath: `${importBase}/manifest/content`,
+    tileContentPathTemplate: `${importBase}/tiles/{lod}/{tileX}/{tileY}/{part}/content`,
+    statePath: `/sites/${siteId}/floors/${floorId}/cad-scene`
+  });
+}
+
+export function cadSceneLocatorKey(locator: z.infer<typeof cadSceneElementLocatorSchema>): string {
+  return `${locator.lod}:${locator.tileX}:${locator.tileY}:${locator.part}`;
+}
 
 export interface CadMapSize {
   width: number;
@@ -600,3 +778,7 @@ export type CadElementTransform = z.infer<typeof cadElementTransformSchema>;
 export type CadElementOverride = z.infer<typeof cadElementOverrideSchema>;
 export type CadElementOverridePatch = z.infer<typeof cadElementOverridePatchSchema>;
 export type CadLayerState = z.infer<typeof cadLayerStateSchema>;
+export type CadSceneElementLocator = z.infer<typeof cadSceneElementLocatorSchema>;
+export type CadSceneEditInput = z.infer<typeof cadSceneEditInputSchema>;
+export type CadSceneDescriptor = z.infer<typeof cadSceneDescriptorSchema>;
+export type CadSceneState = z.infer<typeof cadSceneStateSchema>;
