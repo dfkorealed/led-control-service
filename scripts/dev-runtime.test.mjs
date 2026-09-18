@@ -263,7 +263,8 @@ test("root dev scripts는 build, dev:prepare, docker보다 먼저 read-only netw
   writeFileSync(fakePnpm, [
     "#!/bin/sh",
     'if [ "$1" = "dev:network-preflight" ]; then',
-    '  exec "$NODE_BINARY" "$REPOSITORY_ROOT/scripts/dev-network-preflight.mjs"',
+    '  echo "[dev:network-preflight] LAB_API_IP 198.51.100.7 is not assigned to the current host" >&2',
+    "  exit 1",
     "fi",
     ': > "$MUTATION_SENTINEL"',
     "exit 42",
