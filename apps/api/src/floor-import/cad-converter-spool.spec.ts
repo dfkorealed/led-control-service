@@ -195,8 +195,16 @@ describe("credential-free CAD converter spool boundary", () => {
 async function serveOne(spoolRoot: string, run: (jobDirectory: string) => Promise<void>) {
   const deadline = Date.now() + 2000;
   while (Date.now() < deadline) {
-    const job = (await readdir(spoolRoot)).find(name => name.startsWith("job-"));
-    if (job) return run(join(spoolRoot, job));
+    const jobs = (await readdir(spoolRoot)).filter(name => name.startsWith("job-")).sort();
+    for (const job of jobs) {
+      const jobDirectory = join(spoolRoot, job);
+      try {
+        await readFile(join(jobDirectory, "request.json"));
+        return run(jobDirectory);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+    }
     await new Promise(resolve => setTimeout(resolve, 10));
   }
   throw new Error("spool job was not submitted");
