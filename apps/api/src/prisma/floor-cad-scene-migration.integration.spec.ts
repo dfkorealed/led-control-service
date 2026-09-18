@@ -6,9 +6,11 @@ import { disposablePostgres } from "../../test/support/disposable-postgres";
 const previousMigrationName = "20260918190000_floor_light_slot_capacity_reconciliation";
 const cadSceneMigrationName = "20260918210000_add_floor_cad_scene";
 const migrationName = "20260919120000_add_floor_cad_tile_part";
+const locatorMigrationName = "20260919150000_add_cad_override_locator";
 const schemaPath = join(__dirname, "../../prisma/schema.prisma");
 const migrationPath = join(__dirname, `../../prisma/migrations/${cadSceneMigrationName}/migration.sql`);
 const shardingMigrationPath = join(__dirname, `../../prisma/migrations/${migrationName}/migration.sql`);
+const locatorMigrationPath = join(__dirname, `../../prisma/migrations/${locatorMigrationName}/migration.sql`);
 const schema = readFileSync(schemaPath, "utf8");
 
 jest.setTimeout(60_000);
@@ -49,13 +51,18 @@ describe("floor CAD scene Prisma schema contract", () => {
 
     expect(modelBlock("FloorCadTile")).toEqual(expect.stringContaining("part           Int           @default(0)"));
     expect(modelBlock("FloorCadTile")).toEqual(expect.stringContaining("@@unique([sceneId, tileX, tileY, lod, part])"));
-    expect(modelBlock("FloorCadElementOverride")).toEqual(expect.stringContaining("@@id([sceneId, elementId])"));
+    const override = modelBlock("FloorCadElementOverride");
+    expect(override).toEqual(expect.stringContaining("@@id([sceneId, elementId])"));
+    for (const field of ["locatorTileX", "locatorTileY", "locatorLod", "locatorPart"]) {
+      expect(override).toMatch(new RegExp(`${field}\\s+Int\\?`));
+    }
     expect(modelBlock("FloorCadLayerState")).toEqual(expect.stringContaining("@@id([sceneId, layerName])"));
   });
 
   it("ships the matching migration", () => {
     expect(existsSync(migrationPath)).toBe(true);
     expect(existsSync(shardingMigrationPath)).toBe(true);
+    expect(existsSync(locatorMigrationPath)).toBe(true);
     const shardingMigration = readFileSync(shardingMigrationPath, "utf8");
     expect(shardingMigration).toContain('ADD COLUMN "part" INTEGER NOT NULL DEFAULT 0');
     expect(shardingMigration).toContain('("sceneId", "tileX", "tileY", "lod", "part")');
@@ -65,6 +72,9 @@ describe("floor CAD scene Prisma schema contract", () => {
     expect(shardingMigration).toContain('VALIDATE CONSTRAINT "FloorCadTile_size_check_v2"');
     expect(shardingMigration.indexOf('VALIDATE CONSTRAINT "FloorCadTile_size_check_v2"'))
       .toBeLessThan(shardingMigration.indexOf('DROP CONSTRAINT "FloorCadTile_size_check"'));
+    const locatorMigration = readFileSync(locatorMigrationPath, "utf8");
+    expect(locatorMigration).toContain('"FloorCadElementOverride_locator_completeness_check"');
+    expect(locatorMigration).toContain('"FloorCadElementOverride_locator_range_check"');
   });
 });
 
@@ -217,6 +227,72 @@ describe("floor CAD tile part failed upgrade rollback", () => {
       SELECT count(*) FROM pg_constraint
       WHERE conname = 'FloorCadTile_size_check_v2';
     `)).toBe("0");
+  });
+});
+
+describe("floor CAD override locator populated upgrade", () => {
+  let cluster: Awaited<ReturnType<typeof disposablePostgres>>;
+  let databaseUrl: string;
+
+  beforeAll(async () => {
+    cluster = await disposablePostgres();
+    databaseUrl = cluster.database();
+    const base = cluster.deploy(databaseUrl, migrationName);
+    if (base.status !== 0) throw new Error(base.stderr);
+    cluster.sql(databaseUrl, `
+      INSERT INTO "Organization" ("id", "name", "updatedAt")
+      VALUES ('organization-locator-upgrade', 'CAD locator upgrade', CURRENT_TIMESTAMP);
+      INSERT INTO "Site" ("id", "organizationId", "name", "updatedAt")
+      VALUES ('site-locator-upgrade', 'organization-locator-upgrade', 'CAD locator site', CURRENT_TIMESTAMP);
+      INSERT INTO "Floor" ("id", "siteId", "name", "level", "updatedAt")
+      VALUES ('floor-locator-upgrade', 'site-locator-upgrade', 'CAD locator floor', 1, CURRENT_TIMESTAMP);
+      INSERT INTO "FloorAsset" (
+        "id", "floorId", "kind", "status", "objectKey", "mimeType", "sizeBytes", "sha256", "readyAt", "updatedAt"
+      ) VALUES
+        ('source-locator', 'floor-locator-upgrade', 'original', 'ready', 'source/locator.dwg', 'application/dwg', 100,
+          repeat('a', 64), CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+        ('preview-locator', 'floor-locator-upgrade', 'cad_region_preview', 'ready', 'cad/locator-preview', 'image/svg+xml', 100,
+          repeat('b', 64), CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+        ('manifest-locator', 'floor-locator-upgrade', 'cad_manifest', 'ready', 'cad/locator-manifest', 'application/json', 100,
+          repeat('c', 64), CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+      INSERT INTO "FloorImportJob" ("id", "floorId", "sourceAssetId", "sourceFormat", "updatedAt")
+      VALUES ('job-locator', 'floor-locator-upgrade', 'source-locator', 'dwg', CURRENT_TIMESTAMP);
+      ${regionInsertSql("region-locator", "job-locator", "region-locator-stable", "preview-locator", true)}
+      ${sceneInsertSql("scene-locator", "manifest-locator", {
+        floorId: "floor-locator-upgrade",
+        sourceImportJobId: "job-locator",
+        sourceRegionId: "region-locator"
+      })}
+      INSERT INTO "FloorCadElementOverride" ("sceneId", "elementId", "hidden", "updatedAt")
+      VALUES ('scene-locator', 'cad-element-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', true, CURRENT_TIMESTAMP);
+    `);
+  });
+
+  afterAll(() => cluster?.stop());
+
+  it("applies locator columns to populated rows and enforces complete bounded locators", () => {
+    const result = cluster.deploy(databaseUrl, locatorMigrationName);
+    if (result.status !== 0) throw new Error(result.stderr);
+
+    expect(cluster.sql(databaseUrl, `
+      SELECT "locatorTileX" IS NULL AND "locatorTileY" IS NULL AND
+        "locatorLod" IS NULL AND "locatorPart" IS NULL
+      FROM "FloorCadElementOverride"
+      WHERE "sceneId" = 'scene-locator';
+    `)).toBe("t");
+    expect(() => cluster.sql(databaseUrl, `
+      UPDATE "FloorCadElementOverride" SET "locatorTileX" = 0
+      WHERE "sceneId" = 'scene-locator';
+    `)).toThrow(/locator_completeness_check/);
+    expect(() => cluster.sql(databaseUrl, `
+      UPDATE "FloorCadElementOverride" SET
+        "locatorTileX" = 1, "locatorTileY" = 2, "locatorLod" = 0, "locatorPart" = 3
+      WHERE "sceneId" = 'scene-locator';
+    `)).not.toThrow();
+    expect(() => cluster.sql(databaseUrl, `
+      UPDATE "FloorCadElementOverride" SET "locatorTileX" = 64
+      WHERE "sceneId" = 'scene-locator';
+    `)).toThrow(/locator_range_check/);
   });
 });
 

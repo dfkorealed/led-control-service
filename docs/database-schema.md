@@ -705,6 +705,7 @@ DWG/DXF 원본을 비동기로 변환·검출·검토·적용하는 작업의 �
 | `detectorProfileId` | `String?` | 아니오 | 허용 registry ID 또는 migration staging `NULL` | 서버가 source SHA-256 binding으로 정한 detector profile ID |
 | `detectorProfileVersion` | `String?` | 아니오 | digest와 함께 NULL 또는 값 | 실제 주입 detector profile 버전 |
 | `detectorProfileDigest` | `String?` | 아니오 | 64자리 lowercase SHA-256 | 후보 행동 필드 전체의 canonical digest |
+| `excludedRegionPrimitiveCount` | `Int?` | 아니오 | DB check `0~1000000` | CAD 영역 탐지기가 어느 region에도 포함하지 않은 실제 제외 primitive 수. 신규 분석 작업은 region API 노출 전에 반드시 기록하며 기존 NULL 작업은 재가져오기를 요구한다. |
 | `leaseOwner`, `leaseExpiresAt` | `String?`, `DateTime?` | 아니오 | 둘 다 NULL 또는 둘 다 값 | 다중 worker 점유와 만료 시각 |
 | `failureCode`, `failureMessage` | `String?` | 아니오 |  | 정제된 실패 코드와 내부 운영 메시지 |
 | `startedAt` | `DateTime?` | 아니오 |  | 첫 처리 시작 시각 |
@@ -788,8 +789,10 @@ Floor 또는 source import job 삭제는 scene과 tile/override/layer 상태를 
 
 | 모델 | 키/주요 컬럼 | 제약과 삭제 정책 |
 | --- | --- | --- |
-| `FloorCadElementOverride` | PK `(sceneId, elementId)`, `hidden`, translate/scale/rotation, stroke/fill/width/text | 값이 하나 이상 있어야 하며 transform은 유한값, scale은 양수, 색상은 hex 형식이고 text는 최대 65536자다. scene 삭제 시 cascade한다. |
+| `FloorCadElementOverride` | PK `(sceneId, elementId)`, `hidden`, translate/scale/rotation, stroke/fill/width/text, nullable locator `locatorTileX/Y/Lod/Part` | 값이 하나 이상 있어야 하며 transform은 유한값, scale은 양수, 색상은 hex 형식이고 text는 최대 65536자다. 신규 override는 검증에 사용한 원본 tile locator를 함께 저장해 전체 scene scan 없이 이동 요소 geometry를 복원한다. migration 이전 행은 locator 전체가 NULL일 수 있고, 값이 있으면 네 필드가 모두 존재하며 tile 범위 안이어야 한다. scene 삭제 시 cascade한다. |
 | `FloorCadLayerState` | PK `(sceneId, layerName)`, `visible=true`, `locked=false` | layer 이름은 trim 1~512자이며 scene 삭제 시 cascade한다. |
+
+`20260919150000_add_cad_override_locator` migration은 기존 override 행을 보존한 채 nullable locator 4개를 추가한다. API는 이후의 모든 upsert에서 evidence 검증을 통과한 locator를 저장하며, 클라이언트는 이동 override의 목적지 viewport에 필요한 원본 tile만 제한된 동시성으로 preload한다.
 
 두 모델 모두 geometry를 JSON으로 복제하지 않는다. override의 transform도 nullable scalar 열로만 저장하며 `(sceneId, updatedAt)` index가 변경분 조회를 지원한다.
 

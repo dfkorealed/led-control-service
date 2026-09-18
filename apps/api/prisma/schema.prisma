@@ -497,6 +497,7 @@ model FloorImportJob {
   detectorProfileId      String?
   detectorProfileVersion String?
   detectorProfileDigest  String?
+  excludedRegionPrimitiveCount Int?
   leaseOwner             String?
   leaseExpiresAt         DateTime?
   failureCode            String?
@@ -617,6 +618,10 @@ model FloorCadElementOverride {
   fillColor   String?
   strokeWidth Float?
   text        String?
+  locatorTileX Int?
+  locatorTileY Int?
+  locatorLod   Int?
+  locatorPart  Int?
   scene       FloorCadScene @relation(fields: [sceneId], references: [id], onDelete: Cascade)
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
