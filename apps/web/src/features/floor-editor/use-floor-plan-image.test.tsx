@@ -23,8 +23,9 @@ class ControlledImage extends EventTarget {
   }
 }
 
-function Harness({ url, selection = "none" }: { url: string; selection?: string }) {
-  const result = useFloorPlanImage(url);
+function Harness({ url, revision = 1, selection = "none", renderLog }: { url: string; revision?: number; selection?: string; renderLog?: string[] }) {
+  const result = useFloorPlanImage(url, revision);
+  renderLog?.push(`${result.status}:${result.image ? "ready" : "empty"}`);
   return <div data-image={result.image ? "ready" : "empty"}>
     <span>{result.status}</span>
     <span>{selection}</span>
@@ -81,5 +82,44 @@ describe("useFloorPlanImage", () => {
     const pending = ControlledImage.instances[2];
     remount.unmount();
     await expect(act(async () => pending.load())).resolves.toBeUndefined();
+  });
+
+  it("does not expose a ready image from the previous revision during render", async () => {
+    vi.stubGlobal("Image", ControlledImage);
+    const renderLog: string[] = [];
+    const view = render(<Harness url="/revision.svg" revision={1} renderLog={renderLog} />);
+    await act(async () => ControlledImage.instances[0].load());
+    await waitFor(() => expect(screen.getByText("ready")).toBeInTheDocument());
+
+    const nextRender = renderLog.length;
+    view.rerender(<Harness url="/revision.svg" revision={2} renderLog={renderLog} />);
+
+    expect(renderLog.slice(nextRender)).not.toContain("ready:ready");
+    expect(screen.getByText("loading")).toBeInTheDocument();
+    expect(screen.getByText("loading").parentElement).toHaveAttribute("data-image", "empty");
+    expect(ControlledImage.instances).toHaveLength(2);
+  });
+
+  it("deduplicates shared retries and does not reset a ready entry", async () => {
+    vi.stubGlobal("Image", ControlledImage);
+    render(<>
+      <Harness url="/shared-retry.svg" revision={7} selection="first" />
+      <Harness url="/shared-retry.svg" revision={7} selection="second" />
+    </>);
+    expect(ControlledImage.instances).toHaveLength(1);
+    act(() => ControlledImage.instances[0].fail());
+
+    const retries = screen.getAllByRole("button", { name: "retry" });
+    act(() => {
+      retries[0].click();
+      retries[1].click();
+    });
+    expect(ControlledImage.instances).toHaveLength(2);
+    await act(async () => ControlledImage.instances[1].load());
+    await waitFor(() => expect(screen.getAllByText("ready")).toHaveLength(2));
+
+    act(() => retries[0].click());
+    expect(ControlledImage.instances).toHaveLength(2);
+    expect(screen.getAllByText("ready")).toHaveLength(2);
   });
 });

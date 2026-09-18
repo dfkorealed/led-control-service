@@ -78,7 +78,18 @@ export function FixturePlacementList({ readOnly, rowRegistry }: { readOnly: bool
       {([["all", "전체"], ["placed", "배치"], ["unplaced", "미배치"]] as const).map(([value, label]) => <Button key={value} size="sm" variant={filter === value ? "primary" : "ghost"} role="tab" aria-selected={filter === value} onClick={() => setFilter(value)}>{label}</Button>)}
     </div>
     <div className="flex items-center justify-between gap-2"><Text as="span" variant="caption" tone="secondary">{filtered.length}개 · 선택 {selectedIds.length}개</Text><Button size="sm" variant="ghost" onClick={() => useFloorEditorStore.getState().selectFixtures(filtered.map((f) => f.id))} disabled={!filtered.length}>전체 선택</Button></div>
-    <div className="h-48 min-h-40 flex-none overflow-y-auto overscroll-contain compact:h-100 compact:flex-1" ref={list} onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)} data-testid="placement-list">
+    <div className="h-48 min-h-40 flex-none overflow-y-auto overscroll-contain compact:h-100 compact:flex-1" ref={list} onScroll={(event) => {
+      const nextScrollTop = event.currentTarget.scrollTop;
+      const nextStart = Math.max(0, Math.floor(nextScrollTop / rowHeight) - 3);
+      const activeIndex = filtered.findIndex((fixture) => fixture.id === activeFixtureId);
+      if (activeIndex < nextStart || activeIndex >= nextStart + 16) {
+        const nextIndex = Math.min(filtered.length - 1, Math.max(0, Math.floor(nextScrollTop / rowHeight)));
+        const nextId = filtered[nextIndex]?.id ?? null;
+        if (nextId && event.currentTarget.contains(document.activeElement)) pendingFocus.current = nextId;
+        setActiveFixtureId(nextId);
+      }
+      setScrollTop(nextScrollTop);
+    }} data-testid="placement-list">
       {/* Virtual-list height and row offsets are runtime geometry for up to 1,000 fixtures. */}
       <div className="relative" style={{ height: filtered.length * rowHeight }}>
         {visible.map((fixture, offset) => <Button key={fixture.id} type="button" variant="ghost" data-testid={`placement-fixture-${fixture.id}`}

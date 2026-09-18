@@ -97,6 +97,11 @@ function renderEditor(state: FloorEditorState = editorState, props?: Partial<Par
   return {
     ...result,
     queryClient,
+    rerenderWithProps: (nextProps: Partial<Parameters<typeof FloorEditorView>[0]>) => result.rerender(
+      <QueryClientProvider client={queryClient}>
+        <FloorEditorView initialState={state} {...editorProps} {...nextProps} />
+      </QueryClientProvider>
+    ),
     rerenderEditor: (nextState: FloorEditorState) => result.rerender(
       <QueryClientProvider client={queryClient}>
         <FloorEditorView initialState={nextState} {...editorProps} />
@@ -164,6 +169,49 @@ describe("FloorEditorView", () => {
       ?.findOne<import("konva").default.Circle>("Circle")?.strokeWidth()).toBe(1);
   });
 
+  it("mounts newly visible nodes during a live pan before pointer up", () => {
+    let frame: FrameRequestCallback | null = null;
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      frame = callback;
+      return 1;
+    });
+    const large = structuredClone(editorState);
+    large.floor.floorPlan = { ...large.floor.floorPlan!, width: 5_000, height: 5_000 };
+    large.fixtures = [
+      { ...large.fixtures[0], id: "fixture-near", x: 100, y: 100 },
+      { ...large.fixtures[0], id: "fixture-pan-target", x: 1_200, y: 100 }
+    ];
+    renderEditor(large);
+    const stage = (window as unknown as { Konva: { stages: import("konva").default.Stage[] } }).Konva.stages.at(-1)!;
+    expect(stage.find(".fixture-fixture-pan-target")).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "이동" }));
+    const canvas = screen.getByLabelText("B2 편집 캔버스");
+    fireEvent.mouseDown(canvas, { clientX: 600, clientY: 100 });
+    fireEvent.mouseMove(canvas, { clientX: 200, clientY: 100 });
+    act(() => frame?.(16));
+
+    expect(stage.find(".fixture-fixture-pan-target")).toHaveLength(1);
+    expect(useFloorEditorStore.getState().pan).toEqual({ x: 0, y: 0 });
+  });
+
+  it("culls map objects using rotated and rendered-stroke world bounds", () => {
+    const large = structuredClone(editorState);
+    large.floor.floorPlan = { ...large.floor.floorPlan!, width: 5_000, height: 5_000 };
+    large.fixtures = [];
+    large.objects = [
+      { ...large.objects[0], id: "rotated-visible", type: "rectangle", x: 1_000, y: 200, width: 40, height: 300, rotation: 90, strokeWidth: 20 },
+      { ...large.objects[0], id: "stroke-visible", type: "line", x: 962, y: 50, width: 20, height: 0, rotation: 0, strokeWidth: 2 },
+      { ...large.objects[0], id: "far", x: 2_000, y: 2_000 }
+    ];
+    renderEditor(large);
+    const stage = (window as unknown as { Konva: { stages: import("konva").default.Stage[] } }).Konva.stages.at(-1)!;
+
+    expect(stage.find(".map-object-rotated-visible")).toHaveLength(1);
+    expect(stage.find(".map-object-stroke-visible")).toHaveLength(1);
+    expect(stage.find(".map-object-far")).toHaveLength(0);
+  });
+
   it("coalesces drawing pointer moves into one animation frame", () => {
     let frame: FrameRequestCallback | null = null;
     const requestFrame = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
@@ -184,6 +232,39 @@ describe("FloorEditorView", () => {
     act(() => frame?.(16));
     fireEvent.mouseUp(canvas, { clientX: 240, clientY: 200 });
     expect(useFloorEditorStore.getState().state?.objects).toHaveLength(1);
+  });
+
+  it("cancels pending fixture and object drags when the editor becomes read-only", () => {
+    let frame: FrameRequestCallback | null = null;
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      frame = callback;
+      return 1;
+    });
+    const view = renderEditor();
+    const stage = (window as unknown as { Konva: { stages: import("konva").default.Stage[] } }).Konva.stages.at(-1)!;
+    const fixture = stage.findOne<import("konva").default.Group>(".fixture-fixture-1")!;
+    fixture.fire("dragstart", { target: fixture }, true);
+    fixture.position({ x: 260, y: 260 });
+    fixture.fire("dragmove", { target: fixture }, true);
+
+    view.rerenderWithProps({ readOnly: true });
+    act(() => frame?.(16));
+    fixture.fire("dragend", { target: fixture }, true);
+    expect(fixture.position()).toEqual({ x: 120, y: 140 });
+    expect(useFloorEditorStore.getState().state?.fixtures[0]).toMatchObject({ x: 120, y: 140 });
+
+    view.rerenderWithProps({ readOnly: false });
+    const object = stage.findOne<import("konva").default.Node>(".map-object-object-1")!;
+    object.fire("dragstart", { target: object }, true);
+    object.position({ x: 500, y: 420 });
+    object.fire("dragmove", { target: object }, true);
+    view.rerenderWithProps({ readOnly: true });
+    act(() => frame?.(32));
+    object.fire("dragend", { target: object }, true);
+
+    expect(object.position()).toEqual({ x: 300, y: 180 });
+    expect(useFloorEditorStore.getState().state?.objects[0]).toMatchObject({ x: 300, y: 180 });
+    expect(screen.getByTestId("floor-editor-canvas")).toHaveAttribute("data-active-guides", "");
   });
 
   it("keeps virtualized search, selection, and End-key focus working for 1,000 fixtures", async () => {
@@ -207,6 +288,26 @@ describe("FloorEditorView", () => {
     const searched = await screen.findByTestId("placement-fixture-fixture-999");
     fireEvent.click(searched);
     expect(useFloorEditorStore.getState().selectedFixtureIds).toEqual(["fixture-999"]);
+  });
+
+  it("moves roving focus to a mounted row after manual virtual-list scrolling", async () => {
+    const large = structuredClone(editorState);
+    large.fixtures = Array.from({ length: 1_000 }, (_, index) => ({
+      ...large.fixtures[0],
+      id: `fixture-${index + 1}`,
+      name: `L-${String(index + 1).padStart(4, "0")}`,
+      placementStatus: "unplaced" as const
+    }));
+    renderEditor(large);
+    const first = screen.getByTestId("placement-fixture-fixture-1");
+    const list = screen.getByTestId("placement-list");
+    first.focus();
+
+    Object.defineProperty(list, "scrollTop", { configurable: true, value: 500 * 64 });
+    fireEvent.scroll(list);
+
+    await waitFor(() => expect(screen.getByTestId("placement-fixture-fixture-501")).toHaveFocus());
+    expect(screen.getByTestId("placement-fixture-fixture-501")).toHaveAttribute("tabindex", "0");
   });
 
   it("preserves viewport and selection when a save cache response is structurally shared", async () => {

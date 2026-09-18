@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 type FloorPlanImageStatus = "idle" | "loading" | "ready" | "error";
 type Snapshot = { image: HTMLImageElement | null; status: FloorPlanImageStatus };
 type CacheEntry = Snapshot & {
+  key: string;
   url: string;
   attempt: number;
   listeners: Set<() => void>;
@@ -11,39 +12,47 @@ type CacheEntry = Snapshot & {
 const idleSnapshot: Snapshot = { image: null, status: "idle" };
 const imageCache = new Map<string, CacheEntry>();
 
-export function useFloorPlanImage(url: string): Snapshot & { retry: () => void } {
-  const [snapshot, setSnapshot] = useState<Snapshot>(() => url ? snapshotOf(entryFor(url)) : idleSnapshot);
+export function useFloorPlanImage(url: string, revision: string | number): Snapshot & { retry: () => void } {
+  const key = url ? `${revision}\u0000${url}` : "";
+  const entry = url ? entryFor(key, url) : null;
+  const [published, setPublished] = useState<{ key: string; snapshot: Snapshot }>(() => ({
+    key,
+    snapshot: entry ? snapshotOf(entry) : idleSnapshot
+  }));
 
   useEffect(() => {
     if (!url) {
-      setSnapshot(idleSnapshot);
+      setPublished({ key: "", snapshot: idleSnapshot });
       return;
     }
-    const entry = entryFor(url);
-    const publish = () => setSnapshot(snapshotOf(entry));
+    const entry = entryFor(key, url);
+    const publish = () => setPublished({ key, snapshot: snapshotOf(entry) });
     publish();
     entry.listeners.add(publish);
     return () => { entry.listeners.delete(publish); };
-  }, [url]);
+  }, [key, url]);
 
   const retry = useCallback(() => {
     if (!url) return;
-    load(entryFor(url));
-  }, [url]);
+    const entry = entryFor(key, url);
+    if (entry.status === "error") load(entry);
+  }, [key, url]);
 
+  const snapshot = published.key === key ? published.snapshot : entry ? snapshotOf(entry) : idleSnapshot;
   return { ...snapshot, retry };
 }
 
-function entryFor(url: string): CacheEntry {
-  const existing = imageCache.get(url);
+function entryFor(key: string, url: string): CacheEntry {
+  const existing = imageCache.get(key);
   if (existing) return existing;
-  const entry: CacheEntry = { url, image: null, status: "loading", attempt: 0, listeners: new Set() };
-  imageCache.set(url, entry);
+  const entry: CacheEntry = { key, url, image: null, status: "idle", attempt: 0, listeners: new Set() };
+  imageCache.set(key, entry);
   load(entry);
   return entry;
 }
 
 function load(entry: CacheEntry) {
+  if (entry.status === "loading" || entry.status === "ready") return;
   const attempt = ++entry.attempt;
   entry.image = null;
   entry.status = "loading";

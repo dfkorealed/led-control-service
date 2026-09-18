@@ -25,11 +25,12 @@ import { canShowFixtureNames, selectedFixtureLabelLayout } from "./editor-labels
 import { CadCandidateLayer } from "./CadCandidateLayer";
 import { CAD_SLOT_HIT_RADIUS, CadPlacementSlotLayer, findAvailableCadSlotAtPoint } from "./CadPlacementSlotLayer";
 import { useFloorPlanImage } from "./use-floor-plan-image";
-import { buildEditorSpatialIndex, queryEditorSpatialIndex } from "./editor-spatial-index";
+import { buildEditorSpatialIndex, mapObjectWorldAabb, queryEditorSpatialIndex } from "./editor-spatial-index";
 
 const TOOL_DRAG_TYPE = "application/x-floor-editor-tool";
 const drawingTools = new Set<EditorTool>(["rectangle", "triangle", "line", "text"]);
 type Gesture = { kind: "pan" | "marquee" | "draw"; start: Point; screen: Point; pan: Point; additive: boolean; moved: boolean };
+type DragInteraction = { token: number; kind: "fixture" | "object"; id: string; floorId: string };
 
 interface FloorEditorCanvasProps {
   readOnly?: boolean;
@@ -69,6 +70,8 @@ export function FloorEditorCanvas({
   const pendingPointerMove = useRef<(() => void) | null>(null);
   const dragFrame = useRef<number | null>(null);
   const pendingDragMove = useRef<(() => void) | null>(null);
+  const dragToken = useRef(0);
+  const dragInteraction = useRef<DragInteraction | null>(null);
   const creationDraft = useRef<FloorMapObjectDraft | null>(null);
   const marqueeDraft = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
   const lastAutoFitKey = useRef<string | null>(null);
@@ -93,16 +96,18 @@ export function FloorEditorCanvas({
   const [dropPreview, setDropPreview] = useState<Point | null>(null);
   const [highlightedSlotId, setHighlightedSlotId] = useState<string | null>(null);
   const [isPanning, setIsPanning] = useState(false);
+  const [transientPan, setTransientPan] = useState<Point | null>(null);
   const floorPlan = state?.floor.floorPlan;
   const backgroundUrl = cadBackgroundUrl
     ?? (floorPlan?.sourceType !== "none" ? floorPlan?.renderedImageUrl ?? floorPlan?.imageUrl : "");
-  const { image: background, status: backgroundStatus, retry: retryBackground } = useFloorPlanImage(backgroundUrl ?? "");
+  const { image: background, status: backgroundStatus, retry: retryBackground } = useFloorPlanImage(backgroundUrl ?? "", state?.floor.mapRevision ?? 0);
   const bounds = cadBackgroundUrl && cadViewport
     ? cadViewport
     : { width: floorPlan?.width ?? 1200, height: floorPlan?.height ?? 800 };
+  const renderedPan = transientPan ?? pan;
   const viewportBounds = {
-    x: -pan.x / zoom,
-    y: -pan.y / zoom,
+    x: -renderedPan.x / zoom,
+    y: -renderedPan.y / zoom,
     width: viewport.width / zoom,
     height: viewport.height / zoom
   };
@@ -117,9 +122,7 @@ export function FloorEditorCanvas({
   }, [fixtureSpatialIndex, placedFixtures, selectedIds, viewportBounds.height, viewportBounds.width, viewportBounds.x, viewportBounds.y, zoom]);
   const visibleObjects = useMemo(() => {
     const objects = state?.objects.filter((object) => object.visible) ?? [];
-    const index = buildEditorSpatialIndex(objects.map((object) => ({
-      id: object.id, x: object.x, y: object.y, width: object.width, height: object.height, object
-    })), 128);
+    const index = buildEditorSpatialIndex(objects.map((object) => ({ id: object.id, ...mapObjectWorldAabb(object), object })), 128);
     const visibleIds = new Set(queryEditorSpatialIndex(index, viewportBounds, 160 / zoom).map((item) => item.id));
     if (selection?.kind === "object") visibleIds.add(selection.id);
     return objects.filter((object) => visibleIds.has(object.id)).sort((a, b) => a.zIndex - b.zIndex);
@@ -206,10 +209,15 @@ export function FloorEditorCanvas({
     pendingDragMove.current = null;
     pending?.();
   }, []);
+  const cancelDragMove = useCallback(() => {
+    if (dragFrame.current !== null) window.cancelAnimationFrame(dragFrame.current);
+    dragFrame.current = null;
+    pendingDragMove.current = null;
+  }, []);
   useEffect(() => () => {
     cancelPointerMove();
-    if (dragFrame.current !== null) window.cancelAnimationFrame(dragFrame.current);
-  }, [cancelPointerMove]);
+    cancelDragMove();
+  }, [cancelDragMove, cancelPointerMove]);
 
   const register = useCallback((id: string, node: Konva.Node | null) => { if (node) nodes.current.set(id, node); else nodes.current.delete(id); }, []);
   const onSelect = useCallback((id: string, additive: boolean) => useFloorEditorStore.getState().selectFixture(id, additive), []);
@@ -225,14 +233,50 @@ export function FloorEditorCanvas({
     verticalGuide.current?.getLayer()?.batchDraw();
   }, []);
   const clearAlignmentGuides = useCallback(() => renderAlignmentGuides([]), [renderAlignmentGuides]);
+  const restoreDraggedNodes = useCallback(() => {
+    const current = useFloorEditorStore.getState().state;
+    current?.fixtures.forEach((fixture) => nodes.current.get(fixture.id)?.position(fixture));
+    current?.objects.forEach((object) => objectNodes.current.get(object.id)?.position(object));
+  }, []);
+  const cancelDragInteraction = useCallback(() => {
+    dragToken.current += 1;
+    dragInteraction.current = null;
+    cancelDragMove();
+    groupDrag.current = [];
+    guideTargets.current = [];
+    clearAlignmentGuides();
+    restoreDraggedNodes();
+  }, [cancelDragMove, clearAlignmentGuides, restoreDraggedNodes]);
+  const beginDragInteraction = useCallback((kind: "fixture" | "object", id: string) => {
+    const store = useFloorEditorStore.getState();
+    if (disabled.current || store.activeTool !== "select" || !store.state) return null;
+    if (kind === "fixture" && (!store.layers.fixtures.visible || store.layers.fixtures.locked || store.lockedFixtureIds.includes(id))) return null;
+    const object = kind === "object" ? store.state.objects.find((candidate) => candidate.id === id) : null;
+    if (kind === "object" && (!store.layers.objects.visible || store.layers.objects.locked || object?.locked !== false)) return null;
+    const interaction = { token: ++dragToken.current, kind, id, floorId: store.state.floor.id } as const;
+    dragInteraction.current = interaction;
+    return interaction.token;
+  }, []);
+  const isDragInteractionCurrent = useCallback((token: number | null, kind: "fixture" | "object", id: string) => {
+    const interaction = dragInteraction.current;
+    const store = useFloorEditorStore.getState();
+    if (!interaction || token === null || interaction.token !== token || interaction.kind !== kind || interaction.id !== id
+      || disabled.current || store.activeTool !== "select" || store.state?.floor.id !== interaction.floorId) return false;
+    if (kind === "fixture") return store.layers.fixtures.visible && !store.layers.fixtures.locked && !store.lockedFixtureIds.includes(id);
+    const object = store.state.objects.find((candidate) => candidate.id === id);
+    return store.layers.objects.visible && !store.layers.objects.locked && object?.locked === false;
+  }, []);
+  useEffect(() => {
+    cancelDragInteraction();
+  }, [activeTool, cancelDragInteraction, layers.fixtures.locked, layers.fixtures.visible, layers.objects.locked, layers.objects.visible, readOnly, state]);
   const onDragStart = useCallback((id: string) => {
     const store = useFloorEditorStore.getState();
-    if (disabled.current) return;
+    if (beginDragInteraction("fixture", id) === null) return;
     if (!store.selectedFixtureIds.includes(id)) store.selectFixture(id);
     const ids = new Set(useFloorEditorStore.getState().selectedFixtureIds);
     groupDrag.current = store.state?.fixtures.filter((f) => ids.has(f.id) && !store.lockedFixtureIds.includes(f.id) && f.placementStatus !== "unplaced") ?? [];
     guideTargets.current = collectGuideTargets(store.state, ids);
-  }, []);
+  }, [beginDragInteraction]);
   const applyFixtureDragMove = useCallback((id: string, node: Konva.Node) => {
     if (disabled.current) return;
     const store = useFloorEditorStore.getState();
@@ -253,18 +297,20 @@ export function FloorEditorCanvas({
     renderAlignmentGuides(aligned.guides);
   }, [renderAlignmentGuides]);
   const onDragMove = useCallback((id: string, node: Konva.Node) => {
-    scheduleDragMove(() => applyFixtureDragMove(id, node));
-  }, [applyFixtureDragMove, scheduleDragMove]);
+    const token = dragInteraction.current?.token ?? null;
+    scheduleDragMove(() => {
+      if (isDragInteractionCurrent(token, "fixture", id)) applyFixtureDragMove(id, node);
+    });
+  }, [applyFixtureDragMove, isDragInteractionCurrent, scheduleDragMove]);
   const onDragEnd = useCallback((id: string, node: Konva.Node) => {
+    const token = dragInteraction.current?.token ?? null;
     flushDragMove();
     const origin = groupDrag.current.find((f) => f.id === id);
-    if (origin && !disabled.current) useFloorEditorStore.getState().moveFixtures(groupDrag.current.map((f) => f.id), { x: node.x() - origin.x, y: node.y() - origin.y });
-    // Konva has already moved nodes imperatively; always reconcile on lease loss or no-op.
-    useFloorEditorStore.getState().state?.fixtures.forEach((f) => nodes.current.get(f.id)?.position(f));
-    groupDrag.current = [];
-    guideTargets.current = [];
-    clearAlignmentGuides();
-  }, [clearAlignmentGuides, flushDragMove]);
+    if (origin && isDragInteractionCurrent(token, "fixture", id)) {
+      useFloorEditorStore.getState().moveFixtures(groupDrag.current.map((f) => f.id), { x: node.x() - origin.x, y: node.y() - origin.y });
+    }
+    cancelDragInteraction();
+  }, [cancelDragInteraction, flushDragMove, isDragInteractionCurrent]);
   const onTransform = useCallback((id: string, node: Konva.Node) => {
     const fixture = useFloorEditorStore.getState().state?.fixtures.find((f) => f.id === id);
     const scale = Math.max(node.scaleX(), node.scaleY()); node.scale({ x: 1, y: 1 });
@@ -289,7 +335,7 @@ export function FloorEditorCanvas({
         // Imperative pan is not yet in Zustand. Restore every layer before dropping
         // the gesture, so the next drop uses exactly the transform shown on screen.
         if (gesture.current?.kind === "pan") stage.current?.getLayers().forEach((layer) => layer.position(store.pan));
-        gesture.current = null; setCreation(null); setMarquee(null); setDropPreview(null); setHighlightedSlotId(null); setIsPanning(false); store.setPreview([]); return;
+        gesture.current = null; setTransientPan(null); setCreation(null); setMarquee(null); setDropPreview(null); setHighlightedSlotId(null); setIsPanning(false); store.setPreview([]); return;
       }
       if (readOnly) return;
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") { event.preventDefault(); event.shiftKey ? store.redo() : store.undo(); return; }
@@ -332,7 +378,9 @@ export function FloorEditorCanvas({
     action.moved ||= Math.hypot(point.x - action.screen.x, point.y - action.screen.y) > 3;
     if (action.kind === "pan") return schedulePointerMove(() => {
       if (gesture.current !== action) return;
-      stage.current?.getLayers().forEach((layer) => layer.position({ x: action.pan.x + point.x - action.screen.x, y: action.pan.y + point.y - action.screen.y }));
+      const nextPan = { x: action.pan.x + point.x - action.screen.x, y: action.pan.y + point.y - action.screen.y };
+      stage.current?.getLayers().forEach((layer) => layer.position(nextPan));
+      setTransientPan(nextPan);
     });
     if (readOnly) return;
     const world = clampPoint(worldPoint(event), bounds);
@@ -355,6 +403,7 @@ export function FloorEditorCanvas({
     if (action?.kind === "pan") {
       const point = screenPoint(event);
       useFloorEditorStore.getState().setPan({ x: action.pan.x + point.x - action.screen.x, y: action.pan.y + point.y - action.screen.y });
+      setTransientPan(null);
       setIsPanning(false);
     }
     if (!readOnly && action?.moved) {
@@ -403,7 +452,7 @@ export function FloorEditorCanvas({
     const tool = event.dataTransfer.getData(TOOL_DRAG_TYPE) as EditorTool;
     if (drawingTools.has(tool)) current.addObject(current.state.floor.id, createDefaultObject(tool, point));
   }
-  const transform = { x: pan.x, y: pan.y, scaleX: zoom, scaleY: zoom };
+  const transform = { x: renderedPan.x, y: renderedPan.y, scaleX: zoom, scaleY: zoom };
   const focusedFixture = layers.fixtures.visible && selection?.kind === "fixture" ? placedFixtures.find((fixture) => fixture.id === selection.id) : undefined;
   const focusedLabel = focusedFixture ? selectedFixtureLabelLayout(focusedFixture, pan, zoom, viewport) : undefined;
   const selectedObjectType = selection?.kind === "object" ? state.objects.find((object) => object.id === selection.id)?.type : undefined;
@@ -418,7 +467,7 @@ export function FloorEditorCanvas({
     data-background-url={backgroundUrl} data-cad-candidate-count={cadCandidates.length}
     data-map-width={bounds.width} data-map-height={bounds.height}
     data-rendered-fixture-count={visibleFixtures.length} data-rendered-object-count={visibleObjects.length}
-    onMouseDown={begin} onMouseMove={move} onMouseUp={finish} onMouseLeave={(e) => { if (gesture.current?.kind === "pan") finish(e); else { cancelPointerMove(); gesture.current = null; creationDraft.current = null; marqueeDraft.current = null; setCreation(null); setMarquee(null); setIsPanning(false); } }}
+    onMouseDown={begin} onMouseMove={move} onMouseUp={finish} onMouseLeave={(e) => { if (gesture.current?.kind === "pan") finish(e); else { cancelPointerMove(); gesture.current = null; creationDraft.current = null; marqueeDraft.current = null; setTransientPan(null); setCreation(null); setMarquee(null); setIsPanning(false); } }}
     onDragOver={dragOver} onDragLeave={() => { cancelPointerMove(); setDropPreview(null); setHighlightedSlotId(null); }} onDrop={drop}>
     <Stage ref={stage} width={viewport.width} height={viewport.height} onWheel={(event) => {
       event.evt.preventDefault(); const store = useFloorEditorStore.getState();
@@ -456,21 +505,28 @@ export function FloorEditorCanvas({
           return <FloorMapObjectNode key={object.id} object={object} interactive={!readOnly && !layers.objects.locked && !object.locked && activeTool === "select"} selected={selection?.id === object.id}
             setNodeRef={ref} onSelect={() => useFloorEditorStore.getState().selectObject(object.id)}
             onDragStart={() => {
+              if (beginDragInteraction("object", object.id) === null) return;
               const store = useFloorEditorStore.getState();
               guideTargets.current = collectGuideTargets(store.state, new Set(), object.id);
             }}
-            onDragMove={(node) => scheduleDragMove(() => {
-              const store = useFloorEditorStore.getState();
-              const moving = clampObjectToMap({ x: node.x(), y: node.y(), width: object.width, height: object.height }, bounds);
-              const aligned = alignRectToGuides(moving, guideTargets.current, bounds, 6 / store.zoom);
-              node.position(aligned.point);
-              renderAlignmentGuides(aligned.guides);
-            })}
+            onDragMove={(node) => {
+              const token = dragInteraction.current?.token ?? null;
+              scheduleDragMove(() => {
+                if (!isDragInteractionCurrent(token, "object", object.id)) return;
+                const store = useFloorEditorStore.getState();
+                const moving = clampObjectToMap({ x: node.x(), y: node.y(), width: object.width, height: object.height }, bounds);
+                const aligned = alignRectToGuides(moving, guideTargets.current, bounds, 6 / store.zoom);
+                node.position(aligned.point);
+                renderAlignmentGuides(aligned.guides);
+              });
+            }}
             onChange={(patch) => {
+              const token = dragInteraction.current?.token ?? null;
               flushDragMove();
-              clearAlignmentGuides();
-              guideTargets.current = [];
-              useFloorEditorStore.getState().updateObject(object.id, clampPoint({ x: patch.x ?? object.x, y: patch.y ?? object.y }, bounds));
+              if (isDragInteractionCurrent(token, "object", object.id)) {
+                useFloorEditorStore.getState().updateObject(object.id, clampPoint({ x: patch.x ?? object.x, y: patch.y ?? object.y }, bounds));
+              }
+              cancelDragInteraction();
             }}
             onTransformEnd={(node) => {
               if (readOnly) return;
