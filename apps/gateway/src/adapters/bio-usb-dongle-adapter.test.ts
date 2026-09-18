@@ -189,6 +189,49 @@ describe("BioUsbDongleAdapter", () => {
     expect(f.client.reconcileAddress).not.toHaveBeenCalled();
   });
 
+  it("reconciles an exact reserved mapping for a newer registration command without rewriting the address", async () => {
+    const f = createFixture();
+    const retry = {
+      ...provisioningCommand,
+      commandId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+    };
+    f.mappings.findByDeviceUuidIncludingReserved.mockResolvedValue(reservedMapping());
+    f.client.reconcileAddress.mockResolvedValue({
+      outcome: "confirmed",
+      device: { ...discovered, logicalAddress: 0x0101 }
+    });
+    f.mappings.confirm.mockResolvedValue(confirmedMapping());
+
+    await expect(f.adapter.provision(retry)).resolves.toMatchObject({
+      deviceUuid: retry.deviceUuid,
+      meshAddress: retry.meshAddress
+    });
+    expect(f.client.reconcileAddress).toHaveBeenCalledWith(
+      discovered.nativeUuid,
+      discovered.logicalAddress,
+      0x0101
+    );
+    expect(f.client.assignAddressOnce).not.toHaveBeenCalled();
+    expect(f.client.assignAddress).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["node ID", { nodeId: "77777777-7777-4777-8777-777777777777" }],
+    ["mesh address", { meshAddress: "0x0102" }]
+  ])("rejects a newer command when the reserved mapping has a different %s", async (_caseName, overrides) => {
+    const f = createFixture();
+    const retry: ProvisioningDeviceCommandV2 = {
+      ...provisioningCommand,
+      commandId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      ...overrides
+    };
+    f.mappings.findByDeviceUuidIncludingReserved.mockResolvedValue(reservedMapping());
+
+    await expect(f.adapter.provision(retry)).rejects.toThrow("BIO provisioning mapping identity conflict");
+    expect(f.client.reconcileAddress).not.toHaveBeenCalled();
+    expect(f.client.assignAddressOnce).not.toHaveBeenCalled();
+  });
+
   it("recovers a reserved restart only from old/new UUID reconciliation", async () => {
     const f = createFixture();
     f.mappings.findByDeviceUuidIncludingReserved.mockResolvedValue(reservedMapping());

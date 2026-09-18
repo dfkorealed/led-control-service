@@ -196,6 +196,7 @@
 - 실제 Gateway scan은 shared DFK product identity 계약을 통과한 ESP32-H2 UUID만 등록 후보로 반환한다. UUID 필터는 제품 식별용이며 제조 원장, claim과 Gateway mTLS 인증을 대체하지 않는다.
 - 검색된 BIO 조명의 `식별`은 주소를 예약하거나 `MeshNode`/`Fixture`/mapping을 만들지 않고 전용 durable outbox에 정확히 한 번 접수한다. Gateway가 vendor BIO 명령으로 약 2초간 force-on한 뒤 sensor mode 복원을 확인해야만 `confirmed`가 되며, 복원 미확인·장비 오류·15초 결과 timeout은 발견 행의 명시적 실패 사유로 표시한다. 중복 클릭/재전송은 같은 operation을 반환한다. Web은 mutation의 `operationId`를 보존하고 node의 `identifyOperationId`/`identifyOperationStartedAt`/`updatedAt`로 현재 요청과 최신 revision의 terminal만 수용한다. 이전 요청의 지연 `confirmed|failed`는 새 retry를 완료하지 못하며 polling을 계속한다. API는 node와 최신 outbox 소유권을 같은 읽기 snapshot에서 조회한다. timeout 뒤 정상 등록·주소 배정이 끝나도 이전의 정확한 terminal은 ledger/ACK만 기록하고 node/session/Fixture/mapping을 변경하지 않는다. 식별 진행 중에는 재검색·주소 예약/등록·세션 완료·취소를 거부해 terminal과 lifecycle 변경을 직렬화한다. 표준 BlueZ adapter는 provisioning 전 식별을 지원하지 않아 명시적 실패가 정상이며, 실제 BIO HIL 재검증은 배포 후 후속이다.
 - identify 결과 timeout의 cutoff는 Prisma가 바인딩하는 `TIMESTAMPTZ`를 UTC `TIMESTAMP WITHOUT TIME ZONE`으로 명시 변환한 뒤 `publishedAt`과 비교한다. DB 세션이 `Asia/Seoul`이어도 방금 발행한 명령을 9시간 지난 것으로 오판하지 않는다. 2026-09-14 실제 BIO HIL에서 수정 전에는 발행 약 1초 뒤 실패했지만 Gateway 저널에는 `completed/restoreConfirmed=true`가 남았고, 수정 후 같은 2초 점등·sensor 복원 실행이 Web `식별 완료`와 DB `identifyState=confirmed`로 수렴함을 확인했다.
+- BIO provisioning이 주소 예약 뒤 실패하면 같은 세션의 발견 node에는 예약 주소가 남을 수 있다. 이 상태의 canonical `bio:<12-hex>` UUID는 아직 서비스 `MeshNode`로 확정되지 않은 경우에만 식별을 다시 허용한다. 식별은 주소를 쓰지 않고 UUID 기반 2초 점등과 sensor-mode 복원만 검증한다. 이후 등록 재시도에서 Gateway mapping의 node ID·device UUID·logical address가 모두 같으면 새 command ID를 같은 물리 대상의 새 시도로 인정하고, 주소 SET을 반복하지 않은 채 fresh scan reconciliation으로만 완료한다. node ID·UUID·주소 중 하나라도 다르거나 이미 등록된 BIO/일반 Mesh 장치는 계속 `identify_node_wrong_state` 또는 mapping identity conflict로 거부한다. 이 회귀는 API/Gateway 자동 테스트 범위이며 현재 실패 장치의 실제 재등록 HIL은 별도 확인이 필요하다.
 - 층별 자동 조명 이름 순번과 게이트웨이별 Mesh unicast 주소를 PostgreSQL 소유 행 잠금으로 원자 예약하는 기반을 구현했다. Mesh 주소는 `0x0001~0x7fff` 범위를 벗어나면 등록을 거부한다.
 - 일괄·개별 조명 등록 API는 유효한 node만 원자 예약하고 node별 검증 실패를 분리한다. 신규 조명은 지도 공간과 무관하게 미배치로 등록한다. 구버전 placement 입력은 호환 수신하되 좌표로 적용하지 않는다. 불명확한 provisioning 결과는 `reconcile_required`로 격리한다.
 - 조명 등록 화면의 검색 node 개별/전체 선택, 일괄·개별 설정 전환과 선택 조명 등록은 설치 완료 assigned admin의 commissioning UI로 노출된다. viewer와 operator에는 mutation UI를 노출하지 않는다. Task 9 software E2E는 production API와 test-support MQTT publisher 경로를 검증했고 shared `parseDfkDeviceUuid`로 invalid/타사 UUID 1개가 scan-found에서 제외됨을 확인했다. 실제 BlueZ/RF Gateway scan과 Raspberry Pi/ESP32-H2 HIL은 미실행이다.
@@ -491,6 +492,8 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 
 - `apps/gateway/src/bootstrap-only.ts`, `apps/gateway/src/identity/ensure-mqtt-identity.ts`, `apps/gateway/compose.bootstrap.yml`
 - `apps/gateway/src/adapters/bio-usb-dongle-adapter.ts`
+- `apps/api/src/registration/registration.service.ts`
+- `apps/api/src/mqtt/provisioning-device-terminal.service.ts`
 - `apps/gateway/src/adapters/bio-sensor-capability-unavailable-port.ts`
 - `apps/gateway/src/adapters/adapter-factory.ts`
 - `apps/gateway/src/bio/bio-device-mapping-store.ts`
