@@ -2,7 +2,7 @@ import { createReadStream } from "node:fs";
 import { CAD_RENDERED_SVG_MAX_BYTES, renderCadDocumentSvgFile } from "./cad-svg-renderer";
 import { parseAsciiDxfStream } from "./dxf-document-parser";
 import { DisabledAiLightingSymbolDetector } from "./disabled-ai-lighting-symbol-detector";
-import { createCadViewport, projectCadPointToViewport } from "./cad-viewport";
+import { createCadViewport, measureCadCandidateSvgTransformMatch, projectCadPointToViewport } from "./cad-viewport";
 import { FixedLightingDetectorRegistry, type CadImportDetectorProfileId } from "./lighting-detector-registry";
 import type { CadCoreRequest, CadCoreResult } from "./cad-core-executor";
 
@@ -70,6 +70,11 @@ async function execute(request: Omit<CadCoreRequest, "abortSignal">): Promise<Ca
     modelEntityCount: document.entities.length,
     blockCount: document.blocks.length,
     candidates: projected,
+    candidateTransformMatch: measureCadCandidateSvgTransformMatch(
+      candidates.map(candidate => candidate.position),
+      document.bounds,
+      0.01
+    ),
     rendered,
     observedMaxRssBytes: usage.maxRSS * 1024
   };

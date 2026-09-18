@@ -430,7 +430,8 @@ export class FloorImportService {
           action: "floor_import.applied", targetType: "floor_import_job", targetId: jobId,
           outcome: "success", metadata: {
             floorId, revision, acceptedCandidateIds: [...input.candidateIds].sort(),
-            snapshotSha256: hashFloorEditorSnapshot(snapshot)
+            snapshotSha256: hashFloorEditorSnapshot(snapshot),
+            changeSummary
           }, transaction: tx
         });
         const completed = await tx.floorImportJob.updateMany({

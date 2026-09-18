@@ -4,11 +4,12 @@ import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
+import sharp from "sharp";
 import { AuditService } from "../audit/audit.service";
 import { disposablePostgres } from "../../test/support/disposable-postgres";
 import { ObjectStorageService } from "../storage/object-storage.service";
 import { ArgvCadConverter } from "./cad-converter";
-import { ChildProcessCadCoreExecutor } from "./cad-core-executor";
+import { ChildProcessCadCoreExecutor, type CadCoreExecutor, type CadCoreResult } from "./cad-core-executor";
 import { FloorImportAttemptCleanupService } from "./floor-import-attempt-cleanup.service";
 import { FloorImportWorkerService } from "./floor-import-worker.service";
 import { FloorImportService } from "./floor-import.service";
@@ -86,9 +87,16 @@ const enabled = Boolean(sample && converterPath && converterArgvJson && process.
         execution
       });
       const registry = new FixedLightingDetectorRegistry();
-      const core = new ChildProcessCadCoreExecutor({
+      const childCore = new ChildProcessCadCoreExecutor({
         entryPath: resolve(process.cwd(), "dist/src/floor-import/cad-core-child.js"), timeoutMs: 60_000
       });
+      let coreResult: CadCoreResult | undefined;
+      const core: CadCoreExecutor = {
+        execute: async request => {
+          coreResult = await childCore.execute(request);
+          return coreResult;
+        }
+      };
       const cleanup = new FloorImportAttemptCleanupService(prisma as never, storage, {
         tempRoot: "/tmp", pollIntervalMs: 1000, enabled: false
       });
@@ -104,25 +112,58 @@ const enabled = Boolean(sample && converterPath && converterArgvJson && process.
         where: { id: created.jobId }, include: { renderedAsset: true, _count: { select: { candidates: true } } }
       });
       expect(persisted).toMatchObject({
-        status: "review_required", detectorProfileId: "site-drawing-20260803-v1",
+        status: "review_required", stage: "review_required", progressPercent: 100,
+        detectorProfileId: "site-drawing-20260803-v1",
         detectorProfileVersion: registry.get("site-drawing-20260803-v1").profileVersion,
         detectorProfileDigest: registry.get("site-drawing-20260803-v1").profileDigest,
         _count: { candidates: 1_308 }, renderedAsset: { contentEncoding: "gzip" }
       });
+      expect(coreResult).toBeDefined();
+      expect(coreResult!.candidateTransformMatch).toMatchObject({
+        candidateCount: 1_308,
+        matchedCount: 1_308,
+        matchRate: 1,
+        tolerancePx: 0.01
+      });
+      expect(coreResult!.candidateTransformMatch.maxDeltaPx).toBeLessThanOrEqual(0.01);
       renderedKey = persisted.renderedAsset!.objectKey;
       const apiJob = await imports.get(user, floorId, created.jobId);
-      expect(apiJob).toMatchObject({ status: "review_required", renderedViewport: expect.any(Object) });
+      expect(apiJob).toMatchObject({
+        status: "review_required", stage: "review_required", progressPercent: 100,
+        renderedViewport: coreResult!.rendered.viewport
+      });
       await expect(imports.listCandidates(user, floorId, created.jobId))
         .resolves.toMatchObject({ candidates: expect.arrayContaining([expect.objectContaining({ blockName: "몰드바등" })]) });
       const signed = await storage.createFloorAssetDownloadUrl(renderedKey);
       const response = await fetch(signed);
       expect(response.status).toBe(200);
       expect(response.headers.get("content-encoding")).toBe("gzip");
-      expect(Buffer.from(await response.arrayBuffer()).subarray(0, 4).toString()).toBe("<svg");
+      const svg = Buffer.from(await response.arrayBuffer());
+      expect(svg.subarray(0, 4).toString()).toBe("<svg");
+      const decoded = await sharp(svg).metadata();
+      expect(decoded).toMatchObject({
+        format: "svg",
+        width: coreResult!.rendered.viewport.width,
+        height: coreResult!.rendered.viewport.height
+      });
+      const unsupportedEntityTotal = Object.values(coreResult!.rendered.unsupportedEntityCounts ?? {})
+        .reduce((sum, count) => sum + count, 0);
       process.stdout.write(`${JSON.stringify({
-        sourceSha256, sourceBytes: sourceStat.size, candidates: persisted._count.candidates,
-        storedSvgBytes: Number(persisted.renderedAsset!.sizeBytes), profileVersion: persisted.detectorProfileVersion,
-        profileDigest: persisted.detectorProfileDigest
+        jobStatus: apiJob.status, jobStage: apiJob.stage, jobProgressPercent: apiJob.progressPercent,
+        sourceSha256, sourceBytes: sourceStat.size,
+        modelEntityCount: coreResult!.modelEntityCount, blockCount: coreResult!.blockCount,
+        candidateCount: persisted._count.candidates,
+        candidateTransformMatch: coreResult!.candidateTransformMatch,
+        viewport: coreResult!.rendered.viewport,
+        excludedEntityCount: coreResult!.rendered.excludedEntityCount ?? 0,
+        unsupportedEntityCounts: coreResult!.rendered.unsupportedEntityCounts ?? {},
+        unsupportedEntityTotal,
+        renderedOccurrences: coreResult!.rendered.renderedOccurrences,
+        rawSvgBytes: coreResult!.rendered.rawSizeBytes,
+        storedSvgBytes: Number(persisted.renderedAsset!.sizeBytes),
+        storedSvgSha256: coreResult!.rendered.sha256,
+        svgDecode: { format: decoded.format, width: decoded.width, height: decoded.height },
+        profileVersion: persisted.detectorProfileVersion, profileDigest: persisted.detectorProfileDigest
       })}\n`);
     } finally {
       if (renderedKey) await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: renderedKey })).catch(() => undefined);

@@ -2,6 +2,7 @@ import { fork } from "node:child_process";
 import { join } from "node:path";
 import type { CadImportDetectorProfileId } from "./lighting-detector-registry";
 import type { CadSvgFileResult } from "./cad-svg-renderer";
+import type { CadCandidateSvgTransformMatch } from "./cad-viewport";
 import { CAD_CORE_MAX_OLD_SPACE_MB } from "./cad-runtime-contract";
 
 export { CAD_CORE_MAX_OLD_SPACE_MB } from "./cad-runtime-contract";
@@ -38,6 +39,7 @@ export interface CadCoreResult {
   modelEntityCount: number;
   blockCount: number;
   candidates: CadCoreCandidate[];
+  candidateTransformMatch: CadCandidateSvgTransformMatch;
   rendered: CadSvgFileResult;
   observedMaxRssBytes?: number;
 }
@@ -155,6 +157,14 @@ function assertCoreManifest(result: CadCoreResult, requestedProfileId: CadImport
       throw new Error("invalid core manifest");
     }
     if (candidate.inputDigest && !/^[a-f0-9]{64}$/.test(candidate.inputDigest)) throw new Error("invalid core manifest");
+  }
+  const transform = result.candidateTransformMatch;
+  if (!transform || transform.candidateCount !== result.candidates.length ||
+      transform.matchedCount !== transform.candidateCount ||
+      transform.matchRate !== (transform.candidateCount === 0 ? null : 1) ||
+      transform.tolerancePx !== 0.01 || !Number.isFinite(transform.maxDeltaPx) ||
+      transform.maxDeltaPx < 0 || transform.maxDeltaPx > transform.tolerancePx) {
+    throw new Error("invalid core manifest");
   }
   const rendered = result.rendered;
   if (!rendered || !Number.isSafeInteger(rendered.sizeBytes) || rendered.sizeBytes < 1 ||

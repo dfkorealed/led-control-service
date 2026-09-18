@@ -54,4 +54,24 @@ describe("ChildProcessCadCoreExecutor", () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it("rejects inconsistent candidate-to-SVG transform evidence", async () => {
+    const root = await mkdtemp(join(tmpdir(), "cad-core-transform-manifest-"));
+    const child = join(root, "invalid-transform.cjs");
+    await writeFile(child, `process.on("message", () => {
+      process.send({ ok: true, result: {
+        profileId: "generic-lighting-v1", profileVersion: "v", profileDigest: "${"b".repeat(64)}", modelEntityCount: 1, blockCount: 0,
+        candidates: [{ sourceEntityId: "one", layerName: "LIGHT", blockName: "LED", x: 1, y: 1, rotation: 0, confidence: 1, method: "rule" }],
+        candidateTransformMatch: { candidateCount: 1, matchedCount: 0, matchRate: 0, tolerancePx: 0.01, maxDeltaPx: 2 },
+        rendered: { sizeBytes: 1, rawSizeBytes: 1, sha256: "${"c".repeat(64)}", viewport: { width: 1, height: 1 }, renderedOccurrences: 1, contentEncoding: "gzip" }
+      } });
+    });`);
+    try {
+      const executor = new ChildProcessCadCoreExecutor({ entryPath: child, maxOldSpaceMb: 32, timeoutMs: 5_000 });
+      await expect(executor.execute({ dxfPath: "unused", renderedPath: "unused", profileId: "generic-lighting-v1" }))
+        .rejects.toThrow(/manifest/i);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });

@@ -1,5 +1,11 @@
 import type { NormalizedCadDocument } from "./cad-types";
-import { cadViewportSvgTransform, createCadViewport, projectCadPointToViewport, selectPrimaryCadBounds } from "./cad-viewport";
+import {
+  cadViewportSvgTransform,
+  createCadViewport,
+  measureCadCandidateSvgTransformMatch,
+  projectCadPointToViewport,
+  selectPrimaryCadBounds
+} from "./cad-viewport";
 
 describe("CAD viewport normalization", () => {
   it("normalizes a very wide CAD drawing into a bounded editor map", () => {
@@ -25,6 +31,23 @@ describe("CAD viewport normalization", () => {
     expect(point.x).toBeCloseTo(viewport.width / 2);
     expect(point.y).toBeCloseTo(viewport.height / 2);
     expect(cadViewportSvgTransform(bounds)).toMatch(/^matrix\([\d.-]+ 0 0 -[\d.-]+ [\d.-]+ [\d.-]+\)$/);
+  });
+
+  it("measures every candidate against the serialized SVG transform", () => {
+    const bounds = { minX: 1_000_000, minY: -20_000, maxX: 16_020_849, maxY: 144_134 };
+    const points = [
+      { x: bounds.minX, y: bounds.maxY, z: 0 },
+      { x: 8_510_424.5, y: 62_067, z: 0 },
+      { x: bounds.maxX, y: bounds.minY, z: 0 }
+    ];
+
+    expect(measureCadCandidateSvgTransformMatch(points, bounds, 0.01)).toEqual({
+      candidateCount: 3,
+      matchedCount: 3,
+      matchRate: 1,
+      tolerancePx: 0.01,
+      maxDeltaPx: expect.any(Number)
+    });
   });
 
   it("deterministically excludes only a remote isolated entity from primary bounds", () => {

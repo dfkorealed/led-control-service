@@ -238,6 +238,48 @@ export function cadViewportSvgTransform(bounds: CadBounds): string {
   return `matrix(${format(projection.scale)} 0 0 -${format(projection.scale)} ${format(projection.offsetX - bounds.minX * projection.scale)} ${format(projection.offsetY + bounds.maxY * projection.scale)})`;
 }
 
+export interface CadCandidateSvgTransformMatch {
+  candidateCount: number;
+  matchedCount: number;
+  matchRate: number | null;
+  tolerancePx: number;
+  maxDeltaPx: number;
+}
+
+/**
+ * Compares candidate projection with the exact rounded matrix serialized into
+ * the SVG. This catches visual drift that a comparison against the unrounded
+ * projection values would miss.
+ */
+export function measureCadCandidateSvgTransformMatch(
+  points: readonly CadPoint[],
+  bounds: CadBounds,
+  tolerancePx = 0.01
+): CadCandidateSvgTransformMatch {
+  if (!Number.isFinite(tolerancePx) || tolerancePx < 0) throw new Error("Invalid CAD transform match tolerance");
+  const match = /^matrix\(([-\d.]+) ([-\d.]+) ([-\d.]+) ([-\d.]+) ([-\d.]+) ([-\d.]+)\)$/.exec(
+    cadViewportSvgTransform(bounds)
+  );
+  if (!match) throw new Error("Invalid CAD SVG viewport transform");
+  const [a, b, c, d, e, f] = match.slice(1).map(Number);
+  let matchedCount = 0;
+  let maxDeltaPx = 0;
+  for (const point of points) {
+    const projected = projectCadPointToViewport(point, bounds);
+    const svgPoint = { x: a * point.x + c * point.y + e, y: b * point.x + d * point.y + f };
+    const delta = Math.hypot(projected.x - svgPoint.x, projected.y - svgPoint.y);
+    maxDeltaPx = Math.max(maxDeltaPx, delta);
+    if (delta <= tolerancePx) matchedCount++;
+  }
+  return {
+    candidateCount: points.length,
+    matchedCount,
+    matchRate: points.length === 0 ? null : matchedCount / points.length,
+    tolerancePx,
+    maxDeltaPx
+  };
+}
+
 function format(value: number): string {
-  return Number(value.toFixed(6)).toString();
+  return Number(value.toFixed(12)).toString();
 }

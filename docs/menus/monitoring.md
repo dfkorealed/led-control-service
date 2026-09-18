@@ -1,6 +1,6 @@
 # 모니터링 메뉴 기능 현황
 
-기준일: 2026-09-16
+기준일: 2026-09-18
 
 ## 확정 구현 범위
 
@@ -23,6 +23,7 @@
 ## 구현 완료
 
 - 2026-09-18 읽기 전용 맵 DTO는 `FloorLightSlot` 자체를 노출하지 않고, CAD 배경·저장 도형과 `placed`인 모든 조명 layout을 반환한다. slot 배정 조명은 slot x/y와 fixture size를, 자유 배치·legacy/non-CAD 조명은 fixture 자체 x/y/size를 사용한다. `FloorScene`과 저장 직후 monitoring cache도 같은 합집합·좌표 우선순위를 적용하며 `unplaced` 조명만 지도 marker에서 제외한다. API/Web focused 회귀와 실제 PostgreSQL revision 복구 테스트를 통과했으며 현장 도면 시각 HIL은 포함하지 않는다.
+- 2026-09-18 Task 9 Chromium 전체 여정에서 기존 배치 조명을 CAD 적용으로 미배치 전환하고, 새로고침 뒤 두 신규 slot에 다시 배치·저장한 다음 모니터링의 최신 map snapshot, CAD 배경과 두 조명 marker가 함께 표시됨을 검증했다. 브라우저는 deterministic mock API를 사용했고 실제 converter/worker/PostgreSQL/MinIO/API sample pipeline은 별도 통합 테스트로 검증했다. 실행 중인 real browser backend lab가 없어 두 경계를 하나의 실제 네트워크 여정으로 연결한 검증은 남아 있다.
 
 - 2026-09-17 공통 `FloorMapViewport`의 pinch는 시작 시 지도 좌표를 현재 두 손가락 중점에 맞춰 확대와 평행 이동을 함께 반영한다. 실제 지도 bounds와 눌림 상태를 사용하는 synthetic Chromium 회귀는 pan/select/area 모두에서 비대칭 pinch, 두 손가락 이동과 한 손가락 해제 후 jump 방지를 확인한다. `FloorScene` coarse marker는 48px hit target의 반지름만큼 가장자리 중심을 보정해 도면 경계에서 터치 영역이 잘리지 않도록 했다. 모니터링의 단일 선택 및 20px 시각 dot 계약은 유지하며 실제 iOS/Android WebView와 Gateway/조명 HIL은 별도 검증이다.
 

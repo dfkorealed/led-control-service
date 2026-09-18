@@ -64,6 +64,8 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
     await prisma.floorImportJob.deleteMany({ where: { floorId } });
     await prisma.floorMapRevision.deleteMany({ where: { floorId } });
     await prisma.floorMapObject.deleteMany({ where: { floorId } });
+    await prisma.lightingSchedule.deleteMany({ where: { siteId } });
+    await prisma.fixtureGroup.deleteMany({ where: { siteId } });
     await prisma.fixture.deleteMany({ where: { floorId } });
     await prisma.floorPlan.deleteMany({ where: { floorId } });
     await prisma.floorAsset.deleteMany({ where: { floorId } });
@@ -278,6 +280,7 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
       return {
         profileId: "generic-lighting-v1", profileVersion: "test/1", profileDigest: "b".repeat(64),
         modelEntityCount: 1, blockCount: 0, candidates: [],
+        candidateTransformMatch: { candidateCount: 0, matchedCount: 0, matchRate: null, tolerancePx: 0.01, maxDeltaPx: 0 },
         rendered: { sizeBytes: 8, rawSizeBytes: 64, sha256: "b".repeat(64), viewport: { width: 12, height: 12 },
           renderedOccurrences: 1, contentEncoding: "gzip" }
       };
@@ -350,6 +353,7 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
         profileId: "generic-lighting-v1" as const,
         profileVersion: profile.profileVersion!, profileDigest: profile.profileDigest!,
         modelEntityCount: 1, blockCount: 0, candidates,
+        candidateTransformMatch: { candidateCount: 2_000, matchedCount: 2_000, matchRate: 1, tolerancePx: 0.01, maxDeltaPx: 0 },
         rendered: { sizeBytes: 8, rawSizeBytes: 64, sha256: "d".repeat(64), viewport: { width: 2_002, height: 2_002 },
           renderedOccurrences: 1, contentEncoding: "gzip" as const }
       };
@@ -541,8 +545,8 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
       ...terminalProfile
     } });
     const candidateIds = Array.from({ length: 2_000 }, () => randomUUID());
-    const acceptedIds = candidateIds.slice(0, 2);
-    const acceptedId = acceptedIds[0]; const rejectedId = candidateIds.at(-1)!;
+    const acceptedIds = candidateIds;
+    const acceptedId = acceptedIds[0]; const previousSlotCandidateId = candidateIds.at(-1)!;
     await prisma.floorImportCandidate.createMany({ data: candidateIds.map((id, index) => ({
       id, jobId, sourceEntityId: `insert-${index}`, layerName: "LIGHT", blockName: "LED",
       x: 10 + index, y: 20 + index, rotation: 0, confidence: 0.95, detectionMethod: "rule_based" as const,
@@ -588,7 +592,7 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
       id, floorId, type: "rectangle", x: index + 1, y: index + 2, width: 3, height: 4
     })) });
     await prisma.floorLightSlot.create({ data: {
-      floorId, sourceImportJobId: jobId, sourceCandidateId: rejectedId,
+      floorId, sourceImportJobId: jobId, sourceCandidateId: previousSlotCandidateId,
       assignedFixtureId: fixtureIds[0], x: 99, y: 88, rotation: 45
     } });
     await prisma.floor.update({ where: { id: floorId }, data: {
@@ -603,20 +607,20 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
     });
     expect(applied).toMatchObject({
       status: "completed", revision: 5,
-      deletedObjectCount: 2, unplacedFixtureCount: 4, deletedSlotCount: 1, createdSlotCount: 2
+      deletedObjectCount: 2, unplacedFixtureCount: 4, deletedSlotCount: 1, createdSlotCount: 2_000
     });
     expect(storage.readFloorRenderedMetadata).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ contentEncoding: null }));
-    expect(applied.acceptedCandidateIds).toHaveLength(2);
+    expect(applied.acceptedCandidateIds).toHaveLength(2_000);
     expect(new Set(applied.acceptedCandidateIds)).toEqual(new Set(acceptedIds));
 
     await expect(prisma.floorImportJob.findUniqueOrThrow({ where: { id: jobId } })).resolves.toMatchObject({
       status: "completed", appliedAt: expect.any(Date), completedAt: expect.any(Date)
     });
-    expect(await prisma.floorImportCandidate.findMany({ where: { jobId }, orderBy: { id: "asc" }, select: { id: true, reviewStatus: true, reviewedAt: true } }))
-      .toEqual(expect.arrayContaining([
-        { id: acceptedId, reviewStatus: "accepted", reviewedAt: expect.any(Date) },
-        { id: rejectedId, reviewStatus: "rejected", reviewedAt: expect.any(Date) }
-      ]));
+    const reviewedCandidates = await prisma.floorImportCandidate.findMany({
+      where: { jobId }, orderBy: { id: "asc" }, select: { id: true, reviewStatus: true, reviewedAt: true }
+    });
+    expect(reviewedCandidates).toHaveLength(2_000);
+    expect(reviewedCandidates.every(candidate => candidate.reviewStatus === "accepted" && candidate.reviewedAt instanceof Date)).toBe(true);
     expect(await prisma.fixture.findMany({ where: { floorId }, orderBy: { id: "asc" } })).toEqual(
       expect.arrayContaining(fixtureIds.map(id => expect.objectContaining({
         id, placementStatus: "unplaced", positionVerifiedAt: null, x: 0, y: 0
@@ -624,7 +628,7 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
     );
     expect(await prisma.floorMapObject.count({ where: { floorId } })).toBe(0);
     const slots = await prisma.floorLightSlot.findMany({ where: { floorId }, orderBy: { sourceCandidateId: "asc" } });
-    expect(slots).toHaveLength(2);
+    expect(slots).toHaveLength(2_000);
     expect(slots.map(slot => slot.sourceCandidateId).sort()).toEqual([...acceptedIds].sort());
     expect(slots.every(slot => slot.assignedFixtureId === null)).toBe(true);
     expect(await prisma.meshNode.findUniqueOrThrow({ where: { id: node.id } })).toEqual(relationshipEvidence.node);
@@ -635,15 +639,40 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
     await expect(prisma.floorPlan.findUniqueOrThrow({ where: { floorId } })).resolves.toMatchObject({
       width: 640, height: 480, imageUrl: `/api/floors/${floorId}/assets/${renderedId}/content`
     });
-    await expect(prisma.floorMapRevision.findUniqueOrThrow({ where: { floorId_revision: { floorId, revision: 5 } } }))
-      .resolves.toMatchObject({
+    const expectedChangeSummary = {
+      floorImportJobId: jobId,
+      floorPlanChanged: true,
+      acceptedCandidates: 2_000,
+      rejectedCandidates: 0,
+      deletedObjectCount: 2,
+      unplacedFixtureCount: 4,
+      deletedSlotCount: 1,
+      createdSlotCount: 2_000,
+      fixtureUpdates: 4,
+      objectCreates: 0,
+      objectUpdates: 0,
+      objectDeletes: 2
+    };
+    const revision = await prisma.floorMapRevision.findUniqueOrThrow({ where: { floorId_revision: { floorId, revision: 5 } } });
+    expect(revision).toMatchObject({
         changedBy: userId,
+        changeSummary: expectedChangeSummary,
         snapshot: expect.objectContaining({ lightSlots: expect.arrayContaining([
           expect.objectContaining({ x: 10, y: 20, assignedFixtureId: null })
         ]) })
       });
     await expect(prisma.auditLog.findFirstOrThrow({ where: { targetId: jobId, action: "floor_import.applied" } }))
-      .resolves.toMatchObject({ actorId: userId, outcome: "success" });
+      .resolves.toMatchObject({
+        actorId: userId,
+        outcome: "success",
+        metadata: {
+          floorId,
+          revision: 5,
+          acceptedCandidateIds: [...acceptedIds].sort(),
+          snapshotSha256: revision.snapshotSha256,
+          changeSummary: expectedChangeSummary
+        }
+      });
 
     const overlay = await service().getAppliedOverlay(user, floorId);
     expect(overlay).toMatchObject({
@@ -656,7 +685,7 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
         candidates: expect.any(Array)
       }
     });
-    expect(overlay.overlay?.candidates).toHaveLength(2);
+    expect(overlay.overlay?.candidates).toHaveLength(2_000);
     expect(overlay.overlay?.candidates.every(candidate => candidate.reviewStatus === "accepted")).toBe(true);
     expect(overlay.overlay?.candidates[0]).not.toHaveProperty("fixtureId");
     expect(overlay.overlay?.candidates[0]).not.toHaveProperty("meshNodeId");
@@ -683,6 +712,90 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
     await prisma.fixtureGroup.delete({ where: { id: group.id } });
     await prisma.fixture.update({ where: { id: fixtureIds[0] }, data: { meshNodeId: null } });
     await prisma.gateway.delete({ where: { id: gateway.id } });
+  });
+
+  it("applies a zero-candidate replacement and records exact reset counts", async () => {
+    const previousSource = await sourceAsset();
+    const previousRendered = await renderedAsset();
+    const previousJob = await prisma.floorImportJob.create({ data: {
+      floorId, sourceAssetId: previousSource.id, renderedAssetId: previousRendered.id, sourceFormat: "dxf",
+      status: "completed", stage: "completed", progressPercent: 100, attemptCount: 1,
+      startedAt: new Date(), reviewRequiredAt: new Date(), completedAt: new Date(), appliedAt: new Date(), ...terminalProfile
+    } });
+    const previousCandidate = await prisma.floorImportCandidate.create({ data: {
+      jobId: previousJob.id, sourceEntityId: "previous-slot", layerName: "LIGHT", blockName: "LED",
+      x: 30, y: 40, rotation: 0, confidence: 0.95, detectionMethod: "rule_based",
+      reviewStatus: "accepted", reviewedAt: new Date(), profileVersion: "test/1", profileDigest: "b".repeat(64)
+    } });
+    const fixture = await prisma.fixture.create({ data: {
+      floorId, siteId, name: "Placed before empty CAD", ratedWatt: 40,
+      x: 30, y: 40, placementStatus: "placed", positionVerifiedAt: new Date()
+    } });
+    await prisma.floorLightSlot.create({ data: {
+      floorId, sourceImportJobId: previousJob.id, sourceCandidateId: previousCandidate.id,
+      assignedFixtureId: fixture.id, x: 30, y: 40, rotation: 0
+    } });
+    await prisma.floorMapObject.createMany({ data: [
+      { floorId, type: "rectangle", x: 1, y: 2, width: 3, height: 4 },
+      { floorId, type: "line", x: 5, y: 6, width: 7, height: 8 }
+    ] });
+
+    const source = await sourceAsset();
+    const rendered = await renderedAsset();
+    const job = await prisma.floorImportJob.create({ data: {
+      floorId, sourceAssetId: source.id, renderedAssetId: rendered.id, sourceFormat: "dxf",
+      status: "review_required", stage: "review_required", progressPercent: 100, attemptCount: 1,
+      startedAt: new Date(), reviewRequiredAt: new Date(), ...terminalProfile
+    } });
+    await prisma.floor.update({ where: { id: floorId }, data: {
+      mapRevision: 4, editorLeaseFence: 8, editorLeaseTokenHash: hashEditorLeaseToken("lease-token"),
+      editorLeaseHolderId: userId, editorLeaseHolderName: user.name,
+      editorLeaseAcquiredAt: new Date(), editorLeaseExpiresAt: new Date(Date.now() + 60_000)
+    } });
+
+    const applied = await service().apply(user, floorId, job.id, {
+      expectedRevision: 4, leaseToken: "lease-token", leaseFence: 8,
+      candidateIds: [], confirmMapReset: true
+    });
+    const expectedChangeSummary = {
+      floorImportJobId: job.id,
+      floorPlanChanged: true,
+      acceptedCandidates: 0,
+      rejectedCandidates: 0,
+      deletedObjectCount: 2,
+      unplacedFixtureCount: 1,
+      deletedSlotCount: 1,
+      createdSlotCount: 0,
+      fixtureUpdates: 1,
+      objectCreates: 0,
+      objectUpdates: 0,
+      objectDeletes: 2
+    };
+
+    expect(applied).toMatchObject({
+      status: "completed", revision: 5, acceptedCandidateIds: [],
+      deletedObjectCount: 2, unplacedFixtureCount: 1, deletedSlotCount: 1, createdSlotCount: 0
+    });
+    expect(await prisma.floorLightSlot.count({ where: { floorId } })).toBe(0);
+    expect(await prisma.floorMapObject.count({ where: { floorId } })).toBe(0);
+    await expect(prisma.fixture.findUniqueOrThrow({ where: { id: fixture.id } })).resolves.toMatchObject({
+      placementStatus: "unplaced", positionVerifiedAt: null, x: 0, y: 0
+    });
+    const revision = await prisma.floorMapRevision.findUniqueOrThrow({
+      where: { floorId_revision: { floorId, revision: 5 } }
+    });
+    expect(revision.changeSummary).toEqual(expectedChangeSummary);
+    await expect(prisma.auditLog.findFirstOrThrow({
+      where: { targetId: job.id, action: "floor_import.applied" }
+    })).resolves.toMatchObject({
+      metadata: {
+        floorId,
+        revision: 5,
+        acceptedCandidateIds: [],
+        snapshotSha256: revision.snapshotSha256,
+        changeSummary: expectedChangeSummary
+      }
+    });
   });
 
   it("rolls back the plan, objects, fixtures, slots, revision, audit and job when slot creation trigger fails", async () => {

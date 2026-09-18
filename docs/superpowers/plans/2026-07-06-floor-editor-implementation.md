@@ -478,43 +478,49 @@ git commit -m "feat(monitoring): restore cad maps with fixture assignments"
 ### Task 9: 실제 샘플과 전체 사용자 여정 검증
 
 **파일:**
+- 수정: `apps/api/src/floor-import/cad-core-child.ts`
+- 수정: `apps/api/src/floor-import/cad-core-executor.ts`
+- 수정: `apps/api/src/floor-import/cad-core-executor.spec.ts`
+- 수정: `apps/api/src/floor-import/cad-viewport.ts`
+- 수정: `apps/api/src/floor-import/cad-viewport.spec.ts`
+- 수정: `apps/api/src/floor-import/floor-import.integration.spec.ts`
+- 수정: `apps/api/src/floor-import/floor-import.service.ts`
 - 수정: `apps/api/src/floor-import/cad-sample-pipeline.integration.spec.ts`
-- 수정: `apps/web/e2e/floor-placement-real.spec.ts`
-- 수정: `apps/web/e2e/floor-placement.spec.ts`
-- 수정: `scripts/analyze-cad-import.mjs`
-- 수정: `scripts/analyze-cad-import.test.mjs`
+- 추가: `apps/web/e2e/cad-import-journey.spec.ts`
+- 검증: `apps/web/e2e/floor-placement.spec.ts`
 - 수정: `docs/menus/settings.md`
 - 수정: `docs/menus/monitoring.md`
+- 추가: `.superpowers/sdd/2026-07-06-floor-editor-implementation/task-9-report.md`
 
 **인터페이스:**
 - 샘플 분석 결과는 viewport/excluded/unsupported counts와 후보 transform 일치율을 출력한다.
 
-- [ ] **Step 1: 샘플 기대값과 브라우저 여정 테스트 작성**
+- [x] **Step 1: 샘플 기대값과 브라우저 여정 테스트 작성**
 
 브라우저 시나리오는 기존 맵/도형/배치 조명 준비 → DWG 업로드 → 진행률 변화 → 100% → reset dialog 취소 → 재확인 → apply → 새로고침 → 모두 미배치/slot 표시 → 두 fixture slot 배치 → 저장 → 모니터링 반영 순서다.
 
-- [ ] **Step 2: 실제 sample pipeline 실행**
+- [x] **Step 2: 실제 sample pipeline 실행**
 
-Run: `CAD_SAMPLE_DWG_PATH="/Users/kim-jh/Downloads/2단지지하주차장전등설비합본평면도20260803.dwg" CAD_SAMPLE_CONVERTER_PATH=/opt/homebrew/bin/dwgread pnpm --filter @led-control/api test -- cad-sample-pipeline.integration.spec.ts --runInBand`
+Run: `CAD_SAMPLE_DWG_PATH="/Users/kim-jh/Downloads/2단지지하주차장전등설비합본평면도20260803.dwg" CAD_SAMPLE_CONVERTER_PATH=/opt/homebrew/bin/dwgread CAD_SAMPLE_CONVERTER_ARGV_JSON='["-O","DXF","-o","{output}","{input}"]' RUN_OBJECT_STORAGE_INTEGRATION=true pnpm --filter @led-control/api exec jest src/floor-import/cad-sample-pipeline.integration.spec.ts --runInBand`
 
-Expected: job 100%, SVG decode 성공, 후보 1,302개, 주요 도면 bbox가 viewport 안에서 식별 가능.
+Actual: job 100%, SVG decode 성공, 제품 후보 1,308개와 후보 transform 1,308/1,308 일치. 독립 analyzer 직접 규칙 후보 1,302개와 제품 nested 후보 1,308개는 집계 범위가 다르며 ground truth 정확도가 아니다.
 
-- [ ] **Step 3: Web 단위·브라우저·실백엔드 여정 실행**
+- [x] **Step 3: Web 단위·브라우저·실백엔드 여정 실행**
 
 Run: `pnpm --filter @led-control/web test && pnpm --filter @led-control/web exec playwright test e2e/floor-placement.spec.ts --project=chromium --workers=1`
 
-실백엔드 lab가 준비된 경우: `E2E_REAL_BACKEND_LAB=1 pnpm --filter @led-control/web exec playwright test e2e/floor-placement-real.spec.ts --project=chromium --workers=1`.
+실백엔드 lab가 준비된 경우: `E2E_REAL_BACKEND_LAB=1 pnpm --filter @led-control/web exec playwright test e2e/floor-placement-real.spec.ts --project=chromium --workers=1`. 이번 실행에서는 lab Web/API health가 없어 mock browser 전체 여정과 실제 API sample pipeline 증거를 분리했다.
 
-- [ ] **Step 4: 전체 타입·빌드·diff 검증**
+- [x] **Step 4: 전체 타입·빌드·diff 검증**
 
 Run: `pnpm --filter @led-control/shared typecheck && pnpm --filter @led-control/api typecheck && pnpm --filter @led-control/web typecheck && pnpm --filter @led-control/api build && pnpm --filter @led-control/web build && git diff --check`
 
 Expected: 모두 exit 0.
 
-- [ ] **Step 5: 최종 현황 문서와 계획 체크리스트 갱신 후 커밋**
+- [x] **Step 5: 최종 현황 문서와 계획 체크리스트 갱신 후 커밋**
 
 ```bash
-git add apps/api/src/floor-import apps/web/e2e scripts/analyze-cad-import.mjs scripts/analyze-cad-import.test.mjs docs/superpowers/plans/2026-07-06-floor-editor-implementation.md
+git add apps/api/src/floor-import apps/web/e2e/cad-import-journey.spec.ts docs/superpowers/plans/2026-07-06-floor-editor-implementation.md .superpowers/sdd/2026-07-06-floor-editor-implementation/task-9-report.md
 # 두 메뉴 문서는 이번 Task의 CAD hunk만 선택적으로 stage한다.
 git commit -m "test(cad): verify map replacement user journey"
 ```
