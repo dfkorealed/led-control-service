@@ -42,8 +42,8 @@ describe("ASCII DXF document parser", () => {
       .resolves.toMatchObject({ entities: [expect.objectContaining({ sourceEntityId: "MODEL-1" })] });
   });
 
-  it("retains the approved 208 MiB model accounting ceiling inside the isolated child heap", () => {
-    expect(DEFAULT_DXF_PARSER_LIMITS.maxRetainedModelBytes).toBe(208 * 1024 * 1024);
+  it("retains the approved 224 MiB model accounting ceiling inside the isolated child heap", () => {
+    expect(DEFAULT_DXF_PARSER_LIMITS.maxRetainedModelBytes).toBe(224 * 1024 * 1024);
   });
 
   it("drops only orphan INSERT references emitted without a block definition", () => {

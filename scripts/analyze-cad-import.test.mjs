@@ -334,6 +334,35 @@ test("제품 parser와 공유하는 malformed corpus를 모두 fail-close한다"
   }
 });
 
+test("완료된 model ENTITIES 뒤의 malformed OBJECTS metadata는 제품 parser와 동일하게 무시한다", (t) => {
+  const fixture = createFixture(t);
+  writeFileSync(fixture.dxfPath, [
+    "0", "SECTION", "2", "ENTITIES",
+    "0", "LINE", "5", "1", "8", "0", "10", "0", "20", "0", "11", "1", "21", "1",
+    "0", "ENDSEC",
+    "0", "SECTION", "2", "OBJECTS",
+    "55537", "0"
+  ].join("\n"));
+
+  const report = parseSuccessfulResult(runAnalyzer(["--input", fixture.dxfPath]));
+
+  assert.equal(report.statistics.modelSpaceEntityCount, 1);
+  assert.equal(report.statistics.rawEntityRecordCount, 1);
+});
+
+test("opaque OBJECTS tail도 전체 입력 byte와 NUL 안전 검사를 우회하지 않는다", (t) => {
+  const fixture = createFixture(t);
+  writeFileSync(fixture.dxfPath, [
+    "0", "SECTION", "2", "ENTITIES", "0", "ENDSEC",
+    "0", "SECTION", "2", "OBJECTS", "\0"
+  ].join("\n"));
+
+  const result = runAnalyzer(["--input", fixture.dxfPath]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /NUL/i);
+});
+
 test("DXF line과 entity body pair 상한을 materialization 전에 적용한다", (t) => {
   const fixture = createFixture(t);
   writeFileSync(fixture.dxfPath, `0\nSECTION\n2\nENTITIES\n0\nTEXT\n1\n${"x".repeat(65)}\n10\n0\n20\n0\n40\n1\n0\nENDSEC\n0\nEOF\n`);
