@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - 모든 사용자 문구와 프로젝트 문서는 한글로 작성한다.
-- 논리 맵 긴 변 기본값은 8192, 최대값은 16384이고 framebuffer는 viewport 크기로만 생성한다.
+- 논리 맵 긴 변 기본값은 16384, 최대값은 32768이고 framebuffer는 viewport 크기로만 생성한다.
 - CAD geometry를 `FloorMapObject` DB 행, DOM 또는 Konva/Pixi scene object로 1:1 펼치지 않는다.
 - tile 크기는 512이며 WebGL renderer를 운영 기본값으로 사용한다.
 - 기존 SVG-only floor는 하위 호환한다.
@@ -34,7 +34,7 @@
 - Produces: `cadSceneManifestSchema`, `cadSceneTileSchema`, `cadRegionSchema`, `normalizeCadMapSize(bounds)`와 import region 선택 계약.
 
 - [ ] primitive, tile manifest, region preview와 override DTO의 실패 테스트를 작성한다.
-- [ ] bounds 16:9, 세로형, 극단형에 대해 8192/1024/16384 정책의 실패 테스트를 작성한다.
+- [ ] bounds 16:9, 세로형, 극단형에 대해 16384/1024/32768 정책의 실패 테스트를 작성한다.
 - [ ] 공유 계약과 크기 정규화 함수를 구현한다.
 - [ ] shared 테스트와 typecheck를 통과시킨다.
 - [ ] `feat(cad): define native scene contracts`로 커밋한다.
