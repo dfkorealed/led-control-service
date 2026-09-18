@@ -30,6 +30,14 @@ export const mqttTopicsV2 = {
   fixtureState: (siteId: string, gatewayId: string) => `sites/${siteId}/gateways/${gatewayId}/state/fixtures`,
   fixturePresence: (siteId: string, gatewayId: string) =>
     `sites/${siteId}/gateways/${gatewayId}/state/fixture-presence`,
+  fixturePresenceCheck: (siteId: string, gatewayId: string) =>
+    `sites/${siteId}/gateways/${gatewayId}/commands/fixture-presence-check`,
+  fixtureUnreachable: (siteId: string, gatewayId: string) =>
+    `sites/${siteId}/gateways/${gatewayId}/events/fixture-unreachable`,
+  fixturePresenceCheckCompleted: (siteId: string, gatewayId: string) =>
+    `sites/${siteId}/gateways/${gatewayId}/events/fixture-presence-check-completed`,
+  fixturePresenceCheckCompletedAck: (siteId: string, gatewayId: string) =>
+    `sites/${siteId}/gateways/${gatewayId}/acks/fixture-presence-check-completed`,
   heartbeat: (siteId: string, gatewayId: string) => `sites/${siteId}/gateways/${gatewayId}/state/heartbeat`,
   meshGroupResyncRequest: (siteId: string, gatewayId: string) =>
     `sites/${siteId}/gateways/${gatewayId}/events/mesh-group/resync-request`,
@@ -47,6 +55,50 @@ const orderedGatewayEventSchema = gatewayScopeSchema.extend({
   sequence: z.number().int().nonnegative(),
   occurredAt: z.string().datetime()
 });
+
+const monitoringRefreshIdentitySchema = z.object({
+  refreshId: z.string().uuid(),
+  batchId: z.string().uuid()
+});
+
+const monitoringTargetFixtureIdsSchema = z.array(z.string().uuid()).min(1).max(64).superRefine((ids, context) => {
+  if (new Set(ids).size !== ids.length) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "fixture ids must be unique" });
+  }
+});
+
+export const fixturePresenceCheckCommandV1Schema = gatewayScopeSchema
+  .merge(monitoringRefreshIdentitySchema)
+  .extend({
+    idempotencyKey: z.string().uuid(),
+    sequence: z.number().int().nonnegative(),
+    targetFixtureIds: monitoringTargetFixtureIdsSchema,
+    requestedAt: z.string().datetime(),
+    expiresAt: z.string().datetime()
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (Date.parse(value.expiresAt) <= Date.parse(value.requestedAt)) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["expiresAt"], message: "expiresAt must follow requestedAt" });
+    }
+  });
+
+export const fixtureUnreachableV1Schema = orderedGatewayEventSchema
+  .merge(monitoringRefreshIdentitySchema)
+  .extend({
+    fixtureId: z.string().uuid(),
+    reason: z.enum(["not_found", "read_timeout", "read_failed"])
+  })
+  .strict();
+
+export const fixturePresenceCheckCompletedV1Schema = orderedGatewayEventSchema
+  .merge(monitoringRefreshIdentitySchema)
+  .extend({ targetFixtureIds: monitoringTargetFixtureIdsSchema })
+  .strict();
+
+export const fixturePresenceCheckCompletedAckV1Schema = gatewayScopeSchema
+  .merge(monitoringRefreshIdentitySchema)
+  .strict();
 
 const commandIdentitySchema = gatewayScopeSchema.extend({
   commandId: z.string().uuid(),
@@ -403,8 +455,14 @@ export const fixturePresenceV2Schema = orderedGatewayEventSchema.extend({
   rawHighBrightness: z.number().int().min(0).max(0xff),
   configuredBrightness: z.number().int().min(0).max(100).nullable(),
   rssi: z.number().max(0).nullable(),
-  hopCount: z.number().int().nonnegative().nullable()
-}).strict();
+  hopCount: z.number().int().nonnegative().nullable(),
+  refreshId: z.string().uuid().optional(),
+  batchId: z.string().uuid().optional()
+}).strict().superRefine((value, context) => {
+  if ((value.refreshId === undefined) !== (value.batchId === undefined)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["refreshId"], message: "refreshId and batchId must be provided together" });
+  }
+});
 
 export const gatewayHeartbeatV2Schema = orderedGatewayEventSchema.extend({
   gatewaySerial: z.string().min(1),
@@ -440,6 +498,10 @@ export type ApplicationProvisioningScanTerminalIngestedAckV2 = z.infer<
 >;
 export type FixtureStateV2 = z.infer<typeof fixtureStateV2Schema>;
 export type FixturePresenceV2 = z.infer<typeof fixturePresenceV2Schema>;
+export type FixturePresenceCheckCommandV1 = z.infer<typeof fixturePresenceCheckCommandV1Schema>;
+export type FixtureUnreachableV1 = z.infer<typeof fixtureUnreachableV1Schema>;
+export type FixturePresenceCheckCompletedV1 = z.infer<typeof fixturePresenceCheckCompletedV1Schema>;
+export type FixturePresenceCheckCompletedAckV1 = z.infer<typeof fixturePresenceCheckCompletedAckV1Schema>;
 export type GatewayHeartbeatV2 = z.infer<typeof gatewayHeartbeatV2Schema>;
 export type MeshGroupResyncRequestV2 = z.infer<typeof meshGroupResyncRequestV2Schema>;
 export type MeshGroupResyncAckV2 = z.infer<typeof meshGroupResyncAckV2Schema>;

@@ -7,6 +7,10 @@ import {
   deriveDeviceStatusAckStatus,
   fixtureStateV2Schema,
   fixturePresenceV2Schema,
+  fixturePresenceCheckCommandV1Schema,
+  fixtureUnreachableV1Schema,
+  fixturePresenceCheckCompletedV1Schema,
+  fixturePresenceCheckCompletedAckV1Schema,
   gatewayDimmingCommandDraftV2CompatibilitySchema,
   gatewayDimmingCommandDraftV2Schema,
   gatewayDimmingCommandV2CompatibilitySchema,
@@ -35,6 +39,59 @@ const eventId = "44444444-4444-4444-8444-444444444444";
 const occurredAt = "2026-07-11T00:00:00.000Z";
 
 describe("gateway-scoped MQTT v2 contracts", () => {
+  it("binds a read-only fixture presence check to one site, gateway, refresh and batch", () => {
+    const parsed = fixturePresenceCheckCommandV1Schema.parse({
+      siteId: "11111111-1111-4111-8111-111111111111",
+      gatewayId: "22222222-2222-4222-8222-222222222222",
+      refreshId: "33333333-3333-4333-8333-333333333333",
+      batchId: "44444444-4444-4444-8444-444444444444",
+      idempotencyKey: "55555555-5555-4555-8555-555555555555",
+      sequence: 7,
+      targetFixtureIds: ["66666666-6666-4666-8666-666666666666"],
+      requestedAt: "2026-09-15T08:00:00.000Z",
+      expiresAt: "2026-09-15T08:00:30.000Z"
+    });
+    expect(parsed.targetFixtureIds).toEqual(["66666666-6666-4666-8666-666666666666"]);
+    expect(mqttTopicsV2.fixturePresenceCheck(parsed.siteId, parsed.gatewayId)).toBe(
+      "sites/11111111-1111-4111-8111-111111111111/gateways/22222222-2222-4222-8222-222222222222/commands/fixture-presence-check"
+    );
+  });
+
+  it("strictly validates refresh results and their completion acknowledgement", () => {
+    const result = {
+      eventId: "77777777-7777-4777-8777-777777777777",
+      siteId,
+      gatewayId,
+      refreshId: "88888888-8888-4888-8888-888888888888",
+      batchId: "99999999-9999-4999-8999-999999999999",
+      sequence: 8,
+      occurredAt,
+      targetFixtureIds: [fixtureId, fixtureId2]
+    };
+    expect(fixturePresenceCheckCompletedV1Schema.parse(result)).toEqual(result);
+    expect(fixturePresenceCheckCompletedAckV1Schema.parse({
+      siteId, gatewayId, refreshId: result.refreshId, batchId: result.batchId
+    })).toEqual({ siteId, gatewayId, refreshId: result.refreshId, batchId: result.batchId });
+    expect(mqttTopicsV2.fixturePresenceCheckCompleted(siteId, gatewayId)).toContain("events/fixture-presence-check-completed");
+    expect(mqttTopicsV2.fixturePresenceCheckCompletedAck(siteId, gatewayId)).toContain("acks/fixture-presence-check-completed");
+    expect(() => fixturePresenceCheckCompletedV1Schema.parse({ ...result, extra: true })).toThrow();
+  });
+
+  it("rejects partial refresh identity and unreachable payload data that can imply output", () => {
+    const presence = {
+      eventId, siteId, gatewayId, fixtureId, sequence: 11, occurredAt,
+      controlMode: "sensor" as const, rawHighBrightness: 127,
+      configuredBrightness: null, rssi: -41, hopCount: null
+    };
+    const unreachable = {
+      eventId, siteId, gatewayId, refreshId: "88888888-8888-4888-8888-888888888888",
+      batchId: "99999999-9999-4999-8999-999999999999", sequence: 11, occurredAt,
+      fixtureId, reason: "read_failed" as const
+    };
+    expect(() => fixturePresenceV2Schema.parse({ ...presence, refreshId: "33333333-3333-4333-8333-333333333333" })).toThrow();
+    expect(() => fixtureUnreachableV1Schema.parse({ ...unreachable, brightness: 0 })).toThrow();
+  });
+
   it("defines a strict fixture presence topic and payload without output state fields", () => {
     const presence = {
       eventId, siteId, gatewayId, fixtureId, sequence: 11, occurredAt,
