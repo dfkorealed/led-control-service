@@ -159,6 +159,34 @@ describe("FloorAssetsService", () => {
     }
   );
 
+  it.each(["image/png", "image/jpeg"])(
+    "rejects a public rendered %s upload intent before creating or signing an asset",
+    async (mimeType) => {
+      const prisma: any = {
+        floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },
+        floorAsset: { create: jest.fn() },
+        $transaction: jest.fn()
+      };
+      const storage: any = {
+        prepareFloorAssetUpload: jest.fn(),
+        createFloorAssetUploadUrl: jest.fn()
+      };
+      const siteAccess: any = {
+        assert: jest.fn().mockResolvedValue({ id: "site-1" }),
+        assertManageInTransaction: jest.fn()
+      };
+
+      await expect(new FloorAssetsService(prisma, storage, siteAccess).createUploadIntent(admin, "floor-1", {
+        kind: "rendered", mimeType, sizeBytes: 1024, sha256: "a".repeat(64)
+      })).rejects.toThrow("invalid floor asset kind");
+
+      expect(storage.prepareFloorAssetUpload).not.toHaveBeenCalled();
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(prisma.floorAsset.create).not.toHaveBeenCalled();
+      expect(storage.createFloorAssetUploadUrl).not.toHaveBeenCalled();
+    }
+  );
+
   it("uses read access when listing ready floor assets", async () => {
     const prisma: any = {
       floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },

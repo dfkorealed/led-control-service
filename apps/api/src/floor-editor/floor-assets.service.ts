@@ -44,8 +44,8 @@ export class FloorAssetsService {
     const floor = await this.findFloor(floorId);
     if (!floor) throw new NotFoundException("floor not found");
     await this.siteAccess.assert(user, floor.siteId, "manage");
-    if (input.kind !== "original" && input.kind !== "rendered") throw new BadRequestException("invalid floor asset kind");
-    if (input.kind === "original" && !cadImportMimeTypeSchema.safeParse(input.mimeType).success) {
+    if (input.kind !== "original") throw new BadRequestException("invalid floor asset kind");
+    if (!cadImportMimeTypeSchema.safeParse(input.mimeType).success) {
       throw new BadRequestException("unsupported floor asset MIME type");
     }
 
