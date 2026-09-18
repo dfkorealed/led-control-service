@@ -568,10 +568,14 @@ function requireGroupAddress(value: number) {
 
 function assertSameMapping(command: DurableProvisioningCommand, address: number, mapping: BioDeviceMapping | null): asserts mapping is BioDeviceMapping {
   if (!mapping || mapping.fixtureId !== command.nodeId || mapping.nodeId !== command.nodeId ||
-    mapping.deviceUuid !== command.deviceUuid || mapping.logicalAddress !== address ||
-    (mapping.commandId !== undefined && mapping.commandId !== command.commandId)) {
+    mapping.deviceUuid !== command.deviceUuid || mapping.logicalAddress !== address) {
     throw new Error("BIO provisioning mapping identity conflict");
   }
+  // commandId는 한 번의 전송 시도를 식별하지만 물리 장치의 신원은 아니다. 이전 명령이
+  // 주소 write 뒤 실패 terminal로 끝났을 때 사용자가 같은 세션의 같은 조명을 재시도하면
+  // 새 commandId가 생성된다. fixture/node UUID와 논리 주소가 모두 같을 때만 그 새 명령이
+  // 기존 reservation을 이어받아 read-only scan reconciliation을 수행하도록 허용한다.
+  // 위 네 식별자 중 하나라도 다르면 다른 장치/주소일 수 있으므로 계속 fail-closed한다.
 }
 
 function requireOldAddress(mapping: BioDeviceMapping) {

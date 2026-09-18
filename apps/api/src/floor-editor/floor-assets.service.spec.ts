@@ -205,6 +205,49 @@ describe("FloorAssetsService", () => {
     expect(assets[0]).not.toHaveProperty("publicUrl");
     expect(() => JSON.stringify(assets)).not.toThrow();
     expect(siteAccess.assert).toHaveBeenCalledWith(viewer, "site-1", "read");
+    expect(prisma.floorAsset.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        floorId: "floor-1",
+        status: "ready",
+        kind: { notIn: ["cad_manifest", "cad_tile"] }
+      }
+    }));
+  });
+
+  it("hides and refuses internal CAD manifest and tile assets on the generic API", async () => {
+    const internalAssets = ["cad_manifest", "cad_tile"].map((kind, index) => ({
+      id: `cad-internal-${index}`,
+      floorId: "floor-1",
+      kind,
+      status: "ready",
+      objectKey: `floors/floor-1/internal-${index}.bin`,
+      mimeType: "application/octet-stream",
+      contentEncoding: null,
+      sizeBytes: 10n,
+      sha256: "a".repeat(64)
+    }));
+    const prisma: any = {
+      floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },
+      floorAsset: {
+        findMany: jest.fn().mockResolvedValue(internalAssets),
+        findFirst: jest.fn()
+          .mockResolvedValueOnce(internalAssets[0])
+          .mockResolvedValueOnce(internalAssets[1])
+      }
+    };
+    const storage: any = { createFloorAssetDownloadUrl: jest.fn() };
+    const service = new FloorAssetsService(
+      prisma,
+      storage,
+      { assert: jest.fn().mockResolvedValue({ id: "site-1" }) } as unknown as SiteAccessService
+    );
+
+    await expect(service.listAssets(viewer, "floor-1")).resolves.toEqual([]);
+    await expect(service.getContentRedirect(viewer, "floor-1", internalAssets[0].id))
+      .rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.getContentRedirect(viewer, "floor-1", internalAssets[1].id))
+      .rejects.toBeInstanceOf(NotFoundException);
+    expect(storage.createFloorAssetDownloadUrl).not.toHaveBeenCalled();
   });
 
   it("authorizes and signs only a ready asset from the requested floor", async () => {
@@ -227,7 +270,10 @@ describe("FloorAssetsService", () => {
       .resolves.toEqual({ url: "https://download.example/signed" });
     expect(siteAccess.assert).toHaveBeenCalledWith(viewer, "site-1", "read");
     expect(prisma.floorAsset.findFirst).toHaveBeenCalledWith({
-      where: { id: "asset-1", floorId: "floor-1", status: "ready" },
+      where: {
+        id: "asset-1", floorId: "floor-1", status: "ready",
+        kind: { notIn: ["cad_manifest", "cad_tile"] }
+      },
       select: { id: true, kind: true, objectKey: true, mimeType: true, contentEncoding: true, sizeBytes: true, sha256: true }
     });
   });

@@ -63,6 +63,7 @@ function testContext(options: {
   storedAck?: Record<string, unknown> | null;
   failDomainWrite?: boolean;
   identify?: boolean;
+  identifyMeshAddress?: string | null;
   latestIdentifyCommandId?: string;
   sessionStatus?: string;
   deviceUuid?: string;
@@ -77,7 +78,7 @@ function testContext(options: {
     rssi: -70,
     status: options.identify ? "identifying" : "provisioning",
     identifyState: options.identify ? "running" : "blinking",
-    meshAddress: options.identify ? null : event.meshAddress,
+    meshAddress: options.identify ? options.identifyMeshAddress ?? null : event.meshAddress,
     pendingFixtureName: "B1-L001",
     pendingFixtureX: 100,
     pendingFixtureY: 200,
@@ -197,6 +198,31 @@ describe("ProvisioningDeviceTerminalService", () => {
     expect(tx.mqttOutbox.create).toHaveBeenCalledWith({ data: expect.objectContaining({
       payload: expect.objectContaining({ operation: "identify", commandId: COMMAND_ID })
     }) });
+  });
+
+  it("confirms a restore-backed identify for an addressed BIO recovery node", async () => {
+    const deviceUuid = "bio:e466e55d7e3a";
+    const { service, tx, node } = testContext({
+      identify: true,
+      identifyMeshAddress: "0x0104",
+      deviceUuid
+    });
+
+    await service.ingest(
+      { siteId: SITE_ID, gatewayId: GATEWAY_ID },
+      identifyTerminal({ deviceUuid }),
+      RECEIVED_AT
+    );
+
+    expect(node).toMatchObject({
+      deviceUuid,
+      meshAddress: "0x0104",
+      status: "discovered",
+      identifyState: "confirmed",
+      errorMessage: null
+    });
+    expect(tx.meshNode.create).not.toHaveBeenCalled();
+    expect(tx.fixture.create).not.toHaveBeenCalled();
   });
 
   it("records an explicit identify failure without mapping or address side effects", async () => {

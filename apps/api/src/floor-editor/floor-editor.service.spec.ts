@@ -95,9 +95,65 @@ describe("FloorEditorService", () => {
       where: { id: ids.floorId },
       include: {
         floorPlan: true,
+        cadScene: true,
         fixtures: { orderBy: { name: "asc" }, include: { meshNode: { select: { meshAddress: true, serialNumber: true } } } },
         mapObjects: { orderBy: [{ zIndex: "asc" }, { createdAt: "asc" }] },
         lightSlots: { orderBy: { id: "asc" } }
+      }
+    });
+  });
+
+  it("returns the active CAD scene descriptor with editor state", async () => {
+    const sourceImportJobId = "00000000-0000-4000-8000-000000000011";
+    const sceneId = "00000000-0000-4000-8000-000000000012";
+    const manifestAssetId = "00000000-0000-4000-8000-000000000013";
+    const { service } = await createService({
+      floor: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: ids.floorId,
+          siteId: ids.siteId,
+          name: "B2",
+          level: -2,
+          mapRevision: 4,
+          floorPlan: {
+            id: "plan-cad",
+            imageUrl: "",
+            sourceType: "cad",
+            originalFileUrl: null,
+            renderedImageUrl: null,
+            width: 16_384,
+            height: 8_192,
+            gridSize: 80,
+            version: 1
+          },
+          cadScene: {
+            id: sceneId,
+            version: 2,
+            sourceImportJobId,
+            width: 16_384,
+            height: 8_192,
+            tileSize: 512,
+            primitiveCount: 30_000,
+            tileCount: 64,
+            manifestAssetId
+          },
+          fixtures: [],
+          mapObjects: [],
+          lightSlots: []
+        })
+      }
+    });
+
+    await expect(service.getEditorState(ids.floorId, assignedOperator)).resolves.toMatchObject({
+      floor: {
+        id: ids.floorId,
+        cadScene: {
+          id: sceneId,
+          sourceImportJobId,
+          manifestAssetId,
+          manifestContentPath: `/floors/${ids.floorId}/import-jobs/${sourceImportJobId}/scene/manifest/content`,
+          statePath: `/sites/${ids.siteId}/floors/${ids.floorId}/cad-scene`
+        }
       }
     });
   });

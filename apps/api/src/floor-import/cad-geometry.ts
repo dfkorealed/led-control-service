@@ -22,8 +22,12 @@ export interface ExpandedCadEntity {
   entity: Exclude<NormalizedCadEntity, { type: "insert" }>;
   matrix: CadMatrix;
   sourceEntityId: string;
+  occurrencePath?: readonly string[];
   blockName: string | null;
   insertLayer: string | null;
+  semanticSourceType?: "DIMENSION";
+  semanticGroupSourceId?: string;
+  semanticGroupMatrix?: CadMatrix;
 }
 
 export interface ExpandedCadInsert {
@@ -41,7 +45,7 @@ export type CadExpansionWork<T> = T | null;
 const IDENTITY: CadMatrix = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
 const MAX_EXPANDED_SOURCE_ID_BYTES = 512;
 
-function expandedSourceId(path: readonly string[]): string {
+export function cadExpandedSourceId(path: readonly string[]): string {
   const id = path.length === 1
     ? path[0]
     : path.map(segment => `${Buffer.byteLength(segment, "utf8")}:${segment}`).join("");
@@ -116,7 +120,8 @@ export function* iterateCadDocumentExpansion(
 
   function* visit(
     entities: NormalizedCadEntity[], matrix: CadMatrix, path: readonly string[],
-    parentBlockName: string | null, insertLayer: string | null, stack: readonly string[]
+    parentBlockName: string | null, insertLayer: string | null, stack: readonly string[],
+    semanticGroup: { sourceId: string; matrix: CadMatrix } | null
   ): Generator<CadExpansionWork<ExpandedCadEntity>> {
     for (const entity of entities) {
       options.checkBudget?.();
@@ -126,16 +131,37 @@ export function* iterateCadDocumentExpansion(
           if (stack.includes(block.name)) throw new Error(`Cyclic CAD block reference: ${block.name}`);
           if (stack.length >= maxDepth) throw new Error("CAD block depth limit exceeded");
           const childMatrix = multiplyCadMatrices(matrix, dimensionMatrix(entity, block.basePoint));
-          yield* visit(block.entities, childMatrix, [...path, entity.sourceEntityId], block.name, entity.layer, [...stack, block.name]);
+          const dimensionPath = [...path, entity.sourceEntityId];
+          yield* visit(
+            block.entities,
+            childMatrix,
+            dimensionPath,
+            block.name,
+            entity.layer,
+            [...stack, block.name],
+            { sourceId: cadExpandedSourceId(dimensionPath), matrix: childMatrix }
+          );
           continue;
         }
       }
       if (entity.type !== "insert") {
-        const sourceEntityId = expandedSourceId([...path, entity.sourceEntityId]);
+        const sourceEntityId = cadExpandedSourceId([...path, entity.sourceEntityId]);
         registerExpandedSourceId(sourceIds, sourceEntityId);
         expandedCount++;
         if (expandedCount > options.maxRenderedEntities) throw new Error("CAD rendered entity limit exceeded");
-        yield { entity, matrix, sourceEntityId, blockName: parentBlockName, insertLayer };
+        yield {
+          entity,
+          matrix,
+          sourceEntityId,
+          occurrencePath: path,
+          blockName: parentBlockName,
+          insertLayer,
+          ...(semanticGroup ? {
+            semanticSourceType: "DIMENSION" as const,
+            semanticGroupSourceId: semanticGroup.sourceId,
+            semanticGroupMatrix: semanticGroup.matrix
+          } : {})
+        };
         continue;
       }
       yield null;
@@ -144,11 +170,19 @@ export function* iterateCadDocumentExpansion(
       if (stack.includes(block.name)) throw new Error(`Cyclic CAD block reference: ${block.name}`);
       if (stack.length >= maxDepth) throw new Error("CAD block depth limit exceeded");
       const childMatrix = multiplyCadMatrices(matrix, insertMatrix(entity, block.basePoint));
-      yield* visit(block.entities, childMatrix, [...path, entity.sourceEntityId], block.name, entity.layer, [...stack, block.name]);
+      yield* visit(
+        block.entities,
+        childMatrix,
+        [...path, entity.sourceEntityId],
+        block.name,
+        entity.layer,
+        [...stack, block.name],
+        semanticGroup
+      );
     }
   }
 
-  yield* visit(document.entities, IDENTITY, [], null, null, []);
+  yield* visit(document.entities, IDENTITY, [], null, null, [], null);
 }
 
 export function expandCadDocument(
@@ -232,7 +266,7 @@ export function* iterateCadInsertExpansion(
       if (stack.includes(block.name)) throw new Error(`Cyclic CAD block reference: ${block.name}`);
       if (stack.length >= maxDepth) throw new Error("CAD block depth limit exceeded");
       const entityPath = [...path, entity.sourceEntityId];
-      const sourceEntityId = expandedSourceId(entityPath);
+      const sourceEntityId = cadExpandedSourceId(entityPath);
       registerExpandedSourceId(sourceIds, sourceEntityId);
       const layer = entity.layer === "0" ? inheritedLayer ?? "0" : entity.layer;
       const matrix = multiplyCadMatrices(parentMatrix, insertMatrix(entity, block.basePoint));
@@ -383,10 +417,14 @@ export function createCadSplineSampler(maxSamples = CAD_MAX_SPLINE_SAMPLES_PER_D
   };
 }
 
-function includeArcBounds(
-  center: CadPoint, radius: number, startAngle: number, sweepAngle: number,
-  matrix: CadMatrix, include: (point: CadPoint) => void
-): void {
+export function cadTransformedArcExtremaPoints(
+  center: CadPoint,
+  radius: number,
+  startAngle: number,
+  sweepAngle: number,
+  matrix: CadMatrix
+): CadPoint[] {
+  const points: CadPoint[] = [];
   const candidateAngles = [
     startAngle,
     startAngle + sweepAngle,
@@ -398,12 +436,20 @@ function includeArcBounds(
   for (const angle of candidateAngles) {
     if (!angleIsOnSweep(angle, startAngle, sweepAngle)) continue;
     const radians = angle * Math.PI / 180;
-    include(transformPoint(matrix, {
+    points.push(transformPoint(matrix, {
       x: center.x + radius * Math.cos(radians),
       y: center.y + radius * Math.sin(radians),
       z: center.z
     }));
   }
+  return points;
+}
+
+function includeArcBounds(
+  center: CadPoint, radius: number, startAngle: number, sweepAngle: number,
+  matrix: CadMatrix, include: (point: CadPoint) => void
+): void {
+  cadTransformedArcExtremaPoints(center, radius, startAngle, sweepAngle, matrix).forEach(include);
 }
 
 function includePolylineBounds(

@@ -875,3 +875,10 @@
 - **원인**: clean database에서 최신 migration chain만 검증했고, 이전 checksum으로 이미 적용된 database의 staged upgrade 경로를 검증하지 않았다.
 - **해결 및 예방책**: 초기 schema, 중간 capacity trigger schema, 최신 structural ordinal schema를 모두 수용하는 별도 정합성 migration을 추가했다. legacy 행은 보존·backfill하고 2,000개 초과 또는 scope 불일치는 fail-close하며, 보류 중인 deferred trigger를 `SET CONSTRAINTS ALL IMMEDIATE`로 확정한 뒤 DDL을 수행한다.
 - **반복 방지 체크**: 한번 공유·적용된 migration SQL은 절대 수정하지 않는다. DB 계약을 강화할 때 clean deploy뿐 아니라 직전 배포 schema에 실제 데이터를 넣은 staged replay를 추가하고, `prisma migrate status` 외에 Prisma가 새 컬럼을 직접 조회하는 smoke test도 실행한다.
+
+## 2026-09-18 / CAD 복잡도 상한은 원본 용량이 아니라 정규 모델과 펼침 결과로 검증한다
+
+- **발생했던 문제/실수**: 18 MiB의 정상 DWG가 업로드와 LibreDWG 변환을 통과한 뒤 35% 파싱 단계에서 세 번 실패했다. DB에는 일반화된 parse failure만 남아 원본 파일 손상처럼 보였다.
+- **원인**: 작은 원본도 반복 block을 포함하면 변환 DXF와 정규 모델이 크게 확장된다. 해당 파일은 102 MiB DXF와 398,257개 렌더 occurrence를 만들었고, 실제 제품 child가 처리 가능한 범위였지만 보수적 retained-model 회계가 기존 208 MiB 상한을 약간 넘었다. 내부 analyzer도 제품 parser와 달리 정상 model 뒤의 손상된 LibreDWG `OBJECTS` metadata를 끝까지 파싱했다.
+- **해결 및 예방책**: heap/cgroup, source/DXF/SVG, entity/coordinate, 시간 상한은 유지하고 실측으로 통과하는 최소 retained-model 상한 224 MiB만 승인했다. 동일 업로드 객체를 실제 DB·Object Storage·worker로 재처리하고 child RSS, SVG 크기, 후보 저장과 terminal 상태를 확인했다. analyzer의 optional `OBJECTS` 처리도 제품 parser와 같게 맞췄다.
+- **반복 방지 체크**: CAD 호환성은 파일 확장자나 원본 크기만으로 판정하지 않는다. converter 출력, 기본 제한 parser, 격리 child 렌더, 실제 worker 저장까지 순서대로 검증하고 malformed model corpus와 자원 폭탄 회귀를 함께 실행한다.

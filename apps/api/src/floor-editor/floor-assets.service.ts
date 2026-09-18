@@ -27,6 +27,8 @@ interface LockedFloorAssetRow {
   updatedAt: Date;
 }
 
+const INTERNAL_CAD_ASSET_KINDS = ["cad_manifest", "cad_tile"] as const;
+
 @Injectable()
 export class FloorAssetsService {
   constructor(
@@ -186,11 +188,13 @@ export class FloorAssetsService {
     if (!floor) throw new NotFoundException("floor not found");
     await this.siteAccess.assert(user, floor.siteId, "read");
     const assets = await this.prisma.floorAsset.findMany({
-      where: { floorId, status: "ready" },
+      where: { floorId, status: "ready", kind: { notIn: [...INTERNAL_CAD_ASSET_KINDS] } },
       orderBy: { createdAt: "asc" }
     });
     // Upload validation caps assets at 50 MiB, safely within JSON's exact integer range.
-    return assets.map((asset) => this.assetResponse(asset, floorId));
+    return assets
+      .filter(asset => !isInternalCadAssetKind(asset.kind))
+      .map((asset) => this.assetResponse(asset, floorId));
   }
 
   async getContentRedirect(user: AuthenticatedUser, floorId: string, assetId: string) {
@@ -198,10 +202,13 @@ export class FloorAssetsService {
     if (!floor) throw new NotFoundException("floor not found");
     await this.siteAccess.assert(user, floor.siteId, "read");
     const asset = await this.prisma.floorAsset.findFirst({
-      where: { id: assetId, floorId, status: "ready" },
+      where: {
+        id: assetId, floorId, status: "ready",
+        kind: { notIn: [...INTERNAL_CAD_ASSET_KINDS] }
+      },
       select: { id: true, kind: true, objectKey: true, mimeType: true, contentEncoding: true, sizeBytes: true, sha256: true }
     });
-    if (!asset) throw new NotFoundException("floor asset not found");
+    if (!asset || isInternalCadAssetKind(asset.kind)) throw new NotFoundException("floor asset not found");
     try {
       if (asset.kind === "rendered" && asset.mimeType === "image/svg+xml") {
         if (asset.contentEncoding === "unknown") {
@@ -296,4 +303,8 @@ function floorAssetHeadException(error: unknown) {
 
 function isKnownRenderedEncoding(value: string | null): value is "gzip" | null {
   return value === null || value === "gzip";
+}
+
+function isInternalCadAssetKind(value: string): value is typeof INTERNAL_CAD_ASSET_KINDS[number] {
+  return (INTERNAL_CAD_ASSET_KINDS as readonly string[]).includes(value);
 }

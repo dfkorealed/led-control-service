@@ -154,11 +154,15 @@ enum FloorPlanSourceType {
   none
   image
   pdf
+  cad
 }
 
 enum FloorAssetKind {
   original
   rendered
+  cad_manifest
+  cad_tile
+  cad_region_preview
 }
 
 enum FloorAssetStatus {
@@ -174,6 +178,7 @@ enum FloorImportSourceFormat {
 enum FloorImportJobStatus {
   queued
   processing
+  region_selection_required
   review_required
   applying
   completed
@@ -382,6 +387,7 @@ model Floor {
   mapObjects            FloorMapObject[]
   assets                FloorAsset[]
   importJobs            FloorImportJob[]
+  cadScene              FloorCadScene?
   lightSlots            FloorLightSlot[]
   provisioningSessions  ProvisioningSession[]
   mapRevisions          FloorMapRevision[]
@@ -569,66 +575,189 @@ model MonitoringRefreshFixture {
 }
 
 model FloorAsset {
-  id                 String           @id @default(uuid())
-  floorId            String
-  kind               FloorAssetKind
-  status             FloorAssetStatus @default(pending)
-  objectKey          String           @unique
-  mimeType           String
-  contentEncoding    String?
-  sizeBytes          BigInt
-  sha256             String
-  uploadExpiresAt    DateTime?
-  cleanupStartedAt   DateTime?
-  readyAt            DateTime?
-  floor              Floor            @relation(fields: [floorId], references: [id], onDelete: Cascade)
-  sourceImportJobs   FloorImportJob[] @relation("FloorImportSourceAsset")
-  renderedImportJobs FloorImportJob[] @relation("FloorImportRenderedAsset")
-  createdAt          DateTime         @default(now())
-  updatedAt          DateTime         @updatedAt
+  id                   String              @id @default(uuid())
+  floorId              String
+  kind                 FloorAssetKind
+  status               FloorAssetStatus    @default(pending)
+  objectKey            String              @unique
+  mimeType             String
+  contentEncoding      String?
+  sizeBytes            BigInt
+  sha256               String
+  uploadExpiresAt      DateTime?
+  cleanupStartedAt     DateTime?
+  readyAt              DateTime?
+  floor                Floor               @relation(fields: [floorId], references: [id], onDelete: Cascade)
+  sourceImportJobs     FloorImportJob[]    @relation("FloorImportSourceAsset")
+  renderedImportJobs   FloorImportJob[]    @relation("FloorImportRenderedAsset")
+  importRegionPreviews FloorImportRegion[] @relation("FloorImportRegionPreviewAsset")
+  cadSceneManifests    FloorCadScene[]     @relation("FloorCadSceneManifestAsset")
+  cadTiles             FloorCadTile[]      @relation("FloorCadTileAsset")
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
 
   @@index([floorId, status, createdAt])
   @@index([status, uploadExpiresAt, cleanupStartedAt])
 }
 
 model FloorImportJob {
-  id               String                  @id @default(uuid())
-  floorId          String
-  sourceAssetId    String
-  renderedAssetId  String?                 @unique
-  sourceFormat     FloorImportSourceFormat
-  status           FloorImportJobStatus    @default(queued)
-  stage            String                  @default("queued")
-  progressPercent  Int                     @default(0)
-  attemptCount     Int                     @default(0)
-  parserVersion    String?
-  detectorVersion  String?
+  id                     String                  @id @default(uuid())
+  floorId                String
+  sourceAssetId          String
+  renderedAssetId        String?                 @unique
+  sourceFormat           FloorImportSourceFormat
+  status                 FloorImportJobStatus    @default(queued)
+  stage                  String                  @default("queued")
+  progressPercent        Int                     @default(0)
+  attemptCount           Int                     @default(0)
+  parserVersion          String?
+  detectorVersion        String?
   detectorProfileId      String?
   detectorProfileVersion String?
   detectorProfileDigest  String?
-  leaseOwner       String?
-  leaseExpiresAt   DateTime?
-  failureCode      String?
-  failureMessage   String?
-  startedAt        DateTime?
-  reviewRequiredAt DateTime?
-  appliedAt        DateTime?
-  completedAt      DateTime?
-  failedAt         DateTime?
-  cancelledAt      DateTime?
-  floor            Floor                   @relation(fields: [floorId], references: [id], onDelete: Cascade)
-  sourceAsset      FloorAsset              @relation("FloorImportSourceAsset", fields: [sourceAssetId], references: [id], onDelete: NoAction)
-  renderedAsset    FloorAsset?             @relation("FloorImportRenderedAsset", fields: [renderedAssetId], references: [id], onDelete: NoAction)
-  candidates       FloorImportCandidate[]
-  lightSlots       FloorLightSlot[]
-  createdAt        DateTime                @default(now())
-  updatedAt        DateTime                @updatedAt
+  excludedRegionPrimitiveCount Int?
+  leaseOwner             String?
+  leaseExpiresAt         DateTime?
+  failureCode            String?
+  failureMessage         String?
+  startedAt              DateTime?
+  reviewRequiredAt       DateTime?
+  appliedAt              DateTime?
+  completedAt            DateTime?
+  failedAt               DateTime?
+  cancelledAt            DateTime?
+  floor                  Floor                   @relation(fields: [floorId], references: [id], onDelete: Cascade)
+  sourceAsset            FloorAsset              @relation("FloorImportSourceAsset", fields: [sourceAssetId], references: [id], onDelete: NoAction)
+  renderedAsset          FloorAsset?             @relation("FloorImportRenderedAsset", fields: [renderedAssetId], references: [id], onDelete: NoAction)
+  candidates             FloorImportCandidate[]
+  regions                FloorImportRegion[]
+  cadScene               FloorCadScene?          @relation("FloorCadSceneSourceImportJob")
+  lightSlots             FloorLightSlot[]
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
 
   // Migration-only SQL enforces asset role/floor/ready/MIME invariants, lifecycle
   // state checks, and one active import per floor. Prisma cannot represent these.
   @@index([floorId, createdAt])
   @@index([sourceAssetId])
   @@index([status, leaseExpiresAt, createdAt])
+}
+
+model FloorImportRegion {
+  id                      String         @id @default(uuid())
+  jobId                   String
+  regionId                String
+  minX                    Float
+  minY                    Float
+  maxX                    Float
+  maxY                    Float
+  primitiveCount          Int
+  candidateIdentityDigest String?
+  previewAssetId          String?        @unique
+  selectedAt              DateTime?
+  job                     FloorImportJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  previewAsset            FloorAsset?    @relation("FloorImportRegionPreviewAsset", fields: [previewAssetId], references: [id], onDelete: NoAction)
+  cadScene                FloorCadScene? @relation("FloorCadSceneSourceRegion")
+  createdAt               DateTime       @default(now())
+  updatedAt               DateTime       @updatedAt
+
+  // SQL adds a partial unique index so at most one region per job is selected.
+  @@unique([jobId, regionId])
+  @@index([jobId, selectedAt])
+}
+
+model FloorCadScene {
+  id                  String                    @id @default(uuid())
+  floorId             String                    @unique
+  sourceImportJobId   String                    @unique
+  sourceRegionId      String                    @unique
+  version             Int
+  status              String                    @default("active")
+  width               Int
+  height              Int
+  tileSize            Int                       @default(512)
+  primitiveCount      Int
+  tileCount           Int
+  manifestAssetId     String                    @unique
+  sourceMinX          Float
+  sourceMinY          Float
+  sourceMaxX          Float
+  sourceMaxY          Float
+  transformScaleX     Float
+  transformScaleY     Float
+  transformTranslateX Float
+  transformTranslateY Float
+  floor               Floor                     @relation(fields: [floorId], references: [id], onDelete: Cascade)
+  sourceImportJob     FloorImportJob            @relation("FloorCadSceneSourceImportJob", fields: [sourceImportJobId], references: [id], onDelete: Cascade)
+  sourceRegion        FloorImportRegion         @relation("FloorCadSceneSourceRegion", fields: [sourceRegionId], references: [id], onDelete: NoAction)
+  manifestAsset       FloorAsset                @relation("FloorCadSceneManifestAsset", fields: [manifestAssetId], references: [id], onDelete: NoAction)
+  tiles               FloorCadTile[]
+  elementOverrides    FloorCadElementOverride[]
+  layerStates         FloorCadLayerState[]
+  createdAt           DateTime                  @default(now())
+  updatedAt           DateTime                  @updatedAt
+
+  @@index([status, createdAt])
+}
+
+model FloorCadTile {
+  id             String        @id @default(uuid())
+  sceneId        String
+  tileX          Int
+  tileY          Int
+  lod            Int
+  part           Int           @default(0)
+  assetId        String        @unique
+  primitiveCount Int
+  byteSize       BigInt
+  minX           Float
+  minY           Float
+  maxX           Float
+  maxY           Float
+  scene          FloorCadScene @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+  asset          FloorAsset    @relation("FloorCadTileAsset", fields: [assetId], references: [id], onDelete: NoAction)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@unique([sceneId, tileX, tileY, lod, part])
+  @@index([sceneId, lod, tileX, tileY])
+}
+
+model FloorCadElementOverride {
+  sceneId     String
+  elementId   String
+  hidden      Boolean?
+  translateX  Float?
+  translateY  Float?
+  scaleX      Float?
+  scaleY      Float?
+  rotation    Float?
+  strokeColor String?
+  fillColor   String?
+  strokeWidth Float?
+  text        String?
+  locatorTileX Int?
+  locatorTileY Int?
+  locatorLod   Int?
+  locatorPart  Int?
+  scene       FloorCadScene @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@id([sceneId, elementId])
+  @@index([sceneId, updatedAt])
+}
+
+model FloorCadLayerState {
+  sceneId   String
+  layerName String
+  visible   Boolean       @default(true)
+  locked    Boolean       @default(false)
+  scene     FloorCadScene @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@id([sceneId, layerName])
 }
 
 model FloorImportCandidate {
@@ -645,8 +774,8 @@ model FloorImportCandidate {
   provider        String?
   model           String?
   inputDigest     String?
-  profileVersion  String @default("legacy-unknown")
-  profileDigest   String @default("0000000000000000000000000000000000000000000000000000000000000000")
+  profileVersion  String                           @default("legacy-unknown")
+  profileDigest   String                           @default("0000000000000000000000000000000000000000000000000000000000000000")
   reviewStatus    FloorImportCandidateReviewStatus @default(pending)
   reviewedAt      DateTime?
   job             FloorImportJob                   @relation(fields: [jobId], references: [id], onDelete: Cascade)
@@ -666,17 +795,17 @@ model FloorImportAttemptCleanup {
   jobId          String
   floorId        String
   attemptCount   Int
-  assetId        String   @unique
-  objectKey      String   @unique
+  assetId        String    @unique
+  objectKey      String    @unique
   leaseOwner     String?
   leaseExpiresAt DateTime?
-  nextAttemptAt  DateTime @default(dbgenerated("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC'::text)"))
+  nextAttemptAt  DateTime  @default(dbgenerated("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC'::text)"))
   lastCleanedAt  DateTime?
   cleanedAt      DateTime?
   lastError      String?
   committedAt    DateTime?
-  createdAt      DateTime @default(dbgenerated("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC'::text)"))
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime  @default(dbgenerated("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC'::text)"))
+  updatedAt      DateTime  @updatedAt
 
   @@id([jobId, attemptCount])
   @@index([nextAttemptAt, leaseExpiresAt])
@@ -712,8 +841,8 @@ model FloorLightSlot {
   sourceImportJob   FloorImportJob       @relation(fields: [sourceImportJobId], references: [id], onDelete: Cascade)
   sourceCandidate   FloorImportCandidate @relation(fields: [sourceCandidateId], references: [id], onDelete: Cascade)
   assignedFixture   Fixture?             @relation(fields: [assignedFixtureId], references: [id], onDelete: SetNull)
-  createdAt         DateTime              @default(now())
-  updatedAt         DateTime              @updatedAt
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
 
   @@unique([floorId, capacityOrdinal])
   @@index([floorId, id])
@@ -984,7 +1113,7 @@ model GatewayClaimAudit {
 // 재시작·감사·정리의 fence로 남아야 한다. 또한 resetDigest에는 인증서/도면 payload가 아닌
 // 삭제 대상의 count와 정확한 row ID만 넣어, 재시도 중 대상이 바뀌면 감지하면서 비밀은 보관하지 않는다.
 model GatewayRecommissionJob {
-  id             String   @id @default(uuid())
+  id             String    @id @default(uuid())
   siteId         String
   inventoryId    String
   gatewayId      String
@@ -994,12 +1123,12 @@ model GatewayRecommissionJob {
   objectKeys     Json
   status         String
   lastError      String?
-  preparedAt     DateTime @default(now())
+  preparedAt     DateTime  @default(now())
   revokedAt      DateTime?
   appliedAt      DateTime?
   finalizedAt    DateTime?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   @@index([inventoryId, createdAt])
   @@index([status, updatedAt])

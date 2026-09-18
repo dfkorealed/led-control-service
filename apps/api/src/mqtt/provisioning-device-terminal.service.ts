@@ -558,7 +558,10 @@ function storedCommandEnvelopeMatches(command: LockedCommand, event: Provisionin
 function storedCommandCurrentNodeMatches(command: LockedCommand, event: ProvisioningDeviceTerminalV2) {
   return storedCommandNodeIdentityMatches(command, event) &&
     (event.operation === "identify"
-      ? command.node.meshAddress === null
+      // BIO의 등록 재조정 identify는 이전 실패에서 예약 주소가 남아 있을 수 있다.
+      // identify command 자체에는 주소가 없고 UUID 기반 점등/복원만 수행하므로 canonical
+      // BIO 장치만 주소 보유 상태를 허용한다. 일반 Mesh 장치의 임의 주소는 계속 거부한다.
+      ? command.node.meshAddress === null || BIO_DEVICE_UUID.test(command.node.deviceUuid)
       : command.node.meshAddress === event.meshAddress);
 }
 

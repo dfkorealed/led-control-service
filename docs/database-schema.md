@@ -1,6 +1,6 @@
 # 데이터베이스 테이블 구조
 
-작성일: 2026-09-12
+작성일: 2026-09-19
 
 수동 모니터링 확인 갱신일: 2026-09-18
 
@@ -11,7 +11,7 @@
 현재 DB는 다음 업무 영역으로 나뉜다.
 
 - 조직/사용자/인증: `Organization`(`OrganizationType`), `User`, `SiteMembership`, `Invitation`, `Session`
-- 현장/공간/도면: `Site`, `Floor`(`mapRevision`), `FloorPlan`, `FloorMapObject`, `FloorLightSlot`, `FloorMapRevision`
+- 현장/공간/도면: `Site`, `Floor`(`mapRevision`), `FloorPlan`, `FloorMapObject`, `FloorLightSlot`, `FloorMapRevision`, `FloorImportRegion`, `FloorCadScene`, `FloorCadTile`, `FloorCadElementOverride`, `FloorCadLayerState`
 - 조명/그룹/게이트웨이/메시 노드: `Fixture`, `FixtureGroup`, `GroupFixture`, `Gateway`, `GatewayInventory`, `MeshNode`, `MeshControlGroup`, `MeshControlGroupMember`, `MeshControlGroupExpectedOperation`, `MeshControlGroupAppliedMember`
 - 게이트웨이 PKI: `GatewayEnrollment`, `GatewayCertificate`, `CertificateRevocationReconciliation`
 - 제어/모니터링: `Command`, `CommandDispatch`, `CommandFixtureResult`, `MqttOutbox`, `ProcessedGatewayEvent`, `GatewayEventWatermark`, `MonitoringIncident`, `EnergyUsage`
@@ -286,13 +286,24 @@ SiteDeletionCleanup (삭제된 Site ID와 외부 정리 대상을 독립 보존)
 | `none` | 배경 없이 격자 캔버스만 사용 |
 | `image` | JPG 또는 PNG 이미지 원본 사용 |
 | `pdf` | PDF 원본 자산 연결. 격리 렌더 worker가 만든 ready 이미지가 있을 때만 배경 표시 |
+| `cad` | object storage의 native CAD scene을 현재 층 도면으로 사용 |
+
+### FloorAssetKind
+
+| 값 | 의미 |
+| --- | --- |
+| `original` | 사용자가 업로드한 원본 이미지/PDF/DWG/DXF |
+| `rendered` | PDF/CAD 호환 미리보기 렌더 결과 |
+| `cad_manifest` | native CAD scene manifest |
+| `cad_tile` | 512 logical unit 단위의 압축 binary scene tile |
+| `cad_region_preview` | import region 선택용 미리보기 |
 
 ### CAD import enum
 
 | Enum | 값 | 용도 |
 | --- | --- | --- |
 | `FloorImportSourceFormat` | `dwg`, `dxf` | 자동 맵 구성에서 허용하는 CAD 원본 형식. PDF는 포함하지 않음 |
-| `FloorImportJobStatus` | `queued`, `processing`, `review_required`, `applying`, `completed`, `failed`, `cancelled` | 비동기 변환부터 관리자 검토·적용까지의 영속 작업 상태 |
+| `FloorImportJobStatus` | `queued`, `processing`, `region_selection_required`, `review_required`, `applying`, `completed`, `failed`, `cancelled` | 비동기 변환, region 선택, 관리자 검토와 적용까지의 영속 작업 상태 |
 | `FloorImportDetectionMethod` | `rule_based`, `ai_assisted` | 조명 위치 후보를 만든 검출 경계. 초기 구현은 `rule_based`이며 AI provider는 비활성 |
 | `FloorImportCandidateReviewStatus` | `pending`, `accepted`, `rejected` | 후보별 관리자 검토 상태 |
 
@@ -527,6 +538,7 @@ worker는 API 시작 시와 30초 주기로 만료된 작업을 최대 10개씩 
 - `fixtures`: `Fixture[]`
 - `assets`: `FloorAsset[]`
 - `importJobs`: `FloorImportJob[]`
+- `cadScene`: `FloorCadScene?`
 - `lightSlots`: `FloorLightSlot[]`
 - `provisioningSessions`: `ProvisioningSession[]`
 - `mapRevisions`: `FloorMapRevision[]`
@@ -605,7 +617,7 @@ worker는 API 시작 시와 30초 주기로 만료된 작업을 최대 10개씩 
 
 ### FloorPlan
 
-층 도면 이미지와 좌표계 정보를 저장한다. `Floor`와 1:1 관계다. 층별 도면 에디터 작업에서 배경 없음, 이미지 원본, PDF 렌더링 결과를 표현한다.
+층 도면 이미지와 좌표계 정보를 저장한다. `Floor`와 1:1 관계다. 층별 도면 에디터 작업에서 배경 없음, 이미지 원본, PDF 렌더링 결과 또는 native CAD scene 좌표계를 표현한다.
 
 | 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
 | --- | --- | --- | --- | --- |
@@ -616,7 +628,7 @@ worker는 API 시작 시와 30초 주기로 만료된 작업을 최대 10개씩 
 | `height` | `Int` | 예 |  | 도면 기준 높이 |
 | `gridSize` | `Int` | 예 | `10`, DB check `5~200` | 층별 맵 편집 격자 및 절대 좌표 스냅 간격 |
 | `version` | `Int` | 예 | `1` | 도면 버전 |
-| `sourceType` | `FloorPlanSourceType` | 예 | `image` | 배경 원본 종류. 기존 도면은 이미지로 간주 |
+| `sourceType` | `FloorPlanSourceType` | 예 | `image` | 배경 원본 종류. `cad`는 현재 `FloorCadScene`을 사용하며 기존 도면은 이미지로 간주 |
 | `originalFileUrl` | `String?` | 아니오 |  | 업로드한 원본 JPG/PNG/PDF 파일 URL |
 | `renderedImageUrl` | `String?` | 아니오 |  | PDF 첫 페이지 또는 후처리된 배경 이미지 URL |
 | `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
@@ -632,17 +644,18 @@ worker는 API 시작 시와 30초 주기로 만료된 작업을 최대 10개씩 
 - 맵 편집기는 `sourceType = none`이거나 `FloorPlan`이 없을 때 배경 없는 격자 캔버스를 표시한다. 배경이 없어도 맵 크기와 `gridSize`를 저장하기 위해 `sourceType = none`인 `FloorPlan`을 생성할 수 있다.
 - `gridSize`는 `20260910000000_floor_plan_grid_size` migration으로 추가한다. 기존 행은 `10`으로 backfill되며 DB와 API가 모두 `5~200` 범위를 검증한다.
 - PDF 업로드는 원본 ready asset 경로를 `originalFileUrl`에 저장한다. 별도 렌더 자산이 없으면 `imageUrl = ""`, `renderedImageUrl = NULL`로 원본만 연결하며 캔버스 배경은 표시하지 않는다. 첫 페이지 PNG는 후속 격리 렌더 worker가 생성한 ready asset만 연결한다.
+- `sourceType = cad`는 `imageUrl`에 CAD geometry를 직렬화하지 않는다. 논리 맵 크기와 격자는 `FloorPlan`, native scene 메타데이터는 `FloorCadScene`, 실제 geometry는 `FloorAsset`이 가리키는 object storage manifest/tile에 둔다.
 - `imageUrl`, `originalFileUrl`, `renderedImageUrl`은 같은 층의 ready `FloorAsset`을 가리키는 `/api/floors/{floorId}/assets/{assetId}/content` 경로만 허용한다. data URL, 임의 외부 URL과 다른 층 asset 경로는 거부한다.
 
 ### FloorAsset
 
-S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 이미지를 추적한다.
+S3 호환 object storage에 직접 업로드되거나 CAD worker가 생성하는 도면 원본, 렌더 이미지, native CAD manifest/tile/region preview를 추적한다.
 
 | 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
 | --- | --- | --- | --- | --- |
 | `id` | `String` | 예 | PK, `uuid()` | asset ID |
 | `floorId` | `String` | 예 | FK -> `Floor.id`, cascade delete | 소속 층 |
-| `kind` | `FloorAssetKind` | 예 | `original`, `rendered` | 원본 또는 렌더 결과 |
+| `kind` | `FloorAssetKind` | 예 | enum | `original`, `rendered`, `cad_manifest`, `cad_tile`, `cad_region_preview` 역할 |
 | `status` | `FloorAssetStatus` | 예 | `pending` | 업로드 검증 전/후 상태 |
 | `objectKey` | `String` | 예 | Unique | bucket 내부 object key |
 | `mimeType` | `String` | 예 |  | 서명된 Content-Type |
@@ -663,6 +676,7 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 - 번들 MinIO는 `WEB_PUBLIC_URL`을 `MINIO_API_CORS_ALLOW_ORIGIN`으로 전달하며 미설정 시 `http://localhost:5173`을 사용한다. 버킷은 계속 anonymous `none`이고, 지원되지 않는 `mc cors set`이나 localhost 전용 XML에 의존하지 않는다.
 - `20260912090000_floor_asset_private_ledger` migration은 기존 FloorPlan과 FloorMapRevision snapshot의 알려진 asset URL을 인증 경로로 치환하고, 변경된 snapshot의 안정 해시를 다시 계산한 뒤 `publicUrl` 컬럼을 제거한다. 알려진 asset과 대응하지 않는 비어 있지 않은 legacy URL이 하나라도 있으면 전체 migration을 원자적으로 중단한다.
 - CAD 원본 또는 렌더 자산을 `FloorImportJob`이 참조하는 동안 FK가 직접 자산 삭제를 막는다. deferred constraint trigger는 자산 갱신 시에도 같은 층, 역할, ready 상태와 허용 MIME을 다시 검증한다. 후속 cleanup worker는 이 관계를 후보 조회에서도 제외해야 한다.
+- native CAD region preview, manifest와 tile은 각각 `FloorImportRegion`, `FloorCadScene`, `FloorCadTile`이 `ON DELETE NO ACTION`으로 참조한다. 참조 owner가 제거될 때 자산 행과 object는 자동 삭제하지 않으며, 후속 object cleanup이 별도 수명주기로 회수해야 한다.
 - 신규 CAD worker의 rendered SVG는 확정 `contentEncoding = gzip`을 기록한다. `20260917165000_cad_content_encoding_reconciliation`은 생성 시각을 추정 근거로 쓰지 않고, committed attempt provenance가 없는 기존 linked SVG를 `unknown`으로 표시한다. Review/apply/content는 Object Storage HEAD의 encoding, 크기, checksum, viewport가 원장과 일치할 때만 `unknown`을 `NULL` identity 또는 `gzip`으로 조건부 원자 갱신한다. HEAD 오류·불일치나 경쟁 갱신의 다른 결과는 fail-close한다. deferred asset trigger는 linked SVG에 `NULL | gzip | unknown`을, PNG/JPEG/WebP에는 `NULL`만 허용한다. 기존 `20260917150000_cad_profile_binding` checksum은 수정하지 않는다.
 
 ### FloorImportAttemptCleanup
@@ -705,13 +719,14 @@ DWG/DXF 원본을 비동기로 변환·검출·검토·적용하는 작업의 �
 | `sourceFormat` | `FloorImportSourceFormat` | 예 |  | `dwg` 또는 `dxf` |
 | `status` | `FloorImportJobStatus` | 예 | `queued` | 영속 작업 상태 |
 | `stage` | `String` | 예 | `queued`, trim 길이 1~100 | 상태보다 세분화된 현재 처리 단계 |
-| `progressPercent` | `Int` | 예 | `0`, DB check `0~100` | 진행률. lifecycle check는 queued `0~99`, processing `1~99`, review/applying/completed `100`, failed/cancelled `0~100`을 허용 |
+| `progressPercent` | `Int` | 예 | `0`, DB check `0~100` | 진행률. lifecycle check는 queued `0~99`, processing/region_selection_required `1~99`, review_required/applying/completed `100`, failed/cancelled `0~100`을 허용 |
 | `attemptCount` | `Int` | 예 | `0`, DB check `>= 0` | worker lease 획득/재시도 횟수 |
 | `parserVersion` | `String?` | 아니오 |  | CAD parser/정규화 구현 버전 |
 | `detectorVersion` | `String?` | 아니오 |  | 조명 후보 detector 버전 |
 | `detectorProfileId` | `String?` | 아니오 | 허용 registry ID 또는 migration staging `NULL` | 서버가 source SHA-256 binding으로 정한 detector profile ID |
 | `detectorProfileVersion` | `String?` | 아니오 | digest와 함께 NULL 또는 값 | 실제 주입 detector profile 버전 |
 | `detectorProfileDigest` | `String?` | 아니오 | 64자리 lowercase SHA-256 | 후보 행동 필드 전체의 canonical digest |
+| `excludedRegionPrimitiveCount` | `Int?` | 아니오 | DB check `0~1000000` | CAD 영역 탐지기가 어느 region에도 포함하지 않은 실제 제외 primitive 수. 신규 분석 작업은 region API 노출 전에 반드시 기록하며 기존 NULL 작업은 재가져오기를 요구한다. |
 | `leaseOwner`, `leaseExpiresAt` | `String?`, `DateTime?` | 아니오 | 둘 다 NULL 또는 둘 다 값 | 다중 worker 점유와 만료 시각 |
 | `failureCode`, `failureMessage` | `String?` | 아니오 |  | 정제된 실패 코드와 내부 운영 메시지 |
 | `startedAt` | `DateTime?` | 아니오 |  | 첫 처리 시작 시각 |
@@ -728,11 +743,79 @@ DWG/DXF 원본을 비동기로 변환·검출·검토·적용하는 작업의 �
 - `floorId + createdAt`, `status + leaseExpiresAt + createdAt` index로 층별 이력과 lease 회수 대상을 조회한다.
 - `sourceAssetId`는 일반 index다. 완료·실패·취소 이후 동일 원본 재분석을 허용하며 동시 workflow는 층별 active partial unique가 막는다.
 - client/Web은 profile ID를 보내지 않는다. create transaction이 잠근 ready source asset SHA-256으로 server registry binding을 결정한다. migration 시점의 queued job만 ID/version/digest를 `NULL`로 staging하고 worker lease 안에서 같은 binding을 해석한다. `20260917144000_cad_profile_upgrade_gate`는 singleton gate와 DB trigger를 먼저 설치해 구 worker를 포함한 queued→processing 전환을 거부한다. `20260917145000`/`16000`이 profile/content 제약을 적용하고 `20260917170000_cad_profile_upgrade_release`가 필요한 migration 완료 이력을 확인한 뒤에만 gate를 연다.
-- partial unique index `FloorImportJob_floorId_active_key`는 `queued`, `processing`, `review_required`, `applying` 중인 job을 층마다 하나로 제한한다. 완료·실패·취소 원장은 이력으로 유지한다.
+- partial unique index `FloorImportJob_floorId_active_key`는 `completed`, `failed`, `cancelled`가 아닌 모든 active 상태를 층마다 하나로 제한한다. 따라서 `region_selection_required` 중에도 같은 층의 두 번째 import를 시작할 수 없고, 향후 active 상태 추가 시 누락되지 않는다. 완료·실패·취소 원장은 이력으로 유지한다.
 - deferred constraint trigger `FloorImportJob_asset_invariant`, `FloorAsset_import_job_invariant`는 transaction 최종 상태에서 원본/렌더 자산이 job과 같은 층이고 ready인지, source는 `original`과 source format별 DWG/DXF MIME인지, render는 `rendered`와 허용 이미지 MIME인지 양쪽 mutation 경로에서 강제한다.
-- migration-only `FloorImportJob_lifecycle_check`는 queued/processing/review_required/applying/completed/failed/cancelled별 progress, lease, 오류, 렌더 자산과 필수 timestamp 조합을 강제한다. `20260918130000_floor_import_retry_progress`부터 최초 및 재시도 queued는 `0~99`의 보존 진행률과 해제된 lease를 허용한다. queued 진행률이 `1~99`이면 claim 이력을 나타내는 `attemptCount >= 1`이 필요하지만, 과거 데이터 호환을 위해 진행률 `0`인 queued row의 attemptCount는 추가로 제한하지 않는다. processing은 `1~99`, review_required/applying/completed는 정확히 `100`, failed/cancelled는 `0~100`을 허용한다. terminal 상태는 lease가 없고 각각 `completedAt`, `failedAt`, `cancelledAt`이 필요하다.
+- migration-only `FloorImportJob_lifecycle_check`는 queued/processing/region_selection_required/review_required/applying/completed/failed/cancelled별 progress, lease, 오류, 렌더 자산과 필수 timestamp 조합을 강제한다. `20260918130000_floor_import_retry_progress`부터 최초 및 재시도 queued는 `0~99`의 보존 진행률과 해제된 lease를 허용한다. queued 진행률이 `1~99`이면 claim 이력을 나타내는 `attemptCount >= 1`이 필요하지만, 과거 데이터 호환을 위해 진행률 `0`인 queued row의 attemptCount는 추가로 제한하지 않는다. processing은 lease가 있는 `1~99`, region_selection_required는 처리 이력과 `startedAt`/`reviewRequiredAt`이 있으나 lease·rendered asset이 없는 `1~99`, review_required/applying/completed는 정확히 `100`, failed/cancelled는 `0~100`을 허용한다. terminal 상태는 lease가 없고 각각 `completedAt`, `failedAt`, `cancelledAt`이 필요하다.
 - `FloorImportJob_detector_profile_state_check`는 `review_required`, `applying`, `completed`에서 profile ID/version/digest를 모두 요구한다. migration 이전 terminal 결과는 현재 profile로 위장하지 않고 `legacy-unknown`과 zero digest sentinel로 보존한다.
 - 위 trigger, lifecycle/check 제약과 active partial unique는 Prisma datamodel로 표현되지 않는다. `floor-cad-import-migration.integration.spec.ts`가 실제 PostgreSQL catalog와 잘못된 INSERT/UPDATE 거부를 검증하므로 migration을 Prisma diff로 재생성해 대체하면 안 된다.
+
+### FloorImportRegion
+
+CAD model space에서 탐지한 선택 후보 영역을 import job 아래에 영속화한다. `regionId`는 같은 입력과 region 알고리즘 버전에서 재시도해도 유지되는 안정 ID이며, 실제 preview 이미지는 object storage에 둔다. 최초 탐지의 region별 normalized candidate identity 집합은 정렬 후 canonical JSON을 SHA-256으로 해시해 보존하고, 선택 후 scene build 재실행의 detector assignment를 parent process에서 대조한다.
+
+| 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
+| --- | --- | --- | --- | --- |
+| `id` | `String` | 예 | PK, `uuid()` | region 행 ID |
+| `jobId` | `String` | 예 | FK -> `FloorImportJob.id`, cascade delete | 소속 import job |
+| `regionId` | `String` | 예 | `(jobId, regionId)` Unique, trim 길이 1~512 | job 안의 안정 region ID |
+| `minX`, `minY`, `maxX`, `maxY` | `Float` | 예 | 유한값, max > min | 원본 CAD 좌표계 bounds |
+| `primitiveCount` | `Int` | 예 | `1~500000` | 확장 후 region primitive 수 |
+| `candidateIdentityDigest` | `String?` | 아니오 | lowercase SHA-256 64 hex | 최초 탐지에서 해당 region에 배정된 normalized candidate identity 정렬 집합의 canonical digest. migration 이전 행만 `NULL`이며 selection-required job은 재가져오기 전 선택을 fail-close한다. |
+| `previewAssetId` | `String?` | 아니오 | Unique, FK -> `FloorAsset.id`, delete no action | 같은 층의 ready `cad_region_preview` 자산 |
+| `selectedAt` | `DateTime?` | 아니오 | job별 non-null partial Unique | 현재 job에서 선택한 region 시각 |
+| `createdAt`, `updatedAt` | `DateTime` | 예 | `now()`, `@updatedAt` | 생성·갱신 시각 |
+
+`FloorImportJob` 삭제는 region을 cascade 삭제하지만 preview asset은 남긴다. `FloorImportRegion_jobId_selected_key` partial unique index가 job마다 선택 region을 최대 하나로 제한한다. Region 쓰기는 preview asset 행을 `FOR UPDATE`로 먼저 잠그고, deferred constraint trigger는 preview가 source job과 같은 층의 ready `cad_region_preview`인지 region/asset/job 변경 양쪽에서 검증한다. `20260919130000_add_floor_import_region_candidate_digest` migration은 기존 행을 백필하지 않고 nullable로 유지한다. worker가 새 최초 탐지 결과를 저장할 때 모든 region digest를 함께 기록하며, 단일 region 자동선택도 scene/candidate persistence transaction 안에서 같은 digest를 저장한다. 다중 region 선택 API는 하나라도 digest가 없으면 `re-import required`로 거부한다.
+
+### FloorCadScene
+
+한 층에 현재 적용된 native CAD scene 메타데이터를 하나만 보관한다. `(floorId)` Unique가 current scene을 1:1로 고정하고, source import job과 선택 region도 scene당 하나만 연결한다.
+
+| 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
+| --- | --- | --- | --- | --- |
+| `id` | `String` | 예 | PK, `uuid()` | scene ID |
+| `floorId` | `String` | 예 | Unique, FK -> `Floor.id`, cascade delete | 현재 scene을 사용하는 층 |
+| `sourceImportJobId` | `String` | 예 | Unique, FK -> `FloorImportJob.id`, cascade delete | scene을 생성한 import job |
+| `sourceRegionId` | `String` | 예 | Unique, FK -> `FloorImportRegion.id`, delete no action | 선택된 source region 행 |
+| `version` | `Int` | 예 | `1` 고정 | scene format/version |
+| `status` | `String` | 예 | `active`만 허용 | 현재 적용된 scene 상태 |
+| `width`, `height` | `Int` | 예 | 각각 `512~32768` | 정규화한 논리 맵 크기 |
+| `tileSize` | `Int` | 예 | `512` 고정 | logical tile 한 변 |
+| `primitiveCount`, `tileCount` | `Int` | 예 | 각각 `0~500000`, `0~12288` | scene 통계 |
+| `manifestAssetId` | `String` | 예 | Unique, FK -> `FloorAsset.id`, delete no action | 같은 층의 ready `cad_manifest` 자산 |
+| `sourceMinX`, `sourceMinY`, `sourceMaxX`, `sourceMaxY` | `Float` | 예 | 유한값, max > min, 선택 region bounds와 정확히 일치 | 선택 region 원본 bounds |
+| `transformScaleX`, `transformScaleY`, `transformTranslateX`, `transformTranslateY` | `Float` | 예 | 유한값, scaleX > 0, scaleY != 0 | 원본 좌표를 논리 맵으로 옮기는 정규화 transform. 음수 scaleY는 CAD Y축 반전을 보존 |
+| `createdAt`, `updatedAt` | `DateTime` | 예 | `now()`, `@updatedAt` | 생성·갱신 시각 |
+
+Floor 또는 source import job 삭제는 scene과 tile/override/layer 상태를 cascade 삭제한다. manifest, tile, preview 자산은 `NO ACTION` 참조로 보호되며 owner cascade 뒤에도 자동 삭제하지 않는다. source region 직접 삭제와 manifest 직접 삭제는 현재 scene이 있으면 거부한다. Scene 쓰기는 manifest asset 행을 `FOR UPDATE`로 먼저 잠그며, deferred constraint trigger는 scene의 floor, job, 선택 region bounds, manifest와 모든 기존 tile asset의 층/역할/ready 상태를 parent update까지 포함해 재검증한다.
+
+### FloorCadTile
+
+| 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
+| --- | --- | --- | --- | --- |
+| `id` | `String` | 예 | PK, `uuid()` | tile 메타데이터 ID |
+| `sceneId` | `String` | 예 | FK -> `FloorCadScene.id`, cascade delete | 소속 scene |
+| `tileX`, `tileY`, `lod`, `part` | `Int` | 예 | 좌표 `0~63`, LOD `0~2`, part `0~127`, 복합 Unique | tile 좌표, additive 상세 단계와 16 MiB payload shard 순번 |
+| `assetId` | `String` | 예 | Unique, FK -> `FloorAsset.id`, delete no action | 같은 층의 ready `cad_tile` binary 자산 |
+| `primitiveCount` | `Int` | 예 | `1~500000` | 비어 있지 않은 tile part의 primitive 수 |
+| `byteSize` | `BigInt` | 예 | `1~16777216` (16 MiB) | 압축 payload 크기 |
+| `minX`, `minY`, `maxX`, `maxY` | `Float` | 예 | scene 내부에서 `(tileX, tileY, tileSize)` cell bounds와 정확히 일치 | 논리 맵 tile bounds |
+| `createdAt`, `updatedAt` | `DateTime` | 예 | `now()`, `@updatedAt` | 생성·갱신 시각 |
+
+`(sceneId, tileX, tileY, lod, part)` Unique와 `(sceneId, lod, tileX, tileY)` index로 중복 shard 저장을 막고 viewport/LOD 조회를 지원한다. 같은 cell/LOD의 part는 manifest에서 0부터 연속이어야 하고 각 binary payload는 16 MiB 이하이다. Tile 쓰기는 tile asset 행을 `FOR UPDATE`로 먼저 잠가 동시 role/floor/ready 변경과 직렬화한다. geometry와 공간 index 본문은 DB JSON 컬럼이 아니라 `assetId`가 가리키는 압축 object에만 저장한다.
+
+### FloorCadElementOverride / FloorCadLayerState
+
+원본 scene은 불변으로 유지하고 사용자가 수정한 element와 layer 상태만 sparse row로 저장한다.
+
+| 모델 | 키/주요 컬럼 | 제약과 삭제 정책 |
+| --- | --- | --- |
+| `FloorCadElementOverride` | PK `(sceneId, elementId)`, `hidden`, translate/scale/rotation, stroke/fill/width/text, nullable locator `locatorTileX/Y/Lod/Part` | 값이 하나 이상 있어야 하며 transform은 유한값, scale은 양수, 색상은 hex 형식이고 text는 최대 65536자다. 신규 override는 검증에 사용한 원본 tile locator를 함께 저장해 전체 scene scan 없이 이동 요소 geometry를 복원한다. migration 이전 행은 locator 전체가 NULL일 수 있고, 값이 있으면 네 필드가 모두 존재하며 tile 범위 안이어야 한다. scene 삭제 시 cascade한다. |
+| `FloorCadLayerState` | PK `(sceneId, layerName)`, `visible=true`, `locked=false` | layer 이름은 trim 1~512자이며 scene 삭제 시 cascade한다. |
+
+`20260919150000_add_cad_override_locator` migration은 기존 override 행을 보존한 채 nullable locator 4개를 추가한다. API는 이후의 모든 upsert에서 evidence 검증을 통과한 locator를 저장하며, 클라이언트는 이동 override의 목적지 viewport에 필요한 원본 tile만 제한된 동시성으로 preload한다.
+
+두 모델 모두 geometry를 JSON으로 복제하지 않는다. override의 transform도 nullable scalar 열로만 저장하며 `(sceneId, updatedAt)` index가 변경분 조회를 지원한다.
 
 ### CadProfileUpgradeGate
 

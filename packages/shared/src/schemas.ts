@@ -1,7 +1,8 @@
 import { z } from "zod";
+import { cadSceneDescriptorSchema } from "./cad-scene-contracts";
+import { POSTGRES_INT_MAX, POSTGRES_INT_MIN } from "./postgres-contracts";
 
-export const POSTGRES_INT_MIN = -2_147_483_648;
-export const POSTGRES_INT_MAX = 2_147_483_647;
+export { POSTGRES_INT_MAX, POSTGRES_INT_MIN } from "./postgres-contracts";
 export const EDITOR_MAX_EXPECTED_REVISION = POSTGRES_INT_MAX - 1;
 export const EDITOR_MAX_FIXTURE_UPDATES = 1_000;
 export const EDITOR_MAX_MAP_OBJECT_MUTATIONS = 2_000;
@@ -242,23 +243,34 @@ const floorMapReadPlanFields = {
 
 // The read model keeps nullable legacy asset variants, while atomic editor
 // writes continue to require a complete source-specific floor plan payload.
-export const floorMapPlanSnapshotSchema = z.discriminatedUnion("sourceType", [
-  z.object({
-    sourceType: z.literal("none"),
-    imageUrl: z.literal(""),
-    originalFileUrl: z.null(),
-    renderedImageUrl: z.null(),
-    width: positiveInt4Schema,
-    height: positiveInt4Schema,
-    gridSize: editorGridSizeSchema
-  }).strict(),
-  z.object({ sourceType: z.literal("image"), ...floorMapReadPlanFields }).strict(),
-  z.object({
-    sourceType: z.literal("pdf"),
-    ...floorMapReadPlanFields,
-    imageUrl: z.union([editorUrlSchema, z.literal("")])
-  }).strict()
-]);
+export const floorMapPlanSnapshotSchema = z.object({
+  sourceType: z.enum(["none", "image", "pdf", "cad"]),
+  ...floorMapReadPlanFields,
+  imageUrl: z.union([editorUrlSchema, z.literal("")])
+}).strict().superRefine((plan, context) => {
+  if (plan.sourceType === "none" && (
+    plan.imageUrl !== "" || plan.originalFileUrl !== null || plan.renderedImageUrl !== null
+  )) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "empty floor plans cannot reference assets"
+    });
+  }
+  if (plan.sourceType === "image" && plan.imageUrl === "") {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["imageUrl"],
+      message: "image floor plans require an image URL"
+    });
+  }
+  if (plan.sourceType === "cad" && plan.imageUrl !== "") {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["imageUrl"],
+      message: "CAD floor plans are rendered from their scene descriptor"
+    });
+  }
+});
 
 export const floorMapSnapshotSchema = z.object({
   floorId: z.string().uuid(),
@@ -266,6 +278,7 @@ export const floorMapSnapshotSchema = z.object({
   width: positiveInt4Schema,
   height: positiveInt4Schema,
   floorPlan: floorMapPlanSnapshotSchema.nullable(),
+  cadScene: cadSceneDescriptorSchema.nullable().optional(),
   objects: z.array(floorMapObjectStateSchema),
   fixtures: z.array(z.object({
     id: z.string().uuid(),
@@ -274,7 +287,33 @@ export const floorMapSnapshotSchema = z.object({
     y: finiteNumberSchema,
     size: finiteNumberSchema.positive()
   }).strict()).optional()
-}).strict();
+}).strict().superRefine((snapshot, context) => {
+  const isCadPlan = snapshot.floorPlan?.sourceType === "cad";
+  if (isCadPlan && !snapshot.cadScene) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["cadScene"],
+      message: "CAD floor map snapshots require a scene descriptor"
+    });
+  }
+  if (!isCadPlan && snapshot.cadScene) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["cadScene"],
+      message: "a scene descriptor is only valid for CAD floor plans"
+    });
+  }
+  if (isCadPlan && snapshot.cadScene && (
+    snapshot.cadScene.width !== snapshot.width || snapshot.cadScene.height !== snapshot.height ||
+    snapshot.floorPlan!.width !== snapshot.width || snapshot.floorPlan!.height !== snapshot.height
+  )) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["cadScene"],
+      message: "CAD scene dimensions must match the floor map"
+    });
+  }
+});
 
 export const floorMapObjectPatchSchema = z.object({
   type: floorMapObjectFields.type.optional(),
@@ -364,6 +403,12 @@ const legacySnapshotPointsSchema = z.array(editorPointSchema).max(EDITOR_MAX_POI
 
 export const FLOOR_EDITOR_SNAPSHOT_VERSION = 2;
 
+const floorCadSceneSnapshotSchema = z.object({
+  id: z.string().uuid(),
+  width: positiveInt4Schema,
+  height: positiveInt4Schema
+}).strict();
+
 export const floorEditorSnapshotV1Schema = z.object({
   floorPlan: z.object({
     imageUrl: legacySnapshotUrlSchema,
@@ -402,8 +447,15 @@ export const floorEditorSnapshotV1Schema = z.object({
   }).strict())
 }).strict();
 
+const floorEditorSnapshotV2FloorPlanSchema = floorEditorSnapshotV1Schema.shape.floorPlan
+  .unwrap()
+  .extend({ sourceType: z.enum(["none", "image", "pdf", "cad"]) })
+  .nullable();
+
 export const floorEditorSnapshotV2Schema = floorEditorSnapshotV1Schema.extend({
   version: z.literal(FLOOR_EDITOR_SNAPSHOT_VERSION),
+  floorPlan: floorEditorSnapshotV2FloorPlanSchema,
+  cadScene: floorCadSceneSnapshotSchema.optional(),
   // Existing V2 revisions predate CAD slots; new snapshots include this array.
   lightSlots: z.array(floorLightSlotSchema.extend({
     // Older V2 snapshots only stored public slot geometry. New revisions retain
@@ -419,6 +471,24 @@ export const floorEditorSnapshotV2Schema = floorEditorSnapshotV1Schema.extend({
     positionVerifiedAt: z.string().datetime().nullable()
   }).refine((fixture) => fixture.placementStatus !== "unplaced" || fixture.positionVerifiedAt === null,
     "unplaced fixtures cannot have a verified position"))
+}).superRefine((snapshot, context) => {
+  const floorPlan = snapshot.floorPlan;
+  const isCadPlan = floorPlan?.sourceType === "cad";
+  if (isCadPlan && !snapshot.cadScene) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["cadScene"],
+      message: "CAD floor plan snapshots require a scene identity" });
+  }
+  if (!isCadPlan && snapshot.cadScene) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["cadScene"],
+      message: "scene identity is only valid for CAD floor plans" });
+  }
+  if (isCadPlan && snapshot.cadScene && (
+    snapshot.cadScene.width !== floorPlan!.width ||
+    snapshot.cadScene.height !== floorPlan!.height
+  )) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["cadScene"],
+      message: "CAD scene dimensions must match the floor plan" });
+  }
 });
 
 // Legacy revisions remain immutable; normalize their missing placement metadata only on read.

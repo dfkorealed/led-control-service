@@ -11,10 +11,16 @@ import {
 import {
   cadImportFileTypeSchema,
   CAD_IMPORT_MAX_CANDIDATES,
+  floorImportRegionListResponseSchema,
+  floorImportRegionSelectInputSchema,
   floorImportApplyInputSchema,
   floorImportAppliedOverlayResponseSchema,
   floorImportCandidateListResponseSchema,
   floorImportRenderedViewportSchema,
+  CAD_SCENE_MAX_PARTS_PER_TILE,
+  CAD_SCENE_MAX_TILES_PER_AXIS,
+  cadSceneManifestSchema,
+  type CadSceneManifest,
   type FloorImportApplyInput
 } from "@led-control/shared";
 import { Prisma } from "@prisma/client";
@@ -31,14 +37,15 @@ import { ObjectStorageService } from "../storage/object-storage.service";
 import { FloorRenderedAssetReconciler } from "../storage/floor-rendered-asset-reconciler";
 import { CAD_IMPORT_WORKER_OPTIONS, type FloorImportWorkerOptions } from "./floor-import.tokens";
 import { FixedLightingDetectorRegistry } from "./lighting-detector-registry";
+import { cadScenePersistenceIdentity } from "./cad-scene-persistence";
 
 const createInputSchema = z.object({
   sourceAssetId: z.string().uuid(),
   sourceFormat: z.enum(["dwg", "dxf"])
 }).strict();
 
-const activeStatuses = ["queued", "processing", "review_required"] as const;
-const cancellableStatuses = ["queued", "processing", "review_required"] as const;
+const activeStatuses = ["queued", "processing", "region_selection_required", "review_required"] as const;
+const cancellableStatuses = ["queued", "processing", "region_selection_required", "review_required"] as const;
 
 interface LockedApplyRow {
   status: string;
@@ -64,6 +71,24 @@ interface LockedSourceAssetRow {
   kind: string;
   status: string;
   mimeType: string;
+  sha256: string;
+  cleanupStartedAt: Date | null;
+}
+
+interface CadSceneDraft {
+  sourceRegionRecordId: string;
+  manifest: CadSceneManifest;
+  manifestAsset: CadSceneAssetLedger;
+  tileAssets: Map<string, CadSceneAssetLedger>;
+}
+
+interface CadSceneAssetLedger {
+  id: string;
+  objectKey: string;
+  kind: string;
+  status: string;
+  mimeType: string;
+  sizeBytes: bigint;
   sha256: string;
   cleanupStartedAt: Date | null;
 }
@@ -238,6 +263,178 @@ export class FloorImportService {
     return floorImportCandidateListResponseSchema.parse({ jobId, candidates });
   }
 
+  async listRegions(user: AuthenticatedUser, floorId: string, jobId: string) {
+    await this.authorizeFloor(user, floorId, "read");
+    if (!this.storage) throw new InternalServerErrorException("floor import storage is unavailable");
+    const job = await this.prisma.floorImportJob.findFirst({
+      where: { id: jobId, floorId },
+      select: {
+        id: true,
+        regions: {
+          orderBy: [{ regionId: "asc" }, { id: "asc" }],
+          select: {
+            regionId: true, minX: true, minY: true, maxX: true, maxY: true,
+            primitiveCount: true, selectedAt: true,
+            previewAsset: {
+              select: {
+                id: true, objectKey: true, status: true, kind: true, mimeType: true,
+                contentEncoding: true, sizeBytes: true, sha256: true, cleanupStartedAt: true
+              }
+            }
+          }
+        }
+      }
+    });
+    if (!job) throw new NotFoundException("floor import job not found");
+    if (job.regions.length === 0) throw new ConflictException("floor import regions are not ready");
+
+    const regions = await Promise.all(job.regions.map(async region => {
+      const preview = region.previewAsset;
+      if (!preview || preview.status !== "ready" || preview.kind !== "cad_region_preview" ||
+          preview.mimeType !== "image/svg+xml" || preview.contentEncoding !== "gzip" || preview.cleanupStartedAt) {
+        throw new ConflictException("floor import region preview is not ready");
+      }
+      const sizeBytes = Number(preview.sizeBytes);
+      if (!Number.isSafeInteger(sizeBytes)) throw new ConflictException("floor import region preview ledger is invalid");
+      try {
+        const metadata = await this.storage!.readCadRegionPreviewMetadata(preview.objectKey, {
+          sizeBytes,
+          sha256: preview.sha256,
+          regionId: region.regionId,
+          bounds: { minX: region.minX, minY: region.minY, maxX: region.maxX, maxY: region.maxY }
+        });
+        return {
+          regionId: region.regionId,
+          bounds: { minX: region.minX, minY: region.minY, maxX: region.maxX, maxY: region.maxY },
+          primitiveCount: region.primitiveCount,
+          textCount: metadata.textCount,
+          lightCandidateCount: metadata.lightCandidateCount,
+          area: metadata.area,
+          preview: {
+            assetId: preview.id,
+            width: metadata.width,
+            height: metadata.height,
+            byteSize: sizeBytes,
+            sha256: preview.sha256
+          }
+        };
+      } catch (error) {
+        if (error instanceof ConflictException) throw error;
+        throw new ServiceUnavailableException("floor import region preview metadata is unavailable");
+      }
+    }));
+    const selected = job.regions.filter(region => region.selectedAt !== null);
+    if (selected.length > 1) throw new ConflictException("floor import region selection ledger is invalid");
+    return floorImportRegionListResponseSchema.parse({
+      jobId,
+      selectionStatus: selected.length === 0
+        ? "selection_required"
+        : job.regions.length === 1 ? "auto_selected" : "selected",
+      selectedRegionId: selected[0]?.regionId ?? null,
+      regions
+    });
+  }
+
+  async selectRegion(user: AuthenticatedUser, floorId: string, jobId: string, rawInput: unknown) {
+    const input = this.parse(floorImportRegionSelectInputSchema, rawInput, "invalid floor import region selection");
+    const floor = await this.authorizeFloor(user, floorId, "manage");
+    await this.prisma.$transaction(async tx => {
+      await this.access.assertManageInTransaction(tx, user, floor.siteId);
+      const jobs = await tx.$queryRaw<Array<{ status: string }>>(Prisma.sql`
+        SELECT job."status"::text AS "status"
+        FROM "Floor" AS floor
+        JOIN "FloorImportJob" AS job ON job."floorId" = floor."id"
+        WHERE floor."id" = ${floorId} AND job."id" = ${jobId}
+        FOR UPDATE OF floor, job
+      `);
+      if (!jobs[0]) throw new NotFoundException("floor import job not found");
+      const regions = await tx.$queryRaw<Array<{
+        id: string;
+        regionId: string;
+        selectedAt: Date | null;
+        candidateIdentityDigest: string | null;
+      }>>(Prisma.sql`
+        SELECT "id", "regionId", "selectedAt", "candidateIdentityDigest"
+        FROM "FloorImportRegion"
+        WHERE "jobId" = ${jobId}
+        ORDER BY "regionId", "id"
+        FOR UPDATE
+      `);
+      if (jobs[0].status !== "region_selection_required" || regions.length < 2 ||
+          regions.some(region => region.selectedAt !== null)) {
+        throw new ConflictException("floor import region can no longer be selected");
+      }
+      if (regions.some(region => !/^[a-f0-9]{64}$/.test(region.candidateIdentityDigest ?? ""))) {
+        throw new ConflictException("CAD region candidate digest is unavailable; re-import required");
+      }
+      const selected = regions.find(region => region.regionId === input.regionId);
+      if (!selected) throw new BadRequestException("selected region must belong to the requested import job");
+      const selectedAt = new Date();
+      const changedRegion = await tx.floorImportRegion.updateMany({
+        where: { id: selected.id, jobId, selectedAt: null },
+        data: { selectedAt }
+      });
+      const changedJob = await tx.floorImportJob.updateMany({
+        where: { id: jobId, floorId, status: "region_selection_required" },
+        data: {
+          status: "queued", stage: "queued", progressPercent: 0, attemptCount: 0,
+          startedAt: null, reviewRequiredAt: null,
+          leaseOwner: null, leaseExpiresAt: null
+        }
+      });
+      if (changedRegion.count !== 1 || changedJob.count !== 1) {
+        throw new ConflictException("floor import region changed concurrently");
+      }
+    }, EDITOR_TRANSACTION_OPTIONS);
+    return this.listRegions(user, floorId, jobId);
+  }
+
+  async getSceneManifestContent(user: AuthenticatedUser, floorId: string, jobId: string) {
+    await this.authorizeFloor(user, floorId, "read");
+    if (!this.storage) throw new InternalServerErrorException("floor import storage is unavailable");
+    const draft = await this.loadCadSceneDraft(floorId, jobId);
+    try {
+      return { url: await this.storage.createFloorAssetDownloadUrl(draft.manifestAsset.objectKey) };
+    } catch {
+      throw new ServiceUnavailableException("CAD scene manifest content is unavailable");
+    }
+  }
+
+  async getSceneTileContent(
+    user: AuthenticatedUser,
+    floorId: string,
+    jobId: string,
+    rawCoordinates: unknown
+  ) {
+    await this.authorizeFloor(user, floorId, "read");
+    if (!this.storage) throw new InternalServerErrorException("floor import storage is unavailable");
+    const coordinates = this.parse(z.object({
+      tileX: z.number().int().min(0).max(CAD_SCENE_MAX_TILES_PER_AXIS - 1),
+      tileY: z.number().int().min(0).max(CAD_SCENE_MAX_TILES_PER_AXIS - 1),
+      lod: z.number().int().min(0).max(2),
+      part: z.number().int().min(0).max(CAD_SCENE_MAX_PARTS_PER_TILE - 1)
+    }).strict(), rawCoordinates, "invalid CAD scene tile coordinates");
+    const draft = await this.loadCadSceneDraft(floorId, jobId);
+    const descriptor = draft.manifest.tiles.find(tile =>
+      tile.tileX === coordinates.tileX && tile.tileY === coordinates.tileY &&
+      tile.lod === coordinates.lod && tile.part === coordinates.part
+    );
+    if (!descriptor) throw new NotFoundException("CAD scene tile not found");
+    const asset = draft.tileAssets.get(descriptor.assetId);
+    if (!asset) throw new ConflictException("CAD scene tile ledger is invalid");
+    try {
+      await this.storage.verifyCadSceneObject(asset.objectKey, {
+        sizeBytes: descriptor.byteSize,
+        sha256: descriptor.sha256,
+        contentType: "application/vnd.led-control.cad-tile",
+        bounds: descriptor.bounds
+      });
+      return { url: await this.storage.createFloorAssetDownloadUrl(asset.objectKey) };
+    } catch {
+      throw new ServiceUnavailableException("CAD scene tile content is unavailable");
+    }
+  }
+
   async cancel(user: AuthenticatedUser, floorId: string, jobId: string) {
     const floor = await this.authorizeFloor(user, floorId, "manage");
     return this.prisma.$transaction(async tx => {
@@ -303,6 +500,10 @@ export class FloorImportService {
       }
     }
     catch { throw new ServiceUnavailableException("rendered floor asset metadata is unavailable"); }
+    const selectedRegion = await this.prisma.floorImportRegion.findFirst({
+      where: { jobId, job: { floorId }, selectedAt: { not: null } }, select: { id: true }
+    });
+    const cadDraft = selectedRegion ? await this.loadCadSceneDraft(floorId, jobId) : null;
     const input = this.parse(floorImportApplyInputSchema, rawInput, "invalid floor import apply request");
     try {
       return await this.prisma.$transaction(async tx => {
@@ -350,6 +551,8 @@ export class FloorImportService {
           });
         }
 
+        if (cadDraft) await this.assertCadSceneDraftLocked(tx, floorId, jobId, cadDraft);
+
         const deletedObjects = await tx.floorMapObject.deleteMany({ where: { floorId } });
         const unplacedFixtures = await tx.fixture.updateMany({
           where: { floorId },
@@ -377,24 +580,71 @@ export class FloorImportService {
         const sourcePath = assetAccessPath(floorId, locked.sourceAssetId);
         const plan = {
           imageUrl: renderedPath,
-          sourceType: "image" as const,
+          sourceType: cadDraft ? "cad" as const : "image" as const,
           originalFileUrl: sourcePath,
           renderedImageUrl: renderedPath,
-          width: viewport.width,
-          height: viewport.height,
-          gridSize: existingPlan?.gridSize ?? 10
+          width: cadDraft?.manifest.width ?? viewport.width,
+          height: cadDraft?.manifest.height ?? viewport.height,
+          gridSize: cadDraft?.manifest.gridSize ?? existingPlan?.gridSize ?? 10
         };
         await tx.floorPlan.upsert({
           where: { floorId },
           create: { floorId, ...plan },
           update: { ...plan, version: { increment: 1 } }
         });
+        const previousScene = await tx.floorCadScene.findUnique({
+          where: { floorId }, select: { version: true }
+        });
+        await tx.floorCadScene.deleteMany({ where: { floorId } });
+        if (cadDraft) {
+          const manifest = cadDraft.manifest;
+          await tx.floorCadScene.create({
+            data: {
+              id: manifest.sceneId,
+              floorId,
+              sourceImportJobId: jobId,
+              sourceRegionId: cadDraft.sourceRegionRecordId,
+              version: (previousScene?.version ?? 0) + 1,
+              status: "active",
+              width: manifest.width,
+              height: manifest.height,
+              tileSize: manifest.tileSize,
+              primitiveCount: manifest.primitiveCount,
+              tileCount: manifest.tileCount,
+              manifestAssetId: manifest.manifestAssetId,
+              sourceMinX: manifest.sourceBounds.minX,
+              sourceMinY: manifest.sourceBounds.minY,
+              sourceMaxX: manifest.sourceBounds.maxX,
+              sourceMaxY: manifest.sourceBounds.maxY,
+              transformScaleX: manifest.transform.scaleX,
+              transformScaleY: manifest.transform.scaleY,
+              transformTranslateX: manifest.transform.translateX,
+              transformTranslateY: manifest.transform.translateY,
+              tiles: {
+                create: manifest.tiles.map(tile => ({
+                  tileX: tile.tileX,
+                  tileY: tile.tileY,
+                  lod: tile.lod,
+                  part: tile.part,
+                  assetId: tile.assetId,
+                  primitiveCount: tile.primitiveCount,
+                  byteSize: BigInt(tile.byteSize),
+                  minX: tile.bounds.minX,
+                  minY: tile.bounds.minY,
+                  maxX: tile.bounds.maxX,
+                  maxY: tile.bounds.maxY
+                }))
+              }
+            }
+          });
+        }
         await tx.floor.update({ where: { id: floorId }, data: { mapRevision: { increment: 1 } } });
 
         const snapshotFloor = await tx.floor.findUnique({
           where: { id: floorId },
           include: {
             floorPlan: true,
+            cadScene: { select: { id: true, width: true, height: true } },
             fixtures: { orderBy: { id: "asc" } },
             mapObjects: { orderBy: { id: "asc" } },
             lightSlots: { orderBy: { id: "asc" } }
@@ -467,6 +717,86 @@ export class FloorImportService {
     if (!floor) throw new NotFoundException("floor not found");
     await this.access.assert(user, floor.siteId, capability);
     return floor;
+  }
+
+  private async loadCadSceneDraft(floorId: string, jobId: string): Promise<CadSceneDraft> {
+    if (!this.storage) throw new InternalServerErrorException("floor import storage is unavailable");
+    const job = await this.prisma.floorImportJob.findFirst({
+      where: { id: jobId, floorId },
+      select: {
+        id: true,
+        regions: {
+          where: { selectedAt: { not: null } },
+          take: 2,
+          select: { id: true, regionId: true, minX: true, minY: true, maxX: true, maxY: true }
+        }
+      }
+    });
+    if (!job) throw new NotFoundException("floor import job not found");
+    if (job.regions.length !== 1) throw new ConflictException("CAD scene region selection is invalid");
+    const region = job.regions[0];
+    const identity = cadScenePersistenceIdentity(jobId, region.regionId);
+    const manifestAsset = await this.prisma.floorAsset.findFirst({
+      where: { id: identity.manifestAssetId, floorId },
+      select: cadSceneAssetSelect
+    });
+    if (!manifestAsset || !validCadAsset(manifestAsset, "cad_manifest", "application/json")) {
+      throw new ConflictException("CAD scene manifest is not ready");
+    }
+    const manifestSize = Number(manifestAsset.sizeBytes);
+    if (!Number.isSafeInteger(manifestSize)) throw new ConflictException("CAD scene manifest ledger is invalid");
+    let manifest: CadSceneManifest;
+    try {
+      manifest = cadSceneManifestSchema.parse(await this.storage.readCadSceneManifest(manifestAsset.objectKey, {
+        sizeBytes: manifestSize, sha256: manifestAsset.sha256
+      }));
+    } catch {
+      throw new ServiceUnavailableException("CAD scene manifest content is unavailable");
+    }
+    const expectedBounds = { minX: region.minX, minY: region.minY, maxX: region.maxX, maxY: region.maxY };
+    if (manifest.sceneId !== identity.sceneId || manifest.manifestAssetId !== identity.manifestAssetId ||
+        manifest.regionId !== region.regionId || JSON.stringify(manifest.sourceBounds) !== JSON.stringify(expectedBounds) ||
+        manifest.tiles.some(tile => tile.assetId !== identity.tileAssetId(tile))) {
+      throw new ConflictException("CAD scene manifest identity is invalid");
+    }
+    const tileRows = await this.prisma.floorAsset.findMany({
+      where: { id: { in: manifest.tiles.map(tile => tile.assetId) }, floorId },
+      select: cadSceneAssetSelect
+    });
+    const tileAssets = new Map(tileRows.map(asset => [asset.id, asset]));
+    for (const tile of manifest.tiles) {
+      const asset = tileAssets.get(tile.assetId);
+      if (!asset || !validCadAsset(asset, "cad_tile", "application/vnd.led-control.cad-tile") ||
+          asset.sizeBytes !== BigInt(tile.byteSize) || asset.sha256 !== tile.sha256 ||
+          asset.objectKey !== identity.tileObjectKey(floorId, tile)) {
+        throw new ConflictException("CAD scene tile ledger is invalid");
+      }
+    }
+    return { sourceRegionRecordId: region.id, manifest, manifestAsset, tileAssets };
+  }
+
+  private async assertCadSceneDraftLocked(
+    tx: Prisma.TransactionClient,
+    floorId: string,
+    jobId: string,
+    draft: CadSceneDraft
+  ) {
+    const assetIds = [draft.manifest.manifestAssetId, ...draft.manifest.tiles.map(tile => tile.assetId)];
+    const locked = await tx.$queryRaw<Array<{ id: string; status: string; cleanupStartedAt: Date | null }>>(Prisma.sql`
+      SELECT asset."id", asset."status"::text AS "status", asset."cleanupStartedAt"
+      FROM "FloorAsset" AS asset
+      JOIN "Floor" AS floor ON floor."id" = asset."floorId"
+      JOIN "FloorImportJob" AS job ON job."floorId" = floor."id"
+      JOIN "FloorImportRegion" AS region ON region."jobId" = job."id"
+      WHERE floor."id" = ${floorId} AND job."id" = ${jobId}
+        AND region."id" = ${draft.sourceRegionRecordId} AND region."selectedAt" IS NOT NULL
+        AND asset."id" IN (${Prisma.join(assetIds)})
+      ORDER BY asset."id"
+      FOR UPDATE OF asset, region
+    `);
+    if (locked.length !== assetIds.length || locked.some(asset => asset.status !== "ready" || asset.cleanupStartedAt)) {
+      throw new ConflictException("CAD scene assets changed concurrently");
+    }
   }
 
   private async publicJob(job: Prisma.FloorImportJobGetPayload<{ select: typeof jobSelect }>) {
@@ -563,6 +893,26 @@ const candidateSelect = {
   rotation: true, confidence: true, detectionMethod: true, provider: true, model: true,
   inputDigest: true, profileVersion: true, profileDigest: true, reviewStatus: true
 } satisfies Prisma.FloorImportCandidateSelect;
+
+const cadSceneAssetSelect = {
+  id: true,
+  objectKey: true,
+  kind: true,
+  status: true,
+  mimeType: true,
+  sizeBytes: true,
+  sha256: true,
+  cleanupStartedAt: true
+} satisfies Prisma.FloorAssetSelect;
+
+function validCadAsset(
+  asset: CadSceneAssetLedger,
+  kind: "cad_manifest" | "cad_tile",
+  mimeType: string
+) {
+  return asset.kind === kind && asset.status === "ready" && asset.mimeType === mimeType &&
+    asset.cleanupStartedAt === null;
+}
 
 function publicJob(
   job: Prisma.FloorImportJobGetPayload<{ select: typeof jobSelect }>,

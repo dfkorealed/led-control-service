@@ -70,6 +70,7 @@ describe("RegistrationService", () => {
       },
       meshNode: {
         count: jest.fn().mockResolvedValue(256),
+        findUnique: jest.fn().mockResolvedValue(null),
         findMany: jest.fn().mockResolvedValue([]),
         create: jest.fn()
       },
@@ -1447,6 +1448,73 @@ describe("RegistrationService", () => {
     }) });
     expect(allocation.reserveMeshAddresses).not.toHaveBeenCalled();
     expect(mqtt.publishIdentifyDevice).not.toHaveBeenCalled();
+  });
+
+  it("allows an unregistered BIO node with its previously reserved address to be identified again", async () => {
+    const session = registrationSession();
+    const node = {
+      id: ids.nodeId,
+      sessionId: ids.sessionId,
+      deviceUuid: "bio:e466e55d7e3a",
+      status: "discovered",
+      identifyState: "confirmed",
+      meshAddress: "0x0104",
+      scanCorrelationId: currentScanCorrelationId,
+      scanAttempt: 2
+    };
+    const { service, prisma } = await createModule({
+      provisioningSession: { findUnique: jest.fn().mockResolvedValue(session) },
+      discoveredMeshNode: {
+        findUnique: jest.fn().mockResolvedValue(node),
+        update: jest.fn().mockResolvedValue({ ...node, status: "identifying", identifyState: "pending" })
+      },
+      meshNode: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        findMany: jest.fn().mockResolvedValue([])
+      },
+      provisioningDeviceOutbox: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn(({ data }) => ({ ...data }))
+      }
+    });
+
+    await expect(service.identifyNode(admin, ids.sessionId, ids.nodeId)).resolves.toMatchObject({
+      status: "accepted",
+      node: { deviceUuid: node.deviceUuid, meshAddress: "0x0104", status: "identifying" }
+    });
+    expect(prisma.meshNode.findUnique).toHaveBeenCalledWith({
+      where: { deviceUuid: node.deviceUuid },
+      select: { id: true }
+    });
+    expect(prisma.provisioningDeviceOutbox.create).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["a non-BIO node", "esp32h2-demo-001", null],
+    ["an already registered BIO node", "bio:e466e55d7e3a", { id: ids.meshNodeId }]
+  ])("rejects addressed identify for %s", async (_caseName, deviceUuid, registration) => {
+    const session = registrationSession();
+    const node = {
+      id: ids.nodeId,
+      sessionId: ids.sessionId,
+      deviceUuid,
+      status: "discovered",
+      identifyState: "confirmed",
+      meshAddress: "0x0104",
+      scanCorrelationId: currentScanCorrelationId,
+      scanAttempt: 2
+    };
+    const { service, prisma } = await createModule({
+      provisioningSession: { findUnique: jest.fn().mockResolvedValue(session) },
+      discoveredMeshNode: { findUnique: jest.fn().mockResolvedValue(node) },
+      meshNode: { findUnique: jest.fn().mockResolvedValue(registration), findMany: jest.fn().mockResolvedValue([]) },
+      provisioningDeviceOutbox: { findFirst: jest.fn(), create: jest.fn() }
+    });
+
+    await expect(service.identifyNode(admin, ids.sessionId, ids.nodeId)).rejects.toEqual(
+      new ConflictException({ code: "identify_node_wrong_state" })
+    );
+    expect(prisma.provisioningDeviceOutbox.create).not.toHaveBeenCalled();
   });
 
   it("returns the active identify operation for a duplicate click without another outbox row", async () => {

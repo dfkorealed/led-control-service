@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Header, HttpCode, Param, Post, Redirect, UseGuards } from "@nestjs/common";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { SessionAuthGuard } from "../auth/session-auth.guard";
 import { type AuthenticatedUser } from "../auth/auth.types";
@@ -32,6 +32,50 @@ export class FloorImportController {
   @Get(":jobId/candidates")
   candidates(@Param("floorId") floorId: string, @Param("jobId") jobId: string, @CurrentUser() user: AuthenticatedUser) {
     return this.imports.listCandidates(user, floorId, jobId);
+  }
+
+  @Get(":jobId/regions")
+  regions(@Param("floorId") floorId: string, @Param("jobId") jobId: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.imports.listRegions(user, floorId, jobId);
+  }
+
+  @Post(":jobId/regions/select")
+  @HttpCode(200)
+  selectRegion(
+    @Param("floorId") floorId: string,
+    @Param("jobId") jobId: string,
+    @Body() body: unknown,
+    @CurrentUser() user: AuthenticatedUser
+  ) {
+    return this.imports.selectRegion(user, floorId, jobId, body);
+  }
+
+  @Get(":jobId/scene/manifest/content")
+  @Redirect(undefined, 302)
+  @Header("Cache-Control", "private, no-store")
+  sceneManifest(
+    @Param("floorId") floorId: string,
+    @Param("jobId") jobId: string,
+    @CurrentUser() user: AuthenticatedUser
+  ) {
+    return this.imports.getSceneManifestContent(user, floorId, jobId);
+  }
+
+  @Get(":jobId/scene/tiles/:lod/:tileX/:tileY/:part/content")
+  @Redirect(undefined, 302)
+  @Header("Cache-Control", "private, no-store")
+  sceneTile(
+    @Param("floorId") floorId: string,
+    @Param("jobId") jobId: string,
+    @Param("lod") lod: string,
+    @Param("tileX") tileX: string,
+    @Param("tileY") tileY: string,
+    @Param("part") part: string,
+    @CurrentUser() user: AuthenticatedUser
+  ) {
+    return this.imports.getSceneTileContent(user, floorId, jobId, {
+      lod: Number(lod), tileX: Number(tileX), tileY: Number(tileY), part: Number(part)
+    });
   }
 
   @Post(":jobId/cancel")

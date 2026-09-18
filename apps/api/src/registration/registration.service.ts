@@ -77,6 +77,8 @@ const registrationSiteSelect = {
 
 type RegistrationResponseRecord = Prisma.MeshNodeGetPayload<{ select: typeof registrationResponseSelect }>;
 
+const BIO_DEVICE_UUID = /^bio:[0-9a-f]{12}$/;
+
 @Injectable()
 export class RegistrationService {
   constructor(
@@ -196,8 +198,22 @@ export class RegistrationService {
       if (node.scanCorrelationId !== session.scanCorrelationId || node.scanAttempt !== session.scanAttempt) {
         throw new ConflictException({ code: "identify_node_stale" });
       }
-      if (node.meshAddress !== null || !["discovered", "identifying"].includes(node.status)) {
+      if (!["discovered", "identifying"].includes(node.status)) {
         throw new ConflictException({ code: "identify_node_wrong_state" });
+      }
+      if (node.meshAddress !== null) {
+        // 일반 BLE Mesh에서 주소가 생겼다는 것은 provisioning이 시작됐다는 뜻이므로
+        // 기존 fail-closed 규칙을 유지한다. BIO USB는 주소 write 뒤 read-back이 실패하면
+        // 같은 세션 node에 예약 주소를 남겨 재조정을 돕는다. 이 경우 identify는 주소를
+        // 쓰지 않고 UUID로 2초 점등 후 sensor 모드 복원만 확인하므로, canonical BIO UUID이고
+        // 아직 서비스 MeshNode로 확정되지 않은 장치에 한해 다시 실행할 수 있다.
+        const isBioRecovery = BIO_DEVICE_UUID.test(node.deviceUuid);
+        const registered = isBioRecovery
+          ? await tx.meshNode.findUnique({ where: { deviceUuid: node.deviceUuid }, select: { id: true } })
+          : null;
+        if (!isBioRecovery || registered) {
+          throw new ConflictException({ code: "identify_node_wrong_state" });
+        }
       }
 
       const existing = await tx.provisioningDeviceOutbox.findFirst({

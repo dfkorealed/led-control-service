@@ -325,7 +325,7 @@ async function detectDxfEncoding(path, limits, startedAt) {
   }
 }
 
-async function* readDxfPairs(path, limits, startedAt, decoder) {
+async function* readDxfPairs(path, limits, startedAt, decoder, ignoreRemaining = () => false) {
   let pending = "";
   let codeLine = null;
   let lineNumber = 0;
@@ -350,17 +350,31 @@ async function* readDxfPairs(path, limits, startedAt, decoder) {
     bytesRead += chunk.byteLength;
     if (bytesRead > limits.convertedBytes) throw new Error("DXF input size limit exceeded");
     if (performance.now() - startedAt > limits.parseTimeoutMs) throw new Error("DXF parse time limit exceeded");
-    pending += decoder.decode(chunk, { stream: true });
+    const decoded = decoder.decode(chunk, { stream: true });
+    if (decoded.includes("\0")) throw new Error("Malformed DXF input contains NUL");
+    if (ignoreRemaining()) {
+      pending = "";
+      codeLine = null;
+      continue;
+    }
+    pending += decoded;
     let newline = pending.indexOf("\n");
     while (newline >= 0) {
       const pair = emitLine(pending.slice(0, newline));
       pending = pending.slice(newline + 1);
       if (pair) yield pair;
+      if (ignoreRemaining()) {
+        pending = "";
+        codeLine = null;
+        break;
+      }
       newline = pending.indexOf("\n");
     }
     if (Buffer.byteLength(pending, "utf8") > limits.lineBytes + 1) throw new Error("DXF line byte limit exceeded");
   }
   pending += decoder.decode();
+  if (pending.includes("\0")) throw new Error("Malformed DXF input contains NUL");
+  if (ignoreRemaining()) return;
   if (pending.length > 0) {
     const pair = emitLine(pending);
     if (pair) yield pair;
@@ -418,6 +432,8 @@ async function analyzeDxf(path, limits) {
   const { decoder, textEncoding } = await detectDxfEncoding(path, limits, startedAt);
   let section = null;
   let awaitingSectionName = false;
+  let modelComplete = false;
+  let opaqueTail = false;
   let currentEntity = null;
   let currentBlock = null;
   let polylineActive = false;
@@ -503,7 +519,7 @@ async function analyzeDxf(path, limits) {
     }
   };
 
-  for await (const pair of readDxfPairs(path, limits, startedAt, decoder)) {
+  for await (const pair of readDxfPairs(path, limits, startedAt, decoder, () => opaqueTail)) {
     if (performance.now() - startedAt > limits.parseTimeoutMs) throw new Error("DXF parse time limit exceeded");
     if (sawEof) throw new Error("Malformed DXF content after EOF");
     if (pair.code === 0) {
@@ -516,6 +532,7 @@ async function analyzeDxf(path, limits) {
       } else if (marker === "ENDSEC") {
         if (!section || currentBlock) throw new Error("Malformed or premature DXF ENDSEC");
         if (polylineActive || attributeSequenceActive) throw new Error("Unterminated DXF entity sequence before ENDSEC");
+        if (section === "ENTITIES") modelComplete = true;
         section = null;
         currentBlock = null;
       } else if (marker === "EOF") {
@@ -558,6 +575,9 @@ async function analyzeDxf(path, limits) {
       section = pair.value.trim().toUpperCase();
       awaitingSectionName = false;
       headerVariable = null;
+      if (modelComplete && section === "OBJECTS") {
+        opaqueTail = true;
+      }
     } else if (currentEntity) {
       currentEntity.pairs.push(pair);
       if (currentEntity.pairs.length > limits.entityBodyPairs) throw new Error("DXF entity body pair limit exceeded");
@@ -568,8 +588,8 @@ async function analyzeDxf(path, limits) {
     }
   }
   finalizeEntity();
-  if (!sawEof) throw new Error("Malformed DXF: EOF marker is missing");
-  if (section || awaitingSectionName || currentBlock || polylineActive || attributeSequenceActive) {
+  if (!sawEof && !opaqueTail) throw new Error("Malformed DXF: EOF marker is missing");
+  if ((!opaqueTail && section) || awaitingSectionName || currentBlock || polylineActive || attributeSequenceActive) {
     throw new Error("Malformed DXF: unterminated SECTION, BLOCK, or entity sequence");
   }
 

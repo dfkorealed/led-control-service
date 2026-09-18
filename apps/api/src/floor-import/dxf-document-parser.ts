@@ -48,7 +48,7 @@ export const DEFAULT_DXF_PARSER_LIMITS: Readonly<DxfParserLimits> = Object.freez
   maxExpandedEntities: 1_000_000,
   maxBlockDepth: 32,
   maxNormalizedOutputBytes: 128 * 1024 * 1024,
-  maxRetainedModelBytes: 208 * 1024 * 1024,
+  maxRetainedModelBytes: 224 * 1024 * 1024,
   maxDurationMs: 60_000,
   maxCpuMs: 45_000,
   now: () => performance.now(),

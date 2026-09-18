@@ -315,7 +315,7 @@ describe("FloorImportService", () => {
     });
     expect(access.assertManageInTransaction).toHaveBeenCalledWith(tx, user, "site-1");
     expect(tx.floorImportJob.findFirst).toHaveBeenCalledWith(expect.objectContaining({
-      where: { floorId, status: { in: ["queued", "processing", "review_required"] } }
+      where: { floorId, status: { in: ["queued", "processing", "region_selection_required", "review_required"] } }
     }));
     expect(tx.$executeRaw.mock.calls[0][0].strings.join(" ")).toContain("INTERVAL '2 minutes'");
     expect(storage.readFloorRenderedMetadata).toHaveBeenCalledWith(
@@ -439,7 +439,10 @@ describe("FloorImportService", () => {
     const service = new FloorImportService(prisma, access, { record: jest.fn() } as any);
     await expect(service.cancel(user, floorId, row.id)).resolves.toMatchObject({ status: "cancelled" });
     expect(tx.floorImportJob.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: row.id, floorId, status: { in: ["queued", "processing", "review_required"] } },
+      where: {
+        id: row.id, floorId,
+        status: { in: ["queued", "processing", "region_selection_required", "review_required"] }
+      },
       data: expect.objectContaining({ status: "cancelled", leaseOwner: null, leaseExpiresAt: null })
     }));
   });
@@ -477,6 +480,10 @@ describe("FloorImportService", () => {
       },
       floorImportJob: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
       floorPlan: { findUnique: jest.fn().mockResolvedValue(null), upsert: jest.fn().mockResolvedValue({}) },
+      floorCadScene: {
+        findUnique: jest.fn().mockResolvedValue({ version: 1 }),
+        deleteMany: jest.fn().mockResolvedValue({ count: 1 })
+      },
       floorMapObject: { deleteMany: jest.fn().mockResolvedValue({ count: 2 }) },
       fixture: { updateMany: jest.fn().mockResolvedValue({ count: 4 }) },
       floorLightSlot: {
@@ -495,6 +502,7 @@ describe("FloorImportService", () => {
     };
     const prisma: any = {
       floor: { findUnique: jest.fn().mockResolvedValue({ id: floorId, siteId: "site-1" }) },
+      floorImportRegion: { findFirst: jest.fn().mockResolvedValue(null) },
       floorImportJob: { findFirst: jest.fn().mockResolvedValue({ renderedAsset: {
         id: renderedAssetId, objectKey: `floors/${floorId}/${renderedAssetId}.svg`, status: "ready",
         mimeType: "image/svg+xml", contentEncoding: "gzip", sizeBytes: 256n, sha256: "b".repeat(64), cleanupStartedAt: null
@@ -533,6 +541,7 @@ describe("FloorImportService", () => {
       data: { placementStatus: "unplaced", positionVerifiedAt: null, x: 0, y: 0 }
     });
     expect(tx.floorLightSlot.deleteMany).toHaveBeenCalledWith({ where: { floorId } });
+    expect(tx.floorCadScene.deleteMany).toHaveBeenCalledWith({ where: { floorId } });
     expect(tx.floorLightSlot.createMany).toHaveBeenCalledWith({ data: [{
       floorId, sourceImportJobId: jobId, sourceCandidateId: acceptedId,
       x: 12, y: 34, rotation: 15
@@ -563,6 +572,7 @@ describe("FloorImportService", () => {
       renderedSizeBytes: 256n, renderedSha256: "b".repeat(64), ...floorOverride }]) };
     const prisma: any = {
       floor: { findUnique: jest.fn().mockResolvedValue({ id: floorId, siteId: "site-1" }) },
+      floorImportRegion: { findFirst: jest.fn().mockResolvedValue(null) },
       floorImportJob: { findFirst: jest.fn().mockResolvedValue({ renderedAsset: {
         id: renderedAssetId, objectKey: "floors/f/render.svg", status: "ready", mimeType: "image/svg+xml", contentEncoding: "gzip",
         sizeBytes: 256n, sha256: "b".repeat(64), cleanupStartedAt: null
@@ -585,6 +595,7 @@ describe("FloorImportService", () => {
     const floorId = randomUUID(); const jobId = randomUUID(); const renderedAssetId = randomUUID();
     const prisma: any = {
       floor: { findUnique: jest.fn().mockResolvedValue({ id: floorId, siteId: "site-1" }) },
+      floorImportRegion: { findFirst: jest.fn().mockResolvedValue(null) },
       floorImportJob: { findFirst: jest.fn().mockResolvedValue({ renderedAsset: {
         id: renderedAssetId, objectKey: `floors/${floorId}/render.svg`, status: "ready", mimeType: "image/svg+xml", contentEncoding: "gzip",
         sizeBytes: 256n, sha256: "b".repeat(64), cleanupStartedAt: null

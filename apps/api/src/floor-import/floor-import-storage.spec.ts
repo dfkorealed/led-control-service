@@ -70,4 +70,47 @@ describe("floor import private object storage", () => {
       sizeBytes: 321, sha256, mimeType: "image/svg+xml", contentEncoding: "gzip"
     })).rejects.toThrow(/ledger/i);
   });
+
+  it("rejects CAD tile objects whose size, hash, or bounds differ from the asset ledger", async () => {
+    const sha256 = "d".repeat(64);
+    const bounds = { minX: 0, minY: 0, maxX: 512, maxY: 512 };
+    const validHead = {
+      ContentLength: 128,
+      ContentType: "application/vnd.led-control.cad-tile",
+      ChecksumSHA256: Buffer.from(sha256, "hex").toString("base64"),
+      Metadata: {
+        "cad-min-x": "0", "cad-min-y": "0", "cad-max-x": "512", "cad-max-y": "512"
+      }
+    };
+    const client: any = { send: jest.fn() };
+    const storage = new ObjectStorageService(client, {
+      bucket: "private-floors",
+      publicBaseUrl: "https://example.test/private-floors"
+    });
+    const expected = {
+      sizeBytes: 128,
+      sha256,
+      contentType: "application/vnd.led-control.cad-tile",
+      bounds
+    };
+
+    client.send.mockResolvedValueOnce(validHead);
+    await expect(storage.verifyCadSceneObject("floors/floor-1/tile.bin", expected)).resolves.toBeUndefined();
+    expect(client.send.mock.calls[0][0]).toBeInstanceOf(HeadObjectCommand);
+
+    client.send.mockResolvedValueOnce({ ...validHead, ContentLength: 127 });
+    await expect(storage.verifyCadSceneObject("floors/floor-1/tile.bin", expected)).rejects.toThrow(/HEAD/);
+
+    client.send.mockResolvedValueOnce({
+      ...validHead,
+      ChecksumSHA256: Buffer.from("e".repeat(64), "hex").toString("base64")
+    });
+    await expect(storage.verifyCadSceneObject("floors/floor-1/tile.bin", expected)).rejects.toThrow(/HEAD/);
+
+    client.send.mockResolvedValueOnce({
+      ...validHead,
+      Metadata: { ...validHead.Metadata, "cad-max-x": "511" }
+    });
+    await expect(storage.verifyCadSceneObject("floors/floor-1/tile.bin", expected)).rejects.toThrow(/bounds/);
+  });
 });
