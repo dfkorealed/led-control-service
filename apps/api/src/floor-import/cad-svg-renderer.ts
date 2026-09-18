@@ -5,11 +5,11 @@ import { open, unlink } from "node:fs/promises";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createGzip } from "node:zlib";
-import { cadBulgeArc, expandCadDocument, iterateCadDocumentExpansion, multiplyCadMatrices, sampleCadSpline, transformPoint, type CadMatrix, type ExpandedCadEntity } from "./cad-geometry";
+import { cadBulgeArc, dimensionMatrix, iterateCadDocumentExpansion, multiplyCadMatrices, sampleCadSpline, transformPoint, type CadMatrix, type ExpandedCadEntity } from "./cad-geometry";
 import { CAD_RENDERED_SVG_MAX_BYTES, CAD_RENDERED_SVG_RAW_MAX_BYTES } from "./cad-resource-limits";
 import { CAD_MAX_SPLINE_SAMPLES_PER_DOCUMENT } from "./cad-runtime-contract";
 import { forEachCadTextGlyph, sanitizeCadText } from "./cad-text-layout";
-import type { CadPoint, NormalizedCadDocument } from "./cad-types";
+import type { CadPoint, NormalizedCadDocument, NormalizedCadHatchLoop } from "./cad-types";
 import { cadViewportScale, cadViewportSvgTransform, createCadViewport, selectPrimaryCadBounds } from "./cad-viewport";
 
 export interface CadSvgRendererLimits {
@@ -123,6 +123,39 @@ function pointsForPolyline(
   return points;
 }
 
+function pointsForHatchLoop(loop: NormalizedCadHatchLoop, matrix: CadMatrix): CadPoint[] {
+  if (loop.type === "polyline") {
+    return pointsForPolyline({ type: "polyline", sourceEntityId: "hatch", layer: "0", vertices: loop.vertices, closed: loop.closed }, matrix);
+  }
+  const points: CadPoint[] = [];
+  for (const edge of loop.edges) {
+    if (edge.type === "line") {
+      if (points.length === 0) points.push(transformPoint(matrix, edge.start));
+      points.push(transformPoint(matrix, edge.end));
+      continue;
+    }
+    const raw = edge.endAngle - edge.startAngle;
+    const ccw = ((raw % 360) + 360) % 360 || 360;
+    const sweep = edge.counterClockwise ? ccw : -(360 - ccw || 360);
+    const segments = Math.max(2, Math.ceil(Math.abs(sweep) / 6));
+    for (let step = points.length === 0 ? 0 : 1; step <= segments; step++) {
+      const radians = (edge.startAngle + sweep * step / segments) * Math.PI / 180;
+      points.push(transformPoint(matrix, {
+        x: edge.center.x + edge.radius * Math.cos(radians),
+        y: edge.center.y + edge.radius * Math.sin(radians),
+        z: edge.center.z
+      }));
+    }
+  }
+  return points;
+}
+
+function storedPrimarySelection(document: NormalizedCadDocument) {
+  return document.primaryBoundsSelection
+    ? { bounds: document.bounds, ...document.primaryBoundsSelection }
+    : selectPrimaryCadBounds(document);
+}
+
 export function renderCadDocumentSvg(document: NormalizedCadDocument, options: Partial<CadSvgRendererLimits> = {}): string {
   const limits = { ...DEFAULT_LIMITS, ...options };
   if (!Number.isInteger(limits.maxRenderedEntities) || limits.maxRenderedEntities < 1 ||
@@ -138,9 +171,8 @@ export function renderCadDocumentSvg(document: NormalizedCadDocument, options: P
     if (limits.now() - wallStarted > limits.maxDurationMs) throw new Error("CAD SVG wall time limit exceeded");
     if (limits.cpuNow() - cpuStarted > limits.maxCpuMs) throw new Error("CAD SVG CPU time limit exceeded");
   };
-  const expanded = limits.trustDocumentBounds ? null : expandCadDocument(document, limits);
   const maxTextGlyphs = Math.max(1, Math.floor(limits.maxOutputBytes / MIN_SERIALIZED_GLYPH_BYTES));
-  const bounds = limits.trustDocumentBounds ? document.bounds : selectPrimaryCadBounds(document).bounds;
+  const bounds = limits.trustDocumentBounds ? document.bounds : storedPrimarySelection(document).bounds;
   const width = Math.max(1, bounds.maxX - bounds.minX + limits.padding * 2);
   const height = Math.max(1, bounds.maxY - bounds.minY + limits.padding * 2);
   const project = (point: CadPoint) => ({
@@ -198,7 +230,7 @@ export function renderCadDocumentSvg(document: NormalizedCadDocument, options: P
   append(`<svg xmlns="http://www.w3.org/2000/svg" width="${number(width)}" height="${number(height)}" viewBox="0 0 ${number(width)} ${number(height)}" role="img" aria-label="CAD floor plan">`);
   append(`<rect x="0" y="0" width="${number(width)}" height="${number(height)}" fill="#ffffff"/>`);
   append('<g fill="none" stroke="#1f2937" stroke-width="0.2" vector-effect="non-scaling-stroke">');
-  const renderItems = expanded ?? iterateCadDocumentExpansion(document, {
+  const renderItems = iterateCadDocumentExpansion(document, {
     maxRenderedEntities: limits.maxRenderedEntities,
     maxBlockDepth: limits.maxBlockDepth
   });
@@ -224,10 +256,12 @@ export function renderCadDocumentSvg(document: NormalizedCadDocument, options: P
     } else if (entity.type === "wipeout") {
       append(`<polygon ${attrs} data-cad-entity="wipeout" points="${projectedPoints(entity.vertices.map(point => transformPoint(item.matrix, point)))}" fill="#fff" stroke="none"/>`);
     } else if (entity.type === "hatch") {
-      for (const loop of entity.loops) {
-        const points = pointsForPolyline({ type: "polyline", sourceEntityId: entity.sourceEntityId, layer: entity.layer, ...loop }, item.matrix);
-        append(`<polygon ${attrs} data-cad-entity="hatch" points="${projectedPoints(points)}" fill="#e5e7eb" fill-rule="evenodd"/>`);
-      }
+      const path = entity.loops.map(loop => {
+        const points = pointsForHatchLoop(loop, item.matrix).map(project);
+        if (points.length === 0) throw new Error("Invalid CAD HATCH boundary");
+        return `M${points.map((point, index) => `${index === 0 ? "" : "L"}${number(point.x)} ${number(point.y)}`).join("")}Z`;
+      }).join(" ");
+      append(`<path ${attrs} data-cad-entity="hatch" d="${path}" fill="#e5e7eb" fill-rule="evenodd"/>`);
     } else if (entity.type === "circle" && limits.compactPaths) {
       const matrix = multiplyCadMatrices(projection, item.matrix);
       append(`<circle ${attrs} cx="${number(entity.center.x)}" cy="${number(entity.center.y)}" r="${number(entity.radius)}" transform="${matrixAttribute(matrix)}"/>`);
@@ -317,7 +351,7 @@ export async function renderCadDocumentSvgFile(
       !Number.isSafeInteger(limits.maxBlockDepth) || limits.maxBlockDepth < 1 ||
       !Number.isSafeInteger(limits.maxSplineSamples) || limits.maxSplineSamples < 1) throw new Error("Invalid CAD SVG file renderer limits");
 
-  const primarySelection = selectPrimaryCadBounds(document);
+  const primarySelection = storedPrimarySelection(document);
   const blockByName = new Map(document.blocks.map((block, index) => [block.name, { block, id: `cad-block-${index}` }]));
   if (blockByName.size !== document.blocks.length) throw new Error("Duplicate CAD block name");
   let renderedOccurrences = 0;
@@ -394,6 +428,33 @@ export async function renderCadDocumentSvgFile(
     if (closed) commands.push("Z");
     return commands.join(" ");
   };
+  const pathForHatchLoop = (loop: NormalizedCadHatchLoop) => {
+    if (loop.type === "polyline") return pathForVertices(loop.vertices, loop.closed);
+    const commands: string[] = [];
+    for (const edge of loop.edges) {
+      if (edge.type === "line") {
+        if (commands.length === 0) commands.push(`M${number(edge.start.x)} ${number(edge.start.y)}`);
+        commands.push(`L${number(edge.end.x)} ${number(edge.end.y)}`);
+      } else {
+        const raw = edge.endAngle - edge.startAngle;
+        const ccw = ((raw % 360) + 360) % 360 || 360;
+        const sweep = edge.counterClockwise ? ccw : -(360 - ccw || 360);
+        const start = edge.startAngle * Math.PI / 180;
+        const end = (edge.startAngle + sweep) * Math.PI / 180;
+        if (commands.length === 0) commands.push(`M${number(edge.center.x + edge.radius * Math.cos(start))} ${number(edge.center.y + edge.radius * Math.sin(start))}`);
+        if (Math.abs(sweep) >= 360 - 1e-10) {
+          const middle = (edge.startAngle + sweep / 2) * Math.PI / 180;
+          commands.push(`A${number(edge.radius)} ${number(edge.radius)} 0 0 ${sweep < 0 ? 1 : 0} ${number(edge.center.x + edge.radius * Math.cos(middle))} ${number(edge.center.y + edge.radius * Math.sin(middle))}`);
+          commands.push(`A${number(edge.radius)} ${number(edge.radius)} 0 0 ${sweep < 0 ? 1 : 0} ${number(edge.center.x + edge.radius * Math.cos(end))} ${number(edge.center.y + edge.radius * Math.sin(end))}`);
+        } else {
+          commands.push(`A${number(edge.radius)} ${number(edge.radius)} 0 ${Math.abs(sweep) > 180 ? 1 : 0} ${sweep < 0 ? 1 : 0} ${number(edge.center.x + edge.radius * Math.cos(end))} ${number(edge.center.y + edge.radius * Math.sin(end))}`);
+        }
+      }
+    }
+    if (commands.length === 0) throw new Error("Invalid CAD HATCH boundary");
+    commands.push("Z");
+    return commands.join(" ");
+  };
   let splineSamples = 0;
   const pathForSpline = (entity: Extract<NormalizedCadDocument["entities"][number], { type: "spline" }>) => {
     const points = sampleCadSpline(entity, limits.maxSplineSamples - splineSamples);
@@ -416,9 +477,7 @@ export async function renderCadDocumentSvgFile(
       } else if (entity.type === "wipeout") {
         await write(`<path data-cad-entity="wipeout" d="${pathForVertices(entity.vertices, true)}" fill="#fff" stroke="none"/>`);
       } else if (entity.type === "hatch") {
-        for (const loop of entity.loops) {
-          await write(`<path data-cad-entity="hatch" d="${pathForVertices(loop.vertices, loop.closed)}" fill="#e5e7eb" fill-rule="evenodd"/>`);
-        }
+        await write(`<path data-cad-entity="hatch" d="${entity.loops.map(pathForHatchLoop).join(" ")}" fill="#e5e7eb" fill-rule="evenodd"/>`);
       } else if (entity.type === "circle") {
         await write(`<circle cx="${number(entity.center.x)}" cy="${number(entity.center.y)}" r="${number(entity.radius)}"/>`);
       } else if (entity.type === "arc") {
@@ -428,7 +487,10 @@ export async function renderCadDocumentSvgFile(
         await write(`<path d="M${number(entity.center.x + entity.radius * Math.cos(start))} ${number(entity.center.y + entity.radius * Math.sin(start))}A${number(entity.radius)} ${number(entity.radius)} 0 ${sweep > 180 ? 1 : 0} 1 ${number(entity.center.x + entity.radius * Math.cos(end))} ${number(entity.center.y + entity.radius * Math.sin(end))}"/>`);
       } else if (entity.type === "dimension") {
         const target = entity.blockName ? blockByName.get(entity.blockName) : undefined;
-        if (target) await write(`<use data-cad-entity="dimension" href="#${target.id}"/>`);
+        if (target) {
+          const transform = dimensionMatrix(entity, target.block.basePoint);
+          await write(`<use data-cad-entity="dimension" href="#${target.id}" transform="matrix(${number(transform.a)} ${number(transform.b)} ${number(transform.c)} ${number(transform.d)} ${number(transform.e)} ${number(transform.f)})"/>`);
+        }
         else await write(`<path data-cad-entity="dimension" d="M${number(entity.extensionStart.x)} ${number(entity.extensionStart.y)}L${number(entity.definitionPoint.x)} ${number(entity.definitionPoint.y)}L${number(entity.extensionEnd.x)} ${number(entity.extensionEnd.y)}"/>`);
       } else if (entity.type === "point") {
         await write(`<path data-cad-entity="point" d="M${number(entity.position.x - pointMarkerRadius)} ${number(entity.position.y)}h${number(pointMarkerRadius * 2)}M${number(entity.position.x)} ${number(entity.position.y - pointMarkerRadius)}v${number(pointMarkerRadius * 2)}"/>`);

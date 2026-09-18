@@ -1,5 +1,5 @@
-import { computeCadBounds, expandCadDocument } from "./cad-geometry";
-import { CAD_MAX_PARSED_ENTITIES } from "./cad-runtime-contract";
+import { computeCadBounds, createCadSplineSampler, iterateCadGeometryExpansion } from "./cad-geometry";
+import { CAD_MAX_PARSED_ENTITIES, CAD_MAX_SPLINE_SAMPLES_PER_DOCUMENT } from "./cad-runtime-contract";
 import type { CadBounds, CadPoint, NormalizedCadDocument } from "./cad-types";
 
 const MAX_MAP_WIDTH = 2_400;
@@ -21,20 +21,36 @@ export interface PrimaryCadBoundsSelection {
   totalEntityCount: number;
 }
 
-interface SpatialEntity {
+interface SpatialBucket {
+  x: number;
+  y: number;
+  key: string;
+  count: number;
   bounds: CadBounds;
-  centerX: number;
-  centerY: number;
-  extent: number;
+  lengthScore: number;
+  areaScore: number;
+  visit: number;
 }
 
-function unionBounds(items: readonly SpatialEntity[]): CadBounds {
-  return items.reduce<CadBounds>((bounds, item) => ({
-    minX: Math.min(bounds.minX, item.bounds.minX),
-    minY: Math.min(bounds.minY, item.bounds.minY),
-    maxX: Math.max(bounds.maxX, item.bounds.maxX),
-    maxY: Math.max(bounds.maxY, item.bounds.maxY)
-  }), { minX: Number.POSITIVE_INFINITY, minY: Number.POSITIVE_INFINITY, maxX: Number.NEGATIVE_INFINITY, maxY: Number.NEGATIVE_INFINITY });
+interface SpatialCluster {
+  count: number;
+  bounds: CadBounds;
+  lengthScore: number;
+  areaScore: number;
+  score: number;
+  anchorX: number;
+  anchorY: number;
+}
+
+function emptyBounds(): CadBounds {
+  return { minX: Number.POSITIVE_INFINITY, minY: Number.POSITIVE_INFINITY, maxX: Number.NEGATIVE_INFINITY, maxY: Number.NEGATIVE_INFINITY };
+}
+
+function includeBounds(target: CadBounds, item: CadBounds): void {
+  target.minX = Math.min(target.minX, item.minX);
+  target.minY = Math.min(target.minY, item.minY);
+  target.maxX = Math.max(target.maxX, item.maxX);
+  target.maxY = Math.max(target.maxY, item.maxY);
 }
 
 function boundsGap(left: CadBounds, right: CadBounds): number {
@@ -43,87 +59,138 @@ function boundsGap(left: CadBounds, right: CadBounds): number {
   return Math.hypot(x, y);
 }
 
-export function selectPrimaryCadBounds(document: NormalizedCadDocument): PrimaryCadBoundsSelection {
-  const expanded = expandCadDocument(document, { maxRenderedEntities: CAD_MAX_PARSED_ENTITIES, maxBlockDepth: 32 });
-  const spatial: SpatialEntity[] = expanded.map(item => {
-    const bounds = computeCadBounds([item]);
-    const width = Math.max(0, bounds.maxX - bounds.minX);
-    const height = Math.max(0, bounds.maxY - bounds.minY);
-    return {
-      bounds,
-      centerX: (bounds.minX + bounds.maxX) / 2,
-      centerY: (bounds.minY + bounds.maxY) / 2,
-      extent: Math.hypot(width, height)
-    };
-  });
-  const totalEntityCount = spatial.length;
-  const completeBounds = totalEntityCount > 0 ? unionBounds(spatial) : document.bounds;
+export function selectPrimaryCadBounds(
+  document: NormalizedCadDocument,
+  options: {
+    maxRenderedEntities?: number;
+    maxBlockDepth?: number;
+    maxSplineSamples?: number;
+    maxSpatialBuckets?: number;
+    maxCoordinateMagnitude?: number;
+    checkBudget?: () => void;
+  } = {}
+): PrimaryCadBoundsSelection {
+  const maxRenderedEntities = options.maxRenderedEntities ?? CAD_MAX_PARSED_ENTITIES;
+  const maxBlockDepth = options.maxBlockDepth ?? 32;
+  const maxSpatialBuckets = options.maxSpatialBuckets ?? 200_000;
+  const sampleSpline = createCadSplineSampler(options.maxSplineSamples ?? CAD_MAX_SPLINE_SAMPLES_PER_DOCUMENT);
+  const expansionOptions = { maxRenderedEntities, maxBlockDepth, checkBudget: options.checkBudget };
+  const completeBounds = emptyBounds();
+  const extentHistogram = new Map<number, number>();
+  let nonZeroExtentCount = 0;
+  let totalEntityCount = 0;
+  for (const item of iterateCadGeometryExpansion(document, expansionOptions)) {
+    const bounds = computeCadBounds([item], options.checkBudget, undefined, sampleSpline);
+    if (options.maxCoordinateMagnitude !== undefined && Object.values(bounds).some(value => Math.abs(value) > options.maxCoordinateMagnitude!)) {
+      throw new Error("DXF transformed coordinate limit exceeded");
+    }
+    includeBounds(completeBounds, bounds);
+    totalEntityCount++;
+    const extent = Math.hypot(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY);
+    if (extent > 0) {
+      const bin = Math.floor(Math.log2(extent));
+      extentHistogram.set(bin, (extentHistogram.get(bin) ?? 0) + 1);
+      nonZeroExtentCount++;
+    }
+  }
+  if (totalEntityCount === 0) return { bounds: document.bounds, excludedEntityCount: 0, totalEntityCount };
   if (totalEntityCount < 3) return { bounds: completeBounds, excludedEntityCount: 0, totalEntityCount };
 
-  const nonZeroExtents = spatial.map(item => item.extent).filter(value => value > 0).sort((left, right) => left - right);
-  if (nonZeroExtents.length === 0) return { bounds: completeBounds, excludedEntityCount: 0, totalEntityCount };
-  const medianExtent = nonZeroExtents[Math.floor(nonZeroExtents.length / 2)];
-  const cellSize = Math.max(Number.EPSILON, medianExtent * 4);
-  const buckets = new Map<string, SpatialEntity[]>();
+  if (nonZeroExtentCount === 0) return { bounds: completeBounds, excludedEntityCount: 0, totalEntityCount };
+  const medianRank = Math.floor(nonZeroExtentCount / 2);
+  let seen = 0;
+  let medianBin = 0;
+  for (const bin of [...extentHistogram.keys()].sort((left, right) => left - right)) {
+    seen += extentHistogram.get(bin)!;
+    if (seen > medianRank) { medianBin = bin; break; }
+  }
+  const medianExtent = 2 ** (medianBin + 0.5);
+  const cellSize = Math.max(1e-9, medianExtent * 4);
+  const buckets = new Map<string, SpatialBucket>();
   const bucketCoordinate = (value: number) => Math.floor(value / cellSize);
-  for (const item of spatial) {
-    const key = `${bucketCoordinate(item.centerX)},${bucketCoordinate(item.centerY)}`;
+  for (const item of iterateCadGeometryExpansion(document, expansionOptions)) {
+    const bounds = computeCadBounds([item], options.checkBudget, undefined, sampleSpline);
+    const width = Math.max(0, bounds.maxX - bounds.minX);
+    const height = Math.max(0, bounds.maxY - bounds.minY);
+    const x = bucketCoordinate((bounds.minX + bounds.maxX) / 2);
+    const y = bucketCoordinate((bounds.minY + bounds.maxY) / 2);
+    const key = `${x},${y}`;
     const bucket = buckets.get(key);
-    if (bucket) bucket.push(item);
-    else buckets.set(key, [item]);
+    const lengthScore = Math.min(16, 2 * (width + height) / medianExtent);
+    const areaScore = Math.min(64, width * height / (medianExtent * medianExtent));
+    if (bucket) {
+      bucket.count++;
+      bucket.lengthScore += lengthScore;
+      bucket.areaScore += areaScore;
+      includeBounds(bucket.bounds, bounds);
+    } else {
+      if (buckets.size >= maxSpatialBuckets) return { bounds: completeBounds, excludedEntityCount: 0, totalEntityCount };
+      buckets.set(key, { x, y, key, count: 1, bounds: { ...bounds }, lengthScore, areaScore, visit: 0 });
+    }
   }
 
-  const visited = new Set<string>();
-  const clusters: Array<{ items: SpatialEntity[]; bounds: CadBounds; score: number; key: string }> = [];
-  const orderedKeys = [...buckets.keys()].sort((left, right) => {
-    const [leftX, leftY] = left.split(",").map(Number);
-    const [rightX, rightY] = right.split(",").map(Number);
-    return leftX - rightX || leftY - rightY;
-  });
-  for (const startKey of orderedKeys) {
-    if (visited.has(startKey)) continue;
-    const queue = [startKey];
-    const items: SpatialEntity[] = [];
-    visited.add(startKey);
-    while (queue.length > 0) {
-      const key = queue.shift()!;
-      items.push(...(buckets.get(key) ?? []));
-      const [x, y] = key.split(",").map(Number);
+  const walkCluster = (start: SpatialBucket, visit: number): SpatialCluster => {
+    const queue = [start];
+    start.visit = visit;
+    let head = 0;
+    let count = 0;
+    let lengthScore = 0;
+    let areaScore = 0;
+    let anchorX = start.x;
+    let anchorY = start.y;
+    const bounds = emptyBounds();
+    while (head < queue.length) {
+      const bucket = queue[head++];
+      count += bucket.count;
+      lengthScore += bucket.lengthScore;
+      areaScore += bucket.areaScore;
+      includeBounds(bounds, bucket.bounds);
+      if (bucket.x < anchorX || (bucket.x === anchorX && bucket.y < anchorY)) {
+        anchorX = bucket.x;
+        anchorY = bucket.y;
+      }
       for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
         if (dx === 0 && dy === 0) continue;
-        const neighbor = `${x + dx},${y + dy}`;
-        if (buckets.has(neighbor) && !visited.has(neighbor)) {
-          visited.add(neighbor);
+        const neighbor = buckets.get(`${bucket.x + dx},${bucket.y + dy}`);
+        if (neighbor && neighbor.visit !== visit) {
+          neighbor.visit = visit;
           queue.push(neighbor);
         }
       }
     }
-    const bounds = unionBounds(items);
-    const extentCap = medianExtent * 16;
-    const drawableScore = items.reduce((sum, item) => sum + Math.min(item.extent, extentCap), 0);
-    clusters.push({ items, bounds, score: items.length * medianExtent + drawableScore, key: startKey });
+    return { count, bounds, lengthScore, areaScore, score: count + lengthScore + areaScore, anchorX, anchorY };
+  };
+  const isBetter = (candidate: SpatialCluster, current: SpatialCluster | null) => !current ||
+    candidate.score > current.score || (candidate.score === current.score && (
+      candidate.count > current.count || (candidate.count === current.count && (
+        candidate.bounds.minX < current.bounds.minX || (candidate.bounds.minX === current.bounds.minX && (
+          candidate.bounds.minY < current.bounds.minY || (candidate.bounds.minY === current.bounds.minY && (
+            candidate.anchorX < current.anchorX || (candidate.anchorX === current.anchorX && candidate.anchorY < current.anchorY)
+          ))
+        ))
+      ))
+    ));
+  let primary: SpatialCluster | null = null;
+  for (const bucket of buckets.values()) {
+    if (bucket.visit === 1) continue;
+    const cluster = walkCluster(bucket, 1);
+    if (isBetter(cluster, primary)) primary = cluster;
   }
-  clusters.sort((left, right) =>
-    right.score - left.score || right.items.length - left.items.length ||
-    left.bounds.minX - right.bounds.minX || left.bounds.minY - right.bounds.minY || left.key.localeCompare(right.key)
-  );
-  const primary = clusters[0];
-  const remainder = clusters.slice(1);
-  if (!primary || remainder.length === 0 || primary.items.length < 2) {
+  if (!primary || primary.count < 2 || primary.count === totalEntityCount) {
     return { bounds: completeBounds, excludedEntityCount: 0, totalEntityCount };
   }
 
   const primaryDiagonal = Math.max(cellSize, Math.hypot(primary.bounds.maxX - primary.bounds.minX, primary.bounds.maxY - primary.bounds.minY));
-  const isolatedCountLimit = Math.max(1, Math.floor(totalEntityCount * 0.005));
-  const isolatedRemainder = remainder.every(cluster =>
-    cluster.items.length <= isolatedCountLimit &&
-    cluster.score < primary.score * 0.25 &&
-    boundsGap(primary.bounds, cluster.bounds) > primaryDiagonal * 4
-  );
-  if (!isolatedRemainder) {
-    return { bounds: completeBounds, excludedEntityCount: 0, totalEntityCount };
+  let excludedEntityCount = 0;
+  for (const bucket of buckets.values()) {
+    if (bucket.visit === 2) continue;
+    const cluster = walkCluster(bucket, 2);
+    if (cluster.anchorX === primary.anchorX && cluster.anchorY === primary.anchorY) continue;
+    if (cluster.count !== 1 || cluster.score >= primary.score * 0.25 || boundsGap(primary.bounds, cluster.bounds) <= primaryDiagonal * 4) {
+      return { bounds: completeBounds, excludedEntityCount: 0, totalEntityCount };
+    }
+    excludedEntityCount++;
   }
-  const excludedEntityCount = remainder.reduce((sum, cluster) => sum + cluster.items.length, 0);
   return { bounds: primary.bounds, excludedEntityCount, totalEntityCount };
 }
 

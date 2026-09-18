@@ -93,10 +93,33 @@ export interface NormalizedCadWipeout extends NormalizedCadEntityBase {
   vertices: CadPoint[];
 }
 
-export interface NormalizedCadHatchLoop {
+export interface NormalizedCadHatchPolylineLoop {
+  type: "polyline";
   vertices: CadPolylineVertex[];
   closed: boolean;
 }
+
+export interface NormalizedCadHatchLineEdge {
+  type: "line";
+  start: CadPoint;
+  end: CadPoint;
+}
+
+export interface NormalizedCadHatchArcEdge {
+  type: "arc";
+  center: CadPoint;
+  radius: number;
+  startAngle: number;
+  endAngle: number;
+  counterClockwise: boolean;
+}
+
+export interface NormalizedCadHatchEdgeLoop {
+  type: "edges";
+  edges: Array<NormalizedCadHatchLineEdge | NormalizedCadHatchArcEdge>;
+}
+
+export type NormalizedCadHatchLoop = NormalizedCadHatchPolylineLoop | NormalizedCadHatchEdgeLoop;
 
 export interface NormalizedCadHatch extends NormalizedCadEntityBase {
   type: "hatch";
@@ -107,6 +130,7 @@ export interface NormalizedCadDimension extends NormalizedCadEntityBase {
   type: "dimension";
   blockName: string | null;
   definitionPoint: CadPoint;
+  blockPosition: CadPoint;
   textPosition: CadPoint;
   extensionStart: CadPoint;
   extensionEnd: CadPoint;
@@ -144,4 +168,8 @@ export interface NormalizedCadDocument {
   blocks: NormalizedCadBlock[];
   entities: NormalizedCadEntity[];
   unsupportedEntityCounts?: Readonly<Record<string, number>>;
+  primaryBoundsSelection?: {
+    excludedEntityCount: number;
+    totalEntityCount: number;
+  };
 }

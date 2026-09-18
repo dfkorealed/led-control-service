@@ -210,7 +210,8 @@ test("DXF를 직접 분석해 layer/block별 entity와 INSERT, 고유 좌표, �
     cyclicBlockReferenceCount: 0,
     basis: "block INSERT를 world 좌표로 전개한 진단 통계이며 검출 정확도가 아님"
   });
-  assert.equal(report.accuracy.supportedEntityMapGeometry.expectedCoverage, 0.8);
+  assert.equal(report.accuracy.supportedEntityMapGeometry.supportedEntityCount, 5);
+  assert.equal(report.accuracy.supportedEntityMapGeometry.expectedCoverage, 1);
   assert.equal(report.accuracy.detection.groundTruthProvided, false);
   assert.equal(report.accuracy.detection.precision, null);
   assert.equal(report.accuracy.detection.f1, null);

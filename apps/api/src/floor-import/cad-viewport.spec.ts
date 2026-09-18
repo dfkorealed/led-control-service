@@ -60,4 +60,24 @@ describe("CAD viewport normalization", () => {
 
     expect(selectPrimaryCadBounds(document)).toEqual({ bounds: document.bounds, excludedEntityCount: 0, totalEntityCount: 4 });
   });
+
+  it("keeps a remote multi-entity legend even when it is below 0.5 percent of the drawing", () => {
+    const main = Array.from({ length: 1_000 }, (_, index) => ({
+      type: "line" as const, sourceEntityId: `main-${index}`, layer: "0",
+      start: { x: index % 100, y: Math.floor(index / 100), z: 0 },
+      end: { x: index % 100 + 10, y: Math.floor(index / 100) + 1, z: 0 }
+    }));
+    const document: NormalizedCadDocument = {
+      version: 1, bounds: { minX: 0, minY: 0, maxX: 1_000_020, maxY: 10 }, blocks: [],
+      entities: [
+        ...main,
+        { type: "line", sourceEntityId: "legend-1", layer: "0", start: { x: 1_000_000, y: 0, z: 0 }, end: { x: 1_000_010, y: 0, z: 0 } },
+        { type: "line", sourceEntityId: "legend-2", layer: "0", start: { x: 1_000_010, y: 0, z: 0 }, end: { x: 1_000_020, y: 0, z: 0 } }
+      ]
+    };
+
+    expect(selectPrimaryCadBounds(document)).toEqual({
+      bounds: document.bounds, excludedEntityCount: 0, totalEntityCount: 1_002
+    });
+  });
 });
