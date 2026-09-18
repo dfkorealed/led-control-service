@@ -1,9 +1,8 @@
 import { z } from "zod";
 import {
   EDITOR_MAX_EXPECTED_REVISION,
-  EDITOR_MAX_FIXTURE_UPDATES,
-  EDITOR_MAX_MAP_OBJECT_MUTATIONS,
   EDITOR_MAX_URL_LENGTH,
+  nonnegativePostgresIntSchema,
   POSTGRES_INT_MAX
 } from "./schemas";
 
@@ -175,13 +174,13 @@ export const floorImportApplyInputSchema = z.object({
 export const floorImportApplyResultSchema = z.object({
   jobId: z.string().uuid(),
   status: z.literal("completed"),
-  revision: z.number().int().nonnegative().max(EDITOR_MAX_EXPECTED_REVISION),
+  revision: nonnegativePostgresIntSchema,
   acceptedCandidateIds: z.array(z.string().uuid()).max(CAD_IMPORT_MAX_CANDIDATES),
   renderedAssetId: z.string().uuid(),
-  deletedObjectCount: z.number().int().nonnegative().max(EDITOR_MAX_MAP_OBJECT_MUTATIONS),
-  unplacedFixtureCount: z.number().int().nonnegative().max(EDITOR_MAX_FIXTURE_UPDATES),
-  deletedSlotCount: z.number().int().nonnegative().max(CAD_IMPORT_MAX_CANDIDATES),
-  createdSlotCount: z.number().int().nonnegative().max(CAD_IMPORT_MAX_CANDIDATES),
+  deletedObjectCount: nonnegativePostgresIntSchema,
+  unplacedFixtureCount: nonnegativePostgresIntSchema,
+  deletedSlotCount: nonnegativePostgresIntSchema.max(CAD_IMPORT_MAX_CANDIDATES),
+  createdSlotCount: nonnegativePostgresIntSchema.max(CAD_IMPORT_MAX_CANDIDATES),
   floorPlan: z.object({
     imageUrl: z.string().trim().startsWith("/").max(EDITOR_MAX_URL_LENGTH),
     sourceType: z.literal("image"),

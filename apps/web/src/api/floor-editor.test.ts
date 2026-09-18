@@ -185,4 +185,25 @@ describe("floor editor atomic API", () => {
     await expect(applyFloorImportJob("floor-1", "job-1", input)).resolves.toEqual(completeApplyResult);
     await expect(applyFloorImportJob("floor-1", "job-1", input)).rejects.toBeDefined();
   });
+
+  it("accepts full-floor CAD apply counts and the final PostgreSQL Int revision", async () => {
+    const largeResult = {
+      ...completeApplyResult,
+      revision: 2_147_483_647,
+      deletedObjectCount: 2_001,
+      unplacedFixtureCount: 1_001
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(largeResult)
+    }));
+
+    await expect(applyFloorImportJob("floor-1", "job-1", {
+      expectedRevision: 2_147_483_646,
+      leaseToken: "lease-token",
+      leaseFence: 7,
+      confirmMapReset: true,
+      candidateIds: []
+    })).resolves.toEqual(largeResult);
+  });
 });

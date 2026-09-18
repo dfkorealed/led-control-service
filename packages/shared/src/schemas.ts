@@ -24,6 +24,7 @@ const finiteNumberSchema = z.number().finite();
 const nullableFiniteNumberSchema = finiteNumberSchema.nullable();
 const int4Schema = z.number().int().min(POSTGRES_INT_MIN).max(POSTGRES_INT_MAX);
 const nonnegativeInt4Schema = int4Schema.nonnegative();
+export const nonnegativePostgresIntSchema = nonnegativeInt4Schema;
 const expectedRevisionSchema = nonnegativeInt4Schema.max(EDITOR_MAX_EXPECTED_REVISION);
 const positiveInt4Schema = int4Schema.positive();
 const editorGridSizeSchema = int4Schema
