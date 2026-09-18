@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   CAD_IMPORT_MAX_CANDIDATES,
   CAD_IMPORT_MIME_TYPES,
+  cadImportStageLabel,
+  cadImportStageSchema,
   cadImportFileTypeSchema,
   floorImportApplyInputSchema,
   floorImportApplyResultSchema,
@@ -112,6 +114,7 @@ describe("CAD import contracts", () => {
     expect(floorImportJobStatusSchema.options).toEqual([
       "queued",
       "processing",
+      "region_selection_required",
       "review_required",
       "applying",
       "completed",
@@ -119,6 +122,28 @@ describe("CAD import contracts", () => {
       "cancelled"
     ]);
     expect(floorImportJobStatusSchema.safeParse("ready").success).toBe(false);
+  });
+
+  it("exposes region detection, selection, and scene compilation stages", () => {
+    expect(cadImportStageSchema.options).toEqual([
+      "queued",
+      "downloading",
+      "converting",
+      "parsing",
+      "detecting_regions",
+      "region_selection_required",
+      "compiling_scene",
+      "rendering",
+      "persisting",
+      "review_required",
+      "applying",
+      "completed",
+      "failed",
+      "cancelled"
+    ]);
+    expect(cadImportStageLabel("detecting_regions")).toBe("도면 영역을 찾는 중");
+    expect(cadImportStageLabel("region_selection_required")).toBe("가져올 도면 영역 선택 필요");
+    expect(cadImportStageLabel("compiling_scene")).toBe("CAD 장면을 만드는 중");
   });
 
   it("validates the rendered CAD viewport used by both preview and candidates", () => {

@@ -5,6 +5,7 @@ import {
   nonnegativePostgresIntSchema,
   POSTGRES_INT_MAX
 } from "./schemas";
+import { cadRegionSchema } from "./cad-scene-contracts";
 
 export const CAD_IMPORT_MAX_CANDIDATES = 2_000;
 export const CAD_IMPORT_MIME_TYPES = {
@@ -47,6 +48,7 @@ export const cadImportFileTypeSchema = z.discriminatedUnion("sourceFormat", [
 export const floorImportJobStatusSchema = z.enum([
   "queued",
   "processing",
+  "region_selection_required",
   "review_required",
   "applying",
   "completed",
@@ -59,6 +61,9 @@ export const cadImportStageSchema = z.enum([
   "downloading",
   "converting",
   "parsing",
+  "detecting_regions",
+  "region_selection_required",
+  "compiling_scene",
   "rendering",
   "persisting",
   "review_required",
@@ -75,6 +80,9 @@ const CAD_IMPORT_STAGE_LABELS: Record<CadImportStage, string> = {
   downloading: "CAD 파일을 불러오는 중",
   converting: "CAD 도면을 변환하는 중",
   parsing: "CAD 도면을 분석하는 중",
+  detecting_regions: "도면 영역을 찾는 중",
+  region_selection_required: "가져올 도면 영역 선택 필요",
+  compiling_scene: "CAD 장면을 만드는 중",
   rendering: "도면 미리보기를 만드는 중",
   persisting: "분석 결과를 저장하는 중",
   review_required: "분석 완료",
@@ -192,6 +200,65 @@ export const floorImportApplyResultSchema = z.object({
   }).strict()
 }).strict();
 
+export const floorImportRegionSelectionStatusSchema = z.enum([
+  "auto_selected",
+  "selection_required",
+  "selected"
+]);
+
+export const floorImportRegionListResponseSchema = z.object({
+  jobId: z.string().uuid(),
+  selectionStatus: floorImportRegionSelectionStatusSchema,
+  selectedRegionId: z.string().trim().min(1).max(512).nullable(),
+  regions: z.array(cadRegionSchema).min(1).max(100)
+}).strict().superRefine((response, context) => {
+  const regionIds = response.regions.map((region) => region.regionId);
+  if (new Set(regionIds).size !== regionIds.length) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["regions"],
+      message: "regionId must be unique within an import job"
+    });
+  }
+
+  if (response.selectionStatus === "selection_required") {
+    if (response.selectedRegionId !== null || response.regions.length < 2) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["selectedRegionId"],
+        message: "selection_required needs at least two regions and no selected region"
+      });
+    }
+    return;
+  }
+
+  if (response.selectedRegionId === null || !regionIds.includes(response.selectedRegionId)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["selectedRegionId"],
+      message: "the selected region must exist in the region list"
+    });
+  }
+  if (response.selectionStatus === "auto_selected" && response.regions.length !== 1) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["selectionStatus"],
+      message: "auto_selected is valid only when one region was detected"
+    });
+  }
+  if (response.selectionStatus === "selected" && response.regions.length < 2) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["selectionStatus"],
+      message: "selected is valid only after choosing among multiple regions"
+    });
+  }
+});
+
+export const floorImportRegionSelectInputSchema = z.object({
+  regionId: z.string().trim().min(1).max(512)
+}).strict();
+
 export type CadImportSourceFormat = z.infer<typeof cadImportSourceFormatSchema>;
 export type CadImportMimeType = z.infer<typeof cadImportMimeTypeSchema>;
 export type FloorImportJobStatus = z.infer<typeof floorImportJobStatusSchema>;
@@ -202,3 +269,6 @@ export type FloorImportAppliedOverlayResponse = z.infer<typeof floorImportApplie
 export type FloorImportAppliedOverlay = NonNullable<FloorImportAppliedOverlayResponse["overlay"]>;
 export type FloorImportApplyInput = z.infer<typeof floorImportApplyInputSchema>;
 export type FloorImportApplyResult = z.infer<typeof floorImportApplyResultSchema>;
+export type FloorImportRegionSelectionStatus = z.infer<typeof floorImportRegionSelectionStatusSchema>;
+export type FloorImportRegionListResponse = z.infer<typeof floorImportRegionListResponseSchema>;
+export type FloorImportRegionSelectInput = z.infer<typeof floorImportRegionSelectInputSchema>;
