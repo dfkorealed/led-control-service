@@ -32,7 +32,7 @@ describe("FloorAssetsService", () => {
     };
 
     await expect(new FloorAssetsService(prisma, storage, siteAccess).createUploadIntent(admin, "floor-1", {
-      kind: "original", mimeType: "image/png", sizeBytes: 1024, sha256: "a".repeat(64)
+      kind: "original", mimeType: "application/dxf", sizeBytes: 1024, sha256: "a".repeat(64)
     })).rejects.toEqual(new ConflictException({ code: "floor_archived" }));
 
     expect(prisma.floorAsset.create).not.toHaveBeenCalled();
@@ -63,7 +63,7 @@ describe("FloorAssetsService", () => {
     };
 
     await expect(new FloorAssetsService(prisma, storage, siteAccess).createUploadIntent(admin, "floor-1", {
-      kind: "original", mimeType: "image/png", sizeBytes: 1024, sha256: "a".repeat(64)
+      kind: "original", mimeType: "application/dxf", sizeBytes: 1024, sha256: "a".repeat(64)
     })).rejects.toEqual(new ConflictException({ code: "floor_archived" }));
 
     expect(storage.createFloorAssetUploadUrl).toHaveBeenCalledTimes(1);
@@ -91,7 +91,7 @@ describe("FloorAssetsService", () => {
       return { id: "site-1" };
     }), assertManageInTransaction: jest.fn().mockResolvedValue({ id: "site-1" }) } as unknown as SiteAccessService;
     const service = new FloorAssetsService(prisma, storage, siteAccess);
-    const uploadInput = { kind: "original" as const, mimeType: "image/png", sizeBytes: 1024, sha256: "a".repeat(64) };
+    const uploadInput = { kind: "original" as const, mimeType: "application/dxf", sizeBytes: 1024, sha256: "a".repeat(64) };
 
     await expect(service.createUploadIntent(admin, "floor-1", uploadInput)).resolves.toBeDefined();
     await expect(service.createUploadIntent(viewer, "floor-1", uploadInput)).rejects.toBeInstanceOf(ForbiddenException);
@@ -130,6 +130,34 @@ describe("FloorAssetsService", () => {
     expect(prisma.floorAsset.create).not.toHaveBeenCalled();
     expect(storage.createFloorAssetUploadUrl).not.toHaveBeenCalled();
   });
+
+  it.each(["image/png", "image/jpeg"])(
+    "rejects a new %s upload intent before creating or signing an asset",
+    async (mimeType) => {
+      const prisma: any = {
+        floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },
+        floorAsset: { create: jest.fn() },
+        $transaction: jest.fn()
+      };
+      const storage: any = {
+        prepareFloorAssetUpload: jest.fn(),
+        createFloorAssetUploadUrl: jest.fn()
+      };
+      const siteAccess: any = {
+        assert: jest.fn().mockResolvedValue({ id: "site-1" }),
+        assertManageInTransaction: jest.fn()
+      };
+
+      await expect(new FloorAssetsService(prisma, storage, siteAccess).createUploadIntent(admin, "floor-1", {
+        kind: "original", mimeType, sizeBytes: 1024, sha256: "a".repeat(64)
+      })).rejects.toThrow("unsupported floor asset MIME type");
+
+      expect(storage.prepareFloorAssetUpload).not.toHaveBeenCalled();
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(prisma.floorAsset.create).not.toHaveBeenCalled();
+      expect(storage.createFloorAssetUploadUrl).not.toHaveBeenCalled();
+    }
+  );
 
   it("uses read access when listing ready floor assets", async () => {
     const prisma: any = {
@@ -306,7 +334,7 @@ describe("FloorAssetsService", () => {
     await expect(
       service.createUploadIntent(admin, "floor-1", {
         kind: "original",
-        mimeType: "image/png",
+        mimeType: "application/dxf",
         sizeBytes: 1024,
         sha256: "a".repeat(64)
       })
@@ -356,7 +384,7 @@ describe("FloorAssetsService", () => {
 
     await expect(new FloorAssetsService(prisma, storage, siteAccess).createUploadIntent(admin, "floor-1", {
       kind: "original",
-      mimeType: "image/png",
+      mimeType: "application/dxf",
       sizeBytes: 1024,
       sha256: "a".repeat(64)
     })).rejects.toBeInstanceOf(ServiceUnavailableException);
@@ -397,7 +425,7 @@ describe("FloorAssetsService", () => {
 
     try {
       await expect(service.createUploadIntent(admin, "floor-1", {
-        kind: "original", mimeType: "image/png", sizeBytes: 1024, sha256: "a".repeat(64)
+        kind: "original", mimeType: "application/dxf", sizeBytes: 1024, sha256: "a".repeat(64)
       })).resolves.toMatchObject({ uploadUrl: "https://signed.example" });
       expect(prisma.floorAsset.create).toHaveBeenCalledWith({
         data: expect.objectContaining({ uploadExpiresAt: null })
@@ -431,7 +459,7 @@ describe("FloorAssetsService", () => {
     } as unknown as SiteAccessService);
 
     await expect(service.createUploadIntent(admin, "floor-1", {
-      kind: "original", mimeType: "image/png", sizeBytes: 1024, sha256: "a".repeat(64)
+      kind: "original", mimeType: "application/dxf", sizeBytes: 1024, sha256: "a".repeat(64)
     })).rejects.toBeInstanceOf(ServiceUnavailableException);
     expect(prisma.floorAsset.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ uploadExpiresAt: null })

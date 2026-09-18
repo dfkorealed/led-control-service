@@ -3,7 +3,7 @@ import { act, cleanup, createEvent, fireEvent, render, screen, waitFor, within }
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../api/client";
 import { FloorEditorView } from "./FloorEditorView";
-import type { FloorAsset, FloorEditorState } from "./editor-types";
+import type { FloorEditorState } from "./editor-types";
 import { useFloorEditorStore } from "./editor-store";
 import { saveEditorDraft } from "./editor-drafts";
 import { clearTenantCache } from "../../api/principal-cache";
@@ -210,6 +210,13 @@ describe("FloorEditorView", () => {
     expect(screen.queryByLabelText("조명명")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "층 선택" })).toHaveAttribute("data-react-aria-pressable", "true");
     expect(screen.getByRole("checkbox", { name: "격자 스냅" }).closest("[data-field]")).toBeInTheDocument();
+  });
+
+  it("offers CAD import without the legacy image upload panel", () => {
+    renderEditor(editorState);
+
+    expect(screen.queryByRole("region", { name: "도면 자산" })).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "CAD 가져오기" })).toBeInTheDocument();
   });
 
   it("shows only controls that belong to the selected element type", () => {
@@ -495,7 +502,6 @@ describe("FloorEditorView", () => {
     expect(screen.getByLabelText("조명명")).toBeDisabled();
     expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("aria-disabled", "true");
     expect(screen.getByRole("button", { name: "사각형" })).toBeDisabled();
-    expect(screen.getByLabelText("도면 파일")).toBeDisabled();
     expect(screen.getByRole("button", { name: "실행 취소" })).toBeDisabled();
     act(() => useFloorEditorStore.getState().setActiveTool("rectangle"));
     fireEvent.mouseDown(screen.getByLabelText("B2 편집 캔버스"), { clientX: 200, clientY: 160 });
@@ -547,43 +553,6 @@ describe("FloorEditorView", () => {
     expect(floorEditorApi.restoreFloorEditorRevision).not.toHaveBeenCalled();
     save.resolve({ ...structuredClone(editorState), floor: { ...structuredClone(editorState.floor), mapRevision: 8 } });
     await waitFor(() => expect(floorEditorApi.saveFloorEditorState).toHaveBeenCalledOnce());
-  });
-
-  it("preserves the existing background before a replacement upload completes", () => {
-    renderEditor();
-    expect(screen.getByLabelText("도면 파일")).toBeInTheDocument();
-    expect(screen.getByLabelText("B2 편집 캔버스")).toHaveClass("has-plan");
-    expect(useFloorEditorStore.getState().state?.floor.floorPlan).toEqual(editorState.floor.floorPlan);
-  });
-
-  it("applies only a ready image asset to the draft background", async () => {
-    floorEditorApi.uploadFloorAsset.mockResolvedValueOnce({
-      id: "asset-image",
-      kind: "original",
-      status: "ready",
-      mimeType: "image/png",
-      sizeBytes: 3,
-      sha256: "a".repeat(64),
-      accessPath: "/api/floors/floor-b2/assets/asset-image/content"
-    });
-    renderEditor();
-
-    fireEvent.change(screen.getByLabelText("도면 파일"), {
-      target: { files: [new File(["png"], "parking.png", { type: "image/png" })] }
-    });
-    fireEvent.click(screen.getByRole("button", { name: "도면 업로드" }));
-
-    await waitFor(() => expect(useFloorEditorStore.getState().state?.floor.floorPlan).toMatchObject({
-      sourceType: "image",
-      imageUrl: "/api/floors/floor-b2/assets/asset-image/content",
-      originalFileUrl: "/api/floors/floor-b2/assets/asset-image/content",
-      renderedImageUrl: "/api/floors/floor-b2/assets/asset-image/content",
-      width: 1200,
-      height: 800,
-      gridSize: 10,
-      version: 2
-    }));
-    expect(useFloorEditorStore.getState().isDirty).toBe(true);
   });
 
   it("previews CAD review results without registering fixtures and applies with the editor authority", async () => {
@@ -939,69 +908,6 @@ describe("FloorEditorView", () => {
 
     expect(await screen.findByText("최신 맵과 변경사항이 충돌했습니다.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "최신 버전 다시 불러오기" })).toBeInTheDocument();
-  });
-
-  it("keeps an existing PDF floor plan visible while removing PDF from new upload choices", () => {
-    renderEditor({
-      ...editorState,
-      floor: {
-        ...editorState.floor,
-        floorPlan: {
-          ...editorState.floor.floorPlan!,
-          sourceType: "pdf",
-          originalFileUrl: "/api/floors/floor-b2/assets/original.pdf"
-        }
-      }
-    });
-
-    expect(screen.getByLabelText("B2 편집 캔버스")).toHaveClass("has-plan");
-    expect(screen.getByLabelText("도면 파일")).not.toHaveAttribute("accept", expect.stringContaining("pdf"));
-    expect(useFloorEditorStore.getState().state?.floor.floorPlan?.sourceType).toBe("pdf");
-  });
-
-  it("locks save restore and floor switching while an upload is pending", async () => {
-    floorEditorApi.listFloorEditorRevisions.mockResolvedValueOnce({ items: [revision(5)], nextCursor: null });
-    const upload = deferred<FloorAsset>();
-    floorEditorApi.uploadFloorAsset.mockReturnValueOnce(upload.promise);
-    const onFloorChange = vi.fn();
-    renderEditor(editorState, {
-      floors: [{ id: "floor-b2", name: "B2" }, { id: "floor-b1", name: "B1" }],
-      onFloorChange
-    });
-    const restoreButton = await screen.findByRole("button", { name: "리비전 5 복구" });
-    act(() => useFloorEditorStore.getState().updateFixture("fixture-1", { x: 225 }));
-    expect(screen.getByRole("button", { name: "저장" })).toBeEnabled();
-
-    fireEvent.change(screen.getByLabelText("도면 파일"), {
-      target: { files: [new File(["png"], "parking.png", { type: "image/png" })] }
-    });
-    fireEvent.click(screen.getByRole("button", { name: "도면 업로드" }));
-
-    expect(floorEditorApi.uploadFloorAsset).toHaveBeenCalledOnce();
-    const floorSelect = screen.getByRole("button", { name: "층 선택" });
-    expect(floorSelect).toBeDisabled();
-    expect(screen.getByRole("button", { name: "저장" })).toBeDisabled();
-    expect(screen.getByLabelText("도면 파일")).toBeDisabled();
-    expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("aria-disabled", "true");
-    fireEvent.click(screen.getByRole("button", { name: "저장" }));
-    expect(floorEditorApi.saveFloorEditorState).not.toHaveBeenCalled();
-
-    act(() => useFloorEditorStore.getState().adoptBaseline(useFloorEditorStore.getState().state!));
-    expect(restoreButton).toBeDisabled();
-    fireEvent.click(floorSelect);
-    expect(onFloorChange).not.toHaveBeenCalled();
-
-    upload.resolve({
-      id: "asset-image",
-      kind: "original",
-      status: "ready",
-      mimeType: "image/png",
-      sizeBytes: 3,
-      sha256: "a".repeat(64),
-      accessPath: "/api/floors/floor-b2/assets/asset-image/content"
-    });
-    await screen.findByText("도면 배경이 편집 초안에 적용되었습니다.");
-    expect(screen.getByRole("button", { name: "층 선택" })).toBeEnabled();
   });
 
   it("keeps current edits and dirty state after a network failure", async () => {
