@@ -29,12 +29,46 @@ async function fixture() {
   const journal = new MonitoringRefreshJournal(join(directory, "journal.json"), scope, { now });
   const outbox = new StateEventOutbox(join(directory, "outbox.json"), scope);
   const completed: unknown[] = [];
-  const publisher = new MonitoringRefreshEventPublisher(journal, outbox, { retryMs: 10 }); publishers.push(publisher);
-  await publisher.connect(async (_topic, event) => { expect((await outbox.pending()).length).toBeGreaterThan(0); completed.push(event); });
+  const publisher = new MonitoringRefreshEventPublisher(journal, outbox, { retryMs: 60_000 }); publishers.push(publisher);
+  await publisher.connect(async (_topic, event) => { completed.push(event); });
   let sequence = 10;
   return { directory, journal, outbox, publisher, completed,
     options: { now, retryDelayMs: 1, nextSequence: async () => sequence++ } };
 }
+function stateAck(event: GatewayStateEvent) {
+  return { eventId: event.eventId, fixtureId: event.fixtureId, sequence: event.sequence, status: "ingested", ingestedAt: now().toISOString() };
+}
+async function acknowledgeAll(publisher: MonitoringRefreshEventPublisher, outbox: StateEventOutbox) {
+  const statePublisher = new StateEventOutboxPublisher(outbox);
+  for (const row of await outbox.pending()) await publisher.acknowledgeState(stateAck(row.payload), statePublisher);
+}
+
+it.each([false, true])("waits for every API result ACK across disconnect/restart before publishing completion (restart=%s)", async (restart) => {
+  const f = await fixture();
+  const adapter = { probeFixturePresence: vi.fn(async (ids: string[]) => ids.map((fixtureId) => ({ fixtureId, outcome: "not_found" as const }))) };
+  await handleFixturePresenceCheck(adapter, f.journal, command, f.publisher, f.options);
+  const events = (await f.outbox.pending()).map((row) => row.payload);
+  expect(f.completed).toEqual([]);
+  const ack = (event: GatewayStateEvent) => ({ eventId: event.eventId, fixtureId: event.fixtureId, sequence: event.sequence, status: "ingested", ingestedAt: now().toISOString() });
+  const statePublisher = new StateEventOutboxPublisher(f.outbox);
+  await f.publisher.acknowledgeState(ack(events[0]), statePublisher);
+  expect(f.completed).toEqual([]);
+  await f.publisher.stopAndDrain();
+  const journal = restart ? new MonitoringRefreshJournal(join(f.directory, "journal.json"), scope, { now }) : f.journal;
+  const outbox = restart ? new StateEventOutbox(join(f.directory, "outbox.json"), scope) : f.outbox;
+  const publisher = restart ? new MonitoringRefreshEventPublisher(journal, outbox) : f.publisher;
+  if (restart) publishers.push(publisher);
+  const completed: unknown[] = [];
+  await publisher.connect(async (_topic, event) => { completed.push(event); });
+  expect(completed).toEqual([]);
+  await publisher.acknowledgeState(ack(events[1]), new StateEventOutboxPublisher(outbox));
+  expect(completed).toHaveLength(1);
+  await publisher.wake();
+  expect(new Set(completed.map((event: any) => event.eventId)).size).toBe(1);
+  await publisher.acknowledge({ ...scope, refreshId: command.refreshId, batchId: command.batchId });
+  expect(await journal.pending()).toEqual([]);
+  expect(adapter.probeFixturePresence).toHaveBeenCalledTimes(2);
+});
 
 it("retries only first-pass failures and persists sensor presence/unreachable before completion", async () => {
   const f = await fixture();
@@ -48,6 +82,8 @@ it("retries only first-pass failures and persists sensor presence/unreachable be
     expect.objectContaining({ fixtureId: secondId, reason: "not_found", refreshId: command.refreshId, batchId: command.batchId })
   ]);
   expect(events.every((event) => !("brightness" in event) && !("powerOn" in event))).toBe(true);
+  expect(f.completed).toEqual([]);
+  await acknowledgeAll(f.publisher, f.outbox);
   expect(f.completed).toHaveLength(1);
 });
 
@@ -116,7 +152,7 @@ it("cannot emit completion while durable fixture outbox has no capacity and resu
   const recovered = new MonitoringRefreshEventPublisher(new MonitoringRefreshJournal(join(f.directory, "journal.json"), scope, { now }),
     new StateEventOutbox(join(f.directory, "bounded.json"), scope), { retryMs: 10 }); publishers.push(recovered);
   await recovered.connect(async (_topic, event) => { completed.push(event); });
-  expect(completed).toHaveLength(1);
+  expect(completed).toHaveLength(0);
   expect(await new StateEventOutbox(join(f.directory, "bounded.json"), scope).pending()).toHaveLength(2);
 });
 
@@ -208,8 +244,7 @@ it.each([false, true])("publishes partial handoff and continues after ACK with c
     await vi.waitFor(() => expect(observed.some((event) => event.fixtureId === firstId)).toBe(true));
     expect(completed).toEqual([]);
     const first = observed[0];
-    await statePublisher.acknowledge({ eventId: first.eventId, fixtureId: first.fixtureId, sequence: first.sequence,
-      status: "ingested", ingestedAt: now().toISOString() });
+    await publisher.acknowledgeState(stateAck(first), statePublisher);
     if (restart) { await publisher.stopAndDrain(); statePublisher.disconnect(); }
     const recoveredJournal = restart ? new MonitoringRefreshJournal(join(f.directory, "journal.json"), scope, { now }) : f.journal;
     const recoveredOutbox = restart ? new StateEventOutbox(path, scope, { maxRecords: 1 }) : bounded;
@@ -219,6 +254,8 @@ it.each([false, true])("publishes partial handoff and continues after ACK with c
       await recovered.connect(async (_topic, event) => { completed.push(event); });
     } else await recovered.wake();
     expect((await recoveredOutbox.pending()).map((row) => row.payload.fixtureId)).toEqual([secondId]);
+    expect(completed).toEqual([]);
+    await acknowledgeAll(recovered, recoveredOutbox);
     expect(completed).toHaveLength(1);
     expect(await recovered.acknowledge({ ...scope, refreshId: command.refreshId, batchId: command.batchId })).toBe(true);
     expect(await recoveredJournal.pending()).toEqual([]);
@@ -244,7 +281,8 @@ it("reconnect during a stuck completion publish resumes replay on the replacemen
   let started = false;
   await f.publisher.connect(async () => { started = true; await new Promise<void>(() => undefined); });
   const adapter = { probeFixturePresence: vi.fn(async (ids: string[]) => ids.map((fixtureId) => ({ fixtureId, outcome: "not_found" as const }))) };
-  const handling = handleFixturePresenceCheck(adapter, f.journal, command, f.publisher, f.options);
+  await handleFixturePresenceCheck(adapter, f.journal, command, f.publisher, f.options);
+  const handling = acknowledgeAll(f.publisher, f.outbox);
   await vi.waitFor(() => expect(started).toBe(true));
   const replayed: unknown[] = [];
   await f.publisher.connect(async (_topic, event) => { replayed.push(event); });
@@ -256,6 +294,7 @@ it("replays durable terminal after restart without probing and retries completio
   const f = await fixture();
   const adapter = { probeFixturePresence: vi.fn(async (ids: string[]) => ids.map((fixtureId) => ({ fixtureId, outcome: "not_found" as const }))) };
   await handleFixturePresenceCheck(adapter, f.journal, command, f.publisher, f.options);
+  await acknowledgeAll(f.publisher, f.outbox);
   f.publisher.disconnect();
   const recovered = new MonitoringRefreshJournal(join(f.directory, "journal.json"), scope, { now });
   const published: unknown[] = [];

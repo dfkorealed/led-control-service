@@ -508,6 +508,7 @@ export class MqttService implements OnModuleInit {
   private async handleMessageBeforeAck(topic: string, payload: Buffer, receivedAt: Date): Promise<(() => Promise<void>) | undefined> {
     if (topic.endsWith("/events/fixture-presence-check-completed")) {
       const { ack } = await this.monitoringRefreshIngestion.completeBatch(topic, JSON.parse(payload.toString()), receivedAt);
+      if (!ack) return;
       // Start QoS 1 application ACK only after PUBACK releases MQTT.js' parser.
       return () => this.publishTopic(mqttTopicsV2.fixturePresenceCheckCompletedAck(ack.siteId, ack.gatewayId), ack,
         { timeoutMs: MQTT_BACKGROUND_PUBLISH_TIMEOUT_MS });

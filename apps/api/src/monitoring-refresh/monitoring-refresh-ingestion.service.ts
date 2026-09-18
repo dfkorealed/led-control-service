@@ -87,7 +87,12 @@ export class MonitoringRefreshIngestionService {
       const children = await tx.monitoringRefreshFixture.findMany({ where: { refreshId: event.refreshId, batchId: event.batchId } });
       if (!sameTargets(children.map((child) => child.fixtureId), event.targetFixtureIds) ||
           children.some((child) => child.siteId !== event.siteId)) throw new Error("monitoring refresh child scope rejected");
-      if (children.some((child) => child.status === "pending")) throw new Error("monitoring refresh results pending");
+      // A valid early completion must release the MQTT parser so later fixture results can arrive.
+      // No application ACK: the Gateway's durable completion publisher retries independently.
+      if (children.some((child) => child.status === "pending")) {
+        await existingEventStatus(tx, event, "fixture_presence_check_completed", event.batchId);
+        return { ack: null };
+      }
       const ordering = await recordEvent(tx, event, "fixture_presence_check_completed", event.batchId, now);
       // A completion ACK removes the Gateway journal. Reject stale/future results
       // without that ACK; they are not evidence that this exact batch committed.
@@ -152,7 +157,7 @@ function resolveChild(tx: Prisma.TransactionClient, context: Context, status: "o
 }
 function stateResult(event: FixtureUnreachableV1, status: Status) { return { eventId: event.eventId, sequence: event.sequence, fixtureId: event.fixtureId, status }; }
 
-async function recordEvent(tx: Prisma.TransactionClient, event: Observation, eventType: string, scopeKey: string, receivedAt: Date): Promise<Status> {
+async function existingEventStatus(tx: Prisma.TransactionClient, event: Observation, eventType: string, scopeKey: string): Promise<Status | null> {
   const payloadHash = canonicalPayloadHash(event), occurredAt = new Date(event.occurredAt);
   const existing = await tx.processedGatewayEvent.findUnique({ where: { eventId: event.eventId } });
   if (existing) {
@@ -161,6 +166,13 @@ async function recordEvent(tx: Prisma.TransactionClient, event: Observation, eve
         existing.payloadHash !== payloadHash) throw new Error("monitoring refresh event identity conflict");
     return existing.ingestionStatus === "rejected_future_timestamp" ? "rejected_future_timestamp" : "duplicate";
   }
+  return null;
+}
+
+async function recordEvent(tx: Prisma.TransactionClient, event: Observation, eventType: string, scopeKey: string, receivedAt: Date): Promise<Status> {
+  const existing = await existingEventStatus(tx, event, eventType, scopeKey);
+  if (existing) return existing;
+  const payloadHash = canonicalPayloadHash(event), occurredAt = new Date(event.occurredAt);
   let status: Status = "ingested";
   if (gatewayEventIsTooFarInFuture(occurredAt, receivedAt, gatewayEventMaxFutureSkewMs())) status = "rejected_future_timestamp";
   else {

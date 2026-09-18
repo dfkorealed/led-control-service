@@ -6,7 +6,7 @@ import {
 } from "@led-control/shared";
 import type { BleMeshAdapter, BleMeshFixtureProbeResult } from "../gateway";
 import { MonitoringRefreshJournal, type MonitoringRefreshTerminal } from "../state/monitoring-refresh-journal";
-import { StateEventOutbox, type GatewayStateEvent } from "../state/state-event-outbox";
+import { StateEventOutbox, type StateEventOutboxPublisher, type GatewayStateEvent } from "../state/state-event-outbox";
 
 type CompletionPublish = (topic: string, event: FixturePresenceCheckCompletedV1) => Promise<void>;
 
@@ -38,6 +38,12 @@ export class MonitoringRefreshEventPublisher {
     if (removed && !(await this.journal.pending()).length && this.timer) { clearTimeout(this.timer); this.timer = undefined; }
     return removed;
   }
+  async acknowledgeState(value: unknown, statePublisher: Pick<StateEventOutboxPublisher, "acknowledge">) {
+    await this.journal.acknowledgeEvent(value);
+    const removed = await statePublisher.acknowledge(value);
+    await this.wake();
+    return removed;
+  }
   async replay(_terminal: MonitoringRefreshTerminal) { await this.wake(); }
   async persistAndPublish(_terminal: MonitoringRefreshTerminal) { await this.wake(); }
 
@@ -65,7 +71,9 @@ export class MonitoringRefreshEventPublisher {
             }
             await this.journal.markHandedOff(row.command.batchId);
           }
-          if (publish && !signal.aborted) {
+          // Read fresh ACK progress: the fixture publisher can receive ACKs during enqueue.
+          const current = (await this.journal.pending()).find((pending) => pending.command.batchId === row.command.batchId);
+          if (publish && !signal.aborted && current?.acknowledgedEventIds.length === terminal.events.length) {
             await abortablePublish(publish(mqttTopicsV2.fixturePresenceCheckCompleted(row.command.siteId, row.command.gatewayId), terminal.completed!),
               signal, this.options.publishTimeoutMs ?? 5_000);
           }

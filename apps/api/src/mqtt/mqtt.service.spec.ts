@@ -32,7 +32,29 @@ describe("MqttService", () => {
     expect(client.publish.mock.calls[0][0]).toBe(`sites/${siteId}/gateways/${gatewayId}/acks/${kind === "unreachable" ? "state-ingested" : "fixture-presence-check-completed"}`);
   });
 
-  it("closes without PUBACK or completion ACK when child results are missing or identity conflicts", async () => {
+  it("PUBACKs pending completion without application ACK so the next fixture packet can commit", async () => {
+    const service = new MqttService({} as never, createMeshGroupsMock() as never);
+    const completeBatch = jest.fn().mockResolvedValue({ ack: null });
+    const ingestUnreachable = jest.fn().mockResolvedValue({ eventId: "33333333-3333-4333-8333-333333333333", fixtureId: "44444444-4444-4444-8444-444444444444", sequence: 1, status: "ingested" });
+    (service as any).monitoringRefreshIngestion = { completeBatch, ingestUnreachable };
+    const client: any = new EventEmitter(); client.subscribe = jest.fn(); client.stream = { destroy: jest.fn() };
+    client.publish = jest.fn((_topic, _payload, _options, callback) => callback());
+    (service as any).client = client; service.onModuleInit();
+    const prefix = "sites/11111111-1111-4111-8111-111111111111/gateways/22222222-2222-4222-8222-222222222222";
+    for (const suffix of ["events/fixture-presence-check-completed", "events/fixture-unreachable"]) {
+      const topic = `${prefix}/${suffix}`, payload = Buffer.from("{}"), packet = { qos: 1, topic, payload };
+      const done = jest.fn(() => client.emit("message", topic, payload, packet));
+      (service as any).createCustomHandleAcks()(topic, payload, packet, done);
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(done).toHaveBeenCalledWith(0);
+      if (suffix.endsWith("completed")) expect(client.publish).not.toHaveBeenCalled();
+    }
+    expect(ingestUnreachable).toHaveBeenCalledTimes(1);
+    expect(client.stream.destroy).not.toHaveBeenCalled();
+    expect(client.publish.mock.calls.map((call: any[]) => call[0])).toEqual([`${prefix}/acks/state-ingested`]);
+  });
+
+  it("closes without PUBACK or completion ACK when identity conflicts", async () => {
     const service = new MqttService({} as never, createMeshGroupsMock() as never);
     (service as any).monitoringRefreshIngestion = { completeBatch: jest.fn().mockRejectedValue(new Error("results pending")) };
     const client: any = new EventEmitter(); client.subscribe = jest.fn(); client.stream = { destroy: jest.fn() }; client.publish = jest.fn();

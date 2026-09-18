@@ -1204,7 +1204,7 @@ async function main() {
       [mqttTopicsV2.provisioningDeviceTerminalIngestedAck(siteId, gatewayId)]: (payload) =>
         provisioningDeviceReplay.acknowledgeTerminal(JSON.parse(payload.toString())),
       [mqttTopicsV2.stateIngestedAck(siteId, gatewayId)]: async (payload) => {
-        const removed = await stateEventPublisher.acknowledge(JSON.parse(payload.toString()));
+        const removed = await monitoringRefreshPublisher.acknowledgeState(JSON.parse(payload.toString()), stateEventPublisher);
         if (removed) {
           await recoverStateEventCapacityAfterAcknowledgement({
             stateEventCapacity,

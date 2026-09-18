@@ -97,7 +97,7 @@ describe("MonitoringRefreshIngestionService", () => {
   it("withholds completion until all expected children are terminal, then aggregates DB truth and replays", async () => {
     const db = database(); const service = new MonitoringRefreshIngestionService(db as never);
     const { fixtureId: _, ...completed } = completion(); const completionTopic = mqttTopicsV2.fixturePresenceCheckCompleted(ids.siteId, ids.gatewayId);
-    await expect(service.completeBatch(completionTopic, completed, at(8))).rejects.toThrow("pending");
+    await expect(service.completeBatch(completionTopic, completed, at(8))).resolves.toEqual({ ack: null });
     expect(db.ledger.size).toBe(0);
     await service.ingestUnreachable(topic, event(), at(6));
     expect(await service.completeBatch(completionTopic, completed, at(8))).toEqual({ ack: {
@@ -107,6 +107,15 @@ describe("MonitoringRefreshIngestionService", () => {
     await service.completeBatch(completionTopic, completed, at(9));
     expect(db.monitoringRefresh.updateMany).toHaveBeenCalledTimes(1);
     await expect(service.completeBatch(completionTopic, { ...completed, sequence: 11 }, at(9))).rejects.toThrow("conflict");
+  });
+
+  it("rejects a conflicting completion event identity even while children are pending", async () => {
+    const db = database();
+    const { fixtureId: _, ...completed } = completion();
+    db.ledger.set(completed.eventId, { gatewayId: ids.gatewayId, eventType: "fixture_presence_check_completed", scopeKey: ids.batchId,
+      sequence: 10n, occurredAt: at(8), payloadHash: "different-payload" });
+    await expect(new MonitoringRefreshIngestionService(db as never).completeBatch(
+      mqttTopicsV2.fixturePresenceCheckCompleted(ids.siteId, ids.gatewayId), completed, at(8))).rejects.toThrow("identity conflict");
   });
 
   it.each([null, at(1)])("completes before or after publisher persistence, preserving publishedAt=%s", async (publishedAt) => {

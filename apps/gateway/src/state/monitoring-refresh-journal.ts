@@ -2,7 +2,7 @@ import { mkdir, stat } from "node:fs/promises";
 import { dirname } from "node:path";
 import {
   fixturePresenceCheckCommandV1Schema, fixturePresenceCheckCompletedV1Schema,
-  fixturePresenceCheckCompletedAckV1Schema, fixturePresenceV2Schema, fixtureStateV2Schema, fixtureUnreachableV1Schema,
+  fixturePresenceCheckCompletedAckV1Schema, applicationStateIngestedAckV2Schema, fixturePresenceV2Schema, fixtureStateV2Schema, fixtureUnreachableV1Schema,
   type FixturePresenceCheckCommandV1, type FixturePresenceCheckCompletedV1
 } from "@led-control/shared";
 import { readJsonFile, writeJsonAtomic } from "../mesh/mesh-store-file";
@@ -17,10 +17,11 @@ interface StoredRecord {
   command: FixturePresenceCheckCommandV1;
   terminal?: MonitoringRefreshTerminal;
   handedOffEventIds: string[];
+  acknowledgedEventIds: string[];
   handedOff: boolean;
   acknowledged: boolean;
 }
-interface StoredJournal { version: 1; scope: StateEventOutboxScope; sequence: number; records: StoredRecord[] }
+interface StoredJournal { version: 1 | 2; scope: StateEventOutboxScope; sequence: number; records: StoredRecord[] }
 
 /** Durable receipts are retained after ACK: an old batch must never acquire hardware ownership again. */
 export class MonitoringRefreshJournal {
@@ -53,7 +54,7 @@ export class MonitoringRefreshJournal {
           terminal: existing.terminal ? structuredClone(existing.terminal) : undefined };
       }
       if (state.records.length >= 10_000) throw new Error("monitoring refresh journal capacity");
-      await this.commit({ ...state, sequence: Math.max(state.sequence, command.sequence), records: [...state.records, { command, handedOffEventIds: [], handedOff: false, acknowledged: false }] });
+      await this.commit({ ...state, sequence: Math.max(state.sequence, command.sequence), records: [...state.records, { command, handedOffEventIds: [], acknowledgedEventIds: [], handedOff: false, acknowledged: false }] });
       this.active.add(command.batchId);
       return { kind: "accepted" as const, terminal: undefined };
     });
@@ -78,6 +79,21 @@ export class MonitoringRefreshJournal {
   }
 
   pending() { return this.exclusive(async () => structuredClone((await this.load()).records.filter((row) => row.terminal?.completed && !row.acknowledged))); }
+
+  acknowledgeEvent(value: unknown) {
+    return this.exclusive(async () => {
+      const ack = applicationStateIngestedAckV2Schema.parse(value);
+      const state = await this.load();
+      const row = state.records.find((record) => record.terminal?.events.some((event) =>
+        event.eventId === ack.eventId && event.fixtureId === ack.fixtureId && event.sequence === ack.sequence));
+      if (!row || row.acknowledgedEventIds.includes(ack.eventId)) return false;
+      // Persist before removing the fixture outbox entry. A crash between these writes can only
+      // replay the same event; it can never forget an ACK and strand a batch behind its completion.
+      await this.commit({ ...state, records: state.records.map((record) => record === row
+        ? { ...record, acknowledgedEventIds: [...record.acknowledgedEventIds, ack.eventId] } : record) });
+      return true;
+    });
+  }
 
   markEventHandedOff(batchId: string, eventId: string) {
     return this.exclusive(async () => {
@@ -107,7 +123,7 @@ export class MonitoringRefreshJournal {
       this.assertScope(ack);
       const state = await this.load();
       const row = state.records.find((record) => record.command.batchId === ack.batchId && record.command.refreshId === ack.refreshId);
-      if (!row?.terminal?.completed || !row.handedOff || row.acknowledged) return false;
+      if (!row?.terminal?.completed || !row.handedOff || row.acknowledged || row.acknowledgedEventIds.length !== row.terminal.events.length) return false;
       await this.commit({ ...state, records: state.records.map((record) => record === row ? { ...record, acknowledged: true } : record) });
       return true;
     });
@@ -167,7 +183,7 @@ export class MonitoringRefreshJournal {
     if (!manifest && !raw) {
       // Manifest goes first: a crash in initialization fails closed instead of silently resetting dedup history.
       await writeJsonAtomic(manifestPath, { version: 1, scope: this.scope });
-      await this.commit({ version: 1, scope: this.scope, sequence: -1, records: [] });
+      await this.commit({ version: 2, scope: this.scope, sequence: -1, records: [] });
       return this.state!;
     }
     if (!manifest || !raw) throw new Error("monitoring refresh journal missing");
@@ -175,7 +191,7 @@ export class MonitoringRefreshJournal {
     await this.assertPermissions(this.path, 0o600);
     if (JSON.stringify(manifest) !== JSON.stringify({ version: 1, scope: this.scope })) throw new Error("monitoring refresh manifest mismatch");
     this.assertScope(raw.scope);
-    if (raw.version !== 1 || !Number.isInteger(raw.sequence) || !Array.isArray(raw.records) || raw.records.length > 10_000) throw new Error("invalid monitoring refresh journal");
+    if (![1, 2].includes(raw.version) || !Number.isSafeInteger(raw.sequence) || !Array.isArray(raw.records) || raw.records.length > 10_000) throw new Error("invalid monitoring refresh journal");
     const batches = new Set<string>(); const keys = new Set<string>(); const sequences = new Set<number>();
     for (const row of raw.records) {
       row.command = fixturePresenceCheckCommandV1Schema.parse(row.command);
@@ -195,7 +211,19 @@ export class MonitoringRefreshJournal {
         (row.handedOff && row.handedOffEventIds.length !== row.terminal!.events.length)) {
         throw new Error("invalid monitoring refresh handoff progress");
       }
+      if (raw.version === 1) {
+        // v1 did not persist result ACKs. Only a completion ACK proves all results committed.
+        // Otherwise replay all exact IDs, including events already removed from the old outbox.
+        row.acknowledgedEventIds = row.acknowledged ? row.terminal!.events.map((event) => event.eventId) : [];
+        if (!row.acknowledged) { row.handedOffEventIds = []; row.handedOff = false; }
+      }
+      if (!Array.isArray(row.acknowledgedEventIds) || new Set(row.acknowledgedEventIds).size !== row.acknowledgedEventIds.length ||
+        row.acknowledgedEventIds.some((id) => !row.terminal?.events.some((event) => event.eventId === id)) ||
+        (row.acknowledged && row.acknowledgedEventIds.length !== row.terminal!.events.length)) {
+        throw new Error("invalid monitoring refresh acknowledgement progress");
+      }
     }
+    if (raw.version === 1) { await this.commit({ ...raw, version: 2 }); return this.state!; }
     this.state = raw;
     return raw;
   }
