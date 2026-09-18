@@ -12,7 +12,7 @@
 
 ## 2026-09-18 CAD 맵 교체·슬롯 배치 활성 계획
 
-상태: 구현 진행 중. Task 3 CAD 진행률과 완료 상태 복구까지 완료했다. 이 절이 현재 활성 체크리스트이며 아래 `2026-09-09 대량 배치 실행 계획`은 완료된 과거 이력이다.
+상태: 구현 진행 중. Task 4 주 도면 영역과 CAD 엔티티 보강까지 완료했다. 이 절이 현재 활성 체크리스트이며 아래 `2026-09-09 대량 배치 실행 계획`은 완료된 과거 이력이다.
 
 ### 전역 제약
 
@@ -224,7 +224,7 @@ git commit -m "fix(cad): keep import progress visible through review"
 - `NormalizedCadEntity`에 `spline | wipeout | hatch | dimension | point`을 추가한다.
 - 렌더 결과 metadata에 `unsupportedEntityCounts`와 `excludedEntityCount`를 포함한다.
 
-- [ ] **Step 1: 고립 outlier와 신규 엔티티 fixture 테스트 작성**
+- [x] **Step 1: 고립 outlier와 신규 엔티티 fixture 테스트 작성**
 
 ```ts
 expect(selectPrimaryCadBounds(documentWithRemoteOutlier)).toMatchObject({
@@ -235,23 +235,23 @@ expect(selectPrimaryCadBounds(documentWithRemoteOutlier)).toMatchObject({
 
 DXF fixture는 SPLINE control point/knot, WIPEOUT polygon, HATCH boundary, DIMENSION block reference, POINT를 각각 최소 한 개 포함한다.
 
-- [ ] **Step 2: parser/viewport/renderer 테스트 실패 확인**
+- [x] **Step 2: parser/viewport/renderer 테스트 실패 확인**
 
 Run: `pnpm --filter @led-control/api test -- dxf-document-parser.spec.ts cad-viewport.spec.ts cad-svg-renderer.spec.ts --runInBand`
 
 Expected: 신규 entity가 누락되고 remote outlier가 viewport에 포함되어 실패.
 
-- [ ] **Step 3: deterministic primary bounds와 엔티티 렌더 구현**
+- [x] **Step 3: deterministic primary bounds와 엔티티 렌더 구현**
 
 주 도면 선택은 spatial bucket의 drawable 길이/면적/개수 점수로 가장 큰 연결 cluster를 택하고, 후보 좌표와 같은 transform을 사용한다. SPLINE은 bounded De Boor sampling, WIPEOUT/HATCH는 polygon path, DIMENSION은 anonymous block 우선, POINT는 fixed marker path로 렌더한다. 입력별 entity/coordinate/sample 상한을 기존 runtime contract에 추가한다.
 
-- [ ] **Step 4: 실제 샘플 분석과 renderer 회귀 실행**
+- [x] **Step 4: 실제 샘플 분석과 renderer 회귀 실행**
 
 Run: `node scripts/analyze-cad-import.mjs --input "/Users/kim-jh/Downloads/2단지지하주차장전등설비합본평면도20260803.dwg" --converter /opt/homebrew/bin/dwgread`
 
 Expected: 후보 1,302개 유지, supported geometry 통계 상승, 주요 도면 viewport가 한 화면에서 식별 가능.
 
-- [ ] **Step 5: API 테스트와 커밋**
+- [x] **Step 5: API 테스트와 커밋**
 
 ```bash
 pnpm --filter @led-control/api test -- dxf-document-parser.spec.ts cad-viewport.spec.ts cad-svg-renderer.spec.ts cad-runtime-contract.spec.ts --runInBand
