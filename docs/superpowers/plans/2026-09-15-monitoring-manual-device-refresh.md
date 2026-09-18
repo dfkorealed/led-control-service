@@ -37,7 +37,7 @@
 - Produces MQTT topic builders: `fixturePresenceCheck`, `fixtureUnreachable`, `fixturePresenceCheckCompleted`, `fixturePresenceCheckCompletedAck`.
 - Extends: `fixturePresenceV2Schema` with optional paired `refreshId` and `batchId`; both must be present together or absent together.
 
-- [ ] **Step 1: Write failing contract tests**
+- [x] **Step 1: Write failing contract tests**
 
 ```ts
 it("binds a read-only fixture presence check to one site, gateway, refresh and batch", () => {
@@ -65,13 +65,13 @@ it("rejects partial refresh identity and unreachable payload data that can imply
 });
 ```
 
-- [ ] **Step 2: Run the shared contract test and verify RED**
+- [x] **Step 2: Run the shared contract test and verify RED**
 
 Run: `pnpm --filter @led-control/shared test -- src/gateway-contracts.test.ts`
 
 Expected: FAIL because the four schemas and topic builders do not exist.
 
-- [ ] **Step 3: Implement strict schemas and exports**
+- [x] **Step 3: Implement strict schemas and exports**
 
 ```ts
 const monitoringRefreshIdentitySchema = z.object({
@@ -105,13 +105,13 @@ export const fixtureUnreachableV1Schema = orderedGatewayEventSchema
 
 Define the completion payload with the same scope/refresh/batch identity and exact `targetFixtureIds`; define its ACK as `siteId`, `gatewayId`, `refreshId`, `batchId`; keep every object strict. Add a refinement to `fixturePresenceV2Schema` that rejects only-one-of refresh/batch identity.
 
-- [ ] **Step 4: Verify GREEN and package exports**
+- [x] **Step 4: Verify GREEN and package exports**
 
 Run: `pnpm --filter @led-control/shared test -- src/gateway-contracts.test.ts src/package-exports.test.ts`
 
 Expected: both files PASS and both ESM/CommonJS packages export the new symbols.
 
-- [ ] **Step 5: Commit Task 1**
+- [x] **Step 5: Commit Task 1**
 
 ```bash
 git add packages/shared/src/gateway-contracts.ts packages/shared/src/gateway-contracts.test.ts packages/shared/src/index.ts
@@ -134,7 +134,7 @@ git commit -m "feat(shared): define monitoring refresh contracts"
 - Produces models `MonitoringRefresh`, `MonitoringRefreshBatch`, `MonitoringRefreshFixture` and `Fixture.lastUnreachableAt`.
 - Extends `MonitoringConditionTarget.fixture` with `lastUnreachableAt: Date | null`.
 
-- [ ] **Step 1: Write failing schema and status-precedence tests**
+- [x] **Step 1: Write failing schema and status-precedence tests**
 
 ```ts
 it("treats a newer verified unreachable result as immediately stale", () => {
@@ -166,13 +166,13 @@ it("keeps a newer successful observation online after an older unreachable resul
 
 Add a migration integration assertion that the three tables, all enum/check constraints, foreign keys, indexes, and nullable `Fixture.lastUnreachableAt` exist after the migration.
 
-- [ ] **Step 2: Run targeted API tests and verify RED**
+- [x] **Step 2: Run targeted API tests and verify RED**
 
 Run: `pnpm --filter @led-control/api test -- --runInBand src/monitoring-incidents/monitoring-conditions.spec.ts src/monitoring-incidents/monitoring-schema.integration.spec.ts`
 
 Expected: FAIL because the Prisma field/models and immediate unreachable precedence are absent.
 
-- [ ] **Step 3: Add Prisma models and migration**
+- [x] **Step 3: Add Prisma models and migration**
 
 ```prisma
 model MonitoringRefresh {
@@ -201,7 +201,7 @@ model MonitoringRefresh {
 
 Add `site Site @relation(fields: [siteId], references: [id], onDelete: Cascade)`, `floor Floor @relation(fields: [floorId], references: [id], onDelete: Cascade)`, and `requestedBy User? @relation(fields: [requestedById], references: [id], onDelete: SetNull)` to the parent. Add `refresh MonitoringRefresh @relation(fields: [refreshId], references: [id], onDelete: Cascade)` and `gateway Gateway @relation(fields: [gatewayId], references: [id], onDelete: Cascade)` to each batch; add exact `refreshId`, `batchId`, and `fixtureId` cascade relations to each child. Add `MqttOutbox.monitoringRefreshBatchId String? @unique` with `monitoringRefreshBatch MonitoringRefreshBatch? @relation(fields: [monitoringRefreshBatchId], references: [id], onDelete: Cascade)`. The SQL migration must enforce nonnegative counters, terminal timestamps only on terminal states, JSON-array targets, and child outcome/timestamp consistency.
 
-- [ ] **Step 4: Implement reachability precedence**
+- [x] **Step 4: Implement reachability precedence**
 
 ```ts
 const manuallyUnreachable = fixture.lastUnreachableAt !== null &&
@@ -215,7 +215,7 @@ if (type === "fixture_stale") {
 }
 ```
 
-- [ ] **Step 5: Generate Prisma client and verify GREEN**
+- [x] **Step 5: Generate Prisma client and verify GREEN**
 
 Run: `pnpm --filter @led-control/api prisma:generate`
 
@@ -223,7 +223,7 @@ Run: `pnpm --filter @led-control/api test -- --runInBand src/monitoring-incident
 
 Expected: PASS, including exact fresh/stale boundary regressions.
 
-- [ ] **Step 6: Commit Task 2**
+- [x] **Step 6: Commit Task 2**
 
 ```bash
 git add apps/api/prisma apps/api/src/monitoring-incidents/monitoring-conditions.ts apps/api/src/monitoring-incidents/monitoring-conditions.spec.ts apps/api/src/monitoring-incidents/monitoring-schema.integration.spec.ts
@@ -252,7 +252,7 @@ git commit -m "feat(api): persist monitoring refresh state"
 - Produces POST/GET routes from the spec.
 - Produces a dedicated outbox publisher for `MqttOutbox.monitoringRefreshBatchId` rows and an expiry worker with a 30-second deadline.
 
-- [ ] **Step 1: Write failing service tests for trusted target selection and idempotency**
+- [x] **Step 1: Write failing service tests for trusted target selection and idempotency**
 
 ```ts
 it("snapshots only server-selected active-floor fixtures and chunks each gateway at 64", async () => {
@@ -275,13 +275,13 @@ it("returns the same request for an identical client id and rejects a different 
 
 Add tests for read capability, missing/inactive floor, zero fixtures, 1,001 fixture rejection, active request reuse, terminal 30-second cooldown, safe integer sequence, and sanitized responses.
 
-- [ ] **Step 2: Run the service tests and verify RED**
+- [x] **Step 2: Run the service tests and verify RED**
 
 Run: `pnpm --filter @led-control/api test -- --runInBand src/monitoring-refresh/monitoring-refresh.service.spec.ts`
 
 Expected: FAIL because the module and service do not exist.
 
-- [ ] **Step 3: Implement request creation and GET projection**
+- [x] **Step 3: Implement request creation and GET projection**
 
 ```ts
 async create(user: AuthenticatedUser, siteId: string, floorId: string, input: { clientRequestId: string }) {
@@ -303,7 +303,7 @@ async create(user: AuthenticatedUser, siteId: string, floorId: string, input: { 
 
 Validate `{ clientRequestId: uuid }` with strict Zod parsing. Group by Gateway, sort fixture IDs, chunk at 64, increment each Gateway sequence, create refresh/batch/child/outbox rows in one transaction, and return only the documented projection.
 
-- [ ] **Step 4: Write failing controller, publisher, and expiry tests**
+- [x] **Step 4: Write failing controller, publisher, and expiry tests**
 
 ```ts
 it("publishes only monitoring refresh rows with a bounded MQTT expiry", async () => {
@@ -322,7 +322,7 @@ it("expires unresolved fixtures as unverified without changing Fixture", async (
 });
 ```
 
-- [ ] **Step 5: Implement controller, publisher, expiry worker, and module wiring**
+- [x] **Step 5: Implement controller, publisher, expiry worker, and module wiring**
 
 ```ts
 @Post("sites/:siteId/floors/:floorId/monitoring-refreshes")
@@ -340,13 +340,13 @@ get(@Param("siteId") siteId: string, @Param("refreshId") refreshId: string,
 
 Model publisher locking, bounded retry, PUBACK recording, dead-letter handling, `.unref()` timers, and sanitized logging after the existing provisioning outbox services. The expiry service runs every second, locks expired pending aggregates, marks pending child/batch rows unverified/expired, aggregates counters, and never updates Fixture rows.
 
-- [ ] **Step 6: Verify Task 3 GREEN**
+- [x] **Step 6: Verify Task 3 GREEN**
 
 Run: `pnpm --filter @led-control/api test -- --runInBand src/monitoring-refresh`
 
 Expected: all new unit/controller/module tests PASS with no open timer handles.
 
-- [ ] **Step 7: Commit Task 3**
+- [x] **Step 7: Commit Task 3**
 
 ```bash
 git add apps/api/src/monitoring-refresh apps/api/src/app.module.ts
@@ -377,7 +377,7 @@ git commit -m "feat(api): dispatch manual monitoring refresh"
 - Produces `BleMeshFixtureProbeResult = { fixtureId; outcome: "online" | "not_found" | "read_timeout" | "read_failed"; presence? }`.
 - Produces `handleFixturePresenceCheck(adapter, journal, command, publisher, options): Promise<void>` and durable `MonitoringRefreshJournal` terminal replay.
 
-- [ ] **Step 1: Write failing adapter tests for per-fixture outcomes**
+- [x] **Step 1: Write failing adapter tests for per-fixture outcomes**
 
 ```ts
 it("returns exact online and timeout outcomes without treating sensor settings as output", async () => {
@@ -396,13 +396,13 @@ it("returns exact online and timeout outcomes without treating sensor settings a
 
 Add BlueZ assertions that OnOff/Lightness observation means online and no Set opcode is issued. A `Node1.Send` D-Bus `TIMEOUT`/`ETIMEDOUT` is `transport_unavailable` and leaves the batch unverified; only an observation response timeout after a successful Send is a fixture `read_timeout`.
 
-- [ ] **Step 2: Run adapter tests and verify RED**
+- [x] **Step 2: Run adapter tests and verify RED**
 
 Run: `pnpm --filter @led-control/gateway test -- src/adapters/bio-usb-dongle-adapter.test.ts src/mesh/bluez-mesh-adapter.test.ts`
 
 Expected: FAIL because `probeFixturePresence` is absent.
 
-- [ ] **Step 3: Extract and implement the common probe path**
+- [x] **Step 3: Extract and implement the common probe path**
 
 ```ts
 export interface BleMeshFixtureProbeResult {
@@ -420,7 +420,7 @@ async probeFixturePresence(fixtureIds: string[], signal?: AbortSignal) {
 
 Keep one BIO discovery scan per pass, exact UUID/native UUID/address checks, serial brightness GET then mode GET, sanitized error classification, and listener delivery only after a verified response. Refactor existing resync methods to aggregate these real probe results rather than duplicate transport logic.
 
-- [ ] **Step 4: Write failing handler and journal tests for two passes and replay**
+- [x] **Step 4: Write failing handler and journal tests for two passes and replay**
 
 ```ts
 it("retries only first-pass failures and emits unreachable after the second failure", async () => {
@@ -442,7 +442,7 @@ it("replays an exact durable terminal without probing the adapter twice after re
 });
 ```
 
-- [ ] **Step 5: Implement journal, handler, outbox union, and runtime wiring**
+- [x] **Step 5: Implement journal, handler, outbox union, and runtime wiring**
 
 ```ts
 export async function handleFixturePresenceCheck(
@@ -463,13 +463,13 @@ export async function handleFixturePresenceCheck(
 
 Extend `StateEventOutbox` to persist `FixtureUnreachableV1` alongside state/presence and acknowledge it with the existing fixture-scoped state ACK. Store batch completion in `MonitoringRefreshJournal` and republish it until the dedicated completion ACK arrives. Add command/completion ACK subscriptions and safe shutdown draining in `index.ts`.
 
-- [ ] **Step 6: Verify Gateway GREEN**
+- [x] **Step 6: Verify Gateway GREEN**
 
 Run: `pnpm --filter @led-control/gateway test -- src/adapters/bio-usb-dongle-adapter.test.ts src/mesh/bluez-mesh-adapter.test.ts src/commands/fixture-presence-check-handler.test.ts src/state/monitoring-refresh-journal.test.ts src/state/state-event-outbox.test.ts src/index.test.ts`
 
 Expected: PASS, including duplicate, altered replay, expiry, shutdown, 64-fixture, and no-write-opcode cases.
 
-- [ ] **Step 7: Commit Task 4**
+- [x] **Step 7: Commit Task 4**
 
 ```bash
 git add apps/gateway/src
@@ -499,7 +499,7 @@ git commit -m "feat(gateway): probe monitoring fixtures on demand"
 - Extends presence ingestion to accept optional refresh identity and resolve an online child row in the same transaction.
 - Produces completion ACK only after every expected fixture result is terminal.
 
-- [ ] **Step 1: Write failing unit tests for online recovery and offline precedence**
+- [x] **Step 1: Write failing unit tests for online recovery and offline precedence**
 
 ```ts
 it("stores a verified unreachable result as offline without changing reported output", async () => {
@@ -526,13 +526,13 @@ it("lets a newer presence win over a delayed unreachable result", async () => {
 
 Add tests for wrong site/gateway/batch/fixture scope, stale deadline, Gateway heartbeat offline, duplicate event, reverse sequence/time, raw error sanitization, and lock order.
 
-- [ ] **Step 2: Run ingestion tests and verify RED**
+- [x] **Step 2: Run ingestion tests and verify RED**
 
 Run: `pnpm --filter @led-control/api test -- --runInBand src/monitoring-refresh/monitoring-refresh-ingestion.service.spec.ts`
 
 Expected: FAIL because the ingestion service is absent.
 
-- [ ] **Step 3: Implement transactional result ingestion**
+- [x] **Step 3: Implement transactional result ingestion**
 
 ```ts
 async ingestUnreachable(topic: string, raw: unknown, receivedAt: Date) {
@@ -557,7 +557,7 @@ async ingestUnreachable(topic: string, raw: unknown, receivedAt: Date) {
 
 Load `context.sitePolicy` from the locked Site row so heartbeat evaluation uses the actual policy. Lock Site, Gateway, Fixture, refresh, batch, and child row in the documented order using bounded transactions.
 
-- [ ] **Step 4: Write failing tests for presence recovery, completion, and expiry races**
+- [x] **Step 4: Write failing tests for presence recovery, completion, and expiry races**
 
 ```ts
 it("clears manual unreachable only after a newer state or presence observation", async () => {
@@ -580,9 +580,9 @@ it("aggregates child rows once and ACKs completion only when every fixture is te
 });
 ```
 
-- [ ] **Step 5: Wire MQTT handlers and success recovery**
+- [x] **Step 5: Wire MQTT handlers and success recovery**
 
-Subscribe to `state/fixture-unreachable` and `events/fixture-presence-check-completed`. Route presence events with refresh identity through the existing presence transaction, publish state ACK only after commit, publish completion ACK only after child aggregation, and close the MQTT connection on identity/hash conflict to preserve broker redelivery behavior. Clear `lastUnreachableAt` in both accepted fixture-state and fixture-presence writes; preserve `command_failed`, Health, brightness, power, and energy rules.
+Subscribe to `events/fixture-unreachable` and `events/fixture-presence-check-completed`. Route presence events with refresh identity through the existing presence transaction, publish state ACK only after commit, publish completion ACK only after child aggregation, and close the MQTT connection on identity/hash conflict to preserve broker redelivery behavior. Clear `lastUnreachableAt` in both accepted fixture-state and fixture-presence writes; preserve `command_failed`, Health, brightness, power, and energy rules.
 
 ```ts
 await client.subscribeAsync([
@@ -600,7 +600,7 @@ if (topic.endsWith("/events/fixture-presence-check-completed")) {
 }
 ```
 
-- [ ] **Step 6: Add PostgreSQL lifecycle integration coverage**
+- [x] **Step 6: Add PostgreSQL lifecycle integration coverage**
 
 ```ts
 it("converges two online fixtures to one online and one offline, then recovers", async () => {
@@ -620,13 +620,13 @@ it("converges two online fixtures to one online and one offline, then recovers",
 });
 ```
 
-- [ ] **Step 7: Verify API GREEN**
+- [x] **Step 7: Verify API GREEN**
 
 Run: `pnpm --filter @led-control/api test -- --runInBand src/monitoring-refresh src/fixtures/fixture-presence-ingestion.service.spec.ts src/fixtures/fixture-freshness.service.spec.ts src/energy/fixture-state-ingestion.service.spec.ts src/mqtt/mqtt.service.spec.ts`
 
 Expected: all unit and available PostgreSQL integration cases PASS; environment-gated integration remains explicitly reported if no database URL exists.
 
-- [ ] **Step 8: Commit Task 5**
+- [x] **Step 8: Commit Task 5**
 
 ```bash
 git add apps/api/src/monitoring-refresh apps/api/src/fixtures apps/api/src/energy/fixture-state-ingestion.service.ts apps/api/src/energy/fixture-state-ingestion.service.spec.ts apps/api/src/mqtt
@@ -651,7 +651,7 @@ git commit -m "feat(api): apply monitoring reachability results"
 - Produces `getMonitoringRefresh(siteId, refreshId, signal)`.
 - Produces `waitForMonitoringRefresh(input): Promise<MonitoringRefreshResult>` with 500ms polling and abort support.
 
-- [ ] **Step 1: Write failing API polling tests**
+- [x] **Step 1: Write failing API polling tests**
 
 ```ts
 it("polls the server terminal URL until the refresh completes", async () => {
@@ -671,13 +671,13 @@ it("aborts polling when the selected floor changes", async () => {
 });
 ```
 
-- [ ] **Step 2: Run API tests and verify RED**
+- [x] **Step 2: Run API tests and verify RED**
 
 Run: `pnpm --filter @led-control/web test -- src/api/monitoring-refresh.test.ts`
 
 Expected: FAIL because the client module does not exist.
 
-- [ ] **Step 3: Implement the typed API client and abortable polling**
+- [x] **Step 3: Implement the typed API client and abortable polling**
 
 ```ts
 export async function waitForMonitoringRefresh(input: WaitForMonitoringRefreshInput) {
@@ -693,7 +693,7 @@ export async function waitForMonitoringRefresh(input: WaitForMonitoringRefreshIn
 
 Parse every response defensively, accept only the five documented statuses and nonnegative counters, and derive the GET URL from `siteId + refreshId` instead of trusting an arbitrary server URL.
 
-- [ ] **Step 4: Write the failing MonitoringView behavior test**
+- [x] **Step 4: Write the failing MonitoringView behavior test**
 
 ```tsx
 it("updates two fixtures to one normal and one offline after a hardware refresh", async () => {
@@ -714,13 +714,13 @@ it("updates two fixtures to one normal and one offline after a hardware refresh"
 
 Add tests for zero fixtures, active-click lock, partial/failed/expired copy, POST failure, final query failure, floor/site switch abort, unmount abort, and ignoring late callbacks.
 
-- [ ] **Step 5: Run MonitoringView test and verify RED**
+- [x] **Step 5: Run MonitoringView test and verify RED**
 
 Run: `pnpm --filter @led-control/web test -- src/features/monitoring/MonitoringView.test.tsx`
 
 Expected: FAIL because the button still performs HTTP-only refetches.
 
-- [ ] **Step 6: Implement the UI state machine**
+- [x] **Step 6: Implement the UI state machine**
 
 ```ts
 async function handleRefresh() {
@@ -748,7 +748,7 @@ async function handleRefresh() {
 
 Extract `refetchMonitoringSources` from the existing manual refresh logic so map/dashboard/fixture error preservation remains in one place. Abort the controller on unmount and before floor/site changes. Keep the existing button component and responsive toolbar; add only the smallest error-copy style needed.
 
-- [ ] **Step 7: Add Chromium integration coverage**
+- [x] **Step 7: Add Chromium integration coverage**
 
 Route POST/GET fixture responses so the initial page has two online fixtures and the terminal refetch returns one online/one offline. Assert `전체 2`, `정상 1`, `오프라인 1`, the offline marker label, selected fixture detail, button loading state, and absence of horizontal overflow at 1440, 1024, 390, and 320 widths. Add a partial-result test that preserves verified statuses and shows the sanitized warning.
 
@@ -762,7 +762,7 @@ await expect(page.getByRole("button", { name: "B2-L002 오프라인 70%" })).toB
 expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 ```
 
-- [ ] **Step 8: Verify Web GREEN**
+- [x] **Step 8: Verify Web GREEN**
 
 Run: `pnpm --filter @led-control/web test -- src/api/monitoring-refresh.test.ts src/features/monitoring/MonitoringView.test.tsx src/features/shells/CustomerShell.monitoring.test.tsx`
 
@@ -770,7 +770,7 @@ Run: `pnpm --filter @led-control/web exec playwright test e2e/calm-operations-mo
 
 Expected: unit tests and all monitoring Chromium cases PASS.
 
-- [ ] **Step 9: Commit Task 6**
+- [x] **Step 9: Commit Task 6**
 
 ```bash
 git add apps/web/src/api/monitoring-refresh.ts apps/web/src/api/monitoring-refresh.test.ts apps/web/src/features/monitoring apps/web/src/features/shells/CustomerShell.monitoring.test.tsx apps/web/e2e/calm-operations-monitoring.spec.ts apps/web/src/styles.css
@@ -795,7 +795,7 @@ git commit -m "feat(web): refresh physical fixture status"
 - Produces seven-day cascade retention for terminal monitoring refresh aggregates.
 - Produces current menu/database documentation and final software/HIL evidence with explicit limits.
 
-- [ ] **Step 1: Write failing retention tests**
+- [x] **Step 1: Write failing retention tests**
 
 ```ts
 it("deletes only terminal monitoring refreshes older than seven days", async () => {
@@ -811,13 +811,13 @@ it("deletes only terminal monitoring refreshes older than seven days", async () 
 
 The integration case creates old terminal, recent terminal, and old pending rows; only the old terminal parent and its cascade children disappear.
 
-- [ ] **Step 2: Run retention tests and verify RED**
+- [x] **Step 2: Run retention tests and verify RED**
 
 Run: `pnpm --filter @led-control/api test -- --runInBand src/retention/data-retention.service.spec.ts src/retention/data-retention.integration.spec.ts`
 
 Expected: FAIL because monitoring refresh rows are not yet retained/cleaned.
 
-- [ ] **Step 3: Implement bounded seven-day retention**
+- [x] **Step 3: Implement bounded seven-day retention**
 
 Add monitoring refresh deletion to the existing per-sweep transaction and cap it within the service's current total deletion budget. Never delete pending rows; rely on FK cascade only for terminal batch/fixture children and their acknowledged outbox rows.
 
@@ -831,11 +831,11 @@ await tx.monitoringRefresh.deleteMany({
 });
 ```
 
-- [ ] **Step 4: Update required documentation**
+- [x] **Step 4: Update required documentation**
 
 In `docs/database-schema.md`, document all three models, `Fixture.lastUnreachableAt`, outbox relation, lock order, 7-day retention, and migration name. In `docs/menus/monitoring.md`, replace the HTTP-only refresh contract with read-only two-pass hardware verification and the exact user copy. In `docs/menus/control.md`, document immediate control blocking after verified unreachable and recovery only through newer presence/state. Preserve the required `구현 완료`, `미구현`, `부족하거나 개선이 필요한 기능`, `관련 파일`, `갱신 규칙` sections.
 
-- [ ] **Step 5: Add deterministic real-backend transport coverage**
+- [x] **Step 5: Add deterministic real-backend transport coverage**
 
 Extend the existing disposable lab to publish one online presence and one twice-unreachable terminal for a two-fixture floor. Assert the production API returns one online and one offline, duplicate Gateway results do not change counters, and a later presence restores both online. If PostgreSQL/Redis/MQTT dependencies are unavailable, keep the test opt-in and record that limitation rather than substituting a mock as HIL proof.
 
@@ -852,7 +852,7 @@ await lab.publishPresence(secondFixtureId);
 await expect.poll(() => lab.floorStatusCounts(siteId, floorId)).toEqual({ online: 2, offline: 0 });
 ```
 
-- [ ] **Step 6: Run the complete verification matrix**
+- [x] **Step 6: Run the complete verification matrix**
 
 Run: `pnpm lint`
 
@@ -868,11 +868,13 @@ Run when its documented disposable services are available: `pnpm --filter @led-c
 
 Expected: all non-opt-in checks exit 0; opt-in integration reports its explicit skip reason or passes.
 
+Result on 2026-09-18: the feature-focused API/Gateway/Web/Chromium/PostgreSQL/Mosquitto suites pass. The canonical root matrix remains non-green because the base branch already has the documented CAD `confirmMapReset` compile/test failures and the CI cgroup expectation mismatch; these are not counted as feature successes.
+
 - [ ] **Step 7: Run physical two-fixture HIL when equipment is attached**
 
 Record exact Gateway version, API revision, device identities in redacted form, timestamps, and outcomes for: both online → physically power off one → click refresh → `정상 1 / 오프라인 1` → restore power → click refresh → `정상 2 / 오프라인 0`. Do not mark HIL complete when the USB dongle or both fixtures are unavailable.
 
-- [ ] **Step 8: Commit Task 7**
+- [x] **Step 8: Commit Task 7**
 
 ```bash
 git add apps/api/src/retention docs/database-schema.md docs/menus/monitoring.md docs/menus/control.md apps/web/e2e/real-backend-lab-support.spec.ts docs/hil/2026-09-15-monitoring-manual-refresh.md
@@ -882,5 +884,7 @@ git commit -m "docs: verify manual monitoring refresh"
 When no HIL evidence file was created, omit that path from `git add` and state the hardware limitation in `docs/menus/monitoring.md`.
 
 - [ ] **Step 9: Request independent code review and merge**
+
+Independent whole-branch review is complete with no open Critical/Important/Minor findings. Merge remains pending the user's integration choice; physical HIL also remains unchecked above.
 
 Review the full branch against the spec for data races, stale-event precedence, raw error leakage, outbox/journal durability, read-only behavior, accessibility, and test evidence. Resolve findings with new failing tests, rerun the affected and full verification matrices, then merge `codex/manual-monitoring-device-refresh` into the latest `codex/mvp1-cloud-web` while preserving unrelated working-tree files.
