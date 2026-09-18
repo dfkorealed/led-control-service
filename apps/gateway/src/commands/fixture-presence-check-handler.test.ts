@@ -7,6 +7,9 @@ import { MonitoringRefreshJournal } from "../state/monitoring-refresh-journal";
 import { StateEventOutbox, StateEventOutboxPublisher, type GatewayStateEvent } from "../state/state-event-outbox";
 import { BioUsbDongleAdapter } from "../adapters/bio-usb-dongle-adapter";
 import { BioUsbError } from "../bio/bio-usb-error";
+import { EventEmitter } from "node:events";
+import { BioDongleClient } from "../bio/bio-dongle-client";
+import { encodeCrcFrame } from "../bio/bio-frame-codec";
 
 const scope = { siteId: "11111111-1111-4111-8111-111111111111", gatewayId: "22222222-2222-4222-8222-222222222222" };
 const firstId = "66666666-6666-4666-8666-666666666666";
@@ -133,6 +136,59 @@ it.each(["malformed", "aggregate-close", "unsupported"])("BIO %s stays a batch f
   expect(f.completed).toEqual([]);
   expect((await f.journal.accept(command)).terminal).toEqual({ events: [], failure: "transport_unavailable" });
   expect(client.scan).toHaveBeenCalledTimes(failure === "unsupported" ? 0 : 1);
+});
+
+it("keeps an ACK-then-USB-disconnect unverified through real client, transport, adapter and durable handler", async () => {
+  const f = await fixture();
+  const writes: Buffer[] = [];
+  let connections = 0; let disconnects = 0;
+  const timers = new Set<ReturnType<typeof setTimeout>>();
+  const client = new BioDongleClient({ scanDurationMs: 1, observationTimeoutMs: 50, connectionFactory: () => {
+    connections++;
+    const events = new EventEmitter();
+    return {
+      async open() {}, async close() {},
+      onData(listener: (bytes: Buffer) => void) { events.on("data", listener); return () => { events.off("data", listener); }; },
+      onDisconnect(listener: (error: Error) => void) { events.on("disconnect", listener); return () => { events.off("disconnect", listener); }; },
+      async write(bytes: Uint8Array) {
+        const frame = Buffer.from(bytes); writes.push(frame);
+        queueMicrotask(() => {
+          if (frame[0] !== 0x55) return;
+          if (frame[2] === 0x82) events.emit("data", Buffer.from("55aa030c02050320682f0000000300001147", "hex"));
+          else if (frame[2] === 0x0a) events.emit("data", Buffer.from("55aa0b0d0001000000000000010c000320c50e", "hex"));
+          else if (frame[2] === 0x10) {
+            events.emit("data", Buffer.from("55aa1101002055", "hex"));
+            const body = frame.subarray(19, -2).toString("hex");
+            if (body === "8305") {
+              const payload = Buffer.alloc(28); payload.writeInt8(-41, 0);
+              Buffer.from("a1b2c3d4e5f6", "hex").copy(payload, 1); payload[7] = 0x83; payload[8] = 46;
+              payload.writeUInt16BE(257, 9); payload.writeUInt16BE(0xc000, 11);
+              Buffer.from("0a010505085932020100030000", "hex").copy(payload, 15);
+              events.emit("data", encodeCrcFrame(0x12, payload));
+            }
+            if (body === "4e13") {
+              const timer = setTimeout(() => { timers.delete(timer); disconnects++; events.emit("disconnect", new Error("USB detached")); }, 5);
+              timers.add(timer);
+            }
+          }
+        });
+      }
+    };
+  } });
+  const mappings = { listConfirmed: vi.fn(async () => [{ fixtureId: firstId, deviceUuid: "bio:a1b2c3d4e5f6", nativeUuid: "a1b2c3d4e5f6", logicalAddress: 257 }] as any),
+    findByDeviceUuidIncludingReserved: vi.fn(), reserve: vi.fn(), confirm: vi.fn(), findByFixtureId: vi.fn(), findByLogicalAddress: vi.fn() };
+  const scopedCommand = { ...command, targetFixtureIds: [firstId] };
+  try {
+    await client.probe();
+    await handleFixturePresenceCheck(new BioUsbDongleAdapter(client, mappings), f.journal, scopedCommand, f.publisher, f.options);
+    expect(await f.outbox.pending()).toEqual([]);
+    expect(f.completed).toEqual([]);
+    expect((await f.journal.accept(scopedCommand)).terminal).toEqual({ events: [], failure: "transport_unavailable" });
+    await vi.waitFor(() => expect(connections).toBe(2), { timeout: 2500 });
+    expect(disconnects).toBe(1);
+    expect(writes.filter((bytes) => bytes[0] === 0x55 && bytes[2] === 0x10).map((bytes) => bytes.subarray(19, -2).toString("hex")))
+      .toEqual(["8305", "85", "4e13"]);
+  } finally { for (const timer of timers) clearTimeout(timer); await client.close(); }
 });
 
 it.each([false, true])("publishes partial handoff and continues after ACK with capacity one (restart=%s)", async (restart) => {

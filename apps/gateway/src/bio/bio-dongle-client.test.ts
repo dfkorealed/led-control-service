@@ -1109,6 +1109,25 @@ describe("BIO evidence-gated dongle client", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it("rejects an acknowledged GET immediately when USB generation changes before the device report", async () => {
+    const h = generationHarness(75, { observationTimeoutMs: 5000 }); await ready(h);
+    const original = h.device;
+    let failure: unknown;
+    const reading = h.client.readBrightness(verifiedTarget);
+    void reading.catch((error) => { failure = error; });
+    try {
+      await flush(); original.receive("55aa1101002055"); await flush();
+      original.emit("error", new Error("USB detached")); await flush();
+      expect(failure).toMatchObject({ code: "DISCONNECTED", name: "BioUsbError" });
+      await vi.advanceTimersByTimeAsync(2000); await recoverReady(h.device);
+      expect(h.devices).toHaveLength(2);
+      h.device.receive(brightnessReportHex("001122334455", 0x1234, 198)); await flush();
+      await expect(reading).rejects.toMatchObject({ code: "DISCONNECTED" });
+      expect((h.client as unknown as { listeners: Set<unknown> }).listeners.size).toBe(0);
+    } finally { await h.client.close(); }
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("serializes two same-target GET operations through each command and its own report", async () => {
     const h = harness(75, { observationTimeoutMs: 100 }); await ready(h);
     const first = h.client.readBrightness(verifiedTarget); void first.catch(() => {});

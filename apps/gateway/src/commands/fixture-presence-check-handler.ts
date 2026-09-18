@@ -90,7 +90,7 @@ export async function handleFixturePresenceCheck(
   value: FixturePresenceCheckCommandV1,
   publisher: Pick<MonitoringRefreshEventPublisher, "replay" | "persistAndPublish">,
   options: { retryDelayMs?: number; now?: () => Date; signal?: AbortSignal;
-    nextSequence: () => Promise<number>; onDurableReceipt?: () => void } 
+    nextSequence: () => Promise<number>; onDurableReceipt?: () => void }
 ): Promise<void> {
   const command = fixturePresenceCheckCommandV1Schema.parse(value);
   const now = options.now ?? (() => new Date());

@@ -550,6 +550,8 @@ export class BioDongleClient {
     control: BioOperationControl = {}
   ) {
     let unsubscribe = () => {};
+    let unsubscribeTransport = () => {};
+    const generation = this.transport.snapshot().generation;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let rejectWait!: (error: unknown) => void;
     let settled = false;
@@ -565,10 +567,22 @@ export class BioDongleClient {
       timer = undefined;
       control.signal?.removeEventListener("abort", cancelForControl);
       unsubscribe();
+      unsubscribeTransport();
+    };
+    const checkTransport = () => {
+      const snapshot = this.transport.snapshot();
+      if (settled || (snapshot.ready && snapshot.generation === generation)) return;
+      // ACK는 USB TX 수락일 뿐이다. 관측 대기 중 연결/세대가 바뀌면 장치 무응답을
+      // 증명할 수 없고, 재연결된 stream의 report도 이전 GET의 응답으로 사용할 수 없다.
+      settled = true;
+      cleanup();
+      rejectWait(new BioUsbError(snapshot.lastError ?? "DISCONNECTED", "BIO transport changed during read-back"));
     };
     const promise = new Promise<ReadbackEvent>((resolve, reject) => {
       rejectWait = reject;
       unsubscribe = this.onEvent((event) => {
+        checkTransport();
+        if (settled) return;
         if (event.kind !== expectedKind
           || event.deviceUuid !== `bio:${expected.nativeUuid}`
           || event.logicalAddress !== expected.logicalAddress) return;
@@ -577,9 +591,12 @@ export class BioDongleClient {
         cleanup();
         resolve(event);
       });
+      unsubscribeTransport = this.transport.onState(checkTransport);
       control.signal?.addEventListener("abort", cancelForControl, { once: true });
       const remaining = remainingOperationMs(control);
       timer = setTimeout(() => {
+        checkTransport();
+        if (settled) return;
         settled = true;
         cleanup();
         reject(operationStopped(control)
@@ -587,6 +604,7 @@ export class BioDongleClient {
           : new BioDeviceReadTimeoutError());
       }, Math.min(this.observationTimeoutMs, remaining));
       if (operationStopped(control)) cancelForControl();
+      else checkTransport();
     });
     // [확인됨] native report에는 request transaction ID가 없다. UUID/address/DPID만으로
     // correlation하므로 global operation queue가 command write부터 matching report까지를
