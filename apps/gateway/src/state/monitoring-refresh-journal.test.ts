@@ -75,9 +75,20 @@ it("fails closed on null persisted per-event handoff progress", async () => {
   const file = await path();
   await new MonitoringRefreshJournal(file, scope, { now }).accept(command);
   const corrupt = JSON.parse(await readFile(file, "utf8"));
+  corrupt.version = 1;
   corrupt.records[0].handedOffEventIds = null;
   await writeFile(file, JSON.stringify(corrupt));
   await expect(new MonitoringRefreshJournal(file, scope, { now }).initialize()).rejects.toThrow("handoff progress");
+});
+
+it("rejects corrupt v2 result ACK progress before any replay", async () => {
+  const file = await path();
+  const journal = new MonitoringRefreshJournal(file, scope, { now });
+  await journal.accept(command); await journal.complete(command, terminal());
+  const corrupt = JSON.parse(await readFile(file, "utf8"));
+  corrupt.records[0].acknowledgedEventIds = [command.refreshId];
+  await writeFile(file, JSON.stringify(corrupt));
+  await expect(new MonitoringRefreshJournal(file, scope, { now }).initialize()).rejects.toThrow("acknowledgement progress");
 });
 
 it("refuses completion without exactly one correlated terminal event per target", async () => {

@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
@@ -42,6 +42,38 @@ async function acknowledgeAll(publisher: MonitoringRefreshEventPublisher, outbox
   const statePublisher = new StateEventOutboxPublisher(outbox);
   for (const row of await outbox.pending()) await publisher.acknowledgeState(stateAck(row.payload), statePublisher);
 }
+
+it("does not remove a result from the outbox when durable ACK progress cannot be committed", async () => {
+  const f = await fixture();
+  const adapter = { probeFixturePresence: vi.fn(async (ids: string[]) => ids.map((fixtureId) => ({ fixtureId, outcome: "not_found" as const }))) };
+  await handleFixturePresenceCheck(adapter, f.journal, command, f.publisher, f.options);
+  await f.publisher.stopAndDrain();
+  const before = await f.outbox.pending();
+  const maxBytes = Buffer.byteLength(await readFile(join(f.directory, "journal.json"), "utf8")) + 1;
+  const boundedJournal = new MonitoringRefreshJournal(join(f.directory, "journal.json"), scope, { now, maxBytes });
+  const boundedPublisher = new MonitoringRefreshEventPublisher(boundedJournal, f.outbox);
+  publishers.push(boundedPublisher);
+  await expect(boundedPublisher.acknowledgeState(stateAck(before[0].payload), new StateEventOutboxPublisher(f.outbox))).rejects.toThrow("capacity");
+  expect(await f.outbox.pending()).toEqual(before);
+  expect((await new MonitoringRefreshJournal(join(f.directory, "journal.json"), scope, { now }).pending())[0].acknowledgedEventIds).toEqual([]);
+});
+
+it("recovers the crash window after durable result ACK but before outbox deletion without reprobe", async () => {
+  const f = await fixture();
+  const adapter = { probeFixturePresence: vi.fn(async (ids: string[]) => ids.map((fixtureId) => ({ fixtureId, outcome: "not_found" as const }))) };
+  await handleFixturePresenceCheck(adapter, f.journal, command, f.publisher, f.options);
+  await f.publisher.stopAndDrain();
+  for (const row of await f.outbox.pending()) await f.journal.acknowledgeEvent(stateAck(row.payload));
+  const restarted = new MonitoringRefreshJournal(join(f.directory, "journal.json"), scope, { now });
+  const publisher = new MonitoringRefreshEventPublisher(restarted, new StateEventOutbox(join(f.directory, "outbox.json"), scope));
+  publishers.push(publisher);
+  const completed: unknown[] = [];
+  await publisher.connect(async (_topic, event) => { completed.push(event); });
+  expect(completed).toHaveLength(1);
+  expect((await restarted.pending())[0].acknowledgedEventIds).toHaveLength(2);
+  expect(await f.outbox.pending()).toHaveLength(2);
+  expect(adapter.probeFixturePresence).toHaveBeenCalledTimes(2);
+});
 
 it.each([false, true])("waits for every API result ACK across disconnect/restart before publishing completion (restart=%s)", async (restart) => {
   const f = await fixture();
