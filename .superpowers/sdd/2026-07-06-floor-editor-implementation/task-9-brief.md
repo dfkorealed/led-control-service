@@ -11,6 +11,7 @@
 - `apps/api/src/floor-import/cad-core-child.ts`
 - `apps/api/src/floor-import/cad-core-executor.ts`
 - `scripts/run-cad-sample-pipeline.mjs`
+- `scripts/run-cad-sample-pipeline.test.mjs`
 - `apps/web/e2e/cad-import-journey.spec.ts`
 - `apps/web/e2e/floor-placement-real.spec.ts`
 - `apps/web/e2e/floor-placement.spec.ts`
@@ -45,6 +46,8 @@ pnpm --filter @led-control/api build
 pnpm --filter @led-control/web build
 git diff --check
 ```
+
+`test:cad-sample`은 `apps/api/dist`를 제거한 뒤 저장소의 공식 `pnpm workspace:prepare`로 shared와 automation-engine을 준비하고, 현재 checkout의 API를 build한 다음 sample Jest를 실행한다.
 
 **완료 조건**
 - 실제 샘플 pipeline, 최대 부하 성능, 브라우저 전체 여정이 모두 통과한다.

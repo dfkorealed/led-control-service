@@ -31,7 +31,8 @@
 4. 일치 증거의 후보 수, 일치 수, 비율, 허용 오차, 최대 편차가 서로 모순되면 child manifest를 거부하는 회귀를 추가했다.
 5. 기존 맵 교체부터 모니터링 반영까지 한 번에 검증하는 Chromium E2E를 추가했다.
 6. 수정 라운드 1 RED에서 65-byte/65종 unsupported marker, metadata output budget, 65종 manifest, 8 MiB 초과 child 응답이 거부되지 않음을 확인했다. parser와 child manifest를 같은 상한으로 묶고 bounded stdout transport로 parent가 JSON parse 전에 차단하도록 수정했다.
-7. 부분 sample 환경변수가 suite 전체를 skip하는 기존 동작을 RED로 확인했다. 전용 실행기는 ignored `dist`를 먼저 삭제하고 현재 API source를 build한 뒤 sample test를 실행하며, 일부 환경변수만 주어지면 명시적으로 실패한다.
+7. 부분 sample 환경변수가 suite 전체를 skip하는 기존 동작을 RED로 확인했다. 전용 실행기는 ignored API `dist`를 먼저 삭제하고 공식 `pnpm workspace:prepare`로 shared와 automation-engine을 준비한 뒤 현재 API source를 build해 sample test를 실행한다. 일부 환경변수만 주어지면 명시적으로 실패한다.
+8. 수정 라운드 2에서는 shared/automation-engine/API `dist`가 모두 없는 계약 fixture에서 `workspace:prepare -> API build -> sample Jest` 순서를 고정했다. 실제 세 `dist`를 제거한 상태에서도 동일한 `pnpm test:cad-sample` 명령을 재실행해 성공했다.
 
 ## 실제 DWG 파이프라인
 
@@ -107,7 +108,7 @@ pnpm test:cad-sample
 - Shared: 15 files, 249 tests 통과; typecheck/build 통과
 - API: 166 suites, 1,997 tests 통과, 환경 의존 503 tests skip; typecheck/build 통과
 - Web: 100 files, 1,437 tests 직렬 실행 통과; typecheck/production build 통과
-- CAD 집중: parser/core bounded manifest 56 tests, PostgreSQL lifecycle 14 tests, 실제 sample clean-build 1 test 통과
+- CAD 집중: parser/core bounded manifest 56 tests, PostgreSQL lifecycle 14 tests, clean workspace script contract 1 test, 실제 sample clean-build 1 test 통과
 - Chromium: CAD 전체 여정 1 test, 최대 부하 2 tests 통과
 - 첫 Web 병렬 전체 실행은 통계 화면 이동 테스트 1건이 5초 안에 문구를 찾지 못했지만 같은 테스트 단독 실행과 전체 직렬 실행에서는 통과했다. 제품/테스트 코드는 변경하지 않았다.
 

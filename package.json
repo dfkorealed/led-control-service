@@ -9,7 +9,7 @@
     "dev:local": "pnpm dev:network-preflight && pnpm dev:prepare && pnpm docker:up && pnpm dev",
     "test": "node scripts/workspace-gate.mjs test",
     "test:cad-sample": "node scripts/run-cad-sample-pipeline.mjs",
-    "test:unit": "node --test scripts/dev-runtime.test.mjs scripts/dev-mqtt-acl.integration.test.mjs scripts/lan-tls-integration.test.mjs scripts/production-audit-policy.test.mjs scripts/image-size-security.test.mjs scripts/workspace-gate.test.mjs scripts/ci-workflows.test.mjs scripts/ci-hil-preflight.test.mjs tests/mqtt-production-config.node.mjs && pnpm -r test && pnpm --filter @led-control/web test:ui-policy && pnpm --filter @led-control/web ui:check",
+    "test:unit": "node --test scripts/dev-runtime.test.mjs scripts/dev-mqtt-acl.integration.test.mjs scripts/lan-tls-integration.test.mjs scripts/production-audit-policy.test.mjs scripts/image-size-security.test.mjs scripts/workspace-gate.test.mjs scripts/run-cad-sample-pipeline.test.mjs scripts/ci-workflows.test.mjs scripts/ci-hil-preflight.test.mjs tests/mqtt-production-config.node.mjs && pnpm -r test && pnpm --filter @led-control/web test:ui-policy && pnpm --filter @led-control/web ui:check",
     "test:lan-tls": "node --test scripts/lan-tls-integration.test.mjs",
     "lint": "node scripts/workspace-gate.mjs lint",
     "typecheck": "node scripts/workspace-gate.mjs typecheck",

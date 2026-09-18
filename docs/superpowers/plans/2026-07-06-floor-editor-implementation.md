@@ -492,6 +492,7 @@ git commit -m "feat(monitoring): restore cad maps with fixture assignments"
 - 추가: `apps/web/e2e/cad-import-journey.spec.ts`
 - 검증: `apps/web/e2e/floor-placement.spec.ts`
 - 추가: `scripts/run-cad-sample-pipeline.mjs`
+- 추가: `scripts/run-cad-sample-pipeline.test.mjs`
 - 수정: `package.json`
 - 수정: `docs/menus/settings.md`
 - 수정: `docs/menus/monitoring.md`
@@ -508,7 +509,7 @@ git commit -m "feat(monitoring): restore cad maps with fixture assignments"
 
 Run: `CAD_SAMPLE_DWG_PATH="/Users/kim-jh/Downloads/2단지지하주차장전등설비합본평면도20260803.dwg" CAD_SAMPLE_CONVERTER_PATH=/opt/homebrew/bin/dwgread CAD_SAMPLE_CONVERTER_ARGV_JSON='["-O","DXF","-o","{output}","{input}"]' RUN_OBJECT_STORAGE_INTEGRATION=true pnpm test:cad-sample`
 
-전용 명령은 ignored `apps/api/dist`를 삭제하고 현재 checkout을 build한 뒤 test를 실행한다. sample 환경변수 일부만 설정된 직접 Jest 실행도 skip하지 않고 실패한다.
+전용 명령은 ignored `apps/api/dist`를 삭제하고 저장소의 공식 `pnpm workspace:prepare`로 shared와 automation-engine을 준비한 뒤 현재 checkout의 API를 build하고 test를 실행한다. sample 환경변수 일부만 설정된 직접 Jest 실행도 skip하지 않고 실패한다. shared/automation-engine/API `dist`가 모두 없는 계약 fixture와 실제 clean artifact 재실행으로 이 순서를 검증했다.
 
 Actual: job 100%, SVG decode 성공, 제품 후보 1,308개와 후보 transform 1,308/1,308 일치. 독립 analyzer 직접 규칙 후보 1,302개와 제품 nested 후보 1,308개는 집계 범위가 다르며 ground truth 정확도가 아니다.
 
@@ -527,7 +528,7 @@ Expected: 모두 exit 0.
 - [x] **Step 5: 최종 현황 문서와 계획 체크리스트 갱신 후 커밋**
 
 ```bash
-git add apps/api/src/floor-import apps/web/e2e/cad-import-journey.spec.ts scripts/run-cad-sample-pipeline.mjs package.json docs/superpowers/plans/2026-07-06-floor-editor-implementation.md .superpowers/sdd/2026-07-06-floor-editor-implementation/task-9-brief.md .superpowers/sdd/2026-07-06-floor-editor-implementation/task-9-report.md
+git add apps/api/src/floor-import apps/web/e2e/cad-import-journey.spec.ts scripts/run-cad-sample-pipeline.mjs scripts/run-cad-sample-pipeline.test.mjs package.json docs/superpowers/plans/2026-07-06-floor-editor-implementation.md .superpowers/sdd/2026-07-06-floor-editor-implementation/task-9-brief.md .superpowers/sdd/2026-07-06-floor-editor-implementation/task-9-report.md
 # 두 메뉴 문서는 이번 Task의 CAD hunk만 선택적으로 stage한다.
 git commit -m "fix(cad): close task 9 review gaps"
 ```
