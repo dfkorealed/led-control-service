@@ -167,6 +167,41 @@ describe("FloorMapService", () => {
     });
   });
 
+  it("reads a persisted CAD floor plan through the map snapshot contract", async () => {
+    const prisma: any = {
+      floor: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: floorId,
+          siteId,
+          mapRevision: 4,
+          floorPlan: {
+            imageUrl: "",
+            sourceType: "cad",
+            originalFileUrl: null,
+            renderedImageUrl: null,
+            width: 16_384,
+            height: 8_192,
+            gridSize: 80
+          },
+          mapObjects: [],
+          fixtures: []
+        })
+      }
+    };
+    const service = new FloorMapService(prisma, { assert: jest.fn().mockResolvedValue({ id: siteId }) } as never);
+
+    await expect(service.getSnapshot(user, siteId, floorId)).resolves.toMatchObject({
+      revision: 4,
+      floorPlan: {
+        sourceType: "cad",
+        imageUrl: "",
+        width: 16_384,
+        height: 8_192,
+        gridSize: 80
+      }
+    });
+  });
+
   it("returns the same opaque 404 for absent and inaccessible floors", async () => {
     const absent = new FloorMapService(
       { floor: { findFirst: jest.fn().mockResolvedValue(null) } } as never,

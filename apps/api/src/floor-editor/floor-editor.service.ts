@@ -797,6 +797,7 @@ export class FloorEditorService {
       where: { id: floorId },
       include: {
         floorPlan: true,
+        cadScene: true,
         fixtures: { orderBy: { id: "asc" }, include: { meshNode: { select: { meshAddress: true, serialNumber: true } } } },
         mapObjects: { orderBy: { id: "asc" } },
         lightSlots: { orderBy: { id: "asc" } }
@@ -859,7 +860,33 @@ export class FloorEditorService {
     snapshot: FloorEditorSnapshot
   ) {
     if (!snapshot.floorPlan || snapshot.floorPlan.sourceType === "none") return;
+    if (snapshot.floorPlan.sourceType === "cad") {
+      await this.assertCadSceneSnapshotCompatibility(tx, floorId, snapshot);
+      return;
+    }
     await this.assertReadyAssetUrls(floorId, snapshot.floorPlan, tx);
+  }
+
+  private async assertCadSceneSnapshotCompatibility(
+    tx: Prisma.TransactionClient,
+    floorId: string,
+    snapshot: FloorEditorSnapshot
+  ) {
+    const cadScene = "cadScene" in snapshot ? snapshot.cadScene : undefined;
+    if (!cadScene) {
+      throw new ConflictException("CAD scene is no longer compatible with this revision");
+    }
+    const scenes = await tx.$queryRaw<Array<{ id: string; width: number; height: number }>>(Prisma.sql`
+      SELECT "id", "width", "height"
+      FROM "FloorCadScene"
+      WHERE "floorId" = ${floorId}
+      FOR UPDATE
+    `);
+    const currentScene = scenes[0];
+    if (!currentScene || currentScene.id !== cadScene.id ||
+      currentScene.width !== cadScene.width || currentScene.height !== cadScene.height) {
+      throw new ConflictException("CAD scene is no longer compatible with this revision");
+    }
   }
 
   private async existingFixtureIds(tx: Prisma.TransactionClient, floorId: string, fixtureIds: string[]) {

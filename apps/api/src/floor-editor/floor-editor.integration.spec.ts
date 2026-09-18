@@ -1146,6 +1146,56 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
     }
   });
 
+  it("rejects a historical CAD revision when its scene was replaced before restore", async () => {
+    const historical = await createCadSceneRestoreFixture({ width: 8192, height: 4096 });
+    await prisma.floorPlan.create({ data: {
+      floorId: ids.floorId, sourceType: "cad", imageUrl: "", originalFileUrl: null, renderedImageUrl: null,
+      width: historical.width, height: historical.height, gridSize: 40
+    } });
+    const snapshot = {
+      version: 2 as const,
+      floorPlan: {
+        sourceType: "cad" as const, imageUrl: "", originalFileUrl: null, renderedImageUrl: null,
+        width: historical.width, height: historical.height, gridSize: 40
+      },
+      cadScene: { id: historical.sceneId, width: historical.width, height: historical.height },
+      fixtures: [], objects: [], lightSlots: []
+    };
+    await prisma.floorMapRevision.create({ data: {
+      floorId: ids.floorId, revision: 1, snapshot,
+      snapshotSha256: createHash("sha256").update(JSON.stringify(snapshot)).digest("hex"),
+      changeSummary: {}, changedBy: operator.id
+    } });
+    await prisma.floor.update({ where: { id: ids.floorId }, data: { mapRevision: 1 } });
+    await prisma.floorCadScene.delete({ where: { id: historical.sceneId } });
+    const current = await createCadSceneRestoreFixture({ width: 16_384, height: 8192 });
+    await prisma.floorPlan.update({ where: { floorId: ids.floorId }, data: {
+      width: current.width, height: current.height, gridSize: 80
+    } });
+    await activateLease();
+    const service = new FloorEditorService(prisma, siteAccess, new AuditService(prisma));
+
+    try {
+      await expect(service.restoreEditorRevision(operator, ids.floorId, 1, {
+        expectedRevision: 1, leaseToken: lease.token, leaseFence: lease.fence
+      })).rejects.toEqual(expect.objectContaining({ message: "CAD scene is no longer compatible with this revision" }));
+      await expect(prisma.floor.findUniqueOrThrow({
+        where: { id: ids.floorId }, include: { floorPlan: true, cadScene: true }
+      })).resolves.toMatchObject({
+        mapRevision: 1,
+        floorPlan: { sourceType: "cad", width: current.width, height: current.height, gridSize: 80 },
+        cadScene: { id: current.sceneId, width: current.width, height: current.height }
+      });
+      await expect(prisma.floorMapRevision.count({ where: { floorId: ids.floorId } })).resolves.toBe(1);
+    } finally {
+      await prisma.floorCadScene.deleteMany({ where: { floorId: ids.floorId } });
+      await prisma.floorImportJob.deleteMany({ where: { id: { in: [historical.jobId, current.jobId] } } });
+      await prisma.floorAsset.deleteMany({ where: { id: {
+        in: [historical.sourceAssetId, historical.manifestAssetId, current.sourceAssetId, current.manifestAssetId]
+      } } });
+    }
+  });
+
   it("recovers an exact source mapping for a source-less V2 snapshot after current slots were replaced", async () => {
     const scenario = await createLegacySlotRestoreScenario();
     try {
@@ -1421,6 +1471,44 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
         });
       }
     };
+  }
+
+  async function createCadSceneRestoreFixture(dimensions: { width: number; height: number }) {
+    const sourceAssetId = randomUUID();
+    const manifestAssetId = randomUUID();
+    const jobId = randomUUID();
+    const regionId = randomUUID();
+    const sceneId = randomUUID();
+    await prisma.floorAsset.createMany({ data: [
+      {
+        id: sourceAssetId, floorId: ids.floorId, kind: "original", status: "ready",
+        objectKey: `integration/${sourceAssetId}.dwg`, mimeType: "application/dwg",
+        sizeBytes: 128n, sha256: "1".repeat(64), readyAt: new Date()
+      },
+      {
+        id: manifestAssetId, floorId: ids.floorId, kind: "cad_manifest", status: "ready",
+        objectKey: `integration/${manifestAssetId}.cad`, mimeType: "application/octet-stream",
+        sizeBytes: 256n, sha256: "2".repeat(64), readyAt: new Date()
+      }
+    ] });
+    await prisma.floorImportJob.create({ data: {
+      id: jobId, floorId: ids.floorId, sourceAssetId, sourceFormat: "dwg",
+      status: "failed", stage: "failed", failureCode: "TEST_FIXTURE",
+      failureMessage: "CAD revision restore fixture", failedAt: new Date()
+    } });
+    await prisma.floorImportRegion.create({ data: {
+      id: regionId, jobId, regionId: `region-${regionId}`,
+      minX: 10, minY: 20, maxX: 1010, maxY: 820, primitiveCount: 500, selectedAt: new Date()
+    } });
+    await prisma.floorCadScene.create({ data: {
+      id: sceneId, floorId: ids.floorId, sourceImportJobId: jobId, sourceRegionId: regionId,
+      version: 1, width: dimensions.width, height: dimensions.height, tileSize: 512,
+      primitiveCount: 500, tileCount: 1, manifestAssetId,
+      sourceMinX: 10, sourceMinY: 20, sourceMaxX: 1010, sourceMaxY: 820,
+      transformScaleX: dimensions.width / 1000, transformScaleY: -(dimensions.height / 800),
+      transformTranslateX: 0, transformTranslateY: 0
+    } });
+    return { ...dimensions, sceneId, jobId, sourceAssetId, manifestAssetId };
   }
 
   it("preserves an old ready asset when editor save wins the cleanup race", async () => {

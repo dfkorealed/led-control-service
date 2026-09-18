@@ -4,7 +4,7 @@ import { FloorEditorSnapshot, parseFloorEditorSnapshot } from "@led-control/shar
 interface SnapshotFloor {
   floorPlan: null | {
     imageUrl: string;
-    sourceType: "none" | "image" | "pdf";
+    sourceType: "none" | "image" | "pdf" | "cad";
     originalFileUrl: string | null;
     renderedImageUrl: string | null;
     width: number;
@@ -39,6 +39,11 @@ interface SnapshotFloor {
     locked: boolean;
     visible: boolean;
   }>;
+  cadScene?: {
+    id: string;
+    width: number;
+    height: number;
+  } | null;
   lightSlots?: Array<{
     id: string;
     sourceImportJobId: string;
@@ -97,6 +102,13 @@ export function buildFloorEditorSnapshot(floor: SnapshotFloor): FloorEditorSnaps
         locked: object.locked,
         visible: object.visible
       })),
+    ...(floor.floorPlan?.sourceType === "cad" && floor.cadScene ? {
+      cadScene: {
+        id: floor.cadScene.id,
+        width: floor.cadScene.width,
+        height: floor.cadScene.height
+      }
+    } : {}),
     lightSlots: [...(floor.lightSlots ?? [])]
       .sort((left, right) => compareIds(left.id, right.id))
       .map((slot) => ({

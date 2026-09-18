@@ -257,6 +257,11 @@ export const floorMapPlanSnapshotSchema = z.discriminatedUnion("sourceType", [
     sourceType: z.literal("pdf"),
     ...floorMapReadPlanFields,
     imageUrl: z.union([editorUrlSchema, z.literal("")])
+  }).strict(),
+  z.object({
+    sourceType: z.literal("cad"),
+    ...floorMapReadPlanFields,
+    imageUrl: z.literal("")
   }).strict()
 ]);
 
@@ -364,6 +369,12 @@ const legacySnapshotPointsSchema = z.array(editorPointSchema).max(EDITOR_MAX_POI
 
 export const FLOOR_EDITOR_SNAPSHOT_VERSION = 2;
 
+const floorCadSceneSnapshotSchema = z.object({
+  id: z.string().uuid(),
+  width: positiveInt4Schema,
+  height: positiveInt4Schema
+}).strict();
+
 export const floorEditorSnapshotV1Schema = z.object({
   floorPlan: z.object({
     imageUrl: legacySnapshotUrlSchema,
@@ -402,8 +413,15 @@ export const floorEditorSnapshotV1Schema = z.object({
   }).strict())
 }).strict();
 
+const floorEditorSnapshotV2FloorPlanSchema = floorEditorSnapshotV1Schema.shape.floorPlan
+  .unwrap()
+  .extend({ sourceType: z.enum(["none", "image", "pdf", "cad"]) })
+  .nullable();
+
 export const floorEditorSnapshotV2Schema = floorEditorSnapshotV1Schema.extend({
   version: z.literal(FLOOR_EDITOR_SNAPSHOT_VERSION),
+  floorPlan: floorEditorSnapshotV2FloorPlanSchema,
+  cadScene: floorCadSceneSnapshotSchema.optional(),
   // Existing V2 revisions predate CAD slots; new snapshots include this array.
   lightSlots: z.array(floorLightSlotSchema.extend({
     // Older V2 snapshots only stored public slot geometry. New revisions retain
@@ -419,6 +437,24 @@ export const floorEditorSnapshotV2Schema = floorEditorSnapshotV1Schema.extend({
     positionVerifiedAt: z.string().datetime().nullable()
   }).refine((fixture) => fixture.placementStatus !== "unplaced" || fixture.positionVerifiedAt === null,
     "unplaced fixtures cannot have a verified position"))
+}).superRefine((snapshot, context) => {
+  const floorPlan = snapshot.floorPlan;
+  const isCadPlan = floorPlan?.sourceType === "cad";
+  if (isCadPlan && !snapshot.cadScene) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["cadScene"],
+      message: "CAD floor plan snapshots require a scene identity" });
+  }
+  if (!isCadPlan && snapshot.cadScene) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["cadScene"],
+      message: "scene identity is only valid for CAD floor plans" });
+  }
+  if (isCadPlan && snapshot.cadScene && (
+    snapshot.cadScene.width !== floorPlan!.width ||
+    snapshot.cadScene.height !== floorPlan!.height
+  )) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["cadScene"],
+      message: "CAD scene dimensions must match the floor plan" });
+  }
 });
 
 // Legacy revisions remain immutable; normalize their missing placement metadata only on read.
