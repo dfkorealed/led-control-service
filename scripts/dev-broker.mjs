@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import {
   chmodSync,
@@ -18,6 +18,7 @@ const CONTAINER_ACL_DIRECTORY = "/mosquitto/runtime";
 const CONTAINER_ACL_PATH = `${CONTAINER_ACL_DIRECTORY}/mosquitto.acl`;
 const CONTAINER_CONFIG_PATH = "/mosquitto/config/mosquitto.conf";
 const CONTAINER_CERT_DIRECTORY = "/mosquitto/certs";
+const BROKER_TLS_FILENAMES = ["mqtt-ca.crt", "mqtt-server.crt", "mqtt-server.key", "mqtt-client.crl"];
 
 export function publishNativeBrokerIdentity(destination, identity) {
   if (!Number.isSafeInteger(identity.pid) || identity.pid <= 0) {
@@ -40,6 +41,7 @@ export function reloadExistingDevelopmentBroker({
   aclPath,
   dockerConfigPath,
   dockerCertDirectory,
+  dockerCertMountDirectory = dockerCertDirectory,
   platform = process.platform,
   nativeIdentityPath = join(root, ".local", "mosquitto.host.pid.json"),
   port = 8883,
@@ -47,7 +49,8 @@ export function reloadExistingDevelopmentBroker({
   signalProcess = process.kill
 }) {
   const owner = identifyDevelopmentBroker({
-    root, aclPath, dockerConfigPath, dockerCertDirectory, nativeIdentityPath, platform, port, run
+    root, aclPath, dockerConfigPath, dockerCertDirectory, dockerCertMountDirectory,
+    nativeIdentityPath, platform, port, run
   });
 
   if (owner.kind === "docker") {
@@ -78,7 +81,8 @@ export function reloadExistingDevelopmentBroker({
   // Re-resolve the listener after SIGHUP. A successful signal alone does not
   // prove the expected broker survived or that the port was not taken over.
   const verified = identifyDevelopmentBroker({
-    root, aclPath, dockerConfigPath, dockerCertDirectory, nativeIdentityPath, platform, port, run
+    root, aclPath, dockerConfigPath, dockerCertDirectory, dockerCertMountDirectory,
+    nativeIdentityPath, platform, port, run
   });
   if (verified.kind !== owner.kind || (owner.kind === "docker" ? verified.id !== owner.id : verified.pid !== owner.pid)) {
     throw new Error("development Mosquitto ownership changed while reloading ACL");
@@ -87,14 +91,18 @@ export function reloadExistingDevelopmentBroker({
 }
 
 function identifyDevelopmentBroker({
-  root, aclPath, dockerConfigPath, dockerCertDirectory, nativeIdentityPath, platform, port, run
+  root, aclPath, dockerConfigPath, dockerCertDirectory, dockerCertMountDirectory,
+  nativeIdentityPath, platform, port, run
 }) {
   const containerIds = successfulOutput(run("docker", ["compose", "ps", "-q", "mqtt-tls"], { cwd: root }))
     .split(/\s+/)
     .filter(Boolean);
   if (containerIds.length > 1) throw new Error("multiple Docker mqtt-tls containers matched this repository");
   if (containerIds.length === 1) {
-    assertRepoDockerBroker(containerIds[0], root, aclPath, dockerConfigPath, dockerCertDirectory, platform, port, run);
+    assertRepoDockerBroker(
+      containerIds[0], root, aclPath, dockerConfigPath, dockerCertDirectory,
+      dockerCertMountDirectory, platform, port, run
+    );
     return { kind: "docker", id: containerIds[0] };
   }
 
@@ -132,7 +140,17 @@ function identifyDevelopmentBroker({
   return { kind: "native", pid: listenerPid };
 }
 
-function assertRepoDockerBroker(containerId, root, aclPath, dockerConfigPath, dockerCertDirectory, platform, port, run) {
+function assertRepoDockerBroker(
+  containerId,
+  root,
+  aclPath,
+  dockerConfigPath,
+  dockerCertDirectory,
+  dockerCertMountDirectory,
+  platform,
+  port,
+  run
+) {
   const result = requireSuccess(
     run("docker", ["inspect", containerId], { cwd: root }),
     "failed to inspect the repository Docker mqtt-tls broker"
@@ -145,6 +163,16 @@ function assertRepoDockerBroker(containerId, root, aclPath, dockerConfigPath, do
   }
   const labels = container?.Config?.Labels ?? {};
   const portBindings = container?.NetworkSettings?.Ports?.[`${port}/tcp`] ?? [];
+  const hasCapturedCertificateBind = hasExactReadOnlyBind(
+    container?.Mounts, CONTAINER_CERT_DIRECTORY, dockerCertDirectory, platform
+  );
+  // Docker Desktop can retain the lexical `current` symlink in inspect metadata
+  // even though prepare pinned its generation realpath. Accept that exact source
+  // only while every broker TLS input still matches the captured generation.
+  const hasVerifiedStableCertificateBind =
+    !hasCapturedCertificateBind &&
+    hasExactReadOnlyBind(container?.Mounts, CONTAINER_CERT_DIRECTORY, dockerCertMountDirectory, platform) &&
+    dockerCertificateBundleMatches(containerId, dockerCertDirectory, root, run);
   if (
     !container?.State?.Running ||
     labels["com.docker.compose.service"] !== "mqtt-tls" ||
@@ -152,9 +180,26 @@ function assertRepoDockerBroker(containerId, root, aclPath, dockerConfigPath, do
     !portBindings.some((binding) => binding.HostPort === String(port)) ||
     !hasExactReadOnlyBind(container?.Mounts, CONTAINER_ACL_DIRECTORY, dirname(aclPath), platform) ||
     !hasExactReadOnlyBind(container?.Mounts, CONTAINER_CONFIG_PATH, dockerConfigPath, platform) ||
-    !hasExactReadOnlyBind(container?.Mounts, CONTAINER_CERT_DIRECTORY, dockerCertDirectory, platform)
+    (!hasCapturedCertificateBind && !hasVerifiedStableCertificateBind)
   ) {
     throw new Error(`an unmanaged process owns port ${port}`);
+  }
+}
+
+function dockerCertificateBundleMatches(containerId, capturedDirectory, root, run) {
+  try {
+    return BROKER_TLS_FILENAMES.every((filename) => {
+      const containerPath = `${CONTAINER_CERT_DIRECTORY}/${filename}`;
+      const expectedDigest = createHash("sha256")
+        .update(readFileSync(join(capturedDirectory, filename)))
+        .digest("hex");
+      const result = run("docker", ["exec", containerId, "sha256sum", containerPath], { cwd: root });
+      if (result?.status !== 0) return false;
+      const match = /^([0-9a-f]{64})[ \t]+(\S+)$/.exec(result.stdout.trim());
+      return match?.[1] === expectedDigest && match[2] === containerPath;
+    });
+  } catch {
+    return false;
   }
 }
 

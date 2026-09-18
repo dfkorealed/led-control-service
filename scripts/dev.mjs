@@ -26,7 +26,9 @@ const sourceEnv = await runDevelopmentNetworkPreflight({ root });
 if (sourceEnv.AUTOMATION_E2E_SIMULATOR === "1") {
   fail("AUTOMATION_E2E_SIMULATOR는 private child IPC를 제공하는 Chromium RealBackendLab에서만 실행할 수 있습니다.");
 }
-const { env, gatewayIds, aclPath, nativeConfigPath, dockerConfigPath, dockerCertDirectory } =
+const {
+  env, gatewayIds, aclPath, nativeConfigPath, dockerConfigPath, dockerCertDirectory, dockerCertMountDirectory
+} =
   prepareDevelopmentRuntime(root, sourceEnv);
 const nativeIdentityPath = join(root, ".local", "mosquitto.host.pid.json");
 const appFilters = resolveDevAppFilters(process.argv.slice(2));
@@ -41,7 +43,7 @@ await requireFreePort(webPort, "WEB_PORT");
 if (await isPortOpen(8883)) {
   try {
     reloadExistingDevelopmentBroker({
-      root, aclPath, dockerConfigPath, dockerCertDirectory, nativeIdentityPath
+      root, aclPath, dockerConfigPath, dockerCertDirectory, dockerCertMountDirectory, nativeIdentityPath
     });
   } catch (error) {
     fail(error instanceof Error ? error.message : String(error));
