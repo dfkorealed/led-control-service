@@ -1,7 +1,8 @@
 import { expect, test } from "@playwright/test";
 import {
   fixturePresenceCheckCommandV1Schema, fixturePresenceCheckCompletedV1Schema,
-  fixturePresenceV2Schema, fixtureUnreachableV1Schema, mqttTopicsV2
+  fixturePresenceCheckCompletedAckV1Schema, fixturePresenceV2Schema, fixtureUnreachableV1Schema,
+  mqttTopicsV2, type FixturePresenceCheckCompletedAckV1
 } from "@led-control/shared";
 import { randomUUID } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -118,7 +119,8 @@ test("software transport: manual refresh converges, deduplicates and recovers th
     await expect.poll(status).toMatchObject({ status: "completed", totalFixtures: 2, onlineFixtures: 1, offlineFixtures: 1, unverifiedFixtures: 0 });
     await expect.poll(counts).toEqual({ online: 1, offline: 1 });
     const beforeReplay = await status();
-    const acknowledgements = () => internal.mqttEvidence.filter(entry => entry.topic === completionTopic).length;
+    const expectedAck = { siteId: ids.site, gatewayId: ids.gateway, ...refreshIdentity };
+    const acknowledgements = () => countMonitoringCompletionAcknowledgements(internal.mqttEvidence, completionTopic, expectedAck);
     await expect.poll(acknowledgements).toBeGreaterThan(0);
     const beforeAck = acknowledgements();
     await internal.publish(presenceTopic, presence);
@@ -135,6 +137,33 @@ test("software transport: manual refresh converges, deduplicates and recovers th
     try { await lab.writeEvidence(testInfo); } finally { await lab.stop(); }
   }
 });
+
+test("completion ACK oracle rejects malformed payloads and mismatched request identities", () => {
+  const expected = { siteId: randomUUID(), gatewayId: randomUUID(), refreshId: randomUUID(), batchId: randomUUID() };
+  const topic = mqttTopicsV2.fixturePresenceCheckCompletedAck(expected.siteId, expected.gatewayId);
+  expect(countMonitoringCompletionAcknowledgements([{ topic, payload: expected }], topic, expected)).toBe(1);
+  for (const payload of [
+    {},
+    ...Object.keys(expected).map(key => ({ ...expected, [key]: randomUUID() })),
+    { ...expected, eventId: randomUUID() }
+  ]) {
+    expect(() => countMonitoringCompletionAcknowledgements([{ topic, payload }], topic, expected)).toThrow();
+  }
+});
+
+function countMonitoringCompletionAcknowledgements(
+  evidence: Array<{ topic: string; payload: unknown }>,
+  topic: string,
+  expected: FixturePresenceCheckCompletedAckV1
+) {
+  const acknowledgements = evidence.filter(entry => entry.topic === topic);
+  for (const entry of acknowledgements) {
+    // Match the Gateway's strict four-field ACK contract; eventId/sequence are
+    // completion-event fields and must not be invented on this ACK payload.
+    expect(fixturePresenceCheckCompletedAckV1Schema.parse(entry.payload)).toEqual(expected);
+  }
+  return acknowledgements.length;
+}
 
 for (const source of ["parent process", "dotenv"] as const) {
   test(`HTTP lab API는 ${source}의 TLS 설정을 사용하지 않는다`, () => {
