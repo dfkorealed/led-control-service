@@ -175,7 +175,12 @@ describe("CadImportPanel", () => {
     floorEditorApi.getFloorImportJob
       .mockResolvedValueOnce({ ...queuedJob, status: "processing", stage: "parsing", progressPercent: 45 })
       .mockResolvedValueOnce({ ...queuedJob, status: "review_required", stage: "review_required", progressPercent: 100 });
-    floorEditorApi.listFloorImportCandidates.mockResolvedValueOnce({ jobId: queuedJob.jobId, candidates: [candidate] });
+    let resolveCandidates!: (value: { jobId: string; candidates: typeof candidate[] }) => void;
+    floorEditorApi.listFloorImportCandidates.mockReturnValueOnce(
+      new Promise<{ jobId: string; candidates: typeof candidate[] }>((resolve) => {
+        resolveCandidates = resolve;
+      })
+    );
     const { onReviewChange } = renderPanel();
     selectCad();
     fireEvent.click(screen.getByRole("button", { name: "CAD 가져오기" }));
@@ -186,6 +191,11 @@ describe("CadImportPanel", () => {
     expect(floorEditorApi.getFloorImportJob).toHaveBeenCalledTimes(1);
     await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
     await flushPromises();
+    expect(screen.getByRole("progressbar", { name: "CAD 가져오기 진행률" })).toHaveValue(100);
+    expect(screen.getByText("분석 완료 · 조명 위치 후보를 불러오는 중")).toBeInTheDocument();
+
+    resolveCandidates({ jobId: queuedJob.jobId, candidates: [candidate] });
+    await flushPromises();
     expect(onReviewChange).toHaveBeenCalledWith({
       job: expect.objectContaining({ status: "review_required" }),
       candidates: [candidate],
@@ -194,6 +204,51 @@ describe("CadImportPanel", () => {
 
     await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
     expect(floorEditorApi.getFloorImportJob).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps a fixed one-second polling loop when processing timestamps do not change", async () => {
+    vi.useFakeTimers();
+    floorEditorApi.uploadFloorAsset.mockResolvedValueOnce(asset);
+    floorEditorApi.createFloorImportJob.mockResolvedValueOnce(queuedJob);
+    floorEditorApi.getFloorImportJob.mockResolvedValue({
+      ...queuedJob,
+      status: "processing",
+      stage: "parsing",
+      progressPercent: 35
+    });
+    const panel = renderPanel();
+    selectCad();
+    fireEvent.click(screen.getByRole("button", { name: "CAD 가져오기" }));
+    await flushPromises();
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
+
+    expect(floorEditorApi.getFloorImportJob).toHaveBeenCalledTimes(3);
+    panel.unmount();
+  });
+
+  it("preserves progress and resumes polling after a status request fails", async () => {
+    vi.useFakeTimers();
+    const processingJob = { ...queuedJob, status: "processing" as const, stage: "parsing", progressPercent: 35 };
+    floorEditorApi.uploadFloorAsset.mockResolvedValueOnce(asset);
+    floorEditorApi.createFloorImportJob.mockResolvedValueOnce(processingJob);
+    floorEditorApi.getFloorImportJob
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValueOnce({ ...processingJob, stage: "rendering", progressPercent: 70 });
+    renderPanel();
+    selectCad();
+    fireEvent.click(screen.getByRole("button", { name: "CAD 가져오기" }));
+    await flushPromises();
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+    expect(screen.getByRole("progressbar", { name: "CAD 가져오기 진행률" })).toHaveValue(35);
+    expect(screen.getByRole("button", { name: "다시 확인" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "다시 확인" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+
+    expect(floorEditorApi.getFloorImportJob).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("progressbar", { name: "CAD 가져오기 진행률" })).toHaveValue(70);
   });
 
   it("cleans up queued polling when unmounted", async () => {
@@ -410,7 +465,7 @@ describe("CadImportPanel", () => {
     await waitFor(() => expect(floorEditorApi.applyFloorImportJob).toHaveBeenCalledWith(
       "floor-1",
       queuedJob.jobId,
-      { expectedRevision: 7, leaseToken: "lease-token", leaseFence: 9, candidateIds: acceptedIds }
+      { expectedRevision: 7, leaseToken: "lease-token", leaseFence: 9, confirmMapReset: true, candidateIds: acceptedIds }
     ));
     expect(onApplied).toHaveBeenCalledWith(expect.objectContaining({ revision: 8 }));
   });

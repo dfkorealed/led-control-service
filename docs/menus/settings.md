@@ -74,6 +74,7 @@
 
 ## 구현 완료
 
+- 2026-09-18 CAD worker 진행률은 처리 단계와 재시도 전체에서 이전 값보다 감소하지 않고 `15 → 35 → 70 → 90 → 100%`로 수렴한다. Web은 `updatedAt`에 timer 생명주기를 의존하지 않는 1초 polling을 terminal 상태 전까지 유지하고, `review_required / 100%` 뒤 후보 조회가 끝날 때까지 완료 진행 UI를 보존한다. 상태 조회 실패 시 기존 job과 진행률을 유지한 `다시 확인`으로 polling을 재개하며 apply 요청은 맵 초기화 확인 계약을 명시한다. 관련 worker/Web/API 회귀를 추가했으며 DB schema/migration 변경은 없다.
 - 2026-09-17 CAD 원본 단위를 맵 픽셀로 직접 사용하지 않도록 SVG와 조명 후보에 같은 정규화 행렬을 적용한다. 맵은 원본 종횡비를 유지하면서 최대 `2400 × 1600`, 최소 변 800px, 도형 여백 40px로 생성한다. CAD 검토 배경이나 적용 overlay가 처음 나타날 때 전체 맵을 편집 영역에 한 번 맞추며 이후 사용자 줌·이동은 덮어쓰지 않는다. 실제 `킨다_도면등록_테스트.dwg`는 원본 viewport `15,020,849 × 164,134`에서 `2,400 × 800`로 줄었고 후보 2개, raw SVG 29,978,290 bytes, gzip SVG 3,285,375 bytes를 유지했다. Web 전체 1,309개와 실제 Chromium 맵 편집 7개에서 자동 맞춤 뒤 사용자 줌 보존 및 1,000개 조명 회귀를 통과했다. 정규화 도입 전에 이미 적용한 CAD는 원본을 다시 가져와 적용해야 한다.
 - 2026-09-17 로컬 개발 서버는 PATH 및 표준 Homebrew 경로의 `dwgread`를 실제 경로로 자동 감지해 shell 없는 `development-argv` CAD worker를 활성화한다. 변환기가 없는 개발 환경에서는 import 생성 API가 `503`으로 실패해 `queued / 0%` 작업을 영구 생성하지 않는다. 이 개발 어댑터는 production에서 거부되며 운영의 network-none sidecar·승인 digest 계약은 유지한다.
 - CAD job이 `review_required`에 도달하면 Web은 durable active job과 후보를 다시 읽어 검토 화면을 복구한다. 후보 요청 중 부모 callback identity가 바뀌어도 요청 결과를 폐기하거나 같은 job을 영구적으로 로드 완료 처리하지 않는다. 실제 Chromium에서 완료된 DWG job이 후보 2개 화면으로 복구되는지와 새로고침 5회 동안 15% 표시·API 5xx·console error가 없는지 확인했다.

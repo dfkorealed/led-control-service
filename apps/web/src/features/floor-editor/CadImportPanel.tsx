@@ -1,5 +1,6 @@
 import { ChevronLeft, ChevronRight, CircleCheck, FileCog, RotateCw, TriangleAlert, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { cadImportStageLabel } from "@led-control/shared";
 import type { CadImportMimeType, CadImportSourceFormat } from "@led-control/shared";
 import {
   applyFloorImportJob,
@@ -82,6 +83,7 @@ export function CadImportPanel({
   const [reviewCursor, setReviewCursor] = useState(0);
   const [suppressedReviewJobId, setSuppressedReviewJobId] = useState<string | null>(null);
   const [refreshRecoveryJob, setRefreshRecoveryJob] = useState<FloorImportJob | null>(null);
+  const [reviewLoadingJobId, setReviewLoadingJobId] = useState<string | null>(null);
   const loadedReviewJobId = useRef<string | null>(null);
   const requestLock = useRef(false);
   const busy = useRef(false);
@@ -112,6 +114,7 @@ export function CadImportPanel({
     setError(null);
     setSuppressedReviewJobId(null);
     setRefreshRecoveryJob(null);
+    setReviewLoadingJobId(null);
     loadedReviewJobId.current = null;
     reviewChange.current(null);
     setBusy(false);
@@ -132,14 +135,17 @@ export function CadImportPanel({
   useEffect(() => {
     if (!activeJob || !POLLING_STATUSES.has(activeJob.status) || error) return;
     let active = true;
-    const timer = window.setTimeout(async () => {
+    let polling = false;
+    const poll = async () => {
+      if (polling) return;
+      polling = true;
       try {
         const next = await getFloorImportJob(floorId, activeJob.jobId);
         if (!active) return;
         if (["failed", "cancelled"].includes(next.status)) {
           setSuppressedReviewJobId(next.jobId);
           setJob(null);
-          onReviewChange(null);
+          reviewChange.current(null);
           setBusy(false);
           setError(statusText(next));
         } else {
@@ -147,18 +153,22 @@ export function CadImportPanel({
         }
       } catch {
         if (active) setError("가져오기 진행 상태를 확인하지 못했습니다.");
+      } finally {
+        polling = false;
       }
-    }, POLL_INTERVAL_MS);
+    };
+    const timer = window.setInterval(() => void poll(), POLL_INTERVAL_MS);
     return () => {
       active = false;
-      window.clearTimeout(timer);
+      window.clearInterval(timer);
     };
-  }, [activeJob?.jobId, activeJob?.status, activeJob?.updatedAt, error, floorId]);
+  }, [activeJob?.jobId, activeJob?.status, error, floorId]);
 
   useEffect(() => {
     if (!activeJob || activeJob.status !== "review_required" || review?.job.jobId === activeJob.jobId
-      || loadedReviewJobId.current === activeJob.jobId) return;
+      || loadedReviewJobId.current === activeJob.jobId || error) return;
     loadedReviewJobId.current = activeJob.jobId;
+    setReviewLoadingJobId(activeJob.jobId);
     let active = true;
     void listFloorImportCandidates(floorId, activeJob.jobId).then((response) => {
       if (!active) return;
@@ -168,15 +178,17 @@ export function CadImportPanel({
         acceptedCandidateIds: response.candidates.map((candidate) => candidate.id)
       });
       setSuppressedReviewJobId(null);
+      setReviewLoadingJobId(null);
       setReviewCursor(0);
       focusedCandidateChange.current?.(response.candidates[0]?.id ?? null);
     }).catch(() => {
       if (!active) return;
       loadedReviewJobId.current = null;
+      setReviewLoadingJobId(null);
       setError("조명 위치 후보를 불러오지 못했습니다.");
     });
     return () => { active = false; };
-  }, [activeJob?.jobId, activeJob?.status, floorId, review?.job.jobId]);
+  }, [activeJob?.jobId, activeJob?.status, error, floorId, review?.job.jobId]);
 
   useEffect(() => {
     if (!activeJob) return;
@@ -231,6 +243,7 @@ export function CadImportPanel({
         expectedRevision,
         leaseToken,
         leaseFence,
+        confirmMapReset: true,
         candidateIds: activeReview.acceptedCandidateIds
       });
       await onApplied(result);
@@ -351,7 +364,11 @@ export function CadImportPanel({
     onReviewChange({ ...activeReview, acceptedCandidateIds: [...accepted] });
   }
 
-  const status = activeJob ? statusText(activeJob) : null;
+  const status = activeJob
+    ? reviewLoadingJobId === activeJob.jobId
+      ? `${cadImportStageLabel(activeJob.stage)} · 조명 위치 후보를 불러오는 중`
+      : cadImportStageLabel(activeJob.stage)
+    : null;
   return (
     <section className="grid gap-3 border-t border-border-subtle p-3" aria-label="CAD 가져오기">
       <div className="grid gap-1">
@@ -393,7 +410,8 @@ export function CadImportPanel({
         description="CAD 가져오기 또는 적용 전에 먼저 저장하거나 취소해 변경사항을 폐기하세요."
       /> : null}
 
-      {activeJob && activeJob.status !== "review_required" ? <div className="grid gap-2" role="status">
+      {activeJob && (activeJob.status !== "review_required" || reviewLoadingJobId === activeJob.jobId)
+        ? <div className="grid gap-2" role="status">
         <div className="flex items-center justify-between gap-2">
           <Text variant="body-sm" weight="semibold">{status}</Text>
           <Text variant="caption" tone="secondary">{activeJob.progressPercent}%</Text>
@@ -484,7 +502,7 @@ export function CadImportPanel({
         tone="danger"
         icon={TriangleAlert}
         title={error}
-        action={activeJob && POLLING_STATUSES.has(activeJob.status)
+        action={activeJob && (POLLING_STATUSES.has(activeJob.status) || activeJob.status === "review_required")
           ? <Button variant="secondary" onClick={() => setError(null)}><RotateCw size={16} aria-hidden="true" />다시 확인</Button>
           : undefined}
       /> : null}

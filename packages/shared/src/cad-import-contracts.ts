@@ -49,6 +49,41 @@ export const floorImportJobStatusSchema = z.enum([
   "cancelled"
 ]);
 
+export const cadImportStageSchema = z.enum([
+  "queued",
+  "downloading",
+  "converting",
+  "parsing",
+  "rendering",
+  "persisting",
+  "review_required",
+  "applying",
+  "completed",
+  "failed",
+  "cancelled"
+]);
+
+export type CadImportStage = z.infer<typeof cadImportStageSchema>;
+
+const CAD_IMPORT_STAGE_LABELS: Record<CadImportStage, string> = {
+  queued: "가져오기 대기 중",
+  downloading: "CAD 파일을 불러오는 중",
+  converting: "CAD 도면을 변환하는 중",
+  parsing: "CAD 도면을 분석하는 중",
+  rendering: "도면 미리보기를 만드는 중",
+  persisting: "분석 결과를 저장하는 중",
+  review_required: "분석 완료",
+  applying: "CAD 도면을 적용하는 중",
+  completed: "CAD 도면을 적용했습니다.",
+  failed: "CAD 가져오기에 실패했습니다.",
+  cancelled: "CAD 가져오기가 취소되었습니다."
+};
+
+export function cadImportStageLabel(stage: string) {
+  const parsed = cadImportStageSchema.safeParse(stage);
+  return parsed.success ? CAD_IMPORT_STAGE_LABELS[parsed.data] : "CAD 가져오기 상태를 확인하는 중";
+}
+
 export const floorImportRenderedViewportSchema = z.object({
   width: z.number().int().positive().max(POSTGRES_INT_MAX),
   height: z.number().int().positive().max(POSTGRES_INT_MAX)

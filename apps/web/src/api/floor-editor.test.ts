@@ -96,6 +96,7 @@ describe("floor editor atomic API", () => {
       expectedRevision: 4,
       leaseToken: "lease-token",
       leaseFence: 7,
+      confirmMapReset: true,
       candidateIds: ["candidate-1"]
     });
     await cancelFloorImportJob("floor/1", "job/1");
@@ -115,6 +116,7 @@ describe("floor editor atomic API", () => {
         expectedRevision: 4,
         leaseToken: "lease-token",
         leaseFence: 7,
+        confirmMapReset: true,
         candidateIds: ["candidate-1"]
       })
     }));
