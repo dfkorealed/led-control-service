@@ -18,6 +18,29 @@ enum FixtureStatus {
   fault
 }
 
+enum MonitoringRefreshStatus {
+  pending
+  completed
+  partial
+  failed
+  expired
+}
+
+enum MonitoringRefreshBatchStatus {
+  pending
+  published
+  completed
+  failed
+  expired
+}
+
+enum MonitoringRefreshFixtureStatus {
+  pending
+  online
+  offline
+  unverified
+}
+
 enum MonitoringIncidentType {
   gateway_offline
   fixture_stale
@@ -276,6 +299,7 @@ model User {
   acknowledgedIncidents    MonitoringIncident[]  @relation("IncidentAcknowledgedBy")
   assignedIncidents        MonitoringIncident[]  @relation("IncidentAssignedTo")
   resolvedIncidents        MonitoringIncident[]  @relation("IncidentResolvedBy")
+  requestedMonitoringRefreshes MonitoringRefresh[]
   createdAt                DateTime              @default(now())
   updatedAt                DateTime              @updatedAt
 }
@@ -310,6 +334,7 @@ model Site {
   energyGroupIdentities      EnergyGroupIdentity[]
   energyReportJobs           EnergyReportJob[]
   monitoringIncidents        MonitoringIncident[]
+  monitoringRefreshes        MonitoringRefresh[]
   createdAt                  DateTime                         @default(now())
   updatedAt                  DateTime                         @updatedAt
 
@@ -358,6 +383,7 @@ model Floor {
   lightSlots            FloorLightSlot[]
   provisioningSessions  ProvisioningSession[]
   mapRevisions          FloorMapRevision[]
+  monitoringRefreshes   MonitoringRefresh[]
   createdAt             DateTime              @default(now())
   updatedAt             DateTime              @updatedAt
 
@@ -448,6 +474,76 @@ model MonitoringIncident {
   @@index([siteId, type, openedAt, id])
   @@index([fixtureId, siteId])
   @@index([gatewayId, siteId])
+}
+
+model MonitoringRefresh {
+  id                 String                  @id @default(uuid())
+  siteId             String
+  floorId            String
+  requestedById      String?
+  clientRequestId    String
+  status             MonitoringRefreshStatus @default(pending)
+  totalFixtures      Int
+  onlineFixtures     Int                     @default(0)
+  offlineFixtures    Int                     @default(0)
+  unverifiedFixtures Int                     @default(0)
+  deadlineAt         DateTime
+  completedAt        DateTime?
+  site               Site                    @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  floor              Floor                   @relation(fields: [floorId, siteId], references: [id, siteId], onDelete: Cascade)
+  requestedBy        User?                   @relation(fields: [requestedById], references: [id], onDelete: SetNull)
+  batches            MonitoringRefreshBatch[]
+  fixtureResults     MonitoringRefreshFixture[]
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+
+  @@unique([siteId, requestedById, clientRequestId])
+  @@unique([id, siteId])
+  @@index([siteId, floorId, status])
+  @@index([createdAt])
+}
+
+model MonitoringRefreshBatch {
+  id               String                       @id @default(uuid())
+  refreshId        String
+  siteId           String
+  gatewayId        String
+  sequence         BigInt
+  idempotencyKey   String                       @unique
+  targetFixtureIds Json
+  status           MonitoringRefreshBatchStatus @default(pending)
+  errorCode        String?
+  publishedAt      DateTime?
+  completedAt      DateTime?
+  refresh          MonitoringRefresh            @relation(fields: [refreshId, siteId], references: [id, siteId], onDelete: Cascade)
+  gateway          Gateway                      @relation(fields: [gatewayId, siteId], references: [id, siteId], onDelete: Cascade)
+  fixtureResults   MonitoringRefreshFixture[]
+  outbox           MqttOutbox?
+  createdAt        DateTime                     @default(now())
+  updatedAt        DateTime                     @updatedAt
+
+  @@unique([gatewayId, sequence])
+  @@unique([id, refreshId])
+  @@index([refreshId, status])
+}
+
+model MonitoringRefreshFixture {
+  refreshId  String
+  siteId     String
+  fixtureId  String
+  batchId    String
+  status     MonitoringRefreshFixtureStatus @default(pending)
+  errorCode  String?
+  observedAt DateTime?
+  refresh    MonitoringRefresh             @relation(fields: [refreshId, siteId], references: [id, siteId], onDelete: Cascade)
+  batch      MonitoringRefreshBatch        @relation(fields: [batchId, refreshId], references: [id, refreshId], onDelete: Cascade)
+  fixture    Fixture                       @relation(fields: [fixtureId, siteId], references: [id, siteId], onDelete: Cascade)
+  createdAt  DateTime                      @default(now())
+  updatedAt  DateTime                      @updatedAt
+
+  @@id([refreshId, fixtureId])
+  @@index([batchId, status])
+  @@index([fixtureId])
 }
 
 model FloorAsset {
@@ -620,6 +716,7 @@ model Fixture {
   hopCount                   Int?
   commandSuccessRate         Float?
   lastSeenAt                 DateTime?
+  lastUnreachableAt          DateTime?
   lastStateEventId           String?                            @unique
   lastStateSequence          BigInt?
   lastStateOccurredAt        DateTime?
@@ -644,6 +741,7 @@ model Fixture {
   energyDailyAggregates      FixtureEnergyDailyAggregate[]
   energyIdentity             EnergyFixtureIdentity?
   monitoringIncidents        MonitoringIncident[]
+  monitoringRefreshResults   MonitoringRefreshFixture[]
   lightSlot                  FloorLightSlot?
   energyStateCursor          FixtureEnergyStateCursor?
   processedStateEvents       ProcessedGatewayEvent[]
@@ -750,6 +848,7 @@ model Gateway {
   automationExecutions    AutomationExecution[]
   automationOutboxEntries MqttOutbox[]                    @relation("AutomationConfigOutboxGateway")
   monitoringIncidents     MonitoringIncident[]
+  monitoringRefreshBatches MonitoringRefreshBatch[]
   createdAt               DateTime                        @default(now())
   updatedAt               DateTime                        @updatedAt
 
@@ -1090,6 +1189,7 @@ model CommandFixtureResult {
 model MqttOutbox {
   id                  String           @id @default(uuid())
   dispatchId          String?          @unique
+  monitoringRefreshBatchId String?     @unique
   gatewayId           String?
   applicationAckKey   String?          @unique
   revision            Int?
@@ -1107,6 +1207,7 @@ model MqttOutbox {
   supersededAt        DateTime?
   lastError           String?
   dispatch            CommandDispatch? @relation(fields: [dispatchId], references: [id], onDelete: Cascade)
+  monitoringRefreshBatch MonitoringRefreshBatch? @relation(fields: [monitoringRefreshBatchId], references: [id], onDelete: Cascade)
   gateway             Gateway?         @relation("AutomationConfigOutboxGateway", fields: [gatewayId], references: [id], onDelete: Cascade)
   createdAt           DateTime         @default(now())
   updatedAt           DateTime         @updatedAt

@@ -19,6 +19,7 @@ export interface MonitoringConditionTarget {
   gateway?: { lastHeartbeatAt: Date | null } | null;
   fixture?: {
     lastSeenAt: Date | null;
+    lastUnreachableAt: Date | null;
     reportedStatusReason: string | null;
     healthFaultCodes: unknown;
     healthLastSeenAt: Date | null;
@@ -34,11 +35,14 @@ export function isMonitoringConditionActive(
   if (type === "gateway_offline") return gatewayOffline;
   const fixture = target.fixture;
   if (!fixture) return false;
+  const manuallyUnreachable = fixture.lastUnreachableAt !== null &&
+    (fixture.lastSeenAt === null || fixture.lastUnreachableAt.getTime() > fixture.lastSeenAt.getTime());
   if (type === "fixture_stale") {
     // Provisioning has never observed state. A gateway outage is tracked once at
     // the gateway, instead of duplicating a fixture-stale incident for each node.
     return fixture.reportedStatusReason !== "provisioning_waiting_state" && target.gateway != null && !gatewayOffline && (
-      fixture.lastSeenAt === null || fixture.lastSeenAt.getTime() < now.getTime() - policy.fixtureStaleAfterSeconds * 1000
+      manuallyUnreachable || fixture.lastSeenAt === null ||
+      fixture.lastSeenAt.getTime() < now.getTime() - policy.fixtureStaleAfterSeconds * 1000
     );
   }
   if (type === "fixture_fault") {

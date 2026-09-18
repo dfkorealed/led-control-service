@@ -233,6 +233,7 @@ export class SitesService {
         reportedStatus: true,
         reportedStatusReason: true,
         lastSeenAt: true,
+        lastUnreachableAt: true,
         meshNode: { select: { gateway: { select: { lastHeartbeatAt: true } } } },
         brightness: true,
         healthFaultCodes: true,

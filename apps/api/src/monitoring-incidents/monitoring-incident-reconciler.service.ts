@@ -13,7 +13,7 @@ export class MonitoringIncidentReconcilerService {
     `);
     const gateways = await tx.gateway.findMany({ where: { siteId: site.id }, select: { id: true, lastHeartbeatAt: true } });
     const fixtures = await tx.fixture.findMany({ where: { siteId: site.id }, select: {
-      id: true, gatewayId: true, lastSeenAt: true, reportedStatusReason: true, healthFaultCodes: true, healthLastSeenAt: true
+      id: true, gatewayId: true, lastSeenAt: true, lastUnreachableAt: true, reportedStatusReason: true, healthFaultCodes: true, healthLastSeenAt: true
     } });
     const byGatewayId = new Map(gateways.map((gateway) => [gateway.id, gateway]));
     const conditions: Prisma.MonitoringIncidentCreateManyInput[] = [];

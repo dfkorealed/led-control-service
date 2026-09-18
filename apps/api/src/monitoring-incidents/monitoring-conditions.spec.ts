@@ -1,9 +1,9 @@
-import { isMonitoringConditionActive } from "./monitoring-conditions";
+import { isMonitoringConditionActive, monitoringFixtureState } from "./monitoring-conditions";
 
 describe("current monitoring conditions", () => {
   const now = new Date("2026-09-12T00:10:00.000Z");
   const policy = { gatewayOfflineAfterSeconds: 90, fixtureStaleAfterSeconds: 1200 };
-  const fixture = { lastSeenAt: now, reportedStatusReason: null, healthFaultCodes: [], healthLastSeenAt: now };
+  const fixture = { lastSeenAt: now, lastUnreachableAt: null, reportedStatusReason: null, healthFaultCodes: [], healthLastSeenAt: now };
 
   it("keeps the exact threshold fresh and expires one millisecond later", () => {
     for (const [age, expected] of [[90_000, false], [90_001, true]] as const) {
@@ -37,5 +37,37 @@ describe("current monitoring conditions", () => {
     expect(isMonitoringConditionActive("command_failed", target, policy, now)).toBe(true);
     target.fixture.reportedStatusReason = "reported";
     expect(isMonitoringConditionActive("command_failed", target, policy, now)).toBe(false);
+  });
+
+  // This must fail if the stale condition only uses the normal 20-minute
+  // freshness cutoff and ignores a later verified unreachable observation.
+  it("treats a newer verified unreachable result as immediately stale", () => {
+    const now = new Date("2026-09-15T08:00:10.000Z");
+    const result = monitoringFixtureState({
+      reportedStatus: "online",
+      reportedStatusReason: "reported",
+      lastSeenAt: new Date("2026-09-15T08:00:00.000Z"),
+      lastUnreachableAt: new Date("2026-09-15T08:00:05.000Z"),
+      healthFaultCodes: [],
+      healthLastSeenAt: now
+    }, { lastHeartbeatAt: now }, policy, now);
+
+    expect(result).toEqual({ status: "offline", statusReason: "fixture_stale" });
+  });
+
+  // This must fail if an unreachable observation masks a later successful
+  // presence/state observation.
+  it("keeps a newer successful observation online after an older unreachable result", () => {
+    const now = new Date("2026-09-15T08:00:10.000Z");
+    const result = monitoringFixtureState({
+      reportedStatus: "online",
+      reportedStatusReason: "reported",
+      lastSeenAt: new Date("2026-09-15T08:00:06.000Z"),
+      lastUnreachableAt: new Date("2026-09-15T08:00:05.000Z"),
+      healthFaultCodes: [],
+      healthLastSeenAt: now
+    }, { lastHeartbeatAt: now }, policy, now);
+
+    expect(result.status).toBe("online");
   });
 });

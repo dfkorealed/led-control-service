@@ -38,6 +38,128 @@ const databaseUrl = process.env.MONITORING_INCIDENTS_TEST_DATABASE_URL;
     expect(table.present).toBe(true);
   });
 
+  it("persists the monitoring refresh aggregate with durable constraints and relations", async () => {
+    const [tables, enums, constraints, indexes, fixtureColumn] = await Promise.all([
+      prisma.$queryRaw<{ table_name: string }[]>`
+        SELECT table_name FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name IN (
+          'MonitoringRefresh', 'MonitoringRefreshBatch', 'MonitoringRefreshFixture'
+        ) ORDER BY table_name
+      `,
+      prisma.$queryRaw<{ typname: string; enumlabel: string }[]>`
+        SELECT t.typname, e.enumlabel FROM pg_type t
+        JOIN pg_enum e ON e.enumtypid = t.oid
+        WHERE t.typname IN (
+          'MonitoringRefreshStatus', 'MonitoringRefreshBatchStatus', 'MonitoringRefreshFixtureStatus'
+        ) ORDER BY t.typname, e.enumsortorder
+      `,
+      prisma.$queryRaw<{ conname: string }[]>`
+        SELECT conname FROM pg_constraint
+        WHERE conrelid IN (
+          '"MonitoringRefresh"'::regclass,
+          '"MonitoringRefreshBatch"'::regclass,
+          '"MonitoringRefreshFixture"'::regclass,
+          '"MqttOutbox"'::regclass
+        ) AND conname IN (
+          'MonitoringRefresh_pkey',
+          'MonitoringRefresh_siteId_fkey',
+          'MonitoringRefresh_floorId_siteId_fkey',
+          'MonitoringRefresh_requestedById_fkey',
+          'MonitoringRefresh_counters_check',
+          'MonitoringRefresh_status_check',
+          'MonitoringRefreshBatch_pkey',
+          'MonitoringRefreshBatch_refreshId_siteId_fkey',
+          'MonitoringRefreshBatch_gatewayId_siteId_fkey',
+          'MonitoringRefreshBatch_targetFixtureIds_check',
+          'MonitoringRefreshBatch_status_check',
+          'MonitoringRefreshFixture_pkey',
+          'MonitoringRefreshFixture_refreshId_siteId_fkey',
+          'MonitoringRefreshFixture_batchId_refreshId_fkey',
+          'MonitoringRefreshFixture_fixtureId_siteId_fkey',
+          'MonitoringRefreshFixture_status_check',
+          'MqttOutbox_monitoringRefreshBatchId_fkey'
+        ) ORDER BY conname
+      `,
+      prisma.$queryRaw<{ indexname: string }[]>`
+        SELECT indexname FROM pg_indexes
+        WHERE schemaname = 'public' AND tablename IN (
+          'MonitoringRefresh', 'MonitoringRefreshBatch', 'MonitoringRefreshFixture', 'MqttOutbox'
+        ) AND indexname IN (
+          'MonitoringRefresh_siteId_requestedById_clientRequestId_key',
+          'MonitoringRefresh_id_siteId_key',
+          'MonitoringRefresh_siteId_floorId_status_idx',
+          'MonitoringRefresh_createdAt_idx',
+          'MonitoringRefreshBatch_gatewayId_sequence_key',
+          'MonitoringRefreshBatch_id_refreshId_key',
+          'MonitoringRefreshBatch_idempotencyKey_key',
+          'MonitoringRefreshBatch_refreshId_status_idx',
+          'MonitoringRefreshFixture_batchId_status_idx',
+          'MonitoringRefreshFixture_fixtureId_idx',
+          'MqttOutbox_monitoringRefreshBatchId_key'
+        ) ORDER BY indexname
+      `,
+      prisma.$queryRaw<{ is_nullable: string }[]>`
+        SELECT is_nullable FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'Fixture' AND column_name = 'lastUnreachableAt'
+      `
+    ]);
+
+    expect(tables).toEqual([
+      { table_name: "MonitoringRefresh" },
+      { table_name: "MonitoringRefreshBatch" },
+      { table_name: "MonitoringRefreshFixture" }
+    ]);
+    expect(enums).toEqual([
+      { typname: "MonitoringRefreshBatchStatus", enumlabel: "pending" },
+      { typname: "MonitoringRefreshBatchStatus", enumlabel: "published" },
+      { typname: "MonitoringRefreshBatchStatus", enumlabel: "completed" },
+      { typname: "MonitoringRefreshBatchStatus", enumlabel: "failed" },
+      { typname: "MonitoringRefreshBatchStatus", enumlabel: "expired" },
+      { typname: "MonitoringRefreshFixtureStatus", enumlabel: "pending" },
+      { typname: "MonitoringRefreshFixtureStatus", enumlabel: "online" },
+      { typname: "MonitoringRefreshFixtureStatus", enumlabel: "offline" },
+      { typname: "MonitoringRefreshFixtureStatus", enumlabel: "unverified" },
+      { typname: "MonitoringRefreshStatus", enumlabel: "pending" },
+      { typname: "MonitoringRefreshStatus", enumlabel: "completed" },
+      { typname: "MonitoringRefreshStatus", enumlabel: "partial" },
+      { typname: "MonitoringRefreshStatus", enumlabel: "failed" },
+      { typname: "MonitoringRefreshStatus", enumlabel: "expired" }
+    ]);
+    expect(constraints.map(({ conname }) => conname)).toEqual([
+      "MonitoringRefreshBatch_gatewayId_siteId_fkey",
+      "MonitoringRefreshBatch_pkey",
+      "MonitoringRefreshBatch_refreshId_siteId_fkey",
+      "MonitoringRefreshBatch_status_check",
+      "MonitoringRefreshBatch_targetFixtureIds_check",
+      "MonitoringRefreshFixture_batchId_refreshId_fkey",
+      "MonitoringRefreshFixture_fixtureId_siteId_fkey",
+      "MonitoringRefreshFixture_pkey",
+      "MonitoringRefreshFixture_refreshId_siteId_fkey",
+      "MonitoringRefreshFixture_status_check",
+      "MonitoringRefresh_counters_check",
+      "MonitoringRefresh_floorId_siteId_fkey",
+      "MonitoringRefresh_pkey",
+      "MonitoringRefresh_requestedById_fkey",
+      "MonitoringRefresh_siteId_fkey",
+      "MonitoringRefresh_status_check",
+      "MqttOutbox_monitoringRefreshBatchId_fkey"
+    ].sort());
+    expect(indexes.map(({ indexname }) => indexname)).toEqual([
+      "MonitoringRefresh_siteId_requestedById_clientRequestId_key",
+      "MonitoringRefresh_id_siteId_key",
+      "MonitoringRefresh_siteId_floorId_status_idx",
+      "MonitoringRefresh_createdAt_idx",
+      "MonitoringRefreshBatch_gatewayId_sequence_key",
+      "MonitoringRefreshBatch_id_refreshId_key",
+      "MonitoringRefreshBatch_idempotencyKey_key",
+      "MonitoringRefreshBatch_refreshId_status_idx",
+      "MonitoringRefreshFixture_batchId_status_idx",
+      "MonitoringRefreshFixture_fixtureId_idx",
+      "MqttOutbox_monitoringRefreshBatchId_key"
+    ].sort());
+    expect(fixtureColumn).toEqual([{ is_nullable: "YES" }]);
+  });
+
   it("preserves existing Site rows while adding defaults in an isolated upgrade schema", () => {
     const migration = readFileSync(join(__dirname, "../../prisma/migrations/20260912100000_monitoring_policy_incidents/migration.sql"), "utf8")
       .replace(/^BEGIN;\s*/, "").replace(/COMMIT;\s*$/, "");
