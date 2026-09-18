@@ -78,7 +78,8 @@ CREATE TABLE "MonitoringRefreshBatch" (
   CONSTRAINT "MonitoringRefreshBatch_status_check" CHECK (
     ("status" = 'pending' AND "publishedAt" IS NULL AND "completedAt" IS NULL) OR
     ("status" = 'published' AND "publishedAt" IS NOT NULL AND "completedAt" IS NULL) OR
-    ("status" IN ('completed', 'failed', 'expired') AND "completedAt" IS NOT NULL)
+    ("status" = 'completed' AND "publishedAt" IS NOT NULL AND "completedAt" IS NOT NULL) OR
+    ("status" IN ('failed', 'expired') AND "completedAt" IS NOT NULL)
   )
 );
 
@@ -121,6 +122,47 @@ ON "MonitoringRefreshFixture"("fixtureId");
 
 ALTER TABLE "MqttOutbox"
   ADD COLUMN "monitoringRefreshBatchId" TEXT,
+  DROP CONSTRAINT "MqttOutbox_row_shape_check",
+  -- A row has exactly one durable owner. Refresh publishers resolve the Gateway
+  -- through MonitoringRefreshBatch, so their outbox rows keep all command and
+  -- automation-only fields null.
+  ADD CONSTRAINT "MqttOutbox_row_shape_check" CHECK (
+    (
+      "dispatchId" IS NOT NULL
+      AND "monitoringRefreshBatchId" IS NULL
+      AND "gatewayId" IS NULL
+      AND "applicationAckKey" IS NULL
+      AND "revision" IS NULL
+      AND "payloadHash" IS NULL
+    )
+    OR
+    (
+      "dispatchId" IS NULL
+      AND "monitoringRefreshBatchId" IS NULL
+      AND "gatewayId" IS NOT NULL
+      AND "applicationAckKey" IS NULL
+      AND "revision" IS NOT NULL
+      AND "payloadHash" IS NOT NULL
+    )
+    OR
+    (
+      "dispatchId" IS NULL
+      AND "monitoringRefreshBatchId" IS NULL
+      AND "gatewayId" IS NOT NULL
+      AND "applicationAckKey" IS NOT NULL
+      AND "revision" IS NULL
+      AND "payloadHash" IS NOT NULL
+    )
+    OR
+    (
+      "dispatchId" IS NULL
+      AND "monitoringRefreshBatchId" IS NOT NULL
+      AND "gatewayId" IS NULL
+      AND "applicationAckKey" IS NULL
+      AND "revision" IS NULL
+      AND "payloadHash" IS NULL
+    )
+  ),
   ADD CONSTRAINT "MqttOutbox_monitoringRefreshBatchId_fkey"
     FOREIGN KEY ("monitoringRefreshBatchId") REFERENCES "MonitoringRefreshBatch"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 

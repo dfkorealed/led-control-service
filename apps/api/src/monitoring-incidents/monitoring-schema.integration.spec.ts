@@ -1,5 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import { spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -77,6 +78,7 @@ const databaseUrl = process.env.MONITORING_INCIDENTS_TEST_DATABASE_URL;
           'MonitoringRefreshFixture_batchId_refreshId_fkey',
           'MonitoringRefreshFixture_fixtureId_siteId_fkey',
           'MonitoringRefreshFixture_status_check',
+          'MqttOutbox_row_shape_check',
           'MqttOutbox_monitoringRefreshBatchId_fkey'
         ) ORDER BY conname
       `,
@@ -142,6 +144,7 @@ const databaseUrl = process.env.MONITORING_INCIDENTS_TEST_DATABASE_URL;
       "MonitoringRefresh_requestedById_fkey",
       "MonitoringRefresh_siteId_fkey",
       "MonitoringRefresh_status_check",
+      "MqttOutbox_row_shape_check",
       "MqttOutbox_monitoringRefreshBatchId_fkey"
     ].sort());
     expect(indexes.map(({ indexname }) => indexname)).toEqual([
@@ -158,6 +161,83 @@ const databaseUrl = process.env.MONITORING_INCIDENTS_TEST_DATABASE_URL;
       "MqttOutbox_monitoringRefreshBatchId_key"
     ].sort());
     expect(fixtureColumn).toEqual([{ is_nullable: "YES" }]);
+  });
+
+  it("rejects an outbox with both command and monitoring-refresh owners and an unpublished completed batch", async () => {
+    const id = randomUUID();
+    const organization = await prisma.organization.create({ data: { name: `monitoring-refresh-${id}` } });
+    const site = await prisma.site.create({ data: { organizationId: organization.id, name: `site-${id}` } });
+
+    try {
+      const [floor, gateway] = await Promise.all([
+        prisma.floor.create({ data: { siteId: site.id, name: `floor-${id}`, level: 1 } }),
+        prisma.gateway.create({ data: { siteId: site.id, name: `gateway-${id}`, serialNumber: id, firmwareVersion: "test" } })
+      ]);
+      const refresh = await prisma.monitoringRefresh.create({
+        data: {
+          siteId: site.id,
+          floorId: floor.id,
+          clientRequestId: randomUUID(),
+          totalFixtures: 0,
+          deadlineAt: new Date(Date.now() + 30_000)
+        }
+      });
+      const [batch, command] = await Promise.all([
+        prisma.monitoringRefreshBatch.create({
+          data: {
+            refreshId: refresh.id,
+            siteId: site.id,
+            gatewayId: gateway.id,
+            sequence: 1n,
+            idempotencyKey: randomUUID(),
+            targetFixtureIds: []
+          }
+        }),
+        prisma.command.create({
+          data: {
+            siteId: site.id,
+            clientRequestId: randomUUID(),
+            requestFingerprint: "monitoring-refresh-schema-test",
+            targetType: "fixture",
+            brightness: 0
+          }
+        })
+      ]);
+      const dispatch = await prisma.commandDispatch.create({
+        data: { commandId: command.id, gatewayId: gateway.id, idempotencyKey: randomUUID(), sequence: 1n }
+      });
+
+      await expect(prisma.$executeRawUnsafe(`
+        DO $$ BEGIN
+          INSERT INTO "MqttOutbox" (
+            "id", "dispatchId", "monitoringRefreshBatchId", "topic", "payload", "updatedAt"
+          ) VALUES (
+            '${randomUUID()}', '${dispatch.id}', '${batch.id}', 'test/monitoring-refresh', '{}'::jsonb, CURRENT_TIMESTAMP
+          );
+          RAISE EXCEPTION 'outbox owner shape was not enforced';
+        EXCEPTION WHEN check_violation THEN
+          IF CONSTRAINT_NAME <> 'MqttOutbox_row_shape_check' THEN RAISE; END IF;
+        END $$;
+      `)).resolves.toBeDefined();
+
+      await expect(prisma.$executeRawUnsafe(`
+        DO $$ BEGIN
+          INSERT INTO "MonitoringRefreshBatch" (
+            "id", "refreshId", "siteId", "gatewayId", "sequence", "idempotencyKey", "targetFixtureIds",
+            "status", "completedAt", "updatedAt"
+          ) VALUES (
+            '${randomUUID()}', '${refresh.id}', '${site.id}', '${gateway.id}', 2, '${randomUUID()}', '[]'::jsonb,
+            'completed', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+          );
+          RAISE EXCEPTION 'completed batch publication shape was not enforced';
+        EXCEPTION WHEN check_violation THEN
+          IF CONSTRAINT_NAME <> 'MonitoringRefreshBatch_status_check' THEN RAISE; END IF;
+        END $$;
+      `)).resolves.toBeDefined();
+    } finally {
+      await prisma.site.delete({ where: { id: site.id } });
+      await prisma.organization.delete({ where: { id: organization.id } });
+    }
   });
 
   it("preserves existing Site rows while adding defaults in an isolated upgrade schema", () => {
