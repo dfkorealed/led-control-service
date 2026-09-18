@@ -394,7 +394,7 @@ it("returns exact online and timeout outcomes without treating sensor settings a
 });
 ```
 
-Add BlueZ assertions that OnOff/Lightness observation means online, transport timeout is `read_timeout`, and no Set opcode is issued.
+Add BlueZ assertions that OnOff/Lightness observation means online and no Set opcode is issued. A `Node1.Send` D-Bus `TIMEOUT`/`ETIMEDOUT` is `transport_unavailable` and leaves the batch unverified; only an observation response timeout after a successful Send is a fixture `read_timeout`.
 
 - [ ] **Step 2: Run adapter tests and verify RED**
 

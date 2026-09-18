@@ -181,7 +181,9 @@ sites/{siteId}/gateways/{gatewayId}/events/fixture-presence-check-completed
 
 Gateway는 모든 fixture terminal event를 durable outbox에 넣고, 각각의 API application ACK를 저널에 영속화한 뒤 batch-completed event를 발행한다. API는 fixture 결과가 모두 수신된 경우에만 batch를 completed로 바꾼다. 유효한 batch-completed가 먼저 도착하면 MQTT PUBACK만 반환해 뒤따르는 결과를 받을 수 있게 하고 완료 application ACK는 보류한다. Gateway 완료 재전송으로 수렴하며 identity/scope 충돌은 계속 거부한다. deadline까지 빠진 결과는 `unverified`로 종료하며 offline으로 만들지 않는다.
 
-Gateway v2 저널은 결과 ACK를 outbox 삭제보다 먼저 저장한다. v1 미ACK 완료의 handoff 기록은 API 처리 증거가 아니므로 같은 event identity로 재전송해 복구한다. 서로 다른 새 batch의 sequence 역전은 허용하되 만료/중복검사 기간 안의 동일 sequence·batch·idempotency key 변조는 거부한다. 완료 ACK를 받은 기록과 결과 없는 terminal failure는 command 만료 뒤 atomic 삭제하며, 미ACK 완료는 10,000건·32 MiB 상한 안에서 보존한다.
+Gateway v3 저널은 결과 ACK를 outbox 삭제보다 먼저 저장한다. command 수락 시 대상당 2비트의 고정 폭 진행 기록을 예약하고 `00`(대기) → `01`(durable handoff) → `11`(결과 ACK)로 갱신한다. handoff/결과 ACK는 파일 크기를 늘리지 않고, 완료 ACK는 한 글자 receipt로 축소하므로 10,000건·32 MiB 상한에서도 ACK와 만료 후 정리가 가능하다. 기록 실패 시 outbox와 이전 저널을 보존한다. terminal payload는 만료 전 exact duplicate 검증·재생을 위해 유지한다.
+
+v1/v2 파일은 상한 안에서 atomic v3 변환한다. v1 미ACK 완료의 handoff 기록은 API 처리 증거가 아니므로 같은 event identity로 재전송하고, v2 결과 ACK는 보존한다. 손상된 진행 기록은 fail-closed 한다. 서로 다른 새 batch의 sequence 역전은 허용하되 만료/중복검사 기간 안의 동일 sequence·batch·idempotency key 변조는 거부한다. 완료 ACK를 받은 기록과 결과 없는 terminal failure는 command 만료 뒤 atomic 삭제하며, 미ACK 완료는 상한 안에서 보존한다. completion drain은 배치 ID snapshot과 배치별 index로 ACK 진행만 조회하고 전체 terminal payload를 복제하지 않는다. 16배치마다 이벤트 루프에 양보해 MQTT ACK·timer 처리가 계속 진행되게 한다.
 
 API retention 뒤 요청과 batch가 둘 다 없다는 DB 조회가 성공한 경우에는 correlated state/presence/unreachable을 무변경 폐기하고 `state-ingested: duplicate`, completion은 전용 ACK를 반환한다. strict schema, canonical topic, 현재 site/Gateway scope를 먼저 검증하며 기존 행 하나라도 남은 불일치 또는 DB 오류는 거부한다. 이 ACK는 과거 요청 유효성의 증명이 아니며 Fixture·tenant·energy·event/watermark를 변경하지 않는다. 별도 tombstone은 만들지 않는다.
 
