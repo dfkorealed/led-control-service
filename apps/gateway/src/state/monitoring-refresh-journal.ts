@@ -224,7 +224,13 @@ export class MonitoringRefreshJournal {
         throw new Error("invalid monitoring refresh acknowledgement progress");
       }
     }
-    if (raw.version === 1) { await this.commit({ ...raw, version: 2 }); return this.state!; }
+    if (raw.version === 1) {
+      const migrated: StoredJournal = { ...raw, version: 2 };
+      // A full v1 file may not have space for new per-result ACK metadata. Expired safe records
+      // can be pruned in the same atomic upgrade, before enforcing the persisted byte bound.
+      if (await this.prune(migrated) === migrated) await this.commit(migrated);
+      return this.state!;
+    }
     this.state = raw;
     return raw;
   }

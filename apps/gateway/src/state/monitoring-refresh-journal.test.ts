@@ -176,3 +176,20 @@ it("retains expired unacknowledged results but prunes expired terminal failures"
   expect(await restarted.pending()).toHaveLength(1);
   expect(JSON.parse(await readFile(file, "utf8")).records.map((row: any) => row.command.batchId)).toEqual([command.batchId]);
 });
+
+it("prunes expired ACKed v1 records within the byte limit before migrating their expanded ACK metadata", async () => {
+  const file = await path();
+  const journal = new MonitoringRefreshJournal(file, scope, { now });
+  await journal.accept(command); await journal.complete(command, terminal());
+  await journal.markEventHandedOff(command.batchId, terminal().events[0].eventId);
+  await journal.markHandedOff(command.batchId); await journal.acknowledgeEvent(resultAck());
+  await journal.acknowledge({ ...scope, refreshId: command.refreshId, batchId: command.batchId });
+  const legacy = JSON.parse(await readFile(file, "utf8")); legacy.version = 1;
+  delete legacy.records[0].acknowledgedEventIds;
+  const content = `${JSON.stringify(legacy, null, 2)}\n`;
+  await writeFile(file, content);
+  const restarted = new MonitoringRefreshJournal(file, scope, { now: () => new Date(command.expiresAt), maxBytes: Buffer.byteLength(content) });
+  await restarted.initialize();
+  expect(await restarted.pending()).toEqual([]);
+  expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject({ version: 2, records: [] });
+});
