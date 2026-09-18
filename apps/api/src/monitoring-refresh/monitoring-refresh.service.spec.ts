@@ -18,6 +18,12 @@ const viewer = {
   status: "active" as const,
   mustChangePassword: false
 };
+const secondViewer = {
+  ...viewer,
+  id: "99999999-9999-4999-8999-999999999999",
+  loginId: "second@example.com",
+  name: "Second Viewer"
+};
 
 function refresh(overrides: Record<string, unknown> = {}) {
   return {
@@ -59,6 +65,11 @@ function harness() {
         createdRefresh = refresh({ ...data, id: data.id });
         return Promise.resolve(createdRefresh);
       })
+    },
+    monitoringRefreshRequest: {
+      findUnique: jest.fn().mockResolvedValue(null),
+      findFirst: jest.fn().mockResolvedValue(null),
+      create: jest.fn().mockImplementation(({ data }) => Promise.resolve(data))
     },
     monitoringRefreshBatch: {
       create: jest.fn().mockImplementation(({ data }) => Promise.resolve({ ...data }))
@@ -105,6 +116,9 @@ describe("MonitoringRefreshService", () => {
     expect(tx.monitoringRefreshBatch.create).toHaveBeenCalledTimes(2);
     expect(tx.monitoringRefreshBatch.create.mock.calls[0][0].data.targetFixtureIds).toHaveLength(64);
     expect(tx.monitoringRefreshBatch.create.mock.calls[1][0].data.targetFixtureIds).toHaveLength(1);
+    expect(tx.monitoringRefreshRequest.create).toHaveBeenCalledWith({ data: {
+      siteId, floorId, requestedById: viewer.id, clientRequestId, refreshId: refresh().id
+    } });
   });
 
   it("returns the same request for an identical client id and rejects a different floor", async () => {
@@ -130,9 +144,9 @@ describe("MonitoringRefreshService", () => {
     const { service, prisma } = harness();
     prisma.$transaction.mockRejectedValue(Object.assign(new Error("unique collision"), {
       code: "P2002",
-      meta: { target: "MonitoringRefresh_siteId_requestedById_clientRequestId_key" }
+      meta: { target: "MonitoringRefreshRequest_pkey" }
     }));
-    prisma.monitoringRefresh.findUnique.mockResolvedValue(refresh());
+    prisma.monitoringRefreshRequest.findUnique.mockResolvedValue({ floorId, refresh: refresh() });
 
     await expect(service.create(viewer, siteId, floorId, { clientRequestId }))
       .resolves.toMatchObject({ id: refresh().id });
@@ -177,14 +191,45 @@ describe("MonitoringRefreshService", () => {
     tx.monitoringRefresh.findFirst.mockResolvedValue(refresh({ clientRequestId: randomUUID() }));
     await expect(service.create(viewer, siteId, floorId, { clientRequestId }))
       .resolves.toMatchObject({ id: refresh().id, status: "pending" });
+    expect(tx.monitoringRefreshRequest.create).toHaveBeenCalledWith({ data: {
+      siteId, floorId, requestedById: viewer.id, clientRequestId, refreshId: refresh().id
+    } });
     expect(tx.fixture.findMany).not.toHaveBeenCalled();
+  });
+
+  it("durably aliases another requester to an active refresh and preserves retry/conflict after it terminates", async () => {
+    const { service, tx } = harness();
+    const reused = refresh({ requestedById: viewer.id, clientRequestId: randomUUID() });
+    tx.monitoringRefresh.findFirst.mockResolvedValue(reused);
+
+    await expect(service.create(secondViewer, siteId, floorId, { clientRequestId }))
+      .resolves.toMatchObject({ id: reused.id, status: "pending" });
+    expect(tx.monitoringRefreshRequest.create).toHaveBeenCalledWith({ data: {
+      siteId, floorId, requestedById: secondViewer.id, clientRequestId, refreshId: reused.id
+    } });
+
+    const terminal = refresh({
+      requestedById: viewer.id,
+      clientRequestId: reused.clientRequestId,
+      status: "completed",
+      completedAt: new Date("2026-09-15T08:00:10.000Z")
+    });
+    tx.monitoringRefreshRequest.findUnique.mockResolvedValue({ floorId, refresh: terminal });
+    tx.monitoringRefresh.findFirst.mockClear();
+
+    await expect(service.create(secondViewer, siteId, floorId, { clientRequestId }))
+      .resolves.toMatchObject({ id: reused.id, status: "completed" });
+    await expect(service.create(secondViewer, siteId, otherFloorId, { clientRequestId }))
+      .rejects.toMatchObject({ response: { code: "monitoring_refresh_payload_conflict" } });
+    expect(tx.monitoringRefresh.findFirst).not.toHaveBeenCalled();
   });
 
   it("enforces a 30-second terminal cooldown for the same requester and floor", async () => {
     const { service, tx } = harness();
-    tx.monitoringRefresh.findFirst
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(refresh({ status: "completed", completedAt: new Date("2026-09-15T07:59:45.000Z") }));
+    tx.monitoringRefresh.findFirst.mockResolvedValue(null);
+    tx.monitoringRefreshRequest.findFirst.mockResolvedValue({
+      refresh: refresh({ status: "completed", completedAt: new Date("2026-09-15T07:59:45.000Z") })
+    });
     await expect(service.create(viewer, siteId, floorId, { clientRequestId }))
       .rejects.toMatchObject({ response: {
         code: "monitoring_refresh_cooldown",

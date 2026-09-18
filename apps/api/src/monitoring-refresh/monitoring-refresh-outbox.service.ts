@@ -26,7 +26,23 @@ type ClaimedRecord = {
   attempts: number;
   createdAt: Date;
   deliveryAttemptedAt?: Date | null;
-  batch: { id: string; refreshId: string; status: string };
+  batch: {
+    id: string;
+    refreshId: string;
+    siteId: string;
+    gatewayId: string;
+    sequence: bigint;
+    idempotencyKey: string;
+    targetFixtureIds: Prisma.JsonValue;
+    status: string;
+    refresh: {
+      id: string;
+      siteId: string;
+      deadlineAt: Date;
+      createdAt: Date;
+      status: string;
+    };
+  };
 };
 
 @Injectable()
@@ -112,7 +128,21 @@ export class MonitoringRefreshOutboxService implements OnModuleInit, OnModuleDes
       });
       const records = await tx.mqttOutbox.findMany({
         where: { id: { in: ids }, monitoringRefreshBatchId: { not: null }, lockedBy: this.workerId },
-        include: { monitoringRefreshBatch: { select: { id: true, refreshId: true, status: true } } },
+        include: {
+          monitoringRefreshBatch: {
+            select: {
+              id: true,
+              refreshId: true,
+              siteId: true,
+              gatewayId: true,
+              sequence: true,
+              idempotencyKey: true,
+              targetFixtureIds: true,
+              status: true,
+              refresh: { select: { id: true, siteId: true, deadlineAt: true, createdAt: true, status: true } }
+            }
+          }
+        },
         orderBy: { createdAt: "asc" }
       });
       return records.map((record) => {
@@ -138,15 +168,10 @@ export class MonitoringRefreshOutboxService implements OnModuleInit, OnModuleDes
 
   async publishClaimed(record: ClaimedRecord) {
     try {
-      const payload = fixturePresenceCheckCommandV1Schema.parse(record.payload);
-      if (
-        record.monitoringRefreshBatchId !== payload.batchId ||
-        record.batch.id !== payload.batchId ||
-        record.batch.refreshId !== payload.refreshId ||
-        record.topic !== mqttTopicsV2.fixturePresenceCheck(payload.siteId, payload.gatewayId)
-      ) {
-        throw new Error("monitoring refresh outbox identity mismatch");
-      }
+      const parsed = fixturePresenceCheckCommandV1Schema.safeParse(record.payload);
+      if (!parsed.success) throw new InvalidStoredRefreshCommandError();
+      const payload = parsed.data;
+      assertPersistedSnapshot(record, payload);
 
       const publishAt = this.clock();
       const messageExpiryInterval = remainingExpirySeconds(payload.expiresAt, publishAt);
@@ -194,7 +219,11 @@ export class MonitoringRefreshOutboxService implements OnModuleInit, OnModuleDes
           data: { status: "published", publishedAt }
         });
       });
-    } catch {
+    } catch (error) {
+      if (error instanceof InvalidStoredRefreshCommandError) {
+        await this.deadLetter(record, "invalid_outbox_payload", this.clock());
+        return;
+      }
       await this.handleFailure(record);
     }
   }
@@ -235,6 +264,26 @@ export class MonitoringRefreshOutboxService implements OnModuleInit, OnModuleDes
   private async deadLetter(record: ClaimedRecord, errorCode: string, at: Date, attempts = record.attempts + 1) {
     const expired = errorCode === "refresh_deadline_exceeded";
     await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw(Prisma.sql`
+        SELECT "id" FROM "MonitoringRefresh" WHERE "id" = ${record.batch.refreshId} FOR UPDATE
+      `);
+      const current = await tx.monitoringRefreshBatch.findUnique({
+        where: { id: record.batch.id },
+        include: {
+          refresh: { select: { id: true, status: true } },
+          outbox: { select: { id: true, lockedBy: true, publishedAt: true, deadLetteredAt: true } }
+        }
+      });
+      if (
+        !current ||
+        current.refreshId !== record.batch.refreshId ||
+        current.refresh.status !== "pending" ||
+        !["pending", "published"].includes(current.status) ||
+        current.outbox?.id !== record.id ||
+        current.outbox.lockedBy !== this.workerId ||
+        current.outbox.publishedAt !== null ||
+        current.outbox.deadLetteredAt !== null
+      ) return;
       const deadLettered = await tx.mqttOutbox.updateMany({
         where: {
           id: record.id,
@@ -265,6 +314,38 @@ export class MonitoringRefreshOutboxService implements OnModuleInit, OnModuleDes
     });
   }
 }
+
+function assertPersistedSnapshot(
+  record: ClaimedRecord,
+  payload: ReturnType<typeof fixturePresenceCheckCommandV1Schema.parse>
+) {
+  const validStoredTargets = Array.isArray(record.batch.targetFixtureIds)
+    && record.batch.targetFixtureIds.every((id) => typeof id === "string");
+  const targetFixtureIds = validStoredTargets ? record.batch.targetFixtureIds as string[] : [];
+  const sequence = Number(record.batch.sequence);
+  const expectedTopic = mqttTopicsV2.fixturePresenceCheck(record.batch.siteId, record.batch.gatewayId);
+  const matches = validStoredTargets
+    && record.monitoringRefreshBatchId === record.batch.id
+    && record.batch.id === payload.batchId
+    && record.batch.refreshId === record.batch.refresh.id
+    && record.batch.refreshId === payload.refreshId
+    && record.batch.siteId === record.batch.refresh.siteId
+    && record.batch.siteId === payload.siteId
+    && record.batch.gatewayId === payload.gatewayId
+    && Number.isSafeInteger(sequence)
+    && sequence === payload.sequence
+    && record.batch.idempotencyKey === payload.idempotencyKey
+    && record.batch.status === "pending"
+    && record.batch.refresh.status === "pending"
+    && record.batch.refresh.createdAt.toISOString() === payload.requestedAt
+    && record.batch.refresh.deadlineAt.toISOString() === payload.expiresAt
+    && targetFixtureIds.length === payload.targetFixtureIds.length
+    && targetFixtureIds.every((id, index) => id === payload.targetFixtureIds[index])
+    && record.topic === expectedTopic;
+  if (!matches) throw new InvalidStoredRefreshCommandError();
+}
+
+class InvalidStoredRefreshCommandError extends Error {}
 
 function remainingExpirySeconds(expiresAt: string, now: Date) {
   return Math.max(0, Math.ceil((Date.parse(expiresAt) - now.getTime()) / 1_000));

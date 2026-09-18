@@ -7,6 +7,8 @@ const gatewayId = "22222222-2222-4222-8222-222222222222";
 const refreshId = "33333333-3333-4333-8333-333333333333";
 const batchId = "44444444-4444-4444-8444-444444444444";
 const fixtureId = "55555555-5555-4555-8555-555555555555";
+const otherFixtureId = "77777777-7777-4777-8777-777777777777";
+const otherGatewayId = "88888888-8888-4888-8888-888888888888";
 const idempotencyKey = "66666666-6666-4666-8666-666666666666";
 const startedAt = new Date("2026-09-15T08:00:00.000Z");
 const deadlineAt = new Date("2026-09-15T08:00:30.000Z");
@@ -32,7 +34,17 @@ function record(overrides: Record<string, unknown> = {}) {
     attempts: 0,
     createdAt: startedAt,
     deliveryAttemptedAt: null,
-    batch: { id: batchId, refreshId, status: "pending" },
+    batch: {
+      id: batchId,
+      refreshId,
+      siteId,
+      gatewayId,
+      sequence: 1n,
+      idempotencyKey,
+      targetFixtureIds: [fixtureId],
+      status: "pending",
+      refresh: { id: refreshId, siteId, deadlineAt, createdAt: startedAt, status: "pending" }
+    },
     ...overrides
   };
 }
@@ -46,7 +58,13 @@ function harness(clock = () => startedAt) {
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       findMany: jest.fn().mockResolvedValue([])
     },
-    monitoringRefreshBatch: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    monitoringRefreshBatch: {
+      findUnique: jest.fn().mockImplementation(() => Promise.resolve({
+        ...record().batch,
+        outbox: { id: "outbox-1", lockedBy: "monitoring-refresh-worker", publishedAt: null, deadLetteredAt: null }
+      })),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 })
+    },
     monitoringRefreshFixture: {
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       count: jest.fn().mockResolvedValue(0),
@@ -66,6 +84,38 @@ function harness(clock = () => startedAt) {
 }
 
 describe("MonitoringRefreshOutboxService", () => {
+  it("claims only monitoring-owned rows and loads the complete authoritative snapshot", async () => {
+    const { service, prisma } = harness();
+    prisma.$queryRaw.mockResolvedValue([{ id: "outbox-1" }]);
+    prisma.mqttOutbox.findMany.mockResolvedValue([{
+      ...record(),
+      monitoringRefreshBatch: record().batch
+    }]);
+
+    await expect(service.claimBatch(startedAt)).resolves.toHaveLength(1);
+
+    const sql = prisma.$queryRaw.mock.calls[0][0].sql as string;
+    expect(sql).toContain('"monitoringRefreshBatchId" IS NOT NULL');
+    expect(prisma.mqttOutbox.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ monitoringRefreshBatchId: { not: null } }),
+      include: {
+        monitoringRefreshBatch: {
+          select: {
+            id: true,
+            refreshId: true,
+            siteId: true,
+            gatewayId: true,
+            sequence: true,
+            idempotencyKey: true,
+            targetFixtureIds: true,
+            status: true,
+            refresh: { select: { id: true, siteId: true, deadlineAt: true, createdAt: true, status: true } }
+          }
+        }
+      }
+    }));
+  });
+
   it("publishes only monitoring refresh rows with a bounded MQTT expiry and records PUBACK", async () => {
     const { service, prisma, mqtt } = harness();
     jest.spyOn(service, "claimBatch").mockResolvedValue([record()] as never);
@@ -102,6 +152,43 @@ describe("MonitoringRefreshOutboxService", () => {
     expect(JSON.stringify(prisma.mqttOutbox.updateMany.mock.calls)).not.toContain("broker-password-secret");
   });
 
+  it.each([
+    ["gateway and topic", { gatewayId: otherGatewayId }, mqttTopicsV2.fixturePresenceCheck(siteId, otherGatewayId)],
+    ["targets", { targetFixtureIds: [otherFixtureId] }, undefined],
+    ["deadline", { expiresAt: "2026-09-15T08:01:30.000Z" }, undefined],
+    ["requested time", { requestedAt: "2026-09-15T07:59:59.000Z" }, undefined],
+    ["site", { siteId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }, undefined],
+    ["refresh identity", { refreshId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" }, undefined],
+    ["batch identity", { batchId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc" }, undefined],
+    ["sequence", { sequence: 2 }, undefined],
+    ["idempotency key", { idempotencyKey: "dddddddd-dddd-4ddd-8ddd-dddddddddddd" }, undefined]
+  ])("rejects stored %s drift against the persisted snapshot without publishing", async (_name, changed, changedTopic) => {
+    const { service, prisma, mqtt } = harness();
+    const altered = record({ payload: { ...payload, ...changed }, ...(changedTopic ? { topic: changedTopic } : {}) });
+
+    await service.publishClaimed(altered as never);
+
+    expect(mqtt.publishTopic).not.toHaveBeenCalled();
+    expect(prisma.mqttOutbox.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ deadLetteredAt: startedAt, lastError: "invalid_outbox_payload" })
+    }));
+    expect(prisma.monitoringRefreshFixture.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: { status: "unverified", errorCode: "invalid_outbox_payload", observedAt: startedAt }
+    }));
+  });
+
+  it("dead-letters a malformed stored payload immediately as a sanitized invalid snapshot", async () => {
+    const { service, prisma, mqtt } = harness();
+
+    await service.publishClaimed(record({ payload: { secret: "native-packet-secret" } }) as never);
+
+    expect(mqtt.publishTopic).not.toHaveBeenCalled();
+    expect(prisma.mqttOutbox.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ attempts: 1, lastError: "invalid_outbox_payload", deadLetteredAt: startedAt })
+    }));
+    expect(JSON.stringify(prisma.mqttOutbox.updateMany.mock.calls)).not.toContain("native-packet-secret");
+  });
+
   it("dead-letters exhausted delivery as unverified without mutating Fixture", async () => {
     const { service, prisma, mqtt } = harness();
     mqtt.publishTopic.mockRejectedValue(new Error("native-usb-secret"));
@@ -133,6 +220,49 @@ describe("MonitoringRefreshOutboxService", () => {
     }));
   });
 
+  it("locks and revalidates the parent before any dead-letter mutation", async () => {
+    const { service, prisma, mqtt } = harness();
+    mqtt.publishTopic.mockRejectedValue(new Error("broker unavailable"));
+
+    await service.publishClaimed(record({ attempts: 2 }) as never);
+
+    const lockSql = prisma.$queryRaw.mock.calls[0][0].sql as string;
+    expect(lockSql).toContain('FROM "MonitoringRefresh"');
+    expect(lockSql).toContain("FOR UPDATE");
+    expect(prisma.$queryRaw.mock.invocationCallOrder[0])
+      .toBeLessThan(prisma.mqttOutbox.updateMany.mock.invocationCallOrder.at(-1)!);
+    expect(prisma.monitoringRefreshBatch.findUnique).toHaveBeenCalledWith({
+      where: { id: batchId },
+      include: {
+        refresh: { select: { id: true, status: true } },
+        outbox: { select: { id: true, lockedBy: true, publishedAt: true, deadLetteredAt: true } }
+      }
+    });
+  });
+
+  it("waits for an in-flight publication during stopAndDrain and does not start the next row", async () => {
+    const { promise, resolve } = deferred<void>();
+    const { service, mqtt } = harness();
+    jest.spyOn(service, "claimBatch").mockResolvedValue([
+      record(),
+      record({ id: "outbox-2", monitoringRefreshBatchId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+        batch: { ...record().batch, id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee" } })
+    ] as never);
+    mqtt.publishTopic.mockReturnValueOnce(promise);
+
+    const running = service.runScheduledBatch();
+    await Promise.resolve();
+    const stopping = service.stopAndDrain();
+    let drained = false;
+    void stopping.then(() => { drained = true; });
+    await Promise.resolve();
+    expect(drained).toBe(false);
+
+    resolve();
+    await Promise.all([running, stopping]);
+    expect(mqtt.publishTopic).toHaveBeenCalledTimes(1);
+  });
+
   it("contains scheduled failures, redacts logs, unreferences its timer, and drains on shutdown", async () => {
     jest.useFakeTimers();
     const loggerError = jest.spyOn(Logger.prototype, "error").mockImplementation();
@@ -162,3 +292,9 @@ describe("MonitoringRefreshOutboxService", () => {
     }
   });
 });
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}

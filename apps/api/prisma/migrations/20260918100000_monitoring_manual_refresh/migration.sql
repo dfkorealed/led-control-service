@@ -49,9 +49,39 @@ CREATE UNIQUE INDEX "MonitoringRefresh_siteId_requestedById_clientRequestId_key"
 ON "MonitoringRefresh"("siteId", "requestedById", "clientRequestId");
 CREATE UNIQUE INDEX "MonitoringRefresh_id_siteId_key"
 ON "MonitoringRefresh"("id", "siteId");
+CREATE UNIQUE INDEX "MonitoringRefresh_id_siteId_floorId_key"
+ON "MonitoringRefresh"("id", "siteId", "floorId");
 CREATE INDEX "MonitoringRefresh_siteId_floorId_status_idx"
 ON "MonitoringRefresh"("siteId", "floorId", "status");
 CREATE INDEX "MonitoringRefresh_createdAt_idx" ON "MonitoringRefresh"("createdAt");
+
+CREATE TABLE "MonitoringRefreshRequest" (
+  "siteId" TEXT NOT NULL,
+  "floorId" TEXT NOT NULL,
+  "requestedById" TEXT NOT NULL,
+  "clientRequestId" TEXT NOT NULL,
+  "refreshId" TEXT NOT NULL,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "MonitoringRefreshRequest_pkey"
+    PRIMARY KEY ("siteId", "requestedById", "clientRequestId"),
+  CONSTRAINT "MonitoringRefreshRequest_siteId_fkey"
+    FOREIGN KEY ("siteId") REFERENCES "Site"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT "MonitoringRefreshRequest_floorId_siteId_fkey"
+    FOREIGN KEY ("floorId", "siteId") REFERENCES "Floor"("id", "siteId") ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT "MonitoringRefreshRequest_requestedById_fkey"
+    FOREIGN KEY ("requestedById") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT "MonitoringRefreshRequest_refreshId_siteId_floorId_fkey"
+    FOREIGN KEY ("refreshId", "siteId", "floorId")
+    REFERENCES "MonitoringRefresh"("id", "siteId", "floorId") ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT "MonitoringRefreshRequest_identity_check" CHECK (
+    length("requestedById") > 0 AND length("clientRequestId") > 0 AND length("refreshId") > 0
+  )
+);
+
+CREATE INDEX "MonitoringRefreshRequest_refreshId_idx"
+ON "MonitoringRefreshRequest"("refreshId");
+CREATE INDEX "MonitoringRefreshRequest_requestedById_siteId_floorId_createdAt_idx"
+ON "MonitoringRefreshRequest"("requestedById", "siteId", "floorId", "createdAt");
 
 CREATE TABLE "MonitoringRefreshBatch" (
   "id" TEXT NOT NULL,

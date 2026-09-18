@@ -38,6 +38,11 @@ describe("MonitoringRefreshExpiryService", () => {
 
     await expect(service.expire(now)).resolves.toEqual({ expired: 1 });
 
+    const lockSql = prisma.$queryRaw.mock.calls[0][0].sql as string;
+    expect(lockSql).toContain('FROM "MonitoringRefresh"');
+    expect(lockSql).toContain("FOR UPDATE SKIP LOCKED");
+    expect(prisma.$queryRaw.mock.invocationCallOrder[0])
+      .toBeLessThan(prisma.mqttOutbox.updateMany.mock.invocationCallOrder[0]);
     expect(prisma.monitoringRefreshFixture.updateMany).toHaveBeenCalledWith({
       where: { refreshId, status: "pending" },
       data: { status: "unverified", errorCode: "refresh_deadline_exceeded", observedAt: now }

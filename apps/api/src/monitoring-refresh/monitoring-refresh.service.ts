@@ -57,7 +57,25 @@ export class MonitoringRefreshService {
         const floor = await tx.floor.findFirst({ where: { id: floorId, siteId, status: "active" } });
         if (!floor) throw new NotFoundException("floor not found");
 
-        const existing = await tx.monitoringRefresh.findUnique({
+        const request = await tx.monitoringRefreshRequest.findUnique({
+          where: {
+            siteId_requestedById_clientRequestId: {
+              siteId,
+              requestedById: user.id,
+              clientRequestId: input.clientRequestId
+            }
+          },
+          include: { refresh: true }
+        });
+        if (request) {
+          if (request.floorId !== floorId) {
+            throw new ConflictException({ code: "monitoring_refresh_payload_conflict" });
+          }
+          return createProjection(request.refresh);
+        }
+
+        // Compatibility for refreshes created before request aliases existed.
+        const legacy = await tx.monitoringRefresh.findUnique({
           where: {
             siteId_requestedById_clientRequestId: {
               siteId,
@@ -66,21 +84,38 @@ export class MonitoringRefreshService {
             }
           }
         });
-        if (existing) {
-          if (existing.floorId !== floorId) {
+        if (legacy) {
+          if (legacy.floorId !== floorId) {
             throw new ConflictException({ code: "monitoring_refresh_payload_conflict" });
           }
-          return createProjection(existing);
+          await createRequestAlias(tx, user.id, input.clientRequestId, legacy);
+          return createProjection(legacy);
         }
 
         const active = await tx.monitoringRefresh.findFirst({
           where: { siteId, floorId, status: "pending" },
           orderBy: [{ createdAt: "desc" }, { id: "desc" }]
         });
-        if (active) return createProjection(active);
+        if (active) {
+          await createRequestAlias(tx, user.id, input.clientRequestId, active);
+          return createProjection(active);
+        }
 
         const now = this.clock();
-        const latestTerminal = await tx.monitoringRefresh.findFirst({
+        const latestRequest = await tx.monitoringRefreshRequest.findFirst({
+          where: {
+            siteId,
+            floorId,
+            requestedById: user.id,
+            refresh: {
+              status: { in: [...TERMINAL_STATUSES] },
+              completedAt: { gt: new Date(now.getTime() - TERMINAL_COOLDOWN_MS) }
+            }
+          },
+          orderBy: { refresh: { completedAt: "desc" } },
+          select: { refresh: { select: { completedAt: true } } }
+        });
+        const latestTerminal = latestRequest?.refresh ?? await tx.monitoringRefresh.findFirst({
           where: {
             siteId,
             floorId,
@@ -88,7 +123,8 @@ export class MonitoringRefreshService {
             status: { in: [...TERMINAL_STATUSES] },
             completedAt: { gt: new Date(now.getTime() - TERMINAL_COOLDOWN_MS) }
           },
-          orderBy: [{ completedAt: "desc" }, { id: "desc" }]
+          orderBy: [{ completedAt: "desc" }, { id: "desc" }],
+          select: { completedAt: true }
         });
         if (latestTerminal?.completedAt) {
           throw new HttpException({
@@ -120,9 +156,11 @@ export class MonitoringRefreshService {
             status: noTargets ? "completed" : "pending",
             totalFixtures: selectedFixtures.length,
             deadlineAt,
-            completedAt: noTargets ? now : null
+            completedAt: noTargets ? now : null,
+            createdAt: now
           }
         });
+        await createRequestAlias(tx, user.id, input.clientRequestId, refresh);
         if (noTargets) return createProjection(refresh);
 
         await this.createSnapshot(tx, refreshId, siteId, now, deadlineAt, selectedFixtures as FixtureTarget[]);
@@ -130,7 +168,17 @@ export class MonitoringRefreshService {
       });
     } catch (error) {
       if (!isIdempotencyCollision(error)) throw error;
-      const winner = await this.prisma.monitoringRefresh.findUnique({
+      const winnerRequest = await this.prisma.monitoringRefreshRequest.findUnique({
+        where: {
+          siteId_requestedById_clientRequestId: {
+            siteId,
+            requestedById: user.id,
+            clientRequestId: input.clientRequestId
+          }
+        },
+        include: { refresh: true }
+      });
+      const winner = winnerRequest?.refresh ?? await this.prisma.monitoringRefresh.findUnique({
         where: {
           siteId_requestedById_clientRequestId: {
             siteId,
@@ -140,7 +188,7 @@ export class MonitoringRefreshService {
         }
       });
       if (!winner) throw error;
-      if (winner.floorId !== floorId) {
+      if ((winnerRequest?.floorId ?? winner.floorId) !== floorId) {
         throw new ConflictException({ code: "monitoring_refresh_payload_conflict" });
       }
       return createProjection(winner);
@@ -224,6 +272,23 @@ export class MonitoringRefreshService {
   }
 }
 
+function createRequestAlias(
+  tx: Prisma.TransactionClient,
+  requestedById: string,
+  clientRequestId: string,
+  refresh: Pick<MonitoringRefresh, "id" | "siteId" | "floorId">
+) {
+  return tx.monitoringRefreshRequest.create({
+    data: {
+      siteId: refresh.siteId,
+      floorId: refresh.floorId,
+      requestedById,
+      clientRequestId,
+      refreshId: refresh.id
+    }
+  });
+}
+
 function isIdempotencyCollision(error: unknown) {
   if (typeof error !== "object" || error === null || !("code" in error) || error.code !== "P2002") return false;
   const target = "meta" in error && typeof error.meta === "object" && error.meta !== null && "target" in error.meta
@@ -232,7 +297,8 @@ function isIdempotencyCollision(error: unknown) {
   const fields = Array.isArray(target)
     ? target.filter((field): field is string => typeof field === "string")
     : typeof target === "string" ? [target] : [];
-  return fields.some((field) => field === "MonitoringRefresh_siteId_requestedById_clientRequestId_key"
+  return fields.some((field) => field === "MonitoringRefreshRequest_pkey"
+    || field === "MonitoringRefresh_siteId_requestedById_clientRequestId_key"
     || field.includes("siteId") && field.includes("requestedById") && field.includes("clientRequestId"))
     || ["siteId", "requestedById", "clientRequestId"].every((field) => fields.includes(field));
 }

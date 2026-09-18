@@ -300,6 +300,7 @@ model User {
   assignedIncidents        MonitoringIncident[]  @relation("IncidentAssignedTo")
   resolvedIncidents        MonitoringIncident[]  @relation("IncidentResolvedBy")
   requestedMonitoringRefreshes MonitoringRefresh[]
+  monitoringRefreshRequests    MonitoringRefreshRequest[]
   createdAt                DateTime              @default(now())
   updatedAt                DateTime              @updatedAt
 }
@@ -335,6 +336,7 @@ model Site {
   energyReportJobs           EnergyReportJob[]
   monitoringIncidents        MonitoringIncident[]
   monitoringRefreshes        MonitoringRefresh[]
+  monitoringRefreshRequests  MonitoringRefreshRequest[]
   createdAt                  DateTime                         @default(now())
   updatedAt                  DateTime                         @updatedAt
 
@@ -384,6 +386,7 @@ model Floor {
   provisioningSessions  ProvisioningSession[]
   mapRevisions          FloorMapRevision[]
   monitoringRefreshes   MonitoringRefresh[]
+  monitoringRefreshRequests MonitoringRefreshRequest[]
   createdAt             DateTime              @default(now())
   updatedAt             DateTime              @updatedAt
 
@@ -494,13 +497,32 @@ model MonitoringRefresh {
   requestedBy        User?                   @relation(fields: [requestedById], references: [id], onDelete: SetNull)
   batches            MonitoringRefreshBatch[]
   fixtureResults     MonitoringRefreshFixture[]
+  requests           MonitoringRefreshRequest[]
   createdAt          DateTime                @default(now())
   updatedAt          DateTime                @updatedAt
 
   @@unique([siteId, requestedById, clientRequestId])
   @@unique([id, siteId])
+  @@unique([id, siteId, floorId])
   @@index([siteId, floorId, status])
   @@index([createdAt])
+}
+
+model MonitoringRefreshRequest {
+  siteId         String
+  floorId        String
+  requestedById  String
+  clientRequestId String
+  refreshId      String
+  site            Site              @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  floor           Floor             @relation(fields: [floorId, siteId], references: [id, siteId], onDelete: Cascade)
+  requestedBy     User              @relation(fields: [requestedById], references: [id], onDelete: Cascade)
+  refresh         MonitoringRefresh @relation(fields: [refreshId, siteId, floorId], references: [id, siteId, floorId], onDelete: Cascade)
+  createdAt       DateTime           @default(now())
+
+  @@id([siteId, requestedById, clientRequestId])
+  @@index([refreshId])
+  @@index([requestedById, siteId, floorId, createdAt])
 }
 
 model MonitoringRefreshBatch {

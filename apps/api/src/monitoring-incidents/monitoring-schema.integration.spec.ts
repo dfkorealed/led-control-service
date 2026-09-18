@@ -44,7 +44,7 @@ const databaseUrl = process.env.MONITORING_INCIDENTS_TEST_DATABASE_URL;
       prisma.$queryRaw<{ table_name: string }[]>`
         SELECT table_name FROM information_schema.tables
         WHERE table_schema = 'public' AND table_name IN (
-          'MonitoringRefresh', 'MonitoringRefreshBatch', 'MonitoringRefreshFixture'
+          'MonitoringRefresh', 'MonitoringRefreshBatch', 'MonitoringRefreshFixture', 'MonitoringRefreshRequest'
         ) ORDER BY table_name
       `,
       prisma.$queryRaw<{ typname: string; enumlabel: string }[]>`
@@ -58,6 +58,7 @@ const databaseUrl = process.env.MONITORING_INCIDENTS_TEST_DATABASE_URL;
         SELECT conname FROM pg_constraint
         WHERE conrelid IN (
           '"MonitoringRefresh"'::regclass,
+          '"MonitoringRefreshRequest"'::regclass,
           '"MonitoringRefreshBatch"'::regclass,
           '"MonitoringRefreshFixture"'::regclass,
           '"MqttOutbox"'::regclass
@@ -68,6 +69,12 @@ const databaseUrl = process.env.MONITORING_INCIDENTS_TEST_DATABASE_URL;
           'MonitoringRefresh_requestedById_fkey',
           'MonitoringRefresh_counters_check',
           'MonitoringRefresh_status_check',
+          'MonitoringRefreshRequest_pkey',
+          'MonitoringRefreshRequest_siteId_fkey',
+          'MonitoringRefreshRequest_floorId_siteId_fkey',
+          'MonitoringRefreshRequest_requestedById_fkey',
+          'MonitoringRefreshRequest_refreshId_siteId_floorId_fkey',
+          'MonitoringRefreshRequest_identity_check',
           'MonitoringRefreshBatch_pkey',
           'MonitoringRefreshBatch_refreshId_siteId_fkey',
           'MonitoringRefreshBatch_gatewayId_siteId_fkey',
@@ -85,10 +92,11 @@ const databaseUrl = process.env.MONITORING_INCIDENTS_TEST_DATABASE_URL;
       prisma.$queryRaw<{ indexname: string }[]>`
         SELECT indexname FROM pg_indexes
         WHERE schemaname = 'public' AND tablename IN (
-          'MonitoringRefresh', 'MonitoringRefreshBatch', 'MonitoringRefreshFixture', 'MqttOutbox'
+          'MonitoringRefresh', 'MonitoringRefreshBatch', 'MonitoringRefreshFixture', 'MonitoringRefreshRequest', 'MqttOutbox'
         ) AND indexname IN (
           'MonitoringRefresh_siteId_requestedById_clientRequestId_key',
           'MonitoringRefresh_id_siteId_key',
+          'MonitoringRefresh_id_siteId_floorId_key',
           'MonitoringRefresh_siteId_floorId_status_idx',
           'MonitoringRefresh_createdAt_idx',
           'MonitoringRefreshBatch_gatewayId_sequence_key',
@@ -97,6 +105,8 @@ const databaseUrl = process.env.MONITORING_INCIDENTS_TEST_DATABASE_URL;
           'MonitoringRefreshBatch_refreshId_status_idx',
           'MonitoringRefreshFixture_batchId_status_idx',
           'MonitoringRefreshFixture_fixtureId_idx',
+          'MonitoringRefreshRequest_refreshId_idx',
+          'MonitoringRefreshRequest_requestedById_siteId_floorId_createdAt_idx',
           'MqttOutbox_monitoringRefreshBatchId_key'
         ) ORDER BY indexname
       `,
@@ -109,7 +119,8 @@ const databaseUrl = process.env.MONITORING_INCIDENTS_TEST_DATABASE_URL;
     expect(tables).toEqual([
       { table_name: "MonitoringRefresh" },
       { table_name: "MonitoringRefreshBatch" },
-      { table_name: "MonitoringRefreshFixture" }
+      { table_name: "MonitoringRefreshFixture" },
+      { table_name: "MonitoringRefreshRequest" }
     ]);
     expect(enums).toEqual([
       { typname: "MonitoringRefreshBatchStatus", enumlabel: "pending" },
@@ -144,12 +155,19 @@ const databaseUrl = process.env.MONITORING_INCIDENTS_TEST_DATABASE_URL;
       "MonitoringRefresh_requestedById_fkey",
       "MonitoringRefresh_siteId_fkey",
       "MonitoringRefresh_status_check",
+      "MonitoringRefreshRequest_floorId_siteId_fkey",
+      "MonitoringRefreshRequest_identity_check",
+      "MonitoringRefreshRequest_pkey",
+      "MonitoringRefreshRequest_refreshId_siteId_floorId_fkey",
+      "MonitoringRefreshRequest_requestedById_fkey",
+      "MonitoringRefreshRequest_siteId_fkey",
       "MqttOutbox_row_shape_check",
       "MqttOutbox_monitoringRefreshBatchId_fkey"
     ].sort());
     expect(indexes.map(({ indexname }) => indexname)).toEqual([
       "MonitoringRefresh_siteId_requestedById_clientRequestId_key",
       "MonitoringRefresh_id_siteId_key",
+      "MonitoringRefresh_id_siteId_floorId_key",
       "MonitoringRefresh_siteId_floorId_status_idx",
       "MonitoringRefresh_createdAt_idx",
       "MonitoringRefreshBatch_gatewayId_sequence_key",
@@ -158,9 +176,84 @@ const databaseUrl = process.env.MONITORING_INCIDENTS_TEST_DATABASE_URL;
       "MonitoringRefreshBatch_refreshId_status_idx",
       "MonitoringRefreshFixture_batchId_status_idx",
       "MonitoringRefreshFixture_fixtureId_idx",
+      "MonitoringRefreshRequest_refreshId_idx",
+      "MonitoringRefreshRequest_requestedById_siteId_floorId_createdAt_idx",
       "MqttOutbox_monitoringRefreshBatchId_key"
     ].sort());
     expect(fixtureColumn).toEqual([{ is_nullable: "YES" }]);
+  });
+
+  it("binds request aliases to one requester key and the refresh's exact site/floor scope", async () => {
+    const id = randomUUID();
+    const organization = await prisma.organization.create({ data: { name: `monitoring-refresh-alias-${id}`, type: "customer" } });
+    const user = await prisma.user.create({ data: {
+      organizationId: organization.id,
+      loginId: `alias_${id}`,
+      name: "Alias requester",
+      passwordHash: "unused",
+      role: "viewer"
+    } });
+    const [firstSite, secondSite] = await Promise.all([
+      prisma.site.create({ data: { organizationId: organization.id, name: `first-${id}` } }),
+      prisma.site.create({ data: { organizationId: organization.id, name: `second-${id}` } })
+    ]);
+
+    try {
+      const [firstFloor, otherFloor, secondSiteFloor] = await Promise.all([
+        prisma.floor.create({ data: { siteId: firstSite.id, name: "first", level: 1 } }),
+        prisma.floor.create({ data: { siteId: firstSite.id, name: "other", level: 2 } }),
+        prisma.floor.create({ data: { siteId: secondSite.id, name: "second-site", level: 1 } })
+      ]);
+      const firstRefresh = await prisma.monitoringRefresh.create({ data: {
+        siteId: firstSite.id, floorId: firstFloor.id, requestedById: user.id, clientRequestId: randomUUID(),
+        totalFixtures: 0, deadlineAt: new Date(Date.now() + 30_000)
+      } });
+      const secondRefresh = await prisma.monitoringRefresh.create({ data: {
+        siteId: firstSite.id, floorId: firstFloor.id, requestedById: user.id, clientRequestId: randomUUID(),
+        totalFixtures: 0, deadlineAt: new Date(Date.now() + 30_000)
+      } });
+      const requestId = randomUUID();
+      await prisma.monitoringRefreshRequest.create({ data: {
+        siteId: firstSite.id,
+        floorId: firstFloor.id,
+        requestedById: user.id,
+        clientRequestId: requestId,
+        refreshId: firstRefresh.id
+      } });
+
+      await expect(prisma.monitoringRefreshRequest.create({ data: {
+        siteId: firstSite.id,
+        floorId: firstFloor.id,
+        requestedById: user.id,
+        clientRequestId: requestId,
+        refreshId: secondRefresh.id
+      } })).rejects.toMatchObject({ code: "P2002" });
+      await expect(prisma.monitoringRefreshRequest.create({ data: {
+        siteId: firstSite.id,
+        floorId: otherFloor.id,
+        requestedById: user.id,
+        clientRequestId: randomUUID(),
+        refreshId: firstRefresh.id
+      } })).rejects.toMatchObject({ code: "P2003" });
+      await expect(prisma.monitoringRefreshRequest.create({ data: {
+        siteId: secondSite.id,
+        floorId: secondSiteFloor.id,
+        requestedById: user.id,
+        clientRequestId: randomUUID(),
+        refreshId: firstRefresh.id
+      } })).rejects.toMatchObject({ code: "P2003" });
+      await expect(prisma.$executeRawUnsafe(`
+        INSERT INTO "MonitoringRefreshRequest" (
+          "siteId", "floorId", "requestedById", "clientRequestId", "refreshId"
+        ) VALUES (
+          '${firstSite.id}', '${firstFloor.id}', '${user.id}', '', '${firstRefresh.id}'
+        )
+      `)).rejects.toMatchObject({ code: "P2010" });
+    } finally {
+      await prisma.site.deleteMany({ where: { id: { in: [firstSite.id, secondSite.id] } } });
+      await prisma.user.delete({ where: { id: user.id } });
+      await prisma.organization.delete({ where: { id: organization.id } });
+    }
   });
 
   it("rejects an outbox with both command and monitoring-refresh owners and an unpublished completed batch", async () => {
