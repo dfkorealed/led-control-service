@@ -23,6 +23,7 @@ import { FixturePlacementAction } from "./FixturePlacementAction";
 import { EditorMinimap } from "./EditorMinimap";
 import { canShowFixtureNames, selectedFixtureLabelLayout } from "./editor-labels";
 import { CadCandidateLayer } from "./CadCandidateLayer";
+import { CAD_SLOT_HIT_RADIUS, CadPlacementSlotLayer, findAvailableCadSlotAtPoint } from "./CadPlacementSlotLayer";
 
 const TOOL_DRAG_TYPE = "application/x-floor-editor-tool";
 const drawingTools = new Set<EditorTool>(["rectangle", "triangle", "line", "text"]);
@@ -83,6 +84,7 @@ export function FloorEditorCanvas({
   const [creation, setCreation] = useState<FloorMapObjectDraft | null>(null);
   const [marquee, setMarquee] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const [dropPreview, setDropPreview] = useState<Point | null>(null);
+  const [highlightedSlotId, setHighlightedSlotId] = useState<string | null>(null);
   const [isPanning, setIsPanning] = useState(false);
   const floorPlan = state?.floor.floorPlan;
   const backgroundUrl = cadBackgroundUrl
@@ -216,7 +218,7 @@ export function FloorEditorCanvas({
         // Imperative pan is not yet in Zustand. Restore every layer before dropping
         // the gesture, so the next drop uses exactly the transform shown on screen.
         if (gesture.current?.kind === "pan") stage.current?.getLayers().forEach((layer) => layer.position(store.pan));
-        gesture.current = null; setCreation(null); setMarquee(null); setDropPreview(null); setIsPanning(false); store.setPreview([]); return;
+        gesture.current = null; setCreation(null); setMarquee(null); setDropPreview(null); setHighlightedSlotId(null); setIsPanning(false); store.setPreview([]); return;
       }
       if (readOnly) return;
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") { event.preventDefault(); event.shiftKey ? store.redo() : store.undo(); return; }
@@ -286,12 +288,15 @@ export function FloorEditorCanvas({
       event.preventDefault();
       event.dataTransfer.dropEffect = "move";
       const point = worldPoint(event);
-      setDropPreview(point);
+      const current = useFloorEditorStore.getState();
+      const slot = findAvailableCadSlotAtPoint(current.state?.lightSlots ?? [], point, CAD_SLOT_HIT_RADIUS / current.zoom);
+      setHighlightedSlotId(slot?.id ?? null);
+      setDropPreview(slot ? { x: slot.x, y: slot.y } : point);
     }
     else if (event.dataTransfer.types.includes(TOOL_DRAG_TYPE) && !layers.objects.locked) { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; }
   }
   function drop(event: DragEvent<HTMLDivElement>) {
-    setDropPreview(null); if (readOnly) return;
+    setDropPreview(null); setHighlightedSlotId(null); if (readOnly) return;
     event.preventDefault();
     const current = useFloorEditorStore.getState();
     if (current.state?.floor.id !== state!.floor.id) return;
@@ -301,6 +306,12 @@ export function FloorEditorCanvas({
     if (id) {
       const fixture = current.state.fixtures.find((f) => f.id === id);
       if (!fixture || fixture.placementStatus !== "unplaced" || current.layers.fixtures.locked || current.lockedFixtureIds.includes(id)) return;
+      const slot = findAvailableCadSlotAtPoint(current.state.lightSlots, point, CAD_SLOT_HIT_RADIUS / current.zoom);
+      if (slot) {
+        current.assignFixtureToSlot(id, slot.id);
+        current.selectFixture(id);
+        return;
+      }
       current.placeFixtures([{ id, ...point }]); current.selectFixture(id); return;
     }
     const tool = event.dataTransfer.getData(TOOL_DRAG_TYPE) as EditorTool;
@@ -327,7 +338,7 @@ export function FloorEditorCanvas({
     data-background-url={backgroundUrl} data-cad-candidate-count={cadCandidates.length}
     data-map-width={bounds.width} data-map-height={bounds.height}
     onMouseDown={begin} onMouseMove={move} onMouseUp={finish} onMouseLeave={(e) => { if (gesture.current?.kind === "pan") finish(e); else { gesture.current = null; setCreation(null); setMarquee(null); setIsPanning(false); } }}
-    onDragOver={dragOver} onDragLeave={() => setDropPreview(null)} onDrop={drop}>
+    onDragOver={dragOver} onDragLeave={() => { setDropPreview(null); setHighlightedSlotId(null); }} onDrop={drop}>
     <Stage ref={stage} width={viewport.width} height={viewport.height} onWheel={(event) => {
       event.evt.preventDefault(); const store = useFloorEditorStore.getState();
       const point = stage.current?.getPointerPosition(); if (!point) return;
@@ -351,6 +362,12 @@ export function FloorEditorCanvas({
         onFocusedCandidateChange={onFocusedCadCandidateChange}
         onToggle={onToggleCadCandidate}
       />
+      {!onToggleCadCandidate ? <CadPlacementSlotLayer
+        slots={state.lightSlots}
+        transform={transform}
+        zoom={zoom}
+        highlightedSlotId={highlightedSlotId}
+      /> : null}
       <Layer {...transform} visible={layers.objects.visible} listening={!readOnly && !layers.objects.locked && activeTool === "select"}>
         {state.objects.filter((o) => o.visible).sort((a, b) => a.zIndex - b.zIndex).map((object) => {
           let ref = objectRefCallbacks.current.get(object.id);

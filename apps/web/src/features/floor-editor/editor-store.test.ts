@@ -209,4 +209,105 @@ describe("floor editor store baseline", () => {
       activeTool: "select"
     });
   });
+
+  it("assigns an unplaced fixture to the exact coordinates of an available CAD slot", () => {
+    const slot = { id: "slot-1", x: 123.5, y: 247.25, rotation: 37, assignedFixtureId: null };
+    useFloorEditorStore.getState().initialize({
+      ...initialState,
+      fixtures: [{
+        ...initialState.fixtures[0],
+        x: 0,
+        y: 0,
+        placementStatus: "unplaced",
+        positionVerifiedAt: "2026-09-18T01:00:00.000Z",
+        positionVerified: true
+      }],
+      lightSlots: [slot]
+    });
+
+    useFloorEditorStore.getState().assignFixtureToSlot("fixture-1", "slot-1");
+
+    expect(useFloorEditorStore.getState().state!.fixtures[0]).toMatchObject({
+      placementStatus: "placed",
+      positionVerifiedAt: null,
+      positionVerified: false,
+      x: 123.5,
+      y: 247.25
+    });
+    expect(useFloorEditorStore.getState().state!.lightSlots[0]).toEqual({
+      ...slot,
+      assignedFixtureId: "fixture-1"
+    });
+    expect(useFloorEditorStore.getState()).toMatchObject({ isDirty: true, past: [{ state: expect.anything() }] });
+  });
+
+  it("rejects an occupied CAD slot without moving another fixture", () => {
+    const state: FloorEditorState = {
+      ...initialState,
+      fixtures: [
+        { ...initialState.fixtures[0], id: "fixture-1", placementStatus: "placed", x: 100, y: 120 },
+        { ...initialState.fixtures[0], id: "fixture-2", placementStatus: "unplaced", x: 0, y: 0 }
+      ],
+      lightSlots: [{ id: "slot-1", x: 100, y: 120, rotation: 0, assignedFixtureId: "fixture-1" }]
+    };
+    useFloorEditorStore.getState().initialize(state);
+
+    useFloorEditorStore.getState().assignFixtureToSlot("fixture-2", "slot-1");
+
+    expect(useFloorEditorStore.getState().state).toBe(state);
+    expect(useFloorEditorStore.getState()).toMatchObject({ isDirty: false, past: [] });
+  });
+
+  it("unassigns a fixture, reopens its slot, and restores both through undo and redo", () => {
+    const fixture = {
+      ...initialState.fixtures[0],
+      placementStatus: "placed" as const,
+      positionVerifiedAt: "2026-09-18T01:00:00.000Z",
+      serialNumber: "SN-100",
+      meshAddress: 77,
+      x: 123.5,
+      y: 247.25
+    };
+    const slot = { id: "slot-1", x: 123.5, y: 247.25, rotation: 37, assignedFixtureId: fixture.id };
+    useFloorEditorStore.getState().initialize({ ...initialState, fixtures: [fixture], lightSlots: [slot] });
+
+    useFloorEditorStore.getState().unassignFixture(fixture.id);
+
+    expect(useFloorEditorStore.getState().state!.fixtures[0]).toEqual({
+      ...fixture,
+      x: 0,
+      y: 0,
+      placementStatus: "unplaced",
+      positionVerifiedAt: null,
+      positionVerified: false
+    });
+    expect(useFloorEditorStore.getState().state!.lightSlots[0]).toEqual({ ...slot, assignedFixtureId: null });
+
+    useFloorEditorStore.getState().undo();
+    expect(useFloorEditorStore.getState().state).toMatchObject({ fixtures: [fixture], lightSlots: [slot] });
+    expect(useFloorEditorStore.getState().isDirty).toBe(false);
+
+    useFloorEditorStore.getState().redo();
+    expect(useFloorEditorStore.getState().state).toMatchObject({
+      fixtures: [expect.objectContaining({ id: fixture.id, x: 0, y: 0, placementStatus: "unplaced" })],
+      lightSlots: [expect.objectContaining({ id: slot.id, assignedFixtureId: null })]
+    });
+    expect(useFloorEditorStore.getState().isDirty).toBe(true);
+  });
+
+  it("reopens an assigned slot when its fixture is moved into free placement", () => {
+    useFloorEditorStore.getState().initialize({
+      ...initialState,
+      fixtures: [{ ...initialState.fixtures[0], placementStatus: "placed", x: 10, y: 20 }],
+      lightSlots: [{ id: "slot-1", x: 10, y: 20, rotation: 0, assignedFixtureId: "fixture-1" }]
+    });
+    useFloorEditorStore.getState().setSnap(false);
+
+    useFloorEditorStore.getState().moveFixtures(["fixture-1"], { x: 5, y: 7 });
+
+    expect(useFloorEditorStore.getState().state).toMatchObject({
+      fixtures: [expect.objectContaining({ id: "fixture-1", placementStatus: "placed", x: 15, y: 27 })],
+      lightSlots: [expect.objectContaining({ id: "slot-1", assignedFixtureId: null })]
+    });
+  });
 });

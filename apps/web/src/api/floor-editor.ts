@@ -6,7 +6,7 @@ import type {
   RestoreFloorEditorRevisionInput,
   SaveEditorStateInput
 } from "@led-control/shared";
-import { floorImportApplyResultSchema } from "@led-control/shared";
+import { floorImportApplyResultSchema } from "../../../../packages/shared/src/cad-import-contracts";
 import type { FixtureIdentifyRequest, FixtureIdentifyResponse } from "@led-control/shared";
 import { ApiError, apiGet, apiPost, apiPut, apiRequest } from "./client";
 import type {

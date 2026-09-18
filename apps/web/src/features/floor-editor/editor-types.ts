@@ -85,6 +85,12 @@ export interface CadImportReviewState {
   acceptedCandidateIds: string[];
 }
 
+export interface CadMapResetSummary {
+  fixtureCount: number;
+  objectCount: number;
+  slotCount: number;
+}
+
 export interface EditorFixture {
   id: string;
   name: string;

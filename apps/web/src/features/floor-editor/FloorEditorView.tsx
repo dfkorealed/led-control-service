@@ -255,6 +255,11 @@ export function FloorEditorView({
   const acceptedCadCandidateIds = useMemo(() => new Set(
     cadImportReview?.acceptedCandidateIds ?? currentAppliedOverlay?.candidates.map(candidate => candidate.id) ?? []
   ), [cadImportReview?.acceptedCandidateIds, currentAppliedOverlay?.candidates]);
+  const cadResetSummary = useMemo(() => ({
+    fixtureCount: state?.floor.id === floorId ? state.fixtures.length : initialState.fixtures.length,
+    objectCount: state?.floor.id === floorId ? state.objects.length : initialState.objects.length,
+    slotCount: state?.floor.id === floorId ? state.lightSlots.length : initialState.lightSlots.length
+  }), [floorId, initialState.fixtures.length, initialState.lightSlots.length, initialState.objects.length, state]);
   const isMutationPending = saveStatus === "saving" || restoringRevision !== null || isCadImportPending;
   const isSaveOrRestoreBlocked = readOnly || isMutationPending || state?.floor.id !== floorId;
 
@@ -363,6 +368,7 @@ export function FloorEditorView({
             leaseFence={leaseFence}
             disabled={readOnly || saveStatus === "saving" || restoringRevision !== null}
             isDirty={isDirty}
+            resetSummary={cadResetSummary}
             review={cadImportReview}
             focusedCandidateId={focusedCadCandidateId}
             onReviewChange={(next) => {

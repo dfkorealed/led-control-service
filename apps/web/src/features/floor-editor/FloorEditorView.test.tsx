@@ -383,6 +383,47 @@ describe("FloorEditorView", () => {
     ]);
   });
 
+  it("snaps an unplaced fixture to the exact position of a CAD slot inside the hit radius", () => {
+    const state: FloorEditorState = {
+      ...structuredClone(editorState),
+      fixtures: [{ ...structuredClone(editorState.fixtures[0]), x: 0, y: 0, placementStatus: "unplaced" }],
+      lightSlots: [{ id: "slot-free", x: 123.5, y: 247.25, rotation: 37, assignedFixtureId: null }]
+    };
+    renderEditor(state);
+    const dataTransfer = createDataTransfer();
+    const row = screen.getByTestId("placement-fixture-fixture-1");
+    const canvas = screen.getByLabelText("B2 편집 캔버스");
+
+    fireEvent.dragStart(row, { dataTransfer });
+    fireEvent(canvas, createDragEventWithPoint(canvas, "drop", dataTransfer, 130, 250));
+
+    expect(useFloorEditorStore.getState().state).toMatchObject({
+      fixtures: [expect.objectContaining({ id: "fixture-1", placementStatus: "placed", x: 123.5, y: 247.25 })],
+      lightSlots: [expect.objectContaining({ id: "slot-free", rotation: 37, assignedFixtureId: "fixture-1" })]
+    });
+  });
+
+  it("keeps the existing free placement behavior when a fixture is dropped outside every slot", () => {
+    const state: FloorEditorState = {
+      ...structuredClone(editorState),
+      fixtures: [{ ...structuredClone(editorState.fixtures[0]), x: 0, y: 0, placementStatus: "unplaced" }],
+      lightSlots: [{ id: "slot-free", x: 123.5, y: 247.25, rotation: 37, assignedFixtureId: null }]
+    };
+    renderEditor(state);
+    act(() => useFloorEditorStore.getState().setSnap(false));
+    const dataTransfer = createDataTransfer();
+    const row = screen.getByTestId("placement-fixture-fixture-1");
+    const canvas = screen.getByLabelText("B2 편집 캔버스");
+
+    fireEvent.dragStart(row, { dataTransfer });
+    fireEvent(canvas, createDragEventWithPoint(canvas, "drop", dataTransfer, 333, 277));
+
+    expect(useFloorEditorStore.getState().state).toMatchObject({
+      fixtures: [expect.objectContaining({ id: "fixture-1", placementStatus: "placed", x: 333, y: 277 })],
+      lightSlots: [expect.objectContaining({ id: "slot-free", assignedFixtureId: null })]
+    });
+  });
+
   it("does not create an object when a tool is selected and the canvas is only clicked", () => {
     renderEditor({ ...editorState, objects: [] });
 
@@ -704,6 +745,12 @@ describe("FloorEditorView", () => {
     expect(useFloorEditorStore.getState().zoom).toBeCloseTo(1.175);
 
     fireEvent.click(screen.getByRole("button", { name: "선택한 후보와 배경 적용" }));
+    const resetDialog = screen.getByRole("dialog", { name: "새 CAD 도면으로 맵을 교체할까요?" });
+    expect(resetDialog).toHaveTextContent("조명 1개가 미배치 상태로 변경");
+    expect(resetDialog).toHaveTextContent("수동 도형 1개가 삭제");
+    expect(resetDialog).toHaveTextContent("기존 CAD 슬롯 1개가 삭제");
+    expect(floorEditorApi.applyFloorImportJob).not.toHaveBeenCalled();
+    fireEvent.click(within(resetDialog).getByRole("button", { name: "교체 후 적용" }));
 
     await waitFor(() => expect(floorEditorApi.applyFloorImportJob).toHaveBeenCalledWith("floor-b2", jobId, {
       expectedRevision: 7,
@@ -911,6 +958,8 @@ describe("FloorEditorView", () => {
 
     await screen.findByText("조명 위치 후보 1개를 찾았습니다.");
     fireEvent.click(screen.getByRole("button", { name: "선택한 후보와 배경 적용" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "새 CAD 도면으로 맵을 교체할까요?" }))
+      .getByRole("button", { name: "교체 후 적용" }));
 
     expect(await screen.findByText("최신 맵과 변경사항이 충돌했습니다.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "최신 버전 다시 불러오기" })).toBeInTheDocument();
@@ -964,6 +1013,10 @@ describe("FloorEditorView", () => {
 
     const row = await screen.findByTestId("placement-fixture-fixture-1");
     await waitFor(() => expect(row).toHaveFocus());
+    expect(useFloorEditorStore.getState().state).toMatchObject({
+      fixtures: [expect.objectContaining({ id: "fixture-1", placementStatus: "unplaced", x: 0, y: 0 })],
+      lightSlots: [expect.objectContaining({ id: "slot-1", assignedFixtureId: null })]
+    });
   });
 
   it("invalidates site and floor scoped queries after atomic save", async () => {

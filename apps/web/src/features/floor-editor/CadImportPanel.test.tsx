@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { Profiler } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../api/client";
@@ -74,6 +74,7 @@ const candidate = {
 function renderPanel(options: {
   review?: CadImportReviewState | null;
   isDirty?: boolean;
+  resetSummary?: { fixtureCount: number; objectCount: number; slotCount: number };
   onReviewChange?: (review: CadImportReviewState | null) => void;
   onConflict?: () => void;
   onApplied?: (result: import("./editor-types").FloorImportApplyResult | null) => void | Promise<void>;
@@ -89,6 +90,7 @@ function renderPanel(options: {
       leaseToken="lease-token"
       leaseFence={9}
       isDirty={options.isDirty}
+      resetSummary={options.resetSummary ?? { fixtureCount: 4, objectCount: 2, slotCount: 3 }}
       review={options.review ?? null}
       onReviewChange={onReviewChange}
       onBusyChange={onBusyChange}
@@ -100,6 +102,12 @@ function renderPanel(options: {
     ? <Profiler id="cad-import-panel" onRender={options.onRender}>{panel}</Profiler>
     : panel);
   return { ...result, onReviewChange, onBusyChange, onApplied };
+}
+
+function openAndConfirmApply() {
+  fireEvent.click(screen.getByRole("button", { name: "선택한 후보와 배경 적용" }));
+  const dialog = screen.getByRole("dialog", { name: "새 CAD 도면으로 맵을 교체할까요?" });
+  fireEvent.click(within(dialog).getByRole("button", { name: "교체 후 적용" }));
 }
 
 function selectCad(name = "parking.dxf", type = "application/dxf") {
@@ -378,6 +386,7 @@ describe("CadImportPanel", () => {
         expectedRevision={7}
         leaseToken="lease-token"
         leaseFence={9}
+        resetSummary={{ fixtureCount: 4, objectCount: 2, slotCount: 3 }}
         review={null}
         onReviewChange={firstReviewChange}
         onBusyChange={onBusyChange}
@@ -392,6 +401,7 @@ describe("CadImportPanel", () => {
         expectedRevision={7}
         leaseToken="lease-token"
         leaseFence={9}
+        resetSummary={{ fixtureCount: 4, objectCount: 2, slotCount: 3 }}
         review={null}
         onReviewChange={latestReviewChange}
         onBusyChange={onBusyChange}
@@ -433,6 +443,7 @@ describe("CadImportPanel", () => {
       expectedRevision={7}
       leaseToken="lease-token"
       leaseFence={9}
+      resetSummary={{ fixtureCount: 4, objectCount: 2, slotCount: 3 }}
       review={null}
       onReviewChange={onReviewChange}
       onBusyChange={onBusyChange}
@@ -445,6 +456,7 @@ describe("CadImportPanel", () => {
       expectedRevision={3}
       leaseToken="lease-token-2"
       leaseFence={10}
+      resetSummary={{ fixtureCount: 4, objectCount: 2, slotCount: 3 }}
       review={null}
       onReviewChange={onReviewChange}
       onBusyChange={onBusyChange}
@@ -491,6 +503,49 @@ describe("CadImportPanel", () => {
     expect(screen.getByText(/CAD 가져오기에 실패했습니다/)).toBeInTheDocument();
   });
 
+  it("shows exact reset counts and cancels without applying, then returns focus to the trigger", async () => {
+    const review: CadImportReviewState = {
+      job: { ...queuedJob, status: "review_required", progressPercent: 100 },
+      candidates: [candidate],
+      acceptedCandidateIds: [candidate.id]
+    };
+    renderPanel({ review, resetSummary: { fixtureCount: 4, objectCount: 2, slotCount: 3 } });
+    const trigger = screen.getByRole("button", { name: "선택한 후보와 배경 적용" });
+
+    trigger.focus();
+    fireEvent.click(trigger);
+
+    const dialog = screen.getByRole("dialog", { name: "새 CAD 도면으로 맵을 교체할까요?" });
+    expect(dialog).toHaveTextContent("조명 4개가 미배치 상태로 변경");
+    expect(dialog).toHaveTextContent("수동 도형 2개가 삭제");
+    expect(dialog).toHaveTextContent("기존 CAD 슬롯 3개가 삭제");
+    expect(dialog).toHaveTextContent("선택한 조명 위치 슬롯 1개가 생성");
+    expect(within(dialog).getByRole("button", { name: "취소" })).toHaveFocus();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "취소" }));
+
+    expect(floorEditorApi.applyFloorImportJob).not.toHaveBeenCalled();
+    await waitFor(() => expect(trigger).toHaveFocus());
+  });
+
+  it("dismisses the reset warning with Escape without applying", async () => {
+    const review: CadImportReviewState = {
+      job: { ...queuedJob, status: "review_required", progressPercent: 100 },
+      candidates: [candidate],
+      acceptedCandidateIds: [candidate.id]
+    };
+    renderPanel({ review });
+    const trigger = screen.getByRole("button", { name: "선택한 후보와 배경 적용" });
+    trigger.focus();
+    fireEvent.click(trigger);
+
+    fireEvent.keyDown(screen.getByRole("dialog", { name: "새 CAD 도면으로 맵을 교체할까요?" }), { key: "Escape" });
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "새 CAD 도면으로 맵을 교체할까요?" })).not.toBeInTheDocument());
+    expect(floorEditorApi.applyFloorImportJob).not.toHaveBeenCalled();
+    await waitFor(() => expect(trigger).toHaveFocus());
+  });
+
   it("applies only reviewed candidate ids with the editor lease and revision", async () => {
     const acceptedCandidates = Array.from({ length: 2_000 }, (_, index) => ({
       ...candidate,
@@ -525,7 +580,7 @@ describe("CadImportPanel", () => {
     } satisfies FloorImportApplyResult);
     const { onApplied } = renderPanel({ review });
 
-    fireEvent.click(screen.getByRole("button", { name: "선택한 후보와 배경 적용" }));
+    openAndConfirmApply();
 
     await waitFor(() => expect(floorEditorApi.applyFloorImportJob).toHaveBeenCalledWith(
       "floor-1",
@@ -561,7 +616,7 @@ describe("CadImportPanel", () => {
     floorEditorApi.applyFloorImportJob.mockRejectedValueOnce(new ApiError("conflict", 409, null));
     floorEditorApi.getFloorImportJob.mockResolvedValueOnce(review.job);
     renderPanel({ review, onConflict });
-    fireEvent.click(screen.getByRole("button", { name: "선택한 후보와 배경 적용" }));
+    openAndConfirmApply();
 
     await waitFor(() => expect(onConflict).toHaveBeenCalledOnce());
     expect(floorEditorApi.getFloorImportJob).toHaveBeenCalledWith("floor-1", queuedJob.jobId);
@@ -579,7 +634,7 @@ describe("CadImportPanel", () => {
     floorEditorApi.getFloorImportJob.mockResolvedValueOnce({ ...review.job, status: "completed" });
     const { onApplied, onReviewChange } = renderPanel({ review, onConflict });
 
-    fireEvent.click(screen.getByRole("button", { name: "선택한 후보와 배경 적용" }));
+    openAndConfirmApply();
 
     await waitFor(() => expect(onApplied).toHaveBeenCalledWith(null));
     expect(onReviewChange).toHaveBeenCalledWith(null);
@@ -597,7 +652,7 @@ describe("CadImportPanel", () => {
     floorEditorApi.getFloorImportJob.mockResolvedValueOnce({ ...review.job, status, stage: status });
     const { onReviewChange } = renderPanel({ review });
 
-    fireEvent.click(screen.getByRole("button", { name: "선택한 후보와 배경 적용" }));
+    openAndConfirmApply();
 
     await waitFor(() => expect(onReviewChange).toHaveBeenCalledWith(null));
     expect(screen.getByLabelText("CAD 파일")).toBeInTheDocument();
@@ -612,7 +667,7 @@ describe("CadImportPanel", () => {
     floorEditorApi.applyFloorImportJob.mockRejectedValueOnce(new TypeError("Failed to fetch"));
     floorEditorApi.getFloorImportJob.mockResolvedValueOnce({ ...review.job, status: "completed" });
     const { onApplied } = renderPanel({ review });
-    fireEvent.click(screen.getByRole("button", { name: "선택한 후보와 배경 적용" }));
+    openAndConfirmApply();
 
     await waitFor(() => expect(floorEditorApi.getFloorImportJob).toHaveBeenCalledWith("floor-1", queuedJob.jobId));
     expect(onApplied).toHaveBeenCalledWith(null);
@@ -627,7 +682,7 @@ describe("CadImportPanel", () => {
     floorEditorApi.applyFloorImportJob.mockRejectedValueOnce(new TypeError("Failed to fetch"));
     floorEditorApi.getFloorImportJob.mockResolvedValueOnce({ ...review.job, updatedAt: "2026-09-17T00:00:02.000Z" });
     const { onReviewChange } = renderPanel({ review });
-    fireEvent.click(screen.getByRole("button", { name: "선택한 후보와 배경 적용" }));
+    openAndConfirmApply();
 
     await waitFor(() => expect(onReviewChange).toHaveBeenCalledWith(expect.objectContaining({
       acceptedCandidateIds: [],
@@ -651,7 +706,7 @@ describe("CadImportPanel", () => {
     const { onReviewChange } = renderPanel({ review, onApplied });
     await flushPromises();
     (onReviewChange as ReturnType<typeof vi.fn>).mockClear();
-    fireEvent.click(screen.getByRole("button", { name: "선택한 후보와 배경 적용" }));
+    openAndConfirmApply();
 
     await waitFor(() => expect(onApplied).toHaveBeenCalledTimes(1));
     expect(screen.getByText(/적용은 완료되었지만 최신 맵을 불러오지 못했습니다/)).toBeInTheDocument();

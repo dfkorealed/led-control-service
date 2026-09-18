@@ -1,7 +1,7 @@
 import { ChevronLeft, ChevronRight, CircleCheck, FileCog, RotateCw, TriangleAlert, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { cadImportStageLabel } from "@led-control/shared";
 import type { CadImportMimeType, CadImportSourceFormat } from "@led-control/shared";
+import { cadImportStageLabel } from "../../../../../packages/shared/src/cad-import-contracts";
 import {
   applyFloorImportJob,
   cancelFloorImportJob,
@@ -12,9 +12,10 @@ import {
   uploadFloorAsset
 } from "../../api/floor-editor";
 import { ApiError } from "../../api/client";
-import { Button, Checkbox, FeedbackState, FileField, Heading, IconButton, Text } from "../../components/ui";
+import { Button, Checkbox, ConfirmDialog, FeedbackState, FileField, Heading, IconButton, Text } from "../../components/ui";
 import type {
   CadImportReviewState,
+  CadMapResetSummary,
   FloorImportApplyResult,
   FloorImportJob
 } from "./editor-types";
@@ -52,6 +53,7 @@ interface CadImportPanelProps {
   leaseFence?: number;
   disabled?: boolean;
   isDirty?: boolean;
+  resetSummary: CadMapResetSummary;
   review: CadImportReviewState | null;
   focusedCandidateId?: string | null;
   onReviewChange: (review: CadImportReviewState | null) => void;
@@ -68,6 +70,7 @@ export function CadImportPanel({
   leaseFence,
   disabled = false,
   isDirty = false,
+  resetSummary,
   review,
   focusedCandidateId,
   onReviewChange,
@@ -83,6 +86,7 @@ export function CadImportPanel({
   const [reviewCursor, setReviewCursor] = useState(0);
   const [suppressedReviewJobId, setSuppressedReviewJobId] = useState<string | null>(null);
   const [refreshRecoveryJob, setRefreshRecoveryJob] = useState<FloorImportJob | null>(null);
+  const [confirmApply, setConfirmApply] = useState(false);
   const loadedReviewJobId = useRef<string | null>(null);
   const requestLock = useRef(false);
   const busy = useRef(false);
@@ -114,6 +118,7 @@ export function CadImportPanel({
     setError(null);
     setSuppressedReviewJobId(null);
     setRefreshRecoveryJob(null);
+    setConfirmApply(false);
     loadedReviewJobId.current = null;
     reviewChange.current(null);
     setBusy(false);
@@ -257,6 +262,7 @@ export function CadImportPanel({
     } finally {
       requestLock.current = false;
       setAction("idle");
+      setConfirmApply(false);
     }
   }
 
@@ -476,7 +482,7 @@ export function CadImportPanel({
           disabled={disabled || isDirty || !leaseToken || !leaseFence}
           isLoading={action === "applying"}
           loadingLabel="맵에 적용 중"
-          onClick={() => void handleApply()}
+          onClick={() => setConfirmApply(true)}
         >
           <CircleCheck size={16} aria-hidden="true" />
           선택한 후보와 배경 적용
@@ -502,6 +508,21 @@ export function CadImportPanel({
           ? <Button variant="secondary" onClick={() => setError(null)}><RotateCw size={16} aria-hidden="true" />다시 확인</Button>
           : undefined}
       /> : null}
+      {confirmApply && activeReview ? <ConfirmDialog
+        title="새 CAD 도면으로 맵을 교체할까요?"
+        confirmLabel="교체 후 적용"
+        destructive
+        isPending={action === "applying"}
+        onCancel={() => setConfirmApply(false)}
+        onConfirm={() => void handleApply()}
+      >
+        <div className="grid gap-1.5">
+          <Text>조명 {resetSummary.fixtureCount.toLocaleString("ko-KR")}개가 미배치 상태로 변경됩니다.</Text>
+          <Text>수동 도형 {resetSummary.objectCount.toLocaleString("ko-KR")}개가 삭제됩니다.</Text>
+          <Text>기존 CAD 슬롯 {resetSummary.slotCount.toLocaleString("ko-KR")}개가 삭제됩니다.</Text>
+          <Text>선택한 조명 위치 슬롯 {activeReview.acceptedCandidateIds.length.toLocaleString("ko-KR")}개가 생성됩니다.</Text>
+        </div>
+      </ConfirmDialog> : null}
     </section>
   );
 }
