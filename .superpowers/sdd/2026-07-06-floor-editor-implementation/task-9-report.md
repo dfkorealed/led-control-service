@@ -32,7 +32,7 @@
 5. 기존 맵 교체부터 모니터링 반영까지 한 번에 검증하는 Chromium E2E를 추가했다.
 6. 수정 라운드 1 RED에서 65-byte/65종 unsupported marker, metadata output budget, 65종 manifest, 8 MiB 초과 child 응답이 거부되지 않음을 확인했다. parser와 child manifest를 같은 상한으로 묶고 bounded stdout transport로 parent가 JSON parse 전에 차단하도록 수정했다.
 7. 부분 sample 환경변수가 suite 전체를 skip하는 기존 동작을 RED로 확인했다. 전용 실행기는 ignored API `dist`를 먼저 삭제하고 공식 `pnpm workspace:prepare`로 shared와 automation-engine을 준비한 뒤 현재 API source를 build해 sample test를 실행한다. 일부 환경변수만 주어지면 명시적으로 실패한다.
-8. 수정 라운드 2에서는 shared/automation-engine/API `dist`가 모두 없는 계약 fixture에서 `workspace:prepare -> API build -> sample Jest` 순서를 고정했다. 실제 세 `dist`를 제거한 상태에서도 동일한 `pnpm test:cad-sample` 명령을 재실행해 성공했다.
+8. 수정 라운드 3에서는 shared/automation-engine/API `dist`와 generated Prisma Client가 모두 없는 상태에서 `workspace:prepare -> prisma:generate -> API build -> sample Jest` 순서를 고정했다. 계약 테스트는 각 단계의 실패가 이후 명령을 막고 원래 오류를 전파하는지도 확인하며, 동일한 `pnpm test:cad-sample` 실샘플 명령도 재실행해 성공했다.
 
 ## 실제 DWG 파이프라인
 

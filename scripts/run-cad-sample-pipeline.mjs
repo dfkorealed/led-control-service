@@ -32,6 +32,7 @@ export async function runCadSamplePipeline(options = {}) {
   // Rebuild the fork target from this checkout after preparing its workspace dependencies.
   await rm(resolve(root, "apps/api/dist"), { recursive: true, force: true });
   await runCommand(["run", "workspace:prepare"]);
+  await runCommand(["--filter", "@led-control/api", "prisma:generate"]);
   await runCommand(["--filter", "@led-control/api", "build"]);
   await runCommand([
     "--filter", "@led-control/api", "exec", "jest",

@@ -866,5 +866,5 @@
 
 - **발생했던 문제/실수**: 맵 편집 Chromium mock이 fixture 좌표와 slot 좌표가 같다는 이유로 assignment를 자체 생성해, Web이 slot assignment payload를 누락해도 저장 여정이 통과할 수 있었다. 실제 샘플 테스트도 ignored `dist`가 남아 있으면 현재 source가 아닌 오래된 child를 실행할 수 있었다.
 - **원인**: 테스트 double이 서버 결과를 친절하게 보정했고, fork 대상 build artifact의 출처를 실행 절차에 결속하지 않았다.
-- **해결 및 예방책**: mutation mock은 받은 assignment ID를 그대로 state에 적용하고 payload literal과 reload 영속성을 함께 검사한다. snapshot 검증은 runtime을 의도적으로 stale하게 만들어 정본 우선순위를 증명한다. 실샘플 실행기는 ignored API dist를 삭제하고 공식 `workspace:prepare`로 shared·automation-engine을 준비한 뒤 현재 checkout의 API를 build해 테스트한다.
+- **해결 및 예방책**: mutation mock은 받은 assignment ID를 그대로 state에 적용하고 payload literal과 reload 영속성을 함께 검사한다. snapshot 검증은 runtime을 의도적으로 stale하게 만들어 정본 우선순위를 증명한다. 실샘플 실행기는 ignored API dist를 삭제하고 공식 `workspace:prepare`와 API `prisma:generate`를 실행한 뒤 현재 checkout의 API를 build해 테스트한다.
 - **반복 방지 체크**: mock이 좌표·이름으로 ID 관계를 추론하지 않는지, 저장 후 reload에서도 요청 값이 유지되는지, 일부 sample 환경변수가 skip 대신 실패하는지 확인한다. child 결과처럼 parent 역직렬화 전에 제어해야 하는 데이터는 bounded byte transport를 사용한다.
