@@ -6,6 +6,10 @@ import { FixtureStateIngestionService } from "../energy/fixture-state-ingestion.
 import { MonitoringRefreshIngestionService } from "./monitoring-refresh-ingestion.service";
 import { MonitoringRefreshExpiryService } from "./monitoring-refresh-expiry.service";
 import { disposablePostgres } from "../../test/support/disposable-postgres";
+import { DataRetentionService } from "../retention/data-retention.service";
+import { disposableMosquitto } from "../../test/support/disposable-mosquitto";
+import { MqttService } from "../mqtt/mqtt.service";
+import mqtt from "mqtt";
 
 let databaseUrl = process.env.MONITORING_REFRESH_TEST_DATABASE_URL ?? process.env.MONITORING_INCIDENTS_TEST_DATABASE_URL;
 const selfOwnedDatabase = process.env.MONITORING_REFRESH_DISPOSABLE_POSTGRES === "1";
@@ -51,7 +55,7 @@ const at = (seconds: number) => new Date(Date.UTC(2026, 8, 15, 8, 0, seconds));
     const setup = await seed();
     const service = new MonitoringRefreshIngestionService(prisma as never);
     const completed = setup.completed();
-    await expect(service.completeBatch(setup.completionTopic, completed, at(1))).rejects.toThrow("pending");
+    await expect(service.completeBatch(setup.completionTopic, completed, at(1))).resolves.toEqual({ ack: null });
     const successful = { ...setup.scope, fixtureId: setup.fixtures[0].id, eventId: randomUUID(), sequence: 1, occurredAt: at(2).toISOString(), rssi: -42, hopCount: null };
     if (kind === "presence") {
       await new FixturePresenceIngestionService(prisma as never).ingest(setup.scope.gatewayId, {
@@ -110,6 +114,95 @@ const at = (seconds: number) => new Date(Date.UTC(2026, 8, 15, 8, 0, seconds));
     expect(await prisma.fixture.count({ where: { siteId: setup.scope.siteId, status: "online", lastUnreachableAt: null } })).toBe(2);
   });
 
+  it("drains presence, state, unreachable and completion after real retention without modifying fixture or energy", async () => {
+    const setup = await seed();
+    await new MonitoringRefreshExpiryService(prisma as never).expire(at(31));
+    const fixtureBefore = await prisma.fixture.findMany({ where: { siteId: setup.scope.siteId }, orderBy: { id: "asc" } });
+    const later = new Date(at(31).getTime() + 8 * 86_400_000);
+    expect((await new DataRetentionService(prisma as never).prune(later)).monitoringRefreshes).toBe(1);
+    expect(await prisma.monitoringRefreshBatch.count({ where: { id: setup.scope.batchId } })).toBe(0);
+    const service = new MonitoringRefreshIngestionService(prisma as never);
+    const event = { ...setup.scope, fixtureId: setup.fixtures[0].id, eventId: randomUUID(), sequence: 1,
+      occurredAt: at(2).toISOString(), rssi: -42, hopCount: null };
+    await expect(new FixturePresenceIngestionService(prisma as never).ingest(setup.scope.gatewayId, {
+      ...event, controlMode: "sensor", rawHighBrightness: 127, configuredBrightness: null
+    }, later)).resolves.toMatchObject({ status: "duplicate" });
+    await expect(new FixtureStateIngestionService(prisma as never).ingest(setup.scope.gatewayId, {
+      ...event, eventId: randomUUID(), brightness: 0, powerOn: false, status: "online"
+    }, later)).resolves.toMatchObject({ status: "duplicate" });
+    await expect(service.ingestUnreachable(setup.unreachableTopic, setup.unreachable(), later)).resolves.toMatchObject({ status: "duplicate" });
+    await expect(service.completeBatch(setup.completionTopic, setup.completed(), later)).resolves.toEqual({ ack: setup.scope });
+    expect(await prisma.fixture.findMany({ where: { siteId: setup.scope.siteId }, orderBy: { id: "asc" } })).toEqual(fixtureBefore);
+    expect(await prisma.processedGatewayEvent.count({ where: { gatewayId: setup.scope.gatewayId } })).toBe(0);
+    expect(await prisma.fixtureEnergyStateCursor.count({ where: { fixtureId: { in: setup.fixtures.map((fixture) => fixture.id) } } })).toBe(0);
+    // A later ordinary state must still ingest: retired results cannot advance the event watermark.
+    const { refreshId: _, batchId: __, ...ordinary } = event;
+    await expect(new FixtureStateIngestionService(prisma as never).ingest(setup.scope.gatewayId, {
+      ...ordinary, eventId: randomUUID(), occurredAt: later.toISOString(), brightness: 30, powerOn: true, status: "online"
+    }, later)).resolves.toMatchObject({ status: "ingested" });
+    expect(await prisma.fixture.findUniqueOrThrow({ where: { id: event.fixtureId } })).toMatchObject({ brightness: 30, powerOn: true });
+  });
+
+  (process.env.MONITORING_REFRESH_DISPOSABLE_MQTT === "1" ? it : it.skip)("keeps the real MQTT parser moving through early completion and retired results", async () => {
+    const setup = await seed(), clock = new Date();
+    await prisma.monitoringRefresh.update({ where: { id: setup.scope.refreshId }, data: {
+      createdAt: clock, deadlineAt: new Date(clock.getTime() + 30_000)
+    } });
+    await prisma.gateway.update({ where: { id: setup.scope.gatewayId }, data: { lastHeartbeatAt: clock } });
+    const broker = await disposableMosquitto();
+    const service = new MqttService(prisma as never, {} as never);
+    const api = mqtt.connect(broker.url, { protocolVersion: 5, clean: false, clientId: `refresh-api-${randomUUID()}`,
+      reconnectPeriod: 0, customHandleAcks: (service as any).createCustomHandleAcks() });
+    const peer = mqtt.connect(broker.url, { protocolVersion: 5, reconnectPeriod: 0 });
+    (service as any).client = api; service.onModuleInit();
+    const received: Array<{ topic: string; event: any }> = [];
+    const pubacks: number[] = []; let closed = false;
+    api.on("close", () => { closed = true; });
+    api.on("packetsend", (packet) => { if (packet.cmd === "puback" && packet.messageId !== undefined) pubacks.push(packet.messageId); });
+    peer.on("message", (topic, payload) => received.push({ topic, event: JSON.parse(payload.toString()) }));
+    const publish = (topic: string, event: unknown) => peer.publishAsync(topic, JSON.stringify(event), { qos: 1 });
+    const stateAckTopic = mqttTopicsV2.stateIngestedAck(setup.scope.siteId, setup.scope.gatewayId);
+    const completedAckTopic = mqttTopicsV2.fixturePresenceCheckCompletedAck(setup.scope.siteId, setup.scope.gatewayId);
+    try {
+      await until(() => api.connected && peer.connected);
+      // Await the same subscriptions as onModuleInit; overlapping exact subscriptions would
+      // intentionally make Mosquitto deliver duplicate copies and obscure the parser ordering.
+      await api.subscribeAsync(["sites/+/gateways/+/events/fixture-presence-check-completed", mqttTopicsV2.fixtureUnreachable("+", "+"),
+        "sites/+/gateways/+/state/fixture-presence", "sites/+/gateways/+/state/fixtures"], { qos: 1 });
+      await peer.subscribeAsync([stateAckTopic, completedAckTopic], { qos: 1 });
+      const completed = { ...setup.completed(), occurredAt: clock.toISOString() };
+      await publish(setup.completionTopic, completed);
+      await until(() => pubacks.length === 1);
+      expect(received).toEqual([]); expect(closed).toBe(false);
+      const successful = { ...setup.scope, fixtureId: setup.fixtures[0].id, eventId: randomUUID(), sequence: 1,
+        occurredAt: clock.toISOString(), rssi: -42, hopCount: null, controlMode: "sensor", configuredBrightness: null, rawHighBrightness: 127 };
+      const unreachable = { ...setup.unreachable(), occurredAt: clock.toISOString() };
+      await publish(mqttTopicsV2.fixturePresence(setup.scope.siteId, setup.scope.gatewayId), successful);
+      await publish(setup.unreachableTopic, unreachable);
+      await until(() => received.filter((row) => row.topic === stateAckTopic).length === 2);
+      await publish(setup.completionTopic, completed);
+      await until(() => received.some((row) => row.topic === completedAckTopic));
+      expect(await prisma.monitoringRefresh.findUniqueOrThrow({ where: { id: setup.scope.refreshId } }))
+        .toMatchObject({ status: "completed", onlineFixtures: 1, offlineFixtures: 1 });
+      const fixtureBefore = await prisma.fixture.findMany({ where: { siteId: setup.scope.siteId }, orderBy: { id: "asc" } });
+      await new DataRetentionService(prisma as never).prune(new Date(clock.getTime() + 8 * 86_400_000));
+      const retiredState = { ...setup.scope, fixtureId: setup.fixtures[0].id, eventId: randomUUID(), sequence: 30,
+        occurredAt: clock.toISOString(), brightness: 0, powerOn: false, status: "online", rssi: -42, hopCount: null };
+      await publish(mqttTopicsV2.fixtureState(setup.scope.siteId, setup.scope.gatewayId), retiredState);
+      await publish(setup.unreachableTopic, { ...unreachable, eventId: randomUUID(), sequence: 31 });
+      await publish(setup.completionTopic, { ...completed, eventId: randomUUID(), sequence: 32 });
+      await until(() => received.length === 6);
+      expect(await prisma.fixture.findMany({ where: { siteId: setup.scope.siteId }, orderBy: { id: "asc" } })).toEqual(fixtureBefore);
+      const { refreshId: _, batchId: __, ...ordinary } = retiredState;
+      const normal = { ...ordinary, eventId: randomUUID(), sequence: 33, brightness: 30, powerOn: true };
+      await publish(mqttTopicsV2.fixtureState(setup.scope.siteId, setup.scope.gatewayId), normal);
+      await until(() => received.some((row) => row.event.eventId === normal.eventId));
+      expect(received.find((row) => row.event.eventId === normal.eventId)?.event.status).toBe("ingested");
+      expect(await prisma.fixture.findUniqueOrThrow({ where: { id: ordinary.fixtureId } })).toMatchObject({ brightness: 30 });
+      expect(closed).toBe(false);
+    } finally { await service.stopInboundAndDrain(); await service.close(); await peer.endAsync(true); await broker.stop(); }
+  }, 20_000);
+
   async function seed() {
     const organization = await prisma.organization.create({ data: { name: "refresh ingestion test", type: "customer" } });
     organizationIds.push(organization.id);
@@ -139,3 +232,11 @@ const at = (seconds: number) => new Date(Date.UTC(2026, 8, 15, 8, 0, seconds));
     };
   }
 });
+
+async function until(condition: () => boolean) {
+  const expires = Date.now() + 5000;
+  while (!condition()) {
+    if (Date.now() > expires) throw new Error("MQTT integration observation timeout");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}

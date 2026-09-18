@@ -15,6 +15,29 @@ const scope = {
 };
 
 describe("FixtureStateIngestionService", () => {
+  it("rejects altered watermark identity on a retired correlated state", async () => {
+    const prisma = fixturePrisma(); const query = prisma.$queryRaw.getMockImplementation();
+    prisma.$queryRaw.mockImplementation(async (q: any) => {
+      if (q.sql.includes('FROM "Gateway"')) return [{ id: scope.gatewayId }];
+      return q.sql.includes('FROM "MonitoringRefresh') ? [] : query(q);
+    });
+    prisma.gatewayEventWatermark.findFirst.mockResolvedValue({ lastEventId: fixtureEvent(9).eventId, gatewayId: "other" });
+    await expect(new FixtureStateIngestionService(prisma).ingest(scope.gatewayId, { ...fixtureEvent(9),
+      refreshId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", batchId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" })).rejects.toThrow("identity conflict");
+  });
+  it.each([false, true])("discards a retired correlated state without output or energy mutation (fixture removed=%s)", async (removed) => {
+    const prisma = fixturePrisma(); const query = prisma.$queryRaw.getMockImplementation();
+    prisma.$queryRaw.mockImplementation(async (q: any) => {
+      if (q.sql.includes('FROM "Gateway"')) return [{ id: scope.gatewayId }];
+      if (q.sql.includes('FROM "MonitoringRefresh') || (removed && q.sql.includes('FROM "Fixture"'))) return [];
+      return query(q);
+    });
+    await expect(new FixtureStateIngestionService(prisma).ingest(scope.gatewayId, { ...fixtureEvent(9),
+      refreshId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", batchId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" }))
+      .resolves.toMatchObject({ eventId: fixtureEvent(9).eventId, fixtureId: scope.fixtureId, sequence: 9, status: "duplicate" });
+    expect(prisma.fixture.update).not.toHaveBeenCalled(); expect(prisma.processedGatewayEvent.create).not.toHaveBeenCalled();
+    expect(prisma.fixtureEnergyStateCursor.upsert).not.toHaveBeenCalled(); expect(prisma.gatewayEventWatermark.upsert).not.toHaveBeenCalled();
+  });
   it("resolves correlated state online and clears unreachable without bypassing energy ingestion", async () => {
     const prisma = fixturePrisma();
     const refreshId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", batchId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";

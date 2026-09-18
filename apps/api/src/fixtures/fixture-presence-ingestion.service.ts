@@ -9,7 +9,7 @@ import { canonicalPayloadHash } from "../automation/automation-payload-hash";
 import { gatewayEventIsTooFarInFuture, gatewayEventMaxFutureSkewMs } from "../mqtt/gateway-event-time";
 import { PrismaService } from "../prisma/prisma.service";
 import { compareAndAdvanceGatewayEvent } from "../retention/gateway-event-watermark";
-import { lockRefreshObservation, resolveRefreshObservation } from "../monitoring-refresh/monitoring-refresh-ingestion.service";
+import { assertRefreshWatermarkIdentity, lockRefreshObservation, resolveRefreshObservation } from "../monitoring-refresh/monitoring-refresh-ingestion.service";
 
 type IngestionStatus = ApplicationStateIngestedAckV2["status"];
 
@@ -110,10 +110,16 @@ export class FixturePresenceIngestionService {
         AND mn."gatewayId" = ${gatewayId}
       FOR UPDATE OF f
     `);
-    if (!fixture) throw new Error("fixture presence scope rejected");
     const refreshContext = presence.refreshId && presence.batchId
-      ? await lockRefreshObservation(tx, { ...presence, refreshId: presence.refreshId, batchId: presence.batchId }, fixture.floorId)
+      ? await lockRefreshObservation(tx, { ...presence, refreshId: presence.refreshId, batchId: presence.batchId }, fixture?.floorId)
       : null;
+    // A retained Gateway receipt can outlive both the refresh and its fixture. A confirmed
+    // retired correlation is acknowledged without reviving liveness or writing any ledger.
+    if (presence.refreshId && !refreshContext) {
+      await assertRefreshWatermarkIdentity(tx, presence, "fixture_presence", presence.fixtureId);
+      return resultFrom(presence, "duplicate");
+    }
+    if (!fixture) throw new Error("fixture presence scope rejected");
 
     // 같은 eventId를 동시에 받으면 후발 transaction은 Fixture 잠금 뒤에 선행
     // transaction의 원장을 다시 읽는다. 그러면 unique-index 예외를 정상 ACK 경로로

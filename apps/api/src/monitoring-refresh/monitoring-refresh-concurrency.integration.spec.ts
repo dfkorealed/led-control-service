@@ -6,25 +6,32 @@ import { PrismaService } from "../prisma/prisma.service";
 import { MonitoringRefreshOutboxService } from "./monitoring-refresh-outbox.service";
 import { MonitoringRefreshExpiryService } from "./monitoring-refresh-expiry.service";
 import { MonitoringRefreshService } from "./monitoring-refresh.service";
+import { disposablePostgres } from "../../test/support/disposable-postgres";
 
-const databaseUrl = process.env.MONITORING_REFRESH_TEST_DATABASE_URL
+let databaseUrl = process.env.MONITORING_REFRESH_TEST_DATABASE_URL
   ?? process.env.MONITORING_INCIDENTS_TEST_DATABASE_URL;
+const selfOwnedDatabase = process.env.MONITORING_REFRESH_DISPOSABLE_POSTGRES === "1";
 
-(databaseUrl ? describe : describe.skip)("monitoring refresh PostgreSQL concurrency", () => {
+(databaseUrl || selfOwnedDatabase ? describe : describe.skip)("monitoring refresh PostgreSQL concurrency", () => {
   let prisma: PrismaClient;
+  let cluster: Awaited<ReturnType<typeof disposablePostgres>> | undefined;
   const cleanupSiteIds: string[] = [];
   const cleanupUserIds: string[] = [];
   const cleanupOrganizationIds: string[] = [];
 
-  beforeAll(() => {
+  beforeAll(async () => {
+    if (selfOwnedDatabase) {
+      cluster = await disposablePostgres(); databaseUrl = cluster.database();
+      expect(cluster.deploy(databaseUrl).status).toBe(0);
+    }
     prisma = new PrismaClient({ datasources: { db: { url: databaseUrl! } } });
-  });
+  }, 40_000);
   afterEach(async () => {
     await prisma.site.deleteMany({ where: { id: { in: cleanupSiteIds.splice(0) } } });
     await prisma.user.deleteMany({ where: { id: { in: cleanupUserIds.splice(0) } } });
     await prisma.organization.deleteMany({ where: { id: { in: cleanupOrganizationIds.splice(0) } } });
   });
-  afterAll(async () => prisma?.$disconnect());
+  afterAll(async () => { await prisma?.$disconnect(); cluster?.stop(); });
 
   it("claims only monitoring-refresh outbox ownership from the real database", async () => {
     const setup = await createRefreshFixtureSet(prisma, 1);

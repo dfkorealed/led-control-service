@@ -13,7 +13,7 @@ import { gatewayEventIsTooFarInFuture, gatewayEventMaxFutureSkewMs } from "../mq
 import { reconcileLegacyGatewayEventReplay } from "../mqtt/legacy-gateway-event-replay";
 import { PrismaService } from "../prisma/prisma.service";
 import { compareAndAdvanceGatewayEvent } from "../retention/gateway-event-watermark";
-import { lockRefreshObservation, resolveRefreshObservation } from "../monitoring-refresh/monitoring-refresh-ingestion.service";
+import { assertRefreshWatermarkIdentity, lockRefreshObservation, resolveRefreshObservation } from "../monitoring-refresh/monitoring-refresh-ingestion.service";
 import {
   aggregateFixtureStateTransition,
   closeFixtureEnergyCheckpoint,
@@ -108,6 +108,7 @@ export class FixtureStateIngestionService {
     maxFutureSkewMs: number,
     payloadHash: string
   ) {
+    if (gatewayId !== state.gatewayId) throw new Error("fixture state scope rejected");
     const existing = await tx.processedGatewayEvent.findUnique({ where: { eventId: state.eventId } });
     // A null legacy hash must be reconciled only after current ownership and its row lock.
     if (existing && existing.payloadHash !== null) {
@@ -156,10 +157,16 @@ export class FixtureStateIngestionService {
         AND mn."gatewayId" = ${state.gatewayId}
       FOR UPDATE OF f
     `);
-    if (!fixture) throw new Error("fixture state scope rejected");
     const refreshContext = state.refreshId && state.batchId
-      ? await lockRefreshObservation(tx, { ...state, refreshId: state.refreshId, batchId: state.batchId }, fixture.floorId)
+      ? await lockRefreshObservation(tx, { ...state, refreshId: state.refreshId, batchId: state.batchId }, fixture?.floorId)
       : null;
+    // Retired results must not revive output, freshness, or energy after aggregate retention.
+    if (state.refreshId && !refreshContext) {
+      if (existing && !sameProcessedEventIdentity(existing, gatewayId, state)) throw new Error("fixture state event identity conflict");
+      await assertRefreshWatermarkIdentity(tx, state, "fixture_state", state.fixtureId);
+      return resultFrom(state, "duplicate");
+    }
+    if (!fixture) throw new Error("fixture state scope rejected");
 
     // A concurrent exact replay can read an empty ledger before waiting on this fixture lock.
     // Re-read after the lock is acquired so the first transaction's committed terminal result wins.

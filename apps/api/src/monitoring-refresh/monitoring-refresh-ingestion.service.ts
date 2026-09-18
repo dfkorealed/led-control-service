@@ -18,8 +18,10 @@ type Observation = FixtureUnreachableV1 | FixturePresenceCheckCompletedV1;
 type Status = ApplicationStateIngestedAckV2["status"];
 
 /** Caller already owns Site → Gateway → Fixture; never acquire these locks in reverse. */
-export async function lockRefreshObservation(tx: Prisma.TransactionClient, input: FixtureCorrelation, floorId: string): Promise<Context> {
-  const { refresh, batch } = await lockBatch(tx, input);
+export async function lockRefreshObservation(tx: Prisma.TransactionClient, input: FixtureCorrelation, floorId: string | undefined): Promise<Context | null> {
+  const context = await lockBatch(tx, input);
+  if (!context) return null;
+  const { refresh, batch } = context;
   const [child] = await tx.$queryRaw<MonitoringRefreshFixture[]>(Prisma.sql`
     SELECT * FROM "MonitoringRefreshFixture"
     WHERE "refreshId" = ${input.refreshId} AND "fixtureId" = ${input.fixtureId} FOR UPDATE
@@ -51,8 +53,12 @@ export class MonitoringRefreshIngestionService {
         WHERE f."id" = ${event.fixtureId} AND f."siteId" = ${event.siteId} AND mn."gatewayId" = ${event.gatewayId}
         FOR UPDATE OF f
       `);
+      const context = await lockRefreshObservation(tx, event, fixture?.floorId);
+      if (!context) {
+        await existingEventStatus(tx, event, "fixture_unreachable", event.fixtureId);
+        return stateResult(event, "duplicate");
+      }
       if (!fixture) throw new Error("monitoring refresh scope rejected");
-      const context = await lockRefreshObservation(tx, event, fixture.floorId);
       const ordering = await recordEvent(tx, event, "fixture_unreachable", event.fixtureId, now);
       if (ordering !== "ingested") return stateResult(event, ordering);
       if (!active(context) || context.child.status !== "pending") return stateResult(event, "ingested");
@@ -80,7 +86,12 @@ export class MonitoringRefreshIngestionService {
     const now = new Date(receivedAt);
     return this.prisma.$transaction(async (tx) => {
       await lockParents(tx, event);
-      const { refresh, batch } = await lockBatch(tx, event);
+      const context = await lockBatch(tx, event);
+      if (!context) {
+        await existingEventStatus(tx, event, "fixture_presence_check_completed", event.batchId);
+        return completionResult(event);
+      }
+      const { refresh, batch } = context;
       if (!sameTargets(targets(batch), event.targetFixtureIds)) throw new Error("monitoring refresh snapshot scope rejected");
       // Completion only reads child truth after the parent lock. It never writes
       // Fixture, so expiry (which starts at the parent) cannot form an inverse wait.
@@ -114,7 +125,7 @@ export class MonitoringRefreshIngestionService {
       // validated completion (including its replay) may then retire the Gateway
       // journal without reopening expired state. Pending/invalid results above
       // throw before this ACK so delivery remains retryable/fail-closed.
-      return { ack: { siteId: event.siteId, gatewayId: event.gatewayId, refreshId: event.refreshId, batchId: event.batchId } };
+      return completionResult(event);
     }, { maxWait: 2000, timeout: 10_000 });
   }
 }
@@ -137,6 +148,10 @@ async function lockBatch(tx: Prisma.TransactionClient, input: Correlation) {
   const [batch] = await tx.$queryRaw<MonitoringRefreshBatch[]>(Prisma.sql`
     SELECT * FROM "MonitoringRefreshBatch" WHERE "id" = ${input.batchId} FOR UPDATE
   `);
+  // Retention deletes the parent and cascades its batches. Only confirmed absence of BOTH
+  // identities permits a no-write discard ACK; partial absence/mismatched existing rows reject.
+  // This does not assert that an unknown UUID was ever a valid refresh. It grants no mutation.
+  if (!refresh && !batch) return null;
   if (!refresh || refresh.siteId !== input.siteId || !batch || batch.siteId !== input.siteId ||
       batch.refreshId !== input.refreshId || batch.gatewayId !== input.gatewayId) throw new Error("monitoring refresh scope rejected");
   return { refresh, batch };
@@ -156,6 +171,18 @@ function resolveChild(tx: Prisma.TransactionClient, context: Context, status: "o
     data: { status, errorCode, observedAt } });
 }
 function stateResult(event: FixtureUnreachableV1, status: Status) { return { eventId: event.eventId, sequence: event.sequence, fixtureId: event.fixtureId, status }; }
+function completionResult(event: FixturePresenceCheckCompletedV1) {
+  return { ack: { siteId: event.siteId, gatewayId: event.gatewayId, refreshId: event.refreshId, batchId: event.batchId } };
+}
+
+/** Read-only check used by discard/pending paths, which must never advance an ordering watermark. */
+export async function assertRefreshWatermarkIdentity(tx: Prisma.TransactionClient,
+  event: { gatewayId: string; eventId: string; sequence: number; occurredAt: string }, eventType: string, scopeKey: string) {
+  const watermark = await tx.gatewayEventWatermark.findFirst({ where: { lastEventId: event.eventId } });
+  if (watermark && (watermark.gatewayId !== event.gatewayId || watermark.eventType !== eventType || watermark.scopeKey !== scopeKey ||
+    watermark.lastSequence !== BigInt(event.sequence) || watermark.lastOccurredAt.getTime() !== Date.parse(event.occurredAt) ||
+    watermark.lastPayloadHash !== canonicalPayloadHash(event))) throw new Error("monitoring refresh event identity conflict");
+}
 
 async function existingEventStatus(tx: Prisma.TransactionClient, event: Observation, eventType: string, scopeKey: string): Promise<Status | null> {
   const payloadHash = canonicalPayloadHash(event), occurredAt = new Date(event.occurredAt);
@@ -166,6 +193,7 @@ async function existingEventStatus(tx: Prisma.TransactionClient, event: Observat
         existing.payloadHash !== payloadHash) throw new Error("monitoring refresh event identity conflict");
     return existing.ingestionStatus === "rejected_future_timestamp" ? "rejected_future_timestamp" : "duplicate";
   }
+  await assertRefreshWatermarkIdentity(tx, event, eventType, scopeKey);
   return null;
 }
 

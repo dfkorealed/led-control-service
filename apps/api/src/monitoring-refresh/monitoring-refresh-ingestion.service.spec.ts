@@ -14,6 +14,39 @@ const completion = () => ({ ...ids, fixtureId: undefined, eventId: "77777777-777
   sequence: 10, occurredAt: at(8).toISOString(), targetFixtureIds: [ids.fixtureId] });
 
 describe("MonitoringRefreshIngestionService", () => {
+  it.each(["unreachable", "completion"])("discards retired %s with its application ACK and no data mutation", async (kind) => {
+    const db = database(); db.refresh = undefined; db.batch = undefined;
+    const service = new MonitoringRefreshIngestionService(db as never);
+    const { fixtureId: _, ...completed } = completion();
+    const result = kind === "unreachable" ? await service.ingestUnreachable(topic, event(), at(6))
+      : await service.completeBatch(mqttTopicsV2.fixturePresenceCheckCompleted(ids.siteId, ids.gatewayId), completed, at(8));
+    expect(result).toEqual(kind === "unreachable"
+      ? { eventId: event().eventId, sequence: 9, fixtureId: ids.fixtureId, status: "duplicate" }
+      : { ack: { siteId: ids.siteId, gatewayId: ids.gatewayId, refreshId: ids.refreshId, batchId: ids.batchId } });
+    expect(db.fixture.update).not.toHaveBeenCalled(); expect(db.monitoringRefreshFixture.update).not.toHaveBeenCalled();
+    expect(db.processedGatewayEvent.create).not.toHaveBeenCalled(); expect(db.gatewayEventWatermark.upsert).not.toHaveBeenCalled();
+    expect(db.monitoringRefresh.updateMany).not.toHaveBeenCalled(); expect(db.mqttOutbox.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it.each(["refresh", "batch"])("rejects a missing %s when the other identity still exists", async (missing) => {
+    const db = database(); db[missing] = undefined;
+    const { fixtureId: _, ...completed } = completion();
+    const service = new MonitoringRefreshIngestionService(db as never);
+    await expect(service.ingestUnreachable(topic, event(), at(6))).rejects.toThrow("scope");
+    await expect(service.completeBatch(mqttTopicsV2.fixturePresenceCheckCompleted(ids.siteId, ids.gatewayId), completed, at(8))).rejects.toThrow("scope");
+  });
+
+  it.each(["unreachable", "completion"])("never acknowledges %s when retirement lookup fails", async (kind) => {
+    const db = database(); const query = db.$queryRaw.getMockImplementation();
+    db.$queryRaw.mockImplementation(async (q: any) => {
+      if (q.sql.includes('FROM "MonitoringRefresh"')) throw new Error("DB unavailable");
+      return query(q);
+    });
+    const { fixtureId: _, ...completed } = completion();
+    const service = new MonitoringRefreshIngestionService(db as never);
+    await expect(kind === "unreachable" ? service.ingestUnreachable(topic, event(), at(6))
+      : service.completeBatch(mqttTopicsV2.fixturePresenceCheckCompleted(ids.siteId, ids.gatewayId), completed, at(8))).rejects.toThrow("DB unavailable");
+  });
   it("stores verified offline without fabricating output or reported state and replays exactly", async () => {
     const db = database(); const service = new MonitoringRefreshIngestionService(db as never);
     expect(await service.ingestUnreachable(topic, event(), at(6))).toMatchObject({ status: "ingested" });
@@ -114,6 +147,15 @@ describe("MonitoringRefreshIngestionService", () => {
     const { fixtureId: _, ...completed } = completion();
     db.ledger.set(completed.eventId, { gatewayId: ids.gatewayId, eventType: "fixture_presence_check_completed", scopeKey: ids.batchId,
       sequence: 10n, occurredAt: at(8), payloadHash: "different-payload" });
+    await expect(new MonitoringRefreshIngestionService(db as never).completeBatch(
+      mqttTopicsV2.fixturePresenceCheckCompleted(ids.siteId, ids.gatewayId), completed, at(8))).rejects.toThrow("identity conflict");
+  });
+
+  it.each([false, true])("rejects a watermark-only completion identity conflict (retired=%s)", async (retired) => {
+    const db = database(); if (retired) { db.refresh = undefined; db.batch = undefined; }
+    const { fixtureId: _, ...completed } = completion();
+    db.gatewayEventWatermark.findFirst.mockResolvedValue({ gatewayId: ids.gatewayId, eventType: "fixture_presence_check_completed",
+      scopeKey: ids.batchId, lastEventId: completed.eventId, lastSequence: 99n, lastOccurredAt: at(8), lastPayloadHash: "altered" });
     await expect(new MonitoringRefreshIngestionService(db as never).completeBatch(
       mqttTopicsV2.fixturePresenceCheckCompleted(ids.siteId, ids.gatewayId), completed, at(8))).rejects.toThrow("identity conflict");
   });

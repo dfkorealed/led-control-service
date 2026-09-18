@@ -10,6 +10,23 @@ const scope = {
 };
 
 describe("FixturePresenceIngestionService", () => {
+  it("rejects altered watermark identity on a retired correlated presence", async () => {
+    const prisma = presencePrisma(); const query = prisma.$queryRaw.getMockImplementation();
+    prisma.$queryRaw.mockImplementation(async (q: any) => q.sql.includes('FROM "MonitoringRefresh') ? [] : query(q));
+    prisma.gatewayEventWatermark.findFirst.mockResolvedValue({ lastEventId: presence().eventId, gatewayId: "other" });
+    await expect(new FixturePresenceIngestionService(prisma).ingest(scope.gatewayId, { ...presence(),
+      refreshId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", batchId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" })).rejects.toThrow("identity conflict");
+  });
+  it.each([false, true])("discards a retired correlated presence without freshness or energy mutation (fixture removed=%s)", async (removed) => {
+    const prisma = presencePrisma({ lockedFixture: !removed });
+    const query = prisma.$queryRaw.getMockImplementation();
+    prisma.$queryRaw.mockImplementation(async (q: any) => q.sql.includes('FROM "MonitoringRefresh') ? [] : query(q));
+    await expect(new FixturePresenceIngestionService(prisma).ingest(scope.gatewayId, { ...presence(),
+      refreshId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", batchId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" }))
+      .resolves.toMatchObject({ eventId: presence().eventId, fixtureId: scope.fixtureId, sequence: 9, status: "duplicate" });
+    expect(prisma.fixture.update).not.toHaveBeenCalled(); expect(prisma.processedGatewayEvent.create).not.toHaveBeenCalled();
+    expect(prisma.fixtureEnergyStateCursor.upsert).not.toHaveBeenCalled(); expect(prisma.gatewayEventWatermark.upsert).not.toHaveBeenCalled();
+  });
   it("resolves correlated presence online and clears an older unreachable in the same transaction", async () => {
     const prisma = presencePrisma();
     const refreshId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", batchId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
