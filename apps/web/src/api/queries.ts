@@ -3,6 +3,7 @@ import type { FixtureGroupMetadata, FloorMapSnapshot } from "@led-control/shared
 import { apiGet } from "./client";
 
 export const MONITORING_REFRESH_INTERVAL_MS = 10 * 60 * 1_000;
+export const MAP_SNAPSHOT_ERROR_RETRY_INTERVAL_MS = 30 * 1_000;
 
 export const monitoringQueryPolicy = {
   staleTime: MONITORING_REFRESH_INTERVAL_MS,
@@ -166,6 +167,10 @@ export function useFloorMapSnapshot(floorId: string | undefined, siteId?: string
       );
     },
     enabled: Boolean(floorId && siteId),
-    ...monitoringQueryPolicy
+    ...monitoringQueryPolicy,
+    // 정상 모니터링 polling은 10분을 유지하되, 저장된 지도가 있는 갱신 실패는 빠르게 복구한다.
+    refetchInterval: (query) => query.state.error
+      ? MAP_SNAPSHOT_ERROR_RETRY_INTERVAL_MS
+      : MONITORING_REFRESH_INTERVAL_MS
   });
 }

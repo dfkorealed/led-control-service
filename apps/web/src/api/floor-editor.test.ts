@@ -1,7 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   acquireFloorEditorLease,
+  applyFloorImportJob,
+  cancelFloorImportJob,
+  createFloorImportJob,
+  getActiveFloorImportJob,
+  getAppliedFloorImportOverlay,
+  getFloorImportJob,
   identifyFixture,
+  listFloorImportCandidates,
   listFloorEditorRevisions,
   releaseFloorEditorLease,
   restoreFloorEditorRevision,
@@ -74,5 +81,43 @@ describe("floor editor atomic API", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/floors/floor%2F1/editor-lease", expect.objectContaining({
       method: "DELETE", body: JSON.stringify({ token: "lease-token" })
     }));
+  });
+
+  it("uses encoded CAD import job endpoints and preserves the fenced apply payload", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ status: "queued" }) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createFloorImportJob("floor/1", { sourceAssetId: "asset-id", sourceFormat: "dxf" });
+    await getActiveFloorImportJob("floor/1");
+    await getAppliedFloorImportOverlay("floor/1");
+    await getFloorImportJob("floor/1", "job/1");
+    await listFloorImportCandidates("floor/1", "job/1");
+    await applyFloorImportJob("floor/1", "job/1", {
+      expectedRevision: 4,
+      leaseToken: "lease-token",
+      leaseFence: 7,
+      candidateIds: ["candidate-1"]
+    });
+    await cancelFloorImportJob("floor/1", "job/1");
+
+    const base = "/api/floors/floor%2F1/import-jobs/job%2F1";
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/floors/floor%2F1/import-jobs", expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({ sourceAssetId: "asset-id", sourceFormat: "dxf" })
+    }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/floors/floor%2F1/import-jobs/active", expect.anything());
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/floors/floor%2F1/import-jobs/applied-overlay", expect.anything());
+    expect(fetchMock).toHaveBeenNthCalledWith(4, base, expect.anything());
+    expect(fetchMock).toHaveBeenNthCalledWith(5, `${base}/candidates`, expect.anything());
+    expect(fetchMock).toHaveBeenNthCalledWith(6, `${base}/apply`, expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({
+        expectedRevision: 4,
+        leaseToken: "lease-token",
+        leaseFence: 7,
+        candidateIds: ["candidate-1"]
+      })
+    }));
+    expect(fetchMock).toHaveBeenNthCalledWith(7, `${base}/cancel`, expect.objectContaining({ method: "POST" }));
   });
 });

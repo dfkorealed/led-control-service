@@ -1,6 +1,6 @@
 import type { CreateFixtureGroupInput, FixtureGroupMetadata } from "@led-control/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, CircleCheck, Clock3, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
+import { ArrowLeft, CircleCheck, Clock3, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import {
   createFixtureGroup,
@@ -10,11 +10,11 @@ import {
   resyncFixtureGroup,
   updateFixtureGroup
 } from "../../api/fixture-groups";
-import type { Dashboard, DashboardFixture } from "../../api/queries";
-import { Button, Card, StatusBadge } from "../../components/ui";
-import { ConfirmDialog } from "../../components/ConfirmDialog";
+import type { Dashboard } from "../../api/queries";
+import { Button, ConfirmDialog, Heading, ModalDialog, StatusBadge, Text, TextField } from "../../components/ui";
 import { humanizeDeviceResponseMessage } from "./control-copy";
-import { useModalFocus } from "./useModalFocus";
+import { FixtureGroupMapEditor, fixtureGroupMembershipError, type FixtureGroupEditorValue } from "./target-selection/FixtureGroupMapEditor";
+import { spatialTargetDialogClassName } from "./target-selection/SpatialTargetSelector";
 
 interface FixtureGroupDialogProps {
   open: boolean;
@@ -25,19 +25,13 @@ interface FixtureGroupDialogProps {
   onClose: () => void;
 }
 
-type GroupForm = {
-  groupId: string | null;
-  name: string;
-  floorId: string;
-  gatewayId: string;
-  fixtureIds: string[];
-};
+type GroupForm = FixtureGroupEditorValue;
 
 const emptyForm: GroupForm = { groupId: null, name: "", floorId: "", gatewayId: "", fixtureIds: [] };
 
 export function FixtureGroupDialog({ open, siteId, dashboard, canManage, returnFocusRef, onClose }: FixtureGroupDialogProps) {
   const queryClient = useQueryClient();
-  const dialogRef = useRef<HTMLElement>(null);
+  const deleteButtonRef = useRef<HTMLElement | null>(null);
   const [form, setForm] = useState<GroupForm | null>(null);
   const [deleteCandidate, setDeleteCandidate] = useState<FixtureGroupMetadata | null>(null);
   const [membershipOverrides, setMembershipOverrides] = useState<Record<string, string[]>>({});
@@ -104,13 +98,9 @@ export function FixtureGroupDialog({ open, siteId, dashboard, canManage, returnF
     onClose();
   }
 
-  useModalFocus({ open, suspended: Boolean(deleteCandidate), dialogRef, returnFocusRef, onClose: closeDialog });
-
   const dashboardMemberships = useMemo(() => new Map(
     dashboard.groups.map((group) => [group.id, group.fixtureIds])
   ), [dashboard.groups]);
-
-  if (!open) return null;
 
   function membershipFor(groupId: string) {
     return membershipOverrides[groupId] ?? dashboardMemberships.get(groupId) ?? [];
@@ -131,30 +121,22 @@ export function FixtureGroupDialog({ open, siteId, dashboard, canManage, returnF
   const error = saveMutation.error ?? deleteMutation.error ?? resyncMutation.error;
 
   return (
-    <div className="fixture-group-dialog-backdrop" role="presentation" onMouseDown={(event) => {
-      if (event.currentTarget === event.target) closeDialog();
-    }}>
-      <section
-        ref={dialogRef}
-        className="fixture-group-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="fixture-group-dialog-title"
-        tabIndex={-1}
-      >
-        <header className="fixture-group-dialog-header">
-          <div>
-            <span className="eyebrow">저장 구역</span>
-            <h3 id="fixture-group-dialog-title">{form ? (form.groupId ? "구역 수정" : "구역 생성") : "구역 관리"}</h3>
-          </div>
-          <button className="icon-button" type="button" aria-label="구역 관리 닫기" onClick={closeDialog} disabled={isMutating}>
-            <X size={18} aria-hidden="true" />
-          </button>
-        </header>
+    <ModalDialog
+      isOpen={open}
+      title={form ? (form.groupId ? "구역 수정" : "구역 생성") : "구역 관리"}
+      description="저장 구역"
+      closeLabel="구역 관리 닫기"
+      isPending={isMutating}
+      returnFocusRef={returnFocusRef}
+      onClose={closeDialog}
+      className={form ? spatialTargetDialogClassName : "grid max-w-3xl gap-4"}
+      bodyClassName={form ? "flex min-h-0 flex-col overflow-hidden" : undefined}
+    >
 
         {form ? (
           <FixtureGroupForm
             form={form}
+            siteId={siteId}
             dashboard={dashboard}
             isSaving={saveMutation.isPending}
             onChange={setForm}
@@ -163,8 +145,8 @@ export function FixtureGroupDialog({ open, siteId, dashboard, canManage, returnF
           />
         ) : (
           <>
-              <div className="fixture-group-dialog-toolbar">
-                <p>{canManage ? "자주 함께 제어할 조명을 구역으로 저장합니다." : "저장 구역과 Mesh 준비 상태를 조회할 수 있습니다."}</p>
+              <div className="flex items-center justify-between gap-3 max-compact:flex-col max-compact:items-stretch">
+                <Text>{canManage ? "자주 함께 제어할 조명을 구역으로 저장합니다." : "저장 구역과 Mesh 준비 상태를 조회할 수 있습니다."}</Text>
               {canManage ? (
                 <Button variant="secondary" type="button" onClick={() => {
                   setMessage("");
@@ -175,44 +157,44 @@ export function FixtureGroupDialog({ open, siteId, dashboard, canManage, returnF
               ) : null}
             </div>
 
-            {groupsQuery.isLoading ? <p className="muted-text" role="status">구역을 불러오는 중입니다.</p> : null}
+            {groupsQuery.isLoading ? <Text tone="muted" role="status">구역을 불러오는 중입니다.</Text> : null}
             {groupsQuery.error ? (
-              <div className="fixture-group-dialog-error" role="alert">
-                <p className="danger-text">구역 목록을 불러오지 못했습니다.</p>
+              <div className="grid gap-2" role="alert">
+                <Text tone="danger">구역 목록을 불러오지 못했습니다.</Text>
                 <Button variant="secondary" type="button" onClick={() => void groupsQuery.refetch()}>다시 시도</Button>
               </div>
             ) : null}
             {!groupsQuery.isLoading && !groupsQuery.error ? (
-              <section className="fixture-group-list-section" aria-labelledby="fixture-group-list-heading">
-                <div className="fixture-group-section-heading">
-                  <div>
-                    <span className="eyebrow">현재 구성</span>
-                    <h4 id="fixture-group-list-heading">현재 저장 구역</h4>
+              <section className="grid gap-3" aria-labelledby="fixture-group-list-heading">
+                <div className="flex items-end justify-between gap-3">
+                  <div className="grid gap-1">
+                    <Text as="span" variant="overline" tone="muted">현재 구성</Text>
+                    <Heading as="h4" id="fixture-group-list-heading" variant="card-title">현재 저장 구역</Heading>
                   </div>
                   <span>{groups.length}개</span>
                 </div>
-              <div className="fixture-group-list" aria-label="저장 구역 목록">
+              <div className="grid gap-2" aria-label="저장 구역 목록">
                 {groups.map((group) => {
                   const status = fixtureGroupStatus(group);
                   const floorName = dashboard.floors.find((floor) => floor.id === group.floorId)?.name ?? "층 미지정";
                   const gatewayName = dashboard.gateways.find((gateway) => gateway.id === group.gatewayId)?.name ?? "게이트웨이 미지정";
                   const editable = canManage && group.lifecycleStatus === "active";
                   return (
-                    <article className="fixture-group-row" key={group.id}>
-                      <div className="fixture-group-row-main">
-                        <div>
-                          <strong>{group.name}</strong>
-                          <span>{floorName} · {gatewayName} · {group.fixtureCount}개</span>
-                          <small>{group.meshControlGroup ? `Mesh 구성 v${group.meshControlGroup.version} · 주소 정보 없음` : "Mesh 주소 정보 없음"}</small>
+                    <article className="grid gap-3 rounded-panel border border-border-default bg-surface-panel p-3" key={group.id}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="grid gap-1">
+                          <Text as="strong" weight="semibold">{group.name}</Text>
+                          <Text as="span" variant="caption">{floorName} · {gatewayName} · {group.fixtureCount}개</Text>
+                          <Text as="small" variant="caption" tone="secondary">{group.meshControlGroup ? `Mesh 구성 v${group.meshControlGroup.version} · 주소 정보 없음` : "Mesh 주소 정보 없음"}</Text>
                         </div>
                         <StatusBadge tone={group.meshControlGroup?.status === "ready" ? "success" : "warning"} icon={group.meshControlGroup?.status === "ready" ? CircleCheck : Clock3}>
                           {group.meshControlGroup?.status === "ready" ? "준비됨" : "확인 필요"}
                         </StatusBadge>
                       </div>
-                      <small className={`mesh-status-copy ${status.tone}`}>{status.label}</small>
-                      {group.meshControlGroup?.error ? <p className="danger-text">{humanizeDeviceResponseMessage(group.meshControlGroup.error)}</p> : null}
+                      <Text variant="caption" tone={status.tone === "failed" ? "danger" : "secondary"}>{status.label}</Text>
+                      {group.meshControlGroup?.error ? <Text tone="danger">{humanizeDeviceResponseMessage(group.meshControlGroup.error)}</Text> : null}
                       {editable ? (
-                        <div className="fixture-group-row-actions">
+                        <div className="flex flex-wrap gap-2">
                           <Button variant="secondary" type="button" aria-label={`${group.name} 수정`} onClick={() => beginEdit(group)} disabled={isMutating}>
                             <Pencil size={15} aria-hidden="true" /> 수정
                           </Button>
@@ -221,7 +203,7 @@ export function FixtureGroupDialog({ open, siteId, dashboard, canManage, returnF
                               <RefreshCw size={15} aria-hidden="true" /> 재동기화
                             </Button>
                           ) : null}
-                          <Button variant="danger" className="danger-action" type="button" aria-label={`${group.name} 삭제`} onClick={() => setDeleteCandidate(group)} disabled={isMutating}>
+                          <Button variant="danger" type="button" aria-label={`${group.name} 삭제`} onClick={(event) => { deleteButtonRef.current = event.currentTarget; setDeleteCandidate(group); }} disabled={isMutating}>
                             <Trash2 size={15} aria-hidden="true" /> 삭제
                           </Button>
                         </div>
@@ -229,7 +211,7 @@ export function FixtureGroupDialog({ open, siteId, dashboard, canManage, returnF
                     </article>
                   );
                 })}
-                {groups.length === 0 ? <p className="control-empty-state">저장된 구역이 없습니다.</p> : null}
+                {groups.length === 0 ? <Text className="p-4 text-center" tone="secondary">저장된 구역이 없습니다.</Text> : null}
               </div>
               </section>
             ) : null}
@@ -237,26 +219,27 @@ export function FixtureGroupDialog({ open, siteId, dashboard, canManage, returnF
         )}
 
         <ConfirmDialog
-          open={Boolean(deleteCandidate)}
+          isOpen={Boolean(deleteCandidate)}
           title="구역 삭제 확인"
           description={deleteCandidate ? <><strong>{deleteCandidate.name}</strong> 구역을 삭제하시겠습니까?</> : undefined}
           confirmLabel="삭제 확인"
           isPending={deleteMutation.isPending}
-          destructive
-          onClose={() => {
+          tone="danger"
+          returnFocusRef={deleteButtonRef}
+          onCancel={() => {
             if (!deleteMutation.isPending) setDeleteCandidate(null);
           }}
           onConfirm={() => deleteCandidate && deleteMutation.mutate(deleteCandidate)}
         />
-        {message ? <p className="success-text" role="status">{message}</p> : null}
-        {error ? <p className="danger-text" role="alert">구역 변경을 완료하지 못했습니다. 입력과 연결 상태를 확인해 주세요.</p> : null}
-      </section>
-    </div>
+        {message ? <Text tone="success" role="status">{message}</Text> : null}
+        {error ? <Text tone="danger" role="alert">구역 변경을 완료하지 못했습니다. 입력과 연결 상태를 확인해 주세요.</Text> : null}
+    </ModalDialog>
   );
 }
 
 function FixtureGroupForm({
   form,
+  siteId,
   dashboard,
   isSaving,
   onChange,
@@ -264,39 +247,29 @@ function FixtureGroupForm({
   onSubmit
 }: {
   form: GroupForm;
+  siteId: string;
   dashboard: Dashboard;
   isSaving: boolean;
   onChange: (form: GroupForm) => void;
   onCancel: () => void;
   onSubmit: (payload: CreateFixtureGroupInput) => void;
 }) {
-  const gateways = useMemo(() => {
-    const gatewayIds = new Set(dashboard.floors.find((floor) => floor.id === form.floorId)?.fixtures
-      .flatMap((fixture) => fixture.gateway?.id ? [fixture.gateway.id] : []) ?? []);
-    return dashboard.gateways.filter((gateway) => gatewayIds.has(gateway.id));
-  }, [dashboard.floors, dashboard.gateways, form.floorId]);
-  const fixtures = useMemo(() => dashboard.floors.find((floor) => floor.id === form.floorId)?.fixtures
-    .filter((fixture) => fixture.gateway?.id === form.gatewayId) ?? [], [dashboard.floors, form.floorId, form.gatewayId]);
-  const selectedFixtureIds = new Set(form.fixtureIds);
-  const valid = form.name.trim().length > 0
-    && Boolean(form.floorId)
-    && Boolean(form.gatewayId)
-    && form.fixtureIds.length > 0
-    && form.fixtureIds.length <= 100;
-
-  function toggleFixture(fixture: DashboardFixture) {
-    if (!fixture.controllable && !selectedFixtureIds.has(fixture.id)) return;
-    const fixtureIds = selectedFixtureIds.has(fixture.id)
-      ? form.fixtureIds.filter((id) => id !== fixture.id)
-      : [...form.fixtureIds, fixture.id].slice(0, 100);
-    onChange({ ...form, fixtureIds });
-  }
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   return (
-    <Card className="fixture-group-editor-card">
-    <form className="fixture-group-form" onSubmit={(event) => {
+    <form className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain" onSubmit={(event) => {
       event.preventDefault();
-      if (!valid) return;
+      const membershipError = fixtureGroupMembershipError(form.fixtureIds);
+      const error = !form.name.trim()
+        ? "구역 이름을 입력하세요."
+        : !form.floorId || !form.gatewayId
+          ? "층과 게이트웨이 경계를 선택하세요."
+          : membershipError;
+      if (error) {
+        setValidationError(error);
+        return;
+      }
+      setValidationError(null);
       onSubmit({
         name: form.name.trim(),
         floorId: form.floorId,
@@ -304,65 +277,28 @@ function FixtureGroupForm({
         fixtureIds: [...form.fixtureIds].sort()
       });
     }}>
-      <button className="fixture-group-back" type="button" onClick={onCancel} disabled={isSaving}>
+      <div className="flex shrink-0 items-end gap-3 max-compact:flex-col max-compact:items-stretch">
+      <Button variant="ghost" type="button" onClick={onCancel} disabled={isSaving}>
         <ArrowLeft size={16} aria-hidden="true" /> 목록으로
-      </button>
-      <div>
-        <span className="eyebrow">선택 구역</span>
-        <h4>구역 편집</h4>
+      </Button>
+      <TextField className="flex-1" size="lg" label="구역 이름" value={form.name} maxLength={200} isDisabled={isSaving} onChange={(value) => {
+        setValidationError(null);
+        onChange({ ...form, name: value });
+      }} />
       </div>
-      <label className="form-field">
-        <span>구역 이름</span>
-        <input value={form.name} maxLength={200} onChange={(event) => onChange({ ...form, name: event.target.value })} />
-      </label>
-      <div className="fixture-group-boundary-fields">
-        <label className="form-field">
-          <span>층</span>
-          <select aria-label="층" value={form.floorId} onChange={(event) => onChange({ ...form, floorId: event.target.value, gatewayId: "", fixtureIds: [] })}>
-            <option value="">층 선택</option>
-            {dashboard.floors.map((floor) => <option key={floor.id} value={floor.id}>{floor.name}</option>)}
-          </select>
-        </label>
-        <label className="form-field">
-          <span>게이트웨이</span>
-          <select aria-label="게이트웨이" value={form.gatewayId} disabled={!form.floorId} onChange={(event) => onChange({ ...form, gatewayId: event.target.value, fixtureIds: [] })}>
-            <option value="">게이트웨이 선택</option>
-            {gateways.map((gateway) => <option key={gateway.id} value={gateway.id}>{gateway.name}</option>)}
-          </select>
-        </label>
-      </div>
-      <div className="fixture-group-member-heading">
-        <strong>조명 선택</strong>
-        <span>{form.fixtureIds.length} / 100개</span>
-      </div>
-      <div className="fixture-group-member-list" role="group" aria-label="구역 조명 목록">
-        {fixtures.map((fixture) => {
-          const checked = selectedFixtureIds.has(fixture.id);
-          return (
-            <label key={fixture.id} className={checked ? "selected" : ""}>
-              <input
-                type="checkbox"
-                aria-label={`${fixture.name} 포함`}
-                checked={checked}
-                disabled={!fixture.controllable && !checked}
-                onChange={() => toggleFixture(fixture)}
-              />
-              <span><strong>{fixture.name}</strong><small>{fixture.controllable ? "제어 가능" : "제어 불가"}</small></span>
-              <span>{fixture.brightness}%</span>
-            </label>
-          );
-        })}
-        {form.gatewayId && fixtures.length === 0 ? <p className="control-empty-state">선택 가능한 조명이 없습니다.</p> : null}
-        {!form.gatewayId ? <p className="control-empty-state">층과 게이트웨이를 먼저 선택하세요.</p> : null}
-      </div>
-      <div className="fixture-group-form-actions">
+      <FixtureGroupMapEditor siteId={siteId} dashboard={dashboard} value={form} disabled={isSaving} onChange={(next) => {
+        setValidationError(null);
+        onChange(next);
+      }} />
+      <Text variant="caption" tone="secondary">저장 후 Mesh 설정 중</Text>
+      {validationError ? <Text role="alert" tone="danger">{validationError}</Text> : null}
+      <div className="flex shrink-0 justify-end gap-2">
         <Button variant="secondary" type="button" onClick={onCancel} disabled={isSaving}>취소</Button>
-        <Button className="primary-button" variant="primary" type="submit" disabled={!valid} isLoading={isSaving} loadingLabel="저장 중">
+        <Button variant="primary" type="submit" disabled={isSaving} isLoading={isSaving} loadingLabel="저장 중">
           {form.groupId ? "변경 저장" : "구역 만들기"}
         </Button>
       </div>
     </form>
-    </Card>
   );
 }
 

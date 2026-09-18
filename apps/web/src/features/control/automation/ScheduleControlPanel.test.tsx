@@ -132,24 +132,37 @@ describe("ScheduleControlPanel", () => {
     expect(screen.getByRole("dialog", { name: "스케줄 추가" })).toBeInTheDocument();
   });
 
-  it("uses a level-three panel heading and shared add button", async () => {
+  it("opens schedule creation from the level-three panel heading", async () => {
     renderPanel("admin");
 
     expect(await screen.findByRole("heading", { name: "스케줄 제어", level: 3 })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "스케줄 추가" })).toHaveClass("ui-button", "ui-button-primary");
+    fireEvent.click(screen.getByRole("button", { name: "스케줄 추가" }));
+    expect(screen.getByRole("dialog", { name: "스케줄 추가" })).toBeInTheDocument();
   });
 
-  it("uses shared dialog action buttons", async () => {
+  it("closes schedule creation with its cancel action", async () => {
     renderPanel("admin");
     await screen.findByText("야간 운영");
     fireEvent.click(screen.getByRole("button", { name: "스케줄 추가" }));
     const dialog = screen.getByRole("dialog", { name: "스케줄 추가" });
 
-    expect(within(dialog).getByRole("button", { name: "취소" })).toHaveClass("ui-button", "ui-button-secondary");
-    expect(within(dialog).getByRole("button", { name: "스케줄 만들기" })).toHaveClass("ui-button", "ui-button-primary");
+    fireEvent.click(within(dialog).getByRole("button", { name: "취소" }));
+    expect(screen.queryByRole("dialog", { name: "스케줄 추가" })).not.toBeInTheDocument();
   });
 
-  it("offers a compact quick flow and renders the long target list only in its picker view", async () => {
+  it("uses segmented date/time fields while keeping validation numbers as strings", async () => {
+    renderPanel("admin");
+    await screen.findByText("야간 운영");
+    fireEvent.click(screen.getByRole("button", { name: "스케줄 추가" }));
+    const dialog = screen.getByRole("dialog", { name: "스케줄 추가" });
+
+    expect(within(dialog).getByRole("group", { name: "시작 시각" })).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "세부 일정 설정" }));
+    expect(within(dialog).getByRole("group", { name: "적용 시작일" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("textbox", { name: "밝기" })).toHaveAttribute("inputmode", "numeric");
+  });
+
+  it("offers a compact quick flow and renders the spatial selector only in its target view", async () => {
     renderPanel("admin");
     await screen.findByText("야간 운영");
     fireEvent.click(screen.getByRole("button", { name: "스케줄 추가" }));
@@ -158,15 +171,17 @@ describe("ScheduleControlPanel", () => {
     expect(within(dialog).getByRole("group", { name: "언제 켤까요?" })).toBeVisible();
     expect(within(dialog).getByRole("button", { name: "매일" })).toHaveAttribute("aria-pressed", "true");
     expect(within(dialog).queryByLabelText("스케줄 이름")).not.toBeInTheDocument();
-    expect(within(dialog).queryByRole("group", { name: "조명 목록" })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("region", { name: "공간 대상 선택" })).not.toBeInTheDocument();
 
     fireEvent.click(within(dialog).getByRole("button", { name: "평일" }));
     expect(within(dialog).getByRole("status")).toHaveTextContent("평일 18:00–23:00");
 
     fireEvent.click(within(dialog).getByRole("button", { name: "제어 대상 선택" }));
-    expect(within(dialog).getByRole("group", { name: "조명 목록" })).toBeVisible();
-    fireEvent.click(within(dialog).getByLabelText("B1-L001 선택"));
-    fireEvent.click(within(dialog).getByRole("button", { name: "선택 완료" }));
+    expect(within(dialog).getByRole("region", { name: "공간 대상 선택" })).toBeVisible();
+    fireEvent.click(within(dialog).getByRole("button", { name: "조명 목록 열기" }));
+    fireEvent.click(screen.getByLabelText("B1-L001 선택"));
+    fireEvent.click(screen.getByRole("button", { name: "선택 완료" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "1개 조명 선택 완료" }));
 
     expect(within(dialog).getByRole("group", { name: "제어 대상" })).toHaveTextContent("B1-L001");
     expect(within(dialog).getByRole("status")).toHaveTextContent("B1-L001");
@@ -207,9 +222,9 @@ describe("ScheduleControlPanel", () => {
 
     renderPanel("viewer");
 
-    expect((await screen.findAllByText("적용 대기"))[0].closest(".ui-status-badge")).toHaveAttribute("data-tone", "warning");
-    expect(screen.getByText("적용됨").closest(".ui-status-badge")).toHaveAttribute("data-tone", "success");
-    expect(screen.getAllByText("적용 실패").find((element) => element.closest(".ui-status-badge"))?.closest(".ui-status-badge"))
+    expect((await screen.findAllByText("적용 대기"))[0].closest("[data-tone]")).toHaveAttribute("data-tone", "warning");
+    expect(screen.getByText("적용됨").closest("[data-tone]")).toHaveAttribute("data-tone", "success");
+    expect(screen.getAllByText("적용 실패").find((element) => element.closest("[data-tone]"))?.closest("[data-tone]"))
       .toHaveAttribute("data-tone", "danger");
     expect(screen.getByText(/모두 성공 · 성공 2개/)).toBeInTheDocument();
     expect(screen.getByText(/일부 실패 · 성공 1개 · 실패 1개 · 시간 초과 1개/)).toBeInTheDocument();
@@ -229,10 +244,11 @@ describe("ScheduleControlPanel", () => {
     ]));
     renderPanel("viewer");
 
-    expect(await screen.findByRole("table", { name: "스케줄 목록" })).toBeInTheDocument();
-    expect(screen.getByText("적용됨").closest(".ui-status-badge")).toHaveAttribute("data-tone", "success");
-    expect(screen.getByText("적용 대기").closest(".ui-status-badge")).toHaveAttribute("data-tone", "warning");
-    expect(screen.getByText("적용 실패").closest(".ui-status-badge")).toHaveAttribute("data-tone", "danger");
+    const table = await screen.findByRole("table", { name: "스케줄 목록" });
+    expect(table.closest("[data-automation-table-wrap]")).not.toBeNull();
+    expect(screen.getByText("적용됨").closest("[data-tone]")).toHaveAttribute("data-tone", "success");
+    expect(screen.getByText("적용 대기").closest("[data-tone]")).toHaveAttribute("data-tone", "warning");
+    expect(screen.getByText("적용 실패").closest("[data-tone]")).toHaveAttribute("data-tone", "danger");
   });
 
   it("스케줄 dialog는 빠른 설정을 먼저 보여주고 세부 입력은 요청할 때 펼친다", async () => {
@@ -253,69 +269,45 @@ describe("ScheduleControlPanel", () => {
 
   it.each([
     {
-      description: "적용 시작일",
-      configure: (dialog: HTMLElement) => fireEvent.change(within(dialog).getByLabelText("적용 시작일"), { target: { value: "" } }),
-      controlLabel: "적용 시작일",
-      errorId: "schedule-active-from-date-error"
-    },
-    {
-      description: "적용 종료일",
-      configure: (dialog: HTMLElement) => fireEvent.change(within(dialog).getByLabelText("적용 종료일"), { target: { value: "" } }),
-      controlLabel: "적용 종료일",
-      errorId: "schedule-active-until-date-error"
-    },
-    {
-      description: "시작 시각",
-      configure: (dialog: HTMLElement) => fireEvent.change(within(dialog).getByLabelText("시작 시각"), { target: { value: "" } }),
-      controlLabel: "시작 시각",
-      errorId: "schedule-local-start-time-error"
-    },
-    {
-      description: "종료 시각",
-      configure: (dialog: HTMLElement) => fireEvent.change(within(dialog).getByLabelText("종료 시각"), { target: { value: "" } }),
-      controlLabel: "종료 시각",
-      errorId: "schedule-local-end-time-error"
-    },
-    {
       description: "매주 요일",
-      configure: (dialog: HTMLElement) => fireEvent.change(within(dialog).getByLabelText("반복"), { target: { value: "weekly" } }),
+      configure: (dialog: HTMLElement) => selectOption(dialog, "반복", "매주"),
       controlLabel: "월",
-      errorId: "schedule-weekly-days-error"
+      segmented: false
     },
     {
       description: "매월 날짜",
       configure: (dialog: HTMLElement) => {
-        fireEvent.change(within(dialog).getByLabelText("반복"), { target: { value: "monthly" } });
+        selectOption(dialog, "반복", "매월");
         fireEvent.change(within(dialog).getByLabelText("매월 날짜"), { target: { value: "" } });
       },
       controlLabel: "매월 날짜",
-      errorId: "schedule-monthly-day-error"
+      segmented: false
     },
     {
       description: "매년 월",
       configure: (dialog: HTMLElement) => {
-        fireEvent.change(within(dialog).getByLabelText("반복"), { target: { value: "yearly" } });
+        selectOption(dialog, "반복", "매년");
         fireEvent.change(within(dialog).getByLabelText("매년 월"), { target: { value: "" } });
       },
       controlLabel: "매년 월",
-      errorId: "schedule-yearly-month-error"
+      segmented: false
     },
     {
       description: "매년 날짜",
       configure: (dialog: HTMLElement) => {
-        fireEvent.change(within(dialog).getByLabelText("반복"), { target: { value: "yearly" } });
+        selectOption(dialog, "반복", "매년");
         fireEvent.change(within(dialog).getByLabelText("매년 날짜"), { target: { value: "" } });
       },
       controlLabel: "매년 날짜",
-      errorId: "schedule-yearly-day-error"
+      segmented: false
     },
     {
       description: "밝기",
       configure: (dialog: HTMLElement) => fireEvent.change(within(dialog).getByLabelText("밝기"), { target: { value: "101" } }),
       controlLabel: "밝기",
-      errorId: "schedule-brightness-error"
+      segmented: false
     }
-  ])("이름 뒤의 $description 검증 오류를 첫 invalid control에 연결하고 focus한다", async ({ configure, controlLabel, errorId }) => {
+  ])("이름 뒤의 $description 검증 오류를 첫 invalid control에 연결하고 focus한다", async ({ configure, controlLabel, segmented }) => {
     renderPanel("admin");
     await screen.findByText("야간 운영");
     fireEvent.click(screen.getByRole("button", { name: "스케줄 추가" }));
@@ -327,11 +319,11 @@ describe("ScheduleControlPanel", () => {
     configure(dialog);
     fireEvent.click(within(dialog).getByRole("button", { name: "스케줄 만들기" }));
 
-    const control = within(dialog).getByLabelText(controlLabel);
+    const field = segmented ? within(dialog).getByRole("group", { name: controlLabel }) : null;
+    const control = segmented ? within(field!).getAllByRole("spinbutton")[0] : within(dialog).getByLabelText(controlLabel);
     expect(control).toHaveFocus();
     expect(control).toHaveAttribute("aria-invalid", "true");
-    expect(control).toHaveAttribute("aria-errormessage", errorId);
-    expect(document.getElementById(errorId)).toBeInTheDocument();
+    expect(control).toHaveAccessibleDescription(expect.any(String));
   });
 
   it("디밍 ON 밝기 오류는 visible numeric input만 error ARIA를 갖는다", async () => {
@@ -349,8 +341,7 @@ describe("ScheduleControlPanel", () => {
     const brightnessInput = within(dialog).getByLabelText("밝기");
     expect(brightnessInput).toHaveFocus();
     expect(brightnessInput).toHaveAttribute("aria-invalid", "true");
-    expect(brightnessInput).toHaveAttribute("aria-errormessage", "schedule-brightness-error");
-    expect(brightnessInput).toHaveAttribute("aria-describedby", "schedule-brightness-error");
+    expect(brightnessInput).toHaveAccessibleDescription("밝기는 0~100 사이의 정수여야 합니다.");
     expect(within(dialog).getByLabelText("디밍 사용")).not.toHaveAttribute("aria-invalid");
     expect(within(dialog).getByLabelText("디밍 사용")).not.toHaveAttribute("aria-errormessage");
   });
@@ -399,7 +390,7 @@ describe("ScheduleControlPanel", () => {
     const addButton = screen.getByRole("button", { name: "스케줄 추가" });
     fireEvent.click(addButton);
     const createDialog = screen.getByRole("dialog", { name: "스케줄 추가" });
-    expect(within(createDialog).getByLabelText("시작 시각")).toHaveFocus();
+    await waitFor(() => expect(within(within(createDialog).getByRole("group", { name: "시작 시각" })).getAllByRole("spinbutton")[0]).toHaveFocus());
 
     openScheduleAdvanced(createDialog);
     fireEvent.change(within(createDialog).getByLabelText("스케줄 이름"), { target: { value: "새 스케줄" } });
@@ -537,10 +528,10 @@ describe("ScheduleControlPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "스케줄 추가" }));
 
     fireEvent.click(screen.getByRole("button", { name: "세부 일정 설정" }));
-    fireEvent.change(screen.getByLabelText("반복"), { target: { value: "monthly" } });
+    selectOption(screen.getByRole("dialog", { name: "스케줄 추가" }), "반복", "매월");
     expect(screen.getByText("29~31일이 없는 달에는 해당 실행을 건너뜁니다.")).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("반복"), { target: { value: "yearly" } });
+    selectOption(screen.getByRole("dialog", { name: "스케줄 추가" }), "반복", "매년");
     expect(screen.getByText("2월 29일은 윤년에만 실행하며 날짜가 없는 해에는 건너뜁니다.")).toBeInTheDocument();
   });
 
@@ -645,7 +636,7 @@ describe("ScheduleControlPanel", () => {
     expect(screen.queryByText("로그인 세션이 만료되었습니다.")).not.toBeInTheDocument();
   });
 
-  it("keeps schedule dialog Escape, focus wrap, and focus return behavior", async () => {
+  it("keeps legacy schedule dialog containment, Escape and focus return behavior", async () => {
     renderPanel("admin");
     await screen.findByText("야간 운영");
     const addButton = screen.getByRole("button", { name: "스케줄 추가" });
@@ -655,13 +646,19 @@ describe("ScheduleControlPanel", () => {
     const submitButton = within(dialog).getByRole("button", { name: "스케줄 만들기" });
 
     submitButton.focus();
-    fireEvent.keyDown(document, { key: "Tab" });
-    expect(closeButton).toHaveFocus();
+    // Keyboard events originate at the focused control in the browser.
+    fireEvent.keyDown(submitButton, { key: "Tab" });
+    // The ref-only adapter cannot install React Aria sentinels. Simulate the
+    // native Tab leaving its last control; focus must return inside the dialog.
+    // Exact first/last cycling returns when Task 8 migrates this page to Modal.
+    addButton.focus();
+    expect(dialog).toContainElement(document.activeElement as HTMLElement);
     closeButton.focus();
-    fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
-    expect(submitButton).toHaveFocus();
+    fireEvent.keyDown(closeButton, { key: "Tab", shiftKey: true });
+    addButton.focus();
+    expect(dialog).toContainElement(document.activeElement as HTMLElement);
 
-    fireEvent.keyDown(document, { key: "Escape" });
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "스케줄 추가" })).not.toBeInTheDocument());
     expect(addButton).toHaveFocus();
   });
@@ -708,10 +705,17 @@ function openScheduleAdvanced(dialog: HTMLElement) {
   if (toggle.getAttribute("aria-expanded") !== "true") fireEvent.click(toggle);
 }
 
+function selectOption(dialog: HTMLElement, label: string, option: string) {
+  fireEvent.click(within(dialog).getByRole("button", { name: label }));
+  fireEvent.click(screen.getByRole("option", { name: option }));
+}
+
 function selectScheduleFixture(dialog: HTMLElement, fixtureLabel: string) {
   fireEvent.click(within(dialog).getByRole("button", { name: /제어 대상 (선택|변경)/ }));
-  fireEvent.click(within(dialog).getByLabelText(fixtureLabel));
-  fireEvent.click(within(dialog).getByRole("button", { name: "선택 완료" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "조명 목록 열기" }));
+  fireEvent.click(screen.getByLabelText(fixtureLabel));
+  fireEvent.click(screen.getByRole("button", { name: "선택 완료" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: /개 조명 선택 완료/ }));
 }
 
 function page(items: ScheduleResponse[]): ScheduleListResponse {

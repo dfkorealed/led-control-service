@@ -1,12 +1,12 @@
 import { CheckCircle2, Loader2 } from "lucide-react";
-import { Button } from "../../components/ui";
+import { Button, NumberField, TextField } from "../../components/ui";
 
 export interface FixtureBatchDefaults {
   namePrefix: string;
-  startNumber: number;
-  digits: number;
+  startNumber: number | null;
+  digits: string;
   ratedWatt: string;
-  size: number;
+  size: number | null;
 }
 
 interface FixtureBatchFormProps {
@@ -27,55 +27,13 @@ export function FixtureBatchForm({
   onSubmit
 }: FixtureBatchFormProps) {
   return (
-    <form className="registration-config-form" onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>
-      <div className="registration-fields batch-fields">
-        <label>
-          이름 접두어
-          <input
-            value={values.namePrefix}
-            maxLength={100}
-            onChange={(event) => onChange({ ...values, namePrefix: event.target.value })}
-          />
-        </label>
-        <label>
-          시작 번호
-          <input
-            type="number"
-            min={1}
-            step={1}
-            value={values.startNumber}
-            onChange={(event) => onChange({ ...values, startNumber: Number(event.target.value) })}
-          />
-        </label>
-        <label>
-          자릿수
-          <input
-            type="number"
-            min={1}
-            max={9}
-            step={1}
-            value={values.digits}
-            onChange={(event) => onChange({ ...values, digits: Number(event.target.value) })}
-          />
-        </label>
-        <label>
-          정격 전력(W)
-          <input
-            inputMode="decimal"
-            value={values.ratedWatt}
-            onChange={(event) => onChange({ ...values, ratedWatt: event.target.value })}
-          />
-        </label>
-        <label>
-          조명 크기
-          <input
-            type="number"
-            min={1}
-            max={1000}
-            value={values.size}
-            onChange={(event) => onChange({ ...values, size: Number(event.target.value) })}
-          />
-        </label>
+    <form className="grid gap-3.5" data-testid="fixture-config-form" onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>
+      <div className="grid grid-cols-1 gap-2.5 compact:grid-cols-2 tablet:grid-cols-3">
+        <TextField label="이름 접두어" value={values.namePrefix} maxLength={100} onChange={(value) => onChange({ ...values, namePrefix: value })} />
+        <NumberField label="시작 번호" value={values.startNumber} minValue={1} step={1} onChange={(value) => onChange({ ...values, startNumber: value })} />
+        <TextField label="자릿수" inputMode="numeric" pattern="[1-9]" maxLength={1} value={values.digits} onChange={(value) => onChange({ ...values, digits: value })} />
+        <TextField label="정격 전력(W)" inputMode="decimal" value={values.ratedWatt} onChange={(value) => onChange({ ...values, ratedWatt: value })} />
+        <NumberField label="조명 크기" value={values.size} minValue={1} maxValue={1000} onChange={(value) => onChange({ ...values, size: value })} />
       </div>
       <RegistrationSubmitButton selectedCount={selectedCount} disabled={disabled} pending={pending} />
     </form>
@@ -93,7 +51,7 @@ export function RegistrationSubmitButton({
 }) {
   return (
     <Button
-      className="registration-submit"
+      className="w-full justify-self-start compact:w-auto"
       variant="primary"
       type="submit"
       aria-label="선택 조명 등록"
@@ -101,7 +59,7 @@ export function RegistrationSubmitButton({
       isLoading={pending}
       loadingLabel="선택 조명 등록 중"
     >
-      <>{pending ? <Loader2 size={16} /> : <CheckCircle2 size={16} />} 선택 조명 등록 <span>{selectedCount}</span></>
+      <>{pending ? <Loader2 size={16} /> : <CheckCircle2 size={16} />} 선택 조명 등록 <span className="min-w-6 rounded-pill bg-surface-panel/20 px-1.5 py-0.5 text-center">{selectedCount}</span></>
     </Button>
   );
 }

@@ -1,0 +1,60 @@
+import { copyFile } from "node:fs/promises";
+import { Test } from "@nestjs/testing";
+import { tmpdir } from "node:os";
+import { PrismaService } from "../prisma/prisma.service";
+import { RedisProvider } from "../redis/redis.provider";
+import { ObjectStorageService } from "../storage/object-storage.service";
+import { createCadImportConverter, FloorImportModule } from "./floor-import.module";
+import { CAD_IMPORT_WORKER_OPTIONS, FloorImportWorkerService } from "./floor-import-worker.service";
+
+describe("CAD import converter module configuration", () => {
+  it("fails closed when production Linux converter configuration is absent", () => {
+    expect(() => createCadImportConverter({ NODE_ENV: "production", CAD_IMPORT_CONVERTER_MODE: "sidecar" }, "linux"))
+      .toThrow(/spool|digest/i);
+  });
+
+  it("creates the production adapter from spool and digest only, without executable or argv", () => {
+    expect(() => createCadImportConverter({
+      NODE_ENV: "production",
+      CAD_IMPORT_CONVERTER_MODE: "sidecar",
+      CAD_IMPORT_CONVERTER_SPOOL_ROOT: "/run/cad-converter-spool",
+      CAD_IMPORT_CONVERTER_SHA256: "a".repeat(64)
+    }, "linux")).not.toThrow();
+  });
+
+  it("rejects the local adapter in production and requires an explicit local mode elsewhere", async () => {
+    expect(() => createCadImportConverter({ NODE_ENV: "production", CAD_IMPORT_CONVERTER_MODE: "local-dxf-copy" }, "linux"))
+      .toThrow(/local.*production/i);
+    expect(() => createCadImportConverter({ NODE_ENV: "test" }, "darwin")).toThrow(/mode/i);
+    const local = createCadImportConverter({ NODE_ENV: "test", CAD_IMPORT_CONVERTER_MODE: "local-dxf-copy" }, "darwin", { copyFile });
+    expect(local).toBeDefined();
+  });
+
+  it("creates an explicitly non-production argv adapter for local DWG conversion", () => {
+    expect(() => createCadImportConverter({
+      NODE_ENV: "development",
+      CAD_IMPORT_CONVERTER_MODE: "development-argv",
+      CAD_IMPORT_CONVERTER_EXECUTABLE: process.execPath,
+      CAD_IMPORT_CONVERTER_ARGV_JSON: '["converter.cjs","{input}","{output}"]'
+    }, process.platform)).not.toThrow();
+    expect(() => createCadImportConverter({
+      NODE_ENV: "production",
+      CAD_IMPORT_CONVERTER_MODE: "development-argv",
+      CAD_IMPORT_CONVERTER_EXECUTABLE: process.execPath,
+      CAD_IMPORT_CONVERTER_ARGV_JSON: '["converter.cjs","{input}","{output}"]'
+    }, process.platform)).toThrow(/development.*production|production.*development/i);
+  });
+
+  it("boots and closes the Nest module graph with the worker explicitly disabled", async () => {
+    const moduleRef = await Test.createTestingModule({ imports: [FloorImportModule] })
+      .overrideProvider(PrismaService).useValue({})
+      .overrideProvider(RedisProvider).useValue({ onModuleInit: () => undefined, onModuleDestroy: () => undefined })
+      .overrideProvider(ObjectStorageService).useValue({})
+      .overrideProvider(CAD_IMPORT_WORKER_OPTIONS).useValue({ tempRoot: tmpdir(), pollIntervalMs: 1000, enabled: false })
+      .compile();
+    const app = moduleRef.createNestApplication();
+    await expect(app.init()).resolves.toBeDefined();
+    expect(app.get(FloorImportWorkerService)).toBeInstanceOf(FloorImportWorkerService);
+    await app.close();
+  });
+});

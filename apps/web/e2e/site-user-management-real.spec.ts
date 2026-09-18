@@ -52,7 +52,8 @@ test("비활성화된 일반 유저의 현재 세션과 재로그인을 실제 A
   await expect(admin.getByRole("heading", { name: "현장 기본 정보를 입력하세요" })).toBeVisible();
   await admin.getByLabel("주소").fill("서울시 격리 테스트구");
   await admin.getByLabel("kWh 단가").fill("160");
-  await admin.getByLabel("시간대").selectOption("Asia/Seoul");
+  await admin.getByRole("button", { name: "시간대" }).click();
+  await admin.getByRole("option", { name: "Asia/Seoul", exact: true }).click();
   await admin.getByLabel("지하 층수").fill("1");
   await admin.getByLabel("지상 층수").fill("0");
   await admin.getByRole("button", { name: "층 자동 생성" }).click();

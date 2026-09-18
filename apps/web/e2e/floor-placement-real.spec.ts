@@ -143,17 +143,18 @@ test("software E2E: floor placement, unplace confirmation/undo, persistence and 
     await expect(page.getByRole("heading", { name: fixtureA.name, exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "저장", exact: true })).toBeDisabled();
     await dragFixture(page, second, fixtureB.name, positionB);
-    const cancelled = page.waitForEvent("dialog");
-    page.once("dialog", (dialog) => void dialog.dismiss());
-    await floorSelector(page, first).selectOption(first.id);
-    expect((await cancelled).type()).toBe("confirm");
+    await chooseSelectOption(page, "층 선택", first.name);
+    const cancelled = leaveEditorDialog(page);
+    await expect(cancelled).toBeVisible();
+    await cancelled.getByRole("button", { name: "취소", exact: true }).click();
+    await expect(cancelled).toHaveCount(0);
     await expect(page.getByLabel(`${second.name} 편집 캔버스`)).toBeVisible();
     await expectProperties(page, fixtureB.name, positionB);
 
-    const discarded = page.waitForEvent("dialog");
-    page.once("dialog", (dialog) => void dialog.accept());
-    await floorSelector(page, first).selectOption(first.id);
-    expect((await discarded).type()).toBe("confirm");
+    await chooseSelectOption(page, "층 선택", first.name);
+    const discarded = leaveEditorDialog(page);
+    await expect(discarded).toBeVisible();
+    await discarded.getByRole("button", { name: "이동", exact: true }).click();
     await expectEditor(page, first);
     await expect(page.getByRole("button", { name: "저장", exact: true })).toBeDisabled();
     expect((await readEditor(page, second)).fixtures[0]).toMatchObject({ placementStatus: "unplaced", positionVerifiedAt: null });
@@ -204,13 +205,13 @@ test("software E2E: floor placement, unplace confirmation/undo, persistence and 
 
   await test.step("Unplaced fixtures lose only their map marker, not control or energy participation", async () => {
     await page.getByRole("link", { name: "모니터링", exact: true }).click();
-    await page.getByRole("combobox", { name: "맵 선택", exact: true }).selectOption(first);
+    await chooseSelectOption(page, "맵 선택", first.name);
     const map = page.getByRole("region", { name: "층 도면", exact: true });
     await expect(map).toBeVisible();
     await expect(map.locator(".floor-map-label")).toHaveCount(0);
     await expect(map.getByRole("button", { name: new RegExp(fixtureA.name) })).toHaveCount(0);
     await expect(map.getByRole("button", { name: new RegExp(fixtureB.name) })).toHaveCount(0);
-    await page.getByRole("combobox", { name: "맵 선택", exact: true }).selectOption(second);
+    await chooseSelectOption(page, "맵 선택", second.name);
     await expect(map.getByRole("button", { name: new RegExp(fixtureB.name) })).toBeVisible();
     await expect(map.getByRole("button", { name: new RegExp(fixtureA.name) })).toHaveCount(0);
 
@@ -222,7 +223,9 @@ test("software E2E: floor placement, unplace confirmation/undo, persistence and 
     expect(dashboard.floors.flatMap((floor) => floor.fixtures).map((fixture) => fixture.id).sort()).toEqual([fixtureA.id, fixtureB.id].sort());
     expect(dashboard.floors.flatMap((floor) => floor.fixtures).every((fixture) => fixture.controllable)).toBe(true);
 
-    await page.getByRole("checkbox", { name: `${fixtureA.name} 선택`, exact: true }).check();
+    const fixtureCheckbox = page.getByRole("checkbox", { name: `${fixtureA.name} 선택`, exact: true });
+    await fixtureCheckbox.locator("xpath=ancestor::label").click();
+    await expect(fixtureCheckbox).toBeChecked();
     await page.getByRole("button", { name: "70%", exact: true }).click();
     const expectedCommandCount = lab.dimmingCommandCount() + 1;
     const commandResponsePromise = page.waitForResponse((response) => (
@@ -235,7 +238,7 @@ test("software E2E: floor placement, unplace confirmation/undo, persistence and 
       siteId, brightness: 70, target: { type: "fixture", fixtureId: fixtureA.id }
     });
     await lab.waitForDimmingCommandCount(expectedCommandCount);
-    await expect(page.getByText("조명 적용 완료", { exact: true })).toBeVisible();
+    await expect(page.getByRole("status", { name: "명령 진행 상태" }).getByText("조명 적용 완료 · 기본 밝기로 저장됨", { exact: true })).toBeVisible();
     await expect.poll(async () => {
       const current = await getJson<Dashboard>(page, `/sites/${siteId}/dashboard?includeFixtures=true`);
       return current.floors.flatMap((floor) => floor.fixtures).find((fixture) => fixture.id === fixtureA.id)?.brightness;
@@ -330,11 +333,6 @@ function unplacedRow(page: Page, fixtureName: string) {
   return page.locator('[draggable="true"]').filter({ hasText: fixtureName });
 }
 
-function floorSelector(page: Page, floor: Floor) {
-  return page.getByRole("combobox", { name: "층 선택", exact: true })
-    .filter({ has: page.locator(`option[value="${floor.id}"]`) });
-}
-
 async function expectEditor(page: Page, floor: Floor) {
   await expect(page.getByRole("heading", { name: `${floor.name} 맵 편집`, exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "선택", exact: true })).toBeEnabled();
@@ -342,9 +340,21 @@ async function expectEditor(page: Page, floor: Floor) {
 }
 
 async function switchFloor(page: Page, floor: Floor) {
-  await floorSelector(page, floor).selectOption(floor.id);
+  await chooseSelectOption(page, "층 선택", floor.name);
   await expectEditor(page, floor);
-  await expect(floorSelector(page, floor)).toHaveValue(floor.id);
+  await expect(page.getByRole("button", { name: "층 선택", exact: true })).toContainText(floor.name);
+}
+
+async function chooseSelectOption(page: Page, label: string, option: string) {
+  await page.getByRole("button", { name: label, exact: true }).click();
+  const listbox = page.getByRole("listbox");
+  await expect(listbox).toBeVisible();
+  await listbox.getByRole("option", { name: option, exact: true }).click();
+  await expect(listbox).toHaveCount(0);
+}
+
+function leaveEditorDialog(page: Page) {
+  return page.getByRole("alertdialog", { name: "맵 편집 종료", exact: true });
 }
 
 async function dragFixture(page: Page, floor: Floor, fixtureName: string, position: { x: number; y: number }) {

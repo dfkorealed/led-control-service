@@ -17,9 +17,13 @@ import {
 import type { AuthUser } from "../../../api/auth";
 import { authMeQueryKey } from "../../../api/principal-cache";
 import type { Dashboard } from "../../../api/queries";
-import { ConfirmDialog } from "../../../components/ConfirmDialog";
-import { Button, FeedbackState, PageHeader, StatusBadge } from "../../../components/ui";
+import { Button, ConfirmDialog, FeedbackState, PageHeader, StatusBadge, Text } from "../../../components/ui";
 import { ScheduleDialog } from "./ScheduleDialog";
+import {
+  AutomationRuleTable,
+  automationTableCellClassName,
+  automationTableHeadingClassName
+} from "./components/AutomationRuleTable";
 
 export function ScheduleControlPanel({
   siteId,
@@ -42,9 +46,9 @@ export function ScheduleControlPanel({
   const expiredPrincipalGeneration = useRef<number | null>(null);
   const [editingSchedule, setEditingSchedule] = useState<ScheduleResponse | null>(null);
   const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false);
-  const [dialogReturnFocus, setDialogReturnFocus] = useState<HTMLElement | null>(null);
+  const dialogReturnFocusRef = useRef<HTMLElement | null>(null);
   const [deleteCandidate, setDeleteCandidate] = useState<ScheduleResponse | null>(null);
-  const [deleteReturnFocus, setDeleteReturnFocus] = useState<HTMLElement | null>(null);
+  const deleteReturnFocusRef = useRef<HTMLElement | null>(null);
   const [message, setMessage] = useState("");
   const [mutationError, setMutationError] = useState("");
   const canManage = role === "admin";
@@ -129,7 +133,7 @@ export function ScheduleControlPanel({
 
   function beginAdd() {
     setEditingSchedule(null);
-    setDialogReturnFocus(addButtonRef.current);
+    dialogReturnFocusRef.current = addButtonRef.current;
     setMutationError("");
     setMessage("");
     setScheduleDialogOpen(true);
@@ -137,7 +141,7 @@ export function ScheduleControlPanel({
 
   function beginEdit(schedule: ScheduleResponse, opener: HTMLElement) {
     setEditingSchedule(schedule);
-    setDialogReturnFocus(opener);
+    dialogReturnFocusRef.current = opener;
     setMutationError("");
     setMessage("");
     setScheduleDialogOpen(true);
@@ -209,9 +213,10 @@ export function ScheduleControlPanel({
   return (
     <div
       id="control-mode-panel-schedule"
-      className="schedule-control-panel"
+      className="grid min-w-0 content-start gap-4 tablet:min-h-0 tablet:flex-1 tablet:overflow-y-auto"
       role="tabpanel"
       aria-labelledby="control-mode-schedule"
+      data-control-automation-panel="schedule"
     >
       <PageHeader
         title="스케줄 제어"
@@ -221,7 +226,6 @@ export function ScheduleControlPanel({
           <Button
             ref={addButtonRef}
             variant="primary"
-            className="schedule-add-button"
             type="button"
             onClick={beginAdd}
             disabled={isMutating || !dashboard}
@@ -233,7 +237,7 @@ export function ScheduleControlPanel({
       />
 
       {!canManage ? (
-        <p className="schedule-readonly-notice" role="status">
+        <p className="m-0 border-l-4 border-status-warning-border bg-status-warning-background px-3 py-2.5 text-body-sm font-bold text-status-warning-foreground" role="status" data-control-readonly-notice="">
           조회 전용 계정입니다. 스케줄 목록과 Gateway 적용 상태만 확인할 수 있습니다.
         </p>
       ) : null}
@@ -250,40 +254,42 @@ export function ScheduleControlPanel({
       ) : null}
 
       {!schedulesQuery.isLoading && !schedulesQuery.isLoadingError ? (
-        schedules.length > 0 ? <div className="automation-table-wrap schedule-table-wrap">
-          <table className="schedule-table" aria-label="스케줄 목록">
+        schedules.length > 0 ? <AutomationRuleTable label="스케줄 목록">
             <thead>
               <tr>
-                <th>이름</th>
-                <th>활성</th>
-                <th>다음 실행</th>
-                <th>반복 · 시간</th>
-                <th>밝기</th>
-                <th>대상</th>
-                <th>Gateway 동기화</th>
-                <th>최근 결과</th>
-                {canManage ? <th aria-label="관리" /> : null}
+                <th className={automationTableHeadingClassName}>이름</th>
+                <th className={automationTableHeadingClassName}>활성</th>
+                <th className={automationTableHeadingClassName}>다음 실행</th>
+                <th className={automationTableHeadingClassName}>반복 · 시간</th>
+                <th className={automationTableHeadingClassName}>밝기</th>
+                <th className={automationTableHeadingClassName}>대상</th>
+                <th className={automationTableHeadingClassName}>Gateway 동기화</th>
+                <th className={automationTableHeadingClassName}>최근 결과</th>
+                {canManage ? <th className={automationTableHeadingClassName} aria-label="관리" /> : null}
               </tr>
             </thead>
             <tbody>
-              {schedules.map((schedule) => (
+              {schedules.map((schedule, index) => {
+                const isLastRow = index === schedules.length - 1;
+                return (
                 <tr key={schedule.id}>
-                  <td>
-                    <strong>{schedule.name}</strong>
-                    <small>{formatActivePeriod(schedule, dashboard?.site.timeZone ?? "UTC")}</small>
+                  <td className={automationTableCellClassName(isLastRow, "grid gap-1")}>
+                    <strong className="max-w-48 truncate">{schedule.name}</strong>
+                    <small className="text-content-muted">{formatActivePeriod(schedule, dashboard?.site.timeZone ?? "UTC")}</small>
                   </td>
-                  <td><EnabledBadge enabled={schedule.status === "enabled"} /></td>
-                  <td>{formatNextOccurrence(schedule, dashboard?.site.timeZone ?? "UTC")}</td>
-                  <td>{formatRecurrence(schedule)}</td>
-                  <td>{schedule.action.dimmingEnabled ? `${schedule.action.brightnessPercent}%` : "디밍 OFF · 100%"}</td>
-                  <td>{schedule.targetCount}개</td>
-                  <td><SyncBadge status={schedule.syncStatus} /></td>
-                  <td><LastExecutionBadge schedule={schedule} timeZone={dashboard?.site.timeZone ?? "UTC"} /></td>
+                  <td className={automationTableCellClassName(isLastRow)}><EnabledBadge enabled={schedule.status === "enabled"} /></td>
+                  <td className={automationTableCellClassName(isLastRow)}>{formatNextOccurrence(schedule, dashboard?.site.timeZone ?? "UTC")}</td>
+                  <td className={automationTableCellClassName(isLastRow)}>{formatRecurrence(schedule)}</td>
+                  <td className={automationTableCellClassName(isLastRow)}>{schedule.action.dimmingEnabled ? `${schedule.action.brightnessPercent}%` : "디밍 OFF · 100%"}</td>
+                  <td className={automationTableCellClassName(isLastRow)}>{schedule.targetCount}개</td>
+                  <td className={automationTableCellClassName(isLastRow)}><SyncBadge status={schedule.syncStatus} /></td>
+                  <td className={automationTableCellClassName(isLastRow)}><LastExecutionBadge schedule={schedule} timeZone={dashboard?.site.timeZone ?? "UTC"} /></td>
                   {canManage ? (
-                    <td>
-                      <div className="schedule-row-actions">
+                    <td className={automationTableCellClassName(isLastRow)}>
+                      <div className="grid grid-cols-3 gap-1.5" data-schedule-row-actions="">
                         <Button
                           variant="ghost"
+                          className="w-11 p-0"
                           type="button"
                           aria-label={`${schedule.name} ${schedule.status === "enabled" ? "비활성화" : "활성화"}`}
                           title={schedule.status === "enabled" ? "비활성화" : "활성화"}
@@ -296,6 +302,7 @@ export function ScheduleControlPanel({
                         </Button>
                         <Button
                           variant="ghost"
+                          className="w-11 p-0"
                           type="button"
                           aria-label={`${schedule.name} 수정`}
                           title="수정"
@@ -306,13 +313,13 @@ export function ScheduleControlPanel({
                         </Button>
                         <Button
                           variant="danger"
-                          className="danger-action"
+                          className="w-11 p-0"
                           type="button"
                           aria-label={`${schedule.name} 삭제`}
                           title="삭제"
                           disabled={isMutating}
                           onClick={(event) => {
-                            setDeleteReturnFocus(event.currentTarget);
+                            deleteReturnFocusRef.current = event.currentTarget;
                             setDeleteCandidate(schedule);
                             setMutationError("");
                             setMessage("");
@@ -324,10 +331,10 @@ export function ScheduleControlPanel({
                     </td>
                   ) : null}
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
-          </table>
-        </div> : <FeedbackState
+        </AutomationRuleTable> : <FeedbackState
           icon={CalendarPlus}
           title="등록된 스케줄이 없습니다."
           description="반복 밝기 규칙을 추가하면 Gateway 적용 상태와 최근 결과를 여기서 확인할 수 있습니다."
@@ -337,7 +344,7 @@ export function ScheduleControlPanel({
       {schedulesQuery.hasNextPage && !schedulesQuery.isFetchNextPageError ? (
         <Button
           variant="secondary"
-          className="control-load-more"
+          className="justify-self-center"
           type="button"
           disabled={schedulesQuery.isFetchingNextPage}
           onClick={() => void schedulesQuery.fetchNextPage()}
@@ -345,9 +352,9 @@ export function ScheduleControlPanel({
           {schedulesQuery.isFetchingNextPage ? "불러오는 중" : "스케줄 더 보기"}
         </Button>
       ) : null}
-      {message ? <p className="success-text schedule-panel-message" role="status">{message}</p> : null}
+      {message ? <Text tone="success" role="status">{message}</Text> : null}
       {mutationError && !scheduleDialogOpen && !deleteCandidate
-        ? <p className="danger-text schedule-panel-message" role="alert">{mutationError}</p>
+        ? <Text tone="danger" role="alert">{mutationError}</Text>
         : null}
 
       {dashboard ? (
@@ -357,7 +364,7 @@ export function ScheduleControlPanel({
           dashboard={dashboard}
           isPending={saveMutation.isPending}
           serverError={scheduleDialogOpen ? mutationError : ""}
-          returnFocusElement={dialogReturnFocus}
+          returnFocusRef={dialogReturnFocusRef}
           onClose={() => {
             if (saveMutation.isPending) return;
             setScheduleDialogOpen(false);
@@ -369,20 +376,20 @@ export function ScheduleControlPanel({
       ) : null}
 
       <ConfirmDialog
-        open={Boolean(deleteCandidate)}
+        isOpen={Boolean(deleteCandidate)}
         title="스케줄 삭제"
         description={deleteCandidate ? `${deleteCandidate.name} 스케줄을 삭제하시겠습니까?` : undefined}
         confirmLabel="삭제"
-        destructive
+        tone="danger"
         isPending={removeMutation.isPending}
-        returnFocusElement={deleteReturnFocus}
-        fallbackFocusElement={addButtonRef.current}
-        onClose={() => {
+        returnFocusRef={deleteReturnFocusRef}
+        fallbackFocusRef={addButtonRef}
+        onCancel={() => {
           if (!removeMutation.isPending) setDeleteCandidate(null);
         }}
         onConfirm={remove}
       >
-        {deleteCandidate && mutationError ? <p className="danger-text" role="alert">{mutationError}</p> : null}
+        {deleteCandidate && mutationError ? <Text tone="danger" role="alert">{mutationError}</Text> : null}
       </ConfirmDialog>
     </div>
   );

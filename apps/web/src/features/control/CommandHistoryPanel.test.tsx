@@ -16,6 +16,15 @@ function command(id: string) {
 }
 
 describe("CommandHistoryPanel", () => {
+  it("uses the shared search field and SelectBox trigger", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ items: [], nextCursor: null }) }));
+    renderHistory();
+
+    await screen.findByText("명령 이력이 없습니다.");
+    expect(screen.getByRole("searchbox", { name: "명령 이력 검색" }).closest("[data-field]")).not.toBeNull();
+    expect(screen.getByRole("button", { name: "명령 상태 필터" })).toBeInTheDocument();
+  });
+
   it("debounces search, changes stage filters and resets pagination for a new search", async () => {
     const fetch = vi.fn().mockImplementation(async () => ({ ok: true, json: async () => ({ items: [], nextCursor: null }) }));
     vi.stubGlobal("fetch", fetch);
@@ -26,7 +35,8 @@ describe("CommandHistoryPanel", () => {
     expect(fetch).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
     expect(fetch.mock.calls[1][0]).toContain("query=%EC%9E%85%EA%B5%AC");
-    fireEvent.change(screen.getByRole("combobox", { name: "명령 상태 필터" }), { target: { value: "verification_required" } });
+    fireEvent.click(screen.getByRole("button", { name: "명령 상태 필터" }));
+    fireEvent.click(screen.getByRole("option", { name: "실제 상태 확인 필요" }));
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
     expect(fetch.mock.calls[2][0]).toContain("stage=verification_required");
     expect(fetch.mock.calls[2][0]).not.toContain("cursor=");

@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { readFileSync } from "node:fs";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mockDashboard } from "../../test/fixtures";
@@ -47,6 +48,13 @@ describe("TestDataToolsPanel", () => {
     cleanup();
     renderPanel({ userRole: "operator" });
     expect(screen.queryByRole("region", { name: "테스트 데이터" })).not.toBeInTheDocument();
+  });
+
+  it("imports the shared confirmation dialog without the legacy adapter", () => {
+    const source = readFileSync("src/features/settings/TestDataToolsPanel.tsx", "utf8");
+
+    expect(source).toMatch(/import \{[^}]*ConfirmDialog[^}]*\} from "\.\.\/\.\.\/components\/ui"/);
+    expect(source).not.toContain('from "../../components/ConfirmDialog"');
   });
 
   it("creates test data, disables duplicate actions while pending, and refreshes affected caches", async () => {
@@ -114,6 +122,30 @@ describe("TestDataToolsPanel", () => {
     expect(await screen.findByRole("status")).toHaveTextContent("테스트 데이터 9개를 삭제했습니다.");
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["dashboard", "default"] });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["dashboard", mockDashboard.site.id] });
+  });
+
+  it("blocks duplicate confirmation and dismissal while deleting, then restores trigger focus", async () => {
+    let resolveDelete: ((value: ReturnType<typeof testDataResult>) => void) | undefined;
+    deleteSiteTestDataMock.mockReturnValueOnce(new Promise((resolve) => { resolveDelete = resolve; }));
+    renderPanel();
+
+    const trigger = screen.getByRole("button", { name: "테스트 데이터 삭제" });
+    trigger.focus();
+    fireEvent.click(trigger);
+    const dialog = screen.getByRole("dialog", { name: "테스트 데이터 삭제 확인" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "삭제" }));
+
+    const pendingConfirm = await within(dialog).findByRole("button", { name: "처리 중" });
+    expect(pendingConfirm).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "취소" })).toBeDisabled();
+    fireEvent.click(pendingConfirm);
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(deleteSiteTestDataMock).toHaveBeenCalledOnce();
+    expect(dialog).toBeInTheDocument();
+
+    resolveDelete?.(testDataResult({ deleted: 16 }));
+    await waitFor(() => expect(dialog).not.toBeInTheDocument());
+    expect(trigger).toHaveFocus();
   });
 });
 

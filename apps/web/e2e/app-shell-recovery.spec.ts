@@ -19,7 +19,7 @@ test("browser offline at boot shows recovery and resumes the real shell when con
   await expect(page.getByRole("heading", { name: "킨다 로그인" })).toHaveCount(0);
   expect(api.requests.filter((request) => request === "GET /auth/me")).toHaveLength(0);
   await context.setOffline(false);
-  await expect(page.getByRole("combobox", { name: "맵 선택" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "맵 선택" })).toBeVisible();
   expect(api.requests.filter((request) => request === "GET /auth/me")).toHaveLength(1);
 });
 
@@ -29,7 +29,7 @@ async function expectRecovery(page: Page, title: string) {
   await expect(page.getByRole("alert")).toBeVisible();
   await expect(page.locator("body")).not.toContainText(secret);
   await expectNoHorizontalOverflow(page);
-  await expectMinimumTouchTargets(page, ".app-recovery-actions");
+  await expectMinimumTouchTargets(page, "[data-recovery-actions]");
 }
 
 for (const width of [1440, 1024, 390, 320]) {
@@ -52,7 +52,7 @@ for (const width of [1440, 1024, 390, 320]) {
     await page.keyboard.press("Tab");
     await expect(page.getByRole("button", { name: "다시 시도" })).toBeFocused();
     await page.keyboard.press("Enter");
-    await expect(page.getByRole("combobox", { name: "맵 선택" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "맵 선택" })).toBeVisible();
     expect(authRequests).toBe(4);
     await expect(page.getByRole("alert")).toHaveCount(0);
   });
@@ -72,7 +72,7 @@ test("network exhaustion recovers without reloading the document", async ({ page
   await page.evaluate(() => { (window as Window & { recoverySentinel?: string }).recoverySentinel = "same-document"; });
   available = true;
   await page.getByRole("button", { name: "다시 시도" }).click();
-  await expect(page.getByRole("combobox", { name: "맵 선택" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "맵 선택" })).toBeVisible();
   expect(await page.evaluate(() => (window as Window & { recoverySentinel?: string }).recoverySentinel)).toBe("same-document");
   expect(requests).toBe(4);
 });
@@ -132,7 +132,7 @@ for (const action of ["reload", "relogin"] as const) {
       await page.keyboard.press("Tab");
       await expect(page.getByRole("button", { name: "새로고침" })).toBeFocused();
       await page.keyboard.press("Enter");
-      await expect(page.getByRole("combobox", { name: "맵 선택" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "맵 선택" })).toBeVisible();
       expect(chunkRequests).toBe(2);
       expect(await page.evaluate(() => (window as Window & { recoverySentinel?: boolean }).recoverySentinel)).toBeUndefined();
     } else {

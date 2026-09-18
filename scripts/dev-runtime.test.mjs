@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
 import {
   parseEnvFile,
@@ -10,14 +10,16 @@ import {
   resolveDevAppFilters,
   resolveDevEnvironment,
   renderMosquittoAcl,
+  renderDockerMosquittoConfig,
   renderMosquittoConfig,
-  startMosquittoCrlReload
+  startMosquittoCrlReload,
+  validateLabNetworkConfiguration
 } from "./dev-runtime.mjs";
 import {
   publishNativeBrokerIdentity,
   reloadExistingDevelopmentBroker
 } from "./dev-broker.mjs";
-import { prepareDevelopmentRuntime } from "./dev-prepare.mjs";
+import { prepareDevelopmentRuntime, resolveDevelopmentCadEnvironment } from "./dev-prepare.mjs";
 
 test("루트 env 파일의 주석, 따옴표, 빈 값을 안전하게 읽는다", () => {
   assert.deepEqual(parseEnvFile('# comment\nAPI_PORT=4000\nDATABASE_URL="postgres://local/db"\nEMPTY=\n'), {
@@ -25,6 +27,26 @@ test("루트 env 파일의 주석, 따옴표, 빈 값을 안전하게 읽는다"
     DATABASE_URL: "postgres://local/db",
     EMPTY: ""
   });
+});
+
+test("개발 CAD 설정은 설치된 dwgread를 자동 감지해 DWG worker를 활성화한다", () => {
+  const env = resolveDevelopmentCadEnvironment({}, {
+    findExecutable: (name) => name === "dwgread" ? "/opt/homebrew/bin/dwgread" : undefined
+  });
+
+  assert.equal(env.CAD_IMPORT_CONVERTER_MODE, "development-argv");
+  assert.equal(env.CAD_IMPORT_CONVERTER_EXECUTABLE, "/opt/homebrew/bin/dwgread");
+  assert.equal(env.CAD_IMPORT_CONVERTER_ARGV_JSON, '["-O","DXF","-o","{output}","{input}"]');
+});
+
+test("개발 CAD 설정은 명시적인 converter 설정을 자동 감지 값으로 덮어쓰지 않는다", () => {
+  const env = resolveDevelopmentCadEnvironment({
+    CAD_IMPORT_CONVERTER_MODE: "local-dxf-copy",
+    CAD_IMPORT_CONVERTER_EXECUTABLE: "/custom/converter"
+  }, { findExecutable: () => "/opt/homebrew/bin/dwgread" });
+
+  assert.equal(env.CAD_IMPORT_CONVERTER_MODE, "local-dxf-copy");
+  assert.equal(env.CAD_IMPORT_CONVERTER_EXECUTABLE, "/custom/converter");
 });
 
 test("개발 환경은 명시한 LAN MQTT URL과 mTLS 경로를 보존한다", () => {
@@ -45,6 +67,51 @@ test("개발 환경은 명시한 LAN MQTT URL과 mTLS 경로를 보존한다", (
   assert.equal(env.MQTT_CLIENT_KEY_PATH, "/vault/current/api-mqtt-client.key");
   assert.equal(env.MQTT_API_INSTANCE_ID, "development");
   assert.equal(env.DEV_GATEWAY_ID, "11111111-1111-4111-8111-111111111111");
+});
+
+test("Lab 개발 시작은 현재 host에 없는 stale service IP를 거부한다", async () => {
+  await assert.rejects(
+    () => validateLabNetworkConfiguration({
+      PKI_ENV: "lab",
+      LAB_API_IP: "172.30.1.2",
+      LAB_MQTT_IP: "172.30.1.2",
+      VITE_API_PROXY_TARGET: "https://172.30.1.2:4000",
+      MQTT_URL: "mqtts://172.30.1.2:8883"
+    }, {
+      localAddresses: ["127.0.0.1", "172.30.1.13"],
+      resolveHostname: async () => []
+    }),
+    /LAB_API_IP 172\.30\.1\.2.*current host/i
+  );
+});
+
+test("Lab 개발 시작은 service IP와 다른 Vite proxy target을 거부한다", async () => {
+  await assert.rejects(
+    () => validateLabNetworkConfiguration({
+      PKI_ENV: "lab",
+      LAB_API_IP: "172.30.1.13",
+      LAB_MQTT_IP: "172.30.1.13",
+      VITE_API_PROXY_TARGET: "https://172.30.1.2:4000",
+      MQTT_URL: "mqtts://172.30.1.13:8883"
+    }, {
+      localAddresses: ["127.0.0.1", "172.30.1.13"],
+      resolveHostname: async (hostname) => [hostname]
+    }),
+    /VITE_API_PROXY_TARGET.*172\.30\.1\.13/i
+  );
+});
+
+test("Lab 개발 시작은 current service IP와 일치하는 IP endpoints를 허용한다", async () => {
+  await assert.doesNotReject(() => validateLabNetworkConfiguration({
+    PKI_ENV: "lab",
+    LAB_API_IP: "172.30.1.13",
+    LAB_MQTT_IP: "172.30.1.13",
+    VITE_API_PROXY_TARGET: "https://172.30.1.13:4000",
+    MQTT_URL: "mqtts://172.30.1.13:8883"
+  }, {
+    localAddresses: ["127.0.0.1", "172.30.1.13"],
+    resolveHostname: async (hostname) => [hostname]
+  }));
 });
 
 test("개발 환경은 미설정 mTLS 값에만 기존 로컬 PKI 기본값을 사용한다", () => {
@@ -81,6 +148,25 @@ test("Vault 현재 bundle을 사용하면 API client와 Mosquitto server 경로�
   assert.match(config, /certfile \/vault\/pki\/current\/mqtt-server\.crt/);
   assert.match(config, /keyfile \/vault\/pki\/current\/mqtt-server\.key/);
   assert.match(config, /crlfile \/vault\/pki\/current\/mqtt-client\.crl/);
+});
+
+test("Docker Mosquitto renderer는 개발 PKI와 Lab PKI의 실제 bundle 파일명을 구분한다", () => {
+  const development = renderDockerMosquittoConfig({});
+  assert.match(development, /^cafile \/mosquitto\/certs\/ca\.crt$/m);
+  assert.match(development, /^certfile \/mosquitto\/certs\/broker\.crt$/m);
+  assert.match(development, /^keyfile \/mosquitto\/certs\/broker\.key$/m);
+  assert.match(development, /^crlfile \/mosquitto\/certs\/ca\.crl$/m);
+  const lab = renderDockerMosquittoConfig({ PKI_LAB_CURRENT_DIR: "/vault/pki/current" });
+  assert.match(
+    lab,
+    /^cafile \/mosquitto\/certs\/mqtt-ca\.crt$/m
+  );
+  assert.match(lab, /^keyfile \/mosquitto\/certs\/mqtt-server\.key$/m);
+  assert.match(lab, /^crlfile \/mosquitto\/certs\/mqtt-client\.crl$/m);
+  assert.match(
+    renderDockerMosquittoConfig({ MQTT_CA_PATH: "/vault/pki/current/mqtt-ca.crt" }),
+    /^certfile \/mosquitto\/certs\/mqtt-server\.crt$/m
+  );
 });
 
 test("명시한 Vault client 경로는 PKI_LAB_CURRENT_DIR 없이도 Mosquitto bundle 경로를 선택한다", () => {
@@ -242,6 +328,8 @@ test("prepare-only 실행은 연속 두 번에도 ACL을 원자 재게시하고 
     const firstPrepared = prepareDevelopmentRuntime(directory, source, { run: (...args) => started.push(args) });
     const firstAcl = readFileSync(firstPrepared.aclPath, "utf8");
     const firstInode = statSync(firstPrepared.aclPath).ino;
+    const firstNativeConfigInode = statSync(firstPrepared.nativeConfigPath).ino;
+    const firstDockerConfigInode = statSync(firstPrepared.dockerConfigPath).ino;
     const prepared = prepareDevelopmentRuntime(directory, source, { run: (...args) => started.push(args) });
 
     assert.deepEqual(prepared.gatewayIds, [
@@ -251,8 +339,28 @@ test("prepare-only 실행은 연속 두 번에도 ACL을 원자 재게시하고 
     assert.equal(prepared.aclPath, firstPrepared.aclPath);
     assert.equal(readFileSync(prepared.aclPath, "utf8"), firstAcl);
     assert.notEqual(statSync(prepared.aclPath).ino, firstInode);
+    assert.equal(statSync(prepared.nativeConfigPath).ino, firstNativeConfigInode);
+    assert.equal(statSync(prepared.dockerConfigPath).ino, firstDockerConfigInode);
     assert.match(readFileSync(join(directory, ".local", "mosquitto-runtime", "mosquitto.acl"), "utf8"), /^user api-service$/m);
     assert.match(readFileSync(join(directory, ".local", "mosquitto.host.conf"), "utf8"), /acl_file .*\.local\/mosquitto-runtime\/mosquitto\.acl/);
+    assert.equal(
+      readFileSync(join(directory, ".local", "mosquitto.docker.conf"), "utf8"),
+      [
+        "listener 8883",
+        "allow_anonymous false",
+        "cafile /mosquitto/certs/mqtt-ca.crt",
+        "certfile /mosquitto/certs/mqtt-server.crt",
+        "keyfile /mosquitto/certs/mqtt-server.key",
+        "crlfile /mosquitto/certs/mqtt-client.crl",
+        "require_certificate true",
+        "use_identity_as_username true",
+        "tls_version tlsv1.2",
+        "acl_file /mosquitto/runtime/mosquitto.acl",
+        "persistence false",
+        "log_dest stdout",
+        ""
+      ].join("\n")
+    );
     assert.equal(statSync(join(directory, ".local", "mosquitto-runtime")).mode & 0o777, 0o755);
     if (typeof process.getuid === "function") {
       assert.equal(statSync(join(directory, ".local", "mosquitto-runtime")).uid, process.getuid());
@@ -264,11 +372,283 @@ test("prepare-only 실행은 연속 두 번에도 ACL을 원자 재게시하고 
   }
 });
 
+test("prepare는 unsafe .local과 default PKI 경계를 첫 PKI script 부작용 전에 거부한다", () => {
+  const cases = [
+    {
+      name: "wide local",
+      arrange(root) {
+        mkdirSync(join(root, ".local"), { mode: 0o755 });
+        chmodSync(join(root, ".local"), 0o755);
+      },
+      error: /\.local.*mode 0700/i
+    },
+    {
+      name: "symlink pki",
+      arrange(root) {
+        mkdirSync(join(root, ".local"), { mode: 0o700 });
+        chmodSync(join(root, ".local"), 0o700);
+        mkdirSync(join(root, "outside"));
+        symlinkSync(join(root, "outside"), join(root, ".local", "pki"));
+      },
+      error: /PKI directory.*symlink/i
+    },
+    {
+      name: "wide pki",
+      arrange(root) {
+        mkdirSync(join(root, ".local"), { mode: 0o700 });
+        chmodSync(join(root, ".local"), 0o700);
+        mkdirSync(join(root, ".local", "pki"), { mode: 0o755 });
+        chmodSync(join(root, ".local", "pki"), 0o755);
+      },
+      error: /PKI directory.*mode 0700/i
+    }
+  ];
+
+  for (const fixture of cases) {
+    const directory = mkdtempSync(join(tmpdir(), `led-control-pki-boundary-${fixture.name}-`));
+    const started = [];
+    try {
+      fixture.arrange(directory);
+      assert.throws(
+        () => prepareDevelopmentRuntime(directory, {}, { run: (...args) => { started.push(args); return ok(); } }),
+        fixture.error
+      );
+      assert.deepEqual(started, []);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  }
+});
+
+test("prepare는 default PKI directory를 0700으로 안전하게 만든 뒤에만 PKI script를 호출한다", () => {
+  const directory = mkdtempSync(join(tmpdir(), "led-control-pki-create-"));
+  let observed;
+  try {
+    assert.throws(
+      () => prepareDevelopmentRuntime(directory, {}, {
+        run: () => {
+          const pki = join(directory, ".local", "pki");
+          observed = {
+            localMode: statSync(join(directory, ".local")).mode & 0o777,
+            pkiMode: statSync(pki).mode & 0o777,
+            pkiRealpath: realpathSync(pki)
+          };
+          return failed("fixture stops before certificate generation");
+        }
+      }),
+      /실행에 실패했습니다/
+    );
+    assert.deepEqual(observed, {
+      localMode: 0o700,
+      pkiMode: 0o700,
+      pkiRealpath: realpathSync(join(directory, ".local", "pki"))
+    });
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("default PKI child scripts는 inherited PKI_DIR 대신 검증된 .local/pki만 쓴다", () => {
+  const gatewayId = "11111111-1111-4111-8111-111111111111";
+  const fixtures = [
+    { expectedScript: "create-ca.sh", source: {} },
+    {
+      expectedScript: "issue-gateway-cert.sh",
+      source: { DEV_GATEWAY_ID: gatewayId },
+      seed(pki) {
+        for (const filename of ["ca.crt", "api.crt", "broker.crt"]) writeFileSync(join(pki, filename), "fixture");
+      }
+    }
+  ];
+
+  for (const fixture of fixtures) {
+    const directory = mkdtempSync(join(tmpdir(), `led-control-pki-env-${fixture.expectedScript}-`));
+    const local = join(directory, ".local");
+    const pki = join(local, "pki");
+    const outside = join(directory, "outside-pki");
+    const calls = [];
+    try {
+      if (fixture.seed) {
+        mkdirSync(local, { mode: 0o700 });
+        chmodSync(local, 0o700);
+        mkdirSync(pki, { mode: 0o700 });
+        chmodSync(pki, 0o700);
+        fixture.seed(pki);
+      }
+      assert.throws(
+        () => prepareDevelopmentRuntime(directory, { ...fixture.source, PKI_DIR: outside }, {
+          run: (command, args, options) => {
+            calls.push({ command, args, pkiDirectory: options.env.PKI_DIR });
+            mkdirSync(options.env.PKI_DIR, { recursive: true });
+            writeFileSync(join(options.env.PKI_DIR, "child-write-marker"), "fixture");
+            return failed("fixture stops child after simulated write");
+          }
+        }),
+        /실행에 실패했습니다/
+      );
+      assert.equal(calls.length, 1);
+      assert.equal(calls[0].command.endsWith(`/scripts/dev-pki/${fixture.expectedScript}`), true);
+      assert.equal(calls[0].pkiDirectory, realpathSync(pki));
+      assert.equal(readFileSync(join(pki, "child-write-marker"), "utf8"), "fixture");
+      assert.equal(existsSync(outside), false);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  }
+});
+
+test("Lab external PKI는 inherited PKI_DIR과 무관하게 child script 없이 기존 bundle을 사용한다", () => {
+  const directory = mkdtempSync(join(tmpdir(), "led-control-pki-env-lab-"));
+  const bundle = join(directory, "bundle");
+  const outside = join(directory, "outside-pki");
+  const calls = [];
+  mkdirSync(bundle);
+  for (const filename of [
+    "mqtt-ca.crt", "api-mqtt-client.crt", "api-mqtt-client.key",
+    "mqtt-server.crt", "mqtt-server.key", "mqtt-client.crl"
+  ]) writeFileSync(join(bundle, filename), "lab");
+  try {
+    const prepared = prepareDevelopmentRuntime(directory, {
+      PKI_LAB_CURRENT_DIR: bundle,
+      MQTT_TLS_CERT_DIR: bundle,
+      PKI_DIR: outside
+    }, { run: (...args) => { calls.push(args); return ok(); } });
+    assert.equal(prepared.dockerCertDirectory, realpathSync(bundle));
+    assert.deepEqual(calls, []);
+    assert.equal(existsSync(outside), false);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("prepare는 config 내용 변경에만 새 inode를 게시하고 unsafe config mode는 거부한다", () => {
+  const directory = mkdtempSync(join(tmpdir(), "led-control-config-change-"));
+  const local = join(directory, ".local");
+  const pki = join(local, "pki");
+  const lab = join(directory, "lab");
+  mkdirSync(local, { mode: 0o700 });
+  chmodSync(local, 0o700);
+  mkdirSync(pki, { mode: 0o700 });
+  chmodSync(pki, 0o700);
+  for (const filename of ["ca.crt", "api.crt", "api.key", "broker.crt", "broker.key", "ca.crl"]) {
+    writeFileSync(join(pki, filename), "development");
+  }
+  mkdirSync(lab);
+  for (const filename of [
+    "mqtt-ca.crt", "api-mqtt-client.crt", "api-mqtt-client.key",
+    "mqtt-server.crt", "mqtt-server.key", "mqtt-client.crl"
+  ]) writeFileSync(join(lab, filename), "lab");
+  try {
+    const development = prepareDevelopmentRuntime(directory, {});
+    const nativeInode = statSync(development.nativeConfigPath).ino;
+    const dockerInode = statSync(development.dockerConfigPath).ino;
+    const changed = prepareDevelopmentRuntime(directory, { PKI_LAB_CURRENT_DIR: lab, MQTT_TLS_CERT_DIR: lab });
+    assert.notEqual(statSync(changed.nativeConfigPath).ino, nativeInode);
+    assert.notEqual(statSync(changed.dockerConfigPath).ino, dockerInode);
+
+    chmodSync(changed.dockerConfigPath, 0o644);
+    assert.throws(
+      () => prepareDevelopmentRuntime(directory, { PKI_LAB_CURRENT_DIR: lab, MQTT_TLS_CERT_DIR: lab }),
+      /config destination.*mode 0600/i
+    );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("prepare는 Lab current symlink의 generation realpath를 immutable Docker source로 캡처한다", () => {
+  const directory = mkdtempSync(join(tmpdir(), "led-control-cert-generation-"));
+  const generations = join(directory, "generations");
+  const first = join(generations, "first");
+  const second = join(generations, "second");
+  const current = join(directory, "current");
+  mkdirSync(first, { recursive: true });
+  mkdirSync(second, { recursive: true });
+  for (const bundle of [first, second]) {
+    for (const filename of [
+      "mqtt-ca.crt", "api-mqtt-client.crt", "api-mqtt-client.key",
+      "mqtt-server.crt", "mqtt-server.key", "mqtt-client.crl"
+    ]) writeFileSync(join(bundle, filename), bundle);
+  }
+  symlinkSync(first, current);
+  try {
+    const prepared = prepareDevelopmentRuntime(directory, {
+      PKI_LAB_CURRENT_DIR: current,
+      MQTT_TLS_CERT_DIR: current
+    });
+    assert.equal(prepared.dockerCertDirectory, realpathSync(first));
+    rmSync(current);
+    symlinkSync(second, current);
+
+    const signals = [];
+    const inspection = [{
+      Config: { Labels: { "com.docker.compose.project.working_dir": directory, "com.docker.compose.service": "mqtt-tls" } },
+      State: { Running: true },
+      NetworkSettings: { Ports: { "8883/tcp": [{ HostPort: "8883" }] } },
+      Mounts: [
+        { Type: "bind", Source: dirname(prepared.aclPath), Destination: "/mosquitto/runtime", RW: false },
+        { Type: "bind", Source: prepared.dockerConfigPath, Destination: "/mosquitto/config/mosquitto.conf", RW: false },
+        { Type: "bind", Source: second, Destination: "/mosquitto/certs", RW: false }
+      ]
+    }];
+    const run = (command, args) => {
+      if (command === "docker" && args.join(" ") === "compose ps -q mqtt-tls") return ok("repo-mqtt-container\n");
+      if (command === "docker" && args[0] === "inspect") return ok(JSON.stringify(inspection));
+      if (command === "docker" && args[0] === "kill") { signals.push(args); return ok(); }
+      return failed(`unexpected ${command} ${args.join(" ")}`);
+    };
+    assert.throws(
+      () => reloadExistingDevelopmentBroker({ root: directory, ...prepared, platform: "linux", run }),
+      /unmanaged process owns port 8883/i
+    );
+    assert.deepEqual(signals, []);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("prepare는 symlink local/config와 잘못된 local 타입을 따라가지 않고 거부한다", () => {
+  const directory = mkdtempSync(join(tmpdir(), "led-control-prepare-path-"));
+  const bundle = join(directory, "bundle");
+  const outside = join(directory, "outside");
+  const source = { PKI_LAB_CURRENT_DIR: bundle };
+  mkdirSync(bundle);
+  mkdirSync(outside);
+  for (const filename of [
+    "mqtt-ca.crt", "api-mqtt-client.crt", "api-mqtt-client.key",
+    "mqtt-server.crt", "mqtt-server.key", "mqtt-client.crl"
+  ]) writeFileSync(join(bundle, filename), "fixture");
+  try {
+    symlinkSync(outside, join(directory, ".local"));
+    assert.throws(() => prepareDevelopmentRuntime(directory, source), /\.local.*directory.*symlink/i);
+    assert.deepEqual(readdirSync(outside), []);
+
+    rmSync(join(directory, ".local"));
+    prepareDevelopmentRuntime(directory, source);
+    const target = join(outside, "target");
+    writeFileSync(target, "unchanged");
+    rmSync(join(directory, ".local", "mosquitto.docker.conf"));
+    symlinkSync(target, join(directory, ".local", "mosquitto.docker.conf"));
+    assert.throws(() => prepareDevelopmentRuntime(directory, source), /destination.*regular file.*symlink/i);
+    assert.equal(readFileSync(target, "utf8"), "unchanged");
+    assert.doesNotMatch(readdirSync(join(directory, ".local")).join("\n"), /\.tmp$/);
+
+    rmSync(join(directory, ".local"), { recursive: true, force: true });
+    writeFileSync(join(directory, ".local"), "not a directory");
+    assert.throws(() => prepareDevelopmentRuntime(directory, source), /\.local.*directory.*symlink/i);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("개발 시작 스크립트는 prepare 결과만 사용하고 기존 8883 broker를 검증·reload한다", () => {
   const source = readFileSync(new URL("./dev.mjs", import.meta.url), "utf8");
 
   assert.match(source, /prepareDevelopmentRuntime\(root, sourceEnv\)/);
-  assert.match(source, /reloadExistingDevelopmentBroker\(\{ root, aclPath/);
+  assert.match(
+    source,
+    /reloadExistingDevelopmentBroker\(\{\s*root,\s*aclPath,\s*dockerConfigPath,\s*dockerCertDirectory/
+  );
   assert.match(source, /publishNativeBrokerIdentity\(nativeIdentityPath,/);
   assert.match(source, /removeNativeBrokerIdentity\(nativeIdentityPath, broker\.pid\)/);
   assert.doesNotMatch(source, /if \(!\(await isPortOpen\(8883\)\)\) \{/);
@@ -326,11 +706,14 @@ test("통합 로컬 개발 명령은 ACL prepare를 Docker 시작보다 먼저 �
   assert.match(developmentSource, /prepareDevelopmentRuntime\(root, sourceEnv\)/);
 });
 
-test("루트 전체 테스트는 shared 산출물 준비와 consumer lifetime을 workspace gate로 보호한다", () => {
+test("루트 전체 테스트는 workspace gate와 fail-closed UI 정책 검사를 모두 실행한다", () => {
   const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
   assert.equal(packageJson.scripts.test, "node scripts/workspace-gate.mjs test");
-  assert.match(packageJson.scripts["test:unit"], /&& pnpm -r test$/);
+  assert.match(
+    packageJson.scripts["test:unit"],
+    /&& pnpm -r test && pnpm --filter @led-control\/web test:ui-policy && pnpm --filter @led-control\/web ui:check$/
+  );
 });
 
 test("MinIO 초기화는 전체 버킷 생성 절차를 하나의 셸 스크립트 인자로 전달한다", () => {
@@ -409,28 +792,52 @@ test("production Mosquitto 설정은 mTLS, CRL, TLS 1.2와 최소권한 ACL을 �
   assert.doesNotMatch(acl, /^pattern write .*\/acks\/provisioning\/device-terminal-ingested$/m);
 });
 
-test("Compose 개발 broker는 생성된 exact ACL과 certificate directory만 read-only로 mount한다", () => {
-  const mqtt = renderCompose().services["mqtt-tls"];
+test("Compose 개발 broker는 override를 무시하고 exact host path 3개를 missing-path fail-closed로 mount한다", () => {
+  const mqtt = renderCompose({
+    MOSQUITTO_TLS_CONFIG_PATH: "/tmp/attacker.conf",
+    MQTT_TLS_CERT_DIR: "./.local/lab-pki/services/current"
+  }).services["mqtt-tls"];
   const aclMount = mqtt.volumes.find((volume) => volume.target === "/mosquitto/runtime");
+  const configMount = mqtt.volumes.find((volume) => volume.target === "/mosquitto/config/mosquitto.conf");
+  const certMount = mqtt.volumes.find((volume) => volume.target === "/mosquitto/certs");
 
+  assert.equal(configMount.type, "bind");
   assert.equal(aclMount.source, new URL("../.local/mosquitto-runtime", import.meta.url).pathname);
   assert.equal(aclMount.read_only, true);
+  assert.equal(configMount.source, new URL("../.local/mosquitto.docker.conf", import.meta.url).pathname);
+  assert.equal(configMount.read_only, true);
+  assert.equal(certMount.source, new URL("../.local/lab-pki/services/current", import.meta.url).pathname);
+  for (const mount of [configMount, aclMount, certMount]) {
+    assert.equal(mount.type, "bind");
+    assert.equal(mount.read_only, true);
+    assert.equal(mount.bind.create_host_path, false);
+  }
   assert.doesNotMatch(aclMount.source, /infra\/mosquitto\.acl\.example$/);
-  assert.ok(mqtt.volumes.some((volume) => volume.target === "/mosquitto/certs" && volume.read_only));
 });
 
 test("repo-owned Docker broker만 exact container SIGHUP 후 mounted ACL 일치를 검증한다", () => {
   const directory = mkdtempSync(join(tmpdir(), "led-control-docker-owner-"));
   const runtimePath = join(directory, ".local", "mosquitto-runtime");
   const aclPath = join(runtimePath, "mosquitto.acl");
+  const dockerConfigPath = join(directory, ".local", "mosquitto.docker.conf");
+  const dockerCertDirectory = join(directory, "bundle");
+  const dockerCertGeneration = join(directory, "bundle-generation");
   const signals = [];
   mkdirSync(runtimePath, { recursive: true });
+  mkdirSync(dockerCertGeneration);
+  symlinkSync(dockerCertGeneration, dockerCertDirectory);
+  const capturedDockerCertSource = realpathSync(dockerCertDirectory);
   writeFileSync(aclPath, "user api-service\ntopic readwrite sites/#\n\n", { mode: 0o644 });
+  writeFileSync(dockerConfigPath, "listener 8883\n", { mode: 0o600 });
   const inspection = [{
     Config: { Labels: { "com.docker.compose.project.working_dir": directory, "com.docker.compose.service": "mqtt-tls" } },
     State: { Running: true },
     NetworkSettings: { Ports: { "8883/tcp": [{ HostIp: "0.0.0.0", HostPort: "8883" }] } },
-    Mounts: [{ Source: runtimePath, Destination: "/mosquitto/runtime", RW: false }]
+    Mounts: [
+      { Type: "bind", Source: `/host_mnt${runtimePath}`, Destination: "/mosquitto/runtime", RW: false },
+      { Type: "bind", Source: `/host_mnt${dockerConfigPath}`, Destination: "/mosquitto/config/mosquitto.conf", RW: false },
+      { Type: "bind", Source: `/host_mnt${capturedDockerCertSource}`, Destination: "/mosquitto/certs", RW: false }
+    ]
   }];
   const run = (command, args) => {
     if (command === "docker" && args.join(" ") === "compose ps -q mqtt-tls") return ok("repo-mqtt-container\n");
@@ -439,6 +846,9 @@ test("repo-owned Docker broker만 exact container SIGHUP 후 mounted ACL 일치�
       signals.push(args.slice(1));
       return ok("repo-mqtt-container\n");
     }
+    if (command === "docker" && args.join(" ") === "exec repo-mqtt-container cat /mosquitto/config/mosquitto.conf") {
+      return ok(readFileSync(dockerConfigPath, "utf8"));
+    }
     if (command === "docker" && args.join(" ") === "exec -u 1883:1883 repo-mqtt-container cat /mosquitto/runtime/mosquitto.acl") {
       return ok(readFileSync(aclPath, "utf8"));
     }
@@ -446,10 +856,121 @@ test("repo-owned Docker broker만 exact container SIGHUP 후 mounted ACL 일치�
   };
   try {
     assert.deepEqual(
-      reloadExistingDevelopmentBroker({ root: directory, aclPath, run }),
+      reloadExistingDevelopmentBroker({
+        root: directory,
+        aclPath,
+        dockerConfigPath,
+        dockerCertDirectory: capturedDockerCertSource,
+        platform: "darwin",
+        run
+      }),
       { kind: "docker", id: "repo-mqtt-container" }
     );
     assert.deepEqual(signals, [["--signal=SIGHUP", "repo-mqtt-container"]]);
+    assert.throws(
+      () => reloadExistingDevelopmentBroker({
+        root: directory,
+        aclPath,
+        dockerConfigPath,
+        dockerCertDirectory: capturedDockerCertSource,
+        platform: "linux",
+        run
+      }),
+      /unmanaged process owns port 8883/i
+    );
+    assert.deepEqual(signals, [["--signal=SIGHUP", "repo-mqtt-container"]]);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("Docker broker는 inspect mount가 맞아도 container config inode가 stale이면 recreate 지시 후 signal하지 않는다", () => {
+  const directory = mkdtempSync(join(tmpdir(), "led-control-docker-stale-config-"));
+  const runtimePath = join(directory, ".local", "mosquitto-runtime");
+  const aclPath = join(runtimePath, "mosquitto.acl");
+  const dockerConfigPath = join(directory, ".local", "mosquitto.docker.conf");
+  const dockerCertDirectory = join(directory, "bundle");
+  const signals = [];
+  mkdirSync(runtimePath, { recursive: true });
+  mkdirSync(dockerCertDirectory);
+  writeFileSync(aclPath, "user api-service\ntopic readwrite sites/#\n\n");
+  writeFileSync(dockerConfigPath, "listener 8883\nallow_anonymous false\n");
+  const inspection = [{
+    Config: { Labels: { "com.docker.compose.project.working_dir": directory, "com.docker.compose.service": "mqtt-tls" } },
+    State: { Running: true },
+    NetworkSettings: { Ports: { "8883/tcp": [{ HostPort: "8883" }] } },
+    Mounts: [
+      { Type: "bind", Source: runtimePath, Destination: "/mosquitto/runtime", RW: false },
+      { Type: "bind", Source: dockerConfigPath, Destination: "/mosquitto/config/mosquitto.conf", RW: false },
+      { Type: "bind", Source: dockerCertDirectory, Destination: "/mosquitto/certs", RW: false }
+    ]
+  }];
+  const run = (command, args) => {
+    if (command === "docker" && args.join(" ") === "compose ps -q mqtt-tls") return ok("repo-mqtt-container\n");
+    if (command === "docker" && args[0] === "inspect") return ok(JSON.stringify(inspection));
+    if (command === "docker" && args.join(" ") === "exec repo-mqtt-container cat /mosquitto/config/mosquitto.conf") {
+      return ok("listener 8883\nallow_anonymous true\n");
+    }
+    if (command === "docker" && args[0] === "kill") { signals.push(args); return ok(); }
+    return failed(`unexpected ${command} ${args.join(" ")}`);
+  };
+  try {
+    assert.throws(
+      () => reloadExistingDevelopmentBroker({
+        root: directory, aclPath, dockerConfigPath, dockerCertDirectory, platform: "linux", run
+      }),
+      /docker compose up -d --force-recreate mqtt-tls/i
+    );
+    assert.deepEqual(signals, []);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("Docker broker owner 검증은 config/cert/ACL mount 하나라도 바뀌면 signal 전에 거부한다", () => {
+  const directory = mkdtempSync(join(tmpdir(), "led-control-docker-mount-owner-"));
+  const runtimePath = join(directory, ".local", "mosquitto-runtime");
+  const aclPath = join(runtimePath, "mosquitto.acl");
+  const dockerConfigPath = join(directory, ".local", "mosquitto.docker.conf");
+  const dockerCertDirectory = join(directory, "bundle");
+  mkdirSync(runtimePath, { recursive: true });
+  mkdirSync(dockerCertDirectory);
+  writeFileSync(aclPath, "user api-service\ntopic readwrite sites/#\n\n");
+  writeFileSync(dockerConfigPath, "listener 8883\n");
+  const baseMounts = [
+    { Type: "bind", Source: runtimePath, Destination: "/mosquitto/runtime", RW: false },
+    { Type: "bind", Source: dockerConfigPath, Destination: "/mosquitto/config/mosquitto.conf", RW: false },
+    { Type: "bind", Source: dockerCertDirectory, Destination: "/mosquitto/certs", RW: false }
+  ];
+  const mutations = [
+    (mounts) => mounts.filter((mount) => mount.Destination !== "/mosquitto/config/mosquitto.conf"),
+    (mounts) => mounts.map((mount) => mount.Destination === "/mosquitto/config/mosquitto.conf" ? { ...mount, Source: join(directory, "wrong.conf") } : mount),
+    (mounts) => mounts.map((mount) => mount.Destination === "/mosquitto/certs" ? { ...mount, RW: true } : mount),
+    (mounts) => [...mounts, { ...mounts[2] }],
+    (mounts) => mounts.map((mount) => mount.Destination === "/mosquitto/runtime" ? { ...mount, Type: "volume" } : mount)
+  ];
+  try {
+    for (const mutate of mutations) {
+      const signals = [];
+      const inspection = [{
+        Config: { Labels: { "com.docker.compose.project.working_dir": directory, "com.docker.compose.service": "mqtt-tls" } },
+        State: { Running: true },
+        NetworkSettings: { Ports: { "8883/tcp": [{ HostPort: "8883" }] } },
+        Mounts: mutate(baseMounts.map((mount) => ({ ...mount })))
+      }];
+      const run = (command, args) => {
+        if (command === "docker" && args.join(" ") === "compose ps -q mqtt-tls") return ok("repo-mqtt-container\n");
+        if (command === "docker" && args[0] === "inspect") return ok(JSON.stringify(inspection));
+        if (command === "docker" && args[0] === "kill") { signals.push(args); return ok(); }
+        if (command === "docker" && args[0] === "exec") return ok(readFileSync(aclPath, "utf8"));
+        return failed(`unexpected ${command} ${args.join(" ")}`);
+      };
+      assert.throws(
+        () => reloadExistingDevelopmentBroker({ root: directory, aclPath, dockerConfigPath, dockerCertDirectory, run }),
+        /unmanaged process owns port 8883/i
+      );
+      assert.deepEqual(signals, []);
+    }
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -588,10 +1109,10 @@ function createCrlWatcherHarness() {
 }
 
 function renderCompose(environment = {}) {
-  const result = spawnSync("docker", ["compose", "config", "--format", "json"], {
+  const result = spawnSync("docker", ["compose", "--env-file", "/dev/null", "config", "--format", "json"], {
     cwd: new URL("..", import.meta.url),
     encoding: "utf8",
-    env: { ...process.env, ...environment }
+    env: { PATH: process.env.PATH, HOME: process.env.HOME, ...environment }
   });
 
   assert.equal(result.status, 0, result.stderr);

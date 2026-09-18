@@ -9,7 +9,7 @@
 현재 DB는 다음 업무 영역으로 나뉜다.
 
 - 조직/사용자/인증: `Organization`(`OrganizationType`), `User`, `SiteMembership`, `Invitation`, `Session`
-- 현장/공간/도면: `Site`, `Floor`(`mapRevision`), `FloorPlan`, `FloorMapObject`, `FloorMapRevision`
+- 현장/공간/도면: `Site`, `Floor`(`mapRevision`), `FloorPlan`, `FloorMapObject`, `FloorLightSlot`, `FloorMapRevision`
 - 조명/그룹/게이트웨이/메시 노드: `Fixture`, `FixtureGroup`, `GroupFixture`, `Gateway`, `GatewayInventory`, `MeshNode`, `MeshControlGroup`, `MeshControlGroupMember`, `MeshControlGroupExpectedOperation`, `MeshControlGroupAppliedMember`
 - 게이트웨이 PKI: `GatewayEnrollment`, `GatewayCertificate`, `CertificateRevocationReconciliation`
 - 제어/모니터링: `Command`, `CommandDispatch`, `CommandFixtureResult`, `MqttOutbox`, `ProcessedGatewayEvent`, `GatewayEventWatermark`, `MonitoringIncident`, `EnergyUsage`
@@ -41,13 +41,15 @@ Migration: `20260912_statistics_p2_reports`, 대상명 확장 `20260916_report_o
 
 `(siteId, requestedByActorId, requestHash) WHERE status IN ('queued', 'processing')` partial unique index는 같은 요청자의 실행 중 요청만 중복 방지한다. 완료·실패 후 재요청은 가능하다. 별도 상태/lease/생성 시각 index와 상태/만료/삭제 시각 index는 durable worker의 claim·회수·보관 정리에 사용한다. 최대 시도는 worker 상수 3과 DB check로 제한하며 변경 가능한 행별 설정은 두지 않는다.
 
+보고서 이력 목록은 `siteId`를 선두 조건으로 사용해 현장 tenant 범위 안에서만 조회하며, `(createdAt DESC, id DESC)` 순서로 keyset 페이지를 나눈다. 같은 `createdAt`을 가진 작업도 `id`를 tie-break로 사용해 순서를 안정적으로 유지한다. 이를 지원하는 additive index는 `(siteId, createdAt, id)`이며, 기존 index를 대체하거나 삭제하지 않는다. 페이지 조회의 cursor predicate(`createdAt`이 cursor보다 이전이거나, 시각이 같고 `id`가 cursor보다 작은 조건)는 해당 페이지에만 적용하고, `totalCount`의 filtered count는 `siteId`와 상태·형식·대상·요청일 필터만 사용해 cursor predicate를 제외한다.
+
 상태별 진행률·시각·lease·완료 object 필수 값은 SQL CHECK로 보호한다. 완료 문서는 데이터 스냅샷과 일치하는 fingerprint 필드를 함께 가져야 한다. SQL trigger는 요청·요청자 identity의 변경을 막고, 데이터·문서·fingerprint의 최초 저장 이후 변경/삭제를 막는다. 사용자 FK의 SetNull은 허용하며 요청자 스냅샷은 유지한다. 현장 삭제 시 행은 Cascade 삭제되므로 실제 현장 삭제 workflow에서 object 정리 대상을 삭제 전에 확보해야 한다.
 
 `20260916_report_operations_metadata`는 명시적 `BEGIN/COMMIT`, 10초 `lock_timeout`, 보고서 테이블 배타 잠금 안에서 nullable 대상명 열·빈 문자열 거부 CHECK와 기존 snapshot guard 함수를 함께 갱신한다. 기존 migration checksum은 변경하지 않는다. 대상명은 생성 transaction의 Site 삭제 barrier 확인 뒤 같은 현장에 속한 identity의 최신 저장 이름(층은 현재 이름 우선, 삭제된 층은 이력 이름)을 읽고 문자 지원을 검사해 INSERT한다. 사전 조회 이름을 재사용하지 않으며 과거 이름을 알 수 없는 legacy 행은 null로 둔다. worker가 나중에 실행되거나 운영 객체가 삭제되어도 목록과 새 공통 문서의 `대상` 메타데이터는 저장한 이름을 유지한다. 기존 문서/fingerprint는 다시 쓰지 않는다.
 
 공개 작업은 `target: { scope, identityId, label }`, `requestedAt`과 `failure: { code, message, action } | null`을 제공하며 기존 `createdAt`·`failureCode`도 유지한다. `requestedAt`은 DB에서 읽은 `createdAt`과 정확히 같다. 생성 시각은 JS Date로 명시해 PostgreSQL session timezone의 naive timestamp 기본값에 의존하지 않는다. legacy 대상명은 `현장/조명/층/그룹: identityId`로 표시하고 현재 이름을 조회하지 않는다. 공개 failure code는 `generation_failed`, `storage_unavailable`, `rendering_failed`, `snapshot_invalid`, `attempts_exhausted`만 허용한다. 알 수 없는 내부 code는 기존 필드도 `REPORT_GENERATION_FAILED`로 정제하며 원시 DB/S3/render 오류나 객체 경로를 반환하지 않는다. 공유 parser는 기존 서버에서 누락된 신규 필드를 안전한 기본값으로 채우고, 명시된 대상·요청 시각·실패 상태 불일치는 거부한다. 마이그레이션과 이름 보존·실패 분류는 disposable PostgreSQL에서 검증하며 사용자/운영 DB에는 적용하지 않았다.
 
-보고서 스냅샷은 한 `RepeatableRead` transaction에서 현장 timezone, 이력 차원과 완료된 현지 날짜의 persisted daily/hourly 집계만 읽는다. legacy DB 열 `estimatedKwh`는 보고서 데이터에서 `energyKwh`, 일별 `estimatedCost`는 `cost`, `knownSeconds`는 밝기 가중 계산 및 값 존재 판정용 `durationSeconds`로 매핑한다. `cost`는 저장된 Decimal 문자열 또는 값 없음이며, 현재 state cursor·현재 단가·미완료 날짜는 읽지 않는다. 요약·일별 표·순위에 비용을 포함하고 직전 동일 일수의 전력량/비용 차이 및 이전 값이 0이 아닐 때만 변화율을 산출한다. 적용 단가/원천 산출식의 역사적 증거를 보관한 FK나 snapshot은 없으므로 문서에는 해당 항목을 `데이터 없음`으로 설명하며 현재 단가로 다시 계산하지 않는다.
+보고서 스냅샷은 한 `RepeatableRead` transaction에서 현장 timezone, 이력 차원과 완료된 현지 날짜의 persisted daily/hourly 집계를 읽는다. legacy DB 열 `estimatedKwh`는 보고서 데이터에서 `energyKwh`, 일별 `estimatedCost`는 `cost`, `knownSeconds`는 밝기 가중 계산 및 값 존재 판정용 `durationSeconds`로 매핑한다. 저장된 실제 전력량·비용은 불변의 과거 사실이며 `cost`는 저장된 Decimal 문자열 또는 값 없음이다. 현재 state cursor·미완료 날짜는 읽지 않는다. 현재 단가는 명시적으로 `captured_current_configuration` 원천을 표시한 현재 설정 기준선·절감 비교 KPI에만 capture하며, 이 값으로 저장된 실제 비용을 소급 변경하거나 다시 계산하지 않는다. 요약·일별 표·순위에 비용을 포함하고 직전 동일 일수의 전력량/비용 차이 및 이전 값이 0이 아닐 때만 변화율을 산출한다. 적용 단가/원천 산출식의 역사적 증거를 보관한 FK나 snapshot은 없으므로 문서에는 해당 항목을 `데이터 없음`으로 설명한다.
 
 데이터 snapshot의 identity/dimension/group `from`/`to`는 날짜로 축약하지 않은 전체 ISO UTC 시각이며 시간별 행은 `bucketStartUtc`를 보존한다. 현장 일별 총계는 identity 추적 시작/종료와 무관하게 저장된 사실을 보존한다. 순위와 층·그룹 일별 값은 현지 하루 전체의 이력이 확정된 경우만 포함한다. 시간별 소속은 UTC 한 시간 전체의 이력으로 먼저 판단한 뒤 `localDate`/`localHour`의 요일·시간으로 fold한다. 경계를 걸친 집계를 비례 배분하지 않고 DST 반복 버킷은 같은 셀에 합친다. 일별/시간별 집계 차이를 문서 생성 중 보정하지 않는다.
 
@@ -131,6 +133,8 @@ Organization
   └─ Site ─ admin -> User
       ├─ Floor
       │   ├─ FloorPlan
+      │   ├─ FloorAsset ─ FloorImportJob ─ FloorImportCandidate
+      │   ├─ FloorLightSlot ─ 선택적 할당 -> Fixture
       │   ├─ FloorMapObject
       │   └─ Fixture ─ MeshNode
       │       ├─ GroupFixture ─ FixtureGroup
@@ -280,6 +284,15 @@ SiteDeletionCleanup (삭제된 Site ID와 외부 정리 대상을 독립 보존)
 | `none` | 배경 없이 격자 캔버스만 사용 |
 | `image` | JPG 또는 PNG 이미지 원본 사용 |
 | `pdf` | PDF 원본 자산 연결. 격리 렌더 worker가 만든 ready 이미지가 있을 때만 배경 표시 |
+
+### CAD import enum
+
+| Enum | 값 | 용도 |
+| --- | --- | --- |
+| `FloorImportSourceFormat` | `dwg`, `dxf` | 자동 맵 구성에서 허용하는 CAD 원본 형식. PDF는 포함하지 않음 |
+| `FloorImportJobStatus` | `queued`, `processing`, `review_required`, `applying`, `completed`, `failed`, `cancelled` | 비동기 변환부터 관리자 검토·적용까지의 영속 작업 상태 |
+| `FloorImportDetectionMethod` | `rule_based`, `ai_assisted` | 조명 위치 후보를 만든 검출 경계. 초기 구현은 `rule_based`이며 AI provider는 비활성 |
+| `FloorImportCandidateReviewStatus` | `pending`, `accepted`, `rejected` | 후보별 관리자 검토 상태 |
 
 ### CertificatePurpose
 
@@ -492,6 +505,8 @@ worker는 API 시작 시와 30초 주기로 만료된 작업을 최대 10개씩 
 - `mapObjects`: `FloorMapObject[]`
 - `fixtures`: `Fixture[]`
 - `assets`: `FloorAsset[]`
+- `importJobs`: `FloorImportJob[]`
+- `lightSlots`: `FloorLightSlot[]`
 - `provisioningSessions`: `ProvisioningSession[]`
 - `mapRevisions`: `FloorMapRevision[]`
 
@@ -529,6 +544,7 @@ worker는 API 시작 시와 30초 주기로 만료된 작업을 최대 10개씩 
 층 도면의 전체 편집 스냅숏과 복구 이력을 보관한다. `Floor` 삭제 시 함께 삭제되며, 기록한 사용자는 삭제할 수 없다.
 
 - 2026-09-09부터 신규 snapshot은 `version: 2`와 fixture별 `placementStatus`, `positionVerifiedAt`을 포함한다. 버전 필드가 없는 V1은 조회/복구 시 `placed/null`로 정규화한다. 기존 snapshot JSON과 SHA-256을 덮어쓰지 않는다.
+- 2026-09-18 공유 V2 snapshot 계약은 현재 맵의 `lightSlots` 배열을 수용한다. 이 변경 전 V2 revision에는 필드가 없을 수 있으므로 누락을 계속 읽을 수 있으며, 후속 원자적 적용 작업에서 신규 저장 경로가 배열을 명시적으로 기록한다.
 - 저장/복구는 Serializable transaction에서 현장 admin 재인가, 층 lease/fence 및 revision 검증, fixture/object 갱신, 새 snapshot/hash와 audit를 함께 commit한다. 위치 확인은 서버 DB 시각으로 기록하고, 복구는 저장된 확인 시각을 복원한다.
 - 좌표/속성은 bound JSONB 입력을 사용하는 1,000행 단위 SQL 갱신, object 생성은 `createMany`로 처리한다. 실제 정격 W가 바뀐 fixture만 기존 에너지 checkpoint를 닫는다. 좌표/배치/확인만 변경하거나 같은 W를 다시 보내면 에너지 정산 경계를 만들지 않는다.
 - 에디터 PUT JSON 한도는 1 MiB, fixture 변경 1,000개, object 변경 합계 2,000개다. 다른 JSON 경로는 100 KiB를 유지한다. 초과 body는 JSON 413, transaction 충돌은 409, transaction 만료는 `floor_editor_transaction_timeout` 503이다. Transaction 대기 예산은 5초, 실행 예산은 15초이며 일반 저장/복구 성능 목표는 3초다.
@@ -609,6 +625,7 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 | `status` | `FloorAssetStatus` | 예 | `pending` | 업로드 검증 전/후 상태 |
 | `objectKey` | `String` | 예 | Unique | bucket 내부 object key |
 | `mimeType` | `String` | 예 |  | 서명된 Content-Type |
+| `contentEncoding` | `String?` | 아니오 | `NULL`, `gzip`, 또는 migration 전용 `unknown` | identity/gzip 확정값 또는 HEAD reconciliation 대기 상태 |
 | `sizeBytes` | `BigInt` | 예 |  | 서명된 byte 크기 |
 | `sha256` | `String` | 예 |  | 64자리 hex SHA-256 |
 | `uploadExpiresAt` | `DateTime?` | 아니오 |  | pending PUT URL 만료 시각 |
@@ -624,6 +641,151 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 - 조회 API는 공개 URL을 반환하지 않는다. 현장 `read` 권한을 확인한 content endpoint가 private bucket에 대해 300초 signed GET을 발급하고 `302`로 연결한다.
 - 번들 MinIO는 `WEB_PUBLIC_URL`을 `MINIO_API_CORS_ALLOW_ORIGIN`으로 전달하며 미설정 시 `http://localhost:5173`을 사용한다. 버킷은 계속 anonymous `none`이고, 지원되지 않는 `mc cors set`이나 localhost 전용 XML에 의존하지 않는다.
 - `20260912090000_floor_asset_private_ledger` migration은 기존 FloorPlan과 FloorMapRevision snapshot의 알려진 asset URL을 인증 경로로 치환하고, 변경된 snapshot의 안정 해시를 다시 계산한 뒤 `publicUrl` 컬럼을 제거한다. 알려진 asset과 대응하지 않는 비어 있지 않은 legacy URL이 하나라도 있으면 전체 migration을 원자적으로 중단한다.
+- CAD 원본 또는 렌더 자산을 `FloorImportJob`이 참조하는 동안 FK가 직접 자산 삭제를 막는다. deferred constraint trigger는 자산 갱신 시에도 같은 층, 역할, ready 상태와 허용 MIME을 다시 검증한다. 후속 cleanup worker는 이 관계를 후보 조회에서도 제외해야 한다.
+- 신규 CAD worker의 rendered SVG는 확정 `contentEncoding = gzip`을 기록한다. `20260917165000_cad_content_encoding_reconciliation`은 생성 시각을 추정 근거로 쓰지 않고, committed attempt provenance가 없는 기존 linked SVG를 `unknown`으로 표시한다. Review/apply/content는 Object Storage HEAD의 encoding, 크기, checksum, viewport가 원장과 일치할 때만 `unknown`을 `NULL` identity 또는 `gzip`으로 조건부 원자 갱신한다. HEAD 오류·불일치나 경쟁 갱신의 다른 결과는 fail-close한다. deferred asset trigger는 linked SVG에 `NULL | gzip | unknown`을, PNG/JPEG/WebP에는 `NULL`만 허용한다. 기존 `20260917150000_cad_profile_binding` checksum은 수정하지 않는다.
+
+### FloorImportAttemptCleanup
+
+CAD worker가 rendered SVG를 PUT하기 전에 만드는 영속 attempt cleanup tombstone이다. worker process가 PUT 도중 종료되거나 storage 성공 뒤 DB commit 응답을 잃어도 deterministic object key를 재조정할 수 있게 한다.
+
+| 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
+| --- | --- | --- | --- | --- |
+| `jobId`, `attemptCount` | `String`, `Int` | 예 | 복합 PK, attempt `1~3` | job의 개별 worker attempt identity |
+| `floorId` | `String` | 예 | FK 없음 | floor cascade 뒤에도 object cleanup identity를 보존하는 scope |
+| `assetId` | `String` | 예 | Unique, FK 없음 | PUT 전에 생성한 pending rendered `FloorAsset.id` |
+| `objectKey` | `String` | 예 | Unique, key CHECK | `floors/{floorId}/{jobId}-attempt-{attemptCount}.svg` deterministic private key |
+| `leaseOwner`, `leaseExpiresAt` | `String?`, `DateTime?` | 아니오 | 둘 다 NULL 또는 둘 다 값 | cleanup sweeper의 30초 점유 fence |
+| `nextAttemptAt` | `DateTime` | 예 | UTC DB 기본값 | 다음 cleanup 또는 quiet-period final 확인 가능 시각 |
+| `lastCleanedAt` | `DateTime?` | 아니오 |  | 가장 최근 성공한 object DELETE 시각 |
+| `cleanedAt` | `DateTime?` | 아니오 | terminal CHECK | quiet period final DELETE까지 성공한 orphan terminal 시각 |
+| `lastError` | `String?` | 아니오 |  | 정제된 최근 cleanup 오류 코드 |
+| `committedAt` | `DateTime?` | 아니오 | `cleanedAt`과 상호 배타 | ready asset과 import job 연결 transaction이 성공한 시각 |
+| `createdAt`, `updatedAt` | `DateTime` | 예 | UTC DB 기본값, `@updatedAt` | 생성·최종 갱신 시각 |
+
+제약과 lifecycle:
+
+- `(jobId, attemptCount)` 복합 PK는 최대 3회 retry의 attempt identity를 고정한다. `assetId`와 `objectKey`는 각각 unique이며 key CHECK가 floor/job/attempt 조합과 실제 storage key의 일치를 강제한다.
+- 의도적으로 `Floor`, `FloorImportJob`, `FloorAsset` FK를 두지 않는다. floor/job cascade가 pending asset 원장을 제거한 뒤에도 tombstone이 남아, 종료된 worker의 늦은 PUT을 삭제할 수 있어야 한다.
+- cleanup claim은 `FOR UPDATE SKIP LOCKED`와 owner/expiry pair를 사용한다. 범용 `FloorAssetCleanupService`는 pending 후보 조회와 Floor→asset 잠금 claim 양쪽에서 이 tombstone의 `assetId`를 제외하며, CAD worker는 Floor→asset→attempt 순서로 잠그고 `cleanupStartedAt IS NULL`인 경우에만 pending asset을 ready로 승격한다.
+- orphan의 첫 성공 DELETE는 `lastCleanedAt`을 기록하고 15분 quiet period 뒤로 `nextAttemptAt`을 이동한다. 이 기간에는 재삭제하지 않으며, transport가 늦게 완료한 PUT은 quiet period 종료 시 final DELETE로 회수한다. final DELETE 성공 시 `cleanedAt`을 기록해 terminal 처리하고 이후 sweep 대상에서 영구 제외한다.
+- 정상 worker commit은 rendered asset ready 승격, job의 `review_required` 연결, tombstone `committedAt` 기록을 한 transaction에서 수행한다. `committedAt`과 `cleanedAt`은 동시에 존재할 수 없고, `cleanedAt` terminal은 `lastCleanedAt`이 있으며 cleanup lease가 해제된 상태만 허용한다.
+- `20260917130000_floor_import_attempt_cleanup` migration이 tombstone과 identity/lease/key 제약을 만들고, `20260917140000_floor_import_attempt_cleanup_terminal` migration이 기존 migration을 수정하지 않고 `cleanedAt`과 terminal CHECK를 추가한다.
+
+### FloorImportJob
+
+DWG/DXF 원본을 비동기로 변환·검출·검토·적용하는 작업의 영속 원장이다. 큰 CAD 파싱은 API 요청 안에서 실행하지 않으며 만료된 worker lease는 다른 worker가 재개한다.
+
+| 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
+| --- | --- | --- | --- | --- |
+| `id` | `String` | 예 | PK, `uuid()` | import job ID |
+| `floorId` | `String` | 예 | FK -> `Floor.id`, cascade delete | 대상 층 |
+| `sourceAssetId` | `String` | 예 | FK -> `FloorAsset.id`, delete no action, indexed | private DWG/DXF 원본 자산. 완료 후 같은 원본으로 새 분석 job 생성 가능 |
+| `renderedAssetId` | `String?` | 아니오 | Unique, FK -> `FloorAsset.id`, delete no action, 원본과 달라야 함 | 변환 결과 SVG/래스터 자산 |
+| `sourceFormat` | `FloorImportSourceFormat` | 예 |  | `dwg` 또는 `dxf` |
+| `status` | `FloorImportJobStatus` | 예 | `queued` | 영속 작업 상태 |
+| `stage` | `String` | 예 | `queued`, trim 길이 1~100 | 상태보다 세분화된 현재 처리 단계 |
+| `progressPercent` | `Int` | 예 | `0`, DB check `0~100` | 진행률 |
+| `attemptCount` | `Int` | 예 | `0`, DB check `>= 0` | worker lease 획득/재시도 횟수 |
+| `parserVersion` | `String?` | 아니오 |  | CAD parser/정규화 구현 버전 |
+| `detectorVersion` | `String?` | 아니오 |  | 조명 후보 detector 버전 |
+| `detectorProfileId` | `String?` | 아니오 | 허용 registry ID 또는 migration staging `NULL` | 서버가 source SHA-256 binding으로 정한 detector profile ID |
+| `detectorProfileVersion` | `String?` | 아니오 | digest와 함께 NULL 또는 값 | 실제 주입 detector profile 버전 |
+| `detectorProfileDigest` | `String?` | 아니오 | 64자리 lowercase SHA-256 | 후보 행동 필드 전체의 canonical digest |
+| `leaseOwner`, `leaseExpiresAt` | `String?`, `DateTime?` | 아니오 | 둘 다 NULL 또는 둘 다 값 | 다중 worker 점유와 만료 시각 |
+| `failureCode`, `failureMessage` | `String?` | 아니오 |  | 정제된 실패 코드와 내부 운영 메시지 |
+| `startedAt` | `DateTime?` | 아니오 |  | 첫 처리 시작 시각 |
+| `reviewRequiredAt` | `DateTime?` | 아니오 |  | 후보 검토 가능 상태 진입 시각 |
+| `appliedAt` | `DateTime?` | 아니오 |  | editor transaction 적용 시각 |
+| `completedAt` | `DateTime?` | 아니오 |  | 정상 종료 시각 |
+| `failedAt` | `DateTime?` | 아니오 | failed 상태에서 필수 | 실패 확정 시각 |
+| `cancelledAt` | `DateTime?` | 아니오 |  | 취소 시각 |
+| `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
+| `updatedAt` | `DateTime` | 예 | `@updatedAt` | 최종 갱신 시각 |
+
+제약과 인덱스:
+
+- `floorId + createdAt`, `status + leaseExpiresAt + createdAt` index로 층별 이력과 lease 회수 대상을 조회한다.
+- `sourceAssetId`는 일반 index다. 완료·실패·취소 이후 동일 원본 재분석을 허용하며 동시 workflow는 층별 active partial unique가 막는다.
+- client/Web은 profile ID를 보내지 않는다. create transaction이 잠근 ready source asset SHA-256으로 server registry binding을 결정한다. migration 시점의 queued job만 ID/version/digest를 `NULL`로 staging하고 worker lease 안에서 같은 binding을 해석한다. `20260917144000_cad_profile_upgrade_gate`는 singleton gate와 DB trigger를 먼저 설치해 구 worker를 포함한 queued→processing 전환을 거부한다. `20260917145000`/`16000`이 profile/content 제약을 적용하고 `20260917170000_cad_profile_upgrade_release`가 필요한 migration 완료 이력을 확인한 뒤에만 gate를 연다.
+- partial unique index `FloorImportJob_floorId_active_key`는 `queued`, `processing`, `review_required`, `applying` 중인 job을 층마다 하나로 제한한다. 완료·실패·취소 원장은 이력으로 유지한다.
+- deferred constraint trigger `FloorImportJob_asset_invariant`, `FloorAsset_import_job_invariant`는 transaction 최종 상태에서 원본/렌더 자산이 job과 같은 층이고 ready인지, source는 `original`과 source format별 DWG/DXF MIME인지, render는 `rendered`와 허용 이미지 MIME인지 양쪽 mutation 경로에서 강제한다.
+- migration-only `FloorImportJob_lifecycle_check`는 queued/processing/review_required/applying/completed/failed/cancelled별 progress, lease, 오류, 렌더 자산과 필수 timestamp 조합을 강제한다. 특히 terminal 상태는 lease가 없고 각각 `completedAt`, `failedAt`, `cancelledAt`이 필요하다.
+- `FloorImportJob_detector_profile_state_check`는 `review_required`, `applying`, `completed`에서 profile ID/version/digest를 모두 요구한다. migration 이전 terminal 결과는 현재 profile로 위장하지 않고 `legacy-unknown`과 zero digest sentinel로 보존한다.
+- 위 trigger, lifecycle/check 제약과 active partial unique는 Prisma datamodel로 표현되지 않는다. `floor-cad-import-migration.integration.spec.ts`가 실제 PostgreSQL catalog와 잘못된 INSERT/UPDATE 거부를 검증하므로 migration을 Prisma diff로 재생성해 대체하면 안 된다.
+
+### CadProfileUpgradeGate
+
+CAD profile/content migration 동안 구 worker claim까지 차단하는 DB singleton이다. Prisma datamodel에는 노출하지 않는다.
+
+| 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
+| --- | --- | --- | --- | --- |
+| `id` | `SmallInt` | 예 | PK, 항상 `1` | singleton identity |
+| `closed` | `Boolean` | 예 | `true` | `true`이면 queued→processing claim 거부 |
+| `updatedAt` | `DateTime` | 예 | DB 현재 시각 | gate 최종 변경 시각 |
+
+- `FloorImportJob_profile_upgrade_gate` BEFORE trigger는 status가 processing으로 진입하는 INSERT/UPDATE를 SQLSTATE `55006`으로 거부한다. 애플리케이션 버전과 무관한 durable fence다.
+- Gate 설치 migration이 lock timeout으로 rollback되면 Prisma 실패 이력을 임의 삭제하지 않는다. 실제 카탈로그 rollback을 확인한 담당자가 해당 이름만 `prisma migrate resolve --rolled-back` 처리한 뒤 deploy를 재시도한다.
+- Release migration 이전에는 직접 `closed=false`로 바꾸지 않는다. 회귀 테스트는 clean deploy, 14500 race, rollback/retry, 기존 15000 완료 이력과 최종 open을 실제 PostgreSQL에서 검증한다.
+
+### FloorImportCandidate
+
+CAD parser 좌표에서 검출한 조명 위치 후보 원장이다. 후보는 BLE Mesh 장비 identity가 없으므로 `Fixture` 또는 `MeshNode`를 생성하거나 자동 연결하지 않는다.
+
+| 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
+| --- | --- | --- | --- | --- |
+| `id` | `String` | 예 | PK, `uuid()` | 후보 ID |
+| `jobId` | `String` | 예 | FK -> `FloorImportJob.id`, cascade delete | 소속 import job |
+| `sourceEntityId` | `String` | 예 | job 안에서 Unique, trim 길이 1~512 | 정규화 CAD source entity ID |
+| `layerName` | `String` | 예 | trim 길이 1~512 | CAD layer 이름 |
+| `blockName` | `String?` | 아니오 | 값이 있으면 trim 길이 1~512 | CAD block 이름 |
+| `x`, `y` | `Float` | 예 | 유한한 0 이상 값 | parser가 맵 좌표계로 정규화한 위치 |
+| `rotation` | `Float` | 예 | `0`, 유한값 | parser가 계산한 회전 각도 |
+| `confidence` | `Float` | 예 | DB check `0~1` | 검출 신뢰도 |
+| `detectionMethod` | `FloorImportDetectionMethod` | 예 |  | 규칙 또는 향후 AI 보조 검출 구분 |
+| `provider` | `String?` | 아니오 | rule_based는 NULL, ai_assisted는 trim 길이 1~200 필수 | AI provider 식별자 |
+| `model` | `String?` | 아니오 | rule_based는 NULL, ai_assisted는 trim 길이 1~200 필수 | AI model 식별자 |
+| `inputDigest` | `String?` | 아니오 | rule_based는 NULL, ai_assisted는 64자리 lowercase SHA-256 필수 | AI 분류 입력 digest |
+| `profileVersion` | `String` | 예 | 기존 행은 `legacy-unknown` | 후보를 만든 실제 detector profile 버전 |
+| `profileDigest` | `String` | 예 | 64자리 lowercase SHA-256 | 후보를 만든 detector canonical digest |
+| `reviewStatus` | `FloorImportCandidateReviewStatus` | 예 | `pending` | 관리자 검토 상태 |
+| `reviewedAt` | `DateTime?` | 아니오 | pending이면 NULL, accepted/rejected이면 필수 | 검토 시각 |
+| `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
+| `updatedAt` | `DateTime` | 예 | `@updatedAt` | 최종 갱신 시각 |
+
+제약과 인덱스:
+
+- `(jobId, sourceEntityId)` unique로 worker 재시도 시 같은 CAD entity의 후보가 중복 생성되지 않게 한다.
+- `(jobId, reviewStatus, id)` index와 2,000개 bounded bulk 계약으로 검토 목록을 지원한다. worker는 250건 chunk `createMany` transaction을 사용한다.
+- 좌표와 회전은 parser 결과만 저장한다. AI 보조 구현도 좌표를 생성하거나 변경할 수 없다.
+- migration-only `FloorImportCandidate_ai_metadata_check`는 rule-based 후보의 AI 메타데이터를 모두 NULL로, AI-assisted 후보는 provider/model/inputDigest를 모두 필수로 강제한다. profile digest, geometry/confidence/review CHECK도 Prisma datamodel 외 SQL 불변식이며 migration regression test가 실제 DB 동작을 고정한다.
+
+### FloorLightSlot
+
+승인된 CAD 조명 후보를 현재 맵에서 사용할 영속 배치 슬롯으로 분리한다. `FloorImportCandidate`는 분석·검토 이력으로 유지하고, 실제 조명 연결 상태는 이 테이블만 변경한다.
+
+| 컬럼 | 타입 | 필수 | 기본값/제약 | 설명 |
+| --- | --- | --- | --- | --- |
+| `id` | `String` | 예 | PK, `uuid()` | 슬롯 ID |
+| `floorId` | `String` | 예 | FK -> `Floor.id`, cascade delete | 현재 맵의 층 ID |
+| `sourceImportJobId` | `String` | 예 | FK -> `FloorImportJob.id`, cascade delete | 슬롯을 만든 CAD import job |
+| `sourceCandidateId` | `String` | 예 | Unique, FK -> `FloorImportCandidate.id`, cascade delete | 원본 승인 후보. 후보 하나당 슬롯 하나 |
+| `assignedFixtureId` | `String?` | 아니오 | Unique, FK -> `Fixture.id`, delete set null | 슬롯에 연결한 실제 조명. 한 조명은 슬롯 하나에만 연결 가능 |
+| `capacityOrdinal` | `Int` | 예 | DB 관리, `1..2000`, `(floorId, capacityOrdinal)` Unique | 층별 슬롯 용량을 구조적으로 제한하는 ordinal. Prisma 호출자는 생략한다. |
+| `x`, `y` | `Float` | 예 | 유한값 CHECK | 맵 좌표계의 슬롯 위치 |
+| `rotation` | `Float` | 예 | `0`, 유한값 CHECK | 후보에서 보존한 회전 각도 |
+| `createdAt` | `DateTime` | 예 | `now()` | 생성 시각 |
+| `updatedAt` | `DateTime` | 예 | `@updatedAt` | 최종 갱신 시각 |
+
+제약과 인덱스:
+
+- `(floorId, id)` index로 층별 슬롯을 안정적인 ID 순서로 조회한다.
+- `sourceCandidateId` unique는 후보 중복 적용을 막고, nullable `assignedFixtureId` unique는 실제 조명의 중복 슬롯 할당을 막는다.
+- 한 층의 슬롯은 최대 2,000개다. BEFORE trigger가 호출자 입력과 관계없이 비어 있는 `capacityOrdinal`을 배정하며, `1..2000` CHECK와 `(floorId, capacityOrdinal)` Unique가 REPEATABLE READ의 오래된 snapshot에서도 상한을 구조적으로 보장한다. 층별 advisory transaction lock은 동시 writer 충돌을 줄이는 보조 수단이다.
+- 같은 층의 `capacityOrdinal` 직접 변경은 DB가 기존 값으로 되돌린다. `floorId` 변경과 `Floor.id` cascade update는 새 층의 빈 ordinal을 다시 배정하고, 자리가 없으면 transaction을 거부한다. DELETE 후 최대 2,000개 INSERT는 같은 transaction에서 ordinal을 재사용하므로 원자적 맵 교체가 가능하다.
+- `FloorLightSlot_geometry_check`는 PostgreSQL이 저장할 수 있는 `NaN`, 양·음의 `Infinity`를 x/y/rotation에서 거부한다.
+- deferred constraint trigger는 슬롯의 `floorId`, source job의 층, source candidate의 job이 같은지 검증한다. 할당 조명이 있으면 해당 `Fixture.floorId`도 슬롯 층과 같아야 한다.
+- 슬롯뿐 아니라 `FloorImportJob.floorId`, `FloorImportCandidate.jobId`, `Fixture.floorId` 변경 경로에도 trigger를 설치해 부모 변경으로 불일치가 생기는 경우 transaction 전체를 거부한다. 이 교차 테이블 제약은 Prisma datamodel로 표현되지 않는다.
+- 현재 Task는 모델과 공유 계약을 추가한다. 슬롯 생성·교체, fixture 할당, revision 복구는 후속 원자적 apply/editor 작업에서 연결한다.
 
 ### FloorMapObject
 
@@ -717,6 +879,7 @@ S3 호환 object storage에 직접 업로드되는 도면 원본과 PDF 렌더 �
 
 - `floor`: `Floor`
 - `meshNode`: `MeshNode?`
+- `lightSlot`: `FloorLightSlot?`
 - `groupFixtures`: `GroupFixture[]`
 - `energyUsages`: `EnergyUsage[]`
 - `energyDailyAggregates`: `FixtureEnergyDailyAggregate[]`
@@ -1108,7 +1271,7 @@ cloud가 ACK로 확인한 실제 group subscription pair snapshot이다. 복합 
 - `targetType`, `targetId`는 다형 대상 구조라 DB FK로 직접 강제하지 않는다. API는 사용자 입력을 그대로 신뢰하지 않고 같은 transaction 안에서 현장 소속 Fixture/Floor/FixtureGroup 관계를 다시 조회한다.
 - `targetFixtureIds`는 명령 생성 시점의 권위 있는 대상 snapshot이다. 이후 층이나 구역 구성이 변경돼도 이미 생성된 명령의 fixture별 결과 집합은 바뀌지 않는다.
 - MQTT command ACK 수신 시 `status`, `errorMessage`가 갱신된다.
-- `(siteId, requestedBy, clientRequestId)` unique는 동일 사용자·현장 요청의 중복 Command, Outbox, Gateway sequence 생성을 차단한다. 동일 ID에 다른 fingerprint가 오면 API는 conflict로 처리한다.
+- `(siteId, requestedBy, clientRequestId)` unique는 동일 사용자·현장 요청의 중복 Command, Outbox, Gateway sequence 생성을 차단한다. 현재 fingerprint는 안정 정렬 target·brightness만 해시한다. 과거 API는 optional expiry의 원문까지 해시했으므로 PostgreSQL `TIMESTAMP(3)`에서 원래 소수점 표기를 역산하지 않는다. Idempotent recovery는 저장된 `targetType`, `targetId`/`targetFixtureIds`, `brightness`를 canonical 요청과 비교하며, 동일 ID에 target 또는 brightness가 다르면 API는 conflict로 처리한다.
 - `ManualOverride.commandId`는 `Command.id`를 직접 참조하는 1:1 FK다. 사용자 영구 삭제로 요청자 값이 `NULL`이 되어도 수동 override와 명령 이력 관계는 유지된다.
 
 ### CommandDispatch / CommandFixtureResult / MqttOutbox
@@ -1153,9 +1316,9 @@ Command와 outbox를 같은 DB transaction에서 생성해 MQTT publish 실패�
 
 이 migration은 아직 어떤 배포 환경에도 적용하지 않은 Task 12 신규 migration이라는 전제에서 같은 파일을 보정했다. 이미 이전 버전을 적용한 환경이 생긴 뒤에는 파일을 다시 수정하지 말고 별도의 순방향 보정 migration을 추가해야 한다.
 
-다중 API 인스턴스에서는 `lockedBy`, `lockedAt`, `leaseExpiresAt`으로 30초 발행 lease를 소유하고 PostgreSQL `FOR UPDATE SKIP LOCKED`로 같은 레코드의 중복 발행을 차단한다. Command payload는 생성 직후 strict draft, fix round 4 이후 publisher가 확정한 strict published generation, 또는 rolling upgrade 중 남은 legacy full wire일 수 있다. Compatibility parser는 과거 draft/full/published payload의 `requestedBy`를 알려진 legacy 키로만 수신하고 임의 추가 키는 허용하지 않는다. Publisher가 이 과거 row를 새 generation으로 승격할 때는 `requestedBy`를 제거한다. 새 producer는 요청자 키 없이 `expiresAt <= overrideUntil`과 generation metadata 상호 일치를 모두 만족하는 strict published wire만 만든다.
+다중 API 인스턴스에서는 `lockedBy`, `lockedAt`, `leaseExpiresAt`으로 30초 발행 lease를 소유하고 PostgreSQL `FOR UPDATE SKIP LOCKED`로 같은 레코드의 중복 발행을 차단한다. Command payload는 생성 직후 strict draft, publisher가 확정한 strict published generation, 또는 rolling upgrade 중 남은 legacy full wire일 수 있다. Compatibility parser는 과거 draft/full/published payload의 `requestedBy`, `overrideUntil`, `overrideRemainingMs`를 알려진 legacy 키로만 수신하고 canonical draft로 정규화할 때 제거하며 임의 추가 키는 허용하지 않는다. Publisher가 과거 row를 새 generation으로 승격할 때도 이 legacy 필드를 제거한다. 새 producer는 요청자나 수동 만료 키 없이 generation metadata가 상호 일치하는 strict published wire만 만든다.
 
-Publisher는 Mesh snapshot 검증과 lease ownership을 확인하는 같은 transaction에서 `deliveryGeneration`, `deliveryGeneratedAt`, whole-second `deliveryWindowMs`, optional `overrideRemainingMs`, `expiresAt`을 payload에 먼저 durable 저장한다. 이 generation은 `min(10초, overrideUntil - deliveryGeneratedAt)` 범위이며 MQTT `messageExpiryInterval`과 같은 absolute delivery end를 가리킨다. Final ownership query 뒤에는 lease가 `freshNow + 20초 MQTT timeout`보다 엄격히 뒤인지 다시 확인하고, DB 대기로 남은 시간이 부족하거나 만료됐다면 발행하지 않는다.
+Publisher는 Mesh snapshot 검증과 lease ownership을 확인하는 같은 transaction에서 `deliveryGeneration`, `deliveryGeneratedAt`, 고정 10초의 whole-second `deliveryWindowMs`, `expiresAt`을 payload에 먼저 durable 저장한다. 이 generation은 MQTT 전달 가능 시간만 나타내며 수동 밝기의 지속 시간이나 Gateway 적용 만료를 뜻하지 않는다. MQTT `messageExpiryInterval`은 같은 absolute delivery end를 가리킨다. Final ownership query 뒤에는 lease가 `freshNow + 20초 MQTT timeout`보다 엄격히 뒤인지 다시 확인하고, DB 대기로 남은 시간이 부족하거나 delivery generation이 만료됐다면 발행하지 않는다.
 
 MQTT 실패나 PUBACK 유실 뒤 retry는 generation과 wire payload를 다시 만들지 않는다. Durable `expiresAt - retryNow`를 whole seconds로 내린 remaining MQTT expiry만 사용하므로 broker 보존이 payload delivery deadline을 넘지 않으며, generation이 소진되면 `COMMAND_DELIVERY_EXPIRED` terminal failure로 수렴한다. Legacy draft/full row는 첫 fix-round publisher claim에서 새 generation으로 한 번 승격된다. Broker가 물리 publish를 수신한 직후 API가 종료되면 같은 payload가 재전달될 수 있으므로 command idempotency key와 Gateway durable journal이 중복 물리 실행을 차단하는 필수 경계다. MQTT QoS 1 callback을 20초 안에 받지 못하면 해당 message ID를 `removeOutgoingMessage`로 취소하고 fresh failure 시각 기준 재시도 경로로 전환한다. 이 변경은 `MqttOutbox.payload` JSON 계약만 갱신하며 DB 컬럼이나 migration은 추가하지 않는다.
 
@@ -1287,12 +1450,13 @@ Exact desired reject 뒤 lower revision의 applied ACK가 늦게 도착하면 `a
 | `commandId` | `String` | 예 | Unique; FK -> `Command.id`, delete cascade/update restrict |
 | `requestedById` | `String?` | 아니오 | named FK -> `User.id`, delete set null; index `(requestedById, createdAt)` |
 | `brightnessPercent` | `Int` | 예 | DB check `0..100` |
-| `startedAt`, `overrideUntil` | `DateTime` | 예 | DB check `overrideUntil > startedAt` |
-| `endedAt` | `DateTime?` | 아니오 | DB check `startedAt <= endedAt <= overrideUntil` |
+| `startedAt` | `DateTime` | 예 | 수동 기본 밝기 명령 감사 시작 시각 |
+| `overrideUntil` | `DateTime?` | 아니오 | legacy timed override compatibility field. 값이 있으면 DB check `overrideUntil > startedAt` |
+| `endedAt` | `DateTime?` | 아니오 | `overrideUntil IS NULL`이면 반드시 null. legacy timed row는 DB check `startedAt <= endedAt <= overrideUntil` |
 | `targetCount` | `Int` | 예 | `0`; DB check `>= 0`, child trigger 유지 | 현재 target row 수 |
 | `createdAt`, `updatedAt` | `DateTime` | 예 | `now()`, `@updatedAt` |
 
-`ManualOverride`은 child owner FK 기준인 `(id, siteId, gatewayId)` Unique와 `commandId` Unique로 1:1 Command relation을 가진다. 요청 사용자가 영구 삭제되면 `requestedById`만 `NULL`로 바꾸고 override·명령 원장은 보존한다. `ManualOverrideFixture`는 `manualOverrideId`, `fixtureId`, `siteId`, `gatewayId`, `createdAt`을 저장한다. `(manualOverrideId, fixtureId)` 복합 PK, `(fixtureId)`, `(siteId, gatewayId)` index, owner-aware override delete cascade/update restrict와 투영된 `(fixtureId, siteId, gatewayId)` Fixture delete cascade/update restrict를 사용한다.
+`ManualOverride`은 child owner FK 기준인 `(id, siteId, gatewayId)` Unique와 `commandId` Unique로 1:1 Command relation을 가진다. `20260914090000_manual_control_baseline` 순방향 migration은 기존 migration 파일이나 non-null timed history를 다시 쓰지 않고 `overrideUntil`의 `NOT NULL`만 제거한다. 변경된 `ManualOverride_time_range_check`는 `(overrideUntil IS NULL AND endedAt IS NULL)`인 새 감사 행 또는 기존 timed 범위만 허용한다. 새 API가 기록하는 null-expiry 행은 시간 제한 override가 아니라 target·brightness 기반 수동 기본 밝기 명령의 감사 이력이며, Gateway는 이 필드로 만료를 판단하지 않는다. 요청 사용자가 영구 삭제되면 `requestedById`만 `NULL`로 바꾸고 override·명령 원장은 보존한다. `ManualOverrideFixture`는 `manualOverrideId`, `fixtureId`, `siteId`, `gatewayId`, `createdAt`을 저장한다. `(manualOverrideId, fixtureId)` 복합 PK, `(fixtureId)`, `(siteId, gatewayId)` index, owner-aware override delete cascade/update restrict와 투영된 `(fixtureId, siteId, gatewayId)` Fixture delete cascade/update restrict를 사용한다.
 
 `ManualOverride_membership_statement_lock`과 `ManualOverrideFixture_membership_statement_lock`은 top-level statement가 parent 또는 child tuple을 잠그기 전에 공통 advisory lock을 획득한다. Row maintenance는 INSERT/DELETE/부모-key UPDATE에서 `targetCount`를 원자 갱신하며 부모 이동 시 두 override row를 ID 오름차순으로 잠근다. Counter가 만든 nested override UPDATE는 depth guard로 parent statement 작업을 생략하고, nested parent cascade는 이미 사라진 override의 counter와 deferred 검증을 건너뛴다. Direct DML의 deferred 검증은 `targetCount >= 1`과 실제 target row 수 일치를 강제한다. 동일 parent row version 갱신이 모든 공통 isolation level에서 동시 마지막-target 삭제의 stale 성공을 막는다. Command 관계는 command 삭제 시 cascade, User 관계는 user 삭제 시 set null, ManualOverrideFixture의 Fixture 관계는 fixture 삭제 시 cascade를 사용한다.
 
@@ -1747,6 +1911,7 @@ node별 `provision-device` command의 durable transactional outbox다. 등록 AP
 | --- | --- | --- |
 | `User` | Unique `email` | 이메일 중복 가입 방지 |
 | `FloorPlan` | Unique `floorId` | 한 층에 하나의 현재 도면 |
+| `FloorLightSlot` | `(floorId, capacityOrdinal)` Unique와 ordinal 범위 CHECK, Unique `sourceCandidateId`, nullable Unique `assignedFixtureId`, finite geometry CHECK와 deferred scope trigger | REPEATABLE READ 동시 쓰기에서도 층별 2,000개 상한과 후보별 슬롯·조명별 할당 중복을 막고 job/candidate/fixture의 층 일치를 강제 |
 | `FloorMapObject` | Index `floorId`, `zIndex` | 한 층 안에서 편집 객체 렌더링 순서 조회 최적화 |
 | `Fixture` | Unique `meshNodeId`, Unique `id + siteId + gatewayId`, composite Floor/MeshNode owner FK와 projection trigger | 하나의 메시 노드는 하나의 조명에만 연결하고 자동화가 참조할 Site/Gateway owner를 구조적으로 투영 |
 | `Gateway` | Unique `serialNumber` | 게이트웨이 시리얼 중복 방지 |
@@ -1786,7 +1951,7 @@ node별 `provision-device` command의 durable transactional outbox다. 등록 AP
 | `LightingScheduleFixture` | PK `scheduleId + fixtureId`, parent/Fixture owner composite FK, counter maintenance + deferred nonempty/reconciliation trigger | 스케줄 대상 snapshot 중복·tenant/Gateway·isolation-safe 최소 1개 강제 |
 | `VehicleEventRule` | brightness `0..100`, hold `5..1800`, ordered revisions, non-negative source/target counters, Unique `id + siteId + gatewayId` | 차량 감지 action 범위와 실제 source/target 수 reconciliation 강제 |
 | `VehicleEventSource`, `VehicleEventTarget` | PK `ruleId + fixtureId`, parent/Fixture owner composite FK, counter maintenance + deferred nonempty/reconciliation trigger; source는 verified-supported MeshNode trigger | source/target 중복·tenant/Gateway·isolation-safe 각 최소 1개와 source capability 강제 |
-| `ManualOverride` | Unique `commandId`, direct Command FK delete cascade, nullable requester FK delete set null, brightness/time checks, non-negative `targetCount` | command별 단일 수동 override, 사용자 삭제 뒤 이력 익명화, 실제 target 수 reconciliation 강제 |
+| `ManualOverride` | Unique `commandId`, direct Command FK delete cascade, nullable requester/legacy `overrideUntil`, brightness/time checks, non-negative `targetCount` | command별 수동 기본 밝기 감사, timed history 호환, 사용자 삭제 뒤 이력 익명화, 실제 target 수 reconciliation 강제 |
 | `ManualOverrideFixture` | PK `manualOverrideId + fixtureId`, parent/Fixture owner composite FK, counter maintenance + deferred nonempty/reconciliation trigger | 수동 대상 중복·tenant/Gateway·isolation-safe 최소 1개 강제 |
 | `MqttOutbox` | command/config/application-ACK row-shape check, Unique `gatewayId + revision + payloadHash`, Unique `applicationAckKey`, non-superseded automation delivery partial index | requester 없는 command payload와 과거 row scrub, 최신 config snapshot만 발행, durable application ACK dedupe |
 | `AutomationExecution` | Unique `gatewayId + eventId + sequence`, canonical payload hash CHECK, ordered schedule/vehicle general indexes, partial vehicle-detected index, source owner/kind/rule trigger | Gateway lifecycle exact replay 멱등성·conflict 거부, 최신 실행·감지 조회와 tenant-consistent history 원장 |

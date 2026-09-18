@@ -1,4 +1,4 @@
-import { lockRegistrationDomain } from "./registration-domain-locks";
+import { lockRegistrationDeviceUuids, lockRegistrationDomain } from "./registration-domain-locks";
 
 describe("lockRegistrationDomain", () => {
   it("keeps concurrent request, publisher, and terminal callers in one deterministic order", async () => {
@@ -45,5 +45,21 @@ describe("lockRegistrationDomain", () => {
     expect(tx.$queryRaw.mock.calls[3][1]).toBe("session");
     expect(tx.$queryRaw.mock.calls[3][2].values).toEqual(["node-a", "node-b"]);
     expect(tx.$queryRaw.mock.calls[4][1].values).toEqual(["outbox-a", "outbox-b"]);
+  });
+
+  it("locks sorted unique device UUIDs with the project advisory-lock query shape", async () => {
+    const tx = { $queryRaw: jest.fn().mockResolvedValue([{ locked: true }]) };
+
+    await lockRegistrationDeviceUuids(tx as never, ["device-b", "device-a", "device-b"]);
+
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(2);
+    expect(tx.$queryRaw.mock.calls.map(([sql]) => sql.join(" "))).toEqual([
+      expect.stringContaining("SELECT true AS \"locked\""),
+      expect.stringContaining("SELECT true AS \"locked\"")
+    ]);
+    expect(tx.$queryRaw.mock.calls.map((call) => call[1])).toEqual(["device-a", "device-b"]);
+    expect(tx.$queryRaw.mock.calls.every(([sql]) => (
+      sql.join(" ").includes("pg_advisory_xact_lock(hashtextextended(")
+    ))).toBe(true);
   });
 });

@@ -58,8 +58,9 @@ export function SiteAdminManagementView() {
   }
 
   return (
-    <section className="operator-admin-management" aria-label="현장 관리자 계정">
+    <section className="grid gap-4.5" aria-label="현장 관리자 계정">
       <PageHeader
+        data-operator-admin-header
         title="현장 관리자 계정"
         headingLevel={1}
         description="서비스 운영 · 현장별 설치 상태와 관리자 계정을 관리합니다."
@@ -70,7 +71,7 @@ export function SiteAdminManagementView() {
 
       {notice ? <FeedbackState tone="success" icon={CircleCheck} title={notice} /> : null}
 
-      <div className="operator-summary-grid">
+      <div className="grid grid-cols-4 gap-3 max-tablet:grid-cols-2 max-compact:grid-cols-1">
         {summaries.map(({ label, value, tone, icon }) => <MetricCard key={label} label={label} value={value} tone={tone} icon={icon} />)}
       </div>
 
@@ -79,16 +80,16 @@ export function SiteAdminManagementView() {
         <FeedbackState tone="danger" icon={CircleAlert} title="현장 관리자 목록을 불러오지 못했습니다." action={<Button type="button" onClick={() => void siteAdmins.refetch()}>다시 시도</Button>} />
       ) : null}
       {!siteAdmins.isLoading && !siteAdmins.error ? (
-        <Card className="operator-table-wrap" tabIndex={0} aria-label="현장 관리자 계정 표">
-          <table className="operator-admin-table">
+        <Card className="overflow-x-auto" tabIndex={0} aria-label="현장 관리자 계정 표">
+          <table className="w-full min-w-5xl border-collapse text-body-sm">
             <thead>
               <tr>
-                {['고객사', '현장', '설치 상태', '관리자 이름', '로그인 아이디', '계정 상태', '최종 변경', '작업'].map((column) => <th key={column} scope="col">{column}</th>)}
+                {['고객사', '현장', '설치 상태', '관리자 이름', '로그인 아이디', '계정 상태', '최종 변경', '작업'].map((column) => <th className={tableHeaderClass} key={column} scope="col">{column}</th>)}
               </tr>
             </thead>
             <tbody>
               {siteAdmins.data?.map((site) => <SiteAdminRow key={site.siteId} site={site} onOpen={openDialog} />)}
-              {siteAdmins.data?.length === 0 ? <tr><td colSpan={8} className="operator-table-empty">관리할 현장이 없습니다.</td></tr> : null}
+              {siteAdmins.data?.length === 0 ? <tr><td colSpan={8} className={`${tableCellClass} h-40 text-center text-content-secondary`}>관리할 현장이 없습니다.</td></tr> : null}
             </tbody>
           </table>
         </Card>
@@ -107,25 +108,28 @@ function SiteAdminRow({ site, onOpen }: { site: SiteAdminSummary; onOpen: (dialo
   const admin = site.admin;
   return (
     <tr>
-      <td>{site.customerName}</td>
-      <td>{site.siteName}</td>
-      <td><StatusBadge tone={site.installationStatus === "installed" ? "success" : "warning"} icon={site.installationStatus === "installed" ? CircleCheck : Clock3}>{site.installationStatus === "installed" ? "설치 완료" : "설치 대기"}</StatusBadge></td>
-      <td>{admin?.name ?? "관리자 미지정"}</td>
-      <td>{admin?.loginId ?? "-"}</td>
-      <td>{admin ? <StatusBadge tone={admin.status === "active" ? "success" : "danger"} icon={admin.status === "active" ? CircleCheck : CircleAlert}>{admin.status === "active" ? "활성" : "비활성"}</StatusBadge> : "-"}</td>
-      <td>{admin ? formatUpdatedAt(admin.updatedAt) : "-"}</td>
-      <td>
+      <td className={`${tableCellClass} font-bold text-content-primary`}>{site.customerName}</td>
+      <td className={`${tableCellClass} font-bold text-content-primary`}>{site.siteName}</td>
+      <td className={tableCellClass}><StatusBadge tone={site.installationStatus === "installed" ? "success" : "warning"} icon={site.installationStatus === "installed" ? CircleCheck : Clock3}>{site.installationStatus === "installed" ? "설치 완료" : "설치 대기"}</StatusBadge></td>
+      <td className={`${tableCellClass} font-bold text-content-primary`}>{admin?.name ?? "관리자 미지정"}</td>
+      <td className={tableCellClass}>{admin?.loginId ?? "-"}</td>
+      <td className={tableCellClass}>{admin ? <StatusBadge tone={admin.status === "active" ? "success" : "danger"} icon={admin.status === "active" ? CircleCheck : CircleAlert}>{admin.status === "active" ? "활성" : "비활성"}</StatusBadge> : "-"}</td>
+      <td className={tableCellClass}>{admin ? formatUpdatedAt(admin.updatedAt) : "-"}</td>
+      <td className={tableCellClass}>
         {admin ? (
-          <div className="operator-row-actions">
-            <Button type="button" aria-label={`${admin.name} 수정`} onClick={(event) => onOpen({ type: "edit", admin }, event.currentTarget)}><Pencil size={15} aria-hidden="true" /> 수정</Button>
-            <Button type="button" aria-label={`${admin.name} 비밀번호 재설정`} onClick={(event) => onOpen({ type: "reset", admin }, event.currentTarget)}><KeyRound size={15} aria-hidden="true" /> 비밀번호 재설정</Button>
-            <Button variant="danger" type="button" aria-label={`${site.siteName} 현장 전체 삭제`} onClick={(event) => onOpen({ type: "delete", site }, event.currentTarget)}><Trash2 size={15} aria-hidden="true" /> 현장 전체 삭제</Button>
+          <div className="flex items-center gap-1.5">
+            <Button size="sm" type="button" aria-label={`${admin.name} 수정`} onClick={(event) => onOpen({ type: "edit", admin }, event.currentTarget)}><Pencil size={15} aria-hidden="true" /> 수정</Button>
+            <Button size="sm" type="button" aria-label={`${admin.name} 비밀번호 재설정`} onClick={(event) => onOpen({ type: "reset", admin }, event.currentTarget)}><KeyRound size={15} aria-hidden="true" /> 비밀번호 재설정</Button>
+            <Button size="sm" variant="danger" type="button" aria-label={`${site.siteName} 현장 전체 삭제`} onClick={(event) => onOpen({ type: "delete", site }, event.currentTarget)}><Trash2 size={15} aria-hidden="true" /> 현장 전체 삭제</Button>
           </div>
-        ) : <Button type="button" onClick={(event) => onOpen({ type: "assign", site }, event.currentTarget)} aria-label={`${site.siteName} 관리자 지정`}><UserPlus size={15} aria-hidden="true" /> 관리자 지정</Button>}
+        ) : <Button size="sm" type="button" onClick={(event) => onOpen({ type: "assign", site }, event.currentTarget)} aria-label={`${site.siteName} 관리자 지정`}><UserPlus size={15} aria-hidden="true" /> 관리자 지정</Button>}
       </td>
     </tr>
   );
 }
+
+const tableHeaderClass = "border-b border-border-default bg-surface-inset px-3.5 py-3 text-left align-middle text-label font-bold whitespace-nowrap text-content-secondary";
+const tableCellClass = "border-b border-border-default px-3.5 py-3 text-left align-middle whitespace-nowrap";
 
 function formatUpdatedAt(value: string) {
   const date = new Date(value);

@@ -2,7 +2,7 @@ import { CircleCheck, CircleX, Clock3, RefreshCw, TriangleAlert } from "lucide-r
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useDashboard, useFloorFixtures, useFloorMapSnapshot, type Dashboard } from "../../api/queries";
-import { Button, FeedbackState, MetricCard, SidePanel, StatusBadge } from "../../components/ui";
+import { Button, FeedbackState, Heading, MetricCard, SelectBox, SidePanel, StatusBadge, Text } from "../../components/ui";
 import { InstallationPending } from "../setup/SetupWizard";
 import { FloorMap } from "./FloorMap";
 import { presentFixtureStatus } from "./fixture-status-presentation";
@@ -21,8 +21,8 @@ export function MonitoringView({ userRole = "admin", siteId }: { userRole?: "ope
   const dashboardQuery = useDashboard(siteId);
   const { data, isLoading, error } = dashboardQuery;
 
-  if (isLoading && !data) return <div className="panel">불러오는 중</div>;
-  if (!data) return <div className="panel danger">현황 데이터를 불러오지 못했습니다.</div>;
+  if (isLoading && !data) return <FeedbackState icon={Clock3} title="모니터링 현황을 불러오는 중" />;
+  if (!data) return <FeedbackState tone="danger" icon={TriangleAlert} title="현황 데이터를 불러오지 못했습니다." />;
 
   return (
     <MonitoringDashboard
@@ -117,7 +117,7 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardError, refreshDa
 
   if (!data.site.id) {
     return (
-      <section className="screen-grid monitoring-screen">
+      <section className="grid min-w-0 gap-4" data-monitoring-screen="">
         <InstallationPending />
       </section>
     );
@@ -159,29 +159,26 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardError, refreshDa
   }
 
   return (
-    <section className="screen-grid monitoring-screen monitoring-dashboard">
-      <div className="monitoring-toolbar" role="group" aria-label="모니터링 도구">
-        <label className="monitoring-floor-selector">
-          <span>맵 선택</span>
-          <select
-            aria-label="맵 선택"
-            value={floor?.id ?? ""}
-            disabled={data.floors.length === 0}
-            onChange={(event) => handleSelectFloor(event.target.value)}
-          >
-            {data.floors.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-          </select>
-        </label>
-        <div className="monitoring-refresh-actions">
-          <small>{formatSnapshotUpdatedAt(snapshotFreshness)}</small>
-          {refreshError ? <span className="monitoring-refresh-error" role="status">{refreshError}</span> : null}
+    <section className="grid min-w-0 gap-4 tablet:flex tablet:h-[calc(100dvh-7.25rem)] tablet:min-h-0 tablet:overflow-hidden tablet:flex-col" data-monitoring-screen="">
+      <div className="flex items-center justify-between gap-4 max-compact:flex-col max-compact:items-stretch" role="group" aria-label="모니터링 도구">
+        <SelectBox
+          label="맵 선택"
+          items={data.floors.map((item) => ({ id: item.id, label: item.name }))}
+          selectedKey={floor?.id ?? null}
+          isDisabled={data.floors.length === 0}
+          onSelectionChange={(floorId) => floorId !== null && handleSelectFloor(floorId)}
+          className="grid w-full max-w-56 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 max-compact:max-w-none"
+        />
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-2 text-content-secondary max-compact:ml-0 max-compact:w-full">
+          <Text as="small" variant="caption" tone="secondary" className="whitespace-nowrap">{formatSnapshotUpdatedAt(snapshotFreshness)}</Text>
+          {refreshError ? <Text as="span" variant="label" tone="danger" role="status">{refreshError}</Text> : null}
           <Button
             variant="secondary"
             isLoading={isManualRefreshing}
             loadingLabel="새로고침 중"
             onClick={() => void handleRefresh()}
           >
-            <RefreshCw aria-hidden="true" size={15} className={isManualRefreshing ? "is-spinning" : undefined} />
+            <RefreshCw aria-hidden="true" size={15} className={isManualRefreshing ? "animate-spin" : undefined} />
             새로고침
           </Button>
         </div>
@@ -219,32 +216,27 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardError, refreshDa
 
       {hasFixtureData && data.summary.totalFixtures > 0 ? (
         <>
-          <div className="summary-row">
-            <MetricCard label="전체 조명" value={floorSummary.totalFixtures} helper="선택 층 기준" tone="primary" />
-            <MetricCard label="정상" value={floorSummary.onlineFixtures} helper="최근 수신 정상" tone="success" />
-            <MetricCard label="점검 필요" value={floorSummary.faultFixtures} helper="우선 점검 대상" tone="danger" />
-            <MetricCard label="오프라인" value={floorSummary.offlineFixtures} helper="상태 확인 대기 포함" />
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(9.375rem,1fr))] gap-3" data-monitoring-summary="">
+            <MetricCard className="min-h-18 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-4 py-3" label="전체 조명" value={floorSummary.totalFixtures} helper="선택 층 기준" tone="primary" />
+            <MetricCard className="min-h-18 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-4 py-3" label="정상" value={floorSummary.onlineFixtures} helper="최근 수신 정상" tone="success" />
+            <MetricCard className="min-h-18 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-4 py-3" label="점검 필요" value={floorSummary.faultFixtures} helper="우선 점검 대상" tone="danger" />
+            <MetricCard className="min-h-18 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-4 py-3" label="오프라인" value={floorSummary.offlineFixtures} helper="상태 확인 대기 포함" />
           </div>
 
-          <label className="monitoring-fixture-selector">
-            <span>상세 조명 선택</span>
-            <select
-              aria-label="상세 조명 선택"
-              value={selectedFixture?.id ?? ""}
-              onChange={(event) => setSelectedFixtureId(event.target.value)}
-            >
-              {fixtures.map((fixture) => (
-                <option key={fixture.id} value={fixture.id}>
-                  {fixture.name} · {presentFixtureStatus(fixture).label}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="hidden max-compact:block" data-monitoring-fixture-selector="">
+            <SelectBox
+              label="상세 조명 선택"
+              items={fixtures.map((fixture) => ({ id: fixture.id, label: `${fixture.name} · ${presentFixtureStatus(fixture).label}` }))}
+              selectedKey={selectedFixture?.id ?? null}
+              onSelectionChange={(fixtureId) => setSelectedFixtureId(fixtureId)}
+              className="w-full"
+            />
+          </div>
         </>
       ) : null}
 
-      <div className="operations-layout ui-side-panel-layout">
-        <div className="map-panel">
+      <div className="grid min-h-0 min-w-0 flex-1 grid-cols-1 items-stretch gap-4 tablet:grid-cols-[minmax(0,1fr)_clamp(17.5rem,26vw,21.25rem)] tablet:overflow-hidden" data-monitoring-layout="">
+        <div className="min-h-0 min-w-0 overflow-hidden" data-monitoring-map-panel="">
           {data.summary.totalFixtures === 0 ? (
             <EmptyFixtureGuidance userRole={userRole} siteId={data.site.id} />
           ) : !hasFixtureData ? null : floor && mapSnapshot ? (
@@ -270,76 +262,77 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardError, refreshDa
           ) : floor ? (
             <FeedbackState icon={Clock3} title="저장된 지도를 불러오는 중" />
           ) : (
-            <div className="panel">등록된 층이 없습니다.</div>
+            <FeedbackState icon={Clock3} title="등록된 층이 없습니다." />
           )}
         </div>
-            <SidePanel className="detail-panel" aria-label="선택 조명 상세">
-              <div className="panel-title-row">
-                <div>
-                  <span className="eyebrow">상세 패널</span>
-                  <h3>{selectedFixture?.name ?? "조명 선택"}</h3>
+            <SidePanel className="grid min-w-0 grid-cols-1 content-start gap-4 border-border-default bg-surface-panel p-4.5 shadow-none max-tablet:grid-cols-2 max-compact:grid-cols-1" aria-label="선택 조명 상세" data-monitoring-detail-panel="">
+              <div className="flex min-w-0 items-start justify-between gap-3 max-tablet:col-span-full">
+                <div className="min-w-0">
+                  <Text as="span" variant="overline" tone="secondary">상세 패널</Text>
+                  <Heading as="h3" variant="card-title">{selectedFixture?.name ?? "조명 선택"}</Heading>
                 </div>
                 <FixtureStatusBadge fixture={selectedFixture} />
               </div>
 
               {selectedFixture ? (
-                <section className="detail-stack" aria-label="선택 조명 정보">
-                  <div className="brightness-card">
-                    <span>현재 밝기</span>
-                    <strong>{selectedFixture.brightness}%</strong>
-                    <div className="progress-track">
-                      <span style={{ width: `${selectedFixture.brightness}%` }} />
+                <section className="grid min-w-0 gap-3.5 max-tablet:col-span-full max-tablet:grid-cols-2 max-compact:grid-cols-1" aria-label="선택 조명 정보">
+                  <div className="grid gap-2 rounded-panel bg-action-primary p-4 text-content-inverse">
+                    <Text as="span" variant="body-sm" tone="inverse" weight="bold">현재 밝기</Text>
+                    <Text as="strong" variant="display" tone="inverse">{selectedFixture.brightness}%</Text>
+                    <div className="h-2 overflow-hidden rounded-control bg-action-primary-soft">
+                      {/* Brightness is runtime device data, so only this measured percentage remains inline. */}
+                      <span className="block h-full rounded-control bg-surface-panel" style={{ width: `${selectedFixture.brightness}%` }} />
                     </div>
                   </div>
-                  <dl className="info-list">
-                    <div>
-                      <dt>상태 원인</dt>
-                      <dd>{selectedFixturePresentation?.description}</dd>
+                  <dl className="m-0 grid gap-2">
+                    <div className="grid grid-cols-[minmax(5rem,0.8fr)_minmax(0,1.2fr)] items-center gap-3 rounded-control border border-border-default bg-surface-elevated p-3">
+                      <dt className="min-w-0 text-body-sm text-content-secondary">상태 원인</dt>
+                      <dd className="m-0 min-w-0 text-right text-body font-bold text-content-primary">{selectedFixturePresentation?.description}</dd>
                     </div>
-                    <div>
-                      <dt>권장 조치</dt>
-                      <dd>{selectedFixturePresentation?.recommendedAction}</dd>
+                    <div className="grid grid-cols-[minmax(5rem,0.8fr)_minmax(0,1.2fr)] items-center gap-3 rounded-control border border-border-default bg-surface-elevated p-3">
+                      <dt className="min-w-0 text-body-sm text-content-secondary">권장 조치</dt>
+                      <dd className="m-0 min-w-0 text-right text-body font-bold text-content-primary">{selectedFixturePresentation?.recommendedAction}</dd>
                     </div>
-                    <div>
-                      <dt>정격 전력</dt>
-                      <dd>{selectedFixture.ratedWatt} W</dd>
+                    <div className="grid grid-cols-[minmax(5rem,0.8fr)_minmax(0,1.2fr)] items-center gap-3 rounded-control border border-border-default bg-surface-elevated p-3">
+                      <dt className="min-w-0 text-body-sm text-content-secondary">정격 전력</dt>
+                      <dd className="m-0 min-w-0 text-right text-body font-bold text-content-primary">{selectedFixture.ratedWatt} W</dd>
                     </div>
-                    <div>
-                      <dt>마지막 수신</dt>
-                      <dd>{formatLastSeen(selectedFixture.lastSeenAt)}</dd>
+                    <div className="grid grid-cols-[minmax(5rem,0.8fr)_minmax(0,1.2fr)] items-center gap-3 rounded-control border border-border-default bg-surface-elevated p-3">
+                      <dt className="min-w-0 text-body-sm text-content-secondary">마지막 수신</dt>
+                      <dd className="m-0 min-w-0 text-right text-body font-bold text-content-primary">{formatLastSeen(selectedFixture.lastSeenAt)}</dd>
                     </div>
-                    <div>
-                      <dt>장비 Health</dt>
-                      <dd>{formatHealthStatus(selectedFixture.health)}</dd>
+                    <div className="grid grid-cols-[minmax(5rem,0.8fr)_minmax(0,1.2fr)] items-center gap-3 rounded-control border border-border-default bg-surface-elevated p-3">
+                      <dt className="min-w-0 text-body-sm text-content-secondary">장비 Health</dt>
+                      <dd className="m-0 min-w-0 text-right text-body font-bold text-content-primary">{formatHealthStatus(selectedFixture.health)}</dd>
                     </div>
-                    <div>
-                      <dt>Health 수신</dt>
-                      <dd>{formatLastSeen(selectedFixture.health?.observedAt ?? null)}</dd>
+                    <div className="grid grid-cols-[minmax(5rem,0.8fr)_minmax(0,1.2fr)] items-center gap-3 rounded-control border border-border-default bg-surface-elevated p-3">
+                      <dt className="min-w-0 text-body-sm text-content-secondary">Health 수신</dt>
+                      <dd className="m-0 min-w-0 text-right text-body font-bold text-content-primary">{formatLastSeen(selectedFixture.health?.observedAt ?? null)}</dd>
                     </div>
-                    <div>
-                      <dt>게이트웨이</dt>
-                      <dd>
+                    <div className="grid grid-cols-[minmax(5rem,0.8fr)_minmax(0,1.2fr)] items-center gap-3 rounded-control border border-border-default bg-surface-elevated p-3">
+                      <dt className="min-w-0 text-body-sm text-content-secondary">게이트웨이</dt>
+                      <dd className="m-0 min-w-0 text-right text-body font-bold text-content-primary">
                         {selectedFixture.gateway
                           ? `${selectedFixture.gateway.name} (${selectedFixture.gateway.connectionStatus === "online" ? "정상" : "오프라인"})`
                           : "미매핑"}
                       </dd>
                     </div>
-                    <div>
-                      <dt>RSSI</dt>
-                      <dd>{formatRssi(selectedFixture.rssi)}</dd>
+                    <div className="grid grid-cols-[minmax(5rem,0.8fr)_minmax(0,1.2fr)] items-center gap-3 rounded-control border border-border-default bg-surface-elevated p-3">
+                      <dt className="min-w-0 text-body-sm text-content-secondary">RSSI</dt>
+                      <dd className="m-0 min-w-0 text-right text-body font-bold text-content-primary">{formatRssi(selectedFixture.rssi)}</dd>
                     </div>
-                    <div>
-                      <dt>Hop</dt>
-                      <dd>{selectedFixture.hopCount ?? "수집 전"}</dd>
+                    <div className="grid grid-cols-[minmax(5rem,0.8fr)_minmax(0,1.2fr)] items-center gap-3 rounded-control border border-border-default bg-surface-elevated p-3">
+                      <dt className="min-w-0 text-body-sm text-content-secondary">Hop</dt>
+                      <dd className="m-0 min-w-0 text-right text-body font-bold text-content-primary">{selectedFixture.hopCount ?? "수집 전"}</dd>
                     </div>
-                    <div>
-                      <dt>명령 성공률</dt>
-                      <dd>{formatSuccessRate(selectedFixture.commandSuccessRate)}</dd>
+                    <div className="grid grid-cols-[minmax(5rem,0.8fr)_minmax(0,1.2fr)] items-center gap-3 rounded-control border border-border-default bg-surface-elevated p-3">
+                      <dt className="min-w-0 text-body-sm text-content-secondary">명령 성공률</dt>
+                      <dd className="m-0 min-w-0 text-right text-body font-bold text-content-primary">{formatSuccessRate(selectedFixture.commandSuccessRate)}</dd>
                     </div>
                   </dl>
                 </section>
               ) : (
-                <p className="muted-text">지도에서 조명을 선택하면 상태와 제어 정보를 확인할 수 있습니다.</p>
+                <Text tone="secondary">지도에서 조명을 선택하면 상태와 제어 정보를 확인할 수 있습니다.</Text>
               )}
             </SidePanel>
       </div>
@@ -351,10 +344,10 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardError, refreshDa
 function EmptyFixtureGuidance({ userRole, siteId }: { userRole: MonitoringDashboardProps["userRole"]; siteId: string }) {
   if (userRole !== "admin") return <InstallationPending />;
   return <>
-    <div className="screen-heading">
-      <div>
-        <span className="eyebrow">초기 설정</span>
-        <h2>등록된 조명이 없습니다</h2>
+    <div className="flex items-end justify-between gap-4">
+      <div className="min-w-0">
+        <Text as="span" variant="overline" tone="secondary">초기 설정</Text>
+        <Heading as="h2" variant="section-title">등록된 조명이 없습니다</Heading>
       </div>
     </div>
     <FeedbackState

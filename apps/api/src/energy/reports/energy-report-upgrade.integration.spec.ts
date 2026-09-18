@@ -21,10 +21,14 @@ const databaseUrl = process.env.ENERGY_REPORT_TEST_DATABASE_URL;
     const directory = join(__dirname, "../../../prisma/migrations");
     for (const migration of readdirSync(directory).filter(name => /^\d/.test(name)).sort((a, b) => a.localeCompare(b))) {
       if (migration === "20260911120000_energy_analytics_history_hourly") {
-        await prisma.organization.create({ data: { id: organizationId, name: "Upgrade", type: "customer" } });
-        await prisma.site.create({ data: { id: siteId, organizationId, name: "조명 💡 현장", timeZone: "Asia/Seoul", tariffKwhRate: 9999 } });
-        await prisma.floor.create({ data: { id: floorId, siteId, name: "이력 이전 층", level: 1 } });
-        await prisma.fixture.create({ data: { id: fixtureId, floorId, siteId, name: "기존 조명", ratedWatt: 40, x: 0, y: 0 } });
+        // Current Prisma also INSERTs current defaults (e.g. Site.currency).
+        // Seed this historical boundary with its actual column shape instead.
+        await prisma.$executeRaw`INSERT INTO "Organization" ("id", "name", "type", "updatedAt") VALUES (${organizationId}, 'Upgrade', 'customer', now())`;
+        await prisma.$executeRaw`INSERT INTO "Site" ("id", "organizationId", "name", "timeZone", "tariffKwhRate", "updatedAt")
+          VALUES (${siteId}, ${organizationId}, '조명 💡 현장', 'Asia/Seoul', 9999, now())`;
+        await prisma.$executeRaw`INSERT INTO "Floor" ("id", "siteId", "name", "level", "updatedAt") VALUES (${floorId}, ${siteId}, '이력 이전 층', 1, now())`;
+        await prisma.$executeRaw`INSERT INTO "Fixture" ("id", "floorId", "siteId", "name", "ratedWatt", "x", "y", "updatedAt")
+          VALUES (${fixtureId}, ${floorId}, ${siteId}, '기존 조명', 40, 0, 0, now())`;
         // This is the actual old table shape, before energyFixtureId exists. The
         // migration assigns an analytics identity without inventing earlier history.
         await prisma.$executeRaw`INSERT INTO "FixtureEnergyDailyAggregate"
@@ -59,7 +63,8 @@ const databaseUrl = process.env.ENERGY_REPORT_TEST_DATABASE_URL;
     const xlsx = await new ExcelEnergyReportRenderer().render(document);
     const pdf = await new PdfEnergyReportRenderer().render(document);
     expect(xlsx.manifest).toEqual(pdf.manifest);
-    expect(JSON.stringify(document)).not.toMatch(/상태 기반 추정|推定|추정|예상|coverage|known|unknown|forecast|baseline|carbon|emission|탄소|최적화/i);
+    expect(document).toMatchObject({ schemaVersion: 2, calculationBasis: { tariffKwhRate: "9999", baselineReason: "dimension_history_missing", expectedSeconds: null, knownSeconds: null } });
+    expect(JSON.stringify(document)).not.toMatch(/forecast|carbon|emission|탄소|최적화/i);
     const retiredId = randomUUID();
     await prisma.energyFixtureIdentity.create({ data: { id: retiredId, siteId,
       trackingStartedAt: new Date("2026-09-01T00:00:00Z"), retiredAt: new Date("2026-09-02T03:00:00Z"),
@@ -69,7 +74,15 @@ const databaseUrl = process.env.ENERGY_REPORT_TEST_DATABASE_URL;
     } });
     const retired = await snapshots.capture(randomUUID(), siteId,
       { from: "2026-09-02", to: "2026-09-02", scope: "site", identityId: siteId, format: "pdf" }, new Date("2026-09-12T00:00:00Z"));
-    expect(retired.documentSnapshot.sections[0]).toMatchObject({ rows: [{ value: 1.5 }, { value: 212.5 }] });
+    expect(retired.documentSnapshot.sections[0]).toMatchObject({ rows: [
+      { label: "사용 전력량", value: 1.5, source: "persisted_actual" }, { label: "저장 비용", value: 212.5, source: "persisted_actual" },
+      { label: "24시간 기준 전력량", value: null, source: "captured_current_configuration" },
+      { label: "절감 전력량", value: null, source: "captured_current_configuration" },
+      { label: "절감률", value: null, source: "captured_current_configuration" },
+      { label: "현재 단가 기준 비용", value: null, source: "captured_current_configuration" },
+      { label: "예상 절감 비용", value: null, source: "captured_current_configuration" },
+      { label: "데이터 수집률", value: null, source: "captured_current_configuration" }
+    ] });
     expect(table(retired.documentSnapshot, "fixture-ranking")).toEqual([]);
   }, 30_000);
 

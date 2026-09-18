@@ -1,4 +1,21 @@
 import { energyReportDocumentSchema, type EnergyReportDocument } from "@led-control/shared";
+import { EnergyReportDocumentBuilder } from "./energy-report-document.builder";
+
+export const expectedVisualIds = ["daily-chart", "comparison-chart/energyKwh", "comparison-chart/cost", "fixture-ranking-chart", "floor-ranking-chart", "group-ranking-chart", "energy-heatmap-chart", "brightness-heatmap-chart"];
+
+export function visualReportFixture(): EnergyReportDocument {
+  const siteId = "20000000-0000-4000-8000-000000000001";
+  return new EnergyReportDocumentBuilder().build("10000000-0000-4000-8000-000000000001",
+    { scope: "site", identityId: siteId, format: "pdf", from: "2026-09-01", to: "2026-09-10" },
+    { schemaVersion: 2, capturedAt: "2026-09-11T00:00:00.000Z", site: { id: siteId, name: "서울 공장", timeZone: "UTC", tariffKwhRate: "160" },
+      comparisonRange: { from: "2026-08-22", to: "2026-08-31" }, fixtures: Array.from({ length: 12 }, (_, index) => ({
+        id: `fixture-${index}`, from: "2026-08-01T00:00:00.000Z", to: null,
+        dimensions: [{ name: `한글 조명 ${index}`, floorId: "floor", floorName: "생산층", ratedWatt: "30", from: "2026-08-01T00:00:00.000Z", to: null }],
+        groups: [{ id: "group", name: "생산 그룹", from: "2026-08-01T00:00:00.000Z", to: null }],
+        daily: [{ localDate: "2026-09-01", energyKwh: String((index + 1) / 100), cost: "12", durationSeconds: 3600 }],
+        hourly: [{ localDate: "2026-09-01", localHour: 0, bucketStartUtc: "2026-09-01T00:00:00.000Z", energyKwh: "0.01", durationSeconds: 3600, brightnessWeightedSeconds: "180000" }]
+      })) });
+}
 
 export const longName = "서울 생산동 긴 이름 조명 ".repeat(35);
 export function reportFixture(): EnergyReportDocument {

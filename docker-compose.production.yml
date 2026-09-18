@@ -148,21 +148,66 @@ services:
       postgres: {condition: service_healthy}
     command: [node, /migration/prisma/build/index.js, migrate, deploy, --schema, /app/prisma/schema.prisma]
 
+  cad-converter:
+    <<: *runtime
+    network_mode: none
+    image: ${API_IMAGE:?Set immutable API_IMAGE}
+    user: "2000:2000"
+    mem_limit: 1024m
+    cpus: 1.0
+    pids_limit: 64
+    environment:
+      NODE_ENV: production
+      NODE_OPTIONS: --max-old-space-size=64
+      CAD_IMPORT_CONVERTER_EXECUTABLE: /opt/cad-converter/bin/converter
+      CAD_IMPORT_CONVERTER_ARGV_JSON: ${CAD_IMPORT_CONVERTER_ARGV_JSON:?Set approved CAD_IMPORT_CONVERTER_ARGV_JSON}
+      CAD_IMPORT_CONVERTER_SHA256: ${CAD_IMPORT_CONVERTER_SHA256:?Set approved CAD_IMPORT_CONVERTER_SHA256}
+      CAD_IMPORT_CONVERTER_SPOOL_ROOT: /run/cad-converter-spool
+      CAD_IMPORT_CONVERTER_TIMEOUT_MS: "60000"
+      CAD_IMPORT_MAX_DXF_BYTES: "268435456"
+    volumes:
+      - cad-converter-spool:/run/cad-converter-spool
+      - type: bind
+        source: ${CAD_IMPORT_CONVERTER_BUNDLE_PATH:?Set approved CAD_IMPORT_CONVERTER_BUNDLE_PATH}
+        target: /opt/cad-converter
+        read_only: true
+        bind:
+          create_host_path: false
+    tmpfs: ["/tmp:uid=2000,gid=2000,mode=0700,size=67108864"]
+    command: [node, /app/dist/src/floor-import/cad-converter-sidecar.js]
+    healthcheck:
+      <<: *health
+      test: [CMD, node, /app/dist/src/floor-import/cad-converter-sidecar.js, healthcheck]
+
   api:
     <<: *runtime
     networks: [backend]
     image: ${API_IMAGE:?Set immutable API_IMAGE}
-    user: "1000:1000"
-    mem_limit: 1g
-    tmpfs: [/tmp]
+    user: "1000:2000"
+    # API parent, parser child, source/output copies and native overhead are
+    # bounded independently from the converter sidecar cgroup.
+    mem_limit: 1408m
+    tmpfs: [/tmp, "/tmp/cad-import:uid=1000,gid=2000,mode=0700,size=536870912"]
     depends_on:
       crl-init: {condition: service_completed_successfully}
       api-migrate: {condition: service_completed_successfully}
+      cad-converter: {condition: service_healthy}
       redis: {condition: service_healthy}
       mqtt-tls: {condition: service_healthy}
       object-storage-init: {condition: service_completed_successfully}
     environment:
       NODE_ENV: production
+      NODE_OPTIONS: --max-old-space-size=256
+      CAD_CORE_MAX_OLD_SPACE_MB: "384"
+      CAD_IMPORT_MAX_CONCURRENT_JOBS: "1"
+      CAD_IMPORT_TEMP_VOLUME_BYTES: "536870912"
+      CAD_CGROUP_REQUIRED: "1"
+      CAD_IMPORT_CONVERTER_MODE: sidecar
+      CAD_IMPORT_CONVERTER_SHA256: ${CAD_IMPORT_CONVERTER_SHA256:?Set approved CAD_IMPORT_CONVERTER_SHA256}
+      CAD_IMPORT_CONVERTER_SPOOL_ROOT: /run/cad-converter-spool
+      CAD_IMPORT_CONVERTER_CLIENT_TIMEOUT_MS: "65000"
+      CAD_IMPORT_MAX_DXF_BYTES: "268435456"
+      CAD_IMPORT_TEMP_ROOT: /tmp/cad-import
       API_PORT: "4000"
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL}
       REDIS_URL: ${REDIS_URL:?Set REDIS_URL}
@@ -207,6 +252,7 @@ services:
       - mqtt-crl:/run/mqtt-crl
       - ${VAULT_TOKEN_FILE:?Set VAULT_TOKEN_FILE}:/run/vault/token:ro
       - ${VAULT_CA_CERT_PATH:?Set VAULT_CA_CERT_PATH}:/run/vault/ca.crt:ro
+      - cad-converter-spool:/run/cad-converter-spool
     healthcheck:
       <<: *health
       test: [CMD, node, -e, "require('https').get('https://api:4000/health/ready',{ca:require('fs').readFileSync('/run/api-tls/api-ca.crt')},r=>{r.resume();process.exitCode=r.statusCode===200?0:1}).on('error',()=>process.exit(1)).setTimeout(2000,function(){this.destroy()})"]
@@ -246,3 +292,9 @@ volumes:
   object-storage-data: {}
   device-crl: {}
   mqtt-crl: {}
+  cad-converter-spool:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: uid=1000,gid=2000,mode=0770,size=402653184

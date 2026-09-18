@@ -1,6 +1,6 @@
 import { useRef, useState, type FormEvent } from "react";
 import { createSiteUser, updateSiteUser, type SiteUserSummary } from "../../../api/site-users";
-import { Button, ModalDialog } from "../../../components/ui";
+import { Button, ModalDialog, PasswordField, RadioGroup, Switch, TextField } from "../../../components/ui";
 import { siteUserErrorCode, siteUserErrorMessage, validateSiteUserForm, type SiteUserFormErrors, type SiteUserFormValues } from "./site-user-form";
 
 interface SiteUserFormDialogProps {
@@ -100,7 +100,7 @@ export function SiteUserFormDialog({ siteId, user, returnFocusElement, fallbackF
       initialFocusRef={nameRef}
       returnFocusElement={returnFocusElement}
       fallbackFocusElement={fallbackFocusElement}
-      className="site-user-dialog-wide"
+      className="w-[min(38.125rem,100%)]!"
       actions={<>
         <Button type="button" onClick={onClose} disabled={isPending}>취소</Button>
         <Button type="submit" form="site-user-form" variant="primary" disabled={isLimitReached} isLoading={isPending} loadingLabel="처리 중">
@@ -108,42 +108,18 @@ export function SiteUserFormDialog({ siteId, user, returnFocusElement, fallbackF
         </Button>
       </>}
     >
-      <form id="site-user-form" className="site-user-form" onSubmit={handleSubmit} noValidate>
-        <div className="site-user-form-grid">
-          <FormField label="이름" error={errors.name}>
-            <input ref={nameRef} id="site-user-name" value={values.name} onChange={(event) => update("name", event.target.value)} aria-invalid={Boolean(errors.name)} aria-describedby={errors.name ? "site-user-name-error" : undefined} />
-          </FormField>
-          <FormField label="로그인 아이디" error={errors.loginId} errorId="site-user-login-error">
-            <input id="site-user-login" value={values.loginId} onChange={(event) => update("loginId", event.target.value)} autoCapitalize="none" autoComplete="off" aria-invalid={Boolean(errors.loginId)} aria-describedby={errors.loginId ? "site-user-login-error" : undefined} />
-          </FormField>
+      <form id="site-user-form" className="grid gap-5" onSubmit={handleSubmit} noValidate>
+        <div className="grid gap-4 compact:grid-cols-2">
+          <TextField ref={nameRef} id="site-user-name" label="이름" value={values.name} onChange={(value) => update("name", value)} isInvalid={Boolean(errors.name)} errorMessage={errors.name} />
+          <TextField id="site-user-login" label="로그인 아이디" value={values.loginId} onChange={(value) => update("loginId", value)} autoComplete="off" isInvalid={Boolean(errors.loginId)} errorMessage={errors.loginId} />
         </div>
         {!isEdit ? (
-          <FormField label="임시 비밀번호" error={errors.temporaryPassword} errorId="site-user-password-error" help="8~1024자로 입력하세요. 공백만 사용할 수 없으며, 사용자는 최초 로그인 후 비밀번호를 변경해야 합니다.">
-            <input id="site-user-password" type="password" value={values.temporaryPassword} onChange={(event) => update("temporaryPassword", event.target.value)} autoComplete="new-password" aria-invalid={Boolean(errors.temporaryPassword)} aria-describedby={errors.temporaryPassword ? "site-user-password-error" : undefined} />
-          </FormField>
+          <PasswordField id="site-user-password" label="임시 비밀번호" description="8~1024자로 입력하세요. 공백만 사용할 수 없으며, 사용자는 최초 로그인 후 비밀번호를 변경해야 합니다." value={values.temporaryPassword} onChange={(value) => update("temporaryPassword", value)} autoComplete="new-password" isInvalid={Boolean(errors.temporaryPassword)} errorMessage={errors.temporaryPassword} />
         ) : null}
-        <fieldset className="site-user-segments">
-          <legend>현장 권한</legend>
-          <div>
-            {(["read", "control"] as const).map((level) => (
-              <button key={level} type="button" aria-pressed={values.accessLevel === level} onClick={() => update("accessLevel", level)}>
-                {level === "read" ? "조회" : "제어"}
-              </button>
-            ))}
-          </div>
-          <p>제어 권한에는 모니터링과 통계 조회 권한이 포함됩니다.</p>
-        </fieldset>
-        <label className="site-user-status-control">
-          <span><strong>계정 활성화</strong><small>{isEdit ? "비활성화하면 현재 로그인 세션이 종료됩니다." : "활성 상태로 생성하면 즉시 로그인할 수 있습니다."}</small></span>
-          <input type="checkbox" role="switch" checked={values.status === "active"} onChange={(event) => update("status", event.target.checked ? "active" : "disabled")} />
-        </label>
-        {requestError ? <p className="site-user-form-alert" role="alert">{requestError}</p> : null}
+        <RadioGroup label="현장 권한" description="제어 권한에는 모니터링과 통계 조회 권한이 포함됩니다." orientation="horizontal" value={values.accessLevel} onChange={(value) => update("accessLevel", value as SiteUserFormValues["accessLevel"])} items={[{ value: "read", label: "조회" }, { value: "control", label: "제어" }]} />
+        <Switch label="계정 활성화" description={isEdit ? "비활성화하면 현재 로그인 세션이 종료됩니다." : "활성 상태로 생성하면 즉시 로그인할 수 있습니다."} isSelected={values.status === "active"} onChange={(selected) => update("status", selected ? "active" : "disabled")} />
+        {requestError ? <p className="rounded-control border border-status-danger-border bg-status-danger-background p-3 text-status-danger-foreground" role="alert">{requestError}</p> : null}
       </form>
     </ModalDialog>
   );
-}
-
-function FormField({ label, error, errorId, help, children }: { label: string; error?: string; errorId?: string; help?: string; children: React.ReactElement<{ id?: string }> }) {
-  const id = children.props.id;
-  return <div className="site-user-field"><label htmlFor={id}>{label}</label>{children}{error ? <small id={errorId ?? `${id}-error`} role="alert" className="site-user-field-error">{error}</small> : help ? <small>{help}</small> : null}</div>;
 }

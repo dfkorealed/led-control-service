@@ -123,12 +123,12 @@ describe("CommandJournal", () => {
     ]);
   });
 
-  it("retains accepted and pending manual recoveries beyond command TTL and a 30-day override", async () => {
+  it("retains accepted and pending controls without expiry beyond command TTL", async () => {
     const path = join(await mkdtemp(join(tmpdir(), "command-long-manual-")), "journal.json");
     let now = new Date("2026-08-01T00:00:00.000Z");
     const journal = new CommandJournal(path, { now: () => now, ttlMs: 24 * 60 * 60 * 1000 });
-    await journal.accept("accepted", timedCommand("command-1", "2026-08-31T00:00:00.000Z"));
-    await journal.accept("pending", timedCommand("command-2", "2026-08-31T00:00:00.000Z"));
+    await journal.accept("accepted", { command: { commandId: "command-1", targetFixtureIds: ["fixture-1"], brightness: 60 } });
+    await journal.accept("pending", { command: { commandId: "command-2", targetFixtureIds: ["fixture-1"], brightness: 60 } });
     await journal.complete("pending", commandResult("fixture-1", 60, now.toISOString()), {
       automationHandoffPending: true
     });

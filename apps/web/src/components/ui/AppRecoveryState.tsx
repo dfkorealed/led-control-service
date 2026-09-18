@@ -22,18 +22,18 @@ export function AppRecoveryState({ variant, onRetry, onReload, onRelogin, isPend
   useEffect(() => { heading.current?.focus(); }, [variant]);
   const copy = recoveryCopy[variant];
 
-  return <main className="app-recovery" aria-labelledby={headingId}>
-    <Card className="app-recovery-panel">
+  return <main className="grid min-h-dvh place-items-center p-6" aria-labelledby={headingId}>
+    <Card className="w-full max-w-130 min-w-0 wrap-anywhere p-5 compact:p-10">
       <div role="alert">
-        <h1 id={headingId} ref={heading} tabIndex={-1}>{copy.title}</h1>
-        <p>{copy.description}</p>
+        <h1 id={headingId} ref={heading} tabIndex={-1} className="m-0 text-section-title font-bold text-content-primary focus:outline-3 focus:outline-action-primary focus:outline-offset-4 compact:text-page-title">{copy.title}</h1>
+        <p className="mt-2 mb-0 text-body-lg text-content-secondary">{copy.description}</p>
       </div>
-      <div className="app-recovery-actions" aria-busy={isPending}>
+      <div role="group" aria-label="복구 작업" data-recovery-actions className="mt-6 flex flex-wrap gap-3" aria-busy={isPending}>
         {variant === "service_unavailable" && <Button variant="primary" disabled={isPending} onClick={onRetry}>다시 시도</Button>}
         {variant === "chunk_error" && <Button variant="primary" disabled={isPending} onClick={onReload}>새로고침</Button>}
         <Button disabled={isPending} onClick={onRelogin}>다시 로그인</Button>
       </div>
-      {isPending && <p role="status">복구하는 중입니다.</p>}
+      {isPending && <p className="mt-3 mb-0 text-body-sm text-content-secondary" role="status">복구하는 중입니다.</p>}
     </Card>
   </main>;
 }

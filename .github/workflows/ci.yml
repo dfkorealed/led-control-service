@@ -30,6 +30,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: pnpm/action-setup@v4
         with:
           version: "9.15.0"
@@ -40,6 +42,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @led-control/api prisma:generate
       - run: pnpm test
+      - run: pnpm --filter @led-control/web test:date-bundle
+      - run: pnpm --filter @led-control/web test:overlay-bundle
 
   postgres-redis-integration:
     needs: unit
@@ -118,6 +122,7 @@ jobs:
       - name: Verify generated development MQTT ACL reload
         run: DEV_MQTT_ACL_INTEGRATION=1 node --test scripts/dev-mqtt-acl.integration.test.mjs
       - run: pnpm --filter @led-control/web exec playwright install --with-deps chromium
+      - run: pnpm --filter @led-control/web e2e:ui-cascade
       - run: pnpm ci:real-backend
 
   build:

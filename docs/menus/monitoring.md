@@ -1,6 +1,6 @@
 # 모니터링 메뉴 기능 현황
 
-기준일: 2026-09-13
+기준일: 2026-09-16
 
 ## 확정 구현 범위
 
@@ -21,6 +21,18 @@
 - 자동 HIL 판정. 실제 하드웨어 검증은 수동으로 수행한다.
 
 ## 구현 완료
+
+- 2026-09-17 공통 `FloorMapViewport`의 pinch는 시작 시 지도 좌표를 현재 두 손가락 중점에 맞춰 확대와 평행 이동을 함께 반영한다. 실제 지도 bounds와 눌림 상태를 사용하는 synthetic Chromium 회귀는 pan/select/area 모두에서 비대칭 pinch, 두 손가락 이동과 한 손가락 해제 후 jump 방지를 확인한다. `FloorScene` coarse marker는 48px hit target의 반지름만큼 가장자리 중심을 보정해 도면 경계에서 터치 영역이 잘리지 않도록 했다. 모니터링의 단일 선택 및 20px 시각 dot 계약은 유지하며 실제 iOS/Android WebView와 Gateway/조명 HIL은 별도 검증이다.
+
+- 2026-09-17 모니터링은 공통 `FloorMapViewport`를 사용하고, 기존 읽기 전용 `FloorScene`에 명시적인 `single` selection adapter를 전달한다. 따라서 marker와 `상세 조명 선택`의 단일 선택·상세 패널 동기화 의미는 바뀌지 않았다. viewport는 wheel 확대, pointer pan과 모든 interaction mode의 두 손가락 pinch를 제공한다. pointer capture로 지도 밖 이동도 추적하지만 marker button은 단일 pointer gesture를 시작하지 않아 native marker click을 보존한다. marker는 시각 20px dot과 별도 44px coarse hit target을 유지한다.
+
+- 2026-09-17 지도 viewport의 fit·pan·Ctrl/Cmd+wheel 배율·zoom control을 재사용 가능한 `FloorMapViewport`로 분리했다. 모니터링은 기존 읽기 전용 `FloorScene`, marker 단일 선택, 범례와 안내를 어댑터로 유지한다. 모바일의 pan/select/area 상호작용은 모두 두 touch pointer의 중점에 고정한 pinch zoom을 제공하며, pinch는 진행 중인 pan/영역 선택을 취소하고 남은 touch가 갑자기 이동하지 않도록 one-pointer gesture로 이어지지 않는다. 확대 지도 overflow는 viewport 내부에만 두고 0.1~4 배율과 층 변경 시 100% 화면 맞춤을 유지한다. `FloorMapViewport`·gesture·모니터링 집중 Vitest 21개와 인접 모니터링/scene 61개, web typecheck를 통과했다. 이는 jsdom의 포인터 회귀 검증이며 실제 모바일 WebView gesture 및 현장 도면 시각 QA는 후속 확인이 필요하다.
+
+- 2026-09-16 Tailwind Task 12에서 공통 primitive와 모니터링 화면의 legacy class/CSS adapter를 제거하고 의미 토큰·utility 및 `data-*` 테스트 계약으로 수렴했다. 정책 baseline은 빈 violation map을 사용하며 1440/1024/390/320px 가로 overflow 계약을 canonical 회귀에 포함한다. Fresh Web **1,224/1,224**, UI policy **53/53**, 전체 Chromium 직렬 **257 passed·5 환경 의존 skip·실패 0**을 통과했다. 자동 Chromium·mock API 기반 소프트웨어 증거이며 실제 iOS/Android WebView, 현장 도면, Raspberry Pi/BlueZ/ESP32-H2 HIL은 실행하지 않았다.
+
+- 2026-09-16 공통 셸·인증 UI 이전에서 모니터링 진입 셸의 내비게이션, 현장 배지, 로딩·복구 상태와 로그아웃을 Tailwind 의미 토큰 및 공통 `Heading`/`Text`/`FeedbackState`/`ConfirmDialog`로 통합했다. 저장하지 않은 맵 편집 내용이 있으면 `window.confirm` 대신 접근 가능한 `alertdialog`에서 취소 시 원래 로그아웃 버튼으로 초점을 복원하고, 승인 후에만 draft와 session을 정리한다. 관련 Vitest 157개와 320/390/1024/1440px Chromium 셸·인증·복구 시나리오 19개로 검증했으며, 이는 mock API 기반 browser 회귀로 Raspberry Pi·Gateway·ESP32-H2·조명 실장비 HIL 완료를 뜻하지 않는다.
+- 설정이 소유하는 조명 검색·등록과 맵 편집 화면을 공통 React Aria/Tailwind UI로 이전하면서 기존 등록 상태·payload와 모니터링 캐시 동기화 계약을 유지했다. 이미 등록된 장비는 등록 가능 목록에서 분리하고 새 장비만 선택·제출하며, 저장한 네모·세모·선·텍스트와 조명 위치는 모니터링의 읽기 전용 `FloorScene`에 즉시 반영한다. Konva의 정적 렌더링 색상은 `themeColor` 의미 토큰을 사용하고 저장 좌표·viewport·배율만 runtime geometry 예외로 유지한다. 이 범위는 deterministic Vitest/Chromium 회귀이며 Raspberry Pi·ESP32-H2·LED 실장비 HIL 완료를 뜻하지 않는다.
+- 모니터링 화면을 공통 Tailwind 디자인 시스템으로 이전했다. 맵·조명 선택은 공통 `SelectBox`, 새로고침·지도 배율 제어와 공간 조명 마커는 공통 `Button`/`IconButton`, 로딩·오류·빈 상태는 `FeedbackState`, 요약은 `MetricCard`, 상세 상태는 `StatusBadge`, 제목·본문은 `Heading`/`Text`를 사용한다. 저장 도형과 조명 위치는 기존 공통 `FloorScene` 렌더러를 유지하고, 조명 밝기와 빛 번짐은 `fixture-brightness-1..10`·`fixture-marker` 의미 토큰으로 표시한다. 지도 및 마커의 저장 좌표·측정 viewport·줌 배율처럼 실행 중 계산되는 값만 inline geometry 예외로 남긴다.
 
 - BIO direct-USB Gateway의 상태 판정은 transport 연결, protocol 준비, durable mapping 유효성, MQTT 연결, heartbeat freshness가 모두 참일 때만 healthy다. 외부 health 응답에는 adapter 종류와 boolean 상태만 포함하고 USB 경로·descriptor·장치 UUID·raw protocol payload·인증정보는 노출하지 않는다. BIO sensor cloud source는 지원하지 않으므로 빈 목록을 반환하고 configure/send는 명시적으로 실패한다. 전용 배포는 exact-one USB 장치와 숫자 GID를 host/container 양쪽에서 재검증하며 BIO 프로세스에 D-Bus/HCI/BlueZ를 제공하지 않는다.
 
@@ -48,7 +60,7 @@
 - BIO의 첫 수동 제어는 polling에서 읽은 sensor용 high-brightness 설정을 현재 출력으로 재사용하지 않는다. Gateway가 실제 SET과 두 GET read-back을 검증한 뒤에만 force mode의 밝기·전원 상태를 자동화 기준과 `fixture-state`로 저장하므로, 등록 직후 모니터링 값이 비어 있어도 제어는 시작할 수 있고 실패한 명령이 가짜 현재 밝기를 만들지 않는다.
 - 2026-09-02 무장비 회귀 점검에서 등록 API도 Web과 동일하게 `scanStatus=completed`, non-null correlation ID와 attempt의 exact match를 강제한다. 따라서 이전 검색 시도나 identity가 없는 legacy 발견 행을 요청에 직접 넣어도 provisioning 대상으로 수락하지 않는다.
 - 조명 목록의 최초 로딩·층 전환 로딩·최초 오류를 빈 조명 0개 상태와 분리한다. 기존 데이터가 있는 갱신 실패는 지도와 KPI를 유지하면서 오류 및 재시도를 표시하고, 지도 snapshot 로딩도 `등록된 층 없음`과 구분한다. 상단의 운영 현황 제목과 자동 갱신 설명은 제거하고 `맵 선택` 문구 옆 SelectBox와 우측 끝 수동 새로고침을 제공한다.
-- P1 Task 3 Web은 dashboard, 선택 층 fixture page, map snapshot을 10분 polling·10분 staleTime·focus refetch·2회 retry로 조회한다. cached dashboard/fixture/map의 background 실패는 현재 지도·층/조명 선택을 지우지 않고 persistent stale banner와 재시도로 표시한다. 지도 실패 표시는 실패 당시 같은 층의 `dataUpdatedAt`을 기준선으로 저장해 cached observer 상태 변화에는 유지하고, 더 최신 성공 응답에서 지도 경고와 지도 source의 toolbar 오류만 자동 해제한다. 다른 층의 실패 상태는 현재 층 경고에 섞지 않는다. 현장에 층이 없으면 floor fixture/map query는 비활성 상태이므로 해당 loading/error/stale 안내를 만들지 않는다. 선택 층의 모든 fixture page `generatedAt` 중 가장 오래된 유효 시각이 60초를 초과하면 stale이며, 경계 60초는 정상이다. `마지막 갱신`은 React Query 수신 시각이 아니라 그 서버 ISO를 표시하고 미래/잘못된 snapshot은 `시간 차이 확인` 또는 안전 경고로 표시한다. `provisioning_waiting_state`, gateway offline, fixture stale, command failed, Health fault/fault, online, generic offline은 공통 presenter를 통해 selector, marker 접근성 이름, badge, 상세 원인·권장 조치에서 같은 문구를 사용한다.
+- P1 Task 3 Web은 dashboard, 선택 층 fixture page, map snapshot을 10분 polling·10분 staleTime·focus refetch·2회 retry로 조회한다. map snapshot이 수동 또는 background 갱신에서 최종 실패하면 해당 query만 30초 뒤 자동 복구를 시도하고, 성공하면 정상 10분 주기로 복귀한다. dashboard와 fixture page의 polling 주기는 이 복구 정책의 영향을 받지 않는다. cached dashboard/fixture/map의 background 실패는 현재 지도·층/조명 선택을 지우지 않고 persistent stale banner와 재시도로 표시한다. 지도 실패 표시는 실패 당시 같은 층의 `dataUpdatedAt`을 기준선으로 저장해 cached observer 상태 변화에는 유지하고, 더 최신 성공 응답에서 지도 경고와 지도 source의 toolbar 오류만 자동 해제한다. 다른 층의 실패 상태는 현재 층 경고에 섞지 않는다. 현장에 층이 없으면 floor fixture/map query는 비활성 상태이므로 해당 loading/error/stale 안내를 만들지 않는다. 선택 층의 모든 fixture page `generatedAt` 중 가장 오래된 유효 시각이 60초를 초과하면 stale이며, 경계 60초는 정상이다. `마지막 갱신`은 React Query 수신 시각이 아니라 그 서버 ISO를 표시하고 미래/잘못된 snapshot은 `시간 차이 확인` 또는 안전 경고로 표시한다. `provisioning_waiting_state`, gateway offline, fixture stale, command failed, Health fault/fault, online, generic offline은 공통 presenter를 통해 selector, marker 접근성 이름, badge, 상세 원인·권장 조치에서 같은 문구를 사용한다.
 - Dashboard 요약은 저장된 fixture status뿐 아니라 최신 Health Current fault를 합성한 최종 상태로 정상·장애 수를 계산한다. `includeFixtures=false` 요약도 같은 규칙을 사용하며, 주기적 freshness DB 갱신 실패는 정제된 오류 코드만 기록하고 다음 주기를 계속 실행한다.
 - 조명 등록 진행 표시는 session·scan·node 상태를 하나의 순서 상태 머신으로 파생한다. active workflow는 오류가 없는 동안 정확히 한 단계만 `aria-current="step"`이고, 선행 단계는 완료, scan/장비 등록 실패는 실제 발생 단계의 오류로 표현한다. `completed`는 전체 완료, `cancelled`는 도달 단계 이후를 pending으로 유지해 current가 없고, session-level `failed`는 도달한 실제 단계가 error가 되어 terminal session을 진행 중으로 오인하지 않는다. 서버의 `errorMessage`, 개별 등록 검증 오류와 `scanFailureMessage`는 API 값 자체를 바꾸지 않고 공통 표시 경계에서 `Gateway ACK timeout` 같은 transport 원문을 `게이트웨이 장비 응답 시간 초과`처럼 한국어로 바꾼다.
 - 390px·320px commissioning 회귀는 버튼뿐 아니라 setup/Gateway claim/조명 등록의 enabled input·select·checkbox/radio associated label을 실제 clipping·occlusion을 고려한 연속 44×44px reachable area로 검증한다. 등록 직후 기본 일괄 form의 다섯 input을 먼저 검사하고, 개별 설정으로 전환한 뒤 개별 input을 다시 검사한다. 등록 form input과 select는 최소 44px이고, 18px checkbox/radio 시각 크기는 유지하되 label hit 영역을 44px 이상 제공한다.
@@ -163,6 +175,10 @@
 
 ## 부족하거나 개선이 필요한 기능
 
+- 모바일 두 손가락 확대·축소, marker hit 및 pointer-capture 경로는 Web PointerEvent와 synthetic Chromium으로 검증했다. 실제 iOS/Android WebView의 safe area, gesture arbitration, native click 전달과 장시간 현장 사용성은 실기기 확인이 필요하며, 이는 BLE/Mesh·firmware·물리 조명 HIL 검증이 아니다.
+
+- 공통 디자인 시스템 이전은 deterministic Vitest와 Chromium route fixture를 기준으로 검증한다. 실제 현장 도면의 수동 시각 QA와 Raspberry Pi/ESP32-H2/LED 연결 HIL 결과는 포함하지 않는다.
+
 - 자동으로 저장되는 인시던트 이력과 현장별 판정 기준을 사용자 화면에서 관리하는 UI는 제공하지 않는다. 필요해질 경우 일반 사용자 모니터링과 분리된 내부 운영자 화면으로 별도 설계해야 한다.
 - 원장 정리 worker는 생성 후 7일보다 오래된 heartbeat와 30일보다 오래된 fixture state를 최신 Gateway/Fixture snapshot·watermark 및 fixture energy cursor가 해당 기록을 포괄할 때만 삭제한다. superseded capability는 365일 정책이며 전체 이벤트는 sweep당 합산 최대 10,000개다. cutoff와 같은 시각, scope/hash가 없는 legacy 원장, 삭제된 fixture·누락된 cursor 등 안전 조건을 증명할 수 없는 기록은 보존한다. watermark는 stream별 최신 identity만 유지하므로 임의 과거 ID의 exact dedupe는 raw 원장이 남아 있는 기간에 의존한다. 세부 조건은 [DB 보존 문서](../database-schema.md#운영-데이터-보존과-복구-범위)를 따르며 사용자/운영 DB migration 적용과 실장비 replay HIL은 아직 실행하지 않았다.
 - 플랫폼 운영 배포 절차는 [API·Web runbook](../runbooks/production-api-web-deployment.md)을 따른다. 단일 호스트 Compose, 외부 Vault·공개 MQTT/Object Storage 연결, 장비 mTLS 공개 SAN, CRL 갱신 후 수동 broker SIGHUP, API 교체 후 nginx upstream 재해석·재시작이 운영 조건이다. Process-local 지표만 제공하며 외부 metrics/dashboard/alert/log shipping은 구성하지 않았다. 운영 배포·사용자 DB 적용·실장비 HIL과 native WebView·수동 시각 QA는 이번 자동 검증에 포함하지 않는다.
@@ -195,6 +211,7 @@
 
 - `apps/web/src/features/monitoring/MonitoringView.tsx`
 - `apps/web/src/features/monitoring/MonitoringView.test.tsx`
+- `apps/web/src/App.test.tsx`
 - `apps/web/e2e/calm-operations-monitoring.spec.ts`
 - `apps/web/src/features/shells/CustomerShell.monitoring.test.tsx`
 - `apps/api/src/monitoring-incidents`
@@ -233,6 +250,10 @@
 - `apps/web/src/api/test-data.ts`
 - `apps/web/src/features/monitoring/FloorMap.tsx`
 - `apps/web/src/features/monitoring/FloorMap.test.tsx`
+- `apps/web/src/features/floor-map/FloorMapViewport.tsx`
+- `apps/web/src/features/floor-map/FloorMapViewport.test.tsx`
+- `apps/web/src/features/floor-map/map-gestures.ts`
+- `apps/web/src/features/floor-map/map-gestures.test.ts`
 - `apps/web/src/features/floor-map/FloorScene.tsx`
 - `apps/web/src/features/floor-editor/FloorEditorView.tsx`
 - `apps/web/src/features/floor-editor/editor-monitoring-cache.ts`

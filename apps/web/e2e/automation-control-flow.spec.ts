@@ -49,7 +49,8 @@ test("admin creates and executes schedule and vehicle event rules", async ({ bro
   await login(admin, lab.admin.loginId, lab.admin.password);
   await admin.getByLabel("주소").fill("서울시 Task 19 테스트구 19번지");
   await admin.getByLabel("kWh 단가").fill("160");
-  await admin.getByLabel("시간대").selectOption("Asia/Seoul");
+  await admin.getByRole("button", { name: "시간대" }).click();
+  await admin.getByRole("option", { name: "Asia/Seoul", exact: true }).click();
   await admin.getByLabel("지하 층수").fill("1");
   await admin.getByLabel("지상 층수").fill("0");
   await admin.getByRole("button", { name: "층 자동 생성" }).click();
@@ -58,7 +59,7 @@ test("admin creates and executes schedule and vehicle event rules", async ({ bro
   await admin.getByRole("navigation", { name: "설정 메뉴" }).getByRole("link", { name: "조명 등록", exact: true }).click();
   await expect(admin).toHaveURL((url) => url.pathname === "/settings/registration" && url.searchParams.get("siteId") === created.siteId);
 
-  const installation = await lab.readInstallation();
+  await lab.readInstallation();
   await lab.seedGatewayInventory();
   await admin.getByLabel("게이트웨이 이름").fill("Task 19 Gateway");
   await admin.getByLabel("제품 시리얼").fill(lab.gateway.serialNumber);
@@ -72,13 +73,15 @@ test("admin creates and executes schedule and vehicle event rules", async ({ bro
   await lab.attachGatewayPublisher();
 
   await admin.reload();
-  await admin.getByLabel("등록 층").selectOption(installation.floorId);
-  await admin.getByLabel("등록 게이트웨이").selectOption(lab.gateway.id);
+  await admin.getByRole("button", { name: "등록 층" }).click();
+  await admin.getByRole("option", { name: "B1", exact: true }).click();
+  await admin.getByRole("button", { name: "등록 게이트웨이" }).click();
+  await admin.getByRole("option", { name: "Task 19 Gateway", exact: true }).click();
   await admin.getByRole("button", { name: "조명 검색 시작" }).click();
   await expect(admin.getByText("검색된 미등록 조명이 없습니다.")).toBeVisible();
   await admin.getByRole("button", { name: "다시 검색" }).click();
   await expect(admin.getByText(lab.fixtures[0].serialNumber)).toBeVisible({ timeout: 20_000 });
-  await admin.getByLabel("등록 가능 조명 전체 선택").check();
+  await selectCheckbox(admin, "등록 가능 조명 전체 선택");
   await admin.getByLabel("이름 접두어").fill("Task 19 fixture-");
   await admin.getByLabel("정격 전력(W)").fill("40.00");
   await admin.getByRole("button", { name: "선택 조명 등록" }).click();
@@ -87,7 +90,8 @@ test("admin creates and executes schedule and vehicle event rules", async ({ bro
 
   const preconnectTargetName = await lab.readRegisteredFixtureName(lab.fixtures[0].serialNumber);
   await admin.goto(`/control?siteId=${created.siteId}&mode=schedule`);
-  await createSchedule(admin, { brightness: 40, target: preconnectTargetName });
+  const scheduleReference = new Date();
+  await createSchedule(admin, { brightness: 40, target: preconnectTargetName, now: scheduleReference });
   const firstConnect = await lab.assertDesiredConfigPublishedBeforeFirstGatewayConnect();
   await lab.startAutomationGateway({ targetName, sensorName });
   await lab.waitForVehicleSensorCapability(sensorName);
@@ -107,34 +111,41 @@ test("admin creates and executes schedule and vehicle event rules", async ({ bro
   await expectFixtureBrightness(admin, created.siteId, targetName, "80%");
 
   await admin.goto(`/control?siteId=${created.siteId}&mode=manual`);
-  await admin.getByRole("checkbox", { name: `${targetName} 선택` }).check();
+  await selectFixtureFromList(admin, admin, targetName);
   await admin.getByRole("slider", { name: "밝기" }).fill("60");
-  const manualOverrideUntil = new Date(Date.now() + 10 * 60_000);
-  manualOverrideUntil.setSeconds(0, 0);
-  await admin.getByLabel("수동 override 종료 시각").fill(localDateTimeMinute(manualOverrideUntil));
   await admin.getByRole("button", { name: "밝기 적용" }).click();
-  await expect(admin.getByText("조명 적용 완료")).toBeVisible();
+  await expect(admin.getByText("조명 적용 완료 · 기본 밝기로 저장됨", { exact: true })).toBeVisible();
   await lab.waitForFixtureBrightness(targetName, 60);
   await expectFixtureBrightness(admin, created.siteId, targetName, "60%");
 
-  await lab.advanceAutomationClockTo(manualOverrideUntil.getTime() - 1_000);
   await lab.assertAutomationBrightnessPhase({
-    phase: "manual-before-expiry",
-    cause: "manual_override_active",
+    phase: "manual-suppresses-current-event",
+    cause: "manual_baseline_applied",
     fixtureName: targetName,
     brightness: 60,
   });
-  await lab.advanceAutomationClock(1_001);
+  await lab.injectSensorEdge(sensorName, "cleared");
+  await lab.waitForAutomationExecutionKind("event_extended");
+  await lab.advanceAutomationClockTo((await lab.latestVehicleHoldUntil()) + 1);
+  await lab.waitForFixtureBrightness(targetName, 60);
+  await lab.assertAutomationBrightnessPhase({
+    phase: "current-event-ended-baseline",
+    cause: "current_schedule_and_vehicle_activation_suppressed",
+    fixtureName: targetName,
+    brightness: 60,
+  });
+  await lab.injectSensorEdge(sensorName, "detected");
   await lab.waitForFixtureBrightness(targetName, 80);
   await lab.assertAutomationBrightnessPhase({
-    phase: "manual-after-expiry",
-    cause: "manual_override_expired_vehicle_priority_resumed",
+    phase: "next-event-resumes",
+    cause: "new_vehicle_activation",
     fixtureName: targetName,
     brightness: 80,
   });
   await expectFixtureBrightness(admin, created.siteId, targetName, "80%");
   await lab.injectSensorEdge(sensorName, "cleared");
-  await lab.waitForAutomationExecutionKind("event_extended");
+  // Wait for this activation's persisted deadline, not the prior event_extended row.
+  await lab.waitForAutomationExecutionKind("event_extended", 2);
   const vehicleHoldUntilMs = await lab.latestVehicleHoldUntil();
   await lab.assertAutomationBrightnessPhase({
     phase: "vehicle-clear-immediate",
@@ -150,14 +161,34 @@ test("admin creates and executes schedule and vehicle event rules", async ({ bro
     brightness: 80,
   });
   await lab.advanceAutomationClock(1_001);
-  await lab.waitForFixtureBrightness(targetName, 40);
+  await lab.waitForFixtureBrightness(targetName, 60);
   await lab.assertAutomationBrightnessPhase({
     phase: "vehicle-hold-after-deadline",
-    cause: "vehicle_hold_expired_schedule_resumed",
+    cause: "new_vehicle_activation_ended_baseline_restored",
+    fixtureName: targetName,
+    brightness: 60,
+  });
+  await expectFixtureBrightness(admin, created.siteId, targetName, "60%");
+
+  // Asia/Seoul has no DST: the next now-1h/now+1h daily window uses this same reference.
+  await lab.advanceAutomationClockTo(scheduleReference.getTime() + 23 * 60 * 60 * 1_000 + 1);
+  await lab.waitForFixtureBrightness(targetName, 40);
+  await lab.assertAutomationBrightnessPhase({
+    phase: "next-schedule-resumes",
+    cause: "new_daily_occurrence",
     fixtureName: targetName,
     brightness: 40,
   });
   await expectFixtureBrightness(admin, created.siteId, targetName, "40%");
+  await lab.advanceAutomationClockTo(scheduleReference.getTime() + 25 * 60 * 60 * 1_000 + 1);
+  await lab.waitForFixtureBrightness(targetName, 60);
+  await lab.assertAutomationBrightnessPhase({
+    phase: "next-schedule-ended-baseline",
+    cause: "daily_occurrence_ended_baseline_restored",
+    fixtureName: targetName,
+    brightness: 60,
+  });
+  await expectFixtureBrightness(admin, created.siteId, targetName, "60%");
 
   await lab.assertAutomationEvidence({ targetName, sensorName });
 
@@ -175,7 +206,7 @@ test("admin creates and executes schedule and vehicle event rules", async ({ bro
   await lab.assertDeletedScheduleDoesNotExecute(deletedScheduleId);
 
   await lab.stopAutomationGateway();
-  await createSchedule(admin, { brightness: 40, target: targetName });
+  await createSchedule(admin, { brightness: 40, target: targetName, now: scheduleReference });
   const apiRestart = await lab.waitForPublishedDesiredRevisionAhead("api-restart-published");
   await lab.stopApi();
   await lab.resetMqttBrokerSessions();
@@ -197,21 +228,20 @@ async function login(page: Page, loginId: string, password: string) {
   await expect(page.getByRole("button", { name: "로그아웃" })).toBeVisible();
 }
 
-async function createSchedule(page: Page, input: { brightness: number; target: string }) {
-  const now = new Date();
+async function createSchedule(page: Page, input: { brightness: number; target: string; now: Date }) {
+  const now = input.now;
   await page.getByRole("button", { name: "스케줄 추가" }).click();
   const dialog = page.getByRole("dialog", { name: "스케줄 추가" });
   await dialog.getByRole("button", { name: "세부 일정 설정" }).click();
   await dialog.getByLabel("스케줄 이름").fill("Task 19 상시 스케줄");
-  await dialog.getByLabel("적용 시작일").fill(siteDate(new Date(now.getTime() - 86_400_000)));
-  await dialog.getByLabel("적용 종료일").fill(siteDate(new Date(now.getTime() + 86_400_000)));
-  await dialog.getByLabel("시작 시각").fill(siteTime(new Date(now.getTime() - 3_600_000)));
-  await dialog.getByLabel("종료 시각").fill(siteTime(new Date(now.getTime() + 3_600_000)));
-  await dialog.getByLabel("반복", { exact: true }).selectOption("daily");
+  await fillSegmentedField(dialog, "적용 시작일", siteDate(new Date(now.getTime() - 86_400_000)));
+  await fillSegmentedField(dialog, "적용 종료일", siteDate(new Date(now.getTime() + 86_400_000)));
+  await fillSegmentedField(dialog, "시작 시각", siteTime(new Date(now.getTime() - 3_600_000)));
+  await fillSegmentedField(dialog, "종료 시각", siteTime(new Date(now.getTime() + 3_600_000)));
   await dialog.getByLabel("밝기", { exact: true }).fill(String(input.brightness));
   await dialog.getByRole("button", { name: "제어 대상 선택" }).click();
-  await dialog.getByRole("checkbox", { name: `${input.target} 선택` }).check();
-  await dialog.getByRole("button", { name: "선택 완료" }).click();
+  await selectFixtureFromList(page, dialog, input.target);
+  await dialog.getByRole("button", { name: "1개 조명 선택 완료", exact: true }).click();
   await dialog.getByRole("button", { name: "스케줄 만들기" }).click();
   await expect(dialog).toBeHidden();
 }
@@ -223,11 +253,11 @@ async function createVehicleEvent(
   await page.getByRole("button", { name: "이벤트 추가" }).click();
   const dialog = page.getByRole("dialog", { name: "이벤트 추가" });
   await dialog.getByRole("button", { name: "감지 센서 선택" }).click();
-  await dialog.getByRole("checkbox", { name: `${input.source} 선택` }).check();
-  await dialog.getByRole("button", { name: "선택 완료" }).click();
+  await selectFixtureFromList(page, dialog, input.source);
+  await dialog.getByRole("button", { name: "1개 조명 선택 완료", exact: true }).click();
   await dialog.getByRole("button", { name: "실행할 조명 선택" }).click();
-  await dialog.getByRole("checkbox", { name: `${input.target} 선택` }).check();
-  await dialog.getByRole("button", { name: "선택 완료" }).click();
+  await selectFixtureFromList(page, dialog, input.target);
+  await dialog.getByRole("button", { name: "1개 조명 선택 완료", exact: true }).click();
   await dialog.getByRole("button", { name: "고급 설정" }).click();
   await dialog.getByLabel("규칙 이름").fill("Task 19 차량 이벤트");
   await dialog.getByLabel("밝기", { exact: true }).fill(String(input.brightness));
@@ -235,6 +265,32 @@ async function createVehicleEvent(
   await dialog.getByLabel("유지 시간", { exact: true }).fill("5");
   await dialog.getByRole("button", { name: "저장", exact: true }).click();
   await expect(dialog).toBeHidden();
+}
+
+async function fillSegmentedField(dialog: Locator, label: string, value: string) {
+  const segments = dialog.getByRole("group", { name: label }).getByRole("spinbutton");
+  const parts = value.split(/\D+/).filter(Boolean);
+  await expect(segments).toHaveCount(parts.length);
+  for (let index = 0; index < parts.length; index += 1) {
+    await segments.nth(index).fill(parts[index]);
+  }
+}
+
+async function selectCheckbox(scope: Page | Locator, name: string) {
+  const checkbox = scope.getByRole("checkbox", { name });
+  if (!(await checkbox.isChecked())) {
+    // React Aria keeps the native input visually hidden; exercise the visible label users click.
+    await checkbox.locator("xpath=ancestor::label").click();
+  }
+  await expect(checkbox).toBeChecked();
+}
+
+async function selectFixtureFromList(page: Page, scope: Page | Locator, fixtureName: string) {
+  await scope.getByRole("button", { name: "조명 목록 열기" }).click();
+  const drawer = page.getByRole("dialog", { name: "조명 목록", exact: true });
+  await selectCheckbox(drawer, `${fixtureName} 선택`);
+  await drawer.getByRole("button", { name: "선택 완료", exact: true }).click();
+  await expect(drawer).toBeHidden();
 }
 
 function syncRow(page: Page, name: string): Locator {
@@ -248,9 +304,10 @@ async function expectFixtureBrightness(
   brightness: string,
 ) {
   await page.goto(`/control?siteId=${siteId}&mode=manual`);
-  const fixtureCheckbox = page.getByRole("checkbox", { name: `${fixtureName} 선택` });
-  await expect(fixtureCheckbox).toBeVisible();
-  await expect(fixtureCheckbox.locator("xpath=ancestor::label")).toContainText(brightness);
+  await selectFixtureFromList(page, page, fixtureName);
+  // Selecting one fixture initializes the control from its observed dashboard
+  // brightness; the map-first drawer no longer renders the old brightness row.
+  await expect(page.getByRole("slider", { name: "밝기" })).toHaveValue(brightness.replace("%", ""));
 }
 
 function siteDate(date: Date) {
@@ -269,9 +326,4 @@ function siteTime(date: Date) {
     minute: "2-digit",
     hourCycle: "h23",
   }).format(date);
-}
-
-function localDateTimeMinute(date: Date) {
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
-  return local.toISOString().slice(0, 16);
 }

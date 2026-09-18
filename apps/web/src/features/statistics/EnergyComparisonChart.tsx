@@ -9,6 +9,7 @@ import {
   XAxis,
   YAxis
 } from "recharts";
+import { Text, themeColor } from "../../components/ui";
 import {
   formatComparisonPeriod,
   formatCoverage,
@@ -40,15 +41,15 @@ export function EnergyComparisonChart({ comparison }: { comparison: EnergyCompar
 
   return (
     <>
-      <div className="comparison-chart-legend" aria-hidden="true">
-        <span data-series="baseline">기준 사용량</span>
-        <span data-series="observed">실제 사용량</span>
-        <span data-series="forecast">예상 사용량</span>
+      <div className="flex flex-wrap gap-3 text-caption font-bold text-content-secondary" aria-hidden="true">
+        <span className="flex items-center gap-1.5 before:h-2 before:w-2 before:rounded-control before:bg-chart-baseline">기준 사용량</span>
+        <span className="flex items-center gap-1.5 before:h-2 before:w-2 before:rounded-control before:bg-chart-usage">실제 사용량</span>
+        <span className="flex items-center gap-1.5 before:h-2 before:w-2 before:rounded-control before:bg-chart-forecast">예상 사용량</span>
       </div>
-      <div className="energy-comparison-chart" role="img" aria-label="기준 대비 에너지 사용량 비교 차트">
+      <div className="h-80 min-w-0 max-compact:h-64" role="img" aria-label="기준 대비 에너지 사용량 비교 차트">
         <ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 760, height: 320 }}>
           <ComposedChart data={data} margin={{ top: 12, right: 12, left: 0, bottom: 8 }} accessibilityLayer>
-            <CartesianGrid stroke="var(--border)" strokeDasharray="4 4" vertical={false} />
+            <CartesianGrid stroke={themeColor("chart-grid")} strokeDasharray="4 4" vertical={false} />
             <XAxis dataKey="period" tickFormatter={formatAxisPeriod} tickLine={false} />
             <YAxis unit=" kWh" width={74} tickLine={false} axisLine={false} />
             <Tooltip
@@ -59,14 +60,14 @@ export function EnergyComparisonChart({ comparison }: { comparison: EnergyCompar
                 />
               )}
             />
-            <Bar dataKey="baselineKwh" name="기준 사용량" fill="var(--primary-soft)" radius={[5, 5, 0, 0]} />
+            <Bar dataKey="baselineKwh" name="기준 사용량" fill={themeColor("chart-baseline")} radius={[5, 5, 0, 0]} />
             <Line
               type="monotone"
               dataKey="observedKwh"
               name="실제 사용량"
-              stroke="var(--primary)"
+              stroke={themeColor("chart-usage")}
               strokeWidth={3}
-              dot={{ r: 4, fill: "#ffffff", strokeWidth: 2 }}
+              dot={{ r: 4, fill: themeColor("chart-point"), strokeWidth: 2 }}
               activeDot={{ r: 6 }}
               connectNulls={false}
             />
@@ -74,23 +75,23 @@ export function EnergyComparisonChart({ comparison }: { comparison: EnergyCompar
               type="monotone"
               dataKey="forecastKwh"
               name="예상 사용량"
-              stroke="var(--warning)"
+              stroke={themeColor("chart-forecast")}
               strokeWidth={3}
-              dot={{ r: 4, fill: "#ffffff", strokeWidth: 2 }}
+              dot={{ r: 4, fill: themeColor("chart-point"), strokeWidth: 2 }}
               activeDot={{ r: 6 }}
               {...forecastLineStyle}
             />
           </ComposedChart>
         </ResponsiveContainer>
       </div>
-      <p className="statistics-baseline-note">24시간 100% · 현재 등록 조명 기준</p>
+      <Text variant="caption" tone="muted">24시간 100% · 현재 등록 조명 기준</Text>
       <ul className="sr-only" aria-label="기준 대비 에너지 비교 데이터">
         {data.map((point) => <li key={point.period}>{describeComparisonPoint(point)}</li>)}
       </ul>
       {data.some((point) => point.phase === "unavailable") ? (
-        <p className="chart-coverage-summary">
+        <Text variant="body-sm" tone="warning" className="rounded-control border border-status-warning-border bg-status-warning-background p-3">
           선이 없는 기간은 사용량을 산정할 수 없으며 기준 사용량만 표시합니다.
-        </p>
+        </Text>
       ) : null}
     </>
   );
@@ -101,7 +102,7 @@ function ComparisonTooltip({ active, point }: { active?: boolean; point?: Compar
   const difference = point.estimatedKwh === null ? null : point.baselineKwh - point.estimatedKwh;
 
   return (
-    <div className="energy-tooltip">
+    <div className="grid gap-1 rounded-control border border-border-default bg-surface-elevated p-3 text-body-sm text-content-primary shadow-popover">
       <strong>{formatComparisonPeriod(point.period)}</strong>
       <span>기준 {formatKwh(point.baselineKwh)}</span>
       <span>{point.phase === "forecast" ? "예상" : "실제"} {point.estimatedKwh === null ? "산정 불가" : formatKwh(point.estimatedKwh)}</span>

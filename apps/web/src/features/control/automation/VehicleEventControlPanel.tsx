@@ -15,9 +15,13 @@ import {
 import type { AuthUser } from "../../../api/auth";
 import { authMeQueryKey } from "../../../api/principal-cache";
 import type { Dashboard } from "../../../api/queries";
-import { ConfirmDialog } from "../../../components/ConfirmDialog";
-import { Button, FeedbackState, PageHeader, StatusBadge } from "../../../components/ui";
+import { Button, ConfirmDialog, FeedbackState, PageHeader, StatusBadge, Text } from "../../../components/ui";
 import { VehicleEventDialog } from "./VehicleEventDialog";
+import {
+  AutomationRuleTable,
+  automationTableCellClassName,
+  automationTableHeadingClassName
+} from "./components/AutomationRuleTable";
 
 export function VehicleEventControlPanel({
   siteId,
@@ -37,9 +41,9 @@ export function VehicleEventControlPanel({
   const scopeGeneration = scope.current.generation;
   const [editingRule, setEditingRule] = useState<VehicleEventRuleResponse | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [dialogReturnFocus, setDialogReturnFocus] = useState<HTMLElement | null>(null);
+  const dialogReturnFocusRef = useRef<HTMLElement | null>(null);
   const [deleteCandidate, setDeleteCandidate] = useState<VehicleEventRuleResponse | null>(null);
-  const [deleteReturnFocus, setDeleteReturnFocus] = useState<HTMLElement | null>(null);
+  const deleteReturnFocusRef = useRef<HTMLElement | null>(null);
   const [message, setMessage] = useState("");
   const [mutationError, setMutationError] = useState("");
   const canManage = role === "admin";
@@ -119,7 +123,7 @@ export function VehicleEventControlPanel({
 
   function beginAdd() {
     setEditingRule(null);
-    setDialogReturnFocus(addButtonRef.current);
+    dialogReturnFocusRef.current = addButtonRef.current;
     setMutationError("");
     setMessage("");
     setDialogOpen(true);
@@ -127,7 +131,7 @@ export function VehicleEventControlPanel({
 
   function beginEdit(rule: VehicleEventRuleResponse, opener: HTMLElement) {
     setEditingRule(rule);
-    setDialogReturnFocus(opener);
+    dialogReturnFocusRef.current = opener;
     setMutationError("");
     setMessage("");
     setDialogOpen(true);
@@ -189,46 +193,47 @@ export function VehicleEventControlPanel({
   }
 
   return (
-    <div id="control-mode-panel-event" className="schedule-control-panel" role="tabpanel" aria-labelledby="control-mode-event">
+    <div id="control-mode-panel-event" className="grid min-w-0 content-start gap-4 tablet:min-h-0 tablet:flex-1 tablet:overflow-y-auto" role="tabpanel" aria-labelledby="control-mode-event" data-control-automation-panel="event">
       <PageHeader
         title="이벤트 제어"
         headingLevel={3}
         description="Gateway가 차량 센서 감지를 현장 조명 규칙으로 즉시 연결합니다."
-        actions={canManage ? <Button ref={addButtonRef} variant="primary" className="schedule-add-button" type="button" onClick={beginAdd} disabled={isMutating || !dashboard}><CarFront size={16} aria-hidden="true" /> 이벤트 추가</Button> : undefined}
+        actions={canManage ? <Button ref={addButtonRef} variant="primary" type="button" onClick={beginAdd} disabled={isMutating || !dashboard}><CarFront size={16} aria-hidden="true" /> 이벤트 추가</Button> : undefined}
       />
-      {!canManage ? <p className="schedule-readonly-notice" role="status">조회 전용 계정입니다. 이벤트 규칙과 Gateway 적용 상태만 확인할 수 있습니다.</p> : null}
+      {!canManage ? <p className="m-0 border-l-4 border-status-warning-border bg-status-warning-background px-3 py-2.5 text-body-sm font-bold text-status-warning-foreground" role="status" data-control-readonly-notice="">조회 전용 계정입니다. 이벤트 규칙과 Gateway 적용 상태만 확인할 수 있습니다.</p> : null}
       {rulesQuery.isLoading ? <FeedbackState icon={Clock3} title="이벤트 규칙을 불러오는 중입니다." /> : null}
       {queryFailure ? <QueryError message={queryFailure.message} onRetry={() => void queryFailure.retry()} label={queryFailure.retryLabel} isBackground={rulesQuery.isRefetchError && !isScheduleUnauthorized(rulesQuery.error)} /> : null}
       {!rulesQuery.isLoading && !rulesQuery.isLoadingError ? (
-        rules.length > 0 ? <div className="automation-table-wrap schedule-table-wrap">
-          <table className="schedule-table" aria-label="차량 이벤트 목록">
-            <thead><tr><th>이름</th><th>활성</th><th>감지 센서</th><th>제어 조명</th><th>밝기</th><th>유지</th><th>Gateway 동기화</th><th>최근 감지</th>{canManage ? <th aria-label="관리" /> : null}</tr></thead>
+        rules.length > 0 ? <AutomationRuleTable label="차량 이벤트 목록">
+            <thead><tr><th className={automationTableHeadingClassName}>이름</th><th className={automationTableHeadingClassName}>활성</th><th className={automationTableHeadingClassName}>감지 센서</th><th className={automationTableHeadingClassName}>제어 조명</th><th className={automationTableHeadingClassName}>밝기</th><th className={automationTableHeadingClassName}>유지</th><th className={automationTableHeadingClassName}>Gateway 동기화</th><th className={automationTableHeadingClassName}>최근 감지</th>{canManage ? <th className={automationTableHeadingClassName} aria-label="관리" /> : null}</tr></thead>
             <tbody>
-              {rules.map((rule) => <tr key={rule.id}>
-                <td><strong>{rule.name}</strong></td>
-                <td><EnabledBadge enabled={rule.status === "enabled"} /></td>
-                <td>{rule.sourceCount}개</td>
-                <td>{rule.targetCount}개</td>
-                <td>{rule.action.dimmingEnabled ? `${rule.action.brightnessPercent}%` : "디밍 OFF · 100%"}</td>
-                <td>{rule.holdSeconds}초</td>
-                <td><SyncBadge status={rule.syncStatus} /></td>
-                <td><DetectionBadge rule={rule} timeZone={dashboard?.site.timeZone ?? "UTC"} /></td>
-                {canManage ? <td><div className="schedule-row-actions">
-                  <Button variant="ghost" type="button" aria-label={`${rule.name} ${rule.status === "enabled" ? "비활성화" : "활성화"}`} title={rule.status === "enabled" ? "비활성화" : "활성화"} disabled={isMutating} onClick={() => toggle(rule)}>{rule.status === "enabled" ? <PowerOff size={15} aria-hidden="true" /> : <Power size={15} aria-hidden="true" />}</Button>
-                  <Button variant="ghost" type="button" aria-label={`${rule.name} 수정`} title="수정" disabled={isMutating} onClick={(event) => beginEdit(rule, event.currentTarget)}><Pencil size={15} aria-hidden="true" /></Button>
-                  <Button variant="danger" className="danger-action" type="button" aria-label={`${rule.name} 삭제`} title="삭제" disabled={isMutating} onClick={(event) => { setDeleteCandidate(rule); setDeleteReturnFocus(event.currentTarget); setMutationError(""); }}><Trash2 size={15} aria-hidden="true" /></Button>
+              {rules.map((rule, index) => {
+                const isLastRow = index === rules.length - 1;
+                return <tr key={rule.id}>
+                <td className={automationTableCellClassName(isLastRow)}><strong className="block max-w-48 truncate">{rule.name}</strong></td>
+                <td className={automationTableCellClassName(isLastRow)}><EnabledBadge enabled={rule.status === "enabled"} /></td>
+                <td className={automationTableCellClassName(isLastRow)}>{rule.sourceCount}개</td>
+                <td className={automationTableCellClassName(isLastRow)}>{rule.targetCount}개</td>
+                <td className={automationTableCellClassName(isLastRow)}>{rule.action.dimmingEnabled ? `${rule.action.brightnessPercent}%` : "디밍 OFF · 100%"}</td>
+                <td className={automationTableCellClassName(isLastRow)}>{rule.holdSeconds}초</td>
+                <td className={automationTableCellClassName(isLastRow)}><SyncBadge status={rule.syncStatus} /></td>
+                <td className={automationTableCellClassName(isLastRow)}><DetectionBadge rule={rule} timeZone={dashboard?.site.timeZone ?? "UTC"} /></td>
+                {canManage ? <td className={automationTableCellClassName(isLastRow)}><div className="grid grid-cols-3 gap-1.5" data-schedule-row-actions="">
+                  <Button variant="ghost" className="w-11 p-0" type="button" aria-label={`${rule.name} ${rule.status === "enabled" ? "비활성화" : "활성화"}`} title={rule.status === "enabled" ? "비활성화" : "활성화"} disabled={isMutating} onClick={() => toggle(rule)}>{rule.status === "enabled" ? <PowerOff size={15} aria-hidden="true" /> : <Power size={15} aria-hidden="true" />}</Button>
+                  <Button variant="ghost" className="w-11 p-0" type="button" aria-label={`${rule.name} 수정`} title="수정" disabled={isMutating} onClick={(event) => beginEdit(rule, event.currentTarget)}><Pencil size={15} aria-hidden="true" /></Button>
+                  <Button variant="danger" className="w-11 p-0" type="button" aria-label={`${rule.name} 삭제`} title="삭제" disabled={isMutating} onClick={(event) => { setDeleteCandidate(rule); deleteReturnFocusRef.current = event.currentTarget; setMutationError(""); }}><Trash2 size={15} aria-hidden="true" /></Button>
                 </div></td> : null}
-              </tr>)}
+              </tr>;
+              })}
             </tbody>
-          </table>
-        </div> : <FeedbackState icon={CarFront} title="등록된 이벤트 규칙이 없습니다." description="감지 센서와 제어 조명을 연결해 차량 이벤트 대응을 시작할 수 있습니다." />
+        </AutomationRuleTable> : <FeedbackState icon={CarFront} title="등록된 이벤트 규칙이 없습니다." description="감지 센서와 제어 조명을 연결해 차량 이벤트 대응을 시작할 수 있습니다." />
       ) : null}
-      {rulesQuery.hasNextPage ? <Button variant="secondary" className="control-load-more" type="button" disabled={rulesQuery.isFetchingNextPage} onClick={() => void rulesQuery.fetchNextPage()}>{rulesQuery.isFetchingNextPage ? "불러오는 중" : "더 보기"}</Button> : null}
-      {message ? <p className="success-text schedule-panel-message" role="status">{message}</p> : null}
-      {mutationError && !dialogOpen && !deleteCandidate ? <p className="danger-text schedule-panel-message" role="alert">{mutationError}</p> : null}
-      {dashboard ? <VehicleEventDialog open={dialogOpen} rule={editingRule} dashboard={dashboard} isPending={saveMutation.isPending} serverError={mutationError} returnFocusElement={dialogReturnFocus} onClose={() => { if (!saveMutation.isPending) setDialogOpen(false); }} onSubmit={save} /> : null}
-      <ConfirmDialog open={Boolean(deleteCandidate)} title="이벤트 규칙 삭제" description={deleteCandidate ? `${deleteCandidate.name} 규칙을 삭제합니다.` : undefined} confirmLabel="삭제" destructive isPending={removeMutation.isPending} returnFocusElement={deleteReturnFocus} fallbackFocusElement={addButtonRef.current} onClose={() => { if (!removeMutation.isPending) setDeleteCandidate(null); }} onConfirm={remove}>
-        {mutationError ? <p className="danger-text" role="alert">{mutationError}</p> : null}
+      {rulesQuery.hasNextPage ? <Button variant="secondary" className="justify-self-center" type="button" disabled={rulesQuery.isFetchingNextPage} onClick={() => void rulesQuery.fetchNextPage()}>{rulesQuery.isFetchingNextPage ? "불러오는 중" : "더 보기"}</Button> : null}
+      {message ? <Text tone="success" role="status">{message}</Text> : null}
+      {mutationError && !dialogOpen && !deleteCandidate ? <Text tone="danger" role="alert">{mutationError}</Text> : null}
+      {dashboard ? <VehicleEventDialog open={dialogOpen} rule={editingRule} dashboard={dashboard} isPending={saveMutation.isPending} serverError={mutationError} returnFocusRef={dialogReturnFocusRef} onClose={() => { if (!saveMutation.isPending) setDialogOpen(false); }} onSubmit={save} /> : null}
+      <ConfirmDialog isOpen={Boolean(deleteCandidate)} title="이벤트 규칙 삭제" description={deleteCandidate ? `${deleteCandidate.name} 규칙을 삭제합니다.` : undefined} confirmLabel="삭제" tone="danger" isPending={removeMutation.isPending} returnFocusRef={deleteReturnFocusRef} fallbackFocusRef={addButtonRef} onCancel={() => { if (!removeMutation.isPending) setDeleteCandidate(null); }} onConfirm={remove}>
+        {mutationError ? <Text tone="danger" role="alert">{mutationError}</Text> : null}
       </ConfirmDialog>
     </div>
   );

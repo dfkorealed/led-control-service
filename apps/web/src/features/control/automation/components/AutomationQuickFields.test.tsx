@@ -37,7 +37,7 @@ describe("automation quick fields", () => {
       onOpen={onOpen}
     />);
 
-    expect(screen.getByText("B1 · 개별 선택")).toHaveClass("automation-selection-description");
+    expect(screen.getByText("B1 · 개별 선택")).toHaveClass("text-caption", "text-content-secondary");
     fireEvent.click(screen.getByRole("button", { name: "제어 대상 변경" }));
     expect(onOpen).toHaveBeenCalledTimes(1);
   });

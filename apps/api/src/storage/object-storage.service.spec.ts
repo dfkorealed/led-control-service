@@ -3,9 +3,60 @@ import { OBJECT_STORAGE_CLIENT, ObjectStorageService } from "./object-storage.se
 import { StorageModule } from "./storage.module";
 import { Test } from "@nestjs/testing";
 import { createHash } from "node:crypto";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { gzipSync } from "node:zlib";
 import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 
 describe("ObjectStorageService", () => {
+  it("streams a rendered SVG below 8 MiB and verifies PUT/HEAD metadata", async () => {
+    const root = await mkdtemp(join(tmpdir(), "rendered-storage-"));
+    const path = join(root, "floor.svg");
+    const bytes = gzipSync(Buffer.from("<svg xmlns=\"http://www.w3.org/2000/svg\"><text>한글</text></svg>"));
+    const sha256 = createHash("sha256").update(bytes).digest("hex");
+    let put: PutObjectCommand | undefined;
+    const client = { send: jest.fn(async (command: PutObjectCommand | HeadObjectCommand) => {
+      if (command instanceof PutObjectCommand) { put = command; for await (const _ of command.input.Body as AsyncIterable<Uint8Array>) { /* consume */ } return {}; }
+      return { ContentLength: put?.input.ContentLength, ContentType: put?.input.ContentType, ContentEncoding: put?.input.ContentEncoding,
+        ChecksumSHA256: put?.input.ChecksumSHA256, Metadata: put?.input.Metadata };
+    }) };
+    const storage = new ObjectStorageService(client as never, { bucket: "floor-assets", publicBaseUrl: "" });
+    try {
+      await writeFile(path, bytes);
+      await storage.putFloorRenderedObjectFile("floors/floor-1/rendered.svg", path, { sizeBytes: bytes.length, sha256 }, { width: 10, height: 20 });
+      await expect(storage.verifyFloorRenderedObject("floors/floor-1/rendered.svg", {
+        sizeBytes: bytes.length, sha256, mimeType: "image/svg+xml", contentEncoding: "gzip", width: 10, height: 20
+      })).resolves.toBeUndefined();
+      expect(put?.input.Body).not.toBeInstanceOf(Buffer);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
+  it("accepts a legacy identity SVG only when object HEAD has no content encoding", async () => {
+    const send = jest.fn().mockResolvedValue({
+      ContentLength: 123,
+      ContentType: "image/svg+xml",
+      ContentEncoding: undefined,
+      ChecksumSHA256: Buffer.from("a".repeat(64), "hex").toString("base64"),
+      Metadata: { "cad-width": "37", "cad-height": "23" }
+    });
+    const storage = new ObjectStorageService({ send } as never, { bucket: "floor-assets", publicBaseUrl: "" });
+
+    await expect(storage.readFloorRenderedMetadata("floors/floor-1/legacy.svg", {
+      sizeBytes: 123, sha256: "a".repeat(64), mimeType: "image/svg+xml", contentEncoding: null
+    })).resolves.toEqual({ width: 37, height: 23 });
+
+    send.mockResolvedValueOnce({
+      ContentLength: 123,
+      ContentType: "image/svg+xml",
+      ContentEncoding: "gzip",
+      ChecksumSHA256: Buffer.from("a".repeat(64), "hex").toString("base64"),
+      Metadata: { "cad-width": "37", "cad-height": "23" }
+    });
+    await expect(storage.readFloorRenderedMetadata("floors/floor-1/legacy.svg", {
+      sizeBytes: 123, sha256: "a".repeat(64), mimeType: "image/svg+xml", contentEncoding: null
+    })).rejects.toThrow(/HEAD.*ledger/i);
+  });
   const recorded = "reports/11111111-1111-1111-1111-111111111111/22222222-2222-2222-2222-222222222222/attempt-1.pdf";
   it("deletes only distinct recorded report keys and validates the entire batch before I/O", async () => {
     const send = jest.fn().mockResolvedValue({});
@@ -28,12 +79,32 @@ describe("ObjectStorageService", () => {
     presign: jest.fn().mockResolvedValue("https://upload.example/signed")
   });
 
-  it.each(["image/jpeg", "image/png", "application/pdf"])("accepts supported MIME %s", async (mimeType) => {
+  it.each([
+    "image/jpeg",
+    "image/png",
+    "application/dwg",
+    "application/dxf"
+  ])("accepts supported floor asset upload MIME %s", async (mimeType) => {
     await expect(
       service.createUploadDescriptor({ floorId: "floor-1", mimeType, sizeBytes: 1024, sha256: "a".repeat(64) })
     ).resolves.toMatchObject({ uploadUrl: "https://upload.example/signed", objectKey: expect.stringContaining("floors/floor-1/") });
     await expect(service.createUploadDescriptor({ floorId: "floor-1", mimeType, sizeBytes: 1024, sha256: "a".repeat(64) }))
       .resolves.not.toHaveProperty("publicUrl");
+  });
+
+  it("rejects PDF for every new floor asset upload path", async () => {
+    const input = {
+      floorId: "floor-1", mimeType: "application/pdf", sizeBytes: 1024, sha256: "a".repeat(64)
+    };
+
+    expect(() => service.prepareFloorAssetUpload(input)).toThrow(BadRequestException);
+    await expect(service.createUploadDescriptor(input)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.createFloorAssetUploadUrl({
+      objectKey: "floors/floor-1/legacy.pdf",
+      mimeType: input.mimeType,
+      sizeBytes: input.sizeBytes,
+      sha256: input.sha256
+    })).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it("rejects unsupported MIME, oversized files, and invalid checksums", async () => {
@@ -108,7 +179,7 @@ describe("ObjectStorageService", () => {
     }
   });
 
-  it("creates a 300-second signed GET for a private floor asset", async () => {
+  it("creates a 300-second signed GET for an existing PDF floor asset", async () => {
     const presignGet = jest.fn().mockResolvedValue("https://download.example/signed");
     const privateService = new ObjectStorageService({ send: jest.fn() } as never, {
       bucket: "floor-assets",
@@ -116,12 +187,12 @@ describe("ObjectStorageService", () => {
       presignGet
     });
 
-    await expect(privateService.createFloorAssetDownloadUrl("floors/floor-1/file.png"))
+    await expect(privateService.createFloorAssetDownloadUrl("floors/floor-1/legacy.pdf"))
       .resolves.toBe("https://download.example/signed");
     expect(presignGet).toHaveBeenCalledWith(expect.anything(), expect.any(GetObjectCommand), 300);
     expect((presignGet.mock.calls[0][1] as GetObjectCommand).input).toEqual({
       Bucket: "floor-assets",
-      Key: "floors/floor-1/file.png",
+      Key: "floors/floor-1/legacy.pdf",
       ResponseCacheControl: "private, no-store"
     });
   });

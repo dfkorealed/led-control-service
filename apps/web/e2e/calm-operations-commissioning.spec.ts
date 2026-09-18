@@ -39,7 +39,9 @@ const discoveredNode = {
   errorMessage: null,
   scanCorrelationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
   scanAttempt: 1,
-  discoveredAt: scanTimeline.firstNodeDiscoveredAt
+  discoveredAt: scanTimeline.firstNodeDiscoveredAt,
+  registrationEligibility: "available" as const,
+  existingRegistration: null
 };
 
 function registrationSession(
@@ -84,7 +86,7 @@ for (const viewport of viewports) {
       await page.getByLabel("주소").fill("서울시 강남구");
       await expectNoHorizontalOverflow(page);
       await expectCommissioningActionsReachable(page, ["주소 미입력", "층 자동 생성"], viewport.width);
-      await expectMobileRegionTargetsReachable(page, ".setup-wizard", viewport.width);
+      await expectMobileRegionTargetsReachable(page, '[data-testid="site-setup-flow"]', viewport.width);
       await page.getByRole("button", { name: "층 자동 생성" }).click();
       await expectNoHorizontalOverflow(page);
       await expect(page.getByRole("button", { name: "초기 설정 완료" })).toBeEnabled();
@@ -97,7 +99,7 @@ for (const viewport of viewports) {
       await expect(page.getByRole("region", { name: "Viewer 설치 대기" })).toBeVisible();
       await expect(page.getByRole("heading", { name: "게이트웨이 등록" })).toHaveCount(0);
       await expectNoHorizontalOverflow(page);
-      await expectMobileRegionTargetsReachable(page, ".bottom-nav", viewport.width);
+      await expectMobileRegionTargetsReachable(page, '[data-shell-navigation="compact"]', viewport.width);
     });
 
     await withFixturePage(browser, baseURL, viewport, async (page) => {
@@ -109,7 +111,7 @@ for (const viewport of viewports) {
       await expect(page.getByRole("button", { name: "게이트웨이 등록" })).toBeEnabled();
       await expectNoHorizontalOverflow(page);
       await expectCommissioningActionsReachable(page, ["게이트웨이 등록"], viewport.width);
-      await expectMobileRegionTargetsReachable(page, ".gateway-claim-panel", viewport.width);
+      await expectMobileRegionTargetsReachable(page, '[data-testid="gateway-claim-form"]', viewport.width);
     });
 
     await withFixturePage(browser, baseURL, viewport, async (page) => {
@@ -167,17 +169,17 @@ for (const viewport of viewports) {
       await installSettingsApiRoutes(page, "admin", { fixtures: [], ids: fixtureIds(), activeRegistrationSessions: [discovered] });
       await page.goto(`/settings/registration?siteId=${ids.site}`);
       await expect(page.getByLabel("조명 1 선택")).toBeVisible();
-      await page.getByLabel("조명 1 선택").check();
+      await clickChoice(page, "checkbox", "조명 1 선택");
       await expectRegistrationStepStates(page, ["complete", "current", "pending", "pending"]);
       await expect(page.getByRole("button", { name: "선택 조명 등록" })).toBeEnabled();
       await expectCommissioningActionsReachable(page, ["선택 조명 등록"], viewport.width);
-      await expectMobileRegionTargetsReachable(page, ".registration-config-form", viewport.width);
-      await page.getByRole("radio", { name: "개별 설정" }).check();
+      await expectMobileRegionTargetsReachable(page, '[data-testid="fixture-config-form"]', viewport.width);
+      await clickChoice(page, "radio", "개별 설정");
       await page.getByLabel("조명 1 이름").fill("입구 조명");
       await expect(page.getByLabel("조명 1 이름")).toHaveValue("입구 조명");
       await expectNoHorizontalOverflow(page);
       await expectCommissioningActionsReachable(page, ["선택 조명 등록"], viewport.width);
-      await expectMobileRegionTargetsReachable(page, ".registration-panel", viewport.width);
+      await expectMobileRegionTargetsReachable(page, '[data-testid="commissioning-registration"]', viewport.width);
     });
 
     await withFixturePage(browser, baseURL, viewport, async (page) => {
@@ -188,14 +190,107 @@ for (const viewport of viewports) {
       await expect(page.getByText("게이트웨이 장비 응답 확인 필요")).toBeVisible();
       await expect(page.getByText("Gateway ACK 확인 필요")).toHaveCount(0);
       await expectCommissioningActionsReachable(page, ["상태 다시 확인"], viewport.width);
-      await page.getByLabel("장비 상태를 확인했으며 현재 세션에서 제외").check();
+      await clickChoice(page, "checkbox", "장비가 등록되지 않았거나 초기화된 상태임을 확인");
       await expect(page.getByRole("button", { name: "현재 세션에서 제외" })).toBeEnabled();
       await expectNoHorizontalOverflow(page);
       await expectCommissioningActionsReachable(page, ["현재 세션에서 제외"], viewport.width);
-      await expectMobileRegionTargetsReachable(page, ".registration-panel", viewport.width);
+      await expectMobileRegionTargetsReachable(page, '[data-testid="commissioning-registration"]', viewport.width);
     });
   });
 }
+
+test("registration separates available and existing devices and submits only the available node", async ({ page }) => {
+  const availableNode = {
+    ...discoveredNode,
+    serialNumber: "AVAILABLE-SERIAL-001",
+    deviceUuid: "available-device-uuid"
+  };
+  const registeredInSiteNode = {
+    ...discoveredNode,
+    id: "66666666-6666-4666-8666-666666666667",
+    serialNumber: "SAME-SITE-SERIAL-002",
+    deviceUuid: "same-site-device-uuid",
+    registrationEligibility: "registered_in_site" as const,
+    existingRegistration: {
+      fixtureId: "fixture-existing",
+      fixtureName: "기존 복도등",
+      floorId: "floor-existing",
+      floorName: "지하 1층"
+    }
+  };
+  const registeredElsewhereNode = {
+    ...discoveredNode,
+    id: "66666666-6666-4666-8666-666666666668",
+    serialNumber: "FOREIGN-SERIAL-MUST-NOT-RENDER",
+    deviceUuid: "foreign-device-uuid-must-not-render",
+    registrationEligibility: "registered_elsewhere" as const,
+    existingRegistration: null
+  };
+  const session = registrationSession("completed", [
+    availableNode,
+    registeredInSiteNode,
+    registeredElsewhereNode
+  ]);
+  const api = await installSettingsApiRoutes(page, "admin", {
+    fixtures: [],
+    ids: fixtureIds(),
+    activeRegistrationSessions: [session]
+  });
+
+  await page.goto(`/settings/registration?siteId=${ids.site}`);
+
+  const availableSelection = page.getByLabel("조명 1 선택");
+  const nodeSelectionControls = page.getByLabel(/^조명 \d+ 선택$/);
+  await expect(page.getByText(availableNode.serialNumber)).toBeVisible();
+  await expect(availableSelection).toBeEnabled();
+  await expect(nodeSelectionControls).toHaveCount(1);
+  await expect(page.getByText(registeredInSiteNode.serialNumber)).not.toBeVisible();
+  await expect(page.getByText(registeredInSiteNode.existingRegistration.fixtureName)).not.toBeVisible();
+  await expect(page.getByText(registeredInSiteNode.existingRegistration.floorName)).not.toBeVisible();
+  await expect(page.getByText(registeredElsewhereNode.serialNumber)).toHaveCount(0);
+  await expect(page.getByText(registeredElsewhereNode.deviceUuid)).toHaveCount(0);
+
+  await page.getByText("기존 등록 조명 2개 제외됨").click();
+  await expect(page.getByText(registeredInSiteNode.serialNumber)).toBeVisible();
+  await expect(page.getByText(registeredInSiteNode.existingRegistration.fixtureName)).toBeVisible();
+  await expect(page.getByText(registeredInSiteNode.existingRegistration.floorName)).toBeVisible();
+  await expect(page.getByText(registeredElsewhereNode.serialNumber)).toHaveCount(0);
+  await expect(page.getByText(registeredElsewhereNode.deviceUuid)).toHaveCount(0);
+  await expect(page.getByTestId("existing-fixture-details").locator("input[type='checkbox']")).toHaveCount(0);
+
+  await clickChoice(page, "checkbox", "등록 가능 조명 전체 선택");
+  await expect(availableSelection).toBeChecked();
+  await expect(nodeSelectionControls).toHaveCount(1);
+  await page.getByRole("button", { name: "선택 조명 등록" }).click();
+  await expect.poll(() => api.registrationBatchRequests).toEqual([{
+    mode: "batch",
+    defaults: {
+      namePrefix: "B2-L",
+      startNumber: 1,
+      digits: 3,
+      ratedWatt: "40.00",
+      size: 20
+    },
+    nodes: [{ nodeId: availableNode.id }]
+  }]);
+
+  const capturedRequest = JSON.stringify(api.registrationBatchRequests[0]);
+  const protectedRegistrationValues = [
+    registeredInSiteNode.id,
+    registeredInSiteNode.serialNumber,
+    registeredInSiteNode.deviceUuid,
+    registeredInSiteNode.existingRegistration.fixtureId,
+    registeredInSiteNode.existingRegistration.fixtureName,
+    registeredInSiteNode.existingRegistration.floorId,
+    registeredInSiteNode.existingRegistration.floorName,
+    registeredElsewhereNode.id,
+    registeredElsewhereNode.serialNumber,
+    registeredElsewhereNode.deviceUuid
+  ];
+  for (const protectedValue of protectedRegistrationValues) {
+    expect(capturedRequest).not.toContain(protectedValue);
+  }
+});
 
 test("accepted identify retry ignores a delayed earlier terminal and keeps polling its own operation", async ({ browser, baseURL }) => {
   await withFixturePage(browser, baseURL, { width: 390, height: 844 }, async (page) => {
@@ -266,8 +361,14 @@ async function startSearch(page: Page) {
 }
 
 async function selectRegistrationTargets(page: Page) {
-  await page.getByLabel("등록 층").selectOption(ids.floor);
-  await page.getByLabel("등록 게이트웨이").selectOption(ids.gateway);
+  await page.getByRole("button", { name: "등록 층" }).click();
+  await page.getByRole("option", { name: "B2" }).click();
+  await page.getByRole("button", { name: "등록 게이트웨이" }).click();
+  await page.getByRole("option", { name: "Gateway B2" }).click();
+}
+
+async function clickChoice(page: Page, role: "checkbox" | "radio", name: string) {
+  await page.getByRole(role, { name }).locator("xpath=ancestor::label[1]").click();
 }
 
 async function expectCommissioningActionsReachable(page: Page, actionNames: readonly string[], width: number) {

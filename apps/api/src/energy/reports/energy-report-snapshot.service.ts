@@ -4,6 +4,7 @@ import { energyReportRequestSchema, type EnergyReportDocument, type EnergyReport
 import { PrismaService } from "../../prisma/prisma.service";
 import { EnergyReportDocumentBuilder, type EnergyReportDataSnapshot, type ReportEffectiveRange } from "./energy-report-document.builder";
 import { assertReportTextSupported } from "./report-text";
+import { addCalendarDays, parseCalendarDate, startOfLocalDate } from "../energy-periods";
 
 export type EnergyReportSnapshots = {
   requestSnapshot: EnergyReportRequest;
@@ -45,7 +46,7 @@ export class EnergyReportSnapshotService {
     if (!parsed.success) throw new BadRequestException("invalid energy report request");
     const requestSnapshot = parsed.data;
     return this.prisma.$transaction(async (tx) => {
-      const site = await tx.site.findUniqueOrThrow({ where: { id: siteId }, select: { id: true, name: true, timeZone: true } });
+      const site = await tx.site.findUniqueOrThrow({ where: { id: siteId }, select: { id: true, name: true, timeZone: true, tariffKwhRate: true } });
       const localKey = localDateFormatter(site.timeZone);
       if (requestSnapshot.to >= localKey(now)) throw new BadRequestException("report dates must be completed site-local dates");
       const days = (dateValue(requestSnapshot.to).getTime() - dateValue(requestSnapshot.from).getTime()) / 86_400_000 + 1;
@@ -53,7 +54,7 @@ export class EnergyReportSnapshotService {
       const fixtures = await tx.energyFixtureIdentity.findMany({
         where: { siteId }, select: {
           id: true, trackingStartedAt: true, retiredAt: true,
-          dimensionVersions: { select: { name: true, floorId: true, floorName: true, effectiveFrom: true, effectiveTo: true } },
+          dimensionVersions: { select: { name: true, floorId: true, floorName: true, ratedWatt: true, effectiveFrom: true, effectiveTo: true } },
           groupMemberships: { select: { energyGroupId: true, effectiveFrom: true, effectiveTo: true, energyGroup: { select: {
             trackingStartedAt: true, retiredAt: true, dimensionVersions: { select: { name: true, effectiveFrom: true, effectiveTo: true } }
           } } } },
@@ -74,12 +75,22 @@ export class EnergyReportSnapshotService {
       if (!scopeExists && targetLabelSnapshot == null) throw new NotFoundException("energy scope not found");
       const range = (from: Date, to: Date | null): ReportEffectiveRange => ({ from: from.toISOString(), to: to?.toISOString() ?? null });
       const dataSnapshot: EnergyReportDataSnapshot = {
-        schemaVersion: 1, capturedAt: now.toISOString(), site, comparisonRange,
+        schemaVersion: 2, capturedAt: now.toISOString(), site: { ...site, tariffKwhRate: site.tariffKwhRate?.toString() ?? null }, comparisonRange,
+        completedDays: Array.from({ length: days }, (_, index) => {
+          const localDate = shiftDate(requestSnapshot.from, index), date = parseCalendarDate(localDate);
+          const from = startOfLocalDate(date, site.timeZone), to = startOfLocalDate(addCalendarDays(date, 1), site.timeZone);
+          return { localDate, from: from.toISOString(), to: to.toISOString(), seconds: (to.getTime() - from.getTime()) / 1000 };
+        }),
         ...(targetLabelSnapshot == null ? {} : { targetLabelSnapshot }),
         fixtures: fixtures.map((fixture) => ({
           id: fixture.id, ...range(fixture.trackingStartedAt, fixture.retiredAt),
           dimensions: fixture.dimensionVersions.map((version) => ({ name: version.name, floorId: version.floorId, floorName: version.floorName,
-            ...range(version.effectiveFrom, version.effectiveTo) })).sort(compareRanges),
+            ratedWatt: version.ratedWatt?.toString(), ...range(version.effectiveFrom, version.effectiveTo) })).sort(compareRanges),
+          memberships: fixture.groupMemberships.flatMap(membership => {
+            const intersection = intersectRanges([range(membership.effectiveFrom, membership.effectiveTo),
+              range(membership.energyGroup.trackingStartedAt, membership.energyGroup.retiredAt)]);
+            return intersection ? [{ id: membership.energyGroupId, ...intersection }] : [];
+          }).sort((a, b) => a.id.localeCompare(b.id) || compareRanges(a, b)),
           groups: fixture.groupMemberships.flatMap((membership) => membership.energyGroup.dimensionVersions.flatMap((version) => {
             const intersection = intersectRanges([range(membership.effectiveFrom, membership.effectiveTo),
               range(membership.energyGroup.trackingStartedAt, membership.energyGroup.retiredAt), range(version.effectiveFrom, version.effectiveTo)]);

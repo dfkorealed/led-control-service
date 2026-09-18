@@ -1,5 +1,12 @@
 import { expect, type Page } from "@playwright/test";
 
+export const targetLayoutViewports = [
+  { width: 1440, height: 900 },
+  { width: 1024, height: 768 },
+  { width: 390, height: 844 },
+  { width: 320, height: 740 }
+] as const;
+
 const interactiveTargetSelector = [
   "button",
   "a[href]",
@@ -17,6 +24,11 @@ const interactiveTargetSelector = [
   "[tabindex]:not([tabindex='-1'])"
 ].join(",");
 
+type TouchTargetOptions = {
+  /** Spatial markers are measured by default; exclude them only in specs that explicitly opt out. */
+  excludeSpatialMapMarkers?: boolean;
+};
+
 export async function expectNoHorizontalOverflow(page: Page) {
   const metrics = await page.evaluate(() => ({
     clientWidth: document.documentElement.clientWidth,
@@ -29,7 +41,7 @@ export async function expectNoHorizontalOverflow(page: Page) {
 export async function expectMinimumTouchTargetsAfterScrolling(
   page: Page,
   rootSelector: string,
-  { excludeSpatialMapMarkers = false }: { excludeSpatialMapMarkers?: boolean } = {}
+  { excludeSpatialMapMarkers = false }: TouchTargetOptions = {}
 ) {
   const targets = page.locator(rootSelector).locator(interactiveTargetSelector);
   const targetCount = await targets.count();
@@ -41,10 +53,14 @@ export async function expectMinimumTouchTargetsAfterScrolling(
     const candidateCount = await target.evaluate((element, { dataMarker, excludeSpatialMapMarkers: excludeMarkers }) => {
       if (element.matches(":disabled") || element.getAttribute("aria-disabled") === "true") return 0;
       if (excludeMarkers && element.closest("[data-spatial-map-marker='true']")) return 0;
-      const candidates = element instanceof HTMLInputElement
-        && (element.type === "checkbox" || element.type === "radio")
-        ? [...(element.labels ?? []), element]
-        : [element];
+      const sliderThumb = element instanceof HTMLInputElement && element.type === "range"
+        ? element.closest("[data-slider-thumb]")
+        : null;
+      const candidates = sliderThumb
+        ? [sliderThumb]
+        : element instanceof HTMLInputElement && (element.type === "checkbox" || element.type === "radio")
+          ? [...(element.labels ?? []), element]
+          : [element];
       element.setAttribute("data-e2e-touch-contract", dataMarker);
       return [...new Set(candidates)].length;
     }, { dataMarker: marker, excludeSpatialMapMarkers });
@@ -58,10 +74,14 @@ export async function expectMinimumTouchTargetsAfterScrolling(
       // later candidate can satisfy the native choice without changing target-by-target scrolling.
       for (let candidateIndex = 0; candidateIndex < candidateCount; candidateIndex += 1) {
         const candidateWasScrolled = await target.evaluate((element, currentCandidateIndex) => {
-          const candidates = element instanceof HTMLInputElement
-            && (element.type === "checkbox" || element.type === "radio")
-            ? [...new Set([...(element.labels ?? []), element])]
-            : [element];
+          const sliderThumb = element instanceof HTMLInputElement && element.type === "range"
+            ? element.closest("[data-slider-thumb]")
+            : null;
+          const candidates = sliderThumb
+            ? [sliderThumb]
+            : element instanceof HTMLInputElement && (element.type === "checkbox" || element.type === "radio")
+              ? [...new Set([...(element.labels ?? []), element])]
+              : [element];
           const scrollTarget = candidates[currentCandidateIndex];
           if (!scrollTarget) return false;
 
@@ -117,7 +137,7 @@ export async function expectMinimumTouchTargetsAfterScrolling(
 export async function expectMinimumTouchTargets(
   page: Page,
   rootSelector: string,
-  { excludeSpatialMapMarkers = false }: { excludeSpatialMapMarkers?: boolean } = {}
+  { excludeSpatialMapMarkers = false }: TouchTargetOptions = {}
 ) {
   const targets = await page.locator(rootSelector).evaluateAll((roots, args) => {
     interface VisibleRect {
@@ -201,13 +221,13 @@ export async function expectMinimumTouchTargets(
       );
       if (!visibleRect) return null;
 
-      const isFixed = getComputedStyle(element).position === "fixed";
-      const hasFixedContainingBlock = isFixed
-        && [...generateAncestors(element)].some(establishesFixedContainingBlock);
-      for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
-        // A viewport-fixed box escapes ancestor overflow unless an ancestor establishes
-        // the fixed containing block (for example via transform/filter/perspective).
-        if (isFixed && !hasFixedContainingBlock) continue;
+      const ancestors = [...generateAncestors(element)];
+      // Descendants of a viewport-fixed overlay escape document clipping too.
+      // Retain clipping inside the overlay and all transformed containing blocks.
+      const viewportFixedRoot = [element, ...ancestors].find((candidate) => getComputedStyle(candidate).position === "fixed"
+        && ![...generateAncestors(candidate)].some(establishesFixedContainingBlock));
+      const clippingAncestors = viewportFixedRoot ? ancestors.slice(0, ancestors.indexOf(viewportFixedRoot) + 1) : ancestors;
+      for (const ancestor of clippingAncestors) {
         const style = getComputedStyle(ancestor);
         const clipsX = ["auto", "hidden", "clip", "scroll"].includes(style.overflowX);
         const clipsY = ["auto", "hidden", "clip", "scroll"].includes(style.overflowY);
@@ -318,10 +338,13 @@ export async function expectMinimumTouchTargets(
     return [...new Set(targetElements)].flatMap((element) => {
       if (args.excludeSpatialMapMarkers && element.closest("[data-spatial-map-marker='true']")) return [];
       if (element.matches(":disabled") || element.getAttribute("aria-disabled") === "true") return [];
+      const sliderThumb = element instanceof HTMLInputElement && element.type === "range"
+        ? element.closest("[data-slider-thumb]")
+        : null;
       const isNativeChoice = element instanceof HTMLInputElement
         && (element.type === "checkbox" || element.type === "radio");
       const associatedLabels = isNativeChoice ? [...(element.labels ?? [])] : [];
-      const hitCandidates = isNativeChoice ? [...associatedLabels, element] : [element];
+      const hitCandidates = sliderThumb ? [sliderThumb] : isNativeChoice ? [...associatedLabels, element] : [element];
       const measurements = [...new Set(hitCandidates)].flatMap((hitTarget) => {
         const hitRect = usableVisibleRect(hitTarget);
         if (!hitRect) return [];

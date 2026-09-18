@@ -96,16 +96,42 @@ describe("energy queries", () => {
 
   it("creates and polls report jobs without putting signed download URLs in the report cache", async () => {
     apiPost.mockResolvedValue(reportJob);
-    apiGet.mockResolvedValue({ reports: [reportJob] });
+    const response = reportList([reportJob]);
+    apiGet.mockResolvedValue(response);
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
     await expect(createEnergyReport("site/2", reportJob.request)).resolves.toEqual(reportJob);
     renderHook(() => useEnergyReports("site/2"), { wrapper: wrapperFor(client) });
 
-    await waitFor(() => expect(apiGet).toHaveBeenCalledWith("/energy/sites/site%2F2/reports"));
+    await waitFor(() => expect(apiGet).toHaveBeenCalledWith("/energy/sites/site%2F2/reports?limit=20"));
     expect(apiPost).toHaveBeenCalledWith("/energy/sites/site%2F2/reports", reportJob.request);
-    expect(client.getQueryData(["energy-reports", "site/2"])).toEqual({ reports: [reportJob] });
-    expect(JSON.stringify(client.getQueryData(["energy-reports", "site/2"]))).not.toContain("downloadUrl");
+    expect(client.getQueryData(["energy-reports", "site/2", { limit: 20 }])).toEqual(response);
+    expect(JSON.stringify(client.getQueryData(["energy-reports", "site/2", { limit: 20 }]))).not.toContain("downloadUrl");
+  });
+
+  it("normalizes every report filter into the request URL and cache key", async () => {
+    apiGet.mockResolvedValue(reportList([]));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const query = {
+      limit: 50 as const,
+      cursor: "next+/=cursor",
+      query: " 서울 & B2/입구 ",
+      status: "completed" as const,
+      format: "pdf" as const,
+      scope: "floor" as const,
+      requestedFrom: "2026-09-01",
+      requestedTo: "2026-09-15"
+    };
+
+    renderHook(() => useEnergyReports("site/2", query), { wrapper: wrapperFor(client) });
+
+    await waitFor(() => expect(apiGet).toHaveBeenCalledWith(
+      "/energy/sites/site%2F2/reports?limit=50&cursor=next%2B%2F%3Dcursor&query=%EC%84%9C%EC%9A%B8+%26+B2%2F%EC%9E%85%EA%B5%AC&status=completed&format=pdf&scope=floor&requestedFrom=2026-09-01&requestedTo=2026-09-15"
+    ));
+    expect(client.getQueryCache().find({ queryKey: ["energy-reports", "site/2", {
+      ...query,
+      query: "서울 & B2/입구"
+    }] })).toBeDefined();
   });
 
   it("gets a completed report's signed URL only on download action", async () => {
@@ -184,17 +210,17 @@ describe("energy queries", () => {
 
   it.each(["completed", "failed", "expired"])("polls active reports at three seconds and stops after %s", async terminal => {
     vi.useFakeTimers();
-    apiGet.mockResolvedValueOnce({ reports: [reportJob] })
-      .mockResolvedValueOnce({ reports: [{ ...reportJob, status: "processing", progressPercent: 40 }] })
-      .mockResolvedValue({ reports: [{ ...reportJob, status: terminal, progressPercent: terminal === "failed" ? 0 : 100,
+    apiGet.mockResolvedValueOnce(reportList([reportJob]))
+      .mockResolvedValueOnce(reportList([{ ...reportJob, status: "processing", progressPercent: 40 }]))
+      .mockResolvedValue(reportList([{ ...reportJob, status: terminal, progressPercent: terminal === "failed" ? 0 : 100,
         startedAt: reportJob.createdAt, completedAt: terminal === "failed" ? null : reportJob.createdAt,
         expiresAt: terminal === "failed" ? null : "2026-09-18T00:00:00.000Z",
         failureCode: terminal === "failed" ? "REPORT_GENERATION_FAILED" : null,
         failure: terminal === "failed" ? {
           code: "generation_failed", message: "보고서를 생성하지 못했습니다.", action: "다시 생성해 주세요."
-        } : null }] });
+        } : null }]));
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const hook = renderHook(() => useEnergyReports(reportJob.siteId), { wrapper: wrapperFor(client) });
+    const hook = renderHook(() => useEnergyReports(reportJob.siteId, { limit: 20 }), { wrapper: wrapperFor(client) });
     try {
       await act(async () => { await vi.advanceTimersByTimeAsync(0); });
       expect(apiGet).toHaveBeenCalledTimes(1);
@@ -363,3 +389,7 @@ const reportJob = {
   requestedAt: "2026-09-10T00:00:00.000Z",
   failure: null
 };
+
+function reportList(reports: unknown[]) {
+  return { reports, nextCursor: null, totalCount: reports.length };
+}

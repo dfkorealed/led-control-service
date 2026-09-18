@@ -1839,6 +1839,12 @@ export class RealBackendLab {
       MQTT_CA_PATH: join(this.pkiDir, "ca.crt"), MQTT_CLIENT_CERT_PATH: join(this.pkiDir, "api.crt"),
       MQTT_CLIENT_KEY_PATH: join(this.pkiDir, "api.key"), MQTT_API_INSTANCE_ID: this.runId,
       API_PORT: String(this.ports.api), WEB_PUBLIC_URL: `http://127.0.0.1:${this.ports.web}`,
+      // This isolated browser lab serves HTTP. Explicit empty values block both
+      // inherited TLS settings and API bootstrap's later parent-checkout dotenv
+      // load; deleting these keys would let external certificate paths back in.
+      API_TLS_CERT_PATH: "", API_TLS_KEY_PATH: "",
+      API_DEVICE_CLIENT_CA_PATH: "", API_MANUFACTURING_CLIENT_CA_PATH: "",
+      API_DEVICE_CRL_PATH: "", API_MANUFACTURING_CRL_PATH: "",
       PKI_PROVIDER: "unavailable", NODE_ENV: "test"
     };
   }
@@ -2012,9 +2018,12 @@ function expectedAutomationActionPhases(actions: Array<Record<string, unknown>>)
   const expected = [
     { phase: "schedule-active", sourceType: "schedule", brightness: 40 },
     { phase: "vehicle-detected", sourceType: "vehicle_event_rule", brightness: 80 },
-    { phase: "manual-active", sourceType: "manual_override", brightness: 60 },
-    { phase: "manual-expired", sourceType: "vehicle_event_rule", brightness: 80 },
-    { phase: "vehicle-hold-expired", sourceType: "schedule", brightness: 40 }
+    { phase: "manual-suppresses-current-event", sourceType: "manual_override", brightness: 60 },
+    { phase: "next-event-resumes", sourceType: "vehicle_event_rule", brightness: 80 },
+    // Baseline restoration telemetry keeps the ended rule/occurrence as its causal source.
+    { phase: "vehicle-hold-after-deadline", sourceType: "vehicle_event_rule", brightness: 60 },
+    { phase: "next-schedule-resumes", sourceType: "schedule", brightness: 40 },
+    { phase: "next-schedule-ended-baseline", sourceType: "schedule", brightness: 60 }
   ];
   if (actions.length !== expected.length) {
     throw new Error(`expected ${expected.length} target action phases, received ${actions.length}`);

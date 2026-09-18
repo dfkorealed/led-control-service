@@ -8,10 +8,14 @@ import { KindaLogo } from "../../components/brand/KindaLogo";
 import { RouteLoadingState } from "../../components/ui/RouteLoadingState";
 import { FeedbackState } from "../../components/ui/FeedbackState";
 import { IconTooltipButton } from "../../components/ui/IconTooltipButton";
+import { Text } from "../../components/ui/Typography";
 import { UnderlineNavigation, UnderlineNavigationLabel } from "../../components/ui/UnderlineNavigation";
 
 const SiteAdminManagementView = lazy(() => import("./site-admins/SiteAdminManagementView").then((module) => ({ default: module.SiteAdminManagementView })));
 const AccountSecurityView = lazy(() => import("../settings/security/AccountSecurityView").then((module) => ({ default: module.AccountSecurityView })));
+const operatorNavigationItemClass = (isActive: boolean) => `inline-flex min-h-11 shrink-0 items-center border-b-2 px-3 text-body-sm font-bold whitespace-nowrap no-underline outline-none focus-visible:shadow-focus ${isActive
+  ? "border-action-primary text-action-primary"
+  : "border-transparent text-content-secondary hover:border-border-strong hover:text-content-primary"}`;
 
 export function OperatorShell({ user }: { user: AuthUser }) {
   const location = useLocation();
@@ -34,13 +38,13 @@ export function OperatorShell({ user }: { user: AuthUser }) {
   }
 
   return (
-    <div className="operator-shell">
-      <header className="operator-header">
-        <KindaLogo className="operator-brand" context="서비스 운영" />
-        <div className="operator-header-actions">
-          <span className="operator-login-id">{user.loginId}</span>
+    <div className="min-h-screen bg-surface-canvas">
+      <header className="flex min-h-16 items-center justify-between gap-4 border-b border-border-default bg-surface-panel px-6 py-4 max-compact:flex-col max-compact:items-start max-compact:px-3.5">
+        <KindaLogo context="서비스 운영" />
+        <div className="flex items-center gap-3 max-compact:w-full max-compact:justify-between">
+          <Text as="span" variant="body-sm" tone="secondary" weight="bold">{user.loginId}</Text>
           <IconTooltipButton
-            className="logout-button"
+            className="size-13"
             icon={LogOut}
             label="로그아웃"
             loadingLabel="로그아웃 중"
@@ -49,18 +53,18 @@ export function OperatorShell({ user }: { user: AuthUser }) {
           />
         </div>
       </header>
-      <main className="operator-content">
+      <main className="mx-auto grid w-full max-w-6xl content-start gap-5 px-6 py-10 max-compact:px-3.5 max-compact:py-6">
         {logoutError ? <FeedbackState tone="danger" icon={CircleAlert} title={logoutError} /> : null}
-        <UnderlineNavigation className="operator-navigation" aria-label="운영자 메뉴">
+        <UnderlineNavigation aria-label="운영자 메뉴">
           <NavLink
             to={{ pathname: "/operator/site-admins", search: location.search, hash: location.hash }}
-            className={({ isActive }) => isActive ? "ui-underline-navigation-item active" : "ui-underline-navigation-item"}
+            className={({ isActive }) => operatorNavigationItemClass(isActive)}
           >
             <UnderlineNavigationLabel>현장 관리자</UnderlineNavigationLabel>
           </NavLink>
           <NavLink
             to={{ pathname: "/operator/security", search: location.search, hash: location.hash }}
-            className={({ isActive }) => isActive ? "ui-underline-navigation-item active" : "ui-underline-navigation-item"}
+            className={({ isActive }) => operatorNavigationItemClass(isActive)}
           >
             <UnderlineNavigationLabel>계정 보안</UnderlineNavigationLabel>
           </NavLink>

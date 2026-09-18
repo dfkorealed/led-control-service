@@ -1,35 +1,39 @@
-import { useEffect, useRef, type ReactNode } from "react";
-import { createPortal } from "react-dom";
+import { forwardRef, useRef, type Ref } from "react";
 import { Button } from "./Button";
+import type { ModalDialogProps } from "./ModalDialog";
+import { DialogBase } from "./overlays/DialogBase";
+import { cn } from "./utils/cn";
 
-export function ConfirmDialog({ title, children, confirmLabel, onCancel, onConfirm, disabled = false }: {
-  title: string; children: ReactNode; confirmLabel: string; onCancel: () => void; onConfirm: () => void; disabled?: boolean;
-}) {
-  const dialog = useRef<HTMLDivElement>(null);
+interface ConfirmDialogBaseProps extends Omit<ModalDialogProps, "actions" | "onClose"> {
+  confirmLabel: string;
+  cancelLabel?: string;
+  tone?: "primary" | "danger";
+  disabled?: boolean;
+  confirmDisabled?: boolean;
+  destructive?: boolean;
+  onConfirm: () => void;
+}
+
+/** At least one dismissal callback is required; onCancel wins when both exist. */
+export type ConfirmDialogProps = ConfirmDialogBaseProps & (
+  | { onCancel: () => void; onClose?: () => void }
+  | { onCancel?: never; onClose: () => void }
+);
+
+export const ConfirmDialog = /* @__PURE__ */ forwardRef<HTMLElement, ConfirmDialogProps>(function ConfirmDialog(props, ref) {
+  return <Confirmation {...props} className={cn("max-w-110!", props.className)} rootRef={ref} />;
+});
+
+/** Shared confirmation renderer keeps focus and dismissal behavior centralized. */
+export function Confirmation({ confirmLabel, cancelLabel = "취소", tone, destructive, disabled, confirmDisabled, onCancel, onClose, onConfirm,
+  initialFocusRef, isPending = false, rootRef, ...props
+}: ConfirmDialogProps & { rootRef?: Ref<HTMLElement> }) {
   const cancel = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null;
-    cancel.current?.focus();
-    return () => { if (previous?.isConnected) previous.focus(); };
-  }, []);
-  return createPortal(
-    <div className="editor-dialog-backdrop" onMouseDown={(e) => e.stopPropagation()}>
-      <div ref={dialog} role="dialog" aria-modal="true" aria-labelledby="editor-dialog-title" className="editor-confirm-dialog"
-        onKeyDown={(event) => {
-          if (event.key === "Escape") { event.preventDefault(); onCancel(); }
-          if (event.key !== "Tab") return;
-          const buttons = dialog.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)");
-          if (!buttons?.length) return;
-          if (event.shiftKey && document.activeElement === buttons[0]) { event.preventDefault(); buttons[buttons.length - 1].focus(); }
-          if (!event.shiftKey && document.activeElement === buttons[buttons.length - 1]) { event.preventDefault(); buttons[0].focus(); }
-        }}>
-        <h3 id="editor-dialog-title">{title}</h3>
-        <div>{children}</div>
-        <div className="floor-editor-actions">
-          <Button ref={cancel} variant="secondary" onClick={onCancel}>취소</Button>
-          <Button variant="primary" onClick={onConfirm} disabled={disabled}>{confirmLabel}</Button>
-        </div>
-      </div>
-    </div>, document.body
-  );
+  const dismiss = () => { if (!isPending) (onCancel ?? onClose)?.(); };
+  return <DialogBase {...props} ref={rootRef} isPending={isPending} initialFocusRef={initialFocusRef ?? cancel} onClose={dismiss}
+    actions={<>
+      <Button ref={cancel} type="button" variant="secondary" disabled={isPending} onClick={dismiss}>{cancelLabel}</Button>
+      <Button type="button" variant={tone ?? (destructive ? "danger" : "primary")} disabled={isPending || disabled || confirmDisabled}
+        onClick={() => { if (!isPending && !disabled && !confirmDisabled) onConfirm(); }}>{isPending ? "처리 중" : confirmLabel}</Button>
+    </>} />;
 }

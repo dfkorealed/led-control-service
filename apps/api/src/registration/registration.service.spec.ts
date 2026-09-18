@@ -313,6 +313,14 @@ describe("RegistrationService", () => {
     });
 
     const result = await service.getSession(admin, ids.sessionId);
+    const typedNodeId: string = result.discoveredNodes[0].id;
+    const typedNodeStatus: string = result.discoveredNodes[0].status;
+    const typedEligibility: "available" | "registered_in_site" | "registered_elsewhere" =
+      result.discoveredNodes[0].registrationEligibility;
+    type SessionNodeHasDeviceOutbox = "deviceOutbox" extends keyof typeof result.discoveredNodes[number]
+      ? true
+      : false;
+    const sessionNodeHasDeviceOutbox: SessionNodeHasDeviceOutbox = false;
 
     expect(result.discoveredNodes).toEqual([
       expect.objectContaining({
@@ -345,6 +353,12 @@ describe("RegistrationService", () => {
         registrationEligibility: "registered_elsewhere",
         existingRegistration: null
       })
+    ]);
+    expect([typedNodeId, typedNodeStatus, typedEligibility, sessionNodeHasDeviceOutbox]).toEqual([
+      availableNode.id,
+      availableNode.status,
+      "available",
+      false
     ]);
     expect(JSON.stringify(result.discoveredNodes[3])).not.toContain("Secret");
     expect(prisma.meshNode.findMany).toHaveBeenCalledTimes(1);
@@ -750,7 +764,9 @@ describe("RegistrationService", () => {
     prisma.$queryRaw.mockImplementation(async (strings: TemplateStringsArray) => {
       const query = strings.join("");
       lockOrder.push(
-        query.includes("Floor")
+        query.includes("pg_advisory_xact_lock")
+          ? "device-uuid"
+          : query.includes("Floor")
           ? "floor"
           : query.includes("Gateway")
             ? "gateway"
@@ -774,7 +790,8 @@ describe("RegistrationService", () => {
       expect.objectContaining({ nodeId: ids.nodeId, fixtureName: "B2-L001", status: "accepted" }),
       { nodeId: secondNodeId, status: "validation_failed", error: "discovered node not found" }
     ]);
-    expect(lockOrder).toEqual(["site", "floor", "gateway", "session", "node"]);
+    expect(lockOrder).toEqual(["site", "floor", "gateway", "session", "node", "device-uuid"]);
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function));
     expect(allocation.reserveFixtureNumbers).toHaveBeenCalledWith(prisma, ids.floorId, 1, 1);
     expect(allocation.reserveMeshAddresses).toHaveBeenCalledWith(prisma, ids.gatewayId, 1);
     expect(prisma.discoveredMeshNode.update).toHaveBeenCalledWith({
@@ -891,6 +908,13 @@ describe("RegistrationService", () => {
     });
     expect(prisma.meshNode.findMany.mock.invocationCallOrder[0]).toBeLessThan(
       meshGroups.ensureFloorGroup.mock.invocationCallOrder[0]
+    );
+    const uuidLockCallIndex = prisma.$queryRaw.mock.calls.findIndex(([sql]: [TemplateStringsArray]) => (
+      sql.join("").includes("pg_advisory_xact_lock")
+    ));
+    expect(uuidLockCallIndex).toBeGreaterThanOrEqual(0);
+    expect(prisma.$queryRaw.mock.invocationCallOrder[uuidLockCallIndex]).toBeLessThan(
+      prisma.meshNode.findMany.mock.invocationCallOrder[0]
     );
     expect(prisma.meshNode.findMany.mock.invocationCallOrder[0]).toBeLessThan(
       allocation.reserveMeshAddresses.mock.invocationCallOrder[0]
@@ -1234,7 +1258,13 @@ describe("RegistrationService", () => {
       scanCorrelationId: "77777777-7777-4777-8777-777777777777",
       startedAt: new Date("2026-07-01T00:00:00.000Z")
     };
-    const update = jest.fn().mockResolvedValue({ ...terminalSession, scanStatus: "pending", scanAttempt: 2, scanCorrelationId: correlation });
+    const update = jest.fn().mockResolvedValue({
+      ...terminalSession,
+      scanStatus: "pending",
+      scanAttempt: 2,
+      scanCorrelationId: correlation,
+      discoveredNodes: []
+    });
     const { service, prisma, mqtt } = await createModule({
       provisioningSession: {
         create: jest.fn(),
@@ -1258,8 +1288,10 @@ describe("RegistrationService", () => {
         scanCompletedAt: null,
         scanFailureCode: null,
         scanFailureMessage: null
-      })
+      }),
+      include: { discoveredNodes: { include: publicIdentifyInclude } }
     });
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function));
     expect(prisma.provisioningScanOutbox.create).toHaveBeenCalledWith({ data: expect.objectContaining({
       sessionId: ids.sessionId, scanAttempt: 2, payload: expect.objectContaining({ scanCorrelationId: correlation })
     }) });
@@ -1381,7 +1413,15 @@ describe("RegistrationService", () => {
       provisioningDeviceOutbox: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn(({ data }) => ({ ...data })) }
     });
 
-    await expect(service.identifyNode(admin, ids.sessionId, ids.nodeId)).resolves.toMatchObject({
+    const result = await service.identifyNode(admin, ids.sessionId, ids.nodeId);
+    const typedNodeId: string = result.node.id;
+    const typedNodeStatus: string = result.node.status;
+    const typedEligibility: "available" | "registered_in_site" | "registered_elsewhere" =
+      result.node.registrationEligibility;
+    type DirectNodeHasDeviceOutbox = "deviceOutbox" extends keyof typeof result.node ? true : false;
+    const directNodeHasDeviceOutbox: DirectNodeHasDeviceOutbox = false;
+
+    expect(result).toMatchObject({
       status: "accepted",
       node: {
         id: ids.nodeId,
@@ -1392,6 +1432,12 @@ describe("RegistrationService", () => {
         existingRegistration: null
       }
     });
+    expect([typedNodeId, typedNodeStatus, typedEligibility, directNodeHasDeviceOutbox]).toEqual([
+      ids.nodeId,
+      "identifying",
+      "available",
+      false
+    ]);
 
     expect(prisma.provisioningDeviceOutbox.create).toHaveBeenCalledWith({ data: expect.objectContaining({
       sessionId: ids.sessionId,
@@ -1674,8 +1720,10 @@ describe("RegistrationService", () => {
         create: jest.fn(),
         findUnique: jest.fn().mockResolvedValue({
           id: ids.sessionId,
+          siteId: ids.siteId,
           status: "active",
-          site: { organizationId: "99999999-9999-4999-8999-999999999999" }
+          site: { organizationId: "99999999-9999-4999-8999-999999999999" },
+          discoveredNodes: []
         }),
         update: jest.fn()
       }

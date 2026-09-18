@@ -28,8 +28,7 @@ export const dimmingTargetSchema = z.union([
 const createDimmingCommandFields = {
   siteId: z.string().uuid(),
   clientRequestId: z.string().uuid(),
-  brightness: z.number().int().min(0).max(100),
-  overrideUntil: z.string().datetime().optional()
+  brightness: z.number().int().min(0).max(100)
 };
 
 export const createDimmingCommandSchema = z.object({
@@ -37,23 +36,28 @@ export const createDimmingCommandSchema = z.object({
   target: dimmingTargetSchema
 }).strict();
 
-const legacyCreateDimmingCommandSchema = z.object({
+const legacyTimedCreateDimmingCommandSchema = z.object({
+  ...createDimmingCommandFields,
+  target: dimmingTargetSchema,
+  overrideUntil: z.string().datetime()
+}).strict().transform(({ overrideUntil: _ignored, ...input }) => input);
+
+const legacyTargetCreateDimmingCommandSchema = z.object({
   ...createDimmingCommandFields,
   targetType: z.enum(["fixture", "group"]),
-  targetId: z.string().uuid()
-}).strict().transform((input) => ({
-  siteId: input.siteId,
-  clientRequestId: input.clientRequestId,
-  target: input.targetType === "fixture"
-    ? { type: "fixture" as const, fixtureId: input.targetId }
-    : { type: "group" as const, groupId: input.targetId },
-  brightness: input.brightness,
-  ...(input.overrideUntil ? { overrideUntil: input.overrideUntil } : {})
+  targetId: z.string().uuid(),
+  overrideUntil: z.string().datetime().optional()
+}).strict().transform(({ targetType, targetId, overrideUntil: _ignored, ...input }) => ({
+  ...input,
+  target: targetType === "fixture"
+    ? { type: "fixture" as const, fixtureId: targetId }
+    : { type: "group" as const, groupId: targetId }
 }));
 
 export const createDimmingCommandRequestSchema = z.union([
   createDimmingCommandSchema,
-  legacyCreateDimmingCommandSchema
+  legacyTimedCreateDimmingCommandSchema,
+  legacyTargetCreateDimmingCommandSchema
 ]);
 
 export type DimmingTarget = z.infer<typeof dimmingTargetSchema>;

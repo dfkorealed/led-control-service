@@ -11,6 +11,7 @@ import {
   AutomationStateCommitUncertainError,
   FileAutomationStateStore,
   emptyAutomationState,
+  parseAutomationState,
   type PersistedAutomationStateV4
 } from "./automation-state-store";
 import { automationTelemetryRecordsHash } from "./automation-telemetry-handoff";
@@ -18,6 +19,191 @@ import { AutomationTelemetryGapJournal } from "./automation-telemetry-gap-journa
 
 const directories: string[] = [];
 const fixtureId = "00000000-0000-4000-8000-000000000101";
+const commandId = "00000000-0000-4000-8000-000000000201";
+const scheduleId = "00000000-0000-4000-8000-000000000301";
+const ruleId = "00000000-0000-4000-8000-000000000401";
+const requestedAt = "2026-09-01T01:00:00.000Z";
+const appliedAt = "2026-09-01T01:00:01.000Z";
+
+function manualV6State() {
+  return {
+    ...emptyAutomationState(),
+    schemaVersion: 6,
+    pendingManualControls: {
+      [fixtureId]: { sourceId: commandId, brightnessPercent: 60, requestedAt, preBrightness: 30 }
+    },
+    manualAutomationSuppressions: {
+      [fixtureId]: {
+        sourceId: commandId, appliedAt,
+        schedules: [{ scheduleId, occurrenceKey: "2026-09-01" }],
+        vehicleEvents: [{ ruleId, startedAt: requestedAt }]
+      }
+    }
+  };
+}
+
+function legacyV5State() {
+  return {
+    schemaVersion: 5,
+    activeOccurrences: {}, manualOverrides: {}, vehicleRules: {},
+    currentByFixture: {}, baseBrightnessByFixture: {}, lastDesiredByFixture: {},
+    unverifiedDesiredByFixture: {}, transitionsByFixture: {}, telemetryGap: null,
+    pendingTelemetryHandoffs: [], vehicleSensorInbox: []
+  };
+}
+
+describe("V6 automation state", () => {
+  it("round-trips pending controls and exact source suppressions through durable storage", async () => {
+    const state = manualV6State();
+    expect(parseAutomationState(state)).toEqual(state);
+    const path = await statePath();
+    await writeJsonAtomic(path, state);
+    expect(await new FileAutomationStateStore(path).initialize()).toEqual(state);
+    expect(emptyAutomationState()).toMatchObject({
+      schemaVersion: 6, pendingManualControls: {}, manualAutomationSuppressions: {}
+    });
+    expect(emptyAutomationState()).not.toHaveProperty("manualOverrides");
+  });
+
+  it.each([
+    ["unknown root field", (state: any) => { state.extra = true; }],
+    ["legacy root field", (state: any) => { state.manualOverrides = {}; }],
+    ["missing field", (state: any) => { delete state.pendingManualControls; }],
+    ["unknown pending field", (state: any) => { state.pendingManualControls[fixtureId].extra = true; }],
+    ["invalid fixture UUID", (state: any) => { state.pendingManualControls.bad = state.pendingManualControls[fixtureId]; }],
+    ["invalid command UUID", (state: any) => { state.pendingManualControls[fixtureId].sourceId = "bad"; }],
+    ["invalid pending timestamp", (state: any) => { state.pendingManualControls[fixtureId].requestedAt = "bad"; }],
+    ["invalid brightness", (state: any) => { state.pendingManualControls[fixtureId].brightnessPercent = 101; }],
+    ["invalid pre brightness", (state: any) => { state.pendingManualControls[fixtureId].preBrightness = -1; }],
+    ["unknown suppression field", (state: any) => { state.manualAutomationSuppressions[fixtureId].extra = true; }],
+    ["invalid suppression fixture UUID", (state: any) => { state.manualAutomationSuppressions.bad = state.manualAutomationSuppressions[fixtureId]; }],
+    ["invalid suppression command UUID", (state: any) => { state.manualAutomationSuppressions[fixtureId].sourceId = "bad"; }],
+    ["invalid applied timestamp", (state: any) => { state.manualAutomationSuppressions[fixtureId].appliedAt = "bad"; }],
+    ["invalid schedule UUID", (state: any) => { state.manualAutomationSuppressions[fixtureId].schedules[0].scheduleId = "bad"; }],
+    ["empty occurrence key", (state: any) => { state.manualAutomationSuppressions[fixtureId].schedules[0].occurrenceKey = ""; }],
+    ["unknown schedule field", (state: any) => { state.manualAutomationSuppressions[fixtureId].schedules[0].extra = true; }],
+    ["invalid rule UUID", (state: any) => { state.manualAutomationSuppressions[fixtureId].vehicleEvents[0].ruleId = "bad"; }],
+    ["invalid event timestamp", (state: any) => { state.manualAutomationSuppressions[fixtureId].vehicleEvents[0].startedAt = "bad"; }],
+    ["unknown event field", (state: any) => { state.manualAutomationSuppressions[fixtureId].vehicleEvents[0].extra = true; }],
+    ["duplicate schedule", (state: any) => { state.manualAutomationSuppressions[fixtureId].schedules.push(state.manualAutomationSuppressions[fixtureId].schedules[0]); }],
+    ["duplicate event", (state: any) => { state.manualAutomationSuppressions[fixtureId].vehicleEvents.push(state.manualAutomationSuppressions[fixtureId].vehicleEvents[0]); }],
+    ["unsorted schedule identity", (state: any) => { state.manualAutomationSuppressions[fixtureId].schedules.push({ scheduleId, occurrenceKey: "2026-08-01" }); }],
+    ["unsorted event identity", (state: any) => { state.manualAutomationSuppressions[fixtureId].vehicleEvents.push({ ruleId, startedAt: "2026-08-01T00:00:00.000Z" }); }]
+  ])("rejects %s", (_name, mutate) => {
+    const state = manualV6State();
+    mutate(state);
+    expect(() => parseAutomationState(state)).toThrow();
+  });
+
+  it("allows distinct occurrences of the same source when sorted", () => {
+    const state = manualV6State();
+    state.manualAutomationSuppressions[fixtureId]!.schedules.push({ scheduleId, occurrenceKey: "2026-09-02" });
+    state.manualAutomationSuppressions[fixtureId]!.vehicleEvents.push({ ruleId, startedAt: appliedAt });
+    expect(parseAutomationState(state)).toEqual(state);
+  });
+
+  it.each(["pendingManualControls", "manualAutomationSuppressions"] as const)("bounds %s to 10,000 fixtures", (field) => {
+    const state = manualV6State();
+    const entry = state[field][fixtureId];
+    const fixtures = Object.fromEntries(Array.from({ length: 10_000 }, (_, index) => [
+      `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`, entry
+    ]));
+    expect(() => parseAutomationState({ ...state, [field]: fixtures })).not.toThrow();
+    fixtures["00000000-0000-4000-8000-000000010000"] = entry;
+    expect(() => parseAutomationState({ ...state, [field]: fixtures })).toThrow();
+  });
+
+  it("migrates only confirmed V5 controls, retaining pending without promoting provisional brightness", () => {
+    const ids = Array.from({ length: 6 }, (_, index) => `00000000-0000-4000-8000-00000000010${index}`);
+    const [success, pending, failed, timedOut, observed, mismatch] = ids as [string, string, string, string, string, string];
+    const manual = { sourceId: commandId, brightnessPercent: 60, startedAt: requestedAt,
+      overrideUntil: appliedAt, preBrightness: 60 };
+    const transition = { phase: "terminal", brightnessPercent: 60, sourceType: "manual_override",
+      sourceId: commandId, occurrenceKey: null, attempt: 1, startedAt: requestedAt,
+      status: "succeeded", terminalAt: appliedAt };
+    const old = {
+      ...legacyV5State(),
+      manualOverrides: Object.fromEntries(ids.map((id) => [id, manual])),
+      activeOccurrences: {
+        [scheduleId]: { key: "2026-09-01", startedAt: requestedAt, endsAt: appliedAt,
+          preBrightness: { [success]: 30, [observed]: 30 } }
+      },
+      vehicleRules: {
+        [ruleId]: { activeSourceFixtureIds: [fixtureId], targetFixtureIds: [success, observed],
+          brightnessPercent: 80, startedAt: requestedAt, holdUntil: null, preBrightness: {} }
+      },
+      currentByFixture: { [observed]: 60, [failed]: 60, [timedOut]: 60, [mismatch]: 20 },
+      baseBrightnessByFixture: { [success]: 30, [observed]: 30, [mismatch]: 20 },
+      transitionsByFixture: {
+        [success]: transition,
+        [pending]: { ...transition, phase: "pending", status: null, terminalAt: null },
+        [failed]: { ...transition, status: "failed" },
+        [timedOut]: { ...transition, status: "timed_out" }
+      }
+    };
+    const result = parseAutomationState(old);
+    expect(result.schemaVersion).toBe(6);
+    expect(result.baseBrightnessByFixture).toEqual({ [success]: 60, [observed]: 60, [mismatch]: 20 });
+    expect(result.pendingManualControls).toEqual({
+      [pending]: { sourceId: commandId, brightnessPercent: 60, requestedAt, preBrightness: 60 }
+    });
+    const suppression = { sourceId: commandId, appliedAt,
+      schedules: [{ scheduleId, occurrenceKey: "2026-09-01" }], vehicleEvents: [{ ruleId, startedAt: requestedAt }] };
+    expect(result.manualAutomationSuppressions).toEqual({
+      [success]: suppression, [observed]: { ...suppression, appliedAt: requestedAt }
+    });
+    expect(result).not.toHaveProperty("manualOverrides");
+    expect(parseAutomationState(result)).toEqual(result);
+  });
+
+  it.each(["currentByFixture", "lastDesiredByFixture"])("accepts transition-free confirmed %s", (field) => {
+    const result = parseAutomationState({
+      ...legacyV5State(), [field]: { [fixtureId]: 60 },
+      manualOverrides: { [fixtureId]: { sourceId: commandId, brightnessPercent: 60,
+        startedAt: requestedAt, overrideUntil: appliedAt, preBrightness: 30 } }
+    });
+    expect(result.baseBrightnessByFixture).toEqual({ [fixtureId]: 60 });
+    expect(result.manualAutomationSuppressions[fixtureId]).toEqual({
+      sourceId: commandId, appliedAt: requestedAt, schedules: [], vehicleEvents: []
+    });
+  });
+
+  it("validates discarded V5 entries and legacy root fields before migration", () => {
+    expect(() => parseAutomationState({ ...legacyV5State(), extra: true })).toThrow();
+    expect(() => parseAutomationState({ ...legacyV5State(), manualOverrides: {
+      [fixtureId]: { sourceId: commandId, brightnessPercent: 60,
+        startedAt: requestedAt, overrideUntil: requestedAt, preBrightness: 30 }
+    } })).toThrow();
+  });
+
+  it.each([
+    ["other source", "schedule", scheduleId, 60, "succeeded", true],
+    ["other failed command", "manual_override", ruleId, 60, "failed", true],
+    ["contradictory brightness", "manual_override", commandId, 40, "succeeded", true],
+    ["same-command failed", "manual_override", commandId, 60, "failed", false],
+    ["same-command timed out", "manual_override", commandId, 60, "timed_out", false],
+    ["same-command failed with contradictory brightness", "manual_override", commandId, 40, "failed", false],
+    ["same-command timed out with contradictory brightness", "manual_override", commandId, 40, "timed_out", false]
+  ] as const)("uses confirmed observation for %s without overriding explicit manual failure", (_name, sourceType, sourceId, brightnessPercent, status, promote) => {
+    for (const observationField of ["currentByFixture", "lastDesiredByFixture"]) {
+      const result = parseAutomationState({
+        ...legacyV5State(), [observationField]: { [fixtureId]: 60 },
+        manualOverrides: { [fixtureId]: {
+          sourceId: commandId, brightnessPercent: 60, startedAt: requestedAt,
+          overrideUntil: appliedAt, preBrightness: 30
+        } },
+        transitionsByFixture: { [fixtureId]: {
+          phase: "terminal", sourceType, sourceId, brightnessPercent,
+          occurrenceKey: null, attempt: 1, startedAt: requestedAt, status, terminalAt: appliedAt
+        } }
+      });
+      expect(result.baseBrightnessByFixture).toEqual(promote ? { [fixtureId]: 60 } : {});
+      expect(result.manualAutomationSuppressions).toEqual(promote ? {
+        [fixtureId]: { sourceId: commandId, appliedAt: requestedAt, schedules: [], vehicleEvents: [] }
+      } : {});
+    }
+  });
+});
 
 afterEach(async () => {
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
@@ -136,7 +322,7 @@ describe("FileAutomationStateStore", () => {
 
     const restarted = new FileAutomationStateStore(path);
     await expect(restarted.initialize()).resolves.toMatchObject({
-      schemaVersion: 5,
+      schemaVersion: 6,
       activeOccurrences: {
         "schedule-1": {
           key: "schedule-1:2026-08-30",
@@ -430,7 +616,7 @@ describe("FileAutomationStateStore", () => {
     await store.recordTelemetryGap("2026-08-30T01:00:01.000Z", 3);
 
     await expect(new FileAutomationStateStore(path).initialize()).resolves.toMatchObject({
-      schemaVersion: 5,
+      schemaVersion: 6,
       telemetryGap: {
         firstDroppedAt: "2026-08-30T01:00:01.000Z",
         lastDroppedAt: "2026-08-30T01:00:02.000Z",
@@ -475,7 +661,7 @@ describe("FileAutomationStateStore", () => {
       recordsHash: automationTelemetryRecordsHash(records),
       records
     };
-    const { vehicleSensorInbox: _vehicleSensorInbox, ...v4 } = emptyAutomationState();
+    const { vehicleSensorInbox: _vehicleSensorInbox, ...v4 } = legacyV5State();
     await writeJsonAtomic(path, {
       ...v4,
       schemaVersion: 4,
@@ -484,7 +670,7 @@ describe("FileAutomationStateStore", () => {
 
     const store = new FileAutomationStateStore(path);
     await expect(store.initialize()).resolves.toMatchObject({
-      schemaVersion: 5,
+      schemaVersion: 6,
       pendingTelemetryHandoffs: [handoff]
     });
     await expect(store.completeTelemetryHandoff(handoff.handoffId, handoff.recordsHash)).resolves.toEqual({

@@ -3,11 +3,10 @@ import { CircleAlert, KeyRound, LogOut } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { changePassword, logout, type AuthUser } from "../../api/auth";
 import { authMeQueryKey, clearTenantCache, hasPrincipal, principalKey, replacePrincipalCache } from "../../api/principal-cache";
-import { Button, Card, FeedbackState } from "../../components/ui";
+import { Button, Card, FeedbackState, Heading, PasswordField, Text } from "../../components/ui";
 import { blockActiveCommandSession, unblockActiveCommandSession } from "../control/active-command-session";
 import { clearActiveCommandsForUser } from "../control/active-command-store";
 import { passwordChangeErrorMessage, validatePasswordChange } from "./password-form";
-import "./RequiredPasswordChangeView.css";
 
 interface PasswordOperation {
   id: number;
@@ -133,21 +132,21 @@ export function RequiredPasswordChangeView({ user, onCompleted }: {
   }
 
   return (
-    <main className="required-password-shell">
-      <Card className="required-password-card">
-        <div className="required-password-heading">
-          <span className="required-password-icon"><KeyRound size={22} aria-hidden="true" /></span>
-          <div><span className="eyebrow">최초 로그인</span><h1>비밀번호를 변경해 주세요</h1></div>
+    <main className="required-password-shell grid min-h-screen place-items-center bg-surface-canvas px-5 py-8">
+      <Card className="required-password-card grid w-full max-w-lg gap-5 p-7 shadow-panel">
+        <div className="required-password-heading flex items-center gap-3.5">
+          <span className="required-password-icon grid size-11 shrink-0 place-items-center rounded-control bg-action-primary-soft text-action-primary"><KeyRound size={22} aria-hidden="true" /></span>
+          <div className="grid gap-1"><Text as="span" variant="overline" tone="secondary">최초 로그인</Text><Heading as="h1" variant="section-title">비밀번호를 변경해 주세요</Heading></div>
         </div>
-        <p>임시 비밀번호를 본인만 아는 비밀번호로 변경한 뒤 서비스를 이용할 수 있습니다.</p>
-        <form aria-label="최초 로그인 비밀번호 변경" onSubmit={handleSubmit}>
-          <label>현재 임시 비밀번호<input ref={currentPasswordRef} type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} autoFocus /></label>
-          <label>새 비밀번호<input type="password" autoComplete="new-password" minLength={8} maxLength={1024} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} /></label>
-          <label>새 비밀번호 확인<input type="password" autoComplete="new-password" minLength={8} maxLength={1024} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} /></label>
+        <Text tone="secondary">임시 비밀번호를 본인만 아는 비밀번호로 변경한 뒤 서비스를 이용할 수 있습니다.</Text>
+        <form className="grid gap-4" aria-label="최초 로그인 비밀번호 변경" onSubmit={handleSubmit}>
+          <PasswordField ref={currentPasswordRef} label="현재 임시 비밀번호" autoComplete="current-password" value={currentPassword} onChange={setCurrentPassword} autoFocus />
+          <PasswordField label="새 비밀번호" autoComplete="new-password" minLength={8} maxLength={1024} value={newPassword} onChange={setNewPassword} />
+          <PasswordField label="새 비밀번호 확인" autoComplete="new-password" minLength={8} maxLength={1024} value={confirmation} onChange={setConfirmation} />
           {errorMessage ? <FeedbackState tone="danger" icon={CircleAlert} title={errorMessage} /> : null}
-          <Button type="submit" variant="primary" isLoading={action === "change"} disabled={action !== null} loadingLabel="변경 중">비밀번호 변경</Button>
+          <Button className="w-full" type="submit" variant="primary" isLoading={action === "change"} disabled={action !== null} loadingLabel="변경 중">비밀번호 변경</Button>
         </form>
-        <Button type="button" variant="ghost" onClick={() => void handleLogout()} isLoading={action === "logout"} disabled={action !== null} loadingLabel="로그아웃 중"><LogOut size={16} aria-hidden="true" />로그아웃</Button>
+        <Button className="w-full" type="button" variant="ghost" onClick={() => void handleLogout()} isLoading={action === "logout"} disabled={action !== null} loadingLabel="로그아웃 중"><LogOut size={16} aria-hidden="true" />로그아웃</Button>
       </Card>
     </main>
   );

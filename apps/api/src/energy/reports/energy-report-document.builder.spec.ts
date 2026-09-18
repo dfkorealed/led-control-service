@@ -30,6 +30,148 @@ function table(document: EnergyReportDocument, id: string) {
 describe("EnergyReportDocumentBuilder", () => {
   const builder = new EnergyReportDocumentBuilder();
 
+  const kpiData = () => ({
+    ...makeData(), schemaVersion: 2,
+    site: { id: siteId, name: "서울 현장", timeZone: "Asia/Seoul", tariffKwhRate: "160" },
+    fixtures: [0, 1].map(index => ({
+      id: `fixture-${index}`, from: "2026-08-01T00:00:00Z", to: null,
+      dimensions: [{ from: "2026-08-01T00:00:00Z", to: null as string | null, name: "조명", floorId: "floor-a", floorName: "1층", ratedWatt: "40" }],
+      groups: [], hourly: [], daily: Array.from({ length: 10 }, (_, i) => ({
+        localDate: `2026-09-${String(i + 1).padStart(2, "0")}`, energyKwh: "0.6", cost: "90", durationSeconds: 77760
+      }))
+    }))
+  });
+  const kpiRequest = { ...request, from: "2026-09-01", to: "2026-09-10" };
+  const buildKpis = (data = kpiData(), selected = kpiRequest) => builder.build(reportId, selected, data as unknown as EnergyReportDataSnapshot);
+  const summary = (document: EnergyReportDocument) => {
+    const section = document.sections[0];
+    if (section.kind !== "summary") throw new Error("Missing summary");
+    return Object.fromEntries(section.rows.map(row => [row.label, row]));
+  };
+
+  it("captures selected-period v2 KPIs without repricing stored actual cost", () => {
+    const document = buildKpis();
+    expect(document.schemaVersion).toBe(2);
+    expect(summary(document)).toMatchObject({
+      "사용 전력량": { value: 12, source: "persisted_actual" }, "저장 비용": { value: 1800, source: "persisted_actual" },
+      "24시간 기준 전력량": { value: 19.2, displayValue: "19.2000 kWh", source: "captured_current_configuration" },
+      "절감 전력량": { value: 7.2 }, "예상 절감 비용": { value: 1152 }, "절감률": { value: 37.5 }, "데이터 수집률": { value: 90 }
+    });
+    expect(document).toMatchObject({ calculationBasis: { expectedSeconds: 1728000, knownSeconds: 1555200, fixtureCount: 2, tariffKwhRate: "160" } });
+    expect(table(document, "daily")[0]).toEqual(["2026-09-01", 1.2, 180, 1.92]);
+  });
+
+  it("integrates intra-day scope and watt history without fabricating known seconds", () => {
+    const data = kpiData(); data.fixtures = [data.fixtures[0]];
+    data.fixtures[0].dimensions = [
+      { ...data.fixtures[0].dimensions[0], to: "2026-09-01T03:00:00Z", floorId: "other" },
+      { ...data.fixtures[0].dimensions[0], from: "2026-09-01T03:00:00Z", to: "2026-09-01T09:00:00Z" },
+      { ...data.fixtures[0].dimensions[0], from: "2026-09-01T09:00:00Z", ratedWatt: "80" }
+    ];
+    const document = buildKpis(data, { ...kpiRequest, to: "2026-09-01", scope: "floor", identityId: "floor-a" });
+    expect(document).toMatchObject({ calculationBasis: { expectedSeconds: 43200, knownSeconds: null, coverageReason: "scope_attribution_unavailable" } });
+    expect(summary(document)).toMatchObject({ "24시간 기준 전력량": { value: 0.72 }, "데이터 수집률": { value: null } });
+  });
+
+  it.each([["2026-03-08", 82800, 0.92], ["2026-11-01", 90000, 1]])("uses actual DST day seconds on %s", (date, seconds, baseline) => {
+    const data = kpiData(); data.site.timeZone = "America/New_York"; data.fixtures = [data.fixtures[0]];
+    data.fixtures[0].from = "2026-01-01T00:00:00Z"; data.fixtures[0].dimensions[0].from = data.fixtures[0].from;
+    const document = buildKpis(data, { ...kpiRequest, from: date as string, to: date as string });
+    expect(document).toMatchObject({ calculationBasis: { expectedSeconds: seconds } });
+    expect(summary(document)["24시간 기준 전력량"].value).toBe(baseline);
+  });
+
+  it("keeps null actual, missing tariff/history, zero baseline and over-baseline distinct", () => {
+    const missing = kpiData(); missing.fixtures.forEach(fixture => fixture.daily = []);
+    expect(summary(buildKpis(missing))["절감 전력량"].value).toBeNull();
+    const noTariff = kpiData(); Object.assign(noTariff.site, { tariffKwhRate: null });
+    expect(summary(buildKpis(noTariff))["예상 절감 비용"].value).toBeNull();
+    const gap = kpiData(); gap.fixtures[0].dimensions = [];
+    expect(summary(buildKpis(gap))["24시간 기준 전력량"].value).toBeNull();
+    const zero = kpiData(); zero.fixtures.forEach(fixture => fixture.dimensions[0].ratedWatt = "0");
+    expect(summary(buildKpis(zero))["기준 초과율"].value).toBeNull();
+    const over = kpiData(); over.fixtures.forEach(fixture => fixture.daily.forEach(row => row.energyKwh = "1.2"));
+    expect(summary(buildKpis(over))).toMatchObject({ "기준 초과 전력량": { value: -4.8 }, "예상 기준 초과 비용": { value: -768 }, "기준 초과율": { value: -25 } });
+  });
+
+  it("fingerprints captured tariff and visualization refs and caps coverage without extrapolating actuals", () => {
+    const data = kpiData();
+    data.fixtures.forEach(fixture => fixture.daily.forEach(row => row.durationSeconds = 90000));
+    const document = buildKpis(data);
+    expect(summary(document)["데이터 수집률"].value).toBe(100);
+    const { contentFingerprint, ...input } = document;
+    const canonicalize = (value: unknown): string => {
+      if (Array.isArray(value)) return `[${value.map(canonicalize).join(",")}]`;
+      if (value !== null && typeof value === "object") return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonicalize((value as Record<string, unknown>)[key])}`).join(",")}}`;
+      return JSON.stringify(value);
+    };
+    expect(contentFingerprint).toBe(createHash("sha256").update(canonicalize(input)).digest("hex"));
+    const changed = structuredClone(input);
+    const daily = changed.sections[1];
+    if (!("visualization" in daily) || !daily.visualization) throw new Error("Missing visual reference");
+    daily.visualization.id += "-changed";
+    expect(createHash("sha256").update(canonicalize(changed)).digest("hex")).not.toBe(contentFingerprint);
+    data.site.tariffKwhRate = "180";
+    expect(buildKpis(data).contentFingerprint).not.toBe(contentFingerprint);
+    expect(summary(buildKpis(data))["저장 비용"].value).toBe(1800);
+  });
+
+  it("does not claim a zero baseline for legacy facts that predate captured lifecycle history", () => {
+    const data = kpiData(); data.fixtures.forEach(fixture => {
+      fixture.from = "2026-09-15T00:00:00Z";
+      fixture.dimensions[0].from = fixture.from;
+    });
+    const document = buildKpis(data);
+    expect(summary(document)["사용 전력량"].value).toBe(12);
+    expect(summary(document)["24시간 기준 전력량"].value).toBeNull();
+    expect(document).toMatchObject({ calculationBasis: { baselineReason: "dimension_history_missing", knownSeconds: null } });
+  });
+
+  it("uses captured group membership once even when group name history is absent or duplicated", () => {
+    const data = kpiData(); data.fixtures = [data.fixtures[0]];
+    Object.assign(data.fixtures[0], { memberships: [
+      { id: "selected-group", from: "2026-08-01T00:00:00Z", to: null },
+      { id: "selected-group", from: "2026-08-01T00:00:00Z", to: null }
+    ] });
+    const document = buildKpis(data, { ...kpiRequest, scope: "group", identityId: "selected-group" });
+    expect(summary(document)).toMatchObject({ "사용 전력량": { value: 6 }, "24시간 기준 전력량": { value: 9.6 }, "데이터 수집률": { value: 90 } });
+    expect(document).toMatchObject({ calculationBasis: { expectedSeconds: 864000, fixtureCount: 1 } });
+  });
+
+  it.each(["site", "fixture", "group", "floor"] as const)("preserves attributable %s actuals and coverage when only baseline configuration is missing", scope => {
+    const data = kpiData(); data.fixtures = [data.fixtures[0]];
+    const fixture = data.fixtures[0];
+    Object.assign(fixture, { memberships: [{ id: "selected-group", from: fixture.from, to: null }] });
+    if (scope === "floor") Reflect.deleteProperty(fixture.dimensions[0], "ratedWatt");
+    else fixture.dimensions = [];
+    const identityId = { site: siteId, fixture: fixture.id, group: "selected-group", floor: "floor-a" }[scope];
+    const document = buildKpis(data, { ...kpiRequest, to: "2026-09-01", scope, identityId });
+    expect(summary(document)).toMatchObject({
+      "사용 전력량": { value: 0.6, source: "persisted_actual" }, "저장 비용": { value: 90, source: "persisted_actual" },
+      "24시간 기준 전력량": { value: null }, "절감 전력량": { value: null }, "절감률": { value: null },
+      "현재 단가 기준 비용": { value: null }, "예상 절감 비용": { value: null }, "데이터 수집률": { value: 90 }
+    });
+    expect(table(document, "daily")).toEqual([["2026-09-01", 0.6, 90, null]]);
+    expect(document).toMatchObject({ calculationBasis: {
+      expectedSeconds: 86400, knownSeconds: 77760, baselineReason: "dimension_history_missing", coverageReason: null
+    } });
+  });
+
+  it.each(["site", "fixture"] as const)("keeps %s tracking-start-day actuals but rejects comparisons against only the post-start interval", scope => {
+    const data = kpiData(); data.fixtures = [data.fixtures[0]];
+    const fixture = data.fixtures[0]; fixture.from = "2026-09-01T03:00:00Z"; fixture.dimensions[0].from = fixture.from;
+    const document = buildKpis(data, { ...kpiRequest, to: "2026-09-01", scope, identityId: scope === "site" ? siteId : fixture.id });
+    expect(summary(document)).toMatchObject({
+      "사용 전력량": { value: 0.6 }, "저장 비용": { value: 90 }, "24시간 기준 전력량": { value: null },
+      "절감 전력량": { value: null }, "절감률": { value: null }, "현재 단가 기준 비용": { value: null },
+      "예상 절감 비용": { value: null }, "데이터 수집률": { value: null }
+    });
+    expect(table(document, "daily")).toEqual([["2026-09-01", 0.6, 90, null]]);
+    expect(document).toMatchObject({ calculationBasis: {
+      expectedSeconds: null, knownSeconds: null, baselineReason: "dimension_history_missing", coverageReason: "dimension_history_missing"
+    } });
+  });
+
   it("validates only final document strings after scope, date and fact filtering", () => {
     const data = makeData();
     const retired = structuredClone(data.fixtures[0]);
@@ -100,6 +242,7 @@ describe("EnergyReportDocumentBuilder", () => {
     expect(table(document, "comparison")[1][2]).toBeNull();
     expect(table(document, "comparison")[2][2]).toBeNull();
     for (const section of document.sections.filter((section) => section.kind === "heatmap")) {
+      if (section.kind !== "heatmap") throw new Error("Missing heatmap");
       expect(section.cells[1 * 24 + 10]).toMatchObject({ value: null, displayValue: "데이터 없음" });
       expect(section.cells[2 * 24 + 10].value).toBe(0);
     }
@@ -113,6 +256,7 @@ describe("EnergyReportDocumentBuilder", () => {
     const document = builder.build(reportId, { ...request, scope: "floor", identityId: "floor-a" }, data);
     expect(table(document, "daily")).toEqual([["2026-09-07", 0.2, null], ["2026-09-08", null, null]]);
     const heatmaps = document.sections.filter((section) => section.kind === "heatmap");
+    if (heatmaps[0].kind !== "heatmap" || heatmaps[1].kind !== "heatmap") throw new Error("Missing heatmap");
     expect(heatmaps[0].cells[34].value).toBe(0.6);
     expect(heatmaps[1].cells[34].value).toBe(65);
     expect(heatmaps[0].cells[58].value).toBeNull();

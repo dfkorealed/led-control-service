@@ -1,6 +1,7 @@
 import { Prisma, PrismaClient } from "@prisma/client";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const migrationPath = join(
@@ -71,6 +72,13 @@ const manualCommandExecutionMigrationPath = join(
 const manualCommandExecutionMigration = existsSync(manualCommandExecutionMigrationPath)
   ? readFileSync(manualCommandExecutionMigrationPath, "utf8")
   : "";
+const manualControlBaselineMigrationPath = join(
+  __dirname,
+  "../../prisma/migrations/20260914090000_manual_control_baseline/migration.sql"
+);
+const manualControlBaselineMigration = existsSync(manualControlBaselineMigrationPath)
+  ? readFileSync(manualControlBaselineMigrationPath, "utf8")
+  : "";
 const prismaSchema = readFileSync(join(__dirname, "../../prisma/schema.prisma"), "utf8");
 const prisma = new PrismaClient();
 const databaseUrl = process.env.AUTOMATION_SCHEMA_TEST_DATABASE_URL;
@@ -112,6 +120,23 @@ describe("automation Prisma schema contract", () => {
     expect(modelFields.LightingSchedule).toContain("targetCount");
     expect(modelFields.VehicleEventRule).toEqual(expect.arrayContaining(["sourceCount", "targetCount"]));
     expect(modelFields.ManualOverride).toContain("targetCount");
+  });
+
+  it("makes only the manual override expiry nullable through a forward migration", () => {
+    const manualOverride = Prisma.dmmf.datamodel.models.find((model) => model.name === "ManualOverride");
+    const modelFields = Object.fromEntries(
+      Prisma.dmmf.datamodel.models.map((model) => [
+        model.name,
+        model.fields.map((field) => `${field.name} ${field.type}${field.isRequired ? "" : "?"}`)
+      ])
+    );
+
+    expect(modelFields.ManualOverride).toContain("overrideUntil DateTime?");
+    expect(manualOverride?.fields.find((field) => field.name === "startedAt")?.isRequired).toBe(true);
+    expect(manualControlBaselineMigration).toContain('ALTER COLUMN "overrideUntil" DROP NOT NULL');
+    expect(manualControlBaselineMigration).toContain('"overrideUntil" IS NULL');
+    expect(manualControlBaselineMigration).toContain('DROP CONSTRAINT "ManualOverride_time_range_check"');
+    expect(manualControlBaselineMigration).toContain('ADD CONSTRAINT "ManualOverride_time_range_check"');
   });
 
   it("exposes fail-closed vehicle sensor capability metadata on MeshNode", () => {
@@ -489,6 +514,170 @@ describe("automation Prisma schema contract", () => {
     expect(migration).toMatch(
       /AutomationExecutionFixtureResult_fixtureId_fkey[\s\S]*?REFERENCES "Fixture"\("id"\) ON DELETE SET NULL/
     );
+  });
+});
+
+describeWithPostgres("manual control baseline migration PostgreSQL rehearsal", () => {
+  const schemaName = `manual_control_baseline_${process.pid}`.toLowerCase();
+  let migrationCopy: string;
+
+  function scoped(sql: string) {
+    return `SET search_path TO "${schemaName}"; ${sql}`;
+  }
+
+  function deployProductionSchemaBeforeBaseline() {
+    migrationCopy = mkdtempSync(join(tmpdir(), "manual-control-baseline-migrations-"));
+    cpSync(join(__dirname, "../../prisma"), migrationCopy, { recursive: true });
+    const migrationsDirectory = join(migrationCopy, "migrations");
+    for (const name of readdirSync(migrationsDirectory)) {
+      if (/^\d/.test(name) && name.localeCompare("20260914090000_manual_control_baseline") >= 0) {
+        rmSync(join(migrationsDirectory, name), { recursive: true });
+      }
+    }
+    const url = new URL(databaseUrl!);
+    url.searchParams.set("schema", schemaName);
+    const result = spawnSync(process.execPath, [
+      require.resolve("prisma/build/index.js"),
+      "migrate",
+      "deploy",
+      "--schema",
+      join(migrationCopy, "schema.prisma")
+    ], {
+      encoding: "utf8",
+      env: { ...process.env, DATABASE_URL: url.toString() }
+    });
+    if (result.status !== 0) throw new Error(result.stderr || result.stdout);
+  }
+
+  beforeAll(() => {
+    executeSql(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE;`);
+    deployProductionSchemaBeforeBaseline();
+    executeSql(scoped(`
+      INSERT INTO "Organization" ("id", "name", "type", "createdAt", "updatedAt")
+      VALUES ('manual-baseline-org', 'Manual baseline', 'customer', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+      INSERT INTO "User" (
+        "id", "organizationId", "loginId", "name", "passwordHash", "role", "status", "createdAt", "updatedAt"
+      ) VALUES (
+        'manual-baseline-user', 'manual-baseline-org', 'manual-baseline-user', 'Manual baseline',
+        'hash', 'admin', 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+      );
+      INSERT INTO "Site" ("id", "organizationId", "name", "createdAt", "updatedAt")
+      VALUES ('manual-baseline-site', 'manual-baseline-org', 'Manual baseline', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+      INSERT INTO "Gateway" (
+        "id", "siteId", "name", "serialNumber", "firmwareVersion", "createdAt", "updatedAt"
+      ) VALUES (
+        'manual-baseline-gateway', 'manual-baseline-site', 'Manual baseline',
+        'MANUAL-BASELINE-GATEWAY', '1.0.0', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+      );
+      INSERT INTO "Floor" ("id", "siteId", "name", "level", "createdAt", "updatedAt")
+      VALUES ('manual-baseline-floor', 'manual-baseline-site', 'Manual baseline', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+      INSERT INTO "MeshNode" (
+        "id", "gatewayId", "meshAddress", "firmwareVersion", "createdAt", "updatedAt"
+      ) VALUES (
+        'manual-baseline-node', 'manual-baseline-gateway', '0101', '1.0.0', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+      );
+      INSERT INTO "Fixture" (
+        "id", "floorId", "meshNodeId", "name", "ratedWatt", "x", "y", "createdAt", "updatedAt"
+      ) VALUES (
+        'manual-baseline-fixture', 'manual-baseline-floor', 'manual-baseline-node',
+        'Manual baseline', 30, 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+      );
+      INSERT INTO "Command" (
+        "id", "siteId", "requestedBy", "clientRequestId", "requestFingerprint", "targetType",
+        "targetFixtureIds", "brightness", "createdAt", "updatedAt"
+      ) VALUES
+        ('manual-baseline-command-legacy', 'manual-baseline-site', 'manual-baseline-user', 'legacy', 'legacy', 'fixture', '["manual-baseline-fixture"]', 50, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+        ('manual-baseline-command-current', 'manual-baseline-site', 'manual-baseline-user', 'current', 'current', 'fixture', '["manual-baseline-fixture"]', 60, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+        ('manual-baseline-command-ended', 'manual-baseline-site', 'manual-baseline-user', 'ended', 'ended', 'fixture', '["manual-baseline-fixture"]', 70, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+        ('manual-baseline-command-empty', 'manual-baseline-site', 'manual-baseline-user', 'empty', 'empty', 'fixture', '["manual-baseline-fixture"]', 80, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+      BEGIN;
+      INSERT INTO "ManualOverride" (
+        "id", "siteId", "gatewayId", "commandId", "requestedById", "brightnessPercent",
+        "startedAt", "overrideUntil", "createdAt", "updatedAt"
+      ) VALUES (
+        'manual-baseline-legacy', 'manual-baseline-site', 'manual-baseline-gateway',
+        'manual-baseline-command-legacy', 'manual-baseline-user', 50,
+        '2026-09-14T00:00:00.123Z', '2026-09-14T01:02:03.456Z', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+      );
+      INSERT INTO "ManualOverrideFixture" ("manualOverrideId", "fixtureId", "siteId", "gatewayId")
+      VALUES ('manual-baseline-legacy', 'manual-baseline-fixture', 'manual-baseline-site', 'manual-baseline-gateway');
+      COMMIT;
+      ${manualControlBaselineMigration}
+    `));
+  });
+
+  afterAll(() => {
+    executeSql(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE;`);
+    if (migrationCopy) rmSync(migrationCopy, { recursive: true, force: true });
+  });
+
+  it("preserves the exact timed history value and accepts a nullable row with a production target", () => {
+    executeSql(scoped(`
+      BEGIN;
+      INSERT INTO "ManualOverride" (
+        "id", "siteId", "gatewayId", "commandId", "requestedById", "brightnessPercent",
+        "startedAt", "overrideUntil", "createdAt", "updatedAt"
+      ) VALUES (
+        'manual-baseline-current', 'manual-baseline-site', 'manual-baseline-gateway',
+        'manual-baseline-command-current', 'manual-baseline-user', 60,
+        '2026-09-14T02:00:00.000Z', NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+      );
+      INSERT INTO "ManualOverrideFixture" ("manualOverrideId", "fixtureId", "siteId", "gatewayId")
+      VALUES ('manual-baseline-current', 'manual-baseline-fixture', 'manual-baseline-site', 'manual-baseline-gateway');
+      COMMIT;
+    `));
+
+    expect(querySql(scoped(`
+      SELECT
+        (SELECT to_char("overrideUntil", 'YYYY-MM-DD"T"HH24:MI:SS.MS') FROM "ManualOverride" WHERE "id" = 'manual-baseline-legacy') || ':' ||
+        (SELECT "overrideUntil" IS NULL FROM "ManualOverride" WHERE "id" = 'manual-baseline-current') || ':' ||
+        (SELECT "targetCount" FROM "ManualOverride" WHERE "id" = 'manual-baseline-current');
+    `))).toBe("2026-09-14T01:02:03.456:true:1");
+
+    expect(querySql(scoped(`
+      SELECT string_agg(tgname, ',' ORDER BY tgname)
+      FROM pg_trigger
+      WHERE tgrelid IN ('"ManualOverride"'::regclass, '"ManualOverrideFixture"'::regclass)
+        AND tgname IN ('ManualOverride_target_cardinality', 'ManualOverrideFixture_target_cardinality');
+    `))).toBe("ManualOverrideFixture_target_cardinality,ManualOverride_target_cardinality");
+  });
+
+  it("rejects a null-expiry row with a non-null endedAt", () => {
+    expectSqlFailure(scoped(`
+      BEGIN;
+      INSERT INTO "ManualOverride" (
+        "id", "siteId", "gatewayId", "commandId", "requestedById", "brightnessPercent",
+        "startedAt", "overrideUntil", "endedAt", "createdAt", "updatedAt"
+      ) VALUES (
+        'manual-baseline-ended', 'manual-baseline-site', 'manual-baseline-gateway',
+        'manual-baseline-command-ended', 'manual-baseline-user', 70,
+        '2026-09-14T03:00:00.000Z', NULL, '2026-09-14T03:01:00.000Z', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+      );
+      INSERT INTO "ManualOverrideFixture" ("manualOverrideId", "fixtureId", "siteId", "gatewayId")
+      VALUES ('manual-baseline-ended', 'manual-baseline-fixture', 'manual-baseline-site', 'manual-baseline-gateway');
+      COMMIT;
+    `), "ManualOverride_time_range_check");
+  });
+
+  it("keeps production target cardinality enforcement for null-expiry rows", () => {
+    expectSqlFailure(scoped(`
+      BEGIN;
+      INSERT INTO "ManualOverride" (
+        "id", "siteId", "gatewayId", "commandId", "requestedById", "brightnessPercent",
+        "startedAt", "overrideUntil", "createdAt", "updatedAt"
+      ) VALUES (
+        'manual-baseline-empty', 'manual-baseline-site', 'manual-baseline-gateway',
+        'manual-baseline-command-empty', 'manual-baseline-user', 80,
+        '2026-09-14T04:00:00.000Z', NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+      );
+      COMMIT;
+    `), "manual override requires at least one target fixture");
+
+    expectSqlFailure(scoped(`
+      BEGIN;
+      DELETE FROM "ManualOverrideFixture" WHERE "manualOverrideId" = 'manual-baseline-current';
+      COMMIT;
+    `), "manual override requires at least one target fixture");
   });
 });
 

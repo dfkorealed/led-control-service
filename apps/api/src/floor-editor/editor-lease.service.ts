@@ -98,7 +98,12 @@ export class EditorLeaseService {
           kind: "editable" as const,
           lease: { ...candidate, fence, acquiredAt: acquiredAt.toISOString() }
         };
-      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }).catch((error: unknown) => {
+        if (this.isTransactionConflict(error)) return null;
+        throw error;
+      });
+
+      if (!result) continue;
 
       if (result.kind === "editable") {
         await this.tryWriteLeaseCache(floorId, result.lease);
@@ -166,7 +171,12 @@ export class EditorLeaseService {
             acquiredAt: floor.editorLeaseAcquiredAt?.toISOString() ?? new Date().toISOString()
           }
         };
-      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }).catch((error: unknown) => {
+        if (this.isTransactionConflict(error)) return null;
+        throw error;
+      });
+
+      if (!authority) continue;
 
       if (authority.kind === "editable") {
         await this.tryRenewLeaseCache(floorId, token);
@@ -347,6 +357,19 @@ export class EditorLeaseService {
       fence: floor.editorLeaseFence,
       acquiredAt: floor.editorLeaseAcquiredAt!.toISOString()
     };
+  }
+
+  private isTransactionConflict(error: unknown) {
+    if (!error || typeof error !== "object") return false;
+    const code = "code" in error ? String(error.code) : "";
+    if (["P2034", "40001", "40P01"].includes(code)) return true;
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      return ["40001", "40P01"].includes(String(error.meta?.code));
+    }
+    return code === "P2010"
+      && "message" in error
+      && typeof error.message === "string"
+      && (error.message.includes("40001") || error.message.includes("40P01"));
   }
 
   private async lockLeaseAuthority(tx: Prisma.TransactionClient, floorId: string) {

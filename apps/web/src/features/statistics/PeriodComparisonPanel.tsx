@@ -1,6 +1,6 @@
 import type { EnergyComparisonResponse } from "@led-control/shared";
 import { CircleOff, Minus, TrendingDown, TrendingUp } from "lucide-react";
-import { SidePanel, StatusBadge } from "../../components/ui";
+import { Heading, SidePanel, StatusBadge, Text } from "../../components/ui";
 import { formatCoverage, formatKwh, formatPercent } from "./statistics-format";
 
 type PriorComparison = EnergyComparisonResponse["priorComparisons"][number];
@@ -12,12 +12,12 @@ const comparisonKinds = [
 
 export function PeriodComparisonPanel({ comparisons }: { comparisons: EnergyComparisonResponse["priorComparisons"] }) {
   return (
-    <SidePanel className="period-comparison-panel" aria-label="동기간 비교">
-      <div>
-        <span className="eyebrow">동일 조건 추세</span>
-        <h3>이전 기간과 비교</h3>
+    <SidePanel className="grid min-w-0 gap-4 p-4 compact:p-6" aria-label="동기간 비교">
+      <div className="grid gap-1">
+        <Text variant="overline" tone="muted">동일 조건 추세</Text>
+        <Heading as="h3" variant="card-title">이전 기간과 비교</Heading>
       </div>
-      <div className="period-comparison-list">
+      <div className="grid gap-3">
         {comparisonKinds.map(({ kind, label }) => (
           <ComparisonRow
             key={kind}
@@ -26,7 +26,7 @@ export function PeriodComparisonPanel({ comparisons }: { comparisons: EnergyComp
           />
         ))}
       </div>
-      <p className="statistics-baseline-note">조명 구성 변화 미보정</p>
+      <Text variant="caption" tone="muted">조명 구성 변화 미보정</Text>
     </SidePanel>
   );
 }
@@ -34,10 +34,10 @@ export function PeriodComparisonPanel({ comparisons }: { comparisons: EnergyComp
 function ComparisonRow({ label, comparison }: { label: string; comparison?: PriorComparison }) {
   if (!comparison || comparison.changeRatePercent === null) {
     return (
-      <section className="period-comparison-row" role="group" aria-label={label}>
-        <strong>{label}</strong>
+      <section className="grid gap-2 rounded-control border border-border-default bg-surface-inset p-3" role="group" aria-label={label}>
+        <Text as="strong" variant="label">{label}</Text>
         <StatusBadge tone="neutral" icon={CircleOff}>비교 불가</StatusBadge>
-        <p>비교 가능한 사용량 데이터가 없습니다.</p>
+        <Text variant="body-sm" tone="secondary">비교 가능한 사용량 데이터가 없습니다.</Text>
         {comparison ? <Coverage comparison={comparison} /> : null}
       </section>
     );
@@ -49,12 +49,12 @@ function ComparisonRow({ label, comparison }: { label: string; comparison?: Prio
   const direction = rate < 0 ? "감소" : rate > 0 ? "증가" : "동일";
 
   return (
-    <section className="period-comparison-row" role="group" aria-label={label}>
-      <strong>{label}</strong>
+    <section className="grid gap-2 rounded-control border border-border-default bg-surface-inset p-3" role="group" aria-label={label}>
+      <Text as="strong" variant="label">{label}</Text>
       <StatusBadge tone={tone} icon={Icon}>
         {rate === 0 ? direction : `${formatPercent(Math.abs(rate))} ${direction}`}
       </StatusBadge>
-      <p>{formatKwh(comparison.comparisonKwh!)} → {formatKwh(comparison.currentKwh!)}</p>
+      <Text variant="body-sm" weight="bold" className="tabular-nums">{formatKwh(comparison.comparisonKwh!)} → {formatKwh(comparison.currentKwh!)}</Text>
       <Coverage comparison={comparison} />
     </section>
   );
@@ -62,7 +62,7 @@ function ComparisonRow({ label, comparison }: { label: string; comparison?: Prio
 
 function Coverage({ comparison }: { comparison: PriorComparison }) {
   return (
-    <div className="period-comparison-coverage">
+    <div className="grid gap-1 text-caption text-content-muted">
       <span>현재 수집률 {formatCoverage(comparison.currentCoverageRate)}</span>
       <span>비교 기간 수집률 {formatCoverage(comparison.comparisonCoverageRate)}</span>
     </div>

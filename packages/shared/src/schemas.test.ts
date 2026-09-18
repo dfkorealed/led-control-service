@@ -45,20 +45,30 @@ import { mqttTopicsV2 } from "./gateway-contracts";
 import { mqttTopics } from "./mqtt";
 
 describe("shared schemas", () => {
-  it("validates all dimming target types and normalizes legacy requests", () => {
+  it("validates expiry-free dimming targets and normalizes legacy timed requests", () => {
     const siteId = "00000000-0000-4000-8000-000000000003";
     const fixture1 = "11111111-1111-4111-8111-111111111111";
     const fixture2 = "22222222-2222-4222-8222-222222222222";
+    const canonical = {
+      siteId,
+      clientRequestId: "33333333-3333-4333-8333-333333333333",
+      target: { type: "fixture" as const, fixtureId: fixture1 },
+      brightness: 60
+    };
+    const overrideUntil = "2026-08-29T01:00:00.000Z";
+
+    expect(createDimmingCommandSchema.parse(canonical)).toEqual(canonical);
+    expect(() => createDimmingCommandSchema.parse({ ...canonical, overrideUntil })).toThrow();
+    expect(createDimmingCommandRequestSchema.parse({ ...canonical, overrideUntil })).toEqual(canonical);
+    expect(() => createDimmingCommandRequestSchema.parse({ ...canonical, overrideUntil: "invalid" })).toThrow();
 
     expect(createDimmingCommandSchema.parse({
       siteId,
       clientRequestId: "33333333-3333-4333-8333-333333333333",
       target: { type: "fixtures", fixtureIds: [fixture1, fixture2] },
-      brightness: 70,
-      overrideUntil: "2026-08-29T01:00:00.000Z"
+      brightness: 70
     })).toMatchObject({
-      target: { type: "fixtures" },
-      overrideUntil: "2026-08-29T01:00:00.000Z"
+      target: { type: "fixtures" }
     });
     expect(createDimmingCommandSchema.parse({
       siteId,

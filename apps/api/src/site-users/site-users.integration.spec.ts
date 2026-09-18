@@ -258,7 +258,7 @@ describeDatabase("Site Users PostgreSQL concurrency and deletion", () => {
         brightness: 70,
         requestedBy: member.id,
         requestedAt: requestedAt.toISOString(),
-        overrideUntil: override.overrideUntil.toISOString()
+        overrideUntil: override.overrideUntil!.toISOString()
       }
     } });
     const unrelatedInvitation = await prisma.invitation.create({ data: {

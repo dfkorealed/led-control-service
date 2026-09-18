@@ -1,33 +1,149 @@
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { randomBytes } from "node:crypto";
+import {
+  accessSync,
+  chmodSync,
+  closeSync,
+  constants,
+  existsSync,
+  fsyncSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  writeFileSync
+} from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   parseEnvFile,
   publishMosquittoAcl,
+  renderDockerMosquittoConfig,
   renderMosquittoConfig,
   resolveDevEnvironment,
   resolveMosquittoTlsPaths
 } from "./dev-runtime.mjs";
 
-export function prepareDevelopmentRuntime(root, sourceEnv, { run = defaultRun } = {}) {
-  const env = resolveDevEnvironment(root, sourceEnv);
+export function prepareDevelopmentRuntime(
+  root,
+  sourceEnv,
+  { run = defaultRun, findExecutable = defaultFindExecutable } = {}
+) {
+  const env = resolveDevelopmentCadEnvironment(resolveDevEnvironment(root, sourceEnv), { findExecutable });
   const gatewayIds = env.DEV_GATEWAY_IDS ? env.DEV_GATEWAY_IDS.split(",") : [];
-  ensureDevelopmentPki(root, env, gatewayIds, usesExternalMqttPki(sourceEnv), run);
-
   const localDirectory = join(root, ".local");
   const mqttRuntimeDirectory = join(localDirectory, "mosquitto-runtime");
   const aclPath = join(mqttRuntimeDirectory, "mosquitto.acl");
   const nativeConfigPath = join(localDirectory, "mosquitto.host.conf");
-  mkdirSync(localDirectory, { recursive: true });
+  const dockerConfigPath = join(localDirectory, "mosquitto.docker.conf");
+  ensurePrivateLocalDirectory(root, localDirectory);
+  ensureDevelopmentPki(root, env, gatewayIds, usesExternalMqttPki(sourceEnv), run);
+  const configuredDockerCertDirectory = resolve(
+    root,
+    env.MQTT_TLS_CERT_DIR?.trim() || env.PKI_LAB_CURRENT_DIR?.trim() || join(".local", "pki")
+  );
+  const dockerCertDirectory = realpathSync(configuredDockerCertDirectory);
   ensureMosquittoRuntimeDirectory(mqttRuntimeDirectory);
   // Claims update product state only. Both supported dev launch paths call this
   // before broker startup so the file-backed ACL is never a stale wildcard or
   // a previous Gateway allowlist, including when the new list is empty.
   publishMosquittoAcl(aclPath, gatewayIds);
-  writeFileSync(nativeConfigPath, renderMosquittoConfig(root, env), { mode: 0o600 });
-  chmodSync(nativeConfigPath, 0o600);
-  return { env, gatewayIds, aclPath, nativeConfigPath };
+  publishPrivateConfig(root, nativeConfigPath, renderMosquittoConfig(root, env));
+  publishPrivateConfig(root, dockerConfigPath, renderDockerMosquittoConfig(env));
+  return { env, gatewayIds, aclPath, nativeConfigPath, dockerConfigPath, dockerCertDirectory };
+}
+
+export function resolveDevelopmentCadEnvironment(source, { findExecutable = defaultFindExecutable } = {}) {
+  if (source.CAD_IMPORT_CONVERTER_MODE?.trim()) return { ...source };
+  const executable = findExecutable("dwgread");
+  if (!executable) return { ...source };
+  return {
+    ...source,
+    CAD_IMPORT_CONVERTER_MODE: "development-argv",
+    CAD_IMPORT_CONVERTER_EXECUTABLE: executable,
+    CAD_IMPORT_CONVERTER_ARGV_JSON: '["-O","DXF","-o","{output}","{input}"]'
+  };
+}
+
+function ensurePrivateLocalDirectory(root, directory) {
+  let created = false;
+  try {
+    mkdirSync(directory, { mode: 0o700 });
+    created = true;
+  } catch (error) {
+    if (error?.code !== "EEXIST") throw error;
+  }
+  if (created) chmodSync(directory, 0o700);
+  let status;
+  try {
+    status = lstatSync(directory);
+  } catch {
+    throw new Error(".local must be a regular directory, not a symlink");
+  }
+  const expected = join(realpathSync(root), ".local");
+  if (!status.isDirectory() || status.isSymbolicLink() || realpathSync(directory) !== expected) {
+    throw new Error(".local must be a regular directory, not a symlink");
+  }
+  if (typeof process.getuid === "function" && status.uid !== process.getuid()) {
+    throw new Error(".local must be owned by the invoking user");
+  }
+  if ((status.mode & 0o777) !== 0o700) {
+    throw new Error(".local must have mode 0700");
+  }
+}
+
+function publishPrivateConfig(root, destination, content) {
+  const localDirectory = join(root, ".local");
+  ensurePrivateLocalDirectory(root, localDirectory);
+  const pathWithinLocal = relative(localDirectory, destination);
+  if (!pathWithinLocal || isAbsolute(pathWithinLocal) || pathWithinLocal.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`)) {
+    throw new Error("Mosquitto config destination must remain inside .local");
+  }
+  if (dirname(destination) !== localDirectory) {
+    throw new Error("Mosquitto config destination parent must be the validated .local directory");
+  }
+  try {
+    const status = lstatSync(destination);
+    if (!status.isFile() || status.isSymbolicLink()) {
+      throw new Error("Mosquitto config destination must be a regular file, not a symlink");
+    }
+    if (typeof process.getuid === "function" && status.uid !== process.getuid()) {
+      throw new Error("Mosquitto config destination must be owned by the invoking user");
+    }
+    if ((status.mode & 0o777) !== 0o600) {
+      throw new Error("Mosquitto config destination must have mode 0600");
+    }
+    if (readFileSync(destination, "utf8") === content) return;
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+
+  const temporaryPath = join(
+    localDirectory,
+    `.${basename(destination)}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`
+  );
+  let descriptor;
+  let directoryDescriptor;
+  try {
+    descriptor = openSync(temporaryPath, "wx", 0o600);
+    writeFileSync(descriptor, content, "utf8");
+    chmodSync(temporaryPath, 0o600);
+    fsyncSync(descriptor);
+    closeSync(descriptor);
+    descriptor = undefined;
+    renameSync(temporaryPath, destination);
+    directoryDescriptor = openSync(localDirectory, "r");
+    fsyncSync(directoryDescriptor);
+    closeSync(directoryDescriptor);
+    directoryDescriptor = undefined;
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor);
+    if (directoryDescriptor !== undefined) closeSync(directoryDescriptor);
+    rmSync(temporaryPath, { force: true });
+  }
 }
 
 function ensureMosquittoRuntimeDirectory(directory) {
@@ -59,14 +175,43 @@ function ensureDevelopmentPki(root, env, gatewayIds, externalPki, run) {
     if (missing.length) throw new Error(`명시한 Vault TLS bundle 파일을 찾지 못했습니다: ${missing.join(", ")}`);
     return;
   }
+  ensurePrivateDevelopmentPkiDirectory(root, pki);
+  const childEnv = { ...env, PKI_DIR: realpathSync(pki) };
   if (!existsSync(join(pki, "ca.crt")) || !existsSync(join(pki, "api.crt")) || !existsSync(join(pki, "broker.crt"))) {
-    runChecked(run, root, join(root, "scripts", "dev-pki", "create-ca.sh"), [], env);
+    runChecked(run, root, join(root, "scripts", "dev-pki", "create-ca.sh"), [], childEnv);
   }
   for (const gatewayId of gatewayIds) {
     const certificateName = `gateway-${gatewayId}`;
     if (!existsSync(join(pki, `${certificateName}.crt`)) || !existsSync(join(pki, `${certificateName}.key`))) {
-      runChecked(run, root, join(root, "scripts", "dev-pki", "issue-gateway-cert.sh"), [gatewayId], env);
+      runChecked(run, root, join(root, "scripts", "dev-pki", "issue-gateway-cert.sh"), [gatewayId], childEnv);
     }
+  }
+}
+
+function ensurePrivateDevelopmentPkiDirectory(root, directory) {
+  let created = false;
+  try {
+    mkdirSync(directory, { mode: 0o700 });
+    created = true;
+  } catch (error) {
+    if (error?.code !== "EEXIST") throw error;
+  }
+  if (created) chmodSync(directory, 0o700);
+  let status;
+  try {
+    status = lstatSync(directory);
+  } catch {
+    throw new Error("Development PKI directory must be a regular directory, not a symlink");
+  }
+  const expected = join(realpathSync(join(root, ".local")), "pki");
+  if (!status.isDirectory() || status.isSymbolicLink() || realpathSync(directory) !== expected) {
+    throw new Error("Development PKI directory must be a regular directory, not a symlink");
+  }
+  if (typeof process.getuid === "function" && status.uid !== process.getuid()) {
+    throw new Error("Development PKI directory must be owned by the invoking user");
+  }
+  if ((status.mode & 0o777) !== 0o700) {
+    throw new Error("Development PKI directory must have mode 0700");
   }
 }
 
@@ -90,6 +235,24 @@ function runChecked(run, root, command, args, env) {
 
 function defaultRun(command, args, options) {
   return spawnSync(command, args, options);
+}
+
+function defaultFindExecutable(name) {
+  const candidates = [
+    ...String(process.env.PATH ?? "").split(":").filter(Boolean).map(directory => join(directory, name)),
+    `/opt/homebrew/bin/${name}`,
+    `/usr/local/bin/${name}`,
+    `/usr/bin/${name}`
+  ];
+  for (const candidate of [...new Set(candidates)]) {
+    try {
+      accessSync(candidate, constants.X_OK);
+      return realpathSync(candidate);
+    } catch {
+      // Optional local dependency; the API rejects import creation when unavailable.
+    }
+  }
+  return undefined;
 }
 
 function loadSourceEnvironment(root) {

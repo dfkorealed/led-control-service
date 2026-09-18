@@ -83,6 +83,23 @@ test("software CI is a strict frozen-install chain through production audit", as
   );
 });
 
+test("canonical unit gate runs UI policy fail-closed with its reviewed Git history", async () => {
+  const workflow = await parseWorkflow("ci.yml");
+  const unit = workflow.jobs.unit;
+  const checkout = unit.steps.find((step) => step.uses === "actions/checkout@v4");
+  assert.equal(checkout?.with?.["fetch-depth"], 0, "unit checkout must contain the reviewed UI policy source commit");
+
+  const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+  const command = packageJson.scripts["test:unit"];
+  const webTests = "pnpm --filter @led-control/web test:ui-policy";
+  const webCheck = "pnpm --filter @led-control/web ui:check";
+  assert.equal(command.match(new RegExp(escapeRegExp(webTests), "g"))?.length, 1);
+  assert.equal(command.match(new RegExp(escapeRegExp(webCheck), "g"))?.length, 1);
+  assert.ok(command.indexOf("pnpm -r test") < command.indexOf(webTests));
+  assert.ok(command.indexOf(webTests) < command.indexOf(webCheck));
+  assertCannotBeSkipped(findRunStep(unit, "pnpm test"), "canonical unit gate");
+});
+
 test("cold-checkout and protected-gate mutations are rejected", async () => {
   const workflow = await parseWorkflow("ci.yml");
   const coldCheckout = structuredClone(workflow.jobs.unit);
@@ -155,6 +172,79 @@ test("real-backend core installs host services and runs one Chromium worker", as
   assert.match(missingOptIn.stderr, /E2E_REAL_BACKEND_LAB must equal 1/);
 });
 
+test("production UI cascade runs after browser installation, outside browserless unit CI", async () => {
+  const workflow = await parseWorkflow("ci.yml");
+  const job = workflow.jobs["playwright-real-core"];
+  const command = "pnpm --filter @led-control/web e2e:ui-cascade";
+  const install = job.steps.findIndex(step => step.run?.includes("playwright install --with-deps chromium"));
+  const cascade = job.steps.findIndex(step => step.run === command);
+  assert.ok(cascade > install && install >= 0, "production cascade must run after Chromium installation");
+  assertCannotBeSkipped(job.steps[cascade], "production UI cascade step");
+  assert.ok(!stepCommands(workflow.jobs.unit).includes("e2e:ui-cascade"), "unit CI has no browser installation");
+
+  // Exercise package/config discovery without launching a browser. Deleting
+  // the suite or breaking its separate invocation must fail the unit gate.
+  const discovered = spawnSync("pnpm", ["--filter", "@led-control/web", "e2e:ui-cascade", "--list"], {
+    cwd: root, encoding: "utf8", timeout: 30_000,
+    env: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: path.join(root, ".missing-ui-cascade-browser") }
+  });
+  assert.equal(discovered.status, 0, discovered.stdout + discovered.stderr);
+  assert.match(discovered.stdout, /Total: 37 tests in 4 files/);
+  assert.match(discovered.stdout, /ui-cascade\.spec\.ts/);
+  assert.match(discovered.stdout, /ui-fields\.spec\.ts/);
+  assert.match(discovered.stdout, /ui-dates\.spec\.ts/);
+  assert.match(discovered.stdout, /ui-overlays\.spec\.ts/);
+});
+
+test("date bundle gate runs serially after unit tests and cannot be skipped", async () => {
+  const workflow = await parseWorkflow("ci.yml");
+  function assertDateBundleGate(job) {
+    const unit = job.steps.findIndex(step => step.run === "pnpm test");
+    const bundle = job.steps.findIndex(step => step.run === "pnpm --filter @led-control/web test:date-bundle");
+    assert.ok(unit >= 0 && bundle > unit, "date bundle gate must run after ordinary unit tests");
+    assertCannotBeSkipped(job, "unit job");
+    assertCannotBeSkipped(job.steps[bundle], "date bundle gate");
+  }
+  assertDateBundleGate(workflow.jobs.unit);
+  const missing = structuredClone(workflow.jobs.unit);
+  missing.steps = missing.steps.filter(step => !step.run?.includes("test:date-bundle"));
+  assert.throws(() => assertDateBundleGate(missing), /must run after ordinary unit tests/);
+  for (const flag of ["if", "continue-on-error"]) {
+    const skipped = structuredClone(workflow.jobs.unit);
+    skipped.steps.find(step => step.run?.includes("test:date-bundle"))[flag] = true;
+    assert.throws(() => assertDateBundleGate(skipped), /must not declare/);
+  }
+  const webPackage = JSON.parse(await readFile(path.join(root, "apps/web/package.json"), "utf8"));
+  assert.equal(webPackage.scripts["test:date-bundle"], "node --test scripts/date-bundle.mjs");
+  const syntax = spawnSync(process.execPath, ["--check", path.join(root, "apps/web/scripts/date-bundle.mjs")], { encoding: "utf8" });
+  assert.equal(syntax.status, 0, syntax.stdout + syntax.stderr);
+});
+
+test("overlay bundle gate runs serially after unit tests and cannot be skipped", async () => {
+  const workflow = await parseWorkflow("ci.yml");
+  function assertOverlayBundleGate(job) {
+    const unit = job.steps.findIndex(step => step.run === "pnpm test");
+    const date = job.steps.findIndex(step => step.run === "pnpm --filter @led-control/web test:date-bundle");
+    const bundle = job.steps.findIndex(step => step.run === "pnpm --filter @led-control/web test:overlay-bundle");
+    assert.ok(unit >= 0 && date > unit && bundle > date, "overlay bundle gate must run serially after unit and date gates");
+    assertCannotBeSkipped(job, "unit job");
+    assertCannotBeSkipped(job.steps[bundle], "overlay bundle gate");
+  }
+  assertOverlayBundleGate(workflow.jobs.unit);
+  const missing = structuredClone(workflow.jobs.unit);
+  missing.steps = missing.steps.filter(step => !step.run?.includes("test:overlay-bundle"));
+  assert.throws(() => assertOverlayBundleGate(missing), /must run serially/);
+  for (const flag of ["if", "continue-on-error"]) {
+    const skipped = structuredClone(workflow.jobs.unit);
+    skipped.steps.find(step => step.run?.includes("test:overlay-bundle"))[flag] = true;
+    assert.throws(() => assertOverlayBundleGate(skipped), /must not declare/);
+  }
+  const webPackage = JSON.parse(await readFile(path.join(root, "apps/web/package.json"), "utf8"));
+  assert.equal(webPackage.scripts["test:overlay-bundle"], "node --test scripts/overlay-bundle.mjs");
+  const syntax = spawnSync(process.execPath, ["--check", path.join(root, "apps/web/scripts/overlay-bundle.mjs")], { encoding: "utf8" });
+  assert.equal(syntax.status, 0, syntax.stdout + syntax.stderr);
+});
+
 test("production audit cannot skip Docker, MQTT persistence, container, bundle, or dependency policy", async () => {
   const script = await readFile(path.join(root, "scripts/ci-production-audit.sh"), "utf8");
   for (const contract of [
@@ -168,6 +258,13 @@ test("production audit cannot skip Docker, MQTT persistence, container, bundle, 
     "pnpm production:smoke",
     "pnpm audit:production"
   ]) assert.match(script, new RegExp(escapeRegExp(contract)));
+});
+
+test("production smoke fails closed unless the live API cgroup is exactly 768 MiB", async () => {
+  const script = await readFile(path.join(root, "scripts/production-compose-smoke.sh"), "utf8");
+  assert.match(script, /apiContainer\.HostConfig\.Memory\s*,\s*805306368/);
+  assert.match(script, /cat ['"]?\/sys\/fs\/cgroup\/memory\.max/);
+  assert.match(script, /assert\.equal\([^\n]*cgroup[^\n]*['"]805306368['"]/i);
 });
 
 test("production audit protects one canonical Gateway release artifact and restore drill gate", async () => {

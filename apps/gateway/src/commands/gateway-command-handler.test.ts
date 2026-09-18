@@ -25,6 +25,33 @@ const command = {
 };
 
 describe("handleGatewayDimmingCommand", () => {
+  it.each(["unknown key", "bad fixture", "duplicate identity", "capacity", "wrong source", "wrong terminal", "missing success"])(
+    "rejects malformed terminal suppression context during replay: %s", async (fault) => {
+      const terminal = "2026-08-30T00:50:00.000Z";
+      const identity = { ruleId: "00000000-0000-4000-8000-000000000104", startedAt: "2026-08-30T01:00:00.000Z" };
+      const suppression = { sourceId: command.commandId, appliedAt: terminal, schedules: [], vehicleEvents: [identity] };
+      const context: any = { suppressions: { [command.targetId]: suppression } };
+      if (fault === "unknown key") context.extra = true;
+      if (fault === "bad fixture") context.suppressions = { invalid: suppression };
+      if (fault === "duplicate identity") suppression.vehicleEvents.push(identity);
+      if (fault === "capacity") suppression.vehicleEvents = Array.from({ length: 10_001 }, () => identity);
+      if (fault === "wrong source") suppression.sourceId = command.dispatchId;
+      if (fault === "wrong terminal") suppression.appliedAt = "2026-08-30T00:51:00.000Z";
+      if (fault === "missing success") context.suppressions = {};
+      const journal = {
+        pendingAutomationRecoveries: async () => [{
+          idempotencyKey: command.idempotencyKey, state: "completed" as const, command: { command },
+          result: { deviceStatus: { occurredAt: terminal, results: [{ fixtureId: command.targetId, status: "succeeded", brightness: 65 }] },
+            manualTerminalContext: context }
+        }], complete: vi.fn(), markAutomationHandoffComplete: vi.fn()
+      };
+      const automation = { prepare: vi.fn(), handoff: vi.fn() };
+      await expect(recoverPendingManualAutomationHandoffs(journal, automation)).rejects.toThrow();
+      expect(automation.handoff).not.toHaveBeenCalled();
+      expect(journal.markAutomationHandoffComplete).not.toHaveBeenCalled();
+    }
+  );
+
   it("validates the production BLE status timeout at startup", () => {
     expect(parseCommandTimeout(undefined)).toBe(8000);
     expect(parseCommandTimeout("29000")).toBe(29000);
@@ -55,14 +82,14 @@ describe("handleGatewayDimmingCommand", () => {
     expect(adapter.commands).toHaveLength(1);
   });
 
-  it("durably prepares a timed manual override before RF and hands off its terminal fixture results once", async () => {
+  it.each([false, true])("durably prepares manual control before RF and hands off once (legacy expiry: %s)", async (legacy) => {
     const events: string[] = [];
     const adapter = new StubBleMeshAdapter();
     const automation = {
       prepare: vi.fn(async () => { events.push("prepared"); }),
       handoff: vi.fn(async () => { events.push("handoff"); })
     };
-    const timed = { ...command, overrideUntil: new Date(Date.now() + 3_600_000).toISOString() };
+    const timed = legacy ? { ...command, overrideUntil: new Date(Date.now() + 3_600_000).toISOString() } : command;
     const records = new Map<string, any>();
 
     const first = await handleGatewayDimmingCommand(
@@ -76,7 +103,7 @@ describe("handleGatewayDimmingCommand", () => {
 
     expect(events).toEqual(["accepted", "prepared", "handoff"]);
     expect(automation.prepare).toHaveBeenCalledWith(timed);
-    expect(automation.handoff).toHaveBeenCalledWith(timed, first.deviceStatus);
+    expect(automation.handoff).toHaveBeenCalledWith(timed, first.deviceStatus, "live");
     expect(duplicate).toEqual(first);
     expect(adapter.commands).toHaveLength(1);
   });
@@ -130,6 +157,8 @@ describe("handleGatewayDimmingCommand", () => {
     expect(duplicate).toEqual(first);
     expect(adapter.commands).toHaveLength(1);
     expect(automation.handoff).toHaveBeenCalledTimes(2);
+    expect(automation.handoff).toHaveBeenNthCalledWith(1, timed, first.deviceStatus, "live");
+    expect(automation.handoff).toHaveBeenNthCalledWith(2, timed, first.deviceStatus, "recovery");
     expect(records.get(command.idempotencyKey)).toMatchObject({ automationHandoff: "completed" });
   });
 
@@ -157,15 +186,15 @@ describe("handleGatewayDimmingCommand", () => {
     expect(recovered.deviceStatus.status).toBe("timed_out");
     expect(adapter.commands).toHaveLength(0);
     expect(automation.prepare).not.toHaveBeenCalled();
-    expect(automation.handoff).toHaveBeenCalledWith(timed, recovered.deviceStatus);
+    expect(automation.handoff).toHaveBeenCalledWith(timed, recovered.deviceStatus, "recovery");
     expect(records.get(command.idempotencyKey)).toMatchObject({
       state: "completed",
       automationHandoff: "completed"
     });
   });
 
-  it("replays accepted-only manual preparation during startup without waiting for broker redelivery", async () => {
-    const timed = { ...command, overrideUntil: new Date(Date.now() + 3_600_000).toISOString() };
+  it.each([false, true])("replays accepted manual preparation without broker redelivery (legacy expiry: %s)", async (legacy) => {
+    const timed = legacy ? { ...command, overrideUntil: new Date(Date.now() + 3_600_000).toISOString() } : command;
     const completed: unknown[] = [];
     const marked: string[] = [];
     const journal = {
@@ -187,7 +216,8 @@ describe("handleGatewayDimmingCommand", () => {
     })]);
     expect(automation.handoff).toHaveBeenCalledWith(
       timed,
-      expect.objectContaining({ status: "timed_out" })
+      expect.objectContaining({ status: "timed_out" }),
+      "recovery"
     );
     expect(marked).toEqual([command.idempotencyKey]);
   });
@@ -219,7 +249,8 @@ describe("handleGatewayDimmingCommand", () => {
     );
     expect(automation.handoff).toHaveBeenCalledWith(
       legacy,
-      expect.objectContaining({ status: "timed_out" })
+      expect.objectContaining({ status: "timed_out" }),
+      "recovery"
     );
     expect(journal.markAutomationHandoffComplete).toHaveBeenCalledWith(legacy.idempotencyKey);
   });
@@ -246,7 +277,7 @@ describe("handleGatewayDimmingCommand", () => {
       results: [{ fixtureId: command.targetFixtureIds[0], status: "failed" }]
     });
     expect(adapter.commands).toHaveLength(0);
-    expect(automation.handoff).toHaveBeenCalledWith(timed, result.deviceStatus);
+    expect(automation.handoff).toHaveBeenCalledWith(timed, result.deviceStatus, "live");
   });
 
   it("rejects a command whose publish-relative expiry passed without calling BLE or observing fixture state", async () => {
@@ -412,7 +443,8 @@ describe("handleGatewayDimmingCommand", () => {
     expect(adapter.commands).toHaveLength(0);
     expect(automation.handoff).toHaveBeenCalledWith(
       expect.any(Object),
-      expect.objectContaining({ status: "failed" })
+      expect.objectContaining({ status: "failed" }),
+      "live"
     );
   });
 

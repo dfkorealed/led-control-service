@@ -62,6 +62,8 @@ describe("SetupWizard", () => {
     expect(screen.getByRole("list", { name: "현장 설치 진행" })).toHaveTextContent("현장 정보");
     expect(screen.getByRole("list", { name: "현장 설치 진행" })).toHaveTextContent("Gateway 연결");
     expect(screen.getByRole("heading", { name: "현장 기본 정보를 입력하세요" })).toBeInTheDocument();
+    expect(screen.getByLabelText("kWh 단가").closest("[data-field]")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "시간대" })).toBeInTheDocument();
   });
 
   it("assigned pending site를 고객사명·현장명 입력 없이 완료한다", async () => {
@@ -72,7 +74,8 @@ describe("SetupWizard", () => {
     expect(screen.queryByLabelText("고객사명")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("현장명")).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("주소"), { target: { value: "서울시 강남구" } });
-    fireEvent.change(screen.getByLabelText("시간대"), { target: { value: "UTC" } });
+    fireEvent.click(screen.getByRole("button", { name: "시간대" }));
+    fireEvent.click(screen.getByRole("option", { name: "UTC" }));
     fireEvent.click(screen.getByRole("button", { name: "초기 설정 완료" }));
     await waitFor(() => expect(createInitialSiteSetupMock).toHaveBeenCalledTimes(1));
     expect(createInitialSiteSetupMock).toHaveBeenCalledWith({

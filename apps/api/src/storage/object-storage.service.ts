@@ -2,6 +2,8 @@ import { BadRequestException, Inject, Injectable, Optional, ServiceUnavailableEx
 import { DeleteObjectCommand, GetObjectCommand, HeadBucketCommand, HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { createHash, randomUUID } from "node:crypto";
+import { createReadStream } from "node:fs";
+import { open, stat, unlink } from "node:fs/promises";
 
 export const OBJECT_STORAGE_CLIENT = Symbol("OBJECT_STORAGE_CLIENT");
 export const OBJECT_STORAGE_PRESIGN_CLIENT = Symbol("OBJECT_STORAGE_PRESIGN_CLIENT");
@@ -90,9 +92,7 @@ export class ObjectStorageService {
   }
 
   async createFloorAssetDownloadUrl(objectKey: string): Promise<string> {
-    if (!/^floors\/[^/]+\/[A-Za-z0-9._-]+$/.test(objectKey)) {
-      throw new BadRequestException("invalid floor asset object key");
-    }
+    this.assertFloorObjectKey(objectKey);
     const command = new GetObjectCommand({
       Bucket: this.options.bucket,
       Key: objectKey,
@@ -159,12 +159,182 @@ export class ObjectStorageService {
       { abortSignal: AbortSignal.timeout(4_000) });
   }
 
+  async downloadFloorAssetToFile(
+    objectKey: string,
+    outputPath: string,
+    options: {
+      maxBytes: number;
+      expectedBytes: number;
+      expectedMimeType: string;
+      expectedSha256: string;
+      abortSignal?: AbortSignal;
+    }
+  ) {
+    this.assertFloorObjectKey(objectKey);
+    if (!Number.isSafeInteger(options.maxBytes) || options.maxBytes < 1 ||
+        !Number.isSafeInteger(options.expectedBytes) || options.expectedBytes < 1 ||
+        options.expectedBytes > options.maxBytes || !/^[a-f0-9]{64}$/.test(options.expectedSha256)) {
+      throw new BadRequestException("invalid floor asset download byte limit");
+    }
+    const result = await this.client.send(
+      new GetObjectCommand({ Bucket: this.options.bucket, Key: objectKey, ChecksumMode: "ENABLED" }),
+      { abortSignal: boundedAbortSignal(options.abortSignal, 15_000) }
+    );
+    if (!result.Body || result.ContentLength !== options.expectedBytes || result.ContentLength > options.maxBytes ||
+        result.ContentType !== options.expectedMimeType) {
+      throw new BadRequestException("floor asset object metadata does not match its ledger");
+    }
+    const expectedBase64 = Buffer.from(options.expectedSha256, "hex").toString("base64");
+    if (result.ChecksumSHA256 && result.ChecksumSHA256 !== expectedBase64) {
+      throw new BadRequestException("floor asset object checksum does not match its ledger");
+    }
+
+    const file = await open(outputPath, "wx", 0o600);
+    const hash = createHash("sha256");
+    let sizeBytes = 0;
+    try {
+      for await (const value of result.Body as AsyncIterable<Uint8Array | string>) {
+        if (options.abortSignal?.aborted) throw new Error("floor asset download aborted");
+        const chunk = typeof value === "string" ? Buffer.from(value) : Buffer.from(value);
+        sizeBytes += chunk.length;
+        if (sizeBytes > options.maxBytes || sizeBytes > options.expectedBytes) {
+          throw new BadRequestException("floor asset download byte limit exceeded");
+        }
+        hash.update(chunk);
+        await file.writeFile(chunk);
+      }
+      const sha256 = hash.digest("hex");
+      if (sizeBytes !== options.expectedBytes || sha256 !== options.expectedSha256) {
+        throw new BadRequestException("floor asset downloaded bytes do not match its ledger");
+      }
+      return { sizeBytes, sha256 };
+    } catch (error) {
+      await file.close().catch(() => undefined);
+      await unlink(outputPath).catch(() => undefined);
+      throw error;
+    } finally {
+      await file.close().catch(() => undefined);
+    }
+  }
+
+  async putFloorRenderedObject(
+    objectKey: string,
+    bytes: Buffer,
+    viewport: { width: number; height: number },
+    abortSignal?: AbortSignal
+  ) {
+    this.assertFloorObjectKey(objectKey);
+    if (!objectKey.endsWith(".svg") || bytes.length < 1 || bytes.length > 8 * 1024 * 1024 ||
+        !validViewportDimension(viewport.width) || !validViewportDimension(viewport.height)) {
+      throw new BadRequestException("invalid rendered floor SVG");
+    }
+    return this.client.send(new PutObjectCommand({
+      Bucket: this.options.bucket,
+      Key: objectKey,
+      Body: bytes,
+      ContentType: "image/svg+xml",
+      ContentLength: bytes.length,
+      ChecksumSHA256: createHash("sha256").update(bytes).digest("base64"),
+      CacheControl: "private, no-store",
+      Metadata: { "cad-width": String(viewport.width), "cad-height": String(viewport.height) }
+    }), { abortSignal: boundedAbortSignal(abortSignal, 10_000) });
+  }
+
+  async putFloorRenderedObjectFile(
+    objectKey: string,
+    inputPath: string,
+    expected: { sizeBytes: number; sha256: string },
+    viewport: { width: number; height: number },
+    abortSignal?: AbortSignal
+  ) {
+    this.assertFloorObjectKey(objectKey);
+    const file = await stat(inputPath);
+    if (!objectKey.endsWith(".svg") || !file.isFile() || file.size !== expected.sizeBytes ||
+        file.size < 1 || file.size > 8 * 1024 * 1024 || !/^[a-f0-9]{64}$/.test(expected.sha256) ||
+        !validViewportDimension(viewport.width) || !validViewportDimension(viewport.height)) {
+      throw new BadRequestException("invalid rendered floor SVG");
+    }
+    return this.client.send(new PutObjectCommand({
+      Bucket: this.options.bucket,
+      Key: objectKey,
+      Body: createReadStream(inputPath),
+      ContentType: "image/svg+xml",
+      ContentEncoding: "gzip",
+      ContentLength: file.size,
+      ChecksumSHA256: Buffer.from(expected.sha256, "hex").toString("base64"),
+      CacheControl: "private, no-store",
+      Metadata: { "cad-width": String(viewport.width), "cad-height": String(viewport.height) }
+    }), { abortSignal: boundedAbortSignal(abortSignal, 10_000) });
+  }
+
+  async verifyFloorRenderedObject(
+    objectKey: string,
+    expected: { sizeBytes: number; sha256: string; mimeType: "image/svg+xml"; width: number; height: number; contentEncoding?: "gzip" },
+    abortSignal?: AbortSignal
+  ) {
+    this.assertFloorObjectKey(objectKey);
+    const head = await this.client.send(
+      new HeadObjectCommand({ Bucket: this.options.bucket, Key: objectKey, ChecksumMode: "ENABLED" }),
+      { abortSignal: boundedAbortSignal(abortSignal, 4_000) }
+    );
+    if (head.ContentLength !== expected.sizeBytes || head.ContentType !== expected.mimeType ||
+        (expected.contentEncoding !== undefined && head.ContentEncoding !== expected.contentEncoding) ||
+        head.ChecksumSHA256 !== Buffer.from(expected.sha256, "hex").toString("base64") ||
+        head.Metadata?.["cad-width"] !== String(expected.width) || head.Metadata?.["cad-height"] !== String(expected.height)) {
+      throw new Error("rendered floor asset storage verification failed");
+    }
+  }
+
+  async readFloorRenderedMetadata(
+    objectKey: string,
+    expected: { sizeBytes: number; sha256: string; mimeType: "image/svg+xml"; contentEncoding: "gzip" | null },
+    abortSignal?: AbortSignal
+  ) {
+    const inspected = await this.inspectFloorRenderedMetadata(objectKey, expected, abortSignal);
+    if (inspected.contentEncoding !== expected.contentEncoding) {
+      throw new Error("rendered floor asset HEAD does not match its ledger");
+    }
+    return { width: inspected.width, height: inspected.height };
+  }
+
+  async inspectFloorRenderedMetadata(
+    objectKey: string,
+    expected: { sizeBytes: number; sha256: string; mimeType: "image/svg+xml" },
+    abortSignal?: AbortSignal
+  ) {
+    this.assertFloorObjectKey(objectKey);
+    if (!Number.isSafeInteger(expected.sizeBytes) || expected.sizeBytes < 1 ||
+        !/^[a-f0-9]{64}$/.test(expected.sha256)) {
+      throw new Error("rendered floor asset ledger metadata is invalid");
+    }
+    const head = await this.client.send(
+      new HeadObjectCommand({ Bucket: this.options.bucket, Key: objectKey, ChecksumMode: "ENABLED" }),
+      { abortSignal: boundedAbortSignal(abortSignal, 4_000) }
+    );
+    const width = Number(head.Metadata?.["cad-width"]);
+    const height = Number(head.Metadata?.["cad-height"]);
+    const contentEncoding = head.ContentEncoding ?? null;
+    if (head.ContentLength !== expected.sizeBytes || head.ContentType !== expected.mimeType ||
+        (contentEncoding !== null && contentEncoding !== "gzip") ||
+        head.ChecksumSHA256 !== Buffer.from(expected.sha256, "hex").toString("base64") ||
+        !validViewportDimension(width) || !validViewportDimension(height)) {
+      throw new Error("rendered floor asset HEAD does not match its ledger");
+    }
+    return { width, height, contentEncoding } as { width: number; height: number; contentEncoding: "gzip" | null };
+  }
+
   private validateUpload(input: { mimeType: string; sizeBytes: number; sha256: string }) {
     if (!Object.hasOwn(extensions, input.mimeType)) throw new BadRequestException("unsupported floor asset MIME type");
     if (!Number.isInteger(input.sizeBytes) || input.sizeBytes < 1 || input.sizeBytes > 50 * 1024 * 1024) {
       throw new BadRequestException("floor asset size must be between 1 byte and 50 MB");
     }
     if (!/^[a-f0-9]{64}$/i.test(input.sha256)) throw new BadRequestException("sha256 must be a 64-character hex digest");
+  }
+
+  private assertFloorObjectKey(objectKey: string) {
+    if (!/^floors\/[^/]+\/[A-Za-z0-9._-]+$/.test(objectKey)) {
+      throw new BadRequestException("invalid floor asset object key");
+    }
   }
 
   private get signingClient() {
@@ -175,9 +345,30 @@ export class ObjectStorageService {
 const extensions: Record<string, string> = {
   "image/jpeg": "jpg",
   "image/png": "png",
-  "application/pdf": "pdf"
+  "application/acad": "dwg",
+  "application/x-acad": "dwg",
+  "application/autocad": "dwg",
+  "application/dwg": "dwg",
+  "application/x-dwg": "dwg",
+  "application/vnd.autodesk.autocad.dwg": "dwg",
+  "image/vnd.dwg": "dwg",
+  "image/x-dwg": "dwg",
+  "application/dxf": "dxf",
+  "application/x-dxf": "dxf",
+  "application/vnd.autodesk.autocad.dxf": "dxf",
+  "image/vnd.dxf": "dxf",
+  "image/x-dxf": "dxf"
 };
 
 function extensionForMime(mimeType: string) {
   return extensions[mimeType];
+}
+
+function validViewportDimension(value: number) {
+  return Number.isInteger(value) && value > 0 && value <= 2_147_483_647;
+}
+
+function boundedAbortSignal(signal: AbortSignal | undefined, timeoutMs: number) {
+  const timeout = AbortSignal.timeout(timeoutMs);
+  return signal ? AbortSignal.any([signal, timeout]) : timeout;
 }

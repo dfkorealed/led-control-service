@@ -15,6 +15,9 @@ RUN pnpm --filter @led-control/shared build
 RUN pnpm --filter @led-control/automation-engine build
 RUN pnpm --filter @led-control/api build
 RUN pnpm --filter @led-control/api deploy --prod /runtime
+# Resolve and load the native optional dependency from the pruned graph, not
+# from the development workspace that may contain additional packages.
+RUN cd /runtime && node -e "require.resolve('sharp');require('sharp');"
 # Prisma CLI is a migration-only dependency. Copy its exact installed dependency
 # closure instead of shipping Nest/Jest/TypeScript or downloading a second version.
 RUN node <<'NODE'
@@ -52,7 +55,12 @@ fs.cpSync(path.resolve(client, '../.prisma'), path.resolve(runtimeClient, '../.p
 NODE
 
 FROM node:22.20.0-alpine3.22 AS runtime
-RUN apk add --no-cache tini openssl
+RUN apk add --no-cache tini openssl util-linux \
+  && test "$(realpath /usr/bin/prlimit)" = /usr/bin/prlimit \
+  && test ! -L /usr/bin/prlimit \
+  && test "$(stat -c '%u:%F' /usr/bin/prlimit)" = "0:regular file" \
+  && test -x /usr/bin/prlimit \
+  && test "$(stat -c '%a' /usr/bin/prlimit)" = "755"
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=build --chown=node:node /runtime/node_modules ./node_modules
@@ -61,6 +69,28 @@ COPY --from=build --chown=node:node /app/apps/api/prisma ./prisma
 COPY --from=build --chown=node:node /migration /migration
 COPY --chown=node:node apps/api/container-init-crls.cjs ./container-init-crls.cjs
 RUN node -e "const assert=require('node:assert/strict');const {Prisma}=require('@prisma/client');assert.equal(new Prisma.Decimal('1.25').toString(),'1.25');require('@led-control/shared');require('@led-control/automation-engine');"
+RUN node <<'REPORT_CHART_SMOKE'
+const assert = require('node:assert/strict');
+require.resolve('sharp');
+require('./dist/src/app.module.js');
+const {renderReportVisual} = require('./dist/src/energy/reports/report-chart-image.renderer.js');
+const {REPORT_PALETTE} = require('./dist/src/energy/reports/report-visual-model.js');
+const visual = {
+  id: 'runtime-smoke', kind: 'line', title: '조명 사용량', altText: '결측과 영점',
+  axes: {x: '날짜', y: '전력량 (kWh)'}, noData: {label: '데이터 없음', pattern: 'diagonal'},
+  legend: [{label: '실제', color: REPORT_PALETTE.actual}], x: ['1', '2', '3'],
+  series: [{label: '실제', style: 'line', color: REPORT_PALETTE.actual, values: [1, null, 0], displayValues: ['1', '데이터 없음', '0']}]
+};
+(async () => {
+  const first = await renderReportVisual(visual);
+  const second = await renderReportVisual(visual);
+  assert.equal(first.width, 1000);
+  assert.equal(first.height, 560);
+  assert.equal(first.sha256, second.sha256);
+  assert.ok(first.png.equals(second.png));
+  console.log('report-chart-smoke-ok', process.platform, process.arch, first.sha256);
+})().catch(error => { console.error(error); process.exitCode = 1; });
+REPORT_CHART_SMOKE
 # New named volumes inherit these directory owners. No root/chown capability is
 # needed by the one-shot initializer or API when publishing public CRL state.
 RUN mkdir /run/device-crl /run/mqtt-crl && chown node:node /run/device-crl /run/mqtt-crl

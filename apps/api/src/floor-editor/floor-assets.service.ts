@@ -4,6 +4,7 @@ import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import { ObjectStorageService } from "../storage/object-storage.service";
+import { FloorRenderedAssetReconciler } from "../storage/floor-rendered-asset-reconciler";
 import { assertActiveFloorStatus } from "./floor-lifecycle";
 
 interface LockedFloorAssetRow {
@@ -15,6 +16,7 @@ interface LockedFloorAssetRow {
   status: string;
   objectKey: string;
   mimeType: string;
+  contentEncoding: string | null;
   sizeBytes: bigint;
   sha256: string;
   uploadExpiresAt: Date | null;
@@ -29,7 +31,8 @@ export class FloorAssetsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: ObjectStorageService,
-    private readonly siteAccess: SiteAccessService
+    private readonly siteAccess: SiteAccessService,
+    private readonly renderedReconciler?: FloorRenderedAssetReconciler
   ) {}
 
   async createUploadIntent(
@@ -41,6 +44,8 @@ export class FloorAssetsService {
     if (!floor) throw new NotFoundException("floor not found");
     await this.siteAccess.assert(user, floor.siteId, "manage");
     if (input.kind !== "original" && input.kind !== "rendered") throw new BadRequestException("invalid floor asset kind");
+    // Legacy PDF rows remain readable, but new PDF upload intents are no longer issued.
+    if (input.mimeType === "application/pdf") throw new BadRequestException("unsupported floor asset MIME type");
 
     const prepared = this.storage.prepareFloorAssetUpload({
       floorId,
@@ -192,10 +197,24 @@ export class FloorAssetsService {
     await this.siteAccess.assert(user, floor.siteId, "read");
     const asset = await this.prisma.floorAsset.findFirst({
       where: { id: assetId, floorId, status: "ready" },
-      select: { objectKey: true }
+      select: { id: true, kind: true, objectKey: true, mimeType: true, contentEncoding: true, sizeBytes: true, sha256: true }
     });
     if (!asset) throw new NotFoundException("floor asset not found");
     try {
+      if (asset.kind === "rendered" && asset.mimeType === "image/svg+xml") {
+        if (asset.contentEncoding === "unknown") {
+          if (!this.renderedReconciler) throw new Error("rendered floor asset reconciler is unavailable");
+          await this.renderedReconciler.reconcile(asset);
+        } else if (!isKnownRenderedEncoding(asset.contentEncoding)) {
+          throw new Error("rendered floor asset encoding ledger is invalid");
+        } else {
+          const sizeBytes = Number(asset.sizeBytes);
+          if (!Number.isSafeInteger(sizeBytes)) throw new Error("rendered floor asset size ledger is invalid");
+          await this.storage.readFloorRenderedMetadata(asset.objectKey, {
+            sizeBytes, sha256: asset.sha256, mimeType: "image/svg+xml", contentEncoding: asset.contentEncoding
+          });
+        }
+      }
       return { url: await this.storage.createFloorAssetDownloadUrl(asset.objectKey) };
     } catch {
       throw new ServiceUnavailableException("floor asset download signing is temporarily unavailable");
@@ -271,4 +290,8 @@ function floorAssetHeadException(error: unknown) {
     return new NotFoundException("uploaded floor asset object not found");
   }
   return new ServiceUnavailableException("floor asset storage is temporarily unavailable");
+}
+
+function isKnownRenderedEncoding(value: string | null): value is "gzip" | null {
+  return value === null || value === "gzip";
 }

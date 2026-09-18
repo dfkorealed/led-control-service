@@ -8,7 +8,7 @@ import type { CreateScheduleInput } from "../../../api/automation";
 import {
   controlSelectionToDimmingTarget,
   type ControlSelection
-} from "../ControlTargetPicker";
+} from "../control-selection";
 
 export interface ScheduleFormValues {
   name: string;

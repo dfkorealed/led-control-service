@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { readFileSync } from "node:fs";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mockDashboard } from "../../test/fixtures";
@@ -48,7 +49,7 @@ describe("SettingsShell", () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByRole("combobox", { name: "현장 선택" })).toHaveValue("site-1");
+    expect(screen.getByRole("button", { name: /현장 선택/ })).toHaveTextContent("본사 주차장");
     expect(screen.getByRole("heading", { name: "맵 관리" })).toBeInTheDocument();
     const tabs = screen.getByRole("navigation", { name: "설정 메뉴" });
     expect(within(tabs).getByRole("link", { name: "설정 개요" })).toHaveAttribute(
@@ -115,8 +116,7 @@ describe("SettingsShell", () => {
     expect(screen.queryByRole("region", { name: "조명 등록 패널" })).not.toBeInTheDocument();
   });
 
-  it("blocks a site switch while the floor editor is dirty", () => {
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+  it("asks before switching sites while the floor editor is dirty", () => {
     const draft = {
       floor: { id: "floor-1", siteId: "site-1", name: "작성 중", level: -1, mapRevision: 3, floorPlan: null },
       fixtures: [],
@@ -133,15 +133,19 @@ describe("SettingsShell", () => {
       </MemoryRouter>
     );
 
-    fireEvent.change(screen.getByRole("combobox", { name: "현장 선택" }), { target: { value: "site-2" } });
+    fireEvent.click(screen.getByRole("button", { name: /현장 선택/ }));
+    fireEvent.click(screen.getByRole("option", { name: "지사 주차장" }));
 
-    expect(confirm).toHaveBeenCalledOnce();
+    expect(screen.getByRole("alertdialog", { name: "현장 변경" })).toBeInTheDocument();
     expect(screen.getByTestId("location")).toHaveTextContent("/settings/floor-plans?siteId=site-1");
     expect(useFloorEditorStore.getState()).toMatchObject({ state: draft, isDirty: true });
+
+    fireEvent.click(screen.getByRole("button", { name: "취소" }));
+    expect(screen.queryByRole("alertdialog", { name: "현장 변경" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent("/settings/floor-plans?siteId=site-1");
   });
 
   it("discards the editor draft once after an approved site switch", () => {
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     const baseline = {
       floor: { id: "floor-1", siteId: "site-1", name: "B1", level: -1, mapRevision: 3, floorPlan: null },
       fixtures: [{
@@ -163,13 +167,64 @@ describe("SettingsShell", () => {
       </MemoryRouter>
     );
 
-    fireEvent.change(screen.getByRole("combobox", { name: "현장 선택" }), { target: { value: "site-2" } });
+    fireEvent.click(screen.getByRole("button", { name: /현장 선택/ }));
+    fireEvent.click(screen.getByRole("option", { name: "지사 주차장" }));
+    fireEvent.click(screen.getByRole("button", { name: "변경" }));
 
     expect(screen.getByTestId("location")).toHaveTextContent("/settings/floor-plans?siteId=site-2");
     expect(useFloorEditorStore.getState()).toMatchObject({ state: baseline, initialState: baseline, isDirty: false });
 
-    fireEvent.change(screen.getByRole("combobox", { name: "현장 선택" }), { target: { value: "site-1" } });
+    fireEvent.click(screen.getByRole("button", { name: /현장 선택/ }));
+    fireEvent.click(screen.getByRole("option", { name: "본사 주차장" }));
     expect(screen.getByTestId("location")).toHaveTextContent("/settings/floor-plans?siteId=site-1");
-    expect(confirm).toHaveBeenCalledOnce();
+  });
+
+  it("uses explicit refs for active-tab scrolling", () => {
+    const source = readFileSync("src/features/settings/SettingsSubnavigation.tsx", "utf8");
+    expect(source).not.toContain("querySelector");
+  });
+
+  it("uses the shared form controls across general settings", () => {
+    const files = [
+      "src/features/sites/SiteSwitcher.tsx",
+      "src/features/settings/security/AccountSecurityView.tsx",
+      "src/features/settings/security/PasswordSettingsView.tsx",
+      "src/features/settings/site/SiteOperationsView.tsx",
+      "src/features/settings/users/SiteUsersView.tsx",
+      "src/features/settings/users/SiteUserFormDialog.tsx",
+      "src/features/settings/users/ResetSiteUserPasswordDialog.tsx",
+      "src/features/settings/users/DeleteSiteUserDialog.tsx"
+    ];
+
+    for (const file of files) {
+      const source = readFileSync(file, "utf8");
+      expect(source, file).not.toMatch(/<(input|select|textarea)\b/);
+    }
+  });
+
+  it("keeps settings commissioning screens independent from legacy style hooks", () => {
+    const files = [
+      "src/features/registration/RegistrationPanel.tsx",
+      "src/features/registration/FixtureBatchForm.tsx",
+      "src/features/registration/FixtureIndividualForm.tsx",
+      "src/features/settings/registration/RegistrationSettingsView.tsx",
+      "src/features/settings/SettingsView.tsx",
+      "src/features/settings/SettingsSubnavigation.tsx",
+      "src/features/settings/floor-plans/FloorPlanSettingsView.tsx",
+      "src/features/settings/TestDataToolsPanel.tsx",
+      "src/features/setup/SetupWizard.tsx",
+      "src/features/setup/GatewayClaimPanel.tsx",
+      "src/features/rf/RfPlanningPanel.tsx",
+      "src/features/floor-editor/FixtureIdentifyPanel.tsx",
+      "src/features/floor-editor/FloorEditorCanvas.tsx"
+    ];
+    const legacyHook = /\b(?:ui-button(?:-secondary)?|ui-underline-navigation-item|registration-(?:panel|summary|targets|session|selection-toolbar|node-list|eligibility-warning|config|mode-toggle|config-form|fields|submit)|node-(?:row|selection|identity|status)|selection-checkbox|reconcile-actions|registered-(?:node-details|node-list|node-row|elsewhere-notice)|settings-(?:screen|card-list|test-data-card|test-data-actions|card-heading)|floor-plan-(?:card|card-summary|edit-link)|setup-(?:wizard|section|form-grid|range-row|submit)|gateway-claim-panel|floor-edit-(?:list|row)|panel-title-row|eyebrow|compact-list|floor-editor-(?:actions|konva-stage)|editor-properties-panel|individual-fixture-(?:list|fields|error)|session-meta|muted-node|success-text|danger-text|setting-card)\b/;
+
+    for (const file of files) {
+      const source = readFileSync(file, "utf8");
+      const classNames = [...source.matchAll(/className=(?:["']([^"']*)["']|{["']([^"']*)["']}|{`([^`]*)`})/g)]
+        .flatMap((match) => match.slice(1).filter(Boolean));
+      expect(classNames.join(" "), file).not.toMatch(legacyHook);
+    }
   });
 });

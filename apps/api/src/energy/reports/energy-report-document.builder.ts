@@ -2,7 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { energyReportDocumentSchema, energyReportDocumentFingerprintInputSchema,
-  type EnergyReportDocument, type EnergyReportRequest, type EnergyReportSection, type ReportCell } from "@led-control/shared";
+  type EnergyReportDocument, type EnergyReportRequest, type EnergyReportSection, type ReportCell, type ReportCalculationBasis } from "@led-control/shared";
 import { aggregateHeatmapCells, coversInterval, overlapsInterval } from "../energy-heatmap.service";
 import { addCalendarDays, parseCalendarDate, startOfLocalDate } from "../energy-periods";
 import { reportBlocks } from "./report-renderer";
@@ -10,8 +10,10 @@ import { reportBlocks } from "./report-renderer";
 export type ReportEffectiveRange = { from: string; to: string | null };
 export type ReportFixtureSnapshot = ReportEffectiveRange & {
   id: string;
-  dimensions: Array<ReportEffectiveRange & { name: string; floorId: string; floorName: string }>;
+  dimensions: Array<ReportEffectiveRange & { name: string; floorId: string; floorName: string; ratedWatt?: string }>;
   groups: Array<ReportEffectiveRange & { id: string; name: string }>;
+  /** V2 preserves scope membership independently of group display-name gaps. */
+  memberships?: Array<ReportEffectiveRange & { id: string }>;
   daily: Array<{ localDate: string; energyKwh: string; cost: string | null; durationSeconds: number }>;
   hourly: Array<{
     localDate: string; localHour: number; bucketStartUtc: string; energyKwh: string;
@@ -19,11 +21,12 @@ export type ReportFixtureSnapshot = ReportEffectiveRange & {
   }>;
 };
 export type EnergyReportDataSnapshot = {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   capturedAt: string;
-  site: { id: string; name: string; timeZone: string };
+  site: { id: string; name: string; timeZone: string; tariffKwhRate?: string | null };
   comparisonRange: { from: string; to: string };
   targetLabelSnapshot?: string;
+  completedDays?: Array<{ localDate: string; from: string; to: string; seconds: number }>;
   fixtures: ReportFixtureSnapshot[];
 };
 
@@ -32,11 +35,12 @@ export class EnergyReportDocumentBuilder {
   build(reportId: string, request: EnergyReportRequest, data: EnergyReportDataSnapshot): EnergyReportDocument {
     const intervals = new Map<string, ReturnType<typeof dayInterval>>();
     const intervalFor = (date: string) => {
-      if (!intervals.has(date)) intervals.set(date, dayInterval(date, data.site.timeZone));
+      if (!intervals.has(date)) intervals.set(date, snapshotDayInterval(date, data));
       return intervals.get(date)!;
     };
     const facts = data.fixtures.flatMap((fixture) => fixture.daily
-      .filter((row) => row.durationSeconds > 0 && inScope(fixture, request, intervalFor(row.localDate)))
+      .filter((row) => row.durationSeconds > 0 && (data.schemaVersion === 2
+        ? attributableDay(fixture, request, intervalFor(row.localDate)) : inScope(fixture, request, intervalFor(row.localDate))))
       .map((row) => ({ fixture, ...row })));
     const current = facts.filter((row) => inRange(row.localDate, request));
     const previous = facts.filter((row) => inRange(row.localDate, data.comparisonRange));
@@ -118,7 +122,9 @@ export class EnergyReportDocumentBuilder {
       "원천 전력량·비용 산출식: 데이터 없음. 보고서는 저장된 집계 합산식만 사용하며 원천 산출 과정을 재구성하지 않습니다.",
       "전력량은 소수점 4자리, 비용·밝기·변화율은 소수점 2자리로 반올림하여 표시합니다."
     ] });
-    const input = energyReportDocumentFingerprintInputSchema.parse({ schemaVersion: 1, reportId, title: "조명 에너지 보고서",
+    const calculation = data.schemaVersion === 2 ? enrichV2(sections, request, data, currentTotal, current.reduce((total, row) => total + row.durationSeconds, 0)) : undefined;
+    const input = energyReportDocumentFingerprintInputSchema.parse({ schemaVersion: data.schemaVersion, reportId, title: "조명 에너지 보고서",
+      ...(calculation ? { calculationBasis: calculation } : {}),
       metadata: [
         { label: "현장", ...textCell(request.scope === "site" ? data.targetLabelSnapshot ?? data.site.name : data.site.name) },
         { label: "시간대", ...textCell(data.site.timeZone) },
@@ -135,9 +141,128 @@ export class EnergyReportDocumentBuilder {
   }
 }
 
+/** Partition only configuration intervals. Persisted daily facts are never split
+ * or prorated: their known time cannot be located inside an intra-day change. */
+function configurationDay(fixture: ReportFixtureSnapshot, request: EnergyReportRequest, interval: ReturnType<typeof dayInterval>) {
+  const start = interval.from.getTime(), end = interval.to.getTime();
+  const memberships = fixture.memberships ?? fixture.groups;
+  const ranges = [fixture, ...fixture.dimensions, ...memberships];
+  const boundaries = [...new Set([start, end, ...ranges.flatMap(range => [dateValue(range.from).getTime(), range.to === null ? end : dateValue(range.to).getTime()])])]
+    .filter(time => time >= start && time <= end).sort((a, b) => a - b);
+  const contains = (range: ReportEffectiveRange, time: number) => dateValue(range.from).getTime() <= time && (range.to === null || time < dateValue(range.to).getTime());
+  let seconds = 0, baselineMissing = false, scopeMissing = false, energy = new Prisma.Decimal(0);
+  for (let index = 0; index < boundaries.length - 1; index++) {
+    const from = boundaries[index], duration = (boundaries[index + 1] - from) / 1000;
+    if (!contains(fixture, from) || (request.scope === "fixture" && fixture.id !== request.identityId)) continue;
+    const dimensions = fixture.dimensions.filter(dimension => contains(dimension, from));
+    const groups = memberships.filter(group => contains(group, from));
+    if (request.scope === "group" && !groups.some(group => group.id === request.identityId)) continue;
+    if (request.scope === "floor" && dimensions.length === 1 && dimensions[0].floorId !== request.identityId) continue;
+    if (dimensions.length !== 1) {
+      baselineMissing = true;
+      // Site/fixture/group membership is still known when watt history is absent.
+      // Floor membership itself cannot be inferred across a dimension gap.
+      if (request.scope !== "floor") seconds += duration;
+      else scopeMissing = true;
+      continue;
+    }
+    seconds += duration;
+    const watts = dimensions[0].ratedWatt;
+    if (watts === undefined) baselineMissing = true;
+    else energy = energy.add(new Prisma.Decimal(watts).mul(duration).div(3_600_000));
+  }
+  return { seconds, energy, baselineMissing, scopeMissing, partial: seconds > 0 && seconds < (end - start) / 1000 };
+}
+function attributableDay(fixture: ReportFixtureSnapshot, request: EnergyReportRequest, interval: ReturnType<typeof dayInterval>) {
+  if (request.scope === "site") return true;
+  if (request.scope === "fixture") return fixture.id === request.identityId;
+  const day = configurationDay(fixture, request, interval);
+  return day.seconds === (interval.to.getTime() - interval.from.getTime()) / 1000 && !day.scopeMissing;
+}
+
+function enrichV2(sections: EnergyReportSection[], request: EnergyReportRequest, data: EnergyReportDataSnapshot,
+  actual: Prisma.Decimal | null, persistedKnown: number): ReportCalculationBasis {
+  const selectedFixtures = new Set<string>();
+  let expectedSeconds = 0, baselineMissing = false, expectedUnknown = false, attributionUnavailable = false;
+  const dailyBaselines = dates(request).map(date => {
+    let energy = new Prisma.Decimal(0), dayMissing = false;
+    for (const fixture of data.fixtures) {
+      const interval = snapshotDayInterval(date, data);
+      const day = configurationDay(fixture, request, interval);
+      // A migration-day daily fact can include both pre-tracking and post-tracking
+      // time. Preserve its actuals, but never compare it to a post-start-only
+      // baseline/denominator, even when knownSeconds fits that shorter interval.
+      const legacyFact = (request.scope === "site" || (request.scope === "fixture" && fixture.id === request.identityId))
+        && fixture.daily.some(row => row.localDate === date && row.durationSeconds > 0)
+        && dateValue(fixture.from).getTime() > interval.from.getTime();
+      if (legacyFact) { day.baselineMissing = true; expectedUnknown = true; }
+      if (day.seconds > 0 || day.baselineMissing) selectedFixtures.add(fixture.id);
+      expectedUnknown ||= day.scopeMissing;
+      expectedSeconds += day.seconds; dayMissing ||= day.baselineMissing;
+      attributionUnavailable ||= (request.scope === "floor" || request.scope === "group") && day.partial;
+      energy = energy.add(day.energy);
+    }
+    baselineMissing ||= dayMissing;
+    return dayMissing ? null : energy;
+  });
+  const baseline = baselineMissing ? null : dailyBaselines.reduce<Prisma.Decimal>((total, value) => total.add(value!), new Prisma.Decimal(0));
+  const savings = difference(baseline, actual);
+  const over = savings !== null && savings.isNegative();
+  const tariff = data.site.tariffKwhRate == null ? null : new Prisma.Decimal(data.site.tariffKwhRate);
+  // Watt/name history gaps do not invalidate independently proven membership or
+  // persisted known time. Only scope/lifecycle uncertainty suppresses coverage.
+  const coverageReason = attributionUnavailable ? "scope_attribution_unavailable" : expectedUnknown ? "dimension_history_missing" : null;
+  const knownSeconds = coverageReason ? null : Math.min(persistedKnown, expectedSeconds);
+  const summary = sections[0];
+  if (summary.kind !== "summary") throw new Error("Missing summary");
+  summary.rows = [
+    ...summary.rows.map(row => ({ ...row, source: "persisted_actual" as const })),
+    ...[
+      { label: "24시간 기준 전력량", ...energyCell(baseline) },
+      { label: over ? "기준 초과 전력량" : "절감 전력량", ...energyCell(savings) },
+      { label: over ? "기준 초과율" : "절감률", ...decimalCell(baseline !== null && !baseline.isZero() && savings !== null ? savings.div(baseline).mul(100) : null, "%") },
+      { label: "현재 단가 기준 비용", ...costCell(baseline !== null && tariff !== null ? baseline.mul(tariff) : null) },
+      { label: over ? "예상 기준 초과 비용" : "예상 절감 비용", ...costCell(savings !== null && tariff !== null ? savings.mul(tariff) : null) },
+      { label: "데이터 수집률", ...decimalCell(knownSeconds !== null && expectedSeconds > 0 ? new Prisma.Decimal(knownSeconds).div(expectedSeconds).mul(100) : null, "%") }
+    ].map(row => ({ ...row, source: "captured_current_configuration" as const }))
+  ];
+  for (const [index, section] of sections.entries()) {
+    if (section.kind === "table") {
+      const rowIds = section.rows.map((row, index) => section.id === "daily" ? String(row[0].value)
+        : section.id === "comparison" ? ["current", "previous", "difference", "change"][index] : String(row[1].value));
+      const common = { id: `${section.id}-chart`, tableId: section.id, rowIds };
+      if (section.id === "daily") {
+        section.columns.push({ id: "baselineKwh", label: "24시간 기준 전력량" });
+        section.rows.forEach((row, index) => row.push(energyCell(dailyBaselines[index])));
+        sections[index] = { ...section, rowIds, visualization: { ...common, type: "daily_actual_vs_baseline", categoryColumnId: "localDate", valueColumnIds: ["energyKwh", "baselineKwh"] } };
+      } else if (section.id === "comparison") {
+        sections[index] = { ...section, rowIds, visualization: { ...common, rowIds: rowIds.slice(0, 2), type: "period_comparison", categoryColumnId: "period", valueColumnIds: ["energyKwh", "cost"] } };
+      } else {
+        sections[index] = { ...section, rowIds, visualization: { ...common, type: "horizontal_ranking", categoryColumnId: "name", valueColumnIds: ["energyKwh"], limit: 10 } };
+      }
+    } else if (section.kind === "heatmap") {
+      sections[index] = { ...section, visualization: { id: `${section.id}-chart`, type: "heatmap", sectionId: section.id, colorScale: "sequential", noData: "gap", weekdays: 7, hours: 24 } };
+    } else if (section.kind === "notes") {
+      section.rows.push("생성 당시 설정 기준: 정격 W 이력 × 선택 범위 유효 초 ÷ 3,600,000. DST 날짜는 실제 UTC 구간의 초를 사용합니다.",
+        `생성 당시 현재 요금 단가: ${tariff === null ? "데이터 없음 (요금 단가 없음)" : `${tariff.toFixed(2)} 원/kWh`}. 저장 비용은 소급 변경하지 않습니다.`,
+        "절감량 = 기준량 − 저장 사용량. 음수는 기준 초과이며 예상 비용은 같은 현재 단가로 환산합니다.",
+        "수집률 = 귀속 가능한 일별 known seconds ÷ 기대 초 × 100 (최대 100%). 기준값과 수집률은 생성 당시 설정 기준입니다.",
+        ...(baselineMissing ? ["데이터 없음: 정격 또는 범위 이력 공백 (dimension_history_missing)."] : []),
+        ...(attributionUnavailable ? ["데이터 없음: 하루 중 소속 변경으로 일별 수집 시간을 배분할 수 없음 (scope_attribution_unavailable)."] : []));
+    }
+  }
+  return { capturedAt: data.capturedAt, actualSource: "persisted_actual", configurationSource: "captured_current_configuration",
+    tariffKwhRate: data.site.tariffKwhRate ?? null, expectedSeconds: expectedUnknown ? null : expectedSeconds,
+    knownSeconds, fixtureCount: selectedFixtures.size, baselineReason: baselineMissing ? "dimension_history_missing" : null, coverageReason };
+}
+
 function dayInterval(date: string, timeZone: string) {
   const day = parseCalendarDate(date);
   return { from: startOfLocalDate(day, timeZone), to: startOfLocalDate(addCalendarDays(day, 1), timeZone) };
+}
+function snapshotDayInterval(date: string, data: EnergyReportDataSnapshot) {
+  const captured = data.completedDays?.find(day => day.localDate === date);
+  return captured ? { from: new Date(captured.from), to: new Date(captured.to) } : dayInterval(date, data.site.timeZone);
 }
 function activeDay(range: ReportEffectiveRange, { from, to }: ReturnType<typeof dayInterval>) {
   return coversInterval(effectiveDates(range), from, to);

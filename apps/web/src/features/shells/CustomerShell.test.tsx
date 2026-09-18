@@ -114,7 +114,7 @@ describe("customer shell site context", () => {
 
     const statisticsLink = await screen.findByRole("link", { name: "통계" });
     expect(statisticsLink).toHaveAttribute("href", "/statistics/overview?siteId=site");
-    expect(statisticsLink).toHaveClass("active");
+    expect(statisticsLink).toHaveAttribute("aria-current", "page");
   });
 
   it("preserves the selected site and hash in the legacy statistics redirect", async () => {

@@ -42,7 +42,7 @@ describe("HealthController HTTP boundary", () => {
   ] as const)("returns %s using only the public readiness fields", async (status, expectedStatus) => {
     readiness.check.mockResolvedValueOnce({
       status,
-      checks: { postgres: "up", redis: "up", mqtt: status === "ready" ? "up" : "down", objectStorage: "up" },
+      checks: { postgres: "up", redis: "up", mqtt: status === "ready" ? "up" : "down", objectStorage: "up", cadConverter: "up" },
       timestamp: "2026-09-12T00:00:00.000Z"
     });
 
@@ -52,7 +52,7 @@ describe("HealthController HTTP boundary", () => {
     expect(response.status).toBe(expectedStatus);
     expect(body).toEqual({
       status,
-      checks: { postgres: "up", redis: "up", mqtt: status === "ready" ? "up" : "down", objectStorage: "up" },
+      checks: { postgres: "up", redis: "up", mqtt: status === "ready" ? "up" : "down", objectStorage: "up", cadConverter: "up" },
       timestamp: "2026-09-12T00:00:00.000Z"
     });
     expect(Object.keys(body).sort()).toEqual(["checks", "status", "timestamp"]);

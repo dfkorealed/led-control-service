@@ -223,7 +223,6 @@ describe("AccountSecurityView", () => {
     vi.mocked(revokeAuthSession).mockImplementation(() => new Promise((resolve) => {
       finishRevocation = () => resolve({ ok: true });
     }));
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     client.setQueryData(authMeQueryKey, { user: admin });
     const view = render(
@@ -231,18 +230,19 @@ describe("AccountSecurityView", () => {
     );
     await screen.findByRole("list", { name: "활성 세션" });
     fireEvent.click(screen.getByRole("button", { name: "현재 세션 종료" }));
+    expect(screen.getByRole("alertdialog", { name: "현재 세션 종료" })).toBeInTheDocument();
+    expect(revokeAuthSession).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "세션 종료" }));
 
     client.setQueryData(authMeQueryKey, { user: otherAdmin });
     view.rerender(<QueryClientProvider client={client}><AccountSecurityView user={otherAdmin} /></QueryClientProvider>);
     finishRevocation?.();
 
     await waitFor(() => expect(client.getQueryData(authMeQueryKey)).toEqual({ user: otherAdmin }));
-    expect(confirm).toHaveBeenCalledOnce();
   });
 
   it("현재 세션 종료 전에 시작한 auth/me 지연 응답이 로그아웃 상태를 되돌리지 못한다", async () => {
     let resolveAuthMe: ((value: { user: AuthUser }) => void) | undefined;
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     const client = renderView();
     await screen.findByRole("list", { name: "활성 세션" });
     const pendingAuthMe = client.fetchQuery({
@@ -254,11 +254,22 @@ describe("AccountSecurityView", () => {
     await waitFor(() => expect(resolveAuthMe).toBeTypeOf("function"));
 
     fireEvent.click(screen.getByRole("button", { name: "현재 세션 종료" }));
+    fireEvent.click(screen.getByRole("button", { name: "세션 종료" }));
     await waitFor(() => expect(client.getQueryData(authMeQueryKey)).toBeNull());
     resolveAuthMe?.({ user: admin });
     await pendingAuthMe;
 
     expect(client.getQueryData(authMeQueryKey)).toBeNull();
-    expect(confirm).toHaveBeenCalledOnce();
+  });
+
+  it("현재 세션 종료 확인을 취소하면 API를 호출하지 않는다", async () => {
+    renderView();
+    await screen.findByRole("list", { name: "활성 세션" });
+
+    fireEvent.click(screen.getByRole("button", { name: "현재 세션 종료" }));
+    fireEvent.click(screen.getByRole("button", { name: "취소" }));
+
+    expect(revokeAuthSession).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alertdialog", { name: "현재 세션 종료" })).not.toBeInTheDocument();
   });
 });

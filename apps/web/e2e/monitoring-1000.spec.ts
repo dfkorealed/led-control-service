@@ -63,10 +63,10 @@ test("브라우저 fixture로 1,000개 조명과 지도 객체를 렌더링하�
 
   const startedAt = Date.now();
   await page.goto("/");
-  await expect(page.locator(".fixture-dot")).toHaveCount(1000, { timeout: 10_000 });
+  await expect(page.locator('[data-spatial-map-marker="true"]')).toHaveCount(1000, { timeout: 10_000 });
   expect(Date.now() - startedAt).toBeLessThan(10_000);
   await expect(page.getByRole("button", { name: "B2-L1000 정상 70%" })).toBeVisible();
-  const monitoringCanvas = page.getByRole("region", { name: "층 도면" }).locator(".floor-scene-canvas canvas");
+  const monitoringCanvas = page.getByRole("region", { name: "층 도면" }).locator("canvas");
   await expect.poll(async () => monitoringCanvas.evaluate((canvas: HTMLCanvasElement) => {
     const context = canvas.getContext("2d");
     if (!context) return [];
@@ -120,6 +120,8 @@ test("브라우저 fixture로 1,000개 조명과 지도 객체를 렌더링하�
   await expect(properties.getByRole("heading", { name: "B2-L0001" })).toBeVisible({ timeout: remainingEditorBudget(editorStartedAt) });
   expect(Date.now() - editorStartedAt).toBeLessThan(editorReadinessBudgetMs);
   await properties.getByLabel("X").fill("50");
+  await properties.getByLabel("X").press("Tab");
+  await expect(page.getByRole("button", { name: "저장", exact: true })).toBeEnabled();
   await page.getByRole("button", { name: "저장", exact: true }).click();
 
   await expect(page.getByRole("button", { name: "저장", exact: true })).toBeDisabled();

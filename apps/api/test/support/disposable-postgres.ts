@@ -41,13 +41,23 @@ export async function disposablePostgres() {
       sql(url("postgres"), `CREATE DATABASE "${name}"`);
       return url(name);
     },
-    deploy(databaseUrl: string, through = "99999999") {
+    deploy(databaseUrl: string, through = "99999999", options: { exclude?: string[] } = {}) {
       const copy = mkdtempSync(join(directory, "schema-"));
       cpSync(join(__dirname, "../../prisma"), copy, { recursive: true });
       for (const name of readdirSync(join(copy, "migrations"))) {
-        if (/^\d/.test(name) && name > through) rmSync(join(copy, "migrations", name), { recursive: true });
+        if (/^\d/.test(name) && (name > through || options.exclude?.includes(name))) {
+          rmSync(join(copy, "migrations", name), { recursive: true });
+        }
       }
       return spawnSync(process.execPath, [require.resolve("prisma/build/index.js"), "migrate", "deploy", "--schema", join(copy, "schema.prisma")], {
+        cwd: directory, env: { ...process.env, DATABASE_URL: databaseUrl }, encoding: "utf8", timeout: 30_000
+      });
+    },
+    resolveRolledBack(databaseUrl: string, migrationName: string) {
+      return spawnSync(process.execPath, [
+        require.resolve("prisma/build/index.js"), "migrate", "resolve", "--rolled-back", migrationName,
+        "--schema", join(__dirname, "../../prisma/schema.prisma")
+      ], {
         cwd: directory, env: { ...process.env, DATABASE_URL: databaseUrl }, encoding: "utf8", timeout: 30_000
       });
     }

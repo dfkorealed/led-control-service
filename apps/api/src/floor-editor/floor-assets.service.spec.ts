@@ -99,6 +99,38 @@ describe("FloorAssetsService", () => {
     expect((siteAccess as any).assert).toHaveBeenNthCalledWith(2, viewer, "site-1", "manage");
   });
 
+  it("rejects a new PDF upload intent before creating or signing an asset", async () => {
+    const prisma: any = {
+      floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },
+      floorAsset: {
+        create: jest.fn().mockResolvedValue({ id: "asset-1", status: "pending" }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 })
+      },
+      $queryRaw: jest.fn().mockResolvedValue([{ floorStatus: "active" }])
+    };
+    prisma.$transaction = jest.fn(async (operation: (tx: typeof prisma) => unknown) => operation(prisma));
+    const storage: any = {
+      prepareFloorAssetUpload: jest.fn().mockReturnValue({
+        objectKey: "floors/floor-1/file.pdf", expiresInSeconds: 300
+      }),
+      createFloorAssetUploadUrl: jest.fn().mockResolvedValue("https://signed.example")
+    };
+    const siteAccess: any = {
+      assert: jest.fn().mockResolvedValue({ id: "site-1" }),
+      assertManageInTransaction: jest.fn().mockResolvedValue({ id: "site-1" })
+    };
+
+    await expect(new FloorAssetsService(prisma, storage, siteAccess).createUploadIntent(admin, "floor-1", {
+      kind: "original", mimeType: "application/pdf", sizeBytes: 1024, sha256: "a".repeat(64)
+    })).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(siteAccess.assert).toHaveBeenCalledWith(admin, "site-1", "manage");
+    expect(storage.prepareFloorAssetUpload).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(prisma.floorAsset.create).not.toHaveBeenCalled();
+    expect(storage.createFloorAssetUploadUrl).not.toHaveBeenCalled();
+  });
+
   it("uses read access when listing ready floor assets", async () => {
     const prisma: any = {
       floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },
@@ -123,7 +155,10 @@ describe("FloorAssetsService", () => {
     const prisma: any = {
       floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },
       floorAsset: {
-        findFirst: jest.fn().mockResolvedValue({ objectKey: "floors/floor-1/file.png" })
+        findFirst: jest.fn().mockResolvedValue({
+          kind: "original", objectKey: "floors/floor-1/file.png", mimeType: "image/png",
+          contentEncoding: null, sizeBytes: 10n, sha256: "a".repeat(64)
+        })
       }
     };
     const storage: any = {
@@ -137,15 +172,102 @@ describe("FloorAssetsService", () => {
     expect(siteAccess.assert).toHaveBeenCalledWith(viewer, "site-1", "read");
     expect(prisma.floorAsset.findFirst).toHaveBeenCalledWith({
       where: { id: "asset-1", floorId: "floor-1", status: "ready" },
-      select: { objectKey: true }
+      select: { id: true, kind: true, objectKey: true, mimeType: true, contentEncoding: true, sizeBytes: true, sha256: true }
     });
+  });
+
+  it("keeps existing ready PDF assets listable and downloadable", async () => {
+    const asset = {
+      id: "asset-pdf", kind: "original", status: "ready", objectKey: "floors/floor-1/legacy.pdf",
+      mimeType: "application/pdf", contentEncoding: null, sizeBytes: 1024n, sha256: "a".repeat(64)
+    };
+    const prisma: any = {
+      floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },
+      floorAsset: {
+        findMany: jest.fn().mockResolvedValue([asset]),
+        findFirst: jest.fn().mockResolvedValue(asset)
+      }
+    };
+    const storage: any = {
+      createFloorAssetDownloadUrl: jest.fn().mockResolvedValue("https://download.example/legacy-pdf")
+    };
+    const siteAccess: any = { assert: jest.fn().mockResolvedValue({ id: "site-1" }) };
+    const service = new FloorAssetsService(prisma, storage, siteAccess);
+
+    await expect(service.listAssets(viewer, "floor-1")).resolves.toEqual([expect.objectContaining({
+      id: "asset-pdf",
+      mimeType: "application/pdf",
+      accessPath: "/api/floors/floor-1/assets/asset-pdf/content"
+    })]);
+    await expect(service.getContentRedirect(viewer, "floor-1", "asset-pdf"))
+      .resolves.toEqual({ url: "https://download.example/legacy-pdf" });
+    expect(storage.createFloorAssetDownloadUrl).toHaveBeenCalledWith("floors/floor-1/legacy.pdf");
+  });
+
+  it("reconciles an unknown rendered SVG before signing content", async () => {
+    const asset = {
+      id: "asset-1", kind: "rendered", objectKey: "floors/floor-1/render.svg", mimeType: "image/svg+xml",
+      contentEncoding: "unknown", sizeBytes: 321n, sha256: "b".repeat(64)
+    };
+    const prisma: any = {
+      floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },
+      floorAsset: { findFirst: jest.fn().mockResolvedValue(asset) }
+    };
+    const storage: any = { createFloorAssetDownloadUrl: jest.fn().mockResolvedValue("https://download.example/signed") };
+    const reconciler: any = { reconcile: jest.fn().mockResolvedValue({ width: 10, height: 20, contentEncoding: "gzip" }) };
+    const service = new FloorAssetsService(
+      prisma, storage, { assert: jest.fn() } as any, reconciler
+    );
+
+    await expect(service.getContentRedirect(viewer, "floor-1", asset.id))
+      .resolves.toEqual({ url: "https://download.example/signed" });
+    expect(reconciler.reconcile).toHaveBeenCalledWith(asset);
+  });
+
+  it("signs legacy identity and gzip rendered SVGs only after exact object HEAD verification", async () => {
+    const asset: {
+      kind: string; objectKey: string; mimeType: string; contentEncoding: string | null; sizeBytes: bigint; sha256: string;
+    } = {
+      kind: "rendered", objectKey: "floors/floor-1/render.svg", mimeType: "image/svg+xml",
+      contentEncoding: null, sizeBytes: 321n, sha256: "b".repeat(64)
+    };
+    const prisma: any = {
+      floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },
+      floorAsset: { findFirst: jest.fn().mockResolvedValue(asset) }
+    };
+    const storage: any = {
+      readFloorRenderedMetadata: jest.fn().mockResolvedValue({ width: 10, height: 20 }),
+      createFloorAssetDownloadUrl: jest.fn().mockResolvedValue("https://download.example/signed")
+    };
+    const siteAccess = { assert: jest.fn().mockResolvedValue({ id: "site-1" }) };
+    const service = new FloorAssetsService(prisma, storage, siteAccess as unknown as SiteAccessService);
+
+    await expect(service.getContentRedirect(viewer, "floor-1", "asset-1"))
+      .resolves.toEqual({ url: "https://download.example/signed" });
+    expect(storage.readFloorRenderedMetadata).toHaveBeenCalledWith(asset.objectKey, {
+      sizeBytes: 321, sha256: asset.sha256, mimeType: "image/svg+xml", contentEncoding: null
+    });
+    expect(storage.createFloorAssetDownloadUrl).toHaveBeenCalledWith(asset.objectKey);
+
+    asset.contentEncoding = "gzip";
+    storage.createFloorAssetDownloadUrl.mockClear();
+    storage.readFloorRenderedMetadata.mockRejectedValue(new Error("encoding replaced"));
+    await expect(service.getContentRedirect(viewer, "floor-1", "asset-1"))
+      .rejects.toBeInstanceOf(ServiceUnavailableException);
+    expect(storage.readFloorRenderedMetadata).toHaveBeenCalledWith(asset.objectKey, {
+      sizeBytes: 321, sha256: asset.sha256, mimeType: "image/svg+xml", contentEncoding: "gzip"
+    });
+    expect(storage.createFloorAssetDownloadUrl).not.toHaveBeenCalled();
   });
 
   it("returns 503 without a public fallback when content signing fails", async () => {
     const prisma: any = {
       floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },
       floorAsset: {
-        findFirst: jest.fn().mockResolvedValue({ objectKey: "floors/floor-1/file.png" })
+        findFirst: jest.fn().mockResolvedValue({
+          kind: "original", objectKey: "floors/floor-1/file.png", mimeType: "image/png",
+          contentEncoding: null, sizeBytes: 10n, sha256: "a".repeat(64)
+        })
       }
     };
     const storage: any = {

@@ -1,11 +1,10 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CircleCheck, TriangleAlert } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ApiError } from "../../api/client";
 import { createSiteTestData, deleteSiteTestData } from "../../api/test-data";
 import type { Dashboard } from "../../api/queries";
-import { ConfirmDialog } from "../../components/ConfirmDialog";
-import { Button, Card, FeedbackState } from "../../components/ui";
+import { Button, Card, ConfirmDialog, FeedbackState } from "../../components/ui";
 
 type UserRole = "operator" | "admin" | "viewer";
 
@@ -22,7 +21,9 @@ export function TestDataToolsPanel({ userRole, dashboard }: { userRole: UserRole
 function TestDataToolsControls({ dashboard }: { dashboard: Dashboard }) {
   const queryClient = useQueryClient();
   const requestInFlight = useRef(false);
+  const deleteButtonRef = useRef<HTMLButtonElement>(null);
   const [deleteConfirmationOpen, setDeleteConfirmationOpen] = useState(false);
+  const [deleteCompleted, setDeleteCompleted] = useState(false);
   const [message, setMessage] = useState("");
   const [createErrorMessage, setCreateErrorMessage] = useState("");
   const [deleteErrorMessage, setDeleteErrorMessage] = useState("");
@@ -44,7 +45,7 @@ function TestDataToolsControls({ dashboard }: { dashboard: Dashboard }) {
     onSuccess: async (result) => {
       await invalidateAffectedQueries(queryClient, dashboard);
       requestInFlight.current = false;
-      setDeleteConfirmationOpen(false);
+      setDeleteCompleted(true);
       setMessage(`테스트 데이터 ${result.fixtures.deleted}개를 삭제했습니다.`);
     },
     onError: (error) => {
@@ -56,6 +57,12 @@ function TestDataToolsControls({ dashboard }: { dashboard: Dashboard }) {
   });
   const isMutating = createMutation.isPending || deleteMutation.isPending;
 
+  useEffect(() => {
+    if (!deleteCompleted || deleteMutation.isPending) return;
+    setDeleteConfirmationOpen(false);
+    setDeleteCompleted(false);
+  }, [deleteCompleted, deleteMutation.isPending]);
+
   function startOperation(operation: () => void) {
     if (requestInFlight.current || isMutating) return;
     requestInFlight.current = true;
@@ -66,22 +73,22 @@ function TestDataToolsControls({ dashboard }: { dashboard: Dashboard }) {
   }
 
   return (
-    <Card className="settings-test-data-card" aria-label="테스트 데이터">
-      <div className="settings-card-heading">
+    <Card className="mt-4 grid gap-3 p-4" aria-label="테스트 데이터">
+      <div className="flex items-center gap-3">
         <TriangleAlert size={20} aria-hidden="true" />
-        <div>
-          <span>개발·검증 전용</span>
-          <strong>테스트 데이터</strong>
+        <div className="grid min-w-0 gap-1">
+          <span className="text-overline font-bold text-status-warning-foreground">개발·검증 전용</span>
+          <strong className="text-card-title text-content-primary">테스트 데이터</strong>
         </div>
       </div>
-      <p className="muted-text">현재 설치 현장에 테스트용 조명 데이터를 생성하거나 삭제합니다.</p>
+      <p className="m-0 text-body-sm text-content-secondary">현재 설치 현장에 테스트용 조명 데이터를 생성하거나 삭제합니다.</p>
       {message ? <FeedbackState tone="success" icon={CircleCheck} title={message} /> : null}
       {createErrorMessage ? <FeedbackState tone="danger" icon={TriangleAlert} title={createErrorMessage} /> : null}
-      <div className="settings-test-data-actions">
+      <div className="flex flex-wrap gap-2">
         <Button variant="secondary" disabled={isMutating} isLoading={createMutation.isPending} loadingLabel="테스트 데이터 생성 중" onClick={() => startOperation(() => createMutation.mutate())}>
           테스트 데이터 생성
         </Button>
-        <Button variant="danger" disabled={isMutating} onClick={() => {
+        <Button ref={deleteButtonRef} variant="danger" disabled={isMutating} onClick={() => {
           setDeleteErrorMessage("");
           setDeleteConfirmationOpen(true);
         }}>
@@ -89,13 +96,15 @@ function TestDataToolsControls({ dashboard }: { dashboard: Dashboard }) {
         </Button>
       </div>
       <ConfirmDialog
-        open={deleteConfirmationOpen}
+        isOpen={deleteConfirmationOpen}
         title="테스트 데이터 삭제 확인"
         description="이 현장의 테스트 데이터가 삭제됩니다. 이 작업은 되돌릴 수 없습니다."
         confirmLabel="삭제"
+        closeLabel="테스트 데이터 삭제 확인 닫기"
         destructive
         isPending={deleteMutation.isPending}
-        onClose={() => {
+        returnFocusRef={deleteButtonRef}
+        onCancel={() => {
           if (isMutating) return;
           setDeleteErrorMessage("");
           setDeleteConfirmationOpen(false);

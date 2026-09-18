@@ -5,7 +5,9 @@ describe("humanizeTransportMessage", () => {
   it.each([
     ["Gateway ACK timeout", "게이트웨이 장비 응답 시간 초과"],
     ["Gateway ACK 확인 필요", "게이트웨이 장비 응답 확인 필요"],
-    ["Gateway ACK를 확인하지 못했습니다.", "게이트웨이 장비 응답을 확인하지 못했습니다."]
+    ["Gateway ACK를 확인하지 못했습니다.", "게이트웨이 장비 응답을 확인하지 못했습니다."],
+    ["fixture already registered in this site", "이미 이 현장에 등록된 조명입니다."],
+    ["fixture already registered in another site", "이미 다른 현장에 등록된 장치입니다."]
   ])("transport 원문 %s를 자연스러운 한국어로 표시한다", (raw, expected) => {
     const display = humanizeTransportMessage(raw);
 

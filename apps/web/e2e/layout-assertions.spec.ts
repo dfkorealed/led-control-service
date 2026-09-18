@@ -1,8 +1,21 @@
 import { expect, test } from "@playwright/test";
 import {
   expectMinimumTouchTargets,
-  expectMinimumTouchTargetsAfterScrolling
+  expectMinimumTouchTargetsAfterScrolling,
+  expectNoHorizontalOverflow,
+  targetLayoutViewports
 } from "./support/layout-assertions";
+
+for (const viewport of targetLayoutViewports) {
+  test(`horizontal overflow gate covers the ${viewport.width}px target viewport`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await page.setContent('<main style="width: 100%; max-width: 100%">정상 레이아웃</main>');
+    await expectNoHorizontalOverflow(page);
+
+    await page.setContent('<main style="width: calc(100vw + 8px)">넘치는 레이아웃</main>');
+    await expect(expectNoHorizontalOverflow(page)).rejects.toThrow();
+  });
+}
 
 test("touch target helper inspects every visible enabled interactive descendant", async ({ page }) => {
   await page.setContent(`
@@ -35,6 +48,16 @@ test("touch target helper can exclude compact spatial markers while retaining th
   `);
 
   await expectMinimumTouchTargets(page, "#root", { excludeSpatialMapMarkers: true });
+});
+
+test("touch target helper measures spatial markers unless an explicit exclusion is requested", async ({ page }) => {
+  await page.setContent(`
+    <main id="root">
+      <button data-spatial-map-marker="true" style="width: 24px; height: 24px">지도 마커</button>
+    </main>
+  `);
+
+  await expect(expectMinimumTouchTargets(page, "#root")).rejects.toThrow(/지도 마커/);
 });
 
 test("transparent radio uses its 44px implicit label as the effective hit target", async ({ page }) => {
@@ -221,6 +244,17 @@ test("a transformed overflow ancestor clips its fixed descendant", async ({ page
   await expect(expectMinimumTouchTargets(page, "#root")).rejects.toThrow(/interactive target/i);
 });
 
+test("a control inside a viewport-fixed overlay escapes scrolled document clipping", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.setContent(`<!doctype html><style>html { overflow: hidden; } body { height: 1600px; margin: 0; }</style>
+    <div id="root" style="position: fixed; inset: 0; overflow: hidden">
+      <button style="position: absolute; bottom: 24px; left: 24px; width: 80px; height: 48px">완료</button>
+    </div>`);
+  await page.evaluate(() => window.scrollTo(0, 75));
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(75);
+  await expectMinimumTouchTargets(page, "#root");
+});
+
 test("scrolling touch target helper inspects an undersized target below the viewport", async ({ page }) => {
   await page.setContent(`
     <main id="root" style="height: 60px; overflow-y: auto">
@@ -242,6 +276,19 @@ test("scrolling touch target helper tries every associated label for a native ch
     </main>
   `);
 
+  await expectMinimumTouchTargetsAfterScrolling(page, "#root");
+});
+
+test("touch target helpers measure a range input through its visible slider thumb", async ({ page }) => {
+  await page.setContent(`
+    <main id="root" style="height: 60px; overflow-y: auto">
+      <div data-slider-thumb style="position: relative; width: 52px; height: 52px; border-radius: 10px">
+        <input aria-label="밝기" type="range" style="position: absolute; width: 1px; height: 1px; clip: rect(0 0 0 0)">
+      </div>
+    </main>
+  `);
+
+  await expectMinimumTouchTargets(page, "#root");
   await expectMinimumTouchTargetsAfterScrolling(page, "#root");
 });
 

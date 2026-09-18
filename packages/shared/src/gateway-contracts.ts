@@ -72,9 +72,7 @@ const gatewayDimmingCommandFields = {
   meshControlGroupId: z.string().uuid().optional(),
   meshControlGroupVersion: z.number().int().positive().optional(),
   brightness: z.number().int().min(0).max(100),
-  requestedAt: z.string().datetime(),
-  // Old durable outbox rows predate timed overrides; new API commands always set this field.
-  overrideUntil: z.string().datetime().optional()
+  requestedAt: z.string().datetime()
 };
 
 function validateDimmingDelivery(
@@ -140,20 +138,25 @@ function validateDimmingDelivery(
 }
 
 function validateDimmingExpiry(
-  command: Parameters<typeof validateDimmingDelivery>[0] & { expiresAt: string; overrideUntil?: string },
+  command: Parameters<typeof validateDimmingDelivery>[0] & { expiresAt: string },
   context: z.RefinementCtx
 ) {
   validateDimmingDelivery(command, context);
-  if (command.overrideUntil && Date.parse(command.expiresAt) > Date.parse(command.overrideUntil)) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["expiresAt"],
-      message: "expiresAt must not exceed overrideUntil"
-    });
-  }
 }
 
 function validatePublishedDimmingCommand(
+  command: Parameters<typeof validateDimmingDelivery>[0] & {
+    expiresAt: string;
+    deliveryGeneratedAt: string;
+    deliveryWindowMs: number;
+  },
+  context: z.RefinementCtx
+) {
+  validateDimmingDelivery(command, context);
+  validatePublishedDeliveryExpiry(command, context);
+}
+
+function validateLegacyPublishedDimmingCommand(
   command: Parameters<typeof validateDimmingDelivery>[0] & {
     expiresAt: string;
     deliveryGeneratedAt: string;
@@ -163,8 +166,7 @@ function validatePublishedDimmingCommand(
   },
   context: z.RefinementCtx
 ) {
-  validateDimmingDelivery(command, context);
-  validatePublishedDeliveryExpiry(command, context);
+  validatePublishedDimmingCommand(command, context);
   const generatedAt = Date.parse(command.deliveryGeneratedAt);
   if (command.overrideUntil) {
     const expectedRemaining = Date.parse(command.overrideUntil) - generatedAt;
@@ -193,9 +195,6 @@ function validatePublishedDimmingCommand(
 
 // The API stores this draft until the publisher durably fixes one delivery generation.
 const gatewayDimmingCommandDraftV2BaseSchema = commandIdentitySchema.extend(gatewayDimmingCommandFields).strict();
-const historicalGatewayDimmingCommandDraftV2BaseSchema = gatewayDimmingCommandDraftV2BaseSchema.extend({
-  requestedBy: z.string().uuid()
-}).strict();
 export const gatewayDimmingCommandDraftV2Schema = gatewayDimmingCommandDraftV2BaseSchema.superRefine(
   validateDimmingDelivery
 );
@@ -212,29 +211,51 @@ export const gatewayDimmingCommandPublishedV2Schema = gatewayDimmingCommandDraft
   expiresAt: z.string().datetime(),
   deliveryGeneration: z.string().uuid(),
   deliveryGeneratedAt: z.string().datetime(),
-  deliveryWindowMs: z.number().int().positive().max(10_000),
-  overrideRemainingMs: z.number().int().positive().optional()
+  deliveryWindowMs: z.number().int().positive().max(10_000)
 }).strict().superRefine(validatePublishedDimmingCommand);
 
+const legacyTimedGatewayDimmingCommandDraftV2BaseSchema = commandIdentitySchema.extend({
+  ...gatewayDimmingCommandFields,
+  overrideUntil: z.string().datetime().optional()
+}).strict();
+const historicalGatewayDimmingCommandDraftV2BaseSchema = legacyTimedGatewayDimmingCommandDraftV2BaseSchema.extend({
+  requestedBy: z.string().uuid()
+}).strict();
+const legacyTimedGatewayDimmingCommandDraftV2Schema = legacyTimedGatewayDimmingCommandDraftV2BaseSchema
+  .superRefine(validateDimmingDelivery);
 const historicalGatewayDimmingCommandDraftV2Schema = historicalGatewayDimmingCommandDraftV2BaseSchema
   .superRefine(validateDimmingDelivery);
 export const gatewayDimmingCommandDraftV2CompatibilitySchema = z.union([
   gatewayDimmingCommandDraftV2Schema,
+  legacyTimedGatewayDimmingCommandDraftV2Schema,
   historicalGatewayDimmingCommandDraftV2Schema
 ]);
+const legacyTimedGatewayDimmingCommandLegacyV2Schema = legacyTimedGatewayDimmingCommandDraftV2BaseSchema.extend({
+  expiresAt: z.string().datetime()
+}).strict().superRefine(validateDimmingDelivery);
 const historicalGatewayDimmingCommandLegacyV2Schema = historicalGatewayDimmingCommandDraftV2BaseSchema.extend({
   expiresAt: z.string().datetime()
 }).strict().superRefine(validateDimmingDelivery);
+const legacyTimedGatewayDimmingCommandV2Schema = legacyTimedGatewayDimmingCommandDraftV2BaseSchema.extend({
+  expiresAt: z.string().datetime()
+}).strict().superRefine(validateDimmingExpiry);
 const historicalGatewayDimmingCommandV2Schema = historicalGatewayDimmingCommandDraftV2BaseSchema.extend({
   expiresAt: z.string().datetime()
 }).strict().superRefine(validateDimmingExpiry);
+const legacyTimedGatewayDimmingCommandPublishedV2Schema = legacyTimedGatewayDimmingCommandDraftV2BaseSchema.extend({
+  expiresAt: z.string().datetime(),
+  deliveryGeneration: z.string().uuid(),
+  deliveryGeneratedAt: z.string().datetime(),
+  deliveryWindowMs: z.number().int().positive().max(10_000),
+  overrideRemainingMs: z.number().int().positive().optional()
+}).strict().superRefine(validateLegacyPublishedDimmingCommand);
 const historicalGatewayDimmingCommandPublishedV2Schema = historicalGatewayDimmingCommandDraftV2BaseSchema.extend({
   expiresAt: z.string().datetime(),
   deliveryGeneration: z.string().uuid(),
   deliveryGeneratedAt: z.string().datetime(),
   deliveryWindowMs: z.number().int().positive().max(10_000),
   overrideRemainingMs: z.number().int().positive().optional()
-}).strict().superRefine(validatePublishedDimmingCommand);
+}).strict().superRefine(validateLegacyPublishedDimmingCommand);
 
 // Persisted journals and rolling deployments can still contain the pre-invariant wire shape.
 // Keep this parser at compatibility boundaries only; new producers must use gatewayDimmingCommandPublishedV2Schema.
@@ -242,6 +263,9 @@ export const gatewayDimmingCommandV2CompatibilitySchema = z.union([
   gatewayDimmingCommandPublishedV2Schema,
   gatewayDimmingCommandV2Schema,
   gatewayDimmingCommandLegacyV2Schema,
+  legacyTimedGatewayDimmingCommandPublishedV2Schema,
+  legacyTimedGatewayDimmingCommandV2Schema,
+  legacyTimedGatewayDimmingCommandLegacyV2Schema,
   historicalGatewayDimmingCommandPublishedV2Schema,
   historicalGatewayDimmingCommandV2Schema,
   historicalGatewayDimmingCommandLegacyV2Schema

@@ -46,28 +46,28 @@ for (const viewport of [
     await expect(page.getByRole("heading", { name: "B2 맵 편집" })).toBeVisible();
     await expect(page.getByRole("toolbar", { name: "맵 편집 도구" })).toBeVisible();
     await expect(page.getByLabel("B2 편집 캔버스")).toBeVisible();
-    await expect(page.getByRole("complementary", { name: "맵 편집 정보" })).toHaveClass(/ui-side-panel/);
+    await expect(page.getByRole("complementary", { name: "맵 편집 정보" })).toBeVisible();
     await expect(page.getByRole("complementary", { name: "속성 패널" })).toBeVisible();
     await expect(page.getByRole("region", { name: "맵 버전" })).toBeVisible();
 
     const layout = await page.evaluate(() => ({
       viewportWidth: window.innerWidth,
       bodyWidth: document.body.scrollWidth,
-      shellWidth: document.querySelector<HTMLElement>(".floor-editor-shell")?.getBoundingClientRect().width ?? 0
+      shellWidth: document.querySelector<HTMLElement>('[data-testid="floor-editor-layout"]')?.parentElement?.getBoundingClientRect().width ?? 0
     }));
     expect(layout.bodyWidth).toBeLessThanOrEqual(layout.viewportWidth);
     expect(layout.shellWidth).toBeGreaterThan(viewport.width < 500 ? viewport.width - 40 : 800);
     await expectNoHorizontalOverflow(page);
     if (viewport.width <= 760) {
-      await page.locator(".floor-editor-toolbar").scrollIntoViewIfNeeded();
-      await expectMinimumTouchTargets(page, ".floor-editor-toolbar");
-      await expectMinimumTouchTargets(page, ".editor-snap");
+      await page.getByRole("toolbar", { name: "맵 편집 도구" }).scrollIntoViewIfNeeded();
+      await expectMinimumTouchTargets(page, '[aria-label="맵 편집 도구"]');
+      await expectMinimumTouchTargets(page, '[data-field]:has(input[type="checkbox"])');
       await page.evaluate(() => window.scrollTo(0, 0));
-      await expectMinimumTouchTargets(page, ".bottom-nav");
-      await expectMinimumTouchTargetsAfterScrolling(page, ".settings-subnavigation");
+      await expectMinimumTouchTargets(page, '[data-shell-navigation="compact"]');
+      await expectMinimumTouchTargetsAfterScrolling(page, '[aria-label="설정 메뉴"]');
     }
-    await expectMinimumTouchTargetsAfterScrolling(page, ".editor-revision-list");
-    if (viewport.width <= 760) await expectMinimumTouchTargetsAfterScrolling(page, ".app-shell");
+    await expectMinimumTouchTargetsAfterScrolling(page, '[data-testid="editor-revision-list"]');
+    if (viewport.width <= 760) await expectMinimumTouchTargetsAfterScrolling(page, "[data-app-shell]");
     const path = testInfo.outputPath(`editor-panels-${viewport.width}.png`);
     await page.screenshot({ path, fullPage: true });
     await testInfo.attach(`editor-panels-${viewport.width}`, { path, contentType: "image/png" });

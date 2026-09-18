@@ -1,3 +1,4 @@
+import type { FloorMapSnapshot } from "@led-control/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -6,6 +7,13 @@ import { authMeQueryKey } from "../../../api/principal-cache";
 import { vehicleEventRuleQueryKey, type VehicleEventRuleResponse } from "../../../api/automation";
 import type { Dashboard } from "../../../api/queries";
 import { VehicleEventControlPanel } from "./VehicleEventControlPanel";
+
+const floorMapQuery = vi.hoisted(() => vi.fn());
+
+vi.mock("../../../api/queries", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../api/queries")>()),
+  useFloorMapSnapshot: floorMapQuery
+}));
 
 const mocks = vi.hoisted(() => ({
   createVehicleEventRule: vi.fn(),
@@ -22,6 +30,7 @@ vi.mock("../../../api/automation", async (importOriginal) => ({
 const siteId = "00000000-0000-4000-8000-000000000001";
 const sensorFixtureId = "00000000-0000-4000-8000-000000000003";
 const targetFixtureId = "00000000-0000-4000-8000-000000000004";
+const floorMapSnapshot: FloorMapSnapshot = { floorId: "00000000-0000-4000-8000-000000000005", revision: 1, width: 600, height: 400, floorPlan: null, objects: [] };
 const dashboard: Dashboard = {
   generatedAt: "2026-09-12T00:00:00.000Z",
   monitoringPolicy: { gatewayOfflineAfterSeconds: 90, fixtureStaleAfterSeconds: 180 },
@@ -46,6 +55,7 @@ const dashboard: Dashboard = {
 describe("VehicleEventControlPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    floorMapQuery.mockReturnValue({ data: floorMapSnapshot, error: null, isLoading: false, isFetching: false });
     mocks.listVehicleEventRules.mockResolvedValue({ items: [rule()], total: 1, nextCursor: null });
     mocks.createVehicleEventRule.mockResolvedValue(rule());
     mocks.updateVehicleEventRule.mockResolvedValue(rule());
@@ -67,21 +77,22 @@ describe("VehicleEventControlPanel", () => {
     expect(screen.queryByRole("button", { name: "이벤트 추가" })).not.toBeInTheDocument();
   });
 
-  it("uses a level-three panel heading and shared add button", async () => {
+  it("opens vehicle event creation from the level-three panel heading", async () => {
     renderPanel("admin");
 
     expect(await screen.findByRole("heading", { name: "이벤트 제어", level: 3 })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "이벤트 추가" })).toHaveClass("ui-button", "ui-button-primary");
+    fireEvent.click(screen.getByRole("button", { name: "이벤트 추가" }));
+    expect(screen.getByRole("dialog", { name: "이벤트 추가" })).toBeInTheDocument();
   });
 
-  it("uses shared dialog action buttons", async () => {
+  it("closes vehicle event creation with its cancel action", async () => {
     renderPanel("admin");
     await screen.findByText("입구 차량 감지");
     fireEvent.click(screen.getByRole("button", { name: "이벤트 추가" }));
     const dialog = screen.getByRole("dialog", { name: "이벤트 추가" });
 
-    expect(within(dialog).getByRole("button", { name: "취소" })).toHaveClass("ui-button", "ui-button-secondary");
-    expect(within(dialog).getByRole("button", { name: "저장" })).toHaveClass("ui-button", "ui-button-primary");
+    fireEvent.click(within(dialog).getByRole("button", { name: "취소" }));
+    expect(screen.queryByRole("dialog", { name: "이벤트 추가" })).not.toBeInTheDocument();
   });
 
   it("uses compact source and target cards and keeps capability filtering inside picker views", async () => {
@@ -95,10 +106,10 @@ describe("VehicleEventControlPanel", () => {
     expect(within(dialog).queryByRole("group", { name: "조명 목록" })).not.toBeInTheDocument();
 
     fireEvent.click(within(dialog).getByRole("button", { name: "감지 센서 선택" }));
-    expect(within(dialog).getByLabelText("B1-SENSOR-001 선택")).toBeVisible();
-    expect(within(dialog).queryByLabelText("B1-L001 선택")).not.toBeInTheDocument();
-    fireEvent.click(within(dialog).getByLabelText("B1-SENSOR-001 선택"));
-    fireEvent.click(within(dialog).getByRole("button", { name: "선택 완료" }));
+    expect(within(dialog).getByRole("button", { name: /B1-SENSOR-001/ })).toBeVisible();
+    expect(within(dialog).getByRole("button", { name: /B1-L001.*선택 불가/ })).toBeDisabled();
+    fireEvent.click(within(dialog).getByRole("button", { name: /B1-SENSOR-001/ }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "1개 조명 선택 완료" }));
 
     expect(within(dialog).getByRole("group", { name: "감지 센서" })).toHaveTextContent("B1-SENSOR-001");
     expect(within(dialog).getByRole("status")).toHaveTextContent("B1-SENSOR-001 감지");
@@ -127,14 +138,15 @@ describe("VehicleEventControlPanel", () => {
 
     renderPanel("viewer");
 
-    expect((await screen.findByText("적용 대기")).closest(".ui-status-badge")).toHaveAttribute("data-tone", "warning");
-    expect(screen.getByText("적용됨").closest(".ui-status-badge")).toHaveAttribute("data-tone", "success");
-    expect(screen.getByText("적용 실패").closest(".ui-status-badge")).toHaveAttribute("data-tone", "danger");
+    expect((await screen.findByText("적용 대기")).closest("[data-tone]")).toHaveAttribute("data-tone", "warning");
+    expect(screen.getByText("적용됨").closest("[data-tone]")).toHaveAttribute("data-tone", "success");
+    expect(screen.getByText("적용 실패").closest("[data-tone]")).toHaveAttribute("data-tone", "danger");
   });
 
   it("차량 이벤트 목록은 polling 실패에도 기존 행과 retry를 유지한다", async () => {
     const { queryClient } = renderPanel("admin");
-    expect(await screen.findByRole("table", { name: "차량 이벤트 목록" })).toBeInTheDocument();
+    const table = await screen.findByRole("table", { name: "차량 이벤트 목록" });
+    expect(table.closest("[data-automation-table-wrap]")).not.toBeNull();
 
     mocks.listVehicleEventRules.mockRejectedValueOnce(new Error("poll failed"));
     await act(async () => {
@@ -142,7 +154,7 @@ describe("VehicleEventControlPanel", () => {
     });
 
     const warning = await screen.findByRole("alert");
-    expect(warning).toHaveClass("ui-feedback-state");
+    expect(warning).toHaveAttribute("data-tone", "warning");
     expect(warning).toHaveTextContent("Gateway 적용 상태를 새로고침하지 못했습니다. 표시된 상태가 최신이 아닐 수 있습니다.");
     expect(screen.getByText("입구 차량 감지")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "상태 다시 조회" })).toBeInTheDocument();
@@ -160,8 +172,8 @@ describe("VehicleEventControlPanel", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "저장" }));
 
     expect(screen.getByText("감지 센서를 한 개 이상 선택하세요.")).toBeInTheDocument();
-    fireEvent.click(within(dialog).getByLabelText("B1-SENSOR-001 선택"));
-    fireEvent.click(within(dialog).getByRole("button", { name: "선택 완료" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: /B1-SENSOR-001/ }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "1개 조명 선택 완료" }));
     fireEvent.click(within(dialog).getByRole("button", { name: "저장" }));
     expect(screen.getByText("제어 조명을 한 개 이상 선택하세요.")).toBeInTheDocument();
     expect(mocks.createVehicleEventRule).not.toHaveBeenCalled();
@@ -174,9 +186,9 @@ describe("VehicleEventControlPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "감지 센서 선택" }));
     const dialog = screen.getByRole("dialog", { name: "이벤트 추가" });
-    expect(within(dialog).getByLabelText("B1-SENSOR-001 선택")).toBeInTheDocument();
-    expect(within(dialog).queryByLabelText("B1-L001 선택")).not.toBeInTheDocument();
-    expect(within(dialog).queryByLabelText("B1-L002 선택")).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: /B1-SENSOR-001/ })).toBeEnabled();
+    expect(within(dialog).getByRole("button", { name: /B1-L001.*선택 불가/ })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: /B1-L002.*선택 불가/ })).toBeDisabled();
   });
 
   it("fails closed for missing and invalid capability verification timestamps", async () => {
@@ -196,8 +208,8 @@ describe("VehicleEventControlPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "감지 센서 선택" }));
     const dialog = screen.getByRole("dialog", { name: "이벤트 추가" });
-    expect(within(dialog).queryByLabelText("B1-SENSOR-001 선택")).not.toBeInTheDocument();
-    expect(within(dialog).queryByLabelText("B1-SENSOR-INVALID 선택")).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: /B1-SENSOR-001.*선택 불가/ })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: /B1-SENSOR-INVALID.*선택 불가/ })).toBeDisabled();
   });
 
   it("shows unresolved ids and rejects an event edit with a removed target fixture", async () => {
@@ -241,7 +253,7 @@ describe("VehicleEventControlPanel", () => {
 
     expect(within(dialog).getByText("현재 현장에서 확인되지 않거나 차량 감지 기능이 해제된 센서가 포함되어 있습니다. 다시 선택해 주세요.")).toBeVisible();
     expect(within(dialog).getByRole("group", { name: "감지 센서 선택" })).toHaveFocus();
-    expect(within(dialog).queryByLabelText("B1-SENSOR-001 선택")).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: /B1-SENSOR-001.*선택됨/ })).toHaveAttribute("aria-pressed", "true");
     expect(mocks.updateVehicleEventRule).not.toHaveBeenCalled();
   });
 
@@ -252,11 +264,11 @@ describe("VehicleEventControlPanel", () => {
     const dialog = screen.getByRole("dialog", { name: "이벤트 추가" });
 
     fireEvent.click(within(dialog).getByRole("button", { name: "감지 센서 선택" }));
-    fireEvent.click(within(dialog).getByLabelText("B1-SENSOR-001 선택"));
-    fireEvent.click(within(dialog).getByRole("button", { name: "선택 완료" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: /B1-SENSOR-001/ }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "1개 조명 선택 완료" }));
     fireEvent.click(within(dialog).getByRole("button", { name: "실행할 조명 선택" }));
-    fireEvent.click(within(dialog).getByLabelText("B1-L001 선택"));
-    fireEvent.click(within(dialog).getByRole("button", { name: "선택 완료" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: /B1-L001/ }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "1개 조명 선택 완료" }));
     fireEvent.click(within(dialog).getByRole("button", { name: "80%" }));
     fireEvent.click(within(dialog).getByRole("button", { name: "5분" }));
     fireEvent.click(within(dialog).getByRole("button", { name: "저장" }));
@@ -269,6 +281,17 @@ describe("VehicleEventControlPanel", () => {
       action: { dimmingEnabled: true, brightnessPercent: 80 },
       holdSeconds: 300
     }));
+  });
+
+  it("keeps event numeric validation inputs as shared string fields", async () => {
+    renderPanel("admin");
+    await screen.findByText("입구 차량 감지");
+    fireEvent.click(screen.getByRole("button", { name: "이벤트 추가" }));
+    const dialog = screen.getByRole("dialog", { name: "이벤트 추가" });
+
+    expect(within(dialog).getByRole("textbox", { name: "밝기" })).toHaveAttribute("inputmode", "numeric");
+    fireEvent.click(within(dialog).getByRole("button", { name: "직접 입력" }));
+    expect(within(dialog).getByRole("textbox", { name: "유지 시간" })).toHaveAttribute("inputmode", "numeric");
   });
 
   it("submits the exact edit payload for custom hold and dimming-off normalization", async () => {
@@ -418,11 +441,11 @@ async function submitValidCreate() {
   fireEvent.click(screen.getByRole("button", { name: "이벤트 추가" }));
   const dialog = screen.getByRole("dialog", { name: "이벤트 추가" });
   fireEvent.click(within(dialog).getByRole("button", { name: "감지 센서 선택" }));
-  fireEvent.click(within(dialog).getByLabelText("B1-SENSOR-001 선택"));
-  fireEvent.click(within(dialog).getByRole("button", { name: "선택 완료" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: /B1-SENSOR-001/ }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "1개 조명 선택 완료" }));
   fireEvent.click(within(dialog).getByRole("button", { name: "실행할 조명 선택" }));
-  fireEvent.click(within(dialog).getByLabelText("B1-L001 선택"));
-  fireEvent.click(within(dialog).getByRole("button", { name: "선택 완료" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: /B1-L001/ }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "1개 조명 선택 완료" }));
   fireEvent.click(within(dialog).getByRole("button", { name: "저장" }));
   await waitFor(() => expect(mocks.createVehicleEventRule).toHaveBeenCalledTimes(1));
 }

@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { useState } from "react";
 import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { FloorMapSnapshot } from "@led-control/shared";
 import type { CommandStage } from "../../api/commands";
 import type { Dashboard } from "../../api/queries";
 import { ControlView } from "./ControlView";
@@ -12,11 +13,16 @@ const mocks = vi.hoisted(() => ({
   apiPost: vi.fn(),
   apiGet: vi.fn(),
   useControlDashboard: vi.fn(),
+  useFloorMapSnapshot: vi.fn(),
   useCommandStatus: vi.fn()
 }));
 
 vi.mock("../../api/client", () => ({ apiPost: mocks.apiPost, apiGet: mocks.apiGet }));
-vi.mock("../../api/queries", () => ({ useControlDashboard: mocks.useControlDashboard }));
+vi.mock("../../api/queries", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../api/queries")>()),
+  useControlDashboard: mocks.useControlDashboard,
+  useFloorMapSnapshot: mocks.useFloorMapSnapshot
+}));
 vi.mock("../../api/commands", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../api/commands")>()),
   useCommandStatus: mocks.useCommandStatus
@@ -60,6 +66,15 @@ const commandIds = {
 };
 const USER_A = "user-a";
 const USER_B = "user-b";
+
+const mapSnapshot: FloorMapSnapshot = {
+  floorId: "00000000-0000-4000-8000-000000000005",
+  revision: 1,
+  width: 600,
+  height: 400,
+  floorPlan: null,
+  objects: []
+};
 
 const dashboard: Dashboard = {
   generatedAt: "2026-09-12T00:00:00.000Z",
@@ -141,6 +156,12 @@ describe("ControlView 대상 선택", () => {
     });
     mocks.useCommandStatus.mockReturnValue({ data: undefined, error: null, isFetching: false, refetch: vi.fn() });
     mocks.useControlDashboard.mockReturnValue({ data: dashboard, isLoading: false, error: null });
+    mocks.useFloorMapSnapshot.mockImplementation((floorId: string) => ({
+      data: floorId ? { ...mapSnapshot, floorId } : undefined,
+      error: null,
+      isLoading: false,
+      isFetching: false
+    }));
   });
 
   afterEach(() => {
@@ -156,10 +177,151 @@ describe("ControlView 대상 선택", () => {
     expect(screen.getByRole("heading", { name: "조명 밝기 제어", level: 3 })).toBeInTheDocument();
     expect(screen.getByRole("tablist", { name: "제어 방식" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "수동 제어" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("group", { name: "제어 대상 선택" })).toBeInTheDocument();
-    expect(screen.getByRole("complementary", { name: "밝기 실행" })).toHaveTextContent("밝기");
-    expect(screen.getByRole("status", { name: "명령 진행 상태" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "구역 관리" })).toHaveClass("ui-button", "ui-button-secondary");
+    expect(screen.getByRole("tabpanel", { name: "수동 제어" })).toHaveAttribute("data-control-manual-panel");
+    expect(screen.getByRole("region", { name: "제어 대상 지도" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "조명 목록 열기" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "최근 명령 이력" })).toHaveAttribute("data-command-history-panel");
+    expect(screen.getByRole("complementary", { name: "밝기 실행" })).toHaveAttribute("data-control-panel");
+    expect(screen.getByRole("status", { name: "명령 진행 상태" })).toHaveAttribute("data-command-status-region");
+  });
+
+  it("uses the map as the primary manual target picker", () => {
+    renderControl();
+
+    expect(screen.getByRole("region", { name: "제어 대상 지도" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "조명 목록 열기" })).toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: "밝기 실행" })).toBeInTheDocument();
+  });
+
+  it("announces the selection count once across the map and execution panel", () => {
+    renderControl();
+    selectFixture("B2-L001");
+    const countAnnouncements = [...document.querySelectorAll('[aria-live="polite"]')].filter((element) => element.textContent?.includes("1개 선택"));
+    expect(countAnnouncements).toHaveLength(1);
+  });
+
+  it("keeps compact brightness and apply visible while expansion only reveals details", () => {
+    renderControl();
+
+    const summary = screen.getByRole("complementary", { name: "선택 대상 요약" });
+    const compactExecution = within(summary).getByTestId("compact-summary-execution");
+    expect(within(compactExecution).getByRole("button", { name: "밝기 적용" })).toBeInTheDocument();
+    expect(within(compactExecution).getByRole("textbox", { name: "밝기 수치" })).toBeInTheDocument();
+    fireEvent.click(within(summary).getByRole("button", { name: "선택 대상 펼치기" }));
+    const historyDisclosure = screen.getByRole("button", { name: "명령 이력 열기" });
+
+    expect(compactExecution).toContainElement(within(compactExecution).getByRole("slider", { name: "밝기" }));
+    expect(compactExecution).toContainElement(within(compactExecution).getByRole("button", { name: "밝기 적용" }));
+    expect(compactExecution.compareDocumentPosition(historyDisclosure) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole("complementary", { name: "밝기 실행" })).toHaveClass("hidden", "compact:flex");
+
+    fireEvent.click(within(summary).getByRole("button", { name: "선택 대상 접기" }));
+    expect(within(compactExecution).queryByRole("slider", { name: "밝기" })).not.toBeInTheDocument();
+    expect(within(compactExecution).getByRole("button", { name: "밝기 적용" })).toBeInTheDocument();
+  });
+
+  it("keeps submitted command progress and outcome actions inside the expanded compact summary", async () => {
+    const verificationRequired = createCommandStatus(commandIds.default, "verification_required");
+    mocks.useCommandStatus.mockReturnValue({ data: undefined, error: null, isFetching: false, refetch: vi.fn() });
+    const { rerender } = renderControl();
+    selectFixture("B2-L001");
+    const compactExecution = expandCompactExecution();
+    fireEvent.click(within(compactExecution).getByRole("button", { name: "1개 조명에 밝기 적용" }));
+
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith("/commands/dimming", expect.anything(), expect.anything()));
+    mocks.useCommandStatus.mockReturnValue({ data: verificationRequired, error: null, isFetching: false, refetch: vi.fn() });
+    rerender(controlElement(dashboard.site.id));
+
+    const outcomeSurface = expandCompactExecution();
+    expect(within(outcomeSurface).getByRole("status", { name: "명령 진행 상태" })).toBeInTheDocument();
+    expect(within(outcomeSurface).getAllByText("실제 상태 확인 필요").length).toBeGreaterThan(0);
+    expect(within(outcomeSurface).getByRole("button", { name: "실제 상태 확인" })).toBeEnabled();
+  });
+
+  it("keeps lost-command retry inside the expanded compact summary", async () => {
+    mocks.apiPost.mockRejectedValueOnce(new Error("response lost")).mockResolvedValueOnce({ id: commandIds.retry, dispatchCount: 1 });
+    renderControl();
+    selectFixture("B2-L001");
+    const compactExecution = expandCompactExecution();
+    fireEvent.click(within(compactExecution).getByRole("button", { name: "1개 조명에 밝기 적용" }));
+
+    const retry = await within(compactExecution).findByRole("button", { name: "동일 요청 확인(새 제어 아님)" });
+    expect(retry).toBeEnabled();
+    fireEvent.click(retry);
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledTimes(2));
+  });
+
+  it("keeps command status refresh inside the expanded compact summary", () => {
+    const refetch = vi.fn();
+    sessionStorage.setItem(activeCommandStorageKey(USER_A, dashboard.site.id), JSON.stringify({ commandId: commandIds.expected }));
+    mocks.useCommandStatus.mockReturnValue({
+      data: createCommandStatus(commandIds.different, "completed"),
+      error: null,
+      isFetching: false,
+      refetch
+    });
+    renderControl();
+
+    const compactExecution = expandCompactExecution();
+    const refresh = within(compactExecution).getByRole("button", { name: "명령 상태 다시 조회" });
+    fireEvent.click(refresh);
+    expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("places the compact apply sheet before the collapsible history disclosure", () => {
+    renderControl();
+
+    const applySheet = screen.getByRole("complementary", { name: "밝기 실행" });
+    const historyDisclosure = screen.getByRole("button", { name: "명령 이력 열기" });
+
+    expect(applySheet.compareDocumentPosition(historyDisclosure) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(historyDisclosure).toHaveAttribute("aria-expanded", "false");
+    expect(within(applySheet).getByRole("button", { name: "밝기 적용" })).toBeInTheDocument();
+  });
+
+  it("submits the same stable fixture target selected from the map", async () => {
+    renderControl();
+
+    fireEvent.click(await screen.findByRole("button", { name: /B2-L001/ }));
+    fireEvent.click(screen.getByRole("button", { name: "70%" }));
+    fireEvent.click(within(screen.getByRole("complementary", { name: "밝기 실행" })).getByRole("button", { name: "1개 조명에 밝기 적용" }));
+
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith(
+      "/commands/dimming",
+      expect.objectContaining({ target: { type: "fixture", fixtureId: fixtureIds.b2First }, brightness: 70 }),
+      expect.anything()
+    ));
+  });
+
+  it("locks direct manual selection to the first fixture gateway", async () => {
+    const multiGatewayDashboard = twoGatewayFloorDashboard("ready");
+    mocks.useControlDashboard.mockReturnValue({ data: multiGatewayDashboard, isLoading: false, error: null });
+    renderControl("admin", multiGatewayDashboard.site.id);
+
+    fireEvent.click(await screen.findByRole("button", { name: /B2-L001/ }));
+    fireEvent.click(screen.getByRole("button", { name: "조명 목록 열기" }));
+    expect(screen.getByRole("checkbox", { name: /B2-L002.*선택/ })).toBeDisabled();
+  });
+
+  it("keeps every map and brightness action disabled for a viewer", () => {
+    mocks.useControlDashboard.mockReturnValue({
+      data: { ...dashboard, capabilities: { read: true, control: false, manage: false, commission: false } },
+      isLoading: false,
+      error: null
+    });
+    renderControl("viewer");
+
+    expect(screen.getAllByRole("button", { name: /L00/ }).every((button) => button.hasAttribute("disabled"))).toBe(true);
+    expect(screen.getByRole("slider", { name: "밝기" })).toBeDisabled();
+  });
+
+  it("selects the visible map marker with an accessible fixture name", () => {
+    renderControl();
+
+    const marker = fixtureMarker("B2-L001");
+    selectFixture("B2-L001");
+
+    expect(marker).toHaveAttribute("aria-pressed", "true");
   });
 
   it("checks unknown without creating Set and locks controls until the verification finishes", async () => {
@@ -222,7 +384,7 @@ describe("ControlView 대상 선택", () => {
     sessionStorage.setItem(activeCommandStorageKey(USER_A, dashboard.site.id), JSON.stringify({ commandId: commandIds.default, request: oldRequest }));
     mocks.useCommandStatus.mockReturnValue({ data: { ...createCommandStatus(commandIds.default, "verified_not_applied"), siteId: dashboard.site.id, targetType: "floor", targetId: dashboard.floors[0].id, targetFixtureIds: [fixtureIds.b2First], brightness: 30, outcome: "not_applied", verificationAttemptCount: 1 }, error: null, isFetching: false, refetch: vi.fn() });
     renderControl();
-    fireEvent.click(screen.getByLabelText("B1-L001 선택"));
+    selectFixture("B2-L001");
     fireEvent.click(screen.getByRole("button", { name: "100%" }));
     fireEvent.click(screen.getByRole("button", { name: "안전하게 다시 적용" }));
     await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledTimes(1));
@@ -337,7 +499,7 @@ describe("ControlView 대상 선택", () => {
     renderControl();
 
     expect(screen.getByRole("tabpanel", { name: "수동 제어" })).toBeInTheDocument();
-    expect(screen.getByRole("group", { name: "제어 대상 선택" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "제어 대상 지도" })).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "밝기 실행" })).toBeInTheDocument();
     expect(screen.getByRole("list", { name: "명령 진행" })).toHaveTextContent("장비 응답");
   });
@@ -363,7 +525,11 @@ describe("ControlView 대상 선택", () => {
     const ackDashboard: Dashboard = {
       ...dashboard,
       floors: dashboard.floors.map((floor, index) => index === 0
-        ? { ...floor, meshControlGroups: [{ ...floor.meshControlGroups[0], status: "failed", error: "Gateway ACK를 확인하지 못했습니다." }] }
+        ? {
+            ...floor,
+            meshControlGroups: [{ ...floor.meshControlGroups[0], status: "failed", error: "Gateway ACK를 확인하지 못했습니다." }],
+            fixtures: floor.fixtures.map((fixture) => ({ ...fixture, controllable: true, controlBlockReason: null }))
+          }
         : floor),
       groups: dashboard.groups.map((group, index) => index === 0
         ? { ...group, meshControlGroup: { ...group.meshControlGroup!, status: "failed", error: "Gateway ACK를 확인하지 못했습니다." } }
@@ -372,31 +538,35 @@ describe("ControlView 대상 선택", () => {
     mocks.useControlDashboard.mockReturnValue({ data: ackDashboard, isLoading: false, error: null });
 
     renderControl();
-    fireEvent.click(screen.getByRole("button", { name: "층" }));
-    expect(screen.getByText("게이트웨이 장비 응답을 확인하지 못했습니다.")).toBeInTheDocument();
+    chooseTargetMode("층 전체");
+    const floor = screen.getByRole("button", { name: "B2" });
+    expect(floor).toBeDisabled();
+    expect(floor).toHaveAccessibleDescription("게이트웨이 장비 응답을 확인하지 못했습니다.");
 
-    fireEvent.click(screen.getByRole("button", { name: "구역" }));
-    expect(screen.getAllByText("게이트웨이 장비 응답을 확인하지 못했습니다.")).toHaveLength(1);
+    chooseTargetMode("저장된 구역");
+    const group = screen.getByRole("button", { name: /B2 입구 구역/ });
+    expect(group).toBeDisabled();
+    expect(group).toHaveAccessibleDescription("게이트웨이 장비 응답을 확인하지 못했습니다.");
     expect(screen.queryByText(/ACK/i)).not.toBeInTheDocument();
   });
 
-  it("수동 제어는 공통 Card와 Button으로 preset 및 대상 action을 렌더링한다", () => {
+  it("밝기 preset과 대상 유형 action을 수동 제어 상태에 반영한다", () => {
     renderControl();
 
-    expect(screen.getByRole("complementary", { name: "밝기 실행" })).toHaveClass("ui-card");
-    expect(screen.getByRole("button", { name: "30%" })).toHaveClass("ui-button");
-    expect(screen.getByRole("button", { name: "검색 결과 전체 선택" })).toHaveClass("ui-button");
-    expect(screen.getByRole("button", { name: "층" })).toHaveClass("ui-button");
+    fireEvent.click(screen.getByRole("button", { name: "30%" }));
+    expect(screen.getByRole("slider", { name: "밝기" })).toHaveValue("30");
 
-    fireEvent.click(screen.getByRole("button", { name: "층" }));
-    expect(screen.getByRole("button", { name: "B2" })).toHaveClass("ui-button");
+    chooseFloor("B2");
+    const executionPanel = screen.getByRole("complementary", { name: "밝기 실행" });
+    expect(within(executionPanel).getByRole("heading", { name: "B2" })).toBeInTheDocument();
+    expect(within(executionPanel).getByText("3개 선택 · 제어 불가 1개")).toBeInTheDocument();
   });
 
   it("sends one selected light as a fixture target", async () => {
     renderControl();
 
-    fireEvent.click(screen.getByLabelText("B2-L001 선택"));
-    fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
+    selectFixture("B2-L001");
+    fireEvent.click(applyButton());
 
     await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith("/commands/dimming", expect.objectContaining({
       siteId: dashboard.site.id,
@@ -409,23 +579,34 @@ describe("ControlView 대상 선택", () => {
   it("syncs brightness from the fixture when exactly one light is selected", () => {
     renderControl();
 
-    fireEvent.click(screen.getByLabelText("B2-L002 선택"));
+    selectFixture("B2-L002");
 
     expect(screen.getByRole("slider", { name: "밝기" })).toHaveValue("60");
   });
 
-  it("keeps the chosen brightness for empty and multiple light selections", () => {
+  it("keeps the shared brightness Slider and NumberField on one number state", () => {
+    renderControl();
+    const slider = screen.getByRole("slider", { name: "밝기" });
+    const number = within(screen.getByRole("complementary", { name: "밝기 실행" })).getByRole("textbox", { name: "밝기 수치" });
+
+    fireEvent.change(number, { target: { value: "42" } });
+    fireEvent.blur(number);
+    expect(slider).toHaveValue("42");
+    fireEvent.change(slider, { target: { value: "35" } });
+    expect(number).toHaveValue("35");
+  });
+
+  it("keeps the chosen brightness for multiple light selections", () => {
     renderControl();
     const brightnessSlider = screen.getByRole("slider", { name: "밝기" });
 
-    fireEvent.click(screen.getByLabelText("B2-L001 선택"));
+    selectFixture("B2-L001");
     expect(brightnessSlider).toHaveValue("70");
 
     fireEvent.click(screen.getByRole("button", { name: "30%" }));
-    fireEvent.click(screen.getByLabelText("B2-L002 선택"));
+    selectFixture("B2-L002");
     expect(brightnessSlider).toHaveValue("30");
 
-    fireEvent.click(screen.getByRole("button", { name: "선택 해제" }));
     expect(brightnessSlider).toHaveValue("30");
   });
 
@@ -434,22 +615,20 @@ describe("ControlView 대상 선택", () => {
     const brightnessSlider = screen.getByRole("slider", { name: "밝기" });
 
     fireEvent.click(screen.getByRole("button", { name: "30%" }));
-    fireEvent.click(screen.getByRole("button", { name: "층" }));
-    fireEvent.click(screen.getByRole("button", { name: "B1" }));
+    chooseFloor("B1");
     expect(brightnessSlider).toHaveValue("30");
 
-    fireEvent.click(screen.getByRole("button", { name: "구역" }));
-    fireEvent.click(screen.getByRole("button", { name: /B2 입구 구역/ }));
+    chooseGroup(/B2 입구 구역/);
     expect(brightnessSlider).toHaveValue("30");
   });
 
   it("sends arbitrary multiple lights as a fixtures target", async () => {
     renderControl();
 
-    fireEvent.click(screen.getByLabelText("B2-L001 선택"));
-    fireEvent.click(screen.getByLabelText("B2-L002 선택"));
+    selectFixture("B2-L001");
+    selectFixture("B2-L002");
     fireEvent.click(screen.getByRole("button", { name: "30%" }));
-    fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
+    fireEvent.click(applyButton());
 
     await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith("/commands/dimming", expect.objectContaining({
       siteId: dashboard.site.id,
@@ -463,10 +642,9 @@ describe("ControlView 대상 선택", () => {
   it("sends floor and zone selections through their mesh group targets", async () => {
     const { rerender } = renderControl();
 
-    fireEvent.click(screen.getByRole("button", { name: "층" }));
-    fireEvent.click(screen.getByRole("button", { name: "B1" }));
+    chooseFloor("B1");
     expect(screen.getByText("BLE Mesh 그룹 전송")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
+    fireEvent.click(applyButton());
     await waitFor(() => expect(mocks.apiPost).toHaveBeenLastCalledWith("/commands/dimming", expect.objectContaining({
       siteId: dashboard.site.id,
       clientRequestId: expect.any(String),
@@ -481,11 +659,10 @@ describe("ControlView 대상 선택", () => {
       refetch: vi.fn()
     });
     rerender(controlElement(dashboard.site.id));
-    await waitFor(() => expect(screen.getByRole("button", { name: "밝기 적용" })).toBeEnabled());
+    await waitFor(() => expect(applyButton()).toBeEnabled());
 
-    fireEvent.click(screen.getByRole("button", { name: "구역" }));
-    fireEvent.click(screen.getByRole("button", { name: /B2 입구 구역/ }));
-    fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
+    chooseGroup(/B2 입구 구역/);
+    fireEvent.click(applyButton());
     await waitFor(() => expect(mocks.apiPost).toHaveBeenLastCalledWith("/commands/dimming", expect.objectContaining({
       siteId: dashboard.site.id,
       clientRequestId: expect.any(String),
@@ -507,14 +684,11 @@ describe("ControlView 대상 선택", () => {
     mocks.useControlDashboard.mockReturnValue({ data: unavailableDashboard, isLoading: false, error: null });
     renderControl();
 
-    fireEvent.click(screen.getByRole("button", { name: "구역" }));
+    chooseTargetMode("저장된 구역");
     expect(screen.getByRole("button", { name: /B2 입구 구역/ })).toBeDisabled();
-    expect(screen.getByText(/Mesh 설정 실패/)).toBeInTheDocument();
-    expect(screen.getByText("subscription rejected")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "층" }));
+    chooseTargetMode("층 전체");
     expect(screen.getByRole("button", { name: "B2" })).toBeDisabled();
-    expect(screen.getByText(/Mesh 설정 중/)).toBeInTheDocument();
   });
 
   it("requires every gateway mesh group on a floor to be ready", () => {
@@ -535,9 +709,8 @@ describe("ControlView 대상 선택", () => {
     mocks.useControlDashboard.mockReturnValue({ data: partiallyReadyDashboard, isLoading: false, error: null });
     renderControl();
 
-    fireEvent.click(screen.getByRole("button", { name: "층" }));
+    chooseTargetMode("층 전체");
     expect(screen.getByRole("button", { name: "B2" })).toBeDisabled();
-    expect(screen.getByText(/Gateway 1\/2 준비 · Mesh 설정 중/)).toBeInTheDocument();
   });
 
   it("keeps floor control unavailable when a fixture gateway has no mesh group metadata", () => {
@@ -555,27 +728,27 @@ describe("ControlView 대상 선택", () => {
     mocks.useControlDashboard.mockReturnValue({ data: missingGatewayGroupDashboard, isLoading: false, error: null });
     renderControl();
 
-    fireEvent.click(screen.getByRole("button", { name: "층" }));
+    chooseTargetMode("층 전체");
     expect(screen.getByRole("button", { name: "B2" })).toBeDisabled();
-    expect(screen.getByText(/Gateway 1\/2 준비 · Mesh 설정 중/)).toBeInTheDocument();
   });
 
-  it("fails closed when a selected floor loses one gateway readiness after dashboard refresh", () => {
+  it("keeps a multi-gateway floor unavailable before and after dashboard refresh", () => {
     const readyDashboard = twoGatewayFloorDashboard("ready");
     mocks.useControlDashboard.mockReturnValue({ data: readyDashboard, isLoading: false, error: null });
     const { rerender } = renderControl("admin", readyDashboard.site.id);
 
-    fireEvent.click(screen.getByRole("button", { name: "층" }));
-    fireEvent.click(screen.getByRole("button", { name: "B2" }));
-    expect(screen.getByRole("button", { name: "밝기 적용" })).toBeEnabled();
+    chooseTargetMode("층 전체");
+    expect(screen.getByRole("button", { name: "B2" })).toBeDisabled();
+    expect(applyButton()).toBeDisabled();
 
     const refreshedDashboard = twoGatewayFloorDashboard("configuring");
     mocks.useControlDashboard.mockReturnValue({ data: refreshedDashboard, isLoading: false, error: null });
     rerender(controlElement(refreshedDashboard.site.id));
 
+    chooseTargetMode("층 전체");
     expect(screen.getByRole("button", { name: "B2" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "밝기 적용" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
+    expect(applyButton()).toBeDisabled();
+    fireEvent.click(applyButton());
     expect(mocks.apiPost).not.toHaveBeenCalled();
   });
 
@@ -592,12 +765,13 @@ describe("ControlView 대상 선택", () => {
     expect(screen.getByRole("button", { name: "구역 현황" })).toBeEnabled();
   });
 
-  it("filters the fixture checklist by search, state, and floor", () => {
+  it("filters the fixture drawer by search, state, and floor", () => {
     renderControl();
 
+    openFixtureList();
     fireEvent.change(screen.getByRole("searchbox", { name: "조명 검색" }), { target: { value: "L001" } });
-    fireEvent.change(screen.getByLabelText("상태 필터"), { target: { value: "online" } });
-    fireEvent.change(screen.getByLabelText("층 필터"), { target: { value: dashboard.floors[1].id } });
+    selectOption("상태 필터", "온라인");
+    selectOption("층 필터", "B1");
 
     const list = screen.getByRole("group", { name: "조명 목록" });
     expect(within(list).getByText("B1-L001")).toBeInTheDocument();
@@ -608,12 +782,36 @@ describe("ControlView 대상 선택", () => {
   it("blocks a selection containing an uncontrollable light and explains the reason", () => {
     renderControl();
 
-    fireEvent.click(screen.getByLabelText("B2-L001 선택"));
-    fireEvent.click(screen.getByLabelText("B2-L003 선택"));
+    selectFixture("B2-L001");
+    expect(fixtureMarker("B2-L003")).toBeDisabled();
 
-    expect(screen.getByText("2개 선택 · 제어 불가 1개")).toBeInTheDocument();
-    expect(screen.getByText(/B2-L003: 게이트웨이가 오프라인/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "밝기 적용" })).toBeDisabled();
+    expect(screen.getByText("1개 선택 · 제어 불가 0개")).toBeInTheDocument();
+    expect(applyButton()).toBeEnabled();
+  });
+
+  it("locks direct fixture selection to the first selected gateway", () => {
+    const multiGatewayDashboard = twoGatewayFloorDashboard("ready");
+    mocks.useControlDashboard.mockReturnValue({ data: multiGatewayDashboard, isLoading: false, error: null });
+    renderControl("admin", multiGatewayDashboard.site.id);
+
+    selectFixture("B2-L001");
+
+    const otherGatewayFixture = fixtureMarker("B2-L002");
+    expect(otherGatewayFixture).toBeDisabled();
+    expect(otherGatewayFixture).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByText("1개 선택 · 제어 불가 0개")).toBeInTheDocument();
+  });
+
+  it("keeps drawer selection on the first selected gateway", () => {
+    const multiGatewayDashboard = twoGatewayFloorDashboard("ready");
+    mocks.useControlDashboard.mockReturnValue({ data: multiGatewayDashboard, isLoading: false, error: null });
+    renderControl("admin", multiGatewayDashboard.site.id);
+
+    selectFixture("B2-L001");
+    openFixtureList();
+
+    expect(screen.getByRole("checkbox", { name: "B2-L002 선택" })).toBeDisabled();
+    expect(screen.getByText("1개 선택 · 제어 불가 0개")).toBeInTheDocument();
   });
 
   it("keeps every control disabled for viewer accounts", () => {
@@ -626,8 +824,8 @@ describe("ControlView 대상 선택", () => {
 
     expect(screen.getByText(/조회 전용 계정/)).toBeInTheDocument();
     expect(screen.getByText(/제어 권한이 있는 계정만 사용할 수 있습니다/)).toBeInTheDocument();
-    expect(screen.getByLabelText("B2-L001 선택")).toBeDisabled();
-    expect(screen.getByRole("button", { name: "밝기 적용" })).toBeDisabled();
+    expect(fixtureMarker("B2-L001")).toBeDisabled();
+    expect(applyButton()).toBeDisabled();
     expect(mocks.apiPost).not.toHaveBeenCalled();
   });
 
@@ -645,7 +843,7 @@ describe("ControlView 대상 선택", () => {
     expect(screen.queryByRole("tab", { name: "스케줄 제어" })).not.toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "이벤트 제어" })).not.toBeInTheDocument();
     expect(screen.queryByText(/조회 전용 계정/)).not.toBeInTheDocument();
-    expect(screen.getByLabelText("B2-L001 선택")).toBeEnabled();
+    expect(fixtureMarker("B2-L001")).toBeEnabled();
   });
 
   it("keeps fixture Health faults visible in the target list", () => {
@@ -666,7 +864,11 @@ describe("ControlView 대상 선택", () => {
 
     renderControl();
 
-    expect(screen.getByText(/B2 · 장애 · Health 장애/)).toBeInTheDocument();
+    expect(fixtureMarker("B2-L001")).toBeDisabled();
+    openFixtureList();
+    const fixture = screen.getByRole("checkbox", { name: "B2-L001 선택" });
+    expect(fixture).toHaveAccessibleDescription("조명 장애를 먼저 점검해야 합니다. 장애 코드 4");
+    expect(screen.getByText("조명 장애를 먼저 점검해야 합니다. 장애 코드 4")).toBeVisible();
   });
 
   it("keeps fixture-level command failures visible while polling status", () => {
@@ -710,7 +912,7 @@ describe("ControlView 대상 선택", () => {
     renderControl();
 
     expect(screen.getByRole("heading", { name: "조명 밝기 제어" })).toBeInTheDocument();
-    expect(screen.getByLabelText("B2-L001 선택")).toBeInTheDocument();
+    expect(fixtureMarker("B2-L001")).toBeInTheDocument();
     expect(screen.queryByText("제어 대상을 불러오지 못했습니다.")).not.toBeInTheDocument();
   });
 
@@ -726,48 +928,26 @@ describe("ControlView 대상 선택", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("제어 대상을 불러오지 못했습니다.");
   });
 
-  it("renders large fixture lists in fixed batches while selecting the full filtered result", () => {
+  it("renders large fixture lists in fixed batches through the secondary drawer", () => {
     const largeDashboard = createLargeDashboard(1000);
     mocks.useControlDashboard.mockReturnValue({ data: largeDashboard, isLoading: false, error: null });
 
     renderControl("admin", largeDashboard.site.id);
 
+    openFixtureList();
     expect(screen.getAllByRole("checkbox")).toHaveLength(100);
-    expect(screen.getByText("100 / 1000개 표시")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "검색 결과 전체 선택" }));
-    expect(screen.getByText("1000개 선택 · 제어 불가 0개")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "더 보기" }));
     expect(screen.getAllByRole("checkbox")).toHaveLength(200);
-    expect(screen.getByText("200 / 1000개 표시")).toBeInTheDocument();
   });
 
-  it("caps bulk and individual fixture selection at 1000 items", () => {
-    const largeDashboard = createLargeDashboard(1001);
-    mocks.useControlDashboard.mockReturnValue({ data: largeDashboard, isLoading: false, error: null });
-
-    renderControl("admin", largeDashboard.site.id);
-
-    fireEvent.click(screen.getByRole("button", { name: "검색 결과 전체 선택" }));
-    expect(screen.getByText("1000개 선택 · 제어 불가 0개")).toBeInTheDocument();
-    expect(screen.getByRole("alert")).toHaveTextContent("최대 1,000개");
-
-    fireEvent.change(screen.getByRole("searchbox", { name: "조명 검색" }), {
-      target: { value: "대규모 조명 1001" }
-    });
-    fireEvent.click(screen.getByLabelText("대규모 조명 1001 선택"));
-
-    expect(screen.getByText("1000개 선택 · 제어 불가 0개")).toBeInTheDocument();
-    expect(screen.getByLabelText("대규모 조명 1001 선택")).not.toBeChecked();
-    expect(screen.getByRole("alert")).toHaveTextContent("최대 1,000개");
-  });
-
-  it("resets picker filters when the active site changes", () => {
+  it("resets the secondary drawer filters when the active site changes", () => {
     const { rerender } = renderControl();
+    openFixtureList();
     fireEvent.change(screen.getByRole("searchbox", { name: "조명 검색" }), { target: { value: "L001" } });
-    fireEvent.change(screen.getByLabelText("상태 필터"), { target: { value: "offline" } });
-    fireEvent.change(screen.getByLabelText("층 필터"), { target: { value: dashboard.floors[0].id } });
+    selectOption("상태 필터", "오프라인");
+    selectOption("층 필터", "B2");
+    fireEvent.click(screen.getByRole("button", { name: "조명 목록 닫기" }));
 
     const nextDashboard: Dashboard = {
       ...dashboard,
@@ -775,18 +955,19 @@ describe("ControlView 대상 선택", () => {
     };
     mocks.useControlDashboard.mockReturnValue({ data: nextDashboard, isLoading: false, error: null });
     rerender(controlElement(nextDashboard.site.id));
+    openFixtureList();
 
     expect(screen.getByRole("searchbox", { name: "조명 검색" })).toHaveValue("");
-    expect(screen.getByLabelText("상태 필터")).toHaveValue("all");
-    expect(screen.getByLabelText("층 필터")).toHaveValue("all");
+    expect(screen.getByRole("button", { name: "상태 필터" })).toHaveTextContent("모든 상태");
+    expect(screen.getByRole("button", { name: "층 필터" })).toHaveTextContent("모든 층");
   });
 
   it("exposes target modes as pressed buttons instead of incomplete radio semantics", () => {
     renderControl();
 
     expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "개별/다중" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "층" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: "개별 조명" })).toHaveAttribute("aria-current", "true");
+    expect(screen.getByRole("button", { name: "층 전체" })).not.toHaveAttribute("aria-current", "true");
   });
 
   it("locks every editable control until the device result is terminal", async () => {
@@ -794,23 +975,19 @@ describe("ControlView 대상 선택", () => {
     mocks.apiPost.mockImplementationOnce(() => new Promise((resolve) => { resolveCommand = resolve; }));
     renderControl();
 
-    fireEvent.click(screen.getByLabelText("B2-L001 선택"));
-    fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
+    selectFixture("B2-L001");
+    fireEvent.click(applyButton());
 
-    expect(screen.getByRole("button", { name: "밝기 적용 중" })).toBeDisabled();
+    expect(applyButton()).toBeDisabled();
     expect(screen.getByRole("slider", { name: "밝기" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "70%" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "층" })).toBeDisabled();
-    expect(screen.getByRole("searchbox", { name: "조명 검색" })).toBeDisabled();
-    expect(screen.getByLabelText("상태 필터")).toBeDisabled();
-    expect(screen.getByLabelText("층 필터")).toBeDisabled();
-    expect(screen.getByRole("button", { name: "검색 결과 전체 선택" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "선택 해제" })).toBeDisabled();
-    expect(screen.getByLabelText("B2-L001 선택")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "층 전체" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "조명 목록 열기" })).toBeDisabled();
+    expect(fixtureMarker("B2-L001")).toBeDisabled();
 
     resolveCommand({ id: commandIds.locked });
     await waitFor(() => expect(mocks.useCommandStatus).toHaveBeenLastCalledWith(commandIds.locked));
-    expect(screen.getByRole("button", { name: "밝기 적용 중" })).toBeDisabled();
+    expect(applyButton()).toBeDisabled();
   });
 
   it("retries a lost POST response with the same client request ID and canonical payload", async () => {
@@ -825,10 +1002,10 @@ describe("ControlView 대상 선택", () => {
       });
     renderControl();
 
-    fireEvent.click(screen.getByLabelText("B2-L002 선택"));
-    fireEvent.click(screen.getByLabelText("B2-L001 선택"));
+    selectFixture("B2-L002");
+    selectFixture("B2-L001");
     fireEvent.click(screen.getByRole("button", { name: "30%" }));
-    fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
+    fireEvent.click(applyButton());
 
     expect(await screen.findByRole("button", { name: "동일 요청 확인(새 제어 아님)" })).toBeEnabled();
     const firstPayload = mocks.apiPost.mock.calls[0][1];
@@ -849,12 +1026,12 @@ describe("ControlView 대상 선택", () => {
     mocks.apiPost.mockRejectedValueOnce(Object.assign(new Error("rejected"), { status, body }));
     renderControl();
 
-    fireEvent.click(screen.getByLabelText("B2-L001 선택"));
-    fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
+    selectFixture("B2-L001");
+    fireEvent.click(applyButton());
 
     expect(await screen.findByText(new RegExp(message))).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "동일 요청 확인(새 제어 아님)" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "밝기 적용" })).toBeEnabled();
+    expect(applyButton()).toBeEnabled();
     expect(sessionStorage.getItem(activeCommandStorageKey(USER_A, dashboard.site.id))).toBeNull();
   });
 
@@ -874,7 +1051,7 @@ describe("ControlView 대상 선택", () => {
     rerender(controlElement(dashboard.site.id, "admin", USER_B));
 
     await waitFor(() => expect(screen.queryByRole("button", { name: "동일 요청 확인(새 제어 아님)" })).not.toBeInTheDocument());
-    expect(screen.getByLabelText("B2-L001 선택")).toBeEnabled();
+    expect(fixtureMarker("B2-L001")).toBeEnabled();
   });
 
   it.each(["success", "failure"])("ignores a delayed %s result after switching users", async (result) => {
@@ -886,8 +1063,8 @@ describe("ControlView 대상 선택", () => {
     }));
     const { rerender } = renderControl("admin", dashboard.site.id, USER_A);
 
-    fireEvent.click(screen.getByLabelText("B2-L001 선택"));
-    fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
+    selectFixture("B2-L001");
+    fireEvent.click(applyButton());
     const originalSignal = mocks.apiPost.mock.calls[0][2]?.signal as AbortSignal;
 
     rerender(controlElement(dashboard.site.id, "admin", USER_B));
@@ -896,7 +1073,7 @@ describe("ControlView 대상 선택", () => {
     if (result === "success") resolveCommand({ id: commandIds.siteA });
     else rejectCommand(new Error("response lost"));
 
-    await waitFor(() => expect(screen.getByLabelText("B2-L001 선택")).toBeEnabled());
+    await waitFor(() => expect(fixtureMarker("B2-L001")).toBeEnabled());
     expect(sessionStorage.getItem(activeCommandStorageKey(USER_A, dashboard.site.id))).not.toContain(commandIds.siteA);
     expect(sessionStorage.getItem(activeCommandStorageKey(USER_B, dashboard.site.id))).toBeNull();
     expect(screen.queryByText("명령을 전송했습니다. 장비 ACK를 기다리는 중입니다.")).not.toBeInTheDocument();
@@ -912,8 +1089,8 @@ describe("ControlView 대상 선택", () => {
     }));
     const { rerender } = renderControl();
 
-    fireEvent.click(screen.getByLabelText("B2-L001 선택"));
-    fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
+    selectFixture("B2-L001");
+    fireEvent.click(applyButton());
     const originalSignal = mocks.apiPost.mock.calls[0][2]?.signal as AbortSignal;
 
     const nextSiteId = "00000000-0000-4000-8000-000000000099";
@@ -928,8 +1105,7 @@ describe("ControlView 대상 선택", () => {
       rejectCommand(new Error("response lost"));
     }
 
-    await waitFor(() => expect(screen.getByLabelText("B2-L001 선택")).toBeEnabled());
-    expect(screen.queryByRole("button", { name: "밝기 적용 중" })).not.toBeInTheDocument();
+    await waitFor(() => expect(fixtureMarker("B2-L001")).toBeEnabled());
     expect(screen.queryByText("명령을 전송했습니다. 장비 ACK를 기다리는 중입니다.")).not.toBeInTheDocument();
     expect(screen.queryByText("명령 응답을 확인하지 못했습니다. 동일 요청 확인은 새 제어를 만들지 않습니다.")).not.toBeInTheDocument();
   });
@@ -947,14 +1123,15 @@ describe("ControlView 대상 선택", () => {
     renderControl();
 
     await waitFor(() => expect(mocks.useCommandStatus).toHaveBeenLastCalledWith(commandIds.expected));
-    expect(screen.getByRole("button", { name: "밝기 적용 중" })).toBeDisabled();
+    expect(applyButton()).toBeDisabled();
     expect(screen.getByRole("slider", { name: "밝기" })).toBeDisabled();
     expect(within(screen.getByRole("status", { name: "명령 진행 상태" })).queryByText("조명 적용 완료")).not.toBeInTheDocument();
     const commandStatus = screen.getByRole("status", { name: "명령 진행 상태" });
-    const commandAlert = screen.getByRole("alert");
+    const commandAlert = screen.getByText("명령 상태 응답의 식별자가 일치하지 않습니다. 안전을 위해 제어 잠금을 유지합니다.").closest<HTMLElement>("[role=alert]");
+    expect(commandAlert).not.toBeNull();
     expect(commandAlert).toHaveTextContent("명령 상태 응답의 식별자가 일치하지 않습니다");
     expect(within(commandStatus).queryByRole("alert")).not.toBeInTheDocument();
-    expect(commandStatus).not.toContainElement(commandAlert);
+    expect(commandStatus).not.toContainElement(commandAlert!);
     fireEvent.click(screen.getByRole("button", { name: "명령 상태 다시 조회" }));
     expect(refetch).toHaveBeenCalledTimes(1);
     expect(sessionStorage.getItem(activeCommandStorageKey(USER_A, dashboard.site.id))).toContain(commandIds.expected);
@@ -972,7 +1149,7 @@ describe("ControlView 대상 선택", () => {
     renderControl();
 
     expect(await screen.findByText("진행 중 명령을 찾을 수 없어 제어 잠금을 해제했습니다")).toBeInTheDocument();
-    expect(screen.getByLabelText("B2-L001 선택")).toBeEnabled();
+    expect(fixtureMarker("B2-L001")).toBeEnabled();
     expect(screen.queryByRole("button", { name: "명령 상태 다시 조회" })).not.toBeInTheDocument();
     expect(sessionStorage.getItem(activeCommandStorageKey(USER_A, dashboard.site.id))).toBeNull();
   });
@@ -989,7 +1166,7 @@ describe("ControlView 대상 선택", () => {
     renderControl();
 
     expect(await screen.findByText("진행 중 명령을 찾을 수 없어 제어 잠금을 해제했습니다")).toBeInTheDocument();
-    expect(screen.getByLabelText("B2-L001 선택")).toBeEnabled();
+    expect(fixtureMarker("B2-L001")).toBeEnabled();
     expect(screen.queryByRole("button", { name: "명령 상태 다시 조회" })).not.toBeInTheDocument();
     expect(sessionStorage.getItem(activeCommandStorageKey(USER_A, dashboard.site.id))).toBeNull();
   });
@@ -1005,12 +1182,12 @@ describe("ControlView 대상 선택", () => {
 
     renderControl();
 
-    expect(await within(screen.getByRole("status", { name: "명령 진행 상태" })).findByText("조명 적용 완료")).toBeInTheDocument();
+    expect(await within(screen.getByRole("status", { name: "명령 진행 상태" })).findByText("조명 적용 완료 · 기본 밝기로 저장됨")).toBeInTheDocument();
     expect(screen.queryByText("진행 중 명령을 찾을 수 없어 제어 잠금을 해제했습니다")).not.toBeInTheDocument();
     expect(screen.queryByText("명령 상태를 불러오지 못했습니다. 연결을 확인한 뒤 다시 조회하세요.")).not.toBeInTheDocument();
   });
 
-  it("locks the load-more action while restoring a command for a large site", async () => {
+  it("locks map and drawer selection while restoring a command for a large site", async () => {
     const largeDashboard = createLargeDashboard(101);
     sessionStorage.setItem(activeCommandStorageKey(USER_A, largeDashboard.site.id), JSON.stringify({ commandId: commandIds.large }));
     mocks.useControlDashboard.mockReturnValue({ data: largeDashboard, isLoading: false, error: null });
@@ -1018,7 +1195,8 @@ describe("ControlView 대상 선택", () => {
     renderControl("admin", largeDashboard.site.id);
 
     await waitFor(() => expect(mocks.useCommandStatus).toHaveBeenLastCalledWith(commandIds.large));
-    expect(screen.getByRole("button", { name: "더 보기" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "조명 목록 열기" })).toBeDisabled();
+    expect(fixtureMarker("대규모 조명 0001")).toBeDisabled();
   });
 
   it("unlocks controls and keeps terminal device results visible", async () => {
@@ -1026,15 +1204,15 @@ describe("ControlView 대상 선택", () => {
     mocks.useCommandStatus.mockReturnValue({ data: undefined, error: null, isFetching: false, refetch: vi.fn() });
     const { rerender } = renderControl();
 
-    fireEvent.click(screen.getByLabelText("B2-L001 선택"));
-    fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
+    selectFixture("B2-L001");
+    fireEvent.click(applyButton());
     await waitFor(() => expect(mocks.useCommandStatus).toHaveBeenLastCalledWith(commandIds.default));
 
     mocks.useCommandStatus.mockReturnValue({ data: terminalStatus, error: null, isFetching: false, refetch: vi.fn() });
     rerender(controlElement(dashboard.site.id));
 
     expect(await within(screen.getByRole("status", { name: "명령 진행 상태" })).findByText("일부 조명 적용 실패")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "밝기 적용" })).toBeEnabled();
+    expect(applyButton()).toBeEnabled();
     await waitFor(() => expect(sessionStorage.getItem(activeCommandStorageKey(USER_A, dashboard.site.id))).toBeNull());
   });
 
@@ -1043,7 +1221,7 @@ describe("ControlView 대상 선택", () => {
     renderControl();
 
     await waitFor(() => expect(mocks.useCommandStatus).toHaveBeenLastCalledWith(commandIds.restored));
-    expect(screen.getByRole("button", { name: "밝기 적용 중" })).toBeDisabled();
+    expect(applyButton()).toBeDisabled();
   });
 
   it.each([
@@ -1056,7 +1234,7 @@ describe("ControlView 대상 선택", () => {
     renderControl();
 
     expect(await screen.findByText("명령 상태를 불러오지 못했습니다. 연결을 확인한 뒤 다시 조회하세요.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "밝기 적용 중" })).toBeDisabled();
+    expect(applyButton()).toBeDisabled();
     expect(sessionStorage.getItem(activeCommandStorageKey(USER_A, dashboard.site.id))).toContain(commandIds.retry);
 
     fireEvent.click(screen.getByRole("button", { name: "명령 상태 다시 조회" }));
@@ -1093,57 +1271,23 @@ describe("ControlView 대상 선택", () => {
     expect(await screen.findByText(`이벤트 패널 ${dashboard.site.id}`)).toBeInTheDocument();
   });
 
-  it("sends a local override end time as an ISO instant and rejects invalid windows", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-08-31T00:00:00.000Z"));
+  it("submits the selected target and brightness without expiry UI or fields", async () => {
     renderControl();
 
-    fireEvent.click(screen.getByLabelText("B2-L001 선택"));
-    const overrideInput = screen.getByLabelText("수동 override 종료 시각");
-    fireEvent.change(overrideInput, { target: { value: "2026-08-30T23:59" } });
-    fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
-    expect(screen.getByText("종료 시각은 현재 이후여야 합니다.")).toBeInTheDocument();
-    expect(mocks.apiPost).not.toHaveBeenCalled();
-
-    fireEvent.change(overrideInput, { target: { value: "2026-10-01T00:00" } });
-    fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
-    expect(screen.getByText("종료 시각은 30일 이내여야 합니다.")).toBeInTheDocument();
-
-    fireEvent.change(overrideInput, { target: { value: "2026-08-31T10:00" } });
-    fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
-    expect(mocks.apiPost).toHaveBeenCalledWith("/commands/dimming", expect.objectContaining({
-      overrideUntil: new Date("2026-08-31T10:00").toISOString()
-    }), { signal: expect.any(AbortSignal) });
-  });
-
-  it("omits an empty override end time so the server applies its default window", async () => {
-    renderControl();
-    fireEvent.click(screen.getByLabelText("B2-L001 선택"));
-    fireEvent.change(screen.getByLabelText("수동 override 종료 시각"), { target: { value: "" } });
-    fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
+    expect(screen.queryByLabelText("수동 override 종료 시각")).not.toBeInTheDocument();
+    selectFixture("B2-L001");
+    fireEvent.click(screen.getByRole("button", { name: "30%" }));
+    fireEvent.click(applyButton());
 
     await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledTimes(1));
+    expect(mocks.apiPost).toHaveBeenCalledWith("/commands/dimming", expect.objectContaining({
+      siteId: dashboard.site.id,
+      clientRequestId: expect.any(String),
+      target: { type: "fixture", fixtureId: fixtureIds.b2First },
+      brightness: 30
+    }), { signal: expect.any(AbortSignal) });
     expect(mocks.apiPost.mock.calls[0][1]).not.toHaveProperty("overrideUntil");
-  });
-
-  it.each(["site", "user"])("recalculates the one-hour override default when the %s scope changes", async (scope) => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-08-31T00:00:00.000Z"));
-    const { rerender } = renderControl();
-    const overrideInput = screen.getByLabelText("수동 override 종료 시각");
-    fireEvent.change(overrideInput, { target: { value: "2030-01-01T00:00" } });
-    vi.setSystemTime(new Date("2026-08-31T05:00:00.000Z"));
-
-    if (scope === "site") {
-      const nextSiteId = "00000000-0000-4000-8000-000000000099";
-      const nextDashboard: Dashboard = { ...dashboard, site: { ...dashboard.site, id: nextSiteId, name: "다음 현장" } };
-      mocks.useControlDashboard.mockReturnValue({ data: nextDashboard, isLoading: false, error: null });
-      rerender(controlElement(nextSiteId));
-    } else {
-      rerender(controlElement(dashboard.site.id, "admin", USER_B));
-    }
-
-    expect(screen.getByLabelText("수동 override 종료 시각")).toHaveValue(localDateTimeValue(new Date("2026-08-31T06:00:00.000Z")));
+    expect(mocks.apiPost.mock.calls[0][1]).not.toHaveProperty("overrideRemainingMs");
   });
 
   it("uses roving tab focus and selects modes with circular arrow, Home, and End keys", async () => {
@@ -1233,6 +1377,53 @@ function renderControl(
   return render(controlElement(siteId, role, userId, initialEntry));
 }
 
+function selectOption(label: string, option: string) {
+  fireEvent.click(screen.getByRole("button", { name: label }));
+  fireEvent.click(screen.getByRole("option", { name: option }));
+}
+
+function fixtureMarker(name: string) {
+  return screen.getByRole("button", { name: new RegExp(`^${name} `) });
+}
+
+function selectFixture(name: string) {
+  fireEvent.click(fixtureMarker(name));
+}
+
+function openFixtureList() {
+  fireEvent.click(screen.getByRole("button", { name: "조명 목록 열기" }));
+  return screen.getByRole("dialog", { name: "조명 목록" });
+}
+
+function expandCompactExecution() {
+  const summary = screen.getByRole("complementary", { name: "선택 대상 요약" });
+  const expand = within(summary).queryByRole("button", { name: "선택 대상 펼치기" });
+  if (expand) fireEvent.click(expand);
+  return within(summary).getByTestId("compact-summary-execution");
+}
+
+function chooseTargetMode(name: "층 전체" | "저장된 구역") {
+  fireEvent.click(screen.getByRole("button", { name }));
+  const confirm = screen.queryByRole("button", { name: "변경" });
+  if (confirm) fireEvent.click(confirm);
+}
+
+function chooseFloor(name: string) {
+  chooseTargetMode("층 전체");
+  fireEvent.click(screen.getByRole("button", { name }));
+}
+
+function chooseGroup(name: RegExp) {
+  chooseTargetMode("저장된 구역");
+  fireEvent.click(screen.getByRole("button", { name }));
+}
+
+function applyButton() {
+  const button = document.querySelector<HTMLButtonElement>("[data-control-submit]");
+  if (!button) throw new Error("manual apply action is missing");
+  return button;
+}
+
 function controlElement(
   siteId: string,
   role: "operator" | "admin" | "viewer" = "admin",
@@ -1286,14 +1477,6 @@ function createFixture(
     controlBlockReason: null,
     ...overrides
   };
-}
-
-function localDateTimeValue(date: Date) {
-  return [
-    date.getFullYear(),
-    String(date.getMonth() + 1).padStart(2, "0"),
-    String(date.getDate()).padStart(2, "0")
-  ].join("-") + `T${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
 function createLargeDashboard(fixtureCount: number): Dashboard {

@@ -1,6 +1,6 @@
 import { CalendarClock, CarFront, SlidersHorizontal } from "lucide-react";
 import { useRef, type KeyboardEvent } from "react";
-import { UnderlineNavigation, UnderlineNavigationLabel } from "../../../components/ui";
+import { Button, UnderlineNavigation, UnderlineNavigationLabel } from "../../../components/ui";
 
 export type ControlPageMode = "manual" | "schedule" | "event";
 
@@ -9,6 +9,10 @@ const allModes = [
   { value: "schedule", label: "스케줄 제어", icon: CalendarClock },
   { value: "event", label: "이벤트 제어", icon: CarFront }
 ] as const;
+
+const controlModeTabClassName = (isActive: boolean) => `min-w-28 shrink-0 rounded-none border-x-0 border-t-0 border-b-2 bg-transparent px-3 text-body-sm whitespace-nowrap ${isActive
+  ? "border-action-primary text-action-primary"
+  : "border-transparent text-content-secondary hover:border-border-strong hover:text-content-primary"}`;
 
 export function ControlModeTabs({
   mode,
@@ -36,11 +40,12 @@ export function ControlModeTabs({
   }
 
   return (
-    <UnderlineNavigation as="div" className="control-mode-tabs" role="tablist" aria-label="제어 방식">
+    <UnderlineNavigation as="div" role="tablist" aria-label="제어 방식">
       {modes.map((item, index) => {
         const Icon = item.icon;
         return (
-          <button
+          <Button
+            variant="ghost"
             ref={(element) => {
               tabRefs.current[index] = element;
             }}
@@ -51,14 +56,14 @@ export function ControlModeTabs({
             aria-selected={mode === item.value}
             aria-controls={`control-mode-panel-${item.value}`}
             tabIndex={mode === item.value ? 0 : -1}
-            className={mode === item.value ? "ui-underline-navigation-item active" : "ui-underline-navigation-item"}
+            className={controlModeTabClassName(mode === item.value)}
             onClick={() => onChange(item.value)}
             onKeyDown={(event) => selectFromKeyboard(event, index)}
           >
             <UnderlineNavigationLabel icon={<Icon size={18} />}>
               {item.label}
             </UnderlineNavigationLabel>
-          </button>
+          </Button>
         );
       })}
     </UnderlineNavigation>

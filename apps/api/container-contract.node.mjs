@@ -7,6 +7,20 @@ import {mkdtempSync,mkdirSync,writeFileSync,readdirSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 
 const filename = path.join(import.meta.dirname, "Dockerfile");
+test("deployed API imports and sharp chart rendering work with bundled fonts", () => {
+  const file = readFileSync(filename, "utf8");
+  const script = file.match(/RUN node <<'REPORT_CHART_SMOKE'\n([\s\S]*?)\nREPORT_CHART_SMOKE/);
+  assert.ok(script, "Docker runtime must execute the report chart smoke contract");
+  // Run exactly the image-build smoke locally, or against the built image when
+  // API_CONTAINER_IMAGE is supplied. No live API/database connection is needed.
+  const image = process.env.API_CONTAINER_IMAGE;
+  const result = image
+    ? spawnSync("docker", ["run", "--rm", "--network=none", "--entrypoint", "node", image, "-e", script[1]], { encoding: "utf8", timeout: 60000 })
+    : spawnSync(process.execPath, ["-e", script[1]], { cwd: import.meta.dirname, encoding: "utf8", timeout: 60000 });
+  assert.equal(result.status, 0, result.stderr || String(result.error));
+  assert.match(result.stdout, /report-chart-smoke-ok/);
+});
+
 test("API build supplies frozen dependencies, Prisma and compiled workspaces in order", () => {
   assert.ok(existsSync(filename), "API Dockerfile is missing");
   const file = readFileSync(filename, "utf8");
@@ -42,4 +56,13 @@ test("API runtime is non-root and signal-safe with compiled entrypoint and local
   assert.match(file, /CMD \["node", "dist\/src\/main.js"\]/);
   assert.match(file, /COPY --from=build .*migration/);
   assert.doesNotMatch(file, /pnpm install|nest start|tsx|ts-node/);
+});
+
+test("API runtime includes an attested canonical GNU prlimit without a bundled CAD converter", () => {
+  const file = readFileSync(filename, "utf8");
+  const runtime = file.split(/FROM .* AS runtime/)[1];
+  assert.match(runtime, /apk add --no-cache[^\n]*util-linux/);
+  assert.match(runtime, /realpath \/usr\/bin\/prlimit/);
+  assert.match(runtime, /stat[^\n]*\/usr\/bin\/prlimit/);
+  assert.doesNotMatch(file, /libredwg|dwgread|dwg2dxf/i);
 });

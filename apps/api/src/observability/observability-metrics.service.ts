@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import type { DependencyChecks } from "./readiness.service";
 
-const dependencyNames = ["postgres", "redis", "mqtt", "objectStorage"] as const;
+const dependencyNames = ["postgres", "redis", "mqtt", "objectStorage", "cadConverter"] as const;
 
 @Injectable()
 export class ObservabilityMetrics {
@@ -15,7 +15,8 @@ export class ObservabilityMetrics {
     postgres: 0,
     redis: 0,
     mqtt: 0,
-    objectStorage: 0
+    objectStorage: 0,
+    cadConverter: 0
   };
 
   recordHttp(statusCode: number, durationMs: number) {

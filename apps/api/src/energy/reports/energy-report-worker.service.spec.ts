@@ -11,6 +11,7 @@ import { ObjectStorageService } from "../../storage/object-storage.service";
 import { expectedManifest } from "./report-renderer.test-support";
 import { EnergyReportCleanupService } from "./energy-report-cleanup.service";
 import { SiteDeletionCleanupService } from "../../operator-site-admins/site-deletion-cleanup.service";
+import { energyReportDocumentSchema } from "@led-control/shared";
 
 describe("report worker lifecycle", () => {
   it("does not start snapshot capture or a heartbeat when shutdown occurs during a pending claim", async () => {
@@ -256,8 +257,24 @@ const databaseUrl = process.env.ENERGY_REPORT_TEST_DATABASE_URL;
     // PostgreSQL JSONB reorders object keys. Compare every path/value independently;
     // serialized section/row ordering is already enforced by the real renderer manifest.
     const byPath = (left: { path: string }, right: { path: string }) => left.path.localeCompare(right.path);
-    expect([...manifest].sort(byPath)).toEqual(expectedManifest(completed.documentSnapshot).sort(byPath));
-    expect(JSON.stringify(manifest)).not.toMatch(/known|coverage|forecast|baseline|예상|추정/i);
+    const document = energyReportDocumentSchema.parse(completed.documentSnapshot);
+    expect(document.schemaVersion).toBe(2);
+    const leaves = expectedManifest(document);
+    const displayed = leaves.filter(token => !token.path.startsWith("calculationBasis.") && !/\.(visualization|rowIds)\.|\.source$/.test(token.path));
+    expect([...manifest].sort(byPath)).toEqual(displayed.sort(byPath));
+    expect(leaves).toEqual(expect.arrayContaining([
+      { path: "calculationBasis.configurationSource", value: "captured_current_configuration" },
+      { path: "sections.1.visualization.type", value: "daily_actual_vs_baseline" },
+      { path: "sections.0.rows.0.source", value: "persisted_actual" }
+    ]));
+    const canonical = (value: unknown): string => {
+      if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+      if (value !== null && typeof value === "object") return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonical((value as Record<string, unknown>)[key])}`).join(",")}}`;
+      return JSON.stringify(value);
+    };
+    const { contentFingerprint, ...fingerprinted } = document;
+    expect(contentFingerprint).toBe(createHash("sha256").update(canonical(fingerprinted)).digest("hex"));
+    expect(JSON.stringify(manifest)).not.toMatch(/forecast|carbon|emission|탄소/i);
   }, 30_000);
 
   it("retries at most three times and preserves the first snapshot despite later data changes", async () => {

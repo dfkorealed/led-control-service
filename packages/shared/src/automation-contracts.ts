@@ -147,13 +147,6 @@ export interface VehicleSensorCapabilityIngestedAckV1 {
   ingestedAt: string;
 }
 
-export interface ManualOverrideWindow {
-  fixtureIds: string[];
-  brightnessPercent: number;
-  startedAt: string;
-  overrideUntil: string;
-}
-
 const identifierSchema = z.string().uuid();
 const timestampSchema = z.string().datetime();
 const payloadHashSchema = z.string().regex(/^sha256:[a-f0-9]{64}$/);
@@ -397,14 +390,3 @@ export const vehicleSensorCapabilityIngestedAckV1Schema = z.object({
   errorCode: z.string().trim().min(1).nullable(),
   ingestedAt: z.string().datetime({ offset: true })
 }).strict();
-
-export const manualOverrideWindowSchema = z.object({
-  fixtureIds: fixtureIdsSchema,
-  brightnessPercent: z.number().int().min(0).max(100),
-  startedAt: timestampSchema,
-  overrideUntil: timestampSchema
-}).strict().superRefine((override, context) => {
-  if (Date.parse(override.startedAt) >= Date.parse(override.overrideUntil)) {
-    addIssue(context, "overrideUntil", "overrideUntil must be after startedAt");
-  }
-});

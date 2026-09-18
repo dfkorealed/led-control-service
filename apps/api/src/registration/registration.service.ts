@@ -15,7 +15,7 @@ import { MeshControlGroupService } from "../mesh-control-groups/mesh-control-gro
 import { MqttService } from "../mqtt/mqtt.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { RegistrationAllocationService } from "./registration-allocation.service";
-import { lockRegistrationDomain } from "./registration-domain-locks";
+import { lockRegistrationDeviceUuids, lockRegistrationDomain } from "./registration-domain-locks";
 
 interface RegisterNodeInput {
   fixtureName: string;
@@ -124,7 +124,7 @@ export class RegistrationService {
           data: this.createScanOutboxData(session, scanCorrelationId, 1)
         });
         return toRegistrationSessionResponse(tx, session);
-      }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+      });
       return session;
     } catch (error) {
       if (this.isGatewayScanConflict(error)) throw new ConflictException({ code: "gateway_scan_in_progress" });
@@ -245,7 +245,7 @@ export class RegistrationService {
         operationId: commandId,
         node: await toRegistrationNodeResponse(tx, session.siteId, updatedNode, operation)
       };
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+    });
   }
 
   async retryScan(user: AuthenticatedUser, sessionId: string) {
@@ -289,13 +289,14 @@ export class RegistrationService {
             scanCompletedAt: null,
             scanFailureCode: null,
             scanFailureMessage: null
-          }
+          },
+          include: { discoveredNodes: { include: identifyOperationInclude } }
         });
         await tx.provisioningScanOutbox.create({
           data: this.createScanOutboxData(session, scanCorrelationId, session.scanAttempt)
         });
         return toRegistrationSessionResponse(tx, session);
-      }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+      });
       return session;
     } catch (error) {
       if (this.isGatewayScanConflict(error)) throw new ConflictException({ code: "gateway_scan_in_progress" });
@@ -409,6 +410,7 @@ export class RegistrationService {
         });
       }
 
+      await lockRegistrationDeviceUuids(tx, candidates.map((candidate) => candidate.deviceUuid));
       const existingMeshNodes = candidates.length > 0
         ? await tx.meshNode.findMany({
           where: { deviceUuid: { in: candidates.map((candidate) => candidate.deviceUuid) } },
@@ -515,7 +517,7 @@ export class RegistrationService {
             fixtureName: registrationsByNodeId.get(node.nodeId)!.fixtureName
           })
       };
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+    });
 
     return { items: prepared.items };
   }
@@ -551,7 +553,7 @@ export class RegistrationService {
         data: { status: "failed", errorMessage }
       });
       return toRegistrationNodeResponse(tx, session.siteId, updated);
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+    });
   }
 
   async completeSession(user: AuthenticatedUser, sessionId: string) {
@@ -593,7 +595,7 @@ export class RegistrationService {
         include: { discoveredNodes: { include: identifyOperationInclude } }
       });
       return toRegistrationSessionResponse(tx, updated);
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+    });
     return completed;
   }
 
@@ -633,7 +635,7 @@ export class RegistrationService {
         include: { discoveredNodes: { include: identifyOperationInclude } }
       });
       return toRegistrationSessionResponse(tx, updated);
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+    });
     return cancelled;
   }
 
@@ -724,66 +726,70 @@ export class RegistrationService {
   }
 }
 
-interface RegistrationNodeShape {
-  deviceUuid: string;
-  [key: string]: unknown;
-}
-
-interface RegistrationSessionShape {
-  siteId: string;
-  discoveredNodes?: RegistrationNodeShape[];
-  [key: string]: unknown;
-}
-
-type RegistrationNodeResponse = RegistrationNodeShape & {
-  identifyOperationId: string | null;
-  identifyOperationStartedAt: Date | null;
-  registrationEligibility: "available" | "registered_in_site" | "registered_elsewhere";
-  existingRegistration: {
-    fixtureId: string | null;
-    fixtureName: string | null;
-    floorId: string | null;
-    floorName: string | null;
-  } | null;
+type IdentifyOperationMetadata = {
+  id: string;
+  createdAt?: Date;
 };
 
-async function toRegistrationSessionResponse<T extends RegistrationSessionShape>(
+type RegistrationNodeSource = {
+  deviceUuid: string;
+  deviceOutbox?: IdentifyOperationMetadata[];
+};
+
+type RegistrationSessionSource<TNode extends RegistrationNodeSource = RegistrationNodeSource> = {
+  siteId: string;
+  discoveredNodes: TNode[];
+  scanTerminalEventId?: string | null;
+  scanTerminalSequence?: bigint | null;
+  scanTerminalEventType?: string | null;
+  scanTerminalPayloadHash?: string | null;
+  scanTerminalIngestedAt?: Date | null;
+};
+
+type RegistrationEligibility = "available" | "registered_in_site" | "registered_elsewhere";
+
+type ExistingRegistrationResponse = {
+  fixtureId: string | null;
+  fixtureName: string | null;
+  floorId: string | null;
+  floorName: string | null;
+};
+
+type RegistrationNodeResponse<TNode extends RegistrationNodeSource> = Omit<TNode, "deviceOutbox"> & {
+  identifyOperationId: string | null;
+  identifyOperationStartedAt: Date | null;
+  registrationEligibility: RegistrationEligibility;
+  existingRegistration: ExistingRegistrationResponse | null;
+};
+
+type RegistrationSessionResponse<TSession extends RegistrationSessionSource> =
+Omit<TSession, InternalRegistrationSessionField | "discoveredNodes"> & {
+  discoveredNodes: Array<RegistrationNodeResponse<TSession["discoveredNodes"][number]>>;
+};
+
+async function toRegistrationSessionResponse<TSession extends RegistrationSessionSource>(
   tx: Prisma.TransactionClient,
-  session: T
-): Promise<Omit<T, InternalRegistrationSessionField>> {
+  session: TSession
+): Promise<RegistrationSessionResponse<TSession>> {
   const [response] = await toRegistrationSessionResponses(tx, [session]);
   return response;
 }
 
-async function toRegistrationSessionResponses<T extends RegistrationSessionShape>(
+async function toRegistrationSessionResponses<TSession extends RegistrationSessionSource>(
   tx: Prisma.TransactionClient,
-  sessions: T[]
-): Promise<Array<Omit<T, InternalRegistrationSessionField>>> {
-  const responses = sessions.map((session) => {
-    const response = { ...session } as RegistrationSessionShape & Partial<Record<InternalRegistrationSessionField, unknown>>;
-    for (const field of INTERNAL_REGISTRATION_SESSION_FIELDS) delete response[field];
-    return response;
-  });
-  const nodes = responses.flatMap((response) => Array.isArray(response.discoveredNodes) ? response.discoveredNodes : []);
+  sessions: TSession[]
+): Promise<Array<RegistrationSessionResponse<TSession>>> {
+  const nodes = sessions.flatMap((session) => session.discoveredNodes);
   const registrationsByDeviceUuid = await findRegistrationResponses(tx, nodes.map((node) => node.deviceUuid));
-
-  for (const response of responses) {
-    if (!Array.isArray(response.discoveredNodes)) continue;
-    response.discoveredNodes = response.discoveredNodes.map((node) => presentRegistrationNode(
-      response.siteId,
-      node,
-      registrationsByDeviceUuid.get(node.deviceUuid)
-    ));
-  }
-  return responses as unknown as Array<Omit<T, InternalRegistrationSessionField>>;
+  return sessions.map((session) => presentRegistrationSession(session, registrationsByDeviceUuid));
 }
 
-async function toRegistrationNodeResponse<T extends RegistrationNodeShape>(
+async function toRegistrationNodeResponse<TNode extends RegistrationNodeSource>(
   tx: Prisma.TransactionClient,
   siteId: string,
-  node: T,
-  operation?: { id: string; createdAt?: Date }
-) {
+  node: TNode,
+  operation?: IdentifyOperationMetadata
+): Promise<RegistrationNodeResponse<TNode>> {
   const registrationsByDeviceUuid = await findRegistrationResponses(tx, [node.deviceUuid]);
   return presentRegistrationNode(siteId, node, registrationsByDeviceUuid.get(node.deviceUuid), operation);
 }
@@ -803,13 +809,36 @@ async function findRegistrationResponses(
     : []));
 }
 
-function presentRegistrationNode<T extends RegistrationNodeShape>(
+function presentRegistrationSession<TSession extends RegistrationSessionSource>(
+  session: TSession,
+  registrationsByDeviceUuid: Map<string, RegistrationResponseRecord>
+): RegistrationSessionResponse<TSession> {
+  const {
+    scanTerminalEventId: _scanTerminalEventId,
+    scanTerminalSequence: _scanTerminalSequence,
+    scanTerminalEventType: _scanTerminalEventType,
+    scanTerminalPayloadHash: _scanTerminalPayloadHash,
+    scanTerminalIngestedAt: _scanTerminalIngestedAt,
+    discoveredNodes,
+    ...publicSession
+  } = session;
+  return {
+    ...publicSession,
+    discoveredNodes: discoveredNodes.map((node) => presentRegistrationNode(
+      session.siteId,
+      node,
+      registrationsByDeviceUuid.get(node.deviceUuid)
+    ))
+  };
+}
+
+function presentRegistrationNode<TNode extends RegistrationNodeSource>(
   siteId: string,
-  node: T,
+  node: TNode,
   registration?: RegistrationResponseRecord,
-  operation?: { id: string; createdAt?: Date }
-): RegistrationNodeResponse {
-  const { deviceOutbox, ...publicNode } = node as T & { deviceOutbox?: Array<{ id: string; createdAt: Date }> };
+  operation?: IdentifyOperationMetadata
+): RegistrationNodeResponse<TNode> {
+  const { deviceOutbox, ...publicNode } = node;
   const latest = operation ?? deviceOutbox?.[0];
   const registrationEligibility = !registration
     ? "available" as const
@@ -830,5 +859,5 @@ function presentRegistrationNode<T extends RegistrationNodeShape>(
     identifyOperationStartedAt: latest?.createdAt ?? null,
     registrationEligibility,
     existingRegistration
-  } as unknown as RegistrationNodeResponse;
+  };
 }

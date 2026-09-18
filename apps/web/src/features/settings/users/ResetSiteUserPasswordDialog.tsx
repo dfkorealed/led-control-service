@@ -1,6 +1,6 @@
 import { useRef, useState, type FormEvent } from "react";
 import { resetSiteUserPassword, type SiteUserSummary } from "../../../api/site-users";
-import { Button, ModalDialog } from "../../../components/ui";
+import { Button, ModalDialog, PasswordField } from "../../../components/ui";
 import { siteUserErrorMessage, validateTemporaryPassword } from "./site-user-form";
 
 export function ResetSiteUserPasswordDialog({ siteId, user, returnFocusElement, fallbackFocusElement, onClose, onCompleted, onMutationError }: {
@@ -56,11 +56,11 @@ export function ResetSiteUserPasswordDialog({ siteId, user, returnFocusElement, 
       <Button type="submit" form="reset-site-user-password" variant="primary" isLoading={isPending} loadingLabel="처리 중">비밀번호 초기화</Button>
     </>}
   >
-    <dl className="site-user-account-summary"><dt>사용자</dt><dd>{user.name}</dd><dt>로그인 아이디</dt><dd>{user.loginId}</dd></dl>
-    <form id="reset-site-user-password" className="site-user-form" onSubmit={submit} noValidate>
-      <div className="site-user-field"><label htmlFor="reset-temporary-password">새 임시 비밀번호</label><input ref={passwordRef} id="reset-temporary-password" type="password" autoComplete="new-password" value={password} onChange={(event) => { setPassword(event.target.value); setError(""); }} /></div>
-      <div className="site-user-field"><label htmlFor="reset-temporary-password-confirmation">임시 비밀번호 확인</label><input id="reset-temporary-password-confirmation" type="password" autoComplete="new-password" value={confirmation} onChange={(event) => { setConfirmation(event.target.value); setError(""); }} /></div>
-      {error ? <p className="site-user-form-alert" role="alert">{error}</p> : null}
+    <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 rounded-control bg-surface-inset p-4"><dt>사용자</dt><dd>{user.name}</dd><dt>로그인 아이디</dt><dd>{user.loginId}</dd></dl>
+    <form id="reset-site-user-password" className="mt-5 grid gap-4" onSubmit={submit} noValidate>
+      <PasswordField ref={passwordRef} id="reset-temporary-password" label="새 임시 비밀번호" autoComplete="new-password" value={password} onChange={(value) => { setPassword(value); setError(""); }} />
+      <PasswordField id="reset-temporary-password-confirmation" label="임시 비밀번호 확인" autoComplete="new-password" value={confirmation} onChange={(value) => { setConfirmation(value); setError(""); }} />
+      {error ? <p className="rounded-control border border-status-danger-border bg-status-danger-background p-3 text-status-danger-foreground" role="alert">{error}</p> : null}
     </form>
   </ModalDialog>;
 }

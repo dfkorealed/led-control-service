@@ -11,9 +11,13 @@ import { EnergyReportTargetsService } from "./energy-report-targets.service";
 import { EnergyReportSnapshotService } from "./energy-report-snapshot.service";
 import { ExcelEnergyReportRenderer } from "./excel-energy-report.renderer";
 import { PdfEnergyReportRenderer } from "./pdf-energy-report.renderer";
+import { disposablePostgres } from "../../../test/support/disposable-postgres";
+import { RedisProvider } from "../../redis/redis.provider";
 
 const databaseUrl = process.env.ENERGY_REPORT_TEST_DATABASE_URL;
-(databaseUrl ? describe : describe.skip)("report HTTP API with real module/auth/access and PostgreSQL", () => {
+const selfOwned = process.env.ENERGY_REPORT_API_TEST === "1";
+(selfOwned || databaseUrl ? describe : describe.skip)("report HTTP API with real module/auth/access and PostgreSQL", () => {
+  let cluster: Awaited<ReturnType<typeof disposablePostgres>> | undefined;
   const organizationId = randomUUID(); const actorId = randomUUID(); const siteId = randomUUID(); const otherSiteId = randomUUID();
   const floorId = randomUUID(); const operationalFixtureId = randomUUID(); const analyticsFixtureId = randomUUID();
   const operationalGroupId = randomUUID(); const analyticsGroupId = randomUUID();
@@ -21,7 +25,13 @@ const databaseUrl = process.env.ENERGY_REPORT_TEST_DATABASE_URL;
   const request = { from: "2026-09-01", to: "2026-09-02", scope: "site", identityId: siteId, format: "xlsx" };
   let prisma: PrismaClient; let app: INestApplication; let baseUrl: string; let cookie: string;
   beforeAll(async () => {
-    prisma = new PrismaClient({ datasourceUrl: databaseUrl });
+    let testUrl = databaseUrl;
+    if (selfOwned) {
+      cluster = await disposablePostgres();
+      testUrl = cluster.database();
+      expect(cluster.deploy(testUrl).status).toBe(0);
+    }
+    prisma = new PrismaClient({ datasourceUrl: testUrl });
     await prisma.organization.create({ data: { id: organizationId, name: "HTTP report test", type: "customer" } });
     await prisma.user.create({ data: { id: actorId, organizationId, loginId: `report-${actorId}`, name: "보고서 사용자", passwordHash: "unused", role: "admin" } });
     await prisma.site.create({ data: { id: siteId, organizationId, adminUserId: actorId, name: "CSV 현장", timeZone: "UTC" } });
@@ -40,7 +50,10 @@ const databaseUrl = process.env.ENERGY_REPORT_TEST_DATABASE_URL;
     const module = await Test.createTestingModule({ imports: [EnergyModule] })
       .overrideProvider(PrismaService).useValue(prisma)
       .overrideProvider(EnergyRetentionService).useValue({})
-      .overrideProvider(OBJECT_STORAGE_OPTIONS).useValue({ bucket: "public-floors", reportBucket: "private-reports", publicBaseUrl: "https://public.example" })
+      // Session lookup uses PostgreSQL; login challenge/rate-limit Redis is not
+      // exercised by these report routes and must not connect to an ambient DB.
+      .overrideProvider(RedisProvider).useValue({ getClient: () => { throw new Error("report HTTP tests must not access Redis"); } })
+      .overrideProvider(OBJECT_STORAGE_OPTIONS).useValue({ bucket: "public-floors", reportBucket: "private-reports", publicBaseUrl: "https://public.example/public-floors" })
       .overrideProvider(OBJECT_STORAGE_CLIENT).useValue({ send: () => { throw new Error("HTTP tests must not upload"); } }).compile();
     app = module.createNestApplication();
     await app.listen(0, "127.0.0.1");
@@ -49,7 +62,7 @@ const databaseUrl = process.env.ENERGY_REPORT_TEST_DATABASE_URL;
     const { createHash } = await import("node:crypto");
     await prisma.session.create({ data: { userId: actorId, tokenHash: createHash("sha256").update(token).digest("hex"), expiresAt: new Date(Date.now() + 60_000) } });
     cookie = `led_session=${token}`;
-  });
+  }, 60_000);
   afterAll(async () => {
     await app?.close();
     await prisma.site.deleteMany({ where: { id: { in: [siteId, otherSiteId] } } });
@@ -58,9 +71,85 @@ const databaseUrl = process.env.ENERGY_REPORT_TEST_DATABASE_URL;
     await prisma.user.delete({ where: { id: actorId } });
     await prisma.organization.delete({ where: { id: organizationId } });
     await prisma.$disconnect();
+    cluster?.stop();
   });
   const call = (path: string, options: RequestInit = {}) => fetch(`${baseUrl}/energy/sites/${siteId}/${path}`, {
     ...options, headers: { cookie, "content-type": "application/json", ...options.headers }
+  });
+  it("searches all retained rows and paginates equal timestamps without gaps or duplicates", async () => {
+    const createdAt = new Date("2025-01-01T00:00:00Z");
+    const ids = Array.from({ length: 63 }, () => randomUUID()).sort().reverse();
+    await prisma.energyReportJob.createMany({ data: ids.map(id => ({ id, siteId, requestedByActorId: actorId,
+      requestedByLoginIdSnapshot: "history", requestHash: id.replaceAll("-", "").repeat(2), format: "pdf",
+      requestSnapshot: { ...request, format: "pdf" }, targetLabelSnapshot: "보존 이력 Archive", createdAt })) });
+    try {
+      const found: string[] = [];
+      let cursor: string | null = null;
+      do {
+        const params = new URLSearchParams({ query: "Archive", format: "pdf", scope: "site", limit: "10", ...(cursor ? { cursor } : {}) });
+        const response = await call(`reports?${params}`);
+        expect(response.status).toBe(200);
+        const page = energyReportListResponseSchema.parse(await response.json());
+        expect(page.totalCount).toBe(63);
+        expect(page.reports.length).toBeLessThanOrEqual(10);
+        found.push(...page.reports.map(row => row.reportId));
+        if (page.nextCursor) {
+          const changed = await call(`reports?${new URLSearchParams({ query: "other", cursor: page.nextCursor })}`);
+          expect(changed.status).toBe(400);
+          expect(await changed.json()).toMatchObject({ message: "invalid energy report list query" });
+        }
+        cursor = page.nextCursor;
+      } while (cursor);
+      expect(found).toEqual(ids);
+      const defaults = energyReportListResponseSchema.parse(await (await call("reports")).json());
+      expect(defaults.reports).toHaveLength(20);
+      const last = await call(`reports?${new URLSearchParams({ query: "Archive", limit: "100" })}`);
+      expect(energyReportListResponseSchema.parse(await last.json())).toMatchObject({ totalCount: 63, nextCursor: null });
+    } finally { await prisma.energyReportJob.deleteMany({ where: { id: { in: ids } } }); }
+  });
+  it("matches legacy fallback prefixes, UUID substrings and literal wildcard characters", async () => {
+    const legacyId = randomUUID(); const literalId = randomUUID();
+    await prisma.energyReportJob.createMany({ data: [
+      { id: legacyId, targetLabelSnapshot: null, requestSnapshot: { ...request, scope: "fixture", identityId: analyticsFixtureId } },
+      { id: literalId, targetLabelSnapshot: "50%_\\Lamp", requestSnapshot: request }
+    ].map(row => ({ ...row, siteId, requestedByActorId: actorId, requestedByLoginIdSnapshot: "history",
+      requestHash: row.id.replaceAll("-", "").repeat(2), format: "xlsx" })) });
+    try {
+      for (const query of ["조명", `조명: ${analyticsFixtureId}`, analyticsFixtureId.slice(8), `명: ${analyticsFixtureId.slice(0, 8)}`]) {
+        const page = energyReportListResponseSchema.parse(await (await call(`reports?${new URLSearchParams({ query })}`)).json());
+        expect(page.reports.map(row => row.reportId)).toEqual([legacyId]);
+        expect(page.reports[0].target.label).toBe(`조명: ${analyticsFixtureId}`);
+      }
+      const page = energyReportListResponseSchema.parse(await (await call(`reports?${new URLSearchParams({ query: "%_\\" })}`)).json());
+      expect(page.reports.map(row => row.reportId)).toEqual([literalId]);
+    } finally { await prisma.energyReportJob.deleteMany({ where: { id: { in: [legacyId, literalId] } } }); }
+  });
+  it.each(["limit=30", "limit=10&limit=20", "unexpected=private-token", "cursor=private-token", "requestedFrom=2026-09-01"])(
+    "returns a sanitized 400 for invalid list query %s", async query => {
+      const response = await call(`reports?${query}`);
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ statusCode: 400, error: "Bad Request", message: "invalid energy report list query" });
+    });
+  it.each([
+    ["Asia/Seoul", "2026-09-16", "2026-09-15T15:00:00.000Z", "2026-09-16T15:00:00.000Z"],
+    ["America/New_York", "2026-03-08", "2026-03-08T05:00:00.000Z", "2026-03-09T04:00:00.000Z"]
+  ])("filters request timestamps using %s local date %s", async (timeZone, day, start, end) => {
+    await prisma.site.update({ where: { id: siteId }, data: { timeZone } });
+    const ids = Array.from({ length: 4 }, () => randomUUID());
+    const timestamps = [Date.parse(start) - 1, Date.parse(start), Date.parse(end) - 1, Date.parse(end)];
+    await prisma.energyReportJob.createMany({ data: ids.map((id, index) => ({ id, siteId, requestedByActorId: actorId,
+      requestedByLoginIdSnapshot: "boundary", requestHash: id.replaceAll("-", "").repeat(2), format: "xlsx",
+      requestSnapshot: request, targetLabelSnapshot: "date boundary", createdAt: new Date(timestamps[index]) })) });
+    try {
+      const response = await call(`reports?${new URLSearchParams({ query: "date boundary", requestedFrom: day, requestedTo: day })}`);
+      expect(response.status).toBe(200);
+      const page = energyReportListResponseSchema.parse(await response.json());
+      expect(page.totalCount).toBe(2);
+      expect(page.reports.map(row => row.reportId)).toEqual([ids[2], ids[1]]);
+    } finally {
+      await prisma.energyReportJob.deleteMany({ where: { id: { in: ids } } });
+      await prisma.site.update({ where: { id: siteId }, data: { timeZone: "UTC" } });
+    }
   });
   it("selects tenant analytics targets from the real API instead of operational IDs", async () => {
     const response = await call("report-targets");
@@ -145,7 +234,16 @@ const databaseUrl = process.env.ENERGY_REPORT_TEST_DATABASE_URL;
       const csv = await call(`exports/csv?${new URLSearchParams({ from: selected.from, to: selected.to, scope: selected.scope, identityId: selected.identityId })}`);
       expect(csv.status).toBe(200); expect(await csv.text()).toContain("150.00 원");
       const { documentSnapshot } = await app.get(EnergyReportSnapshotService).capture(randomUUID(), siteId, selected);
-      expect(documentSnapshot.sections[0]).toMatchObject({ rows: [{ value: 1 }, { value: 150 }] });
+      expect(documentSnapshot.schemaVersion).toBe(2);
+      expect(documentSnapshot.sections[0]).toMatchObject({ rows: [
+        { label: "사용 전력량", value: 1, source: "persisted_actual" }, { label: "저장 비용", value: 150, source: "persisted_actual" },
+        { label: "24시간 기준 전력량", value: 0.96, source: "captured_current_configuration" },
+        { label: "기준 초과 전력량", value: -0.04, source: "captured_current_configuration" },
+        { label: "기준 초과율", value: -4.17, source: "captured_current_configuration" },
+        { label: "현재 단가 기준 비용", value: null, source: "captured_current_configuration" },
+        { label: "예상 기준 초과 비용", value: null, source: "captured_current_configuration" },
+        { label: "데이터 수집률", value: 4.17, source: "captured_current_configuration" }
+      ] });
       const xlsx = await new ExcelEnergyReportRenderer().render(documentSnapshot);
       const pdf = await new PdfEnergyReportRenderer().render(documentSnapshot);
       expect(xlsx.manifest).toEqual(pdf.manifest);

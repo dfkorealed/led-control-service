@@ -7,6 +7,8 @@ import {
   ObjectStorageService,
   type ObjectStorageOptions
 } from "./object-storage.service";
+import { PrismaModule } from "../prisma/prisma.module";
+import { FloorRenderedAssetReconciler } from "./floor-rendered-asset-reconciler";
 
 const OBJECT_STORAGE_CONNECTION_OPTIONS = Symbol("OBJECT_STORAGE_CONNECTION_OPTIONS");
 
@@ -21,6 +23,7 @@ interface ObjectStorageConnectionOptions {
 }
 
 @Module({
+  imports: [PrismaModule],
   providers: [
     {
       provide: OBJECT_STORAGE_OPTIONS,
@@ -52,9 +55,10 @@ interface ObjectStorageConnectionOptions {
           endpoint: clientFacingObjectStorageEndpoint(options.publicBaseUrl, options.bucket)
         })
     },
-    ObjectStorageService
+    ObjectStorageService,
+    FloorRenderedAssetReconciler
   ],
-  exports: [ObjectStorageService]
+  exports: [ObjectStorageService, FloorRenderedAssetReconciler]
 })
 export class StorageModule {}
 

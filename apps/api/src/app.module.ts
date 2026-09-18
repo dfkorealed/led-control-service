@@ -8,6 +8,7 @@ import { CommandsModule } from "./commands/commands.module";
 import { EnergyModule } from "./energy/energy.module";
 import { FloorEditorModule } from "./floor-editor/floor-editor.module";
 import { FloorMapModule } from "./floor-map/floor-map.module";
+import { FloorImportModule } from "./floor-import/floor-import.module";
 import { FixturesModule } from "./fixtures/fixtures.module";
 import { FixtureGroupsModule } from "./fixture-groups/fixture-groups.module";
 import { GatewayOnboardingModule } from "./gateway-onboarding/gateway-onboarding.module";
@@ -45,6 +46,7 @@ import { ObservabilityModule } from "./observability/observability.module";
     MeshControlGroupModule,
     SetupModule,
     FloorEditorModule,
+    FloorImportModule,
     FloorMapModule,
     GatewayOnboardingModule,
     PkiModule,

@@ -12,7 +12,7 @@ import { canonicalPayloadHash } from "../automation/automation-payload-hash";
 import { EnergyDimensionHistoryService } from "../energy/energy-dimension-history.service";
 import { MeshControlGroupService } from "../mesh-control-groups/mesh-control-group.service";
 import { PrismaService } from "../prisma/prisma.service";
-import { lockRegistrationDomain } from "../registration/registration-domain-locks";
+import { lockRegistrationDeviceUuids, lockRegistrationDomain } from "../registration/registration-domain-locks";
 
 export const PROVISIONING_DEVICE_TERMINAL_EVENT_TYPE = "provisioning_device_terminal";
 
@@ -378,6 +378,7 @@ export class ProvisioningDeviceTerminalService {
     if (node.status !== "provisioning" && node.status !== "reconcile_required") return false;
     if (!node.pendingFixtureName || node.pendingFixtureX === null || node.pendingFixtureY === null) return false;
 
+    await lockRegistrationDeviceUuids(tx, [event.deviceUuid]);
     const existingMeshNode = await tx.meshNode.findUnique({ where: { deviceUuid: event.deviceUuid } });
     if (existingMeshNode && existingMeshNode.gatewayId !== session.gatewayId) {
       await tx.discoveredMeshNode.update({

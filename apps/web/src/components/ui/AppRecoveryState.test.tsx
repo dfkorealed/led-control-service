@@ -7,8 +7,11 @@ it.each(["service_unavailable", "forbidden", "chunk_error"] as const)("catches m
   render(<AppRecoveryState variant={variant} onRetry={vi.fn()} onRelogin={vi.fn()} onReload={vi.fn()} />);
   expect(screen.getAllByRole("main")).toHaveLength(1);
   expect(screen.getByRole("alert")).toBeVisible();
-  expect(screen.getByRole("heading", { level: 1 })).toHaveFocus();
-  expect(screen.getByRole("heading", { level: 1 })).toHaveAttribute("tabindex", "-1");
+  const heading = screen.getByRole("heading", { level: 1 });
+  expect(heading).toHaveFocus();
+  expect(heading).toHaveAttribute("tabindex", "-1");
+  expect(heading).toHaveClass("text-section-title", "compact:text-page-title");
+  expect(heading.className).not.toContain("[");
 });
 it("catches disconnected recovery actions or duplicate requests while pending", () => {
   const retry = vi.fn();
@@ -19,5 +22,6 @@ it("catches disconnected recovery actions or duplicate requests while pending", 
   expect(retry).toHaveBeenCalledOnce();
   expect(relogin).toHaveBeenCalledOnce();
   rerender(<AppRecoveryState variant="service_unavailable" isPending onRetry={retry} onRelogin={relogin} />);
+  expect(screen.getByRole("group", { name: "복구 작업" })).toHaveAttribute("data-recovery-actions", "true");
   for (const button of screen.getAllByRole("button")) expect(button).toBeDisabled();
 });

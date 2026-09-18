@@ -143,6 +143,32 @@ enum FloorAssetStatus {
   ready
 }
 
+enum FloorImportSourceFormat {
+  dwg
+  dxf
+}
+
+enum FloorImportJobStatus {
+  queued
+  processing
+  review_required
+  applying
+  completed
+  failed
+  cancelled
+}
+
+enum FloorImportDetectionMethod {
+  rule_based
+  ai_assisted
+}
+
+enum FloorImportCandidateReviewStatus {
+  pending
+  accepted
+  rejected
+}
+
 enum FloorStatus {
   active
   archived
@@ -328,6 +354,8 @@ model Floor {
   fixtureGroups         FixtureGroup[]
   mapObjects            FloorMapObject[]
   assets                FloorAsset[]
+  importJobs            FloorImportJob[]
+  lightSlots            FloorLightSlot[]
   provisioningSessions  ProvisioningSession[]
   mapRevisions          FloorMapRevision[]
   createdAt             DateTime              @default(now())
@@ -423,23 +451,117 @@ model MonitoringIncident {
 }
 
 model FloorAsset {
-  id               String           @id @default(uuid())
-  floorId          String
-  kind             FloorAssetKind
-  status           FloorAssetStatus @default(pending)
-  objectKey        String           @unique
-  mimeType         String
-  sizeBytes        BigInt
-  sha256           String
-  uploadExpiresAt  DateTime?
-  cleanupStartedAt DateTime?
-  readyAt          DateTime?
-  floor            Floor            @relation(fields: [floorId], references: [id], onDelete: Cascade)
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
+  id                 String           @id @default(uuid())
+  floorId            String
+  kind               FloorAssetKind
+  status             FloorAssetStatus @default(pending)
+  objectKey          String           @unique
+  mimeType           String
+  contentEncoding    String?
+  sizeBytes          BigInt
+  sha256             String
+  uploadExpiresAt    DateTime?
+  cleanupStartedAt   DateTime?
+  readyAt            DateTime?
+  floor              Floor            @relation(fields: [floorId], references: [id], onDelete: Cascade)
+  sourceImportJobs   FloorImportJob[] @relation("FloorImportSourceAsset")
+  renderedImportJobs FloorImportJob[] @relation("FloorImportRenderedAsset")
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
 
   @@index([floorId, status, createdAt])
   @@index([status, uploadExpiresAt, cleanupStartedAt])
+}
+
+model FloorImportJob {
+  id               String                  @id @default(uuid())
+  floorId          String
+  sourceAssetId    String
+  renderedAssetId  String?                 @unique
+  sourceFormat     FloorImportSourceFormat
+  status           FloorImportJobStatus    @default(queued)
+  stage            String                  @default("queued")
+  progressPercent  Int                     @default(0)
+  attemptCount     Int                     @default(0)
+  parserVersion    String?
+  detectorVersion  String?
+  detectorProfileId      String?
+  detectorProfileVersion String?
+  detectorProfileDigest  String?
+  leaseOwner       String?
+  leaseExpiresAt   DateTime?
+  failureCode      String?
+  failureMessage   String?
+  startedAt        DateTime?
+  reviewRequiredAt DateTime?
+  appliedAt        DateTime?
+  completedAt      DateTime?
+  failedAt         DateTime?
+  cancelledAt      DateTime?
+  floor            Floor                   @relation(fields: [floorId], references: [id], onDelete: Cascade)
+  sourceAsset      FloorAsset              @relation("FloorImportSourceAsset", fields: [sourceAssetId], references: [id], onDelete: NoAction)
+  renderedAsset    FloorAsset?             @relation("FloorImportRenderedAsset", fields: [renderedAssetId], references: [id], onDelete: NoAction)
+  candidates       FloorImportCandidate[]
+  lightSlots       FloorLightSlot[]
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+
+  // Migration-only SQL enforces asset role/floor/ready/MIME invariants, lifecycle
+  // state checks, and one active import per floor. Prisma cannot represent these.
+  @@index([floorId, createdAt])
+  @@index([sourceAssetId])
+  @@index([status, leaseExpiresAt, createdAt])
+}
+
+model FloorImportCandidate {
+  id              String                           @id @default(uuid())
+  jobId           String
+  sourceEntityId  String
+  layerName       String
+  blockName       String?
+  x               Float
+  y               Float
+  rotation        Float                            @default(0)
+  confidence      Float
+  detectionMethod FloorImportDetectionMethod
+  provider        String?
+  model           String?
+  inputDigest     String?
+  profileVersion  String @default("legacy-unknown")
+  profileDigest   String @default("0000000000000000000000000000000000000000000000000000000000000000")
+  reviewStatus    FloorImportCandidateReviewStatus @default(pending)
+  reviewedAt      DateTime?
+  job             FloorImportJob                   @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  lightSlot       FloorLightSlot?
+  createdAt       DateTime                         @default(now())
+  updatedAt       DateTime                         @updatedAt
+
+  // Migration-only SQL enforces finite geometry, review timestamps, confidence,
+  // and all-null/all-present AI reproducibility metadata. Prisma cannot express it.
+  @@unique([jobId, sourceEntityId])
+  @@index([jobId, reviewStatus, id])
+}
+
+// No foreign keys: an attempt tombstone must survive a job/floor cascade so a
+// late object PUT from a killed worker remains recoverable.
+model FloorImportAttemptCleanup {
+  jobId          String
+  floorId        String
+  attemptCount   Int
+  assetId        String   @unique
+  objectKey      String   @unique
+  leaseOwner     String?
+  leaseExpiresAt DateTime?
+  nextAttemptAt  DateTime @default(dbgenerated("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC'::text)"))
+  lastCleanedAt  DateTime?
+  cleanedAt      DateTime?
+  lastError      String?
+  committedAt    DateTime?
+  createdAt      DateTime @default(dbgenerated("(CURRENT_TIMESTAMP AT TIME ZONE 'UTC'::text)"))
+  updatedAt      DateTime @updatedAt
+
+  @@id([jobId, attemptCount])
+  @@index([nextAttemptAt, leaseExpiresAt])
 }
 
 model FloorPlan {
@@ -456,6 +578,27 @@ model FloorPlan {
   floor            Floor               @relation(fields: [floorId], references: [id], onDelete: Cascade)
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
+}
+
+model FloorLightSlot {
+  id                String               @id @default(uuid())
+  floorId           String
+  sourceImportJobId String
+  sourceCandidateId String               @unique
+  assignedFixtureId String?              @unique
+  capacityOrdinal   Int                  @default(dbgenerated("0"))
+  x                 Float
+  y                 Float
+  rotation          Float                @default(0)
+  floor             Floor                @relation(fields: [floorId], references: [id], onDelete: Cascade)
+  sourceImportJob   FloorImportJob       @relation(fields: [sourceImportJobId], references: [id], onDelete: Cascade)
+  sourceCandidate   FloorImportCandidate @relation(fields: [sourceCandidateId], references: [id], onDelete: Cascade)
+  assignedFixture   Fixture?             @relation(fields: [assignedFixtureId], references: [id], onDelete: SetNull)
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+
+  @@unique([floorId, capacityOrdinal])
+  @@index([floorId, id])
 }
 
 model Fixture {
@@ -501,6 +644,7 @@ model Fixture {
   energyDailyAggregates      FixtureEnergyDailyAggregate[]
   energyIdentity             EnergyFixtureIdentity?
   monitoringIncidents        MonitoringIncident[]
+  lightSlot                  FloorLightSlot?
   energyStateCursor          FixtureEnergyStateCursor?
   processedStateEvents       ProcessedGatewayEvent[]
   commandResults             CommandFixtureResult[]
@@ -1106,7 +1250,7 @@ model ManualOverride {
   requestedById     String?
   brightnessPercent Int
   startedAt         DateTime
-  overrideUntil     DateTime
+  overrideUntil     DateTime?
   endedAt           DateTime?
   targetCount       Int                     @default(0)
   site              Site                    @relation(fields: [siteId], references: [id], onDelete: Cascade, onUpdate: Restrict)
@@ -1433,6 +1577,7 @@ model EnergyReportJob {
   // The active actor/request unique index and write-once snapshot guard live in SQL.
   // A SQL DELETE trigger preserves private object keys for legacy DELETEs/cascades.
   @@index([siteId, createdAt])
+  @@index([siteId, createdAt, id])
   @@index([status, leaseExpiresAt, createdAt])
   @@index([status, expiresAt, objectDeletedAt])
   @@index([requestedByUserId])

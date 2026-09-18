@@ -27,23 +27,31 @@ describe("StatisticsAnalysisPage", () => {
     expect(screen.getByRole("img", { name: "B1 주차장 일별 사용량 차트" })).toBeInTheDocument();
   });
 
-  it("changes dimension and metric through accessible controls", () => {
+  it("changes dimension and metric through accessible controls", async () => {
     renderPage();
 
     fireEvent.click(screen.getByRole("button", { name: "그룹" }));
-    fireEvent.change(screen.getByLabelText("순위 기준"), { target: { value: "per_fixture_average" } });
+    await chooseSelect("순위 기준", "조명당 평균");
 
     expect(mocks.hook).toHaveBeenLastCalledWith(expect.objectContaining({
       siteId: response.siteId, dimension: "group", metric: "per_fixture_average"
     }));
   });
 
-  it("labels persisted ranking costs with their historical tariff basis", () => {
+  it("exposes ranking filters through design-system selectors and date pickers", () => {
     renderPage();
 
-    expect(screen.getByText("저장 비용", { selector: ".statistics-analysis-summary span" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "순위 기준" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "시작일" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "종료일" })).toBeInTheDocument();
+  });
+
+  it("labels persisted ranking costs with their historical tariff basis", async () => {
+    renderPage();
+
+    expect(screen.getAllByRole("group", { name: "저장 비용" })).toHaveLength(2);
     expect(screen.getByText("비용 합계와 순위는 당시 적용 단가의 저장 비용입니다.")).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText("순위 기준"), { target: { value: "cost" } });
+    await chooseSelect("순위 기준", "저장 비용");
     expect(screen.getByRole("region", { name: "사용량 순위" })).toHaveTextContent(
       "당시 적용 단가의 저장 비용"
     );
@@ -83,6 +91,14 @@ function renderPage() {
       </Routes>
     </MemoryRouter>
   );
+}
+
+async function chooseSelect(label: string, option: string) {
+  const trigger = screen.getByRole("button", { name: label });
+  fireEvent.keyDown(trigger, { key: "ArrowDown" });
+  const choice = await screen.findByRole("option", { name: option });
+  fireEvent.keyDown(choice, { key: "Enter" });
+  fireEvent.keyUp(document.activeElement!, { key: "Enter" });
 }
 
 const response = {

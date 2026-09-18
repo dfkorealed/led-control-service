@@ -316,6 +316,32 @@ vi.mock("./api/client", async (importOriginal) => ({
   apiRequest: vi.fn(() => Promise.resolve({}))
 }));
 
+async function chooseSelect(label: string, option: string) {
+  const trigger = screen.getByRole("button", { name: label });
+  fireEvent.keyDown(trigger, { key: "ArrowDown" });
+  const choice = await screen.findByRole("option", { name: option });
+  fireEvent.keyDown(choice, { key: "Enter" });
+  fireEvent.keyUp(document.activeElement!, { key: "Enter" });
+}
+
+async function selectMapFixture(name: string) {
+  const targetMap = await screen.findByRole("region", { name: "제어 대상 지도" });
+  fireEvent.click(await within(targetMap).findByRole("button", { name: new RegExp(`^${name} `) }));
+}
+
+async function selectSavedGroup(name: string) {
+  fireEvent.click(await screen.findByRole("button", { name: "저장된 구역" }));
+  const confirm = screen.queryByRole("button", { name: "변경" });
+  if (confirm) fireEvent.click(confirm);
+  fireEvent.click(await screen.findByRole("button", { name }));
+}
+
+function manualApplyAction() {
+  const action = document.querySelector<HTMLButtonElement>("[data-control-submit]");
+  if (!action) throw new Error("Manual dimming apply action is not rendered.");
+  return action;
+}
+
 describe("App", () => {
   afterEach(() => {
     authState.user = {
@@ -668,7 +694,7 @@ describe("App", () => {
     );
 
     const siteBadge = await screen.findByTestId("active-site-badge");
-    const topbar = siteBadge.closest<HTMLElement>(".topbar");
+    const topbar = siteBadge.closest<HTMLElement>("header");
 
     expect(siteBadge).toHaveTextContent("Demo Underground Parking");
     expect(siteBadge).not.toHaveTextContent("B2 주차장");
@@ -835,7 +861,7 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findByRole("combobox", { name: "맵 선택" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "맵 선택" })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "전체 조명" })).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toBeInTheDocument();
     expect(screen.getAllByText("관제 센터").length).toBeGreaterThan(0);
@@ -883,10 +909,10 @@ describe("App", () => {
     );
 
     fireEvent.click(await screen.findByRole("link", { name: "제어" }));
-    fireEvent.click(await screen.findByRole("checkbox", { name: "B2-L01 선택" }));
 
-    expect(await screen.findByText("B2-L01: 게이트웨이가 오프라인입니다.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "밝기 적용" })).toBeDisabled();
+    const targetMap = await screen.findByRole("region", { name: "제어 대상 지도" });
+    expect(within(targetMap).getByRole("button", { name: /^B2-L01 / })).toBeDisabled();
+    expect(manualApplyAction()).toBeDisabled();
   });
 
   it("blocks a zone when one of its fixtures is uncontrollable", async () => {
@@ -909,13 +935,11 @@ describe("App", () => {
     );
 
     fireEvent.click(await screen.findByRole("link", { name: "제어" }));
-    const zoneModeButton = await screen.findByRole("button", { name: "구역" });
-    fireEvent.click(zoneModeButton);
-    expect(zoneModeButton).toHaveAttribute("aria-pressed", "true");
-    fireEvent.click(screen.getByRole("button", { name: "B2 Entrance Zone 선택" }));
+    fireEvent.click(await screen.findByRole("button", { name: "저장된 구역" }));
+    const blockedGroup = await screen.findByRole("button", { name: "B2 Entrance Zone" });
 
-    expect(await screen.findByText("B2-L02: 조명이 오프라인입니다.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "밝기 적용" })).toBeDisabled();
+    expect(blockedGroup).toBeDisabled();
+    expect(manualApplyAction()).toBeDisabled();
   });
 
   it("keeps gateway absence details in settings while omitting them from the shell header", async () => {
@@ -930,7 +954,7 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    const topbar = (await screen.findByRole("heading", { name: "모니터링" })).closest<HTMLElement>(".topbar");
+    const topbar = (await screen.findByRole("heading", { name: "모니터링" })).closest<HTMLElement>("header");
     expect(topbar).not.toBeNull();
     expect(within(topbar!).queryByText("게이트웨이 미등록")).not.toBeInTheDocument();
 
@@ -992,9 +1016,8 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    fireEvent.change(await screen.findByRole("combobox", { name: "맵 선택" }), {
-      target: { value: mockDashboard.floors[1].id }
-    });
+    await screen.findByRole("button", { name: "맵 선택" });
+    await chooseSelect("맵 선택", "B1");
     expect(await screen.findByRole("button", { name: "B1-L01 정상 50%" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "B1-L02 정상 55%" }));
@@ -1011,7 +1034,7 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findByRole("combobox", { name: "맵 선택" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "맵 선택" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "맵 편집" })).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "층 도면" })).toBeInTheDocument();
   });
@@ -1047,9 +1070,8 @@ describe("App", () => {
     );
 
     expect(screen.queryByRole("heading", { name: "점검 큐" })).not.toBeInTheDocument();
-    fireEvent.change(await screen.findByRole("combobox", { name: "상세 조명 선택" }), {
-      target: { value: "fixture-real-offline" }
-    });
+    await screen.findByRole("button", { name: "상세 조명 선택" });
+    await chooseSelect("상세 조명 선택", "B2-L-OFFLINE · 오프라인");
 
     expect(await screen.findByRole("heading", { name: "B2-L-OFFLINE" })).toBeInTheDocument();
   });
@@ -1072,7 +1094,7 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findByRole("combobox", { name: "맵 선택" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "맵 선택" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "층 도면" })).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "맵 편집" })).not.toBeInTheDocument();
@@ -1167,12 +1189,9 @@ describe("App", () => {
     );
 
     fireEvent.click(await screen.findByRole("link", { name: "제어" }));
-    const zoneModeButton = await screen.findByRole("button", { name: "구역" });
-    fireEvent.click(zoneModeButton);
-    expect(zoneModeButton).toHaveAttribute("aria-pressed", "true");
-    fireEvent.click(screen.getByRole("button", { name: "B2 Entrance Zone 선택" }));
+    await selectSavedGroup("B2 Entrance Zone");
     fireEvent.click(screen.getByRole("button", { name: "30%" }));
-    fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
+    fireEvent.click(manualApplyAction());
 
     await waitFor(() =>
       expect(apiPost).toHaveBeenCalledWith("/commands/dimming", expect.objectContaining({
@@ -1217,9 +1236,9 @@ describe("App", () => {
     );
 
     fireEvent.click(await screen.findByRole("link", { name: "제어" }));
-    fireEvent.click(await screen.findByRole("checkbox", { name: "B2-L01 선택" }));
-    fireEvent.click(screen.getByRole("checkbox", { name: "B2-L02 선택" }));
-    const applyButton = screen.getByRole("button", { name: "밝기 적용" });
+    await selectMapFixture("B2-L01");
+    await selectMapFixture("B2-L02");
+    const applyButton = manualApplyAction();
     await waitFor(() => expect(applyButton).toBeEnabled());
     fireEvent.click(applyButton);
 
@@ -1235,7 +1254,7 @@ describe("App", () => {
       brightness: 70,
       clientRequestId: expect.any(String)
     }), { signal: expect.any(AbortSignal) }));
-    expect(await screen.findByText("일부 조명 적용 실패", { selector: ".command-progress-card strong" }, { timeout: 3000 })).toBeInTheDocument();
+    expect(await screen.findByText("일부 조명 적용 실패", { selector: "[data-command-progress-card] strong" }, { timeout: 3000 })).toBeInTheDocument();
     expect(screen.getByText("2 / 2 처리")).toBeInTheDocument();
     expect(screen.getByText("B2-L02: 장비 응답 오류")).toBeInTheDocument();
   });
@@ -1264,7 +1283,6 @@ describe("App", () => {
   });
 
   it("confirms dirty editor logout before revoking the session", async () => {
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     window.history.replaceState({}, "", "/settings?siteId=site-2");
     window.history.pushState({}, "", "/settings/floor-plans/floor-b2/edit?siteId=site-2");
     window.history.pushState({ [dirtyEditorSentinelKey]: "dirty-editor" }, "", window.location.href);
@@ -1276,15 +1294,19 @@ describe("App", () => {
       </QueryClientProvider>
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "로그아웃" }));
+    const trigger = await screen.findByRole("button", { name: "로그아웃" });
+    fireEvent.click(trigger);
 
-    expect(confirm).toHaveBeenCalled();
+    const dialog = await screen.findByRole("alertdialog", { name: "로그아웃 확인" });
+    expect(within(dialog).getByText("저장하지 않은 변경사항이 있습니다. 로그아웃하시겠습니까?")).toBeVisible();
+    fireEvent.click(within(dialog).getByRole("button", { name: "취소" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog", { name: "로그아웃 확인" })).not.toBeInTheDocument());
+    expect(trigger).toHaveFocus();
     expect(apiPost).not.toHaveBeenCalledWith("/auth/logout", {});
     useFloorEditorStore.setState({ isDirty: false });
   });
 
   it("returns to the login view after a confirmed logout from a dirty editor", async () => {
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     window.history.replaceState({}, "", "/settings?siteId=site-2");
     window.history.pushState({}, "", "/settings/floor-plans/floor-b2/edit?siteId=site-2");
     window.history.pushState({ [dirtyEditorSentinelKey]: "dirty-editor" }, "", window.location.href);
@@ -1297,11 +1319,35 @@ describe("App", () => {
     );
 
     fireEvent.click(await screen.findByRole("button", { name: "로그아웃" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "로그아웃 확인" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "로그아웃" }));
 
-    expect(confirm).toHaveBeenCalled();
     expect(apiPost).toHaveBeenCalledWith("/auth/logout", {});
     expect(await screen.findByRole("heading", { name: "킨다 로그인" })).toBeInTheDocument();
     expect(useFloorEditorStore.getState().isDirty).toBe(false);
+  });
+
+  it("restores the logout trigger after a confirmed dirty logout request fails", async () => {
+    vi.mocked(apiPost).mockRejectedValueOnce(new Error("logout unavailable"));
+    window.history.replaceState({}, "", "/settings?siteId=site-2");
+    window.history.pushState({}, "", "/settings/floor-plans/floor-b2/edit?siteId=site-2");
+    window.history.pushState({ [dirtyEditorSentinelKey]: "dirty-editor" }, "", window.location.href);
+    useFloorEditorStore.setState({ isDirty: true });
+    const queryClient = new QueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    );
+
+    const trigger = await screen.findByRole("button", { name: "로그아웃" });
+    fireEvent.click(trigger);
+    const dialog = await screen.findByRole("alertdialog", { name: "로그아웃 확인" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "로그아웃" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("로그아웃에 실패했습니다");
+    expect(trigger).toBeEnabled();
+    expect(trigger).toHaveFocus();
   });
 
   it("removes only the authenticated user's command recovery records on logout", async () => {
@@ -1355,8 +1401,8 @@ describe("App", () => {
       );
 
       fireEvent.click(await screen.findByRole("link", { name: "제어" }));
-      fireEvent.click(await screen.findByRole("checkbox", { name: "B2-L01 선택" }));
-      fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
+      await selectMapFixture("B2-L01");
+      fireEvent.click(manualApplyAction());
       await waitFor(() => expect(apiPost).toHaveBeenCalledWith(
         "/commands/dimming",
         expect.anything(),
@@ -1406,8 +1452,8 @@ describe("App", () => {
     );
 
     fireEvent.click(await screen.findByRole("link", { name: "제어" }));
-    fireEvent.click(await screen.findByRole("checkbox", { name: "B2-L01 선택" }));
-    fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
+    await selectMapFixture("B2-L01");
+    fireEvent.click(manualApplyAction());
     await waitFor(() => expect(apiPost).toHaveBeenCalledWith(
       "/commands/dimming",
       expect.anything(),
@@ -1445,8 +1491,8 @@ describe("App", () => {
     );
 
     fireEvent.click(await screen.findByRole("link", { name: "제어" }));
-    fireEvent.click(await screen.findByRole("checkbox", { name: "B2-L01 선택" }));
-    fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
+    await selectMapFixture("B2-L01");
+    fireEvent.click(manualApplyAction());
     await waitFor(() => expect(apiPost).toHaveBeenCalledWith(
       "/commands/dimming",
       expect.anything(),
@@ -1506,8 +1552,8 @@ describe("App", () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(<QueryClientProvider client={client}><App /></QueryClientProvider>);
     fireEvent.click(await screen.findByRole("link", { name: "제어" }));
-    fireEvent.click(await screen.findByRole("checkbox", { name: "B2-L01 선택" }));
-    fireEvent.click(screen.getByRole("button", { name: "밝기 적용" }));
+    await selectMapFixture("B2-L01");
+    fireEvent.click(manualApplyAction());
     fireEvent.click(await screen.findByRole("button", { name: "실제 상태 확인" }));
     fireEvent.click(screen.getByRole("button", { name: "로그아웃" }));
     expect(checkSignal?.aborted).toBe(true);

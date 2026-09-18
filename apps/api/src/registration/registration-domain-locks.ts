@@ -12,6 +12,7 @@ export type RegistrationDomainLockScope = {
 /**
  * Canonical registration-domain row-lock order:
  * Floor -> Gateway -> ProvisioningSession -> DiscoveredMeshNode -> ProvisioningDeviceOutbox.
+ * Device UUID advisory locks are acquired after this row-lock chain.
  *
  * Request paths may lock Site first to re-authorize the actor. Publisher lease
  * claims are deliberately committed in a separate short SKIP LOCKED
@@ -51,6 +52,19 @@ export async function lockRegistrationDomain(
       SELECT "id" FROM "ProvisioningDeviceOutbox"
       WHERE "id" IN (${Prisma.join(outboxIds)})
       ORDER BY "id" FOR UPDATE
+    `;
+  }
+}
+
+export async function lockRegistrationDeviceUuids(
+  tx: Prisma.TransactionClient,
+  deviceUuids: string[]
+) {
+  const sortedDeviceUuids = [...new Set(deviceUuids)].sort();
+  for (const deviceUuid of sortedDeviceUuids) {
+    await tx.$queryRaw<Array<{ locked: boolean }>>`
+      SELECT true AS "locked"
+      FROM pg_advisory_xact_lock(hashtextextended(${deviceUuid}::text, 0))
     `;
   }
 }

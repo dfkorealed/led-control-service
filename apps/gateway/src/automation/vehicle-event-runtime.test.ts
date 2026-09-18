@@ -10,6 +10,22 @@ const sourceB = "00000000-0000-4000-8000-000000000103";
 const ruleId = "00000000-0000-4000-8000-000000000104";
 
 describe("VehicleEventRuntime", () => {
+  it.each([5_000, 5_001])("ends an elapsed hold before processing High at %sms without a tick", (elapsed) => {
+    const clock = fakeClocks("2026-08-30T01:00:00.000Z");
+    const runtime = new VehicleEventRuntime(clock);
+    const state = stateWithCurrent(20);
+    const snapshot = rulesSnapshot([vehicleRule(80, 5, [sourceA])]);
+    runtime.recordInput(state, snapshot, { type: "detected", sourceFixtureId: sourceA });
+    runtime.recordInput(state, snapshot, { type: "cleared", sourceFixtureId: sourceA });
+    clock.advance(elapsed);
+    const events = runtime.recordInput(state, snapshot, { type: "detected", sourceFixtureId: sourceA });
+    expect(events.map((event) => event.kind)).toEqual(["event_ended", "vehicle_detected", "event_started"]);
+    expect(events[0]).toMatchObject({ occurrenceKey: `${ruleId}:2026-08-30T01:00:00.000Z`, payload: { reason: "hold_expired" } });
+    expect(state.vehicleRules[ruleId]).toMatchObject({ startedAt: clock.wallClock().toISOString(), holdUntil: null });
+    expect(events[2]?.occurrenceKey).toBe(`${ruleId}:${clock.wallClock().toISOString()}`);
+    expect(runtime.checkpoint()).toEqual([]);
+    expect(runtime.reconcile(state, snapshot, true)).toEqual([]);
+  });
   it("keeps a rule active while any source is High and never ages out a High", () => {
     const clock = fakeClocks("2026-08-30T01:00:00.000Z");
     const runtime = new VehicleEventRuntime(clock);

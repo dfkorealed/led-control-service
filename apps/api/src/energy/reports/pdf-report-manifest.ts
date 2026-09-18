@@ -1,4 +1,7 @@
-import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFRawStream, decodePDFRawStream } from "pdf-lib";
+import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFRawStream, decodePDFRawStream } from "pdf-lib";
+import { createHash } from "node:crypto";
+import sharp from "sharp";
+import type { ReportVisualManifest } from "./report-pdf-layout";
 import type { ReportManifest } from "./report-renderer";
 import { physicalPdfManifest, type PdfTextRun, type PdfTokenMapping } from "./pdf-report-order";
 
@@ -7,7 +10,10 @@ import { physicalPdfManifest, type PdfTextRun, type PdfTokenMapping } from "./pd
  */
 export async function extractPdfReportManifest(bytes: Uint8Array): Promise<ReportManifest> {
   const pdf = await PDFDocument.load(bytes);
-  const mapping = JSON.parse(pdf.catalog.lookup(PDFName.of("ReportTokenMap"), PDFHexString).decodeText()) as PdfTokenMapping[];
+  // pdf-lib spreads the entire UTF-16 token map onto the call stack. Two full
+  // heatmaps exceed that limit; Buffer decoding is bounded by available memory.
+  const tokenMap = Buffer.from(pdf.catalog.lookup(PDFName.of("ReportTokenMap"), PDFHexString).asBytes());
+  const mapping = JSON.parse(tokenMap.subarray(2).swap16().toString("utf16le")) as PdfTokenMapping[];
   const pages: PdfTextRun[][] = [];
   const cachedFontMaps = new Map<string, Map<string, string>>();
   for (const page of pdf.getPages()) {
@@ -60,3 +66,118 @@ export async function extractPdfReportManifest(bytes: Uint8Array): Promise<Repor
 }
 
 function decodeStream(stream: PDFRawStream): string { return Buffer.from(decodePDFRawStream(stream).decode()).toString(); }
+
+/** Pixel bytes only prove appearance under a known image interpretation. Accept
+ * exactly the pdf-lib PNG profile, plus explicit identity Decode arrays. Reject
+ * other entries (Mask, Matte, ImageMask, DecodeParms, Interpolate, nested SMask,
+ * etc.) instead of silently ignoring color, transparency or sampling changes. */
+function verifyImageDictionary(image: PDFRawStream, width: number, height: number, mask = false): void {
+  const allowed = new Set(["/Type", "/Subtype", "/Width", "/Height", "/BitsPerComponent", "/ColorSpace", "/Filter", "/Length", "/Decode", ...(mask ? [] : ["/SMask"])]);
+  const value = (key: string) => image.dict.lookup(PDFName.of(key));
+  const number = (key: string) => { const entry = value(key); return entry instanceof PDFNumber ? entry.asNumber() : NaN; };
+  if (image.dict.keys().some(key => !allowed.has(key.asString())) ||
+    value("Type")?.toString() !== "/XObject" || value("Subtype")?.toString() !== "/Image" ||
+    value("ColorSpace")?.toString() !== (mask ? "/DeviceGray" : "/DeviceRGB") ||
+    value("Filter")?.toString() !== "/FlateDecode" || number("BitsPerComponent") !== 8 ||
+    number("Width") !== width || number("Height") !== height || number("Length") !== image.getContents().length) {
+    throw new Error("Unsupported report chart image dictionary");
+  }
+  if (image.dict.has(PDFName.of("Decode"))) {
+    const decode = value("Decode");
+    if (!(decode instanceof PDFArray) || decode.size() !== (mask ? 2 : 6)) throw new Error("Unsupported report chart image Decode");
+    for (let index = 0; index < decode.size(); index++) {
+      const entry = decode.lookup(index);
+      if (!(entry instanceof PDFNumber) || entry.asNumber() !== index % 2) throw new Error("Unsupported report chart image Decode");
+    }
+  }
+}
+
+/** Verify the PNG container and the displayed PDF image separately: embedPng
+ * necessarily decodes the container into RGB plus an optional grayscale mask. */
+export async function extractPdfReportVisuals(bytes: Uint8Array): Promise<ReportVisualManifest> {
+  const pdf = await PDFDocument.load(bytes);
+  const mapping = pdf.catalog.lookupMaybe(PDFName.of("ReportVisuals"), PDFArray);
+  const drawn: Array<{ index: number; ref: string }> = [];
+  let imageOperations = 0;
+  for (const page of pdf.getPages()) {
+    const streams = page.node.Contents() as PDFArray;
+    for (let offset = 0; offset < streams.size(); offset++) {
+      const text = decodeStream(streams.lookup(offset, PDFRawStream));
+      imageOperations += [...text.matchAll(/\/Image[^\s]+ Do/g)].length;
+      for (const match of text.matchAll(/\/ReportVisual(\d+) BMC([\s\S]*?)EMC/g)) {
+        // This renderer emits translation, identity rotation, size, identity
+        // skew, then the draw. Reject changed transforms and hidden images.
+        const draw = /^\s*q\s+1 0 0 1 ([\d.]+) ([\d.]+) cm\s+1 0 0 1 0 0 cm\s+([\d.]+) 0 0 ([\d.]+) 0 0 cm\s+1 0 0 1 0 0 cm\s+\/([^\s]+) Do\s+Q\s*$/.exec(match[2]);
+        if (!draw) throw new Error("Invalid report chart drawing");
+        const [, sx, sy, sw, sh, name] = draw;
+        const [x, y, width, height] = [sx, sy, sw, sh].map(Number);
+        if (x < 36 || y < 44 || width <= 0 || height <= 0 || x + width > 559.280001 || y + height > 798 || Math.abs(width / height - 1000 / 560) > 0.000001) throw new Error("Report chart exceeds page bounds");
+        const resources = page.node.Resources()!.lookup(PDFName.of("XObject"), PDFDict);
+        drawn.push({ index: Number(match[1]), ref: resources.get(PDFName.of(name))!.toString() });
+      }
+    }
+  }
+  if (imageOperations !== drawn.length || drawn.length !== (mapping?.size() ?? 0)) throw new Error("Missing or unexpected report chart drawing");
+  const result: ReportVisualManifest = [];
+  for (const [index, drawing] of drawn.entries()) {
+    const entry = mapping!.lookup(index, PDFDict);
+    if (drawing.index !== index || drawing.ref !== entry.get(PDFName.of("Image"))!.toString()) throw new Error("Invalid report chart order or reference");
+    const source = entry.lookup(PDFName.of("Source"));
+    if (!(source instanceof PDFRawStream)) throw new Error("Missing report PNG source stream");
+    const png = Buffer.from(decodePDFRawStream(source).decode());
+    const decoded = await sharp(png).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    const image = entry.lookup(PDFName.of("Image"));
+    if (!(image instanceof PDFRawStream)) throw new Error("Missing report image stream");
+    const { width, height, channels } = decoded.info;
+    if (channels !== 4) throw new Error("Invalid report chart image dimensions");
+    verifyImageDictionary(image, width, height);
+    const rgb = decodePDFRawStream(image).decode();
+    const mask = image.dict.lookup(PDFName.of("SMask"));
+    if (mask && !(mask instanceof PDFRawStream)) throw new Error("Invalid report image alpha mask");
+    if (mask) verifyImageDictionary(mask, width, height, true);
+    const alpha = mask ? decodePDFRawStream(mask).decode() : undefined;
+    if (rgb.length !== width * height * 3 || (alpha && alpha.length !== width * height)) throw new Error("Invalid report chart pixels");
+    for (let pixel = 0; pixel < width * height; pixel++) {
+      if (rgb[pixel * 3] !== decoded.data[pixel * 4] || rgb[pixel * 3 + 1] !== decoded.data[pixel * 4 + 1] || rgb[pixel * 3 + 2] !== decoded.data[pixel * 4 + 2] || (alpha?.[pixel] ?? 255) !== decoded.data[pixel * 4 + 3]) throw new Error("Report chart pixels differ from source PNG");
+    }
+    result.push({ id: entry.lookup(PDFName.of("Id"), PDFHexString).decodeText(), sha256: createHash("sha256").update(png).digest("hex"), width, height });
+  }
+  if (new Set(result.map(image => image.id)).size !== result.length) throw new Error("Duplicate report chart ID");
+  return result;
+}
+
+/** Read the visible caption glyphs via ToUnicode, not metadata/ActualText. */
+export async function extractPdfVisualCaptions(bytes: Uint8Array): Promise<Array<{ title: string; altText: string }>> {
+  const pdf = await PDFDocument.load(bytes);
+  const captions: Array<{ title: string; altText: string }> = [];
+  const maps = new Map<string, Map<string, string>>();
+  for (const page of pdf.getPages()) {
+    const streams = page.node.Contents() as PDFArray;
+    const fonts = page.node.Resources()!.lookup(PDFName.of("Font"), PDFDict);
+    for (let offset = 0; offset < streams.size(); offset++) {
+      const text = decodeStream(streams.lookup(offset, PDFRawStream));
+      for (const caption of text.matchAll(/\/V(\d+)(Title|Alt)H([0-3]) BMC([\s\S]*?)EMC/g)) {
+        let value = ["", "\n", "\r", "\r\n"][Number(caption[3])];
+        for (const run of caption[4].matchAll(/\/([^\s/]+) [\d.]+ Tf[\s\S]*?<([0-9a-f]*)> Tj/gi)) {
+          const ref = fonts.get(PDFName.of(run[1]))!;
+          let characters = maps.get(ref.toString());
+          if (!characters) {
+            characters = new Map();
+            const cmap = decodeStream(pdf.context.lookup(ref, PDFDict).lookup(PDFName.of("ToUnicode")) as PDFRawStream);
+            for (const block of cmap.matchAll(/beginbfchar([\s\S]*?)endbfchar/g)) for (const pair of block[1].matchAll(/<([0-9a-f]+)>\s*<([0-9a-f]+)>/gi)) characters.set(pair[1].toUpperCase().padStart(4, "0"), Buffer.from(pair[2], "hex").swap16().toString("utf16le"));
+            maps.set(ref.toString(), characters);
+          }
+          for (const glyph of run[2].match(/.{4}/g) ?? []) {
+            const character = characters.get(glyph.toUpperCase());
+            if (character === undefined) throw new Error("Unmapped report caption glyph");
+            value += character;
+          }
+        }
+        const index = Number(caption[1]);
+        captions[index] ??= { title: "", altText: "" };
+        captions[index][caption[2] === "Title" ? "title" : "altText"] += value;
+      }
+    }
+  }
+  return captions;
+}

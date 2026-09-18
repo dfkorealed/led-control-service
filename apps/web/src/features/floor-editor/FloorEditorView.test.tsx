@@ -1,7 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { readFileSync } from "node:fs";
 import { act, cleanup, createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../api/client";
 import { FloorEditorView } from "./FloorEditorView";
 import type { FloorAsset, FloorEditorState } from "./editor-types";
@@ -10,6 +9,14 @@ import { saveEditorDraft } from "./editor-drafts";
 import { clearTenantCache } from "../../api/principal-cache";
 
 const floorEditorApi = vi.hoisted(() => ({
+  applyFloorImportJob: vi.fn(),
+  cancelFloorImportJob: vi.fn(),
+  createFloorImportJob: vi.fn(),
+  getActiveFloorImportJob: vi.fn(),
+  getAppliedFloorImportOverlay: vi.fn(),
+  getFloorEditorState: vi.fn(),
+  getFloorImportJob: vi.fn(),
+  listFloorImportCandidates: vi.fn(),
   listFloorEditorRevisions: vi.fn(),
   restoreFloorEditorRevision: vi.fn(),
   saveFloorEditorState: vi.fn(),
@@ -17,9 +24,6 @@ const floorEditorApi = vi.hoisted(() => ({
 }));
 
 vi.mock("../../api/floor-editor", () => floorEditorApi);
-
-const styles = readFileSync("src/styles.css", "utf8");
-let stylesheet: HTMLStyleElement;
 
 const editorState: FloorEditorState = {
   floor: {
@@ -158,15 +162,9 @@ describe("FloorEditorView", () => {
     expect(useFloorEditorStore.getState().isDirty).toBe(true);
     expect(onSaved).not.toHaveBeenCalled();
   });
-  beforeAll(() => {
-    stylesheet = document.createElement("style");
-    stylesheet.textContent = styles;
-    document.head.append(stylesheet);
-  });
-
-  afterAll(() => stylesheet.remove());
-
   beforeEach(() => {
+    floorEditorApi.getActiveFloorImportJob.mockResolvedValue({ job: null });
+    floorEditorApi.getAppliedFloorImportOverlay.mockResolvedValue({ overlay: null });
     floorEditorApi.saveFloorEditorState.mockImplementation(async (_floorId, _payload) => ({
       ...structuredClone(editorState),
       floor: { ...structuredClone(editorState.floor), mapRevision: 8 }
@@ -188,7 +186,10 @@ describe("FloorEditorView", () => {
   });
 
   it("renders toolbar canvas properties save and cancel controls", () => {
-    renderEditor();
+    renderEditor(editorState, {
+      floors: [{ id: "floor-b2", name: "B2" }, { id: "floor-b1", name: "B1" }],
+      onFloorChange: vi.fn()
+    });
 
     expect(screen.getByRole("heading", { name: "B2 맵 편집" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "확대" })).toBeInTheDocument();
@@ -200,13 +201,15 @@ describe("FloorEditorView", () => {
     expect(screen.getByLabelText("B2 편집 캔버스")).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "속성 패널" })).toBeInTheDocument();
     const sidePanel = screen.getByRole("complementary", { name: "맵 편집 정보" });
-    expect(sidePanel).toHaveClass("ui-side-panel", "floor-editor-side-panel");
-    expect(sidePanel.parentElement).toHaveClass("ui-side-panel-layout");
+    expect(sidePanel).toBeVisible();
+    expect(sidePanel.parentElement).toHaveAttribute("data-testid", "floor-editor-layout");
     expect(screen.getByRole("heading", { name: "맵 설정" })).toBeInTheDocument();
-    expect(screen.getByLabelText("맵 너비")).toHaveValue(1200);
-    expect(screen.getByLabelText("맵 높이")).toHaveValue(800);
-    expect(screen.getByLabelText("격자 간격")).toHaveValue(10);
+    expect(screen.getByLabelText("맵 너비")).toHaveValue("1,200");
+    expect(screen.getByLabelText("맵 높이")).toHaveValue("800");
+    expect(screen.getByLabelText("격자 간격")).toHaveValue("10");
     expect(screen.queryByLabelText("조명명")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "층 선택" })).toHaveAttribute("data-react-aria-pressable", "true");
+    expect(screen.getByRole("checkbox", { name: "격자 스냅" }).closest("[data-field]")).toBeInTheDocument();
   });
 
   it("shows only controls that belong to the selected element type", () => {
@@ -288,15 +291,9 @@ describe("FloorEditorView", () => {
     const toolButton = within(toolbar).getByRole("button", { name: "선택" });
     const restoreButton = await screen.findByRole("button", { name: "리비전 5 복구" });
 
-    for (const button of [toolButton, restoreButton]) {
-      const computedStyle = getComputedStyle(button);
-      expect(Number.parseFloat(computedStyle.minWidth)).toBeGreaterThanOrEqual(44);
-      expect(Number.parseFloat(computedStyle.minHeight)).toBeGreaterThanOrEqual(44);
-    }
-
-    expect(styles).toContain("grid-template-columns: 224px minmax(240px, 1fr) 268px");
-    const mobileStyles = styles.slice(styles.lastIndexOf("@media (max-width: 760px)"));
-    expect(mobileStyles).toMatch(/\.floor-editor-toolbar\s*\{[^}]*grid-auto-columns:\s*48px;/s);
+    expect(toolButton).toHaveClass("min-h-12", "min-w-12", "max-compact:min-h-14", "max-compact:min-w-14");
+    expect(restoreButton).toHaveClass("min-h-14", "min-w-14");
+    expect(toolbar).toHaveClass("grid-cols-4", "max-compact:grid-cols-3");
   });
 
   it("keeps save disabled when a route-owned lease makes the editor read-only", () => {
@@ -323,6 +320,7 @@ describe("FloorEditorView", () => {
     act(() => useFloorEditorStore.getState().selectFixture("fixture-1"));
     fireEvent.change(screen.getByLabelText("조명명"), { target: { value: "B2-L01 수정" } });
     fireEvent.change(screen.getByLabelText("정격 전력"), { target: { value: "45" } });
+    fireEvent.blur(screen.getByLabelText("정격 전력"));
     fireEvent.click(screen.getByRole("button", { name: "저장" }));
 
     await waitFor(() => expect(onSaved).toHaveBeenCalledOnce());
@@ -440,6 +438,7 @@ describe("FloorEditorView", () => {
 
     act(() => useFloorEditorStore.getState().selectFixture("fixture-1"));
     fireEvent.change(screen.getByLabelText("크기"), { target: { value: "36" } });
+    fireEvent.blur(screen.getByLabelText("크기"));
     fireEvent.click(screen.getByRole("button", { name: "저장" }));
 
     await waitFor(() => expect(floorEditorApi.saveFloorEditorState).toHaveBeenCalledWith(
@@ -587,33 +586,377 @@ describe("FloorEditorView", () => {
     expect(useFloorEditorStore.getState().isDirty).toBe(true);
   });
 
-  it("links a ready PDF original while preserving the current rendered canvas background", async () => {
+  it("previews CAD review results without registering fixtures and applies with the editor authority", async () => {
+    const jobId = "00000000-0000-4000-8000-000000000020";
+    const candidateId = "00000000-0000-4000-8000-000000000030";
+    const renderedAssetPath = "/api/floors/floor-b2/assets/rendered-cad/content";
     floorEditorApi.uploadFloorAsset.mockResolvedValueOnce({
-      id: "asset-pdf",
+      id: "00000000-0000-4000-8000-000000000010",
       kind: "original",
       status: "ready",
-      mimeType: "application/pdf",
+      mimeType: "application/dxf",
       sizeBytes: 3,
-      sha256: "b".repeat(64),
-      accessPath: "/api/floors/floor-b2/assets/asset-pdf/content"
+      sha256: "a".repeat(64),
+      accessPath: "/api/floors/floor-b2/assets/source-cad/content"
+    });
+    floorEditorApi.createFloorImportJob.mockResolvedValueOnce({
+      jobId,
+      floorId: "floor-b2",
+      sourceAssetId: "00000000-0000-4000-8000-000000000010",
+      renderedAssetId: "rendered-cad",
+      sourceFormat: "dxf",
+      status: "review_required",
+      stage: "review_required",
+      progressPercent: 100,
+      attemptCount: 1,
+      parserVersion: "parser-1",
+      detectorVersion: "detector-1",
+      failureCode: null,
+      sourceAssetPath: "/api/floors/floor-b2/assets/source-cad/content",
+      renderedAssetPath,
+      renderedViewport: { width: 640, height: 360 },
+      startedAt: "2026-09-17T00:00:00.000Z",
+      reviewRequiredAt: "2026-09-17T00:00:01.000Z",
+      appliedAt: null,
+      completedAt: null,
+      failedAt: null,
+      cancelledAt: null,
+      createdAt: "2026-09-17T00:00:00.000Z",
+      updatedAt: "2026-09-17T00:00:01.000Z"
+    });
+    floorEditorApi.listFloorImportCandidates.mockResolvedValueOnce({
+      jobId,
+      candidates: [{
+        id: candidateId,
+        sourceEntityId: "insert-1",
+        layerName: "LIGHT",
+        blockName: "LED",
+        x: 100,
+        y: 120,
+        rotation: 0,
+        confidence: 0.95,
+        detectionMethod: "rule_based",
+        provider: null,
+        model: null,
+        inputDigest: null,
+        reviewStatus: "pending"
+      }]
+    });
+    floorEditorApi.applyFloorImportJob.mockResolvedValueOnce({
+      jobId,
+      status: "completed",
+      revision: 8,
+      acceptedCandidateIds: [candidateId],
+      renderedAssetId: "rendered-cad",
+      floorPlan: {
+        sourceType: "image",
+        imageUrl: renderedAssetPath,
+        originalFileUrl: "/api/floors/floor-b2/assets/source-cad/content",
+        renderedImageUrl: renderedAssetPath,
+        width: 640,
+        height: 360,
+        gridSize: 10
+      }
+    });
+    floorEditorApi.getAppliedFloorImportOverlay
+      .mockResolvedValueOnce({ overlay: null })
+      .mockResolvedValueOnce({
+        overlay: {
+          floorId: "floor-b2",
+          jobId,
+          revision: 8,
+          renderedAssetId: "rendered-cad",
+          renderedAssetPath,
+          renderedViewport: { width: 640, height: 360 },
+          appliedAt: "2026-09-17T00:00:02.000Z",
+          candidates: [{
+            id: candidateId,
+            sourceEntityId: "insert-1",
+            layerName: "LIGHT",
+            blockName: "LED",
+            x: 100,
+            y: 120,
+            rotation: 0,
+            confidence: 0.95,
+            detectionMethod: "rule_based",
+            provider: null,
+            model: null,
+            inputDigest: null,
+            profileVersion: "rules-v1",
+            profileDigest: "a".repeat(64),
+            reviewStatus: "accepted"
+          }]
+        }
+      });
+    const authoritative = {
+      ...structuredClone(editorState),
+      floor: {
+        ...structuredClone(editorState.floor),
+        mapRevision: 8,
+        floorPlan: {
+          ...structuredClone(editorState.floor.floorPlan!),
+          imageUrl: renderedAssetPath,
+          originalFileUrl: "/api/floors/floor-b2/assets/source-cad/content",
+          renderedImageUrl: renderedAssetPath,
+          width: 640,
+          height: 360,
+          version: 2
+        }
+      }
+    };
+    floorEditorApi.getFloorEditorState.mockResolvedValueOnce(authoritative);
+    const onReload = vi.fn();
+    const onSaved = vi.fn();
+    renderEditor(editorState, { onReload, onSaved });
+
+    fireEvent.change(screen.getByLabelText("CAD 파일"), {
+      target: { files: [new File(["dxf"], "parking.dxf", { type: "application/dxf" })] }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "CAD 가져오기" }));
+
+    await screen.findByText("조명 위치 후보 1개를 찾았습니다.");
+    expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("data-background-url", renderedAssetPath);
+    expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("data-cad-candidate-count", "1");
+    expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("data-map-width", "640");
+    expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("data-map-height", "360");
+    expect(useFloorEditorStore.getState().state?.fixtures).toHaveLength(1);
+
+    expect(useFloorEditorStore.getState().zoom).toBeCloseTo(1.175);
+    act(() => useFloorEditorStore.getState().setZoom(0.75));
+    await waitFor(() => expect(useFloorEditorStore.getState().zoom).toBe(0.75));
+
+    act(() => useFloorEditorStore.getState().setViewport({ width: 800, height: 600 }));
+    fireEvent.click(screen.getByRole("button", { name: "맵 맞춤" }));
+    expect(useFloorEditorStore.getState().zoom).toBeCloseTo(1.175);
+
+    fireEvent.click(screen.getByRole("button", { name: "선택한 후보와 배경 적용" }));
+
+    await waitFor(() => expect(floorEditorApi.applyFloorImportJob).toHaveBeenCalledWith("floor-b2", jobId, {
+      expectedRevision: 7,
+      leaseToken: "lease-token",
+      leaseFence: 7,
+      candidateIds: [candidateId]
+    }));
+    await waitFor(() => expect(floorEditorApi.getFloorEditorState).toHaveBeenCalledWith("floor-b2"));
+    expect(useFloorEditorStore.getState()).toMatchObject({
+      isDirty: false,
+      initialState: { floor: { mapRevision: 8, floorPlan: { width: 640, height: 360 } } },
+      state: { floor: { mapRevision: 8, floorPlan: { width: 640, height: 360 } } }
+    });
+    expect(onSaved).toHaveBeenCalledWith(authoritative);
+    expect(onReload).not.toHaveBeenCalled();
+    expect(floorEditorApi.saveFloorEditorState).not.toHaveBeenCalled();
+    expect(floorEditorApi.getAppliedFloorImportOverlay).toHaveBeenCalledTimes(2);
+    expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("data-cad-candidate-count", "1");
+  });
+
+  it("reloads applied CAD candidates as a read-only reference while fixture placement and identify stay enabled", async () => {
+    const candidateId = "00000000-0000-4000-8000-000000000030";
+    const renderedAssetId = "00000000-0000-4000-8000-000000000040";
+    const renderedAssetPath = `/api/floors/floor-b2/assets/${renderedAssetId}/content`;
+    const state = {
+      ...structuredClone(editorState),
+      floor: {
+        ...structuredClone(editorState.floor),
+        floorPlan: {
+          ...structuredClone(editorState.floor.floorPlan!),
+          imageUrl: renderedAssetPath,
+          renderedImageUrl: renderedAssetPath,
+          width: 640,
+          height: 360
+        }
+      }
+    };
+    floorEditorApi.getAppliedFloorImportOverlay.mockResolvedValueOnce({
+      overlay: {
+        floorId: "floor-b2",
+        jobId: "00000000-0000-4000-8000-000000000020",
+        revision: 7,
+        renderedAssetId,
+        renderedAssetPath,
+        renderedViewport: { width: 640, height: 360 },
+        appliedAt: "2026-09-17T00:00:00.000Z",
+        candidates: [{
+          id: candidateId,
+          sourceEntityId: "insert-1",
+          layerName: "LIGHT",
+          blockName: "LED",
+          x: 100,
+          y: 120,
+          rotation: 0,
+          confidence: 0.95,
+          detectionMethod: "rule_based",
+          provider: null,
+          model: null,
+          inputDigest: null,
+          profileVersion: "rules-v1",
+          profileDigest: "a".repeat(64),
+          reviewStatus: "accepted"
+        }]
+      }
+    });
+
+    renderEditor(state);
+
+    await waitFor(() => expect(screen.getByLabelText("B2 편집 캔버스"))
+      .toHaveAttribute("data-cad-candidate-count", "1"));
+    expect(floorEditorApi.getAppliedFloorImportOverlay).toHaveBeenCalledWith("floor-b2");
+    expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("data-background-url", renderedAssetPath);
+    expect(screen.getByRole("button", { name: "선택" })).toBeEnabled();
+
+    act(() => useFloorEditorStore.getState().selectFixture("fixture-1"));
+    expect(screen.getByRole("button", { name: "확인 시작" })).toBeEnabled();
+    expect(useFloorEditorStore.getState().state?.fixtures).toHaveLength(1);
+  });
+
+  it("refreshes the applied overlay revision after saving registered fixture placement", async () => {
+    const candidateId = "00000000-0000-4000-8000-000000000030";
+    const renderedAssetId = "00000000-0000-4000-8000-000000000040";
+    const renderedAssetPath = `/api/floors/floor-b2/assets/${renderedAssetId}/content`;
+    const state = {
+      ...structuredClone(editorState),
+      floor: {
+        ...structuredClone(editorState.floor),
+        floorPlan: {
+          ...structuredClone(editorState.floor.floorPlan!),
+          imageUrl: renderedAssetPath,
+          renderedImageUrl: renderedAssetPath
+        }
+      }
+    };
+    const response = (revision: number) => ({
+      overlay: {
+        floorId: "floor-b2",
+        jobId: "00000000-0000-4000-8000-000000000020",
+        revision,
+        renderedAssetId,
+        renderedAssetPath,
+        renderedViewport: { width: 1200, height: 800 },
+        appliedAt: "2026-09-17T00:00:00.000Z",
+        candidates: [{
+          id: candidateId,
+          sourceEntityId: "insert-1",
+          layerName: "LIGHT",
+          blockName: "LED",
+          x: 100,
+          y: 120,
+          rotation: 0,
+          confidence: 0.95,
+          detectionMethod: "rule_based",
+          provider: null,
+          model: null,
+          inputDigest: null,
+          profileVersion: "rules-v1",
+          profileDigest: "a".repeat(64),
+          reviewStatus: "accepted"
+        }]
+      }
+    });
+    floorEditorApi.getAppliedFloorImportOverlay
+      .mockResolvedValueOnce(response(7))
+      .mockResolvedValueOnce(response(8));
+    floorEditorApi.saveFloorEditorState.mockResolvedValueOnce({
+      ...structuredClone(state),
+      floor: { ...structuredClone(state.floor), mapRevision: 8 },
+      fixtures: [{ ...structuredClone(state.fixtures[0]), x: 240 }]
+    });
+    renderEditor(state);
+    await waitFor(() => expect(screen.getByLabelText("B2 편집 캔버스"))
+      .toHaveAttribute("data-cad-candidate-count", "1"));
+
+    act(() => useFloorEditorStore.getState().updateFixture("fixture-1", { x: 240 }));
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+
+    await waitFor(() => expect(floorEditorApi.getAppliedFloorImportOverlay).toHaveBeenCalledTimes(2));
+    expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("data-cad-candidate-count", "1");
+  });
+
+  it("connects a CAD apply conflict to the editor reload conflict UX", async () => {
+    const jobId = "00000000-0000-4000-8000-000000000020";
+    floorEditorApi.getActiveFloorImportJob.mockResolvedValueOnce({
+      job: {
+        jobId,
+        floorId: "floor-b2",
+        sourceAssetId: "source-cad",
+        renderedAssetId: "rendered-cad",
+        sourceFormat: "dxf",
+        status: "review_required",
+        stage: "review_required",
+        progressPercent: 100,
+        attemptCount: 1,
+        parserVersion: "parser-1",
+        detectorVersion: "detector-1",
+        failureCode: null,
+        sourceAssetPath: "/source",
+        renderedAssetPath: "/rendered",
+        renderedViewport: { width: 640, height: 360 },
+        startedAt: null,
+        reviewRequiredAt: null,
+        appliedAt: null,
+        completedAt: null,
+        failedAt: null,
+        cancelledAt: null,
+        createdAt: "2026-09-17T00:00:00.000Z",
+        updatedAt: "2026-09-17T00:00:01.000Z"
+      }
+    });
+    floorEditorApi.listFloorImportCandidates.mockResolvedValueOnce({ jobId, candidates: [{
+      id: "00000000-0000-4000-8000-000000000030",
+      sourceEntityId: "insert-1", layerName: "LIGHT", blockName: "LED", x: 100, y: 120,
+      rotation: 0, confidence: 0.95, detectionMethod: "rule_based", provider: null, model: null,
+      inputDigest: null, reviewStatus: "pending"
+    }] });
+    floorEditorApi.applyFloorImportJob.mockRejectedValueOnce(new ApiError("conflict", 409, null));
+    floorEditorApi.getFloorImportJob.mockResolvedValueOnce({
+      jobId,
+      floorId: "floor-b2",
+      sourceAssetId: "source-cad",
+      renderedAssetId: "rendered-cad",
+      sourceFormat: "dxf",
+      status: "review_required",
+      stage: "review_required",
+      progressPercent: 100,
+      attemptCount: 1,
+      parserVersion: "parser-1",
+      detectorVersion: "detector-1",
+      failureCode: null,
+      sourceAssetPath: "/source",
+      renderedAssetPath: "/rendered",
+      renderedViewport: { width: 640, height: 360 },
+      startedAt: null,
+      reviewRequiredAt: null,
+      appliedAt: null,
+      completedAt: null,
+      failedAt: null,
+      cancelledAt: null,
+      createdAt: "2026-09-17T00:00:00.000Z",
+      updatedAt: "2026-09-17T00:00:01.000Z"
     });
     renderEditor();
-    fireEvent.change(screen.getByLabelText("도면 파일"), {
-      target: { files: [new File(["pdf"], "parking.pdf", { type: "application/pdf" })] }
-    });
-    fireEvent.click(screen.getByRole("button", { name: "도면 업로드" }));
 
-    const linked = await screen.findByText("PDF 원본이 연결되었습니다.");
-    expect(linked.closest("[role=status]")).toHaveAttribute("data-tone", "success");
-    expect(useFloorEditorStore.getState().state?.floor.floorPlan).toMatchObject({
-      sourceType: "pdf",
-      imageUrl: "/demo/floor-b2.svg",
-      originalFileUrl: "/api/floors/floor-b2/assets/asset-pdf/content",
-      renderedImageUrl: "/demo/floor-b2.svg",
-      version: 2
+    await screen.findByText("조명 위치 후보 1개를 찾았습니다.");
+    fireEvent.click(screen.getByRole("button", { name: "선택한 후보와 배경 적용" }));
+
+    expect(await screen.findByText("최신 맵과 변경사항이 충돌했습니다.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "최신 버전 다시 불러오기" })).toBeInTheDocument();
+  });
+
+  it("keeps an existing PDF floor plan visible while removing PDF from new upload choices", () => {
+    renderEditor({
+      ...editorState,
+      floor: {
+        ...editorState.floor,
+        floorPlan: {
+          ...editorState.floor.floorPlan!,
+          sourceType: "pdf",
+          originalFileUrl: "/api/floors/floor-b2/assets/original.pdf"
+        }
+      }
     });
+
     expect(screen.getByLabelText("B2 편집 캔버스")).toHaveClass("has-plan");
-    expect(useFloorEditorStore.getState().isDirty).toBe(true);
+    expect(screen.getByLabelText("도면 파일")).not.toHaveAttribute("accept", expect.stringContaining("pdf"));
+    expect(useFloorEditorStore.getState().state?.floor.floorPlan?.sourceType).toBe("pdf");
   });
 
   it("locks save restore and floor switching while an upload is pending", async () => {
@@ -635,7 +978,8 @@ describe("FloorEditorView", () => {
     fireEvent.click(screen.getByRole("button", { name: "도면 업로드" }));
 
     expect(floorEditorApi.uploadFloorAsset).toHaveBeenCalledOnce();
-    expect(screen.getByRole("combobox", { name: "층 선택" })).toBeDisabled();
+    const floorSelect = screen.getByRole("button", { name: "층 선택" });
+    expect(floorSelect).toBeDisabled();
     expect(screen.getByRole("button", { name: "저장" })).toBeDisabled();
     expect(screen.getByLabelText("도면 파일")).toBeDisabled();
     expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("aria-disabled", "true");
@@ -644,7 +988,7 @@ describe("FloorEditorView", () => {
 
     act(() => useFloorEditorStore.getState().adoptBaseline(useFloorEditorStore.getState().state!));
     expect(restoreButton).toBeDisabled();
-    fireEvent.change(screen.getByRole("combobox", { name: "층 선택" }), { target: { value: "floor-b1" } });
+    fireEvent.click(floorSelect);
     expect(onFloorChange).not.toHaveBeenCalled();
 
     upload.resolve({
@@ -657,7 +1001,7 @@ describe("FloorEditorView", () => {
       accessPath: "/api/floors/floor-b2/assets/asset-image/content"
     });
     await screen.findByText("도면 배경이 편집 초안에 적용되었습니다.");
-    expect(screen.getByRole("combobox", { name: "층 선택" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "층 선택" })).toBeEnabled();
   });
 
   it("keeps current edits and dirty state after a network failure", async () => {
@@ -674,7 +1018,6 @@ describe("FloorEditorView", () => {
 
   it("409 충돌은 최신 버전 다시 불러오기만 제공한다", async () => {
     const onReload = vi.fn();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     floorEditorApi.saveFloorEditorState.mockRejectedValueOnce(
       new ApiError("PUT failed", 409, { message: "revision conflict" })
     );
@@ -690,8 +1033,25 @@ describe("FloorEditorView", () => {
     expect(screen.queryByRole("button", { name: /강제/ })).not.toBeInTheDocument();
     expect(within(feedback).getAllByRole("button")).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "최신 버전 다시 불러오기" }));
+
+    const dialog = screen.getByRole("dialog", { name: "로컬 변경사항을 버릴까요?" });
+    expect(dialog).toHaveTextContent("최신 버전을 불러오면 저장하지 않은 변경사항을 복구할 수 없습니다.");
+    expect(onReload).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "변경사항 버리기" }));
     expect(onReload).toHaveBeenCalledOnce();
     expect(useFloorEditorStore.getState().isDirty).toBe(false);
+  });
+
+  it("returns focus to the registered fixture row after unplacing a fixture", async () => {
+    renderEditor();
+    act(() => useFloorEditorStore.getState().selectFixture("fixture-1"));
+
+    fireEvent.click(screen.getByRole("button", { name: "배치 해제" }));
+    const dialog = screen.getByRole("dialog", { name: "이 조명을 맵에서 제거할까요?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "배치 해제" }));
+
+    const row = await screen.findByTestId("placement-fixture-fixture-1");
+    await waitFor(() => expect(row).toHaveFocus());
   });
 
   it("invalidates site and floor scoped queries after atomic save", async () => {

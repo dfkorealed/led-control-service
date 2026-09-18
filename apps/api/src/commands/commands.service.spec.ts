@@ -269,7 +269,7 @@ describe("CommandsService", () => {
     expect(tx.command.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { siteId: ids.site, outcome: "unknown" } }));
   });
 
-  it("defaults a timed override, persists its authoritative fixture snapshot, and includes it in the gateway payload", async () => {
+  it("persists a non-expiring manual audit row and omits legacy expiry from the gateway payload", async () => {
     const { automationSnapshot, now, service, tx } = createHarness({
       fixtures: [fixture(ids.fixture1), fixture(ids.fixture2)]
     });
@@ -279,7 +279,7 @@ describe("CommandsService", () => {
       clientRequestId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       target: { type: "fixtures", fixtureIds: [ids.fixture2, ids.fixture1] },
       brightness: 75
-    })).resolves.toMatchObject({ overrideUntil: "2026-08-29T01:00:00.000Z" });
+    })).resolves.not.toHaveProperty("overrideUntil");
 
     expect(automationSnapshot.lockMutation).toHaveBeenCalledWith(tx);
     expect(tx.manualOverride.create).toHaveBeenCalledWith({ data: expect.objectContaining({
@@ -288,14 +288,14 @@ describe("CommandsService", () => {
       requestedById: ids.user,
       brightnessPercent: 75,
       startedAt: now,
-      overrideUntil: new Date("2026-08-29T01:00:00.000Z"),
+      overrideUntil: null,
       fixtures: { createMany: { data: [
         { fixtureId: ids.fixture1 },
         { fixtureId: ids.fixture2 }
       ] } }
     }) });
     expect(tx.mqttOutbox.create).toHaveBeenCalledWith({ data: expect.objectContaining({
-      payload: expect.objectContaining({ overrideUntil: "2026-08-29T01:00:00.000Z" })
+      payload: expect.not.objectContaining({ overrideUntil: expect.anything() })
     }) });
     expect(tx.mqttOutbox.create.mock.calls[0][0].data.payload).not.toHaveProperty("requestedBy");
   });
@@ -324,7 +324,7 @@ describe("CommandsService", () => {
         siteId: ids.site,
         requestedBy: ids.user,
         clientRequestId,
-        requestFingerprint: legacyFingerprint({ type: "fixture", fixtureId: ids.fixture1 }, 75),
+        requestFingerprint: fingerprint({ type: "fixture", fixtureId: ids.fixture1 }, 75),
         targetType: "fixture",
         targetId: ids.fixture1,
         targetFixtureIds: [ids.fixture1],
@@ -350,40 +350,131 @@ describe("CommandsService", () => {
     expect(tx.manualOverride.create).not.toHaveBeenCalled();
   });
 
-  it("returns an existing explicit override after its end time passes", async () => {
-    const { service, setNow, tx } = createHarness({ fixtures: [fixture(ids.fixture1)] });
-    const input = {
-      siteId: ids.site,
-      clientRequestId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-      target: { type: "fixture" as const, fixtureId: ids.fixture1 },
-      brightness: 75,
-      overrideUntil: "2026-08-29T00:30:00.000Z"
-    };
-
-    const created = await service.createDimmingCommand(operator, input);
-    setNow(new Date("2026-08-29T00:30:01.000Z"));
-
-    await expect(service.createDimmingCommand(operator, input)).resolves.toEqual(created);
-    expect(tx.command.create).toHaveBeenCalledTimes(1);
-    expect(tx.manualOverride.create).toHaveBeenCalledTimes(1);
-  });
-
-  it.each([
-    ["past", "2026-08-28T23:59:59.000Z"],
-    ["at the current instant", "2026-08-29T00:00:00.000Z"],
-    ["beyond thirty days", "2026-09-28T00:00:00.001Z"],
-    ["not an ISO instant", "2026-08-29 01:00:00"]
-  ])("rejects a %s overrideUntil", async (_label, overrideUntil) => {
-    const { service, tx } = createHarness({ fixtures: [fixture(ids.fixture1)] });
+  it("recovers a timed legacy command from its stored expiry fingerprint", async () => {
+    const clientRequestId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const { service, tx } = createHarness({
+      existingCommand: {
+        id: ids.command,
+        siteId: ids.site,
+        requestedBy: ids.user,
+        clientRequestId,
+        requestFingerprint: "47716c542c31d9bb698a96658b1989e773b6419041585fdb22fe8b28291ff77f",
+        targetType: "fixture",
+        targetId: ids.fixture1,
+        targetFixtureIds: [ids.fixture1],
+        brightness: 75,
+        createdAt: new Date("2026-07-01T00:00:00.000Z"),
+        manualOverride: { overrideUntil: new Date("2026-08-29T01:00:00.000Z") },
+        dispatches: [{ deliveryMode: "unicast" }]
+      }
+    });
 
     await expect(service.createDimmingCommand(operator, {
       siteId: ids.site,
-      clientRequestId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      clientRequestId,
       target: { type: "fixture", fixtureId: ids.fixture1 },
-      brightness: 75,
-      overrideUntil
-    })).rejects.toMatchObject({ status: 400 });
+      brightness: 75
+    })).resolves.toMatchObject({ id: ids.command, deliveryMode: "unicast" });
+    await expect(service.createDimmingCommand(operator, {
+      siteId: ids.site,
+      clientRequestId,
+      target: { type: "fixture", fixtureId: ids.fixture1 },
+      brightness: 75
+    })).resolves.not.toHaveProperty("overrideUntil");
     expect(tx.command.create).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      history: "omitted-expiry default",
+      requestFingerprint: "ebb97ca49953e447f57bf56e48c9f3db04c18e351d9cd0b01e7d5192fffa3fc0",
+      storedOverrideUntil: "2026-08-29T01:00:00.000Z"
+    },
+    {
+      history: "noncanonical fractional precision",
+      requestFingerprint: "2c3da047f757e65ab82b29951ea2ec8aec10647c74a9b97f0e52ab58ce275288",
+      storedOverrideUntil: "2026-08-29T01:00:00.100Z"
+    }
+  ])("recovers a historical $history command from stored command semantics", async ({
+    requestFingerprint,
+    storedOverrideUntil
+  }) => {
+    const clientRequestId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const { service, tx } = createHarness({
+      existingCommand: {
+        id: ids.command,
+        siteId: ids.site,
+        requestedBy: ids.user,
+        clientRequestId,
+        requestFingerprint,
+        targetType: "fixture",
+        targetId: ids.fixture1,
+        targetFixtureIds: [ids.fixture1],
+        brightness: 75,
+        createdAt: new Date("2026-07-01T00:00:00.000Z"),
+        manualOverride: { overrideUntil: new Date(storedOverrideUntil) },
+        dispatches: [{ deliveryMode: "unicast" }]
+      }
+    });
+
+    await expect(service.createDimmingCommand(operator, {
+      siteId: ids.site,
+      clientRequestId,
+      target: { type: "fixture", fixtureId: ids.fixture1 },
+      brightness: 75
+    })).resolves.toMatchObject({ id: ids.command, deliveryMode: "unicast" });
+    expect(tx.command.create).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["brightness", { target: { type: "fixture" as const, fixtureId: ids.fixture1 }, brightness: 74 }],
+    ["target", { target: { type: "fixture" as const, fixtureId: ids.fixture2 }, brightness: 75 }]
+  ])("rejects a historical request ID reused with different %s semantics", async (_difference, changed) => {
+    const clientRequestId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const { service } = createHarness({
+      existingCommand: {
+        id: ids.command,
+        siteId: ids.site,
+        requestedBy: ids.user,
+        clientRequestId,
+        requestFingerprint: "ebb97ca49953e447f57bf56e48c9f3db04c18e351d9cd0b01e7d5192fffa3fc0",
+        targetType: "fixture",
+        targetId: ids.fixture1,
+        targetFixtureIds: [ids.fixture1],
+        brightness: 75,
+        createdAt: new Date("2026-07-01T00:00:00.000Z"),
+        manualOverride: { overrideUntil: new Date("2026-08-29T01:00:00.000Z") },
+        dispatches: [{ deliveryMode: "unicast" }]
+      }
+    });
+
+    await expect(service.createDimmingCommand(operator, {
+      siteId: ids.site,
+      clientRequestId,
+      ...changed
+    })).rejects.toMatchObject({ response: { code: "client_request_id_payload_conflict" } });
+  });
+
+  it("normalizes different legacy overrideUntil values to the same idempotent command", async () => {
+    const { service, tx } = createHarness({ fixtures: [fixture(ids.fixture1)] });
+    const canonicalInput = {
+      siteId: ids.site,
+      clientRequestId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      target: { type: "fixture" as const, fixtureId: ids.fixture1 },
+      brightness: 75
+    };
+
+    const created = await service.createDimmingCommand(operator, {
+      ...canonicalInput,
+      overrideUntil: "2026-08-29T00:30:00.000Z"
+    } as typeof canonicalInput);
+
+    await expect(service.createDimmingCommand(operator, {
+      ...canonicalInput,
+      overrideUntil: "2026-08-29T00:45:00.000Z"
+    } as typeof canonicalInput)).resolves.toEqual(created);
+    expect(tx.command.create).toHaveBeenCalledTimes(1);
+    expect(tx.manualOverride.create).toHaveBeenCalledTimes(1);
   });
 
   it("reauthorizes control access as the first step of the dimming write transaction", async () => {
@@ -741,8 +832,7 @@ function fingerprint(
     | { type: "fixtures"; fixtureIds: string[] }
     | { type: "floor"; floorId: string }
     | { type: "group"; groupId: string },
-  brightness: number,
-  overrideUntil?: string
+  brightness: number
 ) {
   const canonicalTarget = target.type === "fixture"
     ? [target.type, target.fixtureId]
@@ -753,25 +843,6 @@ function fingerprint(
         : [target.type, target.groupId];
   return createHash("sha256").update(JSON.stringify({
     target: canonicalTarget,
-    brightness,
-    overrideUntil: overrideUntil ?? null
+    brightness
   })).digest("hex");
-}
-
-function legacyFingerprint(
-  target:
-    | { type: "fixture"; fixtureId: string }
-    | { type: "fixtures"; fixtureIds: string[] }
-    | { type: "floor"; floorId: string }
-    | { type: "group"; groupId: string },
-  brightness: number
-) {
-  const canonicalTarget = target.type === "fixture"
-    ? [target.type, target.fixtureId]
-    : target.type === "fixtures"
-      ? [target.type, ...target.fixtureIds.slice().sort()]
-      : target.type === "floor"
-        ? [target.type, target.floorId]
-        : [target.type, target.groupId];
-  return createHash("sha256").update(JSON.stringify({ target: canonicalTarget, brightness })).digest("hex");
 }

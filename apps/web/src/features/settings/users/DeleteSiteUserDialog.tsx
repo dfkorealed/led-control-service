@@ -1,6 +1,6 @@
 import { useRef, useState, type FormEvent } from "react";
 import { deleteSiteUser, type SiteUserSummary } from "../../../api/site-users";
-import { Button, ModalDialog } from "../../../components/ui";
+import { Button, ModalDialog, TextField } from "../../../components/ui";
 import { siteUserErrorMessage } from "./site-user-form";
 
 export function DeleteSiteUserDialog({ siteId, user, returnFocusElement, fallbackFocusElement, onClose, onCompleted, onMutationError }: {
@@ -53,14 +53,10 @@ export function DeleteSiteUserDialog({ siteId, user, returnFocusElement, fallbac
       <Button type="submit" form="delete-site-user" variant="danger" disabled={!matches} isLoading={isPending} loadingLabel="삭제 중">영구 삭제</Button>
     </>}
   >
-    <div className="site-user-delete-warning">계정과 현장 소속 정보, 로그인 세션이 완전히 삭제됩니다. 기존 조명 제어 이력은 보존되며 사용자 정보만 익명화됩니다.</div>
-    <form id="delete-site-user" className="site-user-form" onSubmit={submit} noValidate>
-      <div className="site-user-field">
-        <label htmlFor="delete-site-user-confirmation">확인 로그인 아이디</label>
-        <p>확인을 위해 <strong>{user.loginId}</strong>를 정확히 입력하세요.</p>
-        <input ref={confirmationRef} id="delete-site-user-confirmation" value={confirmation} onChange={(event) => { setConfirmation(event.target.value); setError(""); }} autoComplete="off" />
-      </div>
-      {error ? <p className="site-user-form-alert" role="alert">{error}</p> : null}
+    <div className="rounded-control border border-status-danger-border bg-status-danger-background p-4 text-status-danger-foreground">계정과 현장 소속 정보, 로그인 세션이 완전히 삭제됩니다. 기존 조명 제어 이력은 보존되며 사용자 정보만 익명화됩니다.</div>
+    <form id="delete-site-user" className="mt-5 grid gap-4" onSubmit={submit} noValidate>
+      <TextField ref={confirmationRef} id="delete-site-user-confirmation" label="확인 로그인 아이디" description={<>확인을 위해 <strong>{user.loginId}</strong>를 정확히 입력하세요.</>} value={confirmation} onChange={(value) => { setConfirmation(value); setError(""); }} autoComplete="off" />
+      {error ? <p className="rounded-control border border-status-danger-border bg-status-danger-background p-3 text-status-danger-foreground" role="alert">{error}</p> : null}
     </form>
   </ModalDialog>;
 }

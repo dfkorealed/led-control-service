@@ -3,9 +3,16 @@ import Konva from "konva";
 import { Circle, Group, Text } from "react-konva";
 import type { EditorFixture } from "./editor-types";
 
-const colors = { online: "#159f81", offline: "#8b929f", fault: "#d84c58" };
-export const EditorFixtureNode = memo(function EditorFixtureNode({ fixture, selected, interactive, showName, register, onSelect, onDragStart, onDragMove, onDragEnd, onTransform }: {
+export interface EditorFixturePalette {
+  status: Record<EditorFixture["status"], string>;
+  selected: string;
+  border: string;
+  label: string;
+}
+
+export const EditorFixtureNode = memo(function EditorFixtureNode({ fixture, selected, interactive, showName, colors, register, onSelect, onDragStart, onDragMove, onDragEnd, onTransform }: {
   fixture: EditorFixture; selected: boolean; interactive: boolean; showName: boolean;
+  colors: EditorFixturePalette;
   register: (id: string, node: Konva.Node | null) => void;
   onSelect: (id: string, additive: boolean) => void;
   onDragStart: (id: string) => void;
@@ -18,7 +25,7 @@ export const EditorFixtureNode = memo(function EditorFixtureNode({ fixture, sele
     onClick={(e) => { e.cancelBubble = true; onSelect(fixture.id, e.evt.shiftKey); }} onTap={() => onSelect(fixture.id, false)}
     onDragStart={() => onDragStart(fixture.id)} onDragMove={(e) => onDragMove(fixture.id, e.target)}
     onDragEnd={(e) => onDragEnd(fixture.id, e.target)} onTransformEnd={(e) => onTransform(fixture.id, e.target)}>
-    <Circle radius={(fixture.size ?? 20) / 2} fill={colors[fixture.status]} stroke={selected ? "#185ed0" : "#ffffff"} strokeWidth={selected ? 3 : 2} perfectDrawEnabled={false} shadowEnabled={false} />
-    {showName && <Text name="fixture-name" x={(fixture.size ?? 20) / 2 + 5} y={-7} text={fixture.name} width={150} ellipsis wrap="none" fontSize={12} fontStyle="bold" fill="#252d3a" listening={false} />}
+    <Circle radius={(fixture.size ?? 20) / 2} fill={colors.status[fixture.status]} stroke={selected ? colors.selected : colors.border} strokeWidth={selected ? 3 : 2} perfectDrawEnabled={false} shadowEnabled={false} />
+    {showName && <Text name="fixture-name" x={(fixture.size ?? 20) / 2 + 5} y={-7} text={fixture.name} width={150} ellipsis wrap="none" fontSize={12} fontStyle="bold" fill={colors.label} listening={false} />}
   </Group>;
 });

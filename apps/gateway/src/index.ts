@@ -62,7 +62,7 @@ import {
   type GatewayCommandReceipt,
   type GatewayCommandResult,
   type GatewayFixtureObservation,
-  type ManualOverrideCoordinator
+  type ManualControlCoordinator
 } from "./commands/gateway-command-handler";
 import { EventSequenceStore } from "./state/event-sequence-store";
 import { ProvisioningScanJournal } from "./state/provisioning-scan-journal";
@@ -201,39 +201,21 @@ export function createGatewayAutomationServices(options: {
   return { scheduleRuntime, automationRuntime };
 }
 
-export function createManualOverrideCoordinator(
-  runtime: Pick<ScheduleRuntime, "prepareManualOverride" | "handoffManualTerminal">,
-  monotonicClock?: () => number
-): ManualOverrideCoordinator {
+export function createManualControlCoordinator(
+  runtime: Pick<ScheduleRuntime, "prepareManualControl" | "handoffManualTerminal" | "captureManualTerminalContext">
+): ManualControlCoordinator {
   return {
-    prepare: async (command, receipt) => {
-      const elapsedSinceReceiptMs = receipt && monotonicClock
-        ? Math.max(0, Math.floor(monotonicClock() - receipt.receivedAtMonotonicMs))
-        : 0;
-      const brokerRemainingTtlMs = Math.max(
-        1,
-        (receipt?.brokerRemainingTtlMs ?? GATEWAY_COMMAND_ACCEPTANCE_DEADLINE_MS) - elapsedSinceReceiptMs
-      );
-      const transitAgeMs = "deliveryWindowMs" in command
-        ? Math.max(0, command.deliveryWindowMs - (receipt?.brokerRemainingTtlMs ?? command.deliveryWindowMs))
-        : 0;
-      const overrideRemainingMs = "overrideRemainingMs" in command && command.overrideRemainingMs !== undefined
-        ? Math.max(1, command.overrideRemainingMs - transitAgeMs - elapsedSinceReceiptMs)
-        : undefined;
-      await runtime.prepareManualOverride({
-        sourceId: command.commandId,
-        fixtureIds: command.targetFixtureIds,
-        brightnessPercent: command.brightness,
-        startedAt: command.requestedAt,
-        overrideUntil: command.overrideUntil!,
-        deliveryWindowMs: brokerRemainingTtlMs,
-        ...(overrideRemainingMs === undefined ? {} : { overrideRemainingMs }),
-        ...("deliveryGeneration" in command ? {} : { timingSource: "legacy_wire" as const })
-      });
-    },
-    handoff: (command, terminal) => runtime.handoffManualTerminal(
+    captureTerminalContext: (command, terminal) => runtime.captureManualTerminalContext(command.commandId, manualTerminalResults(terminal)),
+    prepare: (command) => runtime.prepareManualControl({
+      sourceId: command.commandId,
+      fixtureIds: command.targetFixtureIds,
+      brightnessPercent: command.brightness,
+      requestedAt: command.requestedAt
+    }),
+    handoff: (command, terminal, context = "live") => runtime.handoffManualTerminal(
       command.commandId,
-      manualTerminalResults(terminal)
+      manualTerminalResults(terminal),
+      context
     )
   };
 }
@@ -723,10 +705,10 @@ async function main() {
     );
   }
   const gatewayMonotonicClock = softwareAutomationSimulator?.monotonicClock ?? (() => performance.now());
-  const manualOverrideCoordinator = createManualOverrideCoordinator(scheduleRuntime, gatewayMonotonicClock);
+  const manualControlCoordinator = createManualControlCoordinator(scheduleRuntime);
   await initializeAutomationBeforeManualRecovery(
     automationRuntime,
-    () => recoverPendingManualAutomationHandoffs(commandJournal, manualOverrideCoordinator)
+    () => recoverPendingManualAutomationHandoffs(commandJournal, manualControlCoordinator)
   );
   if (automationRuntime.currentRevision !== null) {
     await automationTelemetryCoordinator.flush(automationRuntime.currentRevision);
@@ -874,7 +856,7 @@ async function main() {
           receipt,
           monotonicClock: gatewayMonotonicClock,
           onDurableReceipt: () => control?.acknowledgeDurable(),
-          automation: manualOverrideCoordinator,
+          automation: manualControlCoordinator,
           onAutomationError: (error) => void reportGatewayError(error, "automation_manual_handoff")
         }
       );

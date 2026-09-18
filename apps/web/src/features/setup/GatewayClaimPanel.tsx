@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Clock3 } from "lucide-react";
 import { useState } from "react";
 import { claimGateway } from "../../api/setup";
-import { Button, Card, FeedbackState, StatusBadge } from "../../components/ui";
+import { Button, Card, FeedbackState, PasswordField, StatusBadge, TextField } from "../../components/ui";
 
 interface GatewayClaimPanelProps {
   siteId: string;
@@ -21,33 +21,24 @@ export function GatewayClaimPanel({ siteId }: GatewayClaimPanelProps) {
   const disabled = mutation.isPending || !name.trim() || !serialNumber.trim() || !claimCode.trim();
 
   return (
-    <Card className="setup-section gateway-claim-panel" aria-label="Gateway 연결">
-      <div className="panel-title-row">
-        <div>
-          <span className="eyebrow">장비 연결</span>
-          <h3 id="gateway-claim-title">게이트웨이 등록</h3>
+    <Card className="grid gap-3 p-4" data-testid="gateway-claim-form" aria-label="Gateway 연결">
+      <div className="flex items-start justify-between gap-3">
+        <div className="grid min-w-0 gap-1">
+          <span className="text-overline font-bold text-content-secondary">장비 연결</span>
+          <h3 className="m-0 text-card-title text-content-primary" id="gateway-claim-title">게이트웨이 등록</h3>
         </div>
         <StatusBadge tone={mutation.isSuccess ? "success" : "neutral"} icon={mutation.isSuccess ? CheckCircle2 : Clock3}>
           {mutation.isSuccess ? "등록됨" : "연결 준비"}
         </StatusBadge>
       </div>
-      <div className="setup-form-grid">
-        <label>
-          게이트웨이 이름
-          <input value={name} onChange={(event) => setName(event.target.value)} />
-        </label>
-        <label>
-          제품 시리얼
-          <input value={serialNumber} onChange={(event) => setSerialNumber(event.target.value)} autoComplete="off" />
-        </label>
-        <label>
-          일회성 등록 코드
-          <input value={claimCode} onChange={(event) => setClaimCode(event.target.value)} type="password" autoComplete="one-time-code" />
-        </label>
+      <div className="grid grid-cols-1 gap-3 compact:grid-cols-2 tablet:grid-cols-3">
+        <TextField label="게이트웨이 이름" value={name} onChange={setName} />
+        <TextField label="제품 시리얼" value={serialNumber} onChange={setSerialNumber} autoComplete="off" />
+        <PasswordField label="일회성 등록 코드" value={claimCode} onChange={setClaimCode} autoComplete="one-time-code" />
       </div>
       {mutation.error ? <FeedbackState tone="danger" icon={CheckCircle2} title="게이트웨이 등록에 실패했습니다." description="제품 정보와 등록 코드를 확인하세요." /> : null}
       {mutation.isSuccess ? <FeedbackState tone="success" icon={CheckCircle2} title="게이트웨이가 현장에 등록되었습니다." /> : null}
-      <Button className="setup-submit" variant="primary" disabled={disabled} isLoading={mutation.isPending} loadingLabel="게이트웨이 등록 중" onClick={() => mutation.mutate()}>
+      <Button className="w-full justify-self-start compact:w-auto" variant="primary" disabled={disabled} isLoading={mutation.isPending} loadingLabel="게이트웨이 등록 중" onClick={() => mutation.mutate()}>
         <CheckCircle2 size={16} />
         게이트웨이 등록
       </Button>

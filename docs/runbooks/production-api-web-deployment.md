@@ -1,6 +1,6 @@
 # API·Web 운영 배포와 장애 대응
 
-기준일: 2026-09-12. [승인 설계](../superpowers/specs/2026-09-12-platform-deploy-observability-design.md), [운영 기준](../agent-operations.md), [현재 상태](../project-status.md)를 함께 따른다.
+기준일: 2026-09-17. [승인 설계](../superpowers/specs/2026-09-12-platform-deploy-observability-design.md), [운영 기준](../agent-operations.md), [현재 상태](../project-status.md)를 함께 따른다.
 
 ## 적용 범위와 사전 조건
 
@@ -49,7 +49,7 @@ API는 migration과 runtime에 같은 image를 사용한다. 로컬 image ID와 
 
 ## 3. 필수 환경·PKI 경로 확인 — 읽기 전용
 
-필수 입력 34개는 다음과 같다. 내부 URL의 PostgreSQL·Redis credential은 각각 서비스 설정과 일치하고 URL 인코딩해야 한다. 브라우저 origin 두 값은 동일한 승인 HTTPS origin을 사용한다. 도면·보고서 bucket은 모두 `anonymous none`으로 초기화하고 서로 다른 이름을 사용한다. 도면 업로드용 presigned PUT의 CORS origin은 `WEB_PUBLIC_URL` 하나로 제한하며, 조회는 인증된 API content endpoint가 발급하는 300초 signed GET만 사용한다.
+필수 입력 37개는 다음과 같다. 내부 URL의 PostgreSQL·Redis credential은 각각 서비스 설정과 일치하고 URL 인코딩해야 한다. 브라우저 origin 두 값은 동일한 승인 HTTPS origin을 사용한다. 도면·보고서 bucket은 모두 `anonymous none`으로 초기화하고 서로 다른 이름을 사용한다. 도면 업로드용 presigned PUT의 CORS origin은 `WEB_PUBLIC_URL` 하나로 제한하며, 조회는 인증된 API content endpoint가 발급하는 300초 signed GET만 사용한다.
 
 | 구분 | 필수 env key |
 | --- | --- |
@@ -58,6 +58,7 @@ API는 migration과 runtime에 같은 image를 사용한다. 로컬 image ID와 
 | MQTT | `MQTT_URL`, `MQTT_PUBLIC_URL`, `MQTT_API_INSTANCE_ID`, `MQTT_TLS_CERT_DIR` |
 | Vault | `VAULT_ADDR`, `VAULT_TOKEN_FILE`, `VAULT_CA_CERT_PATH`, `VAULT_PKI_DEVICE_MOUNT`, `VAULT_PKI_DEVICE_ROLE`, `VAULT_PKI_MQTT_MOUNT`, `VAULT_PKI_MQTT_ROLE` |
 | Object Storage | `OBJECT_STORAGE_ENDPOINT`, `OBJECT_STORAGE_PUBLIC_URL`, `OBJECT_STORAGE_ACCESS_KEY`, `OBJECT_STORAGE_SECRET_KEY`, `OBJECT_STORAGE_BUCKET`, `OBJECT_STORAGE_REPORT_BUCKET`, `OBJECT_STORAGE_REGION` |
+| CAD converter | `CAD_IMPORT_CONVERTER_BUNDLE_PATH`, `CAD_IMPORT_CONVERTER_ARGV_JSON`, `CAD_IMPORT_CONVERTER_SHA256` |
 | API·Web TLS·port | `API_TLS_CERT_DIR`, `WEB_TLS_CERT_DIR`, `WEB_PUBLIC_URL`, `WEB_HTTPS_ORIGIN`, `WEB_HTTP_PORT`, `WEB_HTTPS_PORT`, `DEVICE_API_HTTPS_PORT` |
 
 `PRODUCTION_COMPOSE_PROJECT`는 `led-production-` prefix, 소문자 영숫자와 단일 하이픈, 최대 63자다. checkout 기본 project와 `led-production-default/dev/development`는 거부한다. 신규 배포는 해당 이름의 기존 자원 부재를 확인하고, 업데이트는 정확한 기존 운영 project와 백업 대상 volume을 승인 기록에 대조한다. 모든 named volume은 project prefix를 가져야 하며 external/shared volume은 금지한다.
@@ -68,6 +69,11 @@ API는 migration과 runtime에 같은 image를 사용한다. 로컬 image ID와 
 | `MQTT_TLS_CERT_DIR` | `mqtt-ca.crt`, `mqtt-server.crt`, `mqtt-server.key`, `api-client.crt`, `api-client.key`, `mqtt-client.crl`; broker 인증서 RO, API client 파일만 RO |
 | `WEB_TLS_CERT_DIR` | `web.crt`, `web.key`, `web-ca.crt`; `/run/web-tls` RO |
 | `VAULT_TOKEN_FILE`, `VAULT_CA_CERT_PATH` | readable regular token·CA 파일; `/run/vault/token`, `/run/vault/ca.crt` RO |
+| `CAD_IMPORT_CONVERTER_BUNDLE_PATH` | 운영 승인된 절대 directory; `/opt/cad-converter` RO, 실행 파일은 `/opt/cad-converter/bin/converter` |
+
+CAD converter bundle은 운영자가 별도로 승인·배포하며 API image에 복사하지 않는다. GPL LibreDWG는 production image/bundle 계약에 포함하지 않는다. Bundle은 read-only에서도 실행 가능한 self-contained binary 또는 승인된 shared-library/RPATH 구성을 가져야 한다. `CAD_IMPORT_CONVERTER_ARGV_JSON`은 shell 문자열이 아닌 JSON string array이며 `{input}`, `{output}`을 각각 정확히 한 번 포함한다. `CAD_IMPORT_CONVERTER_SHA256`은 `/opt/cad-converter/bin/converter`의 승인 SHA-256이다. Host preflight는 bundle/bin/file의 symlink 금지, 동일 owner, group/world 쓰기 금지, owner execute와 digest를 확인하고 sidecar가 mounted file을 startup·job마다 다시 검증한다.
+
+Production converter는 API와 별도 UID 2000, read-only rootfs, `network_mode: none`, 1024 MiB cgroup, heap 64 MiB, pids 64, `/tmp` 64 MiB인 sidecar다. API는 UID 1000, 1408 MiB cgroup, heap 256 MiB, core heap 384 MiB, CAD concurrency 1, `/tmp/cad-import` 512 MiB다. 두 container는 UID 1000:GID 2000 소유의 512 MiB tmpfs spool만 공유한다. API에는 converter bundle/argv가 없고 sidecar에는 DB/S3/Vault/MQTT/TLS env·mount가 없다. Source 50 MiB, DXF 256 MiB, raw SVG 128 MiB, gzip SVG 8 MiB와 filesystem overhead 64 MiB를 공통 상한으로 두고 worker가 렌더 전에 raw+gzip+overhead 200 MiB를 예약한다. Sidecar 내부 `/usr/bin/prlimit`가 AS 512 MiB, CPU 60초, nofile 64, nproc 32, fsize와 process-group timeout을 적용한다. 공유 spool의 `.ready.json`은 영구 플래그가 아니라 instance ID와 2초 TTL을 가진 heartbeat다. Sidecar는 startup attestation 전에 이전 marker를 제거하고, API와 container healthcheck는 digest와 freshness를 모두 검증한다. 취소 요청과 변환 중 readiness 상실은 API가 최대 1초간 terminal 응답을 기다린 뒤 job-local directory를 정리한다.
 
 실제 경로의 파일 존재·소유권·container UID별 읽기 권한을 제한된 운영 세션에서 확인한다. API/migration UID 1000, Web UID 101, Mosquitto UID 1883이다. Private key를 누구나 읽을 수 있게 바꾸지 않는다. API 인증서는 내부 `api`와 실제 장비 endpoint hostname을 SAN에 포함하고 MQTT 서버 인증서는 내부 `mqtt-tls` 및 승인된 공개 진입 hostname 계약과 맞아야 한다. Web 인증서는 public browser hostname을 검증하고 `web-ca.crt`가 그 chain을 신뢰해야 한다.
 
@@ -94,7 +100,14 @@ production_compose ps -a
 
 ## 4. 백업·유지보수 승인과 migration — 운영 상태 변경
 
-운영자는 배포 대상 project, DB identity, 복원 가능한 최신 backup과 복구 시점, 이전/새 digest 및 schema 호환성을 먼저 승인받는다. DB뿐 아니라 Object Storage, broker persistence, 최신 device/MQTT CRL도 함께 복구 계획에 넣는다. 이 문서는 사용자 DB backup/restore를 자동 실행하지 않는다. 기존 서비스 업데이트는 유지보수 창에서 트래픽·write 유입을 차단하고 아래와 같이 Web/API를 멈춘 뒤 진행한다. 정지와 API shutdown은 서비스 가용성을 바꾼다.
+운영자는 배포 대상 project, DB identity, 복원 가능한 최신 backup과 복구 시점, 이전/새 digest 및 schema 호환성을 먼저 승인받는다. DB뿐 아니라 Object Storage, broker persistence, 최신 device/MQTT CRL도 함께 복구 계획에 넣는다. 이 문서는 사용자 DB backup/restore를 자동 실행하지 않는다. 기존 서비스 업데이트는 유지보수 창에서 트래픽·write 유입을 차단한다. 먼저 CAD job을 조회해 `processing`과 `applying`을 0으로 drain하고, `review_required`는 유지하거나 운영자가 명시적으로 취소한다. queued job은 migration 뒤 새 worker가 source SHA로 profile을 resolve하므로 임의 backfill하지 않는다. drain 확인 후 아래와 같이 Web/API를 멈춘다. 정지와 API shutdown은 서비스 가용성을 바꾼다.
+
+```sql
+SELECT status, count(*) FROM "FloorImportJob"
+WHERE status IN ('processing', 'applying') GROUP BY status;
+```
+
+위 조회 결과가 한 행이라도 있으면 배포를 시작하지 않는다. `20260917144000_cad_profile_upgrade_gate`가 singleton/trigger를 먼저 설치해 구 worker의 queued→processing claim도 DB에서 거부한다. `20260917145000_cad_profile_upgrade_preflight`와 `20260917160000_cad_upgrade_safety`는 table lock 뒤 active 상태를 발견하면 fail-close하며, `20260917170000_cad_profile_upgrade_release`만 전체 profile/content migration 완료를 확인하고 gate를 연다. 10초 안에 lock을 얻지 못하면 transaction이 rollback되며 부분 schema를 정상으로 간주하지 않는다.
 
 ```bash
 production_compose stop web api
@@ -113,7 +126,7 @@ production_compose ps -a
 production_compose logs --no-color --tail=100 api-migrate crl-init object-storage-init
 ```
 
-Migration은 forward-only다. Prisma 자동 down migration은 없고 실패 시 API를 수동으로 선기동하거나 실패 migration을 임의 성공 처리하지 않는다. 새 schema와 호환되는 이전 image만 image rollback이 가능하며, 비호환 rollback은 DB 담당자가 승인한 backup restore/복구 절차가 필요하다. `migrate reset`, `db push --force-reset`, 임의 테이블 삭제는 이 runbook의 작업이 아니다.
+Migration은 forward-only다. Prisma 자동 down migration은 없고 실패 시 API를 수동으로 선기동하거나 실패 migration을 임의 성공 처리하지 않는다. Active CAD job 또는 lock timeout으로 transaction이 rollback된 경우 DB 담당자가 원인과 미적용 상태를 확인하고 해당 migration만 `prisma migrate resolve --rolled-back`로 기록한 뒤 drain부터 다시 수행한다. `--applied`로 우회하지 않는다. 새 schema와 호환되는 이전 image만 image rollback이 가능하며, 비호환 rollback은 DB 담당자가 승인한 backup restore/복구 절차가 필요하다. `migrate reset`, `db push --force-reset`, 임의 테이블 삭제는 이 runbook의 작업이 아니다.
 
 ## 5. Health·요청 상관관계 — 읽기 전용 점검
 
@@ -205,6 +218,18 @@ production_compose logs --no-color --since=10m --tail=100 postgres redis mqtt-tl
 Metrics는 process-local이며 재시작 시 초기화된다. 여러 instance 합산, durable 보존, route/tenant label, p95/p99 histogram은 제공하지 않는다. 단일 호스트 Compose는 rolling·multi-region·zero-downtime orchestration을 제공하지 않는다. API/Web은 non-root지만 MinIO는 upstream `/data` 소유권 때문에 UID 0·capability 없음 예외다. Web만 세 host port를 publish하므로 MQTT/Object Storage의 외부 TLS 진입점은 별도 운영 구성이 필요하고 smoke로 외부 경로 정상 여부를 판정하지 않는다. Object Storage 진입점을 구성하더라도 두 bucket의 anonymous 접근은 금지하며, CORS는 승인된 `WEB_PUBLIC_URL`에서의 presigned PUT만 허용하고 다운로드는 인증 endpoint에서 발급한 300초 signed GET 경로를 유지한다.
 
 ## 검증 증거와 남은 승인
+
+Task 19.5 최종 보정 뒤 상시 synthetic production smoke는 고유 project `led-production-smoke-b523bf418592c6719e549d3cd791d4aa`에서 빈 DB migration 84/84, API/sidecar 별도 cgroup `1476395008`/`1073741824`, API temp 512 MiB, UID/process/network 분리와 secret env·mount 부재를 확인했다. 실제 Nest worker/core, PostgreSQL/MinIO와 HTTP create/status/candidates/content/apply를 통과했고 정상 gzip signed GET 뒤 malformed, output bomb, memory bomb, timeout을 처리해 API와 sidecar readiness가 유지되며 정상 재처리가 `review_required`로 복귀했다. Stale heartbeat, startup digest mismatch, API abort/readiness-loss acknowledgment과 사라진 job directory는 별도 회귀 테스트로 고정했다. 종료 시 container/volume/network/owned image가 모두 0이었다. 이 synthetic 결과는 승인된 실제 converter와 제공 DWG의 opt-in sample HIL, 운영 DB backup/migration/restore 또는 실장비 HIL을 대신하지 않는다.
+
+실도면 sample HIL은 승인된 로컬/격리 환경에서만 다음 입력을 명시한다. Converter argv는 제품 bundle의 CLI 계약에 맞춰 바꾸며, production host에서는 같은 승인 bundle의 executable을 사용한다.
+
+```bash
+CAD_SAMPLE_DWG_PATH=/approved/sample.dwg \
+CAD_SAMPLE_CONVERTER_PATH=/approved/converter-bundle/bin/converter \
+CAD_SAMPLE_CONVERTER_ARGV_JSON='["{input}","{output}"]' \
+RUN_OBJECT_STORAGE_INTEGRATION=true \
+pnpm --filter @led-control/api exec jest src/floor-import/cad-sample-pipeline.integration.spec.ts --runInBand
+```
 
 Task 4의 fresh root lint/typecheck/test/build는 exit 0이다. Root script 58, Shared 203, Automation 28, Mobile 1, Web 64 files·712, API 120 suites·1,138 통과/289 환경 의존 제외, Gateway 64 files·608로 합계 2,748 통과/289 제외다. Main bundle은 319.19 kB/gzip 99.21 kB다. 전체 Chromium 194개는 189 통과/5 opt-in 제외이며, 통과는 188개 mock/브라우저 회귀와 실제 disposable automation journey 1개로 구분한다.
 

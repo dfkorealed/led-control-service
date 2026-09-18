@@ -227,7 +227,7 @@ describe("StatisticsOverviewPage", () => {
     expect(screen.getByText("47,616원")).toBeInTheDocument();
     expect(screen.getByText("-2.5 kWh")).toBeInTheDocument();
     expect(screen.getByText("-400원")).toBeInTheDocument();
-    const savingsRow = screen.getByText("예상 절감").closest(".statistics-cost-item");
+    const savingsRow = screen.getByText("예상 절감").parentElement;
     expect(savingsRow).toHaveAttribute("data-tone", "danger");
     expect(savingsRow).not.toHaveAttribute("data-tone", "success");
     expect(screen.getByText(/현재 등록 조명 10개 · 해당 월 31일 전체 · 24시간 · 100% 밝기 · 현재 단가 기준/)).toBeInTheDocument();

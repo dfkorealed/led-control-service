@@ -1,5 +1,26 @@
 # 프로젝트 오답 노트 (Lessons Learned)
 
+## 2026-09-15 / 검색 발견과 등록 가능 여부를 같은 상태로 취급하지 않는다
+
+- **발생했던 문제/실수**: 이미 등록된 조명이 BLE 검색 결과에 다시 나타났고, Web은 신규 장치처럼 선택하게 한 뒤 DB unique 제약에서야 등록을 실패시켰다.
+- **원인**: 물리적으로 광고를 발견했다는 사실을 서비스에 등록 가능한 장치라는 뜻으로 해석했다. 검색 응답과 provisioning terminal이 서로 다른 transaction에서 같은 장치를 만들 수 있는 경쟁도 명시적으로 직렬화하지 않았다.
+- **해결 및 예방책**: API가 검색 node를 `deviceUuid` 기준으로 미등록·같은 현장 등록·다른 현장 등록으로 분류한다. Web은 서버 판정을 기준으로 미등록 장치만 선택·등록하고 다른 현장 식별 정보는 숨긴다. 등록 예약과 terminal 완료는 같은 device UUID advisory lock 아래 기존 `MeshNode`를 다시 확인한다.
+- **반복 방지 체크**: 같은 현장·다른 현장·혼합 검색, 알 수 없는 분류값, 직접 API 호출과 등록/terminal 동시 경쟁을 각각 회귀 테스트한다. UI에서 숨겼다는 사실을 서버 중복 방어의 근거로 사용하지 않는다.
+
+## 2026-09-15 / 알 수 없는 보안 분류는 닫되 복구 경로까지 숨기지 않는다
+
+- **발생했던 문제/실수**: 새 서버 분류값을 구버전 Web이 미등록으로 간주하면 타 현장 장치 식별 정보와 등록 동작이 노출될 수 있었다. 반대로 모든 unknown node를 숨기면 이미 진행 중인 provisioning이나 `reconcile_required` 세션을 사용자가 복구할 수 없었다.
+- **원인**: 등록 자격과 workflow 진행 상태를 하나의 표시 조건으로 묶었다.
+- **해결 및 예방책**: 누락되거나 알 수 없는 등록 자격은 선택·설정·등록 payload에서 fail-closed로 제외하고 식별 정보도 숨긴다. 다만 진행 또는 복구 상태는 일반적인 익명 행과 복구 동작만 유지하며, 이 행만 있을 때 등록 설정 form은 열지 않는다.
+- **반복 방지 체크**: unknown discovered, unknown provisioning, unknown reconcile-only 세션을 분리해 정보 비노출·payload 제외·복구 버튼 유지·등록 form 비노출을 검증한다.
+
+## 2026-09-15 / 테스트 컨테이너 삭제 뒤 익명 볼륨도 검증한다
+
+- **발생했던 문제/실수**: 실제 MQTT persistence/ACL 테스트와 production audit는 통과했지만 Mosquitto 컨테이너 3개가 만든 익명 로그 볼륨 3개가 남았다.
+- **원인**: 데이터 경로를 bind mount해도 image의 별도 `VOLUME /mosquitto/log`는 익명 볼륨을 만든다. `docker rm`과 `docker rm -f`는 컨테이너만 지우므로 컨테이너 목록이 비었다는 사실로 전체 정리를 판정할 수 없다.
+- **해결 및 예방책**: 생성한 정확한 컨테이너만 `docker rm -v`/`-fv`로 지운다. 실행 중 daemon의 mount 목록에서 해당 컨테이너와 볼륨 ID를 기록하고 종료 후 잔여가 없음을 검사한다. 기존 volume이나 전역 prune을 정리 대상으로 삼지 않는다.
+- **반복 방지 체크**: 실제 broker 재시작과 ACL 시나리오 둘 다 container/volume 정리 assertion을 수행한다. 누락된 `-v`는 2개 테스트를 실패시키며, fresh 실행 전후 기존 Docker 자원 identity가 보존되는지 독립 확인한다.
+
 ## 2026-09-13 / LAN·PKI 복구 전에 Gateway DB identity의 존재를 확인한다
 
 - **발생했던 문제/실수**: Pi assignment와 실행 API의 Gateway ID는 일치했지만 현재 PostgreSQL에는 해당 Site/Gateway 행이 없었다. 네트워크만 고치면 heartbeat가 복구될 것으로 보고 DNS·인증서 교체를 준비했으나, 제조 inventory와 MQTT certificate는 `gatewayId=NULL`인 orphan 상태였고 backup 후보에도 target Gateway가 없었다.
@@ -729,3 +750,114 @@
 - **해결 및 예방책**: 목적별 publication lock 안에서 Vault의 read 방식 CRL rotate endpoint를 명시적으로 호출한 뒤 snapshot을 읽는다. 모든 후보 snapshot에서 해당 원장의 X.509 serial을 양수·최소 DER INTEGER 규칙으로 확인하고, 누락·음수·불필요한 선행 0이면 완료하지 않고 backoff한다. 원자 게시는 read-only로 구성한 trusted Root CRL과 기존 두 번째 block이 정확히 같고 bundle이 intermediate+Root 두 개뿐일 때만 수행한다.
 - **반복 방지 체크**: device와 MQTT 모두에 대해 GET/read rotate 계약, pre-revoke stale CRL, 대상 serial 누락·음수·non-minimal encoding, 게시 후 재시도, 동일 폐기의 멱등 rotate, trusted intermediate+Root 2-block 결과와 Root 누락·교체·추가를 회귀 테스트로 유지한다. CRL bytes 안정성이나 서로 다른 issuer라는 조건만으로 reconciliation을 완료하지 않는다.
 - **후속 교훈**: PKI orchestration script가 자식 signer를 실행해도 자식의 shell 변수는 부모로 역전파되지 않는다. 부모는 signer가 보장하는 고정 artifact 경로를 독립적으로 계산하고, 환경 파일에 쓰기 전에 해당 Root CRL이 존재·readable하며 정확히 한 PEM CRL이고 고정 Root certificate로 검증되는지 확인한다. CRL entry 검증도 첫 serial 일치에서 단락하지 않고 전체 entry를 먼저 canonicalize해야 뒤쪽의 음수·비최소 ASN.1 INTEGER가 숨지 않는다.
+
+## 2026-09-17 / 변환 파일의 선언 인코딩과 실제 bytes는 다를 수 있다
+
+- **발생했던 문제/실수**: LibreDWG가 만든 DXF의 `$DWGCODEPAGE`는 `ANSI_949`였지만 layer/block 문자열 bytes는 유효한 UTF-8이었다. 헤더만 신뢰해 EUC-KR로 디코딩하자 한글 이름이 mojibake가 되었고 조명 후보 규칙이 0개로 왜곡될 수 있었다.
+- **원인**: 원본 DWG의 코드페이지 메타데이터와 변환기가 직렬화한 출력 문자열 인코딩을 같은 사실로 취급했다.
+- **해결 및 예방책**: 파일 전체를 크기·시간 상한 안에서 streaming UTF-8 검증하고, 유효하면 실제 bytes를 우선한다. UTF-8이 아니면 그때만 지원하는 선언 코드페이지로 fallback하며 둘 다 아니면 fail-close한다. 변환기 버전과 코드페이지를 결과에 함께 기록한다.
+- **반복 방지 체크**: `ANSI_949` 헤더와 UTF-8 한글 layer를 함께 가진 LibreDWG 형태의 fixture가 이름과 후보 수를 보존하는지 테스트한다. 샘플 분석에서는 사람이 읽을 수 있는 주요 layer/block 이름과 출력 반복 hash를 함께 확인한다.
+
+## 2026-09-17 / 대형 CAD 상한은 연속 pipeline과 실제 도면으로 정한다
+
+- **발생했던 문제/실수**: 개발 analyzer가 샘플을 읽어도 제품 worker는 16 MiB DXF, 100,000 expanded entity, 1,000 후보와 8 MiB SVG 상한에서 연속으로 실패했다. 단순 상향 뒤에는 샘플 SVG가 264 MB까지 커지고 메모리도 급증했다.
+- **원인**: 입력 크기만 상한으로 보고 전체 문자열·line split·pair 배열·expanded entity 배열·SVG 조각과 Buffer가 동시에 존재하는 단계별 물질화를 측정하지 않았다. paper layout도 model-space에 섞여 분모와 출력이 부풀었다.
+- **해결 및 예방책**: group 67/410으로 model-space를 먼저 선별하고 chunk→line→pair→한 entity body만 보유하는 parser로 바꿨다. detector/renderer expansion도 iterator로 소비하고 제품 SVG는 검증된 bounds, metadata 생략, compact path를 사용해 샘플을 96,353,981 bytes로 낮췄다. line, pair, entity, block, coordinate, expansion/depth, candidate, SVG, temp disk, CPU와 wall 예산을 독립 상한으로 유지한다.
+- **반복 방지 체크**: 실제 샘플의 analyzer와 제품 convert→parse→detect→render를 모두 실행하고, 이전 상한보다 큰 정상 streaming fixture와 긴 line/entity body 적대 fixture를 함께 둔다. 숫자를 높이기 전에 어느 단계가 메모리와 출력을 물질화하는지 측정하며 배포 cgroup 검증 전에는 로컬 RSS를 양산 보장으로 기록하지 않는다.
+
+## 2026-09-17 / 반복 블록 SVG는 구조 보존과 전송 인코딩을 함께 설계한다
+
+- **발생했던 문제/실수**: expanded geometry를 compact path로 바꿔도 샘플 SVG가 96 MiB여서 실제 Object Storage 8 MiB 제한을 통과하지 못했고, 문자열 조각·join·Buffer가 겹쳐 peak RSS도 약 1 GiB였다.
+- **원인**: CAD의 block/INSERT 반복 구조를 SVG에서 평탄화했고, 텍스트를 glyph path로 펼쳤으며, renderer 성공과 실제 저장 성공을 분리해서 검증했다.
+- **해결 및 예방책**: 도달 가능한 block만 `symbol`로 한 번 기록하고 INSERT는 `use`로 참조한다. 한글은 외부 resource 없는 escaped `<text>`로 유지하고 raw SVG와 gzip 출력을 파일 stream으로 쓴다. Object Storage는 gzip stream의 8 MiB, checksum, viewport, content encoding을 PUT/HEAD로 검증한다. parser bounds도 expanded 배열 없이 iterator로 계산한다.
+- **반복 방지 체크**: 반복 block 2,000개와 한글 synthetic fixture를 상시 CI에 두고, 제공 DWG HIL은 product converter/parser/detector/renderer/storage 클래스를 그대로 사용한다. standalone max RSS, raw/stored SVG 크기, cgroup/heap/동시 job 계약을 함께 기록한다.
+
+## 2026-09-17 / 검출 profile 재현성은 이름이 아니라 행동 전체 digest다
+
+- **발생했던 문제/실수**: 현장 전용 block allowlist가 기본 detector에 섞였고 confidence, 후보/전개 상한, token, 거리, yield 같은 행동 필드가 digest에서 빠졌다. worker도 주입 detector가 아닌 기본 상수 metadata를 저장했다.
+- **원인**: profile을 설정 묶음이 아닌 버전 라벨로 취급하고 요청/job/candidate 경계를 연결하지 않았다.
+- **해결 및 예방책**: 기본 profile과 drawing profile을 registry ID로 분리하되 client 요청에는 선택권을 주지 않는다. 서버가 검증된 source asset SHA-256과 승인 registry binding으로 ID를 정하고, 정규화·정렬한 모든 행동 필드를 canonical SHA-256에 포함하며 worker는 실제 registry detector의 version/digest를 job과 모든 후보에 저장한다.
+- **반복 방지 체크**: 행동 필드 하나만 다른 profile이 같은 digest를 만들지 않는 반례, 현장명 기본 profile 미검출, job/profile 불일치 fail-close, 2,000건 bulk persistence와 review/apply를 실제 PostgreSQL과 Web에서 검증한다.
+
+## 2026-09-17 / 대형 parser의 OOM은 예외가 아니라 process 경계로 격리한다
+
+- **발생했던 문제/실수**: retained-model 추정치와 API cgroup만 두면 V8 OOM이 job 실패가 아니라 API process 전체 종료로 번질 수 있었고, standalone parser RSS는 Nest/Prisma 등 API baseline을 포함하지 않았다.
+- **원인**: 논리적 byte budget, V8 heap, cgroup RSS를 같은 상한으로 취급하고 무거운 core를 API process 안에서 실행했다.
+- **해결 및 예방책**: parse/detect/render를 자격 증명을 상속하지 않는 child process로 옮기고 child heap 384 MiB·wall 60초·IPC manifest 2,000건/8 MiB를 고정했다. API heap 256 MiB, CAD 동시성 1, Linux cgroup 768 MiB를 시작 시 검사하며 child OOM/timeout은 parent rejection과 job retry/failure로 수렴한다.
+- **반복 방지 체크**: child OOM과 stall에서 parent 생존을 상시 테스트하고, production image를 실제 768 MiB cgroup에서 API module baseline과 정상 샘플로 실행한다. malformed 입력도 같은 cgroup에서 child 실패 후 parent 생존을 확인한다. macOS 수치는 배포 보장으로 확대하지 않는다.
+
+## 2026-09-17 / 압축 encoding도 rendered asset identity의 일부다
+
+- **발생했던 문제/실수**: 최초 PUT/HEAD는 `Content-Encoding: gzip`을 확인했지만 이후 review/apply/signed GET 경로는 크기·checksum·MIME만 비교했다. 같은 bytes에서 encoding metadata만 유실되면 브라우저가 gzip bytes를 SVG로 해석하지 못한다.
+- **원인**: object body identity와 HTTP representation metadata를 별개로 보고 DB ledger에 encoding을 기록하지 않았다.
+- **해결 및 예방책**: `FloorAsset.contentEncoding` 원장을 추가하되, 신규 CAD SVG는 gzip이고 migration 이전 비압축 SVG는 `NULL` identity로 보존한다. DB deferred trigger, Object Storage HEAD, job 조회, apply, content redirect가 모두 ledger와 실제 HEAD를 비교한 뒤에만 signed GET을 발급한다.
+- **반복 방지 체크**: 기존 migration checksum은 수정하지 않는다. 직전 migration까지 적용한 DB에 identity row를 넣는 staged replay와 신규 gzip row, 실제 MinIO PUT/HEAD/signed GET을 한 테스트에서 검증한다.
+
+## 2026-09-17 / production worker는 이미지 존재가 아니라 기동 가능한 전체 graph로 검증한다
+
+- **발생했던 문제/실수**: 개발/HIL converter는 있었지만 production Compose에 executable env와 mount가 없었고, read-only API image의 `/tmp/cad-import`도 생성되지 않아 실제 worker가 모든 job을 source failure로 끝냈다.
+- **원인**: Dockerfile build, Compose render, Nest provider, writable temp root와 worker HTTP 흐름을 각각 검사하고 하나의 production 경로로 연결하지 않았다.
+- **해결 및 예방책**: GPL converter는 이미지에서 제외하고 승인된 host bundle을 `/opt/cad-converter:ro`로 필수 주입한다. util-linux의 canonical root-owned `/usr/bin/prlimit`, UID 1000 전용 512 MiB tmpfs, 정확한 heap/cgroup/concurrency를 preflight에서 강제한다. synthetic smoke가 HTTP create/status/candidates/content/apply와 PG/MinIO를 통과해야 한다.
+- **반복 방지 체크**: converter 환경은 PATH/locale/TMPDIR allowlist만 전달하고 AS/CPU/nofile/nproc/fsize와 process-group kill/reap을 검사한다. 같은 768 MiB cgroup에서 정상 sample 뒤 malformed와 memory bomb를 실행하고 API container ID와 live 200이 유지되는지 확인한다.
+
+## 2026-09-17 / 의미 변경 migration은 활성 worker를 추측으로 backfill하지 않는다
+
+- **발생했던 문제/실수**: profile migration이 processing job 의미를 바꿀 수 있었고, 모든 기존 SVG를 gzip으로 일괄 표기해 실제 identity 객체와 ledger가 어긋났다.
+- **원인**: queued 작업과 이미 실행 중인 작업, 신규 산출물과 legacy 객체를 같은 backfill 규칙으로 취급했다.
+- **해결 및 예방책**: processing/applying이 있으면 table lock 뒤 migration을 fail-close하고 queued만 lease 시 source SHA로 resolve한다. terminal은 non-null identity를 유지하며 legacy 결과는 sentinel로 표시한다. 기존 identity와 migration 이후 gzip은 생성 시점 경계로 분리한다.
+- **반복 방지 체크**: clean/staged replay, old-worker lock race, 10초 lock timeout, terminal constraint, 실제 PG+MinIO identity/gzip read/apply/signed GET을 유지한다. 배포 runbook은 API 정지 전에 active job drain을 요구한다.
+
+## 2026-09-17 / 객체 metadata는 생성 시각이 아니라 저장소 관측으로 확정한다
+
+- **발생했던 문제/실수**: migration 전후 `createdAt`으로 SVG가 identity인지 gzip인지 추정하면 늦은 commit, clock 차이, 재처리 이력에서 실제 Object Storage metadata와 다른 확정값을 만들 수 있었다.
+- **원인**: DB 시간이 객체 representation의 provenance를 증명한다고 간주했고, 애매함을 영속 상태로 표현하지 않았다.
+- **해결 및 예방책**: provenance로 확정할 수 없는 linked SVG를 `unknown`으로 저장한다. Review/apply/content 전에 HEAD로 encoding, size, checksum, viewport를 검증하고 기존 ledger 전체를 조건으로 identity/gzip compare-and-set한다. 오류·불일치·경쟁 결과 차이는 fail-close하며 신규 worker gzip은 처음부터 확정한다.
+- **반복 방지 체크**: clean/identity/pre-profile gzip/post-profile gzip, missing/mismatch HEAD와 두 concurrent reconcile을 실제 PG+MinIO staged history로 실행한다. 이미 공개된 migration checksum은 수정하지 않는다.
+
+## 2026-09-17 / 비신뢰 converter 격리는 process 제한과 container 경계를 함께 요구한다
+
+- **발생했던 문제/실수**: converter child에 env allowlist와 `prlimit`를 적용해도 API와 같은 PID namespace, UID, secret mount, cgroup을 공유하면 memory bomb가 API 예산을 소모하고 `/proc` 또는 mount를 통해 자격 증명 경계를 넓힐 수 있었다.
+- **원인**: child process sandbox를 credential 격리와 독립 장애 도메인으로 과대평가했다.
+- **해결 및 예방책**: converter를 network-none, 별도 UID/PID namespace, read-only rootfs와 1024 MiB memory cgroup인 sidecar로 분리한다. API에는 converter bundle/argv를, sidecar에는 DB/S3/Vault/MQTT/TLS env·mount를 주지 않고 bounded tmpfs spool만 공유한다. Host preflight와 mounted sidecar가 승인 digest와 regular/executable/owner-mode를 이중 검증한다.
+- **반복 방지 체크**: production Compose/image에서 cgroup/UID/network/mount/env를 관측하고 정상 작업 뒤 output/memory/timeout bomb를 실행한다. API와 sidecar readiness, container identity, 후속 정상 재처리가 모두 유지돼야 한다.
+
+## 2026-09-17 / 파일 기반 readiness는 생존 lease여야 한다
+
+- **발생했던 문제/실수**: converter sidecar가 startup digest mismatch나 비정상 종료로 사라져도 이전 `.ready.json`이 spool에 남아 API가 정상으로 판정했다. API가 취소 marker 직후 job directory를 지우면 sidecar의 terminal 응답 쓰기가 `ENOENT`로 실패해 서비스 loop까지 종료될 수 있었다.
+- **원인**: readiness 파일을 process 생존과 무관한 영구 플래그로 사용했고, API와 sidecar가 job directory 정리 소유권을 명시적으로 인계하지 않았다.
+- **해결 및 예방책**: readiness를 instance ID와 짧은 TTL을 가진 heartbeat로 만들고 startup attestation 전에 이전 marker를 제거한다. API와 healthcheck는 digest뿐 아니라 heartbeat freshness를 검사한다. 취소자는 제한된 시간 동안 terminal 응답을 기다리고, sidecar는 이미 사라진 directory를 job-local cleanup으로 처리한다.
+- **반복 방지 체크**: stale heartbeat, startup digest mismatch 뒤 marker 제거, API abort acknowledgment, processing 중 directory 삭제와 후속 정상 job을 회귀로 유지한다. 영구 marker 존재만으로 process나 dependency가 살아 있다고 판정하지 않는다.
+
+## 2026-09-17 / 배포 fence는 애플리케이션 drain만으로 완결되지 않는다
+
+- **발생했던 문제/실수**: 새 migration이 active job을 검사해도, 14500 적용 직후 살아 있는 구 worker가 queued job을 processing으로 claim할 수 있었다. Lock timeout rollback 뒤 Prisma 실패 이력을 처리하지 않은 단순 deploy 재시도도 P3009로 막혔다.
+- **원인**: 배포 순서와 worker 버전 협조에 의존했고 claim 자체를 DB에서 차단하지 않았다. SQL transaction rollback과 Prisma migration history 복구를 같은 것으로 보았다.
+- **해결 및 예방책**: 의미 변경 전에 singleton gate와 BEFORE trigger를 설치해 모든 버전의 queued→processing을 거부하고, 마지막 migration만 선행 이력을 확인해 gate를 연다. 완전 rollback을 확인한 담당자만 실패 migration을 `migrate resolve --rolled-back`한 뒤 재시도한다.
+- **반복 방지 체크**: 14500→old claim→15000 race, lock timeout/rollback/resolve/retry, clean deploy, 이미 15000이 적용된 migration history를 실제 PostgreSQL에서 검증한다.
+## 2026-09-17 / 비동기 작업 생성 가능 여부와 worker 실행 가능 여부를 분리하지 않는다
+
+- **발생했던 문제/실수**: 개발 환경에서 DWG 업로드와 import job 생성은 성공했지만 converter mode가 없어서 worker가 비활성화됐고, 작업이 `queued / 0% / attemptCount 0`으로 계속 남았다.
+- **원인**: API 기동 가능 여부만 확인하고 import 생성 시점에 worker availability를 검증하지 않았으며, 로컬에 설치된 `dwgread`를 개발 런타임에 연결하지 않았다.
+- **해결 및 예방책**: `pnpm dev` 준비 단계가 `dwgread`를 자동 감지해 개발 전용 argv adapter를 설정한다. worker가 비활성화된 경우에는 작업 생성 전에 `503`으로 거절한다. production sidecar 계약과 개발 adapter를 명시적으로 분리한다.
+- **반복 방지 체크**: 비동기 job 기능은 “provider 미설정 + create 요청” 테스트에서 DB 작업이 생기지 않는지, 개발 준비 테스트에서 설치된 provider가 worker 환경으로 전달되는지 함께 검증한다.
+
+## 2026-09-17 / CAD 변환기의 비도면 메타데이터 결함으로 전체 맵을 폐기하지 않는다
+
+- **발생했던 문제/실수**: 실제 DWG의 `BLOCKS`와 `ENTITIES`는 정상이었지만 LibreDWG가 후행 `OBJECTS`에 잘못된 group code와 정의 없는 커스텀 치수 블록 INSERT를 출력해 파싱 전체가 실패했다.
+- **원인**: 맵에 필요한 모델 구간과 렌더링 불가능한 후행 메타데이터를 같은 엄격도로 처리했고, 외부 변환기가 정의를 생략한 INSERT 하나를 전체 도면 손상으로 판단했다.
+- **해결 및 예방책**: 모델 구간은 기존 strict 검증을 유지한다. 모델 종료 뒤 `OBJECTS`만 bounded opaque tail로 처리하고, 정의가 없어 실제 형상도 없는 orphan INSERT만 정규 모델에서 제외한다. 입력 전체의 byte·NUL·wall/CPU 제한과 EOF 뒤 데이터 거부는 유지한다.
+- **반복 방지 체크**: malformed `OBJECTS` 허용, malformed `ENTITIES` 거부, EOF 뒤 데이터 거부, orphan INSERT만 제외하는 buffered/streaming 회귀 테스트를 함께 유지한다.
+
+## 2026-09-17 / pagehide 반납과 새 문서 획득은 같은 lease의 동시 mutation이다
+
+- **발생했던 문제/실수**: 맵 편집 화면 새로고침에서 이전 문서의 keepalive `DELETE`와 새 문서의 `POST`가 겹칠 때 editor lease 획득이 간헐적으로 500을 반환했다.
+- **원인**: lease 획득·갱신에 Serializable transaction 반복문은 있었지만 PostgreSQL 직렬화 충돌을 잡아 다음 시도로 넘기지 않아 첫 `P2034`가 그대로 HTTP 500으로 전파됐다.
+- **해결 및 예방책**: 획득·heartbeat 갱신은 `P2034`, `40001`, `40P01`만 전체 transaction 단위로 다시 실행한다. 비즈니스 예외는 재시도하지 않으며 제한 횟수 이후 PostgreSQL 정본을 읽어 읽기 전용으로 수렴한다.
+- **반복 방지 체크**: 단위 테스트에서 첫 transaction 충돌 뒤 재실행을 검증하고, 실제 API에서는 유효 token 반납과 무-token 획득을 동시에 반복해 5xx가 없는지 확인한다. 비동기 작업의 화면 진행률이 멈춰 보이면 worker process뿐 아니라 DB 상태와 조회 API 응답을 함께 대조한다.
+
+## 2026-09-17 / 비동기 복구 effect는 callback 재생성을 작업 취소로 해석하지 않는다
+
+- **발생했던 문제/실수**: CAD 작업은 DB와 조회 API에서 `review_required / 100%`였고 후보 API도 성공했지만, 화면에는 후보 검토 UI가 나타나지 않고 취소만 남았다.
+- **원인**: 후보 요청 effect가 부모의 inline callback identity를 dependency로 사용했다. busy 상태 변경으로 부모가 다시 렌더링되면 기존 요청은 결과 반영을 취소했지만 `loadedReviewJobId`는 남아 후속 effect도 같은 job을 다시 읽지 않았다.
+- **해결 및 예방책**: 최신 callback은 ref로 참조하고 후보 요청의 생명주기는 floor/job/status로만 결정한다. 콜백 교체는 진행 중인 서버 조회를 취소하거나 완료 표식을 변경하지 않는다.
+- **반복 방지 체크**: 후보 요청을 지연한 상태에서 부모 callback을 교체한 뒤 최신 callback으로 review가 복구되는 회귀 테스트를 유지한다. 실제 브라우저 새로고침에서는 terminal job UI, API 상태 코드, console error를 함께 확인한다.

@@ -233,6 +233,7 @@ write_lab_env() {
     write_env_line MQTT_SERVER_CERT_PATH "$SERVICE_DIR/mqtt-server.crt"
     write_env_line MQTT_SERVER_KEY_PATH "$SERVICE_DIR/mqtt-server.key"
     write_env_line MQTT_CLIENT_CRL_PATH "$SERVICE_DIR/mqtt-client.crl"
+    write_env_line MQTT_TLS_CERT_DIR "$SERVICE_DIR"
     write_env_line API_TLS_CERT_PATH "$SERVICE_DIR/api.chain.crt"
     write_env_line API_TLS_KEY_PATH "$SERVICE_DIR/api.key"
     write_env_line API_DEVICE_CLIENT_CA_PATH "$SERVICE_DIR/device-ca.crt"

@@ -325,7 +325,7 @@ describe("SiteAdminManagementView", () => {
     expect(await screen.findByText("이미 사용 중인 로그인 아이디입니다.")).toHaveAttribute("role", "alert");
     await waitFor(() => expect(document.activeElement).toBe(loginId));
 
-    fireEvent.keyDown(document, { key: "Escape" });
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(document.activeElement).toBe(trigger);
   });
