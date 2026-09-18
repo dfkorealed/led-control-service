@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { Profiler } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../api/client";
 import { CadImportPanel } from "./CadImportPanel";
@@ -76,11 +77,12 @@ function renderPanel(options: {
   onReviewChange?: (review: CadImportReviewState | null) => void;
   onConflict?: () => void;
   onApplied?: (result: import("./editor-types").FloorImportApplyResult | null) => void | Promise<void>;
+  onRender?: () => void;
 } = {}) {
   const onReviewChange = options.onReviewChange ?? vi.fn();
   const onBusyChange = vi.fn();
   const onApplied = options.onApplied ?? vi.fn();
-  const result = render(
+  const panel = (
     <CadImportPanel
       floorId="floor-1"
       expectedRevision={7}
@@ -94,6 +96,9 @@ function renderPanel(options: {
       onConflict={options.onConflict}
     />
   );
+  const result = render(options.onRender
+    ? <Profiler id="cad-import-panel" onRender={options.onRender}>{panel}</Profiler>
+    : panel);
   return { ...result, onReviewChange, onBusyChange, onApplied };
 }
 
@@ -181,7 +186,18 @@ describe("CadImportPanel", () => {
         resolveCandidates = resolve;
       })
     );
-    const { onReviewChange } = renderPanel();
+    let captureReviewTransition = false;
+    const transitionFrames: Array<{ progress: number | null; loading: boolean }> = [];
+    const { onReviewChange } = renderPanel({
+      onRender: () => {
+        if (!captureReviewTransition) return;
+        const progress = document.querySelector<HTMLProgressElement>('progress[aria-label="CAD 가져오기 진행률"]');
+        transitionFrames.push({
+          progress: progress?.value ?? null,
+          loading: document.body.textContent?.includes("분석 완료 · 조명 위치 후보를 불러오는 중") ?? false
+        });
+      }
+    });
     selectCad();
     fireEvent.click(screen.getByRole("button", { name: "CAD 가져오기" }));
     await flushPromises();
@@ -189,8 +205,11 @@ describe("CadImportPanel", () => {
 
     await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
     expect(floorEditorApi.getFloorImportJob).toHaveBeenCalledTimes(1);
+    captureReviewTransition = true;
     await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
     await flushPromises();
+    expect(transitionFrames.length).toBeGreaterThan(0);
+    expect(transitionFrames.every(({ progress, loading }) => progress === 100 && loading)).toBe(true);
     expect(screen.getByRole("progressbar", { name: "CAD 가져오기 진행률" })).toHaveValue(100);
     expect(screen.getByText("분석 완료 · 조명 위치 후보를 불러오는 중")).toBeInTheDocument();
 
@@ -204,6 +223,38 @@ describe("CadImportPanel", () => {
 
     await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
     expect(floorEditorApi.getFloorImportJob).toHaveBeenCalledTimes(2);
+  });
+
+  it("removes candidate loading after failure and restores it only while retrying", async () => {
+    const reviewJob = {
+      ...queuedJob,
+      status: "review_required" as const,
+      stage: "review_required",
+      progressPercent: 100,
+      renderedAssetId: "rendered-1",
+      renderedAssetPath: "/api/floors/floor-1/assets/rendered-1/content",
+      renderedViewport: { width: 640, height: 360 }
+    };
+    let resolveCandidates!: (value: { jobId: string; candidates: typeof candidate[] }) => void;
+    floorEditorApi.getActiveFloorImportJob.mockResolvedValueOnce({ job: reviewJob });
+    floorEditorApi.listFloorImportCandidates
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockReturnValueOnce(new Promise<{ jobId: string; candidates: typeof candidate[] }>((resolve) => {
+        resolveCandidates = resolve;
+      }));
+    renderPanel();
+
+    await screen.findByText("조명 위치 후보를 불러오지 못했습니다.");
+    expect(screen.queryByRole("progressbar", { name: "CAD 가져오기 진행률" })).not.toBeInTheDocument();
+    expect(screen.queryByText("분석 완료 · 조명 위치 후보를 불러오는 중")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "다시 확인" }));
+    await waitFor(() => expect(floorEditorApi.listFloorImportCandidates).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("progressbar", { name: "CAD 가져오기 진행률" })).toHaveValue(100);
+    expect(screen.getByText("분석 완료 · 조명 위치 후보를 불러오는 중")).toBeInTheDocument();
+
+    resolveCandidates({ jobId: reviewJob.jobId, candidates: [candidate] });
+    await flushPromises();
   });
 
   it("keeps a fixed one-second polling loop when processing timestamps do not change", async () => {
@@ -293,6 +344,8 @@ describe("CadImportPanel", () => {
     first.unmount();
     renderPanel({ review: hydrated });
 
+    expect(screen.queryByRole("progressbar", { name: "CAD 가져오기 진행률" })).not.toBeInTheDocument();
+    expect(screen.queryByText("분석 완료 · 조명 위치 후보를 불러오는 중")).not.toBeInTheDocument();
     expect(screen.getByText("조명 위치 후보 2,000개를 찾았습니다.")).toBeInTheDocument();
     expect(screen.getAllByRole("checkbox", { name: /후보 1\/2,000/ })).toHaveLength(1);
     expect(screen.getAllByRole("checkbox")).toHaveLength(1);

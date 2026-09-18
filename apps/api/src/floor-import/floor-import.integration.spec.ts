@@ -377,7 +377,11 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
       await first.onModuleDestroy();
       await expect(prisma.floorImportCandidate.count({ where: { jobId: job.id } })).resolves.toBe(0);
       await expect(prisma.floorImportJob.findUniqueOrThrow({ where: { id: job.id } }))
-        .resolves.toMatchObject({ status: "queued", attemptCount: 1 });
+        .resolves.toMatchObject({
+          status: "queued", stage: "queued", progressPercent: 90, attemptCount: 1,
+          leaseOwner: null, leaseExpiresAt: null, startedAt: null,
+          failureCode: null, failureMessage: null
+        });
 
       await prisma.$executeRawUnsafe(`DROP TRIGGER fail_cad_candidate_chunk ON "FloorImportCandidate"`);
       await prisma.$executeRawUnsafe(`DROP FUNCTION fail_cad_candidate_chunk()`);
@@ -386,7 +390,7 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
       await retry.onModuleDestroy();
       await expect(prisma.floorImportCandidate.count({ where: { jobId: job.id } })).resolves.toBe(2_000);
       await expect(prisma.floorImportJob.findUniqueOrThrow({ where: { id: job.id } }))
-        .resolves.toMatchObject({ status: "review_required", attemptCount: 2 });
+        .resolves.toMatchObject({ status: "review_required", progressPercent: 100, attemptCount: 2 });
 
       await cleanup.sweepAttempts(new Date(Date.now() + 10 * 60_000));
       expect(storageForWorker.deleteObject).toHaveBeenCalledWith(`floors/${floorId}/${job.id}-attempt-1.svg`);

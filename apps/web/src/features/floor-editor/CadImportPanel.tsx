@@ -83,7 +83,6 @@ export function CadImportPanel({
   const [reviewCursor, setReviewCursor] = useState(0);
   const [suppressedReviewJobId, setSuppressedReviewJobId] = useState<string | null>(null);
   const [refreshRecoveryJob, setRefreshRecoveryJob] = useState<FloorImportJob | null>(null);
-  const [reviewLoadingJobId, setReviewLoadingJobId] = useState<string | null>(null);
   const loadedReviewJobId = useRef<string | null>(null);
   const requestLock = useRef(false);
   const busy = useRef(false);
@@ -93,6 +92,7 @@ export function CadImportPanel({
   focusedCandidateChange.current = onFocusedCandidateChange;
   const activeReview = review?.job.jobId === suppressedReviewJobId ? null : review;
   const activeJob = activeReview?.job ?? job;
+  const isReviewLoading = activeJob?.status === "review_required" && !activeReview && !error;
   const focusedIndex = useMemo(() => {
     if (!activeReview?.candidates.length) return 0;
     const index = focusedCandidateId
@@ -114,7 +114,6 @@ export function CadImportPanel({
     setError(null);
     setSuppressedReviewJobId(null);
     setRefreshRecoveryJob(null);
-    setReviewLoadingJobId(null);
     loadedReviewJobId.current = null;
     reviewChange.current(null);
     setBusy(false);
@@ -168,7 +167,6 @@ export function CadImportPanel({
     if (!activeJob || activeJob.status !== "review_required" || review?.job.jobId === activeJob.jobId
       || loadedReviewJobId.current === activeJob.jobId || error) return;
     loadedReviewJobId.current = activeJob.jobId;
-    setReviewLoadingJobId(activeJob.jobId);
     let active = true;
     void listFloorImportCandidates(floorId, activeJob.jobId).then((response) => {
       if (!active) return;
@@ -178,13 +176,11 @@ export function CadImportPanel({
         acceptedCandidateIds: response.candidates.map((candidate) => candidate.id)
       });
       setSuppressedReviewJobId(null);
-      setReviewLoadingJobId(null);
       setReviewCursor(0);
       focusedCandidateChange.current?.(response.candidates[0]?.id ?? null);
     }).catch(() => {
       if (!active) return;
       loadedReviewJobId.current = null;
-      setReviewLoadingJobId(null);
       setError("조명 위치 후보를 불러오지 못했습니다.");
     });
     return () => { active = false; };
@@ -365,7 +361,7 @@ export function CadImportPanel({
   }
 
   const status = activeJob
-    ? reviewLoadingJobId === activeJob.jobId
+    ? isReviewLoading
       ? `${cadImportStageLabel(activeJob.stage)} · 조명 위치 후보를 불러오는 중`
       : cadImportStageLabel(activeJob.stage)
     : null;
@@ -410,7 +406,7 @@ export function CadImportPanel({
         description="CAD 가져오기 또는 적용 전에 먼저 저장하거나 취소해 변경사항을 폐기하세요."
       /> : null}
 
-      {activeJob && (activeJob.status !== "review_required" || reviewLoadingJobId === activeJob.jobId)
+      {activeJob && (activeJob.status !== "review_required" || isReviewLoading)
         ? <div className="grid gap-2" role="status">
         <div className="flex items-center justify-between gap-2">
           <Text variant="body-sm" weight="semibold">{status}</Text>
