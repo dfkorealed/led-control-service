@@ -772,14 +772,14 @@ Floor 또는 source import job 삭제는 scene과 tile/override/layer 상태를 
 | --- | --- | --- | --- | --- |
 | `id` | `String` | 예 | PK, `uuid()` | tile 메타데이터 ID |
 | `sceneId` | `String` | 예 | FK -> `FloorCadScene.id`, cascade delete | 소속 scene |
-| `tileX`, `tileY`, `lod` | `Int` | 예 | 좌표 `0~63`, LOD `0~2`, 복합 Unique | tile 좌표와 상세 단계 |
+| `tileX`, `tileY`, `lod`, `part` | `Int` | 예 | 좌표 `0~63`, LOD `0~2`, part `0~127`, 복합 Unique | tile 좌표, additive 상세 단계와 16 MiB payload shard 순번 |
 | `assetId` | `String` | 예 | Unique, FK -> `FloorAsset.id`, delete no action | 같은 층의 ready `cad_tile` binary 자산 |
-| `primitiveCount` | `Int` | 예 | `0~500000` | tile primitive 수 |
+| `primitiveCount` | `Int` | 예 | `1~500000` | 비어 있지 않은 tile part의 primitive 수 |
 | `byteSize` | `BigInt` | 예 | `1~16777216` (16 MiB) | 압축 payload 크기 |
 | `minX`, `minY`, `maxX`, `maxY` | `Float` | 예 | scene 내부에서 `(tileX, tileY, tileSize)` cell bounds와 정확히 일치 | 논리 맵 tile bounds |
 | `createdAt`, `updatedAt` | `DateTime` | 예 | `now()`, `@updatedAt` | 생성·갱신 시각 |
 
-`(sceneId, tileX, tileY, lod)` Unique와 `(sceneId, lod)` index로 중복 저장을 막고 viewport/LOD 조회를 지원한다. Tile 쓰기는 tile asset 행을 `FOR UPDATE`로 먼저 잠가 동시 role/floor/ready 변경과 직렬화한다. geometry와 공간 index 본문은 DB JSON 컬럼이 아니라 `assetId`가 가리키는 압축 object에만 저장한다.
+`(sceneId, tileX, tileY, lod, part)` Unique와 `(sceneId, lod, tileX, tileY)` index로 중복 shard 저장을 막고 viewport/LOD 조회를 지원한다. 같은 cell/LOD의 part는 manifest에서 0부터 연속이어야 하고 각 binary payload는 16 MiB 이하이다. Tile 쓰기는 tile asset 행을 `FOR UPDATE`로 먼저 잠가 동시 role/floor/ready 변경과 직렬화한다. geometry와 공간 index 본문은 DB JSON 컬럼이 아니라 `assetId`가 가리키는 압축 object에만 저장한다.
 
 ### FloorCadElementOverride / FloorCadLayerState
 

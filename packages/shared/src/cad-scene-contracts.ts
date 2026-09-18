@@ -8,6 +8,8 @@ export const CAD_SCENE_MAX_EXPANDED_PRIMITIVES = 1_000_000;
 export const CAD_SCENE_MAX_SELECTED_PRIMITIVES = 500_000;
 export const CAD_SCENE_MAX_POINTS_PER_PRIMITIVE = 65_536;
 export const CAD_SCENE_MAX_TILE_BYTE_SIZE = 16 * 1_024 * 1_024;
+export const CAD_SCENE_MAX_TOTAL_TILE_BYTES = 512 * 1_024 * 1_024;
+export const CAD_SCENE_MAX_PARTS_PER_TILE = 128;
 export const CAD_SCENE_MAX_MANIFEST_BYTES = 8 * 1_024 * 1_024;
 export const CAD_REGION_PREVIEW_MAX_WIDTH = 2_400;
 export const CAD_REGION_PREVIEW_MAX_HEIGHT = 1_600;
@@ -17,7 +19,7 @@ export const CAD_MAP_MAX_LONG_SIDE = 32_768;
 export const CAD_MAP_MIN_SHORT_SIDE = 1_024;
 export const CAD_MAP_EXTREME_MIN_SHORT_SIDE = 512;
 
-const CAD_SCENE_MAX_TILE_COUNT = CAD_SCENE_MAX_TILES_PER_AXIS
+export const CAD_SCENE_MAX_TILE_PART_COUNT = CAD_SCENE_MAX_TILES_PER_AXIS
   * CAD_SCENE_MAX_TILES_PER_AXIS
   * 3;
 const CAD_SCENE_TRANSFORM_TOLERANCE = 1e-6;
@@ -26,6 +28,32 @@ const sha256Schema = z.string().regex(/^[a-f0-9]{64}$/);
 const colorSchema = z.string().regex(/^#[a-f0-9]{6}(?:[a-f0-9]{2})?$/i);
 const finiteNumberSchema = z.number().finite();
 const nonnegativeIntegerSchema = z.number().int().nonnegative().max(POSTGRES_INT_MAX);
+function isWellFormedUnicode(value: string): boolean {
+  for (let index = 0; index < value.length; index++) {
+    const codeUnit = value.charCodeAt(index);
+    if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
+      if (index + 1 >= value.length) return false;
+      const next = value.charCodeAt(index + 1);
+      if (next < 0xdc00 || next > 0xdfff) return false;
+      index++;
+    } else if (codeUnit >= 0xdc00 && codeUnit <= 0xdfff) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function trimmedSceneStringSchema(maximumLength: number) {
+  return z.string().trim().min(1).max(maximumLength).refine(isWellFormedUnicode, {
+    message: "string must contain well-formed UTF-16 Unicode"
+  });
+}
+
+function sceneStringSchema(maximumLength: number) {
+  return z.string().max(maximumLength).refine(isWellFormedUnicode, {
+    message: "string must contain well-formed UTF-16 Unicode"
+  });
+}
 const cadBoundsShape = {
   minX: finiteNumberSchema,
   minY: finiteNumberSchema,
@@ -104,11 +132,12 @@ export const cadPrimitiveStyleSchema = z.object({
 }).strict();
 
 const cadPrimitiveBaseShape = {
-  elementId: z.string().trim().min(1).max(512),
-  groupId: z.string().trim().min(1).max(512).nullable(),
-  layerName: z.string().trim().min(1).max(512),
-  sourceType: z.string().trim().min(1).max(128),
+  elementId: trimmedSceneStringSchema(512),
+  groupId: trimmedSceneStringSchema(512).nullable(),
+  layerName: trimmedSceneStringSchema(512),
+  sourceType: trimmedSceneStringSchema(128),
   bounds: cadPrimitiveBoundsSchema,
+  clipBounds: cadBoundsSchema.nullable(),
   style: cadPrimitiveStyleSchema
 };
 
@@ -177,7 +206,7 @@ const textPrimitiveSchema = z.object({
   type: z.literal("text"),
   geometry: z.object({
     position: cadPointSchema,
-    text: z.string().max(65_536),
+    text: sceneStringSchema(65_536),
     width: finiteNumberSchema.nonnegative(),
     height: finiteNumberSchema.nonnegative(),
     rotation: finiteNumberSchema,
@@ -193,7 +222,19 @@ export const cadScenePrimitiveSchema = z.discriminatedUnion("type", [
   ellipsePrimitiveSchema,
   arcPrimitiveSchema,
   textPrimitiveSchema
-]);
+]).superRefine((primitive, context) => {
+  const clip = primitive.clipBounds;
+  if (clip === null) return;
+  const bounds = primitive.bounds;
+  if (bounds.minX < clip.minX || bounds.minY < clip.minY ||
+      bounds.maxX > clip.maxX || bounds.maxY > clip.maxY) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["clipBounds"],
+      message: "primitive bounds must be contained by clip bounds"
+    });
+  }
+});
 
 export const cadSceneTransformSchema = z.object({
   scaleX: finiteNumberSchema.positive(),
@@ -210,8 +251,9 @@ export const cadSceneTileSchema = z.object({
   tileX: z.number().int().min(0).max(CAD_SCENE_MAX_TILES_PER_AXIS - 1),
   tileY: z.number().int().min(0).max(CAD_SCENE_MAX_TILES_PER_AXIS - 1),
   lod: z.union([z.literal(0), z.literal(1), z.literal(2)]),
+  part: z.number().int().min(0).max(CAD_SCENE_MAX_PARTS_PER_TILE - 1),
   assetId: z.string().uuid(),
-  primitiveCount: nonnegativeIntegerSchema.max(CAD_SCENE_MAX_SELECTED_PRIMITIVES),
+  primitiveCount: nonnegativeIntegerSchema.positive().max(CAD_SCENE_MAX_SELECTED_PRIMITIVES),
   byteSize: z.number().int().positive().max(CAD_SCENE_MAX_TILE_BYTE_SIZE),
   sha256: sha256Schema,
   bounds: cadBoundsSchema
@@ -227,13 +269,14 @@ export const cadSceneManifestSchema = z.object({
   padding: z.number().int().nonnegative().max(CAD_MAP_MAX_LONG_SIDE),
   gridSize: z.number().int().min(10).max(100).refine((value) => value % 5 === 0),
   tileSize: z.literal(CAD_SCENE_TILE_SIZE),
+  lodMode: z.literal("additive"),
   primitiveCount: nonnegativeIntegerSchema.max(CAD_SCENE_MAX_SELECTED_PRIMITIVES),
-  tileCount: nonnegativeIntegerSchema.max(CAD_SCENE_MAX_TILE_COUNT),
+  tileCount: nonnegativeIntegerSchema.max(CAD_SCENE_MAX_TILE_PART_COUNT),
   byteSize: z.number().int().positive().max(CAD_SCENE_MAX_MANIFEST_BYTES),
   sha256: sha256Schema,
   sourceBounds: cadBoundsSchema,
   transform: cadSceneTransformSchema,
-  tiles: z.array(cadSceneTileSchema).max(CAD_SCENE_MAX_TILE_COUNT)
+  tiles: z.array(cadSceneTileSchema).max(CAD_SCENE_MAX_TILE_PART_COUNT)
 }).strict().superRefine((manifest, context) => {
   let normalizedSize: CadMapSize;
   try {
@@ -307,8 +350,13 @@ export const cadSceneManifestSchema = z.object({
   const maximumTileX = Math.ceil(manifest.width / manifest.tileSize) - 1;
   const maximumTileY = Math.ceil(manifest.height / manifest.tileSize) - 1;
   const tileKeys = new Set<string>();
-  const primitiveCountByLod = new Map<number, number>();
+  const tileAssetIds = new Set<string>();
+  const partsByTile = new Map<string, number[]>();
+  let tileOccurrenceCount = 0;
+  let totalTileBytes = 0;
   manifest.tiles.forEach((tile, index) => {
+    tileOccurrenceCount += tile.primitiveCount;
+    totalTileBytes += tile.byteSize;
     if (tile.sceneId !== manifest.sceneId) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
@@ -339,27 +387,58 @@ export const cadSceneManifestSchema = z.object({
       });
     }
 
-    const tileKey = `${tile.lod}:${tile.tileX}:${tile.tileY}`;
+    const cellKey = `${tile.lod}:${tile.tileX}:${tile.tileY}`;
+    const tileKey = `${cellKey}:${tile.part}`;
     if (tileKeys.has(tileKey)) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["tiles", index],
-        message: "tile coordinates must be unique within each LOD"
+        message: "tile part must be unique within each LOD cell"
       });
     }
     tileKeys.add(tileKey);
-    primitiveCountByLod.set(
-      tile.lod,
-      (primitiveCountByLod.get(tile.lod) ?? 0) + tile.primitiveCount
-    );
+    if (tileAssetIds.has(tile.assetId)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["tiles", index, "assetId"],
+        message: "tile assetId must be unique within the manifest"
+      });
+    }
+    if (tile.assetId === manifest.manifestAssetId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["tiles", index, "assetId"],
+        message: "tile assetId must differ from the manifest assetId"
+      });
+    }
+    tileAssetIds.add(tile.assetId);
+    const parts = partsByTile.get(cellKey) ?? [];
+    parts.push(tile.part);
+    partsByTile.set(cellKey, parts);
   });
 
-  for (const [lod, primitiveCount] of primitiveCountByLod) {
-    if (primitiveCount > manifest.primitiveCount) {
+  if (tileOccurrenceCount < manifest.primitiveCount) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["tiles"],
+      message: "tile primitive occurrences must cover every manifest primitive"
+    });
+  }
+  if (totalTileBytes > CAD_SCENE_MAX_TOTAL_TILE_BYTES) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["tiles"],
+      message: "total tile payload bytes exceed the scene limit"
+    });
+  }
+
+  for (const parts of partsByTile.values()) {
+    parts.sort((left, right) => left - right);
+    if (parts.some((part, index) => part !== index)) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["tiles"],
-        message: `LOD ${lod} tile primitive count must not exceed the manifest primitiveCount`
+        message: "tile parts must be contiguous and start at zero"
       });
     }
   }

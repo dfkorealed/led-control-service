@@ -92,6 +92,8 @@
 - [ ] builder와 codec을 구현한다.
 - [ ] 300,000 primitive benchmark fixture에서 memory/time 예산을 기록하고 `feat(cad): build tiled native scenes`로 커밋한다.
 
+**완료 기록 (2026-09-19):** 실제 geometry가 지나는 셀만 순회하고 line/polyline은 타일 경계에서 분할한다. 비균일 변환 곡선의 적응형 오차 샘플링과 정확 극값, additive LOD, 연속 `part`, 16 MiB 단일 tile, 512 MiB scene 전체 출력, 셀당 128 part, 전역 12,288 descriptor와 manifest/tile asset ID 유일성을 강제한다. 격리한 30만 primitive 벤치마크는 약 2.2초, builder 추가 최대 RSS 약 440 MiB로 30초/512 MiB 예산을 통과했다.
+
 ### Task 5: worker persistence와 region API
 
 **Files:**

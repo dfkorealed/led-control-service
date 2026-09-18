@@ -586,6 +586,7 @@ model FloorCadTile {
   tileX          Int
   tileY          Int
   lod            Int
+  part           Int           @default(0)
   assetId        String        @unique
   primitiveCount Int
   byteSize       BigInt
@@ -598,8 +599,8 @@ model FloorCadTile {
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
-  @@unique([sceneId, tileX, tileY, lod])
-  @@index([sceneId, lod])
+  @@unique([sceneId, tileX, tileY, lod, part])
+  @@index([sceneId, lod, tileX, tileY])
 }
 
 model FloorCadElementOverride {

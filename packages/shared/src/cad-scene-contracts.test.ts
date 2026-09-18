@@ -10,8 +10,10 @@ import {
   CAD_SCENE_MAX_EXPANDED_PRIMITIVES,
   CAD_SCENE_MAX_MANIFEST_BYTES,
   CAD_SCENE_MAX_POINTS_PER_PRIMITIVE,
+  CAD_SCENE_MAX_PARTS_PER_TILE,
   CAD_SCENE_MAX_SELECTED_PRIMITIVES,
   CAD_SCENE_MAX_TILE_BYTE_SIZE,
+  CAD_SCENE_MAX_TOTAL_TILE_BYTES,
   CAD_SCENE_MAX_TILES_PER_AXIS,
   CAD_SCENE_TILE_SIZE,
   cadElementOverrideSchema,
@@ -46,6 +48,7 @@ function primitive(geometry: Record<string, unknown>) {
     layerName: "WALLS",
     sourceType: "LINE",
     bounds,
+    clipBounds: null,
     style,
     ...geometry
   };
@@ -57,6 +60,7 @@ const tile = {
   tileX: 0,
   tileY: 0,
   lod: 0,
+  part: 0,
   assetId,
   primitiveCount: 7,
   byteSize: 1_024,
@@ -96,6 +100,7 @@ const manifest = {
   padding: 328,
   gridSize: 80,
   tileSize: CAD_SCENE_TILE_SIZE,
+  lodMode: "additive",
   primitiveCount: 7,
   tileCount: 1,
   byteSize: 4_096,
@@ -159,6 +164,34 @@ describe("CAD scene contracts", () => {
     expect(cadScenePrimitiveSchema.safeParse(primitive({
       type: "spline",
       geometry: { points: [{ x: 0, y: 0 }, { x: 1, y: 1 }] }
+    })).success).toBe(false);
+  });
+
+  it("rejects ill-formed UTF-16 scene strings", () => {
+    expect(cadScenePrimitiveSchema.safeParse(primitive({
+      elementId: `element-${String.fromCharCode(0xd800)}`,
+      type: "line",
+      geometry: { start: { x: 0, y: 0 }, end: { x: 100, y: 50 } }
+    })).success).toBe(false);
+    expect(cadScenePrimitiveSchema.safeParse(primitive({
+      type: "text",
+      geometry: {
+        position: { x: 0, y: 0 }, text: String.fromCharCode(0xdc00),
+        width: 10, height: 10, rotation: 0, fontSize: 10
+      }
+    })).success).toBe(false);
+  });
+
+  it("requires clipped primitive bounds to stay inside non-null clip bounds", () => {
+    expect(cadScenePrimitiveSchema.safeParse(primitive({
+      clipBounds: { minX: 0, minY: 0, maxX: 512, maxY: 512 },
+      type: "line",
+      geometry: { start: { x: 0, y: 0 }, end: { x: 100, y: 50 } }
+    })).success).toBe(true);
+    expect(cadScenePrimitiveSchema.safeParse(primitive({
+      clipBounds: { minX: 1, minY: 0, maxX: 512, maxY: 512 },
+      type: "line",
+      geometry: { start: { x: 0, y: 0 }, end: { x: 100, y: 50 } }
     })).success).toBe(false);
   });
 
@@ -254,7 +287,7 @@ describe("CAD scene contracts", () => {
     }).success).toBe(false);
   });
 
-  it("rejects duplicate tile keys, foreign scenes, and excessive per-LOD counts", () => {
+  it("supports bounded deterministic tile parts and additive LOD descriptors", () => {
     const secondTile = {
       ...tile,
       assetId: "00000000-0000-4000-8000-000000000005",
@@ -263,14 +296,26 @@ describe("CAD scene contracts", () => {
       bounds: { minX: 512, minY: 0, maxX: 1_024, maxY: 512 }
     };
 
+    expect(CAD_SCENE_MAX_PARTS_PER_TILE).toBeGreaterThan(1);
     expect(cadSceneManifestSchema.safeParse({
       ...manifest,
       tileCount: 2,
       tiles: [
         { ...tile, primitiveCount: 3 },
-        { ...tile, assetId: secondTile.assetId, primitiveCount: 4 }
+        { ...tile, part: 1, assetId: secondTile.assetId, primitiveCount: 4 }
       ]
+    }).success).toBe(true);
+    expect(cadSceneManifestSchema.safeParse({
+      ...manifest,
+      tiles: [{ ...tile, part: 1 }]
     }).success).toBe(false);
+    expect(cadSceneManifestSchema.safeParse({ ...manifest, lodMode: "replacement" }).success).toBe(false);
+    expect(cadSceneManifestSchema.safeParse({
+      ...manifest,
+      manifestAssetId: tile.assetId
+    }).success).toBe(false);
+    expect(cadSceneTileSchema.safeParse({ ...tile, part: CAD_SCENE_MAX_PARTS_PER_TILE }).success).toBe(false);
+    expect(cadSceneTileSchema.safeParse({ ...tile, primitiveCount: 0 }).success).toBe(false);
     expect(cadSceneManifestSchema.safeParse({
       ...manifest,
       tiles: [{ ...tile, sceneId: "00000000-0000-4000-8000-000000000099" }]
@@ -279,12 +324,27 @@ describe("CAD scene contracts", () => {
       ...manifest,
       tileCount: 2,
       tiles: [tile, secondTile]
+    }).success).toBe(true);
+    expect(cadSceneManifestSchema.safeParse({
+      ...manifest,
+      tileCount: 2,
+      tiles: [tile, { ...secondTile, assetId: tile.assetId }]
     }).success).toBe(false);
     expect(cadSceneManifestSchema.safeParse({
       ...manifest,
       tileCount: 2,
       tiles: [tile, { ...tile, lod: 1, assetId: secondTile.assetId }]
     }).success).toBe(true);
+    expect(cadSceneManifestSchema.safeParse({
+      ...manifest,
+      tileCount: 2,
+      tiles: [tile, { ...tile, assetId: secondTile.assetId }]
+    }).success).toBe(false);
+    expect(cadSceneManifestSchema.safeParse({
+      ...manifest,
+      primitiveCount: 8,
+      tiles: [{ ...tile, primitiveCount: 7 }]
+    }).success).toBe(false);
   });
 
   it("requires primitive and tile counts to describe the same empty state", () => {
@@ -307,6 +367,7 @@ describe("CAD scene contracts", () => {
 
   it("caps manifest metadata at 8 MiB", () => {
     expect(CAD_SCENE_MAX_MANIFEST_BYTES).toBe(8 * 1_024 * 1_024);
+    expect(CAD_SCENE_MAX_TOTAL_TILE_BYTES).toBe(512 * 1_024 * 1_024);
     expect(cadSceneManifestSchema.safeParse({
       ...manifest,
       byteSize: CAD_SCENE_MAX_MANIFEST_BYTES
@@ -314,6 +375,20 @@ describe("CAD scene contracts", () => {
     expect(cadSceneManifestSchema.safeParse({
       ...manifest,
       byteSize: CAD_SCENE_MAX_MANIFEST_BYTES + 1
+    }).success).toBe(false);
+
+    const oversizedTileSet = Array.from({ length: 33 }, (_, part) => ({
+      ...tile,
+      part,
+      assetId: `00000000-0000-4000-8000-${(part + 100).toString().padStart(12, "0")}`,
+      primitiveCount: 1,
+      byteSize: CAD_SCENE_MAX_TILE_BYTE_SIZE
+    }));
+    expect(cadSceneManifestSchema.safeParse({
+      ...manifest,
+      primitiveCount: 1,
+      tileCount: oversizedTileSet.length,
+      tiles: oversizedTileSet
     }).success).toBe(false);
   });
 

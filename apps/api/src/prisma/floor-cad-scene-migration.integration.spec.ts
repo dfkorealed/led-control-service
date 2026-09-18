@@ -4,9 +4,11 @@ import { join } from "node:path";
 import { disposablePostgres } from "../../test/support/disposable-postgres";
 
 const previousMigrationName = "20260918190000_floor_light_slot_capacity_reconciliation";
-const migrationName = "20260918210000_add_floor_cad_scene";
+const cadSceneMigrationName = "20260918210000_add_floor_cad_scene";
+const migrationName = "20260919120000_add_floor_cad_tile_part";
 const schemaPath = join(__dirname, "../../prisma/schema.prisma");
-const migrationPath = join(__dirname, `../../prisma/migrations/${migrationName}/migration.sql`);
+const migrationPath = join(__dirname, `../../prisma/migrations/${cadSceneMigrationName}/migration.sql`);
+const shardingMigrationPath = join(__dirname, `../../prisma/migrations/${migrationName}/migration.sql`);
 const schema = readFileSync(schemaPath, "utf8");
 
 jest.setTimeout(60_000);
@@ -45,13 +47,176 @@ describe("floor CAD scene Prisma schema contract", () => {
       expect(modelBlock(model)).not.toMatch(/\bJson\b/);
     }
 
-    expect(modelBlock("FloorCadTile")).toEqual(expect.stringContaining("@@unique([sceneId, tileX, tileY, lod])"));
+    expect(modelBlock("FloorCadTile")).toEqual(expect.stringContaining("part           Int           @default(0)"));
+    expect(modelBlock("FloorCadTile")).toEqual(expect.stringContaining("@@unique([sceneId, tileX, tileY, lod, part])"));
     expect(modelBlock("FloorCadElementOverride")).toEqual(expect.stringContaining("@@id([sceneId, elementId])"));
     expect(modelBlock("FloorCadLayerState")).toEqual(expect.stringContaining("@@id([sceneId, layerName])"));
   });
 
   it("ships the matching migration", () => {
     expect(existsSync(migrationPath)).toBe(true);
+    expect(existsSync(shardingMigrationPath)).toBe(true);
+    const shardingMigration = readFileSync(shardingMigrationPath, "utf8");
+    expect(shardingMigration).toContain('ADD COLUMN "part" INTEGER NOT NULL DEFAULT 0');
+    expect(shardingMigration).toContain('("sceneId", "tileX", "tileY", "lod", "part")');
+    expect(shardingMigration.indexOf('CREATE UNIQUE INDEX "FloorCadTile_sceneId_tileX_tileY_lod_part_key"'))
+      .toBeLessThan(shardingMigration.indexOf('DROP INDEX "FloorCadTile_sceneId_tileX_tileY_lod_key"'));
+    expect(shardingMigration).toContain('ADD CONSTRAINT "FloorCadTile_size_check_v2"');
+    expect(shardingMigration).toContain('VALIDATE CONSTRAINT "FloorCadTile_size_check_v2"');
+    expect(shardingMigration.indexOf('VALIDATE CONSTRAINT "FloorCadTile_size_check_v2"'))
+      .toBeLessThan(shardingMigration.indexOf('DROP CONSTRAINT "FloorCadTile_size_check"'));
+  });
+});
+
+describe("floor CAD tile part populated upgrade", () => {
+  let cluster: Awaited<ReturnType<typeof disposablePostgres>>;
+  let databaseUrl: string;
+
+  beforeAll(async () => {
+    cluster = await disposablePostgres();
+    databaseUrl = cluster.database();
+    const base = cluster.deploy(databaseUrl, cadSceneMigrationName);
+    if (base.status !== 0) throw new Error(base.stderr);
+    cluster.sql(databaseUrl, `
+      INSERT INTO "Organization" ("id", "name", "updatedAt")
+      VALUES ('organization-part-upgrade', 'CAD part upgrade', CURRENT_TIMESTAMP);
+      INSERT INTO "Site" ("id", "organizationId", "name", "updatedAt")
+      VALUES ('site-part-upgrade', 'organization-part-upgrade', 'CAD part upgrade site', CURRENT_TIMESTAMP);
+      INSERT INTO "Floor" ("id", "siteId", "name", "level", "updatedAt")
+      VALUES ('floor-scene', 'site-part-upgrade', 'CAD part upgrade floor', 1, CURRENT_TIMESTAMP);
+      INSERT INTO "FloorAsset" (
+        "id", "floorId", "kind", "status", "objectKey", "mimeType", "sizeBytes", "sha256", "readyAt", "updatedAt"
+      ) VALUES
+        ('source-scene', 'floor-scene', 'original', 'ready', 'source/upgrade.dwg', 'application/dwg', 100,
+          repeat('a', 64), CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+        ('preview-scene', 'floor-scene', 'cad_region_preview', 'ready', 'cad/preview', 'image/png', 100,
+          repeat('b', 64), CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+        ('manifest-scene', 'floor-scene', 'cad_manifest', 'ready', 'cad/manifest', 'application/octet-stream', 100,
+          repeat('c', 64), CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+        ('tile-part-0', 'floor-scene', 'cad_tile', 'ready', 'cad/tile-0', 'application/octet-stream', 100,
+          repeat('d', 64), CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+        ('tile-part-1', 'floor-scene', 'cad_tile', 'ready', 'cad/tile-1', 'application/octet-stream', 100,
+          repeat('e', 64), CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+        ('tile-part-duplicate', 'floor-scene', 'cad_tile', 'ready', 'cad/tile-duplicate', 'application/octet-stream', 100,
+          repeat('f', 64), CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+      INSERT INTO "FloorImportJob" ("id", "floorId", "sourceAssetId", "sourceFormat", "updatedAt")
+      VALUES ('job-scene', 'floor-scene', 'source-scene', 'dwg', CURRENT_TIMESTAMP);
+      ${regionInsertSql("region-scene", "job-scene", "region-upgrade", "preview-scene", true)}
+      ${sceneInsertSql("scene-current", "manifest-scene")}
+      INSERT INTO "FloorCadTile" (
+        "id", "sceneId", "tileX", "tileY", "lod", "assetId", "primitiveCount", "byteSize",
+        "minX", "minY", "maxX", "maxY", "updatedAt"
+      ) VALUES (
+        'tile-row-0', 'scene-current', 0, 0, 0, 'tile-part-0', 12, 2048,
+        0, 0, 512, 512, CURRENT_TIMESTAMP
+      );
+    `);
+  });
+
+  afterAll(() => cluster?.stop());
+
+  it("preserves populated rows and permits only distinct parts after the follow-up", () => {
+    expect(cluster.sql(databaseUrl, `SELECT count(*) FROM "FloorCadTile";`)).toBe("1");
+    const followUp = cluster.deploy(databaseUrl, migrationName);
+    if (followUp.status !== 0) throw new Error(followUp.stderr);
+
+    expect(cluster.sql(databaseUrl, `
+      SELECT "id" || ':' || "part" || ':' || "primitiveCount" FROM "FloorCadTile";
+    `)).toBe("tile-row-0:0:12");
+    expect(() => cluster.sql(databaseUrl, `
+      INSERT INTO "FloorCadTile" (
+        "id", "sceneId", "tileX", "tileY", "lod", "part", "assetId", "primitiveCount", "byteSize",
+        "minX", "minY", "maxX", "maxY", "updatedAt"
+      ) VALUES (
+        'tile-row-1', 'scene-current', 0, 0, 0, 1, 'tile-part-1', 8, 1024,
+        0, 0, 512, 512, CURRENT_TIMESTAMP
+      );
+    `)).not.toThrow();
+    expect(() => cluster.sql(databaseUrl, `
+      INSERT INTO "FloorCadTile" (
+        "id", "sceneId", "tileX", "tileY", "lod", "part", "assetId", "primitiveCount", "byteSize",
+        "minX", "minY", "maxX", "maxY", "updatedAt"
+      ) VALUES (
+        'tile-row-zero', 'scene-current', 0, 0, 0, 2, 'tile-part-duplicate', 0, 1024,
+        0, 0, 512, 512, CURRENT_TIMESTAMP
+      );
+    `)).toThrow(/FloorCadTile_size_check/);
+    expect(() => cluster.sql(databaseUrl, `
+      INSERT INTO "FloorCadTile" (
+        "id", "sceneId", "tileX", "tileY", "lod", "part", "assetId", "primitiveCount", "byteSize",
+        "minX", "minY", "maxX", "maxY", "updatedAt"
+      ) VALUES (
+        'tile-row-duplicate', 'scene-current', 0, 0, 0, 1, 'tile-part-duplicate', 8, 1024,
+        0, 0, 512, 512, CURRENT_TIMESTAMP
+      );
+    `)).toThrow(/FloorCadTile_sceneId_tileX_tileY_lod_part_key/);
+  });
+});
+
+describe("floor CAD tile part failed upgrade rollback", () => {
+  let cluster: Awaited<ReturnType<typeof disposablePostgres>>;
+  let databaseUrl: string;
+
+  beforeAll(async () => {
+    cluster = await disposablePostgres();
+    databaseUrl = cluster.database();
+    const base = cluster.deploy(databaseUrl, cadSceneMigrationName);
+    if (base.status !== 0) throw new Error(base.stderr);
+    cluster.sql(databaseUrl, `
+      INSERT INTO "Organization" ("id", "name", "updatedAt")
+      VALUES ('organization-part-rollback', 'CAD part rollback', CURRENT_TIMESTAMP);
+      INSERT INTO "Site" ("id", "organizationId", "name", "updatedAt")
+      VALUES ('site-part-rollback', 'organization-part-rollback', 'CAD part rollback site', CURRENT_TIMESTAMP);
+      INSERT INTO "Floor" ("id", "siteId", "name", "level", "updatedAt")
+      VALUES ('floor-part-rollback', 'site-part-rollback', 'CAD part rollback floor', 1, CURRENT_TIMESTAMP);
+      INSERT INTO "FloorAsset" (
+        "id", "floorId", "kind", "status", "objectKey", "mimeType", "sizeBytes", "sha256", "readyAt", "updatedAt"
+      ) VALUES
+        ('source-part-rollback', 'floor-part-rollback', 'original', 'ready', 'source/rollback.dwg', 'application/dwg', 100,
+          repeat('a', 64), CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+        ('preview-part-rollback', 'floor-part-rollback', 'cad_region_preview', 'ready', 'cad/rollback-preview', 'image/png', 100,
+          repeat('b', 64), CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+        ('manifest-part-rollback', 'floor-part-rollback', 'cad_manifest', 'ready', 'cad/rollback-manifest', 'application/octet-stream', 100,
+          repeat('c', 64), CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+        ('tile-part-rollback', 'floor-part-rollback', 'cad_tile', 'ready', 'cad/rollback-tile', 'application/octet-stream', 100,
+          repeat('d', 64), CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+      INSERT INTO "FloorImportJob" ("id", "floorId", "sourceAssetId", "sourceFormat", "updatedAt")
+      VALUES ('job-part-rollback', 'floor-part-rollback', 'source-part-rollback', 'dwg', CURRENT_TIMESTAMP);
+      ${regionInsertSql("region-part-rollback", "job-part-rollback", "region-rollback", "preview-part-rollback", true)}
+      ${sceneInsertSql("scene-part-rollback", "manifest-part-rollback", {
+        floorId: "floor-part-rollback",
+        sourceImportJobId: "job-part-rollback",
+        sourceRegionId: "region-part-rollback"
+      })}
+      INSERT INTO "FloorCadTile" (
+        "id", "sceneId", "tileX", "tileY", "lod", "assetId", "primitiveCount", "byteSize",
+        "minX", "minY", "maxX", "maxY", "updatedAt"
+      ) VALUES (
+        'tile-row-zero-before-upgrade', 'scene-part-rollback', 0, 0, 0, 'tile-part-rollback', 0, 1024,
+        0, 0, 512, 512, CURRENT_TIMESTAMP
+      );
+    `);
+  });
+
+  afterAll(() => cluster?.stop());
+
+  it("rolls back every schema change when an existing zero-count tile fails validation", () => {
+    const followUp = cluster.deploy(databaseUrl, migrationName);
+    expect(followUp.status).not.toBe(0);
+    expect(cluster.sql(databaseUrl, `
+      SELECT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'FloorCadTile' AND column_name = 'part'
+      );
+    `)).toBe("f");
+    expect(cluster.sql(databaseUrl, `
+      SELECT count(*) FROM pg_indexes
+      WHERE indexname = 'FloorCadTile_sceneId_tileX_tileY_lod_key';
+    `)).toBe("1");
+    expect(cluster.sql(databaseUrl, `
+      SELECT count(*) FROM pg_constraint
+      WHERE conname = 'FloorCadTile_size_check_v2';
+    `)).toBe("0");
   });
 });
 
@@ -121,6 +286,15 @@ describe("floor CAD scene migration on disposable PostgreSQL", () => {
       FROM pg_enum
       WHERE enumtypid = '"FloorImportJobStatus"'::regtype;
     `)).toBe("queued,processing,region_selection_required,review_required,applying,completed,failed,cancelled");
+    expect(cluster.sql(databaseUrl, `
+      SELECT column_default || ':' || is_nullable
+      FROM information_schema.columns
+      WHERE table_name = 'FloorCadTile' AND column_name = 'part';
+    `)).toBe("0:NO");
+    expect(cluster.sql(databaseUrl, `
+      SELECT indexdef FROM pg_indexes
+      WHERE indexname = 'FloorCadTile_sceneId_tileX_tileY_lod_part_key';
+    `)).toContain('("sceneId", "tileX", "tileY", lod, part)');
   });
 
   it("allows only a lease-free active region-selection lifecycle", () => {
@@ -249,7 +423,7 @@ describe("floor CAD scene migration on disposable PostgreSQL", () => {
     expect(() => cluster.sql(databaseUrl, sceneInsertSql("scene-duplicate-floor", "manifest-other")))
       .toThrow(/FloorCadScene_floorId_key/);
     expect(() => cluster.sql(databaseUrl, tileInsertSql("tile-row-duplicate")))
-      .toThrow(/FloorCadTile_sceneId_tileX_tileY_lod_key|FloorCadTile_assetId_key/);
+      .toThrow(/FloorCadTile_sceneId_tileX_tileY_lod_(?:part_)?key|FloorCadTile_assetId_key/);
     expect(() => cluster.sql(databaseUrl, `DELETE FROM "FloorAsset" WHERE "id" = 'manifest-scene';`))
       .toThrow(/FloorCadScene_manifestAssetId_fkey/);
     expect(() => cluster.sql(databaseUrl, `DELETE FROM "FloorAsset" WHERE "id" = 'tile-scene';`))
