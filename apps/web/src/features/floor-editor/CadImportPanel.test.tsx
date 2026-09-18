@@ -590,6 +590,41 @@ describe("CadImportPanel", () => {
     expect(onApplied).toHaveBeenCalledWith(expect.objectContaining({ revision: 8 }));
   });
 
+  it("moves focus to the persistent CAD region when successful apply removes its opener", async () => {
+    const review: CadImportReviewState = {
+      job: { ...queuedJob, status: "review_required", progressPercent: 100 },
+      candidates: [candidate],
+      acceptedCandidateIds: [candidate.id]
+    };
+    floorEditorApi.applyFloorImportJob.mockResolvedValueOnce({
+      jobId: queuedJob.jobId,
+      status: "completed",
+      revision: 8,
+      acceptedCandidateIds: [candidate.id],
+      renderedAssetId: "00000000-0000-4000-8000-000000000040",
+      deletedObjectCount: 2,
+      unplacedFixtureCount: 4,
+      deletedSlotCount: 3,
+      createdSlotCount: 1,
+      floorPlan: {
+        imageUrl: "/api/floors/floor-1/assets/rendered-1/content",
+        sourceType: "image",
+        originalFileUrl: asset.accessPath,
+        renderedImageUrl: "/api/floors/floor-1/assets/rendered-1/content",
+        width: 640,
+        height: 480,
+        gridSize: 10
+      }
+    } satisfies FloorImportApplyResult);
+    renderPanel({ review });
+    const region = screen.getByRole("region", { name: "CAD 가져오기" });
+
+    openAndConfirmApply();
+
+    await waitFor(() => expect(screen.queryByRole("button", { name: "선택한 후보와 배경 적용" })).not.toBeInTheDocument());
+    await waitFor(() => expect(region).toHaveFocus());
+  });
+
   it("blocks CAD start and apply while the editor has an unsaved draft", () => {
     const review: CadImportReviewState = {
       job: { ...queuedJob, status: "review_required", progressPercent: 100 },

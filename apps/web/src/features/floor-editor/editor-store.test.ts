@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useFloorEditorStore } from "./editor-store";
 import type { FloorEditorState } from "./editor-types";
 import type { EDITOR_MAX_NAME_LENGTH } from "@led-control/shared";
+import { buildEditorChanges } from "./editor-diff";
 
 const maxNameLength: typeof EDITOR_MAX_NAME_LENGTH = 200;
 
@@ -309,5 +310,50 @@ describe("floor editor store baseline", () => {
       fixtures: [expect.objectContaining({ id: "fixture-1", placementStatus: "placed", x: 15, y: 27 })],
       lightSlots: [expect.objectContaining({ id: "slot-1", assignedFixtureId: null })]
     });
+  });
+
+  it("keeps a slot-only assignment change dirty after returning the fixture to its baseline coordinates", () => {
+    const assignedState: FloorEditorState = {
+      ...initialState,
+      fixtures: [{ ...initialState.fixtures[0], placementStatus: "placed", x: 10, y: 20 }],
+      lightSlots: [{ id: "slot-1", x: 10, y: 20, rotation: 0, assignedFixtureId: "fixture-1" }]
+    };
+    useFloorEditorStore.getState().initialize(assignedState);
+    useFloorEditorStore.getState().setSnap(false);
+
+    useFloorEditorStore.getState().moveFixtures(["fixture-1"], { x: 5, y: 7 });
+    useFloorEditorStore.getState().moveFixtures(["fixture-1"], { x: -5, y: -7 });
+
+    const current = useFloorEditorStore.getState().state!;
+    expect(current.fixtures[0]).toMatchObject({ x: 10, y: 20 });
+    expect(current.lightSlots[0].assignedFixtureId).toBeNull();
+    expect(buildEditorChanges(assignedState, current).slotAssignments).toEqual([
+      { slotId: "slot-1", assignedFixtureId: null }
+    ]);
+    expect(useFloorEditorStore.getState().isDirty).toBe(true);
+  });
+
+  it("round-trips assignment and free-move slot state through undo and redo", () => {
+    const state: FloorEditorState = {
+      ...initialState,
+      fixtures: [{ ...initialState.fixtures[0], placementStatus: "unplaced", x: 0, y: 0 }],
+      lightSlots: [{ id: "slot-1", x: 10, y: 20, rotation: 15, assignedFixtureId: null }]
+    };
+    useFloorEditorStore.getState().initialize(state);
+    useFloorEditorStore.getState().assignFixtureToSlot("fixture-1", "slot-1");
+    expect(useFloorEditorStore.getState().state!.lightSlots[0].assignedFixtureId).toBe("fixture-1");
+
+    useFloorEditorStore.getState().undo();
+    expect(useFloorEditorStore.getState().state).toEqual(state);
+    useFloorEditorStore.getState().redo();
+    expect(useFloorEditorStore.getState().state!.lightSlots[0].assignedFixtureId).toBe("fixture-1");
+
+    useFloorEditorStore.getState().setSnap(false);
+    useFloorEditorStore.getState().moveFixtures(["fixture-1"], { x: 8, y: 9 });
+    expect(useFloorEditorStore.getState().state!.lightSlots[0].assignedFixtureId).toBeNull();
+    useFloorEditorStore.getState().undo();
+    expect(useFloorEditorStore.getState().state!.lightSlots[0].assignedFixtureId).toBe("fixture-1");
+    useFloorEditorStore.getState().redo();
+    expect(useFloorEditorStore.getState().state!.lightSlots[0].assignedFixtureId).toBeNull();
   });
 });

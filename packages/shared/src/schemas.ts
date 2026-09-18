@@ -5,6 +5,7 @@ export const POSTGRES_INT_MAX = 2_147_483_647;
 export const EDITOR_MAX_EXPECTED_REVISION = POSTGRES_INT_MAX - 1;
 export const EDITOR_MAX_FIXTURE_UPDATES = 1_000;
 export const EDITOR_MAX_MAP_OBJECT_MUTATIONS = 2_000;
+export const EDITOR_MAX_SLOT_ASSIGNMENT_MUTATIONS = 2_000;
 export const EDITOR_MAX_BODY_BYTES = 1_048_576;
 export const EDITOR_MAX_POINTS = 128;
 export const EDITOR_MAX_ID_LENGTH = 128;
@@ -301,6 +302,10 @@ export const saveEditorStateSchema = z.object({
   leaseFence: positiveInt4Schema,
   floorPlan: floorPlanUpdateSchema.nullable().optional(),
   fixtureUpdates: z.array(fixtureLayoutUpdateSchema).max(EDITOR_MAX_FIXTURE_UPDATES),
+  slotAssignments: z.array(z.object({
+    slotId: z.string().uuid(),
+    assignedFixtureId: z.string().uuid().nullable()
+  }).strict()).max(EDITOR_MAX_SLOT_ASSIGNMENT_MUTATIONS).default([]),
   objectCreates: z.array(floorMapObjectDraftSchema),
   objectUpdates: z.array(z.object({ id: editorIdSchema, patch: floorMapObjectPatchSchema }).strict()),
   objectDeletes: z.array(editorIdSchema)
@@ -313,6 +318,27 @@ export const saveEditorStateSchema = z.object({
       message: `map object mutations must not exceed ${EDITOR_MAX_MAP_OBJECT_MUTATIONS}`
     });
   }
+  const slotIds = new Set<string>();
+  const assignedFixtureIds = new Set<string>();
+  value.slotAssignments.forEach((assignment, index) => {
+    if (slotIds.has(assignment.slotId)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["slotAssignments", index, "slotId"],
+        message: "slot assignment IDs must be unique"
+      });
+    }
+    slotIds.add(assignment.slotId);
+    if (assignment.assignedFixtureId === null) return;
+    if (assignedFixtureIds.has(assignment.assignedFixtureId)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["slotAssignments", index, "assignedFixtureId"],
+        message: "assigned fixture IDs must be unique"
+      });
+    }
+    assignedFixtureIds.add(assignment.assignedFixtureId);
+  });
 });
 
 export const restoreFloorEditorRevisionSchema = z.object({

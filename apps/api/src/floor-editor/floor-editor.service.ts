@@ -108,6 +108,7 @@ interface PreparedSaveEditorState {
   leaseFence: number;
   floorPlan?: CompleteFloorPlanData | null;
   fixtureUpdates: Array<{ id: string; data: Record<string, unknown> }>;
+  slotAssignments: SaveEditorStateInput["slotAssignments"];
   objectCreates: Prisma.FloorMapObjectUncheckedCreateInput[];
   objectUpdates: Array<{ id: string; data: Record<string, unknown> }>;
   objectDeletes: string[];
@@ -158,8 +159,11 @@ export class FloorEditorService {
     try {
       return await this.prisma.$transaction(async (tx) => {
         const authorizedSite = await this.siteAccess.assertManageInTransaction(tx, user, access.siteId);
+        const changedAt = await this.assertLockedRevision(
+          tx, floorId, prepared.expectedRevision, prepared.leaseToken, prepared.leaseFence
+        );
         await this.assertAtomicSaveTargets(tx, floorId, prepared);
-        const changedAt = await this.incrementRevision(tx, floorId, prepared.expectedRevision, prepared.leaseToken, prepared.leaseFence);
+        await this.incrementLockedRevision(tx, floorId);
         if (prepared.floorPlan) {
           await this.assertReadyAssetUrls(floorId, prepared.floorPlan, tx);
         }
@@ -413,6 +417,10 @@ export class FloorEditorService {
 
   private assertUniqueMutationIds(input: SaveEditorStateInput) {
     this.assertUniqueIds(input.fixtureUpdates.map((update) => update.id), "fixture update IDs must be unique");
+    this.assertUniqueIds(input.slotAssignments.map((assignment) => assignment.slotId), "slot assignment IDs must be unique");
+    this.assertUniqueIds(input.slotAssignments
+      .map((assignment) => assignment.assignedFixtureId)
+      .filter((fixtureId): fixtureId is string => fixtureId !== null), "assigned fixture IDs must be unique");
     this.assertUniqueIds(input.objectUpdates.map((update) => update.id), "object update IDs must be unique");
     this.assertUniqueIds(input.objectDeletes, "object delete IDs must be unique");
 
@@ -442,6 +450,7 @@ export class FloorEditorService {
         id,
         data: this.buildFixtureData(patch)
       })),
+      slotAssignments: input.slotAssignments,
       objectCreates: input.objectCreates.map((object) =>
         this.buildCreateObjectData({ ...object, floorId }) as Prisma.FloorMapObjectUncheckedCreateInput
       ),
@@ -458,12 +467,44 @@ export class FloorEditorService {
     floorId: string,
     input: PreparedSaveEditorState
   ) {
-    const fixtureIds = input.fixtureUpdates.map((update) => update.id);
+    const fixtureIds = [...new Set([
+      ...input.fixtureUpdates.map((update) => update.id),
+      ...input.slotAssignments
+        .map((assignment) => assignment.assignedFixtureId)
+        .filter((fixtureId): fixtureId is string => fixtureId !== null)
+    ])];
     const fixtures = fixtureIds.length === 0
       ? []
       : await tx.fixture.findMany({ where: { floorId, id: { in: fixtureIds } }, select: { id: true } });
     if (fixtures.length !== fixtureIds.length) {
       throw new BadRequestException("fixture updates must belong to the requested floor");
+    }
+
+    const slotIds = input.slotAssignments.map((assignment) => assignment.slotId);
+    if (slotIds.length > 0) {
+      const slots = await tx.floorLightSlot.findMany({
+        where: { floorId, id: { in: slotIds } },
+        select: { id: true }
+      });
+      if (slots.length !== slotIds.length) {
+        throw new BadRequestException("slot assignments must belong to the requested floor");
+      }
+      const assignedFixtureIds = input.slotAssignments
+        .map((assignment) => assignment.assignedFixtureId)
+        .filter((fixtureId): fixtureId is string => fixtureId !== null);
+      if (assignedFixtureIds.length > 0) {
+        const occupied = await tx.floorLightSlot.findMany({
+          where: {
+            floorId,
+            id: { notIn: slotIds },
+            assignedFixtureId: { in: assignedFixtureIds }
+          },
+          select: { id: true, assignedFixtureId: true }
+        });
+        if (occupied.length > 0) {
+          throw new BadRequestException("assigned fixtures must not be occupied by unchanged slots");
+        }
+      }
     }
 
     const objectIds = [
@@ -534,6 +575,18 @@ export class FloorEditorService {
     leaseToken: string,
     leaseFence: number
   ) {
+    const changedAt = await this.assertLockedRevision(tx, floorId, expectedRevision, leaseToken, leaseFence);
+    await this.incrementLockedRevision(tx, floorId);
+    return changedAt;
+  }
+
+  private async assertLockedRevision(
+    tx: Prisma.TransactionClient,
+    floorId: string,
+    expectedRevision: number,
+    leaseToken: string,
+    leaseFence: number
+  ) {
     const floor = await this.lockFloorLeaseAuthority(tx, floorId);
     if (!floor) throw new NotFoundException("floor not found");
     assertActiveFloorStatus(floor.status);
@@ -550,11 +603,14 @@ export class FloorEditorService {
     if (floor.mapRevision !== expectedRevision) {
       throw new ConflictException("floor editor revision conflict");
     }
+    return floor.dbNow;
+  }
+
+  private async incrementLockedRevision(tx: Prisma.TransactionClient, floorId: string) {
     await tx.floor.update({
       where: { id: floorId },
       data: { mapRevision: { increment: 1 } }
     });
-    return floor.dbNow;
   }
 
   private async lockFloorLeaseAuthority(tx: Prisma.TransactionClient, floorId: string) {
@@ -593,6 +649,7 @@ export class FloorEditorService {
     }
 
     await this.applyFixturePatches(tx, floorId, input.fixtureUpdates, changedAt, false);
+    await this.applySlotAssignments(tx, floorId, input.slotAssignments, changedAt);
 
     if (input.objectDeletes.length > 0) {
       await tx.floorMapObject.deleteMany({ where: { floorId, id: { in: input.objectDeletes } } });
@@ -601,6 +658,47 @@ export class FloorEditorService {
       await tx.floorMapObject.createMany({ data: input.objectCreates });
     }
     await persistEditorPatches(tx, floorId, "FloorMapObject", input.objectUpdates, changedAt);
+  }
+
+  private async applySlotAssignments(
+    tx: Prisma.TransactionClient,
+    floorId: string,
+    assignments: PreparedSaveEditorState["slotAssignments"],
+    changedAt: Date
+  ) {
+    if (assignments.length === 0) return;
+    const slotIds = assignments.map((assignment) => assignment.slotId);
+    await tx.floorLightSlot.updateMany({
+      where: { floorId, id: { in: slotIds } },
+      data: { assignedFixtureId: null }
+    });
+
+    const assigned = assignments.filter((assignment) => assignment.assignedFixtureId !== null);
+    for (let offset = 0; offset < assigned.length; offset += 1000) {
+      const batch = assigned.slice(offset, offset + 1000);
+      await tx.$executeRaw(Prisma.sql`
+        UPDATE "FloorLightSlot" AS slot
+        SET "assignedFixtureId" = patch."assignedFixtureId", "updatedAt" = ${changedAt}
+        FROM jsonb_to_recordset(${JSON.stringify(batch)}::jsonb)
+          AS patch("slotId" text, "assignedFixtureId" text)
+        WHERE slot."id" = patch."slotId" AND slot."floorId" = ${floorId}
+      `);
+    }
+
+    const finalAssignments = await tx.floorLightSlot.findMany({
+      where: { floorId, assignedFixtureId: { not: null } },
+      select: { id: true, assignedFixtureId: true }
+    });
+    const finalFixtureIds = finalAssignments
+      .map((assignment) => assignment.assignedFixtureId)
+      .filter((fixtureId): fixtureId is string => fixtureId !== null);
+    if (new Set(finalFixtureIds).size !== finalFixtureIds.length) {
+      throw new BadRequestException("final slot assignments must be one-to-one");
+    }
+    const finalBySlot = new Map(finalAssignments.map((assignment) => [assignment.id, assignment.assignedFixtureId]));
+    if (assignments.some((assignment) => (finalBySlot.get(assignment.slotId) ?? null) !== assignment.assignedFixtureId)) {
+      throw new BadRequestException("final slot assignments do not match the save request");
+    }
   }
 
   private async applyFixturePatches(
@@ -684,6 +782,7 @@ export class FloorEditorService {
     return {
       floorPlanChanged: input.floorPlan !== undefined,
       fixtureUpdates: input.fixtureUpdates.length,
+      slotAssignments: input.slotAssignments.length,
       objectCreates: input.objectCreates.length,
       objectUpdates: input.objectUpdates.length,
       objectDeletes: input.objectDeletes.length

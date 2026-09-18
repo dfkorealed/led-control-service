@@ -88,6 +88,7 @@ export function CadImportPanel({
   const [refreshRecoveryJob, setRefreshRecoveryJob] = useState<FloorImportJob | null>(null);
   const [confirmApply, setConfirmApply] = useState(false);
   const loadedReviewJobId = useRef<string | null>(null);
+  const applyFocusFallback = useRef<HTMLElement>(null);
   const requestLock = useRef(false);
   const busy = useRef(false);
   const reviewChange = useRef(onReviewChange);
@@ -372,7 +373,7 @@ export function CadImportPanel({
       : cadImportStageLabel(activeJob.stage)
     : null;
   return (
-    <section className="grid gap-3 border-t border-border-subtle p-3" aria-label="CAD 가져오기">
+    <section ref={applyFocusFallback} tabIndex={-1} className="grid gap-3 border-t border-border-subtle p-3" aria-label="CAD 가져오기">
       <div className="grid gap-1">
         <Text variant="overline" tone="secondary">CAD</Text>
         <Heading as="h3" variant="card-title">DWG/DXF 가져오기</Heading>
@@ -513,6 +514,7 @@ export function CadImportPanel({
         confirmLabel="교체 후 적용"
         destructive
         isPending={action === "applying"}
+        fallbackFocusRef={applyFocusFallback}
         onCancel={() => setConfirmApply(false)}
         onConfirm={() => void handleApply()}
       >

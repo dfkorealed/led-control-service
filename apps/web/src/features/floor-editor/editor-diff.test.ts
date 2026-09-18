@@ -75,6 +75,7 @@ describe("buildEditorChanges", () => {
     expect(buildEditorChanges(initial, current)).toEqual({
       expectedRevision: 7,
       fixtureUpdates: [{ id: "fixture-500", x: 420, y: 180 }],
+      slotAssignments: [],
       objectCreates: [],
       objectUpdates: [],
       objectDeletes: []
@@ -192,6 +193,7 @@ describe("buildEditorChanges", () => {
     expect(buildEditorChanges(initial, structuredClone(initial))).toEqual({
       expectedRevision: 7,
       fixtureUpdates: [],
+      slotAssignments: [],
       objectCreates: [],
       objectUpdates: [],
       objectDeletes: []

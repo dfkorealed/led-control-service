@@ -337,6 +337,7 @@ describe("FloorEditorView", () => {
       leaseToken: "lease-token",
       leaseFence: 7,
       fixtureUpdates: [{ id: "fixture-1", name: "B2-L01 수정", ratedWatt: 45 }],
+      slotAssignments: [],
       objectCreates: [],
       objectUpdates: [],
       objectDeletes: []
@@ -401,6 +402,37 @@ describe("FloorEditorView", () => {
       fixtures: [expect.objectContaining({ id: "fixture-1", placementStatus: "placed", x: 123.5, y: 247.25 })],
       lightSlots: [expect.objectContaining({ id: "slot-free", rotation: 37, assignedFixtureId: "fixture-1" })]
     });
+  });
+
+  it("saves slot assignment changes and adopts the assigned response as the reload baseline", async () => {
+    const initial: FloorEditorState = {
+      ...structuredClone(editorState),
+      fixtures: [{ ...structuredClone(editorState.fixtures[0]), x: 0, y: 0, placementStatus: "unplaced" }],
+      lightSlots: [{ id: "slot-1", x: 123.5, y: 247.25, rotation: 37, assignedFixtureId: null }]
+    };
+    const saved: FloorEditorState = {
+      ...structuredClone(initial),
+      floor: { ...initial.floor, mapRevision: 8 },
+      fixtures: [{ ...initial.fixtures[0], x: 123.5, y: 247.25, placementStatus: "placed" }],
+      lightSlots: [{ ...initial.lightSlots[0], assignedFixtureId: "fixture-1" }]
+    };
+    floorEditorApi.saveFloorEditorState.mockResolvedValueOnce(saved);
+    const view = renderEditor(initial);
+    act(() => useFloorEditorStore.getState().assignFixtureToSlot("fixture-1", "slot-1"));
+
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+
+    await waitFor(() => expect(floorEditorApi.saveFloorEditorState).toHaveBeenCalledWith(
+      "floor-b2",
+      expect.objectContaining({
+        slotAssignments: [{ slotId: "slot-1", assignedFixtureId: "fixture-1" }]
+      })
+    ));
+    expect(useFloorEditorStore.getState()).toMatchObject({ initialState: saved, state: saved, isDirty: false });
+
+    view.rerenderEditor(structuredClone(saved));
+    expect(useFloorEditorStore.getState().state!.lightSlots).toEqual(saved.lightSlots);
+    expect(useFloorEditorStore.getState().isDirty).toBe(false);
   });
 
   it("keeps the existing free placement behavior when a fixture is dropped outside every slot", () => {

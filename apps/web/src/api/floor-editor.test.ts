@@ -81,7 +81,7 @@ describe("floor editor atomic API", () => {
       expectedRevision: 4,
       leaseToken: "lease-token",
       leaseFence: 7,
-      fixtureUpdates: [], objectCreates: [], objectUpdates: [], objectDeletes: []
+      fixtureUpdates: [], slotAssignments: [], objectCreates: [], objectUpdates: [], objectDeletes: []
     });
     await listFloorEditorRevisions("floor/1", { cursor: 12, limit: 5 });
     const restored = await restoreFloorEditorRevision("floor/1", 3, { expectedRevision: 4, leaseToken: "lease-token", leaseFence: 7 });
@@ -97,6 +97,7 @@ describe("floor editor atomic API", () => {
         leaseToken: "lease-token",
         leaseFence: 7,
         fixtureUpdates: [],
+        slotAssignments: [],
         objectCreates: [],
         objectUpdates: [],
         objectDeletes: []

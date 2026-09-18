@@ -30,11 +30,17 @@ export function loadEditorDraft(userId: string, baseline: FloorEditorState): Flo
     // Never restore credentials, telemetry or an arbitrary object graph from browser storage.
     // Validate the same narrow mutation DTO the server accepts against the freshly authorized baseline.
     if (!validChanges(saved.changes, baseline)) return null;
-    const changes: EditorChangeSet = saved.changes;
+    const changes: EditorChangeSet = { ...saved.changes, slotAssignments: saved.changes.slotAssignments ?? [] };
     const fixtureIds = new Set(baseline.fixtures.map((f) => f.id));
     const objectIds = new Set(baseline.objects.map((o) => o.id));
-    if (changes.fixtureUpdates.some((f) => !fixtureIds.has(f.id)) || changes.objectUpdates.some((o) => !objectIds.has(o.id)) || changes.objectDeletes.some((id) => !objectIds.has(id))) return null;
+    const slotIds = new Set(baseline.lightSlots.map((slot) => slot.id));
+    if (changes.fixtureUpdates.some((f) => !fixtureIds.has(f.id))
+      || changes.slotAssignments.some((assignment) => !slotIds.has(assignment.slotId)
+        || assignment.assignedFixtureId !== null && !fixtureIds.has(assignment.assignedFixtureId))
+      || changes.objectUpdates.some((o) => !objectIds.has(o.id))
+      || changes.objectDeletes.some((id) => !objectIds.has(id))) return null;
     const patches = new Map(changes.fixtureUpdates.map((f) => [f.id, f]));
+    const slotAssignments = new Map(changes.slotAssignments.map((assignment) => [assignment.slotId, assignment.assignedFixtureId]));
     const objects = new Map(changes.objectUpdates.map((o) => [o.id, o.patch]));
     return {
       ...baseline,
@@ -44,6 +50,9 @@ export function loadEditorDraft(userId: string, baseline: FloorEditorState): Flo
         if (next.placementStatus === "unplaced" || next.x !== fixture.x || next.y !== fixture.y || patch.positionVerified === false) next.positionVerifiedAt = null;
         return next;
       }),
+      lightSlots: baseline.lightSlots.map((slot) => slotAssignments.has(slot.id)
+        ? { ...slot, assignedFixtureId: slotAssignments.get(slot.id) ?? null }
+        : slot),
       objects: [
         ...baseline.objects.filter((o) => !changes.objectDeletes.includes(o.id)).map((o) => ({ ...o, ...objects.get(o.id) } as FloorMapObject)),
         ...changes.objectCreates.map((o) => ({ ...o, id: `draft-${crypto.randomUUID()}`, floorId: baseline.floor.id } as FloorMapObject))
@@ -55,9 +64,11 @@ export function loadEditorDraft(userId: string, baseline: FloorEditorState): Flo
 function record(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
 function validChanges(value: unknown, baseline: FloorEditorState): value is EditorChangeSet {
   if (!record(value) || value.expectedRevision !== baseline.floor.mapRevision || value.floorPlan !== undefined
-    || Object.keys(value).some((key) => !["expectedRevision", "fixtureUpdates", "objectCreates", "objectUpdates", "objectDeletes"].includes(key))) return false;
+    || Object.keys(value).some((key) => !["expectedRevision", "fixtureUpdates", "slotAssignments", "objectCreates", "objectUpdates", "objectDeletes"].includes(key))) return false;
   const { fixtureUpdates, objectCreates, objectUpdates, objectDeletes } = value;
+  const slotAssignments = value.slotAssignments ?? [];
   if (!Array.isArray(fixtureUpdates) || fixtureUpdates.length > 1000 || !Array.isArray(objectCreates) || !Array.isArray(objectUpdates) || !Array.isArray(objectDeletes)
+    || !Array.isArray(slotAssignments) || slotAssignments.length > 2000
     || objectCreates.length + objectUpdates.length + objectDeletes.length > 2000) return false;
   const width = baseline.floor.floorPlan?.width ?? 1200, height = baseline.floor.floorPlan?.height ?? 800;
   const finite = (v: unknown) => typeof v === "number" && Number.isFinite(v);
@@ -80,7 +91,19 @@ function validChanges(value: unknown, baseline: FloorEditorState): value is Edit
     if (key === "points") return v === null || Array.isArray(v) && v.length === 3 && v.every((p) => record(p) && finite(p.x) && finite(p.y));
     return false;
   });
+  const slotIds = new Set<string>();
+  const assignedFixtureIds = new Set<string>();
+  const slotAssignmentsValid = slotAssignments.every((assignment) => {
+    if (!record(assignment) || Object.keys(assignment).some((key) => !["slotId", "assignedFixtureId"].includes(key))
+      || typeof assignment.slotId !== "string" || slotIds.has(assignment.slotId)
+      || assignment.assignedFixtureId !== null && typeof assignment.assignedFixtureId !== "string"
+      || typeof assignment.assignedFixtureId === "string" && assignedFixtureIds.has(assignment.assignedFixtureId)) return false;
+    slotIds.add(assignment.slotId);
+    if (typeof assignment.assignedFixtureId === "string") assignedFixtureIds.add(assignment.assignedFixtureId);
+    return true;
+  });
   return fixtureUpdates.every(fixtureValid) && objectDeletes.every((id) => typeof id === "string")
+    && slotAssignmentsValid
     && objectUpdates.every((o) => record(o) && typeof o.id === "string" && objectValid(o.patch))
     && objectCreates.every((o) => objectValid(o) && ["type", "x", "y", "width", "height", "rotation", "strokeColor", "strokeWidth", "zIndex", "locked", "visible"].every((key) => key in o));
 }
