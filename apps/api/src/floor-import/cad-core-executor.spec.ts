@@ -5,8 +5,13 @@ import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import {
   CAD_CORE_MAX_OLD_SPACE_MB,
-  ChildProcessCadCoreExecutor
+  CAD_CORE_RESPONSE_MAX_BYTES,
+  ChildProcessCadCoreExecutor,
+  assertCoreManifest,
+  encodeCadCoreResponse
 } from "./cad-core-executor";
+import { detectCadRegions } from "./cad-region-detector";
+import type { NormalizedCadDocument, NormalizedCadEntity } from "./cad-types";
 
 describe("ChildProcessCadCoreExecutor", () => {
   it("pins the production child heap and keeps the parent alive after child OOM", async () => {
@@ -169,6 +174,73 @@ describe("ChildProcessCadCoreExecutor", () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it("rejects duplicate or inconsistent region manifests", () => {
+    const duplicate = validManifest();
+    duplicate.regions = [duplicate.regions[0], duplicate.regions[0]];
+    expect(() => assertCoreManifest(duplicate, "generic-lighting-v1")).toThrow("invalid core manifest");
+
+    const invalidBounds = validManifest();
+    invalidBounds.regions[0] = {
+      ...invalidBounds.regions[0],
+      bounds: { minX: 10, minY: 0, maxX: 0, maxY: 10 }
+    };
+    expect(() => assertCoreManifest(invalidBounds, "generic-lighting-v1")).toThrow("invalid core manifest");
+  });
+
+  it("rejects region totals that do not cover every rendered primitive and light candidate", () => {
+    const primitiveMismatch = validManifest();
+    primitiveMismatch.rendered.renderedOccurrences = 3;
+    expect(() => assertCoreManifest(primitiveMismatch, "generic-lighting-v1")).toThrow("invalid core manifest");
+
+    const lightMismatch = validManifest();
+    lightMismatch.regions[0].lightCandidateCount = 1;
+    expect(() => assertCoreManifest(lightMismatch, "generic-lighting-v1")).toThrow("invalid core manifest");
+  });
+
+  it("accounts for excluded region noise without attributing it to a region", () => {
+    const withExcludedNoise = validManifest();
+    withExcludedNoise.excludedRegionPrimitiveCount = 2;
+    withExcludedNoise.rendered.renderedOccurrences = 6;
+    expect(() => assertCoreManifest(withExcludedNoise, "generic-lighting-v1")).not.toThrow();
+
+    withExcludedNoise.rendered.renderedOccurrences = 5;
+    expect(() => assertCoreManifest(withExcludedNoise, "generic-lighting-v1")).toThrow("invalid core manifest");
+  });
+
+  it("keeps a 150,000-point detector manifest within the child response boundary", () => {
+    const entities: NormalizedCadEntity[] = [{
+      type: "circle",
+      sourceEntityId: "meaningful-anchor",
+      layer: "0",
+      center: { x: 0, y: 0, z: 0 },
+      radius: 10
+    }, ...Array.from({ length: 150_000 }, (_, index): NormalizedCadEntity => ({
+      type: "point",
+      sourceEntityId: `noise-${index}`,
+      layer: "0",
+      position: { x: (index + 1) * 1_000, y: 0, z: 0 }
+    }))];
+    const document: NormalizedCadDocument = {
+      version: 1,
+      bounds: { minX: -10, minY: -10, maxX: 150_000_000, maxY: 10 },
+      blocks: [],
+      entities
+    };
+    const manifest = validManifest();
+    manifest.modelEntityCount = entities.length;
+    const detected = detectCadRegions(document, { maxSpatialBuckets: 600_000 });
+    manifest.regions = detected.regions;
+    manifest.excludedRegionPrimitiveCount = detected.excludedPrimitiveCount;
+    manifest.rendered.renderedOccurrences = entities.length;
+
+    const encoded = encodeCadCoreResponse({ ok: true, result: manifest }, "generic-lighting-v1");
+
+    expect(encoded.length).toBeLessThanOrEqual(CAD_CORE_RESPONSE_MAX_BYTES);
+    expect(manifest.regions).toHaveLength(1);
+    expect(manifest.regions[0].primitiveCount).toBe(1);
+    expect(manifest.excludedRegionPrimitiveCount).toBe(150_000);
+  }, 60_000);
 });
 
 function validManifest() {
@@ -179,6 +251,15 @@ function validManifest() {
     modelEntityCount: 0,
     blockCount: 0,
     candidates: [],
+    excludedRegionPrimitiveCount: 0,
+    regions: [{
+      regionId: "region-0123456789abcdef01234567",
+      bounds: { minX: 0, minY: 0, maxX: 1_600, maxY: 900 },
+      primitiveCount: 4,
+      textCount: 0,
+      lightCandidateCount: 0,
+      area: 1_440_000
+    }],
     candidateTransformMatch: {
       candidateCount: 0,
       matchedCount: 0,
@@ -191,7 +272,7 @@ function validManifest() {
       rawSizeBytes: 1,
       sha256: "c".repeat(64),
       viewport: { width: 1, height: 1 },
-      renderedOccurrences: 0,
+      renderedOccurrences: 4,
       excludedEntityCount: 0,
       unsupportedEntityCounts: {},
       contentEncoding: "gzip" as const

@@ -345,7 +345,7 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
     const profile = registry.get("generic-lighting-v1");
     const candidates = Array.from({ length: 2_000 }, (_, index) => ({
       sourceEntityId: `insert-${index}`, layerName: "LIGHT", blockName: "LED",
-      x: index, y: index, rotation: 0, confidence: 0.9, method: "rule" as const
+      x: index, y: 0, rotation: 0, confidence: 0.9, method: "rule" as const
     }));
     const core = { execute: jest.fn(async ({ renderedPath }: { renderedPath: string }) => {
       await writeFile(renderedPath, "gzip-svg");
@@ -353,9 +353,15 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
         profileId: "generic-lighting-v1" as const,
         profileVersion: profile.profileVersion!, profileDigest: profile.profileDigest!,
         modelEntityCount: 1, blockCount: 0, candidates,
+        excludedRegionPrimitiveCount: 0,
+        regions: [{
+          regionId: "region-0123456789abcdef01234567",
+          bounds: { minX: 0, minY: 0, maxX: 2_002, maxY: 2_002 },
+          primitiveCount: 2_000, textCount: 0, lightCandidateCount: 2_000, area: 4_008_004
+        }],
         candidateTransformMatch: { candidateCount: 2_000, matchedCount: 2_000, matchRate: 1, tolerancePx: 0.01, maxDeltaPx: 0 },
-        rendered: { sizeBytes: 8, rawSizeBytes: 64, sha256: "d".repeat(64), viewport: { width: 2_002, height: 2_002 },
-          renderedOccurrences: 1, contentEncoding: "gzip" as const }
+        rendered: { sizeBytes: 8, rawSizeBytes: 64, sha256: "d".repeat(64), viewport: { width: 2_002, height: 1_600 },
+          renderedOccurrences: 2_000, contentEncoding: "gzip" as const }
       };
     }) };
     const cleanup = new FloorImportAttemptCleanupService(prisma as never, storageForWorker as never, {

@@ -5,6 +5,7 @@ import { DisabledAiLightingSymbolDetector } from "./disabled-ai-lighting-symbol-
 import { createCadViewport, measureCadCandidateSvgTransformMatch, projectCadPointToViewport } from "./cad-viewport";
 import { FixedLightingDetectorRegistry, type CadImportDetectorProfileId } from "./lighting-detector-registry";
 import { encodeCadCoreResponse, type CadCoreRequest, type CadCoreResult } from "./cad-core-executor";
+import { detectCadRegions } from "./cad-region-detector";
 
 const MAX_CANDIDATES = 2_000;
 let accepted = false;
@@ -39,6 +40,14 @@ async function execute(request: Omit<CadCoreRequest, "abortSignal">): Promise<Ca
   if (new Set(candidates.map(candidate => candidate.sourceEntityId.normalize("NFKC").toUpperCase())).size !== candidates.length) {
     throw new Error("CAD lighting candidate identity collision");
   }
+  const regionDetection = detectCadRegions(document, {
+    maxExpandedEntities: 1_000_000,
+    maxBlockDepth: 32,
+    lightCandidates: candidates.map(candidate => ({
+      sourceEntityId: candidate.sourceEntityId,
+      position: candidate.position
+    }))
+  });
   const viewport = createCadViewport(document.bounds);
   const projected = candidates.map(candidate => {
     const point = projectCadPointToViewport(candidate.position, document.bounds);
@@ -74,6 +83,8 @@ async function execute(request: Omit<CadCoreRequest, "abortSignal">): Promise<Ca
     modelEntityCount: document.entities.length,
     blockCount: document.blocks.length,
     candidates: projected,
+    excludedRegionPrimitiveCount: regionDetection.excludedPrimitiveCount,
+    regions: regionDetection.regions,
     candidateTransformMatch: measureCadCandidateSvgTransformMatch(
       candidates.map(candidate => candidate.position),
       document.bounds,

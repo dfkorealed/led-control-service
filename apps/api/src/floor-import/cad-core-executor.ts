@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { CadImportDetectorProfileId } from "./lighting-detector-registry";
 import type { CadSvgFileResult } from "./cad-svg-renderer";
 import type { CadCandidateSvgTransformMatch } from "./cad-viewport";
+import { CAD_MAX_DETECTED_REGIONS, type CadDetectedRegion } from "./cad-region-detector";
 import { CAD_RENDERED_SVG_RAW_MAX_BYTES } from "./cad-resource-limits";
 import {
   CAD_CGROUP_MEMORY_BYTES,
@@ -48,6 +49,8 @@ export interface CadCoreResult {
   modelEntityCount: number;
   blockCount: number;
   candidates: CadCoreCandidate[];
+  excludedRegionPrimitiveCount: number;
+  regions: CadDetectedRegion[];
   candidateTransformMatch: CadCandidateSvgTransformMatch;
   rendered: CadSvgFileResult;
   observedMaxRssBytes?: number;
@@ -215,6 +218,41 @@ export function assertCoreManifest(result: CadCoreResult, requestedProfileId: Ca
         candidate.model && utf8Length(candidate.model) > 128) throw new Error("invalid core manifest");
     if (candidate.inputDigest && !/^[a-f0-9]{64}$/.test(candidate.inputDigest)) throw new Error("invalid core manifest");
   }
+  if (!Number.isSafeInteger(result.excludedRegionPrimitiveCount) || result.excludedRegionPrimitiveCount < 0 ||
+      result.excludedRegionPrimitiveCount > CAD_MAX_PARSED_ENTITIES ||
+      !Array.isArray(result.regions) || result.regions.length > CAD_MAX_DETECTED_REGIONS) {
+    throw new Error("invalid core manifest");
+  }
+  const regionIds = new Set<string>();
+  let regionPrimitiveCount = 0;
+  let regionLightCandidateCount = 0;
+  for (const region of result.regions) {
+    const bounds = region?.bounds;
+    if (!region || !/^region-[a-f0-9]{24}$/.test(region.regionId) || regionIds.has(region.regionId) ||
+        !bounds || !Number.isFinite(bounds.minX) || !Number.isFinite(bounds.minY) ||
+        !Number.isFinite(bounds.maxX) || !Number.isFinite(bounds.maxY) ||
+        bounds.maxX <= bounds.minX || bounds.maxY <= bounds.minY ||
+        !Number.isSafeInteger(region.primitiveCount) || region.primitiveCount < 1 ||
+        region.primitiveCount > CAD_MAX_PARSED_ENTITIES ||
+        !Number.isSafeInteger(region.textCount) || region.textCount < 0 || region.textCount > region.primitiveCount ||
+        !Number.isSafeInteger(region.lightCandidateCount) || region.lightCandidateCount < 0 ||
+        region.lightCandidateCount > region.primitiveCount || !Number.isFinite(region.area) || region.area <= 0) {
+      throw new Error("invalid core manifest");
+    }
+    const computedArea = (bounds.maxX - bounds.minX) * (bounds.maxY - bounds.minY);
+    if (Math.abs(region.area - computedArea) > Math.max(1, computedArea) * 1e-9) {
+      throw new Error("invalid core manifest");
+    }
+    regionIds.add(region.regionId);
+    regionPrimitiveCount += region.primitiveCount;
+    regionLightCandidateCount += region.lightCandidateCount;
+    if (!Number.isSafeInteger(regionPrimitiveCount) || regionPrimitiveCount > CAD_MAX_PARSED_ENTITIES) {
+      throw new Error("invalid core manifest");
+    }
+    if (!Number.isSafeInteger(regionLightCandidateCount) || regionLightCandidateCount > MAX_CANDIDATES) {
+      throw new Error("invalid core manifest");
+    }
+  }
   const transform = result.candidateTransformMatch;
   if (!transform || transform.candidateCount !== result.candidates.length ||
       transform.matchedCount !== transform.candidateCount ||
@@ -234,6 +272,11 @@ export function assertCoreManifest(result: CadCoreResult, requestedProfileId: Ca
       rendered.renderedOccurrences > CAD_MAX_PARSED_ENTITIES ||
       !Number.isSafeInteger(rendered.excludedEntityCount) || rendered.excludedEntityCount! < 0 ||
       rendered.excludedEntityCount! > CAD_MAX_PARSED_ENTITIES) throw new Error("invalid core manifest");
+  const accountedRegionPrimitives = regionPrimitiveCount + result.excludedRegionPrimitiveCount;
+  if (!Number.isSafeInteger(accountedRegionPrimitives) || accountedRegionPrimitives !== rendered.renderedOccurrences ||
+      regionLightCandidateCount !== result.candidates.length) {
+    throw new Error("invalid core manifest");
+  }
   for (const candidate of result.candidates) {
     if (candidate.x > rendered.viewport.width || candidate.y > rendered.viewport.height) throw new Error("invalid core manifest");
   }

@@ -22,6 +22,7 @@ export interface ExpandedCadEntity {
   entity: Exclude<NormalizedCadEntity, { type: "insert" }>;
   matrix: CadMatrix;
   sourceEntityId: string;
+  occurrencePath?: readonly string[];
   blockName: string | null;
   insertLayer: string | null;
 }
@@ -41,7 +42,7 @@ export type CadExpansionWork<T> = T | null;
 const IDENTITY: CadMatrix = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
 const MAX_EXPANDED_SOURCE_ID_BYTES = 512;
 
-function expandedSourceId(path: readonly string[]): string {
+export function cadExpandedSourceId(path: readonly string[]): string {
   const id = path.length === 1
     ? path[0]
     : path.map(segment => `${Buffer.byteLength(segment, "utf8")}:${segment}`).join("");
@@ -131,11 +132,11 @@ export function* iterateCadDocumentExpansion(
         }
       }
       if (entity.type !== "insert") {
-        const sourceEntityId = expandedSourceId([...path, entity.sourceEntityId]);
+        const sourceEntityId = cadExpandedSourceId([...path, entity.sourceEntityId]);
         registerExpandedSourceId(sourceIds, sourceEntityId);
         expandedCount++;
         if (expandedCount > options.maxRenderedEntities) throw new Error("CAD rendered entity limit exceeded");
-        yield { entity, matrix, sourceEntityId, blockName: parentBlockName, insertLayer };
+        yield { entity, matrix, sourceEntityId, occurrencePath: path, blockName: parentBlockName, insertLayer };
         continue;
       }
       yield null;
@@ -232,7 +233,7 @@ export function* iterateCadInsertExpansion(
       if (stack.includes(block.name)) throw new Error(`Cyclic CAD block reference: ${block.name}`);
       if (stack.length >= maxDepth) throw new Error("CAD block depth limit exceeded");
       const entityPath = [...path, entity.sourceEntityId];
-      const sourceEntityId = expandedSourceId(entityPath);
+      const sourceEntityId = cadExpandedSourceId(entityPath);
       registerExpandedSourceId(sourceIds, sourceEntityId);
       const layer = entity.layer === "0" ? inheritedLayer ?? "0" : entity.layer;
       const matrix = multiplyCadMatrices(parentMatrix, insertMatrix(entity, block.basePoint));
