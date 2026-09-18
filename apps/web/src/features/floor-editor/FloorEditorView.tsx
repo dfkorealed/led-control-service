@@ -18,7 +18,6 @@ import { createFixturePlacementRowRegistry, FixturePlacementList } from "./Fixtu
 import { EditorBatchPlacementPanel } from "./EditorBatchPlacementPanel";
 import { EditorLayersPanel } from "./EditorLayersPanel";
 import { FixtureIdentifyPanel } from "./FixtureIdentifyPanel";
-import { FloorAssetUploadPanel } from "./FloorAssetUploadPanel";
 import { CadImportPanel } from "./CadImportPanel";
 import { loadEditorDraft, removeEditorDraft, saveEditorDraft, editorDraftGeneration } from "./editor-drafts";
 import { authMeQueryKey } from "../../api/principal-cache";
@@ -74,7 +73,6 @@ export function FloorEditorView({
   const userId = queryClient.getQueryData<{ user: AuthUser }>(authMeQueryKey)?.user.id;
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "error" | "conflict">("idle");
   const [restoringRevision, setRestoringRevision] = useState<number | null>(null);
-  const [isUploadPending, setIsUploadPending] = useState(false);
   const [isCadImportPending, setIsCadImportPending] = useState(false);
   const [cadImportReview, setCadImportReview] = useState<CadImportReviewState | null>(null);
   const [focusedCadCandidateId, setFocusedCadCandidateId] = useState<string | null>(null);
@@ -217,11 +215,6 @@ export function FloorEditorView({
     event.dataTransfer.setData(TOOL_DRAG_DATA_TYPE, tool);
   }
 
-  function handleUploadingChange(uploading: boolean) {
-    mutationLock.current = uploading;
-    setIsUploadPending(uploading);
-  }
-
   const handleCadBusyChange = useCallback((busy: boolean) => {
     mutationLock.current = busy;
     setIsCadImportPending(busy);
@@ -262,7 +255,12 @@ export function FloorEditorView({
   const acceptedCadCandidateIds = useMemo(() => new Set(
     cadImportReview?.acceptedCandidateIds ?? currentAppliedOverlay?.candidates.map(candidate => candidate.id) ?? []
   ), [cadImportReview?.acceptedCandidateIds, currentAppliedOverlay?.candidates]);
-  const isMutationPending = saveStatus === "saving" || restoringRevision !== null || isUploadPending || isCadImportPending;
+  const cadResetSummary = useMemo(() => ({
+    fixtureCount: state?.floor.id === floorId ? state.fixtures.length : initialState.fixtures.length,
+    objectCount: state?.floor.id === floorId ? state.objects.length : initialState.objects.length,
+    slotCount: state?.floor.id === floorId ? state.lightSlots.length : initialState.lightSlots.length
+  }), [floorId, initialState.fixtures.length, initialState.lightSlots.length, initialState.objects.length, state]);
+  const isMutationPending = saveStatus === "saving" || restoringRevision !== null || isCadImportPending;
   const isSaveOrRestoreBlocked = readOnly || isMutationPending || state?.floor.id !== floorId;
 
   return (
@@ -363,29 +361,14 @@ export function FloorEditorView({
           {panelTab === "properties" && <EditorPropertiesPanel readOnly={readOnly || isMutationPending} />}
           {panelTab === "placement" && <EditorBatchPlacementPanel readOnly={readOnly || isMutationPending} />}
           {panelTab === "layers" && <EditorLayersPanel readOnly={readOnly || isMutationPending} />}
-          <FloorAssetUploadPanel
-            floorId={floorId}
-            floorPlan={state?.floor.floorPlan ?? null}
-            disabled={readOnly || isMutationPending}
-            onUploadingChange={handleUploadingChange}
-            onUploaded={(_asset, floorPlan) => {
-              if (floorPlan && activeScope.current.floorId === floorId) {
-                useFloorEditorStore.getState().updateFloorPlan(floorPlan);
-              }
-            }}
-            onRemoved={(floorPlan) => {
-              if (activeScope.current.floorId === floorId) {
-                useFloorEditorStore.getState().updateFloorPlan(floorPlan);
-              }
-            }}
-          />
           <CadImportPanel
             floorId={floorId}
             expectedRevision={baseline?.floor.mapRevision ?? initialState.floor.mapRevision}
             leaseToken={leaseToken}
             leaseFence={leaseFence}
-            disabled={readOnly || saveStatus === "saving" || restoringRevision !== null || isUploadPending}
+            disabled={readOnly || saveStatus === "saving" || restoringRevision !== null}
             isDirty={isDirty}
+            resetSummary={cadResetSummary}
             review={cadImportReview}
             focusedCandidateId={focusedCadCandidateId}
             onReviewChange={(next) => {

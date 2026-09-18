@@ -22,6 +22,9 @@
 
 ## 구현 완료
 
+- 2026-09-18 읽기 전용 맵 DTO는 `FloorLightSlot` 자체를 노출하지 않고, CAD 배경·저장 도형과 `placed`인 모든 조명 layout을 반환한다. slot 배정 조명은 slot x/y와 fixture size를, 자유 배치·legacy/non-CAD 조명은 fixture 자체 x/y/size를 사용한다. `FloorScene`과 저장 직후 monitoring cache도 같은 합집합·좌표 우선순위를 적용하며 `unplaced` 조명만 지도 marker에서 제외한다. API/Web focused 회귀와 실제 PostgreSQL revision 복구 테스트를 통과했으며 현장 도면 시각 HIL은 포함하지 않는다.
+- 2026-09-18 Task 9 Chromium 전체 여정에서 기존 배치 조명을 CAD 적용으로 미배치 전환하고, 두 신규 slot의 fixture/slot ID assignment를 PUT payload 그대로 저장한 뒤 reload 영속성을 확인했다. 모니터링 runtime에는 의도적으로 오래된 미배치 좌표를 주고 revision 3 map snapshot에는 CAD plan과 slot 좌표 fixture 2개를 제공해 snapshot이 authoritative함을 marker pixel 중심으로 검증했으며, rendered asset은 실제 `1200 × 800` 이미지 decode를 확인했다. 브라우저는 deterministic mock API를 사용했고 실제 converter/worker/PostgreSQL/MinIO/API sample pipeline은 clean-build 통합 테스트로 별도 검증했다. 실행 중인 real browser backend lab가 없어 두 경계를 하나의 실제 네트워크 여정으로 연결한 검증은 남아 있다.
+
 - 2026-09-17 공통 `FloorMapViewport`의 pinch는 시작 시 지도 좌표를 현재 두 손가락 중점에 맞춰 확대와 평행 이동을 함께 반영한다. 실제 지도 bounds와 눌림 상태를 사용하는 synthetic Chromium 회귀는 pan/select/area 모두에서 비대칭 pinch, 두 손가락 이동과 한 손가락 해제 후 jump 방지를 확인한다. `FloorScene` coarse marker는 48px hit target의 반지름만큼 가장자리 중심을 보정해 도면 경계에서 터치 영역이 잘리지 않도록 했다. 모니터링의 단일 선택 및 20px 시각 dot 계약은 유지하며 실제 iOS/Android WebView와 Gateway/조명 HIL은 별도 검증이다.
 
 - 2026-09-17 모니터링은 공통 `FloorMapViewport`를 사용하고, 기존 읽기 전용 `FloorScene`에 명시적인 `single` selection adapter를 전달한다. 따라서 marker와 `상세 조명 선택`의 단일 선택·상세 패널 동기화 의미는 바뀌지 않았다. viewport는 wheel 확대, pointer pan과 모든 interaction mode의 두 손가락 pinch를 제공한다. pointer capture로 지도 밖 이동도 추적하지만 marker button은 단일 pointer gesture를 시작하지 않아 native marker click을 보존한다. marker는 시각 20px dot과 별도 44px coarse hit target을 유지한다.
@@ -130,7 +133,7 @@
 - Playwright deterministic route fixture는 Chromium에서 수동 새로고침과 마지막 갱신 시각 변경, 10분 자동 갱신 경계, 5페이지로 나뉜 조명 1,000개의 마지막 페이지 상태 반영, 저장된 지도 객체의 실제 Konva canvas pixel 렌더링을 검증한다. 이 fixture는 브라우저와 API 계약 회귀용이며 실제 Raspberry Pi/ESP32-H2 하드웨어 E2E 증거가 아니다.
 - `pnpm benchmark:fixtures`는 `API_BENCH_SITE_ID`, `API_BENCH_FLOOR_ID`, 실제 인증 cookie로 현장 범위 fixture API를 기본 100회 측정해 p95가 1초를 넘으면 실패한다. site/floor ID는 URL encoding하며 스크립트 계약은 `node --test scripts/benchmark-fixture-api.test.mjs`로 검증한다.
 - 모니터링의 층 도면은 모든 역할에 읽기 전용으로 표시한다. 편집 버튼, editor state 조회와 editor 분기는 제공하지 않으며, 도면 변경과 version 복구는 설정 메뉴가 소유한다.
-- `GET /sites/:siteId/floors/:floorId/map-snapshot`은 현장 read 권한을 확인한 뒤 지도 revision, 선택적 도면 배경과 visible 도형만 반환한다. fixture runtime 상태는 기존 cursor API가 담당하며, 배경이 없으면 `1200x800` 기본 canvas를 사용한다.
+- `GET /sites/:siteId/floors/:floorId/map-snapshot`은 현장 read 권한을 확인한 뒤 지도 revision, 선택적 도면 배경, visible 도형과 `placed` fixture layout을 반환하되 내부 CAD slot은 노출하지 않는다. snapshot fixture의 membership·이름·좌표는 지도 정본이며 cursor API에서는 밝기·연결·장애 같은 동적 상태만 결합하므로 stale runtime의 `unplaced`가 저장된 marker를 숨기지 않는다. snapshot에 없는 legacy runtime fixture만 자체 배치 상태와 좌표를 따르며, 배경이 없으면 `1200x800` 기본 canvas를 사용한다.
 - 층 지도 snapshot은 도형을 `zIndex`, 생성 시각 순으로 고정해 반환한다. 존재하지 않거나 접근할 수 없는 층은 같은 `floor not found` 404 응답으로 처리한다.
 - 웹은 `useFloorMapSnapshot`으로 선택 층의 저장된 배경과 도형을 10분마다 조회하고, 설정 에디터와 공통 `FloorMapObjectNode` geometry를 사용해 Konva scene에 읽기 전용으로 합성한다. 조명 marker는 같은 좌표계의 접근 가능한 HTML 버튼으로 표시한다.
 - 설정 맵의 atomic save 또는 revision 복구가 성공하면 응답의 `mapRevision`, 배경·맵 크기·도형을 동일 현장/층의 `floor-map` 캐시에 즉시 기록하고, 조명 이름·위치·크기·정격 전력·배치 상태는 기존 `floor-fixtures` 페이지의 밝기·장애·Gateway 운영 상태를 보존한 채 병합한다. 이후 scoped query invalidation과 서버 재조회도 유지하므로 설정에서 모니터링으로 이동할 때 이전 10분 캐시를 먼저 표시하지 않는다.

@@ -210,4 +210,127 @@ describe("CAD SVG renderer", () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it("renders bounded extended entities and reports unsupported and excluded metadata", async () => {
+    const extended: NormalizedCadDocument = {
+      version: 1,
+      bounds: { minX: 0, minY: 0, maxX: 1_000_000, maxY: 1_000_000 },
+      unsupportedEntityCounts: { ELLIPSE: 2 },
+      blocks: [{
+        name: "*D1", basePoint: { x: 0, y: 0, z: 0 },
+        entities: [{ type: "line", sourceEntityId: "dimension-line", layer: "0", start: { x: 0, y: 0, z: 0 }, end: { x: 10, y: 0, z: 0 } }]
+      }],
+      entities: [
+        { type: "spline", sourceEntityId: "spline", layer: "CURVE", degree: 2, closed: false, knots: [0, 0, 0, 1, 1, 1], weights: [], controlPoints: [{ x: 0, y: 0, z: 0 }, { x: 5, y: 10, z: 0 }, { x: 10, y: 0, z: 0 }] },
+        { type: "wipeout", sourceEntityId: "wipeout", layer: "MASK", vertices: [{ x: 20, y: 20, z: 0 }, { x: 30, y: 20, z: 0 }, { x: 30, y: 30, z: 0 }, { x: 20, y: 30, z: 0 }] },
+        { type: "hatch", sourceEntityId: "hatch", layer: "FILL", loops: [{ type: "polyline", closed: true, vertices: [{ x: 40, y: 40, z: 0, bulge: 0 }, { x: 50, y: 40, z: 0, bulge: 0 }, { x: 50, y: 50, z: 0, bulge: 0 }] }] },
+        { type: "dimension", sourceEntityId: "dimension", layer: "DIM", blockName: "*D1", definitionPoint: { x: 60, y: 60, z: 0 }, blockPosition: { x: 0, y: 0, z: 0 }, textPosition: { x: 65, y: 62, z: 0 }, extensionStart: { x: 60, y: 60, z: 0 }, extensionEnd: { x: 70, y: 60, z: 0 }, rotation: 0, text: "100" },
+        { type: "point", sourceEntityId: "point", layer: "MARK", position: { x: 80, y: 80, z: 0 } },
+        { type: "point", sourceEntityId: "remote", layer: "MARK", position: { x: 1_000_000, y: 1_000_000, z: 0 } }
+      ]
+    };
+
+    const inlineSvg = renderCadDocumentSvg(extended, { maxSplineSamples: 32 });
+    expect(inlineSvg).toContain('data-source-entity-id="spline"');
+    expect(inlineSvg).toContain('data-source-entity-id="wipeout"');
+    expect(inlineSvg).toContain('data-source-entity-id="hatch"');
+    expect(inlineSvg).toContain('data-source-entity-id="9:dimension14:dimension-line"');
+    expect(inlineSvg).toContain('data-source-entity-id="point"');
+
+    const root = await mkdtemp(join(tmpdir(), "cad-extended-"));
+    try {
+      const path = join(root, "extended.svg.gz");
+      const result = await renderCadDocumentSvgFile(extended, path, { maxSplineSamples: 32 });
+      const svg = gunzipSync(await readFile(path)).toString("utf8");
+      expect(svg).toContain('data-cad-entity="spline"');
+      expect(svg).toContain('data-cad-entity="wipeout"');
+      expect(svg).toContain('data-cad-entity="hatch"');
+      expect(svg).toContain('data-cad-entity="dimension"');
+      expect(svg).toContain('data-cad-entity="point"');
+      expect(result).toMatchObject({ unsupportedEntityCounts: { ELLIPSE: 2 }, excludedEntityCount: 1 });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("bounds total SPLINE sampling work", () => {
+    const splineOnly: NormalizedCadDocument = {
+      version: 1, bounds: { minX: 0, minY: 0, maxX: 10, maxY: 10 }, blocks: [],
+      entities: [{
+        type: "spline", sourceEntityId: "spline", layer: "0", degree: 2, closed: false,
+        knots: [0, 0, 0, 1, 1, 1], weights: [],
+        controlPoints: [{ x: 0, y: 0, z: 0 }, { x: 5, y: 10, z: 0 }, { x: 10, y: 0, z: 0 }]
+      }]
+    };
+
+    expect(() => renderCadDocumentSvg(splineOnly, { maxSplineSamples: 2 })).toThrow(/spline sample.*limit/i);
+  });
+
+  it("renders a DIMENSION anonymous block at definition plus group 12 minus block base", async () => {
+    const dxfPair = (code: number, value: string | number) => `${code}\n${value}\n`;
+    const parsed = parseAsciiDxf([
+      dxfPair(0, "SECTION"), dxfPair(2, "BLOCKS"), dxfPair(0, "BLOCK"), dxfPair(2, "*D1"), dxfPair(10, 2), dxfPair(20, 3),
+      dxfPair(0, "LINE"), dxfPair(5, "DL"), dxfPair(10, 2), dxfPair(20, 3), dxfPair(11, 12), dxfPair(21, 3),
+      dxfPair(0, "ENDBLK"), dxfPair(0, "ENDSEC"), dxfPair(0, "SECTION"), dxfPair(2, "ENTITIES"),
+      dxfPair(0, "DIMENSION"), dxfPair(5, "D1"), dxfPair(2, "*D1"), dxfPair(10, 100), dxfPair(20, 200), dxfPair(12, 5), dxfPair(22, -10),
+      dxfPair(11, 100), dxfPair(21, 200), dxfPair(13, 100), dxfPair(23, 200), dxfPair(14, 110), dxfPair(24, 200),
+      dxfPair(0, "ENDSEC"), dxfPair(0, "EOF")
+    ].join(""));
+    const root = await mkdtemp(join(tmpdir(), "cad-dimension-transform-"));
+    try {
+      const path = join(root, "dimension.svg.gz");
+      await renderCadDocumentSvgFile(parsed, path);
+      const svg = gunzipSync(await readFile(path)).toString("utf8");
+      expect(svg).toContain('data-cad-entity="dimension" href="#cad-block-0" transform="matrix(1 0 0 1 103 187)"');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("renders HATCH outer and inner boundaries as one evenodd path", async () => {
+    const hatchDocument: NormalizedCadDocument = {
+      version: 1, bounds: { minX: 0, minY: 0, maxX: 10, maxY: 10 }, blocks: [],
+      primaryBoundsSelection: { excludedEntityCount: 0, totalEntityCount: 1 },
+      entities: [{
+        type: "hatch", sourceEntityId: "H", layer: "0", loops: [
+          { type: "polyline", closed: true, vertices: [{ x: 0, y: 0, z: 0, bulge: 0 }, { x: 10, y: 0, z: 0, bulge: 0 }, { x: 10, y: 10, z: 0, bulge: 0 }, { x: 0, y: 10, z: 0, bulge: 0 }] },
+          { type: "polyline", closed: true, vertices: [{ x: 3, y: 3, z: 0, bulge: 0 }, { x: 7, y: 3, z: 0, bulge: 0 }, { x: 7, y: 7, z: 0, bulge: 0 }, { x: 3, y: 7, z: 0, bulge: 0 }] }
+        ]
+      }]
+    };
+    const root = await mkdtemp(join(tmpdir(), "cad-hatch-hole-"));
+    try {
+      const path = join(root, "hatch.svg.gz");
+      await renderCadDocumentSvgFile(hatchDocument, path);
+      const svg = gunzipSync(await readFile(path)).toString("utf8");
+      const hatch = svg.match(/<path data-cad-entity="hatch" d="([^"]+)" fill="#e5e7eb" fill-rule="evenodd"\/>/);
+      expect(hatch).not.toBeNull();
+      expect(hatch?.[1].match(/M/g)).toHaveLength(2);
+      expect(svg.match(/data-cad-entity="hatch"/g)).toHaveLength(1);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("renders a full-circle HATCH arc edge as two SVG arcs", async () => {
+    const hatchDocument: NormalizedCadDocument = {
+      version: 1, bounds: { minX: 0, minY: 0, maxX: 10, maxY: 10 }, blocks: [],
+      primaryBoundsSelection: { excludedEntityCount: 0, totalEntityCount: 1 },
+      entities: [{
+        type: "hatch", sourceEntityId: "H", layer: "0", loops: [{
+          type: "edges", edges: [{ type: "arc", center: { x: 5, y: 5, z: 0 }, radius: 5, startAngle: 0, endAngle: 0, counterClockwise: true }]
+        }]
+      }]
+    };
+    const root = await mkdtemp(join(tmpdir(), "cad-hatch-circle-"));
+    try {
+      const path = join(root, "hatch.svg.gz");
+      await renderCadDocumentSvgFile(hatchDocument, path);
+      const svg = gunzipSync(await readFile(path)).toString("utf8");
+      const hatchPath = svg.match(/data-cad-entity="hatch" d="([^"]+)"/)?.[1] ?? "";
+      expect(hatchPath.match(/A/g)).toHaveLength(2);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });

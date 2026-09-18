@@ -5,7 +5,7 @@ import type Konva from "konva";
 import type { FloorEditorState } from "../src/features/floor-editor/editor-types";
 import { expectNoHorizontalOverflow } from "./support/layout-assertions";
 
-async function editorFixture(page: Page, count = 24, alreadyPlaced = false, cadViewport?: { width: number; height: number }) {
+async function editorFixture(page: Page, count = 24, alreadyPlaced = false, cadViewport?: { width: number; height: number }, slotCount = 0, objectCount = 0) {
   page.on("pageerror", (error) => console.error("Editor browser error", error.message));
   const states: Record<string, FloorEditorState> = Object.fromEntries([1, 2].map((floor) => [`floor-${floor}`, {
     floor: {
@@ -14,7 +14,30 @@ async function editorFixture(page: Page, count = 24, alreadyPlaced = false, cadV
         sourceType: "image", imageUrl: "/api/floors/floor-1/assets/cad/content", originalFileUrl: "/api/floors/floor-1/assets/source/content",
         renderedImageUrl: "/api/floors/floor-1/assets/cad/content", ...cadViewport, gridSize: 10, version: 1
       } : null
-    }, objects: [],
+    }, objects: floor === 1 ? Array.from({ length: objectCount }, (_, index) => ({
+      id: `object-${index + 1}`,
+      floorId: "floor-1",
+      type: "rectangle" as const,
+      x: index === 0 ? 1_000 : 20 + ((index - 1) % 40) * 28,
+      y: index === 0 ? 200 : 20 + Math.floor((index - 1) / 40) * 18,
+      width: index === 0 ? 40 : 12,
+      height: index === 0 ? 300 : 12,
+      rotation: index === 0 ? 90 : index % 4 * 90,
+      strokeColor: "#334155",
+      fillColor: index % 2 === 0 ? "#e2e8f0" : "transparent",
+      strokeWidth: 1,
+      text: "",
+      fontSize: null,
+      zIndex: index,
+      locked: false,
+      visible: true
+    })) : [], lightSlots: floor === 1 ? Array.from({ length: slotCount }, (_, index) => ({
+      id: `slot-${index + 1}`,
+      x: index === 0 ? 200 : 20 + ((index - 1) % 50) * 22,
+      y: index === 0 ? 180 : 20 + Math.floor((index - 1) / 50) * 19,
+      rotation: index % 4 * 90,
+      assignedFixtureId: null
+    })) : [],
     fixtures: Array.from({ length: floor === 1 ? count : 2 }, (_, i) => ({ id: `f${floor}-${i + 1}`, name: `B${floor}-L${String(i + 1).padStart(4, "0")}`, x: alreadyPlaced ? 20 + i % 40 * 25 : 0, y: alreadyPlaced ? 20 + Math.floor(i / 40) * 25 : 0, size: 20, ratedWatt: 40, brightness: 70, status: "online", placementStatus: alreadyPlaced ? "placed" : "unplaced", positionVerifiedAt: null }))
   }]));
   const saves: unknown[] = [];
@@ -90,24 +113,35 @@ async function renderedLabels(page: Page) {
 }
 
 async function fixturePixel(page: Page, x: number, y: number) {
-  return page.getByTestId("floor-editor-canvas").locator("canvas").nth(2).evaluate((element, point) => {
-    const canvas = element as HTMLCanvasElement;
+  return page.evaluate((point) => {
+    const konva = (window as unknown as { Konva: { stages: Konva.Stage[] } }).Konva;
+    const stage = konva.stages.find((node) => node.container().closest('[data-testid="floor-editor-canvas"]'))!;
+    const canvas = stage.findOne<Konva.Layer>(".editor-fixture-layer")!.getCanvas()._canvas;
     const ratio = canvas.width / canvas.getBoundingClientRect().width;
     return Array.from(canvas.getContext("2d")!.getImageData(Math.round(point.x * ratio), Math.round(point.y * ratio), 1, 1).data);
   }, { x, y });
 }
 
-test("1000 already-placed fixtures become canvas-ready within 3s p95 across 20 warm reloads", async ({ page, browser }, testInfo) => {
+test("1000 fixtures, 2000 slots and 2000 objects become canvas-ready within 3s p95 across 20 warm reloads", async ({ page, browser }, testInfo) => {
   test.setTimeout(90_000);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.addInitScript(() => {
+    const originalDecode = HTMLImageElement.prototype.decode;
+    const decodeCounts: Record<string, number> = {};
+    Object.defineProperty(window, "__floorPlanDecodeCounts", { value: decodeCounts, configurable: true });
+    HTMLImageElement.prototype.decode = function decodeOnceForMeasurement() {
+      const key = new URL(this.src, location.href).pathname;
+      decodeCounts[key] = (decodeCounts[key] ?? 0) + 1;
+      return originalDecode.call(this);
+    };
     const check = () => {
       const container = document.querySelector<HTMLElement>('[data-testid="floor-editor-canvas"][data-floor-id="floor-1"]');
       const konva = (window as unknown as { Konva?: { stages: Konva.Stage[] } }).Konva;
       const stage = konva?.stages.find((node) => container?.contains(node.container()));
-      const layer = stage?.getLayers()[2];
-      const canvas = container?.querySelectorAll<HTMLCanvasElement>("canvas")[2];
-      if (container?.getAttribute("aria-disabled") === "false" && layer?.getChildren().length === 1000 && canvas && canvas.width > 0) {
+      const fixtureLayer = stage?.findOne<Konva.Layer>(".editor-fixture-layer");
+      const objectLayer = stage?.findOne<Konva.Layer>(".editor-object-layer");
+      const canvas = fixtureLayer?.getCanvas()._canvas;
+      if (container?.getAttribute("aria-disabled") === "false" && fixtureLayer?.getChildren().length === 1000 && objectLayer?.getChildren().length === 2000 && stage?.find(".cad-placement-slot").length === 2000 && canvas && canvas.width > 0) {
         const ratio = canvas.width / canvas.getBoundingClientRect().width;
         const pixel = canvas.getContext("2d")!.getImageData(Math.round(20 * ratio), Math.round(20 * ratio), 1, 1).data;
         // Count actual fixture nodes and wait for a rendered marker, not just
@@ -121,16 +155,24 @@ test("1000 already-placed fixtures become canvas-ready within 3s p95 across 20 w
     };
     requestAnimationFrame(check);
   });
-  await editorFixture(page, 1000, true);
+  await editorFixture(page, 1000, true, { width: 1_200, height: 800 }, 2_000, 2_000);
   await page.waitForFunction(() => performance.getEntriesByName("floor-editor-ready-1000").length === 1);
-  const samples: Array<{ iteration: number; readyMs: number; fixtureNodeCount: number }> = [];
+  const samples: Array<{ iteration: number; readyMs: number; fixtureNodeCount: number; slotNodeCount: number; objectNodeCount: number; layerCount: number; imageDecodeCount: number }> = [];
   for (let iteration = 1; iteration <= 20; iteration++) {
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.waitForFunction(() => performance.getEntriesByName("floor-editor-ready-1000").length === 1);
     const sample = await page.evaluate(() => {
       const konva = (window as unknown as { Konva: { stages: Konva.Stage[] } }).Konva;
       const stage = konva.stages.find((node) => node.container().closest('[data-testid="floor-editor-canvas"]'))!;
-      return { readyMs: performance.getEntriesByName("floor-editor-ready-1000")[0].startTime, fixtureNodeCount: stage.getLayers()[2].getChildren().length };
+      const decodeCounts = (window as unknown as { __floorPlanDecodeCounts: Record<string, number> }).__floorPlanDecodeCounts;
+      return {
+        readyMs: performance.getEntriesByName("floor-editor-ready-1000")[0].startTime,
+        fixtureNodeCount: stage.findOne<Konva.Layer>(".editor-fixture-layer")!.getChildren().length,
+        slotNodeCount: stage.find(".cad-placement-slot").length,
+        objectNodeCount: stage.findOne<Konva.Layer>(".editor-object-layer")!.getChildren().length,
+        layerCount: stage.getLayers().length,
+        imageDecodeCount: decodeCounts["/api/floors/floor-1/assets/cad/content"] ?? 0
+      };
     });
     samples.push({ iteration, ...sample });
   }
@@ -138,9 +180,9 @@ test("1000 already-placed fixtures become canvas-ready within 3s p95 across 20 w
   const p95ReadyMs = sorted[Math.ceil(sorted.length * 0.95) - 1];
   const path = testInfo.outputPath("ready-1000-placed-p95.json");
   await writeFile(path, JSON.stringify({
-    sampleCount: samples.length, fixtureCount: 1000, placementStatus: "placed", p95ReadyMs,
+    sampleCount: samples.length, fixtureCount: 1000, slotCount: 2000, objectCount: 2000, placementStatus: "placed", p95ReadyMs,
     percentileMethod: "nearest rank: ceil(20 * 0.95), 19th sorted sample",
-    timing: "navigation start to editable Stage with 1000 fixture nodes and a painted marker",
+    timing: "navigation start to editable Stage with 1000 fixture, 2000 slot and 2000 map-object nodes plus a painted fixture marker",
     scope: "mock API, warm local Vite/OS caches after one excluded warm-up, reused browser context; Playwright routing disables browser HTTP cache; not production or cold-start performance",
     viewport: "1440x900", browser: browser.version(), platform: process.platform, arch: process.arch, cpu: cpus()[0]?.model, samples
   }, null, 2));
@@ -149,8 +191,119 @@ test("1000 already-placed fixtures become canvas-ready within 3s p95 across 20 w
   await page.screenshot({ path: screenshotPath, fullPage: true });
   await testInfo.attach("ready-1000-placed", { path: screenshotPath, contentType: "image/png" });
   expect(samples).toHaveLength(20);
-  expect(samples.every(({ fixtureNodeCount, readyMs }) => fixtureNodeCount === 1000 && Number.isFinite(readyMs) && readyMs > 0)).toBe(true);
+  expect(samples.every(({ fixtureNodeCount, slotNodeCount, objectNodeCount, layerCount, imageDecodeCount, readyMs }) => fixtureNodeCount === 1000 && slotNodeCount === 2000 && objectNodeCount === 2000 && layerCount <= 5 && imageDecodeCount === 1 && Number.isFinite(readyMs) && readyMs > 0)).toBe(true);
   expect(p95ReadyMs).toBeLessThanOrEqual(3000);
+});
+
+test("1000 fixtures, 2000 slots and 2000 objects keep list-to-slot drag/drop within p95 bounds", async ({ page }, testInfo) => {
+  test.setTimeout(60_000);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const { saves } = await editorFixture(page, 1_000, false, { width: 1_200, height: 800 }, 2_000, 2_000);
+  const canvas = page.getByTestId("floor-editor-canvas");
+  const source = page.getByTestId("placement-fixture-f1-1");
+  const canvasBox = (await canvas.boundingBox())!;
+  const expectedZoom = Math.max(0.1, Math.min(2, (canvasBox.width - 48) / 1_200, (canvasBox.height - 48) / 800));
+  await expect.poll(async () => Number(await canvas.getAttribute("data-zoom"))).toBeCloseTo(expectedZoom, 3);
+  await canvas.evaluate((element) => {
+    Object.defineProperty(window, "__floorSlotDropTimes", { value: [] as number[], configurable: true });
+    element.addEventListener("drop", () => {
+      const metrics = window as unknown as {
+        __floorSlotDropTimes: number[];
+        __floorSlotFrameMeasurement?: { request: number };
+      };
+      metrics.__floorSlotDropTimes.push(performance.now());
+      if (metrics.__floorSlotFrameMeasurement) {
+        cancelAnimationFrame(metrics.__floorSlotFrameMeasurement.request);
+      }
+    }, { capture: true });
+  });
+
+  const frameSamplesMs: number[] = [];
+  const commitSamplesMs: number[] = [];
+  for (let iteration = 0; iteration < 20; iteration++) {
+    const targetPosition = await page.evaluate(() => {
+      const konva = (window as unknown as { Konva: { stages: Konva.Stage[] } }).Konva;
+      const stage = konva.stages.find((node) => node.container().closest('[data-testid="floor-editor-canvas"]'))!;
+      return stage.findOne<Konva.Group>(".cad-placement-slot")!.getAbsolutePosition();
+    });
+    await page.evaluate(() => {
+      const samples: number[] = [];
+      const measurement = { samples, previous: performance.now(), request: 0 };
+      const tick = (now: number) => {
+        samples.push(now - measurement.previous);
+        measurement.previous = now;
+        measurement.request = requestAnimationFrame(tick);
+      };
+      measurement.request = requestAnimationFrame(tick);
+      Object.defineProperty(window, "__floorSlotFrameMeasurement", { value: measurement, configurable: true });
+    });
+    await source.dragTo(canvas, { targetPosition });
+    const result = await page.evaluate(async () => {
+      const { useFloorEditorStore } = await import("/src/features/floor-editor/editor-store.ts");
+      const droppedAt = (window as unknown as { __floorSlotDropTimes: number[] }).__floorSlotDropTimes.at(-1)!;
+      const deadline = droppedAt + 500;
+      while (performance.now() < deadline) {
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        const state = useFloorEditorStore.getState().state!;
+        const fixture = state.fixtures.find((item) => item.id === "f1-1")!;
+        const slot = state.lightSlots.find((item) => item.id === "slot-1")!;
+        const konva = (window as unknown as { Konva: { stages: Konva.Stage[] } }).Konva;
+        const stage = konva.stages.find((node) => node.container().closest('[data-testid="floor-editor-canvas"]'))!;
+        const node = stage.findOne<Konva.Group>(".fixture-f1-1");
+        if (fixture.placementStatus === "placed" && slot.assignedFixtureId === "f1-1"
+          && node && Math.abs(node.x() - slot.x) < 0.01 && Math.abs(node.y() - slot.y) < 0.01) {
+          const frameMeasurement = (window as unknown as {
+            __floorSlotFrameMeasurement: { samples: number[] };
+          }).__floorSlotFrameMeasurement;
+          return { commitMs: performance.now() - droppedAt, frameSamplesMs: frameMeasurement.samples.slice(1) };
+        }
+      }
+      throw new Error("list-to-slot drop did not reach a painted committed state within 500ms");
+    });
+    commitSamplesMs.push(result.commitMs);
+    frameSamplesMs.push(...result.frameSamplesMs);
+    if (iteration < 19) {
+      await page.evaluate(async () => {
+        const { useFloorEditorStore } = await import("/src/features/floor-editor/editor-store.ts");
+        useFloorEditorStore.getState().unassignFixture("f1-1");
+      });
+      await expect(source).toBeVisible();
+    }
+  }
+
+  await page.getByRole("button", { name: "저장", exact: true }).click();
+  await expect.poll(() => saves.length).toBe(1);
+  expect(saves[0]).toMatchObject({
+    slotAssignments: [{ slotId: "slot-1", assignedFixtureId: "f1-1" }]
+  });
+  const sortedFrames = [...frameSamplesMs].sort((a, b) => a - b);
+  const sortedCommits = [...commitSamplesMs].sort((a, b) => a - b);
+  const p95FrameMs = sortedFrames[Math.ceil(sortedFrames.length * 0.95) - 1];
+  const p95CommitMs = sortedCommits[Math.ceil(sortedCommits.length * 0.95) - 1];
+  const metricsPath = testInfo.outputPath("list-to-slot-performance.json");
+  await writeFile(metricsPath, JSON.stringify({
+    fixtureCount: 1_000,
+    slotCount: 2_000,
+    objectCount: 2_000,
+    sampleCount: commitSamplesMs.length,
+    p95FrameMs,
+    p95CommitMs,
+    percentileMethod: "nearest rank: ceil(N * 0.95) - 1",
+    timing: "drag frames stop at capture-phase drop; commit runs from drop to matching slot assignment and mounted Konva fixture",
+    frameSamplesMs,
+    commitSamplesMs,
+    assignmentPayload: (saves[0] as { slotAssignments: unknown }).slotAssignments,
+    viewport: "1440x900",
+    browser: "Chromium",
+    platform: process.platform,
+    arch: process.arch
+  }, null, 2));
+  await testInfo.attach("list-to-slot-performance", { path: metricsPath, contentType: "application/json" });
+
+  expect(frameSamplesMs.length).toBeGreaterThanOrEqual(20);
+  expect(commitSamplesMs).toHaveLength(20);
+  expect(p95FrameMs).toBeLessThanOrEqual(33);
+  expect(p95CommitMs).toBeLessThanOrEqual(100);
 });
 
 for (const zoom of [0.5, 1, 2]) {
@@ -220,6 +373,32 @@ for (const zoom of [0.5, 1, 2]) {
   });
 }
 
+for (const zoom of [0.5, 2]) {
+  test(`CAD slot hit radius uses screen distance and exact world snap at ${zoom}x with pan`, async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await editorFixture(page, 24, false, undefined, 1);
+    const canvas = page.getByTestId("floor-editor-canvas");
+    for (let step = 0; step < Math.round(Math.abs(zoom - 1) * 10); step++) {
+      await page.getByRole("button", { name: zoom < 1 ? "축소" : "확대", exact: true }).click();
+    }
+    await page.getByRole("button", { name: "이동", exact: true }).click();
+    const box = (await canvas.boundingBox())!;
+    await page.mouse.move(box.x + 60, box.y + 80);
+    await page.mouse.down();
+    await page.mouse.move(box.x + 120, box.y + 120, { steps: 8 });
+    await page.mouse.up();
+    await expect(canvas).toHaveAttribute("data-pan-x", "60");
+    await expect(canvas).toHaveAttribute("data-pan-y", "40");
+
+    await page.getByTestId("placement-fixture-f1-1").dragTo(canvas, {
+      targetPosition: { x: 60 + 200 * zoom + 12, y: 40 + 180 * zoom }
+    });
+    const state = await currentState(page);
+    expect(state.fixtures[0]).toMatchObject({ placementStatus: "placed", x: 200, y: 180 });
+    expect(state.lightSlots[0]).toMatchObject({ id: "slot-1", assignedFixtureId: "f1-1" });
+  });
+}
+
 test("real pointer list drop, cancel/unplace, undo, save and floor isolation", async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   const { states, saves } = await editorFixture(page);
@@ -256,11 +435,11 @@ test("real pointer list drop, cancel/unplace, undo, save and floor isolation", a
   await expectNoHorizontalOverflow(page);
 });
 
-test("1000 fixtures virtualize, batch preview/apply, one undo, stable nodes and pan/zoom frames", async ({ page }, testInfo) => {
+test("1000 fixtures, 2000 slots and 2000 objects cull, pan, zoom and pointer-commit within p95 bounds", async ({ page }, testInfo) => {
   test.setTimeout(60_000);
   await page.setViewportSize({ width: 1440, height: 900 });
   const start = Date.now();
-  await editorFixture(page, 1000);
+  await editorFixture(page, 1000, false, undefined, 2_000, 2_000);
   const readyMs = Date.now() - start;
   expect(await page.getByTestId("placement-list").getByRole("button").count()).toBeLessThan(20);
   await page.getByLabel("조명 검색").fill("1000");
@@ -279,16 +458,39 @@ test("1000 fixtures virtualize, batch preview/apply, one undo, stable nodes and 
   await page.getByRole("button", { name: "실행 취소", exact: true }).click();
   expect((await currentState(page)).fixtures[0].placementStatus).toBe("unplaced");
   await page.getByRole("button", { name: "다시 실행" }).click();
-  await page.getByRole("button", { name: "맵 맞춤" }).click();
   const canvas = page.getByTestId("floor-editor-canvas");
   const box = (await canvas.boundingBox())!;
+  await page.getByRole("button", { name: "이동", exact: true }).click();
+  await expect.poll(async () => Number(await canvas.getAttribute("data-rendered-fixture-count"))).toBeLessThan(1000);
+  await expect.poll(async () => Number(await canvas.getAttribute("data-rendered-object-count"))).toBeLessThan(2_000);
+  expect(Number(await canvas.getAttribute("data-rendered-object-count"))).toBeGreaterThan(0);
+  await expect.poll(() => page.evaluate(() => {
+    const konva = (window as unknown as { Konva: { stages: Konva.Stage[] } }).Konva;
+    const stage = konva.stages.find((node) => node.container().closest('[data-testid="floor-editor-canvas"]'))!;
+    return stage.find(".map-object-object-1").length;
+  })).toBe(1);
+  await page.evaluate(async () => {
+    const { useFloorEditorStore } = await import("/src/features/floor-editor/editor-store.ts");
+    useFloorEditorStore.getState().selectObject("object-2000");
+  });
+  await expect.poll(() => page.evaluate(() => {
+    const konva = (window as unknown as { Konva: { stages: Konva.Stage[] } }).Konva;
+    const stage = konva.stages.find((node) => node.container().closest('[data-testid="floor-editor-canvas"]'))!;
+    return stage.find(".map-object-object-2000").length;
+  })).toBe(1);
+  await page.evaluate(async () => {
+    const { useFloorEditorStore } = await import("/src/features/floor-editor/editor-store.ts");
+    useFloorEditorStore.getState().setZoom(2);
+    useFloorEditorStore.getState().setPan({ x: 0, y: 0 });
+  });
+  await expect(canvas).toHaveAttribute("data-zoom", "2");
+  await expect.poll(async () => Number(await canvas.getAttribute("data-rendered-object-count"))).toBeLessThan(500);
+  await page.getByRole("button", { name: "이동", exact: true }).click();
   const originalNodes = await page.evaluateHandle(() => {
     const konva = (window as unknown as { Konva: { stages: Konva.Stage[] } }).Konva;
     const stage = konva.stages.find((node) => node.container().closest('[data-testid="floor-editor-canvas"]'))!;
-    return { stage, nodes: [...stage.getLayers()[2].getChildren()] };
+    return { stage, node: stage.findOne<Konva.Group>(".fixture-f1-1")! };
   });
-  expect(await originalNodes.evaluate(({ nodes }) => nodes.length)).toBe(1000);
-  await page.getByRole("button", { name: "이동", exact: true }).click();
   await page.mouse.move(box.x + 80, box.y + 100);
   await page.mouse.down();
   const frames = await page.evaluateHandle(() => {
@@ -303,21 +505,70 @@ test("1000 fixtures virtualize, batch preview/apply, one undo, stable nodes and 
   for (let step = 0; step < 6; step++) await page.mouse.wheel(0, step < 3 ? -80 : 80);
   const sample = await frames.evaluate((measurement) => { measurement.stop(); return measurement.samples.slice(2); });
   await frames.dispose();
-  const stableNodes = await originalNodes.evaluate(({ stage, nodes }) => {
-    const current = stage.getLayers()[2].getChildren();
-    return current.length === nodes.length && nodes.every((node, index) => node === current[index]);
+  const stableNodes = await originalNodes.evaluate(({ stage, node }) => {
+    return node === stage.findOne<Konva.Group>(".fixture-f1-1");
   });
   await originalNodes.dispose();
   const sorted = [...sample].sort((a, b) => a - b);
   const elapsedMs = sample.reduce((sum, value) => sum + value, 0);
   const meanFps = sample.length * 1000 / elapsedMs;
-  const p95FrameMs = sorted[Math.floor(sorted.length * 0.95)];
+  const p95FrameMs = sorted[Math.ceil(sorted.length * 0.95) - 1];
   const maxFrameMs = Math.max(...sample);
   let slowSpanMs = 0, longestSlowSpanMs = 0;
   for (const ms of sample) {
     slowSpanMs = ms > 1000 / 30 + 1 ? slowSpanMs + ms : 0;
     longestSlowSpanMs = Math.max(longestSlowSpanMs, slowSpanMs);
   }
+  await page.evaluate(async () => {
+    const { useFloorEditorStore } = await import("/src/features/floor-editor/editor-store.ts");
+    useFloorEditorStore.getState().selectFixture("f1-1");
+    useFloorEditorStore.getState().setSnap(false);
+    Object.defineProperty(window, "__floorDragReleaseTimes", { value: [] as number[], configurable: true });
+    window.addEventListener("mouseup", () => {
+      (window as unknown as { __floorDragReleaseTimes: number[] }).__floorDragReleaseTimes.push(performance.now());
+    }, { capture: true });
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  });
+  const dragCommitSamplesMs: number[] = [];
+  for (let iteration = 0; iteration < 20; iteration++) {
+    const drag = await page.evaluate((direction) => {
+      const konva = (window as unknown as { Konva: { stages: Konva.Stage[] } }).Konva;
+      const stage = konva.stages.find((node) => node.container().closest('[data-testid="floor-editor-canvas"]'))!;
+      const node = stage.findOne<Konva.Group>(".fixture-f1-1")!;
+      const absolute = node.getAbsolutePosition();
+      return { absolute, beforeX: node.x(), beforeY: node.y(), screenDeltaX: direction * 4 * node.getAbsoluteScale().x };
+    }, iteration % 2 === 0 ? 1 : -1);
+    await page.mouse.move(box.x + drag.absolute.x, box.y + drag.absolute.y);
+    await page.mouse.down();
+    await page.mouse.move(box.x + drag.absolute.x + drag.screenDeltaX, box.y + drag.absolute.y, { steps: 4 });
+    await page.mouse.up();
+    const duration = await page.evaluate(async ({ beforeX, beforeY }) => {
+      const { useFloorEditorStore } = await import("/src/features/floor-editor/editor-store.ts");
+      const releaseTimes = (window as unknown as { __floorDragReleaseTimes: number[] }).__floorDragReleaseTimes;
+      const releasedAt = releaseTimes.at(-1)!;
+      const deadline = releasedAt + 500;
+      while (performance.now() < deadline) {
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        const fixture = useFloorEditorStore.getState().state!.fixtures.find((item) => item.id === "f1-1")!;
+        const konva = (window as unknown as { Konva: { stages: Konva.Stage[] } }).Konva;
+        const stage = konva.stages.find((node) => node.container().closest('[data-testid="floor-editor-canvas"]'))!;
+        const node = stage.findOne<Konva.Group>(".fixture-f1-1")!;
+        const absolute = node.getAbsolutePosition();
+        const canvas = stage.findOne<Konva.Layer>(".editor-fixture-layer")!.getCanvas()._canvas;
+        const ratio = canvas.width / canvas.getBoundingClientRect().width;
+        const pixel = canvas.getContext("2d")!.getImageData(Math.round(absolute.x * ratio), Math.round(absolute.y * ratio), 1, 1).data;
+        if ((Math.abs(fixture.x - beforeX) >= 0.01 || Math.abs(fixture.y - beforeY) >= 0.01)
+          && Math.abs(node.x() - fixture.x) < 0.01 && Math.abs(node.y() - fixture.y) < 0.01
+          && pixel[0] === 21 && pixel[1] === 159 && pixel[2] === 129 && pixel[3] === 255) {
+          return performance.now() - releasedAt;
+        }
+      }
+      throw new Error("pointer drag did not reach a painted committed state within 500ms");
+    }, { beforeX: drag.beforeX, beforeY: drag.beforeY });
+    dragCommitSamplesMs.push(duration);
+  }
+  const sortedDragCommits = [...dragCommitSamplesMs].sort((a, b) => a - b);
+  const p95DragCommitMs = sortedDragCommits[Math.ceil(sortedDragCommits.length * 0.95) - 1];
   expect((await currentState(page)).fixtures).toHaveLength(1000);
   const viewportBeforeSave = await canvas.evaluate((element) => ({ zoom: element.getAttribute("data-zoom"), x: element.getAttribute("data-pan-x"), y: element.getAttribute("data-pan-y") }));
   const saveStart = Date.now();
@@ -327,10 +578,12 @@ test("1000 fixtures virtualize, batch preview/apply, one undo, stable nodes and 
   await expect.poll(() => canvas.evaluate((element) => ({ zoom: element.getAttribute("data-zoom"), x: element.getAttribute("data-pan-x"), y: element.getAttribute("data-pan-y") }))).toEqual(viewportBeforeSave);
   const saveMs = Date.now() - saveStart;
   const metricsPath = testInfo.outputPath("performance.json");
-  await writeFile(metricsPath, JSON.stringify({ readyMs, saveMs, timingScope: "single mock-API run; readiness/save are not p95 estimates", frames: sample.length, elapsedMs, meanFps, p95FrameMs, maxFrameMs, longestSlowSpanMs, stableNodes, frameSamplesMs: sample, viewport: "1440x900", browser: "Chromium", fixtureCount: 1000, platform: process.platform, arch: process.arch }, null, 2));
+  await writeFile(metricsPath, JSON.stringify({ readyMs, saveMs, timingScope: "single mock-API run for this interaction test; readiness p95 is recorded by the 20-reload test", dragTiming: "real Playwright mouseup to matching store and Konva position with the fixture color painted on the layer canvas", frames: sample.length, elapsedMs, meanFps, p95FrameMs, maxFrameMs, longestSlowSpanMs, dragCommitSampleCount: dragCommitSamplesMs.length, p95DragCommitMs, percentileMethod: "nearest rank: ceil(N * 0.95) - 1", stableNodes, frameSamplesMs: sample, dragCommitSamplesMs, viewport: "1440x900", browser: "Chromium", fixtureCount: 1000, slotCount: 2000, objectCount: 2000, platform: process.platform, arch: process.arch }, null, 2));
   await testInfo.attach("performance", { path: metricsPath, contentType: "application/json" });
   await page.getByRole("button", { name: "100%", exact: true }).click();
-  expect(await renderedLabels(page)).toEqual({ bulkCount: 0, focused: [] });
+  const labelsAfterDragMeasurement = await renderedLabels(page);
+  expect(labelsAfterDragMeasurement.bulkCount).toBe(0);
+  expect(labelsAfterDragMeasurement.focused).toEqual([expect.objectContaining({ text: "B1-L0001", fontSize: 12 })]);
   await page.getByRole("complementary", { name: "맵 편집 정보" }).evaluate((element) => { element.scrollTop = 0; });
   const screenshotPath = testInfo.outputPath("editor-1000.png");
   await page.screenshot({ path: screenshotPath, fullPage: true });
@@ -362,10 +615,12 @@ test("1000 fixtures virtualize, batch preview/apply, one undo, stable nodes and 
   }
   // Keep artifacts even when a performance bound fails. These are local browser
   // regression limits, not claims about production API latency or device hardware.
-  expect(stableNodes, "all 1000 Konva fixture references survive pan/zoom").toBe(true);
+  expect(stableNodes, "the visible anchor fixture reference survives pan/zoom culling").toBe(true);
   expect(sample.length).toBeGreaterThan(60);
   expect(meanFps).toBeGreaterThanOrEqual(30);
-  expect(p95FrameMs).toBeLessThanOrEqual(1000 / 30 + 1);
+  expect(p95FrameMs).toBeLessThanOrEqual(33);
+  expect(dragCommitSamplesMs).toHaveLength(20);
+  expect(p95DragCommitMs).toBeLessThanOrEqual(100);
   expect(maxFrameMs, "no quarter-second UI freeze").toBeLessThanOrEqual(250);
   expect(longestSlowSpanMs, "no sustained half-second sub-30fps interval").toBeLessThan(500);
   expect(readyMs, "single-run readiness bound, not readiness p95").toBeLessThanOrEqual(3000);

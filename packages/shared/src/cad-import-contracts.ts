@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { EDITOR_MAX_EXPECTED_REVISION, POSTGRES_INT_MAX } from "./schemas";
+import {
+  EDITOR_MAX_EXPECTED_REVISION,
+  EDITOR_MAX_URL_LENGTH,
+  nonnegativePostgresIntSchema,
+  POSTGRES_INT_MAX
+} from "./schemas";
 
 export const CAD_IMPORT_MAX_CANDIDATES = 2_000;
 export const CAD_IMPORT_MIME_TYPES = {
@@ -48,6 +53,41 @@ export const floorImportJobStatusSchema = z.enum([
   "failed",
   "cancelled"
 ]);
+
+export const cadImportStageSchema = z.enum([
+  "queued",
+  "downloading",
+  "converting",
+  "parsing",
+  "rendering",
+  "persisting",
+  "review_required",
+  "applying",
+  "completed",
+  "failed",
+  "cancelled"
+]);
+
+export type CadImportStage = z.infer<typeof cadImportStageSchema>;
+
+const CAD_IMPORT_STAGE_LABELS: Record<CadImportStage, string> = {
+  queued: "가져오기 대기 중",
+  downloading: "CAD 파일을 불러오는 중",
+  converting: "CAD 도면을 변환하는 중",
+  parsing: "CAD 도면을 분석하는 중",
+  rendering: "도면 미리보기를 만드는 중",
+  persisting: "분석 결과를 저장하는 중",
+  review_required: "분석 완료",
+  applying: "CAD 도면을 적용하는 중",
+  completed: "CAD 도면을 적용했습니다.",
+  failed: "CAD 가져오기에 실패했습니다.",
+  cancelled: "CAD 가져오기가 취소되었습니다."
+};
+
+export function cadImportStageLabel(stage: string) {
+  const parsed = cadImportStageSchema.safeParse(stage);
+  return parsed.success ? CAD_IMPORT_STAGE_LABELS[parsed.data] : "CAD 가져오기 상태를 확인하는 중";
+}
 
 export const floorImportRenderedViewportSchema = z.object({
   width: z.number().int().positive().max(POSTGRES_INT_MAX),
@@ -131,6 +171,27 @@ export const floorImportApplyInputSchema = z.object({
   }
 });
 
+export const floorImportApplyResultSchema = z.object({
+  jobId: z.string().uuid(),
+  status: z.literal("completed"),
+  revision: nonnegativePostgresIntSchema,
+  acceptedCandidateIds: z.array(z.string().uuid()).max(CAD_IMPORT_MAX_CANDIDATES),
+  renderedAssetId: z.string().uuid(),
+  deletedObjectCount: nonnegativePostgresIntSchema,
+  unplacedFixtureCount: nonnegativePostgresIntSchema,
+  deletedSlotCount: nonnegativePostgresIntSchema.max(CAD_IMPORT_MAX_CANDIDATES),
+  createdSlotCount: nonnegativePostgresIntSchema.max(CAD_IMPORT_MAX_CANDIDATES),
+  floorPlan: z.object({
+    imageUrl: z.string().trim().startsWith("/").max(EDITOR_MAX_URL_LENGTH),
+    sourceType: z.literal("image"),
+    originalFileUrl: z.string().trim().startsWith("/").max(EDITOR_MAX_URL_LENGTH),
+    renderedImageUrl: z.string().trim().startsWith("/").max(EDITOR_MAX_URL_LENGTH),
+    width: z.number().int().positive().max(POSTGRES_INT_MAX),
+    height: z.number().int().positive().max(POSTGRES_INT_MAX),
+    gridSize: z.number().int().positive().max(POSTGRES_INT_MAX)
+  }).strict()
+}).strict();
+
 export type CadImportSourceFormat = z.infer<typeof cadImportSourceFormatSchema>;
 export type CadImportMimeType = z.infer<typeof cadImportMimeTypeSchema>;
 export type FloorImportJobStatus = z.infer<typeof floorImportJobStatusSchema>;
@@ -140,3 +201,4 @@ export type FloorImportCandidateListResponse = z.infer<typeof floorImportCandida
 export type FloorImportAppliedOverlayResponse = z.infer<typeof floorImportAppliedOverlayResponseSchema>;
 export type FloorImportAppliedOverlay = NonNullable<FloorImportAppliedOverlayResponse["overlay"]>;
 export type FloorImportApplyInput = z.infer<typeof floorImportApplyInputSchema>;
+export type FloorImportApplyResult = z.infer<typeof floorImportApplyResultSchema>;

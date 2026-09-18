@@ -4,6 +4,7 @@ import {
   EDITOR_MAX_EXPECTED_REVISION,
   EDITOR_MAX_ID_LENGTH,
   EDITOR_MAX_MAP_OBJECT_MUTATIONS,
+  EDITOR_MAX_SLOT_ASSIGNMENT_MUTATIONS,
   EDITOR_MAX_TEXT_LENGTH,
   EDITOR_REVISION_DEFAULT_LIMIT,
   POSTGRES_INT_MAX,
@@ -587,12 +588,15 @@ describe("shared schemas", () => {
   });
 
   it("validates atomic floor editor save and restore inputs", () => {
+    const slotId = "00000000-0000-4000-8000-000000000101";
+    const assignedFixtureId = "00000000-0000-4000-8000-000000000102";
     const save = saveEditorStateSchema.parse({
       expectedRevision: 3,
       leaseToken: "lease-token",
       leaseFence: 7,
       floorPlan: null,
       fixtureUpdates: [{ id: "fixture-1", x: 120, y: 240, size: 24 }],
+      slotAssignments: [{ slotId, assignedFixtureId }],
       objectCreates: [{
         type: "rectangle", x: 10, y: 20, width: 30, height: 40, rotation: 0,
         points: null, text: null, strokeColor: "#111111", fillColor: null,
@@ -604,6 +608,7 @@ describe("shared schemas", () => {
 
     expect(save.expectedRevision).toBe(3);
     expect(save.floorPlan).toBeNull();
+    expect(save.slotAssignments).toEqual([{ slotId, assignedFixtureId }]);
     expect(restoreFloorEditorRevisionSchema.parse({ expectedRevision: 4, leaseToken: "lease-token", leaseFence: 7 }))
       .toEqual({ expectedRevision: 4, leaseToken: "lease-token", leaseFence: 7 });
     expect(() => saveEditorStateSchema.parse({ ...save, expectedRevision: -1 })).toThrow();
@@ -638,19 +643,26 @@ describe("shared schemas", () => {
       .toThrow();
   });
 
-  it("validates read-only floor map snapshots without fixture runtime state", () => {
+  it("validates read-only floor map snapshots with assigned fixture layout only", () => {
     const snapshot = {
       floorId: "00000000-0000-4000-8000-000000000005",
       revision: 3,
       width: 1200,
       height: 800,
       floorPlan: null,
-      objects: []
+      objects: [],
+      fixtures: [{
+        id: "00000000-0000-4000-8000-000000000006",
+        name: "B2-L01",
+        x: 10,
+        y: 20,
+        size: 24
+      }]
     };
 
     expect(floorMapSnapshotSchema.parse(snapshot)).toEqual(snapshot);
     expect(() => floorMapSnapshotSchema.parse({ ...snapshot, revision: -1 })).toThrow();
-    expect(() => floorMapSnapshotSchema.parse({ ...snapshot, fixtures: [] })).toThrow();
+    expect(() => floorMapSnapshotSchema.parse({ ...snapshot, lightSlots: [] })).toThrow();
   });
 
   it("parses legacy v1 snapshots without weakening atomic floor plan writes", () => {
@@ -793,6 +805,45 @@ describe("shared schemas", () => {
       ...base,
       objectDeletes: Array.from({ length: EDITOR_MAX_MAP_OBJECT_MUTATIONS + 1 }, (_, index) => `object-${index}`)
     })).toThrow();
+
+    const slotAssignments = Array.from({ length: EDITOR_MAX_SLOT_ASSIGNMENT_MUTATIONS }, (_, index) => ({
+      slotId: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+      assignedFixtureId: null
+    }));
+    expect(saveEditorStateSchema.parse({ ...base, slotAssignments }).slotAssignments)
+      .toHaveLength(EDITOR_MAX_SLOT_ASSIGNMENT_MUTATIONS);
+    expect(() => saveEditorStateSchema.parse({
+      ...base,
+      slotAssignments: [...slotAssignments, {
+        slotId: "00000000-0000-4000-8000-000000002001",
+        assignedFixtureId: null
+      }]
+    })).toThrow();
+  });
+
+  it("rejects duplicate slot and non-null fixture assignment mutations", () => {
+    const base = {
+      expectedRevision: 1,
+      leaseToken: "lease-token",
+      leaseFence: 1,
+      fixtureUpdates: [],
+      objectCreates: [],
+      objectUpdates: [],
+      objectDeletes: []
+    };
+    const slot1 = "00000000-0000-4000-8000-000000000101";
+    const slot2 = "00000000-0000-4000-8000-000000000102";
+    const fixture = "00000000-0000-4000-8000-000000000201";
+
+    expect(() => saveEditorStateSchema.parse({
+      ...base,
+      slotAssignments: [{ slotId: slot1, assignedFixtureId: null }, { slotId: slot1, assignedFixtureId: null }]
+    })).toThrow();
+    expect(() => saveEditorStateSchema.parse({
+      ...base,
+      slotAssignments: [{ slotId: slot1, assignedFixtureId: fixture }, { slotId: slot2, assignedFixtureId: fixture }]
+    })).toThrow();
+    expect(saveEditorStateSchema.parse(base).slotAssignments).toEqual([]);
   });
 
   it("bounds editor strings and validates type-specific point arrays", () => {

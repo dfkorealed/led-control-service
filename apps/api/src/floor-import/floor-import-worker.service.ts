@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from "@nestjs/common";
 import { Prisma, type FloorImportJob } from "@prisma/client";
+import type { CadImportStage } from "@led-control/shared";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, rm, stat, statfs, utimes } from "node:fs/promises";
 import { join } from "node:path";
@@ -109,7 +110,7 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
           FOR UPDATE SKIP LOCKED
         )
         UPDATE "FloorImportJob" AS job SET "status" = 'processing', "stage" = 'downloading',
-          "progressPercent" = 1, "attemptCount" = "attemptCount" + 1,
+          "progressPercent" = GREATEST("progressPercent", 1), "attemptCount" = "attemptCount" + 1,
           "leaseOwner" = ${this.owner},
           "leaseExpiresAt" = (statement_timestamp() AT TIME ZONE 'UTC') + interval '30 seconds',
           "startedAt" = COALESCE("startedAt", (statement_timestamp() AT TIME ZONE 'UTC')),
@@ -146,7 +147,7 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
     let phase: ImportPhase = "download";
     let leaseLost = false;
     let renewing = false;
-    const pulse = async (progress: number, stage: string) => {
+    const pulse = async (progress: number, stage: CadImportStage) => {
       if (tempDirectory) await utimes(tempDirectory, new Date(), new Date()).catch(() => undefined);
       if (this.stopping || leaseLost || !(await this.renew(job, progress, stage))) {
         leaseLost = true;
@@ -318,7 +319,6 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
           "status" = CASE WHEN "attemptCount" >= ${MAX_ATTEMPTS}
             THEN 'failed'::"FloorImportJobStatus" ELSE 'queued'::"FloorImportJobStatus" END,
           "stage" = CASE WHEN "attemptCount" >= ${MAX_ATTEMPTS} THEN 'failed' ELSE 'queued' END,
-          "progressPercent" = CASE WHEN "attemptCount" >= ${MAX_ATTEMPTS} THEN "progressPercent" ELSE 0 END,
           "startedAt" = CASE WHEN "attemptCount" >= ${MAX_ATTEMPTS} THEN "startedAt" ELSE NULL END,
           "failureCode" = CASE WHEN "attemptCount" >= ${MAX_ATTEMPTS} THEN ${failureCode} ELSE NULL END,
           "failureMessage" = CASE WHEN "attemptCount" >= ${MAX_ATTEMPTS} THEN 'CAD import processing failed' ELSE NULL END,
@@ -337,7 +337,7 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async renew(job: FloorImportJob, progress?: number, stage?: string) {
+  private async renew(job: FloorImportJob, progress?: number, stage?: CadImportStage) {
     return (await this.prisma.$executeRaw(Prisma.sql`
       UPDATE "FloorImportJob" SET
         "leaseExpiresAt" = (clock_timestamp() AT TIME ZONE 'UTC') + interval '30 seconds',

@@ -5,6 +5,8 @@ import { FloorMapService } from "./floor-map.service";
 describe("FloorMapService", () => {
   const siteId = "00000000-0000-4000-8000-000000000002";
   const floorId = "00000000-0000-4000-8000-000000000003";
+  const fixtureId = "00000000-0000-4000-8000-000000000004";
+  const slotId = "00000000-0000-4000-8000-000000000005";
   const user: AuthenticatedUser = {
     id: "00000000-0000-4000-8000-000000000001",
     organizationId: "org-1",
@@ -52,14 +54,34 @@ describe("FloorMapService", () => {
             width: 1600,
             height: 900
           },
-          mapObjects: [mapObject]
+          mapObjects: [mapObject],
+          fixtures: [
+            {
+              id: fixtureId,
+              name: "B1-L001",
+              x: 999,
+              y: 998,
+              size: 20,
+              lightSlot: { id: slotId, x: 320, y: 240 }
+            },
+            {
+              id: "00000000-0000-4000-8000-000000000006",
+              name: "B1-L002",
+              x: 640,
+              y: 420,
+              size: 24,
+              lightSlot: null
+            }
+          ]
         })
       }
     };
     const siteAccess = { assert: jest.fn().mockResolvedValue({ id: siteId }) };
     const service = new FloorMapService(prisma, siteAccess as never);
 
-    await expect(service.getSnapshot(user, siteId, floorId)).resolves.toEqual({
+    const snapshot = await service.getSnapshot(user, siteId, floorId);
+
+    expect(snapshot).toEqual({
       floorId,
       revision: 3,
       width: 1600,
@@ -90,8 +112,13 @@ describe("FloorMapService", () => {
         zIndex: 1,
         locked: false,
         visible: true
-      }]
+      }],
+      fixtures: [
+        { id: fixtureId, name: "B1-L001", x: 320, y: 240, size: 20 },
+        { id: "00000000-0000-4000-8000-000000000006", name: "B1-L002", x: 640, y: 420, size: 24 }
+      ]
     });
+    expect(snapshot).not.toHaveProperty("lightSlots");
     expect(siteAccess.assert).toHaveBeenCalledWith(user, siteId, "read");
     expect(prisma.floor.findFirst).toHaveBeenCalledWith({
       where: { id: floorId, siteId },
@@ -100,6 +127,18 @@ describe("FloorMapService", () => {
         mapObjects: {
           where: { visible: true },
           orderBy: [{ zIndex: "asc" }, { createdAt: "asc" }]
+        },
+        fixtures: {
+          where: { placementStatus: "placed" },
+          orderBy: { id: "asc" },
+          select: {
+            id: true,
+            name: true,
+            x: true,
+            y: true,
+            size: true,
+            lightSlot: { select: { id: true, x: true, y: true } }
+          }
         }
       }
     });
@@ -113,7 +152,8 @@ describe("FloorMapService", () => {
           siteId,
           mapRevision: 0,
           floorPlan: null,
-          mapObjects: []
+          mapObjects: [],
+          fixtures: []
         })
       }
     };
@@ -140,7 +180,8 @@ describe("FloorMapService", () => {
             siteId,
             mapRevision: 0,
             floorPlan: null,
-            mapObjects: []
+            mapObjects: [],
+            fixtures: []
           })
         }
       } as never,

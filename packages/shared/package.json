@@ -29,6 +29,13 @@
       "import": "./dist/esm/dimming-command.js",
       "default": "./dist/dimming-command.js"
     },
+    "./cad-import-contracts": {
+      "types": "./dist/esm/cad-import-contracts.d.ts",
+      "browser": "./dist/esm/cad-import-contracts.js",
+      "require": "./dist/cad-import-contracts.js",
+      "import": "./dist/esm/cad-import-contracts.js",
+      "default": "./dist/cad-import-contracts.js"
+    },
     "./energy-contracts": {
       "types": "./dist/esm/energy-contracts.d.ts",
       "browser": "./dist/esm/energy-contracts.js",

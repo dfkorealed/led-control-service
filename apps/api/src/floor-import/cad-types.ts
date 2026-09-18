@@ -79,13 +79,82 @@ export interface NormalizedCadInsert extends NormalizedCadEntityBase {
   attributes: NormalizedCadAttribute[];
 }
 
+export interface NormalizedCadSpline extends NormalizedCadEntityBase {
+  type: "spline";
+  degree: number;
+  closed: boolean;
+  knots: number[];
+  weights: number[];
+  controlPoints: CadPoint[];
+}
+
+export interface NormalizedCadWipeout extends NormalizedCadEntityBase {
+  type: "wipeout";
+  vertices: CadPoint[];
+}
+
+export interface NormalizedCadHatchPolylineLoop {
+  type: "polyline";
+  vertices: CadPolylineVertex[];
+  closed: boolean;
+}
+
+export interface NormalizedCadHatchLineEdge {
+  type: "line";
+  start: CadPoint;
+  end: CadPoint;
+}
+
+export interface NormalizedCadHatchArcEdge {
+  type: "arc";
+  center: CadPoint;
+  radius: number;
+  startAngle: number;
+  endAngle: number;
+  counterClockwise: boolean;
+}
+
+export interface NormalizedCadHatchEdgeLoop {
+  type: "edges";
+  edges: Array<NormalizedCadHatchLineEdge | NormalizedCadHatchArcEdge>;
+}
+
+export type NormalizedCadHatchLoop = NormalizedCadHatchPolylineLoop | NormalizedCadHatchEdgeLoop;
+
+export interface NormalizedCadHatch extends NormalizedCadEntityBase {
+  type: "hatch";
+  loops: NormalizedCadHatchLoop[];
+}
+
+export interface NormalizedCadDimension extends NormalizedCadEntityBase {
+  type: "dimension";
+  blockName: string | null;
+  definitionPoint: CadPoint;
+  blockPosition: CadPoint;
+  textPosition: CadPoint;
+  extensionStart: CadPoint;
+  extensionEnd: CadPoint;
+  rotation: number;
+  text: string;
+}
+
+export interface NormalizedCadPoint extends NormalizedCadEntityBase {
+  type: "point";
+  position: CadPoint;
+}
+
 export type NormalizedCadEntity =
   | NormalizedCadLine
   | NormalizedCadPolyline
   | NormalizedCadCircle
   | NormalizedCadArc
   | NormalizedCadText
-  | NormalizedCadInsert;
+  | NormalizedCadInsert
+  | NormalizedCadSpline
+  | NormalizedCadWipeout
+  | NormalizedCadHatch
+  | NormalizedCadDimension
+  | NormalizedCadPoint;
 
 export interface NormalizedCadBlock {
   name: string;
@@ -98,4 +167,9 @@ export interface NormalizedCadDocument {
   bounds: CadBounds;
   blocks: NormalizedCadBlock[];
   entities: NormalizedCadEntity[];
+  unsupportedEntityCounts?: Readonly<Record<string, number>>;
+  primaryBoundsSelection?: {
+    excludedEntityCount: number;
+    totalEntityCount: number;
+  };
 }

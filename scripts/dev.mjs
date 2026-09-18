@@ -1,8 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
-import { lookup } from "node:dns/promises";
 import { createConnection } from "node:net";
 import { connect as connectTls } from "node:tls";
-import { networkInterfaces } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
@@ -12,34 +10,22 @@ import {
   removeNativeBrokerIdentity
 } from "./dev-broker.mjs";
 import { prepareDevelopmentRuntime } from "./dev-prepare.mjs";
+import { runDevelopmentNetworkPreflight } from "./dev-network-preflight.mjs";
 import {
-  parseEnvFile,
   resolveDevAppFilters,
   resolveMosquittoTlsPaths,
-  startMosquittoCrlReload,
-  validateLabNetworkConfiguration
+  startMosquittoCrlReload
 } from "./dev-runtime.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const envFile = join(root, ".env");
 let stopping = false;
 let broker = null;
 let brokerCrlWatcher = null;
 let apps = null;
-if (!existsSync(envFile)) fail(".env 파일이 없습니다. cp .env.example .env를 먼저 실행하세요.");
-
-const fileEnv = parseEnvFile(readFileSync(envFile, "utf8"));
-const sourceEnv = { ...fileEnv, ...process.env };
+const sourceEnv = await runDevelopmentNetworkPreflight({ root });
 if (sourceEnv.AUTOMATION_E2E_SIMULATOR === "1") {
   fail("AUTOMATION_E2E_SIMULATOR는 private child IPC를 제공하는 Chromium RealBackendLab에서만 실행할 수 있습니다.");
 }
-await validateLabNetworkConfiguration(sourceEnv, {
-  localAddresses: Object.values(networkInterfaces())
-    .flatMap((entries) => entries ?? [])
-    .map((entry) => entry.address),
-  resolveHostname: async (hostname) => (await lookup(hostname, { all: true, verbatim: true }))
-    .map((entry) => entry.address)
-});
 const { env, gatewayIds, aclPath, nativeConfigPath, dockerConfigPath, dockerCertDirectory } =
   prepareDevelopmentRuntime(root, sourceEnv);
 const nativeIdentityPath = join(root, ".local", "mosquitto.host.pid.json");

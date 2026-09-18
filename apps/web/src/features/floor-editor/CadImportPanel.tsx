@@ -1,6 +1,7 @@
 import { ChevronLeft, ChevronRight, CircleCheck, FileCog, RotateCw, TriangleAlert, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CadImportMimeType, CadImportSourceFormat } from "@led-control/shared";
+import { cadImportStageLabel } from "@led-control/shared/cad-import-contracts";
 import {
   applyFloorImportJob,
   cancelFloorImportJob,
@@ -11,17 +12,17 @@ import {
   uploadFloorAsset
 } from "../../api/floor-editor";
 import { ApiError } from "../../api/client";
-import { Button, Checkbox, FeedbackState, FileField, Heading, IconButton, Text } from "../../components/ui";
+import { Button, Checkbox, ConfirmDialog, FeedbackState, FileField, Heading, IconButton, Text } from "../../components/ui";
 import type {
   CadImportReviewState,
+  CadMapResetSummary,
   FloorImportApplyResult,
   FloorImportJob
 } from "./editor-types";
 
 const MAX_CAD_BYTES = 50 * 1024 * 1024;
 const POLL_INTERVAL_MS = 1_000;
-// Keep these values aligned with cadImportFileTypeSchema. The shared package's
-// root CommonJS entry is type-safe in Vite but cannot expose new runtime names.
+// Keep these values aligned with cadImportFileTypeSchema.
 const CAD_MIME_TYPES = {
   dwg: [
     "application/acad",
@@ -51,6 +52,7 @@ interface CadImportPanelProps {
   leaseFence?: number;
   disabled?: boolean;
   isDirty?: boolean;
+  resetSummary: CadMapResetSummary;
   review: CadImportReviewState | null;
   focusedCandidateId?: string | null;
   onReviewChange: (review: CadImportReviewState | null) => void;
@@ -67,6 +69,7 @@ export function CadImportPanel({
   leaseFence,
   disabled = false,
   isDirty = false,
+  resetSummary,
   review,
   focusedCandidateId,
   onReviewChange,
@@ -82,7 +85,9 @@ export function CadImportPanel({
   const [reviewCursor, setReviewCursor] = useState(0);
   const [suppressedReviewJobId, setSuppressedReviewJobId] = useState<string | null>(null);
   const [refreshRecoveryJob, setRefreshRecoveryJob] = useState<FloorImportJob | null>(null);
+  const [confirmApply, setConfirmApply] = useState(false);
   const loadedReviewJobId = useRef<string | null>(null);
+  const applyFocusFallback = useRef<HTMLElement>(null);
   const requestLock = useRef(false);
   const busy = useRef(false);
   const reviewChange = useRef(onReviewChange);
@@ -91,6 +96,7 @@ export function CadImportPanel({
   focusedCandidateChange.current = onFocusedCandidateChange;
   const activeReview = review?.job.jobId === suppressedReviewJobId ? null : review;
   const activeJob = activeReview?.job ?? job;
+  const isReviewLoading = activeJob?.status === "review_required" && !activeReview && !error;
   const focusedIndex = useMemo(() => {
     if (!activeReview?.candidates.length) return 0;
     const index = focusedCandidateId
@@ -112,6 +118,7 @@ export function CadImportPanel({
     setError(null);
     setSuppressedReviewJobId(null);
     setRefreshRecoveryJob(null);
+    setConfirmApply(false);
     loadedReviewJobId.current = null;
     reviewChange.current(null);
     setBusy(false);
@@ -132,14 +139,17 @@ export function CadImportPanel({
   useEffect(() => {
     if (!activeJob || !POLLING_STATUSES.has(activeJob.status) || error) return;
     let active = true;
-    const timer = window.setTimeout(async () => {
+    let polling = false;
+    const poll = async () => {
+      if (polling) return;
+      polling = true;
       try {
         const next = await getFloorImportJob(floorId, activeJob.jobId);
         if (!active) return;
         if (["failed", "cancelled"].includes(next.status)) {
           setSuppressedReviewJobId(next.jobId);
           setJob(null);
-          onReviewChange(null);
+          reviewChange.current(null);
           setBusy(false);
           setError(statusText(next));
         } else {
@@ -147,17 +157,20 @@ export function CadImportPanel({
         }
       } catch {
         if (active) setError("가져오기 진행 상태를 확인하지 못했습니다.");
+      } finally {
+        polling = false;
       }
-    }, POLL_INTERVAL_MS);
+    };
+    const timer = window.setInterval(() => void poll(), POLL_INTERVAL_MS);
     return () => {
       active = false;
-      window.clearTimeout(timer);
+      window.clearInterval(timer);
     };
-  }, [activeJob?.jobId, activeJob?.status, activeJob?.updatedAt, error, floorId]);
+  }, [activeJob?.jobId, activeJob?.status, error, floorId]);
 
   useEffect(() => {
     if (!activeJob || activeJob.status !== "review_required" || review?.job.jobId === activeJob.jobId
-      || loadedReviewJobId.current === activeJob.jobId) return;
+      || loadedReviewJobId.current === activeJob.jobId || error) return;
     loadedReviewJobId.current = activeJob.jobId;
     let active = true;
     void listFloorImportCandidates(floorId, activeJob.jobId).then((response) => {
@@ -176,7 +189,7 @@ export function CadImportPanel({
       setError("조명 위치 후보를 불러오지 못했습니다.");
     });
     return () => { active = false; };
-  }, [activeJob?.jobId, activeJob?.status, floorId, review?.job.jobId]);
+  }, [activeJob?.jobId, activeJob?.status, error, floorId, review?.job.jobId]);
 
   useEffect(() => {
     if (!activeJob) return;
@@ -231,6 +244,7 @@ export function CadImportPanel({
         expectedRevision,
         leaseToken,
         leaseFence,
+        confirmMapReset: true,
         candidateIds: activeReview.acceptedCandidateIds
       });
       await onApplied(result);
@@ -248,6 +262,7 @@ export function CadImportPanel({
     } finally {
       requestLock.current = false;
       setAction("idle");
+      setConfirmApply(false);
     }
   }
 
@@ -351,9 +366,13 @@ export function CadImportPanel({
     onReviewChange({ ...activeReview, acceptedCandidateIds: [...accepted] });
   }
 
-  const status = activeJob ? statusText(activeJob) : null;
+  const status = activeJob
+    ? isReviewLoading
+      ? `${cadImportStageLabel(activeJob.stage)} · 조명 위치 후보를 불러오는 중`
+      : cadImportStageLabel(activeJob.stage)
+    : null;
   return (
-    <section className="grid gap-3 border-t border-border-subtle p-3" aria-label="CAD 가져오기">
+    <section ref={applyFocusFallback} tabIndex={-1} className="grid gap-3 border-t border-border-subtle p-3" aria-label="CAD 가져오기">
       <div className="grid gap-1">
         <Text variant="overline" tone="secondary">CAD</Text>
         <Heading as="h3" variant="card-title">DWG/DXF 가져오기</Heading>
@@ -393,7 +412,8 @@ export function CadImportPanel({
         description="CAD 가져오기 또는 적용 전에 먼저 저장하거나 취소해 변경사항을 폐기하세요."
       /> : null}
 
-      {activeJob && activeJob.status !== "review_required" ? <div className="grid gap-2" role="status">
+      {activeJob && (activeJob.status !== "review_required" || isReviewLoading)
+        ? <div className="grid gap-2" role="status">
         <div className="flex items-center justify-between gap-2">
           <Text variant="body-sm" weight="semibold">{status}</Text>
           <Text variant="caption" tone="secondary">{activeJob.progressPercent}%</Text>
@@ -462,7 +482,7 @@ export function CadImportPanel({
           disabled={disabled || isDirty || !leaseToken || !leaseFence}
           isLoading={action === "applying"}
           loadingLabel="맵에 적용 중"
-          onClick={() => void handleApply()}
+          onClick={() => setConfirmApply(true)}
         >
           <CircleCheck size={16} aria-hidden="true" />
           선택한 후보와 배경 적용
@@ -484,10 +504,26 @@ export function CadImportPanel({
         tone="danger"
         icon={TriangleAlert}
         title={error}
-        action={activeJob && POLLING_STATUSES.has(activeJob.status)
+        action={activeJob && (POLLING_STATUSES.has(activeJob.status) || activeJob.status === "review_required")
           ? <Button variant="secondary" onClick={() => setError(null)}><RotateCw size={16} aria-hidden="true" />다시 확인</Button>
           : undefined}
       /> : null}
+      {confirmApply && activeReview ? <ConfirmDialog
+        title="새 CAD 도면으로 맵을 교체할까요?"
+        confirmLabel="교체 후 적용"
+        destructive
+        isPending={action === "applying"}
+        fallbackFocusRef={applyFocusFallback}
+        onCancel={() => setConfirmApply(false)}
+        onConfirm={() => void handleApply()}
+      >
+        <div className="grid gap-1.5">
+          <Text>조명 {resetSummary.fixtureCount.toLocaleString("ko-KR")}개가 미배치 상태로 변경됩니다.</Text>
+          <Text>수동 도형 {resetSummary.objectCount.toLocaleString("ko-KR")}개가 삭제됩니다.</Text>
+          <Text>기존 CAD 슬롯 {resetSummary.slotCount.toLocaleString("ko-KR")}개가 삭제됩니다.</Text>
+          <Text>선택한 조명 위치 슬롯 {activeReview.acceptedCandidateIds.length.toLocaleString("ko-KR")}개가 생성됩니다.</Text>
+        </div>
+      </ConfirmDialog> : null}
     </section>
   );
 }

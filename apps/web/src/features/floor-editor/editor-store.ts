@@ -54,6 +54,8 @@ interface EditorStore {
   updateFixture: (fixtureId: string, patch: FixturePatch) => void;
   updateFixtureProperties: (ids: string[], patch: FixturePatch | ((fixture: EditorFixture, index: number) => FixturePatch)) => void;
   placeFixtures: (placements: PlacementPoint[]) => void;
+  assignFixtureToSlot: (fixtureId: string, slotId: string) => void;
+  unassignFixture: (fixtureId: string) => void;
   unplaceFixture: (id: string) => void;
   moveFixtures: (ids: string[], delta: Point) => void;
   setPreview: (preview: PlacementPoint[]) => void;
@@ -84,6 +86,7 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
     if (!state || layers.fixtures.locked || !layers.fixtures.visible) return;
     const locked = new Set(lockedFixtureIds);
     let changed = false;
+    const placementChangedIds = new Set<string>();
     const fixtures = state.fixtures.map((fixture) => {
       const patch = patches.get(fixture.id);
       if (!patch || locked.has(fixture.id)) return fixture;
@@ -112,9 +115,20 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
       if (next.placementStatus === "unplaced") next.positionVerified = false;
       if (!Object.keys(next).some((key) => !Object.is(next[key as keyof EditorFixture], fixture[key as keyof EditorFixture]))) return fixture;
       changed = true;
+      if ("x" in patch || "y" in patch || "placementStatus" in patch) placementChangedIds.add(fixture.id);
       return next;
     });
-    if (changed) commit({ ...state, fixtures });
+    if (changed) {
+      const fixturesById = new Map(fixtures.map((fixture) => [fixture.id, fixture]));
+      const lightSlots = state.lightSlots.map((slot) => {
+        if (!slot.assignedFixtureId || !placementChangedIds.has(slot.assignedFixtureId)) return slot;
+        const fixture = fixturesById.get(slot.assignedFixtureId);
+        return fixture?.placementStatus !== "unplaced" && fixture?.x === slot.x && fixture?.y === slot.y
+          ? slot
+          : { ...slot, assignedFixtureId: null };
+      });
+      commit({ ...state, fixtures, lightSlots });
+    }
   };
   return {
     initialState: null, state: null, isDirty: false, dirtyFixtureIds: [], dirtyObjectIds: [], activeTool: "select", zoom: 1,
@@ -163,7 +177,49 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
       applyFixtures(new Map(fixtures.map((f, i) => [f.id, typeof patch === "function" ? patch(f, i) : patch])));
     },
     placeFixtures: (placements) => applyFixtures(new Map(placements.map(({ id, ...point }) => [id, { ...point, placementStatus: "placed" }]))),
-    unplaceFixture: (id) => { applyFixtures(new Map([[id, { placementStatus: "unplaced" }]])); if (get().state?.fixtures.find((f) => f.id === id)?.placementStatus === "unplaced") get().clearSelection(); },
+    assignFixtureToSlot: (fixtureId, slotId) => {
+      const { state, layers, lockedFixtureIds } = get();
+      if (!state || layers.fixtures.locked || !layers.fixtures.visible || lockedFixtureIds.includes(fixtureId)) return;
+      const fixture = state.fixtures.find((item) => item.id === fixtureId);
+      const slot = state.lightSlots.find((item) => item.id === slotId);
+      if (!fixture || fixture.placementStatus !== "unplaced" || !slot || slot.assignedFixtureId !== null
+        || state.lightSlots.some((item) => item.assignedFixtureId === fixtureId)) return;
+      commit({
+        ...state,
+        fixtures: state.fixtures.map((item) => item.id === fixtureId ? {
+          ...item,
+          x: slot.x,
+          y: slot.y,
+          placementStatus: "placed",
+          positionVerifiedAt: null,
+          positionVerified: false
+        } : item),
+        lightSlots: state.lightSlots.map((item) => item.id === slotId ? { ...item, assignedFixtureId: fixtureId } : item)
+      });
+    },
+    unassignFixture: (fixtureId) => {
+      const { state, layers, lockedFixtureIds } = get();
+      if (!state || layers.fixtures.locked || !layers.fixtures.visible || lockedFixtureIds.includes(fixtureId)) return;
+      const fixture = state.fixtures.find((item) => item.id === fixtureId);
+      if (!fixture) return;
+      const hasAssignedSlot = state.lightSlots.some((item) => item.assignedFixtureId === fixtureId);
+      if (fixture.placementStatus === "unplaced" && fixture.x === 0 && fixture.y === 0 && !hasAssignedSlot) return;
+      commit({
+        ...state,
+        fixtures: state.fixtures.map((item) => item.id === fixtureId ? {
+          ...item,
+          x: 0,
+          y: 0,
+          placementStatus: "unplaced",
+          positionVerifiedAt: null,
+          positionVerified: false
+        } : item),
+        lightSlots: state.lightSlots.map((item) => item.assignedFixtureId === fixtureId ? { ...item, assignedFixtureId: null } : item)
+      }, get().selection?.kind === "fixture" && get().selection?.id === fixtureId
+        ? { selection: null, selectedFixtureIds: [] }
+        : {});
+    },
+    unplaceFixture: (id) => get().unassignFixture(id),
     moveFixtures: (ids, delta) => {
       const { state, lockedFixtureIds } = get();
       if (!state || !Number.isFinite(delta.x) || !Number.isFinite(delta.y)) return;

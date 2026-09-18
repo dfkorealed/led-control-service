@@ -114,6 +114,48 @@ describe("FloorScene", () => {
     expect(onFixturePress).toHaveBeenCalledWith("fixture-1");
   });
 
+  it("keeps snapshot fixtures when runtime placement is stale while hiding runtime-only unplaced fixtures", () => {
+    render(
+      <FloorScene
+        snapshot={{
+          ...snapshot,
+          floorPlan: {
+            sourceType: "pdf",
+            imageUrl: "",
+            originalFileUrl: "/api/floors/floor-1/assets/source/content",
+            renderedImageUrl: "/api/floors/floor-1/assets/rendered/content",
+            width: 1200,
+            height: 800,
+            gridSize: 10
+          },
+          fixtures: [{ id: "fixture-assigned", name: "B1-L001", x: 300, y: 200, size: 20 }]
+        }}
+        fixtures={[
+          { id: "fixture-assigned", name: "stale-runtime-name", x: 999, y: 999, brightness: 70, status: "online", placementStatus: "unplaced" },
+          { id: "fixture-free", name: "B1-L002", x: 600, y: 400, brightness: 40, status: "online", placementStatus: "placed" },
+          { id: "fixture-unplaced", name: "B1-L003", x: 700, y: 500, brightness: 0, status: "offline", placementStatus: "unplaced" }
+        ]}
+        interactive={false}
+        floorName="B1"
+      />
+    );
+
+    expect(screen.getByRole("img", { name: "B1 도면" })).toHaveAttribute(
+      "src",
+      "/api/floors/floor-1/assets/rendered/content"
+    );
+    expect(screen.getByTestId("map-object-rectangle-1")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "B1-L001 정상 70%" })).toHaveStyle({
+      "--fixture-left": "25%",
+      "--fixture-top": "25%"
+    });
+    expect(screen.getByRole("button", { name: "B1-L002 정상 40%" })).toHaveStyle({
+      "--fixture-left": "50%",
+      "--fixture-top": "50%"
+    });
+    expect(screen.queryByRole("button", { name: /B1-L003/ })).not.toBeInTheDocument();
+  });
+
   it.each([
     [-20, 1], [0, 1], [9, 1],
     [10, 2], [19, 2],

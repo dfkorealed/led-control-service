@@ -4,12 +4,13 @@ import {
   CAD_IMPORT_MIME_TYPES,
   cadImportFileTypeSchema,
   floorImportApplyInputSchema,
+  floorImportApplyResultSchema,
   floorImportAppliedOverlayResponseSchema,
   floorImportCandidateListResponseSchema,
   floorImportJobStatusSchema,
   floorImportRenderedViewportSchema
 } from "./cad-import-contracts";
-import { floorEditorSnapshotSchema, floorLightSlotSchema } from "./schemas";
+import { floorEditorSnapshotSchema, floorLightSlotSchema, POSTGRES_INT_MAX } from "./schemas";
 
 const jobId = "00000000-0000-4000-8000-000000000001";
 const candidateId = "00000000-0000-4000-8000-000000000002";
@@ -56,6 +57,13 @@ describe("CAD import contracts", () => {
       objects: [],
       lightSlots: [slot]
     })).toMatchObject({ lightSlots: [slot] });
+    expect(() => floorEditorSnapshotSchema.parse({
+      version: 2,
+      floorPlan: null,
+      fixtures: [],
+      objects: [],
+      lightSlots: [{ ...slot, sourceImportJobId: "00000000-0000-4000-8000-000000000091" }]
+    })).toThrow();
     expect(() => floorLightSlotSchema.parse({ ...slot, x: Number.POSITIVE_INFINITY })).toThrow();
   });
 
@@ -196,6 +204,78 @@ describe("CAD import contracts", () => {
       candidateIds: Array.from({ length: 2_001 }, (_, index) =>
         `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`)
     }).success).toBe(false);
+  });
+
+  it("validates the complete atomic map reset result", () => {
+    const result = {
+      jobId,
+      status: "completed",
+      revision: 4,
+      acceptedCandidateIds: [candidateId],
+      renderedAssetId: "00000000-0000-4000-8000-000000000004",
+      deletedObjectCount: 2,
+      unplacedFixtureCount: 4,
+      deletedSlotCount: 1,
+      createdSlotCount: 1,
+      floorPlan: {
+        imageUrl: "/api/floors/floor/assets/rendered/content",
+        sourceType: "image",
+        originalFileUrl: "/api/floors/floor/assets/source/content",
+        renderedImageUrl: "/api/floors/floor/assets/rendered/content",
+        width: 640,
+        height: 480,
+        gridSize: 10
+      }
+    };
+
+    expect(floorImportApplyResultSchema.parse(result)).toEqual(result);
+    for (const field of ["deletedObjectCount", "unplacedFixtureCount", "deletedSlotCount", "createdSlotCount"] as const) {
+      const { [field]: _missing, ...incomplete } = result;
+      expect(floorImportApplyResultSchema.safeParse(incomplete).success).toBe(false);
+    }
+    expect(floorImportApplyResultSchema.safeParse({ ...result, unexpectedCount: 1 }).success).toBe(false);
+  });
+
+  it("accepts full-floor output counts through the PostgreSQL Int boundary", () => {
+    const result = {
+      jobId,
+      status: "completed",
+      revision: POSTGRES_INT_MAX,
+      acceptedCandidateIds: [candidateId],
+      renderedAssetId: "00000000-0000-4000-8000-000000000004",
+      deletedObjectCount: 2_001,
+      unplacedFixtureCount: 1_001,
+      deletedSlotCount: CAD_IMPORT_MAX_CANDIDATES,
+      createdSlotCount: CAD_IMPORT_MAX_CANDIDATES,
+      floorPlan: {
+        imageUrl: "/api/floors/floor/assets/rendered/content",
+        sourceType: "image",
+        originalFileUrl: "/api/floors/floor/assets/source/content",
+        renderedImageUrl: "/api/floors/floor/assets/rendered/content",
+        width: 640,
+        height: 480,
+        gridSize: 10
+      }
+    };
+
+    expect(floorImportApplyResultSchema.parse(result)).toEqual(result);
+    expect(floorImportApplyResultSchema.safeParse({
+      ...result,
+      deletedObjectCount: POSTGRES_INT_MAX,
+      unplacedFixtureCount: POSTGRES_INT_MAX
+    }).success).toBe(true);
+
+    const limits = {
+      revision: POSTGRES_INT_MAX,
+      deletedObjectCount: POSTGRES_INT_MAX,
+      unplacedFixtureCount: POSTGRES_INT_MAX,
+      deletedSlotCount: CAD_IMPORT_MAX_CANDIDATES,
+      createdSlotCount: CAD_IMPORT_MAX_CANDIDATES
+    } as const;
+    for (const [field, max] of Object.entries(limits)) {
+      expect(floorImportApplyResultSchema.safeParse({ ...result, [field]: -1 }).success).toBe(false);
+      expect(floorImportApplyResultSchema.safeParse({ ...result, [field]: max + 1 }).success).toBe(false);
+    }
   });
 
   it("validates a nullable applied overlay containing accepted candidates only", () => {

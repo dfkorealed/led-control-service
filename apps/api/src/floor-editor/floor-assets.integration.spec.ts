@@ -18,6 +18,7 @@ describeWithPostgres("FloorAssetsService PostgreSQL concurrency", () => {
   const schemaUrl = databaseUrl ? (() => {
     const url = new URL(databaseUrl);
     url.searchParams.set("schema", schemaName);
+    url.searchParams.set("options", "-c timezone=UTC");
     return url.toString();
   })() : "";
   let serviceClient: PrismaClient;
@@ -48,6 +49,7 @@ describeWithPostgres("FloorAssetsService PostgreSQL concurrency", () => {
         "status" "FloorAssetStatus" NOT NULL DEFAULT 'pending',
         "objectKey" TEXT NOT NULL UNIQUE,
         "mimeType" TEXT NOT NULL,
+        "contentEncoding" TEXT,
         "sizeBytes" BIGINT NOT NULL,
         "sha256" TEXT NOT NULL,
         "uploadExpiresAt" TIMESTAMP(3),
@@ -66,6 +68,13 @@ describeWithPostgres("FloorAssetsService PostgreSQL concurrency", () => {
         "id" TEXT PRIMARY KEY,
         "floorId" TEXT NOT NULL,
         "snapshot" JSONB NOT NULL
+      );
+      CREATE TABLE "FloorImportJob" (
+        "sourceAssetId" TEXT NOT NULL,
+        "renderedAssetId" TEXT
+      );
+      CREATE TABLE "FloorImportAttemptCleanup" (
+        "assetId" TEXT NOT NULL
       );
       INSERT INTO "Site" VALUES ('site-1', 'admin-1');
       INSERT INTO "Floor" VALUES ('floor-1', 'site-1');
@@ -135,6 +144,56 @@ describeWithPostgres("FloorAssetsService PostgreSQL concurrency", () => {
       Prisma.sql`SELECT "status"::text AS status FROM "FloorAsset" WHERE "id" = 'asset-1'`
     );
     expect(rows).toEqual([{ status: "pending" }]);
+  });
+
+  it("keeps existing ready image, PDF, and rendered SVG content readable", async () => {
+    const readyAt = new Date();
+    await serviceClient.floorAsset.createMany({
+      data: [
+        {
+          id: "asset-ready-image", floorId: "floor-1", kind: "original", status: "ready",
+          objectKey: "floors/floor-1/legacy.png", mimeType: "image/png", contentEncoding: null,
+          sizeBytes: 1024n, sha256: "b".repeat(64), readyAt
+        },
+        {
+          id: "asset-ready-pdf", floorId: "floor-1", kind: "original", status: "ready",
+          objectKey: "floors/floor-1/legacy.pdf", mimeType: "application/pdf", contentEncoding: null,
+          sizeBytes: 2048n, sha256: "c".repeat(64), readyAt
+        },
+        {
+          id: "asset-ready-svg", floorId: "floor-1", kind: "rendered", status: "ready",
+          objectKey: "floors/floor-1/rendered.svg", mimeType: "image/svg+xml", contentEncoding: null,
+          sizeBytes: 4096n, sha256: "d".repeat(64), readyAt
+        }
+      ]
+    });
+    const storage = {
+      readFloorRenderedMetadata: jest.fn().mockResolvedValue(undefined),
+      createFloorAssetDownloadUrl: jest.fn(async (objectKey: string) => `https://download.example/${objectKey}`)
+    };
+    const siteAccess = { assert: jest.fn().mockResolvedValue({ id: "site-1" }) };
+    const service = new FloorAssetsService(serviceClient as never, storage as never, siteAccess as never);
+
+    await expect(service.listAssets(admin, "floor-1")).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "asset-ready-image", mimeType: "image/png" }),
+      expect.objectContaining({ id: "asset-ready-pdf", mimeType: "application/pdf" }),
+      expect.objectContaining({ id: "asset-ready-svg", mimeType: "image/svg+xml" })
+    ]));
+    await expect(Promise.all([
+      service.getContentRedirect(admin, "floor-1", "asset-ready-image"),
+      service.getContentRedirect(admin, "floor-1", "asset-ready-pdf"),
+      service.getContentRedirect(admin, "floor-1", "asset-ready-svg")
+    ])).resolves.toEqual([
+      { url: "https://download.example/floors/floor-1/legacy.png" },
+      { url: "https://download.example/floors/floor-1/legacy.pdf" },
+      { url: "https://download.example/floors/floor-1/rendered.svg" }
+    ]);
+    expect(storage.readFloorRenderedMetadata).toHaveBeenCalledWith("floors/floor-1/rendered.svg", {
+      sizeBytes: 4096,
+      sha256: "d".repeat(64),
+      mimeType: "image/svg+xml",
+      contentEncoding: null
+    });
   });
 
   it("deletes only old ready orphans while preserving current and historical references", async () => {

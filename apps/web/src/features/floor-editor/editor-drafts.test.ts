@@ -4,7 +4,7 @@ import { clearTenantCache } from "../../api/principal-cache";
 import { clearEditorDrafts, editorDraftGeneration, editorDraftKey, loadEditorDraft, saveEditorDraft } from "./editor-drafts";
 import { useFloorEditorStore } from "./editor-store";
 import type { FloorEditorState } from "./editor-types";
-const state: FloorEditorState = { floor: { id: "floor", siteId: "site", name: "B1", mapRevision: 3, level: 1, floorPlan: null }, fixtures: [{ id: "f1", name: "L1", x: 10, y: 20, size: 20, ratedWatt: 40, brightness: 70, status: "online", placementStatus: "unplaced", positionVerifiedAt: null }], objects: [] };
+const state: FloorEditorState = { floor: { id: "floor", siteId: "site", name: "B1", mapRevision: 3, level: 1, floorPlan: null }, fixtures: [{ id: "f1", name: "L1", x: 10, y: 20, size: 20, ratedWatt: 40, brightness: 70, status: "online", placementStatus: "unplaced", positionVerifiedAt: null }], lightSlots: [], objects: [] };
 describe("scoped draft recovery", () => {
   afterEach(() => { clearEditorDrafts(); useFloorEditorStore.getState().reset(); });
   it("restores only the matching user/site/floor/revision and preserves current telemetry", () => {

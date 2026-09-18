@@ -6,6 +6,7 @@
     "outDir": "dist/esm"
   },
   "include": [
+    "src/cad-import-contracts.ts",
     "src/automation-action-result-contracts.ts",
     "src/dimming-command.ts",
     "src/energy-contracts.ts",

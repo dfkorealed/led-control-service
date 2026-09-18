@@ -120,6 +120,7 @@ describe("SettingsShell", () => {
     const draft = {
       floor: { id: "floor-1", siteId: "site-1", name: "작성 중", level: -1, mapRevision: 3, floorPlan: null },
       fixtures: [],
+      lightSlots: [],
       objects: []
     };
     useFloorEditorStore.setState({ state: draft, isDirty: true });
@@ -152,6 +153,7 @@ describe("SettingsShell", () => {
         id: "fixture-1", name: "L1", x: 10, y: 20, size: 20, ratedWatt: 40,
         brightness: 70, status: "online" as const
       }],
+      lightSlots: [],
       objects: []
     };
     useFloorEditorStore.getState().initialize(baseline);

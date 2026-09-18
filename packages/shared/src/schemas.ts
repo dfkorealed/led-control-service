@@ -5,6 +5,7 @@ export const POSTGRES_INT_MAX = 2_147_483_647;
 export const EDITOR_MAX_EXPECTED_REVISION = POSTGRES_INT_MAX - 1;
 export const EDITOR_MAX_FIXTURE_UPDATES = 1_000;
 export const EDITOR_MAX_MAP_OBJECT_MUTATIONS = 2_000;
+export const EDITOR_MAX_SLOT_ASSIGNMENT_MUTATIONS = 2_000;
 export const EDITOR_MAX_BODY_BYTES = 1_048_576;
 export const EDITOR_MAX_POINTS = 128;
 export const EDITOR_MAX_ID_LENGTH = 128;
@@ -24,6 +25,7 @@ const finiteNumberSchema = z.number().finite();
 const nullableFiniteNumberSchema = finiteNumberSchema.nullable();
 const int4Schema = z.number().int().min(POSTGRES_INT_MIN).max(POSTGRES_INT_MAX);
 const nonnegativeInt4Schema = int4Schema.nonnegative();
+export const nonnegativePostgresIntSchema = nonnegativeInt4Schema;
 const expectedRevisionSchema = nonnegativeInt4Schema.max(EDITOR_MAX_EXPECTED_REVISION);
 const positiveInt4Schema = int4Schema.positive();
 const editorGridSizeSchema = int4Schema
@@ -264,7 +266,14 @@ export const floorMapSnapshotSchema = z.object({
   width: positiveInt4Schema,
   height: positiveInt4Schema,
   floorPlan: floorMapPlanSnapshotSchema.nullable(),
-  objects: z.array(floorMapObjectStateSchema)
+  objects: z.array(floorMapObjectStateSchema),
+  fixtures: z.array(z.object({
+    id: z.string().uuid(),
+    name: z.string().trim().min(1).max(EDITOR_MAX_NAME_LENGTH),
+    x: finiteNumberSchema,
+    y: finiteNumberSchema,
+    size: finiteNumberSchema.positive()
+  }).strict()).optional()
 }).strict();
 
 export const floorMapObjectPatchSchema = z.object({
@@ -300,6 +309,10 @@ export const saveEditorStateSchema = z.object({
   leaseFence: positiveInt4Schema,
   floorPlan: floorPlanUpdateSchema.nullable().optional(),
   fixtureUpdates: z.array(fixtureLayoutUpdateSchema).max(EDITOR_MAX_FIXTURE_UPDATES),
+  slotAssignments: z.array(z.object({
+    slotId: z.string().uuid(),
+    assignedFixtureId: z.string().uuid().nullable()
+  }).strict()).max(EDITOR_MAX_SLOT_ASSIGNMENT_MUTATIONS).default([]),
   objectCreates: z.array(floorMapObjectDraftSchema),
   objectUpdates: z.array(z.object({ id: editorIdSchema, patch: floorMapObjectPatchSchema }).strict()),
   objectDeletes: z.array(editorIdSchema)
@@ -312,6 +325,27 @@ export const saveEditorStateSchema = z.object({
       message: `map object mutations must not exceed ${EDITOR_MAX_MAP_OBJECT_MUTATIONS}`
     });
   }
+  const slotIds = new Set<string>();
+  const assignedFixtureIds = new Set<string>();
+  value.slotAssignments.forEach((assignment, index) => {
+    if (slotIds.has(assignment.slotId)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["slotAssignments", index, "slotId"],
+        message: "slot assignment IDs must be unique"
+      });
+    }
+    slotIds.add(assignment.slotId);
+    if (assignment.assignedFixtureId === null) return;
+    if (assignedFixtureIds.has(assignment.assignedFixtureId)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["slotAssignments", index, "assignedFixtureId"],
+        message: "assigned fixture IDs must be unique"
+      });
+    }
+    assignedFixtureIds.add(assignment.assignedFixtureId);
+  });
 });
 
 export const restoreFloorEditorRevisionSchema = z.object({
@@ -371,7 +405,15 @@ export const floorEditorSnapshotV1Schema = z.object({
 export const floorEditorSnapshotV2Schema = floorEditorSnapshotV1Schema.extend({
   version: z.literal(FLOOR_EDITOR_SNAPSHOT_VERSION),
   // Existing V2 revisions predate CAD slots; new snapshots include this array.
-  lightSlots: z.array(floorLightSlotSchema).max(2_000).optional(),
+  lightSlots: z.array(floorLightSlotSchema.extend({
+    // Older V2 snapshots only stored public slot geometry. New revisions retain
+    // the immutable CAD source references needed to recreate a historical set.
+    sourceImportJobId: z.string().uuid().optional(),
+    sourceCandidateId: z.string().uuid().optional()
+  }).refine(
+    (slot) => Boolean(slot.sourceImportJobId) === Boolean(slot.sourceCandidateId),
+    "light slot source references must be both present or both absent"
+  )).max(2_000).optional(),
   fixtures: z.array(floorEditorSnapshotV1Schema.shape.fixtures.element.extend({
     placementStatus: fixturePlacementStatusSchema,
     positionVerifiedAt: z.string().datetime().nullable()

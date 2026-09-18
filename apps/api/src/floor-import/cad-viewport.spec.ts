@@ -1,4 +1,11 @@
-import { cadViewportSvgTransform, createCadViewport, projectCadPointToViewport } from "./cad-viewport";
+import type { NormalizedCadDocument } from "./cad-types";
+import {
+  cadViewportSvgTransform,
+  createCadViewport,
+  measureCadCandidateSvgTransformMatch,
+  projectCadPointToViewport,
+  selectPrimaryCadBounds
+} from "./cad-viewport";
 
 describe("CAD viewport normalization", () => {
   it("normalizes a very wide CAD drawing into a bounded editor map", () => {
@@ -24,5 +31,76 @@ describe("CAD viewport normalization", () => {
     expect(point.x).toBeCloseTo(viewport.width / 2);
     expect(point.y).toBeCloseTo(viewport.height / 2);
     expect(cadViewportSvgTransform(bounds)).toMatch(/^matrix\([\d.-]+ 0 0 -[\d.-]+ [\d.-]+ [\d.-]+\)$/);
+  });
+
+  it("measures every candidate against the serialized SVG transform", () => {
+    const bounds = { minX: 1_000_000, minY: -20_000, maxX: 16_020_849, maxY: 144_134 };
+    const points = [
+      { x: bounds.minX, y: bounds.maxY, z: 0 },
+      { x: 8_510_424.5, y: 62_067, z: 0 },
+      { x: bounds.maxX, y: bounds.minY, z: 0 }
+    ];
+
+    expect(measureCadCandidateSvgTransformMatch(points, bounds, 0.01)).toEqual({
+      candidateCount: 3,
+      matchedCount: 3,
+      matchRate: 1,
+      tolerancePx: 0.01,
+      maxDeltaPx: expect.any(Number)
+    });
+  });
+
+  it("deterministically excludes only a remote isolated entity from primary bounds", () => {
+    const entities: NormalizedCadDocument["entities"] = [
+      { type: "line", sourceEntityId: "top", layer: "0", start: { x: 0, y: 800, z: 0 }, end: { x: 1_200, y: 800, z: 0 } },
+      { type: "line", sourceEntityId: "right", layer: "0", start: { x: 1_200, y: 800, z: 0 }, end: { x: 1_200, y: 0, z: 0 } },
+      { type: "line", sourceEntityId: "bottom", layer: "0", start: { x: 1_200, y: 0, z: 0 }, end: { x: 0, y: 0, z: 0 } },
+      { type: "line", sourceEntityId: "left", layer: "0", start: { x: 0, y: 0, z: 0 }, end: { x: 0, y: 800, z: 0 } },
+      { type: "point", sourceEntityId: "remote", layer: "0", position: { x: 1_000_000, y: 1_000_000, z: 0 } }
+    ];
+    const document: NormalizedCadDocument = {
+      version: 1, bounds: { minX: 0, minY: 0, maxX: 1_000_000, maxY: 1_000_000 }, blocks: [], entities
+    };
+
+    expect(selectPrimaryCadBounds(document)).toEqual({
+      bounds: { minX: 0, minY: 0, maxX: 1_200, maxY: 800 }, excludedEntityCount: 1, totalEntityCount: 5
+    });
+    expect(selectPrimaryCadBounds({ ...document, entities: [...entities].reverse() })).toEqual({
+      bounds: { minX: 0, minY: 0, maxX: 1_200, maxY: 800 }, excludedEntityCount: 1, totalEntityCount: 5
+    });
+  });
+
+  it("keeps the complete bounds when disconnected drawing clusters tie", () => {
+    const document: NormalizedCadDocument = {
+      version: 1, bounds: { minX: 0, minY: 0, maxX: 11_000, maxY: 1_000 }, blocks: [],
+      entities: [
+        { type: "line", sourceEntityId: "a1", layer: "0", start: { x: 0, y: 0, z: 0 }, end: { x: 1_000, y: 0, z: 0 } },
+        { type: "line", sourceEntityId: "a2", layer: "0", start: { x: 1_000, y: 0, z: 0 }, end: { x: 1_000, y: 1_000, z: 0 } },
+        { type: "line", sourceEntityId: "b1", layer: "0", start: { x: 10_000, y: 0, z: 0 }, end: { x: 11_000, y: 0, z: 0 } },
+        { type: "line", sourceEntityId: "b2", layer: "0", start: { x: 11_000, y: 0, z: 0 }, end: { x: 11_000, y: 1_000, z: 0 } }
+      ]
+    };
+
+    expect(selectPrimaryCadBounds(document)).toEqual({ bounds: document.bounds, excludedEntityCount: 0, totalEntityCount: 4 });
+  });
+
+  it("keeps a remote multi-entity legend even when it is below 0.5 percent of the drawing", () => {
+    const main = Array.from({ length: 1_000 }, (_, index) => ({
+      type: "line" as const, sourceEntityId: `main-${index}`, layer: "0",
+      start: { x: index % 100, y: Math.floor(index / 100), z: 0 },
+      end: { x: index % 100 + 10, y: Math.floor(index / 100) + 1, z: 0 }
+    }));
+    const document: NormalizedCadDocument = {
+      version: 1, bounds: { minX: 0, minY: 0, maxX: 1_000_020, maxY: 10 }, blocks: [],
+      entities: [
+        ...main,
+        { type: "line", sourceEntityId: "legend-1", layer: "0", start: { x: 1_000_000, y: 0, z: 0 }, end: { x: 1_000_010, y: 0, z: 0 } },
+        { type: "line", sourceEntityId: "legend-2", layer: "0", start: { x: 1_000_010, y: 0, z: 0 }, end: { x: 1_000_020, y: 0, z: 0 } }
+      ]
+    };
+
+    expect(selectPrimaryCadBounds(document)).toEqual({
+      bounds: document.bounds, excludedEntityCount: 0, totalEntityCount: 1_002
+    });
   });
 });

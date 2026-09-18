@@ -267,7 +267,6 @@ export class FloorImportService {
   }
 
   async apply(user: AuthenticatedUser, floorId: string, jobId: string, rawInput: unknown) {
-    const input = this.parse(floorImportApplyInputSchema, rawInput, "invalid floor import apply request");
     const floor = await this.authorizeFloor(user, floorId, "manage");
     if (!this.storage) throw new InternalServerErrorException("floor import storage is unavailable");
     const rendered = await this.prisma.floorImportJob.findFirst({
@@ -304,6 +303,7 @@ export class FloorImportService {
       }
     }
     catch { throw new ServiceUnavailableException("rendered floor asset metadata is unavailable"); }
+    const input = this.parse(floorImportApplyInputSchema, rawInput, "invalid floor import apply request");
     try {
       return await this.prisma.$transaction(async tx => {
         const authorizedSite = await this.access.assertManageInTransaction(tx, user, floor.siteId);
@@ -322,7 +322,7 @@ export class FloorImportService {
         }
 
         const candidates = await tx.floorImportCandidate.findMany({
-          where: { jobId }, select: { id: true }, orderBy: { id: "asc" }
+          where: { jobId }, select: { id: true, x: true, y: true, rotation: true }, orderBy: { id: "asc" }
         });
         const allIds = new Set(candidates.map(candidate => candidate.id));
         if (input.candidateIds.some(candidateId => !allIds.has(candidateId))) {
@@ -350,6 +350,26 @@ export class FloorImportService {
           });
         }
 
+        const deletedObjects = await tx.floorMapObject.deleteMany({ where: { floorId } });
+        const unplacedFixtures = await tx.fixture.updateMany({
+          where: { floorId },
+          data: { placementStatus: "unplaced", positionVerifiedAt: null, x: 0, y: 0 }
+        });
+        const deletedSlots = await tx.floorLightSlot.deleteMany({ where: { floorId } });
+        const acceptedCandidates = candidates.filter(candidate => accepted.has(candidate.id));
+        const createdSlots = acceptedCandidates.length === 0
+          ? { count: 0 }
+          : await tx.floorLightSlot.createMany({
+              data: acceptedCandidates.map(candidate => ({
+                floorId,
+                sourceImportJobId: jobId,
+                sourceCandidateId: candidate.id,
+                x: candidate.x,
+                y: candidate.y,
+                rotation: candidate.rotation
+              }))
+            });
+
         const existingPlan = await tx.floorPlan.findUnique({
           where: { floorId }, select: { width: true, height: true, gridSize: true }
         });
@@ -376,7 +396,8 @@ export class FloorImportService {
           include: {
             floorPlan: true,
             fixtures: { orderBy: { id: "asc" } },
-            mapObjects: { orderBy: { id: "asc" } }
+            mapObjects: { orderBy: { id: "asc" } },
+            lightSlots: { orderBy: { id: "asc" } }
           }
         });
         if (!snapshotFloor) throw new NotFoundException("floor not found");
@@ -387,10 +408,14 @@ export class FloorImportService {
           floorPlanChanged: true,
           acceptedCandidates: input.candidateIds.length,
           rejectedCandidates: rejectedIds.length,
-          fixtureUpdates: 0,
+          deletedObjectCount: deletedObjects.count,
+          unplacedFixtureCount: unplacedFixtures.count,
+          deletedSlotCount: deletedSlots.count,
+          createdSlotCount: createdSlots.count,
+          fixtureUpdates: unplacedFixtures.count,
           objectCreates: 0,
           objectUpdates: 0,
-          objectDeletes: 0
+          objectDeletes: deletedObjects.count
         };
         await tx.floorMapRevision.create({
           data: {
@@ -405,7 +430,8 @@ export class FloorImportService {
           action: "floor_import.applied", targetType: "floor_import_job", targetId: jobId,
           outcome: "success", metadata: {
             floorId, revision, acceptedCandidateIds: [...input.candidateIds].sort(),
-            snapshotSha256: hashFloorEditorSnapshot(snapshot)
+            snapshotSha256: hashFloorEditorSnapshot(snapshot),
+            changeSummary
           }, transaction: tx
         });
         const completed = await tx.floorImportJob.updateMany({
@@ -420,6 +446,10 @@ export class FloorImportService {
           jobId, status: "completed" as const, revision,
           acceptedCandidateIds: [...input.candidateIds].sort(),
           renderedAssetId: locked.renderedAssetId,
+          deletedObjectCount: deletedObjects.count,
+          unplacedFixtureCount: unplacedFixtures.count,
+          deletedSlotCount: deletedSlots.count,
+          createdSlotCount: createdSlots.count,
           floorPlan: plan
         };
       }, EDITOR_TRANSACTION_OPTIONS);

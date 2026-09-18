@@ -3,10 +3,11 @@ import { act, cleanup, createEvent, fireEvent, render, screen, waitFor, within }
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../api/client";
 import { FloorEditorView } from "./FloorEditorView";
-import type { FloorAsset, FloorEditorState } from "./editor-types";
+import type { FloorEditorState, FloorImportApplyResult } from "./editor-types";
 import { useFloorEditorStore } from "./editor-store";
 import { saveEditorDraft } from "./editor-drafts";
 import { clearTenantCache } from "../../api/principal-cache";
+import * as spatialIndex from "./editor-spatial-index";
 
 const floorEditorApi = vi.hoisted(() => ({
   applyFloorImportJob: vi.fn(),
@@ -53,6 +54,7 @@ const editorState: FloorEditorState = {
       status: "online"
     }
   ],
+  lightSlots: [{ id: "slot-1", x: 120, y: 140, rotation: 0, assignedFixtureId: "fixture-1" }],
   objects: [
     {
       id: "object-1",
@@ -96,6 +98,11 @@ function renderEditor(state: FloorEditorState = editorState, props?: Partial<Par
   return {
     ...result,
     queryClient,
+    rerenderWithProps: (nextProps: Partial<Parameters<typeof FloorEditorView>[0]>) => result.rerender(
+      <QueryClientProvider client={queryClient}>
+        <FloorEditorView initialState={state} {...editorProps} {...nextProps} />
+      </QueryClientProvider>
+    ),
     rerenderEditor: (nextState: FloorEditorState) => result.rerender(
       <QueryClientProvider client={queryClient}>
         <FloorEditorView initialState={nextState} {...editorProps} />
@@ -105,6 +112,246 @@ function renderEditor(state: FloorEditorState = editorState, props?: Partial<Par
 }
 
 describe("FloorEditorView", () => {
+  it("shows a retryable CAD background error without recreating the image on selection changes", async () => {
+    const images: Array<{ onload: null | (() => void); onerror: null | (() => void); src: string; decode: ReturnType<typeof vi.fn> }> = [];
+    class FailingImage {
+      onload: null | (() => void) = null;
+      onerror: null | (() => void) = null;
+      src = "";
+      decode = vi.fn(async () => undefined);
+      constructor() { images.push(this); }
+    }
+    vi.stubGlobal("Image", FailingImage);
+    renderEditor();
+
+    act(() => useFloorEditorStore.getState().selectFixture("fixture-1"));
+    expect(images).toHaveLength(1);
+    act(() => images[0].onerror?.());
+    expect(screen.getByText("CAD 도면을 표시하지 못했습니다.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "도면 다시 시도" }));
+    expect(images).toHaveLength(2);
+    await act(async () => images[1].onload?.());
+    await waitFor(() => expect(screen.queryByText("CAD 도면을 표시하지 못했습니다.")).not.toBeInTheDocument());
+  });
+
+  it("culls offscreen canvas nodes, keeps selected fixtures mounted, and reduces low-zoom detail", () => {
+    const large = structuredClone(editorState);
+    large.floor.floorPlan = { ...large.floor.floorPlan!, width: 5_000, height: 5_000 };
+    large.fixtures = [
+      { ...large.fixtures[0], id: "fixture-near", x: 100, y: 100 },
+      { ...large.fixtures[0], id: "fixture-far", x: 4_000, y: 4_000 }
+    ];
+    large.objects = [
+      { ...large.objects[0], id: "object-near", x: 200, y: 200 },
+      { ...large.objects[0], id: "object-far", x: 4_000, y: 4_000 }
+    ];
+    large.lightSlots = [
+      { id: "slot-near", x: 300, y: 300, rotation: 0, assignedFixtureId: null },
+      { id: "slot-far", x: 4_000, y: 4_000, rotation: 0, assignedFixtureId: null }
+    ];
+    renderEditor(large);
+    const stage = (window as unknown as { Konva: { stages: import("konva").default.Stage[] } }).Konva.stages.at(-1)!;
+
+    expect(stage.find(".fixture-fixture-near")).toHaveLength(1);
+    expect(stage.find(".fixture-fixture-far")).toHaveLength(0);
+    expect(stage.find(".map-object-object-near")).toHaveLength(1);
+    expect(stage.find(".map-object-object-far")).toHaveLength(0);
+    expect(stage.find(".cad-placement-slot")).toHaveLength(1);
+
+    act(() => {
+      useFloorEditorStore.getState().selectFixture("fixture-far");
+      useFloorEditorStore.getState().setZoom(0.2);
+    });
+    const far = stage.findOne<import("konva").default.Group>(".fixture-fixture-far")!;
+    expect(far).toBeDefined();
+    expect(far.findOne<import("konva").default.Circle>("Circle")?.strokeWidth()).toBe(3);
+    expect(stage.findOne<import("konva").default.Group>(".fixture-fixture-near")
+      ?.findOne<import("konva").default.Circle>("Circle")?.strokeWidth()).toBe(1);
+  });
+
+  it("reuses fixture, object, and available-slot indexes while pan and zoom only requery them", () => {
+    const large = structuredClone(editorState);
+    large.floor.floorPlan = { ...large.floor.floorPlan!, width: 5_000, height: 5_000 };
+    large.fixtures = Array.from({ length: 1_000 }, (_, index) => ({
+      ...large.fixtures[0],
+      id: `fixture-${index + 1}`,
+      x: 20 + index % 40 * 25,
+      y: 20 + Math.floor(index / 40) * 25
+    }));
+    large.objects = Array.from({ length: 2_000 }, (_, index) => ({
+      ...large.objects[0],
+      id: `object-${index + 1}`,
+      x: 20 + index % 50 * 30,
+      y: 20 + Math.floor(index / 50) * 30,
+      zIndex: index
+    }));
+    large.lightSlots = Array.from({ length: 2_000 }, (_, index) => ({
+      id: `slot-${index + 1}`,
+      x: 20 + index % 50 * 30,
+      y: 20 + Math.floor(index / 50) * 30,
+      rotation: 0,
+      assignedFixtureId: null
+    }));
+    const buildIndex = vi.spyOn(spatialIndex, "buildEditorSpatialIndex");
+
+    renderEditor(large);
+    const buildsAfterCollectionsLoad = buildIndex.mock.calls.length;
+    expect(buildsAfterCollectionsLoad).toBeGreaterThanOrEqual(3);
+
+    act(() => {
+      const store = useFloorEditorStore.getState();
+      store.setPan({ x: -600, y: -300 });
+      store.setZoom(2);
+    });
+
+    expect(buildIndex.mock.calls.length).toBe(buildsAfterCollectionsLoad);
+  });
+
+  it("mounts newly visible nodes during a live pan before pointer up", () => {
+    let frame: FrameRequestCallback | null = null;
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      frame = callback;
+      return 1;
+    });
+    const large = structuredClone(editorState);
+    large.floor.floorPlan = { ...large.floor.floorPlan!, width: 5_000, height: 5_000 };
+    large.fixtures = [
+      { ...large.fixtures[0], id: "fixture-near", x: 100, y: 100 },
+      { ...large.fixtures[0], id: "fixture-pan-target", x: 1_200, y: 100 }
+    ];
+    renderEditor(large);
+    const stage = (window as unknown as { Konva: { stages: import("konva").default.Stage[] } }).Konva.stages.at(-1)!;
+    expect(stage.find(".fixture-fixture-pan-target")).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "이동" }));
+    const canvas = screen.getByLabelText("B2 편집 캔버스");
+    fireEvent.mouseDown(canvas, { clientX: 600, clientY: 100 });
+    fireEvent.mouseMove(canvas, { clientX: 200, clientY: 100 });
+    act(() => frame?.(16));
+
+    expect(stage.find(".fixture-fixture-pan-target")).toHaveLength(1);
+    expect(useFloorEditorStore.getState().pan).toEqual({ x: 0, y: 0 });
+  });
+
+  it("culls map objects using rotated and rendered-stroke world bounds", () => {
+    const large = structuredClone(editorState);
+    large.floor.floorPlan = { ...large.floor.floorPlan!, width: 5_000, height: 5_000 };
+    large.fixtures = [];
+    large.objects = [
+      { ...large.objects[0], id: "rotated-visible", type: "rectangle", x: 1_000, y: 200, width: 40, height: 300, rotation: 90, strokeWidth: 20 },
+      { ...large.objects[0], id: "stroke-visible", type: "line", x: 962, y: 50, width: 20, height: 0, rotation: 0, strokeWidth: 2 },
+      { ...large.objects[0], id: "triangle-points-visible", type: "triangle", x: 1_200, y: 200, width: 40, height: 40, rotation: 90, strokeWidth: 2,
+        points: [{ x: -100, y: 300 }, { x: 40, y: -100 }, { x: 0, y: 0 }] },
+      { ...large.objects[0], id: "far", x: 2_000, y: 2_000 }
+    ];
+    renderEditor(large);
+    const stage = (window as unknown as { Konva: { stages: import("konva").default.Stage[] } }).Konva.stages.at(-1)!;
+
+    expect(stage.find(".map-object-rotated-visible")).toHaveLength(1);
+    expect(stage.find(".map-object-stroke-visible")).toHaveLength(1);
+    expect(stage.find(".map-object-triangle-points-visible")).toHaveLength(1);
+    expect(stage.find(".map-object-far")).toHaveLength(0);
+  });
+
+  it("coalesces drawing pointer moves into one animation frame", () => {
+    let frame: FrameRequestCallback | null = null;
+    const requestFrame = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      frame = callback;
+      return 1;
+    });
+    renderEditor({ ...editorState, objects: [] });
+    fireEvent.click(screen.getByRole("button", { name: "사각형" }));
+    const canvas = screen.getByLabelText("B2 편집 캔버스");
+
+    fireEvent.mouseDown(canvas, { clientX: 100, clientY: 100 });
+    fireEvent.mouseMove(canvas, { clientX: 160, clientY: 160 });
+    fireEvent.mouseMove(canvas, { clientX: 200, clientY: 180 });
+    fireEvent.mouseMove(canvas, { clientX: 240, clientY: 200 });
+
+    expect(requestFrame).toHaveBeenCalledOnce();
+    expect(useFloorEditorStore.getState().state?.objects).toHaveLength(0);
+    act(() => frame?.(16));
+    fireEvent.mouseUp(canvas, { clientX: 240, clientY: 200 });
+    expect(useFloorEditorStore.getState().state?.objects).toHaveLength(1);
+  });
+
+  it("cancels pending fixture and object drags when the editor becomes read-only", () => {
+    let frame: FrameRequestCallback | null = null;
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      frame = callback;
+      return 1;
+    });
+    const view = renderEditor();
+    const stage = (window as unknown as { Konva: { stages: import("konva").default.Stage[] } }).Konva.stages.at(-1)!;
+    const fixture = stage.findOne<import("konva").default.Group>(".fixture-fixture-1")!;
+    fixture.fire("dragstart", { target: fixture }, true);
+    fixture.position({ x: 260, y: 260 });
+    fixture.fire("dragmove", { target: fixture }, true);
+
+    view.rerenderWithProps({ readOnly: true });
+    act(() => frame?.(16));
+    fixture.fire("dragend", { target: fixture }, true);
+    expect(fixture.position()).toEqual({ x: 120, y: 140 });
+    expect(useFloorEditorStore.getState().state?.fixtures[0]).toMatchObject({ x: 120, y: 140 });
+
+    view.rerenderWithProps({ readOnly: false });
+    const object = stage.findOne<import("konva").default.Node>(".map-object-object-1")!;
+    object.fire("dragstart", { target: object }, true);
+    object.position({ x: 500, y: 420 });
+    object.fire("dragmove", { target: object }, true);
+    view.rerenderWithProps({ readOnly: true });
+    act(() => frame?.(32));
+    object.fire("dragend", { target: object }, true);
+
+    expect(object.position()).toEqual({ x: 300, y: 180 });
+    expect(useFloorEditorStore.getState().state?.objects[0]).toMatchObject({ x: 300, y: 180 });
+    expect(screen.getByTestId("floor-editor-canvas")).toHaveAttribute("data-active-guides", "");
+  });
+
+  it("keeps virtualized search, selection, and End-key focus working for 1,000 fixtures", async () => {
+    const large = structuredClone(editorState);
+    large.fixtures = Array.from({ length: 1_000 }, (_, index) => ({
+      ...large.fixtures[0],
+      id: `fixture-${index + 1}`,
+      name: `L-${String(index + 1).padStart(4, "0")}`,
+      placementStatus: "unplaced" as const
+    }));
+    renderEditor(large);
+    const list = screen.getByTestId("placement-list");
+    expect(within(list).getAllByRole("button").length).toBeLessThan(20);
+
+    const first = screen.getByTestId("placement-fixture-fixture-1");
+    first.focus();
+    fireEvent.keyDown(first, { key: "End" });
+    await waitFor(() => expect(screen.getByTestId("placement-fixture-fixture-1000")).toHaveFocus());
+
+    fireEvent.change(screen.getByLabelText("조명 검색"), { target: { value: "0999" } });
+    const searched = await screen.findByTestId("placement-fixture-fixture-999");
+    fireEvent.click(searched);
+    expect(useFloorEditorStore.getState().selectedFixtureIds).toEqual(["fixture-999"]);
+  });
+
+  it("moves roving focus to a mounted row after manual virtual-list scrolling", async () => {
+    const large = structuredClone(editorState);
+    large.fixtures = Array.from({ length: 1_000 }, (_, index) => ({
+      ...large.fixtures[0],
+      id: `fixture-${index + 1}`,
+      name: `L-${String(index + 1).padStart(4, "0")}`,
+      placementStatus: "unplaced" as const
+    }));
+    renderEditor(large);
+    const first = screen.getByTestId("placement-fixture-fixture-1");
+    const list = screen.getByTestId("placement-list");
+    first.focus();
+
+    Object.defineProperty(list, "scrollTop", { configurable: true, value: 500 * 64 });
+    fireEvent.scroll(list);
+
+    await waitFor(() => expect(screen.getByTestId("placement-fixture-fixture-501")).toHaveFocus());
+    expect(screen.getByTestId("placement-fixture-fixture-501")).toHaveAttribute("tabindex", "0");
+  });
+
   it("preserves viewport and selection when a save cache response is structurally shared", async () => {
     const saved = { ...structuredClone(editorState), floor: { ...editorState.floor, mapRevision: 8 }, fixtures: [{ ...editorState.fixtures[0], x: 240 }] };
     floorEditorApi.saveFloorEditorState.mockResolvedValueOnce(saved);
@@ -180,6 +427,7 @@ describe("FloorEditorView", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
     localStorage.clear();
     useFloorEditorStore.setState({ initialState: null, state: null, isDirty: false, activeTool: "select", zoom: 1, pan: { x: 0, y: 0 }, selection: null });
@@ -210,6 +458,13 @@ describe("FloorEditorView", () => {
     expect(screen.queryByLabelText("조명명")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "층 선택" })).toHaveAttribute("data-react-aria-pressable", "true");
     expect(screen.getByRole("checkbox", { name: "격자 스냅" }).closest("[data-field]")).toBeInTheDocument();
+  });
+
+  it("offers CAD import without the legacy image upload panel", () => {
+    renderEditor(editorState);
+
+    expect(screen.queryByRole("region", { name: "도면 자산" })).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "CAD 가져오기" })).toBeInTheDocument();
   });
 
   it("shows only controls that belong to the selected element type", () => {
@@ -329,6 +584,7 @@ describe("FloorEditorView", () => {
       leaseToken: "lease-token",
       leaseFence: 7,
       fixtureUpdates: [{ id: "fixture-1", name: "B2-L01 수정", ratedWatt: 45 }],
+      slotAssignments: [],
       objectCreates: [],
       objectUpdates: [],
       objectDeletes: []
@@ -373,6 +629,78 @@ describe("FloorEditorView", () => {
     expect(floorEditorApi.saveFloorEditorState.mock.calls[0][1].objectCreates).toEqual([
       expect.objectContaining({ type: "rectangle", x: 240, y: 180, width: 160, height: 100 })
     ]);
+  });
+
+  it("snaps an unplaced fixture to the exact position of a CAD slot inside the hit radius", () => {
+    const state: FloorEditorState = {
+      ...structuredClone(editorState),
+      fixtures: [{ ...structuredClone(editorState.fixtures[0]), x: 0, y: 0, placementStatus: "unplaced" }],
+      lightSlots: [{ id: "slot-free", x: 123.5, y: 247.25, rotation: 37, assignedFixtureId: null }]
+    };
+    renderEditor(state);
+    const dataTransfer = createDataTransfer();
+    const row = screen.getByTestId("placement-fixture-fixture-1");
+    const canvas = screen.getByLabelText("B2 편집 캔버스");
+
+    fireEvent.dragStart(row, { dataTransfer });
+    fireEvent(canvas, createDragEventWithPoint(canvas, "drop", dataTransfer, 130, 250));
+
+    expect(useFloorEditorStore.getState().state).toMatchObject({
+      fixtures: [expect.objectContaining({ id: "fixture-1", placementStatus: "placed", x: 123.5, y: 247.25 })],
+      lightSlots: [expect.objectContaining({ id: "slot-free", rotation: 37, assignedFixtureId: "fixture-1" })]
+    });
+  });
+
+  it("saves slot assignment changes and adopts the assigned response as the reload baseline", async () => {
+    const initial: FloorEditorState = {
+      ...structuredClone(editorState),
+      fixtures: [{ ...structuredClone(editorState.fixtures[0]), x: 0, y: 0, placementStatus: "unplaced" }],
+      lightSlots: [{ id: "slot-1", x: 123.5, y: 247.25, rotation: 37, assignedFixtureId: null }]
+    };
+    const saved: FloorEditorState = {
+      ...structuredClone(initial),
+      floor: { ...initial.floor, mapRevision: 8 },
+      fixtures: [{ ...initial.fixtures[0], x: 123.5, y: 247.25, placementStatus: "placed" }],
+      lightSlots: [{ ...initial.lightSlots[0], assignedFixtureId: "fixture-1" }]
+    };
+    floorEditorApi.saveFloorEditorState.mockResolvedValueOnce(saved);
+    const view = renderEditor(initial);
+    act(() => useFloorEditorStore.getState().assignFixtureToSlot("fixture-1", "slot-1"));
+
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+
+    await waitFor(() => expect(floorEditorApi.saveFloorEditorState).toHaveBeenCalledWith(
+      "floor-b2",
+      expect.objectContaining({
+        slotAssignments: [{ slotId: "slot-1", assignedFixtureId: "fixture-1" }]
+      })
+    ));
+    expect(useFloorEditorStore.getState()).toMatchObject({ initialState: saved, state: saved, isDirty: false });
+
+    view.rerenderEditor(structuredClone(saved));
+    expect(useFloorEditorStore.getState().state!.lightSlots).toEqual(saved.lightSlots);
+    expect(useFloorEditorStore.getState().isDirty).toBe(false);
+  });
+
+  it("keeps the existing free placement behavior when a fixture is dropped outside every slot", () => {
+    const state: FloorEditorState = {
+      ...structuredClone(editorState),
+      fixtures: [{ ...structuredClone(editorState.fixtures[0]), x: 0, y: 0, placementStatus: "unplaced" }],
+      lightSlots: [{ id: "slot-free", x: 123.5, y: 247.25, rotation: 37, assignedFixtureId: null }]
+    };
+    renderEditor(state);
+    act(() => useFloorEditorStore.getState().setSnap(false));
+    const dataTransfer = createDataTransfer();
+    const row = screen.getByTestId("placement-fixture-fixture-1");
+    const canvas = screen.getByLabelText("B2 편집 캔버스");
+
+    fireEvent.dragStart(row, { dataTransfer });
+    fireEvent(canvas, createDragEventWithPoint(canvas, "drop", dataTransfer, 333, 277));
+
+    expect(useFloorEditorStore.getState().state).toMatchObject({
+      fixtures: [expect.objectContaining({ id: "fixture-1", placementStatus: "placed", x: 333, y: 277 })],
+      lightSlots: [expect.objectContaining({ id: "slot-free", assignedFixtureId: null })]
+    });
   });
 
   it("does not create an object when a tool is selected and the canvas is only clicked", () => {
@@ -495,7 +823,6 @@ describe("FloorEditorView", () => {
     expect(screen.getByLabelText("조명명")).toBeDisabled();
     expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("aria-disabled", "true");
     expect(screen.getByRole("button", { name: "사각형" })).toBeDisabled();
-    expect(screen.getByLabelText("도면 파일")).toBeDisabled();
     expect(screen.getByRole("button", { name: "실행 취소" })).toBeDisabled();
     act(() => useFloorEditorStore.getState().setActiveTool("rectangle"));
     fireEvent.mouseDown(screen.getByLabelText("B2 편집 캔버스"), { clientX: 200, clientY: 160 });
@@ -547,43 +874,6 @@ describe("FloorEditorView", () => {
     expect(floorEditorApi.restoreFloorEditorRevision).not.toHaveBeenCalled();
     save.resolve({ ...structuredClone(editorState), floor: { ...structuredClone(editorState.floor), mapRevision: 8 } });
     await waitFor(() => expect(floorEditorApi.saveFloorEditorState).toHaveBeenCalledOnce());
-  });
-
-  it("preserves the existing background before a replacement upload completes", () => {
-    renderEditor();
-    expect(screen.getByLabelText("도면 파일")).toBeInTheDocument();
-    expect(screen.getByLabelText("B2 편집 캔버스")).toHaveClass("has-plan");
-    expect(useFloorEditorStore.getState().state?.floor.floorPlan).toEqual(editorState.floor.floorPlan);
-  });
-
-  it("applies only a ready image asset to the draft background", async () => {
-    floorEditorApi.uploadFloorAsset.mockResolvedValueOnce({
-      id: "asset-image",
-      kind: "original",
-      status: "ready",
-      mimeType: "image/png",
-      sizeBytes: 3,
-      sha256: "a".repeat(64),
-      accessPath: "/api/floors/floor-b2/assets/asset-image/content"
-    });
-    renderEditor();
-
-    fireEvent.change(screen.getByLabelText("도면 파일"), {
-      target: { files: [new File(["png"], "parking.png", { type: "image/png" })] }
-    });
-    fireEvent.click(screen.getByRole("button", { name: "도면 업로드" }));
-
-    await waitFor(() => expect(useFloorEditorStore.getState().state?.floor.floorPlan).toMatchObject({
-      sourceType: "image",
-      imageUrl: "/api/floors/floor-b2/assets/asset-image/content",
-      originalFileUrl: "/api/floors/floor-b2/assets/asset-image/content",
-      renderedImageUrl: "/api/floors/floor-b2/assets/asset-image/content",
-      width: 1200,
-      height: 800,
-      gridSize: 10,
-      version: 2
-    }));
-    expect(useFloorEditorStore.getState().isDirty).toBe(true);
   });
 
   it("previews CAD review results without registering fixtures and applies with the editor authority", async () => {
@@ -647,7 +937,11 @@ describe("FloorEditorView", () => {
       status: "completed",
       revision: 8,
       acceptedCandidateIds: [candidateId],
-      renderedAssetId: "rendered-cad",
+      renderedAssetId: "00000000-0000-4000-8000-000000000040",
+      deletedObjectCount: 1,
+      unplacedFixtureCount: 1,
+      deletedSlotCount: 1,
+      createdSlotCount: 1,
       floorPlan: {
         sourceType: "image",
         imageUrl: renderedAssetPath,
@@ -657,7 +951,7 @@ describe("FloorEditorView", () => {
         height: 360,
         gridSize: 10
       }
-    });
+    } satisfies FloorImportApplyResult);
     floorEditorApi.getAppliedFloorImportOverlay
       .mockResolvedValueOnce({ overlay: null })
       .mockResolvedValueOnce({
@@ -730,11 +1024,18 @@ describe("FloorEditorView", () => {
     expect(useFloorEditorStore.getState().zoom).toBeCloseTo(1.175);
 
     fireEvent.click(screen.getByRole("button", { name: "선택한 후보와 배경 적용" }));
+    const resetDialog = screen.getByRole("dialog", { name: "새 CAD 도면으로 맵을 교체할까요?" });
+    expect(resetDialog).toHaveTextContent("조명 1개가 미배치 상태로 변경");
+    expect(resetDialog).toHaveTextContent("수동 도형 1개가 삭제");
+    expect(resetDialog).toHaveTextContent("기존 CAD 슬롯 1개가 삭제");
+    expect(floorEditorApi.applyFloorImportJob).not.toHaveBeenCalled();
+    fireEvent.click(within(resetDialog).getByRole("button", { name: "교체 후 적용" }));
 
     await waitFor(() => expect(floorEditorApi.applyFloorImportJob).toHaveBeenCalledWith("floor-b2", jobId, {
       expectedRevision: 7,
       leaseToken: "lease-token",
       leaseFence: 7,
+      confirmMapReset: true,
       candidateIds: [candidateId]
     }));
     await waitFor(() => expect(floorEditorApi.getFloorEditorState).toHaveBeenCalledWith("floor-b2"));
@@ -936,72 +1237,11 @@ describe("FloorEditorView", () => {
 
     await screen.findByText("조명 위치 후보 1개를 찾았습니다.");
     fireEvent.click(screen.getByRole("button", { name: "선택한 후보와 배경 적용" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "새 CAD 도면으로 맵을 교체할까요?" }))
+      .getByRole("button", { name: "교체 후 적용" }));
 
     expect(await screen.findByText("최신 맵과 변경사항이 충돌했습니다.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "최신 버전 다시 불러오기" })).toBeInTheDocument();
-  });
-
-  it("keeps an existing PDF floor plan visible while removing PDF from new upload choices", () => {
-    renderEditor({
-      ...editorState,
-      floor: {
-        ...editorState.floor,
-        floorPlan: {
-          ...editorState.floor.floorPlan!,
-          sourceType: "pdf",
-          originalFileUrl: "/api/floors/floor-b2/assets/original.pdf"
-        }
-      }
-    });
-
-    expect(screen.getByLabelText("B2 편집 캔버스")).toHaveClass("has-plan");
-    expect(screen.getByLabelText("도면 파일")).not.toHaveAttribute("accept", expect.stringContaining("pdf"));
-    expect(useFloorEditorStore.getState().state?.floor.floorPlan?.sourceType).toBe("pdf");
-  });
-
-  it("locks save restore and floor switching while an upload is pending", async () => {
-    floorEditorApi.listFloorEditorRevisions.mockResolvedValueOnce({ items: [revision(5)], nextCursor: null });
-    const upload = deferred<FloorAsset>();
-    floorEditorApi.uploadFloorAsset.mockReturnValueOnce(upload.promise);
-    const onFloorChange = vi.fn();
-    renderEditor(editorState, {
-      floors: [{ id: "floor-b2", name: "B2" }, { id: "floor-b1", name: "B1" }],
-      onFloorChange
-    });
-    const restoreButton = await screen.findByRole("button", { name: "리비전 5 복구" });
-    act(() => useFloorEditorStore.getState().updateFixture("fixture-1", { x: 225 }));
-    expect(screen.getByRole("button", { name: "저장" })).toBeEnabled();
-
-    fireEvent.change(screen.getByLabelText("도면 파일"), {
-      target: { files: [new File(["png"], "parking.png", { type: "image/png" })] }
-    });
-    fireEvent.click(screen.getByRole("button", { name: "도면 업로드" }));
-
-    expect(floorEditorApi.uploadFloorAsset).toHaveBeenCalledOnce();
-    const floorSelect = screen.getByRole("button", { name: "층 선택" });
-    expect(floorSelect).toBeDisabled();
-    expect(screen.getByRole("button", { name: "저장" })).toBeDisabled();
-    expect(screen.getByLabelText("도면 파일")).toBeDisabled();
-    expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("aria-disabled", "true");
-    fireEvent.click(screen.getByRole("button", { name: "저장" }));
-    expect(floorEditorApi.saveFloorEditorState).not.toHaveBeenCalled();
-
-    act(() => useFloorEditorStore.getState().adoptBaseline(useFloorEditorStore.getState().state!));
-    expect(restoreButton).toBeDisabled();
-    fireEvent.click(floorSelect);
-    expect(onFloorChange).not.toHaveBeenCalled();
-
-    upload.resolve({
-      id: "asset-image",
-      kind: "original",
-      status: "ready",
-      mimeType: "image/png",
-      sizeBytes: 3,
-      sha256: "a".repeat(64),
-      accessPath: "/api/floors/floor-b2/assets/asset-image/content"
-    });
-    await screen.findByText("도면 배경이 편집 초안에 적용되었습니다.");
-    expect(screen.getByRole("button", { name: "층 선택" })).toBeEnabled();
   });
 
   it("keeps current edits and dirty state after a network failure", async () => {
@@ -1052,6 +1292,10 @@ describe("FloorEditorView", () => {
 
     const row = await screen.findByTestId("placement-fixture-fixture-1");
     await waitFor(() => expect(row).toHaveFocus());
+    expect(useFloorEditorStore.getState().state).toMatchObject({
+      fixtures: [expect.objectContaining({ id: "fixture-1", placementStatus: "unplaced", x: 0, y: 0 })],
+      lightSlots: [expect.objectContaining({ id: "slot-1", assignedFixtureId: null })]
+    });
   });
 
   it("invalidates site and floor scoped queries after atomic save", async () => {
@@ -1090,6 +1334,27 @@ describe("FloorEditorView", () => {
         size: 36,
         ratedWatt: 45,
         placementStatus: "placed"
+      }, {
+        ...structuredClone(editorState.fixtures[0]),
+        id: "fixture-free",
+        name: "B2-L02 자유 배치",
+        x: 640,
+        y: 420,
+        size: 24,
+        placementStatus: "placed"
+      }, {
+        ...structuredClone(editorState.fixtures[0]),
+        id: "fixture-unplaced",
+        name: "B2-L03 미배치",
+        x: 0,
+        y: 0,
+        placementStatus: "unplaced"
+      }],
+      lightSlots: [{
+        ...structuredClone(editorState.lightSlots[0]),
+        x: 240,
+        y: 260,
+        assignedFixtureId: "fixture-1"
       }],
       objects: [{
         ...structuredClone(editorState.objects[0]),
@@ -1135,7 +1400,11 @@ describe("FloorEditorView", () => {
       revision: 8,
       width: 1600,
       height: 900,
-      objects: [{ text: "변경된 출입구", x: 420, strokeColor: "#2563eb" }]
+      objects: [{ text: "변경된 출입구", x: 420, strokeColor: "#2563eb" }],
+      fixtures: [
+        { id: "fixture-1", name: "B2-L01 변경", x: 240, y: 260, size: 36 },
+        { id: "fixture-free", name: "B2-L02 자유 배치", x: 640, y: 420, size: 24 }
+      ]
     });
     expect(queryClient.getQueryData(["floor-fixtures", "site-2", "floor-b2"])).toMatchObject({
       pages: [{ items: [{ name: "B2-L01 변경", x: 240, y: 260, size: 36, ratedWatt: 45 }] }]

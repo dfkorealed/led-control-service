@@ -16,10 +16,12 @@ export type EditorChangeSet = Omit<SaveEditorStateInput, "leaseToken" | "leaseFe
 export function buildEditorChanges(initial: FloorEditorState, current: FloorEditorState): EditorChangeSet {
   const initialFixtures = new Map(initial.fixtures.map((fixture) => [fixture.id, fixture]));
   const initialObjects = new Map(initial.objects.map((object) => [object.id, object]));
+  const initialSlots = new Map(initial.lightSlots.map((slot) => [slot.id, slot]));
   const currentObjectIds = new Set(current.objects.map((object) => object.id));
   const fixtureUpdates: EditorChangeSet["fixtureUpdates"] = [];
   const objectCreates: EditorChangeSet["objectCreates"] = [];
   const objectUpdates: EditorChangeSet["objectUpdates"] = [];
+  const slotAssignments: EditorChangeSet["slotAssignments"] = [];
 
   for (const fixture of current.fixtures) {
     const baseline = initialFixtures.get(fixture.id);
@@ -50,9 +52,17 @@ export function buildEditorChanges(initial: FloorEditorState, current: FloorEdit
     }
   }
 
+  for (const slot of current.lightSlots) {
+    const baseline = initialSlots.get(slot.id);
+    if (baseline && baseline.assignedFixtureId !== slot.assignedFixtureId) {
+      slotAssignments.push({ slotId: slot.id, assignedFixtureId: slot.assignedFixtureId });
+    }
+  }
+
   const changes: EditorChangeSet = {
     expectedRevision: initial.floor.mapRevision,
     fixtureUpdates,
+    slotAssignments,
     objectCreates,
     objectUpdates,
     objectDeletes: initial.objects.filter((object) => !currentObjectIds.has(object.id)).map((object) => object.id)
@@ -68,6 +78,7 @@ export function buildEditorChanges(initial: FloorEditorState, current: FloorEdit
 export function hasEditorChanges(changes: EditorChangeSet) {
   return changes.floorPlan !== undefined
     || changes.fixtureUpdates.length > 0
+    || changes.slotAssignments.length > 0
     || changes.objectCreates.length > 0
     || changes.objectUpdates.length > 0
     || changes.objectDeletes.length > 0;

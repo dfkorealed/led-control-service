@@ -47,6 +47,8 @@ describe("FloorImportWorkerService", () => {
     await expect(worker.claimNext()).resolves.toMatchObject({ id: row.id, attemptCount: 1 });
     expect(prisma.$executeRaw.mock.calls[0][0].strings.join(" ")).toContain("attemptCount");
     expect(prisma.$queryRaw.mock.calls[1][0].strings.join(" ")).toContain("FOR UPDATE SKIP LOCKED");
+    expect(prisma.$queryRaw.mock.calls[1][0].strings.join(" "))
+      .toContain('"progressPercent" = GREATEST("progressPercent", 1)');
     await worker.onModuleDestroy();
   });
 
@@ -140,6 +142,13 @@ describe("FloorImportWorkerService", () => {
       expect(finalTx).not.toHaveProperty("meshNode");
       const completionSql = finalTx.$executeRaw.mock.calls[0][0];
       expect(completionSql.strings.join(" ")).toContain("review_required");
+      expect(completionSql.strings.join(" ")).toContain('"progressPercent" = 100');
+      const progressUpdates: Array<{ progressPercent: number }> = prisma.$executeRaw.mock.calls
+        .map(([query]: any[]) => query)
+        .filter((query: any) => query.strings?.join(" ").includes('"progressPercent" = GREATEST'))
+        .map((query: any) => ({ progressPercent: query.values[0] }));
+      progressUpdates.push({ progressPercent: 100 });
+      expect(progressUpdates.map(({ progressPercent }) => progressPercent)).toEqual([15, 35, 70, 90, 100]);
       expect(finalTx.floorAsset.updateMany).toHaveBeenCalledWith(expect.objectContaining({
         where: {
           id: attempt.assetId, objectKey: attempt.objectKey, status: "pending", cleanupStartedAt: null
@@ -215,6 +224,7 @@ describe("FloorImportWorkerService", () => {
     await worker.runOnce();
     const failureSql = prisma.$executeRaw.mock.calls.at(-1)[0];
     expect(failureSql.strings.join(" ")).toContain("'failed'");
+    expect(failureSql.strings.join(" ")).not.toContain('"progressPercent"');
     expect(failureSql.values).not.toContain("private path");
     await worker.onModuleDestroy();
   });

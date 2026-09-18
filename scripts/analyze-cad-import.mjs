@@ -44,7 +44,12 @@ const SUPPORTED_MAP_ENTITY_TYPES = new Set([
   "ARC",
   "TEXT",
   "MTEXT",
-  "INSERT"
+  "INSERT",
+  "SPLINE",
+  "WIPEOUT",
+  "HATCH",
+  "DIMENSION",
+  "POINT"
 ]);
 const STRUCTURAL_ENTITY_TYPES = new Set(["ATTRIB", "VERTEX", "SEQEND"]);
 const SHELL_EXECUTABLES = new Set([

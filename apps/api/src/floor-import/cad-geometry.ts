@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import { CAD_MAX_SPLINE_SAMPLES_PER_DOCUMENT, CAD_MAX_SPLINE_SAMPLES_PER_ENTITY } from "./cad-runtime-contract";
 import { measureCadText } from "./cad-text-layout";
 import type {
   CadBounds,
@@ -73,6 +74,19 @@ export function transformPoint(matrix: CadMatrix, point: CadPoint): CadPoint {
   };
 }
 
+export function dimensionMatrix(
+  entity: Extract<NormalizedCadEntity, { type: "dimension" }>, basePoint: CadPoint
+): CadMatrix {
+  return {
+    a: 1,
+    b: 0,
+    c: 0,
+    d: 1,
+    e: entity.definitionPoint.x + entity.blockPosition.x - basePoint.x,
+    f: entity.definitionPoint.y + entity.blockPosition.y - basePoint.y
+  };
+}
+
 function insertMatrix(entity: Extract<NormalizedCadEntity, { type: "insert" }>, basePoint: CadPoint): CadMatrix {
   const radians = entity.rotation * Math.PI / 180;
   const cosine = Math.cos(radians);
@@ -106,6 +120,16 @@ export function* iterateCadDocumentExpansion(
   ): Generator<CadExpansionWork<ExpandedCadEntity>> {
     for (const entity of entities) {
       options.checkBudget?.();
+      if (entity.type === "dimension" && entity.blockName) {
+        const block = blocks.get(entity.blockName);
+        if (block) {
+          if (stack.includes(block.name)) throw new Error(`Cyclic CAD block reference: ${block.name}`);
+          if (stack.length >= maxDepth) throw new Error("CAD block depth limit exceeded");
+          const childMatrix = multiplyCadMatrices(matrix, dimensionMatrix(entity, block.basePoint));
+          yield* visit(block.entities, childMatrix, [...path, entity.sourceEntityId], block.name, entity.layer, [...stack, block.name]);
+          continue;
+        }
+      }
       if (entity.type !== "insert") {
         const sourceEntityId = expandedSourceId([...path, entity.sourceEntityId]);
         registerExpandedSourceId(sourceIds, sourceEntityId);
@@ -134,6 +158,52 @@ export function expandCadDocument(
   const expanded: ExpandedCadEntity[] = [];
   for (const item of iterateCadDocumentExpansion(document, options)) if (item) expanded.push(item);
   return expanded;
+}
+
+/** Lightweight expansion for geometry passes. It deliberately avoids expanded IDs and occurrence arrays. */
+export function* iterateCadGeometryExpansion(
+  document: Pick<NormalizedCadDocument, "blocks" | "entities">,
+  options: { maxRenderedEntities: number; maxBlockDepth?: number; checkBudget?: () => void }
+): Generator<ExpandedCadEntity> {
+  const blocks = new Map(document.blocks.map(block => [block.name, block]));
+  if (blocks.size !== document.blocks.length) throw new Error("Duplicate CAD block name");
+  const maxDepth = options.maxBlockDepth ?? 16;
+  let expandedCount = 0;
+
+  function* visit(
+    entities: NormalizedCadEntity[], matrix: CadMatrix,
+    parentBlockName: string | null, insertLayer: string | null, stack: readonly string[]
+  ): Generator<ExpandedCadEntity> {
+    for (const entity of entities) {
+      options.checkBudget?.();
+      if (entity.type === "insert") {
+        const block = blocks.get(entity.blockName);
+        if (!block) throw new Error(`CAD INSERT references missing block: ${entity.blockName}`);
+        if (stack.includes(entity.blockName)) throw new Error(`Cyclic CAD block reference: ${entity.blockName}`);
+        if (stack.length >= maxDepth) throw new Error("CAD block depth limit exceeded");
+        yield* visit(block.entities, multiplyCadMatrices(matrix, insertMatrix(entity, block.basePoint)), block.name, entity.layer, [...stack, entity.blockName]);
+        continue;
+      }
+      if (entity.type === "dimension" && entity.blockName) {
+        const block = blocks.get(entity.blockName);
+        if (!block) {
+          expandedCount++;
+          if (expandedCount > options.maxRenderedEntities) throw new Error("CAD rendered entity limit exceeded");
+          yield { entity, matrix, sourceEntityId: entity.sourceEntityId, blockName: parentBlockName, insertLayer };
+          continue;
+        }
+        if (stack.includes(entity.blockName)) throw new Error(`Cyclic CAD block reference: ${entity.blockName}`);
+        if (stack.length >= maxDepth) throw new Error("CAD block depth limit exceeded");
+        yield* visit(block.entities, multiplyCadMatrices(matrix, dimensionMatrix(entity, block.basePoint)), block.name, entity.layer, [...stack, entity.blockName]);
+        continue;
+      }
+      expandedCount++;
+      if (expandedCount > options.maxRenderedEntities) throw new Error("CAD rendered entity limit exceeded");
+      yield { entity, matrix, sourceEntityId: entity.sourceEntityId, blockName: parentBlockName, insertLayer };
+    }
+  }
+
+  yield* visit(document.entities, IDENTITY, null, null, []);
 }
 
 export function* iterateCadInsertExpansion(
@@ -236,6 +306,83 @@ export function cadBulgeArc(start: CadPoint, end: CadPoint, bulge: number): CadB
   };
 }
 
+export function sampleCadSpline(
+  entity: Extract<NormalizedCadEntity, { type: "spline" }>,
+  maxSamples = CAD_MAX_SPLINE_SAMPLES_PER_ENTITY
+): CadPoint[] {
+  const { controlPoints, degree, knots } = entity;
+  const spans: Array<{ start: number; end: number }> = [];
+  for (let index = degree; index < controlPoints.length; index++) {
+    if (knots[index + 1] > knots[index]) spans.push({ start: knots[index], end: knots[index + 1] });
+  }
+  if (spans.length === 0) throw new Error("Invalid CAD spline knot domain");
+  const sampleCount = spans.length * 8 + 1;
+  if (!Number.isSafeInteger(maxSamples) || maxSamples < sampleCount) throw new Error("CAD spline sample limit exceeded");
+
+  const evaluate = (parameter: number): CadPoint => {
+    const lastControl = controlPoints.length - 1;
+    let span = lastControl;
+    if (parameter < knots[lastControl + 1]) {
+      let low = degree;
+      let high = lastControl + 1;
+      while (high - low > 1) {
+        const middle = Math.floor((low + high) / 2);
+        if (parameter < knots[middle]) high = middle;
+        else low = middle;
+      }
+      span = low;
+    }
+    const weighted = Array.from({ length: degree + 1 }, (_, offset) => {
+      const index = span - degree + offset;
+      const weight = entity.weights[index] ?? 1;
+      const point = controlPoints[index];
+      return { x: point.x * weight, y: point.y * weight, z: point.z * weight, weight };
+    });
+    for (let level = 1; level <= degree; level++) {
+      for (let offset = degree; offset >= level; offset--) {
+        const index = span - degree + offset;
+        const denominator = knots[index + degree - level + 1] - knots[index];
+        const alpha = denominator === 0 ? 0 : (parameter - knots[index]) / denominator;
+        const left = weighted[offset - 1];
+        const right = weighted[offset];
+        weighted[offset] = {
+          x: (1 - alpha) * left.x + alpha * right.x,
+          y: (1 - alpha) * left.y + alpha * right.y,
+          z: (1 - alpha) * left.z + alpha * right.z,
+          weight: (1 - alpha) * left.weight + alpha * right.weight
+        };
+      }
+    }
+    const result = weighted[degree];
+    if (!Number.isFinite(result.weight) || result.weight === 0) throw new Error("Invalid CAD spline weight");
+    return { x: result.x / result.weight, y: result.y / result.weight, z: result.z / result.weight };
+  };
+
+  const points: CadPoint[] = [];
+  for (const span of spans) {
+    for (let step = 0; step < 8; step++) points.push(evaluate(span.start + (span.end - span.start) * step / 8));
+  }
+  if (spans.length > 0) points.push(evaluate(spans.at(-1)!.end));
+  return points;
+}
+
+export function createCadSplineSampler(maxSamples = CAD_MAX_SPLINE_SAMPLES_PER_DOCUMENT): (
+  entity: Extract<NormalizedCadEntity, { type: "spline" }>
+) => readonly CadPoint[] {
+  if (!Number.isSafeInteger(maxSamples) || maxSamples < 1) throw new Error("Invalid CAD spline sample limit");
+  const cache = new WeakMap<Extract<NormalizedCadEntity, { type: "spline" }>, readonly CadPoint[]>();
+  let used = 0;
+  return entity => {
+    const cached = cache.get(entity);
+    if (cached) return cached;
+    const points = sampleCadSpline(entity, Math.min(CAD_MAX_SPLINE_SAMPLES_PER_ENTITY, maxSamples - used));
+    used += points.length;
+    if (used > maxSamples) throw new Error("CAD spline sample limit exceeded");
+    cache.set(entity, points);
+    return points;
+  };
+}
+
 function includeArcBounds(
   center: CadPoint, radius: number, startAngle: number, sweepAngle: number,
   matrix: CadMatrix, include: (point: CadPoint) => void
@@ -276,7 +423,8 @@ function includePolylineBounds(
 export function computeCadBounds(
   expanded: Iterable<ExpandedCadEntity | null>,
   checkBudget?: () => void,
-  consumeTextGlyph?: () => void
+  consumeTextGlyph?: () => void,
+  sampleSpline: (entity: Extract<NormalizedCadEntity, { type: "spline" }>) => readonly CadPoint[] = sampleCadSpline
 ): CadBounds {
   let minX = Number.POSITIVE_INFINITY;
   let minY = Number.POSITIVE_INFINITY;
@@ -297,8 +445,27 @@ export function computeCadBounds(
     if (entity.type === "line") {
       include(transformPoint(matrix, entity.start));
       include(transformPoint(matrix, entity.end));
-    } else if ("vertices" in entity) {
+    } else if (entity.type === "lwpolyline" || entity.type === "polyline") {
       includePolylineBounds(entity.vertices, entity.closed, matrix, include);
+    } else if (entity.type === "spline") {
+      sampleSpline(entity).forEach(point => include(transformPoint(matrix, point)));
+    } else if (entity.type === "wipeout") {
+      entity.vertices.forEach(point => include(transformPoint(matrix, point)));
+    } else if (entity.type === "hatch") {
+      for (const loop of entity.loops) {
+        if (loop.type === "polyline") includePolylineBounds(loop.vertices, loop.closed, matrix, include);
+        else for (const edge of loop.edges) {
+          if (edge.type === "line") {
+            include(transformPoint(matrix, edge.start));
+            include(transformPoint(matrix, edge.end));
+          } else {
+            const raw = edge.endAngle - edge.startAngle;
+            const counterClockwiseSweep = ((raw % 360) + 360) % 360 || 360;
+            const sweep = edge.counterClockwise ? counterClockwiseSweep : -(360 - counterClockwiseSweep || 360);
+            includeArcBounds(edge.center, edge.radius, edge.startAngle, sweep, matrix, include);
+          }
+        }
+      }
     } else if (entity.type === "circle") {
       const center = transformPoint(matrix, entity.center);
       const extentX = entity.radius * Math.hypot(matrix.a, matrix.c);
@@ -308,7 +475,7 @@ export function computeCadBounds(
     } else if (entity.type === "arc") {
       const sweep = (normalizeAngle(entity.endAngle) - normalizeAngle(entity.startAngle) + 360) % 360;
       includeArcBounds(entity.center, entity.radius, entity.startAngle, sweep, matrix, include);
-    } else {
+    } else if (entity.type === "text" || entity.type === "mtext") {
       const radians = entity.rotation * Math.PI / 180;
       const textBounds = measureCadText(entity.text, entity.height, { consumeGlyph: consumeTextGlyph }).bounds;
       const corners = [
@@ -322,6 +489,13 @@ export function computeCadBounds(
           z: entity.position.z
         }));
       }
+    } else if (entity.type === "dimension") {
+      [entity.definitionPoint, entity.textPosition, entity.extensionStart, entity.extensionEnd]
+        .forEach(point => include(transformPoint(matrix, point)));
+    } else if (entity.type === "point") {
+      include(transformPoint(matrix, entity.position));
+    } else {
+      throw new Error(`Unsupported normalized CAD geometry: ${entity.type}`);
     }
   }
 

@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
+import { cadImportMimeTypeSchema } from "@led-control/shared";
 import { SiteAccessService } from "../access/site-access.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
@@ -43,9 +44,10 @@ export class FloorAssetsService {
     const floor = await this.findFloor(floorId);
     if (!floor) throw new NotFoundException("floor not found");
     await this.siteAccess.assert(user, floor.siteId, "manage");
-    if (input.kind !== "original" && input.kind !== "rendered") throw new BadRequestException("invalid floor asset kind");
-    // Legacy PDF rows remain readable, but new PDF upload intents are no longer issued.
-    if (input.mimeType === "application/pdf") throw new BadRequestException("unsupported floor asset MIME type");
+    if (input.kind !== "original") throw new BadRequestException("invalid floor asset kind");
+    if (!cadImportMimeTypeSchema.safeParse(input.mimeType).success) {
+      throw new BadRequestException("unsupported floor asset MIME type");
+    }
 
     const prepared = this.storage.prepareFloorAssetUpload({
       floorId,

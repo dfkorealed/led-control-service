@@ -108,6 +108,7 @@ interface PreparedSaveEditorState {
   leaseFence: number;
   floorPlan?: CompleteFloorPlanData | null;
   fixtureUpdates: Array<{ id: string; data: Record<string, unknown> }>;
+  slotAssignments: SaveEditorStateInput["slotAssignments"];
   objectCreates: Prisma.FloorMapObjectUncheckedCreateInput[];
   objectUpdates: Array<{ id: string; data: Record<string, unknown> }>;
   objectDeletes: string[];
@@ -138,7 +139,8 @@ export class FloorEditorService {
       include: {
         floorPlan: true,
         fixtures: { orderBy: { name: "asc" }, include: { meshNode: { select: { meshAddress: true, serialNumber: true } } } },
-        mapObjects: { orderBy: [{ zIndex: "asc" }, { createdAt: "asc" }] }
+        mapObjects: { orderBy: [{ zIndex: "asc" }, { createdAt: "asc" }] },
+        lightSlots: { orderBy: { id: "asc" } }
       }
     });
     if (!floor) throw new NotFoundException("floor not found");
@@ -157,8 +159,11 @@ export class FloorEditorService {
     try {
       return await this.prisma.$transaction(async (tx) => {
         const authorizedSite = await this.siteAccess.assertManageInTransaction(tx, user, access.siteId);
+        const changedAt = await this.assertLockedRevision(
+          tx, floorId, prepared.expectedRevision, prepared.leaseToken, prepared.leaseFence
+        );
         await this.assertAtomicSaveTargets(tx, floorId, prepared);
-        const changedAt = await this.incrementRevision(tx, floorId, prepared.expectedRevision, prepared.leaseToken, prepared.leaseFence);
+        await this.incrementLockedRevision(tx, floorId);
         if (prepared.floorPlan) {
           await this.assertReadyAssetUrls(floorId, prepared.floorPlan, tx);
         }
@@ -320,6 +325,7 @@ export class FloorEditorService {
     floorPlan: any;
     fixtures: any[];
     mapObjects: any[];
+    lightSlots?: any[];
   }) {
     return {
       floor: {
@@ -355,6 +361,13 @@ export class FloorEditorService {
         positionVerifiedAt: fixture.positionVerifiedAt?.toISOString() ?? null,
         meshAddress: fixture.meshNode?.meshAddress ?? null,
         serialNumber: fixture.meshNode?.serialNumber ?? null
+      })),
+      lightSlots: (floor.lightSlots ?? []).map((slot) => ({
+        id: slot.id,
+        x: slot.x,
+        y: slot.y,
+        rotation: slot.rotation,
+        assignedFixtureId: slot.assignedFixtureId
       })),
       objects: [...floor.mapObjects].sort((left, right) => this.compareEditorObjects(left, right)).map((object) => ({
         id: object.id,
@@ -404,6 +417,10 @@ export class FloorEditorService {
 
   private assertUniqueMutationIds(input: SaveEditorStateInput) {
     this.assertUniqueIds(input.fixtureUpdates.map((update) => update.id), "fixture update IDs must be unique");
+    this.assertUniqueIds(input.slotAssignments.map((assignment) => assignment.slotId), "slot assignment IDs must be unique");
+    this.assertUniqueIds(input.slotAssignments
+      .map((assignment) => assignment.assignedFixtureId)
+      .filter((fixtureId): fixtureId is string => fixtureId !== null), "assigned fixture IDs must be unique");
     this.assertUniqueIds(input.objectUpdates.map((update) => update.id), "object update IDs must be unique");
     this.assertUniqueIds(input.objectDeletes, "object delete IDs must be unique");
 
@@ -433,6 +450,7 @@ export class FloorEditorService {
         id,
         data: this.buildFixtureData(patch)
       })),
+      slotAssignments: input.slotAssignments,
       objectCreates: input.objectCreates.map((object) =>
         this.buildCreateObjectData({ ...object, floorId }) as Prisma.FloorMapObjectUncheckedCreateInput
       ),
@@ -449,12 +467,44 @@ export class FloorEditorService {
     floorId: string,
     input: PreparedSaveEditorState
   ) {
-    const fixtureIds = input.fixtureUpdates.map((update) => update.id);
+    const fixtureIds = [...new Set([
+      ...input.fixtureUpdates.map((update) => update.id),
+      ...input.slotAssignments
+        .map((assignment) => assignment.assignedFixtureId)
+        .filter((fixtureId): fixtureId is string => fixtureId !== null)
+    ])];
     const fixtures = fixtureIds.length === 0
       ? []
       : await tx.fixture.findMany({ where: { floorId, id: { in: fixtureIds } }, select: { id: true } });
     if (fixtures.length !== fixtureIds.length) {
       throw new BadRequestException("fixture updates must belong to the requested floor");
+    }
+
+    const slotIds = input.slotAssignments.map((assignment) => assignment.slotId);
+    if (slotIds.length > 0) {
+      const slots = await tx.floorLightSlot.findMany({
+        where: { floorId, id: { in: slotIds } },
+        select: { id: true }
+      });
+      if (slots.length !== slotIds.length) {
+        throw new BadRequestException("slot assignments must belong to the requested floor");
+      }
+      const assignedFixtureIds = input.slotAssignments
+        .map((assignment) => assignment.assignedFixtureId)
+        .filter((fixtureId): fixtureId is string => fixtureId !== null);
+      if (assignedFixtureIds.length > 0) {
+        const occupied = await tx.floorLightSlot.findMany({
+          where: {
+            floorId,
+            id: { notIn: slotIds },
+            assignedFixtureId: { in: assignedFixtureIds }
+          },
+          select: { id: true, assignedFixtureId: true }
+        });
+        if (occupied.length > 0) {
+          throw new BadRequestException("assigned fixtures must not be occupied by unchanged slots");
+        }
+      }
     }
 
     const objectIds = [
@@ -525,6 +575,18 @@ export class FloorEditorService {
     leaseToken: string,
     leaseFence: number
   ) {
+    const changedAt = await this.assertLockedRevision(tx, floorId, expectedRevision, leaseToken, leaseFence);
+    await this.incrementLockedRevision(tx, floorId);
+    return changedAt;
+  }
+
+  private async assertLockedRevision(
+    tx: Prisma.TransactionClient,
+    floorId: string,
+    expectedRevision: number,
+    leaseToken: string,
+    leaseFence: number
+  ) {
     const floor = await this.lockFloorLeaseAuthority(tx, floorId);
     if (!floor) throw new NotFoundException("floor not found");
     assertActiveFloorStatus(floor.status);
@@ -541,11 +603,14 @@ export class FloorEditorService {
     if (floor.mapRevision !== expectedRevision) {
       throw new ConflictException("floor editor revision conflict");
     }
+    return floor.dbNow;
+  }
+
+  private async incrementLockedRevision(tx: Prisma.TransactionClient, floorId: string) {
     await tx.floor.update({
       where: { id: floorId },
       data: { mapRevision: { increment: 1 } }
     });
-    return floor.dbNow;
   }
 
   private async lockFloorLeaseAuthority(tx: Prisma.TransactionClient, floorId: string) {
@@ -584,6 +649,8 @@ export class FloorEditorService {
     }
 
     await this.applyFixturePatches(tx, floorId, input.fixtureUpdates, changedAt, false);
+    await this.applySlotAssignments(tx, floorId, input.slotAssignments, changedAt);
+    await this.assertFinalSlotAssignments(tx, floorId, input.slotAssignments);
 
     if (input.objectDeletes.length > 0) {
       await tx.floorMapObject.deleteMany({ where: { floorId, id: { in: input.objectDeletes } } });
@@ -592,6 +659,74 @@ export class FloorEditorService {
       await tx.floorMapObject.createMany({ data: input.objectCreates });
     }
     await persistEditorPatches(tx, floorId, "FloorMapObject", input.objectUpdates, changedAt);
+  }
+
+  private async applySlotAssignments(
+    tx: Prisma.TransactionClient,
+    floorId: string,
+    assignments: PreparedSaveEditorState["slotAssignments"],
+    changedAt: Date
+  ) {
+    if (assignments.length === 0) return;
+    const slotIds = assignments.map((assignment) => assignment.slotId);
+    await tx.floorLightSlot.updateMany({
+      where: { floorId, id: { in: slotIds } },
+      data: { assignedFixtureId: null }
+    });
+
+    const assigned = assignments.filter((assignment) => assignment.assignedFixtureId !== null);
+    for (let offset = 0; offset < assigned.length; offset += 1000) {
+      const batch = assigned.slice(offset, offset + 1000);
+      await tx.$executeRaw(Prisma.sql`
+        UPDATE "FloorLightSlot" AS slot
+        SET "assignedFixtureId" = patch."assignedFixtureId", "updatedAt" = ${changedAt}
+        FROM jsonb_to_recordset(${JSON.stringify(batch)}::jsonb)
+          AS patch("slotId" text, "assignedFixtureId" text)
+        WHERE slot."id" = patch."slotId" AND slot."floorId" = ${floorId}
+      `);
+    }
+  }
+
+  private async assertFinalSlotAssignments(
+    tx: Prisma.TransactionClient,
+    floorId: string,
+    assignments: PreparedSaveEditorState["slotAssignments"]
+  ) {
+    const finalAssignments = await tx.floorLightSlot.findMany({
+      where: { floorId, assignedFixtureId: { not: null } },
+      select: {
+        id: true,
+        floorId: true,
+        assignedFixtureId: true,
+        x: true,
+        y: true,
+        assignedFixture: {
+          select: { id: true, floorId: true, placementStatus: true, x: true, y: true }
+        }
+      }
+    });
+    const finalFixtureIds = finalAssignments
+      .map((assignment) => assignment.assignedFixtureId)
+      .filter((fixtureId): fixtureId is string => fixtureId !== null);
+    if (new Set(finalFixtureIds).size !== finalFixtureIds.length) {
+      throw new BadRequestException("final slot assignments must be one-to-one");
+    }
+    const finalBySlot = new Map(finalAssignments.map((assignment) => [assignment.id, assignment.assignedFixtureId]));
+    if (assignments.some((assignment) => (finalBySlot.get(assignment.slotId) ?? null) !== assignment.assignedFixtureId)) {
+      throw new BadRequestException("final slot assignments do not match the save request");
+    }
+    for (const slot of finalAssignments) {
+      const fixture = slot.assignedFixture;
+      if (!fixture || fixture.id !== slot.assignedFixtureId || fixture.floorId !== floorId) {
+        throw new BadRequestException("final slot assignments must reference fixtures on the requested floor");
+      }
+      if (fixture.placementStatus !== "placed") {
+        throw new BadRequestException("assigned fixtures must be placed");
+      }
+      if (fixture.x !== slot.x || fixture.y !== slot.y) {
+        throw new BadRequestException("assigned fixture coordinates must exactly match their slots");
+      }
+    }
   }
 
   private async applyFixturePatches(
@@ -663,7 +798,8 @@ export class FloorEditorService {
       include: {
         floorPlan: true,
         fixtures: { orderBy: { id: "asc" }, include: { meshNode: { select: { meshAddress: true, serialNumber: true } } } },
-        mapObjects: { orderBy: { id: "asc" } }
+        mapObjects: { orderBy: { id: "asc" } },
+        lightSlots: { orderBy: { id: "asc" } }
       }
     });
     if (!floor) throw new NotFoundException("floor not found");
@@ -674,6 +810,7 @@ export class FloorEditorService {
     return {
       floorPlanChanged: input.floorPlan !== undefined,
       fixtureUpdates: input.fixtureUpdates.length,
+      slotAssignments: input.slotAssignments.length,
       objectCreates: input.objectCreates.length,
       objectUpdates: input.objectUpdates.length,
       objectDeletes: input.objectDeletes.length
@@ -754,6 +891,8 @@ export class FloorEditorService {
     await this.applyFixturePatches(tx, floorId, snapshot.fixtures
       .filter(({ id }) => existingFixtureIds.has(id)).map(({ id, ...data }) => ({ id, data })), changedAt, true);
 
+    await this.restoreSnapshotSlots(tx, floorId, snapshot, existingFixtureIds, changedAt);
+
     await tx.floorMapObject.deleteMany({ where: { floorId } });
     if (snapshot.objects.length > 0) {
       await tx.floorMapObject.createMany({
@@ -764,6 +903,193 @@ export class FloorEditorService {
         }))
       });
     }
+  }
+
+  private async restoreSnapshotSlots(
+    tx: Prisma.TransactionClient,
+    floorId: string,
+    snapshot: FloorEditorSnapshot,
+    existingFixtureIds: Set<string>,
+    changedAt: Date
+  ) {
+    const lightSlots = "lightSlots" in snapshot ? snapshot.lightSlots : undefined;
+    if (lightSlots === undefined) {
+      // V1 and early V2 snapshots predate slot history. Their fixture placement is
+      // authoritative, so retain current slots but detach assignments contradicted
+      // by the restored placement instead of moving historical fixtures to new slots.
+      await this.detachLegacySnapshotAssignmentConflicts(tx, floorId);
+      await this.assertFinalSlotAssignments(tx, floorId, []);
+      return;
+    }
+
+    const legacySlots = lightSlots.filter((slot) => !slot.sourceImportJobId || !slot.sourceCandidateId);
+    const recoveredSources = legacySlots.length === 0
+      ? new Map<string, { sourceImportJobId: string; sourceCandidateId: string }>()
+      : await this.recoverLegacySlotSources(tx, floorId, snapshot, lightSlots, legacySlots);
+
+    const slots = lightSlots.map((slot) => {
+      const source = slot.sourceImportJobId && slot.sourceCandidateId
+        ? slot
+        : recoveredSources.get(slot.id);
+      const sourceImportJobId = source?.sourceImportJobId;
+      const sourceCandidateId = source?.sourceCandidateId;
+      if (!sourceImportJobId || !sourceCandidateId) {
+        throw new BadRequestException("historical light slot source mapping is missing");
+      }
+      return {
+        id: slot.id,
+        floorId,
+        sourceImportJobId,
+        sourceCandidateId,
+        assignedFixtureId: slot.assignedFixtureId && existingFixtureIds.has(slot.assignedFixtureId)
+          ? slot.assignedFixtureId
+          : null,
+        x: slot.x,
+        y: slot.y,
+        rotation: slot.rotation
+      };
+    });
+
+    if (slots.length > 0) {
+      const candidates = await tx.floorImportCandidate.findMany({
+        where: {
+          id: { in: slots.map((slot) => slot.sourceCandidateId) },
+          job: { floorId }
+        },
+        select: { id: true, jobId: true }
+      });
+      const jobByCandidateId = new Map(candidates.map((candidate) => [candidate.id, candidate.jobId]));
+      if (slots.some((slot) => jobByCandidateId.get(slot.sourceCandidateId) !== slot.sourceImportJobId)) {
+        throw new BadRequestException("historical light slot source is invalid");
+      }
+    }
+
+    await tx.floorLightSlot.deleteMany({ where: { floorId } });
+    if (slots.length > 0) {
+      await tx.floorLightSlot.createMany({ data: slots });
+    }
+    const assignments = slots.map((slot) => ({
+      slotId: slot.id,
+      assignedFixtureId: slot.assignedFixtureId
+    }));
+    await this.assertFinalSlotAssignments(tx, floorId, assignments);
+
+    // Normalize row timestamps so restored slots, audit, and revision expose
+    // one transaction-owned change boundary instead of per-statement times.
+    if (slots.length > 0) {
+      await tx.floorLightSlot.updateMany({
+        where: { floorId, id: { in: slots.map((slot) => slot.id) } },
+        data: { updatedAt: changedAt }
+      });
+    }
+  }
+
+  private async detachLegacySnapshotAssignmentConflicts(tx: Prisma.TransactionClient, floorId: string) {
+    const assignedSlots = await tx.floorLightSlot.findMany({
+      where: { floorId, assignedFixtureId: { not: null } },
+      select: {
+        id: true,
+        assignedFixtureId: true,
+        x: true,
+        y: true,
+        assignedFixture: { select: { id: true, floorId: true, placementStatus: true, x: true, y: true } }
+      }
+    });
+    const conflictingSlotIds = assignedSlots
+      .filter((slot) => {
+        const fixture = slot.assignedFixture;
+        return !fixture || fixture.id !== slot.assignedFixtureId || fixture.floorId !== floorId ||
+          fixture.placementStatus !== "placed" || fixture.x !== slot.x || fixture.y !== slot.y;
+      })
+      .map((slot) => slot.id);
+    if (conflictingSlotIds.length > 0) {
+      await tx.floorLightSlot.updateMany({
+        where: { floorId, id: { in: conflictingSlotIds } },
+        data: { assignedFixtureId: null }
+      });
+    }
+  }
+
+  private async recoverLegacySlotSources(
+    tx: Prisma.TransactionClient,
+    floorId: string,
+    snapshot: FloorEditorSnapshot,
+    allSlots: Array<{
+      id: string;
+      sourceImportJobId?: string;
+      sourceCandidateId?: string;
+      x: number;
+      y: number;
+      rotation: number;
+    }>,
+    legacySlots: Array<{ id: string; x: number; y: number; rotation: number }>
+  ) {
+    const plan = snapshot.floorPlan;
+    const sourceUrl = plan?.originalFileUrl;
+    const renderedUrl = plan?.renderedImageUrl ?? plan?.imageUrl;
+    if (!sourceUrl || !renderedUrl) {
+      throw new BadRequestException("historical light slot source mapping is missing");
+    }
+
+    let sourceAssetId: string;
+    let renderedAssetId: string;
+    try {
+      const source = this.floorAssetAccessPath(sourceUrl, "historical floor plan source");
+      const rendered = this.floorAssetAccessPath(renderedUrl, "historical floor plan rendering");
+      if (source.floorId !== floorId || rendered.floorId !== floorId) {
+        throw new Error("source belongs to another floor");
+      }
+      sourceAssetId = source.assetId;
+      renderedAssetId = rendered.assetId;
+    } catch {
+      throw new BadRequestException("historical light slot source mapping is missing");
+    }
+
+    const jobs = await tx.floorImportJob.findMany({
+      where: { floorId, sourceAssetId, renderedAssetId },
+      select: { id: true },
+      orderBy: { id: "asc" },
+      take: 2
+    });
+    if (jobs.length === 0) {
+      throw new BadRequestException("historical light slot source mapping is missing");
+    }
+    if (jobs.length !== 1) {
+      throw new BadRequestException("historical light slot source mapping is ambiguous");
+    }
+
+    const candidates = await tx.floorImportCandidate.findMany({
+      where: {
+        reviewStatus: "accepted",
+        jobId: jobs[0].id
+      },
+      select: { id: true, jobId: true, x: true, y: true, rotation: true },
+      orderBy: { id: "asc" }
+    });
+    const usedCandidateIds = new Set(allSlots.flatMap((slot) =>
+      slot.sourceCandidateId ? [slot.sourceCandidateId] : []
+    ));
+    const recovered = new Map<string, { sourceImportJobId: string; sourceCandidateId: string }>();
+
+    for (const slot of legacySlots) {
+      const matches = candidates.filter((candidate) =>
+        candidate.x === slot.x && candidate.y === slot.y && candidate.rotation === slot.rotation
+      );
+      if (matches.length === 0) {
+        throw new BadRequestException("historical light slot source mapping is missing");
+      }
+      if (matches.length !== 1 || usedCandidateIds.has(matches[0].id)) {
+        throw new BadRequestException("historical light slot source mapping is ambiguous");
+      }
+      const candidate = matches[0];
+      usedCandidateIds.add(candidate.id);
+      recovered.set(slot.id, {
+        sourceImportJobId: candidate.jobId,
+        sourceCandidateId: candidate.id
+      });
+    }
+
+    return recovered;
   }
 
   private throwMappedTransactionError(error: unknown) {
