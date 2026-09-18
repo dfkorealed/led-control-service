@@ -46,6 +46,7 @@ export function prepareDevelopmentRuntime(
     env.MQTT_TLS_CERT_DIR?.trim() || env.PKI_LAB_CURRENT_DIR?.trim() || join(".local", "pki")
   );
   const dockerCertDirectory = realpathSync(configuredDockerCertDirectory);
+  const dockerCertMountDirectory = configuredDockerCertDirectory;
   ensureMosquittoRuntimeDirectory(mqttRuntimeDirectory);
   // Claims update product state only. Both supported dev launch paths call this
   // before broker startup so the file-backed ACL is never a stale wildcard or
@@ -53,7 +54,15 @@ export function prepareDevelopmentRuntime(
   publishMosquittoAcl(aclPath, gatewayIds);
   publishPrivateConfig(root, nativeConfigPath, renderMosquittoConfig(root, env));
   publishPrivateConfig(root, dockerConfigPath, renderDockerMosquittoConfig(env));
-  return { env, gatewayIds, aclPath, nativeConfigPath, dockerConfigPath, dockerCertDirectory };
+  return {
+    env,
+    gatewayIds,
+    aclPath,
+    nativeConfigPath,
+    dockerConfigPath,
+    dockerCertDirectory,
+    dockerCertMountDirectory
+  };
 }
 
 export function resolveDevelopmentCadEnvironment(source, { findExecutable = defaultFindExecutable } = {}) {

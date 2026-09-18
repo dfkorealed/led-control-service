@@ -1073,6 +1073,94 @@ test("repo-owned Docker broker만 exact container SIGHUP 후 mounted ACL 일치�
   }
 });
 
+test("Docker Desktop stable cert bind는 captured generation과 내용이 일치할 때만 repo broker로 인정한다", () => {
+  const directory = mkdtempSync(join(tmpdir(), "led-control-docker-stable-cert-"));
+  const runtimePath = join(directory, ".local", "mosquitto-runtime");
+  const aclPath = join(runtimePath, "mosquitto.acl");
+  const dockerConfigPath = join(directory, ".local", "mosquitto.docker.conf");
+  const generations = join(directory, "certs", "generations");
+  const firstGeneration = join(generations, "first");
+  const secondGeneration = join(generations, "second");
+  const stableCertDirectory = join(directory, "certs", "current");
+  const certificateNames = ["mqtt-ca.crt", "mqtt-server.crt", "mqtt-server.key", "mqtt-client.crl"];
+  const signals = [];
+  mkdirSync(runtimePath, { recursive: true });
+  mkdirSync(firstGeneration, { recursive: true });
+  mkdirSync(secondGeneration, { recursive: true });
+  writeFileSync(aclPath, "user api-service\ntopic readwrite sites/#\n\n", { mode: 0o644 });
+  writeFileSync(dockerConfigPath, "listener 8883\n", { mode: 0o600 });
+  for (const name of certificateNames) {
+    writeFileSync(join(firstGeneration, name), "expected bundle\n");
+    writeFileSync(join(secondGeneration, name), "retargeted bundle\n");
+  }
+  symlinkSync(firstGeneration, stableCertDirectory);
+  const capturedCertDirectory = realpathSync(stableCertDirectory);
+  const inspection = [{
+    Config: { Labels: { "com.docker.compose.project.working_dir": directory, "com.docker.compose.service": "mqtt-tls" } },
+    State: { Running: true },
+    NetworkSettings: { Ports: { "8883/tcp": [{ HostIp: "0.0.0.0", HostPort: "8883" }] } },
+    Mounts: [
+      { Type: "bind", Source: runtimePath, Destination: "/mosquitto/runtime", RW: false },
+      { Type: "bind", Source: `/host_mnt${dockerConfigPath}`, Destination: "/mosquitto/config/mosquitto.conf", RW: false },
+      { Type: "bind", Source: stableCertDirectory, Destination: "/mosquitto/certs", RW: false }
+    ]
+  }];
+  const run = (command, args) => {
+    if (command === "docker" && args.join(" ") === "compose ps -q mqtt-tls") return ok("repo-mqtt-container\n");
+    if (command === "docker" && args[0] === "inspect") return ok(JSON.stringify(inspection));
+    if (command === "docker" && args[0] === "kill") { signals.push(args.slice(1)); return ok(); }
+    if (command === "docker" && args.join(" ") === "exec repo-mqtt-container cat /mosquitto/config/mosquitto.conf") {
+      return ok(readFileSync(dockerConfigPath, "utf8"));
+    }
+    if (command === "docker" && args.join(" ") === "exec -u 1883:1883 repo-mqtt-container cat /mosquitto/runtime/mosquitto.acl") {
+      return ok(readFileSync(aclPath, "utf8"));
+    }
+    if (command === "docker" && args[0] === "exec" && args[2] === "sha256sum") {
+      const name = args[3].split("/").at(-1);
+      if (!certificateNames.includes(name)) return failed("unexpected certificate path");
+      const digest = realpathSync(stableCertDirectory) === capturedCertDirectory
+        ? "a0387d9d6bb02128dc8ba29c512ec348f8cb78dce6e77f810fce2b86ddabb3bd"
+        : "f81567fcdd6b3d8324a3b6a8557267e1b91019c10aca1dd47661822e4154e189";
+      return ok(`${digest}  ${args[3]}\n`);
+    }
+    return failed(`unexpected ${command} ${args.join(" ")}`);
+  };
+
+  try {
+    assert.deepEqual(
+      reloadExistingDevelopmentBroker({
+        root: directory,
+        aclPath,
+        dockerConfigPath,
+        dockerCertDirectory: capturedCertDirectory,
+        dockerCertMountDirectory: stableCertDirectory,
+        platform: "darwin",
+        run
+      }),
+      { kind: "docker", id: "repo-mqtt-container" }
+    );
+    assert.deepEqual(signals, [["--signal=SIGHUP", "repo-mqtt-container"]]);
+
+    rmSync(stableCertDirectory);
+    symlinkSync(secondGeneration, stableCertDirectory);
+    assert.throws(
+      () => reloadExistingDevelopmentBroker({
+        root: directory,
+        aclPath,
+        dockerConfigPath,
+        dockerCertDirectory: capturedCertDirectory,
+        dockerCertMountDirectory: stableCertDirectory,
+        platform: "darwin",
+        run
+      }),
+      /unmanaged process owns port 8883/i
+    );
+    assert.deepEqual(signals, [["--signal=SIGHUP", "repo-mqtt-container"]]);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("Docker broker는 inspect mount가 맞아도 container config inode가 stale이면 recreate 지시 후 signal하지 않는다", () => {
   const directory = mkdtempSync(join(tmpdir(), "led-control-docker-stale-config-"));
   const runtimePath = join(directory, ".local", "mosquitto-runtime");
