@@ -22,6 +22,8 @@
 
 ## 구현 완료
 
+- 2026-09-18 읽기 전용 맵 DTO는 `FloorLightSlot` 자체를 노출하지 않고, CAD 배경·저장 도형과 slot에 실제 배정된 조명의 좌표만 반환한다. `FloorScene`은 이 배정 목록을 현재 장비 상태와 ID로 결합해 설정 맵과 같은 좌표계에 표시하며, 미배정·미배치 조명은 지도 marker에서 제외한다. 저장 직후 monitoring cache도 같은 배정 기준으로 갱신한다. API/Web focused 회귀와 실제 PostgreSQL revision 복구 테스트를 통과했으며 현장 도면 시각 HIL은 포함하지 않는다.
+
 - 2026-09-17 공통 `FloorMapViewport`의 pinch는 시작 시 지도 좌표를 현재 두 손가락 중점에 맞춰 확대와 평행 이동을 함께 반영한다. 실제 지도 bounds와 눌림 상태를 사용하는 synthetic Chromium 회귀는 pan/select/area 모두에서 비대칭 pinch, 두 손가락 이동과 한 손가락 해제 후 jump 방지를 확인한다. `FloorScene` coarse marker는 48px hit target의 반지름만큼 가장자리 중심을 보정해 도면 경계에서 터치 영역이 잘리지 않도록 했다. 모니터링의 단일 선택 및 20px 시각 dot 계약은 유지하며 실제 iOS/Android WebView와 Gateway/조명 HIL은 별도 검증이다.
 
 - 2026-09-17 모니터링은 공통 `FloorMapViewport`를 사용하고, 기존 읽기 전용 `FloorScene`에 명시적인 `single` selection adapter를 전달한다. 따라서 marker와 `상세 조명 선택`의 단일 선택·상세 패널 동기화 의미는 바뀌지 않았다. viewport는 wheel 확대, pointer pan과 모든 interaction mode의 두 손가락 pinch를 제공한다. pointer capture로 지도 밖 이동도 추적하지만 marker button은 단일 pointer gesture를 시작하지 않아 native marker click을 보존한다. marker는 시각 20px dot과 별도 44px coarse hit target을 유지한다.

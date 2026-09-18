@@ -114,6 +114,43 @@ describe("FloorScene", () => {
     expect(onFixturePress).toHaveBeenCalledWith("fixture-1");
   });
 
+  it("renders the CAD background and only assigned fixture layouts from the monitoring snapshot", () => {
+    render(
+      <FloorScene
+        snapshot={{
+          ...snapshot,
+          floorPlan: {
+            sourceType: "pdf",
+            imageUrl: "",
+            originalFileUrl: "/api/floors/floor-1/assets/source/content",
+            renderedImageUrl: "/api/floors/floor-1/assets/rendered/content",
+            width: 1200,
+            height: 800,
+            gridSize: 10
+          },
+          fixtures: [{ id: "fixture-assigned", name: "B1-L001", x: 300, y: 200, size: 20 }]
+        }}
+        fixtures={[
+          { id: "fixture-assigned", name: "B1-L001", x: 999, y: 999, brightness: 70, status: "online", placementStatus: "placed" },
+          { id: "fixture-unassigned", name: "B1-L002", x: 400, y: 300, brightness: 40, status: "online", placementStatus: "placed" }
+        ]}
+        interactive={false}
+        floorName="B1"
+      />
+    );
+
+    expect(screen.getByRole("img", { name: "B1 도면" })).toHaveAttribute(
+      "src",
+      "/api/floors/floor-1/assets/rendered/content"
+    );
+    expect(screen.getByTestId("map-object-rectangle-1")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "B1-L001 정상 70%" })).toHaveStyle({
+      "--fixture-left": "25%",
+      "--fixture-top": "25%"
+    });
+    expect(screen.queryByRole("button", { name: /B1-L002/ })).not.toBeInTheDocument();
+  });
+
   it.each([
     [-20, 1], [0, 1], [9, 1],
     [10, 2], [19, 2],

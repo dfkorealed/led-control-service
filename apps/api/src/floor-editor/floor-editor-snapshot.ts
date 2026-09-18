@@ -41,6 +41,8 @@ interface SnapshotFloor {
   }>;
   lightSlots?: Array<{
     id: string;
+    sourceImportJobId: string;
+    sourceCandidateId: string;
     x: number;
     y: number;
     rotation: number;
@@ -99,6 +101,8 @@ export function buildFloorEditorSnapshot(floor: SnapshotFloor): FloorEditorSnaps
       .sort((left, right) => compareIds(left.id, right.id))
       .map((slot) => ({
         id: slot.id,
+        sourceImportJobId: slot.sourceImportJobId,
+        sourceCandidateId: slot.sourceCandidateId,
         x: slot.x,
         y: slot.y,
         rotation: slot.rotation,

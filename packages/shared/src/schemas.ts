@@ -266,7 +266,14 @@ export const floorMapSnapshotSchema = z.object({
   width: positiveInt4Schema,
   height: positiveInt4Schema,
   floorPlan: floorMapPlanSnapshotSchema.nullable(),
-  objects: z.array(floorMapObjectStateSchema)
+  objects: z.array(floorMapObjectStateSchema),
+  fixtures: z.array(z.object({
+    id: z.string().uuid(),
+    name: z.string().trim().min(1).max(EDITOR_MAX_NAME_LENGTH),
+    x: finiteNumberSchema,
+    y: finiteNumberSchema,
+    size: finiteNumberSchema.positive()
+  }).strict()).optional()
 }).strict();
 
 export const floorMapObjectPatchSchema = z.object({
@@ -398,7 +405,15 @@ export const floorEditorSnapshotV1Schema = z.object({
 export const floorEditorSnapshotV2Schema = floorEditorSnapshotV1Schema.extend({
   version: z.literal(FLOOR_EDITOR_SNAPSHOT_VERSION),
   // Existing V2 revisions predate CAD slots; new snapshots include this array.
-  lightSlots: z.array(floorLightSlotSchema).max(2_000).optional(),
+  lightSlots: z.array(floorLightSlotSchema.extend({
+    // Older V2 snapshots only stored public slot geometry. New revisions retain
+    // the immutable CAD source references needed to recreate a historical set.
+    sourceImportJobId: z.string().uuid().optional(),
+    sourceCandidateId: z.string().uuid().optional()
+  }).refine(
+    (slot) => Boolean(slot.sourceImportJobId) === Boolean(slot.sourceCandidateId),
+    "light slot source references must be both present or both absent"
+  )).max(2_000).optional(),
   fixtures: z.array(floorEditorSnapshotV1Schema.shape.fixtures.element.extend({
     placementStatus: fixturePlacementStatusSchema,
     positionVerifiedAt: z.string().datetime().nullable()

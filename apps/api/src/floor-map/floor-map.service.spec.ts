@@ -5,6 +5,8 @@ import { FloorMapService } from "./floor-map.service";
 describe("FloorMapService", () => {
   const siteId = "00000000-0000-4000-8000-000000000002";
   const floorId = "00000000-0000-4000-8000-000000000003";
+  const fixtureId = "00000000-0000-4000-8000-000000000004";
+  const slotId = "00000000-0000-4000-8000-000000000005";
   const user: AuthenticatedUser = {
     id: "00000000-0000-4000-8000-000000000001",
     organizationId: "org-1",
@@ -52,14 +54,44 @@ describe("FloorMapService", () => {
             width: 1600,
             height: 900
           },
-          mapObjects: [mapObject]
+          mapObjects: [mapObject],
+          lightSlots: [
+            {
+              id: slotId,
+              x: 320,
+              y: 240,
+              assignedFixtureId: fixtureId,
+              assignedFixture: {
+                id: fixtureId,
+                name: "B1-L001",
+                x: 320,
+                y: 240,
+                size: 20,
+                placementStatus: "placed"
+              }
+            },
+            {
+              id: "00000000-0000-4000-8000-000000000006",
+              x: 500,
+              y: 500,
+              assignedFixtureId: "00000000-0000-4000-8000-000000000007",
+              assignedFixture: {
+                id: "00000000-0000-4000-8000-000000000007",
+                name: "B1-L002",
+                size: 20,
+                placementStatus: "unplaced"
+              }
+            }
+          ]
         })
       }
     };
     const siteAccess = { assert: jest.fn().mockResolvedValue({ id: siteId }) };
     const service = new FloorMapService(prisma, siteAccess as never);
 
-    await expect(service.getSnapshot(user, siteId, floorId)).resolves.toEqual({
+    const snapshot = await service.getSnapshot(user, siteId, floorId);
+
+    expect(snapshot).toEqual({
       floorId,
       revision: 3,
       width: 1600,
@@ -90,8 +122,10 @@ describe("FloorMapService", () => {
         zIndex: 1,
         locked: false,
         visible: true
-      }]
+      }],
+      fixtures: [{ id: fixtureId, name: "B1-L001", x: 320, y: 240, size: 20 }]
     });
+    expect(snapshot).not.toHaveProperty("lightSlots");
     expect(siteAccess.assert).toHaveBeenCalledWith(user, siteId, "read");
     expect(prisma.floor.findFirst).toHaveBeenCalledWith({
       where: { id: floorId, siteId },
@@ -100,6 +134,17 @@ describe("FloorMapService", () => {
         mapObjects: {
           where: { visible: true },
           orderBy: [{ zIndex: "asc" }, { createdAt: "asc" }]
+        },
+        lightSlots: {
+          where: { assignedFixtureId: { not: null } },
+          orderBy: { id: "asc" },
+          select: {
+            x: true,
+            y: true,
+            assignedFixture: {
+              select: { id: true, name: true, size: true, placementStatus: true }
+            }
+          }
         }
       }
     });
@@ -113,7 +158,8 @@ describe("FloorMapService", () => {
           siteId,
           mapRevision: 0,
           floorPlan: null,
-          mapObjects: []
+          mapObjects: [],
+          lightSlots: []
         })
       }
     };
@@ -140,7 +186,8 @@ describe("FloorMapService", () => {
             siteId,
             mapRevision: 0,
             floorPlan: null,
-            mapObjects: []
+            mapObjects: [],
+            lightSlots: []
           })
         }
       } as never,

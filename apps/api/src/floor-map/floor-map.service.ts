@@ -22,6 +22,17 @@ export class FloorMapService {
         mapObjects: {
           where: { visible: true },
           orderBy: [{ zIndex: "asc" }, { createdAt: "asc" }]
+        },
+        lightSlots: {
+          where: { assignedFixtureId: { not: null } },
+          orderBy: { id: "asc" },
+          select: {
+            x: true,
+            y: true,
+            assignedFixture: {
+              select: { id: true, name: true, size: true, placementStatus: true }
+            }
+          }
         }
       }
     });
@@ -67,7 +78,18 @@ export class FloorMapService {
         zIndex: object.zIndex,
         locked: object.locked,
         visible: object.visible
-      }))
+      })),
+      fixtures: floor.lightSlots.flatMap((slot) => {
+        const fixture = slot.assignedFixture;
+        if (!fixture || fixture.placementStatus !== "placed") return [];
+        return [{
+          id: fixture.id,
+          name: fixture.name,
+          x: slot.x,
+          y: slot.y,
+          size: fixture.size
+        }];
+      })
     });
   }
 

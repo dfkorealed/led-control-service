@@ -891,6 +891,8 @@ export class FloorEditorService {
     await this.applyFixturePatches(tx, floorId, snapshot.fixtures
       .filter(({ id }) => existingFixtureIds.has(id)).map(({ id, ...data }) => ({ id, data })), changedAt, true);
 
+    await this.restoreSnapshotSlots(tx, floorId, snapshot, existingFixtureIds, changedAt);
+
     await tx.floorMapObject.deleteMany({ where: { floorId } });
     if (snapshot.objects.length > 0) {
       await tx.floorMapObject.createMany({
@@ -899,6 +901,83 @@ export class FloorEditorService {
           floorId,
           points: object.points as Prisma.InputJsonValue
         }))
+      });
+    }
+  }
+
+  private async restoreSnapshotSlots(
+    tx: Prisma.TransactionClient,
+    floorId: string,
+    snapshot: FloorEditorSnapshot,
+    existingFixtureIds: Set<string>,
+    changedAt: Date
+  ) {
+    const lightSlots = "lightSlots" in snapshot ? snapshot.lightSlots : undefined;
+    if (lightSlots === undefined) return;
+
+    const incompleteIds = lightSlots
+      .filter((slot) => !slot.sourceImportJobId || !slot.sourceCandidateId)
+      .map((slot) => slot.id);
+    const currentSources = incompleteIds.length === 0
+      ? new Map<string, { sourceImportJobId: string; sourceCandidateId: string }>()
+      : new Map((await tx.floorLightSlot.findMany({
+          where: { floorId, id: { in: incompleteIds } },
+          select: { id: true, sourceImportJobId: true, sourceCandidateId: true }
+        })).map((slot) => [slot.id, slot]));
+
+    const slots = lightSlots.map((slot) => {
+      const source = slot.sourceImportJobId && slot.sourceCandidateId
+        ? slot
+        : currentSources.get(slot.id);
+      const sourceImportJobId = source?.sourceImportJobId;
+      const sourceCandidateId = source?.sourceCandidateId;
+      if (!sourceImportJobId || !sourceCandidateId) {
+        throw new BadRequestException("historical light slot source is unavailable");
+      }
+      return {
+        id: slot.id,
+        floorId,
+        sourceImportJobId,
+        sourceCandidateId,
+        assignedFixtureId: slot.assignedFixtureId && existingFixtureIds.has(slot.assignedFixtureId)
+          ? slot.assignedFixtureId
+          : null,
+        x: slot.x,
+        y: slot.y,
+        rotation: slot.rotation
+      };
+    });
+
+    if (slots.length > 0) {
+      const candidates = await tx.floorImportCandidate.findMany({
+        where: {
+          id: { in: slots.map((slot) => slot.sourceCandidateId) },
+          job: { floorId }
+        },
+        select: { id: true, jobId: true }
+      });
+      const jobByCandidateId = new Map(candidates.map((candidate) => [candidate.id, candidate.jobId]));
+      if (slots.some((slot) => jobByCandidateId.get(slot.sourceCandidateId) !== slot.sourceImportJobId)) {
+        throw new BadRequestException("historical light slot source is invalid");
+      }
+    }
+
+    await tx.floorLightSlot.deleteMany({ where: { floorId } });
+    if (slots.length > 0) {
+      await tx.floorLightSlot.createMany({ data: slots });
+    }
+    const assignments = slots.map((slot) => ({
+      slotId: slot.id,
+      assignedFixtureId: slot.assignedFixtureId
+    }));
+    await this.assertFinalSlotAssignments(tx, floorId, assignments);
+
+    // Normalize row timestamps so restored slots, audit, and revision expose
+    // one transaction-owned change boundary instead of per-statement times.
+    if (slots.length > 0) {
+      await tx.floorLightSlot.updateMany({
+        where: { floorId, id: { in: slots.map((slot) => slot.id) } },
+        data: { updatedAt: changedAt }
       });
     }
   }

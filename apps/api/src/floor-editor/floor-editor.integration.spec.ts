@@ -896,6 +896,134 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
     await expect(prisma.auditLog.count({ where: { siteId: ids.siteId } })).resolves.toBe(3);
   });
 
+  it("restores the historical slot set and assignments when the current CAD slots differ", async () => {
+    await activateLease();
+    const historicalAssetId = randomUUID();
+    const currentAssetId = randomUUID();
+    const historicalJobId = randomUUID();
+    const currentJobId = randomUUID();
+    const historicalCandidateIds = [randomUUID(), randomUUID()];
+    const currentCandidateId = randomUUID();
+    const historicalCoordinates = [
+      { x: 125.5, y: 245.25, rotation: 15 },
+      { x: 425.5, y: 545.25, rotation: 45 }
+    ];
+
+    await prisma.floorAsset.createMany({ data: [
+      {
+        id: historicalAssetId, floorId: ids.floorId, kind: "original", status: "ready",
+        objectKey: `integration/${historicalAssetId}.dxf`, mimeType: "application/dxf",
+        sizeBytes: 128n, sha256: "b".repeat(64), readyAt: new Date()
+      },
+      {
+        id: currentAssetId, floorId: ids.floorId, kind: "original", status: "ready",
+        objectKey: `integration/${currentAssetId}.dxf`, mimeType: "application/dxf",
+        sizeBytes: 128n, sha256: "c".repeat(64), readyAt: new Date()
+      }
+    ] });
+    await prisma.floorImportJob.createMany({ data: [
+      {
+        id: historicalJobId, floorId: ids.floorId, sourceAssetId: historicalAssetId, sourceFormat: "dxf",
+        status: "failed", stage: "failed", failureCode: "TEST_FIXTURE",
+        failureMessage: "historical slot restore fixture", failedAt: new Date()
+      },
+      {
+        id: currentJobId, floorId: ids.floorId, sourceAssetId: currentAssetId, sourceFormat: "dxf",
+        status: "failed", stage: "failed", failureCode: "TEST_FIXTURE",
+        failureMessage: "current slot restore fixture", failedAt: new Date()
+      }
+    ] });
+    await prisma.floorImportCandidate.createMany({ data: [
+      ...historicalCandidateIds.map((id, index) => ({
+        id, jobId: historicalJobId, sourceEntityId: `historical-slot-${index}`,
+        layerName: "LIGHT", blockName: "LED", ...historicalCoordinates[index], confidence: 0.95,
+        detectionMethod: "rule_based" as const, profileVersion: "test/1",
+        profileDigest: `${index + 1}`.repeat(64), reviewStatus: "accepted" as const, reviewedAt: new Date()
+      })),
+      {
+        id: currentCandidateId, jobId: currentJobId, sourceEntityId: "current-slot",
+        layerName: "LIGHT", blockName: "LED", x: 700, y: 600, rotation: 0, confidence: 0.95,
+        detectionMethod: "rule_based" as const, profileVersion: "test/1",
+        profileDigest: "3".repeat(64), reviewStatus: "accepted" as const, reviewedAt: new Date()
+      }
+    ] });
+    const historicalSlots = await Promise.all(historicalCandidateIds.map((sourceCandidateId, index) =>
+      prisma.floorLightSlot.create({ data: {
+        floorId: ids.floorId,
+        sourceImportJobId: historicalJobId,
+        sourceCandidateId,
+        assignedFixtureId: index === 0 ? ids.fixtureId : null,
+        ...historicalCoordinates[index]
+      } })
+    ));
+    await prisma.fixture.update({
+      where: { id: ids.fixtureId },
+      data: { x: historicalCoordinates[0].x, y: historicalCoordinates[0].y, placementStatus: "placed" }
+    });
+    const service = new FloorEditorService(prisma, siteAccess, new AuditService(prisma));
+
+    try {
+      await service.saveEditorState(operator, ids.floorId, {
+        expectedRevision: 0,
+        leaseToken: lease.token,
+        leaseFence: lease.fence,
+        fixtureUpdates: [],
+        slotAssignments: [],
+        objectCreates: [],
+        objectUpdates: [],
+        objectDeletes: []
+      });
+      const sourceRevision = await prisma.floorMapRevision.findUniqueOrThrow({
+        where: { floorId_revision: { floorId: ids.floorId, revision: 1 } }
+      });
+
+      await prisma.floorLightSlot.deleteMany({ where: { floorId: ids.floorId } });
+      const currentSlot = await prisma.floorLightSlot.create({ data: {
+        floorId: ids.floorId,
+        sourceImportJobId: currentJobId,
+        sourceCandidateId: currentCandidateId,
+        x: 700,
+        y: 600,
+        rotation: 0
+      } });
+      await prisma.fixture.update({
+        where: { id: ids.fixtureId },
+        data: { x: 0, y: 0, placementStatus: "unplaced", positionVerifiedAt: null }
+      });
+
+      const restoreLease = await activateLease("historical-slot-restore", 2);
+      const restored = await service.restoreEditorRevision(operator, ids.floorId, 1, {
+        expectedRevision: 1,
+        leaseToken: restoreLease.token,
+        leaseFence: restoreLease.fence
+      });
+
+      expect(restored.lightSlots).toEqual(expect.arrayContaining(historicalSlots.map((slot, index) => ({
+        id: slot.id,
+        ...historicalCoordinates[index],
+        assignedFixtureId: index === 0 ? ids.fixtureId : null
+      }))));
+      expect(restored.lightSlots).toHaveLength(2);
+      expect(restored.lightSlots).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: currentSlot.id })]));
+      await expect(prisma.fixture.findUniqueOrThrow({
+        where: { id: ids.fixtureId },
+        select: { x: true, y: true, placementStatus: true }
+      })).resolves.toEqual({
+        x: historicalCoordinates[0].x,
+        y: historicalCoordinates[0].y,
+        placementStatus: "placed"
+      });
+      const restoredRevision = await prisma.floorMapRevision.findUniqueOrThrow({
+        where: { floorId_revision: { floorId: ids.floorId, revision: 2 } }
+      });
+      expect(restoredRevision.snapshot).toEqual(sourceRevision.snapshot);
+      expect(restoredRevision.snapshotSha256).toBe(sourceRevision.snapshotSha256);
+    } finally {
+      await prisma.floorImportJob.deleteMany({ where: { id: { in: [historicalJobId, currentJobId] } } });
+      await prisma.floorAsset.deleteMany({ where: { id: { in: [historicalAssetId, currentAssetId] } } });
+    }
+  });
+
   it("preserves an old ready asset when editor save wins the cleanup race", async () => {
     await activateLease();
     await prisma.floorAsset.update({

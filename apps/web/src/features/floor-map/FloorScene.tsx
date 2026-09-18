@@ -1,5 +1,5 @@
 import Konva from "konva";
-import type { CSSProperties } from "react";
+import { useMemo, type CSSProperties } from "react";
 import { Group, Line, Rect, Stage, Text, Layer } from "react-konva";
 import type { FloorMapSnapshot } from "@led-control/shared";
 import { Button, cn, themeColor } from "../../components/ui";
@@ -92,6 +92,24 @@ export function FloorScene({
 }: FloorSceneProps) {
   const backgroundUrl = snapshot.floorPlan?.renderedImageUrl ?? snapshot.floorPlan?.imageUrl;
   const objects = snapshot.objects.filter((object) => object.visible);
+  const renderedFixtures = useMemo<SceneFixture[]>(() => {
+    if (snapshot.fixtures === undefined) {
+      return fixtures.filter((fixture) => fixture.placementStatus !== "unplaced");
+    }
+    const runtimeById = new Map(fixtures.map((fixture) => [fixture.id, fixture]));
+    return snapshot.fixtures.map((layout) => {
+      const runtime: SceneFixture = runtimeById.get(layout.id) ?? {
+        id: layout.id,
+        name: layout.name,
+        x: layout.x,
+        y: layout.y,
+        brightness: 0,
+        status: "offline" as const,
+        placementStatus: "placed" as const
+      };
+      return { ...runtime, x: layout.x, y: layout.y };
+    });
+  }, [fixtures, snapshot.fixtures]);
 
   return (
     <div className="relative h-full w-full" data-floor-scene="" data-map-objects-interactive={interactive ? "true" : "false"}>
@@ -111,7 +129,7 @@ export function FloorScene({
           <span key={object.id} data-testid={`map-object-${object.id}`}>{object.type}</span>
         ))}
       </div>
-      {fixtures.filter((fixture) => fixture.placementStatus !== "unplaced").map((fixture) => {
+      {renderedFixtures.map((fixture) => {
         // FloorMap injects the monitoring presenter result. Editor callers omit it and retain
         // their compact legacy status label without owning monitoring cause precedence.
         const awaitingState = fixture.statusPresentation?.state === "provisioning_waiting_state" || fixture.statusReason === "provisioning_waiting_state";

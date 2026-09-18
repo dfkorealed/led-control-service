@@ -57,6 +57,13 @@ describe("CAD import contracts", () => {
       objects: [],
       lightSlots: [slot]
     })).toMatchObject({ lightSlots: [slot] });
+    expect(() => floorEditorSnapshotSchema.parse({
+      version: 2,
+      floorPlan: null,
+      fixtures: [],
+      objects: [],
+      lightSlots: [{ ...slot, sourceImportJobId: "00000000-0000-4000-8000-000000000091" }]
+    })).toThrow();
     expect(() => floorLightSlotSchema.parse({ ...slot, x: Number.POSITIVE_INFINITY })).toThrow();
   });
 

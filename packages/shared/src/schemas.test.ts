@@ -643,19 +643,26 @@ describe("shared schemas", () => {
       .toThrow();
   });
 
-  it("validates read-only floor map snapshots without fixture runtime state", () => {
+  it("validates read-only floor map snapshots with assigned fixture layout only", () => {
     const snapshot = {
       floorId: "00000000-0000-4000-8000-000000000005",
       revision: 3,
       width: 1200,
       height: 800,
       floorPlan: null,
-      objects: []
+      objects: [],
+      fixtures: [{
+        id: "00000000-0000-4000-8000-000000000006",
+        name: "B2-L01",
+        x: 10,
+        y: 20,
+        size: 24
+      }]
     };
 
     expect(floorMapSnapshotSchema.parse(snapshot)).toEqual(snapshot);
     expect(() => floorMapSnapshotSchema.parse({ ...snapshot, revision: -1 })).toThrow();
-    expect(() => floorMapSnapshotSchema.parse({ ...snapshot, fixtures: [] })).toThrow();
+    expect(() => floorMapSnapshotSchema.parse({ ...snapshot, lightSlots: [] })).toThrow();
   });
 
   it("parses legacy v1 snapshots without weakening atomic floor plan writes", () => {
