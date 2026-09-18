@@ -73,3 +73,31 @@
 
 - source-less V2 복구에는 revision snapshot이 보존한 canonical floor asset 경로와 해당 import job/candidate가 필요하다. 원본 후보가 삭제됐거나 동일 import에 완전히 같은 x/y/rotation의 accepted 후보가 둘 이상이면 안전하게 복원할 정보가 부족하므로 의도적으로 실패한다.
 - 실제 CAD 육안 정합성과 Raspberry Pi/ESP32-H2 HIL은 이 수정 라운드에서도 수행하지 않았다.
+
+## 수정 라운드 2
+
+### 상태
+
+`DONE_WITH_CONCERNS`
+
+- source metadata가 없는 기존 V2 snapshot은 canonical 원본 asset과 rendered asset을 모두 파싱한 뒤 `(floorId, sourceAssetId, renderedAssetId)`가 일치하는 `FloorImportJob` 하나를 먼저 고정한다. 후보 복구는 해당 job의 accepted candidate 안에서만 x/y/rotation exact match하며 같은 source를 공유하는 다른 job 후보를 섞거나 대체하지 않는다.
+- `snapshot.fixtures`가 존재하면 snapshot의 membership, 이름, 배치와 좌표를 지도 정본으로 사용한다. Runtime fixture는 밝기·연결·장애 등 동적 상태만 제공하며 stale `placementStatus=unplaced`로 snapshot marker를 제거하지 않는다. Snapshot에 없는 runtime-only legacy fixture에만 runtime placement 상태를 적용한다.
+
+### RED / GREEN
+
+- RED: `FloorScene`의 snapshot fixture와 같은 ID를 가진 runtime fixture를 `unplaced`로 만들자 저장 marker가 사라져 26개 중 1개가 실패했다.
+- RED: 같은 source asset과 같은 대형 비정수 좌표를 가진 두 job을 구성하자 올바른 rendered job도 `ambiguous`로 거부됐고, 올바른 job 후보를 삭제하자 다른 rendered job 후보로 복원이 성공해 source-less V2 focused 실DB 테스트 3개 중 2개가 실패했다.
+- GREEN: Shared schema/CAD focused 33/33, API floor-map 3/3, Web `FloorScene`/`FloorEditorView` 81/81, 전체 floor-editor PostgreSQL integration 24/24를 통과했다.
+- GREEN: 성공 복구는 `2399.875123456 / 1599.625987654 / 359.1259765625` 좌표를 보존하고 신규 revision canonical hash와 `floor_editor.restored` audit metadata hash가 같은지 직접 검증했다. 다른 rendered job에만 exact 후보가 있는 missing과 올바른 job 내부 duplicate ambiguous는 revision, slot, fixture와 audit가 모두 rollback되는 기존 검증을 유지한다.
+- GREEN: Shared build, Prisma validate, API/Web typecheck와 `git diff --check`를 통과했다.
+
+### 실DB 생성·마이그레이션·정리
+
+- 로컬 PostgreSQL에 `led_control_floor_task8_fix2` DB를 새로 생성하고 `DATABASE_URL=postgresql://led:led@127.0.0.1:5432/led_control_floor_task8_fix2?schema=public pnpm --filter @led-control/api exec prisma migrate deploy --schema prisma/schema.prisma`로 86개 migration을 처음부터 적용했다.
+- `FLOOR_EDITOR_TEST_DATABASE_URL`을 같은 DB로 지정해 focused RED와 전체 24개 integration GREEN을 실행했다.
+- 검증 후 `PGPASSWORD=led dropdb -h 127.0.0.1 -U led --if-exists led_control_floor_task8_fix2`로 로컬 테스트 DB를 제거했다. 호스트의 로컬 PostgreSQL과 포트가 겹쳐 처음 생성됐던 Docker 컨테이너 내부의 동명 빈 DB도 `docker exec led-control-service-postgres-1 dropdb -U led --if-exists led_control_floor_task8_fix2`로 함께 제거했다.
+
+### 남은 우려
+
+- source-less V2 복구에는 snapshot에 canonical 원본·rendered asset URL이 모두 남아 있고 해당 exact import job/candidate가 보존돼 있어야 한다. 정보가 없거나 후보가 중복되면 잘못 추정하지 않고 의도적으로 transaction 전체를 실패시킨다.
+- 실제 현장 CAD 육안 정합성과 Raspberry Pi/ESP32-H2 HIL은 이번 수정 라운드 범위가 아니다.

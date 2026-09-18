@@ -114,7 +114,7 @@ describe("FloorScene", () => {
     expect(onFixturePress).toHaveBeenCalledWith("fixture-1");
   });
 
-  it("uses assigned snapshot coordinates while retaining free placed fixtures and hiding only unplaced fixtures", () => {
+  it("keeps snapshot fixtures when runtime placement is stale while hiding runtime-only unplaced fixtures", () => {
     render(
       <FloorScene
         snapshot={{
@@ -131,7 +131,7 @@ describe("FloorScene", () => {
           fixtures: [{ id: "fixture-assigned", name: "B1-L001", x: 300, y: 200, size: 20 }]
         }}
         fixtures={[
-          { id: "fixture-assigned", name: "B1-L001", x: 999, y: 999, brightness: 70, status: "online", placementStatus: "placed" },
+          { id: "fixture-assigned", name: "stale-runtime-name", x: 999, y: 999, brightness: 70, status: "online", placementStatus: "unplaced" },
           { id: "fixture-free", name: "B1-L002", x: 600, y: 400, brightness: 40, status: "online", placementStatus: "placed" },
           { id: "fixture-unplaced", name: "B1-L003", x: 700, y: 500, brightness: 0, status: "offline", placementStatus: "unplaced" }
         ]}

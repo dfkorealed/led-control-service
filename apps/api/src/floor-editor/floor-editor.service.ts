@@ -992,25 +992,43 @@ export class FloorEditorService {
     legacySlots: Array<{ id: string; x: number; y: number; rotation: number }>
   ) {
     const plan = snapshot.floorPlan;
-    const sourceUrl = plan?.originalFileUrl ?? plan?.renderedImageUrl ?? plan?.imageUrl;
-    if (!sourceUrl) throw new BadRequestException("historical light slot source mapping is missing");
+    const sourceUrl = plan?.originalFileUrl;
+    const renderedUrl = plan?.renderedImageUrl ?? plan?.imageUrl;
+    if (!sourceUrl || !renderedUrl) {
+      throw new BadRequestException("historical light slot source mapping is missing");
+    }
 
-    let assetReference: { assetId: string };
+    let sourceAssetId: string;
+    let renderedAssetId: string;
     try {
-      const parsed = this.floorAssetAccessPath(sourceUrl, "historical floor plan source");
-      if (parsed.floorId !== floorId) throw new Error("source belongs to another floor");
-      assetReference = parsed;
+      const source = this.floorAssetAccessPath(sourceUrl, "historical floor plan source");
+      const rendered = this.floorAssetAccessPath(renderedUrl, "historical floor plan rendering");
+      if (source.floorId !== floorId || rendered.floorId !== floorId) {
+        throw new Error("source belongs to another floor");
+      }
+      sourceAssetId = source.assetId;
+      renderedAssetId = rendered.assetId;
     } catch {
       throw new BadRequestException("historical light slot source mapping is missing");
     }
 
-    const jobAssetFilter = plan?.originalFileUrl
-      ? { sourceAssetId: assetReference.assetId }
-      : { renderedAssetId: assetReference.assetId };
+    const jobs = await tx.floorImportJob.findMany({
+      where: { floorId, sourceAssetId, renderedAssetId },
+      select: { id: true },
+      orderBy: { id: "asc" },
+      take: 2
+    });
+    if (jobs.length === 0) {
+      throw new BadRequestException("historical light slot source mapping is missing");
+    }
+    if (jobs.length !== 1) {
+      throw new BadRequestException("historical light slot source mapping is ambiguous");
+    }
+
     const candidates = await tx.floorImportCandidate.findMany({
       where: {
         reviewStatus: "accepted",
-        job: { floorId, ...jobAssetFilter }
+        jobId: jobs[0].id
       },
       select: { id: true, jobId: true, x: true, y: true, rotation: true },
       orderBy: { id: "asc" }

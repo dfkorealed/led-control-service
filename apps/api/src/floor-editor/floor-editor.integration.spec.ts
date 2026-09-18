@@ -1060,6 +1060,17 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
         sourceCandidateId: scenario.historicalCandidateId
       })]);
       expect(restoredRevision.snapshotSha256).toBe(hashFloorEditorSnapshot(restoredSnapshot));
+      expect(restoredRevision.snapshotSha256).not.toBe(scenario.sourceRevisionSha256);
+      const restoreAudit = await prisma.auditLog.findFirstOrThrow({
+        where: { siteId: ids.siteId, action: "floor_editor.restored" },
+        orderBy: { createdAt: "desc" },
+        select: { metadata: true }
+      });
+      expect(restoreAudit.metadata).toEqual(expect.objectContaining({
+        revision: 2,
+        restoredFromRevision: 1,
+        snapshotSha256: restoredRevision.snapshotSha256
+      }));
     } finally {
       await scenario.cleanup();
     }
@@ -1096,33 +1107,73 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
 
   async function createLegacySlotRestoreScenario(mappingState: "exact" | "ambiguous" | "missing" = "exact") {
     await activateLease();
-    const historicalAssetId = randomUUID();
+    const sharedSourceAssetId = randomUUID();
+    const historicalRenderedAssetId = randomUUID();
+    const siblingRenderedAssetId = randomUUID();
     const currentAssetId = randomUUID();
     const historicalJobId = randomUUID();
+    const siblingJobId = randomUUID();
     const currentJobId = randomUUID();
     const historicalCandidateId = randomUUID();
+    const siblingCandidateId = randomUUID();
     const duplicateCandidateId = randomUUID();
     const currentCandidateId = randomUUID();
-    const historicalCoordinates = { x: 131.25, y: 242.5, rotation: 15 };
-    const sourcePath = `/api/floors/${ids.floorId}/assets/${historicalAssetId}/content`;
+    const historicalCoordinates = {
+      x: 2399.875123456,
+      y: 1599.625987654,
+      rotation: 359.1259765625
+    };
+    const sourcePath = `/api/floors/${ids.floorId}/assets/${sharedSourceAssetId}/content`;
+    const renderedPath = `/api/floors/${ids.floorId}/assets/${historicalRenderedAssetId}/content`;
+    const completedAt = new Date();
+    const completedJobState = {
+      status: "completed" as const,
+      stage: "completed",
+      progressPercent: 100,
+      attemptCount: 1,
+      parserVersion: "ascii-dxf-v1",
+      detectorVersion: "rule-v1",
+      detectorProfileId: "generic-lighting-v1",
+      detectorProfileVersion: "test/1",
+      detectorProfileDigest: "c".repeat(64),
+      startedAt: completedAt,
+      reviewRequiredAt: completedAt,
+      appliedAt: completedAt,
+      completedAt
+    };
 
     await prisma.floorAsset.createMany({ data: [
       {
-        id: historicalAssetId, floorId: ids.floorId, kind: "original", status: "ready",
-        objectKey: `integration/${historicalAssetId}.dxf`, mimeType: "application/dxf",
+        id: sharedSourceAssetId, floorId: ids.floorId, kind: "original", status: "ready",
+        objectKey: `integration/${sharedSourceAssetId}.dxf`, mimeType: "application/dxf",
         sizeBytes: 128n, sha256: "4".repeat(64), readyAt: new Date()
+      },
+      {
+        id: historicalRenderedAssetId, floorId: ids.floorId, kind: "rendered", status: "ready",
+        objectKey: `integration/${historicalRenderedAssetId}.svg`, mimeType: "image/svg+xml",
+        sizeBytes: 256n, sha256: "5".repeat(64), readyAt: new Date()
+      },
+      {
+        id: siblingRenderedAssetId, floorId: ids.floorId, kind: "rendered", status: "ready",
+        objectKey: `integration/${siblingRenderedAssetId}.svg`, mimeType: "image/svg+xml",
+        sizeBytes: 256n, sha256: "6".repeat(64), readyAt: new Date()
       },
       {
         id: currentAssetId, floorId: ids.floorId, kind: "original", status: "ready",
         objectKey: `integration/${currentAssetId}.dxf`, mimeType: "application/dxf",
-        sizeBytes: 128n, sha256: "5".repeat(64), readyAt: new Date()
+        sizeBytes: 128n, sha256: "7".repeat(64), readyAt: new Date()
       }
     ] });
     await prisma.floorImportJob.createMany({ data: [
       {
-        id: historicalJobId, floorId: ids.floorId, sourceAssetId: historicalAssetId, sourceFormat: "dxf",
-        status: "failed", stage: "failed", failureCode: "TEST_FIXTURE",
-        failureMessage: "legacy restore historical source", failedAt: new Date()
+        id: historicalJobId, floorId: ids.floorId, sourceAssetId: sharedSourceAssetId,
+        renderedAssetId: historicalRenderedAssetId, sourceFormat: "dxf",
+        ...completedJobState
+      },
+      {
+        id: siblingJobId, floorId: ids.floorId, sourceAssetId: sharedSourceAssetId,
+        renderedAssetId: siblingRenderedAssetId, sourceFormat: "dxf",
+        ...completedJobState
       },
       {
         id: currentJobId, floorId: ids.floorId, sourceAssetId: currentAssetId, sourceFormat: "dxf",
@@ -1134,19 +1185,25 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
       {
         id: historicalCandidateId, jobId: historicalJobId, sourceEntityId: "legacy-source",
         layerName: "LIGHT", blockName: "LED", ...historicalCoordinates, confidence: 0.95,
-        detectionMethod: "rule_based", profileVersion: "test/1", profileDigest: "6".repeat(64),
+        detectionMethod: "rule_based", profileVersion: "test/1", profileDigest: "8".repeat(64),
+        reviewStatus: "accepted", reviewedAt: new Date()
+      },
+      {
+        id: siblingCandidateId, jobId: siblingJobId, sourceEntityId: "sibling-source",
+        layerName: "LIGHT", blockName: "LED", ...historicalCoordinates, confidence: 0.95,
+        detectionMethod: "rule_based", profileVersion: "test/1", profileDigest: "9".repeat(64),
         reviewStatus: "accepted", reviewedAt: new Date()
       },
       ...(mappingState === "ambiguous" ? [{
         id: duplicateCandidateId, jobId: historicalJobId, sourceEntityId: "legacy-source-duplicate",
         layerName: "LIGHT", blockName: "LED", ...historicalCoordinates, confidence: 0.95,
-        detectionMethod: "rule_based" as const, profileVersion: "test/1", profileDigest: "7".repeat(64),
+        detectionMethod: "rule_based" as const, profileVersion: "test/1", profileDigest: "a".repeat(64),
         reviewStatus: "accepted" as const, reviewedAt: new Date()
       }] : []),
       {
         id: currentCandidateId, jobId: currentJobId, sourceEntityId: "current-source",
         layerName: "LIGHT", blockName: "LED", x: 700, y: 600, rotation: 0, confidence: 0.95,
-        detectionMethod: "rule_based", profileVersion: "test/1", profileDigest: "8".repeat(64),
+        detectionMethod: "rule_based", profileVersion: "test/1", profileDigest: "b".repeat(64),
         reviewStatus: "accepted", reviewedAt: new Date()
       }
     ] });
@@ -1164,11 +1221,11 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
     await prisma.floorPlan.create({ data: {
       floorId: ids.floorId,
       sourceType: "image",
-      imageUrl: readyAssetPath,
+      imageUrl: renderedPath,
       originalFileUrl: sourcePath,
-      renderedImageUrl: null,
-      width: 1200,
-      height: 800,
+      renderedImageUrl: renderedPath,
+      width: 2400,
+      height: 1600,
       gridSize: 10
     } });
     const service = new FloorEditorService(prisma, siteAccess, new AuditService(prisma));
@@ -1215,19 +1272,32 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
 
     return {
       service,
-      historicalAssetId,
+      sharedSourceAssetId,
+      historicalRenderedAssetId,
+      siblingRenderedAssetId,
       currentAssetId,
       historicalJobId,
+      siblingJobId,
       currentJobId,
       historicalCandidateId,
+      siblingCandidateId,
       currentCandidateId,
       historicalSlotId: historicalSlot.id,
       currentSlotId: currentSlot.id,
       historicalCoordinates,
+      sourceRevisionSha256: hashFloorEditorSnapshot(legacySnapshot),
       cleanup: async () => {
-        await prisma.floorImportJob.deleteMany({ where: { id: { in: [historicalJobId, currentJobId] } } });
+        await prisma.floorImportJob.deleteMany({
+          where: { id: { in: [historicalJobId, siblingJobId, currentJobId] } }
+        });
         await prisma.floorPlan.deleteMany({ where: { floorId: ids.floorId } });
-        await prisma.floorAsset.deleteMany({ where: { id: { in: [historicalAssetId, currentAssetId] } } });
+        await prisma.floorAsset.deleteMany({
+          where: {
+            id: {
+              in: [sharedSourceAssetId, historicalRenderedAssetId, siblingRenderedAssetId, currentAssetId]
+            }
+          }
+        });
       }
     };
   }
