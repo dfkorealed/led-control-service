@@ -60,6 +60,7 @@ describe("MonitoringRefreshIngestionService", () => {
     const db = database(); const service = new MonitoringRefreshIngestionService(db as never);
     await expect(service.ingestUnreachable(topic, { ...event(), reason: "USB secret" }, at(6))).rejects.toThrow();
     await expect(service.ingestUnreachable(topic.replace(ids.siteId, ids.fixtureId), event(), at(6))).rejects.toThrow("scope");
+    await expect(service.ingestUnreachable(`sites/${ids.siteId}/gateways/${ids.gatewayId}/state/fixture-unreachable`, event(), at(6))).rejects.toThrow("scope");
     expect(db.$transaction).not.toHaveBeenCalled();
   });
 
@@ -108,10 +109,25 @@ describe("MonitoringRefreshIngestionService", () => {
     await expect(service.completeBatch(completionTopic, { ...completed, sequence: 11 }, at(9))).rejects.toThrow("conflict");
   });
 
+  it.each([null, at(1)])("completes before or after publisher persistence, preserving publishedAt=%s", async (publishedAt) => {
+    const db = database(); db.batch.publishedAt = publishedAt; db.batch.status = publishedAt ? "published" : "pending"; db.child.status = "online";
+    const { fixtureId: _, ...completed } = completion();
+    await new MonitoringRefreshIngestionService(db as never).completeBatch(mqttTopicsV2.fixturePresenceCheckCompleted(ids.siteId, ids.gatewayId), completed, at(8));
+    expect(db.batch).toMatchObject({ status: "completed", publishedAt: publishedAt ?? at(8), completedAt: at(8) });
+    expect(db.refresh.status).toBe("completed");
+  });
+
   it("acknowledges expired child truth without rewriting terminal aggregates", async () => {
     const db = database(); db.refresh.status = "expired"; db.batch.status = "expired"; db.child.status = "unverified";
     const { fixtureId: _, ...completed } = completion();
-    await new MonitoringRefreshIngestionService(db as never).completeBatch(mqttTopicsV2.fixturePresenceCheckCompleted(ids.siteId, ids.gatewayId), completed, at(40));
+    const service = new MonitoringRefreshIngestionService(db as never);
+    const completionTopic = mqttTopicsV2.fixturePresenceCheckCompleted(ids.siteId, ids.gatewayId);
+    const expected = { ack: { siteId: ids.siteId, gatewayId: ids.gatewayId, refreshId: ids.refreshId, batchId: ids.batchId } };
+    await expect(service.completeBatch(completionTopic, completed, at(40))).resolves.toEqual(expected);
+    await expect(service.completeBatch(completionTopic, completed, at(41))).resolves.toEqual(expected);
+    await expect(service.completeBatch(completionTopic, { ...completed, sequence: 11 }, at(42))).rejects.toThrow("conflict");
+    expect(db.monitoringRefreshBatch.update).not.toHaveBeenCalled();
+    expect(db.monitoringRefresh.updateMany).not.toHaveBeenCalled();
     expect(db.refresh.status).toBe("expired"); expect(db.batch.status).toBe("expired");
   });
 });
@@ -122,7 +138,7 @@ function database(): any {
     site: { id: ids.siteId, gatewayOfflineAfterSeconds: 90, fixtureStaleAfterSeconds: 1200 },
     gateway: { id: ids.gatewayId, lastHeartbeatAt: at(0) },
     refresh: { id: ids.refreshId, siteId: ids.siteId, floorId: "floor", status: "pending", totalFixtures: 1, createdAt: at(0), deadlineAt: at(30) },
-    batch: { id: ids.batchId, siteId: ids.siteId, refreshId: ids.refreshId, gatewayId: ids.gatewayId, status: "published", targetFixtureIds: [ids.fixtureId] },
+    batch: { id: ids.batchId, siteId: ids.siteId, refreshId: ids.refreshId, gatewayId: ids.gatewayId, status: "published", publishedAt: at(1), completedAt: null, targetFixtureIds: [ids.fixtureId] },
     child: { ...ids, status: "pending", errorCode: null, observedAt: null }, ledger: new Map(), watermark: null,
     $executeRaw: jest.fn().mockResolvedValue(1)
   };

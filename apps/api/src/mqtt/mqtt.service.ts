@@ -59,7 +59,9 @@ const MQTT_FORCE_CLOSE_TIMEOUT_MS = 1_000;
 const MQTT_GATEWAY_INBOUND_QUEUE_CAPACITY = 256;
 
 function isDurableFixtureObservationTopic(topic: string) {
-  return topic.endsWith("/state/fixtures") || topic.endsWith("/state/fixture-presence") || topic.endsWith("/state/fixture-unreachable");
+  const scope = parseGatewayTopic(topic);
+  return topic.endsWith("/state/fixtures") || topic.endsWith("/state/fixture-presence") ||
+    Boolean(scope && topic === mqttTopicsV2.fixtureUnreachable(scope.siteId, scope.gatewayId));
 }
 
 interface LockedCommandDispatch {
@@ -160,6 +162,7 @@ export class MqttService implements OnModuleInit {
           "sites/+/gateways/+/events/provisioning/scan-found",
           "sites/+/gateways/+/events/identify-result",
           "sites/+/gateways/+/events/fixture-presence-check-completed",
+          mqttTopicsV2.fixtureUnreachable("+", "+"),
           "sites/+/gateways/+/events/provisioning/scan-completed",
           "sites/+/gateways/+/events/provisioning/scan-failed",
           "sites/+/gateways/+/events/provisioning/device-terminal",
@@ -174,7 +177,6 @@ export class MqttService implements OnModuleInit {
       client.subscribe([
         "sites/+/gateways/+/state/fixtures",
         "sites/+/gateways/+/state/fixture-presence",
-        "sites/+/gateways/+/state/fixture-unreachable",
         "sites/+/gateways/+/state/heartbeat"
       ], { qos: 1 });
       client.subscribe([
@@ -664,7 +666,7 @@ export class MqttService implements OnModuleInit {
     const scope = parseGatewayTopic(topic);
     if (scope?.channel === "state/fixtures") return this.ingestFixtureStatePacket(topic, payload, receivedAt);
     if (scope?.channel === "state/fixture-presence") return this.ingestFixturePresencePacket(topic, payload, receivedAt);
-    if (scope?.channel === "state/fixture-unreachable") {
+    if (scope && topic === mqttTopicsV2.fixtureUnreachable(scope.siteId, scope.gatewayId)) {
       const result = await this.monitoringRefreshIngestion.ingestUnreachable(topic, JSON.parse(payload.toString()), receivedAt);
       return { scope, acknowledgement: applicationStateIngestedAckV2Schema.parse({ ...result, ingestedAt: new Date().toISOString() }) };
     }

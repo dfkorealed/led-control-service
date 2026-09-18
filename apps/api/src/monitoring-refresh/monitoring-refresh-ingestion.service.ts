@@ -94,12 +94,21 @@ export class MonitoringRefreshIngestionService {
       if (ordering !== "ingested" && ordering !== "duplicate") throw new Error("monitoring refresh completion ordering rejected");
       if (ordering === "ingested") {
         if (refresh.status === "pending" && ["pending", "published"].includes(batch.status)) {
-          await tx.monitoringRefreshBatch.update({ where: { id: batch.id }, data: { status: "completed", completedAt: now } });
+          // A Gateway can finish before the publisher persists its broker PUBACK.
+          // The validated completion proves delivery by this server receipt time;
+          // fill only a missing publication time under the shared Refresh lock.
+          await tx.monitoringRefreshBatch.update({ where: { id: batch.id }, data: {
+            status: "completed", publishedAt: batch.publishedAt ?? now, completedAt: now
+          } });
           const remaining = await tx.monitoringRefreshBatch.count({ where: { refreshId: refresh.id, status: { in: ["pending", "published"] } } });
           if (remaining === 0) await finalizeResolvedMonitoringRefresh(tx, refresh.id, now, "failed");
         }
         await tx.mqttOutbox.deleteMany({ where: { monitoringRefreshBatchId: batch.id } });
       }
+      // Expiry may already have made every child durably unverified. An exact,
+      // validated completion (including its replay) may then retire the Gateway
+      // journal without reopening expired state. Pending/invalid results above
+      // throw before this ACK so delivery remains retryable/fail-closed.
       return { ack: { siteId: event.siteId, gatewayId: event.gatewayId, refreshId: event.refreshId, batchId: event.batchId } };
     }, { maxWait: 2000, timeout: 10_000 });
   }

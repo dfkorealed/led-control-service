@@ -5,19 +5,47 @@ import { FixturePresenceIngestionService } from "../fixtures/fixture-presence-in
 import { FixtureStateIngestionService } from "../energy/fixture-state-ingestion.service";
 import { MonitoringRefreshIngestionService } from "./monitoring-refresh-ingestion.service";
 import { MonitoringRefreshExpiryService } from "./monitoring-refresh-expiry.service";
+import { disposablePostgres } from "../../test/support/disposable-postgres";
 
-const databaseUrl = process.env.MONITORING_REFRESH_TEST_DATABASE_URL ?? process.env.MONITORING_INCIDENTS_TEST_DATABASE_URL;
+let databaseUrl = process.env.MONITORING_REFRESH_TEST_DATABASE_URL ?? process.env.MONITORING_INCIDENTS_TEST_DATABASE_URL;
+const selfOwnedDatabase = process.env.MONITORING_REFRESH_DISPOSABLE_POSTGRES === "1";
 const at = (seconds: number) => new Date(Date.UTC(2026, 8, 15, 8, 0, seconds));
 
-(databaseUrl ? describe : describe.skip)("monitoring refresh PostgreSQL lifecycle (requires MONITORING_REFRESH_TEST_DATABASE_URL)", () => {
+(databaseUrl || selfOwnedDatabase ? describe : describe.skip)("monitoring refresh PostgreSQL lifecycle (requires test URL or explicit disposable opt-in)", () => {
   let prisma: PrismaClient;
+  let cluster: Awaited<ReturnType<typeof disposablePostgres>> | undefined;
   const siteIds: string[] = [], organizationIds: string[] = [];
-  beforeAll(() => { prisma = new PrismaClient({ datasources: { db: { url: databaseUrl! } } }); });
+  beforeAll(async () => {
+    if (selfOwnedDatabase) {
+      cluster = await disposablePostgres();
+      databaseUrl = cluster.database();
+      const deployed = cluster.deploy(databaseUrl);
+      expect(deployed.status).toBe(0);
+    }
+    prisma = new PrismaClient({ datasources: { db: { url: databaseUrl! } } });
+  }, 40_000);
   afterEach(async () => {
     await prisma.site.deleteMany({ where: { id: { in: siteIds.splice(0) } } });
     await prisma.organization.deleteMany({ where: { id: { in: organizationIds.splice(0) } } });
   });
-  afterAll(async () => { await prisma?.$disconnect(); });
+  afterAll(async () => { await prisma?.$disconnect(); cluster?.stop(); });
+
+  it("seeds a published batch satisfying the deployed lifecycle CHECK", async () => {
+    const setup = await seed();
+    expect(await prisma.monitoringRefreshBatch.findUniqueOrThrow({ where: { id: setup.scope.batchId } }))
+      .toMatchObject({ status: "published", publishedAt: at(1), completedAt: null });
+  });
+
+  it("commits early completion before publisher PUBACK persistence without violating the lifecycle CHECK", async () => {
+    const setup = await seed();
+    await prisma.monitoringRefreshBatch.update({ where: { id: setup.scope.batchId }, data: { status: "pending", publishedAt: null } });
+    await prisma.monitoringRefreshFixture.updateMany({ where: { refreshId: setup.scope.refreshId }, data: { status: "online", observedAt: at(2) } });
+    const result = await new MonitoringRefreshIngestionService(prisma as never).completeBatch(setup.completionTopic, setup.completed(), at(4));
+    expect(result).toEqual({ ack: setup.scope });
+    expect(await prisma.monitoringRefreshBatch.findUniqueOrThrow({ where: { id: setup.scope.batchId } }))
+      .toMatchObject({ status: "completed", publishedAt: at(4), completedAt: at(4) });
+    expect(await prisma.mqttOutbox.count({ where: { monitoringRefreshBatchId: setup.scope.batchId } })).toBe(0);
+  });
 
   it.each(["presence", "state"])("converges %s success plus unreachable and recovers without a correlation", async (kind) => {
     const setup = await seed();
@@ -38,6 +66,8 @@ const at = (seconds: number) => new Date(Date.UTC(2026, 8, 15, 8, 0, seconds));
     await Promise.all([service.ingestUnreachable(setup.unreachableTopic, unreachable, at(3)), service.ingestUnreachable(setup.unreachableTopic, unreachable, at(3))]);
     await service.completeBatch(setup.completionTopic, completed, at(4));
     await service.completeBatch(setup.completionTopic, completed, at(5));
+    expect(await prisma.monitoringRefreshBatch.findUniqueOrThrow({ where: { id: setup.scope.batchId } }))
+      .toMatchObject({ status: "completed", publishedAt: at(1) });
     expect(await prisma.monitoringRefresh.findUniqueOrThrow({ where: { id: setup.scope.refreshId } })).toMatchObject({
       status: "completed", onlineFixtures: 1, offlineFixtures: 1, unverifiedFixtures: 0
     });
@@ -73,7 +103,9 @@ const at = (seconds: number) => new Date(Date.UTC(2026, 8, 15, 8, 0, seconds));
       new MonitoringRefreshExpiryService(prisma as never).expire(at(31)),
       service.ingestUnreachable(setup.unreachableTopic, setup.unreachable(), at(31))
     ]);
-    await service.completeBatch(setup.completionTopic, setup.completed(), at(32));
+    const completed = setup.completed();
+    await expect(service.completeBatch(setup.completionTopic, completed, at(32))).resolves.toEqual({ ack: setup.scope });
+    await expect(service.completeBatch(setup.completionTopic, completed, at(33))).resolves.toEqual({ ack: setup.scope });
     expect(await prisma.monitoringRefresh.findUniqueOrThrow({ where: { id: setup.scope.refreshId } })).toMatchObject({ status: "expired", unverifiedFixtures: 2 });
     expect(await prisma.fixture.count({ where: { siteId: setup.scope.siteId, status: "online", lastUnreachableAt: null } })).toBe(2);
   });
@@ -81,7 +113,7 @@ const at = (seconds: number) => new Date(Date.UTC(2026, 8, 15, 8, 0, seconds));
   async function seed() {
     const organization = await prisma.organization.create({ data: { name: "refresh ingestion test", type: "customer" } });
     organizationIds.push(organization.id);
-    const site = await prisma.site.create({ data: { organizationId: organization.id, name: "refresh test" } }); siteIds.push(site.id);
+    const site = await prisma.site.create({ data: { organizationId: organization.id, name: "refresh test", timeZone: "Asia/Seoul", tariffKwhRate: 120 } }); siteIds.push(site.id);
     const floor = await prisma.floor.create({ data: { siteId: site.id, name: "floor", level: 1 } });
     const gateway = await prisma.gateway.create({ data: { siteId: site.id, name: "gateway", serialNumber: randomUUID(), firmwareVersion: "test", lastHeartbeatAt: at(0) } });
     const fixtures: Array<{ id: string }> = [];
@@ -96,7 +128,7 @@ const at = (seconds: number) => new Date(Date.UTC(2026, 8, 15, 8, 0, seconds));
     const refresh = await prisma.monitoringRefresh.create({ data: { siteId: site.id, floorId: floor.id, clientRequestId: randomUUID(),
       totalFixtures: 2, deadlineAt: at(30), createdAt: at(0) } });
     const batch = await prisma.monitoringRefreshBatch.create({ data: { refreshId: refresh.id, siteId: site.id, gatewayId: gateway.id,
-      sequence: 1, idempotencyKey: randomUUID(), targetFixtureIds: fixtures.map(({ id }) => id), status: "published" } });
+      sequence: 1, idempotencyKey: randomUUID(), targetFixtureIds: fixtures.map(({ id }) => id), status: "published", publishedAt: at(1) } });
     await prisma.monitoringRefreshFixture.createMany({ data: fixtures.map(({ id }) => ({ refreshId: refresh.id, batchId: batch.id, fixtureId: id, siteId: site.id })) });
     await prisma.mqttOutbox.create({ data: { monitoringRefreshBatchId: batch.id, topic: "test", payload: {} } });
     const scope = { siteId: site.id, gatewayId: gateway.id, refreshId: refresh.id, batchId: batch.id };

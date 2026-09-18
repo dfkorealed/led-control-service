@@ -2,6 +2,7 @@ import { gatewayEventWatermarkMock } from "../../test/support/gateway-event-wate
 import { Logger } from "@nestjs/common";
 import { EventEmitter } from "node:events";
 import { createMqttConnectionOptions, MqttService } from "./mqtt.service";
+import { mqttTopicsV2 } from "@led-control/shared";
 
 jest.mock("node:fs", () => ({ readFileSync: jest.fn(() => Buffer.from("test-certificate")) }));
 
@@ -19,7 +20,8 @@ describe("MqttService", () => {
     const client: any = new EventEmitter(); client.subscribe = jest.fn(); client.stream = { destroy: jest.fn() };
     client.publish = jest.fn((_topic, _payload, _options, callback) => { order.push("publish"); callback(); });
     (service as any).client = client; service.onModuleInit();
-    const topic = `sites/${siteId}/gateways/${gatewayId}/${kind === "unreachable" ? "state/fixture-unreachable" : "events/fixture-presence-check-completed"}`;
+    const topic = kind === "unreachable" ? mqttTopicsV2.fixtureUnreachable(siteId, gatewayId)
+      : mqttTopicsV2.fixturePresenceCheckCompleted(siteId, gatewayId);
     const payload = Buffer.from("{}"), packet = { qos: 1, topic, payload };
     const done = jest.fn(() => { order.push("puback"); client.emit("message", topic, payload, packet); });
     (service as any).createCustomHandleAcks()(topic, payload, packet, done);
@@ -589,7 +591,7 @@ describe("MqttService", () => {
       expect.arrayContaining(["sites/+/gateways/+/state/fixture-presence"]),
       { qos: 1 }
     );
-    expect(subscribe).toHaveBeenCalledWith(expect.arrayContaining(["sites/+/gateways/+/state/fixture-unreachable"]), { qos: 1 });
+    expect(subscribe).toHaveBeenCalledWith(expect.arrayContaining([mqttTopicsV2.fixtureUnreachable("+", "+")]), { qos: 1 });
     expect(subscribe).toHaveBeenCalledWith(expect.arrayContaining(["sites/+/gateways/+/events/fixture-presence-check-completed"]), { qos: 1 });
   });
 
