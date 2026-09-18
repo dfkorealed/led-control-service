@@ -18,7 +18,15 @@ import { FixedLightingDetectorRegistry, PROVIDED_SAMPLE_DWG_SHA256 } from "./lig
 const sample = process.env.CAD_SAMPLE_DWG_PATH;
 const converterPath = process.env.CAD_SAMPLE_CONVERTER_PATH;
 const converterArgvJson = process.env.CAD_SAMPLE_CONVERTER_ARGV_JSON;
-const enabled = Boolean(sample && converterPath && converterArgvJson && process.env.RUN_OBJECT_STORAGE_INTEGRATION === "true");
+const sampleEnvironmentCount = [sample, converterPath, converterArgvJson].filter(value => value !== undefined).length;
+if (sampleEnvironmentCount > 0 &&
+    (sampleEnvironmentCount !== 3 || process.env.RUN_OBJECT_STORAGE_INTEGRATION !== "true")) {
+  throw new Error(
+    "CAD sample integration requires CAD_SAMPLE_DWG_PATH, CAD_SAMPLE_CONVERTER_PATH, " +
+    "CAD_SAMPLE_CONVERTER_ARGV_JSON and RUN_OBJECT_STORAGE_INTEGRATION=true together"
+  );
+}
+const enabled = sampleEnvironmentCount === 3;
 
 (enabled ? describe : describe.skip)("provided CAD sample worker/storage/DB/API pipeline", () => {
   jest.setTimeout(240_000);

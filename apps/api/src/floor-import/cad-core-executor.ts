@@ -1,11 +1,20 @@
 import { fork } from "node:child_process";
+import { Buffer } from "node:buffer";
 import { join } from "node:path";
 import type { CadImportDetectorProfileId } from "./lighting-detector-registry";
 import type { CadSvgFileResult } from "./cad-svg-renderer";
 import type { CadCandidateSvgTransformMatch } from "./cad-viewport";
-import { CAD_CORE_MAX_OLD_SPACE_MB } from "./cad-runtime-contract";
+import { CAD_RENDERED_SVG_RAW_MAX_BYTES } from "./cad-resource-limits";
+import {
+  CAD_CGROUP_MEMORY_BYTES,
+  CAD_CORE_MAX_OLD_SPACE_MB,
+  CAD_CORE_RESPONSE_MAX_BYTES,
+  CAD_MAX_PARSED_ENTITIES,
+  CAD_MAX_UNSUPPORTED_ENTITY_TYPE_BYTES,
+  CAD_MAX_UNSUPPORTED_ENTITY_TYPES
+} from "./cad-runtime-contract";
 
-export { CAD_CORE_MAX_OLD_SPACE_MB } from "./cad-runtime-contract";
+export { CAD_CORE_MAX_OLD_SPACE_MB, CAD_CORE_RESPONSE_MAX_BYTES } from "./cad-runtime-contract";
 export const CAD_CORE_WALL_TIMEOUT_MS = 60_000;
 const MAX_CHILD_ERROR_BYTES = 64 * 1024;
 const MAX_CANDIDATES = 2_000;
@@ -78,11 +87,13 @@ export class ChildProcessCadCoreExecutor implements CadCoreExecutor {
       const child = fork(this.entryPath, [], {
         execArgv: [`--max-old-space-size=${this.maxOldSpaceMb}`],
         serialization: "advanced",
-        stdio: ["ignore", "ignore", "pipe", "ipc"],
+        stdio: ["ignore", "pipe", "pipe", "ipc"],
         env: { PATH: process.env.PATH, NODE_ENV: "production" }
       });
       let settled = false;
       let stderrBytes = 0;
+      let responseBytes = 0;
+      const responseChunks: Buffer[] = [];
       child.stderr?.on("data", (chunk: Buffer) => {
         stderrBytes += chunk.length;
         if (stderrBytes > MAX_CHILD_ERROR_BYTES) child.kill("SIGKILL");
@@ -101,10 +112,26 @@ export class ChildProcessCadCoreExecutor implements CadCoreExecutor {
       timer.unref();
       request.abortSignal?.addEventListener("abort", abort, { once: true });
       child.once("error", () => finish(new Error("CAD core child process failed")));
-      child.once("exit", (code, signal) => {
+      child.once("close", (code, signal) => {
         if (!settled) finish(new Error(`CAD core child process failed (${signal ?? code ?? "unknown"})`));
       });
-      child.on("message", (message: ChildResponse) => {
+      child.stdout?.on("data", (chunk: Buffer) => {
+        responseBytes += chunk.length;
+        if (responseBytes > CAD_CORE_RESPONSE_MAX_BYTES) {
+          finish(new Error("CAD core child response byte limit exceeded"));
+          return;
+        }
+        responseChunks.push(chunk);
+      });
+      child.stdout?.once("end", () => {
+        if (settled) return;
+        let message: ChildResponse;
+        try {
+          message = JSON.parse(Buffer.concat(responseChunks, responseBytes).toString("utf8")) as ChildResponse;
+        } catch {
+          finish(new Error("CAD core child process returned an invalid response"));
+          return;
+        }
         if (!message || typeof message !== "object" || !("ok" in message)) {
           finish(new Error("CAD core child process returned an invalid response"));
         } else if (!message.ok) {
@@ -131,19 +158,30 @@ export class ChildProcessCadCoreExecutor implements CadCoreExecutor {
   }
 }
 
-function assertCoreManifest(result: CadCoreResult, requestedProfileId: CadImportDetectorProfileId): void {
+export function encodeCadCoreResponse(
+  response: ChildResponse,
+  requestedProfileId: CadImportDetectorProfileId
+): Buffer {
+  if (response.ok) assertCoreManifest(response.result, requestedProfileId);
+  const encoded = Buffer.from(JSON.stringify(response), "utf8");
+  if (encoded.length > CAD_CORE_RESPONSE_MAX_BYTES) throw new Error("CAD core child response byte limit exceeded");
+  return encoded;
+}
+
+export function assertCoreManifest(result: CadCoreResult, requestedProfileId: CadImportDetectorProfileId): void {
   if (!result || result.profileId !== requestedProfileId || typeof result.profileVersion !== "string" ||
-      result.profileVersion.length < 1 || result.profileVersion.length > 128 ||
+      utf8Length(result.profileVersion) < 1 || utf8Length(result.profileVersion) > 128 ||
       !/^[a-f0-9]{64}$/.test(result.profileDigest) || !Number.isSafeInteger(result.modelEntityCount) ||
-      result.modelEntityCount < 0 || !Number.isSafeInteger(result.blockCount) || result.blockCount < 0 ||
+      result.modelEntityCount < 0 || result.modelEntityCount > CAD_MAX_PARSED_ENTITIES ||
+      !Number.isSafeInteger(result.blockCount) || result.blockCount < 0 || result.blockCount > 100_000 ||
       !Array.isArray(result.candidates) ||
       result.candidates.length > MAX_CANDIDATES) throw new Error("invalid core manifest");
   const identities = new Set<string>();
   for (const candidate of result.candidates) {
-    if (!candidate || typeof candidate.sourceEntityId !== "string" || candidate.sourceEntityId.length < 1 ||
-        candidate.sourceEntityId.length > 512 || typeof candidate.layerName !== "string" ||
-        candidate.layerName.length < 1 || candidate.layerName.length > 512 || typeof candidate.blockName !== "string" ||
-        candidate.blockName.length > 512 || !Number.isFinite(candidate.x) || candidate.x < 0 ||
+    if (!candidate || typeof candidate.sourceEntityId !== "string" || utf8Length(candidate.sourceEntityId) < 1 ||
+        utf8Length(candidate.sourceEntityId) > 512 || typeof candidate.layerName !== "string" ||
+        utf8Length(candidate.layerName) < 1 || utf8Length(candidate.layerName) > 512 || typeof candidate.blockName !== "string" ||
+        utf8Length(candidate.blockName) > 512 || !Number.isFinite(candidate.x) || candidate.x < 0 ||
         !Number.isFinite(candidate.y) || candidate.y < 0 || !Number.isFinite(candidate.rotation) ||
         !Number.isFinite(candidate.confidence) || candidate.confidence < 0 || candidate.confidence > 1 ||
         (candidate.method !== "rule" && candidate.method !== "ai")) throw new Error("invalid core manifest");
@@ -156,6 +194,8 @@ function assertCoreManifest(result: CadCoreResult, requestedProfileId: CadImport
     if (candidate.method === "rule" && (candidate.provider || candidate.model || candidate.inputDigest)) {
       throw new Error("invalid core manifest");
     }
+    if (candidate.provider && utf8Length(candidate.provider) > 128 ||
+        candidate.model && utf8Length(candidate.model) > 128) throw new Error("invalid core manifest");
     if (candidate.inputDigest && !/^[a-f0-9]{64}$/.test(candidate.inputDigest)) throw new Error("invalid core manifest");
   }
   const transform = result.candidateTransformMatch;
@@ -169,9 +209,38 @@ function assertCoreManifest(result: CadCoreResult, requestedProfileId: CadImport
   const rendered = result.rendered;
   if (!rendered || !Number.isSafeInteger(rendered.sizeBytes) || rendered.sizeBytes < 1 ||
       rendered.sizeBytes > MAX_RENDERED_BYTES || !Number.isSafeInteger(rendered.rawSizeBytes) || rendered.rawSizeBytes < 1 ||
+      rendered.rawSizeBytes > CAD_RENDERED_SVG_RAW_MAX_BYTES ||
       !/^[a-f0-9]{64}$/.test(rendered.sha256) || rendered.contentEncoding !== "gzip" ||
       !Number.isSafeInteger(rendered.viewport?.width) || rendered.viewport.width < 1 ||
-      !Number.isSafeInteger(rendered.viewport?.height) || rendered.viewport.height < 1) throw new Error("invalid core manifest");
+      rendered.viewport.width > 2_400 || !Number.isSafeInteger(rendered.viewport?.height) || rendered.viewport.height < 1 ||
+      rendered.viewport.height > 1_600 || !Number.isSafeInteger(rendered.renderedOccurrences) || rendered.renderedOccurrences < 0 ||
+      rendered.renderedOccurrences > CAD_MAX_PARSED_ENTITIES ||
+      !Number.isSafeInteger(rendered.excludedEntityCount) || rendered.excludedEntityCount! < 0 ||
+      rendered.excludedEntityCount! > CAD_MAX_PARSED_ENTITIES) throw new Error("invalid core manifest");
+  for (const candidate of result.candidates) {
+    if (candidate.x > rendered.viewport.width || candidate.y > rendered.viewport.height) throw new Error("invalid core manifest");
+  }
+  const unsupported = rendered.unsupportedEntityCounts;
+  if (!unsupported || typeof unsupported !== "object" || Array.isArray(unsupported)) throw new Error("invalid core manifest");
+  const unsupportedEntries = Object.entries(unsupported);
+  if (unsupportedEntries.length > CAD_MAX_UNSUPPORTED_ENTITY_TYPES) throw new Error("invalid core manifest");
+  let unsupportedOccurrences = 0;
+  for (const [type, count] of unsupportedEntries) {
+    if (utf8Length(type) < 1 || utf8Length(type) > CAD_MAX_UNSUPPORTED_ENTITY_TYPE_BYTES ||
+        type !== type.trim().toUpperCase() || !/^[A-Z0-9_$-]+$/.test(type) ||
+        !Number.isSafeInteger(count) || count < 1) throw new Error("invalid core manifest");
+    unsupportedOccurrences += count;
+    if (!Number.isSafeInteger(unsupportedOccurrences) || unsupportedOccurrences > CAD_MAX_PARSED_ENTITIES) {
+      throw new Error("invalid core manifest");
+    }
+  }
+  if (result.observedMaxRssBytes !== undefined &&
+      (!Number.isSafeInteger(result.observedMaxRssBytes) || result.observedMaxRssBytes < 1 ||
+       result.observedMaxRssBytes > CAD_CGROUP_MEMORY_BYTES)) throw new Error("invalid core manifest");
+}
+
+function utf8Length(value: string): number {
+  return Buffer.byteLength(value, "utf8");
 }
 
 function configuredHeap(): number {

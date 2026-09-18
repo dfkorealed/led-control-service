@@ -6,9 +6,10 @@
 
 - 후보 0개와 상한 2,000개 CAD 적용은 실제 PostgreSQL transaction에서 성공했고, revision `changeSummary`와 audit metadata의 교체 수량이 정확히 일치했다.
 - 제공 DWG는 실제 `dwgread -> 제품 child core -> worker -> PostgreSQL -> MinIO -> API` 경로에서 `review_required / 100%`에 도달했다. 저장한 gzip SVG를 signed URL로 다시 받아 Sharp로 SVG 디코딩했다.
-- 브라우저 사용자 여정은 mock API를 사용하되 파일 선택, polling, 확인 팝업, drag/drop, 저장, 모니터링 이동을 실제 Chromium 사용자 이벤트로 수행했다.
+- 브라우저 사용자 여정은 mock API를 사용하되 저장 요청의 fixture/slot assignment를 그대로 반영하고, reload 영속성과 revision 3 snapshot의 CAD 배경·slot 좌표 우선순위를 실제 Chromium에서 확인했다.
 - Task 7 최대 부하인 조명 1,000개, 슬롯 2,000개, 도형 2,000개는 기존 성능 예산을 통과했다.
 - 제공 DWG에는 조명 ground truth가 없으므로 후보 1,308개를 정확도 퍼센트로 표현하지 않는다.
+- child 결과는 최대 8 MiB stdout JSON transport로만 받으며 parent가 JSON 역직렬화 전에 byte 수를 제한한다. unsupported type은 이름당 64 UTF-8 bytes, 최대 64종으로 제한하고 parser retained/output 예산과 child/parent manifest 검증에 포함한다.
 
 ## 실행 환경
 
@@ -29,6 +30,8 @@
 3. 실제 SVG matrix를 6자리로 직렬화할 때 넓은 도면에서 최대 약 7.241px 좌표 편차가 발생하는 RED를 확인했다. matrix 정밀도를 12자리로 높이고 제품 child manifest가 후보 전체의 0.01px 이내 일치를 증명하도록 했다.
 4. 일치 증거의 후보 수, 일치 수, 비율, 허용 오차, 최대 편차가 서로 모순되면 child manifest를 거부하는 회귀를 추가했다.
 5. 기존 맵 교체부터 모니터링 반영까지 한 번에 검증하는 Chromium E2E를 추가했다.
+6. 수정 라운드 1 RED에서 65-byte/65종 unsupported marker, metadata output budget, 65종 manifest, 8 MiB 초과 child 응답이 거부되지 않음을 확인했다. parser와 child manifest를 같은 상한으로 묶고 bounded stdout transport로 parent가 JSON parse 전에 차단하도록 수정했다.
+7. 부분 sample 환경변수가 suite 전체를 skip하는 기존 동작을 RED로 확인했다. 전용 실행기는 ignored `dist`를 먼저 삭제하고 현재 API source를 build한 뒤 sample test를 실행하며, 일부 환경변수만 주어지면 명시적으로 실패한다.
 
 ## 실제 DWG 파이프라인
 
@@ -39,8 +42,7 @@ CAD_SAMPLE_DWG_PATH="/Users/kim-jh/Downloads/2단지지하주차장전등설비�
 CAD_SAMPLE_CONVERTER_PATH=/opt/homebrew/bin/dwgread \
 CAD_SAMPLE_CONVERTER_ARGV_JSON='["-O","DXF","-o","{output}","{input}"]' \
 RUN_OBJECT_STORAGE_INTEGRATION=true \
-pnpm --filter @led-control/api exec jest \
-  src/floor-import/cad-sample-pipeline.integration.spec.ts --runInBand
+pnpm test:cad-sample
 ```
 
 | 항목 | 실제 결과 |
@@ -80,8 +82,10 @@ pnpm --filter @led-control/api exec jest \
 3. 후보 2개 검토 후 맵 초기화 팝업 취소, apply 미호출 확인
 4. 다시 팝업을 열어 적용, 기존 도형 삭제·조명 미배치·신규 슬롯 2개 확인
 5. 새로고침 후 미배치 목록과 1200 x 800 CAD 맵 확인
-6. 두 조명을 각각 슬롯에 drag/drop하고 저장, slot assignment 확인
-7. 모니터링으로 이동해 두 조명 marker와 최신 map snapshot 확인
+6. 두 조명을 각각 슬롯에 drag/drop하고 저장, PUT의 fixture update 2건과 `slotAssignments`의 slot/fixture ID 2건을 literal로 확인
+7. 저장 후 편집 화면을 reload해 두 assignment가 유지됨을 확인
+8. 모니터링 runtime에는 의도적으로 `(900,700)/(950,700), unplaced`를 주고 revision 3 snapshot에는 `(200,180)/(400,180), placed`를 제공해 snapshot 좌표가 우선함을 실제 marker pixel 중심으로 확인
+9. CAD rendered asset 이미지가 `1200 x 800`으로 decode되고 monitoring에 표시됨을 확인
 
 이 브라우저 테스트의 API는 deterministic route fixture다. 실행 당시 real backend lab Web(`127.0.0.1:15173`)이 없고 API health(`127.0.0.1:4000/health/live`)도 정상 응답하지 않아 `floor-placement-real.spec.ts`는 실행하지 않았다. 대신 위 실제 DWG 통합 테스트가 converter, worker, PostgreSQL, MinIO, API 경계를 별도로 검증한다.
 
@@ -91,19 +95,19 @@ pnpm --filter @led-control/api exec jest \
 
 | 지표 | 결과 | 예산 |
 | --- | ---: | ---: |
-| painted canvas-ready 20회 nearest-rank p95 | 806.9ms | 3,000ms 이하 |
+| painted canvas-ready 20회 nearest-rank p95 | 866.3ms | 3,000ms 이하 |
 | Stage layer 수 / 이미지 decode | 4 / URL당 1회 | 5 이하 / 1회 |
-| pan/zoom frame p95 | 10.0ms | 50ms 이하 |
-| 최대 frame | 17.9ms | 100ms 이하 |
-| pointer-up -> store/Konva/paint 반영 p95 | 40.4ms | 100ms 이하 |
-| mock 저장 | 342ms | 3,000ms 이하 |
+| pan/zoom frame p95 | 9.2ms | 33ms 이하 |
+| 최대 frame | 25.5ms | 250ms 이하 |
+| pointer-up -> store/Konva/paint 반영 p95 | 37.3ms | 100ms 이하 |
+| mock 저장 | 349ms | 3,000ms 이하 |
 
 ## 전체 검증
 
 - Shared: 15 files, 249 tests 통과; typecheck/build 통과
-- API: 166 suites, 1,993 tests 통과, 환경 의존 503 tests skip; typecheck/build 통과
+- API: 166 suites, 1,997 tests 통과, 환경 의존 503 tests skip; typecheck/build 통과
 - Web: 100 files, 1,437 tests 직렬 실행 통과; typecheck/production build 통과
-- CAD 집중: viewport/core 10 tests, PostgreSQL lifecycle 14 tests, 실제 sample 1 test 통과
+- CAD 집중: parser/core bounded manifest 56 tests, PostgreSQL lifecycle 14 tests, 실제 sample clean-build 1 test 통과
 - Chromium: CAD 전체 여정 1 test, 최대 부하 2 tests 통과
 - 첫 Web 병렬 전체 실행은 통계 화면 이동 테스트 1건이 5초 안에 문구를 찾지 못했지만 같은 테스트 단독 실행과 전체 직렬 실행에서는 통과했다. 제품/테스트 코드는 변경하지 않았다.
 

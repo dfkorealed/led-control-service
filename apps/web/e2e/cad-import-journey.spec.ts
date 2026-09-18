@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Route } from "@playwright/test";
+import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
 import type { FloorEditorState, FloorImportJob } from "../src/features/floor-editor/editor-types";
 
 const now = "2026-09-18T00:00:00.000Z";
@@ -75,13 +75,37 @@ test("기존 맵을 CAD로 교체하고 두 조명을 슬롯에 배치해 저장
   await page.getByRole("button", { name: "저장", exact: true }).click();
   await expect(page.getByRole("button", { name: "저장", exact: true })).toBeDisabled();
   await expect.poll(() => api.savePayloads()).toHaveLength(1);
+  expect(api.savePayloads()[0]).toMatchObject({
+    expectedRevision: 2,
+    fixtureUpdates: [
+      { id: "fixture-1", x: 200, y: 180, placementStatus: "placed" },
+      { id: "fixture-2", x: 400, y: 180, placementStatus: "placed" }
+    ],
+    slotAssignments: [
+      { slotId: "slot-1", assignedFixtureId: "fixture-1" },
+      { slotId: "slot-2", assignedFixtureId: "fixture-2" }
+    ]
+  });
   expect(api.state().lightSlots.map(slot => slot.assignedFixtureId)).toEqual(["fixture-1", "fixture-2"]);
 
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(page.getByRole("heading", { name: "B1 맵 편집" })).toBeVisible();
+  await expect.poll(async () => (await currentState(page)).lightSlots.map(slot => slot.assignedFixtureId))
+    .toEqual(["fixture-1", "fixture-2"]);
+
+  const snapshotResponse = page.waitForResponse(response => response.url().includes("/map-snapshot") && response.status() === 200);
   await page.getByRole("link", { name: "모니터링", exact: true }).click();
   await expect(page).toHaveURL(/\/monitoring\?siteId=site-1$/);
+  expect(await (await snapshotResponse).json()).toMatchObject({ revision: 3, floorPlan: { renderedImageUrl: "/api/floors/floor-1/assets/rendered/content" } });
   await expect(page.getByRole("region", { name: "층 도면" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "B1-L01 정상 70%" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "B1-L02 정상 70%" })).toBeVisible();
+  const renderedPlan = page.getByRole("img", { name: "B1 도면" });
+  await expect(renderedPlan).toHaveAttribute("src", "/api/floors/floor-1/assets/rendered/content");
+  await expect.poll(() => renderedPlan.evaluate((image: HTMLImageElement) => ({ complete: image.complete, width: image.naturalWidth, height: image.naturalHeight })))
+    .toEqual({ complete: true, width: 1200, height: 800 });
+  const firstMarker = page.getByRole("button", { name: "B1-L01 정상 70%" });
+  const secondMarker = page.getByRole("button", { name: "B1-L02 정상 70%" });
+  await expectMarkerAtMapPoint(page, firstMarker, { x: 200, y: 180 });
+  await expectMarkerAtMapPoint(page, secondMarker, { x: 400, y: 180 });
   await expect.poll(() => api.monitoringSnapshotRequests()).toBeGreaterThan(0);
 });
 
@@ -103,7 +127,7 @@ async function installCadJourney(page: Page) {
     if (path === "/auth/me") return json(route, { user: { id: "user-1", organizationId: "org-1", organizationType: "customer", loginId: "admin", name: "관리자", role: "admin", status: "active" } });
     if (path === "/sites") return json(route, [{ id: "site-1", name: "검증 현장" }]);
     if (path === "/sites/site-1/dashboard") return json(route, dashboard(state));
-    if (path === "/sites/site-1/floors/floor-1/fixtures") return json(route, { items: state.fixtures.map(monitoringFixture), nextCursor: null, generatedAt: new Date().toISOString() });
+    if (path === "/sites/site-1/floors/floor-1/fixtures") return json(route, { items: staleMonitoringFixtures(state), nextCursor: null, generatedAt: new Date().toISOString() });
     if (path === "/sites/site-1/floors/floor-1/map-snapshot") {
       monitoringSnapshotRequestCount += 1;
       return json(route, mapSnapshot(state));
@@ -113,9 +137,12 @@ async function installCadJourney(page: Page) {
         const payload = request.postDataJSON();
         savePayloads.push(payload);
         for (const update of payload.fixtureUpdates) Object.assign(state.fixtures.find(fixture => fixture.id === update.id)!, update);
+        const lightSlotUpdates = new Map(
+          payload.slotAssignments.map((update: { slotId: string; assignedFixtureId: string | null }) => [update.slotId, update.assignedFixtureId])
+        );
         state.lightSlots = state.lightSlots.map(slot => ({
           ...slot,
-          assignedFixtureId: state.fixtures.find(fixture => fixture.placementStatus === "placed" && fixture.x === slot.x && fixture.y === slot.y)?.id ?? null
+          assignedFixtureId: lightSlotUpdates.has(slot.id) ? lightSlotUpdates.get(slot.id)! : slot.assignedFixtureId
         }));
         state.floor.mapRevision += 1;
       }
@@ -219,15 +246,24 @@ function floorPlan() {
 }
 
 function dashboard(state: FloorEditorState) {
-  const fixtures = state.fixtures.map(monitoringFixture);
+  const fixtures = staleMonitoringFixtures(state);
   return {
     generatedAt: new Date().toISOString(), monitoringPolicy: { gatewayOfflineAfterSeconds: 90, fixtureStaleAfterSeconds: 1200 },
     capabilities: { read: true, control: true, manage: true, commission: true },
     site: { id: "site-1", name: "검증 현장", customerName: "고객사", installationStatus: "installed", address: null, tariffKwhRate: 160, timeZone: "Asia/Seoul" },
     summary: { totalFixtures: fixtures.length, onlineFixtures: fixtures.length, faultFixtures: 0, averageBrightness: 70 },
-    floors: [{ id: "floor-1", name: "B1", level: -1, floorPlan: state.floor.floorPlan, meshControlGroups: [], fixtures }],
+    floors: [{ id: "floor-1", name: "B1", level: -1, floorPlan: { imageUrl: "/old.svg", width: 800, height: 600, version: 1 }, meshControlGroups: [], fixtures }],
     groups: [], gateways: []
   };
+}
+
+function staleMonitoringFixtures(state: FloorEditorState) {
+  return state.fixtures.map((fixture, index) => monitoringFixture({
+    ...fixture,
+    x: 900 + index * 50,
+    y: 700,
+    placementStatus: "unplaced"
+  }));
 }
 
 function monitoringFixture(fixture: FloorEditorState["fixtures"][number]) {
@@ -242,7 +278,12 @@ function mapSnapshot(state: FloorEditorState) {
   return {
     floorId: "floor-1", revision: state.floor.mapRevision,
     width: state.floor.floorPlan?.width ?? 1200, height: state.floor.floorPlan?.height ?? 800,
-    floorPlan: state.floor.floorPlan, objects: state.objects
+    floorPlan: state.floor.floorPlan, objects: state.objects,
+    fixtures: state.lightSlots.flatMap(slot => {
+      if (!slot.assignedFixtureId) return [];
+      const fixture = state.fixtures.find(candidate => candidate.id === slot.assignedFixtureId);
+      return fixture ? [{ id: fixture.id, name: fixture.name, x: slot.x, y: slot.y, size: fixture.size ?? 20 }] : [];
+    })
   };
 }
 
@@ -251,6 +292,31 @@ async function currentState(page: Page) {
     const { useFloorEditorStore } = await import("/src/features/floor-editor/editor-store.ts");
     return useFloorEditorStore.getState().state as FloorEditorState;
   });
+}
+
+async function expectMarkerAtMapPoint(
+  page: Page,
+  marker: Locator,
+  point: { x: number; y: number }
+) {
+  const actual = await marker.evaluate(element => {
+    const markerBounds = element.getBoundingClientRect();
+    const surfaceElement = element.closest("[data-floor-map-surface]")!;
+    const surface = surfaceElement.getBoundingClientRect();
+    const style = getComputedStyle(surfaceElement);
+    const borderLeft = parseFloat(style.borderLeftWidth);
+    const borderTop = parseFloat(style.borderTopWidth);
+    const borderRight = parseFloat(style.borderRightWidth);
+    const borderBottom = parseFloat(style.borderBottomWidth);
+    return {
+      x: markerBounds.left + markerBounds.width / 2 - surface.left - borderLeft,
+      y: markerBounds.top + markerBounds.height / 2 - surface.top - borderTop,
+      width: surface.width - borderLeft - borderRight,
+      height: surface.height - borderTop - borderBottom
+    };
+  });
+  expect(actual.x).toBeCloseTo(actual.width * point.x / 1200, 0);
+  expect(actual.y).toBeCloseTo(actual.height * point.y / 800, 0);
 }
 
 function json(route: Route, body: unknown, status = 200) {

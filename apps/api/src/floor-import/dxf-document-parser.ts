@@ -4,7 +4,9 @@ import {
   CAD_MAX_PARSED_ENTITIES,
   CAD_MAX_SPLINE_CONTROL_POINTS,
   CAD_MAX_SPLINE_KNOTS,
-  CAD_MAX_SPLINE_SAMPLES_PER_DOCUMENT
+  CAD_MAX_SPLINE_SAMPLES_PER_DOCUMENT,
+  CAD_MAX_UNSUPPORTED_ENTITY_TYPE_BYTES,
+  CAD_MAX_UNSUPPORTED_ENTITY_TYPES
 } from "./cad-runtime-contract";
 import type { CadPoint, CadPolylineVertex, NormalizedCadAttribute, NormalizedCadBlock, NormalizedCadDocument, NormalizedCadEntity, NormalizedCadHatchEdgeLoop, NormalizedCadPolyline } from "./cad-types";
 import { selectPrimaryCadBounds } from "./cad-viewport";
@@ -173,6 +175,7 @@ class DxfDocumentBuilder {
   private readonly sourceEntityIds = new Set<string>();
   private readonly directUnsupportedEntityCounts = new Map<string, number>();
   private readonly blockUnsupportedEntityCounts = new Map<string, Map<string, number>>();
+  private readonly unsupportedEntityTypes = new Set<string>();
   private readonly blocks: NormalizedCadBlock[] = [];
   private readonly entities: NormalizedCadEntity[] = [];
 
@@ -317,6 +320,8 @@ class DxfDocumentBuilder {
   private beginRecord(type: string): void {
     this.rawEntityCount++;
     if (this.rawEntityCount > this.limits.maxEntities) throw new Error("DXF entity limit exceeded");
+    this.currentBodyBytes = 32 + Buffer.byteLength(type, "utf8") * 2;
+    this.assertRetainedBudget();
     this.record = { type, body: [], section: this.section! };
   }
 
@@ -428,9 +433,24 @@ class DxfDocumentBuilder {
   }
 
   private recordUnsupported(type: string): void {
+    const typeBytes = Buffer.byteLength(type, "utf8");
+    if (typeBytes < 1 || typeBytes > CAD_MAX_UNSUPPORTED_ENTITY_TYPE_BYTES) {
+      throw new Error("DXF unsupported entity type byte limit exceeded");
+    }
+    if (!this.unsupportedEntityTypes.has(type)) {
+      if (this.unsupportedEntityTypes.size >= CAD_MAX_UNSUPPORTED_ENTITY_TYPES) {
+        throw new Error("DXF unsupported entity type count limit exceeded");
+      }
+      this.unsupportedEntityTypes.add(type);
+      this.addOutputBytes({ [type]: 0 });
+    }
     const counts = this.currentBlock
       ? this.blockUnsupportedEntityCounts.get(this.currentBlock.name) ?? new Map<string, number>()
       : this.directUnsupportedEntityCounts;
+    if (!counts.has(type)) {
+      this.retainedModelBytes += 96 + typeBytes * 2;
+      this.assertRetainedBudget();
+    }
     counts.set(type, (counts.get(type) ?? 0) + 1);
     if (this.currentBlock) this.blockUnsupportedEntityCounts.set(this.currentBlock.name, counts);
   }

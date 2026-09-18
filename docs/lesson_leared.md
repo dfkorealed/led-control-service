@@ -861,3 +861,10 @@
 - **원인**: 후보 요청 effect가 부모의 inline callback identity를 dependency로 사용했다. busy 상태 변경으로 부모가 다시 렌더링되면 기존 요청은 결과 반영을 취소했지만 `loadedReviewJobId`는 남아 후속 effect도 같은 job을 다시 읽지 않았다.
 - **해결 및 예방책**: 최신 callback은 ref로 참조하고 후보 요청의 생명주기는 floor/job/status로만 결정한다. 콜백 교체는 진행 중인 서버 조회를 취소하거나 완료 표식을 변경하지 않는다.
 - **반복 방지 체크**: 후보 요청을 지연한 상태에서 부모 callback을 교체한 뒤 최신 callback으로 review가 복구되는 회귀 테스트를 유지한다. 실제 브라우저 새로고침에서는 terminal job UI, API 상태 코드, console error를 함께 확인한다.
+
+## 2026-09-18 / mock은 저장 결과를 합성하지 않고 요청 계약을 그대로 적용한다
+
+- **발생했던 문제/실수**: 맵 편집 Chromium mock이 fixture 좌표와 slot 좌표가 같다는 이유로 assignment를 자체 생성해, Web이 slot assignment payload를 누락해도 저장 여정이 통과할 수 있었다. 실제 샘플 테스트도 ignored `dist`가 남아 있으면 현재 source가 아닌 오래된 child를 실행할 수 있었다.
+- **원인**: 테스트 double이 서버 결과를 친절하게 보정했고, fork 대상 build artifact의 출처를 실행 절차에 결속하지 않았다.
+- **해결 및 예방책**: mutation mock은 받은 assignment ID를 그대로 state에 적용하고 payload literal과 reload 영속성을 함께 검사한다. snapshot 검증은 runtime을 의도적으로 stale하게 만들어 정본 우선순위를 증명한다. 실샘플 실행기는 ignored dist를 삭제하고 현재 checkout을 build한 뒤 테스트한다.
+- **반복 방지 체크**: mock이 좌표·이름으로 ID 관계를 추론하지 않는지, 저장 후 reload에서도 요청 값이 유지되는지, 일부 sample 환경변수가 skip 대신 실패하는지 확인한다. child 결과처럼 parent 역직렬화 전에 제어해야 하는 데이터는 bounded byte transport를 사용한다.

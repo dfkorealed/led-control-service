@@ -481,6 +481,9 @@ git commit -m "feat(monitoring): restore cad maps with fixture assignments"
 - 수정: `apps/api/src/floor-import/cad-core-child.ts`
 - 수정: `apps/api/src/floor-import/cad-core-executor.ts`
 - 수정: `apps/api/src/floor-import/cad-core-executor.spec.ts`
+- 수정: `apps/api/src/floor-import/cad-runtime-contract.ts`
+- 수정: `apps/api/src/floor-import/dxf-document-parser.ts`
+- 수정: `apps/api/src/floor-import/dxf-document-parser.spec.ts`
 - 수정: `apps/api/src/floor-import/cad-viewport.ts`
 - 수정: `apps/api/src/floor-import/cad-viewport.spec.ts`
 - 수정: `apps/api/src/floor-import/floor-import.integration.spec.ts`
@@ -488,6 +491,8 @@ git commit -m "feat(monitoring): restore cad maps with fixture assignments"
 - 수정: `apps/api/src/floor-import/cad-sample-pipeline.integration.spec.ts`
 - 추가: `apps/web/e2e/cad-import-journey.spec.ts`
 - 검증: `apps/web/e2e/floor-placement.spec.ts`
+- 추가: `scripts/run-cad-sample-pipeline.mjs`
+- 수정: `package.json`
 - 수정: `docs/menus/settings.md`
 - 수정: `docs/menus/monitoring.md`
 - 추가: `.superpowers/sdd/2026-07-06-floor-editor-implementation/task-9-report.md`
@@ -501,15 +506,17 @@ git commit -m "feat(monitoring): restore cad maps with fixture assignments"
 
 - [x] **Step 2: 실제 sample pipeline 실행**
 
-Run: `CAD_SAMPLE_DWG_PATH="/Users/kim-jh/Downloads/2단지지하주차장전등설비합본평면도20260803.dwg" CAD_SAMPLE_CONVERTER_PATH=/opt/homebrew/bin/dwgread CAD_SAMPLE_CONVERTER_ARGV_JSON='["-O","DXF","-o","{output}","{input}"]' RUN_OBJECT_STORAGE_INTEGRATION=true pnpm --filter @led-control/api exec jest src/floor-import/cad-sample-pipeline.integration.spec.ts --runInBand`
+Run: `CAD_SAMPLE_DWG_PATH="/Users/kim-jh/Downloads/2단지지하주차장전등설비합본평면도20260803.dwg" CAD_SAMPLE_CONVERTER_PATH=/opt/homebrew/bin/dwgread CAD_SAMPLE_CONVERTER_ARGV_JSON='["-O","DXF","-o","{output}","{input}"]' RUN_OBJECT_STORAGE_INTEGRATION=true pnpm test:cad-sample`
+
+전용 명령은 ignored `apps/api/dist`를 삭제하고 현재 checkout을 build한 뒤 test를 실행한다. sample 환경변수 일부만 설정된 직접 Jest 실행도 skip하지 않고 실패한다.
 
 Actual: job 100%, SVG decode 성공, 제품 후보 1,308개와 후보 transform 1,308/1,308 일치. 독립 analyzer 직접 규칙 후보 1,302개와 제품 nested 후보 1,308개는 집계 범위가 다르며 ground truth 정확도가 아니다.
 
-- [x] **Step 3: Web 단위·브라우저·실백엔드 여정 실행**
+- [x] **Step 3: Web 단위·mock Chromium과 실제 API pipeline 분리 실행**
 
-Run: `pnpm --filter @led-control/web test && pnpm --filter @led-control/web exec playwright test e2e/floor-placement.spec.ts --project=chromium --workers=1`
+Run: `pnpm --filter @led-control/web test && pnpm --filter @led-control/web exec playwright test e2e/cad-import-journey.spec.ts --project=chromium --workers=1 && pnpm --filter @led-control/web exec playwright test e2e/floor-placement.spec.ts --project=chromium --workers=1 --grep '1000 fixtures, 2000 slots and 2000 objects'`
 
-실백엔드 lab가 준비된 경우: `E2E_REAL_BACKEND_LAB=1 pnpm --filter @led-control/web exec playwright test e2e/floor-placement-real.spec.ts --project=chromium --workers=1`. 이번 실행에서는 lab Web/API health가 없어 mock browser 전체 여정과 실제 API sample pipeline 증거를 분리했다.
+- [ ] **실제 browser + real API lab 단일 네트워크 여정**: `E2E_REAL_BACKEND_LAB=1 pnpm --filter @led-control/web exec playwright test e2e/floor-placement-real.spec.ts --project=chromium --workers=1`. 이번 실행에서는 lab Web/API health가 없어 mock browser 전체 여정과 실제 API sample pipeline 증거를 분리했다.
 
 - [x] **Step 4: 전체 타입·빌드·diff 검증**
 
@@ -520,9 +527,9 @@ Expected: 모두 exit 0.
 - [x] **Step 5: 최종 현황 문서와 계획 체크리스트 갱신 후 커밋**
 
 ```bash
-git add apps/api/src/floor-import apps/web/e2e/cad-import-journey.spec.ts docs/superpowers/plans/2026-07-06-floor-editor-implementation.md .superpowers/sdd/2026-07-06-floor-editor-implementation/task-9-report.md
+git add apps/api/src/floor-import apps/web/e2e/cad-import-journey.spec.ts scripts/run-cad-sample-pipeline.mjs package.json docs/superpowers/plans/2026-07-06-floor-editor-implementation.md .superpowers/sdd/2026-07-06-floor-editor-implementation/task-9-brief.md .superpowers/sdd/2026-07-06-floor-editor-implementation/task-9-report.md
 # 두 메뉴 문서는 이번 Task의 CAD hunk만 선택적으로 stage한다.
-git commit -m "test(cad): verify map replacement user journey"
+git commit -m "fix(cad): close task 9 review gaps"
 ```
 
 ### 실행 순서

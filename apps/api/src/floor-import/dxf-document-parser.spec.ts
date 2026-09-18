@@ -205,6 +205,32 @@ describe("ASCII DXF document parser", () => {
     expect(parseAsciiDxf(dxf).unsupportedEntityCounts).toEqual({ ELLIPSE: 3, HELIX: 1 });
   });
 
+  it("rejects unsupported entity names and unique type counts outside the bounded manifest contract", () => {
+    const document = (types: string[]) => [
+      pair(0, "SECTION"), pair(2, "ENTITIES"),
+      ...types.flatMap((type, index) => [pair(0, type), pair(5, `U${index}`)]),
+      pair(0, "ENDSEC"), pair(0, "EOF")
+    ].join("");
+
+    expect(() => parseAsciiDxf(document(["U".repeat(65)])))
+      .toThrow(/unsupported entity type.*byte limit/i);
+    expect(() => parseAsciiDxf(document(Array.from(
+      { length: 65 },
+      (_, index) => `UNSUPPORTED_${String(index).padStart(2, "0")}`
+    )))).toThrow(/unsupported entity type count limit/i);
+  });
+
+  it("charges unsupported metadata to the normalized output budget", () => {
+    const dxf = [
+      pair(0, "SECTION"), pair(2, "ENTITIES"),
+      ...Array.from({ length: 4 }, (_, index) => [pair(0, `UNSUPPORTED_${index}`), pair(5, `U${index}`)]).flat(),
+      pair(0, "ENDSEC"), pair(0, "EOF")
+    ].join("");
+
+    expect(() => parseAsciiDxf(dxf, { maxNormalizedOutputBytes: 160 }))
+      .toThrow(/normalized output limit/i);
+  });
+
   it("applies DIMENSION group 12 and block base point to anonymous block bounds", () => {
     const dxf = [
       pair(0, "SECTION"), pair(2, "BLOCKS"), pair(0, "BLOCK"), pair(2, "*D1"), pair(10, 2), pair(20, 3),

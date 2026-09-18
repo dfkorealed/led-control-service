@@ -11,6 +11,9 @@ export const CAD_MAX_SPLINE_CONTROL_POINTS = 100_000;
 export const CAD_MAX_SPLINE_KNOTS = 100_064;
 export const CAD_MAX_SPLINE_SAMPLES_PER_ENTITY = 4_096;
 export const CAD_MAX_SPLINE_SAMPLES_PER_DOCUMENT = 1_000_000;
+export const CAD_MAX_UNSUPPORTED_ENTITY_TYPES = 64;
+export const CAD_MAX_UNSUPPORTED_ENTITY_TYPE_BYTES = 64;
+export const CAD_CORE_RESPONSE_MAX_BYTES = 8 * 1024 * 1024;
 
 type ReadTextFile = (path: string) => string;
 

@@ -4,7 +4,7 @@ import { parseAsciiDxfStream } from "./dxf-document-parser";
 import { DisabledAiLightingSymbolDetector } from "./disabled-ai-lighting-symbol-detector";
 import { createCadViewport, measureCadCandidateSvgTransformMatch, projectCadPointToViewport } from "./cad-viewport";
 import { FixedLightingDetectorRegistry, type CadImportDetectorProfileId } from "./lighting-detector-registry";
-import type { CadCoreRequest, CadCoreResult } from "./cad-core-executor";
+import { encodeCadCoreResponse, type CadCoreRequest, type CadCoreResult } from "./cad-core-executor";
 
 const MAX_CANDIDATES = 2_000;
 let accepted = false;
@@ -13,10 +13,14 @@ process.on("message", (request: Omit<CadCoreRequest, "abortSignal">) => {
   if (accepted) return;
   accepted = true;
   void execute(request).then(
-    result => process.send?.({ ok: true, result }, () => process.exit(0)),
-    () => process.send?.({ ok: false, code: "CAD_CORE_FAILED" }, () => process.exit(1))
+    result => writeResponse(encodeCadCoreResponse({ ok: true, result }, request.profileId), 0),
+    () => writeResponse(encodeCadCoreResponse({ ok: false, code: "CAD_CORE_FAILED" }, request.profileId), 1)
   );
 });
+
+function writeResponse(response: Buffer, exitCode: number): void {
+  process.stdout.write(response, () => process.exit(exitCode));
+}
 
 async function execute(request: Omit<CadCoreRequest, "abortSignal">): Promise<CadCoreResult> {
   if (!request || typeof request.dxfPath !== "string" || typeof request.renderedPath !== "string") {
