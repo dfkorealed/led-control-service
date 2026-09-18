@@ -48,7 +48,7 @@
 
 **Interfaces:**
 - Consumes: Task 1 scene 식별자와 version 정책.
-- Produces: `FloorCadScene`, `FloorCadTile`, `FloorCadElementOverride`, `FloorCadLayerState` 모델과 floor/import/asset cascade 관계.
+- Produces: `FloorImportRegion`, `FloorCadScene`, `FloorCadTile`, `FloorCadElementOverride`, `FloorCadLayerState` 모델, `cad` floor plan source 및 CAD asset kind와 cascade 관계.
 
 - [ ] Prisma 모델 관계와 unique/index를 검증하는 schema 테스트를 먼저 실패시킨다.
 - [ ] migration의 기존 데이터 무변경 및 cascade 테스트를 실패시킨다.

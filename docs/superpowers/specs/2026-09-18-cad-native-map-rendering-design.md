@@ -61,6 +61,13 @@ HATCH, DIMENSION, INSERT는 다음과 같이 처리한다.
 
 ## 6. 저장 구조
 
+### FloorImportRegion
+
+- jobId와 안정적인 regionId
+- 원본 bounds, primitive/text/light candidate 수
+- previewAssetId와 선택 시각
+- 같은 job 안에서는 regionId가 유일하며 여러 region 중 하나만 선택할 수 있다.
+
 ### FloorCadScene
 
 - floorId, sourceImportJobId, version
@@ -93,6 +100,9 @@ HATCH, DIMENSION, INSERT는 다음과 같이 처리한다.
 - visible, locked
 
 기존 `FloorMapObject`와 `FloorLightSlot`은 유지한다.
+
+- `FloorPlanSourceType`에는 `cad`를 추가하고 적용된 native scene은 이를 사용한다.
+- `FloorAssetKind`에는 `cad_manifest`, `cad_tile`, `cad_region_preview`를 추가해 원본·SVG preview와 수명주기를 구분한다.
 
 ## 7. 타일과 LOD
 
