@@ -23,6 +23,7 @@ import {
   percentToLightness
 } from "./bluez-model-codec";
 import { KeyedSerialTaskQueue } from "../runtime/keyed-serial-task-queue";
+import { BluezTransportError } from "./bluez-transport";
 import { requestHealthAttention } from "./health-attention";
 const BLUEZ_SERVICE = "org.bluez.mesh";
 const NODE_INTERFACE = "org.bluez.mesh.Node1";
@@ -160,9 +161,38 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
       if (signal?.aborted || !mapping || mapping.status !== "confirmed") {
         return { fixtureId, status: "failed" as const };
       }
-      return this.resyncLightingFixture({ fixtureId, primaryUnicast: mapping.primaryUnicast }, signal);
+      return this.commandSources.run(String(mapping.primaryUnicast), () =>
+        this.resyncLightingFixture({ fixtureId, primaryUnicast: mapping.primaryUnicast }, signal));
     }, signal);
     return summarizeResync(results);
+  }
+
+  async probeFixturePresence(fixtureIds: string[], signal?: AbortSignal): Promise<import("../gateway").BleMeshFixtureProbeResult[]> {
+    if (!fixtureIds.length || fixtureIds.length > 64 || new Set(fixtureIds).size !== fixtureIds.length) {
+      throw new Error("invalid fixture probe targets");
+    }
+    signal?.throwIfAborted();
+    await this.start();
+    const results = await mapWithConcurrency(fixtureIds, this.resyncConcurrency, async (fixtureId) => {
+      signal?.throwIfAborted();
+      const mapping = await this.addressStore.findByFixtureId(fixtureId);
+      if (!mapping || mapping.status !== "confirmed") return { fixtureId, outcome: "not_found" as const };
+      // The same source queue owns control writes. A refresh waits its turn and never cancels a control.
+      return this.commandSources.run(String(mapping.primaryUnicast), async () => {
+        const result = await this.resyncLightingFixture({ fixtureId, primaryUnicast: mapping.primaryUnicast }, signal, false, true);
+        signal?.throwIfAborted();
+        const observation = this.latestObservations.get(fixtureId);
+        if (result.status === "observed" && observation && hasLightingPair(observation)) {
+          return { fixtureId, outcome: "online" as const, lightingObservation: {
+            fixtureId, brightness: observation.brightness.value, powerOn: observation.powerOn.value,
+            observedAt: new Date(Math.max(observation.brightness.observedAt, observation.powerOn.observedAt)).toISOString()
+          } };
+        }
+        return { fixtureId, outcome: result.status === "timed_out" ? "read_timeout" as const : "read_failed" as const };
+      });
+    }, signal);
+    signal?.throwIfAborted();
+    return results;
   }
 
   async scan(_command: ProvisioningScanStartPayload): Promise<ProvisioningScanFoundDevice[]> {
@@ -582,13 +612,14 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
     mapping: { fixtureId: string; primaryUnicast: number; elementCount: number },
     signal?: AbortSignal
   ): Promise<ResyncFixtureResult> {
-    return this.resyncLightingFixture(mapping, signal, true);
+    return this.commandSources.run(String(mapping.primaryUnicast), () => this.resyncLightingFixture(mapping, signal, true));
   }
 
   private async resyncLightingFixture(
     mapping: { fixtureId: string; primaryUnicast: number },
     signal?: AbortSignal,
-    includeHealth = false
+    includeHealth = false,
+    strictTransport = false
   ): Promise<ResyncFixtureResult> {
     if (signal?.aborted) return { fixtureId: mapping.fixtureId, status: "failed" };
     const generation = this.beginObservationGeneration(mapping.fixtureId, this.now()).generation;
@@ -599,8 +630,17 @@ export class BluezMeshAdapter implements BleMeshAdapter, ProvisioningScannerAdap
         this.sendStatusGetWithRetry(mapping.primaryUnicast, LIGHT_LIGHTNESS_GET, signal),
         ...(includeHealth ? [this.sendStatusGetWithRetry(mapping.primaryUnicast, this.healthFaultGet, signal)] : [])
       ]);
-    } catch {
+    } catch (error) {
       observation.cancel();
+      if (strictTransport) {
+        signal?.throwIfAborted();
+        // Failed bus/session operations do not prove a fixture unreachable. Only an observation
+        // deadline (or an explicitly classified per-read timeout) is safe for two-pass retry.
+        const cause = error instanceof BluezTransportError ? error.cause : error;
+        const code = cause && typeof cause === "object" ? (cause as { code?: string }).code : undefined;
+        if (code === "TIMEOUT" || code === "ETIMEDOUT") return { fixtureId: mapping.fixtureId, status: "timed_out" };
+        throw new Error("fixture probe transport unavailable");
+      }
       return { fixtureId: mapping.fixtureId, status: "failed" };
     }
     observation.startDeadline();

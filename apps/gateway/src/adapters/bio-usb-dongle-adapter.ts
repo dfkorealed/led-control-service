@@ -12,6 +12,7 @@ import type {
   BleMeshCommandReport,
   BleMeshFixtureStatus,
   BleMeshFixturePresence,
+  BleMeshFixtureProbeResult,
   BleMeshGroupSnapshot,
   BleMeshLightingObservation,
   BleMeshResyncReport,
@@ -336,6 +337,19 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
     return this.resyncConfirmedMappings(mappings, signal, false);
   }
 
+  async probeFixturePresence(fixtureIds: string[], signal?: AbortSignal): Promise<BleMeshFixtureProbeResult[]> {
+    if (!fixtureIds.length || fixtureIds.length > 64 || new Set(fixtureIds).size !== fixtureIds.length) {
+      throw new Error("invalid fixture probe targets");
+    }
+    signal?.throwIfAborted();
+    const requested = new Set(fixtureIds);
+    const mappings = (await this.mappings.listConfirmed()).filter((row) => requested.has(row.fixtureId));
+    const results: BleMeshFixtureProbeResult[] = [];
+    await this.resyncConfirmedMappings(mappings, signal, false, results);
+    signal?.throwIfAborted();
+    return fixtureIds.map((fixtureId) => results.find((row) => row.fixtureId === fixtureId) ?? { fixtureId, outcome: "not_found" });
+  }
+
   async resyncLightingFixtures(fixtureIds: string[], signal?: AbortSignal): Promise<BleMeshResyncReport> {
     const requested = new Set(fixtureIds);
     const mappings = (await this.mappings.listConfirmed()).filter((mapping) => requested.has(mapping.fixtureId));
@@ -345,7 +359,8 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
   private async resyncConfirmedMappings(
     mappings: BioDeviceMapping[],
     signal: AbortSignal | undefined,
-    emitLightingObservation: boolean
+    emitLightingObservation: boolean,
+    probeResults?: BleMeshFixtureProbeResult[]
   ): Promise<BleMeshResyncReport> {
     const report: BleMeshResyncReport = {
       total: mappings.length,
@@ -361,6 +376,7 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
     try {
       await this.refreshDiscovery({ signal });
     } catch (error) {
+      if (probeResults) throw new Error("fixture probe transport unavailable");
       if (signal?.aborted) return report;
       if (isBioTimeout(error)) report.timedOut = mappings.length;
       else report.failed = mappings.length;
@@ -401,9 +417,16 @@ export class BioUsbDongleAdapter implements BleMeshAdapter, ProvisioningScannerA
         // 상태 관측으로 변환하지 않는다. force-on도 codec table에 없는 raw 값은 percent를 증명하지 못한다.
         await this.deliverPresence(presence);
         if (emitLightingObservation) await this.deliverLightingObservation(presence);
+        probeResults?.push({ fixtureId: mapping.fixtureId, outcome: "online", presence });
         report.observed += 1;
       } catch (error) {
+        if (probeResults && (signal?.aborted || (error instanceof BioUsbError &&
+          ["DISCONNECTED", "STOPPED", "NOT_READY", "USB_IDENTITY", "CLOSE_FAILED"].includes(error.code)))) {
+          throw new Error("fixture probe transport unavailable");
+        }
         if (signal?.aborted) break;
+        probeResults?.push({ fixtureId: mapping.fixtureId, outcome: isBioTimeout(error) ? "read_timeout"
+          : error instanceof BioUsbError && error.code === "BIO_DEVICE_NOT_FOUND" ? "not_found" : "read_failed" });
         if (isBioTimeout(error)) report.timedOut += 1;
         else report.failed += 1;
         // resync report는 동일 실패가 여러 fixture에서 반복돼도 code별 횟수만 남긴다.

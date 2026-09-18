@@ -7,6 +7,7 @@ import { join } from "node:path";
 import {
   createGatewayAutomationServices,
   createGatewayStatusCheckRuntime,
+  createFixturePresenceCheckRuntime,
   initializeAutomationBeforeManualRecovery,
   observeAutomationFixtureStatuses,
   requeuePendingFixtureObservations,
@@ -50,6 +51,7 @@ import {
 } from "./index";
 import { StateEventOutboxError } from "./state/state-event-outbox";
 import { CommandJournal } from "./commands/command-journal";
+import { MonitoringRefreshJournal } from "./state/monitoring-refresh-journal";
 import type { BleMeshFixturePresence, BleMeshLightingObservation } from "./gateway";
 import { deviceStatusAckV2Schema, mqttTopicsV2, provisioningScanCompletedSchema, provisioningScanFailedSchema, provisioningScanFoundSchema, type FixturePresenceV2 } from "@led-control/shared";
 import { FileAutomationStateStore } from "./automation/automation-state-store";
@@ -71,10 +73,39 @@ it("defers QoS1 PUBACK for commands whose durable journal must commit first", ()
   expect(gatewayDeferredPubackTopics(scopedSiteId, scopedGatewayId)).toEqual([
     `sites/${scopedSiteId}/gateways/${scopedGatewayId}/commands/dimming`,
     `sites/${scopedSiteId}/gateways/${scopedGatewayId}/commands/status-check`,
+    `sites/${scopedSiteId}/gateways/${scopedGatewayId}/commands/fixture-presence-check`,
     `sites/${scopedSiteId}/gateways/${scopedGatewayId}/commands/provisioning/identify-device`,
     `sites/${scopedSiteId}/gateways/${scopedGatewayId}/commands/provisioning/provision-device`,
     `sites/${scopedSiteId}/gateways/${scopedGatewayId}/commands/automation/config-sync`
   ]);
+});
+
+it("persists monitoring receipt before PUBACK and drains an active read-only probe on shutdown", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "monitoring-runtime-"));
+  const scope = { siteId: scopedSiteId, gatewayId: scopedGatewayId };
+  const journal = new MonitoringRefreshJournal(join(directory, "journal.json"), scope);
+  const command = { ...scope, refreshId: "11111111-1111-4111-8111-111111111111", batchId: "22222222-2222-4222-8222-222222222222",
+    idempotencyKey: "33333333-3333-4333-8333-333333333333", sequence: 1, targetFixtureIds: [scopedFixtureId],
+    requestedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 10_000).toISOString() };
+  const adapter = { probeFixturePresence: vi.fn((_ids: string[], signal?: AbortSignal) => new Promise<never>((_resolve, reject) => {
+    signal!.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+  })) };
+  const publisher = { replay: vi.fn(), persistAndPublish: vi.fn() };
+  const runtime = createFixturePresenceCheckRuntime({ adapter, journal, publisher, scope, nextSequence: async () => 1 });
+  let durable = false;
+  try {
+    const handling = runtime.handle(Buffer.from(JSON.stringify(command)), {} as any, undefined, {
+      acknowledgeDurable: () => { durable = true; }
+    } as any);
+    await vi.waitFor(() => expect(adapter.probeFixturePresence).toHaveBeenCalledOnce());
+    expect(durable).toBe(true);
+    expect((await new MonitoringRefreshJournal(join(directory, "journal.json"), scope).accept(command)).kind).toBe("recovered");
+    await runtime.stopAndDrain();
+    await handling;
+    expect((await journal.accept(command)).terminal).toMatchObject({ failure: "interrupted", events: [] });
+    expect(publisher.persistAndPublish).not.toHaveBeenCalled();
+    await expect(runtime.handle(Buffer.from(JSON.stringify(command)), {} as any)).rejects.toThrow();
+  } finally { await runtime.stopAndDrain(); await rm(directory, { recursive: true, force: true }); }
 });
 
 describe("status check MQTT runtime", () => {
@@ -1930,6 +1961,7 @@ describe("startGatewayRuntime", () => {
         "sites/site-27/gateways/gateway-27/commands/identify",
         "sites/site-27/gateways/gateway-27/commands/dimming",
         "sites/site-27/gateways/gateway-27/commands/status-check",
+        "sites/site-27/gateways/gateway-27/commands/fixture-presence-check",
         "sites/site-27/gateways/gateway-27/commands/provisioning/scan-start",
         "sites/site-27/gateways/gateway-27/commands/provisioning/identify-device",
         "sites/site-27/gateways/gateway-27/commands/provisioning/provision-device",
@@ -1939,6 +1971,7 @@ describe("startGatewayRuntime", () => {
         "sites/site-27/gateways/gateway-27/acks/provisioning/scan-terminal-ingested",
         "sites/site-27/gateways/gateway-27/acks/provisioning/device-terminal-ingested",
         "sites/site-27/gateways/gateway-27/acks/state-ingested",
+        "sites/site-27/gateways/gateway-27/acks/fixture-presence-check-completed",
         "sites/site-27/gateways/gateway-27/acks/automation/config-applied-ingested",
         "sites/site-27/gateways/gateway-27/acks/automation/execution-ingested",
         "sites/site-27/gateways/gateway-27/acks/automation/vehicle-sensor-capability-ingested"
@@ -1960,6 +1993,7 @@ describe("startGatewayRuntime", () => {
         "sites/site-27/gateways/gateway-27/acks/provisioning/scan-terminal-ingested",
         "sites/site-27/gateways/gateway-27/acks/provisioning/device-terminal-ingested",
         "sites/site-27/gateways/gateway-27/acks/state-ingested",
+        "sites/site-27/gateways/gateway-27/acks/fixture-presence-check-completed",
         "sites/site-27/gateways/gateway-27/acks/automation/config-applied-ingested",
         "sites/site-27/gateways/gateway-27/acks/automation/execution-ingested",
         "sites/site-27/gateways/gateway-27/acks/automation/vehicle-sensor-capability-ingested"

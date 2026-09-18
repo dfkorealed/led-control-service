@@ -29,6 +29,7 @@ import {
   mqttTopicsV2,
   mqttTopics,
   fixturePresenceV2Schema,
+  fixturePresenceCheckCommandV1Schema,
   fixtureStateV2Schema,
   provisioningDeviceCommandV2Schema,
   provisioningScanStartSchema
@@ -53,6 +54,8 @@ export {
 import { createAssignmentStore, resolveGatewayAssignment } from "./config/resolve-assignment";
 import { createMqttClient } from "./mqtt/create-mqtt-client";
 import { CommandJournal } from "./commands/command-journal";
+import { handleFixturePresenceCheck, MonitoringRefreshEventPublisher } from "./commands/fixture-presence-check-handler";
+import { MonitoringRefreshJournal } from "./state/monitoring-refresh-journal";
 import { handleGatewayStatusCheck, type GatewayStatusCheckOptions } from "./commands/gateway-status-check-handler";
 import {
   executeAutomationDimmingActions,
@@ -229,6 +232,44 @@ export function createGatewayCommandReceipt(
     ? remainingSeconds! * 1_000
     : 0;
   return { receivedAtMonotonicMs: monotonicClock(), brokerRemainingTtlMs };
+}
+
+export function createFixturePresenceCheckRuntime(input: {
+  adapter: Pick<BleMeshAdapter, "probeFixturePresence">;
+  journal: MonitoringRefreshJournal;
+  publisher: Pick<MonitoringRefreshEventPublisher, "replay" | "persistAndPublish">;
+  scope: { siteId: string; gatewayId: string };
+  nextSequence: () => Promise<number>;
+}) {
+  const stopping = new AbortController();
+  const active = new Set<Promise<void>>();
+  return {
+    handle(payload: Buffer, _source: GatewayMqttClient, _packet?: IPublishPacket,
+      control?: Pick<GatewayDeferredMessageControl, "acknowledgeDurable">): Promise<void> {
+      const handling = (async () => {
+        if (stopping.signal.aborted) throw new Error("monitoring refresh runtime stopped");
+        let command;
+        try {
+          command = fixturePresenceCheckCommandV1Schema.parse(JSON.parse(payload.toString()));
+          if (command.siteId !== input.scope.siteId || command.gatewayId !== input.scope.gatewayId) throw new Error("monitoring refresh scope mismatch");
+        } catch (error) {
+          // Invalid wire payloads cannot acquire hardware ownership and need no durable receipt.
+          control?.acknowledgeDurable();
+          throw error;
+        }
+        await handleFixturePresenceCheck(input.adapter, input.journal, command, input.publisher, {
+          signal: stopping.signal, nextSequence: input.nextSequence, onDurableReceipt: () => control?.acknowledgeDurable()
+        });
+      })();
+      active.add(handling);
+      void handling.then(() => active.delete(handling), () => active.delete(handling));
+      return handling;
+    },
+    async stopAndDrain() {
+      stopping.abort();
+      await Promise.allSettled([...active]);
+    }
+  };
 }
 
 export function createGatewayStatusCheckRuntime(input: {
@@ -545,6 +586,19 @@ async function main() {
   await stateEventCapacity.initialize();
   const stateEventPublisher = new StateEventOutboxPublisher(stateEventOutbox, {
     onError: (error) => void reportGatewayError(error, "state_event_outbox_retry")
+  });
+  const monitoringRefreshJournal = new MonitoringRefreshJournal(
+    process.env.GATEWAY_MONITORING_REFRESH_JOURNAL_PATH ?? "/var/lib/led-control/monitoring-refresh-journal.json", { siteId, gatewayId }
+  );
+  await monitoringRefreshJournal.initialize();
+  await monitoringRefreshJournal.recoverInterrupted();
+  const monitoringRefreshPublisher = new MonitoringRefreshEventPublisher(monitoringRefreshJournal, stateEventOutbox, {
+    wakeStateOutbox: () => stateEventPublisher.wake(),
+    onError: (error) => void reportGatewayError(error, "monitoring_refresh_retry")
+  });
+  const monitoringRefresh = createFixturePresenceCheckRuntime({
+    adapter, journal: monitoringRefreshJournal, publisher: monitoringRefreshPublisher, scope: { siteId, gatewayId },
+    nextSequence: () => eventSequence.next()
   });
   const provisioningScanRecovery = new ProvisioningScanRecoveryPublisher(provisioningScanJournal);
   await provisioningScanRecovery.prepare(async (command) => ({
@@ -1135,6 +1189,9 @@ async function main() {
       },
       [mqttTopicsV2.gatewayCommand(siteId, gatewayId, "dimming")]: handleDimmingPayloadV2,
       [mqttTopicsV2.gatewayCommand(siteId, gatewayId, "status-check")]: statusChecks.handle,
+      [mqttTopicsV2.fixturePresenceCheck(siteId, gatewayId)]: monitoringRefresh.handle,
+      [mqttTopicsV2.fixturePresenceCheckCompletedAck(siteId, gatewayId)]: (payload) =>
+        monitoringRefreshPublisher.acknowledge(JSON.parse(payload.toString())),
       [mqttTopicsV2.gatewayCommand(siteId, gatewayId, "provisioning/scan-start")]: handleProvisioningScanPayload,
       [mqttTopicsV2.gatewayCommand(siteId, gatewayId, "provisioning/identify-device")]: handleIdentifyPayload,
       [mqttTopicsV2.gatewayCommand(siteId, gatewayId, "provisioning/provision-device")]: handleProvisionDevicePayload,
@@ -1206,6 +1263,7 @@ async function main() {
           (error) => reportGatewayError(error, "provisioning_device_terminal_retry")
         );
         await stateEventPublisher.connect((topic, state) => publish(mqttRuntime.client, topic, state));
+        await monitoringRefreshPublisher.connect((topic, event) => publish(mqttRuntime.client, topic, event));
         await groupResyncPublisher.publishPending((topic, payload) => publish(mqttRuntime.client, topic, payload));
         await initialVehicleSensorCapabilityRefresh;
         meshResyncWorker.schedule();
@@ -1216,6 +1274,7 @@ async function main() {
       provisioningScanRecovery.disconnect();
       provisioningDeviceReplay.disconnect();
       stateEventPublisher.disconnect();
+      monitoringRefreshPublisher.disconnect();
       automationAckPublisher.disconnect();
       automationConfigRequester.disconnect();
       automationTelemetryPublisher.disconnect();
@@ -1225,6 +1284,8 @@ async function main() {
     onBeforeStop: async () => {
       identifyResultAbort.abort();
       await statusChecks.stopAndDrain();
+      await monitoringRefresh.stopAndDrain();
+      await monitoringRefreshPublisher.stopAndDrain();
       await fixtureIdentify.stop();
       await Promise.all([...activeProvisioningHandlers].map((handling) => handling.catch(() => undefined)));
       await provisioningQueue.drain();
@@ -1252,6 +1313,7 @@ async function main() {
       drainBeforeMqttStop: async () => {
         detachSoftwareAutomationSimulatorIpc?.();
         const statusCheckDrain = statusChecks.stopAndDrain();
+        const monitoringRefreshDrain = monitoringRefresh.stopAndDrain();
         const schedulerDrain = scheduleRuntime.stopAndDrain();
         const meshResyncDrain = meshResyncWorker.stopAndDrain();
         const targetedResyncDrain = targetedLightingResync.stopAndDrain();
@@ -1262,7 +1324,8 @@ async function main() {
         automationTelemetryCoordinator.stop();
         automationStorage.headroom.stop();
         await fixtureStatusReservation.release();
-        await Promise.all([statusCheckDrain, schedulerDrain, meshResyncDrain, targetedResyncDrain, vehicleSensorDrain]);
+        await Promise.all([monitoringRefreshDrain, statusCheckDrain, schedulerDrain, meshResyncDrain, targetedResyncDrain, vehicleSensorDrain]);
+        await monitoringRefreshPublisher.stopAndDrain();
         stateEventPublisher.disconnect();
         automationAckPublisher.disconnect();
         automationConfigRequester.disconnect();
@@ -1282,6 +1345,7 @@ export function gatewayDeferredPubackTopics(siteId: string, gatewayId: string) {
   return [
     mqttTopicsV2.gatewayCommand(siteId, gatewayId, "dimming"),
     mqttTopicsV2.gatewayCommand(siteId, gatewayId, "status-check"),
+    mqttTopicsV2.fixturePresenceCheck(siteId, gatewayId),
     mqttTopicsV2.gatewayCommand(siteId, gatewayId, "provisioning/identify-device"),
     mqttTopicsV2.gatewayCommand(siteId, gatewayId, "provisioning/provision-device"),
     mqttTopics.automationConfig(siteId, gatewayId)
@@ -1673,6 +1737,7 @@ export function gatewayCommandTopics(siteId: string, gatewayId: string) {
     fixtureIdentifyTopics.command(siteId, gatewayId),
     mqttTopicsV2.gatewayCommand(siteId, gatewayId, "dimming"),
     mqttTopicsV2.gatewayCommand(siteId, gatewayId, "status-check"),
+    mqttTopicsV2.fixturePresenceCheck(siteId, gatewayId),
     mqttTopicsV2.gatewayCommand(siteId, gatewayId, "provisioning/scan-start"),
     mqttTopicsV2.gatewayCommand(siteId, gatewayId, "provisioning/identify-device"),
     mqttTopicsV2.gatewayCommand(siteId, gatewayId, "provisioning/provision-device"),
@@ -1687,6 +1752,7 @@ function gatewayAcknowledgementTopics(siteId: string, gatewayId: string) {
     mqttTopicsV2.provisioningScanTerminalIngestedAck(siteId, gatewayId),
     mqttTopicsV2.provisioningDeviceTerminalIngestedAck(siteId, gatewayId),
     mqttTopicsV2.stateIngestedAck(siteId, gatewayId),
+    mqttTopicsV2.fixturePresenceCheckCompletedAck(siteId, gatewayId),
     mqttTopics.automationConfigAppliedReceipt(siteId, gatewayId),
     mqttTopics.automationExecutionIngested(siteId, gatewayId),
     mqttTopics.vehicleSensorCapabilityIngested(siteId, gatewayId)

@@ -4,10 +4,12 @@ import { dirname } from "node:path";
 import {
   applicationStateIngestedAckV2Schema,
   fixturePresenceV2Schema,
+  fixtureUnreachableV1Schema,
   fixtureStateV2Schema,
   mqttTopicsV2,
   type ApplicationStateIngestedAckV2,
   type FixturePresenceV2,
+  type FixtureUnreachableV1,
   type FixtureStateV2
 } from "@led-control/shared";
 import { readJsonFile, writeJsonAtomic } from "../mesh/mesh-store-file";
@@ -30,7 +32,7 @@ export interface StoredStateEvent {
   enqueuedAt: string;
 }
 
-export type GatewayStateEvent = FixtureStateV2 | FixturePresenceV2;
+export type GatewayStateEvent = FixtureStateV2 | FixturePresenceV2 | FixtureUnreachableV1;
 
 interface StoredOutbox {
   version: 1;
@@ -640,6 +642,7 @@ function sameAcknowledgement(payload: GatewayStateEvent, acknowledgement: Applic
 }
 
 function parseGatewayStateEvent(value: unknown): GatewayStateEvent {
+  if (isRecord(value) && "reason" in value) return fixtureUnreachableV1Schema.parse(value);
   const fixtureState = fixtureStateV2Schema.safeParse(value);
   if (fixtureState.success) return fixtureState.data;
   return fixturePresenceV2Schema.parse(value);
@@ -656,10 +659,14 @@ function parseStoredGatewayStateEvent(
   if (topic === mqttTopicsV2.fixturePresence(scope.siteId, scope.gatewayId)) {
     return fixturePresenceV2Schema.parse(value);
   }
+  if (topic === mqttTopicsV2.fixtureUnreachable(scope.siteId, scope.gatewayId)) {
+    return fixtureUnreachableV1Schema.parse(value);
+  }
   throw new Error("invalid state event outbox");
 }
 
 function gatewayStateEventTopic(event: GatewayStateEvent) {
+  if ("reason" in event) return mqttTopicsV2.fixtureUnreachable(event.siteId, event.gatewayId);
   return "brightness" in event
     ? mqttTopicsV2.fixtureState(event.siteId, event.gatewayId)
     : mqttTopicsV2.fixturePresence(event.siteId, event.gatewayId);

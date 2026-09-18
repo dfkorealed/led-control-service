@@ -6,6 +6,9 @@ import type {
 } from "@led-control/shared";
 import { BioUsbDongleAdapter } from "./bio-usb-dongle-adapter";
 import { BioUsbError } from "../bio/bio-usb-error";
+import { EventEmitter } from "node:events";
+import { BioDongleClient } from "../bio/bio-dongle-client";
+import { encodeCrcFrame } from "../bio/bio-frame-codec";
 import type { BleMeshFixturePresence } from "../gateway";
 
 const scanCommand: ProvisioningScanStartPayload = {
@@ -554,6 +557,92 @@ describe("BioUsbDongleAdapter", () => {
   });
 
   describe("read-only fixture presence resync", () => {
+    it("uses the real dongle queue/codec and emits only scan, stop-scan, brightness GET and mode GET bytes", async () => {
+      const events = new EventEmitter();
+      const writes: Buffer[] = [];
+      const report = (body: number[], destination = 0x01fe) => {
+        const payload = Buffer.alloc(15 + body.length);
+        payload.writeInt8(-41, 0);
+        Buffer.from(discovered.nativeUuid, "hex").copy(payload, 1);
+        payload[7] = 0x83; payload[8] = 46;
+        payload.writeUInt16BE(0x0101, 9); payload.writeUInt16BE(destination, 11); payload.writeUInt16BE(0, 13);
+        payload.set(body, 15);
+        return encodeCrcFrame(0x12, payload);
+      };
+      const connection = {
+        isOpen: false,
+        async open() { this.isOpen = true; },
+        async close() { this.isOpen = false; },
+        onData(listener: (bytes: Buffer) => void) { events.on("data", listener); return () => { events.off("data", listener); }; },
+        onDisconnect(listener: (error: Error) => void) { events.on("disconnect", listener); return () => { events.off("disconnect", listener); }; },
+        async write(bytes: Uint8Array) {
+          const frame = Buffer.from(bytes); writes.push(frame);
+          queueMicrotask(() => {
+            if (frame[0] !== 0x55) return;
+            if (frame[2] === 0x82) events.emit("data", Buffer.from("55aa030c02050320682f0000000300001147", "hex"));
+            else if (frame[2] === 0x0a) events.emit("data", Buffer.from("55aa0b0d0001000000000000010c000320c50e", "hex"));
+            else if (frame[2] === 0x10) {
+              events.emit("data", Buffer.from("55aa1101002055", "hex"));
+              const body = frame.subarray(19, -2).toString("hex");
+              if (body === "8305") events.emit("data", report([...Buffer.from("0a010505085932020100030000", "hex")], 0xc000));
+              if (body === "4e13") events.emit("data", report([0x4f, 0x13, 198]));
+              if (body === "4e12") events.emit("data", report([0x4f, 0x12, 0]));
+            }
+          });
+        }
+      };
+      const client = new BioDongleClient({ connectionFactory: () => connection, scanDurationMs: 1, observationTimeoutMs: 100 });
+      const f = readyForOnePresence();
+      const adapter = new BioUsbDongleAdapter(client, f.mappings);
+      const lighting = vi.fn(); adapter.onLightingObservation(lighting);
+      try {
+        await client.probe();
+        await expect(adapter.probeFixturePresence([provisioningCommand.nodeId])).resolves.toEqual([
+          { fixtureId: provisioningCommand.nodeId, outcome: "online", presence: expect.objectContaining({ controlMode: "sensor", rawHighBrightness: 198 }) }
+        ]);
+        expect(writes.filter((bytes) => bytes[0] === 0x55 && bytes[2] === 0x10).map((bytes) => bytes.subarray(19, -2).toString("hex")))
+          .toEqual(["8305", "85", "4e13", "4e12"]);
+        expect(lighting).not.toHaveBeenCalled();
+      } finally { await client.close(); }
+    });
+    it("probes exact targets once with serial GETs and never treats sensor settings as output", async () => {
+      const f = readyForOnePresence();
+      const missing = "77777777-7777-4777-8777-777777777777";
+      f.client.readBrightness.mockResolvedValue(brightnessReport(5, 50));
+      f.client.readDeviceInfo.mockResolvedValue(modeReport("sensor"));
+      const output = vi.fn();
+      f.adapter.onLightingObservation(output);
+      await expect(f.adapter.probeFixturePresence([provisioningCommand.nodeId, missing])).resolves.toEqual([
+        { fixtureId: provisioningCommand.nodeId, outcome: "online", presence: expect.objectContaining({ controlMode: "sensor" }) },
+        { fixtureId: missing, outcome: "not_found" }
+      ]);
+      expect(f.client.scan).toHaveBeenCalledTimes(1);
+      expect(f.client.readBrightness.mock.invocationCallOrder[0]).toBeLessThan(f.client.readDeviceInfo.mock.invocationCallOrder[0]);
+      expect(output).not.toHaveBeenCalled();
+      for (const method of [f.client.setOutput, f.client.assignAddressOnce, f.client.startIdentify, f.client.restoreSensorMode]) {
+        expect(method).not.toHaveBeenCalled();
+      }
+    });
+
+    it("sanitizes fixture timeouts but rejects transport-wide scan failure", async () => {
+      const f = readyForOnePresence();
+      f.client.readBrightness.mockRejectedValue(new BioUsbError("TIMEOUT", "private packet"));
+      await expect(f.adapter.probeFixturePresence([provisioningCommand.nodeId])).resolves.toEqual([
+        { fixtureId: provisioningCommand.nodeId, outcome: "read_timeout" }
+      ]);
+      f.client.scan.mockRejectedValue(new BioUsbError("DISCONNECTED", "private USB path"));
+      await expect(f.adapter.probeFixturePresence([provisioningCommand.nodeId])).rejects.toThrow();
+    });
+
+    it("rejects mismatched identity before GET and aborts without device-offline results", async () => {
+      const f = readyForOnePresence();
+      f.client.scan.mockResolvedValue([{ ...discovered, logicalAddress: 0x0102 }]);
+      await expect(f.adapter.probeFixturePresence([provisioningCommand.nodeId])).resolves.toEqual([
+        { fixtureId: provisioningCommand.nodeId, outcome: "not_found" }
+      ]);
+      expect(f.client.readBrightness).not.toHaveBeenCalled();
+      await expect(f.adapter.probeFixturePresence([provisioningCommand.nodeId], AbortSignal.abort())).rejects.toThrow();
+    });
     it("classifies an uncoded discovery failure without exposing its message", async () => {
       const f = createFixture();
       f.mappings.listConfirmed.mockResolvedValue([confirmedMapping()]);

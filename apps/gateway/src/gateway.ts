@@ -21,6 +21,7 @@ import { ProvisioningScanJournal, type ProvisioningScanTerminalEvent } from "./s
 import { AutomationRuntimeError, type AutomationRuntime } from "./automation/automation-runtime";
 
 export interface BleMeshAdapter {
+  probeFixturePresence?(fixtureIds: string[], signal?: AbortSignal): Promise<BleMeshFixtureProbeResult[]>;
   setAttention?(fixtureId: string, expiresAt: number, action: "start" | "stop", signal?: AbortSignal): Promise<number>;
   setBrightness(fixtureIds: string[], brightness: number): Promise<BleMeshCommandReport[]>;
   applyUnicast?(fixtureId: string, brightness: number, signal?: AbortSignal, deadlineAt?: number): Promise<BleMeshCommandReport>;
@@ -77,6 +78,13 @@ export interface BleMeshFixturePresence {
   rssi: number | null;
   hopCount: number | null;
   observedAt: string;
+}
+
+export interface BleMeshFixtureProbeResult {
+  fixtureId: string;
+  outcome: "online" | "not_found" | "read_timeout" | "read_failed";
+  presence?: BleMeshFixturePresence;
+  lightingObservation?: BleMeshLightingObservation;
 }
 
 export interface BleMeshFixtureStatus {

@@ -444,7 +444,13 @@ export const fixtureStateV2Schema = orderedGatewayEventSchema.extend({
   faultCode: z.string().min(1).optional(),
   health: fixtureHealthSnapshotSchema.optional(),
   rssi: z.number().max(0).nullable(),
-  hopCount: z.number().int().nonnegative().nullable()
+  hopCount: z.number().int().nonnegative().nullable(),
+  refreshId: z.string().uuid().optional(),
+  batchId: z.string().uuid().optional()
+}).superRefine((value, context) => {
+  if ((value.refreshId === undefined) !== (value.batchId === undefined)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["refreshId"], message: "refreshId and batchId must be provided together" });
+  }
 });
 
 // Presence는 liveness/control telemetry만 보고하며 fixture 출력 상태는 별도 계약인

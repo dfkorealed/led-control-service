@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
 import { BluezMeshAdapter } from "./bluez-mesh-adapter";
+import { BluezTransportError } from "./bluez-transport";
 import { handleGatewayDimmingCommand } from "../commands/gateway-command-handler";
 import {
   TEST_BLUETOOTH_COMPANY_ID,
@@ -53,6 +54,58 @@ function fixture(options: { responseTimeoutMs?: number; observationCoherenceMs?:
 }
 
 describe("BluezMeshAdapter", () => {
+  it("probes only OnOff and Lightness GET and requires both verified observations", async () => {
+    const f = fixture();
+    const probing = f.adapter.probeFixturePresence(["fixture-1", "unknown"]);
+    await vi.waitFor(() => expect(f.transport.calls.filter(({ method }) => method === "Send")).toHaveLength(2));
+    f.application.emit("messageReceived", { source: 0x0100, data: [0x82, 0x04, 0x01] });
+    f.application.emit("messageReceived", { source: 0x0100, data: [0x82, 0x4e, 0xff, 0xff] });
+    await expect(probing).resolves.toEqual([
+      { fixtureId: "fixture-1", outcome: "online", lightingObservation: {
+        fixtureId: "fixture-1", brightness: 100, powerOn: true, observedAt: expect.any(String)
+      } }, { fixtureId: "unknown", outcome: "not_found" }
+    ]);
+    expect(f.transport.calls.filter(({ method }) => method === "Send").map(({ args }) => args[4])).toEqual([
+      [0x82, 0x01], [0x82, 0x4b]
+    ]);
+    expect(f.config.configureNode).not.toHaveBeenCalled();
+    expect(f.transactions.next).not.toHaveBeenCalled();
+  });
+
+  it("returns sanitized read_timeout when a lighting reply is missing", async () => {
+    const f = fixture({ responseTimeoutMs: 5 });
+    await expect(f.adapter.probeFixturePresence(["fixture-1"])).resolves.toEqual([
+      { fixtureId: "fixture-1", outcome: "read_timeout" }
+    ]);
+  });
+
+  it("sanitizes a wrapped per-read timeout while keeping bus disconnect a batch failure", async () => {
+    const f = fixture();
+    f.transport.call.mockRejectedValue(new BluezTransportError("private transport detail", "org.bluez.mesh", "/private", "Node1", "Send", {
+      cause: Object.assign(new Error("private timeout detail"), { code: "TIMEOUT" })
+    }));
+    await expect(f.adapter.probeFixturePresence(["fixture-1"])).resolves.toEqual([{ fixtureId: "fixture-1", outcome: "read_timeout" }]);
+    f.transport.call.mockRejectedValue(Object.assign(new Error("private bus detail"), { code: "DISCONNECTED" }));
+    await expect(f.adapter.probeFixturePresence(["fixture-1"])).rejects.toThrow("fixture probe transport unavailable");
+  });
+
+  it("serializes a monitoring probe with an existing resync for the same fixture", async () => {
+    const f = fixture({ responseTimeoutMs: 1000 });
+    const resync = f.adapter.resyncLightingFixtures(["fixture-1"]);
+    await vi.waitFor(() => expect(f.transport.calls.filter(({ method }) => method === "Send")).toHaveLength(2));
+    const probe = f.adapter.probeFixturePresence(["fixture-1"]);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(f.transport.calls.filter(({ method }) => method === "Send")).toHaveLength(2);
+    f.application.emit("messageReceived", { source: 0x0100, data: [0x82, 0x04, 0x01] });
+    f.application.emit("messageReceived", { source: 0x0100, data: [0x82, 0x4e, 0xff, 0xff] });
+    await expect(resync).resolves.toMatchObject({ observed: 1 });
+    await vi.waitFor(() => expect(f.transport.calls.filter(({ method }) => method === "Send")).toHaveLength(4));
+    f.application.emit("messageReceived", { source: 0x0100, data: [0x82, 0x04, 0x00] });
+    f.application.emit("messageReceived", { source: 0x0100, data: [0x82, 0x4e, 0x00, 0x00] });
+    await expect(probe).resolves.toEqual([{ fixtureId: "fixture-1", outcome: "online", lightingObservation: {
+      fixtureId: "fixture-1", brightness: 0, powerOn: false, observedAt: expect.any(String)
+    } }]);
+  });
   it("accepts only the existing DFK provisioning UUID namespace", () => {
     const adapter = fixture().adapter;
 

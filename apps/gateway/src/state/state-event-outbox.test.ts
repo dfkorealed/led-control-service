@@ -23,6 +23,19 @@ afterEach(async () => {
 });
 
 describe("StateEventOutbox", () => {
+  it("restores unreachable events and accepts only exact fixture-scoped application ACK", async () => {
+    const path = await outboxPath();
+    const event = { ...scope, eventId: "11111111-1111-4111-8111-111111111111", sequence: 3,
+      occurredAt: "2026-09-15T00:00:00.000Z", fixtureId: "66666666-6666-4666-8666-666666666666",
+      refreshId: "33333333-3333-4333-8333-333333333333", batchId: "44444444-4444-4444-8444-444444444444", reason: "read_timeout" as const };
+    await new StateEventOutbox(path, scope).enqueue(event);
+    const restored = new StateEventOutbox(path, scope);
+    expect(await restored.pending()).toEqual([expect.objectContaining({ topic: mqttTopicsV2.fixtureUnreachable(scope.siteId, scope.gatewayId), payload: event })]);
+    const ack = { eventId: event.eventId, sequence: 3, fixtureId: event.fixtureId, status: "ingested", ingestedAt: event.occurredAt };
+    expect(await restored.acknowledge({ ...ack, fixtureId: event.refreshId })).toBe(false);
+    expect(await restored.acknowledge(ack)).toBe(true);
+    expect(await new StateEventOutbox(path, scope).pending()).toEqual([]);
+  });
   it("restores state and presence records in FIFO order and ACKs only the matching event", async () => {
     const path = await outboxPath();
     const outbox = new StateEventOutbox(path, scope);

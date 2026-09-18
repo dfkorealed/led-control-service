@@ -39,6 +39,15 @@ const eventId = "44444444-4444-4444-8444-444444444444";
 const occurredAt = "2026-07-11T00:00:00.000Z";
 
 describe("gateway-scoped MQTT v2 contracts", () => {
+  it("preserves paired refresh identity on real lighting state and rejects either partial identity", () => {
+    const state = { eventId, siteId, gatewayId, fixtureId, sequence: 11, occurredAt,
+      brightness: 75, powerOn: true, status: "online", rssi: null, hopCount: null };
+    const identity = { refreshId: commandId, batchId: dispatchId };
+    expect(fixtureStateV2Schema.parse(state)).toEqual(state);
+    expect(fixtureStateV2Schema.parse({ ...state, ...identity })).toEqual({ ...state, ...identity });
+    expect(() => fixtureStateV2Schema.parse({ ...state, refreshId: commandId })).toThrow();
+    expect(() => fixtureStateV2Schema.parse({ ...state, batchId: dispatchId })).toThrow();
+  });
   it("binds a read-only fixture presence check to one site, gateway, refresh and batch", () => {
     const parsed = fixturePresenceCheckCommandV1Schema.parse({
       siteId: "11111111-1111-4111-8111-111111111111",
