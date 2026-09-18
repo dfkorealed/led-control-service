@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuthUser } from "../../api/auth";
@@ -11,9 +11,11 @@ const fixture: FixtureSnapshot = { id: "fixture-1", name: "입구 조명", x: 10
 let client: QueryClient;
 let fetchMock: ReturnType<typeof vi.fn>;
 let canManage: boolean;
+let refreshed: boolean;
 
 beforeEach(() => {
   canManage = true;
+  refreshed = false;
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
   fetchMock = vi.fn(async (path: string) => {
@@ -27,7 +29,12 @@ beforeEach(() => {
       };
       return Response.json(dashboard);
     }
-    if (path === "/api/sites/site-1/floors/floor-1/fixtures?limit=200") return Response.json({ items: [fixture], generatedAt: new Date().toISOString(), nextCursor: null });
+    if (path === "/api/sites/site-1/floors/floor-1/monitoring-refreshes") return Response.json({ id: "refresh-1", status: "completed", totalFixtures: 1 });
+    if (path === "/api/sites/site-1/monitoring-refreshes/refresh-1") {
+      refreshed = true;
+      return Response.json({ id: "refresh-1", status: "completed", totalFixtures: 1, onlineFixtures: 0, offlineFixtures: 1, unverifiedFixtures: 0, completedAt: new Date().toISOString() });
+    }
+    if (path === "/api/sites/site-1/floors/floor-1/fixtures?limit=200") return Response.json({ items: [{ ...fixture, ...(refreshed ? { status: "offline", statusReason: "fixture_stale" } : {}) }], generatedAt: new Date().toISOString(), nextCursor: null });
     if (path === "/api/sites/site-1/floors/floor-1/map-snapshot") return Response.json({ floorId: "floor-1", revision: 1, width: 1200, height: 800, floorPlan: null, objects: [] });
     throw new Error(`Unexpected monitoring request: ${path}`);
   });
@@ -40,6 +47,16 @@ function mount() {
 }
 
 describe("customer shell monitoring details", () => {
+  it("lets a read-only member refresh physical status and updates the selected detail through real queries", async () => {
+    canManage = false;
+    mount();
+    await screen.findByRole("region", { name: "선택 조명 정보" });
+    fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
+    await waitFor(() => expect(screen.getByRole("group", { name: "오프라인" })).toHaveTextContent("1"));
+    expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("상태 수신 지연");
+    expect(screen.getByRole("button", { name: "새로고침" })).toBeEnabled();
+    expect(fetchMock.mock.calls.filter(([path]) => path === "/api/sites/site-1/floors/floor-1/monitoring-refreshes")).toHaveLength(1);
+  });
   it("shows fixture details without requesting or exposing incident operations", async () => {
     mount();
     expect(await screen.findByRole("region", { name: "선택 조명 정보" })).toBeVisible();

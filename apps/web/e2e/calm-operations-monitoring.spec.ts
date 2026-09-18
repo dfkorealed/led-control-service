@@ -110,11 +110,65 @@ async function installMonitoringFixture(
   page: Page,
   { snapshotGeneratedAt, fixtureRows = fixtures }: { snapshotGeneratedAt?: string; fixtureRows?: SettingsFixture[] } = {}
 ) {
-  return installSettingsApiRoutes(page, "admin", {
+  const api = await installSettingsApiRoutes(page, "admin", {
     fixtures: fixtureRows,
     snapshotGeneratedAt,
     ids: { siteId: ids.site, floorId: ids.floor, gatewayId: ids.gateway }
   });
+  await page.route(`**/api/sites/${ids.site}/floors/${ids.floor}/monitoring-refreshes`, (route) => route.fulfill({ json: { id: "refresh-1", status: "completed", totalFixtures: fixtureRows.length } }));
+  await page.route(`**/api/sites/${ids.site}/monitoring-refreshes/refresh-1`, (route) => route.fulfill({ json: {
+    id: "refresh-1", status: "completed", totalFixtures: fixtureRows.length,
+    onlineFixtures: fixtureRows.length, offlineFixtures: 0, unverifiedFixtures: 0, completedAt: new Date().toISOString()
+  } }));
+  return api;
+}
+
+for (const viewport of viewports) {
+  for (const status of ["completed", "partial"] as const) {
+    test(`${viewport.width}px 수동 장치 확인 ${status} 결과는 KPI·마커·선택 상세에 반영된다`, async ({ page }) => {
+      await page.setViewportSize(viewport);
+      const rows = [fixture("B2-L001", "online", "reported", 120, 140), fixture("B2-L002", "online", "reported", 280, 220)];
+      const api = await installMonitoringFixture(page, { fixtureRows: rows });
+      let finish!: () => void;
+      const terminal = new Promise<void>((resolve) => { finish = resolve; });
+      let posts = 0;
+      await page.route(`**/api/sites/${ids.site}/floors/${ids.floor}/monitoring-refreshes`, async (route) => {
+        posts += 1;
+        expect(route.request().method()).toBe("POST");
+        expect(Object.keys(route.request().postDataJSON())).toEqual(["clientRequestId"]);
+        await route.fulfill({ json: { id: "refresh-1", status: "pending", totalFixtures: 2, terminalStatusUrl: "https://untrusted.invalid" } });
+      });
+      await page.route(`**/api/sites/${ids.site}/monitoring-refreshes/refresh-1`, async (route) => {
+        await terminal;
+        api.updateFixture(rows[1].id, { status: "offline", brightness: 70 });
+        await route.fulfill({ json: { id: "refresh-1", status, totalFixtures: 2, onlineFixtures: status === "partial" ? 0 : 1, offlineFixtures: 1, unverifiedFixtures: status === "partial" ? 1 : 0, completedAt: new Date().toISOString(), error: "secret raw transport failure" } });
+      });
+      await page.goto(`/monitoring?siteId=${ids.site}`);
+      await expect(page.getByRole("group", { name: "정상" })).toContainText("2");
+      await page.getByRole("button", { name: "B2-L002 정상 70%" }).click();
+      await page.getByRole("button", { name: "지도 확대" }).click();
+      await page.getByRole("button", { name: "새로고침" }).click();
+      await expect(page.getByRole("button", { name: "장치 상태 확인 중" })).toBeDisabled();
+      await expectNoHorizontalOverflow(page);
+      const before = { dashboard: api.dashboardRequests, fixtures: api.fixturePageRequests, map: api.mapSnapshotRequests };
+      finish();
+      await expect(page.getByRole("button", { name: "새로고침" })).toBeEnabled();
+      await expect(page.getByRole("group", { name: "전체 조명" })).toContainText("2");
+      await expect(page.getByRole("group", { name: "정상" })).toContainText("1");
+      await expect(page.getByRole("group", { name: "오프라인" })).toContainText("1");
+      await expect(page.getByRole("button", { name: "B2-L002 오프라인 70%" })).toHaveAttribute("aria-current", "true");
+      await expect(page.getByRole("complementary", { name: "선택 조명 상세" })).toContainText("B2-L002");
+      await expect(page.getByRole("complementary", { name: "선택 조명 상세" })).toContainText("오프라인");
+      await expect(page.getByRole("button", { name: "지도 배율 110%" })).toBeVisible();
+      expect(posts).toBe(1);
+      expect(api.dashboardRequests).toBeGreaterThan(before.dashboard);
+      expect(api.fixturePageRequests).toBeGreaterThan(before.fixtures);
+      expect(api.mapSnapshotRequests).toBeGreaterThan(before.map);
+      await expect(page.getByText("일부 조명의 상태를 확인하지 못했습니다.")).toHaveCount(status === "partial" ? 1 : 0);
+      await expect(page.getByText(/secret raw/)).toHaveCount(0);
+      await expectNoHorizontalOverflow(page);
+    });
+  }
 }
 
 for (const viewport of viewports) {

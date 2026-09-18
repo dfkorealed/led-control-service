@@ -8,6 +8,8 @@ const queryMocks = vi.hoisted(() => ({
   useFloorFixtures: vi.fn(),
   useFloorMapSnapshot: vi.fn()
 }));
+const refreshApi = vi.hoisted(() => ({ waitForMonitoringRefresh: vi.fn() }));
+vi.mock("../../api/monitoring-refresh", () => refreshApi);
 
 vi.mock("../../api/queries", () => queryMocks);
 vi.mock("../registration/RegistrationPanel", () => ({
@@ -48,6 +50,7 @@ describe("MonitoringView refresh", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    refreshApi.waitForMonitoringRefresh.mockReset().mockResolvedValue({ status: "completed" });
     const currentGeneratedAt = new Date().toISOString();
     refetchDashboard.mockResolvedValue({ data: dashboard });
     refetchFixtures.mockResolvedValue({ data: { pages: [{ items: [fixture], nextCursor: null, generatedAt: currentGeneratedAt }] } });
@@ -98,6 +101,106 @@ describe("MonitoringView refresh", () => {
       expect(refetchMap).toHaveBeenCalledTimes(1);
     });
     expect(screen.getByText(/마지막 갱신:/)).toBeInTheDocument();
+  });
+
+  it("keeps one hardware request active and updates summary, marker and selected detail together", async () => {
+    const hardware = deferred<{ status: string }>();
+    refreshApi.waitForMonitoringRefresh.mockReturnValueOnce(hardware.promise);
+    const online = { ...fixture, health: null };
+    const second = { ...online, id: "fixture-2", name: "B1-L002" };
+    const query = queryMocks.useFloorFixtures();
+    query.data.pages[0].items = [online, second];
+    refetchFixtures.mockImplementationOnce(async () => { query.data.pages[0].items = [online, { ...second, status: "offline", statusReason: "fixture_stale" }]; });
+    render(<MonitoringView siteId="site-1" userRole="viewer" />);
+    fireEvent.click(screen.getByRole("button", { name: "B1-L002 정상 70%" }));
+    expect(screen.getByRole("group", { name: "정상" })).toHaveTextContent("2");
+    fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
+    const loading = screen.getByRole("button", { name: "장치 상태 확인 중" });
+    expect(loading).toBeDisabled();
+    fireEvent.click(loading);
+    expect(refreshApi.waitForMonitoringRefresh).toHaveBeenCalledTimes(1);
+    expect(refreshApi.waitForMonitoringRefresh).toHaveBeenCalledWith(expect.objectContaining({ siteId: "site-1", floorId: "floor-1", clientRequestId: expect.any(String), signal: expect.any(AbortSignal) }));
+    expect(refetchFixtures).not.toHaveBeenCalled();
+    await act(async () => hardware.resolve({ status: "completed" }));
+    expect(screen.getByRole("group", { name: "전체 조명" })).toHaveTextContent("2");
+    expect(screen.getByRole("group", { name: "정상" })).toHaveTextContent("1");
+    expect(screen.getByRole("group", { name: "오프라인" })).toHaveTextContent("1");
+    expect(screen.getByRole("button", { name: "B1-L002 상태 수신 지연 70%" })).toBeVisible();
+    expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("B1-L002");
+    expect(screen.getByRole("complementary", { name: "선택 조명 상세" })).toHaveTextContent("상태 수신 지연");
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("skips the hardware job for an empty floor and still refetches every source", async () => {
+    queryMocks.useFloorFixtures().data.pages[0].items = [];
+    render(<MonitoringView siteId="site-1" />);
+    fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
+    await waitFor(() => expect(refetchMap).toHaveBeenCalledTimes(1));
+    expect(refetchDashboard).toHaveBeenCalledTimes(1);
+    expect(refetchFixtures).toHaveBeenCalledTimes(1);
+    expect(refreshApi.waitForMonitoringRefresh).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["partial", "일부 조명의 상태를 확인하지 못했습니다."],
+    ["failed", "장치 상태를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요."],
+    ["expired", "장치 응답 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요."]
+  ])("shows sanitized %s feedback while retaining source errors", async (status, copy) => {
+    refreshApi.waitForMonitoringRefresh.mockResolvedValueOnce({ status, error: "secret transport failure" });
+    refetchMap.mockRejectedValueOnce(new Error("secret map failure"));
+    render(<MonitoringView siteId="site-1" />);
+    fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "새로고침" })).toBeEnabled());
+    expect(screen.getByText(copy)).toBeVisible();
+    expect(screen.getByText("일부 현황 데이터를 새로고침하지 못했습니다.")).toBeVisible();
+    expect(screen.getByText("저장된 지도를 유지하고 있습니다. 지도 갱신에 실패했습니다.")).toBeVisible();
+    expect(screen.queryByText(/secret/)).not.toBeInTheDocument();
+    expect(refetchDashboard).toHaveBeenCalledTimes(1);
+    expect(refetchFixtures).toHaveBeenCalledTimes(1);
+  });
+
+  it("sanitizes POST errors and still refreshes cached data", async () => {
+    refreshApi.waitForMonitoringRefresh.mockRejectedValueOnce(new Error("private URL transport trace"));
+    render(<MonitoringView siteId="site-1" />);
+    fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "새로고침" })).toBeEnabled());
+    expect(screen.getByText("장치 상태를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.")).toBeVisible();
+    expect(screen.queryByText(/private URL/)).not.toBeInTheDocument();
+    expect(refetchMap).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["floor", "site", "unmount"])("aborts on %s change and ignores a late hardware result", async (change) => {
+    const oldRequest = deferred<{ status: string }>();
+    refreshApi.waitForMonitoringRefresh.mockReturnValueOnce(oldRequest.promise);
+    queryMocks.useDashboard.mockReturnValue({ ...queryMocks.useDashboard(), data: { ...dashboard, floors: [...dashboard.floors, { ...dashboard.floors[0], id: "floor-2", name: "B2" }] } });
+    const view = render(<MonitoringView siteId="site-1" />);
+    fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
+    const oldSignal = refreshApi.waitForMonitoringRefresh.mock.calls[0][0].signal as AbortSignal;
+    if (change === "floor") await chooseSelect("맵 선택", "B2");
+    if (change === "site") view.rerender(<MonitoringView siteId="site-2" />);
+    if (change === "unmount") view.unmount();
+    expect(oldSignal.aborted).toBe(true);
+    if (change !== "unmount") {
+      refreshApi.waitForMonitoringRefresh.mockReturnValueOnce(new Promise(() => {}));
+      fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
+    }
+    await act(async () => oldRequest.resolve({ status: "failed" }));
+    expect(refetchDashboard).not.toHaveBeenCalled();
+    expect(screen.queryByText("장치 상태를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.")).not.toBeInTheDocument();
+    if (change !== "unmount") expect(screen.getByRole("button", { name: "장치 상태 확인 중" })).toBeDisabled();
+  });
+
+  it("ignores an old refetch failure after moving to another floor", async () => {
+    const oldMap = deferred<unknown>();
+    refetchMap.mockReturnValueOnce(oldMap.promise);
+    queryMocks.useDashboard.mockReturnValue({ ...queryMocks.useDashboard(), data: { ...dashboard, floors: [...dashboard.floors, { ...dashboard.floors[0], id: "floor-2", name: "B2" }] } });
+    render(<MonitoringView siteId="site-1" />);
+    fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
+    await waitFor(() => expect(refetchMap).toHaveBeenCalledTimes(1));
+    await chooseSelect("맵 선택", "B2");
+    await act(async () => oldMap.reject(new Error("old map failed")));
+    expect(screen.getByRole("button", { name: "새로고침" })).toBeEnabled();
+    expect(screen.queryByText("일부 현황 데이터를 새로고침하지 못했습니다.")).not.toBeInTheDocument();
   });
 
   it("uses labelled design-system selectors and non-color status text", () => {
@@ -258,7 +361,7 @@ describe("MonitoringView refresh", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
 
-    expect(screen.getByRole("button", { name: "새로고침 중" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "장치 상태 확인 중" })).toBeDisabled();
     dashboardRequest.resolve({ data: dashboard });
     fixtureRequest.resolve({ data: { pages: [{ items: [fixture], nextCursor: null, generatedAt: new Date().toISOString() }] } });
     mapRequest.resolve({ data: mapSnapshot });
@@ -644,7 +747,7 @@ describe("MonitoringView refresh", () => {
     expect(screen.queryByText(/인시던트/)).not.toBeInTheDocument();
   });
 
-  it("fixture 갱신 실패 시 이전 성공 데이터를 유지하고 오류를 알린다", () => {
+  it("fixture 갱신 실패 시 이전 성공 데이터를 유지하고 오류를 알린다", async () => {
     queryMocks.useFloorFixtures.mockReturnValue({
       data: { pages: [{ items: [fixture], nextCursor: null, generatedAt: new Date().toISOString() }] },
       dataUpdatedAt: new Date("2026-08-19T01:00:00.000Z").getTime(),
@@ -664,7 +767,7 @@ describe("MonitoringView refresh", () => {
     expect(screen.getByRole("region", { name: "층 도면" })).toBeInTheDocument();
     expect(screen.getByRole("alert")).toHaveTextContent("저장된 조명 상태를 유지하고 있습니다. 조명 상태 갱신에 실패했습니다.");
     fireEvent.click(screen.getByRole("button", { name: "조명 상태 다시 시도" }));
-    expect(refetchFixtures).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(refetchFixtures).toHaveBeenCalledTimes(1));
   });
 
   it("지도 최초 조회 중에는 등록된 층이 없다고 표시하지 않는다", () => {

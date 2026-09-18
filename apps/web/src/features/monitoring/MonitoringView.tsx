@@ -1,7 +1,8 @@
 import { CircleCheck, CircleX, Clock3, RefreshCw, TriangleAlert } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useDashboard, useFloorFixtures, useFloorMapSnapshot, type Dashboard } from "../../api/queries";
+import { waitForMonitoringRefresh, type MonitoringRefreshResult } from "../../api/monitoring-refresh";
 import { Button, FeedbackState, Heading, MetricCard, SelectBox, SidePanel, StatusBadge, Text } from "../../components/ui";
 import { InstallationPending } from "../setup/SetupWizard";
 import { FloorMap } from "./FloorMap";
@@ -17,6 +18,15 @@ interface MapRefreshFailure {
 
 type ManualRefreshFailureSource = "dashboard" | "fixtures";
 
+function copyForTerminal(result: MonitoringRefreshResult | null): string | null {
+  switch (result?.status) {
+    case "partial": return "일부 조명의 상태를 확인하지 못했습니다.";
+    case "failed": return "장치 상태를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.";
+    case "expired": return "장치 응답 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.";
+    default: return null;
+  }
+}
+
 export function MonitoringView({ userRole = "admin", siteId }: { userRole?: "operator" | "admin" | "viewer"; siteId?: string }) {
   const dashboardQuery = useDashboard(siteId);
   const { data, isLoading, error } = dashboardQuery;
@@ -26,7 +36,7 @@ export function MonitoringView({ userRole = "admin", siteId }: { userRole?: "ope
 
   return (
     <MonitoringDashboard
-      key={data.site.id}
+      key={siteId ?? data.site.id}
       data={data}
       userRole={userRole}
       siteId={siteId}
@@ -48,6 +58,8 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardError, refreshDa
   const [selectedFloorId, setSelectedFloorId] = useState<string | null>(null);
   const [selectedFixtureId, setSelectedFixtureId] = useState<string | null>(null);
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
+  const refreshAbortRef = useRef<AbortController | null>(null);
+  const [hardwareRefreshFailure, setHardwareRefreshFailure] = useState<string | null>(null);
   const [manualRefreshFailureSources, setManualRefreshFailureSources] = useState<ManualRefreshFailureSource[]>([]);
   const [mapRefreshFailure, setMapRefreshFailure] = useState<MapRefreshFailure | null>(null);
   const [freshnessRevision, setFreshnessRevision] = useState(0);
@@ -85,6 +97,16 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardError, refreshDa
     }),
     [fixtures]
   );
+  useEffect(() => {
+    // Also covers a floor removed by a dashboard update, without a selector event.
+    setIsManualRefreshing(false);
+    setHardwareRefreshFailure(null);
+    return () => {
+      refreshAbortRef.current?.abort();
+      refreshAbortRef.current = null;
+    };
+  }, [floor?.id, siteId]);
+
   useEffect(() => {
     if (floor && fixtureQuery.hasNextPage && !fixtureQuery.isFetchingNextPage) void fixtureQuery.fetchNextPage();
   }, [floor, fixtureQuery.hasNextPage, fixtureQuery.isFetchingNextPage, fixtureQuery.fetchNextPage]);
@@ -124,20 +146,26 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardError, refreshDa
   }
 
   function handleSelectFloor(floorId: string) {
+    if (floorId === floor?.id) return;
+    refreshAbortRef.current?.abort();
+    refreshAbortRef.current = null;
+    setIsManualRefreshing(false);
+    setHardwareRefreshFailure(null);
+    setManualRefreshFailureSources([]);
     const nextFloor = data.floors.find((item) => item.id === floorId);
     setSelectedFloorId(floorId);
     setSelectedFixtureId(nextFloor?.fixtures.find((fixture) => fixture.status === "fault")?.id ?? nextFloor?.fixtures[0]?.id ?? null);
   }
 
-  async function handleRefresh() {
+  async function refetchMonitoringSources(signal: AbortSignal) {
     const refreshedFloorId = floor?.id ?? null;
-    setIsManualRefreshing(true);
-    setManualRefreshFailureSources([]);
     const results = await Promise.allSettled([
       refreshDashboard(),
       floor ? fixtureQuery.refetch({ throwOnError: true }) : Promise.resolve(),
       floor ? mapQuery.refetch({ throwOnError: true }) : Promise.resolve()
     ]);
+    // Query caches may complete after navigation; only the current refresh owns UI feedback.
+    if (signal.aborted) return;
     setManualRefreshFailureSources([
       results[0]?.status === "rejected" ? "dashboard" : null,
       results[1]?.status === "rejected" ? "fixtures" : null
@@ -145,7 +173,33 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardError, refreshDa
     setMapRefreshFailure((current) => results[2]?.status === "rejected" && refreshedFloorId
       ? { floorId: refreshedFloorId, dataUpdatedAt: mapQuery.dataUpdatedAt }
       : current?.floorId === refreshedFloorId ? null : current);
-    setIsManualRefreshing(false);
+  }
+
+  async function handleRefresh() {
+    if (refreshAbortRef.current) return;
+    const controller = new AbortController();
+    refreshAbortRef.current = controller;
+    setIsManualRefreshing(true);
+    setHardwareRefreshFailure(null);
+    try {
+      const terminal = floor && fixtures.length > 0 ? await waitForMonitoringRefresh({
+        siteId: siteId ?? data.site.id,
+        floorId: floor.id,
+        clientRequestId: crypto.randomUUID(),
+        signal: controller.signal
+      }) : null;
+      if (!controller.signal.aborted) setHardwareRefreshFailure(copyForTerminal(terminal));
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        setHardwareRefreshFailure(error instanceof DOMException && error.name === "TimeoutError"
+          ? "장치 응답 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요."
+          : "장치 상태를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+      }
+    } finally {
+      if (!controller.signal.aborted) await refetchMonitoringSources(controller.signal);
+      if (refreshAbortRef.current === controller) refreshAbortRef.current = null;
+      if (!controller.signal.aborted) setIsManualRefreshing(false);
+    }
   }
 
   async function handleMapRetry() {
@@ -172,14 +226,15 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardError, refreshDa
         <div className="ml-auto flex flex-wrap items-center justify-end gap-2 text-content-secondary max-compact:ml-0 max-compact:w-full">
           <Text as="small" variant="caption" tone="secondary" className="whitespace-nowrap">{formatSnapshotUpdatedAt(snapshotFreshness)}</Text>
           {refreshError ? <Text as="span" variant="label" tone="danger" role="status">{refreshError}</Text> : null}
+          {hardwareRefreshFailure ? <Text as="span" variant="label" tone="danger" role="status">{hardwareRefreshFailure}</Text> : null}
           <Button
             variant="secondary"
-            isLoading={isManualRefreshing}
-            loadingLabel="새로고침 중"
+            disabled={isManualRefreshing}
+            aria-busy={isManualRefreshing}
             onClick={() => void handleRefresh()}
           >
             <RefreshCw aria-hidden="true" size={15} className={isManualRefreshing ? "animate-spin" : undefined} />
-            새로고침
+            {isManualRefreshing ? "장치 상태 확인 중" : "새로고침"}
           </Button>
         </div>
       </div>
