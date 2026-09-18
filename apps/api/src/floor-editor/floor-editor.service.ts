@@ -913,7 +913,14 @@ export class FloorEditorService {
     changedAt: Date
   ) {
     const lightSlots = "lightSlots" in snapshot ? snapshot.lightSlots : undefined;
-    if (lightSlots === undefined) return;
+    if (lightSlots === undefined) {
+      // V1 and early V2 snapshots predate slot history. Their fixture placement is
+      // authoritative, so retain current slots but detach assignments contradicted
+      // by the restored placement instead of moving historical fixtures to new slots.
+      await this.detachLegacySnapshotAssignmentConflicts(tx, floorId);
+      await this.assertFinalSlotAssignments(tx, floorId, []);
+      return;
+    }
 
     const legacySlots = lightSlots.filter((slot) => !slot.sourceImportJobId || !slot.sourceCandidateId);
     const recoveredSources = legacySlots.length === 0
@@ -973,6 +980,32 @@ export class FloorEditorService {
       await tx.floorLightSlot.updateMany({
         where: { floorId, id: { in: slots.map((slot) => slot.id) } },
         data: { updatedAt: changedAt }
+      });
+    }
+  }
+
+  private async detachLegacySnapshotAssignmentConflicts(tx: Prisma.TransactionClient, floorId: string) {
+    const assignedSlots = await tx.floorLightSlot.findMany({
+      where: { floorId, assignedFixtureId: { not: null } },
+      select: {
+        id: true,
+        assignedFixtureId: true,
+        x: true,
+        y: true,
+        assignedFixture: { select: { id: true, floorId: true, placementStatus: true, x: true, y: true } }
+      }
+    });
+    const conflictingSlotIds = assignedSlots
+      .filter((slot) => {
+        const fixture = slot.assignedFixture;
+        return !fixture || fixture.id !== slot.assignedFixtureId || fixture.floorId !== floorId ||
+          fixture.placementStatus !== "placed" || fixture.x !== slot.x || fixture.y !== slot.y;
+      })
+      .map((slot) => slot.id);
+    if (conflictingSlotIds.length > 0) {
+      await tx.floorLightSlot.updateMany({
+        where: { floorId, id: { in: conflictingSlotIds } },
+        data: { assignedFixtureId: null }
       });
     }
   }

@@ -61,6 +61,7 @@ interface ChildProcessCadCoreOptions {
   entryPath?: string;
   maxOldSpaceMb?: number;
   timeoutMs?: number;
+  forkProcess?: typeof fork;
 }
 
 type ChildResponse = { ok: true; result: CadCoreResult } | { ok: false; code: string };
@@ -69,11 +70,13 @@ export class ChildProcessCadCoreExecutor implements CadCoreExecutor {
   private readonly entryPath: string;
   private readonly maxOldSpaceMb: number;
   private readonly timeoutMs: number;
+  private readonly forkProcess: typeof fork;
 
   constructor(options: ChildProcessCadCoreOptions = {}) {
     this.entryPath = options.entryPath ?? join(__dirname, "cad-core-child.js");
     this.maxOldSpaceMb = options.maxOldSpaceMb ?? configuredHeap();
     this.timeoutMs = options.timeoutMs ?? CAD_CORE_WALL_TIMEOUT_MS;
+    this.forkProcess = options.forkProcess ?? fork;
     if (!Number.isSafeInteger(this.maxOldSpaceMb) || this.maxOldSpaceMb < 16 || this.maxOldSpaceMb > CAD_CORE_MAX_OLD_SPACE_MB) {
       throw new Error("Invalid CAD core child heap limit");
     }
@@ -84,7 +87,7 @@ export class ChildProcessCadCoreExecutor implements CadCoreExecutor {
 
   execute(request: CadCoreRequest): Promise<CadCoreResult> {
     return new Promise((resolve, reject) => {
-      const child = fork(this.entryPath, [], {
+      const child = this.forkProcess(this.entryPath, [], {
         execArgv: [`--max-old-space-size=${this.maxOldSpaceMb}`],
         serialization: "advanced",
         stdio: ["ignore", "pipe", "pipe", "ipc"],
@@ -93,10 +96,14 @@ export class ChildProcessCadCoreExecutor implements CadCoreExecutor {
       let settled = false;
       let stderrBytes = 0;
       let responseBytes = 0;
+      let validResult: CadCoreResult | undefined;
+      let exitedSuccessfully = false;
       const responseChunks: Buffer[] = [];
       child.stderr?.on("data", (chunk: Buffer) => {
         stderrBytes += chunk.length;
-        if (stderrBytes > MAX_CHILD_ERROR_BYTES) child.kill("SIGKILL");
+        if (stderrBytes > MAX_CHILD_ERROR_BYTES) {
+          finish(new Error("CAD core child stderr byte limit exceeded"));
+        }
       });
       const finish = (error?: Error, result?: CadCoreResult) => {
         if (settled) return;
@@ -108,12 +115,21 @@ export class ChildProcessCadCoreExecutor implements CadCoreExecutor {
         if (error) reject(error); else resolve(result!);
       };
       const abort = () => finish(new Error("CAD core child process aborted"));
+      const finishSuccessWhenComplete = () => {
+        if (validResult && exitedSuccessfully) finish(undefined, validResult);
+      };
       const timer = setTimeout(() => finish(new Error("CAD core child process wall time limit exceeded")), this.timeoutMs);
       timer.unref();
       request.abortSignal?.addEventListener("abort", abort, { once: true });
       child.once("error", () => finish(new Error("CAD core child process failed")));
       child.once("close", (code, signal) => {
-        if (!settled) finish(new Error(`CAD core child process failed (${signal ?? code ?? "unknown"})`));
+        if (settled) return;
+        if (signal || code !== 0) {
+          finish(new Error(`CAD core child process failed (${signal ?? code ?? "unknown"})`));
+          return;
+        }
+        exitedSuccessfully = true;
+        finishSuccessWhenComplete();
       });
       child.stdout?.on("data", (chunk: Buffer) => {
         responseBytes += chunk.length;
@@ -139,7 +155,8 @@ export class ChildProcessCadCoreExecutor implements CadCoreExecutor {
         } else {
           try {
             assertCoreManifest(message.result, request.profileId);
-            finish(undefined, message.result);
+            validResult = message.result;
+            finishSuccessWhenComplete();
           } catch {
             finish(new Error("CAD core child process returned an invalid bounded manifest"));
           }
