@@ -35,7 +35,7 @@ export class MonitoringRefreshEventPublisher {
   async stopAndDrain() { this.disconnect(); await this.active; }
   async acknowledge(value: unknown) {
     const removed = await this.journal.acknowledge(value);
-    if (removed && !(await this.journal.pending()).length && this.timer) { clearTimeout(this.timer); this.timer = undefined; }
+    if (removed && !(await this.journal.hasPending()) && this.timer) { clearTimeout(this.timer); this.timer = undefined; }
     return removed;
   }
   async acknowledgeState(value: unknown, statePublisher: Pick<StateEventOutboxPublisher, "acknowledge">) {
@@ -53,36 +53,36 @@ export class MonitoringRefreshEventPublisher {
     const publish = this.publish;
     this.active = (async () => {
       try {
-        for (const row of await this.journal.pending()) {
-          const terminal = row.terminal!;
-          if (!row.handedOff) {
-            // Persist each successful enqueue before advancing. ACKed events must not be re-enqueued
-            // after capacity frees up or a restart, otherwise a one-slot outbox cannot make progress.
-            for (const event of terminal.events) {
-              if (row.handedOffEventIds.includes(event.eventId)) continue;
-              await this.outbox.enqueue(event);
-              try {
-                await this.journal.markEventHandedOff(row.command.batchId, event.eventId);
-              } finally {
-                // Even a subsequent enqueue/progress-write failure must let durable events reach
-                // the API and release capacity via the existing fixture-scoped application ACK.
-                this.options.wakeStateOutbox?.();
-              }
+        let visited = 0;
+        for (const batchId of await this.journal.pendingBatchIds()) {
+          // Persist each successful enqueue before advancing. ACKed events must not be re-enqueued
+          // after capacity frees up or a restart, otherwise a one-slot outbox cannot make progress.
+          for (const event of await this.journal.eventsToHandoff(batchId)) {
+            await this.outbox.enqueue(event);
+            try {
+              await this.journal.markEventHandedOff(batchId, event.eventId);
+            } finally {
+              // Even a subsequent enqueue/progress-write failure must let durable events reach
+              // the API and release capacity via the existing fixture-scoped application ACK.
+              this.options.wakeStateOutbox?.();
             }
-            await this.journal.markHandedOff(row.command.batchId);
           }
-          // Read fresh ACK progress: the fixture publisher can receive ACKs during enqueue.
-          const current = (await this.journal.pending()).find((pending) => pending.command.batchId === row.command.batchId);
-          if (publish && !signal.aborted && current?.acknowledgedEventIds.length === terminal.events.length) {
-            await abortablePublish(publish(mqttTopicsV2.fixturePresenceCheckCompleted(row.command.siteId, row.command.gatewayId), terminal.completed!),
+          // Indexed fresh ACK progress: result ACKs can arrive during enqueue. Only a ready
+          // completion envelope is copied; pending batches never clone their fixture payloads.
+          const completed = await this.journal.readyCompletion(batchId);
+          if (publish && !signal.aborted && completed) {
+            await abortablePublish(publish(mqttTopicsV2.fixturePresenceCheckCompleted(completed.siteId, completed.gatewayId), completed),
               signal, this.options.publishTimeoutMs ?? 5_000);
           }
+          // Awaiting already-resolved journal promises alone only schedules microtasks. Yield
+          // bounded batches so timers/MQTT ACK callbacks progress even without any disk writes.
+          if (++visited % 16 === 0) await new Promise<void>((resolve) => setImmediate(resolve));
         }
       } catch (error) {
         if (!signal.aborted) this.options.onError?.(error);
       } finally {
         this.active = undefined;
-        if (publish === this.publish && !signal.aborted && (await this.journal.pending()).length) {
+        if (publish === this.publish && !signal.aborted && await this.journal.hasPending()) {
           if (this.timer) clearTimeout(this.timer);
           this.timer = setTimeout(() => { this.timer = undefined; void this.wake(); }, this.options.retryMs ?? 1_000);
         }

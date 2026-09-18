@@ -75,6 +75,7 @@ interface LegacyJournal extends Omit<StoredJournal, "version" | "records"> { ver
 /** Keep receipts through command expiry and all application handshakes; expired commands cannot reacquire hardware ownership. */
 export class MonitoringRefreshJournal {
   private state?: StoredJournal;
+  private recordsByBatch = new Map<string, StoredRecord>();
   private queue: Promise<unknown> = Promise.resolve();
   private readonly active = new Set<string>();
   private readonly now: () => Date;
@@ -133,6 +134,33 @@ export class MonitoringRefreshJournal {
       handedOffEventIds: row.terminal!.events.filter((_, index) => stage(row, index) >= 1).map((event) => event.eventId),
       acknowledgedEventIds: row.terminal!.events.filter((_, index) => stage(row, index) === 3).map((event) => event.eventId)
     })))); }
+
+  /** Delivery scans identities once, then queries only the current batch. Never clone all payloads
+   * to check the completion barrier: delayed result ACKs can leave thousands of targets pending. */
+  pendingBatchIds() { return this.exclusive(async () => (await this.prune(await this.load())).records
+    .filter((row) => row.terminal?.completed && row.ack !== "!").map((row) => row.command.batchId)); }
+
+  hasPending() { return this.exclusive(async () => (await this.load()).records
+    .some((row) => row.terminal?.completed && row.ack !== "!")); }
+
+  eventsToHandoff(batchId: string) {
+    return this.exclusive(async () => {
+      await this.load();
+      const row = this.recordsByBatch.get(batchId);
+      if (!row?.terminal?.completed || row.ack === "!") return [];
+      const events = row.terminal.events.filter((_, index) => stage(row, index) === 0);
+      return events.length ? structuredClone(events) : [];
+    });
+  }
+
+  readyCompletion(batchId: string) {
+    return this.exclusive(async () => {
+      await this.load();
+      const row = this.recordsByBatch.get(batchId);
+      return row?.terminal?.completed && row.ack !== "!" && resultsAcknowledged(row)
+        ? structuredClone(row.terminal.completed) : undefined;
+    });
+  }
 
   acknowledgeEvent(value: unknown) {
     return this.exclusive(async () => {
@@ -270,7 +298,7 @@ export class MonitoringRefreshJournal {
       if (await this.prune(migrated) === migrated) await this.commit(migrated);
       return this.state!;
     }
-    this.state = migrated;
+    this.install(migrated);
     return migrated;
   }
 
@@ -293,7 +321,11 @@ export class MonitoringRefreshJournal {
     // Match writeJsonAtomic's formatted bytes, so every committed file remains readable after restart.
     if (Buffer.byteLength(`${JSON.stringify(state, null, 2)}\n`) > this.maxBytes) throw new Error("monitoring refresh journal capacity");
     await writeJsonAtomic(this.path, state);
+    this.install(state);
+  }
+  private install(state: StoredJournal) {
     this.state = state;
+    this.recordsByBatch = new Map(state.records.map((row) => [row.command.batchId, row]));
   }
   private exclusive<T>(operation: () => Promise<T>) {
     const result = this.queue.then(operation, operation); this.queue = result.then(() => undefined, () => undefined); return result;
