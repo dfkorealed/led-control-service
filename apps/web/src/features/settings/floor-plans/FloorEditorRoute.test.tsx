@@ -60,6 +60,7 @@ const editorState: FloorEditorState = {
     }
   },
   fixtures: [],
+  lightSlots: [],
   objects: []
 };
 

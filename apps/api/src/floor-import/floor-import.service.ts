@@ -447,6 +447,7 @@ export class FloorImportService {
           renderedAssetId: locked.renderedAssetId,
           deletedObjectCount: deletedObjects.count,
           unplacedFixtureCount: unplacedFixtures.count,
+          deletedSlotCount: deletedSlots.count,
           createdSlotCount: createdSlots.count,
           floorPlan: plan
         };

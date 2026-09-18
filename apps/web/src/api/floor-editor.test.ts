@@ -6,6 +6,7 @@ import {
   createFloorImportJob,
   getActiveFloorImportJob,
   getAppliedFloorImportOverlay,
+  getFloorEditorState,
   getFloorImportJob,
   identifyFixture,
   listFloorImportCandidates,
@@ -14,6 +15,41 @@ import {
   restoreFloorEditorRevision,
   saveFloorEditorState
 } from "./floor-editor";
+
+const completeApplyResult = {
+  jobId: "00000000-0000-4000-8000-000000000001",
+  status: "completed",
+  revision: 5,
+  acceptedCandidateIds: ["00000000-0000-4000-8000-000000000002"],
+  renderedAssetId: "00000000-0000-4000-8000-000000000003",
+  deletedObjectCount: 2,
+  unplacedFixtureCount: 4,
+  deletedSlotCount: 1,
+  createdSlotCount: 1,
+  floorPlan: {
+    imageUrl: "/api/floors/floor/assets/rendered/content",
+    sourceType: "image",
+    originalFileUrl: "/api/floors/floor/assets/source/content",
+    renderedImageUrl: "/api/floors/floor/assets/rendered/content",
+    width: 640,
+    height: 480,
+    gridSize: 10
+  }
+} as const;
+
+const completeEditorState = {
+  floor: {
+    id: "floor/1",
+    siteId: "site-1",
+    name: "B1",
+    level: -1,
+    mapRevision: 4,
+    floorPlan: null
+  },
+  fixtures: [],
+  lightSlots: [{ id: "slot-1", x: 120, y: 140, rotation: 0, assignedFixtureId: null }],
+  objects: []
+} as const;
 
 describe("floor editor atomic API", () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -32,20 +68,29 @@ describe("floor editor atomic API", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/floors/floor%2F1/fixtures/fixture%2F2/identify", expect.objectContaining({ method: "POST", body: JSON.stringify({ action: "stop", sessionId: "session", leaseToken: "lease", leaseFence: 2 }) }));
   });
 
-  it("uses atomic save and revision endpoints with encoded pagination", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ items: [], nextCursor: null }) });
+  it("preserves light slots across get, atomic save, and revision restore responses", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(completeEditorState) })
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(completeEditorState) })
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ items: [], nextCursor: null }) })
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ ...completeEditorState, skippedFixtureIds: [] }) });
     vi.stubGlobal("fetch", fetchMock);
 
-    await saveFloorEditorState("floor/1", {
+    const loaded = await getFloorEditorState("floor/1");
+    const saved = await saveFloorEditorState("floor/1", {
       expectedRevision: 4,
       leaseToken: "lease-token",
       leaseFence: 7,
       fixtureUpdates: [], objectCreates: [], objectUpdates: [], objectDeletes: []
     });
     await listFloorEditorRevisions("floor/1", { cursor: 12, limit: 5 });
-    await restoreFloorEditorRevision("floor/1", 3, { expectedRevision: 4, leaseToken: "lease-token", leaseFence: 7 });
+    const restored = await restoreFloorEditorRevision("floor/1", 3, { expectedRevision: 4, leaseToken: "lease-token", leaseFence: 7 });
 
-    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/floors/floor%2F1/editor-state", expect.objectContaining({
+    expect(loaded.lightSlots).toEqual(completeEditorState.lightSlots);
+    expect(saved.lightSlots).toEqual(completeEditorState.lightSlots);
+    expect(restored.lightSlots).toEqual(completeEditorState.lightSlots);
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/floors/floor%2F1/editor-state", expect.anything());
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/floors/floor%2F1/editor-state", expect.objectContaining({
       method: "PUT",
       body: JSON.stringify({
         expectedRevision: 4,
@@ -57,8 +102,8 @@ describe("floor editor atomic API", () => {
         objectDeletes: []
       })
     }));
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/floors/floor%2F1/editor-revisions?cursor=12&limit=5", expect.anything());
-    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/floors/floor%2F1/editor-revisions/3/restore", expect.objectContaining({
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/floors/floor%2F1/editor-revisions?cursor=12&limit=5", expect.anything());
+    expect(fetchMock).toHaveBeenNthCalledWith(4, "/api/floors/floor%2F1/editor-revisions/3/restore", expect.objectContaining({
       method: "POST",
       body: JSON.stringify({ expectedRevision: 4, leaseToken: "lease-token", leaseFence: 7 })
     }));
@@ -84,7 +129,10 @@ describe("floor editor atomic API", () => {
   });
 
   it("uses encoded CAD import job endpoints and preserves the fenced apply payload", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ status: "queued" }) });
+    const fetchMock = vi.fn().mockImplementation((url: string) => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve(url.endsWith("/apply") ? completeApplyResult : { status: "queued" })
+    }));
     vi.stubGlobal("fetch", fetchMock);
 
     await createFloorImportJob("floor/1", { sourceAssetId: "asset-id", sourceFormat: "dxf" });
@@ -121,5 +169,20 @@ describe("floor editor atomic API", () => {
       })
     }));
     expect(fetchMock).toHaveBeenNthCalledWith(7, `${base}/cancel`, expect.objectContaining({ method: "POST" }));
+  });
+
+  it("rejects a CAD apply response when an atomic reset count is missing", async () => {
+    const { createdSlotCount: _missing, ...incomplete } = completeApplyResult;
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(completeApplyResult) })
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(incomplete) });
+    vi.stubGlobal("fetch", fetchMock);
+    const input = {
+      expectedRevision: 4, leaseToken: "lease-token", leaseFence: 7,
+      confirmMapReset: true as const, candidateIds: ["00000000-0000-4000-8000-000000000002"]
+    };
+
+    await expect(applyFloorImportJob("floor-1", "job-1", input)).resolves.toEqual(completeApplyResult);
+    await expect(applyFloorImportJob("floor-1", "job-1", input)).rejects.toBeDefined();
   });
 });

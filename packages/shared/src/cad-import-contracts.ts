@@ -1,5 +1,11 @@
 import { z } from "zod";
-import { EDITOR_MAX_EXPECTED_REVISION, POSTGRES_INT_MAX } from "./schemas";
+import {
+  EDITOR_MAX_EXPECTED_REVISION,
+  EDITOR_MAX_FIXTURE_UPDATES,
+  EDITOR_MAX_MAP_OBJECT_MUTATIONS,
+  EDITOR_MAX_URL_LENGTH,
+  POSTGRES_INT_MAX
+} from "./schemas";
 
 export const CAD_IMPORT_MAX_CANDIDATES = 2_000;
 export const CAD_IMPORT_MIME_TYPES = {
@@ -166,6 +172,27 @@ export const floorImportApplyInputSchema = z.object({
   }
 });
 
+export const floorImportApplyResultSchema = z.object({
+  jobId: z.string().uuid(),
+  status: z.literal("completed"),
+  revision: z.number().int().nonnegative().max(EDITOR_MAX_EXPECTED_REVISION),
+  acceptedCandidateIds: z.array(z.string().uuid()).max(CAD_IMPORT_MAX_CANDIDATES),
+  renderedAssetId: z.string().uuid(),
+  deletedObjectCount: z.number().int().nonnegative().max(EDITOR_MAX_MAP_OBJECT_MUTATIONS),
+  unplacedFixtureCount: z.number().int().nonnegative().max(EDITOR_MAX_FIXTURE_UPDATES),
+  deletedSlotCount: z.number().int().nonnegative().max(CAD_IMPORT_MAX_CANDIDATES),
+  createdSlotCount: z.number().int().nonnegative().max(CAD_IMPORT_MAX_CANDIDATES),
+  floorPlan: z.object({
+    imageUrl: z.string().trim().startsWith("/").max(EDITOR_MAX_URL_LENGTH),
+    sourceType: z.literal("image"),
+    originalFileUrl: z.string().trim().startsWith("/").max(EDITOR_MAX_URL_LENGTH),
+    renderedImageUrl: z.string().trim().startsWith("/").max(EDITOR_MAX_URL_LENGTH),
+    width: z.number().int().positive().max(POSTGRES_INT_MAX),
+    height: z.number().int().positive().max(POSTGRES_INT_MAX),
+    gridSize: z.number().int().positive().max(POSTGRES_INT_MAX)
+  }).strict()
+}).strict();
+
 export type CadImportSourceFormat = z.infer<typeof cadImportSourceFormatSchema>;
 export type CadImportMimeType = z.infer<typeof cadImportMimeTypeSchema>;
 export type FloorImportJobStatus = z.infer<typeof floorImportJobStatusSchema>;
@@ -175,3 +202,4 @@ export type FloorImportCandidateListResponse = z.infer<typeof floorImportCandida
 export type FloorImportAppliedOverlayResponse = z.infer<typeof floorImportAppliedOverlayResponseSchema>;
 export type FloorImportAppliedOverlay = NonNullable<FloorImportAppliedOverlayResponse["overlay"]>;
 export type FloorImportApplyInput = z.infer<typeof floorImportApplyInputSchema>;
+export type FloorImportApplyResult = z.infer<typeof floorImportApplyResultSchema>;

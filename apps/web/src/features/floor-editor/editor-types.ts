@@ -1,9 +1,11 @@
 import type {
   CadImportMimeType,
   CadImportSourceFormat,
+  FloorImportApplyResult as SharedFloorImportApplyResult,
   FloorImportCandidate,
   FloorImportJobStatus,
-  FloorImportRenderedViewport
+  FloorImportRenderedViewport,
+  FloorLightSlotDto
 } from "@led-control/shared";
 
 export type EditorTool = "select" | "pan" | "rectangle" | "triangle" | "line" | "text";
@@ -20,6 +22,7 @@ export interface FloorEditorState {
     floorPlan: FloorPlanDraft | null;
   };
   fixtures: EditorFixture[];
+  lightSlots: FloorLightSlotDto[];
   objects: FloorMapObject[];
 }
 
@@ -74,14 +77,7 @@ export interface FloorImportJob {
   updatedAt: string;
 }
 
-export interface FloorImportApplyResult {
-  jobId: string;
-  status: "completed";
-  revision: number;
-  acceptedCandidateIds: string[];
-  renderedAssetId: string;
-  floorPlan: Omit<FloorPlanDraft, "id" | "version">;
-}
+export type FloorImportApplyResult = SharedFloorImportApplyResult;
 
 export interface CadImportReviewState {
   job: FloorImportJob;

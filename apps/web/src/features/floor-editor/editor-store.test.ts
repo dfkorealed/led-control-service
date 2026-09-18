@@ -11,6 +11,7 @@ const initialState: FloorEditorState = {
     id: "fixture-1", name: "L1", x: 10, y: 20, size: 20, ratedWatt: 40,
     brightness: 70, status: "online"
   }],
+  lightSlots: [],
   objects: []
 };
 

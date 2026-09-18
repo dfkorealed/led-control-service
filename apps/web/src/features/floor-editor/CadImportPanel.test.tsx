@@ -3,7 +3,7 @@ import { Profiler } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../api/client";
 import { CadImportPanel } from "./CadImportPanel";
-import type { CadImportReviewState, FloorAsset, FloorImportJob } from "./editor-types";
+import type { CadImportReviewState, FloorAsset, FloorImportApplyResult, FloorImportJob } from "./editor-types";
 
 const floorEditorApi = vi.hoisted(() => ({
   applyFloorImportJob: vi.fn(),
@@ -508,9 +508,21 @@ describe("CadImportPanel", () => {
       status: "completed",
       revision: 8,
       acceptedCandidateIds: acceptedIds,
-      renderedAssetId: "rendered-1",
-      floorPlan: {}
-    });
+      renderedAssetId: "00000000-0000-4000-8000-000000000040",
+      deletedObjectCount: 0,
+      unplacedFixtureCount: 0,
+      deletedSlotCount: 0,
+      createdSlotCount: 2_000,
+      floorPlan: {
+        imageUrl: "/api/floors/floor-1/assets/rendered-1/content",
+        sourceType: "image",
+        originalFileUrl: asset.accessPath,
+        renderedImageUrl: "/api/floors/floor-1/assets/rendered-1/content",
+        width: 640,
+        height: 480,
+        gridSize: 10
+      }
+    } satisfies FloorImportApplyResult);
     const { onApplied } = renderPanel({ review });
 
     fireEvent.click(screen.getByRole("button", { name: "선택한 후보와 배경 적용" }));

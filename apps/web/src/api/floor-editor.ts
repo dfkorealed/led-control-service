@@ -6,12 +6,12 @@ import type {
   RestoreFloorEditorRevisionInput,
   SaveEditorStateInput
 } from "@led-control/shared";
+import { floorImportApplyResultSchema } from "@led-control/shared";
 import type { FixtureIdentifyRequest, FixtureIdentifyResponse } from "@led-control/shared";
 import { ApiError, apiGet, apiPost, apiPut, apiRequest } from "./client";
 import type {
   FloorAsset,
   FloorEditorState,
-  FloorImportApplyResult,
   FloorImportJob
 } from "../features/floor-editor/editor-types";
 
@@ -104,8 +104,10 @@ export function listFloorImportCandidates(floorId: string, jobId: string) {
   return apiGet<FloorImportCandidateListResponse>(`${floorImportJobPath(floorId, jobId)}/candidates`);
 }
 
-export function applyFloorImportJob(floorId: string, jobId: string, payload: FloorImportApplyInput) {
-  return apiPost<FloorImportApplyResult>(`${floorImportJobPath(floorId, jobId)}/apply`, payload);
+export async function applyFloorImportJob(floorId: string, jobId: string, payload: FloorImportApplyInput) {
+  return floorImportApplyResultSchema.parse(
+    await apiPost<unknown>(`${floorImportJobPath(floorId, jobId)}/apply`, payload)
+  );
 }
 
 export function cancelFloorImportJob(floorId: string, jobId: string) {

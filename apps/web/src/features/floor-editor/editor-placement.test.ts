@@ -9,7 +9,7 @@ const baseline: FloorEditorState = {
     id: `f-${i}`, name: `L${i}`, x: 20 + i % 40 * 25, y: 20 + Math.floor(i / 40) * 25,
     size: 20, ratedWatt: 40, brightness: 70, status: "online" as const,
     placementStatus: "unplaced" as const, positionVerifiedAt: null
-  })), objects: []
+  })), lightSlots: [], objects: []
 };
 
 describe("placement commands", () => {

@@ -10,7 +10,7 @@ describe("fixture identify", () => {
   afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
   beforeEach(() => {
     vi.clearAllMocks();
-    useFloorEditorStore.getState().initialize({ floor: { id: "floor", siteId: "site", name: "B1", level: 1, mapRevision: 1, floorPlan: null }, objects: [], fixtures: [1, 2].map((i) => ({ id: `f${i}`, name: `L${i}`, x: i * 100, y: 100, ratedWatt: 40, brightness: 70, status: "online", placementStatus: "placed", positionVerifiedAt: null })) });
+    useFloorEditorStore.getState().initialize({ floor: { id: "floor", siteId: "site", name: "B1", level: 1, mapRevision: 1, floorPlan: null }, objects: [], lightSlots: [], fixtures: [1, 2].map((i) => ({ id: `f${i}`, name: `L${i}`, x: i * 100, y: 100, ratedWatt: 40, brightness: 70, status: "online", placementStatus: "placed", positionVerifiedAt: null })) });
     useFloorEditorStore.getState().selectFixture("f1");
   });
   it("does not mark human position verified on Attention ACK", async () => {

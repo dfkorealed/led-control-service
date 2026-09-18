@@ -58,6 +58,7 @@ function state(patch: Partial<FloorEditorState> = {}): FloorEditorState {
       }
     },
     fixtures: [],
+    lightSlots: [],
     objects: [],
     ...patch
   };

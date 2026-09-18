@@ -516,7 +516,7 @@ describe("FloorImportService", () => {
 
     expect(result).toMatchObject({
       jobId, status: "completed", revision: 5, acceptedCandidateIds: [acceptedId],
-      deletedObjectCount: 2, unplacedFixtureCount: 4, createdSlotCount: 1
+      deletedObjectCount: 2, unplacedFixtureCount: 4, deletedSlotCount: 1, createdSlotCount: 1
     });
     expect(storage.readFloorRenderedMetadata).toHaveBeenCalledWith(`floors/${floorId}/${renderedAssetId}.svg`, {
       sizeBytes: 256, sha256: "b".repeat(64), mimeType: "image/svg+xml", contentEncoding: "gzip"

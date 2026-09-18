@@ -603,7 +603,7 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
     });
     expect(applied).toMatchObject({
       status: "completed", revision: 5,
-      deletedObjectCount: 2, unplacedFixtureCount: 4, createdSlotCount: 2
+      deletedObjectCount: 2, unplacedFixtureCount: 4, deletedSlotCount: 1, createdSlotCount: 2
     });
     expect(storage.readFloorRenderedMetadata).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ contentEncoding: null }));
     expect(applied.acceptedCandidateIds).toHaveLength(2);

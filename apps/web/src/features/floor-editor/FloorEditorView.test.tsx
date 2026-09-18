@@ -3,7 +3,7 @@ import { act, cleanup, createEvent, fireEvent, render, screen, waitFor, within }
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../api/client";
 import { FloorEditorView } from "./FloorEditorView";
-import type { FloorEditorState } from "./editor-types";
+import type { FloorEditorState, FloorImportApplyResult } from "./editor-types";
 import { useFloorEditorStore } from "./editor-store";
 import { saveEditorDraft } from "./editor-drafts";
 import { clearTenantCache } from "../../api/principal-cache";
@@ -53,6 +53,7 @@ const editorState: FloorEditorState = {
       status: "online"
     }
   ],
+  lightSlots: [{ id: "slot-1", x: 120, y: 140, rotation: 0, assignedFixtureId: "fixture-1" }],
   objects: [
     {
       id: "object-1",
@@ -616,7 +617,11 @@ describe("FloorEditorView", () => {
       status: "completed",
       revision: 8,
       acceptedCandidateIds: [candidateId],
-      renderedAssetId: "rendered-cad",
+      renderedAssetId: "00000000-0000-4000-8000-000000000040",
+      deletedObjectCount: 1,
+      unplacedFixtureCount: 1,
+      deletedSlotCount: 1,
+      createdSlotCount: 1,
       floorPlan: {
         sourceType: "image",
         imageUrl: renderedAssetPath,
@@ -626,7 +631,7 @@ describe("FloorEditorView", () => {
         height: 360,
         gridSize: 10
       }
-    });
+    } satisfies FloorImportApplyResult);
     floorEditorApi.getAppliedFloorImportOverlay
       .mockResolvedValueOnce({ overlay: null })
       .mockResolvedValueOnce({
@@ -704,6 +709,7 @@ describe("FloorEditorView", () => {
       expectedRevision: 7,
       leaseToken: "lease-token",
       leaseFence: 7,
+      confirmMapReset: true,
       candidateIds: [candidateId]
     }));
     await waitFor(() => expect(floorEditorApi.getFloorEditorState).toHaveBeenCalledWith("floor-b2"));

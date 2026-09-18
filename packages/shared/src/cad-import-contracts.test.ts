@@ -4,6 +4,7 @@ import {
   CAD_IMPORT_MIME_TYPES,
   cadImportFileTypeSchema,
   floorImportApplyInputSchema,
+  floorImportApplyResultSchema,
   floorImportAppliedOverlayResponseSchema,
   floorImportCandidateListResponseSchema,
   floorImportJobStatusSchema,
@@ -196,6 +197,36 @@ describe("CAD import contracts", () => {
       candidateIds: Array.from({ length: 2_001 }, (_, index) =>
         `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`)
     }).success).toBe(false);
+  });
+
+  it("validates the complete atomic map reset result", () => {
+    const result = {
+      jobId,
+      status: "completed",
+      revision: 4,
+      acceptedCandidateIds: [candidateId],
+      renderedAssetId: "00000000-0000-4000-8000-000000000004",
+      deletedObjectCount: 2,
+      unplacedFixtureCount: 4,
+      deletedSlotCount: 1,
+      createdSlotCount: 1,
+      floorPlan: {
+        imageUrl: "/api/floors/floor/assets/rendered/content",
+        sourceType: "image",
+        originalFileUrl: "/api/floors/floor/assets/source/content",
+        renderedImageUrl: "/api/floors/floor/assets/rendered/content",
+        width: 640,
+        height: 480,
+        gridSize: 10
+      }
+    };
+
+    expect(floorImportApplyResultSchema.parse(result)).toEqual(result);
+    for (const field of ["deletedObjectCount", "unplacedFixtureCount", "deletedSlotCount", "createdSlotCount"] as const) {
+      const { [field]: _missing, ...incomplete } = result;
+      expect(floorImportApplyResultSchema.safeParse(incomplete).success).toBe(false);
+    }
+    expect(floorImportApplyResultSchema.safeParse({ ...result, unexpectedCount: 1 }).success).toBe(false);
   });
 
   it("validates a nullable applied overlay containing accepted candidates only", () => {
