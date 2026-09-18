@@ -74,6 +74,7 @@
 
 ## 구현 완료
 
+- 2026-09-18 CAD 적용은 manage 권한, ready 원본·렌더 자산, editor lease token/fence, expected revision과 `confirmMapReset: true`를 검증한 뒤 하나의 Serializable transaction에서 기존 수동 도형 전체 삭제, 모든 실제 조명의 미배치·좌표 0·위치 미확인 전환, 기존 슬롯 삭제와 accepted 후보 슬롯 생성을 수행한다. 응답과 revision change summary에는 삭제 객체·미배치 fixture·삭제/생성 슬롯 수를 기록하고 신규 V2 snapshot/editor-state는 현재 `lightSlots`를 포함한다. 실제 PostgreSQL에서 정상 적용의 2개 도형·4개 fixture·2개 슬롯과 강제 slot trigger 실패 시 plan/object/fixture/slot/candidate/revision/audit/job/floor revision 전체 rollback을 검증했다. Fixture 행과 Mesh 주소, 그룹, 자동화 대상, 전력 이력은 유지된다. 실제 조명을 슬롯에 연결하는 UI/API는 후속 작업이며 새 슬롯은 현재 미할당 상태로 생성된다.
 - 2026-09-18 CAD worker 진행률은 처리 단계와 재시도 전체에서 이전 값보다 감소하지 않고 `15 → 35 → 70 → 90 → 100%`로 수렴한다. Web은 `updatedAt`에 timer 생명주기를 의존하지 않는 1초 polling을 terminal 상태 전까지 유지하고, `review_required / 100%` 전환 commit부터 후보 조회가 끝날 때까지 완료 진행 UI를 한 render도 끊지 않는다. 후보 조회 실패 시 loading UI를 제거하고 `다시 확인`으로 재개하며, 이미 준비된 review에는 loading UI를 남기지 않는다. 상태 조회 실패도 기존 job과 진행률을 보존한 채 재개하고 apply 요청은 맵 초기화 확인 계약을 명시한다. 신규 DB migration은 재시도 queued job의 `0~90%` 보존 진행률과 해제된 lease를 lifecycle CHECK에 반영한다.
 - 2026-09-17 CAD 원본 단위를 맵 픽셀로 직접 사용하지 않도록 SVG와 조명 후보에 같은 정규화 행렬을 적용한다. 맵은 원본 종횡비를 유지하면서 최대 `2400 × 1600`, 최소 변 800px, 도형 여백 40px로 생성한다. CAD 검토 배경이나 적용 overlay가 처음 나타날 때 전체 맵을 편집 영역에 한 번 맞추며 이후 사용자 줌·이동은 덮어쓰지 않는다. 실제 `킨다_도면등록_테스트.dwg`는 원본 viewport `15,020,849 × 164,134`에서 `2,400 × 800`로 줄었고 후보 2개, raw SVG 29,978,290 bytes, gzip SVG 3,285,375 bytes를 유지했다. Web 전체 1,309개와 실제 Chromium 맵 편집 7개에서 자동 맞춤 뒤 사용자 줌 보존 및 1,000개 조명 회귀를 통과했다. 정규화 도입 전에 이미 적용한 CAD는 원본을 다시 가져와 적용해야 한다.
 - 2026-09-18 CAD parser/renderer는 SPLINE의 bounded De Boor 표본, WIPEOUT/HATCH 경계와 hole, anonymous block DIMENSION transform, 고정 크기 POINT를 지원한다. bounded multi-pass spatial bucket이 길이·면적·개수 점수로 deterministic primary cluster를 고르며 실제 remote singleton만 제외하고, parser가 보존한 primary bounds/metadata를 후보와 SVG가 함께 사용한다. 지원하지 않는 타입은 실제 reachable occurrence 단위로 집계한다. 제공 샘플 analyzer는 후보/고유 좌표 1,302개를 유지하고 신규 5종을 포함한 supported geometry 26,887/26,887(100%)를 보고했다. API build 뒤 384 MiB 제품 child는 OOM 없이 12.92초에 완료했고 child peak RSS 540,721,152 bytes, 제품 detector 후보 1,308개, raw/gzip SVG 21,029,160/5,046,992 bytes를 기록했다. analyzer의 직접 규칙 후보와 nested INSERT를 포함하는 제품 detector 후보는 집계 단위가 다르므로 같은 수치로 해석하지 않는다.
@@ -400,6 +401,7 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - 초대 링크 발급·전달 방식의 일반 유저 onboarding UI. admin이 직접 계정과 임시 비밀번호를 발급하는 현장 유저 CRUD는 구현 완료했다.
 - 구역 생성·수정과 구성원 관리 화면. 기존 구역 목록·보관 전환은 구현 완료했다.
 - 기존 PDF 첫 페이지 렌더·다중 페이지 선택은 보류한다. 신규 PDF upload/import는 지원하지 않으며 기존 PDF 읽기 호환만 유지한다.
+- CAD accepted 후보를 영속 슬롯으로 생성·조회하는 백엔드는 완료했지만, 실제 조명을 슬롯에 연결·해제하는 저장 계약과 캔버스 drag/drop UI는 후속 작업이다.
 - 샘플별 사람이 판정한 조명 ground truth. `몰드바등` 후보 1,302개는 review pool일 뿐이며 `xx4`, 익명 dynamic block은 geometry·attribute·주변 문자 근거와 라벨 없이 자동 등록하지 않는다.
 - 승인된 실제 DWG converter/sample을 production image의 read-only 외부 bundle mount로 주입한 운영 호스트 HIL. 상시 synthetic smoke는 실제 768 MiB cgroup의 parent+converter+core와 memory bomb/malformed 생존을 검증하지만, 현장 샘플의 최신 승인 binary HIL을 대신하지 않는다.
 - 다중 Gateway와 층 coverage
@@ -570,6 +572,8 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - `apps/api/src/floor-editor/floor-editor.service.ts`
 - `apps/api/src/floor-editor/floor-editor-snapshot.ts`
 - `apps/api/src/floor-editor/floor-editor.integration.spec.ts`
+- `apps/api/src/floor-import/floor-import.service.ts`
+- `apps/api/src/floor-import/floor-import.integration.spec.ts`
 - `packages/shared/src/schemas.ts`
 - `packages/shared/src/product-identity.ts`
 - `apps/web/src/api/floor-editor.ts`

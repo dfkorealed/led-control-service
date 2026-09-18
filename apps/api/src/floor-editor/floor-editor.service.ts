@@ -138,7 +138,8 @@ export class FloorEditorService {
       include: {
         floorPlan: true,
         fixtures: { orderBy: { name: "asc" }, include: { meshNode: { select: { meshAddress: true, serialNumber: true } } } },
-        mapObjects: { orderBy: [{ zIndex: "asc" }, { createdAt: "asc" }] }
+        mapObjects: { orderBy: [{ zIndex: "asc" }, { createdAt: "asc" }] },
+        lightSlots: { orderBy: { id: "asc" } }
       }
     });
     if (!floor) throw new NotFoundException("floor not found");
@@ -320,6 +321,7 @@ export class FloorEditorService {
     floorPlan: any;
     fixtures: any[];
     mapObjects: any[];
+    lightSlots?: any[];
   }) {
     return {
       floor: {
@@ -355,6 +357,13 @@ export class FloorEditorService {
         positionVerifiedAt: fixture.positionVerifiedAt?.toISOString() ?? null,
         meshAddress: fixture.meshNode?.meshAddress ?? null,
         serialNumber: fixture.meshNode?.serialNumber ?? null
+      })),
+      lightSlots: (floor.lightSlots ?? []).map((slot) => ({
+        id: slot.id,
+        x: slot.x,
+        y: slot.y,
+        rotation: slot.rotation,
+        assignedFixtureId: slot.assignedFixtureId
       })),
       objects: [...floor.mapObjects].sort((left, right) => this.compareEditorObjects(left, right)).map((object) => ({
         id: object.id,
@@ -663,7 +672,8 @@ export class FloorEditorService {
       include: {
         floorPlan: true,
         fixtures: { orderBy: { id: "asc" }, include: { meshNode: { select: { meshAddress: true, serialNumber: true } } } },
-        mapObjects: { orderBy: { id: "asc" } }
+        mapObjects: { orderBy: { id: "asc" } },
+        lightSlots: { orderBy: { id: "asc" } }
       }
     });
     if (!floor) throw new NotFoundException("floor not found");

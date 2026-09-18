@@ -528,7 +528,7 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
     await restarted.onModuleDestroy();
   });
 
-  it("atomically applies the rendered background and reviews candidates without replacing fixtures or map objects", async () => {
+  it("atomically replaces map objects and slots while preserving registered fixture relationships", async () => {
     const source = await sourceAsset(); const renderedId = randomUUID(); const jobId = randomUUID();
     await prisma.floorAsset.create({ data: {
       id: renderedId, floorId, kind: "rendered", status: "ready", objectKey: `floors/${floorId}/${renderedId}.svg`,
@@ -541,7 +541,8 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
       ...terminalProfile
     } });
     const candidateIds = Array.from({ length: 2_000 }, () => randomUUID());
-    const acceptedId = candidateIds[0]; const rejectedId = candidateIds.at(-1)!;
+    const acceptedIds = candidateIds.slice(0, 2);
+    const acceptedId = acceptedIds[0]; const rejectedId = candidateIds.at(-1)!;
     await prisma.floorImportCandidate.createMany({ data: candidateIds.map((id, index) => ({
       id, jobId, sourceEntityId: `insert-${index}`, layerName: "LIGHT", blockName: "LED",
       x: 10 + index, y: 20 + index, rotation: 0, confidence: 0.95, detectionMethod: "rule_based" as const,
@@ -549,10 +550,46 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
     })) });
     await expect(service().listCandidates(user, floorId, jobId)).resolves.toMatchObject({ candidates: expect.any(Array) });
     expect((await service().listCandidates(user, floorId, jobId)).candidates).toHaveLength(2_000);
-    const fixtureId = randomUUID(); const objectId = randomUUID();
-    await prisma.fixture.create({ data: { id: fixtureId, floorId, siteId, name: "Existing fixture", ratedWatt: 40, x: 11, y: 22 } });
-    await prisma.floorMapObject.create({ data: {
-      id: objectId, floorId, type: "rectangle", x: 1, y: 2, width: 3, height: 4
+    const gateway = await prisma.gateway.create({ data: {
+      siteId, name: "CAD reset preservation", serialNumber: randomUUID(), firmwareVersion: "test"
+    } });
+    const node = await prisma.meshNode.create({ data: {
+      gatewayId: gateway.id, meshAddress: "0x0210", serialNumber: "cad-reset-node", firmwareVersion: "test"
+    } });
+    const fixtureIds = Array.from({ length: 4 }, () => randomUUID());
+    await prisma.fixture.createMany({ data: fixtureIds.map((id, index) => ({
+      id, floorId, siteId, name: `Existing fixture ${index + 1}`, ratedWatt: 40,
+      x: 11 + index, y: 22 + index, placementStatus: "placed" as const,
+      positionVerifiedAt: new Date("2026-09-17T00:00:00.000Z"),
+      ...(index === 0 ? { meshNodeId: node.id, gatewayId: gateway.id } : {})
+    })) });
+    const group = await prisma.fixtureGroup.create({ data: {
+      siteId, floorId, gatewayId: gateway.id, name: "CAD reset group",
+      groupFixtures: { create: { fixtureId: fixtureIds[0] } }
+    } });
+    const schedule = await prisma.lightingSchedule.create({ data: {
+      siteId, gatewayId: gateway.id, name: "CAD reset schedule",
+      activeFrom: new Date("2026-09-01T00:00:00.000Z"), activeUntil: new Date("2026-10-01T00:00:00.000Z"),
+      localStartTime: "08:00", localEndTime: "20:00", recurrenceKind: "daily",
+      dimmingEnabled: true, brightnessPercent: 50, createdById: userId, updatedById: userId,
+      fixtures: { create: { fixtureId: fixtureIds[0] } }
+    } });
+    const energyUsage = await prisma.energyUsage.create({ data: {
+      fixtureId: fixtureIds[0], source: "cad-reset-test", period: "2026-09", kwh: "1.2500", cost: "125.00"
+    } });
+    const relationshipEvidence = {
+      node: await prisma.meshNode.findUniqueOrThrow({ where: { id: node.id } }),
+      membership: await prisma.groupFixture.findMany({ where: { groupId: group.id } }),
+      schedule: await prisma.lightingScheduleFixture.findMany({ where: { scheduleId: schedule.id } }),
+      energyUsage: await prisma.energyUsage.findUniqueOrThrow({ where: { id: energyUsage.id } })
+    };
+    const objectIds = [randomUUID(), randomUUID()];
+    await prisma.floorMapObject.createMany({ data: objectIds.map((id, index) => ({
+      id, floorId, type: "rectangle", x: index + 1, y: index + 2, width: 3, height: 4
+    })) });
+    await prisma.floorLightSlot.create({ data: {
+      floorId, sourceImportJobId: jobId, sourceCandidateId: rejectedId,
+      assignedFixtureId: fixtureIds[0], x: 99, y: 88, rotation: 45
     } });
     await prisma.floor.update({ where: { id: floorId }, data: {
       mapRevision: 4, editorLeaseFence: 8, editorLeaseTokenHash: hashEditorLeaseToken("lease-token"),
@@ -562,12 +599,15 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
 
     const applied = await service().apply(user, floorId, jobId, {
       expectedRevision: 4, leaseToken: "lease-token", leaseFence: 8,
-      candidateIds: candidateIds.slice(0, 1_302), confirmMapReset: true
+      candidateIds: acceptedIds, confirmMapReset: true
     });
-    expect(applied).toMatchObject({ status: "completed", revision: 5 });
+    expect(applied).toMatchObject({
+      status: "completed", revision: 5,
+      deletedObjectCount: 2, unplacedFixtureCount: 4, createdSlotCount: 2
+    });
     expect(storage.readFloorRenderedMetadata).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ contentEncoding: null }));
-    expect(applied.acceptedCandidateIds).toHaveLength(1_302);
-    expect(new Set(applied.acceptedCandidateIds)).toEqual(new Set(candidateIds.slice(0, 1_302)));
+    expect(applied.acceptedCandidateIds).toHaveLength(2);
+    expect(new Set(applied.acceptedCandidateIds)).toEqual(new Set(acceptedIds));
 
     await expect(prisma.floorImportJob.findUniqueOrThrow({ where: { id: jobId } })).resolves.toMatchObject({
       status: "completed", appliedAt: expect.any(Date), completedAt: expect.any(Date)
@@ -577,14 +617,31 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
         { id: acceptedId, reviewStatus: "accepted", reviewedAt: expect.any(Date) },
         { id: rejectedId, reviewStatus: "rejected", reviewedAt: expect.any(Date) }
       ]));
-    await expect(prisma.fixture.findUniqueOrThrow({ where: { id: fixtureId } })).resolves.toMatchObject({ x: 11, y: 22 });
-    await expect(prisma.floorMapObject.findUniqueOrThrow({ where: { id: objectId } })).resolves.toMatchObject({ x: 1, y: 2, width: 3, height: 4 });
+    expect(await prisma.fixture.findMany({ where: { floorId }, orderBy: { id: "asc" } })).toEqual(
+      expect.arrayContaining(fixtureIds.map(id => expect.objectContaining({
+        id, placementStatus: "unplaced", positionVerifiedAt: null, x: 0, y: 0
+      })))
+    );
+    expect(await prisma.floorMapObject.count({ where: { floorId } })).toBe(0);
+    const slots = await prisma.floorLightSlot.findMany({ where: { floorId }, orderBy: { sourceCandidateId: "asc" } });
+    expect(slots).toHaveLength(2);
+    expect(slots.map(slot => slot.sourceCandidateId).sort()).toEqual([...acceptedIds].sort());
+    expect(slots.every(slot => slot.assignedFixtureId === null)).toBe(true);
+    expect(await prisma.meshNode.findUniqueOrThrow({ where: { id: node.id } })).toEqual(relationshipEvidence.node);
+    expect(await prisma.groupFixture.findMany({ where: { groupId: group.id } })).toEqual(relationshipEvidence.membership);
+    expect(await prisma.lightingScheduleFixture.findMany({ where: { scheduleId: schedule.id } })).toEqual(relationshipEvidence.schedule);
+    expect(await prisma.energyUsage.findUniqueOrThrow({ where: { id: energyUsage.id } })).toEqual(relationshipEvidence.energyUsage);
     await expect(prisma.floor.findUniqueOrThrow({ where: { id: floorId } })).resolves.toMatchObject({ mapRevision: 5 });
     await expect(prisma.floorPlan.findUniqueOrThrow({ where: { floorId } })).resolves.toMatchObject({
       width: 640, height: 480, imageUrl: `/api/floors/${floorId}/assets/${renderedId}/content`
     });
     await expect(prisma.floorMapRevision.findUniqueOrThrow({ where: { floorId_revision: { floorId, revision: 5 } } }))
-      .resolves.toMatchObject({ changedBy: userId });
+      .resolves.toMatchObject({
+        changedBy: userId,
+        snapshot: expect.objectContaining({ lightSlots: expect.arrayContaining([
+          expect.objectContaining({ x: 10, y: 20, assignedFixtureId: null })
+        ]) })
+      });
     await expect(prisma.auditLog.findFirstOrThrow({ where: { targetId: jobId, action: "floor_import.applied" } }))
       .resolves.toMatchObject({ actorId: userId, outcome: "success" });
 
@@ -599,7 +656,7 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
         candidates: expect.any(Array)
       }
     });
-    expect(overlay.overlay?.candidates).toHaveLength(1_302);
+    expect(overlay.overlay?.candidates).toHaveLength(2);
     expect(overlay.overlay?.candidates.every(candidate => candidate.reviewStatus === "accepted")).toBe(true);
     expect(overlay.overlay?.candidates[0]).not.toHaveProperty("fixtureId");
     expect(overlay.overlay?.candidates[0]).not.toHaveProperty("meshNodeId");
@@ -622,6 +679,84 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
     await expect(service().getAppliedOverlay(user, floorId)).resolves.toMatchObject({
       overlay: { jobId, renderedAssetId: renderedId, revision: 5 }
     });
+    await prisma.lightingSchedule.delete({ where: { id: schedule.id } });
+    await prisma.fixtureGroup.delete({ where: { id: group.id } });
+    await prisma.fixture.update({ where: { id: fixtureIds[0] }, data: { meshNodeId: null } });
+    await prisma.gateway.delete({ where: { id: gateway.id } });
+  });
+
+  it("rolls back the plan, objects, fixtures, slots, revision, audit and job when slot creation trigger fails", async () => {
+    const source = await sourceAsset(); const rendered = await renderedAsset(); const jobId = randomUUID();
+    await prisma.floorImportJob.create({ data: {
+      id: jobId, floorId, sourceAssetId: source.id, renderedAssetId: rendered.id, sourceFormat: "dxf",
+      status: "review_required", stage: "review_required", progressPercent: 100, attemptCount: 1,
+      startedAt: new Date(), reviewRequiredAt: new Date(), ...terminalProfile
+    } });
+    const candidateIds = [randomUUID(), randomUUID()];
+    await prisma.floorImportCandidate.createMany({ data: candidateIds.map((id, index) => ({
+      id, jobId, sourceEntityId: `rollback-${index}`, layerName: "LIGHT", blockName: "LED",
+      x: 100 + index, y: 200 + index, rotation: index * 15, confidence: 0.9,
+      detectionMethod: "rule_based" as const, profileVersion: "test/1", profileDigest: "c".repeat(64)
+    })) });
+    const fixtureIds = [randomUUID(), randomUUID()];
+    await prisma.fixture.createMany({ data: fixtureIds.map((id, index) => ({
+      id, floorId, siteId, name: `Rollback fixture ${index + 1}`, ratedWatt: 40,
+      x: 31 + index, y: 41 + index, placementStatus: "placed" as const,
+      positionVerifiedAt: new Date("2026-09-17T01:00:00.000Z")
+    })) });
+    await prisma.floorMapObject.create({ data: {
+      id: randomUUID(), floorId, type: "rectangle", x: 1, y: 2, width: 30, height: 40
+    } });
+    await prisma.floorPlan.create({ data: {
+      floorId, imageUrl: `/api/floors/${floorId}/assets/${source.id}/content`, sourceType: "image",
+      originalFileUrl: `/api/floors/${floorId}/assets/${source.id}/content`, renderedImageUrl: null,
+      width: 320, height: 240, gridSize: 20
+    } });
+    await prisma.floorLightSlot.create({ data: {
+      floorId, sourceImportJobId: jobId, sourceCandidateId: candidateIds[1],
+      assignedFixtureId: fixtureIds[0], x: 33, y: 44, rotation: 25
+    } });
+    await prisma.floor.update({ where: { id: floorId }, data: {
+      mapRevision: 4, editorLeaseFence: 8, editorLeaseTokenHash: hashEditorLeaseToken("lease-token"),
+      editorLeaseHolderId: userId, editorLeaseHolderName: user.name,
+      editorLeaseAcquiredAt: new Date(), editorLeaseExpiresAt: new Date(Date.now() + 60_000)
+    } });
+
+    const readState = async () => ({
+      plan: await prisma.floorPlan.findUnique({ where: { floorId } }),
+      objects: await prisma.floorMapObject.findMany({ where: { floorId }, orderBy: { id: "asc" } }),
+      fixtures: await prisma.fixture.findMany({ where: { floorId }, orderBy: { id: "asc" } }),
+      slots: await prisma.floorLightSlot.findMany({ where: { floorId }, orderBy: { id: "asc" } }),
+      revisions: await prisma.floorMapRevision.findMany({ where: { floorId }, orderBy: { revision: "asc" } }),
+      audits: await prisma.auditLog.findMany({ where: { siteId }, orderBy: { id: "asc" } }),
+      job: await prisma.floorImportJob.findUniqueOrThrow({ where: { id: jobId } }),
+      candidates: await prisma.floorImportCandidate.findMany({ where: { jobId }, orderBy: { id: "asc" } }),
+      floor: await prisma.floor.findUniqueOrThrow({ where: { id: floorId } })
+    });
+    const before = await readState();
+    await prisma.$executeRawUnsafe(`
+      CREATE FUNCTION "task5_force_floor_light_slot_failure"() RETURNS trigger
+      LANGUAGE plpgsql AS $function$
+      BEGIN
+        RAISE EXCEPTION 'task5 forced slot trigger failure' USING ERRCODE = '23514';
+      END;
+      $function$
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE TRIGGER "task5_force_floor_light_slot_failure"
+      BEFORE INSERT ON "FloorLightSlot"
+      FOR EACH ROW EXECUTE FUNCTION "task5_force_floor_light_slot_failure"()
+    `);
+    try {
+      await expect(service().apply(user, floorId, jobId, {
+        expectedRevision: 4, leaseToken: "lease-token", leaseFence: 8,
+        candidateIds: [candidateIds[0]], confirmMapReset: true
+      })).rejects.toBeDefined();
+      expect(await readState()).toEqual(before);
+    } finally {
+      await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS "task5_force_floor_light_slot_failure" ON "FloorLightSlot"`);
+      await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS "task5_force_floor_light_slot_failure"()`);
+    }
   });
 
   it("allows an existing rendered SVG to retain an identity ledger", async () => {
@@ -654,7 +789,7 @@ const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
       .overrideProvider(PrismaService).useValue(prisma)
       .overrideProvider(RedisProvider).useValue({ onModuleInit: () => undefined, onModuleDestroy: () => undefined })
       .overrideProvider(ObjectStorageService).useValue(storage)
-      .overrideProvider(CAD_IMPORT_WORKER_OPTIONS).useValue({ tempRoot: "/tmp", pollIntervalMs: 1000, enabled: false })
+      .overrideProvider(CAD_IMPORT_WORKER_OPTIONS).useValue({ tempRoot: "/tmp", pollIntervalMs: 1000, enabled: true })
       .compile();
     const app: INestApplication = module.createNestApplication({ logger: false });
     await app.listen(0, "127.0.0.1");

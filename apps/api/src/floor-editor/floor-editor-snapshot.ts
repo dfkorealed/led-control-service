@@ -39,6 +39,13 @@ interface SnapshotFloor {
     locked: boolean;
     visible: boolean;
   }>;
+  lightSlots?: Array<{
+    id: string;
+    x: number;
+    y: number;
+    rotation: number;
+    assignedFixtureId: string | null;
+  }>;
 }
 
 export function buildFloorEditorSnapshot(floor: SnapshotFloor): FloorEditorSnapshot {
@@ -87,6 +94,15 @@ export function buildFloorEditorSnapshot(floor: SnapshotFloor): FloorEditorSnaps
         zIndex: object.zIndex,
         locked: object.locked,
         visible: object.visible
+      })),
+    lightSlots: [...(floor.lightSlots ?? [])]
+      .sort((left, right) => compareIds(left.id, right.id))
+      .map((slot) => ({
+        id: slot.id,
+        x: slot.x,
+        y: slot.y,
+        rotation: slot.rotation,
+        assignedFixtureId: slot.assignedFixtureId
       }))
   });
 }

@@ -96,7 +96,8 @@ describe("FloorEditorService", () => {
       include: {
         floorPlan: true,
         fixtures: { orderBy: { name: "asc" }, include: { meshNode: { select: { meshAddress: true, serialNumber: true } } } },
-        mapObjects: { orderBy: [{ zIndex: "asc" }, { createdAt: "asc" }] }
+        mapObjects: { orderBy: [{ zIndex: "asc" }, { createdAt: "asc" }] },
+        lightSlots: { orderBy: { id: "asc" } }
       }
     });
   });
@@ -636,6 +637,7 @@ describe("FloorEditorService atomic revisions", () => {
         { id: fixtureId, name: "B2-L01", ratedWatt: "40.00", x: 130, y: 250, size: 24, placementStatus: "placed", positionVerifiedAt: null },
         { id: missingFixtureId, name: "B2-L02", ratedWatt: "40.00", x: 130, y: 250, size: 24, placementStatus: "placed", positionVerifiedAt: null }
       ],
+      lightSlots: [],
       objects: [
         {
           id: objectId, type: "rectangle", x: 140, y: 120, width: 240, height: 160, rotation: 0,
@@ -649,7 +651,7 @@ describe("FloorEditorService atomic revisions", () => {
         }
       ]
     });
-    expect(revisionData.snapshotSha256).toBe("0c62e8df362a65221b7e22d8f1db47756c31823b543405150204bae8d170e49d");
+    expect(revisionData.snapshotSha256).toBe("44d7409037fda0099c87a52c6ec0560ff20eb611373ada6338f0898252fab6f7");
   });
 
   it("persists map dimensions and grid settings without a background asset", async () => {

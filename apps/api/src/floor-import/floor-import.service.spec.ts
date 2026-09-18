@@ -444,16 +444,19 @@ describe("FloorImportService", () => {
     }));
   });
 
-  it("applies the rendered background and candidate review atomically without mutating fixtures or map objects", async () => {
+  it("atomically resets the map and creates slots only for accepted candidates", async () => {
     const floorId = randomUUID(); const jobId = randomUUID(); const sourceAssetId = randomUUID();
     const renderedAssetId = randomUUID(); const acceptedId = randomUUID(); const rejectedId = randomUUID();
     const floor = {
       id: floorId, siteId: "site-1", status: "active", mapRevision: 4, editorLeaseFence: 8,
       editorLeaseTokenHash: hashEditorLeaseToken("lease-token"), editorLeaseExpiresAt: new Date("2026-09-17T00:10:00.000Z"),
       floorPlan: null,
-      fixtures: [{ id: randomUUID(), name: "Existing", ratedWatt: 40, x: 1, y: 2, size: 20, placementStatus: "placed", positionVerifiedAt: null }],
-      mapObjects: [{ id: randomUUID(), type: "rectangle", x: 3, y: 4, width: 10, height: 20, rotation: 0, points: null,
-        text: null, strokeColor: "#000000", fillColor: null, strokeWidth: 2, fontSize: null, zIndex: 0, locked: false, visible: true }]
+      fixtures: Array.from({ length: 4 }, (_, index) => ({
+        id: randomUUID(), name: `Existing ${index + 1}`, ratedWatt: 40, x: 0, y: 0,
+        size: 20, placementStatus: "unplaced", positionVerifiedAt: null
+      })),
+      mapObjects: [],
+      lightSlots: [{ id: randomUUID(), x: 12, y: 34, rotation: 15, assignedFixtureId: null }]
     };
     const tx: any = {
       $queryRaw: jest.fn()
@@ -466,11 +469,20 @@ describe("FloorImportService", () => {
           renderedSha256: "b".repeat(64)
         }]),
       floorImportCandidate: {
-        findMany: jest.fn().mockResolvedValue([{ id: acceptedId }, { id: rejectedId }]),
+        findMany: jest.fn().mockResolvedValue([
+          { id: acceptedId, x: 12, y: 34, rotation: 15 },
+          { id: rejectedId, x: 56, y: 78, rotation: 0 }
+        ]),
         updateMany: jest.fn().mockResolvedValue({ count: 1 })
       },
       floorImportJob: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
       floorPlan: { findUnique: jest.fn().mockResolvedValue(null), upsert: jest.fn().mockResolvedValue({}) },
+      floorMapObject: { deleteMany: jest.fn().mockResolvedValue({ count: 2 }) },
+      fixture: { updateMany: jest.fn().mockResolvedValue({ count: 4 }) },
+      floorLightSlot: {
+        deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
+        createMany: jest.fn().mockResolvedValue({ count: 1 })
+      },
       floor: {
         update: jest.fn().mockResolvedValue({}),
         findUnique: jest.fn().mockResolvedValue({ ...floor, mapRevision: 5, floorPlan: {
@@ -498,10 +510,14 @@ describe("FloorImportService", () => {
     const service = new (FloorImportService as any)(prisma, access, audit, storage);
 
     const result = await service.apply(user, floorId, jobId, {
-      expectedRevision: 4, leaseToken: "lease-token", leaseFence: 8, candidateIds: [acceptedId]
+      expectedRevision: 4, leaseToken: "lease-token", leaseFence: 8,
+      confirmMapReset: true, candidateIds: [acceptedId]
     });
 
-    expect(result).toMatchObject({ jobId, status: "completed", revision: 5, acceptedCandidateIds: [acceptedId] });
+    expect(result).toMatchObject({
+      jobId, status: "completed", revision: 5, acceptedCandidateIds: [acceptedId],
+      deletedObjectCount: 2, unplacedFixtureCount: 4, createdSlotCount: 1
+    });
     expect(storage.readFloorRenderedMetadata).toHaveBeenCalledWith(`floors/${floorId}/${renderedAssetId}.svg`, {
       sizeBytes: 256, sha256: "b".repeat(64), mimeType: "image/svg+xml", contentEncoding: "gzip"
     });
@@ -511,12 +527,23 @@ describe("FloorImportService", () => {
       create: expect.objectContaining({ floorId, sourceType: "image", width: 640, height: 480 })
     }));
     expect(tx.floorImportCandidate.updateMany).toHaveBeenCalledTimes(2);
-    expect(tx).not.toHaveProperty("fixture.updateMany");
-    expect(tx).not.toHaveProperty("floorMapObject.deleteMany");
+    expect(tx.floorMapObject.deleteMany).toHaveBeenCalledWith({ where: { floorId } });
+    expect(tx.fixture.updateMany).toHaveBeenCalledWith({
+      where: { floorId },
+      data: { placementStatus: "unplaced", positionVerifiedAt: null, x: 0, y: 0 }
+    });
+    expect(tx.floorLightSlot.deleteMany).toHaveBeenCalledWith({ where: { floorId } });
+    expect(tx.floorLightSlot.createMany).toHaveBeenCalledWith({ data: [{
+      floorId, sourceImportJobId: jobId, sourceCandidateId: acceptedId,
+      x: 12, y: 34, rotation: 15
+    }] });
     expect(tx.floorMapRevision.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
       floorId, revision: 5, snapshot: expect.objectContaining({
-        fixtures: [expect.objectContaining({ id: floor.fixtures[0].id, ratedWatt: "40" })],
-        objects: floor.mapObjects
+        fixtures: expect.arrayContaining([
+          expect.objectContaining({ id: floor.fixtures[0].id, ratedWatt: "40", placementStatus: "unplaced", x: 0, y: 0 })
+        ]),
+        objects: [],
+        lightSlots: floor.lightSlots
       })
     }) }));
     expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({
@@ -549,7 +576,8 @@ describe("FloorImportService", () => {
       { readFloorRenderedMetadata: jest.fn().mockResolvedValue({ width: 640, height: 480 }) } as any
     );
     await expect(service.apply(user, floorId, jobId, {
-      expectedRevision: 4, leaseToken: "lease-token", leaseFence: 8, candidateIds: []
+      expectedRevision: 4, leaseToken: "lease-token", leaseFence: 8,
+      confirmMapReset: true, candidateIds: []
     })).rejects.toThrow(message);
   });
 
@@ -579,7 +607,8 @@ describe("FloorImportService", () => {
     );
 
     await expect(service.apply(user, floorId, jobId, {
-      expectedRevision: 4, leaseToken: "lease-token", leaseFence: 8, candidateIds: []
+      expectedRevision: 4, leaseToken: "lease-token", leaseFence: 8,
+      confirmMapReset: true, candidateIds: []
     })).rejects.toThrow("rendered floor asset changed concurrently");
   });
 

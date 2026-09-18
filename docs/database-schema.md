@@ -544,7 +544,7 @@ worker는 API 시작 시와 30초 주기로 만료된 작업을 최대 10개씩 
 층 도면의 전체 편집 스냅숏과 복구 이력을 보관한다. `Floor` 삭제 시 함께 삭제되며, 기록한 사용자는 삭제할 수 없다.
 
 - 2026-09-09부터 신규 snapshot은 `version: 2`와 fixture별 `placementStatus`, `positionVerifiedAt`을 포함한다. 버전 필드가 없는 V1은 조회/복구 시 `placed/null`로 정규화한다. 기존 snapshot JSON과 SHA-256을 덮어쓰지 않는다.
-- 2026-09-18 공유 V2 snapshot 계약은 현재 맵의 `lightSlots` 배열을 수용한다. 이 변경 전 V2 revision에는 필드가 없을 수 있으므로 누락을 계속 읽을 수 있으며, 후속 원자적 적용 작업에서 신규 저장 경로가 배열을 명시적으로 기록한다.
+- 2026-09-18 공유 V2 snapshot 계약은 현재 맵의 `lightSlots` 배열을 수용한다. 이 변경 전 V2 revision에는 필드가 없을 수 있으므로 누락을 계속 읽을 수 있지만, CAD apply와 editor 저장·복구가 새로 쓰는 snapshot은 현재 슬롯 배열을 항상 명시적으로 기록한다.
 - 저장/복구는 Serializable transaction에서 현장 admin 재인가, 층 lease/fence 및 revision 검증, fixture/object 갱신, 새 snapshot/hash와 audit를 함께 commit한다. 위치 확인은 서버 DB 시각으로 기록하고, 복구는 저장된 확인 시각을 복원한다.
 - 좌표/속성은 bound JSONB 입력을 사용하는 1,000행 단위 SQL 갱신, object 생성은 `createMany`로 처리한다. 실제 정격 W가 바뀐 fixture만 기존 에너지 checkpoint를 닫는다. 좌표/배치/확인만 변경하거나 같은 W를 다시 보내면 에너지 정산 경계를 만들지 않는다.
 - 에디터 PUT JSON 한도는 1 MiB, fixture 변경 1,000개, object 변경 합계 2,000개다. 다른 JSON 경로는 100 KiB를 유지한다. 초과 body는 JSON 413, transaction 충돌은 409, transaction 만료는 `floor_editor_transaction_timeout` 503이다. Transaction 대기 예산은 5초, 실행 예산은 15초이며 일반 저장/복구 성능 목표는 3초다.
@@ -785,7 +785,9 @@ CAD parser 좌표에서 검출한 조명 위치 후보 원장이다. 후보는 B
 - `FloorLightSlot_geometry_check`는 PostgreSQL이 저장할 수 있는 `NaN`, 양·음의 `Infinity`를 x/y/rotation에서 거부한다.
 - deferred constraint trigger는 슬롯의 `floorId`, source job의 층, source candidate의 job이 같은지 검증한다. 할당 조명이 있으면 해당 `Fixture.floorId`도 슬롯 층과 같아야 한다.
 - 슬롯뿐 아니라 `FloorImportJob.floorId`, `FloorImportCandidate.jobId`, `Fixture.floorId` 변경 경로에도 trigger를 설치해 부모 변경으로 불일치가 생기는 경우 transaction 전체를 거부한다. 이 교차 테이블 제약은 Prisma datamodel로 표현되지 않는다.
-- 현재 Task는 모델과 공유 계약을 추가한다. 슬롯 생성·교체, fixture 할당, revision 복구는 후속 원자적 apply/editor 작업에서 연결한다.
+- CAD apply는 현장 manage 재인가 뒤 `Floor`, import job, 원본·렌더 자산을 잠그고 editor lease fence/token/만료와 `mapRevision`을 검증한다. 같은 Serializable transaction에서 모든 `FloorMapObject` 삭제, 해당 층 `Fixture`의 `placementStatus=unplaced`·`positionVerifiedAt=NULL`·`x/y=0` 초기화, 기존 슬롯 삭제, accepted 후보 슬롯 생성, `FloorPlan` 교체, revision/snapshot/audit와 job 완료를 처리한다. 슬롯 insert는 `capacityOrdinal`을 전달하지 않고 DB trigger에 맡긴다.
+- fixture 초기화는 위치 필드만 갱신하므로 `Fixture` 행, `MeshNode`, 그룹·자동화 대상, 전력 이력은 유지된다. 슬롯 insert trigger 강제 실패 통합 회귀는 plan/object/fixture/slot/candidate/revision/audit/job과 floor revision이 모두 적용 전 상태로 rollback되는지 실제 PostgreSQL에서 비교한다.
+- 실제 fixture와 슬롯의 assignment 변경 및 배치 UX는 후속 작업이다. revision 복구는 역사 snapshot을 읽되 현재 슬롯을 재생성하지 않으며, 복구 transaction이 새로 쓰는 snapshot에는 복구 시점의 현재 슬롯 배열을 기록한다.
 
 ### FloorMapObject
 
