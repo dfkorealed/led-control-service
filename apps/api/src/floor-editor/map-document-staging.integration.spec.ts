@@ -143,10 +143,15 @@ const url = process.env.U6B_TEST_DATABASE_URL;
     expect((await finish(next.stage.id)).status).toBe("committed");
   });
 
-  it("rolls staged fixture, document, history and receipt back on audit failure, then retries exactly once", async () => {
+  it.each([false, true])("rolls activation back and retries exactly once (published preview=%s)", async publishedPreview => {
     const request = await upload([{ kind: "add", element: element("atomic") }], {
       ...input(), fixtureUpdates: [{ id: fixtureId, x: 70, y: 80, placementStatus: "placed" }]
     });
+    let preview: MapDocumentRef | undefined;
+    if (publishedPreview) {
+      expect((await http("POST", `editor-stages/${request.stage.id}/prepare`, request.intent)).status).toBe(202);
+      const ready = await finish(request.stage.id); expect(ready.status).toBe("ready"); preview = ready.preview;
+    }
     const failure = jest.spyOn(audit, "record").mockRejectedValueOnce(new Error("injected audit failure"));
     try {
       expect((await http("POST", `editor-stages/${request.stage.id}/commit`, request.intent)).status).toBe(202);
@@ -155,8 +160,14 @@ const url = process.env.U6B_TEST_DATABASE_URL;
     expect(await data.currentRef(floorId)).toEqual(ref);
     expect(await prisma.fixture.findUniqueOrThrow({ where: { id: fixtureId } })).toMatchObject({ x: 0, y: 0, placementStatus: "unplaced" });
     expect(await prisma.floorMapRevision.count({ where: { floorId } })).toBe(1);
+    if (preview) {
+      expect((await prisma.floorMapStage.findUniqueOrThrow({ where: { id: request.stage.id } })).preparedGenerationId).toBe(preview.generationId);
+      expect(await staging.resolvePreview(floorId, request.stage.id, user)).toEqual(preview);
+      expect(await (await http("GET", `editor-stages/${request.stage.id}/map-document`)).json()).toEqual(preview);
+    }
     expect((await http("POST", `editor-stages/${request.stage.id}/commit`, request.intent)).status).toBe(202);
     const status = await finish(request.stage.id); expect(status.status).toBe("committed");
+    if (preview) expect(status.result.floor.mapDocument).toEqual(preview);
     expect((await http("POST", `editor-stages/${request.stage.id}/commit`, request.intent)).status).toBe(202);
     expect((await finish(request.stage.id)).result).toEqual(status.result);
     expect(await prisma.floorMapRevision.count({ where: { floorId } })).toBe(2);

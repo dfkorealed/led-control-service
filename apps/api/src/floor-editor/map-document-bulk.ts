@@ -93,7 +93,9 @@ export async function prepareBulkMap(directory: string, base: AsyncIterable<MapE
     }
   }
   const children = new Map<string, string[]>();
-  for (const group of oldGroups.values()) if (group.parentId !== null) {
+  // Explicit reparenting detaches an ungrouped subtree before recursive delete.
+  // The original table is still used below for authority/lock checks.
+  for (const group of groups.values()) if (group.parentId !== null) {
     const ids = children.get(group.parentId) ?? []; ids.push(group.id); children.set(group.parentId, ids);
   }
   for (const id of deletedGroups) for (const child of children.get(id) ?? []) deletedGroups.add(child);

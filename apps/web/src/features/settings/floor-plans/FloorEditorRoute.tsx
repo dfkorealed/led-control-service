@@ -143,7 +143,9 @@ export function FloorEditorRoute({ capabilities }: FloorEditorRouteProps) {
         onCancel={leaveEditor}
         onReload={async () => { await editorQuery.refetch(); }}
         onSaved={() => {
-          setIsDirty(false);
+          // A stage receipt only ACKs its capture; newer preview edits can stay
+          // dirty without another boolean transition in onDirtyChange.
+          setIsDirty(useFloorEditorStore.getState().isDirty);
         }}
       />
       <ConfirmDialog

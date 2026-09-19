@@ -161,6 +161,7 @@ export class MapDocumentStagingService implements OnModuleInit, OnModuleDestroy 
     for (const candidate of candidates) {
       const workerToken = randomUUID();
       let prepared: MapDocumentRef | undefined;
+      let ownsPreparation = true;
       try {
         const user = await this.workerUser(candidate.userId);
         const claim = await this.prisma.$transaction(async tx => {
@@ -175,7 +176,12 @@ export class MapDocumentStagingService implements OnModuleInit, OnModuleDestroy 
         const metadata = this.metadata(claim.stage);
         const source = metadata.historySource ? await this.history(this.prisma, candidate.floorId, metadata.historySource.revision) : undefined;
         const check = () => { if (Date.now() >= claim.stage.workerExpiresAt!.getTime()) throw new ConflictException("stage worker claim expired"); };
-        if (claim.stage.preparedGenerationId) prepared = await this.preparedRef(this.prisma, claim.stage);
+        if (claim.stage.preparedGenerationId) {
+          // A ready preview is already part of the client's immutable intent.
+          // Activation rollback must retain that exact generation for retry.
+          ownsPreparation = false;
+          prepared = await this.preparedRef(this.prisma, claim.stage);
+        }
         else {
           const operations = source ? (async function* () {})() : decodeStageOperations(this.parts(claim.stage), { deadline: claim.stage.workerExpiresAt!.getTime() });
           prepared = await this.checkpoints.prepare(candidate.floorId, source?.document ?? claim.current, operations,
@@ -218,10 +224,10 @@ export class MapDocumentStagingService implements OnModuleInit, OnModuleDestroy 
         // the same immutable intent; cancellation/another worker wins its CAS.
         await this.prisma.floorMapStage.updateMany({ where: { id: candidate.id, status: { in: ["queued", "processing"] },
           OR: [{ workerToken }, { workerToken: null }] }, data: { status: "failed", workerToken: null, workerExpiresAt: null,
-          preparedGenerationId: null, errorCode: error instanceof ConflictException ? "stage_conflict" : error instanceof BadRequestException ? "stage_invalid" : "stage_preparation_failed" } });
+          errorCode: error instanceof ConflictException ? "stage_conflict" : error instanceof BadRequestException ? "stage_invalid" : "stage_preparation_failed" } });
         this.logger.warn("map stage preparation or activation failed");
       } finally {
-        if (prepared) {
+        if (prepared && ownsPreparation) {
           try { await this.store.discardPreparedGeneration(candidate.floorId, prepared.generationId); }
           catch { this.logger.warn("map stage preparation cleanup deferred"); }
         }
@@ -302,7 +308,11 @@ export class MapDocumentStagingService implements OnModuleInit, OnModuleDestroy 
   }
   private async preview(tx: Prisma.TransactionClient, scope: Awaited<ReturnType<MapDocumentStagingService["scope"]>>, user: AuthenticatedUser) {
     this.binding(scope, user);
-    if (scope.stage.status !== "ready") throw new ConflictException("stage preview is not ready");
+    // A failed/requeued activation still owns its published preview. Binding
+    // above continues to fence actor, lease, base and TTL on every private read.
+    if (!scope.stage.preparedGenerationId || !["ready", "failed", "queued", "processing"].includes(scope.stage.status)) {
+      throw new ConflictException("stage preview is not ready");
+    }
     return this.preparedRef(tx, scope.stage);
   }
   private async history(tx: Prisma.TransactionClient, floorId: string, revision: number) {

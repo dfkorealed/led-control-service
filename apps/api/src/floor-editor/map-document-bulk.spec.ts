@@ -32,6 +32,16 @@ describe("bounded bulk map preparation", () => {
       [{ kind: "group.delete", id: "root" }], { groups });
     expect(await collect(prepared)).toEqual([element("two")]); expect(prepared.groups).toEqual([]);
   });
+  it.each([false, true])("detaches explicitly reparented descendants before recursive deletion (reversed=%s)", async reversed => {
+    const groups = [{ id: "root", parentId: null, name: "root", locked: false, visible: true },
+      { id: "child", parentId: "root", name: "child", locked: false, visible: true },
+      { id: "grandchild", parentId: "child", name: "grandchild", locked: false, visible: true }];
+    const operations: MapOp[] = [{ kind: "group.put", group: { ...groups[1], parentId: null } }, { kind: "group.delete", id: "root" }];
+    const retained = { ...element("nested"), groupId: "grandchild" };
+    const prepared = await prepare([{ ...element("direct"), groupId: "root" }, retained], reversed ? operations.reverse() : operations, { groups });
+    expect(await collect(prepared)).toEqual([retained]);
+    expect(prepared.groups).toEqual([{ ...groups[1], parentId: null }, groups[2]]);
+  });
   it("rejects duplicates, missing targets and locked subtree members without publishing a prefix", async () => {
     await expect(collect(await prepare([element("x")], [{ kind: "add", element: element("x") }]))).rejects.toThrow();
     await expect(collect(await prepare([], [{ kind: "delete", id: "missing" }]))).rejects.toThrow();
