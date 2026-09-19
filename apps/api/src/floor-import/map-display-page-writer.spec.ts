@@ -1,4 +1,5 @@
 import { mkdtempSync, readdirSync, rmSync, readFileSync, writeFileSync } from "node:fs";
+import fs = require("node:fs");
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MAP_DISPLAY_ORDERED_ASSET_MAX_BYTES, OrderedMapDisplayPrimitive, validateMapDisplayPageContent } from "@led-control/shared";
@@ -14,7 +15,32 @@ const primitive = (i: number, layer = "raw"): OrderedMapDisplayPrimitive => ({ t
 describe("ordered display page writer", () => {
   let directory: string;
   beforeEach(() => { directory = mkdtempSync(join(tmpdir(), "map-pages-test-")); });
-  afterEach(() => rmSync(directory, { recursive: true, force: true }));
+  afterEach(() => { jest.restoreAllMocks(); rmSync(directory, { recursive: true, force: true }); });
+  it.each([[1, false], [2, false], [1, true], [2, true]] as const)(
+    "rolls back every reservation when frame write %i fails (partial write: %s)", (failAt, partial) => {
+      let physical = 0, writes = 0;
+      const original = fs.writeFileSync;
+      jest.spyOn(fs, "writeFileSync").mockImplementation((...args) => {
+        if (++writes === failAt) {
+          if (partial) original(args[0], Buffer.from(args[1] as Uint8Array).subarray(0, 16), args[2]);
+          throw Object.assign(new Error("injected ENOSPC"), { code: "ENOSPC" });
+        }
+        return original(...args);
+      });
+      const writer = createMapDisplayPageWriter({ directory, sceneId, width: 512, height: 512,
+        claimBytes: delta => { physical += delta; } });
+      try {
+        expect(() => {
+          for (let i = 0; i < 1500; i++) writer.append({ tileX: 0, tileY: 0, lod: 0 }, primitive(i), "layer");
+          [...writer.finish()];
+        }).toThrow("injected ENOSPC");
+        expect(readdirSync(directory)).toEqual([]);
+        expect(physical).toBe(0);
+        expect(() => writer.append({ tileX: 0, tileY: 0, lod: 0 }, primitive(1500), "layer")).toThrow(/finished/);
+      } finally { writer.dispose(); }
+      expect(physical).toBe(0);
+      expect(readdirSync(directory)).toEqual([]);
+    });
   it("packs sparse canonical layers in bounded assets and verifies every page against decoded records", () => {
     const writer = createMapDisplayPageWriter({ directory, sceneId, width: 512, height: 512 });
     for (let i = 0; i < 600; i++) writer.append({ tileX: 0, tileY: 0, lod: 0 }, primitive(i, `raw${i % 200}`), `layer${i % 200}`);

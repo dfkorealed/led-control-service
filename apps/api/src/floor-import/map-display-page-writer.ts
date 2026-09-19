@@ -47,8 +47,13 @@ export function createMapDisplayPageWriter(options: OrderedPageWriterOptions) {
     if (physical + size > CAD_SCENE_MAX_TOTAL_TILE_BYTES - 64 * 1024 * 1024 ||
       decoded + run.tracker.byteSize > CAD_SCENE_MAX_TOTAL_TILE_BYTES) throw new Error("ordered page temporary budget exceeded");
     options.claimBytes?.(size);
-    writeFileSync(run.path, Buffer.concat([header, compressed]), { flag: run.bytes ? "a" : "wx", mode: 0o600 });
-    physical += size; decoded += run.tracker.byteSize; run.bytes += size;
+    const flag = run.bytes ? "a" : "wx";
+    // A failed write can leave a partial frame. Register the entire reservation
+    // before I/O so failure cleanup removes the file and releases it exactly once.
+    run.bytes += size;
+    try { writeFileSync(run.path, Buffer.concat([header, compressed]), { flag, mode: 0o600 }); }
+    catch (error) { finished = true; dispose(); throw error; }
+    physical += size; decoded += run.tracker.byteSize;
     retained -= run.tracker.byteSize; run.primitives = []; run.groups = []; run.tracker = new MapDisplayTileSizeTracker(maximum);
   };
   const dispose = () => {
