@@ -39,6 +39,7 @@ import {
   getCadSceneTileIntegrity
 } from "./cad-scene-codec";
 import { measureCadText } from "./cad-text-layout";
+import { triangulateCadHatchPolygon } from "./cad-hatch-geometry";
 import type {
   CadPoint,
   CadPolylineVertex,
@@ -1460,23 +1461,24 @@ function displayPrimitive(primitive: CadScenePrimitive, source: ExpandedCadEntit
 function bindDisplayIdentities(semantic: CadSemanticEntity, elements: readonly MapElement[]): CadScenePrimitive[] {
   const byId = new Map(elements.map(element => [element.id, element]));
   if (byId.size !== elements.length) throw new Error("Duplicate canonical CAD element identity");
-  const ringKey = (points: readonly { x: number; y: number }[]) => createHash("sha256").update(JSON.stringify(points)).digest("hex");
-  const byRing = new Map<string, MapElement>();
   if (semantic.source.entity.type === "hatch") {
-    for (const element of elements) {
-      if (element.type !== "polygon") throw new Error("Canonical HATCH must contain polygons");
-      for (const ring of [element.geometry.outer, ...element.geometry.holes]) {
-        const key = ringKey(ring);
-        if (byRing.has(key)) throw new Error("Ambiguous canonical HATCH ring identity");
-        byRing.set(key, element);
+    // Boolean normalization can merge/split source rings. Display the resulting full
+    // canonical boundaries before clipping; a source-ring hash is no longer a valid lookup.
+    return elements.flatMap((element): CadScenePrimitive[] => {
+      const base = { ...semantic.primitives[0], elementId: element.id, groupId: element.groupId, style: element.style };
+      if (element.type === "polyline") return [{ ...base, type: "polyline",
+        bounds: boundsOfPoints(element.geometry.points), geometry: { points: element.geometry.points, closed: false } }];
+      if (element.type !== "polygon") throw new Error("Canonical HATCH must contain polygons or boundary polylines");
+      if (element.style.strokeColor === null) {
+        return triangulateCadHatchPolygon(element.geometry).map(points => ({ ...base, type: "triangle",
+          bounds: boundsOfPoints(points), geometry: { points: points as [{ x: number; y: number }, { x: number; y: number }, { x: number; y: number }] } }));
       }
-    }
+      return [element.geometry.outer, ...element.geometry.holes].map(points => ({ ...base, type: "polyline",
+        bounds: boundsOfPoints(points), geometry: { points, closed: true } }));
+    });
   }
   return semantic.primitives.map(primitive => {
-    // Inner HATCH rings have no standalone canonical element. Their display
-    // fragments must pick the owning polygon, including after tile clipping.
-    const element = semantic.source.entity.type === "hatch" && primitive.type === "polyline"
-      ? byRing.get(ringKey(primitive.geometry.points)) : byId.get(primitive.elementId);
+    const element = byId.get(primitive.elementId);
     if (!element) throw new Error("CAD display primitive has no canonical element identity");
     return { ...primitive, elementId: element.id, groupId: element.groupId };
   });

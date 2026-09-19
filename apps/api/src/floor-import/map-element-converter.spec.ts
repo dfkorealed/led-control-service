@@ -42,6 +42,29 @@ function canonicalDisplay(input: NormalizedCadDocument) {
 }
 
 describe("canonical CAD map conversion", () => {
+  it("does not turn an invalid filled WIPEOUT into a stroke-only path", async () => {
+    await expect(convert(document([{ type: "wipeout", sourceEntityId: "W", layer: "0",
+      vertices: [[10, 10], [20, 10], [20, 20], [10, 20], [10, 10], [5, 10], [5, 5], [10, 5]].map(([x, y]) => point(x, y))
+    }]))).rejects.toThrow();
+  });
+
+  it.each(["polyline", "lwpolyline"] as const)("preserves a closed self-touching unfilled %s as a complete stroked path", async type => {
+    const input = document([{ type, sourceEntityId: "9F734", layer: "ARCH", closed: true,
+      vertices: [[10, 10], [20, 10], [20, 20], [10, 20], [10, 10], [5, 10], [5, 5], [10, 5]].map(([x, y]) => vertex(x, y)) }]);
+    const result = await convert(input);
+    const display = canonicalDisplay(input);
+    expect(display.elements).toEqual(result.elements);
+    expect(result.elements).toHaveLength(1);
+    const element = result.elements[0];
+    if (element.type !== "polyline") throw new Error("Expected unfilled boundary path");
+    expect(element.style.fillColor).toBeNull();
+    expect(element.geometry.points).toHaveLength(9);
+    expect(element.geometry.points[0]).toEqual(element.geometry.points[4]);
+    expect(element.geometry.points[0]).toEqual(element.geometry.points[8]);
+    expect(new Set(display.primitives.map(p => p.elementId))).toEqual(new Set([element.id]));
+    expect(result.metadata.unconvertedEntityCounts).toEqual({});
+  });
+
   it.each([
     { name: "LINE-edge triangle", edge: true, outer: [[10, 10], [110, 10], [10, 110]] },
     { name: "LINE-edge rectangle", edge: true, outer: [[10, 10], [110, 10], [110, 110], [10, 110]] },

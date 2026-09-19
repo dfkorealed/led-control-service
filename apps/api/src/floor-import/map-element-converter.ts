@@ -1,12 +1,13 @@
 import { createHash } from "node:crypto";
 import { Buffer } from "node:buffer";
 import {
-  mapElementSchema, mapGroupSchema, mapLayerSchema, normalizeCadMapSize,
-  type MapElement, type MapGroup, type MapLayer, type Point, type CadScenePrimitive
+  mapElementSchema, mapGroupSchema, mapLayerSchema, normalizeCadMapSize, getMapPolygonValidationError,
+  type MapElement, type MapGroup, type MapLayer, type CadScenePrimitive
 } from "@led-control/shared";
 import { cadEllipseAngles, cadEllipseMatrix, multiplyCadMatrices, transformPoint, type CadMatrix } from "./cad-geometry";
 import { iterateCadSemanticEntities, type BuildCadSceneOptions, type CadSemanticEntity } from "./cad-scene-builder";
 import type { CadBounds, NormalizedCadDocument } from "./cad-types";
+import { cadHatchRingKey, resolveCadHatchRegions } from "./cad-hatch-geometry";
 
 export interface CadMapConversionMetadata {
   width: number;
@@ -55,9 +56,17 @@ function primitiveShape(primitive: CadScenePrimitive): Pick<MapElement, "type" |
       return { type: "text", geometry: { position: { x: 0, y: -height }, width, height, fontSize, text },
         transform: { ...transform, x: position.x, y: position.y, rotation: angle(rotation) } };
     }
-    case "polyline": return primitive.geometry.closed
-      ? { type: "polygon", geometry: { outer: primitive.geometry.points, holes: [] }, transform }
-      : { type: "polyline", geometry: { points: primitive.geometry.points }, transform };
+    case "polyline": {
+      const { points, closed } = primitive.geometry;
+      // A closed CAD stroke can revisit/cross vertices without defining a valid filled polygon.
+      // Preserve every segment and its closing edge as a common path, not a repaired/filled area.
+      // WIPEOUT receives its fill later, so it must still validate as a filled shape.
+      if (closed && primitive.sourceType !== "WIPEOUT" && primitive.style.fillColor === null && getMapPolygonValidationError(points, [])) {
+        return { type: "polyline", geometry: { points: [...points, points[0]] }, transform };
+      }
+      return closed ? { type: "polygon", geometry: { outer: points, holes: [] }, transform }
+        : { type: "polyline", geometry: { points }, transform };
+    }
     default: return { type: primitive.type, geometry: primitive.geometry, transform };
   }
 }
@@ -101,44 +110,36 @@ function semanticArc(semantic: CadSemanticEntity): Pick<MapElement, "type" | "ge
   };
 }
 
-function hatchPolygons(primitives: readonly CadScenePrimitive[]): Array<{ primitive: CadScenePrimitive; outer: Point[]; holes: Point[][] }> {
-  const rings = primitives.map(primitive => {
+function hatchEntries(primitives: readonly CadScenePrimitive[]) {
+  const originals = new Map(primitives.map(primitive => {
     if (primitive.type !== "polyline" || !primitive.geometry.closed) throw new Error("Invalid semantic HATCH ring");
-    const points = primitive.geometry.points;
-    const area = Math.abs(points.reduce((sum, p, index) => {
-      const next = points[(index + 1) % points.length];
-      return sum + p.x * next.y - next.x * p.y;
-    }, 0));
-    return { primitive, points, area, parent: -1, depth: 0 };
-  });
-  let remaining = 1_000_000;
-  const spend = () => { if (--remaining < 0) throw new Error("CAD HATCH containment work limit exceeded"); };
-  const contains = (points: Point[], p: Point) => {
-    let inside = false;
-    for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
-      spend();
-      const a = points[i], b = points[j];
-      if ((a.y > p.y) !== (b.y > p.y) && p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x) inside = !inside;
+    return [cadHatchRingKey(primitive.geometry.points), primitive] as const;
+  }));
+  const regions = resolveCadHatchRegions([...primitives].map(primitive => {
+    if (primitive.type !== "polyline") throw new Error("Invalid semantic HATCH ring");
+    return primitive.geometry.points;
+  }));
+  const usedIds = new Set<string>();
+  const entries: Array<{ primitive: CadScenePrimitive; shape: Pick<MapElement, "type" | "geometry" | "transform"> }> = [];
+  for (const { boundary, parts } of regions) {
+    const original = originals.get(cadHatchRingKey(boundary.outer));
+    const base = original ?? primitives[0];
+    for (const [index, geometry] of parts.entries()) {
+      const elementId = index === 0 && !usedIds.has(base.elementId) ? base.elementId
+        : id("hatch-part", [base.elementId, cadHatchRingKey(geometry.outer), geometry.holes.map(cadHatchRingKey).sort()]);
+      usedIds.add(elementId);
+      entries.push({ primitive: { ...base, elementId, style: { ...base.style, fillColor: "#e5e7eb",
+        ...(parts.length > 1 ? { strokeColor: null } : {}) } },
+        shape: { type: "polygon", geometry, transform: identity() } });
     }
-    return inside;
-  };
-  for (const ring of rings) {
-    let parentArea = Infinity;
-    rings.forEach((candidate, index) => {
-      spend();
-      if (candidate.area > ring.area && candidate.area < parentArea && contains(candidate.points, ring.points[0])) {
-        ring.parent = index; parentArea = candidate.area;
-      }
-    });
+    if (parts.length > 1) for (const ring of [boundary.outer, ...boundary.holes]) {
+      // General polylines preserve real boundary strokes; partition diagonals have no stroke.
+      entries.push({ primitive: { ...base, elementId: id("hatch-boundary", [base.elementId, cadHatchRingKey(ring)]),
+        style: { ...base.style, fillColor: null } },
+        shape: { type: "polyline", geometry: { points: [...ring, ring[0]] }, transform: identity() } });
+    }
   }
-  for (const ring of rings) {
-    let parent = ring.parent;
-    while (parent !== -1) { spend(); ring.depth++; parent = rings[parent].parent; }
-  }
-  return rings.flatMap((ring, index) => ring.depth % 2 ? [] : [{
-    primitive: ring.primitive, outer: ring.points,
-    holes: rings.filter(candidate => candidate.parent === index).map(candidate => candidate.points)
-  }]);
+  return entries;
 }
 
 /** Adapter for buildCadScene.onSemanticEntity. It retains only bounded
@@ -195,8 +196,7 @@ export function createCadMapElementConverter(options: {
       groupId = current;
     }
     const entries = source.entity.type === "hatch"
-      ? hatchPolygons(primitives).map(({ primitive, outer, holes }) => ({ primitive,
-        shape: { type: "polygon", geometry: { outer, holes }, transform: identity() } }))
+      ? hatchEntries(primitives)
       : primitives.map(primitive => ({ primitive, shape: semanticArc(semantic) ?? primitiveShape(primitive) }));
     return entries.map(({ primitive, shape }) => {
       const layerId = id("layer", primitive.layerName);
@@ -212,7 +212,6 @@ export function createCadMapElementConverter(options: {
         id: primitive.elementId, groupId, layerId, zIndex: elementCount,
         visible: true, locked: false, ...shape,
         style: { ...primitive.style,
-          ...(source.entity.type === "hatch" ? { fillColor: "#e5e7eb" } : {}),
           ...(source.entity.type === "wipeout" ? { fillColor: "#ffffff", strokeColor: null } : {}) },
         provenance: { importJobId: options.importJobId, sourceId: source.sourceEntityId }
       });
