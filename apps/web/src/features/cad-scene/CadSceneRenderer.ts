@@ -100,6 +100,9 @@ function throwIfAborted(signal: AbortSignal): void {
 }
 
 export interface CadSceneRenderBackend<TTile extends SceneTile = CadSceneTile> {
+  renderDisplay?(request: CadRasterDisplayRequest<TTile>): Promise<void>;
+  invalidateDisplay?(bounds?: readonly (CadBounds | undefined)[]): void;
+  setLayerStates?(states: ReadonlyMap<string, CadSceneLayerState>): void;
   mount(canvas: HTMLCanvasElement, options: { resolution: number }): Promise<void>;
   resize(width: number, height: number, resolution: number): void;
   setCamera(camera: CadSceneCamera): void;
@@ -114,6 +117,19 @@ export interface CadSceneRenderBackend<TTile extends SceneTile = CadSceneTile> {
   suspend(): void;
   render(): void;
   destroy(): void;
+}
+
+export interface CadRasterDisplayRequest<TTile extends SceneTile> {
+  manifest: SceneManifest;
+  camera: CadSceneCamera;
+  resolution: number;
+  loadTile: (tile: TTile, signal: AbortSignal) => Promise<Uint8Array>;
+  worker: CadSceneWorkerClient<TTile>;
+  signal: AbortSignal;
+  excludedIds: ReadonlySet<string>;
+  excludedGroupIds?: ReadonlySet<string>;
+  onError: (error: Error) => void;
+  onDegraded: (result: CadSceneDegradation) => void;
 }
 
 export type CadSceneRenderBackendFactory<TTile extends SceneTile = CadSceneTile> = () => CadSceneRenderBackend<TTile>;
@@ -151,6 +167,7 @@ export interface CadScenePickResult<TTile extends SceneTile = CadSceneTile> {
 
 export interface CadSceneLayerState {
   visible: boolean;
+  order?: number;
 }
 
 function tileKey(tile: SceneTile): string {
@@ -299,14 +316,25 @@ export class PixiCadSceneRenderBackend implements CadSceneRenderBackend {
     this.renderer = null;
   }
 
-  private requireRenderer(): WebGLRenderer<HTMLCanvasElement> {
+  protected requireRenderer(): WebGLRenderer<HTMLCanvasElement> {
     if (!this.renderer) throw new Error("CAD scene WebGL renderer is not mounted");
     return this.renderer;
   }
 
-  private requireWorld(): Container {
+  protected requireWorld(): Container {
     if (!this.world) throw new Error("CAD scene WebGL renderer is not mounted");
     return this.world;
+  }
+
+  protected replaceRaster(key: string, canvas: HTMLCanvasElement, bounds: CadBounds): void {
+    this.removeTile(key);
+    const geometry = new MeshGeometry({ positions: new Float32Array([
+      bounds.minX, bounds.minY, bounds.maxX, bounds.minY, bounds.maxX, bounds.maxY, bounds.minX, bounds.maxY
+    ]), uvs: new Float32Array([0, 0, 1, 0, 1, 1, 0, 1]), indices: new Uint32Array([0, 1, 2, 0, 2, 3]) });
+    const texture = Texture.from(canvas);
+    const container = new Container(); container.addChild(new Mesh({ geometry, texture }));
+    this.tileContainers.set(key, container); this.tileGeometries.set(key, [geometry]); this.tileTextures.set(key, [texture]);
+    this.requireWorld().addChild(container);
   }
 }
 
@@ -622,6 +650,9 @@ export class CadSceneRenderer<TManifest extends SceneManifest = CadSceneManifest
   }
 
   private setDisplayCamera(camera: CadSceneCamera): Promise<void> {
+    if (this.backend.renderDisplay) return this.backend.renderDisplay({ manifest: this.manifest, camera,
+      resolution: this.resolution, loadTile: this.loadTile, worker: this.worker, signal: this.loadAbortController.signal,
+      excludedIds: this.excludedIds, excludedGroupIds: this.excludedGroupIds, onError: this.onError, onDegraded: this.onDegraded });
     const descriptors = this.visibleTileDescriptors(camera);
     const zoomBand = cadDisplayZoomBand(camera.zoom);
     const qualityFor = (key: string) => `${zoomBand}:${this.displayTileVersions.get(key) ?? 0}`;
@@ -871,6 +902,7 @@ export class CadSceneRenderer<TManifest extends SceneManifest = CadSceneManifest
       // element-only edits retain their adjacent-batch invalidation behavior.
       const bounds = groupIds !== undefined && groupsChanged ? [undefined]
         : dirtyBounds?.length ? dirtyBounds : [...changed].map(id => this.sourceBounds.get(id));
+      this.backend.invalidateDisplay?.(bounds);
       for (const tile of this.manifest.tiles) {
         if (!bounds.some(bound => !bound || (bound.maxX >= tile.bounds.minX && bound.minX <= tile.bounds.maxX &&
           bound.maxY >= tile.bounds.minY && bound.minY <= tile.bounds.maxY))) continue;
@@ -897,6 +929,7 @@ export class CadSceneRenderer<TManifest extends SceneManifest = CadSceneManifest
 
   setLayerStates(states: ReadonlyMap<string, CadSceneLayerState>): void {
     this.assertAlive();
+    this.backend.setLayerStates?.(states);
     const nextHiddenLayerNames = new Set<string>();
     for (const [layerName, state] of states) {
       if (!state.visible) nextHiddenLayerNames.add(layerName);

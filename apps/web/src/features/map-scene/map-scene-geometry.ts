@@ -9,7 +9,7 @@ const MAX_CURVE_SEGMENTS = 4096;
 const box = (p: Point, w: number, h: number): Point[] => [p,
   { x: p.x + w, y: p.y }, { x: p.x + w, y: p.y + h }, { x: p.x, y: p.y + h }];
 
-function paths(element: MapElement, zoom: number): { rings: Point[][]; closed: boolean } {
+export function mapElementPaths(element: MapElement, zoom: number): { rings: Point[][]; closed: boolean } {
   let rings: Point[][];
   let closed = true;
   switch (element.type) {
@@ -46,8 +46,20 @@ function paths(element: MapElement, zoom: number): { rings: Point[][]; closed: b
 }
 
 /** Local drafts only. Overview data stays in the existing compact tile worker. */
-export function buildMapGeometryBatches(elements: readonly MapElement[], zoomBand: number): CadGeometryBuildResult {
+export function buildMapGeometryBatches(elements: readonly MapElement[], zoomBand: number, nativePaint = false): CadGeometryBuildResult {
   if (!(zoomBand > 0) || !Number.isFinite(zoomBand)) throw new RangeError("Invalid map zoom band");
+  if (nativePaint) {
+    let points = 0;
+    for (const element of elements) {
+      if (element.type === "text") continue;
+      points += mapElementPaths(element, zoomBand).rings.reduce((sum, ring) => sum + ring.length, 0);
+      if (points > MAX_DRAFT_POINTS) throw new RangeError("Map draft point budget exceeded");
+    }
+    // Canonical objects are already owned/accounted by the bounded draft or
+    // persisted overlay. The display cache retains only these references.
+    return { nativeDrafts: elements, batches: [], textBatches: [], pickEntries: [], pickPoints: new Float32Array(),
+      spatialIndex: { cellSize: 64, buckets: {} }, memory: { cpuBytes: 256 + elements.length * 8, gpuBytes: 0, textAtlasBytes: 0 } };
+  }
   const primitives: CadScenePrimitive[] = [];
   let pointCount = 0;
   for (const element of [...elements].sort((a, b) => a.zIndex - b.zIndex)) {
@@ -65,7 +77,7 @@ export function buildMapGeometryBatches(elements: readonly MapElement[], zoomBan
       } });
       continue;
     }
-    const { rings, closed } = paths(element, zoomBand);
+    const { rings, closed } = mapElementPaths(element, zoomBand);
     pointCount += rings.reduce((sum, ring) => sum + ring.length, 0);
     if (pointCount > MAX_DRAFT_POINTS) throw new RangeError("Map draft point budget exceeded");
     if (rings.length === 1) {
@@ -94,7 +106,7 @@ export function buildMapGeometryBatches(elements: readonly MapElement[], zoomBan
 
 export function hitMapElement(element: MapElement, point: Point, radius: number, zoom = 1): boolean {
   if (!element.visible || element.style.opacity === 0) return false;
-  const { rings, closed } = paths(element, zoom);
+  const { rings, closed } = mapElementPaths(element, zoom);
   if (closed && (element.type === "text" || element.style.fillColor !== null) &&
       inside(point, rings[0]) && !rings.slice(1).some(ring => inside(point, ring))) return true;
   if (element.style.strokeColor === null || element.style.strokeWidth <= 0) return false;

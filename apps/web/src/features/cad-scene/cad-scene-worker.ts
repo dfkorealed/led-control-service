@@ -1,6 +1,7 @@
 import type { CadBounds, CadElementOverride, CadElementTransform, CadScenePrimitive, CadSceneTile } from "@led-control/shared";
 import { MAP_DISPLAY_VERSION, type MapDisplayTile, type OrderedMapDisplayPrimitive } from "@led-control/shared/map-display-contracts";
 import type { SceneTile } from "./cad-scene-display-types";
+import type { MapElement } from "@led-control/shared/map-document-contracts";
 import earcut from "earcut";
 import { CadDisplayStrokeAccumulator } from "./cad-scene-display";
 import { packCadDisplayText } from "./cad-scene-text-layout";
@@ -53,6 +54,8 @@ export interface CadPickEntry {
 }
 
 export interface CadGeometryBuildResult {
+  nativePrimitives?: readonly OrderedMapDisplayPrimitive[];
+  nativeDrafts?: readonly MapElement[];
   batches: CadGeometryBatch[];
   textBatches: CadTextBatch[];
   pickEntries: CadPickEntry[];
@@ -107,6 +110,8 @@ export interface CadSceneWorkerClient<TTile extends SceneTile = CadSceneTile> {
 }
 
 export interface CadSceneDisplayQuality {
+  /** Ordered common display cache: retain only this cell's native paint input. */
+  nativePaint?: boolean;
   /** Upper edge of a reusable zoom band, in CSS pixels per world unit. */
   zoomBand: number;
   maxErrorPixels: number;
@@ -940,7 +945,7 @@ function buildSpatialIndex(entries: readonly CadPickEntry[], cellSize = 64): Cad
 class InlineCadSceneWorkerClient<TTile extends SceneTile> implements CadSceneWorkerClient<TTile> {
   async decode(payload: Uint8Array, descriptor: TTile, quality?: CadSceneDisplayQuality): Promise<DecodedCadSceneTile<TTile>> {
     const primitives = await decodeDisplayTilePayload(payload, descriptor);
-    return { ...buildCadGeometryBatches(primitives, quality), descriptor, byteSize: payload.byteLength };
+    return { ...buildDecodedDisplay(primitives, descriptor, quality), descriptor, byteSize: payload.byteLength };
   }
 
   destroy(): void {}
@@ -1021,7 +1026,7 @@ if (typeof workerScope.document === "undefined" && typeof workerScope.postMessag
     const { id, payload, descriptor, quality } = event.data;
     void decodeDisplayTilePayload(payload, descriptor).then(primitives => {
       const result: DecodedCadSceneTile<SceneTile> = {
-        ...buildCadGeometryBatches(primitives, quality),
+        ...buildDecodedDisplay(primitives, descriptor, quality),
         descriptor,
         byteSize: payload.byteLength
       };
@@ -1034,4 +1039,20 @@ if (typeof workerScope.document === "undefined" && typeof workerScope.postMessag
       workerScope.postMessage?.({ id, error: error instanceof Error ? error.message : "CAD scene worker failed" });
     });
   });
+}
+
+function buildDecodedDisplay(primitives: CadScenePrimitive[], descriptor: SceneTile, quality?: CadSceneDisplayQuality): CadGeometryBuildResult {
+  if (!quality?.nativePaint) return buildCadGeometryBatches(primitives, quality);
+  if (descriptor.version !== MAP_DISPLAY_VERSION) throw new Error("Native common painter requires v2");
+  const excluded = new Set(quality.excludedIds), groups = new Set(quality.excludedGroupIds);
+  const visible = (primitives as OrderedMapDisplayPrimitive[]).filter(p => !excluded.has(p.elementId) && !(p.groupId && groups.has(p.groupId)));
+  let cpuBytes = 256 + visible.length * 8;
+  for (const p of visible) {
+    cpuBytes += 512 + (p.elementId.length + (p.groupId?.length ?? 0) + p.layerName.length + p.sourceType.length) * 2;
+    if (p.type === "polyline") cpuBytes += p.geometry.points.length * 32;
+    if (p.type === "text") cpuBytes += p.geometry.text.length * 2;
+  }
+  return { batches: [], textBatches: [], pickEntries: [], pickPoints: new Float32Array(),
+    spatialIndex: { cellSize: 64, buckets: {} }, nativePrimitives: visible,
+    memory: { cpuBytes, gpuBytes: 0, textAtlasBytes: 0 } };
 }

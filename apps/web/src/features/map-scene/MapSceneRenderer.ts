@@ -9,6 +9,7 @@ import { CadSceneTileCache } from "../cad-scene/cad-scene-tile-cache";
 import { createCadSceneWorkerClient, type DecodedCadSceneTile } from "../cad-scene/cad-scene-worker";
 import { buildMapGeometryBatches, hitMapElement } from "./map-scene-geometry";
 import type { MapSceneManifest, MapSceneSource } from "./map-scene-source";
+import { MapRasterBackend } from "./map-raster-backend";
 
 const MiB = 1024 * 1024;
 const MAX_SELECTION_IDS = 128;
@@ -61,6 +62,7 @@ export class MapSceneRenderer {
   private groups = new Map<string, MapGroup | null>();
   private layers = new Map<string, MapLayer | null>();
   private draftBand = 0;
+  private readonly nativePaint: boolean;
 
   constructor(options: MapSceneRendererOptions) {
     this.source = options.source;
@@ -70,6 +72,7 @@ export class MapSceneRenderer {
     this.onManifest = options.onManifest ?? (() => undefined);
     const mobile = options.platform === "mobile";
     this.budget = new CadSceneMemoryBudget(options.maximumMemoryBytes ?? (mobile ? 32 : 128) * MiB);
+    this.nativePaint = !options.backendFactory;
     this.originals = new CadSceneTileCache({
       maximumBytes: options.maximumOriginalBytes ?? (mobile ? 8 : 32) * MiB,
       onBeforeInsert: (key, bytes) => {
@@ -82,6 +85,7 @@ export class MapSceneRenderer {
     const worker = this.source.decodeDisplayTile
       ? { decode: this.source.decodeDisplayTile.bind(this.source), destroy() {} } : createCadSceneWorkerClient<MapDisplayTile>();
     this.scene = new CadSceneRenderer<MapDisplayManifest>({ ...options, manifest: emptyDisplay(), displayQuality: true,
+      backendFactory: options.backendFactory ?? (() => new MapRasterBackend(this.budget)),
       maximumCacheBytes: this.budget.maximumBytes, memoryBudget: this.budget,
       loadTile: (tile, signal) => this.loadDisplayTile(tile, signal),
       worker: { destroy: () => worker.destroy(), decode: async (bytes, descriptor, quality) => {
@@ -97,7 +101,9 @@ export class MapSceneRenderer {
         const batches = tile.batches.map(batch => ({ ...batch, layerName: layerId(batch.layerName) }));
         const textBatches = tile.textBatches.map(batch => ({ ...batch, layerName: layerId(batch.layerName) }));
         const pickEntries = tile.pickEntries.map(entry => ({ ...entry, layerName: layerId(entry.layerName) }));
-        return { ...tile, batches, textBatches, pickEntries, memory: { ...tile.memory, cpuBytes: tile.memory.cpuBytes + addedBytes } };
+        const nativePrimitives = tile.nativePrimitives?.map(primitive => ({ ...primitive, layerName: layerId(primitive.layerName) }));
+        return { ...tile, batches, textBatches, pickEntries, nativePrimitives,
+          memory: { ...tile.memory, cpuBytes: tile.memory.cpuBytes + addedBytes } };
       } }
     });
   }
@@ -374,7 +380,7 @@ export class MapSceneRenderer {
     if (!Number.isFinite(radiusPixels) || radiusPixels < 0 || radiusPixels > 64) throw new RangeError("Invalid map selection radius");
     const world = screenToCadWorld(point, camera);
     const drafts = [...this.displayChanges().values()].filter((element): element is MapElement => !!element && this.visible(element) && !this.promoted.has(element.id));
-    drafts.sort((a, b) => this.layerOrder(b.layerId) - this.layerOrder(a.layerId) || b.zIndex - a.zIndex);
+    drafts.sort((a, b) => this.comparePaint(b, a));
     const local = drafts.find(element => hitMapElement(element, world, radiusPixels / camera.zoom, camera.zoom));
     this.picking = true;
     let release: (() => void) | undefined;
@@ -387,7 +393,7 @@ export class MapSceneRenderer {
       if (!this.current(epoch) || changes !== this.changeEpoch) return null;
       const candidates = picked ? await this.getElements([...candidateIds]) : [];
       if (!this.current(epoch) || changes !== this.changeEpoch || !sameCamera(this.renderedCamera, camera)) return null;
-      const element = [...candidates, ...(local ? [local] : [])].sort((a, b) => this.layerOrder(b.layerId) - this.layerOrder(a.layerId) || b.zIndex - a.zIndex)
+      const element = [...candidates, ...(local ? [local] : [])].sort((a, b) => this.comparePaint(b, a))
         .find(value => !this.promoted.has(value.id) && this.visible(value) && hitMapElement(value, world, radiusPixels / camera.zoom, camera.zoom));
       if (!element) return null;
       this.scene.registerSourceBounds(element.id, getMapElementBounds(element));
@@ -486,7 +492,7 @@ export class MapSceneRenderer {
       !!element && !this.promoted.has(element.id) && this.visible(element, groups, layers));
     if (!elements.length) return null;
     const band = cadDisplayZoomBand(this.camera?.zoom ?? 1);
-    const geometry = buildMapGeometryBatches(elements, band);
+    const geometry = buildMapGeometryBatches(elements, band, this.nativePaint);
     return { ...geometry, byteSize: geometry.memory.cpuBytes, descriptor: {
       version: 2, sceneId: this.document!.generationId, tileX: 0, tileY: 0, lod: 0, part: 0,
       assetId: "local-draft", sha256: "0".repeat(64), byteSize: geometry.memory.cpuBytes, primitiveCount: elements.length,
@@ -511,6 +517,12 @@ export class MapSceneRenderer {
 
   private layerOrder(id: string): number {
     return (this.layers.has(id) ? this.layers.get(id) : this.manifest?.layers.find(layer => layer.id === id))?.order ?? 0;
+  }
+
+  private comparePaint(a: MapElement, b: MapElement): number {
+    const ordinal = (left: string, right: string) => left < right ? -1 : left > right ? 1 : 0;
+    return this.layerOrder(a.layerId) - this.layerOrder(b.layerId) || ordinal(a.layerId, b.layerId) ||
+      a.zIndex - b.zIndex || ordinal(a.id, b.id);
   }
 
   private current(epoch: number): boolean { return !this.disposed && epoch === this.epoch && this.source.scopeKey === this.scopeKey; }

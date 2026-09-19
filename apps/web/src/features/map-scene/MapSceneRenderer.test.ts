@@ -83,6 +83,19 @@ function collisionHarness() {
 }
 
 describe("bounded common map renderer", () => {
+  it("picks by the same ordinal layer and element tie-breaks as ordered painting", async () => {
+    const h = harness(); await h.start();
+    h.renderer.applyChanges([
+      { kind: "add", element: { ...shape("Z"), zIndex: 1 } }, { kind: "add", element: { ...shape("a"), zIndex: 1 } }
+    ], []);
+    expect((await h.renderer.pick({ x: 20, y: 20 }))?.element.id).toBe("a");
+    h.renderer.applyChanges([
+      { kind: "layer.put", layer: { id: "zz", name: "Top", order: 0, visible: true, locked: false } },
+      { kind: "add", element: { ...shape("layer-top"), layerId: "zz", zIndex: -10 } }
+    ], []);
+    expect((await h.renderer.pick({ x: 20, y: 20 }))?.element.id).toBe("layer-top");
+  });
+
   it("rejects a legacy common manifest even from an injected source", async () => {
     const h = harness();
     const manifest = await h.source.getManifest(ref, new AbortController().signal);
