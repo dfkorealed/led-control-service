@@ -247,7 +247,7 @@ describe("FloorAssetsService", () => {
   it("uses read access when listing ready floor assets", async () => {
     const prisma: any = {
       floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },
-      floorAsset: { findMany: jest.fn().mockResolvedValue([{ id: "asset-1", status: "ready", sizeBytes: 1024n }]) }
+      floorAsset: { findMany: jest.fn().mockResolvedValue([{ id: "asset-1", kind: "original", status: "ready", sizeBytes: 1024n }]) }
     };
     const siteAccess = { assert: jest.fn().mockResolvedValue({ id: "site-1" }) };
     const service = new FloorAssetsService(prisma, {} as any, siteAccess as unknown as SiteAccessService);
@@ -255,6 +255,7 @@ describe("FloorAssetsService", () => {
     const assets = await service.listAssets(viewer, "floor-1");
     expect(assets).toEqual([{
       id: "asset-1",
+      kind: "original",
       status: "ready",
       sizeBytes: 1024,
       accessPath: "/api/floors/floor-1/assets/asset-1/content"
@@ -266,7 +267,7 @@ describe("FloorAssetsService", () => {
       where: {
         floorId: "floor-1",
         status: "ready",
-        kind: { notIn: ["cad_manifest", "cad_tile"] }
+        kind: { in: ["original", "rendered", "cad_region_preview"] }
       }
     }));
   });
@@ -329,7 +330,7 @@ describe("FloorAssetsService", () => {
     expect(prisma.floorAsset.findFirst).toHaveBeenCalledWith({
       where: {
         id: "asset-1", floorId: "floor-1", status: "ready", cleanupStartedAt: null,
-        kind: { notIn: ["cad_manifest", "cad_tile"] }
+        kind: { in: ["original", "rendered", "cad_region_preview"] }
       },
       select: { id: true, kind: true, objectKey: true, mimeType: true, contentEncoding: true, sizeBytes: true, sha256: true }
     });
@@ -604,6 +605,7 @@ describe("FloorAssetsService", () => {
       floorAsset: {
         findFirst: jest.fn().mockResolvedValue({
           id: "asset-1",
+          kind: "original",
           objectKey: "floors/floor-1/file.png",
           mimeType: "image/png",
           sizeBytes: 1024n,
@@ -613,6 +615,7 @@ describe("FloorAssetsService", () => {
       },
       $queryRaw: jest.fn().mockResolvedValue([{
         id: "asset-1", floorId: "floor-1", siteId: "site-1", floorStatus: "active", objectKey: "floors/floor-1/file.png",
+        kind: "original",
         mimeType: "image/png", sizeBytes: 1024n, sha256: checksum, status: "pending", cleanupStartedAt: null
       }])
     };
@@ -648,6 +651,7 @@ describe("FloorAssetsService", () => {
       floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },
       floorAsset: {
         findFirst: jest.fn().mockResolvedValue({
+          kind: "original",
           id: "asset-1", objectKey: "floors/floor-1/file.png", mimeType: "image/png",
           sizeBytes: 1024n, sha256: checksum, status: "pending", cleanupStartedAt: null
         }),
@@ -657,6 +661,7 @@ describe("FloorAssetsService", () => {
         })
       },
       $queryRaw: jest.fn().mockResolvedValue([{
+        kind: "original",
         id: "asset-1", floorId: "floor-1", siteId: "site-1", floorStatus: "archived",
         objectKey: "floors/floor-1/file.png", mimeType: "image/png", sizeBytes: 1024n,
         sha256: checksum, status: "pending", cleanupStartedAt: null
@@ -681,6 +686,7 @@ describe("FloorAssetsService", () => {
 
   it("rejects idempotent completion of a ready asset on an archived floor", async () => {
     const asset = {
+      kind: "original",
       id: "asset-1", floorId: "floor-1", objectKey: "floors/floor-1/file.png", mimeType: "image/png",
       sizeBytes: 1024n, sha256: "a".repeat(64), status: "ready", readyAt: new Date()
     };
@@ -709,6 +715,7 @@ describe("FloorAssetsService", () => {
       floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },
       floorAsset: {
         findFirst: jest.fn().mockResolvedValue({
+          kind: "original",
           id: "asset-1", objectKey: "floors/floor-1/file.png", mimeType: "image/png",
           sizeBytes: 1024n, sha256: checksum, status: "pending", cleanupStartedAt: null
         }),
@@ -735,6 +742,7 @@ describe("FloorAssetsService", () => {
       floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },
       floorAsset: {
         findFirst: jest.fn().mockResolvedValue({
+          kind: "original",
           id: "asset-1",
           objectKey: "floors/floor-1/file.png",
           mimeType: "image/png",
@@ -818,6 +826,7 @@ describe("FloorAssetsService", () => {
 
   it("rejects checksum mismatch and cross-tenant assets", async () => {
     const asset = {
+      kind: "original",
       id: "asset-1",
       objectKey: "file.png",
       mimeType: "image/png",
@@ -849,6 +858,7 @@ function completionServiceWithHeadError(error: Error) {
     floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },
     floorAsset: {
       findFirst: jest.fn().mockResolvedValue({
+        kind: "original",
         id: "asset-1",
         floorId: "floor-1",
         objectKey: "floors/floor-1/file.png",

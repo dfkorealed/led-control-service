@@ -28,7 +28,9 @@ interface LockedFloorAssetRow {
   updatedAt: Date;
 }
 
-const INTERNAL_CAD_ASSET_KINDS = ["cad_manifest", "cad_tile"] as const;
+// Storage-ready internal assets are not necessarily published. New kinds must
+// use their document-aware access route, never inherit this legacy API's signer.
+const LEGACY_PUBLIC_ASSET_KINDS = ["original", "rendered", "cad_region_preview"] as const;
 
 @Injectable()
 export class FloorAssetsService {
@@ -117,9 +119,9 @@ export class FloorAssetsService {
     if (!floor) throw new NotFoundException("floor not found");
     await this.siteAccess.assert(user, floor.siteId, "manage");
     const asset = await this.prisma.floorAsset.findFirst({
-      where: { id: assetId, floorId }
+      where: { id: assetId, floorId, kind: { in: [...LEGACY_PUBLIC_ASSET_KINDS] } }
     });
-    if (!asset) throw new NotFoundException("floor asset not found");
+    if (!asset || !isLegacyPublicAssetKind(asset.kind)) throw new NotFoundException("floor asset not found");
     if (asset.status === "ready") {
       return this.prisma.$transaction(async (tx) => {
         await this.siteAccess.assertManageInTransaction(tx, user, floor.siteId);
@@ -157,7 +159,7 @@ export class FloorAssetsService {
         FOR UPDATE OF floor, asset
       `);
       const locked = lockedAssets[0];
-      if (!locked) throw new NotFoundException("floor asset not found");
+      if (!locked || !isLegacyPublicAssetKind(locked.kind)) throw new NotFoundException("floor asset not found");
       assertActiveFloorStatus(locked.floorStatus);
       if (locked.status === "ready") return this.assetResponse(locked, floorId);
       if (locked.cleanupStartedAt) {
@@ -189,12 +191,12 @@ export class FloorAssetsService {
     if (!floor) throw new NotFoundException("floor not found");
     await this.siteAccess.assert(user, floor.siteId, "read");
     const assets = await this.prisma.floorAsset.findMany({
-      where: { floorId, status: "ready", kind: { notIn: [...INTERNAL_CAD_ASSET_KINDS] } },
+      where: { floorId, status: "ready", kind: { in: [...LEGACY_PUBLIC_ASSET_KINDS] } },
       orderBy: { createdAt: "asc" }
     });
     // Upload validation caps assets at 50 MiB, safely within JSON's exact integer range.
     return assets
-      .filter(asset => !isInternalCadAssetKind(asset.kind))
+      .filter(asset => isLegacyPublicAssetKind(asset.kind))
       .map((asset) => this.assetResponse(asset, floorId));
   }
 
@@ -205,11 +207,11 @@ export class FloorAssetsService {
     const asset = await this.prisma.floorAsset.findFirst({
       where: {
         id: assetId, floorId, status: "ready", cleanupStartedAt: null,
-        kind: { notIn: [...INTERNAL_CAD_ASSET_KINDS] }
+        kind: { in: [...LEGACY_PUBLIC_ASSET_KINDS] }
       },
       select: { id: true, kind: true, objectKey: true, mimeType: true, contentEncoding: true, sizeBytes: true, sha256: true }
     });
-    if (!asset || isInternalCadAssetKind(asset.kind)) throw new NotFoundException("floor asset not found");
+    if (!asset || !isLegacyPublicAssetKind(asset.kind)) throw new NotFoundException("floor asset not found");
     const region = asset.kind === "cad_region_preview"
       ? await this.prisma.floorImportRegion.findFirst({
         where: { previewAssetId: asset.id, job: { floorId } },
@@ -335,6 +337,6 @@ function isKnownRenderedEncoding(value: string | null): value is "gzip" | null {
   return value === null || value === "gzip";
 }
 
-function isInternalCadAssetKind(value: string): value is typeof INTERNAL_CAD_ASSET_KINDS[number] {
-  return (INTERNAL_CAD_ASSET_KINDS as readonly string[]).includes(value);
+function isLegacyPublicAssetKind(value: string): value is typeof LEGACY_PUBLIC_ASSET_KINDS[number] {
+  return (LEGACY_PUBLIC_ASSET_KINDS as readonly string[]).includes(value);
 }
