@@ -5,16 +5,16 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
-import { cadSceneManifestSchema, mapDocumentRefSchema, type CadSceneManifest, type MapDocumentRef } from "@led-control/shared";
+import { mapDisplayManifestSchema, mapDocumentRefSchema, type MapDisplayManifest, type MapDocumentRef } from "@led-control/shared";
 import { MapDocumentStore, type MapDisplayAssets } from "../floor-editor/map-document-store";
 import { PrismaService } from "../prisma/prisma.service";
 import { ObjectStorageService } from "../storage/object-storage.service";
 import { CAD_MAP_MAX_METADATA_BYTES } from "./map-element-converter";
 import { readCanonicalElements, readCanonicalMetadata, readVerifiedCadArtifact, type CadCanonicalArtifact } from "./cad-canonical-spool";
-import { decodeCadSceneTile } from "./cad-scene-codec";
+import { decodeMapDisplayTile } from "./cad-scene-codec";
 
 const counts = z.record(z.number().int().nonnegative());
-export const cadMapDisplayManifestSchema = z.object({ formatVersion: z.literal(1), scene: cadSceneManifestSchema,
+export const cadMapDisplayManifestSchema = z.object({ formatVersion: z.literal(1), scene: mapDisplayManifestSchema,
   displayLayerBindings: z.array(z.object({ layerName: z.string(), layerId: z.string() }).strict()),
   unsupportedEntityCounts: counts, unconvertedEntityCounts: counts }).strict();
 export type CadMapDisplayManifest = z.infer<typeof cadMapDisplayManifestSchema>;
@@ -26,16 +26,16 @@ export class CadMapPreparationService {
     private readonly store: MapDocumentStore) {}
 
   async prepare(floorId: string, directory: string, canonical: CadCanonicalArtifact,
-    sceneInput: CadSceneManifest, signal?: AbortSignal): Promise<MapDocumentRef> {
+    sceneInput: MapDisplayManifest, signal?: AbortSignal): Promise<MapDocumentRef> {
     signal?.throwIfAborted();
     const metadata = await readCanonicalMetadata(directory, canonical);
-    const scene = cadSceneManifestSchema.parse(sceneInput);
+    const scene = mapDisplayManifestSchema.parse(sceneInput);
     if (metadata.width !== scene.width || metadata.height !== scene.height) throw new Error("canonical/display dimensions mismatch");
     const ref = await this.store.prepareGeneration(floorId, readCanonicalElements(directory, canonical, signal), metadata);
     try {
       signal?.throwIfAborted();
       const display: MapDisplayAssets = { manifest: ref.manifest, tiles: [] };
-      const mappedTiles: CadSceneManifest["tiles"] = [];
+      const mappedTiles: MapDisplayManifest["tiles"] = [];
       for (const tile of scene.tiles) {
         signal?.throwIfAborted();
         const path = join(directory, `${tile.assetId}.bin`);
@@ -43,7 +43,7 @@ export class CadMapPreparationService {
         // counts. This reads one compact tile, never reconstructs canonical geometry.
         const bytes = await readVerifiedCadArtifact(directory,
           { filename: `${tile.assetId}.bin`, byteSize: tile.byteSize, sha256: tile.sha256 }, 16 * 1024 * 1024);
-        decodeCadSceneTile(bytes, tile);
+        decodeMapDisplayTile(bytes, tile);
         const asset = await this.writeDisplayAsset(floorId, ref.generationId, "map_display_tile", path, bytes,
           "application/octet-stream", signal, tile.bounds);
         mappedTiles.push({ ...tile, assetId: asset.assetId });
