@@ -1,5 +1,6 @@
 import { expect, test, type APIResponse, type Locator, type Page, type Response, type TestInfo } from "@playwright/test";
 import { floorMapSnapshotSchema, mapDocumentRefSchema, mapElementSchema, type MapDocumentRef, type MapElement, type SaveEditorStateInput } from "@led-control/shared";
+import { floorImportApplyResultSchema } from "@led-control/shared/cad-import-contracts";
 import { getMapElementBounds } from "@led-control/shared/map-document-geometry";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -164,6 +165,10 @@ test("실백엔드: 일반 도형과 DXF 정본을 저장·삭제·복구하고 
       await dialog.getByRole("button", { name: "교체 후 적용", exact: true }).click();
       const response = await applied;
       expect(response.ok(), await response.text()).toBe(true);
+      // completed-job 복구가 잘못된 성공 ACK를 가리지 않도록 실제 HTTP body를 먼저 검증한다.
+      const acknowledgement = floorImportApplyResultSchema.parse(await response.json());
+      expect(acknowledgement).toMatchObject({ jobId: job.jobId, status: "completed",
+        mapDocument: { generationId: prepared.generationId }, acceptedCandidateIds: [] });
       expect(response.request().postDataJSON()).toMatchObject({ expectedRevision: before.revision, confirmMapReset: true, candidateIds: [], leaseToken: expect.any(String), leaseFence: expect.any(Number) });
       await expect.poll(async () => (await readDocument(page, current)).generationId).toBe(prepared.generationId);
       await expect(page.getByTestId("floor-editor-canvas")).toHaveAttribute("data-map-width", String(prepared.width));
@@ -422,7 +427,8 @@ async function sourceEvidence() {
   const files = ["apps/web/e2e/common-map-real.spec.ts", "apps/web/e2e/support/real-backend-lab.ts",
     "apps/web/src/features/floor-editor/FloorEditorView.tsx", "apps/web/src/features/floor-editor/editor-store.ts",
     "apps/web/src/features/floor-editor/use-map-editor.ts", "apps/web/src/features/floor-editor/EditorPropertiesPanel.tsx",
-    "apps/web/src/api/map-stages.ts",
+    "apps/web/src/api/map-stages.ts", "apps/web/src/api/floor-editor.ts", "packages/shared/src/cad-import-contracts.ts",
+    "apps/api/src/floor-import/floor-import.service.ts", "apps/web/src/features/map-scene/MapSceneRenderer.ts",
     "apps/web/src/features/map-scene/MapSceneCanvas.tsx", "apps/api/src/floor-import/map-element-converter.ts"];
   const sha256: Record<string, string> = {};
   for (const file of files) sha256[file] = createHash("sha256").update(await readFile(`${root}/${file}`)).digest("hex");
