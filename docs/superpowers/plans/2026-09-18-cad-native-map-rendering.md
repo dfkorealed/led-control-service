@@ -497,16 +497,18 @@ expect(serverFailures).toEqual([]);
 | U2 | 완료·독립 검토 PASS | 61ce049e, 집중120/전체336·typecheck/build·ESM/CJS/pack 통과 |
 | U3 | 완료·독립 재검토 PASS | 82c9bffc/fd69abe5, PG31x2/cleanup1/API2285통과559제외, 자산회귀76·리뷰62; 승인 로컬 migration95 적용 |
 | U12 | 완료·독립 재검토 PASS | 482cd959/31003434, browser12+기존모바일2/unit109 통과, 드롭 가림·취소 hit 보완; 실제 기기 WebView 미검증 |
-| U4a | 완료·독립 재검토 PASS | 54abb278, 신규11 RED/GREEN 및 집중118통과1제외; U4b 대기 |
+| U4a | 완료·독립 재검토 PASS | 54abb278, 신규11 RED/GREEN 및 집중118통과1제외; U4b 연결 완료 |
 | U8a | 완료·독립 검토 PASS | 22131660, 신규38/집중315/웹1718통과2제외, UI 미연결 |
 | U9a | 완료·독립 재검토 PASS | bd21abaf, 집중75/WebGL4/typecheck·리뷰13 통과; 실제provider/UI 미연결 |
 | U11a | 완료·독립 검토 PASS | 46376f4f, 집중103/소유파일 typecheck 통과, View/store/Canvas 미연결 |
 | U4b | 완료·독립 검토 PASS | fa3022a6, 집중240/2제외·PGMinIO8x2/import26/storage31x2/typecheck·검토 probe6 통과, 로컬96 migration 적용 |
 | U5 | 완료·독립 검토 PASS | 29aba89e, 격리PG35/집중86/typecheck/build 통과; 사용자 맵 미변경 |
-| U10a | 구현 중 | 공통 속성/선택 overlay 신규 컴포넌트만 선행, 기존 View/store는 후속 |
-| U6a | 구현 중 | 정상 원자 저장·가져오기 활성화, 공유 계약 b5c739a8 별도 검토 중; import 소유권 해제 |
+| U10a | 구현·독립 검토 중 | 2282786e, 신규83/typecheck/실제 Chromium 픽셀·드래그·리사이즈 통과, View 연결 및 큰 선택 fallback 후속 |
+| U6a | 구현 중 | 정상 원자 저장·가져오기 활성화, 공유 계약 b5c739a8 독립 검토 PASS; API 구현 검토 별도 |
 | U7 | 구현 중 | 신규 조회 파일만 선행, U6a 변경분 reader 계약과 기존 module 연결은 조율 |
-| U6b~U7, U8b, U9b~U11b, U13~U14 | 대기 | 앞선 계약·보안 검토 완료 후 연결 |
+| U8b | 구현 중 | 고정 공유 계약에 store/diff/drafts/API 연결, View 및 신규 조회 URL 소비는 후속 |
+| U14a | 검증 중 | 실제 제공 DWG 2개에 최신 canonical child 경로만 선행, 최종 브라우저 검증과 구분 |
+| U6b, U9b~U11b, U13~U14 | 대기 | 앞선 계약·보안 검토 완료 후 연결 |
 
 구현 방식은 **역할별 순차 서브에이전트 진행**을 제안한다. 공유 계약과 데이터 보존은 backend가 먼저, 소비 UI는 web_frontend가 이후 담당하고 QA가 작업 단위 결과를 확인한다. 메인은 공유 계약과 통합·문서 상태를 관리한다. 같은 파일을 다루는 병렬 에이전트는 만들지 않는다. 사용자가 더 낮은 토큰 비용을 우선하면 메인 직접 구현 + 최종 독립 리뷰로 변경할 수 있다.
 
