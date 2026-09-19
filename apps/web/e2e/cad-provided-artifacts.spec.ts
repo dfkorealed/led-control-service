@@ -8,7 +8,7 @@ import { buildCadSceneDescriptor, cadSceneEditInputSchema, cadSceneManifestSchem
 import { installSettingsApiRoutes } from "./support/settings-api";
 import { computeVisibleTileCoordinates, selectCadSceneLods } from "../src/features/cad-scene/cad-scene-camera";
 import { buildCadGeometryBatches, decodeCadSceneTilePayload } from "../src/features/cad-scene/cad-scene-worker";
-import { summarizeControlledEntryTimes } from "../src/features/map-scene/map-performance";
+import { summarizeControlledEntryTimes, summarizePerformanceOutcome } from "../src/features/map-scene/map-performance";
 import { captureProductSourceHashes, installPerformanceProbe, observeHttpRequests, readLongTasks, runEditorCameraPath } from "./support/map-performance";
 
 // Opt-in: CAD_ARTIFACT_DIRS contains path-delimited completed core output dirs.
@@ -186,6 +186,8 @@ for (const [index, directory] of (directories.length ? directories : [""]).entri
         longTasks: Awaited<ReturnType<typeof readLongTasks>>;
         pixels: Awaited<ReturnType<typeof nativePixelContribution>>;
         errors: string[];
+        mutations: string[];
+        outcome: ReturnType<typeof summarizePerformanceOutcome>;
         sourceHashesBefore: Awaited<ReturnType<typeof captureProductSourceHashes>>;
         sourceHashesAfter: Awaited<ReturnType<typeof captureProductSourceHashes>>;
         checkout: "pair-stable" | "mixed-checkout";
@@ -206,6 +208,7 @@ for (const [index, directory] of (directories.length ? directories : [""]).entri
           page.on("pageerror", error => errors.push(error.message));
           page.on("console", message => { if (message.type() === "error") errors.push(message.text()); });
           for (const temperature of ["cold", "warm"] as const) {
+            const assertionErrorMark = testInfo.errors.length, mutationMark = requests.mutations.length;
             const sourceHashesBefore = await captureProductSourceHashes();
             requests.loaded.clear();
             requests.bytes = 0;
@@ -232,25 +235,32 @@ for (const [index, directory] of (directories.length ? directories : [""]).entri
             await page.screenshot({ path: screenshot });
             await testInfo.attach(`provided-${index + 1}-${pair}-${temperature}`, { path: screenshot, contentType: "image/png" });
             const sourceHashesAfter = await captureProductSourceHashes();
+            const cycleHttp = await http.snapshot(requestMark);
+            const cycleErrors = errors.slice(errorMark), mutations = requests.mutations.slice(mutationMark);
+            expect.soft(entryCoverage.complete, "전체 가시 타일을 표시한 진입만 완료로 기록").toBe(true);
+            expect.soft(finalCoverage.complete, "카메라 왕복 후 가시 타일 누락 없음").toBe(true);
+            expect.soft(cycleErrors).toEqual([]);
+            expect.soft(mutations).toEqual([]);
+            const outcome = summarizePerformanceOutcome({
+              entryCoverage: entryCoverage.complete, finalCoverage: finalCoverage.complete,
+              noBrowserErrors: cycleErrors.length === 0, noMutations: mutations.length === 0
+            }, testInfo.errors.slice(assertionErrorMark).map(error => error.message ?? error.value ?? "알 수 없는 검증 실패"));
             rows.push({ pair, temperature, coverageReadyMs, observationMs, entryCoverage, finalCoverage,
-              movement, http: await http.snapshot(requestMark), movementHttp,
+              movement, http: cycleHttp, movementHttp,
               tileRequests: requests.tileRequestPaths.length, servedTileBytes: requests.bytes,
               duplicateTileRequests: requests.tileRequestPaths.length - new Set(requests.tileRequestPaths).size,
-              longTasks, pixels, errors: errors.slice(errorMark), sourceHashesBefore, sourceHashesAfter,
+              longTasks, pixels, errors: cycleErrors, mutations, outcome, sourceHashesBefore, sourceHashesAfter,
               checkout: sourceHashesBefore.fingerprint === referenceSources.fingerprint
                 && sourceHashesAfter.fingerprint === referenceSources.fingerprint ? "pair-stable" : "mixed-checkout" });
             // Worker 비정상 종료는 finally를 실행하지 않는다. 완료한 cycle은 즉시 보존한다.
             await persistEvidence();
             console.log("U1 baseline", JSON.stringify({ artifact: index + 1, pair, temperature, coverageReadyMs,
               frameP95Ms: movement.frames.p95Ms, frames: movement.frames.count,
-              complete: entryCoverage.complete && finalCoverage.complete,
+              complete: entryCoverage.complete && finalCoverage.complete, valid: outcome.valid,
               tileRequests: requests.tileRequestPaths.length, servedTileBytes: requests.bytes }));
-            expect.soft(entryCoverage.complete, "전체 가시 타일을 표시한 진입만 완료로 기록").toBe(true);
-            expect.soft(finalCoverage.complete, "카메라 왕복 후 가시 타일 누락 없음").toBe(true);
-            expect.soft(errors.slice(errorMark)).toEqual([]);
-            expect.soft(requests.mutations).toEqual([]);
           }
         } finally { await context.close(); }
+        expect(rows).toHaveLength(2);
       } catch (error) {
         failure = String(error);
         throw error;
@@ -258,12 +268,14 @@ for (const [index, directory] of (directories.length ? directories : [""]).entri
         await persistEvidence();
         await testInfo.attach("u1-baseline.json", { path: evidencePath, contentType: "application/json" });
       }
-      expect(rows).toHaveLength(2);
-
       async function persistEvidence() {
+        const assertionErrors = testInfo.errors.map(error => error.message ?? error.value ?? "알 수 없는 검증 실패");
+        const evidenceFailure = failure ?? rows.find(row => !row.outcome.valid)?.outcome.failure
+          ?? (assertionErrors.length ? assertionErrors.join("; ") : null);
         const summaries = ["cold", "warm"].map(temperature => {
           const matching = rows.filter(row => row.temperature === temperature);
           const entries = summarizeControlledEntryTimes(matching.map(row => ({ durationMs: row.coverageReadyMs,
+            valid: row.outcome.valid,
             sourceFingerprintBefore: row.sourceHashesBefore.fingerprint,
             sourceFingerprintAfter: row.sourceHashesAfter.fingerprint
           })), referenceSources.fingerprint);
@@ -274,7 +286,7 @@ for (const [index, directory] of (directories.length ? directories : [""]).entri
             warmEntryTargetMet: temperature === "warm" && entries.p95Ms !== null ? entries.p95Ms <= 3000 : null
           };
         });
-        await writeFile(evidencePath, JSON.stringify({ schemaVersion: 2, recordedAt: new Date().toISOString(), referenceSources,
+        await writeFile(evidencePath, JSON.stringify({ schemaVersion: 3, recordedAt: new Date().toISOString(), referenceSources,
           sourceRevision: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
           environment: { browser: browser.version(), platform: platform(), release: release(), cpu: cpus()[0]?.model,
             viewport, deviceScaleFactor: 1, server: "Vite development", workers: 1 },
@@ -291,7 +303,7 @@ for (const [index, directory] of (directories.length ? directories : [""]).entri
           },
           missingEvidence: ["실제 backend 진입/저장", "HTTP-cache-warm 및 resident-renderer 진입", "실제 iOS/Android WebView",
             "1,000개 조명 + 300,000개 별도 합성 도형", "선택 지연 p95", "실제 GPU 메모리", "독점 기기 부하 통제"],
-          summaries, rows, failure, pair, expectedPairs: 5
+          summaries, rows, failure: evidenceFailure, assertionErrors, pair, expectedPairs: 5
         }, null, 2));
       }
     });

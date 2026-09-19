@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { summarizeControlledEntryTimes, summarizeFrameTimes } from "./map-performance";
+import { summarizeControlledEntryTimes, summarizeFrameTimes, summarizePerformanceOutcome } from "./map-performance";
 
 describe("summarizeFrameTimes", () => {
   it("reports absent evidence as null, not a successful zero duration", () => {
@@ -26,7 +26,7 @@ describe("summarizeFrameTimes", () => {
 
 describe("summarizeControlledEntryTimes", () => {
   const sample = (durationMs: number | null, before = "initial", after = before) => ({
-    durationMs, sourceFingerprintBefore: before, sourceFingerprintAfter: after
+    durationMs, sourceFingerprintBefore: before, sourceFingerprintAfter: after, valid: true
   });
 
   it("does not publish a five-run p95 from one prechange sample", () => {
@@ -49,5 +49,38 @@ describe("summarizeControlledEntryTimes", () => {
   it("publishes nearest-rank p95 only for five complete same-source cycles", () => {
     expect(summarizeControlledEntryTimes([100, 200, 300, 400, 500].map(value => sample(value)), "initial"))
       .toEqual({ observedCount: 5, controlledCount: 5, p95Ms: 500 });
+  });
+
+  it.each([false, undefined])("excludes failed or unverified outcomes (%s) despite complete same-source timings", valid => {
+    const samples = [100, 200, 300, 400, 500].map(value => sample(value));
+    expect(summarizeControlledEntryTimes([...samples.slice(0, 4), { ...samples[4], valid }], "initial"))
+      .toEqual({ observedCount: 5, controlledCount: 4, p95Ms: null });
+  });
+});
+
+describe("summarizePerformanceOutcome", () => {
+  const passingChecks = { entryCoverage: true, finalCoverage: true, noBrowserErrors: true, noMutations: true };
+
+  it("records soft assertion failures even when no exception was thrown", () => {
+    const outcome = summarizePerformanceOutcome(passingChecks, ["soft assertion failed"]);
+    expect(outcome.valid).toBe(false);
+    expect(outcome.failure).not.toBeNull();
+    expect(outcome.assertionErrors).toEqual(["soft assertion failed"]);
+  });
+
+  it.each(["entryCoverage", "finalCoverage", "noBrowserErrors", "noMutations"] as const)(
+    "rejects a failed %s invariant even without an assertion error", key => {
+      const outcome = summarizePerformanceOutcome({ ...passingChecks, [key]: false }, []);
+      expect(outcome.valid).toBe(false);
+      expect(outcome.failedChecks).toEqual([key]);
+      expect(outcome.failure).not.toBeNull();
+    }
+  );
+
+  it("records passing checks and owns its error snapshot", () => {
+    const errors: string[] = [];
+    const outcome = summarizePerformanceOutcome(passingChecks, errors);
+    errors.push("later cycle failure");
+    expect(outcome).toEqual({ valid: true, checks: passingChecks, failedChecks: [], assertionErrors: [], failure: null });
   });
 });
