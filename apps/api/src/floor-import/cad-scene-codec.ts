@@ -10,7 +10,7 @@ import {
   type CadScenePrimitive
 } from "@led-control/shared";
 import { MAP_DISPLAY_VERSION, mapDisplayPrimitiveSchema, mapDisplayOrderingSchema,
-  type OrderedMapDisplayPrimitive } from "@led-control/shared/map-display-contracts";
+  type OrderedMapDisplayPrimitive } from "@led-control/shared";
 
 const MAGIC = Buffer.from("CDTL", "ascii");
 const HEADER_SIZE = 48;
