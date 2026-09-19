@@ -244,6 +244,12 @@ export class FloorEditorService {
       floorPlan: { sourceType: "none", imageUrl: "", originalFileUrl: null, renderedImageUrl: null,
         width: document.width, height: document.height, gridSize: document.gridSize } };
     await this.applySnapshot(tx, floorId, legacy, existing, changedAt);
+    // Fixtures registered after this revision keep their identity, coordinates
+    // and device state. A smaller restored map invalidates only their placement;
+    // persist that transition before building the snapshot in this transaction.
+    await tx.fixture.updateMany({ where: { floorId, id: { notIn: [...existing] }, placementStatus: "placed",
+      OR: [{ x: { lt: 0 } }, { y: { lt: 0 } }, { x: { gt: document.width } }, { y: { gt: document.height } }] },
+      data: { placementStatus: "unplaced", positionVerifiedAt: null } });
     const floor = await this.loadSnapshotFloor(tx, floorId), snapshot = this.buildSnapshot(floor);
     return { result: { ...this.toEditorState(floor, document),
       skippedFixtureIds: source.fixtures.filter(f => !existing.has(f.id)).map(f => f.id) },

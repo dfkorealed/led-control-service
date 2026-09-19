@@ -23,9 +23,10 @@ export class MapDocumentCheckpointService {
     floorPlan?: SaveEditorStateInput["floorPlan"], check = () => {}): Promise<MapDocumentRef> {
     if (this.active) throw new ServiceUnavailableException("map preparation capacity exhausted");
     this.active = true;
-    const directory = await mkdtemp(join(tmpdir(), "led-map-checkpoint-"));
+    let directory: string | undefined;
     let prepared: MapDocumentRef | undefined;
     try {
+      directory = await mkdtemp(join(tmpdir(), "led-map-checkpoint-"));
       const state = await this.data.readRevision(floorId, source);
       const dimensions = floorPlan ?? source;
       const bulk = await prepareBulkMap(directory, this.iterate(floorId, source, state), operations,
@@ -39,7 +40,10 @@ export class MapDocumentCheckpointService {
     } catch (error) {
       if (prepared) await this.store.discardPreparedGeneration(floorId, prepared.generationId);
       throw error;
-    } finally { this.active = false; await rm(directory, { recursive: true, force: true }); }
+    } finally {
+      this.active = false;
+      if (directory) await rm(directory, { recursive: true, force: true });
+    }
   }
 
   async *iterate(floorId: string, ref: MapDocumentRef, state?: MapRevisionData): AsyncGenerator<MapElement> {

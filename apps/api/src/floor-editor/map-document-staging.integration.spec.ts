@@ -272,6 +272,83 @@ const url = process.env.U6B_TEST_DATABASE_URL;
       operations: [{ kind: "add", element: element("after-restore") }] } })).status).toBe(200);
   });
 
+  it.each(["direct", "stage"])("fixround1: %s restore unplaces only new out-of-bounds fixtures atomically without clamping", async mode => {
+    const old = ref.revision;
+    expect((await http("PUT", "editor-state", { ...input(), floorPlan: { sourceType: "none", imageUrl: "",
+      originalFileUrl: null, renderedImageUrl: null, width: 2400, height: 1600, gridSize: 10 } })).status).toBe(200);
+    ref = (await data.currentRef(floorId))!;
+    const verified = new Date("2026-09-19T00:00:00.000Z");
+    const fixtures = [];
+    for (const [name, x, y, placementStatus] of [
+      ["outside-x", 1300, 30, "placed"], ["outside-y", 30, 900, "placed"],
+      ["inside-edge", 1200, 800, "placed"], ["already-unplaced", 1400, 40, "unplaced"]
+    ] as const) fixtures.push(await prisma.fixture.create({ data: { floorId, name, x, y, placementStatus,
+      ratedWatt: 40, brightness: 73, positionVerifiedAt: placementStatus === "placed" ? verified : null } }));
+    expect((await http("PUT", "editor-state", input())).status).toBe(200);
+    ref = (await data.currentRef(floorId))!;
+    const beforeCount = await prisma.floorMapRevision.count({ where: { floorId } });
+    let stageId: string | undefined;
+    if (mode === "stage") {
+      const created = await http("POST", "editor-stages", { ...input(), historySource: { revision: old } });
+      expect(created.status).toBe(201); stageId = (await created.json() as { id: string }).id;
+      expect((await http("POST", `editor-stages/${stageId}/prepare`, lease)).status).toBe(202);
+      expect((await finish(stageId)).status).toBe("ready");
+    }
+    const restore = async () => {
+      if (!stageId) return (await http("POST", `editor-revisions/${old}/restore`, { ...lease, expectedRevision: ref.revision })).status;
+      expect((await http("POST", `editor-stages/${stageId}/commit`, lease)).status).toBe(202);
+      return (await finish(stageId)).status;
+    };
+    const failure = jest.spyOn(audit, "record").mockRejectedValueOnce(new Error("injected restore audit failure"));
+    try { expect(await restore()).toBe(mode === "direct" ? 500 : "failed"); }
+    finally { failure.mockRestore(); }
+    expect(await data.currentRef(floorId)).toEqual(ref);
+    expect(await prisma.floorMapRevision.count({ where: { floorId } })).toBe(beforeCount);
+    for (const fixture of fixtures) expect(await prisma.fixture.findUniqueOrThrow({ where: { id: fixture.id } })).toEqual(fixture);
+    expect(await restore()).toBe(mode === "direct" ? 201 : "committed");
+    expect(await data.currentRef(floorId)).toMatchObject({ width: 1200, height: 800, revision: ref.revision + 1 });
+    const row = await prisma.floorMapRevision.findFirstOrThrow({ where: { floorId }, orderBy: { revision: "desc" } });
+    const snapshot = row.snapshot as unknown as { fixtures: Array<{ id: string }> };
+    for (let i = 0; i < fixtures.length; i++) {
+      const original = fixtures[i], outside = i < 2;
+      const current = await prisma.fixture.findUniqueOrThrow({ where: { id: original.id } });
+      expect(current).toMatchObject({ id: original.id, name: original.name, floorId, x: original.x, y: original.y, brightness: 73,
+        placementStatus: outside ? "unplaced" : original.placementStatus,
+        positionVerifiedAt: outside ? null : original.positionVerifiedAt });
+      expect(snapshot.fixtures.find(f => f.id === original.id)).toMatchObject({ id: original.id, name: original.name,
+        x: original.x, y: original.y, placementStatus: current.placementStatus,
+        positionVerifiedAt: current.positionVerifiedAt?.toISOString() ?? null });
+    }
+    expect(await prisma.fixture.count({ where: { floorId } })).toBe(5);
+    expect(await prisma.floorMapRevision.count({ where: { floorId } })).toBe(beforeCount + 1);
+    ref = (await data.currentRef(floorId))!;
+    expect((await http("PUT", "editor-state", input())).status).toBe(200);
+  });
+
+  it("fixround1: checkpoint allocation failure releases capacity for a successful retry", async () => {
+    const filesystem: typeof import("node:fs/promises") = require("node:fs/promises");
+    const allocate = filesystem.mkdtemp;
+    let failed = false;
+    const allocation = jest.spyOn(filesystem, "mkdtemp").mockImplementation((prefix, options) => {
+      // Revision reads allocate other directories before checkpoint admission.
+      // Fault only the owned checkpoint directory, once, then use the real FS.
+      if (!failed && String(prefix).includes("led-map-checkpoint-")) {
+        failed = true;
+        return Promise.reject(Object.assign(new Error("injected ENOSPC"), { code: "ENOSPC" }));
+      }
+      return allocate(prefix, options);
+    });
+    const request = { ...input(), floorPlan: { sourceType: "none", imageUrl: "", originalFileUrl: null,
+      renderedImageUrl: null, width: 2400, height: 800, gridSize: 10 } };
+    try {
+      expect((await http("PUT", "editor-state", request)).status).toBe(500);
+      expect(await data.currentRef(floorId)).toEqual(ref);
+      expect((await http("PUT", "editor-state", request)).status).toBe(200);
+      expect(await data.currentRef(floorId)).toMatchObject({ width: 2400, revision: ref.revision + 1 });
+      expect(await prisma.floorMapRevision.count({ where: { floorId } })).toBe(2);
+    } finally { allocation.mockRestore(); }
+  });
+
   it("resets ready history previews and pins before generations, fencing a late prepared stage worker", async () => {
     const historicalRevision = ref.revision;
     expect((await http("PUT", "editor-state", { ...input(), documentChanges: { ...input().documentChanges,

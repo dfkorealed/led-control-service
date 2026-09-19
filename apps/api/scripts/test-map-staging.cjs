@@ -75,7 +75,8 @@ async function main() {
       }
       migrate(join(api, "prisma/schema.prisma"));
       const specs = (process.env.U6B_TEST_FILES || "src/floor-editor/map-document-stage-schema.integration.spec.ts").split(",");
-      run("pnpm", ["exec", "jest", ...specs, "--runInBand"], env);
+      const filter = process.env.U6B_TEST_NAME ? ["--testNamePattern", process.env.U6B_TEST_NAME] : [];
+      run("pnpm", ["exec", "jest", ...specs, "--runInBand", ...filter], env);
     } finally { await prisma.$disconnect(); }
   }
 }
