@@ -42,6 +42,18 @@ beforeEach(() => { store().reset(); localStorage.clear(); vi.clearAllMocks(); })
 afterEach(() => { cleanup(); clients.splice(0).forEach(client => client.clear()); vi.restoreAllMocks(); });
 
 describe("normal common save response adoption", () => {
+  it("keeps common map size draft values visible before checkpoint Save and restores them on undo", async () => {
+    mount("draft-user", false);
+    const width = await screen.findByLabelText("맵 너비");
+    fireEvent.change(width, { target: { value: "1500" } }); fireEvent.blur(width);
+    fireEvent.click(screen.getByRole("button", { name: "맵 설정 적용" }));
+    expect(store().state?.floor.floorPlan?.width).toBe(1500);
+    expect(await screen.findByLabelText("맵 너비")).toHaveValue("1,500");
+    expect(screen.getByTestId("floor-editor-canvas")).toHaveAttribute("data-map-width", "1500");
+    fireEvent.click(screen.getByRole("button", { name: "실행 취소" }));
+    expect(await screen.findByLabelText("맵 너비")).toHaveValue("1,200");
+  });
+
   const warning = "이 브라우저에 초안을 보관하지 못했습니다. 서버에 저장하세요.";
   it("persists authenticated common drafts in the initialization scope and removes them after ACK", async () => {
     const view = mount("draft-user");

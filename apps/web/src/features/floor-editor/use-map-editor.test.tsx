@@ -26,7 +26,7 @@ describe("map editor View integration controller", () => {
       expect(store().mapElements.get(type)?.type).toBe(type);
     }
     await waitFor(() => expect(result.current.selection).toHaveLength(1));
-    act(() => result.current.remove());
+    await act(async () => result.current.remove());
     expect(store().mapElements.has("polygon")).toBe(false);
     act(() => store().undo());
     expect(store().mapElements.has("polygon")).toBe(true);
@@ -43,7 +43,7 @@ describe("map editor View integration controller", () => {
     await waitFor(() => expect(result.current.selection).toHaveLength(65));
     expect(result.current.promotedIds).toEqual([]);
     expect(result.current.bounds?.maxX).toBe(74);
-    act(() => result.current.remove());
+    await act(async () => result.current.remove());
     expect(store().mapOperations.filter(op => op.kind === "delete")).toHaveLength(65);
     act(() => store().undo());
     expect(store().mapElements.size).toBe(65);

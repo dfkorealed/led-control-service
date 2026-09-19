@@ -164,7 +164,7 @@ export function FloorEditorCanvas({
   const backgroundUrl = mapEditor?.document || cadSceneDescriptor || cadImportScene ? "" : cadBackgroundUrl
     ?? (floorPlan?.sourceType !== "none" ? floorPlan?.renderedImageUrl ?? floorPlan?.imageUrl : "");
   const { image: background, status: backgroundStatus, retry: retryBackground } = useFloorPlanImage(backgroundUrl ?? "");
-  const bounds = cadImportScene?.manifest ?? mapEditor?.document ?? (cadBackgroundUrl && cadViewport
+  const bounds = cadImportScene?.manifest ?? mapEditor?.mapBounds ?? (cadBackgroundUrl && cadViewport
     ? cadViewport
     : { width: floorPlan?.width ?? 1200, height: floorPlan?.height ?? 800 });
   const renderedPan = transientPan ?? pan;
@@ -383,7 +383,9 @@ export function FloorEditorCanvas({
     flushDragMove();
     const origin = groupDrag.current.find((f) => f.id === id);
     if (origin && isDragInteractionCurrent(token, "fixture", id)) {
-      useFloorEditorStore.getState().moveFixtures(groupDrag.current.map((f) => f.id), { x: node.x() - origin.x, y: node.y() - origin.y });
+      const delta = { x: node.x() - origin.x, y: node.y() - origin.y };
+      if (mapEditorRef.current?.mixed) void mapEditorRef.current.move(delta);
+      else useFloorEditorStore.getState().moveFixtures(groupDrag.current.map((f) => f.id), delta);
     }
     cancelDragInteraction();
   }, [cancelDragInteraction, flushDragMove, isDragInteractionCurrent]);
@@ -398,9 +400,9 @@ export function FloorEditorCanvas({
       ? nodes.current.get(selection.id)
       : selection?.kind === "object" && layers.objects.visible && !layers.objects.locked && !state?.objects.find((o) => o.id === selection.id)?.locked
         ? objectNodes.current.get(selection.id) : undefined;
-    transformer.current?.nodes(!readOnly && selectedNode ? [selectedNode] : []);
+    transformer.current?.nodes(!readOnly && !mapEditor?.mixed && selectedNode ? [selectedNode] : []);
     transformer.current?.getLayer()?.batchDraw();
-  }, [selection, state, readOnly, layers, lockedSet]);
+  }, [selection, state, readOnly, layers, lockedSet, mapEditor?.mixed]);
 
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
@@ -415,15 +417,18 @@ export function FloorEditorCanvas({
       }
       if (readOnly) return;
       if (event.key === "Enter" && pathDraft) { event.preventDefault(); finishPath(); return; }
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") { event.preventDefault(); event.shiftKey ? store.redo() : store.undo(); return; }
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "y") { event.preventDefault(); store.redo(); return; }
+      const history = (direction: "undo" | "redo") => mapEditorRef.current ? void mapEditorRef.current.history(direction) : store[direction]();
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") { event.preventDefault(); history(event.shiftKey ? "redo" : "undo"); return; }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "y") { event.preventDefault(); history("redo"); return; }
       const delta = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[event.key];
       if (delta) {
         event.preventDefault();
-        const step = store.snap ? store.state?.floor.floorPlan?.gridSize ?? 10 : event.shiftKey ? 10 : 1;
-        store.moveFixtures(store.selectedFixtureIds, { x: delta[0] * step, y: delta[1] * step });
+        const step = store.snap ? mapEditorRef.current?.document?.gridSize ?? store.state?.floor.floorPlan?.gridSize ?? 10 : event.shiftKey ? 10 : 1;
+        const offset = { x: delta[0] * step, y: delta[1] * step };
+        if (mapEditorRef.current?.selectionCount) void mapEditorRef.current.move(offset);
+        else store.moveFixtures(store.selectedFixtureIds, offset);
       }
-      if ((event.key === "Delete" || event.key === "Backspace") && mapEditorRef.current?.selection.length) { event.preventDefault(); mapEditorRef.current.remove(); return; }
+      if ((event.key === "Delete" || event.key === "Backspace") && mapEditorRef.current?.selectionCount) { event.preventDefault(); void mapEditorRef.current.remove(); return; }
       if ((event.key === "Delete" || event.key === "Backspace") && store.selection?.kind === "object") { event.preventDefault(); store.removeObject(store.selection.id); }
     };
     window.addEventListener("keydown", handleKey);
@@ -519,14 +524,13 @@ export function FloorEditorCanvas({
       const completedMarquee = marqueeDraft.current;
       if (action.kind === "draw" && mapCreationDraft.current && mapEditor?.document) mapEditor.create({ ...mapCreationDraft.current, id: crypto.randomUUID() });
       else if (action.kind === "draw" && completedCreation) useFloorEditorStore.getState().addObject(state!.floor.id, completedCreation);
-      if (action.kind === "marquee" && completedMarquee && layers.fixtures.visible && !layers.fixtures.locked) useFloorEditorStore.getState().selectFixtures(state!.fixtures.filter((f) => f.placementStatus !== "unplaced" && !lockedSet.has(f.id) && f.x >= completedMarquee.x && f.x <= completedMarquee.x + completedMarquee.width && f.y >= completedMarquee.y && f.y <= completedMarquee.y + completedMarquee.height).map((f) => f.id), action.additive);
+      if (action.kind === "marquee" && completedMarquee) {
+        const fixtureIds = layers.fixtures.visible && !layers.fixtures.locked ? state!.fixtures.filter((f) => f.placementStatus !== "unplaced" && !lockedSet.has(f.id) && f.x >= completedMarquee.x && f.x <= completedMarquee.x + completedMarquee.width && f.y >= completedMarquee.y && f.y <= completedMarquee.y + completedMarquee.height).map((f) => f.id) : [];
+        if (mapEditor?.document) mapEditor.selectQuery({ bounds: { minX: completedMarquee.x, minY: completedMarquee.y, maxX: completedMarquee.x + completedMarquee.width, maxY: completedMarquee.y + completedMarquee.height } }, action.additive, fixtureIds);
+        else useFloorEditorStore.getState().selectFixtures(fixtureIds, action.additive);
+      }
     }
     if (action && !action.moved && activeTool === "select" && mapEditor?.document) void mapEditor.pick(screenPoint(event), event.detail >= 2, event.shiftKey);
-    if (action?.kind === "marquee" && action.moved && marqueeDraft.current && mapEditor?.document) {
-      const box = marqueeDraft.current;
-      void mapEditor.resolve({ bounds: { minX: box.x, minY: box.y, maxX: box.x + box.width, maxY: box.y + box.height } })
-        .then(elements => useFloorEditorStore.getState().selectMapElements(elements.map(element => element.id), action.additive)).catch(mapEditor.reportError);
-    }
     if (action?.kind === "marquee" && !action.moved && cadScene.current) {
       void cadScene.current.pick(screenPoint(event), event.detail >= 2 ? "element" : "group");
     }
@@ -587,7 +591,7 @@ export function FloorEditorCanvas({
       : ["top-left", "top-center", "top-right", "middle-left", "middle-right", "bottom-left", "bottom-center", "bottom-right"];
   return <div ref={container} className={`relative h-full min-h-0 w-full overflow-hidden bg-surface-canvas ${backgroundUrl ? "has-plan" : "grid-only"} ${activeTool === "pan" ? isPanning ? "cursor-grabbing" : "cursor-grab" : ""}`}
     aria-label={`${state.floor.name} 편집 캔버스`} aria-disabled={readOnly} data-testid="floor-editor-canvas" data-floor-id={state.floor.id} data-zoom={zoom} data-pan-x={pan.x} data-pan-y={pan.y}
-    data-map-ready={mapEditor?.ready ?? false} data-map-selection-count={mapEditor?.selection.length ?? 0} data-promoted-count={mapEditor?.promotedIds.length ?? 0}
+    data-map-ready={mapEditor?.ready ?? false} data-map-selection-count={mapEditor?.selectionCount ?? 0} data-promoted-count={mapEditor?.promotedIds.length ?? 0}
     data-snap={snap} data-grid-size={floorPlan?.gridSize ?? 10} data-active-guides=""
     data-background-url={backgroundUrl} data-cad-candidate-count={cadCandidates.length}
     data-map-width={bounds.width} data-map-height={bounds.height}
@@ -698,12 +702,12 @@ export function FloorEditorCanvas({
       <Layer {...transform} name="editor-overlay-layer" visible={!cadReviewActive} listening={!cadReviewActive}>
         <Line ref={verticalGuide} name="alignment-guide-vertical" visible={false} listening={false} stroke={editorColors.guide} strokeWidth={1 / zoom} dash={[6 / zoom, 4 / zoom]} />
         <Line ref={horizontalGuide} name="alignment-guide-horizontal" visible={false} listening={false} stroke={editorColors.guide} strokeWidth={1 / zoom} dash={[6 / zoom, 4 / zoom]} />
-        {mapEditor?.document && mapEditor.selection.length > 0 && (mapEditor.promotedIds.length
+        {mapEditor?.document && mapEditor.selectionCount > 0 && (mapEditor.promotedIds.length
           ? <MapElementOverlay selection={mapEditor.selection} zoom={zoom} mapBounds={bounds} gridSize={snap ? mapEditor.document.gridSize : undefined}
               readOnly={readOnly || mapEditor.holeActive || activeTool !== "select"} locked={mapEditor.locked} onChange={mapEditor.commit} onError={mapEditor.reportError} onGuidesChange={renderAlignmentGuides} />
-          : mapEditor.bounds ? <MapSelectionBoundsHandle selectionKey={mapEditor.selectionKey} selection={mapEditor.selection} bounds={mapEditor.bounds}
-              zoom={zoom} mapBounds={bounds} gridSize={snap ? mapEditor.document.gridSize : undefined}
-              locked={readOnly || mapEditor.locked || activeTool !== "select"} onMove={mapEditor.move} onError={mapEditor.reportError} /> : null)}
+          : mapEditor.bounds ? <MapSelectionBoundsHandle selectionKey={mapEditor.selectionKey} bounds={mapEditor.bounds}
+              zoom={zoom} gridSize={snap ? mapEditor.document.gridSize : undefined} translateOnly={mapEditor.mixed}
+              locked={readOnly || mapEditor.locked || activeTool !== "select"} onMove={mapEditor.move} onTransform={mapEditor.transform} onError={mapEditor.reportError} /> : null)}
         {mapCreation && <MapElementOverlay selection={[mapCreation]} zoom={zoom} mapBounds={bounds} readOnly onChange={() => undefined} onError={mapEditor?.reportError} />}
         {pathDraft && <Line points={pathDraft.points.flatMap(point => [point.x, point.y])} stroke={editorColors.selected} strokeWidth={2 / zoom} listening={false} />}
         {creation && <FloorMapObjectNode object={{ ...creation, id: "creation", zIndex: 999 }} interactive={false} preview />}

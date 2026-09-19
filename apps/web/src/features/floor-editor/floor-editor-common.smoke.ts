@@ -1,11 +1,13 @@
 import { expect, test, type Page } from "@playwright/test";
 import type { MapElement, MapGroup, MapLayer, MapOp } from "@led-control/shared/map-document-contracts";
 import type { FloorEditorState } from "./editor-types";
+import type { MapStage } from "../../api/map-stages";
+import { getMapElementBounds } from "@led-control/shared/map-document-geometry";
 
 declare global { interface Window { editorSmoke: ReturnType<typeof import("./floor-editor-smoke")["mountFloorEditorSmoke"]>;
   mountFloorEditorSmoke: typeof import("./floor-editor-smoke")["mountFloorEditorSmoke"] } }
 
-async function fixture(page: Page, size = { width: 1200, height: 800 }) {
+async function fixture(page: Page, size = { width: 1200, height: 800 }, count = 1) {
   const hash = "a".repeat(64), sceneId = "00000000-0000-4000-8000-000000000001", assetId = "00000000-0000-4000-8000-000000000002";
   const layers: MapLayer[] = [{ id: "map", name: "Map", order: 0, visible: true, locked: false }];
   const groups: MapGroup[] = [];
@@ -20,8 +22,58 @@ async function fixture(page: Page, size = { width: 1200, height: 800 }) {
     fixtures: [{ id: "fixture", name: "등록 조명", x: 0, y: 0, placementStatus: "unplaced", ratedWatt: 40, brightness: 80, status: "online" }], objects: [],
     lightSlots: [{ id: "slot", x: 500, y: 500, rotation: 0, assignedFixtureId: null }] };
   const requests: unknown[] = [];
+  const template = elements.get("imported")!;
+  if (count > 1) {
+    elements.clear();
+    for (let i = 0; i < count; i++) elements.set(`bulk-${i}`, { ...template, id: `bulk-${i}`,
+      geometry: { origin: { x: 100 + i % 50 * 12, y: 100 + Math.floor(i / 50) * 8 }, width: 6, height: 4 } } as MapElement);
+    state.floor.mapDocument!.elementCount = count;
+  }
+  const stageRequests: Array<{ path: string; body: any }> = [];
+  const stages = new Map<string, { receipt: MapStage; elements: Map<string, MapElement>; parts: Buffer[]; body: any; state: FloorEditorState }>();
+  const history = new Map<number, { state: FloorEditorState; elements: Map<string, MapElement> }>();
+  const capture = () => history.set(state.floor.mapRevision, { state: structuredClone(state), elements: new Map(elements) });
+  capture();
   await page.route("**/api/floors/**", async route => {
     const url = new URL(route.request().url()), path = url.pathname;
+    const stageId = path.match(/\/editor-stages\/([^/]+)/)?.[1];
+    const stage = stageId ? stages.get(stageId) : undefined;
+    if (path.includes("/editor-stages") && !path.includes("/map-document")) {
+      const body = route.request().method() === "GET" ? null : route.request().postDataJSON();
+      stageRequests.push({ path, body });
+      if (path.endsWith("/editor-stages")) {
+        capture();
+        const id = `stage-${stages.size + 1}`, prior = body.historySource ? history.get(body.historySource.revision)! : null;
+        const receipt: MapStage = { id, status: "preparing", generationId: state.floor.mapDocument!.generationId, baseRevision: state.floor.mapRevision,
+          partCount: 0, decodedBytes: 0, expiresAt: "2099-01-01T00:00:00Z", errorCode: null, result: null };
+        stages.set(id, { receipt, elements: new Map(prior?.elements ?? elements), parts: [], body, state: structuredClone(prior?.state ?? state) });
+        return route.fulfill({ json: receipt });
+      }
+      if (!stage) return route.fulfill({ status: 404, json: {} });
+      if (path.includes("/parts/")) {
+        stage.parts[Number(path.split("/").at(-1))] = Buffer.from(body.data, "base64");
+        stage.receipt.partCount = stage.parts.length; stage.receipt.decodedBytes = stage.parts.reduce((n, part) => n + part.length, 0);
+      } else if (path.endsWith("/prepare")) {
+        const operations: MapOp[] = stage.parts.length ? JSON.parse(Buffer.concat(stage.parts).toString("utf8")) : [];
+        for (const op of operations) {
+          if (op.kind === "delete") stage.elements.delete(op.id);
+          else if (op.kind === "add" || op.kind === "update") stage.elements.set(op.element.id, op.element);
+        }
+        stage.state.fixtures = stage.state.fixtures.map(fixture => ({ ...fixture, ...stage.body.fixtureUpdates.find((patch: { id: string }) => patch.id === fixture.id) }));
+        if (stage.body.floorPlan) stage.state.floor.floorPlan = { ...stage.body.floorPlan, version: 1 };
+        stage.receipt.preview = { ...state.floor.mapDocument!, ...(stage.body.floorPlan ? { width: stage.body.floorPlan.width, height: stage.body.floorPlan.height, gridSize: stage.body.floorPlan.gridSize } : {}),
+          generationId: stage.receipt.id, revision: state.floor.mapRevision + 1, elementCount: stage.elements.size };
+        stage.receipt.status = "ready";
+      } else if (path.endsWith("/commit")) {
+        state = { ...stage.state, floor: { ...stage.state.floor, mapRevision: stage.receipt.preview!.revision, mapDocument: stage.receipt.preview! } };
+        elements.clear(); stage.elements.forEach((value, id) => elements.set(id, value));
+        stage.receipt.status = "committed"; stage.receipt.result = { ...state, history: { undo: { revision: stage.receipt.baseRevision }, redo: { revision: state.floor.mapRevision } } };
+        capture();
+      } else if (route.request().method() === "DELETE") stage.receipt.status = "cancelled";
+      return route.fulfill({ json: stage.receipt });
+    }
+    const document = stage?.receipt.preview ?? state.floor.mapDocument!;
+    const canonical = stage?.elements ?? elements;
     if (path.endsWith("/editor-state")) {
       if (route.request().method() === "PUT") {
         const body = route.request().postDataJSON(); requests.push(body);
@@ -39,15 +91,30 @@ async function fixture(page: Page, size = { width: 1200, height: 800 }) {
       }
       return route.fulfill({ json: state });
     }
-    if (path.endsWith("/manifest")) return route.fulfill({ json: { generationId: "gen", revision: state.floor.mapRevision, canonical: state.floor.mapDocument!.manifest,
+    if (path.endsWith("/manifest")) return route.fulfill({ json: { generationId: document.generationId, revision: document.revision, canonical: document.manifest,
       groups, layers, displayLayerBindings: [], display: { version: 2, sceneId, regionId: "manual", manifestAssetId: assetId,
-        ...size, padding: 0, gridSize: 10, tileSize: 512, lodMode: "additive", primitiveCount: 0, tileCount: 0,
+        width: document.width, height: document.height, padding: 0, gridSize: document.gridSize, tileSize: 512, lodMode: "additive", primitiveCount: 0, tileCount: 0,
         byteSize: 1, sha256: hash, sourceBounds: { minX: 0, minY: 0, maxX: size.width, maxY: size.height },
         transform: { scaleX: 1, scaleY: 1, translateX: 0, translateY: 0 }, tiles: [] } } });
-    if (path.endsWith("/changes")) return route.fulfill({ json: { generationId: "gen", revision: state.floor.mapRevision,
-      operations: [...elements.values()].map(element => ({ kind: "add", element })), nextCursor: null } });
-    if (path.endsWith("/elements")) return route.fulfill({ json: route.request().postDataJSON().ids.flatMap((id: string) => elements.has(id) ? [elements.get(id)] : []) });
-    if (path.endsWith("/selection")) return route.fulfill({ json: { generationId: "gen", revision: state.floor.mapRevision, ids: [...elements.keys()], nextCursor: null } });
+    if (path.endsWith("/changes")) {
+      const offset = Number(url.searchParams.get("cursor") ?? 0), values = [...canonical.values()];
+      return route.fulfill({ json: { generationId: document.generationId, revision: document.revision,
+        operations: values.slice(offset, offset + 128).map(element => ({ kind: "add", element })), nextCursor: offset + 128 < values.length ? String(offset + 128) : null } });
+    }
+    if (path.endsWith("/elements")) {
+      expect(route.request().postDataJSON().ids.length).toBeLessThanOrEqual(128);
+      return route.fulfill({ json: route.request().postDataJSON().ids.flatMap((id: string) => canonical.has(id) ? [canonical.get(id)] : []) });
+    }
+    if (path.endsWith("/selection")) {
+      const query = route.request().postDataJSON(), offset = Number(query.cursor ?? 0);
+      expect(query.limit).toBeLessThanOrEqual(128);
+      const ids = [...canonical.values()].filter(element => {
+        const box = getMapElementBounds(element), range = query.bounds;
+        return (!query.layerId || element.layerId === query.layerId) && (!query.groupId || element.groupId === query.groupId)
+          && (!range || box.minX <= range.maxX && box.maxX >= range.minX && box.minY <= range.maxY && box.maxY >= range.minY);
+      }).map(element => element.id);
+      return route.fulfill({ json: { generationId: document.generationId, revision: document.revision, ids: ids.slice(offset, offset + 128), nextCursor: offset + 128 < ids.length ? String(offset + 128) : null } });
+    }
     if (path.endsWith("/editor-revisions")) return route.fulfill({ json: { items: [], nextCursor: null } });
     if (path.endsWith("/active")) return route.fulfill({ json: { job: null } });
     if (path.endsWith("/applied-overlay")) return route.fulfill({ json: { overlay: null } });
@@ -72,8 +139,115 @@ async function fixture(page: Page, size = { width: 1200, height: 800 }) {
   await expect(page.getByRole("img", { name: "맵 도형" }).locator("canvas")).toBeVisible();
   await expect(page.getByTestId("floor-editor-canvas")).toHaveAttribute("data-map-ready", "true");
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
-  return { errors, requests, elements, mount, state: () => state };
+  return { errors, requests, stageRequests, elements, mount, state: () => state };
 }
+
+test("U10c: large layer delete uses private preview explicit save and external undo", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const h = await fixture(page, { width: 1200, height: 800 }, 2500), canvas = page.getByTestId("floor-editor-canvas");
+  await page.getByRole("tab", { name: "레이어", exact: true }).click();
+  await page.getByRole("button", { name: "Map", exact: true }).click();
+  await expect(canvas).toHaveAttribute("data-map-selection-count", "2500");
+  await expect(canvas).toHaveAttribute("data-promoted-count", "0");
+  await page.getByRole("tab", { name: "속성", exact: true }).click();
+  await page.getByRole("button", { name: "도형 삭제", exact: true }).click();
+  await expect(page.getByText("대량 편집 준비 완료 · 저장 대기", { exact: true })).toBeVisible();
+  expect(h.stageRequests.filter(request => request.path.endsWith("/commit"))).toHaveLength(0);
+  expect(h.elements.size).toBe(2500);
+  expect(await page.evaluate(() => window.editorSmoke.snapshot().state?.floor.mapRevision)).toBe(1);
+  await expect(canvas).toHaveAttribute("data-map-ready", "true");
+  await page.getByRole("button", { name: "대량 편집 취소", exact: true }).click();
+  await expect(page.getByText("대량 편집 준비 완료 · 저장 대기", { exact: true })).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => window.editorSmoke.snapshot().dirty)).toBe(false);
+  expect(h.elements.size).toBe(2500);
+  await page.getByRole("tab", { name: "레이어", exact: true }).click();
+  await page.getByRole("button", { name: "Map", exact: true }).click();
+  await expect(canvas).toHaveAttribute("data-map-selection-count", "2500");
+  await page.getByRole("tab", { name: "속성", exact: true }).click();
+  await page.getByRole("button", { name: "도형 삭제", exact: true }).click();
+  await expect(page.getByText("대량 편집 준비 완료 · 저장 대기", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "저장", exact: true }).click();
+  await expect.poll(() => h.state().floor.mapRevision).toBe(2);
+  await expect.poll(() => page.evaluate(() => window.editorSmoke.snapshot().dirty)).toBe(false);
+  expect(h.elements.size).toBe(0);
+  await page.getByRole("button", { name: "실행 취소", exact: true }).click();
+  await expect(page.getByText("대량 편집 준비 완료 · 저장 대기", { exact: true })).toBeVisible();
+  expect(h.elements.size).toBe(0);
+  await page.getByRole("button", { name: "저장", exact: true }).click();
+  await expect.poll(() => h.state().floor.mapRevision).toBe(3);
+  await expect.poll(() => page.evaluate(() => window.editorSmoke.snapshot().dirty)).toBe(false);
+  expect(h.elements.size).toBe(2500);
+  expect(h.requests).toHaveLength(0);
+  expect(h.errors).toEqual([]);
+});
+
+test("U10c: mobile mixed marquee moves in one undo and selection fit stays bounded", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const h = await fixture(page, { width: 1200, height: 800 }, 65), canvas = page.getByTestId("floor-editor-canvas");
+  h.state().fixtures[0] = { ...h.state().fixtures[0], placementStatus: "placed", x: 400, y: 200 };
+  await h.mount(); await expect(canvas).toHaveAttribute("data-map-ready", "true");
+  const point = (x: number, y: number) => canvas.evaluate((element, p) => {
+    const rect = element.getBoundingClientRect(), zoom = Number(element.getAttribute("data-zoom"));
+    return { x: rect.x + Number(element.getAttribute("data-pan-x")) + p.x * zoom, y: rect.y + Number(element.getAttribute("data-pan-y")) + p.y * zoom };
+  }, { x, y });
+  const a = await point(80, 80), b = await point(720, 230);
+  await page.keyboard.down("Shift"); await page.mouse.move(a.x, a.y); await page.mouse.down(); await page.mouse.move(b.x, b.y, { steps: 5 }); await page.mouse.up(); await page.keyboard.up("Shift");
+  await expect(canvas).toHaveAttribute("data-map-selection-count", "65");
+  await page.getByRole("button", { name: "선택 맞춤", exact: true }).click();
+  expect(await page.evaluate(() => window.editorSmoke.snapshot().zoom)).toBeGreaterThan(0.4);
+  await page.keyboard.press("ArrowRight");
+  await expect.poll(() => page.evaluate(() => window.editorSmoke.snapshot().state?.fixtures[0].x)).toBe(410);
+  expect(await page.evaluate(() => window.editorSmoke.snapshot().operations.filter(op => op.kind === "update").length)).toBe(65);
+  await page.getByRole("button", { name: "실행 취소", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.editorSmoke.snapshot().operations.length)).toBe(0);
+  expect(await page.evaluate(() => window.editorSmoke.snapshot().state?.fixtures[0].x)).toBe(400);
+  expect(await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight)).toBe(true);
+  expect(h.errors).toEqual([]);
+});
+
+test("U10c: whole bbox resize transforms all 65 originals once", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const h = await fixture(page, { width: 1200, height: 800 }, 65), canvas = page.getByTestId("floor-editor-canvas");
+  await page.getByRole("tab", { name: "레이어", exact: true }).click();
+  await page.getByRole("button", { name: "Map", exact: true }).click();
+  await expect(canvas).toHaveAttribute("data-map-selection-count", "65");
+  const point = (x: number, y: number) => canvas.evaluate((element, p) => {
+    const rect = element.getBoundingClientRect(), zoom = Number(element.getAttribute("data-zoom"));
+    return { x: rect.x + Number(element.getAttribute("data-pan-x")) + p.x * zoom, y: rect.y + Number(element.getAttribute("data-pan-y")) + p.y * zoom };
+  }, { x, y });
+  const start = await point(694, 112), end = await point(753.4, 113.2);
+  await page.mouse.move(start.x, start.y); await page.mouse.down(); await page.mouse.move(end.x, end.y, { steps: 6 }); await page.mouse.up();
+  await expect.poll(() => page.evaluate(() => window.editorSmoke.snapshot().operations.filter(op => op.kind === "update").length)).toBe(65);
+  const transforms = await page.evaluate(() => window.editorSmoke.snapshot().elements.map(element => element.transform));
+  expect(transforms).toHaveLength(65);
+  for (const transform of transforms) { expect(transform.scaleX).toBeCloseTo(1.1, 2); expect(transform.scaleY).toBeCloseTo(1.1, 2); }
+  await page.getByRole("button", { name: "실행 취소", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.editorSmoke.snapshot().operations.length)).toBe(0);
+  await expect(canvas).toHaveAttribute("data-map-selection-count", "65");
+  const center = await point(397, 106), top = await point(397, 100);
+  const startRotate = { x: top.x, y: top.y - 50 };
+  const radius = center.y - startRotate.y;
+  const endRotate = { x: center.x + radius * Math.sin(Math.PI / 12), y: center.y - radius * Math.cos(Math.PI / 12) };
+  await page.mouse.move(startRotate.x, startRotate.y); await page.mouse.down(); await page.mouse.move(endRotate.x, endRotate.y, { steps: 8 }); await page.mouse.up();
+  await expect.poll(() => page.evaluate(() => window.editorSmoke.snapshot().operations.filter(op => op.kind === "update").length)).toBe(65);
+  for (const transform of await page.evaluate(() => window.editorSmoke.snapshot().elements.map(element => element.transform))) expect(transform.rotation).toBeCloseTo(15, 0);
+  expect(h.errors).toEqual([]);
+});
+
+test("U10c: map size checkpoint remains visible and saves through stage", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const h = await fixture(page), canvas = page.getByTestId("floor-editor-canvas");
+  await page.getByLabel("맵 너비", { exact: true }).fill("1500");
+  await page.getByRole("button", { name: "맵 설정 적용", exact: true }).click();
+  await expect(canvas).toHaveAttribute("data-map-width", "1500");
+  await expect(page.getByLabel("맵 너비", { exact: true })).toHaveValue("1,500");
+  await page.getByRole("button", { name: "저장", exact: true }).click();
+  await expect.poll(() => h.state().floor.mapRevision).toBe(2);
+  await expect.poll(() => page.evaluate(() => window.editorSmoke.snapshot().dirty)).toBe(false);
+  expect(h.state().floor.mapDocument?.width).toBe(1500);
+  expect(h.requests).toHaveLength(0);
+  expect(h.errors).toEqual([]);
+});
 
 test('reviewer: normal save preserves undo and the user camera', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });

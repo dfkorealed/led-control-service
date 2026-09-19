@@ -11,6 +11,7 @@ import { getFloorEditorState } from "../../api/floor-editor";
 
 /** Browser-only fixture mounts the production View, Canvas and HTTP renderer. */
 export function mountFloorEditorSmoke(initial: FloorEditorState) {
+  useFloorEditorStore.getState().reset();
   document.body.style.margin = "0";
   const host = document.createElement("div"); host.style.cssText = "height:100dvh;width:100%;overflow:hidden;padding:8px;box-sizing:border-box";
   document.body.replaceChildren(host);

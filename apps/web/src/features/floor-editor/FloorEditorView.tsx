@@ -25,6 +25,7 @@ import { FloorEditorCanvas } from "./FloorEditorCanvas";
 import { EditorToolPalette } from "./EditorToolPalette";
 import { useMapEditor } from "./use-map-editor";
 import { MapElementPropertiesPanel } from "./MapElementPropertiesPanel";
+import { MapSelectionProperties } from "./MapSelectionProperties";
 import { MapDocumentInitialization } from "./MapDocumentInitialization";
 import { MapPolygonControls } from "./MapPolygonControls";
 import { synchronizeMonitoringCaches } from "./editor-monitoring-cache";
@@ -119,7 +120,7 @@ export function FloorEditorView({
   useEffect(() => {
     if (openPanel) (openPanel === "tools" ? toolsPanel : informationPanel).current?.focus();
   }, [openPanel]);
-  const [recovery, setRecovery] = useState<FloorEditorState | null>(null);
+  const [recovery, setRecovery] = useState<ReturnType<typeof loadEditorDraft>>(null);
   const [draftError, setDraftError] = useState(false);
   const userId = queryClient.getQueryData<{ user: AuthUser }>(authMeQueryKey)?.user.id;
   // A purge invalidates this mounted session; it must not initialize stale
@@ -157,7 +158,9 @@ export function FloorEditorView({
     queryKey: ["floor-import-applied-overlay", siteId, floorId, overlayRevision],
     queryFn: () => getAppliedFloorImportOverlay(floorId)
   });
-  const map = useMapEditor({ floorId, authScope: draftScope, readOnly });
+  const lease = useMemo(() => leaseToken && leaseFence ? { leaseToken, leaseFence } : undefined, [leaseToken, leaseFence]);
+  const map = useMapEditor({ floorId, authScope: draftScope, readOnly, lease });
+  const stageProgress = useFloorEditorStore(s => s.stageProgress);
 
   useLayoutEffect(() => {
     const current = useFloorEditorStore.getState();
@@ -195,7 +198,11 @@ export function FloorEditorView({
       if (generation !== editorDraftGeneration()) return;
       const store = useFloorEditorStore.getState();
       if (store.isDirty && store.state?.floor.id === currentBaseline.floor.id && store.initialState?.floor.mapRevision === currentBaseline.floor.mapRevision) {
-        setDraftError(!saveEditorDraft(draftScope, currentBaseline, store.state, store.exportMapDraft(), generation));
+        const draft = store.exportMapDraft();
+        // An unfinished upload has no durable stage ref; its retry/cancel UI owns
+        // that state. It must not masquerade as a localStorage quota failure.
+        if (store.state.floor.mapDocument && !draft) return;
+        setDraftError(!saveEditorDraft(draftScope, currentBaseline, store.state, draft, generation));
       }
     };
     const unsubscribe = useFloorEditorStore.subscribe((next, previous) => {
@@ -233,10 +240,11 @@ export function FloorEditorView({
       const renderer = map.handle.current;
       const version = renderer?.getDraftVersion();
       const generationId = state.floor.mapDocument?.generationId;
+      const wasStagePreview = Boolean(useFloorEditorStore.getState().pendingMapStage);
       const result = await useFloorEditorStore.getState().saveChanges({ leaseToken, leaseFence });
       if (result === "stale") return;
       const saved = useFloorEditorStore.getState().initialState!;
-      if (renderer && version !== undefined && saved.floor.mapDocument?.generationId === generationId) {
+      if (!wasStagePreview && renderer && version !== undefined && saved.floor.mapDocument?.generationId === generationId) {
         // Renderer refresh failure must not turn an acknowledged store save into an unsaved retry.
         await renderer.acknowledge(saved.floor.mapDocument!, version).catch(map.reportError);
       }
@@ -342,7 +350,7 @@ export function FloorEditorView({
     objectCount: state?.floor.id === floorId ? state.objects.length : initialState.objects.length,
     slotCount: state?.floor.id === floorId ? state.lightSlots.length : initialState.lightSlots.length
   }), [floorId, initialState.fixtures.length, initialState.lightSlots.length, initialState.objects.length, state]);
-  const isMutationPending = saveStatus === "saving" || restoringRevision !== null || isCadImportPending || isResetPending;
+  const isMutationPending = saveStatus === "saving" || restoringRevision !== null || isCadImportPending || isResetPending || map.preparing;
   const isSaveOrRestoreBlocked = readOnly || isMutationPending || state?.floor.id !== floorId;
 
   return (
@@ -361,18 +369,18 @@ export function FloorEditorView({
         </div>
         <div className="flex flex-wrap items-center gap-1 border-b border-border-default py-1" role="toolbar" aria-label="맵 보기 도구">
           <IconTooltipButton ref={toolsToggle} icon={PanelLeft} label="도구 및 조명 패널" aria-expanded={toolsVisible} aria-controls="editor-tools-panel" onClick={() => togglePanel("tools")} />
-          <IconTooltipButton icon={Undo2} label="실행 취소" disabled={isSaveOrRestoreBlocked || !past.length} onClick={() => useFloorEditorStore.getState().undo()} />
-          <IconTooltipButton icon={Redo2} label="다시 실행" disabled={isSaveOrRestoreBlocked || !future.length} onClick={() => useFloorEditorStore.getState().redo()} />
+          <IconTooltipButton icon={Undo2} label="실행 취소" disabled={isSaveOrRestoreBlocked || !past.length} onClick={() => void map.history("undo")} />
+          <IconTooltipButton icon={Redo2} label="다시 실행" disabled={isSaveOrRestoreBlocked || !future.length} onClick={() => void map.history("redo")} />
           <IconTooltipButton icon={ZoomOut} label="축소" onClick={() => setZoom(zoom / 1.1)} />
           <Button variant="secondary" className="h-11 w-16 shrink-0 px-1" aria-label="100%" title="100%" onClick={resetZoom}>{Math.round(zoom * 100)}%</Button>
           <IconTooltipButton icon={ZoomIn} label="확대" onClick={() => setZoom(zoom * 1.1)} />
           <IconTooltipButton icon={Maximize} label="맵 맞춤" onClick={() => useFloorEditorStore.getState().fit(false, visibleCadViewport ?? undefined)} />
-          <IconTooltipButton icon={Focus} label="선택 맞춤" onClick={() => useFloorEditorStore.getState().fit(true)} />
+          <IconTooltipButton icon={Focus} label="선택 맞춤" onClick={() => map.document ? map.fitSelection() : useFloorEditorStore.getState().fit(true)} />
           <IconTooltipButton ref={informationToggle} icon={PanelRight} label="편집 정보 패널" aria-expanded={informationVisible} aria-controls="editor-information-panel" onClick={() => togglePanel("information")} />
         </div>
       </header>
 
-      {!map.document && <MapDocumentInitialization state={initialState} readOnly={readOnly || isDirty || saveStatus === "saving" || restoringRevision !== null || isCadImportPending} leaseToken={leaseToken} leaseFence={leaseFence} onBusyChange={handleResetBusyChange}
+      {!map.document && !cadImportReview && <MapDocumentInitialization state={initialState} readOnly={readOnly || isDirty || saveStatus === "saving" || restoringRevision !== null || isCadImportPending} leaseToken={leaseToken} leaseFence={leaseFence} onBusyChange={handleResetBusyChange}
         onInitialized={next => { adoptBaseline(next); void invalidateEditorQueries(queryClient, next); void onSaved(next); }} />}
       {saveStatus === "error" && !map.error ? (
         <FeedbackState tone="danger" icon={TriangleAlert} title="변경분을 저장하지 못했습니다." />
@@ -389,7 +397,25 @@ export function FloorEditorView({
           }}>최신 버전 다시 불러오기</Button>}
         />
       ) : null}
-      {recovery && <FeedbackState icon={TriangleAlert} tone="warning" title="저장하지 않은 로컬 초안이 있습니다." action={<div className="flex flex-wrap justify-end gap-2"><Button disabled={isSaveOrRestoreBlocked} onClick={() => { if (readOnly || mutationLock.current || recovery.floor.id !== activeScope.current.floorId) return; useFloorEditorStore.getState().recoverDraft(recovery); setRecovery(null); }}>초안 복구</Button><Button disabled={isMutationPending} onClick={() => { if (userId) removeEditorDraft(draftScope, initialState); setRecovery(null); }}>초안 삭제</Button></div>} />}
+      {recovery && <FeedbackState icon={TriangleAlert} tone="warning" title="저장하지 않은 로컬 초안이 있습니다." action={<div className="flex flex-wrap justify-end gap-2"><Button disabled={isSaveOrRestoreBlocked} onClick={async () => {
+        if (readOnly || mutationLock.current || recovery.floor.id !== activeScope.current.floorId) return;
+        try {
+          if (recovery.commonMapDraft?.stage) {
+            if (!lease) return;
+            const result = await useFloorEditorStore.getState().recoverStageDraft(recovery, lease);
+            if (result === "stale") return;
+          } else useFloorEditorStore.getState().recoverDraft(recovery);
+          setRecovery(null);
+        } catch (error) { map.reportError(error); }
+      }}>초안 복구</Button><Button disabled={isMutationPending} onClick={() => { if (userId) removeEditorDraft(draftScope, initialState); setRecovery(null); }}>초안 삭제</Button></div>} />}
+      {(map.preparing || map.pendingStage || map.retryStage || stageProgress) && <FeedbackState icon={map.pendingStage ? CircleCheck : TriangleAlert}
+        tone={map.pendingStage ? "success" : map.error ? "danger" : "warning"}
+        title={map.preparing ? "대량 편집을 준비하고 있습니다." : map.pendingStage ? "대량 편집 준비 완료 · 저장 대기" : "대량 편집 준비가 중단되었습니다."}
+        description={stageProgress ? `${stageProgress.partCount}개 조각 · ${(stageProgress.decodedBytes / 1048576).toFixed(1)} MiB` : undefined}
+        action={<div className="flex flex-wrap gap-2">
+          {!map.preparing && !map.pendingStage && map.retryStage && <Button disabled={readOnly || saveStatus === "saving"} onClick={() => void map.retryStage?.()}>대량 편집 다시 시도</Button>}
+          <Button disabled={readOnly || saveStatus === "saving"} onClick={() => void map.cancelStage()}>대량 편집 취소</Button>
+        </div>} />}
       {draftError && <FeedbackState icon={TriangleAlert} tone="warning" title="이 브라우저에 초안을 보관하지 못했습니다. 서버에 저장하세요." />}
       {map.error && <FeedbackState icon={TriangleAlert} tone="danger" title={map.error} action={<Button variant="secondary" onClick={() => { if (isDirty) setConfirmReload(true); else void onReload(); }}>다시 불러오기</Button>} />}
       {skippedFixtureCount > 0 ? (
@@ -434,8 +460,10 @@ export function FloorEditorView({
         </main>
         <SidePanel ref={informationPanel} id="editor-information-panel" tabIndex={-1} onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); closePanel("information"); } }} className={`${informationVisible ? "grid" : "hidden"} ${isNarrowLayout ? "absolute inset-y-0 right-0 z-10 w-[min(320px,100%)] shadow-panel" : "w-72 shrink-0"} min-h-0 min-w-0 content-start gap-3 overflow-y-auto rounded-none border-0 border-l border-border-default p-0`} aria-label="맵 편집 정보">
           <div className="grid grid-cols-3 gap-1 bg-surface-inset p-1" role="tablist" aria-label="편집 패널">{[["properties", "속성"], ["placement", "배치"], ["layers", "레이어"]].map(([value, label]) => <Button size="sm" variant={panelTab === value ? "primary" : "ghost"} role="tab" key={value} aria-selected={panelTab === value} onClick={() => setPanelTab(value)}>{label}</Button>)}</div>
-          {panelTab === "properties" && (map.selection.length
-            ? <MapElementPropertiesPanel selection={map.selection} mapBounds={map.document ?? undefined} readOnly={readOnly || isMutationPending} locked={map.locked} onChange={map.commit} onDelete={map.remove} onError={map.reportError} />
+          {panelTab === "properties" && (map.selectionCount && (!map.selection.length || map.mixed)
+            ? <MapSelectionProperties key={JSON.stringify([map.selectionKey, map.bounds])} editor={map} readOnly={readOnly || isMutationPending} />
+            : map.selection.length
+            ? <MapElementPropertiesPanel selection={map.selection} mapBounds={map.mapBounds ?? undefined} readOnly={readOnly || isMutationPending} locked={map.locked} onChange={map.commit} onDelete={map.remove} onError={map.reportError} />
             : map.loadingSelection ? <Text role="status">선택을 불러오는 중</Text> : <EditorPropertiesPanel readOnly={readOnly || isMutationPending} />)}
           {panelTab === "placement" && <EditorBatchPlacementPanel readOnly={readOnly || isMutationPending} />}
           {panelTab === "properties" && <MapPolygonControls editor={map} readOnly={readOnly || isMutationPending} onBegin={() => { if (isNarrowLayout) closePanel("information"); }} />}
@@ -445,7 +473,7 @@ export function FloorEditorView({
             expectedRevision={baseline?.floor.mapRevision ?? initialState.floor.mapRevision}
             leaseToken={leaseToken}
             leaseFence={leaseFence}
-            disabled={readOnly || saveStatus === "saving" || restoringRevision !== null}
+            disabled={readOnly || saveStatus === "saving" || restoringRevision !== null || map.preparing}
             isDirty={isDirty}
             resetSummary={cadResetSummary}
             review={cadImportReview}

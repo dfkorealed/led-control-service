@@ -1002,6 +1002,7 @@ describe("FloorEditorView", () => {
       return new Response(JSON.stringify(response), { headers: { "Content-Type": "application/json" } });
     }));
     renderEditor(editorState, { onReload, onSaved }, "preview-user");
+    expect(screen.getByText("편집할 맵을 준비해주세요.")).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("CAD 파일"), {
       target: { files: [new File(["dxf"], "parking.dxf", { type: "application/dxf" })] }
@@ -1013,6 +1014,7 @@ describe("FloorEditorView", () => {
     expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("data-background-url", "");
     expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("data-cad-candidate-count", "1");
     expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("data-map-height", "8192");
+    expect(screen.queryByText("편집할 맵을 준비해주세요.")).not.toBeInTheDocument();
     expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("data-rendered-fixture-count", "0");
     expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("data-rendered-object-count", "0");
     expect(screen.getByRole("button", { name: "이동" })).toBeEnabled();

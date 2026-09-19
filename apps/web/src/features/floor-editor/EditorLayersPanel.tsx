@@ -3,7 +3,6 @@ import { useState } from "react";
 import { Button, Heading, IconButton, IconTooltipButton, SelectBox, Text } from "../../components/ui";
 import { useFloorEditorStore } from "./editor-store";
 import type { MapEditorController } from "./use-map-editor";
-import { isMapSelectionLocked, planMapLayerRemoval, planMapUngroup } from "./map-editor-selection";
 
 export function EditorLayersPanel({ readOnly, mapEditor }: { readOnly: boolean; mapEditor?: MapEditorController }) {
   const layers = useFloorEditorStore((s) => s.layers);
@@ -35,9 +34,8 @@ function CommonLayersPanel({ readOnly, editor }: { readOnly: boolean; editor: Ma
     if (!moveTarget || disabled) return;
     setBusy(true);
     try {
-      const elements = await editor.resolve({ layerId: id });
-      if (isMapSelectionLocked(elements, groups, layers)) throw new Error("잠금을 해제한 뒤 레이어를 이동해주세요.");
-      editor.commit(planMapLayerRemoval(id, moveTarget, elements), elements);
+      const target = moveTarget;
+      await editor.editQuery({ layerId: id }, element => [{ kind: "update", element: { ...element, layerId: target } }], [], [{ kind: "layer.delete", id }]);
     } catch (error) { editor.reportError(error); }
     finally { setBusy(false); }
   }
@@ -50,7 +48,7 @@ function CommonLayersPanel({ readOnly, editor }: { readOnly: boolean; editor: Ma
       <IconTooltipButton icon={fixturesLayer.visible ? Eye : EyeOff} label="조명 표시 전환" onClick={() => useFloorEditorStore.getState().setLayer("fixtures", { visible: !fixturesLayer.visible })} />
       <IconTooltipButton icon={fixturesLayer.locked ? Lock : Unlock} label="조명 잠금 전환" disabled={disabled} onClick={() => useFloorEditorStore.getState().setLayer("fixtures", { locked: !fixturesLayer.locked })} /></div>
     {orderedLayers.map((layer, index) => <div key={layer.id} className="grid min-w-0 gap-1 border-b border-border-subtle pb-2">
-      <Text weight="semibold" className="min-w-0 truncate">{layer.name}</Text>
+      <Button variant="link" className="min-w-0 justify-start truncate text-left" onClick={() => editor.selectQuery({ layerId: layer.id })}>{layer.name}</Button>
       <div className="flex flex-wrap gap-1">
         <IconTooltipButton icon={layer.visible ? Eye : EyeOff} label={`${layer.name} ${layer.visible ? "숨기기" : "표시"}`} disabled={disabled}
           onClick={() => editor.commit([{ kind: "layer.put", layer: { ...layer, visible: !layer.visible } }])} />
@@ -67,13 +65,13 @@ function CommonLayersPanel({ readOnly, editor }: { readOnly: boolean; editor: Ma
     </div>)}
     <SelectBox label="이동 대상 레이어" items={orderedLayers.filter(layer => !layer.locked).map(layer => ({ id: layer.id, label: layer.name }))}
       selectedKey={moveTarget} onSelectionChange={key => setMoveTarget(key === null ? null : String(key))} isDisabled={disabled} />
-    <Button variant="secondary" disabled={disabled || editor.locked || !editor.selection.length || !moveTarget || layers.get(moveTarget)?.locked}
-      onClick={() => { if (moveTarget) editor.commit(editor.selection.map(element => ({ kind: "update", element: { ...element, layerId: moveTarget } }))); }}>선택 도형 이동</Button>
+    <Button variant="secondary" disabled={disabled || editor.locked || !editor.selectionCount || !moveTarget || layers.get(moveTarget)?.locked}
+      onClick={() => { if (moveTarget) { const target = moveTarget; void editor.editSelection(element => [{ kind: "update", element: { ...element, layerId: target } }]); } }}>선택 도형 이동</Button>
     <div className="flex flex-wrap items-center justify-between gap-1"><Heading as="h3" variant="card-title">그룹</Heading>
-      <IconTooltipButton icon={Group} label="그룹 만들기" disabled={disabled || editor.locked || !editor.selection.length} onClick={() => {
+      <IconTooltipButton icon={Group} label="그룹 만들기" disabled={disabled || editor.locked || !editor.selectionCount} onClick={async () => {
         const id = crypto.randomUUID();
-        if (editor.commit([{ kind: "group.put", group: { id, name: `그룹 ${groups.size + 1}`, parentId: null, locked: false, visible: true } },
-          ...editor.selection.map(element => ({ kind: "update" as const, element: { ...element, groupId: id } }))])) useFloorEditorStore.getState().selectMapGroups([id]);
+        if (await editor.editSelection(element => [{ kind: "update", element: { ...element, groupId: id } }],
+          [{ kind: "group.put", group: { id, name: `그룹 ${groups.size + 1}`, parentId: null, locked: false, visible: true } }])) useFloorEditorStore.getState().selectMapGroups([id]);
       }} /></div>
     {[...groups.values()].map(group => <div key={group.id} className="grid min-w-0 gap-1 border-b border-border-subtle pb-2">
       <Button variant="link" className="min-w-0 justify-start truncate text-left" onClick={() => useFloorEditorStore.getState().selectMapGroups([group.id])}>{group.name}</Button>
@@ -82,7 +80,10 @@ function CommonLayersPanel({ readOnly, editor }: { readOnly: boolean; editor: Ma
         <IconTooltipButton icon={group.locked ? Lock : Unlock} label={`${group.name} 잠금 전환`} disabled={disabled} onClick={() => editor.commit([{ kind: "group.put", group: { ...group, locked: !group.locked } }])} />
         <IconTooltipButton icon={Ungroup} label={`${group.name} 해제`} disabled={disabled || group.locked} onClick={async () => {
           setBusy(true);
-          try { const elements = await editor.resolve({ groupId: group.id }); editor.commit(planMapUngroup(group, elements, [...groups.values()]), elements); }
+          try { await editor.editQuery({ groupId: group.id }, element => element.groupId === group.id ? [{ kind: "update", element: { ...element, groupId: group.parentId } }] : [], [], [
+            ...[...groups.values()].filter(child => child.parentId === group.id).map(child => ({ kind: "group.put" as const, group: { ...child, parentId: group.parentId } })),
+            { kind: "group.delete", id: group.id }
+          ]); }
           catch (error) { editor.reportError(error); } finally { setBusy(false); }
         }} />
       </div>

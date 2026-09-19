@@ -9,38 +9,74 @@ import { hitMapElement } from "../map-scene/map-scene-geometry";
 import { useFloorEditorStore } from "./editor-store";
 import { getMapElementOverlaySelection } from "./MapElementOverlay";
 import { getMapSelectionBounds, transformMapSelection } from "./map-element-editing";
-import { isMapSelectionLocked, mapGroupContains, resolveMapSelection } from "./map-editor-selection";
+import { isMapSelectionLocked, mapGroupContains } from "./map-editor-selection";
+import { inspectMapSelection, streamMapSelection, type MapSelectionStreamQuery, type MapSelectionSummary } from "./map-editor-selection-stream";
+import { fitSelectionCamera, selectionFixtureBounds, transformSelectedFixtures } from "./map-selection-transform";
 import { addMapPolygonHole, removeMapPolygonHole } from "./map-element-tools";
 
 export type MapEditorController = ReturnType<typeof useMapEditor>;
+const EMPTY_SELECTION: MapSelectionSummary = { count: 0, bounds: null, inline: [], locked: false };
 
 /** UI orchestration only. Canonical edits, drafts, history and saved state all
  * remain in the existing floor editor store; resolved originals are selection-local. */
-export function useMapEditor({ floorId, authScope, readOnly }: { floorId: string; authScope: string; readOnly: boolean }) {
-  const document = useFloorEditorStore(s => s.state?.floor.id === floorId ? s.state.floor.mapDocument : null);
+export function useMapEditor({ floorId, authScope, readOnly, lease }: { floorId: string; authScope: string; readOnly: boolean; lease?: { leaseToken: string; leaseFence: number } }) {
+  const pendingStage = useFloorEditorStore(s => s.pendingMapStage);
+  const preparing = useFloorEditorStore(s => s.isPreparingMapStage);
+  const document = useFloorEditorStore(s => s.state?.floor.id === floorId ? s.pendingMapStage?.preview ?? s.state.floor.mapDocument : null);
+  const floorPlan = useFloorEditorStore(s => s.state?.floor.floorPlan);
+  const mapBounds = useMemo(() => document ? { width: floorPlan?.width ?? document.width, height: floorPlan?.height ?? document.height,
+    gridSize: floorPlan?.gridSize ?? document.gridSize } : null, [document, floorPlan]);
   const scope = useFloorEditorStore(s => s.mapScope);
   const selected = useFloorEditorStore(s => s.mapSelection);
   const operations = useFloorEditorStore(s => s.mapOperations);
   const groups = useFloorEditorStore(s => s.mapGroups);
   const layers = useFloorEditorStore(s => s.mapLayers);
-  const source = useMemo(() => createMapDocumentSource({ floorId, authScope }), [floorId, authScope]);
+  const fixtures = useFloorEditorStore(s => s.state?.fixtures);
+  const fixtureIds = useFloorEditorStore(s => s.selectedFixtureIds);
+  const fixtureLocks = useFloorEditorStore(s => s.lockedFixtureIds);
+  const fixtureLayerLocked = useFloorEditorStore(s => s.layers.fixtures.locked);
+  const selectedFixtures = useMemo(() => fixtures?.filter(f => fixtureIds.includes(f.id) && f.placementStatus !== "unplaced") ?? [], [fixtures, fixtureIds]);
+  const source = useMemo(() => createMapDocumentSource({ floorId, authScope, ...(pendingStage ? { stageId: pendingStage.stageId } : {}) }), [floorId, authScope, pendingStage?.stageId]);
   const handle = useRef<MapSceneCanvasHandle | null>(null);
   const [ready, setReady] = useState<MapSceneCanvasHandle | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [resolved, setResolved] = useState<{ key: string; elements: MapElement[] } | null>(null);
+  const [range, setRange] = useState<{ selected: typeof selected; scope: typeof scope; filters: MapSelectionInput[] } | null>(null);
+  const filters = range?.selected === selected && range.scope === scope ? range.filters : undefined;
+  const [resolved, setResolved] = useState<{ key: string; operations: typeof operations; summary: MapSelectionSummary } | null>(null);
+  const [retryStage, setRetryStage] = useState<(() => Promise<unknown>) | null>(null);
+  const validation = useRef<AbortController | null>(null);
+  const [validating, setValidating] = useState(false);
+  const context = JSON.stringify([floorId, authScope]);
+  const currentContext = useRef(context); currentContext.current = context;
+  useEffect(() => {
+    setRetryStage(null); setError(null); setValidating(false);
+    return () => { validation.current?.abort(); validation.current = null; };
+  }, [context]);
   const [overlayFailed, setOverlayFailed] = useState(false);
   const [holeKey, setHoleKey] = useState<string | null>(null);
   const pickEpoch = useRef(0);
-  const key = JSON.stringify([scope, selected]);
-  const selection = useMemo(() => {
-    if (resolved?.key !== key) return [];
-    const current = new Map(resolved.elements.map(element => [element.id, element]));
+  const key = JSON.stringify([scope, selected, filters]);
+  const hasSelection = Boolean(selected.elementIds.length || selected.groupIds.length || filters?.length);
+  const summary = useMemo(() => {
+    if (!hasSelection) return EMPTY_SELECTION;
+    if (resolved?.key !== key) return null;
+    if (resolved.operations === operations) return resolved.summary;
+    // Explicit bounded IDs stay mounted while typing a property. A fresh async
+    // summary is still required for query membership or streamed selections.
+    if (!resolved.summary.inline || selected.groupIds.length || filters) return null;
+    const values = new Map(resolved.summary.inline.map(element => [element.id, element]));
     for (const op of operations) {
-      if (op.kind === "delete") current.delete(op.id);
-      else if ((op.kind === "add" || op.kind === "update") && current.has(op.element.id)) current.set(op.element.id, op.element);
+      if (op.kind === "delete") values.delete(op.id);
+      else if ((op.kind === "add" || op.kind === "update") && selected.elementIds.includes(op.element.id)) values.set(op.element.id, op.element);
     }
-    return [...current.values()];
-  }, [resolved, key, operations]);
+    const inline = [...values.values()];
+    return { count: inline.length, bounds: getMapSelectionBounds(inline), inline, locked: isMapSelectionLocked(inline, groups, layers) };
+  }, [hasSelection, resolved, key, operations, selected, filters, groups, layers]);
+  const selection = useMemo(() => summary?.inline ?? [], [summary]);
+  const selectionCount = summary?.count ?? 0;
+  const query = useMemo(() => document && scope ? { document, selection: selected, source, operations, groups, layers,
+    ...(filters ? { filters: [...selected.groupIds.map(groupId => ({ groupId })), ...filters] } : {}) } : null,
+  [document, scope, selected, source, operations, groups, layers, filters]);
   const reportError = useCallback((error: unknown) => {
     setOverlayFailed(true);
     try { handle.current?.setPromotedElementIds([]); } catch { /* A disposed surface already has no promotion mask. */ }
@@ -57,15 +93,22 @@ export function useMapEditor({ floorId, authScope, readOnly }: { floorId: string
 
   useEffect(() => {
     setOverlayFailed(false);
-    if (!document || !scope || scope.floorId !== floorId || (!selected.elementIds.length && !selected.groupIds.length)) return;
+    if (!hasSelection || !query || !scope || scope.floorId !== floorId) return;
     const controller = new AbortController();
-    void resolveMapSelection({ document, selection: selected, source, operations, groups, signal: controller.signal })
-      .then(elements => {
+    void inspectMapSelection({ ...query, signal: controller.signal })
+      .then(summary => {
         if (controller.signal.aborted || useFloorEditorStore.getState().mapScope !== scope) return;
-        setResolved({ key, elements });
+        if (filters && summary.inline) {
+          // Small ranges become stable explicit selections so moving outside the
+          // original marquee does not silently drop members or break undo selection.
+          setRange(null);
+          useFloorEditorStore.getState().selectMapElements(summary.inline.map(element => element.id), true);
+          return;
+        }
+        setResolved({ key, operations, summary });
       }).catch(error => { if (!controller.signal.aborted) reportError(error); });
     return () => controller.abort();
-  }, [document, scope, floorId, selected, source, operations, groups, key, reportError]);
+  }, [hasSelection, query, scope, floorId, operations, key, filters, reportError]);
 
   useEffect(() => {
     if (!ready || !document || readOnly) return;
@@ -74,37 +117,113 @@ export function useMapEditor({ floorId, authScope, readOnly }: { floorId: string
     } catch (error) { reportError(error); }
   }, [ready, document, operations, readOnly, reportError]);
 
-  const locked = isMapSelectionLocked(selection, groups, layers);
-  const bounds = useMemo(() => getMapSelectionBounds(selection), [selection]);
+  const locked = Boolean(summary?.locked || selectedFixtures.length && (fixtureLayerLocked || selectedFixtures.some(f => fixtureLocks.includes(f.id))));
+  const bounds = useMemo(() => selectionFixtureBounds(summary?.bounds ?? null, selectedFixtures), [summary, selectedFixtures]);
   const promotedIds = useMemo(() => {
-    if (overlayFailed) return [];
+    if (overlayFailed || selectedFixtures.length) return [];
     const hiddenGroups = new Set([...groups.values()].filter(group => !group.visible).map(group => group.id));
     // Do not rewrite canonical visibility to accommodate inherited hide state:
     // that would turn a transform into an unintended visibility edit.
     if (selection.some(element => !layers.get(element.layerId)?.visible || mapGroupContains(element.groupId, hiddenGroups, groups))) return [];
     try { return getMapElementOverlaySelection(selection).map(element => element.id); }
     catch { return []; }
-  }, [selection, groups, layers, overlayFailed]);
+  }, [selection, groups, layers, overlayFailed, selectedFixtures]);
 
   const commit = useCallback((ops: MapOp[], originals: MapElement[] = selection) => {
-    if (readOnly || !scope || useFloorEditorStore.getState().mapScope !== scope) return false;
+    if (readOnly || preparing || !scope || useFloorEditorStore.getState().mapScope !== scope) return false;
     try {
       useFloorEditorStore.getState().applyMapTransaction({ operations: ops, scope, canonicalElements: originals });
       setError(null); return true;
     } catch (error) { reportError(error); return false; }
-  }, [readOnly, scope, selection, reportError]);
+  }, [readOnly, preparing, scope, selection, reportError]);
   const create = useCallback((element: MapElement) => {
     if (commit([{ kind: "add", element }], [])) useFloorEditorStore.getState().selectMapElements([element.id]);
   }, [commit]);
-  const remove = useCallback(() => {
-    if (locked || !selection.length) return;
-    if (commit(selection.map(element => ({ kind: "delete", id: element.id })))) useFloorEditorStore.getState().clearSelection();
-  }, [locked, selection, commit]);
-  const move = useCallback((delta: Point) => {
-    if (!document || locked) return;
-    try { commit(transformMapSelection(selection, { ...delta, scaleX: 1, scaleY: 1, rotation: 0 }, document)); }
+  const runStage = useCallback(async (run: () => Promise<unknown>) => {
+    setRetryStage(() => run);
+    try { const result = await run();
+      if (currentContext.current !== context) return false;
+      if (result !== "stale") { setRetryStage(null); setError(null); } return result !== "stale";
+    } catch (error) { if (currentContext.current === context) reportError(error); return false; }
+  }, [context, reportError]);
+  const edit = useCallback(async (input: Omit<MapSelectionStreamQuery, "signal">, known: MapSelectionSummary | null,
+    mapper: (element: MapElement) => MapOp[], before: MapOp[] = [], after: MapOp[] = [], fixtureUpdates: Array<{ id: string; x: number; y: number }> = []) => {
+    if (readOnly || preparing || validation.current || !scope || useFloorEditorStore.getState().mapScope !== scope) return false;
+    const controller = new AbortController(), signal = controller.signal;
+    validation.current = controller;
+    const current = () => {
+      const store = useFloorEditorStore.getState();
+      if (store.mapScope !== scope || store.mapOperations !== operations) throw new Error("맵이 변경되었습니다. 다시 선택해주세요.");
+    };
+    try {
+      const all = known ?? await inspectMapSelection({ ...input, signal }); current();
+      if (all.locked) throw new Error("잠금을 해제한 뒤 선택을 편집해주세요.");
+      if (all.inline) {
+        const ops = [...before, ...all.inline.flatMap(mapper), ...after];
+        useFloorEditorStore.getState().applyMapTransaction({ operations: ops, canonicalElements: all.inline, scope, fixtureUpdates });
+        setError(null); return true;
+      }
+      setValidating(true);
+      if (!lease) throw new Error("편집 권한을 다시 확인해주세요.");
+      if (useFloorEditorStore.getState().isDirty) throw new Error("대량 편집 전에 현재 변경사항을 저장하거나 취소해주세요.");
+      // Validate the complete geometry before a stage can capture fixture patches.
+      // The second pass reads the same immutable revision with bounded memory.
+      for await (const element of streamMapSelection({ ...input, signal })) { current(); mapper(element); }
+      const factory = async function* () {
+        const checkScope = () => { if (useFloorEditorStore.getState().mapScope !== scope) throw new Error("맵이 변경되었습니다. 다시 선택해주세요."); };
+        checkScope(); yield* before;
+        for await (const element of streamMapSelection({ ...input, signal })) { checkScope(); yield* mapper(element); }
+        yield* after;
+      };
+      const transaction = { scope, operations: factory, fixtureUpdates };
+      return await runStage(() => useFloorEditorStore.getState().prepareMapStream(transaction, lease));
+    } catch (error) { if (!signal.aborted && useFloorEditorStore.getState().mapScope === scope) reportError(error); return false; }
+    finally { if (validation.current === controller) { validation.current = null; setValidating(false); } }
+  }, [readOnly, preparing, scope, operations, lease, runStage, reportError]);
+  const editSelection = useCallback((mapper: (element: MapElement) => MapOp[], before?: MapOp[], after?: MapOp[]) =>
+    query && summary ? edit(query, summary, mapper, before, after) : Promise.resolve(false), [query, summary, edit]);
+  const editQuery = useCallback((filter: MapSelectionInput, mapper: (element: MapElement) => MapOp[], before?: MapOp[], after?: MapOp[]) =>
+    query ? edit({ ...query, selection: { elementIds: [], groupIds: [] }, filters: [filter] }, null, mapper, before, after) : Promise.resolve(false), [query, edit]);
+  const remove = useCallback(async () => {
+    if (await editSelection(element => [{ kind: "delete", id: element.id }])) useFloorEditorStore.getState().clearSelection();
+  }, [editSelection]);
+  const transform = useCallback(async (delta: MapElement["transform"]) => {
+    if (!mapBounds || locked || !query || !summary) return;
+    try { await edit(query, summary, element => transformMapSelection([element], delta, mapBounds), [], [], transformSelectedFixtures(selectedFixtures, delta, mapBounds)); }
     catch (error) { reportError(error); }
-  }, [document, locked, selection, commit, reportError]);
+  }, [mapBounds, locked, query, summary, edit, selectedFixtures, reportError]);
+  const move = useCallback((delta: Point) => transform({ ...delta, scaleX: 1, scaleY: 1, rotation: 0 }), [transform]);
+  const fitSelection = useCallback(() => {
+    if (!bounds) return;
+    const store = useFloorEditorStore.getState(), camera = fitSelectionCamera(bounds, store.viewport);
+    store.setZoom(camera.zoom); store.setPan(camera.pan);
+  }, [bounds]);
+  const history = useCallback(async (direction: "undo" | "redo") => {
+    if (readOnly || preparing) return;
+    const store = useFloorEditorStore.getState(), entry = (direction === "undo" ? store.past : store.future).at(-1);
+    try {
+      if (entry?.external) {
+        if (!lease) throw new Error("편집 권한을 다시 확인해주세요.");
+        await runStage(() => useFloorEditorStore.getState().prepareHistory(direction, lease));
+      } else store[direction]();
+    } catch (error) { reportError(error); }
+  }, [readOnly, preparing, lease, runStage, reportError]);
+  const cancelStage = useCallback(async () => {
+    if (validation.current && !useFloorEditorStore.getState().isPreparingMapStage && !useFloorEditorStore.getState().pendingMapStage) {
+      validation.current.abort(); validation.current = null; setValidating(false); return;
+    }
+    if (!lease) return;
+    try { const result = await useFloorEditorStore.getState().cancelMapStage(lease); if (currentContext.current === context && result !== "stale") { setRetryStage(null); setError(null); } }
+    catch (error) { if (currentContext.current === context) reportError(error); }
+  }, [lease, context, reportError]);
+  const selectQuery = useCallback((filter: MapSelectionInput, additive = false, fixtures: string[] = []) => {
+    if (readOnly || preparing) return;
+    const store = useFloorEditorStore.getState();
+    if (!additive) store.clearSelection();
+    store.selectFixtures(fixtures, true);
+    setRange({ selected: useFloorEditorStore.getState().mapSelection, scope,
+      filters: [...(additive ? filters ?? [] : []), filter] });
+  }, [readOnly, preparing, scope, filters]);
   const pick = useCallback(async (point: Point, child: boolean, additive: boolean) => {
     const captured = useFloorEditorStore.getState().mapScope;
     const epoch = ++pickEpoch.current;
@@ -127,13 +246,6 @@ export function useMapEditor({ floorId, authScope, readOnly }: { floorId: string
       else current.selectMapElements([result.element.id], additive);
     } catch (error) { reportError(error); }
   }, [reportError, promotedIds, selection, layers]);
-  const resolve = useCallback(async (filter: MapSelectionInput) => {
-    if (!document || !scope) throw new Error("맵을 먼저 불러와주세요.");
-    const elements = await resolveMapSelection({ document, selection: { elementIds: [], groupIds: filter.groupId ? [filter.groupId] : [] },
-      source, operations, groups, filter, signal: new AbortController().signal });
-    if (useFloorEditorStore.getState().mapScope !== scope || useFloorEditorStore.getState().mapOperations !== operations) throw new Error("맵이 변경되었습니다. 다시 선택해주세요.");
-    return elements;
-  }, [document, scope, source, operations, groups]);
   const polygon = selection.length === 1 && selection[0].type === "polygon" ? selection[0] : null;
   const holeActive = holeKey === key && polygon !== null;
   const beginHole = () => { if (polygon && !readOnly && !locked) setHoleKey(key); };
@@ -155,9 +267,10 @@ export function useMapEditor({ floorId, authScope, readOnly }: { floorId: string
     const next = removeMapPolygonHole(polygon, index);
     if (next) commit([{ kind: "update", element: next }]);
   };
-  return { source, document, handle, ready: Boolean(ready), onReady, onManifest, reportError, error, clearError: () => setError(null),
-    selection, selectionKey: key, bounds, locked, promotedIds, commit, create, remove, move, pick, resolve,
+  return { source, document, mapBounds, handle, ready: Boolean(ready), onReady, onManifest, reportError, error, clearError: () => setError(null),
+    selection, selectionCount, selectionKey: key, bounds, locked, promotedIds, commit, create, remove, move, transform, pick, selectQuery, editQuery, editSelection, fitSelection,
+    mixed: Boolean(selectionCount && selectedFixtures.length), preparing: preparing || validating, pendingStage, retryStage: retryStage ? () => runStage(retryStage) : null, cancelStage, history,
     polygon, holeActive, beginHole, finishHole, removeHole, cancelHole: () => setHoleKey(null),
-    loadingSelection: Boolean(document && (selected.elementIds.length || selected.groupIds.length) && resolved?.key !== key),
+    loadingSelection: Boolean(query && !summary),
     readOnly };
 }
