@@ -99,13 +99,13 @@ export function countCompletedProvisioningDeviceExchanges(
     return parsed.success ? [parsed.data] : [];
   });
 
-  return commands.filter((command) => terminals.some((terminal) =>
-    terminal.status === "completed" && terminal.commandId === command.commandId &&
+  return commands.filter((command) => command.operation !== "identify" && terminals.some((terminal) =>
+    terminal.operation !== "identify" && terminal.status === "completed" && terminal.commandId === command.commandId &&
     terminal.sessionId === command.sessionId && terminal.siteId === command.siteId &&
     terminal.gatewayId === command.gatewayId && terminal.nodeId === command.nodeId &&
     terminal.deviceUuid === command.deviceUuid && terminal.meshAddress === command.meshAddress &&
     acknowledgements.some((acknowledgement) =>
-      acknowledgement.commandId === terminal.commandId &&
+      acknowledgement.operation !== "identify" && acknowledgement.commandId === terminal.commandId &&
       acknowledgement.sessionId === terminal.sessionId && acknowledgement.siteId === terminal.siteId &&
       acknowledgement.gatewayId === terminal.gatewayId && acknowledgement.nodeId === terminal.nodeId &&
       acknowledgement.deviceUuid === terminal.deviceUuid && acknowledgement.meshAddress === terminal.meshAddress &&
@@ -348,10 +348,20 @@ export class RealBackendLab {
   private started = false;
   private stopping?: Promise<void>;
   private cleanupTimeoutMs: number;
+  readonly isolatedCadStorage: boolean;
+  private readonly storageName = `lcs-cad-${this.runId}`;
+  private readonly storageAccessKey = randomBytes(12).toString("hex");
+  private readonly storageSecretKey = randomBytes(24).toString("hex");
+  private readonly storageBucket = `cad-${randomBytes(12).toString("hex")}`;
+  private readonly reportBucket = `reports-${randomBytes(12).toString("hex")}`;
+  private storageId?: string;
+  private storagePort?: number;
+  private storageCleanupVerified = false;
 
-  constructor(options: { ports?: Partial<LabPorts>; cleanupTimeoutMs?: number } = {}) {
+  constructor(options: { ports?: Partial<LabPorts>; cleanupTimeoutMs?: number; isolatedCadStorage?: boolean } = {}) {
     this.ports = { ...defaultPorts, ...options.ports };
     this.cleanupTimeoutMs = options.cleanupTimeoutMs ?? 5_000;
+    this.isolatedCadStorage = options.isolatedCadStorage ?? false;
   }
 
   async start() {
@@ -359,6 +369,7 @@ export class RealBackendLab {
     try {
       await this.assertPortsAvailable();
       await mkdir(this.labDir, { recursive: true });
+      if (this.isolatedCadStorage) await this.startCadStorage();
       await this.run("pnpm", ["run", "workspace:prepare"]);
       await this.run("pnpm", ["--filter", "@led-control/api", "prisma:generate"]);
       await this.run("pnpm", ["--filter", "@led-control/api", "build"]);
@@ -403,6 +414,14 @@ export class RealBackendLab {
       this.started = false;
     });
     return this.stopping;
+  }
+
+  cadStorageEvidence() {
+    return { enabled: this.isolatedCadStorage, containerId: this.storageId ?? null,
+      endpoint: this.storagePort ? `http://127.0.0.1:${this.storagePort}` : null,
+      bucket: this.storageBucket, reportBucket: this.reportBucket, cleanupVerified: this.storageCleanupVerified,
+      cadTempRoot: join(this.labDir, "cad"), labDirectoryRemoved: !existsSync(this.labDir),
+      postgresSocketRemoved: !existsSync(this.postgresSocketDir) };
   }
 
   captureNetwork(page: Page, actor: Actor) {
@@ -1296,6 +1315,7 @@ export class RealBackendLab {
     }
     if (topic.endsWith("/commands/provisioning/provision-device")) {
       const command = provisioningDeviceCommandV2Schema.parse(JSON.parse(payload.toString()));
+      if (command.operation === "identify") throw new Error("Lab provision-device simulator does not implement identify");
       const terminal = provisioningDeviceTerminalV2Schema.parse({
         commandId: command.commandId,
         sessionId: command.sessionId,
@@ -1759,7 +1779,8 @@ export class RealBackendLab {
       this.admin.password,
       this.admin.newPassword,
       this.viewer.password,
-      this.gateway.claimCode
+      this.gateway.claimCode,
+      ...(this.isolatedCadStorage ? [this.storageAccessKey, this.storageSecretKey] : [])
     ].reduce((masked, secret) => masked.replaceAll(secret, "[REDACTED]"), value);
   }
 
@@ -1818,6 +1839,65 @@ export class RealBackendLab {
     }
   }
 
+  private docker(args: string[], env: NodeJS.ProcessEnv = {}) {
+    const result = spawnSync("docker", args, { cwd: ROOT, env: { ...process.env, ...env }, encoding: "utf8", timeout: 30_000 });
+    if (result.status !== 0) throw new Error(this.redact(`Lab Docker ${args[0]} failed: ${result.error?.message ?? ""}\n${result.stderr}`));
+    return result.stdout.trim();
+  }
+
+  private async startCadStorage() {
+    // Docker assigns the loopback port atomically. No inherited endpoint, mount,
+    // bucket or credential is accepted; --pull=never also forbids implicit downloads.
+    this.storageId = this.docker(["run", "--detach", "--rm", "--pull=never", "--name", this.storageName,
+      "--label", `led-control-lab=${this.runId}`, "--publish", "127.0.0.1::9000",
+      "--env", "MINIO_ROOT_USER", "--env", "MINIO_ROOT_PASSWORD", "--env", "MINIO_API_CORS_ALLOW_ORIGIN",
+      "minio/minio:RELEASE.2025-04-22T22-12-26Z", "server", "/data", "--console-address", ":9001"], {
+      MINIO_ROOT_USER: this.storageAccessKey, MINIO_ROOT_PASSWORD: this.storageSecretKey,
+      MINIO_API_CORS_ALLOW_ORIGIN: `http://127.0.0.1:${this.ports.web}`
+    });
+    const binding = JSON.parse(this.docker(["inspect", "--format", '{{json (index .NetworkSettings.Ports "9000/tcp")}}', this.storageId])) as Array<{ HostIp: string; HostPort: string }>;
+    if (binding.length !== 1 || binding[0].HostIp !== "127.0.0.1" || !/^\d+$/.test(binding[0].HostPort)) {
+      throw new Error("Lab MinIO must have exactly one loopback binding");
+    }
+    this.storagePort = Number(binding[0].HostPort);
+    const deadline = Date.now() + 30_000;
+    while (true) {
+      if (this.docker(["inspect", "--format", '{{index .Config.Labels "led-control-lab"}} {{.State.Running}}', this.storageId]) !== `${this.runId} true`) {
+        throw new Error("Lab MinIO ownership/readiness mismatch");
+      }
+      const ready = await fetch(`http://127.0.0.1:${this.storagePort}/minio/health/ready`, { signal: AbortSignal.timeout(2_000) }).then(r => r.ok).catch(() => false);
+      if (ready) break;
+      if (Date.now() >= deadline) throw new Error("Lab MinIO readiness timeout");
+      await delay(200);
+    }
+    for (const bucket of [this.storageBucket, this.reportBucket]) {
+      this.docker(["run", "--rm", "--pull=never", "--name", `${this.storageName}-${bucket}`,
+        "--label", `led-control-lab=${this.runId}`, "--network", `container:${this.storageId}`, "--env", "MC_HOST_lab",
+        "minio/mc:RELEASE.2025-04-16T18-13-26Z", "mb", `lab/${bucket}`], {
+        MC_HOST_lab: `http://${this.storageAccessKey}:${this.storageSecretKey}@127.0.0.1:9000`
+      });
+    }
+    await mkdir(join(this.labDir, "cad"), { recursive: true, mode: 0o700 });
+  }
+
+  private async stopCadStorage() {
+    // Resolve by our unpredictable ownership label: docker run can create a container
+    // before failing to return its ID. Never remove a container without its label.
+    const output = this.docker(["ps", "--all", "--format", "{{json .}}", "--filter", `label=led-control-lab=${this.runId}`]);
+    const containers = output ? output.split("\n").map(line => JSON.parse(line) as { ID: string; Names: string }) : [];
+    // A timed-out mc client may leave its helper container running. Remove owned
+    // helpers before their MinIO network namespace, including partial startup.
+    containers.sort((a, b) => Number(a.Names === this.storageName) - Number(b.Names === this.storageName));
+    for (const container of containers) {
+      const owner = this.docker(["inspect", "--format", '{{index .Config.Labels "led-control-lab"}}', container.ID]);
+      if (owner !== this.runId) throw new Error("Refusing to remove unowned MinIO container");
+      this.docker(["rm", "--force", "--volumes", container.ID]);
+    }
+    if (this.docker(["ps", "--all", "--quiet", "--filter", `label=led-control-lab=${this.runId}`])) throw new Error("Lab MinIO cleanup incomplete");
+    if (this.storagePort && await canConnect(this.storagePort)) throw new Error("Lab MinIO port was not released");
+    this.storageCleanupVerified = true;
+  }
+
   private async writeMosquittoConfig() {
     await writeFile(join(this.labDir, "mosquitto.acl"), await readFile(join(ROOT, "infra/mosquitto.acl.example")));
     chmodSync(join(this.labDir, "mosquitto.acl"), 0o600);
@@ -1831,6 +1911,7 @@ export class RealBackendLab {
 
   private apiEnv() {
     const socket = encodeURIComponent(this.postgresSocketDir);
+    if (this.isolatedCadStorage && !this.storagePort) throw new Error("Owned CAD storage must start before API configuration");
     return {
       DATABASE_URL: `postgresql://led:led@localhost:${this.ports.postgres}/led_control?host=${socket}&schema=public`,
       REDIS_URL: `redis://127.0.0.1:${this.ports.redis}`,
@@ -1845,7 +1926,26 @@ export class RealBackendLab {
       API_TLS_CERT_PATH: "", API_TLS_KEY_PATH: "",
       API_DEVICE_CLIENT_CA_PATH: "", API_MANUFACTURING_CLIENT_CA_PATH: "",
       API_DEVICE_CRL_PATH: "", API_MANUFACTURING_CRL_PATH: "",
-      PKI_PROVIDER: "unavailable", NODE_ENV: "test"
+      PKI_PROVIDER: "unavailable", NODE_ENV: "test",
+      ...(this.isolatedCadStorage ? {
+        // Production CAD/report timers deliberately skip NODE_ENV=test. The
+        // opt-in lab uses real workers; every persistence endpoint remains owned.
+        NODE_ENV: "development",
+        // Blank values also block bootstrap dotenv fallback. PKI remains
+        // unavailable and reconciliation cannot read/write inherited trust paths.
+        PKI_API_CA_BUNDLE_PATH: "", PKI_MQTT_CA_BUNDLE_PATH: "", PKI_ROOT_CRL_PATH: "",
+        MQTT_CLIENT_CRL_PATH: "", VAULT_ADDR: "", VAULT_TOKEN: "", VAULT_TOKEN_FILE: "",
+        VAULT_NAMESPACE: "", VAULT_CA_CERT_PATH: "", VAULT_PKI_DEVICE_MOUNT: "", VAULT_PKI_DEVICE_ROLE: "",
+        VAULT_PKI_MQTT_MOUNT: "", VAULT_PKI_MQTT_ROLE: "",
+        HTTP_PROXY: "", HTTPS_PROXY: "", ALL_PROXY: "", NO_PROXY: "*",
+        http_proxy: "", https_proxy: "", all_proxy: "", no_proxy: "*",
+        OBJECT_STORAGE_ENDPOINT: `http://127.0.0.1:${this.storagePort}`,
+        OBJECT_STORAGE_PUBLIC_URL: `http://127.0.0.1:${this.storagePort}/${this.storageBucket}`,
+        OBJECT_STORAGE_BUCKET: this.storageBucket, OBJECT_STORAGE_REPORT_BUCKET: this.reportBucket,
+        OBJECT_STORAGE_REGION: "us-east-1", OBJECT_STORAGE_ACCESS_KEY: this.storageAccessKey,
+        OBJECT_STORAGE_SECRET_KEY: this.storageSecretKey, CAD_IMPORT_CONVERTER_MODE: "local-dxf-copy",
+        CAD_IMPORT_TEMP_ROOT: join(this.labDir, "cad")
+      } : {})
     };
   }
 
@@ -1980,6 +2080,9 @@ export class RealBackendLab {
         errors.push(...rejectedReasons(processResults));
       } finally {
         this.processes.length = 0;
+        if (this.isolatedCadStorage) {
+          try { await this.stopCadStorage(); } catch (error) { errors.push(error); }
+        }
         try {
           await rm(this.labDir, { recursive: true, force: true });
         } catch (error) {
@@ -2230,6 +2333,7 @@ export function connectMqttForLab(
 function subscribe(client: MqttClient, topics: string[]) {
   return new Promise<void>((resolvePromise, reject) => client.subscribe(topics, { qos: 1 }, (error, granted) => {
     if (error) return reject(error);
+    if (!granted?.length) return reject(new Error("MQTT subscription acknowledgement is missing"));
     if (granted.some((grant) => grant.qos === 128)) return reject(new Error("MQTT subscription was not authorized"));
     resolvePromise();
   }));
@@ -2260,6 +2364,7 @@ function subscribeForNegativeRead(client: MqttClient, topic: string) {
   return new Promise<boolean>((resolvePromise, reject) => client.subscribe(topic, { qos: 1 }, (error, granted) => {
     if (error && safeMessage(error).toLowerCase().includes("not authorized")) return resolvePromise(false);
     if (error) return reject(error);
+    if (!granted?.length) return reject(new Error("MQTT subscription acknowledgement is missing"));
     resolvePromise(granted.some((grant) => grant.qos !== 128));
   }));
 }

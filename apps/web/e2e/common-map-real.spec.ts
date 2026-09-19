@@ -3,7 +3,7 @@ import { floorMapSnapshotSchema, mapDocumentRefSchema, mapElementSchema, type Ma
 import { getMapElementBounds } from "@led-control/shared/map-document-geometry";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import type { Dashboard } from "../src/api/queries";
 import type { MapStage } from "../src/api/map-stages";
@@ -15,7 +15,7 @@ import { RealBackendLab } from "./support/real-backend-lab";
 test.skip(process.env.E2E_REAL_BACKEND_LAB !== "1", "격리 RealBackendLab 실행 승인이 필요합니다.");
 test.use({ trace: "off", screenshot: "off", viewport: { width: 1600, height: 1100 } });
 
-const lab = new RealBackendLab();
+const lab = new RealBackendLab({ isolatedCadStorage: true });
 const dxfPath = fileURLToPath(new URL("./fixtures/common-map-real.dxf", import.meta.url));
 const red = "#e11d48";
 type Scope = { siteId: string; floorId: string; floorName: string; fixtureId: string };
@@ -23,16 +23,13 @@ type Evidence = { method: string; path: string; status: number; operations?: str
 
 test.beforeAll(async () => {
   test.setTimeout(180_000);
-  // 승인 대기 중인 Lab 확장 관문. 옵션/소유 자원 증거 없이 시작하면 상위 dotenv의
-  // 사용자 MinIO에 연결할 수 있으므로 빌드나 서버 시작보다 먼저 명시적으로 실패한다.
-  // 총괄이 선택적 CAD Lab 계약을 승인한 뒤 그 소유권 검증으로 이 관문을 연결한다.
-  if (!("isolatedCadStorage" in lab) || lab.isolatedCadStorage !== true) {
-    throw new Error("U14B_LAB_WIRING_REQUIRED: Lab-owned Object Storage/CAD configuration and cleanup approval are pending.");
-  }
   await lab.start();
 });
 
-test.afterAll(async () => { await lab.stop(); });
+test.afterAll(async ({}, info) => {
+  try { await lab.stop(); }
+  finally { await attachJson(info, "u14b-lab-cleanup", lab.cadStorageEvidence()); }
+});
 test.afterEach(async ({}, info) => { await lab.writeEvidence(info); });
 
 test("실백엔드: 일반 도형과 DXF 정본을 저장·삭제·복구하고 stage 확정 뒤 모니터링에 표시한다", async ({ browser, page }, info) => {
@@ -126,7 +123,10 @@ test("실백엔드: 일반 도형과 DXF 정본을 저장·삭제·복구하고 
       expect(saved.floor.mapDocument?.elementCount).toBe(2);
       ordinary = await readElements(page, current);
       expect(ordinary.map(element => element.type).sort()).toEqual(["rectangle", "text"]);
-      expect(ordinary.find(element => element.type === "rectangle")).toMatchObject({ geometry: { width: 160 }, style: { fillColor: red }, provenance: null });
+      const rectangle = ordinary.find(element => element.type === "rectangle")!;
+      expect(rectangle).toMatchObject({ style: { fillColor: red }, provenance: null });
+      const rectangleBounds = getMapElementBounds(rectangle);
+      expect(rectangleBounds.maxX - rectangleBounds.minX).toBeCloseTo(160, 4);
       expect(ordinary.find(element => element.type === "text")).toMatchObject({ geometry: { text: "U14b 일반 문자" }, provenance: null });
       await page.reload(); await expectEditor(page);
       expect(await readElements(page, current)).toEqual(ordinary);
@@ -166,6 +166,7 @@ test("실백엔드: 일반 도형과 DXF 정본을 저장·삭제·복구하고 
       expect(response.ok(), await response.text()).toBe(true);
       expect(response.request().postDataJSON()).toMatchObject({ expectedRevision: before.revision, confirmMapReset: true, candidateIds: [], leaseToken: expect.any(String), leaseFence: expect.any(Number) });
       await expect.poll(async () => (await readDocument(page, current)).generationId).toBe(prepared.generationId);
+      await expect(page.getByTestId("floor-editor-canvas")).toHaveAttribute("data-map-width", String(prepared.width));
       const elements = await readElements(page, current);
       expect(elements).toHaveLength(3);
       expect(elements.every(element => element.provenance?.importJobId === job.jobId)).toBe(true);
@@ -204,7 +205,7 @@ test("실백엔드: 일반 도형과 DXF 정본을 저장·삭제·복구하고 
       await assertFixturePreserved(page, current);
     });
 
-    await test.step("크기·격자는 명시 저장으로 checkpoint를 확정하고 undo 미리보기는 재저장한다", async () => {
+    await test.step("크기·격자는 명시 저장으로 checkpoint를 확정하고 undo 초안을 재저장한다", async () => {
       await page.getByRole("button", { name: "선택", exact: true }).click();
       const before = await readDocument(page, current);
       const baseline = await readElements(page, current);
@@ -219,19 +220,17 @@ test("실백엔드: 일반 도형과 DXF 정본을 저장·삭제·복구하고 
       expect(await readDocument(page, current)).toEqual(before);
       expect(mutations.filter(record => /\/editor-stages$/.test(record.path))).toHaveLength(stageCreatesBefore);
       // 설정 적용은 로컬 checkpoint이며 Save 한 번이 prepare와 commit을 수행한다.
-      // 외부 undo의 ready-preview/별도 Save 계약과 혼동하지 않는다.
+      // 작은 settings undo도 로컬 이력을 유지하며 다음 Save에서 checkpoint를 만든다.
       const receipt = await saveCheckpoint(page, current, before, { width, height, gridSize });
       expect(receipt.result?.history).toEqual({ undo: { revision: before.revision }, redo: { revision: before.revision + 1 } });
       expect(await readDocument(page, current)).toMatchObject({ width, height, gridSize, revision: before.revision + 1 });
-      const undoStage = waitResponse(page, `/floors/${floor.id}/editor-stages`, "POST");
-      await page.getByRole("button", { name: "실행 취소", exact: true }).click();
-      const undoResponse = await undoStage;
-      expect(undoResponse.ok(), await undoResponse.text()).toBe(true);
-      expect(undoResponse.request().postDataJSON()).toMatchObject({ historySource: { revision: before.revision } });
-      const undo = await undoResponse.json() as MapStage;
       const resized = await readDocument(page, current);
-      await assertReadyStage(page, current, undo.id, resized, { width: before.width, height: before.height, gridSize: before.gridSize });
-      await saveStage(page, current, undo.id);
+      const stageCount = mutations.filter(record => /\/editor-stages$/.test(record.path)).length;
+      await page.getByRole("button", { name: "실행 취소", exact: true }).click();
+      await expect(page.getByTestId("floor-editor-canvas")).toHaveAttribute("data-map-width", String(before.width));
+      expect(await readDocument(page, current)).toEqual(resized);
+      expect(mutations.filter(record => /\/editor-stages$/.test(record.path))).toHaveLength(stageCount);
+      await saveCheckpoint(page, current, resized, { width: before.width, height: before.height, gridSize: before.gridSize });
       await page.reload(); await expectEditor(page);
       expect(await readDocument(page, current)).toMatchObject({ width: before.width, height: before.height, gridSize: before.gridSize });
       expect(await readElements(page, current)).toEqual(baseline);
@@ -248,13 +247,20 @@ test("실백엔드: 일반 도형과 DXF 정본을 저장·삭제·복구하고 
     expect(evidenceErrors).toEqual([]);
   } finally {
     await Promise.all(pendingEvidence);
-    await info.attach("u14b-http-evidence", { body: JSON.stringify({ scope, pageErrors, serverFailures, evidenceErrors, mutations, stageIds: [...stageIds],
+    await attachJson(info, "u14b-http-evidence", { scope, pageErrors, serverFailures, evidenceErrors, mutations, stageIds: [...stageIds],
       sourceAtStart, sourceAtEnd: await sourceEvidence(),
-      dxfSha256: createHash("sha256").update(await readFile(dxfPath)).digest("hex") }, null, 2), contentType: "application/json" });
+      dxfSha256: createHash("sha256").update(await readFile(dxfPath)).digest("hex") });
     await lab.screenshot(page, info, "u14b-final-or-failure");
     page.off("response", observe);
   }
 });
+
+async function attachJson(info: TestInfo, name: string, value: unknown) {
+  // line reporter도 재현 증거를 디스크에 남기도록 body-only attachment를 피한다.
+  const path = info.outputPath(`${name}.json`);
+  await writeFile(path, JSON.stringify(value, null, 2));
+  await info.attach(name, { path, contentType: "application/json" });
+}
 
 async function login(page: Page, credentials: { loginId: string; password: string }) {
   await page.getByLabel("아이디").fill(credentials.loginId);
@@ -335,25 +341,6 @@ async function saveNormal(page: Page, scope: Scope, operation?: string) {
   expect(state.floor.mapRevision).toBe(before.revision + 1);
   return state;
 }
-async function assertReadyStage(page: Page, scope: Scope, id: string, before: MapDocumentRef, dimensions: Pick<MapDocumentRef, "width" | "height" | "gridSize">) {
-  await expect.poll(async () => {
-    const stage = await get<MapStage>(page, `/floors/${scope.floorId}/editor-stages/${id}`);
-    expect(["failed", "cancelled", "expired", "committed"], stage.errorCode ?? "stage 준비 실패").not.toContain(stage.status);
-    return stage.status;
-  }).toBe("ready");
-  await expect(page.getByText("대량 편집 준비 완료 · 저장 대기", { exact: true })).toBeVisible();
-  expect(await readDocument(page, scope)).toEqual(before);
-  expect(await readDocument(page, scope, `/editor-stages/${id}`)).toMatchObject(dimensions);
-}
-async function saveStage(page: Page, scope: Scope, id: string) {
-  const committed = waitResponse(page, `/floors/${scope.floorId}/editor-stages/${id}/commit`, "POST");
-  await page.getByRole("button", { name: "저장", exact: true }).click();
-  const response = await committed;
-  expect(response.status(), await response.text()).toBe(202);
-  await expect.poll(async () => (await get<MapStage>(page, `/floors/${scope.floorId}/editor-stages/${id}`)).status).toBe("committed");
-  await expect(page.getByRole("button", { name: "저장", exact: true })).toBeDisabled();
-  return get<MapStage>(page, `/floors/${scope.floorId}/editor-stages/${id}`);
-}
 async function saveCheckpoint(page: Page, scope: Scope, before: MapDocumentRef,
   dimensions: Pick<MapDocumentRef, "width" | "height" | "gridSize">) {
   const prefix = `/api/floors/${scope.floorId}/editor-stages`;
@@ -370,6 +357,7 @@ async function saveCheckpoint(page: Page, scope: Scope, before: MapDocumentRef,
   expect(response.status(), await response.text()).toBe(201);
   expect(response.request().postDataJSON()).toMatchObject({ expectedRevision: before.revision, floorPlan: dimensions,
     documentChanges: { generationId: before.generationId, operations: [] } });
+  expect(response.request().postDataJSON()).not.toHaveProperty("historySource");
   const stage = await response.json() as MapStage;
   const prepareResponse = await prepared;
   expect(new URL(prepareResponse.url()).pathname).toBe(`${prefix}/${stage.id}/prepare`);
@@ -394,7 +382,8 @@ async function assertMonitoring(page: Page, scope: Scope, elements: MapElement[]
   await page.getByRole("link", { name: "모니터링", exact: true }).click();
   const map = page.getByRole("region", { name: "층 도면", exact: true });
   await map.scrollIntoViewIfNeeded();
-  await expect(map.getByRole("img", { name: "맵 도형", exact: true }).locator("canvas")).toBeVisible();
+  // 읽기 전용 WebGL overlay는 접근성 트리에서 제외되지만 실제 화면에 합성된다.
+  await expect(map.getByRole("img", { name: "맵 도형", exact: true, includeHidden: true }).locator("canvas")).toBeVisible();
   await expect(page.locator('[data-spatial-map-marker="true"]')).toHaveCount(0);
   expect(await readElements(page, scope)).toEqual(elements);
   const snapshot = floorMapSnapshotSchema.parse(await get(page, `/sites/${scope.siteId}/floors/${scope.floorId}/map-snapshot`));
