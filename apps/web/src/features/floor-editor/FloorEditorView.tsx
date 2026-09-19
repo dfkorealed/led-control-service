@@ -122,6 +122,9 @@ export function FloorEditorView({
   const [recovery, setRecovery] = useState<FloorEditorState | null>(null);
   const [draftError, setDraftError] = useState(false);
   const userId = queryClient.getQueryData<{ user: AuthUser }>(authMeQueryKey)?.user.id;
+  // A purge invalidates this mounted session; it must not initialize stale
+  // authorized props again merely because the global draft generation changed.
+  const draftScope = useMemo(() => `${userId ?? "session"}:${editorDraftGeneration()}:${userRole}`, [userId, userRole]);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "error" | "conflict">("idle");
   const [restoringRevision, setRestoringRevision] = useState<number | null>(null);
   const [isCadImportPending, setIsCadImportPending] = useState(false);
@@ -154,7 +157,7 @@ export function FloorEditorView({
     queryKey: ["floor-import-applied-overlay", siteId, floorId, overlayRevision],
     queryFn: () => getAppliedFloorImportOverlay(floorId)
   });
-  const map = useMapEditor({ floorId, authScope: `${userId ?? "session"}:${editorDraftGeneration()}:${userRole}`, readOnly });
+  const map = useMapEditor({ floorId, authScope: draftScope, readOnly });
 
   useLayoutEffect(() => {
     const current = useFloorEditorStore.getState();
@@ -165,7 +168,7 @@ export function FloorEditorView({
     const acknowledged = current.initialState?.floor;
     // Normal save already ACKs the common store. Query structural sharing may
     // clone that response; adopting it again would initialize away its history.
-    if (sameScope && incoming && current.mapScope?.authScope === `${userId ?? "session"}:${editorDraftGeneration()}:${userRole}`
+    if (sameScope && incoming && current.mapScope?.authScope === draftScope
       && current.mapScope.generationId === incoming.generationId && current.mapScope.baseRevision === incoming.revision
       && acknowledged?.mapRevision === initialState.floor.mapRevision
       && acknowledged.mapDocument?.generationId === incoming.generationId && acknowledged.mapDocument.revision === incoming.revision) return;
@@ -173,37 +176,41 @@ export function FloorEditorView({
     // Legacy refresh preserves history; a different common revision/generation
     // still takes the explicit baseline-adoption path.
     if (sameScope) adoptBaseline(initialState, true);
-    else initialize(initialState, `${userId ?? "session"}:${editorDraftGeneration()}:${userRole}`);
+    else initialize(initialState, draftScope);
     if (!mutationLock.current) setSaveStatus("idle");
     if (noticeFloorId.current !== initialState.floor.id) {
       noticeFloorId.current = initialState.floor.id;
       setSkippedFixtureCount(0);
     }
-  }, [initialState, initialize, adoptBaseline, userId, userRole]);
+  }, [initialState, initialize, adoptBaseline, draftScope]);
 
   useEffect(() => {
     if (!userId) return;
     const currentBaseline = initialState;
-    setRecovery(loadEditorDraft(userId, currentBaseline));
+    setRecovery(loadEditorDraft(draftScope, currentBaseline));
+    setDraftError(false);
     const generation = editorDraftGeneration();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const persist = () => {
       if (generation !== editorDraftGeneration()) return;
       const store = useFloorEditorStore.getState();
       if (store.isDirty && store.state?.floor.id === currentBaseline.floor.id && store.initialState?.floor.mapRevision === currentBaseline.floor.mapRevision) {
-        setDraftError(!saveEditorDraft(userId, currentBaseline, store.state, store.exportMapDraft(), generation));
+        setDraftError(!saveEditorDraft(draftScope, currentBaseline, store.state, store.exportMapDraft(), generation));
       }
     };
     const unsubscribe = useFloorEditorStore.subscribe((next, previous) => {
       if (next.state === previous.state && next.mapOperations === previous.mapOperations) return;
       clearTimeout(timer);
-      if (!next.isDirty && previous.isDirty) removeEditorDraft(userId, currentBaseline);
+      if (!next.isDirty && previous.isDirty) {
+        removeEditorDraft(draftScope, currentBaseline);
+        setDraftError(false);
+      }
       else timer = setTimeout(persist, 300);
     });
     window.addEventListener("pagehide", persist);
     window.addEventListener("beforeunload", persist);
     return () => { clearTimeout(timer); persist(); unsubscribe(); window.removeEventListener("pagehide", persist); window.removeEventListener("beforeunload", persist); };
-  }, [userId, initialState]);
+  }, [userId, draftScope, initialState]);
 
   useEffect(() => {
     onDirtyChange?.(isDirty);
@@ -235,7 +242,10 @@ export function FloorEditorView({
       }
       if (!stillCurrent()) return;
       if (saved.floor.id !== floorId || saved.floor.siteId !== siteId) throw new Error("Editor response scope mismatch");
-      if (userId && !useFloorEditorStore.getState().isDirty) removeEditorDraft(userId, baseline);
+      if (!useFloorEditorStore.getState().isDirty) {
+        if (userId) removeEditorDraft(draftScope, baseline);
+        setDraftError(false);
+      }
       await invalidateEditorQueries(queryClient, saved);
       if (!stillCurrent()) return;
       await onSaved(saved);
@@ -292,11 +302,11 @@ export function FloorEditorView({
     if (authoritative.floor.id !== floorId || authoritative.floor.siteId !== siteId) {
       throw new Error("Editor response scope mismatch");
     }
-    if (userId && baseline) removeEditorDraft(userId, baseline);
+    if (userId && baseline) removeEditorDraft(draftScope, baseline);
     adoptBaseline(authoritative);
     await invalidateEditorQueries(queryClient, authoritative);
     await onSaved(authoritative);
-  }, [adoptBaseline, baseline, floorId, onSaved, queryClient, siteId, userId]);
+  }, [adoptBaseline, baseline, draftScope, floorId, onSaved, queryClient, siteId, userId]);
 
   const toggleCadCandidate = useCallback((candidateId: string) => {
     setCadImportReview((current) => {
@@ -379,7 +389,7 @@ export function FloorEditorView({
           }}>최신 버전 다시 불러오기</Button>}
         />
       ) : null}
-      {recovery && <FeedbackState icon={TriangleAlert} tone="warning" title="저장하지 않은 로컬 초안이 있습니다." action={<div className="flex flex-wrap justify-end gap-2"><Button disabled={isSaveOrRestoreBlocked} onClick={() => { if (readOnly || mutationLock.current || recovery.floor.id !== activeScope.current.floorId) return; useFloorEditorStore.getState().recoverDraft(recovery); setRecovery(null); }}>초안 복구</Button><Button disabled={isMutationPending} onClick={() => { if (userId) removeEditorDraft(userId, initialState); setRecovery(null); }}>초안 삭제</Button></div>} />}
+      {recovery && <FeedbackState icon={TriangleAlert} tone="warning" title="저장하지 않은 로컬 초안이 있습니다." action={<div className="flex flex-wrap justify-end gap-2"><Button disabled={isSaveOrRestoreBlocked} onClick={() => { if (readOnly || mutationLock.current || recovery.floor.id !== activeScope.current.floorId) return; useFloorEditorStore.getState().recoverDraft(recovery); setRecovery(null); }}>초안 복구</Button><Button disabled={isMutationPending} onClick={() => { if (userId) removeEditorDraft(draftScope, initialState); setRecovery(null); }}>초안 삭제</Button></div>} />}
       {draftError && <FeedbackState icon={TriangleAlert} tone="warning" title="이 브라우저에 초안을 보관하지 못했습니다. 서버에 저장하세요." />}
       {map.error && <FeedbackState icon={TriangleAlert} tone="danger" title={map.error} action={<Button variant="secondary" onClick={() => { if (isDirty) setConfirmReload(true); else void onReload(); }}>다시 불러오기</Button>} />}
       {skippedFixtureCount > 0 ? (

@@ -7,6 +7,7 @@ import { useFloorEditorStore } from "./editor-store";
 import { createMapElementFromDrag } from "./map-element-tools";
 import { saveFloorEditorState } from "../../api/floor-editor";
 import type { FloorEditorState } from "./editor-types";
+import { editorDraftGeneration, editorDraftKey, loadEditorDraft, saveEditorDraft } from "./editor-drafts";
 
 vi.mock("../map-scene/MapSceneCanvas", () => ({ MapSceneCanvas: () => <canvas /> }));
 vi.mock("./CadImportSceneCanvas", () => ({ CadImportSceneCanvas: () => null, useCadImportScene: () => ({ data: undefined, isError: false, refetch: vi.fn() }) }));
@@ -21,14 +22,15 @@ const base: FloorEditorState = { floor: { id: "floor", siteId: "site", name: "F"
     manifest: { assetId: "canonical", sha256: "a".repeat(64), byteSize: 1, decodedByteSize: 1 } } }, fixtures: [], objects: [], lightSlots: [] };
 const store = useFloorEditorStore.getState;
 const clients: QueryClient[] = [];
-function mount() {
+function mount(userId?: string, edit = true) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } }); clients.push(client);
+  if (userId) client.setQueryData(["auth", "me"], { user: { id: userId, role: "admin" } });
   const onSaved = vi.fn();
   const content = (state: FloorEditorState) => <QueryClientProvider client={client}><MemoryRouter>
     <FloorEditorView initialState={state} userRole="admin" leaseToken="lease" leaseFence={1} onSaved={onSaved} onCancel={() => undefined} onReload={() => undefined} />
   </MemoryRouter></QueryClientProvider>;
   const view = render(content(structuredClone(base)));
-  act(() => {
+  if (edit) act(() => {
     store().loadMapStructures(store().mapScope!, { layers: [{ id: "map", name: "Map", order: 0, visible: true, locked: false }], groups: [] });
     const element = createMapElementFromDrag("ellipse", { x: 100, y: 100 }, { x: 200, y: 200 }, "shape")!;
     store().applyMapTransaction({ operations: [{ kind: "add", element }] });
@@ -36,10 +38,54 @@ function mount() {
   });
   return { client, onSaved, rerender: (state: FloorEditorState) => view.rerender(content(state)) };
 }
-beforeEach(() => { store().reset(); vi.clearAllMocks(); });
-afterEach(() => { cleanup(); clients.splice(0).forEach(client => client.clear()); });
+beforeEach(() => { store().reset(); localStorage.clear(); vi.clearAllMocks(); });
+afterEach(() => { cleanup(); clients.splice(0).forEach(client => client.clear()); vi.restoreAllMocks(); });
 
 describe("normal common save response adoption", () => {
+  const warning = "이 브라우저에 초안을 보관하지 못했습니다. 서버에 저장하세요.";
+  it("persists authenticated common drafts in the initialization scope and removes them after ACK", async () => {
+    const view = mount("draft-user");
+    const scope = `draft-user:${editorDraftGeneration()}:admin`;
+    expect(store().mapScope?.authScope).toBe(scope);
+    act(() => window.dispatchEvent(new Event("pagehide")));
+    expect(screen.queryByText(warning)).not.toBeInTheDocument();
+    expect(loadEditorDraft(scope, base)?.commonMapDraft?.operations).toEqual(store().mapOperations);
+    const saved = { ...base, floor: { ...base.floor, mapRevision: 2, mapDocument: { ...base.floor.mapDocument!, revision: 2, elementCount: 1 } } };
+    vi.mocked(saveFloorEditorState).mockResolvedValue(saved);
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    await waitFor(() => expect(view.onSaved).toHaveBeenCalledWith(saved));
+    expect(localStorage.getItem(editorDraftKey(scope, base))).toBeNull();
+    expect(screen.queryByText(warning)).not.toBeInTheDocument();
+  });
+
+  it("loads and discards a draft under the same composite scope", async () => {
+    const scope = `draft-user:${editorDraftGeneration()}:admin`;
+    store().initialize(structuredClone(base), scope);
+    store().loadMapStructures(store().mapScope!, { layers: [{ id: "map", name: "Map", order: 0, visible: true, locked: false }], groups: [] });
+    const element = createMapElementFromDrag("rectangle", { x: 10, y: 10 }, { x: 100, y: 100 }, "recovered")!;
+    store().applyMapTransaction({ operations: [{ kind: "add", element }] });
+    expect(saveEditorDraft(scope, base, store().state!, store().exportMapDraft())).toBe(true);
+    store().reset();
+    mount("draft-user", false);
+    fireEvent.click(await screen.findByRole("button", { name: "초안 삭제" }));
+    expect(localStorage.getItem(editorDraftKey(scope, base))).toBeNull();
+  });
+
+  it("clears a real storage failure warning when a normal save is acknowledged clean", async () => {
+    const view = mount("draft-user");
+    const storage = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("quota"); });
+    act(() => window.dispatchEvent(new Event("pagehide")));
+    expect(screen.getByText(warning)).toBeInTheDocument();
+    expect(storage).toHaveBeenCalled();
+    storage.mockRestore();
+    const saved = { ...base, floor: { ...base.floor, mapRevision: 2, mapDocument: { ...base.floor.mapDocument!, revision: 2, elementCount: 1 } } };
+    vi.mocked(saveFloorEditorState).mockResolvedValue(saved);
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    await waitFor(() => expect(view.onSaved).toHaveBeenCalledWith(saved));
+    expect(store().isDirty).toBe(false);
+    expect(screen.queryByText(warning)).not.toBeInTheDocument();
+  });
+
   it("preserves history, selection, snap and camera after ACK and structurally shared query props", async () => {
     const saved: FloorEditorState = { ...base, floor: { ...base.floor, mapRevision: 2,
       mapDocument: { ...base.floor.mapDocument!, revision: 2, elementCount: 1 } } };

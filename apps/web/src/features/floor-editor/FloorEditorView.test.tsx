@@ -5,7 +5,7 @@ import { ApiError } from "../../api/client";
 import { FloorEditorView } from "./FloorEditorView";
 import type { FloorEditorState, FloorImportApplyResult } from "./editor-types";
 import { useFloorEditorStore } from "./editor-store";
-import { saveEditorDraft } from "./editor-drafts";
+import { editorDraftGeneration, saveEditorDraft } from "./editor-drafts";
 import { clearTenantCache } from "../../api/principal-cache";
 import * as spatialIndex from "./editor-spatial-index";
 import { MemoryRouter } from "react-router-dom";
@@ -538,7 +538,7 @@ describe("FloorEditorView", () => {
     expect(screen.queryByLabelText("맵 너비")).not.toBeInTheDocument();
   });
   it("rejects recovery while save is pending and ignores a response after principal purge", async () => {
-    saveEditorDraft("draft-user", editorState, { ...editorState, fixtures: [{ ...editorState.fixtures[0], x: 555 }] });
+    saveEditorDraft(`draft-user:${editorDraftGeneration()}:admin`, editorState, { ...editorState, fixtures: [{ ...editorState.fixtures[0], x: 555 }] });
     const save = deferred<FloorEditorState>();
     floorEditorApi.saveFloorEditorState.mockReturnValueOnce(save.promise);
     const { queryClient } = renderEditor(editorState, undefined, "draft-user");
