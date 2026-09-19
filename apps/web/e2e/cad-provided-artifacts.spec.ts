@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
+import { cpus, platform, release } from "node:os";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { basename, delimiter, resolve } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
@@ -6,6 +8,8 @@ import { buildCadSceneDescriptor, cadSceneEditInputSchema, cadSceneManifestSchem
 import { installSettingsApiRoutes } from "./support/settings-api";
 import { computeVisibleTileCoordinates, selectCadSceneLods } from "../src/features/cad-scene/cad-scene-camera";
 import { buildCadGeometryBatches, decodeCadSceneTilePayload } from "../src/features/cad-scene/cad-scene-worker";
+import { summarizeControlledEntryTimes } from "../src/features/map-scene/map-performance";
+import { captureProductSourceHashes, installPerformanceProbe, observeHttpRequests, readLongTasks, runEditorCameraPath } from "./support/map-performance";
 
 // Opt-in: CAD_ARTIFACT_DIRS contains path-delimited completed core output dirs.
 // Only the application shell is mocked. Manifest geometry and binary tiles are
@@ -63,8 +67,10 @@ for (const [index, directory] of (directories.length ? directories : [""]).entri
           if (mode === "editor") {
             await expect(page.getByRole("heading", { name: "B2 맵 편집" })).toBeVisible();
             await page.getByRole("button", { name: "맵 맞춤", exact: true }).click();
+            if (mobilePolicy) await page.getByRole("button", { name: "도구 및 조명 패널" }).click();
             await page.getByText("격자 스냅", { exact: true }).click();
             await expect(page.getByRole("checkbox", { name: "격자 스냅" })).not.toBeChecked();
+            if (mobilePolicy) await page.getByRole("button", { name: "도구 및 조명 패널" }).click();
             await page.getByTestId("floor-editor-canvas").evaluate(element => element.scrollIntoView({ block: "center" }));
           } else {
             await page.getByRole("region", { name: "층 도면" }).evaluate(element => element.scrollIntoView({ block: "center" }));
@@ -159,6 +165,164 @@ for (const [index, directory] of (directories.length ? directories : [""]).entri
       }
     });
   }
+}
+
+for (const [index, directory] of (directories.length ? directories : [""]).entries()) {
+  for (let pair = 1; pair <= 5; pair++) {
+    test(`provided CAD ${index + 1} performance baseline cold warm pair ${pair} of 5`, async ({ browser, baseURL }, testInfo) => {
+      test.skip(!directory, "CAD_ARTIFACT_DIRS 미지정: 측정 증거 없음");
+      test.setTimeout(240_000);
+      const artifact = await loadArtifact(directory);
+      const referenceSources = await captureProductSourceHashes();
+      const viewport = { width: 1440, height: 900 };
+      const rows: Array<{
+        pair: number; temperature: "cold" | "warm"; coverageReadyMs: number | null;
+        observationMs: number; entryCoverage: Awaited<ReturnType<typeof measureCoverage>>;
+        finalCoverage: Awaited<ReturnType<typeof measureCoverage>>;
+        movement: Awaited<ReturnType<typeof runEditorCameraPath>>;
+        http: Awaited<ReturnType<ReturnType<typeof observeHttpRequests>["snapshot"]>>;
+        movementHttp: Awaited<ReturnType<ReturnType<typeof observeHttpRequests>["snapshot"]>>;
+        tileRequests: number; servedTileBytes: number; duplicateTileRequests: number;
+        longTasks: Awaited<ReturnType<typeof readLongTasks>>;
+        pixels: Awaited<ReturnType<typeof nativePixelContribution>>;
+        errors: string[];
+        sourceHashesBefore: Awaited<ReturnType<typeof captureProductSourceHashes>>;
+        sourceHashesAfter: Awaited<ReturnType<typeof captureProductSourceHashes>>;
+        checkout: "pair-stable" | "mixed-checkout";
+      }> = [];
+      const evidencePath = resolve(evidenceDirectory, `u1-baseline-provided-${index + 1}-pair-${pair}.json`);
+      await mkdir(evidenceDirectory, { recursive: true });
+      let failure: string | null = null;
+      try {
+        const context = await browser.newContext({ baseURL, viewport, serviceWorkers: "block" });
+        try {
+          const page = await context.newPage();
+          page.setDefaultTimeout(10_000);
+          await installRendererProbe(page);
+          await installPerformanceProbe(page);
+          const requests = await installArtifactRoutes(page, artifact);
+          const http = observeHttpRequests(page);
+          const errors: string[] = [];
+          page.on("pageerror", error => errors.push(error.message));
+          page.on("console", message => { if (message.type() === "error") errors.push(message.text()); });
+          for (const temperature of ["cold", "warm"] as const) {
+            const sourceHashesBefore = await captureProductSourceHashes();
+            requests.loaded.clear();
+            requests.bytes = 0;
+            requests.tileRequestPaths.length = 0;
+            const requestMark = http.mark(), errorMark = errors.length;
+            const startedAt = performance.now();
+            if (temperature === "cold") await page.goto("/settings/floor-plans/floor-1/edit?siteId=site-1");
+            else await page.reload();
+            await expect(page.getByRole("heading", { name: "B2 맵 편집" })).toBeVisible();
+            await page.getByRole("button", { name: "맵 맞춤", exact: true }).click();
+            const canvas = page.getByTestId("cad-scene-canvas");
+            await expect(canvas).toBeVisible();
+            await canvas.evaluate(element => element.scrollIntoView({ block: "center" }));
+            const entryCoverage = await waitForCoverage(page, artifact, requests);
+            const observationMs = performance.now() - startedAt;
+            const coverageReadyMs = entryCoverage.complete ? observationMs : null;
+            const movementMark = http.mark();
+            const movement = await runEditorCameraPath(page);
+            const finalCoverage = await waitForCoverage(page, artifact, requests);
+            const movementHttp = await http.snapshot(movementMark);
+            const longTasks = await readLongTasks(page);
+            const pixels = await nativePixelContribution(page);
+            const screenshot = resolve(evidenceDirectory, `u1-provided-${index + 1}-${pair}-${temperature}.png`);
+            await page.screenshot({ path: screenshot });
+            await testInfo.attach(`provided-${index + 1}-${pair}-${temperature}`, { path: screenshot, contentType: "image/png" });
+            const sourceHashesAfter = await captureProductSourceHashes();
+            rows.push({ pair, temperature, coverageReadyMs, observationMs, entryCoverage, finalCoverage,
+              movement, http: await http.snapshot(requestMark), movementHttp,
+              tileRequests: requests.tileRequestPaths.length, servedTileBytes: requests.bytes,
+              duplicateTileRequests: requests.tileRequestPaths.length - new Set(requests.tileRequestPaths).size,
+              longTasks, pixels, errors: errors.slice(errorMark), sourceHashesBefore, sourceHashesAfter,
+              checkout: sourceHashesBefore.fingerprint === referenceSources.fingerprint
+                && sourceHashesAfter.fingerprint === referenceSources.fingerprint ? "pair-stable" : "mixed-checkout" });
+            // Worker 비정상 종료는 finally를 실행하지 않는다. 완료한 cycle은 즉시 보존한다.
+            await persistEvidence();
+            console.log("U1 baseline", JSON.stringify({ artifact: index + 1, pair, temperature, coverageReadyMs,
+              frameP95Ms: movement.frames.p95Ms, frames: movement.frames.count,
+              complete: entryCoverage.complete && finalCoverage.complete,
+              tileRequests: requests.tileRequestPaths.length, servedTileBytes: requests.bytes }));
+            expect.soft(entryCoverage.complete, "전체 가시 타일을 표시한 진입만 완료로 기록").toBe(true);
+            expect.soft(finalCoverage.complete, "카메라 왕복 후 가시 타일 누락 없음").toBe(true);
+            expect.soft(errors.slice(errorMark)).toEqual([]);
+            expect.soft(requests.mutations).toEqual([]);
+          }
+        } finally { await context.close(); }
+      } catch (error) {
+        failure = String(error);
+        throw error;
+      } finally {
+        await persistEvidence();
+        await testInfo.attach("u1-baseline.json", { path: evidencePath, contentType: "application/json" });
+      }
+      expect(rows).toHaveLength(2);
+
+      async function persistEvidence() {
+        const summaries = ["cold", "warm"].map(temperature => {
+          const matching = rows.filter(row => row.temperature === temperature);
+          const entries = summarizeControlledEntryTimes(matching.map(row => ({ durationMs: row.coverageReadyMs,
+            sourceFingerprintBefore: row.sourceHashesBefore.fingerprint,
+            sourceFingerprintAfter: row.sourceHashesAfter.fingerprint
+          })), referenceSources.fingerprint);
+          return { temperature, ...entries,
+            // pair별 기록은 전체 5회 증거가 아니다. U14는 동일 hash의 5개 파일만 합산한다.
+            entryP95Ms: entries.p95Ms,
+            targets: { warmEntryMs: 3000, frameMs: 16.7, desktopFrameCeilingMs: 33 },
+            warmEntryTargetMet: temperature === "warm" && entries.p95Ms !== null ? entries.p95Ms <= 3000 : null
+          };
+        });
+        await writeFile(evidencePath, JSON.stringify({ schemaVersion: 2, recordedAt: new Date().toISOString(), referenceSources,
+          sourceRevision: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
+          environment: { browser: browser.version(), platform: platform(), release: release(), cpu: cpus()[0]?.model,
+            viewport, deviceScaleFactor: 1, server: "Vite development", workers: 1 },
+          artifact: { directory, manifestSha256: artifact.manifest.sha256, sceneId: artifact.manifest.sceneId,
+            primitives: artifact.manifest.primitiveCount, tileParts: artifact.manifest.tileCount,
+            width: artifact.manifest.width, height: artifact.manifest.height },
+          method: {
+            cold: "각 pair의 새 browser context 첫 진입. 서버/OS 파일 캐시와 Vite 변환 캐시는 초기화하지 않음",
+            warm: "같은 context의 즉시 reload. JS/renderer는 새로 생성. Playwright routing은 HTTP cache를 끄므로 HTTP-cache-warm 또는 resident-renderer 재진입의 증거가 아님",
+            readiness: "맵 맞춤 뒤 예상 가시 타일 전부 fetched + renderer active, 30초 관측 상한. 픽셀 증명 시간은 진입 시간에서 제외",
+            movement: "path v1, rAF 간격 120개 이상, 4회 확대 + 폭 15% 64단계 왕복 + 4회 축소. screenshot/coverage 대기는 프레임 표본에서 제외",
+            bytes: "Playwright Request.sizes의 응답 body/header와 fixture가 제공한 tile payload 바이트를 별도 기록. 실제 backend/압축/네트워크 전송 성능 아님",
+            memory: "renderer aggregate는 소프트웨어 예산 회계이며 실제 GPU allocation이 아님"
+          },
+          missingEvidence: ["실제 backend 진입/저장", "HTTP-cache-warm 및 resident-renderer 진입", "실제 iOS/Android WebView",
+            "1,000개 조명 + 300,000개 별도 합성 도형", "선택 지연 p95", "실제 GPU 메모리", "독점 기기 부하 통제"],
+          summaries, rows, failure, pair, expectedPairs: 5
+        }, null, 2));
+      }
+    });
+  }
+}
+
+async function measureCoverage(page: Page, artifact: Awaited<ReturnType<typeof loadArtifact>>,
+  requests: Awaited<ReturnType<typeof installArtifactRoutes>>) {
+  const camera = await currentCamera(page, "editor", artifact.manifest);
+  const cells = new Set(computeVisibleTileCoordinates(artifact.manifest, camera, 1).map(cell => `${cell.tileX}:${cell.tileY}`));
+  const lods = selectCadSceneLods(camera.zoom, "display");
+  const expected = artifact.manifest.tiles.filter(tile => lods.includes(tile.lod) && cells.has(`${tile.tileX}:${tile.tileY}`));
+  const rendering = await rendererSnapshot(page);
+  const rendered = new Set(rendering?.activeTileKeys ?? []);
+  const loaded = new Set([...requests.loaded.values()].map(tile => tile.assetId));
+  const missingLoaded = expected.filter(tile => !loaded.has(tile.assetId)).map(tile => tile.assetId);
+  const missingRendered = expected.filter(tile => !rendered.has(`${tile.sceneId}:${tile.lod}:${tile.tileX}:${tile.tileY}:${tile.part}`))
+    .map(tile => tile.assetId);
+  return { camera, expected: expected.length, missingLoaded, missingRendered, rendering,
+    complete: expected.length > 0 && rendering !== null && !missingLoaded.length && !missingRendered.length && requests.active === 0 };
+}
+
+async function waitForCoverage(page: Page, artifact: Awaited<ReturnType<typeof loadArtifact>>,
+  requests: Awaited<ReturnType<typeof installArtifactRoutes>>) {
+  let coverage = await measureCoverage(page, artifact, requests);
+  const deadline = performance.now() + 30_000;
+  while (!coverage.complete && performance.now() < deadline) {
+    await page.waitForTimeout(100);
+    coverage = await measureCoverage(page, artifact, requests);
+  }
+  return coverage;
 }
 
 test("provided CAD native line edit persists through route-fixture reload", async ({ page }, testInfo) => {
@@ -396,6 +560,7 @@ async function installArtifactRoutes(page: Page, artifact: Awaited<ReturnType<ty
   let revision = 7;
   const overrides: CadElementOverride[] = [];
   const requests = { loaded: new Map<string, typeof manifest.tiles[number]>(), bytes: 0, active: 0, lastTileAt: 0,
+    tileRequestPaths: [] as string[],
     mutations: [] as string[], cadEdits: [] as CadSceneEditInput[] };
   await page.route("**/api/**", async route => {
     const request = route.request();
@@ -423,6 +588,7 @@ async function installArtifactRoutes(page: Page, artifact: Awaited<ReturnType<ty
     if (path === "/floors/floor-1/import-jobs/applied-overlay") return route.fulfill({ json: { overlay: null } });
     const tile = tiles.get(path);
     if (tile) {
+      requests.tileRequestPaths.push(path);
       requests.active++;
       try {
         const bytes = await readFile(resolve(directory, `${tile.assetId}.bin`));

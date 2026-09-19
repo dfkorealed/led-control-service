@@ -1,5 +1,8 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import type { FloorEditorState } from "../src/features/floor-editor/editor-types";
+import { captureProductSourceHashes, installPerformanceProbe, runEditorCameraPath } from "./support/map-performance";
 import {
   expectMinimumTouchTargets,
   expectMinimumTouchTargetsAfterScrolling,
@@ -35,6 +38,26 @@ test.beforeEach(async ({ page }) => {
   await mockEditorApi(page);
 });
 
+test("performance harness samples actual camera movement without editing map data", async ({ page }, testInfo) => {
+  await installPerformanceProbe(page);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/settings/floor-plans/floor-b2/edit?siteId=site-2");
+  const canvas = page.getByTestId("floor-editor-canvas");
+  await expect(canvas).toBeVisible();
+  const before = await canvas.getAttribute("data-zoom");
+  const result = await runEditorCameraPath(page);
+  expect(result.frames.count).toBeGreaterThanOrEqual(120);
+  expect(result.frames.p95Ms).toBeGreaterThan(0);
+  expect(result.checkpoints[0].zoom).toBeGreaterThan(Number(before));
+  expect(result.checkpoints[1].panX).toBeGreaterThan(result.checkpoints[0].panX);
+  expect(result.checkpoints[2].panX).toBeCloseTo(result.checkpoints[0].panX, 0);
+  expect(result.checkpoints[3].zoom).toBeCloseTo(Number(before), 2);
+  expect(result.longTasks).not.toBeNull();
+  await testInfo.attach("camera-performance.json", {
+    body: JSON.stringify(result, null, 2), contentType: "application/json"
+  });
+});
+
 for (const viewport of [
   { name: "desktop", width: 1440, height: 900 },
   { name: "tablet", width: 1024, height: 768 },
@@ -44,33 +67,66 @@ for (const viewport of [
   test(`floor editor remains usable on ${viewport.name}`, async ({ page }, testInfo) => {
     await page.setViewportSize(viewport);
     await page.goto("/settings/floor-plans/floor-b2/edit?siteId=site-2");
+    const sourceHashesBefore = await captureProductSourceHashes();
+    const narrow = viewport.width < 1280;
+    const toolsToggle = page.getByRole("button", { name: "도구 및 조명 패널" });
+    const informationToggle = page.getByRole("button", { name: "편집 정보 패널" });
 
     await expect(page.getByRole("heading", { name: "B2 맵 편집" })).toBeVisible();
+    if (narrow) await toolsToggle.click();
     await expect(page.getByRole("toolbar", { name: "맵 편집 도구" })).toBeVisible();
     await expect(page.getByLabel("B2 편집 캔버스")).toBeVisible();
+    if (narrow) {
+      await toolsToggle.click();
+      await informationToggle.click();
+    }
     await expect(page.getByRole("complementary", { name: "맵 편집 정보" })).toBeVisible();
     await expect(page.getByRole("complementary", { name: "속성 패널" })).toBeVisible();
     await expect(page.getByRole("region", { name: "맵 버전" })).toBeVisible();
 
-    const layout = await page.evaluate(() => ({
-      viewportWidth: window.innerWidth,
-      bodyWidth: document.body.scrollWidth,
-      shellWidth: document.querySelector<HTMLElement>('[data-testid="floor-editor-layout"]')?.parentElement?.getBoundingClientRect().width ?? 0
-    }));
+    const layout = await page.evaluate(() => {
+      const bounds = (selector: string) => {
+        const box = document.querySelector(selector)?.getBoundingClientRect();
+        return box ? { x: box.x, y: box.y, width: box.width, height: box.height, bottom: box.bottom, right: box.right } : null;
+      };
+      return {
+        viewportWidth: window.innerWidth, viewportHeight: window.innerHeight,
+        bodyWidth: document.body.scrollWidth, bodyHeight: document.body.scrollHeight,
+        documentHeight: document.documentElement.scrollHeight,
+        verticalOverflowPx: Math.max(0, document.documentElement.scrollHeight - window.innerHeight),
+        shellWidth: document.querySelector<HTMLElement>('[data-testid="floor-editor-layout"]')?.parentElement?.getBoundingClientRect().width ?? 0,
+        canvas: bounds('[data-testid="floor-editor-canvas"]'),
+        toolbar: bounds('[aria-label="맵 편집 도구"]'),
+        information: bounds('[aria-label="맵 편집 정보"]'),
+        properties: bounds('[aria-label="속성 패널"]')
+      };
+    });
+    const evidenceDirectory = resolve(import.meta.dirname, "../../../.local/cad-native-qa");
+    await mkdir(evidenceDirectory, { recursive: true });
+    const layoutPath = resolve(evidenceDirectory, `u1-layout-${viewport.width}.json`);
+    await writeFile(layoutPath, JSON.stringify({ viewport, layout, sourceHashesBefore,
+      sourceHashesAfter: await captureProductSourceHashes(),
+      scope: "기존 이미지 fixture 편집기 관측. 좁은 화면은 정보 패널을 명시적으로 연 상태. U12 이후 측정이며 U1 개선/변경 전 기준선이 아님"
+    }, null, 2));
+    await testInfo.attach(`layout-${viewport.width}`, { path: layoutPath, contentType: "application/json" });
     expect(layout.bodyWidth).toBeLessThanOrEqual(layout.viewportWidth);
     expect(layout.shellWidth).toBeGreaterThan(viewport.width < 500 ? viewport.width - 40 : 800);
     await expectNoHorizontalOverflow(page);
     if (viewport.width <= 760) {
+      await informationToggle.click();
+      await toolsToggle.click();
       await page.getByRole("toolbar", { name: "맵 편집 도구" }).scrollIntoViewIfNeeded();
       await expectMinimumTouchTargets(page, '[aria-label="맵 편집 도구"]');
-      await expectMinimumTouchTargets(page, '[data-field]:has(input[type="checkbox"])');
+      await expectMinimumTouchTargetsAfterScrolling(page, '[data-field]:has(input[type="checkbox"])');
+      await toolsToggle.click();
       await page.evaluate(() => window.scrollTo(0, 0));
       await expectMinimumTouchTargets(page, '[data-shell-navigation="compact"]');
       await expectMinimumTouchTargetsAfterScrolling(page, '[aria-label="설정 메뉴"]');
+      await informationToggle.click();
     }
     await expectMinimumTouchTargetsAfterScrolling(page, '[data-testid="editor-revision-list"]');
     if (viewport.width <= 760) await expectMinimumTouchTargetsAfterScrolling(page, "[data-app-shell]");
-    const path = testInfo.outputPath(`editor-panels-${viewport.width}.png`);
+    const path = resolve(evidenceDirectory, `u1-editor-panels-${viewport.width}.png`);
     await page.screenshot({ path, fullPage: true });
     await testInfo.attach(`editor-panels-${viewport.width}`, { path, contentType: "image/png" });
   });
