@@ -2,7 +2,7 @@ import { create } from "zustand";
 import type { EDITOR_MAX_NAME_LENGTH, MapDocumentRef, MapElement, MapGroup, MapLayer, MapOp, SaveEditorStateInput } from "@led-control/shared";
 import { MAP_MUTATION_MAX_BYTES, MAP_MUTATION_MAX_OPERATIONS, mapDocumentRefSchema } from "@led-control/shared/map-document-contracts";
 import { saveFloorEditorState } from "../../api/floor-editor";
-import { mapStageClient, type MapStageClient, type MapStageProgress, type PreparedMapStage } from "../../api/map-stages";
+import { mapStageClient, type MapStage, type MapStageClient, type MapStageProgress, type PreparedMapStage } from "../../api/map-stages";
 import { CommonMapStore, MapEditorError, mapOperationKey, parseCommonMapDraft, type CommonMapDraft, type MapEditorScope, type MapSelection } from "./common-map-store";
 import { applyEditorDraftChanges } from "./editor-drafts";
 import type { MapElementHistory } from "./map-element-history";
@@ -175,6 +175,54 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
     return { isDirty: hasEditorChanges(changes) || common.isDirty || staged !== null || streamAttempt !== null, dirtyFixtureIds: changes.fixtureUpdates.map((f) => f.id), dirtyObjectIds: [...changes.objectUpdates.map((o) => o.id), ...changes.objectDeletes, ...state.objects.filter((o) => o.id.startsWith("draft-")).map((o) => o.id)] };
   };
   const snapshot = (): HistoryEntry => ({ state: get().state!, selection: get().selection, selectedFixtureIds: get().selectedFixtureIds, mapSelection: get().mapSelection });
+  const restoreTimelineCursors = (past: HistoryEntry[], future: HistoryEntry[]) => {
+    // Each outer frame owns one command capsule. Preview branches share those
+    // capsules, so array restoration must also restore their applied/undone side.
+    // Only touched command ops are read; canonical map data is never cloned.
+    for (const entry of past) if (entry.mapCommand?.history.canRedo) entry.mapCommand.history.redo();
+    for (const entry of future) if (entry.mapCommand?.history.canUndo) entry.mapCommand.history.undo();
+  };
+  const stageResult = (receipt: MapStage, capture: StageCapture): FloorEditorState => {
+    const { handle, payload } = capture;
+    if (receipt.id !== handle.id || receipt.baseRevision !== payload.expectedRevision || receipt.generationId !== payload.documentChanges!.generationId
+      || receipt.status !== "committed" || !receipt.result || receipt.result.history?.undo.revision !== payload.expectedRevision
+      || receipt.result.history?.redo.revision !== payload.expectedRevision + 1
+      || handle.preview && receipt.result.floor.mapDocument?.generationId !== handle.preview.generationId) throw new MapEditorError("MAP_SAVE_RESPONSE_INVALID", "저장 응답을 확인할 수 없습니다.");
+    return receipt.result;
+  };
+  const acknowledgeSave = (saved: FloorEditorState, captured: FloorEditorState, payload: SaveEditorStateInput, scope: MapEditorScope | null) => {
+    const document = saved.floor.mapDocument;
+    if (saved.floor.id !== captured.floor.id || saved.floor.siteId !== captured.floor.siteId
+      || saved.floor.mapRevision !== payload.expectedRevision + 1
+      || scope && (!document || document.revision !== saved.floor.mapRevision || saved.objects.length)) {
+      throw new MapEditorError("MAP_SAVE_RESPONSE_INVALID", "저장 응답을 확인할 수 없습니다. 편집 내용을 유지합니다.");
+    }
+    if (document) mapDocumentRefSchema.parse(document);
+    const current = get().state!;
+    const changesAfterRequest = buildEditorChanges(captured, current);
+    const fixturePatches = new Map(changesAfterRequest.fixtureUpdates.map(({ id, ...patch }) => [id, patch]));
+    const slotPatches = new Map(changesAfterRequest.slotAssignments.map((item) => [item.slotId, item.assignedFixtureId]));
+    const next: FloorEditorState = { ...saved,
+      floor: { ...saved.floor, floorPlan: changesAfterRequest.floorPlan === undefined ? saved.floor.floorPlan : editorFloorPlan(current) },
+      fixtures: saved.fixtures.map((fixture) => {
+        const patch = fixturePatches.get(fixture.id);
+        if (!patch) return fixture;
+        const next = { ...fixture, ...patch };
+        if (next.x !== fixture.x || next.y !== fixture.y || next.placementStatus === "unplaced" || patch.positionVerified === false) {
+          next.positionVerifiedAt = null;
+          next.positionVerified = false;
+        }
+        return next;
+      }),
+      lightSlots: saved.lightSlots.map((slot) => slotPatches.has(slot.id) ? { ...slot, assignedFixtureId: slotPatches.get(slot.id)! } : slot),
+      objects: current.objects === captured.objects ? saved.objects : current.objects
+    };
+    if (!staged) common.acknowledge(payload.documentChanges?.operations ?? []);
+    staged = null; savingStage = null; retry = null;
+    set({ initialState: saved, state: next, pendingMapStage: null, stageProgress: null,
+      mapScope: scope ? { ...scope, generationId: document!.generationId, baseRevision: saved.floor.mapRevision } : null });
+    set({ ...dirty(next), ...common.view() });
+  };
   const commit = (state: FloorEditorState, extra: Partial<EditorStore> = {}, mapCommand?: MapCommand) => {
     assertEditable();
     if (batch) { batch = { state, extra: { ...batch.extra, ...extra } }; return; }
@@ -246,7 +294,7 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
       const fingerprint = JSON.stringify({ ...transaction, operations: undefined, ...lease });
       const attempt = streamAttempt?.transaction.operations === transaction.operations && streamAttempt.captured === get().state
         && streamAttempt.fingerprint === fingerprint ? streamAttempt : null;
-      if (get().isSaving || preparingStage || staged || get().isDirty && !attempt) throw new MapEditorError("MAP_STAGE_BASE_DIRTY", "기존 편집을 저장하거나 취소한 뒤 대량 편집을 시작해주세요.");
+      if (get().isSaving || preparingStage || staged || savingStage || get().isDirty && !attempt) throw new MapEditorError("MAP_STAGE_BASE_DIRTY", "기존 편집을 저장하거나 취소한 뒤 대량 편집을 시작해주세요.");
       if (!attempt) {
         const before = snapshot(), past = get().past, future = get().future, source = common;
         get().applyMapTransaction({ ...transaction, operations: [] });
@@ -279,7 +327,7 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
     prepareHistory: async (direction, lease, client = mapStageClient) => {
       const scope = get().mapScope, entry = (direction === "undo" ? get().past : get().future).at(-1);
       if (!scope || !entry?.external) throw new MapEditorError("MAP_EXTERNAL_HISTORY_REQUIRED", "대량 편집 이력이 없습니다.");
-      if (get().isDirty || get().isSaving || preparingStage || staged) throw new MapEditorError("MAP_STAGE_BASE_DIRTY", "현재 편집을 저장하거나 취소해주세요.");
+      if (get().isDirty || get().isSaving || preparingStage || staged || savingStage) throw new MapEditorError("MAP_STAGE_BASE_DIRTY", "현재 편집을 저장하거나 취소해주세요.");
       const before = snapshot(), past = get().past, future = get().future, source = common, capturedEpoch = epoch, capturedRun = ++stageRun;
       historyAttempt = { before, past, future, source };
       const payload = get().prepareSave(lease).payload;
@@ -308,10 +356,11 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
     },
     cancelMapStage: async (lease, client = mapStageClient) => {
       if (get().isSaving) throw new MapEditorError("MAP_SAVE_IN_PROGRESS", "저장 결과를 확인한 뒤 취소해주세요.");
-      const pending = staged, attempt = streamAttempt ?? historyAttempt, scope = staged?.scope ?? get().mapScope, capturedEpoch = epoch;
-      const id = pending?.handle.id ?? get().stageProgress?.stageId;
+      const pending = staged, automatic = savingStage, attempt = streamAttempt ?? historyAttempt, scope = staged?.scope ?? get().mapScope, capturedEpoch = epoch;
+      const capture = pending ?? automatic;
+      const id = capture?.handle.id ?? get().stageProgress?.stageId;
       stageRun++; stageAbort.abort(); stageAbort = new AbortController();
-      if (!scope || !id || !pending && !attempt) {
+      if (!scope || !id || !capture && !attempt) {
         // An aborted create may still have reached the server. Without its ID
         // we cannot assert cancellation; its receipt/TTL must resolve it.
         preparingStage = false; set({ isPreparingMapStage: false });
@@ -321,23 +370,39 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
       try {
         const result = await client.cancel(scope.floorId, id, lease);
         if (epoch !== capturedEpoch) return "stale";
-        if (result.status === "committed" && pending) {
-          preparingStage = false; set({ isPreparingMapStage: false });
-          await get().saveChanges(lease, undefined, client); return "committed";
+        if (result.status === "committed" && capture) {
+          // Reconcile the observed receipt, never submit a new commit during
+          // cancellation. The same ACK path preserves post-capture local edits.
+          acknowledgeSave(stageResult(result, capture), capture.captured, capture.payload, scope);
+          retain([...get().past, ...get().future]);
+          set(common.view());
+          return "committed";
         }
         if (result.status !== "cancelled" && result.status !== "expired") throw new MapEditorError("MAP_STAGE_CANCEL_UNCONFIRMED", "취소 여부를 확인하지 못했습니다. 편집을 유지합니다.");
+        if (automatic && !pending) {
+          // An automatic Save captures an existing local draft, not a preview
+          // branch. Cancel only its confirmed server intent, keeping that draft.
+          savingStage = null; retry = null;
+          retain([...get().past, ...get().future]);
+          set({ stageProgress: null, ...common.view(), ...dirty(get().state!) });
+          return "cancelled";
+        }
         // Explicit cancel discards the preview and its dependent local edits.
         const previous = pending ?? attempt!;
+        restoreTimelineCursors(previous.past, previous.future);
         common = previous.source; staged = null; streamAttempt = null; historyAttempt = null; retry = null;
         set({ state: previous.before.state, past: previous.past, future: previous.future, mapScope: scope,
           pendingMapStage: null, stageProgress: null, ...common.view(), ...dirty(previous.before.state) });
         return "cancelled";
+      } catch (error) {
+        if (epoch !== capturedEpoch) return "stale";
+        throw error;
       } finally { if (epoch === capturedEpoch) { preparingStage = false; set({ isPreparingMapStage: false }); } }
     },
     recoverStageDraft: async (recovered, lease, client = mapStageClient) => {
       const scope = get().mapScope, baseline = get().initialState, capturedEpoch = epoch;
       const draft = parseCommonMapDraft(recovered.commonMapDraft);
-      if (!scope || !baseline || !draft.stage || get().isDirty || get().isSaving || preparingStage
+      if (!scope || !baseline || !draft.stage || get().isDirty || get().isSaving || preparingStage || savingStage
         || Object.entries(draft.scope).some(([key, value]) => scope[key as keyof MapEditorScope] !== value)) throw new MapEditorError("MAP_DRAFT_STALE", "대량 편집 초안의 층과 권한을 확인해주세요.");
       const captured = applyEditorDraftChanges(baseline, draft.stage.capturedChanges);
       const restored = applyEditorDraftChanges(baseline, buildEditorChanges(baseline, recovered));
@@ -464,45 +529,10 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
           }
           const receipt = await stageClient.commit(captured.floor.id, capture.handle, options);
           if (scopeEpoch !== epoch) return "stale";
-          if (receipt.id !== capture.handle.id || receipt.baseRevision !== prepared.payload.expectedRevision || receipt.generationId !== prepared.payload.documentChanges!.generationId
-            || receipt.status !== "committed" || !receipt.result || receipt.result.history?.undo.revision !== prepared.payload.expectedRevision
-            || receipt.result.history?.redo.revision !== prepared.payload.expectedRevision + 1
-            || capture.handle.preview && receipt.result.floor.mapDocument?.generationId !== capture.handle.preview.generationId) throw new MapEditorError("MAP_SAVE_RESPONSE_INVALID", "저장 응답을 확인할 수 없습니다.");
-          saved = receipt.result;
+          saved = stageResult(receipt, capture);
         } else saved = await transport(captured.floor.id, structuredClone(prepared.payload));
         if (scopeEpoch !== epoch) return "stale";
-        const document = saved.floor.mapDocument;
-        if (saved.floor.id !== captured.floor.id || saved.floor.siteId !== captured.floor.siteId
-          || saved.floor.mapRevision !== prepared.payload.expectedRevision + 1
-          || scope && (!document || document.revision !== saved.floor.mapRevision || saved.objects.length)) {
-          throw new MapEditorError("MAP_SAVE_RESPONSE_INVALID", "저장 응답을 확인할 수 없습니다. 편집 내용을 유지합니다.");
-        }
-        if (document) mapDocumentRefSchema.parse(document);
-        const current = get().state!;
-        const changesAfterRequest = buildEditorChanges(captured, current);
-        const fixturePatches = new Map(changesAfterRequest.fixtureUpdates.map(({ id, ...patch }) => [id, patch]));
-        const slotPatches = new Map(changesAfterRequest.slotAssignments.map((item) => [item.slotId, item.assignedFixtureId]));
-        const next: FloorEditorState = { ...saved,
-          floor: { ...saved.floor, floorPlan: changesAfterRequest.floorPlan === undefined ? saved.floor.floorPlan : current.floor.floorPlan },
-          fixtures: saved.fixtures.map((fixture) => {
-            const patch = fixturePatches.get(fixture.id);
-            if (!patch) return fixture;
-            const next = { ...fixture, ...patch };
-            if (next.x !== fixture.x || next.y !== fixture.y || next.placementStatus === "unplaced" || patch.positionVerified === false) {
-              next.positionVerifiedAt = null;
-              next.positionVerified = false;
-            }
-            return next;
-          }),
-          lightSlots: saved.lightSlots.map((slot) => slotPatches.has(slot.id) ? { ...slot, assignedFixtureId: slotPatches.get(slot.id)! } : slot),
-          objects: current.objects === captured.objects ? saved.objects : current.objects
-        };
-        if (!staged) common.acknowledge(prepared.payload.documentChanges?.operations ?? []);
-        staged = null; savingStage = null;
-        retry = null;
-        set({ initialState: saved, state: next, pendingMapStage: null, stageProgress: null,
-          mapScope: scope ? { ...scope, generationId: document!.generationId, baseRevision: saved.floor.mapRevision } : null });
-        set({ ...dirty(next), ...common.view() });
+        acknowledgeSave(saved, captured, prepared.payload, scope);
         return "saved";
       } catch (error) {
         if (scopeEpoch !== epoch) return "stale";
