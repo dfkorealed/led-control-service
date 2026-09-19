@@ -192,6 +192,42 @@ const url = process.env.U6B_TEST_DATABASE_URL;
       operations: [{ kind: "add", element: element("after-restore") }] } })).status).toBe(200);
   });
 
+  it("resets ready history previews and pins before generations, fencing a late prepared stage worker", async () => {
+    const historicalRevision = ref.revision;
+    expect((await http("PUT", "editor-state", { ...input(), documentChanges: { ...input().documentChanges,
+      operations: [{ kind: "add", element: element("before-reset") }] } })).status).toBe(200);
+    ref = (await data.currentRef(floorId))!;
+    const response = await http("POST", "editor-stages", { ...input(), historySource: { revision: historicalRevision } });
+    const history = await response.json() as { id: string };
+    expect((await http("POST", `editor-stages/${history.id}/prepare`, lease)).status).toBe(202);
+    const ready = await finish(history.id); expect(ready.status).toBe("ready");
+    expect(await prisma.floorMapRevisionAsset.count({ where: { floorId } })).toBeGreaterThan(0);
+    const pending = await upload([{ kind: "add", element: element("late-worker") }]);
+    let resume!: () => void, reached!: () => void;
+    const paused = new Promise<void>(resolve => { reached = resolve; });
+    const gate = new Promise<void>(resolve => { resume = resolve; });
+    const prepare = checkpoints.prepare.bind(checkpoints);
+    const spy = jest.spyOn(checkpoints, "prepare").mockImplementationOnce(async (...args) => {
+      const prepared = await prepare(...args); reached(); await gate; return prepared;
+    });
+    let worker: Promise<void> | undefined;
+    try {
+      expect((await http("POST", `editor-stages/${pending.stage.id}/commit`, pending.intent)).status).toBe(202);
+      worker = staging.processPending(); await paused;
+      const resetRef = await reset.reset(floorId, user, { ...lease, requestId: randomUUID(), baseRevision: ref.revision });
+      resume(); await worker;
+      expect(await data.currentRef(floorId)).toEqual(resetRef);
+      expect(resetRef.elementCount).toBe(0);
+      expect(await prisma.floorMapStage.count({ where: { floorId } })).toBe(0);
+      expect(await prisma.floorMapStagePart.count({ where: { floorId } })).toBe(0);
+      expect(await prisma.floorMapGeneration.findMany({ where: { floorId }, select: { id: true } })).toEqual([{ id: resetRef.generationId }]);
+      expect(await prisma.floorMapRevision.count({ where: { floorId } })).toBe(1);
+      expect(await prisma.floorMapRevisionAsset.count({ where: { floorId, generationId: { not: resetRef.generationId } } })).toBe(0);
+      await expect(staging.resolvePreview(floorId, history.id, user)).rejects.toThrow();
+      expect((await http("POST", `editor-stages/${pending.stage.id}/commit`, pending.intent)).status).toBe(404);
+    } finally { resume(); await worker; spy.mockRestore(); }
+  });
+
   it("compacts at cumulative persisted overlay and change-count thresholds, not on every edit", async () => {
     const initialGeneration = ref.generationId;
     const first = { ...input(), documentChanges: { ...input().documentChanges,
