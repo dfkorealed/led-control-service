@@ -9,6 +9,7 @@ import {
   type CadSceneCamera
 } from "./cad-scene-camera";
 import { CadSceneTileCache } from "./cad-scene-tile-cache";
+import { CadSceneMemoryBudget } from "./cad-scene-memory-budget";
 import { cadSceneCodecGolden } from "./cad-scene-codec.golden";
 import {
   buildCadGeometryBatches,
@@ -922,6 +923,35 @@ describe("CadSceneRenderer", () => {
     expect(backend.destroyCalls).toBe(1);
     expect(worker.destroy).toHaveBeenCalledTimes(1);
     expect(() => canvas.dispatchEvent(new Event("webglcontextrestored"))).not.toThrow();
+  });
+
+  it("accounts decoded and active GPU memory in one shared budget and releases it on destroy", async () => {
+    const primitive = linePrimitive();
+    const payload = encodeLineTile(primitive);
+    const tile = withIntegrity(descriptor(), payload);
+    const decoded: DecodedCadSceneTile = {
+      ...buildCadGeometryBatches([primitive]),
+      descriptor: tile,
+      byteSize: payload.byteLength
+    };
+    const maximumBytes = decoded.memory.cpuBytes + decoded.memory.gpuBytes + decoded.memory.textAtlasBytes;
+    const budget = new CadSceneMemoryBudget(maximumBytes);
+    const backend = new FakeBackend();
+    const renderer = new CadSceneRenderer({
+      manifest: manifest([tile]),
+      loadTile: async () => payload,
+      worker: { decode: async () => decoded, destroy: () => undefined },
+      backendFactory: () => backend,
+      memoryBudget: budget
+    });
+    await renderer.mount(document.createElement("canvas"));
+
+    await renderer.setCamera(camera());
+
+    expect(backend.meshCount).toBe(1);
+    expect(budget.totalBytes).toBe(maximumBytes);
+    renderer.destroy();
+    expect(budget.totalBytes).toBe(0);
   });
 
   it("destroys the suspended backend when disposed during context loss", async () => {
