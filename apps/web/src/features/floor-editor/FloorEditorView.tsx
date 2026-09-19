@@ -1,11 +1,11 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { CadElementOverridePatch } from "@led-control/shared";
-import { CircleCheck, Hand, Minus, MousePointer2, RotateCcw, Save, Square, Triangle, TriangleAlert, Type, Undo2, Redo2, ZoomIn, ZoomOut, Maximize, Focus } from "lucide-react";
+import { CircleCheck, Hand, Minus, MousePointer2, PanelLeft, PanelRight, RotateCcw, Save, Square, Triangle, TriangleAlert, Type, Undo2, Redo2, ZoomIn, ZoomOut, Maximize, Focus, X } from "lucide-react";
 import { type DragEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { AuthUser } from "../../api/auth";
 import { ApiError } from "../../api/client";
-import { Button, Checkbox, ConfirmDialog, FeedbackState, Heading, IconButton, PageHeader, SelectBox, SidePanel, Text } from "../../components/ui";
+import { Button, Checkbox, ConfirmDialog, FeedbackState, Heading, IconButton, IconTooltipButton, SelectBox, SidePanel, Text } from "../../components/ui";
 import {
   listFloorEditorRevisions,
   getAppliedFloorImportOverlay,
@@ -73,6 +73,35 @@ export function FloorEditorView({
   const queryClient = useQueryClient();
   const { initialState: baseline, state, isDirty, activeTool, zoom, initialize, adoptBaseline, setActiveTool, setZoom, resetZoom, past, future, snap, selection, cadSelection, selectedFixtureIds } = useFloorEditorStore(useShallow((s) => ({ initialState: s.initialState, state: s.state, isDirty: s.isDirty, activeTool: s.activeTool, zoom: s.zoom, initialize: s.initialize, adoptBaseline: s.adoptBaseline, setActiveTool: s.setActiveTool, setZoom: s.setZoom, resetZoom: s.resetZoom, past: s.past, future: s.future, snap: s.snap, selection: s.selection, cadSelection: s.cadSelection, selectedFixtureIds: s.selectedFixtureIds })));
   const [panelTab, setPanelTab] = useState("properties");
+  const [isNarrowLayout, setIsNarrowLayout] = useState(() => window.matchMedia?.("(max-width: 1279px)").matches ?? false);
+  const [openPanel, setOpenPanel] = useState<"tools" | "information" | null>(null);
+  const [collapsedPanels, setCollapsedPanels] = useState({ tools: false, information: false });
+  const toolsToggle = useRef<HTMLButtonElement>(null);
+  const informationToggle = useRef<HTMLButtonElement>(null);
+  const toolsPanel = useRef<HTMLDivElement>(null);
+  const informationPanel = useRef<HTMLElement>(null);
+  useEffect(() => {
+    // Non-visual hosts have no media queries; keep the complete panel layout.
+    const media = window.matchMedia?.("(max-width: 1279px)");
+    if (!media) return;
+    const update = () => { setIsNarrowLayout(media.matches); setOpenPanel(null); };
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+  const toolsVisible = isNarrowLayout ? openPanel === "tools" : !collapsedPanels.tools;
+  const informationVisible = isNarrowLayout ? openPanel === "information" : !collapsedPanels.information;
+  function togglePanel(panel: "tools" | "information") {
+    if (isNarrowLayout) setOpenPanel((current) => current === panel ? null : panel);
+    else setCollapsedPanels((current) => ({ ...current, [panel]: !current[panel] }));
+  }
+  function closePanel(panel: "tools" | "information") {
+    if (isNarrowLayout) setOpenPanel(null);
+    else setCollapsedPanels((current) => ({ ...current, [panel]: true }));
+    (panel === "tools" ? toolsToggle : informationToggle).current?.focus();
+  }
+  useEffect(() => {
+    if (openPanel) (openPanel === "tools" ? toolsPanel : informationPanel).current?.focus();
+  }, [openPanel]);
   const [recovery, setRecovery] = useState<FloorEditorState | null>(null);
   const [draftError, setDraftError] = useState(false);
   const userId = queryClient.getQueryData<{ user: AuthUser }>(authMeQueryKey)?.user.id;
@@ -389,41 +418,31 @@ export function FloorEditorView({
     : false;
 
   return (
-    <section className="grid min-w-0 gap-3.5">
-      <PageHeader
-        title={`${initialState.floor.name} 맵 편집`}
-        description={`리비전 ${baseline?.floor.mapRevision ?? initialState.floor.mapRevision}${isDirty ? " · 저장하지 않은 변경사항" : " · 저장됨"}`}
-        actions={(
-          <div className="flex flex-wrap items-center justify-end gap-2 max-compact:w-full max-compact:justify-start">
-            {floors && onFloorChange && <SelectBox label="층 선택" className="min-w-32" items={floors.map((floor) => ({ id: floor.id, label: floor.name }))} selectedKey={floorId} isDisabled={isMutationPending} onSelectionChange={(key) => { if (key && !mutationLock.current) onFloorChange(key); }} />}
-            <IconButton variant="ghost" className="max-compact:h-14 max-compact:min-h-14 max-compact:w-14 max-compact:min-w-14" aria-label="실행 취소" title="실행 취소" disabled={isSaveOrRestoreBlocked || !past.length} onClick={() => useFloorEditorStore.getState().undo()}><Undo2 size={18} /></IconButton>
-            <IconButton variant="ghost" className="max-compact:h-14 max-compact:min-h-14 max-compact:w-14 max-compact:min-w-14" aria-label="다시 실행" title="다시 실행" disabled={isSaveOrRestoreBlocked || !future.length} onClick={() => useFloorEditorStore.getState().redo()}><Redo2 size={18} /></IconButton>
-            <IconButton variant="ghost" className="max-compact:h-14 max-compact:min-h-14 max-compact:w-14 max-compact:min-w-14" aria-label="축소" onClick={() => setZoom(zoom / 1.1)}>
-              <ZoomOut size={18} aria-hidden="true" />
-            </IconButton>
-            <Button variant="secondary" className="min-w-16" aria-label="100%" title="100%" onClick={resetZoom}>{Math.round(zoom * 100)}%</Button>
-            <IconButton variant="ghost" className="max-compact:h-14 max-compact:min-h-14 max-compact:w-14 max-compact:min-w-14" aria-label="확대" onClick={() => setZoom(zoom * 1.1)}>
-              <ZoomIn size={18} aria-hidden="true" />
-            </IconButton>
-            <IconButton variant="ghost" className="max-compact:h-14 max-compact:min-h-14 max-compact:w-14 max-compact:min-w-14" aria-label="맵 맞춤" title="맵 맞춤" onClick={() => useFloorEditorStore.getState().fit(false, visibleCadViewport ?? undefined)}><Maximize size={18} /></IconButton>
-            <IconButton variant="ghost" className="max-compact:h-14 max-compact:min-h-14 max-compact:w-14 max-compact:min-w-14" aria-label="선택 맞춤" title="선택 맞춤" onClick={() => useFloorEditorStore.getState().fit(true)}><Focus size={18} /></IconButton>
-            <Button variant="secondary" onClick={onCancel}>
-              <Undo2 size={16} aria-hidden="true" />
-              취소
-            </Button>
-            <Button
-              variant="primary"
-              disabled={!isDirty || isSaveOrRestoreBlocked}
-              isLoading={saveStatus === "saving"}
-              loadingLabel="저장 중"
-              onClick={handleSave}
-            >
-              <Save size={16} aria-hidden="true" />
-              저장
-            </Button>
+    <section className="flex h-full min-h-0 min-w-0 flex-col gap-2 overflow-hidden">
+      <header className="shrink-0 [&_[role=tooltip]]:pointer-events-none" data-testid="editor-toolbar">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="min-w-0">
+            <Heading as="h2" variant="card-title" className="truncate">{initialState.floor.name} 맵 편집</Heading>
+            <Text variant="caption" tone="secondary">리비전 {baseline?.floor.mapRevision ?? initialState.floor.mapRevision}{isDirty ? " · 저장하지 않은 변경사항" : " · 저장됨"}</Text>
           </div>
-        )}
-      />
+          <div className="flex min-w-0 items-center gap-1">
+            {floors && onFloorChange && <SelectBox label="층 선택" className="w-32 min-w-0 [&>label]:sr-only" items={floors.map((floor) => ({ id: floor.id, label: floor.name }))} selectedKey={floorId} isDisabled={isMutationPending} onSelectionChange={(key) => { if (key && !mutationLock.current) onFloorChange(key); }} />}
+            <IconTooltipButton className="size-11" icon={X} label="취소" onClick={onCancel} />
+            <IconTooltipButton className="size-11 bg-action-primary text-content-inverse hover:bg-action-primary-hover" icon={Save} label="저장" disabled={!isDirty || isSaveOrRestoreBlocked} isLoading={saveStatus === "saving"} loadingLabel="저장 중" onClick={handleSave} />
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-1 border-b border-border-default py-1" role="toolbar" aria-label="맵 보기 도구">
+          <IconTooltipButton ref={toolsToggle} className="size-11" icon={PanelLeft} label="도구 및 조명 패널" aria-expanded={toolsVisible} aria-controls="editor-tools-panel" onClick={() => togglePanel("tools")} />
+          <IconTooltipButton className="size-11" icon={Undo2} label="실행 취소" disabled={isSaveOrRestoreBlocked || !past.length} onClick={() => useFloorEditorStore.getState().undo()} />
+          <IconTooltipButton className="size-11" icon={Redo2} label="다시 실행" disabled={isSaveOrRestoreBlocked || !future.length} onClick={() => useFloorEditorStore.getState().redo()} />
+          <IconTooltipButton className="size-11" icon={ZoomOut} label="축소" onClick={() => setZoom(zoom / 1.1)} />
+          <Button variant="secondary" className="h-11 w-16 shrink-0 px-1" aria-label="100%" title="100%" onClick={resetZoom}>{Math.round(zoom * 100)}%</Button>
+          <IconTooltipButton className="size-11" icon={ZoomIn} label="확대" onClick={() => setZoom(zoom * 1.1)} />
+          <IconTooltipButton className="size-11" icon={Maximize} label="맵 맞춤" onClick={() => useFloorEditorStore.getState().fit(false, visibleCadViewport ?? undefined)} />
+          <IconTooltipButton className="size-11" icon={Focus} label="선택 맞춤" onClick={() => useFloorEditorStore.getState().fit(true)} />
+          <IconTooltipButton ref={informationToggle} className="size-11" icon={PanelRight} label="편집 정보 패널" aria-expanded={informationVisible} aria-controls="editor-information-panel" onClick={() => togglePanel("information")} />
+        </div>
+      </header>
 
       {saveStatus === "error" ? (
         <FeedbackState tone="danger" icon={TriangleAlert} title="변경분을 저장하지 못했습니다." />
@@ -450,9 +469,11 @@ export function FloorEditorView({
         <FeedbackState tone="success" icon={CircleCheck} title={`현재 존재하지 않는 조명 ${skippedFixtureCount}개를 건너뛰었습니다.`} />
       ) : null}
 
-      <div className="grid h-[max(620px,calc(100vh-230px))] min-h-155 grid-cols-12 gap-3 max-compact:h-auto max-compact:min-h-0 max-compact:grid-cols-1" data-testid="floor-editor-layout">
-        <div className="col-span-3 flex min-h-0 min-w-0 flex-col border-r border-border-default bg-surface-panel max-compact:col-span-full max-compact:border-r-0 tablet:col-span-2"><FixturePlacementList readOnly={readOnly || isMutationPending} rowRegistry={rowRegistry} />
-        <aside className="grid grid-cols-4 content-start gap-2 p-2 max-compact:grid-cols-3" role="toolbar" aria-label="맵 편집 도구">
+      <div className="relative flex min-h-0 min-w-0 flex-1 gap-3 overflow-hidden" data-testid="floor-editor-layout">
+        {/* Keep panels mounted while collapsed: import jobs, form drafts and the
+            fixture drag registry must outlive a layout-only visibility change. */}
+        <div ref={toolsPanel} id="editor-tools-panel" tabIndex={-1} aria-label="도구 및 조명" onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); closePanel("tools"); } }} className={`${toolsVisible ? "flex" : "hidden"} ${isNarrowLayout ? "absolute inset-y-0 left-0 z-10 w-[min(280px,100%)] shadow-panel" : "w-60 shrink-0"} min-h-0 min-w-0 flex-col overflow-y-auto overscroll-contain border-r border-border-default bg-surface-panel [&>aside]:flex-none [&>aside:first-child]:h-112`}><FixturePlacementList readOnly={readOnly || isMutationPending} rowRegistry={rowRegistry} />
+        <aside className="order-first grid shrink-0 grid-cols-4 content-start gap-2 p-2 max-compact:grid-cols-3" role="toolbar" aria-label="맵 편집 도구">
           {tools.map((tool) => {
             const Icon = tool.icon;
             return (
@@ -465,7 +486,7 @@ export function FloorEditorView({
                 disabled={(readOnly && tool.key !== "pan" && tool.key !== "select")
                   || (isMutationPending && !(cadImportReview && (tool.key === "pan" || tool.key === "select")))}
                 draggable={!readOnly && !isMutationPending && tool.key !== "select" && tool.key !== "pan"}
-                onClick={() => setActiveTool(tool.key)}
+                onClick={() => { setActiveTool(tool.key); if (isNarrowLayout) closePanel("tools"); }}
                 onDragStart={(event) => handleToolDragStart(event, tool.key)}
               >
                 <Icon size={18} aria-hidden="true" />
@@ -473,7 +494,7 @@ export function FloorEditorView({
             );
           })}
         </aside><Checkbox className="m-2" label="격자 스냅" isSelected={snap} isDisabled={readOnly} onChange={(selected) => useFloorEditorStore.getState().setSnap(selected)} /></div>
-        <main className="col-span-6 grid min-w-0 overflow-hidden border border-border-default bg-surface-inset max-compact:col-span-full max-compact:h-120 tablet:col-span-7">
+        <main className="grid min-h-0 min-w-0 flex-1 overflow-hidden border border-border-default bg-surface-inset [&>div]:min-h-0">
           <FloorEditorCanvas
             readOnly={readOnly || isMutationPending}
             rowRegistry={rowRegistry}
@@ -497,7 +518,7 @@ export function FloorEditorView({
             cadEditDisabled={readOnly || isDirty || isMutationPending || isSelectedCadLayerLocked}
           />
         </main>
-        <SidePanel className="col-span-3 grid min-w-0 content-start gap-3 overflow-y-auto p-0 max-compact:col-span-full" aria-label="맵 편집 정보">
+        <SidePanel ref={informationPanel} id="editor-information-panel" tabIndex={-1} onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); closePanel("information"); } }} className={`${informationVisible ? "grid" : "hidden"} ${isNarrowLayout ? "absolute inset-y-0 right-0 z-10 w-[min(320px,100%)] shadow-panel" : "w-72 shrink-0"} min-h-0 min-w-0 content-start gap-3 overflow-y-auto rounded-none border-0 border-l border-border-default p-0`} aria-label="맵 편집 정보">
           <div className="grid grid-cols-3 gap-1 bg-surface-inset p-1" role="tablist" aria-label="편집 패널">{[["properties", "속성"], ["placement", "배치"], ["layers", "레이어"]].map(([value, label]) => <Button size="sm" variant={panelTab === value ? "primary" : "ghost"} role="tab" key={value} aria-selected={panelTab === value} onClick={() => setPanelTab(value)}>{label}</Button>)}</div>
           {panelTab === "properties" && (cadSelection
             ? <CadElementPropertiesPanel selection={cadSelection} readOnly={readOnly || isDirty || isSelectedCadLayerLocked} isSaving={isCadEditPending} onChange={(patch) => void handleCadOverride(patch)} />

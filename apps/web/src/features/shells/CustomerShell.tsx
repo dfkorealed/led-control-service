@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { Activity, BarChart3, CircleAlert, LoaderCircle, LogOut, MapPin, SlidersHorizontal } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
+import { matchPath, Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { logout, type AuthUser } from "../../api/auth";
 import { authMeQueryKey, clearTenantCache } from "../../api/principal-cache";
 import { useDashboard, type SiteCapabilities } from "../../api/queries";
@@ -67,6 +67,7 @@ function PrimaryNavigation({ capabilities, search }: { capabilities: SiteCapabil
 export function CustomerShell({ user }: { user: AuthUser }) {
   const location = useLocation();
   const [isCompactNavigation, setIsCompactNavigation] = useState(() => window.matchMedia(compactNavigationQuery).matches);
+  const isEditorRoute = Boolean(matchPath("/settings/floor-plans/:floorId/edit", location.pathname));
   const queryClient = useQueryClient();
   const isEditorDirty = useFloorEditorStore((store) => store.isDirty);
   const discardEditorChanges = useFloorEditorStore((store) => store.discardChanges);
@@ -180,25 +181,25 @@ export function CustomerShell({ user }: { user: AuthUser }) {
   }
 
   return (
-    <div className={`min-h-screen bg-surface-canvas ${isCompactNavigation ? "pb-shell-navigation-safe" : "flex"}`} data-app-shell>
+    <div className={`bg-surface-canvas ${isEditorRoute ? "flex h-dvh min-h-0 overflow-hidden" : "min-h-screen"} ${isCompactNavigation ? "pb-shell-navigation-safe" : "flex"}`} data-app-shell>
       {isCompactNavigation ? (
         <nav className="fixed inset-x-0 bottom-0 z-20 grid h-shell-navigation-safe grid-cols-4 gap-1 border-t border-border-default bg-surface-panel px-1.5 pt-1 pb-safe-area-bottom" aria-label="모바일 주 메뉴" data-shell-navigation="compact">
           <PrimaryNavigation capabilities={capabilities} search={location.search} />
         </nav>
       ) : (
-        <aside className="sticky top-0 z-20 h-screen w-24 shrink-0 border-r border-border-default bg-surface-panel px-2.5 py-4" data-shell-navigation="desktop">
+        <aside className={`sticky top-0 z-20 ${isEditorRoute ? "h-full" : "h-screen"} w-24 shrink-0 border-r border-border-default bg-surface-panel px-2.5 py-4`} data-shell-navigation="desktop">
           <KindaLogo context="관제 센터" compact />
           <nav className="grid w-full gap-2" aria-label="주 메뉴">
             <PrimaryNavigation capabilities={capabilities} search={location.search} />
           </nav>
         </aside>
       )}
-      <main className="flex min-w-0 flex-1 flex-col">
-        <header className="flex min-h-16 min-w-0 items-center justify-between gap-4 border-b border-border-default bg-surface-panel px-7 max-compact:flex-col max-compact:items-start max-compact:px-3.5 max-compact:py-3" data-shell-topbar>
+      <main className={`flex min-w-0 flex-1 flex-col ${isEditorRoute ? "min-h-0 overflow-hidden" : ""}`}>
+        <header className={`flex min-h-16 min-w-0 shrink-0 items-center justify-between gap-4 border-b border-border-default bg-surface-panel px-7 max-compact:px-3.5 ${isEditorRoute ? "max-compact:gap-2" : "max-compact:flex-col max-compact:items-start max-compact:py-3"}`} data-shell-topbar>
           <div className="min-w-0">
             <Heading as="h1" variant="page-title" className="truncate">{titleForPath(location.pathname)}</Heading>
           </div>
-          <div className="flex flex-wrap items-center justify-end gap-2 max-compact:w-full max-compact:justify-start" aria-label="현장 정보" data-shell-actions>
+          <div className={`flex items-center justify-end gap-2 ${isEditorRoute ? "min-w-0" : "flex-wrap max-compact:w-full max-compact:justify-start"}`} aria-label="현장 정보" data-shell-actions>
             <Text as="span" variant="body-sm" weight="bold" className="inline-flex min-h-10 max-w-full items-center gap-1.5 truncate rounded-pill border border-border-default bg-surface-panel px-3" data-testid="active-site-badge">
               <MapPin size={16} aria-hidden="true" />
               {dashboard?.site.name || "현장 미등록"}
@@ -215,7 +216,9 @@ export function CustomerShell({ user }: { user: AuthUser }) {
             {logoutError ? <Text as="span" variant="body-sm" tone="danger" weight="bold" role="alert">{logoutError}</Text> : null}
           </div>
         </header>
-        <div className="m-0! min-w-0 flex-1 p-6 max-compact:p-3.5">
+        {/* Only the editor bounds SettingsShell's three rows (site, navigation,
+            outlet). Keeping this scoped avoids changing normal settings scroll. */}
+        <div className={`m-0! min-w-0 flex-1 ${isEditorRoute ? "min-h-0 overflow-hidden p-2 compact:p-3 [&>section]:h-full [&>section]:min-h-0 [&>section]:grid-rows-[auto_auto_minmax(0,1fr)] [&>section]:gap-2 [&>section>div]:min-h-0" : "p-6 max-compact:p-3.5"}`}>
           <Suspense fallback={<RouteLoadingState />}>
             <Routes>
             <Route path="/monitoring" element={<MonitoringView userRole={user.role} siteId={siteId} />} />

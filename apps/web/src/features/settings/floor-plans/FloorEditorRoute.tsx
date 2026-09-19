@@ -115,7 +115,7 @@ export function FloorEditorRoute({ capabilities }: FloorEditorRouteProps) {
   const activeLease = leaseState.floorId === floorId ? leaseState.lease : { editable: false };
 
   return (
-    <>
+    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden [&>section]:min-h-0 [&>section]:flex-1">
       {!activeLease.editable ? (
         <FeedbackState
           tone="warning"
@@ -156,7 +156,7 @@ export function FloorEditorRoute({ capabilities }: FloorEditorRouteProps) {
       >
         {discardMessage}
       </ConfirmDialog>
-    </>
+    </div>
   );
 }
 
