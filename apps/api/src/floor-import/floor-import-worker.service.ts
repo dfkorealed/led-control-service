@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } f
 import { Prisma, type FloorImportJob } from "@prisma/client";
 import { CAD_IMPORT_MAX_REGIONS, cadSceneManifestSchema, floorImportRegionListResponseSchema, type CadImportStage, type CadSceneManifest } from "@led-control/shared";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdtemp, readFile, rm, stat, statfs, utimes } from "node:fs/promises";
+import { lstat, mkdtemp, readFile, rm, stat, statfs, utimes } from "node:fs/promises";
 import { join } from "node:path";
 import { PrismaService } from "../prisma/prisma.service";
 import { ObjectStorageService } from "../storage/object-storage.service";
@@ -24,6 +24,7 @@ import {
 } from "./floor-import.tokens";
 import { cadRegionPreviewPersistenceIdentity, cadScenePersistenceIdentity } from "./cad-scene-persistence";
 import { readExactRegionBounds } from "./floor-import-region-bounds";
+import { CAD_IMPORT_PHASE_FAILURE_CODES, classifyCadImportFailure, type ImportPhase } from "./cad-import-diagnostics";
 import {
   candidateRegionDigestsEqual,
   computeCandidateRegionDigests,
@@ -175,7 +176,7 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
     try {
       tempDirectory = await mkdtemp(join(this.options.tempRoot, `floor-import-${job.id}-attempt-${job.attemptCount}-`));
       const inputPath = join(tempDirectory, `source.${job.sourceFormat}`);
-      const dxfPath = join(tempDirectory, "converted.dxf");
+      const dxfPath = job.sourceFormat === "dxf" ? inputPath : join(tempDirectory, "converted.dxf");
       const renderedPath = join(tempDirectory, "rendered.svg");
       const source = await this.prisma.floorAsset.findUniqueOrThrow({
         where: { id: job.sourceAssetId },
@@ -206,8 +207,12 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
       await pulse(15, "converting");
 
       phase = "convert";
-      await this.converter.convert({ inputPath, outputPath: dxfPath, abortSignal: abort.signal });
-      const converted = await stat(dxfPath);
+      // The downloaded DXF already passed size/hash/MIME verification. DWG-only
+      // converters must not reinterpret it; the same isolated parser validates it.
+      if (job.sourceFormat === "dwg") {
+        await this.converter.convert({ inputPath, outputPath: dxfPath, abortSignal: abort.signal });
+      }
+      const converted = await lstat(dxfPath);
       if (!converted.isFile() || converted.size < 1 || converted.size > CAD_IMPORT_MAX_DXF_BYTES) {
         throw new Error("CAD converted DXF size limit exceeded");
       }
@@ -575,7 +580,9 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
         if (attempt && this.attemptCleanup) await this.attemptCleanup.requestCleanup(attempt);
         return;
       }
-      const failureCode = phaseFailureCode(phase);
+      const failureCode = CAD_IMPORT_PHASE_FAILURE_CODES[phase];
+      this.logger.error({ operation: "background_job", diagnosticCode: classifyCadImportFailure(error, phase),
+        phase, jobId: job.id, attemptCount: job.attemptCount });
       const changed = await this.prisma.$executeRaw(Prisma.sql`
         UPDATE "FloorImportJob" SET
           "status" = CASE WHEN "attemptCount" >= ${MAX_ATTEMPTS}
@@ -616,21 +623,6 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
       AND "leaseExpiresAt" > (clock_timestamp() AT TIME ZONE 'UTC')`;
   }
 
-}
-
-type ImportPhase = "download" | "convert" | "parse" | "detect" | "render" | "storage" | "persist";
-
-function phaseFailureCode(phase: ImportPhase) {
-  const codes: Record<ImportPhase, string> = {
-    download: "CAD_IMPORT_SOURCE_INVALID",
-    convert: "CAD_IMPORT_CONVERSION_FAILED",
-    parse: "CAD_IMPORT_PARSE_FAILED",
-    detect: "CAD_IMPORT_DETECTION_FAILED",
-    render: "CAD_IMPORT_RENDER_FAILED",
-    storage: "CAD_IMPORT_STORAGE_FAILED",
-    persist: "CAD_IMPORT_PERSIST_FAILED"
-  };
-  return codes[phase];
 }
 
 function sha256(value: Uint8Array): string {

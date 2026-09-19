@@ -79,6 +79,7 @@
 ## 구현 완료
 
 - CAD 가져오기 실패 화면은 기존 제목과 함께 원본 읽기·변환·분석·검출·렌더·파일 저장·정보 저장·재시도 소진 단계별 안내를 제공한다. 서버의 원시 오류 문구나 알 수 없는 코드는 표시하지 않고 일반 재시도 안내로 처리한다. 완료 상태 복구와 파일 재선택에서도 이전 오류가 남지 않도록 회귀로 확인한다.
+- CAD worker는 DWG만 외부 변환기에 전달하며 DXF는 저장소 크기·해시·MIME 검증과 일반 파일 검사를 거친 원본을 기존 격리 분석기로 전달한다. DXF도 기존 parser·자원·좌표 제한을 유지한다. 실패 시 서버 로그에는 허용된 진단 코드·단계·작업 UUID·시도 횟수만 남기며 원본 경로·도면 텍스트·자격 증명은 남기지 않는다.
 
 - 2026-09-18 `킨다_도면등록_테스트.dwg`(SHA-256 `ddbbecb9795a70b8fd2dfe550c6da7ffeeed10341e16fec1e43e30f13f20c811`) 가져오기 실패를 실제 로컬 PostgreSQL·MinIO·worker 경로로 재현했다. 원인은 18,725,834-byte DWG가 LibreDWG 변환 뒤 102 MiB DXF와 398,257개 펼침 형상을 만들면서 parser의 보수적 retained-model 계산이 기존 208 MiB 상한을 약간 초과한 것이었다. 격리 child heap 384 MiB와 cgroup 계약은 유지하면서 parser 상한만 검증된 최소값 224 MiB로 조정했다. 동일 저장 객체의 실패 job을 재처리해 `15 → 35 → 70 → 100%`, `review_required`, viewport `2400 × 800`, 후보 2개, raw/gzip SVG 39,213,522/5,587,078 bytes를 확인했다. 제품 parser와 진단 analyzer가 정상 완료된 model `ENTITIES` 뒤의 malformed `OBJECTS` metadata를 동일하게 bounded opaque tail로 취급하도록 맞췄으며, malformed model section·입력/출력 크기·시간·entity/coordinate 상한은 계속 fail-close한다.
 - 2026-09-18 이미 적용된 `FloorLightSlot` migration이 이후 수정되어 일부 개발·배포 DB에는 `capacityOrdinal` 없이 과거 trigger만 남을 수 있던 editor-state 500을 후속 정합성 migration으로 복구했다. 초기 schema, 중간 deferred capacity trigger schema, 최신 structural ordinal schema를 모두 데이터 보존 방식으로 현재 구조에 수렴시키며, 층별 기존 slot이 2,000개를 넘으면 임의 삭제 없이 migration 전체를 중단한다. 실제 로컬 DB 적용 뒤 기존 3개 층의 editor-state Prisma 조회와 legacy/current disposable PostgreSQL 회귀를 확인했다.

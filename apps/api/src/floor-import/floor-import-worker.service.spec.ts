@@ -117,9 +117,9 @@ describe("FloorImportWorkerService", () => {
     await worker.onModuleDestroy();
   });
 
-  it.each(["success", "verification failure", "invalid metadata"])("runs the verified native persistence path: %s", async mode => {
+  it.each(["success", "dwg", "verification failure", "invalid metadata", "core timeout"])("runs the verified native persistence path: %s", async mode => {
     const root = await mkdtemp(join(tmpdir(), "floor-import-test-"));
-    const row = claimedJob({ detectorProfileId: null });
+    const row = claimedJob({ detectorProfileId: null, sourceFormat: mode === "dwg" ? "dwg" : "dxf" });
     const source = { objectKey: `floors/${row.floorId}/source.dxf`, sizeBytes: BigInt(1024), sha256: "a".repeat(64),
       mimeType: "application/dxf", floor: { siteId: randomUUID() } };
     const candidates = Array.from({ length: 2_000 }, (_, index) => ({
@@ -207,21 +207,28 @@ describe("FloorImportWorkerService", () => {
     };
     const worker = new FloorImportWorkerService(prisma, storage, converter, registry, core,
       { tempRoot: root, pollIntervalMs: 1000 }, cleanup);
+    const logError = jest.spyOn((worker as any).logger, "error").mockImplementation(() => undefined);
+    if (mode === "core timeout") core.execute.mockRejectedValue(new Error("CAD core child process wall time limit exceeded"));
     try {
       await expect(worker.runOnce()).resolves.toBe(true);
-      if (mode !== "success") {
+      if (mode !== "success" && mode !== "dwg") {
         expect(prisma.$transaction).not.toHaveBeenCalled();
         if (mode === "verification failure") expect(storage.verifyCadSceneObject).toHaveBeenCalledTimes(1);
         else expect(storage.putCadSceneObjectFile).not.toHaveBeenCalled();
+        expect(logError).toHaveBeenCalledWith(expect.objectContaining({
+          operation: "background_job", jobId: row.id, attemptCount: 1,
+          diagnosticCode: mode === "core timeout" ? "CAD_CORE_TIMEOUT" : expect.any(String)
+        }));
         expect(await readdir(root)).toEqual([]);
         return;
       }
       expect(storage.downloadFloorAssetToFile).toHaveBeenCalledWith(source.objectKey, expect.any(String), expect.objectContaining({
         expectedSha256: source.sha256, maxBytes: 50 * 1024 * 1024
       }));
-      expect(converter.convert).toHaveBeenCalled();
+      if (mode === "dwg") expect(converter.convert).toHaveBeenCalledTimes(1);
+      else expect(converter.convert).not.toHaveBeenCalled();
       expect(core.execute).toHaveBeenCalledWith(expect.objectContaining({
-        profileId: "generic-lighting-v1", dxfPath: expect.stringMatching(/converted\.dxf$/)
+        profileId: "generic-lighting-v1", dxfPath: expect.stringMatching(mode === "dwg" ? /converted\.dxf$/ : /source\.dxf$/)
       }));
       expect(prisma.$executeRaw.mock.calls.some(([query]: any[]) =>
         query.strings?.join(" ").includes('"detectorProfileId" IS NULL'))).toBe(true);
