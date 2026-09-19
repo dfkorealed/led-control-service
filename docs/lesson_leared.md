@@ -1,5 +1,17 @@
 # 프로젝트 오답 노트 (Lessons Learned)
 
+## 2026-09-19 / CAD 검증은 실제 원본과 실제 GPU 수명주기를 포함한다
+
+- **발생했던 문제**: 단위 테스트 통과 뒤에도 대형 DWG의 region 탐지가 메모리·공간 인덱스 한도에서 실패했고, 브라우저에서는 CAD 저장 API 200 뒤 화면이 멈췄다.
+- **원인**: 작은 합성 도면과 mock renderer는 block 확장량과 Pixi의 context 폐기를 재현하지 못한다. Pixi destroy는 canvas의 WebGL context를 잃게 하므로 같은 DOM canvas에 새 renderer를 초기화하면 shader 검사 반복이 멈추지 않을 수 있다.
+- **예방책**: renderer의 재생성은 새 canvas에서 수행하고 실제 Chromium에서 선택→편집→저장→재선택→새로고침을 검증한다. 네트워크가 완료돼도 UI가 멈추면 CDP call stack으로 원인을 분리한다. 원본 두 개는 기본 메모리 한도의 격리 child와 실제 저장소·DB에서 변환하며, 테스트 통과를 위해 한도를 임의로 늘리거나 실패 원본을 제외하지 않는다.
+- **반복 방지**: canvas identity 교체·실패 재시도, StrictMode camera 취소 후 재예약, 작은 viewport의 32,768 맵 fit, native/SVG 비중첩, 실제 원본 pipeline 회귀를 유지한다. 브라우저 QA 서버는 포트별 Vite cache를 사용한다. `Content-Length`만 믿지 않고 압축 해제 후 stream 누적 크기를 제한한다. Shared의 타입 검사만으로 ESM 실행 호환성을 판정하지 않고 배포 파일의 실제 import를 검증한다.
+- **추가 회귀 기준**: 일부 타일에 픽셀이 있다는 사실은 전체 도면 표시 성공이 아니다. 실제 가시 영역의 요청·표시 coverage와 메모리 예산을 함께 검사한다. 편집용 원본과 표시용 단순화 데이터를 구분하고, 표시용 데이터를 저장하거나 편집 캐시에 승격하지 않는다.
+- **분할 요소 편집**: 하나의 element ID가 여러 tile/segment에 나타날 수 있다. ID별 마지막 fragment 하나로 덮어쓰지 않고 모든 occurrence를 보존한다. 색상 변경과 함께 두께를 제출해도 선분을 잃지 않는지, 기존 fill/stroke가 없던 도형에 새 스타일을 적용해 저장·재표시할 수 있는지 회귀로 확인한다.
+- **좌표 영속화**: 해시·DB 제약이 좌표의 exact equality를 요구할 때 Prisma Float JSON 경로에서 한 ULP 차이가 생길 수 있다. 실제 fractional 좌표로 region 목록뿐 아니라 scene apply와 재조회까지 검증하고, 중간 단계 성공만으로 적용 경로가 안전하다고 판단하지 않는다.
+- **WebView 복원**: context loss에서 active tile ID만 지우면 display cache가 영구 pin되어 다른 camera로 복귀할 때 메모리가 막힐 수 있다. GPU 자원 해제와 함께 CPU-only·퇴출 가능 상태로 낮추고 pick lease도 해제한다. 모바일 정책 테스트는 flag 하나가 아니라 WebShell의 초기 AppState·dataset까지 재현한다.
+
+
 ## 2026-09-15 / 검색 발견과 등록 가능 여부를 같은 상태로 취급하지 않는다
 
 - **발생했던 문제/실수**: 이미 등록된 조명이 BLE 검색 결과에 다시 나타났고, Web은 신규 장치처럼 선택하게 한 뒤 DB unique 제약에서야 등록을 실패시켰다.

@@ -1,8 +1,16 @@
 # 메뉴 완성 작업 상태판
 
-기준일: 2026-09-17
+기준일: 2026-09-19
 
 ## 현재 마일스톤
+
+**CAD 네이티브 맵 통합 완료(지원 범위의 소프트웨어 검증)**: [실행 계획](superpowers/plans/2026-09-18-cad-native-map-rendering.md)의 편집기·영역 선택·읽기 전용 모니터링·WebView 정책을 통합했다. CAD를 배경 이미지로 대체하지 않고 네모·세모·선·텍스트와 추가 벡터 요소로 보존한다. 화면용 geometry만 단순화·공선 병합하고 선택 시 원본을 로드해 이동·크기·회전·스타일·텍스트를 편집한다. 단독 요소는 single-click, 그룹 요소는 double-click으로 편집한다.
+
+실제 두 DWG의 197/1,817개 영역 preview 및 native scene 변환, 모든 선택 후보의 1,308/2개 미배정 위치 적용, editor/map/manifest 재조회가 통과했다. 실제 geometry의 PC/390px editor·monitor 8개 화면에서 803/875개 타일을 모두 렌더링했고, 실제 LINE 선택·수정·저장·reload 후 원본 좌표와 SHA 보존을 확인했다. WebView foreground 정책을 적용한 390px 4개 화면도 32 MiB 예산에서 누락 없이 통과했다. 브라우저 API는 route fixture이며 서버 검증은 별도 실제 PostgreSQL/MinIO pipeline이다. [상세 증거·한계](test-results/cad-native-map-2026-09-18.md)를 따른다.
+
+재개 과정에서 region OOM, 반복 preview, 좌표 Float 정밀도, 영역 밖 block 원점, CAD FloorPlan 주소 계약, 폐기된 canvas 재사용, 분할 요소 스타일 손실, atlas 텍스트 폭, context 복원 시 고정 캐시를 수정했다. 검증은 Web 전체 1,588개(외부 artifact 의존 2개 제외)와 후속 집중 회귀, Shared 276개, Mobile 6개, UI 정책 56개/위반 0개, API 전체 중간 2,147개/환경 제외 523개 및 최종 집중 57개·실제 원본 정상 흐름 2개를 포함한다. Web/API 빌드·타입 검사를 통과했다. 실제 장비 제어는 실행하지 않았다.
+
+로컬은 사용자 승인 후 `.local/backups/cad-before-native-20260919.dump` 백업과 CAD migration 6개를 적용해 총 93개 상태다. 기존 데이터를 삭제하지 않았고 5173/4000 개발 서버를 유지한다. 이전 실패·legacy metadata 작업은 임의 복구하지 않으므로 CAD를 다시 가져온다. 원본 DXF `ELLIPSE` 등 일부 미지원 객체, 사람 기준 재현 정확도·후보 precision/recall, 실제 RN 기기·Linux 양산 컨테이너 성능은 미검증/후속 범위다. 큰 도면 첫 전체 표시는 약 10~13초이므로 초기 전송량 최적화 여지가 남는다. 과거 SVG-only 완료 기록은 아래 이력으로 구분한다.
 
 **층별 1,000개 조명 맵 편집 개선 완료(소프트웨어)**: 미배치 드래그 배치, 확인 후 배치 해제, 층별 초안/잠금/저장, Undo/Redo, 검색·일괄 편집·미니맵과 등록 후 식별을 구현했다. 웹 497개 단위, 편집기 Chromium 29개와 추가 성능 1개, 실제 설치 여정 2개 및 두 층 배치 여정 1개를 통과했다. 사용자 DB migration 적용과 실장비 배포/검증은 실행하지 않았다.
 
