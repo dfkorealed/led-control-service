@@ -1,5 +1,6 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import type { FloorEditorState } from "../src/features/floor-editor/editor-types";
+import { expectMinimumTouchTargets } from "./support/layout-assertions";
 
 const viewports = [
   { width: 1440, height: 900 }, { width: 1024, height: 768 },
@@ -131,6 +132,106 @@ test("compact text focus and panel toggles preserve unsaved edits and the leave 
   await page.getByRole("button", { name: "취소", exact: true }).click();
   await expect(page.getByRole("alertdialog", { name: "맵 편집 종료" })).toBeVisible();
 });
+
+async function dragToCanvasCenter(page: Page, source: Locator) {
+  await source.scrollIntoViewIfNeeded();
+  const liveSource = await source.elementHandle();
+  const sourceBox = (await source.boundingBox())!;
+  const canvasBox = (await page.getByTestId("floor-editor-canvas").boundingBox())!;
+  const center = { x: canvasBox.x + canvasBox.width / 2, y: canvasBox.y + canvasBox.height / 2 };
+  await page.mouse.move(sourceBox.x + sourceBox.width / 2, sourceBox.y + sourceBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(sourceBox.x + sourceBox.width / 2 + 10, sourceBox.y + sourceBox.height / 2, { steps: 3 });
+  await page.mouse.move(center.x, center.y, { steps: 10 });
+  await page.mouse.move(center.x, center.y);
+  // A layout fix must not terminate native DnD by removing its live source.
+  expect(await liveSource!.evaluate((node) => node.isConnected)).toBe(true);
+  return center;
+}
+
+for (const viewport of viewports.slice(2)) {
+  test(`mobile ${viewport.width} toolbar has continuous reachable touch targets`, async ({ page }, testInfo) => {
+    await page.setViewportSize(viewport);
+    await page.route("**/api/floors/floor-b2/editor-state", (route) => route.fulfill({ json: {
+      ...state, floor: { ...state.floor, floorPlan: { ...state.floor.floorPlan!,
+        imageUrl: "/viewport-missing.svg", renderedImageUrl: "/viewport-missing.svg" } }
+    } }));
+    await page.route("**/viewport-missing.svg", (route) => route.fulfill({ status: 404, body: "" }));
+    await page.goto(editorPath);
+    await expect(page.getByTestId("floor-editor-canvas")).toBeVisible();
+    const retry = page.getByRole("button", { name: "도면 다시 시도" });
+    await expect(retry).toBeVisible();
+    await page.getByRole("button", { name: "편집 정보 패널" }).click();
+    const cancelGeometry = await page.getByRole("button", { name: "취소", exact: true }).evaluate((button) => {
+      const rect = button.getBoundingClientRect();
+      const hits = (x: number, y: number) => button.contains(document.elementFromPoint(x, y));
+      return { width: rect.width, height: rect.height, radius: getComputedStyle(button).borderRadius,
+        centerReachable: hits(rect.x + rect.width / 2, rect.y + rect.height / 2),
+        cornerReachable: hits(rect.x + 0.5, rect.y + 0.5) };
+    });
+    await testInfo.attach("cancel-hit-geometry.json", { body: JSON.stringify(cancelGeometry), contentType: "application/json" });
+    await expectMinimumTouchTargets(page, '[data-testid="editor-toolbar"]');
+    await expectMinimumTouchTargets(page, '[data-testid="floor-editor-canvas"] [role="alert"]');
+    await expectMinimumTouchTargets(page, '[aria-label="편집 패널"]');
+    await expect(page.getByRole("button", { name: "미니맵" })).toBeHidden();
+    await expectBoundedPage(page);
+    await page.screenshot({ path: testInfo.outputPath(`retry-panel-${viewport.width}.png`) });
+    await page.getByRole("button", { name: "편집 정보 패널" }).click();
+    const minimap = page.getByRole("button", { name: "미니맵" });
+    await expect(minimap).toBeVisible();
+    await expectMinimumTouchTargets(page, 'canvas[role="button"]');
+    await minimap.focus();
+    await page.keyboard.press("Enter");
+    await expectBoundedPage(page);
+  });
+
+  for (const kind of ["fixture", "shape"] as const) {
+    test(`mobile ${viewport.width} ${kind} drag reaches canvas center and restores tools after drop and cancel`, async ({ page }, testInfo) => {
+      await page.setViewportSize(viewport);
+      await page.goto(editorPath);
+      const canvas = page.getByTestId("floor-editor-canvas");
+      await expect(canvas).toBeVisible();
+      const toggle = page.getByRole("button", { name: "도구 및 조명 패널" });
+      await toggle.click();
+      const panel = page.locator("#editor-tools-panel");
+      const source = kind === "fixture" ? page.getByTestId("placement-fixture-fixture-0")
+        : panel.getByRole("button", { name: "사각형", exact: true });
+      const center = await dragToCanvasCenter(page, source);
+      await page.screenshot({ path: testInfo.outputPath(`drag-${kind}-${viewport.width}.png`) });
+      await page.mouse.up();
+      const countAttribute = kind === "fixture" ? "data-rendered-fixture-count" : "data-rendered-object-count";
+      await expect(canvas).toHaveAttribute(countAttribute, "1", { timeout: 5000 });
+      await expect(panel).toHaveCSS("opacity", "1");
+      await expect(panel).toHaveCSS("pointer-events", "auto");
+      await expect(toggle).toHaveAttribute("aria-expanded", "true");
+      if (kind === "fixture") {
+        await expect(panel.getByText("배치 1", { exact: true })).toBeVisible();
+        await expect(panel.getByText("미배치 99", { exact: true })).toBeVisible();
+        await expect(panel).toBeFocused();
+      } else {
+        await expect(source).toBeFocused();
+      }
+
+      const cancelledSource = kind === "fixture" ? page.getByTestId("placement-fixture-fixture-1") : source;
+      await dragToCanvasCenter(page, cancelledSource);
+      await expect.poll(() => page.evaluate(({ x, y }) => Boolean(
+        document.elementFromPoint(x, y)?.closest('[data-testid="floor-editor-canvas"]')
+      ), center)).toBe(true);
+      await page.keyboard.press("Escape");
+      await page.mouse.up();
+      await expect(panel).toHaveCSS("opacity", "1");
+      await expect(panel).toHaveCSS("pointer-events", "auto");
+      await expect(toggle).toHaveAttribute("aria-expanded", "true");
+      await expect(cancelledSource).toBeFocused();
+      await expect(canvas).toHaveAttribute(countAttribute, "1");
+      await expectBoundedPage(page);
+      await page.keyboard.press("Escape");
+      await expect(panel).toBeHidden();
+      await expect(toggle).toBeFocused();
+      await expectMinimumTouchTargets(page, '[data-testid="editor-toolbar"]');
+    });
+  }
+}
 
 test("resizing the editor and leaving it restores normal settings scrolling", async ({ page }) => {
   await page.setViewportSize(viewports[0]);

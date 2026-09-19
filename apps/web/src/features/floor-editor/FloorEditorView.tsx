@@ -17,7 +17,7 @@ import {
   type FloorEditorRevision
 } from "../../api/floor-editor";
 import { EditorPropertiesPanel } from "./EditorPropertiesPanel";
-import { createFixturePlacementRowRegistry, FixturePlacementList } from "./FixturePlacementList";
+import { createFixturePlacementRowRegistry, FIXTURE_DRAG_TYPE, FixturePlacementList } from "./FixturePlacementList";
 import { EditorBatchPlacementPanel } from "./EditorBatchPlacementPanel";
 import { EditorLayersPanel } from "./EditorLayersPanel";
 import { FixtureIdentifyPanel } from "./FixtureIdentifyPanel";
@@ -75,6 +75,8 @@ export function FloorEditorView({
   const [panelTab, setPanelTab] = useState("properties");
   const [isNarrowLayout, setIsNarrowLayout] = useState(() => window.matchMedia?.("(max-width: 1279px)").matches ?? false);
   const [openPanel, setOpenPanel] = useState<"tools" | "information" | null>(null);
+  const [isToolPanelDragging, setIsToolPanelDragging] = useState(false);
+  const panelDragSource = useRef<HTMLElement | null>(null);
   const [collapsedPanels, setCollapsedPanels] = useState({ tools: false, information: false });
   const toolsToggle = useRef<HTMLButtonElement>(null);
   const informationToggle = useRef<HTMLButtonElement>(null);
@@ -90,6 +92,28 @@ export function FloorEditorView({
   }, []);
   const toolsVisible = isNarrowLayout ? openPanel === "tools" : !collapsedPanels.tools;
   const informationVisible = isNarrowLayout ? openPanel === "information" : !collapsedPanels.information;
+  function beginPanelDrag(event: DragEvent<HTMLDivElement>) {
+    if (!isNarrowLayout || event.defaultPrevented || !(event.target instanceof HTMLElement)
+      || !event.dataTransfer.types.some((type) => type === FIXTURE_DRAG_TYPE || type === TOOL_DRAG_DATA_TYPE)) return;
+    const source = event.target;
+    panelDragSource.current = source;
+    // Let the browser establish native DnD and capture its drag image before
+    // changing hit testing beneath the pointer that initiated the drag.
+    requestAnimationFrame(() => {
+      if (panelDragSource.current === source) setIsToolPanelDragging(true);
+    });
+  }
+  function finishPanelDrag() {
+    const source = panelDragSource.current;
+    if (!source) return;
+    panelDragSource.current = null;
+    setIsToolPanelDragging(false);
+    // A placed fixture leaves the unplaced list on drop. Wait for that commit
+    // before choosing the still-live source or the restored panel as focus target.
+    requestAnimationFrame(() => {
+      (source.isConnected ? source : toolsPanel.current)?.focus({ preventScroll: true });
+    });
+  }
   function togglePanel(panel: "tools" | "information") {
     if (isNarrowLayout) setOpenPanel((current) => current === panel ? null : panel);
     else setCollapsedPanels((current) => ({ ...current, [panel]: !current[panel] }));
@@ -427,20 +451,20 @@ export function FloorEditorView({
           </div>
           <div className="flex min-w-0 items-center gap-1">
             {floors && onFloorChange && <SelectBox label="층 선택" className="w-32 min-w-0 [&>label]:sr-only" items={floors.map((floor) => ({ id: floor.id, label: floor.name }))} selectedKey={floorId} isDisabled={isMutationPending} onSelectionChange={(key) => { if (key && !mutationLock.current) onFloorChange(key); }} />}
-            <IconTooltipButton className="size-11" icon={X} label="취소" onClick={onCancel} />
-            <IconTooltipButton className="size-11 bg-action-primary text-content-inverse hover:bg-action-primary-hover" icon={Save} label="저장" disabled={!isDirty || isSaveOrRestoreBlocked} isLoading={saveStatus === "saving"} loadingLabel="저장 중" onClick={handleSave} />
+            <IconTooltipButton icon={X} label="취소" onClick={onCancel} />
+            <IconTooltipButton className="bg-action-primary text-content-inverse hover:bg-action-primary-hover" icon={Save} label="저장" disabled={!isDirty || isSaveOrRestoreBlocked} isLoading={saveStatus === "saving"} loadingLabel="저장 중" onClick={handleSave} />
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-1 border-b border-border-default py-1" role="toolbar" aria-label="맵 보기 도구">
-          <IconTooltipButton ref={toolsToggle} className="size-11" icon={PanelLeft} label="도구 및 조명 패널" aria-expanded={toolsVisible} aria-controls="editor-tools-panel" onClick={() => togglePanel("tools")} />
-          <IconTooltipButton className="size-11" icon={Undo2} label="실행 취소" disabled={isSaveOrRestoreBlocked || !past.length} onClick={() => useFloorEditorStore.getState().undo()} />
-          <IconTooltipButton className="size-11" icon={Redo2} label="다시 실행" disabled={isSaveOrRestoreBlocked || !future.length} onClick={() => useFloorEditorStore.getState().redo()} />
-          <IconTooltipButton className="size-11" icon={ZoomOut} label="축소" onClick={() => setZoom(zoom / 1.1)} />
+          <IconTooltipButton ref={toolsToggle} icon={PanelLeft} label="도구 및 조명 패널" aria-expanded={toolsVisible} aria-controls="editor-tools-panel" onClick={() => togglePanel("tools")} />
+          <IconTooltipButton icon={Undo2} label="실행 취소" disabled={isSaveOrRestoreBlocked || !past.length} onClick={() => useFloorEditorStore.getState().undo()} />
+          <IconTooltipButton icon={Redo2} label="다시 실행" disabled={isSaveOrRestoreBlocked || !future.length} onClick={() => useFloorEditorStore.getState().redo()} />
+          <IconTooltipButton icon={ZoomOut} label="축소" onClick={() => setZoom(zoom / 1.1)} />
           <Button variant="secondary" className="h-11 w-16 shrink-0 px-1" aria-label="100%" title="100%" onClick={resetZoom}>{Math.round(zoom * 100)}%</Button>
-          <IconTooltipButton className="size-11" icon={ZoomIn} label="확대" onClick={() => setZoom(zoom * 1.1)} />
-          <IconTooltipButton className="size-11" icon={Maximize} label="맵 맞춤" onClick={() => useFloorEditorStore.getState().fit(false, visibleCadViewport ?? undefined)} />
-          <IconTooltipButton className="size-11" icon={Focus} label="선택 맞춤" onClick={() => useFloorEditorStore.getState().fit(true)} />
-          <IconTooltipButton ref={informationToggle} className="size-11" icon={PanelRight} label="편집 정보 패널" aria-expanded={informationVisible} aria-controls="editor-information-panel" onClick={() => togglePanel("information")} />
+          <IconTooltipButton icon={ZoomIn} label="확대" onClick={() => setZoom(zoom * 1.1)} />
+          <IconTooltipButton icon={Maximize} label="맵 맞춤" onClick={() => useFloorEditorStore.getState().fit(false, visibleCadViewport ?? undefined)} />
+          <IconTooltipButton icon={Focus} label="선택 맞춤" onClick={() => useFloorEditorStore.getState().fit(true)} />
+          <IconTooltipButton ref={informationToggle} icon={PanelRight} label="편집 정보 패널" aria-expanded={informationVisible} aria-controls="editor-information-panel" onClick={() => togglePanel("information")} />
         </div>
       </header>
 
@@ -469,10 +493,18 @@ export function FloorEditorView({
         <FeedbackState tone="success" icon={CircleCheck} title={`현재 존재하지 않는 조명 ${skippedFixtureCount}개를 건너뛰었습니다.`} />
       ) : null}
 
-      <div className="relative flex min-h-0 min-w-0 flex-1 gap-3 overflow-hidden" data-testid="floor-editor-layout">
+      {/* Canvas errors must stay actionable above an open narrow panel. Bound
+          that notice to 80px and reserve 96px including its existing top inset. */}
+      <div className={`relative flex min-h-0 min-w-0 flex-1 gap-3 overflow-hidden ${isNarrowLayout ? "[&:has(main_[role=alert])>#editor-tools-panel]:top-24 [&:has(main_[role=alert])>#editor-information-panel]:top-24" : ""}`} data-testid="floor-editor-layout" onDrop={finishPanelDrag}>
         {/* Keep panels mounted while collapsed: import jobs, form drafts and the
             fixture drag registry must outlive a layout-only visibility change. */}
-        <div ref={toolsPanel} id="editor-tools-panel" tabIndex={-1} aria-label="도구 및 조명" onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); closePanel("tools"); } }} className={`${toolsVisible ? "flex" : "hidden"} ${isNarrowLayout ? "absolute inset-y-0 left-0 z-10 w-[min(280px,100%)] shadow-panel" : "w-60 shrink-0"} min-h-0 min-w-0 flex-col overflow-y-auto overscroll-contain border-r border-border-default bg-surface-panel [&>aside]:flex-none [&>aside:first-child]:h-112`}><FixturePlacementList readOnly={readOnly || isMutationPending} rowRegistry={rowRegistry} />
+        {/* Opacity/pointer-events expose the drop surface without removing or
+            hiding the native drag source. dragend also restores cancelled drags;
+            the workbench drop handler covers a placed source leaving its list. */}
+        <div ref={toolsPanel} id="editor-tools-panel" tabIndex={-1} aria-label="도구 및 조명"
+          onDragStart={beginPanelDrag} onDragEnd={finishPanelDrag}
+          onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); if (!panelDragSource.current) closePanel("tools"); } }}
+          className={`${toolsVisible ? "flex" : "hidden"} ${isNarrowLayout ? "absolute inset-y-0 left-0 z-10 w-[min(280px,100%)] shadow-panel" : "w-60 shrink-0"} ${isToolPanelDragging ? "pointer-events-none opacity-0" : ""} min-h-0 min-w-0 flex-col overflow-y-auto overscroll-contain border-r border-border-default bg-surface-panel [&>aside]:flex-none [&>aside:first-child]:h-112`}><FixturePlacementList readOnly={readOnly || isMutationPending} rowRegistry={rowRegistry} />
         <aside className="order-first grid shrink-0 grid-cols-4 content-start gap-2 p-2 max-compact:grid-cols-3" role="toolbar" aria-label="맵 편집 도구">
           {tools.map((tool) => {
             const Icon = tool.icon;
@@ -494,7 +526,9 @@ export function FloorEditorView({
             );
           })}
         </aside><Checkbox className="m-2" label="격자 스냅" isSelected={snap} isDisabled={readOnly} onChange={(selected) => useFloorEditorStore.getState().setSnap(selected)} /></div>
-        <main className="grid min-h-0 min-w-0 flex-1 overflow-hidden border border-border-default bg-surface-inset [&>div]:min-h-0">
+        {/* The auxiliary minimap folds with narrow panels instead of remaining
+            keyboard-focusable underneath them; closing the panel restores it. */}
+        <main className={`grid min-h-0 min-w-0 flex-1 overflow-hidden border border-border-default bg-surface-inset [&>div]:min-h-0 [&_[role=alert]]:max-h-20 [&_[role=alert]]:overflow-y-auto ${isNarrowLayout && openPanel ? "[&_canvas[role=button]]:hidden" : ""}`}>
           <FloorEditorCanvas
             readOnly={readOnly || isMutationPending}
             rowRegistry={rowRegistry}
