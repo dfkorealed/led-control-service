@@ -106,6 +106,8 @@ export interface NormalizedCadWipeout extends NormalizedCadEntityBase {
 
 export interface NormalizedCadHatchPolylineLoop {
   type: "polyline";
+  /** DXF 92 bitmask; omitted only by pre-parser/in-memory fixtures. */
+  flags?: number;
   vertices: CadPolylineVertex[];
   closed: boolean;
 }
@@ -127,6 +129,7 @@ export interface NormalizedCadHatchArcEdge {
 
 export interface NormalizedCadHatchEdgeLoop {
   type: "edges";
+  flags?: number;
   edges: Array<NormalizedCadHatchLineEdge | NormalizedCadHatchArcEdge>;
 }
 
@@ -134,6 +137,8 @@ export type NormalizedCadHatchLoop = NormalizedCadHatchPolylineLoop | Normalized
 
 export interface NormalizedCadHatch extends NormalizedCadEntityBase {
   type: "hatch";
+  /** DXF 75: Normal / Outer / Ignore. Missing means DXF default Normal. */
+  hatchStyle?: 0 | 1 | 2;
   loops: NormalizedCadHatchLoop[];
 }
 

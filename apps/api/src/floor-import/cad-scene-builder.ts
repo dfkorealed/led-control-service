@@ -15,6 +15,7 @@ import {
   mapDisplayOrderingSchema,
   cadSceneManifestSchema,
   normalizeCadMapSize,
+  transformMapPoint,
   type CadBounds as SceneBounds,
   type CadSceneManifest,
   type CadScenePrimitive,
@@ -119,6 +120,7 @@ interface ProjectionContext {
   simplifyTolerance: number;
   sampleSpline: ReturnType<typeof createCadSplineSampler>;
   preserveGeometry?: boolean;
+  preciseHatch?: boolean;
 }
 
 function round(value: number): number {
@@ -250,7 +252,7 @@ function simplifyPoints(
   return simplifyOpenPolyline(points, tolerance);
 }
 
-function boundsOfPoints(points: readonly { x: number; y: number }[]): SceneBounds {
+function boundsOfPoints(points: readonly { x: number; y: number }[], precise = false): SceneBounds {
   let minX = Number.POSITIVE_INFINITY;
   let minY = Number.POSITIVE_INFINITY;
   let maxX = Number.NEGATIVE_INFINITY;
@@ -263,7 +265,8 @@ function boundsOfPoints(points: readonly { x: number; y: number }[]): SceneBound
   }
   if (maxX <= minX) maxX = minX + GEOMETRY_EPSILON;
   if (maxY <= minY) maxY = minY + GEOMETRY_EPSILON;
-  return { minX: round(minX), minY: round(minY), maxX: round(maxX), maxY: round(maxY) };
+  return precise ? { minX, minY, maxX, maxY }
+    : { minX: round(minX), minY: round(minY), maxX: round(maxX), maxY: round(maxY) };
 }
 
 function intersects(left: SceneBounds, right: SceneBounds): boolean {
@@ -362,7 +365,13 @@ function polylineProjectedGeometry(
 ): { points: Array<{ x: number; y: number }>; bounds: SceneBounds; hasCurves: boolean } {
   const matrix = projectedMatrix(item.matrix, context.transform);
   const points: Array<{ x: number; y: number }> = [];
-  const boundsPoints = vertices.map(vertex => transformPoint(matrix, vertex));
+  const anchor = vertices[0];
+  const projectedAnchor = anchor ? transformPoint(matrix, anchor) : null;
+  const project = (p: CadPoint) => context.preciseHatch && anchor && projectedAnchor
+    ? { x: projectedAnchor.x + matrix.a * (p.x - anchor.x) + matrix.c * (p.y - anchor.y),
+        y: projectedAnchor.y + matrix.b * (p.x - anchor.x) + matrix.d * (p.y - anchor.y) }
+    : transformPoint(matrix, p);
+  const boundsPoints = vertices.map(project);
   let hasCurves = false;
   const segmentCount = closed ? vertices.length : Math.max(0, vertices.length - 1);
   for (let index = 0; index < segmentCount; index++) {
@@ -389,12 +398,12 @@ function polylineProjectedGeometry(
       boundsPoints.push(...extrema);
       points.push(...insertExactPolylinePoints(sampled, extrema, false).slice(0, -1));
     } else {
-      points.push(transformPoint(matrix, start));
+      points.push(project(start));
     }
   }
-  if (!closed && vertices.length > 0) points.push(transformPoint(matrix, vertices.at(-1)!));
+  if (!closed && vertices.length > 0) points.push(project(vertices.at(-1)!));
   return {
-    points: points.map(point => ({ x: round(point.x), y: round(point.y) })),
+    points: context.preciseHatch ? points : points.map(point => ({ x: round(point.x), y: round(point.y) })),
     bounds: boundsOfPoints(boundsPoints),
     hasCurves
   };
@@ -804,9 +813,12 @@ function convertEntity(item: ExpandedCadEntity, context: ProjectionContext): Cad
     return primitive ? [primitive] : [];
   }
   if (entity.type === "hatch") {
+    // Canonical HATCH topology needs the original double differences. The
+    // legacy display-only path keeps its historical six-decimal projection.
+    const hatchContext = context.preserveGeometry ? { ...context, preciseHatch: true } : context;
     return entity.loops.flatMap((loop, index) => {
       const projected = loop.type === "polyline"
-        ? polylineProjectedGeometry(item, context, loop.vertices, loop.closed)
+        ? polylineProjectedGeometry(item, hatchContext, loop.vertices, loop.closed)
         : null;
       const projectedEdgePoints = loop.type === "edges"
         ? hatchEdgeProjectedPoints(loop, item, context)
@@ -1209,6 +1221,18 @@ export function appendPrimitiveToTiles(
   onOccurrencesAdded?: (count: number) => void
 ): number {
   let appended = 0;
+  // A subpixel canonical span still owns a pick ID. If it is wholly inside a
+  // cell, retain it verbatim instead of losing it to legacy segment tolerances.
+  if ("zIndex" in primitive && primitive.bounds.maxX - primitive.bounds.minX <= GEOMETRY_EPSILON * 2 &&
+      primitive.bounds.maxY - primitive.bounds.minY <= GEOMETRY_EPSILON * 2) {
+    const tileX = Math.floor(primitive.bounds.minX / CAD_SCENE_TILE_SIZE);
+    const tileY = Math.floor(primitive.bounds.minY / CAD_SCENE_TILE_SIZE);
+    const cell = tileCellBounds(tileX, tileY, width, height);
+    if (tileX >= 0 && tileY >= 0 && cell.maxX > cell.minX && cell.maxY > cell.minY &&
+        primitive.bounds.maxX <= cell.maxX && primitive.bounds.maxY <= cell.maxY) {
+      return appendTileOccurrence(primitive, { tileX, tileY }, width, height, tiles, onOccurrencesAdded);
+    }
+  }
   if (primitive.type === "line") {
     for (const fragment of segmentFragments(primitive.geometry.start, primitive.geometry.end, width, height)) {
       const cellBounds = tileCellBounds(fragment.tileX, fragment.tileY, width, height);
@@ -1498,27 +1522,28 @@ function bindDisplayIdentities(semantic: CadSemanticEntity, elements: readonly M
     // canonical boundaries before clipping; a source-ring hash is no longer a valid lookup.
     return elements.flatMap((element): CadScenePrimitive[] => {
       const base = { ...semantic.primitives[0], elementId: element.id, groupId: element.groupId, style: element.style };
+      const world = (points: Array<{ x: number; y: number }>) => points.map(point => transformMapPoint(point, element.transform));
       if (element.type === "polyline") return [{ ...base, type: "polyline",
-        bounds: boundsOfPoints(element.geometry.points), geometry: { points: element.geometry.points, closed: false } }];
+        bounds: boundsOfPoints(world(element.geometry.points), true), geometry: { points: world(element.geometry.points), closed: false } }];
       if (element.type !== "polygon") throw new Error("Canonical HATCH must contain polygons or boundary polylines");
       if (ordered) {
         // Filled rings cannot be fed to the stroke segment clipper. Preserve fill
         // triangles and real boundary paths as separate ordered spans of the same ID.
         const fills: CadScenePrimitive[] = element.style.fillColor === null ? []
-          : triangulateCadHatchPolygon(element.geometry).map(points => ({ ...base, type: "triangle",
-            style: { ...base.style, strokeColor: null }, bounds: boundsOfPoints(points),
+          : triangulateCadHatchPolygon(element.geometry).map(world).map(points => ({ ...base, type: "triangle",
+            style: { ...base.style, strokeColor: null }, bounds: boundsOfPoints(points, true),
             geometry: { points: points as [{ x: number; y: number }, { x: number; y: number }, { x: number; y: number }] } }));
         const strokes: CadScenePrimitive[] = element.style.strokeColor === null ? []
-          : [element.geometry.outer, ...element.geometry.holes].map(points => ({ ...base, type: "polyline",
-            style: { ...base.style, fillColor: null }, bounds: boundsOfPoints(points), geometry: { points, closed: true } }));
+          : [element.geometry.outer, ...element.geometry.holes].map(world).map(points => ({ ...base, type: "polyline",
+            style: { ...base.style, fillColor: null }, bounds: boundsOfPoints(points, true), geometry: { points, closed: true } }));
         return [...fills, ...strokes];
       }
       if (element.style.strokeColor === null) {
-        return triangulateCadHatchPolygon(element.geometry).map(points => ({ ...base, type: "triangle",
-          bounds: boundsOfPoints(points), geometry: { points: points as [{ x: number; y: number }, { x: number; y: number }, { x: number; y: number }] } }));
+        return triangulateCadHatchPolygon(element.geometry).map(world).map(points => ({ ...base, type: "triangle",
+          bounds: boundsOfPoints(points, true), geometry: { points: points as [{ x: number; y: number }, { x: number; y: number }, { x: number; y: number }] } }));
       }
-      return [element.geometry.outer, ...element.geometry.holes].map(points => ({ ...base, type: "polyline",
-        bounds: boundsOfPoints(points), geometry: { points, closed: true } }));
+      return [element.geometry.outer, ...element.geometry.holes].map(world).map(points => ({ ...base, type: "polyline",
+        bounds: boundsOfPoints(points, true), geometry: { points, closed: true } }));
     }).map(bind);
   }
   return semantic.primitives.map(bind);

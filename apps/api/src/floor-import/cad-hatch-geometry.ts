@@ -1,10 +1,12 @@
-import earcut from "earcut";
+import { GluTesselator, gluEnum, windingRule, primitiveType } from "libtess";
 import { xor, union, type MultiPolygon, type Polygon } from "polygon-clipping";
 import { getMapPolygonValidationError, MAP_ELEMENT_MAX_POINTS, type Point } from "@led-control/shared";
 
 export interface CadHatchPolygon { outer: Point[]; holes: Point[][] }
 export interface CadHatchRegion {
   boundary: CadHatchPolygon;
+  /** Keep sub-ULP intersections local when adding the world origin collapses them. */
+  origin?: Point;
   /** More than one part is needed when a hole touches another boundary. */
   parts: CadHatchPolygon[];
 }
@@ -53,17 +55,52 @@ function combine(inputs: MultiPolygon[], operation: typeof xor): MultiPolygon {
   return level[0] ?? [];
 }
 
-/** Earcut is only a partitioner, not our boolean/fill-rule authority. Verify its
+/** GLU's sweep implements odd winding directly. Fan XOR introduces artificial
+ * intersecting diagonals and tiny residual polygons for self-crossing contours. */
+function tessellateOdd(rings: Point[][], boundaryOnly: boolean): Point[][] {
+  const tess = new GluTesselator();
+  const output: Point[][] = [];
+  let current: Point[] = [], vertices = 0, intersections = 0;
+  tess.gluTessNormal(0, 0, 1);
+  tess.gluTessProperty(gluEnum.GLU_TESS_WINDING_RULE, windingRule.GLU_TESS_WINDING_ODD);
+  tess.gluTessProperty(gluEnum.GLU_TESS_BOUNDARY_ONLY, boundaryOnly);
+  // Registering edge flags disables strips/fans and requests independent triangles.
+  if (!boundaryOnly) tess.gluTessCallback(gluEnum.GLU_TESS_EDGE_FLAG, () => {});
+  tess.gluTessCallback(gluEnum.GLU_TESS_BEGIN, (type: number) => {
+    if (type !== (boundaryOnly ? primitiveType.GL_LINE_LOOP : primitiveType.GL_TRIANGLES)) throw new Error("Invalid CAD HATCH tessellation primitive");
+    current = [];
+    if (boundaryOnly) output.push(current);
+  });
+  tess.gluTessCallback(gluEnum.GLU_TESS_VERTEX, (point: Point) => {
+    if (++vertices > MAP_ELEMENT_MAX_POINTS) throw new Error("CAD HATCH tessellation point limit exceeded");
+    current.push(point);
+    if (!boundaryOnly && current.length === 3) { output.push(current); current = []; }
+  });
+  tess.gluTessCallback(gluEnum.GLU_TESS_COMBINE, (coords: number[]) => {
+    if (++intersections > MAP_ELEMENT_MAX_POINTS) throw new Error("CAD HATCH tessellation intersection limit exceeded");
+    return { x: coords[0], y: coords[1] };
+  });
+  tess.gluTessCallback(gluEnum.GLU_TESS_ERROR, (code: number) => { throw new Error(`CAD HATCH tessellation failed: ${code}`); });
+  tess.gluTessBeginPolygon(null);
+  for (const ring of rings) {
+    tess.gluTessBeginContour();
+    ring.forEach(p => tess.gluTessVertex([p.x, p.y, 0], p));
+    tess.gluTessEndContour();
+  }
+  tess.gluTessEndPolygon();
+  return output;
+}
+
+/** The tessellator is only a partitioner here. Verify its
  * output against the clipping result, including coverage and overlapping area. */
-export function triangulateCadHatchPolygon(polygon: CadHatchPolygon): Point[][] {
+export function triangulateCadHatchPolygon(source: CadHatchPolygon): Point[][] {
+  const origin = source.outer[0];
+  const local = (ring: Point[]) => ring.map(p => ({ x: p.x - origin.x, y: p.y - origin.y }));
+  const polygon = { outer: local(source.outer), holes: source.holes.map(local) };
   const input = coordinates(polygon);
   checkPoints([input]);
-  const flat = earcut.flatten(input);
-  const indices = earcut(flat.vertices, flat.holes, flat.dimensions);
-  if (indices.length > MAP_ELEMENT_MAX_POINTS) throw new Error("CAD HATCH triangulation point limit exceeded");
   const triangles: Point[][] = [];
-  for (let i = 0; i < indices.length; i += 3) {
-    const triangle = indices.slice(i, i + 3).map(index => ({ x: flat.vertices[index * 2], y: flat.vertices[index * 2 + 1] }));
+  for (const triangle of tessellateOdd([polygon.outer, ...polygon.holes], false)) {
     if (ringArea(triangle) === 0) continue;
     const error = getMapPolygonValidationError(triangle, []);
     if (error) throw new Error(`Invalid CAD HATCH partition: ${error}`);
@@ -77,37 +114,43 @@ export function triangulateCadHatchPolygon(polygon: CadHatchPolygon): Point[][] 
   const actualArea = triangles.reduce((sum, ring) => sum + ringArea(ring), 0);
   if (!triangles.length || Math.abs(expectedArea - actualArea) > tolerance ||
       difference.reduce((sum, p) => sum + polygonArea(polygonPoints(p)), 0) > tolerance) {
-    throw new Error("CAD HATCH partition does not preserve filled geometry");
+    throw new Error(`CAD HATCH partition does not preserve filled geometry: expected=${expectedArea}, actual=${actualArea}, difference=${difference.reduce((sum, p) => sum + polygonArea(polygonPoints(p)), 0)}`);
   }
-  return triangles;
+  return triangles.map(ring => ring.map(p => ({ x: p.x + origin.x, y: p.y + origin.y })));
 }
 
 /** DXF normal HATCH uses alternating fill across boundaries. Ring orientation
  * and a boundary's first vertex cannot determine containment at contacts. */
-export function resolveCadHatchRegions(rings: readonly Point[][]): CadHatchRegion[] {
+export function resolveCadHatchRegions(sourceRings: readonly Point[][]): CadHatchRegion[] {
+  // Work relative to this HATCH bbox, not map/world magnitude: clipping's
+  // binary64 coalescing must not erase thin but representable source differences.
+  let minX = Infinity, minY = Infinity;
+  for (const ring of sourceRings) for (const p of ring) { minX = Math.min(minX, p.x); minY = Math.min(minY, p.y); }
+  const rings = sourceRings.map(ring => ring.map(p => ({ x: p.x - minX, y: p.y - minY })));
   const input: MultiPolygon = rings.map(outer => coordinates({ outer, holes: [] }));
   checkPoints(input);
   const normalized = rings.map((ring, index): MultiPolygon => {
     if (!getMapPolygonValidationError(ring, [])) return [input[index]];
-    // A fan is an algebraic even-odd decomposition, not an earcut triangulation.
-    // XOR cancels its internal edges, including for self-crossing/double-wound rings;
-    // passing such a ring directly to polygon-clipping would use its non-zero rule.
-    const fan: MultiPolygon[] = [];
-    for (let i = 1; i + 1 < ring.length; i++) {
-      const outer = [ring[0], ring[i], ring[i + 1]];
-      if (ringArea(outer) > 0) fan.push([coordinates({ outer, holes: [] })]);
-    }
-    return combine(fan, xor);
+    return combine(tessellateOdd([ring], true).map(outer => [coordinates({ outer, holes: [] })]), xor);
   });
   const result = combine(normalized, xor);
-  if (!result.length) throw new Error("CAD HATCH has empty even-odd filled geometry");
   return result.map(polygon => {
-    const boundary = polygonPoints(polygon);
+    const localBoundary = polygonPoints(polygon);
+    const absolute = (ring: Point[]) => ring.map(p => ({ x: p.x + minX, y: p.y + minY }));
+    const boundary = { outer: absolute(localBoundary.outer), holes: localBoundary.holes.map(absolute) };
     const error = getMapPolygonValidationError(boundary.outer, boundary.holes);
     if (!error) return { boundary, parts: [boundary] };
+    if (!getMapPolygonValidationError(localBoundary.outer, localBoundary.holes)) {
+      return { boundary: localBoundary, parts: [localBoundary], origin: { x: minX, y: minY } };
+    }
     // Polygon clipping permits point-touching rings, unlike the common schema.
     // Partition that same area, keeping real boundary strokes separate from diagonals.
-    return { boundary, parts: triangulateCadHatchPolygon(boundary).map(outer => ({ outer, holes: [] })) };
+    const localParts = triangulateCadHatchPolygon(localBoundary).map(outer => ({ outer, holes: [] }));
+    const parts = localParts.map(part => ({ outer: absolute(part.outer), holes: [] }));
+    if (parts.some(part => getMapPolygonValidationError(part.outer, part.holes))) {
+      return { boundary: localBoundary, parts: localParts, origin: { x: minX, y: minY } };
+    }
+    return { boundary, parts };
   });
 }
 

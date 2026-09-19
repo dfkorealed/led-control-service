@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { Buffer } from "node:buffer";
 import {
   mapElementSchema, mapGroupSchema, mapLayerSchema, normalizeCadMapSize, getMapPolygonValidationError,
-  type MapElement, type MapGroup, type MapLayer, type CadScenePrimitive
+  type MapElement, type MapGroup, type MapLayer, type CadScenePrimitive, type Point
 } from "@led-control/shared";
 import { cadEllipseAngles, cadEllipseMatrix, multiplyCadMatrices, transformPoint, type CadMatrix } from "./cad-geometry";
 import { iterateCadSemanticEntities, type BuildCadSceneOptions, type CadSemanticEntity } from "./cad-scene-builder";
@@ -20,6 +20,8 @@ export interface CadMapConversionMetadata {
   elementCount: number;
   unsupportedEntityCounts: Readonly<Record<string, number>>;
   unconvertedEntityCounts: Readonly<Record<string, number>>;
+  /** Source HATCHs with an actually empty selected fill; exact strokes retained. */
+  emptyHatchFillCount: number;
 }
 
 export const CAD_MAP_MAX_METADATA_BYTES = 8 * 1024 * 1024;
@@ -110,33 +112,56 @@ function semanticArc(semantic: CadSemanticEntity): Pick<MapElement, "type" | "ge
   };
 }
 
-function hatchEntries(primitives: readonly CadScenePrimitive[]) {
+function hatchEntries(semantic: CadSemanticEntity, onEmptyFill: () => void) {
+  const primitives = semantic.primitives;
+  const hatch = semantic.source.entity;
+  if (hatch.type !== "hatch") throw new Error("Expected HATCH");
+  // DXF island styles filter path roles, then apply alternating parity. Derived
+  // and Polyline bits describe representation, not another nesting level.
+  const style = hatch.hatchStyle ?? 0;
+  const selected = primitives.filter((_, index) => style === 0 ||
+    ((hatch.loops[index].flags ?? 0) & (style === 1 ? 17 : 1)) !== 0);
   const originals = new Map(primitives.map(primitive => {
     if (primitive.type !== "polyline" || !primitive.geometry.closed) throw new Error("Invalid semantic HATCH ring");
     return [cadHatchRingKey(primitive.geometry.points), primitive] as const;
   }));
-  const regions = resolveCadHatchRegions([...primitives].map(primitive => {
+  const regions = resolveCadHatchRegions(selected.map(primitive => {
     if (primitive.type !== "polyline") throw new Error("Invalid semantic HATCH ring");
     return primitive.geometry.points;
   }));
   const usedIds = new Set<string>();
   const entries: Array<{ primitive: CadScenePrimitive; shape: Pick<MapElement, "type" | "geometry" | "transform"> }> = [];
-  for (const { boundary, parts } of regions) {
-    const original = originals.get(cadHatchRingKey(boundary.outer));
+  if (!regions.length) {
+    // Do not manufacture a fill or call an empty source supported without evidence.
+    // Existing strokes remain independent ordinary paths, even if coincident.
+    for (const primitive of primitives) {
+      if (primitive.type !== "polyline" || primitive.style.strokeColor === null || primitive.style.strokeWidth <= 0) {
+        throw new Error("CAD HATCH empty fill has no original stroke to preserve");
+      }
+      entries.push({ primitive: { ...primitive, style: { ...primitive.style, fillColor: null } },
+        shape: { type: "polyline", geometry: { points: [...primitive.geometry.points, primitive.geometry.points[0]] }, transform: identity() } });
+    }
+    onEmptyFill();
+    return entries;
+  }
+  for (const { boundary, parts, origin } of regions) {
+    const transform = { ...identity(), ...(origin ?? {}) };
+    const key = (ring: Point[]) => origin ? JSON.stringify([origin, cadHatchRingKey(ring)]) : cadHatchRingKey(ring);
+    const original = origin ? undefined : originals.get(cadHatchRingKey(boundary.outer));
     const base = original ?? primitives[0];
     for (const [index, geometry] of parts.entries()) {
       const elementId = index === 0 && !usedIds.has(base.elementId) ? base.elementId
-        : id("hatch-part", [base.elementId, cadHatchRingKey(geometry.outer), geometry.holes.map(cadHatchRingKey).sort()]);
+        : id("hatch-part", [base.elementId, key(geometry.outer), geometry.holes.map(key).sort()]);
       usedIds.add(elementId);
       entries.push({ primitive: { ...base, elementId, style: { ...base.style, fillColor: "#e5e7eb",
         ...(parts.length > 1 ? { strokeColor: null } : {}) } },
-        shape: { type: "polygon", geometry, transform: identity() } });
+        shape: { type: "polygon", geometry, transform } });
     }
     if (parts.length > 1) for (const ring of [boundary.outer, ...boundary.holes]) {
       // General polylines preserve real boundary strokes; partition diagonals have no stroke.
-      entries.push({ primitive: { ...base, elementId: id("hatch-boundary", [base.elementId, cadHatchRingKey(ring)]),
+      entries.push({ primitive: { ...base, elementId: id("hatch-boundary", [base.elementId, key(ring)]),
         style: { ...base.style, fillColor: null } },
-        shape: { type: "polyline", geometry: { points: [...ring, ring[0]] }, transform: identity() } });
+        shape: { type: "polyline", geometry: { points: [...ring, ring[0]] }, transform } });
     }
   }
   return entries;
@@ -165,6 +190,7 @@ export function createCadMapElementConverter(options: {
   const displayLayerBindings = new Map<string, { layerName: string; layerId: string }>();
   const unconverted = new Map<string, number>();
   let elementCount = 0;
+  let emptyHatchFillCount = 0;
   const convertSemanticEntity = (semantic: CadSemanticEntity): MapElement[] => {
     const { source, primitives } = semantic;
     // A missing inner boundary changes the filled area, so a partial HATCH is
@@ -196,7 +222,7 @@ export function createCadMapElementConverter(options: {
       groupId = current;
     }
     const entries = source.entity.type === "hatch"
-      ? hatchEntries(primitives)
+      ? hatchEntries(semantic, () => emptyHatchFillCount++)
       : primitives.map(primitive => ({ primitive, shape: semanticArc(semantic) ?? primitiveShape(primitive) }));
     return entries.map(({ primitive, shape }) => {
       const layerId = id("layer", primitive.layerName);
@@ -220,7 +246,7 @@ export function createCadMapElementConverter(options: {
     });
   };
   const getMetadata = (): CadMapConversionMetadata => {
-    const metadata = { width, height, gridSize, groups: [...groups.values()], layers: [...layers.values()], elementCount,
+    const metadata = { width, height, gridSize, groups: [...groups.values()], layers: [...layers.values()], elementCount, emptyHatchFillCount,
       displayLayerBindings: [...displayLayerBindings.values()],
       unsupportedEntityCounts: { ...options.unsupportedEntityCounts }, unconvertedEntityCounts: Object.fromEntries(unconverted) };
     if (Buffer.byteLength(JSON.stringify(metadata), "utf8") > maximumMetadataBytes) throw new Error("CAD map metadata byte limit exceeded");

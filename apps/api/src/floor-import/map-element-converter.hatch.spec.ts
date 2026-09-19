@@ -1,7 +1,7 @@
 import { mapElementSchema, MAP_ELEMENT_MAX_POINTS, type Point } from "@led-control/shared";
 import { createCadMapElementConverter } from "./map-element-converter";
 import { buildCadScene, type CadSemanticEntity } from "./cad-scene-builder";
-import { decodeCadSceneTile } from "./cad-scene-codec";
+import { decodeCadSceneTile, decodeMapDisplayTile } from "./cad-scene-codec";
 import { resolveCadHatchRegions } from "./cad-hatch-geometry";
 
 const points = (pairs: number[][]): Point[] => pairs.map(([x, y]) => ({ x, y }));
@@ -21,10 +21,10 @@ const contains = (ring: Point[], point: Point) => {
 
 // Independent area oracle: integrate even-odd scanline widths between every
 // vertex/intersection Y. Width is linear within each slab, so midpoint integration is exact.
-function parityArea(ring: Point[]) {
-  const local = ring.map(p => ({ x: p.x - ring[0].x, y: p.y - ring[0].y }));
-  const edges = local.map((a, i) => ({ a, b: local[(i + 1) % local.length] }));
-  const ys = new Set(local.map(p => p.y));
+function parityArea(ring: Point[], otherRings: Point[][] = []) {
+  const local = [ring, ...otherRings].map(r => r.map(p => ({ x: p.x - ring[0].x, y: p.y - ring[0].y })));
+  const edges = local.flatMap(r => r.map((a, i) => ({ a, b: r[(i + 1) % r.length] })));
+  const ys = new Set(local.flatMap(r => r.map(p => p.y)));
   for (const { a, b } of edges) for (const { a: c, b: d } of edges) {
     const ux = b.x - a.x, uy = b.y - a.y, vx = d.x - c.x, vy = d.y - c.y;
     const determinant = ux * vy - uy * vx;
@@ -44,13 +44,13 @@ function parityArea(ring: Point[]) {
   return result;
 }
 
-function semantic(rings: Point[][]): CadSemanticEntity {
+function semantic(rings: Point[][], hatchStyle: 0 | 1 | 2 = 0, flags: number[] = []): CadSemanticEntity {
   const sourceEntityId = "5:E71D75:827B85:8A871";
   return {
     source: {
-      entity: { type: "hatch", sourceEntityId, layer: "FILL", loops: rings.map(ring => ({
-        type: "polyline", closed: true, vertices: ring.map(p => ({ ...p, z: 0, bulge: 0 }))
-      })) },
+      entity: { type: "hatch", sourceEntityId, layer: "FILL", hatchStyle, loops: rings.map((ring, index) => ({
+        type: "polyline", flags: flags[index] ?? 2, closed: true, vertices: ring.map(p => ({ ...p, z: 0, bulge: 0 }))
+      })) } as CadSemanticEntity["source"]["entity"],
       sourceEntityId, matrix: { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }, blockName: null, insertLayer: null
     },
     primitives: rings.map((ring, index) => ({
@@ -82,6 +82,32 @@ function convert(rings: Point[][]) {
 }
 
 describe("HATCH even-odd boundary topology", () => {
+  it("retains local double geometry when a real D2570F intersection collapses in world coordinates", () => {
+    const rings = [
+      points([[2843.534914,1947.963907],[2843.647312,1948.221442],[2843.647377,1948.228351],
+        [2843.544685,1948.483024],[2843.28715,1948.595422],[2843.280241,1948.595487],[2843.025568253256,1948.4927948148272]]),
+      points([[2843.015797255051,1947.973678044441],[2843.280241139347,1948.2283509305314],
+        [2843.025568,1948.492795],[2842.91317,1948.23526],[2842.913105,1948.228351]]),
+      points([[2843.5349140254375,1947.9639070462358],[2843.280241139347,1948.2283509305314],
+        [2843.015797,1947.973678],[2843.273332,1947.86128],[2843.280241,1947.861215]])
+    ];
+    const elements = convert(rings);
+    expect(elements.some(e => e.transform.x !== 0 || e.transform.y !== 0)).toBe(true);
+    const total = elements.reduce((sum, e) => sum + area(e.geometry.outer) - e.geometry.holes.reduce((n, h) => n + area(h), 0), 0);
+    expect(total).toBeCloseTo(parityArea(rings[0], rings.slice(1)), 12);
+    expect(convert(rings)).toEqual(elements);
+    const bounds = { minX: 0, minY: 0, maxX: 4000, maxY: 4000 };
+    const converter = createCadMapElementConverter({ importJobId: "local", regionBounds: bounds });
+    const canonical: ReturnType<typeof converter.convertSemanticEntity> = [];
+    const scene = buildCadScene({ version: 1, bounds, blocks: [], entities: [semantic(rings).source.entity] },
+      { regionId: "r", bounds, primitiveCount: 3, textCount: 0, lightCandidateCount: 0, area: 16e6 },
+      { displayVersion: 2, sceneId: "00000000-0000-4000-8000-000000000161", onSemanticEntity: value => {
+        const elements = converter.convertSemanticEntity(value); canonical.push(...elements); return elements;
+      } });
+    const display = scene.tiles.flatMap(tile => decodeMapDisplayTile(tile.payload, tile.descriptor));
+    expect(new Set(display.map(p => p.elementId))).toEqual(new Set(canonical.map(e => e.id)));
+    expect(display.every(p => p.bounds.minX > 1000 && p.bounds.minY > 1000)).toBe(true);
+  });
   it.each([
     { name: "bow-tie", ring: points([[0, 0], [10, 10], [0, 10], [10, 0]]) },
     { name: "second real DWG 32-point self-crossing ring", ring: points([
@@ -147,10 +173,51 @@ describe("HATCH even-odd boundary topology", () => {
     expect(elements.reduce((sum, e) => sum + area(e.geometry.outer), 0)).toBeCloseTo(100 + area(attached), 10);
   });
 
-  it("fails explicitly on empty even-odd area and bounded clipping inputs", () => {
-    expect(() => convert([square(0, 0, 10), square(0, 0, 10)])).toThrow(/empty even-odd/);
+  it("keeps exact boundary strokes and an explicit diagnostic for empty Normal fill", () => {
+    const converter = createCadMapElementConverter({ importJobId: "empty", regionBounds: { minX: 0, minY: 0, maxX: 100, maxY: 100 } });
+    const rings = [square(0, 0, 10), square(0, 0, 10)];
+    const elements = converter.convertSemanticEntity(semantic(rings));
+    expect(elements).toHaveLength(2);
+    elements.forEach((element, index) => expect(element).toMatchObject({ id: `ring-${index}`, type: "polyline",
+      geometry: { points: [...rings[index], rings[index][0]] }, style: { fillColor: null, strokeColor: "#111111" } }));
+    expect(converter.getMetadata()).toMatchObject({ emptyHatchFillCount: 1, elementCount: 2, unconvertedEntityCounts: {} });
+    const noStroke = semantic(rings);
+    noStroke.primitives.forEach(p => p.style.strokeColor = null);
+    expect(() => converter.convertSemanticEntity(noStroke)).toThrow(/empty.*stroke/i);
+  });
+  it("retains bounded clipping inputs", () => {
     expect(() => resolveCadHatchRegions([Array.from({ length: MAP_ELEMENT_MAX_POINTS + 1 }, (_, i) => ({ x: i, y: i % 2 }))]))
       .toThrow(/point limit/);
+  });
+
+  it.each([[0, 76], [1, 64], [2, 100]] as const)("applies HATCH style %i through boundary flags, area %i", (style, expected) => {
+    const converter = createCadMapElementConverter({ importJobId: "styles", regionBounds: { minX: 0, minY: 0, maxX: 100, maxY: 100 } });
+    const elements = converter.convertSemanticEntity(semantic([square(0, 0, 10), square(2, 2, 6), square(3, 3, 4), square(4, 4, 2)], style, [7, 22, 2, 2]));
+    const filled = elements.reduce((sum, e) => sum + (e.type === "polygon" ? area(e.geometry.outer) - e.geometry.holes.reduce((a, h) => a + area(h), 0) : 0), 0);
+    expect(filled).toBeCloseTo(expected, 10);
+  });
+
+  it("preserves the exact DCF3E6 Outer sliver with bbox-relative double booleans", () => {
+    const a = points([[-3065.000000011365,-6229.999459873885],[-2990.000000011962,-6229.999459873885],
+      [-2990.000000009895,-6134.999459873419],[-3065.00000001135,-6134.999459873419]]);
+    const b = a.map((p, i) => ({ ...p, y: i < 2 ? p.y : -6134.999459873885 }));
+    const converter = createCadMapElementConverter({ importJobId: "exact", regionBounds: { minX: -7000, minY: -7000, maxX: 0, maxY: 0 } });
+    const elements = converter.convertSemanticEntity(semantic([a, b], 1, [7, 22]));
+    const filled = elements.reduce((sum, e) => sum + (e.type === "polygon" ? area(e.geometry.outer) - e.geometry.holes.reduce((s, h) => s + area(h), 0) : 0), 0);
+    expect(filled).toBeGreaterThan(0);
+    expect(filled).toBeCloseTo(75 * (a[2].y - b[2].y), 12);
+    expect(converter.getMetadata()).toMatchObject({ emptyHatchFillCount: 0 });
+    const bounds = { minX: -7000, minY: -7000, maxX: 0, maxY: 0 };
+    const projected = createCadMapElementConverter({ importJobId: "projected", regionBounds: bounds });
+    const input = semantic([a, b], 1, [7, 22]);
+    const types: string[] = [];
+    buildCadScene({ version: 1, bounds, blocks: [], entities: [input.source.entity] },
+      { regionId: "exact", bounds, primitiveCount: 2, textCount: 0, lightCandidateCount: 0, area: 49e6 },
+      { sceneId: "00000000-0000-4000-8000-000000000151", onSemanticEntity: value => {
+        const elements = projected.convertSemanticEntity(value); types.push(...elements.map(e => e.type)); return elements;
+      } });
+    expect(projected.getMetadata()).toMatchObject({ emptyHatchFillCount: 0 });
+    expect(types).toContain("polygon");
   });
 
   it("binds split HATCH fill and real boundaries to canonical IDs without artificial stroked diagonals", () => {

@@ -26,6 +26,17 @@ function syntheticDxf(): string {
 }
 
 describe("ASCII DXF document parser", () => {
+  it.each([0, 1, 2])("preserves HATCH style %i and full boundary flags in buffered/streaming parsing", async hatchStyle => {
+    const rings = [7, 22, 66].map((flags, i) => [pair(92, flags), pair(73, 1), pair(93, 3),
+      pair(10, i), pair(20, i), pair(10, i + 10), pair(20, i), pair(10, i), pair(20, i + 10)].join(""));
+    const dxf = [pair(0, "SECTION"), pair(2, "ENTITIES"), pair(0, "HATCH"), pair(91, 3),
+      ...rings, pair(75, hatchStyle), pair(0, "ENDSEC"), pair(0, "EOF")].join("");
+    for (const parsed of [parseAsciiDxf(dxf), await parseAsciiDxfStream([Buffer.from(dxf)])]) {
+      expect(parsed.entities[0]).toMatchObject({ type: "hatch", hatchStyle,
+        loops: [expect.objectContaining({ flags: 7 }), expect.objectContaining({ flags: 22 }), expect.objectContaining({ flags: 66 })] });
+    }
+    expect(() => parseAsciiDxf(dxf.replace(pair(75, hatchStyle), pair(75, 3)))).toThrow(/style/i);
+  });
   it("parses full and partial ELLIPSE with exact bounds in buffered and streaming modes", async () => {
     const fixture = (end: number) => [
       pair(0, "SECTION"), pair(2, "ENTITIES"), pair(0, "ELLIPSE"), pair(5, "E1"),
@@ -295,7 +306,7 @@ describe("ASCII DXF document parser", () => {
 
     const parsed = parseAsciiDxf(dxf);
     expect(parsed.entities).toEqual([expect.objectContaining({
-      type: "hatch", loops: [{ type: "edges", edges: [expect.objectContaining({ type: "arc", radius: 5 })] }]
+      type: "hatch", hatchStyle: 0, loops: [{ type: "edges", flags: 1, edges: [expect.objectContaining({ type: "arc", radius: 5 })] }]
     })]);
     expect(parsed.unsupportedEntityCounts).toEqual({ HATCH: 1 });
   });

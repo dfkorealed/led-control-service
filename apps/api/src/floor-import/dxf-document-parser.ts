@@ -596,6 +596,8 @@ class DxfDocumentBuilder {
       };
     }
     if (type === "HATCH") {
+      const hatchStyle = this.integer(this.first(body, 75), "HATCH style", 0);
+      if (hatchStyle !== 0 && hatchStyle !== 1 && hatchStyle !== 2) throw new Error("Invalid DXF HATCH style");
       const pathStarts = body.flatMap((pair, index) => pair.code === 92 ? [index] : []);
       const declaredLoopCount = this.integer(this.first(body, 91), "HATCH boundary loop count");
       if (declaredLoopCount !== pathStarts.length) throw new Error("DXF HATCH boundary loop count mismatch");
@@ -607,6 +609,9 @@ class DxfDocumentBuilder {
         const trailing = body.slice(start + 1, end).findIndex(pair => [75, 76, 98].includes(pair.code));
         const pathBody = body.slice(start + 1, trailing < 0 ? end : start + 1 + trailing);
         const flags = this.integer(body[start], "HATCH boundary path flags");
+        // The short DXF table lists only low bits; ObjectARX also defines
+        // SelfIntersecting, Duplicate, annotation flags, etc. Preserve all bits.
+        if (flags < 0 || flags > 0x7fffffff) throw new Error("Invalid DXF HATCH boundary path flags");
         const declaredCount = this.integer(this.first(pathBody, 93), "HATCH boundary item count");
         if ((flags & 2) !== 0) {
           const vertices: CadPolylineVertex[] = [];
@@ -628,7 +633,7 @@ class DxfDocumentBuilder {
           if (pending) finishVertex();
           if (declaredCount !== vertices.length) throw new Error("DXF HATCH boundary vertex count mismatch");
           if (vertices.length < 2) throw new Error("Malformed DXF HATCH boundary loop");
-          loops.push({ type: "polyline", vertices, closed: this.integer(this.first(pathBody, 73), "hatch boundary closed", 1) !== 0 });
+          loops.push({ type: "polyline", flags, vertices, closed: this.integer(this.first(pathBody, 73), "hatch boundary closed", 1) !== 0 });
           continue;
         }
         const edgeStarts = pathBody.flatMap((pair, index) => pair.code === 72 ? [index] : []);
@@ -652,11 +657,11 @@ class DxfDocumentBuilder {
             unsupportedEdge = true;
           }
         }
-        loops.push({ type: "edges", edges });
+        loops.push({ type: "edges", flags, edges });
       }
       if (loops.length === 0) throw new Error("Malformed DXF HATCH boundary");
       if (unsupportedEdge) return null;
-      return { type: "hatch", ...common, loops };
+      return { type: "hatch", ...common, hatchStyle, loops };
     }
     if (type === "DIMENSION") {
       const definitionPoint = this.point(body, 10, 20, 30, "dimension definition point");
