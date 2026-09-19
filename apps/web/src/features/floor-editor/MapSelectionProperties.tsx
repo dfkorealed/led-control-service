@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Trash2 } from "lucide-react";
-import { Button, FormField, Heading, IconTooltipButton, NumberField } from "../../components/ui";
+import { Button, FormField, Heading, IconTooltipButton, NumberField, themeColor } from "../../components/ui";
 import type { MapEditorController } from "./use-map-editor";
 import { createMapElementUpdateOps } from "./map-element-editing";
 import { boundsGestureTransform } from "./map-selection-transform";
@@ -28,8 +28,8 @@ export function MapSelectionProperties({ editor, readOnly }: { editor: MapEditor
         scaleX: box.maxX === box.minX ? 1 : width / (box.maxX - box.minX), scaleY: box.maxY === box.minY ? 1 : height / (box.maxY - box.minY) })); }
       catch (error) { editor.reportError(error); }
     }}>선택 변환 적용</Button>
-    <FormField label="선 색상" isDisabled={disabled}>{attributes => <input {...attributes} type="color" value={stroke ?? "#111827"} onChange={event => setStroke(event.target.value)} />}</FormField>
-    <FormField label="채우기 색상" isDisabled={disabled}>{attributes => <input {...attributes} type="color" value={fill ?? "#ffffff"} onChange={event => setFill(event.target.value)} />}</FormField>
+    <FormField label="선 색상" isDisabled={disabled}>{attributes => <input {...attributes} type="color" value={stroke ?? themeColor("content-primary")} onChange={event => setStroke(event.target.value)} />}</FormField>
+    <FormField label="채우기 색상" isDisabled={disabled}>{attributes => <input {...attributes} type="color" value={fill ?? themeColor("surface-panel")} onChange={event => setFill(event.target.value)} />}</FormField>
     <NumberField label="불투명도" value={opacity} minValue={0} maxValue={1} isDisabled={disabled} onChange={setOpacity} />
     <Button disabled={disabled || stroke === null && fill === null && opacity === null} onClick={() => {
       void editor.editSelection(element => createMapElementUpdateOps([element], original => ({ ...original, style: { ...original.style,

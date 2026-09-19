@@ -167,7 +167,7 @@ export function MapElementOverlay({ selection, readOnly = false, locked = false,
     >
       {/* A horizontal/vertical line needs a nonsingular interaction frame. A group containing
           hidden children needs its whole bbox, but never their individual rendered geometry. */}
-      {zeroWidth || zeroHeight || originals.length !== elements.length ? <Rect name="map-element-hit-frame" fill="rgba(0,0,0,0)"
+      {zeroWidth || zeroHeight || originals.length !== elements.length ? <Rect name="map-element-hit-frame" fill="transparent"
         x={localBounds.minX - (zeroWidth ? hitWidth / 2 : 0)} y={localBounds.minY - (zeroHeight ? hitHeight / 2 : 0)}
         width={hitWidth} height={hitHeight} /> : null}
       {[...elements].sort((a, b) => a.zIndex - b.zIndex).map(element => <Group key={element.id}

@@ -9,7 +9,9 @@
 - 최종 실제 백엔드 `common-map-real.spec.ts`: HEAD `6325ef16` 전후 동일,1 PASS/1.2분. 로그인·일반 도형 저장·실제 DXF 업로드/변환/적용·이동/수정/삭제/실행 취소·재저장/재조회·맵 크기 checkpoint·모니터링 픽셀 통과. 실제 HTTP200 apply 응답을 `floorImportApplyResultSchema`로 즉시 검증하므로 완료 상태 재조회로 잘못된 ACK를 가리지 않는다.
 - 소비 소스13개 SHA 동일, 준비 작업2개 committed, fixture ID 유지, pageErrors/serverFailures/evidenceErrors 모두0. 소유 프로세스·DB·저장소·socket/port 정리 확인. 스크린샷4개 및 HTTP/SHA/정리 증거: `/tmp/u14b-real-20260919-final-current`.
 - `e31ef469` 저장 통합3건 독립 Web7/API9 PASS, 작성자 실제PG2 PASS. 생산자 `06a3b52e`/`6a3e980f`/`a68cab58` 독립44 PASS. 렌더러 `6325ef16` 집중32·독립21·타입·일반 브라우저2 PASS. 브라우저 fractional 경계26픽셀 차이는 기존0.05% 기준 이내이며0차이라고 주장하지 않는다.
-- 이번 root lint/typecheck 통과. 후속 renderer 집중 타입 검사와 실제 Lab API/Web 빌드 통과. 신속 마무리 요청에 따라 루트 전체 test/build 재실행, 추가 성능 계측과500k 테스트는 실행하지 않았다. 실제 RN 및 양산 Linux cgroup은 미검증이다.
+- root lint/typecheck 및 후속 renderer 집중 타입 검사에 이어 사용자 요청으로 루트 전체 테스트·빌드를 재실행했다. 최종 `npm_config_workspace_concurrency=1 pnpm test` 종료0: 루트 스크립트141/모바일6/shared395/자동화28/Web2,128/API2,547/Gateway1,246/UI 정책56개 통과, 합계6,547 PASS·실패0. 기존 opt-in 제외는 루트2/Web3/API631개이며 실제 장비 검증으로 확대하지 않는다. UI 정책 위반0, 전체 `pnpm build`도 종료0이다. 500k·추가 성능 계측·실제 RN·양산 Linux cgroup은 보류 상태를 유지한다.
+- 전체 검사에서 발견한 문제를 보완했다: 인증/제어 mock의 `apiRequest` 누락, `.local` 진단 파일의 정식 테스트 수집, 실제 제조 인증 통합 검사의5초 한도(해당 검사만30초), 공통 UI 토큰 위반10건, 장치 없는 신호 테스트 자식의 조기 종료와 반복 신호 경쟁, undo 조회 완료를 일부 좌표만으로 판단한 테스트. 신호 검사는10회 연속, 맵 UI 집중168개·undo6개·정책56개를 별도로 확인했다. 제품 보안·크기·성능 기준이나 정식 테스트를 완화하지 않았다.
+- 최종 로그는 `.superpowers/sdd/2026-09-18-cad-native-map-rendering/final-full-test-r7.log`와 `final-full-build-r2.log`다. 빌드의 일부 Web 청크500kB 초과 경고는 남아 있지만 오류는 아니다. 앞선 `6325ef16` 브라우저 E2E와 이번 전체 자동 테스트는 별도 실행 증거다.
 
 ### 이전 단계별 증거
 

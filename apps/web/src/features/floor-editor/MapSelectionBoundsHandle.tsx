@@ -23,7 +23,7 @@ export function MapSelectionBoundsHandle({ selectionKey, bounds, zoom, gridSize,
   }, [selectionKey, bounds, locked, translateOnly]);
   return <><Rect ref={node} name="map-selection-bounds" x={bounds.minX} y={bounds.minY}
     width={Math.max(4 / zoom, bounds.maxX - bounds.minX)} height={Math.max(4 / zoom, bounds.maxY - bounds.minY)}
-    fill="rgba(0,0,0,0.001)" stroke={themeColor("fixture-editor-selected")} strokeWidth={1 / zoom} dash={[6 / zoom, 4 / zoom]}
+    fill="transparent" stroke={themeColor("fixture-editor-selected")} strokeWidth={1 / zoom} dash={[6 / zoom, 4 / zoom]}
     draggable={!locked} onDragStart={() => { started.current = selectionKey; }}
     onDragEnd={event => {
       const point = gridSize ? snapPointToGrid(event.target.position(), gridSize) : event.target.position();

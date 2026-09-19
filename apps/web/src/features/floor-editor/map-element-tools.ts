@@ -2,10 +2,12 @@ import {
   MAP_ELEMENT_MAX_POINTS, mapElementSchema, mapPointSchema,
   type MapElement, type MapShape, type Point
 } from "@led-control/shared/map-document-contracts";
+import { createDefaultObject } from "./geometry";
 
 export type MapElementType = MapElement["type"];
 export type MapElementOfType<T extends MapElementType> = Extract<MapElement, { type: T }>;
 export const DEFAULT_MAP_ELEMENT_LAYER_ID = "map";
+const defaultStyle = createDefaultObject("rectangle", { x: 0, y: 0 });
 
 export interface MapElementFactoryOptions {
   layerId?: string;
@@ -38,7 +40,7 @@ function createElement(shape: MapShape, id: string, options: MapElementFactoryOp
     ...shape, id, groupId: null, layerId: options.layerId ?? DEFAULT_MAP_ELEMENT_LAYER_ID,
     zIndex: 0, visible: true, locked: false, provenance: null,
     transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
-    style: { strokeColor: "#2563eb", fillColor: closed ? "#dbeafe" : null,
+    style: { strokeColor: defaultStyle.strokeColor, fillColor: closed ? defaultStyle.fillColor ?? null : null,
       strokeWidth: 2, opacity: 1, ...options.style }
   });
 }

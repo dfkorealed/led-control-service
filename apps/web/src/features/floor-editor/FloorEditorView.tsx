@@ -454,7 +454,7 @@ export function FloorEditorView({
 
       {/* Canvas errors must stay actionable above an open narrow panel. Bound
           that notice to 80px and reserve 96px including its existing top inset. */}
-      <div className={`relative flex min-h-0 min-w-0 flex-1 gap-3 overflow-hidden ${isNarrowLayout ? "[&:has(main_[role=alert])>#editor-tools-panel]:top-24 [&:has(main_[role=alert])>#editor-information-panel]:top-24" : ""}`} data-testid="floor-editor-layout" onDrop={finishPanelDrag}>
+      <div className={`relative flex min-h-0 min-w-0 flex-1 gap-3 overflow-hidden ${isNarrowLayout ? "[&:has(main_[role=alert])>#editor-tools-panel]:top-16 [&:has(main_[role=alert])>#editor-tools-panel]:mt-8 [&:has(main_[role=alert])>#editor-information-panel]:top-16 [&:has(main_[role=alert])>#editor-information-panel]:mt-8" : ""}`} data-testid="floor-editor-layout" onDrop={finishPanelDrag}>
         {/* Keep panels mounted while collapsed: import jobs, form drafts and the
             fixture drag registry must outlive a layout-only visibility change. */}
         {/* Opacity/pointer-events expose the drop surface without removing or

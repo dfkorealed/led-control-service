@@ -64,7 +64,7 @@ function PropertiesForm({ selection, onChange, onDelete, readOnly = false, locke
       minValue={options.min} maxValue={options.max} formatOptions={{ maximumFractionDigits: 6 }}
       onChange={next => { if (next !== null) change(element => write(element, next)); }} />;
   };
-  const color = (property: "strokeColor" | "fillColor", label: string) => {
+  const renderColorField = (property: "strokeColor" | "fillColor", label: string) => {
     const value = common(selection, element => element.style[property]);
     return <div key={property} className="flex min-w-0 items-end gap-2">
       <FormField label={label} className="min-w-0 flex-1" isDisabled={disabled} description={value === undefined ? "혼합" : undefined}>
@@ -108,8 +108,8 @@ function PropertiesForm({ selection, onChange, onDelete, readOnly = false, locke
         {number("불투명도", element => element.style.opacity, (element, opacity) => ({ ...element,
           style: { ...element.style, opacity } }), { min: 0, max: 1 })}
       </div>
-      {color("strokeColor", type === "text" ? "글자 색상" : "선 색상")}
-      {selection.every(element => closedTypes.has(element.type)) ? color("fillColor", "채우기 색상") : null}
+      {renderColorField("strokeColor", type === "text" ? "글자 색상" : "선 색상")}
+      {selection.every(element => closedTypes.has(element.type)) ? renderColorField("fillColor", "채우기 색상") : null}
       {type !== "text" ? number("선 두께", element => element.style.strokeWidth, (element, strokeWidth) => ({
         ...element, style: { ...element.style, strokeWidth }
       }), { min: 0 }) : null}
