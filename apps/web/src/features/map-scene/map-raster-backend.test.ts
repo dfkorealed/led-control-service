@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createHash, webcrypto } from "node:crypto";
+import { encodeMapDisplayTile } from "../../../../api/src/floor-import/cad-scene-codec";
 import type { MapElement } from "@led-control/shared/map-document-contracts";
 import type { MapDisplayTile } from "@led-control/shared/map-display-contracts";
 import type { CadRasterDisplayRequest } from "../cad-scene/CadSceneRenderer";
@@ -24,7 +26,7 @@ const descriptor: MapDisplayTile = { version: 2, sceneId: "scene", assetId: "til
   primitiveCount: 1, byteSize: 100, sha256: "a".repeat(64), bounds: { minX: 0, minY: 0, maxX: 512, maxY: 512 } };
 function setup(maximum = 32 * 1024 * 1024) {
   const budget = new CadSceneMemoryBudget(maximum), backend = new MapRasterBackend(budget);
-  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ setTransform() {} } as unknown as GPUCanvasContext);
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ setTransform() {}, beginPath() {} } as unknown as GPUCanvasContext);
   const request: CadRasterDisplayRequest<MapDisplayTile> = {
     camera: { centerX: 512, centerY: 100, viewportWidth: 200, viewportHeight: 200, zoom: 1 }, resolution: 1,
     manifest: { version: 2, sceneId: "scene", width: 1024, height: 512, tileSize: 512, tiles: [] } as unknown as CadRasterDisplayRequest<MapDisplayTile>["manifest"],
@@ -38,6 +40,30 @@ function setup(maximum = 32 * 1024 * 1024) {
 afterEach(() => { vi.restoreAllMocks(); vi.clearAllMocks(); });
 
 describe("bounded ordered raster lifecycle", () => {
+  it("uses bounded ordered pages, preserves draft positions and skips masked base without whole-cell decode", async () => {
+    vi.stubGlobal("crypto", webcrypto);
+    const { backend, request, budget } = setup();
+    const primitives = [0, 2].map(zIndex => ({ type: "line" as const, elementId: `base-${zIndex}`, zIndex, fragmentOrder: 0,
+      layerName: "layer", groupId: null, sourceType: "line", clipBounds: null,
+      bounds: { minX: 20, minY: 20, maxX: 40, maxY: 40 }, style: line.style,
+      geometry: { start: { x: 20, y: 20 }, end: { x: 40, y: 40 } } }));
+    const bytes = encodeMapDisplayTile(primitives), key = (index: number) => ({ zIndex: index * 2, elementId: `base-${index * 2}`, fragmentOrder: 0 });
+    const tile = { ...descriptor, byteSize: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex"), primitiveCount: 2,
+      pages: [{ layerId: "layer", sequence: 0, primitiveStart: 0, primitiveCount: 2, firstKey: key(0), lastKey: key(1) }] };
+    request.manifest = { ...request.manifest, orderedPages: { version: 1 }, tiles: [tile] } as typeof request.manifest;
+    request.camera = { ...request.camera, centerX: 256, centerY: 256, viewportWidth: 100, viewportHeight: 100 };
+    request.loadTile = vi.fn(async () => bytes);
+    backend.setLayerStates(new Map([["layer", { order: 0, visible: true }]]));
+    backend.replaceTile("transient", { descriptor, byteSize: 100, ...buildMapGeometryBatches([{ ...line, id: "draft",
+      zIndex: 1, geometry: { start: { x: 20, y: 20 }, end: { x: 40, y: 40 } } }], 1, true) });
+    await backend.renderDisplay(request);
+    expect(request.onError).not.toHaveBeenCalled(); expect(request.worker.decode).not.toHaveBeenCalled();
+    expect(calls.paint.mock.calls.map(([_, p]) => p.elementId ?? p.id)).toEqual(["base-0", "draft", "base-2"]);
+    calls.paint.mockClear(); request.excludedIds = new Set(["base-0"]); backend.invalidateDisplay();
+    await backend.renderDisplay(request);
+    expect(calls.paint.mock.calls.map(([_, p]) => p.elementId ?? p.id)).toEqual(["draft", "base-2"]);
+    backend.destroy(); expect(budget.totalBytes).toBe(0); vi.unstubAllGlobals();
+  });
   it("coalesces cell publication into one animation frame and cancels it on disposal", async () => {
     const { backend, request } = setup();
     let publish!: FrameRequestCallback;

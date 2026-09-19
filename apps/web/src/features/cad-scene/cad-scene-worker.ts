@@ -438,6 +438,7 @@ export interface MapDisplayPaintAsset {
   readonly primitiveOffsets: Uint32Array;
   readonly stringOffsets: Uint32Array;
   readonly memoryBytes: number;
+  estimate(index: number): number;
   key(index: number): MapDisplayPaintKey;
   read(index: number): OrderedMapDisplayPrimitive;
 }
@@ -493,6 +494,18 @@ export async function createMapDisplayPaintAsset(payload: Uint8Array, descriptor
   return {
     payload, primitiveOffsets, stringOffsets,
     memoryBytes: payload.byteLength + primitiveOffsets.byteLength + stringOffsets.byteLength,
+    estimate(index) {
+      const offset = offsetAt(index), end = primitiveOffsets[index + 1] ?? body.byteLength;
+      const style = offset + 58 + (view.getUint8(offset + 57) ? 32 : 0);
+      const references = [offset + 1, offset + 5, offset + 9, offset + 13, style, style + 4];
+      if (view.getUint8(offset) === 7) references.push(style + 40);
+      let bytes = (end - offset) * 4 + 1024;
+      for (const reference of references) {
+        const index = view.getUint32(reference, true);
+        if (index !== NULL_STRING_INDEX) bytes += view.getUint32(stringOffsets[index], true) * 2;
+      }
+      return bytes;
+    },
     key(index) {
       const offset = offsetAt(index);
       return { elementId: stringAt(strings, view.getUint32(offset + 1, true))!,

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { MapDisplayFragmentKey, OrderedMapDisplayPrimitive } from "@led-control/shared/map-display-contracts";
 import { mergeMapPaintStreams, type MapPaintCursor } from "./map-ordered-pages";
 
@@ -24,6 +24,20 @@ async function collect(cursors: MapPaintCursor[], limit = 1_048_576) {
 }
 
 describe("bounded ordered influence merge", () => {
+  it("releases pinned records after yield, duplicate comparison, abort and consumer failure", async () => {
+    let pins = 0;
+    const pinned = () => {
+      const source = cursor([primitive("a", 0), primitive("b", 1)]), read = source.read;
+      source.read = async () => { pins++; return { ...await read(), release: () => { pins--; } }; };
+      return source;
+    };
+    for await (const record of mergeMapPaintStreams([pinned(), pinned()], {
+      signal: new AbortController().signal, reserveHeads() {}
+    })) {
+      expect(record.primitive.elementId).toBe("a"); expect(pins).toBe(1); break;
+    }
+    expect(pins).toBe(0);
+  });
   it("merges streams and draft positions with ordinal IDs rather than locale order", async () => {
     const result = await collect([cursor([primitive("z", 0), primitive("a", 2)]),
       cursor([primitive("Z", 0), primitive("draft", 1)])]);
@@ -36,6 +50,15 @@ describe("bounded ordered influence merge", () => {
     const copied = { ...first, bounds: { minX: 0, minY: 0, maxX: 9, maxY: 9 } };
     const result = await collect([cursor([first, next]), cursor([copied])]);
     expect(result.ids).toEqual(["shared", "shared"]);
+  });
+
+  it("compares influence copies without cloning or stringifying their full geometry", async () => {
+    const first = primitive("same", 0);
+    const stringify = vi.spyOn(JSON, "stringify").mockImplementation(() => { throw new Error("whole geometry signature"); });
+    let error: unknown, result: Awaited<ReturnType<typeof collect>> | undefined;
+    try { result = await collect([cursor([first]), cursor([{ ...first }])]); } catch (value) { error = value; }
+    finally { stringify.mockRestore(); }
+    expect(error).toBeUndefined(); expect(result?.ids).toEqual(["same"]);
   });
 
   it("rejects equal-key geometry conflicts instead of hiding or double-painting them", async () => {

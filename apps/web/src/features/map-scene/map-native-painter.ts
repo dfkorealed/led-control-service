@@ -128,7 +128,20 @@ export function paintDisplayPrimitive(ctx: Context, p: OrderedMapDisplayPrimitiv
 
 export function paintMapElement(ctx: Context, element: MapElement, zoom: number): void {
   ctx.save(); ctx.beginPath();
-  if (element.type === "text") {
+  if (element.type === "rectangle") {
+    const t = element.transform, g = element.geometry;
+    // Preserve the native rectangle fill's fractional coverage. The canonical
+    // stroke stays world-width, so only fill geometry uses the local TRS.
+    if (element.style.fillColor) {
+      ctx.save(); ctx.translate(t.x, t.y); ctx.rotate(t.rotation * Math.PI / 180); ctx.scale(t.scaleX, t.scaleY);
+      ctx.globalAlpha = element.style.opacity; ctx.fillStyle = element.style.fillColor;
+      ctx.fillRect(g.origin.x, g.origin.y, g.width, g.height); ctx.restore();
+    }
+    if (element.style.strokeColor && element.style.strokeWidth > 0) {
+      for (const points of mapElementPaths(element, zoom).rings) ring(ctx, points, true);
+      paint(ctx, { ...element.style, fillColor: null }, true, zoom);
+    }
+  } else if (element.type === "text") {
     const t = element.transform, g = element.geometry;
     ctx.globalAlpha = element.style.opacity; ctx.translate(t.x, t.y); ctx.rotate(t.rotation * Math.PI / 180);
     ctx.scale(t.scaleX, t.scaleY); ctx.translate(g.position.x, g.position.y);

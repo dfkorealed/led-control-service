@@ -1,5 +1,5 @@
 import type { CadBounds } from "@led-control/shared";
-import type { MapDisplayTile, OrderedMapDisplayPrimitive } from "@led-control/shared/map-display-contracts";
+import type { MapDisplayManifest, MapDisplayTile, OrderedMapDisplayPrimitive } from "@led-control/shared/map-display-contracts";
 import type { MapElement } from "@led-control/shared/map-document-contracts";
 import { getMapElementBounds } from "@led-control/shared/map-document-geometry";
 import { PixiCadSceneRenderBackend, type CadRasterDisplayRequest, type CadSceneLayerState } from "../cad-scene/CadSceneRenderer";
@@ -8,6 +8,9 @@ import type { SceneTile } from "../cad-scene/cad-scene-display-types";
 import type { CadSceneMemoryBudget } from "../cad-scene/cad-scene-memory-budget";
 import type { DecodedCadSceneTile } from "../cad-scene/cad-scene-worker";
 import { paintDisplayPrimitive, paintDisplayFillRun, canJoinDisplayFill, paintMapElement } from "./map-native-painter";
+import { mapRasterGrid } from "./map-raster-grid";
+import { MapPaintWindow } from "./map-paint-window";
+import { paintMapOrderedCell } from "./map-ordered-cell";
 
 type Request = CadRasterDisplayRequest<MapDisplayTile>;
 interface Cell { signature: string; bounds: CadBounds; canvas: HTMLCanvasElement | null }
@@ -36,7 +39,8 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
   private stopped = false;
   private paintFrame: number | null = null;
 
-  constructor(private readonly budget: CadSceneMemoryBudget) { super(); }
+  constructor(private readonly budget: CadSceneMemoryBudget,
+    private readonly layerId: (name: string) => string | undefined = name => name) { super(); }
 
   override replaceTile(key: string, tile: DecodedCadSceneTile<SceneTile>): void {
     if (key !== "transient") throw new Error("Ordered map display must be baked by cell");
@@ -88,6 +92,8 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
     const { camera, manifest } = request;
     if (manifest.version !== 2) return Promise.reject(new Error("Ordered map painter requires v2"));
     const band = camera.zoom, scale = band * request.resolution;
+    const ordered = (manifest as MapDisplayManifest).orderedPages?.version === 1;
+    const rasterGrid = ordered ? mapRasterGrid(manifest, camera, request.resolution) : null;
     const offsetX = (camera.viewportWidth / 2 - camera.centerX * camera.zoom) * request.resolution;
     const offsetY = (camera.viewportHeight / 2 - camera.centerY * camera.zoom) * request.resolution;
     const phase = `${(offsetX - Math.floor(offsetX)).toFixed(8)}:${(offsetY - Math.floor(offsetY)).toFixed(8)}`;
@@ -101,11 +107,15 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
       const key = `${tile.tileX}:${tile.tileY}`, list = parts.get(key) ?? [];
       list.push(tile); parts.set(key, list);
     }
-    const jobs = coordinates.map(({ tileX, tileY }) => {
+    const legacyJobs = coordinates.map(({ tileX, tileY }) => {
       const bounds = { minX: tileX * size, minY: tileY * size,
         maxX: Math.min(manifest.width, (tileX + 1) * size), maxY: Math.min(manifest.height, (tileY + 1) * size) };
       const key = `${size}:${tileX}:${tileY}`;
-      const tiles = parts.get(`${Math.floor(bounds.minX / manifest.tileSize)}:${Math.floor(bounds.minY / manifest.tileSize)}`) ?? [];
+      return { key, bounds };
+    });
+    const jobs = (rasterGrid?.jobs ?? legacyJobs).map(({ key, bounds }) => {
+      const tiles = ordered ? (manifest.tiles as MapDisplayTile[]).filter(tile => intersects(tile.bounds, expand(bounds, rasterGrid!.margin)))
+        : parts.get(`${Math.floor(bounds.minX / manifest.tileSize)}:${Math.floor(bounds.minY / manifest.tileSize)}`) ?? [];
       const signature = `${manifest.sceneId}:${band}:${request.resolution}:${phase}:${this.versions.get(key) ?? 0}:` +
         tiles.map(tile => `${tile.assetId}:${tile.sha256}:${tile.byteSize}`).join("|");
       return { key, bounds, tiles, signature };
@@ -124,7 +134,11 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
     current.promise = (async () => {
       // Serialize the one-cell staging window, including cancelled Worker work.
       await drained;
+      if (controller.signal.aborted || this.stopped) return;
+      const window = ordered ? new MapPaintWindow({ budget: this.budget, signal: controller.signal,
+        layerId: this.layerId, load: request.loadTile }) : null;
       let yieldedAt = performance.now();
+      try {
       for (const job of jobs) {
         if (controller.signal.aborted || this.stopped) return;
         if (this.cells.get(job.key)?.signature === job.signature) continue;
@@ -135,6 +149,31 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
         controller.signal.addEventListener("abort", release, { once: true });
         let pendingCanvas: HTMLCanvasElement | null = null;
         try {
+          if (window) {
+            const raster = rasterGrid!.jobs.find(value => value.key === job.key)!;
+            const drafts = this.drafts.filter((element, index) => this.layers.get(element.layerId)?.visible !== false &&
+              intersects(job.bounds, expand(this.draftBounds[index], this.minimumStrokeMargin(element, band) + 1 / band)));
+            this.drop(job.key);
+            const hasInput = job.tiles.length > 0 || drafts.length > 0;
+            this.reserve(this.owner, job.key, hasInput ? raster.width * raster.height * 8 + 1024 : 256);
+            let canvas: HTMLCanvasElement | null = null;
+            if (hasInput) {
+              canvas = document.createElement("canvas"); pendingCanvas = canvas;
+              canvas.width = raster.width; canvas.height = raster.height;
+              const context = canvas.getContext("2d");
+              if (!context) throw new Error("Map raster painter is unavailable");
+              context.setTransform(scale, 0, 0, scale, offsetX - raster.left, offsetY - raster.top);
+              await paintMapOrderedCell({ tiles: job.tiles, drafts, layers: this.layers, window, context, zoom: band,
+                signal: controller.signal, excludedIds: request.excludedIds, excludedGroupIds: request.excludedGroupIds,
+                reserve: (key, bytes) => { if (bytes) this.reserve(stagingOwner, key, bytes); else this.budget.release(stagingOwner, key); } });
+              controller.signal.throwIfAborted();
+              this.replaceRaster(`raster:${job.key}`, canvas, raster.rasterBounds);
+            }
+            this.cells.set(job.key, { signature: job.signature, bounds: job.bounds, canvas }); pendingCanvas = null;
+            this.schedulePaint();
+            if (performance.now() - yieldedAt >= 8) { await new Promise<void>(resolve => setTimeout(resolve, 0)); yieldedAt = performance.now(); }
+            continue;
+          }
           let stagedBytes = 0;
           for (const tile of job.tiles) {
             // Reserve a conservative decode/transfer window before allocation,
@@ -215,10 +254,11 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
           release(); controller.signal.removeEventListener("abort", release); this.stagingOwners.delete(stagingOwner);
         }
       }
+      } finally { window?.close(); }
     })().catch(error => {
       if (controller.signal.aborted || this.stopped) return;
       this.request = null;
-      if (error instanceof RasterBudgetError) request.onDegraded({ requestedTileCount: jobs.length,
+      if (error instanceof RasterBudgetError || error instanceof Error && error.message.includes("memory budget")) request.onDegraded({ requestedTileCount: jobs.length,
         renderedTileCount: this.cells.size, reason: "memory-budget" });
       request.onError(error instanceof Error ? error : new Error("Ordered map display failed"));
     }).finally(() => request.signal.removeEventListener("abort", cancel));

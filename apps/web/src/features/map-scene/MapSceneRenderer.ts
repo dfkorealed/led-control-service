@@ -85,7 +85,7 @@ export class MapSceneRenderer {
     const worker = this.source.decodeDisplayTile
       ? { decode: this.source.decodeDisplayTile.bind(this.source), destroy() {} } : createCadSceneWorkerClient<MapDisplayTile>();
     this.scene = new CadSceneRenderer<MapDisplayManifest>({ ...options, manifest: emptyDisplay(), displayQuality: true,
-      backendFactory: options.backendFactory ?? (() => new MapRasterBackend(this.budget)),
+      backendFactory: options.backendFactory ?? (() => new MapRasterBackend(this.budget, name => this.displayLayerIds.get(name))),
       maximumCacheBytes: this.budget.maximumBytes, memoryBudget: this.budget,
       loadTile: (tile, signal) => this.loadDisplayTile(tile, signal),
       worker: { destroy: () => worker.destroy(), decode: async (bytes, descriptor, quality) => {
@@ -421,6 +421,16 @@ export class MapSceneRenderer {
     this.assertAlive();
     if (signal.aborted) throw new DOMException("Aborted", "AbortError");
     const epoch = this.epoch, documentSignal = this.controller.signal;
+    if (this.nativePaint && this.manifest?.display.orderedPages) {
+      // The ordered painter owns its pre-admitted one-asset/page window. A
+      // second post-fetch original LRU would double retention and can fail
+      // admission after network allocation while the painter window is pinned.
+      this.originals.clear();
+      const bytes = await this.source.loadDisplayTile(tile, signal);
+      if (signal.aborted || !this.current(epoch)) throw new DOMException("Aborted", "AbortError");
+      if (bytes.byteLength !== tile.byteSize) throw new Error("Map display tile byte limit mismatch");
+      return bytes;
+    }
     const key = JSON.stringify([this.scopeKey, this.document?.generationId, tile.assetId, tile.sha256, tile.byteSize]);
     const result = await this.originals.getOrLoad(key, async () => {
       const bytes = await this.source.loadDisplayTile(tile, documentSignal);

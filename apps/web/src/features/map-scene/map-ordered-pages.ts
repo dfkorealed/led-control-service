@@ -1,4 +1,4 @@
-import { compareMapDisplayFragmentKeys, mapDisplayFragmentSignature, validateMapDisplayPageContent,
+import { compareMapDisplayFragmentKeys, validateMapDisplayPageContent,
   type MapDisplayFragmentKey, type MapDisplayPage, type MapDisplayTile, type OrderedMapDisplayPrimitive } from "@led-control/shared/map-display-contracts";
 import type { MapDisplayPaintAsset } from "../cad-scene/cad-scene-worker";
 
@@ -23,6 +23,7 @@ export function validateMapPaintAssetPages(asset: MapDisplayPaintAsset, tile: Ma
 export interface MapPaintRecord {
   primitive: OrderedMapDisplayPrimitive;
   paintGroup?: MapDisplayPage["paintGroup"];
+  release?(): void;
 }
 
 /** A cursor owns only a key and source position. Reading/refilling uses a shared
@@ -82,22 +83,48 @@ export async function* mergeMapPaintStreams(cursors: readonly MapPaintCursor[], 
     while (count) {
       options.signal.throwIfAborted();
       const index = pop(), key = keys[index]!;
-      const record = await cursors[index].read(); options.signal.throwIfAborted();
+      const record = await cursors[index].read();
+      try {
+      options.signal.throwIfAborted();
       if (compareMapDisplayFragmentKeys(key, record.primitive) !== 0) throw new Error("Ordered paint head key mismatch");
       await advance(index);
-      let signature: string | undefined;
       // Equal keys become adjacent in the merge, so exact influence-copy dedup
       // needs no map-wide ID set. Different clipped pieces keep distinct keys.
       while (count && compareMapDisplayFragmentKeys(key, keys[heap[0]]!) === 0) {
-        const duplicate = pop(), other = await cursors[duplicate].read(); options.signal.throwIfAborted();
-        signature ??= mapDisplayFragmentSignature(record.primitive);
+        const duplicate = pop(), other = await cursors[duplicate].read();
+        try {
+        options.signal.throwIfAborted();
         if (compareMapDisplayFragmentKeys(key, other.primitive) !== 0 ||
-            signature !== mapDisplayFragmentSignature(other.primitive) || record.paintGroup?.id !== other.paintGroup?.id) {
+            !sameFragment(record.primitive, other.primitive) || record.paintGroup?.id !== other.paintGroup?.id) {
           throw new Error("Conflicting ordered fragment identity");
         }
         await advance(duplicate);
+        } finally { other.release?.(); }
       }
       yield record;
+      } finally { record.release?.(); }
     }
   } finally { options.reserveHeads(0); }
+}
+
+function sameFragment(a: OrderedMapDisplayPrimitive, b: OrderedMapDisplayPrimitive): boolean {
+  // Match the shared fragment-signature fields without a JSON geometry clone.
+  // Point arrays can contain65536 vertices; only bounded traversal state lives
+  // outside the two already admitted/pinned source pages.
+  return a.type === b.type && a.groupId === b.groupId && a.layerName === b.layerName && a.sourceType === b.sourceType &&
+    a.zIndex === b.zIndex && equalValue(a.style, b.style) && equalValue(a.geometry, b.geometry);
+}
+
+function equalValue(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (a === null || b === null || typeof a !== "object" || typeof b !== "object") return false;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) if (!equalValue(a[i], b[i])) return false;
+    return true;
+  }
+  const left = a as Record<string, unknown>, right = b as Record<string, unknown>;
+  for (const key in left) if (!Object.prototype.hasOwnProperty.call(right, key) || !equalValue(left[key], right[key])) return false;
+  for (const key in right) if (!Object.prototype.hasOwnProperty.call(left, key)) return false;
+  return true;
 }

@@ -35,6 +35,7 @@ describe("bounded deferred common-v2 asset reader", () => {
     expect(asset.primitiveOffsets).toBeInstanceOf(Uint32Array);
     expect(asset.stringOffsets).toBeInstanceOf(Uint32Array);
     expect(asset.memoryBytes).toBe(bytes.length + asset.primitiveOffsets.byteLength + asset.stringOffsets.byteLength);
+    expect(asset.estimate(0)).toBeGreaterThan(JSON.stringify(primitives[0]).length);
     expect(asset.primitiveOffsets).toHaveLength(primitives.length);
     expect(primitives.map((_, index) => asset.read(index))).toEqual(primitives);
     expect(asset.key(6)).toEqual({ layerName: primitives[6].layerName, elementId: primitives[6].elementId,
