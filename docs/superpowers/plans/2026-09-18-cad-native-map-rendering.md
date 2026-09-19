@@ -14,10 +14,10 @@
 
 - [x] 설계 작성본 사용자 승인: 2026-09-19, “진행해줘”
 - [x] 실제 파일·테스트 명령 확인, 아래 U1~U14 계획 작성 및 자체 검토
-- [ ] 구현 계획 사용자 검토 및 실행 방식 확인
+- [x] 구현 계획 사용자 검토·실행 승인. 기존 맵 초기화 허용, 역할별 서브에이전트로 진행
 - [ ] U1~U14 구현·검증·작업 단위별 커밋
 
-이번 변경은 계획 문서만 작성한다. 제품 코드, DB migration 적용, 사용자 맵 변경은 하지 않는다. 아래 U번호만 새 작업의 정본이다. 하단 Task 1~14는 이전 분리형 구현 이력이다.
+2026-09-19 실행 시작. 기존 맵 보존 전환은 제외하고 U5에서 명시적인 맵 초기화로 대체한다. 등록 조명·층·현장·사용자·게이트웨이는 유지한다. 아래 U번호만 새 작업의 정본이다. 하단 Task 1~14는 이전 분리형 구현 이력이다.
 
 ## 공통 제약
 
@@ -30,7 +30,7 @@
 - 전체 확장 1,000,000개·선택 영역 500,000개 상한, private asset·크기·해시·권한·lease 검사를 유지한다. 조용한 누락/잘라내기/이미지 대체를 금지한다.
 - 모든 새 문서/사용자 문구는 한글. 변경 메뉴는 settings.md와 monitoring.md, 스키마는 database-schema.md, 재발 교훈은 lesson_leared.md에 반영한다.
 - root 검증 gate와 공유 빌드는 동시에 실행하지 않는다. 아래 집중 명령은 `pnpm workspace:prepare` 완료 후 순차 실행한다.
-- 기존 이미지-only 맵 읽기 호환, 휠 확대·드래그 이동·이동 종료 스냅·보조선·읽기 전용 모니터링을 보존한다.
+- 기존 맵은 U5 초기화 후 재가져오기하며, 휠 확대·드래그 이동·이동 종료 스냅·보조선·읽기 전용 모니터링을 보존한다.
 - 증거는 단위/fixture 브라우저/실백엔드/실제 DWG/모바일 실기기로 나눠 기록한다. 하드웨어·AI·PDF·래스터 신규 입력·WebGPU는 범위 밖이다.
 
 ## 검토 초점
@@ -112,7 +112,7 @@ type MapMutationResult = { document: MapDocumentRef; changedBounds: Bounds[] };
 
 ## 작업 순서
 
-`U1 → U2 → U3 → U4 → U5 → U6 → U7 → U8 → U9 → U10 → U11 → U12 → U13 → U14`
+`U1 (독립 기준선 계측), U2 → U3 → U4 → U5 → U6 → U7 → U8 → U9 → U10 → U11 → U12 → U13 → U14`
 
 백엔드 계약이 고정되기 전 프론트 변경을 시작하지 않는다. 각 작업 완료 후 리뷰·커밋하며, 성능 계측 U1/U14는 같은 자료와 같은 측정법을 사용한다.
 
@@ -141,7 +141,7 @@ const p95Ms = ordered.length ? ordered[Math.ceil(ordered.length * 0.95) - 1] : n
 
 ### U2. 공통 요소·명령·geometry 계약
 
-**담당:** backend, 공유 경계 선행. **의존:** U1.
+**담당:** backend, 공유 경계 선행. **의존:** 없음. U1 측정과 공유 파일이 없어 독립 실행한다.
 **파일:** 생성 `packages/shared/src/map-document-contracts.ts`, `map-document-contracts.test.ts`, `map-document-geometry.ts`, `map-document-geometry.test.ts`; 수정 같은 패키지 `src/index.ts`, `src/schemas.ts`, `package.json`, `scripts/build.mjs`.
 **인터페이스:** 위 공통 타입 및 `mapElementSchema`, `mapMutationSchema`, `getMapElementBounds(element: MapElement): Bounds`. geometry 함수는 변환 후 bounds를 계산한다.
 
@@ -221,34 +221,25 @@ for await (const element of convertCadMapElements(document, options)) {
 - [ ] 위 테스트와 기존 builder/codec/import worker 회귀 실행. 적용은 기존 맵 교체 확인·조명 미배치·후보 비자동등록을 유지한다. generation 활성화는 U6 계약에 연결한다.
 - [ ] settings.md 갱신 후 커밋: `feat(cad): convert drawings into common map elements`.
 
-### U5. 기존 맵의 무손실 전환·복구 어댑터
+### U5. 기존 맵 초기화 및 신규 문서 전환
 
-**담당:** backend. **의존:** U4.
-**파일:** 생성 `apps/api/src/floor-editor/map-document-upgrade.ts`, `map-document-upgrade.spec.ts`, `map-document-upgrade.integration.spec.ts`; 수정 `floor-editor.service.ts`, `floor-editor-snapshot.ts`, 기존 CAD reader.
-**인터페이스:** `MapDocumentUpgradeService.prepare(floorId, user): Promise<MapDocumentRef>`. prepare는 활성 맵을 변경하지 않는다. 활성화는 U6와 같은 lease/revision fence로 한다.
+**담당:** backend. **의존:** U3/U4. **변경 승인:** 기존 맵을 보존하지 않아도 된다는 사용자 요청 반영.
+**파일:** 생성 `apps/api/src/floor-editor/map-document-reset.service.ts`, `map-document-reset.service.spec.ts`, `map-document-reset.integration.spec.ts`; 수정 floor-editor.controller/service/module, floor-import worker의 generation 검사.
+**인터페이스:** `MapDocumentResetService.reset(floorId, user, { requestId, baseRevision, leaseToken }): Promise<MapDocumentRef>`, admin 전용 `POST floors/:floorId/editor-reset`.
 
-- [ ] 실패 테스트: 같은 ID에 서로 다른 두 fragment, 원본 부재 시 안정적인 하위 ID 그룹, 중복 완전 geometry의 동일성 판정, 과거 hidden 유지, moved override, layer lock, 실제 조명/슬롯 보존, 과거 snapshot 복구.
+- [ ] 실패 테스트: 기존 수동/CAD/override/레이어/슬롯/편집 이력 제거, 실제 장비·현장·사용자 유지, 조명 미배치, 잘못된 층/권한/lease/리비전 거부.
 ```ts
-const legacyFragmentCases = [
-  { ids: ["line-1", "line-1"], segments: [[0, 0, 512, 0], [512, 0, 900, 0]], expectedPieces: 2 },
-  { ids: ["insert-a/line-1", "insert-b/line-1"], expectedDistinctObjects: 2 }
-];
-// ID별 마지막 값만 남기는 구현에서는 첫 사례가 반드시 실패해야 한다.
+const resetContract = {
+  mapObjects: 0, cadScenes: 0, lightSlots: 0, previousMapRevisions: 0,
+  keepRegisteredFixtures: true, fixturePlacement: "unplaced",
+  keepSiteAndGateway: true, keepEnergyAndCommandHistory: true
+};
 ```
-- [ ] 실패 확인: `pnpm --filter @led-control/api exec jest src/floor-editor/map-document-upgrade.spec.ts src/floor-editor/map-document-upgrade.integration.spec.ts --runInBand`.
-- [ ] 구현: 원본+원래 프로필 복원 우선, 불가능하면 모든 검증된 조각 보존. 원래 그룹 관계 아래 조각 그룹을 넣고 override를 한 번 적용한다. legacy manual geometry·배치 좌표·리비전 자산 해시를 비교하는 전환 보고서 생성.
-조각 수집 단계는 ID별 배열을 사용한다. 완전 geometry 중복 판정은 별도 정확 비교로 한다.
-```ts
-const byId = new Map<string, MapElement[]>();
-for (const fragment of fragments) {
-  const parts = byId.get(fragment.id) ?? [];
-  parts.push(fragment);
-  byId.set(fragment.id, parts);
-}
-```
-
-- [ ] 검증: 중도 프로세스 종료·자산 누락·lease 만료·baseRevision 변경에서 기존 generation 유지, 재실행 멱등, 보존 snapshot 복구. 변환 중 쓰기만 잠그고 읽기는 기존 포인터 유지.
-- [ ] 전환 절차/rollback 경계를 database-schema.md와 상태판에 기록, 커밋: `feat(api): preserve existing maps during document upgrade`.
+- [ ] 실패 확인: 위 reset spec/integration spec을 Jest --runInBand로 실행. 실제 local DB가 아니라 격리 DB에서 먼저 검증.
+- [ ] 구현: 해당 층 row lock→권한/lease/baseRevision 확인→진행 중 import 무효화→슬롯/맵/편집 이력 제거→fixtures 미배치/위치검증 해제→새 빈 generation 활성화. 새 맵 revision은 증가시켜 오래된 쓰기를 거부한다. 초기 맵 크기는 기존 제품의 빈 맵 기본값을 사용한다.
+- [ ] 구현: private asset은 참조 확인 후 cleanup ledger에 등록한다. 초기화 migration이나 서버 시작 시 자동 wipe는 금지한다. 로컬 초기화 승인도 이 서비스의 층 범위를 이용한다. 로컬 다운로드 원본은 건드리지 않는다.
+- [ ] 검증: 실패 rollback, 응답 유실 재시도 멱등, 늦은 import worker가 다시 apply하지 못함, 다른 층 영향 없음, 이후 신규 문서 저장/복원 정상.
+- [ ] database-schema/settings/monitoring 갱신 후 커밋: `feat(api): reset legacy maps without removing registered devices`.
 
 ### U6. 공통 저장·대량 변경 API와 원자적 확정
 
@@ -488,7 +479,9 @@ expect(serverFailures).toEqual([]);
 
 | 작업 | 상태 | 커밋/검증 증거 |
 | --- | --- | --- |
-| U1~U14 | 계획 검토 대기, 미착수 | 없음 |
+| U1 | 구현 중 | 측정·회귀 도구, 기존 사용자 맵 변경 없음 |
+| U2 | 구현 중 | 공통 계약·geometry, shared 단독 소유 |
+| U3~U14 | 대기 | U5는 맵 보존 대신 초기화로 변경 |
 
 구현 방식은 **역할별 순차 서브에이전트 진행**을 제안한다. 공유 계약과 데이터 보존은 backend가 먼저, 소비 UI는 web_frontend가 이후 담당하고 QA가 작업 단위 결과를 확인한다. 메인은 공유 계약과 통합·문서 상태를 관리한다. 같은 파일을 다루는 병렬 에이전트는 만들지 않는다. 사용자가 더 낮은 토큰 비용을 우선하면 메인 직접 구현 + 최종 독립 리뷰로 변경할 수 있다.
 
@@ -498,7 +491,7 @@ expect(serverFailures).toEqual([]);
 | --- | --- |
 | 공통 모델·팔레트·타입별 편집 | U2, U10, U11 |
 | 원본/타일 분리·CAD 호환·영역 선택 | U3, U4, U13 |
-| 기존 데이터/숨김/이력 보존 | U3, U5, U6 |
+| 기존 맵 초기화·장비 보존·새 이력 | U3, U5, U6 |
 | 실제 삭제·공통 undo·원자 저장 | U6, U8, U10 |
 | 장비 미배치·슬롯 독립성 | U5, U6, U10, U13 |
 | 서버 보안·캐시·부분 렌더링 | U7, U9 |
