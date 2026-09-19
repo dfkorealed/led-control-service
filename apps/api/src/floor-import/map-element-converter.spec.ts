@@ -1,7 +1,8 @@
-import { mapDocumentStateSchema, mapElementSchema, getMapElementBounds, transformMapPoint, type MapElement } from "@led-control/shared";
+import { CAD_SCENE_MAX_POINTS_PER_PRIMITIVE, mapDocumentStateSchema, mapElementSchema, getMapElementBounds, transformMapPoint, type MapElement } from "@led-control/shared";
 import { convertCadMapElements, createCadMapElementConverter, type CadMapConversionMetadata } from "./map-element-converter";
 import { parseAsciiDxf } from "./dxf-document-parser";
 import { buildCadScene } from "./cad-scene-builder";
+import { decodeCadSceneTile } from "./cad-scene-codec";
 import type { NormalizedCadDocument, NormalizedCadEntity } from "./cad-types";
 
 const sceneId = "00000000-0000-4000-8000-000000000101";
@@ -26,6 +27,68 @@ async function convert(input: NormalizedCadDocument, extra = {}) {
 }
 
 describe("canonical CAD map conversion", () => {
+  it("resolves every compact binary pick directly to canonical ID/group, including HATCH hole/island rings", () => {
+    const input = document([
+      { type: "line", sourceEntityId: "L", layer: "WALL", start: point(-100, 500), end: point(1100, 500) },
+      { type: "ellipse", sourceEntityId: "E", layer: "CURVE", center: point(400, 400), majorAxis: point(10, 5), axisRatio: 0.5, normalZ: 1, startParameter: 0, endParameter: 2 * Math.PI },
+      { type: "ellipse", sourceEntityId: "EA", layer: "CURVE", center: point(450, 450), majorAxis: point(10, 5), axisRatio: 0.5, normalZ: 1, startParameter: 0.5, endParameter: Math.PI },
+      { type: "lwpolyline", sourceEntityId: "R", layer: "WALL", closed: true, vertices: [vertex(500, 500), vertex(520, 500), vertex(520, 510), vertex(500, 510)] },
+      { type: "lwpolyline", sourceEntityId: "T", layer: "WALL", closed: true, vertices: [vertex(550, 500), vertex(570, 500), vertex(550, 510)] },
+      ...["I1", "I2"].map((sourceEntityId, i): NormalizedCadEntity => ({ type: "insert", sourceEntityId, layer: "LIGHT", blockName: "B", position: point(200 + i * 100, 200), rotation: 30, scale: { x: -2, y: 3, z: 1 }, attributes: [] })),
+      { type: "hatch", sourceEntityId: "H", layer: "FILL", loops: [
+        { type: "polyline", closed: true, vertices: [vertex(10, 10), vertex(110, 10), vertex(110, 110), vertex(10, 110)] },
+        { type: "polyline", closed: true, vertices: [vertex(30, 30), vertex(90, 30), vertex(90, 90), vertex(30, 90)] },
+        { type: "polyline", closed: true, vertices: [vertex(50, 50), vertex(70, 50), vertex(70, 70), vertex(50, 70)] }
+      ] },
+      { type: "dimension", sourceEntityId: "D", layer: "DIM", blockName: null, definitionPoint: point(20, 20), blockPosition: point(0, 0), textPosition: point(25, 21), extensionStart: point(20, 20), extensionEnd: point(30, 20), rotation: 0, text: "10" }
+    ], [{ name: "B", basePoint: point(0, 0), entities: [
+      { type: "circle", sourceEntityId: "C", layer: "0", center: point(0, 0), radius: 2 },
+      { type: "arc", sourceEntityId: "A", layer: "0", center: point(10, 10), radius: 2, startAngle: 20, endAngle: 200 }
+    ] }]);
+    const adapter = createCadMapElementConverter({ importJobId: "job", regionBounds: bounds });
+    const canonical = new Map<string, MapElement>();
+    const scene = buildCadScene(input, { regionId: "r", bounds, primitiveCount: 1, textCount: 0, lightCandidateCount: 0, area: 1e6 }, {
+      sceneId, onSemanticEntity: semantic => {
+        const elements = adapter.convertSemanticEntity(semantic);
+        elements.forEach(element => canonical.set(element.id, element));
+        return elements;
+      }
+    });
+    const primitives = scene.tiles.flatMap(tile => decodeCadSceneTile(tile.payload, tile.descriptor));
+    expect(new Set(scene.tiles.map(tile => tile.descriptor.lod))).toEqual(new Set([0, 1, 2]));
+    expect(primitives.length).toBeGreaterThan(canonical.size);
+    expect(scene.manifest.version).toBe(1);
+    for (const primitive of primitives) {
+      expect(canonical.has(primitive.elementId)).toBe(true);
+      expect(primitive.groupId).toBe(canonical.get(primitive.elementId)!.groupId);
+    }
+    const polygonIds = [...canonical.values()].filter(element => element.type === "polygon").map(element => element.id);
+    expect(new Set(primitives.filter(p => p.sourceType === "HATCH").map(p => p.elementId))).toEqual(new Set(polygonIds));
+    expect(adapter.getMetadata()).toMatchObject({ displayLayerBindings: expect.arrayContaining(
+      ["WALL", "CURVE", "LIGHT", "FILL", "DIM"].map(layerName => ({ layerName, layerId: adapter.getMetadata().layers.find(layer => layer.name === layerName)!.id }))
+    ) });
+  });
+
+  it("preserves null canonical group and source ID across tile-clipped maximum-size polylines", () => {
+    const input = document([{ type: "lwpolyline", sourceEntityId: "P", layer: "PATH", closed: false,
+      vertices: Array.from({ length: CAD_SCENE_MAX_POINTS_PER_PRIMITIVE }, (_, i) => vertex(10 + i / 100, 10 + (i % 2) / 100)) }]);
+    const adapter = createCadMapElementConverter({ importJobId: "job", regionBounds: bounds });
+    const canonical: MapElement[] = [];
+    const scene = buildCadScene(input, { regionId: "r", bounds, primitiveCount: 1, textCount: 0, lightCandidateCount: 0, area: 1e6 }, {
+      sceneId, simplifyTolerance: 0, onSemanticEntity: semantic => {
+        const elements = adapter.convertSemanticEntity(semantic);
+        canonical.push(...elements);
+        return elements;
+      }
+    });
+    expect(canonical).toHaveLength(1);
+    expect(canonical[0].groupId).toBeNull();
+    const primitives = scene.tiles.flatMap(tile => decodeCadSceneTile(tile.payload, tile.descriptor));
+    expect(primitives.length).toBeGreaterThan(1);
+    expect(new Set(primitives.map(p => p.elementId))).toEqual(new Set([canonical[0].id]));
+    expect(new Set(primitives.map(p => p.groupId))).toEqual(new Set([null]));
+  });
+
   it("keeps one full crossing line per source, without display deduplication or tile fragments", async () => {
     const input = document(["A", "B"].map(sourceEntityId => ({ type: "line", sourceEntityId, layer: "WALL", start: point(-100, 500), end: point(1100, 500) })));
     const first = await convert(input);

@@ -14,6 +14,8 @@ export interface CadMapConversionMetadata {
   gridSize: number;
   groups: MapGroup[];
   layers: MapLayer[];
+  /** Compact tiles retain CAD layerName strings; canonical storage uses IDs. */
+  displayLayerBindings: Array<{ layerName: string; layerId: string }>;
   elementCount: number;
   unsupportedEntityCounts: Readonly<Record<string, number>>;
   unconvertedEntityCounts: Readonly<Record<string, number>>;
@@ -158,6 +160,7 @@ export function createCadMapElementConverter(options: {
   };
   const groups = new Map<string, MapGroup>();
   const layers = new Map<string, MapLayer>();
+  const displayLayerBindings = new Map<string, { layerName: string; layerId: string }>();
   const unconverted = new Map<string, number>();
   let elementCount = 0;
   const convertSemanticEntity = (semantic: CadSemanticEntity): MapElement[] => {
@@ -200,6 +203,9 @@ export function createCadMapElementConverter(options: {
         const layer = mapLayerSchema.parse({ id: layerId, name: displayName(primitive.layerName), order: layers.size, visible: true, locked: false });
         chargeMetadata(layer);
         layers.set(layerId, layer);
+        const binding = { layerName: primitive.layerName, layerId };
+        chargeMetadata(binding);
+        displayLayerBindings.set(primitive.layerName, binding);
       }
       const element = mapElementSchema.parse({
         id: primitive.elementId, groupId, layerId, zIndex: elementCount,
@@ -215,6 +221,7 @@ export function createCadMapElementConverter(options: {
   };
   const getMetadata = (): CadMapConversionMetadata => {
     const metadata = { width, height, gridSize, groups: [...groups.values()], layers: [...layers.values()], elementCount,
+      displayLayerBindings: [...displayLayerBindings.values()],
       unsupportedEntityCounts: { ...options.unsupportedEntityCounts }, unconvertedEntityCounts: Object.fromEntries(unconverted) };
     if (Buffer.byteLength(JSON.stringify(metadata), "utf8") > maximumMetadataBytes) throw new Error("CAD map metadata byte limit exceeded");
     return metadata;

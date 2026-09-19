@@ -16,7 +16,8 @@ import {
   type CadSceneManifest,
   type CadScenePrimitive,
   type CadSceneTile,
-  type CadSceneTransform
+  type CadSceneTransform,
+  type MapElement
 } from "@led-control/shared";
 import type { CadDetectedRegion } from "./cad-region-detector";
 import {
@@ -71,9 +72,10 @@ export interface BuildCadSceneOptions {
   maxTotalTileBytes?: number;
   maxRetainedTileOccurrences?: number;
   checkBudget?: () => void;
-  /** Synchronous, bounded source hook. Called before display deduplication,
-   * simplification or clipping. Throwing aborts the entire build. */
-  onSemanticEntity?: (entity: CadSemanticEntity) => void;
+  /** Return the canonical elements to bind compact display picks to their IDs
+   * and groups. A void return keeps legacy display identities. Synchronous:
+   * called before display deduplication, simplification or clipping. */
+  onSemanticEntity?: (entity: CadSemanticEntity) => readonly MapElement[] | void;
 }
 
 export interface CadSemanticEntity {
@@ -1452,6 +1454,31 @@ function displayPrimitive(primitive: CadScenePrimitive, source: ExpandedCadEntit
   return classifyPolyline({ ...primitive, bounds }, points, primitive.geometry.closed);
 }
 
+function bindDisplayIdentities(semantic: CadSemanticEntity, elements: readonly MapElement[]): CadScenePrimitive[] {
+  const byId = new Map(elements.map(element => [element.id, element]));
+  if (byId.size !== elements.length) throw new Error("Duplicate canonical CAD element identity");
+  const ringKey = (points: readonly { x: number; y: number }[]) => createHash("sha256").update(JSON.stringify(points)).digest("hex");
+  const byRing = new Map<string, MapElement>();
+  if (semantic.source.entity.type === "hatch") {
+    for (const element of elements) {
+      if (element.type !== "polygon") throw new Error("Canonical HATCH must contain polygons");
+      for (const ring of [element.geometry.outer, ...element.geometry.holes]) {
+        const key = ringKey(ring);
+        if (byRing.has(key)) throw new Error("Ambiguous canonical HATCH ring identity");
+        byRing.set(key, element);
+      }
+    }
+  }
+  return semantic.primitives.map(primitive => {
+    // Inner HATCH rings have no standalone canonical element. Their display
+    // fragments must pick the owning polygon, including after tile clipping.
+    const element = semantic.source.entity.type === "hatch" && primitive.type === "polyline"
+      ? byRing.get(ringKey(primitive.geometry.points)) : byId.get(primitive.elementId);
+    if (!element) throw new Error("CAD display primitive has no canonical element identity");
+    return { ...primitive, elementId: element.id, groupId: element.groupId };
+  });
+}
+
 export function buildCadScene(
   document: NormalizedCadDocument,
   region: CadDetectedRegion,
@@ -1530,7 +1557,9 @@ export function buildCadScene(
     if (result && typeof (result as PromiseLike<unknown>).then === "function") {
       throw new Error("CAD semantic hook must be synchronous; use the async element iterator for backpressure");
     }
-    for (const sourcePrimitive of semantic.primitives) {
+    const canonicalBound = Array.isArray(result);
+    const displayPrimitives = canonicalBound ? bindDisplayIdentities(semantic, result) : semantic.primitives;
+    for (const sourcePrimitive of displayPrimitives) {
       const converted = options.onSemanticEntity ? displayPrimitive(sourcePrimitive, semantic.source, simplifyTolerance) : sourcePrimitive;
       if (!intersects(converted.bounds, context.contentBounds)) continue;
       const digest = deduplicationDigest(converted);
