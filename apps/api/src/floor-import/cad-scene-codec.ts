@@ -9,7 +9,7 @@ import {
   type CadBounds,
   type CadScenePrimitive
 } from "@led-control/shared";
-import { MAP_DISPLAY_VERSION, mapDisplayPrimitiveSchema, mapDisplayOrderingSchema,
+import { MAP_DISPLAY_VERSION, mapDisplayPrimitiveSchema,
   type OrderedMapDisplayPrimitive } from "@led-control/shared";
 
 const MAGIC = Buffer.from("CDTL", "ascii");
@@ -231,7 +231,13 @@ export class CadSceneTileSizeTracker {
 
   tryAdd(primitive: CadScenePrimitive): boolean {
     if (this.version === 2) {
-      const { zIndex } = mapDisplayOrderingSchema.parse(primitive);
+      const { zIndex, fragmentOrder } = primitive as OrderedMapDisplayPrimitive;
+      // Exact mapDisplayOrderingSchema scalar bounds, without a Zod result
+      // allocation for every repeated sizing pass. External geometry stays parsed.
+      if (!Number.isInteger(zIndex) || zIndex < -2147483648 || zIndex > 2147483647 ||
+          !Number.isInteger(fragmentOrder) || fragmentOrder < 0 || fragmentOrder > 0xffffffff) {
+        throw new Error("Invalid common display ordering");
+      }
       const previous = this.identities.get(primitive.elementId);
       if (previous && (previous.zIndex !== zIndex || previous.layerName !== primitive.layerName || previous.groupId !== primitive.groupId)) {
         throw new Error("Conflicting common display canonical identity/ordering");

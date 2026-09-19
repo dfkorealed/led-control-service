@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   CAD_SCENE_MAX_TILE_BYTE_SIZE,
   cadScenePrimitiveSchema,
+  mapDisplayOrderingSchema,
   type CadScenePrimitive
 } from "@led-control/shared";
 import {
@@ -88,6 +89,32 @@ describe("common display v2 codec", () => {
   const api = codec;
   const ordered = primitives.map((primitive, index) => ({ ...primitive,
     zIndex: index === 0 ? -2147483648 : 2147483647, fragmentOrder: 0xffffffff - index }));
+
+  it("sizes trusted ordering without allocating a schema parse result per fragment", () => {
+    const parse = jest.spyOn(mapDisplayOrderingSchema, "parse");
+    try {
+      const tracker = new api.MapDisplayTileSizeTracker();
+      for (const p of ordered) expect(tracker.tryAdd(p)).toBe(true);
+      expect(parse).not.toHaveBeenCalled();
+    } finally { parse.mockRestore(); }
+  });
+
+  it.each([-2147483649, -2147483648, -1, -0, 0, 0.5, 2147483647, 2147483648,
+    0xffffffff, 0x100000000, NaN, Infinity, -Infinity, undefined, null, "0", "1", true])(
+    "matches strict ordering schema boundaries for %s without coercion", value => {
+      for (const field of ["zIndex", "fragmentOrder"] as const) {
+        const p = { ...ordered[0], [field]: value };
+        const valid = mapDisplayOrderingSchema.safeParse(p).success;
+        const tracker = new api.MapDisplayTileSizeTracker();
+        const append = () => tracker.tryAdd(p as typeof ordered[0]);
+        if (valid) expect(append()).toBe(true);
+        else {
+          expect(append).toThrow();
+          expect(tracker.primitiveCount).toBe(0);
+          expect(tracker.byteSize).toBe(52);
+        }
+      }
+    });
 
   it("round-trips all shapes with exact int32/uint32 ordering and +8 bytes per occurrence", () => {
     expect(typeof api.encodeMapDisplayTile).toBe("function");
