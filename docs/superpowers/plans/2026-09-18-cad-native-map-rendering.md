@@ -502,19 +502,20 @@ expect(serverFailures).toEqual([]);
 | U9a | 완료·독립 재검토 PASS | bd21abaf, 집중75/WebGL4/typecheck·리뷰13 통과; 실제provider/UI 미연결 |
 | U11a | 완료·독립 검토 PASS | 46376f4f, 집중103/소유파일 typecheck 통과, View/store/Canvas 미연결 |
 | U4b | 완료·독립 검토 PASS | fa3022a6, 집중240/2제외·PGMinIO8x2/import26/storage31x2/typecheck·검토 probe6 통과, 로컬96 migration 적용 |
-| U5 | 완료·독립 검토 PASS | 29aba89e, 격리PG35/집중86/typecheck/build 통과; 사용자 맵 미변경 |
+| U5 | 완료·독립 검토 PASS·승인 로컬 초기화 실행 | 29aba89e, 최신PG35 통과; 정상 lease로3층 맵초기화/조명6미배치, 계정·장비·제어 데이터의 기존ID 모두 유지, 직전0600백업 보관 |
 | U10a | 완료·독립 재검토 PASS | 2282786e/4e318eca, 집중89·타입 검사·검토 회귀6/Chromium7 통과; View 연결 및 큰 선택 fallback 후속 |
 | U6a | 완료·독립 검토 PASS | b5c739a8/ac07225a/6dfaad74, 실제 HTTP19/API108/shared71·검토31 통과, 대량/크기/복구는 U6b |
 | U7 | 완료·독립 검토 PASS | 6688013e/1dcdefe5, shared90·집중68/2제외·실제PG/S3 HTTP44·검토API64/shared90 통과; stage 미리보기는 U7b 후속 |
 | U8b | 완료·독립 재검토 PASS | 04ff177e/0dd484d7, 집중86·검토38(추가4 포함), ACK/undo/cache 삭제 오인 및 복구 초안 undo 보완 |
 | U9b1 | 완료·독립 검토 PASS | 016ee6b4/e242760e/97b5d340, 집중94/WebGL6/typecheck·검토46 통과; 실제 View와 전체 z 순서는 별도 |
 | U9b2 | 공유 계약 검토 PASS·생산자/소비자 통합 중 | 64939287/16292079 검토shared54/codec24 PASS; 생산자baf189c2/e970e025, 웹 실제 순서·반투명 합성 검증 진행; legacy CAD v1 유지 |
-| U6b | core 검토 보완 중 | 5332085d/c9c40ca8/8d1436ee, 실제PG98/MinIO/인증HTTP12·초기화35·타입 검사·upgrade2 통과; 검토2건(복구 bounds/capacity 회복) 수정 중. Migration97/98 독립 clean/upgrade PASS 후 로컬 적용·데이터 유지 확인 |
+| U6b | core 독립 재검토 PASS | 1d4f4a2e 검토2건 수정·실제PG/MinIO3+capacity1 재검토 PASS, 기존HTTP12/초기화35/타입/upgrade2; migration98 로컬 적용. 500k 최종성능은 U14 |
 | U10b/U11b | 구현 중 | 검토된 store/overlay/tools와 고정 Canvas 계약을 실제 View에 연결, 같은 파일을 한 UI 담당이 순차 구현 |
 | U14a | 두 번째 원본 추가 보완 중 | 052fefae 검토85/제외1 PASS; 킨다129901개 요소 schema/hash/display ID 검증 통과(후속fix전), 2단지 Outer HATCH style/flags 보존 필요; 최종2원본 재검증 대기 |
 | U7b | 구현·통합 검토 대기 | 17eeb882 private ready stage preview, 집중56/PG환경제외2/typecheck 통과; 실제 stage authority는 U6b와 통합 검증 |
 | U13 | 모니터링 구현·미리보기 연결 중 | 45c51198 집중66/Chromium fixture2/typecheck 통과; 독립 검토 및 실제 저장/원본 여정은 후속 |
-| U8c, U14 | 대기 | 대량 저장/외부 inverse 웹 연결 및 실제 원본/API/브라우저/성능 최종 검증 |
+| U8c | 구현 중 | 검토된 대량 stage/prepare-only 미리보기/외부 이력을 웹 store·전송에 연결 |
+| U14 | 통합 대기 | 실제 원본/API/브라우저/성능 최종 검증 |
 
 구현 방식은 **역할별 순차 서브에이전트 진행**을 제안한다. 공유 계약과 데이터 보존은 backend가 먼저, 소비 UI는 web_frontend가 이후 담당하고 QA가 작업 단위 결과를 확인한다. 메인은 공유 계약과 통합·문서 상태를 관리한다. 같은 파일을 다루는 병렬 에이전트는 만들지 않는다. 사용자가 더 낮은 토큰 비용을 우선하면 메인 직접 구현 + 최종 독립 리뷰로 변경할 수 있다.
 

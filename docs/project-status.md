@@ -4,6 +4,8 @@
 
 ## 현재 마일스톤
 
+**승인된 기존 맵 초기화 실행(2026-09-19)**: 로컬의 3개 층을 정상 관리자 권한·편집 lease·검토된 초기화 서비스로 초기화했다. 맵 요소0, 조명6개 모두 미배치이며 모든 기존 계정/현장/층/게이트웨이/MeshNode/조명/제어 그룹/스케줄/명령 ID가 보존됐다. B1 사용자 맵은 리비전19, 나머지 두 층은1이다. 직전 백업은 `.local/backups/map-document-before-approved-reset-1789813861908.dump`(0600). U6b 검토2건은 `1d4f4a2e` 재검토 PASS이며 U8c 웹 연결을 시작했다. 실제 빈 맵 브라우저 확인은 진행 중인 U9b2의 새 renderer 모듈 연결이 안정된 뒤 재개한다. 현재 작업 중 import 미완성으로 인한 화면 로드 오류를 발견했으며 DB 초기화 실패가 아니다.
+
 **로컬 추가 migration 적용(2026-09-19)**: 독립 clean/upgrade 검토를 통과한 stage execution/preview migration97·98만 적용했다. 백업 `.local/backups/map-document-before-stages-1789813509094.dump`(0600)을 생성했고, 계정6·현장2·층3·게이트웨이1·MeshNode4·조명6·제어 명령79가 유지됨을 읽기 전용으로 재확인했다. API readiness200. 기존 맵 실제 초기화는 아직 수행하지 않았다. U6b core 검토의 복구 시 새 조명 bounds와 임시 디렉터리 실패 후 capacity 회복 2건은 수정 중이며 migration 승인과 기능 최종 승인을 구분한다.
 
 **최근 통합 진척(2026-09-19)**: U6b-core `5332085d`/`c9c40ca8`/`8d1436ee`는 PG98 migrations·MinIO·인증 HTTP12, 최신 초기화35, API 타입 검사, upgrade2 통과 후 U7b와 함께 독립 검토 중이다. 35MiB 초과 이력을 전체 다운로드 없이 준비 참조로 되돌리고 확정하는 경로도 검증했다. U13 모니터링 `45c51198`은 집중66/Chromium fixture2/웹 타입 검사 통과, CAD 미리보기는 연결 중이다. 웹 decoder v2 `6048bd66` 이후 실제 UI 검증과 전체 그리기 순서 보완을 진행한다. 로컬 DB 초기화 점검은 읽기 전용으로 수행했으며 실제 초기화와 신규 migration은 아직 적용하지 않았다.
