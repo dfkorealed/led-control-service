@@ -1,5 +1,4 @@
-import type { CadSceneTile } from "@led-control/shared";
-import type { MapDisplayManifest } from "@led-control/shared/map-display-contracts";
+import type { MapDisplayManifest, MapDisplayTile } from "@led-control/shared/map-display-contracts";
 import type { MapAssetRef, MapDocumentRef, MapElement, MapElementOp, MapGroup, MapLayer } from "@led-control/shared/map-document-contracts";
 import type { CadSceneWorkerClient } from "../cad-scene/cad-scene-worker";
 
@@ -35,7 +34,7 @@ export interface MapSceneSource {
   /** Final persisted display overlay, not unsaved editor operations. Empty
    * pages with a continuation cursor must still be followed. */
   getChanges(ref: MapDocumentRef, cursor: string | undefined, signal: AbortSignal): Promise<MapChangesPage>;
-  loadDisplayTile(tile: CadSceneTile, signal: AbortSignal): Promise<Uint8Array>;
+  loadDisplayTile(tile: MapDisplayTile, signal: AbortSignal): Promise<Uint8Array>;
   getElements(ref: MapDocumentRef, ids: readonly string[], signal: AbortSignal): Promise<readonly MapElement[]>;
-  decodeDisplayTile?: CadSceneWorkerClient["decode"];
+  decodeDisplayTile?: CadSceneWorkerClient<MapDisplayTile>["decode"];
 }

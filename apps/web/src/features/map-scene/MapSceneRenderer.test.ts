@@ -1,4 +1,4 @@
-import type { CadSceneManifest, CadSceneTile } from "@led-control/shared";
+import type { MapDisplayManifest, MapDisplayTile } from "@led-control/shared/map-display-contracts";
 import { mapDocumentStateSchema, type MapDocumentRef, type MapElement } from "@led-control/shared/map-document-contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CadSceneRenderBackend } from "../cad-scene/CadSceneRenderer";
@@ -10,10 +10,10 @@ const ref: MapDocumentRef = { formatVersion: 1, generationId: "generation-a", re
   width: 1536, height: 1024, gridSize: 50, elementCount: 2,
   manifest: { assetId: "canonical", sha256: "a".repeat(64), byteSize: 100, decodedByteSize: 100 } };
 const camera = { centerX: 512, centerY: 256, zoom: 1, viewportWidth: 1024, viewportHeight: 512 };
-const tile = (x: number): CadSceneTile => ({ version: 1, sceneId: "display", tileX: x, tileY: 0, lod: 0, part: 0,
+const tile = (x: number): MapDisplayTile => ({ version: 2, sceneId: "display", tileX: x, tileY: 0, lod: 0, part: 0,
   assetId: `asset-${x}`, sha256: `${x}`.repeat(64), byteSize: 1, primitiveCount: 1,
   bounds: { minX: x * 512, minY: 0, maxX: (x + 1) * 512, maxY: 512 } });
-const display: CadSceneManifest = { version: 1, sceneId: "display", regionId: "region", manifestAssetId: "manifest",
+const display: MapDisplayManifest = { version: 2, sceneId: "display", regionId: "region", manifestAssetId: "manifest",
   width: 1536, height: 1024, padding: 0, gridSize: 50, tileSize: 512, lodMode: "additive", primitiveCount: 2,
   tileCount: 2, byteSize: 2, sha256: "a".repeat(64), sourceBounds: { minX: 0, minY: 0, maxX: 1536, maxY: 1024 },
   transform: { scaleX: 1, scaleY: 1, translateX: 0, translateY: 0 }, tiles: [tile(0), tile(2)] };
@@ -37,7 +37,7 @@ function harness(sourcePatch: Partial<MapSceneSource> = {}, maximumMemoryBytes?:
       await Promise.resolve();
     }
   };
-  const backend: CadSceneRenderBackend = { mount: vi.fn(async () => {}), resize: vi.fn(), setCamera: vi.fn(),
+  const backend: CadSceneRenderBackend<MapDisplayTile> = { mount: vi.fn(async () => {}), resize: vi.fn(), setCamera: vi.fn(),
     replaceTile: vi.fn(), removeTile: vi.fn(), suspend: vi.fn(), render: vi.fn(), destroy: vi.fn() };
   const source: MapSceneSource = {
     scopeKey: "tenant:floor:user",
@@ -83,6 +83,17 @@ function collisionHarness() {
 }
 
 describe("bounded common map renderer", () => {
+  it("rejects a legacy common manifest even from an injected source", async () => {
+    const h = harness();
+    const manifest = await h.source.getManifest(ref, new AbortController().signal);
+    // Simulate an untyped/stale adapter at the runtime boundary.
+    vi.mocked(h.source.getManifest).mockResolvedValue({ ...manifest,
+      display: { ...manifest.display, version: 1 } } as unknown as typeof manifest);
+    await expect(h.start()).rejects.toThrow("version");
+    expect(h.source.getChanges).not.toHaveBeenCalled();
+    expect(h.source.loadDisplayTile).not.toHaveBeenCalled();
+  });
+
   it("enforces the selection byte limit across retained persisted elements and returns caller-owned values", async () => {
     const h = harness({ getChanges: vi.fn(async (document, cursor) => ({ generationId: document.generationId,
       revision: document.revision, operations: Array.from({ length: 64 }, (_, i) => ({ kind: "add" as const,

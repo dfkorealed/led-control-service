@@ -9,11 +9,11 @@ const payload = new Uint8Array([1, 2, 3]);
 const sha256 = createHash("sha256").update(payload).digest("hex");
 const ref = { formatVersion: 1 as const, generationId: "generation-a", revision: 2, width: 1024, height: 1024,
   gridSize: 50, elementCount: 1, manifest: { assetId: manifestId, byteSize: 100, decodedByteSize: 100, sha256 } };
-const tile = { version: 1 as const, sceneId, assetId, tileX: 0, tileY: 0, lod: 0 as const, part: 0,
+const tile = { version: 2 as const, sceneId, assetId, tileX: 0, tileY: 0, lod: 0 as const, part: 0,
   primitiveCount: 1, byteSize: payload.length, sha256, bounds: { minX: 0, minY: 0, maxX: 512, maxY: 512 } };
 const manifest = { generationId: ref.generationId, revision: ref.revision, canonical: ref.manifest,
   groups: [], layers: [], displayLayerBindings: [{ layerName: "retired", layerId: "deleted-layer" }],
-  display: { version: 1, sceneId, regionId: "manual", manifestAssetId: manifestId,
+  display: { version: 2, sceneId, regionId: "manual", manifestAssetId: manifestId,
     width: 1024, height: 1024, padding: 0, gridSize: 50, tileSize: 512, lodMode: "additive", primitiveCount: 1,
     tileCount: 1, byteSize: 100, sha256, sourceBounds: { minX: 0, minY: 0, maxX: 1024, maxY: 1024 },
     transform: { scaleX: 1, scaleY: 1, translateX: 0, translateY: 0 }, tiles: [tile] } };
@@ -27,6 +27,14 @@ const setup = (jobId?: string) => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("map document HTTP provider", () => {
+  it("rejects common v1 manifests instead of accepting missing ordering metadata", async () => {
+    const { source, fetcher } = setup();
+    fetcher.mockResolvedValueOnce(json({ ...manifest, display: { ...manifest.display, version: 1,
+      tiles: [{ ...tile, version: 1 }] } }));
+    await expect(source.getManifest(ref, signal())).rejects.toThrow();
+    await expect(source.loadDisplayTile(tile, signal())).rejects.toThrow("manifest");
+  });
+
   it("uses the approved scoped routes and native nonempty manifest without canonical overview reads", async () => {
     const { source, fetcher } = setup("job 1");
     fetcher.mockResolvedValueOnce(json(manifest));

@@ -1,4 +1,5 @@
 import type { CadBounds, CadSceneManifest, CadSceneTile } from "@led-control/shared";
+import type { SceneManifest, SceneTile } from "./cad-scene-display-types";
 import { Color, Container, Mesh, MeshGeometry, Texture, WebGLRenderer } from "pixi.js";
 import {
   capCadRendererResolution,
@@ -98,13 +99,13 @@ function throwIfAborted(signal: AbortSignal): void {
   if (signal.aborted) throw abortReason(signal);
 }
 
-export interface CadSceneRenderBackend {
+export interface CadSceneRenderBackend<TTile extends SceneTile = CadSceneTile> {
   mount(canvas: HTMLCanvasElement, options: { resolution: number }): Promise<void>;
   resize(width: number, height: number, resolution: number): void;
   setCamera(camera: CadSceneCamera): void;
   replaceTile(
     key: string,
-    tile: DecodedCadSceneTile,
+    tile: DecodedCadSceneTile<TTile>,
     excludedElementIds: ReadonlySet<string>,
     hiddenLayerNames?: ReadonlySet<string>,
     excludedGroupIds?: ReadonlySet<string>
@@ -115,13 +116,13 @@ export interface CadSceneRenderBackend {
   destroy(): void;
 }
 
-export type CadSceneRenderBackendFactory = () => CadSceneRenderBackend;
+export type CadSceneRenderBackendFactory<TTile extends SceneTile = CadSceneTile> = () => CadSceneRenderBackend<TTile>;
 
-export interface CadSceneRendererOptions {
-  manifest: CadSceneManifest;
-  loadTile: (tile: CadSceneTile, signal: AbortSignal) => Promise<Uint8Array>;
-  worker?: CadSceneWorkerClient;
-  backendFactory?: CadSceneRenderBackendFactory;
+export interface CadSceneRendererOptions<TManifest extends SceneManifest = CadSceneManifest> {
+  manifest: TManifest;
+  loadTile: (tile: TManifest["tiles"][number], signal: AbortSignal) => Promise<Uint8Array>;
+  worker?: CadSceneWorkerClient<TManifest["tiles"][number]>;
+  backendFactory?: CadSceneRenderBackendFactory<TManifest["tiles"][number]>;
   platform?: CadRendererPlatform;
   devicePixelRatio?: number;
   maximumCacheBytes?: number;
@@ -140,11 +141,11 @@ export interface CadSceneDegradation {
   reason: "memory-budget";
 }
 
-export interface CadScenePickResult {
+export interface CadScenePickResult<TTile extends SceneTile = CadSceneTile> {
   elementId: string;
   groupId: string | null;
   layerName: string;
-  sourceTile?: DecodedCadSceneTile;
+  sourceTile?: DecodedCadSceneTile<TTile>;
   releaseSourceTile?: () => void;
 }
 
@@ -152,7 +153,7 @@ export interface CadSceneLayerState {
   visible: boolean;
 }
 
-function tileKey(tile: CadSceneTile): string {
+function tileKey(tile: SceneTile): string {
   return `${tile.sceneId}:${tile.lod}:${tile.tileX}:${tile.tileY}:${tile.part}`;
 }
 
@@ -227,7 +228,7 @@ export class PixiCadSceneRenderBackend implements CadSceneRenderBackend {
 
   replaceTile(
     key: string,
-    tile: DecodedCadSceneTile,
+    tile: DecodedCadSceneTile<SceneTile>,
     excludedElementIds: ReadonlySet<string>,
     hiddenLayerNames: ReadonlySet<string> = new Set(),
     excludedGroupIds?: ReadonlySet<string>
@@ -309,16 +310,16 @@ export class PixiCadSceneRenderBackend implements CadSceneRenderBackend {
   }
 }
 
-export class CadSceneRenderer {
+export class CadSceneRenderer<TManifest extends SceneManifest = CadSceneManifest> {
   private static ownerSequence = 0;
-  private manifest: CadSceneManifest;
-  private readonly worker: CadSceneWorkerClient;
-  private readonly backendFactory: CadSceneRenderBackendFactory;
+  private manifest: TManifest;
+  private readonly worker: CadSceneWorkerClient<TManifest["tiles"][number]>;
+  private readonly backendFactory: CadSceneRenderBackendFactory<TManifest["tiles"][number]>;
   private readonly platform: CadRendererPlatform;
   private readonly resolution: number;
-  private readonly cache: CadSceneTileCache<DecodedCadSceneTile>;
-  private readonly tilesByCell = new Map<string, CadSceneTile[]>();
-  private readonly loadTile: CadSceneRendererOptions["loadTile"];
+  private readonly cache: CadSceneTileCache<DecodedCadSceneTile<TManifest["tiles"][number]>>;
+  private readonly tilesByCell = new Map<string, TManifest["tiles"][number][]>();
+  private readonly loadTile: CadSceneRendererOptions<TManifest>["loadTile"];
   private readonly onError: (error: Error) => void;
   private readonly onDegraded: (result: CadSceneDegradation) => void;
   private readonly maximumCacheBytes: number;
@@ -328,7 +329,7 @@ export class CadSceneRenderer {
   private readonly tileLoadScheduler: CadTileLoadScheduler;
   private readonly memoryBudget?: CadSceneMemoryBudget;
   private readonly memoryOwner: string;
-  private backend: CadSceneRenderBackend;
+  private backend: CadSceneRenderBackend<TManifest["tiles"][number]>;
   private canvas: HTMLCanvasElement | null = null;
   private currentCamera: CadSceneCamera | null = null;
   private activeTileKeys = new Set<string>();
@@ -346,7 +347,7 @@ export class CadSceneRenderer {
   private destroyed = false;
   private readonly displayQuality: boolean;
   private readonly displayBudget: CadSceneMemoryBudget;
-  private readonly displayTiles = new Map<string, { tile: DecodedCadSceneTile; qualityKey: string }>();
+  private readonly displayTiles = new Map<string, { tile: DecodedCadSceneTile<TManifest["tiles"][number]>; qualityKey: string }>();
   private displayVersion = 0;
   private readonly displayTileVersions = new Map<string, number>();
   private readonly sourceBounds = new Map<string, CadBounds>();
@@ -355,11 +356,11 @@ export class CadSceneRenderer {
   private readonly pickLeases = new Set<() => void>();
   private displayRenderFrame: number | null = null;
   private contextRestoreFrame: number | null = null;
-  private transientTile: DecodedCadSceneTile | null = null;
+  private transientTile: DecodedCadSceneTile<TManifest["tiles"][number]> | null = null;
 
-  constructor(options: CadSceneRendererOptions) {
+  constructor(options: CadSceneRendererOptions<TManifest>) {
     this.manifest = options.manifest;
-    this.worker = options.worker ?? createCadSceneWorkerClient();
+    this.worker = options.worker ?? createCadSceneWorkerClient<TManifest["tiles"][number]>();
     this.backendFactory = options.backendFactory ?? (() => new PixiCadSceneRenderBackend());
     this.backend = this.backendFactory();
     this.platform = options.platform ?? "desktop";
@@ -424,7 +425,7 @@ export class CadSceneRenderer {
   }
 
   /** Replace derived descriptors without replacing the canvas or WebGL context. */
-  setManifest(manifest: CadSceneManifest): void {
+  setManifest(manifest: TManifest): void {
     this.assertAlive();
     this.requestGeneration++;
     this.loadAbortController.abort();
@@ -458,7 +459,7 @@ export class CadSceneRenderer {
   }
 
   /** A bounded local-edit batch, not one display object per edited element. */
-  setTransientTile(tile: DecodedCadSceneTile | null): void {
+  setTransientTile(tile: DecodedCadSceneTile<TManifest["tiles"][number]> | null): void {
     this.assertAlive();
     const key = "transient";
     if (tile) {
@@ -508,7 +509,7 @@ export class CadSceneRenderer {
       this.memoryBudget?.release(this.memoryOwner, `active:${key}`);
     }
     this.cache.pin(new Set());
-    const loaded: Array<[CadSceneTile, DecodedCadSceneTile]> = [];
+    const loaded: Array<[TManifest["tiles"][number], DecodedCadSceneTile<TManifest["tiles"][number]>]> = [];
     const requestedKeys = new Set<string>();
     let cpuBytes = 0;
     let gpuBytes = 0;
@@ -536,7 +537,7 @@ export class CadSceneRenderer {
               return { value: decoded, byteSize: decoded.memory.cpuBytes };
             }, loadSignal);
           })
-        ] as [CadSceneTile, DecodedCadSceneTile]));
+        ] as [TManifest["tiles"][number], DecodedCadSceneTile<TManifest["tiles"][number]>]));
         for (let index = 0; index < windowLoaded.length; index++) {
           const [descriptor, decoded] = windowLoaded[index];
           const memory = decoded.memory;
@@ -667,7 +668,7 @@ export class CadSceneRenderer {
         const qualityKey = qualityFor(key);
         const previous = this.displayTiles.get(key);
         if (previous?.qualityKey === qualityKey && this.activeTileKeys.has(key)) continue;
-        let decoded: DecodedCadSceneTile;
+        let decoded: DecodedCadSceneTile<TManifest["tiles"][number]>;
         if (previous?.qualityKey === qualityKey) decoded = previous.tile;
         else {
           const fetched = await prefetched.get(key)!;
@@ -718,7 +719,7 @@ export class CadSceneRenderer {
     });
   }
 
-  private fitsDisplayResources(tile: DecodedCadSceneTile, replacingKey: string): boolean {
+  private fitsDisplayResources(tile: DecodedCadSceneTile<TManifest["tiles"][number]>, replacingKey: string): boolean {
     let gpu = tile.memory.gpuBytes;
     let atlas = tile.memory.textAtlasBytes;
     for (const key of this.activeTileKeys) {
@@ -747,7 +748,7 @@ export class CadSceneRenderer {
   async pickExact(point: { x: number; y: number }, options: {
     radiusPixels?: number; maximumTiles?: number; maximumEncodedBytes?: number; maximumDecodedBytes?: number;
     candidateIds?: Set<string>; maximumCandidateIds?: number;
-  } = {}): Promise<CadScenePickResult | null> {
+  } = {}): Promise<CadScenePickResult<TManifest["tiles"][number]> | null> {
     if (!this.displayQuality) return this.pick(point, options);
     const camera = this.currentCamera;
     if (!camera || this.destroyed || this.contextLost) return null;
@@ -760,7 +761,7 @@ export class CadSceneRenderer {
         candidates.reduce((sum, tile) => sum + tile.byteSize, 0) > (options.maximumEncodedBytes ?? Infinity)) {
       throw new Error("Map exact selection budget exceeded; zoom in before selecting");
     }
-    let best: { entry: CadPickEntry; distance: number; tile: DecodedCadSceneTile } | null = null;
+    let best: { entry: CadPickEntry; distance: number; tile: DecodedCadSceneTile<TManifest["tiles"][number]> } | null = null;
     for (const descriptor of candidates) {
       if (signal.aborted || this.destroyed || this.contextLost) return null;
       // No quality means exact geometry. The editor wrapper can retain this
@@ -825,7 +826,7 @@ export class CadSceneRenderer {
   pick(
     point: { x: number; y: number },
     options: { radiusPixels?: number } = {}
-  ): CadScenePickResult | null {
+  ): CadScenePickResult<TManifest["tiles"][number]> | null {
     const camera = this.currentCamera;
     if (!camera || this.destroyed || this.contextLost) return null;
     const world = screenToCadWorld(point, camera);
@@ -939,10 +940,10 @@ export class CadSceneRenderer {
     this.worker.destroy();
   }
 
-  private visibleTileDescriptors(camera: CadSceneCamera): CadSceneTile[] {
+  private visibleTileDescriptors(camera: CadSceneCamera): TManifest["tiles"][number][] {
     const coordinates = computeVisibleTileCoordinates(this.manifest, camera, 1);
     const lods = selectCadSceneLods(camera.zoom, this.displayQuality ? "display" : "source");
-    const descriptors: CadSceneTile[] = [];
+    const descriptors: TManifest["tiles"][number][] = [];
     for (const lod of lods) {
       for (const coordinate of coordinates) {
         descriptors.push(...(this.tilesByCell.get(`${lod}:${coordinate.tileX}:${coordinate.tileY}`) ?? []));
@@ -1064,7 +1065,7 @@ function setsEqual<T>(left: ReadonlySet<T>, right: ReadonlySet<T>): boolean {
 }
 
 function distanceToPickEntry(
-  tile: DecodedCadSceneTile,
+  tile: DecodedCadSceneTile<SceneTile>,
   entry: CadPickEntry,
   point: { x: number; y: number }
 ): number {
@@ -1122,7 +1123,7 @@ function pointInPolygon(
 }
 
 function spatialCandidates(
-  tile: DecodedCadSceneTile,
+  tile: DecodedCadSceneTile<SceneTile>,
   point: { x: number; y: number },
   radius: number
 ): number[] {

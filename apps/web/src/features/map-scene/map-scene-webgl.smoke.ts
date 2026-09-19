@@ -1,24 +1,28 @@
 import { expect, test } from "@playwright/test";
+import { encodeMapDisplayTile } from "../../../../api/src/floor-import/cad-scene-codec";
+import { cadSceneCodecGolden } from "../cad-scene/cad-scene-codec.golden";
 
 for (const width of [1024, 320]) test(`common map compact worker, draft holes and context recovery at ${width}px`, async ({ page }, testInfo) => {
   await page.setViewportSize({ width, height: 480 });
   await page.goto("/src/features/cad-scene/cad-scene-webgl-smoke.html");
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
-  const result = await page.evaluate(async width => {
+  const payloadBase64 = encodeMapDisplayTile(cadSceneCodecGolden.primitives.map((primitive, zIndex) => ({
+    ...primitive, zIndex, fragmentOrder: 0
+  }))).toString("base64");
+  const result = await page.evaluate(async ({ width, payloadBase64 }) => {
     const rendererPath = "/src/features/map-scene/MapSceneRenderer.ts";
-    const goldenPath = "/src/features/cad-scene/cad-scene-codec.golden.ts";
     const backendPath = "/src/features/cad-scene/CadSceneRenderer.ts";
-    const [{ MapSceneRenderer }, { cadSceneCodecGolden }, { PixiCadSceneRenderBackend }] = await Promise.all([
-      import(/* @vite-ignore */ rendererPath), import(/* @vite-ignore */ goldenPath), import(/* @vite-ignore */ backendPath)
+    const [{ MapSceneRenderer }, { PixiCadSceneRenderBackend }] = await Promise.all([
+      import(/* @vite-ignore */ rendererPath), import(/* @vite-ignore */ backendPath)
     ]);
     document.body.style.margin = "0";
     const canvas = document.createElement("canvas");
     canvas.style.width = `${width}px`; canvas.style.height = "320px";
     document.body.replaceChildren(canvas);
-    const bytes = Uint8Array.from(atob(cadSceneCodecGolden.payloadBase64), value => value.charCodeAt(0));
+    const bytes = Uint8Array.from(atob(payloadBase64), value => value.charCodeAt(0));
     const sha256 = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map(value => value.toString(16).padStart(2, "0")).join("");
-    const tile = { version: 1, sceneId: "common-display", tileX: 0, tileY: 0, part: 0, lod: 0,
+    const tile = { version: 2, sceneId: "common-display", tileX: 0, tileY: 0, part: 0, lod: 0,
       assetId: "display-tile", sha256, byteSize: bytes.length, primitiveCount: 7,
       bounds: { minX: 0, minY: 0, maxX: 512, maxY: 512 } };
     const ref = { formatVersion: 1, generationId: "common-generation", revision: 0, width: 1024, height: 1024,
@@ -50,7 +54,7 @@ for (const width of [1024, 320]) test(`common map compact worker, draft holes an
         getManifest: async (document: typeof ref) => ({ generationId: document.generationId, revision: document.revision,
           canonical: document.manifest, groups: [{ id: "golden-group", parentId: null, name: "Group", visible: true, locked: false }], layers,
           displayLayerBindings: layers.map(layer => ({ layerName: layer.name, layerId: layer.id })),
-          display: { version: 1, sceneId: tile.sceneId, regionId: "region", manifestAssetId: "derived-metadata",
+          display: { version: 2, sceneId: tile.sceneId, regionId: "region", manifestAssetId: "derived-metadata",
             width: 1024, height: 1024, padding: 0, gridSize: 50, tileSize: 512, lodMode: "additive", primitiveCount: 7,
             tileCount: 1, byteSize: bytes.length, sha256, sourceBounds: tile.bounds,
             transform: { scaleX: 1, scaleY: 1, translateX: 0, translateY: 0 }, tiles: [tile] } }),
@@ -122,7 +126,7 @@ for (const width of [1024, 320]) test(`common map compact worker, draft holes an
     renderer.dispose();
     return { overviewLookups, picked: picked?.element.id, localPick: localPick?.element.id, beforeFrameId, holeAlpha,
       fetches, lookups, memoryBytes, afterDispose: renderer.memoryBytes, sourceStillVisible, prematureRestoreRenders, renderErrors };
-  }, width);
+  }, { width, payloadBase64 });
   expect(result).toMatchObject({ overviewLookups: 0, picked: "line-golden", localPick: "golden-group", beforeFrameId: "golden-group", holeAlpha: 0,
     fetches: 1, lookups: 1, afterDispose: 0, sourceStillVisible: true, prematureRestoreRenders: 0, renderErrors: [] });
   expect(result.memoryBytes).toBeLessThanOrEqual((width === 320 ? 32 : 128) * 1024 * 1024);

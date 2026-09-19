@@ -1,4 +1,6 @@
 import type { CadBounds, CadElementOverride, CadElementTransform, CadScenePrimitive, CadSceneTile } from "@led-control/shared";
+import { MAP_DISPLAY_VERSION, type MapDisplayTile, type OrderedMapDisplayPrimitive } from "@led-control/shared/map-display-contracts";
+import type { SceneTile } from "./cad-scene-display-types";
 import earcut from "earcut";
 import { CadDisplayStrokeAccumulator } from "./cad-scene-display";
 import { packCadDisplayText } from "./cad-scene-text-layout";
@@ -12,11 +14,18 @@ const NULL_STRING_INDEX = 0xffff_ffff;
 const MAX_UTF8_STRING_BYTES = 4 * 65_536;
 const MIN_PRIMITIVE_BYTES = 106;
 
+export interface CadPaintMetadata {
+  zIndex: number;
+  fragmentOrder: number;
+  phase: "fill" | "stroke";
+}
+
 export interface CadGeometrySpan {
   elementId: string;
   groupId: string | null;
   indexStart: number;
   indexCount: number;
+  paint?: CadPaintMetadata;
 }
 
 export interface CadGeometryBatch {
@@ -30,6 +39,7 @@ export interface CadGeometryBatch {
 }
 
 export interface CadPickEntry {
+  paint?: CadPaintMetadata;
   elementId: string;
   groupId: string | null;
   layerName: string;
@@ -58,6 +68,7 @@ export interface CadSceneMemoryEstimate {
 }
 
 export interface CadTextEntry {
+  paint?: CadPaintMetadata;
   elementId: string;
   groupId: string | null;
   text: string;
@@ -84,14 +95,14 @@ export interface CadSpatialIndex {
   buckets: Record<string, Uint32Array>;
 }
 
-export interface DecodedCadSceneTile extends CadGeometryBuildResult {
-  descriptor: CadSceneTile;
+export interface DecodedCadSceneTile<TTile extends SceneTile = CadSceneTile> extends CadGeometryBuildResult {
+  descriptor: TTile;
   byteSize: number;
 }
 
-export interface CadSceneWorkerClient {
-  decode(payload: Uint8Array, descriptor: CadSceneTile, quality?: CadSceneDisplayQuality): Promise<DecodedCadSceneTile>;
-  decodeSource?(payload: Uint8Array, descriptor: CadSceneTile): Promise<DecodedCadSceneTile>;
+export interface CadSceneWorkerClient<TTile extends SceneTile = CadSceneTile> {
+  decode(payload: Uint8Array, descriptor: TTile, quality?: CadSceneDisplayQuality): Promise<DecodedCadSceneTile<TTile>>;
+  decodeSource?(payload: Uint8Array, descriptor: TTile): Promise<DecodedCadSceneTile<TTile>>;
   destroy(): void;
 }
 
@@ -134,6 +145,13 @@ class BinaryReader {
   uint32(): number {
     this.require(4);
     const value = this.view.getUint32(this.offset, true);
+    this.offset += 4;
+    return value;
+  }
+
+  int32(): number {
+    this.require(4);
+    const value = this.view.getInt32(this.offset, true);
     this.offset += 4;
     return value;
   }
@@ -228,12 +246,13 @@ function stringAt(strings: readonly string[], index: number, nullable = false): 
   return value;
 }
 
-function readPrimitive(reader: BinaryReader, strings: readonly string[]): CadScenePrimitive {
+function readPrimitive(reader: BinaryReader, strings: readonly string[], version: 1 | 2): CadScenePrimitive {
   const type = reader.uint8();
   const elementId = stringAt(strings, reader.uint32())!;
   const groupId = stringAt(strings, reader.uint32(), true);
   const layerName = stringAt(strings, reader.uint32())!;
   const sourceType = stringAt(strings, reader.uint32())!;
+  const ordering = version === MAP_DISPLAY_VERSION ? { zIndex: reader.int32(), fragmentOrder: reader.uint32() } : {};
   const bounds = readBounds(reader);
   const clipBounds = readBoolean(reader) ? readBounds(reader) : null;
   const style = {
@@ -245,7 +264,7 @@ function readPrimitive(reader: BinaryReader, strings: readonly string[]): CadSce
   if (style.strokeWidth < 0 || style.opacity < 0 || style.opacity > 1) {
     throw new Error("Invalid CAD scene tile primitive style");
   }
-  const base = { elementId, groupId, layerName, sourceType, bounds, clipBounds, style };
+  const base = { elementId, groupId, layerName, sourceType, bounds, clipBounds, style, ...ordering };
 
   if (type === 1) {
     return { ...base, type: "line", geometry: { start: readPoint(reader), end: readPoint(reader) } };
@@ -308,6 +327,23 @@ export async function decodeCadSceneTilePayload(
   payload: Uint8Array,
   descriptor: CadSceneTile
 ): Promise<CadScenePrimitive[]> {
+  return decodeSceneTilePayload(payload, descriptor, CAD_SCENE_VERSION);
+}
+
+export async function decodeMapDisplayTilePayload(
+  payload: Uint8Array,
+  descriptor: MapDisplayTile
+): Promise<OrderedMapDisplayPrimitive[]> {
+  // The v2 binary reader requires both ordering fields for every primitive.
+  return await decodeSceneTilePayload(payload, descriptor, MAP_DISPLAY_VERSION) as OrderedMapDisplayPrimitive[];
+}
+
+function decodeDisplayTilePayload(payload: Uint8Array, descriptor: SceneTile): Promise<CadScenePrimitive[]> {
+  return descriptor.version === MAP_DISPLAY_VERSION
+    ? decodeMapDisplayTilePayload(payload, descriptor) : decodeCadSceneTilePayload(payload, descriptor);
+}
+
+async function decodeSceneTilePayload(payload: Uint8Array, descriptor: SceneTile, expectedVersion: 1 | 2): Promise<CadScenePrimitive[]> {
   if (payload.byteLength > CAD_SCENE_MAX_TILE_BYTE_SIZE) {
     throw new Error("CAD scene tile byte size limit exceeded");
   }
@@ -320,7 +356,7 @@ export async function decodeCadSceneTilePayload(
   const magic = new TextDecoder("ascii").decode(header.bytes(4));
   if (magic !== "CDTL") throw new Error("Invalid CAD scene tile magic");
   const version = header.uint16();
-  if (version !== CAD_SCENE_VERSION || version !== descriptor.version) {
+  if (version !== expectedVersion || version !== descriptor.version) {
     throw new Error(`Unsupported CAD scene tile version: ${version}`);
   }
   if (header.uint16() !== 0) throw new Error("Unsupported CAD scene tile flags");
@@ -339,13 +375,25 @@ export async function decodeCadSceneTilePayload(
 
   const reader = new BinaryReader(body);
   const stringCount = reader.uint32();
-  const reservedPrimitiveBytes = primitiveCount * MIN_PRIMITIVE_BYTES;
+  const reservedPrimitiveBytes = primitiveCount * (MIN_PRIMITIVE_BYTES + (version === MAP_DISPLAY_VERSION ? 8 : 0));
   if (!Number.isSafeInteger(reservedPrimitiveBytes) || reservedPrimitiveBytes > reader.remaining) {
     throw new Error("CAD scene tile primitive count exceeds payload capacity");
   }
   const strings = decodeStrings(reader, stringCount, primitiveCount, reservedPrimitiveBytes);
   const primitives: CadScenePrimitive[] = [];
-  for (let index = 0; index < primitiveCount; index++) primitives.push(readPrimitive(reader, strings));
+  const identities = new Map<string, { zIndex: number; layerName: string; groupId: string | null }>();
+  for (let index = 0; index < primitiveCount; index++) {
+    const primitive = readPrimitive(reader, strings, version);
+    if (version === MAP_DISPLAY_VERSION) {
+      const ordered = primitive as OrderedMapDisplayPrimitive;
+      const previous = identities.get(ordered.elementId);
+      if (previous && (previous.zIndex !== ordered.zIndex || previous.layerName !== ordered.layerName || previous.groupId !== ordered.groupId)) {
+        throw new Error("Conflicting map display element ordering identity");
+      }
+      if (!previous) identities.set(ordered.elementId, { zIndex: ordered.zIndex, layerName: ordered.layerName, groupId: ordered.groupId });
+    }
+    primitives.push(primitive);
+  }
   if (reader.remaining !== 0) throw new Error("CAD scene tile payload has trailing bytes");
 
   for (const primitive of primitives) {
@@ -460,6 +508,12 @@ function mutableBatch(
   return created;
 }
 
+function paintMetadata(primitive: CadScenePrimitive, phase: CadPaintMetadata["phase"]): CadPaintMetadata | undefined {
+  if (!("zIndex" in primitive) || !("fragmentOrder" in primitive)) return undefined;
+  const { zIndex, fragmentOrder } = primitive as OrderedMapDisplayPrimitive;
+  return { zIndex, fragmentOrder, phase };
+}
+
 function addPolygon(batch: MutableBatch, points: readonly Point[], primitive: CadScenePrimitive): void {
   const clippedPoints = primitive.clipBounds ? clipPolygon(points, primitive.clipBounds) : [...points];
   if (clippedPoints.length < 3) return;
@@ -471,6 +525,7 @@ function addPolygon(batch: MutableBatch, points: readonly Point[], primitive: Ca
   batch.spans.push({
     elementId: primitive.elementId,
     groupId: primitive.groupId,
+    paint: paintMetadata(primitive, "fill"),
     indexStart,
     indexCount: batch.indices.length - indexStart
   });
@@ -519,7 +574,8 @@ function addStroke(
   }
   const indexCount = batch.indices.length - indexStart;
   if (indexCount > 0 && !display) {
-    batch.spans.push({ elementId: primitive.elementId, groupId: primitive.groupId, indexStart, indexCount });
+    batch.spans.push({ elementId: primitive.elementId, groupId: primitive.groupId, indexStart, indexCount,
+      paint: paintMetadata(primitive, "stroke") });
   }
 }
 
@@ -594,6 +650,7 @@ export function buildCadGeometryBatches(primitives: readonly CadScenePrimitive[]
   const pickPoints: number[] = [];
   const includePicking = !quality && options.includePickIndex !== false;
   primitives.forEach((primitive, zOrder) => {
+    const ordered = paintMetadata(primitive, "fill");
     if (excluded.has(primitive.elementId) || (primitive.groupId && excludedGroups.has(primitive.groupId))) return;
     const override = overrides.get(primitive.elementId);
     if (override?.hidden) return;
@@ -623,10 +680,10 @@ export function buildCadGeometryBatches(primitives: readonly CadScenePrimitive[]
           ...(fontPixelSize === undefined ? {} : { fontPixelSize })
         };
         batch.entries.push({
-          // Exclusions/overrides already ran before display batching. IDs are
-          // only needed by exact picking, not retained display text quads.
-          elementId: quality ? "" : primitive.elementId,
-          groupId: quality ? null : primitive.groupId,
+          // Common v2 must retain identity for later cell painter ordering.
+          elementId: quality && !ordered ? "" : primitive.elementId,
+          groupId: quality && !ordered ? null : primitive.groupId,
+          paint: ordered,
           text: primitive.geometry.text,
           position: primitive.geometry.position,
           width: primitive.geometry.width,
@@ -653,7 +710,8 @@ export function buildCadGeometryBatches(primitives: readonly CadScenePrimitive[]
         const width = quality ? Math.max((quality.minimumStrokePixels ?? 0.5) / quality.zoomBand,
           Math.round(primitive.style.strokeWidth / quantum) * quantum) : primitive.style.strokeWidth;
         const batch = mutableBatch(mutableBatches, primitive.layerName, "stroke", strokeColor, primitive.style.opacity, width);
-        const segments = quality ? displaySegments.get(batch.styleKey) ?? new CadDisplayStrokeAccumulator(quantum, width) : undefined;
+        // Merging across IDs destroys v2 painter spans, including alpha order.
+        const segments = quality && !ordered ? displaySegments.get(batch.styleKey) ?? new CadDisplayStrokeAccumulator(quantum, width) : undefined;
         if (segments) displaySegments.set(batch.styleKey, segments);
         addStroke(
           batch,
@@ -666,6 +724,7 @@ export function buildCadGeometryBatches(primitives: readonly CadScenePrimitive[]
       }
     }
     if (includePicking) pickEntries.push({
+      paint: ordered,
       elementId: primitive.elementId,
       groupId: primitive.groupId,
       layerName: primitive.layerName,
@@ -691,7 +750,7 @@ export function buildCadGeometryBatches(primitives: readonly CadScenePrimitive[]
     opacity: batch.opacity,
     positions: Float32Array.from(batch.positions),
     indices: Uint32Array.from(batch.indices),
-    spans: quality ? [] : batch.spans
+    spans: quality ? batch.spans.filter(span => span.paint !== undefined) : batch.spans
   }));
   const textBatches = [...mutableTextBatches.values()];
   const packedPickPoints = Float32Array.from(pickPoints);
@@ -709,7 +768,7 @@ function stringBytes(value: string | null): number {
   return value === null ? 0 : value.length * 2;
 }
 
-export function extractCadSourceElement(tile: DecodedCadSceneTile, elementId: string): DecodedCadSceneTile {
+export function extractCadSourceElement<TTile extends SceneTile>(tile: DecodedCadSceneTile<TTile>, elementId: string): DecodedCadSceneTile<TTile> {
   const pickPoints: number[] = [];
   const pickEntries = tile.pickEntries.filter(entry => entry.elementId === elementId).map(entry => {
     const pointStart = pickPoints.length / 2;
@@ -762,7 +821,7 @@ function estimateCadSceneMemory(
       stringBytes(batch.color);
     gpuBytes += bufferBytes + batch.positions.byteLength;
     for (const span of batch.spans) {
-      cpuBytes += 96 + stringBytes(span.elementId) + stringBytes(span.groupId);
+      cpuBytes += 96 + (span.paint ? 48 : 0) + stringBytes(span.elementId) + stringBytes(span.groupId);
     }
   }
   let textEntryCount = 0;
@@ -774,11 +833,11 @@ function estimateCadSceneMemory(
     cpuBytes += 128 + stringBytes(batch.styleKey) + stringBytes(batch.layerName) + stringBytes(batch.color);
     for (const entry of batch.entries) {
       textEntryCount++;
-      cpuBytes += 192 + stringBytes(entry.elementId) + stringBytes(entry.groupId) + stringBytes(entry.text);
+      cpuBytes += 192 + (entry.paint ? 48 : 0) + stringBytes(entry.elementId) + stringBytes(entry.groupId) + stringBytes(entry.text);
     }
   }
   for (const entry of pickEntries) {
-    cpuBytes += 176 + stringBytes(entry.elementId) + stringBytes(entry.groupId) + stringBytes(entry.layerName);
+    cpuBytes += 176 + (entry.paint ? 48 : 0) + stringBytes(entry.elementId) + stringBytes(entry.groupId) + stringBytes(entry.layerName);
   }
   for (const [key, bucket] of Object.entries(spatialIndex.buckets)) {
     cpuBytes += 48 + stringBytes(key) + bucket.byteLength;
@@ -878,32 +937,32 @@ function buildSpatialIndex(entries: readonly CadPickEntry[], cellSize = 64): Cad
   return { cellSize, buckets };
 }
 
-class InlineCadSceneWorkerClient implements CadSceneWorkerClient {
-  async decode(payload: Uint8Array, descriptor: CadSceneTile, quality?: CadSceneDisplayQuality): Promise<DecodedCadSceneTile> {
-    const primitives = await decodeCadSceneTilePayload(payload, descriptor);
+class InlineCadSceneWorkerClient<TTile extends SceneTile> implements CadSceneWorkerClient<TTile> {
+  async decode(payload: Uint8Array, descriptor: TTile, quality?: CadSceneDisplayQuality): Promise<DecodedCadSceneTile<TTile>> {
+    const primitives = await decodeDisplayTilePayload(payload, descriptor);
     return { ...buildCadGeometryBatches(primitives, quality), descriptor, byteSize: payload.byteLength };
   }
 
   destroy(): void {}
 }
 
-interface WorkerDecodeRequest {
+interface WorkerDecodeRequest<TTile extends SceneTile = SceneTile> {
   id: number;
   payload: Uint8Array;
-  descriptor: CadSceneTile;
+  descriptor: TTile;
   quality?: CadSceneDisplayQuality;
 }
 
-interface WorkerDecodeResponse {
+interface WorkerDecodeResponse<TTile extends SceneTile = SceneTile> {
   id: number;
-  result?: DecodedCadSceneTile;
+  result?: DecodedCadSceneTile<TTile>;
   error?: string;
 }
 
-export class BrowserCadSceneWorkerClient implements CadSceneWorkerClient {
+export class BrowserCadSceneWorkerClient<TTile extends SceneTile = CadSceneTile> implements CadSceneWorkerClient<TTile> {
   private nextId = 1;
   private readonly pending = new Map<number, {
-    resolve: (value: DecodedCadSceneTile) => void;
+    resolve: (value: DecodedCadSceneTile<TTile>) => void;
     reject: (reason: Error) => void;
   }>();
   private readonly worker: Worker;
@@ -914,13 +973,13 @@ export class BrowserCadSceneWorkerClient implements CadSceneWorkerClient {
     this.worker.addEventListener("error", this.handleError);
   }
 
-  decode(payload: Uint8Array, descriptor: CadSceneTile, quality?: CadSceneDisplayQuality): Promise<DecodedCadSceneTile> {
+  decode(payload: Uint8Array, descriptor: TTile, quality?: CadSceneDisplayQuality): Promise<DecodedCadSceneTile<TTile>> {
     const id = this.nextId++;
     const transferable = payload.slice();
-    const result = new Promise<DecodedCadSceneTile>((resolve, reject) => {
+    const result = new Promise<DecodedCadSceneTile<TTile>>((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
     });
-    this.worker.postMessage({ id, payload: transferable, descriptor, quality } satisfies WorkerDecodeRequest, [
+    this.worker.postMessage({ id, payload: transferable, descriptor, quality } satisfies WorkerDecodeRequest<TTile>, [
       transferable.buffer
     ]);
     return result;
@@ -934,7 +993,7 @@ export class BrowserCadSceneWorkerClient implements CadSceneWorkerClient {
     this.pending.clear();
   }
 
-  private readonly handleMessage = (event: MessageEvent<WorkerDecodeResponse>) => {
+  private readonly handleMessage = (event: MessageEvent<WorkerDecodeResponse<TTile>>) => {
     const request = this.pending.get(event.data.id);
     if (!request) return;
     this.pending.delete(event.data.id);
@@ -948,8 +1007,8 @@ export class BrowserCadSceneWorkerClient implements CadSceneWorkerClient {
   };
 }
 
-export function createCadSceneWorkerClient(): CadSceneWorkerClient {
-  return typeof Worker === "undefined" ? new InlineCadSceneWorkerClient() : new BrowserCadSceneWorkerClient();
+export function createCadSceneWorkerClient<TTile extends SceneTile = CadSceneTile>(): CadSceneWorkerClient<TTile> {
+  return typeof Worker === "undefined" ? new InlineCadSceneWorkerClient<TTile>() : new BrowserCadSceneWorkerClient<TTile>();
 }
 
 const workerScope = globalThis as typeof globalThis & {
@@ -960,8 +1019,8 @@ const workerScope = globalThis as typeof globalThis & {
 if (typeof workerScope.document === "undefined" && typeof workerScope.postMessage === "function") {
   globalThis.addEventListener("message", (event: MessageEvent<WorkerDecodeRequest>) => {
     const { id, payload, descriptor, quality } = event.data;
-    void decodeCadSceneTilePayload(payload, descriptor).then(primitives => {
-      const result: DecodedCadSceneTile = {
+    void decodeDisplayTilePayload(payload, descriptor).then(primitives => {
+      const result: DecodedCadSceneTile<SceneTile> = {
         ...buildCadGeometryBatches(primitives, quality),
         descriptor,
         byteSize: payload.byteLength

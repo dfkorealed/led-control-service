@@ -1,16 +1,19 @@
 import { createHash } from "node:crypto";
 import { expect, test } from "@playwright/test";
 import { cadSceneCodecGolden } from "../cad-scene/cad-scene-codec.golden";
+import { encodeMapDisplayTile } from "../../../../api/src/floor-import/cad-scene-codec";
 
 for (const width of [1024, 320]) test(`HTTP provider and stable React Canvas save/reload/read-only at ${width}px`, async ({ page }, testInfo) => {
-  const bytes = Buffer.from(cadSceneCodecGolden.payloadBase64, "base64");
+  const bytes = encodeMapDisplayTile(cadSceneCodecGolden.primitives.map((primitive, zIndex) => ({
+    ...primitive, zIndex, fragmentOrder: 0
+  })));
   const sha256 = createHash("sha256").update(bytes).digest("hex");
   const sceneId = "00000000-0000-4000-8000-000000000001";
   const assetId = "00000000-0000-4000-8000-000000000002";
   const manifestId = "00000000-0000-4000-8000-000000000003";
   const ref = { formatVersion: 1 as const, generationId: "http-generation", revision: 0, width: 1024, height: 1024,
     gridSize: 50, elementCount: 7, manifest: { assetId: manifestId, sha256, byteSize: 100, decodedByteSize: 100 } };
-  const tile = { version: 1, sceneId, assetId, sha256, byteSize: bytes.length, tileX: 0, tileY: 0, part: 0, lod: 0,
+  const tile = { version: 2, sceneId, assetId, sha256, byteSize: bytes.length, tileX: 0, tileY: 0, part: 0, lod: 0,
     primitiveCount: 7, bounds: { minX: 0, minY: 0, maxX: 512, maxY: 512 } };
   const layers = ["WALLS", "DOORS", "ELECTRICAL", "LABELS"].map((name, order) => ({ id: `layer-${order}`, name, order, visible: true, locked: false }));
   const requests: string[] = [];
@@ -20,7 +23,7 @@ for (const width of [1024, 320]) test(`HTTP provider and stable React Canvas sav
     if (url.pathname.endsWith("/manifest")) {
       await route.fulfill({ json: { generationId: ref.generationId, revision, canonical: ref.manifest, layers, groups: [],
         displayLayerBindings: layers.map(layer => ({ layerName: layer.name, layerId: layer.id })), display: {
-          version: 1, sceneId, regionId: "manual", manifestAssetId: manifestId, width: 1024, height: 1024,
+          version: 2, sceneId, regionId: "manual", manifestAssetId: manifestId, width: 1024, height: 1024,
           padding: 0, gridSize: 50, tileSize: 512, lodMode: "additive", primitiveCount: 7, tileCount: 1,
           byteSize: 100, sha256, sourceBounds: { minX: 0, minY: 0, maxX: 1024, maxY: 1024 },
           transform: { scaleX: 1, scaleY: 1, translateX: 0, translateY: 0 }, tiles: [tile] } } });

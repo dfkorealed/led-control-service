@@ -1,4 +1,4 @@
-import type { CadSceneTile } from "@led-control/shared";
+import type { MapDisplayTile } from "@led-control/shared/map-display-contracts";
 import { mapDisplayManifestSchema } from "@led-control/shared/map-display-contracts";
 import { mapAssetRefSchema, mapBoundsSchema, mapDocumentRefSchema, mapElementOpSchema, mapElementSchema,
   mapGroupSchema, mapLayerSchema, type Bounds, type MapDocumentRef } from "@led-control/shared/map-document-contracts";
@@ -21,7 +21,7 @@ export function createMapDocumentSource(options: { floorId: string; authScope: s
   if (!floorId || !authScope || jobId === "") throw new Error("Map document requires an authenticated scope");
   const prefix = `/api/floors/${encodeURIComponent(floorId)}${jobId === undefined ? "" : `/import-jobs/${encodeURIComponent(jobId)}`}/map-document`;
   let manifestEpoch = 0;
-  let pinned: { ref: MapDocumentRef; tiles: Map<string, CadSceneTile> } | null = null;
+  let pinned: { ref: MapDocumentRef; tiles: Map<string, MapDisplayTile> } | null = null;
   const route = (ref: MapDocumentRef, suffix: string, cursor?: string) => {
     mapDocumentRefSchema.parse(ref);
     if (ref.generationId.length > 128) throw new Error("Invalid map generation ID");
@@ -83,7 +83,7 @@ export function createMapDocumentSource(options: { floorId: string; authScope: s
       pinned = { ref: structuredClone(ref), tiles: new Map(display.tiles.map(tile => [tile.assetId, tile])) };
       return { generationId: ref.generationId, revision: ref.revision, canonical, display, displayLayerBindings, groups, layers };
     },
-    async loadDisplayTile(tile: CadSceneTile, signal: AbortSignal) {
+    async loadDisplayTile(tile: MapDisplayTile, signal: AbortSignal) {
       const pin = pinned;
       const descriptor = pin?.tiles.get(tile.assetId);
       if (!pin || !descriptor || !sameTile(descriptor, tile)) throw new Error("Map tile is not pinned by the current manifest");
@@ -184,7 +184,7 @@ function nextCursor(input: unknown): string | null { return input === null ? nul
 function assertReference(value: Record<string, unknown>, ref: MapDocumentRef): void {
   if (value.generationId !== ref.generationId || value.revision !== ref.revision) throw new Error("Map response reference mismatch");
 }
-function sameTile(a: CadSceneTile, b: CadSceneTile): boolean {
+function sameTile(a: MapDisplayTile, b: MapDisplayTile): boolean {
   return a.assetId === b.assetId && a.sha256 === b.sha256 && a.byteSize === b.byteSize && a.version === b.version &&
     a.sceneId === b.sceneId && a.lod === b.lod && a.part === b.part && a.tileX === b.tileX && a.tileY === b.tileY &&
     a.primitiveCount === b.primitiveCount && a.bounds.minX === b.bounds.minX && a.bounds.minY === b.bounds.minY &&

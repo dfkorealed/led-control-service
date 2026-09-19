@@ -2,6 +2,7 @@ import { createRef, StrictMode } from "react";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { MapDocumentRef } from "@led-control/shared/map-document-contracts";
+import type { MapDisplayTile } from "@led-control/shared/map-display-contracts";
 import type { CadSceneRenderBackend } from "../cad-scene/CadSceneRenderer";
 import { MapSceneRenderer, type MapSceneRendererOptions } from "./MapSceneRenderer";
 import { MapSceneCanvas, type MapSceneCanvasHandle } from "./MapSceneCanvas";
@@ -16,11 +17,11 @@ function harness() {
     loadDisplayTile: vi.fn(async () => new Uint8Array()), decodeDisplayTile: vi.fn(),
     getChanges: vi.fn(async ref => ({ generationId: ref.generationId, revision: ref.revision, operations: [], nextCursor: null })),
     getManifest: vi.fn<MapSceneSource["getManifest"]>(async ref => ({ generationId: ref.generationId, revision: ref.revision, canonical: ref.manifest,
-      groups: [], layers: [], displayLayerBindings: [], display: { version: 1, sceneId: "display", regionId: "manual", manifestAssetId: "display",
+      groups: [], layers: [], displayLayerBindings: [], display: { version: 2, sceneId: "display", regionId: "manual", manifestAssetId: "display",
         width: 1024, height: 1024, padding: 0, gridSize: 50, tileSize: 512, lodMode: "additive", primitiveCount: 0, tileCount: 0,
         byteSize: 100, sha256: "a".repeat(64), sourceBounds: { minX: 0, minY: 0, maxX: 1024, maxY: 1024 },
         transform: { scaleX: 1, scaleY: 1, translateX: 0, translateY: 0 }, tiles: [] } })) };
-  const backend: CadSceneRenderBackend = { mount: vi.fn(async canvas => { canvases.push(canvas); }), destroy: vi.fn(),
+  const backend: CadSceneRenderBackend<MapDisplayTile> = { mount: vi.fn(async canvas => { canvases.push(canvas); }), destroy: vi.fn(),
     render: vi.fn(), suspend: vi.fn(), resize: vi.fn(), setCamera: vi.fn(), replaceTile: vi.fn(), removeTile: vi.fn() };
   const createRenderer = (options: MapSceneRendererOptions) => {
     const renderer = new MapSceneRenderer({ ...options, backendFactory: () => backend }); renderers.push(renderer); return renderer;

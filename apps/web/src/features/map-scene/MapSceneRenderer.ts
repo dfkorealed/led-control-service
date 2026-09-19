@@ -1,4 +1,4 @@
-import type { CadSceneManifest, CadSceneTile } from "@led-control/shared";
+import type { MapDisplayManifest, MapDisplayTile } from "@led-control/shared/map-display-contracts";
 import { mapElementSchema, mapElementOpSchema, type Bounds, type MapDocumentRef, type MapElement, type MapGroup,
   type MapLayer, type MapOp, type Point } from "@led-control/shared/map-document-contracts";
 import { getMapElementBounds } from "@led-control/shared/map-document-geometry";
@@ -15,7 +15,7 @@ const MAX_SELECTION_IDS = 128;
 const MAX_CANONICAL_BYTES = 8 * MiB;
 const MAX_DRAFT_IDS = 2000;
 
-export interface MapSceneRendererOptions extends Pick<CadSceneRendererOptions,
+export interface MapSceneRendererOptions extends Pick<CadSceneRendererOptions<MapDisplayManifest>,
   "backendFactory" | "platform" | "devicePixelRatio" | "maximumConcurrentTileLoads" | "onError" | "onDegraded"> {
   source: MapSceneSource;
   onManifest?: (manifest: MapSceneManifest) => void;
@@ -29,7 +29,7 @@ export interface MapScenePickResult { element: MapElement }
  * document is materialized for display, and no legacy storage adapter lives here.
  */
 export class MapSceneRenderer {
-  private readonly scene: CadSceneRenderer;
+  private readonly scene: CadSceneRenderer<MapDisplayManifest>;
   private readonly budget: CadSceneMemoryBudget;
   private readonly originals: CadSceneTileCache<Uint8Array>;
   private readonly source: MapSceneSource;
@@ -80,8 +80,8 @@ export class MapSceneRenderer {
       onEvict: key => this.budget.release(this.owner, key)
     });
     const worker = this.source.decodeDisplayTile
-      ? { decode: this.source.decodeDisplayTile.bind(this.source), destroy() {} } : createCadSceneWorkerClient();
-    this.scene = new CadSceneRenderer({ ...options, manifest: emptyDisplay(), displayQuality: true,
+      ? { decode: this.source.decodeDisplayTile.bind(this.source), destroy() {} } : createCadSceneWorkerClient<MapDisplayTile>();
+    this.scene = new CadSceneRenderer<MapDisplayManifest>({ ...options, manifest: emptyDisplay(), displayQuality: true,
       maximumCacheBytes: this.budget.maximumBytes, memoryBudget: this.budget,
       loadTile: (tile, signal) => this.loadDisplayTile(tile, signal),
       worker: { destroy: () => worker.destroy(), decode: async (bytes, descriptor, quality) => {
@@ -175,6 +175,9 @@ export class MapSceneRenderer {
     try { manifest = await this.source.getManifest(ref, signal); }
     catch (error) { if (!this.current(epoch) || signal.aborted) return; throw error; }
     if (!this.current(epoch) || signal.aborted) return;
+    if (manifest.display.version !== 2 || manifest.display.tiles.some(tile => tile.version !== 2)) {
+      throw new Error("Unsupported common map display version; ordered v2 assets are required");
+    }
     if (manifest.generationId !== ref.generationId || manifest.revision !== ref.revision ||
         manifest.canonical.assetId !== ref.manifest.assetId || manifest.canonical.sha256 !== ref.manifest.sha256 ||
         manifest.canonical.byteSize !== ref.manifest.byteSize || manifest.canonical.decodedByteSize !== ref.manifest.decodedByteSize ||
@@ -408,7 +411,7 @@ export class MapSceneRenderer {
     this.displayLayerIds.clear();
   }
 
-  private async loadDisplayTile(tile: CadSceneTile, signal: AbortSignal): Promise<Uint8Array> {
+  private async loadDisplayTile(tile: MapDisplayTile, signal: AbortSignal): Promise<Uint8Array> {
     this.assertAlive();
     if (signal.aborted) throw new DOMException("Aborted", "AbortError");
     const epoch = this.epoch, documentSignal = this.controller.signal;
@@ -478,14 +481,14 @@ export class MapSceneRenderer {
     return true;
   }
 
-  private buildDraft(drafts = this.drafts, groups = this.groups, layers = this.layers): DecodedCadSceneTile | null {
+  private buildDraft(drafts = this.drafts, groups = this.groups, layers = this.layers): DecodedCadSceneTile<MapDisplayTile> | null {
     const elements = [...this.displayChanges(drafts).values()].filter((element): element is MapElement =>
       !!element && !this.promoted.has(element.id) && this.visible(element, groups, layers));
     if (!elements.length) return null;
     const band = cadDisplayZoomBand(this.camera?.zoom ?? 1);
     const geometry = buildMapGeometryBatches(elements, band);
     return { ...geometry, byteSize: geometry.memory.cpuBytes, descriptor: {
-      version: 1, sceneId: this.document!.generationId, tileX: 0, tileY: 0, lod: 0, part: 0,
+      version: 2, sceneId: this.document!.generationId, tileX: 0, tileY: 0, lod: 0, part: 0,
       assetId: "local-draft", sha256: "0".repeat(64), byteSize: geometry.memory.cpuBytes, primitiveCount: elements.length,
       bounds: { minX: 0, minY: 0, maxX: this.document!.width, maxY: this.document!.height }
     } };
@@ -531,8 +534,8 @@ function operationKey(operation: MapOp): string {
   return `${operation.kind === "group.delete" ? "group" : "layer"}:${operation.id}`;
 }
 
-function emptyDisplay(ref?: MapDocumentRef): CadSceneManifest {
-  return { version: 1, sceneId: ref?.generationId ?? "empty", regionId: "empty", manifestAssetId: "empty",
+function emptyDisplay(ref?: MapDocumentRef): MapDisplayManifest {
+  return { version: 2, sceneId: ref?.generationId ?? "empty", regionId: "empty", manifestAssetId: "empty",
     width: ref?.width ?? 1024, height: ref?.height ?? 1024, gridSize: ref?.gridSize ?? 50, padding: 0,
     tileSize: 512, lodMode: "additive", primitiveCount: 0, tileCount: 0, byteSize: 0, sha256: "0".repeat(64),
     sourceBounds: { minX: 0, minY: 0, maxX: ref?.width ?? 1024, maxY: ref?.height ?? 1024 },
