@@ -527,7 +527,7 @@ expect(serverFailures).toEqual([]);
 | U8c | 독립 재검토 PASS | 9b44493d/01bde733 집중112/scopedTS0. 8a35d9d9에서 외부 undo 취소 이력 cursor 및 자동 stage 응답 유실의 cancel/status 수렴 보완, 재검토14 PASS |
 | U14b | 실제 백엔드 여정 PASS | b976a173: r6 Chromium1(1.2분), stage2 committed/fixture ID 유지/pageerror0/5xx0/격리 리소스 정리, support4/타입0. 원본 DWG 대량 표시는 별도 |
 | U9c | 계약 검토 PASS, 생산자 최적화·소비자 연결 중 | 855fb756 계약55 PASS, 9916c1bc 생산자/fe0e0697 소비자 기본 모듈. 킨다24.88초 변환 통과, 2단지는60초 초과로 미통과. 작은 페이지 연결·최소 줌·메모리·쓰기 실패 회귀 검증 후 최종 판정 |
-| 전체 연결 보완 | 신규3건 구현 중 | 중첩 그룹 해제의 자식 보존, 활성화 실패 재시도의 preview identity/ACK, post-preview 초안의 이탈 경고. 독립 whole-change 검토 재현 후 담당1명이 관련 API/Web 경계를 함께 보완 |
+| 전체 연결 보완 | e31ef469 독립 재검토 PASS | 중첩 그룹 해제·활성화 실패 재시도·잔여 초안 이탈 경고3건 보완. 작성자 Web77/API9/실제PG2/타입0, 독립 Web7/API9 PASS. 최종 renderer delta는 별도 |
 | U14 | 통합 대기 | 실제 원본/API/브라우저/성능 최종 검증 |
 
 구현 방식은 **역할별 순차 서브에이전트 진행**을 제안한다. 공유 계약과 데이터 보존은 backend가 먼저, 소비 UI는 web_frontend가 이후 담당하고 QA가 작업 단위 결과를 확인한다. 메인은 공유 계약과 통합·문서 상태를 관리한다. 같은 파일을 다루는 병렬 에이전트는 만들지 않는다. 사용자가 더 낮은 토큰 비용을 우선하면 메인 직접 구현 + 최종 독립 리뷰로 변경할 수 있다.
