@@ -89,7 +89,7 @@ export function CadImportPanel({
   const [file, setFile] = useState<File | null>(null);
   const [job, setJob] = useState<FloorImportJob | null>(null);
   const [action, setAction] = useState<"idle" | "starting" | "selecting" | "applying" | "cancelling" | "checking">("idle");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setErrorState] = useState<{ title: string; description?: string } | null>(null);
   const [regionRecoveryError, setRegionRecoveryError] = useState<string | null>(null);
   const [reviewCursor, setReviewCursor] = useState(0);
   const [suppressedReviewJobId, setSuppressedReviewJobId] = useState<string | null>(null);
@@ -141,6 +141,15 @@ export function CadImportPanel({
   const effectiveProgress = activeJob
     ? Math.max(progressHighWater, stageProgress(activeJob, selectedRegionPhase))
     : action === "starting" ? 5 : action === "applying" ? 100 : 0;
+
+  function setError(title: string | null, description?: string) {
+    setErrorState(title === null ? null : { title, description });
+  }
+
+  function setTerminalError(terminalJob: FloorImportJob) {
+    setError(statusText(terminalJob), terminalJob.status === "failed"
+      ? importFailureDescription(terminalJob.failureCode) : undefined);
+  }
 
   function setBusy(next: boolean) {
     if (busy.current === next) return;
@@ -240,7 +249,7 @@ export function CadImportPanel({
           clearRegionContext();
           reviewChange.current(null);
           setBusy(false);
-          setError(statusText(next));
+          setTerminalError(next);
         } else {
           setJob(next);
         }
@@ -425,7 +434,7 @@ export function CadImportPanel({
         clearRegionContext();
         reviewChange.current(null);
         setBusy(false);
-        setError(statusText(nextJob));
+        setTerminalError(nextJob);
         return { job: nextJob, regions: null, regionLookupFailed: false, terminalHandled: true };
       }
 
@@ -514,7 +523,7 @@ export function CadImportPanel({
         clearRegionContext();
         onReviewChange(null);
         setBusy(false);
-        setError(statusText(next));
+        setTerminalError(next);
         return next.status;
       }
       setJob(next);
@@ -813,7 +822,8 @@ export function CadImportPanel({
       {error ? <FeedbackState
         tone="danger"
         icon={TriangleAlert}
-        title={error}
+        title={error.title}
+        description={error.description}
         action={activeJob && (POLLING_STATUSES.has(activeJob.status) || activeJob.status === "region_selection_required" || activeJob.status === "review_required")
           ? <Button variant="secondary" onClick={() => setError(null)}><RotateCw size={16} aria-hidden="true" />다시 확인</Button>
           : undefined}
@@ -869,6 +879,31 @@ function normalizeCadFile(file: File, sourceFormat: CadImportSourceFormat) {
   if (file.type) return file;
   const type = sourceFormat === "dwg" ? "application/dwg" : "application/dxf";
   return new File([file], file.name, { type, lastModified: file.lastModified });
+}
+
+function importFailureDescription(code: string | null): string {
+  // Only existing worker phase codes select public copy. Raw diagnostics may
+  // contain paths or infrastructure details and must never reach this panel.
+  switch (code) {
+    case "CAD_IMPORT_SOURCE_INVALID":
+      return "원본 CAD 파일을 확인하거나 읽는 단계에서 실패했습니다. 파일이 CAD 프로그램에서 열리는지 확인한 뒤 파일을 다시 선택해 가져오세요. 문제가 반복되면 관리자에게 문의하세요.";
+    case "CAD_IMPORT_CONVERSION_FAILED":
+      return "CAD 파일을 변환하는 단계에서 실패했습니다. CAD 프로그램에서 DWG 또는 DXF로 다시 저장한 뒤 가져오세요. 문제가 반복되면 관리자에게 문의하세요.";
+    case "CAD_IMPORT_PARSE_FAILED":
+      return "CAD 도면 분석 단계에서 실패했습니다. 파일을 다시 선택해 가져오세요. 문제가 반복되면 관리자에게 문의하세요.";
+    case "CAD_IMPORT_DETECTION_FAILED":
+      return "도면 영역이나 조명 후보를 찾는 단계에서 실패했습니다. 파일을 다시 선택해 가져오세요. 문제가 반복되면 관리자에게 문의하세요.";
+    case "CAD_IMPORT_RENDER_FAILED":
+      return "도면 미리보기나 장면을 만드는 단계에서 실패했습니다. 파일을 다시 선택해 가져오세요. 문제가 반복되면 관리자에게 문의하세요.";
+    case "CAD_IMPORT_STORAGE_FAILED":
+      return "가져오기 결과 파일을 저장하는 단계에서 실패했습니다. 잠시 후 파일을 다시 선택해 가져오세요. 문제가 반복되면 관리자에게 문의하세요.";
+    case "CAD_IMPORT_PERSIST_FAILED":
+      return "가져오기 결과 정보를 저장하는 단계에서 실패했습니다. 잠시 후 파일을 다시 선택해 가져오세요. 문제가 반복되면 관리자에게 문의하세요.";
+    case "CAD_IMPORT_ATTEMPTS_EXHAUSTED":
+      return "자동 재시도 횟수를 모두 사용해 가져오기가 중단되었습니다. 잠시 후 파일을 다시 선택해 가져오세요. 문제가 반복되면 관리자에게 문의하세요.";
+    default:
+      return "파일을 다시 선택해 가져오세요. 문제가 반복되면 관리자에게 문의하세요.";
+  }
 }
 
 function statusText(job: FloorImportJob) {

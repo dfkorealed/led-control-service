@@ -987,6 +987,89 @@ describe("CadImportPanel", () => {
     expect(screen.queryByRole("button", { name: "적용 결과 확인" })).not.toBeInTheDocument();
   });
 
+  it.each([
+    ["CAD_IMPORT_SOURCE_INVALID", /원본 CAD 파일을 확인하거나 읽는 단계/, /파일.*다시 선택/],
+    ["CAD_IMPORT_CONVERSION_FAILED", /CAD 파일을 변환하는 단계/, /다시 저장.*가져오세요/],
+    ["CAD_IMPORT_PARSE_FAILED", /CAD 도면 분석 단계/, /파일을 다시 선택해 가져오세요/],
+    ["CAD_IMPORT_DETECTION_FAILED", /도면 영역이나 조명 후보를 찾는 단계/, /다시.*가져오세요/],
+    ["CAD_IMPORT_RENDER_FAILED", /도면 미리보기나 장면을 만드는 단계/, /다시.*가져오세요/],
+    ["CAD_IMPORT_STORAGE_FAILED", /가져오기 결과 파일을 저장하는 단계/, /잠시 후.*가져오세요/],
+    ["CAD_IMPORT_PERSIST_FAILED", /가져오기 결과 정보를 저장하는 단계/, /잠시 후.*가져오세요/],
+    ["CAD_IMPORT_ATTEMPTS_EXHAUSTED", /자동 재시도 횟수를 모두 사용/, /잠시 후.*가져오세요/]
+  ])("explains terminal %s with safe phase and retry guidance", async (failureCode, phase, guidance) => {
+    vi.useFakeTimers();
+    floorEditorApi.getActiveFloorImportJob.mockResolvedValueOnce({ job: queuedJob });
+    floorEditorApi.getFloorImportJob.mockResolvedValueOnce({
+      ...queuedJob, status: "failed", stage: "failed", failureCode,
+      failureMessage: "private /tmp/customer.dxf SQL password=secret <script>unsafe</script>"
+    });
+    renderPanel();
+    await flushPromises();
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+
+    const feedback = screen.getByRole("alert");
+    expect(within(feedback).getByText("CAD 가져오기에 실패했습니다.")).toBeInTheDocument();
+    expect(feedback).toHaveTextContent(phase);
+    expect(feedback).toHaveTextContent(guidance);
+    expect(feedback).not.toHaveTextContent(/private|customer\.dxf|password|unsafe|CAD_IMPORT_/);
+    expect(screen.getByLabelText("CAD 파일")).toBeInTheDocument();
+
+    selectCad("retry.dxf");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it.each([null, "CAD_IMPORT_FUTURE_FAILURE", "__proto__", "constructor", "private /tmp/secret"])(
+    "keeps unknown failure code %s generic without exposing raw diagnostics", async failureCode => {
+      vi.useFakeTimers();
+      floorEditorApi.getActiveFloorImportJob.mockResolvedValueOnce({ job: queuedJob });
+      floorEditorApi.getFloorImportJob.mockResolvedValueOnce({
+        ...queuedJob, status: "failed", stage: "failed", failureCode,
+        failureMessage: "private /tmp/customer.dxf SQL password=secret <script>unsafe</script>"
+      });
+      renderPanel();
+      await flushPromises();
+      await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+
+      const feedback = screen.getByRole("alert");
+      expect(within(feedback).getByText("CAD 가져오기에 실패했습니다.")).toBeInTheDocument();
+      expect(feedback).toHaveTextContent("파일을 다시 선택해 가져오세요. 문제가 반복되면 관리자에게 문의하세요.");
+      expect(feedback).not.toHaveTextContent(/private|customer\.dxf|password|unsafe|CAD_IMPORT_|__proto__|constructor/);
+    }
+  );
+
+  it("preserves safe failure guidance when an apply response is reconciled", async () => {
+    const review: CadImportReviewState = {
+      job: { ...queuedJob, status: "review_required", progressPercent: 100 },
+      candidates: [candidate], acceptedCandidateIds: [candidate.id]
+    };
+    floorEditorApi.applyFloorImportJob.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    floorEditorApi.getFloorImportJob.mockResolvedValueOnce({
+      ...queuedJob, status: "failed", stage: "failed", failureCode: "CAD_IMPORT_PERSIST_FAILED"
+    });
+    renderPanel({ review });
+    openAndConfirmApply();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/가져오기 결과 정보를 저장하는 단계/);
+    expect(screen.getByLabelText("CAD 파일")).toBeInTheDocument();
+  });
+
+  it("preserves safe failure guidance when region selection is reconciled", async () => {
+    floorEditorApi.getActiveFloorImportJob.mockResolvedValueOnce({ job: {
+      ...queuedJob, status: "region_selection_required", stage: "region_selection_required", parserVersion: "cad-core/1"
+    } });
+    cadRegionApi.listFloorImportRegions.mockResolvedValueOnce(multipleRegions);
+    cadRegionApi.selectFloorImportRegion.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    floorEditorApi.getFloorImportJob.mockResolvedValueOnce({
+      ...queuedJob, status: "failed", stage: "failed", failureCode: "CAD_IMPORT_RENDER_FAILED"
+    });
+    renderPanel();
+    fireEvent.click(await screen.findByRole("radio", { name: /도면 영역 1/ }));
+    fireEvent.click(screen.getByRole("button", { name: "선택 영역으로 장면 만들기" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/도면 미리보기나 장면을 만드는 단계/);
+    expect(screen.getByLabelText("CAD 파일")).toBeInTheDocument();
+  });
+
   it("stops polling after a terminal job status", async () => {
     vi.useFakeTimers();
     floorEditorApi.uploadFloorAsset.mockResolvedValueOnce(asset);
