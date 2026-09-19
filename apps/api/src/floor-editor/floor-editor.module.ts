@@ -15,6 +15,7 @@ import { EnergyDimensionHistoryService } from "../energy/energy-dimension-histor
 import { FloorAssetCleanupService } from "./floor-asset-cleanup.service";
 import { MapDocumentStore } from "./map-document-store";
 import { MapDocumentAssetReferences } from "./map-document-asset-references";
+import { MapDocumentResetService } from "./map-document-reset.service";
 
 @Module({
   imports: [PrismaModule, AuthModule, AccessModule, AuditModule, StorageModule, RedisModule],
@@ -25,6 +26,7 @@ import { MapDocumentAssetReferences } from "./map-document-asset-references";
     FloorAssetCleanupService,
     MapDocumentStore,
     MapDocumentAssetReferences,
+    MapDocumentResetService,
     EditorLeaseService,
     FixtureEnergyCheckpointService,
     EnergyDimensionHistoryService

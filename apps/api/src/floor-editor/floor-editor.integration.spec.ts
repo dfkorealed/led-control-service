@@ -7,6 +7,7 @@ import { hashEditorLeaseToken } from "./editor-lease-token";
 import { Test } from "@nestjs/testing";
 import { NestExpressApplication } from "@nestjs/platform-express";
 import { FloorEditorController } from "./floor-editor.controller";
+import { MapDocumentResetService } from "./map-document-reset.service";
 import { EditorLeaseService } from "./editor-lease.service";
 import { SessionAuthGuard } from "../auth/session-auth.guard";
 import { configureApiBodyParser } from "../api-body-parser";
@@ -852,7 +853,8 @@ describeWithDatabase("FloorEditorService PostgreSQL transaction", () => {
     const service = new FloorEditorService(prisma, siteAccess, new AuditService(prisma));
     const module = await Test.createTestingModule({
       controllers: [FloorEditorController], providers: [
-        { provide: FloorEditorService, useValue: service }, { provide: EditorLeaseService, useValue: {} }
+        { provide: FloorEditorService, useValue: service }, { provide: EditorLeaseService, useValue: {} },
+        { provide: MapDocumentResetService, useValue: {} }
       ]
     }).overrideGuard(SessionAuthGuard).useValue({ canActivate: (context: any) => {
       context.switchToHttp().getRequest().user = operator;

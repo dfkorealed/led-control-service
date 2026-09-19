@@ -4,14 +4,25 @@ import { CurrentUser } from "../auth/current-user.decorator";
 import { SessionAuthGuard } from "../auth/session-auth.guard";
 import { FloorEditorService } from "./floor-editor.service";
 import { EditorLeaseService } from "./editor-lease.service";
+import { MapDocumentResetService } from "./map-document-reset.service";
 
 @UseGuards(SessionAuthGuard)
 @Controller()
 export class FloorEditorController {
   constructor(
     private readonly floorEditorService: FloorEditorService,
-    private readonly editorLeaseService: EditorLeaseService
+    private readonly editorLeaseService: EditorLeaseService,
+    private readonly mapDocumentResetService: MapDocumentResetService
   ) {}
+
+  @Post("floors/:floorId/editor-reset")
+  resetEditorState(
+    @Param("floorId") floorId: string,
+    @Body() body: unknown,
+    @CurrentUser() user: AuthenticatedUser
+  ) {
+    return this.mapDocumentResetService.reset(floorId, user, body);
+  }
 
   @Post("floors/:floorId/editor-lease")
   acquireLease(

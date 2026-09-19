@@ -21,7 +21,7 @@ describe("FloorEditorController", () => {
       restoreEditorRevision: jest.fn()
     };
     const leaseService = { acquire: jest.fn(), release: jest.fn() };
-    const controller = new FloorEditorController(service as never, leaseService as never);
+    const controller = new FloorEditorController(service as never, leaseService as never, {} as never);
 
     await controller.getEditorState("floor-1", user);
     await (controller as any).saveEditorState(
@@ -59,7 +59,7 @@ describe("FloorEditorController", () => {
     "forwards raw restore revision %s for access-aware service validation",
     (revision) => {
       const service = { restoreEditorRevision: jest.fn() };
-      const controller = new FloorEditorController(service as never, service as never);
+      const controller = new FloorEditorController(service as never, service as never, {} as never);
 
       controller.restoreEditorRevision("floor-1", revision, { expectedRevision: 0 }, user);
 
@@ -69,7 +69,7 @@ describe("FloorEditorController", () => {
 
   it("defaults missing lease bodies while rejecting a JSON null body with a controlled validation error", () => {
     const leaseService = { acquire: jest.fn(), release: jest.fn() };
-    const controller = new FloorEditorController({} as never, leaseService as never);
+    const controller = new FloorEditorController({} as never, leaseService as never, {} as never);
 
     controller.acquireLease("floor-1", undefined as never, user);
     controller.releaseLease("floor-1", undefined as never, user);
@@ -80,7 +80,7 @@ describe("FloorEditorController", () => {
   });
 
   it("removes legacy per-object mutation handlers once atomic editor save is authoritative", () => {
-    const controller = new FloorEditorController({} as never, {} as never);
+    const controller = new FloorEditorController({} as never, {} as never, {} as never);
 
     expect("updateFloorPlan" in controller).toBe(false);
     expect("updateFixture" in controller).toBe(false);
