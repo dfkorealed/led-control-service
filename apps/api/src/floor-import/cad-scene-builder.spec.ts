@@ -72,6 +72,24 @@ function unionBounds(primitives: readonly CadScenePrimitive[]) {
 }
 
 describe("CAD scene builder", () => {
+  it.each([512, 515, 665])("covers closed stroke width and miter footprint beside grid boundary at x=%i", x => {
+    const points = [{ x, y: 100 }, { x: x + 100, y: 100 }, { x: x + 100, y: 300 }, { x, y: 300 }];
+    const primitive = { type: "polyline" as const, elementId: "ring", groupId: null, layerName: "wall", sourceType: "HATCH",
+      zIndex: 5, fragmentOrder: 2, clipBounds: null, bounds: { minX: x, minY: 100, maxX: x + 100, maxY: 300 },
+      style: { strokeColor: "#00ff00", fillColor: null, strokeWidth: 32, opacity: 0.5 }, geometry: { points, closed: true } };
+    const cells = new Map<string, TilePrimitiveAccumulator>();
+    appendPrimitiveToTiles(primitive, 1536, 1536, cells);
+    const left = [...cells.values()].find(cell => cell.tileX === 0 && cell.tileY === 0);
+    expect(left).toBeDefined();
+    expect(left!.primitives).toHaveLength(1);
+    expect(left!.primitives[0]).toMatchObject({ elementId: "ring", groupId: null, zIndex: 5, fragmentOrder: 2,
+      geometry: { points, closed: true }, bounds: { minX: Math.max(0, x - 160), maxX: 512, minY: 0, maxY: 460 } });
+    expect([...cells.values()].some(cell => cell.tileX === 2)).toBe(false);
+    expect([...cells.values()].every(cell => cell.primitives.length === 1)).toBe(true);
+    const invisible = new Map<string, TilePrimitiveAccumulator>();
+    appendPrimitiveToTiles({ ...primitive, style: { ...primitive.style, strokeColor: null } }, 1536, 1536, invisible);
+    expect([...invisible.values()].some(cell => cell.tileX === 0)).toBe(false);
+  });
   it("preserves common closed stroke joins and original vertices in boundary cells without filling the interior", () => {
     const points = [{ x: 100.25, y: 100.75 }, { x: 1400.5, y: 100.75 },
       { x: 1400.5, y: 1400.25 }, { x: 100.25, y: 1400.25 }];
@@ -99,6 +117,24 @@ describe("CAD scene builder", () => {
     expect(chunks.every(p => p.type === "polyline" && !p.geometry.closed && p.geometry.points.length <= CAD_SCENE_MAX_POINTS_PER_PRIMITIVE)).toBe(true);
     const last = chunks.at(-1)!;
     expect(last.type === "polyline" && last.geometry.points.at(-1)).toEqual(oversized.geometry.points[0]);
+  });
+  it("keeps diagonal stroke occupancy sparse and includes the footprint of subpixel closed rings", () => {
+    const primitive = { type: "polyline" as const, elementId: "diagonal", groupId: null, layerName: "wall", sourceType: "HATCH",
+      zIndex: 1, fragmentOrder: 0, clipBounds: null, bounds: { minX: 10, minY: 10, maxX: 8000, maxY: 8001 },
+      style: { strokeColor: "#00ff00", fillColor: null, strokeWidth: 1, opacity: 1 },
+      geometry: { closed: true, points: [{ x: 10, y: 10 }, { x: 8000, y: 8000 }, { x: 8000, y: 8001 }] } };
+    const cells = new Map<string, TilePrimitiveAccumulator>();
+    appendPrimitiveToTiles(primitive, 8192, 8192, cells);
+    expect(cells.size).toBeGreaterThanOrEqual(16);
+    expect(cells.size).toBeLessThan(64);
+    expect([...cells.values()].some(c => c.tileX === 0 && c.tileY === 15)).toBe(false);
+    const points = [{ x: 512 - 1e-7, y: 100 }, { x: 512 + 1e-7, y: 100 }, { x: 512, y: 100 + 1e-7 }];
+    const tiny = new Map<string, TilePrimitiveAccumulator>();
+    appendPrimitiveToTiles({ ...primitive, bounds: { minX: points[0].x, maxX: points[1].x, minY: 100, maxY: points[2].y },
+      geometry: { points, closed: true } }, 1024, 512, tiny);
+    expect([...tiny.values()].map(c => c.tileX).sort()).toEqual([0, 1]);
+    for (const cell of tiny.values()) expect(cell.primitives).toEqual([expect.objectContaining({
+      geometry: { points, closed: true }, elementId: "diagonal", zIndex: 1, fragmentOrder: 0 })]);
   });
   it("keeps simple canonical HATCH fills as full closed paths within the original primitive cap", () => {
     const input = document(["A", "B"].map(sourceEntityId => ({ type: "hatch", sourceEntityId, layer: "FILL",

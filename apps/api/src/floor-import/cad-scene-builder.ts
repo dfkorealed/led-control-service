@@ -1123,6 +1123,27 @@ function addOccupiedSegment(
   for (const cell of segmentTileCells(start, end, width, height)) cells.set(tileCellKey(cell), cell);
 }
 
+function addOccupiedStrokeSegment(cells: Map<string, OccupiedTileCell>, start: { x: number; y: number },
+  end: { x: number; y: number }, width: number, height: number, margin: number): void {
+  const bounds = segmentBounds(start, end);
+  const [minX, maxX] = tileRange(bounds.minX - margin, bounds.maxX + margin, width);
+  const [minY, maxY] = tileRange(bounds.minY - margin, bounds.maxY + margin, height);
+  for (let tileY = minY; tileY <= maxY; tileY++) for (let tileX = minX; tileX <= maxX; tileX++) {
+    const cell = { tileX, tileY };
+    if (cells.has(tileCellKey(cell))) continue;
+    const clip = tileCellBounds(tileX, tileY, width, height);
+    // Intersect the centerline with the expanded cell, not an expanded segment
+    // bounding box alone (which would fill every cell beside a long diagonal).
+    const expanded = { minX: clip.minX - margin, minY: clip.minY - margin,
+      maxX: clip.maxX + margin, maxY: clip.maxY + margin };
+    const containsEndpoint = (p: { x: number; y: number }) => p.x >= expanded.minX && p.x <= expanded.maxX &&
+      p.y >= expanded.minY && p.y <= expanded.maxY;
+    if (containsEndpoint(start) || containsEndpoint(end) || clipSegmentToBounds(start, end, expanded)) {
+      cells.set(tileCellKey(cell), cell);
+    }
+  }
+}
+
 function addPolygonInteriorCells(
   cells: Map<string, OccupiedTileCell>,
   points: readonly { x: number; y: number }[],
@@ -1224,9 +1245,20 @@ export function appendPrimitiveToTiles(
   onOccurrencesAdded?: (count: number) => void
 ): number {
   let appended = 0;
+  const closedCommonPath = primitive.type === "polyline" && "zIndex" in primitive &&
+    primitive.geometry.closed && primitive.geometry.points.length <= CAD_SCENE_MAX_POINTS_PER_PRIMITIVE;
+  // Canvas defaults to miterLimit=10: the maximum join reach is five times
+  // world-space stroke width. This does not invent a zoom-dependent AA/hairline
+  // bound; that unbounded consumer footprint needs a separate renderer policy.
+  const strokeMargin = closedCommonPath && primitive.style.strokeColor !== null && primitive.style.strokeWidth > 0
+    ? primitive.style.strokeWidth * 5 : 0;
+  if (strokeMargin) primitive = { ...primitive, bounds: {
+    minX: primitive.bounds.minX - strokeMargin, minY: primitive.bounds.minY - strokeMargin,
+    maxX: primitive.bounds.maxX + strokeMargin, maxY: primitive.bounds.maxY + strokeMargin
+  } };
   // A subpixel canonical span still owns a pick ID. If it is wholly inside a
   // cell, retain it verbatim instead of losing it to legacy segment tolerances.
-  if ("zIndex" in primitive && primitive.bounds.maxX - primitive.bounds.minX <= GEOMETRY_EPSILON * 2 &&
+  if (!strokeMargin && "zIndex" in primitive && primitive.bounds.maxX - primitive.bounds.minX <= GEOMETRY_EPSILON * 2 &&
       primitive.bounds.maxY - primitive.bounds.minY <= GEOMETRY_EPSILON * 2) {
     const tileX = Math.floor(primitive.bounds.minX / CAD_SCENE_TILE_SIZE);
     const tileY = Math.floor(primitive.bounds.minY / CAD_SCENE_TILE_SIZE);
@@ -1259,8 +1291,6 @@ export function appendPrimitiveToTiles(
   // Preserve closed-path joins and antialiasing for both fill and stroke. The
   // consumer clips the original bounded ring per cell. Oversized paths still
   // use splitOversizedPolyline's existing open-segment fallback, not fake joins.
-  const closedCommonPath = primitive.type === "polyline" && "zIndex" in primitive &&
-    primitive.geometry.closed && primitive.geometry.points.length <= CAD_SCENE_MAX_POINTS_PER_PRIMITIVE;
   if (primitive.type === "polyline" && !closedCommonPath) {
     const segmentCount = primitive.geometry.closed
       ? primitive.geometry.points.length
@@ -1294,6 +1324,7 @@ export function appendPrimitiveToTiles(
     const points = primitive.type === "rectangle" ? rectanglePoints(primitive) : primitive.geometry.points;
     for (let index = 0; index < points.length; index++) {
       addOccupiedSegment(cells, points[index], points[(index + 1) % points.length], width, height);
+      if (strokeMargin) addOccupiedStrokeSegment(cells, points[index], points[(index + 1) % points.length], width, height, strokeMargin);
     }
     fillPolygon = points;
   } else if (primitive.type === "arc" || primitive.type === "ellipse") {
