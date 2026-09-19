@@ -7,7 +7,7 @@ import { join, resolve } from "node:path";
 import { MapDocumentStore } from "../floor-editor/map-document-store";
 import { ObjectStorageService } from "../storage/object-storage.service";
 import { buildCanonicalCadScene, readCanonicalElements } from "./cad-canonical-spool";
-import { decodeCadSceneTile } from "./cad-scene-codec";
+import { decodeMapDisplayTile } from "./cad-scene-codec";
 import { CadMapPreparationService } from "./cad-map-preparation.service";
 import { FloorImportWorkerService } from "./floor-import-worker.service";
 import { FloorImportAttemptCleanupService } from "./floor-import-attempt-cleanup.service";
@@ -73,7 +73,7 @@ const url = process.env.U4B_TEST_DATABASE_URL;
     expect(envelope.scene.sha256).toBe(display!.manifest.sha256);
     expect(envelope.scene.byteSize).toBe(display!.manifest.byteSize);
     expect(envelope.displayLayerBindings).toEqual([{ layerName: "WALL", layerId: [...canonicalById.values()][0].layerId }]);
-    for (const tile of built.tiles) for (const pick of decodeCadSceneTile(tile.payload, tile.descriptor)) {
+    for (const tile of built.tiles) for (const pick of decodeMapDisplayTile(tile.payload, tile.descriptor)) {
       expect(await store.getElement(floorId, ref, pick.elementId)).toEqual(canonicalById.get(pick.elementId));
     }
     expect(new Set((await prisma.floorAsset.findMany({ where: { floorId, kind: { in: ["map_display_manifest", "map_display_tile"] } } })).map(a => a.kind)))
@@ -153,7 +153,7 @@ const url = process.env.U4B_TEST_DATABASE_URL;
         await storage.downloadFloorAssetToFile(asset.objectKey, path, { maxBytes: 16 * 1024 * 1024,
           expectedBytes: tile.byteSize, expectedSha256: tile.sha256, expectedMimeType: "application/octet-stream" });
         const { readFile } = await import("node:fs/promises");
-        for (const pick of decodeCadSceneTile(await readFile(path), tile)) expect(await store.getElement(floorId, ref, pick.elementId)).not.toBeNull();
+        for (const pick of decodeMapDisplayTile(await readFile(path), tile)) expect(await store.getElement(floorId, ref, pick.elementId)).not.toBeNull();
       }
     } finally { prepareSpy.mockRestore(); await worker.onModuleDestroy(); }
   });

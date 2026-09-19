@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from "@nestjs/common";
 import { Prisma, type FloorImportJob } from "@prisma/client";
-import { CAD_IMPORT_MAX_REGIONS, cadSceneManifestSchema, floorImportRegionListResponseSchema, type CadImportStage, type CadSceneManifest, type MapDocumentRef } from "@led-control/shared";
+import { CAD_IMPORT_MAX_REGIONS, mapDisplayManifestSchema, floorImportRegionListResponseSchema, type CadImportStage, type MapDisplayManifest, type MapDocumentRef } from "@led-control/shared";
 import { createHash, randomUUID } from "node:crypto";
 import { lstat, mkdtemp, readFile, rm, stat, statfs, utimes } from "node:fs/promises";
 import { join } from "node:path";
@@ -319,7 +319,7 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
 
       phase = "render";
       const viewport = rendered.viewport;
-      let manifest: CadSceneManifest | null = null;
+      let manifest: MapDisplayManifest | null = null;
       if (core.scene) {
         const identity = cadScenePersistenceIdentity(job.id, selectedRegionId!);
         if (core.scene.sceneId !== identity.sceneId || core.scene.manifestAssetId !== identity.manifestAssetId ||
@@ -332,7 +332,7 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
           throw new Error("CAD core manifest artifact integrity mismatch");
         }
         const parsed = JSON.parse(manifestPayload.toString("utf8")) as Record<string, unknown>;
-        manifest = cadSceneManifestSchema.parse({
+        manifest = mapDisplayManifestSchema.parse({
           ...parsed,
           byteSize: core.scene.manifestByteSize,
           sha256: core.scene.manifestSha256

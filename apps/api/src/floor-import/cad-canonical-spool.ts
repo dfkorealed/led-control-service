@@ -4,7 +4,7 @@ import { open, writeFile, opendir, statfs, lstat } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { mapElementSchema, mapDocumentStateSchema, type MapElement } from "@led-control/shared";
-import { buildCadScene } from "./cad-scene-builder";
+import { buildCadScene, type BuiltMapDisplayScene } from "./cad-scene-builder";
 import { cadScenePersistenceIdentity } from "./cad-scene-persistence";
 import { CAD_MAP_MAX_METADATA_BYTES, createCadMapElementConverter, type CadMapConversionMetadata } from "./map-element-converter";
 import type { NormalizedCadDocument } from "./cad-types";
@@ -34,9 +34,9 @@ export async function buildCanonicalCadScene(document: NormalizedCadDocument, re
   const converter = createCadMapElementConverter({ importJobId: jobId, regionBounds: region.bounds,
     unsupportedEntityCounts: document.unsupportedEntityCounts });
   const identity = cadScenePersistenceIdentity(jobId, region.regionId);
-  let built: ReturnType<typeof buildCadScene>;
+  let built: BuiltMapDisplayScene;
   try {
-    built = buildCadScene(document, region, { sceneId: identity.sceneId, manifestAssetId: identity.manifestAssetId,
+    built = buildCadScene(document, region, { displayVersion: 2, sceneId: identity.sceneId, manifestAssetId: identity.manifestAssetId,
       tileAssetId: identity.tileAssetId, onSemanticEntity: semantic => {
         const stored = converter.convertSemanticEntity(semantic);
         for (const element of stored) {

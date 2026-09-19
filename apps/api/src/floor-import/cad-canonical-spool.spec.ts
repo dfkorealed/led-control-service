@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { buildCanonicalCadScene, readCanonicalElements, readCanonicalMetadata, readVerifiedCadArtifact, remainingCadArtifactBytes } from "./cad-canonical-spool";
-import { decodeCadSceneTile } from "./cad-scene-codec";
+import { decodeMapDisplayTile } from "./cad-scene-codec";
 import type { MapElement } from "@led-control/shared";
 
 export const canonicalFixture = () => {
@@ -24,15 +24,17 @@ describe("bounded canonical spool", () => {
   it("returns stored unclipped elements to binary binding, preserving coincident IDs and explicit metadata", async () => {
     const { document, region } = canonicalFixture();
     const { built, canonical } = await buildCanonicalCadScene(document, region, randomUUID(), directory);
+    expect(built.manifest.version).toBe(2);
     const elements: MapElement[] = [];
     for await (const element of readCanonicalElements(directory, canonical)) elements.push(element);
     const metadata = await readCanonicalMetadata(directory, canonical);
     expect(elements).toHaveLength(2);
     expect(metadata.elementCount).toBe(2);
     expect(metadata.displayLayerBindings).toEqual([{ layerName: "WALL", layerId: elements[0].layerId }]);
-    const primitives = built.tiles.flatMap(tile => decodeCadSceneTile(tile.payload, tile.descriptor));
+    const primitives = built.tiles.flatMap(tile => decodeMapDisplayTile(tile.payload, tile.descriptor));
     expect(new Set(primitives.map(p => p.elementId))).toEqual(new Set(elements.map(e => e.id)));
     expect(primitives.length).toBeGreaterThan(elements.length);
+    for (const primitive of primitives) expect(primitive.zIndex).toBe(elements.find(e => e.id === primitive.elementId)!.zIndex);
     for (const element of elements) {
       expect(element.type).toBe("line");
       if (element.type === "line") expect(Math.abs(element.geometry.end.x - element.geometry.start.x)).toBeGreaterThan(1000);
