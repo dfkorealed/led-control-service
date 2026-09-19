@@ -352,6 +352,15 @@ const visible = decodedElements.filter(element => !draftDeletedIds.has(element.i
 
 - [ ] 검증: 기존 CAD WebGL smoke, U1 시나리오, 일부 픽셀 아닌 전체 가시 타일 coverage 확인. settings/monitoring 문서 후 커밋: `perf(web): render common map elements with incremental batches`.
 
+### U9c. 실제 고밀도 셀의 순서 보존 스트리밍 보완
+
+실제 두 번째 DWG는 한 셀에301,065개 표시 조각/약46.9MB 원본을 포함한다. 전체 셀을 decoded 객체로 모으는 U9b2는 desktop128MiB/mobile32MiB에서 실패했다. 합성500k 분산 데이터 통과로 이 실패를 대체하지 않는다.
+
+- [ ] 공유 계약·생산자: 현재 레이어 순서를 소비자가 결정할 수 있도록 셀/레이어별 순서 있는 페이지와 검증 가능한 zIndex/요소 ID/조각 순서 범위를 정의한다. 기존 공통 v2의 작은 문서는 유지 가능한 호환 경계를 우선하고 codec/DB 계약의 불필요한 변경을 피한다. 닫힌 경로 복사와 서로 다른 잘린 조각의 identity를 구분한다.
+- [ ] 생산자: CAD 및 일반 checkpoint 양쪽에서 같은 규칙으로 페이지를 생성한다. fill/stroke·동일 요소 조각의 경계는 순서와 alpha가 바뀌지 않도록 검증한다. 단일 입력/출력 및 총량 상한을 유지하고 큰 객체를 조용히 누락하지 않는다.
+- [ ] 소비자: 셀 전체 JS 객체 배열 대신 작은 입력/그리기 묶음을 순서대로 소비한다. 현재 레이어 재정렬과 초안 삽입 위치, 취소·부분 갱신·context 복원·전체 메모리 회계를 유지한다. 최소 줌에서 소유 픽셀이 없는 셀을 중복 raster로 만들지 않고, 얇은 선의 영향 범위는 필요한 주변 geometry를 제한된 병합으로 읽어 실제 픽셀 소유자에 반영한다.
+- [ ] 검증: 실제 두 원본 desktop/mobile-budget 전체 coverage, 엄격한 선/구멍/alpha 픽셀 oracle와0.001 최소 줌, 정상 편집/저장 회귀를 확인한다. 한도 증가, 누락, 픽셀 기준 완화는 해결책으로 사용하지 않는다. 생산자 계약을 먼저 검토·커밋한 뒤 소비자를 연결한다.
+
 ### U10. 선택·수정·삭제 UI 통합
 
 실행 분할: U10a는 승인된 공통 타입을 소비하는 속성 패널/선택 overlay/변환 helper 신규 파일만 선행 구현한다. 기존 View/store/API 연결은 U10b가 담당하며 실제 화면 검증 전 전체 완료로 표시하지 않는다.
@@ -511,12 +520,13 @@ expect(serverFailures).toEqual([]);
 | U9b2 | 공유 계약 검토 PASS·생산자/소비자 통합 중 | 64939287/16292079 검토shared54/codec24 PASS; 생산자baf189c2/e970e025, 웹 실제 순서·반투명 합성 검증 진행; legacy CAD v1 유지 |
 | U6b | core 독립 재검토 PASS | 1d4f4a2e 검토2건 수정·실제PG/MinIO3+capacity1 재검토 PASS, 기존HTTP12/초기화35/타입/upgrade2; migration98 로컬 적용. 500k 최종성능은 U14 |
 | U10b/U11b | 일반 UI 연결·보완 검토 PASS, 대량 기능은 U10c | bfaabdf8/f417b664/a28c10cc, 집중71/Chromium4/scopedTS·검토6/Chromium2 PASS. 정상 저장 undo/카메라와 그리기 취소 보완 |
-| U10c | 독립 검토3건 보완 중 | 151483d6/7ff81142 작성자 집중164/Chromium10/타입0. 독립 재현: committed-cancel View 기준, 대량 additive 선택 유지, 혼합 이동 재스냅3건. stage 기본 Chromium1 PASS. 실제 백엔드는 U14b |
+| U10c | 독립 재검토 PASS | b248cb82의3건 수정, 작성자129/원래재현4/Chromium6/타입0; 독립 재검토4+12/Chromium2 PASS. 실제 대형 도면 renderer는 별도 |
 | U14a | 두 원본 변환·ID 검증 통과, 시각 보완 중 | 5ecaf26f 내부 타일 압축 후 킨다129920/2단지498838 정본·표시 ID 전수 일치, 원본 유지. 선택 변환24.46/51.75초. 선 두께의 인접 타일 범위 보완과 실제 브라우저는 미완료 |
 | U7b | U6b와 통합 검토 PASS | 17eeb882 private ready stage preview, 집중56/PG환경제외2/typecheck·U6b 실제PG/MinIO·권한 통합 검토 통과 |
 | U13 | 독립 재검토 PASS | 45c51198/33a44a88/9b617ee1 집중141/Chromium fixture4; 217083d2 source 경쟁 수정13/Chromium2·재검토3 PASS. 실제 대형 원본 여정 후속 |
 | U8c | 독립 재검토 PASS | 9b44493d/01bde733 집중112/scopedTS0. 8a35d9d9에서 외부 undo 취소 이력 cursor 및 자동 stage 응답 유실의 cancel/status 수렴 보완, 재검토14 PASS |
-| U14b | 테스트 작성 중 | 격리 실제 백엔드와 브라우저의 일반 도형·DXF 가져오기·저장/삭제/undo·맵 크기 변경 여정. 사용자 DB 및 원본 DWG 중복 실행 제외 |
+| U14b | 실제 백엔드 여정 PASS | b976a173: r6 Chromium1(1.2분), stage2 committed/fixture ID 유지/pageerror0/5xx0/격리 리소스 정리, support4/타입0. 원본 DWG 대량 표시는 별도 |
+| U9c | 계약 조율 중 | 실제 두 번째 DWG 고밀도 셀의 desktop/mobile 메모리 실패 해결. 순서 있는 작은 페이지 생산자부터 소비자로 연결; 셀 전체 모으기 제거 |
 | U14 | 통합 대기 | 실제 원본/API/브라우저/성능 최종 검증 |
 
 구현 방식은 **역할별 순차 서브에이전트 진행**을 제안한다. 공유 계약과 데이터 보존은 backend가 먼저, 소비 UI는 web_frontend가 이후 담당하고 QA가 작업 단위 결과를 확인한다. 메인은 공유 계약과 통합·문서 상태를 관리한다. 같은 파일을 다루는 병렬 에이전트는 만들지 않는다. 사용자가 더 낮은 토큰 비용을 우선하면 메인 직접 구현 + 최종 독립 리뷰로 변경할 수 있다.
