@@ -526,7 +526,7 @@ expect(serverFailures).toEqual([]);
 | U13 | 독립 재검토 PASS | 45c51198/33a44a88/9b617ee1 집중141/Chromium fixture4; 217083d2 source 경쟁 수정13/Chromium2·재검토3 PASS. 실제 대형 원본 여정 후속 |
 | U8c | 독립 재검토 PASS | 9b44493d/01bde733 집중112/scopedTS0. 8a35d9d9에서 외부 undo 취소 이력 cursor 및 자동 stage 응답 유실의 cancel/status 수렴 보완, 재검토14 PASS |
 | U14b | 실제 백엔드 여정 PASS | b976a173: r6 Chromium1(1.2분), stage2 committed/fixture ID 유지/pageerror0/5xx0/격리 리소스 정리, support4/타입0. 원본 DWG 대량 표시는 별도 |
-| U9c | 계약 조율 중 | 실제 두 번째 DWG 고밀도 셀의 desktop/mobile 메모리 실패 해결. 순서 있는 작은 페이지 생산자부터 소비자로 연결; 셀 전체 모으기 제거 |
+| U9c | 계약 검토 PASS, 생산자 최적화·소비자 연결 중 | 855fb756 계약55 PASS, 9916c1bc 생산자/fe0e0697 소비자 기본 모듈. 킨다24.88초 변환 통과, 2단지는60초 초과로 미통과. 작은 페이지 연결·최소 줌·메모리·쓰기 실패 회귀 검증 후 최종 판정 |
 | 전체 연결 보완 | 신규3건 구현 중 | 중첩 그룹 해제의 자식 보존, 활성화 실패 재시도의 preview identity/ACK, post-preview 초안의 이탈 경고. 독립 whole-change 검토 재현 후 담당1명이 관련 API/Web 경계를 함께 보완 |
 | U14 | 통합 대기 | 실제 원본/API/브라우저/성능 최종 검증 |
 
