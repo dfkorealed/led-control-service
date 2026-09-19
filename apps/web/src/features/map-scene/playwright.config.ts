@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 
 const port = 15179;
 export default defineConfig({
-  testDir: "..", testMatch: ["map-scene/map-scene-webgl.smoke.ts", "cad-scene/cad-scene-webgl.smoke.ts"], workers: 1, timeout: 30_000,
+  testDir: "..", testMatch: ["map-scene/map-scene-webgl.smoke.ts", "map-scene/map-scene-http-webgl.smoke.ts", "cad-scene/cad-scene-webgl.smoke.ts"], workers: 1, timeout: 30_000,
   outputDir: fileURLToPath(new URL("../../../.local/map-scene-smoke", import.meta.url)),
   reporter: [["list"], ["json", { outputFile: fileURLToPath(new URL("../../../.local/map-scene-smoke/report.json", import.meta.url)) }]],
   use: { baseURL: `http://127.0.0.1:${port}`, screenshot: "only-on-failure" },
