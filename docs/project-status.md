@@ -4,6 +4,8 @@
 
 ## 현재 마일스톤
 
+**로컬 추가 migration 적용(2026-09-19)**: 독립 clean/upgrade 검토를 통과한 stage execution/preview migration97·98만 적용했다. 백업 `.local/backups/map-document-before-stages-1789813509094.dump`(0600)을 생성했고, 계정6·현장2·층3·게이트웨이1·MeshNode4·조명6·제어 명령79가 유지됨을 읽기 전용으로 재확인했다. API readiness200. 기존 맵 실제 초기화는 아직 수행하지 않았다. U6b core 검토의 복구 시 새 조명 bounds와 임시 디렉터리 실패 후 capacity 회복 2건은 수정 중이며 migration 승인과 기능 최종 승인을 구분한다.
+
 **최근 통합 진척(2026-09-19)**: U6b-core `5332085d`/`c9c40ca8`/`8d1436ee`는 PG98 migrations·MinIO·인증 HTTP12, 최신 초기화35, API 타입 검사, upgrade2 통과 후 U7b와 함께 독립 검토 중이다. 35MiB 초과 이력을 전체 다운로드 없이 준비 참조로 되돌리고 확정하는 경로도 검증했다. U13 모니터링 `45c51198`은 집중66/Chromium fixture2/웹 타입 검사 통과, CAD 미리보기는 연결 중이다. 웹 decoder v2 `6048bd66` 이후 실제 UI 검증과 전체 그리기 순서 보완을 진행한다. 로컬 DB 초기화 점검은 읽기 전용으로 수행했으며 실제 초기화와 신규 migration은 아직 적용하지 않았다.
 
 **공통 맵 실제 View 통합 중(2026-09-19)**: U6a 일반 저장/CAD 적용, U7 조회, U8b 초안/통합 이력, U9b1 Canvas/provider/ACK는 독립 검토 PASS다. U9b2 공통 표시 v2 계약도 shared54/codec24 검토 PASS이며, 생산자 `baf189c2`/`e970e025`와 웹 그리기 순서 연결은 후속 검증 대상이다. U7b stage 미리보기 `17eeb882`는 집중56/환경제외2·타입 검사 통과 후 통합 검토 대기다. U10b/U11b 실제 View, U6b 대량 저장·크기 변경·복구, U13 모니터링/후보 미리보기를 진행한다. HATCH `052fefae` 검토85/제외1 PASS; 킨다 약13만 요소의 변환 검증은 통과했지만 두 번째 원본의 Outer HATCH 정보 보존을 추가 보완해야 한다. 기존 맵 실제 폐기는 아직 미실행이며 로컬 migration96·조명6·층3·현장2가 유지된다. 신규 stage migration은 검토 후 적용한다. 백업은 `.local/backups/map-document-before-u4b-1789808061050.dump`에 있다.

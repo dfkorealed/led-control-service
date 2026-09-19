@@ -509,7 +509,7 @@ expect(serverFailures).toEqual([]);
 | U8b | 완료·독립 재검토 PASS | 04ff177e/0dd484d7, 집중86·검토38(추가4 포함), ACK/undo/cache 삭제 오인 및 복구 초안 undo 보완 |
 | U9b1 | 완료·독립 검토 PASS | 016ee6b4/e242760e/97b5d340, 집중94/WebGL6/typecheck·검토46 통과; 실제 View와 전체 z 순서는 별도 |
 | U9b2 | 공유 계약 검토 PASS·생산자/소비자 통합 중 | 64939287/16292079 검토shared54/codec24 PASS; 생산자baf189c2/e970e025, 웹 실제 순서·반투명 합성 검증 진행; legacy CAD v1 유지 |
-| U6b | core 구현·U7b 통합 검토 중 | 5332085d/c9c40ca8/8d1436ee, 실제PG98/MinIO/인증HTTP12·초기화35·타입 검사·upgrade2 통과; 500k 성능은 U14 |
+| U6b | core 검토 보완 중 | 5332085d/c9c40ca8/8d1436ee, 실제PG98/MinIO/인증HTTP12·초기화35·타입 검사·upgrade2 통과; 검토2건(복구 bounds/capacity 회복) 수정 중. Migration97/98 독립 clean/upgrade PASS 후 로컬 적용·데이터 유지 확인 |
 | U10b/U11b | 구현 중 | 검토된 store/overlay/tools와 고정 Canvas 계약을 실제 View에 연결, 같은 파일을 한 UI 담당이 순차 구현 |
 | U14a | 두 번째 원본 추가 보완 중 | 052fefae 검토85/제외1 PASS; 킨다129901개 요소 schema/hash/display ID 검증 통과(후속fix전), 2단지 Outer HATCH style/flags 보존 필요; 최종2원본 재검증 대기 |
 | U7b | 구현·통합 검토 대기 | 17eeb882 private ready stage preview, 집중56/PG환경제외2/typecheck 통과; 실제 stage authority는 U6b와 통합 검증 |
