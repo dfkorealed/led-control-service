@@ -489,13 +489,14 @@ expect(serverFailures).toEqual([]);
 | --- | --- | --- |
 | U1 | 계측 하네스 완료·독립 검토 PASS, 기준선 부분 | e30dc20d/861724de, 집중19; 코드 혼합/OOM로 통제 기준선은 U14 재측정 |
 | U2 | 완료·독립 검토 PASS | 61ce049e, 집중120/전체336·typecheck/build·ESM/CJS/pack 통과 |
-| U3 | 자산 경계 P2 1건 보완 중 | 82c9bffc, PG31x2/cleanup1/API2285통과559제외; 기존 일반 자산 API의 내부 map_* 차단 |
+| U3 | 완료·독립 재검토 PASS | 82c9bffc/fd69abe5, PG31x2/cleanup1/API2285통과559제외, 자산회귀76·리뷰62; 승인 로컬 migration95 적용 |
 | U12 | 완료·독립 재검토 PASS | 482cd959/31003434, browser12+기존모바일2/unit109 통과, 드롭 가림·취소 hit 보완; 실제 기기 WebView 미검증 |
 | U4a | 완료·독립 재검토 PASS | 54abb278, 신규11 RED/GREEN 및 집중118통과1제외; U4b 대기 |
 | U8a | 완료·독립 검토 PASS | 22131660, 신규38/집중315/웹1718통과2제외, UI 미연결 |
-| U9a | 구현·독립 검토 중 | 586f22e7, 집중70/WebGL4/웹typecheck 통과; 실제provider/UI 미연결 |
+| U9a | 검토 지적 3건 보완 중 | 586f22e7, 동시 cache 예산/ID namespace/rAF 선택 좌표 수정; 실제provider/UI 미연결 |
 | U11a | 완료·독립 검토 PASS | 46376f4f, 집중103/소유파일 typecheck 통과, View/store/Canvas 미연결 |
-| U4b~U7, U8b, U9b~U11b, U13~U14 | 대기 | U5는 맵 보존 대신 초기화로 변경 |
+| U4b, U5 | 구현 중 | 가져오기/Prisma와 reset/controller 파일 소유 분리, 사용자 맵 초기화는 미실행 |
+| U6~U7, U8b, U9b~U11b, U13~U14 | 대기 | 앞선 계약·보안 검토 완료 후 연결 |
 
 구현 방식은 **역할별 순차 서브에이전트 진행**을 제안한다. 공유 계약과 데이터 보존은 backend가 먼저, 소비 UI는 web_frontend가 이후 담당하고 QA가 작업 단위 결과를 확인한다. 메인은 공유 계약과 통합·문서 상태를 관리한다. 같은 파일을 다루는 병렬 에이전트는 만들지 않는다. 사용자가 더 낮은 토큰 비용을 우선하면 메인 직접 구현 + 최종 독립 리뷰로 변경할 수 있다.
 
