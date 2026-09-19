@@ -59,7 +59,8 @@ function refineOrderedPages(manifest: z.infer<typeof mapDisplayManifestFieldsSch
       const page = pages[i], group = page.paintGroup;
       if (page.sequence !== i || i > 0 && compareMapDisplayFragmentKeys(pages[i - 1].lastKey, page.firstKey) >= 0) fail("ordered page sequence/range overlap");
       if (group && (group.elementId !== page.firstKey.elementId || group.elementId !== page.lastKey.elementId)) fail("ordered fill group element mismatch");
-      if (pending ? !group || group.id !== pending.id || group.elementId !== pending.elementId || group.sequence !== pending.sequence + 1
+      if (pending ? !group || group.id !== pending.id || group.elementId !== pending.elementId || group.sequence !== pending.sequence + 1 ||
+        group.style.fillColor !== pending.style.fillColor || group.style.opacity !== pending.style.opacity
         : group && group.sequence !== 0) fail("ordered fill continuation mismatch");
       pending = group && !group.final ? group : undefined;
     }

@@ -27,6 +27,8 @@ export const mapDisplayPageSchema = z.object({
   firstKey: mapDisplayFragmentKeySchema, lastKey: mapDisplayFragmentKeySchema,
   paintGroup: z.object({ id: z.string().min(1).max(512), elementId: z.string().min(1).max(512),
     phase: z.literal("fill"), sequence: z.number().int().nonnegative().max(0xffffffff), final: z.boolean(),
+    style: z.object({ fillColor: z.string().regex(/^#[a-f0-9]{6}(?:[a-f0-9]{2})?$/i),
+      opacity: z.number().finite().min(0).max(1) }).strict(),
     pointCount: z.number().int().positive().max(0xffffffff) }).strict().optional()
 }).strict();
 export type MapDisplayPage = z.infer<typeof mapDisplayPageSchema>;
@@ -55,6 +57,7 @@ export function validateMapDisplayPageContent(tile: { primitiveCount: number; pa
       if (page.paintGroup) {
         const style = JSON.stringify([p.style.fillColor, p.style.opacity]);
         if (p.elementId !== page.paintGroup.elementId || p.style.fillColor === null || p.style.strokeColor !== null ||
+          p.style.fillColor !== page.paintGroup.style.fillColor || p.style.opacity !== page.paintGroup.style.opacity ||
           !(p.type === "triangle" || p.type === "polyline" && p.geometry.closed) || fillStyle !== undefined && fillStyle !== style) {
           throw new Error("ordered page fill group mismatch");
         }

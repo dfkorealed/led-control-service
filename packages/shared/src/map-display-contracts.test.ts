@@ -44,11 +44,25 @@ describe("common map display manifests", () => {
   });
   it("rejects pages without opt-in and validates fill continuation sequences", () => {
     expect(mapDisplayManifestSchema.safeParse({ ...paged, orderedPages: undefined }).success).toBe(false);
-    const paintGroup = { id: "fill-e", elementId: "e", phase: "fill", sequence: 0, final: true, pointCount: 3 };
+    const paintGroup = { id: "fill-e", elementId: "e", phase: "fill", sequence: 0, final: true, pointCount: 3,
+      style: { fillColor: "#ff0000", opacity: 0.5 } };
     expect(mapDisplayManifestSchema.safeParse({ ...paged, tiles: [{ ...tile, pages: [{ ...page, paintGroup }] }] }).success).toBe(true);
     for (const patch of [{ sequence: 1 }, { final: false }, { elementId: "wrong" }]) {
       expect(mapDisplayManifestSchema.safeParse({ ...paged, tiles: [{ ...tile, pages: [{ ...page, paintGroup: { ...paintGroup, ...patch } }] }] }).success).toBe(false);
     }
+  });
+  it.each([{ fillColor: "#0000ff", opacity: 0.5 }, { fillColor: "#ff0000", opacity: 1 }])("rejects declared fill style drift across assets %j", style => {
+    const group = { id: "fill-e", elementId: "e", phase: "fill", sequence: 0, final: false, pointCount: 3,
+      style: { fillColor: "#ff0000", opacity: 0.5 } };
+    const continued = { ...paged, primitiveCount: 2, tileCount: 2, tiles: [
+      { ...tile, pages: [{ ...page, paintGroup: group }] },
+      { ...tile, part: 1, assetId: manifestId.replace(/2$/, "4"), pages: [{ ...page, sequence: 1,
+        firstKey: { ...firstKey, fragmentOrder: 1 }, lastKey: { ...firstKey, fragmentOrder: 1 },
+        paintGroup: { ...group, sequence: 1, final: true } }] }
+    ] };
+    expect(mapDisplayManifestSchema.safeParse(continued).success).toBe(true);
+    continued.tiles[1].pages[0].paintGroup.style = style;
+    expect(mapDisplayManifestSchema.safeParse(continued).success).toBe(false);
   });
   it("uses current layer order and ordinal tie keys, with fill before stroke", () => {
     const key = { layerOrder: 0, layerId: "Z", zIndex: -10, elementId: "Z", fragmentOrder: 0, phase: "fill" as const };

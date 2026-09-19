@@ -27,11 +27,26 @@ describe("ordered page content", () => {
       firstKey: last, lastKey: key }] }, [{ ...p, fragmentOrder: 1 }, p], layer)).toThrow(/order/);
   });
   it("validates declared canonical fill continuation and path scratch counts", () => {
-    const group = { id: "fill-e", elementId: "e", phase: "fill" as const, sequence: 0, final: true, pointCount: 3 };
+    const group = { id: "fill-e", elementId: "e", phase: "fill" as const, sequence: 0, final: true, pointCount: 3,
+      style: { fillColor: "#ff0000", opacity: 0.5 } };
     const grouped = { ...tile, pages: [{ ...page, paintGroup: group }] };
     expect(() => validateMapDisplayPageContent(grouped, [p], layer)).not.toThrow();
     expect(() => validateMapDisplayPageContent({ ...tile, pages: [{ ...page, paintGroup: { ...group, pointCount: 4 } }] }, [p], layer)).toThrow(/point count/);
     expect(() => validateMapDisplayPageContent(grouped, [{ ...p, style: { ...p.style, strokeColor: "#ff0000" } }], layer)).toThrow(/fill group/);
+  });
+  it.each([{ fillColor: "#0000ff" }, { opacity: 1 }])("rejects changed continuation style across logical and physical boundaries %j", patch => {
+    const group = { id: "fill-e", elementId: "e", phase: "fill" as const, sequence: 0, final: false, pointCount: 3,
+      style: { fillColor: "#ff0000", opacity: 0.5 } };
+    const first = { ...page, paintGroup: group };
+    const second = { ...page, sequence: 1, firstKey: { ...key, fragmentOrder: 1 }, lastKey: { ...key, fragmentOrder: 1 },
+      paintGroup: { ...group, sequence: 1, final: true } };
+    const unchanged = { ...p, fragmentOrder: 1 };
+    const changed = { ...unchanged, style: { ...p.style, ...patch } };
+    expect(() => validateMapDisplayPageContent({ primitiveCount: 2, pages: [first, { ...second, primitiveStart: 1 }] }, [p, unchanged], layer)).not.toThrow();
+    expect(() => validateMapDisplayPageContent({ primitiveCount: 2, pages: [first, { ...second, primitiveStart: 1 }] }, [p, changed], layer)).toThrow(/fill group/);
+    expect(() => validateMapDisplayPageContent({ primitiveCount: 1, pages: [first] }, [p], layer)).not.toThrow();
+    expect(() => validateMapDisplayPageContent({ primitiveCount: 1, pages: [second] }, [unchanged], layer)).not.toThrow();
+    expect(() => validateMapDisplayPageContent({ primitiveCount: 1, pages: [second] }, [changed], layer)).toThrow(/fill group/);
   });
   it("identifies exact copied geometry independent of property insertion order, excluding only clip/bounds", () => {
     const copy = { ...p, bounds: { minX: 1, minY: 0, maxX: 2, maxY: 2 },
