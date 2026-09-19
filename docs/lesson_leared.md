@@ -948,3 +948,9 @@
 - **원인**: 원시 manifest에는 자기 파일의 크기와 SHA256을 넣지 않는다. 서버 reader가 저장 원장으로 `byteSize`/`sha256`을 검증·보완하지만 302 응답이 원시 파일로 이동해 보완을 우회했고, 프론트 strict schema가 두 필드 누락을 거부했다.
 - **해결 및 예방책**: manifest API는 기존 권한·원장·파일 검증을 거친 DTO를 JSON으로 반환한다. 타일의 비공개 다운로드와 무결성 검증은 유지하며 필수 필드를 optional로 바꾸거나 파일에 자기 해시를 억지로 저장하지 않는다.
 - **반복 방지 체크**: 실제 builder의 원시 파일을 storage reader와 HTTP controller에 통과시킨 응답을 소비자 schema로 검사한다. 적용 200, manifest 200, 타일 조회, 화면 표시, 새로고침을 별개 완료 조건으로 기록한다. fixture 성공을 실제 사용자 브라우저 성공으로 확대하지 않는다.
+
+## 2026-09-19 / 완료 상태 재조회는 정상 ACK 계약 검증을 대신하지 않는다
+
+- **문제**: 새 공통 맵 적용은 HTTP200으로 성공했지만 웹의 legacy 전용 strict schema는 `mapDocument`와 none 배경을 거부했다. 이후 완료 job 조회로 복구하는 UI 경로가 있어 화면 여정만 보면 원래 ACK 파싱 실패를 놓칠 수 있었다.
+- **해결**: 실제 service HTTP 응답을 웹이 import하는 정확한 shared subpath와 production API 함수에 통과시키는 RED/GREEN 회귀를 추가했다. 공통 맵은 required mapDocument로 구분하는 strict 분기를 사용하고, 크기·격자·수정 번호의 정합성을 검사하며 내부 감사 요약 키를 응답에 섞지 않는다.
+- **예방**: HTTP200·최종 화면 도착·정확한 성공 응답 파싱을 각각 검사한다. 기존 필드를 전부 optional로 바꾸거나 가짜 경로를 넣지 않는다. DTO가 nullable을 표현하더라도 현재 DB lifecycle 제약이 해당 상태를 허용한다는 뜻은 아니다.
