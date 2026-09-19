@@ -1,4 +1,8 @@
 import type {
+  CadSceneDescriptor,
+  CadSceneEditInput,
+  CadSceneManifest,
+  CadSceneState,
   CadImportSourceFormat,
   FloorImportApplyInput,
   FloorImportAppliedOverlayResponse,
@@ -6,17 +10,63 @@ import type {
   RestoreFloorEditorRevisionInput,
   SaveEditorStateInput
 } from "@led-control/shared";
+import { CAD_SCENE_MAX_MANIFEST_BYTES, CAD_SCENE_MAX_TILE_BYTE_SIZE, cadSceneManifestSchema, cadSceneStateSchema } from "@led-control/shared/cad-scene-contracts";
 import { floorImportApplyResultSchema } from "@led-control/shared/cad-import-contracts";
 import type { FixtureIdentifyRequest, FixtureIdentifyResponse } from "@led-control/shared";
 import { ApiError, apiGet, apiPost, apiPut, apiRequest } from "./client";
+import { readCadSceneBytes, readCadSceneJson } from "./cad-scene-content";
 import type {
   FloorAsset,
   FloorEditorState,
   FloorImportJob
 } from "../features/floor-editor/editor-types";
 
-export function getFloorEditorState(floorId: string) {
-  return apiGet<FloorEditorState>(`/floors/${encodeURIComponent(floorId)}/editor-state`);
+export function getFloorEditorState(floorId: string, options: { signal?: AbortSignal } = {}) {
+  return apiRequest<FloorEditorState>(`/floors/${encodeURIComponent(floorId)}/editor-state`, {
+    signal: options.signal
+  });
+}
+
+export async function getCadSceneState(siteId: string, floorId: string, options: { signal?: AbortSignal } = {}) {
+  return cadSceneStateSchema.parse(await apiRequest<CadSceneState>(cadSceneStatePath(siteId, floorId), {
+    signal: options.signal
+  }));
+}
+
+export async function updateCadScene(
+  siteId: string,
+  floorId: string,
+  payload: CadSceneEditInput,
+  options: { signal?: AbortSignal } = {}
+) {
+  return cadSceneStateSchema.parse(await apiRequest<CadSceneState>(cadSceneStatePath(siteId, floorId), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    signal: options.signal
+  }));
+}
+
+export async function getCadSceneManifest(path: CadSceneDescriptor["manifestContentPath"], signal?: AbortSignal) {
+  const response = await fetchCadSceneContent(path, signal);
+  return cadSceneManifestSchema.parse(await readCadSceneJson(response, CAD_SCENE_MAX_MANIFEST_BYTES)) as CadSceneManifest;
+}
+
+export async function getCadSceneTile(path: string, signal?: AbortSignal) {
+  const response = await fetchCadSceneContent(path, signal);
+  return readCadSceneBytes(response, CAD_SCENE_MAX_TILE_BYTE_SIZE);
+}
+
+function cadSceneStatePath(siteId: string, floorId: string) {
+  return `/sites/${encodeURIComponent(siteId)}/floors/${encodeURIComponent(floorId)}/cad-scene`;
+}
+
+async function fetchCadSceneContent(path: string, signal?: AbortSignal) {
+  const response = await fetch(`/api${path}`, { credentials: "same-origin", signal });
+  if (!response.ok) {
+    throw new ApiError(`GET ${path} failed with ${response.status}`, response.status, null);
+  }
+  return response;
 }
 
 export function identifyFixture(floorId: string, fixtureId: string, payload: FixtureIdentifyRequest) {

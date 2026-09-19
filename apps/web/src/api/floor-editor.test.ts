@@ -6,6 +6,9 @@ import {
   createFloorImportJob,
   getActiveFloorImportJob,
   getAppliedFloorImportOverlay,
+  getCadSceneState,
+  getCadSceneManifest,
+  getCadSceneTile,
   getFloorEditorState,
   getFloorImportJob,
   identifyFixture,
@@ -13,7 +16,8 @@ import {
   listFloorEditorRevisions,
   releaseFloorEditorLease,
   restoreFloorEditorRevision,
-  saveFloorEditorState
+  saveFloorEditorState,
+  updateCadScene
 } from "./floor-editor";
 
 const completeApplyResult = {
@@ -60,6 +64,94 @@ describe("floor editor atomic API", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/floors/floor%2F1/editor-lease", expect.objectContaining({
       method: "DELETE", keepalive: true, credentials: "include", body: JSON.stringify({ token: "owned-token" })
     }));
+  });
+
+  it("loads and atomically updates the scoped CAD scene state", async () => {
+    const controller = new AbortController();
+    const state = { revision: 8, scene: {
+      id: "00000000-0000-4000-8000-000000000001", version: 1,
+      sourceImportJobId: "00000000-0000-4000-8000-000000000002",
+      width: 16_384, height: 8_192, tileSize: 512, primitiveCount: 0, tileCount: 0,
+      manifestAssetId: "00000000-0000-4000-8000-000000000003",
+      manifestContentPath: "/floors/floor/scene/manifest/content",
+      tileContentPathTemplate: "/floors/floor/scene/tiles/{lod}/{tileX}/{tileY}/{part}/content",
+      statePath: "/sites/site/floors/floor/cad-scene"
+    }, overrides: [], layers: [] };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(state) })
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ ...state, revision: 9 }) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getCadSceneState("site/1", "floor/1", { signal: controller.signal })).resolves.toEqual(state);
+    await expect(updateCadScene("site/1", "floor/1", {
+      expectedRevision: 8,
+      leaseToken: "lease-token",
+      leaseFence: 7,
+      overrideMutations: [],
+      layerMutations: [{
+        layerName: "WALL",
+        visible: false,
+        locked: false,
+        locator: { tileX: 0, tileY: 0, lod: 0, part: 0 }
+      }]
+    }, { signal: controller.signal })).resolves.toMatchObject({ revision: 9 });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/sites/site%2F1/floors/floor%2F1/cad-scene",
+      expect.objectContaining({ credentials: "include", signal: controller.signal })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/sites/site%2F1/floors/floor%2F1/cad-scene",
+      expect.objectContaining({ method: "PUT", credentials: "include", signal: controller.signal })
+    );
+  });
+
+  it("validates a CAD manifest and loads binary tiles with an abort signal", async () => {
+    const manifest = {
+      version: 1,
+      sceneId: "00000000-0000-4000-8000-000000000001",
+      regionId: "region-1",
+      manifestAssetId: "00000000-0000-4000-8000-000000000002",
+      width: 16_384,
+      height: 8_192,
+      padding: 328,
+      gridSize: 80,
+      tileSize: 512,
+      lodMode: "additive",
+      primitiveCount: 0,
+      tileCount: 0,
+      byteSize: 1,
+      sha256: "0".repeat(64),
+      sourceBounds: { minX: 0, minY: 0, maxX: 2, maxY: 1 },
+      transform: { scaleX: 7_536, scaleY: -7_536, translateX: 656, translateY: 7_864 },
+      tiles: []
+    };
+    const bytes = new Uint8Array([1, 2, 3]);
+    const controller = new AbortController();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(manifest)))
+      .mockResolvedValueOnce(new Response(bytes));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getCadSceneManifest("/floors/floor/import-jobs/job/scene/manifest/content", controller.signal))
+      .resolves.toMatchObject({ sceneId: manifest.sceneId, tileSize: 512 });
+    await expect(getCadSceneTile("/floors/floor/import-jobs/job/scene/tiles/0/0/0/0/content", controller.signal))
+      .resolves.toEqual(bytes);
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/floors/floor/import-jobs/job/scene/manifest/content", {
+      credentials: "same-origin",
+      signal: controller.signal
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/floors/floor/import-jobs/job/scene/tiles/0/0/0/0/content", {
+      credentials: "same-origin",
+      signal: controller.signal
+    });
+  });
+  it("rejects malformed CAD state before passing it to the editor", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ revision: 1, scene: {}, overrides: [], layers: [] }) }));
+    await expect(getCadSceneState("site", "floor")).rejects.toThrow();
   });
   it("encodes the identify scope and retains the matching stop session", async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ status: "stopped" }) });
