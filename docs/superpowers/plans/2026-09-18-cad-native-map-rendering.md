@@ -510,9 +510,10 @@ expect(serverFailures).toEqual([]);
 | U9b1 | 완료·독립 검토 PASS | 016ee6b4/e242760e/97b5d340, 집중94/WebGL6/typecheck·검토46 통과; 실제 View와 전체 z 순서는 별도 |
 | U9b2 | 공유 계약 검토 PASS·생산자/소비자 통합 중 | 64939287/16292079 검토shared54/codec24 PASS; 생산자baf189c2/e970e025, 웹 실제 순서·반투명 합성 검증 진행; legacy CAD v1 유지 |
 | U6b | core 독립 재검토 PASS | 1d4f4a2e 검토2건 수정·실제PG/MinIO3+capacity1 재검토 PASS, 기존HTTP12/초기화35/타입/upgrade2; migration98 로컬 적용. 500k 최종성능은 U14 |
-| U10b/U11b | 구현 중 | 검토된 store/overlay/tools와 고정 Canvas 계약을 실제 View에 연결, 같은 파일을 한 UI 담당이 순차 구현 |
-| U14a | 두 번째 원본 추가 보완 중 | 052fefae 검토85/제외1 PASS; 킨다129901개 요소 schema/hash/display ID 검증 통과(후속fix전), 2단지 Outer HATCH style/flags 보존 필요; 최종2원본 재검증 대기 |
-| U7b | 구현·통합 검토 대기 | 17eeb882 private ready stage preview, 집중56/PG환경제외2/typecheck 통과; 실제 stage authority는 U6b와 통합 검증 |
+| U10b/U11b | 일반 UI 연결·보완 검토 PASS, 대량 기능은 U10c | bfaabdf8/f417b664/a28c10cc, 집중71/Chromium4/scopedTS·검토6/Chromium2 PASS. 정상 저장 undo/카메라와 그리기 취소 보완 |
+| U10c | 구현 중 | U8c stage/외부 이력 소비, bounded 대량 선택·bbox 변환·혼합 선택·선택 맞춤 |
+| U14a | 두 번째 원본 중간 파일 압축 보완 중 | 388d14cc style/flags/정밀도 보완 후 킨다129920개 schema/hash/display ID 전수 일치. 2단지 중간 파일 용량 제한 확인, 무손실 스트리밍 압축 후 재검증 예정 |
+| U7b | U6b와 통합 검토 PASS | 17eeb882 private ready stage preview, 집중56/PG환경제외2/typecheck·U6b 실제PG/MinIO·권한 통합 검토 통과 |
 | U13 | 모니터링 구현·미리보기 연결 중 | 45c51198 집중66/Chromium fixture2/typecheck 통과; 독립 검토 및 실제 저장/원본 여정은 후속 |
 | U8c | 구현 중 | 검토된 대량 stage/prepare-only 미리보기/외부 이력을 웹 store·전송에 연결 |
 | U14 | 통합 대기 | 실제 원본/API/브라우저/성능 최종 검증 |
