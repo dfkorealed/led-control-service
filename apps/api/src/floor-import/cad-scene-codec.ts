@@ -9,6 +9,8 @@ import {
   type CadBounds,
   type CadScenePrimitive
 } from "@led-control/shared";
+import { MAP_DISPLAY_VERSION, mapDisplayPrimitiveSchema, mapDisplayOrderingSchema,
+  type OrderedMapDisplayPrimitive } from "@led-control/shared/map-display-contracts";
 
 const MAGIC = Buffer.from("CDTL", "ascii");
 const HEADER_SIZE = 48;
@@ -27,6 +29,7 @@ const primitiveTypeCode = {
 } as const;
 
 export interface CadSceneTileIntegrity {
+  version?: number;
   byteSize: number;
   sha256: string;
   bounds?: CadBounds;
@@ -37,6 +40,12 @@ class BinaryWriter {
   private offset = 0;
 
   constructor(private readonly maximumBytes: number) {}
+
+  int32(value: number): void {
+    this.ensureCapacity(4);
+    this.buffer.writeInt32LE(value, this.offset);
+    this.offset += 4;
+  }
 
   uint8(value: number): void {
     this.ensureCapacity(1);
@@ -84,6 +93,13 @@ class BinaryReader {
   private offset = 0;
 
   constructor(private readonly payload: Buffer) {}
+
+  int32(): number {
+    this.require(4);
+    const value = this.payload.readInt32LE(this.offset);
+    this.offset += 4;
+    return value;
+  }
 
   get remaining(): number {
     return this.payload.length - this.offset;
@@ -137,7 +153,7 @@ function primitiveStrings(primitive: CadScenePrimitive): Array<string | null> {
   ];
 }
 
-function prepareCadSceneTile(input: readonly CadScenePrimitive[], validate = true): {
+function prepareCadSceneTile(input: readonly CadScenePrimitive[], validate = true, version: 1 | 2 = 1): {
   primitives: CadScenePrimitive[];
   strings: string[];
   indexOf: (value: string | null) => number;
@@ -147,10 +163,10 @@ function prepareCadSceneTile(input: readonly CadScenePrimitive[], validate = tru
     throw new Error("CAD scene tile primitive limit exceeded");
   }
   const primitives: CadScenePrimitive[] = [];
-  const tracker = new CadSceneTileSizeTracker();
+  const tracker = new CadSceneTileSizeTracker(CAD_SCENE_MAX_TILE_BYTE_SIZE, version);
 
   for (const inputPrimitive of input) {
-    const primitive = validate ? cadScenePrimitiveSchema.parse(inputPrimitive) : inputPrimitive;
+    const primitive = validate ? (version === 2 ? mapDisplayPrimitiveSchema : cadScenePrimitiveSchema).parse(inputPrimitive) : inputPrimitive;
     if (!tracker.tryAdd(primitive)) throw new Error("CAD scene tile byte size limit exceeded");
     primitives.push(primitive);
   }
@@ -181,12 +197,13 @@ function primitiveByteSize(primitive: CadScenePrimitive): number {
 }
 
 export class CadSceneTileSizeTracker {
+  private readonly identities = new Map<string, { zIndex: number; layerName: string; groupId: string | null }>();
   private readonly indices = new Map<string, number>();
   private readonly strings: string[] = [];
   private size = HEADER_SIZE + 4;
   private count = 0;
 
-  constructor(private readonly maximumByteSize = CAD_SCENE_MAX_TILE_BYTE_SIZE) {
+  constructor(private readonly maximumByteSize = CAD_SCENE_MAX_TILE_BYTE_SIZE, private readonly version: 1 | 2 = 1) {
     if (!Number.isSafeInteger(maximumByteSize) || maximumByteSize < HEADER_SIZE + 4 ||
         maximumByteSize > CAD_SCENE_MAX_TILE_BYTE_SIZE) {
       throw new Error("Invalid CAD scene tile byte size limit");
@@ -213,8 +230,15 @@ export class CadSceneTileSizeTracker {
   }
 
   tryAdd(primitive: CadScenePrimitive): boolean {
+    if (this.version === 2) {
+      const { zIndex } = mapDisplayOrderingSchema.parse(primitive);
+      const previous = this.identities.get(primitive.elementId);
+      if (previous && (previous.zIndex !== zIndex || previous.layerName !== primitive.layerName || previous.groupId !== primitive.groupId)) {
+        throw new Error("Conflicting common display canonical identity/ordering");
+      }
+    }
     const unseen: string[] = [];
-    let addedBytes = primitiveByteSize(primitive);
+    let addedBytes = primitiveByteSize(primitive) + (this.version === 2 ? 8 : 0);
     for (const value of primitiveStrings(primitive)) {
       if (value === null || this.indices.has(value) || unseen.includes(value)) continue;
       addedBytes += 4 + encodedStringBytes(value);
@@ -222,6 +246,9 @@ export class CadSceneTileSizeTracker {
     }
     const nextSize = this.size + addedBytes;
     if (!Number.isSafeInteger(nextSize) || nextSize > this.maximumByteSize) return false;
+    if (this.version === 2) this.identities.set(primitive.elementId, {
+      zIndex: (primitive as OrderedMapDisplayPrimitive).zIndex, layerName: primitive.layerName, groupId: primitive.groupId
+    });
     for (const value of unseen) {
       this.indices.set(value, this.strings.length);
       this.strings.push(value);
@@ -230,6 +257,14 @@ export class CadSceneTileSizeTracker {
     this.count++;
     return true;
   }
+}
+
+export class MapDisplayTileSizeTracker extends CadSceneTileSizeTracker {
+  constructor(maximumByteSize = CAD_SCENE_MAX_TILE_BYTE_SIZE) { super(maximumByteSize, MAP_DISPLAY_VERSION); }
+}
+
+export function estimateMapDisplayTileByteSize(input: readonly OrderedMapDisplayPrimitive[]): number {
+  return prepareCadSceneTile(input, true, MAP_DISPLAY_VERSION).byteSize;
 }
 
 export function estimateCadSceneTileByteSize(input: readonly CadScenePrimitive[]): number {
@@ -244,13 +279,18 @@ function writePoint(writer: BinaryWriter, point: { x: number; y: number }): void
 function writePrimitive(
   writer: BinaryWriter,
   primitive: CadScenePrimitive,
-  stringIndex: (value: string | null) => number
+  stringIndex: (value: string | null) => number,
+  version: 1 | 2
 ): void {
   writer.uint8(primitiveTypeCode[primitive.type]);
   writer.uint32(stringIndex(primitive.elementId));
   writer.uint32(stringIndex(primitive.groupId));
   writer.uint32(stringIndex(primitive.layerName));
   writer.uint32(stringIndex(primitive.sourceType));
+  if (version === MAP_DISPLAY_VERSION) {
+    writer.int32((primitive as OrderedMapDisplayPrimitive).zIndex);
+    writer.uint32((primitive as OrderedMapDisplayPrimitive).fragmentOrder);
+  }
   writer.float64(primitive.bounds.minX);
   writer.float64(primitive.bounds.minY);
   writer.float64(primitive.bounds.maxX);
@@ -302,8 +342,8 @@ function writePrimitive(
   }
 }
 
-function encodeCadSceneTileInternal(input: readonly CadScenePrimitive[], validate: boolean): Buffer {
-  const { primitives, strings, indexOf, byteSize: expectedSize } = prepareCadSceneTile(input, validate);
+function encodeCadSceneTileInternal(input: readonly CadScenePrimitive[], validate: boolean, version: 1 | 2 = 1): Buffer {
+  const { primitives, strings, indexOf, byteSize: expectedSize } = prepareCadSceneTile(input, validate, version);
   const writer = new BinaryWriter(CAD_SCENE_MAX_TILE_BYTE_SIZE - HEADER_SIZE);
   writer.uint32(strings.length);
   for (const value of strings) {
@@ -312,11 +352,11 @@ function encodeCadSceneTileInternal(input: readonly CadScenePrimitive[], validat
     writer.uint32(encoded.byteLength);
     writer.bytes(encoded);
   }
-  primitives.forEach(primitive => writePrimitive(writer, primitive, indexOf));
+  primitives.forEach(primitive => writePrimitive(writer, primitive, indexOf, version));
   const body = writer.finish();
   const header = Buffer.alloc(HEADER_SIZE);
   MAGIC.copy(header, 0);
-  header.writeUInt16LE(CAD_SCENE_VERSION, 4);
+  header.writeUInt16LE(version, 4);
   header.writeUInt16LE(0, 6);
   header.writeUInt32LE(body.byteLength, 8);
   header.writeUInt32LE(primitives.length, 12);
@@ -333,6 +373,15 @@ export function encodeCadSceneTile(input: readonly CadScenePrimitive[]): Buffer 
 /** Builder-only fast path for primitives constructed from normalized CAD data. */
 export function encodeTrustedCadSceneTile(input: readonly CadScenePrimitive[]): Buffer {
   return encodeCadSceneTileInternal(input, false);
+}
+
+export function encodeMapDisplayTile(input: readonly OrderedMapDisplayPrimitive[]): Buffer {
+  return encodeCadSceneTileInternal(input, true, MAP_DISPLAY_VERSION);
+}
+
+/** Geometry is builder-owned; ordering/ranges/identity are still checked. */
+export function encodeTrustedMapDisplayTile(input: readonly OrderedMapDisplayPrimitive[]): Buffer {
+  return encodeCadSceneTileInternal(input, false, MAP_DISPLAY_VERSION);
 }
 
 function readBoolean(reader: BinaryReader): boolean {
@@ -373,11 +422,12 @@ function stringAt(strings: readonly string[], index: number, nullable = false): 
   return value;
 }
 
-function readBase(reader: BinaryReader, strings: readonly string[]) {
+function readBase(reader: BinaryReader, strings: readonly string[], version: 1 | 2) {
   const elementId = stringAt(strings, reader.uint32())!;
   const groupId = stringAt(strings, reader.uint32(), true);
   const layerName = stringAt(strings, reader.uint32())!;
   const sourceType = stringAt(strings, reader.uint32())!;
+  const ordering = version === MAP_DISPLAY_VERSION ? { zIndex: reader.int32(), fragmentOrder: reader.uint32() } : {};
   const bounds = {
     minX: reader.float64(),
     minY: reader.float64(),
@@ -392,6 +442,7 @@ function readBase(reader: BinaryReader, strings: readonly string[]) {
     maxY: reader.float64()
   } : null;
   return {
+    ...ordering,
     elementId,
     groupId,
     layerName,
@@ -407,9 +458,9 @@ function readBase(reader: BinaryReader, strings: readonly string[]) {
   };
 }
 
-function readPrimitive(reader: BinaryReader, strings: readonly string[]): CadScenePrimitive {
+function readPrimitive(reader: BinaryReader, strings: readonly string[], version: 1 | 2): CadScenePrimitive {
   const type = reader.uint8();
-  const base = readBase(reader, strings);
+  const base = readBase(reader, strings, version);
   let primitive: unknown;
   if (type === primitiveTypeCode.line) {
     primitive = { ...base, type: "line", geometry: { start: readPoint(reader), end: readPoint(reader) } };
@@ -477,7 +528,7 @@ function readPrimitive(reader: BinaryReader, strings: readonly string[]): CadSce
   } else {
     throw new Error(`Unsupported CAD scene tile primitive type: ${type}`);
   }
-  return cadScenePrimitiveSchema.parse(primitive);
+  return (version === MAP_DISPLAY_VERSION ? mapDisplayPrimitiveSchema : cadScenePrimitiveSchema).parse(primitive);
 }
 
 export function getCadSceneTileIntegrity(payload: Uint8Array): CadSceneTileIntegrity {
@@ -491,6 +542,14 @@ export function decodeCadSceneTile(
   input: Uint8Array,
   expectedIntegrity?: Partial<CadSceneTileIntegrity>
 ): CadScenePrimitive[] {
+  return decodeSceneTile(input, expectedIntegrity, CAD_SCENE_VERSION);
+}
+
+export function decodeMapDisplayTile(input: Uint8Array, expectedIntegrity?: Partial<CadSceneTileIntegrity>): OrderedMapDisplayPrimitive[] {
+  return decodeSceneTile(input, expectedIntegrity, MAP_DISPLAY_VERSION) as OrderedMapDisplayPrimitive[];
+}
+
+function decodeSceneTile(input: Uint8Array, expectedIntegrity: Partial<CadSceneTileIntegrity> | undefined, expectedVersion: 1 | 2): CadScenePrimitive[] {
   const payload = Buffer.from(input.buffer, input.byteOffset, input.byteLength);
   if (payload.byteLength > CAD_SCENE_MAX_TILE_BYTE_SIZE) {
     throw new Error("CAD scene tile byte size limit exceeded");
@@ -508,7 +567,9 @@ export function decodeCadSceneTile(
   if (payload.byteLength < HEADER_SIZE) throw new Error("CAD scene tile payload is truncated");
   if (!payload.subarray(0, MAGIC.length).equals(MAGIC)) throw new Error("Invalid CAD scene tile magic");
   const version = payload.readUInt16LE(4);
-  if (version !== CAD_SCENE_VERSION) throw new Error(`Unsupported CAD scene tile version: ${version}`);
+  if (version !== expectedVersion || (expectedIntegrity?.version !== undefined && version !== expectedIntegrity.version)) {
+    throw new Error(`Unsupported or mismatched scene tile version: ${version}`);
+  }
   if (payload.readUInt16LE(6) !== 0) throw new Error("Unsupported CAD scene tile flags");
   const bodyLength = payload.readUInt32LE(8);
   const primitiveCount = payload.readUInt32LE(12);
@@ -523,13 +584,18 @@ export function decodeCadSceneTile(
 
   const reader = new BinaryReader(body);
   const stringCount = reader.uint32();
-  const reservedPrimitiveBytes = primitiveCount * MIN_PRIMITIVE_BYTES;
+  const reservedPrimitiveBytes = primitiveCount * (MIN_PRIMITIVE_BYTES + (version === 2 ? 8 : 0));
   if (!Number.isSafeInteger(reservedPrimitiveBytes) || reservedPrimitiveBytes > reader.remaining) {
     throw new Error("CAD scene tile primitive count exceeds payload capacity");
   }
   const strings = decodeStrings(reader, stringCount, primitiveCount, reservedPrimitiveBytes);
   const primitives: CadScenePrimitive[] = [];
-  for (let index = 0; index < primitiveCount; index++) primitives.push(readPrimitive(reader, strings));
+  const identityTracker = version === 2 ? new MapDisplayTileSizeTracker() : null;
+  for (let index = 0; index < primitiveCount; index++) {
+    const primitive = readPrimitive(reader, strings, expectedVersion);
+    if (identityTracker && !identityTracker.tryAdd(primitive)) throw new Error("Common display tile byte size limit exceeded");
+    primitives.push(primitive);
+  }
   if (reader.remaining !== 0) throw new Error("CAD scene tile payload has trailing bytes");
   if (expectedIntegrity?.bounds) {
     const tileBounds = expectedIntegrity.bounds;

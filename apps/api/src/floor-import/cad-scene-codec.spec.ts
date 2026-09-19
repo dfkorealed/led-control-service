@@ -9,6 +9,7 @@ import {
   encodeCadSceneTile,
   getCadSceneTileIntegrity
 } from "./cad-scene-codec";
+import * as codec from "./cad-scene-codec";
 
 const style = {
   strokeColor: "#112233",
@@ -82,6 +83,71 @@ const primitives: CadScenePrimitive[] = [
     }
   }
 ];
+
+describe("common display v2 codec", () => {
+  const api = codec;
+  const ordered = primitives.map((primitive, index) => ({ ...primitive,
+    zIndex: index === 0 ? -2147483648 : 2147483647, fragmentOrder: 0xffffffff - index }));
+
+  it("round-trips all shapes with exact int32/uint32 ordering and +8 bytes per occurrence", () => {
+    expect(typeof api.encodeMapDisplayTile).toBe("function");
+    const payload = api.encodeMapDisplayTile(ordered);
+    expect(payload.readUInt16LE(4)).toBe(2);
+    expect(payload.byteLength).toBe(encodeCadSceneTile(primitives).byteLength + 8 * primitives.length);
+    expect(api.estimateMapDisplayTileByteSize(ordered)).toBe(payload.byteLength);
+    expect(api.decodeMapDisplayTile(payload, { version: 2, ...getCadSceneTileIntegrity(payload) })).toEqual(ordered);
+    const offset = primitiveOffsetOf(payload);
+    expect(payload.readInt32LE(offset + 17)).toBe(-2147483648);
+    expect(payload.readUInt32LE(offset + 21)).toBe(0xffffffff);
+    expect(payload.readDoubleLE(offset + 25)).toBe(primitives[0].bounds.minX);
+  });
+
+  it("rejects v1/v2 header and descriptor mismatches", () => {
+    expect(typeof api.decodeMapDisplayTile).toBe("function");
+    const payload = api.encodeMapDisplayTile(ordered);
+    expect(() => decodeCadSceneTile(payload)).toThrow(/version/i);
+    expect(() => api.decodeMapDisplayTile(encodeCadSceneTile(primitives))).toThrow(/version/i);
+    expect(() => api.decodeMapDisplayTile(payload, { version: 1 })).toThrow(/version/i);
+  });
+
+  it.each([{ zIndex: 2147483648 }, { zIndex: -2147483649 }, { zIndex: 0.5 },
+    { fragmentOrder: -1 }, { fragmentOrder: 0x100000000 }, { fragmentOrder: 0.5 },
+    { zIndex: undefined }, { fragmentOrder: undefined }])("rejects invalid ordering %j", patch => {
+    expect(typeof api.encodeMapDisplayTile).toBe("function");
+    expect(() => api.encodeMapDisplayTile([{ ...ordered[0], ...patch } as Parameters<typeof api.encodeMapDisplayTile>[0][number]])).toThrow();
+  });
+
+  it("rejects conflicting canonical z/layer/group identity but retains repeated fragments", () => {
+    expect(typeof api.encodeMapDisplayTile).toBe("function");
+    for (const patch of [{ zIndex: 1 }, { layerName: "other" }, { groupId: "other" }]) {
+      expect(() => api.encodeMapDisplayTile([ordered[0], { ...ordered[0], ...patch }])).toThrow(/identity|ordering/i);
+    }
+    expect(api.decodeMapDisplayTile(api.encodeMapDisplayTile([ordered[0], ordered[0]]))).toEqual([ordered[0], ordered[0]]);
+  });
+
+  it("matches an independently specified little-endian golden body and leaves v1 bytes unchanged", () => {
+    const value = { ...primitives[0], elementId: "e", groupId: null, layerName: "l", sourceType: "S",
+      bounds: { minX: 0, minY: 0, maxX: 1, maxY: 1 },
+      style: { strokeColor: null, fillColor: null, strokeWidth: 1, opacity: 1 },
+      type: "line" as const, geometry: { start: { x: 0, y: 0 }, end: { x: 1, y: 1 } } };
+    const strings = "030000000100000065010000006c0100000053";
+    const identity = "0100000000ffffffff0100000002000000";
+    const geometryAndStyle = "00000000000000000000000000000000000000000000f03f000000000000f03f"
+      + "00ffffffffffffffff000000000000f03f000000000000f03f"
+      + "00000000000000000000000000000000000000000000f03f000000000000f03f";
+    for (const version of [1, 2] as const) {
+      const body = Buffer.from(strings + identity + (version === 2 ? "feffffff07000000" : "") + geometryAndStyle, "hex");
+      const header = Buffer.alloc(48);
+      header.write("CDTL"); header.writeUInt16LE(version, 4);
+      header.writeUInt32LE(body.length, 8); header.writeUInt32LE(1, 12);
+      createHash("sha256").update(body).digest().copy(header, 16);
+      const golden = Buffer.concat([header, body]);
+      const orderedValue = { ...value, zIndex: -2, fragmentOrder: 7 };
+      expect(version === 1 ? encodeCadSceneTile([value]) : api.encodeMapDisplayTile([orderedValue])).toEqual(golden);
+      expect(version === 1 ? decodeCadSceneTile(golden) : api.decodeMapDisplayTile(golden)).toEqual([version === 1 ? value : orderedValue]);
+    }
+  });
+});
 
 function rewriteBodyHash(payload: Buffer): Buffer {
   payload.writeUInt32LE(payload.length - 48, 8);
