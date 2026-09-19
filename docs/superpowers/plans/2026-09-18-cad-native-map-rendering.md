@@ -406,14 +406,14 @@ const size = { width: Math.abs(end.x - start.x), height: Math.abs(end.y - start.
 **파일:** 수정 `features/shells/CustomerShell.tsx`, `features/settings/floor-plans/FloorEditorRoute.tsx`, `features/floor-editor/FloorEditorView.tsx`, 기존 공통 UI 컴포넌트 및 `apps/web/e2e/floor-editor-layout.spec.ts`.
 **인터페이스:** 편집 route에서만 bounded workbench layout 적용. 다른 페이지 shell의 기본 스크롤 정책은 바꾸지 않는다.
 
-- [ ] 실패 테스트: viewport 1440×900/1024×768/390×844/320×740, panel 긴 콘텐츠, browser resize, textarea 포커스, 확대된 맵.
+- [x] 실패 테스트: viewport 1440×900/1024×768/390×844/320×740, panel 긴 콘텐츠, browser resize, textarea 포커스, 확대된 맵.
 ```ts
 expect(await page.evaluate(() =>
   document.documentElement.scrollHeight <= window.innerHeight + 1
 )).toBe(true);
 ```
-- [ ] 실패 확인: `pnpm --filter @led-control/web exec playwright test e2e/floor-editor-layout.spec.ts --project=chromium --workers=1`.
-- [ ] 구현: grid rows auto/minmax(0,1fr), 자식 min-h-0, 패널 overflow-auto·canvas overflow-hidden. 고정 상단 도구, 접을 수 있는 측면 패널, 좁은 화면은 기존 공통 sheet 사용. 카드 안에 카드 추가 금지.
+- [x] 실패 확인: 신규 `e2e/map-editor-viewport.spec.ts`와 기존 `e2e/floor-editor-layout.spec.ts` 회귀로 확인. 기존 성능 측정 파일과 파일 소유권을 분리했다.
+- [x] 구현: grid rows auto/minmax(0,1fr), 자식 min-h-0, 패널 overflow-auto·canvas overflow-hidden. 고정 상단 도구, 접을 수 있는 측면 패널. 좁은 화면의 도구 패널은 드래그 원본 수명을 유지하는 비모달 방식이며 드래그 중 캔버스 입력을 가리지 않는다. 카드 안에 카드 추가 금지.
 편집기 전용 높이 체인은 shell 콘텐츠가 남은 높이를 받도록 연결한다.
 ```css
 .map-editor-workbench { height: 100%; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; }
@@ -421,8 +421,8 @@ expect(await page.evaluate(() =>
 .map-editor-panel { min-height: 0; overflow: auto; }
 ```
 
-- [ ] 검증: 휠 zoom·드래그 pan·grabbing·내부 grid/외부 단색·포커스 trap·Escape·미저장 이탈. 정상 설정 개요는 스크롤 가능함을 추가 검증. 실제 화면 스크린샷 확인.
-- [ ] settings.md 후 커밋: `fix(web): constrain map editor scrolling to panels`.
+- [x] 검증: 기존 편집 단위109, viewport 브라우저12 및 기존 모바일2 회귀, Escape·드롭·캔버스 밖 종료 후 복구, 정상 설정 개요 스크롤과 실제 스크린샷 확인. 비모달 도구 패널에는 포커스 trap을 적용하지 않는다. 실제 lostpointercapture 이벤트와 RN 기기는 미검증이다.
+- [x] settings.md 및 `482cd959`/`31003434` 커밋, 독립 재검토 PASS.
 
 ### U13. 모니터링·캐시·재적용 통합
 
@@ -489,12 +489,12 @@ expect(serverFailures).toEqual([]);
 | --- | --- | --- |
 | U1 | 계측 하네스 완료·독립 검토 PASS, 기준선 부분 | e30dc20d/861724de, 집중19; 코드 혼합/OOM로 통제 기준선은 U14 재측정 |
 | U2 | 완료·독립 검토 PASS | 61ce049e, 집중120/전체336·typecheck/build·ESM/CJS/pack 통과 |
-| U3 | 구현 중 | 신규 청크 저장·인덱스·자산 참조, 사용자 DB 미변경 |
+| U3 | 구현·독립 검토 중 | 82c9bffc, 격리 PG clean/upgrade 각각31·미적용 cleanup1 통과; API2285통과559제외 |
 | U12 | 완료·독립 재검토 PASS | 482cd959/31003434, browser12+기존모바일2/unit109 통과, 드롭 가림·취소 hit 보완; 실제 기기 WebView 미검증 |
-| U4a | 구현·독립 검토 중 | bbd99208/cbe64ccb, 집중221 및 후속65 통과/opt-in1 제외; U4b persistence는 U3 후 연결 |
+| U4a | 3건 수정·재검토 중 | 54abb278, 신규11 RED/GREEN 및 집중118통과1제외; U4b 대기 |
 | U8a | 완료·독립 검토 PASS | 22131660, 신규38/집중315/웹1718통과2제외, UI 미연결 |
-| U9a | 구현 중 | 독립 렌더러 코어, 기존 화면에는 미연결 |
-| U11a | 구현·독립 검토 중 | 46376f4f, 집중103/소유파일 typecheck 통과, View/store/Canvas 미연결 |
+| U9a | 구현·독립 검토 중 | 586f22e7, 집중70/WebGL4/웹typecheck 통과; 실제provider/UI 미연결 |
+| U11a | 완료·독립 검토 PASS | 46376f4f, 집중103/소유파일 typecheck 통과, View/store/Canvas 미연결 |
 | U4b~U7, U8b, U9b~U11b, U13~U14 | 대기 | U5는 맵 보존 대신 초기화로 변경 |
 
 구현 방식은 **역할별 순차 서브에이전트 진행**을 제안한다. 공유 계약과 데이터 보존은 backend가 먼저, 소비 UI는 web_frontend가 이후 담당하고 QA가 작업 단위 결과를 확인한다. 메인은 공유 계약과 통합·문서 상태를 관리한다. 같은 파일을 다루는 병렬 에이전트는 만들지 않는다. 사용자가 더 낮은 토큰 비용을 우선하면 메인 직접 구현 + 최종 독립 리뷰로 변경할 수 있다.
