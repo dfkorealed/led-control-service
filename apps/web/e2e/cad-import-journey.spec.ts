@@ -1,7 +1,9 @@
 import { expect, test, type Locator, type Page, type Route, type TestInfo } from "@playwright/test";
 import { resolve } from "node:path";
 import { buildCadSceneDescriptor, cadSceneManifestSchema, normalizeCadMapSize, type CadSceneState } from "@led-control/shared";
-import { encodeCadSceneTile, getCadSceneTileIntegrity } from "../../api/src/floor-import/cad-scene-codec";
+import { mapDisplayManifestSchema } from "@led-control/shared/map-display-contracts";
+import type { MapDocumentRef } from "@led-control/shared/map-document-contracts";
+import { encodeCadSceneTile, encodeMapDisplayTile, getCadSceneTileIntegrity } from "../../api/src/floor-import/cad-scene-codec";
 import { installSettingsApiRoutes, type SettingsFixture } from "./support/settings-api";
 import type { FloorEditorState, FloorImportJob } from "../src/features/floor-editor/editor-types";
 
@@ -15,6 +17,7 @@ const candidates = [
 ];
 const nativePoints = [{ x: 6400, y: 5376 }, { x: 7424, y: 4352 }, { x: 9472, y: 6400 }];
 const nativeScene = createNativeScene();
+const preparedScene = createPreparedScene();
 const evidenceDirectory = resolve(import.meta.dirname, "../../../.local/cad-native-qa");
 
 test.use({ actionTimeout: 10_000 });
@@ -65,7 +68,8 @@ for (const native of [false, true]) {
       await expect(reviewCanvas).toHaveAttribute("data-map-height", String(nativeScene.manifest.height));
       await expect(reviewCanvas).toHaveAttribute("data-rendered-fixture-count", "0");
       await expect(reviewCanvas).toHaveAttribute("data-rendered-object-count", "0");
-      await expect(page.getByTestId("cad-scene-canvas")).toHaveCount(1);
+      await expect(page.getByRole("img", { name: "맵 도형", exact: true })).toHaveCount(1);
+      await expect(page.getByTestId("cad-scene-canvas")).toHaveCount(0);
       await page.getByText("격자 스냅", { exact: true }).click();
       await expectNativePixel(page, () => editorPoint(page, nativePoints[2]), [225, 29, 72]);
       await expectEditorMapFits(page);
@@ -300,6 +304,155 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
   });
 }
 
+for (const width of [1440, 390]) {
+  test(`U13 prepared common import recovery and zero-candidate replacement ${width} (route fixture)`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.addInitScript(({ mobile }) => {
+      if (mobile) document.addEventListener("DOMContentLoaded", () => {
+        document.documentElement.dataset.ledControlMobileWebview = "true";
+        document.documentElement.dataset.ledControlNativeAppState = "active";
+      });
+    }, { mobile: width < 768 });
+    const api = await installPreparedReview(page);
+    await page.goto("/settings/floor-plans/floor-1/edit?siteId=site-1");
+    const canvas = page.getByTestId("floor-editor-canvas");
+    await expect(page.getByText("조명 위치 후보 2개를 찾았습니다.")).toBeVisible();
+    await expect(page.getByRole("img", { name: "맵 도형", exact: true })).toBeVisible();
+    await expect(canvas).toHaveAttribute("data-background-url", "");
+    await expect(canvas).toHaveAttribute("data-rendered-object-count", "0");
+    await expect(canvas).toHaveAttribute("data-rendered-fixture-count", "0");
+    await expect(page.getByTestId("cad-scene-canvas")).toHaveCount(0);
+    await expectEditorMapFits(page);
+    await page.getByText("격자 스냅", { exact: true }).click();
+    await expect(page.getByRole("checkbox", { name: "격자 스냅" })).not.toBeChecked();
+    // The edit workflow uses desktop panels; inspect the same preview under the
+    // narrow viewport policy without pretending hidden panels are touch controls.
+    await page.setViewportSize({ width, height: 900 });
+    await page.getByRole("button", { name: "맵 맞춤", exact: true }).click();
+    await expectEditorMapFits(page);
+    await canvas.scrollIntoViewIfNeeded();
+    await expectNativePixel(page, () => editorPoint(page, nativePoints[2]), [225, 29, 72]);
+    await saveScreenshot(page, testInfo, `u13-prepared-${width}`);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.getByRole("button", { name: "맵 맞춤", exact: true }).click();
+    const fittedZoom = Number(await canvas.getAttribute("data-zoom"));
+    await page.getByRole("button", { name: "확대", exact: true }).click();
+    await expect.poll(async () => Number(await canvas.getAttribute("data-zoom"))).toBeGreaterThan(fittedZoom);
+    await canvas.scrollIntoViewIfNeeded();
+    await expectNativePixel(page, () => editorPoint(page, nativePoints[2]), [225, 29, 72]);
+    await page.getByRole("button", { name: "축소", exact: true }).click();
+    await page.getByRole("button", { name: "이동", exact: true }).click();
+    const from = await editorPoint(page, { x: 8192, y: 7800 });
+    const pan = Number(await canvas.getAttribute("data-pan-x"));
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(from.x + 20, from.y + 10, { steps: 4 });
+    await page.mouse.up();
+    await expect.poll(async () => Number(await canvas.getAttribute("data-pan-x"))).toBeCloseTo(pan + 20);
+    await page.getByRole("button", { name: "선택", exact: true }).click();
+    await canvas.click({ position: await editorPoint(page, nativePoints[0], false) });
+    await expect(page.getByRole("checkbox", { name: /후보 1\/2/ })).not.toBeChecked();
+    expect(api.requests.some(path => path.startsWith("/floors/floor-1/map-document"))).toBe(false);
+    expect(api.requests.filter(path => path.includes("/map-document/tiles/")).length).toBeGreaterThan(0);
+
+    // Recovery comes from the fixture's durable job, not a local editor draft.
+    await page.reload();
+    await expect(page.getByText("조명 위치 후보 2개를 찾았습니다.")).toBeVisible();
+    await expectEditorMapFits(page);
+    await canvas.click({ position: await editorPoint(page, nativePoints[0], false) });
+    await expect(page.getByRole("checkbox", { name: /후보 1\/2/ })).not.toBeChecked();
+    await page.getByRole("button", { name: "선택한 후보와 배경 적용" }).click();
+    const dialog = page.getByRole("dialog", { name: "새 CAD 도면으로 맵을 교체할까요?" });
+    await expect(dialog).toContainText("조명 2개가 미배치 상태로 변경됩니다.");
+    expect(api.payloads).toHaveLength(0);
+    await dialog.getByRole("button", { name: "교체 후 적용" }).click();
+    await expect.poll(() => api.payloads.length).toBe(1);
+    expect(api.payloads[0]).toMatchObject({ candidateIds: [candidates[1].id], expectedRevision: 1,
+      confirmMapReset: true, leaseToken: "lease-floor-1", leaseFence: 1 });
+    await expect.poll(() => api.state().lightSlots).toEqual([
+      expect.objectContaining({ x: nativePoints[1].x, y: nativePoints[1].y, assignedFixtureId: null })
+    ]);
+    expect(api.state().objects).toEqual([]);
+    expect(api.state().fixtures.every(fixture => fixture.placementStatus === "unplaced")).toBe(true);
+
+    api.nextReview();
+    await page.reload();
+    await expect(page.getByText("조명 위치 후보 0개를 찾았습니다.")).toBeVisible();
+    await expectEditorMapFits(page);
+    await page.getByRole("button", { name: "선택한 후보와 배경 적용" }).click();
+    await dialog.getByRole("button", { name: "교체 후 적용" }).click();
+    await expect.poll(() => api.payloads.length).toBe(2);
+    expect(api.payloads[1]).toMatchObject({ candidateIds: [], expectedRevision: 2, confirmMapReset: true });
+    await expect.poll(() => api.state().lightSlots).toEqual([]);
+    await page.reload();
+    await expect(page.getByTestId("placement-fixture-fixture-1")).toBeVisible();
+    await expect(page.getByRole("img", { name: "맵 도형", exact: true })).toBeVisible();
+    expect(api.state().floor.mapDocument?.generationId).toBe("prepared-second");
+    expect(api.state().floor.mapRevision).toBe(3);
+    expect(api.requests.some(path => /\/import-jobs\/[^/]+\/scene\//.test(path))).toBe(false);
+    expect(api.browserErrors).toEqual([]);
+    expect(api.unhandledRequests).toEqual([]);
+  });
+}
+
+async function installPreparedReview(page: Page) {
+  const base = await installCadJourney(page, true);
+  let activeJob: FloorImportJob | null = importJob("review_required", 100, true);
+  let reviewCandidates = candidates.map((value, index) => ({ ...value, ...nativePoints[index] }));
+  let prepared = preparedScene.ref;
+  const payloads: unknown[] = [];
+  const requests: string[] = [];
+  await page.route("**/api/floors/floor-1/**", async route => {
+    const path = new URL(route.request().url()).pathname.replace(/^\/api/, "");
+    requests.push(path);
+    if (path === "/floors/floor-1/import-jobs/active") return json(route, { job: activeJob });
+    if (activeJob) {
+      const prefix = `/floors/floor-1/import-jobs/${activeJob.jobId}`;
+      if (await servePreparedAsset(route, path, activeJob.jobId, prepared)) return;
+      if (path === prefix) return json(route, activeJob);
+      if (path === `${prefix}/regions`) return json(route, { ...regions(true), jobId: activeJob.jobId,
+        regions: regions(true).regions.map(region => ({ ...region,
+          lightCandidateCount: region.regionId === "region-1" ? reviewCandidates.length : 0 })) });
+      if (path === `${prefix}/candidates`) return json(route, { candidates: reviewCandidates });
+      if (path === `${prefix}/apply`) {
+        const payload = route.request().postDataJSON();
+        payloads.push(payload);
+        const state = base.state();
+        expect(payload.expectedRevision).toBe(state.floor.mapRevision);
+        const accepted = reviewCandidates.filter(candidate => payload.candidateIds.includes(candidate.id));
+        const deletedObjectCount = state.objects.length;
+        const deletedSlotCount = state.lightSlots.length;
+        const unplacedFixtureCount = state.fixtures.filter(fixture => fixture.placementStatus === "placed").length;
+        state.objects = [];
+        state.fixtures = state.fixtures.map(fixture => ({ ...fixture, x: 0, y: 0, placementStatus: "unplaced" }));
+        state.lightSlots = accepted.map((candidate, index) => ({ id: `slot-${index + 1}`, x: candidate.x,
+          y: candidate.y, rotation: 0, assignedFixtureId: null }));
+        state.floor.mapRevision++;
+        state.floor.cadScene = null;
+        state.floor.mapDocument = { ...prepared, revision: state.floor.mapRevision };
+        state.floor.floorPlan = floorPlan(true);
+        const { version: _version, ...appliedFloorPlan } = floorPlan(true);
+        // Apply's shared DTO still requires compatibility metadata. The common
+        // preview never reads those assets; this is not a compatibility-OFF test.
+        const result = { jobId: activeJob.jobId, status: "completed", revision: state.floor.mapRevision,
+          acceptedCandidateIds: accepted.map(candidate => candidate.id), renderedAssetId,
+          deletedObjectCount, deletedSlotCount, unplacedFixtureCount, createdSlotCount: accepted.length,
+          floorPlan: appliedFloorPlan };
+        activeJob = null;
+        return json(route, result);
+      }
+    }
+    const applied = base.state().floor.mapDocument;
+    if (applied && await servePreparedAsset(route, path, undefined, applied)) return;
+    return route.fallback();
+  });
+  return { ...base, payloads, requests, nextReview: () => {
+    activeJob = { ...importJob("review_required", 100, true), jobId: "00000000-0000-4000-8000-000000000021" };
+    prepared = { ...preparedScene.ref, generationId: "prepared-second" };
+    reviewCandidates = [];
+  } };
+}
+
 async function installCadJourney(page: Page, native = false) {
   const browserErrors: string[] = [];
   const unhandledRequests: string[] = [];
@@ -344,6 +497,7 @@ async function installCadJourney(page: Page, native = false) {
     const url = new URL(request.url());
     if (!url.pathname.startsWith("/api/")) return route.continue();
     const path = url.pathname.replace(/^\/api/, "");
+    if (native && await servePreparedAsset(route, path, jobId, preparedScene.ref)) return;
     if (native && path === nativeScene.descriptor.statePath) {
       if (!applied) appliedStateRequestsBeforeApply += 1;
       if (!applied) return json(route, { revision: state.floor.mapRevision, scene: oldDescriptor,
@@ -426,14 +580,15 @@ async function installCadJourney(page: Page, native = false) {
       applied = true;
       state.objects = [];
       state.fixtures = state.fixtures.map(fixture => ({ ...fixture, x: 0, y: 0, placementStatus: "unplaced" }));
-      state.lightSlots = reviewCandidates.map((candidate, index) => ({ id: `slot-${index + 1}`, x: candidate.x, y: candidate.y, rotation: candidate.rotation, assignedFixtureId: null }));
+      const accepted = reviewCandidates.filter(candidate => payload.candidateIds.includes(candidate.id));
+      state.lightSlots = accepted.map((candidate, index) => ({ id: `slot-${index + 1}`, x: candidate.x, y: candidate.y, rotation: candidate.rotation, assignedFixtureId: null }));
       state.floor.mapRevision = 2;
       state.floor.floorPlan = floorPlan(native);
       if (native) state.floor.cadScene = nativeScene.descriptor;
       const { version: _version, ...appliedFloorPlan } = floorPlan(native);
       return json(route, {
-        jobId, status: "completed", revision: 2, acceptedCandidateIds: candidates.map(candidate => candidate.id),
-        renderedAssetId, deletedObjectCount: 1, unplacedFixtureCount: 2, deletedSlotCount: 1, createdSlotCount: 2,
+        jobId, status: "completed", revision: 2, acceptedCandidateIds: accepted.map(candidate => candidate.id),
+        renderedAssetId, deletedObjectCount: 1, unplacedFixtureCount: 2, deletedSlotCount: 1, createdSlotCount: accepted.length,
         floorPlan: appliedFloorPlan
       });
     }
@@ -466,13 +621,13 @@ function initialState(): FloorEditorState {
 
 function importJob(status: FloorImportJob["status"], progressPercent: number, native = false): FloorImportJob {
   return {
-    jobId, floorId: "floor-1", sourceAssetId, renderedAssetId: status === "review_required" ? renderedAssetId : null,
+    jobId, floorId: "floor-1", sourceAssetId, renderedAssetId: !native && status === "review_required" ? renderedAssetId : null,
     sourceFormat: "dwg", status, stage: status, progressPercent, attemptCount: status === "queued" ? 0 : 1,
     parserVersion: status === "review_required" ? "libredwg-0.14" : null,
     detectorVersion: status === "review_required" ? "site-drawing-20260803-v1" : null,
     failureCode: null, sourceAssetPath: "/api/floors/floor-1/assets/source/content",
-    renderedAssetPath: status === "review_required" ? "/api/floors/floor-1/assets/rendered/content" : null,
-    renderedViewport: status === "review_required" ? { width: 1200, height: 800 } : null,
+    renderedAssetPath: !native && status === "review_required" ? "/api/floors/floor-1/assets/rendered/content" : null,
+    renderedViewport: !native && status === "review_required" ? { width: 1200, height: 800 } : null,
     startedAt: status === "queued" ? null : now, reviewRequiredAt: status === "review_required" ? now : null,
     appliedAt: null, completedAt: null, failedAt: null, cancelledAt: null, createdAt: now, updatedAt: now
   };
@@ -636,6 +791,58 @@ function createNativeScene() {
   return { manifest, descriptor, tiles };
 }
 
+function createPreparedScene() {
+  const { sceneId, manifestAssetId, width, height, gridSize } = nativeScene.manifest;
+  const tiles = nativePoints.map(({ x, y }, index) => {
+    const tileX = Math.floor(x / 512);
+    const tileY = Math.floor(y / 512);
+    const payload = encodeMapDisplayTile([{
+      elementId: `prepared-${index}`, groupId: "group-1", layerName: "WALLS", sourceType: "LWPOLYLINE",
+      zIndex: index, fragmentOrder: 0,
+      bounds: { minX: x - 200, minY: y - 200, maxX: x + 200, maxY: y + 200 }, clipBounds: null,
+      style: { strokeColor: "#111827", fillColor: "#e11d48", strokeWidth: 4, opacity: 1 },
+      type: "rectangle", geometry: { origin: { x: x - 200, y: y - 200 }, width: 400, height: 400, rotation: 0 }
+    }]);
+    return { payload, descriptor: { version: 2 as const, sceneId, tileX, tileY, lod: 0 as const, part: 0,
+      assetId: `00000000-0000-4000-8000-00000000009${index}`, primitiveCount: 1,
+      ...getCadSceneTileIntegrity(payload),
+      bounds: { minX: tileX * 512, minY: tileY * 512, maxX: (tileX + 1) * 512, maxY: (tileY + 1) * 512 } } };
+  });
+  const ref: MapDocumentRef = { formatVersion: 1, generationId: "prepared-first", revision: 0,
+    width, height, gridSize, elementCount: 3,
+    manifest: { assetId: "canonical-prepared", byteSize: 1, decodedByteSize: 1, sha256: "a".repeat(64) } };
+  const display = mapDisplayManifestSchema.parse({ version: 2, sceneId, manifestAssetId, regionId: "region-1",
+    width, height, gridSize, padding: 0, tileSize: 512, lodMode: "additive", primitiveCount: 3,
+    tileCount: tiles.length, byteSize: 1, sha256: "b".repeat(64),
+    sourceBounds: { minX: 0, minY: 0, maxX: width, maxY: height },
+    transform: { scaleX: 1, scaleY: 1, translateX: 0, translateY: 0 }, tiles: tiles.map(tile => tile.descriptor) });
+  return { ref, display, tiles };
+}
+
+async function servePreparedAsset(route: Route, path: string, importJobId: string | undefined, ref: MapDocumentRef) {
+  const prefix = `/floors/floor-1${importJobId ? `/import-jobs/${importJobId}` : ""}/map-document`;
+  if (!path.startsWith(prefix)) return false;
+  if (path === prefix) await json(route, ref);
+  else {
+    const query = new URL(route.request().url()).searchParams;
+    expect(query.get("generationId")).toBe(ref.generationId);
+    expect(query.get("revision")).toBe(String(ref.revision));
+    if (path === `${prefix}/manifest`) await json(route, { generationId: ref.generationId, revision: ref.revision,
+      canonical: ref.manifest, display: preparedScene.display,
+      groups: [{ id: "group-1", parentId: null, name: "Prepared", visible: true, locked: false }],
+      layers: [{ id: "walls", name: "WALLS", order: 0, visible: true, locked: false }],
+      displayLayerBindings: [{ layerName: "WALLS", layerId: "walls" }] });
+    else if (path === `${prefix}/changes`) await json(route, { generationId: ref.generationId, revision: ref.revision,
+      operations: [], nextCursor: null });
+    else {
+      const tile = preparedScene.tiles.find(tile => path === `${prefix}/tiles/${tile.descriptor.assetId}`);
+      if (!tile) return false;
+      await route.fulfill({ contentType: "application/octet-stream", body: tile.payload });
+    }
+  }
+  return true;
+}
+
 async function serveNativeAsset(route: Route, path: string, scene = nativeScene) {
   if (path === scene.descriptor.manifestContentPath) {
     await json(route, scene.manifest);
@@ -689,7 +896,7 @@ async function monitoringPoint(page: Page, point: { x: number; y: number }, size
 }
 
 async function expectNativePixel(page: Page, locatePoint: () => Promise<{ x: number; y: number }>, rgb: number[]) {
-  const canvas = page.getByTestId("cad-scene-canvas");
+  const canvas = page.locator('[data-testid="cad-scene-canvas"], [role="img"][aria-label="맵 도형"] canvas');
   await expect(canvas).toBeVisible();
   await expect.poll(() => canvas.evaluate((element: HTMLCanvasElement) => Boolean(element.getContext("webgl2") ?? element.getContext("webgl")))).toBe(true);
   // Sampling the composited screenshot (rather than readPixels after presentation)

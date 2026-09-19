@@ -1180,6 +1180,31 @@ describe("CadImportPanel", () => {
     expect(onApplied).toHaveBeenCalledWith(expect.objectContaining({ revision: 8 }));
   });
 
+  it("confirms and applies a zero-candidate prepared review without legacy display assets", async () => {
+    const review: CadImportReviewState = {
+      job: { ...queuedJob, status: "review_required", stage: "review_required", progressPercent: 100 },
+      scene: { kind: "native", regionId: "region-1" }, candidates: [], acceptedCandidateIds: []
+    };
+    // The current apply DTO still requires compatibility metadata; preview does
+    // not consume it. Removing these fields belongs to the shared/API owner.
+    floorEditorApi.applyFloorImportJob.mockResolvedValueOnce({ jobId: queuedJob.jobId, revision: 8, status: "completed",
+      acceptedCandidateIds: [], renderedAssetId: "00000000-0000-4000-8000-000000000040",
+      deletedObjectCount: 1, unplacedFixtureCount: 1, deletedSlotCount: 1, createdSlotCount: 0,
+      floorPlan: { sourceType: "cad", imageUrl: "/compat-display", renderedImageUrl: "/compat-display",
+        originalFileUrl: asset.accessPath, width: 16384, height: 8192, gridSize: 80 }
+    } satisfies FloorImportApplyResult);
+    const { onApplied } = renderPanel({ review });
+    expect(screen.getByText("조명 위치 후보 0개를 찾았습니다.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "선택한 후보와 배경 적용" }));
+    const dialog = screen.getByRole("dialog", { name: "새 CAD 도면으로 맵을 교체할까요?" });
+    expect(dialog).toHaveTextContent("선택한 조명 위치 슬롯 0개가 생성됩니다.");
+    expect(floorEditorApi.applyFloorImportJob).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "교체 후 적용" }));
+    await waitFor(() => expect(floorEditorApi.applyFloorImportJob).toHaveBeenCalledWith("floor-1", queuedJob.jobId,
+      { expectedRevision: 7, leaseToken: "lease-token", leaseFence: 9, confirmMapReset: true, candidateIds: [] }));
+    expect(onApplied).toHaveBeenCalledWith(expect.objectContaining({ revision: 8, createdSlotCount: 0 }));
+  });
+
   it("moves focus to the persistent CAD region when successful apply removes its opener", async () => {
     const review: CadImportReviewState = {
       job: { ...queuedJob, status: "review_required", progressPercent: 100 },
