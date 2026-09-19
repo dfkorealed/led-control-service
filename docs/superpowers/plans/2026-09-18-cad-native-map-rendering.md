@@ -508,11 +508,13 @@ expect(serverFailures).toEqual([]);
 | U7 | 완료·독립 검토 PASS | 6688013e/1dcdefe5, shared90·집중68/2제외·실제PG/S3 HTTP44·검토API64/shared90 통과; stage 미리보기는 U7b 후속 |
 | U8b | 완료·독립 재검토 PASS | 04ff177e/0dd484d7, 집중86·검토38(추가4 포함), ACK/undo/cache 삭제 오인 및 복구 초안 undo 보완 |
 | U9b1 | 완료·독립 검토 PASS | 016ee6b4/e242760e/97b5d340, 집중94/WebGL6/typecheck·검토46 통과; 실제 View와 전체 z 순서는 별도 |
-| U9b2 | 공유 계약 승인·생산자 구현 대기 | 공통 표시 v2의 zIndex:int32/fragmentOrder:uint32, layer.order/layerId/zIndex/elementId/fragmentOrder 순서와 반투명 합성을 보존; legacy CAD v1 유지 |
+| U9b2 | 공유 계약 검토 PASS·생산자/소비자 통합 중 | 64939287/16292079 검토shared54/codec24 PASS; 생산자baf189c2/e970e025, 웹 실제 순서·반투명 합성 검증 진행; legacy CAD v1 유지 |
 | U6b | 구현 중 | 대량 stage/checkpoint/display 재생성·맵 크기/grid·v3 복구, U7 예약 파일 제외 |
 | U10b/U11b | 구현 중 | 검토된 store/overlay/tools와 고정 Canvas 계약을 실제 View에 연결, 같은 파일을 한 UI 담당이 순차 구현 |
-| U14a | 실제 원본 수정 검토·재검증 중 | 052fefae에서 접촉/교차 HATCH를 bounded polygon boolean으로 정규화; 2개 원본 재검증 중, quota 초과 아님 |
-| U8c, U13~U14 | 대기 | 대량 저장/외부 inverse 웹 연결, 모니터링/가져오기 및 전체 최종 검증 |
+| U14a | 두 번째 원본 추가 보완 중 | 052fefae 검토85/제외1 PASS; 킨다129901개 요소 schema/hash/display ID 검증 통과(후속fix전), 2단지 Outer HATCH style/flags 보존 필요; 최종2원본 재검증 대기 |
+| U7b | 구현·통합 검토 대기 | 17eeb882 private ready stage preview, 집중56/PG환경제외2/typecheck 통과; 실제 stage authority는 U6b와 통합 검증 |
+| U13 | 구현 중 | 읽기 전용 모니터링과 CAD 후보 미리보기를 공통 renderer/provider로 연결 |
+| U8c, U14 | 대기 | 대량 저장/외부 inverse 웹 연결 및 실제 원본/API/브라우저/성능 최종 검증 |
 
 구현 방식은 **역할별 순차 서브에이전트 진행**을 제안한다. 공유 계약과 데이터 보존은 backend가 먼저, 소비 UI는 web_frontend가 이후 담당하고 QA가 작업 단위 결과를 확인한다. 메인은 공유 계약과 통합·문서 상태를 관리한다. 같은 파일을 다루는 병렬 에이전트는 만들지 않는다. 사용자가 더 낮은 토큰 비용을 우선하면 메인 직접 구현 + 최종 독립 리뷰로 변경할 수 있다.
 
