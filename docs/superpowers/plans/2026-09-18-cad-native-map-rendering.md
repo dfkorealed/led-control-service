@@ -512,10 +512,10 @@ expect(serverFailures).toEqual([]);
 | U6b | core 독립 재검토 PASS | 1d4f4a2e 검토2건 수정·실제PG/MinIO3+capacity1 재검토 PASS, 기존HTTP12/초기화35/타입/upgrade2; migration98 로컬 적용. 500k 최종성능은 U14 |
 | U10b/U11b | 일반 UI 연결·보완 검토 PASS, 대량 기능은 U10c | bfaabdf8/f417b664/a28c10cc, 집중71/Chromium4/scopedTS·검토6/Chromium2 PASS. 정상 저장 undo/카메라와 그리기 취소 보완 |
 | U10c | 구현 중 | U8c stage/외부 이력 소비, bounded 대량 선택·bbox 변환·혼합 선택·선택 맞춤; 초안 auth scope 일치22cf2eda/View61 통과 |
-| U14a | 두 번째 원본 중간 파일 압축 보완 중 | 388d14cc style/flags/정밀도 보완 후 킨다129920개 schema/hash/display ID 전수 일치. 2단지 중간 파일 용량 제한 확인, 무손실 스트리밍 압축 후 재검증 예정 |
+| U14a | 정본 압축 통과·표시 타일 임시 공간 보완 중 | 킨다129920개 전수 일치. d032bed9/2d83e8c2/12aa9005 이후 2단지 정본498838개 생성, raw 표시 타일 저장 전 temp 제한으로 전체 실패. 공개 타일 바이트 유지한 임시 압축 후 재검증 예정 |
 | U7b | U6b와 통합 검토 PASS | 17eeb882 private ready stage preview, 집중56/PG환경제외2/typecheck·U6b 실제PG/MinIO·권한 통합 검토 통과 |
-| U13 | 독립 검토1건 보완 중 | 45c51198/33a44a88/9b617ee1 집중141/Chromium fixture4 통과; hook/renderer manifest epoch 경쟁2순서 재현, source 소유 분리 보완 |
-| U8c | 구현 완료·독립 검토 중 | 9b44493d/01bde733 대량 stage/미리보기/외부 이력/취소/혼합 선택, 집중112/scopedTS0; 실제 UI·DB 통합 후속 |
+| U13 | 독립 재검토 PASS | 45c51198/33a44a88/9b617ee1 집중141/Chromium fixture4; 217083d2 source 경쟁 수정13/Chromium2·재검토3 PASS. 실제 대형 원본 여정 후속 |
+| U8c | 독립 검토2건 보완 중 | 9b44493d/01bde733 집중112/scopedTS0. 외부 undo 미리보기 취소 후 이력 cursor 및 자동 stage 응답 유실 시 cancel/status 수렴 보완 |
 | U14 | 통합 대기 | 실제 원본/API/브라우저/성능 최종 검증 |
 
 구현 방식은 **역할별 순차 서브에이전트 진행**을 제안한다. 공유 계약과 데이터 보존은 backend가 먼저, 소비 UI는 web_frontend가 이후 담당하고 QA가 작업 단위 결과를 확인한다. 메인은 공유 계약과 통합·문서 상태를 관리한다. 같은 파일을 다루는 병렬 에이전트는 만들지 않는다. 사용자가 더 낮은 토큰 비용을 우선하면 메인 직접 구현 + 최종 독립 리뷰로 변경할 수 있다.
