@@ -1,5 +1,6 @@
 import { act, cleanup, createEvent, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import Konva from "konva";
 import { FloorEditorCanvas } from "./FloorEditorCanvas";
 import { useFloorEditorStore } from "./editor-store";
 import { useMapEditor } from "./use-map-editor";
@@ -66,5 +67,20 @@ describe("actual common editor Canvas", () => {
     expect(store().mapElements.size).toBe(0);
     act(() => store().undo());
     expect(store().mapElements.size).toBe(1);
+  });
+  it("clears the common drawing preview when the pointer leaves without committing", async () => {
+    render(<Canvas />);
+    act(() => { store().resetZoom(); store().setActiveTool("ellipse"); });
+    const canvas = screen.getByTestId("floor-editor-canvas");
+    const overlays = () => Konva.stages.flatMap(stage => stage.find(".map-element-overlay"));
+    fireEvent.mouseDown(canvas, { clientX: 100, clientY: 100 });
+    fireEvent.mouseMove(canvas, { clientX: 200, clientY: 180 });
+    await waitFor(() => expect(overlays()).toHaveLength(1));
+    fireEvent.mouseLeave(canvas, { clientX: -10, clientY: 180 });
+    fireEvent.mouseUp(document.body, { clientX: -10, clientY: 180 });
+    expect(overlays()).toHaveLength(0);
+    expect(store().mapElements.size).toBe(0);
+    expect(store().isDirty).toBe(false);
+    expect(store().past).toHaveLength(0);
   });
 });

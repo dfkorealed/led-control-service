@@ -161,8 +161,17 @@ export function FloorEditorView({
     if (current.state === initialState) return;
     const sameScope = current.state?.floor.id === initialState.floor.id && current.state.floor.siteId === initialState.floor.siteId;
     if (sameScope && current.isDirty) return;
+    const incoming = initialState.floor.mapDocument;
+    const acknowledged = current.initialState?.floor;
+    // Normal save already ACKs the common store. Query structural sharing may
+    // clone that response; adopting it again would initialize away its history.
+    if (sameScope && incoming && current.mapScope?.authScope === `${userId ?? "session"}:${editorDraftGeneration()}:${userRole}`
+      && current.mapScope.generationId === incoming.generationId && current.mapScope.baseRevision === incoming.revision
+      && acknowledged?.mapRevision === initialState.floor.mapRevision
+      && acknowledged.mapDocument?.generationId === incoming.generationId && acknowledged.mapDocument.revision === incoming.revision) return;
     // Query cache structural sharing can change response identity after a save.
-    // Refresh a clean baseline without treating the current floor as newly opened.
+    // Legacy refresh preserves history; a different common revision/generation
+    // still takes the explicit baseline-adoption path.
     if (sameScope) adoptBaseline(initialState, true);
     else initialize(initialState, `${userId ?? "session"}:${editorDraftGeneration()}:${userRole}`);
     if (!mutationLock.current) setSaveStatus("idle");

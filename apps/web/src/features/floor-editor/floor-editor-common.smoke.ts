@@ -75,6 +75,91 @@ async function fixture(page: Page, size = { width: 1200, height: 800 }) {
   return { errors, requests, elements, mount, state: () => state };
 }
 
+test('reviewer: normal save preserves undo and the user camera', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const h = await fixture(page), canvas = page.getByTestId('floor-editor-canvas');
+  await page.getByRole('button', { name: '타원', exact: true }).dragTo(canvas, { targetPosition: { x: 300, y: 300 } });
+  await expect.poll(() => page.evaluate(() => window.editorSmoke.snapshot().elements.length)).toBe(1);
+  await page.getByRole('button', { name: '확대', exact: true }).click();
+  const before = await page.evaluate(() => ({ zoom: window.editorSmoke.snapshot().zoom, pan: window.editorSmoke.snapshot().pan }));
+  await expect(page.getByRole('button', { name: '실행 취소', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: '저장', exact: true }).click();
+  await expect.poll(() => h.requests.length).toBe(1);
+  await expect.poll(() => page.evaluate(() => window.editorSmoke.snapshot().dirty)).toBe(false);
+  await expect(page.getByRole('button', { name: '저장', exact: true })).toBeDisabled();
+  await expect.soft(page.getByRole('button', { name: '실행 취소', exact: true })).toBeEnabled({ timeout: 2000 });
+  const after = await page.evaluate(() => ({ zoom: window.editorSmoke.snapshot().zoom, pan: window.editorSmoke.snapshot().pan }));
+  expect.soft(after).toEqual(before);
+  expect(h.errors).toEqual([]);
+});
+
+test('reviewer: canceled drawing clears the common preview', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const h = await fixture(page), canvas = page.getByTestId('floor-editor-canvas');
+  await page.getByRole('button', { name: '타원', exact: true }).click();
+  const box = (await canvas.boundingBox())!;
+  await page.mouse.move(box.x + 300, box.y + 300);
+  await page.mouse.down(); await page.mouse.move(box.x + 450, box.y + 400, { steps: 5 });
+  await expect.poll(() => page.evaluate(() => window.editorSmoke.snapshot().overlayCount)).toBe(1);
+  await page.mouse.move(box.x - 10, box.y + 400); await page.mouse.up();
+  expect(await page.evaluate(() => window.editorSmoke.snapshot().elements.length)).toBe(0);
+  expect(await page.evaluate(() => window.editorSmoke.snapshot().overlayCount)).toBe(0);
+  expect(h.errors).toEqual([]);
+});
+
+test('reviewer: 65-element bbox keeps all ids through move delete undo', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const h = await fixture(page), canvas = page.getByTestId('floor-editor-canvas');
+  const template = h.elements.get('imported')!;
+  h.elements.clear();
+  for (let i = 0; i < 65; i++) h.elements.set(`box-${i}`, { ...template, id: `box-${i}`,
+    geometry: { origin: { x: 100 + (i % 13) * 50, y: 100 + Math.floor(i / 13) * 50 }, width: 30, height: 30 } } as MapElement);
+  h.state().floor.mapDocument!.elementCount = 65;
+  await h.mount();
+  await expect(canvas).toHaveAttribute('data-map-ready', 'true');
+  const world = async (x: number, y: number) => canvas.evaluate((element, p) => {
+    const b = element.getBoundingClientRect(), z = Number(element.getAttribute('data-zoom'));
+    return { x: b.x + Number(element.getAttribute('data-pan-x')) + p.x * z,
+      y: b.y + Number(element.getAttribute('data-pan-y')) + p.y * z };
+  }, { x, y });
+  const a = await world(80, 80), b = await world(760, 350);
+  await page.keyboard.down('Shift'); await page.mouse.move(a.x, a.y); await page.mouse.down();
+  await page.mouse.move(b.x, b.y, { steps: 5 }); await page.mouse.up(); await page.keyboard.up('Shift');
+  await expect(canvas).toHaveAttribute('data-map-selection-count', '65');
+  await expect(canvas).toHaveAttribute('data-promoted-count', '0');
+  const c = await world(140, 140), d = await world(180, 180);
+  await page.mouse.move(c.x, c.y); await page.mouse.down(); await page.mouse.move(d.x, d.y, { steps: 5 }); await page.mouse.up();
+  await expect.poll(() => page.evaluate(() => window.editorSmoke.snapshot().operations.filter(op => op.kind === 'update').length)).toBe(65);
+  expect(await page.evaluate(() => window.editorSmoke.snapshot().elements.every(element => element.transform.x === 40 && element.transform.y === 40))).toBe(true);
+  await page.keyboard.press('Delete');
+  await expect.poll(() => page.evaluate(() => window.editorSmoke.snapshot().operations.filter(op => op.kind === 'delete').length)).toBe(65);
+  await page.getByRole('button', { name: '실행 취소', exact: true }).click();
+  await expect(canvas).toHaveAttribute('data-map-selection-count', '65');
+  expect(await page.evaluate(() => window.editorSmoke.snapshot().elements.length)).toBe(65);
+  expect(h.state().lightSlots).toHaveLength(1);
+  expect(h.errors).toEqual([]);
+});
+
+test('reviewer: polygon point completion and cancel use normal history', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const h = await fixture(page), canvas = page.getByTestId('floor-editor-canvas');
+  await page.getByRole('button', { name: '다각형', exact: true }).click();
+  const box = (await canvas.boundingBox())!;
+  for (const [x, y] of [[350, 300], [500, 300], [450, 450]]) await page.mouse.click(box.x + x, box.y + y);
+  await page.keyboard.press('Enter');
+  await expect(canvas).toHaveAttribute('data-map-selection-count', '1');
+  expect(await page.evaluate(() => window.editorSmoke.snapshot().elements[0].type)).toBe('polygon');
+  await page.keyboard.press('Delete');
+  expect(await page.evaluate(() => window.editorSmoke.snapshot().elements.length)).toBe(0);
+  await page.getByRole('button', { name: '실행 취소', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.editorSmoke.snapshot().elements.length)).toBe(1);
+  await page.getByRole('button', { name: '다각형', exact: true }).click();
+  await page.mouse.click(box.x + 300, box.y + 300); await page.mouse.click(box.x + 400, box.y + 300);
+  await page.keyboard.press('Escape');
+  expect(await page.evaluate(() => window.editorSmoke.snapshot().elements.length)).toBe(1);
+  expect(h.errors).toEqual([]);
+});
+
 for (const width of [1440, 1024, 390, 320]) test(`production View shape save/reload and bounded layout at ${width}`, async ({ page }, info) => {
   await page.setViewportSize({ width, height: 900 });
   const h = await fixture(page);

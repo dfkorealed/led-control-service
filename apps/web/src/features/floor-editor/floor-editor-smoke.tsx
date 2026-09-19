@@ -1,5 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
+import Konva from "konva";
+import { MemoryRouter } from "react-router-dom";
 import { createRoot } from "react-dom/client";
 import "../../styles.css";
 import { FloorEditorView } from "./FloorEditorView";
@@ -13,16 +15,20 @@ export function mountFloorEditorSmoke(initial: FloorEditorState) {
   const host = document.createElement("div"); host.style.cssText = "height:100dvh;width:100%;overflow:hidden;padding:8px;box-sizing:border-box";
   document.body.replaceChildren(host);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  client.setQueryData(["auth", "me"], { user: { id: "smoke-user", role: "admin" } });
+  client.setQueryDefaults(["auth", "me"], { staleTime: Infinity });
+  client.setQueryDefaults(["dashboard"], { staleTime: Infinity });
+  client.setQueryData(["auth", "me"], { user: { id: "smoke-user", organizationId: "fixture-org", role: "admin", status: "active" } });
+  client.setQueryData(["dashboard", "default"], { site: { id: initial.floor.siteId }, floors: [{ id: initial.floor.id, fixtures: [] }], capabilities: { read: true } });
   function App() {
     const [state, setState] = useState(initial);
-    return <QueryClientProvider client={client}><FloorEditorView initialState={state} userRole="admin" leaseToken="smoke-lease" leaseFence={1}
-      onCancel={() => undefined} onSaved={setState} onReload={async () => setState(await getFloorEditorState(initial.floor.id))} /></QueryClientProvider>;
+    return <QueryClientProvider client={client}><MemoryRouter><FloorEditorView initialState={state} userRole="admin" leaseToken="smoke-lease" leaseFence={1}
+      onCancel={() => undefined} onSaved={setState} onReload={async () => setState(await getFloorEditorState(initial.floor.id))} /></MemoryRouter></QueryClientProvider>;
   }
   const root = createRoot(host); root.render(<App />);
   return { dispose: () => { root.unmount(); client.clear(); }, snapshot: () => {
     const store = useFloorEditorStore.getState();
-    return { elements: [...store.mapElements.values()], operations: store.mapOperations, state: store.state, dirty: store.isDirty,
+    return { overlayCount: Konva.stages.flatMap(stage => stage.find(".map-element-overlay")).length,
+      elements: [...store.mapElements.values()], operations: store.mapOperations, state: store.state, dirty: store.isDirty,
       zoom: store.zoom, pan: store.pan, viewport: store.viewport, selection: store.mapSelection };
   } };
 }
