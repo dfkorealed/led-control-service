@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { cadSceneDescriptorSchema } from "./cad-scene-contracts.js";
 import { POSTGRES_INT_MAX, POSTGRES_INT_MIN } from "./postgres-contracts.js";
-import { editorDocumentChangesSchema } from "./map-document-contracts.js";
+import { editorDocumentChangesSchema, mapDocumentRefSchema } from "./map-document-contracts.js";
 
 export { POSTGRES_INT_MAX, POSTGRES_INT_MIN } from "./postgres-contracts.js";
 export {
@@ -286,6 +286,7 @@ export const floorMapSnapshotSchema = z.object({
   height: positiveInt4Schema,
   floorPlan: floorMapPlanSnapshotSchema.nullable(),
   cadScene: cadSceneDescriptorSchema.nullable().optional(),
+  mapDocument: mapDocumentRefSchema.nullable().optional(),
   objects: z.array(floorMapObjectStateSchema),
   fixtures: z.array(z.object({
     id: z.string().uuid(),
@@ -295,8 +296,15 @@ export const floorMapSnapshotSchema = z.object({
     size: finiteNumberSchema.positive()
   }).strict()).optional()
 }).strict().superRefine((snapshot, context) => {
+  if (snapshot.mapDocument && (snapshot.mapDocument.revision !== snapshot.revision ||
+    snapshot.mapDocument.width !== snapshot.width || snapshot.mapDocument.height !== snapshot.height ||
+    (snapshot.floorPlan && (snapshot.floorPlan.width !== snapshot.width || snapshot.floorPlan.height !== snapshot.height ||
+      snapshot.floorPlan.gridSize !== snapshot.mapDocument.gridSize)) ||
+    snapshot.objects.length > 0 || snapshot.cadScene)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["mapDocument"], message: "common map snapshot identity mismatch" });
+  }
   const isCadPlan = snapshot.floorPlan?.sourceType === "cad";
-  if (isCadPlan && !snapshot.cadScene) {
+  if (isCadPlan && !snapshot.cadScene && !snapshot.mapDocument) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
       path: ["cadScene"],

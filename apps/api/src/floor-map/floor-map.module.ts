@@ -7,9 +7,10 @@ import { StorageModule } from "../storage/storage.module";
 import { CadSceneEvidenceService } from "./cad-scene-evidence.service";
 import { FloorMapController } from "./floor-map.controller";
 import { FloorMapService } from "./floor-map.service";
+import { FloorEditorModule } from "../floor-editor/floor-editor.module";
 
 @Module({
-  imports: [PrismaModule, AuthModule, AccessModule, AuditModule, StorageModule],
+  imports: [PrismaModule, AuthModule, AccessModule, AuditModule, StorageModule, FloorEditorModule],
   controllers: [FloorMapController],
   providers: [FloorMapService, CadSceneEvidenceService]
 })

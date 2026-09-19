@@ -31,13 +31,15 @@ import { SiteAccessService } from "../access/site-access.service";
 import { AuditService } from "../audit/audit.service";
 import { type AuthenticatedUser } from "../auth/auth.types";
 import { EDITOR_TRANSACTION_OPTIONS } from "../floor-editor/floor-editor.service";
-import { buildFloorEditorSnapshot, hashFloorEditorSnapshot } from "../floor-editor/floor-editor-snapshot";
+import { buildFloorEditorSnapshot, buildMapDocumentSnapshot, hashFloorEditorSnapshot } from "../floor-editor/floor-editor-snapshot";
 import { hashEditorLeaseToken } from "../floor-editor/editor-lease-token";
 import { assertActiveFloorStatus } from "../floor-editor/floor-lifecycle";
 import { PrismaService } from "../prisma/prisma.service";
 import { ObjectStorageService } from "../storage/object-storage.service";
 import { FloorRenderedAssetReconciler } from "../storage/floor-rendered-asset-reconciler";
 import { CAD_IMPORT_WORKER_OPTIONS, type FloorImportWorkerOptions } from "./floor-import.tokens";
+import { CadMapPreparationService } from "./cad-map-preparation.service";
+import { MapDocumentStore } from "../floor-editor/map-document-store";
 import { FixedLightingDetectorRegistry } from "./lighting-detector-registry";
 import { cadScenePersistenceIdentity } from "./cad-scene-persistence";
 import { readExactRegionBounds } from "./floor-import-region-bounds";
@@ -106,7 +108,9 @@ export class FloorImportService {
     private readonly audit: AuditService,
     private readonly storage?: ObjectStorageService,
     private readonly renderedReconciler?: FloorRenderedAssetReconciler,
-    @Optional() @Inject(CAD_IMPORT_WORKER_OPTIONS) private readonly workerOptions?: FloorImportWorkerOptions
+    @Optional() @Inject(CAD_IMPORT_WORKER_OPTIONS) private readonly workerOptions?: FloorImportWorkerOptions,
+    @Optional() private readonly mapPreparation?: CadMapPreparationService,
+    @Optional() private readonly mapStore?: MapDocumentStore
   ) {}
 
   async create(user: AuthenticatedUser, floorId: string, rawInput: unknown) {
@@ -483,6 +487,16 @@ export class FloorImportService {
 
   async apply(user: AuthenticatedUser, floorId: string, jobId: string, rawInput: unknown) {
     const floor = await this.authorizeFloor(user, floorId, "manage");
+    if (this.mapPreparation && this.mapStore) {
+      const job = await this.prisma.floorImportJob.findFirst({ where: { id: jobId, floorId }, select: { preparedMapGenerationId: true } });
+      if (job?.preparedMapGenerationId) {
+        const input = this.parse(floorImportApplyInputSchema, rawInput, "invalid floor import apply request");
+        return this.applyPreparedMap(user, floor.siteId, floorId, jobId, input);
+      }
+      if (await this.prisma.floorMapDocument.findUnique({ where: { floorId } })) {
+        throw new ConflictException("common map import preparation required");
+      }
+    }
     if (!this.storage) throw new InternalServerErrorException("floor import storage is unavailable");
     const rendered = await this.prisma.floorImportJob.findFirst({
       where: { id: jobId, floorId, status: "review_required" },
@@ -533,6 +547,9 @@ export class FloorImportService {
           throw new ConflictException("CAD region exclusion metadata is unavailable; re-import required");
         }
         this.assertEditorAuthority(locked, input);
+        if (this.mapStore && await tx.floorMapDocument.findUnique({ where: { floorId } })) {
+          throw new ConflictException("common map import preparation required");
+        }
         if (locked.jobStatus !== "review_required" || !locked.renderedAssetId || locked.renderedMimeType !== "image/svg+xml") {
           throw new ConflictException("floor import job is not ready to apply");
         }
@@ -864,6 +881,81 @@ export class FloorImportService {
   private parse<T>(schema: { parse(value: unknown): T }, value: unknown, message: string): T {
     try { return schema.parse(value); }
     catch { throw new BadRequestException(message); }
+  }
+
+  private async applyPreparedMap(user: AuthenticatedUser, siteId: string, floorId: string, jobId: string, input: FloorImportApplyInput) {
+    const ref = await this.mapPreparation!.readPrepared(floorId, jobId);
+    if (ref.revision !== input.expectedRevision + 1) throw new ConflictException("prepared map revision conflict");
+    // Verify bounded immutable metadata outside the publication transaction. The
+    // revision pin below locks/revalidates all ready assets before job-pin release.
+    await this.mapStore!.readManifest(floorId, ref);
+    await this.mapPreparation!.readDisplayManifest(floorId, ref);
+    return this.prisma.$transaction(async tx => {
+      const site = await this.access.assertManageInTransaction(tx, user, siteId);
+      await tx.$queryRaw`SELECT "id" FROM "Floor" WHERE "id" = ${floorId} FOR UPDATE`;
+      const floor = await tx.floor.findUniqueOrThrow({ where: { id: floorId } });
+      assertActiveFloorStatus(floor.status);
+      const [{ now }] = await tx.$queryRaw<Array<{ now: Date }>>`SELECT clock_timestamp() AT TIME ZONE 'UTC' AS now`;
+      if (floor.siteId !== siteId || floor.mapRevision !== input.expectedRevision || floor.editorLeaseHolderId !== user.id ||
+        floor.editorLeaseFence !== input.leaseFence || floor.editorLeaseTokenHash !== hashEditorLeaseToken(input.leaseToken) ||
+        !floor.editorLeaseExpiresAt || floor.editorLeaseExpiresAt <= now) throw new ConflictException("floor editor authority changed");
+      await tx.$queryRaw`SELECT "id" FROM "FloorImportJob" WHERE "id" = ${jobId} AND "floorId" = ${floorId} FOR UPDATE`;
+      const job = await tx.floorImportJob.findFirst({ where: { id: jobId, floorId }, include: { preparedMapGeneration: true } });
+      const generation = job?.preparedMapGeneration;
+      // A review job is a durable preparation pin. Its valid prepared generation
+      // must NOT be rejected merely because the unpinned one-hour TTL elapsed.
+      if (!job || job.status !== "review_required" || job.preparedMapGenerationId !== ref.generationId ||
+        !generation || generation.status !== "prepared" || generation.baseRevision !== ref.revision ||
+        generation.sourceGenerationId !== null || generation.sourceRevision !== null || job.excludedRegionPrimitiveCount === null) {
+        throw new ConflictException("prepared import changed; reload the review");
+      }
+      const old = await tx.floorMapDocument.findUnique({ where: { floorId } });
+      if (old && old.revision !== input.expectedRevision) throw new ConflictException("common map revision conflict");
+      const candidates = await tx.floorImportCandidate.findMany({ where: { jobId }, select: { id: true, x: true, y: true } });
+      const accepted = new Set(input.candidateIds);
+      if (input.candidateIds.some(id => !candidates.some(c => c.id === id))) throw new BadRequestException("candidate belongs to another job");
+      if (candidates.some(c => accepted.has(c.id) && (c.x < 0 || c.y < 0 || c.x > ref.width || c.y > ref.height))) {
+        throw new BadRequestException("candidate exceeds floor bounds");
+      }
+      await tx.floorImportJob.update({ where: { id: jobId }, data: { status: "applying", stage: "applying" } });
+      await tx.floorImportCandidate.updateMany({ where: { jobId }, data: { reviewStatus: "rejected", reviewedAt: now } });
+      await tx.floorImportCandidate.updateMany({ where: { jobId, id: { in: input.candidateIds } }, data: { reviewStatus: "accepted", reviewedAt: now } });
+      const deletedObjects = await tx.floorMapObject.deleteMany({ where: { floorId } });
+      const unplacedFixtures = await tx.fixture.updateMany({ where: { floorId }, data: { placementStatus: "unplaced", positionVerifiedAt: null, x: 0, y: 0 } });
+      const deletedSlots = await tx.floorLightSlot.deleteMany({ where: { floorId } });
+      // Copy DB float8 coordinates directly, avoiding Prisma JSON's one-ULP loss.
+      if (input.candidateIds.length) await tx.$executeRaw(Prisma.sql`
+        INSERT INTO "FloorLightSlot" ("id", "floorId", "sourceImportJobId", "sourceCandidateId", "x", "y", "rotation", "updatedAt")
+        SELECT gen_random_uuid()::text, ${floorId}, ${jobId}, "id", "x", "y", "rotation", CURRENT_TIMESTAMP
+        FROM "FloorImportCandidate" WHERE "jobId" = ${jobId} AND "id" IN (${Prisma.join(input.candidateIds)})`);
+      const plan = { imageUrl: "", sourceType: "none" as const, originalFileUrl: null, renderedImageUrl: null,
+        width: ref.width, height: ref.height, gridSize: ref.gridSize };
+      await tx.floorPlan.upsert({ where: { floorId }, create: { floorId, ...plan }, update: { ...plan, version: { increment: 1 } } });
+      await tx.floorCadScene.deleteMany({ where: { floorId } });
+      const snapshotFloor = await tx.floor.findUniqueOrThrow({ where: { id: floorId }, include: {
+        floorPlan: true, fixtures: { orderBy: { id: "asc" } }, mapObjects: true, lightSlots: { orderBy: { id: "asc" } } } });
+      const legacy = buildFloorEditorSnapshot(snapshotFloor);
+      const snapshot = buildMapDocumentSnapshot({ document: ref, fixtures: legacy.fixtures, lightSlots: "lightSlots" in legacy ? legacy.lightSlots ?? [] : [] });
+      const changeSummary = { floorImportJobId: jobId, acceptedCandidates: accepted.size, deletedObjectCount: deletedObjects.count,
+        unplacedFixtureCount: unplacedFixtures.count, deletedSlotCount: deletedSlots.count, createdSlotCount: accepted.size };
+      const revision = await tx.floorMapRevision.create({ data: { floorId, revision: ref.revision, snapshot: snapshot as Prisma.InputJsonValue,
+        snapshotSha256: hashFloorEditorSnapshot(snapshot), changedBy: user.id, changeSummary } });
+      await this.mapStore!.pinRevision(tx, floorId, revision.id, ref);
+      if (old) await tx.floorMapGeneration.update({ where: { id: old.activeGenerationId }, data: { status: "retired" } });
+      await tx.floorMapGeneration.update({ where: { id: ref.generationId }, data: { status: "active" } });
+      if (old) {
+        const updated = await tx.floorMapDocument.updateMany({ where: { floorId, activeGenerationId: old.activeGenerationId, revision: input.expectedRevision },
+          data: { activeGenerationId: ref.generationId, revision: ref.revision, changesSinceCheckpoint: 0, deltaDecodedBytes: 0 } });
+        if (updated.count !== 1) throw new ConflictException("common map revision conflict");
+      } else await tx.floorMapDocument.create({ data: { floorId, activeGenerationId: ref.generationId, revision: ref.revision } });
+      await tx.floor.update({ where: { id: floorId }, data: { mapRevision: ref.revision } });
+      await this.audit.record({ organizationId: site.organizationId, siteId, actorId: user.id, action: "floor_import.applied",
+        targetType: "floor_import_job", targetId: jobId, outcome: "success", metadata: { ...changeSummary, generationId: ref.generationId }, transaction: tx });
+      await tx.floorImportJob.update({ where: { id: jobId }, data: { status: "completed", stage: "completed", appliedAt: now,
+        completedAt: now, progressPercent: 100, preparedMapGenerationId: null } });
+      return { jobId, status: "completed" as const, revision: ref.revision, acceptedCandidateIds: [...accepted].sort(),
+        renderedAssetId: job.renderedAssetId, ...changeSummary, floorPlan: plan, mapDocument: ref };
+    }, { ...EDITOR_TRANSACTION_OPTIONS, isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
   }
 
   private async lockApplyState(tx: Prisma.TransactionClient, floorId: string, jobId: string) {

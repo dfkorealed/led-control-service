@@ -11,7 +11,7 @@ import { AuditService } from "../audit/audit.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { ObjectStorageService } from "../storage/object-storage.service";
 import { MapDocumentStore, needsMapCheckpoint } from "./map-document-store";
-import { MapDocumentRevisionData, checkpointRequired } from "./map-document-revision-data";
+import { MapDocumentRevisionData, MAP_NORMAL_DELTA_BYTES, checkpointRequired } from "./map-document-revision-data";
 import { MapDocumentSnapshot, hashFloorEditorSnapshot } from "./floor-editor-snapshot";
 import { assertActiveFloorStatus } from "./floor-lifecycle";
 import { hashEditorLeaseToken } from "./editor-lease-token";
@@ -63,7 +63,7 @@ export class MapDocumentMutationService {
     const forward = this.encodeOperations(planned.operations), inverse = this.encodeOperations(planned.inverse);
     const assets = [await this.writeAsset(floorId, forward), await this.writeAsset(floorId, inverse)];
     return this.prisma.$transaction(async tx => {
-      const authority = await this.authorize<T>(tx, floorId, siteId, user, input, hash);
+      const authority = await this.authorize<T>(tx, floorId, siteId, user, input, hash, forward.length);
       if (authority.replay !== undefined) return authority.replay;
       for (const asset of [...assets].sort((a, b) => a.assetId.localeCompare(b.assetId))) {
         const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
@@ -97,7 +97,7 @@ export class MapDocumentMutationService {
   }
 
   private async authorize<T>(tx: Prisma.TransactionClient, floorId: string, siteId: string, user: AuthenticatedUser,
-    input: SaveEditorStateInput, hash: string) {
+    input: SaveEditorStateInput, hash: string, addedDecodedBytes = 0) {
     const site = await this.access.assertManageInTransaction(tx, user, siteId);
     const [floor] = await tx.$queryRaw<Array<{ siteId: string; status: string; mapRevision: number; editorLeaseHolderId: string | null;
       editorLeaseFence: number; editorLeaseTokenHash: string | null; editorLeaseExpiresAt: Date | null }>>(Prisma.sql`
@@ -121,7 +121,8 @@ export class MapDocumentMutationService {
     if (!document || floor.mapRevision !== input.expectedRevision || document.revision !== input.expectedRevision ||
       document.generationId !== input.documentChanges!.generationId) throw new ConflictException("map document revision conflict");
     const head = await tx.floorMapDocument.findUniqueOrThrow({ where: { floorId } });
-    if (needsMapCheckpoint(head.changesSinceCheckpoint, head.deltaDecodedBytes)) checkpointRequired();
+    if (needsMapCheckpoint(head.changesSinceCheckpoint, head.deltaDecodedBytes) ||
+      head.deltaDecodedBytes + BigInt(addedDecodedBytes) > BigInt(MAP_NORMAL_DELTA_BYTES)) checkpointRequired();
     if (input.floorPlan === null || (input.floorPlan && (input.floorPlan.width !== document.width ||
       input.floorPlan.height !== document.height || input.floorPlan.gridSize !== document.gridSize))) checkpointRequired();
     if (input.floorPlan && input.floorPlan.sourceType !== "none") throw new BadRequestException("common map backgrounds require import activation");

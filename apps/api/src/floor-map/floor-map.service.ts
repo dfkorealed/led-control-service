@@ -28,6 +28,7 @@ import { hashEditorLeaseToken } from "../floor-editor/editor-lease-token";
 import { assertActiveFloorStatus } from "../floor-editor/floor-lifecycle";
 import { PrismaService } from "../prisma/prisma.service";
 import { CadSceneEvidenceService, type CadSceneEvidenceTile } from "./cad-scene-evidence.service";
+import { MapDocumentRevisionData } from "../floor-editor/map-document-revision-data";
 
 const DEFAULT_CANVAS_WIDTH = 1200;
 const DEFAULT_CANVAS_HEIGHT = 800;
@@ -65,6 +66,7 @@ type CadOverrideRow = {
 };
 
 type FloorEditAuthorityRow = {
+  commonMap?: boolean;
   status: string;
   mapRevision: number;
   editorLeaseFence: number;
@@ -79,7 +81,8 @@ export class FloorMapService {
     private readonly prisma: PrismaService,
     private readonly siteAccess: SiteAccessService,
     @Optional() private readonly evidence?: CadSceneEvidenceService,
-    @Optional() private readonly audit?: AuditService
+    @Optional() private readonly audit?: AuditService,
+    @Optional() private readonly mapData?: MapDocumentRevisionData
   ) {}
 
   async getSnapshot(user: AuthenticatedUser, siteId: string, floorId: string) {
@@ -108,10 +111,12 @@ export class FloorMapService {
     });
     if (!floor) throw this.floorNotFound();
     await this.assertAccess(user, siteId, "read");
-
+    const document = await this.mapData?.currentRef(floorId) ?? null;
+    if (document && document.revision !== floor.mapRevision) throw new ConflictException("map read revision changed; reload");
     return floorMapSnapshotSchema.parse({
       floorId: floor.id,
       revision: floor.mapRevision,
+      ...(document ? { mapDocument: document } : {}),
       width: floor.floorPlan?.width ?? DEFAULT_CANVAS_WIDTH,
       height: floor.floorPlan?.height ?? DEFAULT_CANVAS_HEIGHT,
       floorPlan: floor.floorPlan
@@ -125,10 +130,10 @@ export class FloorMapService {
             gridSize: floor.floorPlan.gridSize ?? 10
           }
         : null,
-      cadScene: floor.floorPlan?.sourceType === "cad" && floor.cadScene
+      cadScene: !document && floor.floorPlan?.sourceType === "cad" && floor.cadScene
         ? buildCadSceneDescriptor(siteId, floorId, floor.cadScene)
         : null,
-      objects: floor.mapObjects.map((object) => ({
+      objects: (document ? [] : floor.mapObjects).map((object) => ({
         id: object.id,
         type: object.type,
         x: object.x,
@@ -325,7 +330,8 @@ export class FloorMapService {
   private async preflightFloorAuthority(siteId: string, floorId: string, input: CadSceneEditInput) {
     const rows = await this.prisma.$queryRaw<FloorEditAuthorityRow[]>(Prisma.sql`
       SELECT "status"::text AS "status", "mapRevision", "editorLeaseFence",
-        "editorLeaseTokenHash", "editorLeaseExpiresAt", clock_timestamp() AS "dbNow"
+        "editorLeaseTokenHash", "editorLeaseExpiresAt", clock_timestamp() AS "dbNow",
+        EXISTS(SELECT 1 FROM "FloorMapDocument" WHERE "floorId" = ${floorId}) AS "commonMap"
       FROM "Floor"
       WHERE "id" = ${floorId} AND "siteId" = ${siteId}
     `);
@@ -336,6 +342,7 @@ export class FloorMapService {
 
   private assertFloorEditAuthority(floor: FloorEditAuthorityRow, input: CadSceneEditInput) {
     assertActiveFloorStatus(floor.status);
+    if (floor.commonMap) throw new ConflictException("common map documents do not accept CAD overrides");
     if (floor.editorLeaseFence !== input.leaseFence ||
         floor.editorLeaseTokenHash !== hashEditorLeaseToken(input.leaseToken) ||
         !floor.editorLeaseExpiresAt ||
@@ -350,7 +357,8 @@ export class FloorMapService {
   private async lockFloorAuthority(tx: Prisma.TransactionClient, floorId: string) {
     const rows = await tx.$queryRaw<FloorEditAuthorityRow[]>(Prisma.sql`
       SELECT "status"::text AS "status", "mapRevision", "editorLeaseFence",
-        "editorLeaseTokenHash", "editorLeaseExpiresAt", clock_timestamp() AS "dbNow"
+        "editorLeaseTokenHash", "editorLeaseExpiresAt", clock_timestamp() AS "dbNow",
+        EXISTS(SELECT 1 FROM "FloorMapDocument" WHERE "floorId" = ${floorId}) AS "commonMap"
       FROM "Floor"
       WHERE "id" = ${floorId}
       FOR UPDATE

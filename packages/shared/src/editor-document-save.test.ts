@@ -1,11 +1,24 @@
 import { describe, expect, it } from "vitest";
-import { saveEditorStateSchema } from "./schemas";
+import { floorMapSnapshotSchema, saveEditorStateSchema } from "./schemas";
 
 const base = { expectedRevision: 1, leaseToken: "lease", leaseFence: 1,
   fixtureUpdates: [], objectCreates: [], objectUpdates: [], objectDeletes: [] };
 const changes = { requestId: "request", generationId: "generation", operations: [] };
 
 describe("atomic editor document save", () => {
+  it("exposes a minimal common document reference in the monitoring snapshot", () => {
+    const document = { formatVersion: 1, generationId: "g", revision: 1, width: 1200, height: 800, gridSize: 10, elementCount: 5,
+      manifest: { assetId: "asset", byteSize: 10, decodedByteSize: 20, sha256: "a".repeat(64) } };
+    const snapshot = { floorId: "00000000-0000-4000-8000-000000000001", revision: 1, width: 1200, height: 800,
+      floorPlan: null, cadScene: null, mapDocument: document, objects: [] };
+    expect(floorMapSnapshotSchema.parse(snapshot)).toEqual(snapshot);
+    expect(floorMapSnapshotSchema.safeParse({ ...snapshot, revision: 2 }).success).toBe(false);
+    const cad = { ...snapshot, floorPlan: { sourceType: "cad", imageUrl: "", originalFileUrl: null,
+      renderedImageUrl: null, width: 1200, height: 800, gridSize: 10 } };
+    expect(floorMapSnapshotSchema.parse(cad)).toEqual(cad);
+    expect(floorMapSnapshotSchema.safeParse({ ...cad, floorPlan: { ...cad.floorPlan, width: 2000 } }).success).toBe(false);
+    expect(floorMapSnapshotSchema.safeParse({ ...cad, floorPlan: { ...cad.floorPlan, gridSize: 20 } }).success).toBe(false);
+  });
   it("keeps the legacy payload valid", () => {
     expect(saveEditorStateSchema.parse(base).expectedRevision).toBe(1);
   });
