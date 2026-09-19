@@ -100,11 +100,9 @@ export function paintDisplayPrimitive(ctx: Context, p: OrderedMapDisplayPrimitiv
     case "triangle": ring(ctx, p.geometry.points, true); break;
     case "rectangle": {
       const g = p.geometry; ctx.translate(g.origin.x, g.origin.y); ctx.rotate(g.rotation * Math.PI / 180);
-      ctx.globalAlpha = p.style.opacity;
-      if (p.style.fillColor) { ctx.fillStyle = p.style.fillColor; ctx.fillRect(0, 0, g.width, g.height); }
-      if (p.style.strokeColor && p.style.strokeWidth > 0) {
-        ctx.strokeStyle = p.style.strokeColor; ctx.lineWidth = Math.max(p.style.strokeWidth, 0.5 / zoom); ctx.strokeRect(0, 0, g.width, g.height);
-      }
+      // Use the same vector-path coverage as canonical polygon/triangle fills;
+      // fillRect's fast path has different fractional-edge antialiasing.
+      ctx.rect(0, 0, g.width, g.height); paint(ctx, p.style, true, zoom);
       ctx.restore(); return;
     }
     case "ellipse": {
@@ -128,20 +126,7 @@ export function paintDisplayPrimitive(ctx: Context, p: OrderedMapDisplayPrimitiv
 
 export function paintMapElement(ctx: Context, element: MapElement, zoom: number): void {
   ctx.save(); ctx.beginPath();
-  if (element.type === "rectangle") {
-    const t = element.transform, g = element.geometry;
-    // Preserve the native rectangle fill's fractional coverage. The canonical
-    // stroke stays world-width, so only fill geometry uses the local TRS.
-    if (element.style.fillColor) {
-      ctx.save(); ctx.translate(t.x, t.y); ctx.rotate(t.rotation * Math.PI / 180); ctx.scale(t.scaleX, t.scaleY);
-      ctx.globalAlpha = element.style.opacity; ctx.fillStyle = element.style.fillColor;
-      ctx.fillRect(g.origin.x, g.origin.y, g.width, g.height); ctx.restore();
-    }
-    if (element.style.strokeColor && element.style.strokeWidth > 0) {
-      for (const points of mapElementPaths(element, zoom).rings) ring(ctx, points, true);
-      paint(ctx, { ...element.style, fillColor: null }, true, zoom);
-    }
-  } else if (element.type === "text") {
+  if (element.type === "text") {
     const t = element.transform, g = element.geometry;
     ctx.globalAlpha = element.style.opacity; ctx.translate(t.x, t.y); ctx.rotate(t.rotation * Math.PI / 180);
     ctx.scale(t.scaleX, t.scaleY); ctx.translate(g.position.x, g.position.y);
