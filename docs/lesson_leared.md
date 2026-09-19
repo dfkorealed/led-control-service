@@ -894,3 +894,10 @@
 - **원인**: 작은 원본도 반복 block을 포함하면 변환 DXF와 정규 모델이 크게 확장된다. 해당 파일은 102 MiB DXF와 398,257개 렌더 occurrence를 만들었고, 실제 제품 child가 처리 가능한 범위였지만 보수적 retained-model 회계가 기존 208 MiB 상한을 약간 넘었다. 내부 analyzer도 제품 parser와 달리 정상 model 뒤의 손상된 LibreDWG `OBJECTS` metadata를 끝까지 파싱했다.
 - **해결 및 예방책**: heap/cgroup, source/DXF/SVG, entity/coordinate, 시간 상한은 유지하고 실측으로 통과하는 최소 retained-model 상한 224 MiB만 승인했다. 동일 업로드 객체를 실제 DB·Object Storage·worker로 재처리하고 child RSS, SVG 크기, 후보 저장과 terminal 상태를 확인했다. analyzer의 optional `OBJECTS` 처리도 제품 parser와 같게 맞췄다.
 - **반복 방지 체크**: CAD 호환성은 파일 확장자나 원본 크기만으로 판정하지 않는다. converter 출력, 기본 제한 parser, 격리 child 렌더, 실제 worker 저장까지 순서대로 검증하고 malformed model corpus와 자원 폭탄 회귀를 함께 실행한다.
+
+## 2026-09-19 / 디스크 빌드 성공과 실행 중인 서버 코드 갱신은 다르다
+
+- **발생했던 문제/실수**: 동일 DWG의 별도 pipeline은 성공했지만 실제 웹은 분석 35%에서 세 번 실패했다. 실행 중인 API에는 이전 `regions.length > 100` 검증이 남아 있었고, 새 child가 반환한 정상 1,817개 영역을 거절했다.
+- **원인**: shared/API 산출물을 다시 빌드한 뒤 장기 실행 프로세스의 module cache까지 갱신됐다고 가정했다. 새 프로세스 검증과 브라우저 route fixture 성공만으로 이미 실행 중인 서버의 성공을 판정할 수 없다.
+- **해결 및 예방책**: 업로드 객체의 SHA와 실행 설정을 동일하게 맞춰 재현하고, 실행 중인 함수·공유 상수와 디스크 코드를 비교해 버전 불일치를 확인한다. 외부 명령으로 shared/API를 재빌드한 뒤에는 해당 개발 서버를 다시 시작하고 최신 서버 요청 경로를 확인한다. 단순 새로고침은 서버 module cache를 갱신하지 않는다.
+- **반복 방지 체크**: 검증 보고서에서 실제 기본 provider·DB/저장소 pipeline·브라우저 fixture·실제 로그인 HTTP 흐름을 구분한다. 작업 단계 `parse`는 child 내부 검출/렌더 실패까지 포함할 수 있으므로 단계명만으로 원본 도면 손상이라 판단하지 않는다. 원시 오류나 파일 경로 대신 허용된 진단 분류만 서버 로그에 기록한다.
