@@ -8,7 +8,7 @@ import type { SceneTile } from "../cad-scene/cad-scene-display-types";
 import type { CadSceneMemoryBudget } from "../cad-scene/cad-scene-memory-budget";
 import type { DecodedCadSceneTile } from "../cad-scene/cad-scene-worker";
 import { paintDisplayPrimitive, paintDisplayFillRun, canJoinDisplayFill, paintMapElement } from "./map-native-painter";
-import { mapRasterGrid } from "./map-raster-grid";
+import { mapRasterGrid, mapRasterInfluenceMargin } from "./map-raster-grid";
 import { MapPaintWindow } from "./map-paint-window";
 import { paintMapOrderedCell } from "./map-ordered-cell";
 
@@ -76,7 +76,8 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
     this.revision++;
     this.request?.controller.abort();
     for (const [key, cell] of this.cells) {
-      const margin = this.lastRequest ? 1 / this.lastRequest.camera.zoom : 0;
+      const margin = this.lastRequest
+        ? mapRasterInfluenceMargin(this.lastRequest.camera.zoom, this.lastRequest.resolution) : 0;
       if (bounds?.length && !bounds.some(bound => !bound || intersects(cell.bounds, expand(bound, margin)))) continue;
       this.versions.set(key, (this.versions.get(key) ?? 0) + 1);
       // Never leave a masked old element visible while the replacement loads.

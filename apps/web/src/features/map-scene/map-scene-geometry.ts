@@ -9,6 +9,36 @@ const MAX_CURVE_SEGMENTS = 4096;
 const box = (p: Point, w: number, h: number): Point[] => [p,
   { x: p.x + w, y: p.y }, { x: p.x + w, y: p.y + h }, { x: p.x, y: p.y + h }];
 
+function curveSubdivision(element: Extract<MapElement, { type: "ellipse" | "arc" }>, zoom: number) {
+  const ellipse = element.type === "ellipse";
+  const rx = ellipse ? element.geometry.radiusX : element.geometry.radius;
+  const ry = ellipse ? element.geometry.radiusY : element.geometry.radius;
+  const radius = Math.max(rx * element.transform.scaleX, ry * element.transform.scaleY);
+  const normalize = (angle: number) => ((angle % 360) + 360) % 360;
+  const start = ellipse ? 0 : normalize(element.geometry.startAngle);
+  const sweep = ellipse ? 360 : element.geometry.counterClockwise
+    ? normalize(element.geometry.endAngle - start) || 360
+    : -(normalize(start - element.geometry.endAngle) || 360);
+  const step = 2 * Math.acos(Math.max(-1, 1 - Math.min(radius, 0.25 / zoom) / radius));
+  const segments = Math.max(4, Math.ceil(Math.abs(sweep) * Math.PI / 180 / step));
+  if (!Number.isFinite(segments) || segments > MAX_CURVE_SEGMENTS) {
+    throw new RangeError("Map draft curve exceeds the bounded tessellation budget");
+  }
+  return { rx, ry, start, sweep, segments, points: segments + (ellipse ? 0 : 1) };
+}
+
+/** Count before admission without allocating tessellated or transformed points. */
+export function mapElementPathPointCount(element: MapElement, zoom: number): number {
+  switch (element.type) {
+    case "line": return 2;
+    case "rectangle": case "text": return 4;
+    case "triangle": return 3;
+    case "polyline": return element.geometry.points.length;
+    case "polygon": return element.geometry.holes.reduce((sum, ring) => sum + ring.length, element.geometry.outer.length);
+    case "ellipse": case "arc": return curveSubdivision(element, zoom).points;
+  }
+}
+
 export function mapElementPaths(element: MapElement, zoom: number): { rings: Point[][]; closed: boolean } {
   let rings: Point[][];
   let closed = true;
@@ -22,20 +52,8 @@ export function mapElementPaths(element: MapElement, zoom: number): { rings: Poi
     case "ellipse":
     case "arc": {
       const ellipse = element.type === "ellipse";
-      const rx = ellipse ? element.geometry.radiusX : element.geometry.radius;
-      const ry = ellipse ? element.geometry.radiusY : element.geometry.radius;
-      const radius = Math.max(rx * element.transform.scaleX, ry * element.transform.scaleY);
-      const normalize = (angle: number) => ((angle % 360) + 360) % 360;
-      const start = ellipse ? 0 : normalize(element.geometry.startAngle);
-      const sweep = ellipse ? 360 : element.geometry.counterClockwise
-        ? normalize(element.geometry.endAngle - start) || 360
-        : -(normalize(start - element.geometry.endAngle) || 360);
-      const step = 2 * Math.acos(Math.max(-1, 1 - Math.min(radius, 0.25 / zoom) / radius));
-      const segments = Math.max(4, Math.ceil(Math.abs(sweep) * Math.PI / 180 / step));
-      if (!Number.isFinite(segments) || segments > MAX_CURVE_SEGMENTS) {
-        throw new RangeError("Map draft curve exceeds the bounded tessellation budget");
-      }
-      rings = [Array.from({ length: segments + (ellipse ? 0 : 1) }, (_, index) => {
+      const { rx, ry, start, sweep, segments, points } = curveSubdivision(element, zoom);
+      rings = [Array.from({ length: points }, (_, index) => {
         const angle = (start + sweep * index / segments) * Math.PI / 180;
         return { x: element.geometry.center.x + rx * Math.cos(angle), y: element.geometry.center.y + ry * Math.sin(angle) };
       })];
@@ -52,7 +70,7 @@ export function buildMapGeometryBatches(elements: readonly MapElement[], zoomBan
     let points = 0;
     for (const element of elements) {
       if (element.type === "text") continue;
-      points += mapElementPaths(element, zoomBand).rings.reduce((sum, ring) => sum + ring.length, 0);
+      points += mapElementPathPointCount(element, zoomBand);
       if (points > MAX_DRAFT_POINTS) throw new RangeError("Map draft point budget exceeded");
     }
     // Canonical objects are already owned/accounted by the bounded draft or

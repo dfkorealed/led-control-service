@@ -5,6 +5,7 @@ import { MapPaintWindow, createMapPageCursor, type MapPageRef } from "./map-pain
 import { mergeMapPaintStreams } from "./map-ordered-pages";
 import { MapOrderedPainter } from "./map-ordered-painter";
 import { paintMapElement } from "./map-native-painter";
+import { mapElementPathPointCount } from "./map-scene-geometry";
 
 export async function paintMapOrderedCell(options: {
   tiles: readonly MapDisplayTile[]; drafts: readonly MapElement[]; layers: ReadonlyMap<string, CadSceneLayerState>;
@@ -43,8 +44,7 @@ export async function paintMapOrderedCell(options: {
         painter.finish(); const element = drafts[draftIndex++];
         // Draft geometry is already accounted by the sparse canonical store;
         // reserve its temporary native path separately from persisted pages.
-        const points = element.type === "polygon" ? element.geometry.outer.length + element.geometry.holes.reduce((n, ring) => n + ring.length, 0)
-          : element.type === "polyline" ? element.geometry.points.length : 1024;
+        const points = mapElementPathPointCount(element, zoom);
         reserve("path", points * 64 + 1024);
         try { paintMapElement(context, element, zoom); } finally { context.beginPath(); reserve("path", 0); }
       };

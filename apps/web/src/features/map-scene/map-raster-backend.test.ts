@@ -40,6 +40,33 @@ function setup(maximum = 32 * 1024 * 1024) {
 afterEach(() => { vi.restoreAllMocks(); vi.clearAllMocks(); });
 
 describe("bounded ordered raster lifecycle", () => {
+  it("drops and rebakes an influence-only neighbor when a persisted hairline is masked", async () => {
+    vi.stubGlobal("crypto", webcrypto);
+    const { backend, request, budget } = setup();
+    const primitive = { type: "polyline" as const, elementId: "tip", groupId: null, layerName: "layer",
+      sourceType: "polyline", zIndex: 0, fragmentOrder: 0, bounds: { minX: 499.5, minY: 98.4, maxX: 511, maxY: 101.6 },
+      clipBounds: descriptor.bounds, geometry: { closed: true,
+        points: [{ x: 500, y: 98.9 }, { x: 510.5, y: 100 }, { x: 500, y: 101.1 }] },
+      style: { ...line.style, strokeWidth: 0.1 } };
+    const bytes = encodeMapDisplayTile([primitive]);
+    const key = { elementId: "tip", zIndex: 0, fragmentOrder: 0 };
+    const tile = { ...descriptor, byteSize: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex"),
+      pages: [{ layerId: "layer", sequence: 0, primitiveStart: 0, primitiveCount: 1, firstKey: key, lastKey: key }] };
+    request.manifest = { ...request.manifest, orderedPages: { version: 1 }, tiles: [tile] } as typeof request.manifest;
+    request.loadTile = vi.fn(async () => bytes);
+    try {
+      await backend.renderDisplay(request);
+      expect(request.onError).not.toHaveBeenCalled();
+      expect(calls.bake.mock.calls.some(([id]) => id === "raster:512:1:0")).toBe(true);
+      calls.remove.mockClear(); calls.bake.mockClear(); calls.paint.mockClear();
+      request.excludedIds = new Set(["tip"]);
+      backend.invalidateDisplay([{ minX: 500, minY: 98.9, maxX: 510.5, maxY: 101.1 }]);
+      await backend.renderDisplay(request);
+      expect(calls.remove).toHaveBeenCalledWith("raster:512:1:0");
+      expect(calls.bake.mock.calls.some(([id]) => id === "raster:512:1:0")).toBe(true);
+      expect(calls.paint).not.toHaveBeenCalled();
+    } finally { backend.destroy(); expect(budget.totalBytes).toBe(0); vi.unstubAllGlobals(); }
+  });
   it("uses bounded ordered pages, preserves draft positions and skips masked base without whole-cell decode", async () => {
     vi.stubGlobal("crypto", webcrypto);
     const { backend, request, budget } = setup();

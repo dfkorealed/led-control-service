@@ -1,13 +1,18 @@
 import type { CadBounds } from "@led-control/shared";
 import type { CadSceneCamera } from "../cad-scene/cad-scene-camera";
 
+export function mapRasterInfluenceMargin(zoom: number, resolution: number): number {
+  // Native miter10 hairlines reach 2.5 screen pixels; include device AA support.
+  // Gathering and dirty invalidation must use the same envelope.
+  return 2.5 / zoom + 2 / (zoom * resolution);
+}
+
 export function mapRasterGrid(manifest: { width: number; height: number; tileSize: number }, camera: CadSceneCamera, resolution: number) {
   const scale = camera.zoom * resolution;
   const offsetX = (camera.viewportWidth / 2 - camera.centerX * camera.zoom) * resolution;
   const offsetY = (camera.viewportHeight / 2 - camera.centerY * camera.zoom) * resolution;
   // Coalesce tiny source cells instead of assigning each a forced single pixel.
-  // Native miter10 hairlines can influence 2.5 screen pixels, plus AA support.
-  const margin = 2.5 / camera.zoom + 2 / scale;
+  const margin = mapRasterInfluenceMargin(camera.zoom, resolution);
   const size = Math.min(2 ** Math.floor(Math.log2(512 / scale)),
     Math.max(manifest.tileSize, 2 ** Math.ceil(Math.log2(64 / scale))));
   const envelope = { minX: -margin, minY: -margin, maxX: manifest.width + margin, maxY: manifest.height + margin };
