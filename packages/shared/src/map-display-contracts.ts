@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { CAD_SCENE_MAX_TILE_PART_COUNT, cadSceneManifestFieldsSchema, cadSceneManifestSchema, cadScenePrimitiveSchema,
   cadSceneTileSchema, refineCadSceneManifestTiles, type CadScenePrimitive } from "./cad-scene-contracts.js";
+import { compareMapDisplayFragmentKeys, MAP_DISPLAY_ORDERED_ASSET_MAX_BYTES, mapDisplayPageSchema,
+  type MapDisplayPage } from "./map-display-pages.js";
+export * from "./map-display-pages.js";
 
 export const MAP_DISPLAY_VERSION = 2;
 export type OrderedMapDisplayPrimitive = CadScenePrimitive & { zIndex: number; fragmentOrder: number };
@@ -19,16 +22,49 @@ export const mapDisplayPrimitiveSchema = mapDisplayOrderingSchema.passthrough().
   return { ...result.data, zIndex, fragmentOrder };
 });
 
-export const mapDisplayTileSchema = cadSceneTileSchema.extend({ version: z.literal(MAP_DISPLAY_VERSION) });
+export const mapDisplayTileSchema = cadSceneTileSchema.extend({ version: z.literal(MAP_DISPLAY_VERSION),
+  pages: z.array(mapDisplayPageSchema).min(1).max(500_000).optional() });
 export type MapDisplayTile = z.infer<typeof mapDisplayTileSchema>;
 const mapDisplayManifestFieldsSchema = cadSceneManifestFieldsSchema.extend({
   version: z.literal(MAP_DISPLAY_VERSION),
+  orderedPages: z.object({ version: z.literal(1) }).strict().optional(),
   tiles: z.array(mapDisplayTileSchema).max(CAD_SCENE_MAX_TILE_PART_COUNT)
 });
 
 // Adapt only version tags to reuse the unchanged CAD ledger/normalization checks.
 function legacyValidationView(manifest: z.infer<typeof mapDisplayManifestFieldsSchema>) {
-  return { ...manifest, version: 1 as const, tiles: manifest.tiles.map(tile => ({ ...tile, version: 1 as const })) };
+  const { orderedPages: _ordered, ...legacy } = manifest;
+  return { ...legacy, version: 1 as const, tiles: manifest.tiles.map(({ pages: _pages, ...tile }) => ({ ...tile, version: 1 as const })) };
+}
+
+function refineOrderedPages(manifest: z.infer<typeof mapDisplayManifestFieldsSchema>, context: z.RefinementCtx) {
+  const streams = new Map<string, MapDisplayPage[]>();
+  const fail = (message: string) => context.addIssue({ code: z.ZodIssueCode.custom, path: ["tiles"], message });
+  for (const tile of manifest.tiles) {
+    if (!manifest.orderedPages) { if (tile.pages) fail("pages require orderedPages v1"); continue; }
+    if (!tile.pages || tile.byteSize > MAP_DISPLAY_ORDERED_ASSET_MAX_BYTES) { fail("ordered asset page/byte limit"); continue; }
+    let offset = 0;
+    for (const page of tile.pages) {
+      if (page.primitiveStart !== offset || compareMapDisplayFragmentKeys(page.firstKey, page.lastKey) > 0) fail("ordered page coverage/key range mismatch");
+      offset += page.primitiveCount;
+      const key = JSON.stringify([tile.tileX, tile.tileY, tile.lod, page.layerId]);
+      const stream = streams.get(key) ?? []; stream.push(page); streams.set(key, stream);
+    }
+    if (offset !== tile.primitiveCount) fail("ordered page coverage mismatch");
+  }
+  for (const pages of streams.values()) {
+    pages.sort((a, b) => a.sequence - b.sequence);
+    let pending: MapDisplayPage["paintGroup"];
+    for (let i = 0; i < pages.length; i++) {
+      const page = pages[i], group = page.paintGroup;
+      if (page.sequence !== i || i > 0 && compareMapDisplayFragmentKeys(pages[i - 1].lastKey, page.firstKey) >= 0) fail("ordered page sequence/range overlap");
+      if (group && (group.elementId !== page.firstKey.elementId || group.elementId !== page.lastKey.elementId)) fail("ordered fill group element mismatch");
+      if (pending ? !group || group.id !== pending.id || group.elementId !== pending.elementId || group.sequence !== pending.sequence + 1
+        : group && group.sequence !== 0) fail("ordered fill continuation mismatch");
+      pending = group && !group.final ? group : undefined;
+    }
+    if (pending) fail("ordered fill continuation incomplete");
+  }
 }
 
 export interface MapDisplayPaintKey {
@@ -65,6 +101,7 @@ export const nativeMapDisplayManifestSchema = mapDisplayManifestFieldsSchema.ext
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["transform"], message: "native map display transform must be identity" });
   }
   refineCadSceneManifestTiles(legacyValidationView(manifest), context);
+  refineOrderedPages(manifest, context);
 });
 
 /** Common imports use v2 ordering with the unchanged CAD source normalization.
@@ -72,6 +109,7 @@ export const nativeMapDisplayManifestSchema = mapDisplayManifestFieldsSchema.ext
 export const importedMapDisplayManifestSchema = mapDisplayManifestFieldsSchema.superRefine((manifest, context) => {
   const result = cadSceneManifestSchema.safeParse(legacyValidationView(manifest));
   if (!result.success) result.error.issues.forEach(issue => context.addIssue(issue));
+  refineOrderedPages(manifest, context);
 });
 export const mapDisplayManifestSchema = z.union([nativeMapDisplayManifestSchema, importedMapDisplayManifestSchema]);
 export type MapDisplayManifest = z.infer<typeof mapDisplayManifestSchema>;

@@ -15,8 +15,41 @@ const native = {
 const tile = { version: 2, sceneId, assetId: tileId, tileX: 2, tileY: 1, lod: 0, part: 0,
   primitiveCount: 1, byteSize: 100, sha256: "b".repeat(64), bounds: { minX: 1024, minY: 512, maxX: 1200, maxY: 800 } };
 const nonempty = { ...native, primitiveCount: 1, tileCount: 1, tiles: [tile] };
+const firstKey = { zIndex: 0, elementId: "e", fragmentOrder: 0 };
+const page = { layerId: "layer", sequence: 0, primitiveStart: 0, primitiveCount: 1, firstKey, lastKey: firstKey };
+const paged = { ...nonempty, orderedPages: { version: 1 }, tiles: [{ ...tile, pages: [page] }] };
 
 describe("common map display manifests", () => {
+  it("accepts optional packed ordered pages without changing existing common v2", () => {
+    expect(mapDisplayManifestSchema.parse(paged)).toEqual(paged);
+    expect(mapDisplayManifestSchema.parse(nonempty)).toEqual(nonempty);
+  });
+  it("validates complete page coverage and monotonic per-cell layer sequences across physical assets", () => {
+    const secondKey = { ...firstKey, elementId: "z" };
+    const packed = { ...paged, primitiveCount: 3, tileCount: 2, tiles: [
+      { ...tile, primitiveCount: 2, pages: [page, { ...page, layerId: "other", primitiveStart: 1 }] },
+      { ...tile, part: 1, assetId: manifestId.replace(/2$/, "4"), pages: [{ ...page, sequence: 1, firstKey: secondKey, lastKey: secondKey }] }
+    ] };
+    expect(mapDisplayManifestSchema.safeParse(packed).success).toBe(true);
+    for (const change of [{ sequence: 2 }, { sequence: 0 }, { firstKey, lastKey: firstKey }, { primitiveStart: 1 }]) {
+      const bad = structuredClone(packed); Object.assign(bad.tiles[1].pages[0], change);
+      expect(mapDisplayManifestSchema.safeParse(bad).success).toBe(false);
+    }
+  });
+  it.each([
+    { pages: undefined }, { pages: [] }, { pages: [{ ...page, primitiveCount: 2 }] },
+    { pages: [{ ...page, firstKey: { ...firstKey, zIndex: 1 } }] }, { byteSize: 2 * 1024 * 1024 + 1 }
+  ])("rejects malformed ordered metadata %j", patch => {
+    expect(mapDisplayManifestSchema.safeParse({ ...paged, tiles: [{ ...paged.tiles[0], ...patch }] }).success).toBe(false);
+  });
+  it("rejects pages without opt-in and validates fill continuation sequences", () => {
+    expect(mapDisplayManifestSchema.safeParse({ ...paged, orderedPages: undefined }).success).toBe(false);
+    const paintGroup = { id: "fill-e", elementId: "e", phase: "fill", sequence: 0, final: true, pointCount: 3 };
+    expect(mapDisplayManifestSchema.safeParse({ ...paged, tiles: [{ ...tile, pages: [{ ...page, paintGroup }] }] }).success).toBe(true);
+    for (const patch of [{ sequence: 1 }, { final: false }, { elementId: "wrong" }]) {
+      expect(mapDisplayManifestSchema.safeParse({ ...paged, tiles: [{ ...tile, pages: [{ ...page, paintGroup: { ...paintGroup, ...patch } }] }] }).success).toBe(false);
+    }
+  });
   it("uses current layer order and ordinal tie keys, with fill before stroke", () => {
     const key = { layerOrder: 0, layerId: "Z", zIndex: -10, elementId: "Z", fragmentOrder: 0, phase: "fill" as const };
     for (const patch of [{ layerOrder: 1 }, { layerId: "a" }, { zIndex: 0 }, { elementId: "a" },
