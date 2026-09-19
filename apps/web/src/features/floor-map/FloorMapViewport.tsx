@@ -249,7 +249,7 @@ export function FloorMapViewport({
     if (!viewportRef.current) return;
     viewportRef.current.scrollLeft = 0;
     viewportRef.current.scrollTop = 0;
-  }, [snapshot.floorId]);
+  }, [snapshot.floorId, snapshot.mapDocument?.generationId]);
 
   useEffect(() => {
     const viewport = viewportRef.current;

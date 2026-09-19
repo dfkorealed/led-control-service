@@ -2,10 +2,34 @@ import type { FloorMapSnapshot } from "@led-control/shared";
 import type { InfiniteData, QueryClient } from "@tanstack/react-query";
 import type { Dashboard, FixtureSnapshot } from "../../api/queries";
 import type { EditorFixture, FloorEditorState } from "./editor-types";
+import { useLocation } from "react-router-dom";
+import { useCurrentUser } from "../../api/auth";
+import { useDashboard } from "../../api/queries";
+import { editorDraftGeneration } from "./editor-drafts";
+
+/** Reuse the shell's principal/tenant queries; never infer read authority from
+ * a saved document or from an editor draft. Cache resets rotate the epoch. */
+export function useMapDocumentReadScope(floorId: string) {
+  const location = useLocation();
+  const siteId = new URLSearchParams(location.search).get("siteId") ?? undefined;
+  const auth = useCurrentUser();
+  const dashboard = useDashboard(siteId);
+  const user = auth.data?.user;
+  const site = dashboard.data;
+  if (!user || user.status !== "active" || !site || site.capabilities?.read === false
+    || !site.floors.some(floor => floor.id === floorId)) return null;
+  return { siteId: site.site.id, authScope: JSON.stringify([user.organizationId, user.id, user.role, editorDraftGeneration(),
+    site.site.id, site.capabilities ?? null]) };
+}
 
 export function synchronizeMonitoringCaches(queryClient: QueryClient, state: FloorEditorState) {
+  const key = ["floor-map", state.floor.siteId, state.floor.id];
+  const previous = queryClient.getQueryData<FloorMapSnapshot>(key);
+  // Floor revisions remain monotonic across import generations. An older save
+  // callback must not roll back geometry or fixture placements already fetched.
+  if (previous && previous.revision > state.floor.mapRevision) return;
   queryClient.setQueryData<FloorMapSnapshot>(
-    ["floor-map", state.floor.siteId, state.floor.id],
+    key,
     (previous) => toFloorMapSnapshot(state, previous)
   );
 
@@ -61,6 +85,7 @@ function mergeFixture<T extends FixtureSnapshot>(fixture: T, saved: EditorFixtur
 
 function toFloorMapSnapshot(state: FloorEditorState, previous: FloorMapSnapshot | undefined): FloorMapSnapshot {
   const plan = state.floor.floorPlan;
+  const document = state.floor.mapDocument;
   const sourceType = plan?.sourceType ?? previous?.floorPlan?.sourceType ?? "image";
   const slotsByFixtureId = new Map(state.lightSlots.flatMap((slot) =>
     slot.assignedFixtureId ? [[slot.assignedFixtureId, slot] as const] : []
@@ -68,8 +93,11 @@ function toFloorMapSnapshot(state: FloorEditorState, previous: FloorMapSnapshot 
   return {
     floorId: state.floor.id,
     revision: state.floor.mapRevision,
-    width: plan?.width ?? 1200,
-    height: plan?.height ?? 800,
+    width: document?.width ?? plan?.width ?? 1200,
+    height: document?.height ?? plan?.height ?? 800,
+    // Only callers with a confirmed save/apply response publish this snapshot.
+    // Clone the reference so subsequent local draft edits cannot mutate monitoring.
+    mapDocument: document ? structuredClone(document) : null,
     floorPlan: plan
       ? sourceType === "none"
         ? {
@@ -91,7 +119,7 @@ function toFloorMapSnapshot(state: FloorEditorState, previous: FloorMapSnapshot 
             gridSize: plan.gridSize ?? 10
           }
       : null,
-    objects: state.objects.map((object): FloorMapSnapshot["objects"][number] => {
+    objects: document ? [] : state.objects.map((object): FloorMapSnapshot["objects"][number] => {
       const common = {
         id: object.id,
         x: object.x,

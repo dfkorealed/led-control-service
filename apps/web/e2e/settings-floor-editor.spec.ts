@@ -6,6 +6,94 @@ import {
 } from "./support/layout-assertions";
 import { installSettingsApiRoutes } from "./support/settings-api";
 
+for (const width of [1024, 390]) test(`U13 common monitoring saved revision reload at ${width}px (HTTP fixture)`, async ({ page }, testInfo) => {
+  await page.setViewportSize({ width, height: 900 });
+  await page.addInitScript(({ mobile }) => {
+    if (mobile) document.addEventListener("DOMContentLoaded", () => {
+      document.documentElement.dataset.ledControlMobileWebview = "true";
+      document.documentElement.dataset.ledControlNativeAppState = "active";
+    });
+  }, { mobile: width < 768 });
+  await installSettingsApiRoutes(page, "admin");
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  let revision = 1;
+  const requested: string[] = [];
+  const document = () => ({ formatVersion: 1, generationId: "u13-generation", revision,
+    width: 1200, height: 800, gridSize: 10, elementCount: revision === 2 ? 1 : 2,
+    manifest: { assetId: "canonical", sha256: "a".repeat(64), byteSize: 100, decodedByteSize: 100 } });
+  const shape = (id: string, x: number, color: string) => ({ id, type: "rectangle",
+    geometry: { origin: { x, y: 200 }, width: 200, height: 200 },
+    transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
+    style: { strokeColor: null, fillColor: color, strokeWidth: 0, opacity: 1 },
+    groupId: null, layerId: "layer", zIndex: 0, visible: true, locked: false, provenance: null });
+  await page.route("**/api/sites/site-1/floors/floor-1/map-snapshot", route => route.fulfill({ json: {
+    floorId: "floor-1", revision, width: 1200, height: 800, floorPlan: null, mapDocument: document(),
+    objects: [], fixtures: [{ id: "fixture-1", name: "B2-L01", x: 100, y: 100, size: 20 }]
+  } }));
+  await page.route("**/api/floors/floor-1/map-document/**", route => {
+    const url = new URL(route.request().url()); requested.push(url.pathname + url.search);
+    const ref = document();
+    if (url.pathname.endsWith("/manifest")) return route.fulfill({ json: {
+      generationId: ref.generationId, revision: ref.revision, canonical: ref.manifest,
+      displayLayerBindings: [{ layerName: "layer", layerId: "layer" }], groups: [],
+      layers: [{ id: "layer", name: "Layer", order: 0, visible: true, locked: false }],
+      display: { version: 2, sceneId: "00000000-0000-4000-8000-000000000001", regionId: "manual",
+        manifestAssetId: "00000000-0000-4000-8000-000000000002", width: 1200, height: 800,
+        gridSize: 10, padding: 0, tileSize: 512, lodMode: "additive", primitiveCount: 0, tileCount: 0,
+        byteSize: 1, sha256: "a".repeat(64), sourceBounds: { minX: 0, minY: 0, maxX: 1200, maxY: 800 },
+        transform: { scaleX: 1, scaleY: 1, translateX: 0, translateY: 0 }, tiles: [] }
+    } });
+    if (url.pathname.endsWith("/changes")) return route.fulfill({ json: {
+      generationId: ref.generationId, revision: ref.revision, nextCursor: null,
+      operations: [shape("kept", 700, "#06b6d4"), ...(revision === 2 ? [] : [shape("deleted", 300, "#e11d48")])]
+        .map(element => ({ kind: "add", element }))
+    } });
+    return route.fulfill({ status: 404 });
+  });
+  await page.goto("/monitoring?siteId=site-1");
+  const canvas = page.locator("[data-floor-map-webgl-overlay] canvas");
+  await expect(canvas).toHaveCount(1);
+  await expect(canvas).toBeVisible();
+  await expect(page.locator(".floor-scene-canvas")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "저장", exact: true })).toHaveCount(0);
+  const sample = async (x: number, rgb: number[]) => {
+    const surface = page.locator("[data-floor-map-surface]");
+    await surface.scrollIntoViewIfNeeded();
+    const point = await surface.evaluate((element, x) => {
+      const r = element.getBoundingClientRect();
+      return { x: r.left + element.clientLeft + (r.width - element.clientLeft * 2) * x / 1200,
+        y: r.top + element.clientTop + (r.height - element.clientTop * 2) * 300 / 800 };
+    }, x);
+    const png = (await page.screenshot({ scale: "css" })).toString("base64");
+    return page.evaluate(async ({ png, point, rgb }) => {
+      const image = new Image(); image.src = `data:image/png;base64,${png}`; await image.decode();
+      const sample = window.document.createElement("canvas"); sample.width = image.width; sample.height = image.height;
+      const context = sample.getContext("2d")!; context.drawImage(image, 0, 0);
+      const pixel = context.getImageData(Math.round(point.x), Math.round(point.y), 1, 1).data;
+      return rgb.every((value, channel) => Math.abs(value - pixel[channel]) < 12);
+    }, { png, point, rgb });
+  };
+  await expect.poll(() => sample(400, [225, 29, 72])).toBe(true);
+  await expect.poll(() => sample(800, [6, 182, 212])).toBe(true);
+  await page.getByRole("button", { name: "지도 확대", exact: true }).click();
+  await expect(page.getByTestId("monitoring-map-viewport")).toHaveAttribute("data-zoom", "1.1");
+  await expect.poll(() => sample(800, [6, 182, 212])).toBe(true);
+  revision = 2; // A confirmed API revision fixture, not a real editor/database save.
+  await page.reload();
+  await expect.poll(() => sample(800, [6, 182, 212])).toBe(true);
+  await expect.poll(() => sample(400, [225, 29, 72])).toBe(false);
+  revision = 3; // Simulates the server reference after a saved inverse operation.
+  await page.reload();
+  await expect.poll(() => sample(400, [225, 29, 72])).toBe(true);
+  expect(requested.some(path => path.includes("/elements"))).toBe(false);
+  expect(requested.some(path => path.includes("revision=2"))).toBe(true);
+  expect(errors).toEqual([]);
+  const screenshot = testInfo.outputPath("u13-monitoring.png");
+  await page.screenshot({ path: screenshot });
+  await testInfo.attach("u13-monitoring", { path: screenshot, contentType: "image/png" });
+});
+
 const responsiveViewports = [
   { width: 1440, height: 900 },
   { width: 1024, height: 768 },

@@ -1,5 +1,8 @@
 import Konva from "konva";
+import { useQueryClient } from "@tanstack/react-query";
 import {
+  lazy,
+  Suspense,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -26,6 +29,10 @@ import {
 import { readCadSceneBytes, readCadSceneJson } from "../../api/cad-scene-content";
 import { useFloorMapViewportOverlay, type FloorMapCameraFrame } from "./FloorMapViewport";
 import type { ReadOnlyCadSceneRenderer } from "./cad-scene-readonly-runtime";
+import { createMapDocumentSource } from "../../api/map-document";
+import { useMapDocumentReadScope } from "../floor-editor/editor-monitoring-cache";
+
+const MapSceneCanvas = lazy(() => import("../map-scene/MapSceneCanvas").then(module => ({ default: module.MapSceneCanvas })));
 
 const fixtureStatusLabels = {
   online: "정상",
@@ -113,8 +120,9 @@ export function FloorScene({
   coarsePointer = false,
   onFixturePress
 }: FloorSceneProps) {
-  const nativeCad = snapshot.floorPlan?.sourceType === "cad" && snapshot.cadScene;
-  const backgroundUrl = nativeCad ? null : snapshot.floorPlan?.renderedImageUrl ?? snapshot.floorPlan?.imageUrl;
+  const commonMap = snapshot.mapDocument;
+  const nativeCad = !commonMap && snapshot.floorPlan?.sourceType === "cad" && snapshot.cadScene;
+  const backgroundUrl = commonMap || nativeCad ? null : snapshot.floorPlan?.renderedImageUrl ?? snapshot.floorPlan?.imageUrl;
   const objectCanvasHost = useRef<HTMLDivElement>(null);
   const [objectCanvasSize, setObjectCanvasSize] = useState({ width: 1, height: 1 });
   useLayoutEffect(() => {
@@ -134,8 +142,8 @@ export function FloorScene({
     const observer = new ResizeObserver(measure);
     observer.observe(host);
     return () => observer.disconnect();
-  }, [snapshot.width, snapshot.height]);
-  const objects = snapshot.objects.filter((object) => object.visible);
+  }, [snapshot.width, snapshot.height, Boolean(commonMap)]);
+  const objects = commonMap ? [] : snapshot.objects.filter((object) => object.visible);
   const renderedFixtures = useMemo<SceneFixture[]>(() => {
     if (snapshot.fixtures === undefined) {
       return fixtures.filter((fixture) => fixture.placementStatus !== "unplaced");
@@ -161,20 +169,23 @@ export function FloorScene({
         placementStatus: "placed" as const
       };
     });
-    const runtimeOnlyFixtures = fixtures.filter((fixture) =>
+    // Common snapshots contain the authoritative placements. Runtime telemetry
+    // may still contain pre-import coordinates until its next polling cycle.
+    const runtimeOnlyFixtures = snapshot.mapDocument ? [] : fixtures.filter((fixture) =>
       !snapshotFixtureIds.has(fixture.id) && fixture.placementStatus !== "unplaced"
     );
     return [...snapshotFixtures, ...runtimeOnlyFixtures];
-  }, [fixtures, snapshot.fixtures]);
+  }, [fixtures, snapshot.fixtures, snapshot.mapDocument]);
 
   return (
     <div className="relative h-full w-full" data-floor-scene="" data-map-objects-interactive={interactive ? "true" : "false"}>
-      {snapshot.floorPlan?.sourceType === "cad" && snapshot.cadScene
+      {commonMap ? <CommonMapReadOnlyLayer snapshot={snapshot} /> : null}
+      {nativeCad && snapshot.cadScene
         ? <CadSceneReadOnlyLayer descriptor={snapshot.cadScene} mapRevision={snapshot.revision} />
         : null}
       {backgroundUrl ? <img className="pointer-events-none absolute inset-0 z-0 h-full w-full object-contain" src={backgroundUrl} alt={`${floorName ?? "층"} 도면`} draggable={false} /> : null}
       {/* Konva owns generated child canvas dimensions; the stable hook is the documented library geometry exception. */}
-      <div ref={objectCanvasHost} className="floor-scene-canvas pointer-events-none absolute inset-0 z-1 h-full w-full overflow-hidden" aria-hidden="true">
+      {!commonMap ? <div ref={objectCanvasHost} className="floor-scene-canvas pointer-events-none absolute inset-0 z-1 h-full w-full overflow-hidden" aria-hidden="true">
         {/* Logical CAD maps can be 32768 units wide. Rasterizing that extent
             before CSS scaling exhausts browser canvas memory; scale geometry
             into the measured display surface instead. */}
@@ -187,7 +198,7 @@ export function FloorScene({
             ))}
           </Layer>
         </Stage>
-      </div>
+      </div> : null}
       <div className="sr-only" aria-hidden="true">
         {objects.map((object) => (
           <span key={object.id} data-testid={`map-object-${object.id}`}>{object.type}</span>
@@ -261,6 +272,54 @@ export function FloorScene({
       })}
     </div>
   );
+}
+
+function CommonMapReadOnlyLayer({ snapshot }: { snapshot: FloorMapSnapshot }) {
+  const overlay = useFloorMapViewportOverlay();
+  const queryClient = useQueryClient();
+  const scope = useMapDocumentReadScope(snapshot.floorId);
+  const authScope = scope?.authScope;
+  const [frame, setFrame] = useState<FloorMapCameraFrame | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const [failedKey, setFailedKey] = useState<string | null>(null);
+  const [active, setActive] = useState(() => initialNativeAppState() === "active" && window.document.visibilityState !== "hidden");
+  useEffect(() => {
+    let nativeState = initialNativeAppState();
+    const reconcile = () => setActive(nativeState === "active" && window.document.visibilityState !== "hidden");
+    const onLifecycle = (event: Event) => {
+      const state = (event as CustomEvent<{ state?: string }>).detail?.state;
+      if (state !== "active" && state !== "background" && state !== "inactive") return;
+      nativeState = state;
+      reconcile();
+    };
+    window.addEventListener("led-control:webview-lifecycle", onLifecycle);
+    window.document.addEventListener("visibilitychange", reconcile);
+    return () => {
+      window.removeEventListener("led-control:webview-lifecycle", onLifecycle);
+      window.document.removeEventListener("visibilitychange", reconcile);
+    };
+  }, []);
+  const document = snapshot.mapDocument!;
+  const key = JSON.stringify([authScope, snapshot.floorId, document.generationId, document.revision, attempt]);
+  const source = useMemo(() => authScope ? createMapDocumentSource({ floorId: snapshot.floorId, authScope }) : null,
+    [authScope, snapshot.floorId, attempt, active]);
+  useLayoutEffect(() => overlay?.subscribe(setFrame), [overlay]);
+  const failed = failedKey === key;
+  return <>
+    {active && overlay?.overlayRoot && frame && source && !failed ? createPortal(<Suspense fallback={null}><MapSceneCanvas
+      source={source} documentRef={document} camera={frame.camera} readOnly
+      platform={isMobileWebView() ? "mobile" : "desktop"}
+      onError={() => setFailedKey(key)}
+      style={{ position: "absolute", left: frame.left, top: frame.top, width: frame.width, height: frame.height }}
+    /></Suspense>, overlay.overlayRoot) : null}
+    {failed || !authScope ? <div className="absolute inset-x-3 top-3 z-5" role="alert">
+      <UiText>맵을 표시하지 못했습니다.</UiText>
+      <Button variant="secondary" onClick={() => {
+        if (scope) void queryClient.invalidateQueries({ queryKey: ["floor-map", scope.siteId, snapshot.floorId], exact: true });
+        setAttempt(value => value + 1);
+      }}>맵 다시 불러오기</Button>
+    </div> : null}
+  </>;
 }
 
 function CadSceneReadOnlyLayer({ descriptor, mapRevision }: { descriptor: CadSceneDescriptor; mapRevision: number }) {
@@ -467,7 +526,7 @@ function apiPath(path: string): string {
   return path.startsWith("/api/") ? path : `/api${path}`;
 }
 
-function tilePath(descriptor: CadSceneDescriptor, tile: CadSceneTile): string {
+function tilePath(descriptor: CadSceneDescriptor, tile: Pick<CadSceneTile, "lod" | "tileX" | "tileY" | "part">): string {
   return descriptor.tileContentPathTemplate
     .replace("{lod}", String(tile.lod))
     .replace("{tileX}", String(tile.tileX))
