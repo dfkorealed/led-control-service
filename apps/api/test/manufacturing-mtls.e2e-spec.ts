@@ -28,6 +28,8 @@ describe("Nest manufacturing mTLS integration", () => {
     if (directory) rmSync(directory, { recursive: true, force: true });
   });
 
+  // 실제 인증서 발급·폐기와 TLS 검증은 병렬 전체 실행 시 기본 5초를 넘을 수 있다.
+  // 응답 속도 SLO 검사가 아니므로 이 통합 검사에만 별도 실행 한도를 둔다.
   it("createApiHttpsOptions와 ManufacturingAuthGuard를 결합해 정상 station만 허용하고 runtime CRL 폐기를 반영한다", async () => {
     directory = mkdtempSync(join(tmpdir(), "nest-manufacturing-mtls-"));
     const repo = join(directory, "repo");
@@ -66,7 +68,7 @@ describe("Nest manufacturing mTLS integration", () => {
     execFileSync(issuer, ["revoke"], { cwd: repo, env: { ...process.env, PKI_ENV: "lab" }, stdio: "pipe" });
     server.setSecureContext(createApiHttpsOptions(env).httpsOptions!);
     expect(await call(address.port, directory, manufacturing, true)).toBe(401);
-  });
+  }, 30_000);
 });
 
 function issueServer(directory: string) {

@@ -17,7 +17,7 @@ const mocks = vi.hoisted(() => ({
   useCommandStatus: vi.fn()
 }));
 
-vi.mock("../../api/client", () => ({ apiPost: mocks.apiPost, apiGet: mocks.apiGet }));
+vi.mock("../../api/client", () => ({ apiPost: mocks.apiPost, apiGet: mocks.apiGet, apiRequest: vi.fn() }));
 vi.mock("../../api/queries", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../api/queries")>()),
   useControlDashboard: mocks.useControlDashboard,

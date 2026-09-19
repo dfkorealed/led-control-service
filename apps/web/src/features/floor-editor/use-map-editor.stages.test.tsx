@@ -59,7 +59,9 @@ describe("streamed map editor controller", () => {
     act(() => store().undo());
     expect(store().state?.fixtures[0]).toMatchObject({ x: 403, y: 407 });
     expect(store().mapOperations).toHaveLength(0);
-    await waitFor(() => expect(view.result.current.bounds?.maxX).toBe(413));
+    // maxX는 동기 복구된 조명만으로도 일치한다. 도형의 비동기 undo 조회까지
+    // 끝난 전체 bounds를 기다려 중간 좌표로 fitSelection을 호출하지 않는다.
+    await waitFor(() => expect(view.result.current.bounds).toEqual({ minX: 100, minY: 100, maxX: 413, maxY: 417 }));
     act(() => { store().setViewport({ width: 800, height: 600 }); view.result.current.fitSelection(); });
     expect(store().zoom).toBeCloseTo(552 / 317);
   });

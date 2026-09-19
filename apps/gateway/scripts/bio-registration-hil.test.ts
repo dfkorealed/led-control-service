@@ -408,6 +408,7 @@ describe("guarded BIO registration HIL CLI", () => {
     await writeFile(childPath, `
       import { runBioRegistrationHil } from ${JSON.stringify(moduleUrl)};
       const device = { nativeUuid: "001122334455", logicalAddress: 0x1234, networkId: 0x21, firmwareVersion: "1", rssi: -1 };
+      let repeatedSignalObserved = false;
       const writer = {
         discoverFresh: async () => [device], reserveTemporaryMapping: async () => {},
         assignAddressOnce: async (_device, _address, control) => {
@@ -416,9 +417,23 @@ describe("guarded BIO registration HIL CLI", () => {
         },
         confirmTemporaryMapping: async () => {}, readState: async () => ({ brightnessPercent: 20, mode: "sensor" }),
         setOutput: async (_device, percent, control) => { control?.onWriteStarted?.(); console.log("OUTPUT:" + percent); },
-        restoreSensorMode: async () => { console.log("RESTORE"); },
+        restoreSensorMode: async () => {
+          if (!repeatedSignalObserved) {
+            await new Promise(resolve => {
+              process.once(${JSON.stringify(terminationSignal)}, () => {
+                repeatedSignalObserved = true;
+                console.log("REPEATED_HANDLERS:" + process.listenerCount(${JSON.stringify(terminationSignal)}));
+                resolve();
+              });
+              console.log("RESTORE");
+            });
+          } else console.log("RESTORE");
+        },
         close: async () => { console.log("CLOSE"); }
       };
+      // 장치 없는 mock의 미완료 Promise와 signal listener만으로는 Node가 살아 있지 않는다.
+      // 실제 USB 핸들 대신 검사 전체 수명 동안 핸들을 유지하고 정상 종료 전에 해제한다.
+      const keepAlive = setInterval(() => {}, 1000);
       const code = await runBioRegistrationHil([
         "--execute", "--fingerprint", "sha256:48f4634d1002f9f3", "--old-address", "0x1234",
         "--new-address", "0x0100", "--confirm-address-change", "CHANGE:sha256:48f4634d1002f9f3:0x1234->0x0100"
@@ -434,6 +449,7 @@ describe("guarded BIO registration HIL CLI", () => {
         },
         output: (line) => console.log("RESULT:" + line)
       });
+      clearInterval(keepAlive);
       console.log("EXIT:" + code);
       process.exitCode = code;
     `, { mode: 0o600 });
@@ -444,14 +460,21 @@ describe("guarded BIO registration HIL CLI", () => {
     });
     let stdout = "";
     let stderr = "";
+    let firstSignalSent = false;
+    let repeatedSignalSent = false;
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (chunk) => { stderr += chunk; });
     child.stdout.on("data", (chunk) => {
       stdout += chunk;
-      if (stdout.includes("PROMPT") && !stdout.includes("SIGNALLED")) {
-        stdout += "SIGNALLED\n";
+      if (stdout.includes("PROMPT") && !firstSignalSent) {
+        firstSignalSent = true;
         child.kill(terminationSignal);
+      }
+      // 두 번째 신호는 복구 작업을 열린 상태로 유지한 뒤 보낸다. 즉시 종료하는
+      // mock에 연속 kill하면 정리 완료 후 신호가 도착해 정상 기본 종료와 경쟁한다.
+      if (stdout.includes("RESTORE") && !repeatedSignalSent) {
+        repeatedSignalSent = true;
         child.kill(terminationSignal);
       }
     });
@@ -463,6 +486,8 @@ describe("guarded BIO registration HIL CLI", () => {
 
     expect({ ...result, stderr }).toEqual({ code: 1, signal: null, stderr: "" });
     expect(stdout).toContain("RESTORE");
+    // 관찰용 once listener는 이미 제거됐으므로 제품의 종료 방지 listener만 남아야 한다.
+    expect(stdout).toContain("REPEATED_HANDLERS:1");
     expect(stdout).toContain("CLOSE");
     expect(stdout).toContain("CLEANUP");
     expect(stdout).toContain('RESULT:{"status":"FAILED"');

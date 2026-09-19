@@ -12,7 +12,7 @@ import {
   startMfaEnrollment
 } from "./auth";
 
-vi.mock("./client", () => ({ apiGet: vi.fn(), apiPost: vi.fn(), apiDelete: vi.fn() }));
+vi.mock("./client", () => ({ apiGet: vi.fn(), apiPost: vi.fn(), apiDelete: vi.fn(), apiRequest: vi.fn() }));
 
 describe("account security API", () => {
   beforeEach(() => {

@@ -24,7 +24,7 @@ describe("Vite configuration", () => {
       envDir: "../..",
       hasApiProxy: true,
       testEnvironment: "jsdom",
-      testExclude: expect.arrayContaining(["scripts/**/*.test.mjs"])
+      testExclude: expect.arrayContaining(["scripts/**/*.test.mjs", "**/.local/**"])
     });
   });
 });

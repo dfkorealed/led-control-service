@@ -19,7 +19,7 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     setupFiles: "./src/test/setup.ts",
-    // scripts의 node:test 검사는 Vitest와 분리해 Node 명령으로 실행한다.
-    exclude: ["**/node_modules/**", "**/dist/**", "e2e/**", "scripts/**/*.test.mjs"]
+    // Node 전용 검사와 .local의 일회성 진단 파일은 정식 Vitest 수집에서 제외한다.
+    exclude: ["**/node_modules/**", "**/dist/**", "**/.local/**", "e2e/**", "scripts/**/*.test.mjs"]
   }
 });
