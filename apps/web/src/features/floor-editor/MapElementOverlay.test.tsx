@@ -3,11 +3,11 @@ import { act, cleanup, render } from "@testing-library/react";
 import { Layer, Stage } from "react-konva";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getMapElementBounds, transformMapPoint, type MapElement, type MapOp } from "@led-control/shared";
-import { getMapElementOverlaySelection, MapElementOverlay, MapElementOverlayLimitError,
+import { getMapElementOverlaySelection, MapElementOverlay, MapElementOverlayLimitError, MapElementOverlayTextError,
   MAX_MAP_ELEMENT_OVERLAY_ELEMENTS, MAX_MAP_ELEMENT_OVERLAY_POINTS } from "./MapElementOverlay";
 import { createMapElementFromDrag } from "./map-element-tools";
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 const types: MapElement["type"][] = ["line", "rectangle", "triangle", "ellipse", "arc", "polyline", "polygon", "text"];
 const make = (type: MapElement["type"], id: string = type) => createMapElementFromDrag(
   type, { x: 103, y: 107 }, { x: 183, y: 147 }, id
@@ -48,14 +48,47 @@ describe("MapElementOverlay", () => {
   it("keeps the canonical top-left text baseline with no CAD offset or second rotation", () => {
     const element = make("text");
     const { stage } = setup([element]);
-    const text = stage.findOne<Konva.Text>(".map-element-shape")!;
-    expect(text.getClassName()).toBe("Text");
+    const text = stage.findOne<Konva.Shape>(".map-element-shape")!;
     expect(text.position()).toEqual({ x: 103, y: 107 });
     expect(text.offsetY()).toBe(0);
     expect(text.rotation()).toBe(0);
-    expect(text.fontSize()).toBe(20);
     expect(text.width()).toBe(80);
     expect(text.height()).toBe(40);
+  });
+
+  it.each([
+    ["ABC", 80, 40, 20], ["ABCDEFGHIJKLMN", 80, 40, 20], ["W", 1, 40, 20], ["ABC", 80, 40, 200]
+  ] as const)("draws the complete run %s in the canonical %sx%s quad at font size %s", (text, width, height, fontSize) => {
+    // The global canvas mock measures every string as zero. Give both the old Konva
+    // layout and the custom scene context realistic widths so clipping cannot hide.
+    const textPrototype = Konva.Text.prototype as Konva.Text & { _getTextWidth(value: string): number };
+    vi.spyOn(textPrototype, "_getTextWidth").mockImplementation(function (this: Konva.Text, value) {
+      return value.length * this.fontSize() * 0.7;
+    });
+    vi.spyOn(Konva.Context.prototype, "measureText").mockImplementation(value => ({ width: value.length * 14 }) as TextMetrics);
+    const draw = vi.spyOn(Konva.Context.prototype, "fillText");
+    const clip = vi.spyOn(Konva.Context.prototype, "clip");
+    const element: MapElement = { ...make("text"), type: "text", geometry: { position: { x: 40, y: 40 }, text, width, height, fontSize } };
+    const { stage, onError } = setup([element]);
+    draw.mockClear(); clip.mockClear();
+    act(() => stage.draw());
+    expect(draw.mock.calls.map(call => call[0])).toEqual([text]);
+    expect(clip).toHaveBeenCalled();
+    expect(getMapElementOverlaySelection([element]).map(item => item.id)).toEqual(["text"]);
+    expect(onError).not.toHaveBeenCalled();
+    expect(stage.findOne<Konva.Shape>(".map-element-shape")!.getClientRect()).toEqual({ x: 40, y: 40, width, height });
+  });
+
+  it.each([{ width: 0, height: 40 }, { width: 80, height: 0 }])("refuses nonempty zero-area text before promotion: %s", size => {
+    const element = make("text");
+    if (element.type !== "text") throw new Error("Expected text");
+    element.geometry = { ...element.geometry, ...size, text: "ABC" };
+    expect(() => getMapElementOverlaySelection([make("rectangle"), element])).toThrow(MapElementOverlayTextError);
+    const { stage, onError, onChange } = setup([make("rectangle"), element]);
+    expect(stage.find(".map-element-shape")).toHaveLength(0);
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError.mock.calls[0][0]).toMatchObject({ code: "MAP_ELEMENT_OVERLAY_TEXT_UNSUPPORTED", elementId: "text" });
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   it("renders polygon holes using evenodd and arcs without a closing chord", () => {

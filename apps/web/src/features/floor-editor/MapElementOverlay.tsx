@@ -1,6 +1,6 @@
 import Konva from "konva";
 import { useLayoutEffect, useMemo, useRef } from "react";
-import { Ellipse, Group, Line, Path, Rect, Text, Transformer } from "react-konva";
+import { Ellipse, Group, Line, Path, Rect, Shape, Transformer } from "react-konva";
 import type { MapElement, MapOp, Point } from "@led-control/shared/map-document-contracts";
 import { themeColor } from "../../components/ui";
 import type { AlignmentGuide } from "./geometry";
@@ -17,6 +17,14 @@ export class MapElementOverlayLimitError extends RangeError {
   constructor(readonly reason: "elements" | "points", readonly count: number, readonly limit: number) {
     super(reason === "elements" ? "선택 도형의 편집 표시 한도를 초과했습니다." : "선택 도형의 좌표 및 문자 표시 한도를 초과했습니다.");
     this.name = "MapElementOverlayLimitError";
+  }
+}
+
+export class MapElementOverlayTextError extends RangeError {
+  readonly code = "MAP_ELEMENT_OVERLAY_TEXT_UNSUPPORTED";
+  constructor(readonly elementId: string) {
+    super("내용이 있는 텍스트의 편집 표시 영역은 너비와 높이가 0보다 커야 합니다.");
+    this.name = "MapElementOverlayTextError";
   }
 }
 
@@ -43,6 +51,9 @@ export function getMapElementOverlaySelection(selection: MapElement[]): MapEleme
   const elements = uniqueMapSelection(selection).filter(element => element.visible);
   let points = 0;
   for (const element of elements) {
+    // Reject the entire promotion before returning IDs; the host must retain renderer originals.
+    if (element.type === "text" && element.geometry.text.length > 0 &&
+      (element.geometry.width <= 0 || element.geometry.height <= 0)) throw new MapElementOverlayTextError(element.id);
     points += element.type === "polygon" ? element.geometry.outer.length + element.geometry.holes.reduce((sum, ring) => sum + ring.length, 0)
       : element.type === "polyline" || element.type === "triangle" ? element.geometry.points.length
       : element.type === "text" ? element.geometry.text.length : 4;
@@ -212,9 +223,37 @@ function ElementShape({ element, zoom }: { element: MapElement; zoom: number }) 
     case "ellipse": return <Ellipse {...style} x={element.geometry.center.x} y={element.geometry.center.y}
       radiusX={element.geometry.radiusX} radiusY={element.geometry.radiusY} />;
     case "arc": return <Path {...style} data={arcPath(element)} fillEnabled={false} />;
-    case "text": return <Text name="map-element-shape" x={element.geometry.position.x} y={element.geometry.position.y}
-      width={element.geometry.width} height={element.geometry.height} fontSize={element.geometry.fontSize} text={element.geometry.text}
-      fill={element.style.strokeColor ?? element.style.fillColor ?? undefined}
-      fillEnabled={element.style.strokeColor !== null || element.style.fillColor !== null} wrap="none" />;
+    case "text": return <MapTextShape element={element} />;
   }
+}
+
+function MapTextShape({ element }: { element: Extract<MapElement, { type: "text" }> }) {
+  const { position, width, height, text } = element.geometry;
+  const color = element.style.strokeColor ?? element.style.fillColor;
+  return <Shape name="map-element-shape" x={position.x} y={position.y} width={width} height={height}
+    fill={color ?? undefined} fillEnabled={color !== null} strokeEnabled={false}
+    sceneFunc={context => {
+      if (!text || color === null || width <= 0 || height <= 0) return;
+      context.save();
+      // Match the canonical MapScene draft atlas in CadSceneRenderer.createTextMeshes:
+      // the complete 32px sans-serif run, 2px padding, 40px cell and 2048px width cap
+      // map to the geometry quad. fontSize is canonical metadata, not a clipping limit.
+      // Drawing directly avoids one bitmap allocation per selected text element.
+      context.beginPath(); context.rect(0, 0, width, height); context.clip();
+      context.font = "32px sans-serif";
+      context.textBaseline = "top";
+      context.textAlign = "left";
+      context.letterSpacing = "0px";
+      const measuredWidth = Math.max(1, context.measureText(text).width);
+      const cellWidth = Math.min(2048, Math.max(8, Math.ceil(measuredWidth) + 4));
+      context.scale(width / cellWidth, height / 40);
+      context.translate(2, 2);
+      context.scale(Math.min(1, (cellWidth - 4) / measuredWidth), 1);
+      context.fillStyle = color;
+      context.fillText(text, 0, 0);
+      context.restore();
+    }}
+    hitFunc={(context, shape) => {
+      context.beginPath(); context.rect(0, 0, width, height); context.closePath(); context.fillStrokeShape(shape);
+    }} />;
 }
