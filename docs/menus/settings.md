@@ -6,9 +6,9 @@
 
 ## 현재 우선순위
 
-- CAD 표시 기준은 배경 이미지가 아닌 편집 가능한 맵 요소다. 네모·세모·선·텍스트와 원/타원·호·연속선의 식별자·좌표·스타일을 보존하고, WebGL은 요소를 묶어 그리는 역할만 맡는다. 전체 보기의 가시 영역 누락과 요소별 편집·저장 회귀를 해결 중이다. native `ellipse` 표현 지원과 원본 DXF `ELLIPSE` 파싱 지원은 다르며, 현재 후자는 미지원 목록에 남는다. 미지원 원본을 포함한 100% 재현으로 표시하지 않는다.
+- CAD는 배경 이미지가 아닌 편집 가능한 맵 요소다. 네모·세모·선·텍스트와 원/타원·호·연속선의 식별자·좌표·스타일을 보존하고, 화면용 벡터 geometry만 단순화·병합한다. 그룹 없는 요소는 한 번 클릭, 그룹 내부 요소는 두 번 클릭해 이동·크기·회전·색상·텍스트를 편집한다. 전체 영역 표시·분할 요소 스타일·저장 후 재표시 회귀를 검증했다. native `ellipse` 표현과 원본 DXF `ELLIPSE` 입력 지원은 다르며 후자는 아직 미지원이다. 원본 100% 재현으로 표시하지 않는다.
 - 신규 native CAD 적용은 원본/scene 경계와 transform의 소수점 정밀도를 보존해 한 transaction으로 저장한다. CAD FloorPlan은 `imageUrl=''`, `renderedImageUrl=NULL`로 저장하고 native descriptor로 표시한다. 미리보기 asset은 영역 선택용으로 유지하며 기존 맵 데이터는 재작성하지 않는다. 적용 후 실제 editor-state·맵 snapshot·manifest 재조회까지 서버 회귀로 검사한다.
-- 2026-09-19 CAD 네이티브 통합은 최종 검증 중이다. 전체 맵 fit 최소 배율을 0.001로 확장하고, native scene 위에 기존 SVG를 중복 표시하지 않는다. 편집 저장 뒤 Pixi가 폐기한 context를 재사용하지 않도록 renderer마다 새 canvas를 생성하며, CAD 상태 조회와 렌더 실패는 재시도 가능한 오류로 표시한다. 제공 DWG 두 개의 대용량 region 처리와 모바일 크기 실제 Chromium 검증이 끝나기 전 전체 완료로 판정하지 않는다. 현재 단계는 `docs/project-status.md`와 활성 CAD 네이티브 실행 계획을 따른다.
+- 2026-09-19 CAD 네이티브 통합의 지원 범위 소프트웨어 검증을 완료했다. 전체 맵 fit 최소 배율은 0.001이며 native/SVG 중복 표시를 제거했다. Renderer마다 새 canvas를 생성하고 실패 재시도를 제공하며, context 복원 시 이전 display cache와 pick lease를 해제한다. 두 실제 DWG의 1,308/2개 미배정 위치 적용·API 재조회, 실제 tile 전체 표시, native LINE 편집/reload와 WebView 32 MiB 정책의 Chromium 검증을 통과했다. 실제 RN 기기 검증과 원본 충실도 평가는 별도이며 상세 증거는 `docs/test-results/cad-native-map-2026-09-18.md`를 따른다.
 
 - 2026-09-09 승인 맵 편집 개선은 소프트웨어 구현과 최종 회귀 검증을 완료했다. 층별 미배치 목록 드래그 배치, 단일 조명 우상단 `배치 해제`와 확인 팝업, Undo/Redo·검색·일괄 편집·등록 후 식별을 연결했다. 두 층 실제 API/DB 브라우저 E2E는 2026-09-10 통과했다. 비공개 배경 자산의 신규 업로드는 DWG/DXF CAD 원본만 허용하고 기존 ready image/PDF/rendered SVG 읽기 호환은 유지한다. 2026-09-17에는 DWG/DXF 자동 맵 구성의 샘플 분석 도구와 검증 보고서를 추가했다. image/PDF 신규 업로드와 실제 BLE 장비 identity 자동 연결은 제공하지 않는다. 최신 범위는 [에디터 설계](../superpowers/specs/2026-07-06-floor-editor-design.md) 13장과 [실행 계획](../superpowers/plans/2026-07-06-floor-editor-implementation.md) Task 19를 따른다. 실장비 검증·배포는 사용자 요청으로 후속이다.
 - Scene 24~26 설정 개요·역할별 navigation·도면 목록/편집·계정 보안 UI 교정은 완료했다. 새로운 설정 도메인 기능은 아래 미구현 목록과 후속 범위를 유지한다.
@@ -440,6 +440,8 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 - 상세 커밋, 테스트 증거와 재개 순서는 `.superpowers/sdd/progress.md`에 유지한다.
 
 ## 부족하거나 개선이 필요한 기능
+
+- 네이티브 CAD의 일부 원본 entity(`ELLIPSE` 등) 파싱과 사람 기준 재현 정확도 평가는 남아 있다. 큰 도면 첫 전체 표시는 로컬 실제 타일 검증에서 약 10~13초이므로 초기 전송량 최적화 여지가 있다. Chromium 모바일 정책 검증은 실제 iOS/Android WebView GPU·메모리 성능을 대신하지 않는다.
 
 - BIO full runtime 배포는 독립 `compose.bio-runtime.yml`과 `scripts/gateway-bio-runtime.sh`로 BlueZ appliance와 격리한다. 기존 `gateway-appliance-deploy.sh --adapter bio-usb` overlay 경로는 원격 변경 전에 차단한다. 새 runtime은 exact USB와 전용 상태 root를 확인한 뒤 UID 999·capability 0으로 시작한다. 실제 Pi의 재배포에서는 Docker가 중첩 bind mount 연결을 위해 `$DATA_ROOT/gateway/identity`에 남긴 빈 `root:root/0755` directory만 명시적 mountpoint artifact로 인정한다. canonical exact path·directory 종류·소유자·mode·비어 있음을 모두 재검증한 뒤 그 한 경로만 ownership scan에서 prune하며, symlink·내용 존재·다른 owner/mode/type 또는 그 밖의 root 소유 runtime 파일은 기존처럼 old container 정지 전에 거부한다. identify image의 healthy heartbeat와 실제 2초 점등/센서 모드 복원은 확인했으며, 동일 주소 등록 수렴 image의 재배포와 Fixture 생성 검증은 진행 중이다.
 - `bootstrap-only` 설치 CLI는 조명 하드웨어를 시작하지 않고 Gateway assignment와 MQTT identity만 준비한다. 새 admin/site 초기 설정에서 제조사 앱 없이 인증을 완료하기 위한 경계이며, claim 성공을 조명 검색·등록 성공으로 확대하지 않는다. 발급 원장 확인과 실제 adapter 기동은 [설치 runbook](../runbooks/device-lab-first-install.md#81-하드웨어-없는-인증-전용-bootstrap)을 따른다.

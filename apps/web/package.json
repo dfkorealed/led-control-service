@@ -10,6 +10,7 @@
     "brand:assets": "node scripts/render-brand-assets.mjs",
     "test": "vitest run",
     "test:cad-webgl": "playwright test --config=src/features/cad-scene/playwright.config.ts",
+    "test:cad-monitoring-bundle": "node scripts/audit-cad-monitoring-bundle.mjs",
     "ui:check": "node scripts/ui-policy.mjs",
     "test:ui-policy": "node --test scripts/ui-policy.test.mjs",
     "test:date-bundle": "node --test scripts/date-bundle.mjs",

@@ -1,12 +1,12 @@
 # 모니터링 메뉴 기능 현황
 
-기준일: 2026-09-18
+기준일: 2026-09-19
 
 ## 확정 구현 범위
 
 - 조명 검색 결과에서 여러 장치를 선택한 뒤 일괄 또는 개별 정보를 설정할 수 있게 한다. 일괄 설정 이름은 층별 prefix와 서버가 원자 예약한 순번으로 자동 생성한다.
 - ESP32-H2 firmware device UUID의 자사 namespace를 검증해 자사 제품만 검색 결과와 provisioning session에 반영한다.
-- 설정 에디터에서 저장한 도면 배경, 도형, 텍스트, 색상과 조명 위치를 동일한 Konva renderer로 읽기 전용 표시한다.
+- 설정 에디터의 수동 도형·조명은 기존 오버레이로, 네이티브 CAD는 공통 Pixi WebGL 타일 renderer로 읽기 전용 표시한다. 기존 SVG-only 맵의 읽기 호환은 유지한다.
 - 도면 배경은 DB에 공개 URL을 저장하지 않고 인증된 `/api/floors/{floorId}/assets/{assetId}/content` 경로로 조회한다. API는 현장 read 권한을 확인한 뒤 300초 signed GET으로 연결하며 pending·타 현장·삭제 자산은 표시하지 않는다.
 - 장비 상태는 BLE Mesh Health Current의 현재 fault만 수집하고 통신 품질 평가는 확장하지 않는다.
 
@@ -21,6 +21,11 @@
 - 자동 HIL 판정. 실제 하드웨어 검증은 수동으로 수행한다.
 
 ## 구현 완료
+
+- 네이티브 CAD는 원본을 보존한 표시용 벡터 batch로 전체 영역을 렌더링한다. 실제 두 도면의 모든 803/875개 tile을 PC·390px에서 확인했고 WebView foreground 정책의 32 MiB 예산에서도 누락 없이 표시했다. Context loss 복귀 시 이전 화면 캐시를 퇴출 가능 상태로 전환하며, 원거리 편집 요소와 저장 revision을 다시 반영한다. 실서버 pipeline 검증과 브라우저 API fixture 검증의 범위는 CAD 검증 보고서에 구분한다.
+
+- 2026-09-19 네이티브 CAD는 viewport 크기 canvas와 카메라 좌표를 공유하고, 이동한 요소는 저장된 원본 타일 locator로 복원한다. 상태/manifest/tile을 strict 검증하며 응답 stream과 renderer의 합산 메모리 예산을 제한한다. 최초 camera 전달, SVG 중복 배경, WebView background/resume 및 revision 재시작 때 폐기된 context 재사용을 보정했다. 오류는 재시도 가능한 안내로 표시한다. 실제 모바일 기기 성능은 별도 검증 대상이다.
+- 설정에서 조명을 배치한 직후 runtime DTO가 아직 미배치여도 최신 map snapshot에 조명이 있으면 잘못된 `배치된 조명이 없습니다` 배너를 표시하지 않는다. 모니터링 장비 상태의 10분 갱신 정책은 변경하지 않는다.
 
 - 2026-09-18 읽기 전용 맵 DTO는 `FloorLightSlot` 자체를 노출하지 않고, CAD 배경·저장 도형과 `placed`인 모든 조명 layout을 반환한다. slot 배정 조명은 slot x/y와 fixture size를, 자유 배치·legacy/non-CAD 조명은 fixture 자체 x/y/size를 사용한다. `FloorScene`과 저장 직후 monitoring cache도 같은 합집합·좌표 우선순위를 적용하며 `unplaced` 조명만 지도 marker에서 제외한다. API/Web focused 회귀와 실제 PostgreSQL revision 복구 테스트를 통과했으며 현장 도면 시각 HIL은 포함하지 않는다.
 - 2026-09-18 Task 9 Chromium 전체 여정에서 기존 배치 조명을 CAD 적용으로 미배치 전환하고, 두 신규 slot의 fixture/slot ID assignment를 PUT payload 그대로 저장한 뒤 reload 영속성을 확인했다. 모니터링 runtime에는 의도적으로 오래된 미배치 좌표를 주고 revision 3 map snapshot에는 CAD plan과 slot 좌표 fixture 2개를 제공해 snapshot이 authoritative함을 marker pixel 중심으로 검증했으며, rendered asset은 실제 `1200 × 800` 이미지 decode를 확인했다. 브라우저는 deterministic mock API를 사용했고 실제 converter/worker/PostgreSQL/MinIO/API sample pipeline은 clean-build 통합 테스트로 별도 검증했다. 실행 중인 real browser backend lab가 없어 두 경계를 하나의 실제 네트워크 여정으로 연결한 검증은 남아 있다.

@@ -258,6 +258,12 @@ export async function installSettingsApiRoutes(
   let issuedLeaseCount = 0;
   let loggedOut = false;
 
+  // Demo floor assets are not shipped in production. Serve the image owned by
+  // this browser fixture so a 404 banner cannot mask the first fixture marker.
+  await page.route("**/demo/floor-b2.svg", route => route.fulfill({
+    contentType: "image/svg+xml",
+    body: '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800"><rect width="1200" height="800" fill="white"/></svg>'
+  }));
   await page.route("**/api/**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());

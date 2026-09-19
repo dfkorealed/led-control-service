@@ -1,8 +1,8 @@
 import { create } from "zustand";
 import type { EDITOR_MAX_NAME_LENGTH } from "@led-control/shared";
 import { buildEditorChanges, hasEditorChanges } from "./editor-diff";
-import type { EditorFixture, EditorTool, FloorEditorState, FloorMapObject, FloorMapObjectDraft, FloorPlanDraft } from "./editor-types";
-import { clampObjectToMap, snapPointToGridWithinBounds, snapRectToGrid, trianglePointsForSize, type Point } from "./geometry";
+import type { CadEditorSelection, EditorFixture, EditorTool, FloorEditorState, FloorMapObject, FloorMapObjectDraft, FloorPlanDraft } from "./editor-types";
+import { clampEditorZoom, clampObjectToMap, snapPointToGridWithinBounds, snapRectToGrid, trianglePointsForSize, type Point } from "./geometry";
 
 type Selection = { kind: "fixture" | "object"; id: string } | null;
 export type FixturePatch = Partial<Pick<EditorFixture, "name" | "ratedWatt" | "x" | "y" | "size" | "placementStatus" | "positionVerified">>;
@@ -27,6 +27,7 @@ interface EditorStore {
   pan: Point;
   viewport: { width: number; height: number };
   selection: Selection;
+  cadSelection: CadEditorSelection | null;
   selectedFixtureIds: string[];
   lockedFixtureIds: string[];
   layers: LayerSettings;
@@ -50,6 +51,7 @@ interface EditorStore {
   selectFixture: (fixtureId: string, additive?: boolean) => void;
   selectFixtures: (ids: string[], additive?: boolean) => void;
   selectObject: (objectId: string) => void;
+  selectCad: (selection: CadEditorSelection | null) => void;
   clearSelection: () => void;
   updateFixture: (fixtureId: string, patch: FixturePatch) => void;
   updateFixtureProperties: (ids: string[], patch: FixturePatch | ((fixture: EditorFixture, index: number) => FixturePatch)) => void;
@@ -132,17 +134,17 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
   };
   return {
     initialState: null, state: null, isDirty: false, dirtyFixtureIds: [], dirtyObjectIds: [], activeTool: "select", zoom: 1,
-    pan: { x: 0, y: 0 }, viewport: { width: 800, height: 600 }, selection: null, selectedFixtureIds: [],
+    pan: { x: 0, y: 0 }, viewport: { width: 800, height: 600 }, selection: null, cadSelection: null, selectedFixtureIds: [],
     lockedFixtureIds: [], layers: defaultLayers(), snap: true, preview: [], past: [], future: [],
-    initialize: (state) => set({ initialState: state, state, isDirty: false, dirtyFixtureIds: [], dirtyObjectIds: [], activeTool: "select", zoom: 1, pan: { x: 0, y: 0 }, selection: null, selectedFixtureIds: [], lockedFixtureIds: [], layers: defaultLayers(), preview: [], past: [], future: [], snap: true }),
-    reset: () => set({ initialState: null, state: null, isDirty: false, dirtyFixtureIds: [], dirtyObjectIds: [], activeTool: "select", zoom: 1, pan: { x: 0, y: 0 }, selection: null, selectedFixtureIds: [], lockedFixtureIds: [], layers: defaultLayers(), preview: [], past: [], future: [], snap: true }),
+    initialize: (state) => set({ initialState: state, state, isDirty: false, dirtyFixtureIds: [], dirtyObjectIds: [], activeTool: "select", zoom: 1, pan: { x: 0, y: 0 }, selection: null, cadSelection: null, selectedFixtureIds: [], lockedFixtureIds: [], layers: defaultLayers(), preview: [], past: [], future: [], snap: true }),
+    reset: () => set({ initialState: null, state: null, isDirty: false, dirtyFixtureIds: [], dirtyObjectIds: [], activeTool: "select", zoom: 1, pan: { x: 0, y: 0 }, selection: null, cadSelection: null, selectedFixtureIds: [], lockedFixtureIds: [], layers: defaultLayers(), preview: [], past: [], future: [], snap: true }),
     adoptBaseline: (state, preserveHistory = false) => set({ initialState: state, state, isDirty: false, dirtyFixtureIds: [], dirtyObjectIds: [], ...(preserveHistory ? {} : { past: [], future: [], preview: [] }) }),
     recoverDraft: (state) => { if (state.floor.id === get().initialState?.floor.id && state.floor.mapRevision === get().initialState?.floor.mapRevision) commit(state); },
-    discardChanges: () => { const state = get().initialState; if (state) get().initialize(state); else set({ isDirty: false, selection: null, selectedFixtureIds: [], past: [], future: [] }); },
+    discardChanges: () => { const state = get().initialState; if (state) get().initialize(state); else set({ isDirty: false, selection: null, cadSelection: null, selectedFixtureIds: [], past: [], future: [] }); },
     undo: () => { const entry = get().past.at(-1); if (entry) set({ ...entry, ...dirty(entry.state), past: get().past.slice(0, -1), future: [...get().future, snapshot()], preview: [] }); },
     redo: () => { const entry = get().future.at(-1); if (entry) set({ ...entry, ...dirty(entry.state), past: [...get().past, snapshot()], future: get().future.slice(0, -1), preview: [] }); },
-    setActiveTool: (activeTool) => set({ activeTool, ...(activeTool !== "select" ? { selection: null, selectedFixtureIds: [] } : {}) }),
-    setZoom: (zoom) => set({ zoom: Math.min(Math.max(zoom, 0.1), 4) }),
+    setActiveTool: (activeTool) => set({ activeTool, ...(activeTool !== "select" ? { selection: null, cadSelection: null, selectedFixtureIds: [] } : {}) }),
+    setZoom: (zoom) => set({ zoom: clampEditorZoom(zoom) }),
     setPan: (pan) => set({ pan }),
     setViewport: (viewport) => set({ viewport }),
     resetZoom: () => set({ zoom: 1, pan: { x: 0, y: 0 } }),
@@ -156,7 +158,7 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
       const y = fixtures.length ? Math.min(...fixtures.map((f) => f.y)) - 40 : 0;
       const width = fixtures.length ? Math.max(...fixtures.map((f) => f.x)) - x + 40 : bounds?.width ?? state.floor.floorPlan?.width ?? 1200;
       const height = fixtures.length ? Math.max(...fixtures.map((f) => f.y)) - y + 40 : bounds?.height ?? state.floor.floorPlan?.height ?? 800;
-      const zoom = Math.min(2, Math.max(0.1, Math.min((viewport.width - 48) / width, (viewport.height - 48) / height)));
+      const zoom = Math.min(2, clampEditorZoom(Math.min((viewport.width - 48) / width, (viewport.height - 48) / height)));
       set({ zoom, pan: { x: (viewport.width - width * zoom) / 2 - x * zoom, y: (viewport.height - height * zoom) / 2 - y * zoom } });
     },
     selectFixture: (id, additive = false) => {
@@ -166,10 +168,11 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
     selectFixtures: (ids, additive = false) => {
       const available = new Set(get().state?.fixtures.map((f) => f.id));
       const selectedFixtureIds = [...new Set([...(additive ? get().selectedFixtureIds : []), ...ids])].filter((id) => available.has(id));
-      set({ selectedFixtureIds, selection: selectedFixtureIds.length === 1 ? { kind: "fixture", id: selectedFixtureIds[0] } : null, activeTool: "select" });
+      set({ selectedFixtureIds, selection: selectedFixtureIds.length === 1 ? { kind: "fixture", id: selectedFixtureIds[0] } : null, cadSelection: null, activeTool: "select" });
     },
-    selectObject: (id) => set({ selection: { kind: "object", id }, selectedFixtureIds: [], activeTool: "select" }),
-    clearSelection: () => set({ selection: null, selectedFixtureIds: [] }),
+    selectObject: (id) => set({ selection: { kind: "object", id }, cadSelection: null, selectedFixtureIds: [], activeTool: "select" }),
+    selectCad: (cadSelection) => set({ cadSelection, selection: null, selectedFixtureIds: [], activeTool: "select" }),
+    clearSelection: () => set({ selection: null, cadSelection: null, selectedFixtureIds: [] }),
     updateFixture: (id, patch) => applyFixtures(new Map([[id, patch]])),
     updateFixtureProperties: (ids, patch) => {
       const wanted = new Set(ids);

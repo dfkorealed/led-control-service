@@ -57,6 +57,9 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardError, refreshDa
   const hasFixtureData = fixtureQuery.data !== undefined;
   const fixtures = fixtureQuery.data?.pages.flatMap((page) => page.items) ?? [];
   const mapSnapshot = mapQuery.data;
+  // Saved layout can refresh before runtime placement DTOs. Match FloorScene's
+  // snapshot placements plus its legacy/runtime-only placement fallback.
+  const hasPlacedFixtures = Boolean(mapSnapshot?.fixtures?.length) || fixtures.some((fixture) => fixture.placementStatus !== "unplaced");
   const mapRefreshFailed = Boolean(floor && mapRefreshFailure && mapRefreshFailure.floorId === floor.id);
   const selectedFixture = fixtures.find((fixture) => fixture.id === selectedFixtureId) ?? fixtures[0];
   const selectedFixturePresentation = selectedFixture ? presentFixtureStatus(selectedFixture) : null;
@@ -242,7 +245,7 @@ function MonitoringDashboard({ data, userRole, siteId, dashboardError, refreshDa
           ) : !hasFixtureData ? null : floor && mapSnapshot ? (
             <>
               <FloorMap floor={{ ...floor, fixtures }} snapshot={mapSnapshot} selectedFixtureId={selectedFixture?.id ?? null} onSelectFixture={setSelectedFixtureId} />
-              {fixtures.length > 0 && fixtures.every((fixture) => fixture.placementStatus === "unplaced") && <FeedbackState icon={Clock3} title="배치된 조명이 없습니다" description={`등록된 조명 ${fixtures.length}개는 목록에서 조회하고 제어할 수 있습니다.`} action={userRole === "admin" ? <Link to={`/settings/floor-plans/${encodeURIComponent(floor.id)}/edit?siteId=${encodeURIComponent(data.site.id)}`}>설정에서 조명 배치</Link> : undefined} />}
+              {fixtures.length > 0 && !hasPlacedFixtures && <FeedbackState icon={Clock3} title="배치된 조명이 없습니다" description={`등록된 조명 ${fixtures.length}개는 목록에서 조회하고 제어할 수 있습니다.`} action={userRole === "admin" ? <Link to={`/settings/floor-plans/${encodeURIComponent(floor.id)}/edit?siteId=${encodeURIComponent(data.site.id)}`}>설정에서 조명 배치</Link> : undefined} />}
               {mapQuery.error || mapRefreshFailed ? (
                 <FeedbackState
                   tone="danger"

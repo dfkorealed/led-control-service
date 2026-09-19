@@ -1,4 +1,5 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { CadElementOverridePatch } from "@led-control/shared";
 import { CircleCheck, Hand, Minus, MousePointer2, RotateCcw, Save, Square, Triangle, TriangleAlert, Type, Undo2, Redo2, ZoomIn, ZoomOut, Maximize, Focus } from "lucide-react";
 import { type DragEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
@@ -8,9 +9,11 @@ import { Button, Checkbox, ConfirmDialog, FeedbackState, Heading, IconButton, Pa
 import {
   listFloorEditorRevisions,
   getAppliedFloorImportOverlay,
+  getCadSceneState,
   getFloorEditorState,
   restoreFloorEditorRevision,
   saveFloorEditorState,
+  updateCadScene,
   type FloorEditorRevision
 } from "../../api/floor-editor";
 import { EditorPropertiesPanel } from "./EditorPropertiesPanel";
@@ -26,6 +29,7 @@ import { buildEditorChanges } from "./editor-diff";
 import { synchronizeMonitoringCaches } from "./editor-monitoring-cache";
 import { useFloorEditorStore } from "./editor-store";
 import type { CadImportReviewState, EditorTool, FloorEditorState, FloorImportApplyResult } from "./editor-types";
+import { CadElementPropertiesPanel } from "./CadElementPropertiesPanel";
 
 interface FloorEditorViewProps {
   initialState: FloorEditorState;
@@ -66,7 +70,7 @@ export function FloorEditorView({
 }: FloorEditorViewProps) {
   readOnly ||= userRole !== "admin";
   const queryClient = useQueryClient();
-  const { initialState: baseline, state, isDirty, activeTool, zoom, initialize, adoptBaseline, setActiveTool, setZoom, resetZoom, past, future, snap, selection, selectedFixtureIds } = useFloorEditorStore(useShallow((s) => ({ initialState: s.initialState, state: s.state, isDirty: s.isDirty, activeTool: s.activeTool, zoom: s.zoom, initialize: s.initialize, adoptBaseline: s.adoptBaseline, setActiveTool: s.setActiveTool, setZoom: s.setZoom, resetZoom: s.resetZoom, past: s.past, future: s.future, snap: s.snap, selection: s.selection, selectedFixtureIds: s.selectedFixtureIds })));
+  const { initialState: baseline, state, isDirty, activeTool, zoom, initialize, adoptBaseline, setActiveTool, setZoom, resetZoom, past, future, snap, selection, cadSelection, selectedFixtureIds } = useFloorEditorStore(useShallow((s) => ({ initialState: s.initialState, state: s.state, isDirty: s.isDirty, activeTool: s.activeTool, zoom: s.zoom, initialize: s.initialize, adoptBaseline: s.adoptBaseline, setActiveTool: s.setActiveTool, setZoom: s.setZoom, resetZoom: s.resetZoom, past: s.past, future: s.future, snap: s.snap, selection: s.selection, cadSelection: s.cadSelection, selectedFixtureIds: s.selectedFixtureIds })));
   const [panelTab, setPanelTab] = useState("properties");
   const [recovery, setRecovery] = useState<FloorEditorState | null>(null);
   const [draftError, setDraftError] = useState(false);
@@ -74,12 +78,14 @@ export function FloorEditorView({
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "error" | "conflict">("idle");
   const [restoringRevision, setRestoringRevision] = useState<number | null>(null);
   const [isCadImportPending, setIsCadImportPending] = useState(false);
+  const [isCadEditPending, setIsCadEditPending] = useState(false);
   const [cadImportReview, setCadImportReview] = useState<CadImportReviewState | null>(null);
   const [focusedCadCandidateId, setFocusedCadCandidateId] = useState<string | null>(null);
   const [skippedFixtureCount, setSkippedFixtureCount] = useState(0);
   const [confirmReload, setConfirmReload] = useState(false);
   const rowRegistry = useMemo(createFixturePlacementRowRegistry, []);
   const mutationLock = useRef(false);
+  const cadEditRequest = useRef<AbortController | null>(null);
   const activeInstance = useRef(true);
   const activeScope = useRef({ floorId: initialState.floor.id, siteId: initialState.floor.siteId });
   activeScope.current = { floorId: initialState.floor.id, siteId: initialState.floor.siteId };
@@ -100,6 +106,24 @@ export function FloorEditorView({
     queryKey: ["floor-import-applied-overlay", siteId, floorId, overlayRevision],
     queryFn: () => getAppliedFloorImportOverlay(floorId)
   });
+  const cadDescriptor = state?.floor.id === floorId ? state.floor.cadScene : initialState.floor.cadScene;
+  const cadSceneQuery = useQuery({
+    queryKey: ["floor-cad-scene", siteId, floorId, cadDescriptor?.id, cadDescriptor?.version, overlayRevision],
+    queryFn: async ({ signal }) => {
+      const result = await getCadSceneState(siteId, floorId, { signal });
+      if (!cadDescriptor || !matchesCadScene(result, cadDescriptor)) {
+        throw new Error("CAD scene response scope mismatch");
+      }
+      return result;
+    },
+    enabled: Boolean(cadDescriptor)
+  });
+
+  useEffect(() => () => {
+    cadEditRequest.current?.abort();
+    cadEditRequest.current = null;
+    mutationLock.current = false;
+  }, [floorId, siteId, cadDescriptor?.id]);
 
   useLayoutEffect(() => {
     const current = useFloorEditorStore.getState();
@@ -147,7 +171,95 @@ export function FloorEditorView({
 
   useEffect(() => {
     setPanelTab("properties");
-  }, [selection?.kind, selection?.id, selectedFixtureIds.length]);
+  }, [selection?.kind, selection?.id, cadSelection?.targetId, selectedFixtureIds.length]);
+
+  const handleCadOverride = useCallback(async (patch: Omit<CadElementOverridePatch, "elementId">) => {
+    const currentSelection = useFloorEditorStore.getState().cadSelection;
+    const element = currentSelection?.mode === "element" ? currentSelection.element : null;
+    const scene = cadSceneQuery.data;
+    if (readOnly || isDirty || mutationLock.current || !element || !scene || !leaseToken || !leaseFence) return;
+    mutationLock.current = true;
+    const controller = new AbortController();
+    cadEditRequest.current = controller;
+    const principalGeneration = editorDraftGeneration();
+    const sceneId = scene.scene.id;
+    const stillCurrent = () => activeInstance.current
+      && !controller.signal.aborted
+      && principalGeneration === editorDraftGeneration()
+      && activeScope.current.floorId === floorId
+      && activeScope.current.siteId === siteId
+      && useFloorEditorStore.getState().initialState?.floor.id === floorId
+      && useFloorEditorStore.getState().initialState?.floor.siteId === siteId;
+    const previousElement = element;
+    useFloorEditorStore.getState().selectCad({
+      mode: "element",
+      targetId: element.elementId,
+      element: {
+        ...element,
+        override: {
+          elementId: element.elementId,
+          hidden: false,
+          transform: null,
+          strokeColor: null,
+          fillColor: null,
+          strokeWidth: null,
+          text: null,
+          ...element.override,
+          ...patch
+        }
+      }
+    });
+    setIsCadEditPending(true);
+    setSaveStatus("idle");
+    try {
+      const savedScene = await updateCadScene(siteId, floorId, {
+        expectedRevision: scene.revision,
+        leaseToken,
+        leaseFence,
+        overrideMutations: [{
+          operation: "upsert",
+          locator: element.locator,
+          value: { elementId: element.elementId, ...patch }
+        }],
+        layerMutations: []
+      }, { signal: controller.signal });
+      if (!stillCurrent()) return;
+      if (!matchesCadScene(savedScene, scene.scene) || savedScene.scene.id !== sceneId) {
+        throw new Error("CAD scene response scope mismatch");
+      }
+      const authoritative = await getFloorEditorState(floorId, { signal: controller.signal });
+      if (!stillCurrent()) return;
+      if (authoritative.floor.id !== floorId || authoritative.floor.siteId !== siteId
+        || !authoritative.floor.cadScene || authoritative.floor.cadScene.id !== sceneId
+        || authoritative.floor.cadScene.statePath !== scene.scene.statePath) {
+        throw new Error("Editor response scope mismatch");
+      }
+      queryClient.setQueryData(["floor-cad-scene", siteId, floorId, cadDescriptor?.id, cadDescriptor?.version, authoritative.floor.mapRevision], savedScene);
+      adoptBaseline(authoritative);
+      const savedOverride = savedScene.overrides.find((override) => override.elementId === element.elementId) ?? null;
+      useFloorEditorStore.getState().selectCad({
+        mode: "element",
+        targetId: element.elementId,
+        element: { ...element, override: savedOverride }
+      });
+      await invalidateEditorQueries(queryClient, authoritative);
+      await onSaved(authoritative);
+    } catch (error) {
+      if (!stillCurrent() || controller.signal.aborted) return;
+      useFloorEditorStore.getState().selectCad({
+        mode: "element",
+        targetId: previousElement.elementId,
+        element: previousElement
+      });
+      setSaveStatus(error instanceof ApiError && error.status === 409 ? "conflict" : "error");
+    } finally {
+      if (cadEditRequest.current === controller) {
+        cadEditRequest.current = null;
+        mutationLock.current = false;
+        if (activeInstance.current) setIsCadEditPending(false);
+      }
+    }
+  }, [adoptBaseline, cadDescriptor?.id, cadDescriptor?.version, cadSceneQuery.data, floorId, isDirty, leaseFence, leaseToken, onSaved, queryClient, readOnly, siteId]);
 
   async function handleSave() {
     if (readOnly || !state || !baseline || state.floor.id !== floorId || baseline.floor.id !== floorId || state.floor.siteId !== siteId || !isDirty || mutationLock.current || !leaseToken || !leaseFence) return;
@@ -260,8 +372,13 @@ export function FloorEditorView({
     objectCount: state?.floor.id === floorId ? state.objects.length : initialState.objects.length,
     slotCount: state?.floor.id === floorId ? state.lightSlots.length : initialState.lightSlots.length
   }), [floorId, initialState.fixtures.length, initialState.lightSlots.length, initialState.objects.length, state]);
-  const isMutationPending = saveStatus === "saving" || restoringRevision !== null || isCadImportPending;
+  const isMutationPending = saveStatus === "saving" || restoringRevision !== null || isCadImportPending || isCadEditPending;
   const isSaveOrRestoreBlocked = readOnly || isMutationPending || state?.floor.id !== floorId;
+  const isSelectedCadLayerLocked = cadSelection
+    ? cadSceneQuery.data?.layers.some((layer) => layer.layerName === (
+      cadSelection.mode === "group" ? cadSelection.layerName : cadSelection.element?.layerName
+    ) && layer.locked) ?? false
+    : false;
 
   return (
     <section className="grid min-w-0 gap-3.5">
@@ -273,11 +390,11 @@ export function FloorEditorView({
             {floors && onFloorChange && <SelectBox label="층 선택" className="min-w-32" items={floors.map((floor) => ({ id: floor.id, label: floor.name }))} selectedKey={floorId} isDisabled={isMutationPending} onSelectionChange={(key) => { if (key && !mutationLock.current) onFloorChange(key); }} />}
             <IconButton variant="ghost" className="max-compact:h-14 max-compact:min-h-14 max-compact:w-14 max-compact:min-w-14" aria-label="실행 취소" title="실행 취소" disabled={isSaveOrRestoreBlocked || !past.length} onClick={() => useFloorEditorStore.getState().undo()}><Undo2 size={18} /></IconButton>
             <IconButton variant="ghost" className="max-compact:h-14 max-compact:min-h-14 max-compact:w-14 max-compact:min-w-14" aria-label="다시 실행" title="다시 실행" disabled={isSaveOrRestoreBlocked || !future.length} onClick={() => useFloorEditorStore.getState().redo()}><Redo2 size={18} /></IconButton>
-            <IconButton variant="ghost" className="max-compact:h-14 max-compact:min-h-14 max-compact:w-14 max-compact:min-w-14" aria-label="축소" onClick={() => setZoom(zoom - 0.1)}>
+            <IconButton variant="ghost" className="max-compact:h-14 max-compact:min-h-14 max-compact:w-14 max-compact:min-w-14" aria-label="축소" onClick={() => setZoom(zoom / 1.1)}>
               <ZoomOut size={18} aria-hidden="true" />
             </IconButton>
             <Button variant="secondary" className="min-w-16" aria-label="100%" title="100%" onClick={resetZoom}>{Math.round(zoom * 100)}%</Button>
-            <IconButton variant="ghost" className="max-compact:h-14 max-compact:min-h-14 max-compact:w-14 max-compact:min-w-14" aria-label="확대" onClick={() => setZoom(zoom + 0.1)}>
+            <IconButton variant="ghost" className="max-compact:h-14 max-compact:min-h-14 max-compact:w-14 max-compact:min-w-14" aria-label="확대" onClick={() => setZoom(zoom * 1.1)}>
               <ZoomIn size={18} aria-hidden="true" />
             </IconButton>
             <IconButton variant="ghost" className="max-compact:h-14 max-compact:min-h-14 max-compact:w-14 max-compact:min-w-14" aria-label="맵 맞춤" title="맵 맞춤" onClick={() => useFloorEditorStore.getState().fit(false, visibleCadViewport ?? undefined)}><Maximize size={18} /></IconButton>
@@ -317,6 +434,10 @@ export function FloorEditorView({
       ) : null}
       {recovery && <FeedbackState icon={TriangleAlert} tone="warning" title="저장하지 않은 로컬 초안이 있습니다." action={<div className="flex flex-wrap justify-end gap-2"><Button disabled={isSaveOrRestoreBlocked} onClick={() => { if (readOnly || mutationLock.current || recovery.floor.id !== activeScope.current.floorId) return; useFloorEditorStore.getState().recoverDraft(recovery); setRecovery(null); }}>초안 복구</Button><Button disabled={isMutationPending} onClick={() => { if (userId) removeEditorDraft(userId, initialState); setRecovery(null); }}>초안 삭제</Button></div>} />}
       {draftError && <FeedbackState icon={TriangleAlert} tone="warning" title="이 브라우저에 초안을 보관하지 못했습니다. 서버에 저장하세요." />}
+      {cadDescriptor && !cadImportReview && cadSceneQuery.isError ? (
+        <FeedbackState icon={TriangleAlert} tone="danger" title="CAD 편집 정보를 불러오지 못했습니다."
+          action={<Button variant="secondary" disabled={cadSceneQuery.isFetching} onClick={() => void cadSceneQuery.refetch()}>CAD 편집 정보 다시 시도</Button>} />
+      ) : null}
       {skippedFixtureCount > 0 ? (
         <FeedbackState tone="success" icon={CircleCheck} title={`현재 존재하지 않는 조명 ${skippedFixtureCount}개를 건너뛰었습니다.`} />
       ) : null}
@@ -354,11 +475,19 @@ export function FloorEditorView({
             focusedCadCandidateId={focusedCadCandidateId}
             onFocusedCadCandidateChange={setFocusedCadCandidateId}
             onToggleCadCandidate={cadImportReview && !readOnly ? toggleCadCandidate : undefined}
+            cadSceneDescriptor={cadImportReview ? null : cadDescriptor}
+            cadSceneState={cadImportReview ? null : cadSceneQuery.data}
+            cadSelection={cadSelection}
+            onCadSelectionChange={(next) => useFloorEditorStore.getState().selectCad(next)}
+            onCadOverrideCommit={(patch) => void handleCadOverride(patch)}
+            cadEditDisabled={readOnly || isDirty || isMutationPending || isSelectedCadLayerLocked}
           />
         </main>
         <SidePanel className="col-span-3 grid min-w-0 content-start gap-3 overflow-y-auto p-0 max-compact:col-span-full" aria-label="맵 편집 정보">
           <div className="grid grid-cols-3 gap-1 bg-surface-inset p-1" role="tablist" aria-label="편집 패널">{[["properties", "속성"], ["placement", "배치"], ["layers", "레이어"]].map(([value, label]) => <Button size="sm" variant={panelTab === value ? "primary" : "ghost"} role="tab" key={value} aria-selected={panelTab === value} onClick={() => setPanelTab(value)}>{label}</Button>)}</div>
-          {panelTab === "properties" && <EditorPropertiesPanel readOnly={readOnly || isMutationPending} />}
+          {panelTab === "properties" && (cadSelection
+            ? <CadElementPropertiesPanel selection={cadSelection} readOnly={readOnly || isDirty || isSelectedCadLayerLocked} isSaving={isCadEditPending} onChange={(patch) => void handleCadOverride(patch)} />
+            : <EditorPropertiesPanel readOnly={readOnly || isMutationPending} />)}
           {panelTab === "placement" && <EditorBatchPlacementPanel readOnly={readOnly || isMutationPending} />}
           {panelTab === "layers" && <EditorLayersPanel readOnly={readOnly || isMutationPending} />}
           <CadImportPanel
@@ -498,6 +627,15 @@ function revisionChangeCount(summary: Record<string, unknown>) {
 
 function formatRevisionTime(createdAt: string) {
   return new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(createdAt));
+}
+
+function matchesCadScene(
+  state: { scene: { id: string; version: number; statePath: string } },
+  expected: { id: string; version: number; statePath: string }
+) {
+  return state.scene.id === expected.id
+    && state.scene.version === expected.version
+    && state.scene.statePath === expected.statePath;
 }
 
 async function invalidateEditorQueries(queryClient: ReturnType<typeof useQueryClient>, state: FloorEditorState) {

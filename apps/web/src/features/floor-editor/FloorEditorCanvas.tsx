@@ -1,11 +1,12 @@
 import Konva from "konva";
-import type { FloorImportCandidate, FloorImportRenderedViewport } from "@led-control/shared";
+import type { CadElementOverridePatch, CadSceneDescriptor, CadSceneState, FloorImportCandidate, FloorImportRenderedViewport } from "@led-control/shared";
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent } from "react";
 import { Circle, Image as KonvaImage, Label, Layer, Line, Rect, Shape, Stage, Tag, Text, Transformer } from "react-konva";
 import { Button, themeColor } from "../../components/ui";
 import { FloorMapObjectNode, trianglePoints } from "../floor-map/FloorScene";
 import {
   alignRectToGuides,
+  clampEditorZoom,
   clampObjectToMap,
   clampPoint,
   createDefaultObject,
@@ -16,7 +17,7 @@ import {
   type Point
 } from "./geometry";
 import { useFloorEditorStore } from "./editor-store";
-import type { EditorFixture, EditorTool, FloorEditorState, FloorMapObject, FloorMapObjectDraft } from "./editor-types";
+import type { CadEditorSelection, EditorFixture, EditorTool, FloorEditorState, FloorMapObject, FloorMapObjectDraft } from "./editor-types";
 import { EditorFixtureNode, type EditorFixturePalette } from "./EditorFixtureNode";
 import { FIXTURE_DRAG_TYPE, type FixturePlacementRowRegistry } from "./FixturePlacementList";
 import { FixturePlacementAction } from "./FixturePlacementAction";
@@ -31,6 +32,8 @@ import {
 } from "./CadPlacementSlotLayer";
 import { useFloorPlanImage } from "./use-floor-plan-image";
 import { buildEditorSpatialIndex, mapObjectWorldAabb, queryEditorSpatialIndex } from "./editor-spatial-index";
+import { CadSceneCanvas, type CadSceneCanvasHandle } from "./CadSceneCanvas";
+import { CadElementOverlay } from "./CadElementOverlay";
 
 const TOOL_DRAG_TYPE = "application/x-floor-editor-tool";
 const drawingTools = new Set<EditorTool>(["rectangle", "triangle", "line", "text"]);
@@ -47,6 +50,12 @@ interface FloorEditorCanvasProps {
   focusedCadCandidateId?: string | null;
   onFocusedCadCandidateChange?: (candidateId: string | null) => void;
   onToggleCadCandidate?: (candidateId: string) => void;
+  cadSceneDescriptor?: CadSceneDescriptor | null;
+  cadSceneState?: CadSceneState | null;
+  cadSelection?: CadEditorSelection | null;
+  onCadSelectionChange?: (selection: CadEditorSelection | null) => void;
+  onCadOverrideCommit?: (patch: Omit<CadElementOverridePatch, "elementId">) => void;
+  cadEditDisabled?: boolean;
 }
 
 export function FloorEditorCanvas({
@@ -58,10 +67,17 @@ export function FloorEditorCanvas({
   acceptedCadCandidateIds = new Set(),
   focusedCadCandidateId,
   onFocusedCadCandidateChange,
-  onToggleCadCandidate
+  onToggleCadCandidate,
+  cadSceneDescriptor,
+  cadSceneState,
+  cadSelection,
+  onCadSelectionChange,
+  onCadOverrideCommit,
+  cadEditDisabled = false
 }: FloorEditorCanvasProps) {
   const container = useRef<HTMLDivElement>(null);
   const stage = useRef<Konva.Stage>(null);
+  const cadScene = useRef<CadSceneCanvasHandle>(null);
   const transformer = useRef<Konva.Transformer>(null);
   const nodes = useRef(new Map<string, Konva.Node>());
   const objectNodes = useRef(new Map<string, Konva.Node>());
@@ -119,7 +135,8 @@ export function FloorEditorCanvas({
   const [isPanning, setIsPanning] = useState(false);
   const [transientPan, setTransientPan] = useState<Point | null>(null);
   const floorPlan = state?.floor.floorPlan;
-  const backgroundUrl = cadBackgroundUrl
+  // Native CAD owns the base layer; its legacy preview must not cover WebGL.
+  const backgroundUrl = cadSceneDescriptor ? "" : cadBackgroundUrl
     ?? (floorPlan?.sourceType !== "none" ? floorPlan?.renderedImageUrl ?? floorPlan?.imageUrl : "");
   const { image: background, status: backgroundStatus, retry: retryBackground } = useFloorPlanImage(backgroundUrl ?? "");
   const bounds = cadBackgroundUrl && cadViewport
@@ -153,15 +170,20 @@ export function FloorEditorCanvas({
   const showBulkNames = useMemo(() => canShowFixtureNames(visibleFixtures, zoom), [visibleFixtures, zoom]);
 
   useEffect(() => {
-    if (!cadBackgroundUrl || !cadViewport) {
+    const target = cadSceneDescriptor ?? (cadBackgroundUrl ? cadViewport : null);
+    if (!target) {
       lastAutoFitKey.current = null;
       return;
     }
-    const key = `${cadBackgroundUrl}:${cadViewport.width}x${cadViewport.height}`;
+    const key = cadSceneDescriptor ? `${cadSceneDescriptor.id}:${cadSceneDescriptor.version}`
+      : `${cadBackgroundUrl}:${target.width}x${target.height}`;
     if (lastAutoFitKey.current === key) return;
+    const rect = container.current?.getBoundingClientRect();
+    if (cadSceneDescriptor && (!rect?.width || !rect.height)) return;
+    if (rect?.width && rect.height) useFloorEditorStore.getState().setViewport({ width: rect.width, height: rect.height });
     lastAutoFitKey.current = key;
-    useFloorEditorStore.getState().fit(false, cadViewport);
-  }, [cadBackgroundUrl, cadViewport?.height, cadViewport?.width]);
+    useFloorEditorStore.getState().fit(false, target);
+  }, [cadBackgroundUrl, cadViewport?.height, cadViewport?.width, cadSceneDescriptor?.id, cadSceneDescriptor?.version, viewport.width, viewport.height]);
   const editorColors = useMemo(() => ({
     panel: themeColor("surface-panel"),
     border: themeColor("fixture-editor-border"),
@@ -436,6 +458,9 @@ export function FloorEditorCanvas({
       if (action.kind === "draw" && completedCreation) useFloorEditorStore.getState().addObject(state!.floor.id, completedCreation);
       if (action.kind === "marquee" && completedMarquee && layers.fixtures.visible && !layers.fixtures.locked) useFloorEditorStore.getState().selectFixtures(state!.fixtures.filter((f) => f.placementStatus !== "unplaced" && !lockedSet.has(f.id) && f.x >= completedMarquee.x && f.x <= completedMarquee.x + completedMarquee.width && f.y >= completedMarquee.y && f.y <= completedMarquee.y + completedMarquee.height).map((f) => f.id), action.additive);
     }
+    if (action?.kind === "marquee" && !action.moved && cadScene.current) {
+      void cadScene.current.pick(screenPoint(event), event.detail >= 2 ? "element" : "group");
+    }
     creationDraft.current = null; marqueeDraft.current = null; setCreation(null); setMarquee(null);
   }
   function dragOver(event: DragEvent<HTMLDivElement>) {
@@ -494,15 +519,30 @@ export function FloorEditorCanvas({
     data-rendered-fixture-count={visibleFixtures.length} data-rendered-object-count={visibleObjects.length}
     onMouseDown={begin} onMouseMove={move} onMouseUp={finish} onMouseLeave={(e) => { if (gesture.current?.kind === "pan") finish(e); else { cancelPointerMove(); gesture.current = null; creationDraft.current = null; marqueeDraft.current = null; setTransientPan(null); setCreation(null); setMarquee(null); setIsPanning(false); } }}
     onDragOver={dragOver} onDragLeave={() => { cancelPointerMove(); setDropPreview(null); setHighlightedSlotId(null); }} onDrop={drop}>
-    <Stage ref={stage} width={viewport.width} height={viewport.height} onWheel={(event) => {
+    {cadSceneDescriptor && cadSceneState ? (
+      <CadSceneCanvas
+        ref={cadScene}
+        descriptor={cadSceneDescriptor}
+        sceneState={cadSceneState}
+        pan={renderedPan}
+        zoom={zoom}
+        viewport={viewport}
+        selection={cadSelection ?? null}
+        onSelectionChange={(next) => {
+          useFloorEditorStore.getState().selectCad(next);
+          onCadSelectionChange?.(next);
+        }}
+      />
+    ) : null}
+    <Stage ref={stage} className="relative z-1" width={viewport.width} height={viewport.height} onWheel={(event) => {
       event.evt.preventDefault(); const store = useFloorEditorStore.getState();
       const point = stage.current?.getPointerPosition(); if (!point) return;
       const world = screenToWorld(point, store.pan, store.zoom);
-      const next = Math.min(4, Math.max(0.1, store.zoom * (event.evt.deltaY > 0 ? 1 / 1.1 : 1.1)));
+      const next = clampEditorZoom(store.zoom * (event.evt.deltaY > 0 ? 1 / 1.1 : 1.1));
       useFloorEditorStore.setState({ zoom: next, pan: { x: point.x - world.x * next, y: point.y - world.y * next } });
     }}>
       <Layer {...transform} name="editor-static-layer" listening={false}>
-        <Rect width={bounds.width} height={bounds.height} fill={editorColors.panel} stroke={editorColors.border} strokeWidth={1} />
+        <Rect width={bounds.width} height={bounds.height} fill={cadSceneDescriptor ? undefined : editorColors.panel} stroke={editorColors.border} strokeWidth={1} />
         {background && layers.background.visible && <KonvaImage image={background} width={bounds.width} height={bounds.height} />}
         {snap ? <MapGrid width={bounds.width} height={bounds.height} gridSize={floorPlan?.gridSize ?? 10} zoom={zoom} color={editorColors.grid} /> : null}
         {!onToggleCadCandidate ? <CadPlacementSlotLayer
@@ -570,6 +610,14 @@ export function FloorEditorCanvas({
         {marquee && <Rect {...marquee} fill={editorColors.marquee} stroke={editorColors.selected} strokeWidth={1 / zoom} listening={false} />}
         {preview.map((p) => <Circle key={p.id} x={p.x} y={p.y} radius={10} fill={editorColors.preview} opacity={0.65} listening={false} />)}
         {dropPreview && <Circle x={dropPreview.x} y={dropPreview.y} radius={10} stroke={editorColors.selected} fill={editorColors.fixtureFill} listening={false} />}
+        {cadSelection?.mode === "element" && cadSelection.element && onCadOverrideCommit ? (
+          <CadElementOverlay
+            element={cadSelection.element}
+            readOnly={readOnly || cadEditDisabled}
+            zoom={zoom}
+            onCommit={onCadOverrideCommit}
+          />
+        ) : null}
         <Transformer ref={transformer} rotateEnabled={false} keepRatio={selection?.kind === "fixture"} flipEnabled={false} enabledAnchors={transformerAnchors} boundBoxFunc={(oldBox, box) => box.width < 4 || box.height < 4 ? oldBox : box} />
         {focusedFixture && focusedLabel && <Label name="selected-fixture-label" x={focusedLabel.x} y={focusedLabel.y} scaleX={focusedLabel.scaleX} scaleY={focusedLabel.scaleY} listening={false}>
           <Tag fill={editorColors.panel} stroke={editorColors.border} strokeWidth={1} cornerRadius={4} />

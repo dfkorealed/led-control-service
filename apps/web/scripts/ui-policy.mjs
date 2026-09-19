@@ -69,7 +69,9 @@ const reviewedRuntimeExceptions = new Map([
 const spacing = new Set(["0", "0.5", "1", "1.5", "2", "2.5", "3", "3.5", "4", "4.5", "5", "6", "7", "8", "10", "12", "16"]);
 const approvedCss = new Set(["src/styles.css", "src/styles/theme.css", "src/styles/base.css", "src/styles/exceptions.css"]);
 const entryImports = new Set(["tailwindcss", "./styles/theme.css", "./styles/base.css", "./styles/exceptions.css"]);
-const testPath = /(?:^|\/)(?:test|tests|__tests__|e2e)(?:\/|$)|\.(?:test|spec)\.[^.]+$/;
+// CAD browser harnesses and codec golden data are test-only, with exact suffixes.
+// The same classification below forbids production imports of these files.
+const testPath = /(?:^|\/)(?:test|tests|__tests__|e2e)(?:\/|$)|\.(?:test|spec)\.[^.]+$|(?:\.smoke\.ts|-smoke\.tsx|\.golden\.ts)$/;
 const nativeFormElements = new Set(["input", "select", "textarea", "button"]);
 const reviewedUtilities = new Map([
   ["pb-shell-navigation-safe", "padding-bottom: calc(var(--spacing) * 17 + env(safe-area-inset-bottom));"],
@@ -344,7 +346,7 @@ export function inspectUiSource(path, source) {
       if ((specifier.startsWith(".") || specifier.startsWith("/"))) {
         const resource = specifier.split(/[?#]/, 1)[0];
         const target = resolve("/", dirname(path), resource).slice(1).replaceAll("\\", "/");
-        if (testPath.test(target) || /\.(?:test|spec)$/.test(target)) add("test-import", specifier, index);
+        if (testPath.test(target) || /(?:\.(?:test|spec|smoke|golden)|-smoke)$/.test(target)) add("test-import", specifier, index);
       }
       if (specifier === "tailwindcss" || specifier.startsWith("tailwindcss/")) add("css-import", specifier, index);
     }
@@ -651,7 +653,7 @@ export async function inspectWorkspace({ root = webRoot, baseline = {} } = {}) {
     }
     if (/<style\b/i.test(html)) violations.push({ rule: "html-css-entry", path: "index.html", match: "<style>" });
     for (const script of html.matchAll(/<script\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/gi)) {
-      const target = script[1].replace(/^\//, "");
+      const target = script[1].split(/[?#]/, 1)[0].replace(/^\//, "");
       if (testPath.test(target)) violations.push({ rule: "test-import", path: "index.html", match: script[1] });
     }
   } catch (error) {

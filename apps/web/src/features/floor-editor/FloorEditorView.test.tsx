@@ -15,16 +15,29 @@ const floorEditorApi = vi.hoisted(() => ({
   createFloorImportJob: vi.fn(),
   getActiveFloorImportJob: vi.fn(),
   getAppliedFloorImportOverlay: vi.fn(),
+  getCadSceneManifest: vi.fn(),
+  getCadSceneState: vi.fn(),
+  getCadSceneTile: vi.fn(),
   getFloorEditorState: vi.fn(),
   getFloorImportJob: vi.fn(),
   listFloorImportCandidates: vi.fn(),
   listFloorEditorRevisions: vi.fn(),
   restoreFloorEditorRevision: vi.fn(),
   saveFloorEditorState: vi.fn(),
+  updateCadScene: vi.fn(),
   uploadFloorAsset: vi.fn()
 }));
 
 vi.mock("../../api/floor-editor", () => floorEditorApi);
+vi.mock("./CadSceneCanvas", async () => {
+  const React = await import("react");
+  return {
+    CadSceneCanvas: React.forwardRef((_props, ref) => {
+      React.useImperativeHandle(ref, () => ({ pick: async () => null }));
+      return <canvas data-testid="cad-scene-canvas" />;
+    })
+  };
+});
 
 const editorState: FloorEditorState = {
   floor: {
@@ -412,6 +425,7 @@ describe("FloorEditorView", () => {
   beforeEach(() => {
     floorEditorApi.getActiveFloorImportJob.mockResolvedValue({ job: null });
     floorEditorApi.getAppliedFloorImportOverlay.mockResolvedValue({ overlay: null });
+    floorEditorApi.getCadSceneState.mockResolvedValue(null);
     floorEditorApi.saveFloorEditorState.mockImplementation(async (_floorId, _payload) => ({
       ...structuredClone(editorState),
       floor: { ...structuredClone(editorState.floor), mapRevision: 8 }
@@ -458,6 +472,180 @@ describe("FloorEditorView", () => {
     expect(screen.queryByLabelText("조명명")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "층 선택" })).toHaveAttribute("data-react-aria-pressable", "true");
     expect(screen.getByRole("checkbox", { name: "격자 스냅" }).closest("[data-field]")).toBeInTheDocument();
+  });
+
+  it("refreshes the CAD revision after a fixture save, saves an override, and rolls back a conflict", async () => {
+    const descriptor = {
+      id: "00000000-0000-4000-8000-000000000001",
+      version: 1,
+      sourceImportJobId: "00000000-0000-4000-8000-000000000002",
+      width: 16_384,
+      height: 8_192,
+      tileSize: 512 as const,
+      primitiveCount: 10,
+      tileCount: 1,
+      manifestAssetId: "00000000-0000-4000-8000-000000000003",
+      manifestContentPath: "/floors/f/import-jobs/j/scene/manifest/content",
+      tileContentPathTemplate: "/floors/f/import-jobs/j/scene/tiles/{lod}/{tileX}/{tileY}/{part}/content",
+      statePath: "/sites/site-2/floors/floor-b2/cad-scene"
+    };
+    const cadEditorState: FloorEditorState = {
+      ...structuredClone(editorState),
+      floor: {
+        ...structuredClone(editorState.floor),
+        floorPlan: {
+          imageUrl: "",
+          sourceType: "cad",
+          originalFileUrl: null,
+          renderedImageUrl: null,
+          width: descriptor.width,
+          height: descriptor.height,
+          gridSize: 80,
+          version: 1
+        },
+        cadScene: descriptor
+      }
+    };
+    const state = { revision: 7, scene: descriptor, overrides: [], layers: [] };
+    const savedState = {
+      ...state,
+      revision: 9,
+      overrides: [{
+        elementId: "cad-element-00000000000000000000000000000001",
+        hidden: true,
+        transform: null,
+        strokeColor: null,
+        fillColor: null,
+        strokeWidth: null,
+        text: null
+      }]
+    };
+    floorEditorApi.getCadSceneState.mockResolvedValue(state);
+    floorEditorApi.updateCadScene.mockResolvedValue(savedState);
+    floorEditorApi.getFloorEditorState.mockResolvedValue({
+      ...cadEditorState,
+      floor: { ...cadEditorState.floor, mapRevision: 9 }
+    });
+    renderEditor(cadEditorState);
+    await waitFor(() => expect(floorEditorApi.getCadSceneState).toHaveBeenCalled());
+
+    floorEditorApi.getCadSceneState.mockResolvedValue({ ...state, revision: 8 });
+    act(() => useFloorEditorStore.getState().adoptBaseline({
+      ...cadEditorState, floor: { ...cadEditorState.floor, mapRevision: 8 }
+    }));
+    await waitFor(() => expect(floorEditorApi.getCadSceneState).toHaveBeenCalledTimes(2));
+
+    act(() => useFloorEditorStore.getState().selectCad({
+      mode: "element",
+      targetId: "cad-element-00000000000000000000000000000001",
+      element: {
+        elementId: "cad-element-00000000000000000000000000000001",
+        groupId: "group-1",
+        layerName: "WALL",
+        locator: { tileX: 0, tileY: 0, lod: 1, part: 0 },
+        bounds: { minX: 10, minY: 20, maxX: 50, maxY: 60 },
+        points: [{ x: 10, y: 20 }, { x: 50, y: 60 }],
+        fragments: [{ points: [{ x: 10, y: 20 }, { x: 50, y: 60 }], closed: false }],
+        closed: false,
+        text: null,
+        fontSize: null,
+        textGeometry: null,
+        strokeColor: "#111111",
+        fillColor: null,
+        strokeWidth: 2,
+        zOrder: 1,
+        override: null
+      }
+    }));
+    fireEvent.click(screen.getByRole("button", { name: "요소 숨기기" }));
+
+    await waitFor(() => expect(floorEditorApi.updateCadScene).toHaveBeenCalledWith("site-2", "floor-b2", {
+      expectedRevision: 8,
+      leaseToken: "lease-token",
+      leaseFence: 7,
+      overrideMutations: [{
+        operation: "upsert",
+        locator: { tileX: 0, tileY: 0, lod: 1, part: 0 },
+        value: {
+          elementId: "cad-element-00000000000000000000000000000001",
+          hidden: true
+        }
+      }],
+      layerMutations: []
+    }, { signal: expect.any(AbortSignal) }));
+    await waitFor(() => expect(floorEditorApi.getFloorEditorState).toHaveBeenCalledWith("floor-b2", { signal: expect.any(AbortSignal) }));
+    expect(useFloorEditorStore.getState().state?.floor.mapRevision).toBe(9);
+
+    floorEditorApi.updateCadScene.mockRejectedValueOnce(new ApiError("revision conflict", 409, null));
+    fireEvent.click(await screen.findByRole("button", { name: "요소 표시" }));
+
+    expect(await screen.findByText("최신 맵과 변경사항이 충돌했습니다.")).toBeInTheDocument();
+    expect(useFloorEditorStore.getState().cadSelection).toMatchObject({
+      mode: "element",
+      element: { override: { hidden: true } }
+    });
+  });
+
+  it("aborts a CAD override save and ignores its late response after switching floors", async () => {
+    const descriptor = {
+      id: "00000000-0000-4000-8000-000000000001",
+      version: 1,
+      sourceImportJobId: "00000000-0000-4000-8000-000000000002",
+      width: 16_384,
+      height: 8_192,
+      tileSize: 512 as const,
+      primitiveCount: 10,
+      tileCount: 1,
+      manifestAssetId: "00000000-0000-4000-8000-000000000003",
+      manifestContentPath: "/floors/f/import-jobs/j/scene/manifest/content",
+      tileContentPathTemplate: "/floors/f/import-jobs/j/scene/tiles/{lod}/{tileX}/{tileY}/{part}/content",
+      statePath: "/sites/site-2/floors/floor-b2/cad-scene"
+    };
+    const cadEditorState: FloorEditorState = {
+      ...structuredClone(editorState),
+      floor: { ...structuredClone(editorState.floor), cadScene: descriptor }
+    };
+    const scene = { revision: 7, scene: descriptor, overrides: [], layers: [] };
+    const update = deferred<typeof scene>();
+    floorEditorApi.getCadSceneState.mockResolvedValue(scene);
+    floorEditorApi.updateCadScene.mockReturnValueOnce(update.promise);
+    const onSaved = vi.fn();
+    const view = renderEditor(cadEditorState, { onSaved });
+    await waitFor(() => expect(floorEditorApi.getCadSceneState).toHaveBeenCalled());
+    act(() => useFloorEditorStore.getState().selectCad({
+      mode: "element",
+      targetId: "cad-element-00000000000000000000000000000001",
+      element: {
+        elementId: "cad-element-00000000000000000000000000000001",
+        groupId: "group-1",
+        layerName: "WALL",
+        locator: { tileX: 0, tileY: 0, lod: 1, part: 0 },
+        bounds: { minX: 10, minY: 20, maxX: 50, maxY: 60 },
+        points: [{ x: 10, y: 20 }, { x: 50, y: 60 }],
+        fragments: [{ points: [{ x: 10, y: 20 }, { x: 50, y: 60 }], closed: false }],
+        closed: false,
+        text: null,
+        fontSize: null,
+        textGeometry: null,
+        strokeColor: "#111111",
+        fillColor: null,
+        strokeWidth: 2,
+        zOrder: 1,
+        override: null
+      }
+    }));
+    fireEvent.click(screen.getByRole("button", { name: "요소 숨기기" }));
+    await waitFor(() => expect(floorEditorApi.updateCadScene).toHaveBeenCalled());
+    const requestOptions = floorEditorApi.updateCadScene.mock.calls[0][3] as { signal?: AbortSignal };
+
+    const other = { ...structuredClone(editorState), floor: { ...editorState.floor, id: "floor-other" } };
+    view.rerenderEditor(other);
+    expect(requestOptions.signal?.aborted).toBe(true);
+    await act(async () => update.resolve({ ...scene, revision: 8 }));
+
+    expect(floorEditorApi.getFloorEditorState).not.toHaveBeenCalled();
+    expect(useFloorEditorStore.getState().state?.floor.id).toBe("floor-other");
+    expect(onSaved).not.toHaveBeenCalled();
   });
 
   it("offers CAD import without the legacy image upload panel", () => {

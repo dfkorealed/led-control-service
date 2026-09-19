@@ -1,11 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
+import type { FloorEditorState } from "../src/features/floor-editor/editor-types";
 import {
   expectMinimumTouchTargets,
   expectMinimumTouchTargetsAfterScrolling,
   expectNoHorizontalOverflow
 } from "./support/layout-assertions";
 
-const editorState = {
+const editorState: FloorEditorState = {
   floor: {
     id: "floor-b2",
     siteId: "site-2",
@@ -26,7 +27,8 @@ const editorState = {
     id: "fixture-1", name: "B2-L01", x: 120, y: 140, size: 20, ratedWatt: 40,
     brightness: 70, status: "online"
   }],
-  objects: []
+  objects: [],
+  lightSlots: []
 };
 
 test.beforeEach(async ({ page }) => {

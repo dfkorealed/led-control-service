@@ -1,5 +1,10 @@
 import type { EditorTool, FloorMapObjectDraft } from "./editor-types";
 
+// A 32,768-unit CAD map must fit even on a narrow mobile viewport.
+export function clampEditorZoom(zoom: number): number {
+  return Number.isFinite(zoom) ? Math.min(4, Math.max(0.001, zoom)) : 1;
+}
+
 export interface Point {
   x: number;
   y: number;

@@ -324,6 +324,58 @@ test("skips test-only paths and comments, not production paths containing test",
   assert.equal(inspectUiSource("src/latest.tsx", 'node.querySelectorAll("button")').length, 1);
 });
 
+test("skips only precise CAD smoke and golden fixture suffixes", () => {
+  const source = 'const color = "#123456"; node.querySelector("canvas");';
+  for (const path of ["src/cad/scene.smoke.ts", "src/cad/scene-smoke.tsx", "src/cad/scene.golden.ts"]) {
+    assert.deepEqual(inspectUiSource(path, source), [], path);
+  }
+  for (const path of [
+    "src/cad/smoke.ts", "src/cad/golden.ts", "src/cad/scene-smoke.ts",
+    "src/cad/scene.smoke.tsx", "src/cad/scene.golden.tsx", "src/cad/scene.golden.css",
+    "src/cad/scene.smoke.ts.backup.ts", "src/cad/scene-smoke-helper.tsx", "src/cad/smoke/scene.ts"
+  ]) {
+    assert.ok(inspectUiSource(path, source).some(v => v.rule === "raw-color"), path);
+  }
+});
+
+test("production imports cannot enter skipped CAD fixtures", () => {
+  for (const specifier of [
+    "./scene.smoke.ts", "./scene-smoke.tsx", "./scene.golden.ts",
+    "./scene.smoke", "./scene-smoke", "./scene.golden",
+    "./scene.smoke.ts?raw", "./scene-smoke.tsx#entry", "./scene.golden?raw",
+    "/src/cad/scene.golden.ts", "../cad/scene-smoke"
+  ]) {
+    for (const source of [
+      `import ${JSON.stringify(specifier)};`,
+      `export * from ${JSON.stringify(specifier)};`,
+      `import(${JSON.stringify(specifier)});`
+    ]) {
+      assert.ok(inspectUiSource("src/cad/production.ts", source).some(v => v.rule === "test-import" && v.match === specifier), source);
+    }
+  }
+  assert.deepEqual(inspectUiSource("src/cad/production.ts", 'import "./scene-smoke-helper"; import "./golden";'), []);
+});
+
+test("workspace skips CAD fixtures without admitting their production HTML entries", async () => {
+  const root = await mkdtemp(join(tmpdir(), "led-ui-cad-fixtures-"));
+  const fixtures = ["scene.smoke.ts", "scene-smoke.tsx", "scene.golden.ts"];
+  try {
+    await mkdir(join(root, "src"));
+    await writeFile(join(root, "src/App.tsx"), 'import "./styles.css";');
+    await writeFile(join(root, "src/styles.css"), '@import "tailwindcss"; @import "./styles/theme.css"; @import "./styles/base.css"; @import "./styles/exceptions.css";');
+    for (const fixture of fixtures) {
+      await writeFile(join(root, "src", fixture), 'import "./styles.css"; const color = "#123456";');
+    }
+    assert.deepEqual((await inspectWorkspace({ root })).violations, []);
+
+    const entries = fixtures.flatMap(fixture => [`/src/${fixture}`, `/src/${fixture}?entry#fixture`]);
+    await writeFile(join(root, "index.html"), entries.map(entry => `<script type="module" src="${entry}"></script>`).join("\n"));
+    assert.deepEqual((await inspectWorkspace({ root })).violations.map(v => ({ rule: v.rule, match: v.match })), entries.map(match => ({ rule: "test-import", match })));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("M3 ignores trailing and JSX comments but preserves strings, templates and URLs", () => {
   assert.deepEqual(inspectUiSource("src/New.tsx", 'const x = 1; // old p-[13px]\nconst view = <div>{/* old gap-[13px] */}</div>;'), []);
   assert.deepEqual(inspectUiSource("src/New.tsx", 'const classes = `p-2 ${(() => { /* old p-[13px] */ return "gap-3"; })()}`;'), []);
