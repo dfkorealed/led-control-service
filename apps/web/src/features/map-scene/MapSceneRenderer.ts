@@ -39,6 +39,7 @@ export class MapSceneRenderer {
   private manifest: MapSceneManifest | null = null;
   private displayLayerIds = new Map<string, string>();
   private camera: CadSceneCamera | null = null;
+  private renderedCamera: CadSceneCamera | null = null;
   private controller = new AbortController();
   private epoch = 0;
   private changeEpoch = 0;
@@ -61,6 +62,11 @@ export class MapSceneRenderer {
     this.budget = new CadSceneMemoryBudget(options.maximumMemoryBytes ?? (mobile ? 32 : 128) * MiB);
     this.originals = new CadSceneTileCache({
       maximumBytes: options.maximumOriginalBytes ?? (mobile ? 8 : 32) * MiB,
+      onBeforeInsert: (key, bytes) => {
+        if (!this.budget.reserve(this.owner, key, bytes, () => this.originals.delete(key))) {
+          throw new Error("Map original cache exceeds aggregate memory budget");
+        }
+      },
       onEvict: key => this.budget.release(this.owner, key)
     });
     const worker = this.source.decodeDisplayTile
@@ -117,7 +123,7 @@ export class MapSceneRenderer {
       this.displayLayerIds = new Map();
       this.scene.setTransientTile(null);
       this.scene.setManifest(emptyDisplay(ref));
-      this.scene.setSelectionExclusion(new Set());
+      this.scene.setSelectionExclusion(new Set(), undefined, new Set());
       this.scene.setLayerStates(new Map());
     }
     this.document = structuredClone(ref);
@@ -215,8 +221,10 @@ export class MapSceneRenderer {
 
   async pick(point: Point, options: { radiusPixels?: number } = {}): Promise<MapScenePickResult | null> {
     this.assertAlive();
-    if (!this.camera || this.picking || !this.manifest) return null;
-    const camera = this.camera, epoch = this.epoch, changes = this.changeEpoch;
+    if (!this.renderedCamera || this.picking || !this.manifest) return null;
+    // Input may be one rAF ahead of the visible scene. Broad-phase candidates
+    // and canonical hit tests must use the same last-applied camera snapshot.
+    const camera = this.renderedCamera, epoch = this.epoch, changes = this.changeEpoch;
     const radiusPixels = options.radiusPixels ?? 8;
     if (!Number.isFinite(radiusPixels) || radiusPixels < 0 || radiusPixels > 64) throw new RangeError("Invalid map selection radius");
     const world = screenToCadWorld(point, camera);
@@ -234,7 +242,7 @@ export class MapSceneRenderer {
       release = picked?.releaseSourceTile;
       if (!picked || !this.current(epoch) || changes !== this.changeEpoch || this.drafts.has(picked.elementId)) return null;
       const candidates = await this.getElements([...candidateIds]);
-      if (!this.current(epoch) || changes !== this.changeEpoch || this.camera !== camera) return null;
+      if (!this.current(epoch) || changes !== this.changeEpoch || this.renderedCamera !== camera) return null;
       const element = [...candidates].sort((a, b) => this.layerOrder(b.layerId) - this.layerOrder(a.layerId) || b.zIndex - a.zIndex)
         .find(value => this.visible(value) && hitMapElement(value, world, radiusPixels / camera.zoom, camera.zoom));
       if (!element) return null;
@@ -254,6 +262,7 @@ export class MapSceneRenderer {
     this.budget.releaseOwner(this.owner);
     this.drafts.clear(); this.groups.clear(); this.layers.clear();
     this.document = null; this.manifest = null;
+    this.renderedCamera = null;
     this.displayLayerIds.clear();
   }
 
@@ -266,9 +275,6 @@ export class MapSceneRenderer {
       const bytes = await this.source.loadDisplayTile(tile, documentSignal);
       if (!this.current(epoch) || documentSignal.aborted) throw new DOMException("Aborted", "AbortError");
       if (bytes.byteLength !== tile.byteSize || bytes.byteLength > 16 * MiB) throw new Error("Map display tile byte limit mismatch");
-      if (!this.budget.reserve(this.owner, key, bytes.byteLength, () => this.originals.delete(key))) {
-        throw new Error("Map original cache exceeds aggregate memory budget");
-      }
       return { value: bytes, byteSize: bytes.byteLength };
     });
     if (signal.aborted || !this.current(epoch)) throw new DOMException("Aborted", "AbortError");
@@ -284,6 +290,7 @@ export class MapSceneRenderer {
       // setCamera transforms/renders synchronously before starting asynchronous
       // display work. Never await a previous viewport's request here.
       void this.scene.setCamera(this.camera).catch(error => this.onError(asError(error)));
+      this.renderedCamera = this.camera;
       try { if (cadDisplayZoomBand(this.camera.zoom) !== this.draftBand) this.refreshDraft(); }
       catch (error) { this.onError(asError(error)); }
     });
@@ -291,6 +298,7 @@ export class MapSceneRenderer {
 
   private applyVisibility(dirty?: Bounds[]): void {
     const masks = new Set(this.drafts.keys());
+    const groupMasks = new Set<string>();
     const groups = new Map(this.manifest?.groups.map(group => [group.id, group]));
     for (const [id, group] of this.groups) { if (group) groups.set(id, group); else groups.delete(id); }
     for (const group of groups.values()) {
@@ -298,13 +306,11 @@ export class MapSceneRenderer {
       const seen = new Set<string>();
       while (current && !seen.has(current.id)) {
         seen.add(current.id);
-        if (!current.visible) { masks.add(group.id); break; }
+        if (!current.visible) { groupMasks.add(group.id); break; }
         current = current.parentId ? groups.get(current.parentId) : undefined;
       }
     }
-    // Group visibility can affect unseen descendants, so don't narrow a
-    // structural mask update to just the edited element's bounds.
-    this.scene.setSelectionExclusion(masks, this.groups.size ? undefined : dirty);
+    this.scene.setSelectionExclusion(masks, dirty, groupMasks);
     const layers = new Map(this.manifest?.layers.map(layer => [layer.id, layer]));
     for (const [id, layer] of this.layers) { if (layer) layers.set(id, layer); else layers.delete(id); }
     this.scene.setLayerStates(layers);

@@ -106,7 +106,8 @@ export interface CadSceneRenderBackend {
     key: string,
     tile: DecodedCadSceneTile,
     excludedElementIds: ReadonlySet<string>,
-    hiddenLayerNames?: ReadonlySet<string>
+    hiddenLayerNames?: ReadonlySet<string>,
+    excludedGroupIds?: ReadonlySet<string>
   ): void;
   removeTile(key: string): void;
   suspend(): void;
@@ -157,22 +158,23 @@ function tileKey(tile: CadSceneTile): string {
 
 function isExcluded(
   value: { elementId: string; groupId: string | null },
-  excludedIds: ReadonlySet<string>
+  excludedIds: ReadonlySet<string>,
+  excludedGroupIds: ReadonlySet<string> = excludedIds
 ): boolean {
-  return excludedIds.has(value.elementId) || (value.groupId !== null && excludedIds.has(value.groupId));
+  return excludedIds.has(value.elementId) || (value.groupId !== null && excludedGroupIds.has(value.groupId));
 }
 
-function filteredIndices(batch: CadGeometryBatch, excludedIds: ReadonlySet<string>): Uint32Array {
-  if (excludedIds.size === 0) return batch.indices;
+function filteredIndices(batch: CadGeometryBatch, excludedIds: ReadonlySet<string>, excludedGroupIds: ReadonlySet<string> = excludedIds): Uint32Array {
+  if (excludedIds.size === 0 && excludedGroupIds.size === 0) return batch.indices;
   let includedIndexCount = 0;
   for (const span of batch.spans) {
-    if (!isExcluded(span, excludedIds)) includedIndexCount += span.indexCount;
+    if (!isExcluded(span, excludedIds, excludedGroupIds)) includedIndexCount += span.indexCount;
   }
   if (includedIndexCount === batch.indices.length) return batch.indices;
   const indices = new Uint32Array(includedIndexCount);
   let offset = 0;
   for (const span of batch.spans) {
-    if (isExcluded(span, excludedIds)) continue;
+    if (isExcluded(span, excludedIds, excludedGroupIds)) continue;
     indices.set(batch.indices.subarray(span.indexStart, span.indexStart + span.indexCount), offset);
     offset += span.indexCount;
   }
@@ -227,14 +229,15 @@ export class PixiCadSceneRenderBackend implements CadSceneRenderBackend {
     key: string,
     tile: DecodedCadSceneTile,
     excludedElementIds: ReadonlySet<string>,
-    hiddenLayerNames: ReadonlySet<string> = new Set()
+    hiddenLayerNames: ReadonlySet<string> = new Set(),
+    excludedGroupIds?: ReadonlySet<string>
   ): void {
     this.removeTile(key);
     const tileContainer = new Container();
     const geometries: MeshGeometry[] = [];
     for (const batch of tile.batches) {
       if (hiddenLayerNames.has(batch.layerName)) continue;
-      const indices = filteredIndices(batch, excludedElementIds);
+      const indices = filteredIndices(batch, excludedElementIds, excludedGroupIds);
       if (indices.length === 0) continue;
       const geometry = new MeshGeometry({
         positions: batch.positions,
@@ -252,7 +255,7 @@ export class PixiCadSceneRenderBackend implements CadSceneRenderBackend {
     const textures: Texture[] = [];
     for (const textBatch of tile.textBatches) {
       if (hiddenLayerNames.has(textBatch.layerName)) continue;
-      const textMeshes = createTextMeshes(textBatch, excludedElementIds);
+      const textMeshes = createTextMeshes(textBatch, excludedElementIds, excludedGroupIds);
       textMeshes.forEach(({ mesh, geometry, texture }) => {
         tileContainer.addChild(mesh);
         geometries.push(geometry);
@@ -330,6 +333,7 @@ export class CadSceneRenderer {
   private currentCamera: CadSceneCamera | null = null;
   private activeTileKeys = new Set<string>();
   private excludedIds = new Set<string>();
+  private excludedGroupIds: Set<string> | undefined;
   private hiddenLayerNames = new Set<string>();
   private requestGeneration = 0;
   private tileLoadSignature = "";
@@ -350,6 +354,7 @@ export class CadSceneRenderer {
   private pickSequence = 0;
   private readonly pickLeases = new Set<() => void>();
   private displayRenderFrame: number | null = null;
+  private contextRestoreFrame: number | null = null;
   private transientTile: DecodedCadSceneTile | null = null;
 
   constructor(options: CadSceneRendererOptions) {
@@ -600,7 +605,7 @@ export class CadSceneRenderer {
     for (const [descriptor, decoded] of loaded) {
       const key = tileKey(descriptor);
       if (!this.activeTileKeys.has(key)) {
-        this.backend.replaceTile(key, decoded, this.excludedIds, this.hiddenLayerNames);
+        this.backend.replaceTile(key, decoded, this.excludedIds, this.hiddenLayerNames, this.excludedGroupIds);
       }
     }
     this.activeTileKeys = requestedKeys;
@@ -636,7 +641,8 @@ export class CadSceneRenderer {
       if (cached) this.displayBudget.reserve(this.memoryOwner, `display:${key}`, Math.max(1, cached.tile.memory.cpuBytes), () => this.displayTiles.delete(key));
     }
     const maxErrorPixels = this.manifest.tiles.reduce((sum, tile) => sum + tile.primitiveCount, 0) > 20_000 ? 1.5 : 0.5;
-    const quality = { zoomBand, maxErrorPixels, minimumStrokePixels: 0.5, excludedIds: [...this.excludedIds] };
+    const quality = { zoomBand, maxErrorPixels, minimumStrokePixels: 0.5, excludedIds: [...this.excludedIds],
+      ...(this.excludedGroupIds === undefined ? {} : { excludedGroupIds: [...this.excludedGroupIds] }) };
     const request = (async () => {
       let degraded = false;
       let completedParts = 0;
@@ -768,7 +774,7 @@ export class CadSceneRenderer {
       let tileBest: { entry: CadPickEntry; distance: number } | null = null;
       for (const index of spatialCandidates(tile, world, radius)) {
         const entry = tile.pickEntries[index];
-        if (!entry || isExcluded(entry, this.excludedIds) || this.hiddenLayerNames.has(entry.layerName)) continue;
+        if (!entry || isExcluded(entry, this.excludedIds, this.excludedGroupIds) || this.hiddenLayerNames.has(entry.layerName)) continue;
         const distance = distanceToPickEntry(tile, entry, world);
         if (distance <= radius && options.candidateIds) {
           options.candidateIds.add(entry.elementId);
@@ -831,7 +837,7 @@ export class CadSceneRenderer {
       for (const entryIndex of spatialCandidates(tile, world, radius)) {
         const entry = tile.pickEntries[entryIndex];
         if (!entry) continue;
-        if (isExcluded(entry, this.excludedIds)) continue;
+        if (isExcluded(entry, this.excludedIds, this.excludedGroupIds)) continue;
         if (this.hiddenLayerNames.has(entry.layerName)) continue;
         const distance = distanceToPickEntry(tile, entry, world);
         if (distance > radius) continue;
@@ -849,13 +855,21 @@ export class CadSceneRenderer {
     };
   }
 
-  setSelectionExclusion(elementOrGroupIds: ReadonlySet<string>, dirtyBounds?: readonly CadBounds[]): void {
+  setSelectionExclusion(elementOrGroupIds: ReadonlySet<string>, dirtyBounds?: readonly CadBounds[], groupIds?: ReadonlySet<string>): void {
     this.assertAlive();
-    if (setsEqual(this.excludedIds, elementOrGroupIds)) return;
+    const previousGroups = this.excludedGroupIds ?? this.excludedIds;
+    const nextGroups = groupIds ?? elementOrGroupIds;
+    const groupsChanged = !setsEqual(previousGroups, nextGroups);
+    if (setsEqual(this.excludedIds, elementOrGroupIds) && !groupsChanged) return;
     const changed = new Set([...this.excludedIds, ...elementOrGroupIds].filter(id => this.excludedIds.has(id) !== elementOrGroupIds.has(id)));
     this.excludedIds = new Set(elementOrGroupIds);
+    this.excludedGroupIds = groupIds === undefined ? undefined : new Set(groupIds);
     if (this.displayQuality) {
-      const bounds = dirtyBounds?.length ? dirtyBounds : [...changed].map(id => this.sourceBounds.get(id));
+      // Common group IDs are a separate namespace with no element bounds entry.
+      // A group visibility change may touch unseen descendants anywhere, while
+      // element-only edits retain their adjacent-batch invalidation behavior.
+      const bounds = groupIds !== undefined && groupsChanged ? [undefined]
+        : dirtyBounds?.length ? dirtyBounds : [...changed].map(id => this.sourceBounds.get(id));
       for (const tile of this.manifest.tiles) {
         if (!bounds.some(bound => !bound || (bound.maxX >= tile.bounds.minX && bound.minX <= tile.bounds.maxX &&
           bound.maxY >= tile.bounds.minY && bound.minY <= tile.bounds.maxY))) continue;
@@ -874,7 +888,8 @@ export class CadSceneRenderer {
     if (!this.backendMounted || this.contextLost) return;
     for (const key of this.activeTileKeys) {
       const tile = this.displayQuality ? this.displayTiles.get(key)?.tile : this.cache.get(key);
-      if (tile) this.backend.replaceTile(key, tile, this.displayQuality ? new Set() : this.excludedIds, this.hiddenLayerNames);
+      if (tile) this.backend.replaceTile(key, tile, this.displayQuality ? new Set() : this.excludedIds, this.hiddenLayerNames,
+        this.displayQuality ? undefined : this.excludedGroupIds);
     }
     this.backend.render();
   }
@@ -890,7 +905,8 @@ export class CadSceneRenderer {
     if (!this.backendMounted || this.contextLost) return;
     for (const key of this.activeTileKeys) {
       const tile = this.displayQuality ? this.displayTiles.get(key)?.tile : this.cache.get(key);
-      if (tile) this.backend.replaceTile(key, tile, this.displayQuality ? new Set() : this.excludedIds, this.hiddenLayerNames);
+      if (tile) this.backend.replaceTile(key, tile, this.displayQuality ? new Set() : this.excludedIds, this.hiddenLayerNames,
+        this.displayQuality ? undefined : this.excludedGroupIds);
     }
     if (this.transientTile) this.backend.replaceTile("transient", this.transientTile, new Set(), this.hiddenLayerNames);
     this.backend.render();
@@ -901,6 +917,8 @@ export class CadSceneRenderer {
     this.destroyed = true;
     if (this.displayRenderFrame !== null) cancelAnimationFrame(this.displayRenderFrame);
     this.displayRenderFrame = null;
+    if (this.contextRestoreFrame !== null) cancelAnimationFrame(this.contextRestoreFrame);
+    this.contextRestoreFrame = null;
     this.requestGeneration++;
     this.backendGeneration++;
     this.loadAbortController.abort();
@@ -960,6 +978,8 @@ export class CadSceneRenderer {
     event.preventDefault();
     if (this.destroyed || this.contextLost) return;
     this.contextLost = true;
+    if (this.contextRestoreFrame !== null) cancelAnimationFrame(this.contextRestoreFrame);
+    this.contextRestoreFrame = null;
     this.requestGeneration++;
     this.backendGeneration++;
     this.loadAbortController.abort();
@@ -996,7 +1016,13 @@ export class CadSceneRenderer {
     const ready = canResume ? Promise.resolve(true) : this.mountBackend();
     void ready.then(async mounted => {
       if (!mounted || this.destroyed) return;
-      await Promise.resolve();
+      // Browser event listeners have microtask checkpoints. A resolved Promise
+      // can run before Pixi's later context-restored listener rebuilds GL state.
+      // Recreate cached resources on the next frame, after every listener ran.
+      await new Promise<void>(resolve => {
+        this.contextRestoreFrame = requestAnimationFrame(() => { this.contextRestoreFrame = null; resolve(); });
+      });
+      if (this.destroyed || this.contextLost || !this.backendMounted) return;
       if (this.transientTile) this.setTransientTile(this.transientTile);
       if (this.currentCamera) await this.setCamera(this.currentCamera);
       else this.backend.render();
@@ -1130,9 +1156,10 @@ const TEXT_ATLAS_PADDING = 2;
 
 function createTextMeshes(
   batch: CadTextBatch,
-  excludedIds: ReadonlySet<string>
+  excludedIds: ReadonlySet<string>,
+  excludedGroupIds?: ReadonlySet<string>
 ): Array<{ mesh: Mesh; geometry: MeshGeometry; texture: Texture }> {
-  const entries = batch.entries.filter(entry => !isExcluded(entry, excludedIds));
+  const entries = batch.entries.filter(entry => !isExcluded(entry, excludedIds, excludedGroupIds));
   if (entries.length === 0) return [];
   const measurementCanvas = document.createElement("canvas");
   const measurementContext = measurementCanvas.getContext("2d");

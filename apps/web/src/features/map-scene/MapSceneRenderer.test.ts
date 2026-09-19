@@ -1,5 +1,5 @@
 import type { CadSceneManifest, CadSceneTile } from "@led-control/shared";
-import type { MapDocumentRef, MapElement } from "@led-control/shared/map-document-contracts";
+import { mapDocumentStateSchema, type MapDocumentRef, type MapElement } from "@led-control/shared/map-document-contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CadSceneRenderBackend } from "../cad-scene/CadSceneRenderer";
 import { buildCadGeometryBatches } from "../cad-scene/cad-scene-worker";
@@ -17,7 +17,7 @@ const display: CadSceneManifest = { version: 1, sceneId: "display", regionId: "r
   width: 1536, height: 1024, padding: 0, gridSize: 50, tileSize: 512, lodMode: "additive", primitiveCount: 2,
   tileCount: 2, byteSize: 2, sha256: "a".repeat(64), sourceBounds: { minX: 0, minY: 0, maxX: 1536, maxY: 1024 },
   transform: { scaleX: 1, scaleY: 1, translateX: 0, translateY: 0 }, tiles: [tile(0), tile(2)] };
-const shape = (id = "element-0"): MapElement => ({ id, type: "rectangle",
+const shape = (id = "element-0"): Extract<MapElement, { type: "rectangle" }> => ({ id, type: "rectangle",
   geometry: { origin: { x: 10, y: 10 }, width: 20, height: 20 },
   transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
   style: { strokeColor: null, fillColor: "#00ff00", strokeWidth: 0, opacity: 1 },
@@ -59,6 +59,26 @@ function harness(sourcePatch: Partial<MapSceneSource> = {}, maximumMemoryBytes?:
   disposals.push(() => renderer.dispose());
   const start = async () => { await renderer.mount(canvas); await renderer.setDocument(ref); renderer.setCamera(camera); await flush(); };
   return { renderer, source, backend, flush, start, canvas, onError, onDegraded };
+}
+
+function collisionHarness() {
+  const h = harness();
+  const group = { id: "shared", parentId: null, name: "Shared", visible: true, locked: false };
+  const elements = [shape("shared"), { ...shape("member"), groupId: group.id,
+    geometry: { origin: { x: 110, y: 10 }, width: 20, height: 20 } }];
+  const getManifest = vi.mocked(h.source.getManifest).getMockImplementation()!;
+  vi.mocked(h.source.getManifest).mockImplementation(async (...args) => {
+    const manifest = await getManifest(...args);
+    mapDocumentStateSchema.parse({ elements, groups: [group], layers: manifest.layers });
+    return { ...manifest, groups: [group], display: { ...display, tiles: [tile(0)] } };
+  });
+  vi.mocked(h.source.decodeDisplayTile!).mockImplementation(async (_bytes, descriptor, quality) => ({ descriptor, byteSize: 1,
+    ...buildCadGeometryBatches(elements.map(element => ({ type: "rectangle", elementId: element.id, groupId: element.groupId,
+      layerName: "walls", sourceType: "rectangle", clipBounds: null, style: element.style,
+      bounds: { minX: element.geometry.origin.x, minY: 10, maxX: element.geometry.origin.x + 20, maxY: 30 },
+      geometry: { ...element.geometry, rotation: 0 } })), quality) }));
+  vi.mocked(h.source.getElements).mockImplementation(async (_document, ids) => elements.filter(element => ids.includes(element.id)));
+  return { ...h, group };
 }
 
 describe("bounded common map renderer", () => {
@@ -271,5 +291,67 @@ describe("bounded common map renderer", () => {
     h.renderer.applyChanges([{ kind: "layer.put", layer: { ...layer, visible: true } }], []); await h.flush();
     const lastDraft = vi.mocked(h.backend.replaceTile).mock.calls.filter(([key]) => key === "transient").at(-1);
     expect(lastDraft?.[3]?.has("walls")).toBe(false);
+  });
+
+  it("publishes simultaneous original responses with matching aggregate allocations", async () => {
+    const h = harness({}, 100 * 1024, 1024 * 1024);
+    const getManifest = vi.mocked(h.source.getManifest).getMockImplementation()!;
+    vi.mocked(h.source.getManifest).mockImplementation(async (...args) => ({ ...await getManifest(...args),
+      display: { ...display, tiles: display.tiles.map(value => ({ ...value, byteSize: 64 * 1024 })) } }));
+    const ready = deferred<void>();
+    vi.mocked(h.source.loadDisplayTile).mockImplementation(async () => { await ready.promise; return new Uint8Array(64 * 1024); });
+    await h.start();
+    ready.resolve(); await h.flush();
+    // Inspect retained bytes, not just the reported aggregate that missed the
+    // race. The cache is private; no extra production diagnostics API is needed.
+    const { originals, budget } = h.renderer as unknown as {
+      originals: { totalBytes: number; entries: Map<string, { byteSize: number }> };
+      budget: { allocations: Map<string, { owner: string; key: string; bytes: number }> };
+    };
+    expect(originals.totalBytes).toBe(64 * 1024);
+    const allocations = new Map([...budget.allocations.values()].filter(value => value.owner === "map-source")
+      .map(value => [value.key, value.bytes]));
+    expect(allocations.size).toBe(originals.entries.size);
+    for (const [key, entry] of originals.entries) expect(allocations.get(key)).toBe(entry.byteSize);
+    expect(originals.totalBytes).toBeLessThanOrEqual(h.renderer.memoryBytes);
+    expect(h.renderer.memoryBytes).toBeLessThanOrEqual(100 * 1024);
+    expect(h.onError).not.toHaveBeenCalled();
+    h.renderer.dispose();
+    expect(originals.totalBytes).toBe(0);
+    expect(h.renderer.memoryBytes).toBe(0);
+  });
+
+  it("does not hide a same-named group when deleting an element", async () => {
+    const h = collisionHarness(); await h.start();
+    expect((await h.renderer.pick({ x: 120, y: 20 }))?.element.id).toBe("member");
+    h.renderer.applyChanges([{ kind: "delete", id: "shared" }], [{ minX: 10, minY: 10, maxX: 30, maxY: 30 }]);
+    await h.flush();
+    expect(vi.mocked(h.backend.replaceTile).mock.calls.at(-1)?.[1].batches).toHaveLength(1);
+    expect((await h.renderer.pick({ x: 120, y: 20 }))?.element.id).toBe("member");
+    expect(await h.renderer.pick({ x: 20, y: 20 })).toBeNull();
+  });
+
+  it("does not hide a same-named ungrouped element when hiding a group", async () => {
+    const h = collisionHarness(); await h.start();
+    h.renderer.applyChanges([{ kind: "group.put", group: { ...h.group, visible: false } }], []);
+    await h.flush();
+    expect(vi.mocked(h.backend.replaceTile).mock.calls.at(-1)?.[1].batches).toHaveLength(1);
+    expect((await h.renderer.pick({ x: 20, y: 20 }))?.element.id).toBe("shared");
+    expect(await h.renderer.pick({ x: 120, y: 20 })).toBeNull();
+    h.renderer.applyChanges([{ kind: "group.put", group: h.group }], []); await h.flush();
+    expect((await h.renderer.pick({ x: 120, y: 20 }))?.element.id).toBe("member");
+  });
+
+  it.each([1, 2])("uses the last rendered camera for a pick before the queued zoom %s frame", async zoom => {
+    const h = collisionHarness(); await h.start();
+    expect((await h.renderer.pick({ x: 20, y: 20 }))?.element.id).toBe("shared");
+    const next = { ...camera, zoom, centerX: 120 + 492 / zoom, centerY: 20 + 236 / zoom };
+    h.renderer.setCamera(next);
+    expect((await h.renderer.pick({ x: 20, y: 20 }))?.element.id).toBe("shared");
+    expect(h.backend.setCamera).toHaveBeenLastCalledWith(camera);
+    await h.flush();
+    expect((await h.renderer.pick({ x: 20, y: 20 }))?.element.id).toBe("member");
+    expect(h.backend.setCamera).toHaveBeenLastCalledWith(next);
+    expect(h.source.loadDisplayTile).toHaveBeenCalledTimes(1);
   });
 });

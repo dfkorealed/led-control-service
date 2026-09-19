@@ -100,6 +100,8 @@ export interface CadSceneDisplayQuality {
   zoomBand: number;
   maxErrorPixels: number;
   excludedIds: readonly string[];
+  /** Explicit group namespace. Omission preserves legacy element-or-group IDs. */
+  excludedGroupIds?: readonly string[];
   overrides?: readonly CadElementOverride[];
   /** Display readability only; never changes the persisted CAD stroke. */
   minimumStrokePixels?: number;
@@ -583,6 +585,7 @@ export function buildCadGeometryBatches(primitives: readonly CadScenePrimitive[]
   const error = quality ? quality.maxErrorPixels / quality.zoomBand : undefined;
   const quantum = error === undefined ? 0 : error / 2;
   const excluded = new Set(quality?.excludedIds);
+  const excludedGroups = new Set(quality?.excludedGroupIds ?? quality?.excludedIds);
   const overrides = new Map(quality?.overrides?.map(value => [value.elementId, value]));
   const displaySegments = new Map<string, CadDisplayStrokeAccumulator>();
   const mutableBatches = new Map<string, MutableBatch>();
@@ -591,7 +594,7 @@ export function buildCadGeometryBatches(primitives: readonly CadScenePrimitive[]
   const pickPoints: number[] = [];
   const includePicking = !quality && options.includePickIndex !== false;
   primitives.forEach((primitive, zOrder) => {
-    if (excluded.has(primitive.elementId) || (primitive.groupId && excluded.has(primitive.groupId))) return;
+    if (excluded.has(primitive.elementId) || (primitive.groupId && excludedGroups.has(primitive.groupId))) return;
     const override = overrides.get(primitive.elementId);
     if (override?.hidden) return;
     if (override && error !== undefined) primitive = displayOverride(primitive, override, error);

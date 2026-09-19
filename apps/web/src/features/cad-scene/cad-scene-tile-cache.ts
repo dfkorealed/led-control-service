@@ -1,5 +1,7 @@
 export interface CadSceneTileCacheOptions<K> {
   maximumBytes: number;
+  /** Synchronous admission immediately before publication; may reject by throwing. */
+  onBeforeInsert?: (key: K, byteSize: number) => void;
   onEvict?: (key: K) => void;
 }
 
@@ -55,6 +57,9 @@ export class CadSceneTileCache<T, K = string> {
         throw new Error("CAD scene tile cache entries require a positive byte size");
       }
       if (generation !== this.generation) return value;
+      // No Promise boundary may separate external budget admission from entry
+      // publication: another admission must be able to evict this actual entry.
+      this.options.onBeforeInsert?.(key, byteSize);
       const previous = this.entries.get(key);
       if (previous) this.bytes -= previous.byteSize;
       this.entries.set(key, { value, byteSize, lastUsed: ++this.clock });

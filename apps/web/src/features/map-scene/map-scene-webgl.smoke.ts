@@ -26,11 +26,15 @@ for (const width of [1024, 320]) test(`common map compact worker, draft holes an
     const layers = ["WALLS", "DOORS", "ELECTRICAL", "LABELS"].map((name, order) => ({ id: `layer-${order}`, name, order, visible: true, locked: false }));
     let fetches = 0, lookups = 0;
     let captured = new Uint8Array();
+    let restoreStarted = false;
+    let restoredEventCompleted = false;
+    let prematureRestoreRenders = 0;
     class RecordingBackend extends PixiCadSceneRenderBackend {
       render() {
         super.render();
         const gl = canvas.getContext("webgl2") ?? canvas.getContext("webgl");
         if (!gl || gl.isContextLost()) return;
+        if (restoreStarted && !restoredEventCompleted) prematureRestoreRenders++;
         captured = new Uint8Array(canvas.width * canvas.height * 4);
         gl.finish(); gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, captured);
       }
@@ -43,7 +47,7 @@ for (const width of [1024, 320]) test(`common map compact worker, draft holes an
       source: {
         scopeKey: "smoke:floor:user",
         getManifest: async (document: typeof ref) => ({ generationId: document.generationId, revision: document.revision,
-          canonical: document.manifest, groups: [], layers,
+          canonical: document.manifest, groups: [{ id: "golden-group", parentId: null, name: "Group", visible: true, locked: false }], layers,
           displayLayerBindings: layers.map(layer => ({ layerName: layer.name, layerId: layer.id })),
           display: { version: 1, sceneId: tile.sceneId, regionId: "region", manifestAssetId: "derived-metadata",
             width: 1024, height: 1024, padding: 0, gridSize: 50, tileSize: 512, lodMode: "additive", primitiveCount: 7,
@@ -67,25 +71,35 @@ for (const width of [1024, 320]) test(`common map compact worker, draft holes an
       const offset = ((canvas.height - sy - 1) * canvas.width + sx) * 4;
       return [...captured.slice(offset, offset + 4)];
     };
-    const waitFor = async (condition: () => boolean) => {
+    const waitFor = async (condition: () => boolean, stage = "overview") => {
       for (let i = 0; i < 300; i++) { await new Promise<void>(resolve => requestAnimationFrame(() => resolve())); if (condition()) return; }
-      throw new Error(`GPU condition timed out: ${renderErrors.join(",")}`);
+      throw new Error(`GPU condition timed out (${stage}): ${renderErrors.join(",")}; source=${pixel(30, 25)}; draft=${pixel(110, 110)}; contextLost=${gl.isContextLost()}; prematureRestoreRenders=${prematureRestoreRenders}`);
     };
     // Inspect a known filled source triangle, not merely any nonblank pixel.
     await waitFor(() => pixel(30, 25)[3] > 20);
     const overviewLookups = lookups;
     const screen = (x: number, y: number) => ({ x: (x - camera.centerX) * camera.zoom + width / 2, y: (y - camera.centerY) * camera.zoom + 160 });
     const picked = await renderer.pick(screen(6, 7));
-    const draft = { id: "local-polygon", type: "polygon", geometry: {
+    // Element IDs and group IDs may legally collide in a common document.
+    const draft = { id: "golden-group", type: "polygon", geometry: {
       outer: [{ x: 100, y: 100 }, { x: 180, y: 100 }, { x: 180, y: 180 }, { x: 100, y: 180 }],
       holes: [[{ x: 120, y: 120 }, { x: 120, y: 160 }, { x: 160, y: 160 }, { x: 160, y: 120 }]] },
       transform: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0 },
       groupId: null, layerId: "layer-0", zIndex: 0, locked: false, visible: true, provenance: null,
       style: { fillColor: "#00ff00", strokeColor: null, strokeWidth: 0, opacity: 1 } };
     renderer.applyChanges([{ kind: "add", element: draft }], []);
-    await waitFor(() => pixel(110, 110)[1] > 200);
+    await waitFor(() => pixel(110, 110)[1] > 200 && pixel(30, 25)[3] > 20, "add colliding element");
     const holeAlpha = pixel(140, 140)[3];
     const localPick = await renderer.pick(screen(110, 110));
+    renderer.setCamera({ ...camera, centerX: camera.centerX + 100 });
+    const beforeFramePick = renderer.pick(screen(110, 110));
+    renderer.setCamera(camera);
+    const beforeFrameId = (await beforeFramePick)?.element.id;
+    const group = { id: "golden-group", parentId: null, name: "Group", visible: false, locked: false };
+    renderer.applyChanges([{ kind: "group.put", group }], []);
+    await waitFor(() => pixel(110, 110)[1] > 200 && pixel(30, 25)[3] === 0, "hide colliding group");
+    renderer.applyChanges([{ kind: "group.put", group: { ...group, visible: true } }], []);
+    await waitFor(() => pixel(110, 110)[1] > 200 && pixel(30, 25)[3] > 20, "show colliding group");
     await renderer.setDocument({ ...ref, revision: 1 });
     renderer.setCamera({ ...camera, zoom: camera.zoom * 1.1 });
     renderer.setCamera(camera);
@@ -96,19 +110,20 @@ for (const width of [1024, 320]) test(`common map compact worker, draft holes an
     captured = new Uint8Array();
     // Chromium's extension refuses synchronous restoration in the loss event.
     await new Promise(resolve => setTimeout(resolve, 50));
-    const restore = new Promise<void>(resolve => canvas.addEventListener("webglcontextrestored", () => resolve(), { once: true }));
+    restoreStarted = true;
+    const restore = new Promise<void>(resolve => canvas.addEventListener("webglcontextrestored", () => { restoredEventCompleted = true; resolve(); }, { once: true }));
     extension.restoreContext(); await restore;
-    await waitFor(() => pixel(110, 110)[1] > 200 && pixel(30, 25)[3] > 20);
+    await waitFor(() => pixel(110, 110)[1] > 200 && pixel(30, 25)[3] > 20, "restore context");
     const memoryBytes = renderer.memoryBytes;
-    renderer.applyChanges([{ kind: "delete", id: "local-polygon" }], []);
-    await waitFor(() => pixel(110, 110)[3] === 0);
+    renderer.applyChanges([{ kind: "delete", id: draft.id }], []);
+    await waitFor(() => pixel(110, 110)[3] === 0 && pixel(30, 25)[3] > 20, "delete colliding element");
     const sourceStillVisible = pixel(30, 25)[3] > 20;
     renderer.dispose();
-    return { overviewLookups, picked: picked?.element.id, localPick: localPick?.element.id, holeAlpha,
-      fetches, lookups, memoryBytes, afterDispose: renderer.memoryBytes, sourceStillVisible, renderErrors };
+    return { overviewLookups, picked: picked?.element.id, localPick: localPick?.element.id, beforeFrameId, holeAlpha,
+      fetches, lookups, memoryBytes, afterDispose: renderer.memoryBytes, sourceStillVisible, prematureRestoreRenders, renderErrors };
   }, width);
-  expect(result).toMatchObject({ overviewLookups: 0, picked: "line-golden", localPick: "local-polygon", holeAlpha: 0,
-    fetches: 1, lookups: 1, afterDispose: 0, sourceStillVisible: true, renderErrors: [] });
+  expect(result).toMatchObject({ overviewLookups: 0, picked: "line-golden", localPick: "golden-group", beforeFrameId: "golden-group", holeAlpha: 0,
+    fetches: 1, lookups: 1, afterDispose: 0, sourceStillVisible: true, prematureRestoreRenders: 0, renderErrors: [] });
   expect(result.memoryBytes).toBeLessThanOrEqual((width === 320 ? 32 : 128) * 1024 * 1024);
   expect(errors).toEqual([]);
   await testInfo.attach("common-map-gpu-evidence", { body: JSON.stringify(result, null, 2), contentType: "application/json" });
