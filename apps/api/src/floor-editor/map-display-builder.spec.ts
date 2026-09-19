@@ -1,4 +1,4 @@
-import { MapElement } from "@led-control/shared";
+import { MapElement, getMapElementBounds, transformMapPoint } from "@led-control/shared";
 import { nativeMapDisplayManifestSchema, validateMapDisplayPageContent } from "@led-control/shared";
 import { buildMapDisplay } from "./map-display-builder";
 import { decodeMapDisplayTile } from "../floor-import/cad-scene-codec";
@@ -27,12 +27,46 @@ describe("generic native map compact display", () => {
   });
   it("emits ordered checkpoint pages for reverse paint-key input and explicit canonical fill groups", async () => {
     const payloads: Buffer[] = [];
-    const inputs = [3, 2, 1].map(i => ({ ...element(`e${i}`), zIndex: i, style: { ...element("x").style, fillColor: "#ff0000", opacity: 0.5 } }));
+    const inputs: MapElement[] = [3, 2, 1].map(i => ({ ...element(`e${i}`), type: "polygon", zIndex: i,
+      geometry: { outer: [{ x: 10, y: 10 }, { x: 30, y: 10 }, { x: 30, y: 30 }, { x: 10, y: 30 }], holes: [] },
+      style: { ...element("x").style, fillColor: "#ff0000", opacity: 0.5 } }));
     const manifest = await buildMapDisplay({ ...ref, elementCount: inputs.length }, (async function* () { yield* inputs; })(),
       async tile => { payloads.push(tile.payload); });
     expect(manifest.orderedPages).toEqual({ version: 1 });
     expect(manifest.tiles.flatMap(t => t.pages ?? []).some(p => p.paintGroup)).toBe(true);
     for (let i = 0; i < payloads.length; i++) validateMapDisplayPageContent(manifest.tiles[i], decodeMapDisplayTile(payloads[i]), name => name);
+  });
+  it("retains one transformed rectangle fill contour and separate closed stroke across cells", async () => {
+    const input: MapElement = { ...element("rectangle"), type: "rectangle", groupId: "group", layerId: "layer", zIndex: -7,
+      geometry: { origin: { x: 0, y: 0 }, width: 100, height: 80 },
+      transform: { x: 510.25, y: 500.5, scaleX: 1.2, scaleY: 0.8, rotation: 17.5 },
+      style: { strokeColor: "#000000", fillColor: "#FF0000", strokeWidth: 2, opacity: 0.4 } };
+    const points = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 80 }, { x: 0, y: 80 }]
+      .map(point => transformMapPoint(point, input.transform));
+    const tiles: Parameters<Parameters<typeof buildMapDisplay>[2]>[0][] = [];
+    const manifest = await buildMapDisplay({ ...ref, elementCount: 1 }, (async function* () { yield input; })(),
+      async tile => { tiles.push(tile); });
+    expect(manifest.primitiveCount).toBe(2);
+    expect(new Set(tiles.map(t => `${t.descriptor.tileX}:${t.descriptor.tileY}`)).size).toBeGreaterThan(1);
+    const decoded = tiles.flatMap(t => decodeMapDisplayTile(t.payload, t.descriptor));
+    const fills = decoded.filter(p => p.style.fillColor !== null);
+    const strokes = decoded.filter(p => p.style.strokeColor !== null);
+    expect(fills.length).toBeGreaterThan(0); expect(strokes.length).toBeGreaterThan(0);
+    for (const p of decoded) {
+      expect(p).toMatchObject({ elementId: input.id, groupId: input.groupId, layerName: input.layerId, zIndex: input.zIndex,
+        type: "polyline", geometry: { points, closed: true } });
+      const bounds = getMapElementBounds(input), margin = p.style.strokeColor === null ? 0 : input.style.strokeWidth * 5;
+      expect(p.clipBounds).not.toBeNull();
+      expect(p.bounds).toEqual({ minX: Math.max(bounds.minX - margin, p.clipBounds!.minX),
+        minY: Math.max(bounds.minY - margin, p.clipBounds!.minY),
+        maxX: Math.min(bounds.maxX + margin, p.clipBounds!.maxX),
+        maxY: Math.min(bounds.maxY + margin, p.clipBounds!.maxY) });
+    }
+    expect(new Set(fills.map(p => p.fragmentOrder))).toEqual(new Set([0]));
+    expect(new Set(strokes.map(p => p.fragmentOrder))).toEqual(new Set([1]));
+    expect(fills.every(p => p.style.strokeColor === null && p.style.opacity === input.style.opacity)).toBe(true);
+    expect(strokes.every(p => p.style.fillColor === null)).toBe(true);
+    expect(manifest.tiles.flatMap(t => t.pages ?? []).every(p => !p.paintGroup)).toBe(true);
   });
   it("supports truly empty maps and propagates failed uploads", async () => {
     const empty = await buildMapDisplay({ ...ref, elementCount: 0 }, (async function* () {})(), async () => {});

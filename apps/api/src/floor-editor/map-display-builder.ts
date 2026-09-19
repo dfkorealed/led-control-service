@@ -52,10 +52,13 @@ function* primitives(element: MapElement): Generator<CadScenePrimitive> {
     }
   }
   const paths = rings.map(transform);
-  // Closed fills are triangulated once, not independently per ring, so holes
-  // remain holes. Existing CAD clipping/codec handles the resulting primitives.
+  // Keep a rectangle's original contour so fractional canvas coverage matches
+  // canonical editing. Other fills still triangulate all rings together for holes.
   if (closed && element.style.fillColor !== null) {
-    for (const points of triangulateCadHatchPolygon({ outer: paths[0], holes: paths.slice(1) })) {
+    if (element.type === "rectangle") {
+      yield { ...base, type: "polyline", style: { ...base.style, strokeColor: null },
+        geometry: { points: paths[0], closed: true } };
+    } else for (const points of triangulateCadHatchPolygon({ outer: paths[0], holes: paths.slice(1) })) {
       yield { ...base, type: "triangle", style: { ...base.style, strokeColor: null },
         geometry: { points: points as [Point, Point, Point] } };
     }
