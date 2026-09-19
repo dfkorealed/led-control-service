@@ -13,6 +13,8 @@ import { EditorLeaseService } from "./editor-lease.service";
 import { FixtureEnergyCheckpointService } from "../energy/fixture-state-ingestion.service";
 import { EnergyDimensionHistoryService } from "../energy/energy-dimension-history.service";
 import { FloorAssetCleanupService } from "./floor-asset-cleanup.service";
+import { MapDocumentStore } from "./map-document-store";
+import { MapDocumentAssetReferences } from "./map-document-asset-references";
 
 @Module({
   imports: [PrismaModule, AuthModule, AccessModule, AuditModule, StorageModule, RedisModule],
@@ -21,9 +23,12 @@ import { FloorAssetCleanupService } from "./floor-asset-cleanup.service";
     FloorEditorService,
     FloorAssetsService,
     FloorAssetCleanupService,
+    MapDocumentStore,
+    MapDocumentAssetReferences,
     EditorLeaseService,
     FixtureEnergyCheckpointService,
     EnergyDimensionHistoryService
-  ]
+  ],
+  exports: [MapDocumentStore]
 })
 export class FloorEditorModule {}

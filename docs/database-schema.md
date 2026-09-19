@@ -12,6 +12,7 @@
 
 - 조직/사용자/인증: `Organization`(`OrganizationType`), `User`, `SiteMembership`, `Invitation`, `Session`
 - 현장/공간/도면: `Site`, `Floor`(`mapRevision`), `FloorPlan`, `FloorMapObject`, `FloorLightSlot`, `FloorMapRevision`, `FloorImportRegion`, `FloorCadScene`, `FloorCadTile`, `FloorCadElementOverride`, `FloorCadLayerState`
+- 공통 맵 정본/파생 표시: `FloorMapDocument`, `FloorMapGeneration`, `FloorMapChunk`, `FloorMapIndexShard`, `FloorMapDisplayAsset`, `FloorMapChangeSet`, `FloorMapRevisionAsset`, `FloorMapStage`, `FloorMapStagePart`
 - 조명/그룹/게이트웨이/메시 노드: `Fixture`, `FixtureGroup`, `GroupFixture`, `Gateway`, `GatewayInventory`, `MeshNode`, `MeshControlGroup`, `MeshControlGroupMember`, `MeshControlGroupExpectedOperation`, `MeshControlGroupAppliedMember`
 - 게이트웨이 PKI: `GatewayEnrollment`, `GatewayCertificate`, `CertificateRevocationReconciliation`
 - 제어/모니터링: `Command`, `CommandDispatch`, `CommandFixtureResult`, `MqttOutbox`, `ProcessedGatewayEvent`, `GatewayEventWatermark`, `MonitoringIncident`, `EnergyUsage`
@@ -297,6 +298,13 @@ SiteDeletionCleanup (삭제된 Site ID와 외부 정리 대상을 독립 보존)
 | `cad_manifest` | native CAD scene manifest |
 | `cad_tile` | 512 logical unit 단위의 압축 binary scene tile |
 | `cad_region_preview` | import region 선택용 미리보기 |
+| `map_manifest` | 공통 요소 정본 generation manifest. 표시 타일 manifest와 별개 |
+| `map_chunk` | 원본 MapElement 청크, decoded 최대 8 MiB |
+| `map_index` | SHA-256 ID prefix별 불변 ID → 청크/요소 offset 인덱스 |
+| `map_changeset` | 정본 변경분/역변경 자산. 일반 편집의 별도 작은 쓰기 단위 |
+| `map_stage_part` | 대량 변경 준비 part 자산 |
+| `map_display_manifest` | 공통 맵 파생 표시 manifest |
+| `map_display_tile` | 공통 맵 파생 LOD/tile binary. 사용자 요소 유형은 아님 |
 
 ### CAD import enum
 
@@ -572,6 +580,35 @@ worker는 API 시작 시와 30초 주기로 만료된 작업을 최대 10개씩 
 - signup은 invitation 소비와 `SiteMembership` 생성을 같은 transaction으로 처리한다. scoped `viewer` invitation은 유효한 `siteId`가 필요하고, `admin`은 Site의 `adminUserId` 관계를 사용하므로 membership을 만들지 않는다.
 - `viewer` membership은 반드시 사용자의 customer Organization에 속한 site만 가리켜야 한다. SiteAccess는 권한 판정과 접근 가능한 현장 목록 계산 양쪽에서 이 invariant를 강제한다.
 
+### 공통 맵 문서 저장 기반 (U3)
+
+`prepareGeneration`의 import/reset 준비는 현재 `Floor.mapRevision + 1`을 generation `baseRevision`으로 예약하되 Floor를 수정하지 않는다. 게시 시 이전 revision CAS가 필요하며, stale 준비는 재준비/충돌 처리한다. 내부 checkpoint는 콘텐츠 revision을 유지한다.
+
+Migration: `20260919180000_map_document`. 기존 맵 데이터의 변환·삭제·복구 어댑터를 포함하지 않는 additive migration이다. 격리 PostgreSQL의 clean/기존 데이터 upgrade로 검증하며 사용자 앱 DB에는 적용하지 않았다. 기존 API 경로는 유지하고 새 테이블을 사용하는 초기화/저장 controller는 U5/U6에서 연결한다.
+
+| 테이블 | 주요 필드 | 관계·제약 |
+| --- | --- | --- |
+| `FloorMapDocument` | `floorId`, `activeGenerationId`, `revision`, `changesSinceCheckpoint`, `deltaDecodedBytes` | 층당 활성 포인터 하나. `(activeGenerationId, floorId)`는 동일 층 generation FK |
+| `FloorMapGeneration` | `id`, `floorId`, `status`, `formatVersion`, `baseRevision`, `sourceGenerationId/sourceRevision`, `width/height/gridSize`, `elementCount`, `decodedBytes`, `manifestAssetId/manifestDecodedBytes`, `expiresAt` | 상태 `preparing/prepared/active/retired/failed`. 형식 버전은 1, 콘텐츠 revision과 독립. prepared 이후 manifest 필수 |
+| `FloorMapChunk` | `generationId`, `ordinal`, `assetId`, `decodedBytes`, `elementCount`, `minX/minY/maxX/maxY` | `(generationId, ordinal)` unique, 청크당 한 행. 요소별 geometry DB 행 없음. 범위/유한 bounds 검사 |
+| `FloorMapIndexShard` | `generationId`, `prefix`, `assetId`, `decodedBytes`, `elementCount` | `(generationId, prefix)` unique. SHA-256 2..64자리 소문자 prefix. 실제 locator는 private 자산에 보관 |
+| `FloorMapDisplayAsset` | `generationId`, `assetId`, `role`, `decodedBytes`, `tileX/tileY/lod/part`, `minX/minY/maxX/maxY` | role `manifest/tile`. generation당 manifest 하나인 partial unique index, tile 좌표/LOD/part unique. 정본 청크와 다른 관계이며 import job FK 없음 |
+| `FloorMapChangeSet` | `floorId`, `generationId`, `requestId`, `baseRevision/resultRevision`, `payloadHash`, `payloadAssetId/inverseAssetId`, `decodedBytes/inverseDecodedBytes` | `(floorId, requestId)` 및 `(generationId, resultRevision)` unique. result=base+1. 정방향/역방향 자산 모두 보호 |
+| `FloorMapRevisionAsset` | `revisionId`, `floorId`, `generationId`, `assetId` | `(revisionId, assetId)` PK. 보존 revision의 generation·정본·인덱스·display·변경분·확정 stage part pin |
+| `FloorMapStage` | `floorId`, `generationId`, `requestId`, `userId`, `leaseTokenHash`, `baseRevision`, `status`, `payloadHash`, `decodedBytes`, `partCount`, `expiresAt` | 상태 `preparing/ready/committed/failed/expired`, 층별 request unique. 사용자·층·generation·revision·lease에 결속할 U6 영속 저장 기반 |
+| `FloorMapStagePart` | `stageId`, `floorId`, `part`, `assetId`, `sha256`, `decodedBytes` | `(stageId, part)` PK. part 0..1023, decoded 최대 512 KiB |
+
+- generation viewport는 가로/세로 512..32768, grid 5..200, 선택 영역 최대 500000개다. 청크/샤드 decoded 8 MiB, generation 전체 decoded 512 MiB(geometry+index+manifest) 상한이다. 단일 요소도 framing 포함 청크 상한을 넘으면 거부한다. S3의 encoded 크기·SHA-256과 압축 해제 후 실제 크기·digest를 별도로 확인한다. U2 스키마의 숫자·topology 연산 예산도 쓰기/읽기에서 적용하며 좌표를 임의로 clamp하지 않는다.
+- 정본 codec은 `MDC1` 40-byte header(형식·decoded 길이·decoded SHA-256)와 gzip 본문이다. private FloorAsset은 `application/octet-stream`, `contentEncoding=NULL`이다. JSON 배열은 한 bounded 청크에만 존재하고 전체 장면을 메모리에 모으지 않는다. index는 임시 파일 radix 분할로 생성하며, 8 MiB 초과 샤드는 다음 hash prefix로 재분할하고 같은 샤드에서 중복 ID를 거부한다.
+- display manifest/tile은 정본과 별도의 private 자산이다. 각각 decoded 8/16 MiB, 총 encoded/decoded 각각 512 MiB, 최대 12288 tile descriptor를 사용한다. tileX/Y 0..63, LOD 0..2, part 0..127이다. 초기 전체 맞춤은 display LOD/tile을 사용하며 정본 geometry 전체 다운로드를 요구하지 않는다. 표시 codec/coverage 및 U7 DTO는 후속 경계다.
+- 모든 새 자산 FK는 `(assetId, floorId)`, generation FK는 `(generationId, floorId)`로 타 층 혼합을 차단한다. 직접 참조 자산/보존 generation 삭제는 `NO ACTION`으로 막는다. 새 `NO ACTION` FK는 `DEFERRABLE INITIALLY DEFERRED`여서 적법한 Site/Floor cascade가 trigger 순서에 막히지 않는다. Floor 삭제는 소유 generation과 문서/청크/샤드를 함께 제거한다.
+- canonical/display bounds의 Float 저장은 Prisma 숫자 JSON 경로의 1 ULP 반올림을 피하도록 decimal-string SQL cast를 사용하고 읽을 때도 DB text를 JS Number로 복원한다. fractional·극단 finite 좌표와 stroke 재조회 회귀로 exact equality를 확인하며 임의 epsilon이나 clamp를 적용하지 않는다.
+- `prepareGeneration(floorId, elements, seed)`는 viewport와 shared `MapGroup[]/MapLayer[]`를 명시적으로 받고 실제 geometry를 streaming 검증·업로드한다. 없는 그룹·레이어를 만들어 맞추지 않는다. 성공해도 활성 document/Floor.mapRevision 포인터는 바꾸지 않는다. S3 I/O는 transaction 밖, 원장 연결과 준비 완료는 Floor 잠금 안이다.
+- 일반 저장은 기존 generation에 changeset을 추가한다. import/reset/checkpoint만 generation을 만든다. 100 changeset 또는 decoded delta 32 MiB부터 checkpoint 준비 대상이며, `commitCheckpoint`는 expected generation/revision을 CAS 확인한 transaction에서만 포인터와 카운터를 교체한다. content revision을 증가시키지 않고 실패하면 rollback한다. 자동 scheduling/일반 mutation validation은 U6 담당이다.
+- 새 snapshot v3는 `document: MapDocumentRef`, fixture placement, lightSlots를 보관하고 전체 geometry를 복제하지 않는다. `pinRevision`은 연속된 delta chain을 검증하고 해당 revision까지의 정방향/역방향 및 확정 stage part를 보호한다. 기존 v1/v2 decoder와 기존 live builder는 유지하지만 구 CAD 데이터를 신규 문서로 복구하지 않는다. 새 snapshot builder/controller 연결은 U6에서 수행한다.
+- cleanup은 pending/ready 후보 조회의 LIMIT 전과 Floor→FloorAsset 잠금 후 최종 claim 모두에서 신규 참조를 제외한다. 새 테이블 존재 확인 전에는 신규 SQL 관계를 조회하지 않는다. 준비 실패는 참조를 제거하고 failed로 남기며 private 객체 원장은 cleanup 재시도를 위해 유지한다. `reapExpiredPreparations`는 1시간 만료 준비를 한 번에 25개까지 잠금/재검사하여 정리하며 활성·이력·stage·changeset 참조가 있는 generation은 건드리지 않는다. migration 전 live 경로에서 이 reaper를 자동 실행하지 않는다.
+- stage controller/part 불변성 및 전체 누적량의 원자적 갱신, 1시간 비활성 만료 실행, 일반 mutation의 인가·lease·멱등성, 보존 이력 정책에 따른 retired generation GC, U7 bounded batch 조회·delta overlay는 후속 작업이다. U3가 이 기능들의 HTTP 구현 완료를 뜻하지 않는다.
+
 ### FloorMapRevision
 
 층 도면의 전체 편집 스냅숏과 복구 이력을 보관한다. `Floor` 삭제 시 함께 삭제되며, 기록한 사용자는 삭제할 수 없다.
@@ -655,7 +692,7 @@ S3 호환 object storage에 직접 업로드되거나 CAD worker가 생성하는
 | --- | --- | --- | --- | --- |
 | `id` | `String` | 예 | PK, `uuid()` | asset ID |
 | `floorId` | `String` | 예 | FK -> `Floor.id`, cascade delete | 소속 층 |
-| `kind` | `FloorAssetKind` | 예 | enum | `original`, `rendered`, `cad_manifest`, `cad_tile`, `cad_region_preview` 역할 |
+| `kind` | `FloorAssetKind` | 예 | enum | 기존 original/rendered/CAD 역할과 공통 맵의 manifest/chunk/index/changeset/stage/display 역할. 위 enum 표 참조 |
 | `status` | `FloorAssetStatus` | 예 | `pending` | 업로드 검증 전/후 상태 |
 | `objectKey` | `String` | 예 | Unique | bucket 내부 object key |
 | `mimeType` | `String` | 예 |  | 서명된 Content-Type |

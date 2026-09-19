@@ -163,6 +163,29 @@ enum FloorAssetKind {
   cad_manifest
   cad_tile
   cad_region_preview
+  map_manifest
+  map_chunk
+  map_index
+  map_changeset
+  map_stage_part
+  map_display_manifest
+  map_display_tile
+}
+
+enum FloorMapGenerationStatus {
+  preparing
+  prepared
+  active
+  retired
+  failed
+}
+
+enum FloorMapStageStatus {
+  preparing
+  ready
+  committed
+  failed
+  expired
 }
 
 enum FloorAssetStatus {
@@ -391,6 +414,8 @@ model Floor {
   lightSlots            FloorLightSlot[]
   provisioningSessions  ProvisioningSession[]
   mapRevisions          FloorMapRevision[]
+  mapDocument           FloorMapDocument?
+  mapGenerations        FloorMapGeneration[]
   monitoringRefreshes   MonitoringRefresh[]
   monitoringRefreshRequests MonitoringRefreshRequest[]
   createdAt             DateTime              @default(now())
@@ -425,9 +450,11 @@ model FloorMapRevision {
   restoredFromRevision Int?
   floor                Floor    @relation(fields: [floorId], references: [id], onDelete: Cascade)
   user                 User     @relation(fields: [changedBy], references: [id], onDelete: Restrict)
+  documentAssets       FloorMapRevisionAsset[]
   createdAt            DateTime @default(now())
 
   @@unique([floorId, revision])
+  @@unique([id, floorId])
   @@index([floorId, createdAt])
   @@index([createdAt, id])
 }
@@ -593,11 +620,198 @@ model FloorAsset {
   importRegionPreviews FloorImportRegion[] @relation("FloorImportRegionPreviewAsset")
   cadSceneManifests    FloorCadScene[]     @relation("FloorCadSceneManifestAsset")
   cadTiles             FloorCadTile[]      @relation("FloorCadTileAsset")
+  mapManifests         FloorMapGeneration[]
+  mapChunks            FloorMapChunk[]
+  mapIndexes           FloorMapIndexShard[]
+  mapChanges           FloorMapChangeSet[] @relation("MapChangePayload")
+  mapInverses          FloorMapChangeSet[] @relation("MapChangeInverse")
+  mapRevisionPins      FloorMapRevisionAsset[]
+  mapStageParts        FloorMapStagePart[]
+  mapDisplayAssets     FloorMapDisplayAsset[]
   createdAt            DateTime            @default(now())
   updatedAt            DateTime            @updatedAt
 
   @@index([floorId, status, createdAt])
+  @@unique([id, floorId])
   @@index([status, uploadExpiresAt, cleanupStartedAt])
+}
+
+model FloorMapDocument {
+  floorId                String @id
+  activeGenerationId     String @unique
+  revision               Int @default(0)
+  changesSinceCheckpoint Int @default(0)
+  deltaDecodedBytes      BigInt @default(0)
+  floor                  Floor @relation(fields: [floorId], references: [id], onDelete: Cascade)
+  activeGeneration       FloorMapGeneration @relation(fields: [activeGenerationId, floorId], references: [id, floorId], onDelete: NoAction)
+  updatedAt              DateTime @updatedAt
+
+  @@unique([activeGenerationId, floorId])
+}
+
+model FloorMapGeneration {
+  id                     String @id @default(uuid())
+  floorId                String
+  status                 FloorMapGenerationStatus @default(preparing)
+  formatVersion          Int @default(1)
+  baseRevision           Int
+  sourceGenerationId     String?
+  sourceRevision         Int?
+  width                  Int
+  height                 Int
+  gridSize               Int
+  elementCount           Int @default(0)
+  decodedBytes           BigInt @default(0)
+  manifestAssetId        String?
+  manifestDecodedBytes   Int?
+  expiresAt              DateTime
+  floor                  Floor @relation(fields: [floorId], references: [id], onDelete: Cascade)
+  manifest               FloorAsset? @relation(fields: [manifestAssetId, floorId], references: [id, floorId], onDelete: NoAction)
+  activeDocument         FloorMapDocument?
+  chunks                 FloorMapChunk[]
+  indexShards            FloorMapIndexShard[]
+  displayAssets          FloorMapDisplayAsset[]
+  changeSets             FloorMapChangeSet[]
+  revisionAssets         FloorMapRevisionAsset[]
+  stages                 FloorMapStage[]
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  @@unique([id, floorId])
+  @@index([floorId, status])
+  @@index([status, expiresAt])
+  @@index([manifestAssetId])
+}
+
+model FloorMapChunk {
+  id              String @id @default(uuid())
+  floorId         String
+  generationId    String
+  ordinal         Int
+  assetId         String
+  decodedBytes    Int
+  elementCount    Int
+  minX            Float
+  minY            Float
+  maxX            Float
+  maxY            Float
+  generation      FloorMapGeneration @relation(fields: [generationId, floorId], references: [id, floorId], onDelete: Cascade)
+  asset           FloorAsset @relation(fields: [assetId, floorId], references: [id, floorId], onDelete: NoAction)
+
+  @@unique([generationId, ordinal])
+  @@index([assetId])
+}
+
+model FloorMapIndexShard {
+  id              String @id @default(uuid())
+  floorId         String
+  generationId    String
+  prefix          String
+  assetId         String
+  decodedBytes    Int
+  elementCount    Int
+  generation      FloorMapGeneration @relation(fields: [generationId, floorId], references: [id, floorId], onDelete: Cascade)
+  asset           FloorAsset @relation(fields: [assetId, floorId], references: [id, floorId], onDelete: NoAction)
+
+  @@unique([generationId, prefix], map: "FloorMapIndexShard_identity_key")
+  @@index([assetId])
+}
+
+model FloorMapDisplayAsset {
+  id           String @id @default(uuid())
+  floorId      String
+  generationId String
+  assetId      String
+  role         String
+  decodedBytes Int
+  tileX        Int?
+  tileY        Int?
+  lod          Int?
+  part         Int?
+  minX         Float?
+  minY         Float?
+  maxX         Float?
+  maxY         Float?
+  generation   FloorMapGeneration @relation(fields: [generationId, floorId], references: [id, floorId], onDelete: Cascade)
+  asset        FloorAsset @relation(fields: [assetId, floorId], references: [id, floorId], onDelete: NoAction)
+
+  @@unique([generationId, assetId])
+  @@unique([generationId, role, tileX, tileY, lod, part], map: "FloorMapDisplayAsset_tile_key")
+  @@index([assetId])
+}
+
+model FloorMapChangeSet {
+  id                  String @id @default(uuid())
+  floorId             String
+  generationId        String
+  requestId           String
+  baseRevision        Int
+  resultRevision      Int
+  payloadHash         String
+  payloadAssetId      String
+  inverseAssetId      String
+  decodedBytes        Int
+  inverseDecodedBytes Int
+  generation          FloorMapGeneration @relation(fields: [generationId, floorId], references: [id, floorId], onDelete: Cascade)
+  payload             FloorAsset @relation("MapChangePayload", fields: [payloadAssetId, floorId], references: [id, floorId], onDelete: NoAction)
+  inverse             FloorAsset @relation("MapChangeInverse", fields: [inverseAssetId, floorId], references: [id, floorId], onDelete: NoAction)
+  createdAt           DateTime @default(now())
+
+  @@unique([floorId, requestId], map: "FloorMapChangeSet_request_key")
+  @@unique([generationId, resultRevision])
+  @@index([payloadAssetId])
+  @@index([inverseAssetId])
+}
+
+model FloorMapRevisionAsset {
+  revisionId   String
+  floorId      String
+  generationId String
+  assetId      String
+  revision     FloorMapRevision @relation(fields: [revisionId, floorId], references: [id, floorId], onDelete: Cascade)
+  generation   FloorMapGeneration @relation(fields: [generationId, floorId], references: [id, floorId], onDelete: NoAction)
+  asset        FloorAsset @relation(fields: [assetId, floorId], references: [id, floorId], onDelete: NoAction)
+
+  @@id([revisionId, assetId])
+  @@index([assetId])
+  @@index([generationId])
+}
+
+model FloorMapStage {
+  id                  String @id @default(uuid())
+  floorId             String
+  generationId        String
+  requestId           String
+  userId              String
+  leaseTokenHash      String
+  baseRevision        Int
+  status              FloorMapStageStatus @default(preparing)
+  payloadHash         String?
+  decodedBytes        BigInt @default(0)
+  partCount           Int @default(0)
+  expiresAt           DateTime
+  generation          FloorMapGeneration @relation(fields: [generationId, floorId], references: [id, floorId], onDelete: Cascade)
+  parts               FloorMapStagePart[]
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([id, floorId])
+  @@unique([floorId, requestId])
+  @@index([status, expiresAt])
+}
+
+model FloorMapStagePart {
+  stageId      String
+  floorId      String
+  part         Int
+  assetId      String
+  sha256       String
+  decodedBytes Int
+  stage        FloorMapStage @relation(fields: [stageId, floorId], references: [id, floorId], onDelete: Cascade)
+  asset        FloorAsset @relation(fields: [assetId, floorId], references: [id, floorId], onDelete: NoAction)
+
+  @@id([stageId, part])
+  @@index([assetId])
 }
 
 model FloorImportJob {

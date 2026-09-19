@@ -1,5 +1,26 @@
 import { createHash } from "node:crypto";
-import { FloorEditorSnapshot, parseFloorEditorSnapshot } from "@led-control/shared";
+import { FloorEditorSnapshot, floorEditorSnapshotV2Schema, mapDocumentRefSchema, parseFloorEditorSnapshot } from "@led-control/shared";
+import { z } from "zod";
+
+const legacySnapshotFields = floorEditorSnapshotV2Schema.innerType().shape;
+const mapDocumentSnapshotSchema = z.object({
+  version: z.literal(3),
+  document: mapDocumentRefSchema,
+  fixtures: legacySnapshotFields.fixtures,
+  lightSlots: legacySnapshotFields.lightSlots.default([])
+}).strict();
+export type MapDocumentSnapshot = z.infer<typeof mapDocumentSnapshotSchema>;
+
+export function buildMapDocumentSnapshot(input: Omit<MapDocumentSnapshot, "version">): MapDocumentSnapshot {
+  return mapDocumentSnapshotSchema.parse({ ...input, version: 3 });
+}
+export function parseMapDocumentSnapshot(input: unknown): MapDocumentSnapshot {
+  return mapDocumentSnapshotSchema.parse(input);
+}
+export function parseStoredFloorEditorSnapshot(input: unknown): FloorEditorSnapshot | MapDocumentSnapshot {
+  return input && typeof input === "object" && "version" in input && input.version === 3
+    ? parseMapDocumentSnapshot(input) : parseFloorEditorSnapshot(input);
+}
 
 interface SnapshotFloor {
   floorPlan: null | {
@@ -123,7 +144,7 @@ export function buildFloorEditorSnapshot(floor: SnapshotFloor): FloorEditorSnaps
   });
 }
 
-export function hashFloorEditorSnapshot(snapshot: FloorEditorSnapshot) {
+export function hashFloorEditorSnapshot(snapshot: FloorEditorSnapshot | MapDocumentSnapshot) {
   return createHash("sha256").update(stableJson(snapshot)).digest("hex");
 }
 

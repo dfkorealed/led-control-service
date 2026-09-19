@@ -1,7 +1,8 @@
-import { Injectable, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { Injectable, OnModuleDestroy, OnModuleInit, Optional } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { ObjectStorageService } from "../storage/object-storage.service";
+import { MapDocumentAssetReferences, mapAssetReferenced } from "./map-document-asset-references";
 
 const POLL_INTERVAL_MS = 60_000;
 const UPLOAD_EXPIRY_SAFETY_MS = 5_000;
@@ -23,7 +24,8 @@ export class FloorAssetCleanupService implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly storage: ObjectStorageService
+    private readonly storage: ObjectStorageService,
+    @Optional() private readonly documentAssets?: MapDocumentAssetReferences
   ) {}
 
   onModuleInit() {
@@ -37,6 +39,7 @@ export class FloorAssetCleanupService implements OnModuleInit, OnModuleDestroy {
   }
 
   async processPending(now = new Date()) {
+    const mapReferences = await this.documentAssets?.available() ?? false;
     const uploadExpiredAt = new Date(now.getTime() - UPLOAD_EXPIRY_SAFETY_MS);
     const abandonedSigningAt = new Date(now.getTime() - ABANDONED_SIGNING_TIMEOUT_MS);
     const retryableClaimAt = new Date(now.getTime() - CLAIM_RETRY_BACKOFF_MS);
@@ -45,6 +48,7 @@ export class FloorAssetCleanupService implements OnModuleInit, OnModuleDestroy {
       SELECT asset."id", asset."floorId", asset."objectKey", asset."cleanupStartedAt"
       FROM "FloorAsset" AS asset
       WHERE asset."status" = 'pending'
+        AND NOT ${mapAssetReferenced(Prisma.sql`asset."id"`, mapReferences)}
         AND (
           asset."uploadExpiresAt" <= ${uploadExpiredAt}
           OR (asset."uploadExpiresAt" IS NULL AND asset."createdAt" <= ${abandonedSigningAt})
@@ -66,6 +70,7 @@ export class FloorAssetCleanupService implements OnModuleInit, OnModuleDestroy {
         SELECT '/api/floors/' || asset."floorId" || '/assets/' || asset."id" || '/content' AS "accessPath"
       ) AS path
       WHERE asset."status" = 'ready'
+        AND NOT ${mapAssetReferenced(Prisma.sql`asset."id"`, mapReferences)}
         AND COALESCE(asset."readyAt", asset."createdAt") <= ${readyOrphanAt}
         AND (asset."cleanupStartedAt" IS NULL OR asset."cleanupStartedAt" <= ${retryableClaimAt})
         AND NOT EXISTS (
@@ -119,7 +124,7 @@ export class FloorAssetCleanupService implements OnModuleInit, OnModuleDestroy {
     let deleted = 0;
     for (const asset of assets) {
       const claimed = await this.claimPendingAsset(
-        asset.id, uploadExpiredAt, abandonedSigningAt, retryableClaimAt, now
+        asset.id, uploadExpiredAt, abandonedSigningAt, retryableClaimAt, now, mapReferences
       );
       if (!claimed) continue;
 
@@ -139,7 +144,7 @@ export class FloorAssetCleanupService implements OnModuleInit, OnModuleDestroy {
     }
 
     for (const asset of readyAssets) {
-      const claimed = await this.claimReadyOrphan(asset.id, readyOrphanAt, retryableClaimAt, now);
+      const claimed = await this.claimReadyOrphan(asset.id, readyOrphanAt, retryableClaimAt, now, mapReferences);
       if (!claimed) continue;
 
       try {
@@ -164,7 +169,8 @@ export class FloorAssetCleanupService implements OnModuleInit, OnModuleDestroy {
     uploadExpiredAt: Date,
     abandonedSigningAt: Date,
     retryableClaimAt: Date,
-    now: Date
+    now: Date,
+    mapReferences: boolean
   ) {
     return this.prisma.$transaction(async tx => {
       const rows = await tx.$queryRaw<CleanupCandidate[]>(Prisma.sql`
@@ -186,6 +192,11 @@ export class FloorAssetCleanupService implements OnModuleInit, OnModuleDestroy {
       `);
       const locked = rows[0];
       if (!locked) return null;
+      if (mapReferences) {
+        const references = await tx.$queryRaw<Array<{ referenced: boolean }>>(Prisma.sql`
+          SELECT ${mapAssetReferenced(Prisma.sql`${locked.id}`, true)} AS referenced`);
+        if (references[0]?.referenced) return null;
+      }
       const claimed = await tx.floorAsset.updateMany({
         where: {
           id: locked.id,
@@ -204,7 +215,7 @@ export class FloorAssetCleanupService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  private claimReadyOrphan(assetId: string, readyOrphanAt: Date, retryableClaimAt: Date, now: Date) {
+  private claimReadyOrphan(assetId: string, readyOrphanAt: Date, retryableClaimAt: Date, now: Date, mapReferences: boolean) {
     return this.prisma.$transaction(async (tx) => {
       // Editor save/restore locks Floor before validating assets. Taking the same lock
       // makes either the committed reference or the cleanup claim visible to the loser.
@@ -268,7 +279,7 @@ export class FloorAssetCleanupService implements OnModuleInit, OnModuleDestroy {
             AND draft_asset."kind" IN ('cad_manifest', 'cad_tile')
             AND draft_asset."objectKey" LIKE
               'floors/' || draft_asset."floorId" || '/' || draft."id" || '-%'
-        ) AS "referenced"
+        ) OR ${mapAssetReferenced(Prisma.sql`${locked.id}`, mapReferences)} AS "referenced"
       `);
       if (referenceRows[0]?.referenced) {
         if (locked.cleanupStartedAt) {
