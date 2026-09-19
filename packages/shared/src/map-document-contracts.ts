@@ -174,6 +174,13 @@ export const mapMutationSchema = serializedBudget(MAP_MUTATION_MAX_BYTES).pipe(z
   requestId: idSchema, generationId: idSchema, baseRevision: nonnegativeInteger.max(POSTGRES_INT_MAX - 1),
   leaseToken: idSchema, operations: mapOperationsSchema
 }).strict());
+// The editor envelope owns revision and lease authority. Empty operations still
+// advance that same document revision when fixtures, slots or settings change.
+export const editorDocumentChangesSchema = z.object({
+  requestId: idSchema, generationId: idSchema,
+  operations: z.union([z.tuple([]), mapOperationsSchema])
+}).strict();
+export type EditorDocumentChanges = z.infer<typeof editorDocumentChangesSchema>;
 export const mapMutationResultSchema = z.object({
   document: mapDocumentRefSchema, changedBounds: z.array(mapBoundsSchema).max(MAP_MUTATION_MAX_OPERATIONS * 2)
 }).strict();

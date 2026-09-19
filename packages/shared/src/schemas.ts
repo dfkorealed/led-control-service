@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { cadSceneDescriptorSchema } from "./cad-scene-contracts.js";
 import { POSTGRES_INT_MAX, POSTGRES_INT_MIN } from "./postgres-contracts.js";
+import { editorDocumentChangesSchema } from "./map-document-contracts.js";
 
 export { POSTGRES_INT_MAX, POSTGRES_INT_MIN } from "./postgres-contracts.js";
 export {
@@ -348,10 +349,16 @@ export const floorMapObjectPatchSchema = z.object({
     }
   });
 
-export const saveEditorStateSchema = z.object({
+export const saveEditorStateSchema = z.unknown().superRefine((value, context) => {
+  try {
+    if (new TextEncoder().encode(JSON.stringify(value)).byteLength <= EDITOR_MAX_BODY_BYTES) return;
+  } catch { /* Cyclic/non-JSON inputs cannot be an HTTP editor envelope. */ }
+  context.addIssue({ code: z.ZodIssueCode.custom, message: "editor save envelope exceeds 1 MiB", fatal: true });
+}).pipe(z.object({
   expectedRevision: expectedRevisionSchema,
   leaseToken: z.string().trim().min(1).max(256),
   leaseFence: positiveInt4Schema,
+  documentChanges: editorDocumentChangesSchema.optional(),
   floorPlan: floorPlanUpdateSchema.nullable().optional(),
   fixtureUpdates: z.array(fixtureLayoutUpdateSchema).max(EDITOR_MAX_FIXTURE_UPDATES),
   slotAssignments: z.array(z.object({
@@ -363,6 +370,10 @@ export const saveEditorStateSchema = z.object({
   objectDeletes: z.array(editorIdSchema)
 }).strict().superRefine((value, context) => {
   const total = value.objectCreates.length + value.objectUpdates.length + value.objectDeletes.length;
+  if (value.documentChanges && total > 0) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["documentChanges"],
+      message: "common document and legacy object writes cannot be mixed" });
+  }
   if (total > EDITOR_MAX_MAP_OBJECT_MUTATIONS) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
@@ -391,7 +402,7 @@ export const saveEditorStateSchema = z.object({
     }
     assignedFixtureIds.add(assignment.assignedFixtureId);
   });
-});
+}));
 
 export const restoreFloorEditorRevisionSchema = z.object({
   expectedRevision: expectedRevisionSchema,
