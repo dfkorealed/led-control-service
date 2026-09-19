@@ -57,6 +57,39 @@ const completeEditorState = {
 
 describe("floor editor atomic API", () => {
   afterEach(() => vi.unstubAllGlobals());
+  it("uses the existing full envelope and validates converted GET/PUT document references", async () => {
+    const document = { formatVersion: 1, generationId: "generation", revision: 4, width: 16384,
+      height: 8192, gridSize: 80, elementCount: 0,
+      manifest: { assetId: "manifest", sha256: "a".repeat(64), byteSize: 1, decodedByteSize: 1 } };
+    const loaded = { ...completeEditorState, floor: { ...completeEditorState.floor, mapDocument: document } };
+    const saved = { ...loaded, floor: { ...loaded.floor, mapRevision: 5, mapDocument: { ...document, revision: 5 } } };
+    const fetchMock = vi.fn().mockResolvedValueOnce({ ok: true, json: async () => loaded })
+      .mockResolvedValueOnce({ ok: true, json: async () => saved });
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await getFloorEditorState("floor/1")).toEqual(loaded);
+    const payload = { expectedRevision: 4, leaseToken: "token", leaseFence: 2, fixtureUpdates: [], slotAssignments: [],
+      objectCreates: [], objectUpdates: [], objectDeletes: [],
+      documentChanges: { requestId: "retry-me", generationId: "generation", operations: [] } };
+    expect(await saveFloorEditorState("floor/1", payload)).toEqual(saved);
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual(payload);
+    expect(fetchMock.mock.calls[1][0]).toBe("/api/floors/floor%2F1/editor-state");
+  });
+
+  it("does not turn an invalid optional document into an empty legacy document", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true,
+      json: async () => ({ ...completeEditorState, floor: { ...completeEditorState.floor, mapDocument: { generationId: "broken" } } }) }));
+    await expect(getFloorEditorState("floor/1")).rejects.toBeDefined();
+  });
+
+  it("rejects mixed legacy writes and over-budget full envelopes before sending", async () => {
+    const fetchMock = vi.fn(); vi.stubGlobal("fetch", fetchMock);
+    const payload = { expectedRevision: 4, leaseToken: "token", leaseFence: 2, fixtureUpdates: [], slotAssignments: [],
+      objectCreates: [], objectUpdates: [], objectDeletes: ["old"],
+      documentChanges: { requestId: "retry-me", generationId: "generation", operations: [] } };
+    await expect(saveFloorEditorState("floor/1", payload)).rejects.toBeDefined();
+    await expect(saveFloorEditorState("floor/1", { ...payload, objectDeletes: [], leaseToken: "x".repeat(1048576) })).rejects.toBeDefined();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
   it("sends an owned-token release with keepalive during page teardown", async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ released: true }) });
     vi.stubGlobal("fetch", fetchMock);

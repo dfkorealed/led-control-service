@@ -1,5 +1,9 @@
 import { create } from "zustand";
-import type { EDITOR_MAX_NAME_LENGTH } from "@led-control/shared";
+import type { EDITOR_MAX_NAME_LENGTH, MapElement, MapGroup, MapLayer, MapOp, SaveEditorStateInput } from "@led-control/shared";
+import { MAP_MUTATION_MAX_BYTES, MAP_MUTATION_MAX_OPERATIONS, mapDocumentRefSchema } from "@led-control/shared/map-document-contracts";
+import { saveFloorEditorState } from "../../api/floor-editor";
+import { CommonMapStore, MapEditorError, type CommonMapDraft, type MapEditorScope, type MapSelection } from "./common-map-store";
+import type { MapElementHistory } from "./map-element-history";
 import { buildEditorChanges, hasEditorChanges } from "./editor-diff";
 import type { CadEditorSelection, EditorFixture, EditorTool, FloorEditorState, FloorMapObject, FloorMapObjectDraft, FloorPlanDraft } from "./editor-types";
 import { clampEditorZoom, clampObjectToMap, snapPointToGridWithinBounds, snapRectToGrid, trianglePointsForSize, type Point } from "./geometry";
@@ -10,13 +14,53 @@ export type PlacementPoint = Point & { id: string };
 type LayerName = "background" | "objects" | "fixtures";
 type LayerSettings = Record<LayerName, { visible: boolean; locked: boolean }>;
 type MapSettings = { width: number; height: number; gridSize: number };
+function mapSettings(state: FloorEditorState): MapSettings {
+  return {
+    width: state.floor.mapDocument?.width ?? state.floor.floorPlan?.width ?? 1200,
+    height: state.floor.mapDocument?.height ?? state.floor.floorPlan?.height ?? 800,
+    gridSize: state.floor.floorPlan?.gridSize ?? state.floor.mapDocument?.gridSize ?? 10
+  };
+}
 // The shared root is CommonJS, so enforce its literal limit through a type-only
 // import without pulling that runtime entry into the browser editor bundle.
 const maxFixtureNameLength: typeof EDITOR_MAX_NAME_LENGTH = 200;
-interface HistoryEntry { state: FloorEditorState; selection: Selection; selectedFixtureIds: string[] }
+interface MapCommand { history: MapElementHistory; keys: string[] }
+interface HistoryEntry { state: FloorEditorState; selection: Selection; selectedFixtureIds: string[]; mapSelection: MapSelection; mapCommand?: MapCommand }
+export interface MapEditorTransaction {
+  operations: MapOp[];
+  /** Capture before resolving canonical data; required with injected originals. */
+  scope?: MapEditorScope;
+  canonicalElements?: MapElement[];
+  fixtureUpdates?: Array<FixturePatch & { id: string }>;
+  slotAssignments?: SaveEditorStateInput["slotAssignments"];
+  floorPlan?: FloorPlanDraft | null;
+}
+export interface PreparedEditorSave {
+  kind: "normal" | "staging-required";
+  reason?: "operations" | "bytes" | "checkpoint";
+  payload: SaveEditorStateInput;
+  byteSize: number;
+}
+type EditorLease = Pick<SaveEditorStateInput, "leaseToken" | "leaseFence">;
+type SaveTransport = (floorId: string, payload: SaveEditorStateInput) => Promise<FloorEditorState>;
 const defaultLayers = (): LayerSettings => ({ background: { visible: true, locked: true }, objects: { visible: true, locked: false }, fixtures: { visible: true, locked: false } });
 
 interface EditorStore {
+  mapScope: MapEditorScope | null;
+  mapElements: ReadonlyMap<string, MapElement>;
+  mapGroups: ReadonlyMap<string, MapGroup>;
+  mapLayers: ReadonlyMap<string, MapLayer>;
+  mapOperations: MapOp[];
+  mapSelection: MapSelection;
+  isSaving: boolean;
+  loadMapElements: (scope: MapEditorScope, elements: MapElement[]) => boolean;
+  loadMapStructures: (scope: MapEditorScope, structures: { groups: MapGroup[]; layers: MapLayer[] }) => boolean;
+  applyMapTransaction: (transaction: MapEditorTransaction) => void;
+  selectMapElements: (ids: string[], additive?: boolean) => void;
+  selectMapGroups: (ids: string[], additive?: boolean) => void;
+  exportMapDraft: () => CommonMapDraft | null;
+  prepareSave: (lease: EditorLease) => PreparedEditorSave;
+  saveChanges: (lease: EditorLease, transport?: SaveTransport) => Promise<"saved" | "stale">;
   initialState: FloorEditorState | null;
   state: FloorEditorState | null;
   isDirty: boolean;
@@ -35,10 +79,10 @@ interface EditorStore {
   preview: PlacementPoint[];
   past: HistoryEntry[];
   future: HistoryEntry[];
-  initialize: (state: FloorEditorState) => void;
+  initialize: (state: FloorEditorState, authScope?: string) => void;
   reset: () => void;
   adoptBaseline: (state: FloorEditorState, preserveHistory?: boolean) => void;
-  recoverDraft: (state: FloorEditorState) => void;
+  recoverDraft: (state: FloorEditorState & { commonMapDraft?: CommonMapDraft }) => void;
   discardChanges: () => void;
   undo: () => void;
   redo: () => void;
@@ -72,19 +116,46 @@ interface EditorStore {
 }
 
 export const useFloorEditorStore = create<EditorStore>((set, get) => {
+  let common = new CommonMapStore();
+  let epoch = 0;
+  let retry: { fingerprint: string; requestId: string } | null = null;
+  let batch: { state: FloorEditorState; extra: Partial<EditorStore> } | null = null;
+  const emptySelection = (): MapSelection => ({ elementIds: [], groupIds: [] });
+  const matchesScope = (scope: MapEditorScope) => JSON.stringify(scope) === JSON.stringify(get().mapScope);
+  const commonReset = (state: FloorEditorState | null, authScope = "") => {
+    if (state?.floor.mapDocument) {
+      mapDocumentRefSchema.parse(state.floor.mapDocument);
+      if (state.floor.mapDocument.revision !== state.floor.mapRevision || state.objects.length) throw new MapEditorError("MAP_DOCUMENT_INVALID", "맵 문서를 다시 불러와주세요.");
+    }
+    common = new CommonMapStore(); retry = null; epoch++;
+    const document = state?.floor.mapDocument;
+    return { ...common.view(), mapSelection: emptySelection(), isSaving: false,
+      mapScope: document && state ? { authScope, siteId: state.floor.siteId, floorId: state.floor.id,
+        generationId: document.generationId, baseRevision: state.floor.mapRevision, epoch } : null };
+  };
+  const retain = (entries: HistoryEntry[]) => common.retain(new Set(entries.flatMap((entry) => entry.mapCommand?.keys ?? [])));
   const dirty = (state: FloorEditorState) => {
     const baseline = get().initialState;
     if (!baseline) return { isDirty: false, dirtyFixtureIds: [], dirtyObjectIds: [] };
     const changes = buildEditorChanges(baseline, state);
-    return { isDirty: hasEditorChanges(changes), dirtyFixtureIds: changes.fixtureUpdates.map((f) => f.id), dirtyObjectIds: [...changes.objectUpdates.map((o) => o.id), ...changes.objectDeletes, ...state.objects.filter((o) => o.id.startsWith("draft-")).map((o) => o.id)] };
+    return { isDirty: hasEditorChanges(changes) || common.isDirty, dirtyFixtureIds: changes.fixtureUpdates.map((f) => f.id), dirtyObjectIds: [...changes.objectUpdates.map((o) => o.id), ...changes.objectDeletes, ...state.objects.filter((o) => o.id.startsWith("draft-")).map((o) => o.id)] };
   };
-  const snapshot = (): HistoryEntry => ({ state: get().state!, selection: get().selection, selectedFixtureIds: get().selectedFixtureIds });
-  const commit = (state: FloorEditorState, extra: Partial<EditorStore> = {}) => {
+  const snapshot = (): HistoryEntry => ({ state: get().state!, selection: get().selection, selectedFixtureIds: get().selectedFixtureIds, mapSelection: get().mapSelection });
+  const commit = (state: FloorEditorState, extra: Partial<EditorStore> = {}, mapCommand?: MapCommand) => {
+    if (batch) { batch = { state, extra: { ...batch.extra, ...extra } }; return; }
     if (state === get().state) return;
-    set({ ...dirty(state), state, past: [...get().past.slice(-99), snapshot()], future: [], preview: [], ...extra });
+    const past = [...get().past.slice(-99), { ...snapshot(), mapCommand }];
+    let bytes = past.reduce((sum, entry) => sum + (entry.mapCommand?.history.byteSize ?? 0), 0);
+    while (bytes > 32 * 1024 * 1024 && past.length > 1) bytes -= past.shift()!.mapCommand?.history.byteSize ?? 0;
+    retain(past);
+    set({ ...dirty(state), ...common.view(), state, past, future: [], preview: [], ...extra });
   };
   const applyFixtures = (patches: Map<string, FixturePatch>, snapPositions = true) => {
     const { state, layers, lockedFixtureIds } = get();
+    if (batch && state && (layers.fixtures.locked || !layers.fixtures.visible
+      || [...patches.keys()].some((id) => lockedFixtureIds.includes(id) || !state.fixtures.some((fixture) => fixture.id === id)))) {
+      throw new MapEditorError("MAP_FIXTURE_INVALID", "편집할 조명의 상태와 잠금을 확인해주세요.");
+    }
     if (!state || layers.fixtures.locked || !layers.fixtures.visible) return;
     const locked = new Set(lockedFixtureIds);
     let changed = false;
@@ -94,11 +165,8 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
       if (!patch || locked.has(fixture.id)) return fixture;
       const next = { ...fixture, ...patch };
       if (snapPositions && get().snap && ("x" in patch || "y" in patch)) {
-        const gridSize = state.floor.floorPlan?.gridSize ?? 10;
-        const point = snapPointToGridWithinBounds({ x: next.x, y: next.y }, gridSize, {
-          width: state.floor.floorPlan?.width ?? 1200,
-          height: state.floor.floorPlan?.height ?? 800
-        });
+        const settings = mapSettings(state);
+        const point = snapPointToGridWithinBounds({ x: next.x, y: next.y }, settings.gridSize, settings);
         if ("x" in patch) next.x = point.x;
         if ("y" in patch) next.y = point.y;
       }
@@ -107,9 +175,12 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
       if (("x" in patch && !Number.isFinite(next.x)) || ("y" in patch && !Number.isFinite(next.y))
         || ("ratedWatt" in patch && (!Number.isFinite(next.ratedWatt) || next.ratedWatt < 0 || next.ratedWatt > 10000))
         || ("size" in patch && (!Number.isFinite(next.size ?? 20) || (next.size ?? 20) < 4 || (next.size ?? 20) > 200))
-        || ("name" in patch && (typeof next.name !== "string" || next.name.length > maxFixtureNameLength))) return fixture;
-      if ("x" in patch) next.x = Math.max(0, Math.min(state.floor.floorPlan?.width ?? 1200, next.x));
-      if ("y" in patch) next.y = Math.max(0, Math.min(state.floor.floorPlan?.height ?? 800, next.y));
+        || ("name" in patch && (typeof next.name !== "string" || next.name.length > maxFixtureNameLength))) {
+        if (batch) throw new MapEditorError("MAP_FIXTURE_INVALID", "조명 속성의 입력값을 확인해주세요.");
+        return fixture;
+      }
+      if ("x" in patch) next.x = Math.max(0, Math.min(mapSettings(state).width, next.x));
+      if ("y" in patch) next.y = Math.max(0, Math.min(mapSettings(state).height, next.y));
       if (next.x !== fixture.x || next.y !== fixture.y || next.placementStatus === "unplaced") {
         next.positionVerifiedAt = null;
         if (fixture.positionVerifiedAt || fixture.positionVerified) next.positionVerified = false;
@@ -133,16 +204,153 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
     }
   };
   return {
+    mapScope: null, ...common.view(), mapSelection: emptySelection(), isSaving: false,
+    loadMapElements: (scope, elements) => {
+      if (!matchesScope(scope)) return false;
+      common.loadElements(elements); set(common.view()); return true;
+    },
+    loadMapStructures: (scope, structures) => {
+      if (!matchesScope(scope)) return false;
+      common.loadStructures(structures); set(common.view()); return true;
+    },
+    selectMapElements: (ids, additive = false) => set({ mapSelection: {
+      elementIds: [...new Set([...(additive ? get().mapSelection.elementIds : []), ...ids])],
+      groupIds: additive ? get().mapSelection.groupIds : []
+    }, selection: null, cadSelection: null, selectedFixtureIds: [], activeTool: "select" }),
+    selectMapGroups: (ids, additive = false) => set({ mapSelection: {
+      groupIds: [...new Set([...(additive ? get().mapSelection.groupIds : []), ...ids])],
+      elementIds: additive ? get().mapSelection.elementIds : []
+    }, selection: null, cadSelection: null, selectedFixtureIds: [], activeTool: "select" }),
+    applyMapTransaction: ({ operations, scope, canonicalElements, fixtureUpdates, slotAssignments, floorPlan }) => {
+      const { state, mapScope, layers } = get();
+      if (!state || !mapScope) throw new MapEditorError("MAP_DOCUMENT_REQUIRED", "공통 맵을 먼저 불러와주세요.");
+      if (scope && !matchesScope(scope) || canonicalElements && !scope) throw new MapEditorError("MAP_SCOPE_CHANGED", "선택한 맵이 변경되었습니다. 다시 선택해주세요.");
+      if (layers.objects.locked && operations.length) throw new MapEditorError("MAP_LOCKED", "잠긴 도형은 편집할 수 없습니다.");
+      if (floorPlan !== undefined && (floorPlan?.width !== mapSettings(state).width || floorPlan?.height !== mapSettings(state).height)) {
+        throw new MapEditorError("MAP_CHECKPOINT_REQUIRED", "맵 크기 변경은 체크포인트 저장 연결 후 사용할 수 있습니다.");
+      }
+      const prepared = common.prepare(operations, { canonicalElements, bounds: state.floor.mapDocument! });
+      batch = { state, extra: {} };
+      try {
+        if (fixtureUpdates) applyFixtures(new Map(fixtureUpdates.map(({ id, ...patch }) => [id, patch])));
+        let next = batch.state;
+        if (slotAssignments?.length) {
+          const assignments = new Map(slotAssignments.map((item) => [item.slotId, item.assignedFixtureId]));
+          if (assignments.size !== slotAssignments.length || slotAssignments.some((item) => !next.lightSlots.some((slot) => slot.id === item.slotId)
+            || item.assignedFixtureId !== null && !next.fixtures.some((fixture) => fixture.id === item.assignedFixtureId))) {
+            throw new MapEditorError("MAP_SLOT_INVALID", "조명 슬롯 배정을 확인해주세요.");
+          }
+          next = { ...next, lightSlots: next.lightSlots.map((slot) => assignments.has(slot.id)
+            ? { ...slot, assignedFixtureId: assignments.get(slot.id)! } : slot) };
+        }
+        if (floorPlan !== undefined) next = { ...next, floor: { ...next.floor, floorPlan } };
+        const extra = batch.extra;
+        batch = null;
+        if (!prepared.forward.length && !hasEditorChanges(buildEditorChanges(state, next))) return;
+        common.applyPrepared(prepared);
+        commit({ ...next }, extra, prepared.forward.length ? { history: prepared.history, keys: prepared.keys } : undefined);
+      } finally { batch = null; }
+    },
+    exportMapDraft: () => get().mapScope ? common.draft(get().mapScope!) : null,
+    prepareSave: (lease) => {
+      const { initialState, state } = get();
+      if (!initialState || !state) throw new MapEditorError("MAP_DOCUMENT_REQUIRED", "편집할 층을 먼저 불러와주세요.");
+      const changes = buildEditorChanges(initialState, state);
+      const document = initialState.floor.mapDocument;
+      const operations = common.operations;
+      const fingerprint = JSON.stringify({ ...changes, ...lease, generationId: document?.generationId, operations });
+      if (!retry || retry.fingerprint !== fingerprint) retry = { fingerprint, requestId: crypto.randomUUID() };
+      const payload: SaveEditorStateInput = { ...buildEditorChanges(initialState, state, document ? {
+        requestId: retry.requestId, generationId: document.generationId, operations
+      } : undefined), ...lease };
+      const byteSize = new TextEncoder().encode(JSON.stringify(payload)).byteLength;
+      const reason = document && changes.floorPlan !== undefined && (!changes.floorPlan
+        || changes.floorPlan.width !== document.width || changes.floorPlan.height !== document.height || changes.floorPlan.gridSize !== document.gridSize)
+        ? "checkpoint" : operations.length > MAP_MUTATION_MAX_OPERATIONS ? "operations" : byteSize > MAP_MUTATION_MAX_BYTES ? "bytes" : undefined;
+      return { kind: reason ? "staging-required" : "normal", ...(reason ? { reason } : {}), payload, byteSize };
+    },
+    saveChanges: async (lease, transport = saveFloorEditorState) => {
+      if (get().isSaving) throw new MapEditorError("MAP_SAVE_IN_PROGRESS", "맵을 저장하고 있습니다.");
+      const prepared = get().prepareSave(lease);
+      if (prepared.kind !== "normal") throw new MapEditorError(prepared.reason === "checkpoint" ? "MAP_CHECKPOINT_REQUIRED" : "MAP_STAGING_REQUIRED",
+        prepared.reason === "checkpoint" ? "맵 설정 변경은 체크포인트 저장 연결이 필요합니다. 편집 내용은 유지됩니다." : "대량 변경 저장 연결이 필요합니다. 편집 내용은 유지됩니다.");
+      const scopeEpoch = epoch, captured = get().state!, scope = get().mapScope;
+      set({ isSaving: true });
+      try {
+        const saved = await transport(captured.floor.id, structuredClone(prepared.payload));
+        if (scopeEpoch !== epoch) return "stale";
+        const document = saved.floor.mapDocument;
+        if (saved.floor.id !== captured.floor.id || saved.floor.siteId !== captured.floor.siteId
+          || saved.floor.mapRevision !== prepared.payload.expectedRevision + 1
+          || scope && (!document || document.generationId !== scope.generationId || document.revision !== saved.floor.mapRevision || saved.objects.length)) {
+          throw new MapEditorError("MAP_SAVE_RESPONSE_INVALID", "저장 응답을 확인할 수 없습니다. 편집 내용을 유지합니다.");
+        }
+        if (document) mapDocumentRefSchema.parse(document);
+        const current = get().state!;
+        const changesAfterRequest = buildEditorChanges(captured, current);
+        const fixturePatches = new Map(changesAfterRequest.fixtureUpdates.map(({ id, ...patch }) => [id, patch]));
+        const slotPatches = new Map(changesAfterRequest.slotAssignments.map((item) => [item.slotId, item.assignedFixtureId]));
+        const next: FloorEditorState = { ...saved,
+          floor: { ...saved.floor, floorPlan: changesAfterRequest.floorPlan === undefined ? saved.floor.floorPlan : current.floor.floorPlan },
+          fixtures: saved.fixtures.map((fixture) => {
+            const patch = fixturePatches.get(fixture.id);
+            if (!patch) return fixture;
+            const next = { ...fixture, ...patch };
+            if (next.x !== fixture.x || next.y !== fixture.y || next.placementStatus === "unplaced" || patch.positionVerified === false) {
+              next.positionVerifiedAt = null;
+              next.positionVerified = false;
+            }
+            return next;
+          }),
+          lightSlots: saved.lightSlots.map((slot) => slotPatches.has(slot.id) ? { ...slot, assignedFixtureId: slotPatches.get(slot.id)! } : slot),
+          objects: current.objects === captured.objects ? saved.objects : current.objects
+        };
+        common.acknowledge(prepared.payload.documentChanges?.operations ?? []);
+        retry = null;
+        set({ initialState: saved, state: next, mapScope: scope ? { ...scope, baseRevision: saved.floor.mapRevision } : null });
+        set({ ...dirty(next), ...common.view() });
+        return "saved";
+      } catch (error) {
+        if (scopeEpoch !== epoch) return "stale";
+        throw error;
+      } finally { if (scopeEpoch === epoch) set({ isSaving: false }); }
+    },
     initialState: null, state: null, isDirty: false, dirtyFixtureIds: [], dirtyObjectIds: [], activeTool: "select", zoom: 1,
     pan: { x: 0, y: 0 }, viewport: { width: 800, height: 600 }, selection: null, cadSelection: null, selectedFixtureIds: [],
     lockedFixtureIds: [], layers: defaultLayers(), snap: true, preview: [], past: [], future: [],
-    initialize: (state) => set({ initialState: state, state, isDirty: false, dirtyFixtureIds: [], dirtyObjectIds: [], activeTool: "select", zoom: 1, pan: { x: 0, y: 0 }, selection: null, cadSelection: null, selectedFixtureIds: [], lockedFixtureIds: [], layers: defaultLayers(), preview: [], past: [], future: [], snap: true }),
-    reset: () => set({ initialState: null, state: null, isDirty: false, dirtyFixtureIds: [], dirtyObjectIds: [], activeTool: "select", zoom: 1, pan: { x: 0, y: 0 }, selection: null, cadSelection: null, selectedFixtureIds: [], lockedFixtureIds: [], layers: defaultLayers(), preview: [], past: [], future: [], snap: true }),
-    adoptBaseline: (state, preserveHistory = false) => set({ initialState: state, state, isDirty: false, dirtyFixtureIds: [], dirtyObjectIds: [], ...(preserveHistory ? {} : { past: [], future: [], preview: [] }) }),
-    recoverDraft: (state) => { if (state.floor.id === get().initialState?.floor.id && state.floor.mapRevision === get().initialState?.floor.mapRevision) commit(state); },
-    discardChanges: () => { const state = get().initialState; if (state) get().initialize(state); else set({ isDirty: false, selection: null, cadSelection: null, selectedFixtureIds: [], past: [], future: [] }); },
-    undo: () => { const entry = get().past.at(-1); if (entry) set({ ...entry, ...dirty(entry.state), past: get().past.slice(0, -1), future: [...get().future, snapshot()], preview: [] }); },
-    redo: () => { const entry = get().future.at(-1); if (entry) set({ ...entry, ...dirty(entry.state), past: [...get().past, snapshot()], future: get().future.slice(0, -1), preview: [] }); },
+    initialize: (state, authScope = "") => set({ ...commonReset(state, authScope), initialState: state, state, isDirty: false, dirtyFixtureIds: [], dirtyObjectIds: [], activeTool: "select", zoom: 1, pan: { x: 0, y: 0 }, selection: null, cadSelection: null, selectedFixtureIds: [], lockedFixtureIds: [], layers: defaultLayers(), preview: [], past: [], future: [], snap: true }),
+    reset: () => set({ ...commonReset(null), initialState: null, state: null, isDirty: false, dirtyFixtureIds: [], dirtyObjectIds: [], activeTool: "select", zoom: 1, pan: { x: 0, y: 0 }, selection: null, cadSelection: null, selectedFixtureIds: [], lockedFixtureIds: [], layers: defaultLayers(), preview: [], past: [], future: [], snap: true }),
+    adoptBaseline: (state, preserveHistory = false) => {
+      if (state.floor.mapDocument || get().mapScope) { get().initialize(state, get().mapScope?.authScope); return; }
+      set({ initialState: state, state, isDirty: false, dirtyFixtureIds: [], dirtyObjectIds: [], ...(preserveHistory ? {} : { past: [], future: [], preview: [] }) });
+    },
+    recoverDraft: (recovered) => {
+      const { commonMapDraft, ...state } = recovered;
+      const baseline = get().initialState, scope = get().mapScope;
+      if (!baseline || state.floor.id !== baseline.floor.id || state.floor.siteId !== baseline.floor.siteId
+        || state.floor.mapRevision !== baseline.floor.mapRevision || state.floor.mapDocument?.generationId !== baseline.floor.mapDocument?.generationId) return;
+      if (commonMapDraft) {
+        if (!scope || Object.entries(commonMapDraft.scope).some(([key, value]) => scope[key as keyof MapEditorScope] !== value)) return;
+        const prepared = common.restore(commonMapDraft);
+        common.apply(prepared.forward);
+        commit(state, {}, { history: prepared.history, keys: prepared.keys });
+      } else commit(state);
+    },
+    discardChanges: () => { const state = get().initialState; if (state) get().initialize(state, get().mapScope?.authScope); else get().reset(); },
+    undo: () => {
+      const entry = get().past.at(-1); if (!entry) return;
+      const future = [...get().future, { ...snapshot(), mapCommand: entry.mapCommand }];
+      if (entry.mapCommand) common.apply(entry.mapCommand.history.undo()!);
+      const state = { ...entry.state, floor: { ...entry.state.floor, mapRevision: get().state!.floor.mapRevision, mapDocument: get().state!.floor.mapDocument } };
+      set({ ...entry, state, ...dirty(state), ...common.view(), past: get().past.slice(0, -1), future, preview: [] });
+    },
+    redo: () => {
+      const entry = get().future.at(-1); if (!entry) return;
+      const past = [...get().past, { ...snapshot(), mapCommand: entry.mapCommand }];
+      if (entry.mapCommand) common.apply(entry.mapCommand.history.redo()!);
+      const state = { ...entry.state, floor: { ...entry.state.floor, mapRevision: get().state!.floor.mapRevision, mapDocument: get().state!.floor.mapDocument } };
+      set({ ...entry, state, ...dirty(state), ...common.view(), past, future: get().future.slice(0, -1), preview: [] });
+    },
     setActiveTool: (activeTool) => set({ activeTool, ...(activeTool !== "select" ? { selection: null, cadSelection: null, selectedFixtureIds: [] } : {}) }),
     setZoom: (zoom) => set({ zoom: clampEditorZoom(zoom) }),
     setPan: (pan) => set({ pan }),
@@ -156,8 +364,8 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
       if (selected && !fixtures.length) return;
       const x = fixtures.length ? Math.min(...fixtures.map((f) => f.x)) - 40 : 0;
       const y = fixtures.length ? Math.min(...fixtures.map((f) => f.y)) - 40 : 0;
-      const width = fixtures.length ? Math.max(...fixtures.map((f) => f.x)) - x + 40 : bounds?.width ?? state.floor.floorPlan?.width ?? 1200;
-      const height = fixtures.length ? Math.max(...fixtures.map((f) => f.y)) - y + 40 : bounds?.height ?? state.floor.floorPlan?.height ?? 800;
+      const width = fixtures.length ? Math.max(...fixtures.map((f) => f.x)) - x + 40 : bounds?.width ?? mapSettings(state).width;
+      const height = fixtures.length ? Math.max(...fixtures.map((f) => f.y)) - y + 40 : bounds?.height ?? mapSettings(state).height;
       const zoom = Math.min(2, clampEditorZoom(Math.min((viewport.width - 48) / width, (viewport.height - 48) / height)));
       set({ zoom, pan: { x: (viewport.width - width * zoom) / 2 - x * zoom, y: (viewport.height - height * zoom) / 2 - y * zoom } });
     },
@@ -168,11 +376,11 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
     selectFixtures: (ids, additive = false) => {
       const available = new Set(get().state?.fixtures.map((f) => f.id));
       const selectedFixtureIds = [...new Set([...(additive ? get().selectedFixtureIds : []), ...ids])].filter((id) => available.has(id));
-      set({ selectedFixtureIds, selection: selectedFixtureIds.length === 1 ? { kind: "fixture", id: selectedFixtureIds[0] } : null, cadSelection: null, activeTool: "select" });
+      set({ selectedFixtureIds, mapSelection: emptySelection(), selection: selectedFixtureIds.length === 1 ? { kind: "fixture", id: selectedFixtureIds[0] } : null, cadSelection: null, activeTool: "select" });
     },
-    selectObject: (id) => set({ selection: { kind: "object", id }, cadSelection: null, selectedFixtureIds: [], activeTool: "select" }),
-    selectCad: (cadSelection) => set({ cadSelection, selection: null, selectedFixtureIds: [], activeTool: "select" }),
-    clearSelection: () => set({ selection: null, cadSelection: null, selectedFixtureIds: [] }),
+    selectObject: (id) => set({ selection: { kind: "object", id }, mapSelection: emptySelection(), cadSelection: null, selectedFixtureIds: [], activeTool: "select" }),
+    selectCad: (cadSelection) => set({ cadSelection, mapSelection: emptySelection(), selection: null, selectedFixtureIds: [], activeTool: "select" }),
+    clearSelection: () => set({ selection: null, mapSelection: emptySelection(), cadSelection: null, selectedFixtureIds: [] }),
     updateFixture: (id, patch) => applyFixtures(new Map([[id, patch]])),
     updateFixtureProperties: (ids, patch) => {
       const wanted = new Set(ids);
@@ -233,14 +441,13 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
       const minimumY = Math.min(...fixtures.map((f) => f.y));
       const maximumX = Math.max(...fixtures.map((f) => f.x));
       const maximumY = Math.max(...fixtures.map((f) => f.y));
-      const width = state.floor.floorPlan?.width ?? 1200;
-      const height = state.floor.floorPlan?.height ?? 800;
+      const { width, height, gridSize } = mapSettings(state);
       let x = Math.max(-minimumX, Math.min(delta.x, width - maximumX));
       let y = Math.max(-minimumY, Math.min(delta.y, height - maximumY));
       if (get().snap) {
         const snappedAnchor = snapPointToGridWithinBounds(
           { x: minimumX + x, y: minimumY + y },
-          state.floor.floorPlan?.gridSize ?? 10,
+          gridSize,
           { width: width - (maximumX - minimumX), height: height - (maximumY - minimumY) }
         );
         x = snappedAnchor.x - minimumX;
@@ -254,10 +461,16 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
     toggleFixtureLock: (ids) => { const locked = new Set(get().lockedFixtureIds); const unlock = ids.every((id) => locked.has(id)); ids.forEach((id) => unlock ? locked.delete(id) : locked.add(id)); set({ lockedFixtureIds: [...locked] }); },
     updateFloorPlan: (floorPlan) => {
       const state = get().state;
+      if (state?.floor.mapDocument && (floorPlan?.width !== state.floor.mapDocument.width || floorPlan?.height !== state.floor.mapDocument.height)) {
+        throw new MapEditorError("MAP_CHECKPOINT_REQUIRED", "맵 크기 변경은 체크포인트 저장 연결 후 사용할 수 있습니다.");
+      }
       if (state) commit({ ...state, floor: { ...state.floor, floorPlan: floorPlan ? { ...floorPlan, gridSize: floorPlan.gridSize ?? state.floor.floorPlan?.gridSize ?? 10 } : null } });
     },
     updateMapSettings: ({ width, height, gridSize }) => {
       const state = get().state;
+      if (state?.floor.mapDocument && (width !== state.floor.mapDocument.width || height !== state.floor.mapDocument.height)) {
+        return "맵 크기 변경은 체크포인트 저장 연결 후 사용할 수 있습니다.";
+      }
       if (!state || ![width, height, gridSize].every(Number.isInteger) || width < 1 || height < 1 || gridSize < 5 || gridSize > 200) {
         return "맵 크기와 격자 간격을 확인해주세요.";
       }
@@ -273,6 +486,7 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
       return null;
     },
     addObject: (floorId, draft) => {
+      if (get().mapScope) throw new MapEditorError("MAP_LEGACY_WRITE_FORBIDDEN", "공통 도형 편집 명령을 사용해주세요.");
       const { state, layers } = get(); if (!state || state.floor.id !== floorId || layers.objects.locked) return;
       const bounds = { width: state.floor.floorPlan?.width ?? 1200, height: state.floor.floorPlan?.height ?? 800 };
       const gridSize = state.floor.floorPlan?.gridSize ?? 10;
@@ -295,6 +509,7 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
       commit({ ...state, objects: [...state.objects, object] }, { selection: { kind: "object", id: object.id }, selectedFixtureIds: [], activeTool: "select" });
     },
     updateObject: (id, patch) => {
+      if (get().mapScope) throw new MapEditorError("MAP_LEGACY_WRITE_FORBIDDEN", "공통 도형 편집 명령을 사용해주세요.");
       const { state, layers } = get(); if (!state || layers.objects.locked) return;
       const object = state.objects.find((o) => o.id === id);
       // Locked shapes can only be unlocked/hidden explicitly from the layer panel.
@@ -327,6 +542,7 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
       commit({ ...state, objects: state.objects.map((o) => o.id === id ? { ...o, ...normalizedPatch } : o) });
     },
     removeObject: (id) => {
+      if (get().mapScope) throw new MapEditorError("MAP_LEGACY_WRITE_FORBIDDEN", "공통 도형 편집 명령을 사용해주세요.");
       const { state, layers } = get(); if (!state || layers.objects.locked || !state.objects.some((o) => o.id === id && !o.locked)) return;
       commit({ ...state, objects: state.objects.filter((o) => o.id !== id) }, { selection: null });
     }

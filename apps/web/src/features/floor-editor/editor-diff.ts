@@ -1,4 +1,4 @@
-import type { SaveEditorStateInput } from "@led-control/shared";
+import type { EditorDocumentChanges, SaveEditorStateInput } from "@led-control/shared";
 import type { EditorFixture, FloorEditorState, FloorMapObject } from "./editor-types";
 
 const fixtureFields = ["name", "ratedWatt", "x", "y", "size"] as const;
@@ -13,7 +13,11 @@ export type EditorChangeSet = Omit<SaveEditorStateInput, "leaseToken" | "leaseFe
   }>;
 };
 
-export function buildEditorChanges(initial: FloorEditorState, current: FloorEditorState): EditorChangeSet {
+export function buildEditorChanges(initial: FloorEditorState, current: FloorEditorState, documentChanges?: EditorDocumentChanges): EditorChangeSet {
+  if (initial.floor.mapDocument && (current.floor.mapDocument?.generationId !== initial.floor.mapDocument.generationId
+    || current.floor.siteId !== initial.floor.siteId || current.floor.id !== initial.floor.id)) {
+    throw new Error("Map document scope changed");
+  }
   const initialFixtures = new Map(initial.fixtures.map((fixture) => [fixture.id, fixture]));
   const initialObjects = new Map(initial.objects.map((object) => [object.id, object]));
   const initialSlots = new Map(initial.lightSlots.map((slot) => [slot.id, slot]));
@@ -72,6 +76,11 @@ export function buildEditorChanges(initial: FloorEditorState, current: FloorEdit
   if (!sameFloorPlan(initialFloorPlan, currentFloorPlan)) {
     changes.floorPlan = currentFloorPlan;
   }
+  if (documentChanges) {
+    if (!initial.floor.mapDocument || documentChanges.generationId !== initial.floor.mapDocument.generationId) throw new Error("Map generation mismatch");
+    if (changes.objectCreates.length || changes.objectUpdates.length || changes.objectDeletes.length) throw new Error("Mixed legacy object and document changes are forbidden");
+    changes.documentChanges = documentChanges;
+  }
   return changes;
 }
 
@@ -81,7 +90,8 @@ export function hasEditorChanges(changes: EditorChangeSet) {
     || changes.slotAssignments.length > 0
     || changes.objectCreates.length > 0
     || changes.objectUpdates.length > 0
-    || changes.objectDeletes.length > 0;
+    || changes.objectDeletes.length > 0
+    || (changes.documentChanges?.operations.length ?? 0) > 0;
 }
 
 function changedFields<T extends object, K extends keyof T>(baseline: T, current: T, fields: readonly K[]) {

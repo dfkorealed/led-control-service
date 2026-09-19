@@ -22,6 +22,7 @@ export interface FloorEditorState {
     mapRevision: number;
     floorPlan: FloorPlanDraft | null;
     cadScene?: CadSceneDescriptor | null;
+    mapDocument?: import("@led-control/shared").MapDocumentRef | null;
   };
   fixtures: EditorFixture[];
   lightSlots: FloorLightSlotDto[];

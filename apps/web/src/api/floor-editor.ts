@@ -12,6 +12,7 @@ import type {
 } from "@led-control/shared";
 import { CAD_SCENE_MAX_MANIFEST_BYTES, CAD_SCENE_MAX_TILE_BYTE_SIZE, cadSceneManifestSchema, cadSceneStateSchema } from "@led-control/shared/cad-scene-contracts";
 import { floorImportApplyResultSchema } from "@led-control/shared/cad-import-contracts";
+import { editorDocumentChangesSchema, mapDocumentRefSchema, MAP_MUTATION_MAX_BYTES } from "@led-control/shared/map-document-contracts";
 import type { FixtureIdentifyRequest, FixtureIdentifyResponse } from "@led-control/shared";
 import { ApiError, apiGet, apiPost, apiPut, apiRequest } from "./client";
 import { readCadSceneBytes, readCadSceneJson } from "./cad-scene-content";
@@ -21,10 +22,22 @@ import type {
   FloorImportJob
 } from "../features/floor-editor/editor-types";
 
-export function getFloorEditorState(floorId: string, options: { signal?: AbortSignal } = {}) {
-  return apiRequest<FloorEditorState>(`/floors/${encodeURIComponent(floorId)}/editor-state`, {
+export async function getFloorEditorState(floorId: string, options: { signal?: AbortSignal } = {}) {
+  return validateEditorDocument(await apiRequest<FloorEditorState>(`/floors/${encodeURIComponent(floorId)}/editor-state`, {
     signal: options.signal
-  });
+  }));
+}
+
+function validateEditorDocument(state: FloorEditorState) {
+  // An absent field is legacy compatibility, not a reason to erase malformed
+  // converted data. Never catch parse failures and replace a document with null.
+  if (state.floor.mapDocument !== undefined && state.floor.mapDocument !== null) {
+    const document = mapDocumentRefSchema.parse(state.floor.mapDocument);
+    if (document.revision !== state.floor.mapRevision || !Array.isArray(state.objects) || state.objects.length) {
+      throw new Error("공통 맵 응답이 올바르지 않습니다.");
+    }
+  }
+  return state;
 }
 
 export async function getCadSceneState(siteId: string, floorId: string, options: { signal?: AbortSignal } = {}) {
@@ -95,8 +108,16 @@ export interface FloorEditorLease {
   acquiredAt?: string;
 }
 
-export function saveFloorEditorState(floorId: string, payload: SaveEditorStateInput) {
-  return apiPut<FloorEditorState>(`/floors/${encodeURIComponent(floorId)}/editor-state`, payload);
+export async function saveFloorEditorState(floorId: string, payload: SaveEditorStateInput) {
+  if (new TextEncoder().encode(JSON.stringify(payload)).byteLength > MAP_MUTATION_MAX_BYTES) throw new Error("대량 변경은 준비 저장 경로가 필요합니다.");
+  if (payload.documentChanges) {
+    editorDocumentChangesSchema.parse(payload.documentChanges);
+    if (payload.objectCreates.length || payload.objectUpdates.length || payload.objectDeletes.length) throw new Error("공통 맵과 이전 도형 변경을 함께 저장할 수 없습니다.");
+  }
+  const result = validateEditorDocument(await apiPut<FloorEditorState>(`/floors/${encodeURIComponent(floorId)}/editor-state`, payload));
+  if (payload.documentChanges && (result.floor.id !== floorId || result.floor.mapRevision !== payload.expectedRevision + 1
+    || result.floor.mapDocument?.generationId !== payload.documentChanges.generationId)) throw new Error("저장된 맵 문서를 확인할 수 없습니다.");
+  return result;
 }
 
 export function acquireFloorEditorLease(floorId: string, token?: string) {
