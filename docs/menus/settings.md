@@ -417,6 +417,8 @@ DB 모델이 실제 변경되는 작업에서는 `docs/database-schema.md`를 �
 
 ## 미구현
 
+- CAD와 수동 도형의 공통 모델·속성 패널·삭제·실행 취소·저장 이력 통합은 설계 작성 단계다. 타원·호·연속선·다각형 일반 도구, 기존 맵 보존 전환, 부분 렌더링/카메라 최적화, 편집기 페이지 스크롤 제거를 [갱신 설계](../superpowers/specs/2026-09-18-cad-native-map-rendering-design.md)에 정리했다. 대화상 방향 승인만 완료했으며 작성본 검토·상세 계획·구현은 남아 있다. 현재 CAD 숨김은 공통 삭제 완료로 보지 않는다.
+
 - Scene 04~09와 24~26의 자동 Web/Chromium 검증은 완료했지만 Raspberry Pi/BlueZ/ESP32-H2 HIL과 실제 모바일 WebView safe-area 검증은 미실행이다.
 
 - 초대 링크 발급·전달 방식의 일반 유저 onboarding UI. admin이 직접 계정과 임시 비밀번호를 발급하는 현장 유저 CRUD는 구현 완료했다.
