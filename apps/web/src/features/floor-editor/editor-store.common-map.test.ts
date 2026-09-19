@@ -3,6 +3,7 @@ import type { MapElement, MapOp } from "@led-control/shared";
 import { useFloorEditorStore } from "./editor-store";
 import type { FloorEditorState } from "./editor-types";
 import { clearEditorDrafts, editorDraftGeneration, loadEditorDraft, saveEditorDraft } from "./editor-drafts";
+import { CommonMapStore } from "./common-map-store";
 
 const store = useFloorEditorStore.getState;
 const lease = { leaseToken: "lease", leaseFence: 1 };
@@ -347,5 +348,111 @@ describe("common map store integration", () => {
       operations: [{ kind: "delete", id: "shape" }] })).toThrow();
     expect(store().isDirty).toBe(false);
     expect(store().mapElements.size).toBe(0);
+  });
+
+  it.each([false, true])("keeps ACK rebase originals after undo, a new branch and cache churn (evict=%s)", async (evict) => {
+    store().applyMapTransaction({ operations: [{ kind: "update", element: { ...element(), zIndex: 2 } }] });
+    let resolve!: (state: FloorEditorState) => void;
+    const pending = store().saveChanges(lease, () => new Promise((done) => { resolve = done; }));
+    store().undo();
+    store().updateFixture("fixture", { name: "New branch" });
+    expect(store().future).toHaveLength(0);
+    if (evict) store().loadMapElements(store().mapScope!, Array.from({ length: 257 }, (_, i) => element(`other-${i}`)));
+    resolve(ack());
+    expect(await pending).toBe("saved");
+    expect(operations()).toEqual([{ kind: "update", element: element() }]);
+    expect(store().mapElements.get("shape")).toEqual(element());
+    expect(store().state!.fixtures[0].name).toBe("New branch");
+  });
+
+  it.each(["fixture", "slot", "settings"] as const)("recovers %s-only drafts without empty map history frames", (kind) => {
+    clearEditorDrafts();
+    const initial = baseline();
+    initial.lightSlots = [{ id: "slot", x: 10, y: 20, rotation: 0, assignedFixtureId: null }];
+    store().initialize(initial, "user");
+    if (kind === "fixture") store().updateFixture("fixture", { name: "Draft" });
+    if (kind === "slot") store().applyMapTransaction({ operations: [], slotAssignments: [{ slotId: "slot", assignedFixtureId: "fixture" }] });
+    if (kind === "settings") store().updateMapSettings({ width: 16384, height: 8192, gridSize: 40 });
+    const edited = store().state!;
+    expect(store().exportMapDraft()!.operations).toEqual([]);
+    expect(saveEditorDraft("user", initial, edited, store().exportMapDraft())).toBe(true);
+    const recovered = loadEditorDraft("user", initial)!;
+    store().initialize(initial, "user");
+    store().recoverDraft(recovered);
+    expect(store().past).toHaveLength(1);
+    expect(store().past[0].mapCommand).toBeUndefined();
+    expect(store().past[0].mapSelection).toEqual({ elementIds: [], groupIds: [] });
+    store().undo();
+    expect(store().state!.fixtures).toEqual(initial.fixtures);
+    expect(store().state!.lightSlots).toEqual(initial.lightSlots);
+    expect(store().state!.floor).toEqual(initial.floor);
+    expect(store().isDirty).toBe(false);
+    expect(store().future[0].mapCommand).toBeUndefined();
+    store().redo();
+    expect(store().state!.fixtures).toEqual(edited.fixtures);
+    expect(store().state!.lightSlots).toEqual(edited.lightSlots);
+    expect(store().state!.floor).toEqual(edited.floor);
+    expect(store().state!.floor.mapDocument).toEqual(initial.floor.mapDocument);
+    expect(store().isDirty).toBe(true);
+  });
+
+  it("retains an explicit undone-add tombstone while its successful ACK is pending", async () => {
+    store().applyMapTransaction({ operations: [{ kind: "add", element: element("new") }] });
+    let resolve!: (state: FloorEditorState) => void;
+    const pending = store().saveChanges(lease, () => new Promise((done) => { resolve = done; }));
+    store().undo(); store().updateFixture("fixture", { name: "New branch" });
+    store().loadMapElements(store().mapScope!, Array.from({ length: 257 }, (_, i) => element(`other-${i}`)));
+    resolve(ack()); await pending;
+    expect(operations()).toEqual([{ kind: "delete", id: "new" }]);
+    expect(store().mapElements.has("new")).toBe(false);
+  });
+
+  it("releases clean pending pins after a failed save without leaking them into a new scope", async () => {
+    store().applyMapTransaction({ operations: [{ kind: "update", element: { ...element(), zIndex: 2 } }] });
+    let reject!: (error: Error) => void;
+    const pending = store().saveChanges(lease, () => new Promise((_done, fail) => { reject = fail; }));
+    const outcome = expect(pending).rejects.toThrow("failed");
+    store().undo(); store().updateFixture("fixture", { name: "New branch" });
+    reject(new Error("failed")); await outcome;
+    store().loadMapElements(store().mapScope!, Array.from({ length: 257 }, (_, i) => element(`other-${i}`)));
+    expect(store().mapElements.has("shape")).toBe(false);
+    expect(store().mapElements.size).toBeLessThanOrEqual(256);
+    expect(operations()).toEqual([]);
+    store().initialize(baseline(), "other-user");
+    expect(store().mapElements.size).toBe(0);
+    expect(store().isSaving).toBe(false);
+  });
+
+  it("does not let a stale ACK release the new scope's pending originals", async () => {
+    store().applyMapTransaction({ operations: [{ kind: "update", element: { ...element(), zIndex: 2 } }] });
+    let resolveOld!: (state: FloorEditorState) => void;
+    const oldSave = store().saveChanges(lease, () => new Promise((done) => { resolveOld = done; }));
+    store().initialize(baseline(), "new-user");
+    store().loadMapStructures(store().mapScope!, { groups: [], layers: [{ id: "layer", name: "Shapes", order: 0, visible: true, locked: false }] });
+    store().loadMapElements(store().mapScope!, [element()]);
+    store().applyMapTransaction({ operations: [{ kind: "update", element: { ...element(), zIndex: 3 } }] });
+    let resolveNew!: (state: FloorEditorState) => void;
+    const newSave = store().saveChanges(lease, () => new Promise((done) => { resolveNew = done; }));
+    resolveOld(ack());
+    expect(await oldSave).toBe("stale");
+    expect(store().isSaving).toBe(true);
+    store().undo(); store().updateFixture("fixture", { name: "New scope branch" });
+    store().loadMapElements(store().mapScope!, Array.from({ length: 257 }, (_, i) => element(`other-${i}`)));
+    resolveNew(ack());
+    expect(await newSave).toBe("saved");
+    expect(operations()).toEqual([{ kind: "update", element: element() }]);
+    expect(store().mapScope!.authScope).toBe("new-user");
+  });
+
+  it("rejects unloaded ACK targets before changing any baseline rather than inventing tombstones", () => {
+    const adapter = new CommonMapStore();
+    adapter.loadElements([element()]);
+    expect(() => adapter.acknowledge([
+      { kind: "update", element: { ...element(), zIndex: 9 } },
+      { kind: "delete", id: "not-loaded" }
+    ])).toThrow(expect.objectContaining({ code: "MAP_ACK_TARGET_UNLOADED" }));
+    expect(adapter.isDirty).toBe(false);
+    adapter.applyPrepared(adapter.prepare([{ kind: "update", element: { ...element(), zIndex: 2 } }]));
+    expect(adapter.draft(store().mapScope!).inverse).toEqual([{ kind: "update", element: element() }]);
   });
 });

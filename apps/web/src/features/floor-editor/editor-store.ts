@@ -2,7 +2,7 @@ import { create } from "zustand";
 import type { EDITOR_MAX_NAME_LENGTH, MapElement, MapGroup, MapLayer, MapOp, SaveEditorStateInput } from "@led-control/shared";
 import { MAP_MUTATION_MAX_BYTES, MAP_MUTATION_MAX_OPERATIONS, mapDocumentRefSchema } from "@led-control/shared/map-document-contracts";
 import { saveFloorEditorState } from "../../api/floor-editor";
-import { CommonMapStore, MapEditorError, type CommonMapDraft, type MapEditorScope, type MapSelection } from "./common-map-store";
+import { CommonMapStore, MapEditorError, mapOperationKey, type CommonMapDraft, type MapEditorScope, type MapSelection } from "./common-map-store";
 import type { MapElementHistory } from "./map-element-history";
 import { buildEditorChanges, hasEditorChanges } from "./editor-diff";
 import type { CadEditorSelection, EditorFixture, EditorTool, FloorEditorState, FloorMapObject, FloorMapObjectDraft, FloorPlanDraft } from "./editor-types";
@@ -119,6 +119,7 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
   let common = new CommonMapStore();
   let epoch = 0;
   let retry: { fingerprint: string; requestId: string } | null = null;
+  let pendingSaveKeys = new Set<string>();
   let batch: { state: FloorEditorState; extra: Partial<EditorStore> } | null = null;
   const emptySelection = (): MapSelection => ({ elementIds: [], groupIds: [] });
   const matchesScope = (scope: MapEditorScope) => JSON.stringify(scope) === JSON.stringify(get().mapScope);
@@ -127,13 +128,15 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
       mapDocumentRefSchema.parse(state.floor.mapDocument);
       if (state.floor.mapDocument.revision !== state.floor.mapRevision || state.objects.length) throw new MapEditorError("MAP_DOCUMENT_INVALID", "맵 문서를 다시 불러와주세요.");
     }
-    common = new CommonMapStore(); retry = null; epoch++;
+    common = new CommonMapStore(); retry = null; pendingSaveKeys = new Set(); epoch++;
     const document = state?.floor.mapDocument;
     return { ...common.view(), mapSelection: emptySelection(), isSaving: false,
       mapScope: document && state ? { authScope, siteId: state.floor.siteId, floorId: state.floor.id,
         generationId: document.generationId, baseRevision: state.floor.mapRevision, epoch } : null };
   };
-  const retain = (entries: HistoryEntry[]) => common.retain(new Set(entries.flatMap((entry) => entry.mapCommand?.keys ?? [])));
+  const retain = (entries: HistoryEntry[]) => common.retain(new Set([
+    ...pendingSaveKeys, ...entries.flatMap((entry) => entry.mapCommand?.keys ?? [])
+  ]));
   const dirty = (state: FloorEditorState) => {
     const baseline = get().initialState;
     if (!baseline) return { isDirty: false, dirtyFixtureIds: [], dirtyObjectIds: [] };
@@ -275,6 +278,9 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
       if (prepared.kind !== "normal") throw new MapEditorError(prepared.reason === "checkpoint" ? "MAP_CHECKPOINT_REQUIRED" : "MAP_STAGING_REQUIRED",
         prepared.reason === "checkpoint" ? "맵 설정 변경은 체크포인트 저장 연결이 필요합니다. 편집 내용은 유지됩니다." : "대량 변경 저장 연결이 필요합니다. 편집 내용은 유지됩니다.");
       const scopeEpoch = epoch, captured = get().state!, scope = get().mapScope;
+      // Undo can make a pending target clean, then a new branch can remove its
+      // last history reference. Keep its explicit value/tombstone until rebase.
+      pendingSaveKeys = new Set(prepared.payload.documentChanges?.operations.map(mapOperationKey) ?? []);
       set({ isSaving: true });
       try {
         const saved = await transport(captured.floor.id, structuredClone(prepared.payload));
@@ -313,7 +319,13 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
       } catch (error) {
         if (scopeEpoch !== epoch) return "stale";
         throw error;
-      } finally { if (scopeEpoch === epoch) set({ isSaving: false }); }
+      } finally {
+        if (scopeEpoch === epoch) {
+          pendingSaveKeys.clear();
+          retain([...get().past, ...get().future]);
+          set({ ...common.view(), isSaving: false });
+        }
+      }
     },
     initialState: null, state: null, isDirty: false, dirtyFixtureIds: [], dirtyObjectIds: [], activeTool: "select", zoom: 1,
     pan: { x: 0, y: 0 }, viewport: { width: 800, height: 600 }, selection: null, cadSelection: null, selectedFixtureIds: [],
@@ -333,7 +345,7 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
         if (!scope || Object.entries(commonMapDraft.scope).some(([key, value]) => scope[key as keyof MapEditorScope] !== value)) return;
         const prepared = common.restore(commonMapDraft);
         common.apply(prepared.forward);
-        commit(state, {}, { history: prepared.history, keys: prepared.keys });
+        commit(state, {}, prepared.forward.length ? { history: prepared.history, keys: prepared.keys } : undefined);
       } else commit(state);
     },
     discardChanges: () => { const state = get().initialState; if (state) get().initialize(state, get().mapScope?.authScope); else get().reset(); },

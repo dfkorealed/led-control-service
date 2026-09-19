@@ -216,8 +216,14 @@ export class CommonMapStore {
     }
   }
   acknowledge(operations: MapOp[]) {
-    for (const op of operations) {
-      const key = mapOperationKey(op), current = this.read(key) ?? null, saved = valueOf(op);
+    const updates = operations.map((op) => {
+      const key = mapOperationKey(op), current = this.read(key);
+      // An unloaded canonical value is unknown, not a user deletion. Validate
+      // every target before changing any acknowledged baseline.
+      if (current === undefined) throw new MapEditorError("MAP_ACK_TARGET_UNLOADED", "저장 응답에 필요한 도형 원본이 없습니다. 편집 내용을 유지합니다.");
+      return { key, current, saved: valueOf(op) };
+    });
+    for (const { key, current, saved } of updates) {
       this.originals.set(key, saved);
       if (same(current, saved)) this.changes.delete(key);
       else this.changes.set(key, current);
