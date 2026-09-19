@@ -883,8 +883,8 @@ git commit -m "docs: verify manual monitoring refresh"
 
 When no HIL evidence file was created, omit that path from `git add` and state the hardware limitation in `docs/menus/monitoring.md`.
 
-- [ ] **Step 9: Request independent code review and merge**
+- [x] **Step 9: Request independent code review and merge**
 
-Independent whole-branch review is complete with no open Critical/Important/Minor findings. Merge remains pending the user's integration choice; physical HIL also remains unchecked above.
+Independent whole-branch review completed with no open Critical/Important/Minor findings. On 2026-09-19, `codex/manual-monitoring-device-refresh` was merged into the latest `codex/mvp1-cloud-web` after the canonical test, lint, typecheck, and build gates passed; the merged checkout passed the canonical test gate again. Physical HIL remains unchecked above for the user to run.
 
 Review the full branch against the spec for data races, stale-event precedence, raw error leakage, outbox/journal durability, read-only behavior, accessibility, and test evidence. Resolve findings with new failing tests, rerun the affected and full verification matrices, then merge `codex/manual-monitoring-device-refresh` into the latest `codex/mvp1-cloud-web` while preserving unrelated working-tree files.
