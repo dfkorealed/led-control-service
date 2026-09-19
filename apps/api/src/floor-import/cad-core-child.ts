@@ -9,6 +9,8 @@ import { FixedLightingDetectorRegistry, type CadImportDetectorProfileId } from "
 import { encodeCadCoreResponse, type CadCoreRequest, type CadCoreResult } from "./cad-core-executor";
 import { detectCadRegions } from "./cad-region-detector";
 import { buildCanonicalCadScene, remainingCadArtifactBytes } from "./cad-canonical-spool";
+import { createCadDisplayTileSpool } from "./cad-display-tile-spool";
+import { CAD_SCENE_MAX_TILE_BYTE_SIZE } from "@led-control/shared";
 import { CAD_MAP_MAX_METADATA_BYTES } from "./map-element-converter";
 import { cadRegionPreviewPersistenceIdentity, cadScenePersistenceIdentity } from "./cad-scene-persistence";
 import { renderCadRegionPreviewFiles } from "./cad-region-preview-renderer";
@@ -124,18 +126,29 @@ async function execute(request: Omit<CadCoreRequest, "abortSignal">): Promise<Ca
   let selectedCandidates = undefined;
   if (selectedRegion && request.artifactDirectory && request.jobId) {
     const identity = cadScenePersistenceIdentity(request.jobId, selectedRegion.regionId);
-    const maxBytes = await remainingCadArtifactBytes(request.artifactDirectory) - 2 * CAD_MAP_MAX_METADATA_BYTES;
+    // Reserve canonical metadata + public manifest + one restored raw tile.
+    // Canonical frames, compressed tiles and their bounded index share the
+    // remaining physical budget; decoded caps remain independently enforced.
+    const maxBytes = await remainingCadArtifactBytes(request.artifactDirectory)
+      - 2 * CAD_MAP_MAX_METADATA_BYTES - CAD_SCENE_MAX_TILE_BYTE_SIZE;
     if (maxBytes < 1) throw new Error("CAD import temporary disk budget exceeded");
-    const prepared = await buildCanonicalCadScene(document, selectedRegion, request.jobId, request.artifactDirectory, { maxBytes });
+    let claimedBytes = 0;
+    const claimBytes = (bytes: number) => {
+      if (claimedBytes + bytes > maxBytes) throw new Error("CAD import temporary disk budget exceeded");
+      claimedBytes += bytes;
+    };
+    const spool = createCadDisplayTileSpool(request.artifactDirectory, claimBytes);
+    const prepared = await buildCanonicalCadScene(document, selectedRegion, request.jobId, request.artifactDirectory,
+      { maxBytes, onPhysicalBytes: claimBytes, onTile: spool.write });
     const built = prepared.built;
     canonical = prepared.canonical;
-    if (built.manifestPayload.length + built.tiles.reduce((sum, tile) => sum + tile.payload.length, 0) >
-        await remainingCadArtifactBytes(request.artifactDirectory)) throw new Error("CAD import temporary disk budget exceeded");
+    canonical.displayTiles = spool.finish();
+    if (built.manifestPayload.length > CAD_MAP_MAX_METADATA_BYTES ||
+        built.manifestPayload.length + CAD_SCENE_MAX_TILE_BYTE_SIZE > await remainingCadArtifactBytes(request.artifactDirectory)) {
+      throw new Error("CAD import temporary disk budget exceeded");
+    }
     const manifestFilename = `${identity.manifestAssetId}.json`;
     await writeFile(join(request.artifactDirectory, manifestFilename), built.manifestPayload, { flag: "wx", mode: 0o600 });
-    for (const tile of built.tiles) {
-      await writeFile(join(request.artifactDirectory, `${tile.descriptor.assetId}.bin`), tile.payload, { flag: "wx", mode: 0o600 });
-    }
     scene = {
       sceneId: identity.sceneId,
       manifestAssetId: identity.manifestAssetId,

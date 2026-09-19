@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } f
 import { Prisma, type FloorImportJob } from "@prisma/client";
 import { CAD_IMPORT_MAX_REGIONS, mapDisplayManifestSchema, floorImportRegionListResponseSchema, type CadImportStage, type MapDisplayManifest, type MapDocumentRef } from "@led-control/shared";
 import { createHash, randomUUID } from "node:crypto";
+import { readCadDisplayTileIndex, withCadDisplayTileFile, type CadDisplayTileIndex } from "./cad-display-tile-spool";
 import { lstat, mkdtemp, readFile, rm, stat, statfs, utimes } from "node:fs/promises";
 import { join } from "node:path";
 import { PrismaService } from "../prisma/prisma.service";
@@ -320,6 +321,7 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
       phase = "render";
       const viewport = rendered.viewport;
       let manifest: MapDisplayManifest | null = null;
+      let tileIndex: CadDisplayTileIndex | undefined;
       if (core.scene) {
         const identity = cadScenePersistenceIdentity(job.id, selectedRegionId!);
         if (core.scene.sceneId !== identity.sceneId || core.scene.manifestAssetId !== identity.manifestAssetId ||
@@ -345,6 +347,7 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
             manifest.tiles.some(tile => tile.assetId !== identity.tileAssetId(tile))) {
           throw new Error("CAD core manifest identity mismatch");
         }
+        tileIndex = await readCadDisplayTileIndex(tempDirectory, core.canonical?.displayTiles, manifest);
         if (!this.attemptCleanup) throw new Error("CAD import cleanup ledger is unavailable");
         attempt = await this.attemptCleanup.armAttempt(
           { jobId: job.id, floorId: job.floorId, attemptCount: job.attemptCount },
@@ -434,6 +437,7 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
           mimeType: "image/svg+xml", contentEncoding: rendered.contentEncoding, ...viewport
         }, abort.signal);
       }
+      const tilesById = new Map(manifest?.tiles.map(tile => [tile.assetId, tile]));
       for (const asset of cadAssets) {
         const expected = {
           sizeBytes: asset.sizeBytes,
@@ -442,8 +446,15 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
           ...(asset.contentEncoding ? { contentEncoding: asset.contentEncoding } : {}),
           ...(asset.metadata ? { metadata: asset.metadata } : {})
         };
-        await this.storage.putCadSceneObjectFile(asset.objectKey, asset.inputPath, expected, abort.signal);
-        await this.storage.verifyCadSceneObject(asset.objectKey, expected, abort.signal);
+        const upload = async (path: string) => {
+          await this.storage.putCadSceneObjectFile(asset.objectKey, path, expected, abort.signal);
+          await this.storage.verifyCadSceneObject(asset.objectKey, expected, abort.signal);
+        };
+        if (asset.kind === "cad_tile") {
+          const tile = tilesById.get(asset.id);
+          if (!tile) throw new Error("CAD tile artifact identity mismatch");
+          await withCadDisplayTileFile(tempDirectory, tile, tileIndex, upload, abort.signal);
+        } else await upload(asset.inputPath);
       }
       if (manifest) {
         if (!core.canonical || !this.mapPreparation) throw new Error("CAD canonical preparation is unavailable");

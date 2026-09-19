@@ -283,5 +283,16 @@ describe("HATCH even-odd boundary topology", () => {
     const strokes = primitives.filter(p => p.style.strokeColor !== null);
     expect(strokes.every(p => p.style.fillColor === null)).toBe(true);
     expect(new Set(strokes.map(p => p.fragmentOrder)).size).toBe(holeCount + 1);
+    const rings = [element.geometry.outer, ...element.geometry.holes];
+    for (const stroke of strokes) {
+      if (stroke.type !== "polyline") throw new Error("expected closed boundary stroke");
+      expect(stroke.geometry.closed).toBe(true);
+      const ring = rings[stroke.fragmentOrder - 1];
+      expect(stroke.geometry.points).toHaveLength(ring.length);
+      stroke.geometry.points.forEach((point, i) => {
+        expect(point.x).toBeCloseTo(ring[i].x, 2);
+        expect(point.y).toBeCloseTo(ring[i].y, 2);
+      });
+    }
   });
 });

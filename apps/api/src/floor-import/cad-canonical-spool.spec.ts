@@ -6,6 +6,7 @@ import { gzipSync, gunzipSync } from "node:zlib";
 import { buildCanonicalCadScene, readCanonicalElements, readCanonicalMetadata, readVerifiedCadArtifact, remainingCadArtifactBytes } from "./cad-canonical-spool";
 import { decodeMapDisplayTile } from "./cad-scene-codec";
 import type { MapElement } from "@led-control/shared";
+import type { BuiltMapDisplayTile } from "./cad-scene-builder";
 
 export const canonicalFixture = () => {
   const bounds = { minX: 0, minY: 0, maxX: 1000, maxY: 1000 };
@@ -21,6 +22,24 @@ describe("bounded canonical spool", () => {
   let directory: string;
   beforeEach(async () => { directory = await mkdtemp(join(tmpdir(), "u4b-spool-")); });
   afterEach(async () => { await rm(directory, { recursive: true, force: true }); });
+
+  it("streams exact raw display tiles without retaining scene payloads and charges physical canonical writes", async () => {
+    const { document, region } = canonicalFixture();
+    const jobId = randomUUID();
+    const original = await buildCanonicalCadScene(document, region, jobId, directory);
+    const received: BuiltMapDisplayTile[] = [];
+    const claims: number[] = [];
+    const limits = { maxBytes: 512 * 1024 * 1024,
+      onTile: (tile: BuiltMapDisplayTile) => { received.push(tile); },
+      onPhysicalBytes: (bytes: number) => { claims.push(bytes); } };
+    const streamed = await buildCanonicalCadScene(document, region, jobId, directory, limits);
+    expect(received).toHaveLength(original.built.tiles.length);
+    expect(received.sort((a, b) => a.descriptor.assetId.localeCompare(b.descriptor.assetId)))
+      .toEqual([...original.built.tiles].sort((a, b) => a.descriptor.assetId.localeCompare(b.descriptor.assetId)));
+    expect(streamed.built.manifestPayload).toEqual(original.built.manifestPayload);
+    expect(streamed.built).not.toHaveProperty("tiles");
+    expect(claims.reduce((a, b) => a + b, 0)).toBe(streamed.canonical.elements.byteSize);
+  });
 
   it("writes versioned bounded gzip frames with independent physical and decoded integrity", async () => {
     const { document, region } = canonicalFixture();

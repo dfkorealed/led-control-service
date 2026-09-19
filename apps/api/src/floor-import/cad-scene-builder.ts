@@ -87,6 +87,8 @@ export interface BuildCadSceneOptions {
    * and groups. A void return keeps legacy display identities. Synchronous:
    * called before display deduplication, simplification or clipping. */
   onSemanticEntity?: (entity: CadSemanticEntity) => readonly MapElement[] | void;
+  /** Internal common producer sink. Synchronous backpressure; payloads are not retained. */
+  onTile?: (tile: BuiltMapDisplayTile) => void;
 }
 
 export interface CadSemanticEntity {
@@ -112,6 +114,7 @@ export interface BuiltMapDisplayScene {
   manifestPayload: Buffer;
   tiles: BuiltMapDisplayTile[];
 }
+export type StreamedMapDisplayScene = Omit<BuiltMapDisplayScene, "tiles">;
 type BuiltDisplayTile = BuiltCadSceneTile | BuiltMapDisplayTile;
 
 interface ProjectionContext {
@@ -1253,9 +1256,12 @@ export function appendPrimitiveToTiles(
     }
     return appended;
   }
-  const filledCommonPath = primitive.type === "polyline" && "zIndex" in primitive &&
-    primitive.geometry.closed && primitive.style.fillColor !== null;
-  if (primitive.type === "polyline" && !filledCommonPath) {
+  // Preserve closed-path joins and antialiasing for both fill and stroke. The
+  // consumer clips the original bounded ring per cell. Oversized paths still
+  // use splitOversizedPolyline's existing open-segment fallback, not fake joins.
+  const closedCommonPath = primitive.type === "polyline" && "zIndex" in primitive &&
+    primitive.geometry.closed && primitive.geometry.points.length <= CAD_SCENE_MAX_POINTS_PER_PRIMITIVE;
+  if (primitive.type === "polyline" && !closedCommonPath) {
     const segmentCount = primitive.geometry.closed
       ? primitive.geometry.points.length
       : primitive.geometry.points.length - 1;
@@ -1284,7 +1290,7 @@ export function appendPrimitiveToTiles(
   }
   const cells = new Map<string, OccupiedTileCell>();
   let fillPolygon: readonly { x: number; y: number }[] | null = null;
-  if (primitive.type === "rectangle" || primitive.type === "triangle" || (primitive.type === "polyline" && filledCommonPath)) {
+  if (primitive.type === "rectangle" || primitive.type === "triangle" || (primitive.type === "polyline" && closedCommonPath)) {
     const points = primitive.type === "rectangle" ? rectanglePoints(primitive) : primitive.geometry.points;
     for (let index = 0; index < points.length; index++) {
       addOccupiedSegment(cells, points[index], points[(index + 1) % points.length], width, height);
@@ -1328,6 +1334,7 @@ export interface TileOutputState {
   totalByteSize: number;
   assetIds: Set<string>;
   manifestAssetId: string;
+  onTile?: (tile: BuiltDisplayTile) => void;
 }
 
 export function encodeTileAccumulator(
@@ -1350,7 +1357,7 @@ export function encodeTileAccumulator(
     if (part >= limits.maximumPartsPerCell) {
       throw new Error("CAD scene tile part limit exceeded");
     }
-    if (output.length >= limits.maximumPartCount) {
+    if (outputState.assetIds.size >= limits.maximumPartCount) {
       throw new Error("CAD scene tile descriptor limit exceeded");
     }
     const payload = version === MAP_DISPLAY_VERSION
@@ -1383,7 +1390,13 @@ export function encodeTileAccumulator(
     }
     outputState.totalByteSize += payload.byteLength;
     outputState.assetIds.add(descriptor.assetId);
-    output.push({ descriptor, payload } as BuiltDisplayTile);
+    const encoded = { descriptor, payload } as BuiltDisplayTile;
+    if (outputState.onTile) {
+      const result: unknown = outputState.onTile(encoded);
+      if (result && typeof (result as PromiseLike<unknown>).then === "function") {
+        throw new Error("CAD tile sink must be synchronous");
+      }
+    } else output.push(encoded);
     part++;
     tile.nextPart = part;
     partPrimitives = [];
@@ -1583,17 +1596,24 @@ function bindDisplayIdentities(semantic: CadSemanticEntity, elements: readonly M
 }
 
 export function buildCadScene(document: NormalizedCadDocument, region: CadDetectedRegion,
-  options: BuildCadSceneOptions & { displayVersion: 2 }): BuiltMapDisplayScene;
+  options: BuildCadSceneOptions & { displayVersion: 2; onTile: (tile: BuiltMapDisplayTile) => void }): StreamedMapDisplayScene;
 export function buildCadScene(document: NormalizedCadDocument, region: CadDetectedRegion,
-  options: BuildCadSceneOptions & { displayVersion?: 1 }): BuiltCadScene;
+  options: BuildCadSceneOptions & { displayVersion: 2; onTile?: undefined }): BuiltMapDisplayScene;
 export function buildCadScene(document: NormalizedCadDocument, region: CadDetectedRegion,
-  options: BuildCadSceneOptions): BuiltCadScene | BuiltMapDisplayScene;
+  options: BuildCadSceneOptions & { displayVersion?: 1; onTile?: undefined }): BuiltCadScene;
+export function buildCadScene(document: NormalizedCadDocument, region: CadDetectedRegion,
+  options: BuildCadSceneOptions & { displayVersion: 2 }): StreamedMapDisplayScene;
+export function buildCadScene(document: NormalizedCadDocument, region: CadDetectedRegion,
+  options: BuildCadSceneOptions & { onTile?: undefined }): BuiltCadScene | BuiltMapDisplayScene;
+export function buildCadScene(document: NormalizedCadDocument, region: CadDetectedRegion,
+  options: BuildCadSceneOptions): BuiltCadScene | BuiltMapDisplayScene | StreamedMapDisplayScene;
 export function buildCadScene(
   document: NormalizedCadDocument,
   region: CadDetectedRegion,
   options: BuildCadSceneOptions
-): BuiltCadScene | BuiltMapDisplayScene {
+): BuiltCadScene | BuiltMapDisplayScene | StreamedMapDisplayScene {
   const displayVersion = options.displayVersion ?? CAD_SCENE_VERSION;
+  if (options.onTile && displayVersion !== MAP_DISPLAY_VERSION) throw new Error("CAD tile sink requires common v2");
   if (displayVersion === MAP_DISPLAY_VERSION && !options.onSemanticEntity) {
     throw new Error("Common display v2 requires canonical elements");
   }
@@ -1635,6 +1655,7 @@ export function buildCadScene(
 
   const tilePrimitives = new Map<string, TilePrimitiveAccumulator>();
   const tiles: BuiltDisplayTile[] = [];
+  const streamedDescriptors: MapDisplayTile[] = [];
   const manifestAssetId = options.manifestAssetId ?? deterministicUuid(`${options.sceneId}:manifest`);
   const partLimits: TilePartLimits = {
     maximumByteSize: maximumTileByteSize,
@@ -1646,7 +1667,12 @@ export function buildCadScene(
     displayVersion,
     totalByteSize: 0,
     assetIds: new Set(),
-    manifestAssetId
+    manifestAssetId,
+    onTile: options.onTile ? tile => {
+      const result: unknown = options.onTile!(tile as BuiltMapDisplayTile);
+      if (result && typeof (result as PromiseLike<unknown>).then === "function") throw new Error("CAD tile sink must be synchronous");
+      streamedDescriptors.push(tile.descriptor as MapDisplayTile);
+    } : undefined
   };
   const deduplicationDigests = new Set<string>();
   let selectedPrimitiveCount = 0;
@@ -1720,6 +1746,8 @@ export function buildCadScene(
     left.descriptor.tileY - right.descriptor.tileY ||
     left.descriptor.tileX - right.descriptor.tileX ||
     left.descriptor.part - right.descriptor.part);
+  const descriptors = options.onTile ? streamedDescriptors.sort((a, b) => a.lod - b.lod ||
+    a.tileY - b.tileY || a.tileX - b.tileX || a.part - b.part) : tiles.map(tile => tile.descriptor);
 
   const manifestBody: Omit<CadSceneManifest | MapDisplayManifest, "byteSize" | "sha256"> = {
     version: displayVersion,
@@ -1733,10 +1761,10 @@ export function buildCadScene(
     tileSize: CAD_SCENE_TILE_SIZE,
     lodMode: "additive",
     primitiveCount: selectedPrimitiveCount,
-    tileCount: tiles.length,
+    tileCount: descriptors.length,
     sourceBounds: { ...region.bounds },
     transform,
-    tiles: tiles.map(tile => tile.descriptor) as CadSceneTile[] | MapDisplayTile[]
+    tiles: descriptors as CadSceneTile[] | MapDisplayTile[]
   };
   const manifestPayload = canonicalManifestPayload(manifestBody);
   const manifest = {
@@ -1745,5 +1773,6 @@ export function buildCadScene(
     sha256: createHash("sha256").update(manifestPayload).digest("hex")
   };
   (displayVersion === MAP_DISPLAY_VERSION ? mapDisplayManifestSchema : cadSceneManifestSchema).parse(manifest);
-  return { manifest, manifestPayload, tiles } as BuiltCadScene | BuiltMapDisplayScene;
+  return options.onTile ? { manifest, manifestPayload } as StreamedMapDisplayScene
+    : { manifest, manifestPayload, tiles } as BuiltCadScene | BuiltMapDisplayScene;
 }

@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { buildCanonicalCadScene, readCanonicalElements } from "./cad-canonical-spool";
 import { cadRegionPreviewPersistenceIdentity, cadScenePersistenceIdentity } from "./cad-scene-persistence";
 import { FloorImportWorkerService } from "./floor-import-worker.service";
+import { createCadDisplayTileSpool } from "./cad-display-tile-spool";
 
 jest.mock("node:fs/promises", () => ({
   ...jest.requireActual("node:fs/promises"),
@@ -37,7 +38,8 @@ function genericRegistry() {
 async function writeNativeArtifacts(
   jobId: string,
   artifactDirectory: string,
-  lightCandidateCount: number
+  lightCandidateCount: number,
+  compressed = false
 ) {
   const region = {
     regionId: "region-0123456789abcdef01234567",
@@ -66,7 +68,11 @@ async function writeNativeArtifacts(
   const manifestFilename = `${identity.manifestAssetId}.json`;
   await writeFile(join(artifactDirectory, previewFilename), preview);
   await writeFile(join(artifactDirectory, manifestFilename), built.manifestPayload);
-  for (const tile of built.tiles) {
+  if (compressed) {
+    const spool = createCadDisplayTileSpool(artifactDirectory, () => undefined);
+    built.tiles.forEach(spool.write);
+    canonical.displayTiles = spool.finish();
+  } else for (const tile of built.tiles) {
     await writeFile(join(artifactDirectory, `${tile.descriptor.assetId}.bin`), tile.payload);
   }
   return {
@@ -114,7 +120,7 @@ describe("FloorImportWorkerService", () => {
     await worker.onModuleDestroy();
   });
 
-  it.each(["success", "dwg", "verification failure", "invalid metadata", "core timeout", "pin failure", "canonical only"])("runs the verified native persistence path: %s", async mode => {
+  it.each(["success", "compressed", "dwg", "verification failure", "invalid metadata", "core timeout", "pin failure", "canonical only"])("runs the verified native persistence path: %s", async mode => {
     const root = await mkdtemp(join(tmpdir(), "floor-import-test-"));
     const row = claimedJob({ detectorProfileId: null, sourceFormat: mode === "dwg" ? "dwg" : "dxf" });
     const source = { objectKey: `floors/${row.floorId}/source.dxf`, sizeBytes: BigInt(1024), sha256: "a".repeat(64),
@@ -164,7 +170,14 @@ describe("FloorImportWorkerService", () => {
       downloadFloorAssetToFile: jest.fn(async (_key: string, path: string) => writeFile(path, dxf)),
       putFloorRenderedObjectFile: jest.fn().mockImplementation(async () => { storageOrder.push("put"); }),
       verifyFloorRenderedObject: jest.fn().mockResolvedValue(undefined),
-      putCadSceneObjectFile: jest.fn().mockResolvedValue(undefined),
+      putCadSceneObjectFile: jest.fn(async (_key: string, path: string, expected: any) => {
+        if (!path.endsWith(".bin")) return;
+        const bytes = await readFile(path);
+        expect(bytes.subarray(0, 4).toString()).toBe("CDTL");
+        expect(bytes.length).toBe(expected.sizeBytes);
+        expect(createHash("sha256").update(bytes).digest("hex")).toBe(expected.sha256);
+        expect(expected.contentEncoding).toBeUndefined();
+      }),
       verifyCadSceneObject: jest.fn().mockResolvedValue(undefined),
       deleteObject: jest.fn().mockResolvedValue(undefined)
     };
@@ -179,7 +192,7 @@ describe("FloorImportWorkerService", () => {
     };
     const core: any = { execute: jest.fn(async ({ renderedPath, artifactDirectory }: any) => {
       await writeFile(renderedPath, "gzip-svg");
-      const artifacts = await writeNativeArtifacts(row.id, artifactDirectory, candidates.length);
+      const artifacts = await writeNativeArtifacts(row.id, artifactDirectory, candidates.length, mode === "compressed");
       if (mode === "invalid metadata") artifacts.region.textCount = artifacts.region.primitiveCount + 1;
       return {
         profileId: "generic-lighting-v1", profileVersion: "test/1", profileDigest: "b".repeat(64),
@@ -209,6 +222,7 @@ describe("FloorImportWorkerService", () => {
     const preparation: any = {
       reap: async () => 0,
       prepare: async (_floor: string, directory: string, canonical: any) => {
+        if (mode === "compressed") expect((await readdir(directory)).filter(name => name.endsWith(".bin"))).toEqual([]);
         for await (const element of readCanonicalElements(directory, canonical)) persisted.push(element.id);
         return { generationId: preparedId };
       },
@@ -234,7 +248,7 @@ describe("FloorImportWorkerService", () => {
         expect(finalTransactions).toHaveLength(0);
         return;
       }
-      if (mode !== "success" && mode !== "dwg") {
+      if (mode !== "success" && mode !== "dwg" && mode !== "compressed") {
         expect(prisma.$transaction).not.toHaveBeenCalled();
         if (mode === "verification failure") expect(storage.verifyCadSceneObject).toHaveBeenCalledTimes(1);
         else expect(storage.putCadSceneObjectFile).not.toHaveBeenCalled();

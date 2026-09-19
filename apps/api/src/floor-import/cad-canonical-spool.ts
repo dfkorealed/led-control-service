@@ -4,8 +4,8 @@ import { open, writeFile, opendir, statfs, lstat } from "node:fs/promises";
 import { join } from "node:path";
 import { gzipSync, gunzipSync, inflateRawSync } from "node:zlib";
 import { z } from "zod";
-import { mapElementSchema, mapDocumentStateSchema, type MapElement } from "@led-control/shared";
-import { buildCadScene, type BuiltMapDisplayScene } from "./cad-scene-builder";
+import { CAD_SCENE_MAX_TILE_PART_COUNT, mapElementSchema, mapDocumentStateSchema, type MapElement } from "@led-control/shared";
+import { buildCadScene, type BuiltMapDisplayScene, type BuiltMapDisplayTile, type StreamedMapDisplayScene } from "./cad-scene-builder";
 import { cadScenePersistenceIdentity } from "./cad-scene-persistence";
 import { CAD_MAP_MAX_METADATA_BYTES, createCadMapElementConverter, type CadMapConversionMetadata } from "./map-element-converter";
 import type { NormalizedCadDocument } from "./cad-types";
@@ -16,21 +16,41 @@ export const CANONICAL_SPOOL_MAX_BYTES = 512 * 1024 * 1024;
 const ELEMENT_MAX_BYTES = 8 * 1024 * 1024 - 2;
 const FRAME_BYTES = 256 * 1024;
 const FRAME_COMPRESSED_MAX_BYTES = FRAME_BYTES + 1024;
-const fileSchema = z.object({ filename: z.string().regex(/^[a-f0-9-]{36}\.(ndjson\.gzf|json|bin)$/),
+const fileSchema = z.object({ filename: z.string().regex(/^[a-f0-9-]{36}\.(ndjson\.gzf|json|bin|bin\.gz)$/),
   byteSize: z.number().int().min(0).max(CANONICAL_SPOOL_MAX_BYTES), sha256: z.string().regex(/^[a-f0-9]{64}$/) }).strict();
 const elementsSchema = fileSchema.extend({ filename: z.string().regex(/^[a-f0-9-]{36}\.ndjson\.gzf$/),
   codec: z.literal("gzip-frames"), version: z.literal(1),
   decodedByteSize: z.number().int().min(0).max(CANONICAL_SPOOL_MAX_BYTES),
   decodedSha256: z.string().regex(/^[a-f0-9]{64}$/) });
+export const cadDisplayTileSpoolArtifactSchema = fileSchema.extend({
+  filename: z.string().regex(/^[a-f0-9-]{36}\.json$/), byteSize: z.number().int().positive().max(CAD_MAP_MAX_METADATA_BYTES),
+  codec: z.literal("gzip"), version: z.literal(1),
+  tileCount: z.number().int().nonnegative().max(CAD_SCENE_MAX_TILE_PART_COUNT),
+  tileByteSize: z.number().int().nonnegative().max(CANONICAL_SPOOL_MAX_BYTES),
+  decodedByteSize: z.number().int().nonnegative().max(CANONICAL_SPOOL_MAX_BYTES)
+});
+export type CadDisplayTileSpoolArtifact = z.infer<typeof cadDisplayTileSpoolArtifactSchema>;
 export const canonicalArtifactSchema = z.object({ elements: elementsSchema, metadata: fileSchema.extend({ byteSize: z.number().int().positive().max(CAD_MAP_MAX_METADATA_BYTES) }),
+  displayTiles: cadDisplayTileSpoolArtifactSchema.optional(),
   elementCount: z.number().int().min(0).max(500_000) }).strict();
 export type CadCanonicalArtifact = z.infer<typeof canonicalArtifactSchema>;
 const digest = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 
 /** The builder callback is synchronous. Blocking bounded writes in the isolated
  * child provide backpressure without retaining another expanded geometry graph. */
+interface CanonicalBuildLimits {
+  maxBytes?: number;
+  onTile?: (tile: BuiltMapDisplayTile) => void;
+  onPhysicalBytes?: (byteSize: number) => void;
+}
+export function buildCanonicalCadScene(document: NormalizedCadDocument, region: CadDetectedRegion,
+  jobId: string, directory: string, limits: CanonicalBuildLimits & { onTile: (tile: BuiltMapDisplayTile) => void }):
+  Promise<{ built: StreamedMapDisplayScene; canonical: CadCanonicalArtifact }>;
+export function buildCanonicalCadScene(document: NormalizedCadDocument, region: CadDetectedRegion,
+  jobId: string, directory: string, limits?: CanonicalBuildLimits & { onTile?: undefined }):
+  Promise<{ built: BuiltMapDisplayScene; canonical: CadCanonicalArtifact }>;
 export async function buildCanonicalCadScene(document: NormalizedCadDocument, region: CadDetectedRegion,
-  jobId: string, directory: string, limits: { maxBytes?: number } = {}) {
+  jobId: string, directory: string, limits: CanonicalBuildLimits = {}) {
   const maximum = limits.maxBytes ?? CANONICAL_SPOOL_MAX_BYTES;
   if (!Number.isSafeInteger(maximum) || maximum < 1 || maximum > CANONICAL_SPOOL_MAX_BYTES) throw new Error("invalid canonical byte limit");
   const filename = `${randomUUID()}.ndjson.gzf`;
@@ -50,6 +70,7 @@ export async function buildCanonicalCadScene(document: NormalizedCadDocument, re
     }
     const header = Buffer.allocUnsafe(8);
     header.writeUInt32LE(compressed.length, 0); header.writeUInt32LE(pendingBytes, 4);
+    limits.onPhysicalBytes?.(header.length + compressed.length);
     for (const bytes of [header, compressed]) {
       let offset = 0;
       while (offset < bytes.length) offset += writeSync(fd, bytes, offset, bytes.length - offset);
@@ -61,10 +82,10 @@ export async function buildCanonicalCadScene(document: NormalizedCadDocument, re
   const converter = createCadMapElementConverter({ importJobId: jobId, regionBounds: region.bounds,
     unsupportedEntityCounts: document.unsupportedEntityCounts });
   const identity = cadScenePersistenceIdentity(jobId, region.regionId);
-  let built: BuiltMapDisplayScene;
+  let built: StreamedMapDisplayScene;
   try {
     built = buildCadScene(document, region, { displayVersion: 2, sceneId: identity.sceneId, manifestAssetId: identity.manifestAssetId,
-      tileAssetId: identity.tileAssetId, onSemanticEntity: semantic => {
+      tileAssetId: identity.tileAssetId, onTile: limits.onTile, onSemanticEntity: semantic => {
         const stored = converter.convertSemanticEntity(semantic);
         for (const element of stored) {
           if (++count > 500_000) throw new Error("canonical element count exceeded");

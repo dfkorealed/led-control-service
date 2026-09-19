@@ -72,6 +72,34 @@ function unionBounds(primitives: readonly CadScenePrimitive[]) {
 }
 
 describe("CAD scene builder", () => {
+  it("preserves common closed stroke joins and original vertices in boundary cells without filling the interior", () => {
+    const points = [{ x: 100.25, y: 100.75 }, { x: 1400.5, y: 100.75 },
+      { x: 1400.5, y: 1400.25 }, { x: 100.25, y: 1400.25 }];
+    const primitive = { type: "polyline" as const, elementId: "ring", groupId: "g", layerName: "wall", sourceType: "HATCH",
+      zIndex: 17, fragmentOrder: 3, clipBounds: null, bounds: { minX: 100.25, minY: 100.75, maxX: 1400.5, maxY: 1400.25 },
+      style: { strokeColor: "#123456", fillColor: null, strokeWidth: 2, opacity: 0.5 }, geometry: { points, closed: true } };
+    const cells = new Map<string, TilePrimitiveAccumulator>();
+    appendPrimitiveToTiles(primitive, 1536, 1536, cells);
+    expect([...cells.values()].map(c => `${c.tileX},${c.tileY}`).sort()).toEqual(["0,0", "0,1", "0,2", "1,0", "1,2", "2,0", "2,1", "2,2"]);
+    for (const cell of cells.values()) {
+      expect(cell.primitives).toHaveLength(1);
+      expect(cell.primitives[0]).toMatchObject({ elementId: "ring", groupId: "g", zIndex: 17, fragmentOrder: 3,
+        geometry: { closed: true, points }, clipBounds: { minX: cell.tileX * 512, minY: cell.tileY * 512,
+          maxX: (cell.tileX + 1) * 512, maxY: (cell.tileY + 1) * 512 } });
+    }
+    const { zIndex: _z, fragmentOrder: _f, ...legacy } = primitive;
+    const old = new Map<string, TilePrimitiveAccumulator>();
+    appendPrimitiveToTiles(legacy, 1536, 1536, old);
+    expect([...old.values()].flatMap(c => c.primitives).every(p => p?.type === "polyline" &&
+      !p.geometry.closed && p.geometry.points.length === 2)).toBe(true);
+    const oversized = { ...primitive, geometry: { closed: true,
+      points: Array.from({ length: CAD_SCENE_MAX_POINTS_PER_PRIMITIVE + 1 }, (_, i) => ({ x: 100 + i / 100, y: 100 + i % 2 })) } };
+    const chunks = splitOversizedPolyline(oversized);
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.every(p => p.type === "polyline" && !p.geometry.closed && p.geometry.points.length <= CAD_SCENE_MAX_POINTS_PER_PRIMITIVE)).toBe(true);
+    const last = chunks.at(-1)!;
+    expect(last.type === "polyline" && last.geometry.points.at(-1)).toEqual(oversized.geometry.points[0]);
+  });
   it("keeps simple canonical HATCH fills as full closed paths within the original primitive cap", () => {
     const input = document(["A", "B"].map(sourceEntityId => ({ type: "hatch", sourceEntityId, layer: "FILL",
       loops: [{ type: "polyline", closed: true, vertices: [vertex(200, 200), vertex(800, 200), vertex(800, 800), vertex(200, 800)] }] })));
@@ -139,7 +167,7 @@ describe("CAD scene builder", () => {
         onSemanticEntity: semantic => converter.convertSemanticEntity(semantic).map(element => {
           const ordered = { ...element, zIndex: element.zIndex - 100 };
           elements.set(ordered.id, ordered); return ordered;
-        }) } as Parameters<typeof buildCadScene>[2]);
+        }) });
       expect(scene.manifest.version).toBe(2);
       const occurrences = scene.tiles.flatMap(tile => decodeMapDisplayTile(tile.payload, tile.descriptor).map(primitive => {
         const element = elements.get(primitive.elementId)!;

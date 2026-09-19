@@ -10,8 +10,9 @@ import { MapDocumentStore, type MapDisplayAssets } from "../floor-editor/map-doc
 import { PrismaService } from "../prisma/prisma.service";
 import { ObjectStorageService } from "../storage/object-storage.service";
 import { CAD_MAP_MAX_METADATA_BYTES } from "./map-element-converter";
-import { readCanonicalElements, readCanonicalMetadata, readVerifiedCadArtifact, type CadCanonicalArtifact } from "./cad-canonical-spool";
+import { readCanonicalElements, readCanonicalMetadata, type CadCanonicalArtifact } from "./cad-canonical-spool";
 import { decodeMapDisplayTile } from "./cad-scene-codec";
+import { readCadDisplayTileIndex, withCadDisplayTileFile } from "./cad-display-tile-spool";
 
 const counts = z.record(z.number().int().nonnegative());
 export const cadMapDisplayManifestSchema = z.object({ formatVersion: z.literal(1), scene: mapDisplayManifestSchema,
@@ -30,6 +31,7 @@ export class CadMapPreparationService {
     signal?.throwIfAborted();
     const metadata = await readCanonicalMetadata(directory, canonical);
     const scene = mapDisplayManifestSchema.parse(sceneInput);
+    const tileIndex = await readCadDisplayTileIndex(directory, canonical.displayTiles, scene);
     if (metadata.width !== scene.width || metadata.height !== scene.height) throw new Error("canonical/display dimensions mismatch");
     const ref = await this.store.prepareGeneration(floorId, readCanonicalElements(directory, canonical, signal), metadata);
     try {
@@ -38,14 +40,13 @@ export class CadMapPreparationService {
       const mappedTiles: MapDisplayManifest["tiles"] = [];
       for (const tile of scene.tiles) {
         signal?.throwIfAborted();
-        const path = join(directory, `${tile.assetId}.bin`);
         // The decoder validates bounded binary framing, hash, IDs and primitive
         // counts. This reads one compact tile, never reconstructs canonical geometry.
-        const bytes = await readVerifiedCadArtifact(directory,
-          { filename: `${tile.assetId}.bin`, byteSize: tile.byteSize, sha256: tile.sha256 }, 16 * 1024 * 1024);
-        decodeMapDisplayTile(bytes, tile);
-        const asset = await this.writeDisplayAsset(floorId, ref.generationId, "map_display_tile", path, bytes,
-          "application/octet-stream", signal, tile.bounds);
+        const asset = await withCadDisplayTileFile(directory, tile, tileIndex, async (path, bytes) => {
+          decodeMapDisplayTile(bytes, tile);
+          return this.writeDisplayAsset(floorId, ref.generationId, "map_display_tile", path, bytes,
+            "application/octet-stream", signal, tile.bounds);
+        }, signal);
         mappedTiles.push({ ...tile, assetId: asset.assetId });
         display.tiles.push({ asset, tileX: tile.tileX, tileY: tile.tileY, lod: tile.lod, part: tile.part, bounds: tile.bounds });
       }
