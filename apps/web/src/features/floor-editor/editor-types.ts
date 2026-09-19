@@ -9,7 +9,7 @@ import type {
   FloorLightSlotDto
 } from "@led-control/shared";
 
-export type EditorTool = "select" | "pan" | "rectangle" | "triangle" | "line" | "text";
+export type EditorTool = "select" | "pan" | import("@led-control/shared/map-document-contracts").MapElement["type"];
 
 export type MapObjectType = "rectangle" | "triangle" | "line" | "text";
 
