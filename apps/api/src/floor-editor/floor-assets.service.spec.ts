@@ -10,6 +10,63 @@ describe("FloorAssetsService", () => {
   };
   const viewer: AuthenticatedUser = { ...admin, id: "viewer-1", role: "viewer" };
 
+  function previewContent() {
+    const region = {
+      regionId: "region-1", minX: 0, minY: 0, maxX: 100, maxY: 100,
+      primitiveCount: 2, textCount: 1, lightCandidateCount: 0, previewWidth: 100, previewHeight: 100
+    };
+    const asset = {
+      id: "asset-1", kind: "cad_region_preview", objectKey: "floors/floor-1/preview.svg",
+      mimeType: "image/svg+xml", contentEncoding: "gzip", sizeBytes: 64n,
+      sha256: "a".repeat(64), cleanupStartedAt: null
+    };
+    const prisma: any = {
+      floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },
+      floorAsset: { findFirst: jest.fn().mockResolvedValue(asset) },
+      floorImportRegion: { findFirst: jest.fn().mockResolvedValue(region) },
+      $queryRaw: jest.fn().mockResolvedValue([{ regionId: "region-1", minX: "0", minY: "0", maxX: "100", maxY: "100" }])
+    };
+    const storage: any = {
+      readCadRegionPreviewMetadata: jest.fn().mockResolvedValue({
+        width: 100, height: 100, textCount: 1, lightCandidateCount: 0, area: 10_000
+      }),
+      createFloorAssetDownloadUrl: jest.fn().mockResolvedValue("https://signed.example")
+    };
+    const service = new FloorAssetsService(prisma, storage, { assert: jest.fn() } as any);
+    return { region, asset, prisma, storage, service };
+  }
+
+  it("verifies only the requested preview against its persisted identity before signing", async () => {
+    const { service, storage, prisma } = previewContent();
+    await expect(service.getContentRedirect(viewer, "floor-1", "asset-1")).resolves.toEqual({ url: "https://signed.example" });
+    expect(prisma.floorImportRegion.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: { previewAssetId: "asset-1", job: { floorId: "floor-1" } }
+    }));
+    expect(storage.readCadRegionPreviewMetadata).toHaveBeenCalledTimes(1);
+    expect(storage.readCadRegionPreviewMetadata).toHaveBeenCalledWith("floors/floor-1/preview.svg", {
+      sizeBytes: 64, sha256: "a".repeat(64), regionId: "region-1",
+      bounds: { minX: 0, minY: 0, maxX: 100, maxY: 100 }
+    });
+  });
+
+  it.each(["width", "height", "textCount", "lightCandidateCount", "area"])("does not sign a preview with mismatched %s", async field => {
+    const { service, storage } = previewContent();
+    storage.readCadRegionPreviewMetadata.mockResolvedValue({
+      width: 100, height: 100, textCount: 1, lightCandidateCount: 0, area: 10_000, [field]: 9
+    });
+    await expect(service.getContentRedirect(viewer, "floor-1", "asset-1")).rejects.toBeInstanceOf(ServiceUnavailableException);
+    expect(storage.readCadRegionPreviewMetadata).toHaveBeenCalledTimes(1);
+    expect(storage.createFloorAssetDownloadUrl).not.toHaveBeenCalled();
+  });
+
+  it("returns explicit 409 for legacy null preview metadata before storage", async () => {
+    const { service, storage, region } = previewContent();
+    (region as any).textCount = null;
+    await expect(service.getContentRedirect(viewer, "floor-1", "asset-1")).rejects.toBeInstanceOf(ConflictException);
+    expect(storage.readCadRegionPreviewMetadata).not.toHaveBeenCalled();
+    expect(storage.createFloorAssetDownloadUrl).not.toHaveBeenCalled();
+  });
+
   it("rejects an upload intent when the transaction-locked floor is archived", async () => {
     const prisma: any = {
       floor: { findUnique: jest.fn().mockResolvedValue({ id: "floor-1", siteId: "site-1" }) },
@@ -271,7 +328,7 @@ describe("FloorAssetsService", () => {
     expect(siteAccess.assert).toHaveBeenCalledWith(viewer, "site-1", "read");
     expect(prisma.floorAsset.findFirst).toHaveBeenCalledWith({
       where: {
-        id: "asset-1", floorId: "floor-1", status: "ready",
+        id: "asset-1", floorId: "floor-1", status: "ready", cleanupStartedAt: null,
         kind: { notIn: ["cad_manifest", "cad_tile"] }
       },
       select: { id: true, kind: true, objectKey: true, mimeType: true, contentEncoding: true, sizeBytes: true, sha256: true }

@@ -11,6 +11,7 @@ import {
 import {
   cadImportFileTypeSchema,
   CAD_IMPORT_MAX_CANDIDATES,
+  CAD_IMPORT_MAX_REGIONS,
   floorImportRegionListResponseSchema,
   floorImportRegionSelectInputSchema,
   floorImportApplyInputSchema,
@@ -38,6 +39,7 @@ import { FloorRenderedAssetReconciler } from "../storage/floor-rendered-asset-re
 import { CAD_IMPORT_WORKER_OPTIONS, type FloorImportWorkerOptions } from "./floor-import.tokens";
 import { FixedLightingDetectorRegistry } from "./lighting-detector-registry";
 import { cadScenePersistenceIdentity } from "./cad-scene-persistence";
+import { readExactRegionBounds } from "./floor-import-region-bounds";
 
 const createInputSchema = z.object({
   sourceAssetId: z.string().uuid(),
@@ -55,6 +57,7 @@ interface LockedApplyRow {
   editorLeaseExpiresAt: Date | null;
   dbNow: Date;
   jobStatus: string;
+  excludedRegionPrimitiveCount: number | null;
   sourceAssetId: string;
   renderedAssetId: string | null;
   renderedMimeType: string | null;
@@ -265,19 +268,25 @@ export class FloorImportService {
 
   async listRegions(user: AuthenticatedUser, floorId: string, jobId: string) {
     await this.authorizeFloor(user, floorId, "read");
-    if (!this.storage) throw new InternalServerErrorException("floor import storage is unavailable");
-    const job = await this.prisma.floorImportJob.findFirst({
+    return this.readRegions(this.prisma, floorId, jobId);
+  }
+
+  private async readRegions(prisma: Pick<Prisma.TransactionClient, "floorImportJob" | "$queryRaw">, floorId: string, jobId: string) {
+    const job = await prisma.floorImportJob.findFirst({
       where: { id: jobId, floorId },
       select: {
         id: true,
+        excludedRegionPrimitiveCount: true,
         regions: {
+          take: CAD_IMPORT_MAX_REGIONS + 1,
           orderBy: [{ regionId: "asc" }, { id: "asc" }],
           select: {
-            regionId: true, minX: true, minY: true, maxX: true, maxY: true,
-            primitiveCount: true, selectedAt: true,
+            regionId: true,
+            primitiveCount: true, textCount: true, lightCandidateCount: true,
+            previewWidth: true, previewHeight: true, selectedAt: true,
             previewAsset: {
               select: {
-                id: true, objectKey: true, status: true, kind: true, mimeType: true,
+                id: true, status: true, kind: true, mimeType: true,
                 contentEncoding: true, sizeBytes: true, sha256: true, cleanupStartedAt: true
               }
             }
@@ -287,8 +296,19 @@ export class FloorImportService {
     });
     if (!job) throw new NotFoundException("floor import job not found");
     if (job.regions.length === 0) throw new ConflictException("floor import regions are not ready");
+    if (job.regions.length > CAD_IMPORT_MAX_REGIONS) throw new ConflictException("floor import region count exceeds the limit");
+    if (job.excludedRegionPrimitiveCount === null) {
+      throw new ConflictException("floor import excluded primitive metadata is unavailable; re-import required");
+    }
 
-    const regions = await Promise.all(job.regions.map(async region => {
+    const boundsById = await readExactRegionBounds(prisma, { jobId });
+    const regions = job.regions.map(region => {
+      const bounds = boundsById.get(region.regionId);
+      if (!bounds) throw new ConflictException("floor import region bounds are unavailable");
+      if (region.textCount == null || region.lightCandidateCount == null ||
+          region.previewWidth == null || region.previewHeight == null) {
+        throw new ConflictException("floor import region metadata is unavailable; re-import required");
+      }
       const preview = region.previewAsset;
       if (!preview || preview.status !== "ready" || preview.kind !== "cad_region_preview" ||
           preview.mimeType !== "image/svg+xml" || preview.contentEncoding !== "gzip" || preview.cleanupStartedAt) {
@@ -296,49 +316,41 @@ export class FloorImportService {
       }
       const sizeBytes = Number(preview.sizeBytes);
       if (!Number.isSafeInteger(sizeBytes)) throw new ConflictException("floor import region preview ledger is invalid");
-      try {
-        const metadata = await this.storage!.readCadRegionPreviewMetadata(preview.objectKey, {
-          sizeBytes,
-          sha256: preview.sha256,
-          regionId: region.regionId,
-          bounds: { minX: region.minX, minY: region.minY, maxX: region.maxX, maxY: region.maxY }
-        });
-        return {
-          regionId: region.regionId,
-          bounds: { minX: region.minX, minY: region.minY, maxX: region.maxX, maxY: region.maxY },
-          primitiveCount: region.primitiveCount,
-          textCount: metadata.textCount,
-          lightCandidateCount: metadata.lightCandidateCount,
-          area: metadata.area,
-          preview: {
-            assetId: preview.id,
-            width: metadata.width,
-            height: metadata.height,
-            byteSize: sizeBytes,
-            sha256: preview.sha256
-          }
-        };
-      } catch (error) {
-        if (error instanceof ConflictException) throw error;
-        throw new ServiceUnavailableException("floor import region preview metadata is unavailable");
-      }
-    }));
+      return {
+        regionId: region.regionId,
+        bounds,
+        primitiveCount: region.primitiveCount,
+        textCount: region.textCount,
+        lightCandidateCount: region.lightCandidateCount,
+        area: (bounds.maxX - bounds.minX) * (bounds.maxY - bounds.minY),
+        preview: {
+          assetId: preview.id,
+          width: region.previewWidth,
+          height: region.previewHeight,
+          byteSize: sizeBytes,
+          sha256: preview.sha256
+        }
+      };
+    });
     const selected = job.regions.filter(region => region.selectedAt !== null);
     if (selected.length > 1) throw new ConflictException("floor import region selection ledger is invalid");
-    return floorImportRegionListResponseSchema.parse({
+    const response = floorImportRegionListResponseSchema.safeParse({
       jobId,
       selectionStatus: selected.length === 0
         ? "selection_required"
         : job.regions.length === 1 ? "auto_selected" : "selected",
       selectedRegionId: selected[0]?.regionId ?? null,
+      excludedRegionPrimitiveCount: job.excludedRegionPrimitiveCount,
       regions
     });
+    if (!response.success) throw new ConflictException("floor import region metadata is invalid or exceeds the response budget");
+    return response.data;
   }
 
   async selectRegion(user: AuthenticatedUser, floorId: string, jobId: string, rawInput: unknown) {
     const input = this.parse(floorImportRegionSelectInputSchema, rawInput, "invalid floor import region selection");
     const floor = await this.authorizeFloor(user, floorId, "manage");
-    await this.prisma.$transaction(async tx => {
+    return this.prisma.$transaction(async tx => {
       await this.access.assertManageInTransaction(tx, user, floor.siteId);
       const jobs = await tx.$queryRaw<Array<{ status: string }>>(Prisma.sql`
         SELECT job."status"::text AS "status"
@@ -358,9 +370,10 @@ export class FloorImportService {
         FROM "FloorImportRegion"
         WHERE "jobId" = ${jobId}
         ORDER BY "regionId", "id"
+        LIMIT ${CAD_IMPORT_MAX_REGIONS + 1}
         FOR UPDATE
       `);
-      if (jobs[0].status !== "region_selection_required" || regions.length < 2 ||
+      if (jobs[0].status !== "region_selection_required" || regions.length < 2 || regions.length > CAD_IMPORT_MAX_REGIONS ||
           regions.some(region => region.selectedAt !== null)) {
         throw new ConflictException("floor import region can no longer be selected");
       }
@@ -385,8 +398,10 @@ export class FloorImportService {
       if (changedRegion.count !== 1 || changedJob.count !== 1) {
         throw new ConflictException("floor import region changed concurrently");
       }
+      // Validate the full persisted response before committing the selection, so
+      // legacy nulls or an oversized response cannot leave a failed request queued.
+      return this.readRegions(tx, floorId, jobId);
     }, EDITOR_TRANSACTION_OPTIONS);
-    return this.listRegions(user, floorId, jobId);
   }
 
   async getSceneManifestContent(user: AuthenticatedUser, floorId: string, jobId: string) {
@@ -511,6 +526,9 @@ export class FloorImportService {
         const locked = await this.lockApplyState(tx, floorId, jobId);
         if (!locked) throw new NotFoundException("floor import job not found");
         assertActiveFloorStatus(locked.status);
+        if (locked.excludedRegionPrimitiveCount === null) {
+          throw new ConflictException("CAD region exclusion metadata is unavailable; re-import required");
+        }
         this.assertEditorAuthority(locked, input);
         if (locked.jobStatus !== "review_required" || !locked.renderedAssetId || locked.renderedMimeType !== "image/svg+xml") {
           throw new ConflictException("floor import job is not ready to apply");
@@ -579,10 +597,10 @@ export class FloorImportService {
         const renderedPath = assetAccessPath(floorId, locked.renderedAssetId);
         const sourcePath = assetAccessPath(floorId, locked.sourceAssetId);
         const plan = {
-          imageUrl: renderedPath,
+          imageUrl: cadDraft ? "" : renderedPath,
           sourceType: cadDraft ? "cad" as const : "image" as const,
           originalFileUrl: sourcePath,
-          renderedImageUrl: renderedPath,
+          renderedImageUrl: cadDraft ? null : renderedPath,
           width: cadDraft?.manifest.width ?? viewport.width,
           height: cadDraft?.manifest.height ?? viewport.height,
           gridSize: cadDraft?.manifest.gridSize ?? existingPlan?.gridSize ?? 10
@@ -598,30 +616,36 @@ export class FloorImportService {
         await tx.floorCadScene.deleteMany({ where: { floorId } });
         if (cadDraft) {
           const manifest = cadDraft.manifest;
-          await tx.floorCadScene.create({
-            data: {
-              id: manifest.sceneId,
-              floorId,
-              sourceImportJobId: jobId,
-              sourceRegionId: cadDraft.sourceRegionRecordId,
-              version: (previousScene?.version ?? 0) + 1,
-              status: "active",
-              width: manifest.width,
-              height: manifest.height,
-              tileSize: manifest.tileSize,
-              primitiveCount: manifest.primitiveCount,
-              tileCount: manifest.tileCount,
-              manifestAssetId: manifest.manifestAssetId,
-              sourceMinX: manifest.sourceBounds.minX,
-              sourceMinY: manifest.sourceBounds.minY,
-              sourceMaxX: manifest.sourceBounds.maxX,
-              sourceMaxY: manifest.sourceBounds.maxY,
-              transformScaleX: manifest.transform.scaleX,
-              transformScaleY: manifest.transform.scaleY,
-              transformTranslateX: manifest.transform.translateX,
-              transformTranslateY: manifest.transform.translateY,
-              tiles: {
-                create: manifest.tiles.map(tile => ({
+          // Prisma numeric parameters can lose one ULP for CAD coordinates. Insert
+          // round-trip decimal strings directly as float8 so the initial row meets
+          // the exact selected-region constraint; no repair update is permissible.
+          await tx.$executeRaw(Prisma.sql`
+            INSERT INTO "FloorCadScene" (
+              "id", "floorId", "sourceImportJobId", "sourceRegionId", "version", "status",
+              "width", "height", "tileSize", "primitiveCount", "tileCount", "manifestAssetId",
+              "sourceMinX", "sourceMinY", "sourceMaxX", "sourceMaxY",
+              "transformScaleX", "transformScaleY", "transformTranslateX", "transformTranslateY",
+              "createdAt", "updatedAt"
+            ) VALUES (
+              ${manifest.sceneId}, ${floorId}, ${jobId}, ${cadDraft.sourceRegionRecordId},
+              ${(previousScene?.version ?? 0) + 1}, 'active',
+              ${manifest.width}, ${manifest.height}, ${manifest.tileSize},
+              ${manifest.primitiveCount}, ${manifest.tileCount}, ${manifest.manifestAssetId},
+              ${String(manifest.sourceBounds.minX)}::double precision,
+              ${String(manifest.sourceBounds.minY)}::double precision,
+              ${String(manifest.sourceBounds.maxX)}::double precision,
+              ${String(manifest.sourceBounds.maxY)}::double precision,
+              ${String(manifest.transform.scaleX)}::double precision,
+              ${String(manifest.transform.scaleY)}::double precision,
+              ${String(manifest.transform.translateX)}::double precision,
+              ${String(manifest.transform.translateY)}::double precision,
+              CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            )
+          `);
+          for (let offset = 0; offset < manifest.tiles.length; offset += 250) {
+            await tx.floorCadTile.createMany({
+              data: manifest.tiles.slice(offset, offset + 250).map(tile => ({
+                  sceneId: manifest.sceneId,
                   tileX: tile.tileX,
                   tileY: tile.tileY,
                   lod: tile.lod,
@@ -633,10 +657,9 @@ export class FloorImportService {
                   minY: tile.bounds.minY,
                   maxX: tile.bounds.maxX,
                   maxY: tile.bounds.maxY
-                }))
-              }
-            }
-          });
+              }))
+            });
+          }
         }
         await tx.floor.update({ where: { id: floorId }, data: { mapRevision: { increment: 1 } } });
 
@@ -753,7 +776,7 @@ export class FloorImportService {
     } catch {
       throw new ServiceUnavailableException("CAD scene manifest content is unavailable");
     }
-    const expectedBounds = { minX: region.minX, minY: region.minY, maxX: region.maxX, maxY: region.maxY };
+    const expectedBounds = (await readExactRegionBounds(this.prisma, { jobId, regionId: region.regionId })).get(region.regionId);
     if (manifest.sceneId !== identity.sceneId || manifest.manifestAssetId !== identity.manifestAssetId ||
         manifest.regionId !== region.regionId || JSON.stringify(manifest.sourceBounds) !== JSON.stringify(expectedBounds) ||
         manifest.tiles.some(tile => tile.assetId !== identity.tileAssetId(tile))) {
@@ -845,7 +868,8 @@ export class FloorImportService {
     const rows = await tx.$queryRaw<LockedApplyRow[]>(Prisma.sql`
       SELECT floor."status"::text AS "status", floor."mapRevision", floor."editorLeaseFence",
         floor."editorLeaseTokenHash", floor."editorLeaseExpiresAt", clock_timestamp() AS "dbNow",
-        job."status"::text AS "jobStatus", job."sourceAssetId", job."renderedAssetId",
+        job."status"::text AS "jobStatus", job."excludedRegionPrimitiveCount",
+        job."sourceAssetId", job."renderedAssetId",
         rendered."mimeType" AS "renderedMimeType",
         rendered."contentEncoding" AS "renderedContentEncoding",
         rendered."objectKey" AS "renderedObjectKey", rendered."sizeBytes" AS "renderedSizeBytes",

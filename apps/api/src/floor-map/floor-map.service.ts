@@ -58,6 +58,10 @@ type CadOverrideRow = {
   fillColor: string | null;
   strokeWidth: number | null;
   text: string | null;
+  locatorTileX: number | null;
+  locatorTileY: number | null;
+  locatorLod: number | null;
+  locatorPart: number | null;
 };
 
 type FloorEditAuthorityRow = {
@@ -440,8 +444,13 @@ export class FloorMapService {
       }
       await tx.floorCadElementOverride.upsert({
         where: { sceneId_elementId: { sceneId, elementId: mutation.value.elementId } },
-        create: { sceneId, elementId: mutation.value.elementId, ...row },
-        update: row
+        create: {
+          sceneId,
+          elementId: mutation.value.elementId,
+          ...row,
+          ...this.locatorColumns(mutation.locator)
+        },
+        update: { ...row, ...this.locatorColumns(mutation.locator) }
       });
     }
   }
@@ -482,6 +491,27 @@ export class FloorMapService {
     return Object.values(row).some(value => value !== null);
   }
 
+  private locatorColumns(locator: CadSceneElementLocator) {
+    return {
+      locatorTileX: locator.tileX,
+      locatorTileY: locator.tileY,
+      locatorLod: locator.lod,
+      locatorPart: locator.part
+    };
+  }
+
+  private readPersistedLocator(row: CadOverrideRow): CadSceneElementLocator | null {
+    const values = [row.locatorTileX, row.locatorTileY, row.locatorLod, row.locatorPart];
+    if (values.every(value => value === null)) return null;
+    if (values.some(value => value === null)) throw new ConflictException("persisted CAD element locator is invalid");
+    return {
+      tileX: row.locatorTileX!,
+      tileY: row.locatorTileY!,
+      lod: row.locatorLod! as 0 | 1 | 2,
+      part: row.locatorPart!
+    };
+  }
+
   private async applyLayerMutations(
     tx: Prisma.TransactionClient,
     sceneId: string,
@@ -514,6 +544,7 @@ export class FloorMapService {
       scene: buildCadSceneDescriptor(siteId, floorId, scene),
       overrides: scene.elementOverrides.map(row => ({
         elementId: row.elementId,
+        locator: this.readPersistedLocator(row),
         hidden: row.hidden ?? false,
         transform: this.readPersistedTransform(row),
         strokeColor: row.strokeColor,

@@ -534,6 +534,10 @@ model FloorImportRegion {
   maxX                    Float
   maxY                    Float
   primitiveCount          Int
+  textCount               Int?
+  lightCandidateCount     Int?
+  previewWidth            Int?
+  previewHeight           Int?
   candidateIdentityDigest String?
   previewAssetId          String?        @unique
   selectedAt              DateTime?

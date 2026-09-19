@@ -739,12 +739,22 @@ CAD model space에서 탐지한 선택 후보 영역을 import job 아래에 영
 | `regionId` | `String` | 예 | `(jobId, regionId)` Unique, trim 길이 1~512 | job 안의 안정 region ID |
 | `minX`, `minY`, `maxX`, `maxY` | `Float` | 예 | 유한값, max > min | 원본 CAD 좌표계 bounds |
 | `primitiveCount` | `Int` | 예 | `1~500000` | 확장 후 region primitive 수 |
+| `textCount`, `lightCandidateCount` | `Int?` | 아니오 | `0~primitiveCount`, 네 metadata 컬럼은 모두 NULL 또는 모두 유효 | object PUT/HEAD 검증 후 저장한 텍스트·조명 후보 수. 기존 NULL은 0으로 해석하지 않는다. |
+| `previewWidth`, `previewHeight` | `Int?` | 아니오 | 각각 `1~2400`, `1~1600` | 검증한 region preview viewport |
 | `candidateIdentityDigest` | `String?` | 아니오 | lowercase SHA-256 64 hex | 최초 탐지에서 해당 region에 배정된 normalized candidate identity 정렬 집합의 canonical digest. migration 이전 행만 `NULL`이며 selection-required job은 재가져오기 전 선택을 fail-close한다. |
 | `previewAssetId` | `String?` | 아니오 | Unique, FK -> `FloorAsset.id`, delete no action | 같은 층의 ready `cad_region_preview` 자산 |
 | `selectedAt` | `DateTime?` | 아니오 | job별 non-null partial Unique | 현재 job에서 선택한 region 시각 |
 | `createdAt`, `updatedAt` | `DateTime` | 예 | `now()`, `@updatedAt` | 생성·갱신 시각 |
 
 `FloorImportJob` 삭제는 region을 cascade 삭제하지만 preview asset은 남긴다. `FloorImportRegion_jobId_selected_key` partial unique index가 job마다 선택 region을 최대 하나로 제한한다. Region 쓰기는 preview asset 행을 `FOR UPDATE`로 먼저 잠그고, deferred constraint trigger는 preview가 source job과 같은 층의 ready `cad_region_preview`인지 region/asset/job 변경 양쪽에서 검증한다. `20260919130000_add_floor_import_region_candidate_digest` migration은 기존 행을 백필하지 않고 nullable로 유지한다. worker가 새 최초 탐지 결과를 저장할 때 모든 region digest를 함께 기록하며, 단일 region 자동선택도 scene/candidate persistence transaction 안에서 같은 digest를 저장한다. 다중 region 선택 API는 하나라도 digest가 없으면 `re-import required`로 거부한다.
+
+`20260919160000_add_floor_import_region_preview_metadata`는 네 metadata 컬럼을 nullable로 추가하며 기존 행의 백필·기본값 변경은 없다. Worker는 모든 preview PUT/HEAD 검증이 끝난 뒤 ready asset 승격·region count/viewport·candidate digest·job 상태를 같은 transaction으로 저장한다. 재선택 후 scene 생성 시 기존 counts/viewport와 재생성 결과를 대조하며 ID Map으로 region/asset 매칭을 수행한다.
+
+Region 목록과 선택 응답은 storage 호출 없이 DB ledger만 읽는다. 공통 `CAD_IMPORT_MAX_REGIONS=16384`와 UTF-8 JSON `CAD_IMPORT_REGION_LIST_MAX_BYTES=16 MiB`를 적용하며 초과 결과를 잘라 반환하지 않는다. DB 조회는 상한+1개 sentinel로 초과를 감지한다. Metadata NULL은 목록·preview content에서 명시적 HTTP 409 및 재가져오기 요구로 처리하고, 선택 transaction도 응답 검증 실패 시 rollback한다. Preview content 요청은 해당 asset 하나의 HEAD에서 size/hash/MIME/encoding/region/bounds/counts/viewport를 대조한 후에만 private URL을 발급한다. 무결성 실패는 URL 없이 HTTP 503이다.
+
+Prisma 일반 Float 쓰기·읽기 JSON 경로에서 실제 CAD fractional bounds가 1 ULP 반올림되는 현상을 확인했다. 최초 region INSERT는 250행 단위 parameterized SQL과 decimal-string → `double precision` cast를 사용해 storage metadata와 동일한 float8 값을 보존한다. 목록·content·재시도·scene 검증의 공통 bounds reader는 범위와 개수가 제한된 SQL `float8::text` 값을 JavaScript Number로 복원한다. Bounds 비교를 느슨하게 하거나 반올림된 값으로 무결성 검증을 대체하지 않는다.
+
+이번 migration의 적용 검증은 disposable PostgreSQL 전용이며 사용자 DB 적용은 총괄의 별도 실행 단계다.
 
 ### FloorCadScene
 
@@ -767,6 +777,8 @@ CAD model space에서 탐지한 선택 후보 영역을 import job 아래에 영
 | `createdAt`, `updatedAt` | `DateTime` | 예 | `now()`, `@updatedAt` | 생성·갱신 시각 |
 
 Floor 또는 source import job 삭제는 scene과 tile/override/layer 상태를 cascade 삭제한다. manifest, tile, preview 자산은 `NO ACTION` 참조로 보호되며 owner cascade 뒤에도 자동 삭제하지 않는다. source region 직접 삭제와 manifest 직접 삭제는 현재 scene이 있으면 거부한다. Scene 쓰기는 manifest asset 행을 `FOR UPDATE`로 먼저 잠그며, deferred constraint trigger는 scene의 floor, job, 선택 region bounds, manifest와 모든 기존 tile asset의 층/역할/ready 상태를 parent update까지 포함해 재검증한다.
+
+Native apply는 source bounds와 transform 8개 Float를 decimal-string → `double precision`으로 직접 INSERT한다. Prisma 숫자 parameter의 1-ULP 반올림 때문에 선택 region과 달라지는 것을 방지하며, create-then-update나 기존 scene 데이터 rewrite는 하지 않는다. Tile은 같은 transaction에서 250개 단위로 저장한다. 신규 CAD `FloorPlan`은 `imageUrl = ''`, `renderedImageUrl = NULL`이며 geometry는 scene descriptor로만 조회한다. Editor/map descriptor는 float bounds를 직렬화하지 않고 canonical manifest content 경로를 제공하며, manifest 조회는 exact region bounds와 storage JSON을 검증한다.
 
 ### FloorCadTile
 

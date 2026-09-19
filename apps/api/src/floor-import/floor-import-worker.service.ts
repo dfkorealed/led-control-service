@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from "@nestjs/common";
 import { Prisma, type FloorImportJob } from "@prisma/client";
-import { cadSceneManifestSchema, type CadImportStage, type CadSceneManifest } from "@led-control/shared";
+import { CAD_IMPORT_MAX_REGIONS, cadSceneManifestSchema, floorImportRegionListResponseSchema, type CadImportStage, type CadSceneManifest } from "@led-control/shared";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdtemp, readFile, rm, stat, statfs, utimes } from "node:fs/promises";
 import { join } from "node:path";
@@ -23,6 +23,7 @@ import {
   type FloorImportWorkerOptions
 } from "./floor-import.tokens";
 import { cadRegionPreviewPersistenceIdentity, cadScenePersistenceIdentity } from "./cad-scene-persistence";
+import { readExactRegionBounds } from "./floor-import-region-bounds";
 import {
   candidateRegionDigestsEqual,
   computeCandidateRegionDigests,
@@ -222,9 +223,11 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
       phase = "parse";
       const persistedRegions = await this.prisma.floorImportRegion.findMany({
         where: { jobId: job.id },
+        take: CAD_IMPORT_MAX_REGIONS + 1,
         orderBy: [{ regionId: "asc" }, { id: "asc" }],
         select: { regionId: true, candidateIdentityDigest: true, selectedAt: true }
       });
+      if (persistedRegions.length > CAD_IMPORT_MAX_REGIONS) throw new Error("CAD import stored region count exceeds the limit");
       const selectedRegions = persistedRegions.filter(region => region.selectedAt !== null);
       if (selectedRegions.length > 1) throw new Error("CAD import has multiple selected regions");
       const selectedRegion = selectedRegions[0];
@@ -251,8 +254,14 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
       if (core.profileId !== profileId || core.profileVersion !== rules.profileVersion ||
           core.profileDigest !== rules.profileDigest) throw new Error("CAD detector profile metadata mismatch");
       const regions = core.regions;
-      if (!Array.isArray(regions) || regions.length < 1 || regions.length > 100) {
+      if (!Array.isArray(regions) || regions.length < 1 || regions.length > CAD_IMPORT_MAX_REGIONS) {
         throw new Error("CAD import region count is outside the API contract");
+      }
+      const regionsById = new Map(regions.map(region => [region.regionId, region]));
+      if (regionsById.size !== regions.length) throw new Error("CAD import region identities are not unique");
+      if (regions.some(region => region.area !==
+          (region.bounds.maxX - region.bounds.minX) * (region.bounds.maxY - region.bounds.minY))) {
+        throw new Error("CAD import region area does not match its bounds");
       }
       if (!Array.isArray(core.candidateRegionAssignments)) {
         throw new Error("CAD core candidate region assignments are unavailable");
@@ -267,17 +276,32 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
         throw new Error("CAD core candidate region assignments changed after selection");
       }
       const selectedRegionId = selectedRegion?.regionId ?? (regions.length === 1 ? regions[0].regionId : null);
-      if (selectedRegionId && !regions.some(region => region.regionId === selectedRegionId)) {
+      if (selectedRegionId && !regionsById.has(selectedRegionId)) {
         throw new Error("selected CAD import region no longer exists");
       }
       if (Boolean(core.scene) !== Boolean(selectedRegionId)) {
         throw new Error("CAD core scene selection artifact mismatch");
       }
       const previewArtifacts = core.regionPreviews ?? [];
+      const previewsById = new Map(previewArtifacts.map(preview => [preview.regionId, preview]));
       if (!selectedRegion && (previewArtifacts.length !== regions.length ||
-          new Set(previewArtifacts.map(preview => preview.regionId)).size !== regions.length ||
-          regions.some(region => !previewArtifacts.some(preview => preview.regionId === region.regionId)))) {
+          previewsById.size !== regions.length ||
+          regions.some(region => !previewsById.has(region.regionId)))) {
         throw new Error("CAD core region preview artifact mismatch");
+      }
+      if (!selectedRegion) {
+        // Validate the complete list before upload/persistence, including its UTF-8 byte budget.
+        floorImportRegionListResponseSchema.parse({
+          jobId: job.id, selectionStatus: regions.length === 1 ? "auto_selected" : "selection_required",
+          selectedRegionId, excludedRegionPrimitiveCount: core.excludedRegionPrimitiveCount,
+          regions: regions.map(region => {
+            const preview = previewsById.get(region.regionId)!;
+            return { ...region, preview: {
+              assetId: preview.assetId, width: preview.viewport.width, height: preview.viewport.height,
+              byteSize: preview.sizeBytes, sha256: preview.sha256
+            } };
+          })
+        });
       }
       const candidates = core.selectedCandidates ?? core.candidates;
       const rendered = core.rendered;
@@ -320,7 +344,8 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
 
       const cadAssets = [
         ...previewArtifacts.map(preview => {
-          const region = regions.find(candidate => candidate.regionId === preview.regionId)!;
+          const region = regionsById.get(preview.regionId);
+          if (!region) throw new Error("CAD region preview has no matching region");
           const identity = cadRegionPreviewPersistenceIdentity(job.id, region.regionId);
           if (preview.assetId !== identity.assetId || preview.filename !== `${identity.assetId}.svg`) {
             throw new Error("CAD region preview identity mismatch");
@@ -382,8 +407,9 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
           contentEncoding: true, sizeBytes: true, sha256: true, cleanupStartedAt: true
         }
       });
+      const stagedAssetsById = new Map(stagedAssets.map(asset => [asset.id, asset]));
       if (stagedAssets.length !== cadAssets.length || cadAssets.some(expected => {
-        const actual = stagedAssets.find(asset => asset.id === expected.id);
+        const actual = stagedAssetsById.get(expected.id);
         return !actual || actual.floorId !== job.floorId || actual.kind !== expected.kind || actual.status !== "pending" ||
           actual.objectKey !== expected.objectKey || actual.mimeType !== expected.mimeType ||
           actual.contentEncoding !== (expected.contentEncoding ?? null) || actual.sizeBytes !== BigInt(expected.sizeBytes) ||
@@ -454,25 +480,43 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
           });
           if (promoted.count !== cadAssets.length) throw new Error("CAD scene asset promotion conflict");
         }
-        const existingRegions = await tx.floorImportRegion.findMany({ where: { jobId: job.id } });
+        const existingRegions = await tx.floorImportRegion.findMany({
+          where: { jobId: job.id }, take: CAD_IMPORT_MAX_REGIONS + 1
+        });
+        const existingRegionsById = new Map(existingRegions.map(region => [region.regionId, region]));
+        const existingBoundsById = existingRegions.length > 0 ? await readExactRegionBounds(tx, { jobId: job.id }) : new Map();
         if (existingRegions.length === 0) {
-          await tx.floorImportRegion.createMany({ data: regions.map(region => ({
-            jobId: job.id,
-            regionId: region.regionId,
-            minX: region.bounds.minX,
-            minY: region.bounds.minY,
-            maxX: region.bounds.maxX,
-            maxY: region.bounds.maxY,
-            primitiveCount: region.primitiveCount,
-            candidateIdentityDigest: candidateRegionDigests[region.regionId],
-            previewAssetId: cadRegionPreviewPersistenceIdentity(job.id, region.regionId).assetId,
-            selectedAt: regions.length === 1 ? readyAt : null
-          })) });
+          // Prisma's numeric JSON parameters can round CAD float8 bounds by one
+          // ULP. Decimal-string casts preserve the exact verified object identity.
+          for (let offset = 0; offset < regions.length; offset += CANDIDATE_WRITE_CHUNK) {
+            const values = regions.slice(offset, offset + CANDIDATE_WRITE_CHUNK).map(region => {
+              const preview = previewsById.get(region.regionId)!;
+              return Prisma.sql`(${randomUUID()}, ${job.id}, ${region.regionId},
+                ${String(region.bounds.minX)}::double precision, ${String(region.bounds.minY)}::double precision,
+                ${String(region.bounds.maxX)}::double precision, ${String(region.bounds.maxY)}::double precision,
+                ${region.primitiveCount}, ${region.textCount}, ${region.lightCandidateCount},
+                ${preview.viewport.width}, ${preview.viewport.height}, ${candidateRegionDigests[region.regionId]},
+                ${preview.assetId}, ${regions.length === 1 ? readyAt : null}::timestamp, ${readyAt}, ${readyAt})`;
+            });
+            await tx.$executeRaw(Prisma.sql`
+              INSERT INTO "FloorImportRegion" (
+                "id", "jobId", "regionId", "minX", "minY", "maxX", "maxY", "primitiveCount",
+                "textCount", "lightCandidateCount", "previewWidth", "previewHeight", "candidateIdentityDigest",
+                "previewAssetId", "selectedAt", "createdAt", "updatedAt"
+              ) VALUES ${Prisma.join(values)}
+            `);
+          }
         } else if (existingRegions.length !== regions.length || regions.some(region => {
-          const stored = existingRegions.find(candidate => candidate.regionId === region.regionId);
-          return !stored || stored.minX !== region.bounds.minX || stored.minY !== region.bounds.minY ||
-            stored.maxX !== region.bounds.maxX || stored.maxY !== region.bounds.maxY ||
+          const stored = existingRegionsById.get(region.regionId);
+          const bounds = existingBoundsById.get(region.regionId);
+          return !stored || !bounds || bounds.minX !== region.bounds.minX || bounds.minY !== region.bounds.minY ||
+            bounds.maxX !== region.bounds.maxX || bounds.maxY !== region.bounds.maxY ||
             stored.primitiveCount !== region.primitiveCount ||
+            stored.textCount !== region.textCount || stored.lightCandidateCount !== region.lightCandidateCount ||
+            stored.previewWidth === null || stored.previewHeight === null ||
+            (previewsById.has(region.regionId) && (
+              stored.previewWidth !== previewsById.get(region.regionId)!.viewport.width ||
+              stored.previewHeight !== previewsById.get(region.regionId)!.viewport.height)) ||
             stored.candidateIdentityDigest !== candidateRegionDigests[region.regionId];
         })) throw new Error("CAD import region changed between selection and scene build");
         await tx.floorImportCandidate.deleteMany({ where: { jobId: job.id } });
@@ -495,6 +539,7 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
         const changed = attempt ? await tx.$executeRaw(Prisma.sql`
           UPDATE "FloorImportJob" SET "status" = 'review_required', "stage" = 'review_required',
             "progressPercent" = 100, "renderedAssetId" = ${attempt.assetId}, "parserVersion" = ${PARSER_VERSION},
+            "excludedRegionPrimitiveCount" = ${core.excludedRegionPrimitiveCount},
             "detectorVersion" = ${`${core.profileVersion}:${core.profileDigest}+ai-disabled-v1`},
             "detectorProfileVersion" = ${core.profileVersion}, "detectorProfileDigest" = ${core.profileDigest},
             "reviewRequiredAt" = (statement_timestamp() AT TIME ZONE 'UTC'),
@@ -505,6 +550,7 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
           UPDATE "FloorImportJob" SET "status" = 'region_selection_required',
             "stage" = 'region_selection_required', "progressPercent" = GREATEST("progressPercent", 70),
             "parserVersion" = ${PARSER_VERSION},
+            "excludedRegionPrimitiveCount" = ${core.excludedRegionPrimitiveCount},
             "detectorVersion" = ${`${core.profileVersion}:${core.profileDigest}+ai-disabled-v1`},
             "detectorProfileVersion" = ${core.profileVersion}, "detectorProfileDigest" = ${core.profileDigest},
             "reviewRequiredAt" = (statement_timestamp() AT TIME ZONE 'UTC'),

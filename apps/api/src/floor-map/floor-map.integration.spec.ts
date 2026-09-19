@@ -131,14 +131,28 @@ const enabled = process.env.FLOOR_MAP_INTEGRATION === "1";
       .resolves.toMatchObject({ mapRevision: 1 });
     await expect(prisma.floorCadElementOverride.findUniqueOrThrow({
       where: { sceneId_elementId: { sceneId: scene.id, elementId: element.elementId } }
-    })).resolves.toMatchObject({ translateX: 10, translateY: 20, scaleX: 1.2, scaleY: 0.8, rotation: 15 });
+    })).resolves.toMatchObject({
+      translateX: 10,
+      translateY: 20,
+      scaleX: 1.2,
+      scaleY: 0.8,
+      rotation: 15,
+      locatorTileX: tile.tileX,
+      locatorTileY: tile.tileY,
+      locatorLod: tile.lod,
+      locatorPart: tile.part
+    });
     await expect(prisma.floorCadLayerState.findUniqueOrThrow({
       where: { sceneId_layerName: { sceneId: scene.id, layerName: element.layerName } }
     })).resolves.toMatchObject({ visible: false, locked: true });
 
     await expect(service.getCadSceneState(user, siteId, floorId)).resolves.toMatchObject({
       revision: 1,
-      overrides: [{ elementId: element.elementId, strokeColor: "#112233" }],
+      overrides: [{
+        elementId: element.elementId,
+        strokeColor: "#112233",
+        locator: { tileX: tile.tileX, tileY: tile.tileY, lod: tile.lod, part: tile.part }
+      }],
       layers: [{ layerName: element.layerName, visible: false, locked: true }]
     });
 

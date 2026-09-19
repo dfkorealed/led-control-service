@@ -7,6 +7,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import { ObjectStorageService } from "../storage/object-storage.service";
 import { FloorRenderedAssetReconciler } from "../storage/floor-rendered-asset-reconciler";
 import { assertActiveFloorStatus } from "./floor-lifecycle";
+import { readExactRegionBounds } from "../floor-import/floor-import-region-bounds";
 
 interface LockedFloorAssetRow {
   id: string;
@@ -203,13 +204,42 @@ export class FloorAssetsService {
     await this.siteAccess.assert(user, floor.siteId, "read");
     const asset = await this.prisma.floorAsset.findFirst({
       where: {
-        id: assetId, floorId, status: "ready",
+        id: assetId, floorId, status: "ready", cleanupStartedAt: null,
         kind: { notIn: [...INTERNAL_CAD_ASSET_KINDS] }
       },
       select: { id: true, kind: true, objectKey: true, mimeType: true, contentEncoding: true, sizeBytes: true, sha256: true }
     });
     if (!asset || isInternalCadAssetKind(asset.kind)) throw new NotFoundException("floor asset not found");
+    const region = asset.kind === "cad_region_preview"
+      ? await this.prisma.floorImportRegion.findFirst({
+        where: { previewAssetId: asset.id, job: { floorId } },
+        select: {
+          regionId: true,
+          textCount: true, lightCandidateCount: true, previewWidth: true, previewHeight: true
+        }
+      })
+      : null;
+    if (asset.kind === "cad_region_preview" && (!region || region.textCount == null ||
+        region.lightCandidateCount == null || region.previewWidth == null || region.previewHeight == null)) {
+      throw new ConflictException("floor import region metadata is unavailable; re-import required");
+    }
     try {
+      if (region) {
+        const bounds = (await readExactRegionBounds(this.prisma, { previewAssetId: asset.id })).get(region.regionId);
+        if (!bounds) throw new Error("CAD region preview bounds are unavailable");
+        if (asset.mimeType !== "image/svg+xml" || asset.contentEncoding !== "gzip") {
+          throw new Error("CAD region preview ledger is invalid");
+        }
+        const metadata = await this.storage.readCadRegionPreviewMetadata(asset.objectKey, {
+          sizeBytes: Number(asset.sizeBytes), sha256: asset.sha256, regionId: region.regionId,
+          bounds
+        });
+        if (metadata.width !== region.previewWidth || metadata.height !== region.previewHeight ||
+            metadata.textCount !== region.textCount || metadata.lightCandidateCount !== region.lightCandidateCount ||
+            metadata.area !== (bounds.maxX - bounds.minX) * (bounds.maxY - bounds.minY)) {
+          throw new Error("CAD region preview metadata integrity mismatch");
+        }
+      }
       if (asset.kind === "rendered" && asset.mimeType === "image/svg+xml") {
         if (asset.contentEncoding === "unknown") {
           if (!this.renderedReconciler) throw new Error("rendered floor asset reconciler is unavailable");

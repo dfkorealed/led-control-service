@@ -117,7 +117,7 @@ describe("FloorImportWorkerService", () => {
     await worker.onModuleDestroy();
   });
 
-  it("runs download -> converter -> isolated CAD core -> private asset and chunked candidate upsert", async () => {
+  it.each(["success", "verification failure", "invalid metadata"])("runs the verified native persistence path: %s", async mode => {
     const root = await mkdtemp(join(tmpdir(), "floor-import-test-"));
     const row = claimedJob({ detectorProfileId: null });
     const source = { objectKey: `floors/${row.floorId}/source.dxf`, sizeBytes: BigInt(1024), sha256: "a".repeat(64),
@@ -171,6 +171,7 @@ describe("FloorImportWorkerService", () => {
       verifyCadSceneObject: jest.fn().mockResolvedValue(undefined),
       deleteObject: jest.fn().mockResolvedValue(undefined)
     };
+    if (mode === "verification failure") storage.verifyCadSceneObject.mockRejectedValue(new Error("checksum mismatch"));
     const converter: any = { convert: jest.fn(async ({ inputPath, outputPath }: any) => {
       await writeFile(outputPath, await readFile(inputPath));
       return { outputPath, outputBytes: Buffer.byteLength(dxf) };
@@ -182,6 +183,7 @@ describe("FloorImportWorkerService", () => {
     const core: any = { execute: jest.fn(async ({ renderedPath, artifactDirectory }: any) => {
       await writeFile(renderedPath, "gzip-svg");
       const artifacts = await writeNativeArtifacts(row.id, artifactDirectory, candidates.length);
+      if (mode === "invalid metadata") artifacts.region.textCount = artifacts.region.primitiveCount + 1;
       return {
         profileId: "generic-lighting-v1", profileVersion: "test/1", profileDigest: "b".repeat(64),
         modelEntityCount: 1, blockCount: 0, candidates, selectedCandidates: candidates,
@@ -189,7 +191,7 @@ describe("FloorImportWorkerService", () => {
           sourceEntityId: candidate.sourceEntityId,
           regionId: artifacts.region.regionId
         })),
-        excludedRegionPrimitiveCount: 0, regions: [artifacts.region],
+        excludedRegionPrimitiveCount: 17, regions: [artifacts.region],
         regionPreviews: artifacts.regionPreviews, scene: artifacts.scene,
         candidateTransformMatch: {
           candidateCount: candidates.length, matchedCount: candidates.length,
@@ -207,6 +209,13 @@ describe("FloorImportWorkerService", () => {
       { tempRoot: root, pollIntervalMs: 1000 }, cleanup);
     try {
       await expect(worker.runOnce()).resolves.toBe(true);
+      if (mode !== "success") {
+        expect(prisma.$transaction).not.toHaveBeenCalled();
+        if (mode === "verification failure") expect(storage.verifyCadSceneObject).toHaveBeenCalledTimes(1);
+        else expect(storage.putCadSceneObjectFile).not.toHaveBeenCalled();
+        expect(await readdir(root)).toEqual([]);
+        return;
+      }
       expect(storage.downloadFloorAssetToFile).toHaveBeenCalledWith(source.objectKey, expect.any(String), expect.objectContaining({
         expectedSha256: source.sha256, maxBytes: 50 * 1024 * 1024
       }));
@@ -233,14 +242,15 @@ describe("FloorImportWorkerService", () => {
       expect(finalTx.floorImportCandidate.createMany.mock.calls.every(([input]: any[]) => input.data.length <= 250)).toBe(true);
       expect(finalTx).not.toHaveProperty("fixture");
       expect(finalTx).not.toHaveProperty("meshNode");
-      expect(finalTx.floorImportRegion.createMany).toHaveBeenCalledWith({
-        data: [expect.objectContaining({
-          candidateIdentityDigest: expect.stringMatching(/^[a-f0-9]{64}$/)
-        })]
-      });
-      const completionSql = finalTx.$executeRaw.mock.calls[0][0];
+      const regionInsert = finalTx.$executeRaw.mock.calls.find(([query]: any[]) =>
+        query.strings.join(" ").includes('INSERT INTO "FloorImportRegion"'))[0];
+      expect(regionInsert.values.slice(3, 12)).toEqual(["0", "0", "10", "10", 2_000, 0, 2_000, 1_200, 1_200]);
+      expect(regionInsert.values[12]).toMatch(/^[a-f0-9]{64}$/);
+      const completionSql = finalTx.$executeRaw.mock.calls.at(-1)[0];
       expect(completionSql.strings.join(" ")).toContain("review_required");
       expect(completionSql.strings.join(" ")).toContain('"progressPercent" = 100');
+      expect(completionSql.strings.join(" ")).toContain('"excludedRegionPrimitiveCount" =');
+      expect(completionSql.values).toContain(17);
       const progressUpdates: Array<{ progressPercent: number }> = prisma.$executeRaw.mock.calls
         .map(([query]: any[]) => query)
         .filter((query: any) => query.strings?.join(" ").includes('"progressPercent" = GREATEST'))
