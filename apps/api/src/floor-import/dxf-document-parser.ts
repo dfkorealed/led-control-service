@@ -485,7 +485,7 @@ class DxfDocumentBuilder {
   }
 
   private parseEntity(type: string, body: readonly DxfPair[]): NormalizedCadEntity | null {
-    if (!["LINE", "LWPOLYLINE", "CIRCLE", "ARC", "TEXT", "MTEXT", "INSERT", "SPLINE", "WIPEOUT", "HATCH", "DIMENSION", "POINT"].includes(type)) return null;
+    if (!["LINE", "LWPOLYLINE", "CIRCLE", "ARC", "ELLIPSE", "TEXT", "MTEXT", "INSERT", "SPLINE", "WIPEOUT", "HATCH", "DIMENSION", "POINT"].includes(type)) return null;
     const common = this.idAndLayer(body);
     if (type === "LINE") return { type: "line", ...common, start: this.point(body, 10, 20, 30, "line start"), end: this.point(body, 11, 21, 31, "line end") };
     if (type === "LWPOLYLINE") {
@@ -507,6 +507,26 @@ class DxfDocumentBuilder {
       return { type: "lwpolyline", ...common, vertices, closed: (this.integer(this.first(body, 70), "polyline flags", 0) & 1) === 1 };
     }
     if (type === "CIRCLE") return { type: "circle", ...common, center: this.point(body, 10, 20, 30, "circle center"), radius: this.positive(this.number(this.first(body, 40), "circle radius"), "circle radius") };
+    if (type === "ELLIPSE") {
+      const center = this.point(body, 10, 20, 30, "ellipse center");
+      const majorAxis = this.point(body, 11, 21, 31, "ellipse major axis");
+      const axisRatio = this.positive(this.number(this.first(body, 40), "ellipse axis ratio"), "ellipse axis ratio");
+      if (axisRatio > 1 || Math.hypot(majorAxis.x, majorAxis.y, majorAxis.z) === 0) throw new Error("Invalid DXF ellipse axes");
+      const normal = {
+        x: this.number(this.first(body, 210), "ellipse normal.x", 0),
+        y: this.number(this.first(body, 220), "ellipse normal.y", 0),
+        z: this.number(this.first(body, 230), "ellipse normal.z", 1)
+      };
+      // A tilted 3D ellipse is outside the 2D import contract. Return it through
+      // the existing reachable-unsupported accounting instead of flattening it.
+      if (majorAxis.z !== 0 || normal.x !== 0 || normal.y !== 0 || Math.abs(normal.z) !== 1) return null;
+      return {
+        type: "ellipse", ...common, center, majorAxis, axisRatio,
+        startParameter: this.number(this.first(body, 41), "ellipse start parameter", 0),
+        endParameter: this.number(this.first(body, 42), "ellipse end parameter", Math.PI * 2),
+        normalZ: normal.z as 1 | -1
+      };
+    }
     if (type === "ARC") return {
       type: "arc", ...common, center: this.point(body, 10, 20, 30, "arc center"),
       radius: this.positive(this.number(this.first(body, 40), "circle radius"), "arc radius"),

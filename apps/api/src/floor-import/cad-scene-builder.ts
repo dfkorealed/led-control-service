@@ -21,9 +21,12 @@ import {
 import type { CadDetectedRegion } from "./cad-region-detector";
 import {
   cadBulgeArc,
+  cadEllipseAngles,
+  cadEllipseMatrix,
   cadTransformedArcExtremaPoints,
   createCadSplineSampler,
   iterateCadDocumentExpansion,
+  multiplyCadMatrices,
   transformPoint,
   type CadMatrix,
   type ExpandedCadEntity
@@ -68,6 +71,15 @@ export interface BuildCadSceneOptions {
   maxTotalTileBytes?: number;
   maxRetainedTileOccurrences?: number;
   checkBudget?: () => void;
+  /** Synchronous, bounded source hook. Called before display deduplication,
+   * simplification or clipping. Throwing aborts the entire build. */
+  onSemanticEntity?: (entity: CadSemanticEntity) => void;
+}
+
+export interface CadSemanticEntity {
+  source: ExpandedCadEntity;
+  primitives: readonly CadScenePrimitive[];
+  transform: CadSceneTransform;
 }
 
 export interface BuiltCadSceneTile {
@@ -86,6 +98,7 @@ interface ProjectionContext {
   contentBounds: SceneBounds;
   simplifyTolerance: number;
   sampleSpline: ReturnType<typeof createCadSplineSampler>;
+  preserveGeometry?: boolean;
 }
 
 function round(value: number): number {
@@ -521,7 +534,9 @@ function ellipseGeometry(
   const trace = xx + yy;
   const discriminant = Math.sqrt(Math.max(0, (xx - yy) ** 2 + 4 * xy * xy));
   const radiusX = radius * Math.sqrt(Math.max(0, (trace + discriminant) / 2));
-  const radiusY = radius * Math.sqrt(Math.max(0, (trace - discriminant) / 2));
+  // det / major singular value preserves thin ellipses where subtracting two
+  // nearly equal eigenvalues would erase a real, nonzero minor axis.
+  const radiusY = radiusX > 0 ? radius * radius * Math.abs(matrix.a * matrix.d - matrix.b * matrix.c) / radiusX : 0;
   const rotation = discriminant <= GEOMETRY_EPSILON
     ? 0
     : Math.atan2(2 * xy, xx - yy) * 90 / Math.PI;
@@ -529,8 +544,8 @@ function ellipseGeometry(
   const radians = rotation * Math.PI / 180;
   const extentX = Math.hypot(radiusX * Math.cos(radians), radiusY * Math.sin(radians));
   const extentY = Math.hypot(radiusX * Math.sin(radians), radiusY * Math.cos(radians));
-  const roundedRadiusX = round(radiusX);
-  const roundedRadiusY = round(radiusY);
+  const roundedRadiusX = context.preserveGeometry ? radiusX : round(radiusX);
+  const roundedRadiusY = context.preserveGeometry ? radiusY : round(radiusY);
   if (roundedRadiusY <= 0) {
     if (roundedRadiusX <= 0) throw new Error("CAD ellipse collapses below coordinate precision");
     const direction = { x: Math.cos(radians), y: Math.sin(radians) };
@@ -590,12 +605,16 @@ function polylinePrimitive(
   preserveProjectedPoints = false
 ): CadScenePrimitive | null {
   const rawPoints = projectedPoints ?? localPoints.map(point => projectEntityPoint(context, item.matrix, point));
-  const points = preserveProjectedPoints
+  const points = preserveProjectedPoints || context.preserveGeometry
     ? removeConsecutiveDuplicates(rawPoints, closed)
     : simplifyPoints(rawPoints, closed, context.simplifyTolerance);
   if (points.length < (closed ? 3 : 2)) return null;
   const bounds = exactBounds ?? boundsOfPoints(points);
   const base = primitiveBase(item, suffix, bounds, forceGroup);
+  return classifyPolyline(base, points, closed);
+}
+
+function classifyPolyline(base: Omit<CadScenePrimitive, "type" | "geometry">, points: Array<{ x: number; y: number }>, closed: boolean): CadScenePrimitive {
   if (closed && points.length === 3 && Math.abs(signedArea(points)) > GEOMETRY_EPSILON) {
     const triangle = signedArea(points) < 0 ? [...points].reverse() : points;
     return { ...base, type: "triangle", geometry: { points: [triangle[0], triangle[1], triangle[2]] } };
@@ -662,6 +681,17 @@ function convertEntity(item: ExpandedCadEntity, context: ProjectionContext): Cad
     return primitive ? [primitive] : [];
   }
   if (entity.type === "circle") return [ellipseGeometry(item, context, entity.center, entity.radius)];
+  if (entity.type === "ellipse") {
+    const matrix = multiplyCadMatrices(item.matrix, cadEllipseMatrix(entity));
+    const origin = { x: 0, y: 0, z: entity.center.z };
+    const { startAngle, sweepAngle } = cadEllipseAngles(entity);
+    if (sweepAngle === 360) return [ellipseGeometry({ ...item, matrix }, context, origin, 1)];
+    const projected = projectedMatrix(matrix, context.transform);
+    const exactBounds = boundsOfPoints(cadTransformedArcExtremaPoints(origin, 1, startAngle, sweepAngle, projected));
+    const primitive = polylinePrimitive(item, context, [], false, "ellipse-arc", false, exactBounds,
+      projectedArcPoints(origin, 1, startAngle, sweepAngle, projected, context.contentBounds), true);
+    return primitive ? [primitive] : [];
+  }
   if (entity.type === "arc") {
     const linear = transformedLinear(item.matrix, context.transform);
     const projected = projectedMatrix(item.matrix, context.transform);
@@ -1354,12 +1384,79 @@ function canonicalManifestPayload(manifest: Omit<CadSceneManifest, "byteSize" | 
   return Buffer.from(JSON.stringify(manifest), "utf8");
 }
 
+function createProjection(regionBounds: SceneBounds, options: BuildCadSceneOptions) {
+  const mapSize = normalizeCadMapSize(regionBounds);
+  const sourceWidth = regionBounds.maxX - regionBounds.minX;
+  const sourceHeight = regionBounds.maxY - regionBounds.minY;
+  const scale = Math.min((mapSize.width - 2 * mapSize.padding) / sourceWidth,
+    (mapSize.height - 2 * mapSize.padding) / sourceHeight);
+  const projectedWidth = sourceWidth * scale;
+  const projectedHeight = sourceHeight * scale;
+  const offsetX = (mapSize.width - projectedWidth) / 2;
+  const offsetY = (mapSize.height - projectedHeight) / 2;
+  const transform: CadSceneTransform = {
+    scaleX: scale, scaleY: -scale,
+    translateX: offsetX - regionBounds.minX * scale,
+    translateY: offsetY + regionBounds.maxY * scale
+  };
+  const context: ProjectionContext = {
+    transform,
+    contentBounds: { minX: round(offsetX), minY: round(offsetY), maxX: round(offsetX + projectedWidth), maxY: round(offsetY + projectedHeight) },
+    simplifyTolerance: options.simplifyTolerance ?? 0.01,
+    sampleSpline: createCadSplineSampler(options.maxSplineSamples ?? CAD_MAX_SPLINE_SAMPLES_PER_DOCUMENT)
+  };
+  return { mapSize, context, transform };
+}
+
+function* projectedEntities(document: NormalizedCadDocument, context: ProjectionContext, options: BuildCadSceneOptions): Generator<CadSemanticEntity> {
+  const maximum = options.maxExpandedEntities ?? CAD_SCENE_MAX_EXPANDED_PRIMITIVES;
+  const selectedMaximum = options.maxSelectedPrimitives ?? CAD_SCENE_MAX_SELECTED_PRIMITIVES;
+  if (!Number.isSafeInteger(maximum) || maximum < 1 || maximum > CAD_SCENE_MAX_EXPANDED_PRIMITIVES ||
+      !Number.isSafeInteger(selectedMaximum) || selectedMaximum < 1 || selectedMaximum > CAD_SCENE_MAX_SELECTED_PRIMITIVES) {
+    throw new Error("Invalid CAD semantic entity limit");
+  }
+  let selected = 0;
+  for (const source of iterateCadDocumentExpansion(document, {
+    maxRenderedEntities: maximum, maxBlockDepth: options.maxBlockDepth ?? 32, checkBudget: options.checkBudget
+  })) {
+    options.checkBudget?.();
+    if (!source) continue;
+    const primitives = convertEntity(source, context);
+    if (primitives.length && !primitives.some(primitive => intersects(primitive.bounds, context.contentBounds))) continue;
+    selected += primitives.length;
+    // The legacy display path applies its limit after deduplication below.
+    // Canonical capture must count every distinct source before deduplication.
+    if (context.preserveGeometry && selected > selectedMaximum) throw new Error("CAD selected primitive limit exceeded");
+    yield { source, primitives, transform: context.transform };
+  }
+}
+
+/** One expansion, one source at a time; no tile payloads or whole-scene arrays. */
+export function* iterateCadSemanticEntities(document: NormalizedCadDocument, regionBounds: SceneBounds, options: BuildCadSceneOptions): Generator<CadSemanticEntity> {
+  const { context } = createProjection(regionBounds, options);
+  context.preserveGeometry = true;
+  yield* projectedEntities(document, context, options);
+}
+
+function displayPrimitive(primitive: CadScenePrimitive, source: ExpandedCadEntity, tolerance: number): CadScenePrimitive {
+  if (primitive.type !== "polyline") return primitive;
+  const entity = source.entity;
+  if (entity.type === "lwpolyline" || entity.type === "polyline") {
+    const segments = entity.closed ? entity.vertices.length : entity.vertices.length - 1;
+    for (let index = 0; index < segments; index++) {
+      if (cadBulgeArc(entity.vertices[index], entity.vertices[(index + 1) % entity.vertices.length], entity.vertices[index].bulge)) return primitive;
+    }
+  } else if (entity.type !== "spline" && entity.type !== "wipeout") return primitive;
+  const points = simplifyPoints(primitive.geometry.points, primitive.geometry.closed, tolerance);
+  const bounds = entity.type === "spline" || entity.type === "wipeout" ? boundsOfPoints(points) : primitive.bounds;
+  return classifyPolyline({ ...primitive, bounds }, points, primitive.geometry.closed);
+}
+
 export function buildCadScene(
   document: NormalizedCadDocument,
   region: CadDetectedRegion,
   options: BuildCadSceneOptions
 ): BuiltCadScene {
-  const maxExpandedEntities = options.maxExpandedEntities ?? CAD_SCENE_MAX_EXPANDED_PRIMITIVES;
   const maxSelectedPrimitives = options.maxSelectedPrimitives ?? CAD_SCENE_MAX_SELECTED_PRIMITIVES;
   const simplifyTolerance = options.simplifyTolerance ?? 0.01;
   const maximumTileByteSize = options.maxTileByteSize ?? CAD_SCENE_MAX_TILE_BYTE_SIZE;
@@ -1393,34 +1490,8 @@ export function buildCadScene(
   }
   new CadSceneTileSizeTracker(maximumTileByteSize);
 
-  const mapSize = normalizeCadMapSize(region.bounds);
-  const sourceWidth = region.bounds.maxX - region.bounds.minX;
-  const sourceHeight = region.bounds.maxY - region.bounds.minY;
-  const scale = Math.min(
-    (mapSize.width - 2 * mapSize.padding) / sourceWidth,
-    (mapSize.height - 2 * mapSize.padding) / sourceHeight
-  );
-  const projectedWidth = sourceWidth * scale;
-  const projectedHeight = sourceHeight * scale;
-  const offsetX = (mapSize.width - projectedWidth) / 2;
-  const offsetY = (mapSize.height - projectedHeight) / 2;
-  const transform: CadSceneTransform = {
-    scaleX: scale,
-    scaleY: -scale,
-    translateX: offsetX - region.bounds.minX * scale,
-    translateY: offsetY + region.bounds.maxY * scale
-  };
-  const context: ProjectionContext = {
-    transform,
-    contentBounds: {
-      minX: round(offsetX),
-      minY: round(offsetY),
-      maxX: round(offsetX + projectedWidth),
-      maxY: round(offsetY + projectedHeight)
-    },
-    simplifyTolerance,
-    sampleSpline: createCadSplineSampler(options.maxSplineSamples ?? CAD_MAX_SPLINE_SAMPLES_PER_DOCUMENT)
-  };
+  const { mapSize, transform, context } = createProjection(region.bounds, options);
+  context.preserveGeometry = Boolean(options.onSemanticEntity);
 
   const tilePrimitives = new Map<string, TilePrimitiveAccumulator>();
   const tiles: BuiltCadSceneTile[] = [];
@@ -1454,14 +1525,13 @@ export function buildCadScene(
       maximumRetainedTileOccurrences
     );
   };
-  for (const item of iterateCadDocumentExpansion(document, {
-    maxRenderedEntities: maxExpandedEntities,
-    maxBlockDepth: options.maxBlockDepth ?? 32,
-    checkBudget: options.checkBudget
-  })) {
-    options.checkBudget?.();
-    if (!item) continue;
-    for (const converted of convertEntity(item, context)) {
+  for (const semantic of projectedEntities(document, context, options)) {
+    const result: unknown = options.onSemanticEntity?.(semantic);
+    if (result && typeof (result as PromiseLike<unknown>).then === "function") {
+      throw new Error("CAD semantic hook must be synchronous; use the async element iterator for backpressure");
+    }
+    for (const sourcePrimitive of semantic.primitives) {
+      const converted = options.onSemanticEntity ? displayPrimitive(sourcePrimitive, semantic.source, simplifyTolerance) : sourcePrimitive;
       if (!intersects(converted.bounds, context.contentBounds)) continue;
       const digest = deduplicationDigest(converted);
       if (deduplicationDigests.has(digest)) continue;

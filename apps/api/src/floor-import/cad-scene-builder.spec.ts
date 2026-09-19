@@ -69,6 +69,23 @@ function unionBounds(primitives: readonly CadScenePrimitive[]) {
 }
 
 describe("CAD scene builder", () => {
+  it("retains the existing display-only duplicate limit while canonical hooks count every source", () => {
+    const input = document(["A", "B"].map(sourceEntityId => ({ type: "line", sourceEntityId, layer: "0", start: point(1, 1), end: point(2, 2) })));
+    expect(buildCadScene(input, region(), { sceneId, maxSelectedPrimitives: 1 }).manifest.primitiveCount).toBe(1);
+    expect(() => buildCadScene(input, region(), { sceneId, maxSelectedPrimitives: 1, onSemanticEntity: () => {} })).toThrow(/limit/);
+  });
+
+  it("does not change curved or classified display geometry when the semantic hook is enabled", () => {
+    const input = document([
+      { type: "lwpolyline", sourceEntityId: "bulge", layer: "0", closed: false, vertices: [vertex(100, 100, 1), vertex(200, 100)] },
+      { type: "lwpolyline", sourceEntityId: "box", layer: "0", closed: true, vertices: [vertex(300, 300), vertex(350, 300), vertex(400, 300), vertex(400, 400), vertex(300, 400)] }
+    ]);
+    const without = buildCadScene(input, region(), { sceneId, simplifyTolerance: 100 });
+    const withHook = buildCadScene(input, region(), { sceneId, simplifyTolerance: 100, onSemanticEntity: () => {} });
+    expect(withHook.manifest.sha256).toBe(without.manifest.sha256);
+    expect(withHook.tiles.map(tile => tile.descriptor.sha256)).toEqual(without.tiles.map(tile => tile.descriptor.sha256));
+  });
+
   it("normalizes selected LINE, polyline, circle, arc, text, spline, and hatch boundaries into native primitives", () => {
     const input = document([
       { type: "line", sourceEntityId: "line", layer: "WALL", start: point(10, 10), end: point(20, 20) },

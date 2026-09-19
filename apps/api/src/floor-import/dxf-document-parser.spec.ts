@@ -26,6 +26,32 @@ function syntheticDxf(): string {
 }
 
 describe("ASCII DXF document parser", () => {
+  it("parses full and partial ELLIPSE with exact bounds in buffered and streaming modes", async () => {
+    const fixture = (end: number) => [
+      pair(0, "SECTION"), pair(2, "ENTITIES"), pair(0, "ELLIPSE"), pair(5, "E1"),
+      pair(10, 10), pair(20, 20), pair(11, 4), pair(21, 0), pair(40, 0.5),
+      pair(41, 0), pair(42, end), pair(0, "ENDSEC"), pair(0, "EOF")
+    ].join("");
+    for (const parse of [async (s: string) => parseAsciiDxf(s), async (s: string) => parseAsciiDxfStream([Buffer.from(s)])]) {
+      const full = await parse(fixture(2 * Math.PI));
+      expect(full.entities[0]).toMatchObject({ type: "ellipse", axisRatio: 0.5, majorAxis: { x: 4, y: 0, z: 0 } });
+      expect(full.bounds).toEqual({ minX: 6, minY: 18, maxX: 14, maxY: 22 });
+      expect(full.unsupportedEntityCounts).toEqual({});
+      expect((await parse(fixture(Math.PI / 2))).bounds).toEqual({ minX: 10, minY: 20, maxX: 14, maxY: 22 });
+    }
+    expect(() => parseAsciiDxf(fixture(2 * Math.PI).replace("40\n0.5", "40\n0"))).toThrow(/ellipse/i);
+  });
+
+  it("honors omitted extrusion components and counts tilted ellipses as unsupported", () => {
+    const fixture = (normal: string) => [pair(0, "SECTION"), pair(2, "ENTITIES"),
+      pair(0, "ELLIPSE"), pair(5, "E"), pair(10, 0), pair(20, 0), pair(11, 4), pair(21, 0),
+      pair(40, 0.5), pair(41, 0), pair(42, Math.PI / 2), normal, pair(0, "ENDSEC"), pair(0, "EOF")].join("");
+    const negative = parseAsciiDxf(fixture(pair(230, -1)));
+    expect(negative.entities[0]).toMatchObject({ type: "ellipse", normalZ: -1 });
+    expect(negative.bounds).toEqual({ minX: 0, minY: -2, maxX: 4, maxY: 0 });
+    expect(parseAsciiDxf(fixture(pair(210, 1))).unsupportedEntityCounts).toEqual({ ELLIPSE: 1 });
+  });
+
   const corpus = (name: string) => join(process.cwd(), "../../scripts/fixtures/cad-import", name);
 
   it("stops structural parsing after the model ENTITIES section and ignores malformed optional OBJECTS metadata", async () => {
@@ -181,19 +207,19 @@ describe("ASCII DXF document parser", () => {
   it("reports visible unsupported model entities without counting paper-space records", () => {
     const dxf = [
       pair(0, "SECTION"), pair(2, "ENTITIES"),
-      pair(0, "ELLIPSE"), pair(5, "E1"), pair(10, 0), pair(20, 0),
+      pair(0, "REGION"), pair(5, "E1"), pair(10, 0), pair(20, 0),
       pair(0, "HELIX"), pair(5, "H1"), pair(67, 1), pair(10, 0), pair(20, 0),
       pair(0, "ENDSEC"), pair(0, "EOF")
     ].join("");
 
-    expect(parseAsciiDxf(dxf).unsupportedEntityCounts).toEqual({ ELLIPSE: 1 });
+    expect(parseAsciiDxf(dxf).unsupportedEntityCounts).toEqual({ REGION: 1 });
   });
 
   it("counts unsupported geometry by reachable rendered occurrence", () => {
     const dxf = [
       pair(0, "SECTION"), pair(2, "BLOCKS"),
-      pair(0, "BLOCK"), pair(2, "USED"), pair(0, "ELLIPSE"), pair(5, "UE"), pair(10, 0), pair(20, 0), pair(0, "ENDBLK"),
-      pair(0, "BLOCK"), pair(2, "UNUSED"), pair(0, "ELLIPSE"), pair(5, "XE"), pair(10, 0), pair(20, 0), pair(0, "ENDBLK"),
+      pair(0, "BLOCK"), pair(2, "USED"), pair(0, "REGION"), pair(5, "UE"), pair(10, 0), pair(20, 0), pair(0, "ENDBLK"),
+      pair(0, "BLOCK"), pair(2, "UNUSED"), pair(0, "REGION"), pair(5, "XE"), pair(10, 0), pair(20, 0), pair(0, "ENDBLK"),
       pair(0, "ENDSEC"), pair(0, "SECTION"), pair(2, "ENTITIES"),
       pair(0, "HELIX"), pair(5, "DIRECT"), pair(10, 0), pair(20, 0),
       pair(0, "INSERT"), pair(5, "I1"), pair(2, "USED"), pair(10, 0), pair(20, 0),
@@ -202,7 +228,7 @@ describe("ASCII DXF document parser", () => {
       pair(0, "ENDSEC"), pair(0, "EOF")
     ].join("");
 
-    expect(parseAsciiDxf(dxf).unsupportedEntityCounts).toEqual({ ELLIPSE: 3, HELIX: 1 });
+    expect(parseAsciiDxf(dxf).unsupportedEntityCounts).toEqual({ REGION: 3, HELIX: 1 });
   });
 
   it("rejects unsupported entity names and unique type counts outside the bounded manifest contract", () => {

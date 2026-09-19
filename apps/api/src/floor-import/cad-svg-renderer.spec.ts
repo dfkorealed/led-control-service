@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { gunzipSync } from "node:zlib";
 import { parseAsciiDxf } from "./dxf-document-parser";
 import { projectCadPointToViewport } from "./cad-viewport";
+import { renderCadRegionPreviewFiles } from "./cad-region-preview-renderer";
 
 const document: NormalizedCadDocument = {
   version: 1,
@@ -23,6 +24,25 @@ const document: NormalizedCadDocument = {
 };
 
 describe("CAD SVG renderer", () => {
+  it("renders parsed ELLIPSE in buffered and file/region serializers", async () => {
+    const input = parseAsciiDxf("0\nSECTION\n2\nENTITIES\n0\nELLIPSE\n5\nE\n10\n10\n20\n20\n11\n4\n21\n0\n40\n0.5\n41\n0\n42\n6.283185307179586\n0\nENDSEC\n0\nEOF\n");
+    expect(renderCadDocumentSvg(input)).toContain("<circle");
+    expect(renderCadDocumentSvg(input, { compactPaths: true })).toContain('matrix(4 0 0 2 10 20)');
+    const root = await mkdtemp(join(tmpdir(), "cad-ellipse-svg-"));
+    try {
+      const path = join(root, "ellipse.svg");
+      await renderCadDocumentSvgFile(input, path);
+      const svg = gunzipSync(await readFile(path)).toString("utf8");
+      expect(svg).toContain('matrix(4 0 0 2 10 20)');
+      const { data } = await sharp(Buffer.from(svg)).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+      expect(data.some(v => v < 200)).toBe(true);
+      const previewPath = join(root, "preview.svg");
+      const preview = await renderCadRegionPreviewFiles(input, [{ regionId: "ellipse", bounds: input.bounds, outputPath: previewPath }]);
+      expect(preview.routedOccurrences).toBe(1);
+      expect(gunzipSync(await readFile(previewPath)).toString("utf8")).toContain('matrix(4 0 0 2 10 20)');
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
   it("streams repeated blocks and escaped Hangul text into a storage-sized hierarchical SVG", async () => {
     const repeated: NormalizedCadDocument = {
       version: 1, bounds: { minX: 0, minY: 0, maxX: 4_000, maxY: 10 },

@@ -62,6 +62,17 @@ export interface NormalizedCadArc extends NormalizedCadEntityBase {
   endAngle: number;
 }
 
+export interface NormalizedCadEllipse extends NormalizedCadEntityBase {
+  type: "ellipse";
+  center: CadPoint;
+  majorAxis: CadPoint;
+  axisRatio: number;
+  /** DXF ellipse parameters are radians, not the degrees used by ARC. */
+  startParameter: number;
+  endParameter: number;
+  normalZ: 1 | -1;
+}
+
 export interface NormalizedCadText extends NormalizedCadEntityBase {
   type: "text" | "mtext";
   position: CadPoint;
@@ -148,6 +159,7 @@ export type NormalizedCadEntity =
   | NormalizedCadPolyline
   | NormalizedCadCircle
   | NormalizedCadArc
+  | NormalizedCadEllipse
   | NormalizedCadText
   | NormalizedCadInsert
   | NormalizedCadSpline

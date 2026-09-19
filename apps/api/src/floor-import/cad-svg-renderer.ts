@@ -5,7 +5,7 @@ import { open, unlink } from "node:fs/promises";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createGzip } from "node:zlib";
-import { cadBulgeArc, createCadSplineSampler, dimensionMatrix, iterateCadDocumentExpansion, multiplyCadMatrices, sampleCadSpline, transformPoint, type CadMatrix, type ExpandedCadEntity } from "./cad-geometry";
+import { cadBulgeArc, cadEllipseAngles, cadEllipseMatrix, createCadSplineSampler, dimensionMatrix, iterateCadDocumentExpansion, multiplyCadMatrices, sampleCadSpline, transformPoint, type CadMatrix, type ExpandedCadEntity } from "./cad-geometry";
 import { CAD_RENDERED_SVG_MAX_BYTES, CAD_RENDERED_SVG_RAW_MAX_BYTES } from "./cad-resource-limits";
 import { CAD_MAX_SPLINE_SAMPLES_PER_DOCUMENT } from "./cad-runtime-contract";
 import { forEachCadTextGlyph, sanitizeCadText } from "./cad-text-layout";
@@ -74,6 +74,16 @@ function number(value: number): string {
 
 function arcSweep(start: number, end: number): number {
   return ((end - start) % 360 + 360) % 360;
+}
+
+function ellipseSvg(entity: Extract<ExpandedCadEntity["entity"], { type: "ellipse" }>): string {
+  const matrix = cadEllipseMatrix(entity);
+  const transform = `matrix(${[matrix.a, matrix.b, matrix.c, matrix.d, matrix.e, matrix.f].map(number).join(" ")})`;
+  const { startAngle, sweepAngle } = cadEllipseAngles(entity);
+  if (sweepAngle === 360) return `<circle cx="0" cy="0" r="1" transform="${transform}"/>`;
+  const start = startAngle * Math.PI / 180;
+  const end = (startAngle + sweepAngle) * Math.PI / 180;
+  return `<path d="M${number(Math.cos(start))} ${number(Math.sin(start))} A1 1 0 ${sweepAngle > 180 ? 1 : 0} 1 ${number(Math.cos(end))} ${number(Math.sin(end))}" transform="${transform}"/>`;
 }
 
 function pointsForCircle(center: CadPoint, radius: number, matrix: CadMatrix): CadPoint[] {
@@ -262,6 +272,8 @@ export function renderCadDocumentSvg(document: NormalizedCadDocument, options: P
         return `M${points.map((point, index) => `${index === 0 ? "" : "L"}${number(point.x)} ${number(point.y)}`).join("")}Z`;
       }).join(" ");
       append(`<path ${attrs} data-cad-entity="hatch" d="${path}" fill="#e5e7eb" fill-rule="evenodd"/>`);
+    } else if (entity.type === "ellipse") {
+      append(`<g ${attrs} transform="${matrixAttribute(multiplyCadMatrices(projection, item.matrix))}">${ellipseSvg(entity)}</g>`);
     } else if (entity.type === "circle" && limits.compactPaths) {
       const matrix = multiplyCadMatrices(projection, item.matrix);
       append(`<circle ${attrs} cx="${number(entity.center.x)}" cy="${number(entity.center.y)}" r="${number(entity.radius)}" transform="${matrixAttribute(matrix)}"/>`);
@@ -411,6 +423,8 @@ export function createCadSvgEntitySerializer(
         return (`<path data-cad-entity="wipeout" d="${pathForVertices(entity.vertices, true)}" fill="#fff" stroke="none"/>`);
       } else if (entity.type === "hatch") {
         return (`<path data-cad-entity="hatch" d="${entity.loops.map(pathForHatchLoop).join(" ")}" fill="#e5e7eb" fill-rule="evenodd"/>`);
+      } else if (entity.type === "ellipse") {
+        return ellipseSvg(entity);
       } else if (entity.type === "circle") {
         return (`<circle cx="${number(entity.center.x)}" cy="${number(entity.center.y)}" r="${number(entity.radius)}"/>`);
       } else if (entity.type === "arc") {

@@ -78,6 +78,23 @@ export function transformPoint(matrix: CadMatrix, point: CadPoint): CadPoint {
   };
 }
 
+/** Exact unit-circle basis, shared by bounds, previews and canonical geometry. */
+export function cadEllipseMatrix(entity: Extract<NormalizedCadEntity, { type: "ellipse" }>): CadMatrix {
+  return {
+    a: entity.majorAxis.x, b: entity.majorAxis.y,
+    c: -entity.majorAxis.y * entity.axisRatio * entity.normalZ,
+    d: entity.majorAxis.x * entity.axisRatio * entity.normalZ,
+    e: entity.center.x, f: entity.center.y
+  };
+}
+
+export function cadEllipseAngles(entity: Extract<NormalizedCadEntity, { type: "ellipse" }>) {
+  const startAngle = entity.startParameter * 180 / Math.PI;
+  const raw = (entity.endParameter - entity.startParameter) * 180 / Math.PI;
+  const sweepAngle = ((raw % 360) + 360) % 360 || 360;
+  return { startAngle, sweepAngle };
+}
+
 export function dimensionMatrix(
   entity: Extract<NormalizedCadEntity, { type: "dimension" }>, basePoint: CadPoint
 ): CadMatrix {
@@ -512,6 +529,10 @@ export function computeCadBounds(
           }
         }
       }
+    } else if (entity.type === "ellipse") {
+      const { startAngle, sweepAngle } = cadEllipseAngles(entity);
+      includeArcBounds({ x: 0, y: 0, z: entity.center.z }, 1, startAngle, sweepAngle,
+        multiplyCadMatrices(matrix, cadEllipseMatrix(entity)), include);
     } else if (entity.type === "circle") {
       const center = transformPoint(matrix, entity.center);
       const extentX = entity.radius * Math.hypot(matrix.a, matrix.c);
