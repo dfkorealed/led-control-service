@@ -6,6 +6,7 @@ import {
   POSTGRES_INT_MAX
 } from "./schemas.js";
 import { cadRegionSchema } from "./cad-scene-contracts.js";
+import { mapDocumentRefSchema } from "./map-document-contracts.js";
 
 export const CAD_IMPORT_MAX_CANDIDATES = 2_000;
 export const CAD_IMPORT_MAX_REGIONS = 16_384;
@@ -182,7 +183,7 @@ export const floorImportApplyInputSchema = z.object({
   }
 });
 
-export const floorImportApplyResultSchema = z.object({
+const legacyFloorImportApplyResultSchema = z.object({
   jobId: z.string().uuid(),
   status: z.literal("completed"),
   revision: nonnegativePostgresIntSchema,
@@ -202,6 +203,36 @@ export const floorImportApplyResultSchema = z.object({
     gridSize: z.number().int().positive().max(POSTGRES_INT_MAX)
   }).strict()
 }).strict();
+
+const nativeFloorImportApplyResultSchema = legacyFloorImportApplyResultSchema.extend({
+  renderedAssetId: z.string().uuid().nullable(),
+  mapDocument: mapDocumentRefSchema,
+  floorPlan: z.object({
+    imageUrl: z.literal(""),
+    sourceType: z.literal("none"),
+    originalFileUrl: z.null(),
+    renderedImageUrl: z.null(),
+    width: mapDocumentRefSchema.shape.width,
+    height: mapDocumentRefSchema.shape.height,
+    gridSize: mapDocumentRefSchema.shape.gridSize
+  }).strict()
+}).strict().superRefine((result, context) => {
+  if (result.revision !== result.mapDocument.revision) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["revision"], message: "apply revision must match mapDocument" });
+  }
+  for (const field of ["width", "height", "gridSize"] as const) {
+    if (result.floorPlan[field] !== result.mapDocument[field]) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["floorPlan", field], message: "floor plan must match mapDocument" });
+    }
+  }
+});
+
+// A required ref identifies native output. Legacy results retain their original
+// strict asset/path contract; mixed or incomplete representations match neither.
+export const floorImportApplyResultSchema = z.union([
+  nativeFloorImportApplyResultSchema,
+  legacyFloorImportApplyResultSchema
+]);
 
 export const floorImportRegionSelectionStatusSchema = z.enum([
   "auto_selected",

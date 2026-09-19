@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
 import {
   acquireFloorEditorLease,
   applyFloorImportJob,
@@ -310,6 +311,29 @@ describe("floor editor atomic API", () => {
 
     await expect(applyFloorImportJob("floor-1", "job-1", input)).resolves.toEqual(completeApplyResult);
     await expect(applyFloorImportJob("floor-1", "job-1", input)).rejects.toBeDefined();
+  });
+
+  it.each([null, completeApplyResult.renderedAssetId])("parses strict native apply results with asset %s", async renderedAssetId => {
+    const result = { ...completeApplyResult, renderedAssetId,
+      floorPlan: { imageUrl: "", sourceType: "none", originalFileUrl: null, renderedImageUrl: null,
+        width: 1200, height: 800, gridSize: 10 },
+      mapDocument: { formatVersion: 1, generationId: "generation", revision: 5, width: 1200, height: 800, gridSize: 10,
+        elementCount: 1, manifest: { assetId: "manifest", sha256: "a".repeat(64), byteSize: 100, decodedByteSize: 200 } }
+    };
+    const input = { expectedRevision: 4, leaseToken: "lease", leaseFence: 1, confirmMapReset: true as const, candidateIds: [] };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce({ ok: true, json: async () => result })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ ...result, revision: 6 }) }));
+    await expect(applyFloorImportJob("floor", "job", input)).resolves.toEqual(result);
+    await expect(applyFloorImportJob("floor", "job", input)).rejects.toBeDefined();
+  });
+
+  it.skipIf(!process.env.U13_APPLY_CAPTURE_PREFIX)("parses actual service HTTP native apply capture", async () => {
+    // The opt-in API integration writes only its real HTTP response, never a
+    // schema-normalized fixture. Exercise this consumer without UI reconciliation.
+    const body: unknown = JSON.parse(readFileSync(`${process.env.U13_APPLY_CAPTURE_PREFIX}-native.json`, "utf8"));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => body }));
+    await expect(applyFloorImportJob("floor", "job", { expectedRevision: 1, leaseToken: "lease", leaseFence: 1,
+      confirmMapReset: true, candidateIds: [] })).resolves.toEqual(body);
   });
 
   it("accepts full-floor CAD apply counts and the final PostgreSQL Int revision", async () => {

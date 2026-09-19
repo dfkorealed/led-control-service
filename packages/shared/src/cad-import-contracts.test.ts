@@ -334,6 +334,43 @@ describe("CAD import contracts", () => {
     }
   });
 
+  it("validates strict native apply results without weakening the legacy branch", () => {
+    const native = {
+      jobId, status: "completed", revision: 4, acceptedCandidateIds: [candidateId], renderedAssetId: null,
+      deletedObjectCount: 2, unplacedFixtureCount: 4, deletedSlotCount: 1, createdSlotCount: 1,
+      floorPlan: { imageUrl: "", sourceType: "none", originalFileUrl: null, renderedImageUrl: null,
+        width: 1200, height: 800, gridSize: 10 },
+      mapDocument: { formatVersion: 1, generationId: "generation", revision: 4, width: 1200, height: 800,
+        gridSize: 10, elementCount: 1,
+        manifest: { assetId: "manifest", sha256: "a".repeat(64), byteSize: 100, decodedByteSize: 200 } }
+    };
+    expect(floorImportApplyResultSchema.parse(native)).toEqual(native);
+    expect(floorImportApplyResultSchema.parse({ ...native, renderedAssetId: jobId }).renderedAssetId).toBe(jobId);
+    for (const key of Object.keys(native)) {
+      const incomplete = { ...native } as Record<string, unknown>; delete incomplete[key];
+      expect(floorImportApplyResultSchema.safeParse(incomplete).success).toBe(false);
+    }
+    for (const field of ["width", "height", "gridSize"] as const) {
+      expect(floorImportApplyResultSchema.safeParse({ ...native,
+        floorPlan: { ...native.floorPlan, [field]: native.floorPlan[field] + 1 } }).success).toBe(false);
+    }
+    for (const invalid of [
+      { ...native, revision: 5 }, { ...native, mapDocument: null },
+      { ...native, floorImportJobId: jobId }, { ...native, acceptedCandidates: 1 },
+      { ...native, floorPlan: { ...native.floorPlan, sourceType: "cad" } },
+      { ...native, floorPlan: { ...native.floorPlan, imageUrl: "/fake.svg" } },
+      { ...native, floorPlan: { ...native.floorPlan, originalFileUrl: "/fake.dwg" } },
+      { ...native, floorPlan: { ...native.floorPlan, renderedImageUrl: "/fake.svg" } },
+      { ...native, mapDocument: { ...native.mapDocument, manifest: { ...native.mapDocument.manifest, sha256: "broken" } } },
+      { ...native, renderedAssetId: "not-an-asset-id" }, { ...native, createdSlotCount: 2001 }
+    ]) expect(floorImportApplyResultSchema.safeParse(invalid).success).toBe(false);
+    const { mapDocument: _ref, ...legacy } = native;
+    const legacyPlan = { imageUrl: "/rendered.svg", originalFileUrl: "/original.dwg", renderedImageUrl: "/rendered.svg",
+      sourceType: "cad", width: 1200, height: 800, gridSize: 10 };
+    expect(floorImportApplyResultSchema.safeParse({ ...legacy, floorPlan: legacyPlan }).success).toBe(false);
+    expect(floorImportApplyResultSchema.safeParse({ ...legacy, renderedAssetId: jobId, floorPlan: legacyPlan }).success).toBe(true);
+  });
+
   it("validates a nullable applied overlay containing accepted candidates only", () => {
     const response = {
       overlay: {

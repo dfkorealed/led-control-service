@@ -23,7 +23,8 @@ import {
   CAD_SCENE_MAX_MANIFEST_BYTES,
   cadSceneManifestSchema,
   type CadSceneManifest,
-  type FloorImportApplyInput
+  type FloorImportApplyInput,
+  type FloorImportApplyResult
 } from "@led-control/shared";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
@@ -928,7 +929,7 @@ export class FloorImportService {
         INSERT INTO "FloorLightSlot" ("id", "floorId", "sourceImportJobId", "sourceCandidateId", "x", "y", "rotation", "updatedAt")
         SELECT gen_random_uuid()::text, ${floorId}, ${jobId}, "id", "x", "y", "rotation", CURRENT_TIMESTAMP
         FROM "FloorImportCandidate" WHERE "jobId" = ${jobId} AND "id" IN (${Prisma.join(input.candidateIds)})`);
-      const plan = { imageUrl: "", sourceType: "none" as const, originalFileUrl: null, renderedImageUrl: null,
+      const plan = { imageUrl: "" as const, sourceType: "none" as const, originalFileUrl: null, renderedImageUrl: null,
         width: ref.width, height: ref.height, gridSize: ref.gridSize };
       await tx.floorPlan.upsert({ where: { floorId }, create: { floorId, ...plan }, update: { ...plan, version: { increment: 1 } } });
       await tx.floorCadScene.deleteMany({ where: { floorId } });
@@ -954,7 +955,9 @@ export class FloorImportService {
       await tx.floorImportJob.update({ where: { id: jobId }, data: { status: "completed", stage: "completed", appliedAt: now,
         completedAt: now, progressPercent: 100, preparedMapGenerationId: null } });
       return { jobId, status: "completed" as const, revision: ref.revision, acceptedCandidateIds: [...accepted].sort(),
-        renderedAssetId: job.renderedAssetId, ...changeSummary, floorPlan: plan, mapDocument: ref };
+        renderedAssetId: job.renderedAssetId, deletedObjectCount: deletedObjects.count,
+        unplacedFixtureCount: unplacedFixtures.count, deletedSlotCount: deletedSlots.count, createdSlotCount: accepted.size,
+        floorPlan: plan, mapDocument: ref } satisfies FloorImportApplyResult;
     }, { ...EDITOR_TRANSACTION_OPTIONS, isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
   }
 

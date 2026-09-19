@@ -28,6 +28,10 @@ import { FloorImportController } from "../floor-import/floor-import.controller";
 import { FloorMapService } from "../floor-map/floor-map.service";
 import { FloorMapController } from "../floor-map/floor-map.controller";
 
+// API uses Node module resolution; load the same exported subpath as the web.
+const { floorImportApplyResultSchema } = require("@led-control/shared/cad-import-contracts") as
+  Pick<typeof import("@led-control/shared"), "floorImportApplyResultSchema">;
+
 const url = process.env.U6A_TEST_DATABASE_URL;
 (url ? describe : describe.skip)("U6a normal saves, real PostgreSQL/MinIO/HTTP/session", () => {
   jest.setTimeout(120_000);
@@ -109,6 +113,23 @@ const url = process.env.U6A_TEST_DATABASE_URL;
   const applyImport = (jobId: string, candidateIds: string[]) => fetch(`${base}/floors/${floorId}/import-jobs/${jobId}/apply`, {
     method: "POST", headers: { "content-type": "application/json", cookie: `led_session=${token}` }, body: JSON.stringify({
       expectedRevision: ref.revision, leaseToken: "lease", leaseFence: 1, confirmMapReset: true, candidateIds }) });
+
+  it("U13: actual native apply response satisfies the web parser with compatibility asset retained", async () => {
+    const { jobId, prepared, candidate } = await importFixture();
+    const response = await applyImport(jobId, [candidate.id]); expect(response.status).toBe(200);
+    const body = await response.json();
+    if (process.env.U13_APPLY_CAPTURE_PREFIX) {
+      await writeFile(`${process.env.U13_APPLY_CAPTURE_PREFIX}-native.json`, JSON.stringify(body), { mode: 0o600 });
+    }
+    expect(body).toMatchObject({ status: "completed", revision: prepared.revision, mapDocument: prepared,
+      floorPlan: { sourceType: "none", imageUrl: "", originalFileUrl: null, renderedImageUrl: null,
+        width: prepared.width, height: prepared.height, gridSize: prepared.gridSize } });
+    expect(body.renderedAssetId).toEqual(expect.any(String));
+    // This is the same shared subpath and strict parser used by the web API.
+    expect(floorImportApplyResultSchema.parse(body)).toEqual(body);
+    expect(body).not.toHaveProperty("floorImportJobId");
+    expect(body).not.toHaveProperty("acceptedCandidates");
+  });
 
   it("activates a real CAD preparation after its one-hour TTL while the review job pins it", async () => {
     const { jobId, prepared, candidate } = await importFixture();
