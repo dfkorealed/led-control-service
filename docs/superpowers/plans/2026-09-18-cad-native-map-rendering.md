@@ -511,11 +511,11 @@ expect(serverFailures).toEqual([]);
 | U9b2 | 공유 계약 검토 PASS·생산자/소비자 통합 중 | 64939287/16292079 검토shared54/codec24 PASS; 생산자baf189c2/e970e025, 웹 실제 순서·반투명 합성 검증 진행; legacy CAD v1 유지 |
 | U6b | core 독립 재검토 PASS | 1d4f4a2e 검토2건 수정·실제PG/MinIO3+capacity1 재검토 PASS, 기존HTTP12/초기화35/타입/upgrade2; migration98 로컬 적용. 500k 최종성능은 U14 |
 | U10b/U11b | 일반 UI 연결·보완 검토 PASS, 대량 기능은 U10c | bfaabdf8/f417b664/a28c10cc, 집중71/Chromium4/scopedTS·검토6/Chromium2 PASS. 정상 저장 undo/카메라와 그리기 취소 보완 |
-| U10c | 구현 중 | U8c stage/외부 이력 소비, bounded 대량 선택·bbox 변환·혼합 선택·선택 맞춤 |
+| U10c | 구현 중 | U8c stage/외부 이력 소비, bounded 대량 선택·bbox 변환·혼합 선택·선택 맞춤; 초안 auth scope 일치22cf2eda/View61 통과 |
 | U14a | 두 번째 원본 중간 파일 압축 보완 중 | 388d14cc style/flags/정밀도 보완 후 킨다129920개 schema/hash/display ID 전수 일치. 2단지 중간 파일 용량 제한 확인, 무손실 스트리밍 압축 후 재검증 예정 |
 | U7b | U6b와 통합 검토 PASS | 17eeb882 private ready stage preview, 집중56/PG환경제외2/typecheck·U6b 실제PG/MinIO·권한 통합 검토 통과 |
-| U13 | 모니터링 구현·미리보기 연결 중 | 45c51198 집중66/Chromium fixture2/typecheck 통과; 독립 검토 및 실제 저장/원본 여정은 후속 |
-| U8c | 구현 중 | 검토된 대량 stage/prepare-only 미리보기/외부 이력을 웹 store·전송에 연결 |
+| U13 | 독립 검토1건 보완 중 | 45c51198/33a44a88/9b617ee1 집중141/Chromium fixture4 통과; hook/renderer manifest epoch 경쟁2순서 재현, source 소유 분리 보완 |
+| U8c | 구현 완료·독립 검토 중 | 9b44493d/01bde733 대량 stage/미리보기/외부 이력/취소/혼합 선택, 집중112/scopedTS0; 실제 UI·DB 통합 후속 |
 | U14 | 통합 대기 | 실제 원본/API/브라우저/성능 최종 검증 |
 
 구현 방식은 **역할별 순차 서브에이전트 진행**을 제안한다. 공유 계약과 데이터 보존은 backend가 먼저, 소비 UI는 web_frontend가 이후 담당하고 QA가 작업 단위 결과를 확인한다. 메인은 공유 계약과 통합·문서 상태를 관리한다. 같은 파일을 다루는 병렬 에이전트는 만들지 않는다. 사용자가 더 낮은 토큰 비용을 우선하면 메인 직접 구현 + 최종 독립 리뷰로 변경할 수 있다.
