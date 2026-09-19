@@ -489,9 +489,9 @@ expect(serverFailures).toEqual([]);
 | --- | --- | --- |
 | U1 | 계측 하네스 완료·독립 검토 PASS, 기준선 부분 | e30dc20d/861724de, 집중19; 코드 혼합/OOM로 통제 기준선은 U14 재측정 |
 | U2 | 완료·독립 검토 PASS | 61ce049e, 집중120/전체336·typecheck/build·ESM/CJS/pack 통과 |
-| U3 | 구현·독립 검토 중 | 82c9bffc, 격리 PG clean/upgrade 각각31·미적용 cleanup1 통과; API2285통과559제외 |
+| U3 | 자산 경계 P2 1건 보완 중 | 82c9bffc, PG31x2/cleanup1/API2285통과559제외; 기존 일반 자산 API의 내부 map_* 차단 |
 | U12 | 완료·독립 재검토 PASS | 482cd959/31003434, browser12+기존모바일2/unit109 통과, 드롭 가림·취소 hit 보완; 실제 기기 WebView 미검증 |
-| U4a | 3건 수정·재검토 중 | 54abb278, 신규11 RED/GREEN 및 집중118통과1제외; U4b 대기 |
+| U4a | 완료·독립 재검토 PASS | 54abb278, 신규11 RED/GREEN 및 집중118통과1제외; U4b 대기 |
 | U8a | 완료·독립 검토 PASS | 22131660, 신규38/집중315/웹1718통과2제외, UI 미연결 |
 | U9a | 구현·독립 검토 중 | 586f22e7, 집중70/WebGL4/웹typecheck 통과; 실제provider/UI 미연결 |
 | U11a | 완료·독립 검토 PASS | 46376f4f, 집중103/소유파일 typecheck 통과, View/store/Canvas 미연결 |
