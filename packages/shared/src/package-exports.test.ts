@@ -260,7 +260,33 @@ afterEach(async () => {
   ));
 });
 
+const mapImportSmoke = `
+  import assert from "node:assert/strict";
+  const contracts = await import("@led-control/shared/map-document-contracts");
+  const geometry = await import("@led-control/shared/map-document-geometry");
+  globalThis.Buffer = undefined;
+  const value = contracts.mapElementSchema.parse({
+    id: "element", type: "line", geometry: { start: { x: 0, y: 0 }, end: { x: 5, y: 0 } },
+    groupId: null, layerId: "layer", zIndex: 0, visible: true, locked: false,
+    transform: { x: 2, y: 3, scaleX: 2, scaleY: 1, rotation: 0 },
+    style: { strokeColor: "#000000", fillColor: null, strokeWidth: 1, opacity: 1 }, provenance: null
+  });
+  assert.deepEqual(geometry.getMapElementBounds(value), { minX: 2, minY: 3, maxX: 12, maxY: 3 });
+  assert.equal(contracts.mapMutationSchema.safeParse({
+    requestId: "r", generationId: "g", baseRevision: 0, leaseToken: "lease", operations: [{ kind: "add", element: value }]
+  }).success, true);
+`;
+const mapRequireSmoke = mapImportSmoke.replace('import assert from "node:assert/strict";', 'const assert = require("node:assert/strict");')
+  .replaceAll("await import(", "require(");
+
 describe("shared package exports", () => {
+  it("loads common map contracts and geometry through ESM, browser condition and CommonJS", async () => {
+    for (const args of [
+      ["--input-type=module", "--eval", mapImportSmoke],
+      ["--conditions=browser", "--input-type=module", "--eval", mapImportSmoke],
+      ["--eval", mapRequireSmoke]
+    ]) await expect(execFile(process.execPath, args, { cwd: packageRoot })).resolves.toMatchObject({ stderr: "" });
+  });
   it("loads CAD scene and import runtime contracts through Node ESM and CommonJS", async () => {
     const smoke = `
       const scene = await import("@led-control/shared/cad-scene-contracts");
@@ -389,12 +415,23 @@ describe("shared package exports", () => {
     expect(energyP2Exports.import).toBe("./dist/esm/energy-p2-contracts.js");
     expect(energyP2Exports.require).toBe("./dist/energy-p2-contracts.js");
     expect(energyP2Exports.types).toBe("./dist/esm/energy-p2-contracts.d.ts");
-    for (const name of ["cad-scene-contracts", "cad-import-contracts"]) {
+    for (const name of ["cad-scene-contracts", "cad-import-contracts", "map-document-contracts", "map-document-geometry"]) {
       expect(packageJson.exports[`./${name}`].browser).toBe(`./dist/esm/${name}.js`);
       expect(packageJson.exports[`./${name}`].import).toBe(`./dist/esm/${name}.js`);
       expect(packageJson.exports[`./${name}`].require).toBe(`./dist/${name}.js`);
       expect(archiveList).toContain(`package/dist/esm/${name}.js`);
     }
+
+    await expect(execFile(process.execPath, ["--conditions=browser", "--input-type=module", "--eval", mapImportSmoke], {
+      cwd: consumerDirectory
+    })).resolves.toMatchObject({ stderr: "" });
+    await expect(execFile(process.execPath, ["--eval", mapRequireSmoke], {
+      cwd: consumerDirectory
+    })).resolves.toMatchObject({ stderr: "" });
+    await expect(execFile(process.execPath, ["--eval", `
+      const root = require("@led-control/shared");
+      if (!root.mapElementSchema || !root.mapMutationSchema || !root.getMapElementBounds) throw new Error("missing root map exports");
+    `], { cwd: consumerDirectory })).resolves.toMatchObject({ stderr: "" });
 
     await expect(execFile(process.execPath, ["--input-type=module", "--eval", importSmoke], {
       cwd: consumerDirectory

@@ -2,6 +2,8 @@ export * from "./command-delivery";
 export * from "./automation-contracts";
 export * from "./cad-import-contracts";
 export * from "./cad-scene-contracts";
+export * from "./map-document-contracts";
+export * from "./map-document-geometry";
 export * from "./domain";
 export * from "./energy-contracts";
 export * from "./energy-analytics-contracts";

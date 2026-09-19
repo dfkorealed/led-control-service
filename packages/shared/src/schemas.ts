@@ -3,6 +3,12 @@ import { cadSceneDescriptorSchema } from "./cad-scene-contracts.js";
 import { POSTGRES_INT_MAX, POSTGRES_INT_MIN } from "./postgres-contracts.js";
 
 export { POSTGRES_INT_MAX, POSTGRES_INT_MIN } from "./postgres-contracts.js";
+export {
+  mapPointSchema, mapBoundsSchema, mapTransformSchema, mapStyleSchema, mapElementSchema,
+  mapElementOpSchema, mapGroupSchema, mapLayerSchema, mapStructureOpSchema, mapOpSchema,
+  mapOperationsSchema, mapAssetRefSchema, mapDocumentRefSchema, mapMutationSchema,
+  mapMutationResultSchema, mapDocumentStateSchema
+} from "./map-document-contracts.js";
 export const EDITOR_MAX_EXPECTED_REVISION = POSTGRES_INT_MAX - 1;
 export const EDITOR_MAX_FIXTURE_UPDATES = 1_000;
 export const EDITOR_MAX_MAP_OBJECT_MUTATIONS = 2_000;

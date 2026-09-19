@@ -43,6 +43,20 @@
       "import": "./dist/esm/cad-scene-contracts.js",
       "default": "./dist/cad-scene-contracts.js"
     },
+    "./map-document-contracts": {
+      "types": "./dist/esm/map-document-contracts.d.ts",
+      "browser": "./dist/esm/map-document-contracts.js",
+      "require": "./dist/map-document-contracts.js",
+      "import": "./dist/esm/map-document-contracts.js",
+      "default": "./dist/map-document-contracts.js"
+    },
+    "./map-document-geometry": {
+      "types": "./dist/esm/map-document-geometry.d.ts",
+      "browser": "./dist/esm/map-document-geometry.js",
+      "require": "./dist/map-document-geometry.js",
+      "import": "./dist/esm/map-document-geometry.js",
+      "default": "./dist/map-document-geometry.js"
+    },
     "./energy-contracts": {
       "types": "./dist/esm/energy-contracts.d.ts",
       "browser": "./dist/esm/energy-contracts.js",

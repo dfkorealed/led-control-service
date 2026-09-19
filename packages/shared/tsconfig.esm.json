@@ -6,6 +6,8 @@
     "outDir": "dist/esm"
   },
   "include": [
+    "src/map-document-contracts.ts",
+    "src/map-document-geometry.ts",
     "src/cad-import-contracts.ts",
     "src/automation-action-result-contracts.ts",
     "src/dimming-command.ts",
