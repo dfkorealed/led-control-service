@@ -92,6 +92,7 @@ describe("CAD scene edit contracts", () => {
       scene: descriptor,
       overrides: [{
         elementId: "cad-element-00000000000000000000000000000001",
+        locator: { tileX: 2, tileY: 3, lod: 1, part: 4 },
         hidden: false,
         transform: { translateX: 1, translateY: 2, scaleX: 1, scaleY: 1, rotation: 0 },
         strokeColor: "#112233",
@@ -101,6 +102,22 @@ describe("CAD scene edit contracts", () => {
       }],
       layers: [{ layerName: "WALL", visible: false, locked: true }]
     })).toMatchObject({ revision: 7, scene: descriptor });
+
+    expect(() => cadSceneStateSchema.parse({
+      revision: 7,
+      scene: descriptor,
+      overrides: [{
+        elementId: "cad-element-00000000000000000000000000000001",
+        locator: { tileX: 2, tileY: 3, lod: 9, part: 4 },
+        hidden: false,
+        transform: null,
+        strokeColor: null,
+        fillColor: null,
+        strokeWidth: null,
+        text: null
+      }],
+      layers: []
+    })).toThrow();
 
     const snapshot = {
       floorId: "00000000-0000-4000-8000-000000000104",

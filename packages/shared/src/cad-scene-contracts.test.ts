@@ -509,12 +509,14 @@ describe("CAD scene contracts", () => {
       jobId,
       selectionStatus: "auto_selected",
       selectedRegionId: region.regionId,
+      excludedRegionPrimitiveCount: 3,
       regions: [region]
-    }).selectedRegionId).toBe(region.regionId);
+    }).excludedRegionPrimitiveCount).toBe(3);
     expect(floorImportRegionListResponseSchema.parse({
       jobId,
       selectionStatus: "selection_required",
       selectedRegionId: null,
+      excludedRegionPrimitiveCount: 7,
       regions: [region, { ...region, regionId: "region-detail" }]
     }).selectionStatus).toBe("selection_required");
     expect(floorImportRegionSelectInputSchema.parse({ regionId: region.regionId })).toEqual({
@@ -524,17 +526,26 @@ describe("CAD scene contracts", () => {
       jobId,
       selectionStatus: "selected",
       selectedRegionId: "missing-region",
+      excludedRegionPrimitiveCount: 0,
       regions: [region]
     }).success).toBe(false);
     expect(floorImportRegionListResponseSchema.safeParse({
       jobId,
       selectionStatus: "selection_required",
       selectedRegionId: region.regionId,
+      excludedRegionPrimitiveCount: 0,
       regions: [region]
     }).success).toBe(false);
     expect(floorImportRegionListResponseSchema.safeParse({
       jobId,
       selectionStatus: "selected",
+      selectedRegionId: region.regionId,
+      excludedRegionPrimitiveCount: 0,
+      regions: [region]
+    }).success).toBe(false);
+    expect(floorImportRegionListResponseSchema.safeParse({
+      jobId,
+      selectionStatus: "auto_selected",
       selectedRegionId: region.regionId,
       regions: [region]
     }).success).toBe(false);

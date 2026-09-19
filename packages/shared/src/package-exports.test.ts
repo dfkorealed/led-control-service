@@ -261,6 +261,18 @@ afterEach(async () => {
 });
 
 describe("shared package exports", () => {
+  it("loads CAD scene and import runtime contracts through Node ESM and CommonJS", async () => {
+    const smoke = `
+      const scene = await import("@led-control/shared/cad-scene-contracts");
+      const cad = await import("@led-control/shared/cad-import-contracts");
+      if (typeof scene.normalizeCadMapSize !== "function" || !scene.cadSceneStateSchema || !scene.cadSceneManifestSchema || !cad.floorImportRegionListResponseSchema) throw new Error("CAD runtime exports missing");
+    `;
+    await expect(execFile(process.execPath, ["--input-type=module", "--eval", smoke], { cwd: packageRoot }))
+      .resolves.toMatchObject({ stderr: "" });
+    await expect(execFile(process.execPath, ["--eval", smoke.replaceAll("await import(", "require(")], { cwd: packageRoot }))
+      .resolves.toMatchObject({ stderr: "" });
+  });
+
   it("loads the energy analytics contracts subpath through Node ESM and CommonJS", async () => {
     await expect(execFile(process.execPath, ["--input-type=module", "--eval", energyAnalyticsImportSmoke], {
       cwd: packageRoot
@@ -377,6 +389,12 @@ describe("shared package exports", () => {
     expect(energyP2Exports.import).toBe("./dist/esm/energy-p2-contracts.js");
     expect(energyP2Exports.require).toBe("./dist/energy-p2-contracts.js");
     expect(energyP2Exports.types).toBe("./dist/esm/energy-p2-contracts.d.ts");
+    for (const name of ["cad-scene-contracts", "cad-import-contracts"]) {
+      expect(packageJson.exports[`./${name}`].browser).toBe(`./dist/esm/${name}.js`);
+      expect(packageJson.exports[`./${name}`].import).toBe(`./dist/esm/${name}.js`);
+      expect(packageJson.exports[`./${name}`].require).toBe(`./dist/${name}.js`);
+      expect(archiveList).toContain(`package/dist/esm/${name}.js`);
+    }
 
     await expect(execFile(process.execPath, ["--input-type=module", "--eval", importSmoke], {
       cwd: consumerDirectory

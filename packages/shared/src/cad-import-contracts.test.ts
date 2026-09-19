@@ -10,7 +10,8 @@ import {
   floorImportAppliedOverlayResponseSchema,
   floorImportCandidateListResponseSchema,
   floorImportJobStatusSchema,
-  floorImportRenderedViewportSchema
+  floorImportRenderedViewportSchema,
+  floorImportRegionListResponseSchema
 } from "./cad-import-contracts";
 import { floorEditorSnapshotSchema, floorLightSlotSchema, POSTGRES_INT_MAX } from "./schemas";
 
@@ -42,6 +43,32 @@ const candidateResponse = {
 };
 
 describe("CAD import contracts", () => {
+  function regionList(count: number, unicode = false) {
+    return {
+      jobId, selectionStatus: "selection_required", selectedRegionId: null,
+      excludedRegionPrimitiveCount: 0,
+      regions: Array.from({ length: count }, (_, index) => ({
+        regionId: `${unicode ? "한".repeat(500) : "region-"}${index}`,
+        bounds: { minX: 0, minY: 0, maxX: 100, maxY: 100 },
+        primitiveCount: 2, textCount: 1, lightCandidateCount: 0, area: 10_000,
+        preview: { assetId: candidateId, width: 100, height: 100, byteSize: 64, sha256: "a".repeat(64) }
+      }))
+    };
+  }
+
+  it("accepts all 1817 regions and the detector ceiling without truncation", () => {
+    expect(floorImportRegionListResponseSchema.parse(regionList(1817)).regions).toHaveLength(1817);
+    expect(floorImportRegionListResponseSchema.parse(regionList(16384)).regions).toHaveLength(16384);
+    expect(floorImportRegionListResponseSchema.safeParse(regionList(16385)).success).toBe(false);
+  });
+
+  it("bounds serialized region response UTF-8 bytes to 16 MiB, not character count", () => {
+    const response = regionList(10000, true);
+    expect(JSON.stringify(response).length).toBeLessThan(16 * 1024 * 1024);
+    expect(new TextEncoder().encode(JSON.stringify(response)).byteLength).toBeGreaterThan(16 * 1024 * 1024);
+    expect(floorImportRegionListResponseSchema.safeParse(response).success).toBe(false);
+  });
+
   it("validates persistent light slots in editor snapshots", () => {
     const slot = {
       id: slotId,

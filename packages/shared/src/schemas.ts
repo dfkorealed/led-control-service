@@ -1,8 +1,8 @@
 import { z } from "zod";
-import { cadSceneDescriptorSchema } from "./cad-scene-contracts";
-import { POSTGRES_INT_MAX, POSTGRES_INT_MIN } from "./postgres-contracts";
+import { cadSceneDescriptorSchema } from "./cad-scene-contracts.js";
+import { POSTGRES_INT_MAX, POSTGRES_INT_MIN } from "./postgres-contracts.js";
 
-export { POSTGRES_INT_MAX, POSTGRES_INT_MIN } from "./postgres-contracts";
+export { POSTGRES_INT_MAX, POSTGRES_INT_MIN } from "./postgres-contracts.js";
 export const EDITOR_MAX_EXPECTED_REVISION = POSTGRES_INT_MAX - 1;
 export const EDITOR_MAX_FIXTURE_UPDATES = 1_000;
 export const EDITOR_MAX_MAP_OBJECT_MUTATIONS = 2_000;

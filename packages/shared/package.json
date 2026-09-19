@@ -36,6 +36,13 @@
       "import": "./dist/esm/cad-import-contracts.js",
       "default": "./dist/cad-import-contracts.js"
     },
+    "./cad-scene-contracts": {
+      "types": "./dist/esm/cad-scene-contracts.d.ts",
+      "browser": "./dist/esm/cad-scene-contracts.js",
+      "require": "./dist/cad-scene-contracts.js",
+      "import": "./dist/esm/cad-scene-contracts.js",
+      "default": "./dist/cad-scene-contracts.js"
+    },
     "./energy-contracts": {
       "types": "./dist/esm/energy-contracts.d.ts",
       "browser": "./dist/esm/energy-contracts.js",
