@@ -204,7 +204,7 @@ test("실백엔드: 일반 도형과 DXF 정본을 저장·삭제·복구하고 
       await assertFixturePreserved(page, current);
     });
 
-    await test.step("크기·격자 checkpoint는 준비만으로 공개되지 않고 명시 저장과 이력 복구를 거친다", async () => {
+    await test.step("크기·격자는 명시 저장으로 checkpoint를 확정하고 undo 미리보기는 재저장한다", async () => {
       await page.getByRole("button", { name: "선택", exact: true }).click();
       const before = await readDocument(page, current);
       const baseline = await readElements(page, current);
@@ -213,13 +213,14 @@ test("실백엔드: 일반 도형과 DXF 정본을 저장·삭제·복구하고 
       await fillNumber(panel.getByLabel("맵 너비", { exact: true }), width);
       await fillNumber(panel.getByLabel("맵 높이", { exact: true }), height);
       await fillNumber(panel.getByLabel("격자 간격", { exact: true }), gridSize);
-      const created = waitResponse(page, `/floors/${floor.id}/editor-stages`, "POST");
+      const stageCreatesBefore = mutations.filter(record => /\/editor-stages$/.test(record.path)).length;
       await panel.getByRole("button", { name: "맵 설정 적용", exact: true }).click();
-      const response = await created;
-      expect(response.ok(), await response.text()).toBe(true);
-      const stage = await response.json() as MapStage;
-      await assertReadyStage(page, current, stage.id, before, { width, height, gridSize });
-      const receipt = await saveStage(page, current, stage.id);
+      await expect(page.getByTestId("floor-editor-canvas")).toHaveAttribute("data-map-width", String(width));
+      expect(await readDocument(page, current)).toEqual(before);
+      expect(mutations.filter(record => /\/editor-stages$/.test(record.path))).toHaveLength(stageCreatesBefore);
+      // 설정 적용은 로컬 checkpoint이며 Save 한 번이 prepare와 commit을 수행한다.
+      // 외부 undo의 ready-preview/별도 Save 계약과 혼동하지 않는다.
+      const receipt = await saveCheckpoint(page, current, before, { width, height, gridSize });
       expect(receipt.result?.history).toEqual({ undo: { revision: before.revision }, redo: { revision: before.revision + 1 } });
       expect(await readDocument(page, current)).toMatchObject({ width, height, gridSize, revision: before.revision + 1 });
       const undoStage = waitResponse(page, `/floors/${floor.id}/editor-stages`, "POST");
@@ -353,6 +354,35 @@ async function saveStage(page: Page, scope: Scope, id: string) {
   await expect(page.getByRole("button", { name: "저장", exact: true })).toBeDisabled();
   return get<MapStage>(page, `/floors/${scope.floorId}/editor-stages/${id}`);
 }
+async function saveCheckpoint(page: Page, scope: Scope, before: MapDocumentRef,
+  dimensions: Pick<MapDocumentRef, "width" | "height" | "gridSize">) {
+  const prefix = `/api/floors/${scope.floorId}/editor-stages`;
+  const created = waitResponse(page, `/floors/${scope.floorId}/editor-stages`, "POST");
+  const prepared = page.waitForResponse(response => response.request().method() === "POST"
+    && new URL(response.url()).pathname.startsWith(`${prefix}/`) && new URL(response.url()).pathname.endsWith("/prepare"));
+  const ready = page.waitForResponse(async response => response.request().method() === "GET"
+    && new URL(response.url()).pathname.startsWith(`${prefix}/`) && !new URL(response.url()).pathname.slice(prefix.length + 1).includes("/")
+    && response.ok() && (await response.json() as MapStage).status === "ready");
+  const committed = page.waitForResponse(response => response.request().method() === "POST"
+    && new URL(response.url()).pathname.startsWith(`${prefix}/`) && new URL(response.url()).pathname.endsWith("/commit"));
+  await page.getByRole("button", { name: "저장", exact: true }).click();
+  const response = await created;
+  expect(response.status(), await response.text()).toBe(201);
+  expect(response.request().postDataJSON()).toMatchObject({ expectedRevision: before.revision, floorPlan: dimensions,
+    documentChanges: { generationId: before.generationId, operations: [] } });
+  const stage = await response.json() as MapStage;
+  const prepareResponse = await prepared;
+  expect(new URL(prepareResponse.url()).pathname).toBe(`${prefix}/${stage.id}/prepare`);
+  expect(prepareResponse.status(), await prepareResponse.text()).toBe(202);
+  const preview = await (await ready).json() as MapStage;
+  expect(preview).toMatchObject({ id: stage.id, status: "ready", preview: dimensions });
+  const commitResponse = await committed;
+  expect(new URL(commitResponse.url()).pathname).toBe(`${prefix}/${stage.id}/commit`);
+  expect(commitResponse.status(), await commitResponse.text()).toBe(202);
+  await expect.poll(async () => (await get<MapStage>(page, `/floors/${scope.floorId}/editor-stages/${stage.id}`)).status).toBe("committed");
+  await expect(page.getByRole("button", { name: "저장", exact: true })).toBeDisabled();
+  return get<MapStage>(page, `/floors/${scope.floorId}/editor-stages/${stage.id}`);
+}
 async function assertFixturePreserved(page: Page, scope: Scope) {
   const state = await get<FloorEditorState>(page, `/floors/${scope.floorId}/editor-state`);
   expect(state.fixtures).toHaveLength(1);
@@ -402,6 +432,8 @@ async function sourceEvidence() {
   const root = fileURLToPath(new URL("../../../", import.meta.url));
   const files = ["apps/web/e2e/common-map-real.spec.ts", "apps/web/e2e/support/real-backend-lab.ts",
     "apps/web/src/features/floor-editor/FloorEditorView.tsx", "apps/web/src/features/floor-editor/editor-store.ts",
+    "apps/web/src/features/floor-editor/use-map-editor.ts", "apps/web/src/features/floor-editor/EditorPropertiesPanel.tsx",
+    "apps/web/src/api/map-stages.ts",
     "apps/web/src/features/map-scene/MapSceneCanvas.tsx", "apps/api/src/floor-import/map-element-converter.ts"];
   const sha256: Record<string, string> = {};
   for (const file of files) sha256[file] = createHash("sha256").update(await readFile(`${root}/${file}`)).digest("hex");
