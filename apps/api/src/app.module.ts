@@ -7,6 +7,7 @@ import { AuthModule } from "./auth/auth.module";
 import { CommandsModule } from "./commands/commands.module";
 import { EnergyModule } from "./energy/energy.module";
 import { FloorEditorModule } from "./floor-editor/floor-editor.module";
+import { MapDocumentQueryModule } from "./floor-editor/map-document-query.module";
 import { FloorMapModule } from "./floor-map/floor-map.module";
 import { FloorImportModule } from "./floor-import/floor-import.module";
 import { FixturesModule } from "./fixtures/fixtures.module";
@@ -48,6 +49,7 @@ import { ObservabilityModule } from "./observability/observability.module";
     MeshControlGroupModule,
     SetupModule,
     FloorEditorModule,
+    MapDocumentQueryModule,
     FloorImportModule,
     FloorMapModule,
     GatewayOnboardingModule,
