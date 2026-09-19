@@ -1536,9 +1536,33 @@ function bindDisplayIdentities(semantic: CadSemanticEntity, elements: readonly M
           const points = world(element.geometry.outer);
           return [{ ...base, type: "polyline", bounds: boundsOfPoints(points, true), geometry: { points, closed: true } }];
         }
+        const pathSize = element.geometry.outer.length + 1 + element.geometry.holes.reduce((sum, ring) => sum + ring.length + 2, 0);
+        let fillPath: Array<{ x: number; y: number }> | null = null;
+        if (pathSize <= CAD_SCENE_MAX_POINTS_PER_PRIMITIVE) {
+          const oriented = (ring: Array<{ x: number; y: number }>, positive: boolean) => {
+            const anchor = ring[0];
+            const twiceArea = ring.reduce((sum, p, index) => {
+              const q = ring[(index + 1) % ring.length];
+              return sum + (p.x - anchor.x) * (q.y - anchor.y) - (q.x - anchor.x) * (p.y - anchor.y);
+            }, 0);
+            return (twiceArea > 0) === positive ? ring : [...ring].reverse();
+          };
+          const outer = oriented(element.geometry.outer, true);
+          fillPath = [...outer, outer[0]];
+          // Serialize disjoint contours for the existing nonzero-fill codec.
+          // Each connector is traversed both ways, contributing zero winding;
+          // holes wind opposite the outer. Never stroke these connectors.
+          for (const ring of element.geometry.holes) {
+            const hole = oriented(ring, false);
+            fillPath.push(...hole, hole[0], outer[0]);
+          }
+          fillPath = world(fillPath);
+        }
         // Filled rings cannot be fed to the stroke segment clipper. Preserve fill
         // triangles and real boundary paths as separate ordered spans of the same ID.
         const fills: CadScenePrimitive[] = element.style.fillColor === null ? []
+          : fillPath ? [{ ...base, type: "polyline", style: { ...base.style, strokeColor: null },
+            bounds: boundsOfPoints(fillPath, true), geometry: { points: fillPath, closed: true } }]
           : triangulateCadHatchPolygon(element.geometry).map(world).map(points => ({ ...base, type: "triangle",
             style: { ...base.style, strokeColor: null }, bounds: boundsOfPoints(points, true),
             geometry: { points: points as [{ x: number; y: number }, { x: number; y: number }, { x: number; y: number }] } }));

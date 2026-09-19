@@ -246,28 +246,42 @@ describe("HATCH even-odd boundary topology", () => {
     for (const primitive of primitives) expect(primitive.groupId).toBe(elements.find(e => e.id === primitive.elementId)!.groupId);
   });
 
-  it("retains a true hole and separate real boundary strokes in common v2", () => {
+  it.each([1, 2])("retains %i true holes and separate real boundary strokes in common v2", holeCount => {
     const bounds = { minX: 0, minY: 0, maxX: 100, maxY: 100 };
-    const input = semantic([square(10, 10, 60), square(20, 20, 20)]).source.entity;
+    const input = semantic([square(10, 10, 60), ...[square(20, 20, 20), square(50, 50, 10)].slice(0, holeCount)]).source.entity;
     const converter = createCadMapElementConverter({ importJobId: "hole", regionBounds: bounds });
     const elements: ReturnType<typeof converter.convertSemanticEntity> = [];
     const scene = buildCadScene({ version: 1, bounds, blocks: [], entities: [input] },
       { regionId: "r", bounds, primitiveCount: 2, textCount: 0, lightCandidateCount: 0, area: 10000 },
-      { sceneId: "00000000-0000-4000-8000-000000000171", displayVersion: 2, onSemanticEntity: value => {
+      { sceneId: "00000000-0000-4000-8000-000000000171", displayVersion: 2, maxSelectedPrimitives: holeCount + 2, onSemanticEntity: value => {
         const converted = converter.convertSemanticEntity(value); elements.push(...converted); return converted;
       } });
     expect(elements).toHaveLength(1);
     const element = elements[0];
     if (element.type !== "polygon") throw new Error("expected polygon");
-    expect(element.geometry.holes).toHaveLength(1);
+    expect(element.geometry.holes).toHaveLength(holeCount);
     const primitives = scene.tiles.flatMap(tile => decodeMapDisplayTile(tile.payload, tile.descriptor));
     expect(primitives.every(p => p.elementId === element.id && p.groupId === element.groupId && p.zIndex === element.zIndex)).toBe(true);
-    const fills = [...new Map(primitives.filter(p => p.type === "triangle").map(p => [p.fragmentOrder, p])).values()];
-    expect(fills.length).toBeGreaterThan(0);
+    const fills = [...new Map(primitives.filter(p => p.style.fillColor !== null).map(p => [p.fragmentOrder, p])).values()];
+    expect(fills).toHaveLength(1);
     expect(fills.every(p => p.style.strokeColor === null)).toBe(true);
-    const filledArea = fills.reduce((sum, p) => sum + (p.type === "triangle" ? area(p.geometry.points) : 0), 0);
-    const expectedArea = area(element.geometry.outer) - area(element.geometry.holes[0]);
+    const fill = fills[0];
+    if (fill.type !== "polyline") throw new Error("expected bounded compound fill path");
+    expect(fill.geometry.closed).toBe(true);
+    const filledArea = area(fill.geometry.points);
+    const expectedArea = area(element.geometry.outer) - element.geometry.holes.reduce((sum, ring) => sum + area(ring), 0);
     expect(filledArea / expectedArea).toBeCloseTo(1, 6);
-    expect(primitives.filter(p => p.type === "polyline").every(p => p.style.fillColor === null)).toBe(true);
+    for (const hole of element.geometry.holes) {
+      const holeCenter = { x: (hole[0].x + hole[2].x) / 2, y: (hole[0].y + hole[2].y) / 2 };
+      expect(contains(fill.geometry.points, holeCenter)).toBe(false);
+    }
+    for (let x = 2500.17; x < 11000; x += 719) for (let y = 5500.31; y < 14000; y += 823) {
+      const point = { x, y };
+      expect(contains(fill.geometry.points, point)).toBe(contains(element.geometry.outer, point) &&
+        !element.geometry.holes.some(hole => contains(hole, point)));
+    }
+    const strokes = primitives.filter(p => p.style.strokeColor !== null);
+    expect(strokes.every(p => p.style.fillColor === null)).toBe(true);
+    expect(new Set(strokes.map(p => p.fragmentOrder)).size).toBe(holeCount + 1);
   });
 });
