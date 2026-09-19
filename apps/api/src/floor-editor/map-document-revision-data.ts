@@ -1,6 +1,6 @@
 import { ConflictException, Injectable } from "@nestjs/common";
 import { MapAssetRef, MapDocumentRef, MapElement, MapGroup, MapLayer, MapOp,
-  editorDocumentChangesSchema, mapDocumentStateSchema } from "@led-control/shared";
+  editorDocumentChangesSchema, mapDocumentRefSchema, mapDocumentStateSchema } from "@led-control/shared";
 import { Prisma } from "@prisma/client";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { PrismaService } from "../prisma/prisma.service";
 import { ObjectStorageService } from "../storage/object-storage.service";
 import { MapDocumentStore } from "./map-document-store";
-import { parseMapDocumentSnapshot } from "./floor-editor-snapshot";
+import { hashFloorEditorSnapshot, parseMapDocumentSnapshot } from "./floor-editor-snapshot";
 import { decodeMapPayload, MAP_ENCODED_MAX_BYTES, parseMapJson, validateMapChunk } from "./map-document-codec";
 import { mapIdHash, parseMapIndex } from "./map-document-index";
 
@@ -41,9 +41,27 @@ export class MapDocumentRevisionData {
     const head = await tx.floorMapDocument.findUnique({ where: { floorId } });
     if (!head) return null;
     const row = await tx.floorMapRevision.findUniqueOrThrow({ where: { floorId_revision: { floorId, revision: head.revision } } });
-    const ref = parseMapDocumentSnapshot(row.snapshot).document;
-    if (ref.generationId !== head.activeGenerationId || ref.revision !== head.revision) throw new Error("map head snapshot mismatch");
-    return ref;
+    const snapshot = parseMapDocumentSnapshot(row.snapshot), ref = snapshot.document;
+    if (row.snapshotSha256 !== hashFloorEditorSnapshot(snapshot) || ref.revision !== head.revision) throw new Error("map head snapshot mismatch");
+    if (ref.generationId === head.activeGenerationId) return ref;
+    // A checkpoint changes storage identity, not the content revision. History
+    // retains its original generation/pins; current readers use the verified head.
+    const generation = await tx.floorMapGeneration.findFirst({ where: { id: head.activeGenerationId, floorId }, include: { manifest: true } });
+    const floor = await tx.floor.findUnique({ where: { id: floorId }, include: { floorPlan: true } });
+    const asset = generation?.manifest;
+    if (!generation || generation.floorId !== floorId || generation.status !== "active" ||
+      generation.sourceGenerationId !== ref.generationId || generation.sourceRevision !== ref.revision ||
+      generation.baseRevision !== ref.revision || generation.width !== ref.width || generation.height !== ref.height ||
+      generation.gridSize !== ref.gridSize || generation.elementCount !== ref.elementCount ||
+      !floor || floor.mapRevision !== ref.revision || floor.floorPlan?.width !== ref.width ||
+      floor.floorPlan.height !== ref.height || floor.floorPlan.gridSize !== ref.gridSize ||
+      !asset || asset.id !== generation.manifestAssetId || asset.floorId !== floorId || asset.status !== "ready" ||
+      asset.kind !== "map_manifest" || asset.cleanupStartedAt || asset.contentEncoding !== null || asset.mimeType !== "application/octet-stream") {
+      throw new Error("map checkpoint head identity mismatch");
+    }
+    return mapDocumentRefSchema.parse({ ...ref, generationId: generation.id, manifest: {
+      assetId: asset.id, sha256: asset.sha256, byteSize: Number(asset.sizeBytes), decodedByteSize: generation.manifestDecodedBytes
+    } });
   }
 
   async readRevision(floorId: string, ref: MapDocumentRef): Promise<MapRevisionData> {

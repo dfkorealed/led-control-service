@@ -13,7 +13,8 @@ const url = process.env.U6B_TEST_DATABASE_URL;
   it("persists worker fencing, immutable request authority, result receipt and bounded upload intent", async () => {
     const rows = await prisma.$queryRaw<Array<{ column_name: string }>>`SELECT column_name FROM information_schema.columns WHERE table_name = 'FloorMapStage'`;
     expect(rows.map(row => row.column_name)).toEqual(expect.arrayContaining([
-      "leaseFence", "requestHash", "metadata", "expectedPartCount", "expectedDecodedBytes", "workerToken", "workerExpiresAt", "result", "errorCode"
+      "leaseFence", "requestHash", "metadata", "expectedPartCount", "expectedDecodedBytes", "workerToken", "workerExpiresAt", "result", "errorCode",
+      "preparedGenerationId", "commitRequested"
     ]));
     const statuses = await prisma.$queryRaw<Array<{ value: string }>>`SELECT unnest(enum_range(NULL::"FloorMapStageStatus"))::text AS value`;
     expect(statuses.map(row => row.value)).toEqual(expect.arrayContaining(["queued", "processing", "cancelled"]));

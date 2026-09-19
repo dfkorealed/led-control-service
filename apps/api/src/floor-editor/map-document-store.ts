@@ -214,7 +214,7 @@ export class MapDocumentStore {
   async reapExpiredPreparations(now = new Date()): Promise<number> {
     const candidates = await this.prisma.floorMapGeneration.findMany({
       where: { status: { in: ["preparing", "prepared"] }, expiresAt: { lte: now },
-        preparedImportJobs: { none: {} } },
+        preparedImportJobs: { none: {} }, preparedStages: { none: {} } },
       orderBy: [{ expiresAt: "asc" }, { id: "asc" }], take: 25, select: { floorId: true, id: true }
     });
     let retired = 0;
@@ -233,7 +233,7 @@ export class MapDocumentStore {
         await tx.floorImportJob.count({ where: { preparedMapGenerationId: generationId, floorId } }) ||
         await tx.floorMapRevisionAsset.count({ where: { generationId } }) ||
         await tx.floorMapDocument.count({ where: { activeGenerationId: generationId } }) ||
-        await tx.floorMapStage.count({ where: { generationId } }) ||
+        await tx.floorMapStage.count({ where: { OR: [{ generationId }, { preparedGenerationId: generationId }] } }) ||
         await tx.floorMapChangeSet.count({ where: { generationId } })) {
         if (expiredBefore) return false;
         throw new Error("referenced map generation cannot be discarded");

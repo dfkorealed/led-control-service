@@ -17,7 +17,7 @@ import { AuditService } from "../audit/audit.service";
 import { AuthenticatedUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import { hashEditorLeaseToken } from "./editor-lease-token";
-import { buildFloorEditorSnapshot, buildMapDocumentSnapshot, hashFloorEditorSnapshot } from "./floor-editor-snapshot";
+import { buildFloorEditorSnapshot, buildMapDocumentSnapshot, hashFloorEditorSnapshot, MapDocumentSnapshot } from "./floor-editor-snapshot";
 import { MapDocumentMutationService } from "./map-document-mutation.service";
 import { MapDocumentRevisionData } from "./map-document-revision-data";
 import { FixtureEnergyCheckpointService } from "../energy/fixture-state-ingestion.service";
@@ -165,14 +165,8 @@ export class FloorEditorService {
     const prepared = this.prepareSaveInput(floorId, input);
     if (input.documentChanges) {
       if (!this.mapMutations) throw new ServiceUnavailableException("common map saves unavailable");
-      return this.mapMutations.commit(floorId, access.siteId, user, input, rawInput, async (tx, changedAt, document) => {
-        await this.assertAtomicSaveTargets(tx, floorId, prepared);
-        await this.applySaveChanges(tx, floorId, prepared, changedAt);
-        const floor = await this.loadSnapshotFloor(tx, floorId);
-        const legacy = this.buildSnapshot(floor);
-        const snapshot = buildMapDocumentSnapshot({ document, fixtures: legacy.fixtures, lightSlots: "lightSlots" in legacy ? legacy.lightSlots ?? [] : [] });
-        return { result: this.toEditorState(floor, document), snapshot };
-      });
+      return this.mapMutations.commit(floorId, access.siteId, user, input, rawInput,
+        (tx, changedAt, document) => this.applyDocumentSave(tx, floorId, input, changedAt, document));
     }
     await this.preflightObjectUpdates(floorId, prepared.objectUpdates);
 
@@ -222,6 +216,38 @@ export class FloorEditorService {
       this.throwMappedTransactionError(error);
       throw error;
     }
+  }
+
+  async applyDocumentSave(tx: Prisma.TransactionClient, floorId: string, input: SaveEditorStateInput,
+    changedAt: Date, document: MapDocumentRef) {
+    this.assertUniqueMutationIds(input);
+    const prepared = this.prepareSaveInput(floorId, input);
+    await this.assertAtomicSaveTargets(tx, floorId, prepared);
+    await this.applySaveChanges(tx, floorId, prepared, changedAt);
+    const floor = await this.loadSnapshotFloor(tx, floorId);
+    const outside = (p: { x: number; y: number }) => p.x < 0 || p.y < 0 || p.x > document.width || p.y > document.height;
+    if (floor.fixtures.some(f => f.placementStatus === "placed" && outside(f)) || floor.lightSlots.some(outside)) {
+      throw new BadRequestException("map dimensions exclude a retained fixture or slot");
+    }
+    if (floor.floorPlan?.width !== document.width || floor.floorPlan.height !== document.height || floor.floorPlan.gridSize !== document.gridSize) {
+      throw new BadRequestException("map dimensions and floor plan mismatch");
+    }
+    const legacy = this.buildSnapshot(floor);
+    const snapshot = buildMapDocumentSnapshot({ document, fixtures: legacy.fixtures, lightSlots: "lightSlots" in legacy ? legacy.lightSlots ?? [] : [] });
+    return { result: this.toEditorState(floor, document), snapshot };
+  }
+
+  async applyDocumentRestore(tx: Prisma.TransactionClient, floorId: string, source: MapDocumentSnapshot,
+    changedAt: Date, document: MapDocumentRef) {
+    const existing = await this.existingFixtureIds(tx, floorId, source.fixtures.map(f => f.id));
+    const legacy: FloorEditorSnapshot = { version: 2, fixtures: source.fixtures, lightSlots: source.lightSlots, objects: [],
+      floorPlan: { sourceType: "none", imageUrl: "", originalFileUrl: null, renderedImageUrl: null,
+        width: document.width, height: document.height, gridSize: document.gridSize } };
+    await this.applySnapshot(tx, floorId, legacy, existing, changedAt);
+    const floor = await this.loadSnapshotFloor(tx, floorId), snapshot = this.buildSnapshot(floor);
+    return { result: { ...this.toEditorState(floor, document),
+      skippedFixtureIds: source.fixtures.filter(f => !existing.has(f.id)).map(f => f.id) },
+      snapshot: buildMapDocumentSnapshot({ document, fixtures: snapshot.fixtures, lightSlots: "lightSlots" in snapshot ? snapshot.lightSlots ?? [] : [] }) };
   }
 
   async listEditorRevisions(user: AuthenticatedUser, floorId: string, rawQuery: unknown = {}) {
@@ -275,12 +301,15 @@ export class FloorEditorService {
       "invalid floor editor restore payload"
     );
 
+    if (await this.mapData?.currentRef(floorId)) {
+      if (!this.mapMutations) throw new ServiceUnavailableException("common map restore unavailable");
+      return this.mapMutations.restore(floorId, access.siteId, user, parsedRevision, input,
+        (tx, now, document, source) => this.applyDocumentRestore(tx, floorId, source, now, document));
+    }
     try {
       return await this.prisma.$transaction(async (tx) => {
         const authorizedSite = await this.siteAccess.assertManageInTransaction(tx, user, access.siteId);
-        if (await this.mapData?.currentRef(floorId, tx)) {
-          throw new ConflictException({ code: "map_restore_unavailable", message: "이 맵의 이력 복원을 아직 사용할 수 없습니다." });
-        }
+        if (await this.mapData?.currentRef(floorId, tx)) throw new ConflictException("map document changed during restore");
         const source = await tx.floorMapRevision.findUnique({
           where: { floorId_revision: { floorId, revision: parsedRevision } },
           select: { revision: true, snapshot: true }

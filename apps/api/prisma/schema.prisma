@@ -677,6 +677,7 @@ model FloorMapGeneration {
   changeSets             FloorMapChangeSet[]
   revisionAssets         FloorMapRevisionAsset[]
   stages                 FloorMapStage[]
+  preparedStages         FloorMapStage[] @relation("PreparedMapStage")
   preparedImportJobs     FloorImportJob[] @relation("FloorImportPreparedMapGeneration")
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
@@ -802,8 +803,11 @@ model FloorMapStage {
   workerExpiresAt     DateTime?
   result              Json?
   errorCode           String?
+  preparedGenerationId String?
+  commitRequested     Boolean @default(false)
   expiresAt           DateTime
   generation          FloorMapGeneration @relation(fields: [generationId, floorId], references: [id, floorId], onDelete: Cascade)
+  preparedGeneration  FloorMapGeneration? @relation("PreparedMapStage", fields: [preparedGenerationId, floorId], references: [id, floorId], onDelete: NoAction)
   parts               FloorMapStagePart[]
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
@@ -811,6 +815,7 @@ model FloorMapStage {
   @@unique([id, floorId])
   @@unique([floorId, requestId])
   @@index([status, expiresAt])
+  @@index([preparedGenerationId])
 }
 
 model FloorMapStagePart {

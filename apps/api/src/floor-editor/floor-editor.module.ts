@@ -18,10 +18,13 @@ import { MapDocumentAssetReferences } from "./map-document-asset-references";
 import { MapDocumentResetService } from "./map-document-reset.service";
 import { MapDocumentMutationService } from "./map-document-mutation.service";
 import { MapDocumentRevisionData } from "./map-document-revision-data";
+import { MapDocumentCheckpointService } from "./map-document-checkpoint.service";
+import { MapDocumentStagingService } from "./map-document-staging.service";
+import { MapDocumentStagingController } from "./map-document-staging.controller";
 
 @Module({
   imports: [PrismaModule, AuthModule, AccessModule, AuditModule, StorageModule, RedisModule],
-  controllers: [FloorEditorController, FloorAssetsController],
+  controllers: [FloorEditorController, FloorAssetsController, MapDocumentStagingController],
   providers: [
     FloorEditorService,
     FloorAssetsService,
@@ -31,10 +34,12 @@ import { MapDocumentRevisionData } from "./map-document-revision-data";
     MapDocumentResetService,
     MapDocumentMutationService,
     MapDocumentRevisionData,
+    MapDocumentCheckpointService,
+    MapDocumentStagingService,
     EditorLeaseService,
     FixtureEnergyCheckpointService,
     EnergyDimensionHistoryService
   ],
-  exports: [MapDocumentStore, MapDocumentRevisionData]
+  exports: [MapDocumentStore, MapDocumentRevisionData, MapDocumentStagingService]
 })
 export class FloorEditorModule {}

@@ -1,5 +1,5 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
-import { MapAssetRef, MapDocumentRef, MapElement, MapOp, SaveEditorStateInput } from "@led-control/shared";
+import { BadRequestException, ConflictException, Injectable, NotFoundException, Optional } from "@nestjs/common";
+import { MapAssetRef, MapDocumentRef, MapElement, MapOp, SaveEditorStateInput, RestoreFloorEditorRevisionInput } from "@led-control/shared";
 import { Prisma } from "@prisma/client";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -12,11 +12,12 @@ import { AuthenticatedUser } from "../auth/auth.types";
 import { ObjectStorageService } from "../storage/object-storage.service";
 import { MapDocumentStore, needsMapCheckpoint } from "./map-document-store";
 import { MapDocumentRevisionData, MAP_NORMAL_DELTA_BYTES, checkpointRequired } from "./map-document-revision-data";
-import { MapDocumentSnapshot, hashFloorEditorSnapshot } from "./floor-editor-snapshot";
+import { MapDocumentSnapshot, hashFloorEditorSnapshot, parseMapDocumentSnapshot } from "./floor-editor-snapshot";
 import { assertActiveFloorStatus } from "./floor-lifecycle";
 import { hashEditorLeaseToken } from "./editor-lease-token";
 import { encodeMapPayload, MAP_CHUNK_MAX_BYTES } from "./map-document-codec";
 import { planMapChanges } from "./map-document-mutations";
+import { MapDocumentCheckpointService } from "./map-document-checkpoint.service";
 
 const ACTION = "floor_editor.document_saved";
 const TRANSACTION = { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted, maxWait: 5000, timeout: 15_000 };
@@ -26,7 +27,8 @@ type Apply<T> = (tx: Prisma.TransactionClient, now: Date, document: MapDocumentR
 export class MapDocumentMutationService {
   constructor(private readonly prisma: PrismaService, private readonly access: SiteAccessService,
     private readonly audit: AuditService, private readonly storage: ObjectStorageService,
-    private readonly store: MapDocumentStore, private readonly data: MapDocumentRevisionData) {}
+    private readonly store: MapDocumentStore, private readonly data: MapDocumentRevisionData,
+    @Optional() private readonly checkpoints = new MapDocumentCheckpointService(prisma, storage, store, data)) {}
 
   async commit<T>(floorId: string, siteId: string, user: AuthenticatedUser, input: SaveEditorStateInput,
     rawInput: unknown, apply: Apply<T>): Promise<T> {
@@ -37,6 +39,19 @@ export class MapDocumentMutationService {
     const ref = preflight.document!;
     const state = await this.data.readRevision(floorId, ref);
     const operations: MapOp[] = [...input.documentChanges.operations];
+    const overlay = new Map<string, MapElement | null>(state.overlay.map(e => [e.id, e]));
+    for (const id of state.deletedIds) overlay.set(id, null);
+    for (const op of operations) {
+      if (op.kind === "add" || op.kind === "update") overlay.set(op.element.id, op.element);
+      if (op.kind === "delete") overlay.set(op.id, null);
+    }
+    const head = await this.prisma.floorMapDocument.findUniqueOrThrow({ where: { floorId } });
+    if (needsMapCheckpoint(head.changesSinceCheckpoint + 1, head.deltaDecodedBytes + BigInt(Buffer.byteLength(JSON.stringify(operations)) + 64)) ||
+      overlay.size > 2000 || Buffer.byteLength(JSON.stringify([...overlay])) > 8 * 1024 * 1024 ||
+      operations.some(op => op.kind === "group.delete" || op.kind === "layer.delete") ||
+      (input.floorPlan && (input.floorPlan.width !== ref.width || input.floorPlan.height !== ref.height || input.floorPlan.gridSize !== ref.gridSize))) {
+      return this.commitReplacement(floorId, siteId, user, input, hash, ref, apply);
+    }
     const groupIds = new Set(operations.flatMap(op => op.kind === "group.delete" ? [op.id] : []));
     const layerIds = new Set(operations.flatMap(op => op.kind === "layer.delete" ? [op.id] : []));
     // Deleting a group deletes its subtree, not registered fixtures or slots.
@@ -58,8 +73,18 @@ export class MapDocumentMutationService {
     }
     if (operations.length > 2000) checkpointRequired();
     const ids = operations.flatMap(op => op.kind === "add" || op.kind === "update" ? [op.element.id] : op.kind === "delete" ? [op.id] : []);
-    for (const element of await state.getElements([...new Set(ids)].filter(id => !originals.has(id)))) originals.set(element.id, element);
+    try {
+      for (const element of await state.getElements([...new Set(ids)].filter(id => !originals.has(id)))) originals.set(element.id, element);
+    } catch (error) {
+      if (error instanceof ConflictException && (error.getResponse() as { code?: string }).code === "map_checkpoint_required") {
+        return this.commitReplacement(floorId, siteId, user, input, hash, ref, apply);
+      }
+      throw error;
+    }
     const planned = planMapChanges(ref, { elements: [...originals.values()], groups: state.groups, layers: state.layers }, operations);
+    if (Buffer.byteLength(JSON.stringify({ version: 1, operations: planned.inverse })) > MAP_CHUNK_MAX_BYTES) {
+      return this.commitReplacement(floorId, siteId, user, input, hash, ref, apply);
+    }
     const forward = this.encodeOperations(planned.operations), inverse = this.encodeOperations(planned.inverse);
     const assets = [await this.writeAsset(floorId, forward), await this.writeAsset(floorId, inverse)];
     return this.prisma.$transaction(async tx => {
@@ -121,12 +146,54 @@ export class MapDocumentMutationService {
     if (!document || floor.mapRevision !== input.expectedRevision || document.revision !== input.expectedRevision ||
       document.generationId !== input.documentChanges!.generationId) throw new ConflictException("map document revision conflict");
     const head = await tx.floorMapDocument.findUniqueOrThrow({ where: { floorId } });
-    if (needsMapCheckpoint(head.changesSinceCheckpoint, head.deltaDecodedBytes) ||
-      head.deltaDecodedBytes + BigInt(addedDecodedBytes) > BigInt(MAP_NORMAL_DELTA_BYTES)) checkpointRequired();
-    if (input.floorPlan === null || (input.floorPlan && (input.floorPlan.width !== document.width ||
-      input.floorPlan.height !== document.height || input.floorPlan.gridSize !== document.gridSize))) checkpointRequired();
+    if (addedDecodedBytes && head.deltaDecodedBytes + BigInt(addedDecodedBytes) > BigInt(MAP_NORMAL_DELTA_BYTES)) checkpointRequired();
+    if (input.floorPlan === null) throw new BadRequestException("common map requires dimensions");
     if (input.floorPlan && input.floorPlan.sourceType !== "none") throw new BadRequestException("common map backgrounds require import activation");
     return { now, organizationId: site.organizationId, replay: undefined, document };
+  }
+  private async commitReplacement<T>(floorId: string, siteId: string, user: AuthenticatedUser, input: SaveEditorStateInput,
+    hash: string, ref: MapDocumentRef, apply: Apply<T>, source?: MapDocumentSnapshot): Promise<T> {
+    const prepared = await this.checkpoints.prepare(floorId, source?.document ?? ref,
+      (async function* () { if (!source) yield* input.documentChanges!.operations; })(),
+      source ? { sourceType: "none", imageUrl: "", originalFileUrl: null, renderedImageUrl: null,
+        width: source.document.width, height: source.document.height, gridSize: source.document.gridSize } : input.floorPlan);
+    let published = false;
+    try {
+      return await this.prisma.$transaction(async tx => {
+        const authority = await this.authorize<T>(tx, floorId, siteId, user, input, hash);
+        if (authority.replay !== undefined) return authority.replay;
+        await this.checkpoints.activate(tx, floorId, ref, prepared);
+        const { result, snapshot } = await apply(tx, authority.now, prepared);
+        const revision = await tx.floorMapRevision.create({ data: { floorId, revision: prepared.revision,
+          snapshot: snapshot as Prisma.InputJsonValue, snapshotSha256: hashFloorEditorSnapshot(snapshot), changedBy: user.id,
+          restoredFromRevision: source?.document.revision,
+          changeSummary: { checkpoint: true, documentOperations: input.documentChanges!.operations.length } } });
+        await this.store.pinRevision(tx, floorId, revision.id, prepared);
+        const serializableResult = JSON.parse(JSON.stringify(result));
+        await this.audit.record({ organizationId: authority.organizationId, siteId, actorId: user.id, action: ACTION,
+          targetType: "floor", targetId: floorId, outcome: "success", transaction: tx,
+          metadata: { requestId: input.documentChanges!.requestId, payloadHash: hash, result: serializableResult } });
+        published = true;
+        return serializableResult as T;
+      }, { ...TRANSACTION, timeout: 30000 });
+    } finally {
+      if (!published) await this.store.discardPreparedGeneration(floorId, prepared.generationId);
+    }
+  }
+  async restore<T>(floorId: string, siteId: string, user: AuthenticatedUser, revision: number, raw: RestoreFloorEditorRevisionInput,
+    apply: (tx: Prisma.TransactionClient, now: Date, document: MapDocumentRef, source: MapDocumentSnapshot) => ReturnType<Apply<T>>): Promise<T> {
+    const hash = createHash("sha256").update(JSON.stringify({ restore: revision, actorId: user.id, input: raw })).digest("hex");
+    const current = await this.data.currentRef(floorId);
+    const input: SaveEditorStateInput = { ...raw, fixtureUpdates: [], slotAssignments: [], objectCreates: [], objectUpdates: [], objectDeletes: [],
+      documentChanges: { requestId: "restore-" + hash, generationId: current?.generationId ?? "missing", operations: [] } };
+    const authority = await this.prisma.$transaction(tx => this.authorize<T>(tx, floorId, siteId, user, input, hash), TRANSACTION);
+    if (authority.replay !== undefined) return authority.replay;
+    const row = await this.prisma.floorMapRevision.findUnique({ where: { floorId_revision: { floorId, revision } } });
+    if (!row) throw new NotFoundException("map revision not found");
+    const source = parseMapDocumentSnapshot(row.snapshot);
+    if (row.snapshotSha256 !== hashFloorEditorSnapshot(source)) throw new BadRequestException("map revision integrity mismatch");
+    return this.commitReplacement(floorId, siteId, user, input, hash, authority.document!,
+      (tx, now, document) => apply(tx, now, document, source), source);
   }
   private encodeOperations(operations: MapOp[]) {
     const bytes = Buffer.from(JSON.stringify({ version: 1, operations }));
