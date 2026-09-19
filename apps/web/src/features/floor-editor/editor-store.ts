@@ -1,10 +1,12 @@
 import { create } from "zustand";
-import type { EDITOR_MAX_NAME_LENGTH, MapElement, MapGroup, MapLayer, MapOp, SaveEditorStateInput } from "@led-control/shared";
+import type { EDITOR_MAX_NAME_LENGTH, MapDocumentRef, MapElement, MapGroup, MapLayer, MapOp, SaveEditorStateInput } from "@led-control/shared";
 import { MAP_MUTATION_MAX_BYTES, MAP_MUTATION_MAX_OPERATIONS, mapDocumentRefSchema } from "@led-control/shared/map-document-contracts";
 import { saveFloorEditorState } from "../../api/floor-editor";
-import { CommonMapStore, MapEditorError, mapOperationKey, type CommonMapDraft, type MapEditorScope, type MapSelection } from "./common-map-store";
+import { mapStageClient, type MapStageClient, type MapStageProgress, type PreparedMapStage } from "../../api/map-stages";
+import { CommonMapStore, MapEditorError, mapOperationKey, parseCommonMapDraft, type CommonMapDraft, type MapEditorScope, type MapSelection } from "./common-map-store";
+import { applyEditorDraftChanges } from "./editor-drafts";
 import type { MapElementHistory } from "./map-element-history";
-import { buildEditorChanges, hasEditorChanges } from "./editor-diff";
+import { buildEditorChanges, editorFloorPlan, hasEditorChanges } from "./editor-diff";
 import type { CadEditorSelection, EditorFixture, EditorTool, FloorEditorState, FloorMapObject, FloorMapObjectDraft, FloorPlanDraft } from "./editor-types";
 import { clampEditorZoom, clampObjectToMap, snapPointToGridWithinBounds, snapRectToGrid, trianglePointsForSize, type Point } from "./geometry";
 
@@ -16,16 +18,21 @@ type LayerSettings = Record<LayerName, { visible: boolean; locked: boolean }>;
 type MapSettings = { width: number; height: number; gridSize: number };
 function mapSettings(state: FloorEditorState): MapSettings {
   return {
-    width: state.floor.mapDocument?.width ?? state.floor.floorPlan?.width ?? 1200,
-    height: state.floor.mapDocument?.height ?? state.floor.floorPlan?.height ?? 800,
+    width: state.floor.floorPlan?.width ?? state.floor.mapDocument?.width ?? 1200,
+    height: state.floor.floorPlan?.height ?? state.floor.mapDocument?.height ?? 800,
     gridSize: state.floor.floorPlan?.gridSize ?? state.floor.mapDocument?.gridSize ?? 10
   };
+}
+function historyFloorPlan(state: FloorEditorState, current: FloorEditorState) {
+  const old = state.floor.mapDocument, live = current.floor.mapDocument;
+  return !state.floor.floorPlan && old && live && (old.width !== live.width || old.height !== live.height || old.gridSize !== live.gridSize)
+    ? editorFloorPlan(state) : state.floor.floorPlan;
 }
 // The shared root is CommonJS, so enforce its literal limit through a type-only
 // import without pulling that runtime entry into the browser editor bundle.
 const maxFixtureNameLength: typeof EDITOR_MAX_NAME_LENGTH = 200;
 interface MapCommand { history: MapElementHistory; keys: string[] }
-interface HistoryEntry { state: FloorEditorState; selection: Selection; selectedFixtureIds: string[]; mapSelection: MapSelection; mapCommand?: MapCommand }
+interface HistoryEntry { state: FloorEditorState; selection: Selection; selectedFixtureIds: string[]; mapSelection: MapSelection; mapCommand?: MapCommand; external?: { undoRevision: number; redoRevision: number } }
 export interface MapEditorTransaction {
   operations: MapOp[];
   /** Capture before resolving canonical data; required with injected originals. */
@@ -41,7 +48,13 @@ export interface PreparedEditorSave {
   payload: SaveEditorStateInput;
   byteSize: number;
 }
-type EditorLease = Pick<SaveEditorStateInput, "leaseToken" | "leaseFence">;
+export type EditorLease = Pick<SaveEditorStateInput, "leaseToken" | "leaseFence">;
+export interface MapStreamTransaction extends Omit<MapEditorTransaction, "operations" | "canonicalElements" | "scope"> {
+  scope: MapEditorScope;
+  /** Replayable, immutable selection/transform; pull U7 pages (<=128) lazily. */
+  operations: () => AsyncIterable<MapOp>;
+}
+export interface PendingMapStage { stageId: string; preview: MapDocumentRef; kind: "stream" | "undo" | "redo" }
 type SaveTransport = (floorId: string, payload: SaveEditorStateInput) => Promise<FloorEditorState>;
 const defaultLayers = (): LayerSettings => ({ background: { visible: true, locked: true }, objects: { visible: true, locked: false }, fixtures: { visible: true, locked: false } });
 
@@ -53,6 +66,13 @@ interface EditorStore {
   mapOperations: MapOp[];
   mapSelection: MapSelection;
   isSaving: boolean;
+  isPreparingMapStage: boolean;
+  stageProgress: MapStageProgress | null;
+  pendingMapStage: PendingMapStage | null;
+  prepareMapStream: (transaction: MapStreamTransaction, lease: EditorLease, client?: MapStageClient) => Promise<"ready" | "stale">;
+  prepareHistory: (direction: "undo" | "redo", lease: EditorLease, client?: MapStageClient) => Promise<"ready" | "stale">;
+  cancelMapStage: (lease: EditorLease, client?: MapStageClient) => Promise<"cancelled" | "committed" | "stale">;
+  recoverStageDraft: (recovered: FloorEditorState & { commonMapDraft?: CommonMapDraft }, lease: EditorLease, client?: MapStageClient) => Promise<"ready" | "stale">;
   loadMapElements: (scope: MapEditorScope, elements: MapElement[]) => boolean;
   loadMapStructures: (scope: MapEditorScope, structures: { groups: MapGroup[]; layers: MapLayer[] }) => boolean;
   applyMapTransaction: (transaction: MapEditorTransaction) => void;
@@ -60,7 +80,7 @@ interface EditorStore {
   selectMapGroups: (ids: string[], additive?: boolean) => void;
   exportMapDraft: () => CommonMapDraft | null;
   prepareSave: (lease: EditorLease) => PreparedEditorSave;
-  saveChanges: (lease: EditorLease, transport?: SaveTransport) => Promise<"saved" | "stale">;
+  saveChanges: (lease: EditorLease, transport?: SaveTransport, stageClient?: MapStageClient) => Promise<"saved" | "stale">;
   initialState: FloorEditorState | null;
   state: FloorEditorState | null;
   isDirty: boolean;
@@ -120,6 +140,16 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
   let epoch = 0;
   let retry: { fingerprint: string; requestId: string } | null = null;
   let pendingSaveKeys = new Set<string>();
+  let stageAbort = new AbortController();
+  let preparingStage = false;
+  let stageRun = 0;
+  type StageCapture = { handle: PreparedMapStage; captured: FloorEditorState; payload: SaveEditorStateInput };
+  let savingStage: StageCapture | null = null;
+  let staged: (StageCapture & { source: CommonMapStore; before: HistoryEntry; past: HistoryEntry[]; future: HistoryEntry[]; scope: MapEditorScope }) | null = null;
+  let streamAttempt: { transaction: MapStreamTransaction; fingerprint: string; captured: FloorEditorState; payload: SaveEditorStateInput;
+    before: HistoryEntry; past: HistoryEntry[]; future: HistoryEntry[]; source: CommonMapStore } | null = null;
+  let historyAttempt: { before: HistoryEntry; past: HistoryEntry[]; future: HistoryEntry[]; source: CommonMapStore } | null = null;
+  const assertEditable = () => { if (preparingStage) throw new MapEditorError("MAP_STAGE_PREPARING", "대량 편집을 준비하고 있습니다."); };
   let batch: { state: FloorEditorState; extra: Partial<EditorStore> } | null = null;
   const emptySelection = (): MapSelection => ({ elementIds: [], groupIds: [] });
   const matchesScope = (scope: MapEditorScope) => JSON.stringify(scope) === JSON.stringify(get().mapScope);
@@ -128,23 +158,25 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
       mapDocumentRefSchema.parse(state.floor.mapDocument);
       if (state.floor.mapDocument.revision !== state.floor.mapRevision || state.objects.length) throw new MapEditorError("MAP_DOCUMENT_INVALID", "맵 문서를 다시 불러와주세요.");
     }
+    stageAbort.abort(); stageAbort = new AbortController(); stageRun++; preparingStage = false; savingStage = null; staged = null; streamAttempt = null; historyAttempt = null;
     common = new CommonMapStore(); retry = null; pendingSaveKeys = new Set(); epoch++;
     const document = state?.floor.mapDocument;
-    return { ...common.view(), mapSelection: emptySelection(), isSaving: false,
+    return { ...common.view(), mapSelection: emptySelection(), isSaving: false, isPreparingMapStage: false, stageProgress: null, pendingMapStage: null,
       mapScope: document && state ? { authScope, siteId: state.floor.siteId, floorId: state.floor.id,
         generationId: document.generationId, baseRevision: state.floor.mapRevision, epoch } : null };
   };
   const retain = (entries: HistoryEntry[]) => common.retain(new Set([
-    ...pendingSaveKeys, ...entries.flatMap((entry) => entry.mapCommand?.keys ?? [])
+    ...pendingSaveKeys, ...(savingStage?.payload.documentChanges?.operations.map(mapOperationKey) ?? []), ...entries.flatMap((entry) => entry.mapCommand?.keys ?? [])
   ]));
   const dirty = (state: FloorEditorState) => {
     const baseline = get().initialState;
     if (!baseline) return { isDirty: false, dirtyFixtureIds: [], dirtyObjectIds: [] };
     const changes = buildEditorChanges(baseline, state);
-    return { isDirty: hasEditorChanges(changes) || common.isDirty, dirtyFixtureIds: changes.fixtureUpdates.map((f) => f.id), dirtyObjectIds: [...changes.objectUpdates.map((o) => o.id), ...changes.objectDeletes, ...state.objects.filter((o) => o.id.startsWith("draft-")).map((o) => o.id)] };
+    return { isDirty: hasEditorChanges(changes) || common.isDirty || staged !== null || streamAttempt !== null, dirtyFixtureIds: changes.fixtureUpdates.map((f) => f.id), dirtyObjectIds: [...changes.objectUpdates.map((o) => o.id), ...changes.objectDeletes, ...state.objects.filter((o) => o.id.startsWith("draft-")).map((o) => o.id)] };
   };
   const snapshot = (): HistoryEntry => ({ state: get().state!, selection: get().selection, selectedFixtureIds: get().selectedFixtureIds, mapSelection: get().mapSelection });
   const commit = (state: FloorEditorState, extra: Partial<EditorStore> = {}, mapCommand?: MapCommand) => {
+    assertEditable();
     if (batch) { batch = { state, extra: { ...batch.extra, ...extra } }; return; }
     if (state === get().state) return;
     const past = [...get().past.slice(-99), { ...snapshot(), mapCommand }];
@@ -207,7 +239,131 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
     }
   };
   return {
-    mapScope: null, ...common.view(), mapSelection: emptySelection(), isSaving: false,
+    mapScope: null, ...common.view(), mapSelection: emptySelection(), isSaving: false, isPreparingMapStage: false, stageProgress: null, pendingMapStage: null,
+    prepareMapStream: async (transaction, lease, client = mapStageClient) => {
+      const scope = get().mapScope;
+      if (!scope || !matchesScope(transaction.scope)) throw new MapEditorError("MAP_SCOPE_CHANGED", "선택한 맵을 다시 불러와주세요.");
+      const fingerprint = JSON.stringify({ ...transaction, operations: undefined, ...lease });
+      const attempt = streamAttempt?.transaction.operations === transaction.operations && streamAttempt.captured === get().state
+        && streamAttempt.fingerprint === fingerprint ? streamAttempt : null;
+      if (get().isSaving || preparingStage || staged || get().isDirty && !attempt) throw new MapEditorError("MAP_STAGE_BASE_DIRTY", "기존 편집을 저장하거나 취소한 뒤 대량 편집을 시작해주세요.");
+      if (!attempt) {
+        const before = snapshot(), past = get().past, future = get().future, source = common;
+        get().applyMapTransaction({ ...transaction, operations: [] });
+        const payload = get().prepareSave(lease).payload;
+        // A new immutable stream gets a new create identity even when its
+        // legacy envelope is identical. Retries retain this exact envelope.
+        payload.documentChanges!.requestId = crypto.randomUUID();
+        streamAttempt = { transaction, fingerprint, captured: get().state!, payload, before, past, future, source };
+      }
+      const { before, past, future, source, captured, payload } = streamAttempt!, capturedEpoch = epoch, capturedRun = ++stageRun;
+      preparingStage = true; set({ isPreparingMapStage: true, stageProgress: null });
+      try {
+        const handle = await client.prepare(scope.floorId, payload, transaction.operations(), {
+          signal: stageAbort.signal, onProgress: progress => { if (epoch === capturedEpoch && stageRun === capturedRun) set({ stageProgress: progress }); }
+        });
+        if (capturedEpoch !== epoch || stageRun !== capturedRun) return "stale";
+        if (handle.status !== "ready" || !handle.preview || handle.baseRevision !== scope.baseRevision || handle.generationId !== scope.generationId
+          || handle.preview.revision !== scope.baseRevision + 1) throw new MapEditorError("MAP_STAGE_RESPONSE_INVALID", "대량 편집 준비 응답을 확인해주세요.");
+        staged = { handle, captured, payload, source, before, past, future, scope };
+        streamAttempt = null;
+        common = new CommonMapStore();
+        const external = { undoRevision: scope.baseRevision, redoRevision: handle.preview.revision };
+        set({ ...common.view(), state: captured, past: [...past.slice(-99), { ...before, external }], future: [],
+          mapScope: { ...scope, generationId: handle.preview.generationId, baseRevision: handle.preview.revision },
+          pendingMapStage: { stageId: handle.id, preview: handle.preview, kind: "stream" }, isDirty: true });
+        return "ready";
+      } catch (error) { if (epoch !== capturedEpoch || stageRun !== capturedRun) return "stale"; set({ isDirty: true }); if (get().stageProgress) set({ stageProgress: { ...get().stageProgress!, phase: "failed" } }); throw error; }
+      finally { if (epoch === capturedEpoch && stageRun === capturedRun) { preparingStage = false; set({ isPreparingMapStage: false }); } }
+    },
+    prepareHistory: async (direction, lease, client = mapStageClient) => {
+      const scope = get().mapScope, entry = (direction === "undo" ? get().past : get().future).at(-1);
+      if (!scope || !entry?.external) throw new MapEditorError("MAP_EXTERNAL_HISTORY_REQUIRED", "대량 편집 이력이 없습니다.");
+      if (get().isDirty || get().isSaving || preparingStage || staged) throw new MapEditorError("MAP_STAGE_BASE_DIRTY", "현재 편집을 저장하거나 취소해주세요.");
+      const before = snapshot(), past = get().past, future = get().future, source = common, capturedEpoch = epoch, capturedRun = ++stageRun;
+      historyAttempt = { before, past, future, source };
+      const payload = get().prepareSave(lease).payload;
+      preparingStage = true; set({ isPreparingMapStage: true });
+      try {
+        const handle = await client.prepareHistory(scope.floorId, payload, direction === "undo" ? entry.external.undoRevision : entry.external.redoRevision, {
+          signal: stageAbort.signal, onProgress: progress => { if (epoch === capturedEpoch && stageRun === capturedRun) set({ stageProgress: progress }); }
+        });
+        if (epoch !== capturedEpoch || stageRun !== capturedRun) return "stale";
+        if (handle.status !== "ready" || !handle.preview || handle.baseRevision !== scope.baseRevision || handle.generationId !== scope.generationId
+          || handle.preview.revision !== scope.baseRevision + 1) throw new MapEditorError("MAP_STAGE_RESPONSE_INVALID", "대량 이력 응답을 확인해주세요.");
+        const captured = { ...entry.state, floor: { ...entry.state.floor, floorPlan: historyFloorPlan(entry.state, get().state!), mapRevision: get().state!.floor.mapRevision,
+          mapDocument: get().state!.floor.mapDocument } };
+        staged = { handle, captured, payload, source, before, past, future, scope };
+        historyAttempt = null;
+        common = new CommonMapStore();
+        const opposite = { ...before, external: entry.external };
+        set({ ...common.view(), state: captured,
+          past: direction === "undo" ? past.slice(0, -1) : [...past, opposite],
+          future: direction === "undo" ? [...future, opposite] : future.slice(0, -1),
+          mapScope: { ...scope, generationId: handle.preview.generationId, baseRevision: handle.preview.revision },
+          pendingMapStage: { stageId: handle.id, preview: handle.preview, kind: direction }, isDirty: true });
+        return "ready";
+      } catch (error) { if (epoch !== capturedEpoch || stageRun !== capturedRun) return "stale"; if (get().stageProgress) set({ stageProgress: { ...get().stageProgress!, phase: "failed" } }); throw error; }
+      finally { if (epoch === capturedEpoch && stageRun === capturedRun) { preparingStage = false; set({ isPreparingMapStage: false }); } }
+    },
+    cancelMapStage: async (lease, client = mapStageClient) => {
+      if (get().isSaving) throw new MapEditorError("MAP_SAVE_IN_PROGRESS", "저장 결과를 확인한 뒤 취소해주세요.");
+      const pending = staged, attempt = streamAttempt ?? historyAttempt, scope = staged?.scope ?? get().mapScope, capturedEpoch = epoch;
+      const id = pending?.handle.id ?? get().stageProgress?.stageId;
+      stageRun++; stageAbort.abort(); stageAbort = new AbortController();
+      if (!scope || !id || !pending && !attempt) {
+        // An aborted create may still have reached the server. Without its ID
+        // we cannot assert cancellation; its receipt/TTL must resolve it.
+        preparingStage = false; set({ isPreparingMapStage: false });
+        throw new MapEditorError("MAP_STAGE_CANCEL_UNCONFIRMED", "준비 요청 결과를 확인하지 못했습니다.");
+      }
+      preparingStage = true; set({ isPreparingMapStage: true });
+      try {
+        const result = await client.cancel(scope.floorId, id, lease);
+        if (epoch !== capturedEpoch) return "stale";
+        if (result.status === "committed" && pending) {
+          preparingStage = false; set({ isPreparingMapStage: false });
+          await get().saveChanges(lease, undefined, client); return "committed";
+        }
+        if (result.status !== "cancelled" && result.status !== "expired") throw new MapEditorError("MAP_STAGE_CANCEL_UNCONFIRMED", "취소 여부를 확인하지 못했습니다. 편집을 유지합니다.");
+        // Explicit cancel discards the preview and its dependent local edits.
+        const previous = pending ?? attempt!;
+        common = previous.source; staged = null; streamAttempt = null; historyAttempt = null; retry = null;
+        set({ state: previous.before.state, past: previous.past, future: previous.future, mapScope: scope,
+          pendingMapStage: null, stageProgress: null, ...common.view(), ...dirty(previous.before.state) });
+        return "cancelled";
+      } finally { if (epoch === capturedEpoch) { preparingStage = false; set({ isPreparingMapStage: false }); } }
+    },
+    recoverStageDraft: async (recovered, lease, client = mapStageClient) => {
+      const scope = get().mapScope, baseline = get().initialState, capturedEpoch = epoch;
+      const draft = parseCommonMapDraft(recovered.commonMapDraft);
+      if (!scope || !baseline || !draft.stage || get().isDirty || get().isSaving || preparingStage
+        || Object.entries(draft.scope).some(([key, value]) => scope[key as keyof MapEditorScope] !== value)) throw new MapEditorError("MAP_DRAFT_STALE", "대량 편집 초안의 층과 권한을 확인해주세요.");
+      const captured = applyEditorDraftChanges(baseline, draft.stage.capturedChanges);
+      const restored = applyEditorDraftChanges(baseline, buildEditorChanges(baseline, recovered));
+      const capturedRun = ++stageRun;
+      preparingStage = true; set({ isPreparingMapStage: true });
+      try {
+        const status = await client.status(scope.floorId, draft.stage.stageId, stageAbort.signal);
+        if (epoch !== capturedEpoch || stageRun !== capturedRun) return "stale";
+        if (status.status !== "ready" || !status.preview || JSON.stringify(status.preview) !== JSON.stringify(draft.stage.preview)
+          || status.generationId !== scope.generationId || status.baseRevision !== scope.baseRevision) throw new MapEditorError("MAP_DRAFT_STALE", "대량 편집 미리보기가 만료되거나 변경되었습니다.");
+        const candidate = new CommonMapStore(), prepared = candidate.restore({ ...draft, stage: undefined });
+        candidate.applyPrepared(prepared);
+        const before = snapshot(), past = get().past, future = get().future;
+        const payload = { ...draft.stage.capturedChanges, ...lease, documentChanges: { generationId: scope.generationId, requestId: crypto.randomUUID(), operations: [] } };
+        staged = { handle: { ...status, intent: { ...lease, ...draft.stage.digest } }, captured, payload, source: common, before, past, future, scope };
+        common = candidate;
+        const frames: HistoryEntry[] = [{ ...before, external: { undoRevision: scope.baseRevision, redoRevision: status.preview.revision } }];
+        if (prepared.forward.length || hasEditorChanges(buildEditorChanges(captured, restored))) frames.push({ ...before, state: captured,
+          ...(prepared.forward.length ? { mapCommand: { history: prepared.history, keys: prepared.keys } } : {}) });
+        set({ state: restored, ...common.view(), past: [...past, ...frames].slice(-100), future: [], isDirty: true,
+          mapScope: { ...scope, generationId: status.preview.generationId, baseRevision: status.preview.revision },
+          pendingMapStage: { stageId: status.id, preview: status.preview, kind: draft.stage.kind } });
+        return "ready";
+      } catch (error) { if (epoch !== capturedEpoch || stageRun !== capturedRun) return "stale"; throw error; }
+      finally { if (epoch === capturedEpoch && stageRun === capturedRun) { preparingStage = false; set({ isPreparingMapStage: false }); } }
+    },
     loadMapElements: (scope, elements) => {
       if (!matchesScope(scope)) return false;
       common.loadElements(elements); set(common.view()); return true;
@@ -219,20 +375,19 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
     selectMapElements: (ids, additive = false) => set({ mapSelection: {
       elementIds: [...new Set([...(additive ? get().mapSelection.elementIds : []), ...ids])],
       groupIds: additive ? get().mapSelection.groupIds : []
-    }, selection: null, cadSelection: null, selectedFixtureIds: [], activeTool: "select" }),
+    }, selection: additive ? get().selection : null, cadSelection: null, selectedFixtureIds: additive ? get().selectedFixtureIds : [], activeTool: "select" }),
     selectMapGroups: (ids, additive = false) => set({ mapSelection: {
       groupIds: [...new Set([...(additive ? get().mapSelection.groupIds : []), ...ids])],
       elementIds: additive ? get().mapSelection.elementIds : []
-    }, selection: null, cadSelection: null, selectedFixtureIds: [], activeTool: "select" }),
+    }, selection: additive ? get().selection : null, cadSelection: null, selectedFixtureIds: additive ? get().selectedFixtureIds : [], activeTool: "select" }),
     applyMapTransaction: ({ operations, scope, canonicalElements, fixtureUpdates, slotAssignments, floorPlan }) => {
+      assertEditable();
       const { state, mapScope, layers } = get();
       if (!state || !mapScope) throw new MapEditorError("MAP_DOCUMENT_REQUIRED", "공통 맵을 먼저 불러와주세요.");
       if (scope && !matchesScope(scope) || canonicalElements && !scope) throw new MapEditorError("MAP_SCOPE_CHANGED", "선택한 맵이 변경되었습니다. 다시 선택해주세요.");
       if (layers.objects.locked && operations.length) throw new MapEditorError("MAP_LOCKED", "잠긴 도형은 편집할 수 없습니다.");
-      if (floorPlan !== undefined && (floorPlan?.width !== mapSettings(state).width || floorPlan?.height !== mapSettings(state).height)) {
-        throw new MapEditorError("MAP_CHECKPOINT_REQUIRED", "맵 크기 변경은 체크포인트 저장 연결 후 사용할 수 있습니다.");
-      }
-      const prepared = common.prepare(operations, { canonicalElements, bounds: state.floor.mapDocument! });
+      if (floorPlan === null) throw new MapEditorError("MAP_DOCUMENT_REQUIRED", "공통 맵의 설정을 삭제할 수 없습니다.");
+      const prepared = common.prepare(operations, { canonicalElements, bounds: floorPlan ?? get().pendingMapStage?.preview ?? mapSettings(state) });
       batch = { state, extra: {} };
       try {
         if (fixtureUpdates) applyFixtures(new Map(fixtureUpdates.map(({ id, ...patch }) => [id, patch])));
@@ -254,7 +409,20 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
         commit({ ...next }, extra, prepared.forward.length ? { history: prepared.history, keys: prepared.keys } : undefined);
       } finally { batch = null; }
     },
-    exportMapDraft: () => get().mapScope ? common.draft(get().mapScope!) : null,
+    exportMapDraft: () => {
+      // An unfinished upload has a replayable in-memory source, not a durable
+      // preview yet. Never persist only its fixture half as a complete draft.
+      if (streamAttempt && !staged) return null;
+      const scope = staged?.scope ?? get().mapScope;
+      if (!scope) return null;
+      const draft = common.draft(scope);
+      if (staged && get().pendingMapStage) {
+        const { partCount, decodedBytes, sha256 } = staged.handle.intent;
+        draft.stage = { ...get().pendingMapStage!, digest: partCount === undefined ? null : { partCount, decodedBytes: decodedBytes!, sha256: sha256! },
+          capturedChanges: buildEditorChanges(get().initialState!, staged.captured) };
+      }
+      return draft;
+    },
     prepareSave: (lease) => {
       const { initialState, state } = get();
       if (!initialState || !state) throw new MapEditorError("MAP_DOCUMENT_REQUIRED", "편집할 층을 먼저 불러와주세요.");
@@ -272,23 +440,41 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
         ? "checkpoint" : operations.length > MAP_MUTATION_MAX_OPERATIONS ? "operations" : byteSize > MAP_MUTATION_MAX_BYTES ? "bytes" : undefined;
       return { kind: reason ? "staging-required" : "normal", ...(reason ? { reason } : {}), payload, byteSize };
     },
-    saveChanges: async (lease, transport = saveFloorEditorState) => {
+    saveChanges: async (lease, transport = saveFloorEditorState, stageClient = mapStageClient) => {
+      assertEditable();
+      if (streamAttempt && !staged) throw new MapEditorError("MAP_STAGE_NOT_READY", "대량 편집 준비를 재시도하거나 취소해주세요.");
       if (get().isSaving) throw new MapEditorError("MAP_SAVE_IN_PROGRESS", "맵을 저장하고 있습니다.");
-      const prepared = get().prepareSave(lease);
-      if (prepared.kind !== "normal") throw new MapEditorError(prepared.reason === "checkpoint" ? "MAP_CHECKPOINT_REQUIRED" : "MAP_STAGING_REQUIRED",
-        prepared.reason === "checkpoint" ? "맵 설정 변경은 체크포인트 저장 연결이 필요합니다. 편집 내용은 유지됩니다." : "대량 변경 저장 연결이 필요합니다. 편집 내용은 유지됩니다.");
-      const scopeEpoch = epoch, captured = get().state!, scope = get().mapScope;
+      const prepared = get().prepareSave(lease), pending = staged ?? savingStage;
+      if (pending) prepared.payload = pending.payload;
+      const scopeEpoch = epoch, captured = pending?.captured ?? get().state!, scope = staged?.scope ?? get().mapScope;
       // Undo can make a pending target clean, then a new branch can remove its
       // last history reference. Keep its explicit value/tombstone until rebase.
       pendingSaveKeys = new Set(prepared.payload.documentChanges?.operations.map(mapOperationKey) ?? []);
       set({ isSaving: true });
       try {
-        const saved = await transport(captured.floor.id, structuredClone(prepared.payload));
+        let saved: FloorEditorState;
+        if (pending || prepared.kind === "staging-required") {
+          let capture = pending;
+          const options = { signal: stageAbort.signal, onProgress: (progress: MapStageProgress) => { if (scopeEpoch === epoch) set({ stageProgress: progress }); } };
+          if (!capture) {
+            const handle = await stageClient.prepare(captured.floor.id, { ...prepared.payload,
+              documentChanges: { ...prepared.payload.documentChanges!, operations: [] } }, prepared.payload.documentChanges!.operations, options);
+            if (scopeEpoch !== epoch) return "stale";
+            capture = { handle, captured, payload: prepared.payload }; savingStage = capture;
+          }
+          const receipt = await stageClient.commit(captured.floor.id, capture.handle, options);
+          if (scopeEpoch !== epoch) return "stale";
+          if (receipt.id !== capture.handle.id || receipt.baseRevision !== prepared.payload.expectedRevision || receipt.generationId !== prepared.payload.documentChanges!.generationId
+            || receipt.status !== "committed" || !receipt.result || receipt.result.history?.undo.revision !== prepared.payload.expectedRevision
+            || receipt.result.history?.redo.revision !== prepared.payload.expectedRevision + 1
+            || capture.handle.preview && receipt.result.floor.mapDocument?.generationId !== capture.handle.preview.generationId) throw new MapEditorError("MAP_SAVE_RESPONSE_INVALID", "저장 응답을 확인할 수 없습니다.");
+          saved = receipt.result;
+        } else saved = await transport(captured.floor.id, structuredClone(prepared.payload));
         if (scopeEpoch !== epoch) return "stale";
         const document = saved.floor.mapDocument;
         if (saved.floor.id !== captured.floor.id || saved.floor.siteId !== captured.floor.siteId
           || saved.floor.mapRevision !== prepared.payload.expectedRevision + 1
-          || scope && (!document || document.generationId !== scope.generationId || document.revision !== saved.floor.mapRevision || saved.objects.length)) {
+          || scope && (!document || document.revision !== saved.floor.mapRevision || saved.objects.length)) {
           throw new MapEditorError("MAP_SAVE_RESPONSE_INVALID", "저장 응답을 확인할 수 없습니다. 편집 내용을 유지합니다.");
         }
         if (document) mapDocumentRefSchema.parse(document);
@@ -311,9 +497,11 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
           lightSlots: saved.lightSlots.map((slot) => slotPatches.has(slot.id) ? { ...slot, assignedFixtureId: slotPatches.get(slot.id)! } : slot),
           objects: current.objects === captured.objects ? saved.objects : current.objects
         };
-        common.acknowledge(prepared.payload.documentChanges?.operations ?? []);
+        if (!staged) common.acknowledge(prepared.payload.documentChanges?.operations ?? []);
+        staged = null; savingStage = null;
         retry = null;
-        set({ initialState: saved, state: next, mapScope: scope ? { ...scope, baseRevision: saved.floor.mapRevision } : null });
+        set({ initialState: saved, state: next, pendingMapStage: null, stageProgress: null,
+          mapScope: scope ? { ...scope, generationId: document!.generationId, baseRevision: saved.floor.mapRevision } : null });
         set({ ...dirty(next), ...common.view() });
         return "saved";
       } catch (error) {
@@ -338,6 +526,7 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
     },
     recoverDraft: (recovered) => {
       const { commonMapDraft, ...state } = recovered;
+      if (commonMapDraft?.stage) throw new MapEditorError("MAP_STAGE_RECOVERY_REQUIRED", "서버 미리보기를 확인한 뒤 대량 초안을 복구해주세요.");
       const baseline = get().initialState, scope = get().mapScope;
       if (!baseline || state.floor.id !== baseline.floor.id || state.floor.siteId !== baseline.floor.siteId
         || state.floor.mapRevision !== baseline.floor.mapRevision || state.floor.mapDocument?.generationId !== baseline.floor.mapDocument?.generationId) return;
@@ -350,17 +539,27 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
     },
     discardChanges: () => { const state = get().initialState; if (state) get().initialize(state, get().mapScope?.authScope); else get().reset(); },
     undo: () => {
+      assertEditable();
       const entry = get().past.at(-1); if (!entry) return;
+      if (entry.external) throw new MapEditorError("MAP_EXTERNAL_HISTORY_REQUIRED", "대량 이력 미리보기를 준비해주세요.");
       const future = [...get().future, { ...snapshot(), mapCommand: entry.mapCommand }];
-      if (entry.mapCommand) common.apply(entry.mapCommand.history.undo()!);
-      const state = { ...entry.state, floor: { ...entry.state.floor, mapRevision: get().state!.floor.mapRevision, mapDocument: get().state!.floor.mapDocument } };
+      if (entry.mapCommand) {
+        const history = entry.mapCommand.history, inverse = history.undo()!;
+        common.seedMissingHistory(history.redo()!); history.undo(); common.apply(inverse);
+      }
+      const state = { ...entry.state, floor: { ...entry.state.floor, floorPlan: historyFloorPlan(entry.state, get().state!), mapRevision: get().state!.floor.mapRevision, mapDocument: get().state!.floor.mapDocument } };
       set({ ...entry, state, ...dirty(state), ...common.view(), past: get().past.slice(0, -1), future, preview: [] });
     },
     redo: () => {
+      assertEditable();
       const entry = get().future.at(-1); if (!entry) return;
+      if (entry.external) throw new MapEditorError("MAP_EXTERNAL_HISTORY_REQUIRED", "대량 이력 미리보기를 준비해주세요.");
       const past = [...get().past, { ...snapshot(), mapCommand: entry.mapCommand }];
-      if (entry.mapCommand) common.apply(entry.mapCommand.history.redo()!);
-      const state = { ...entry.state, floor: { ...entry.state.floor, mapRevision: get().state!.floor.mapRevision, mapDocument: get().state!.floor.mapDocument } };
+      if (entry.mapCommand) {
+        const history = entry.mapCommand.history, forward = history.redo()!;
+        common.seedMissingHistory(history.undo()!); history.redo(); common.apply(forward);
+      }
+      const state = { ...entry.state, floor: { ...entry.state.floor, floorPlan: historyFloorPlan(entry.state, get().state!), mapRevision: get().state!.floor.mapRevision, mapDocument: get().state!.floor.mapDocument } };
       set({ ...entry, state, ...dirty(state), ...common.view(), past, future: get().future.slice(0, -1), preview: [] });
     },
     setActiveTool: (activeTool) => set({ activeTool, ...(activeTool !== "select" ? { selection: null, cadSelection: null, selectedFixtureIds: [] } : {}) }),
@@ -382,13 +581,15 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
       set({ zoom, pan: { x: (viewport.width - width * zoom) / 2 - x * zoom, y: (viewport.height - height * zoom) / 2 - y * zoom } });
     },
     selectFixture: (id, additive = false) => {
+      const mapSelection = get().mapSelection;
       const ids = additive ? get().selectedFixtureIds.includes(id) ? get().selectedFixtureIds.filter((value) => value !== id) : [...get().selectedFixtureIds, id] : [id];
       get().selectFixtures(ids);
+      if (additive) set({ mapSelection });
     },
     selectFixtures: (ids, additive = false) => {
       const available = new Set(get().state?.fixtures.map((f) => f.id));
       const selectedFixtureIds = [...new Set([...(additive ? get().selectedFixtureIds : []), ...ids])].filter((id) => available.has(id));
-      set({ selectedFixtureIds, mapSelection: emptySelection(), selection: selectedFixtureIds.length === 1 ? { kind: "fixture", id: selectedFixtureIds[0] } : null, cadSelection: null, activeTool: "select" });
+      set({ selectedFixtureIds, mapSelection: additive ? get().mapSelection : emptySelection(), selection: selectedFixtureIds.length === 1 ? { kind: "fixture", id: selectedFixtureIds[0] } : null, cadSelection: null, activeTool: "select" });
     },
     selectObject: (id) => set({ selection: { kind: "object", id }, mapSelection: emptySelection(), cadSelection: null, selectedFixtureIds: [], activeTool: "select" }),
     selectCad: (cadSelection) => set({ cadSelection, mapSelection: emptySelection(), selection: null, selectedFixtureIds: [], activeTool: "select" }),
@@ -473,17 +674,12 @@ export const useFloorEditorStore = create<EditorStore>((set, get) => {
     toggleFixtureLock: (ids) => { const locked = new Set(get().lockedFixtureIds); const unlock = ids.every((id) => locked.has(id)); ids.forEach((id) => unlock ? locked.delete(id) : locked.add(id)); set({ lockedFixtureIds: [...locked] }); },
     updateFloorPlan: (floorPlan) => {
       const state = get().state;
-      if (state?.floor.mapDocument && (floorPlan?.width !== state.floor.mapDocument.width || floorPlan?.height !== state.floor.mapDocument.height)) {
-        throw new MapEditorError("MAP_CHECKPOINT_REQUIRED", "맵 크기 변경은 체크포인트 저장 연결 후 사용할 수 있습니다.");
-      }
+      if (state?.floor.mapDocument && !floorPlan) throw new MapEditorError("MAP_DOCUMENT_REQUIRED", "공통 맵의 설정을 삭제할 수 없습니다.");
       if (state) commit({ ...state, floor: { ...state.floor, floorPlan: floorPlan ? { ...floorPlan, gridSize: floorPlan.gridSize ?? state.floor.floorPlan?.gridSize ?? 10 } : null } });
     },
     updateMapSettings: ({ width, height, gridSize }) => {
       const state = get().state;
-      if (state?.floor.mapDocument && (width !== state.floor.mapDocument.width || height !== state.floor.mapDocument.height)) {
-        return "맵 크기 변경은 체크포인트 저장 연결 후 사용할 수 있습니다.";
-      }
-      if (!state || ![width, height, gridSize].every(Number.isInteger) || width < 1 || height < 1 || gridSize < 5 || gridSize > 200) {
+      if (!state || ![width, height, gridSize].every(Number.isInteger) || width < 1 || height < 1 || width > 32768 || height > 32768 || gridSize < 5 || gridSize > 200) {
         return "맵 크기와 격자 간격을 확인해주세요.";
       }
       const contentOutside = state.fixtures.some((fixture) => fixture.placementStatus !== "unplaced" && (fixture.x < 0 || fixture.y < 0 || fixture.x > width || fixture.y > height))

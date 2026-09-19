@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { MapOp, SaveEditorStateInput } from "@led-control/shared";
+import { mapOpSchema } from "@led-control/shared/map-document-contracts";
 import { ApiError } from "./client";
 import { createMapStageClient, MAP_STAGE_PART_BYTES, streamMapParts } from "./map-stages";
 
@@ -79,5 +80,33 @@ describe("bounded map stage transport", () => {
     const request = vi.fn();
     await expect(createMapStageClient({ request }).prepare("floor", envelope, operations(1), { signal: controller.signal })).rejects.toThrow();
     expect(request).not.toHaveBeenCalled();
+  });
+
+  it("hashes a greater-than-35MiB stream without retaining canonical arrays", async () => {
+    const expected = createHash("sha256"); let produced = 0, count = 0, bytes = 0, finalHash = "";
+    async function* source(): AsyncGenerator<MapOp> {
+      expected.update("[");
+      for (let i = 0; i < 3500; i++) {
+        const op: MapOp = { kind: "add", element: { id: `text-${i}`, type: "text", groupId: null, layerId: "layer", zIndex: 0, visible: true, locked: false, provenance: null,
+          transform: { x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1 }, style: { strokeColor: "#000000", fillColor: null, strokeWidth: 1, opacity: 1 },
+          geometry: { position: { x: 1, y: 1 }, width: 100, height: 100, fontSize: 16, text: "한".repeat(3600) } } };
+        expected.update((i ? "," : "") + JSON.stringify(mapOpSchema.parse(op))); produced++; yield op;
+      }
+      expected.update("]");
+    }
+    for await (const part of streamMapParts(source())) {
+      count++; bytes += part.bytes.length;
+      expect(part.sha256).toBe(hash(part.bytes));
+      if (count === 1) expect(produced).toBeLessThan(100);
+      if (part.streamSha256) finalHash = part.streamSha256;
+    }
+    expect(bytes).toBeGreaterThan(35 * 1024 * 1024); expect(count).toBeGreaterThan(70);
+    expect(finalHash).toBe(expected.digest("hex"));
+  });
+
+  it("does not turn failed DELETE and failed reconciliation into cancellation success", async () => {
+    const request = vi.fn().mockRejectedValue(new ApiError("denied", 403, null));
+    await expect(createMapStageClient({ request }).cancel("floor", "stage", lease)).rejects.toThrow("denied");
+    expect(request).toHaveBeenCalledTimes(2);
   });
 });

@@ -23,6 +23,7 @@ export function saveEditorDraft(userId: string, baseline: FloorEditorState, stat
   try {
     const common = commonMapDraft ? parseCommonMapDraft(commonMapDraft) : undefined;
     if (baseline.floor.mapDocument && (!common || !matchesCommonScope(common, userId, baseline))) return false;
+    if (common?.stage && !validChanges(common.stage.capturedChanges, baseline)) return false;
     const changes = buildEditorChanges(baseline, state);
     if (!validChanges(changes, baseline)) return false;
     localStorage.setItem(editorDraftKey(userId, baseline), JSON.stringify({ version: 1, savedAt: Date.now(),
@@ -38,10 +39,17 @@ export function loadEditorDraft(userId: string, baseline: FloorEditorState): (Fl
     if (saved.version !== 1 || !Number.isFinite(saved.savedAt) || Date.now() - saved.savedAt > 7 * 86400_000) return null;
     const commonMapDraft = saved.commonMapDraft === undefined ? undefined : parseCommonMapDraft(saved.commonMapDraft);
     if (baseline.floor.mapDocument ? !commonMapDraft || !matchesCommonScope(commonMapDraft, userId, baseline) : commonMapDraft !== undefined) return null;
+    if (commonMapDraft?.stage && !validChanges(commonMapDraft.stage.capturedChanges, baseline)) return null;
     // Never restore credentials, telemetry or an arbitrary object graph from browser storage.
     // Validate the same narrow mutation DTO the server accepts against the freshly authorized baseline.
     if (!validChanges(saved.changes, baseline)) return null;
-    const changes: EditorChangeSet = { ...saved.changes, slotAssignments: saved.changes.slotAssignments ?? [] };
+    return { ...applyEditorDraftChanges(baseline, saved.changes), ...(commonMapDraft ? { commonMapDraft } : {}) };
+  } catch { return null; }
+}
+
+export function applyEditorDraftChanges(baseline: FloorEditorState, input: unknown): FloorEditorState {
+    if (!validChanges(input, baseline)) throw new Error("MAP_DRAFT_INVALID");
+    const changes: EditorChangeSet = { ...input, slotAssignments: input.slotAssignments ?? [] };
     const fixtureIds = new Set(baseline.fixtures.map((f) => f.id));
     const objectIds = new Set(baseline.objects.map((o) => o.id));
     const slotIds = new Set(baseline.lightSlots.map((slot) => slot.id));
@@ -49,13 +57,12 @@ export function loadEditorDraft(userId: string, baseline: FloorEditorState): (Fl
       || changes.slotAssignments.some((assignment) => !slotIds.has(assignment.slotId)
         || assignment.assignedFixtureId !== null && !fixtureIds.has(assignment.assignedFixtureId))
       || changes.objectUpdates.some((o) => !objectIds.has(o.id))
-      || changes.objectDeletes.some((id) => !objectIds.has(id))) return null;
+      || changes.objectDeletes.some((id) => !objectIds.has(id))) throw new Error("MAP_DRAFT_INVALID");
     const patches = new Map(changes.fixtureUpdates.map((f) => [f.id, f]));
     const slotAssignments = new Map(changes.slotAssignments.map((assignment) => [assignment.slotId, assignment.assignedFixtureId]));
     const objects = new Map(changes.objectUpdates.map((o) => [o.id, o.patch]));
     return {
       ...baseline,
-      ...(commonMapDraft ? { commonMapDraft } : {}),
       floor: changes.floorPlan === undefined ? baseline.floor : { ...baseline.floor,
         floorPlan: changes.floorPlan ? { ...changes.floorPlan, version: baseline.floor.floorPlan?.version ?? 1 } : null },
       fixtures: baseline.fixtures.map((fixture) => {
@@ -72,7 +79,6 @@ export function loadEditorDraft(userId: string, baseline: FloorEditorState): (Fl
         ...changes.objectCreates.map((o) => ({ ...o, id: `draft-${crypto.randomUUID()}`, floorId: baseline.floor.id } as FloorMapObject))
       ]
     };
-  } catch { return null; }
 }
 
 function matchesCommonScope(draft: CommonMapDraft, userId: string, baseline: FloorEditorState) {
@@ -94,8 +100,7 @@ function validFloorPlan(value: unknown, baseline: FloorEditorState): boolean {
     || value.originalFileUrl !== (sourceType === "none" ? null : plan?.originalFileUrl ?? plan?.imageUrl ?? null)
     || value.renderedImageUrl !== (sourceType === "none" || sourceType === "pdf" ? plan?.renderedImageUrl ?? null : plan?.renderedImageUrl ?? plan?.imageUrl ?? null)) return false;
   return [value.width, value.height].every((n) => Number.isInteger(n) && Number(n) >= 1 && Number(n) <= 32768)
-    && Number.isInteger(value.gridSize) && Number(value.gridSize) >= 5 && Number(value.gridSize) <= 200
-    && (!document || value.width === document.width && value.height === document.height);
+    && Number.isInteger(value.gridSize) && Number(value.gridSize) >= 5 && Number(value.gridSize) <= 200;
 }
 function validChanges(value: unknown, baseline: FloorEditorState): value is EditorChangeSet {
   if (!record(value) || value.expectedRevision !== baseline.floor.mapRevision || !validFloorPlan(value.floorPlan, baseline)
@@ -105,8 +110,8 @@ function validChanges(value: unknown, baseline: FloorEditorState): value is Edit
   if (!Array.isArray(fixtureUpdates) || fixtureUpdates.length > 1000 || !Array.isArray(objectCreates) || !Array.isArray(objectUpdates) || !Array.isArray(objectDeletes)
     || !Array.isArray(slotAssignments) || slotAssignments.length > 2000
     || objectCreates.length + objectUpdates.length + objectDeletes.length > 2000) return false;
-  const width = baseline.floor.mapDocument?.width ?? baseline.floor.floorPlan?.width ?? 1200;
-  const height = baseline.floor.mapDocument?.height ?? baseline.floor.floorPlan?.height ?? 800;
+  const width = record(value.floorPlan) ? Number(value.floorPlan.width) : baseline.floor.mapDocument?.width ?? baseline.floor.floorPlan?.width ?? 1200;
+  const height = record(value.floorPlan) ? Number(value.floorPlan.height) : baseline.floor.mapDocument?.height ?? baseline.floor.floorPlan?.height ?? 800;
   const finite = (v: unknown) => typeof v === "number" && Number.isFinite(v);
   const coordinate = (key: string, v: unknown) => finite(v) && Number(v) >= 0 && Number(v) <= (key === "x" ? width : height);
   const fixtureValid = (f: unknown) => record(f) && typeof f.id === "string" && Object.entries(f).every(([key, v]) => {

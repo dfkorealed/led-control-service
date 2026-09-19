@@ -116,7 +116,7 @@ export async function saveFloorEditorState(floorId: string, payload: SaveEditorS
   }
   const result = validateEditorDocument(await apiPut<FloorEditorState>(`/floors/${encodeURIComponent(floorId)}/editor-state`, payload));
   if (payload.documentChanges && (result.floor.id !== floorId || result.floor.mapRevision !== payload.expectedRevision + 1
-    || result.floor.mapDocument?.generationId !== payload.documentChanges.generationId)) throw new Error("저장된 맵 문서를 확인할 수 없습니다.");
+    || !result.floor.mapDocument)) throw new Error("저장된 맵 문서를 확인할 수 없습니다.");
   return result;
 }
 

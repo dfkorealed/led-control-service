@@ -87,6 +87,40 @@ describe("common map store integration", () => {
     expect(store().state!.fixtures[0].name).toBe("Changed");
   });
 
+  it("preserves mixed additive selections and undoes one mixed gesture atomically", () => {
+    store().selectFixture("fixture");
+    store().selectMapElements(["shape"], true);
+    store().selectMapGroups(["group"], true);
+    expect(store().selectedFixtureIds).toEqual(["fixture"]);
+    expect(store().mapSelection).toEqual({ elementIds: ["shape"], groupIds: ["group"] });
+    store().selectFixtures(["fixture"], true);
+    expect(store().mapSelection.elementIds).toEqual(["shape"]);
+    store().applyMapTransaction({ operations: [{ kind: "update", element: { ...element(), transform: { ...element().transform, x: 80 } } }],
+      fixtureUpdates: [{ id: "fixture", x: 90 }] });
+    expect(store().past).toHaveLength(1);
+    store().undo();
+    expect(store().state!.fixtures[0].x).toBe(10); expect(store().mapElements.get("shape")!.transform.x).toBe(0);
+    expect(store().selectedFixtureIds).toEqual(["fixture"]); expect(store().mapSelection.groupIds).toEqual(["group"]);
+    store().selectFixture("fixture", true); expect(store().selectedFixtureIds).toEqual([]); expect(store().mapSelection.elementIds).toEqual(["shape"]);
+    store().selectMapElements(["shape"]); expect(store().selectedFixtureIds).toEqual([]); expect(store().mapSelection.groupIds).toEqual([]);
+  });
+
+  it("persists a normal saved-delete inverse with the exact session auth scope, not raw user ID", async () => {
+    const authScope = "user:4:admin";
+    store().initialize(baseline(), authScope);
+    store().loadMapStructures(store().mapScope!, { groups: [], layers: [{ id: "layer", name: "Shapes", order: 0, visible: true, locked: false }] });
+    store().loadMapElements(store().mapScope!, [element()]);
+    store().applyMapTransaction({ operations: [{ kind: "delete", id: "shape" }] });
+    expect(saveEditorDraft("user", baseline(), store().state!, store().exportMapDraft())).toBe(false);
+    expect(saveEditorDraft(authScope, baseline(), store().state!, store().exportMapDraft())).toBe(true);
+    await store().saveChanges(lease, vi.fn().mockResolvedValue(ack()));
+    expect(store().exportMapDraft()).toMatchObject({ scope: { authScope, baseRevision: 4 }, operations: [], inverse: [] });
+    expect(saveEditorDraft(authScope, store().initialState!, store().state!, store().exportMapDraft())).toBe(true);
+    store().undo();
+    expect(saveEditorDraft(authScope, store().initialState!, store().state!, store().exportMapDraft())).toBe(true);
+    expect(loadEditorDraft(authScope, store().initialState!)?.commonMapDraft?.operations).toEqual([{ kind: "add", element: element() }]);
+  });
+
   it("preserves failed saves and retries the exact request ID until payload changes", async () => {
     store().applyMapTransaction({ operations: [{ kind: "delete", id: "shape" }] });
     const transport = vi.fn().mockRejectedValue(new Error("lost response"));
@@ -133,7 +167,9 @@ describe("common map store integration", () => {
     expect(prepared.kind).toBe("staging-required");
     expect(prepared.payload.documentChanges!.operations).toHaveLength(2001);
     const transport = vi.fn();
-    await expect(store().saveChanges(lease, transport)).rejects.toMatchObject({ code: "MAP_STAGING_REQUIRED" });
+    const stage = { prepare: vi.fn().mockRejectedValue(new Error("stage unavailable")) };
+    await expect(store().saveChanges(lease, transport, stage as never)).rejects.toThrow("stage unavailable");
+    expect(stage.prepare).toHaveBeenCalledOnce();
     expect(transport).not.toHaveBeenCalled();
     expect(store().isDirty).toBe(true);
   });
@@ -228,11 +264,12 @@ describe("common map store integration", () => {
     expect(() => store().removeObject("legacy")).toThrow();
   });
 
-  it("uses common dimensions for fixtures and explicitly fences resize pending U6b", () => {
+  it("uses common dimensions for fixtures and drafts a U6b resize checkpoint", () => {
     store().setSnap(false);
     store().placeFixtures([{ id: "fixture", x: 12000, y: 4000 }]);
     expect(store().state!.fixtures[0]).toMatchObject({ x: 12000, y: 4000 });
-    expect(store().updateMapSettings({ width: 20000, height: 10000, gridSize: 80 })).toContain("체크포인트");
+    expect(store().updateMapSettings({ width: 20000, height: 10000, gridSize: 80 })).toBeNull();
+    expect(store().prepareSave(lease).reason).toBe("checkpoint");
     expect(store().state!.floor.mapDocument!.width).toBe(16384);
   });
 
@@ -310,12 +347,9 @@ describe("common map store integration", () => {
     expect(store().isDirty).toBe(true);
   });
 
-  it("routes a grid checkpoint and a sub-2000-op oversized body explicitly without HTTP", async () => {
+  it("classifies a grid checkpoint and a sub-2000-op oversized body for staging", () => {
     store().updateMapSettings({ width: 16384, height: 8192, gridSize: 40 });
     expect(store().prepareSave(lease)).toMatchObject({ kind: "staging-required", reason: "checkpoint" });
-    const transport = vi.fn();
-    await expect(store().saveChanges(lease, transport)).rejects.toMatchObject({ code: "MAP_CHECKPOINT_REQUIRED" });
-    expect(transport).not.toHaveBeenCalled();
     store().undo();
     store().applyMapTransaction({ operations: Array.from({ length: 20 }, (_, index) => ({ kind: "add",
       element: { ...element(`text-${index}`), type: "text", geometry: { position: { x: 0, y: 0 },

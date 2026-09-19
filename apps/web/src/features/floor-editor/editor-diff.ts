@@ -71,8 +71,8 @@ export function buildEditorChanges(initial: FloorEditorState, current: FloorEdit
     objectUpdates,
     objectDeletes: initial.objects.filter((object) => !currentObjectIds.has(object.id)).map((object) => object.id)
   };
-  const initialFloorPlan = toFloorPlanUpdate(initial.floor.floorPlan);
-  const currentFloorPlan = toFloorPlanUpdate(current.floor.floorPlan);
+  const initialFloorPlan = toFloorPlanUpdate(editorFloorPlan(initial));
+  const currentFloorPlan = toFloorPlanUpdate(editorFloorPlan(current));
   if (!sameFloorPlan(initialFloorPlan, currentFloorPlan)) {
     changes.floorPlan = currentFloorPlan;
   }
@@ -82,6 +82,12 @@ export function buildEditorChanges(initial: FloorEditorState, current: FloorEdit
     changes.documentChanges = documentChanges;
   }
   return changes;
+}
+
+export function editorFloorPlan(state: FloorEditorState): FloorEditorState["floor"]["floorPlan"] {
+  const document = state.floor.mapDocument;
+  return state.floor.floorPlan ?? (document ? { imageUrl: "", sourceType: "none", originalFileUrl: null, renderedImageUrl: null,
+    width: document.width, height: document.height, gridSize: document.gridSize, version: 1 } : null);
 }
 
 export function hasEditorChanges(changes: EditorChangeSet) {

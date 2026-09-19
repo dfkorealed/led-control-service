@@ -1,5 +1,6 @@
-import type { MapElement, MapGroup, MapLayer, MapOp } from "@led-control/shared";
-import { MAP_DOCUMENT_MAX_ELEMENTS, mapElementSchema, mapGroupSchema, mapLayerSchema, mapOpSchema } from "@led-control/shared/map-document-contracts";
+import type { MapDocumentRef, MapElement, MapGroup, MapLayer, MapOp } from "@led-control/shared";
+import type { EditorChangeSet } from "./editor-diff";
+import { MAP_DOCUMENT_MAX_ELEMENTS, mapDocumentRefSchema, mapElementSchema, mapGroupSchema, mapLayerSchema, mapOpSchema } from "@led-control/shared/map-document-contracts";
 import { applyMapOps } from "./map-element-commands";
 import { getMapElementBounds } from "@led-control/shared/map-document-geometry";
 import { MapElementHistory } from "./map-element-history";
@@ -16,6 +17,8 @@ export interface CommonMapDraft {
   scope: Omit<MapEditorScope, "epoch">;
   operations: MapOp[];
   inverse: MapOp[];
+  stage?: { stageId: string; preview: MapDocumentRef; kind: "stream" | "undo" | "redo";
+    digest: { partCount: number; decodedBytes: number; sha256: string } | null; capturedChanges: EditorChangeSet };
 }
 export interface MapSelection {
   elementIds: string[];
@@ -28,7 +31,7 @@ export class MapEditorError extends Error {
 export function parseCommonMapDraft(input: unknown): CommonMapDraft {
   const draft = input as CommonMapDraft;
   const scope = draft?.scope;
-  if (!draft || Object.keys(draft).some((key) => !["scope", "operations", "inverse"].includes(key))
+  if (!draft || Object.keys(draft).some((key) => !["scope", "operations", "inverse", "stage"].includes(key))
     || !scope || Object.keys(scope).length !== 5
     || ![scope.authScope, scope.siteId, scope.floorId, scope.generationId].every((id) => typeof id === "string" && id.length > 0)
     || !Number.isInteger(scope.baseRevision) || scope.baseRevision < 0
@@ -41,7 +44,19 @@ export function parseCommonMapDraft(input: unknown): CommonMapDraft {
   const inverse = draft.inverse.map((op) => mapOpSchema.parse(op));
   const keys = operations.map(mapOperationKey), inverseKeys = inverse.map(mapOperationKey).reverse();
   if (new Set(keys).size !== keys.length || keys.some((key, index) => key !== inverseKeys[index])) throw new MapEditorError("MAP_DRAFT_INVALID", "맵 초안의 복원 명령이 올바르지 않습니다.");
-  return { scope: { ...scope }, operations, inverse };
+  if (draft.stage) {
+    const stage = draft.stage, digest = stage.digest;
+    if (Object.keys(stage).some(key => !["stageId", "preview", "kind", "digest", "capturedChanges"].includes(key))
+      || typeof stage.stageId !== "string" || !stage.stageId || stage.stageId.length > 256
+      || !["stream", "undo", "redo"].includes(stage.kind) || !stage.capturedChanges
+      || digest !== null && (!digest || Object.keys(digest).length !== 3 || !Number.isInteger(digest.partCount) || digest.partCount < 1 || digest.partCount > 1024
+        || !Number.isInteger(digest.decodedBytes) || digest.decodedBytes < 1 || digest.decodedBytes > 512 * 1024 * 1024 || !/^[a-f0-9]{64}$/.test(digest.sha256))) {
+      throw new MapEditorError("MAP_DRAFT_INVALID", "대량 편집 초안 참조가 올바르지 않습니다.");
+    }
+    mapDocumentRefSchema.parse(stage.preview);
+    if (stage.preview.revision !== scope.baseRevision + 1) throw new MapEditorError("MAP_DRAFT_INVALID", "대량 편집 초안 버전을 확인해주세요.");
+  }
+  return { scope: { ...scope }, operations, inverse, ...(draft.stage ? { stage: structuredClone(draft.stage) } : {}) };
 }
 
 type Value = MapElement | MapGroup | MapLayer;
@@ -213,6 +228,14 @@ export class CommonMapStore {
       const value = valueOf(op);
       if (same(this.originals.get(key), value)) this.changes.delete(key);
       else this.changes.set(key, value);
+    }
+  }
+  seedMissingHistory(operations: MapOp[]) {
+    // A restored server checkpoint intentionally has no full canonical cache.
+    // The opposite side of the retained command supplies only its touched IDs.
+    for (const op of operations) {
+      const key = mapOperationKey(op);
+      if (this.read(key) === undefined) this.originals.set(key, valueOf(op));
     }
   }
   acknowledge(operations: MapOp[]) {
