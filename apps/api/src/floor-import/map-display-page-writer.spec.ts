@@ -1,5 +1,7 @@
 import { mkdtempSync, readdirSync, rmSync, readFileSync, writeFileSync } from "node:fs";
 import fs = require("node:fs");
+import { deserialize, serialize } from "node:v8";
+import { gunzipSync, gzipSync } from "node:zlib";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MAP_DISPLAY_ORDERED_ASSET_MAX_BYTES, OrderedMapDisplayPrimitive, validateMapDisplayPageContent } from "@led-control/shared";
@@ -50,6 +52,75 @@ describe("ordered display page writer", () => {
     expect(tiles[0].payload.length).toBeLessThanOrEqual(MAP_DISPLAY_ORDERED_ASSET_MAX_BYTES);
     for (const tile of tiles) validateMapDisplayPageContent(tile.descriptor, decodeMapDisplayTile(tile.payload, tile.descriptor), name => name.replace("raw", "layer"));
     expect(readdirSync(directory)).toEqual([]);
+  });
+  it("stores a versioned shared header without merging fragment geometry, style or identity", () => {
+    const writer = createMapDisplayPageWriter({ directory, sceneId, width: 512, height: 512 });
+    const input = Array.from({ length: 1000 }, (_, i) => ({ ...primitive(0), type: "line" as const, fragmentOrder: i,
+      bounds: { minX: i / 1000, minY: 1, maxX: 10, maxY: 10 },
+      style: { ...primitive(0).style, opacity: i < 700 ? 0.25 : 0.75 },
+      geometry: { start: { x: i / 1000, y: 1 }, end: { x: 10, y: 10 } } }));
+    try {
+      for (const p of input) writer.append({ tileX: 0, tileY: 0, lod: 0 }, p, "layer");
+      const bytes = readFileSync(join(directory, readdirSync(directory)[0]));
+      const frame = deserialize(gunzipSync(bytes.subarray(8, 8 + bytes.readUInt32LE(0))));
+      expect(frame.codec).toBe("v8-display-records"); expect(frame.version).toBe(1);
+      expect(frame.headers).toHaveLength(1);
+      expect(frame.records.length).toBeGreaterThan(100);
+      const tiles = [...writer.finish()];
+      const restored = tiles.flatMap(t => decodeMapDisplayTile(t.payload, t.descriptor));
+      expect(restored).toEqual(input);
+      expect(Buffer.concat(tiles.map(t => t.payload))).toEqual(encodeMapDisplayTile(input));
+    } finally { writer.dispose(); }
+  });
+  it.each(["version", "codec", "records", "reference", "truncated", "trailing"])("rejects %s corruption before emitting a tile and releases all claims", corruption => {
+    let physical = 0;
+    const writer = createMapDisplayPageWriter({ directory, sceneId, width: 512, height: 512, assetTargetBytes: 150,
+      claimBytes: delta => { physical += delta; } });
+    try {
+      for (let i = 0; i < 1000; i++) writer.append({ tileX: 0, tileY: 0, lod: 0 }, primitive(i), "layer");
+      const path = join(directory, readdirSync(directory)[0]), bytes = readFileSync(path);
+      const oldSize = bytes.readUInt32LE(0);
+      const frame = deserialize(gunzipSync(bytes.subarray(8, 8 + oldSize)));
+      if (corruption === "version") frame.version = 2;
+      if (corruption === "codec") frame.codec = "unknown";
+      if (corruption === "records") frame.records = null;
+      if (corruption === "reference") frame.records[0][0] = frame.headers.length;
+      const encoded = serialize(frame);
+      const raw = corruption === "truncated" ? encoded.subarray(0, encoded.length - 1)
+        : corruption === "trailing" ? Buffer.concat([encoded, Buffer.from([0])]) : encoded;
+      const compressed = gzipSync(raw, { level: 1 });
+      const header = Buffer.alloc(8); header.writeUInt32LE(compressed.length); header.writeUInt32LE(raw.length, 4);
+      writeFileSync(path, Buffer.concat([header, compressed, bytes.subarray(8 + oldSize)]));
+      expect(() => writer.finish().next()).toThrow();
+      expect(readdirSync(directory)).toEqual([]);
+    } finally { writer.dispose(); }
+    expect(physical).toBe(0);
+  });
+  it("round-trips every display geometry without mutating shared frozen style or geometry", () => {
+    const geometries: Array<Pick<OrderedMapDisplayPrimitive, "type" | "geometry">> = [
+      { type: "line", geometry: { start: { x: 1.23456789012345, y: -0 }, end: { x: 9, y: 8 } } },
+      { type: "polyline", geometry: { points: [{ x: 1, y: 1 }, { x: 9, y: 8 }], closed: false } },
+      { type: "rectangle", geometry: { origin: { x: 1, y: 1 }, width: 8, height: 7, rotation: 5 } },
+      { type: "triangle", geometry: { points: [{ x: 1, y: 1 }, { x: 9, y: 1 }, { x: 9, y: 8 }] } },
+      { type: "ellipse", geometry: { center: { x: 5, y: 5 }, radiusX: 4, radiusY: 3, rotation: 5 } },
+      { type: "arc", geometry: { center: { x: 5, y: 5 }, radius: 4, startAngle: 15, endAngle: 120, counterClockwise: true } },
+      { type: "text", geometry: { position: { x: 1, y: 8 }, text: "shared text", width: 8, height: 7, rotation: 5, fontSize: 7 } }
+    ];
+    const style = primitive(0).style;
+    const input = geometries.flatMap((shape, i) => [0, 1].map(fragmentOrder => ({ ...primitive(i), ...shape,
+      style, fragmentOrder, clipBounds: fragmentOrder ? null : primitive(i).clipBounds }) as OrderedMapDisplayPrimitive));
+    const freeze = (value: unknown) => {
+      if (!value || typeof value !== "object" || Object.isFrozen(value)) return;
+      Object.values(value).forEach(freeze); Object.freeze(value);
+    };
+    input.forEach(freeze);
+    const expected = encodeMapDisplayTile(input);
+    const writer = createMapDisplayPageWriter({ directory, sceneId, width: 512, height: 512 });
+    for (const p of input) writer.append({ tileX: 0, tileY: 0, lod: 0 }, p, "layer");
+    const [tile] = [...writer.finish()];
+    expect(tile.payload).toEqual(expected);
+    expect(decodeMapDisplayTile(tile.payload, tile.descriptor)).toEqual(input);
+    expect(encodeMapDisplayTile(input)).toEqual(expected);
   });
   it("continues one canonical fill across pages without merging independent elements", () => {
     const writer = createMapDisplayPageWriter({ directory, sceneId, width: 512, height: 512, pageTargetBytes: 300, assetTargetBytes: 1000 });

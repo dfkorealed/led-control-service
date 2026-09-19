@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { closeSync, mkdtempSync, openSync, readSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DefaultDeserializer, serialize } from "node:v8";
 import { gzipSync, gunzipSync } from "node:zlib";
 import { CAD_SCENE_MAX_MANIFEST_BYTES, CAD_SCENE_MAX_PARTS_PER_TILE, CAD_SCENE_MAX_TILE_PART_COUNT,
   CAD_SCENE_MAX_TOTAL_TILE_BYTES, compareMapDisplayFragmentKeys, MAP_DISPLAY_ORDERED_ASSET_MAX_BYTES,
@@ -21,6 +22,50 @@ export interface OrderedPageWriterOptions {
 type Run = Cell & { path: string; bytes: number; primitives: OrderedMapDisplayPrimitive[]; groups: (string | null)[]; tracker: MapDisplayTileSizeTracker };
 const FRAME_TARGET = 64 * 1024, RETAINED_BYTES = 4 * 1024 * 1024, FRAME_MAX = 4 * 1024 * 1024;
 const keyOf = (p: OrderedMapDisplayPrimitive) => ({ zIndex: p.zIndex, elementId: p.elementId, fragmentOrder: p.fragmentOrder });
+type FrameHeader = Pick<OrderedMapDisplayPrimitive, "type" | "elementId" | "groupId" | "layerName" | "sourceType" | "zIndex" | "style" | "clipBounds"> & { paintGroup: string | null };
+type FrameRecord = [number, number, OrderedMapDisplayPrimitive["bounds"], OrderedMapDisplayPrimitive["geometry"]];
+type Frame = { codec: "v8-display-records"; version: 1; headers: FrameHeader[]; records: FrameRecord[] };
+
+const sameBounds = (a: FrameHeader["clipBounds"], b: FrameHeader["clipBounds"]) => a === b || Boolean(a && b &&
+  Object.is(a.minX, b.minX) && Object.is(a.minY, b.minY) && Object.is(a.maxX, b.maxX) && Object.is(a.maxY, b.maxY));
+
+function encodeRunFrame(run: Run): Buffer {
+  const headers: FrameHeader[] = [], records: FrameRecord[] = [], latest = new Map<string, number>();
+  for (let i = 0; i < run.primitives.length; i++) {
+    const p = run.primitives[i], group = run.groups[i];
+    let index = latest.get(p.elementId);
+    const h = index === undefined ? undefined : headers[index];
+    if (!h || h.type !== p.type || h.groupId !== p.groupId || h.layerName !== p.layerName || h.sourceType !== p.sourceType ||
+        h.zIndex !== p.zIndex || h.paintGroup !== group || !sameBounds(h.clipBounds, p.clipBounds) ||
+        h.style.strokeColor !== p.style.strokeColor || h.style.fillColor !== p.style.fillColor ||
+        !Object.is(h.style.strokeWidth, p.style.strokeWidth) || !Object.is(h.style.opacity, p.style.opacity)) {
+      index = headers.length;
+      headers.push({ type: p.type, elementId: p.elementId, groupId: p.groupId, layerName: p.layerName,
+        sourceType: p.sourceType, zIndex: p.zIndex, style: p.style, clipBounds: p.clipBounds, paintGroup: group });
+      latest.set(p.elementId, index);
+    }
+    records.push([index!, p.fragmentOrder, p.bounds, p.geometry]);
+  }
+  // Private scratch only: written/read by this writer in the same process. V8
+  // preserves doubles and shared values without repeatedly stringifying headers;
+  // neither these bytes nor a V8-version dependency escape into stored assets.
+  return serialize({ codec: "v8-display-records", version: 1, headers, records } satisfies Frame);
+}
+
+function decodeRunFrame(bytes: Buffer): Frame {
+  const decoder = new DefaultDeserializer(bytes);
+  decoder.readHeader();
+  const frame = decoder.readValue() as Frame;
+  // deserialize() alone accepts trailing bytes. A frame contains exactly one
+  // value, so even CRC-valid padding or another serialized value is rejected.
+  let exhausted = false;
+  try { decoder.readRawBytes(1); } catch { exhausted = true; }
+  if (!exhausted) throw new Error("trailing ordered page frame data");
+  if (!frame || frame.codec !== "v8-display-records" || frame.version !== 1) throw new Error("invalid ordered page frame version");
+  if (!Array.isArray(frame.headers) || !Array.isArray(frame.records) || !frame.headers.length ||
+      !frame.records.length || frame.headers.length > frame.records.length) throw new Error("invalid ordered page frame records");
+  return frame;
+}
 
 /** Input is monotonic within each canonical layer. Tiny compressed per-cell
  * runs decouple eviction from public part boundaries: a sparse layer does not
@@ -36,10 +81,9 @@ export function createMapDisplayPageWriter(options: OrderedPageWriterOptions) {
   let retained = 0, physical = 0, decoded = 0, finished = false;
   const flush = (run: Run) => {
     if (!run.primitives.length) return;
-    // These are this writer's fresh typed producer records, not external CDTL.
-    // Avoid re-running the public schema parser over the entire scene on replay.
-    // JSON preserves doubles exactly; independent gzip frames verify CRC/length.
-    const frame = Buffer.from(JSON.stringify([run.groups, run.primitives]));
+    // Fresh typed producer records, not external CDTL. Independent bounded gzip
+    // frames retain CRC/length checks; final public encoding validates ordering.
+    const frame = encodeRunFrame(run);
     if (frame.length > FRAME_MAX) throw new Error("ordered page run frame limit exceeded");
     const compressed = gzipSync(frame, { level: 1 });
     const header = Buffer.alloc(8); header.writeUInt32LE(compressed.length); header.writeUInt32LE(frame.length, 4);
@@ -79,9 +123,16 @@ export function createMapDisplayPageWriter(options: OrderedPageWriterOptions) {
         if (size > FRAME_MAX || compressed > FRAME_MAX + 1024 || compressed > run.bytes - total) throw new Error("invalid ordered page run length");
         const frame = gunzipSync(read(compressed), { maxOutputLength: size });
         if (frame.length !== size) throw new Error("ordered page run size mismatch");
-        const [groups, primitives]: [(string | null)[], OrderedMapDisplayPrimitive[]] = JSON.parse(frame.toString("utf8"));
-        if (groups.length !== primitives.length) throw new Error("ordered page run count mismatch");
-        for (let i = 0; i < primitives.length; i++) yield { primitive: primitives[i], paintGroup: groups[i] ?? undefined };
+        const { headers, records } = decodeRunFrame(frame);
+        for (const record of records) {
+          if (!Array.isArray(record) || record.length !== 4 || !Number.isInteger(record[0]) ||
+              record[0] < 0 || record[0] >= headers.length) throw new Error("invalid ordered page frame header reference");
+          const header = headers[record[0]];
+          yield { primitive: { type: header.type, elementId: header.elementId, groupId: header.groupId,
+            layerName: header.layerName, sourceType: header.sourceType, zIndex: header.zIndex, style: header.style,
+            clipBounds: header.clipBounds, fragmentOrder: record[1], bounds: record[2], geometry: record[3] } as OrderedMapDisplayPrimitive,
+            paintGroup: header.paintGroup ?? undefined };
+        }
       }
     } finally { closeSync(fd); }
   }
