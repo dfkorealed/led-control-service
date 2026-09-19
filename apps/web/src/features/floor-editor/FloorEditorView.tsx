@@ -30,6 +30,7 @@ import { synchronizeMonitoringCaches } from "./editor-monitoring-cache";
 import { useFloorEditorStore } from "./editor-store";
 import type { CadImportReviewState, EditorTool, FloorEditorState, FloorImportApplyResult } from "./editor-types";
 import { CadElementPropertiesPanel } from "./CadElementPropertiesPanel";
+import { useCadImportScene } from "./CadImportSceneCanvas";
 
 interface FloorEditorViewProps {
   initialState: FloorEditorState;
@@ -79,7 +80,8 @@ export function FloorEditorView({
   const [restoringRevision, setRestoringRevision] = useState<number | null>(null);
   const [isCadImportPending, setIsCadImportPending] = useState(false);
   const [isCadEditPending, setIsCadEditPending] = useState(false);
-  const [cadImportReview, setCadImportReview] = useState<CadImportReviewState | null>(null);
+  const [importReview, setCadImportReview] = useState<CadImportReviewState | null>(null);
+  const cadImportReview = importReview?.job.floorId === initialState.floor.id ? importReview : null;
   const [focusedCadCandidateId, setFocusedCadCandidateId] = useState<string | null>(null);
   const [skippedFixtureCount, setSkippedFixtureCount] = useState(0);
   const [confirmReload, setConfirmReload] = useState(false);
@@ -93,6 +95,7 @@ export function FloorEditorView({
   const noticeFloorId = useRef(initialState.floor.id);
   const floorId = initialState.floor.id;
   const siteId = initialState.floor.siteId;
+  const importSceneQuery = useCadImportScene(floorId, cadImportReview);
   const revisionsQuery = useInfiniteQuery({
     queryKey: ["floor-editor-revisions", siteId, floorId],
     queryFn: ({ pageParam }) => listFloorEditorRevisions(floorId, pageParam === undefined ? {} : { cursor: pageParam }),
@@ -361,9 +364,14 @@ export function FloorEditorView({
     && appliedOverlay.renderedAssetPath === state.floor.floorPlan?.imageUrl
     ? appliedOverlay
     : null;
-  const visibleCadCandidates = cadImportReview?.candidates ?? currentAppliedOverlay?.candidates ?? [];
-  const visibleCadViewport = cadImportReview?.job.renderedViewport ?? currentAppliedOverlay?.renderedViewport;
-  const visibleCadBackgroundUrl = cadImportReview?.job.renderedAssetPath ?? currentAppliedOverlay?.renderedAssetPath;
+  const nativeReview = cadImportReview && cadImportReview.scene?.kind !== "legacy";
+  const visibleCadCandidates = nativeReview
+    ? importSceneQuery.data ? cadImportReview.candidates : []
+    : cadImportReview?.candidates ?? currentAppliedOverlay?.candidates ?? [];
+  const visibleCadViewport = nativeReview ? importSceneQuery.data
+    : cadImportReview?.job.renderedViewport ?? currentAppliedOverlay?.renderedViewport;
+  const visibleCadBackgroundUrl = nativeReview ? ""
+    : cadImportReview?.job.renderedAssetPath ?? currentAppliedOverlay?.renderedAssetPath;
   const acceptedCadCandidateIds = useMemo(() => new Set(
     cadImportReview?.acceptedCandidateIds ?? currentAppliedOverlay?.candidates.map(candidate => candidate.id) ?? []
   ), [cadImportReview?.acceptedCandidateIds, currentAppliedOverlay?.candidates]);
@@ -454,7 +462,8 @@ export function FloorEditorView({
                 className={`h-12 min-h-12 w-12 min-w-12 p-0 max-compact:h-14 max-compact:min-h-14 max-compact:w-14 max-compact:min-w-14 ${activeTool === tool.key ? "border-action-primary bg-action-primary-soft text-action-primary" : ""}`}
                 aria-label={tool.label}
                 title={tool.label}
-                disabled={(readOnly && tool.key !== "pan" && tool.key !== "select") || isMutationPending}
+                disabled={(readOnly && tool.key !== "pan" && tool.key !== "select")
+                  || (isMutationPending && !(cadImportReview && (tool.key === "pan" || tool.key === "select")))}
                 draggable={!readOnly && !isMutationPending && tool.key !== "select" && tool.key !== "pan"}
                 onClick={() => setActiveTool(tool.key)}
                 onDragStart={(event) => handleToolDragStart(event, tool.key)}
@@ -471,6 +480,11 @@ export function FloorEditorView({
             cadCandidates={visibleCadCandidates}
             cadBackgroundUrl={visibleCadBackgroundUrl}
             cadViewport={visibleCadViewport}
+            cadReviewActive={Boolean(cadImportReview)}
+            cadImportScene={nativeReview ? {
+              floorId, jobId: cadImportReview.job.jobId, manifest: importSceneQuery.data ?? null,
+              isError: importSceneQuery.isError, onRetry: () => void importSceneQuery.refetch()
+            } : null}
             acceptedCadCandidateIds={acceptedCadCandidateIds}
             focusedCadCandidateId={focusedCadCandidateId}
             onFocusedCadCandidateChange={setFocusedCadCandidateId}

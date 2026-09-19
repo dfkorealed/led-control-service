@@ -6,6 +6,7 @@
 
 ## 현재 우선순위
 
+- CAD 후보 검토는 선택한 영역의 비공개 native manifest/tile을 중앙 편집 화면에 자동 맞춤으로 크게 표시한다. 후보와 배경은 같은 맵 좌표를 사용하고 기존 확대·축소·이동 및 후보 선택을 제공한다. 교체 전 맵·조명·도형·미니맵은 검토 중 숨기며, native 읽기 실패 시 전체 원본 SVG로 대체하지 않고 재시도를 제공한다. Chromium 두 여정과 Web 1,614개 회귀가 통과했지만 실제 사용자 계정 재적용은 로그인 후 별도 확인 대상이다. 별도 확대 팝업은 아직 추가하지 않았다.
 - CAD는 배경 이미지가 아닌 편집 가능한 맵 요소다. 네모·세모·선·텍스트와 원/타원·호·연속선의 식별자·좌표·스타일을 보존하고, 화면용 벡터 geometry만 단순화·병합한다. 그룹 없는 요소는 한 번 클릭, 그룹 내부 요소는 두 번 클릭해 이동·크기·회전·색상·텍스트를 편집한다. 전체 영역 표시·분할 요소 스타일·저장 후 재표시 회귀를 검증했다. native `ellipse` 표현과 원본 DXF `ELLIPSE` 입력 지원은 다르며 후자는 아직 미지원이다. 원본 100% 재현으로 표시하지 않는다.
 - 신규 native CAD 적용은 원본/scene 경계와 transform의 소수점 정밀도를 보존해 한 transaction으로 저장한다. CAD FloorPlan은 `imageUrl=''`, `renderedImageUrl=NULL`로 저장하고 native descriptor로 표시한다. 같은 층에 재적용할 때 `FloorCadScene.version`은 manifest 형식 버전을 유지하고, 교체 이력은 새 scene ID와 증가하는 맵 수정 번호로 식별한다. 다른 크기의 영역·후보 0개/선택 후보 교체, 기존 배정·override·도형 정리와 실패 시 전체 rollback을 실제 PostgreSQL로 검사한다. 미리보기 asset은 영역 선택용으로 유지하며 기존 맵 데이터는 별도 재작성하지 않는다. 적용 후 실제 editor-state·맵 snapshot·manifest 재조회까지 서버 회귀로 검사한다.
 - 2026-09-19 CAD 네이티브 통합의 지원 범위 소프트웨어 검증을 완료했다. 전체 맵 fit 최소 배율은 0.001이며 native/SVG 중복 표시를 제거했다. Renderer마다 새 canvas를 생성하고 실패 재시도를 제공하며, context 복원 시 이전 display cache와 pick lease를 해제한다. 두 실제 DWG의 1,308/2개 미배정 위치 적용·API 재조회, 실제 tile 전체 표시, native LINE 편집/reload와 WebView 32 MiB 정책의 Chromium 검증을 통과했다. 실제 RN 기기 검증과 원본 충실도 평가는 별도이며 상세 증거는 `docs/test-results/cad-native-map-2026-09-18.md`를 따른다.

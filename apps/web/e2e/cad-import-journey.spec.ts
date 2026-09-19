@@ -26,7 +26,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 for (const native of [false, true]) {
-  test(`${native ? "Native WebGL" : "Legacy SVG"}: region 선택부터 슬롯 배치, 저장, 새로고침, 모니터링까지 (route fixture)`, async ({ page }, testInfo) => {
+  test(`${native ? "Native WebGL: region 선택부터" : "Legacy SVG: 기존 적용 맵부터"} 슬롯 배치, 저장, 새로고침, 모니터링까지 (route fixture)`, async ({ page }, testInfo) => {
     test.setTimeout(60_000);
     await page.setViewportSize({ width: 1_440, height: 900 });
     const api = await installCadJourney(page, native);
@@ -35,8 +35,11 @@ for (const native of [false, true]) {
 
     await page.goto("/settings/floor-plans/floor-1/edit?siteId=site-1");
     await expect(page.getByRole("heading", { name: "B1 맵 편집" })).toBeVisible();
+    if (native) {
     expect(api.state().objects).toHaveLength(1);
     expect(api.state().fixtures.filter(fixture => fixture.placementStatus === "placed")).toHaveLength(2);
+    if (native) await expectNativePixel(page, () => editorPoint(page, nativePoints[2]), [6, 182, 212]);
+    const appliedStateRequestsAtStart = api.appliedStateRequestsBeforeApply();
 
     await page.getByLabel("CAD 파일").setInputFiles({
       name: "parking.dwg",
@@ -55,6 +58,43 @@ for (const native of [false, true]) {
     await expect(page.getByText("조명 위치 후보 2개를 찾았습니다.")).toBeVisible();
     await expect(page.getByText("선택한 도면 영역의 장면 생성이 완료되었습니다.")).toBeVisible();
 
+    if (native) {
+      const reviewCanvas = page.getByTestId("floor-editor-canvas");
+      await expect(reviewCanvas).toHaveAttribute("data-background-url", "");
+      await expect(reviewCanvas).toHaveAttribute("data-map-width", String(nativeScene.manifest.width));
+      await expect(reviewCanvas).toHaveAttribute("data-map-height", String(nativeScene.manifest.height));
+      await expect(reviewCanvas).toHaveAttribute("data-rendered-fixture-count", "0");
+      await expect(reviewCanvas).toHaveAttribute("data-rendered-object-count", "0");
+      await expect(page.getByTestId("cad-scene-canvas")).toHaveCount(1);
+      await page.getByText("격자 스냅", { exact: true }).click();
+      await expectNativePixel(page, () => editorPoint(page, nativePoints[2]), [225, 29, 72]);
+      await expectEditorMapFits(page);
+      const fittedZoom = Number(await reviewCanvas.getAttribute("data-zoom"));
+      await page.getByRole("button", { name: "확대", exact: true }).click();
+      await expect.poll(async () => Number(await reviewCanvas.getAttribute("data-zoom"))).toBeGreaterThan(fittedZoom);
+      await expectNativePixel(page, () => editorPoint(page, nativePoints[2]), [225, 29, 72]);
+      await page.getByRole("button", { name: "축소", exact: true }).click();
+      await expect.poll(async () => Number(await reviewCanvas.getAttribute("data-zoom"))).toBeCloseTo(fittedZoom);
+      await page.getByRole("button", { name: "이동", exact: true }).click();
+      const from = await editorPoint(page, { x: 8192, y: 7800 });
+      const oldPan = Number(await reviewCanvas.getAttribute("data-pan-x"));
+      await page.mouse.move(from.x, from.y);
+      await page.mouse.down();
+      await page.mouse.move(from.x + 50, from.y + 25, { steps: 4 });
+      await page.mouse.up();
+      await expect.poll(async () => Number(await reviewCanvas.getAttribute("data-pan-x"))).toBeCloseTo(oldPan + 50);
+      await expectNativePixel(page, () => editorPoint(page, nativePoints[2]), [225, 29, 72]);
+      await page.getByRole("button", { name: "선택", exact: true }).click();
+      const candidate = page.getByRole("checkbox", { name: /후보 1\/2/ });
+      await expect(candidate).toBeChecked();
+      await reviewCanvas.click({ position: await editorPoint(page, nativePoints[0], false) });
+      await expect(candidate).not.toBeChecked();
+      await reviewCanvas.click({ position: await editorPoint(page, nativePoints[0], false) });
+      await expect(candidate).toBeChecked();
+      await saveScreenshot(page, testInfo, "native-review-before-apply");
+      expect(api.appliedStateRequestsBeforeApply()).toBe(appliedStateRequestsAtStart);
+    }
+
     const applyButton = page.getByRole("button", { name: "선택한 후보와 배경 적용" });
     await applyButton.click();
     let resetDialog = page.getByRole("dialog", { name: "새 CAD 도면으로 맵을 교체할까요?" });
@@ -72,11 +112,13 @@ for (const native of [false, true]) {
     expect(api.applyPayloads()[0]).toMatchObject({
       expectedRevision: 1,
       confirmMapReset: true,
-      candidateIds: candidates.map(candidate => candidate.id)
+      candidateIds: expect.arrayContaining(candidates.map(candidate => candidate.id))
     });
+    expect((api.applyPayloads()[0] as { candidateIds: string[] }).candidateIds).toHaveLength(candidates.length);
     await expect.poll(() => api.state().objects).toHaveLength(0);
     await expect.poll(() => api.state().lightSlots).toHaveLength(2);
     await expect.poll(() => api.state().fixtures.every(fixture => fixture.placementStatus === "unplaced")).toBe(true);
+    }
 
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect(page.getByTestId("placement-fixture-fixture-1")).toBeVisible();
@@ -263,15 +305,36 @@ async function installCadJourney(page: Page, native = false) {
   const unhandledRequests: string[] = [];
   page.on("pageerror", error => browserErrors.push(error.message));
   let pollCount = 0;
-  let applied = false;
+  let applied = !native;
   let selected = false;
   let monitoringSnapshotRequestCount = 0;
+  let appliedStateRequestsBeforeApply = 0;
   const applyPayloads: unknown[] = [];
   const savePayloads: unknown[] = [];
   const regionPayloads: unknown[] = [];
   const cadPayloads: unknown[] = [];
   const state = initialState();
+  const oldSceneId = "00000000-0000-4000-8000-000000000080";
+  const oldJobId = "00000000-0000-4000-8000-000000000081";
+  const oldDescriptor = { ...nativeScene.descriptor, id: oldSceneId, sourceImportJobId: oldJobId,
+    manifestContentPath: nativeScene.descriptor.manifestContentPath.replace(jobId, oldJobId),
+    tileContentPathTemplate: nativeScene.descriptor.tileContentPathTemplate.replace(jobId, oldJobId) };
+  const oldTiles = nativeScene.tiles.map(tile => ({ ...tile, descriptor: { ...tile.descriptor, sceneId: oldSceneId } }));
+  const oldScene = { descriptor: oldDescriptor, tiles: oldTiles,
+    manifest: { ...nativeScene.manifest, sceneId: oldSceneId, tiles: oldTiles.map(tile => tile.descriptor) } };
+  if (native) {
+    state.floor.cadScene = oldDescriptor;
+    state.floor.floorPlan = floorPlan(true);
+  }
   const reviewCandidates = candidates.map((candidate, index) => ({ ...candidate, ...(native ? nativePoints[index] : {}) }));
+  if (!native) {
+    // New imports are native; legacy coverage starts from an already-applied SVG map.
+    state.objects = [];
+    state.fixtures = state.fixtures.map(fixture => ({ ...fixture, x: 0, y: 0, placementStatus: "unplaced" }));
+    state.lightSlots = reviewCandidates.map((candidate, index) => ({ id: `slot-${index + 1}`, x: candidate.x, y: candidate.y, rotation: candidate.rotation, assignedFixtureId: null }));
+    state.floor.mapRevision = 2;
+    state.floor.floorPlan = floorPlan(false);
+  }
   const sceneState: CadSceneState = { revision: 2, scene: nativeScene.descriptor, overrides: [], layers: [] };
   await page.route("**/old.svg", route => svg(route));
 
@@ -282,6 +345,10 @@ async function installCadJourney(page: Page, native = false) {
     if (!url.pathname.startsWith("/api/")) return route.continue();
     const path = url.pathname.replace(/^\/api/, "");
     if (native && path === nativeScene.descriptor.statePath) {
+      if (!applied) appliedStateRequestsBeforeApply += 1;
+      if (!applied) return json(route, { revision: state.floor.mapRevision, scene: oldDescriptor,
+        layers: [], overrides: [{ elementId: "native-3", hidden: false, transform: null, strokeColor: null,
+          fillColor: "#06b6d4", strokeWidth: null, text: null, locator: { lod: 0, tileX: 18, tileY: 12, part: 0 } }] });
       if (request.method() === "PUT") {
         const payload = request.postDataJSON();
         cadPayloads.push(payload);
@@ -294,7 +361,7 @@ async function installCadJourney(page: Page, native = false) {
       }
       return json(route, { ...sceneState, revision: state.floor.mapRevision });
     }
-    if (native && await serveNativeAsset(route, path)) return;
+    if (native && (await serveNativeAsset(route, path) || await serveNativeAsset(route, path, oldScene))) return;
     if (path === "/auth/me") return json(route, { user: { id: "user-1", organizationId: "org-1", organizationType: "customer", loginId: "admin", name: "관리자", role: "admin", status: "active" } });
     if (path === "/sites") return json(route, [{ id: "site-1", name: "검증 현장" }]);
     if (path === "/sites/site-1/dashboard") return json(route, dashboard(state));
@@ -380,6 +447,7 @@ async function installCadJourney(page: Page, native = false) {
   return {
     state: () => state, applyPayloads: () => applyPayloads, savePayloads: () => savePayloads,
     monitoringSnapshotRequests: () => monitoringSnapshotRequestCount,
+    appliedStateRequestsBeforeApply: () => appliedStateRequestsBeforeApply,
     regionPayloads: () => regionPayloads, cadPayloads: () => cadPayloads, browserErrors, unhandledRequests
   };
 }
@@ -404,7 +472,7 @@ function importJob(status: FloorImportJob["status"], progressPercent: number, na
     detectorVersion: status === "review_required" ? "site-drawing-20260803-v1" : null,
     failureCode: null, sourceAssetPath: "/api/floors/floor-1/assets/source/content",
     renderedAssetPath: status === "review_required" ? "/api/floors/floor-1/assets/rendered/content" : null,
-    renderedViewport: status === "review_required" ? { width: native ? nativeScene.manifest.width : 1200, height: native ? nativeScene.manifest.height : 800 } : null,
+    renderedViewport: status === "review_required" ? { width: 1200, height: 800 } : null,
     startedAt: status === "queued" ? null : now, reviewRequiredAt: status === "review_required" ? now : null,
     appliedAt: null, completedAt: null, failedAt: null, cancelledAt: null, createdAt: now, updatedAt: now
   };
@@ -533,7 +601,7 @@ function regions(selected: boolean) {
 function createNativeScene() {
   const sceneId = "00000000-0000-4000-8000-000000000060";
   const manifestAssetId = "00000000-0000-4000-8000-000000000061";
-  const sourceBounds = { minX: 0, minY: 0, maxX: 1200, maxY: 800 };
+  const sourceBounds = { minX: 5000, minY: 7000, maxX: 6200, maxY: 7800 };
   const size = normalizeCadMapSize(sourceBounds);
   const scale = Math.min((size.width - 2 * size.padding) / 1200, (size.height - 2 * size.padding) / 800);
   const tiles = nativePoints.map(({ x, y }, index) => {
@@ -556,7 +624,9 @@ function createNativeScene() {
     version: 1, sceneId, regionId: "region-1", manifestAssetId, ...size,
     tileSize: 512, lodMode: "additive", primitiveCount: 3, tileCount: tiles.length,
     byteSize: 1024, sha256: "a".repeat(64), sourceBounds,
-    transform: { scaleX: scale, scaleY: -scale, translateX: (size.width - 1200 * scale) / 2, translateY: (size.height + 800 * scale) / 2 },
+    transform: { scaleX: scale, scaleY: -scale,
+      translateX: (size.width - 1200 * scale) / 2 - sourceBounds.minX * scale,
+      translateY: (size.height + 800 * scale) / 2 + sourceBounds.minY * scale },
     tiles: tiles.map(tile => tile.descriptor)
   });
   const descriptor = buildCadSceneDescriptor("site-1", "floor-1", {
@@ -566,13 +636,13 @@ function createNativeScene() {
   return { manifest, descriptor, tiles };
 }
 
-async function serveNativeAsset(route: Route, path: string) {
-  if (path === nativeScene.descriptor.manifestContentPath) {
-    await json(route, nativeScene.manifest);
+async function serveNativeAsset(route: Route, path: string, scene = nativeScene) {
+  if (path === scene.descriptor.manifestContentPath) {
+    await json(route, scene.manifest);
     return true;
   }
-  for (const { descriptor, payload } of nativeScene.tiles) {
-    const tilePath = nativeScene.descriptor.tileContentPathTemplate
+  for (const { descriptor, payload } of scene.tiles) {
+    const tilePath = scene.descriptor.tileContentPathTemplate
       .replace("{lod}", String(descriptor.lod)).replace("{tileX}", String(descriptor.tileX))
       .replace("{tileY}", String(descriptor.tileY)).replace("{part}", String(descriptor.part));
     if (path === tilePath) {

@@ -290,6 +290,12 @@ export function CadImportPanel({
   }, [activeJob?.jobId, activeJob?.status, error, floorId, review?.job.jobId]);
 
   useEffect(() => {
+    if (!activeReview || !regions?.selectedRegionId || regions.jobId !== activeReview.job.jobId) return;
+    if (activeReview.scene?.kind === "native" && activeReview.scene.regionId === regions.selectedRegionId) return;
+    reviewChange.current({ ...activeReview, scene: { kind: "native", regionId: regions.selectedRegionId } });
+  }, [activeReview, regions]);
+
+  useEffect(() => {
     if (!activeJob) return;
     if (POLLING_STATUSES.has(activeJob.status) || activeJob.status === "region_selection_required" || activeJob.status === "review_required") setBusy(true);
     else setBusy(false);

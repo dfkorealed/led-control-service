@@ -2,7 +2,8 @@ import Konva from "konva";
 import type { CadElementOverridePatch, CadSceneDescriptor, CadSceneState, FloorImportCandidate, FloorImportRenderedViewport } from "@led-control/shared";
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent } from "react";
 import { Circle, Image as KonvaImage, Label, Layer, Line, Rect, Shape, Stage, Tag, Text, Transformer } from "react-konva";
-import { Button, themeColor } from "../../components/ui";
+import { Button, FeedbackState, Text as UiText, themeColor } from "../../components/ui";
+import { TriangleAlert } from "lucide-react";
 import { FloorMapObjectNode, trianglePoints } from "../floor-map/FloorScene";
 import {
   alignRectToGuides,
@@ -34,6 +35,8 @@ import { useFloorPlanImage } from "./use-floor-plan-image";
 import { buildEditorSpatialIndex, mapObjectWorldAabb, queryEditorSpatialIndex } from "./editor-spatial-index";
 import { CadSceneCanvas, type CadSceneCanvasHandle } from "./CadSceneCanvas";
 import { CadElementOverlay } from "./CadElementOverlay";
+import { CadImportSceneCanvas } from "./CadImportSceneCanvas";
+import type { CadSceneManifest } from "@led-control/shared";
 
 const TOOL_DRAG_TYPE = "application/x-floor-editor-tool";
 const drawingTools = new Set<EditorTool>(["rectangle", "triangle", "line", "text"]);
@@ -56,6 +59,11 @@ interface FloorEditorCanvasProps {
   onCadSelectionChange?: (selection: CadEditorSelection | null) => void;
   onCadOverrideCommit?: (patch: Omit<CadElementOverridePatch, "elementId">) => void;
   cadEditDisabled?: boolean;
+  cadReviewActive?: boolean;
+  cadImportScene?: {
+    floorId: string; jobId: string; manifest: CadSceneManifest | null;
+    isError: boolean; onRetry: () => void;
+  } | null;
 }
 
 export function FloorEditorCanvas({
@@ -73,7 +81,9 @@ export function FloorEditorCanvas({
   cadSelection,
   onCadSelectionChange,
   onCadOverrideCommit,
-  cadEditDisabled = false
+  cadEditDisabled = false,
+  cadReviewActive = false,
+  cadImportScene = null
 }: FloorEditorCanvasProps) {
   const container = useRef<HTMLDivElement>(null);
   const stage = useRef<Konva.Stage>(null);
@@ -136,12 +146,12 @@ export function FloorEditorCanvas({
   const [transientPan, setTransientPan] = useState<Point | null>(null);
   const floorPlan = state?.floor.floorPlan;
   // Native CAD owns the base layer; its legacy preview must not cover WebGL.
-  const backgroundUrl = cadSceneDescriptor ? "" : cadBackgroundUrl
+  const backgroundUrl = cadSceneDescriptor || cadImportScene ? "" : cadBackgroundUrl
     ?? (floorPlan?.sourceType !== "none" ? floorPlan?.renderedImageUrl ?? floorPlan?.imageUrl : "");
   const { image: background, status: backgroundStatus, retry: retryBackground } = useFloorPlanImage(backgroundUrl ?? "");
-  const bounds = cadBackgroundUrl && cadViewport
+  const bounds = cadImportScene?.manifest ?? (cadBackgroundUrl && cadViewport
     ? cadViewport
-    : { width: floorPlan?.width ?? 1200, height: floorPlan?.height ?? 800 };
+    : { width: floorPlan?.width ?? 1200, height: floorPlan?.height ?? 800 });
   const renderedPan = transientPan ?? pan;
   const viewportBounds = {
     x: -renderedPan.x / zoom,
@@ -150,6 +160,7 @@ export function FloorEditorCanvas({
     height: viewport.height / zoom
   };
   const visibleFixtures = useMemo(() => {
+    if (cadReviewActive) return [];
     const visibleIds = new Set(queryEditorSpatialIndex(placedFixtureCollection.spatialIndex, viewportBounds, 160 / zoom).map((item) => item.id));
     selectedIds.forEach((id) => {
       if (placedFixtureCollection.byId.has(id)) visibleIds.add(id);
@@ -158,32 +169,34 @@ export function FloorEditorCanvas({
       .map((id) => placedFixtureCollection.byId.get(id))
       .filter((fixture): fixture is EditorFixture => fixture !== undefined)
       .sort((a, b) => placedFixtureCollection.orderById.get(a.id)! - placedFixtureCollection.orderById.get(b.id)!);
-  }, [placedFixtureCollection, selectedIds, viewportBounds.height, viewportBounds.width, viewportBounds.x, viewportBounds.y, zoom]);
+  }, [cadReviewActive, placedFixtureCollection, selectedIds, viewportBounds.height, viewportBounds.width, viewportBounds.x, viewportBounds.y, zoom]);
   const visibleObjects = useMemo(() => {
+    if (cadReviewActive) return [];
     const visibleIds = new Set(queryEditorSpatialIndex(objectCollection.spatialIndex, viewportBounds, 160 / zoom).map((item) => item.id));
     if (selection?.kind === "object" && objectCollection.byId.has(selection.id)) visibleIds.add(selection.id);
     return [...visibleIds]
       .map((id) => objectCollection.byId.get(id))
       .filter((object): object is FloorMapObject => object !== undefined)
       .sort((a, b) => a.zIndex - b.zIndex);
-  }, [objectCollection, selection, viewportBounds.height, viewportBounds.width, viewportBounds.x, viewportBounds.y, zoom]);
+  }, [cadReviewActive, objectCollection, selection, viewportBounds.height, viewportBounds.width, viewportBounds.x, viewportBounds.y, zoom]);
   const showBulkNames = useMemo(() => canShowFixtureNames(visibleFixtures, zoom), [visibleFixtures, zoom]);
 
   useEffect(() => {
-    const target = cadSceneDescriptor ?? (cadBackgroundUrl ? cadViewport : null);
+    const target = cadImportScene?.manifest ?? cadSceneDescriptor ?? (cadBackgroundUrl ? cadViewport : null);
     if (!target) {
       lastAutoFitKey.current = null;
       return;
     }
-    const key = cadSceneDescriptor ? `${cadSceneDescriptor.id}:${cadSceneDescriptor.version}`
+    const key = cadImportScene?.manifest ? `${cadImportScene.jobId}:${cadImportScene.manifest.sceneId}`
+      : cadSceneDescriptor ? `${cadSceneDescriptor.id}:${cadSceneDescriptor.version}`
       : `${cadBackgroundUrl}:${target.width}x${target.height}`;
     if (lastAutoFitKey.current === key) return;
     const rect = container.current?.getBoundingClientRect();
-    if (cadSceneDescriptor && (!rect?.width || !rect.height)) return;
+    if ((cadSceneDescriptor || cadImportScene) && (!rect?.width || !rect.height)) return;
     if (rect?.width && rect.height) useFloorEditorStore.getState().setViewport({ width: rect.width, height: rect.height });
     lastAutoFitKey.current = key;
     useFloorEditorStore.getState().fit(false, target);
-  }, [cadBackgroundUrl, cadViewport?.height, cadViewport?.width, cadSceneDescriptor?.id, cadSceneDescriptor?.version, viewport.width, viewport.height]);
+  }, [cadImportScene?.jobId, cadImportScene?.manifest, cadBackgroundUrl, cadViewport?.height, cadViewport?.width, cadSceneDescriptor?.id, cadSceneDescriptor?.version, viewport.width, viewport.height]);
   const editorColors = useMemo(() => ({
     panel: themeColor("surface-panel"),
     border: themeColor("fixture-editor-border"),
@@ -503,7 +516,7 @@ export function FloorEditorCanvas({
     if (drawingTools.has(tool)) current.addObject(current.state.floor.id, createDefaultObject(tool, point));
   }
   const transform = { x: renderedPan.x, y: renderedPan.y, scaleX: zoom, scaleY: zoom };
-  const focusedFixture = layers.fixtures.visible && selection?.kind === "fixture" ? placedFixtureCollection.byId.get(selection.id) : undefined;
+  const focusedFixture = !cadReviewActive && layers.fixtures.visible && selection?.kind === "fixture" ? placedFixtureCollection.byId.get(selection.id) : undefined;
   const focusedLabel = focusedFixture ? selectedFixtureLabelLayout(focusedFixture, pan, zoom, viewport) : undefined;
   const selectedObjectType = selection?.kind === "object" ? objectCollection.byId.get(selection.id)?.type : undefined;
   const transformerAnchors = selection?.kind === "fixture"
@@ -519,7 +532,15 @@ export function FloorEditorCanvas({
     data-rendered-fixture-count={visibleFixtures.length} data-rendered-object-count={visibleObjects.length}
     onMouseDown={begin} onMouseMove={move} onMouseUp={finish} onMouseLeave={(e) => { if (gesture.current?.kind === "pan") finish(e); else { cancelPointerMove(); gesture.current = null; creationDraft.current = null; marqueeDraft.current = null; setTransientPan(null); setCreation(null); setMarquee(null); setIsPanning(false); } }}
     onDragOver={dragOver} onDragLeave={() => { cancelPointerMove(); setDropPreview(null); setHighlightedSlotId(null); }} onDrop={drop}>
-    {cadSceneDescriptor && cadSceneState ? (
+    {cadImportScene?.manifest ? <CadImportSceneCanvas floorId={cadImportScene.floorId} jobId={cadImportScene.jobId}
+      manifest={cadImportScene.manifest} pan={renderedPan} zoom={zoom} viewport={viewport} /> : null}
+    {cadImportScene && !cadImportScene.manifest ? <div className="absolute inset-x-3 top-3 z-20">
+      {cadImportScene.isError ? <FeedbackState tone="danger" icon={TriangleAlert}
+        title="선택한 CAD 도면을 불러오지 못했습니다."
+        action={<Button variant="secondary" onClick={cadImportScene.onRetry}>도면 다시 불러오기</Button>} />
+        : <UiText role="status">선택한 CAD 도면을 불러오는 중</UiText>}
+    </div> : null}
+    {!cadReviewActive && cadSceneDescriptor && cadSceneState ? (
       <CadSceneCanvas
         ref={cadScene}
         descriptor={cadSceneDescriptor}
@@ -542,10 +563,10 @@ export function FloorEditorCanvas({
       useFloorEditorStore.setState({ zoom: next, pan: { x: point.x - world.x * next, y: point.y - world.y * next } });
     }}>
       <Layer {...transform} name="editor-static-layer" listening={false}>
-        <Rect width={bounds.width} height={bounds.height} fill={cadSceneDescriptor ? undefined : editorColors.panel} stroke={editorColors.border} strokeWidth={1} />
+        <Rect width={bounds.width} height={bounds.height} fill={cadSceneDescriptor || cadImportScene ? undefined : editorColors.panel} stroke={editorColors.border} strokeWidth={1} />
         {background && layers.background.visible && <KonvaImage image={background} width={bounds.width} height={bounds.height} />}
         {snap ? <MapGrid width={bounds.width} height={bounds.height} gridSize={floorPlan?.gridSize ?? 10} zoom={zoom} color={editorColors.grid} /> : null}
-        {!onToggleCadCandidate ? <CadPlacementSlotLayer
+        {!cadReviewActive && !onToggleCadCandidate ? <CadPlacementSlotLayer
           slotIndex={availableSlotIndex}
           zoom={zoom}
           viewportBounds={viewportBounds}
@@ -603,7 +624,7 @@ export function FloorEditorCanvas({
       <Layer {...transform} name="editor-fixture-layer" visible={layers.fixtures.visible} listening={activeTool === "select"}>
         {visibleFixtures.map((fixture) => <EditorFixtureNode key={fixture.id} fixture={fixture} selected={selectedSet.has(fixture.id)} interactive={!readOnly && activeTool === "select" && !layers.fixtures.locked && !lockedSet.has(fixture.id)} showName={showBulkNames && !selectedSet.has(fixture.id)} zoom={zoom} colors={fixtureColors} register={register} onSelect={onSelect} onDragStart={onDragStart} onDragMove={onDragMove} onDragEnd={onDragEnd} onTransform={onTransform} />)}
       </Layer>
-      <Layer {...transform} name="editor-overlay-layer">
+      <Layer {...transform} name="editor-overlay-layer" visible={!cadReviewActive} listening={!cadReviewActive}>
         <Line ref={verticalGuide} name="alignment-guide-vertical" visible={false} listening={false} stroke={editorColors.guide} strokeWidth={1 / zoom} dash={[6 / zoom, 4 / zoom]} />
         <Line ref={horizontalGuide} name="alignment-guide-horizontal" visible={false} listening={false} stroke={editorColors.guide} strokeWidth={1 / zoom} dash={[6 / zoom, 4 / zoom]} />
         {creation && <FloorMapObjectNode object={{ ...creation, id: "creation", zIndex: 999 }} interactive={false} preview />}
@@ -629,8 +650,8 @@ export function FloorEditorCanvas({
       <span className="text-body-sm font-semibold text-status-danger-foreground">CAD 도면을 표시하지 못했습니다.</span>
       <Button size="sm" variant="secondary" onClick={retryBackground}>도면 다시 시도</Button>
     </div> : null}
-    <FixturePlacementAction readOnly={readOnly} rowRegistry={rowRegistry} />
-    <EditorMinimap />
+    {!cadReviewActive ? <FixturePlacementAction readOnly={readOnly} rowRegistry={rowRegistry} /> : null}
+    {!cadReviewActive ? <EditorMinimap /> : null}
   </div>;
 }
 

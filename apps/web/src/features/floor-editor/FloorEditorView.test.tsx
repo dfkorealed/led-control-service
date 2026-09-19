@@ -29,6 +29,20 @@ const floorEditorApi = vi.hoisted(() => ({
 }));
 
 vi.mock("../../api/floor-editor", () => floorEditorApi);
+vi.mock("../../api/queries", async importOriginal => ({
+  ...await importOriginal<typeof import("../../api/queries")>(),
+  listFloorImportRegions: vi.fn(async (_floorId, jobId) => ({
+    jobId, selectionStatus: "auto_selected", selectedRegionId: "region-1", excludedRegionPrimitiveCount: 0,
+    regions: [{ regionId: "region-1", bounds: { minX: 5000, minY: 7000, maxX: 6200, maxY: 7600 },
+      primitiveCount: 1, textCount: 0, lightCandidateCount: 1, area: 720000,
+      preview: { assetId: "preview-1", width: 640, height: 360, byteSize: 1, sha256: "a".repeat(64) } }]
+  }))
+}));
+vi.mock("../floor-map/cad-scene-readonly-runtime", () => ({
+  createReadOnlyCadSceneRenderer: vi.fn(async () => ({
+    mount: vi.fn().mockResolvedValue(undefined), setCamera: vi.fn().mockResolvedValue(undefined), setLayerStates: vi.fn(), destroy: vi.fn()
+  }))
+}));
 vi.mock("./CadSceneCanvas", async () => {
   const React = await import("react");
   return {
@@ -426,6 +440,9 @@ describe("FloorEditorView", () => {
     floorEditorApi.getActiveFloorImportJob.mockResolvedValue({ job: null });
     floorEditorApi.getAppliedFloorImportOverlay.mockResolvedValue({ overlay: null });
     floorEditorApi.getCadSceneState.mockResolvedValue(null);
+    floorEditorApi.getCadSceneManifest.mockResolvedValue({
+      sceneId: "draft-scene", regionId: "region-1", width: 16384, height: 8192, tiles: []
+    });
     floorEditorApi.saveFloorEditorState.mockImplementation(async (_floorId, _payload) => ({
       ...structuredClone(editorState),
       floor: { ...structuredClone(editorState.floor), mapRevision: 8 }
@@ -1065,6 +1082,10 @@ describe("FloorEditorView", () => {
   });
 
   it("previews CAD review results without registering fixtures and applies with the editor authority", async () => {
+    const originalBounds = HTMLElement.prototype.getBoundingClientRect;
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      return this.dataset.testid === "floor-editor-canvas" ? new DOMRect(0, 0, 800, 600) : originalBounds.call(this);
+    });
     const jobId = "00000000-0000-4000-8000-000000000020";
     const candidateId = "00000000-0000-4000-8000-000000000030";
     const renderedAssetPath = "/api/floors/floor-b2/assets/rendered-cad/content";
@@ -1197,19 +1218,22 @@ describe("FloorEditorView", () => {
     fireEvent.click(screen.getByRole("button", { name: "CAD 가져오기" }));
 
     await screen.findByText("조명 위치 후보 1개를 찾았습니다.");
-    expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("data-background-url", renderedAssetPath);
+    await waitFor(() => expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("data-map-width", "16384"));
+    expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("data-background-url", "");
     expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("data-cad-candidate-count", "1");
-    expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("data-map-width", "640");
-    expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("data-map-height", "360");
+    expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("data-map-height", "8192");
+    expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("data-rendered-fixture-count", "0");
+    expect(screen.getByLabelText("B2 편집 캔버스")).toHaveAttribute("data-rendered-object-count", "0");
+    expect(screen.getByRole("button", { name: "이동" })).toBeEnabled();
     expect(useFloorEditorStore.getState().state?.fixtures).toHaveLength(1);
 
-    expect(useFloorEditorStore.getState().zoom).toBeCloseTo(1.175);
+    expect(useFloorEditorStore.getState().zoom).toBeCloseTo(0.0458984375);
     act(() => useFloorEditorStore.getState().setZoom(0.75));
     await waitFor(() => expect(useFloorEditorStore.getState().zoom).toBe(0.75));
 
     act(() => useFloorEditorStore.getState().setViewport({ width: 800, height: 600 }));
     fireEvent.click(screen.getByRole("button", { name: "맵 맞춤" }));
-    expect(useFloorEditorStore.getState().zoom).toBeCloseTo(1.175);
+    expect(useFloorEditorStore.getState().zoom).toBeCloseTo(0.0458984375);
 
     fireEvent.click(screen.getByRole("button", { name: "선택한 후보와 배경 적용" }));
     const resetDialog = screen.getByRole("dialog", { name: "새 CAD 도면으로 맵을 교체할까요?" });

@@ -329,6 +329,14 @@ node /tmp/cad-native-task11-5kXlFW/core-existing.cjs /tmp/cad-native-task11-5kXl
 
 ## 인계 상태
 
+### 2026-09-19 재적용 500 및 후보 검토 보정
+
+- 실제 층의 첫 native 적용은 200, 두 번째 적용은 500이었으며 실패 작업은 `review_required`를 유지했다. 격리 PostgreSQL에서 `FloorCadScene.version=2` 삽입에 대한 SQL23514를 재현했다. 이 값은 교체 횟수가 아닌 manifest 형식 버전이므로 `manifest.version`을 유지하도록 수정했다. 신규 migration과 사용자 데이터 보정은 필요하지 않다.
+- PostgreSQL 포함 집중 회귀 **56/56**: 같은 영역 반복 적용, 다른 크기의 영역, 후보 0개/선택 후보, 기존 슬롯·배정·override·layer·도형 교체와 후반 audit 오류의 전체 rollback을 확인했다. Fixture/MeshNode identity는 보존하며 적용 후 editor/map descriptor도 확인했다. API 전체 **2,163 통과/527 환경 제외/실패 0**, 타입 검사와 빌드 통과. 원시 결과는 `/tmp/cad-replacement-api-final-20260919.json`과 `/tmp/cad-replacement-focused-20260919.json`이다.
+- 후보 검토는 전체 원본 SVG 대신 선택 영역 native scene을 중앙 편집 화면에 자동 맞춤으로 표시한다. 실제 적용 좌표의 후보를 클릭하고 확대·이동할 수 있다. 이전 맵과 배치 요소는 검토 중 숨기고 manifest/tile 실패 시 안내와 재시도를 제공한다. 별도 확대 팝업은 사용자 설계 답변 대기로 미구현이다.
+- Web 전체 **1,614 통과/2 opt-in 제외**, 타입 검사·빌드 통과. Chromium **2/2** 여정은 기존 legacy 맵 읽기와 native 검토·적용·편집·새로고침·모니터링을 포함한다. 브라우저 API와 geometry는 route fixture이며 실제 사용자 계정 HTTP E2E로 확대하지 않는다. 화면 증거는 `.local/cad-native-qa/native-review-before-apply.png`, 브라우저 결과는 `.local/cad-native-qa/review-final-journeys`다.
+- 실제 사용자 계정의 적용 재검증은 내장 브라우저 로그인 대기다. 이번 수정 과정에서는 사용자 맵/배치를 임의 적용·초기화하거나 실장비를 제어하지 않았다.
+
 서버 차단 두 건은 수정 후 실제 두 원본의 모든 후보 적용·editor/map/manifest 재조회까지 통과했다. 로컬 DB는 사용자 승인 아래 백업 후 93개 migration을 적용했고 기존 데이터를 삭제하지 않았다. 개발 서버는 5173/4000에서 실행한다. 초기 실패 기록은 재발 방지 증거로 보존하며 현재 미해결 상태를 뜻하지 않는다.
 
 남은 한계는 원본 DXF `ELLIPSE` 등 미지원 entity, 사람 ground truth에 의한 재현 정확도·조명 후보 precision/recall 미측정, 실제 iOS/Android WebView 성능 및 Linux 양산 컨테이너 실측이다. 새 네이티브 경로가 아닌 과거 가져오기 작업의 metadata는 임의 복구하지 않으므로 필요 시 CAD를 다시 가져온다. 첫 대형 도면 전체 표시는 약 10~13초이며 추가 초기 전송량 최적화 여지가 있다.

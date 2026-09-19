@@ -85,6 +85,8 @@ export interface CadImportReviewState {
   job: FloorImportJob;
   candidates: FloorImportCandidate[];
   acceptedCandidateIds: string[];
+  // Missing context is unresolved, never evidence of legacy coordinates.
+  scene?: { kind: "native"; regionId: string } | { kind: "legacy" };
 }
 
 export interface CadMapResetSummary {

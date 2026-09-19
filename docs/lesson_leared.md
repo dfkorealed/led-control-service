@@ -904,6 +904,8 @@
 
 ## 2026-09-19 / CAD 형식 버전과 맵 수정 번호를 혼동하지 않는다
 
+- **미리보기 좌표 검증**: 선택 영역의 native 후보에는 같은 영역 manifest/tile을 사용한다. 전체 원본 SVG를 함께 표시하면 확대만으로 좌표 불일치를 해결할 수 없다. 검토 중 이전 맵 요소를 숨기고 native 실패 시 SVG로 대체하지 않으며, 브라우저에서 후보 클릭·확대·이동과 renderer 해제를 회귀 검사한다.
+
 - **발생했던 문제/실수**: 첫 CAD 적용은 성공했지만 같은 층에 다시 적용하면 `FloorCadScene_dimensions_check` 위반으로 HTTP 500이 발생했다.
 - **원인**: schema/manifest/renderer가 모두 형식 버전 1을 요구하는 `FloorCadScene.version`을 교체 횟수처럼 증가시켰다. 빈 층에 한 번 적용하는 테스트만으로는 기존 scene이 있는 교체 경로를 검증할 수 없었다.
 - **해결 및 예방책**: 검증된 manifest의 형식 버전을 저장하고 교체는 새 scene ID 및 `Floor.mapRevision`으로 구분한다. DB 제약을 완화하거나 기존 scene을 수동 수정하지 않는다.
