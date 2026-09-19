@@ -1,5 +1,5 @@
 import type { CadBounds, CadElementOverride, CadElementTransform, CadScenePrimitive, CadSceneTile } from "@led-control/shared";
-import { MAP_DISPLAY_VERSION, type MapDisplayTile, type OrderedMapDisplayPrimitive } from "@led-control/shared/map-display-contracts";
+import { MAP_DISPLAY_VERSION, MAP_DISPLAY_ORDERED_ASSET_MAX_BYTES, type MapDisplayTile, type OrderedMapDisplayPrimitive } from "@led-control/shared/map-display-contracts";
 import type { SceneTile } from "./cad-scene-display-types";
 import type { MapElement } from "@led-control/shared/map-document-contracts";
 import earcut from "earcut";
@@ -127,9 +127,12 @@ class BinaryReader {
   private offset = 0;
   private readonly view: DataView;
 
-  constructor(private readonly payload: Uint8Array) {
+  constructor(private readonly payload: Uint8Array, offset = 0) {
     this.view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+    this.offset = offset;
   }
+
+  get position(): number { return this.offset; }
 
   get remaining(): number {
     return this.payload.byteLength - this.offset;
@@ -244,14 +247,14 @@ function decodeStrings(
   return strings;
 }
 
-function stringAt(strings: readonly string[], index: number, nullable = false): string | null {
+function stringAt(strings: Pick<readonly string[], "at">, index: number, nullable = false): string | null {
   if (nullable && index === NULL_STRING_INDEX) return null;
-  const value = strings[index];
+  const value = strings.at(index);
   if (value === undefined) throw new Error("Invalid CAD scene tile string reference");
   return value;
 }
 
-function readPrimitive(reader: BinaryReader, strings: readonly string[], version: 1 | 2): CadScenePrimitive {
+function readPrimitive(reader: BinaryReader, strings: Pick<readonly string[], "at">, version: 1 | 2): CadScenePrimitive {
   const type = reader.uint8();
   const elementId = stringAt(strings, reader.uint32())!;
   const groupId = stringAt(strings, reader.uint32(), true);
@@ -348,7 +351,7 @@ function decodeDisplayTilePayload(payload: Uint8Array, descriptor: SceneTile): P
     ? decodeMapDisplayTilePayload(payload, descriptor) : decodeCadSceneTilePayload(payload, descriptor);
 }
 
-async function decodeSceneTilePayload(payload: Uint8Array, descriptor: SceneTile, expectedVersion: 1 | 2): Promise<CadScenePrimitive[]> {
+async function openSceneTile(payload: Uint8Array, descriptor: SceneTile, expectedVersion: 1 | 2) {
   if (payload.byteLength > CAD_SCENE_MAX_TILE_BYTE_SIZE) {
     throw new Error("CAD scene tile byte size limit exceeded");
   }
@@ -384,6 +387,24 @@ async function decodeSceneTilePayload(payload: Uint8Array, descriptor: SceneTile
   if (!Number.isSafeInteger(reservedPrimitiveBytes) || reservedPrimitiveBytes > reader.remaining) {
     throw new Error("CAD scene tile primitive count exceeds payload capacity");
   }
+  return { body, reader, primitiveCount, version: version as 1 | 2, stringCount, reservedPrimitiveBytes };
+}
+
+function validatePrimitiveBounds(primitive: CadScenePrimitive, descriptor: SceneTile): void {
+  const bounds = primitive.bounds;
+  if (bounds.minX < descriptor.bounds.minX || bounds.minY < descriptor.bounds.minY ||
+      bounds.maxX > descriptor.bounds.maxX || bounds.maxY > descriptor.bounds.maxY) {
+    throw new Error("CAD scene primitive bounds exceed tile bounds");
+  }
+  const clip = primitive.clipBounds;
+  if (clip !== null && (clip.minX !== descriptor.bounds.minX || clip.minY !== descriptor.bounds.minY ||
+      clip.maxX !== descriptor.bounds.maxX || clip.maxY !== descriptor.bounds.maxY)) {
+    throw new Error("CAD scene primitive clip bounds must match tile bounds");
+  }
+}
+
+async function decodeSceneTilePayload(payload: Uint8Array, descriptor: SceneTile, expectedVersion: 1 | 2): Promise<CadScenePrimitive[]> {
+  const { reader, primitiveCount, version, stringCount, reservedPrimitiveBytes } = await openSceneTile(payload, descriptor, expectedVersion);
   const strings = decodeStrings(reader, stringCount, primitiveCount, reservedPrimitiveBytes);
   const primitives: CadScenePrimitive[] = [];
   const identities = new Map<string, { zIndex: number; layerName: string; groupId: string | null }>();
@@ -401,19 +422,85 @@ async function decodeSceneTilePayload(payload: Uint8Array, descriptor: SceneTile
   }
   if (reader.remaining !== 0) throw new Error("CAD scene tile payload has trailing bytes");
 
-  for (const primitive of primitives) {
-    const bounds = primitive.bounds;
-    if (bounds.minX < descriptor.bounds.minX || bounds.minY < descriptor.bounds.minY ||
-        bounds.maxX > descriptor.bounds.maxX || bounds.maxY > descriptor.bounds.maxY) {
-      throw new Error("CAD scene primitive bounds exceed tile bounds");
-    }
-    const clip = primitive.clipBounds;
-    if (clip !== null && (clip.minX !== descriptor.bounds.minX || clip.minY !== descriptor.bounds.minY ||
-        clip.maxX !== descriptor.bounds.maxX || clip.maxY !== descriptor.bounds.maxY)) {
-      throw new Error("CAD scene primitive clip bounds must match tile bounds");
-    }
-  }
+  for (const primitive of primitives) validatePrimitiveBounds(primitive, descriptor);
   return primitives;
+}
+
+export interface MapDisplayPaintKey {
+  layerName: string;
+  elementId: string;
+  zIndex: number;
+  fragmentOrder: number;
+}
+
+export interface MapDisplayPaintAsset {
+  readonly payload: Uint8Array;
+  readonly primitiveOffsets: Uint32Array;
+  readonly stringOffsets: Uint32Array;
+  readonly memoryBytes: number;
+  key(index: number): MapDisplayPaintKey;
+  read(index: number): OrderedMapDisplayPrimitive;
+}
+
+/** Indexed, validated input for a bounded ordered-page painter. No primitive
+ * array or decoded string table survives validation. The caller owns admission
+ * for the input/validation window before invoking this reader. */
+export async function createMapDisplayPaintAsset(payload: Uint8Array, descriptor: MapDisplayTile): Promise<MapDisplayPaintAsset> {
+  if (payload.byteLength > MAP_DISPLAY_ORDERED_ASSET_MAX_BYTES) throw new Error("Map ordered asset byte limit exceeded");
+  const { body, reader, primitiveCount, stringCount, reservedPrimitiveBytes } = await openSceneTile(payload, descriptor, MAP_DISPLAY_VERSION);
+  const maximumStringBytes = reader.remaining - reservedPrimitiveBytes;
+  if (stringCount > Math.min(primitiveCount * 7 + 1, Math.floor(maximumStringBytes / 4))) {
+    throw new Error("CAD scene tile string table limit exceeded");
+  }
+  const stringOffsets = new Uint32Array(stringCount), primitiveOffsets = new Uint32Array(primitiveCount);
+  const utf8 = new TextDecoder("utf-8", { fatal: true });
+  for (let index = 0; index < stringCount; index++) {
+    stringOffsets[index] = reader.position;
+    const length = reader.uint32();
+    if (length > MAX_UTF8_STRING_BYTES || length > reader.remaining - reservedPrimitiveBytes) {
+      throw new Error("CAD scene tile string length limit exceeded");
+    }
+    utf8.decode(reader.bytes(length));
+  }
+  const view = new DataView(body.buffer, body.byteOffset, body.byteLength);
+  const strings = { at(index: number): string | undefined {
+    if (!Number.isInteger(index) || index < 0 || index >= stringCount) return undefined;
+    const offset = stringOffsets[index], length = view.getUint32(offset, true);
+    return utf8.decode(body.subarray(offset + 4, offset + 4 + length));
+  } };
+  // Identity consistency is checked within this one <=2MiB asset, then released.
+  // Keeping only the first record offset avoids retained per-ID geometry/style.
+  const identities = new Map<string, number>();
+  for (let index = 0; index < primitiveCount; index++) {
+    const offset = reader.position;
+    primitiveOffsets[index] = offset;
+    const primitive = readPrimitive(reader, strings, MAP_DISPLAY_VERSION) as OrderedMapDisplayPrimitive;
+    validatePrimitiveBounds(primitive, descriptor);
+    const previous = identities.get(primitive.elementId);
+    if (previous !== undefined && (view.getInt32(previous + 17, true) !== primitive.zIndex ||
+        stringAt(strings, view.getUint32(previous + 9, true)) !== primitive.layerName ||
+        stringAt(strings, view.getUint32(previous + 5, true), true) !== primitive.groupId)) {
+      throw new Error("Conflicting map display element ordering identity");
+    }
+    if (previous === undefined) identities.set(primitive.elementId, offset);
+  }
+  identities.clear();
+  if (reader.remaining !== 0) throw new Error("CAD scene tile payload has trailing bytes");
+  const offsetAt = (index: number) => {
+    if (!Number.isInteger(index) || index < 0 || index >= primitiveCount) throw new RangeError("Invalid map paint primitive index");
+    return primitiveOffsets[index];
+  };
+  return {
+    payload, primitiveOffsets, stringOffsets,
+    memoryBytes: payload.byteLength + primitiveOffsets.byteLength + stringOffsets.byteLength,
+    key(index) {
+      const offset = offsetAt(index);
+      return { elementId: stringAt(strings, view.getUint32(offset + 1, true))!,
+        layerName: stringAt(strings, view.getUint32(offset + 9, true))!,
+        zIndex: view.getInt32(offset + 17, true), fragmentOrder: view.getUint32(offset + 21, true) };
+    },
+    read(index) { return readPrimitive(new BinaryReader(body, offsetAt(index)), strings, MAP_DISPLAY_VERSION) as OrderedMapDisplayPrimitive; }
+  };
 }
 
 interface MutableBatch {

@@ -61,16 +61,23 @@ export function paintDisplayFillRun(ctx: Context, primitives: readonly OrderedMa
   for (const index of order) {
     const p = primitives[index];
     if (p.type !== "triangle") throw new Error("Invalid canonical fill run");
-    const [a, b, c] = p.geometry.points;
-    // Normalize winding so shared edges cancel regardless of producer clipping
-    // orientation. Holes remain empty because no triangle covers their area.
-    const positive = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x) >= 0;
-    ring(ctx, positive ? [a, b, c] : [a, c, b], true);
+    appendDisplayFillPrimitive(ctx, p);
   }
   const style = primitives[order[0]].style;
   ctx.globalAlpha = style.opacity;
   if (style.fillColor) { ctx.fillStyle = style.fillColor; ctx.fill(); }
   ctx.restore();
+}
+
+export function appendDisplayFillPrimitive(ctx: Context, primitive: OrderedMapDisplayPrimitive): void {
+  if (primitive.type === "triangle") {
+    const [a, b, c] = primitive.geometry.points;
+    // Normalize tessellation winding; shared edges cancel without alpha seams.
+    const positive = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x) >= 0;
+    ring(ctx, positive ? [a, b, c] : [a, c, b], true);
+  } else if (primitive.type === "polyline" && primitive.geometry.closed) {
+    for (const contour of fillContours(primitive.geometry.points)) ring(ctx, contour, true);
+  } else throw new Error("Invalid semantic fill primitive");
 }
 
 /** The cell canvas is the sole raster clip. Reapplying per-part clipBounds
