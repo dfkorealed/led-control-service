@@ -130,6 +130,7 @@ export class MapSceneRenderer {
   }
 
   private requestDocument(ref: MapDocumentRef, throughVersion?: number): Promise<void> {
+    this.assertAlive();
     const key = JSON.stringify(ref);
     // Store ACK and React's documentRef effect can arrive in either order.
     // Join the same in-flight revision and attach its explicit ACK boundary.
@@ -186,10 +187,13 @@ export class MapSceneRenderer {
       throw new Error("Map display layer bindings must explicitly reference canonical layers");
     }
     const loadingOwner = `${this.owner}:revision:${epoch}`;
+    const persisted = new Map<string, MapElement | null>();
     const releaseLoading = () => this.budget.releaseOwner(loadingOwner);
-    signal.addEventListener("abort", releaseLoading, { once: true });
+    // A faulty injected source may ignore abort indefinitely. Release the
+    // actual staged geometry as well as its accounting while it is waiting.
+    const abortLoading = () => { persisted.clear(); releaseLoading(); };
+    signal.addEventListener("abort", abortLoading, { once: true });
     try {
-      const persisted = new Map<string, MapElement | null>();
       let cursor: string | undefined, bytes = 0, pages = 0;
       const cursors = new Set<string>();
       do {
@@ -255,7 +259,7 @@ export class MapSceneRenderer {
     } catch (error) {
       if (!this.current(epoch) || signal.aborted) return;
       throw error;
-    } finally { releaseLoading(); signal.removeEventListener("abort", releaseLoading); }
+    } finally { releaseLoading(); signal.removeEventListener("abort", abortLoading); }
   }
 
   setCamera(camera: CadSceneCamera): void {
@@ -345,8 +349,12 @@ export class MapSceneRenderer {
         throw new Error("Map canonical lookup exceeded its requested scope or byte budget");
       }
       const resolved = new Map(result.map(element => [element.id, element]));
-      return ids.flatMap(id => { const element = this.drafts.has(id) ? this.drafts.get(id)
+      const elements = ids.flatMap(id => { const element = this.drafts.has(id) ? this.drafts.get(id)
         : this.persisted.has(id) ? this.persisted.get(id) : resolved.get(id); return element ? [element] : []; });
+      if (serializedBytes(elements) > MAX_CANONICAL_BYTES) throw new Error("Map canonical lookup exceeded its byte budget");
+      // The host owns selected originals, but must not mutate retained draft/
+      // persisted display state by reference. Only this bounded selection is copied.
+      return structuredClone(elements);
     } catch (error) {
       if (!this.current(epoch) || changes !== this.changeEpoch) return [];
       throw error;
@@ -380,7 +388,7 @@ export class MapSceneRenderer {
         .find(value => !this.promoted.has(value.id) && this.visible(value) && hitMapElement(value, world, radiusPixels / camera.zoom, camera.zoom));
       if (!element) return null;
       this.scene.registerSourceBounds(element.id, getMapElementBounds(element));
-      return { element };
+      return { element: structuredClone(element) };
     } finally { release?.(); this.picking = false; }
   }
 

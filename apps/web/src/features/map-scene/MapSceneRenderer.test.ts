@@ -83,6 +83,31 @@ function collisionHarness() {
 }
 
 describe("bounded common map renderer", () => {
+  it("enforces the selection byte limit across retained persisted elements and returns caller-owned values", async () => {
+    const h = harness({ getChanges: vi.fn(async (document, cursor) => ({ generationId: document.generationId,
+      revision: document.revision, operations: Array.from({ length: 64 }, (_, i) => ({ kind: "add" as const,
+        element: { ...shape(`text-${Number(cursor ?? 0) + i}`), visible: false, type: "text" as const,
+          geometry: { position: { x: 0, y: 0 }, text: "x".repeat(65_536), width: 10, height: 10, fontSize: 10 } } })),
+      nextCursor: cursor === undefined ? "64" : null })) });
+    await h.start();
+    const result = await h.renderer.getElements(Array.from({ length: 128 }, (_, i) => `text-${i}`))
+      .then(() => "accepted oversized selection", error => (error as Error).message);
+    expect(result).toContain("byte budget");
+    const selected = await h.renderer.getElements(["text-0"]);
+    selected[0].transform.x = 999;
+    expect((await h.renderer.getElements(["text-0"]))[0].transform.x).toBe(0);
+  });
+
+  it("rejects same-reference calls after disposal even when that adoption is still in flight", async () => {
+    const h = harness(); const page = deferred<Awaited<ReturnType<MapSceneSource["getChanges"]>>>();
+    vi.mocked(h.source.getChanges).mockReturnValue(page.promise);
+    const first = h.renderer.setDocument(ref); await h.flush(); h.renderer.dispose();
+    const afterDispose = h.renderer.setDocument(ref);
+    const assertion = expect(afterDispose).rejects.toThrow("disposed");
+    page.resolve({ generationId: ref.generationId, revision: ref.revision, operations: [], nextCursor: null });
+    await first; await assertion;
+  });
+
   it("keeps an in-flight pick valid when a frame re-applies the identical visible camera", async () => {
     const h = harness(); await h.start();
     const lookup = deferred<readonly MapElement[]>();
