@@ -4,7 +4,7 @@
 
 ## 현재 마일스톤
 
-**저장/조회/초안 연결 및 실제 원본 보완 중(2026-09-19)**: U4b `fa3022a6`와 U6 공유 계약 `b5c739a8` 독립 검토 PASS. 로컬 DB는 백업 후 검토된 96번째 migration까지 적용했고 조명6·층3·현장2가 유지된다. 정상 저장 코어 `ac07225a`는 실제 PostgreSQL/MinIO/session HTTP4·집중72개를 통과했으며 가져오기 확정까지 연결 중이다. U7 신규 조회와 U8b 초안/저장을 병행한다. U10a 검토에서 좁은 텍스트 overlay 잘림, 실제 킨다 DWG 최대 영역에서는 접촉 HATCH 링의 잘못된 polygon hole 변환을 각각 재현해 담당자가 보완한다. 대량 stage/checkpoint/v3 복구(U6b), 실제 화면 연결, 기존 맵 실제 폐기는 아직 남아 있다. 백업은 `.local/backups/map-document-before-u4b-1789808061050.dump`에 있다.
+**공통 맵 실제 View 통합 중(2026-09-19)**: U6a 일반 저장/CAD 적용과 U8b 초안/통합 이력은 독립 검토 PASS다. U8b `0dd484d7`에서 저장 응답/undo/cache 경합 및 복구 초안 undo를 보완했고 검토38개가 통과했다. U7 `6688013e`/`1dcdefe5`는 shared90·집중68/2제외·실제PG/S3 HTTP44개 통과 후 검토 중이다. U9b1 Canvas/provider/ACK, U10b/U11b 실제 View, U6b 대량 저장·크기 변경·복구를 병행한다. 전체 그리기 순서는 기존 compact codec의 zIndex 누락을 해결할 U9b2로 분리했다. 실제 킨다 DWG 접촉 HATCH 변환 보완도 진행 중이다. 기존 맵 실제 폐기는 아직 미실행이며 로컬 migration96·조명6·층3·현장2가 유지된다. 백업은 `.local/backups/map-document-before-u4b-1789808061050.dump`에 있다.
 
 **U5 초기화 구현·독립 검토 중(2026-09-19)**: `29aba89e`에 관리자 전용 reset·권한/lease/revision 재검사·멱등 재시도·원자적 새 빈 문서 교체를 구현했다. 격리 PostgreSQL35·집중86·타입 검사/빌드 통과. 장비·실제 제어 그룹·스케줄/이벤트·에너지/명령 이력 보존과 늦은 worker 차단을 검증했다. 기존 맵/import 이력 폐기 범위를 명시하며 사용자 DB의 실제 초기화는 아직 실행하지 않았다. U6/U7 일반 저장/조회와 UI 연결은 미완료다.
 

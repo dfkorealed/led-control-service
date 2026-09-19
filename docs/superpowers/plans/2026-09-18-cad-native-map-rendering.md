@@ -174,14 +174,14 @@ const transformSchema = z.object({
 **파일:** 생성 `apps/api/src/floor-editor/map-document-codec.ts`, `map-document-codec.spec.ts`, `map-document-store.ts`, `map-document-store.integration.spec.ts`, `apps/api/prisma/migrations/20260919180000_map_document/migration.sql`; 수정 `apps/api/prisma/schema.prisma`, `apps/api/src/floor-editor/floor-editor-snapshot.ts`, `floor-asset-cleanup.service.ts`. 기존 적용 migration은 수정하지 않는다.
 **인터페이스:** `encodeMapChunk(elements: MapElement[]): Uint8Array`, `decodeMapChunk(bytes: Uint8Array): MapElement[]`. Store의 `prepareGeneration(floorId, elements: AsyncIterable<MapElement>): Promise<MapDocumentRef>`는 준비만 하며 활성화하지 않는다.
 
-- [ ] 실패 테스트: 청크 roundtrip, 해시/길이/압축 해제 상한 위반, 준비 중 실패 시 기존 포인터 불변, 보존 리비전이 참조하는 자산 cleanup 제외.
+- [x] 실패 테스트: 청크 roundtrip, 해시/길이/압축 해제 상한 위반, 준비 중 실패 시 기존 포인터 불변, 보존 리비전이 참조하는 자산 cleanup 제외.
 ```ts
 expect(decodeMapChunk(encodeMapChunk([]))).toEqual([]);
 expect(() => decodeMapChunk(new Uint8Array([0, 255, 17]))).toThrow();
 ```
-- [ ] 실패 확인: `pnpm --filter @led-control/api exec jest src/floor-editor/map-document-codec.spec.ts src/floor-editor/map-document-store.integration.spec.ts --runInBand`.
-- [ ] 구현: FloorMapDocument(활성 generation), FloorMapGeneration(준비/활성/실패·manifest), FloorMapChunk(자산/범위), FloorMapIndexShard(요소 ID 조회용 분할 인덱스 자산), FloorMapChangeSet(requestId·base/resultRevision·payload hash·자산), FloorMapRevisionAsset(보존 참조), FloorMapStage/Part(준비·요청·만료·해시) 모델. 요소당 DB 행을 만들지 않는다. ID→청크/offset은 SHA-256 ID prefix로 분할한 불변 인덱스 자산에 저장하며 샤드 decoded 8 MiB 초과 시 다음 prefix로 재분할한다. 같은 ID는 같은 샤드에서 중복 검사한다. generation+prefix/요청 ID 유일성, FK·범위 제약을 둔다.
-- [ ] 구현: 정본 청크 decoded 8 MiB, 기본 generation decoded 총합 512 MiB 상한. 큰 객체 하나도 상한 초과 시 실패하며 일부만 저장하지 않는다. snapshot 새 버전은 문서 참조를 저장하고 기존 버전 parser는 유지한다. 100 changeset 또는 decoded delta 32 MiB 도달 시 체크포인트를 준비해 CAS 교체한다. 자산 I/O는 transaction 외부, 참조/리비전 활성화는 transaction 내부다.
+- [x] 실패 확인: `pnpm --filter @led-control/api exec jest src/floor-editor/map-document-codec.spec.ts src/floor-editor/map-document-store.integration.spec.ts --runInBand`.
+- [x] 구현: FloorMapDocument(활성 generation), FloorMapGeneration(준비/활성/실패·manifest), FloorMapChunk(자산/범위), FloorMapIndexShard(요소 ID 조회용 분할 인덱스 자산), FloorMapChangeSet(requestId·base/resultRevision·payload hash·자산), FloorMapRevisionAsset(보존 참조), FloorMapStage/Part(준비·요청·만료·해시) 모델. 요소당 DB 행을 만들지 않는다. ID→청크/offset은 SHA-256 ID prefix로 분할한 불변 인덱스 자산에 저장하며 샤드 decoded 8 MiB 초과 시 다음 prefix로 재분할한다. 같은 ID는 같은 샤드에서 중복 검사한다. generation+prefix/요청 ID 유일성, FK·범위 제약을 둔다.
+- [x] 구현: 정본 청크 decoded 8 MiB, 기본 generation decoded 총합 512 MiB 상한. 큰 객체 하나도 상한 초과 시 실패하며 일부만 저장하지 않는다. snapshot 새 버전은 문서 참조를 저장하고 기존 버전 parser는 유지한다. 체크포인트 준비·CAS 교체 helper와 100 changeset/32 MiB 판정을 제공한다. 자산 I/O는 transaction 외부, 참조/리비전 활성화는 transaction 내부다. 자동 실행·파생 표시 재생성·currentRef 연결은 U6b에서 완료한다.
 정본 청크 저장은 기존 asset 원장을 사용하고 locator만 별도 유일 인덱스로 연결한다.
 ```sql
 CREATE UNIQUE INDEX "FloorMapIndexShard_identity_key"
@@ -190,7 +190,7 @@ CREATE UNIQUE INDEX "FloorMapChangeSet_request_key"
 ON "FloorMapChangeSet" ("floorId", "requestId");
 ```
 
-- [ ] 격리 PostgreSQL 전체 migration→기존 데이터 포함 업그레이드→cleanup 동시성 검증. 사용자 DB는 적용하지 않는다. database-schema.md 갱신 후 커밋: `feat(api): persist versioned common map documents`.
+- [x] 격리 PostgreSQL 전체 migration→기존 데이터 포함 업그레이드→cleanup 동시성 검증. 담당자는 사용자 DB를 변경하지 않았고 총괄이 별도 승인 범위에서 검토 후 적용했다. database-schema.md 갱신 및 커밋 `82c9bffc`/`fd69abe5`.
 
 ### U4. CAD를 공통 요소로 변환
 
@@ -503,12 +503,16 @@ expect(serverFailures).toEqual([]);
 | U11a | 완료·독립 검토 PASS | 46376f4f, 집중103/소유파일 typecheck 통과, View/store/Canvas 미연결 |
 | U4b | 완료·독립 검토 PASS | fa3022a6, 집중240/2제외·PGMinIO8x2/import26/storage31x2/typecheck·검토 probe6 통과, 로컬96 migration 적용 |
 | U5 | 완료·독립 검토 PASS | 29aba89e, 격리PG35/집중86/typecheck/build 통과; 사용자 맵 미변경 |
-| U10a | 검토 보완 중 | 2282786e, 신규83/typecheck 통과; 좁은 텍스트 overlay 잘림/0픽셀 P2 재현 후 보완 중, View 연결 및 큰 선택 fallback 후속 |
-| U6a | 구현 중 | 정상 원자 저장·가져오기 활성화, 공유 계약 b5c739a8 독립 검토 PASS; API 구현 검토 별도 |
-| U7 | 구현 중 | 신규 조회 파일만 선행, U6a 변경분 reader 계약과 기존 module 연결은 조율 |
-| U8b | 구현 중 | 고정 공유 계약에 store/diff/drafts/API 연결, View 및 신규 조회 URL 소비는 후속 |
+| U10a | 완료·독립 재검토 PASS | 2282786e/4e318eca, 집중89·타입 검사·검토 회귀6/Chromium7 통과; View 연결 및 큰 선택 fallback 후속 |
+| U6a | 완료·독립 검토 PASS | b5c739a8/ac07225a/6dfaad74, 실제 HTTP19/API108/shared71·검토31 통과, 대량/크기/복구는 U6b |
+| U7 | 구현·독립 검토 중 | 6688013e/1dcdefe5, shared90·집중68/2제외·실제PG/S3 HTTP44·타입 검사 통과, 다중 서버 커서 연속 조회 포함 |
+| U8b | 완료·독립 재검토 PASS | 04ff177e/0dd484d7, 집중86·검토38(추가4 포함), ACK/undo/cache 삭제 오인 및 복구 초안 undo 보완 |
+| U9b1 | 구현·최종 검증 중 | 016ee6b4/e242760e, 조회 provider/Canvas·저장 ACK·promotion; 전체 z 순서는 U9b2에서 분리 |
+| U9b2 | 계약 조율 중 | 기존 compact codec의 canonical zIndex·요소별 배치 정보 누락을 보완해야 완전한 그리기 순서 구현 가능 |
+| U6b | 구현 중 | 대량 stage/checkpoint/display 재생성·맵 크기/grid·v3 복구, U7 예약 파일 제외 |
+| U10b/U11b | 구현 중 | 검토된 store/overlay/tools와 고정 Canvas 계약을 실제 View에 연결, 같은 파일을 한 UI 담당이 순차 구현 |
 | U14a | 실제 원본 실패 보완 중 | 킨다 최대 영역에서 접촉 HATCH 링이 잘못된 polygon hole로 변환됨, U4 담당 보완 후 2개 원본 재검증; quota 초과 아님 |
-| U6b, U9b~U11b, U13~U14 | 대기 | 앞선 계약·보안 검토 완료 후 연결 |
+| U8c, U13~U14 | 대기 | 대량 저장/외부 inverse 웹 연결, 모니터링/가져오기 및 전체 최종 검증 |
 
 구현 방식은 **역할별 순차 서브에이전트 진행**을 제안한다. 공유 계약과 데이터 보존은 backend가 먼저, 소비 UI는 web_frontend가 이후 담당하고 QA가 작업 단위 결과를 확인한다. 메인은 공유 계약과 통합·문서 상태를 관리한다. 같은 파일을 다루는 병렬 에이전트는 만들지 않는다. 사용자가 더 낮은 토큰 비용을 우선하면 메인 직접 구현 + 최종 독립 리뷰로 변경할 수 있다.
 
