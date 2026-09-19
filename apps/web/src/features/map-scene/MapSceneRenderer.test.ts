@@ -41,6 +41,7 @@ function harness(sourcePatch: Partial<MapSceneSource> = {}, maximumMemoryBytes?:
     replaceTile: vi.fn(), removeTile: vi.fn(), suspend: vi.fn(), render: vi.fn(), destroy: vi.fn() };
   const source: MapSceneSource = {
     scopeKey: "tenant:floor:user",
+    getChanges: vi.fn(async document => ({ generationId: document.generationId, revision: document.revision, operations: [], nextCursor: null })),
     getManifest: vi.fn(async document => ({ generationId: document.generationId, revision: document.revision,
       canonical: document.manifest, display, displayLayerBindings: [{ layerName: "walls", layerId: "walls" }],
       groups: [], layers: [{ id: "walls", name: "Walls", order: 0, visible: true, locked: false }] })),
@@ -82,6 +83,120 @@ function collisionHarness() {
 }
 
 describe("bounded common map renderer", () => {
+  it("keeps an in-flight pick valid when a frame re-applies the identical visible camera", async () => {
+    const h = harness(); await h.start();
+    const lookup = deferred<readonly MapElement[]>();
+    vi.mocked(h.source.getElements).mockReturnValueOnce(lookup.promise);
+    const pick = h.renderer.pick({ x: 20, y: 20 }); await h.flush();
+    h.renderer.setCamera({ ...camera }); await h.flush();
+    lookup.resolve([shape()]);
+    expect((await pick)?.element.id).toBe("element-0");
+  });
+
+  it("coalesces a host reference refresh with the in-flight ACK instead of losing its pruning boundary", async () => {
+    const h = harness(); await h.start();
+    h.renderer.applyChanges([{ kind: "add", element: shape("saved") }], []);
+    const through = h.renderer.getDraftVersion();
+    const page = deferred<Awaited<ReturnType<MapSceneSource["getChanges"]>>>();
+    vi.mocked(h.source.getChanges).mockReturnValue(page.promise);
+    const next = { ...ref, revision: 1 };
+    const ack = h.renderer.acknowledge(next, through); await h.flush();
+    const refresh = h.renderer.setDocument(next); await h.flush();
+    page.resolve({ generationId: ref.generationId, revision: 1, operations: [], nextCursor: null });
+    await ack; await refresh;
+    // The fresh server contains no `saved`: if ACK pruning was superseded by
+    // the prop effect, the stale local element incorrectly survives here.
+    vi.mocked(h.source.getElements).mockResolvedValue([]);
+    expect(await h.renderer.getElements(["saved"])).toEqual([]);
+  });
+
+  it("keeps the adopted reference after a rejected refresh and releases in-flight reservations on disposal", async () => {
+    const h = harness(); await h.start();
+    vi.mocked(h.source.getChanges).mockRejectedValueOnce(new Error("offline"));
+    await expect(h.renderer.setDocument({ ...ref, revision: 1 })).rejects.toThrow("offline");
+    await h.renderer.getElements(["element-0"]);
+    expect(h.source.getElements).toHaveBeenLastCalledWith(ref, ["element-0"], expect.any(AbortSignal));
+    const page = deferred<Awaited<ReturnType<MapSceneSource["getChanges"]>>>();
+    vi.mocked(h.source.getChanges).mockResolvedValueOnce({ generationId: ref.generationId, revision: 1,
+      operations: [{ kind: "add", element: shape("staged") }], nextCursor: "next" }).mockReturnValueOnce(page.promise);
+    const pending = h.renderer.setDocument({ ...ref, revision: 1 }); await h.flush();
+    h.renderer.dispose();
+    expect(h.renderer.memoryBytes).toBe(0);
+    page.resolve({ generationId: ref.generationId, revision: 1, operations: [], nextCursor: null });
+    await pending;
+  });
+
+  it("rejects cursor cycles and mismatched revisions without acknowledging unsaved edits", async () => {
+    const h = harness(); await h.start();
+    h.renderer.applyChanges([{ kind: "delete", id: "element-0" }], [tile(0).bounds]);
+    vi.mocked(h.source.getChanges).mockImplementation(async document => ({ generationId: document.generationId,
+      revision: document.revision, operations: [], nextCursor: "cycle" }));
+    await expect(h.renderer.acknowledge({ ...ref, revision: 1 }, h.renderer.getDraftVersion())).rejects.toThrow("cursor cycle");
+    expect(await h.renderer.getElements(["element-0"])).toEqual([]);
+    vi.mocked(h.source.getChanges).mockResolvedValue({ generationId: ref.generationId, revision: 0, operations: [], nextCursor: null });
+    await expect(h.renderer.setDocument({ ...ref, revision: 1 })).rejects.toThrow("requested document");
+  });
+
+  it("reads 2100 persisted changes in pages outside the unsaved draft budget", async () => {
+    const h = harness({ getChanges: vi.fn(async (document, cursor) => {
+      const start = Number(cursor ?? 0);
+      const end = Math.min(start + 128, 2100);
+      return { generationId: document.generationId, revision: document.revision,
+        operations: Array.from({ length: end - start }, (_, i) => ({ kind: "add" as const, element: shape(`saved-${start + i}`) })),
+        nextCursor: end < 2100 ? String(end) : null };
+    }) });
+    await h.start();
+    expect(h.source.getChanges).toHaveBeenCalledTimes(17);
+    expect((await h.renderer.getElements(["saved-2099"]))[0]?.id).toBe("saved-2099");
+    expect(h.source.getElements).not.toHaveBeenCalled();
+    h.renderer.applyChanges([{ kind: "add", element: shape("unsaved") }], []);
+    expect((await h.renderer.getElements(["unsaved"]))[0]?.id).toBe("unsaved");
+    expect(h.renderer.memoryBytes).toBeLessThanOrEqual(128 * 1024 * 1024);
+  });
+
+  it("waits through empty pages before exposing a base that contains deleted elements", async () => {
+    const pending = deferred<{ generationId: string; revision: number; operations: [{ kind: "delete"; id: string }]; nextCursor: null }>();
+    const h = harness({ getChanges: vi.fn(async (document, cursor) => cursor ? pending.promise : {
+      generationId: document.generationId, revision: document.revision, operations: [], nextCursor: "scan" }) });
+    await h.renderer.mount(h.canvas);
+    h.renderer.setCamera(camera);
+    const adoption = h.renderer.setDocument(ref); await h.flush();
+    expect(h.backend.replaceTile).not.toHaveBeenCalled();
+    pending.resolve({ generationId: ref.generationId, revision: 0,
+      operations: [{ kind: "delete", id: "element-0" }], nextCursor: null });
+    await adoption; await h.flush();
+    expect(await h.renderer.pick({ x: 20, y: 20 })).toBeNull();
+  });
+
+  it("acknowledges only the saved draft version while preserving same-ID edits made during save", async () => {
+    const h = harness({ getChanges: vi.fn(async document => ({ generationId: document.generationId, revision: document.revision,
+      operations: document.revision ? [{ kind: "add" as const, element: { ...shape(), transform: { ...shape().transform, x: 100 } } }] : [], nextCursor: null })) });
+    await h.start();
+    h.renderer.applyChanges([{ kind: "update", element: { ...shape(), transform: { ...shape().transform, x: 100 } } }], [tile(0).bounds]);
+    const savedVersion = h.renderer.getDraftVersion();
+    h.renderer.applyChanges([{ kind: "update", element: { ...shape(), transform: { ...shape().transform, x: 200 } } }], [tile(0).bounds]);
+    await h.renderer.acknowledge({ ...ref, revision: 1 }, savedVersion); await h.flush();
+    expect((await h.renderer.getElements([shape().id]))[0]?.transform.x).toBe(200);
+    h.renderer.setDraftChanges([], []); await h.flush();
+    expect((await h.renderer.getElements([shape().id]))[0]?.transform.x).toBe(100);
+    expect(h.backend.mount).toHaveBeenCalledTimes(1);
+    expect(h.backend.destroy).not.toHaveBeenCalled();
+  });
+
+  it("retires absent base layers and masks only actual promoted elements", async () => {
+    const h = harness(); await h.start();
+    h.renderer.setPromotedElementIds(["element-0"]); await h.flush();
+    expect(await h.renderer.pick({ x: 20, y: 20 })).toBeNull();
+    h.renderer.setPromotedElementIds([]); await h.flush();
+    expect((await h.renderer.pick({ x: 20, y: 20 }))?.element.id).toBe("element-0");
+    expect(() => h.renderer.setPromotedElementIds(Array.from({ length: 65 }, (_, i) => `${i}`))).toThrow("promotion");
+    const manifest = await h.source.getManifest(ref, new AbortController().signal);
+    vi.mocked(h.source.getManifest).mockResolvedValue({ ...manifest, revision: 1, layers: [] });
+    await h.renderer.setDocument({ ...ref, revision: 1 }); await h.flush();
+    expect(await h.renderer.pick({ x: 20, y: 20 })).toBeNull();
+    expect(vi.mocked(h.backend.replaceTile).mock.calls.at(-1)?.[3]?.has("walls")).toBe(true);
+  });
+
   it("uses only derived display assets for overview and merges camera input before fetching finishes", async () => {
     const pending = deferred<Uint8Array>();
     const h = harness({ loadDisplayTile: vi.fn(() => pending.promise) });

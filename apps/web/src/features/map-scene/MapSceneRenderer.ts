@@ -1,5 +1,5 @@
 import type { CadSceneManifest, CadSceneTile } from "@led-control/shared";
-import { mapElementSchema, type Bounds, type MapDocumentRef, type MapElement, type MapGroup,
+import { mapElementSchema, mapElementOpSchema, type Bounds, type MapDocumentRef, type MapElement, type MapGroup,
   type MapLayer, type MapOp, type Point } from "@led-control/shared/map-document-contracts";
 import { getMapElementBounds } from "@led-control/shared/map-document-geometry";
 import { CadSceneRenderer, type CadSceneRendererOptions } from "../cad-scene/CadSceneRenderer";
@@ -18,6 +18,7 @@ const MAX_DRAFT_IDS = 2000;
 export interface MapSceneRendererOptions extends Pick<CadSceneRendererOptions,
   "backendFactory" | "platform" | "devicePixelRatio" | "maximumConcurrentTileLoads" | "onError" | "onDegraded"> {
   source: MapSceneSource;
+  onManifest?: (manifest: MapSceneManifest) => void;
   maximumMemoryBytes?: number;
   maximumOriginalBytes?: number;
 }
@@ -35,7 +36,9 @@ export class MapSceneRenderer {
   private readonly scopeKey: string;
   private readonly owner = "map-source";
   private readonly onError: (error: Error) => void;
+  private readonly onManifest: (manifest: MapSceneManifest) => void;
   private document: MapDocumentRef | null = null;
+  private requestedDocument: MapDocumentRef | null = null;
   private manifest: MapSceneManifest | null = null;
   private displayLayerIds = new Map<string, string>();
   private camera: CadSceneCamera | null = null;
@@ -49,6 +52,12 @@ export class MapSceneRenderer {
   private picking = false;
   private readingElements = false;
   private drafts = new Map<string, MapElement | null>();
+  private persisted = new Map<string, MapElement | null>();
+  private persistedBytes = 0;
+  private promoted = new Set<string>();
+  private draftVersion = 0;
+  private draftVersions = new Map<string, number>();
+  private adoption: { key: string; promise: Promise<void>; throughVersion?: number } | null = null;
   private groups = new Map<string, MapGroup | null>();
   private layers = new Map<string, MapLayer | null>();
   private draftBand = 0;
@@ -58,6 +67,7 @@ export class MapSceneRenderer {
     this.scopeKey = options.source.scopeKey;
     if (!this.scopeKey) throw new Error("Map source requires an authenticated scope key");
     this.onError = options.onError ?? (() => undefined);
+    this.onManifest = options.onManifest ?? (() => undefined);
     const mobile = options.platform === "mobile";
     this.budget = new CadSceneMemoryBudget(options.maximumMemoryBytes ?? (mobile ? 32 : 128) * MiB);
     this.originals = new CadSceneTileCache({
@@ -102,31 +112,63 @@ export class MapSceneRenderer {
     if (this.camera) this.scheduleCamera();
   }
 
-  /** Resolves when the manifest is adopted, not when every display tile loads.
-   * Same-generation revisions retain local drafts; acknowledgement/rebase is
-   * an explicit integration concern, never inferred from revision equality.
-   */
+  /** Resolves after metadata and every persisted page are adopted, not after
+   * visible tile loading. Ordinary refresh never acknowledges unsaved edits. */
   async setDocument(ref: MapDocumentRef): Promise<void> {
+    return this.requestDocument(ref);
+  }
+
+  getDraftVersion(): number { return this.draftVersion; }
+
+  async acknowledge(ref: MapDocumentRef, throughVersion: number): Promise<void> {
     this.assertAlive();
-    if (this.document?.generationId === ref.generationId && ref.revision < this.document.revision) {
+    if (!this.document || this.document.generationId !== ref.generationId ||
+        !Number.isSafeInteger(throughVersion) || throughVersion < 0 || throughVersion > this.draftVersion) {
+      throw new Error("Map acknowledgement does not match this document draft");
+    }
+    return this.requestDocument(ref, throughVersion);
+  }
+
+  private requestDocument(ref: MapDocumentRef, throughVersion?: number): Promise<void> {
+    const key = JSON.stringify(ref);
+    // Store ACK and React's documentRef effect can arrive in either order.
+    // Join the same in-flight revision and attach its explicit ACK boundary.
+    if (this.adoption?.key === key) {
+      if (throughVersion !== undefined) this.adoption.throughVersion = Math.max(this.adoption.throughVersion ?? 0, throughVersion);
+      return this.adoption.promise;
+    }
+    const adoption = { key, throughVersion, promise: Promise.resolve() };
+    this.adoption = adoption;
+    adoption.promise = this.adoptDocument(ref, () => adoption.throughVersion).finally(() => {
+      if (this.adoption === adoption) this.adoption = null;
+    });
+    return adoption.promise;
+  }
+
+  private async adoptDocument(ref: MapDocumentRef, acknowledgement: () => number | undefined): Promise<void> {
+    this.assertAlive();
+    if (this.requestedDocument?.generationId === ref.generationId && ref.revision < this.requestedDocument.revision) {
       throw new Error("Cannot adopt an older map revision");
     }
     const epoch = ++this.epoch;
     this.controller.abort();
     this.controller = new AbortController();
     this.originals.cancelPending();
+    this.requestedDocument = structuredClone(ref);
     if (this.document?.generationId !== ref.generationId) {
       this.originals.clear();
       this.drafts.clear(); this.groups.clear(); this.layers.clear();
+      this.persisted.clear(); this.persistedBytes = 0; this.promoted.clear(); this.draftVersions.clear();
       this.budget.release(this.owner, "drafts");
+      this.budget.release(this.owner, "persisted");
       this.manifest = null;
+      this.document = null;
       this.displayLayerIds = new Map();
       this.scene.setTransientTile(null);
       this.scene.setManifest(emptyDisplay(ref));
       this.scene.setSelectionExclusion(new Set(), undefined, new Set());
       this.scene.setLayerStates(new Map());
     }
-    this.document = structuredClone(ref);
     const signal = this.controller.signal;
     let manifest: MapSceneManifest;
     try { manifest = await this.source.getManifest(ref, signal); }
@@ -138,18 +180,82 @@ export class MapSceneRenderer {
         manifest.display.width !== ref.width || manifest.display.height !== ref.height || manifest.display.tiles.length > 16_384) {
       throw new Error("Map display manifest does not match the canonical document");
     }
-    const layerIds = new Set(manifest.layers.map(layer => layer.id));
     if (!Array.isArray(manifest.displayLayerBindings) ||
         new Set(manifest.displayLayerBindings.map(binding => binding.layerName)).size !== manifest.displayLayerBindings.length ||
-        manifest.displayLayerBindings.some(binding => !layerIds.has(binding.layerId))) {
+        manifest.displayLayerBindings.some(binding => !binding.layerName || !binding.layerId)) {
       throw new Error("Map display layer bindings must explicitly reference canonical layers");
     }
-    this.manifest = manifest;
-    this.displayLayerIds = new Map(manifest.displayLayerBindings.map(binding => [binding.layerName, binding.layerId]));
-    this.scene.setManifest(manifest.display);
-    this.applyVisibility();
-    this.refreshDraft();
-    if (this.camera) this.scheduleCamera();
+    const loadingOwner = `${this.owner}:revision:${epoch}`;
+    const releaseLoading = () => this.budget.releaseOwner(loadingOwner);
+    signal.addEventListener("abort", releaseLoading, { once: true });
+    try {
+      const persisted = new Map<string, MapElement | null>();
+      let cursor: string | undefined, bytes = 0, pages = 0;
+      const cursors = new Set<string>();
+      do {
+        const page = await this.source.getChanges(ref, cursor, signal);
+        if (!this.current(epoch) || signal.aborted) return;
+        if (page.generationId !== ref.generationId || page.revision !== ref.revision ||
+            !Array.isArray(page.operations) || page.operations.length > 128 ||
+            (page.nextCursor !== null && (typeof page.nextCursor !== "string" || !page.nextCursor || page.nextCursor.length > 8192))) {
+          throw new Error("Map persisted page does not match the requested document");
+        }
+        const pageBytes = serializedBytes(page.operations);
+        bytes += pageBytes;
+        if (pageBytes > MAX_CANONICAL_BYTES || bytes > 32 * MiB || ++pages > 16_384) {
+          throw new RangeError("Map persisted change byte or page limit exceeded");
+        }
+        if (!this.budget.reserve(loadingOwner, "persisted", Math.max(1, bytes * 4))) {
+          throw new Error("Map persisted changes exceed aggregate memory budget");
+        }
+        this.budget.setPinned(loadingOwner, "persisted", true);
+        for (const input of page.operations) {
+          const operation = mapElementOpSchema.parse(input);
+          persisted.set(operation.kind === "delete" ? operation.id : operation.element.id,
+            operation.kind === "delete" ? null : operation.element);
+        }
+        if (page.nextCursor !== null && cursors.has(page.nextCursor)) throw new Error("Map persisted page cursor cycle");
+        if (page.nextCursor !== null) cursors.add(page.nextCursor);
+        cursor = page.nextCursor ?? undefined;
+      } while (cursor !== undefined);
+      // ACK pruning is evaluated now, not when the request started: edits made
+      // during manifest/page I/O retain their newer per-namespace version.
+      const throughVersion = acknowledgement();
+      const afterAck = <T,>(values: Map<string, T>, namespace: string) => throughVersion === undefined ? values
+        : new Map([...values].filter(([id]) => (this.draftVersions.get(`${namespace}:${id}`) ?? 0) > throughVersion));
+      const drafts = afterAck(this.drafts, "element"), groups = afterAck(this.groups, "group"), layers = afterAck(this.layers, "layer");
+      const previous = { document: this.document, manifest: this.manifest, persisted: this.persisted, drafts: this.drafts, groups: this.groups, layers: this.layers };
+      this.document = structuredClone(ref);
+      this.manifest = manifest; this.persisted = persisted;
+      this.drafts = drafts; this.groups = groups; this.layers = layers;
+      try { this.refreshDraft(); }
+      catch (error) { Object.assign(this, previous); throw error; }
+      // No await between releasing the staging reservation and its retained
+      // replacement. Both old and incoming revisions were charged during I/O.
+      this.budget.releaseOwner(loadingOwner);
+      this.budget.release(this.owner, "persisted");
+      this.persistedBytes = persisted.size ? bytes * 4 : 0;
+      if (this.persistedBytes) {
+        this.budget.reserve(this.owner, "persisted", this.persistedBytes);
+        this.budget.setPinned(this.owner, "persisted", true);
+      }
+      const draftBytes = this.draftBytes();
+      if (draftBytes) this.budget.reserve(this.owner, "drafts", draftBytes);
+      else this.budget.release(this.owner, "drafts");
+      if (throughVersion !== undefined) for (const [key, version] of this.draftVersions) {
+        if (version <= throughVersion) this.draftVersions.delete(key);
+      }
+      this.changeEpoch++;
+      this.displayLayerIds = new Map(manifest.displayLayerBindings.map(binding => [binding.layerName, binding.layerId]));
+      // Masks must be installed before the new base starts loading.
+      this.applyVisibility();
+      this.scene.setManifest(manifest.display);
+      this.onManifest(manifest);
+      if (this.camera) this.scheduleCamera();
+    } catch (error) {
+      if (!this.current(epoch) || signal.aborted) return;
+      throw error;
+    } finally { releaseLoading(); signal.removeEventListener("abort", releaseLoading); }
   }
 
   setCamera(camera: CadSceneCamera): void {
@@ -158,11 +264,34 @@ export class MapSceneRenderer {
     this.scheduleCamera();
   }
 
-  applyChanges(operations: MapOp[], changedBounds: Bounds[]): void {
+  applyChanges(operations: MapOp[], changedBounds: Bounds[]): number {
+    return this.updateDraft(operations, changedBounds, false);
+  }
+
+  /** Replace only sparse unsaved operations after undo/rebase. Persisted
+   * changes remain independently visible and never consume the 2k budget. */
+  setDraftChanges(operations: MapOp[], changedBounds: Bounds[]): number {
+    return this.updateDraft(operations, changedBounds, true);
+  }
+
+  setPromotedElementIds(ids: readonly string[]): void {
+    this.assertAlive();
+    if (ids.length > 64 || new Set(ids).size !== ids.length) throw new RangeError("Map promotion ID limit exceeded");
+    const previous = this.promoted;
+    this.promoted = new Set(ids);
+    try { this.refreshDraft(); }
+    catch (error) { this.promoted = previous; throw error; }
+    this.changeEpoch++;
+    this.applyVisibility();
+  }
+
+  private updateDraft(operations: MapOp[], changedBounds: Bounds[], replace: boolean): number {
     this.assertAlive();
     if (!this.document) throw new Error("Map document is not set");
     if (operations.length > MAX_DRAFT_IDS) throw new RangeError("Map draft operation limit exceeded");
-    const drafts = new Map(this.drafts), groups = new Map(this.groups), layers = new Map(this.layers);
+    const drafts = replace ? new Map<string, MapElement | null>() : new Map(this.drafts);
+    const groups = replace ? new Map<string, MapGroup | null>() : new Map(this.groups);
+    const layers = replace ? new Map<string, MapLayer | null>() : new Map(this.layers);
     const dirty = [...changedBounds];
     for (const operation of operations) {
       if (operation.kind === "add" || operation.kind === "update" || operation.kind === "delete") {
@@ -191,8 +320,12 @@ export class MapSceneRenderer {
       throw error;
     }
     this.drafts = drafts; this.groups = groups; this.layers = layers;
+    this.draftVersion++;
+    if (replace) this.draftVersions.clear();
+    for (const operation of operations) this.draftVersions.set(operationKey(operation), this.draftVersion);
     this.changeEpoch++;
-    this.applyVisibility(dirty);
+    this.applyVisibility(replace ? undefined : dirty);
+    return this.draftVersion;
   }
 
   /** Bounded multi-selection lookup; the caller owns returned canonical values. */
@@ -201,7 +334,7 @@ export class MapSceneRenderer {
     if (!this.document) return [];
     if (ids.length > MAX_SELECTION_IDS || new Set(ids).size !== ids.length) throw new RangeError("Map selection ID limit exceeded");
     if (this.readingElements) throw new Error("Map canonical lookup is already in progress");
-    const missing = ids.filter(id => !this.drafts.has(id));
+    const missing = ids.filter(id => !this.drafts.has(id) && !this.persisted.has(id));
     const epoch = this.epoch, changes = this.changeEpoch;
     this.readingElements = true;
     try {
@@ -212,7 +345,8 @@ export class MapSceneRenderer {
         throw new Error("Map canonical lookup exceeded its requested scope or byte budget");
       }
       const resolved = new Map(result.map(element => [element.id, element]));
-      return ids.flatMap(id => { const element = this.drafts.has(id) ? this.drafts.get(id) : resolved.get(id); return element ? [element] : []; });
+      return ids.flatMap(id => { const element = this.drafts.has(id) ? this.drafts.get(id)
+        : this.persisted.has(id) ? this.persisted.get(id) : resolved.get(id); return element ? [element] : []; });
     } catch (error) {
       if (!this.current(epoch) || changes !== this.changeEpoch) return [];
       throw error;
@@ -228,10 +362,9 @@ export class MapSceneRenderer {
     const radiusPixels = options.radiusPixels ?? 8;
     if (!Number.isFinite(radiusPixels) || radiusPixels < 0 || radiusPixels > 64) throw new RangeError("Invalid map selection radius");
     const world = screenToCadWorld(point, camera);
-    const drafts = [...this.drafts.values()].filter((element): element is MapElement => !!element && this.visible(element));
-    drafts.sort((a, b) => b.zIndex - a.zIndex);
+    const drafts = [...this.displayChanges().values()].filter((element): element is MapElement => !!element && this.visible(element) && !this.promoted.has(element.id));
+    drafts.sort((a, b) => this.layerOrder(b.layerId) - this.layerOrder(a.layerId) || b.zIndex - a.zIndex);
     const local = drafts.find(element => hitMapElement(element, world, radiusPixels / camera.zoom, camera.zoom));
-    if (local) return { element: local };
     this.picking = true;
     let release: (() => void) | undefined;
     try {
@@ -240,11 +373,11 @@ export class MapSceneRenderer {
         maximumEncodedBytes: 16 * MiB, maximumDecodedBytes: Math.min(16 * MiB, this.budget.maximumBytes),
         candidateIds, maximumCandidateIds: MAX_SELECTION_IDS });
       release = picked?.releaseSourceTile;
-      if (!picked || !this.current(epoch) || changes !== this.changeEpoch || this.drafts.has(picked.elementId)) return null;
-      const candidates = await this.getElements([...candidateIds]);
-      if (!this.current(epoch) || changes !== this.changeEpoch || this.renderedCamera !== camera) return null;
-      const element = [...candidates].sort((a, b) => this.layerOrder(b.layerId) - this.layerOrder(a.layerId) || b.zIndex - a.zIndex)
-        .find(value => this.visible(value) && hitMapElement(value, world, radiusPixels / camera.zoom, camera.zoom));
+      if (!this.current(epoch) || changes !== this.changeEpoch) return null;
+      const candidates = picked ? await this.getElements([...candidateIds]) : [];
+      if (!this.current(epoch) || changes !== this.changeEpoch || !sameCamera(this.renderedCamera, camera)) return null;
+      const element = [...candidates, ...(local ? [local] : [])].sort((a, b) => this.layerOrder(b.layerId) - this.layerOrder(a.layerId) || b.zIndex - a.zIndex)
+        .find(value => !this.promoted.has(value.id) && this.visible(value) && hitMapElement(value, world, radiusPixels / camera.zoom, camera.zoom));
       if (!element) return null;
       this.scene.registerSourceBounds(element.id, getMapElementBounds(element));
       return { element };
@@ -261,6 +394,7 @@ export class MapSceneRenderer {
     this.originals.clear();
     this.budget.releaseOwner(this.owner);
     this.drafts.clear(); this.groups.clear(); this.layers.clear();
+    this.persisted.clear(); this.persistedBytes = 0; this.promoted.clear(); this.draftVersions.clear();
     this.document = null; this.manifest = null;
     this.renderedCamera = null;
     this.displayLayerIds.clear();
@@ -297,7 +431,7 @@ export class MapSceneRenderer {
   }
 
   private applyVisibility(dirty?: Bounds[]): void {
-    const masks = new Set(this.drafts.keys());
+    const masks = new Set([...this.persisted.keys(), ...this.drafts.keys(), ...this.promoted]);
     const groupMasks = new Set<string>();
     const groups = new Map(this.manifest?.groups.map(group => [group.id, group]));
     for (const [id, group] of this.groups) { if (group) groups.set(id, group); else groups.delete(id); }
@@ -313,13 +447,18 @@ export class MapSceneRenderer {
     this.scene.setSelectionExclusion(masks, dirty, groupMasks);
     const layers = new Map(this.manifest?.layers.map(layer => [layer.id, layer]));
     for (const [id, layer] of this.layers) { if (layer) layers.set(id, layer); else layers.delete(id); }
+    // Binding membership is immutable base metadata. Missing current layers
+    // are retired, not editable tombstones and not malformed manifests.
+    for (const id of this.displayLayerIds.values()) if (!layers.has(id)) {
+      layers.set(id, { id, name: "", order: 0, visible: false, locked: true });
+    }
     this.scene.setLayerStates(layers);
   }
 
   private visible(element: MapElement, groups = this.groups, layers = this.layers): boolean {
     if (!element.visible) return false;
     const layer = layers.has(element.layerId) ? layers.get(element.layerId) : this.manifest?.layers.find(value => value.id === element.layerId);
-    if (layer && !layer.visible) return false;
+    if (!layer || !layer.visible) return false;
     const seen = new Set<string>();
     let id = element.groupId;
     while (id && !seen.has(id)) {
@@ -332,7 +471,8 @@ export class MapSceneRenderer {
   }
 
   private buildDraft(drafts = this.drafts, groups = this.groups, layers = this.layers): DecodedCadSceneTile | null {
-    const elements = [...drafts.values()].filter((element): element is MapElement => !!element && this.visible(element, groups, layers));
+    const elements = [...this.displayChanges(drafts).values()].filter((element): element is MapElement =>
+      !!element && !this.promoted.has(element.id) && this.visible(element, groups, layers));
     if (!elements.length) return null;
     const band = cadDisplayZoomBand(this.camera?.zoom ?? 1);
     const geometry = buildMapGeometryBatches(elements, band);
@@ -341,6 +481,12 @@ export class MapSceneRenderer {
       assetId: "local-draft", sha256: "0".repeat(64), byteSize: geometry.memory.cpuBytes, primitiveCount: elements.length,
       bounds: { minX: 0, minY: 0, maxX: this.document!.width, maxY: this.document!.height }
     } };
+  }
+
+  private displayChanges(drafts = this.drafts): Map<string, MapElement | null> {
+    const changes = new Map(this.persisted);
+    for (const [id, element] of drafts) changes.set(id, element);
+    return changes;
   }
 
   private refreshDraft(): void {
@@ -365,6 +511,17 @@ export class MapSceneRenderer {
 
 function serializedBytes(value: unknown): number { return new TextEncoder().encode(JSON.stringify(value)).byteLength; }
 function asError(error: unknown): Error { return error instanceof Error ? error : new Error("Map scene rendering failed"); }
+function sameCamera(a: CadSceneCamera | null, b: CadSceneCamera): boolean {
+  return !!a && a.centerX === b.centerX && a.centerY === b.centerY && a.zoom === b.zoom &&
+    a.viewportWidth === b.viewportWidth && a.viewportHeight === b.viewportHeight;
+}
+function operationKey(operation: MapOp): string {
+  if (operation.kind === "add" || operation.kind === "update") return `element:${operation.element.id}`;
+  if (operation.kind === "delete") return `element:${operation.id}`;
+  if (operation.kind === "group.put") return `group:${operation.group.id}`;
+  if (operation.kind === "layer.put") return `layer:${operation.layer.id}`;
+  return `${operation.kind === "group.delete" ? "group" : "layer"}:${operation.id}`;
+}
 
 function emptyDisplay(ref?: MapDocumentRef): CadSceneManifest {
   return { version: 1, sceneId: ref?.generationId ?? "empty", regionId: "empty", manifestAssetId: "empty",

@@ -1,5 +1,6 @@
-import type { CadSceneManifest, CadSceneTile } from "@led-control/shared";
-import type { MapAssetRef, MapDocumentRef, MapElement, MapGroup, MapLayer } from "@led-control/shared/map-document-contracts";
+import type { CadSceneTile } from "@led-control/shared";
+import type { MapDisplayManifest } from "@led-control/shared/map-display-contracts";
+import type { MapAssetRef, MapDocumentRef, MapElement, MapElementOp, MapGroup, MapLayer } from "@led-control/shared/map-document-contracts";
 import type { CadSceneWorkerClient } from "../cad-scene/cad-scene-worker";
 
 export interface MapSceneManifest {
@@ -8,11 +9,18 @@ export interface MapSceneManifest {
   /** Private canonical metadata identity, NOT an overview geometry payload. */
   canonical: MapAssetRef;
   /** Internal derived compact codec/LOD only; IDs must equal canonical IDs. */
-  display: CadSceneManifest;
+  display: MapDisplayManifest;
   /** Required even for identity mappings. Never infer layer IDs from names. */
   displayLayerBindings: Array<{ layerName: string; layerId: string }>;
   groups: MapGroup[];
   layers: MapLayer[];
+}
+
+export interface MapChangesPage {
+  generationId: string;
+  revision: number;
+  operations: MapElementOp[];
+  nextCursor: string | null;
 }
 
 /** One source instance belongs to one authenticated tenant/floor/user scope.
@@ -24,6 +32,9 @@ export interface MapSceneManifest {
 export interface MapSceneSource {
   readonly scopeKey: string;
   getManifest(ref: MapDocumentRef, signal: AbortSignal): Promise<MapSceneManifest>;
+  /** Final persisted display overlay, not unsaved editor operations. Empty
+   * pages with a continuation cursor must still be followed. */
+  getChanges(ref: MapDocumentRef, cursor: string | undefined, signal: AbortSignal): Promise<MapChangesPage>;
   loadDisplayTile(tile: CadSceneTile, signal: AbortSignal): Promise<Uint8Array>;
   getElements(ref: MapDocumentRef, ids: readonly string[], signal: AbortSignal): Promise<readonly MapElement[]>;
   decodeDisplayTile?: CadSceneWorkerClient["decode"];

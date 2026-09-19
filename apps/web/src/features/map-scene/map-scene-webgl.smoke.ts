@@ -46,6 +46,7 @@ for (const width of [1024, 320]) test(`common map compact worker, draft holes an
       onError: (error: Error) => renderErrors.push(error.message),
       source: {
         scopeKey: "smoke:floor:user",
+        getChanges: async (document: typeof ref) => ({ generationId: document.generationId, revision: document.revision, operations: [], nextCursor: null }),
         getManifest: async (document: typeof ref) => ({ generationId: document.generationId, revision: document.revision,
           canonical: document.manifest, groups: [{ id: "golden-group", parentId: null, name: "Group", visible: true, locked: false }], layers,
           displayLayerBindings: layers.map(layer => ({ layerName: layer.name, layerId: layer.id })),
