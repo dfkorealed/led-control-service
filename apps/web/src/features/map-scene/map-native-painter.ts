@@ -11,6 +11,24 @@ function ring(ctx: Context, points: readonly Point[], closed: boolean): void {
   if (closed) ctx.closePath();
 }
 
+function fillContours(points: readonly Point[]): readonly (readonly Point[])[] {
+  const same = (a: Point, b: Point) => a.x === b.x && a.y === b.y;
+  const contours: (readonly Point[])[] = [];
+  let start = 0;
+  while (start < points.length) {
+    let end = start + 1;
+    while (end < points.length && !same(points[start], points[end])) end++;
+    if (end === points.length || end - start < 3) return [points];
+    contours.push(points.slice(start, end));
+    if (start > 0) {
+      if (end + 1 >= points.length || !same(points[end + 1], points[0])) return [points];
+      end++;
+    }
+    start = end + 1;
+  }
+  return contours;
+}
+
 function paint(ctx: Context, style: MapElement["style"], closed: boolean, zoom: number, holes = false): void {
   ctx.globalAlpha = style.opacity;
   if (closed && style.fillColor) { ctx.fillStyle = style.fillColor; ctx.fill(holes ? "evenodd" : "nonzero"); }
@@ -32,7 +50,7 @@ export function canJoinDisplayFill(a: OrderedMapDisplayPrimitive, b: OrderedMapD
   // fill fragments. One path avoids antialias seams at their internal edges;
   // arbitrary CAD triangles and differently styled fragments stay independent.
   return a.type === "triangle" && b.type === "triangle" &&
-    ["rectangle", "triangle", "polygon", "ellipse"].includes(a.sourceType) && a.sourceType === b.sourceType &&
+    ["rectangle", "triangle", "polygon", "ellipse", "HATCH"].includes(a.sourceType) && a.sourceType === b.sourceType &&
     a.elementId === b.elementId && a.layerName === b.layerName && a.zIndex === b.zIndex &&
     a.style.strokeColor === null && b.style.strokeColor === null &&
     a.style.fillColor === b.style.fillColor && a.style.opacity === b.style.opacity;
@@ -62,7 +80,16 @@ export function paintDisplayPrimitive(ctx: Context, p: OrderedMapDisplayPrimitiv
   let closed = true;
   switch (p.type) {
     case "line": ring(ctx, [p.geometry.start, p.geometry.end], false); closed = false; break;
-    case "polyline": ring(ctx, p.geometry.points, p.geometry.closed); closed = p.geometry.closed; break;
+    case "polyline": {
+      // The v2 compound contour walks each connector in both directions.
+      // Canvas antialiases those zero-area edges unless we lift the pen between
+      // complete contours. Preserve their original nonzero winding and never
+      // apply this interpretation to stroke paths or unrecognized sequences.
+      const contours = p.geometry.closed && p.style.fillColor && p.style.strokeColor === null
+        ? fillContours(p.geometry.points) : [p.geometry.points];
+      for (const contour of contours) ring(ctx, contour, p.geometry.closed);
+      closed = p.geometry.closed; break;
+    }
     case "triangle": ring(ctx, p.geometry.points, true); break;
     case "rectangle": {
       const g = p.geometry; ctx.translate(g.origin.x, g.origin.y); ctx.rotate(g.rotation * Math.PI / 180);

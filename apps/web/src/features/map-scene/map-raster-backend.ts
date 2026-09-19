@@ -34,6 +34,7 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
   private revision = 0;
   private queued = false;
   private stopped = false;
+  private paintFrame: number | null = null;
 
   constructor(private readonly budget: CadSceneMemoryBudget) { super(); }
 
@@ -123,6 +124,7 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
     current.promise = (async () => {
       // Serialize the one-cell staging window, including cancelled Worker work.
       await drained;
+      let yieldedAt = performance.now();
       for (const job of jobs) {
         if (controller.signal.aborted || this.stopped) return;
         if (this.cells.get(job.key)?.signature === job.signature) continue;
@@ -200,8 +202,11 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
           pendingCanvas = null;
           // Yield between cells so camera and cancellation never wait for the
           // entire 300k/500k scene. This is not a sample or primitive truncation.
-          super.render();
-          await new Promise<void>(resolve => setTimeout(resolve, 0));
+          this.schedulePaint();
+          if (performance.now() - yieldedAt >= 8) {
+            await new Promise<void>(resolve => setTimeout(resolve, 0));
+            yieldedAt = performance.now();
+          }
         } catch (error) {
           this.drop(job.key);
           if (pendingCanvas) { pendingCanvas.width = 0; pendingCanvas.height = 0; }
@@ -221,10 +226,11 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
     return current.promise;
   }
 
-  override render(): void { super.render(); this.queueRefresh(); }
+  override render(): void { this.cancelPaint(); super.render(); this.queueRefresh(); }
 
   override suspend(): void {
     this.stopped = true; this.request?.controller.abort(); this.request = null; this.lastRequest = null;
+    this.cancelPaint();
     for (const key of this.cells.keys()) this.drop(key);
     for (const owner of this.stagingOwners) this.budget.releaseOwner(owner);
     super.suspend();
@@ -236,6 +242,19 @@ export class MapRasterBackend extends PixiCadSceneRenderBackend {
     if (this.queued || this.stopped || !this.lastRequest) return;
     this.queued = true;
     queueMicrotask(() => { this.queued = false; if (!this.stopped && this.lastRequest) void this.renderDisplay(this.lastRequest); });
+  }
+
+  private schedulePaint(): void {
+    if (this.paintFrame !== null || this.stopped) return;
+    this.paintFrame = requestAnimationFrame(() => {
+      this.paintFrame = null;
+      if (!this.stopped) super.render();
+    });
+  }
+
+  private cancelPaint(): void {
+    if (this.paintFrame !== null) cancelAnimationFrame(this.paintFrame);
+    this.paintFrame = null;
   }
 
   private reserve(owner: string, key: string, bytes: number): void {

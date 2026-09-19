@@ -5,11 +5,11 @@ import type { CadRasterDisplayRequest } from "../cad-scene/CadSceneRenderer";
 import { CadSceneMemoryBudget } from "../cad-scene/cad-scene-memory-budget";
 import { buildMapGeometryBatches } from "./map-scene-geometry";
 
-const calls = vi.hoisted(() => ({ bake: vi.fn(), remove: vi.fn(), paint: vi.fn() }));
+const calls = vi.hoisted(() => ({ bake: vi.fn(), remove: vi.fn(), paint: vi.fn(), render: vi.fn() }));
 vi.mock("../cad-scene/CadSceneRenderer", () => ({ PixiCadSceneRenderBackend: class {
   replaceRaster(...args: unknown[]) { calls.bake(...args); }
   removeTile(...args: unknown[]) { calls.remove(...args); }
-  render() {}
+  render() { calls.render(); }
   suspend() {}
   destroy() { this.suspend(); }
 } }));
@@ -38,6 +38,21 @@ function setup(maximum = 32 * 1024 * 1024) {
 afterEach(() => { vi.restoreAllMocks(); vi.clearAllMocks(); });
 
 describe("bounded ordered raster lifecycle", () => {
+  it("coalesces cell publication into one animation frame and cancels it on disposal", async () => {
+    const { backend, request } = setup();
+    let publish!: FrameRequestCallback;
+    const schedule = vi.spyOn(window, "requestAnimationFrame").mockImplementation(callback => { publish = callback; return 99; });
+    const cancel = vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
+    backend.replaceTile("transient", { descriptor, byteSize: 100, ...buildMapGeometryBatches([line], 1, true) });
+    await backend.renderDisplay(request);
+    expect(calls.bake).toHaveBeenCalledTimes(2);
+    expect(calls.render).not.toHaveBeenCalled();
+    expect(schedule).toHaveBeenCalledOnce();
+    publish(0); expect(calls.render).toHaveBeenCalledOnce();
+    backend.invalidateDisplay(); await backend.renderDisplay(request);
+    backend.destroy(); expect(cancel).toHaveBeenCalledWith(99);
+  });
+
   it("paints a boundary stroke in both cells and invalidates its old extents", async () => {
     const { backend, request, budget } = setup();
     backend.replaceTile("transient", { descriptor, byteSize: 100, ...buildMapGeometryBatches([line], 1, true) });
