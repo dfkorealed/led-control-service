@@ -457,11 +457,12 @@ export class FloorImportService {
     return this.prisma.$transaction(async tx => {
       const authorizedSite = await this.access.assertManageInTransaction(tx, user, floor.siteId);
       const now = new Date();
+      await tx.$queryRaw`SELECT "id" FROM "Floor" WHERE "id" = ${floorId} FOR UPDATE`;
       const changed = await tx.floorImportJob.updateMany({
         where: { id: jobId, floorId, status: { in: [...cancellableStatuses] } },
         data: {
           status: "cancelled", stage: "cancelled", leaseOwner: null, leaseExpiresAt: null,
-          failureCode: null, failureMessage: null, cancelledAt: now
+          failureCode: null, failureMessage: null, cancelledAt: now, preparedMapGenerationId: null
         }
       });
       const job = await tx.floorImportJob.findFirst({ where: { id: jobId, floorId }, select: jobSelect });

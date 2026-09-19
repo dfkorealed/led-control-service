@@ -213,7 +213,8 @@ export class MapDocumentStore {
    */
   async reapExpiredPreparations(now = new Date()): Promise<number> {
     const candidates = await this.prisma.floorMapGeneration.findMany({
-      where: { status: { in: ["preparing", "prepared"] }, expiresAt: { lte: now } },
+      where: { status: { in: ["preparing", "prepared"] }, expiresAt: { lte: now },
+        preparedImportJobs: { none: {} } },
       orderBy: [{ expiresAt: "asc" }, { id: "asc" }], take: 25, select: { floorId: true, id: true }
     });
     let retired = 0;
@@ -227,6 +228,9 @@ export class MapDocumentStore {
       const generation = await tx.floorMapGeneration.findFirstOrThrow({ where: { id: generationId, floorId } });
       if (expiredBefore && (generation.expiresAt > expiredBefore || !["preparing", "prepared"].includes(generation.status))) return false;
       if (!["preparing", "prepared", "failed"].includes(generation.status) ||
+        // A review may last longer than the preparation TTL. The same-floor job
+        // pointer pins canonical AND display relations until terminal release.
+        await tx.floorImportJob.count({ where: { preparedMapGenerationId: generationId, floorId } }) ||
         await tx.floorMapRevisionAsset.count({ where: { generationId } }) ||
         await tx.floorMapDocument.count({ where: { activeGenerationId: generationId } }) ||
         await tx.floorMapStage.count({ where: { generationId } }) ||

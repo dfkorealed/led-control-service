@@ -606,7 +606,7 @@ Migration: `20260919180000_map_document`. 기존 맵 데이터의 변환·삭제
 - `prepareGeneration(floorId, elements, seed)`는 viewport와 shared `MapGroup[]/MapLayer[]`를 명시적으로 받고 실제 geometry를 streaming 검증·업로드한다. 없는 그룹·레이어를 만들어 맞추지 않는다. 성공해도 활성 document/Floor.mapRevision 포인터는 바꾸지 않는다. S3 I/O는 transaction 밖, 원장 연결과 준비 완료는 Floor 잠금 안이다.
 - 일반 저장은 기존 generation에 changeset을 추가한다. import/reset/checkpoint만 generation을 만든다. 100 changeset 또는 decoded delta 32 MiB부터 checkpoint 준비 대상이며, `commitCheckpoint`는 expected generation/revision을 CAS 확인한 transaction에서만 포인터와 카운터를 교체한다. content revision을 증가시키지 않고 실패하면 rollback한다. 자동 scheduling/일반 mutation validation은 U6 담당이다.
 - 새 snapshot v3는 `document: MapDocumentRef`, fixture placement, lightSlots를 보관하고 전체 geometry를 복제하지 않는다. `pinRevision`은 연속된 delta chain을 검증하고 해당 revision까지의 정방향/역방향 및 확정 stage part를 보호한다. 기존 v1/v2 decoder와 기존 live builder는 유지하지만 구 CAD 데이터를 신규 문서로 복구하지 않는다. 새 snapshot builder/controller 연결은 U6에서 수행한다.
-- cleanup은 pending/ready 후보 조회의 LIMIT 전과 Floor→FloorAsset 잠금 후 최종 claim 모두에서 신규 참조를 제외한다. 새 테이블 존재 확인 전에는 신규 SQL 관계를 조회하지 않는다. 준비 실패는 참조를 제거하고 failed로 남기며 private 객체 원장은 cleanup 재시도를 위해 유지한다. `reapExpiredPreparations`는 1시간 만료 준비를 한 번에 25개까지 잠금/재검사하여 정리하며 활성·이력·stage·changeset 참조가 있는 generation은 건드리지 않는다. migration 전 live 경로에서 이 reaper를 자동 실행하지 않는다.
+- cleanup은 pending/ready 후보 조회의 LIMIT 전과 Floor→FloorAsset 잠금 후 최종 claim 모두에서 신규 참조를 제외한다. 새 테이블 존재 확인 전에는 신규 SQL 관계를 조회하지 않는다. 준비 실패는 참조를 제거하고 failed로 남기며 private 객체 원장은 cleanup 재시도를 위해 유지한다. `reapExpiredPreparations`는 1시간 만료 준비를 한 번에 25개까지 잠금/재검사하여 정리하며 활성·이력·stage·changeset 및 import job pin 참조가 있는 generation은 건드리지 않는다. U4b worker poll에서 실행하므로 새 worker 실행 전에 U4b additive migration 적용이 필요하다.
 - stage controller/part 불변성 및 전체 누적량의 원자적 갱신, 1시간 비활성 만료 실행, 일반 mutation의 인가·lease·멱등성, 보존 이력 정책에 따른 retired generation GC, U7 bounded batch 조회·delta overlay는 후속 작업이다. U3가 이 기능들의 HTTP 구현 완료를 뜻하지 않는다.
 
 ### FloorMapRevision
@@ -753,6 +753,7 @@ DWG/DXF 원본을 비동기로 변환·검출·검토·적용하는 작업의 �
 | `floorId` | `String` | 예 | FK -> `Floor.id`, cascade delete | 대상 층 |
 | `sourceAssetId` | `String` | 예 | FK -> `FloorAsset.id`, delete no action, indexed | private DWG/DXF 원본 자산. 완료 후 같은 원본으로 새 분석 job 생성 가능 |
 | `renderedAssetId` | `String?` | 아니오 | Unique, FK -> `FloorAsset.id`, delete no action, 원본과 달라야 함 | 변환 결과 SVG/래스터 자산 |
+| `preparedMapGenerationId` | `String?` | 아니오 | `(preparedMapGenerationId, floorId)` FK -> `FloorMapGeneration(id, floorId)`, 복합 index, deferred no action | U4b가 준비한 공통 정본/표시 generation의 생존 pin. 기존 job은 NULL이며 legacy 결과를 역변환하지 않음 |
 | `sourceFormat` | `FloorImportSourceFormat` | 예 |  | `dwg` 또는 `dxf` |
 | `status` | `FloorImportJobStatus` | 예 | `queued` | 영속 작업 상태 |
 | `stage` | `String` | 예 | `queued`, trim 길이 1~100 | 상태보다 세분화된 현재 처리 단계 |
@@ -779,6 +780,10 @@ DWG/DXF 원본을 비동기로 변환·검출·검토·적용하는 작업의 �
 
 - `floorId + createdAt`, `status + leaseExpiresAt + createdAt` index로 층별 이력과 lease 회수 대상을 조회한다.
 - `sourceAssetId`는 일반 index다. 완료·실패·취소 이후 동일 원본 재분석을 허용하며 동시 workflow는 층별 active partial unique가 막는다.
+- `20260919200000_floor_import_prepared_map_generation`은 U3 migration을 수정하지 않는 별도 additive migration이다. nullable same-floor generation FK와 index를 추가하고, `completed/failed/cancelled` 전환 시 BEFORE trigger로 준비 pin을 해제한다. 기존 행 backfill/맵 초기화는 없다. 이 migration은 작성자 소유의 격리 PostgreSQL clean/upgrade 및 실제 MinIO에서 검증하며 사용자 DB 적용은 별도 승인·총괄 작업이다.
+- U4b worker는 동일 semantic callback에서 bounded 정본 spool을 기록하고 **기록한 MapElement 배열을 반환**해 compact binary pick ID와 정본 ID를 일치시킨다. 준비 generation과 `map_display_manifest/map_display_tile` 업로드·검증을 마친 후 Floor→job 잠금, attempt/lease/status fence 아래 `preparedMapGenerationId`를 후보/원장과 같은 transaction으로 게시한다. `review_required`가 1시간을 넘어도 reaper 후보 조회 및 최종 잠금 재검사와 explicit discard가 pin을 보호한다. 이 관계가 남아 있는 canonical/display assets는 기존 cleanup 참조 검사도 보호한다.
+- display manifest는 8 MiB 이하 `{ formatVersion: 1, scene, displayLayerBindings, unsupportedEntityCounts, unconvertedEntityCounts }` envelope다. 저장 JSON의 scene 자체 `byteSize/sha256`은 생략하고 bounded 조회 helper가 검증된 FloorAsset 원장 값으로 보완한다. 정본 manifest와 별도이며 원본 DWG/전체 geometry를 읽지 않고 U9 layer binding을 조회할 수 있다. preview/tile은 파생 표시일 뿐 별도 CAD 사용자 요소 유형이 아니다.
+- `CadMapPreparationService.readPrepared`는 U6 내부 `MapDocumentRef` 인계다. 활성화 transaction은 별도로 인가·editor lease·Floor revision CAS(`ref.revision - 1`)·job 소유권을 재확인하고 document/history pin을 먼저 연결한 뒤 job pin을 해제해야 한다. 현재 public apply는 legacy 경로이며 새 공통 document를 활성화하지 않는다. `legacyDisplayCompatibility` 기본값은 true이고 U6 전환 이후 false로 설정하면 중복 `cad_manifest/cad_tile` 업로드만 제거할 수 있다. 정본/공통 display 저장은 옵션과 무관하다.
 - client/Web은 profile ID를 보내지 않는다. create transaction이 잠근 ready source asset SHA-256으로 server registry binding을 결정한다. migration 시점의 queued job만 ID/version/digest를 `NULL`로 staging하고 worker lease 안에서 같은 binding을 해석한다. `20260917144000_cad_profile_upgrade_gate`는 singleton gate와 DB trigger를 먼저 설치해 구 worker를 포함한 queued→processing 전환을 거부한다. `20260917145000`/`16000`이 profile/content 제약을 적용하고 `20260917170000_cad_profile_upgrade_release`가 필요한 migration 완료 이력을 확인한 뒤에만 gate를 연다.
 - partial unique index `FloorImportJob_floorId_active_key`는 `completed`, `failed`, `cancelled`가 아닌 모든 active 상태를 층마다 하나로 제한한다. 따라서 `region_selection_required` 중에도 같은 층의 두 번째 import를 시작할 수 없고, 향후 active 상태 추가 시 누락되지 않는다. 완료·실패·취소 원장은 이력으로 유지한다.
 - deferred constraint trigger `FloorImportJob_asset_invariant`, `FloorAsset_import_job_invariant`는 transaction 최종 상태에서 원본/렌더 자산이 job과 같은 층이고 ready인지, source는 `original`과 source format별 DWG/DXF MIME인지, render는 `rendered`와 허용 이미지 MIME인지 양쪽 mutation 경로에서 강제한다.

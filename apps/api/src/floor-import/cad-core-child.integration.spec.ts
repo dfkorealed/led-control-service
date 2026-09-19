@@ -6,6 +6,8 @@ import { join, resolve } from "node:path";
 import { ChildProcessCadCoreExecutor } from "./cad-core-executor";
 import { computeCandidateRegionDigests } from "./cad-candidate-region-digest";
 import { cadRegionPreviewPersistenceIdentity, cadScenePersistenceIdentity } from "./cad-scene-persistence";
+import { readCanonicalElements, readCanonicalMetadata } from "./cad-canonical-spool";
+import { decodeCadSceneTile } from "./cad-scene-codec";
 
 const enabled = process.env.CAD_CORE_CHILD_INTEGRATION === "1";
 
@@ -26,7 +28,7 @@ const enabled = process.env.CAD_CORE_CHILD_INTEGRATION === "1";
       0, "ENDSEC", 0, "EOF"
     ];
     await writeFile(dxfPath, groups.join("\n") + "\n");
-    const executor = new ChildProcessCadCoreExecutor({ entryPath: resolve(process.cwd(), "dist/src/floor-import/cad-core-child.js") });
+    const executor = new ChildProcessCadCoreExecutor({ entryPath: process.env.CAD_CORE_CHILD_ENTRY ?? resolve(process.cwd(), "dist/src/floor-import/cad-core-child.js") });
     try {
       const detected = await executor.execute({ dxfPath, renderedPath: join(root, "whole.svg"), profileId: "generic-lighting-v1" });
       expect(detected.regions).toHaveLength(2);
@@ -71,7 +73,7 @@ const enabled = process.env.CAD_CORE_CHILD_INTEGRATION === "1";
       0, "ENDSEC", 0, "EOF"
     ];
     await writeFile(dxfPath, groups.join("\n") + "\n");
-    const executor = new ChildProcessCadCoreExecutor({ entryPath: resolve(process.cwd(), "dist/src/floor-import/cad-core-child.js") });
+    const executor = new ChildProcessCadCoreExecutor({ entryPath: process.env.CAD_CORE_CHILD_ENTRY ?? resolve(process.cwd(), "dist/src/floor-import/cad-core-child.js") });
     try {
       const detected = await executor.execute({ dxfPath, renderedPath: join(root, "whole.svg"), profileId: "generic-lighting-v1" });
       expect(detected.candidates).toHaveLength(2);
@@ -100,7 +102,7 @@ const enabled = process.env.CAD_CORE_CHILD_INTEGRATION === "1";
     const selectedDirectory = await mkdtemp(join(tmpdir(), "cad-core-scene-"));
     const dxfPath = resolve(process.cwd(), "../../scripts/fixtures/cad-import/valid-mixed-layout.dxf");
     const executor = new ChildProcessCadCoreExecutor({
-      entryPath: resolve(process.cwd(), "dist/src/floor-import/cad-core-child.js")
+      entryPath: process.env.CAD_CORE_CHILD_ENTRY ?? resolve(process.cwd(), "dist/src/floor-import/cad-core-child.js")
     });
     const jobId = randomUUID();
 
@@ -170,6 +172,12 @@ const enabled = process.env.CAD_CORE_CHILD_INTEGRATION === "1";
         transform: manifest.transform
       });
       expect(selected.selectedCandidates).toHaveLength(selectedRegion.lightCandidateCount);
+      expect(selected.canonical).toBeDefined();
+      const stored = new Map();
+      for await (const element of readCanonicalElements(selectedDirectory, selected.canonical!)) stored.set(element.id, element);
+      const metadata = await readCanonicalMetadata(selectedDirectory, selected.canonical!);
+      expect(metadata.elementCount).toBe(stored.size);
+      expect(metadata.displayLayerBindings.length).toBe(metadata.layers.length);
       const detectedCandidates = new Map(selected.candidates.map(candidate => [candidate.sourceEntityId, candidate]));
       expect(selected.candidateRegionAssignments).toHaveLength(selected.candidates.length);
       const selectedAssignmentIds = new Set((selected.candidateRegionAssignments ?? [])
@@ -199,6 +207,7 @@ const enabled = process.env.CAD_CORE_CHILD_INTEGRATION === "1";
         expect(tile.assetId).toBe(identity.tileAssetId(tile));
         expect(payload.byteLength).toBe(tile.byteSize);
         expect(sha256(payload)).toBe(tile.sha256);
+        for (const pick of decodeCadSceneTile(payload, tile)) expect(stored.has(pick.elementId)).toBe(true);
       }
     } finally {
       await rm(firstDirectory, { recursive: true, force: true });

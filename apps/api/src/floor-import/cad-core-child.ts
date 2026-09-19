@@ -8,7 +8,8 @@ import { createCadViewport, measureCadCandidateSvgTransformMatch, projectCadPoin
 import { FixedLightingDetectorRegistry, type CadImportDetectorProfileId } from "./lighting-detector-registry";
 import { encodeCadCoreResponse, type CadCoreRequest, type CadCoreResult } from "./cad-core-executor";
 import { detectCadRegions } from "./cad-region-detector";
-import { buildCadScene } from "./cad-scene-builder";
+import { buildCanonicalCadScene, remainingCadArtifactBytes } from "./cad-canonical-spool";
+import { CAD_MAP_MAX_METADATA_BYTES } from "./map-element-converter";
 import { cadRegionPreviewPersistenceIdentity, cadScenePersistenceIdentity } from "./cad-scene-persistence";
 import { renderCadRegionPreviewFiles } from "./cad-region-preview-renderer";
 
@@ -119,14 +120,17 @@ async function execute(request: Omit<CadCoreRequest, "abortSignal">): Promise<Ca
     }
   }
   let scene = null;
+  let canonical;
   let selectedCandidates = undefined;
   if (selectedRegion && request.artifactDirectory && request.jobId) {
     const identity = cadScenePersistenceIdentity(request.jobId, selectedRegion.regionId);
-    const built = buildCadScene(document, selectedRegion, {
-      sceneId: identity.sceneId,
-      manifestAssetId: identity.manifestAssetId,
-      tileAssetId: identity.tileAssetId
-    });
+    const maxBytes = await remainingCadArtifactBytes(request.artifactDirectory) - 2 * CAD_MAP_MAX_METADATA_BYTES;
+    if (maxBytes < 1) throw new Error("CAD import temporary disk budget exceeded");
+    const prepared = await buildCanonicalCadScene(document, selectedRegion, request.jobId, request.artifactDirectory, { maxBytes });
+    const built = prepared.built;
+    canonical = prepared.canonical;
+    if (built.manifestPayload.length + built.tiles.reduce((sum, tile) => sum + tile.payload.length, 0) >
+        await remainingCadArtifactBytes(request.artifactDirectory)) throw new Error("CAD import temporary disk budget exceeded");
     const manifestFilename = `${identity.manifestAssetId}.json`;
     await writeFile(join(request.artifactDirectory, manifestFilename), built.manifestPayload, { flag: "wx", mode: 0o600 });
     for (const tile of built.tiles) {
@@ -182,6 +186,7 @@ async function execute(request: Omit<CadCoreRequest, "abortSignal">): Promise<Ca
     rendered,
     regionPreviews,
     scene,
+    canonical,
     observedMaxRssBytes: usage.maxRSS * 1024
   };
 }

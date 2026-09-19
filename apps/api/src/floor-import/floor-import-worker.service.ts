@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from "@nestjs/common";
 import { Prisma, type FloorImportJob } from "@prisma/client";
-import { CAD_IMPORT_MAX_REGIONS, cadSceneManifestSchema, floorImportRegionListResponseSchema, type CadImportStage, type CadSceneManifest } from "@led-control/shared";
+import { CAD_IMPORT_MAX_REGIONS, cadSceneManifestSchema, floorImportRegionListResponseSchema, type CadImportStage, type CadSceneManifest, type MapDocumentRef } from "@led-control/shared";
 import { createHash, randomUUID } from "node:crypto";
 import { lstat, mkdtemp, readFile, rm, stat, statfs, utimes } from "node:fs/promises";
 import { join } from "node:path";
@@ -24,6 +24,7 @@ import {
 } from "./floor-import.tokens";
 import { cadRegionPreviewPersistenceIdentity, cadScenePersistenceIdentity } from "./cad-scene-persistence";
 import { readExactRegionBounds } from "./floor-import-region-bounds";
+import { CadMapPreparationService } from "./cad-map-preparation.service";
 import { CAD_IMPORT_PHASE_FAILURE_CODES, classifyCadImportFailure, type ImportPhase } from "./cad-import-diagnostics";
 import {
   candidateRegionDigestsEqual,
@@ -59,7 +60,8 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
     @Inject(CAD_IMPORT_RULE_DETECTOR) private readonly ruleRegistry: LightingDetectorRegistry,
     @Inject(CAD_IMPORT_CORE_EXECUTOR) private readonly core: CadCoreExecutor,
     @Optional() @Inject(CAD_IMPORT_WORKER_OPTIONS) options?: FloorImportWorkerOptions,
-    @Optional() private readonly attemptCleanup?: FloorImportAttemptCleanupService
+    @Optional() private readonly attemptCleanup?: FloorImportAttemptCleanupService,
+    @Optional() private readonly mapPreparation?: CadMapPreparationService
   ) {
     this.options = options ?? { tempRoot: "/tmp", pollIntervalMs: 1000, enabled: true };
   }
@@ -141,6 +143,7 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async executeOnce() {
+    await this.mapPreparation?.reap();
     const job = await this.claimNext();
     if (!job || this.stopping) return false;
     await this.process(job);
@@ -152,6 +155,8 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
     this.activeAbort = abort;
     let tempDirectory: string | undefined;
     let attempt: FloorImportAttemptIdentity | undefined;
+    let prepared: MapDocumentRef | undefined;
+    let preparationCommitted = false;
     let phase: ImportPhase = "download";
     let leaseLost = false;
     let renewing = false;
@@ -367,7 +372,7 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
             metadata: regionPreviewMetadata(region, preview.viewport)
           };
         }),
-        ...(manifest ? [{
+        ...(manifest && this.options.legacyDisplayCompatibility !== false ? [{
           id: manifest.manifestAssetId,
           kind: "cad_manifest" as const,
           objectKey: cadScenePersistenceIdentity(job.id, manifest.regionId).manifestObjectKey(job.floorId),
@@ -439,6 +444,10 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
         };
         await this.storage.putCadSceneObjectFile(asset.objectKey, asset.inputPath, expected, abort.signal);
         await this.storage.verifyCadSceneObject(asset.objectKey, expected, abort.signal);
+      }
+      if (manifest) {
+        if (!core.canonical || !this.mapPreparation) throw new Error("CAD canonical preparation is unavailable");
+        prepared = await this.mapPreparation.prepare(job.floorId, tempDirectory, core.canonical, manifest, abort.signal);
       }
       await pulse(90, "persisting");
 
@@ -541,6 +550,8 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
         for (let offset = 0; offset < candidateRows.length; offset += CANDIDATE_WRITE_CHUNK) {
           await tx.floorImportCandidate.createMany({ data: candidateRows.slice(offset, offset + CANDIDATE_WRITE_CHUNK) });
         }
+        if (prepared) await this.mapPreparation!.pinPrepared(tx,
+          { id: job.id, floorId: job.floorId, attemptCount: job.attemptCount, leaseOwner: this.owner }, prepared);
         const changed = attempt ? await tx.$executeRaw(Prisma.sql`
           UPDATE "FloorImportJob" SET "status" = 'review_required', "stage" = 'review_required',
             "progressPercent" = 100, "renderedAssetId" = ${attempt.assetId}, "parserVersion" = ${PARSER_VERSION},
@@ -575,6 +586,7 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
           if (reconciled.count !== 1) throw new Error("CAD_IMPORT_ATTEMPT_CLEANUP_LEASED");
         }
       }, { maxWait: 5_000, timeout: 30_000 });
+      preparationCommitted = true;
     } catch (error) {
       if (this.stopping) {
         if (attempt && this.attemptCleanup) await this.attemptCleanup.requestCleanup(attempt);
@@ -602,6 +614,10 @@ export class FloorImportWorkerService implements OnModuleInit, OnModuleDestroy {
       if (this.heartbeat) clearInterval(this.heartbeat);
       this.heartbeat = undefined;
       if (this.activeAbort === abort) this.activeAbort = null;
+      // A late/cancelled attempt owns only its unpinned generation. Discard itself
+      // rechecks the job pointer under the Floor lock, including uncertain commits.
+      if (prepared && !preparationCommitted) await this.mapPreparation!.discard(job.floorId, prepared.generationId)
+        .catch(() => this.logger.warn("CAD preparation retained for fenced cleanup"));
       if (tempDirectory) await rm(tempDirectory, { recursive: true, force: true }).catch(() => undefined);
     }
   }

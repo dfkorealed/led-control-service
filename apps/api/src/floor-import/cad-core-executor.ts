@@ -22,6 +22,7 @@ import {
   type CadCandidateRegionDigestMap
 } from "./cad-candidate-region-digest";
 import { CAD_RENDERED_SVG_RAW_MAX_BYTES } from "./cad-resource-limits";
+import { canonicalArtifactSchema, type CadCanonicalArtifact } from "./cad-canonical-spool";
 import {
   CAD_CGROUP_MEMORY_BYTES,
   CAD_CORE_MAX_OLD_SPACE_MB,
@@ -78,6 +79,7 @@ export interface CadCoreResult {
   rendered: CadSvgFileResult;
   regionPreviews?: CadCoreRegionPreviewArtifact[];
   scene?: CadCoreSceneArtifact | null;
+  canonical?: CadCanonicalArtifact;
   observedMaxRssBytes?: number;
 }
 
@@ -355,11 +357,12 @@ function assertCoreArtifactContract(result: CadCoreResult, request: CadCoreReque
     }
   }
   if (selectedRegionId === null) {
-    if (result.scene !== null || result.selectedCandidates !== undefined) {
+    if (result.scene !== null || result.selectedCandidates !== undefined || result.canonical !== undefined) {
       throw new Error("invalid core artifact manifest");
     }
     return;
   }
+  canonicalArtifactSchema.parse(result.canonical);
   const selectedRegion = result.regions.find(region => region.regionId === selectedRegionId);
   const sourceBounds = result.scene?.sourceBounds;
   const transform = result.scene?.transform;

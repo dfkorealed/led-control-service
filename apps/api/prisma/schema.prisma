@@ -674,6 +674,7 @@ model FloorMapGeneration {
   changeSets             FloorMapChangeSet[]
   revisionAssets         FloorMapRevisionAsset[]
   stages                 FloorMapStage[]
+  preparedImportJobs     FloorImportJob[] @relation("FloorImportPreparedMapGeneration")
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
 
@@ -819,6 +820,7 @@ model FloorImportJob {
   floorId                String
   sourceAssetId          String
   renderedAssetId        String?                 @unique
+  preparedMapGenerationId String?
   sourceFormat           FloorImportSourceFormat
   status                 FloorImportJobStatus    @default(queued)
   stage                  String                  @default("queued")
@@ -843,6 +845,7 @@ model FloorImportJob {
   floor                  Floor                   @relation(fields: [floorId], references: [id], onDelete: Cascade)
   sourceAsset            FloorAsset              @relation("FloorImportSourceAsset", fields: [sourceAssetId], references: [id], onDelete: NoAction)
   renderedAsset          FloorAsset?             @relation("FloorImportRenderedAsset", fields: [renderedAssetId], references: [id], onDelete: NoAction)
+  preparedMapGeneration  FloorMapGeneration?     @relation("FloorImportPreparedMapGeneration", fields: [preparedMapGenerationId, floorId], references: [id, floorId], onDelete: NoAction)
   candidates             FloorImportCandidate[]
   regions                FloorImportRegion[]
   cadScene               FloorCadScene?          @relation("FloorCadSceneSourceImportJob")
@@ -854,6 +857,7 @@ model FloorImportJob {
   // state checks, and one active import per floor. Prisma cannot represent these.
   @@index([floorId, createdAt])
   @@index([sourceAssetId])
+  @@index([preparedMapGenerationId, floorId])
   @@index([status, leaseExpiresAt, createdAt])
 }
 

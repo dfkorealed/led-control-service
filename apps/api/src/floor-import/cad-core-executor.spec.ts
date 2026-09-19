@@ -518,6 +518,11 @@ function validArtifactManifest() {
   };
   return {
     ...manifest,
+    canonical: {
+      elements: { filename: "33333333-3333-4333-8333-333333333333.ndjson", byteSize: 100, sha256: "e".repeat(64) },
+      metadata: { filename: "44444444-4444-4444-8444-444444444444.json", byteSize: 100, sha256: "f".repeat(64) },
+      elementCount: 1
+    },
     selectedCandidates: [{ ...candidate, x: 128, y: 256 }],
     candidateRegionAssignments: [{
       sourceEntityId: candidate.sourceEntityId,

@@ -6,6 +6,8 @@ import { AuditModule } from "../audit/audit.module";
 import { AuthModule } from "../auth/auth.module";
 import { PrismaModule } from "../prisma/prisma.module";
 import { StorageModule } from "../storage/storage.module";
+import { FloorEditorModule } from "../floor-editor/floor-editor.module";
+import { CadMapPreparationService } from "./cad-map-preparation.service";
 import { ArgvCadConverter, type CadConversionRequest, type CadConverter } from "./cad-converter";
 import { CAD_IMPORT_MAX_DXF_BYTES } from "./cad-resource-limits";
 import { SpoolCadConverter } from "./cad-converter-spool";
@@ -131,12 +133,13 @@ function positiveInteger(value: string | undefined, fallback: number, name: stri
 }
 
 @Module({
-  imports: [PrismaModule, StorageModule, AccessModule, AuditModule, AuthModule],
+  imports: [PrismaModule, StorageModule, AccessModule, AuditModule, AuthModule, FloorEditorModule],
   controllers: [FloorImportController],
   providers: [
     FloorImportService,
     FloorImportAttemptCleanupService,
     FloorImportWorkerService,
+    CadMapPreparationService,
     CadSidecarReadinessService,
     { provide: CAD_IMPORT_CONVERTER, useFactory: () => converterProvider(process.env) },
     {
@@ -146,6 +149,6 @@ function positiveInteger(value: string | undefined, fallback: number, name: stri
     { provide: CAD_IMPORT_CORE_EXECUTOR, useFactory: () => new ChildProcessCadCoreExecutor() },
     { provide: CAD_IMPORT_WORKER_OPTIONS, useFactory: () => workerOptions(process.env) }
   ],
-  exports: [CadSidecarReadinessService]
+  exports: [CadSidecarReadinessService, CadMapPreparationService]
 })
 export class FloorImportModule {}

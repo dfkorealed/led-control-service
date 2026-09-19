@@ -8,4 +8,7 @@ export interface FloorImportWorkerOptions {
   tempRoot: string;
   pollIntervalMs: number;
   enabled?: boolean;
+  /** Keep true until U6 replaces legacy public apply/review with common documents.
+   * False stops only duplicate cad_manifest/cad_tile uploads, not canonical data. */
+  legacyDisplayCompatibility?: boolean;
 }

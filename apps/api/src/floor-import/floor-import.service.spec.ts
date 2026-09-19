@@ -483,7 +483,7 @@ describe("FloorImportService", () => {
   it("cancels an active job with a fenced state transition and leaves terminal jobs unchanged", async () => {
     const floorId = randomUUID(); const row = job({ floorId, status: "processing", leaseOwner: "worker", leaseExpiresAt: new Date() });
     const cancelled = job({ ...row, status: "cancelled", leaseOwner: null, leaseExpiresAt: null, cancelledAt: new Date() });
-    const tx: any = { floorImportJob: { updateMany: jest.fn().mockResolvedValue({ count: 1 }), findFirst: jest.fn().mockResolvedValue(cancelled) } };
+    const tx: any = { $queryRaw: jest.fn().mockResolvedValue([{ id: floorId }]), floorImportJob: { updateMany: jest.fn().mockResolvedValue({ count: 1 }), findFirst: jest.fn().mockResolvedValue(cancelled) } };
     const prisma: any = {
       floor: { findUnique: jest.fn().mockResolvedValue({ id: floorId, siteId: "site-1" }) },
       $transaction: jest.fn((run: (client: typeof tx) => unknown) => run(tx))
@@ -496,7 +496,7 @@ describe("FloorImportService", () => {
         id: row.id, floorId,
         status: { in: ["queued", "processing", "region_selection_required", "review_required"] }
       },
-      data: expect.objectContaining({ status: "cancelled", leaseOwner: null, leaseExpiresAt: null })
+      data: expect.objectContaining({ status: "cancelled", leaseOwner: null, leaseExpiresAt: null, preparedMapGenerationId: null })
     }));
   });
 

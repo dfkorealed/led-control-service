@@ -4,7 +4,7 @@ import { PrismaClient } from "@prisma/client";
 import { CAD_SCENE_MAX_MANIFEST_BYTES, cadSceneManifestSchema } from "@led-control/shared";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile, copyFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AuditService } from "../audit/audit.service";
@@ -25,13 +25,34 @@ import { computeCandidateRegionDigests } from "./cad-candidate-region-digest";
 import { ChildProcessCadCoreExecutor } from "./cad-core-executor";
 import { cadRegionPreviewPersistenceIdentity, cadScenePersistenceIdentity } from "./cad-scene-persistence";
 import { FloorImportService } from "./floor-import.service";
-import { CAD_IMPORT_WORKER_OPTIONS, FloorImportWorkerService } from "./floor-import-worker.service";
+import { CAD_IMPORT_WORKER_OPTIONS, FloorImportWorkerService as ProductionFloorImportWorkerService } from "./floor-import-worker.service";
+import { CadMapPreparationService } from "./cad-map-preparation.service";
+import { MapDocumentStore } from "../floor-editor/map-document-store";
+import { buildCanonicalCadScene } from "./cad-canonical-spool";
 import { FloorImportAttemptCleanupService } from "./floor-import-attempt-cleanup.service";
 import { FloorImportModule } from "./floor-import.module";
 import { FixedLightingDetectorRegistry, PROVIDED_SAMPLE_DWG_SHA256 } from "./lighting-detector-registry";
 
 const enabled = process.env.FLOOR_IMPORT_INTEGRATION === "1";
 const EMPTY_CANDIDATE_IDENTITY_DIGEST = createHash("sha256").update(JSON.stringify([]), "utf8").digest("hex");
+// These existing lifecycle tests isolate legacy storage failure injection. Keep
+// canonical storage real through Prisma/codec with a separate byte fixture; the
+// cad-map-preparation integration suite exercises both against actual MinIO.
+class FloorImportWorkerService extends ProductionFloorImportWorkerService {
+  constructor(...args: ConstructorParameters<typeof ProductionFloorImportWorkerService>) {
+    const objects = new Map<string, Buffer>();
+    const storage = {
+      putCadSceneObjectFile: async (key: string, path: string) => { objects.set(key, await readFile(path)); },
+      verifyCadSceneObject: async (key: string) => { if (!objects.has(key)) throw new Error("missing canonical fixture object"); },
+      downloadFloorAssetToFile: async (key: string, path: string) => {
+        const bytes = objects.get(key); if (!bytes) throw new Error("missing canonical fixture bytes");
+        await writeFile(path, bytes, { flag: "wx" });
+      }
+    } as unknown as ObjectStorageService;
+    args[7] ??= new CadMapPreparationService(args[0], storage, new MapDocumentStore(args[0], storage));
+    super(...args);
+  }
+}
 (enabled ? describe : describe.skip)("floor import PostgreSQL lifecycle", () => {
   let cluster: Awaited<ReturnType<typeof disposablePostgres>>;
   let prisma: PrismaClient;
@@ -74,6 +95,7 @@ const EMPTY_CANDIDATE_IDENTITY_DIGEST = createHash("sha256").update(JSON.stringi
     await prisma.floorImportAttemptCleanup.deleteMany();
     await prisma.floorImportJob.deleteMany({ where: { floorId } });
     await prisma.floorMapRevision.deleteMany({ where: { floorId } });
+    await prisma.floorMapGeneration.deleteMany({ where: { floorId } });
     await prisma.floorMapObject.deleteMany({ where: { floorId } });
     await prisma.lightingSchedule.deleteMany({ where: { siteId } });
     await prisma.fixtureGroup.deleteMany({ where: { siteId } });
@@ -135,18 +157,14 @@ const EMPTY_CANDIDATE_IDENTITY_DIGEST = createHash("sha256").update(JSON.stringi
   ) {
     const identity = cadScenePersistenceIdentity(jobId, region.regionId);
     const previewIdentity = cadRegionPreviewPersistenceIdentity(jobId, region.regionId);
-    const built = buildCadScene({
+    const { built, canonical } = await buildCanonicalCadScene({
       version: 1, bounds: region.bounds, blocks: [],
       entities: [{
         type: "line", sourceEntityId: "fixture-line", layer: "WALL",
         start: { x: region.bounds.minX, y: region.bounds.minY, z: 0 },
         end: { x: region.bounds.maxX, y: region.bounds.maxY, z: 0 }
       }]
-    }, { ...region, primitiveCount: 1 }, {
-      sceneId: identity.sceneId,
-      manifestAssetId: identity.manifestAssetId,
-      tileAssetId: identity.tileAssetId
-    });
+    }, { ...region, primitiveCount: 1 }, jobId, artifactDirectory);
     const previewBytes = Buffer.from("preview");
     const previewFilename = `${previewIdentity.assetId}.svg`;
     const manifestFilename = `${identity.manifestAssetId}.json`;
@@ -156,6 +174,7 @@ const EMPTY_CANDIDATE_IDENTITY_DIGEST = createHash("sha256").update(JSON.stringi
       await writeFile(join(artifactDirectory, `${tile.descriptor.assetId}.bin`), tile.payload);
     }
     return {
+      canonical,
       regionPreviews: [{
         regionId: region.regionId,
         assetId: previewIdentity.assetId,
@@ -300,7 +319,7 @@ const EMPTY_CANDIDATE_IDENTITY_DIGEST = createHash("sha256").update(JSON.stringi
         await writeFile(renderedPath, "gzip-svg");
         const artifacts = await writeNativeCoreArtifacts(job.id, artifactDirectory, regions.at(-1)!);
         manifestPayload = await readFile(join(artifactDirectory, artifacts.scene.manifestFilename));
-        return { ...detection, scene: artifacts.scene, regionPreviews: [], selectedCandidates: [],
+        return { ...detection, scene: artifacts.scene, canonical: artifacts.canonical, regionPreviews: [], selectedCandidates: [],
           rendered: { sizeBytes: 8, sha256: "f".repeat(64), contentEncoding: "gzip", viewport: { width: 1200, height: 1200 } } };
       });
       expect(await worker.runOnce()).toBe(true);
@@ -527,7 +546,7 @@ const EMPTY_CANDIDATE_IDENTITY_DIGEST = createHash("sha256").update(JSON.stringi
         modelEntityCount: 2, blockCount: 0, candidates: [], selectedCandidates: [],
         candidateRegionAssignments: [],
         excludedRegionPrimitiveCount: 0, regions: [selectedRegion, otherRegion],
-        regionPreviews: [], scene: artifacts.scene,
+        regionPreviews: [], scene: artifacts.scene, canonical: artifacts.canonical,
         candidateTransformMatch: {
           candidateCount: 0, matchedCount: 0, matchRate: null, tolerancePx: 0.01, maxDeltaPx: 0
         },
@@ -1204,17 +1223,13 @@ const EMPTY_CANDIDATE_IDENTITY_DIGEST = createHash("sha256").update(JSON.stringi
     };
     const identity = cadScenePersistenceIdentity(job.id, region.regionId);
     const previewIdentity = cadRegionPreviewPersistenceIdentity(job.id, region.regionId);
-    const built = buildCadScene({
+    const { built, canonical } = await buildCanonicalCadScene({
       version: 1, bounds: region.bounds, blocks: [],
       entities: [{
         type: "line", sourceEntityId: "worker-line", layer: "WALL",
         start: { x: 10, y: 10, z: 0 }, end: { x: 90, y: 90, z: 0 }
       }]
-    }, region, {
-      sceneId: identity.sceneId,
-      manifestAssetId: identity.manifestAssetId,
-      tileAssetId: identity.tileAssetId
-    });
+    }, region, job.id, root);
     const objects = new Set<string>();
     const workerStorage = {
       downloadFloorAssetToFile: jest.fn(async (_key: string, path: string) => writeFile(path, dxf)),
@@ -1244,6 +1259,7 @@ const EMPTY_CANDIDATE_IDENTITY_DIGEST = createHash("sha256").update(JSON.stringi
       const previewFilename = `${previewIdentity.assetId}.svg`;
       await writeFile(join(artifactDirectory, previewFilename), "preview");
       const manifestFilename = `${identity.manifestAssetId}.json`;
+      for (const artifact of [canonical.elements, canonical.metadata]) await copyFile(join(root, artifact.filename), join(artifactDirectory, artifact.filename));
       await writeFile(join(artifactDirectory, manifestFilename), built.manifestPayload);
       for (const tile of built.tiles) {
         await writeFile(join(artifactDirectory, `${tile.descriptor.assetId}.bin`), tile.payload);
@@ -1253,7 +1269,7 @@ const EMPTY_CANDIDATE_IDENTITY_DIGEST = createHash("sha256").update(JSON.stringi
         profileVersion: profile.profileVersion!, profileDigest: profile.profileDigest!,
         modelEntityCount: 1, blockCount: 0, candidates: [], selectedCandidates: [],
         candidateRegionAssignments: [],
-        excludedRegionPrimitiveCount: 0, regions: [region],
+        excludedRegionPrimitiveCount: 0, regions: [region], canonical,
         regionPreviews: [{
           regionId: region.regionId, assetId: previewIdentity.assetId, filename: previewFilename,
           sizeBytes: 7, sha256: createHash("sha256").update("preview").digest("hex"),

@@ -3,7 +3,7 @@ import * as fsPromises from "node:fs/promises";
 import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildCadScene } from "./cad-scene-builder";
+import { buildCanonicalCadScene, readCanonicalElements } from "./cad-canonical-spool";
 import { cadRegionPreviewPersistenceIdentity, cadScenePersistenceIdentity } from "./cad-scene-persistence";
 import { FloorImportWorkerService } from "./floor-import-worker.service";
 
@@ -49,7 +49,7 @@ async function writeNativeArtifacts(
   };
   const identity = cadScenePersistenceIdentity(jobId, region.regionId);
   const previewIdentity = cadRegionPreviewPersistenceIdentity(jobId, region.regionId);
-  const built = buildCadScene({
+  const { built, canonical } = await buildCanonicalCadScene({
     version: 1,
     bounds: region.bounds,
     blocks: [],
@@ -60,11 +60,7 @@ async function writeNativeArtifacts(
       start: { x: 0, y: 0, z: 0 },
       end: { x: 10, y: 10, z: 0 }
     }]
-  }, region, {
-    sceneId: identity.sceneId,
-    manifestAssetId: identity.manifestAssetId,
-    tileAssetId: identity.tileAssetId
-  });
+  }, region, jobId, artifactDirectory);
   const preview = Buffer.from("preview");
   const previewFilename = `${previewIdentity.assetId}.svg`;
   const manifestFilename = `${identity.manifestAssetId}.json`;
@@ -74,6 +70,7 @@ async function writeNativeArtifacts(
     await writeFile(join(artifactDirectory, `${tile.descriptor.assetId}.bin`), tile.payload);
   }
   return {
+    canonical,
     region,
     regionPreviews: [{
       regionId: region.regionId,
@@ -117,7 +114,7 @@ describe("FloorImportWorkerService", () => {
     await worker.onModuleDestroy();
   });
 
-  it.each(["success", "dwg", "verification failure", "invalid metadata", "core timeout"])("runs the verified native persistence path: %s", async mode => {
+  it.each(["success", "dwg", "verification failure", "invalid metadata", "core timeout", "pin failure", "canonical only"])("runs the verified native persistence path: %s", async mode => {
     const root = await mkdtemp(join(tmpdir(), "floor-import-test-"));
     const row = claimedJob({ detectorProfileId: null, sourceFormat: mode === "dwg" ? "dwg" : "dxf" });
     const source = { objectKey: `floors/${row.floorId}/source.dxf`, sizeBytes: BigInt(1024), sha256: "a".repeat(64),
@@ -192,7 +189,7 @@ describe("FloorImportWorkerService", () => {
           regionId: artifacts.region.regionId
         })),
         excludedRegionPrimitiveCount: 17, regions: [artifacts.region],
-        regionPreviews: artifacts.regionPreviews, scene: artifacts.scene,
+        regionPreviews: artifacts.regionPreviews, scene: artifacts.scene, canonical: artifacts.canonical,
         candidateTransformMatch: {
           candidateCount: candidates.length, matchedCount: candidates.length,
           matchRate: 1, tolerancePx: 0.01, maxDeltaPx: 0
@@ -205,12 +202,38 @@ describe("FloorImportWorkerService", () => {
       armAttempt: jest.fn().mockImplementation(async () => { storageOrder.push("ledger"); return attempt; }),
       requestCleanup: jest.fn()
     };
+    const preparedId = randomUUID();
+    const persisted: string[] = [];
+    let pinned: string | null = null;
+    let discarded: string | null = null;
+    const preparation: any = {
+      reap: async () => 0,
+      prepare: async (_floor: string, directory: string, canonical: any) => {
+        for await (const element of readCanonicalElements(directory, canonical)) persisted.push(element.id);
+        return { generationId: preparedId };
+      },
+      pinPrepared: async () => { if (mode === "pin failure") throw new Error("CAD_IMPORT_LEASE_LOST"); pinned = preparedId; },
+      discard: async (_floor: string, id: string) => { discarded = id; }
+    };
     const worker = new FloorImportWorkerService(prisma, storage, converter, registry, core,
-      { tempRoot: root, pollIntervalMs: 1000 }, cleanup);
+      { tempRoot: root, pollIntervalMs: 1000, legacyDisplayCompatibility: mode !== "canonical only" }, cleanup, preparation);
     const logError = jest.spyOn((worker as any).logger, "error").mockImplementation(() => undefined);
     if (mode === "core timeout") core.execute.mockRejectedValue(new Error("CAD core child process wall time limit exceeded"));
     try {
       await expect(worker.runOnce()).resolves.toBe(true);
+      if (mode === "canonical only") {
+        expect(persisted).toHaveLength(1);
+        expect(pinned).toBe(preparedId);
+        expect(stagedAssets.map(asset => asset.kind)).toEqual(["cad_region_preview"]);
+        return;
+      }
+      if (mode === "pin failure") {
+        expect(persisted).toHaveLength(1);
+        expect(pinned).toBeNull();
+        expect(discarded).toBe(preparedId);
+        expect(finalTransactions).toHaveLength(0);
+        return;
+      }
       if (mode !== "success" && mode !== "dwg") {
         expect(prisma.$transaction).not.toHaveBeenCalled();
         if (mode === "verification failure") expect(storage.verifyCadSceneObject).toHaveBeenCalledTimes(1);
@@ -233,6 +256,9 @@ describe("FloorImportWorkerService", () => {
       expect(prisma.$executeRaw.mock.calls.some(([query]: any[]) =>
         query.strings?.join(" ").includes('"detectorProfileId" IS NULL'))).toBe(true);
       expect(storageOrder).toEqual(["ledger", "put"]);
+      expect(persisted).toHaveLength(1);
+      expect(pinned).toBe(preparedId);
+      expect(discarded).toBeNull();
       expect(storage.putFloorRenderedObjectFile).toHaveBeenCalledWith(
         attempt.objectKey, expect.stringMatching(/rendered\.svg$/), expect.objectContaining({ sizeBytes: 8, sha256: "c".repeat(64) }),
         { width: 12, height: 12 }, expect.any(AbortSignal)
