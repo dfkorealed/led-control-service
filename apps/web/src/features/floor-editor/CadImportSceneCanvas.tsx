@@ -1,115 +1,86 @@
-import { useQuery } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
 import { TriangleAlert } from "lucide-react";
-import type { CadSceneManifest } from "@led-control/shared";
-import { getCadSceneManifest, getCadSceneTile } from "../../api/floor-editor";
+import type { MapDocumentRef } from "@led-control/shared/map-document-contracts";
+import { createMapDocumentSource, type MapDocumentSource } from "../../api/map-document";
 import { Button, FeedbackState } from "../../components/ui";
-import { createReadOnlyCadSceneRenderer, type ReadOnlyCadSceneRenderer } from "../floor-map/cad-scene-readonly-runtime";
-import { editorTransformToCadCamera } from "./cad-editor-runtime";
+import { MapSceneCanvas } from "../map-scene/MapSceneCanvas";
+import { useMapDocumentReadScope } from "./editor-monitoring-cache";
 import type { CadImportReviewState } from "./editor-types";
 import type { Point } from "./geometry";
 
-function scenePath(floorId: string, jobId: string) {
-  return `/floors/${encodeURIComponent(floorId)}/import-jobs/${encodeURIComponent(jobId)}/scene`;
-}
+export type PreparedImportScene = MapDocumentRef & { source: MapDocumentSource };
 
 export function useCadImportScene(floorId: string, review: CadImportReviewState | null) {
+  const queryClient = useQueryClient();
+  const scope = useMapDocumentReadScope(floorId);
+  const authScope = scope?.authScope;
   const regionId = review?.scene?.kind === "native" ? review.scene.regionId : null;
   const jobId = review?.job.jobId;
-  return useQuery({
-    queryKey: ["cad-import-preview", floorId, jobId, regionId],
-    enabled: Boolean(jobId && regionId && review?.job.floorId === floorId),
+  const enabled = Boolean(authScope && jobId && regionId && review?.job.floorId === floorId);
+  const source = useMemo(() => authScope && jobId
+    ? createMapDocumentSource({ floorId, authScope, jobId }) : null, [floorId, authScope, jobId]);
+  const query = useQuery({
+    queryKey: ["cad-import-preview", authScope, scope?.siteId, floorId, jobId, regionId, review?.job.updatedAt],
+    enabled,
     retry: false,
-    staleTime: Infinity,
-    queryFn: async ({ signal }) => {
-      const manifest = await getCadSceneManifest(`${scenePath(floorId, jobId!)}/manifest/content`, signal);
-      if (manifest.regionId !== regionId) throw new Error("CAD review region mismatch");
-      return manifest;
+    staleTime: 0,
+    queryFn: async ({ signal }): Promise<MapDocumentRef> => {
+      if (!source || !enabled) throw new Error("Prepared import scope is unavailable");
+      const document = await source.getDocument(signal);
+      if (!document) throw new Error("Prepared import document is unavailable");
+      const manifest = await source.getManifest(document, signal);
+      if (manifest.display.regionId !== regionId) throw new Error("Prepared import region mismatch");
+      signal.throwIfAborted();
+      // The root query is only a mutable reference lookup. Immutable document
+      // cache entries are partitioned by principal, tenant, job, generation/revision.
+      queryClient.setQueryData(["map-document", authScope, scope?.siteId, floorId, "import", jobId,
+        document.generationId, document.revision], document);
+      return document;
     }
   });
+  const data = useMemo<PreparedImportScene | undefined>(() =>
+    enabled && !query.isError && query.data && source ? { ...query.data, source } : undefined,
+  [enabled, query.isError, query.data, source]);
+  return { ...query, data };
 }
 
 interface CadImportSceneCanvasProps {
   floorId: string;
   jobId: string;
-  manifest: CadSceneManifest;
+  manifest: PreparedImportScene;
   pan: Point;
   zoom: number;
   viewport: { width: number; height: number };
 }
 
-// A draft scene has no applied-floor state or persisted overrides. Both the
-// review background and its candidates already use the manifest's map frame.
+// Prepared geometry and candidate markers already share logical map coordinates.
+// Never fetch the active floor document or apply CAD normalization a second time.
 export function CadImportSceneCanvas({ floorId, jobId, manifest, pan, zoom, viewport }: CadImportSceneCanvasProps) {
-  const host = useRef<HTMLDivElement>(null);
-  const rendererRef = useRef<ReadOnlyCadSceneRenderer | null>(null);
-  const camera = editorTransformToCadCamera(pan, zoom, viewport);
-  const latestCamera = useRef(camera);
-  latestCamera.current = camera;
-  const [failed, setFailed] = useState(false);
+  const queryClient = useQueryClient();
+  const scope = useMapDocumentReadScope(floorId);
+  const authScope = scope?.authScope;
+  const expectedSource = useMemo(() => authScope ? createMapDocumentSource({ floorId, jobId, authScope }) : null,
+    [floorId, jobId, authScope]);
+  const [failedKey, setFailedKey] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
-
-  useEffect(() => {
-    if (!host.current) return;
-    const controller = new AbortController();
-    let renderer: ReadOnlyCadSceneRenderer | null = null;
-    let disposed = false;
-    const canvas = document.createElement("canvas");
-    canvas.dataset.testid = "cad-scene-canvas";
-    canvas.className = "pointer-events-none absolute inset-0 h-full w-full";
-    canvas.style.visibility = "hidden";
-    host.current.append(canvas);
-    setFailed(false);
-    const fail = () => {
-      if (disposed) return;
-      canvas.style.visibility = "hidden";
-      setFailed(true);
-    };
-    void (async () => {
-      try {
-        const next = await createReadOnlyCadSceneRenderer({
-          manifest,
-          // The preview shares a page with the editor; retain its 32 MiB policy.
-          platform: "mobile",
-          devicePixelRatio: window.devicePixelRatio,
-          loadTile: (tile, signal) => getCadSceneTile(
-            `${scenePath(floorId, jobId)}/tiles/${tile.lod}/${tile.tileX}/${tile.tileY}/${tile.part}/content`,
-            signal
-          ),
-          onError: fail
-        }, new Map());
-        if (disposed) { next.destroy(); return; }
-        renderer = next;
-        await next.mount(canvas);
-        if (disposed) return;
-        rendererRef.current = next;
-        await next.setCamera(latestCamera.current);
-        if (!disposed && !controller.signal.aborted) canvas.style.visibility = "visible";
-      } catch { fail(); }
-    })();
-    return () => {
-      disposed = true;
-      controller.abort();
-      if (rendererRef.current === renderer) rendererRef.current = null;
-      renderer?.destroy();
-      canvas.remove();
-    };
-  }, [floorId, jobId, manifest, attempt]);
-
-  useEffect(() => {
-    const renderer = rendererRef.current;
-    let current = true;
-    if (renderer) void renderer.setCamera(camera).catch(() => {
-      if (current && rendererRef.current === renderer) setFailed(true);
-    });
-    return () => { current = false; };
-  }, [pan.x, pan.y, zoom, viewport.width, viewport.height, manifest]);
-
+  const { source, ...documentRef } = manifest;
+  const key = JSON.stringify([source.scopeKey, manifest.generationId, manifest.revision, attempt]);
+  const authorized = expectedSource?.scopeKey === source.scopeKey;
+  const failed = failedKey === key;
+  const measured = viewport.width > 0 && viewport.height > 0 && Number.isFinite(zoom) && zoom > 0;
   return <>
-    <div ref={host} className="pointer-events-none absolute inset-0" hidden={failed} />
-    {failed ? <div className="absolute inset-x-3 top-3 z-20">
+    {authorized && measured && !failed ? <MapSceneCanvas key={key}
+      source={source} documentRef={documentRef} readOnly platform="mobile"
+      camera={{ centerX: (viewport.width / 2 - pan.x) / zoom, centerY: (viewport.height / 2 - pan.y) / zoom,
+        zoom, viewportWidth: viewport.width, viewportHeight: viewport.height }}
+      onError={() => setFailedKey(key)} style={{ position: "absolute", inset: 0 }} /> : null}
+    {failed || !authorized ? <div className="absolute inset-x-3 top-3 z-20">
       <FeedbackState tone="danger" icon={TriangleAlert} title="선택한 CAD 도면을 표시하지 못했습니다."
-        action={<Button variant="secondary" onClick={() => setAttempt(value => value + 1)}>도면 다시 불러오기</Button>} />
+        action={<Button variant="secondary" onClick={() => {
+          if (scope) void queryClient.invalidateQueries({ queryKey: ["cad-import-preview", authScope, scope.siteId, floorId, jobId] });
+          setAttempt(value => value + 1);
+        }}>도면 다시 불러오기</Button>} />
     </div> : null}
   </>;
 }

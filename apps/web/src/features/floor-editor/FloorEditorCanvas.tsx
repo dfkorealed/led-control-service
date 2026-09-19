@@ -35,8 +35,7 @@ import { useFloorPlanImage } from "./use-floor-plan-image";
 import { buildEditorSpatialIndex, mapObjectWorldAabb, queryEditorSpatialIndex } from "./editor-spatial-index";
 import { CadSceneCanvas, type CadSceneCanvasHandle } from "./CadSceneCanvas";
 import { CadElementOverlay } from "./CadElementOverlay";
-import { CadImportSceneCanvas } from "./CadImportSceneCanvas";
-import type { CadSceneManifest } from "@led-control/shared";
+import { CadImportSceneCanvas, type PreparedImportScene } from "./CadImportSceneCanvas";
 import type { MapElement } from "@led-control/shared/map-document-contracts";
 import { MapSceneCanvas } from "../map-scene/MapSceneCanvas";
 import { MapElementOverlay } from "./MapElementOverlay";
@@ -69,7 +68,7 @@ interface FloorEditorCanvasProps {
   cadEditDisabled?: boolean;
   cadReviewActive?: boolean;
   cadImportScene?: {
-    floorId: string; jobId: string; manifest: CadSceneManifest | null;
+    floorId: string; jobId: string; manifest: PreparedImportScene | null;
     isError: boolean; onRetry: () => void;
   } | null;
 }
@@ -201,7 +200,7 @@ export function FloorEditorCanvas({
     if (!measured) return;
     const target = cadImportScene?.manifest ?? mapEditor?.document ?? cadSceneDescriptor ?? (cadBackgroundUrl ? cadViewport : null)
       ?? { width: floorPlan?.width ?? 1200, height: floorPlan?.height ?? 800 };
-    const key = cadImportScene?.manifest ? `${cadImportScene.jobId}:${cadImportScene.manifest.sceneId}`
+    const key = cadImportScene?.manifest ? `${cadImportScene.jobId}:${cadImportScene.manifest.generationId}`
       : mapEditor?.document ? `${state?.floor.id}:${mapEditor.document.generationId}:${target.width}:${target.height}`
       : `${state?.floor.id}:${cadSceneDescriptor?.id ?? cadBackgroundUrl ?? "empty"}:${target.width}:${target.height}`;
     const current = useFloorEditorStore.getState();

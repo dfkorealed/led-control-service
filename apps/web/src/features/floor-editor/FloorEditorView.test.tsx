@@ -8,6 +8,9 @@ import { useFloorEditorStore } from "./editor-store";
 import { saveEditorDraft } from "./editor-drafts";
 import { clearTenantCache } from "../../api/principal-cache";
 import * as spatialIndex from "./editor-spatial-index";
+import { MemoryRouter } from "react-router-dom";
+
+vi.mock("../map-scene/MapSceneCanvas", () => ({ MapSceneCanvas: () => <canvas data-testid="common-map-canvas" /> }));
 
 const floorEditorApi = vi.hoisted(() => ({
   applyFloorImportJob: vi.fn(),
@@ -107,7 +110,10 @@ const editorState: FloorEditorState = {
 
 function renderEditor(state: FloorEditorState = editorState, props?: Partial<Parameters<typeof FloorEditorView>[0]>, userId?: string) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
-  if (userId) queryClient.setQueryData(["auth", "me"], { user: { id: userId } });
+  queryClient.setQueryData(["auth", "me"], userId ? { user: { id: userId, organizationId: "org", role: "admin", status: "active" } } : null);
+  queryClient.setQueryDefaults(["dashboard"], { staleTime: Infinity });
+  queryClient.setQueryData(["dashboard", "default"], { site: { id: state.floor.siteId },
+    floors: [{ id: state.floor.id, fixtures: [] }], capabilities: { read: true, manage: true, control: true, commission: true } });
   const editorProps = {
     userRole: "admin" as const,
     leaseToken: "lease-token",
@@ -119,7 +125,9 @@ function renderEditor(state: FloorEditorState = editorState, props?: Partial<Par
   };
   const result = render(
     <QueryClientProvider client={queryClient}>
+      <MemoryRouter>
       <FloorEditorView initialState={state} {...editorProps} />
+      </MemoryRouter>
     </QueryClientProvider>
   );
   return {
@@ -127,12 +135,16 @@ function renderEditor(state: FloorEditorState = editorState, props?: Partial<Par
     queryClient,
     rerenderWithProps: (nextProps: Partial<Parameters<typeof FloorEditorView>[0]>) => result.rerender(
       <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
         <FloorEditorView initialState={state} {...editorProps} {...nextProps} />
+        </MemoryRouter>
       </QueryClientProvider>
     ),
     rerenderEditor: (nextState: FloorEditorState) => result.rerender(
       <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
         <FloorEditorView initialState={nextState} {...editorProps} />
+        </MemoryRouter>
       </QueryClientProvider>
     )
   };
@@ -972,7 +984,24 @@ describe("FloorEditorView", () => {
     floorEditorApi.getFloorEditorState.mockResolvedValueOnce(authoritative);
     const onReload = vi.fn();
     const onSaved = vi.fn();
-    renderEditor(editorState, { onReload, onSaved });
+    const prepared = { formatVersion: 1, generationId: "prepared-generation", revision: 0,
+      width: 16384, height: 8192, gridSize: 80, elementCount: 0,
+      manifest: { assetId: "canonical", sha256: "a".repeat(64), byteSize: 1, decodedByteSize: 1 } };
+    vi.stubGlobal("fetch", vi.fn(async (input: string) => {
+      if (!input.includes(`/import-jobs/${jobId}/map-document`)) throw new Error(`Unexpected preview request: ${input}`);
+      const response = input.includes("/manifest?") ? {
+        generationId: prepared.generationId, revision: 0, canonical: prepared.manifest,
+        groups: [], layers: [], displayLayerBindings: [], display: {
+          version: 2, sceneId: "00000000-0000-4000-8000-000000000001", regionId: "region-1",
+          manifestAssetId: "00000000-0000-4000-8000-000000000002", width: 16384, height: 8192,
+          gridSize: 80, padding: 0, tileSize: 512, lodMode: "additive", primitiveCount: 0, tileCount: 0,
+          byteSize: 1, sha256: "a".repeat(64), sourceBounds: { minX: 0, minY: 0, maxX: 16384, maxY: 8192 },
+          transform: { scaleX: 1, scaleY: 1, translateX: 0, translateY: 0 }, tiles: []
+        }
+      } : prepared;
+      return new Response(JSON.stringify(response), { headers: { "Content-Type": "application/json" } });
+    }));
+    renderEditor(editorState, { onReload, onSaved }, "preview-user");
 
     fireEvent.change(screen.getByLabelText("CAD 파일"), {
       target: { files: [new File(["dxf"], "parking.dxf", { type: "application/dxf" })] }
