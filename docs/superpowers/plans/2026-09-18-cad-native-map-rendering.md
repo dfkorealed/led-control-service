@@ -505,13 +505,13 @@ expect(serverFailures).toEqual([]);
 | U5 | 완료·독립 검토 PASS | 29aba89e, 격리PG35/집중86/typecheck/build 통과; 사용자 맵 미변경 |
 | U10a | 완료·독립 재검토 PASS | 2282786e/4e318eca, 집중89·타입 검사·검토 회귀6/Chromium7 통과; View 연결 및 큰 선택 fallback 후속 |
 | U6a | 완료·독립 검토 PASS | b5c739a8/ac07225a/6dfaad74, 실제 HTTP19/API108/shared71·검토31 통과, 대량/크기/복구는 U6b |
-| U7 | 구현·독립 검토 중 | 6688013e/1dcdefe5, shared90·집중68/2제외·실제PG/S3 HTTP44·타입 검사 통과, 다중 서버 커서 연속 조회 포함 |
+| U7 | 완료·독립 검토 PASS | 6688013e/1dcdefe5, shared90·집중68/2제외·실제PG/S3 HTTP44·검토API64/shared90 통과; stage 미리보기는 U7b 후속 |
 | U8b | 완료·독립 재검토 PASS | 04ff177e/0dd484d7, 집중86·검토38(추가4 포함), ACK/undo/cache 삭제 오인 및 복구 초안 undo 보완 |
-| U9b1 | 구현·최종 검증 중 | 016ee6b4/e242760e, 조회 provider/Canvas·저장 ACK·promotion; 전체 z 순서는 U9b2에서 분리 |
-| U9b2 | 계약 조율 중 | 기존 compact codec의 canonical zIndex·요소별 배치 정보 누락을 보완해야 완전한 그리기 순서 구현 가능 |
+| U9b1 | 완료·독립 검토 PASS | 016ee6b4/e242760e/97b5d340, 집중94/WebGL6/typecheck·검토46 통과; 실제 View와 전체 z 순서는 별도 |
+| U9b2 | 공유 계약 승인·생산자 구현 대기 | 공통 표시 v2의 zIndex:int32/fragmentOrder:uint32, layer.order/layerId/zIndex/elementId/fragmentOrder 순서와 반투명 합성을 보존; legacy CAD v1 유지 |
 | U6b | 구현 중 | 대량 stage/checkpoint/display 재생성·맵 크기/grid·v3 복구, U7 예약 파일 제외 |
 | U10b/U11b | 구현 중 | 검토된 store/overlay/tools와 고정 Canvas 계약을 실제 View에 연결, 같은 파일을 한 UI 담당이 순차 구현 |
-| U14a | 실제 원본 실패 보완 중 | 킨다 최대 영역에서 접촉 HATCH 링이 잘못된 polygon hole로 변환됨, U4 담당 보완 후 2개 원본 재검증; quota 초과 아님 |
+| U14a | 실제 원본 수정 검토·재검증 중 | 052fefae에서 접촉/교차 HATCH를 bounded polygon boolean으로 정규화; 2개 원본 재검증 중, quota 초과 아님 |
 | U8c, U13~U14 | 대기 | 대량 저장/외부 inverse 웹 연결, 모니터링/가져오기 및 전체 최종 검증 |
 
 구현 방식은 **역할별 순차 서브에이전트 진행**을 제안한다. 공유 계약과 데이터 보존은 backend가 먼저, 소비 UI는 web_frontend가 이후 담당하고 QA가 작업 단위 결과를 확인한다. 메인은 공유 계약과 통합·문서 상태를 관리한다. 같은 파일을 다루는 병렬 에이전트는 만들지 않는다. 사용자가 더 낮은 토큰 비용을 우선하면 메인 직접 구현 + 최종 독립 리뷰로 변경할 수 있다.
