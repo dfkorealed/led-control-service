@@ -511,7 +511,7 @@ expect(serverFailures).toEqual([]);
 | U9b2 | 공유 계약 검토 PASS·생산자/소비자 통합 중 | 64939287/16292079 검토shared54/codec24 PASS; 생산자baf189c2/e970e025, 웹 실제 순서·반투명 합성 검증 진행; legacy CAD v1 유지 |
 | U6b | core 독립 재검토 PASS | 1d4f4a2e 검토2건 수정·실제PG/MinIO3+capacity1 재검토 PASS, 기존HTTP12/초기화35/타입/upgrade2; migration98 로컬 적용. 500k 최종성능은 U14 |
 | U10b/U11b | 일반 UI 연결·보완 검토 PASS, 대량 기능은 U10c | bfaabdf8/f417b664/a28c10cc, 집중71/Chromium4/scopedTS·검토6/Chromium2 PASS. 정상 저장 undo/카메라와 그리기 취소 보완 |
-| U10c | 구현·작성자 검증 완료, 독립 검토 중 | 151483d6/7ff81142: 지연 대량 선택·bbox 변환·혼합 이동·명시적 stage 저장/취소/외부 undo. 정확한 커밋 사본에서 집중164/Chromium10/타입0. HTTP fixture 증거이며 실제 백엔드는 U14b |
+| U10c | 독립 검토3건 보완 중 | 151483d6/7ff81142 작성자 집중164/Chromium10/타입0. 독립 재현: committed-cancel View 기준, 대량 additive 선택 유지, 혼합 이동 재스냅3건. stage 기본 Chromium1 PASS. 실제 백엔드는 U14b |
 | U14a | 두 원본 변환·ID 검증 통과, 시각 보완 중 | 5ecaf26f 내부 타일 압축 후 킨다129920/2단지498838 정본·표시 ID 전수 일치, 원본 유지. 선택 변환24.46/51.75초. 선 두께의 인접 타일 범위 보완과 실제 브라우저는 미완료 |
 | U7b | U6b와 통합 검토 PASS | 17eeb882 private ready stage preview, 집중56/PG환경제외2/typecheck·U6b 실제PG/MinIO·권한 통합 검토 통과 |
 | U13 | 독립 재검토 PASS | 45c51198/33a44a88/9b617ee1 집중141/Chromium fixture4; 217083d2 source 경쟁 수정13/Chromium2·재검토3 PASS. 실제 대형 원본 여정 후속 |
