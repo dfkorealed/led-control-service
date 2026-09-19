@@ -29,11 +29,11 @@ const primitiveTypeCode = {
 } as const;
 
 export interface CadSceneTileIntegrity {
-  version?: number;
   byteSize: number;
   sha256: string;
   bounds?: CadBounds;
 }
+export type SceneTileDecodeExpectation = Partial<CadSceneTileIntegrity> & { version?: number };
 
 class BinaryWriter {
   private buffer = Buffer.allocUnsafe(1_024);
@@ -540,16 +540,16 @@ export function getCadSceneTileIntegrity(payload: Uint8Array): CadSceneTileInteg
 
 export function decodeCadSceneTile(
   input: Uint8Array,
-  expectedIntegrity?: Partial<CadSceneTileIntegrity>
+  expectedIntegrity?: SceneTileDecodeExpectation
 ): CadScenePrimitive[] {
   return decodeSceneTile(input, expectedIntegrity, CAD_SCENE_VERSION);
 }
 
-export function decodeMapDisplayTile(input: Uint8Array, expectedIntegrity?: Partial<CadSceneTileIntegrity>): OrderedMapDisplayPrimitive[] {
+export function decodeMapDisplayTile(input: Uint8Array, expectedIntegrity?: SceneTileDecodeExpectation): OrderedMapDisplayPrimitive[] {
   return decodeSceneTile(input, expectedIntegrity, MAP_DISPLAY_VERSION) as OrderedMapDisplayPrimitive[];
 }
 
-function decodeSceneTile(input: Uint8Array, expectedIntegrity: Partial<CadSceneTileIntegrity> | undefined, expectedVersion: 1 | 2): CadScenePrimitive[] {
+function decodeSceneTile(input: Uint8Array, expectedIntegrity: SceneTileDecodeExpectation | undefined, expectedVersion: 1 | 2): CadScenePrimitive[] {
   const payload = Buffer.from(input.buffer, input.byteOffset, input.byteLength);
   if (payload.byteLength > CAD_SCENE_MAX_TILE_BYTE_SIZE) {
     throw new Error("CAD scene tile byte size limit exceeded");

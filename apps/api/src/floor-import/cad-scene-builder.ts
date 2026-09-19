@@ -10,6 +10,9 @@ import {
   CAD_SCENE_MAX_TOTAL_TILE_BYTES,
   CAD_SCENE_TILE_SIZE,
   CAD_SCENE_VERSION,
+  MAP_DISPLAY_VERSION,
+  mapDisplayManifestSchema,
+  mapDisplayOrderingSchema,
   cadSceneManifestSchema,
   normalizeCadMapSize,
   type CadBounds as SceneBounds,
@@ -17,7 +20,10 @@ import {
   type CadScenePrimitive,
   type CadSceneTile,
   type CadSceneTransform,
-  type MapElement
+  type MapElement,
+  type MapDisplayManifest,
+  type MapDisplayTile,
+  type OrderedMapDisplayPrimitive
 } from "@led-control/shared";
 import type { CadDetectedRegion } from "./cad-region-detector";
 import {
@@ -36,6 +42,7 @@ import { CAD_MAX_SPLINE_SAMPLES_PER_DOCUMENT } from "./cad-runtime-contract";
 import {
   CadSceneTileSizeTracker,
   encodeTrustedCadSceneTile,
+  encodeTrustedMapDisplayTile,
   getCadSceneTileIntegrity
 } from "./cad-scene-codec";
 import { measureCadText } from "./cad-text-layout";
@@ -59,6 +66,8 @@ const GEOMETRY_EPSILON = 1e-6;
 const MAX_RETAINED_TILE_OCCURRENCES = 50_000;
 
 export interface BuildCadSceneOptions {
+  /** Explicit common branch; v2 requires a canonical-returning semantic hook. */
+  displayVersion?: 1 | 2;
   sceneId: string;
   manifestAssetId?: string;
   tileAssetId?: (tile: { tileX: number; tileY: number; lod: 0 | 1 | 2; part: number }) => string;
@@ -95,6 +104,14 @@ export interface BuiltCadScene {
   manifestPayload: Buffer;
   tiles: BuiltCadSceneTile[];
 }
+
+export interface BuiltMapDisplayTile { descriptor: MapDisplayTile; payload: Buffer }
+export interface BuiltMapDisplayScene {
+  manifest: MapDisplayManifest;
+  manifestPayload: Buffer;
+  tiles: BuiltMapDisplayTile[];
+}
+type BuiltDisplayTile = BuiltCadSceneTile | BuiltMapDisplayTile;
 
 interface ProjectionContext {
   transform: CadSceneTransform;
@@ -899,7 +916,7 @@ export function splitOversizedPolyline(primitive: CadScenePrimitive): CadScenePr
   const points = primitive.geometry.closed
     ? [...primitive.geometry.points, primitive.geometry.points[0]]
     : primitive.geometry.points;
-  const groupId = primitive.groupId ?? stableId("cad-group", [primitive.elementId]);
+  const groupId = "zIndex" in primitive ? primitive.groupId : primitive.groupId ?? stableId("cad-group", [primitive.elementId]);
   const chunks: CadScenePrimitive[] = [];
   let start = 0;
   while (start < points.length - 1) {
@@ -1280,6 +1297,8 @@ export interface TilePartLimits {
 }
 
 export interface TileOutputState {
+  /** Defaults to legacy v1. Common callers must pass 2 and ordered primitives. */
+  displayVersion?: 1 | 2;
   totalByteSize: number;
   assetIds: Set<string>;
   manifestAssetId: string;
@@ -1293,10 +1312,11 @@ export function encodeTileAccumulator(
   tileAssetId: BuildCadSceneOptions["tileAssetId"],
   limits: TilePartLimits,
   outputState: TileOutputState,
-  output: BuiltCadSceneTile[]
+  output: BuiltDisplayTile[]
 ): void {
+  const version = outputState.displayVersion ?? CAD_SCENE_VERSION;
   let part = tile.nextPart;
-  let tracker = new CadSceneTileSizeTracker(limits.maximumByteSize);
+  let tracker = new CadSceneTileSizeTracker(limits.maximumByteSize, version);
   let partPrimitives: CadScenePrimitive[] = [];
 
   const encodePart = (): void => {
@@ -1307,14 +1327,16 @@ export function encodeTileAccumulator(
     if (output.length >= limits.maximumPartCount) {
       throw new Error("CAD scene tile descriptor limit exceeded");
     }
-    const payload = encodeTrustedCadSceneTile(partPrimitives);
+    const payload = version === MAP_DISPLAY_VERSION
+      ? encodeTrustedMapDisplayTile(partPrimitives as OrderedMapDisplayPrimitive[])
+      : encodeTrustedCadSceneTile(partPrimitives);
     if (payload.byteLength !== tracker.byteSize || payload.byteLength > limits.maximumByteSize) {
       throw new Error("CAD scene tile size estimate mismatch");
     }
     const integrity = getCadSceneTileIntegrity(payload);
     const tileIdentity = { tileX: tile.tileX, tileY: tile.tileY, lod: tile.lod, part };
-    const descriptor: CadSceneTile = {
-      version: CAD_SCENE_VERSION,
+    const descriptor: CadSceneTile | MapDisplayTile = {
+      version,
       sceneId,
       ...tileIdentity,
       assetId: tileAssetId?.(tileIdentity) ?? deterministicUuid(
@@ -1335,11 +1357,11 @@ export function encodeTileAccumulator(
     }
     outputState.totalByteSize += payload.byteLength;
     outputState.assetIds.add(descriptor.assetId);
-    output.push({ descriptor, payload });
+    output.push({ descriptor, payload } as BuiltDisplayTile);
     part++;
     tile.nextPart = part;
     partPrimitives = [];
-    tracker = new CadSceneTileSizeTracker(limits.maximumByteSize);
+    tracker = new CadSceneTileSizeTracker(limits.maximumByteSize, version);
   };
 
   for (let index = 0; index < tile.primitives.length; index++) {
@@ -1369,7 +1391,7 @@ function flushRetainedTileOccurrences(
   tileAssetId: BuildCadSceneOptions["tileAssetId"],
   limits: TilePartLimits,
   outputState: TileOutputState,
-  output: BuiltCadSceneTile[],
+  output: BuiltDisplayTile[],
   maximumRetainedOccurrences: number
 ): number {
   if (retainedOccurrenceCount < maximumRetainedOccurrences) return retainedOccurrenceCount;
@@ -1386,7 +1408,7 @@ function flushRetainedTileOccurrences(
   return retainedOccurrenceCount;
 }
 
-function canonicalManifestPayload(manifest: Omit<CadSceneManifest, "byteSize" | "sha256">): Buffer {
+function canonicalManifestPayload(manifest: Omit<CadSceneManifest | MapDisplayManifest, "byteSize" | "sha256">): Buffer {
   return Buffer.from(JSON.stringify(manifest), "utf8");
 }
 
@@ -1458,9 +1480,19 @@ function displayPrimitive(primitive: CadScenePrimitive, source: ExpandedCadEntit
   return classifyPolyline({ ...primitive, bounds }, points, primitive.geometry.closed);
 }
 
-function bindDisplayIdentities(semantic: CadSemanticEntity, elements: readonly MapElement[]): CadScenePrimitive[] {
+function bindDisplayIdentities(semantic: CadSemanticEntity, elements: readonly MapElement[], ordered = false): CadScenePrimitive[] {
   const byId = new Map(elements.map(element => [element.id, element]));
   if (byId.size !== elements.length) throw new Error("Duplicate canonical CAD element identity");
+  const fragmentCounts = new Map<string, number>();
+  const bind = (primitive: CadScenePrimitive): CadScenePrimitive => {
+    const element = byId.get(primitive.elementId);
+    if (!element) throw new Error("CAD display primitive has no canonical element identity");
+    const identity = { ...primitive, elementId: element.id, groupId: element.groupId };
+    if (!ordered) return identity;
+    const fragmentOrder = fragmentCounts.get(element.id) ?? 0;
+    fragmentCounts.set(element.id, fragmentOrder + 1);
+    return { ...identity, ...mapDisplayOrderingSchema.parse({ zIndex: element.zIndex, fragmentOrder }) };
+  };
   if (semantic.source.entity.type === "hatch") {
     // Boolean normalization can merge/split source rings. Display the resulting full
     // canonical boundaries before clipping; a source-ring hash is no longer a valid lookup.
@@ -1469,26 +1501,44 @@ function bindDisplayIdentities(semantic: CadSemanticEntity, elements: readonly M
       if (element.type === "polyline") return [{ ...base, type: "polyline",
         bounds: boundsOfPoints(element.geometry.points), geometry: { points: element.geometry.points, closed: false } }];
       if (element.type !== "polygon") throw new Error("Canonical HATCH must contain polygons or boundary polylines");
+      if (ordered) {
+        // Filled rings cannot be fed to the stroke segment clipper. Preserve fill
+        // triangles and real boundary paths as separate ordered spans of the same ID.
+        const fills: CadScenePrimitive[] = element.style.fillColor === null ? []
+          : triangulateCadHatchPolygon(element.geometry).map(points => ({ ...base, type: "triangle",
+            style: { ...base.style, strokeColor: null }, bounds: boundsOfPoints(points),
+            geometry: { points: points as [{ x: number; y: number }, { x: number; y: number }, { x: number; y: number }] } }));
+        const strokes: CadScenePrimitive[] = element.style.strokeColor === null ? []
+          : [element.geometry.outer, ...element.geometry.holes].map(points => ({ ...base, type: "polyline",
+            style: { ...base.style, fillColor: null }, bounds: boundsOfPoints(points), geometry: { points, closed: true } }));
+        return [...fills, ...strokes];
+      }
       if (element.style.strokeColor === null) {
         return triangulateCadHatchPolygon(element.geometry).map(points => ({ ...base, type: "triangle",
           bounds: boundsOfPoints(points), geometry: { points: points as [{ x: number; y: number }, { x: number; y: number }, { x: number; y: number }] } }));
       }
       return [element.geometry.outer, ...element.geometry.holes].map(points => ({ ...base, type: "polyline",
         bounds: boundsOfPoints(points), geometry: { points, closed: true } }));
-    });
+    }).map(bind);
   }
-  return semantic.primitives.map(primitive => {
-    const element = byId.get(primitive.elementId);
-    if (!element) throw new Error("CAD display primitive has no canonical element identity");
-    return { ...primitive, elementId: element.id, groupId: element.groupId };
-  });
+  return semantic.primitives.map(bind);
 }
 
+export function buildCadScene(document: NormalizedCadDocument, region: CadDetectedRegion,
+  options: BuildCadSceneOptions & { displayVersion: 2 }): BuiltMapDisplayScene;
+export function buildCadScene(document: NormalizedCadDocument, region: CadDetectedRegion,
+  options: BuildCadSceneOptions & { displayVersion?: 1 }): BuiltCadScene;
+export function buildCadScene(document: NormalizedCadDocument, region: CadDetectedRegion,
+  options: BuildCadSceneOptions): BuiltCadScene | BuiltMapDisplayScene;
 export function buildCadScene(
   document: NormalizedCadDocument,
   region: CadDetectedRegion,
   options: BuildCadSceneOptions
-): BuiltCadScene {
+): BuiltCadScene | BuiltMapDisplayScene {
+  const displayVersion = options.displayVersion ?? CAD_SCENE_VERSION;
+  if (displayVersion === MAP_DISPLAY_VERSION && !options.onSemanticEntity) {
+    throw new Error("Common display v2 requires canonical elements");
+  }
   const maxSelectedPrimitives = options.maxSelectedPrimitives ?? CAD_SCENE_MAX_SELECTED_PRIMITIVES;
   const simplifyTolerance = options.simplifyTolerance ?? 0.01;
   const maximumTileByteSize = options.maxTileByteSize ?? CAD_SCENE_MAX_TILE_BYTE_SIZE;
@@ -1526,7 +1576,7 @@ export function buildCadScene(
   context.preserveGeometry = Boolean(options.onSemanticEntity);
 
   const tilePrimitives = new Map<string, TilePrimitiveAccumulator>();
-  const tiles: BuiltCadSceneTile[] = [];
+  const tiles: BuiltDisplayTile[] = [];
   const manifestAssetId = options.manifestAssetId ?? deterministicUuid(`${options.sceneId}:manifest`);
   const partLimits: TilePartLimits = {
     maximumByteSize: maximumTileByteSize,
@@ -1535,6 +1585,7 @@ export function buildCadScene(
     maximumTotalByteSize: maximumTotalTileBytes
   };
   const outputState: TileOutputState = {
+    displayVersion,
     totalByteSize: 0,
     assetIds: new Set(),
     manifestAssetId
@@ -1563,16 +1614,19 @@ export function buildCadScene(
       throw new Error("CAD semantic hook must be synchronous; use the async element iterator for backpressure");
     }
     const canonicalBound = Array.isArray(result);
-    const displayPrimitives = canonicalBound ? bindDisplayIdentities(semantic, result) : semantic.primitives;
+    if (displayVersion === MAP_DISPLAY_VERSION && !canonicalBound) throw new Error("Common display v2 requires canonical elements");
+    const displayPrimitives = canonicalBound ? bindDisplayIdentities(semantic, result, displayVersion === MAP_DISPLAY_VERSION) : semantic.primitives;
     for (const sourcePrimitive of displayPrimitives) {
       const converted = options.onSemanticEntity ? displayPrimitive(sourcePrimitive, semantic.source, simplifyTolerance) : sourcePrimitive;
       if (!intersects(converted.bounds, context.contentBounds)) continue;
-      const geometryDigest = deduplicationDigest(converted);
+      const geometryDigest = displayVersion === MAP_DISPLAY_VERSION ? null : deduplicationDigest(converted);
       // Coincident canonical occurrences must remain pickable independently. Include geometry
       // as well as ID because HATCH outer/hole rings intentionally share one canonical ID.
       const digest = canonicalBound ? `${converted.elementId}:${geometryDigest}` : geometryDigest;
-      if (deduplicationDigests.has(digest)) continue;
-      deduplicationDigests.add(digest);
+      if (displayVersion !== MAP_DISPLAY_VERSION) {
+        if (deduplicationDigests.has(digest!)) continue;
+        deduplicationDigests.add(digest!);
+      }
       selectedPrimitiveCount++;
       if (selectedPrimitiveCount > maxSelectedPrimitives) {
         throw new Error("CAD selected primitive limit exceeded");
@@ -1609,8 +1663,8 @@ export function buildCadScene(
     left.descriptor.tileX - right.descriptor.tileX ||
     left.descriptor.part - right.descriptor.part);
 
-  const manifestBody: Omit<CadSceneManifest, "byteSize" | "sha256"> = {
-    version: CAD_SCENE_VERSION,
+  const manifestBody: Omit<CadSceneManifest | MapDisplayManifest, "byteSize" | "sha256"> = {
+    version: displayVersion,
     sceneId: options.sceneId,
     regionId: region.regionId,
     manifestAssetId,
@@ -1624,14 +1678,14 @@ export function buildCadScene(
     tileCount: tiles.length,
     sourceBounds: { ...region.bounds },
     transform,
-    tiles: tiles.map(tile => tile.descriptor)
+    tiles: tiles.map(tile => tile.descriptor) as CadSceneTile[] | MapDisplayTile[]
   };
   const manifestPayload = canonicalManifestPayload(manifestBody);
-  const manifest: CadSceneManifest = {
+  const manifest = {
     ...manifestBody,
     byteSize: manifestPayload.byteLength,
     sha256: createHash("sha256").update(manifestPayload).digest("hex")
   };
-  cadSceneManifestSchema.parse(manifest);
-  return { manifest, manifestPayload, tiles };
+  (displayVersion === MAP_DISPLAY_VERSION ? mapDisplayManifestSchema : cadSceneManifestSchema).parse(manifest);
+  return { manifest, manifestPayload, tiles } as BuiltCadScene | BuiltMapDisplayScene;
 }

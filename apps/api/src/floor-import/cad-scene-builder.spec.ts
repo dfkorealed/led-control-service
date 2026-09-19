@@ -8,8 +8,11 @@ import {
   type CadScenePrimitive
 } from "@led-control/shared";
 import type { CadDetectedRegion } from "./cad-region-detector";
-import { buildCadScene, type BuiltCadScene } from "./cad-scene-builder";
+import { appendPrimitiveToTiles, buildCadScene, encodeTileAccumulator, splitOversizedPolyline,
+  type BuiltCadScene, type BuiltMapDisplayTile, type TilePrimitiveAccumulator } from "./cad-scene-builder";
 import { decodeCadSceneTile } from "./cad-scene-codec";
+import { decodeMapDisplayTile } from "./cad-scene-codec";
+import { createCadMapElementConverter } from "./map-element-converter";
 import type { CadPoint, NormalizedCadDocument, NormalizedCadEntity } from "./cad-types";
 
 const sceneId = "00000000-0000-4000-8000-000000000101";
@@ -69,6 +72,64 @@ function unionBounds(primitives: readonly CadScenePrimitive[]) {
 }
 
 describe("CAD scene builder", () => {
+  it("requires canonical ordering explicitly instead of upgrading a legacy void hook", () => {
+    expect(() => buildCadScene(document([]), region(), { sceneId, displayVersion: 2 })).toThrow(/canonical/);
+    const input = document([{ type: "line", sourceEntityId: "a", layer: "0", start: point(1, 1), end: point(2, 2) }]);
+    expect(() => buildCadScene(input, region(), { sceneId, displayVersion: 2, onSemanticEntity: () => {} })).toThrow(/canonical/);
+  });
+  it("exposes v2 tile helpers preserving ordering and null groups through oversized path splitting", () => {
+    const primitive = { type: "polyline" as const, elementId: "e", groupId: null, layerName: "l", sourceType: "POLYLINE",
+      zIndex: -7, fragmentOrder: 19, clipBounds: null, bounds: { minX: 1, minY: 1, maxX: 900, maxY: 2 },
+      style: { strokeColor: "#123456", fillColor: null, strokeWidth: 1, opacity: 0.5 },
+      geometry: { closed: false, points: Array.from({ length: CAD_SCENE_MAX_POINTS_PER_PRIMITIVE + 1 }, (_, i) => ({ x: 1 + 899 * i / CAD_SCENE_MAX_POINTS_PER_PRIMITIVE, y: 1 + i % 2 })) } };
+    const chunks = splitOversizedPolyline(primitive);
+    expect(chunks).toHaveLength(2);
+    for (const chunk of chunks) expect(chunk).toMatchObject({ elementId: "e", groupId: null, zIndex: -7, fragmentOrder: 19 });
+    const accumulators = new Map<string, TilePrimitiveAccumulator>();
+    appendPrimitiveToTiles({ ...primitive, geometry: { closed: false, points: [{ x: 1, y: 1 }, { x: 900, y: 2 }] } }, 1024, 512, accumulators);
+    const output: BuiltMapDisplayTile[] = [];
+    const state = { displayVersion: 2 as const, totalByteSize: 0, assetIds: new Set<string>(), manifestAssetId: "00000000-0000-4000-8000-000000000999" };
+    for (const tile of accumulators.values()) encodeTileAccumulator(tile, 1024, 512, sceneId, undefined,
+      { maximumByteSize: 1024, maximumPartsPerCell: 128, maximumPartCount: 100, maximumTotalByteSize: 10000 }, state, output);
+    expect(output).toHaveLength(2);
+    for (const tile of output) expect(decodeMapDisplayTile(tile.payload, tile.descriptor)).toEqual([
+      expect.objectContaining({ elementId: "e", groupId: null, layerName: "l", zIndex: -7, fragmentOrder: 19 })
+    ]);
+  });
+  it("produces common v2 with canonical ordering across clipping, LOD and early part flush", () => {
+    const input = document([
+      ...["A", "B"].map(sourceEntityId => ({ type: "line" as const, sourceEntityId, layer: "WALL",
+        start: point(1, 500), end: point(999, 500) })),
+      { type: "lwpolyline", sourceEntityId: "path", layer: "PATH", closed: false,
+        vertices: [vertex(1, 10), vertex(999, 10), vertex(1, 11)] },
+      { type: "hatch", sourceEntityId: "h", layer: "FILL",
+        loops: [{ type: "polyline", closed: true, vertices: [vertex(100, 100), vertex(200, 100), vertex(150, 200)] }] }
+    ]);
+    const run = (maxRetainedTileOccurrences: number) => {
+      const converter = createCadMapElementConverter({ importJobId: "job", regionBounds: region().bounds });
+      const elements = new Map<string, ReturnType<typeof converter.convertSemanticEntity>[number]>();
+      const scene = buildCadScene(input, region(), { sceneId, displayVersion: 2, maxRetainedTileOccurrences,
+        onSemanticEntity: semantic => converter.convertSemanticEntity(semantic).map(element => {
+          const ordered = { ...element, zIndex: element.zIndex - 100 };
+          elements.set(ordered.id, ordered); return ordered;
+        }) } as Parameters<typeof buildCadScene>[2]);
+      expect(scene.manifest.version).toBe(2);
+      const occurrences = scene.tiles.flatMap(tile => decodeMapDisplayTile(tile.payload, tile.descriptor).map(primitive => {
+        const element = elements.get(primitive.elementId)!;
+        expect(primitive.zIndex).toBe(element.zIndex);
+        expect(primitive.groupId).toBe(element.groupId);
+        expect(converter.getMetadata().displayLayerBindings.find(binding => binding.layerName === primitive.layerName)?.layerId).toBe(element.layerId);
+        return { ...primitive, cell: [tile.descriptor.tileX, tile.descriptor.tileY, tile.descriptor.lod] };
+      }));
+      expect(new Set(occurrences.map(value => value.elementId)).size).toBe(elements.size);
+      expect(new Set(occurrences.map(value => value.cell[2]))).toEqual(new Set([0, 1, 2]));
+      const hatch = occurrences.filter(value => value.sourceType === "HATCH");
+      expect(hatch.some(value => value.type === "triangle" && value.style.fillColor !== null && value.style.strokeColor === null)).toBe(true);
+      expect(hatch.some(value => value.type === "polyline" && value.style.fillColor === null && value.style.strokeColor !== null)).toBe(true);
+      return occurrences.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+    };
+    expect(run(1)).toEqual(run(50000));
+  });
   it("retains the existing display-only duplicate limit while canonical hooks count every source", () => {
     const input = document(["A", "B"].map(sourceEntityId => ({ type: "line", sourceEntityId, layer: "0", start: point(1, 1), end: point(2, 2) })));
     expect(buildCadScene(input, region(), { sceneId, maxSelectedPrimitives: 1 }).manifest.primitiveCount).toBe(1);
